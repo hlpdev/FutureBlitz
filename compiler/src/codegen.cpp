@@ -5,6 +5,7 @@
 #include <array>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <format>
 #include <llvm-c/Analysis.h>
 #include <llvm-c/Core.h>
@@ -171,6 +172,8 @@ private:
     std::vector<function_ref_t> m_functions;
     std::unordered_map<std::string, LLVMValueRef> m_strings;   // static Strings, by text
     std::unordered_map<std::string, LLVMValueRef> m_c_strings; // C strings for panics
+    /// Each Struct's LLVM type, made the first time it's needed.
+    std::unordered_map<type_id_t, LLVMTypeRef> m_struct_types;
 
     // The function being generated
     const mir_function_t* m_function = nullptr;
@@ -245,8 +248,9 @@ private:
         m_ptr = LLVMPointerTypeInContext(context(), 0);
     }
 
-    /// A String is a pointer to its header, and no type (a function that returns nothing) is void.
-    [[nodiscard]] LLVMTypeRef llvm_type(const type_id_t type) const {
+    /// A String is a pointer to its header, a Struct is an LLVM struct of its fields, and no type
+    /// (a function that returns nothing) is void.
+    [[nodiscard]] LLVMTypeRef llvm_type(const type_id_t type) {
         switch (type) {
         case type_id_t::BOOL:
             return m_bool;
@@ -266,8 +270,31 @@ private:
         case type_id_t::STRING:
             return m_ptr;
         default:
+            if (m_mir.types->get(type).kind == type_kind_t::STRUCT) {
+                return struct_type(type);
+            }
+
             return m_void;
         }
+    }
+
+    /// "fb.Point" in the IR. A Struct never contains itself, so making its fields' types can't
+    /// come back to it.
+    LLVMTypeRef struct_type(const type_id_t type) {
+        if (const auto found = m_struct_types.find(type); found != m_struct_types.end()) {
+            return found->second;
+        }
+
+        std::vector<LLVMTypeRef> fields;
+        for (const field_t& field : m_mir.types->get(type).fields) {
+            fields.push_back(llvm_type(field.type));
+        }
+
+        const std::string name = std::format("fb.{}", m_mir.types->name(type));
+        LLVMTypeRef result = LLVMStructCreateNamed(context(), name.c_str());
+        LLVMStructSetBody(result, fields.data(), static_cast<unsigned>(fields.size()), 0);
+        m_struct_types.emplace(type, result);
+        return result;
     }
 
     function_ref_t declare(const char* name, LLVMTypeRef result,
@@ -306,7 +333,8 @@ private:
             const std::string name = std::format("fb.{}", global.name);
             LLVMValueRef value =
                 LLVMAddGlobal(m_module.get(), llvm_type(global.type), name.c_str());
-            LLVMSetInitializer(value, constant(global.initial));
+            LLVMSetInitializer(value, global.initial ? constant(*global.initial)
+                                                     : zero_constant(global.type));
             LLVMSetLinkage(value, LLVMInternalLinkage);
             m_globals.push_back(value);
         }
@@ -351,6 +379,28 @@ private:
         }
 
         return static_string(std::get<std::string>(value.data));
+    }
+
+    /// What a variable of `type` starts as. A String's zero is the static "", never null, and a
+    /// Struct's has each field's zero.
+    LLVMValueRef zero_constant(const type_id_t type) {
+        if (type == type_id_t::STRING) {
+            return static_string("");
+        }
+
+        const type_t& info = m_mir.types->get(type);
+        if (info.kind != type_kind_t::STRUCT) {
+            return LLVMConstNull(llvm_type(type));
+        }
+
+        std::vector<LLVMValueRef> fields;
+        fields.reserve(info.fields.size());
+        for (const field_t& field : info.fields) {
+            fields.push_back(zero_constant(field.type));
+        }
+
+        return LLVMConstNamedStruct(llvm_type(type), fields.data(),
+                                    static_cast<unsigned>(fields.size()));
     }
 
     /// A String literal: a static block with refcount -1, which retain and release ignore.
@@ -472,9 +522,7 @@ private:
         call(m_start, {});
         call(m_functions[index(m_mir.entry)], {});
         for (std::size_t i = 0; i < m_mir.globals.size(); ++i) {
-            if (m_mir.globals[i].type == type_id_t::STRING) {
-                call(m_release, { LLVMBuildLoad2(builder(), m_ptr, m_globals[i], "") });
-            }
+            for_each_string(place_t{ static_cast<global_id_t>(i) }, m_release);
         }
 
         call(m_finish, {});
@@ -515,11 +563,18 @@ private:
     // Places and operands
 
     [[nodiscard]] type_id_t type_of(const place_t& place) const {
-        if (const auto* local = std::get_if<local_id_t>(&place)) {
-            return m_function->locals[index(*local)].type;
+        type_id_t type = type_id_t::INVALID;
+        if (const auto* local = std::get_if<local_id_t>(&place.root)) {
+            type = m_function->locals[index(*local)].type;
+        } else {
+            type = m_mir.globals[index(std::get<global_id_t>(place.root))].type;
         }
 
-        return m_mir.globals[index(std::get<global_id_t>(place))].type;
+        for (const std::uint32_t field : place.fields) {
+            type = m_mir.types->get(type).fields[field].type;
+        }
+
+        return type;
     }
 
     [[nodiscard]] type_id_t type_of(const operand_t& operand) const {
@@ -530,13 +585,44 @@ private:
         return type_of(std::get<place_t>(operand));
     }
 
-    /// A local's alloca, a ByRef parameter's pointer, or a global.
-    [[nodiscard]] LLVMValueRef address_of(const place_t& place) const {
-        if (const auto* local = std::get_if<local_id_t>(&place)) {
-            return m_slots[index(*local)];
+    /// A local's alloca, a ByRef parameter's pointer, or a global, then a step to each field.
+    [[nodiscard]] LLVMValueRef address_of(const place_t& place) {
+        LLVMValueRef address = nullptr;
+        type_id_t type = type_id_t::INVALID;
+        if (const auto* local = std::get_if<local_id_t>(&place.root)) {
+            address = m_slots[index(*local)];
+            type = m_function->locals[index(*local)].type;
+        } else {
+            const auto global = index(std::get<global_id_t>(place.root));
+            address = m_globals[global];
+            type = m_mir.globals[global].type;
         }
 
-        return m_globals[index(std::get<global_id_t>(place))];
+        for (const std::uint32_t field : place.fields) {
+            address = LLVMBuildStructGEP2(builder(), llvm_type(type), address, field, "");
+            type = m_mir.types->get(type).fields[field].type;
+        }
+
+        return address;
+    }
+
+    /// Calls `function`, the runtime's retain or release, on every String in the value at
+    /// `place`.
+    void for_each_string(const place_t& place, const function_ref_t& function) {
+        const type_id_t type = type_of(place);
+        if (type == type_id_t::STRING) {
+            call(function, { value_of(place) });
+            return;
+        }
+
+        const std::vector<field_t>& fields = m_mir.types->get(type).fields;
+        for (std::uint32_t i = 0; i < fields.size(); ++i) {
+            if (m_mir.types->has_references(fields[i].type)) {
+                place_t field = place;
+                field.fields.push_back(i);
+                for_each_string(field, function);
+            }
+        }
     }
 
     LLVMValueRef value_of(const operand_t& operand) {
@@ -561,11 +647,15 @@ private:
     }
 
     void generate(const retain_t& node) {
-        call(m_retain, { value_of(node.value) });
+        if (const auto* place = std::get_if<place_t>(&node.value)) {
+            for_each_string(*place, m_retain);
+        } else {
+            call(m_retain, { value_of(node.value) });
+        }
     }
 
     void generate(const release_t& node) {
-        call(m_release, { value_of(node.target) });
+        for_each_string(node.target, m_release);
     }
 
     // Terminators
@@ -861,7 +951,7 @@ private:
             LLVMBuildFCmp(builder(), LLVMRealOLT, whole, LLVMConstReal(source, limit), "");
         LLVMValueRef fits = LLVMBuildAnd(builder(), above_low, below_high, "");
         panic_if(LLVMBuildNot(builder(), fits, ""),
-                 std::format("the value doesn't fit in {}", type_name(to)), node.span);
+                 std::format("the value doesn't fit in {}", m_mir.types->name(to)), node.span);
         return to_signed ? LLVMBuildFPToSI(builder(), whole, target, "")
                          : LLVMBuildFPToUI(builder(), whole, target, "");
     }
@@ -875,6 +965,20 @@ private:
         }
 
         return call(m_functions[index(node.function)], std::move(arguments));
+    }
+
+    LLVMValueRef value(const aggregate_t& node) {
+        LLVMValueRef result = LLVMGetUndef(llvm_type(node.type));
+        for (std::size_t i = 0; i < node.fields.size(); ++i) {
+            result = LLVMBuildInsertValue(builder(), result, value_of(node.fields[i]),
+                                          static_cast<unsigned>(i), "");
+        }
+
+        return result;
+    }
+
+    LLVMValueRef value(const zero_t& node) {
+        return zero_constant(node.type);
     }
 
     LLVMValueRef value(const runtime_call_t& node) {

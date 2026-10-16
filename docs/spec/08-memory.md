@@ -28,6 +28,9 @@ Class Node
 End Class
 ```
 
+A `Weak<T>` is assigned a `T`. Reading it gives a `T?`, which is `Null` once the object is gone,
+so `node.parent?.name` works directly.
+
 ## Engine resources
 
 Entities, textures, and other engine-owned resources keep an explicit `Free()`, because the

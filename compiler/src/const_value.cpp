@@ -155,7 +155,7 @@ std::optional<Int> checked_pow(Int base, std::uint64_t exponent) {
 
 /// The error for a result of `op` that doesn't fit in `type`.
 std::string overflow(const binary_op_t op, const type_id_t type) {
-    return std::format("the result of '{}' overflows {}", spelling(op), type_name(type));
+    return std::format("the result of '{}' overflows {}", spelling(op), builtin_name(type));
 }
 
 /// Arithmetic on signed integers of any width. Operands are held in 64 bits; the exact result has
@@ -286,7 +286,7 @@ fold_result_t fold_float(const binary_op_t op, const double a, const double b,
         }
 
         return std::unexpected(
-            std::format("the result of '{}' isn't a finite {}", spelling(op), type_name(type)));
+            std::format("the result of '{}' isn't a finite {}", spelling(op), builtin_name(type)));
     }
 
     return const_value_t{ .type = type, .data = result };
@@ -406,7 +406,7 @@ fold_result_t fold_unary(const unary_op_t op, const const_value_t& operand) {
 
         if (std::get<std::int64_t>(operand.data) == signed_min(bit_width(operand.type))) {
             return std::unexpected(
-                std::format("the result of '-' overflows {}", type_name(operand.type)));
+                std::format("the result of '-' overflows {}", builtin_name(operand.type)));
         }
 
         return const_value_t{ .type = operand.type, .data = -std::get<std::int64_t>(operand.data) };
@@ -495,7 +495,7 @@ fold_result_t fold_cast(const const_value_t& value, const type_id_t type) {
     const double number = std::get<double>(value.data);
     const auto too_big = [&] {
         return std::unexpected(
-            std::format("{} doesn't fit in {}", to_text(value), type_name(type)));
+            std::format("{} doesn't fit in {}", to_text(value), builtin_name(type)));
     };
 
     // Float64 to Float32 rounds. Beyond Float32's range is an error, not infinity.

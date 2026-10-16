@@ -116,6 +116,16 @@ TEST_CASE("the tree gives Else, Case, and what follows a block their own lines",
                                                     "  until done)\n");
 }
 
+TEST_CASE("the tree gives each Struct member its own line", "[dump]") {
+    CHECK(tree("Struct P\n"
+               "    Field x: Int\n"
+               "    Method M(): Int => x + Self.x\n"
+               "End Struct") == "(struct P\n"
+                                "  (field x: Int)\n"
+                                "  (method M -> Int\n"
+                                "    (return (+ x (. Self x)))))\n");
+}
+
 TEST_CASE("the tree prints literals as values", "[dump]") {
     // 3.0 keeps its ".0" so it doesn't look like an integer, and an interpolated string becomes
     // its parts.

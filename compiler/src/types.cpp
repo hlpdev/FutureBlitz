@@ -1,6 +1,10 @@
 #include "fb/types.hpp"
 
+#include <algorithm>
 #include <array>
+#include <cassert>
+#include <format>
+#include <memory>
 #include <optional>
 #include <string_view>
 #include <utility>
@@ -13,8 +17,8 @@ struct named_type_t {
     type_id_t type;
 };
 
-/// Every built-in type's own name, then the aliases ("Int" for Int32 and so on). type_name()
-/// takes the first match, so the own names must come first.
+/// Every built-in type's own name, then the aliases ("Int" for Int32 and so on).
+/// builtin_name() takes the first match, so the own names must come first.
 constexpr auto type_names = std::to_array<named_type_t>({
     { .name = "Bool", .type = type_id_t::BOOL },
     { .name = "Int8", .type = type_id_t::INT8 },
@@ -37,7 +41,7 @@ constexpr auto type_names = std::to_array<named_type_t>({
 
 } // namespace
 
-std::string_view type_name(const type_id_t type) {
+std::string_view builtin_name(const type_id_t type) {
     if (type == type_id_t::INVALID) {
         return "<invalid>";
     }
@@ -125,6 +129,70 @@ bool converts_losslessly(const type_id_t from, const type_id_t to) {
     }
 
     return from == type_id_t::FLOAT32 && to == type_id_t::FLOAT64;
+}
+
+type_table_t::type_table_t() {
+    for (std::uint32_t i = 0; i < std::to_underlying(type_id_t::BUILTIN_COUNT); ++i) {
+        add({ .name = std::string(builtin_name(static_cast<type_id_t>(i))) });
+    }
+}
+
+const type_t& type_table_t::get(const type_id_t id) const {
+    assert(std::to_underlying(id) < m_entries.size());
+    return *m_entries[std::to_underlying(id)].type;
+}
+
+type_id_t type_table_t::nullable(const type_id_t inner) {
+    return make(type_kind_t::NULLABLE, inner, "?");
+}
+
+type_id_t type_table_t::array(const type_id_t element) {
+    return make(type_kind_t::ARRAY, element, "[]");
+}
+
+type_id_t type_table_t::make(const type_kind_t kind, const type_id_t inner,
+                             const std::string_view suffix) {
+    if (inner == type_id_t::INVALID) {
+        return type_id_t::INVALID;
+    }
+
+    // Found by index each time, since adding a type can move the entries.
+    const auto made = [&] -> type_id_t& {
+        entry_t& entry = m_entries[std::to_underlying(inner)];
+        return kind == type_kind_t::NULLABLE ? entry.nullable : entry.array;
+    };
+
+    if (made() == type_id_t::INVALID) {
+        std::string full_name = std::format("{}{}", name(inner), suffix);
+        const type_id_t id = add({ .kind = kind, .name = std::move(full_name), .inner = inner });
+        made() = id;
+    }
+
+    return made();
+}
+
+type_id_t type_table_t::add_struct(std::string name) {
+    return add({ .kind = type_kind_t::STRUCT, .name = std::move(name) });
+}
+
+void type_table_t::set_fields(const type_id_t type, std::vector<field_t> fields) {
+    assert(get(type).kind == type_kind_t::STRUCT);
+    m_entries[std::to_underlying(type)].type->fields = std::move(fields);
+}
+
+bool type_table_t::has_references(const type_id_t type) const {
+    if (type == type_id_t::STRING) {
+        return true;
+    }
+
+    return std::ranges::any_of(get(type).fields,
+                               [this](const field_t& field) { return has_references(field.type); });
+}
+
+type_id_t type_table_t::add(type_t type) {
+    const auto id = static_cast<type_id_t>(m_entries.size());
+    m_entries.push_back({ .type = std::make_unique<type_t>(std::move(type)) });
+    return id;
 }
 
 } // namespace fb

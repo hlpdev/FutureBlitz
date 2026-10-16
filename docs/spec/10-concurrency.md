@@ -144,8 +144,9 @@ frames.Add(1)
 | `Sendable` data | may cross threads | n/a |
 | `Shared Class` | may cross threads; fields must be `Atomic`, `Mutex`, or `ReadOnly` | atomic |
 
-`Sendable` covers: primitives, `Struct`s (copied; see the open question below), `ReadOnly`/
-frozen data, `Channel`, `Mutex`, `Atomic`, and `Shared Class` instances.
+`Sendable` covers: primitives, `String`s (immutable, with atomic refcounts), `Struct`s (copied;
+see the open question below), `ReadOnly`/frozen data, `Channel`, `Mutex`, `Atomic`, and
+`Shared Class` instances.
 
 The compiler checks every `Spawn` capture, `Parallel For` body, and channel send.
 

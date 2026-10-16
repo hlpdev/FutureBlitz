@@ -85,7 +85,6 @@ constexpr unsupported_t unsupported(const token_kind_t kind) {
     case token_kind_t::KW_EXTERN:
     case token_kind_t::KW_INTERFACE:
     case token_kind_t::KW_LOCK:
-    case token_kind_t::KW_STRUCT:
     case token_kind_t::KW_TRY:
     case token_kind_t::KW_UNSAFE:
         return unsupported_t::BLOCK;
@@ -437,9 +436,23 @@ private:
             return parse_variable();
         case token_kind_t::KW_LOCAL:
         case token_kind_t::KW_GLOBAL:
+        case token_kind_t::KW_FIELD:
             return parse_variable();
         case token_kind_t::KW_FUNCTION:
-            return parse_function();
+            return parse_function(function_kind_t::FUNCTION);
+        // Struct members parse anywhere; analysis reports the ones outside a Struct.
+        case token_kind_t::KW_METHOD:
+            return parse_function(function_kind_t::METHOD);
+        case token_kind_t::KW_NEW:
+            return parse_function(function_kind_t::CONSTRUCTOR);
+        case token_kind_t::KW_BYREF:
+            if (peek(1).kind == token_kind_t::KW_METHOD) {
+                return parse_function(function_kind_t::BYREF_METHOD);
+            }
+
+            return parse_simple();
+        case token_kind_t::KW_STRUCT:
+            return parse_struct();
         case token_kind_t::KW_IF:
             return parse_if();
         case token_kind_t::KW_WHILE:
@@ -572,6 +585,8 @@ private:
             kind = variable_kind_t::LOCAL;
         } else if (keyword.kind == token_kind_t::KW_GLOBAL) {
             kind = variable_kind_t::GLOBAL;
+        } else if (keyword.kind == token_kind_t::KW_FIELD) {
+            kind = variable_kind_t::FIELD;
         }
 
         return add_stmt(
@@ -579,10 +594,19 @@ private:
             variable_stmt_t{ .kind = kind, .name = name, .type = type, .value = value });
     }
 
-    stmt_id_t parse_function() {
+    /// A Function, or a Struct's Method, "ByRef Method", or New. New has no name of its own:
+    /// the keyword is its name.
+    stmt_id_t parse_function(const function_kind_t kind) {
         const std::size_t start = m_pos;
+        const std::uint32_t begin = peek().span.begin;
+        if (kind == function_kind_t::BYREF_METHOD) {
+            advance(); // ByRef
+        }
+
         const token_t& keyword = advance();
-        const name_t name = expect_name();
+        const name_t name = kind == function_kind_t::CONSTRUCTOR
+                                ? name_t{ .text = text(keyword), .span = keyword.span }
+                                : expect_name();
 
         std::vector<parameter_t> parameters;
         if (at(token_kind_t::LEFT_PAREN)) {
@@ -602,7 +626,12 @@ private:
         }
 
         std::optional<type_expr_id_t> return_type;
-        if (accept(token_kind_t::COLON)) {
+        if (at(token_kind_t::COLON)) {
+            if (kind == function_kind_t::CONSTRUCTOR) {
+                error(peek().span, "New can't have a return type; it makes its Struct");
+            }
+
+            advance();
             return_type = parse_type();
         }
 
@@ -617,12 +646,25 @@ private:
             body = parse_body(keyword);
         }
 
-        return add_stmt(span_from(keyword.span.begin), function_stmt_t{
-                                                           .name = name,
-                                                           .parameters = std::move(parameters),
-                                                           .return_type = return_type,
-                                                           .body = std::move(body),
-                                                       });
+        return add_stmt(span_from(begin), function_stmt_t{
+                                              .kind = kind,
+                                              .name = name,
+                                              .parameters = std::move(parameters),
+                                              .return_type = return_type,
+                                              .body = std::move(body),
+                                          });
+    }
+
+    /// "Struct Name", its members, then "End Struct". Members parse like statements; analysis
+    /// checks that each one is a Field, Method, or New.
+    stmt_id_t parse_struct() {
+        const std::size_t start = m_pos;
+        const token_t& keyword = advance();
+        const name_t name = expect_name();
+        finish_line(start);
+        block_t members = parse_body(keyword);
+        return add_stmt(span_from(keyword.span.begin),
+                        struct_stmt_t{ .name = name, .members = std::move(members) });
     }
 
     parameter_t parse_parameter() {
@@ -702,6 +744,7 @@ private:
         case token_kind_t::KW_FOR:
         case token_kind_t::KW_SELECT:
         case token_kind_t::KW_FUNCTION:
+        case token_kind_t::KW_STRUCT:
             error(peek().span, "a single-line If can't contain {}", describe(peek().kind));
             return add_stmt(point(peek().span.begin), error_stmt_t{});
         default:
@@ -1252,6 +1295,8 @@ private:
         case token_kind_t::LEFT_PAREN:
             return parse_parenthesized();
         case token_kind_t::KW_SELF:
+            advance();
+            return add_expr(token.span, self_expr_t{});
         case token_kind_t::KW_SUPER:
         case token_kind_t::KW_NEW:
         case token_kind_t::KW_AWAIT:

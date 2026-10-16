@@ -1,0 +1,14 @@
+// A panic in a ByRef Method points at the line inside it.
+Struct Counter
+    Field n: Int8 = 120
+
+    ByRef Method Add(amount: Int8)
+        n += amount
+    End Method
+End Struct
+
+Local c = Counter()
+c.Add(5)
+Print("{c.n}")
+c.Add(5)
+Print("not reached")

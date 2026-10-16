@@ -1,0 +1,85 @@
+// Structs: fields, constructors, methods, copies, equality, and Strings inside.
+Struct Vec2
+    Field x: Float
+    Field y: Float
+
+    Method Length2(): Float => x * x + y * y
+
+    ByRef Method Scale(by: Float)
+        x *= by
+        Self.y = y * by
+    End Method
+End Struct
+
+Struct Enemy
+    Field name: String = "grunt"
+    Field hp: Int = 100
+    Field pos: Vec2
+
+    Method Describe(): String => "{name} at ({pos.x}, {pos.y}) with {hp} hp"
+
+    ByRef Method Hurt(amount: Int)
+        hp -= amount
+        If hp < 0 Then hp = 0
+    End Method
+End Struct
+
+Struct Counter
+    Field count: Int
+    Field label: String
+
+    New(label: String)
+        Self.label = label + "!"
+        count = 10
+    End New
+
+    New()
+        label = "default"
+    End New
+End Struct
+
+Function Moved(e: Enemy, dx: Float): Enemy
+    Local copy = e
+    copy.pos.x += dx
+    Return copy
+End Function
+
+Function Reset(ByRef hp: Int)
+    hp = 1
+End Function
+
+Local v = Vec2(3, 4)
+Print("{v.Length2()}")
+v.Scale(2)
+Print("{v.x} {v.y}")
+
+Local boss = Enemy(name: "boss", hp: 500)
+Local grunt = Enemy()
+Print(boss.Describe())
+Print(grunt.Describe())
+boss.Hurt(120)
+Print("{boss.hp}")
+grunt.Hurt(1000)
+Print("{grunt.hp}")
+
+Local moved = Moved(boss, 2.5)
+Print(moved.Describe())
+Print(boss.Describe())
+
+Local twin = boss
+Print("{twin == boss} {twin != boss} {moved == boss}")
+twin.name = "twin"
+Print("{twin == boss} {twin.name} {boss.name}")
+
+Reset(ByRef boss.hp)
+Print("{boss.hp}")
+
+Local c = Counter("hi")
+Local d = Counter()
+Print("{c.count} {c.label} {d.count} {d.label}")
+
+Global origin: Vec2
+Global named = Enemy(name: "global {1 + 1}")
+Print("{origin.x} {named.name}")
+Const ZERO = Vec2()
+Print("{ZERO == origin}")

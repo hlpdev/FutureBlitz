@@ -25,8 +25,14 @@ Source of truth: docs/spec/
 compiler (lib), runtime (lib), cli (exe), lsp (exe)
 
 ## Current step
-M2 (data: structs, classes, refcounting, arrays, errors, `Defer`): planning the design and the
-build order. Nothing decided yet.
+M2 (data: structs, classes, refcounting, arrays, errors, `Defer`), planned 2026-10-16 in 11
+steps (docs/milestones.md). Step 3: classes and the object runtime.
+
+Done in M2: step 1, the type table (`type_table_t` in types.hpp: built-ins at fixed ids, other
+types interned; the analysis owns it and MIR points at it). Step 2, structs: `Struct` with
+`Field`, `Method`, `ByRef Method`, and `New`; the generated constructor's parameters are the
+field symbols; MIR places have field paths, plus `aggregate_t` and `zero_t`; retain and release
+walk a Struct's Strings in codegen.
 
 Done: M1, finished 2026-10-16, in six steps: source and diagnostics; tokens and lexer; AST and
 parser with error recovery (tests compare `fb::dump_ast`); semantic analysis (types, const_value,

@@ -175,10 +175,13 @@ struct is_expr_t {
     type_expr_id_t type;
 };
 
+/// "Self": the value a Method or New works on.
+struct self_expr_t {};
+
 using expr_node_t =
     std::variant<error_expr_t, integer_expr_t, decimal_expr_t, character_expr_t, string_expr_t,
                  bool_expr_t, null_expr_t, name_expr_t, unary_expr_t, binary_expr_t, ternary_expr_t,
-                 call_expr_t, member_expr_t, index_expr_t, cast_expr_t, is_expr_t>;
+                 call_expr_t, member_expr_t, index_expr_t, cast_expr_t, is_expr_t, self_expr_t>;
 
 struct expr_t {
     span_t span;
@@ -236,11 +239,12 @@ struct increment_stmt_t {
     bool decrement;
 };
 
-/// The keyword that declares a variable: Local, Global, or Const.
+/// The keyword that declares a variable: Local, Global, Const, or a Struct's Field.
 enum class variable_kind_t : std::uint8_t {
     LOCAL,
     GLOBAL,
     CONSTANT,
+    FIELD,
 };
 
 /// "Local name: Type = value". The type and the value are each optional, but analysis needs at
@@ -260,8 +264,20 @@ struct parameter_t {
     std::optional<expr_id_t> default_value;
 };
 
-/// "Function Name(parameters): Type ... End Function".
+/// What a function_stmt_t declares.
+enum class function_kind_t : std::uint8_t {
+    FUNCTION,
+    /// "Method Name()" in a Struct: `Self` is read-only.
+    METHOD,
+    /// "ByRef Method Name()" in a Struct: it can change `Self`.
+    BYREF_METHOD,
+    /// "New()" in a Struct: makes a new value. Its name is the "New" keyword.
+    CONSTRUCTOR,
+};
+
+/// "Function Name(parameters): Type ... End Function", or a Struct's Method or New.
 struct function_stmt_t {
+    function_kind_t kind = function_kind_t::FUNCTION;
     name_t name;
     std::vector<parameter_t> parameters;
     /// nullopt when the function returns nothing.
@@ -363,10 +379,18 @@ struct return_stmt_t {
     std::optional<expr_id_t> value;
 };
 
+/// "Struct Name ... End Struct". Its members are Fields (variable_stmt_t) and Methods and News
+/// (function_stmt_t), in source order.
+struct struct_stmt_t {
+    name_t name;
+    block_t members;
+};
+
 using stmt_node_t =
     std::variant<error_stmt_t, expression_stmt_t, assign_stmt_t, increment_stmt_t, variable_stmt_t,
                  function_stmt_t, if_stmt_t, while_stmt_t, repeat_stmt_t, loop_stmt_t, for_stmt_t,
-                 for_in_stmt_t, select_stmt_t, break_stmt_t, continue_stmt_t, return_stmt_t>;
+                 for_in_stmt_t, select_stmt_t, break_stmt_t, continue_stmt_t, return_stmt_t,
+                 struct_stmt_t>;
 
 struct stmt_t {
     span_t span;

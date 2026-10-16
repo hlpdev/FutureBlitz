@@ -311,6 +311,10 @@ private:
         return list("is", { expr(node.value), type(node.type) });
     }
 
+    static node_t build(const self_expr_t& /*node*/) {
+        return atom("Self", tone_t::KEYWORD);
+    }
+
     // Statements
 
     static node_t build(const error_stmt_t& /*node*/) {
@@ -336,6 +340,8 @@ private:
             kind = "local";
         } else if (node.kind == variable_kind_t::GLOBAL) {
             kind = "global";
+        } else if (node.kind == variable_kind_t::FIELD) {
+            kind = "field";
         }
 
         // "hp:" when a type follows, as in "(local hp: Int = 100)".
@@ -353,8 +359,23 @@ private:
         return out;
     }
 
+    /// "(function Name ...)", "(method ...)", "(byref-method ...)", or "(new ...)", which has no
+    /// name of its own.
     [[nodiscard]] node_t build(const function_stmt_t& node) const {
-        node_t out = list("function", { atom(std::string(node.name.text), tone_t::NAME) });
+        std::string_view kind = "function";
+        if (node.kind == function_kind_t::METHOD) {
+            kind = "method";
+        } else if (node.kind == function_kind_t::BYREF_METHOD) {
+            kind = "byref-method";
+        } else if (node.kind == function_kind_t::CONSTRUCTOR) {
+            kind = "new";
+        }
+
+        node_t out = list(kind);
+        if (node.kind != function_kind_t::CONSTRUCTOR) {
+            out.items.push_back(atom(std::string(node.name.text), tone_t::NAME));
+        }
+
         // Each parameter is a list without a head, like "(ByRef n: Int = 1)".
         for (const parameter_t& parameter : node.parameters) {
             node_t item{ .list = true };
@@ -503,6 +524,12 @@ private:
 
         return out;
     }
+
+    /// "(struct Name (block members...))". In the tree, each member gets its own line.
+    [[nodiscard]] node_t build(const struct_stmt_t& node) const {
+        return list("struct",
+                    { atom(std::string(node.name.text), tone_t::NAME), block(node.members) });
+    }
 };
 
 /// Prints nodes on one line, or as an indented tree. With an analysis, expressions show their
@@ -575,9 +602,9 @@ private:
         }
 
         std::string out = m_style.paint(":", tone_t::DIM) + " " +
-                          m_style.paint(type_name(info.type), tone_t::TYPE);
+                          m_style.paint(m_analysis->types.name(info.type), tone_t::TYPE);
         if (info.converted != info.type && info.converted != type_id_t::INVALID) {
-            out += " → " + m_style.paint(type_name(info.converted), tone_t::TYPE);
+            out += " → " + m_style.paint(m_analysis->types.name(info.converted), tone_t::TYPE);
         }
 
         // A literal already shows its value.

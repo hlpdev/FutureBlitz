@@ -47,13 +47,13 @@ analyzed_t analyze_text(const std::string_view text) {
     }
 
     const fb::expr_info_t& info = analysis.expr(*variable->value);
-    analyzed.last = fb::type_name(info.converted);
+    analyzed.last = analysis.types.name(info.converted);
     if (info.value) {
         analyzed.last += " " + fb::to_text(*info.value);
     }
 
     if (info.type != info.converted) {
-        analyzed.last += std::format(" (from {})", fb::type_name(info.type));
+        analyzed.last += std::format(" (from {})", analysis.types.name(info.type));
     }
 
     return analyzed;
@@ -545,7 +545,8 @@ TEST_CASE("ByRef arguments", "[sema]") {
     CHECK(call("Swap(ByRef x, ByRef y)").empty());
     CHECK(call("Swap(x, ByRef y)") == errors_t{ "x: parameter 'a' is ByRef; write 'ByRef x'" });
     CHECK(call("Swap(ByRef x, ByRef x)") == errors_t{ "x: 'x' is passed ByRef twice in one call" });
-    CHECK(call("Swap(ByRef 1, ByRef y)") == errors_t{ "1: only a variable can be passed ByRef" });
+    CHECK(call("Swap(ByRef 1, ByRef y)") ==
+          errors_t{ "1: only a variable or one of its fields can be passed ByRef" });
     CHECK(call("Const C = 1\nSwap(ByRef C, ByRef y)") ==
           errors_t{ "C: 'C' is a Const and can't be passed ByRef" });
     CHECK(call("Local l: Long = 1\nSwap(ByRef l, ByRef y)") ==
@@ -663,8 +664,7 @@ TEST_CASE("features after M1 are reported as not supported yet", "[sema]") {
     CHECK(errors_of("Local x: Int? = 1") ==
           errors_t{ "Int?: nullable types aren't supported yet" });
     CHECK(errors_of("Local x: Int[]") == errors_t{ "Int[]: arrays aren't supported yet" });
-    CHECK(errors_of("Local a = 1\nLocal x = a.b") ==
-          errors_t{ "a.b: member access isn't supported yet" });
+    CHECK(errors_of("Local a = 1\nLocal x = a?.b") == errors_t{ "a?.b: '?.' isn't supported yet" });
     CHECK(errors_of("Local a = 1\nLocal x = a[0]") ==
           errors_t{ "a[0]: indexing isn't supported yet" });
 
@@ -677,6 +677,224 @@ TEST_CASE("features after M1 are reported as not supported yet", "[sema]") {
           errors_t{ "a As? Int: 'As?' isn't supported yet" });
     CHECK(errors_of("Local a = 1\nFor e In a\nEnd For") ==
           errors_t{ "For e In a: 'For ... In' isn't supported yet" });
+}
+
+// Structs
+
+TEST_CASE("Structs get a constructor that takes their fields", "[sema]") {
+    constexpr std::string_view point = "Struct Point\n"
+                                       "    Field x: Int\n"
+                                       "    Field y: Int = 9\n"
+                                       "End Struct\n";
+    const auto with_point = [&](const std::string_view text) {
+        return std::format("{}{}", point, text);
+    };
+
+    CHECK(probe(with_point("Local p = Point(1, 2)")) == "Point");
+    CHECK(probe(with_point("Local p = Point(y: 2)\nLocal x = p.x")) == "Int32");
+    CHECK(errors_of(with_point("Local p = Point(z: 3)")) ==
+          errors_t{ "z: 'Point' has no parameter named 'z'" });
+    CHECK(errors_of(with_point("Local p = Point(1, 2, 3)")) ==
+          errors_t{ "3: too many arguments to 'Point'" });
+
+    // A New replaces it.
+    CHECK(errors_of("Struct P\n"
+                    "    Field x: Int\n"
+                    "    New()\n"
+                    "    End New\n"
+                    "End Struct\n"
+                    "Local p = P(x: 1)") == errors_t{ "x: 'P' has no parameter named 'x'" });
+}
+
+TEST_CASE("fields and their defaults", "[sema]") {
+    CHECK(errors_of("Struct P\n    Field x\nEnd Struct") ==
+          errors_t{ "x: 'x' needs a type or a value" });
+    CHECK(errors_of("Struct P\n    Field x: Int\n    Field x: Float\nEnd Struct") ==
+          errors_t{ "x: 'x' is already declared" });
+    CHECK(errors_of("Global g = 1\nStruct P\n    Field x: Int = g\nEnd Struct") ==
+          errors_t{ "g: a field's default must be known at compile time" });
+
+    // A field without a type takes its default's, which can use Consts declared above.
+    CHECK(probe("Const BASE = 5\n"
+                "Struct P\n"
+                "    Field x = BASE * 2\n"
+                "End Struct\n"
+                "Local x = P().x") == "Int32");
+
+    // Above its Struct, such a field's type isn't known yet.
+    CHECK(errors_of("Global q = P().x\n"
+                    "Struct P\n"
+                    "    Field x = 3\n"
+                    "End Struct") ==
+          errors_t{ "P: 'x' takes its type from its default, so it can't be used above its "
+                    "Struct" });
+    CHECK(errors_of("Global q = P().x\n"
+                    "Struct P\n"
+                    "    Field x: Int = 3\n"
+                    "End Struct")
+              .empty());
+}
+
+TEST_CASE("member access", "[sema]") {
+    constexpr std::string_view point = "Struct P\n"
+                                       "    Field x: Int\n"
+                                       "    Method M(): Int => x\n"
+                                       "End Struct\n"
+                                       "Local p = P()\n";
+    const auto with_point = [&](const std::string_view text) {
+        return errors_of(std::format("{}{}", point, text));
+    };
+
+    CHECK(with_point("Local z = p.z") == errors_t{ "z: P has no member named 'z'" });
+    CHECK(with_point("Local m = p.M") == errors_t{ "M: 'M' is a method; call it with ()" });
+    CHECK(with_point("p.x()") == errors_t{ "x: 'x' is a field, not a method" });
+    CHECK(errors_of("Local a = 1\nLocal b = a.x") == errors_t{ "x: Int32 has no members" });
+    CHECK(errors_of("Struct P\nEnd Struct\nLocal p = P") ==
+          errors_t{ "P: 'P' is a type, not a value" });
+    CHECK(errors_of("Local s = Self") ==
+          errors_t{ "Self: 'Self' can only be used in a Method or New" });
+
+    // Changing a field reads the rest of its variable, so that has to be assigned.
+    CHECK(errors_of("Struct P\n    Field x: Int\nEnd Struct\nLocal p: P\np.x = 1") ==
+          errors_t{ "p: 'p' is read before it's assigned" });
+}
+
+TEST_CASE("only a ByRef Method can change Self", "[sema]") {
+    const auto in_struct = [](const std::string_view members) {
+        return errors_of(std::format("Struct P\n"
+                                     "    Field x: Int\n"
+                                     "    ByRef Method Bump()\n"
+                                     "        x += 1\n"
+                                     "    End Method\n"
+                                     "{}"
+                                     "End Struct\n",
+                                     members));
+    };
+
+    CHECK(in_struct("").empty());
+    CHECK(in_struct("    Method M()\n        x = 1\n    End Method\n") ==
+          errors_t{ "x: 'x' is a field, and a Method can't change Self; make it a ByRef Method" });
+    CHECK(in_struct("    Method M()\n        Self.x = 1\n    End Method\n") ==
+          errors_t{ "Self.x: a Method can't change Self; make it a ByRef Method" });
+    CHECK(in_struct("    Method M()\n        Bump()\n    End Method\n") ==
+          errors_t{ "Bump: 'Bump' is a ByRef Method, and a Method can't change Self; make this "
+                    "a ByRef Method too" });
+    CHECK(in_struct("    ByRef Method M()\n        Bump()\n        Self = P()\n    End Method\n")
+              .empty());
+}
+
+TEST_CASE("a ByRef Method needs something it can change", "[sema]") {
+    constexpr std::string_view point = "Struct P\n"
+                                       "    Field x: Int\n"
+                                       "    ByRef Method Bump()\n"
+                                       "        x += 1\n"
+                                       "    End Method\n"
+                                       "End Struct\n";
+    const auto with_point = [&](const std::string_view text) {
+        return errors_of(std::format("{}{}", point, text));
+    };
+
+    CHECK(with_point("Local p = P()\np.Bump()").empty());
+    CHECK(with_point("Function F(p: P)\n    p.Bump()\nEnd Function") ==
+          errors_t{ "p: 'p' is a parameter and can't be changed by 'Bump'; copy it into a Local, "
+                    "or make it ByRef" });
+    CHECK(with_point("Const C = P()\nC.Bump()") ==
+          errors_t{ "C: 'C' is a Const and can't be changed by 'Bump'" });
+    CHECK(with_point("P().Bump()") ==
+          errors_t{ "P(): 'Bump' is a ByRef Method, so it needs a variable to change, not a "
+                    "value" });
+}
+
+TEST_CASE("fields can be passed ByRef", "[sema]") {
+    constexpr std::string_view program = "Struct P\n"
+                                         "    Field x: Int\n"
+                                         "    Field y: Int\n"
+                                         "End Struct\n"
+                                         "Function Swap(ByRef a: Int, ByRef b: Int)\n"
+                                         "End Function\n"
+                                         "Function Take(ByRef p: P, ByRef b: Int)\n"
+                                         "End Function\n"
+                                         "Local p = P()\n";
+    const auto call = [&](const std::string_view text) {
+        return errors_of(std::format("{}{}", program, text));
+    };
+
+    CHECK(call("Swap(ByRef p.x, ByRef p.y)").empty());
+    CHECK(call("Swap(ByRef p.x, ByRef p.x)") ==
+          errors_t{ "p.x: 'p.x' is passed ByRef twice in one call" });
+    CHECK(call("Take(ByRef p, ByRef p.x)") ==
+          errors_t{ "p.x: 'p' and 'p.x' overlap, so only one can be passed ByRef" });
+}
+
+TEST_CASE("a Struct can't contain itself", "[sema]") {
+    CHECK(errors_of("Struct N\n    Field next: N\nEnd Struct") ==
+          errors_t{ "next: 'N' can't contain itself; a Struct is stored inline" });
+    CHECK(errors_of("Struct A\n    Field b: B\nEnd Struct\nStruct B\n    Field a: A\nEnd Struct") ==
+          errors_t{ "b: 'A' can't contain itself; a Struct is stored inline" });
+}
+
+TEST_CASE("Structs compare with == and != only", "[sema]") {
+    constexpr std::string_view point =
+        "Struct P\n    Field x: Int\nEnd Struct\nStruct Q\nEnd Struct\n";
+    const auto with_point = [&](const std::string_view text) {
+        return std::format("{}{}", point, text);
+    };
+
+    CHECK(probe(with_point("Local same = P() == P(1)")) == "Bool");
+    CHECK(errors_of(with_point("Local b = P() < P()")) ==
+          errors_t{ "P() < P(): '<' can't be used on P" });
+    CHECK(errors_of(with_point("Local b = P() == Q()")) ==
+          errors_t{ "P() == Q(): '==' can't combine P and Q" });
+    CHECK(errors_of(with_point("Local p = P()\nPrint(\"{p}\")")) ==
+          errors_t{ "p: P can't be shown in a string" });
+}
+
+TEST_CASE("New", "[sema]") {
+    CHECK(errors_of("Struct P\n    New()\n        Return 1\n    End New\nEnd Struct") ==
+          errors_t{ "1: New can't return a value; it returns Self" });
+    CHECK(errors_of("Struct P\n"
+                    "    Field x: Int\n"
+                    "    New(x: Int)\n"
+                    "        Self.x = x\n"
+                    "        If x < 0 Then Return\n"
+                    "    End New\n"
+                    "End Struct\n"
+                    "Local p = P(1)")
+              .empty());
+
+    // Its overloads are picked like a function's.
+    CHECK(errors_of("Struct P\n"
+                    "    New(a: Int)\n"
+                    "    End New\n"
+                    "    New(b: Int)\n"
+                    "    End New\n"
+                    "End Struct") ==
+          errors_t{ "New: 'New' is already declared with the same parameter types" });
+}
+
+TEST_CASE("Struct members only go in Structs", "[sema]") {
+    CHECK(errors_of("Method M()\nEnd Method") ==
+          errors_t{ "M: Methods can only be declared in a Struct" });
+    CHECK(errors_of("Field x: Int") == errors_t{ "x: Fields can only be declared in a Struct" });
+    CHECK(errors_of("New()\nEnd New") == errors_t{ "New: New can only be declared in a Struct" });
+    CHECK(errors_of("Function F()\n    Struct P\n    End Struct\nEnd Function") ==
+          errors_t{ "P: Structs can only be declared at the top level" });
+    CHECK(errors_of("Struct P\n    Print(\"x\")\nEnd Struct") ==
+          errors_t{ "Print(\"x\"): a Struct can only hold Fields, Methods, and News" });
+    CHECK(errors_of("Struct Int\nEnd Struct") == errors_t{ "Int: 'Int' is a built-in type" });
+}
+
+TEST_CASE("names in a Method", "[sema]") {
+    // A Local can hide a field; Self still reaches it. Methods call each other by name.
+    CHECK(errors_of("Struct P\n"
+                    "    Field x: Int\n"
+                    "    Method A(): Int\n"
+                    "        Local x = 5\n"
+                    "        Return x + Self.x + B()\n"
+                    "    End Method\n"
+                    "    Method B(): Int => x\n"
+                    "End Struct")
+              .empty());
 }
 
 // What codegen reads

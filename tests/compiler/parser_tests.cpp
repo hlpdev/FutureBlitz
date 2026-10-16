@@ -422,3 +422,26 @@ TEST_CASE("broken input always finishes with at least one error", "[parser]") {
         CHECK_FALSE(parse_text(input).errors.empty());
     }
 }
+
+TEST_CASE("Structs", "[parser]") {
+    const parsed_t parsed = parse_text("Struct Point\n"
+                                       "    Field x: Int\n"
+                                       "    Field y = 0\n"
+                                       "    New(x: Int)\n"
+                                       "        Self.x = x\n"
+                                       "    End New\n"
+                                       "    Method Length(): Float => x\n"
+                                       "    ByRef Method Move(dx: Int)\n"
+                                       "        x += dx\n"
+                                       "    End Method\n"
+                                       "End Struct");
+    CHECK(parsed.dump == "(struct Point (block (field x: Int) (field y = (int 0)) "
+                         "(new (x: Int) (block (= (. Self x) x))) "
+                         "(method Length -> Float (block (return x))) "
+                         "(byref-method Move (dx: Int) (block (+= x dx)))))");
+    CHECK(parsed.errors.empty());
+
+    // New makes its Struct, so it has no return type. The ':' is at 5-6.
+    CHECK(parse_text("New(): Int\nEnd New").errors ==
+          std::vector<std::string>{ "5-6: New can't have a return type; it makes its Struct" });
+}

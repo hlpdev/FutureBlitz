@@ -63,9 +63,11 @@ public:
     std::string run() {
         std::string out;
         for (const global_t& global : m_module.globals) {
-            out +=
-                std::format("{} {}: {} = {}\n", keyword("global"), paint(global.name, tone_t::NAME),
-                            type(global.type), paint(constant(global.initial), tone_t::LITERAL));
+            const std::string initial = global.initial
+                                            ? paint(constant(*global.initial), tone_t::LITERAL)
+                                            : keyword("zero");
+            out += std::format("{} {}: {} = {}\n", keyword("global"),
+                               paint(global.name, tone_t::NAME), type(global.type), initial);
         }
 
         for (const mir_function_t& function : m_module.functions) {
@@ -82,6 +84,8 @@ public:
 private:
     const mir_module_t& m_module;
     const style_t& m_style;
+    /// The function being dumped, whose locals places refer to.
+    const mir_function_t* m_function = nullptr;
 
     [[nodiscard]] std::string paint(const std::string_view text, const tone_t tone) const {
         return m_style.paint(text, tone);
@@ -92,14 +96,15 @@ private:
     }
 
     [[nodiscard]] std::string type(const type_id_t id) const {
-        return paint(type_name(id), tone_t::TYPE);
+        return paint(m_module.types->name(id), tone_t::TYPE);
     }
 
     [[nodiscard]] std::string label(const block_id_t block) const {
         return paint(std::format("bb{}", std::to_underlying(block)), tone_t::BOLD);
     }
 
-    [[nodiscard]] std::string dump(const mir_function_t& function) const {
+    [[nodiscard]] std::string dump(const mir_function_t& function) {
+        m_function = &function;
         std::string out = keyword("function") + " " + paint(function.name, tone_t::BOLD);
         if (function.return_type != type_id_t::NONE) {
             out += " -> " + type(function.return_type);
@@ -136,14 +141,27 @@ private:
         return out;
     }
 
-    /// "_3" for a local, "@score" for a global.
+    /// "_3" for a local and "@score" for a global, with any fields after: "_3.pos.x".
     [[nodiscard]] std::string place(const place_t& target) const {
-        if (const auto* local = std::get_if<local_id_t>(&target)) {
-            return paint(std::format("_{}", std::to_underlying(*local)), tone_t::NAME);
+        std::string text;
+        type_id_t current = type_id_t::INVALID;
+        if (const auto* local = std::get_if<local_id_t>(&target.root)) {
+            text = std::format("_{}", std::to_underlying(*local));
+            current = m_function->locals[std::to_underlying(*local)].type;
+        } else {
+            const global_t& global =
+                m_module.globals[std::to_underlying(std::get<global_id_t>(target.root))];
+            text = std::format("@{}", global.name);
+            current = global.type;
         }
 
-        const auto global = std::to_underlying(std::get<global_id_t>(target));
-        return paint(std::format("@{}", m_module.globals[global].name), tone_t::NAME);
+        for (const std::uint32_t field : target.fields) {
+            const field_t& info = m_module.types->get(current).fields[field];
+            text += "." + info.name;
+            current = info.type;
+        }
+
+        return paint(text, tone_t::NAME);
     }
 
     [[nodiscard]] std::string operand(const operand_t& value) const {
@@ -199,6 +217,22 @@ private:
         }
 
         return std::format("{}({})", paint(runtime_name(node.function), tone_t::BOLD), arguments);
+    }
+
+    /// "Point { x: _1, y: 2 }"
+    [[nodiscard]] std::string dump(const aggregate_t& node) const {
+        const type_t& info = m_module.types->get(node.type);
+        std::string fields;
+        for (std::size_t i = 0; i < node.fields.size(); ++i) {
+            fields += i == 0 ? "" : ", ";
+            fields += std::format("{}: {}", info.fields[i].name, operand(node.fields[i]));
+        }
+
+        return std::format("{} {{ {} }}", type(node.type), fields);
+    }
+
+    [[nodiscard]] std::string dump(const zero_t& node) const {
+        return std::format("{} {}", keyword("zero"), type(node.type));
     }
 
     // Statements

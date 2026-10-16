@@ -80,6 +80,14 @@ section.
 | `For` declares its own loop-scoped variables, which can't be assigned inside the loop | nothing leaks out; nothing changes the count by accident |
 | Functions, `Global`s, and top-level `Const`s are file-wide; top-level `Local`s belong to top-level code; no redeclaring, no local hiding a local | declare-anywhere functions like Blitz, without surprise shadowing |
 | `Global`s and top-level `Const`s initialize in source order before other top-level code, using only names declared above | deterministic startup; no read before initialization |
+| A struct method sees `Self` read-only; a `ByRef Method` can change it, and needs something assignable to be called on | parameters are read-only, and `Self` is a parameter; changes are visible in the declaration |
+| Every struct gets a constructor whose parameters are its fields, in order, with their defaults; declaring `New` replaces it | records need no boilerplate; `Vec3(0, 1, 0)` and `Particle(life: 1.0)` both work |
+| A field's default must be known at compile time, like a parameter's; struct defaults are checked in source order with the Globals | a field default is a default of the generated constructor |
+| A field without a type takes its default's, so code above its Struct can't use that field | the type isn't known until the default is checked |
+| A Struct is stored inline, so it can't contain itself, directly or through other Structs | it would have no size; use a class reference (M2 step 3) |
+| A field, like a variable, can be passed `ByRef`; two `ByRef` arguments that overlap (`p` and `p.x`) are an error | the same rule as passing one variable twice |
+| Changing a field of a `Local` reads the rest of it, so the `Local` must be assigned first | definite assignment tracks whole variables |
+| A Struct can't go in a string until `Printable` (M3) | there's no `ToString` to call yet |
 | A function with a return type returns on every path; one without can't return a value | catches missing returns |
 | `Select`: case values known at compile time and of the subject's type; ranges on integers; no duplicates | clear matching and cheap code |
 | Parameters are read-only; default values must be known at compile time | no surprise changes; defaults cost nothing at the call |
@@ -106,6 +114,7 @@ section.
 | **Refcounting** (not tracing GC) | deterministic, no frame hitches |
 | `Weak<T>`; debug cycle detector | break cycles |
 | `Destroy()` runs when refcount hits 0 | deterministic cleanup |
+| A `Weak<T>` is assigned a `T`; reading it gives a `T?` that's `Null` once the object is gone | `parent?.name` works with the null operators already in the language |
 | Closures capture by reference; C++-style capture lists `[Weak Self]`; compiler warns on strong `Self` capture stored in a field | prevent refcount cycles |
 | Pointers only in `Unsafe` | normal code never needs them |
 
@@ -137,6 +146,7 @@ section.
 | Data races are compile errors (Sendable, `Shared Class`) | safety; keeps refcounts non-atomic by default |
 | Engine APIs `@MainThread`; mutable globals main-thread-only unless `Atomic`/`Mutex` | |
 | v1 ships tasks, async, channels, Mutex, Atomic, `Thread.Start`; defers lock-free collections, actors, GPU compute | |
+| Strings are `Sendable`, so their refcounts are atomic from M2; class objects stay non-atomic | immutable text is the data most often shared between threads |
 
 ## Modules, FFI, compile-time
 
@@ -184,3 +194,5 @@ section.
 | Catch2 (via FetchContent) for unit tests | standard, header-friendly, works with ctest and CLion |
 | Temporary built-in `Print(String)` until `std.core` exists (M5) | M1 needs output before there are modules |
 | M1 type checking covers `Bool`, integers, floats, and `String`, with `As` between numbers | the smallest set that compiles real programs; the rest arrives in M2 |
+| M2 is built in 11 steps, each designed and then built in one go; see [milestones.md](milestones.md) | plumbing first, and every step ends with leak-free programs |
+| M2 leaves interfaces, `Extend`, operator overloading, tuples, lambdas, slices, variadics, and `.Chars`/`.Bytes` to M3, and visibility to M5 | they need generics or modules; M2 stays about data |

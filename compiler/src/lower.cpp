@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <cassert>
 #include <cstddef>
+#include <cstdint>
+#include <format>
 #include <optional>
 #include <ranges>
 #include <string>
@@ -88,14 +90,20 @@ type_id_t unsigned_of(const type_id_t type) {
     }
 }
 
-/// "Add(Int32, Int32)": overloads get different names.
+/// "Add(Int32, Int32)": overloads get different names. A Struct's members start with its name:
+/// "Point.Move(Int32)".
 std::string function_name(const analysis_t& analysis, const symbol_t& function) {
-    std::string name = std::string(function.name) + "(";
+    std::string name;
+    if (function.owner != type_id_t::INVALID) {
+        name = std::format("{}.", analysis.types.name(function.owner));
+    }
+
+    name += std::string(function.name) + "(";
     for (std::size_t i = 0; i < function.parameters.size(); ++i) {
         const symbol_t& parameter = analysis.symbol(function.parameters[i]);
         name += i == 0 ? "" : ", ";
         name += parameter.by_ref ? "ByRef " : "";
-        name += type_name(parameter.type);
+        name += analysis.types.name(parameter.type);
     }
 
     return name + ")";
@@ -111,19 +119,35 @@ struct loop_t {
     std::vector<block_id_t> continues;
 };
 
-/// Turns the analyzed AST into MIR: one function per Function, plus "main" for the top-level
-/// code. Each String variable owns a reference to its value, so lowering adds the retains and
-/// releases. Parameters borrow the caller's.
+/// Turns the analyzed AST into MIR: one function per Function, Method, and New, plus "main" for
+/// the top-level code. Each variable holding a String, or a Struct with Strings in it, owns a
+/// reference to each one, so lowering adds the retains and releases. Parameters borrow the
+/// caller's.
 class lowerer_t {
 public:
-    lowerer_t(const ast_t& ast, const analysis_t& analysis) : m_ast(ast), m_analysis(analysis) {}
+    lowerer_t(const ast_t& ast, const analysis_t& analysis) : m_ast(ast), m_analysis(analysis) {
+        for (std::size_t i = 0; i < analysis.symbols.size(); ++i) {
+            if (analysis.symbols[i].kind == symbol_kind_t::STRUCT) {
+                m_structs[analysis.symbols[i].type] = static_cast<symbol_id_t>(i);
+            }
+        }
+    }
 
     mir_module_t run() {
+        m_module.types = &m_analysis.types;
         declare_globals();
         declare_functions();
         for (const stmt_id_t id : m_ast.items()) {
-            if (const auto* node = std::get_if<function_stmt_t>(&m_ast.get(id).node)) {
-                lower_function(id, *node);
+            const stmt_node_t& node = m_ast.get(id).node;
+            if (const auto* function = std::get_if<function_stmt_t>(&node)) {
+                lower_function(id, *function);
+            } else if (const auto* declared = std::get_if<struct_stmt_t>(&node)) {
+                for (const stmt_id_t member : declared->members) {
+                    if (const auto* method =
+                            std::get_if<function_stmt_t>(&m_ast.get(member).node)) {
+                        lower_function(member, *method);
+                    }
+                }
             }
         }
 
@@ -137,14 +161,20 @@ private:
     mir_module_t m_module;
     std::unordered_map<symbol_id_t, function_id_t> m_functions;
     std::unordered_map<symbol_id_t, global_id_t> m_globals;
+    /// Each Struct's symbol, by its type.
+    std::unordered_map<type_id_t, symbol_id_t> m_structs;
 
     // The function being lowered
     function_id_t m_function{};
     std::unordered_map<symbol_id_t, local_id_t> m_locals;
     std::optional<block_id_t> m_block;             // nullopt after a jump: nothing reaches here
-    std::vector<std::vector<local_id_t>> m_scopes; // String locals to release, innermost last
-    std::vector<local_id_t> m_temporaries;         // owned Strings to release after the statement
+    std::vector<std::vector<local_id_t>> m_scopes; // locals to release, innermost last
+    std::vector<local_id_t> m_temporaries;         // owned values to release after the statement
     std::vector<loop_t> m_loops;                   // innermost last
+    /// A Method's or New's Self.
+    std::optional<local_id_t> m_self;
+    /// Lowering a New, whose Returns give back Self.
+    bool m_returns_self = false;
 
     // Declarations
 
@@ -155,7 +185,11 @@ private:
             const symbol_t& symbol = m_analysis.symbol(id);
             const auto& node =
                 std::get<variable_stmt_t>(m_ast.get(expect(symbol.declaration)).node);
-            const_value_t initial = zero(symbol.type);
+            std::optional<const_value_t> initial;
+            if (!is_struct(symbol.type)) {
+                initial = zero(symbol.type);
+            }
+
             if (node.value) {
                 if (const std::optional<const_value_t>& value =
                         m_analysis.expr(*node.value).value) {
@@ -189,13 +223,17 @@ private:
         m_scopes.clear();
         m_temporaries.clear();
         m_loops.clear();
+        m_self.reset();
+        m_returns_self = false;
         m_block = new_block();
         push_scope();
     }
 
     /// Ends the block that runs off the end of the function, if code reaches there.
     void finish_function() {
-        if (current().return_type == type_id_t::NONE) {
+        if (m_returns_self) {
+            return_self();
+        } else if (current().return_type == type_id_t::NONE) {
             release_scopes(0);
             terminate(return_t{});
         } else {
@@ -207,16 +245,38 @@ private:
         const symbol_id_t symbol_id = expect(m_analysis.stmt(id).symbol);
         const symbol_t& function = m_analysis.symbol(symbol_id);
         begin_function(m_functions.at(symbol_id));
-        // Parameters are the first locals, in order. They aren't in any scope: a String parameter
-        // borrows the caller's reference, so the function never releases it.
+        m_returns_self = function.kind == symbol_kind_t::CONSTRUCTOR;
+        // A Method's Self is its first parameter, then come the others, in order. Parameters
+        // aren't in any scope: they borrow the caller's references, so the function never
+        // releases them.
+        if (function.kind == symbol_kind_t::METHOD) {
+            const symbol_t& self = m_analysis.symbol(expect(function.self));
+            m_self = add_local(self.type, "Self", self.by_ref);
+        }
+
         for (const symbol_id_t parameter_id : function.parameters) {
             const symbol_t& parameter = m_analysis.symbol(parameter_id);
             m_locals[parameter_id] = add_local(parameter.type, parameter.name, parameter.by_ref);
         }
 
-        current().parameter_count = function.parameters.size();
+        current().parameter_count = current().locals.size();
+
+        // New's Self starts with the fields' defaults. It isn't in a scope either: New hands it
+        // to the caller.
+        if (m_returns_self) {
+            m_self = add_local(function.type, "Self");
+            emit(assign_t{ .target = *m_self, .value = defaults_of(function.type) });
+        }
+
         lower_statements(node.body);
         finish_function();
+    }
+
+    /// New's Return: Self goes back to the caller, which takes over its references.
+    void return_self() {
+        finish_statement();
+        release_scopes(0);
+        terminate(return_t{ .value = place_t{ expect(m_self) } });
     }
 
     /// Globals whose values aren't known at compile time are set first, in source order. Then
@@ -239,7 +299,8 @@ private:
             const stmt_node_t& node = m_ast.get(id).node;
             const auto* variable = std::get_if<variable_stmt_t>(&node);
             const bool global = variable != nullptr && variable->kind != variable_kind_t::LOCAL;
-            if (!global && !std::holds_alternative<function_stmt_t>(node)) {
+            if (!global && !std::holds_alternative<function_stmt_t>(node) &&
+                !std::holds_alternative<struct_stmt_t>(node)) {
                 lower_stmt(id);
             }
         }
@@ -270,11 +331,55 @@ private:
         }
 
         const auto& target = std::get<place_t>(value);
-        if (const auto* local = std::get_if<local_id_t>(&target)) {
-            return current().locals[index(*local)].type;
+        type_id_t type = type_id_t::INVALID;
+        if (const auto* local = std::get_if<local_id_t>(&target.root)) {
+            type = current().locals[index(*local)].type;
+        } else {
+            type = m_module.globals[index(std::get<global_id_t>(target.root))].type;
         }
 
-        return m_module.globals[index(std::get<global_id_t>(target))].type;
+        for (const std::uint32_t field : target.fields) {
+            type = m_analysis.types.get(type).fields[field].type;
+        }
+
+        return type;
+    }
+
+    [[nodiscard]] bool is_struct(const type_id_t type) const {
+        return m_analysis.types.get(type).kind == type_kind_t::STRUCT;
+    }
+
+    /// Whether a value of `type` holds references, which its holder retains and releases.
+    [[nodiscard]] bool has_references(const type_id_t type) const {
+        return m_analysis.types.has_references(type);
+    }
+
+    /// What a variable holds before it's assigned. A Struct's zero needs a temporary.
+    operand_t zero_value(const type_id_t type) {
+        if (is_struct(type)) {
+            return temporary(zero_t{ .type = type }, type, has_references(type));
+        }
+
+        return zero(type);
+    }
+
+    /// A Struct value with each field at its default.
+    aggregate_t defaults_of(const type_id_t type) {
+        aggregate_t value{ .type = type };
+        for (const symbol_id_t member : m_analysis.symbol(m_structs.at(type)).members) {
+            const symbol_t& field = m_analysis.symbol(member);
+            if (field.kind == symbol_kind_t::FIELD) {
+                value.fields.push_back(field.value ? operand_t{ *field.value }
+                                                   : zero_value(field.type));
+            }
+        }
+
+        // Defaults are constants, or zeroes made just for this, so they need no retains.
+        for (const operand_t& field : value.fields) {
+            take(field);
+        }
+
+        return value;
     }
 
     block_id_t new_block() {
@@ -347,14 +452,17 @@ private:
         return place_t{ local };
     }
 
-    /// Gives a String's new holder its own reference: a temporary hands its reference over, and
-    /// anything else is retained. Constants are static and need neither.
+    /// Gives a value's new holder its own references: a whole temporary hands its references
+    /// over, and anything else is retained. Constants are static and need neither, and so do
+    /// values without references.
     void take(const operand_t& value) {
-        if (std::holds_alternative<const_value_t>(value)) {
+        if (std::holds_alternative<const_value_t>(value) || !has_references(type_of(value))) {
             return;
         }
 
-        if (const auto* local = std::get_if<local_id_t>(&std::get<place_t>(value))) {
+        const auto& place = std::get<place_t>(value);
+        if (const auto* local = std::get_if<local_id_t>(&place.root);
+            local != nullptr && place.fields.empty()) {
             const auto found = std::ranges::find(m_temporaries, *local);
             if (found != m_temporaries.end()) {
                 m_temporaries.erase(found);
@@ -367,16 +475,13 @@ private:
 
     /// The first value of a new variable.
     void initialize(const local_id_t local, const operand_t& value) {
-        if (type_of(value) == type_id_t::STRING) {
-            take(value);
-        }
-
+        take(value);
         emit(assign_t{ .target = local, .value = use_t{ .value = value } });
     }
 
-    /// A new value for a variable that already has one; a String's old value is released.
+    /// A new value for a variable that already has one; its old references are released.
     void store(const place_t& target, const operand_t& value) {
-        if (type_of(value) == type_id_t::STRING) {
+        if (has_references(type_of(value))) {
             take(value);
             emit(release_t{ .target = target });
         }
@@ -461,7 +566,7 @@ private:
     }
 
     void lower_stmt(stmt_id_t /*id*/, const span_t span, const assign_stmt_t& node) {
-        const place_t target = place_of(expect(m_analysis.expr(node.target).symbol));
+        const place_t target = lower_place(node.target);
         const type_id_t type = type_of(target);
         const operand_t value = lower_value(node.value);
         if (!node.op) {
@@ -484,7 +589,7 @@ private:
     }
 
     void lower_stmt(stmt_id_t /*id*/, const span_t span, const increment_stmt_t& node) {
-        const place_t target = place_of(expect(m_analysis.expr(node.target).symbol));
+        const place_t target = lower_place(node.target);
         const binary_op_t op = node.decrement ? binary_op_t::SUBTRACT : binary_op_t::ADD;
         emit(assign_t{
             .target = target,
@@ -500,11 +605,11 @@ private:
             return; // every use reads the value directly
         }
 
-        const operand_t value = node.value ? lower_value(*node.value) : zero(symbol.type);
+        const operand_t value = node.value ? lower_value(*node.value) : zero_value(symbol.type);
         const local_id_t local = add_local(symbol.type, symbol.name);
         m_locals[symbol_id] = local;
         initialize(local, value);
-        if (symbol.type == type_id_t::STRING) {
+        if (has_references(symbol.type)) {
             m_scopes.back().push_back(local);
         }
 
@@ -761,7 +866,7 @@ private:
         const operand_t value = lower_value(node.subject);
         const local_id_t subject = add_local(type);
         initialize(subject, value);
-        if (type == type_id_t::STRING) {
+        if (has_references(type)) {
             m_scopes.back().push_back(subject);
         }
 
@@ -848,12 +953,15 @@ private:
     }
 
     void lower_stmt(stmt_id_t /*id*/, span_t /*span*/, const return_stmt_t& node) {
+        if (m_returns_self) {
+            return_self();
+            return;
+        }
+
         std::optional<operand_t> result;
         if (node.value) {
             result = lower_value(*node.value);
-            if (current().return_type == type_id_t::STRING) {
-                take(*result); // the caller owns the String it gets back
-            }
+            take(*result); // the caller owns the references it gets back
         }
 
         finish_statement();
@@ -867,12 +975,45 @@ private:
         return m_ast.get(id).span;
     }
 
+    /// A variable's place. A field used by name in a Method or New is in Self.
     place_t place_of(const symbol_id_t symbol) {
         if (const auto found = m_locals.find(symbol); found != m_locals.end()) {
             return found->second;
         }
 
+        if (const symbol_t& field = m_analysis.symbol(symbol); field.kind == symbol_kind_t::FIELD) {
+            place_t place{ expect(m_self) };
+            place.fields.push_back(field.field);
+            return place;
+        }
+
         return m_globals.at(symbol);
+    }
+
+    /// Where a variable, Self, or a field inside one lives, without copying it. Anything else,
+    /// like a call, gives a temporary.
+    place_t lower_place(const expr_id_t id) {
+        const expr_node_t& node = m_ast.get(id).node;
+        if (const auto* member = std::get_if<member_expr_t>(&node)) {
+            place_t place = lower_place(member->object);
+            place.fields.push_back(m_analysis.symbol(expect(m_analysis.expr(id).symbol)).field);
+            return place;
+        }
+
+        if (std::holds_alternative<self_expr_t>(node)) {
+            return expect(m_self);
+        }
+
+        if (std::holds_alternative<name_expr_t>(node)) {
+            return place_of(expect(m_analysis.expr(id).symbol));
+        }
+
+        const operand_t value = lower_value(id);
+        if (const auto* place = std::get_if<place_t>(&value)) {
+            return *place;
+        }
+
+        return std::get<place_t>(temporary(use_t{ .value = value }, type_of(value)));
     }
 
     /// The value of an expression, converted to the type its context needs.
@@ -901,6 +1042,14 @@ private:
 
     operand_t lower_expr(const expr_id_t id, const name_expr_t& /*node*/) {
         return place_of(expect(m_analysis.expr(id).symbol));
+    }
+
+    operand_t lower_expr(const expr_id_t id, const member_expr_t& /*node*/) {
+        return lower_place(id);
+    }
+
+    operand_t lower_expr(expr_id_t /*id*/, const self_expr_t& /*node*/) {
+        return place_t{ expect(m_self) };
     }
 
     /// Interpolation: every part becomes a String, then they're joined.
@@ -938,6 +1087,19 @@ private:
 
         const operand_t left = lower_value(node.left);
         const operand_t right = lower_value(node.right);
+        // Structs only have == and !=, which compare each field.
+        if (is_struct(type_of(left))) {
+            operand_t equal =
+                equal_fields(std::get<place_t>(left), std::get<place_t>(right), span_of(id));
+            if (node.op == binary_op_t::EQUAL) {
+                return equal;
+            }
+
+            return temporary(
+                unary_t{ .op = unary_op_t::NOT, .operand = equal, .span = span_of(id) },
+                type_id_t::BOOL);
+        }
+
         // Strings only have +, ==, and !=, which go through the runtime.
         if (type_of(left) == type_id_t::STRING) {
             if (node.op == binary_op_t::ADD) {
@@ -959,6 +1121,32 @@ private:
         return temporary(
             binary_t{ .op = node.op, .left = left, .right = right, .span = span_of(id) },
             m_analysis.expr(id).type);
+    }
+
+    /// Whether two Structs of the same type have equal fields, each compared the way == compares
+    /// its type. A Struct without fields is always equal.
+    operand_t equal_fields(const place_t& left, const place_t& right, const span_t span) {
+        const type_id_t type = type_of(left);
+        operand_t result = make_bool(true);
+        const std::vector<field_t>& fields = m_analysis.types.get(type).fields;
+        for (std::uint32_t i = 0; i < fields.size(); ++i) {
+            place_t a = left;
+            place_t b = right;
+            a.fields.push_back(i);
+            b.fields.push_back(i);
+            operand_t same;
+            if (is_struct(fields[i].type)) {
+                same = equal_fields(a, b, span);
+            } else if (fields[i].type == type_id_t::STRING) {
+                same = runtime_call(runtime_function_t::EQUAL, { a, b }, type_id_t::BOOL);
+            } else {
+                same = compare(binary_op_t::EQUAL, a, b, span);
+            }
+
+            result = i == 0 ? same : compare(binary_op_t::AND, result, same, span);
+        }
+
+        return result;
     }
 
     /// && and || only evaluate the right side when it decides the result.
@@ -1008,10 +1196,7 @@ private:
             start(starts.back());
             const std::size_t mark = m_temporaries.size();
             const operand_t value = lower_value(branch);
-            if (type == type_id_t::STRING) {
-                take(value);
-            }
-
+            take(value);
             emit(assign_t{ .target = result, .value = use_t{ .value = value } });
             release_temporaries_from(mark);
             leave(exits);
@@ -1020,8 +1205,9 @@ private:
         block_at(test).terminator =
             branch_t{ .condition = condition, .if_true = starts[0], .if_false = starts[1] };
         join(exits);
-        // The result owns its String, so it's released after the statement like a temporary.
-        if (type == type_id_t::STRING) {
+        // The result owns its references, so it's released after the statement like a
+        // temporary.
+        if (has_references(type)) {
             m_temporaries.push_back(result);
         }
 
@@ -1032,25 +1218,54 @@ private:
         return expect(lower_call(id));
     }
 
-    /// A call's result, or nullopt when it returns nothing. A String result is released after
-    /// the statement unless something takes it.
+    /// A call's result, or nullopt when it returns nothing. A result with references is released
+    /// after the statement unless something takes it.
     std::optional<operand_t> lower_call(const expr_id_t id) {
         const expr_info_t& info = m_analysis.expr(id);
         const symbol_t& function = m_analysis.symbol(expect(info.symbol));
+        const auto& node = std::get<call_expr_t>(m_ast.get(id).node);
         std::vector<call_argument_t> arguments;
+        // A Method's Struct comes first: the variable itself for a ByRef Method, else its value.
+        // Called by name, it's Self.
+        if (function.kind == symbol_kind_t::METHOD) {
+            const auto* member = std::get_if<member_expr_t>(&m_ast.get(node.callee).node);
+            if (function.by_ref) {
+                const place_t receiver =
+                    member != nullptr ? lower_place(member->object) : place_t{ expect(m_self) };
+                arguments.push_back({ .value = receiver, .by_ref = true });
+            } else {
+                const operand_t receiver =
+                    member != nullptr ? lower_value(member->object) : place_t{ expect(m_self) };
+                arguments.push_back({ .value = receiver });
+            }
+        }
+
         for (std::size_t i = 0; i < info.arguments.size(); ++i) {
             const symbol_t& parameter = m_analysis.symbol(function.parameters[i]);
             const std::optional<expr_id_t> argument = info.arguments[i];
-            // A missing argument gets the parameter's default, which is known at compile time.
-            // ByRef passes the variable itself.
+            // A missing argument gets the parameter's default, which is known at compile time,
+            // or a field's zero. ByRef passes the variable itself.
             if (!argument) {
-                arguments.push_back({ .value = expect(parameter.value) });
+                const operand_t value =
+                    parameter.value ? operand_t{ *parameter.value } : zero_value(parameter.type);
+                arguments.push_back({ .value = value });
             } else if (parameter.by_ref) {
-                const place_t variable = place_of(expect(m_analysis.expr(*argument).symbol));
-                arguments.push_back({ .value = variable, .by_ref = true });
+                arguments.push_back({ .value = lower_place(*argument), .by_ref = true });
             } else {
                 arguments.push_back({ .value = lower_value(*argument) });
             }
+        }
+
+        // The constructor a Struct gets puts its arguments in the fields, which take their own
+        // references.
+        if (function.kind == symbol_kind_t::CONSTRUCTOR && !function.declaration) {
+            aggregate_t value{ .type = function.type };
+            for (const call_argument_t& argument : arguments) {
+                take(argument.value);
+                value.fields.push_back(argument.value);
+            }
+
+            return temporary(std::move(value), function.type, has_references(function.type));
         }
 
         // Print is the only built-in function for now.
@@ -1074,7 +1289,7 @@ private:
             return std::nullopt;
         }
 
-        return temporary(std::move(call), function.type, function.type == type_id_t::STRING);
+        return temporary(std::move(call), function.type, has_references(function.type));
     }
 
     operand_t lower_expr(const expr_id_t id, const cast_expr_t& node) {

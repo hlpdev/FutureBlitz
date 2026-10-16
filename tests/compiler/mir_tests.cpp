@@ -232,3 +232,59 @@ TEST_CASE("Globals known at compile time are static; the rest are set first in m
                                                 "    print(@name)\n"
                                                 "    return\n");
 }
+
+TEST_CASE("a Struct is built from its fields, and copies count its Strings", "[mir]") {
+    // _0 holds the new Tag and hands it to t. Copying t into u retains its Strings, and changing
+    // u.name releases the old one first.
+    CHECK(lower_text("Struct Tag\n"
+                     "    Field name: String\n"
+                     "    Field id: Int = 7\n"
+                     "End Struct\n"
+                     "Local t = Tag(\"a\")\n"
+                     "Local u = t\n"
+                     "u.name = \"b\"") == "function main\n"
+                                          "    _0: Tag\n"
+                                          "    _1 t: Tag\n"
+                                          "    _2 u: Tag\n"
+                                          "bb0:\n"
+                                          "    _0 = Tag { name: \"a\", id: 7 }\n"
+                                          "    _1 = _0\n"
+                                          "    retain _1\n"
+                                          "    _2 = _1\n"
+                                          "    release _2.name\n"
+                                          "    _2.name = \"b\"\n"
+                                          "    release _2\n"
+                                          "    release _1\n"
+                                          "    return\n");
+}
+
+TEST_CASE("a ByRef Method gets its Struct's address, and == compares fields", "[mir]") {
+    CHECK(lower_text("Struct C\n"
+                     "    Field n: Int\n"
+                     "    ByRef Method Bump()\n"
+                     "        n += 1\n"
+                     "    End Method\n"
+                     "End Struct\n"
+                     "Local c = C()\n"
+                     "c.Bump()\n"
+                     "Local same = c == C(1)") == "function C.Bump()\n"
+                                                  "    _0 ByRef Self: C\n"
+                                                  "bb0:\n"
+                                                  "    _0.n = _0.n + 1\n"
+                                                  "    return\n"
+                                                  "\n"
+                                                  "function main\n"
+                                                  "    _0: C\n"
+                                                  "    _1 c: C\n"
+                                                  "    _2: C\n"
+                                                  "    _3: Bool\n"
+                                                  "    _4 same: Bool\n"
+                                                  "bb0:\n"
+                                                  "    _0 = C { n: 0 }\n"
+                                                  "    _1 = _0\n"
+                                                  "    call C.Bump()(ByRef _1)\n"
+                                                  "    _2 = C { n: 1 }\n"
+                                                  "    _3 = _1.n == _2.n\n"
+                                                  "    _4 = _3\n"
+                                                  "    return\n");
+}

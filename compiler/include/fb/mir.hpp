@@ -40,12 +40,21 @@ struct global_t {
     std::string_view name;
     type_id_t type = type_id_t::INVALID;
     /// Its value when the program starts: the initializer's when that's known at compile time,
-    /// else zero, False, or "" until main sets it.
-    const_value_t initial;
+    /// else zero, False, or "" until main sets it. nullopt for a Struct, which starts with every
+    /// field at zero.
+    std::optional<const_value_t> initial;
 };
 
-/// Somewhere a value is stored.
-using place_t = std::variant<local_id_t, global_id_t>;
+/// Somewhere a value is stored: a local or a global, or a field inside one, like "_1.pos.x".
+struct place_t {
+    std::variant<local_id_t, global_id_t> root;
+    /// The positions of the fields from the root inward.
+    std::vector<std::uint32_t> fields;
+
+    // Implicit, so a local or global can be used wherever a place goes.
+    place_t(const local_id_t local) : root(local) {}
+    place_t(const global_id_t global) : root(global) {}
+};
 
 /// A value an instruction reads: a constant, or what a place holds.
 using operand_t = std::variant<const_value_t, place_t>;
@@ -119,11 +128,25 @@ struct runtime_call_t {
     std::vector<operand_t> arguments;
 };
 
+/// A Struct value made of one operand per field, in order. It holds the fields' references,
+/// which lowering has already given it.
+struct aggregate_t {
+    type_id_t type;
+    std::vector<operand_t> fields;
+};
+
+/// The value every variable of `type` starts with: zero, False, or "", and the same for each
+/// field of a Struct.
+struct zero_t {
+    type_id_t type;
+};
+
 /// Something a statement computes.
-using rvalue_t = std::variant<use_t, unary_t, binary_t, cast_t, call_t, runtime_call_t>;
+using rvalue_t =
+    std::variant<use_t, unary_t, binary_t, cast_t, call_t, runtime_call_t, aggregate_t, zero_t>;
 
 /// "target = value". It doesn't count references; lowering adds retain_t and release_t for
-/// Strings.
+/// Strings, and for Structs that hold them.
 struct assign_t {
     place_t target;
     rvalue_t value;
@@ -134,8 +157,8 @@ struct evaluate_t {
     rvalue_t value;
 };
 
-/// Adds a reference to a String for a new holder. String constants are static, and retain and
-/// release ignore them.
+/// Adds a reference to a String for a new holder, or to every String in a Struct. String
+/// constants are static, and retain and release ignore them.
 struct retain_t {
     operand_t value;
 };
@@ -206,6 +229,9 @@ struct mir_module_t {
     /// "main": the top-level code, which runs when the program starts. Globals whose values
     /// aren't known at compile time are set at its start.
     function_id_t entry{};
+    /// The types that locals, globals, and functions refer to. They belong to the analysis,
+    /// which must outlive the module.
+    const type_table_t* types = nullptr;
 };
 
 /// The module as text, which `fb --show mir` prints.

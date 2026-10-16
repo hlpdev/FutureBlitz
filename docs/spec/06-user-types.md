@@ -15,6 +15,27 @@ End Struct
 Local p = Particle(pos: Vec3(0, 0, 0), vel: Vec3(0, 1, 0), life: 1.0)
 ```
 
+- Every struct gets a constructor whose parameters are its fields, in declaration order, with
+  the fields' defaults. Like any call, it takes positional or named arguments. Declaring a `New`
+  replaces it.
+- A method sees `Self` and its fields read-only. A `ByRef Method` can change them, so it can only
+  be called on something assignable: a `Local`, a `Global`, a `ByRef` parameter, or a field or
+  element of one.
+
+```vb
+Struct Counter
+    Field count: Int
+
+    Method Doubled(): Int => count * 2      // reads Self
+    ByRef Method Bump()                     // changes Self
+        count++
+    End Method
+End Struct
+
+Local c = Counter(1)
+c.Bump()
+```
+
 ## Class (reference type)
 
 Heap-allocated, refcounted, shared by reference.
