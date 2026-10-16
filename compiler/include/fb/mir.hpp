@@ -74,7 +74,9 @@ struct unary_t {
 /// An arithmetic, bitwise, comparison, or Bool operator. Both operands have the same type,
 /// except that a shift's amount can be any integer. Comparisons give a Bool, and the rest give
 /// the left operand's type. && and || evaluate both sides here; short-circuiting already
-/// happened with blocks. Strings use runtime calls instead.
+/// happened with blocks. Strings use runtime calls instead. A T? only has == and !=: a String?
+/// or Class? compares references, and any other T? only with a Null constant, which tells
+/// whether it holds a value.
 struct binary_t {
     binary_op_t op;
     operand_t left;
@@ -88,7 +90,8 @@ struct binary_t {
 
 /// Converts between numbers, or from a Bool to an integer (0 or 1), for 'As' and for implicit
 /// conversions. Integers are cut down or extended. A float to an integer drops the fraction,
-/// and panics at `span` when the rest doesn't fit.
+/// and panics at `span` when the rest doesn't fit. A T, or a T?, converts to a U? whose U the
+/// T converts to.
 struct cast_t {
     operand_t value;
     type_id_t type;
@@ -135,15 +138,22 @@ struct aggregate_t {
     std::vector<operand_t> fields;
 };
 
-/// The value every variable of `type` starts with: zero, False, or "", and the same for each
-/// field of a Struct.
+/// The value every variable of `type` starts with: zero, False, "", or Null, and the same for
+/// each field of a Struct. A Class's is null, which only a variable that isn't assigned yet
+/// holds.
 struct zero_t {
     type_id_t type;
 };
 
+/// A new object of a Class, with one owner and every field zeroed. Lowering sets the fields
+/// that need another value next.
+struct new_t {
+    type_id_t type;
+};
+
 /// Something a statement computes.
-using rvalue_t =
-    std::variant<use_t, unary_t, binary_t, cast_t, call_t, runtime_call_t, aggregate_t, zero_t>;
+using rvalue_t = std::variant<use_t, unary_t, binary_t, cast_t, call_t, runtime_call_t, aggregate_t,
+                              zero_t, new_t>;
 
 /// "target = value". It doesn't count references; lowering adds retain_t and release_t for
 /// Strings, and for Structs that hold them.
@@ -220,10 +230,19 @@ struct mir_function_t {
     std::vector<basic_block_t> blocks;
 };
 
+/// A Class, for the runtime: codegen makes its fb_class_t, and the destroy that runs its
+/// Destroy() and releases its fields.
+struct mir_class_t {
+    type_id_t type;
+    /// The Class's Destroy() Method, if it has one.
+    std::optional<function_id_t> destroy;
+};
+
 /// A whole program, lowered from one file. Names view the source text, so the file must
 /// outlive the module.
 struct mir_module_t {
     std::vector<global_t> globals;
+    std::vector<mir_class_t> classes;
     /// The Functions in source order, then the entry.
     std::vector<mir_function_t> functions;
     /// "main": the top-level code, which runs when the program starts. Globals whose values

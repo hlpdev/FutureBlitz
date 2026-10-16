@@ -660,17 +660,9 @@ TEST_CASE("Select", "[sema]") {
 }
 
 TEST_CASE("features after M1 are reported as not supported yet", "[sema]") {
-    CHECK(errors_of("Local x = Null") == errors_t{ "Null: 'Null' isn't supported yet" });
-    CHECK(errors_of("Local x: Int? = 1") ==
-          errors_t{ "Int?: nullable types aren't supported yet" });
     CHECK(errors_of("Local x: Int[]") == errors_t{ "Int[]: arrays aren't supported yet" });
-    CHECK(errors_of("Local a = 1\nLocal x = a?.b") == errors_t{ "a?.b: '?.' isn't supported yet" });
     CHECK(errors_of("Local a = 1\nLocal x = a[0]") ==
           errors_t{ "a[0]: indexing isn't supported yet" });
-
-    // The message is split in two so the compiler doesn't see a trigraph in it.
-    CHECK(errors_of("Local a = 1\nLocal x = a ?? 2") == errors_t{ "a ?? 2: '?"
-                                                                  "?' isn't supported yet" });
     CHECK(errors_of("Local a = 1\nLocal x = a Is Int") ==
           errors_t{ "a Is Int: 'Is' isn't supported yet" });
     CHECK(errors_of("Local a = 1\nLocal x = a As? Int") ==
@@ -874,9 +866,10 @@ TEST_CASE("New", "[sema]") {
 
 TEST_CASE("Struct members only go in Structs", "[sema]") {
     CHECK(errors_of("Method M()\nEnd Method") ==
-          errors_t{ "M: Methods can only be declared in a Struct" });
+          errors_t{ "M: Methods can only be declared in a Struct or Class" });
     CHECK(errors_of("Field x: Int") == errors_t{ "x: Fields can only be declared in a Struct" });
-    CHECK(errors_of("New()\nEnd New") == errors_t{ "New: New can only be declared in a Struct" });
+    CHECK(errors_of("New()\nEnd New") ==
+          errors_t{ "New: New can only be declared in a Struct or Class" });
     CHECK(errors_of("Function F()\n    Struct P\n    End Struct\nEnd Function") ==
           errors_t{ "P: Structs can only be declared at the top level" });
     CHECK(errors_of("Struct P\n    Print(\"x\")\nEnd Struct") ==
@@ -895,6 +888,345 @@ TEST_CASE("names in a Method", "[sema]") {
                     "    Method B(): Int => x\n"
                     "End Struct")
               .empty());
+}
+
+// Classes
+
+TEST_CASE("a Class without a New gets one without parameters", "[sema]") {
+    CHECK(probe("Class A\n    Field x: Int = 3\nEnd Class\nLocal a = A()") == "A");
+    CHECK(errors_of("Class A\n    Field x: Int\nEnd Class\nLocal a = A(1)") ==
+          errors_t{ "1: too many arguments to 'A'" });
+}
+
+TEST_CASE("a Class's fields change through any reference", "[sema]") {
+    constexpr std::string_view point = "Class P\n    Field x: Int\nEnd Class\n";
+    const auto with_point = [&](const std::string_view text) {
+        return errors_of(std::format("{}{}", point, text));
+    };
+
+    // A read-only parameter or Const can't be replaced, but its object can change.
+    CHECK(with_point("Function F(p: P)\n    p.x = 1\nEnd Function").empty());
+    CHECK(with_point("Const C = P()\nC.x = 2").empty());
+    CHECK(with_point("Function F(p: P)\n    p = P()\nEnd Function") ==
+          errors_t{ "p: 'p' is a parameter and can't be changed; copy it into a Local, or make it "
+                    "ByRef" });
+
+    // Its Methods can change its fields, but Self is the object and can't be replaced.
+    CHECK(errors_of("Class C\n"
+                    "    Field n: Int\n"
+                    "    Method Bump()\n"
+                    "        n += 1\n"
+                    "        Self.n += 1\n"
+                    "    End Method\n"
+                    "End Class")
+              .empty());
+    CHECK(errors_of("Class C\n    Method M()\n        Self = C()\n    End Method\nEnd Class") ==
+          errors_t{ "Self: Self is the object itself and can't be replaced" });
+    CHECK(errors_of("Class C\n    ByRef Method M()\n    End Method\nEnd Class") ==
+          errors_t{ "M: only a Struct's Methods can be ByRef; a Class's Methods can always change "
+                    "its fields" });
+}
+
+TEST_CASE("Destroy", "[sema]") {
+    CHECK(errors_of("Class C\n    Method Destroy()\n    End Method\nEnd Class").empty());
+    CHECK(errors_of("Class C\n    Method Destroy(a: Int)\n    End Method\nEnd Class") ==
+          errors_t{ "Destroy: Destroy takes no parameters and returns nothing" });
+    CHECK(errors_of("Struct S\n    Method Destroy()\n    End Method\nEnd Struct") ==
+          errors_t{ "Destroy: a Struct can't have a Destroy; only a Class's runs when its last "
+                    "reference goes away" });
+    CHECK(errors_of("Class C\n"
+                    "    Method Destroy()\n"
+                    "    End Method\n"
+                    "End Class\n"
+                    "Local c = C()\n"
+                    "c.Destroy()") ==
+          errors_t{ "c.Destroy: Destroy runs by itself when an object's last reference goes away; "
+                    "it can't be called" });
+}
+
+TEST_CASE("Class references", "[sema]") {
+    constexpr std::string_view a = "Class A\nEnd Class\n";
+    const auto with_a = [&](const std::string_view text) { return std::format("{}{}", a, text); };
+
+    CHECK(probe(with_a("Local x = A()\nLocal same = x == x")) == "Bool");
+    CHECK(probe(with_a("Local x = A()\nLocal same = RefEquals(x, A())")) == "Bool");
+    CHECK(errors_of("Local same = RefEquals(1, 2)") ==
+          errors_t{ "1: RefEquals compares Class references, not Int32",
+                    "2: RefEquals compares Class references, not Int32" });
+    CHECK(errors_of(with_a("Local b = A() < A()")) ==
+          errors_t{ "A() < A(): '<' can't be used on A" });
+    CHECK(errors_of(with_a("Print(\"{A()}\")")) == errors_t{ "A(): A can't be shown in a string" });
+
+    // RefEquals takes an A? too, but checking for Null takes ==.
+    CHECK(probe(with_a("Local x: A? = Null\nLocal same = RefEquals(x, A())")) == "Bool");
+    CHECK(errors_of(with_a("Local x: A? = Null\nLocal same = RefEquals(x, Null)")) ==
+          errors_t{ "Null: RefEquals compares two references; check for Null with '== Null'" });
+
+    // A Local can wait for its value; a Global can't, since a Class has no zero. An A? starts
+    // at Null.
+    CHECK(errors_of(with_a("Local x: A\nx = A()")).empty());
+    CHECK(errors_of(with_a("Global g: A")) ==
+          errors_t{ "g: 'g' needs a value, since A has no zero value" });
+    CHECK(errors_of(with_a("Global g: A?")).empty());
+}
+
+// Nullability
+
+TEST_CASE("a T? holds a T or Null", "[sema]") {
+    CHECK(probe("Local x: Int? = 1") == "Int32? 1 (from Int32)");
+    CHECK(probe("Local x: Long? = 1") == "Int64? 1 (from Int64)");
+    CHECK(probe("Local x: Int? = Null") == "Int32? Null");
+    CHECK(probe("Local x = 5 As Long?") == "Int64? 5");
+    CHECK(probe("Local a: Int = 1\nLocal x: Long? = a") == "Int64? (from Int32)");
+    CHECK(probe("Function F(): String? => Null\nLocal x = F()") == "String?");
+
+    // Null takes the T? it's used as.
+    CHECK(errors_of("Local x = Null") ==
+          errors_t{ "Null: Null needs a type from where it's used, like 'Local e: Enemy? = "
+                    "Null'" });
+    CHECK(errors_of("Local x: Int = Null") == errors_t{ "Null: Int32 can't be Null; Int32? can" });
+    CHECK(errors_of("Print(Null)") == errors_t{ "Null: String can't be Null; String? can" });
+}
+
+TEST_CASE("a T? has to be checked before it's used as a T", "[sema]") {
+    // The messages are split around "??" so the compiler doesn't see a trigraph in them.
+    CHECK(errors_of("Function F(s: String?)\n    Print(s)\nEnd Function") ==
+          errors_t{ "s: expected String, found String?, which may be Null; check it first, or "
+                    "give a value for Null with '?"
+                    "?'" });
+    CHECK(errors_of("Function F(x: Int?)\n    Print(\"{x}\")\nEnd Function") ==
+          errors_t{ "x: Int32? can't be shown in a string, since it may be Null; give a value "
+                    "for Null with '?"
+                    "?'" });
+    CHECK(errors_of("Function F(x: Int?): Int => x + 1") ==
+          errors_t{ "x + 1: '+' can't be used on Int32?, which may be Null" });
+}
+
+TEST_CASE("a null check narrows a T? to its T", "[sema]") {
+    constexpr std::string_view enemy = "Class E\n    Field hp: Int\nEnd Class\n";
+    const auto with_enemy = [&](const std::string_view text) {
+        return errors_of(std::format("{}{}", enemy, text));
+    };
+
+    CHECK(with_enemy("Function F(e: E?): Int => e.hp") ==
+          errors_t{ "e: 'e' may be Null; check that it isn't, or use '?.'" });
+
+    // If, ElseIf, an early Return, !, &&, ||, ?:, and While all narrow.
+    CHECK(with_enemy("Function F(e: E?): Int\n"
+                     "    If e != Null Then Return e.hp\n"
+                     "    Return 0\n"
+                     "End Function")
+              .empty());
+    CHECK(with_enemy("Function F(e: E?): Int\n"
+                     "    If e == Null\n"
+                     "        Return 0\n"
+                     "    ElseIf e.hp > 0\n"
+                     "        Return 1\n"
+                     "    End If\n"
+                     "    Return e.hp\n"
+                     "End Function")
+              .empty());
+    CHECK(with_enemy("Function F(e: E?): Bool => !(e == Null) && e.hp > 0").empty());
+    CHECK(with_enemy("Function F(e: E?): Bool => e == Null || e.hp > 0").empty());
+    CHECK(with_enemy("Function F(e: E?): Int => e != Null ? e.hp : 0").empty());
+    CHECK(with_enemy("Function F(e: E?): Int\n"
+                     "    Local x = e\n"
+                     "    While x == Null\n"
+                     "        x = E()\n"
+                     "    End While\n"
+                     "    Return x.hp\n"
+                     "End Function")
+              .empty());
+
+    // Assigning something that can't be Null narrows too.
+    CHECK(with_enemy("Local e: E? = Null\ne = E()\nLocal hp = e.hp").empty());
+
+    // The other side of a check doesn't.
+    CHECK(with_enemy("Function F(e: E?): Bool => e != Null || e.hp > 0") ==
+          errors_t{ "e: 'e' may be Null; check that it isn't, or use '?.'" });
+}
+
+TEST_CASE("narrowing lasts while the variable can't change", "[sema]") {
+    constexpr std::string_view enemy = "Class E\n    Field hp: Int\nEnd Class\n";
+    const auto with_enemy = [&](const std::string_view text) {
+        return errors_of(std::format("{}{}", enemy, text));
+    };
+
+    // A Global or a field can change during any call, so they need a Local copy.
+    CHECK(with_enemy("Global g: E? = Null\nIf g != Null Then Print(\"{g.hp}\")") ==
+          errors_t{ "g: 'g' may be Null; check a Local copy of it, or use '?.'" });
+    CHECK(with_enemy("Class H\n"
+                     "    Field e: E?\n"
+                     "End Class\n"
+                     "Local h = H()\n"
+                     "If h.e != Null Then Print(\"{h.e.hp}\")") ==
+          errors_t{ "h.e: 'h.e' may be Null; check a Local copy of it, or use '?.'" });
+
+    // Assigning a T?, or passing the variable ByRef, ends it.
+    CHECK(with_enemy("Function F(e: E?, other: E?): Int\n"
+                     "    Local x = e\n"
+                     "    If x == Null Then Return 0\n"
+                     "    x = other\n"
+                     "    Return x.hp\n"
+                     "End Function") ==
+          errors_t{ "x: 'x' may be Null; check that it isn't, or use '?.'" });
+    CHECK(with_enemy("Function Clear(ByRef e: E?)\n"
+                     "    e = Null\n"
+                     "End Function\n"
+                     "Local x: E? = E()\n"
+                     "Clear(ByRef x)\n"
+                     "Local hp = x.hp") ==
+          errors_t{ "x: 'x' may be Null; check that it isn't, or use '?.'" });
+
+    // A loop that changes the variable can't count on a check from before it.
+    CHECK(with_enemy("Local x: E? = E()\n"
+                     "For i = 1 To 2\n"
+                     "    x.hp += 1\n"
+                     "    x = Null\n"
+                     "End For") ==
+          errors_t{ "x: 'x' may be Null; check that it isn't, or use '?.'" });
+    CHECK(with_enemy("Local x: E? = E()\n"
+                     "For i = 1 To 2\n"
+                     "    x.hp += 1\n"
+                     "End For")
+              .empty());
+}
+
+TEST_CASE("?. and ?? give Null, or a value for it", "[sema]") {
+    constexpr std::string_view enemy = "Class E\n"
+                                       "    Field hp: Int\n"
+                                       "    Method Hp(): Int => hp\n"
+                                       "End Class\n"
+                                       "Local e: E? = Null\n";
+    const auto with_enemy = [&](const std::string_view text) {
+        return std::format("{}{}", enemy, text);
+    };
+
+    CHECK(probe(with_enemy("Local x = e?.hp")) == "Int32?");
+    CHECK(probe(with_enemy("Local x = e?.Hp()")) == "Int32?");
+    CHECK(probe(with_enemy("Local x = e?.hp ?? 0")) == "Int32");
+    CHECK(probe("Local a: Int8? = Null\nLocal x = a ?? 1000") == "Int32");
+    CHECK(probe("Const C: Int? = Null\nLocal x = C ?? 7") == "Int32 7");
+    CHECK(probe("Const C: Int? = 3\nLocal x = C ?? 7") == "Int32 3");
+
+    // The messages are split around "??" so the compiler doesn't see a trigraph in them.
+    CHECK(errors_of("Local a: Int? = Null\nLocal x = a ?? \"no\"") ==
+          errors_t{ "a ?? \"no\": the sides of '?"
+                    "?' have different types, Int32 and String" });
+    CHECK(errors_of(with_enemy("e?.hp = 1")) ==
+          errors_t{ "e?.hp: a '?.' can't be assigned to; check that it isn't Null first" });
+
+    // Something that can't be Null doesn't need them.
+    CHECK(errors_of("Local a = 1\nLocal x = a ?? 2") == errors_t{ "a: 'a' can't be Null here, so '?"
+                                                                  "?' always gives it" });
+    CHECK(errors_of(with_enemy("Local f = E()\nLocal x = f?.hp")) ==
+          errors_t{ "f: 'f' can't be Null here, so '?.' isn't needed" });
+}
+
+TEST_CASE("comparing with Null", "[sema]") {
+    CHECK(probe("Local a: Int? = Null\nLocal x = a == Null") == "Bool");
+    CHECK(probe("Local a: Int? = Null\nLocal x = Null != a") == "Bool");
+    CHECK(probe("Local a: Int? = Null\nLocal x = a == 5") == "Bool");
+    CHECK(probe("Const C: Int? = Null\nLocal x = C == Null") == "Bool True");
+    CHECK(errors_of("Local a = 1\nLocal x = a == Null") ==
+          errors_t{ "a == Null: 'a' can't be Null here, so this is always False" });
+}
+
+TEST_CASE("overloads take Null as any T?", "[sema]") {
+    CHECK(probe("Function F(a: Int?): Int => 1\n"
+                "Function F(a: String): String => \"s\"\n"
+                "Local x = F(Null)") == "Int32");
+    CHECK(errors_of("Function F(a: Int?)\n"
+                    "End Function\n"
+                    "Function F(a: String?)\n"
+                    "End Function\n"
+                    "F(Null)") == errors_t{ "F: the call to 'F' is ambiguous" });
+}
+
+TEST_CASE("fields that refer to Classes are assigned by every New", "[sema]") {
+    constexpr std::string_view enemy = "Class E\nEnd Class\n";
+    const auto with_enemy = [&](const std::string_view text) {
+        return errors_of(std::format("{}{}", enemy, text));
+    };
+
+    CHECK(with_enemy("Class H\n"
+                     "    Field e: E\n"
+                     "    New(e: E)\n"
+                     "        Self.e = e\n"
+                     "    End New\n"
+                     "End Class")
+              .empty());
+    CHECK(with_enemy("Class H\n    Field e: E?\nEnd Class").empty());
+    CHECK(with_enemy("Class H\n    Field e: E\nEnd Class") ==
+          errors_t{ "e: H needs a New that assigns 'e', since E has no zero value" });
+
+    // On every path, and before any Return.
+    CHECK(with_enemy("Class H\n"
+                     "    Field e: E\n"
+                     "    New(make: Bool)\n"
+                     "        If make Then e = E()\n"
+                     "    End New\n"
+                     "End Class") ==
+          errors_t{ "New: New must assign 'e' on every path, since E has no zero value" });
+    CHECK(with_enemy("Class H\n"
+                     "    Field e: E\n"
+                     "    New(make: Bool)\n"
+                     "        If !make Then Return\n"
+                     "        e = E()\n"
+                     "    End New\n"
+                     "End Class") ==
+          errors_t{ "Return: New must assign 'e' before this Return, since E has no zero value" });
+
+    // Until then, nothing can read it, or use Self, which a Method could read it through.
+    CHECK(with_enemy("Class H\n"
+                     "    Field e: E\n"
+                     "    New()\n"
+                     "        Local x = Self.e\n"
+                     "        e = E()\n"
+                     "    End New\n"
+                     "End Class") == errors_t{ "Self.e: 'e' is read before New assigns it" });
+    CHECK(with_enemy("Function Use(h: H)\n"
+                     "End Function\n"
+                     "Class H\n"
+                     "    Field e: E\n"
+                     "    New()\n"
+                     "        Use(Self)\n"
+                     "        e = E()\n"
+                     "    End New\n"
+                     "End Class") == errors_t{ "Self: Self can't be used before New assigns 'e'" });
+    CHECK(with_enemy("Class H\n"
+                     "    Field e: E\n"
+                     "    New()\n"
+                     "        Check()\n"
+                     "        e = E()\n"
+                     "    End New\n"
+                     "    Method Check()\n"
+                     "    End Method\n"
+                     "End Class") ==
+          errors_t{ "Check: Self can't be used before New assigns 'e'" });
+}
+
+TEST_CASE("a Struct with a field that has no zero has none either", "[sema]") {
+    constexpr std::string_view pair = "Class E\n"
+                                      "End Class\n"
+                                      "Struct S\n"
+                                      "    Field e: E\n"
+                                      "    Field n: Int\n"
+                                      "End Struct\n";
+    const auto with_pair = [&](const std::string_view text) {
+        return std::format("{}{}", pair, text);
+    };
+
+    CHECK(probe(with_pair("Local s = S(E())")) == "S");
+    CHECK(errors_of(with_pair("Local s = S(n: 1)")) ==
+          errors_t{ "S(n: 1): missing an argument for parameter 'e'" });
+    CHECK(errors_of(with_pair("Global g: S")) ==
+          errors_t{ "g: 'g' needs a value, since S has no zero value" });
+
+    // A T? holds its T inline, but a Class's fields are in its object.
+    CHECK(errors_of("Struct S\n    Field next: S?\nEnd Struct") ==
+          errors_t{ "next: 'S' can't contain itself; a Struct is stored inline" });
+    CHECK(errors_of("Class N\n    Field next: N?\nEnd Class").empty());
 }
 
 // What codegen reads

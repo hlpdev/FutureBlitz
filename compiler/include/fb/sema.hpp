@@ -30,14 +30,14 @@ enum class symbol_kind_t : std::uint8_t {
     PARAMETER,
     /// A For loop's variable, which can't be assigned.
     LOOP_VARIABLE,
-    /// A Struct. Its `type` is the Struct type itself.
-    STRUCT,
-    /// One of a Struct's fields.
+    /// A Struct or Class. Its `type` is the type itself.
+    TYPE,
+    /// One of a Struct's or Class's fields.
     FIELD,
-    /// A Struct's Method or "ByRef Method". Self isn't among its parameters.
+    /// A Method, or a Struct's "ByRef Method". Self isn't among its parameters.
     METHOD,
-    /// A Struct's New, or the constructor a Struct without one gets, whose parameters are its
-    /// fields. Its `type` is the Struct.
+    /// A New, or the one a type without a New gets: a Struct's takes its fields, and a Class's
+    /// takes nothing. Its `type` is the Struct or Class.
     CONSTRUCTOR,
 };
 
@@ -54,8 +54,9 @@ struct symbol_t {
     type_id_t type = type_id_t::INVALID;
     /// A parameter declared ByRef, or a "ByRef Method".
     bool by_ref = false;
-    /// A parameter that calls can leave out. ByRef parameters never have a default. A field
-    /// always has one, since it's a parameter of the constructor a Struct gets.
+    /// A parameter that calls can leave out. ByRef parameters never have a default. A field is
+    /// a parameter of the constructor a Struct gets, so it has one, its own or zero, unless its
+    /// type has no zero.
     bool has_default = false;
     /// A Const's value, or a parameter's or field's default value, when it's known at compile
     /// time. A field without one starts at zero.
@@ -65,22 +66,24 @@ struct symbol_t {
     /// The statement that declares it. nullopt for parameters, builtins, and the constructor a
     /// Struct gets.
     std::optional<stmt_id_t> declaration;
-    /// A field's, Method's, or constructor's Struct.
+    /// A field's, Method's, or constructor's Struct or Class.
     type_id_t owner = type_id_t::INVALID;
-    /// A Method's or New's Self: a parameter in a Method (ByRef in a "ByRef Method"), and a
-    /// Local in New, which returns it.
+    /// A Method's or New's Self: a parameter in a Method (ByRef in a "ByRef Method"), and in a
+    /// Struct's New, a Local that New returns. A Class's Self is a reference, which can't be
+    /// replaced, though its object's fields can change.
     std::optional<symbol_id_t> self;
-    /// A Struct's fields in order, then its Methods and constructors.
+    /// A Struct's or Class's fields in order, then its Methods and constructors.
     std::vector<symbol_id_t> members;
-    /// A field's position among its Struct's fields.
+    /// A field's position among its type's fields.
     std::uint32_t field = 0;
 };
 
 /// What analysis found out about one expression.
 struct expr_info_t {
     /// The expression's own type. A literal takes the type its context expects when its value
-    /// fits, like Int64 for the `1` in "x + 1" with x an Int64. NONE for a call that returns
-    /// nothing, and INVALID after an error.
+    /// fits, like Int64 for the `1` in "x + 1" with x an Int64. A nullable variable that a null
+    /// check narrowed has its T. NONE for a call that returns nothing, and INVALID after an
+    /// error.
     type_id_t type = type_id_t::INVALID;
     /// The type the context converts it to, without loss: Int64 for an Int32 passed to an Int64
     /// parameter. The same as `type` when nothing converts it; lowering casts when they differ.

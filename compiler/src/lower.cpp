@@ -127,8 +127,8 @@ class lowerer_t {
 public:
     lowerer_t(const ast_t& ast, const analysis_t& analysis) : m_ast(ast), m_analysis(analysis) {
         for (std::size_t i = 0; i < analysis.symbols.size(); ++i) {
-            if (analysis.symbols[i].kind == symbol_kind_t::STRUCT) {
-                m_structs[analysis.symbols[i].type] = static_cast<symbol_id_t>(i);
+            if (analysis.symbols[i].kind == symbol_kind_t::TYPE) {
+                m_declared_types[analysis.symbols[i].type] = static_cast<symbol_id_t>(i);
             }
         }
     }
@@ -137,11 +137,12 @@ public:
         m_module.types = &m_analysis.types;
         declare_globals();
         declare_functions();
+        declare_classes();
         for (const stmt_id_t id : m_ast.items()) {
             const stmt_node_t& node = m_ast.get(id).node;
             if (const auto* function = std::get_if<function_stmt_t>(&node)) {
                 lower_function(id, *function);
-            } else if (const auto* declared = std::get_if<struct_stmt_t>(&node)) {
+            } else if (const auto* declared = std::get_if<type_stmt_t>(&node)) {
                 for (const stmt_id_t member : declared->members) {
                     if (const auto* method =
                             std::get_if<function_stmt_t>(&m_ast.get(member).node)) {
@@ -162,7 +163,7 @@ private:
     std::unordered_map<symbol_id_t, function_id_t> m_functions;
     std::unordered_map<symbol_id_t, global_id_t> m_globals;
     /// Each Struct's symbol, by its type.
-    std::unordered_map<type_id_t, symbol_id_t> m_structs;
+    std::unordered_map<type_id_t, symbol_id_t> m_declared_types;
 
     // The function being lowered
     function_id_t m_function{};
@@ -185,9 +186,13 @@ private:
             const symbol_t& symbol = m_analysis.symbol(id);
             const auto& node =
                 std::get<variable_stmt_t>(m_ast.get(expect(symbol.declaration)).node);
+            // Only a built-in type's zero is a constant, and a T?'s, which is Null. A Struct or
+            // Class starts all zero.
             std::optional<const_value_t> initial;
-            if (!is_struct(symbol.type)) {
+            if (m_analysis.types.get(symbol.type).kind == type_kind_t::BUILTIN) {
                 initial = zero(symbol.type);
+            } else if (is_nullable(symbol.type)) {
+                initial = null_of(symbol.type);
             }
 
             if (node.value) {
@@ -215,6 +220,28 @@ private:
 
         m_module.entry = static_cast<function_id_t>(m_module.functions.size());
         m_module.functions.push_back({ .name = "main" });
+    }
+
+    /// Each Class, with its Destroy() if it has one.
+    void declare_classes() {
+        for (const auto& [type, declared] : m_declared_types) {
+            if (!is_class(type)) {
+                continue;
+            }
+
+            mir_class_t info{ .type = type };
+            for (const symbol_id_t member : m_analysis.symbol(declared).members) {
+                const symbol_t& method = m_analysis.symbol(member);
+                if (method.kind == symbol_kind_t::METHOD && method.name == "Destroy") {
+                    info.destroy = m_functions.at(member);
+                }
+            }
+
+            m_module.classes.push_back(info);
+        }
+
+        // The map has no order, and the module should come out the same every time.
+        std::ranges::sort(m_module.classes, {}, &mir_class_t::type);
     }
 
     void begin_function(const function_id_t id) {
@@ -261,11 +288,17 @@ private:
 
         current().parameter_count = current().locals.size();
 
-        // New's Self starts with the fields' defaults. It isn't in a scope either: New hands it
-        // to the caller.
+        // New's Self starts with the fields' defaults: a Struct value, or a new object. It isn't
+        // in a scope either: New hands it to the caller.
         if (m_returns_self) {
-            m_self = add_local(function.type, "Self");
-            emit(assign_t{ .target = *m_self, .value = defaults_of(function.type) });
+            const local_id_t self = add_local(function.type, "Self");
+            m_self = self;
+            if (is_class(function.type)) {
+                emit(assign_t{ .target = self, .value = new_t{ .type = function.type } });
+                initialize_fields(self, function.type);
+            } else {
+                emit(assign_t{ .target = self, .value = defaults_of(function.type) });
+            }
         }
 
         lower_statements(node.body);
@@ -300,7 +333,7 @@ private:
             const auto* variable = std::get_if<variable_stmt_t>(&node);
             const bool global = variable != nullptr && variable->kind != variable_kind_t::LOCAL;
             if (!global && !std::holds_alternative<function_stmt_t>(node) &&
-                !std::holds_alternative<struct_stmt_t>(node)) {
+                !std::holds_alternative<type_stmt_t>(node)) {
                 lower_stmt(id);
             }
         }
@@ -349,15 +382,127 @@ private:
         return m_analysis.types.get(type).kind == type_kind_t::STRUCT;
     }
 
+    [[nodiscard]] bool is_class(const type_id_t type) const {
+        return m_analysis.types.get(type).kind == type_kind_t::CLASS;
+    }
+
+    [[nodiscard]] bool is_nullable(const type_id_t type) const {
+        return m_analysis.types.get(type).kind == type_kind_t::NULLABLE;
+    }
+
+    /// Null, as a constant of a T?.
+    static const_value_t null_of(const type_id_t type) {
+        return { .type = type, .data = nullptr };
+    }
+
+    [[nodiscard]] static bool is_null(const operand_t& value) {
+        const auto* constant = std::get_if<const_value_t>(&value);
+        return constant != nullptr && std::holds_alternative<std::nullptr_t>(constant->data);
+    }
+
+    /// A Bool: whether a T? holds a value.
+    operand_t has_value(const operand_t& value, const span_t span) {
+        if (const auto* constant = std::get_if<const_value_t>(&value)) {
+            return make_bool(!std::holds_alternative<std::nullptr_t>(constant->data));
+        }
+
+        return compare(binary_op_t::NOT_EQUAL, value, null_of(type_of(value)), span);
+    }
+
+    /// The T in a T? that holds a value: a step into the place, or the constant as a T.
+    operand_t unwrap(const operand_t& value) {
+        if (const auto* constant = std::get_if<const_value_t>(&value)) {
+            return const_value_t{
+                .type = m_analysis.types.get(constant->type).inner,
+                .data = constant->data,
+            };
+        }
+
+        place_t place = std::get<place_t>(value);
+        place.fields.push_back(0);
+        return place;
+    }
+
+    /// `value` as `type`, which it converts to without loss. A temporary that owned references
+    /// hands them to the converted one.
+    operand_t convert(const operand_t& value, const type_id_t type, const span_t span) {
+        if (type_of(value) == type) {
+            return value;
+        }
+
+        bool owned = false;
+        if (const auto* place = std::get_if<place_t>(&value)) {
+            const auto* local = std::get_if<local_id_t>(&place->root);
+            const auto found = local != nullptr && place->fields.empty()
+                                   ? std::ranges::find(m_temporaries, *local)
+                                   : m_temporaries.end();
+            if (found != m_temporaries.end()) {
+                m_temporaries.erase(found);
+                owned = true;
+            }
+        }
+
+        return temporary(cast_t{ .value = value, .type = type, .span = span }, type, owned);
+    }
+
+    /// Whether a type's zero has bits that aren't 0, unlike the fields of a new object: a
+    /// String's is the static "", and a Struct or T? may hold one. A String? is Null, which is 0.
+    [[nodiscard]] bool needs_zeroing(const type_id_t type) const {
+        if (type == type_id_t::STRING) {
+            return true;
+        }
+
+        const type_t& info = m_analysis.types.get(type);
+        if (info.kind == type_kind_t::NULLABLE) {
+            return info.inner != type_id_t::STRING && needs_zeroing(info.inner);
+        }
+
+        return info.kind == type_kind_t::STRUCT &&
+               std::ranges::any_of(
+                   info.fields, [this](const field_t& field) { return needs_zeroing(field.type); });
+    }
+
+    /// A new object of a Class, with its fields at their defaults.
+    operand_t new_object(const type_id_t type) {
+        const operand_t object = temporary(new_t{ .type = type }, type, true);
+        initialize_fields(std::get<place_t>(object), type);
+        return object;
+    }
+
+    /// Sets a new object's fields. The runtime zeroes them, so only the ones with a default
+    /// other than Null, or whose zero isn't all zero bits, need setting.
+    void initialize_fields(const place_t& object, const type_id_t type) {
+        for (const symbol_id_t member : m_analysis.symbol(m_declared_types.at(type)).members) {
+            const symbol_t& field = m_analysis.symbol(member);
+            const bool zero =
+                !field.value || std::holds_alternative<std::nullptr_t>(field.value->data);
+            if (field.kind != symbol_kind_t::FIELD || (zero && !needs_zeroing(field.type))) {
+                continue;
+            }
+
+            place_t target = object;
+            target.fields.push_back(field.field);
+            const operand_t value =
+                field.value ? operand_t{ *field.value } : zero_value(field.type);
+            take(value);
+            emit(assign_t{ .target = target, .value = use_t{ .value = value } });
+        }
+    }
+
     /// Whether a value of `type` holds references, which its holder retains and releases.
     [[nodiscard]] bool has_references(const type_id_t type) const {
         return m_analysis.types.has_references(type);
     }
 
-    /// What a variable holds before it's assigned. A Struct's zero needs a temporary.
+    /// What a variable holds before it's assigned. A Struct's or Class's zero needs a temporary,
+    /// and a T?'s is Null.
     operand_t zero_value(const type_id_t type) {
-        if (is_struct(type)) {
+        if (is_struct(type) || is_class(type)) {
             return temporary(zero_t{ .type = type }, type, has_references(type));
+        }
+
+        if (is_nullable(type)) {
+            return null_of(type);
         }
 
         return zero(type);
@@ -366,7 +511,7 @@ private:
     /// A Struct value with each field at its default.
     aggregate_t defaults_of(const type_id_t type) {
         aggregate_t value{ .type = type };
-        for (const symbol_id_t member : m_analysis.symbol(m_structs.at(type)).members) {
+        for (const symbol_id_t member : m_analysis.symbol(m_declared_types.at(type)).members) {
             const symbol_t& field = m_analysis.symbol(member);
             if (field.kind == symbol_kind_t::FIELD) {
                 value.fields.push_back(field.value ? operand_t{ *field.value }
@@ -990,11 +1135,23 @@ private:
         return m_globals.at(symbol);
     }
 
+    /// A variable's place. When analysis narrowed its T? to a T, it's the T inside.
+    place_t variable_place(const expr_id_t id) {
+        const symbol_id_t symbol = expect(m_analysis.expr(id).symbol);
+        place_t place = place_of(symbol);
+        if (is_nullable(m_analysis.symbol(symbol).type) && !is_nullable(m_analysis.expr(id).type)) {
+            place.fields.push_back(0);
+        }
+
+        return place;
+    }
+
     /// Where a variable, Self, or a field inside one lives, without copying it. Anything else,
     /// like a call, gives a temporary.
     place_t lower_place(const expr_id_t id) {
         const expr_node_t& node = m_ast.get(id).node;
-        if (const auto* member = std::get_if<member_expr_t>(&node)) {
+        if (const auto* member = std::get_if<member_expr_t>(&node);
+            member != nullptr && !member->null_safe) {
             place_t place = lower_place(member->object);
             place.fields.push_back(m_analysis.symbol(expect(m_analysis.expr(id).symbol)).field);
             return place;
@@ -1005,10 +1162,14 @@ private:
         }
 
         if (std::holds_alternative<name_expr_t>(node)) {
-            return place_of(expect(m_analysis.expr(id).symbol));
+            return variable_place(id);
         }
 
-        const operand_t value = lower_value(id);
+        return as_place(lower_value(id));
+    }
+
+    /// A value's place: its own, or a temporary's for a constant.
+    place_t as_place(const operand_t& value) {
         if (const auto* place = std::get_if<place_t>(&value)) {
             return *place;
         }
@@ -1023,14 +1184,10 @@ private:
             return *info.value;
         }
 
-        operand_t value =
+        const operand_t value =
             std::visit([this, id](const auto& node) { return this->lower_expr(id, node); },
                        m_ast.get(id).node);
-        if (info.converted != info.type) {
-            value = cast(value, info.converted, span_of(id));
-        }
-
-        return value;
+        return convert(value, info.converted, span_of(id));
     }
 
     /// Literals always have a value, and expressions past M1 never pass analysis.
@@ -1041,11 +1198,85 @@ private:
     }
 
     operand_t lower_expr(const expr_id_t id, const name_expr_t& /*node*/) {
-        return place_of(expect(m_analysis.expr(id).symbol));
+        return variable_place(id);
     }
 
-    operand_t lower_expr(const expr_id_t id, const member_expr_t& /*node*/) {
-        return lower_place(id);
+    operand_t lower_expr(const expr_id_t id, const member_expr_t& node) {
+        if (!node.null_safe) {
+            return lower_place(id);
+        }
+
+        const std::uint32_t field = m_analysis.symbol(expect(m_analysis.expr(id).symbol)).field;
+        return expect(lower_safe(id, node.object, [&](const operand_t& object) {
+            place_t place = as_place(object);
+            place.fields.push_back(field);
+            return std::optional<operand_t>(place);
+        }));
+    }
+
+    /// "a?.b" and "a?.M()": `access` reads the field, or makes the call, on the value in a, and
+    /// the result holds what it gives. When a is Null, nothing else runs and the result is
+    /// Null. nullopt for a call that returns nothing.
+    template <typename Access>
+    std::optional<operand_t> lower_safe(const expr_id_t id, const expr_id_t object_id,
+                                        const Access& access) {
+        const type_id_t type = m_analysis.expr(id).type;
+        const span_t span = span_of(id);
+        const operand_t object = lower_value(object_id);
+        if (is_null(object)) {
+            return type == type_id_t::NONE ? std::nullopt : std::optional<operand_t>(null_of(type));
+        }
+
+        // Analysis warned that it can't be Null.
+        if (!is_nullable(type_of(object))) {
+            const std::optional<operand_t> value = access(object);
+            return value ? std::optional(convert(*value, type, span)) : std::nullopt;
+        }
+
+        std::optional<local_id_t> result;
+        if (type != type_id_t::NONE) {
+            result = add_local(type);
+        }
+
+        const operand_t present = has_value(object, span);
+        const block_id_t test = here();
+        m_block.reset();
+
+        std::vector<block_id_t> exits;
+        const block_id_t holds = new_block();
+        start(holds);
+        const std::size_t mark = m_temporaries.size();
+        if (const std::optional<operand_t> value = access(unwrap(object)); value && result) {
+            const operand_t converted = convert(*value, type, span);
+            take(converted);
+            emit(assign_t{ .target = *result, .value = use_t{ .value = converted } });
+        }
+
+        // The temporaries made here only exist on this path, so they're released on it.
+        release_temporaries_from(mark);
+        leave(exits);
+
+        const block_id_t absent = new_block();
+        start(absent);
+        if (result) {
+            emit(assign_t{ .target = *result, .value = use_t{ .value = null_of(type) } });
+        }
+
+        leave(exits);
+        block_at(test).terminator =
+            branch_t{ .condition = present, .if_true = holds, .if_false = absent };
+        join(exits);
+        if (!result) {
+            return std::nullopt;
+        }
+
+        // The result owns its references, so it's released after the statement like a
+        // temporary.
+        if (has_references(type)) {
+            m_temporaries.push_back(*result);
+        }
+
+        return place_t{ *result };
     }
 
     operand_t lower_expr(expr_id_t /*id*/, const self_expr_t& /*node*/) {
@@ -1085,42 +1316,62 @@ private:
             return lower_logical(node);
         }
 
-        const operand_t left = lower_value(node.left);
-        const operand_t right = lower_value(node.right);
-        // Structs only have == and !=, which compare each field.
-        if (is_struct(type_of(left))) {
-            operand_t equal =
-                equal_fields(std::get<place_t>(left), std::get<place_t>(right), span_of(id));
-            if (node.op == binary_op_t::EQUAL) {
-                return equal;
-            }
-
-            return temporary(
-                unary_t{ .op = unary_op_t::NOT, .operand = equal, .span = span_of(id) },
-                type_id_t::BOOL);
+        if (node.op == binary_op_t::COALESCE) {
+            return lower_coalesce(id, node);
         }
 
-        // Strings only have +, ==, and !=, which go through the runtime.
-        if (type_of(left) == type_id_t::STRING) {
-            if (node.op == binary_op_t::ADD) {
-                return runtime_call(runtime_function_t::CONCAT, { left, right }, type_id_t::STRING,
-                                    true);
-            }
+        const operand_t left = lower_value(node.left);
+        const operand_t right = lower_value(node.right);
+        const type_id_t type = type_of(left);
+        // Strings add through the runtime.
+        if (type == type_id_t::STRING && node.op == binary_op_t::ADD) {
+            return runtime_call(runtime_function_t::CONCAT, { left, right }, type_id_t::STRING,
+                                true);
+        }
 
-            operand_t equal =
-                runtime_call(runtime_function_t::EQUAL, { left, right }, type_id_t::BOOL);
+        // Structs, Strings, and the values in T?s only have == and !=, which take steps of
+        // their own.
+        if (is_struct(type) || type == type_id_t::STRING || compares_values(left, right)) {
+            operand_t same = equal(left, right, span_of(id));
             if (node.op == binary_op_t::EQUAL) {
-                return equal;
+                return same;
             }
 
-            return temporary(
-                unary_t{ .op = unary_op_t::NOT, .operand = equal, .span = span_of(id) },
-                type_id_t::BOOL);
+            return temporary(unary_t{ .op = unary_op_t::NOT, .operand = same, .span = span_of(id) },
+                             type_id_t::BOOL);
         }
 
         return temporary(
             binary_t{ .op = node.op, .left = left, .right = right, .span = span_of(id) },
             m_analysis.expr(id).type);
+    }
+
+    /// A Bool: whether two values of one type are equal, the way == compares them. A Struct
+    /// compares its fields, a String its text, and a T? is equal when both are Null or both hold
+    /// equal values. A Class, or Class?, compares references.
+    operand_t equal(const operand_t& left, const operand_t& right, const span_t span) {
+        const type_id_t type = type_of(left);
+        if (is_struct(type)) {
+            return equal_fields(std::get<place_t>(left), std::get<place_t>(right), span);
+        }
+
+        if (type == type_id_t::STRING) {
+            return runtime_call(runtime_function_t::EQUAL, { left, right }, type_id_t::BOOL);
+        }
+
+        if (compares_values(left, right)) {
+            return equal_values(left, right, span);
+        }
+
+        return compare(binary_op_t::EQUAL, left, right, span);
+    }
+
+    /// Whether == on two T? values compares the values inside. Comparing with Null only asks
+    /// whether the other holds a value, and a Class? compares references.
+    [[nodiscard]] bool compares_values(const operand_t& left, const operand_t& right) {
+        const type_id_t type = type_of(left);
+        return is_nullable(type) && !is_null(left) && !is_null(right) &&
+               !is_class(m_analysis.types.get(type).inner);
     }
 
     /// Whether two Structs of the same type have equal fields, each compared the way == compares
@@ -1134,19 +1385,92 @@ private:
             place_t b = right;
             a.fields.push_back(i);
             b.fields.push_back(i);
-            operand_t same;
-            if (is_struct(fields[i].type)) {
-                same = equal_fields(a, b, span);
-            } else if (fields[i].type == type_id_t::STRING) {
-                same = runtime_call(runtime_function_t::EQUAL, { a, b }, type_id_t::BOOL);
-            } else {
-                same = compare(binary_op_t::EQUAL, a, b, span);
-            }
-
+            const operand_t same = equal(a, b, span);
             result = i == 0 ? same : compare(binary_op_t::AND, result, same, span);
         }
 
         return result;
+    }
+
+    /// Two T? values are equal when both are Null, or both hold values that are equal. The values
+    /// are only compared when both are there.
+    operand_t equal_values(const operand_t& left, const operand_t& right, const span_t span) {
+        const local_id_t result = add_local(type_id_t::BOOL);
+        const operand_t left_holds = has_value(left, span);
+        const operand_t right_holds = has_value(right, span);
+        const operand_t both = compare(binary_op_t::AND, left_holds, right_holds, span);
+        const block_id_t test = here();
+        m_block.reset();
+
+        std::vector<block_id_t> exits;
+        const block_id_t values = new_block();
+        start(values);
+        const std::size_t mark = m_temporaries.size();
+        const operand_t same = equal(unwrap(left), unwrap(right), span);
+        emit(assign_t{ .target = result, .value = use_t{ .value = same } });
+        release_temporaries_from(mark);
+        leave(exits);
+
+        // At most one holds a value, so they're equal when neither does.
+        const block_id_t nulls = new_block();
+        start(nulls);
+        const binary_t neither{
+            .op = binary_op_t::EQUAL,
+            .left = left_holds,
+            .right = right_holds,
+            .span = span,
+        };
+        emit(assign_t{ .target = result, .value = neither });
+        leave(exits);
+
+        block_at(test).terminator =
+            branch_t{ .condition = both, .if_true = values, .if_false = nulls };
+        join(exits);
+        return place_t{ result };
+    }
+
+    /// "a ?? b": the value in a, or else b, which is only evaluated when a is Null.
+    operand_t lower_coalesce(const expr_id_t id, const binary_expr_t& node) {
+        const type_id_t type = m_analysis.expr(id).type;
+        const span_t span = span_of(id);
+        const operand_t left = lower_value(node.left);
+        // Analysis warned when it can't be Null.
+        if (!is_nullable(type_of(left))) {
+            return convert(left, type, span);
+        }
+
+        if (is_null(left)) {
+            return lower_value(node.right);
+        }
+
+        const local_id_t result = add_local(type);
+        const operand_t present = has_value(left, span);
+        const block_id_t test = here();
+        m_block.reset();
+
+        // Each side writes the result and releases its own temporaries, since only one runs.
+        std::vector<block_id_t> exits;
+        std::vector<block_id_t> starts;
+        for (const bool holds : { true, false }) {
+            starts.push_back(new_block());
+            start(starts.back());
+            const std::size_t mark = m_temporaries.size();
+            const operand_t value =
+                holds ? convert(unwrap(left), type, span) : lower_value(node.right);
+            take(value);
+            emit(assign_t{ .target = result, .value = use_t{ .value = value } });
+            release_temporaries_from(mark);
+            leave(exits);
+        }
+
+        block_at(test).terminator =
+            branch_t{ .condition = present, .if_true = starts[0], .if_false = starts[1] };
+        join(exits);
+        if (has_references(type)) {
+            m_temporaries.push_back(result);
+        }
+
+        return place_t{ result };
     }
 
     /// && and || only evaluate the right side when it decides the result.
@@ -1219,8 +1543,20 @@ private:
     }
 
     /// A call's result, or nullopt when it returns nothing. A result with references is released
-    /// after the statement unless something takes it.
+    /// after the statement unless something takes it. "a?.M()" only calls when a holds a value.
     std::optional<operand_t> lower_call(const expr_id_t id) {
+        const auto& node = std::get<call_expr_t>(m_ast.get(id).node);
+        if (const auto* member = std::get_if<member_expr_t>(&m_ast.get(node.callee).node);
+            member != nullptr && member->null_safe) {
+            return lower_safe(id, member->object,
+                              [&](const operand_t& receiver) { return call_on(id, receiver); });
+        }
+
+        return call_on(id, std::nullopt);
+    }
+
+    /// A call, on `receiver` when it's a Method called after a '?.'.
+    std::optional<operand_t> call_on(const expr_id_t id, const std::optional<operand_t>& receiver) {
         const expr_info_t& info = m_analysis.expr(id);
         const symbol_t& function = m_analysis.symbol(expect(info.symbol));
         const auto& node = std::get<call_expr_t>(m_ast.get(id).node);
@@ -1229,14 +1565,17 @@ private:
         // Called by name, it's Self.
         if (function.kind == symbol_kind_t::METHOD) {
             const auto* member = std::get_if<member_expr_t>(&m_ast.get(node.callee).node);
+            operand_t value = receiver ? *receiver : operand_t{};
+            if (!receiver && member == nullptr) {
+                value = place_t{ expect(m_self) };
+            } else if (!receiver) {
+                value = function.by_ref ? lower_place(member->object) : lower_value(member->object);
+            }
+
             if (function.by_ref) {
-                const place_t receiver =
-                    member != nullptr ? lower_place(member->object) : place_t{ expect(m_self) };
-                arguments.push_back({ .value = receiver, .by_ref = true });
+                arguments.push_back({ .value = as_place(value), .by_ref = true });
             } else {
-                const operand_t receiver =
-                    member != nullptr ? lower_value(member->object) : place_t{ expect(m_self) };
-                arguments.push_back({ .value = receiver });
+                arguments.push_back({ .value = value });
             }
         }
 
@@ -1256,6 +1595,12 @@ private:
             }
         }
 
+        // The constructor a Class gets makes an object with its fields at their defaults.
+        if (function.kind == symbol_kind_t::CONSTRUCTOR && !function.declaration &&
+            is_class(function.type)) {
+            return new_object(function.type);
+        }
+
         // The constructor a Struct gets puts its arguments in the fields, which take their own
         // references.
         if (function.kind == symbol_kind_t::CONSTRUCTOR && !function.declaration) {
@@ -1268,7 +1613,12 @@ private:
             return temporary(std::move(value), function.type, has_references(function.type));
         }
 
-        // Print is the only built-in function for now.
+        // RefEquals compares the references themselves.
+        if (function.kind == symbol_kind_t::BUILTIN_FUNCTION && function.name == "RefEquals") {
+            return compare(binary_op_t::EQUAL, arguments[0].value, arguments[1].value, span_of(id));
+        }
+
+        // Print is the other built-in function.
         if (function.kind == symbol_kind_t::BUILTIN_FUNCTION) {
             emit(evaluate_t{
                 .value =
@@ -1294,7 +1644,7 @@ private:
 
     operand_t lower_expr(const expr_id_t id, const cast_expr_t& node) {
         const operand_t value = lower_value(node.value);
-        return cast(value, m_analysis.expr(id).type, span_of(id));
+        return convert(value, m_analysis.expr(id).type, span_of(id));
     }
 };
 

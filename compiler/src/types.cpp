@@ -164,8 +164,12 @@ type_id_t type_table_t::make(const type_kind_t kind, const type_id_t inner,
 
     if (made() == type_id_t::INVALID) {
         std::string full_name = std::format("{}{}", name(inner), suffix);
-        const type_id_t id = add({ .kind = kind, .name = std::move(full_name), .inner = inner });
-        made() = id;
+        type_t type{ .kind = kind, .name = std::move(full_name), .inner = inner };
+        if (kind == type_kind_t::NULLABLE) {
+            type.fields.push_back({ .name = "value", .type = inner });
+        }
+
+        made() = add(std::move(type));
     }
 
     return made();
@@ -175,18 +179,36 @@ type_id_t type_table_t::add_struct(std::string name) {
     return add({ .kind = type_kind_t::STRUCT, .name = std::move(name) });
 }
 
+type_id_t type_table_t::add_class(std::string name) {
+    return add({ .kind = type_kind_t::CLASS, .name = std::move(name) });
+}
+
 void type_table_t::set_fields(const type_id_t type, std::vector<field_t> fields) {
-    assert(get(type).kind == type_kind_t::STRUCT);
+    assert(get(type).kind == type_kind_t::STRUCT || get(type).kind == type_kind_t::CLASS);
     m_entries[std::to_underlying(type)].type->fields = std::move(fields);
 }
 
 bool type_table_t::has_references(const type_id_t type) const {
-    if (type == type_id_t::STRING) {
+    if (type == type_id_t::STRING || get(type).kind == type_kind_t::CLASS) {
         return true;
     }
 
     return std::ranges::any_of(get(type).fields,
                                [this](const field_t& field) { return has_references(field.type); });
+}
+
+bool type_table_t::has_zero(const type_id_t type) const {
+    if (get(type).kind == type_kind_t::CLASS) {
+        return false;
+    }
+
+    // A T?'s zero is Null, whatever the T.
+    if (get(type).kind != type_kind_t::STRUCT) {
+        return true;
+    }
+
+    return std::ranges::all_of(get(type).fields,
+                               [this](const field_t& field) { return has_zero(field.type); });
 }
 
 type_id_t type_table_t::add(type_t type) {

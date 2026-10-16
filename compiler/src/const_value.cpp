@@ -553,6 +553,10 @@ std::string to_text(const const_value_t& value) {
         return std::format("{}", *number);
     }
 
+    if (std::holds_alternative<std::nullptr_t>(value.data)) {
+        return "Null";
+    }
+
     return std::get<std::string>(value.data);
 }
 

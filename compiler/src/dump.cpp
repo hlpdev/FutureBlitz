@@ -525,9 +525,10 @@ private:
         return out;
     }
 
-    /// "(struct Name (block members...))". In the tree, each member gets its own line.
-    [[nodiscard]] node_t build(const struct_stmt_t& node) const {
-        return list("struct",
+    /// "(struct Name (block members...))", or "(class ...)". In the tree, each member gets its
+    /// own line.
+    [[nodiscard]] node_t build(const type_stmt_t& node) const {
+        return list(node.is_class ? "class" : "struct",
                     { atom(std::string(node.name.text), tone_t::NAME), block(node.members) });
     }
 };

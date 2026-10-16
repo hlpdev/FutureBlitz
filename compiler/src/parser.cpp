@@ -79,7 +79,6 @@ constexpr unsupported_t unsupported(const token_kind_t kind) {
     case token_kind_t::KW_IMPORT:
     case token_kind_t::KW_THROW:
         return unsupported_t::LINE;
-    case token_kind_t::KW_CLASS:
     case token_kind_t::KW_ENUM:
     case token_kind_t::KW_EXTEND:
     case token_kind_t::KW_EXTERN:
@@ -452,7 +451,8 @@ private:
 
             return parse_simple();
         case token_kind_t::KW_STRUCT:
-            return parse_struct();
+        case token_kind_t::KW_CLASS:
+            return parse_type_declaration();
         case token_kind_t::KW_IF:
             return parse_if();
         case token_kind_t::KW_WHILE:
@@ -655,16 +655,26 @@ private:
                                           });
     }
 
-    /// "Struct Name", its members, then "End Struct". Members parse like statements; analysis
-    /// checks that each one is a Field, Method, or New.
-    stmt_id_t parse_struct() {
+    /// "Struct Name" or "Class Name", the members, then the matching End. Members parse like
+    /// statements; analysis checks that each one is a Field, Method, or New. A Class's base and
+    /// interfaces come later.
+    stmt_id_t parse_type_declaration() {
         const std::size_t start = m_pos;
         const token_t& keyword = advance();
         const name_t name = expect_name();
+        if (at(token_kind_t::KW_EXTENDS) || at(token_kind_t::KW_IMPLEMENTS)) {
+            error(peek().span, "{} isn't supported yet", describe(peek().kind));
+            skip_rest_of_line();
+        }
+
         finish_line(start);
         block_t members = parse_body(keyword);
         return add_stmt(span_from(keyword.span.begin),
-                        struct_stmt_t{ .name = name, .members = std::move(members) });
+                        type_stmt_t{
+                            .is_class = keyword.kind == token_kind_t::KW_CLASS,
+                            .name = name,
+                            .members = std::move(members),
+                        });
     }
 
     parameter_t parse_parameter() {
@@ -745,6 +755,7 @@ private:
         case token_kind_t::KW_SELECT:
         case token_kind_t::KW_FUNCTION:
         case token_kind_t::KW_STRUCT:
+        case token_kind_t::KW_CLASS:
             error(peek().span, "a single-line If can't contain {}", describe(peek().kind));
             return add_stmt(point(peek().span.begin), error_stmt_t{});
         default:

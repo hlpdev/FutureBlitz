@@ -62,15 +62,19 @@ enum class type_id_t : std::uint32_t { // NOLINT(performance-enum-size)
 enum class type_kind_t : std::uint8_t {
     /// INVALID through STRING.
     BUILTIN,
-    /// "T?": a T, or Null.
+    /// "T?": a T, or Null. A String? or a Class? is a reference that's null for Null; any other
+    /// T? is a flag and a T.
     NULLABLE,
     /// "T[]": a dynamic array of T.
     ARRAY,
     /// A Struct the program declares: a value made of fields.
     STRUCT,
+    /// A Class the program declares: a reference to an object of fields, which counts its
+    /// owners.
+    CLASS,
 };
 
-/// One of a Struct's fields.
+/// One of a Struct's or Class's fields.
 struct field_t {
     std::string name;
     type_id_t type = type_id_t::INVALID;
@@ -83,7 +87,9 @@ struct type_t {
     std::string name;
     /// NULLABLE and ARRAY: the type inside.
     type_id_t inner = type_id_t::INVALID;
-    /// STRUCT: the fields in declaration order, which is also their order in memory.
+    /// STRUCT and CLASS: the fields in declaration order, which is also their order in memory.
+    /// NULLABLE: one field, "value", the T inside. Places reach it once the T? is known to hold
+    /// one.
     std::vector<field_t> fields;
 };
 
@@ -115,11 +121,19 @@ public:
     /// use exists.
     [[nodiscard]] type_id_t add_struct(std::string name);
 
+    /// A new Class type, whose fields come later like a Struct's.
+    [[nodiscard]] type_id_t add_class(std::string name);
+
     void set_fields(type_id_t type, std::vector<field_t> fields);
 
-    /// Whether a value holds references that need retain and release: a String, or a Struct
-    /// with one among its fields.
+    /// Whether a value holds references that need retain and release: a String, a Class, or a
+    /// Struct or T? with one inside.
     [[nodiscard]] bool has_references(type_id_t type) const;
+
+    /// Whether a variable of the type has a value before it's assigned: zero, False, "", Null, or
+    /// a Struct of those. A Class has none, since it can't be Null, and neither does a Struct
+    /// with a field of one.
+    [[nodiscard]] bool has_zero(type_id_t type) const;
 
 private:
     struct entry_t {

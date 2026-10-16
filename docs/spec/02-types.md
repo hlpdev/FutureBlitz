@@ -89,8 +89,11 @@ Print(hp)              // ✗ error: hp read before assignment
 
 ### Field defaults
 
-- Primitive fields default to `0`, `0.0`, `False`, or `""` when no initializer is given.
-- Non-nullable class-typed fields must be assigned by every constructor (compile-checked).
+- Primitive fields default to `0`, `0.0`, `False`, or `""` when no initializer is given, and
+  nullable ones to `Null`.
+- A field with no zero, a non-nullable Class or a Struct holding one, must be assigned by every
+  constructor (compile-checked): a Struct's generated constructor requires it, and a Class with
+  one needs a `New`, which assigns it on every path before reading it or using `Self`.
 
 ## Nullability
 
@@ -103,6 +106,20 @@ Local target: Enemy? = Null
 Local hp = target?.hp ?? 0
 If target != Null Then target.Hurt(5)   // target is Enemy here
 ```
+
+- `Null` takes its type from where it's used: `Local e: Enemy? = Null` works, and
+  `Local e = Null` doesn't. A `T` converts to a `T?` without `As`.
+- `If`, `ElseIf`, `While`, `? :`, `&&`, `||`, `!`, an early `Return`, and assigning a value that
+  can't be `Null` all narrow. Narrowing applies to Locals, Consts, and parameters that aren't
+  `ByRef`, and ends when the variable is assigned a `T?` or passed `ByRef`. A loop that changes
+  the variable can't rely on a check from before it.
+- A Global or a field can change during any call, so it isn't narrowed: check a Local copy.
+- `a?.b` is `Null` when `a` is, and a `B?` otherwise; `a?.M()` only calls `M` when `a` holds a
+  value. Each `?.` is one check, so a chain is `a?.b?.c`.
+- `a ?? b` gives the value in `a`, or `b` when `a` is `Null`; `b` only runs then.
+- Two `T?` values are equal when both are `Null` or both hold equal values.
+- A `T?` can't go in a string; give a value for `Null` first: `"{name ?? "nobody"}"`.
+- `?.`, `??`, or comparing with `Null` on something that can't be `Null` is a warning.
 
 ## Conversions
 

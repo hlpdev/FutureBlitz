@@ -1,0 +1,16 @@
+// Destroy() that stores Self somewhere would leave a dangling reference, so it panics.
+Class Ghost
+    Field name: String
+
+    New(name: String)
+        Self.name = name
+    End New
+
+    Method Destroy()
+        Print("{name} freed")
+        If name == "clingy" Then haunted = Self
+    End Method
+End Class
+
+Global haunted = Ghost("first")
+Local clingy = Ghost("clingy")

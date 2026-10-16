@@ -346,18 +346,19 @@ TEST_CASE("only calls, assignments, and ++/-- can be statements", "[parser]") {
 }
 
 TEST_CASE("constructs past M1 are reported once and skipped", "[parser]") {
-    const parsed_t parsed = parse_text("Class Enemy\n"
-                                       "    Field hp: Int\n"
-                                       "End Class\n"
+    const parsed_t parsed = parse_text("Interface Damageable\n"
+                                       "    Method Hurt()\n"
+                                       "End Interface\n"
                                        "Public Function F()\n"
                                        "End Function\n"
                                        "x = 1");
 
-    // The whole Class becomes one (error). 'Public' is dropped, and its Function still parses.
+    // The whole Interface becomes one (error). 'Public' is dropped, and its Function still
+    // parses.
     CHECK(parsed.dump == "(error)\n(function F (block))\n(= x (int 1))");
     CHECK(parsed.errors == std::vector<std::string>{
-                               "0-5: 'Class' isn't supported yet",
-                               "40-46: 'Public' isn't supported yet",
+                               "0-9: 'Interface' isn't supported yet",
+                               "53-59: 'Public' isn't supported yet",
                            });
 }
 
@@ -444,4 +445,18 @@ TEST_CASE("Structs", "[parser]") {
     // New makes its Struct, so it has no return type. The ':' is at 5-6.
     CHECK(parse_text("New(): Int\nEnd New").errors ==
           std::vector<std::string>{ "5-6: New can't have a return type; it makes its Struct" });
+}
+
+TEST_CASE("Classes", "[parser]") {
+    const parsed_t parsed = parse_text("Class Enemy\n"
+                                       "    Field hp: Int\n"
+                                       "    Method Destroy()\n"
+                                       "    End Method\n"
+                                       "End Class");
+    CHECK(parsed.dump == "(class Enemy (block (field hp: Int) (method Destroy (block))))");
+    CHECK(parsed.errors.empty());
+
+    // A base Class or interfaces come later. "Extends" is at 8-15.
+    CHECK(parse_text("Class A Extends B\nEnd Class").errors ==
+          std::vector<std::string>{ "8-15: 'Extends' isn't supported yet" });
 }

@@ -1,6 +1,7 @@
 #include "fb/runtime.hpp"
 
 #include <array>
+#include <atomic>
 #include <charconv>
 #include <cstddef>
 #include <cstdio>
@@ -11,8 +12,9 @@
 
 namespace {
 
-/// Strings allocated and not yet freed, for the leak check in fb_finish.
-std::int64_t live_strings = 0;
+/// Strings allocated and not yet freed, for the leak check in fb_finish. Any thread can make
+/// one.
+std::atomic<std::int64_t> live_strings = 0;
 
 /// A String's bytes, which follow its header.
 char* bytes_of(fb_string_t* string) {
@@ -36,7 +38,7 @@ fb_string_t* allocate(const std::size_t length) {
 
     string->refcount = 1;
     string->length = static_cast<std::int64_t>(length);
-    ++live_strings;
+    live_strings.fetch_add(1, std::memory_order_relaxed);
     return string;
 }
 
@@ -61,29 +63,36 @@ fb_string_t* from_number(const Number value) {
 
 extern "C" {
 
-void fb_finish() {
-    if (live_strings != 0) {
-        std::fprintf(stderr, "leak: %lld Strings were never released\n",
-                     static_cast<long long>(live_strings));
-    }
+std::int64_t fb_string_live_count() {
+    return live_strings.load(std::memory_order_relaxed);
 }
 
 void fb_string_retain(fb_string_t* string) {
+    if (string == nullptr) {
+        return;
+    }
+
     // Literals are static, with a refcount of -1.
-    if (string->refcount >= 0) {
-        ++string->refcount;
+    const std::atomic_ref refcount(string->refcount);
+    if (refcount.load(std::memory_order_relaxed) >= 0) {
+        refcount.fetch_add(1, std::memory_order_relaxed);
     }
 }
 
 void fb_string_release(fb_string_t* string) {
-    if (string->refcount < 0) {
+    if (string == nullptr) {
         return;
     }
 
-    --string->refcount;
-    if (string->refcount == 0) {
+    const std::atomic_ref refcount(string->refcount);
+    if (refcount.load(std::memory_order_relaxed) < 0) {
+        return;
+    }
+
+    // Whichever thread lets go last frees it, after every other owner's last use.
+    if (refcount.fetch_sub(1, std::memory_order_acq_rel) == 1) {
         std::free(string);
-        --live_strings;
+        live_strings.fetch_sub(1, std::memory_order_relaxed);
     }
 }
 

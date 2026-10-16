@@ -7,13 +7,36 @@
 extern "C" {
 
 /// The header of a String. Its `length` bytes of UTF-8 follow right after it, with no
-/// terminating NUL. Strings are immutable and shared by counting references.
+/// terminating NUL. Strings are immutable and shared by counting references. Any thread can
+/// hold one, so the count changes atomically.
 struct fb_string_t {
     /// How many owners the String has. A literal is a static block with -1, which retain and
     /// release leave alone, so it's never freed.
     std::int64_t refcount;
     /// In bytes, not characters.
     std::int64_t length;
+};
+
+struct fb_object_t;
+
+/// What the runtime knows about a Class. The compiler makes one for each Class in the program.
+struct fb_class_t {
+    /// The Class's name, NUL-terminated, for the leak report.
+    const char* name;
+    /// An object's size in bytes, header included.
+    std::int64_t size;
+    /// Runs the object's Destroy(), if its Class has one, then releases its fields. The compiler
+    /// makes it, and the runtime frees the memory afterwards.
+    void (*destroy)(fb_object_t* object);
+    /// How many objects of the Class exist, for the leak report.
+    std::int64_t live;
+};
+
+/// The header of a Class's object, which its fields follow.
+struct fb_object_t {
+    /// How many owners the object has.
+    std::int64_t refcount;
+    fb_class_t* type;
 };
 
 /// Where in the source a panic happened, as compiled code passes it to the runtime.
@@ -30,15 +53,20 @@ struct fb_location_t {
 /// "\n" from becoming "\r\n", and turns on colors for panics.
 void fb_start();
 
-/// The last thing a program's main calls, after releasing the Globals' Strings. Prints a leak
-/// report to stderr when any String was never released.
-void fb_finish();
+/// The last thing a program's main calls, after releasing the Globals. Prints a leak report to
+/// stderr for Strings, and for the objects of each of the `count` Classes in `classes`, that were
+/// never released.
+void fb_finish(fb_class_t* const* classes, std::int64_t count);
+
+/// How many Strings exist right now.
+std::int64_t fb_string_live_count();
 
 /// Adds an owner to `string`. Compiled code calls it when a String gets a new holder, like a
-/// variable. Does nothing for a literal.
+/// variable. Does nothing for a literal, or for null, which a String? holds for Null.
 void fb_string_retain(fb_string_t* string);
 /// Removes an owner from `string`, and frees it when that was the last one. Compiled code calls
-/// it when a holder lets go, like a variable leaving its scope. Does nothing for a literal.
+/// it when a holder lets go, like a variable leaving its scope. Does nothing for a literal, or
+/// for null.
 void fb_string_release(fb_string_t* string);
 /// A new String with `left`'s bytes, then `right`'s, for `+` on Strings. The caller owns the
 /// result and must release it. The arguments are only borrowed.
@@ -75,6 +103,20 @@ std::int64_t fb_power_int(std::int64_t base, std::int64_t exponent, std::uint32_
 /// null.
 std::uint64_t fb_power_uint(std::uint64_t base, std::uint64_t exponent, std::uint32_t bits,
                             std::int32_t checked, const fb_location_t* location);
+
+/// A new object of `type` with one owner, and every field zeroed. Compiled code sets the fields
+/// next.
+fb_object_t* fb_object_new(fb_class_t* type);
+/// Adds an owner to `object`. Does nothing for null, which a variable of a Class holds before
+/// it's assigned.
+void fb_object_retain(fb_object_t* object);
+/// Removes an owner from `object`. The last one runs its Class's destroy, then frees it; a
+/// Destroy() that keeps a reference to its object panics. Does nothing for null.
+void fb_object_release(fb_object_t* object);
+/// Like fb_object_retain and fb_object_release, for objects that threads share (a Shared Class,
+/// in M4), whose counts change atomically.
+void fb_object_retain_atomic(fb_object_t* object);
+void fb_object_release_atomic(fb_object_t* object);
 
 /// Writes `string` and a newline to stdout, for the built-in Print. The String is only borrowed.
 void fb_print(const fb_string_t* string);

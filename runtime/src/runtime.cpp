@@ -1,8 +1,10 @@
 #include "fb/runtime.hpp"
 
+#include <cstddef>
 #include <cstdio>
 #include <cstdlib>
 #include <limits>
+#include <span>
 
 #ifdef _WIN32
 #ifndef WIN32_LEAN_AND_MEAN
@@ -109,6 +111,20 @@ void fb_start() {
         SetConsoleMode(error, mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
     }
 #endif
+}
+
+void fb_finish(fb_class_t* const* classes, const std::int64_t count) {
+    if (const std::int64_t strings = fb_string_live_count(); strings != 0) {
+        std::fprintf(stderr, "leak: %lld Strings were never released\n",
+                     static_cast<long long>(strings));
+    }
+
+    for (const fb_class_t* type : std::span(classes, static_cast<std::size_t>(count))) {
+        if (type->live != 0) {
+            std::fprintf(stderr, "leak: %lld %s objects were never released\n",
+                         static_cast<long long>(type->live), type->name);
+        }
+    }
 }
 
 void fb_print(const fb_string_t* string) {

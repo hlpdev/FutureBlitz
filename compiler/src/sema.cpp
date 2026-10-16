@@ -4,6 +4,7 @@
 #include <array>
 #include <cstddef>
 #include <format>
+#include <functional>
 #include <optional>
 #include <ranges>
 #include <span>
@@ -29,11 +30,23 @@ std::size_t index(const symbol_id_t id) {
     return std::to_underlying(id);
 }
 
-/// What's known at one point in the code: which Locals are assigned on every path that gets here.
+/// What's known at one point in the code: which Locals are assigned on every path that gets
+/// here, and which nullable variables hold a value on every one.
 struct flow_t {
     std::vector<bool> assigned; // by symbol id
+    std::vector<bool> narrowed; // by symbol id
     bool reachable = true;
 };
+
+/// What's true on both paths. A symbol past the end of either list counts as false.
+std::vector<bool> both(const std::vector<bool>& a, const std::vector<bool>& b) {
+    std::vector<bool> result(std::min(a.size(), b.size()));
+    for (std::size_t i = 0; i < result.size(); ++i) {
+        result[i] = a[i] && b[i];
+    }
+
+    return result;
+}
 
 /// Where two paths meet. A path that can't get here doesn't count.
 flow_t join(const flow_t& a, const flow_t& b) {
@@ -45,13 +58,17 @@ flow_t join(const flow_t& a, const flow_t& b) {
         return a;
     }
 
-    flow_t result;
-    result.assigned.resize(std::min(a.assigned.size(), b.assigned.size()));
-    for (std::size_t i = 0; i < result.assigned.size(); ++i) {
-        result.assigned[i] = a.assigned[i] && b.assigned[i];
+    return { .assigned = both(a.assigned, b.assigned), .narrowed = both(a.narrowed, b.narrowed) };
+}
+
+/// Sets a symbol's bit in one of a flow's lists. Symbols are added while checking, so the list
+/// grows to fit.
+void set_bit(std::vector<bool>& bits, const symbol_id_t id, const bool value) {
+    if (bits.size() <= index(id)) {
+        bits.resize(index(id) + 1);
     }
 
-    return result;
+    bits[index(id)] = value;
 }
 
 /// The flow after Return, Break, Continue, or a loop that never ends. join() ignores it.
@@ -63,6 +80,14 @@ struct loop_t {
     std::optional<name_t> label;
     std::vector<flow_t> breaks;
     std::vector<flow_t> continues;
+};
+
+/// The flows after a condition: where it's True, and where it's False. They differ when it
+/// checks for Null, which narrows on one side.
+struct branches_t {
+    expr_id_t condition;
+    flow_t if_true;
+    flow_t if_false;
 };
 
 /// How well an argument fits a parameter. Higher is better.
@@ -140,19 +165,6 @@ bool supports(const unary_op_t op, const type_id_t type) {
     std::unreachable();
 }
 
-/// The type both sides convert to losslessly, if there is one.
-std::optional<type_id_t> common_type(const type_id_t a, const type_id_t b) {
-    if (converts_losslessly(a, b)) {
-        return b;
-    }
-
-    if (converts_losslessly(b, a)) {
-        return a;
-    }
-
-    return std::nullopt;
-}
-
 bool is_zero(const const_value_t& value) {
     if (const auto* number = std::get_if<std::int64_t>(&value.data)) {
         return *number == 0;
@@ -199,9 +211,9 @@ public:
 
     /// Works in passes. Structs get their types first, so any declaration can use them. Then
     /// Functions, Globals, top-level Consts, and the Structs' members are declared, so they're
-    /// visible anywhere in the file. Then Global and Const initializers and field defaults are
-    /// checked in source order, then default values, and last the top-level code and each
-    /// function body.
+    /// visible anywhere in the file, and fields are checked against their types. Then Global and
+    /// Const initializers and field defaults are checked in source order, then default values,
+    /// and last the top-level code and each function body.
     analysis_t run() {
         declare_builtins();
         for (const stmt_id_t id : m_ast.items()) {
@@ -213,6 +225,7 @@ public:
         }
 
         check_struct_cycles();
+        check_field_zeros();
         initialize_globals();
         for (const stmt_id_t id : m_ast.items()) {
             check_defaults(id);
@@ -237,11 +250,18 @@ private:
     std::vector<loop_t> m_loops;                    // innermost last
     std::optional<symbol_id_t> m_function;          // the function being checked
     /// Each Struct's symbol, by its type.
-    std::unordered_map<type_id_t, symbol_id_t> m_structs;
+    std::unordered_map<type_id_t, symbol_id_t> m_declared_types;
     /// Fields without a type, until their defaults give them one.
     std::vector<symbol_id_t> m_untyped_fields;
     /// The flow at the code being checked.
     flow_t m_flow;
+    /// The branches of the condition checked last, when it narrows something.
+    std::optional<branches_t> m_branches;
+    /// While checking a New: its type's fields without a zero, which it must assign.
+    std::vector<symbol_id_t> m_required;
+    /// An assignment's target, or the Self in "Self.x". Neither reads the fields that New hasn't
+    /// assigned yet.
+    std::optional<expr_id_t> m_partial;
     bool m_initializing = false; // checking Global and Const initializers
 
     // Helpers
@@ -249,6 +269,11 @@ private:
     template <typename... Args>
     diagnostic_t& error(const span_t span, std::format_string<Args...> fmt, Args&&... args) {
         return m_diagnostics->error(span, fmt, std::forward<Args>(args)...);
+    }
+
+    template <typename... Args>
+    diagnostic_t& warning(const span_t span, std::format_string<Args...> fmt, Args&&... args) {
+        return m_diagnostics->warning(span, fmt, std::forward<Args>(args)...);
     }
 
     symbol_t& symbol(const symbol_id_t id) {
@@ -287,7 +312,8 @@ private:
 
     // Declarations
 
-    /// The temporary built-in Print(String), until std.core exists. User functions can overload it.
+    /// The temporary built-in Print(String), until std.core exists, and RefEquals(a, b), which
+    /// tells whether two Class references are the same object. User functions can overload them.
     void declare_builtins() {
         const symbol_id_t value = add_symbol({
             .kind = symbol_kind_t::PARAMETER,
@@ -301,12 +327,24 @@ private:
             .parameters = { value },
         });
         m_file_scope["Print"].push_back(print);
+
+        // RefEquals takes any Classes, so its parameters have no type; check_ref_equals() checks
+        // the arguments instead.
+        const symbol_id_t left = add_symbol({ .kind = symbol_kind_t::PARAMETER, .name = "a" });
+        const symbol_id_t right = add_symbol({ .kind = symbol_kind_t::PARAMETER, .name = "b" });
+        const symbol_id_t ref_equals = add_symbol({
+            .kind = symbol_kind_t::BUILTIN_FUNCTION,
+            .name = "RefEquals",
+            .type = type_id_t::BOOL,
+            .parameters = { left, right },
+        });
+        m_file_scope["RefEquals"].push_back(ref_equals);
     }
 
-    /// Gives a Struct its type before anything else is declared, so types can use each other in
-    /// any order.
+    /// Gives a Struct or Class its type before anything else is declared, so types can use each
+    /// other in any order.
     void declare_type(const stmt_id_t id) {
-        const auto* node = std::get_if<struct_stmt_t>(&m_ast.get(id).node);
+        const auto* node = std::get_if<type_stmt_t>(&m_ast.get(id).node);
         if (node == nullptr) {
             return;
         }
@@ -315,16 +353,18 @@ private:
             error(node->name.span, "'{}' is a built-in type", node->name.text);
         }
 
-        const type_id_t type = m_analysis.types.add_struct(std::string(node->name.text));
+        std::string name(node->name.text);
+        const type_id_t type = node->is_class ? m_analysis.types.add_class(std::move(name))
+                                              : m_analysis.types.add_struct(std::move(name));
         const symbol_id_t declared = add_symbol({
-            .kind = symbol_kind_t::STRUCT,
+            .kind = symbol_kind_t::TYPE,
             .name = node->name.text,
             .span = node->name.span,
             .type = type,
             .declaration = id,
         });
         m_analysis.stmts[index(id)].symbol = declared;
-        m_structs[type] = declared;
+        m_declared_types[type] = declared;
         declare_in_file(declared);
     }
 
@@ -346,22 +386,22 @@ private:
         } else if (const auto* variable = std::get_if<variable_stmt_t>(&node);
                    variable != nullptr && is_global(*variable)) {
             declare_global(id, *variable);
-        } else if (const auto* declared = std::get_if<struct_stmt_t>(&node)) {
+        } else if (const auto* declared = std::get_if<type_stmt_t>(&node)) {
             declare_members(id, *declared);
         }
     }
 
     void report_misplaced_member(const function_stmt_t& node) {
         if (node.kind == function_kind_t::CONSTRUCTOR) {
-            error(node.name.span, "New can only be declared in a Struct");
+            error(node.name.span, "New can only be declared in a Struct or Class");
         } else {
-            error(node.name.span, "Methods can only be declared in a Struct");
+            error(node.name.span, "Methods can only be declared in a Struct or Class");
         }
     }
 
-    /// A Struct's fields, Methods, and News. A Struct without a New gets a constructor whose
-    /// parameters are its fields.
-    void declare_members(const stmt_id_t id, const struct_stmt_t& node) {
+    /// A type's fields, Methods, and News. Without a New, a Struct gets a constructor whose
+    /// parameters are its fields, and a Class gets one without parameters.
+    void declare_members(const stmt_id_t id, const type_stmt_t& node) {
         const std::optional<symbol_id_t> declared_struct = m_analysis.stmts[index(id)].symbol;
         if (!declared_struct) {
             return;
@@ -383,9 +423,11 @@ private:
                 add_member(members, declared);
             } else if (function != nullptr && function->kind != function_kind_t::FUNCTION) {
                 has_new = has_new || function->kind == function_kind_t::CONSTRUCTOR;
+                check_member_function(*function, node.is_class);
                 add_member(members, declare_function(member_id, *function, owner));
             } else if (!std::holds_alternative<error_stmt_t>(member.node)) {
-                error(member.span, "a Struct can only hold Fields, Methods, and News");
+                error(member.span, "a {} can only hold Fields, Methods, and News",
+                      node.is_class ? "Class" : "Struct");
             }
         }
 
@@ -393,7 +435,7 @@ private:
         if (!has_new) {
             std::vector<symbol_id_t> parameters;
             for (const symbol_id_t member : members) {
-                if (symbol(member).kind == symbol_kind_t::FIELD) {
+                if (symbol(member).kind == symbol_kind_t::FIELD && !node.is_class) {
                     parameters.push_back(member);
                 }
             }
@@ -411,8 +453,31 @@ private:
         symbol(owner_id).members = std::move(members);
     }
 
-    /// A field is also a parameter of the constructor its Struct gets, so it always has a
-    /// default: its own, or zero. Without a type, it takes its default's, once that's checked.
+    /// Only a Class's Destroy runs by itself, and only a Struct's Methods can be ByRef: a
+    /// Class's Methods can always change its fields.
+    void check_member_function(const function_stmt_t& node, const bool in_class) {
+        if (node.kind == function_kind_t::BYREF_METHOD && in_class) {
+            error(node.name.span,
+                  "only a Struct's Methods can be ByRef; a Class's Methods can always change its "
+                  "fields");
+        }
+
+        if (node.name.text != "Destroy" || node.kind == function_kind_t::CONSTRUCTOR) {
+            return;
+        }
+
+        if (!in_class) {
+            error(node.name.span,
+                  "a Struct can't have a Destroy; only a Class's runs when its last reference "
+                  "goes away");
+        } else if (!node.parameters.empty() || node.return_type) {
+            error(node.name.span, "Destroy takes no parameters and returns nothing");
+        }
+    }
+
+    /// A field is also a parameter of the constructor its Struct gets, so it has a default: its
+    /// own, or zero. A type without a zero leaves it without one; see check_field_zeros().
+    /// Without a type, it takes its default's, once that's checked.
     symbol_id_t declare_field(const stmt_id_t id, const variable_stmt_t& node,
                               const type_id_t owner, const std::size_t position) {
         if (!node.type && !node.value) {
@@ -470,10 +535,12 @@ private:
     }
 
     /// A Struct is stored inline, so it can't contain itself, directly or through other Structs.
+    /// A Class's fields are in its object, so they can refer to it.
     void check_struct_cycles() {
         for (const stmt_id_t id : m_ast.items()) {
+            const auto* declared = std::get_if<type_stmt_t>(&m_ast.get(id).node);
             const std::optional<symbol_id_t> owner = m_analysis.stmts[index(id)].symbol;
-            if (!std::holds_alternative<struct_stmt_t>(m_ast.get(id).node) || !owner) {
+            if (declared == nullptr || declared->is_class || !owner) {
                 continue;
             }
 
@@ -490,13 +557,18 @@ private:
         }
     }
 
-    /// Whether a value of `type` holds a `target` inside, counting `type` itself.
+    /// Whether a value of `type` holds a `target` inside, counting `type` itself. A T? holds its
+    /// T, but a Class only refers to its object, so it holds nothing inside.
     bool contains(const type_id_t type, const type_id_t target, std::vector<type_id_t>& seen) {
         if (type == target) {
             return true;
         }
 
-        if (std::ranges::contains(seen, type)) {
+        if (is_nullable(type)) {
+            return contains(non_null(type), target, seen);
+        }
+
+        if (!is_struct(type) || std::ranges::contains(seen, type)) {
             return false;
         }
 
@@ -504,6 +576,44 @@ private:
         return std::ranges::any_of(m_analysis.types.get(type).fields, [&](const field_t& field) {
             return contains(field.type, target, seen);
         });
+    }
+
+    /// A field whose type has no zero needs a value from every constructor. The one a Struct
+    /// gets takes it without a default, and a Class without a New would leave it unassigned.
+    void check_field_zeros() {
+        for (const stmt_id_t id : m_ast.items()) {
+            const auto* declared = std::get_if<type_stmt_t>(&m_ast.get(id).node);
+            const std::optional<symbol_id_t> owner = m_analysis.stmts[index(id)].symbol;
+            if (declared == nullptr || !owner) {
+                continue;
+            }
+
+            const std::vector<symbol_id_t>& members = symbol(*owner).members;
+            const bool has_new = std::ranges::any_of(members, [this](const symbol_id_t member) {
+                return symbol(member).kind == symbol_kind_t::CONSTRUCTOR &&
+                       symbol(member).declaration.has_value();
+            });
+            for (const symbol_id_t member : members) {
+                symbol_t& field = symbol(member);
+                if (field.kind != symbol_kind_t::FIELD || m_analysis.types.has_zero(field.type) ||
+                    has_written_default(field)) {
+                    continue;
+                }
+
+                field.has_default = false;
+                if (declared->is_class && !has_new) {
+                    error(field.span,
+                          "{} needs a New that assigns '{}', since {} has no zero value",
+                          name_of(field.owner), field.name, name_of(field.type));
+                }
+            }
+        }
+    }
+
+    /// Whether a field's declaration gives it a default.
+    [[nodiscard]] bool has_written_default(const symbol_t& field) const {
+        return field.declaration &&
+               std::get<variable_stmt_t>(m_ast.get(*field.declaration).node).value.has_value();
     }
 
     void set_field_type(const symbol_id_t id, const type_id_t type) {
@@ -514,9 +624,9 @@ private:
         m_analysis.types.set_fields(field.owner, std::move(fields));
     }
 
-    /// A Function, or a Struct's Method or New when `owner` is set. A Method's Self is a
-    /// parameter that isn't among the others, ByRef in a "ByRef Method". New makes Self as a
-    /// Local and returns it.
+    /// A Function, or a type's Method or New when `owner` is set. A Method's Self is a parameter
+    /// that isn't among the others, ByRef in a "ByRef Method". A Struct's New makes Self as a
+    /// Local and returns it. A Class's Self is always a reference that can't be replaced.
     symbol_id_t declare_function(const stmt_id_t id, const function_stmt_t& node,
                                  const type_id_t owner = type_id_t::INVALID) {
         std::vector<symbol_id_t> parameters;
@@ -550,7 +660,8 @@ private:
         std::optional<symbol_id_t> self;
         if (owner != type_id_t::INVALID) {
             self = add_symbol({
-                .kind = constructor ? symbol_kind_t::LOCAL : symbol_kind_t::PARAMETER,
+                .kind = constructor && !is_class(owner) ? symbol_kind_t::LOCAL
+                                                        : symbol_kind_t::PARAMETER,
                 .name = "Self",
                 .span = node.name.span,
                 .type = owner,
@@ -702,10 +813,92 @@ private:
         return m_analysis.types.get(type).kind == type_kind_t::STRUCT;
     }
 
-    /// The type an annotation names: a built-in or a Struct. Types that don't exist yet are
-    /// reported and give INVALID.
+    [[nodiscard]] bool is_class(const type_id_t type) const {
+        return m_analysis.types.get(type).kind == type_kind_t::CLASS;
+    }
+
+    /// Structs and Classes have fields and Methods.
+    [[nodiscard]] bool has_members(const type_id_t type) const {
+        return is_struct(type) || is_class(type);
+    }
+
+    [[nodiscard]] bool is_nullable(const type_id_t type) const {
+        return m_analysis.types.get(type).kind == type_kind_t::NULLABLE;
+    }
+
+    /// The T of a T?, and any other type as it is.
+    [[nodiscard]] type_id_t non_null(const type_id_t type) const {
+        return is_nullable(type) ? m_analysis.types.get(type).inner : type;
+    }
+
+    /// The T? of a T, and a T? as it is.
+    type_id_t nullable_of(const type_id_t type) {
+        return is_nullable(type) ? type : m_analysis.types.nullable(type);
+    }
+
+    /// Whether `from` converts to `to` without an 'As': losslessly between numbers, and from a T,
+    /// or a T?, to a U? when the T converts to the U.
+    [[nodiscard]] bool converts(const type_id_t from, const type_id_t to) const {
+        if (from == to || !is_nullable(to)) {
+            return converts_losslessly(from, to);
+        }
+
+        return converts_losslessly(non_null(from), non_null(to));
+    }
+
+    /// The type both sides convert to, if there is one. Int32 and Int64? meet at Int64?.
+    std::optional<type_id_t> common_type(const type_id_t a, const type_id_t b) {
+        if (converts(a, b)) {
+            return b;
+        }
+
+        if (converts(b, a)) {
+            return a;
+        }
+
+        if (!is_nullable(a) && !is_nullable(b)) {
+            return std::nullopt;
+        }
+
+        const std::optional<type_id_t> inner = common_type(non_null(a), non_null(b));
+        if (!inner) {
+            return std::nullopt;
+        }
+
+        return nullable_of(*inner);
+    }
+
+    /// A known value converted without loss. A T? holds what its T would, or Null.
+    [[nodiscard]] const_value_t convert_value(const const_value_t& value,
+                                              const type_id_t type) const {
+        if (!is_nullable(type)) {
+            return *fold_cast(value, type);
+        }
+
+        if (std::holds_alternative<std::nullptr_t>(value.data)) {
+            return { .type = type, .data = nullptr };
+        }
+
+        const const_value_t inner{ .type = non_null(value.type), .data = value.data };
+        const_value_t converted = *fold_cast(inner, non_null(type));
+        converted.type = type;
+        return converted;
+    }
+
+    /// The type an annotation names: a built-in, a Struct, a Class, or a T? of one. Types that
+    /// don't exist yet are reported and give INVALID.
     type_id_t resolve_type(const type_expr_id_t id) {
         const type_expr_t& type = m_ast.get(id);
+        if (const auto* nullable = std::get_if<nullable_type_t>(&type.node)) {
+            const type_id_t inner = resolve_type(nullable->inner);
+            if (is_nullable(inner)) {
+                error(type.span, "{} can already be Null", name_of(inner));
+                return inner;
+            }
+
+            return m_analysis.types.nullable(inner);
+        }
+
         if (const auto* named = std::get_if<named_type_t>(&type.node)) {
             if (const std::optional<type_id_t> builtin = builtin_type(named->name)) {
                 return *builtin;
@@ -713,7 +906,7 @@ private:
 
             if (const auto found = m_file_scope.find(named->name); found != m_file_scope.end()) {
                 const symbol_t& declared = symbol(found->second.front());
-                if (declared.kind == symbol_kind_t::STRUCT) {
+                if (declared.kind == symbol_kind_t::TYPE) {
                     return declared.type;
                 }
 
@@ -723,8 +916,6 @@ private:
             } else {
                 error(type.span, "'{}' isn't a type", named->name);
             }
-        } else if (std::holds_alternative<nullable_type_t>(type.node)) {
-            error(type.span, "nullable types aren't supported yet");
         } else if (std::holds_alternative<array_type_t>(type.node)) {
             error(type.span, "arrays aren't supported yet");
         }
@@ -735,12 +926,7 @@ private:
     // Flow
 
     void mark_assigned(const symbol_id_t id) {
-        // Symbols are added while checking, so the list grows to fit.
-        if (m_flow.assigned.size() <= index(id)) {
-            m_flow.assigned.resize(index(id) + 1);
-        }
-
-        m_flow.assigned[index(id)] = true;
+        set_bit(m_flow.assigned, id, true);
     }
 
     /// In code that can't be reached, everything counts as assigned.
@@ -764,11 +950,197 @@ private:
                    m_initializing) {
             error(span, "'{}' isn't initialized yet; Globals and Consts initialize in source order",
                   target.name);
+        } else if (target.kind == symbol_kind_t::FIELD && std::ranges::contains(m_required, id)) {
+            error(span, "'{}' is read before New assigns it", target.name);
         } else {
             return;
         }
 
         mark_assigned(id); // one error per variable is enough
+    }
+
+    /// Whether a nullable variable holds a value here, so it can be used as its T. In code that
+    /// can't be reached, none does.
+    [[nodiscard]] bool is_narrowed(const symbol_id_t id) const {
+        return index(id) < m_flow.narrowed.size() && m_flow.narrowed[index(id)];
+    }
+
+    /// Whether a null check on a variable holds until it's assigned again: for a Local, a Const,
+    /// or a parameter that isn't ByRef. A Global or a field can change during any call, and a
+    /// ByRef parameter is the caller's variable.
+    [[nodiscard]] bool is_narrowable(const symbol_id_t id) {
+        const symbol_t& variable = symbol(id);
+        return variable.kind == symbol_kind_t::LOCAL || variable.kind == symbol_kind_t::CONSTANT ||
+               (variable.kind == symbol_kind_t::PARAMETER && !variable.by_ref);
+    }
+
+    /// The variable an expression names, when it's nullable and a null check can narrow it.
+    std::optional<symbol_id_t> narrowable_variable(const expr_id_t id) {
+        const std::optional<symbol_id_t> found = info(id).symbol;
+        if (!std::holds_alternative<name_expr_t>(m_ast.get(id).node) || !found ||
+            !is_nullable(symbol(*found).type) || !is_narrowable(*found)) {
+            return std::nullopt;
+        }
+
+        return found;
+    }
+
+    /// A nullable variable that was just assigned holds a value when the value's type can't be
+    /// Null.
+    void narrow_after_assigning(const symbol_id_t id, const expr_id_t value) {
+        if (is_nullable(symbol(id).type) && is_narrowable(id)) {
+            set_bit(m_flow.narrowed, id, !is_nullable(info(value).type));
+        }
+    }
+
+    /// A null check from before a loop only holds inside it if the loop never changes the
+    /// variable, since the next pass would see the new value. So the variables a loop assigns,
+    /// or passes ByRef, lose their narrowing where it starts.
+    void forget_changed(const block_t& body, const std::optional<expr_id_t> condition = {}) {
+        if (std::ranges::none_of(m_flow.narrowed, std::identity{})) {
+            return;
+        }
+
+        std::vector<std::string_view> names;
+        changed_in(body, names);
+        if (condition) {
+            changed_in(*condition, names);
+        }
+
+        for (std::size_t i = 0; i < m_flow.narrowed.size(); ++i) {
+            if (std::ranges::contains(names, m_analysis.symbols[i].name)) {
+                m_flow.narrowed[i] = false;
+            }
+        }
+    }
+
+    /// The names of the variables some code assigns or passes ByRef. A Local inside a loop can't
+    /// share a name with one it can see outside, so the names say which outside variables change.
+    void changed_in(const block_t& block, std::vector<std::string_view>& names) const {
+        for (const stmt_id_t id : block) {
+            changed_in(id, names);
+        }
+    }
+
+    void changed_in(const stmt_id_t id, std::vector<std::string_view>& names) const {
+        const stmt_node_t& node = m_ast.get(id).node;
+        if (const auto* assign = std::get_if<assign_stmt_t>(&node)) {
+            if (const auto* name = std::get_if<name_expr_t>(&m_ast.get(assign->target).node)) {
+                names.push_back(name->name);
+            }
+
+            changed_in(assign->target, names);
+            changed_in(assign->value, names);
+        } else if (const auto* variable = std::get_if<variable_stmt_t>(&node)) {
+            if (variable->value) {
+                changed_in(*variable->value, names);
+            }
+        } else if (const auto* expression = std::get_if<expression_stmt_t>(&node)) {
+            changed_in(expression->expression, names);
+        } else if (const auto* returned = std::get_if<return_stmt_t>(&node)) {
+            if (returned->value) {
+                changed_in(*returned->value, names);
+            }
+        } else if (const auto* if_node = std::get_if<if_stmt_t>(&node)) {
+            for (const if_branch_t& branch : if_node->branches) {
+                changed_in(branch.condition, names);
+                changed_in(branch.body, names);
+            }
+
+            if (if_node->else_body) {
+                changed_in(*if_node->else_body, names);
+            }
+        } else if (const auto* select = std::get_if<select_stmt_t>(&node)) {
+            changed_in(select->subject, names);
+            for (const case_t& branch : select->cases) {
+                changed_in(branch.body, names);
+            }
+
+            if (select->default_body) {
+                changed_in(*select->default_body, names);
+            }
+        } else {
+            changed_in_loop(node, names);
+        }
+    }
+
+    void changed_in_loop(const stmt_node_t& node, std::vector<std::string_view>& names) const {
+        if (const auto* loop = std::get_if<while_stmt_t>(&node)) {
+            changed_in(loop->condition, names);
+            changed_in(loop->body, names);
+        } else if (const auto* repeat = std::get_if<repeat_stmt_t>(&node)) {
+            changed_in(repeat->body, names);
+            changed_in(repeat->condition, names);
+        } else if (const auto* forever = std::get_if<loop_stmt_t>(&node)) {
+            changed_in(forever->body, names);
+        } else if (const auto* counted = std::get_if<for_stmt_t>(&node)) {
+            changed_in(counted->start, names);
+            changed_in(counted->end, names);
+            if (counted->step) {
+                changed_in(*counted->step, names);
+            }
+
+            changed_in(counted->body, names);
+        } else if (const auto* each = std::get_if<for_in_stmt_t>(&node)) {
+            changed_in(each->sequence, names);
+            changed_in(each->body, names);
+        }
+    }
+
+    /// In an expression, only a call can change a variable: by taking it ByRef.
+    void changed_in(const expr_id_t id, std::vector<std::string_view>& names) const {
+        const expr_node_t& node = m_ast.get(id).node;
+        if (const auto* call = std::get_if<call_expr_t>(&node)) {
+            changed_in(call->callee, names);
+            for (const argument_t& argument : call->arguments) {
+                const auto* name = std::get_if<name_expr_t>(&m_ast.get(argument.value).node);
+                if (argument.by_ref && name != nullptr) {
+                    names.push_back(name->name);
+                }
+
+                changed_in(argument.value, names);
+            }
+        } else if (const auto* string = std::get_if<string_expr_t>(&node)) {
+            for (const string_part_t& part : string->parts) {
+                if (const auto* inner = std::get_if<expr_id_t>(&part)) {
+                    changed_in(*inner, names);
+                }
+            }
+        } else if (const auto* unary = std::get_if<unary_expr_t>(&node)) {
+            changed_in(unary->operand, names);
+        } else if (const auto* binary = std::get_if<binary_expr_t>(&node)) {
+            changed_in(binary->left, names);
+            changed_in(binary->right, names);
+        } else if (const auto* ternary = std::get_if<ternary_expr_t>(&node)) {
+            changed_in(ternary->condition, names);
+            changed_in(ternary->if_true, names);
+            changed_in(ternary->if_false, names);
+        } else if (const auto* member = std::get_if<member_expr_t>(&node)) {
+            changed_in(member->object, names);
+        } else if (const auto* cast = std::get_if<cast_expr_t>(&node)) {
+            changed_in(cast->value, names);
+        }
+    }
+
+    /// New must assign the fields that have no zero, on every path, before it returns.
+    void check_required(const span_t span, const std::string_view where) {
+        for (const symbol_id_t field : m_required) {
+            if (!is_assigned(field)) {
+                error(span, "New must assign '{}' {}, since {} has no zero value",
+                      symbol(field).name, where, name_of(symbol(field).type));
+            }
+        }
+    }
+
+    /// In a New, Self can only be used whole once the fields without a zero are assigned, since
+    /// a Method could read them.
+    void check_self_ready(const span_t span) {
+        for (const symbol_id_t field : m_required) {
+            if (!is_assigned(field)) {
+                error(span, "Self can't be used before New assigns '{}'", symbol(field).name);
+                return;
+            }
+        }
     }
 
     // Top level
@@ -778,7 +1150,7 @@ private:
     void initialize_globals() {
         m_initializing = true;
         for (const stmt_id_t id : m_ast.items()) {
-            if (const auto* declared = std::get_if<struct_stmt_t>(&m_ast.get(id).node)) {
+            if (const auto* declared = std::get_if<type_stmt_t>(&m_ast.get(id).node)) {
                 for (const stmt_id_t member : declared->members) {
                     check_field_default(member);
                 }
@@ -845,7 +1217,7 @@ private:
 
     /// Default values are checked before any code, since every call needs them.
     void check_defaults(const stmt_id_t id) {
-        if (const auto* declared = std::get_if<struct_stmt_t>(&m_ast.get(id).node)) {
+        if (const auto* declared = std::get_if<type_stmt_t>(&m_ast.get(id).node)) {
             for (const stmt_id_t member : declared->members) {
                 check_defaults(member);
             }
@@ -891,7 +1263,7 @@ private:
             const auto* variable = std::get_if<variable_stmt_t>(&node);
             const bool initialized_already = variable != nullptr && is_global(*variable);
             if (!initialized_already && !std::holds_alternative<function_stmt_t>(node) &&
-                !std::holds_alternative<struct_stmt_t>(node)) {
+                !std::holds_alternative<type_stmt_t>(node)) {
                 check_stmt(id);
             }
         }
@@ -902,7 +1274,7 @@ private:
     /// A function body starts with a fresh scope holding only its parameters, so it can't see
     /// top-level Locals. A Method or New also sees its Struct's members, through Self.
     void check_function(const stmt_id_t id) {
-        if (const auto* declared = std::get_if<struct_stmt_t>(&m_ast.get(id).node)) {
+        if (const auto* declared = std::get_if<type_stmt_t>(&m_ast.get(id).node)) {
             for (const stmt_id_t member : declared->members) {
                 check_function(member);
             }
@@ -924,6 +1296,17 @@ private:
             mark_assigned(*function.self); // New's Self starts with the fields' defaults
         }
 
+        // New must assign the fields that have no zero.
+        m_required.clear();
+        if (function.kind == symbol_kind_t::CONSTRUCTOR) {
+            for (const symbol_id_t member : symbol(m_declared_types.at(function.owner)).members) {
+                if (symbol(member).kind == symbol_kind_t::FIELD &&
+                    !m_analysis.types.has_zero(symbol(member).type)) {
+                    m_required.push_back(member);
+                }
+            }
+        }
+
         for (const symbol_id_t parameter : function.parameters) {
             enter_scope(parameter);
         }
@@ -938,6 +1321,8 @@ private:
             error(function.span, "'{}' doesn't return a value on every path", function.name);
         }
 
+        check_required(function.span, "on every path");
+        m_required.clear();
         m_scopes.clear();
         m_function.reset();
     }
@@ -981,6 +1366,18 @@ private:
             expect_type(node.value, type);
             if (target->whole) {
                 mark_assigned(*target->whole);
+                narrow_after_assigning(*target->whole, node.value);
+            }
+
+            if (target->field) {
+                mark_assigned(*target->field);
+            }
+
+            // A new Self in a Struct's New has all its fields.
+            if (target->whole && target->whole == current_self()) {
+                for (const symbol_id_t field : m_required) {
+                    mark_assigned(field);
+                }
             }
 
             return;
@@ -1028,6 +1425,7 @@ private:
         m_analysis.stmts[index(id)].symbol = local;
         if (node.value) {
             mark_assigned(local);
+            narrow_after_assigning(local, *node.value);
         }
     }
 
@@ -1040,6 +1438,11 @@ private:
                 error(node.name.span, "'{}' needs a type or a value", node.name.text);
             } else if (declared.kind == symbol_kind_t::CONSTANT) {
                 error(node.name.span, "'{}' is a Const, so it needs a value", node.name.text);
+            } else if (declared.kind == symbol_kind_t::GLOBAL &&
+                       !m_analysis.types.has_zero(declared.type)) {
+                // A Local can wait to be assigned; a Global can't, and a Class has no zero.
+                error(node.name.span, "'{}' needs a value, since {} has no zero value",
+                      node.name.text, name_of(declared.type));
             }
 
             return;
@@ -1065,24 +1468,27 @@ private:
         }
     }
 
-    void check_stmt(stmt_id_t /*id*/, span_t /*span*/, const struct_stmt_t& node) {
+    void check_stmt(stmt_id_t /*id*/, span_t /*span*/, const type_stmt_t& node) {
         error(node.name.span, "Structs can only be declared at the top level");
     }
 
-    /// Each condition and body starts from the flow before the If, since a branch only runs when
-    /// the ones before it didn't. After it, a Local counts as assigned only if every way through
-    /// assigned it, including skipping every branch when there's no Else.
+    /// Each condition starts from the flow where the ones before it were False, since a branch
+    /// only runs when they didn't, and its body from where it's True. After the If, a Local
+    /// counts as assigned only if every way through assigned it, including skipping every branch
+    /// when there's no Else.
     void check_stmt(stmt_id_t /*id*/, span_t /*span*/, const if_stmt_t& node) {
-        const flow_t entry = m_flow;
+        flow_t next = m_flow;
         flow_t result = unreachable_flow;
         for (const if_branch_t& branch : node.branches) {
-            m_flow = entry;
-            check_condition(branch.condition);
+            m_flow = std::move(next);
+            auto [if_true, if_false] = check_branches(branch.condition);
+            m_flow = std::move(if_true);
             check_block(branch.body);
             result = join(result, m_flow);
+            next = std::move(if_false);
         }
 
-        m_flow = entry;
+        m_flow = std::move(next);
         if (node.else_body) {
             check_block(*node.else_body);
         }
@@ -1091,19 +1497,26 @@ private:
     }
 
     void check_stmt(const stmt_id_t id, span_t /*span*/, const while_stmt_t& node) {
-        check_condition(node.condition);
+        forget_changed(node.body, node.condition);
+        auto [if_true, if_false] = check_branches(node.condition);
         const bool forever = is_constant(node.condition, true);
-        const flow_t entry = m_flow;
+        m_flow = std::move(if_true);
         push_loop(id, node.label);
         check_block(node.body);
         const loop_t loop = pop_loop();
-        // The body may not run, so only what was assigned before the loop counts after it. Code
-        // after a While True is reached only through Break.
-        m_flow = forever ? unreachable_flow : entry;
+        // The body may not run, so only what was assigned before the loop counts after it, where
+        // the condition is False. Code after a While True is reached only through Break.
+        if (forever) {
+            m_flow = unreachable_flow;
+        } else {
+            m_flow = std::move(if_false);
+        }
+
         leave_loop(loop);
     }
 
     void check_stmt(const stmt_id_t id, span_t /*span*/, const repeat_stmt_t& node) {
+        forget_changed(node.body, node.condition);
         push_loop(id, node.label);
         check_block(node.body);
         const loop_t loop = pop_loop();
@@ -1113,15 +1526,14 @@ private:
             m_flow = join(m_flow, path);
         }
 
-        check_condition(node.condition);
-        if (is_constant(node.condition, false)) {
-            m_flow = unreachable_flow;
-        }
-
+        // The loop ends where the condition is True.
+        const flow_t if_true = check_branches(node.condition).first;
+        m_flow = is_constant(node.condition, false) ? unreachable_flow : if_true;
         leave_loop(loop);
     }
 
     void check_stmt(const stmt_id_t id, span_t /*span*/, const loop_stmt_t& node) {
+        forget_changed(node.body);
         push_loop(id, node.label);
         check_block(node.body);
         const loop_t loop = pop_loop();
@@ -1157,6 +1569,7 @@ private:
 
         // The variable gets a scope of its own around the body's. The body may not run, so the
         // flow after the loop is the flow before it, plus any Breaks.
+        forget_changed(node.body);
         const flow_t entry = m_flow;
         push_loop(id, node.label);
         push_scope();
@@ -1184,6 +1597,7 @@ private:
         error(header, "'For ... In' isn't supported yet");
 
         // The body is still checked, with variables that have no type.
+        forget_changed(node.body);
         const flow_t entry = m_flow;
         push_loop(id, node.label);
         push_scope();
@@ -1333,6 +1747,8 @@ private:
                 error(span_of(*node.value), "New can't return a value; it returns Self");
                 check_any(*node.value, type_id_t::NONE);
             }
+
+            check_required(span, "before this Return");
         } else {
             const std::string_view name = function.name;
             const type_id_t type = function.type;
@@ -1354,6 +1770,24 @@ private:
     bool check_condition(const expr_id_t id) {
         check(id, type_id_t::BOOL);
         return expect_type(id, type_id_t::BOOL);
+    }
+
+    /// Checks a condition, and gives the flows where it's True and where it's False.
+    std::pair<flow_t, flow_t> check_branches(const expr_id_t id) {
+        check_condition(id);
+        return branches_of(id);
+    }
+
+    /// The flows where a condition that was just checked is True and where it's False. They
+    /// differ when it checks for Null: "e != Null" narrows e where it's True.
+    std::pair<flow_t, flow_t> branches_of(const expr_id_t id) {
+        if (!m_branches || m_branches->condition != id) {
+            return { m_flow, m_flow };
+        }
+
+        branches_t found = std::move(*m_branches);
+        m_branches.reset();
+        return { std::move(found.if_true), std::move(found.if_false) };
     }
 
     /// Whether a condition is always `value`, like the True in "While True".
@@ -1394,6 +1828,9 @@ private:
         type_id_t type;
         /// The variable, when the assignment replaces all of it.
         std::optional<symbol_id_t> whole;
+        /// A field of Self that's replaced whole, by name or as "Self.x", which a New may need
+        /// to assign.
+        std::optional<symbol_id_t> field;
     };
 
     /// Checks what an assignment changes: a variable, Self, or a field inside one. Plain '='
@@ -1414,14 +1851,33 @@ private:
 
             // A field used by name is part of Self, not a whole variable.
             const bool field = symbol(*found).kind == symbol_kind_t::FIELD;
-            return target_t{ .type = type, .whole = field ? std::nullopt : found };
+            return target_t{
+                .type = type,
+                .whole = field ? std::nullopt : found,
+                .field = field ? found : std::nullopt,
+            };
+        }
+
+        if (const auto* member = std::get_if<member_expr_t>(&node);
+            member != nullptr && member->null_safe) {
+            check(id, type_id_t::NONE);
+            error(span_of(id), "a '?.' can't be assigned to; check that it isn't Null first");
+            return std::nullopt;
         }
 
         if (std::holds_alternative<member_expr_t>(node) ||
             std::holds_alternative<self_expr_t>(node)) {
+            // Assigning doesn't read the target, so New can assign the fields it hasn't yet.
+            m_partial = id;
             const type_id_t type = check(id, type_id_t::NONE);
+            m_partial.reset();
             if (type == type_id_t::INVALID) {
                 return std::nullopt;
+            }
+
+            // An object's fields can change through any reference to it.
+            if (in_object(id)) {
+                return target_t{ .type = type, .field = self_field(id) };
             }
 
             const std::optional<symbol_id_t> root = root_of(id);
@@ -1434,7 +1890,13 @@ private:
                 return std::nullopt;
             }
 
-            return target_t{ .type = type };
+            // Replacing Self, in a Struct's New, replaces all of it.
+            const bool is_self = std::holds_alternative<self_expr_t>(node);
+            return target_t{
+                .type = type,
+                .whole = is_self ? root : std::nullopt,
+                .field = self_field(id),
+            };
         }
 
         if (std::holds_alternative<index_expr_t>(node)) {
@@ -1451,12 +1913,37 @@ private:
         return m_function ? symbol(*m_function).self : std::nullopt;
     }
 
+    /// The field in "Self.x", after it's checked.
+    std::optional<symbol_id_t> self_field(const expr_id_t id) {
+        const auto* member = std::get_if<member_expr_t>(&m_ast.get(id).node);
+        if (member == nullptr ||
+            !std::holds_alternative<self_expr_t>(m_ast.get(member->object).node)) {
+            return std::nullopt;
+        }
+
+        return info(id).symbol;
+    }
+
+    /// Whether a place, after it's checked, is a field of an object: "e.hp" with `e` a Class, or a
+    /// field used by name in a Class's Method. A reference lets its holder use the object, so
+    /// those fields can change even through a read-only variable.
+    [[nodiscard]] bool in_object(const expr_id_t id) {
+        if (const auto* member = std::get_if<member_expr_t>(&m_ast.get(id).node)) {
+            return is_class(info(member->object).type) || in_object(member->object);
+        }
+
+        const std::optional<symbol_id_t> found = info(id).symbol;
+        return found && symbol(*found).kind == symbol_kind_t::FIELD &&
+               is_class(symbol(*found).owner);
+    }
+
     /// The variable a place starts from, after it's checked: "p" in "p.pos.x", and Self for a
-    /// field used by name. nullopt for anything else, like a call's result.
+    /// field used by name. nullopt for anything else, like a call's result, or a field after a
+    /// '?.', which may not be there.
     std::optional<symbol_id_t> root_of(const expr_id_t id) {
         const expr_node_t& node = m_ast.get(id).node;
         if (const auto* member = std::get_if<member_expr_t>(&node)) {
-            return root_of(member->object);
+            return member->null_safe ? std::nullopt : root_of(member->object);
         }
 
         if (!std::holds_alternative<name_expr_t>(node) &&
@@ -1504,7 +1991,7 @@ private:
         case symbol_kind_t::GLOBAL:
             return true;
         case symbol_kind_t::FIELD:
-            if (can_change_self()) {
+            if (is_class(target.owner) || can_change_self()) {
                 return true;
             }
 
@@ -1514,6 +2001,11 @@ private:
         case symbol_kind_t::PARAMETER:
             if (target.by_ref) {
                 return true;
+            }
+
+            if (id == current_self() && is_class(target.type)) {
+                error(span, "Self is the object itself and can't be replaced");
+                return false;
             }
 
             if (id == current_self()) {
@@ -1534,7 +2026,7 @@ private:
         // lookup_value() never gives a function or a type, so these aren't reached.
         case symbol_kind_t::FUNCTION:
         case symbol_kind_t::BUILTIN_FUNCTION:
-        case symbol_kind_t::STRUCT:
+        case symbol_kind_t::TYPE:
         case symbol_kind_t::METHOD:
         case symbol_kind_t::CONSTRUCTOR:
             return false;
@@ -1614,6 +2106,11 @@ private:
 
     /// Like check(), but a call that returns nothing is fine.
     type_id_t check_any(const expr_id_t id, type_id_t hint) {
+        // A literal expected as a T? takes the T, then converts.
+        if (is_flexible(id)) {
+            hint = non_null(hint);
+        }
+
         // With no numeric type to take, literals use the default type of the whole expression,
         // so in "1 + 0.5" the 1 is a Float too.
         if (is_flexible(id) && !is_numeric(hint)) {
@@ -1633,7 +2130,7 @@ private:
     /// Converts a checked expression to `type`, which has to be lossless. An INVALID type on
     /// either side passes, since its error was already reported.
     bool expect_type(const expr_id_t id, const type_id_t type) {
-        if (!converts_losslessly(info(id).type, type)) {
+        if (!converts(info(id).type, type)) {
             report_mismatch(id, type);
             return false;
         }
@@ -1643,10 +2140,17 @@ private:
     }
 
     /// A literal would have taken the expected numeric type if its value fit, so it says that.
+    /// A T? where a T is expected needs a null check first.
     void report_mismatch(const expr_id_t id, const type_id_t expected) {
         const expr_info_t& found = info(id);
-        if (found.value && is_numeric(found.type) && is_numeric(expected) && is_flexible(id)) {
+        if (found.value && is_numeric(found.type) && is_numeric(non_null(expected)) &&
+            is_flexible(id)) {
             error(span_of(id), "{} doesn't fit in {}", text(id), name_of(expected));
+        } else if (is_nullable(found.type) && converts(non_null(found.type), expected)) {
+            error(span_of(id),
+                  "expected {}, found {}, which may be Null; check it first, or give a value for "
+                  "Null with '{}'",
+                  name_of(expected), name_of(found.type), spelling(binary_op_t::COALESCE));
         } else {
             error(span_of(id), "expected {}, found {}", name_of(expected), name_of(found.type));
         }
@@ -1660,9 +2164,8 @@ private:
         }
 
         out.converted = type;
-        // A lossless conversion can't fail.
         if (out.value) {
-            out.value = *fold_cast(*out.value, type);
+            out.value = convert_value(*out.value, type);
         }
     }
 
@@ -1738,8 +2241,13 @@ private:
             }
 
             const expr_id_t inner = std::get<expr_id_t>(part);
-            if (const type_id_t type = check(inner, type_id_t::NONE); is_struct(type)) {
+            if (const type_id_t type = check(inner, type_id_t::NONE); has_members(type)) {
                 error(span_of(inner), "{} can't be shown in a string", name_of(type));
+            } else if (is_nullable(type)) {
+                error(span_of(inner),
+                      "{} can't be shown in a string, since it may be Null; give a value for Null "
+                      "with '{}'",
+                      name_of(type), spelling(binary_op_t::COALESCE));
             }
 
             if (const std::optional<const_value_t>& inner_value = info(inner).value) {
@@ -1761,8 +2269,29 @@ private:
         return type_id_t::BOOL;
     }
 
-    type_id_t check_expr(const expr_id_t id, const null_expr_t& /*node*/, type_id_t /*hint*/) {
-        return unsupported(id, "'Null'");
+    /// Null takes the nullable type its context expects.
+    type_id_t check_expr(const expr_id_t id, const null_expr_t& /*node*/, const type_id_t hint) {
+        if (hint == type_id_t::INVALID) {
+            return type_id_t::INVALID;
+        }
+
+        if (hint == type_id_t::NONE) {
+            error(span_of(id),
+                  "Null needs a type from where it's used, like 'Local e: Enemy? = Null'");
+            return type_id_t::INVALID;
+        }
+
+        if (!is_nullable(hint)) {
+            error(span_of(id), "{} can't be Null; {}? can", name_of(hint), name_of(hint));
+            return type_id_t::INVALID;
+        }
+
+        info(id).value = const_value_t{ .type = hint, .data = nullptr };
+        return hint;
+    }
+
+    [[nodiscard]] bool is_null(const expr_id_t id) const {
+        return std::holds_alternative<null_expr_t>(m_ast.get(id).node);
     }
 
     type_id_t check_expr(const expr_id_t id, const name_expr_t& node, type_id_t /*hint*/) {
@@ -1778,7 +2307,21 @@ private:
             info(id).value = target.value;
         }
 
-        return target.type;
+        // After a null check, a nullable variable is its T until it's assigned again.
+        if (!is_nullable(target.type) || !is_narrowed(*found)) {
+            return target.type;
+        }
+
+        const type_id_t type = non_null(target.type);
+        if (std::optional<const_value_t>& value = info(id).value) {
+            if (std::holds_alternative<std::nullptr_t>(value->data)) {
+                value.reset(); // only in a branch that can't run
+            } else {
+                value->type = type;
+            }
+        }
+
+        return type;
     }
 
     /// The variable, Const, or field a name refers to. Locals come first, so one can hide a field
@@ -1816,7 +2359,7 @@ private:
             return std::nullopt;
         }
 
-        if (symbol(first).kind == symbol_kind_t::STRUCT) {
+        if (symbol(first).kind == symbol_kind_t::TYPE) {
             error(span, "'{}' is a type, not a value", name);
             return std::nullopt;
         }
@@ -1840,8 +2383,8 @@ private:
 
     /// A Struct's fields or Methods with a name. Constructors aren't reached by name.
     std::vector<symbol_id_t> members_of(const type_id_t type, const std::string_view name) {
-        const auto found = m_structs.find(type);
-        if (found == m_structs.end()) {
+        const auto found = m_declared_types.find(type);
+        if (found == m_declared_types.end()) {
             return {};
         }
 
@@ -1855,14 +2398,27 @@ private:
         return members;
     }
 
-    /// The members named after a '.': a field, or a Method's overloads. Reports a value that
-    /// has no members, or no member with that name.
-    std::vector<symbol_id_t> lookup_member(const type_id_t type, const name_t& member) {
+    /// The members named after a '.' on `object`: a field, or a Method's overloads. Reports a
+    /// value that has no members, or no member with that name, or may be Null.
+    std::vector<symbol_id_t> lookup_member(const expr_id_t object, const type_id_t type,
+                                           const name_t& member) {
         if (type == type_id_t::INVALID || member.text.empty()) {
             return {};
         }
 
-        if (!is_struct(type)) {
+        if (is_nullable(type) && has_members(non_null(type))) {
+            if (narrowable_variable(object)) {
+                error(span_of(object), "'{}' may be Null; check that it isn't, or use '?.'",
+                      text(object));
+            } else {
+                error(span_of(object), "'{}' may be Null; check a Local copy of it, or use '?.'",
+                      text(object));
+            }
+
+            return {};
+        }
+
+        if (!has_members(type)) {
             error(member.span, "{} has no members", name_of(type));
             return {};
         }
@@ -1895,6 +2451,16 @@ private:
             return type_id_t::INVALID;
         }
 
+        // "!c" swaps c's branches.
+        if (is_not && m_branches && m_branches->condition == node.operand) {
+            auto [if_true, if_false] = branches_of(node.operand);
+            m_branches = branches_t{
+                .condition = id,
+                .if_true = std::move(if_false),
+                .if_false = std::move(if_true),
+            };
+        }
+
         if (const std::optional<const_value_t>& value = info(node.operand).value) {
             fold(id, fold_unary(node.op, *value));
         }
@@ -1906,14 +2472,11 @@ private:
         type_id_t type = type_id_t::INVALID;
         switch (node.op) {
         case binary_op_t::COALESCE:
-            return unsupported(id, std::format("'{}'", spelling(node.op)));
+            return check_coalesce(id, node, hint);
         case binary_op_t::AND:
-        case binary_op_t::OR: {
-            const bool left_valid = check_condition(node.left);
-            const bool right_valid = check_condition(node.right);
-            type = left_valid && right_valid ? type_id_t::BOOL : type_id_t::INVALID;
+        case binary_op_t::OR:
+            type = check_logical(id, node);
             break;
-        }
         case binary_op_t::SHIFT_LEFT:
         case binary_op_t::SHIFT_RIGHT:
             type = check_shift(node.left, node.right, hint, span_of(id));
@@ -1925,6 +2488,7 @@ private:
                                    compares ? type_id_t::NONE : hint, span_of(id));
             if (type != type_id_t::INVALID && compares) {
                 type = type_id_t::BOOL;
+                check_null_comparison(id, node);
             }
 
             break;
@@ -1940,20 +2504,133 @@ private:
         return type;
     }
 
+    /// && and ||: the right side only runs when the left doesn't decide, so it sees the left's
+    /// narrowing. In "e != Null && e.hp > 0", e holds a value on the right.
+    type_id_t check_logical(const expr_id_t id, const binary_expr_t& node) {
+        const bool is_and = node.op == binary_op_t::AND;
+        const bool left_valid = check_condition(node.left);
+        auto [left_true, left_false] = branches_of(node.left);
+        m_flow = is_and ? left_true : left_false;
+        const bool right_valid = check_condition(node.right);
+        auto [right_true, right_false] = branches_of(node.right);
+        branches_t result{
+            .condition = id,
+            .if_true = is_and ? std::move(right_true) : join(left_true, right_true),
+            .if_false = is_and ? join(left_false, right_false) : std::move(right_false),
+        };
+        m_flow = join(result.if_true, result.if_false);
+        m_branches = std::move(result);
+        return left_valid && right_valid ? type_id_t::BOOL : type_id_t::INVALID;
+    }
+
+    /// "e != Null" narrows e where it's True, and "e == Null" where it's False. Comparing
+    /// something that can't be Null with Null always gives the same answer.
+    void check_null_comparison(const expr_id_t id, const binary_expr_t& node) {
+        if (is_null(node.left) == is_null(node.right)) {
+            return;
+        }
+
+        const expr_id_t other = is_null(node.left) ? node.right : node.left;
+        const bool is_equal = node.op == binary_op_t::EQUAL;
+        if (!is_nullable(info(other).type)) {
+            warning(span_of(id), "'{}' can't be Null here, so this is always {}", text(other),
+                    is_equal ? "False" : "True");
+            return;
+        }
+
+        const std::optional<symbol_id_t> variable = narrowable_variable(other);
+        if (!variable) {
+            return;
+        }
+
+        flow_t holds = m_flow;
+        set_bit(holds.narrowed, *variable, true);
+        m_branches = branches_t{
+            .condition = id,
+            .if_true = is_equal ? m_flow : holds,
+            .if_false = is_equal ? holds : m_flow,
+        };
+    }
+
+    /// "a ?? b": the value in a, or else b, which only runs when a is Null. b takes the T of a's
+    /// T?, and the result is the type both meet at.
+    type_id_t check_coalesce(const expr_id_t id, const binary_expr_t& node, const type_id_t hint) {
+        const bool typed = hint != type_id_t::NONE && hint != type_id_t::INVALID;
+        const type_id_t left = check(node.left, typed ? nullable_of(hint) : hint);
+        if (left == type_id_t::INVALID) {
+            check(node.right, type_id_t::NONE);
+            return type_id_t::INVALID;
+        }
+
+        if (!is_nullable(left)) {
+            warning(span_of(node.left), "'{}' can't be Null here, so '{}' always gives it",
+                    text(node.left), spelling(node.op));
+        }
+
+        const type_id_t inner = non_null(left);
+        const type_id_t right = check(node.right, is_null(node.right) ? left : inner);
+        if (right == type_id_t::INVALID) {
+            return type_id_t::INVALID;
+        }
+
+        const std::optional<type_id_t> common = common_type(inner, right);
+        if (!common) {
+            error(span_of(id), "the sides of '{}' have different types, {} and {}",
+                  spelling(node.op), name_of(inner), name_of(right));
+            return type_id_t::INVALID;
+        }
+
+        convert(node.right, *common);
+        // A known value decides it: b is only needed for Null.
+        if (const std::optional<const_value_t>& value = info(node.left).value) {
+            if (std::holds_alternative<std::nullptr_t>(value->data)) {
+                info(id).value = info(node.right).value;
+            } else {
+                info(id).value = convert_value({ .type = inner, .data = value->data }, *common);
+            }
+        }
+
+        return *common;
+    }
+
     /// Checks both operands. A literal side takes the other side's type, so `x + 1` works for
-    /// any numeric x.
+    /// any numeric x, and Null takes the T? of the other side's T. With `flows`, each side is
+    /// checked in its own flow, which is updated: a ternary's results each see their side of
+    /// the condition.
     std::pair<type_id_t, type_id_t> check_operands(const expr_id_t left, const expr_id_t right,
-                                                   type_id_t hint) {
+                                                   type_id_t hint,
+                                                   std::array<flow_t, 2>* flows = nullptr) {
+        const auto check_side = [&](const std::size_t side, const type_id_t side_hint) {
+            if (flows != nullptr) {
+                m_flow = (*flows)[side];
+            }
+
+            const type_id_t type = check(side == 0 ? left : right, side_hint);
+            if (flows != nullptr) {
+                (*flows)[side] = m_flow;
+            }
+
+            return type;
+        };
+
+        if (is_null(left) != is_null(right)) {
+            const std::size_t other = is_null(left) ? 1 : 0;
+            const type_id_t other_type = check_side(other, hint);
+            const type_id_t null_type = check_side(1 - other, nullable_of(other_type));
+            return other == 0 ? std::pair{ other_type, null_type }
+                              : std::pair{ null_type, other_type };
+        }
+
         const bool left_flexible = is_flexible(left);
         const bool right_flexible = is_flexible(right);
         if (left_flexible && !right_flexible) {
-            const type_id_t right_type = check(right, hint);
-            return { check(left, is_numeric(right_type) ? right_type : hint), right_type };
+            const type_id_t right_type = check_side(1, hint);
+            return { check_side(0, is_numeric(right_type) ? right_type : hint), right_type };
         }
 
         if (right_flexible && !left_flexible) {
-            const type_id_t left_type = check(left, hint);
-            return { left_type, check(right, is_numeric(left_type) ? left_type : hint) };
+            const type_id_t left_type = check_side(0, hint);
+            return { left_type, check_side(1, is_numeric(left_type) ? left_type : hint) };
         }
 
         // Two literal sides with no numeric hint share one default type: "1 < 0.5" compares
@@ -1962,8 +2639,8 @@ private:
             hint = has_decimal(left) || has_decimal(right) ? type_id_t::FLOAT32 : type_id_t::INT32;
         }
 
-        const type_id_t left_type = check(left, hint);
-        return { left_type, check(right, hint) };
+        const type_id_t left_type = check_side(0, hint);
+        return { left_type, check_side(1, hint) };
     }
 
     /// Checks an arithmetic, bitwise, or comparison operator. Both operands are converted to
@@ -1991,6 +2668,9 @@ private:
 
         if (*common == type_id_t::STRING && is_ordering(op)) {
             error(span, "Strings can only be compared with == and != for now");
+        } else if (is_nullable(*common)) {
+            error(span, "'{}' can't be used on {}, which may be Null", spelling(op),
+                  name_of(*common));
         } else {
             error(span, "'{}' can't be used on {}", spelling(op), name_of(*common));
         }
@@ -2020,9 +2700,14 @@ private:
         return type;
     }
 
+    /// Each result is checked where its side of the condition holds.
     type_id_t check_expr(const expr_id_t id, const ternary_expr_t& node, const type_id_t hint) {
         const bool condition_valid = check_condition(node.condition);
-        const auto [true_type, false_type] = check_operands(node.if_true, node.if_false, hint);
+        auto [if_true, if_false] = branches_of(node.condition);
+        std::array<flow_t, 2> flows{ std::move(if_true), std::move(if_false) };
+        const auto [true_type, false_type] =
+            check_operands(node.if_true, node.if_false, hint, &flows);
+        m_flow = join(flows[0], flows[1]);
         if (true_type == type_id_t::INVALID || false_type == type_id_t::INVALID) {
             return type_id_t::INVALID;
         }
@@ -2069,6 +2754,7 @@ private:
         info(id).symbol = function;
         check_receiver(node, *function);
         check_arguments(id, node, *function);
+        check_special_call(node, symbol(*function));
         // The constructor a Struct gets takes its fields, which may not have types yet.
         if (symbol(*function).kind == symbol_kind_t::CONSTRUCTOR &&
             !symbol(*function).declaration) {
@@ -2077,7 +2763,42 @@ private:
             }
         }
 
-        return symbol(*function).type;
+        const auto* member = std::get_if<member_expr_t>(&m_ast.get(node.callee).node);
+        // A Method called by name gets Self.
+        if (symbol(*function).kind == symbol_kind_t::METHOD && member == nullptr) {
+            check_self_ready(span_of(node.callee));
+        }
+
+        // "a?.M()" gives Null when a is Null.
+        const type_id_t type = symbol(*function).type;
+        if (member != nullptr && member->null_safe && type != type_id_t::NONE) {
+            return nullable_of(type);
+        }
+
+        return type;
+    }
+
+    /// RefEquals only compares Class references, and Destroy runs by itself.
+    void check_special_call(const call_expr_t& node, const symbol_t& function) {
+        if (function.kind == symbol_kind_t::BUILTIN_FUNCTION && function.name == "RefEquals") {
+            for (const argument_t& argument : node.arguments) {
+                const type_id_t type = info(argument.value).type;
+                if (is_null(argument.value)) {
+                    error(span_of(argument.value),
+                          "RefEquals compares two references; check for Null with '== Null'");
+                } else if (type != type_id_t::INVALID && !is_class(non_null(type))) {
+                    error(span_of(argument.value), "RefEquals compares Class references, not {}",
+                          name_of(type));
+                }
+            }
+        }
+
+        if (function.kind == symbol_kind_t::METHOD && function.name == "Destroy" &&
+            is_class(function.owner)) {
+            error(span_of(node.callee),
+                  "Destroy runs by itself when an object's last reference goes away; it can't "
+                  "be called");
+        }
     }
 
     /// A "ByRef Method" changes the value it's called on, so that has to be something that can
@@ -2121,12 +2842,16 @@ private:
     }
 
     /// What a callee names: a function's overloads, a Struct's constructors, or Methods. A Method
-    /// is called after a '.' on a Struct value, or by name in another of its Struct's Methods.
+    /// is called after a '.' or '?.' on a Struct value, or by name in another of its Struct's
+    /// Methods.
     std::vector<symbol_id_t> lookup_callee(const expr_id_t callee) {
-        if (const auto* member = std::get_if<member_expr_t>(&m_ast.get(callee).node);
-            member != nullptr && !member->null_safe) {
-            const type_id_t type = check(member->object, type_id_t::NONE);
-            std::vector<symbol_id_t> members = lookup_member(type, member->member);
+        if (const auto* member = std::get_if<member_expr_t>(&m_ast.get(callee).node)) {
+            type_id_t type = check(member->object, type_id_t::NONE);
+            if (member->null_safe) {
+                type = check_safe_object(member->object, type);
+            }
+
+            std::vector<symbol_id_t> members = lookup_member(member->object, type, member->member);
             if (!members.empty() && symbol(members.front()).kind == symbol_kind_t::FIELD) {
                 error(member->member.span, "'{}' is a field, not a method", member->member.text);
                 return {};
@@ -2172,7 +2897,7 @@ private:
         }
 
         const symbol_t& first = symbol(found->second.front());
-        if (first.kind == symbol_kind_t::STRUCT) {
+        if (first.kind == symbol_kind_t::TYPE) {
             std::vector<symbol_id_t> constructors;
             for (const symbol_id_t member : first.members) {
                 if (symbol(member).kind == symbol_kind_t::CONSTRUCTOR) {
@@ -2207,7 +2932,8 @@ private:
         std::vector<type_id_t> types;
         for (const argument_t& argument : node.arguments) {
             const type_id_t type = quietly([&] { return check(argument.value, type_id_t::NONE); });
-            if (type == type_id_t::INVALID && !is_flexible(argument.value)) {
+            if (type == type_id_t::INVALID && !is_flexible(argument.value) &&
+                !is_null(argument.value)) {
                 check_alone(node.arguments); // report the argument's own errors instead
                 return std::nullopt;
             }
@@ -2239,9 +2965,9 @@ private:
         const std::vector<symbol_id_t>& tied = exact.empty() ? convertible : exact;
         if (tied.empty()) {
             std::string list;
-            for (const type_id_t type : types) {
-                list += list.empty() ? "" : ", ";
-                list += name_of(type);
+            for (std::size_t i = 0; i < types.size(); ++i) {
+                list += i == 0 ? "" : ", ";
+                list += is_null(node.arguments[i].value) ? "Null" : name_of(types[i]);
             }
 
             error(span, "no overload of '{}' takes ({})", name, list);
@@ -2287,8 +3013,14 @@ private:
     }
 
     /// How well one argument fits a parameter of `type`. A literal matches its default type
-    /// exactly, and any other type it fits by conversion. A ByRef argument needs the exact type.
+    /// exactly, and any other type it fits by conversion. Null fits any T? by conversion. A
+    /// ByRef argument needs the exact type.
     match_t match(const argument_t& argument, const type_id_t type) {
+        if (is_null(argument.value)) {
+            return is_nullable(type) || type == type_id_t::INVALID ? match_t::CONVERTIBLE
+                                                                   : match_t::NONE;
+        }
+
         const type_id_t natural = check(argument.value, type_id_t::NONE);
         if (natural == type || type == type_id_t::INVALID) {
             return match_t::EXACT;
@@ -2299,10 +3031,11 @@ private:
         }
 
         if (is_flexible(argument.value)) {
-            return check(argument.value, type) == type ? match_t::CONVERTIBLE : match_t::NONE;
+            return check(argument.value, type) == non_null(type) ? match_t::CONVERTIBLE
+                                                                 : match_t::NONE;
         }
 
-        return converts_losslessly(natural, type) ? match_t::CONVERTIBLE : match_t::NONE;
+        return converts(natural, type) ? match_t::CONVERTIBLE : match_t::NONE;
     }
 
     /// Matches arguments to parameters: positional ones first, then named ones, and defaults fill
@@ -2421,7 +3154,7 @@ private:
         const symbol_t& parameter = symbol(parameter_id);
         const expr_id_t value = argument.value;
         // This reads a ByRef variable too, so it must already be assigned.
-        const type_id_t type = check(value, parameter.type);
+        const type_id_t checked = check(value, parameter.type);
         if (argument.by_ref != parameter.by_ref) {
             if (parameter.by_ref) {
                 error(span_of(value), "parameter '{}' is ByRef; write 'ByRef {}'", parameter.name,
@@ -2438,17 +3171,31 @@ private:
             return;
         }
 
+        const type_id_t type = by_ref_type(value, checked);
         if (type == type_id_t::INVALID) {
             return;
         }
 
+        // An object's fields can be passed through any reference to it. Two references might be
+        // the same object, so only the same variable counts as overlapping.
         const std::optional<symbol_id_t> variable = root_of(value);
-        if (!variable) {
-            error(span_of(value), "only a variable or one of its fields can be passed ByRef");
-            return;
+        if (!in_object(value)) {
+            if (!variable) {
+                error(span_of(value), "only a variable or one of its fields can be passed ByRef");
+                return;
+            }
+
+            if (!check_assignable(*variable, span_of(value), "passed ByRef")) {
+                return;
+            }
         }
 
-        if (!check_assignable(*variable, span_of(value), "passed ByRef")) {
+        if (!variable) {
+            if (type != parameter.type && parameter.type != type_id_t::INVALID) {
+                error(span_of(value), "a ByRef argument must be exactly {}, but this is {}",
+                      name_of(parameter.type), name_of(type));
+            }
+
             return;
         }
 
@@ -2468,15 +3215,44 @@ private:
         by_ref.push_back(access);
     }
 
-    /// A field after a '.'. Methods can only be called.
-    type_id_t check_expr(const expr_id_t id, const member_expr_t& node, type_id_t /*hint*/) {
-        if (node.null_safe) {
-            check(node.object, type_id_t::NONE);
-            return unsupported(id, "'?.'");
+    /// A ByRef argument is the variable itself: one that was narrowed is its T? again, and may
+    /// be Null after the call.
+    type_id_t by_ref_type(const expr_id_t value, const type_id_t type) {
+        const std::optional<symbol_id_t> variable = narrowable_variable(value);
+        if (!variable) {
+            return type;
         }
 
-        const type_id_t object = check(node.object, type_id_t::NONE);
-        const std::vector<symbol_id_t> members = lookup_member(object, node.member);
+        const type_id_t declared = symbol(*variable).type;
+        info(value).type = declared;
+        info(value).converted = declared;
+        set_bit(m_flow.narrowed, *variable, false);
+        return declared;
+    }
+
+    /// The object before a '?.', as its T. One that can't be Null works too, though '.' would do.
+    type_id_t check_safe_object(const expr_id_t object, const type_id_t type) {
+        if (type != type_id_t::INVALID && !is_nullable(type)) {
+            warning(span_of(object), "'{}' can't be Null here, so '?.' isn't needed", text(object));
+        }
+
+        return non_null(type);
+    }
+
+    /// A field after a '.', or after a '?.', which gives Null when the object is Null. Methods
+    /// can only be called. "Self.x" only uses one field, so a New can use it before the others
+    /// are assigned.
+    type_id_t check_expr(const expr_id_t id, const member_expr_t& node, type_id_t /*hint*/) {
+        const bool target = m_partial == id;
+        const bool on_self = std::holds_alternative<self_expr_t>(m_ast.get(node.object).node);
+        m_partial = on_self ? std::optional(node.object) : std::nullopt;
+        type_id_t object = check(node.object, type_id_t::NONE);
+        m_partial.reset();
+        if (node.null_safe) {
+            object = check_safe_object(node.object, object);
+        }
+
+        const std::vector<symbol_id_t> members = lookup_member(node.object, object, node.member);
         if (members.empty()) {
             return type_id_t::INVALID;
         }
@@ -2492,7 +3268,21 @@ private:
         }
 
         info(id).symbol = member;
-        return symbol(member).type;
+        if (on_self && !target) {
+            check_read(member, span_of(id));
+        }
+
+        if (!node.null_safe) {
+            return symbol(member).type;
+        }
+
+        const type_id_t type = nullable_of(symbol(member).type);
+        if (const std::optional<const_value_t>& value = info(node.object).value;
+            value && std::holds_alternative<std::nullptr_t>(value->data)) {
+            info(id).value = const_value_t{ .type = type, .data = nullptr };
+        }
+
+        return type;
     }
 
     type_id_t check_expr(const expr_id_t id, const self_expr_t& /*node*/, type_id_t /*hint*/) {
@@ -2500,6 +3290,10 @@ private:
         if (!self) {
             error(span_of(id), "'Self' can only be used in a Method or New");
             return type_id_t::INVALID;
+        }
+
+        if (m_partial != id) {
+            check_self_ready(span_of(id));
         }
 
         info(id).symbol = self;
@@ -2522,16 +3316,22 @@ private:
             return type_id_t::INVALID;
         }
 
-        // Numbers convert to each other, and a Bool to an integer as 0 or 1.
-        const bool converts = source == target || (is_numeric(source) && is_numeric(target)) ||
-                              (source == type_id_t::BOOL && is_integer(target));
-        if (!converts) {
+        // Numbers convert to each other, a Bool to an integer as 0 or 1, and anything to what
+        // it converts to without 'As', like a T to a T?.
+        const bool allowed = converts(source, target) ||
+                             (is_numeric(source) && is_numeric(target)) ||
+                             (source == type_id_t::BOOL && is_integer(target));
+        if (!allowed) {
             error(span_of(id), "'As' can't convert {} to {}", name_of(source), name_of(target));
             return type_id_t::INVALID;
         }
 
         if (const std::optional<const_value_t>& value = info(node.value).value) {
-            fold(id, fold_cast(*value, target));
+            if (is_nullable(target)) {
+                info(id).value = convert_value(*value, target);
+            } else {
+                fold(id, fold_cast(*value, target));
+            }
         }
 
         return target;

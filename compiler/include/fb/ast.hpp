@@ -381,7 +381,9 @@ struct return_stmt_t {
 
 /// "Struct Name ... End Struct". Its members are Fields (variable_stmt_t) and Methods and News
 /// (function_stmt_t), in source order.
-struct struct_stmt_t {
+struct type_stmt_t {
+    /// "Class" rather than "Struct".
+    bool is_class = false;
     name_t name;
     block_t members;
 };
@@ -390,7 +392,7 @@ using stmt_node_t =
     std::variant<error_stmt_t, expression_stmt_t, assign_stmt_t, increment_stmt_t, variable_stmt_t,
                  function_stmt_t, if_stmt_t, while_stmt_t, repeat_stmt_t, loop_stmt_t, for_stmt_t,
                  for_in_stmt_t, select_stmt_t, break_stmt_t, continue_stmt_t, return_stmt_t,
-                 struct_stmt_t>;
+                 type_stmt_t>;
 
 struct stmt_t {
     span_t span;

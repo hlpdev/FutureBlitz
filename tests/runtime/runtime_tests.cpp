@@ -90,3 +90,79 @@ TEST_CASE("integer powers wrap, or overflow when checked", "[runtime]") {
     CHECK(fb_power_uint(2, 8, 8, 0, nullptr) == 0); // 256 wraps around in UInt8
     CHECK(fb_power_uint(10, 19, 64, 1, nullptr) == 10000000000000000000ULL);
 }
+
+namespace {
+
+/// How many times destroy_thing has run.
+int destroyed = 0;
+
+void destroy_thing(fb_object_t* /*object*/) {
+    ++destroyed;
+}
+
+/// An object with one field after the header, laid out the way compiled code lays it out.
+struct thing_t {
+    fb_object_t header;
+    std::int64_t value;
+};
+
+/// The Class of a thing_t, with no objects yet.
+fb_class_t thing_class() {
+    return { .name = "Thing", .size = sizeof(thing_t), .destroy = destroy_thing, .live = 0 };
+}
+
+} // namespace
+
+TEST_CASE("an object is destroyed when its last owner lets go", "[runtime]") {
+    fb_class_t type = thing_class();
+    destroyed = 0;
+    fb_object_t* object = fb_object_new(&type);
+    CHECK(object->refcount == 1);
+    CHECK(object->type == &type);
+    CHECK(type.live == 1);
+
+    fb_object_retain(object);
+    fb_object_release(object);
+    CHECK(destroyed == 0);
+    fb_object_release(object);
+    CHECK(destroyed == 1);
+    CHECK(type.live == 0);
+}
+
+TEST_CASE("a new object's fields start at zero", "[runtime]") {
+    fb_class_t type = thing_class();
+    auto* thing = reinterpret_cast<thing_t*>(fb_object_new(&type));
+    CHECK(thing->value == 0);
+    fb_object_release(&thing->header);
+}
+
+TEST_CASE("atomic retain and release count the same way", "[runtime]") {
+    fb_class_t type = thing_class();
+    destroyed = 0;
+    fb_object_t* object = fb_object_new(&type);
+    fb_object_retain_atomic(object);
+    CHECK(object->refcount == 2);
+    fb_object_release_atomic(object);
+    fb_object_release_atomic(object);
+    CHECK(destroyed == 1);
+    CHECK(type.live == 0);
+}
+
+TEST_CASE("null objects and Strings are ignored", "[runtime]") {
+    // A variable of a Class holds null until it's assigned, and is still released. A String? or
+    // Class? holds null for Null.
+    fb_object_retain(nullptr);
+    fb_object_release(nullptr);
+    fb_object_retain_atomic(nullptr);
+    fb_object_release_atomic(nullptr);
+    fb_string_retain(nullptr);
+    fb_string_release(nullptr);
+}
+
+TEST_CASE("the String count follows allocations", "[runtime]") {
+    const std::int64_t before = fb_string_live_count();
+    fb_string_t* string = fb_string_from_int(1);
+    CHECK(fb_string_live_count() == before + 1);
+    fb_string_release(string);
+    CHECK(fb_string_live_count() == before);
+}

@@ -1,0 +1,3 @@
+clingy freed
+first freed
+panic: Ghost's Destroy() kept a reference to its object

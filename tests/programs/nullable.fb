@@ -1,0 +1,111 @@
+// Nullable types: Null, null checks that narrow, '?.', '??', and fields that refer to Classes.
+Class Node
+    Field name: String
+    Field next: Node?
+
+    New(name: String, next: Node? = Null)
+        Self.name = name
+        Self.next = next
+    End New
+
+    Method Destroy()
+        Print("{name} freed")
+    End Method
+End Class
+
+Class Enemy
+    Field name: String
+    Field hp: Int = 100
+    Field target: Enemy?
+    Field home: Node
+
+    New(name: String, home: Node)
+        Self.name = name
+        Self.home = home
+    End New
+
+    Method Hurt(amount: Int)
+        hp -= amount
+    End Method
+
+    Method Health(): Int => hp
+End Class
+
+Struct Point
+    Field x: Int
+    Field y: Int
+End Struct
+
+Function Find(name: String, first: Node?): Node?
+    Local node = first
+    While node != Null
+        If node.name == name Then Return node
+        node = node.next
+    End While
+
+    Return Null
+End Function
+
+Function Describe(value: Int?): String
+    If value == Null Then Return "nothing"
+    Return "{value}"
+End Function
+
+Function Twice(value: Int?): Int? => value != Null ? value * 2 : Null
+
+// A list of three Nodes.
+Local list = Node("a", Node("b", Node("c")))
+Local found = Find("b", list)
+Print(found?.name ?? "missing")
+Print(Find("z", list)?.name ?? "missing")
+If found != Null Then Print("found {found.name}, next {found.next?.name ?? "none"}")
+
+// Null checks, '?.', and '??' on value types.
+Local maybe: Int? = Null
+Print(Describe(maybe))
+maybe = 5
+Print(Describe(maybe))
+Print("{Twice(maybe) ?? -1} {Twice(Null) ?? -1}")
+Local wide: Int64? = Twice(maybe)
+Print("{wide ?? 0} {Twice(maybe) == 10} {Twice(Null) == Null} {Twice(maybe) != 6}")
+
+Function Origin(near: Bool): Point? => near ? Point(0, 0) : Null
+
+Local point = Origin(False)
+Print("{point?.x ?? -1}")
+point = Origin(True)
+If point != Null
+    point.x += 13
+    point.y = 4
+    Print("{point.x} {point.y}")
+End If
+
+Local other = Origin(True)
+Print("{point == other} {other == Origin(True)} {point != Null}")
+
+// Strings can be Null too.
+Function Title(named: Bool): String? => named ? "boss " + "fight" : Null
+
+Print(Title(False) ?? "untitled")
+Local title = Title(True)
+Print(title ?? "untitled")
+Print("{title == "boss fight"} {title == Title(False)} {Title(False) == Null}")
+
+// Fields that refer to Classes, and Methods called with '?.'.
+Local home = Node("home")
+Local boss = Enemy("boss", home)
+Local minion = Enemy("minion", home)
+minion.target = boss
+minion.target?.Hurt(25)
+boss.target?.Hurt(1000)
+Print("{boss.hp} {minion.target?.Health() ?? 0} {boss.target?.Health() ?? 0}")
+Print("{boss.home.name} {RefEquals(minion.target, boss)}")
+minion.target = Null
+Print("{minion.target == Null}")
+
+// The right side of && sees where the left is True, and the right side of || where it's False.
+Local spare: Node? = Find("c", list)
+Print("{spare != Null && spare.name == "c"} {spare == Null || spare.name == "x"}")
+spare = Null
+Print("{spare != Null && spare.name == "c"}")
+Print("end of main")

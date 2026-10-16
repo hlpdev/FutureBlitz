@@ -96,8 +96,13 @@ public:
         declare_runtime();
         declare_globals();
         declare_functions();
+        declare_classes();
         for (std::size_t i = 0; i < m_mir.functions.size(); ++i) {
             generate(i);
+        }
+
+        for (std::size_t i = 0; i < m_mir.classes.size(); ++i) {
+            generate_destroy(i);
         }
 
         generate_main();
@@ -165,6 +170,9 @@ private:
     function_ref_t m_power_uint;
     function_ref_t m_print;
     function_ref_t m_panic;
+    function_ref_t m_object_new;
+    function_ref_t m_object_retain;
+    function_ref_t m_object_release;
 
     /// Each MIR global's LLVM global, by global_id_t.
     std::vector<LLVMValueRef> m_globals;
@@ -174,6 +182,12 @@ private:
     std::unordered_map<std::string, LLVMValueRef> m_c_strings; // C strings for panics
     /// Each Struct's LLVM type, made the first time it's needed.
     std::unordered_map<type_id_t, LLVMTypeRef> m_struct_types;
+    /// Each Class's object type: the header, then the fields.
+    std::unordered_map<type_id_t, LLVMTypeRef> m_object_types;
+    /// Each Class's fb_class_t, by its type.
+    std::unordered_map<type_id_t, LLVMValueRef> m_classes;
+    /// Each Class's destroy, by its index in `mir_module_t::classes`.
+    std::vector<function_ref_t> m_destroys;
 
     // The function being generated
     const mir_function_t* m_function = nullptr;
@@ -249,7 +263,8 @@ private:
     }
 
     /// A String is a pointer to its header, a Struct is an LLVM struct of its fields, and no type
-    /// (a function that returns nothing) is void.
+    /// (a function that returns nothing) is void. A String? or Class? is a pointer that's null
+    /// for Null, and any other T? is a flag for whether it holds a value, then the T.
     [[nodiscard]] LLVMTypeRef llvm_type(const type_id_t type) {
         switch (type) {
         case type_id_t::BOOL:
@@ -274,8 +289,62 @@ private:
                 return struct_type(type);
             }
 
+            // A Class is a pointer to its object.
+            if (is_class(type) || is_nullable_reference(type)) {
+                return m_ptr;
+            }
+
+            if (is_nullable(type)) {
+                std::array<LLVMTypeRef, 2> fields{ m_bool, llvm_type(inner_of(type)) };
+                return LLVMStructTypeInContext(context(), fields.data(),
+                                               static_cast<unsigned>(fields.size()), 0);
+            }
+
             return m_void;
         }
+    }
+
+    [[nodiscard]] bool is_class(const type_id_t type) const {
+        return m_mir.types->get(type).kind == type_kind_t::CLASS;
+    }
+
+    [[nodiscard]] bool is_nullable(const type_id_t type) const {
+        return m_mir.types->get(type).kind == type_kind_t::NULLABLE;
+    }
+
+    /// The T of a T?.
+    [[nodiscard]] type_id_t inner_of(const type_id_t type) const {
+        return m_mir.types->get(type).inner;
+    }
+
+    /// A String? or Class?: the reference itself, which is null for Null.
+    [[nodiscard]] bool is_nullable_reference(const type_id_t type) const {
+        return is_nullable(type) &&
+               (inner_of(type) == type_id_t::STRING || is_class(inner_of(type)));
+    }
+
+    [[nodiscard]] static bool is_null(const operand_t& operand) {
+        const auto* value = std::get_if<const_value_t>(&operand);
+        return value != nullptr && std::holds_alternative<std::nullptr_t>(value->data);
+    }
+
+    /// A Class's object in the IR, like fb_object_t's header followed by the fields. A field that
+    /// refers to a Class is a pointer, so making the fields' types never comes back to it.
+    LLVMTypeRef object_type(const type_id_t type) {
+        if (const auto found = m_object_types.find(type); found != m_object_types.end()) {
+            return found->second;
+        }
+
+        std::vector<LLVMTypeRef> fields{ m_i64, m_ptr };
+        for (const field_t& field : m_mir.types->get(type).fields) {
+            fields.push_back(llvm_type(field.type));
+        }
+
+        const std::string name = std::format("fb.{}", m_mir.types->name(type));
+        LLVMTypeRef result = LLVMStructCreateNamed(context(), name.c_str());
+        LLVMStructSetBody(result, fields.data(), static_cast<unsigned>(fields.size()), 0);
+        m_object_types.emplace(type, result);
+        return result;
     }
 
     /// "fb.Point" in the IR. A Struct never contains itself, so making its fields' types can't
@@ -309,7 +378,7 @@ private:
         LLVMTypeRef f32 = LLVMFloatTypeInContext(context());
         LLVMTypeRef f64 = LLVMDoubleTypeInContext(context());
         m_start = declare("fb_start", m_void, {});
-        m_finish = declare("fb_finish", m_void, {});
+        m_finish = declare("fb_finish", m_void, { m_ptr, m_i64 });
         m_retain = declare("fb_string_retain", m_void, { m_ptr });
         m_release = declare("fb_string_release", m_void, { m_ptr });
         m_concat = declare("fb_string_concat", m_ptr, { m_ptr, m_ptr });
@@ -324,6 +393,38 @@ private:
         m_power_uint = declare("fb_power_uint", m_i64, { m_i64, m_i64, m_i32, m_i32, m_ptr });
         m_print = declare("fb_print", m_void, { m_ptr });
         m_panic = declare("fb_panic", m_void, { m_ptr, m_ptr });
+        m_object_new = declare("fb_object_new", m_ptr, { m_ptr });
+        m_object_retain = declare("fb_object_retain", m_void, { m_ptr });
+        m_object_release = declare("fb_object_release", m_void, { m_ptr });
+    }
+
+    /// Each Class's fb_class_t: its name, its objects' size, and its destroy, which
+    /// generate_destroy() fills in. The runtime counts the Class's objects in it.
+    void declare_classes() {
+        std::array<LLVMTypeRef, 4> fields{ m_ptr, m_i64, m_ptr, m_i64 };
+        LLVMTypeRef class_type = LLVMStructTypeInContext(context(), fields.data(),
+                                                         static_cast<unsigned>(fields.size()), 0);
+        for (const mir_class_t& info : m_mir.classes) {
+            const std::string_view name = m_mir.types->name(info.type);
+            const std::string destroy_name = std::format("fb.{}.destroy", name);
+            const function_ref_t destroy = declare(destroy_name.c_str(), m_void, { m_ptr });
+            LLVMSetLinkage(destroy.value, LLVMInternalLinkage);
+            m_destroys.push_back(destroy);
+
+            std::array<LLVMValueRef, 4> values{
+                c_string(std::string(name)),
+                LLVMSizeOf(object_type(info.type)),
+                destroy.value,
+                LLVMConstInt(m_i64, 0, 0),
+            };
+            const std::string global_name = std::format("fb.{}.class", name);
+            LLVMValueRef global = LLVMAddGlobal(m_module.get(), class_type, global_name.c_str());
+            LLVMSetInitializer(global,
+                               LLVMConstStructInContext(context(), values.data(),
+                                                        static_cast<unsigned>(values.size()), 0));
+            LLVMSetLinkage(global, LLVMInternalLinkage);
+            m_classes.emplace(info.type, global);
+        }
     }
 
     /// Globals start out holding their `initial` value. Like functions, their names get an "fb."
@@ -359,8 +460,24 @@ private:
 
     // Constants
 
-    /// A String constant becomes a static literal.
+    /// A String constant becomes a static literal. Null is its T?'s zero, and any other T?
+    /// constant holds its value.
     LLVMValueRef constant(const const_value_t& value) {
+        if (std::holds_alternative<std::nullptr_t>(value.data)) {
+            return zero_constant(value.type);
+        }
+
+        if (is_nullable(value.type)) {
+            LLVMValueRef inner = constant({ .type = inner_of(value.type), .data = value.data });
+            if (is_nullable_reference(value.type)) {
+                return inner;
+            }
+
+            std::array<LLVMValueRef, 2> fields{ LLVMConstInt(m_bool, 1, 0), inner };
+            return LLVMConstStructInContext(context(), fields.data(),
+                                            static_cast<unsigned>(fields.size()), 0);
+        }
+
         LLVMTypeRef type = llvm_type(value.type);
         if (const auto* flag = std::get_if<bool>(&value.data)) {
             return LLVMConstInt(type, *flag ? 1U : 0U, 0);
@@ -382,10 +499,18 @@ private:
     }
 
     /// What a variable of `type` starts as. A String's zero is the static "", never null, and a
-    /// Struct's has each field's zero.
+    /// Struct's has each field's zero. A T? that isn't a reference holds its T's zero while it's
+    /// Null, so releasing what's inside is always safe.
     LLVMValueRef zero_constant(const type_id_t type) {
         if (type == type_id_t::STRING) {
             return static_string("");
+        }
+
+        if (is_nullable(type) && !is_nullable_reference(type)) {
+            LLVMValueRef inner = zero_constant(inner_of(type));
+            std::array<LLVMValueRef, 2> fields{ LLVMConstInt(m_bool, 0, 0), inner };
+            return LLVMConstStructInContext(context(), fields.data(),
+                                            static_cast<unsigned>(fields.size()), 0);
         }
 
         const type_t& info = m_mir.types->get(type);
@@ -513,8 +638,33 @@ private:
         LLVMBuildBr(builder(), m_blocks[0]);
     }
 
-    /// main: starts the runtime, runs the top-level code, releases the Globals' Strings, and
-    /// lets the runtime check that nothing leaked.
+    /// A Class's destroy, which the runtime calls when an object's last owner lets go: it runs
+    /// the Class's Destroy(), if it has one, then releases the object's fields.
+    void generate_destroy(const std::size_t class_index) {
+        const mir_class_t& info = m_mir.classes[class_index];
+        LLVMValueRef function = m_destroys[class_index].value;
+        LLVMPositionBuilderAtEnd(builder(),
+                                 LLVMAppendBasicBlockInContext(context(), function, "entry"));
+        LLVMValueRef object = LLVMGetParam(function, 0);
+        if (info.destroy) {
+            call(m_functions[index(*info.destroy)], { object });
+        }
+
+        // The fields come after the header's two.
+        const std::vector<field_t>& fields = m_mir.types->get(info.type).fields;
+        for (std::uint32_t i = 0; i < fields.size(); ++i) {
+            if (m_mir.types->has_references(fields[i].type)) {
+                LLVMValueRef field =
+                    LLVMBuildStructGEP2(builder(), object_type(info.type), object, i + 2, "");
+                for_each_reference(field, fields[i].type, false);
+            }
+        }
+
+        LLVMBuildRetVoid(builder());
+    }
+
+    /// main: starts the runtime, runs the top-level code, releases the Globals, and lets the
+    /// runtime check that nothing leaked, with every Class's count.
     void generate_main() {
         const function_ref_t main = declare("main", m_i32, {});
         LLVMPositionBuilderAtEnd(builder(),
@@ -522,10 +672,28 @@ private:
         call(m_start, {});
         call(m_functions[index(m_mir.entry)], {});
         for (std::size_t i = 0; i < m_mir.globals.size(); ++i) {
-            for_each_string(place_t{ static_cast<global_id_t>(i) }, m_release);
+            if (m_mir.types->has_references(m_mir.globals[i].type)) {
+                for_each_reference(m_globals[i], m_mir.globals[i].type, false);
+            }
         }
 
-        call(m_finish, {});
+        std::vector<LLVMValueRef> classes;
+        classes.reserve(m_mir.classes.size());
+        for (const mir_class_t& info : m_mir.classes) {
+            classes.push_back(m_classes.at(info.type));
+        }
+
+        LLVMValueRef list = LLVMConstNull(m_ptr);
+        if (!classes.empty()) {
+            LLVMValueRef array =
+                LLVMConstArray2(m_ptr, classes.data(), static_cast<std::uint64_t>(classes.size()));
+            list = LLVMAddGlobal(m_module.get(), LLVMTypeOf(array), "classes");
+            LLVMSetInitializer(list, array);
+            LLVMSetGlobalConstant(list, 1);
+            LLVMSetLinkage(list, LLVMPrivateLinkage);
+        }
+
+        call(m_finish, { list, LLVMConstInt(m_i64, classes.size(), 0) });
         LLVMBuildRet(builder(), LLVMConstInt(m_i32, 0, 0));
     }
 
@@ -599,28 +767,56 @@ private:
         }
 
         for (const std::uint32_t field : place.fields) {
-            address = LLVMBuildStructGEP2(builder(), llvm_type(type), address, field, "");
+            if (is_class(type)) {
+                // A Class's variable holds a pointer; the fields are in the object, after the
+                // header's two.
+                LLVMValueRef object = LLVMBuildLoad2(builder(), m_ptr, address, "");
+                address = LLVMBuildStructGEP2(builder(), object_type(type), object, field + 2, "");
+            } else if (is_nullable(type)) {
+                // The T in a T?: the reference itself, or what comes after the flag.
+                if (!is_nullable_reference(type)) {
+                    address = LLVMBuildStructGEP2(builder(), llvm_type(type), address, 1, "");
+                }
+            } else {
+                address = LLVMBuildStructGEP2(builder(), llvm_type(type), address, field, "");
+            }
+
             type = m_mir.types->get(type).fields[field].type;
         }
 
         return address;
     }
 
-    /// Calls `function`, the runtime's retain or release, on every String in the value at
-    /// `place`.
-    void for_each_string(const place_t& place, const function_ref_t& function) {
-        const type_id_t type = type_of(place);
+    /// Retains, or releases, every reference in the value of `type` at `address`: a String, an
+    /// object, or each one among a Struct's fields or in a T?. The runtime ignores null, which a
+    /// String? or Class? holds for Null, and any other T? holds its T's zero then.
+    void for_each_reference(LLVMValueRef address, const type_id_t type, const bool retain) {
+        if (is_nullable(type)) {
+            if (!is_nullable_reference(type)) {
+                address = LLVMBuildStructGEP2(builder(), llvm_type(type), address, 1, "");
+            }
+
+            for_each_reference(address, inner_of(type), retain);
+            return;
+        }
+
         if (type == type_id_t::STRING) {
-            call(function, { value_of(place) });
+            call(retain ? m_retain : m_release, { LLVMBuildLoad2(builder(), m_ptr, address, "") });
+            return;
+        }
+
+        if (is_class(type)) {
+            call(retain ? m_object_retain : m_object_release,
+                 { LLVMBuildLoad2(builder(), m_ptr, address, "") });
             return;
         }
 
         const std::vector<field_t>& fields = m_mir.types->get(type).fields;
         for (std::uint32_t i = 0; i < fields.size(); ++i) {
             if (m_mir.types->has_references(fields[i].type)) {
-                place_t field = place;
-                field.fields.push_back(i);
-                for_each_string(field, function);
+                LLVMValueRef field =
+                    LLVMBuildStructGEP2(builder(), llvm_type(type), address, i, "");
+                for_each_reference(field, fields[i].type, retain);
             }
         }
     }
@@ -648,14 +844,14 @@ private:
 
     void generate(const retain_t& node) {
         if (const auto* place = std::get_if<place_t>(&node.value)) {
-            for_each_string(*place, m_retain);
+            for_each_reference(address_of(*place), type_of(*place), true);
         } else {
             call(m_retain, { value_of(node.value) });
         }
     }
 
     void generate(const release_t& node) {
-        for_each_string(node.target, m_release);
+        for_each_reference(address_of(node.target), type_of(node.target), false);
     }
 
     // Terminators
@@ -726,6 +922,10 @@ private:
 
     LLVMValueRef value(const binary_t& node) {
         const type_id_t type = type_of(node.left);
+        if (is_nullable(type)) {
+            return compare_nullable(node, type);
+        }
+
         LLVMValueRef left = value_of(node.left);
         LLVMValueRef right = value_of(node.right);
         if (is_float(type)) {
@@ -806,6 +1006,20 @@ private:
         default:
             std::unreachable();
         }
+    }
+
+    /// == or != on a T?. A String? or Class? compares references, like Classes do. Lowering only
+    /// compares any other T? with Null, which asks whether it holds a value.
+    LLVMValueRef compare_nullable(const binary_t& node, const type_id_t type) {
+        const LLVMIntPredicate predicate = node.op == binary_op_t::EQUAL ? LLVMIntEQ : LLVMIntNE;
+        if (is_nullable_reference(type)) {
+            return LLVMBuildICmp(builder(), predicate, value_of(node.left), value_of(node.right),
+                                 "");
+        }
+
+        const operand_t& other = is_null(node.left) ? node.right : node.left;
+        LLVMValueRef holds = LLVMBuildExtractValue(builder(), value_of(other), 0, "");
+        return LLVMBuildICmp(builder(), predicate, holds, LLVMConstInt(m_bool, 0, 0), "");
     }
 
     /// Float comparisons are false when either side is NaN, except !=.
@@ -914,8 +1128,39 @@ private:
 
     LLVMValueRef value(const cast_t& node) {
         const type_id_t from = type_of(node.value);
-        const type_id_t to = node.type;
         LLVMValueRef value = value_of(node.value);
+        if (is_nullable(node.type)) {
+            return to_nullable(value, from, node.type, node.span);
+        }
+
+        return convert(value, from, node.type, node.span);
+    }
+
+    /// A T, or a T?, as a U? whose U the T converts to. A String? or Class? is the reference
+    /// either way; any other gets the converted value and the flag.
+    LLVMValueRef to_nullable(LLVMValueRef value, const type_id_t from, const type_id_t to,
+                             const span_t span) {
+        if (from == to || is_nullable_reference(to)) {
+            return value;
+        }
+
+        LLVMValueRef holds = LLVMConstInt(m_bool, 1, 0);
+        type_id_t from_inner = from;
+        if (is_nullable(from)) {
+            holds = LLVMBuildExtractValue(builder(), value, 0, "");
+            value = LLVMBuildExtractValue(builder(), value, 1, "");
+            from_inner = inner_of(from);
+        }
+
+        value = convert(value, from_inner, inner_of(to), span);
+        LLVMValueRef result = LLVMGetUndef(llvm_type(to));
+        result = LLVMBuildInsertValue(builder(), result, holds, 0, "");
+        return LLVMBuildInsertValue(builder(), result, value, 1, "");
+    }
+
+    /// Between numbers, or from a Bool to an integer.
+    LLVMValueRef convert(LLVMValueRef value, const type_id_t from, const type_id_t to,
+                         const span_t span) {
         LLVMTypeRef target = llvm_type(to);
         if (from == to) {
             return value;
@@ -951,7 +1196,7 @@ private:
             LLVMBuildFCmp(builder(), LLVMRealOLT, whole, LLVMConstReal(source, limit), "");
         LLVMValueRef fits = LLVMBuildAnd(builder(), above_low, below_high, "");
         panic_if(LLVMBuildNot(builder(), fits, ""),
-                 std::format("the value doesn't fit in {}", m_mir.types->name(to)), node.span);
+                 std::format("the value doesn't fit in {}", m_mir.types->name(to)), span);
         return to_signed ? LLVMBuildFPToSI(builder(), whole, target, "")
                          : LLVMBuildFPToUI(builder(), whole, target, "");
     }
@@ -979,6 +1224,10 @@ private:
 
     LLVMValueRef value(const zero_t& node) {
         return zero_constant(node.type);
+    }
+
+    LLVMValueRef value(const new_t& node) {
+        return call(m_object_new, { m_classes.at(node.type) });
     }
 
     LLVMValueRef value(const runtime_call_t& node) {

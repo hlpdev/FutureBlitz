@@ -88,6 +88,17 @@ section.
 | A field, like a variable, can be passed `ByRef`; two `ByRef` arguments that overlap (`p` and `p.x`) are an error | the same rule as passing one variable twice |
 | Changing a field of a `Local` reads the rest of it, so the `Local` must be assigned first | definite assignment tracks whole variables |
 | A Struct can't go in a string until `Printable` (M3) | there's no `ToString` to call yet |
+| A Class without a `New` gets one without parameters | an object always starts from its field defaults |
+| A Class's Methods can always change its fields; `ByRef Method` is only for Structs | `Self` is a reference, so there's no copy to protect |
+| An object's fields change through any reference to it, even a read-only parameter or `Const`; a Class's `Self` can't be replaced | read-only covers the reference, not the object |
+| Class `==` compares identity until `Equatable` (M3); `RefEquals` always does | identity is the only equality an object has before interfaces |
+| A Class, or a Struct holding one, has no zero: a `Global` of one needs a value, a Struct's generated constructor requires the field, and every `New` assigns it on every path before reading it or using `Self` | a reference that can't be `Null` must point at an object before anything reads it |
+| `Null` takes the `T?` its context expects; a `T` or `T?` converts to a `U?` when the `T` converts to the `U` | `Null` alone has no type |
+| Null checks narrow a Local, a Const, or a parameter that isn't `ByRef`, until it's assigned a `T?` or passed `ByRef`; a loop that changes it can't use a check from before the loop; a Global or field needs a Local copy | anything a call could change can't stay narrowed |
+| `a?.b` is a `B?` on its own: a chain writes `a?.b?.c` | each `?.` is one visible check |
+| `?.`, `??`, and `== Null` on something that can't be `Null` are warnings | the code works; the check is wasted |
+| Two `T?` values are equal when both are `Null` or both hold equal values; a `T?` can't be interpolated without `??` | equality follows the `T`'s, and `Null` has no text |
+| A `String?`, or a `T?` of a Class, is a pointer that's null for `Null`; any other `T?` is a flag and the `T`, which holds the `T`'s zero while it's `Null` | references cost nothing extra, and releasing a `Null` is always safe |
 | A function with a return type returns on every path; one without can't return a value | catches missing returns |
 | `Select`: case values known at compile time and of the subject's type; ranges on integers; no duplicates | clear matching and cheap code |
 | Parameters are read-only; default values must be known at compile time | no surprise changes; defaults cost nothing at the call |
@@ -114,6 +125,8 @@ section.
 | **Refcounting** (not tracing GC) | deterministic, no frame hitches |
 | `Weak<T>`; debug cycle detector | break cycles |
 | `Destroy()` runs when refcount hits 0 | deterministic cleanup |
+| `Destroy` is `Method Destroy()`, without parameters or a result; it runs before the fields are released, can't be called, and panics if it keeps a reference to its object | the object is about to be freed, so nothing may hold on to it |
+| An object starts with a header: its refcount and its Class's info (name, size, destroy, count); the leak report names Classes | leaks are easy to find, and the runtime needs no type tables |
 | A `Weak<T>` is assigned a `T`; reading it gives a `T?` that's `Null` once the object is gone | `parent?.name` works with the null operators already in the language |
 | Closures capture by reference; C++-style capture lists `[Weak Self]`; compiler warns on strong `Self` capture stored in a field | prevent refcount cycles |
 | Pointers only in `Unsafe` | normal code never needs them |

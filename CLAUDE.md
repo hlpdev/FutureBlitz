@@ -26,13 +26,18 @@ compiler (lib), runtime (lib), cli (exe), lsp (exe)
 
 ## Current step
 M2 (data: structs, classes, refcounting, arrays, errors, `Defer`), planned 2026-10-16 in 11
-steps (docs/milestones.md). Step 3: classes and the object runtime.
+steps (docs/milestones.md). Step 5: inheritance.
 
 Done in M2: step 1, the type table (`type_table_t` in types.hpp: built-ins at fixed ids, other
 types interned; the analysis owns it and MIR points at it). Step 2, structs: `Struct` with
 `Field`, `Method`, `ByRef Method`, and `New`; the generated constructor's parameters are the
 field symbols; MIR places have field paths, plus `aggregate_t` and `zero_t`; retain and release
-walk a Struct's Strings in codegen.
+walk a Struct's Strings in codegen. Step 3, classes: objects with a header (refcount, `fb_class_t`)
+from runtime/src/object.cpp; `new_t` in MIR; codegen makes each Class's `fb_class_t` and destroy;
+`RefEquals`; Strings' refcounts are atomic. Step 4, nullability: a `T?` in the type table has
+one field, "value", which a place steps into once a null check narrows it (`flow_t::narrowed`);
+`Null` is a const_value_t holding nullptr; `?.` and `??` lower to branches; a String? or Class? is
+a pointer, and any other T? is {flag, T}; every New assigns the fields without a zero.
 
 Done: M1, finished 2026-10-16, in six steps: source and diagnostics; tokens and lexer; AST and
 parser with error recovery (tests compare `fb::dump_ast`); semantic analysis (types, const_value,

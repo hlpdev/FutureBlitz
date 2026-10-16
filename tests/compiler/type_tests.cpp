@@ -77,3 +77,22 @@ TEST_CASE("lossless conversions between numbers", "[types]") {
     CHECK(fb::converts_losslessly(type_id_t::FLOAT32, type_id_t::FLOAT64));
     CHECK_FALSE(fb::converts_losslessly(type_id_t::FLOAT64, type_id_t::FLOAT32));
 }
+
+TEST_CASE("a T? has its T inside, and Null for a zero", "[types]") {
+    fb::type_table_t types;
+    const fb::type_id_t enemy = types.add_class("Enemy");
+    const fb::type_id_t pair = types.add_struct("Pair");
+    types.set_fields(pair, { { .name = "first", .type = enemy } });
+    const fb::type_id_t maybe = types.nullable(enemy);
+    REQUIRE(types.get(maybe).fields.size() == 1);
+    CHECK(types.get(maybe).fields[0].type == enemy);
+    CHECK(types.has_references(maybe));
+    CHECK_FALSE(types.has_references(types.nullable(fb::type_id_t::INT32)));
+
+    // A Class can't be Null, so it has no zero, and neither does a Struct holding one.
+    CHECK_FALSE(types.has_zero(enemy));
+    CHECK_FALSE(types.has_zero(pair));
+    CHECK(types.has_zero(maybe));
+    CHECK(types.has_zero(types.nullable(pair)));
+    CHECK(types.has_zero(fb::type_id_t::STRING));
+}

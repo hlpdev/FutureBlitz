@@ -124,6 +124,8 @@ TEST_CASE("the tree gives each Struct member its own line", "[dump]") {
                                 "  (field x: Int)\n"
                                 "  (method M -> Int\n"
                                 "    (return (+ x (. Self x)))))\n");
+    CHECK(tree("Class C\n    Field x: Int\nEnd Class") == "(class C\n"
+                                                          "  (field x: Int))\n");
 }
 
 TEST_CASE("the tree prints literals as values", "[dump]") {

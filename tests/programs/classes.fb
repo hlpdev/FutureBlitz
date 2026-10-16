@@ -1,0 +1,64 @@
+// Classes: shared objects, constructors, methods, Destroy, and identity.
+Class Enemy
+    Field name: String
+    Field hp: Int = 100
+
+    New(name: String)
+        Self.name = name
+    End New
+
+    Method Hurt(amount: Int)
+        hp -= amount
+        If hp < 0 Then hp = 0
+    End Method
+
+    Method Describe(): String => "{name} with {hp} hp"
+
+    Method Destroy()
+        Print("{name} freed")
+    End Method
+End Class
+
+Class Counter
+    Field count: Int
+    Field label: String
+
+    Method Bump()
+        count++
+    End Method
+End Class
+
+Function Weaken(e: Enemy)
+    e.Hurt(30)
+    e.hp -= 1
+End Function
+
+Function Make(name: String): Enemy => Enemy(name)
+
+Local boss = Enemy("boss")
+Local same = boss
+same.Hurt(10)
+Print(boss.Describe())
+Weaken(boss)
+Print(boss.Describe())
+Print("{RefEquals(boss, same)} {boss == same} {boss != same}")
+
+Local other = Enemy("boss")
+Print("{RefEquals(boss, other)} {boss == other}")
+other = boss
+Print("{RefEquals(boss, other)}")
+
+Local counter = Counter()
+counter.Bump()
+counter.Bump()
+Print("{counter.count} '{counter.label}'")
+
+Print(Make("temporary").Describe())
+
+If True
+    Local scoped = Enemy("scoped")
+    Print(scoped.Describe())
+End If
+
+Global keeper = Enemy("global")
+Print("end of main")

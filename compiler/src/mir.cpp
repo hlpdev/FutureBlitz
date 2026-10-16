@@ -1,7 +1,9 @@
 #include "fb/mir.hpp"
 
+#include <cstddef>
 #include <format>
 #include <utility>
+#include <variant>
 
 // The MIR types are all in mir.hpp. This file prints a module as text, for --show mir and the
 // tests.
@@ -28,12 +30,13 @@ std::string_view runtime_name(const runtime_function_t function) {
 
 /// Constants print as they would in source code.
 std::string constant(const const_value_t& value) {
-    if (value.type != type_id_t::STRING) {
+    const auto* text = std::get_if<std::string>(&value.data);
+    if (text == nullptr) {
         return to_text(value);
     }
 
     std::string out = "\"";
-    for (const char c : std::get<std::string>(value.data)) {
+    for (const char c : *text) {
         switch (c) {
         case '"':
             out += "\\\"";
@@ -63,11 +66,22 @@ public:
     std::string run() {
         std::string out;
         for (const global_t& global : m_module.globals) {
-            const std::string initial = global.initial
-                                            ? paint(constant(*global.initial), tone_t::LITERAL)
-                                            : keyword("zero");
+            const std::string initial =
+                global.initial ? paint(literal(*global.initial), tone_t::LITERAL) : keyword("zero");
             out += std::format("{} {}: {} = {}\n", keyword("global"),
                                paint(global.name, tone_t::NAME), type(global.type), initial);
+        }
+
+        // "class Enemy, Destroy: Enemy.Destroy()"
+        for (const mir_class_t& info : m_module.classes) {
+            out += std::format("{} {}", keyword("class"), type(info.type));
+            if (info.destroy) {
+                const mir_function_t& destroy =
+                    m_module.functions[std::to_underlying(*info.destroy)];
+                out += std::format(", Destroy: {}", paint(destroy.name, tone_t::BOLD));
+            }
+
+            out += '\n';
         }
 
         for (const mir_function_t& function : m_module.functions) {
@@ -97,6 +111,17 @@ private:
 
     [[nodiscard]] std::string type(const type_id_t id) const {
         return paint(m_module.types->name(id), tone_t::TYPE);
+    }
+
+    /// A constant. One of a T? prints as its T would, or as Null.
+    [[nodiscard]] std::string literal(const const_value_t& value) const {
+        const type_t& info = m_module.types->get(value.type);
+        if (info.kind == type_kind_t::NULLABLE &&
+            !std::holds_alternative<std::nullptr_t>(value.data)) {
+            return constant({ .type = info.inner, .data = value.data });
+        }
+
+        return constant(value);
     }
 
     [[nodiscard]] std::string label(const block_id_t block) const {
@@ -141,7 +166,8 @@ private:
         return out;
     }
 
-    /// "_3" for a local and "@score" for a global, with any fields after: "_3.pos.x".
+    /// "_3" for a local and "@score" for a global, with any fields after: "_3.pos.x". The T in
+    /// a T? is its "value".
     [[nodiscard]] std::string place(const place_t& target) const {
         std::string text;
         type_id_t current = type_id_t::INVALID;
@@ -166,7 +192,7 @@ private:
 
     [[nodiscard]] std::string operand(const operand_t& value) const {
         if (const auto* constant_value = std::get_if<const_value_t>(&value)) {
-            return paint(constant(*constant_value), tone_t::LITERAL);
+            return paint(literal(*constant_value), tone_t::LITERAL);
         }
 
         return place(std::get<place_t>(value));
@@ -233,6 +259,10 @@ private:
 
     [[nodiscard]] std::string dump(const zero_t& node) const {
         return std::format("{} {}", keyword("zero"), type(node.type));
+    }
+
+    [[nodiscard]] std::string dump(const new_t& node) const {
+        return std::format("{} {}", keyword("new"), type(node.type));
     }
 
     // Statements
