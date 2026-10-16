@@ -15,7 +15,9 @@ Checks: >
   -bugprone-easily-swappable-parameters,
   -misc-no-recursion,
   -misc-non-private-member-variables-in-classes,
-  -misc-include-cleaner
+  -misc-include-cleaner,
+  -portability-avoid-pragma-once,
+  -clang-analyzer-optin.core.EnumCastOutOfRange
 
 WarningsAsErrors: ''
 HeaderFilterRegex: '.*'

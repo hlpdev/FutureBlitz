@@ -18,15 +18,11 @@ NamespaceIndentation: None
 FixNamespaceComments: true
 AlignAfterOpenBracket: Align
 AlignConsecutiveAssignments:
-  Enabled: true
-  AcrossEmptyLines: false
-  AcrossComments: false
-  AlignCompound: true
-  PadOperators: true
+  Enabled: false
 AlignConsecutiveDeclarations:
-  Enabled: true
-  AcrossEmptyLines: false
-  AcrossComments: false
+  Enabled: false
+Cpp11BracedListStyle: false
+BreakTemplateDeclarations: Yes
 AlignConsecutiveBitFields:
   Enabled: true
 AlignConsecutiveMacros:
@@ -35,4 +31,4 @@ IncludeBlocks: Regroup
 SortIncludes: CaseInsensitive
 KeepEmptyLinesAtTheStartOfBlocks: false
 MaxEmptyLinesToKeep: 1
----
+AccessModifierOffset: -4

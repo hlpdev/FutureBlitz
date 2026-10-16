@@ -1,0 +1,4 @@
+Local big = 2147483647
+Print("before")
+Local bigger = big + 1
+Print("after {bigger}")

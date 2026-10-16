@@ -1,0 +1,11 @@
+// Release builds wrap on overflow and mask shift amounts.
+Local big = 2147483647
+Print("{big + 1}")
+Local small: Int8 = -128
+Print("{-small} {small - 1}")
+Local amount = 33
+Print("{1 << amount}")
+Local min = -2147483648
+Print("{min / -1} {min % -1}")
+Local x: UInt8 = 200
+Print("{x * 2}")

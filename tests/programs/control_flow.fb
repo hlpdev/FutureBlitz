@@ -1,0 +1,81 @@
+// If, loops, Break and Continue, labels, and Select.
+Function Describe(n: Int): String
+    If n < 0
+        Return "negative"
+    ElseIf n == 0
+        Return "zero"
+    Else
+        Return "positive"
+    End If
+End Function
+
+Print("{Describe(-5)} {Describe(0)} {Describe(5)}")
+
+Local total = 0
+Local i = 0
+While i < 10
+    i++
+    If i % 2 == 0 Then Continue
+    total += i
+End While
+Print("odd sum {total}")
+
+Local count = 0
+Repeat
+    count += 3
+Until count > 10
+Print("repeat {count}")
+
+Local found = -1
+Outer: For y = 0 To 9
+    For x = 0 To 9
+        If x * y == 42
+            found = y * 10 + x
+            Break Outer
+        End If
+    End For
+End For
+Print("found {found}")
+
+Local steps = 0
+Loop
+    steps++
+    If steps == 5 Then Break
+End Loop
+Print("loop {steps}")
+
+Function Kind(n: Int): String
+    Select n
+        Case 0
+            Return "zero"
+        Case 1, 2, 3
+            Return "small"
+        Case 4 To 9
+            Return "medium"
+        Default
+            Return "large"
+    End Select
+End Function
+
+Print("{Kind(0)} {Kind(2)} {Kind(7)} {Kind(100)}")
+
+Function Color(name: String): Int
+    Select name
+        Case "red"
+            Return 1
+        Case "green", "lime"
+            Return 2
+    End Select
+
+    Return 0
+End Function
+
+Print("{Color("red")} {Color("lime")} {Color("blue")}")
+
+Local flag = False
+Select flag
+    Case True
+        Print("on")
+    Case False
+        Print("off")
+End Select

@@ -1,0 +1,30 @@
+// Strings: joining, interpolation, comparison, and reference counts.
+Function Greet(name: String): String
+    Return "Hello, " + name + "!"
+End Function
+
+Function Twice(text: String): String
+    Local result = text
+    result += text
+    Return result
+End Function
+
+Local name = "World"
+Local greeting = Greet(name)
+Print(greeting)
+Print(Twice("ab"))
+Print(Twice(Greet("you")))
+Local s = ""
+For i = 1 To 3
+    s += "{i},"
+End For
+Print(s)
+Print("{name == "World"} {name != "World"} {Greet(name) == greeting}")
+Local copy = greeting
+greeting = "changed"
+Print("{copy} / {greeting}")
+Local pick = True
+Print(pick ? Greet("yes") : "no")
+Print("unicode: h\u{E9}llo {'\u{E9}'}")
+Global saved = Greet("global")
+Print(saved)

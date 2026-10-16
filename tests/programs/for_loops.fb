@@ -1,0 +1,58 @@
+// For loops: To and Until, steps, floats, run-time steps, and ends that would overflow.
+Local line = ""
+For i = 1 To 5
+    line += "{i},"
+End For
+Print(line)
+
+line = ""
+For i = 0 Until 10 Step 3
+    line += "{i},"
+End For
+Print(line)
+
+line = ""
+For i = 10 To 1 Step -4
+    line += "{i},"
+End For
+Print(line)
+
+line = ""
+For f = 0.0 To 1.0 Step 0.25
+    line += "{f},"
+End For
+Print(line)
+
+Local last: Byte = 255
+Local count = 0
+For b = 250 To last
+    count++
+End For
+Print("bytes {count}")
+
+Local biggest: Long = 9223372036854775807
+count = 0
+For n = biggest - 2 To biggest
+    count++
+End For
+Print("longs {count}")
+
+Local step = -2
+line = ""
+For i = 6 To 0 Step step
+    line += "{i},"
+End For
+Print(line)
+
+step = 2
+line = ""
+For i = 0 Until 6 Step step
+    line += "{i},"
+End For
+Print(line)
+
+line = ""
+For i = 5 To 1
+    line += "never"
+End For
+Print("empty [{line}]")

@@ -1,0 +1,55 @@
+// Recursion, overloads, defaults and named arguments, ByRef, Consts, and a top-level Return.
+Function Fib(n: Int): Int
+    If n < 2 Then Return n
+    Return Fib(n - 1) + Fib(n - 2)
+End Function
+
+Print("fib {Fib(20)}")
+
+Function Show(value: Int): String => "Int {value}"
+Function Show(value: Double): String => "Double {value}"
+Function Show(value: String): String => "String {value}"
+
+Print(Show(1))
+Print(Show(2.5))
+Print(Show("x"))
+
+Function Spawn(name: String, hp: Int = 100, speed: Float = 1.5): String
+    Return "{name} {hp} {speed}"
+End Function
+
+Print(Spawn("grunt"))
+Print(Spawn("boss", 500))
+Print(Spawn("scout", speed: 3.0))
+
+Function Swap(ByRef a: String, ByRef b: String)
+    Local temp = a
+    a = b
+    b = temp
+End Function
+
+Local first = "one"
+Local second = Spawn("two")
+Swap(ByRef first, ByRef second)
+Print("{first}|{second}")
+
+Function Bump(ByRef n: Int, by: Int = 1)
+    n += by
+End Function
+
+Function BumpTwice(ByRef n: Int)
+    Bump(ByRef n)
+    Bump(ByRef n, 10)
+End Function
+
+Local counter = 0
+BumpTwice(ByRef counter)
+Print("counter {counter}")
+
+Const LIMIT = 3
+Const NAME = "fb"
+Print("{NAME}{LIMIT * 2}")
+
+Print("done")
+Return
+Print("not reached")

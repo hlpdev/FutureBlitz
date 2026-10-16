@@ -1,0 +1,214 @@
+#pragma once
+
+#include "fb/ast.hpp"
+#include "fb/const_value.hpp"
+#include "fb/source.hpp"
+#include "fb/style.hpp"
+#include "fb/types.hpp"
+
+#include <cstddef>
+#include <cstdint>
+#include <optional>
+#include <string>
+#include <string_view>
+#include <variant>
+#include <vector>
+
+namespace fb {
+
+/// An index into a function's locals.
+enum class local_id_t : std::uint32_t {};
+/// An index into the module's globals.
+enum class global_id_t : std::uint32_t {};
+/// An index into the module's functions.
+enum class function_id_t : std::uint32_t {};
+/// An index into a function's blocks.
+enum class block_id_t : std::uint32_t {};
+
+/// A variable in a function: a parameter, a Local, a loop variable, or a temporary that
+/// lowering made.
+struct local_t {
+    type_id_t type = type_id_t::INVALID;
+    /// Empty for temporaries.
+    std::string_view name;
+    /// A ByRef parameter. It stands for the caller's variable, so assigning it changes theirs.
+    bool by_ref = false;
+};
+
+/// A top-level Global or Const.
+struct global_t {
+    std::string_view name;
+    type_id_t type = type_id_t::INVALID;
+    /// Its value when the program starts: the initializer's when that's known at compile time,
+    /// else zero, False, or "" until main sets it.
+    const_value_t initial;
+};
+
+/// Somewhere a value is stored.
+using place_t = std::variant<local_id_t, global_id_t>;
+
+/// A value an instruction reads: a constant, or what a place holds.
+using operand_t = std::variant<const_value_t, place_t>;
+
+/// An operand's value, as it is.
+struct use_t {
+    operand_t value;
+};
+
+/// "-x", "!x", or "~x". A debug build panics at `span` when '-' overflows.
+struct unary_t {
+    unary_op_t op;
+    operand_t operand;
+    span_t span;
+};
+
+/// An arithmetic, bitwise, comparison, or Bool operator. Both operands have the same type,
+/// except that a shift's amount can be any integer. Comparisons give a Bool, and the rest give
+/// the left operand's type. && and || evaluate both sides here; short-circuiting already
+/// happened with blocks. Strings use runtime calls instead.
+struct binary_t {
+    binary_op_t op;
+    operand_t left;
+    operand_t right;
+    /// Where a panic points: overflow, division by zero, or a shift amount out of range.
+    span_t span;
+    /// Integer + - * wrap around on overflow instead of panicking. Release builds always wrap;
+    /// this makes debug builds wrap too. For loops use it where wrapping is intended.
+    bool wrapping = false;
+};
+
+/// Converts between numbers, or from a Bool to an integer (0 or 1), for 'As' and for implicit
+/// conversions. Integers are cut down or extended. A float to an integer drops the fraction,
+/// and panics at `span` when the rest doesn't fit.
+struct cast_t {
+    operand_t value;
+    type_id_t type;
+    span_t span;
+};
+
+struct call_argument_t {
+    operand_t value;
+    /// `value` is a place, and the function gets its address.
+    bool by_ref = false;
+};
+
+/// Calls a function in this module and gives its result.
+struct call_t {
+    function_id_t function;
+    /// One per parameter, in order, with default values already filled in.
+    std::vector<call_argument_t> arguments;
+};
+
+/// The runtime library functions MIR calls; see runtime/include/fb/runtime.hpp. A String they
+/// return is new, and its holder must release it.
+enum class runtime_function_t : std::uint8_t {
+    /// (String, String) to a new String.
+    CONCAT,
+    /// (String...) to a new String: the parts of an interpolated string, joined.
+    JOIN,
+    /// (String, String) to Bool.
+    EQUAL,
+    /// (a number or Bool) to a new String, as interpolation shows it.
+    TO_TEXT,
+    /// (String) to nothing: prints it and a line break.
+    PRINT,
+};
+
+struct runtime_call_t {
+    runtime_function_t function;
+    std::vector<operand_t> arguments;
+};
+
+/// Something a statement computes.
+using rvalue_t = std::variant<use_t, unary_t, binary_t, cast_t, call_t, runtime_call_t>;
+
+/// "target = value". It doesn't count references; lowering adds retain_t and release_t for
+/// Strings.
+struct assign_t {
+    place_t target;
+    rvalue_t value;
+};
+
+/// Computes `value` for its effects and drops the result, like a call that returns nothing.
+struct evaluate_t {
+    rvalue_t value;
+};
+
+/// Adds a reference to a String for a new holder. String constants are static, and retain and
+/// release ignore them.
+struct retain_t {
+    operand_t value;
+};
+
+/// Drops the reference a String place holds. The String is freed with its last reference.
+struct release_t {
+    place_t target;
+};
+
+/// Statements run in order, inside a block.
+using statement_t = std::variant<assign_t, evaluate_t, retain_t, release_t>;
+
+struct goto_t {
+    block_id_t target;
+};
+
+/// Goes to `if_true` or `if_false` on a Bool.
+struct branch_t {
+    operand_t condition;
+    block_id_t if_true;
+    block_id_t if_false;
+};
+
+/// `value` is nullopt in a function that returns nothing.
+struct return_t {
+    std::optional<operand_t> value;
+};
+
+/// Stops the program, printing `message` and the line and column of `span`. For loops use it
+/// for a Step that's 0 at run time. `message` is static text.
+struct panic_t {
+    std::string_view message;
+    span_t span;
+};
+
+/// Ends a path that can't run, like the end of a function that returns on every path. A block
+/// has it until it gets a real terminator.
+struct unreachable_t {};
+
+/// How a block ends: where control goes next.
+using terminator_t = std::variant<goto_t, branch_t, return_t, panic_t, unreachable_t>;
+
+/// Statements that run in order, then the terminator that leaves the block.
+struct basic_block_t {
+    std::vector<statement_t> statements;
+    terminator_t terminator = unreachable_t{};
+};
+
+/// A Function, or "main" for the top-level code.
+struct mir_function_t {
+    /// The name with its parameter types, like "Add(Int32, Int32)", so overloads differ.
+    std::string name;
+    /// The parameters come first.
+    std::vector<local_t> locals;
+    std::size_t parameter_count = 0;
+    /// NONE when it returns nothing.
+    type_id_t return_type = type_id_t::NONE;
+    /// The function starts at blocks[0].
+    std::vector<basic_block_t> blocks;
+};
+
+/// A whole program, lowered from one file. Names view the source text, so the file must
+/// outlive the module.
+struct mir_module_t {
+    std::vector<global_t> globals;
+    /// The Functions in source order, then the entry.
+    std::vector<mir_function_t> functions;
+    /// "main": the top-level code, which runs when the program starts. Globals whose values
+    /// aren't known at compile time are set at its start.
+    function_id_t entry{};
+};
+
+/// The module as text, which `fb --show mir` prints.
+[[nodiscard]] std::string dump(const mir_module_t& module, const style_t& style = {});
+
+} // namespace fb

@@ -1,0 +1,4 @@
+Local step = 0
+For i = 1 To 3 Step step
+    Print("{i}")
+End For

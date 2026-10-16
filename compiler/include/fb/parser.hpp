@@ -1,0 +1,18 @@
+#pragma once
+
+#include "fb/ast.hpp"
+#include "fb/diagnostic.hpp"
+#include "fb/source.hpp"
+#include "fb/token.hpp"
+
+#include <span>
+
+namespace fb {
+
+/// Builds the AST of a file from its tokens, which must end with END_OF_FILE. It always returns
+/// an AST: errors are reported, broken code becomes error nodes, and constructs that come after
+/// M1 are reported and skipped. Names in the AST view `file`'s text, so the file must outlive it.
+[[nodiscard]] ast_t parse(const source_file_t& file, std::span<const token_t> tokens,
+                          diagnostic_bag_t& diagnostics);
+
+} // namespace fb

@@ -1,0 +1,18 @@
+// Integer and float arithmetic, mixed types, bitwise operators, and casts.
+Local a = 7
+Local b = 2
+Print("{a + b} {a - b} {a * b} {a / b} {a % b} {a ** b}")
+Print("{-a / b} {-a % b}")
+Local big: Long = 3000000000
+Print("{big * 2} {big + a}")
+Local f = 1.5
+Local d: Double = 0.1
+Print("{f * 2} {f / 4} {d + 0.2}")
+Local bits: Byte = 0xF0
+Print("{bits | 0x0F} {bits & 0x3C} {bits ^ 0xFF} {~bits} {bits >> 4} {1 << 10}")
+Local n = -17
+Print("{n >> 2} {-17 >> 2}")
+Print("{300 As UInt8} {-1 As UInt8} {2.9 As Int} {-2.9 As Int} {a As Double / 2}")
+Print("{True As Int + 1} {a > b} {a == 7 && b != 2} {!(a < b)}")
+Local x: Float = 2
+Print("{x ** 10} {7.5 % 2}")

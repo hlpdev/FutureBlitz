@@ -1,0 +1,6 @@
+---
+# The runtime is linked into every program, so it sticks to the C library's stdio instead of
+# std::print, which would pull in std::format.
+InheritParentConfig: true
+Checks: >
+  -modernize-use-std-print

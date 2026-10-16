@@ -1,0 +1,7 @@
+// ** on integers goes through the runtime; on floats it's LLVM's pow.
+Local base = 3
+Print("{base ** 4} {2 ** 10} {base ** 0}")
+Local f: Double = 2
+Print("{f ** 0.5}")
+Local b: Byte = 2
+Print("{b ** 7}")

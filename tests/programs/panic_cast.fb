@@ -1,0 +1,2 @@
+Local huge = 1.0e10
+Print("{huge As Int}")

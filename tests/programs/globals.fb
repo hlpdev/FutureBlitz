@@ -1,0 +1,18 @@
+// Globals initialize in source order before the top-level code, and functions use them.
+Print("start {count} {label}")
+Global count = 10
+Global label = "count is {count}"
+Global unset: Int
+Const DOUBLE_COUNT = 20
+
+Function Increase()
+    count += 5
+    label = "count is {count}"
+End Function
+
+Increase()
+Print("{count} {label} {unset} {DOUBLE_COUNT}")
+unset = Next()
+Print("{unset}")
+
+Function Next(): Int => count * 2
