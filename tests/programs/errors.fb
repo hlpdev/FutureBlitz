@@ -1,0 +1,124 @@
+// Errors: Throws, Throw, Try blocks, and the Try and Try? prefixes.
+Class FileError Extends Error
+End Class
+
+Class ParseError Extends Error
+    Field line: Int
+
+    New(message: String, line: Int)
+        Super.New(message)
+        Self.line = line
+    End New
+
+    Method Destroy()
+        Print("ParseError at line {line} freed")
+    End Method
+End Class
+
+Function Load(path: String): String Throws FileError
+    If path == "" Then Throw FileError("no path")
+    If path == "missing" Then Throw FileError("missing: {path}")
+    Return "contents of {path}"
+End Function
+
+Function Parse(text: String): Int Throws ParseError
+    If text == "bad" Then Throw ParseError("can't read '{text}'", 3)
+    Return 42
+End Function
+
+// Try lets both kinds out, so Run declares both.
+Function Run(path: String): Int Throws FileError, ParseError
+    Local text = Try Load(path)
+    Defer Print("done with {path}")
+    Return Try Parse(text)
+End Function
+
+Function Report(path: String)
+    Try
+        Print("value {Run(path)}")
+    Catch e As FileError
+        Print("file: {e.Message}")
+    Catch e As ParseError
+        Print("parse: {e.Message} at line {e.line}")
+    Finally
+        Print("finally for '{path}'")
+    End Try
+End Function
+
+Report("level")
+Report("missing")
+
+// Catch e catches every Error; the Defer in Run still runs.
+Function Shout(text: String): String Throws ParseError
+    If text == "bad" Then Throw ParseError("bad shout", 7)
+    Return text + "!"
+End Function
+
+Try
+    Print(Shout("hi"))
+    Print(Shout("bad"))
+    Print("not printed")
+Catch e
+    Print("caught: {e.Message}")
+End Try
+
+// Try? gives Null for an error, and the error is dropped.
+Local parsed = Try? Parse("bad")
+Print("parsed is Null: {parsed == Null}")
+Print("or zero: {Try? Parse("bad") ?? 0}, or {Try? Parse("good") ?? 0}")
+Local loaded: String? = Try? Load("")
+Print("{loaded ?? "nothing loaded"}")
+
+// Break and Continue leave a Try through its Finally, and an error in a loop is caught in it.
+For i = 1 To 3
+    Try
+        If i == 2 Then Continue
+        Print("pass {i}: {Load(i == 3 ? "missing" : "file{i}")}")
+    Catch e As FileError
+        Print("pass {i} failed: {e.Message}")
+        Break
+    Finally
+        Print("end of pass {i}")
+    End Try
+End For
+
+// A Method that throws, and an override that doesn't.
+Class Source
+    Method Read(): String Throws FileError
+        Throw FileError("Source has nothing")
+    End Method
+End Class
+
+Class Fixed Extends Source
+    Override Method Read(): String
+        Return "fixed text"
+    End Method
+End Class
+
+Function ReadAll(sources: Source[])
+    For source In sources
+        Print(Try? source.Read() ?? "(read failed)")
+    End For
+End Function
+
+ReadAll([Source(), Fixed()])
+
+// An error caught by a Catch that rethrows it to the next Try out.
+Function Retry(): Int Throws FileError
+    Try
+        Local text = Try Load("missing")
+        Return 1
+    Catch e As FileError
+        Print("first try: {e.Message}")
+        Throw FileError("gave up")
+    End Try
+End Function
+
+Try
+    Print("{Retry()}")
+Catch e As FileError
+    Print("outer: {e.Message}")
+End Try
+
+Assert(Try? Parse("good") == 42, "never shown")
+Print("end")

@@ -1,0 +1,31 @@
+// Strong references in a cycle never go away. Debug builds point out each cycle that leaked.
+Class Node
+    Field next: Node?
+End Class
+
+Class Owner
+    Field items: Node[] = []
+    Field me: Owner?
+End Class
+
+Local a = Node()
+Local b = Node()
+a.next = b
+b.next = a
+
+// The Owner refers to itself, and keeps a Node that isn't in a cycle alive.
+Local owner = Owner()
+owner.me = owner
+owner.items.Add(Node())
+
+// A cycle can go through an array: the parent holds its children, which hold it back.
+Class Tree
+    Field children: Tree[] = []
+    Field parent: Tree?
+End Class
+
+Local top = Tree()
+Local kid = Tree()
+top.children.Add(kid)
+kid.parent = top
+Print("end")

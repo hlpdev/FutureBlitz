@@ -142,3 +142,96 @@ TEST_CASE("an Enum's zero is its first value, or no flags", "[types]") {
     types.set_values(layer, fb::type_id_t::INT32, { { .name = "World", .bits = 1 } }, true);
     CHECK(types.enum_zero(layer) == 0);
 }
+
+TEST_CASE("a Weak<T> is made once, along with the T? that reading it gives", "[types]") {
+    fb::type_table_t types;
+    const fb::type_id_t node = types.add_class("Node");
+    CHECK(types.find_nullable(node) == fb::type_id_t::INVALID);
+    const fb::type_id_t weak = types.weak(node);
+    CHECK(types.name(weak) == "Weak<Node>");
+    CHECK(types.weak(node) == weak);
+    CHECK(types.get(weak).inner == node);
+    CHECK(types.find_nullable(node) == types.nullable(node));
+
+    // It holds a weak reference, and its zero refers to nothing.
+    CHECK(types.has_references(weak));
+    CHECK(types.has_zero(weak));
+    CHECK(types.weak(fb::type_id_t::INVALID) == fb::type_id_t::INVALID);
+}
+
+TEST_CASE("a tuple is made once for its element types, which are its fields", "[types]") {
+    fb::type_table_t types;
+    const fb::type_id_t pair = types.tuple({ fb::type_id_t::INT32, fb::type_id_t::STRING });
+    CHECK(types.name(pair) == "(Int32, String)");
+    CHECK(types.get(pair).kind == fb::type_kind_t::TUPLE);
+    CHECK(types.tuple({ fb::type_id_t::INT32, fb::type_id_t::STRING }) == pair);
+    CHECK(types.tuple({ fb::type_id_t::STRING, fb::type_id_t::INT32 }) != pair);
+    REQUIRE(types.get(pair).fields.size() == 2);
+    CHECK(types.get(pair).fields[1].name == "1");
+    CHECK(types.get(pair).fields[1].type == fb::type_id_t::STRING);
+    CHECK(types.name(types.tuple({ pair, fb::type_id_t::BOOL })) == "((Int32, String), Bool)");
+
+    // It holds the String's reference, and its zero is each element's. A Class has no zero, so
+    // neither does a tuple holding one.
+    CHECK(types.has_references(pair));
+    CHECK(types.has_zero(pair));
+    const fb::type_id_t node = types.add_class("Node");
+    CHECK_FALSE(types.has_zero(types.tuple({ node, fb::type_id_t::INT32 })));
+    CHECK(types.tuple({ fb::type_id_t::INVALID, fb::type_id_t::INT32 }) == fb::type_id_t::INVALID);
+}
+
+TEST_CASE("a Func type is made once for its parameters and result", "[types]") {
+    fb::type_table_t types;
+    const fb::type_id_t func =
+        types.function({ fb::type_id_t::INT32, fb::type_id_t::STRING }, fb::type_id_t::BOOL);
+    CHECK(types.name(func) == "Func(Int32, String): Bool");
+    CHECK(types.get(func).kind == fb::type_kind_t::FUNCTION);
+    CHECK(types.function({ fb::type_id_t::INT32, fb::type_id_t::STRING }, fb::type_id_t::BOOL) ==
+          func);
+    CHECK(types.name(types.function({}, fb::type_id_t::NONE)) == "Func()");
+
+    // A function value refers to an object, and can't be Null, so it has no zero. One that
+    // returns something goes in parentheses before a '?' or '[]'.
+    CHECK(types.has_references(func));
+    CHECK_FALSE(types.has_zero(func));
+    CHECK(types.name(types.nullable(func)) == "(Func(Int32, String): Bool)?");
+    CHECK(types.name(types.array(types.function({}, fb::type_id_t::NONE))) == "Func()[]");
+    CHECK(types.function({ fb::type_id_t::INVALID }, fb::type_id_t::NONE) ==
+          fb::type_id_t::INVALID);
+}
+
+TEST_CASE("a generic type's instances get its fields with their type arguments", "[types]") {
+    fb::type_table_t types;
+    const fb::type_id_t t = types.add_parameter("T");
+    const fb::type_id_t box = types.add_struct("Box<T>");
+    types.set_parameters(box, { t });
+
+    // An instance made before the fields are known gets them once they are.
+    const fb::type_id_t ints = types.instance(box, { fb::type_id_t::INT32 });
+    CHECK(types.name(ints) == "Box<Int32>");
+    types.set_fields(box, { { .name = "Value", .type = types.nullable(t) } });
+    REQUIRE(types.get(ints).fields.size() == 1);
+    CHECK(types.get(ints).fields[0].type == types.nullable(fb::type_id_t::INT32));
+    CHECK(types.instance(box, { fb::type_id_t::INT32 }) == ints);
+    CHECK(types.get(ints).generic == box);
+
+    // With its own parameter, it's the generic type itself.
+    CHECK(types.instance(box, { t }) == box);
+    CHECK(types.substitute(types.array(box), { t }, { fb::type_id_t::STRING }) ==
+          types.array(types.instance(box, { fb::type_id_t::STRING })));
+
+    // T? with an Int32? for T is Int32?, not Int32??.
+    const fb::type_id_t maybe = types.nullable(fb::type_id_t::INT32);
+    CHECK(types.substitute(types.nullable(t), { t }, { maybe }) == maybe);
+    CHECK_FALSE(types.has_zero(t));
+}
+
+TEST_CASE("a copy of a type table keeps its types and adds its own", "[types]") {
+    fb::type_table_t types;
+    const fb::type_id_t point = types.add_struct("Point");
+    fb::type_table_t copy = types;
+    CHECK(copy.name(point) == "Point");
+    const fb::type_id_t points = copy.array(point);
+    CHECK(copy.name(points) == "Point[]");
+    CHECK(types.size() < copy.size());
+}

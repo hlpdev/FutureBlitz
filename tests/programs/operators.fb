@@ -1,0 +1,79 @@
+// Operators: a Struct or Class defines what operators do on it, as Static functions that the
+// operators call.
+Struct Vec2
+    Field X: Float
+    Field Y: Float
+
+    Operator +(a: Vec2, b: Vec2): Vec2 => Vec2(a.X + b.X, a.Y + b.Y)
+    Operator -(a: Vec2, b: Vec2): Vec2 => Vec2(a.X - b.X, a.Y - b.Y)
+    Operator -(a: Vec2): Vec2 => Vec2(-a.X, -a.Y)
+    Operator *(a: Vec2, s: Float): Vec2 => Vec2(a.X * s, a.Y * s)
+    Operator *(s: Float, a: Vec2): Vec2 => a * s
+    Operator ==(a: Vec2, b: Vec2): Bool => a.X == b.X && a.Y == b.Y
+
+    Method Text(): String => "({X}, {Y})"
+End Struct
+
+Struct Money
+    Field Cents: Long
+
+    Operator +(a: Money, b: Money): Money => Money(a.Cents + b.Cents)
+    Operator <(a: Money, b: Money): Bool => a.Cents < b.Cents
+    Operator ==(a: Money, b: Money): Bool => a.Cents == b.Cents
+End Struct
+
+Class Name
+    Field Text: String
+
+    New(text: String)
+        Text = text
+    End New
+
+    Operator ==(a: Name, b: Name): Bool => a.Text == b.Text
+    Operator +(a: Name, b: String): Name => Name(a.Text + b)
+End Class
+
+Struct Pair<T>
+    Field First: T
+    Field Second: T
+
+    Operator <<(a: Pair<T>, item: T): Pair<T> => Pair(a.Second, item)
+End Struct
+
+// The Operator is chosen by the operands, and a literal takes its parameter's type.
+Local a = Vec2(1, 2)
+Local b = Vec2(3, 4)
+Print((a + b).Text())
+Print((b - a).Text())
+Print((-a).Text())
+Print((a * 2).Text())
+Print((2 * a).Text())
+Print("{a == b} {a != b} {a + a == a * 2}")
+
+// "x op= y" assigns what the Operator gives.
+Local c = a
+c += b
+c -= Vec2(1, 1)
+Print(c.Text())
+
+Local wallet = Money(150)
+Local price = Money(99)
+Print("{price < wallet} {wallet < price}")
+wallet += price
+Print("{wallet.Cents}")
+
+// A Class's == compares what its Operator says, and RefEquals still tells objects apart.
+Local first = Name("ann")
+Local second = Name("ann")
+Print("{first == second} {RefEquals(first, second)} {first != Name("bob")}")
+Print((first + "ie").Text)
+
+// Every == on a type with Operator == uses it: Contains, and the elements of a tuple.
+Local names = [first, Name("cy")]
+Print("{names.Contains(Name("cy"))}")
+Print("{(Money(5), 1) == (Money(5), 1)}")
+
+// A generic type's Operator takes the type arguments of its operands.
+Local p = Pair(1, 2) << 3
+Print("{p.First} {p.Second}")
+Print((Pair("a", "b") << "c").Second)

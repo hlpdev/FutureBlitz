@@ -72,6 +72,39 @@ Every step ends with programs in tests/programs that run with no leaks.
 variadic parameters, and `.Chars`/`.Bytes` come in M3. Visibility modifiers come with modules in
 M5. `Shared Class` and atomics come in M4.
 
+## M3 build order
+
+Every step ends with programs in tests/programs that run with no leaks, as in M2.
+
+| Step | What | Why this order |
+|---|---|---|
+| 1 | Programs of several files: the main file plus library files the compiler adds from std/, sharing one namespace; spans, diagnostics, analysis, lowering, and panic locations work per file; only the main file's top-level code runs | `std.collections` has to live in FutureBlitz files before modules exist; a refactor first, like M2's type table |
+| 2 | Tuples: `(A, B)` types and values, multiple returns, and destructuring like `Local lo, hi = MinMax(xs)` | a value type like a Struct without a name; small, and Maps hand out pairs |
+| 3 | Function types and lambdas: `Func(A, B): R`, `Function(x) => expr` and block lambdas, closures that capture by reference, `[Weak x]` capture lists, and the warning for a closure stored in a field that captures `Self` strongly | collections' `Filter`, `Map`, `Find`, and `Sort` take functions; a closure is a refcounted object, which M2 built |
+| 4 | Generics: type parameters on functions, Methods, Structs, and Classes; explicit type arguments and inference; `Name<...>` disambiguation and `>>`; monomorphization, one copy per set of type arguments | the core of M3, which everything after it uses |
+| 5 | Operator overloading: `Operator +(a: Money, b: Money): Money` and the other operators on Structs and Classes, `==` and `!=` among them | interfaces like `Numeric` require operators, so operators come first |
+| 6 | Interfaces: declarations with default bodies, `Implements` on Classes and Structs, `Self`, required statics and operators; interface types for Class values, with dynamic dispatch; constraints `<T: I>`, `Where`, and `&`, and conditional Methods; the Abstract and Static Properties that step 11 of M2 left out | constraints are interfaces, so generic code becomes checkable here |
+| 7 | Built-in interfaces: `Equatable`, `Comparable`, `Hashable`, `Printable`, and `Numeric`, which primitives, Strings, and arrays implement; Class `==` through `Equatable`, `<` on Strings, Structs and Classes in strings through `Printable`, and `==` on arrays of `Equatable` elements | M2 left these waiting for interfaces |
+| 8 | `Extend`: Methods and conformances added to existing types, built-ins included, and conditional ones with `Where` | needs interfaces and constraints |
+| 9 | Sequences: an iteration protocol, so `For ... In` loops over any type that has one; `.Chars` and `.Bytes`; slices `a..b`; variadic parameters `Int...` | the protocol is an interface, and every collection needs it |
+| 10 | Compile time: `Const Function`s, run by an interpreter over MIR; const generics like `Grid<T, Const W: Int, Const H: Int>`; the attributes `@Inline` and `@Deprecated`; `#If` conditional compilation with `DEBUG`, `RELEASE`, and `PLATFORM_*` | const generics need generics and compile-time values, and reflection builds on attributes |
+| 11 | Compile-time reflection: generic code reads a type's fields, Methods, and attributes, in loops the compiler unrolls, to generate code like a serializer | the last language feature; it needs generics, interfaces, and attributes |
+| 12 | `std.collections` in FutureBlitz: `Map` and its `{key: value}` literal, `Set`, `Queue`, `Stack`, `Deque`, `PriorityQueue`, and `Pool`, sharing `Add`, `Remove`, `Contains`, `Count`, `Clear`, `Sort`, `Filter`, `Map`, `Find`, and `Clone` | M3's goal; it exercises every step before it |
+
+**Proposed, to settle in its step:**
+
+- Step 6: constraints say what a generic body can do with its type parameters, which step 4
+  checks once and lowers per set of type arguments.
+- Step 6: an interface type holds a Class's object and calls through a table for that Class and
+  interface. A Struct implements interfaces for generic code, which never boxes it.
+- Step 11: the spec doesn't say how reflection is written yet, so the step starts with that
+  design.
+
+**Not in M3:** the math types (`Vec3`, `Mat4`, `Color`, and the rest) come with `std.math` in M6,
+written with operators. `Sendable`, `Shared Class`, `@MainThread`, and atomics come in M4, and
+modules, visibility, `@CLayout`, and `Callback` in M5. Running ordinary functions at compile time,
+not only `Const Function`s, stays an open question.
+
 ## Process
 
 - **Proposed:** track milestones M0–M15 as GitHub milestones, with issues per task.

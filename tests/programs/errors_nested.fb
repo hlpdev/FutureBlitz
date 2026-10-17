@@ -1,0 +1,121 @@
+// Errors through nested Try blocks, Catches that throw, and results of every kind.
+Class Oops Extends Error
+    Method Destroy()
+        Print("Oops '{Message}' freed")
+    End Method
+End Class
+
+Class Other Extends Error
+End Class
+
+Struct Pair
+    Field first: String
+    Field second: String
+End Struct
+
+Class Box
+    Field label: String
+
+    New(label: String)
+        Self.label = label
+    End New
+
+    Method Open(): String Throws Oops
+        If label == "" Then Throw Oops("empty box")
+        Return label
+    End Method
+End Class
+
+Function Risky(kind: Int) Throws Oops, Other
+    If kind == 1 Then Throw Oops("deep")
+    Throw Other("shallow")
+End Function
+
+Function MakePair(fail: Bool): Pair Throws Oops
+    If fail Then Throw Oops("no pair")
+    Return Pair("a", "b")
+End Function
+
+Function MakeBox(fail: Bool): Box Throws Oops
+    If fail Then Throw Oops("no box")
+    Return Box("boxed")
+End Function
+
+// The inner Try only catches Other, so Oops goes on to the outer one. Each Finally runs on the
+// way, the inner one first.
+Try
+    Try
+        Risky(1)
+    Catch e As Other
+        Print("not this one")
+    Finally
+        Print("inner finally")
+    End Try
+Catch e As Oops
+    Print("outer caught {e.Message}")
+Finally
+    Print("outer finally")
+End Try
+
+// An error thrown in a Catch leaves its Try, after the Finally.
+Function Again(): Int Throws Other
+    Try
+        Throw Oops("first")
+    Catch e As Oops
+        Print("handling {e.Message}")
+        Throw Other("second")
+    Finally
+        Print("Again's finally")
+    End Try
+End Function
+
+Try
+    Print("{Again()}")
+Catch e As Other
+    Print("then {e.Message}")
+End Try
+
+// Structs and objects come back whole, or not at all.
+Local pair = Try? MakePair(False)
+Print("pair {pair?.first ?? ""} {pair?.second ?? ""}")
+Print("no pair: {(Try? MakePair(True)) == Null}")
+Local box = Try? MakeBox(False)
+Print("box {box?.label ?? ""}")
+Print("no box: {(Try? MakeBox(True)) == Null}")
+
+// A Method through '?.', and a Throw of a variable, which keeps its own reference.
+Function Find(): Box? => Box("")
+
+Local maybe = Find()
+Try
+    Print(maybe?.Open() ?? "nothing")
+Catch e As Oops
+    Print("open failed: {e.Message}")
+End Try
+
+Function Rethrow() Throws Oops
+    Local kept = Oops("kept")
+    Throw kept
+End Function
+
+Try
+    Rethrow()
+Catch e
+    Print("rethrown: {e.Message}")
+End Try
+
+// Try? inside a Try block takes its own errors, and a Return in a Catch runs the Finally.
+Function Pick(): String
+    Try
+        Local first = Try? MakeBox(True)
+        Print("first is Null: {first == Null}")
+        Return (Try MakeBox(True)).label
+    Catch e As Oops
+        Return "picked {e.Message}"
+    Finally
+        Print("Pick's finally")
+    End Try
+End Function
+
+Print(Pick())
+Print("end")

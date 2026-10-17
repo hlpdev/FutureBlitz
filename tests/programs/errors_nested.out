@@ -1,0 +1,24 @@
+inner finally
+outer caught deep
+Oops 'deep' freed
+outer finally
+handling first
+Oops 'first' freed
+Again's finally
+then second
+pair a b
+Oops 'no pair' freed
+no pair: True
+box boxed
+Oops 'no box' freed
+no box: True
+open failed: empty box
+Oops 'empty box' freed
+rethrown: kept
+Oops 'kept' freed
+Oops 'no box' freed
+first is Null: True
+Oops 'no box' freed
+Pick's finally
+picked no box
+end

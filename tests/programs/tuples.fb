@@ -1,0 +1,120 @@
+// Tuples: values made of their elements, for multiple returns and pairs.
+Enum Suit
+    Hearts, Spades
+End Enum
+
+Class Card
+    Field Name: String
+    Field Pos: (Int, Int)
+
+    New(name: String)
+        Name = name
+    End New
+End Class
+
+Struct Hand
+    Field Best: (Card?, Int)
+End Struct
+
+Class Oops Extends Error
+End Class
+
+Function MinMax(xs: Int[]): (Int, Int)
+    Local lo = xs[0]
+    Local hi = xs[0]
+    For x In xs
+        If x < lo Then lo = x
+        If x > hi Then hi = x
+    End For
+
+    Return (lo, hi)
+End Function
+
+Function Parse(text: String): (Int, String) Throws Oops
+    If text == "" Then Throw Oops("empty")
+    Return (text == "four" ? 4 : 3, text)
+End Function
+
+Function Swap(ByRef pair: (Int, Int))
+    pair = (pair.1, pair.0)
+End Function
+
+Global best: (String, Int)
+Const START = (1, "one")
+
+// Multiple returns, taken apart or kept whole.
+Local data = [3, 9, -2, 7]
+Local lo, hi = MinMax(data)
+Print("{lo} {hi}")
+Local pair = MinMax(data)
+Print("{pair.0} to {pair.1}: {pair}")
+
+// The whole right side is made before either target changes.
+Local a = "left"
+Local b = "right"
+a, b = (b, a)
+Print("{a} {b}")
+
+// Elements can change, and == compares each one.
+Local named: (String, Int) = ("hp", 100)
+named.1 -= 5
+Print("{named}")
+Print("{named == ("hp", 95)} {named != ("hp", 95)}")
+
+// A literal's values take the types expected of them.
+Local wide: (Long, String?) = (1, Null)
+Print("{wide.0} {wide.1 ?? "none"}")
+
+Local nested = ((1, 2), "x")
+Print("{nested.0.1} {nested}")
+Local _, last = nested
+Print(last)
+
+// Tuples in arrays, Fields, and Structs keep their references.
+Local list: (String, Int)[] = [("a", 1), ("b", 2)]
+list.Add(("c", 3))
+For entry In list
+    Local name, value = entry
+    Print("{name}={value}")
+End For
+
+Print("{list.Contains(("b", 2))}")
+
+Local c = Card("ace")
+c.Pos = (3, 4)
+c.Pos.0 += 1
+Print("{c.Name} at {c.Pos}")
+
+Local hand = Hand((c, 10))
+Print("{hand.Best.0?.Name ?? "nobody"} {hand.Best.1}")
+Local empty = Hand()
+Print("{empty.Best.0 == Null} {empty.Best.1}")
+Local owner, score = hand.Best
+Print("{owner?.Name ?? "-"} {score}")
+
+// Try? makes a T? of the tuple.
+Local parsed = Try? Parse("")
+Print("{parsed == Null}")
+Local good = Try? Parse("four")
+Print("{good?.0 ?? -1} {good?.1 ?? ""}")
+Local n, text = Try? Parse("abc") ?? (0, "")
+Print("{n} {text}")
+
+Local p = (1, 2)
+Swap(ByRef p)
+Print("{p}")
+
+best = ("start", 0)
+best.1 = 7
+Print("{best} {START}")
+
+Local cards = [(Card("a"), Suit.Hearts), (Card("b"), Suit.Spades)]
+For entry In cards
+    Local card, suit = entry
+    Print("{card.Name}: {suit}")
+End For
+
+Print("{(Suit.Spades, "x", 2.5, True)}")
+Local z = (5, "five")
+Defer Print("deferred {z}")
+z.1 = "changed"

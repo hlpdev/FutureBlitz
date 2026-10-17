@@ -478,9 +478,8 @@ TEST_CASE("Extends, modifiers, and Super", "[parser]") {
 
     CHECK(parse_text("Final Final Class A\nEnd Class").errors ==
           std::vector<std::string>{ "6-11: 'Final' is written twice" });
-    CHECK(parse_text("Final Local x = 1").errors ==
-          std::vector<std::string>{
-              "6-11: Abstract, Final, and Override only go before a Class or a Method" });
+    CHECK(parse_text("Final If True\nEnd If").errors ==
+          std::vector<std::string>{ "6-8: 'If' doesn't take modifiers like Static or Final" });
 }
 
 TEST_CASE("a Case can match a Class", "[parser]") {
@@ -503,6 +502,49 @@ TEST_CASE("array literals and fixed array types", "[parser]") {
     CHECK(parse_text("Local g: Int[4][]?").dump == "(local g: Int[4][]?)");
 }
 
+TEST_CASE("Weak<T> and generic types take type arguments", "[parser]") {
+    CHECK(parse_text("Field parent: Weak<Node>").dump == "(field parent: Weak<Node>)");
+    CHECK(parse_text("Local w: Weak<Weak<Node>>[]").dump == "(local w: Weak<Weak<Node>>[])");
+    CHECK(parse_text("Local l: Map<Int, List<String>>").dump ==
+          "(local l: Map<Int, List<String>>)");
+
+    // "Weak" is only a keyword before '<'.
+    CHECK(parse_text("Local Weak = 1").dump == "(local Weak = (int 1))");
+}
+
+TEST_CASE("Static and ReadOnly go before Fields and Methods", "[parser]") {
+    CHECK(parse_text("Static ReadOnly Field n: Int = 1").dump ==
+          "(field Static ReadOnly n: Int = (int 1))");
+    CHECK(parse_text("ReadOnly Static Field n: Int").dump == "(field Static ReadOnly n: Int)");
+    CHECK(parse_text("Static Method M()\nEnd Method").dump == "(method Static M (block))");
+    CHECK(parse_text("Static Static Field n: Int").errors ==
+          std::vector<std::string>{ "7-13: 'Static' is written twice" });
+}
+
+TEST_CASE("a Property has a Get, and maybe a Set", "[parser]") {
+    CHECK(parse_text("Property P: Int\n"
+                     "    Get => 1\n"
+                     "    Set(value)\n"
+                     "        Print(value)\n"
+                     "    End Set\n"
+                     "End Property")
+              .dump == "(property P: Int (get (block (return (int 1)))) (set value (block (call "
+                       "Print value))))");
+    CHECK(parse_text("Override Property Q: Int\n"
+                     "    Get\n"
+                     "        Return 2\n"
+                     "    End Get\n"
+                     "End Property")
+              .dump == "(property Override Q: Int (get (block (return (int 2)))))");
+
+    // Get and Set are names everywhere else.
+    CHECK(parse_text("Get(Set)").dump == "(call Get Set)");
+    CHECK(parse_text("Property P: Int\n    Set(v)\n    End Set\nEnd Property").errors ==
+          std::vector<std::string>{ "9-10: a Property needs a Get" });
+    CHECK(parse_text("Property P: Int\n    Get\n        Return 1\nEnd Property").errors ==
+          std::vector<std::string>{ "41-44: expected 'End Get', found 'End Property'" });
+}
+
 TEST_CASE("Enums and @Flags", "[parser]") {
     // Members are separated by commas, which can end a line, or by lines.
     CHECK(parse_text("Enum State: UInt8\n"
@@ -523,4 +565,142 @@ TEST_CASE("Defer takes any statement; analysis checks which", "[parser]") {
     CHECK(parse_text("Defer Print(\"bye\")").dump == "(defer (call Print (string \"bye\")))");
     CHECK(parse_text("Defer If x Then f.Close()").dump ==
           "(defer (if-then x (block (call (. f Close)))))");
+}
+
+TEST_CASE("Throws, Throw, and Try blocks", "[parser]") {
+    CHECK(parse_text("Function F(): Int Throws A, B => 1").dump ==
+          "(function F -> Int Throws A B (block (return (int 1))))");
+    CHECK(parse_text("Throw E(\"x\")").dump == "(throw (call E (string \"x\")))");
+    CHECK(parse_text("Try\n"
+                     "    F()\n"
+                     "Catch e As E\n"
+                     "    G()\n"
+                     "Catch e\n"
+                     "Finally\n"
+                     "    H()\n"
+                     "End Try")
+              .dump == "(try (block (call F)) (catch e As E (block (call G))) (catch e (block)) "
+                       "(finally (block (call H))))");
+    CHECK(parse_text("Try\n    F()\nEnd Try").errors ==
+          std::vector<std::string>{ "0-3: a Try needs a Catch or a Finally" });
+}
+
+TEST_CASE("Try and Try? take what comes before the next binary operator", "[parser]") {
+    CHECK(parse_text("Local n = Try? F() ?? 0").dump == "(local n = (?? (try? (call F)) (int 0)))");
+    CHECK(parse_text("Try a.B().C()").dump == "(try (call (. (call (. a B)) C)))");
+    CHECK(parse_text("If x Then Try F()").dump == "(if-then x (block (try (call F))))");
+
+    // "Try ?" with a space is a Try before a ternary's condition, which isn't a call.
+    CHECK(parse_text("Try ? F()").errors ==
+          std::vector<std::string>{ "4-5: expected an expression, found '?'" });
+}
+
+TEST_CASE("tuples, their types, and their elements", "[parser]") {
+    CHECK(expression("(1, x)") == "(tuple (int 1) x)");
+    CHECK(expression("((1, 2), x,)") == "(tuple (tuple (int 1) (int 2)) x)");
+    CHECK(expression("(x)") == "x");
+    CHECK(expression("pair.0") == "(. pair 0)");
+    CHECK(expression("t.0.1") == "(. (. t 0) 1)");
+    CHECK(expression("t?.1") == "(?. t 1)");
+    CHECK(parse_text("Local p: (Int, String)[]?").dump == "(local p: (Int, String)[]?)");
+    CHECK(parse_text("Local p: ((Int, Int), Bool)").dump == "(local p: ((Int, Int), Bool))");
+    CHECK(parse_text("Local p: (Int)").dump == "(local p: Int)");
+}
+
+TEST_CASE("a Local takes a tuple apart, and an assignment can set each element", "[parser]") {
+    CHECK(parse_text("Local lo, hi = MinMax(xs)").dump == "(local lo hi = (call MinMax xs))");
+    CHECK(parse_text("Local _, hi = pair").dump == "(local _ hi = pair)");
+    CHECK(parse_text("a, b = (b, a)").dump == "(= (tuple a b) (tuple b a))");
+    CHECK(parse_text("(a, b) = (b, a)").dump == "(= (tuple a b) (tuple b a))");
+    CHECK(parse_text("p.0, x[1] = F()").dump == "(= (tuple (. p 0) (index x (int 1))) (call F))");
+}
+
+TEST_CASE("tuple mistakes are reported", "[parser]") {
+    CHECK(parse_text("Local p = (1,)").errors ==
+          std::vector<std::string>{ "10-14: a tuple has at least two values" });
+    CHECK(parse_text("Local p: (Int,)").errors ==
+          std::vector<std::string>{ "9-15: a tuple has at least two types" });
+    CHECK(parse_text("Global a, b = F()").errors ==
+          std::vector<std::string>{ "0-6: only a Local can take a tuple apart" });
+    CHECK(parse_text("Local a: Int, b = F()").errors ==
+          std::vector<std::string>{
+              "9-12: the names that take a tuple apart get their types from its elements" });
+    CHECK(parse_text("Local a, b").errors ==
+          std::vector<std::string>{ "10-10: expected '=', found end of file" });
+    CHECK(parse_text("x = t.1e5").errors ==
+          std::vector<std::string>{ "6-9: a tuple's elements are numbered, like .0 and .1" });
+}
+
+TEST_CASE("lambdas, written with Function", "[parser]") {
+    CHECK(expression("Function(x: Int) => x * 2") == "(lambda (x: Int) => (* x (int 2)))");
+    CHECK(expression("Function(x, y) => x") == "(lambda (x) (y) => x)");
+    CHECK(expression("Function[Weak Self, Weak n](): Int => 1") ==
+          "(lambda [Weak Self, Weak n] -> Int => (int 1))");
+    CHECK(parse_text("Local f = Function()\n    Print(x)\nEnd Function").dump ==
+          "(local f = (lambda (block (call Print x))))");
+
+    // A block lambda's body ends statements at line breaks, even inside a call's brackets.
+    CHECK(parse_text("Each(xs, Function(s)\n    Print(s)\n    n++\nEnd Function)\nG()").dump ==
+          "(call Each xs (lambda (s) (block (call Print s) (++ n))))\n(call G)");
+    CHECK(parse_text("Return Function()\n    Return 1\nEnd Function").dump ==
+          "(return (lambda (block (return (int 1)))))");
+}
+
+TEST_CASE("Func types", "[parser]") {
+    CHECK(parse_text("Local f: Func(Int, String): Bool").dump ==
+          "(local f: Func(Int, String): Bool)");
+    CHECK(parse_text("Local f: Func()").dump == "(local f: Func())");
+    CHECK(parse_text("Local f: (Func(): Int)?").dump == "(local f: (Func(): Int)?)");
+    CHECK(parse_text("Local f: Func()[]").dump == "(local f: Func()[])");
+
+    // The return type takes the suffix after it.
+    CHECK(parse_text("Local f: Func(): Int[]").dump == "(local f: Func(): Int[])");
+}
+
+TEST_CASE("lambda mistakes are reported", "[parser]") {
+    CHECK(parse_text("Local f = Function[n]() => 1").errors ==
+          std::vector<std::string>{
+              "19-20: a capture list only has Weak captures, like [Weak Self]" });
+    CHECK(parse_text("Local f = Function(ByRef x: Int) => x").errors ==
+          std::vector<std::string>{ "19-24: a lambda's parameters can't be ByRef" });
+    CHECK(parse_text("Local f = Function(x = 1) => x").errors ==
+          std::vector<std::string>{ "21-22: a lambda's parameters can't have defaults" });
+    CHECK(parse_text("Local f = Function() 1").errors ==
+          std::vector<std::string>{
+              "21-22: expected '=>' or the end of the line, found integer literal",
+              "22-22: expected 'End Function', found end of file",
+          });
+}
+
+TEST_CASE("generic functions and types, and their type arguments", "[parser]") {
+    CHECK(parse_text("Function First<T>(xs: T[]): T => xs[0]").dump ==
+          "(function First<T> (xs: T[]) -> T (block (return (index xs (int 0)))))");
+    CHECK(parse_text("Struct Pair<A, B>\nEnd Struct").dump == "(struct Pair<A, B> (block))");
+    CHECK(parse_text("Class Stack<T>\n    Method Map<U>()\n    End Method\nEnd Class").dump ==
+          "(class Stack<T> (block (method Map<U> (block))))");
+    CHECK(expression("Max<Float>(1, 2.5)") == "(call Max<Float> (int 1) (decimal 2.5))");
+    CHECK(expression("Box<Box<Int>>(b)") == "(call Box<Box<Int>> b)");
+    CHECK(expression("s.Map<String>(f)") == "(call (. s Map<String>) f)");
+
+    // Without '(', '.', ')', or ',' after the '>', a '<' compares.
+    CHECK(expression("a < b") == "(< a b)");
+    CHECK(expression("F(a < b, c > d)") == "(call F (< a b) (> c d))");
+}
+
+TEST_CASE("generic mistakes are reported", "[parser]") {
+    CHECK(parse_text("Function F<T: Comparable>()\nEnd Function").errors ==
+          std::vector<std::string>{ "12-13: constraints on type parameters aren't supported yet" });
+    CHECK(parse_text("Class B Extends A<Int>\nEnd Class").errors ==
+          std::vector<std::string>{ "17-18: extending a generic Class isn't supported yet" });
+}
+
+TEST_CASE("Operators are named by their operator", "[parser]") {
+    CHECK(parse_text("Operator +(a: M, b: M): M => a").dump ==
+          "(operator + (a: M) (b: M) -> M (block (return a)))");
+    CHECK(parse_text("Operator -(a: M): M\n    Return a\nEnd Operator").dump ==
+          "(operator - (a: M) -> M (block (return a)))");
+    CHECK(parse_text("Operator >>(a: M, n: Int): M => a").dump ==
+          "(operator >> (a: M) (n: Int) -> M (block (return a)))");
+    CHECK(parse_text("Operator Add(a: M): M => a").errors ==
+          std::vector<std::string>{ "9-12: expected an operator, like + or ==, found identifier" });
 }

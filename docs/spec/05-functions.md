@@ -82,7 +82,26 @@ End Function
 
 Local lo, hi = MinMax(data)     // destructuring
 Local pair = MinMax(data)       // (Int, Int)
+Print("{pair.0}")               // elements are numbered from 0
+a, b = (b, a)                   // swap
 ```
+
+- A tuple type is two or more types in parentheses: `(Int, String)`, `(Int, Int)?`,
+  `(String, Int)[]`. `(T)` is just `T`.
+- A tuple is a value, copied on assignment like a Struct (see [08](08-memory.md)). Its elements
+  can be of any type but `Weak<T>`.
+- `(a, b)` makes one. Where a tuple is expected, each value converts to its element's type:
+  `Local p: (Long, String?) = (1, Null)`. Any other tuple converts only to its own type, or to
+  its `T?`.
+- `t.0`, `t.1`, and so on are its elements, which can be assigned. `t.0.1` is an element of an
+  element.
+- `Local lo, hi = value` declares a Local for each element, of the element's type. There's a
+  name for every element, and `_` skips one. Only a `Local` takes a tuple apart.
+- `a, b = value`, or `(a, b) = value`, assigns each element to a target, converting it to the
+  target's type. The whole value is made first, then each target is assigned, from the left, so
+  `a, b = (b, a)` swaps.
+- `==` and `!=` compare element by element, when every element's type has them.
+- A tuple shows in a string as its elements: `"{(1, "a")}"` is `(1, a)`.
 
 ## Calls
 
@@ -110,6 +129,22 @@ End Function
 Lambdas are always written with `Function`: `Function(x) => expr`, or a block ending in
 `End Function`. There is no `() =>` shorthand.
 
+- `Func(A, B): R` is the type of a function value that takes an `A` and a `B` and returns an
+  `R`; `Func(A)` returns nothing. A `?` or `[]` after the return type belongs to it, so a Func
+  that can be Null is `(Func(): Int)?`, and an array of them is `(Func(): Int)[]`.
+- A parameter without a type, like the `x` in `Function(x) => x * 2`, takes the type that the
+  Func expected there has. With no Func expected, it needs one.
+- A lambda returns what its `: Type` says, or else what the Func expected says. Without either,
+  `=> value` returns the value's type, and a block returns nothing.
+- `Return` in a lambda leaves the lambda. `Break` and `Continue` can't leave it, and neither can
+  an error: a Func doesn't throw, so the lambda catches what it calls.
+- A block lambda's body ends statements at line breaks, even inside the brackets of a call.
+- A Function's name alone is a function value: `Local f: Func(Int): Int = Twice`. With
+  overloads, the Func expected picks one. Methods, built-in functions, and Functions that throw
+  or take a ByRef parameter aren't values; a lambda can call them.
+- A function value is called like a function, `f(1)`, with its arguments in order. It has no
+  `==`, but a `Func?` compares with `Null`.
+
 ## Closures
 
 A closure is a function that captures variables from the scope where it was created.
@@ -129,6 +164,14 @@ Print(next())   // 2
 ```
 
 - Variables are captured **by reference** (the closure and the outer scope share them).
+- A closure is a refcounted object. A captured `Local` lives in a cell that the closure and its
+  scope share. A parameter, a loop variable, a `Const`, and `Self` can't change, so the closure
+  copies them: each pass of a `For` gives a lambda its own loop variable.
+- A `ByRef` parameter can't be captured, since the caller's variable may be gone when the lambda
+  runs. Neither can `Self` in a Struct's `New`, which isn't made yet.
+- Using a field or Method by name in a lambda captures `Self`.
+- A null check doesn't narrow a captured `Local` inside the lambda, and once a lambda that
+  assigns a `Local` exists, no check outside narrows it either: any call could change it.
 
 ### Capture lists
 
@@ -140,6 +183,9 @@ OnOpen = Function[Weak Self]() => Self?.PlaySound()   // Self may be gone, hence
 ```
 
 - `[Weak x]` captures `x` as a weak reference (its type becomes `x?` inside the closure).
+  It refers to the object `x` holds when the closure is made, and like any `Weak<T>`, a check
+  can't narrow it.
+- With `[Weak Self]`, fields and Methods are reached through `Self?.`, not by name.
 - The compiler **warns** when a closure stored in a field captures `Self` strongly.
 
 ### C callbacks

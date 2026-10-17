@@ -1,0 +1,126 @@
+// Class extras: Static Fields and Methods, Properties, and ReadOnly Fields.
+Class Enemy
+    Static Field count: Int = 0
+    Static Field names: String[] = []
+    ReadOnly Field id: Int
+    Field hp: Int
+    Field maxHp: Int = 100
+
+    New(hp: Int)
+        count++
+        id = count
+        Self.hp = hp
+        names.Add("enemy {id}")
+    End New
+
+    Static Method Spawn(hp: Int): Enemy
+        Return Enemy(hp)
+    End Method
+
+    Static Method Report(): String => "{count} spawned"
+
+    Property Alive: Bool
+        Get => hp > 0
+    End Property
+
+    Property Health: Int
+        Get => hp
+        Set(value)
+            hp = value < 0 ? 0 : (value > maxHp ? maxHp : value)
+        End Set
+    End Property
+
+    Method Describe(): String => "#{id}: {Health}/{maxHp}{Alive ? "" : " (down)"}"
+End Class
+
+Local a = Enemy.Spawn(30)
+Local b = Enemy(80)
+Print(Enemy.Report())
+Print(a.Describe())
+a.Health -= 50
+b.Health += 50
+Print(a.Describe())
+Print(b.Describe())
+b.Health = 10
+b.Health++
+Print("{b.Health} alive: {b.Alive}")
+Print("{Enemy.names[0]}, {Enemy.names[1]}")
+Enemy.count = 10
+Print(Enemy.Report())
+
+// A Struct's Property Set changes the variable, like a ByRef Method.
+Struct Box
+    Field width: Int
+    Field height: Int
+
+    Property Area: Int
+        Get => width * height
+    End Property
+
+    Property Size: Int
+        Get
+            Return width > height ? width : height
+        End Get
+        Set(value)
+            width = value
+            height = value
+        End Set
+    End Property
+End Struct
+
+Local box = Box(2, 3)
+Print("area {box.Area}, size {box.Size}")
+box.Size = 4
+Print("area {box.Area}, size {box.Size}")
+
+// A Property is virtual, like a Method.
+Class Shape
+    Property Name: String
+        Get => "shape"
+    End Property
+End Class
+
+Class Circle Extends Shape
+    Field radius: Int = 1
+
+    Override Property Name: String
+        Get => "circle of {radius}"
+    End Property
+End Class
+
+Local shapes: Shape[] = [Shape(), Circle()]
+For shape In shapes
+    Print(shape.Name)
+End For
+
+// An override with only a Get keeps the Set of the Property it overrides.
+Class Base
+    Field v: Int
+    Property P: Int
+        Get => v
+        Set(value)
+            v = value
+        End Set
+    End Property
+End Class
+
+Class Doubled Extends Base
+    Override Property P: Int
+        Get => v * 2
+    End Property
+End Class
+
+Local d: Base = Doubled()
+d.P = 5
+Print("{d.P}")
+
+// A Struct has Statics too.
+Struct Point
+    Field x: Int
+    Static Field origin: Point = Point(0)
+    Static Method Unit(): Point => Point(1)
+End Struct
+
+Print("{Point.Unit().x} {Point.origin.x}")
+Point.origin.x = 3
+Print("{Point.origin.x}")

@@ -41,7 +41,7 @@ Composite and special types:
 | `Local` | mutable local variable |
 | `Global` | module-level variable |
 | `Const` | read-only value, computed at compile time whenever possible ([13](13-compile-time.md#compile-time-evaluation)) |
-| `ReadOnly` | field or global assigned exactly once |
+| `ReadOnly` | field that only its Class's `New` can change; a global that never changes is a `Const` |
 | `Field` | member of a struct or class |
 
 ```vb

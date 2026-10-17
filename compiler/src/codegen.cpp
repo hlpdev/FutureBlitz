@@ -76,14 +76,14 @@ struct function_ref_t {
 /// file.
 class codegen_t {
 public:
-    codegen_t(const mir_module_t& module, const source_file_t& file,
-              const codegen_options_t& options)
-        : m_mir(module), m_file(file), m_options(options),
+    codegen_t(const mir_module_t& module, const source_manager_t& sources,
+              const source_file_t& main, const codegen_options_t& options)
+        : m_mir(module), m_sources(sources), m_options(options),
           m_triple(normalize(options.target_triple.empty()
                                  ? std::string(build_config::target_triple)
                                  : options.target_triple)),
           m_context(LLVMContextCreate()),
-          m_module(LLVMModuleCreateWithNameInContext(file.path().c_str(), m_context.get())),
+          m_module(LLVMModuleCreateWithNameInContext(main.path().c_str(), m_context.get())),
           m_builder(LLVMCreateBuilderInContext(m_context.get())) {}
 
     /// Builds the module, verifies it, and optimizes it in release builds.
@@ -102,10 +102,10 @@ public:
         }
 
         for (std::size_t i = 0; i < m_mir.classes.size(); ++i) {
-            generate_destroy(i);
+            generate_class_functions(i);
         }
 
-        generate_array_destroys();
+        generate_array_functions();
         generate_main();
 
         char* error = nullptr;
@@ -139,7 +139,7 @@ public:
 
 private:
     const mir_module_t& m_mir;
-    const source_file_t& m_file;
+    const source_manager_t& m_sources;
     const codegen_options_t& m_options;
     /// The options' target, or else the one this compiler was built for, normalized.
     std::string m_triple;
@@ -176,7 +176,14 @@ private:
     function_ref_t m_power_int;
     function_ref_t m_power_uint;
     function_ref_t m_print;
+    function_ref_t m_track_objects;
+    function_ref_t m_retain_weak;
+    function_ref_t m_release_weak;
+    function_ref_t m_load_weak;
+    function_ref_t m_discard;
     function_ref_t m_panic;
+    function_ref_t m_panic_string;
+    function_ref_t m_error_uncaught;
     function_ref_t m_object_new;
     function_ref_t m_object_retain;
     function_ref_t m_object_release;
@@ -203,13 +210,29 @@ private:
     std::unordered_map<type_id_t, LLVMTypeRef> m_object_types;
     /// Each Class's fb_class_t, by its type.
     std::unordered_map<type_id_t, LLVMValueRef> m_classes;
-    /// Each Class's destroy, by its index in `mir_module_t::classes`.
-    std::vector<function_ref_t> m_destroys;
+    /// What the runtime calls on a Class's objects; see fb_class_t. Its destroy is nullopt when
+    /// neither it nor a Class it extends has a Destroy().
+    struct class_functions_t {
+        std::optional<function_ref_t> destroy;
+        function_ref_t release;
+        function_ref_t visit;
+    };
+
+    /// Each Class's functions, by its index in `mir_module_t::classes`.
+    std::vector<class_functions_t> m_class_functions;
     /// Each Class's index in `mir_module_t::classes`, by its type.
     std::unordered_map<type_id_t, std::size_t> m_class_index;
-    /// The T[]s whose fb_class_t has been made, with their destroys, which
-    /// generate_array_destroys() fills in.
-    std::vector<std::pair<type_id_t, function_ref_t>> m_array_classes;
+    /// A T[] whose fb_class_t has been made, with its functions, which generate_array_functions()
+    /// fills in. A T[] has no Destroy().
+    struct array_class_t {
+        type_id_t type;
+        function_ref_t release;
+        function_ref_t visit;
+    };
+
+    std::vector<array_class_t> m_array_classes;
+    /// What a Class's visit calls with each object it refers to: (context, object, field name).
+    LLVMTypeRef m_visitor = nullptr;
 
     // The function being generated
     const mir_function_t* m_function = nullptr;
@@ -286,9 +309,10 @@ private:
         m_object_header = LLVMStructTypeInContext(context(), header.data(),
                                                   static_cast<unsigned>(header.size()), 0);
         LLVMTypeRef methods = LLVMArrayType2(m_ptr, 0);
-        std::array<LLVMTypeRef, 6> info{ m_ptr, m_i64, m_ptr, m_i64, m_ptr, methods };
-        m_class_header =
-            LLVMStructTypeInContext(context(), info.data(), static_cast<unsigned>(info.size()), 0);
+        m_class_header = class_type(methods);
+        std::array<LLVMTypeRef, 3> visitor{ m_ptr, m_ptr, m_ptr };
+        m_visitor =
+            LLVMFunctionType(m_void, visitor.data(), static_cast<unsigned>(visitor.size()), 0);
         std::array<LLVMTypeRef, 5> array{ m_i64, m_ptr, m_i64, m_i64, m_ptr };
         m_array_type = LLVMStructTypeInContext(context(), array.data(),
                                                static_cast<unsigned>(array.size()), 0);
@@ -317,12 +341,13 @@ private:
         case type_id_t::STRING:
             return m_ptr;
         default:
-            if (m_mir.types->get(type).kind == type_kind_t::STRUCT) {
+            if (m_mir.types->get(type).kind == type_kind_t::STRUCT ||
+                m_mir.types->get(type).kind == type_kind_t::TUPLE) {
                 return struct_type(type);
             }
 
-            // A Class or T[] is a pointer to its object.
-            if (is_class(type) || is_array(type) || is_nullable_reference(type)) {
+            // A Class, T[], Weak<T>, or function value is a pointer to its object.
+            if (is_object(type) || is_array(type) || is_nullable_reference(type) || is_weak(type)) {
                 return m_ptr;
             }
 
@@ -362,11 +387,21 @@ private:
     /// A String? or Class?: the reference itself, which is null for Null.
     [[nodiscard]] bool is_nullable_reference(const type_id_t type) const {
         return is_nullable(type) && (inner_of(type) == type_id_t::STRING ||
-                                     is_class(inner_of(type)) || is_array(inner_of(type)));
+                                     is_object(inner_of(type)) || is_array(inner_of(type)));
+    }
+
+    /// A Class, or a function value, which refers to a closure: either one is a reference to an
+    /// object.
+    [[nodiscard]] bool is_object(const type_id_t type) const {
+        return is_class(type) || m_mir.types->get(type).kind == type_kind_t::FUNCTION;
     }
 
     [[nodiscard]] bool is_array(const type_id_t type) const {
         return m_mir.types->get(type).kind == type_kind_t::ARRAY;
+    }
+
+    [[nodiscard]] bool is_weak(const type_id_t type) const {
+        return m_mir.types->get(type).kind == type_kind_t::WEAK;
     }
 
     [[nodiscard]] bool is_fixed_array(const type_id_t type) const {
@@ -383,9 +418,10 @@ private:
             return false;
         }
 
-        // A Class's or T[]'s zero is a null reference.
+        // A Class's, T[]'s, Weak<T>'s, or function value's zero is a null reference.
         const type_t& info = m_mir.types->get(type);
-        if (info.kind == type_kind_t::CLASS || info.kind == type_kind_t::ARRAY) {
+        if (info.kind == type_kind_t::CLASS || info.kind == type_kind_t::ARRAY ||
+            info.kind == type_kind_t::WEAK || info.kind == type_kind_t::FUNCTION) {
             return true;
         }
 
@@ -429,8 +465,8 @@ private:
         return result;
     }
 
-    /// "fb.Point" in the IR. A Struct never contains itself, so making its fields' types can't
-    /// come back to it.
+    /// "fb.Point" in the IR, or "fb.(Int32, String)" for a tuple. A Struct never contains itself,
+    /// so making its fields' types can't come back to it.
     LLVMTypeRef struct_type(const type_id_t type) {
         if (const auto found = m_struct_types.find(type); found != m_struct_types.end()) {
             return found->second;
@@ -460,6 +496,7 @@ private:
         LLVMTypeRef f32 = LLVMFloatTypeInContext(context());
         LLVMTypeRef f64 = LLVMDoubleTypeInContext(context());
         m_start = declare("fb_start", m_void, {});
+        m_track_objects = declare("fb_track_objects", m_void, {});
         m_finish = declare("fb_finish", m_void, { m_ptr, m_i64 });
         m_retain = declare("fb_string_retain", m_void, { m_ptr });
         m_release = declare("fb_string_release", m_void, { m_ptr });
@@ -475,9 +512,15 @@ private:
         m_power_uint = declare("fb_power_uint", m_i64, { m_i64, m_i64, m_i32, m_i32, m_ptr });
         m_print = declare("fb_print", m_void, { m_ptr });
         m_panic = declare("fb_panic", m_void, { m_ptr, m_ptr });
+        m_panic_string = declare("fb_panic_string", m_void, { m_ptr, m_ptr });
+        m_error_uncaught = declare("fb_error_uncaught", m_void, { m_ptr, m_ptr });
         m_object_new = declare("fb_object_new", m_ptr, { m_ptr });
         m_object_retain = declare("fb_object_retain", m_void, { m_ptr });
         m_object_release = declare("fb_object_release", m_void, { m_ptr });
+        m_retain_weak = declare("fb_object_retain_weak", m_void, { m_ptr });
+        m_release_weak = declare("fb_object_release_weak", m_void, { m_ptr });
+        m_load_weak = declare("fb_object_load_weak", m_ptr, { m_ptr });
+        m_discard = declare("fb_object_discard", m_void, { m_ptr });
         m_object_is = declare("fb_object_is", m_i32, { m_ptr, m_ptr });
         m_object_expect = declare("fb_object_expect", m_void, { m_ptr, m_ptr, m_ptr });
         m_array_new = declare("fb_array_new", m_ptr, { m_ptr, m_i64, m_i64 });
@@ -490,18 +533,45 @@ private:
         m_index_out_of_range = declare("fb_index_out_of_range", m_void, { m_i64, m_i64, m_ptr });
     }
 
-    /// Each Class's fb_class_t: its name, its objects' size, its destroy, which
-    /// generate_destroy() fills in, and the Class it extends. The runtime counts the Class's
-    /// objects in it. Its Method table follows. Every Class's global is made before any is
-    /// filled in, since they refer to each other.
+    /// An fb_class_t, with a Method table of type `table`: its name, its objects' size, its
+    /// destroy, release, and visit, its count of objects, and the Class it extends.
+    LLVMTypeRef class_type(LLVMTypeRef table) {
+        std::array<LLVMTypeRef, 8> fields{ m_ptr, m_i64, m_ptr, m_ptr, m_ptr, m_i64, m_ptr, table };
+        return LLVMStructTypeInContext(context(), fields.data(),
+                                       static_cast<unsigned>(fields.size()), 0);
+    }
+
+    /// Where the Method table is in an fb_class_t.
+    static constexpr unsigned methods_field = 7;
+
+    /// A function only this module calls.
+    function_ref_t declare_internal(const std::string& name, LLVMTypeRef result,
+                                    std::vector<LLVMTypeRef> parameters) {
+        const function_ref_t declared = declare(name.c_str(), result, std::move(parameters));
+        LLVMSetLinkage(declared.value, LLVMInternalLinkage);
+        return declared;
+    }
+
+    /// Whether a Class, or a Class it extends, has a Destroy().
+    [[nodiscard]] bool has_destroy(const type_id_t type) const {
+        for (type_id_t current = type; current != type_id_t::INVALID;
+             current = m_mir.types->get(current).base) {
+            if (m_mir.classes[m_class_index.at(current)].destroy) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// Each Class's fb_class_t. Its functions are declared here, and generate_class_functions()
+    /// fills them in. The runtime counts the Class's objects in it, and its Method table follows.
+    /// Every Class's global is made before any is filled in, since they refer to each other.
     void declare_classes() {
         for (std::size_t i = 0; i < m_mir.classes.size(); ++i) {
             const mir_class_t& info = m_mir.classes[i];
             m_class_index.emplace(info.type, i);
-            LLVMTypeRef methods = LLVMArrayType2(m_ptr, info.methods.size());
-            std::array<LLVMTypeRef, 6> fields{ m_ptr, m_i64, m_ptr, m_i64, m_ptr, methods };
-            LLVMTypeRef type = LLVMStructTypeInContext(context(), fields.data(),
-                                                       static_cast<unsigned>(fields.size()), 0);
+            LLVMTypeRef type = class_type(LLVMArrayType2(m_ptr, info.methods.size()));
             const std::string name = std::format("fb.{}.class", m_mir.types->name(info.type));
             LLVMValueRef global = LLVMAddGlobal(m_module.get(), type, name.c_str());
             LLVMSetLinkage(global, LLVMInternalLinkage);
@@ -510,10 +580,15 @@ private:
 
         for (const mir_class_t& info : m_mir.classes) {
             const std::string_view name = m_mir.types->name(info.type);
-            const std::string destroy_name = std::format("fb.{}.destroy", name);
-            const function_ref_t destroy = declare(destroy_name.c_str(), m_void, { m_ptr });
-            LLVMSetLinkage(destroy.value, LLVMInternalLinkage);
-            m_destroys.push_back(destroy);
+            class_functions_t functions{
+                .release = declare_internal(std::format("fb.{}.release", name), m_void, { m_ptr }),
+                .visit = declare_internal(std::format("fb.{}.visit", name), m_void,
+                                          { m_ptr, m_ptr, m_ptr }),
+            };
+            if (has_destroy(info.type)) {
+                functions.destroy =
+                    declare_internal(std::format("fb.{}.destroy", name), m_void, { m_ptr });
+            }
 
             std::vector<LLVMValueRef> methods;
             methods.reserve(info.methods.size());
@@ -522,18 +597,34 @@ private:
             }
 
             const type_id_t base = m_mir.types->get(info.type).base;
-            std::array<LLVMValueRef, 6> values{
-                c_string(std::string(name)),
-                LLVMSizeOf(object_type(info.type)),
-                destroy.value,
-                LLVMConstInt(m_i64, 0, 0),
-                base != type_id_t::INVALID ? m_classes.at(base) : LLVMConstNull(m_ptr),
-                LLVMConstArray2(m_ptr, methods.data(), methods.size()),
-            };
+            LLVMValueRef extended =
+                base != type_id_t::INVALID ? m_classes.at(base) : LLVMConstNull(m_ptr);
             LLVMSetInitializer(m_classes.at(info.type),
-                               LLVMConstStructInContext(context(), values.data(),
-                                                        static_cast<unsigned>(values.size()), 0));
+                               class_value(name, LLVMSizeOf(object_type(info.type)),
+                                           functions.destroy, functions.release, functions.visit,
+                                           extended, std::move(methods)));
+            m_class_functions.push_back(functions);
         }
+    }
+
+    /// An fb_class_t's value, with no objects counted yet. `destroy` is nullopt for a Class
+    /// without a Destroy() in its line, and `base` is null for one that extends nothing.
+    LLVMValueRef class_value(const std::string_view name, LLVMValueRef size,
+                             const std::optional<function_ref_t>& destroy,
+                             const function_ref_t& release, const function_ref_t& visit,
+                             LLVMValueRef base, std::vector<LLVMValueRef> methods) {
+        std::array<LLVMValueRef, 8> values{
+            c_string(std::string(name)),
+            size,
+            destroy ? destroy->value : LLVMConstNull(m_ptr),
+            release.value,
+            visit.value,
+            LLVMConstInt(m_i64, 0, 0),
+            base,
+            LLVMConstArray2(m_ptr, methods.data(), methods.size()),
+        };
+        return LLVMConstStructInContext(context(), values.data(),
+                                        static_cast<unsigned>(values.size()), 0);
     }
 
     /// Globals start out holding their `initial` value. Like functions, their names get an "fb."
@@ -689,9 +780,10 @@ private:
 
     /// An fb_location_t for a span, for panics to report.
     LLVMValueRef location(const span_t span) {
-        const location_t start = m_file.location_of(span.begin, column_unit_t::CODEPOINT);
+        const source_file_t& file = m_sources.get(span.file);
+        const location_t start = file.location_of(span.begin, column_unit_t::CODEPOINT);
         std::array<LLVMValueRef, 3> fields{
-            c_string(m_file.path()),
+            c_string(file.path()),
             LLVMConstInt(m_i32, start.line + 1, 0),
             LLVMConstInt(m_i32, start.column + 1, 0),
         };
@@ -757,86 +849,192 @@ private:
         LLVMBuildBr(builder(), m_blocks[0]);
     }
 
-    /// A Class's destroy, which the runtime calls when an object's last owner lets go: it runs
-    /// the Class's Destroy(), if it has one, then those of the Classes it extends, and releases
-    /// the object's fields.
-    void generate_destroy(const std::size_t class_index) {
+    /// A Class's functions for the runtime. Its destroy, when an object's last owner lets go,
+    /// runs the Class's Destroy(), then those of the Classes it extends. Its release releases the
+    /// object's fields, after the destroy, or instead when New threw. Its visit calls the visitor
+    /// with each object the fields refer to strongly, for the cycle detector.
+    void generate_class_functions(const std::size_t class_index) {
         const mir_class_t& info = m_mir.classes[class_index];
-        LLVMValueRef function = m_destroys[class_index].value;
-        LLVMPositionBuilderAtEnd(builder(),
-                                 LLVMAppendBasicBlockInContext(context(), function, "entry"));
-        LLVMValueRef object = LLVMGetParam(function, 0);
-        for (type_id_t type = info.type; type != type_id_t::INVALID;
-             type = m_mir.types->get(type).base) {
-            if (const mir_class_t& current = m_mir.classes[m_class_index.at(type)];
-                current.destroy) {
-                call(m_functions[index(*current.destroy)], { object });
+        const class_functions_t& functions = m_class_functions[class_index];
+        if (functions.destroy) {
+            LLVMValueRef function = functions.destroy->value;
+            LLVMPositionBuilderAtEnd(builder(),
+                                     LLVMAppendBasicBlockInContext(context(), function, "entry"));
+            LLVMValueRef object = LLVMGetParam(function, 0);
+            for (type_id_t type = info.type; type != type_id_t::INVALID;
+                 type = m_mir.types->get(type).base) {
+                if (const mir_class_t& current = m_mir.classes[m_class_index.at(type)];
+                    current.destroy) {
+                    call(m_functions[index(*current.destroy)], { object });
+                }
             }
+
+            LLVMBuildRetVoid(builder());
         }
 
         // The fields come after the header's two.
         const std::vector<field_t>& fields = m_mir.types->get(info.type).fields;
+        LLVMValueRef release = functions.release.value;
+        LLVMPositionBuilderAtEnd(builder(),
+                                 LLVMAppendBasicBlockInContext(context(), release, "entry"));
         for (std::uint32_t i = 0; i < fields.size(); ++i) {
             if (m_mir.types->has_references(fields[i].type)) {
-                LLVMValueRef field =
-                    LLVMBuildStructGEP2(builder(), object_type(info.type), object, i + 2, "");
+                LLVMValueRef field = LLVMBuildStructGEP2(builder(), object_type(info.type),
+                                                         LLVMGetParam(release, 0), i + 2, "");
                 for_each_reference(field, fields[i].type, false);
+            }
+        }
+
+        LLVMBuildRetVoid(builder());
+
+        LLVMValueRef visit = functions.visit.value;
+        LLVMPositionBuilderAtEnd(builder(),
+                                 LLVMAppendBasicBlockInContext(context(), visit, "entry"));
+        for (std::uint32_t i = 0; i < fields.size(); ++i) {
+            if (holds_objects(fields[i].type)) {
+                LLVMValueRef field = LLVMBuildStructGEP2(builder(), object_type(info.type),
+                                                         LLVMGetParam(visit, 0), i + 2, "");
+                visit_objects(field, fields[i].type, visit, c_string(fields[i].name));
             }
         }
 
         LLVMBuildRetVoid(builder());
     }
 
-    /// A T[]'s fb_class_t, made the first time it's needed. It's named like "Int32[]", and its
-    /// destroy releases the elements and frees the buffer.
+    /// Whether a value of `type` refers to objects strongly, which could make a cycle: a Class or
+    /// T[], or a Struct, tuple, T?, or fixed array with one inside. A String refers to nothing,
+    /// and a Weak<T> doesn't keep its object.
+    [[nodiscard]] bool holds_objects(const type_id_t type) const {
+        const type_t& info = m_mir.types->get(type);
+        switch (info.kind) {
+        case type_kind_t::CLASS:
+        case type_kind_t::ARRAY:
+        case type_kind_t::FUNCTION:
+            return true;
+        case type_kind_t::NULLABLE:
+        case type_kind_t::FIXED_ARRAY:
+            return holds_objects(info.inner);
+        case type_kind_t::STRUCT:
+        case type_kind_t::TUPLE:
+            return std::ranges::any_of(
+                info.fields, [this](const field_t& field) { return holds_objects(field.type); });
+        default:
+            return false;
+        }
+    }
+
+    /// In a visit, `function`: calls its visitor with each object in the value of `type` at
+    /// `address`, and `name`, the field it's in.
+    void visit_objects(LLVMValueRef address, const type_id_t type, LLVMValueRef function,
+                       LLVMValueRef name) {
+        if (is_nullable(type)) {
+            if (!is_nullable_reference(type)) {
+                address = LLVMBuildStructGEP2(builder(), llvm_type(type), address, 1, "");
+            }
+
+            visit_objects(address, inner_of(type), function, name);
+            return;
+        }
+
+        if (is_object(type) || is_array(type)) {
+            std::array<LLVMValueRef, 3> arguments{
+                LLVMGetParam(function, 2),
+                LLVMBuildLoad2(builder(), m_ptr, address, ""),
+                name,
+            };
+            LLVMBuildCall2(builder(), m_visitor, LLVMGetParam(function, 1), arguments.data(),
+                           static_cast<unsigned>(arguments.size()), "");
+            return;
+        }
+
+        if (is_fixed_array(type)) {
+            const type_id_t element = inner_of(type);
+            LLVMValueRef count = LLVMConstInt(m_i64, m_mir.types->element_count(type), 0);
+            for_each_element(address, llvm_type(element), count, [&](LLVMValueRef item) {
+                visit_objects(item, element, function, name);
+            });
+            return;
+        }
+
+        const std::vector<field_t>& fields = m_mir.types->get(type).fields;
+        for (std::uint32_t i = 0; i < fields.size(); ++i) {
+            if (holds_objects(fields[i].type)) {
+                LLVMValueRef field =
+                    LLVMBuildStructGEP2(builder(), llvm_type(type), address, i, "");
+                visit_objects(field, fields[i].type, function, name);
+            }
+        }
+    }
+
+    /// A T[]'s fb_class_t, made the first time it's needed. It's named like "Int32[]", its release
+    /// releases the elements and frees the buffer, and its visit visits the elements.
     LLVMValueRef array_class(const type_id_t type) {
         if (const auto found = m_classes.find(type); found != m_classes.end()) {
             return found->second;
         }
 
         const std::string_view name = m_mir.types->name(type);
-        const std::string destroy_name = std::format("fb.{}.destroy", name);
-        const function_ref_t destroy = declare(destroy_name.c_str(), m_void, { m_ptr });
-        LLVMSetLinkage(destroy.value, LLVMInternalLinkage);
-        std::array<LLVMValueRef, 6> values{
-            c_string(std::string(name)),
-            LLVMSizeOf(m_array_type),
-            destroy.value,
-            LLVMConstInt(m_i64, 0, 0),
-            LLVMConstNull(m_ptr),
-            LLVMConstArray2(m_ptr, nullptr, 0),
+        const array_class_t functions{
+            .type = type,
+            .release = declare_internal(std::format("fb.{}.release", name), m_void, { m_ptr }),
+            .visit =
+                declare_internal(std::format("fb.{}.visit", name), m_void, { m_ptr, m_ptr, m_ptr }),
         };
-        LLVMValueRef info = LLVMConstStructInContext(context(), values.data(),
-                                                     static_cast<unsigned>(values.size()), 0);
+        LLVMValueRef info =
+            class_value(name, LLVMSizeOf(m_array_type), std::nullopt, functions.release,
+                        functions.visit, LLVMConstNull(m_ptr), {});
         const std::string global_name = std::format("fb.{}.class", name);
         LLVMValueRef global = LLVMAddGlobal(m_module.get(), LLVMTypeOf(info), global_name.c_str());
         LLVMSetInitializer(global, info);
         LLVMSetLinkage(global, LLVMInternalLinkage);
         m_classes.emplace(type, global);
-        m_array_classes.emplace_back(type, destroy);
+        m_array_classes.push_back(functions);
         return global;
     }
 
-    /// Each T[]'s destroy: it releases the elements and frees the buffer, and the runtime frees
-    /// the object.
-    void generate_array_destroys() {
-        for (const auto& [type, destroy] : m_array_classes) {
-            LLVMPositionBuilderAtEnd(
-                builder(), LLVMAppendBasicBlockInContext(context(), destroy.value, "entry"));
-            LLVMValueRef array = LLVMGetParam(destroy.value, 0);
-            for_each_reference_in(array, inner_of(type), false);
+    /// Each T[]'s functions: its release releases the elements and frees the buffer, and the
+    /// runtime frees the object. Its visit visits the elements, which aren't in fields.
+    void generate_array_functions() {
+        for (const array_class_t& functions : m_array_classes) {
+            const type_id_t element = inner_of(functions.type);
+            LLVMValueRef release = functions.release.value;
+            LLVMPositionBuilderAtEnd(builder(),
+                                     LLVMAppendBasicBlockInContext(context(), release, "entry"));
+            LLVMValueRef array = LLVMGetParam(release, 0);
+            for_each_reference_in(array, element, false);
             call(m_array_free, { array });
+            LLVMBuildRetVoid(builder());
+
+            LLVMValueRef visit = functions.visit.value;
+            LLVMPositionBuilderAtEnd(builder(),
+                                     LLVMAppendBasicBlockInContext(context(), visit, "entry"));
+            if (holds_objects(element)) {
+                LLVMValueRef elements = LLVMGetParam(visit, 0);
+                LLVMValueRef data = LLVMBuildLoad2(
+                    builder(), m_ptr, LLVMBuildStructGEP2(builder(), m_array_type, elements, 4, ""),
+                    "");
+                for_each_element(data, llvm_type(element), count_of(elements),
+                                 [&](LLVMValueRef item) {
+                                     visit_objects(item, element, visit, LLVMConstNull(m_ptr));
+                                 });
+            }
+
             LLVMBuildRetVoid(builder());
         }
     }
 
     /// main: starts the runtime, runs the top-level code, releases the Globals, and lets the
-    /// runtime check that nothing leaked, with every Class's count.
+    /// runtime check that nothing leaked, with every Class's count. Debug builds keep track of
+    /// the objects, so the report can point out cycles among the ones left.
     void generate_main() {
         const function_ref_t main = declare("main", m_i32, {});
         LLVMPositionBuilderAtEnd(builder(),
                                  LLVMAppendBasicBlockInContext(context(), main.value, "entry"));
         call(m_start, {});
+        if (checked()) {
+            call(m_track_objects, {});
+        }
+
         call(m_functions[index(m_mir.entry)], {});
         for (std::size_t i = 0; i < m_mir.globals.size(); ++i) {
             if (m_mir.types->has_references(m_mir.globals[i].type)) {
@@ -850,8 +1048,8 @@ private:
             classes.push_back(m_classes.at(info.type));
         }
 
-        for (const auto& entry : m_array_classes) {
-            classes.push_back(m_classes.at(entry.first));
+        for (const array_class_t& entry : m_array_classes) {
+            classes.push_back(m_classes.at(entry.type));
         }
 
         LLVMValueRef list = LLVMConstNull(m_ptr);
@@ -1092,8 +1290,14 @@ private:
             return;
         }
 
-        if (is_class(type) || is_array(type)) {
+        if (is_object(type) || is_array(type)) {
             call(retain ? m_object_retain : m_object_release,
+                 { LLVMBuildLoad2(builder(), m_ptr, address, "") });
+            return;
+        }
+
+        if (is_weak(type)) {
+            call(retain ? m_retain_weak : m_release_weak,
                  { LLVMBuildLoad2(builder(), m_ptr, address, "") });
             return;
         }
@@ -1173,6 +1377,12 @@ private:
     }
 
     void generate(const panic_t& node) {
+        if (node.text) {
+            call(m_panic_string, { value_of(*node.text), location(node.span) });
+            LLVMBuildUnreachable(builder());
+            return;
+        }
+
         panic(node.message, node.span);
     }
 
@@ -1466,8 +1676,9 @@ private:
                            is_enum(to) ? inner_of(to) : to, span);
         }
 
+        // A Weak<T> is made from the reference, or from null for Null.
         LLVMTypeRef target = llvm_type(to);
-        if (from == to || (is_class(from) && is_class(to))) {
+        if (from == to || (is_object(from) && is_object(to)) || is_weak(to)) {
             return value;
         }
 
@@ -1518,20 +1729,43 @@ private:
 
         function_ref_t function = m_functions[index(node.function)];
         if (node.slot) {
-            LLVMValueRef type_field =
-                LLVMBuildStructGEP2(builder(), m_object_header, arguments[0], 1, "");
-            LLVMValueRef type = LLVMBuildLoad2(builder(), m_ptr, type_field, "");
-            std::array<LLVMValueRef, 3> path{
-                LLVMConstInt(m_i32, 0, 0),
-                LLVMConstInt(m_i32, 5, 0),
-                LLVMConstInt(m_i64, *node.slot, 0),
-            };
-            LLVMValueRef entry = LLVMBuildGEP2(builder(), m_class_header, type, path.data(),
-                                               static_cast<unsigned>(path.size()), "");
-            function.value = LLVMBuildLoad2(builder(), m_ptr, entry, "");
+            function.value = method_of(arguments[0], *node.slot);
         }
 
         return call(function, std::move(arguments));
+    }
+
+    /// The function in a slot of an object's Method table, which its Class's info holds.
+    LLVMValueRef method_of(LLVMValueRef object, const std::uint32_t slot) {
+        LLVMValueRef type_field = LLVMBuildStructGEP2(builder(), m_object_header, object, 1, "");
+        LLVMValueRef type = LLVMBuildLoad2(builder(), m_ptr, type_field, "");
+        std::array<LLVMValueRef, 3> path{
+            LLVMConstInt(m_i32, 0, 0),
+            LLVMConstInt(m_i32, methods_field, 0),
+            LLVMConstInt(m_i64, slot, 0),
+        };
+        LLVMValueRef entry = LLVMBuildGEP2(builder(), m_class_header, type, path.data(),
+                                           static_cast<unsigned>(path.size()), "");
+        return LLVMBuildLoad2(builder(), m_ptr, entry, "");
+    }
+
+    /// A function value's code is in slot 0 of its object's Method table. It takes the object
+    /// first, then the arguments.
+    LLVMValueRef value(const invoke_t& node) {
+        const type_t& func = m_mir.types->get(type_of(node.callee));
+        std::vector<LLVMTypeRef> parameters{ m_ptr };
+        std::vector<LLVMValueRef> arguments{ value_of(node.callee) };
+        for (std::size_t i = 0; i < node.arguments.size(); ++i) {
+            parameters.push_back(llvm_type(func.parameters[i]));
+            arguments.push_back(value_of(node.arguments[i]));
+        }
+
+        const function_ref_t code{
+            .type = LLVMFunctionType(llvm_type(func.inner), parameters.data(),
+                                     static_cast<unsigned>(parameters.size()), 0),
+            .value = method_of(arguments.front(), 0),
+        };
+        return call(code, std::move(arguments));
     }
 
     LLVMValueRef value(const aggregate_t& node) {
@@ -1629,6 +1863,13 @@ private:
             return to_text(node.arguments[0]);
         case runtime_function_t::PRINT:
             return call(m_print, { value_of(node.arguments[0]) });
+        case runtime_function_t::ERROR_UNCAUGHT:
+            return call(m_error_uncaught,
+                        { value_of(node.arguments[0]), location(node.span.value_or(span_t{})) });
+        case runtime_function_t::WEAK_LOAD:
+            return call(m_load_weak, { value_of(node.arguments[0]) });
+        case runtime_function_t::OBJECT_DISCARD:
+            return call(m_discard, { value_of(node.arguments[0]) });
         default:
             return array_call(node);
         }
@@ -1715,9 +1956,11 @@ private:
 
 } // namespace
 
-std::expected<std::string, std::string>
-emit_ir(const mir_module_t& module, const source_file_t& file, const codegen_options_t& options) {
-    codegen_t codegen(module, file, options);
+std::expected<std::string, std::string> emit_ir(const mir_module_t& module,
+                                                const source_manager_t& sources,
+                                                const file_id_t main,
+                                                const codegen_options_t& options) {
+    codegen_t codegen(module, sources, sources.get(main), options);
     if (std::expected<void, std::string> built = codegen.build(); !built) {
         return std::unexpected(built.error());
     }
@@ -1725,10 +1968,11 @@ emit_ir(const mir_module_t& module, const source_file_t& file, const codegen_opt
     return codegen.ir();
 }
 
-std::expected<void, std::string> emit_object(const mir_module_t& module, const source_file_t& file,
+std::expected<void, std::string> emit_object(const mir_module_t& module,
+                                             const source_manager_t& sources, const file_id_t main,
                                              const codegen_options_t& options,
                                              const std::filesystem::path& path) {
-    codegen_t codegen(module, file, options);
+    codegen_t codegen(module, sources, sources.get(main), options);
     if (std::expected<void, std::string> built = codegen.build(); !built) {
         return built;
     }

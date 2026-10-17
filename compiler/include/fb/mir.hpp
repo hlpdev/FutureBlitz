@@ -8,6 +8,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -35,9 +36,10 @@ struct local_t {
     bool by_ref = false;
 };
 
-/// A top-level Global or Const.
+/// A top-level Global or Const, or a Static Field.
 struct global_t {
-    std::string_view name;
+    /// "score", or "Enemy.count" for a Static Field.
+    std::string name;
     type_id_t type = type_id_t::INVALID;
     /// Its value when the program starts: the initializer's when that's known at compile time,
     /// else zero, False, or "" until main sets it. nullopt for a Struct, which starts with every
@@ -153,6 +155,14 @@ enum class runtime_function_t : std::uint8_t {
     ARRAY_CLEAR,
     /// (T[]) to a new T[] with the same elements, retained.
     ARRAY_CLONE,
+    /// (Error?) to nothing: prints an error that top-level code let out, which nothing caught, and
+    /// ends the program with exit code 1.
+    ERROR_UNCAUGHT,
+    /// (Weak<T>) to a T?: a new reference to its object, or Null once the object is gone.
+    WEAK_LOAD,
+    /// (T) to nothing: lets go of an object whose New threw. Its fields are released, and its
+    /// Destroy doesn't run.
+    OBJECT_DISCARD,
 };
 
 struct runtime_call_t {
@@ -207,8 +217,15 @@ struct downcast_t {
 };
 
 /// Something a statement computes.
+/// Calls a function value: the code in slot 0 of its object's Method table, with the object
+/// first, then the arguments.
+struct invoke_t {
+    operand_t callee;
+    std::vector<operand_t> arguments;
+};
+
 using rvalue_t = std::variant<use_t, unary_t, binary_t, cast_t, call_t, runtime_call_t, aggregate_t,
-                              array_t, zero_t, new_t, is_t, downcast_t>;
+                              array_t, zero_t, new_t, is_t, downcast_t, invoke_t>;
 
 /// "target = value". It doesn't count references; lowering adds retain_t and release_t for
 /// Strings, and for Structs that hold them.
@@ -257,6 +274,8 @@ struct return_t {
 struct panic_t {
     std::string message;
     span_t span;
+    /// For Panic and Assert: a String the program made, shown instead of `message`.
+    std::optional<operand_t> text;
 };
 
 /// Ends a path that can't run, like the end of a function that returns on every path. A block
@@ -306,9 +325,9 @@ struct mir_module_t {
     /// "main": the top-level code, which runs when the program starts. Globals whose values
     /// aren't known at compile time are set at its start.
     function_id_t entry{};
-    /// The types that locals, globals, and functions refer to. They belong to the analysis,
-    /// which must outlive the module.
-    const type_table_t* types = nullptr;
+    /// The types that locals, globals, and functions refer to: the analysis's, and the ones
+    /// lowering made for the instances of generic code.
+    std::shared_ptr<type_table_t> types;
 };
 
 /// The module as text, which `fb --show mir` prints.

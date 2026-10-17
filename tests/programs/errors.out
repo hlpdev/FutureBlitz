@@ -1,0 +1,23 @@
+done with level
+value 42
+finally for 'level'
+file: missing: missing
+finally for 'missing'
+hi!
+caught: bad shout
+ParseError at line 7 freed
+ParseError at line 3 freed
+parsed is Null: True
+ParseError at line 3 freed
+or zero: 0, or 42
+nothing loaded
+pass 1: contents of file1
+end of pass 1
+end of pass 2
+pass 3 failed: missing: missing
+end of pass 3
+(read failed)
+fixed text
+first try: missing: missing
+outer: gave up
+end

@@ -68,18 +68,14 @@ constexpr unsupported_t unsupported(const token_kind_t kind) {
     case token_kind_t::KW_PRIVATE:
     case token_kind_t::KW_PROTECTED:
     case token_kind_t::KW_PUBLIC:
-    case token_kind_t::KW_READONLY:
     case token_kind_t::KW_SHARED:
-    case token_kind_t::KW_STATIC:
         return unsupported_t::PREFIX;
     case token_kind_t::KW_IMPORT:
-    case token_kind_t::KW_THROW:
         return unsupported_t::LINE;
     case token_kind_t::KW_EXTEND:
     case token_kind_t::KW_EXTERN:
     case token_kind_t::KW_INTERFACE:
     case token_kind_t::KW_LOCK:
-    case token_kind_t::KW_TRY:
     case token_kind_t::KW_UNSAFE:
         return unsupported_t::BLOCK;
     default:
@@ -97,6 +93,8 @@ constexpr bool is_block_end(const token_kind_t kind) {
     case token_kind_t::KW_UNTIL:
     case token_kind_t::KW_CASE:
     case token_kind_t::KW_DEFAULT:
+    case token_kind_t::KW_CATCH:
+    case token_kind_t::KW_FINALLY:
         return true;
     default:
         return false;
@@ -119,12 +117,12 @@ constexpr bool touches(const token_t& left, const token_t& right) {
 class parser_t {
 public:
     parser_t(const source_file_t& file, const std::span<const token_t> tokens,
-             diagnostic_bag_t& diagnostics)
-        : m_file(file), m_tokens(tokens), m_diagnostics(diagnostics) {
+             diagnostic_bag_t& diagnostics, ast_t& ast)
+        : m_file(file), m_tokens(tokens), m_diagnostics(diagnostics), m_ast(ast) {
         assert(!m_tokens.empty() && m_tokens.back().kind == token_kind_t::END_OF_FILE);
     }
 
-    ast_t run() {
+    void run() {
         while (!at(token_kind_t::END_OF_FILE)) {
             const std::size_t start = m_pos;
             // No block is open at the top level, so a block-ending keyword has nothing to end.
@@ -136,15 +134,13 @@ public:
 
             finish_line(start);
         }
-
-        return std::move(m_ast);
     }
 
 private:
     const source_file_t& m_file;
     std::span<const token_t> m_tokens;
     diagnostic_bag_t& m_diagnostics;
-    ast_t m_ast;
+    ast_t& m_ast;
     std::vector<token_kind_t> m_blocks; // keywords of the open blocks, innermost last
     std::size_t m_pos = 0;
     std::uint32_t m_previous_end = 0; // where the last consumed token ends
@@ -440,6 +436,8 @@ private:
             return parse_variable();
         case token_kind_t::KW_FUNCTION:
             return parse_function(function_kind_t::FUNCTION);
+        case token_kind_t::KW_OPERATOR:
+            return parse_function(function_kind_t::OPERATOR);
         // Struct members parse anywhere; analysis reports the ones outside a Struct.
         case token_kind_t::KW_METHOD:
             return parse_function(function_kind_t::METHOD);
@@ -457,7 +455,11 @@ private:
         case token_kind_t::KW_ABSTRACT:
         case token_kind_t::KW_FINAL:
         case token_kind_t::KW_OVERRIDE:
+        case token_kind_t::KW_STATIC:
+        case token_kind_t::KW_READONLY:
             return parse_modified();
+        case token_kind_t::KW_PROPERTY:
+            return parse_property({});
         case token_kind_t::KW_ENUM:
             return parse_enum(false, peek().span.begin);
         case token_kind_t::KW_DEFER: {
@@ -466,6 +468,17 @@ private:
             const stmt_id_t statement = parse_statement();
             return add_stmt(span_from(keyword.span.begin), defer_stmt_t{ .statement = statement });
         }
+        case token_kind_t::KW_THROW: {
+            const token_t& keyword = advance();
+            const expr_id_t error = parse_expression();
+            return add_stmt(span_from(keyword.span.begin), throw_stmt_t{ .error = error });
+        }
+        case token_kind_t::KW_TRY:
+            if (opens_try_block()) {
+                return parse_try();
+            }
+
+            return parse_simple();
         case token_kind_t::KW_IF:
             return parse_if();
         case token_kind_t::KW_WHILE:
@@ -492,6 +505,55 @@ private:
         default:
             return parse_simple();
         }
+    }
+
+    /// "Try" alone on its line opens a Try block. "Try F()" is a call with Try before it.
+    [[nodiscard]] bool opens_try_block() const {
+        const token_kind_t next = peek(1).kind;
+        return next == token_kind_t::NEWLINE || next == token_kind_t::END_OF_FILE;
+    }
+
+    /// "Try", its body, each "Catch e As Type" or "Catch e" with its code, then "Finally" with its
+    /// code, and "End Try". It needs a Catch or a Finally.
+    stmt_id_t parse_try() {
+        const std::size_t start = m_pos;
+        const token_t& keyword = advance();
+        finish_line(start);
+        m_blocks.push_back(keyword.kind);
+        block_t body = parse_block();
+        std::vector<catch_t> catches;
+        while (at(token_kind_t::KW_CATCH)) {
+            const std::size_t line = m_pos;
+            advance();
+            const name_t name = expect_name();
+            std::optional<type_expr_id_t> type;
+            if (accept(token_kind_t::KW_AS)) {
+                type = parse_type();
+            }
+
+            finish_line(line);
+            catches.push_back({ .name = name, .type = type, .body = parse_block() });
+        }
+
+        std::optional<block_t> finally_body;
+        if (at(token_kind_t::KW_FINALLY)) {
+            const std::size_t line = m_pos;
+            advance();
+            finish_line(line);
+            finally_body = parse_block();
+        }
+
+        if (catches.empty() && !finally_body) {
+            error(keyword.span, "a Try needs a Catch or a Finally");
+        }
+
+        expect_end(keyword);
+        m_blocks.pop_back();
+        return add_stmt(span_from(keyword.span.begin), try_stmt_t{
+                                                           .body = std::move(body),
+                                                           .catches = std::move(catches),
+                                                           .finally_body = std::move(finally_body),
+                                                       });
     }
 
     /// "@Flags Enum ...". On anything else, @Flags is an error, and the statement still parses.
@@ -563,13 +625,17 @@ private:
             return &modifiers.is_final;
         case token_kind_t::KW_OVERRIDE:
             return &modifiers.is_override;
+        case token_kind_t::KW_STATIC:
+            return &modifiers.is_static;
+        case token_kind_t::KW_READONLY:
+            return &modifiers.is_read_only;
         default:
             return nullptr;
         }
     }
 
-    /// Abstract, Final, and Override, in any order, then the declaration they're on. Analysis
-    /// checks which ones it can have.
+    /// Abstract, Final, Override, Static, and ReadOnly, in any order, then the declaration
+    /// they're on. Analysis checks which ones it can have.
     stmt_id_t parse_modified() {
         modifiers_t modifiers;
         while (bool* flag = modifier_flag(modifiers, peek().kind)) {
@@ -587,10 +653,19 @@ private:
             return parse_type_declaration(modifiers);
         case token_kind_t::KW_FUNCTION:
             return parse_function(function_kind_t::FUNCTION, modifiers);
+        case token_kind_t::KW_OPERATOR:
+            return parse_function(function_kind_t::OPERATOR, modifiers);
         case token_kind_t::KW_METHOD:
             return parse_function(function_kind_t::METHOD, modifiers);
         case token_kind_t::KW_NEW:
             return parse_function(function_kind_t::CONSTRUCTOR, modifiers);
+        case token_kind_t::KW_FIELD:
+        case token_kind_t::KW_LOCAL:
+        case token_kind_t::KW_GLOBAL:
+        case token_kind_t::KW_CONST:
+            return parse_variable(modifiers);
+        case token_kind_t::KW_PROPERTY:
+            return parse_property(modifiers);
         default:
             break;
         }
@@ -599,8 +674,107 @@ private:
             return parse_function(function_kind_t::BYREF_METHOD, modifiers);
         }
 
-        error(peek().span, "Abstract, Final, and Override only go before a Class or a Method");
+        error(peek().span, "{} doesn't take modifiers like Static or Final", describe_current());
         return parse_statement();
+    }
+
+    /// "Property Name: Type", then "Get => value" or a Get block, and maybe "Set(value)" and its
+    /// block, then "End Property". Get and Set are names everywhere else.
+    stmt_id_t parse_property(const modifiers_t modifiers) {
+        const std::size_t start = m_pos;
+        const token_t& keyword = advance();
+        const name_t name = expect_name();
+        const type_expr_id_t type = expect(token_kind_t::COLON)
+                                        ? parse_type()
+                                        : add_type(point(peek().span.begin), error_type_t{});
+        finish_line(start);
+        m_blocks.push_back(keyword.kind);
+        std::optional<stmt_id_t> getter;
+        std::optional<stmt_id_t> setter;
+        while (!is_block_end(peek().kind)) {
+            const std::size_t line = m_pos;
+            const bool word = at(token_kind_t::IDENTIFIER);
+            if (word && text(peek()) == "Get" && !getter) {
+                getter = parse_getter(name, type);
+            } else if (word && text(peek()) == "Set" && !setter) {
+                setter = parse_setter(name, type);
+            } else {
+                report_expected(getter ? "'Set'" : "'Get'");
+            }
+
+            finish_line(line);
+        }
+
+        if (!getter) {
+            error(name.span, "a Property needs a Get");
+        }
+
+        expect_end(keyword);
+        m_blocks.pop_back();
+        return add_stmt(span_from(keyword.span.begin), property_stmt_t{
+                                                           .name = name,
+                                                           .type = type,
+                                                           .getter = getter,
+                                                           .setter = setter,
+                                                           .modifiers = modifiers,
+                                                       });
+    }
+
+    /// "Get => value", or "Get", its block, and "End Get": a Method that returns the Property's
+    /// value.
+    stmt_id_t parse_getter(const name_t& property, const type_expr_id_t type) {
+        const std::size_t line = m_pos;
+        const token_t& word = advance();
+        block_t body;
+        if (accept(token_kind_t::ARROW)) {
+            skip_continuation_newlines();
+            const expr_id_t value = parse_expression();
+            body.push_back(add_stmt(span_of(value), return_stmt_t{ .value = value }));
+        } else {
+            finish_line(line);
+            body = parse_accessor_body(word);
+        }
+
+        return add_stmt(span_from(word.span.begin),
+                        function_stmt_t{
+                            .kind = function_kind_t::METHOD,
+                            .name = { .text = property.text, .span = word.span },
+                            .return_type = type,
+                            .body = std::move(body),
+                        });
+    }
+
+    /// "Set(value)", its block, and "End Set": a Method that takes the Property's new value.
+    stmt_id_t parse_setter(const name_t& property, const type_expr_id_t type) {
+        const std::size_t line = m_pos;
+        const token_t& word = advance();
+        expect(token_kind_t::LEFT_PAREN);
+        const name_t value = expect_name();
+        expect(token_kind_t::RIGHT_PAREN);
+        finish_line(line);
+        block_t body = parse_accessor_body(word);
+        return add_stmt(span_from(word.span.begin),
+                        function_stmt_t{
+                            .kind = function_kind_t::METHOD,
+                            .name = { .text = property.text, .span = word.span },
+                            .parameters = { { .name = value, .by_ref = false, .type = type } },
+                            .body = std::move(body),
+                        });
+    }
+
+    /// A Get's or Set's block, then "End Get" or "End Set", whose second word is a name.
+    block_t parse_accessor_body(const token_t& word) {
+        block_t body = parse_block();
+        if (at(token_kind_t::KW_END) && peek(1).kind == token_kind_t::IDENTIFIER &&
+            text(peek(1)) == text(word)) {
+            advance();
+            advance();
+        } else if (diagnostic_t* diagnostic = error(peek().span, "expected 'End {}', found {}",
+                                                    text(word), describe_current())) {
+            diagnostic->with_label(word.span, "opened here");
+        }
+
+        return body;
     }
 
     /// Reports a modifier or attribute that comes after M1, then parses the statement it's on.
@@ -684,16 +858,16 @@ private:
         }
     }
 
-    stmt_id_t parse_variable() {
+    stmt_id_t parse_variable(const modifiers_t modifiers = {}) {
         const token_t& keyword = advance();
         const name_t name = expect_name();
-        if (at(token_kind_t::COMMA)) {
-            error(peek().span, "declaring several variables at once isn't supported yet");
-        }
-
         std::optional<type_expr_id_t> type;
         if (accept(token_kind_t::COLON)) {
             type = parse_type();
+        }
+
+        if (at(token_kind_t::COMMA)) {
+            return parse_destructure(keyword, name, type);
         }
 
         std::optional<expr_id_t> value;
@@ -711,9 +885,48 @@ private:
             kind = variable_kind_t::FIELD;
         }
 
-        return add_stmt(
-            span_from(keyword.span.begin),
-            variable_stmt_t{ .kind = kind, .name = name, .type = type, .value = value });
+        return add_stmt(span_from(keyword.span.begin), variable_stmt_t{
+                                                           .kind = kind,
+                                                           .name = name,
+                                                           .type = type,
+                                                           .value = value,
+                                                           .modifiers = modifiers,
+                                                       });
+    }
+
+    /// "Local lo, hi = value", which takes a tuple apart. The names get their elements' types, so
+    /// they have none of their own.
+    stmt_id_t parse_destructure(const token_t& keyword, const name_t first,
+                                const std::optional<type_expr_id_t> first_type) {
+        if (keyword.kind != token_kind_t::KW_LOCAL) {
+            error(keyword.span, "only a Local can take a tuple apart");
+        }
+
+        const auto report_type = [this](const type_expr_id_t type) {
+            error(m_ast.get(type).span,
+                  "the names that take a tuple apart get their types from its elements");
+        };
+
+        if (first_type) {
+            report_type(*first_type);
+        }
+
+        std::vector<name_t> names{ first };
+        while (accept(token_kind_t::COMMA)) {
+            names.push_back(expect_name());
+            if (accept(token_kind_t::COLON)) {
+                report_type(parse_type());
+            }
+        }
+
+        if (!expect(token_kind_t::EQUAL)) {
+            return add_stmt(span_from(keyword.span.begin), error_stmt_t{});
+        }
+
+        skip_continuation_newlines();
+        const expr_id_t value = parse_expression();
+        return add_stmt(span_from(keyword.span.begin),
+                        destructure_stmt_t{ .names = std::move(names), .value = value });
     }
 
     /// A Function, or a Struct's Method, "ByRef Method", or New. New has no name of its own:
@@ -726,9 +939,21 @@ private:
         }
 
         const token_t& keyword = advance();
-        const name_t name = kind == function_kind_t::CONSTRUCTOR
-                                ? name_t{ .text = text(keyword), .span = keyword.span }
-                                : expect_name();
+        name_t name{ .text = text(keyword), .span = keyword.span };
+        if (kind == function_kind_t::OPERATOR) {
+            name = parse_operator_name();
+        } else if (kind != function_kind_t::CONSTRUCTOR) {
+            name = expect_name();
+        }
+
+        std::vector<name_t> type_parameters;
+        if (at(token_kind_t::LESS)) {
+            if (kind == function_kind_t::CONSTRUCTOR) {
+                error(peek().span, "New can't have type parameters; its Struct or Class can");
+            }
+
+            type_parameters = parse_type_parameters();
+        }
 
         std::vector<parameter_t> parameters;
         if (at(token_kind_t::LEFT_PAREN)) {
@@ -757,6 +982,17 @@ private:
             return_type = parse_type();
         }
 
+        // "Throws FileError, ParseError": the Classes its errors extend.
+        std::vector<type_expr_id_t> throws;
+        if (accept(token_kind_t::KW_THROWS)) {
+            while (true) {
+                throws.push_back(parse_type());
+                if (!accept(token_kind_t::COMMA)) {
+                    break;
+                }
+            }
+        }
+
         // "Function F(): Int => x" is short for a body that returns x.
         block_t body;
         if (modifiers.is_abstract) {
@@ -773,11 +1009,62 @@ private:
         return add_stmt(span_from(begin), function_stmt_t{
                                               .kind = kind,
                                               .name = name,
+                                              .type_parameters = std::move(type_parameters),
                                               .parameters = std::move(parameters),
                                               .return_type = return_type,
+                                              .throws = std::move(throws),
                                               .body = std::move(body),
                                               .modifiers = modifiers,
                                           });
+    }
+
+    /// The operator after "Operator", which names it: one a type can define, like "+" or "==".
+    /// ">>" is two '>' that touch.
+    name_t parse_operator_name() {
+        const token_t& token = peek();
+        switch (token.kind) {
+        case token_kind_t::PLUS:
+        case token_kind_t::MINUS:
+        case token_kind_t::STAR:
+        case token_kind_t::STAR_STAR:
+        case token_kind_t::SLASH:
+        case token_kind_t::PERCENT:
+        case token_kind_t::AMP:
+        case token_kind_t::PIPE:
+        case token_kind_t::CARET:
+        case token_kind_t::TILDE:
+        case token_kind_t::BANG:
+        case token_kind_t::LESS_LESS:
+        case token_kind_t::EQUAL_EQUAL:
+        case token_kind_t::BANG_EQUAL:
+        case token_kind_t::LESS:
+        case token_kind_t::LESS_EQUAL:
+        case token_kind_t::GREATER_EQUAL:
+            advance();
+            return { .text = text(token), .span = token.span };
+        case token_kind_t::GREATER: {
+            advance();
+            if (at(token_kind_t::GREATER) && touches(token, peek())) {
+                const token_t& second = advance();
+                const span_t span{
+                    .file = token.span.file,
+                    .begin = token.span.begin,
+                    .end = second.span.end,
+                };
+                return { .text = m_file.slice(span), .span = span };
+            }
+
+            return { .text = text(token), .span = token.span };
+        }
+        default:
+            // A name where the operator goes is skipped, so the rest of the line still parses.
+            report_expected("an operator, like + or ==");
+            if (at(token_kind_t::IDENTIFIER)) {
+                advance();
+            }
+
+            return { .text = {}, .span = point(token.span.begin) };
+        }
     }
 
     /// "Struct Name" or "Class Name Extends Base", the members, then the matching End. Members
@@ -787,9 +1074,18 @@ private:
         const std::size_t start = m_pos;
         const token_t& keyword = advance();
         const name_t name = expect_name();
+        std::vector<name_t> type_parameters;
+        if (at(token_kind_t::LESS)) {
+            type_parameters = parse_type_parameters();
+        }
+
         std::optional<name_t> base;
         if (accept(token_kind_t::KW_EXTENDS)) {
             base = expect_name();
+            if (at(token_kind_t::LESS)) {
+                error(peek().span, "extending a generic Class isn't supported yet");
+                (void)parse_type_arguments();
+            }
         }
 
         if (at(token_kind_t::KW_IMPLEMENTS)) {
@@ -803,6 +1099,7 @@ private:
                         type_stmt_t{
                             .is_class = keyword.kind == token_kind_t::KW_CLASS,
                             .name = name,
+                            .type_parameters = std::move(type_parameters),
                             .members = std::move(members),
                             .base = base,
                             .modifiers = modifiers,
@@ -876,8 +1173,13 @@ private:
                         });
     }
 
-    /// The statement after Then or Else. Block statements need lines of their own.
+    /// The statement after Then or Else. Block statements need lines of their own, though "Try
+    /// F()" is a call.
     stmt_id_t parse_single_line_body() {
+        if (at(token_kind_t::KW_TRY) && !opens_try_block()) {
+            return parse_statement();
+        }
+
         switch (peek().kind) {
         case token_kind_t::KW_IF:
         case token_kind_t::KW_WHILE:
@@ -888,6 +1190,7 @@ private:
         case token_kind_t::KW_FUNCTION:
         case token_kind_t::KW_STRUCT:
         case token_kind_t::KW_CLASS:
+        case token_kind_t::KW_TRY:
             error(peek().span, "a single-line If can't contain {}", describe(peek().kind));
             return add_stmt(point(peek().span.begin), error_stmt_t{});
         default:
@@ -1105,7 +1408,16 @@ private:
     stmt_id_t parse_simple() {
         const std::uint32_t begin = peek().span.begin;
         // '=' is never an operator in an expression, so an assignment's target stops before it.
-        const expr_id_t target = parse_expression();
+        expr_id_t target = parse_expression();
+        // "a, b = (b, a)" assigns each element of a tuple, like "(a, b) = (b, a)".
+        if (at(token_kind_t::COMMA)) {
+            std::vector<expr_id_t> targets{ target };
+            while (accept(token_kind_t::COMMA)) {
+                targets.push_back(parse_expression());
+            }
+
+            target = add_expr(span_from(begin), tuple_expr_t{ .elements = std::move(targets) });
+        }
 
         if (const std::optional<assignment_t> assignment = assignment_at_current()) {
             for (std::uint32_t i = 0; i < assignment->tokens; ++i) {
@@ -1126,7 +1438,7 @@ private:
         }
 
         const expr_node_t& node = m_ast.get(target).node;
-        const bool is_call = std::holds_alternative<call_expr_t>(node);
+        const bool is_call = calls(target);
         const bool is_name = std::holds_alternative<name_expr_t>(node);
         const bool is_error = std::holds_alternative<error_expr_t>(node);
         const span_t span = span_of(target);
@@ -1142,6 +1454,16 @@ private:
         }
 
         return add_stmt(span_from(begin), expression_stmt_t{ .expression = target });
+    }
+
+    /// Whether an expression is a call, or one with Try or Try? before it.
+    [[nodiscard]] bool calls(const expr_id_t id) const {
+        const expr_node_t& node = m_ast.get(id).node;
+        if (const auto* tried = std::get_if<try_expr_t>(&node)) {
+            return calls(tried->operand);
+        }
+
+        return std::holds_alternative<call_expr_t>(node);
     }
 
     [[nodiscard]] std::optional<assignment_t> assignment_at_current() const {
@@ -1321,6 +1643,10 @@ private:
     /// "(-a) ** b".
     expr_id_t parse_unary() {
         const token_t& token = peek();
+        if (token.kind == token_kind_t::KW_TRY) {
+            return parse_try_expression();
+        }
+
         std::optional<unary_op_t> op;
         switch (token.kind) {
         case token_kind_t::MINUS:
@@ -1339,6 +1665,21 @@ private:
         advance();
         const expr_id_t operand = parse_unary();
         return add_expr(span_from(token.span.begin), unary_expr_t{ .op = *op, .operand = operand });
+    }
+
+    /// "Try operand" or "Try? operand", written without a space before '?'. Like a prefix
+    /// operator, it takes what comes before the next binary operator, so "Try? Parse(s) ?? 0" is
+    /// "(Try? Parse(s)) ?? 0".
+    expr_id_t parse_try_expression() {
+        const token_t& keyword = advance();
+        const bool optional = at(token_kind_t::QUESTION) && touches(keyword, peek());
+        if (optional) {
+            advance();
+        }
+
+        const expr_id_t operand = parse_unary();
+        return add_expr(span_from(keyword.span.begin),
+                        try_expr_t{ .operand = operand, .optional = optional });
     }
 
     /// Member access, calls, and indexing after `expr`. They bind tightest of all.
@@ -1361,18 +1702,164 @@ private:
         }
     }
 
-    /// "object.name". The name can be New, for "Super.New()".
+    /// "object.name". The name can be New, for "Super.New()", or a tuple element's number.
     expr_id_t parse_member(const expr_id_t object) {
         const bool null_safe = advance().kind == token_kind_t::QUESTION_DOT;
+        if (at(token_kind_t::INTEGER) || at(token_kind_t::DECIMAL)) {
+            return parse_element(object, null_safe);
+        }
+
         if (!at(token_kind_t::IDENTIFIER) && !at(token_kind_t::KW_NEW)) {
             report_expected(describe(token_kind_t::IDENTIFIER));
             return add_expr(span_from(span_of(object).begin), error_expr_t{});
         }
 
         const name_t member = take_name();
-        return add_expr(
-            span_from(span_of(object).begin),
-            member_expr_t{ .object = object, .member = member, .null_safe = null_safe });
+        std::vector<type_expr_id_t> type_arguments;
+        if (type_arguments_follow()) {
+            type_arguments = parse_type_arguments();
+        }
+
+        return add_expr(span_from(span_of(object).begin),
+                        member_expr_t{
+                            .object = object,
+                            .member = member,
+                            .null_safe = null_safe,
+                            .type_arguments = std::move(type_arguments),
+                        });
+    }
+
+    /// Whether a '<' here starts type arguments, as in "Max<Float>(1, 2.5)": what follows it, up
+    /// to the '>' that closes it, could be types, and that '>' is followed by '(', '.', ')', or
+    /// ','. Otherwise the '<' compares.
+    [[nodiscard]] bool type_arguments_follow() const {
+        std::size_t index = skip_newlines(m_pos);
+        if (m_tokens[index].kind != token_kind_t::LESS) {
+            return false;
+        }
+
+        std::uint32_t depth = 0;
+        for (; m_tokens[index].kind != token_kind_t::END_OF_FILE;
+             index = skip_newlines(index + 1)) {
+            switch (m_tokens[index].kind) {
+            case token_kind_t::LESS:
+                ++depth;
+                break;
+            case token_kind_t::GREATER: {
+                --depth;
+                if (depth > 0) {
+                    break;
+                }
+
+                const token_kind_t next = m_tokens[skip_newlines(index + 1)].kind;
+                return next == token_kind_t::LEFT_PAREN || next == token_kind_t::DOT ||
+                       next == token_kind_t::RIGHT_PAREN || next == token_kind_t::COMMA;
+            }
+            case token_kind_t::IDENTIFIER:
+            case token_kind_t::COMMA:
+            case token_kind_t::QUESTION:
+            case token_kind_t::LEFT_BRACKET:
+            case token_kind_t::RIGHT_BRACKET:
+            case token_kind_t::INTEGER:
+            case token_kind_t::KW_FUNC:
+            case token_kind_t::LEFT_PAREN:
+            case token_kind_t::RIGHT_PAREN:
+            case token_kind_t::COLON:
+                break;
+            default:
+                return false;
+            }
+        }
+
+        return false;
+    }
+
+    /// "<Int, String>", after a generic name.
+    std::vector<type_expr_id_t> parse_type_arguments() {
+        const token_t& open = advance();
+        ++m_bracket_depth;
+        std::vector<type_expr_id_t> arguments;
+        while (!at(token_kind_t::GREATER) && !at(token_kind_t::END_OF_FILE)) {
+            arguments.push_back(parse_type());
+            if (!accept(token_kind_t::COMMA)) {
+                break;
+            }
+        }
+
+        expect_closing(token_kind_t::GREATER, open.span);
+        --m_bracket_depth;
+        return arguments;
+    }
+
+    /// "<T, U>" after the name of a generic Function, Method, Struct, or Class. Constraints come
+    /// with interfaces.
+    std::vector<name_t> parse_type_parameters() {
+        const token_t& open = advance();
+        ++m_bracket_depth;
+        std::vector<name_t> names;
+        while (!at(token_kind_t::GREATER) && !at(token_kind_t::END_OF_FILE)) {
+            names.push_back(expect_name());
+            if (at(token_kind_t::COLON)) {
+                error(peek().span, "constraints on type parameters aren't supported yet");
+                advance();
+                (void)parse_type();
+            }
+
+            if (!accept(token_kind_t::COMMA)) {
+                break;
+            }
+        }
+
+        expect_closing(token_kind_t::GREATER, open.span);
+        --m_bracket_depth;
+        return names;
+    }
+
+    /// "pair.0": a tuple's element, by its number. In "t.0.1", the numbers lex as one decimal,
+    /// which names an element of an element.
+    expr_id_t parse_element(const expr_id_t object, const bool null_safe) {
+        const token_t& token = advance();
+        const std::string_view digits = text(token);
+        const std::size_t dot = digits.find('.');
+        const std::string_view first = digits.substr(0, dot);
+        const std::string_view second =
+            dot == std::string_view::npos ? std::string_view{} : digits.substr(dot + 1);
+        const auto plain = [](const std::string_view number) {
+            return !number.empty() &&
+                   std::ranges::all_of(number, [](const char c) { return c >= '0' && c <= '9'; });
+        };
+        if (!plain(first) || (dot != std::string_view::npos && !plain(second))) {
+            error(token.span, "a tuple's elements are numbered, like .0 and .1");
+            return add_expr(span_from(span_of(object).begin), error_expr_t{});
+        }
+
+        const std::uint32_t begin = span_of(object).begin;
+        const span_t first_span{
+            .file = token.span.file,
+            .begin = token.span.begin,
+            .end = token.span.begin + static_cast<std::uint32_t>(first.size()),
+        };
+        const expr_id_t element =
+            add_expr({ .file = token.span.file, .begin = begin, .end = first_span.end },
+                     member_expr_t{
+                         .object = object,
+                         .member = { .text = first, .span = first_span },
+                         .null_safe = null_safe,
+                     });
+        if (dot == std::string_view::npos) {
+            return element;
+        }
+
+        const span_t second_span{
+            .file = token.span.file,
+            .begin = first_span.end + 1,
+            .end = token.span.end,
+        };
+        return add_expr(span_from(begin), member_expr_t{
+                                              .object = element,
+                                              .member = { .text = second, .span = second_span },
+                                              .null_safe = false,
+                                          });
     }
 
     expr_id_t parse_call(const expr_id_t callee) {
@@ -1448,9 +1935,15 @@ private:
         case token_kind_t::KW_NULL:
             advance();
             return add_expr(token.span, null_expr_t{});
-        case token_kind_t::IDENTIFIER:
+        case token_kind_t::IDENTIFIER: {
             advance();
-            return add_expr(token.span, name_expr_t{ .name = text(token) });
+            name_expr_t name{ .name = text(token) };
+            if (type_arguments_follow()) {
+                name.type_arguments = parse_type_arguments();
+            }
+
+            return add_expr(span_from(token.span.begin), std::move(name));
+        }
         case token_kind_t::LEFT_PAREN:
             return parse_parenthesized();
         case token_kind_t::KW_SELF:
@@ -1461,10 +1954,10 @@ private:
             return add_expr(token.span, super_expr_t{});
         case token_kind_t::LEFT_BRACKET:
             return parse_array();
+        case token_kind_t::KW_FUNCTION:
+            return parse_lambda();
         case token_kind_t::KW_NEW:
         case token_kind_t::KW_AWAIT:
-        case token_kind_t::KW_TRY:
-        case token_kind_t::KW_FUNCTION:
         case token_kind_t::LEFT_BRACE:
             error(token.span, "{} isn't supported yet", describe(token.kind));
             return missing_expr();
@@ -1472,6 +1965,112 @@ private:
             report_expected("an expression");
             return missing_expr();
         }
+    }
+
+    /// "Function(x: Int) => x * 2", or a block lambda: "Function(x)", its body on the lines after
+    /// it, then "End Function". Wherever it is, even in a call's brackets, its body ends
+    /// statements at line breaks.
+    expr_id_t parse_lambda() {
+        const token_t& keyword = advance();
+        std::vector<name_t> weak;
+        if (at(token_kind_t::LEFT_BRACKET)) {
+            weak = parse_capture_list();
+        }
+
+        std::vector<lambda_parameter_t> parameters;
+        if (at(token_kind_t::LEFT_PAREN)) {
+            const token_t& open = advance();
+            ++m_bracket_depth;
+            while (!at(token_kind_t::RIGHT_PAREN) && !at(token_kind_t::END_OF_FILE)) {
+                parameters.push_back(parse_lambda_parameter());
+                if (!accept(token_kind_t::COMMA)) {
+                    break;
+                }
+            }
+
+            expect_closing(token_kind_t::RIGHT_PAREN, open.span);
+            --m_bracket_depth;
+        } else {
+            report_expected(describe(token_kind_t::LEFT_PAREN));
+        }
+
+        std::optional<type_expr_id_t> return_type;
+        if (accept(token_kind_t::COLON)) {
+            return_type = parse_type();
+        }
+
+        lambda_expr_t lambda{
+            .weak = std::move(weak),
+            .parameters = std::move(parameters),
+            .return_type = return_type,
+        };
+        if (accept(token_kind_t::ARROW)) {
+            skip_continuation_newlines();
+            lambda.value = parse_expression();
+            return add_expr(span_from(keyword.span.begin), std::move(lambda));
+        }
+
+        const std::uint32_t depth = std::exchange(m_bracket_depth, 0);
+        if (!at_line_end()) {
+            report_expected("'=>' or the end of the line");
+            skip_rest_of_line();
+        }
+
+        accept(token_kind_t::NEWLINE);
+        m_line_failed = false;
+        lambda.body = parse_body(keyword);
+        m_bracket_depth = depth;
+        return add_expr(span_from(keyword.span.begin), std::move(lambda));
+    }
+
+    /// "[Weak Self, Weak node]": what a lambda refers to weakly, which is all a capture list says.
+    std::vector<name_t> parse_capture_list() {
+        const token_t& open = advance();
+        ++m_bracket_depth;
+        std::vector<name_t> names;
+        while (!at(token_kind_t::RIGHT_BRACKET) && !at(token_kind_t::END_OF_FILE)) {
+            const bool weak = at(token_kind_t::IDENTIFIER) && text(peek()) == "Weak";
+            if (weak) {
+                advance();
+            } else {
+                error(peek().span, "a capture list only has Weak captures, like [Weak Self]");
+            }
+
+            const name_t name = at(token_kind_t::KW_SELF) ? take_name() : expect_name();
+            if (weak) {
+                names.push_back(name);
+            }
+
+            if (!accept(token_kind_t::COMMA)) {
+                break;
+            }
+        }
+
+        expect_closing(token_kind_t::RIGHT_BRACKET, open.span);
+        --m_bracket_depth;
+        return names;
+    }
+
+    /// "x" or "x: Int". A lambda's parameters are never ByRef, and have no defaults.
+    lambda_parameter_t parse_lambda_parameter() {
+        if (at(token_kind_t::KW_BYREF)) {
+            error(peek().span, "a lambda's parameters can't be ByRef");
+            advance();
+        }
+
+        const name_t name = expect_name();
+        std::optional<type_expr_id_t> type;
+        if (accept(token_kind_t::COLON)) {
+            type = parse_type();
+        }
+
+        if (at(token_kind_t::EQUAL)) {
+            error(peek().span, "a lambda's parameters can't have defaults");
+            advance();
+            (void)parse_expression();
+        }
+
+        return { .name = name, .type = type };
     }
 
     /// "[a, b, c]". The elements can go over several lines, with a comma after the last one.
@@ -1493,13 +2092,34 @@ private:
     }
 
     /// Parentheses only group: they get no node, and the inner expression's span leaves them out.
+    /// With commas inside, they make a tuple, "(a, b)", whose span has them. A comma can end the
+    /// last value, as in an array.
     expr_id_t parse_parenthesized() {
         const token_t& open = advance();
         ++m_bracket_depth;
-        const expr_id_t inner = parse_expression();
+        std::vector<expr_id_t> elements{ parse_expression() };
+        bool comma = false;
+        while (accept(token_kind_t::COMMA)) {
+            comma = true;
+            if (at(token_kind_t::RIGHT_PAREN) || at(token_kind_t::END_OF_FILE)) {
+                break;
+            }
+
+            elements.push_back(parse_expression());
+        }
+
         expect_closing(token_kind_t::RIGHT_PAREN, open.span);
         --m_bracket_depth;
-        return inner;
+        if (elements.size() == 1) {
+            if (comma) {
+                error(span_from(open.span.begin), "a tuple has at least two values");
+            }
+
+            return elements.front();
+        }
+
+        return add_expr(span_from(open.span.begin),
+                        tuple_expr_t{ .elements = std::move(elements) });
     }
 
     /// A string literal. An interpolated one comes as STRING_START, then expressions separated by
@@ -1547,23 +2167,25 @@ private:
 
     // Types
 
-    /// A type name followed by any "?", "[]", and "[N]" suffixes, like "Int[]?" or "Float[4, 4]".
+    /// A type name or a tuple type, followed by any "?", "[]", and "[N]" suffixes, like "Int[]?",
+    /// "Float[4, 4]", or "(Int, String)[]".
     type_expr_id_t parse_type() {
         const token_t& token = peek();
-        if (token.kind != token_kind_t::IDENTIFIER) {
-            if (token.kind == token_kind_t::KW_FUNC || token.kind == token_kind_t::KW_CALLBACK) {
+        type_expr_id_t type{};
+        if (token.kind == token_kind_t::LEFT_PAREN) {
+            type = parse_tuple_type();
+        } else if (token.kind == token_kind_t::IDENTIFIER) {
+            type = parse_named_type();
+        } else if (token.kind == token_kind_t::KW_FUNC) {
+            type = parse_function_type();
+        } else {
+            if (token.kind == token_kind_t::KW_CALLBACK) {
                 error(token.span, "{} isn't supported yet", describe(token.kind));
             } else {
                 report_expected("a type");
             }
 
             return add_type(point(token.span.begin), error_type_t{});
-        }
-
-        advance();
-        type_expr_id_t type = add_type(token.span, named_type_t{ .name = text(token) });
-        if (at(token_kind_t::LESS)) {
-            error(peek().span, "generic types aren't supported yet");
         }
 
         while (true) {
@@ -1596,13 +2218,103 @@ private:
             }
         }
     }
+
+    /// A type by name, like "Int", or "Weak<Node>".
+    type_expr_id_t parse_named_type() {
+        const token_t& token = advance();
+        type_expr_id_t type = add_type(token.span, named_type_t{ .name = text(token) });
+        // "Weak" is a contextual keyword, a name everywhere but before '<'.
+        if (at(token_kind_t::LESS) && text(token) == "Weak") {
+            advance();
+            const type_expr_id_t inner = parse_type();
+            expect(token_kind_t::GREATER);
+            type = add_type(span_from(token.span.begin), weak_type_t{ .inner = inner });
+        } else if (at(token_kind_t::LESS)) {
+            std::vector<type_expr_id_t> arguments = parse_type_arguments();
+            type = add_type(span_from(token.span.begin),
+                            named_type_t{ .name = text(token), .arguments = std::move(arguments) });
+        }
+
+        return type;
+    }
+
+    /// "Func(A, B): R", or "Func(A)" for a function that returns nothing. The return type takes
+    /// any "?" after it, so a Func that can be Null is written "(Func(): Int)?".
+    type_expr_id_t parse_function_type() {
+        const token_t& keyword = advance();
+        std::vector<type_expr_id_t> parameters;
+        if (at(token_kind_t::LEFT_PAREN)) {
+            const token_t& open = advance();
+            ++m_bracket_depth;
+            while (!at(token_kind_t::RIGHT_PAREN) && !at(token_kind_t::END_OF_FILE)) {
+                if (at(token_kind_t::KW_BYREF)) {
+                    error(peek().span, "a Func's parameters can't be ByRef");
+                    advance();
+                }
+
+                parameters.push_back(parse_type());
+                if (!accept(token_kind_t::COMMA)) {
+                    break;
+                }
+            }
+
+            expect_closing(token_kind_t::RIGHT_PAREN, open.span);
+            --m_bracket_depth;
+        } else {
+            report_expected(describe(token_kind_t::LEFT_PAREN));
+        }
+
+        std::optional<type_expr_id_t> result;
+        if (accept(token_kind_t::COLON)) {
+            result = parse_type();
+        }
+
+        return add_type(span_from(keyword.span.begin),
+                        function_type_t{ .parameters = std::move(parameters), .result = result });
+    }
+
+    /// "(A, B)", a tuple type. Parentheses around one type only group it, as in an expression.
+    type_expr_id_t parse_tuple_type() {
+        const token_t& open = advance();
+        ++m_bracket_depth;
+        std::vector<type_expr_id_t> elements{ parse_type() };
+        bool comma = false;
+        while (accept(token_kind_t::COMMA)) {
+            comma = true;
+            if (at(token_kind_t::RIGHT_PAREN) || at(token_kind_t::END_OF_FILE)) {
+                break;
+            }
+
+            elements.push_back(parse_type());
+        }
+
+        expect_closing(token_kind_t::RIGHT_PAREN, open.span);
+        --m_bracket_depth;
+        if (elements.size() == 1) {
+            if (comma) {
+                error(span_from(open.span.begin), "a tuple has at least two types");
+            }
+
+            return elements.front();
+        }
+
+        return add_type(span_from(open.span.begin),
+                        tuple_type_t{ .elements = std::move(elements) });
+    }
 };
 
 } // namespace
 
 ast_t parse(const source_file_t& file, const std::span<const token_t> tokens,
             diagnostic_bag_t& diagnostics) {
-    return parser_t(file, tokens, diagnostics).run();
+    ast_t ast;
+    parse_into(file, tokens, diagnostics, ast);
+    return ast;
+}
+
+void parse_into(const source_file_t& file, const std::span<const token_t> tokens,
+                diagnostic_bag_t& diagnostics, ast_t& ast) {
+    parser_t(file, tokens, diagnostics, ast).run();
 }
 
 } // namespace fb

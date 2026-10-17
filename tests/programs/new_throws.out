@@ -1,0 +1,8 @@
+good: 3
+bad is Null: True
+caught size -5 for sized
+named: size -1 for bad
+range: 1 to 5
+range: none
+end
+config good destroyed

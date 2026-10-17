@@ -15,4 +15,9 @@ namespace fb {
 [[nodiscard]] ast_t parse(const source_file_t& file, std::span<const token_t> tokens,
                           diagnostic_bag_t& diagnostics);
 
+/// Like parse(), but adds the file's nodes and items to `ast`, which may hold other files of the
+/// same program already.
+void parse_into(const source_file_t& file, std::span<const token_t> tokens,
+                diagnostic_bag_t& diagnostics, ast_t& ast);
+
 } // namespace fb

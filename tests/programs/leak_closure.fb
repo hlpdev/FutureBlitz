@@ -1,0 +1,21 @@
+// A lambda that captures Self, kept in a field of Self, makes a cycle; so does one that captures
+// a Local holding the object it's kept in. The compiler warns about the first, and debug builds
+// point out both.
+Class Timer
+    Field Ticks = 0
+    Field OnTick: (Func())?
+
+    New()
+        OnTick = Function() => Tick()
+    End New
+
+    Method Tick()
+        Ticks++
+    End Method
+End Class
+
+Local t = Timer()
+Local node = Timer()
+Local keep = Function() => node.Tick()
+node.OnTick = keep
+Print("end")

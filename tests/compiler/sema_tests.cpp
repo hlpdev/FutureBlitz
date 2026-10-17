@@ -1,6 +1,5 @@
 #include "fb/const_value.hpp"
-#include "fb/lexer.hpp"
-#include "fb/parser.hpp"
+#include "fb/driver.hpp"
 #include "fb/sema.hpp"
 #include "printers.hpp"
 
@@ -21,23 +20,22 @@ struct analyzed_t {
     std::string last; // see probe()
 };
 
-/// Lexes, parses, and analyzes `text`. `last` is only filled in when the last line declares a
-/// variable with a value.
+/// Lexes, parses, and analyzes `text`, with the standard library. `last` is only filled in
+/// when the last line declares a variable with a value.
 analyzed_t analyze_text(const std::string_view text) {
-    const fb::source_file_t file(fb::file_id_t{}, "test.fb", std::string(text));
-    fb::diagnostic_bag_t bag;
-    const std::vector<fb::token_t> tokens = fb::lex(file, bag);
-    const fb::ast_t ast = fb::parse(file, tokens, bag);
-    const fb::analysis_t analysis = fb::analyze(file, ast, bag);
-    bag.sort();
+    const fb::compilation_t compilation = fb::compile("test.fb", std::string(text));
+    const fb::ast_t& ast = compilation.ast;
+    const fb::analysis_t& analysis = compilation.analysis;
 
     analyzed_t analyzed;
-    for (const fb::diagnostic_t& diagnostic : bag.diagnostics()) {
+    for (const fb::diagnostic_t& diagnostic : compilation.diagnostics.diagnostics()) {
+        const fb::source_file_t& file = compilation.sources.get(diagnostic.span.file);
         analyzed.errors.push_back(
             std::format("{}: {}", file.slice(diagnostic.span), diagnostic.message));
     }
 
-    if (ast.items().empty()) {
+    // The main file's items come last.
+    if (ast.items().empty() || ast.from_library(ast.items().back())) {
         return analyzed;
     }
 
@@ -232,8 +230,9 @@ TEST_CASE("operators check their operand types", "[sema]") {
 TEST_CASE("names must be declared", "[sema]") {
     CHECK(errors_of("Local x = y") == errors_t{ "y: 'y' isn't declared" });
     CHECK(errors_of("Local x = Int") == errors_t{ "Int: 'Int' is a type, not a value" });
-    CHECK(errors_of("Function F()\nEnd Function\nLocal x = F") ==
-          errors_t{ "F: 'F' is a function, not a value" });
+    CHECK(errors_of("Local x = Print") ==
+          errors_t{ "Print: 'Print' is built in, so it can't be a value; use a lambda that calls "
+                    "it" });
     CHECK(errors_of("Local x: Foo") == errors_t{ "Foo: 'Foo' isn't a type" });
 
     // Vec3 is a built-in type from the spec that comes after M1.
@@ -865,7 +864,7 @@ TEST_CASE("Struct members only go in Structs", "[sema]") {
     CHECK(errors_of("Function F()\n    Struct P\n    End Struct\nEnd Function") ==
           errors_t{ "P: Structs can only be declared at the top level" });
     CHECK(errors_of("Struct P\n    Print(\"x\")\nEnd Struct") ==
-          errors_t{ "Print(\"x\"): a Struct can only hold Fields, Methods, and News" });
+          errors_t{ "Print(\"x\"): a Struct can only hold Fields, Methods, Properties, and News" });
     CHECK(errors_of("Struct Int\nEnd Struct") == errors_t{ "Int: 'Int' is a built-in type" });
 }
 
@@ -888,6 +887,23 @@ TEST_CASE("a Class without a New gets one without parameters", "[sema]") {
     CHECK(probe("Class A\n    Field x: Int = 3\nEnd Class\nLocal a = A()") == "A");
     CHECK(errors_of("Class A\n    Field x: Int\nEnd Class\nLocal a = A(1)") ==
           errors_t{ "1: too many arguments to 'A'" });
+}
+
+TEST_CASE("a Class without a New takes each New of the Class it extends", "[sema]") {
+    constexpr std::string_view base = "Class A\n"
+                                      "    New(x: Int)\n"
+                                      "    End New\n"
+                                      "    New(s: String, n: Int = 1)\n"
+                                      "    End New\n"
+                                      "End Class\n"
+                                      "Class B Extends A\n"
+                                      "End Class\n";
+    const auto with_base = [&](const std::string_view text) {
+        return errors_of(std::format("{}{}", base, text));
+    };
+
+    CHECK(with_base("Local a = B(1)\nLocal b = B(\"x\")\nLocal c = B(\"x\", 2)").empty());
+    CHECK(with_base("Local a = B()") == errors_t{ "B: no overload of 'B' takes ()" });
 }
 
 TEST_CASE("a Class's fields change through any reference", "[sema]") {
@@ -1336,10 +1352,16 @@ TEST_CASE("Super calls the Methods and New of the Class extended", "[sema]") {
                     "End Class") ==
           errors_t{ "Super.G(): 'G' is Abstract in A, so Super can't call it" });
 
-    // A has no New without parameters, so B's New starts with Super.New, and Self waits for it.
-    CHECK(with_base("Abstract Class B Extends A\nEnd Class") ==
-          errors_t{ "B: B needs a New that starts with Super.New(...), since A has no New "
-                    "without parameters" });
+    // Without a New of its own, B takes A's parameters. A has no New without parameters, so a
+    // New of B's starts with Super.New, and Self waits for it.
+    CHECK(with_base("Abstract Class B Extends A\n"
+                    "End Class\n"
+                    "Class C Extends B\n"
+                    "    Override Method G()\n"
+                    "    End Method\n"
+                    "End Class\n"
+                    "Local c = C(3)")
+              .empty());
     CHECK(with_base("Abstract Class B Extends A\n"
                     "    New()\n"
                     "        Print(\"x\")\n"
@@ -1761,21 +1783,487 @@ TEST_CASE("a Defer's statement runs as its block exits", "[sema]") {
           errors_t{ "n: 'n' is read before it's assigned" });
 }
 
+// Errors
+
+/// Two errors, and a function that can throw either.
+constexpr std::string_view two_errors = "Class FileError Extends Error\n"
+                                        "End Class\n"
+                                        "Class ParseError Extends Error\n"
+                                        "End Class\n"
+                                        "Function Load(): Int Throws FileError, ParseError => 1\n";
+
+namespace {
+
+errors_t with_errors(const std::string_view text) {
+    return errors_of(std::format("{}{}", two_errors, text));
+}
+
+} // namespace
+
+TEST_CASE("Error is a Class with a Message, from the standard library", "[sema]") {
+    CHECK(probe("Local e = Error(\"x\")") == "Error");
+    CHECK(probe("Local m = Error().Message") == "String");
+    CHECK(probe("Class Oops Extends Error\nEnd Class\nLocal e: Error = Oops(\"x\")") ==
+          "Error (from Oops)");
+    CHECK(errors_of("Class Error\nEnd Class") == errors_t{ "Error: 'Error' is already declared" });
+}
+
+TEST_CASE("Throws lists the Classes a function's errors extend", "[sema]") {
+    CHECK(with_errors("Class Plain\n"
+                      "End Class\n"
+                      "Function F() Throws Plain, Int\n"
+                      "End Function") ==
+          errors_t{ "Plain: Throws lists Classes that extend Error, not Plain",
+                    "Int: Throws lists Classes that extend Error, not Int32" });
+    CHECK(with_errors("Function F() Throws FileError, Error, FileError\nEnd Function") ==
+          errors_t{ "FileError: FileError is already covered by this Throws",
+                    "FileError: FileError is already covered by this Throws" });
+
+    // Destroy can't throw, and an override throws only what the Method it overrides can.
+    CHECK(
+        with_errors("Class A\n    Method Destroy() Throws FileError\n    End Method\nEnd Class") ==
+        errors_t{ "Destroy: Destroy can't throw, since it runs by itself" });
+    CHECK(with_errors("Class A\n"
+                      "    Method M() Throws FileError\n"
+                      "    End Method\n"
+                      "End Class\n"
+                      "Class B Extends A\n"
+                      "    Override Method M() Throws Error\n"
+                      "    End Method\n"
+                      "End Class") == errors_t{ "M: 'M' can't throw Error, since A's doesn't" });
+    CHECK(with_errors("Class A\n"
+                      "    Method M() Throws Error\n"
+                      "    End Method\n"
+                      "End Class\n"
+                      "Class B Extends A\n"
+                      "    Override Method M() Throws FileError\n"
+                      "    End Method\n"
+                      "End Class\n"
+                      "Class C Extends A\n"
+                      "    Override Method M()\n"
+                      "    End Method\n"
+                      "End Class")
+              .empty());
+}
+
+TEST_CASE("a call that throws needs Try, Try?, or a Try block", "[sema]") {
+    CHECK(with_errors("Function F(): Int\n    Return Load()\nEnd Function") ==
+          errors_t{ "Load(): 'Load' can throw FileError, ParseError, so calling it needs Try, "
+                    "Try?, or a Try block" });
+
+    // Try lets the errors out, and the function's Throws has to cover them.
+    CHECK(with_errors("Function F(): Int Throws FileError\n    Return Try Load()\nEnd Function") ==
+          errors_t{ "Load(): ParseError isn't caught; catch it in a Try block, or add it to the "
+                    "Throws of 'F'" });
+    CHECK(with_errors("Function F(): Int Throws Error\n    Return Try Load() + 1\nEnd Function")
+              .empty());
+
+    // Try? catches them all.
+    CHECK(with_errors("Function F(): Int\n    Return Try? Load() ?? 0\nEnd Function").empty());
+    CHECK(probe(std::format("{}Local n = Try? Load()", two_errors)) == "Int32?");
+    CHECK(errors_of("Local n = Try? 1") == errors_t{ "Try? 1: '1' doesn't throw, so it doesn't "
+                                                     "need Try?" });
+
+    // Top-level code can let any error out, which ends the program.
+    CHECK(with_errors("Local n = Try Load()").empty());
+}
+
+TEST_CASE("Throw ends the path with an Error", "[sema]") {
+    CHECK(with_errors("Function F(): Int Throws FileError\n"
+                      "    Throw FileError(\"x\")\n"
+                      "End Function")
+              .empty());
+    CHECK(with_errors("Function F()\n    Throw ParseError(\"x\")\nEnd Function") ==
+          errors_t{ "ParseError(\"x\"): ParseError isn't caught; catch it in a Try block, or add "
+                    "it to the Throws of 'F'" });
+    CHECK(errors_of("Class Plain\nEnd Class\nThrow Plain()") ==
+          errors_t{ "Plain(): Throw takes an object of a Class that extends Error, not Plain" });
+    CHECK(errors_of("Function F(e: Error?) Throws Error\n    Throw e\nEnd Function") ==
+          errors_t{ "e: 'e' may be Null; check that it isn't, or use '?.'" });
+}
+
+TEST_CASE("a Catch takes the errors of its Class, in order", "[sema]") {
+    CHECK(with_errors("Function F() Throws ParseError\n"
+                      "    Try\n"
+                      "        Local n = Load()\n"
+                      "    Catch e As FileError\n"
+                      "        Print(e.Message)\n"
+                      "    End Try\n"
+                      "End Function")
+              .empty());
+    CHECK(with_errors("Try\n    Load()\nCatch e\nCatch f As FileError\nEnd Try") ==
+          errors_t{ "FileError: this Catch is already covered by an earlier Catch" });
+    CHECK(with_errors("Try\n    Print(\"x\")\nCatch e As FileError\nEnd Try") ==
+          errors_t{ "FileError: nothing in the Try block throws FileError" });
+    CHECK(with_errors("Try\n    Load()\nCatch e As String\nEnd Try") ==
+          errors_t{ "String: Catch takes a Class that extends Error, not String" });
+
+    // A Catch of a Class that extends one thrown may match.
+    CHECK(errors_of("Class Oops Extends Error\n"
+                    "End Class\n"
+                    "Function F() Throws Error\n"
+                    "End Function\n"
+                    "Try\n"
+                    "    F()\n"
+                    "Catch e As Oops\n"
+                    "End Try")
+              .empty());
+}
+
+TEST_CASE("a Catch and a Finally start from what was true before the Try", "[sema]") {
+    // The error can come from anywhere in the body, so what it assigns may not be assigned.
+    CHECK(with_errors("Local n: Int\nTry\n    n = Load()\nCatch e\nEnd Try\nPrint(\"{n}\")") ==
+          errors_t{ "n: 'n' is read before it's assigned" });
+    CHECK(with_errors("Local n: Int\nTry\n    n = Load()\nCatch e\n    n = 0\nEnd Try\n"
+                      "Print(\"{n}\")")
+              .empty());
+    CHECK(with_errors("Local n: Int\nTry\n    Load()\nCatch e\nFinally\n    n = 1\nEnd Try\n"
+                      "Print(\"{n}\")")
+              .empty());
+    CHECK(with_errors("Local n: Int\nTry\n    n = Load()\nCatch e\nFinally\n    Print(\"{n}\")\n"
+                      "End Try") == errors_t{ "n: 'n' is read before it's assigned" });
+
+    // A check before the Try doesn't hold in a Catch when the body changes the variable.
+    CHECK(with_errors("Function F(s: String?)\n"
+                      "    Local t = s\n"
+                      "    If t == Null Then Return\n"
+                      "    Try\n"
+                      "        t = Null\n"
+                      "        Load()\n"
+                      "    Catch e\n"
+                      "        Print(t)\n"
+                      "    End Try\n"
+                      "End Function") ==
+          errors_t{ "t: expected String, found String?, which may be Null; check it first, or "
+                    "give a value for Null with '?"
+                    "?'" });
+}
+
+TEST_CASE("a Defer and a Finally can't let errors out, or leave", "[sema]") {
+    CHECK(with_errors("Defer Try Load()") ==
+          errors_t{ "Load(): a Defer can't throw, so FileError has to be caught in it",
+                    "Load(): a Defer can't throw, so ParseError has to be caught in it" });
+    CHECK(with_errors("Defer Try? Load()").empty());
+    CHECK(with_errors("Try\n    Print(\"x\")\nFinally\n    Load()\nEnd Try") ==
+          errors_t{ "Load(): 'Load' can throw FileError, ParseError, so calling it needs Try, "
+                    "Try?, or a Try block" });
+    CHECK(with_errors("Try\n"
+                      "    Print(\"x\")\n"
+                      "Finally\n"
+                      "    Try\n"
+                      "        Load()\n"
+                      "    Catch e\n"
+                      "    End Try\n"
+                      "End Try")
+              .empty());
+
+    // A Finally runs on the way out, so it can't go somewhere else.
+    CHECK(errors_of("Function F(): Int\n"
+                    "    Try\n"
+                    "        Return 1\n"
+                    "    Finally\n"
+                    "        Return 2\n"
+                    "    End Try\n"
+                    "End Function") == errors_t{ "Return 2: Return can't leave a Finally" });
+    CHECK(errors_of("For i = 1 To 2\n"
+                    "    Try\n"
+                    "        Print(\"x\")\n"
+                    "    Finally\n"
+                    "        Break\n"
+                    "    End Try\n"
+                    "End For") == errors_t{ "Break: Break can't leave a Finally" });
+    CHECK(errors_of("Try\n"
+                    "    Print(\"x\")\n"
+                    "Finally\n"
+                    "    For i = 1 To 2\n"
+                    "        Continue\n"
+                    "    End For\n"
+                    "End Try")
+              .empty());
+}
+
+TEST_CASE("a New can throw, and its callers handle it", "[sema]") {
+    constexpr std::string_view base = "Class Bad Extends Error\n"
+                                      "End Class\n"
+                                      "Class A\n"
+                                      "    New() Throws Bad\n"
+                                      "    End New\n"
+                                      "End Class\n";
+    const auto with_base = [&](const std::string_view text) {
+        return errors_of(std::format("{}{}", base, text));
+    };
+
+    CHECK(with_base("Local a = A()") ==
+          errors_t{ "A(): 'A' can throw Bad, so calling it needs Try, Try?, or a Try block" });
+    CHECK(probe(std::format("{}Local a = Try? A()", base)) == "A?");
+
+    // The Class extending it calls it with Try, or takes it, Throws and all.
+    CHECK(with_base("Class B Extends A\n"
+                    "    New() Throws Bad\n"
+                    "        Try Super.New()\n"
+                    "    End New\n"
+                    "End Class\n"
+                    "Class C Extends A\n"
+                    "End Class\n"
+                    "Local b = Try? B()\n"
+                    "Local c = Try? C()")
+              .empty());
+    CHECK(with_base("Class B Extends A\n    New()\n        Print(\"x\")\n    End New\nEnd Class") ==
+          errors_t{ "New: A's New can throw, so this New has to start with 'Try Super.New()'" });
+    CHECK(with_base("Class C Extends A\nEnd Class\nLocal c = C()") ==
+          errors_t{ "C(): 'C' can throw Bad, so calling it needs Try, Try?, or a Try block" });
+}
+
+// Weak references
+
+TEST_CASE("a Weak<T> refers to an object of a Class", "[sema]") {
+    constexpr std::string_view node = "Class Node\n    Field name: String\nEnd Class\n";
+    const auto with_node = [&](const std::string_view text) {
+        return errors_of(std::format("{}{}", node, text));
+    };
+
+    CHECK(with_node("Local a: Weak<Int>\nLocal b: Weak<Node?>") ==
+          errors_t{ "Weak<Int>: Weak<T> refers to an object of a Class, not Int32",
+                    "Weak<Node?>: Weak<T> refers to an object of a Class, not Node?" });
+    CHECK(with_node("Local c: Weak<Node>?") ==
+          errors_t{ "Weak<Node>?: Weak<Node> already reads as Null once its object is gone" });
+
+    // It has a zero, which refers to nothing, so a field of one needs no New.
+    CHECK(
+        with_node("Class Tree\n    Field parent: Weak<Node>\nEnd Class\nLocal t = Tree()").empty());
+}
+
+TEST_CASE("a Weak<T> is assigned a T, and reading it gives a T?", "[sema]") {
+    constexpr std::string_view node = "Class Node\n"
+                                      "    Field name: String\n"
+                                      "End Class\n"
+                                      "Class Leaf Extends Node\n"
+                                      "End Class\n";
+    const auto with_node = [&](const std::string_view text) {
+        return errors_of(std::format("{}{}", node, text));
+    };
+
+    CHECK(probe(std::format("{}Local w: Weak<Node> = Node()\nLocal n = w", node)) == "Node?");
+    CHECK(with_node("Local n: Node? = Null\n"
+                    "Local w: Weak<Node> = Leaf()\n"
+                    "w = n\n"
+                    "w = Null\n"
+                    "Print(w?.name ?? \"gone\")")
+              .empty());
+    CHECK(with_node("Local w: Weak<Node> = \"x\"") ==
+          errors_t{ "\"x\": expected Weak<Node>, found String" });
+
+    // Its object can go at any time, so a check doesn't narrow it.
+    CHECK(with_node("Local w: Weak<Node> = Node()\nIf w != Null Then Print(w.name)") ==
+          errors_t{ "w: 'w' may be Null, since its object can go at any time; read it into a "
+                    "Local and check that, or use '?.'" });
+
+    // A Struct holding one compares its fields, which would compare the references.
+    CHECK(with_node("Struct S\n    Field w: Weak<Node>\nEnd Struct\nLocal x = S() == S()") ==
+          errors_t{ "S() == S(): '==' can't be used on S" });
+}
+
+// Class extras
+
+/// A Class with a Static Field, a Static Method, a ReadOnly Field, and a Property.
+constexpr std::string_view enemy_class = "Class Enemy\n"
+                                         "    Static Field count: Int = 0\n"
+                                         "    Static ReadOnly Field limit: Int = 10\n"
+                                         "    ReadOnly Field id: Int\n"
+                                         "    Field hp: Int\n"
+                                         "    New()\n"
+                                         "        count++\n"
+                                         "        id = count\n"
+                                         "    End New\n"
+                                         "    Static Method Make(): Enemy => Enemy()\n"
+                                         "    Property Alive: Bool\n"
+                                         "        Get => hp > 0\n"
+                                         "    End Property\n"
+                                         "End Class\n";
+
+namespace {
+
+errors_t with_enemy_class(const std::string_view text) {
+    return errors_of(std::format("{}{}", enemy_class, text));
+}
+
+} // namespace
+
+TEST_CASE("Static members belong to their type", "[sema]") {
+    CHECK(probe(std::format("{}Local n = Enemy.count", enemy_class)) == "Int32");
+    CHECK(probe(std::format("{}Local e = Enemy.Make()", enemy_class)) == "Enemy");
+    CHECK(with_enemy_class("Enemy.count = 3\nEnemy.count++").empty());
+
+    // They're used through the type, and the others through a value.
+    CHECK(with_enemy_class("Local e = Enemy()\nLocal n = e.count") ==
+          errors_t{ "count: 'count' is Static; use it on Enemy" });
+    CHECK(with_enemy_class("Local e = Enemy()\ne.Make()") ==
+          errors_t{ "Make: 'Make' is Static; call it on Enemy" });
+    CHECK(with_enemy_class("Local n = Enemy.hp") ==
+          errors_t{ "hp: 'hp' belongs to each Enemy, so it's used on one, not on Enemy" });
+    CHECK(with_enemy_class("Enemy.limit = 3") ==
+          errors_t{ "Enemy.limit: 'limit' is ReadOnly and Static, so it keeps its first value" });
+}
+
+TEST_CASE("a Static Method has no Self", "[sema]") {
+    const auto in_static = [](const std::string_view body) {
+        return errors_of(std::format("Class A\n"
+                                     "    Static Field n: Int\n"
+                                     "    Field x: Int\n"
+                                     "    Method M()\n"
+                                     "    End Method\n"
+                                     "    Static Method S()\n"
+                                     "{}\n"
+                                     "    End Method\n"
+                                     "End Class",
+                                     body));
+    };
+
+    CHECK(in_static("        n = 1").empty());
+    CHECK(in_static("        Print(\"{x}\")") ==
+          errors_t{ "x: 'x' belongs to each A, and a Static Method has no Self" });
+    CHECK(in_static("        M()") ==
+          errors_t{ "M: 'M' belongs to each A, and a Static Method has no Self" });
+    CHECK(in_static("        Local a = Self") == errors_t{ "Self: a Static Method has no Self" });
+
+    // It isn't called through an object, so it can't be virtual, and New belongs to an object.
+    CHECK(errors_of("Class A\n    Static Final Method M()\n    End Method\nEnd Class") ==
+          errors_t{ "M: a Static Method can't be Abstract, Final, or Override; it isn't called "
+                    "through an object" });
+    CHECK(errors_of("Class A\n    Static New()\n    End New\nEnd Class") ==
+          errors_t{ "New: New can't be Static; a Static Method can make objects" });
+}
+
+TEST_CASE("Static and ReadOnly only go before a type's Fields and Methods", "[sema]") {
+    CHECK(errors_of("ReadOnly Global g = 1") ==
+          errors_t{ "g: a Global that never changes is a Const" });
+    CHECK(errors_of("Static Function F()\nEnd Function") ==
+          errors_t{ "F: Static only goes before a Field or Method of a Struct or Class" });
+    CHECK(errors_of("Class A\n    Static ReadOnly Field n: Int\nEnd Class") ==
+          errors_t{ "n: 'n' is ReadOnly and Static, so it needs a value" });
+    CHECK(errors_of("Final Local x = 1") ==
+          errors_t{ "x: Abstract, Final, and Override only go before a Class's Methods" });
+}
+
+TEST_CASE("a ReadOnly Field only changes in its Class's New", "[sema]") {
+    CHECK(with_enemy_class("Local e = Enemy()\ne.id = 5") ==
+          errors_t{ "e.id: 'id' is ReadOnly; only Enemy's New can change it" });
+    CHECK(errors_of("Class A\n"
+                    "    ReadOnly Field id: Int\n"
+                    "    Method M()\n"
+                    "        id = 3\n"
+                    "    End Method\n"
+                    "End Class") == errors_t{ "id: 'id' is ReadOnly; only A's New can change it" });
+
+    // Its parts can't change either, and it can't be passed ByRef.
+    CHECK(errors_of("Struct P\n"
+                    "    Field x: Int\n"
+                    "End Struct\n"
+                    "Class A\n"
+                    "    ReadOnly Field where: P\n"
+                    "    New()\n"
+                    "        where.x = 1\n"
+                    "    End New\n"
+                    "    Method M()\n"
+                    "        where.x = 2\n"
+                    "    End Method\n"
+                    "End Class") ==
+          errors_t{ "where: 'where' is ReadOnly; only A's New can change it" });
+    CHECK(with_enemy_class("Function Bump(ByRef n: Int)\n"
+                           "    n++\n"
+                           "End Function\n"
+                           "Local e = Enemy()\n"
+                           "Bump(ByRef e.id)") ==
+          errors_t{ "e.id: 'id' is ReadOnly; only Enemy's New can change it" });
+}
+
+TEST_CASE("a Property is read through its Get and assigned through its Set", "[sema]") {
+    constexpr std::string_view counter = "Class Counter\n"
+                                         "    Field n: Int\n"
+                                         "    Property Count: Int\n"
+                                         "        Get => n\n"
+                                         "        Set(value)\n"
+                                         "            n = value\n"
+                                         "        End Set\n"
+                                         "    End Property\n"
+                                         "End Class\n";
+    const auto with_counter = [&](const std::string_view text) {
+        return errors_of(std::format("{}{}", counter, text));
+    };
+
+    CHECK(probe(std::format("{}Local c = Counter()\nLocal n = c.Count", counter)) == "Int32");
+    CHECK(with_counter("Local c = Counter()\nc.Count = 1\nc.Count += 2\nc.Count++").empty());
+    CHECK(with_enemy_class("Local e = Enemy()\ne.Alive = False") ==
+          errors_t{ "e.Alive: 'Alive' has no Set, so it can't be assigned" });
+    CHECK(with_counter("Function Bump(ByRef n: Int)\n"
+                       "    n++\n"
+                       "End Function\n"
+                       "Local c = Counter()\n"
+                       "Bump(ByRef c.Count)") ==
+          errors_t{ "c.Count: 'Count' is a Property, which has no variable to pass ByRef" });
+
+    // A Struct's Property gives a copy, so changing part of it does nothing.
+    CHECK(errors_of("Struct P\n"
+                    "    Field x: Int\n"
+                    "    Property Twice: P\n"
+                    "        Get => P(x * 2)\n"
+                    "    End Property\n"
+                    "End Struct\n"
+                    "Local p = P(1)\n"
+                    "p.Twice.x = 3") ==
+          errors_t{ "p.Twice: 'Twice' is a Property, which gives a copy; set the whole of it "
+                    "instead" });
+}
+
+TEST_CASE("a Property overrides the one a Class inherits, with Override", "[sema]") {
+    constexpr std::string_view base = "Class Base\n"
+                                      "    Property P: Int\n"
+                                      "        Get => 1\n"
+                                      "    End Property\n"
+                                      "End Class\n";
+    const auto with_base = [&](const std::string_view text) {
+        return errors_of(std::format("{}{}", base, text));
+    };
+
+    CHECK(with_base("Class A Extends Base\n"
+                    "    Override Property P: Int\n"
+                    "        Get => 2\n"
+                    "    End Property\n"
+                    "End Class")
+              .empty());
+    CHECK(with_base("Class A Extends Base\n    Property P: Int\n        Get => 2\n    End "
+                    "Property\nEnd Class") ==
+          errors_t{ "P: 'P' overrides Base's; write 'Override Property P'" });
+    CHECK(with_base("Class A Extends Base\n    Override Property P: String\n        Get => "
+                    "\"x\"\n    End Property\nEnd Class") ==
+          errors_t{ "P: 'P' must be Int32, like Base's" });
+    CHECK(errors_of("Property P: Int\n    Get => 1\nEnd Property") ==
+          errors_t{ "P: Properties can only be declared in a Struct or Class" });
+}
+
+TEST_CASE("Panic ends the path, and Assert goes on where its condition holds", "[sema]") {
+    CHECK(errors_of("Function F(): Int\n    Panic(\"no\")\nEnd Function").empty());
+    CHECK(errors_of("Function F(): Int\n    Assert(False, \"never\")\nEnd Function").empty());
+    CHECK(errors_of("Function F(s: String?)\n    Assert(s != Null)\n    Print(s)\nEnd Function")
+              .empty());
+    CHECK(errors_of("Panic(1)") == errors_t{ "1: expected String, found Int32" });
+}
+
 // What codegen reads
 
 TEST_CASE("the analysis records calls, conversions, and declarations", "[sema]") {
-    const fb::source_file_t file(fb::file_id_t{}, "test.fb",
-                                 "Function F(a: Long, b: Int = 7): Long => a\n"
-                                 "Global g = 1\n"
-                                 "Local r = F(g)\n"
-                                 "Loop\n"
-                                 "    Break\n"
-                                 "End Loop");
-    fb::diagnostic_bag_t bag;
-    const std::vector<fb::token_t> tokens = fb::lex(file, bag);
-    const fb::ast_t ast = fb::parse(file, tokens, bag);
-    const fb::analysis_t analysis = fb::analyze(file, ast, bag);
-    REQUIRE(bag.diagnostics().empty());
+    // Without the standard library, the main file's items are the only ones.
+    const fb::compilation_t compilation = fb::compile("test.fb",
+                                                      "Function F(a: Long, b: Int = 7): Long => a\n"
+                                                      "Global g = 1\n"
+                                                      "Local r = F(g)\n"
+                                                      "Loop\n"
+                                                      "    Break\n"
+                                                      "End Loop",
+                                                      {});
+    const fb::ast_t& ast = compilation.ast;
+    const fb::analysis_t& analysis = compilation.analysis;
+    REQUIRE(compilation.diagnostics.diagnostics().empty());
     REQUIRE(analysis.functions.size() == 1);
     REQUIRE(analysis.globals.size() == 1);
     const fb::symbol_id_t function = analysis.functions[0];
@@ -1800,4 +2288,377 @@ TEST_CASE("the analysis records calls, conversions, and declarations", "[sema]")
     // The Break records the loop it leaves.
     const auto& loop = std::get<fb::loop_stmt_t>(ast.get(ast.items()[3]).node);
     CHECK(analysis.stmt(loop.body[0]).loop == ast.items()[3]);
+}
+
+// Tuples
+
+TEST_CASE("a tuple's type comes from its values, or from what's expected", "[sema]") {
+    CHECK(probe("Local p = (1, \"a\")") == "(Int32, String)");
+    CHECK(probe("Local p: (Long, String?) = (1, Null)") == "(Int64, String?)");
+    CHECK(probe("Local p: (Int, Int)? = (1, 2)") == "(Int32, Int32)? (from (Int32, Int32))");
+    CHECK(probe("Function F(): (Long, Long) => (1, 2)\nLocal p = F()") == "(Int64, Int64)");
+    CHECK(probe("Local p = (1, 2)\nLocal q = p.1") == "Int32");
+    CHECK(probe("Local p = ((1, 2.5), True)\nLocal q = p.0.1") == "Float32");
+    CHECK(probe("Local p: (Int, Int)? = Null\nLocal q = p?.0") == "Int32?");
+    CHECK(probe("Local p: (Long, Long) = (1, 2)\nLocal same = (1, 2) == p") == "Bool");
+    CHECK(probe("Local text = \"{(1, \"a\")}\"") == "String");
+}
+
+TEST_CASE("taking a tuple apart declares Locals, and assigning one sets each target", "[sema]") {
+    CHECK(probe("Local lo, hi = (1, \"a\")\nLocal x = hi") == "String");
+    CHECK(probe("Local _, hi = (1, 2.5)\nLocal x = hi") == "Float32");
+    CHECK(errors_of("Local a, a = (1, 2)") ==
+          errors_t{ "a: 'a' is already declared in this scope" });
+
+    // The literal's values convert to the targets' types, and each target is assigned.
+    CHECK(probe("Local a: Long\nLocal b: Int\na, b = (2, 3)\nLocal x = a + b") == "Int64");
+    CHECK(probe("Local s: String? = Null\nLocal n = 0\ns, n = (\"x\", 1)\nLocal t = s") ==
+          "String");
+    CHECK(errors_of("Local a = 1\nLocal b = \"x\"\na, b = (b, a)") ==
+          errors_t{ "a: 'a' is Int32, so it can't take String",
+                    "b: 'b' is String, so it can't take Int32" });
+    CHECK(errors_of("Const c = 1\nLocal d = 2\nc, d = (3, 4)") ==
+          errors_t{ "c: 'c' is a Const and can't be changed" });
+}
+
+TEST_CASE("tuple mistakes", "[sema]") {
+    constexpr std::string_view pair = "Function Pair(): (Int, Int) => (1, 2)\n";
+    const auto with_pair = [&](const std::string_view text) {
+        return errors_of(std::format("{}{}", pair, text));
+    };
+
+    CHECK(with_pair("Local a, b, c = Pair()") ==
+          errors_t{ "Pair(): (Int32, Int32) has 2 elements, but 3 names take it apart" });
+    CHECK(with_pair("Local x = Pair().2") ==
+          errors_t{ "2: (Int32, Int32) has no element '2'; its elements are .0 to .1" });
+    CHECK(with_pair("Local m: (Int, Int)? = Null\nLocal a, b = m") ==
+          errors_t{ "m: (Int32, Int32)? may be Null; check it first, or give a value for Null "
+                    "with '?"
+                    "?'" });
+    CHECK(errors_of("Local s = 5\nLocal a, b = s") ==
+          errors_t{ "s: expected a tuple to take apart, found Int32" });
+    CHECK(with_pair("Local n = 0\nLocal o = 0\nn, o += Pair()") ==
+          errors_t{ "n, o += Pair(): '+=' can't take a tuple apart; use '='" });
+    CHECK(errors_of("Class Node\nEnd Class\nLocal w: (Weak<Node>, Int)") ==
+          errors_t{ "Weak<Node>: a tuple can't hold a Weak<Node>" });
+    CHECK(errors_of("Local e = ([1], 2)\nLocal same = e == e") ==
+          errors_t{ "e == e: '==' can't be used on (Int32[], Int32)" });
+    CHECK(errors_of("Class Node\nEnd Class\nLocal t = \"{(Node(), 1)}\"") ==
+          errors_t{ "(Node(), 1): (Node, Int32) can't be shown in a string, since one of its "
+                    "elements can't be" });
+    CHECK(
+        errors_of("Local k = (1, Null)") ==
+        errors_t{ "Null: Null needs a type from where it's used, like 'Local e: Enemy? = Null'" });
+}
+
+// Function values
+
+TEST_CASE("a lambda's type comes from its parameters and what it returns", "[sema]") {
+    CHECK(probe("Local f = Function(x: Int) => x * 2") == "Func(Int32): Int32");
+    CHECK(probe("Local f: Func(Long): Long = Function(x) => x + 1") == "Func(Int64): Int64");
+    CHECK(probe("Local f = Function() => Print(\"x\")") == "Func()");
+    CHECK(probe("Local f = Function()\n    Print(\"x\")\nEnd Function") == "Func()");
+    CHECK(probe("Local f = Function(): String\n    Return \"x\"\nEnd Function") ==
+          "Func(): String");
+    CHECK(probe("Local f = Function(x: Int) => x\nLocal n = f(2)") == "Int32");
+    CHECK(probe("Function Make(): Func(): Int => Function() => 1\nLocal n = Make()()") == "Int32");
+}
+
+TEST_CASE("a Function's name alone is a function value", "[sema]") {
+    CHECK(probe("Function Twice(x: Int): Int => x * 2\nLocal f = Twice") == "Func(Int32): Int32");
+    CHECK(probe("Function P(n: Int): Int => n\nFunction P(s: String): Int => 0\n"
+                "Local f: Func(String): Int = P") == "Func(String): Int32");
+    CHECK(errors_of("Function P(n: Int)\nEnd Function\nFunction P(s: String)\nEnd Function\n"
+                    "Local f = P") ==
+          errors_t{ "P: 'P' has overloads, so a Func type has to say which one is meant" });
+    CHECK(errors_of("Class Oops Extends Error\nEnd Class\nFunction F() Throws Oops\n"
+                    "End Function\nLocal f = F") ==
+          errors_t{ "F: 'F' can throw, and a function value can't" });
+}
+
+TEST_CASE("a lambda captures Locals through cells, and copies what can't change", "[sema]") {
+    const fb::compilation_t compilation = fb::compile("test.fb",
+                                                      "Function F(p: Int)\n"
+                                                      "    Local n = 1\n"
+                                                      "    Const c = p + 1\n"
+                                                      "    Local f = Function() => n + p + c\n"
+                                                      "End Function",
+                                                      {});
+    REQUIRE(compilation.diagnostics.diagnostics().empty());
+    const fb::analysis_t& analysis = compilation.analysis;
+    REQUIRE(analysis.closures.size() == 1);
+    const fb::closure_t& closure = analysis.closures.front();
+    CHECK(analysis.types.name(closure.type) == "Function at test.fb:4:15");
+    REQUIRE(closure.captures.size() == 3);
+    CHECK(analysis.symbol(closure.captures[0].variable).name == "n");
+    CHECK(closure.captures[0].kind == fb::capture_kind_t::CELL);
+    CHECK(analysis.types.name(analysis.symbol(closure.captures[0].variable).cell) == "Cell<Int32>");
+    CHECK(closure.captures[1].kind == fb::capture_kind_t::VALUE);
+    CHECK(closure.captures[2].kind == fb::capture_kind_t::VALUE);
+
+    // The closure's Class has a field for each, named after the variable.
+    const std::vector<fb::field_t>& fields = analysis.types.get(closure.type).fields;
+    REQUIRE(fields.size() == 3);
+    CHECK(fields[0].name == "n");
+    CHECK(fields[0].type == analysis.symbol(closure.captures[0].variable).cell);
+    CHECK(fields[2].name == "c");
+}
+
+TEST_CASE("Self and [Weak Self] in a lambda", "[sema]") {
+    constexpr std::string_view timer = "Class Timer\n"
+                                       "    Field Ticks = 0\n"
+                                       "    Field OnTick: (Func())?\n"
+                                       "    Method Tick()\n"
+                                       "        Ticks++\n"
+                                       "    End Method\n";
+    const auto with_timer = [&](const std::string_view text) {
+        return errors_of(std::format("{}{}\nEnd Class", timer, text));
+    };
+
+    CHECK(with_timer("    Method Start()\n        OnTick = Function[Weak Self]() => Self?.Tick()\n"
+                     "    End Method")
+              .empty());
+    CHECK(with_timer("    Method Start()\n        OnTick = Function() => Tick()\n    End Method") ==
+          errors_t{ "Function: this lambda captures Self, so keeping it in a field of Self makes a "
+                    "cycle that's never freed; capture it with [Weak Self]" });
+    CHECK(
+        with_timer("    Method Start()\n        OnTick = Function[Weak Self]() => Tick()\n"
+                   "    End Method") ==
+        errors_t{ "Tick: 'Tick' needs Self, which this lambda refers to weakly; use Self?.Tick" });
+    CHECK(errors_of("Struct P\n    Field X = 0\n    New()\n        Local f = Function() => Self.X\n"
+                    "    End New\nEnd Struct") ==
+          errors_t{ "Self: a lambda in a Struct's New can't use Self, which isn't made yet" });
+}
+
+TEST_CASE("narrowing around lambdas", "[sema]") {
+    // A Local that a lambda assigns can change in any call once the lambda exists.
+    CHECK(errors_of("Class E\nEnd Class\n"
+                    "Local e: E? = E()\n"
+                    "Local f = Function()\n    e = Null\nEnd Function\n"
+                    "If e != Null\n    Local g: E = e\nEnd If") ==
+          errors_t{ "e: expected E, found E?, which may be Null; check it first, or give a value "
+                    "for Null with '?"
+                    "?'" });
+
+    // In a lambda, other code can change a Local from outside between a check and a use.
+    CHECK(errors_of("Local s: String? = \"a\"\n"
+                    "Local f = Function()\n    If s != Null Then Print(s)\nEnd Function") ==
+          errors_t{ "s: expected String, found String?, which may be Null; check it first, or "
+                    "give a value for Null with '?"
+                    "?'" });
+}
+
+TEST_CASE("lambda mistakes", "[sema]") {
+    CHECK(errors_of("Local f = Function(x) => x") ==
+          errors_t{ "x: 'x' needs a type, since nothing here says what this lambda takes" });
+    CHECK(errors_of("Local f: Func(Int): Int = Function(x) => \"no\"") ==
+          errors_t{ "\"no\": expected Int32, found String" });
+    CHECK(errors_of("Local f = Function()\n    Return 5\nEnd Function") ==
+          errors_t{ "5: this lambda returns nothing, so its Return can't have a value; give it a "
+                    "return type, like 'Function(): Int'" });
+    CHECK(errors_of("Local f: Func(Int): Int = Function(x)\n    If x > 0 Then Return 1\n"
+                    "End Function") ==
+          errors_t{ "Function: this lambda doesn't return a value on every path" });
+    CHECK(errors_of("Function F(ByRef n: Int)\n    Local c = Function() => n\nEnd Function") ==
+          errors_t{ "n: 'n' is ByRef, so a lambda can't capture it; copy it into a Local first" });
+    CHECK(errors_of("Class Oops Extends Error\nEnd Class\n"
+                    "Local f = Function()\n    Throw Oops(\"x\")\nEnd Function") ==
+          errors_t{ "Oops(\"x\"): a lambda can't throw, so Oops has to be caught in it" });
+    CHECK(errors_of("Loop\n    Local f = Function()\n        Break\n    End Function\n    Break\n"
+                    "End Loop") == errors_t{ "Break: Break must be inside a loop" });
+    CHECK(errors_of("Local f: Func() = Function() => 5") ==
+          errors_t{ "5: this lambda returns nothing, so its '=>' needs a call, like '=> "
+                    "Print(x)'" });
+}
+
+TEST_CASE("calling a function value", "[sema]") {
+    constexpr std::string_view f = "Local f: Func(Int): Int = Function(x) => x\n";
+    const auto with_f = [&](const std::string_view text) {
+        return errors_of(std::format("{}{}", f, text));
+    };
+
+    CHECK(with_f("f(\"a\")") == errors_t{ "\"a\": expected Int32, found String" });
+    CHECK(with_f("f(1, 2)") == errors_t{ "f(1, 2): Func(Int32): Int32 takes 1 argument, not 2" });
+    CHECK(with_f("Local same = f == f") ==
+          errors_t{ "f == f: '==' can't be used on Func(Int32): Int32" });
+    CHECK(with_f("Print(\"{f}\")") ==
+          errors_t{ "f: Func(Int32): Int32 can't be shown in a string" });
+    CHECK(errors_of("Local n = 5\nn(1)") == errors_t{ "n: 'n' isn't a function" });
+    CHECK(errors_of("Local g: (Func())? = Null\ng()") ==
+          errors_t{ "g: 'g' may be Null; check that it isn't before calling it" });
+    CHECK(errors_of("Local g: (Func())? = Null\nLocal empty = g == Null").empty());
+}
+
+// Generics
+
+constexpr std::string_view generics = "Function First<T>(xs: T[]): T => xs[0]\n"
+                                      "Function Map<T, U>(xs: T[], f: Func(T): U): U[]\n"
+                                      "    Local result: U[] = []\n"
+                                      "    For x In xs\n"
+                                      "        result.Add(f(x))\n"
+                                      "    End For\n"
+                                      "    Return result\n"
+                                      "End Function\n"
+                                      "Function Max<T>(a: T, b: T): T => a\n"
+                                      "Struct Pair<A, B>\n"
+                                      "    Field First: A\n"
+                                      "    Field Second: B\n"
+                                      "End Struct\n"
+                                      "Class Stack<T>\n"
+                                      "    Field Items: T[] = []\n"
+                                      "    Method Push(item: T)\n"
+                                      "        Items.Add(item)\n"
+                                      "    End Method\n"
+                                      "    Method Top(): T => Items[Items.Count - 1]\n"
+                                      "End Class\n";
+
+namespace {
+
+std::string probe_generic(const std::string_view text) {
+    return probe(std::format("{}{}", generics, text));
+}
+
+errors_t with_generics(const std::string_view text) {
+    return errors_of(std::format("{}{}", generics, text));
+}
+
+} // namespace
+
+TEST_CASE("type arguments are inferred from the arguments", "[sema]") {
+    CHECK(probe_generic("Local n = First([3, 4])") == "Int32");
+    CHECK(probe_generic("Local n = First([\"a\"])") == "String");
+    CHECK(probe_generic("Local p = Pair(1, \"one\")") == "Pair<Int32, String>");
+
+    // A literal decides as an Int, or as a Float when one passed for the same T has a decimal.
+    CHECK(probe_generic("Local m = Max(1, 2)") == "Int32");
+    CHECK(probe_generic("Local m = Max(1, 2.5)") == "Float32");
+
+    // A lambda's parameters take the types already known, and its result gives the rest.
+    CHECK(probe_generic("Local s = Map([1, 2], Function(x) => \"n{x}\")") == "String[]");
+}
+
+TEST_CASE("type arguments can be written, or come from the type expected", "[sema]") {
+    CHECK(probe_generic("Local f = First<Float>([1, 2])") == "Float32");
+    CHECK(probe_generic("Local p: Pair<Long, String> = Pair<Long, String>(2, \"two\")") ==
+          "Pair<Int64, String>");
+    CHECK(probe_generic("Local s: Stack<Int> = Stack()") == "Stack<Int32>");
+    CHECK(probe_generic("Local f: Func(String[]): String = First") == "Func(String[]): String");
+}
+
+TEST_CASE("an instance's members have its type arguments", "[sema]") {
+    CHECK(probe_generic("Local s = Stack<String>()\nLocal top = s.Top()") == "String");
+    CHECK(probe_generic("Local s = Stack<Int>()\nLocal items = s.Items") == "Int32[]");
+    CHECK(probe_generic("Local p = Pair(1, 2.5)\nLocal x = p.Second") == "Float32");
+    CHECK(with_generics("Local s = Stack<Int>()\ns.Push(\"a\")") ==
+          errors_t{ "\"a\": expected Int32, found String" });
+}
+
+TEST_CASE("a type parameter can only be passed around until interfaces", "[sema]") {
+    CHECK(errors_of("Function F<T>(a: T, b: T): Bool => a == b") ==
+          errors_t{ "a == b: '==' can't be used on T" });
+    CHECK(errors_of("Function F<T>(a: T): String => \"{a}\"") ==
+          errors_t{ "a: T can't be shown in a string" });
+    CHECK(errors_of("Function F<T>(a: T): Int => a.Count") ==
+          errors_t{ "Count: T has no members" });
+    CHECK(errors_of("Function F<T>(): T\n    Local x: T\n    Return x\nEnd Function") ==
+          errors_t{ "x: 'x' is read before it's assigned" });
+}
+
+TEST_CASE("generic mistakes", "[sema]") {
+    // In Zero itself, the type expected, its own T, says what T is.
+    CHECK(errors_of("Function Zero<T>(): T => Zero()\nLocal z = Zero()") ==
+          errors_t{ "Zero: can't tell what T is in this call; write the type arguments, like "
+                    "Zero<Int>(...)" });
+    CHECK(with_generics("Local s: Stack") ==
+          errors_t{ "Stack: Stack<T> is generic, so it needs type arguments, like Stack<Int>" });
+    CHECK(with_generics("Local s: Stack<Int, Int>") ==
+          errors_t{ "Stack<Int, Int>: Stack<T> takes 1 type argument, not 2" });
+    CHECK(errors_of("Local d: Int<Int>") == errors_t{ "Int<Int>: 'Int' isn't generic" });
+    CHECK(errors_of("Function F<T, T>()\nEnd Function") ==
+          errors_t{ "T: 'T' is already a type parameter here" });
+    CHECK(errors_of("Class H<T>\n    Static Field Count = 0\nEnd Class") ==
+          errors_t{ "Field Count = 0: a generic Class can't have Static members yet" });
+    CHECK(with_generics("Local f = First") ==
+          errors_t{ "First: 'First' is generic, so it needs a Func type to say what T is, or type "
+                    "arguments, like First<Int>" });
+}
+
+// Operators
+
+constexpr std::string_view money =
+    "Struct Money\n"
+    "    Field Cents: Long\n"
+    "    Operator +(a: Money, b: Money): Money => Money(a.Cents + b.Cents)\n"
+    "    Operator *(a: Money, n: Long): Money => Money(a.Cents * n)\n"
+    "    Operator -(a: Money): Money => Money(-a.Cents)\n"
+    "    Operator ==(a: Money, b: Money): Bool => a.Cents == b.Cents\n"
+    "End Struct\n"
+    "Local m = Money(5)\n";
+
+namespace {
+
+std::string probe_money(const std::string_view text) {
+    return probe(std::format("{}{}", money, text));
+}
+
+errors_t with_money(const std::string_view text) {
+    return errors_of(std::format("{}{}", money, text));
+}
+
+} // namespace
+
+TEST_CASE("an operator on a Struct or Class calls the Operator it defines", "[sema]") {
+    CHECK(probe_money("Local x = m + m") == "Money");
+    CHECK(probe_money("Local x = -m") == "Money");
+    // A literal takes the type of the Operator's parameter.
+    CHECK(probe_money("Local x = m * 3") == "Money");
+    CHECK(probe_money("Local x = m == m") == "Bool");
+    // != is the opposite of ==.
+    CHECK(probe_money("Local x = m != m") == "Bool");
+    CHECK(with_money("m += m\nm = -m").empty());
+
+    // A generic type's Operators take its type arguments from the operands.
+    CHECK(probe("Struct Box<T>\n    Field Value: T\n"
+                "    Operator <<(a: Box<T>, value: T): Box<T> => Box(value)\nEnd Struct\n"
+                "Local b = Box(1) << 2") == "Box<Int32>");
+}
+
+TEST_CASE("an operator a type doesn't define stays an error", "[sema]") {
+    CHECK(with_money("Local x = m / m") == errors_t{ "m / m: '/' can't be used on Money" });
+    CHECK(with_money("Local x = m + \"a\"") ==
+          errors_t{ "m + \"a\": no Operator + takes (Money, String)" });
+    CHECK(with_money("Local x = m * 2.5") ==
+          errors_t{ "m * 2.5: no Operator * takes (Money, Float32)" });
+}
+
+TEST_CASE("Operator mistakes", "[sema]") {
+    const auto in_struct = [](const std::string_view member) {
+        return errors_of(std::format("Struct M\n    Field V = 0\n    {}\nEnd Struct", member));
+    };
+
+    CHECK(in_struct("Operator !=(a: M, b: M): Bool => True") ==
+          errors_t{ "!=: != is always the opposite of ==, so define Operator == instead" });
+    CHECK(in_struct("Operator +(a: M): M => a") ==
+          errors_t{ "+: Operator + takes two parameters" });
+    CHECK(in_struct("Operator !(a: M, b: M): Bool => True") ==
+          errors_t{ "!: Operator ! takes one parameter" });
+    CHECK(in_struct("Operator ==(a: M, b: M): Int => 1") ==
+          errors_t{ "==: Operator == gives a Bool, not Int32" });
+    CHECK(in_struct("Operator *(a: Int, b: Int): Int => a") ==
+          errors_t{ "*: an Operator of M needs a parameter of that type" });
+    CHECK(in_struct("Operator /(ByRef a: M, b: M): M => a") ==
+          errors_t{ "/: an Operator's parameters can't be ByRef or have defaults" });
+    CHECK(in_struct("Static Operator %(a: M, b: M): M => a") ==
+          errors_t{ "%: an Operator can't be Abstract, Final, Override, Static, or ReadOnly; it's "
+                    "always Static" });
+    CHECK(errors_of("Operator +(a: Int, b: Int): Int => a") ==
+          errors_t{ "+: Operators can only be declared in a Struct or Class" });
+}
+
+TEST_CASE("a type with Operator == can be compared, whatever its fields are", "[sema]") {
+    CHECK(errors_of("Struct Bag\n    Field Items: Int[] = []\n"
+                    "    Operator ==(a: Bag, b: Bag): Bool => a.Items.Count == b.Items.Count\n"
+                    "End Struct\n"
+                    "Local bags = [Bag()]\nLocal found = bags.Contains(Bag())")
+              .empty());
 }

@@ -1,0 +1,58 @@
+// Weak<T>: a parent and its children refer to each other without a cycle that leaks.
+Class Node
+    Field name: String
+    Field children: Node[] = []
+    Field parent: Weak<Node>
+
+    New(name: String)
+        Self.name = name
+    End New
+
+    Method Add(child: Node)
+        child.parent = Self
+        children.Add(child)
+    End Method
+
+    Method Path(): String
+        Local above = parent
+        If above == Null Then Return name
+        Return above.Path() + "/" + name
+    End Method
+
+    Method Destroy()
+        Print("{name} freed")
+    End Method
+End Class
+
+Local root = Node("root")
+Local leaf = Node("leaf")
+Local middle = Node("middle")
+root.Add(middle)
+middle.Add(leaf)
+Print(leaf.Path())
+Print("leaf's parent is {leaf.parent?.name ?? "nothing"}")
+
+// Reading a Weak gives a T? that holds its own reference, so its object stays while it's used.
+Local held = middle.parent
+Print("held {held?.name ?? "nothing"}")
+
+// Once nothing else holds the root, a Weak to it reads Null.
+Local watcher: Weak<Node> = root
+held = Null
+root = Node("other root")
+Print("watcher sees {watcher?.name ?? "nothing"}")
+Print("middle's parent is {middle.parent?.name ?? "nothing"}")
+
+// A Weak can be cleared with Null, and arrays and Structs hold them too.
+Struct Link
+    Field to: Weak<Node>
+End Struct
+
+Local links = [Link(leaf), Link(middle)]
+Local seen: Weak<Node>[] = [leaf, middle]
+middle = Node("new middle")
+Print("links {links[0].to?.name ?? "nothing"} {links[1].to?.name ?? "nothing"}")
+Print("seen {seen[0]?.name ?? "nothing"} {seen[1]?.name ?? "nothing"}")
+watcher = Null
+Print("watcher is Null: {watcher == Null}")
+Print("end")

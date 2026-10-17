@@ -165,7 +165,7 @@ int build(const console_t& console, const options_t& options, const compilation_
           const mir_module_t& module, const std::chrono::steady_clock::time_point start) {
     const std::filesystem::path output = options.output.value_or(
         std::filesystem::path(options.input).replace_extension(executable_extension));
-    if (auto built = build_program(module, compilation.source(), output, options.mode); !built) {
+    if (auto built = build_program(module, compilation, output, options.mode); !built) {
         console.error(built.error());
         return compile_errors_exit_code;
     }
@@ -185,7 +185,7 @@ int run(const console_t& console, const options_t& options, const compilation_t&
     const std::string name = to_utf8(program.filename());
 
     const std::expected<int, std::string> exit_code =
-        build_program(module, compilation.source(), program, options.mode).and_then([&] {
+        build_program(module, compilation, program, options.mode).and_then([&] {
             report_built(console, options, start);
             console.status("Running", name);
             return run_attached(program, {});
@@ -260,7 +260,8 @@ int compile_command(const options_t& options) {
     }
 
     if (wants(options, stage_t::LLVM)) {
-        const auto ir = emit_ir(module, compilation.source(), { .mode = options.mode });
+        const auto ir =
+            emit_ir(module, compilation.sources, compilation.file, { .mode = options.mode });
         if (!ir) {
             console.error(ir.error());
             return compile_errors_exit_code;

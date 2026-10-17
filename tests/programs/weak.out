@@ -1,0 +1,14 @@
+root/middle/leaf
+leaf's parent is middle
+held root
+root freed
+watcher sees nothing
+middle's parent is nothing
+middle freed
+links leaf nothing
+seen leaf nothing
+watcher is Null: True
+end
+new middle freed
+leaf freed
+other root freed

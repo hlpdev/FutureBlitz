@@ -31,6 +31,28 @@ End Class
 A `Weak<T>` is assigned a `T`. Reading it gives a `T?`, which is `Null` once the object is gone,
 so `node.parent?.name` works directly.
 
+- The `T` is a Class. A Weak is assigned a `T`, a Class that extends it, a `T?`, or `Null`, which
+  refers to nothing. That's also its zero, so a field of one needs no `New`.
+- What reading it gives holds a reference of its own, so the object stays while it's used.
+- Its object can go at any time, so a null check doesn't narrow a Weak. Read it into a Local,
+  and check that.
+- A Struct that holds a Weak has no `==`, which would compare the references.
+- When an object's last strong reference goes, its `Destroy()` runs and its fields are released
+  at once. Its memory waits for the last Weak to it.
+
+### Leak reports
+
+A program that ends with objects or Strings still alive prints how many of each, by Class:
+`leak: 2 Node objects were never released`. Debug builds keep track of every object, so the
+report also points out each cycle among them, field by field:
+
+```text
+leak: a cycle of 2 objects: Node.next -> Node.next -> the first Node
+leak: a cycle of 3 objects: Tree.children -> Tree[] element -> Tree.parent -> the first Tree
+```
+
+Objects that only a cycle keeps alive are in the counts, not the cycles.
+
 ## Engine resources
 
 Entities, textures, and other engine-owned resources keep an explicit `Free()`, because the

@@ -1,0 +1,14 @@
+2 spawned
+#1: 30/100
+#1: 0/100 (down)
+#2: 100/100
+11 alive: True
+enemy 1, enemy 2
+10 spawned
+area 6, size 3
+area 16, size 4
+shape
+circle of 1
+10
+1 0
+3

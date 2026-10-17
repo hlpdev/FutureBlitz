@@ -186,12 +186,81 @@ private:
         return "(error)";
     }
 
-    static std::string type_text(const named_type_t& node) {
-        return std::string(node.name);
+    [[nodiscard]] std::string type_text(const named_type_t& node) const {
+        return std::string(node.name) + arguments_text(node.arguments);
+    }
+
+    /// "<Int, String>", or nothing without type arguments.
+    [[nodiscard]] std::string arguments_text(const std::vector<type_expr_id_t>& arguments) const {
+        if (arguments.empty()) {
+            return {};
+        }
+
+        std::string text;
+        for (const type_expr_id_t argument : arguments) {
+            text += (text.empty() ? "" : ", ") + type_text(argument);
+        }
+
+        return std::format("<{}>", text);
+    }
+
+    /// "<T, U>", or nothing for a type or function that isn't generic.
+    static std::string parameters_text(const std::vector<name_t>& parameters) {
+        if (parameters.empty()) {
+            return {};
+        }
+
+        std::string text;
+        for (const name_t& parameter : parameters) {
+            text += std::format("{}{}", text.empty() ? "" : ", ", parameter.text);
+        }
+
+        return std::format("<{}>", text);
     }
 
     [[nodiscard]] std::string type_text(const nullable_type_t& node) const {
-        return type_text(node.inner) + "?";
+        return suffixed(node.inner) + "?";
+    }
+
+    /// A type before a "?" or "[]": a Func that returns something is in parentheses.
+    [[nodiscard]] std::string suffixed(const type_expr_id_t id) const {
+        const auto* function = std::get_if<function_type_t>(&m_ast.get(id).node);
+        if (function != nullptr && function->result) {
+            return std::format("({})", type_text(id));
+        }
+
+        return type_text(id);
+    }
+
+    [[nodiscard]] std::string type_text(const weak_type_t& node) const {
+        return std::format("Weak<{}>", type_text(node.inner));
+    }
+
+    /// "Func(Int, String): Bool"
+    [[nodiscard]] std::string type_text(const function_type_t& node) const {
+        std::string parameters;
+        for (std::size_t i = 0; i < node.parameters.size(); ++i) {
+            parameters += i == 0 ? "" : ", ";
+            parameters += type_text(node.parameters[i]);
+        }
+
+        std::string result;
+        if (node.result) {
+            result = ": " + type_text(*node.result);
+        }
+
+        return std::format("Func({}){}", parameters, result);
+    }
+
+    /// "(Int, String)"
+    [[nodiscard]] std::string type_text(const tuple_type_t& node) const {
+        std::string elements;
+        for (std::size_t i = 0; i < node.elements.size(); ++i) {
+            elements += i == 0 ? "" : ", ";
+            elements += type_text(node.elements[i]);
+        }
+
+        return std::format("({})", elements);
     }
 
     /// "Float[64, 64]". The sizes show the way the tree shows expressions.
@@ -203,7 +272,7 @@ private:
             sizes += plain(tree.expr(node.sizes[i]));
         }
 
-        return std::format("{}[{}]", type_text(node.element), sizes);
+        return std::format("{}[{}]", suffixed(node.element), sizes);
     }
 
     /// A node as unstyled text on one line.
@@ -278,8 +347,8 @@ private:
         return m_tree ? atom("Null", tone_t::LITERAL) : list("null");
     }
 
-    static node_t build(const name_expr_t& node) {
-        return atom(std::string(node.name), tone_t::NAME);
+    [[nodiscard]] node_t build(const name_expr_t& node) const {
+        return atom(std::string(node.name) + arguments_text(node.type_arguments), tone_t::NAME);
     }
 
     [[nodiscard]] node_t build(const unary_expr_t& node) const {
@@ -288,6 +357,10 @@ private:
 
     [[nodiscard]] node_t build(const binary_expr_t& node) const {
         return list(spelling(node.op), { expr(node.left), expr(node.right) });
+    }
+
+    [[nodiscard]] node_t build(const try_expr_t& node) const {
+        return list(node.optional ? "try?" : "try", { expr(node.operand) });
     }
 
     [[nodiscard]] node_t build(const ternary_expr_t& node) const {
@@ -313,7 +386,11 @@ private:
 
     [[nodiscard]] node_t build(const member_expr_t& node) const {
         return list(node.null_safe ? "?." : ".",
-                    { expr(node.object), atom(std::string(node.member.text), tone_t::NAME) });
+                    {
+                        expr(node.object),
+                        atom(std::string(node.member.text) + arguments_text(node.type_arguments),
+                             tone_t::NAME),
+                    });
     }
 
     [[nodiscard]] node_t build(const index_expr_t& node) const {
@@ -350,6 +427,53 @@ private:
         return out;
     }
 
+    /// "(lambda [Weak Self] (x) (y: Int) -> Bool => value)", or with a block for the body.
+    [[nodiscard]] node_t build(const lambda_expr_t& node) const {
+        node_t out = list("lambda");
+        if (!node.weak.empty()) {
+            std::string names;
+            for (const name_t& name : node.weak) {
+                names += std::format("{}Weak {}", names.empty() ? "" : ", ", name.text);
+            }
+
+            out.items.push_back(atom(std::format("[{}]", names)));
+        }
+
+        for (const lambda_parameter_t& parameter : node.parameters) {
+            node_t item{ .list = true };
+            item.items.push_back(atom(
+                std::format("{}{}", parameter.name.text, parameter.type ? ":" : ""), tone_t::NAME));
+            if (parameter.type) {
+                item.items.push_back(type(*parameter.type));
+            }
+
+            out.items.push_back(std::move(item));
+        }
+
+        if (node.return_type) {
+            out.items.push_back(atom("->"));
+            out.items.push_back(type(*node.return_type));
+        }
+
+        if (node.value) {
+            out.items.push_back(atom("=>"));
+            out.items.push_back(expr(*node.value));
+        } else {
+            out.items.push_back(block(node.body));
+        }
+
+        return out;
+    }
+
+    [[nodiscard]] node_t build(const tuple_expr_t& node) const {
+        node_t out = list("tuple");
+        for (const expr_id_t element : node.elements) {
+            out.items.push_back(expr(element));
+        }
+
+        return out;
+    }
+
     /// Abstract, Final, and Override, as keywords after the node's head.
     static void add_modifiers(node_t& out, const modifiers_t& modifiers) {
         if (modifiers.is_abstract) {
@@ -362,6 +486,14 @@ private:
 
         if (modifiers.is_override) {
             out.items.push_back(atom("Override", tone_t::KEYWORD));
+        }
+
+        if (modifiers.is_static) {
+            out.items.push_back(atom("Static", tone_t::KEYWORD));
+        }
+
+        if (modifiers.is_read_only) {
+            out.items.push_back(atom("ReadOnly", tone_t::KEYWORD));
         }
     }
 
@@ -396,7 +528,9 @@ private:
 
         // "hp:" when a type follows, as in "(local hp: Int = 100)".
         const std::string name = std::format("{}{}", node.name.text, node.type ? ":" : "");
-        node_t out = list(kind, { atom(name, tone_t::NAME) });
+        node_t out = list(kind);
+        add_modifiers(out, node.modifiers);
+        out.items.push_back(atom(name, tone_t::NAME));
         if (node.type) {
             out.items.push_back(type(*node.type));
         }
@@ -406,6 +540,18 @@ private:
             out.items.push_back(expr(*node.value));
         }
 
+        return out;
+    }
+
+    /// "(local lo hi = value)"
+    [[nodiscard]] node_t build(const destructure_stmt_t& node) const {
+        node_t out = list("local");
+        for (const name_t& name : node.names) {
+            out.items.push_back(atom(std::string(name.text), tone_t::NAME));
+        }
+
+        out.items.push_back(atom("="));
+        out.items.push_back(expr(node.value));
         return out;
     }
 
@@ -419,12 +565,15 @@ private:
             kind = "byref-method";
         } else if (node.kind == function_kind_t::CONSTRUCTOR) {
             kind = "new";
+        } else if (node.kind == function_kind_t::OPERATOR) {
+            kind = "operator";
         }
 
         node_t out = list(kind);
         add_modifiers(out, node.modifiers);
         if (node.kind != function_kind_t::CONSTRUCTOR) {
-            out.items.push_back(atom(std::string(node.name.text), tone_t::NAME));
+            out.items.push_back(atom(
+                std::string(node.name.text) + parameters_text(node.type_parameters), tone_t::NAME));
         }
 
         // Each parameter is a list without a head, like "(ByRef n: Int = 1)".
@@ -447,6 +596,13 @@ private:
         if (node.return_type) {
             out.items.push_back(atom("->"));
             out.items.push_back(type(*node.return_type));
+        }
+
+        if (!node.throws.empty()) {
+            out.items.push_back(atom("Throws", tone_t::KEYWORD));
+            for (const type_expr_id_t thrown : node.throws) {
+                out.items.push_back(type(thrown));
+            }
         }
 
         out.items.push_back(block(node.body));
@@ -586,6 +742,56 @@ private:
         return list("defer", { stmt(node.statement) });
     }
 
+    /// "(property Health: Int (get (block ...)) (set value (block ...)))".
+    [[nodiscard]] node_t build(const property_stmt_t& node) const {
+        node_t out = list("property");
+        add_modifiers(out, node.modifiers);
+        out.items.push_back(atom(std::format("{}:", node.name.text), tone_t::NAME));
+        out.items.push_back(type(node.type));
+        if (node.getter) {
+            const auto& getter = std::get<function_stmt_t>(m_ast.get(*node.getter).node);
+            out.items.push_back(list("get", { block(getter.body) }));
+        }
+
+        if (node.setter) {
+            const auto& setter = std::get<function_stmt_t>(m_ast.get(*node.setter).node);
+            node_t item = list("set");
+            for (const parameter_t& parameter : setter.parameters) {
+                item.items.push_back(atom(std::string(parameter.name.text), tone_t::NAME));
+            }
+
+            item.items.push_back(block(setter.body));
+            out.items.push_back(std::move(item));
+        }
+
+        return out;
+    }
+
+    [[nodiscard]] node_t build(const throw_stmt_t& node) const {
+        return list("throw", { expr(node.error) });
+    }
+
+    /// "(try (block ...) (catch e As FileError (block ...)) (finally (block ...)))".
+    [[nodiscard]] node_t build(const try_stmt_t& node) const {
+        node_t out = list("try", { block(node.body) });
+        for (const catch_t& clause : node.catches) {
+            node_t item = list("catch", { atom(std::string(clause.name.text), tone_t::NAME) });
+            if (clause.type) {
+                item.items.push_back(atom("As", tone_t::KEYWORD));
+                item.items.push_back(type(*clause.type));
+            }
+
+            item.items.push_back(block(clause.body));
+            out.items.push_back(std::move(item));
+        }
+
+        if (node.finally_body) {
+            out.items.push_back(list("finally", { block(*node.finally_body) }));
+        }
+
+        return out;
+    }
+
     /// "(enum State: UInt8 Idle (= Attack 10))", with "@Flags" before the name.
     [[nodiscard]] node_t build(const enum_stmt_t& node) const {
         node_t out = list("enum");
@@ -616,7 +822,8 @@ private:
     [[nodiscard]] node_t build(const type_stmt_t& node) const {
         node_t out = list(node.is_class ? "class" : "struct");
         add_modifiers(out, node.modifiers);
-        out.items.push_back(atom(std::string(node.name.text), tone_t::NAME));
+        out.items.push_back(atom(
+            std::string(node.name.text) + parameters_text(node.type_parameters), tone_t::NAME));
         if (node.base) {
             out.items.push_back(atom("Extends", tone_t::KEYWORD));
             out.items.push_back(atom(std::string(node.base->text), tone_t::NAME));
@@ -720,6 +927,11 @@ std::string render_tree(const ast_t& ast, const style_t& style, const analysis_t
     const renderer_t renderer(style, analysis);
     std::string out;
     for (const stmt_id_t id : ast.items()) {
+        // The library files' declarations aren't part of the program's own code.
+        if (ast.from_library(id)) {
+            continue;
+        }
+
         out += renderer.tree(builder.stmt(id), 0) + "\n";
     }
 
@@ -850,6 +1062,11 @@ std::string dump_ast(const ast_t& ast) {
     const renderer_t renderer(style_t(), nullptr);
     std::string out;
     for (const stmt_id_t id : ast.items()) {
+        // The library files' declarations aren't part of the program's own code.
+        if (ast.from_library(id)) {
+            continue;
+        }
+
         if (!out.empty()) {
             out += '\n';
         }

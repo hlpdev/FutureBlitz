@@ -1,0 +1,134 @@
+// Function values: lambdas, which capture the variables around them, and Functions by name.
+Function MakeCounter(): Func(): Int
+    Local count = 0
+    Return Function()
+        count++
+        Return count
+    End Function
+End Function
+
+// Each counter has a count of its own, which its calls share.
+Local next = MakeCounter()
+Print("{next()}")
+Print("{next()}")
+Local other = MakeCounter()
+Print("{other()} {next()}")
+
+Function Twice(x: Int): Int => x * 2
+Local twice: Func(Int): Int = Twice
+Local triple = Function(x: Int) => x * 3
+Print("{twice(4)} {triple(4)}")
+
+Function Apply(xs: Int[], f: Func(Int): Int): Int[]
+    Local result: Int[] = []
+    For x In xs
+        result.Add(f(x))
+    End For
+
+    Return result
+End Function
+
+// A parameter's type comes from the Func expected. Captured Locals are shared, so a lambda sees
+// later changes.
+Local limit = 10
+Local scaled = Apply([1, 2, 3], Function(x) => x * limit)
+Print("{scaled[0]} {scaled[1]} {scaled[2]}")
+limit = 100
+Print("{Apply([1], Function(x) => x + limit)[0]}")
+
+Local name = "world"
+Local greet = Function() => Print("hello {name}")
+greet()
+name = "there"
+greet()
+
+// A loop variable is copied, so each pass's lambda keeps its own.
+Local fs: (Func(): Int)[] = []
+For i = 1 To 3
+    fs.Add(Function() => i * 10)
+End For
+
+For f In fs
+    Print("{f()}")
+End For
+
+Class Button
+    Field Label: String
+    Field OnClick: (Func())?
+
+    New(label: String)
+        Label = label
+    End New
+
+    Method Click()
+        Local handler = OnClick
+        If handler != Null Then handler()
+    End Method
+End Class
+
+// [Weak Self] keeps the Door from holding itself through its Bell.
+Class Door
+    Field Name: String
+    Field Opened = 0
+    Field Bell: Button
+
+    New(name: String)
+        Name = name
+        Bell = Button("bell")
+        Bell.OnClick = Function[Weak Self]() => Self?.Open()
+    End New
+
+    Method Open()
+        Opened++
+        Print("{Name} opened {Opened}")
+    End Method
+
+    Method Later(): Func(): String
+        Return Function() => "{Name} has {Opened}"
+    End Method
+End Class
+
+Local door = Door("front")
+door.Bell.Click()
+door.Bell.Click()
+Local report = door.Later()
+door.Open()
+Print(report())
+
+// Lambdas inside lambdas share the outer Local's cell.
+Function Adder(start: Int): Func(Int): Func(): Int
+    Local total = start
+    Return Function(step: Int)
+        Return Function()
+            total += step
+            Return total
+        End Function
+    End Function
+End Function
+
+Local add = Adder(10)
+Local by2 = add(2)
+Local by5 = add(5)
+Print("{by2()} {by5()} {by2()}")
+
+Function Each(xs: String[], f: Func(String))
+    For x In xs
+        f(x)
+    End For
+End Function
+
+// A block lambda can be an argument; its lines end its statements.
+Local seen = 0
+Each(["a", "b"], Function(s)
+    seen++
+    Print("item {s}")
+End Function)
+Print("{seen}")
+
+// The Func expected picks an overload.
+Function Pick(n: Int): Int => n
+Function Pick(s: String): Int => 0
+Local pick: Func(String): Int = Pick
+Print("{pick("x")} {MakeOne()()}")
+
+Function MakeOne(): Func(): Int => Function() => 1

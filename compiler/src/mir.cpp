@@ -35,6 +35,12 @@ std::string_view runtime_name(const runtime_function_t function) {
         return "clear";
     case runtime_function_t::ARRAY_CLONE:
         return "clone";
+    case runtime_function_t::ERROR_UNCAUGHT:
+        return "uncaught";
+    case runtime_function_t::WEAK_LOAD:
+        return "load_weak";
+    case runtime_function_t::OBJECT_DISCARD:
+        return "discard";
     }
 
     std::unreachable();
@@ -291,6 +297,16 @@ private:
                            function_name(node.function), arguments);
     }
 
+    /// "invoke _3(1, _2)"
+    [[nodiscard]] std::string dump(const invoke_t& node) const {
+        std::string arguments;
+        for (const operand_t& argument : node.arguments) {
+            arguments += (arguments.empty() ? "" : ", ") + operand(argument);
+        }
+
+        return std::format("{} {}({})", keyword("invoke"), operand(node.callee), arguments);
+    }
+
     [[nodiscard]] std::string dump(const runtime_call_t& node) const {
         std::string arguments;
         for (const operand_t& argument : node.arguments) {
@@ -301,9 +317,18 @@ private:
         return std::format("{}({})", paint(runtime_name(node.function), tone_t::BOLD), arguments);
     }
 
-    /// "Point { x: _1, y: 2 }"
+    /// "Point { x: _1, y: 2 }", or "(_1, 2)" for a tuple.
     [[nodiscard]] std::string dump(const aggregate_t& node) const {
         const type_t& info = m_module.types->get(node.type);
+        if (info.kind == type_kind_t::TUPLE) {
+            std::string elements;
+            for (const operand_t& element : node.fields) {
+                elements += (elements.empty() ? "" : ", ") + operand(element);
+            }
+
+            return std::format("({})", elements);
+        }
+
         std::string fields;
         for (std::size_t i = 0; i < node.fields.size(); ++i) {
             fields += i == 0 ? "" : ", ";
@@ -379,6 +404,10 @@ private:
     }
 
     [[nodiscard]] std::string dump(const panic_t& node) const {
+        if (node.text) {
+            return keyword("panic") + " " + operand(*node.text);
+        }
+
         return keyword("panic") + " " + paint(std::format("\"{}\"", node.message), tone_t::LITERAL);
     }
 

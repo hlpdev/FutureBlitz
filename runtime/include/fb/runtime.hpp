@@ -19,15 +19,26 @@ struct fb_string_t {
 
 struct fb_object_t;
 
-/// What the runtime knows about a Class. The compiler makes one for each Class in the program.
+/// What a Class's visit calls with each object that `context`'s object refers to strongly, and
+/// the field it's in, or null for an element of a T[]. `object` can be null.
+using fb_visitor_t = void (*)(void* context, const fb_object_t* object, const char* field);
+
+/// What the runtime knows about a Class. The compiler makes one for each Class in the program,
+/// with its functions.
 struct fb_class_t {
     /// The Class's name, NUL-terminated, for the leak report.
     const char* name;
     /// An object's size in bytes, header included.
     std::int64_t size;
-    /// Runs the object's Destroy(), if its Class has one, then releases its fields. The compiler
-    /// makes it, and the runtime frees the memory afterwards.
+    /// Runs the object's Destroy(), then those of the Classes it extends. Null when none of them
+    /// has one.
     void (*destroy)(fb_object_t* object);
+    /// Releases the object's fields, after its destroy, or without it when New threw. A T[]'s
+    /// releases its elements and frees their buffer. The runtime frees the object afterwards.
+    void (*release)(fb_object_t* object);
+    /// Calls `visitor` with `context` and each object the fields refer to strongly, for the
+    /// cycle detector. A Weak<T> doesn't keep its object, so it isn't one.
+    void (*visit)(const fb_object_t* object, fb_visitor_t visitor, void* context);
     /// How many objects of the Class exist, for the leak report.
     std::int64_t live;
     /// The Class it extends, or null. Compiled code puts the Class's Method table right after
@@ -35,10 +46,13 @@ struct fb_class_t {
     const fb_class_t* base;
 };
 
-/// The header of a Class's object, which its fields follow.
+/// The header of a Class's object, which its fields follow. Compiled code sees the two counts as
+/// one 64-bit field, which it never touches.
 struct fb_object_t {
-    /// How many owners the object has.
-    std::int64_t refcount;
+    /// How many owners the object has. 0 once it's gone, while Weak references keep its memory.
+    std::int32_t refcount;
+    /// How many Weak<T> values refer to it. The memory is freed once both counts are 0.
+    std::int32_t weak_count;
     fb_class_t* type;
 };
 
@@ -56,9 +70,14 @@ struct fb_location_t {
 /// "\n" from becoming "\r\n", and turns on colors for panics.
 void fb_start();
 
+/// Debug builds call it right after fb_start: the runtime keeps track of every object, so
+/// fb_finish can point out the cycles among the ones left.
+void fb_track_objects();
+
 /// The last thing a program's main calls, after releasing the Globals. Prints a leak report to
 /// stderr for Strings, and for the objects of each of the `count` Classes in `classes`, that were
-/// never released.
+/// never released, then the cycles among those objects that kept them alive, if fb_track_objects
+/// ran.
 void fb_finish(fb_class_t* const* classes, std::int64_t count);
 
 /// How many Strings exist right now.
@@ -113,13 +132,27 @@ fb_object_t* fb_object_new(fb_class_t* type);
 /// Adds an owner to `object`. Does nothing for null, which a variable of a Class holds before
 /// it's assigned.
 void fb_object_retain(fb_object_t* object);
-/// Removes an owner from `object`. The last one runs its Class's destroy, then frees it; a
-/// Destroy() that keeps a reference to its object panics. Does nothing for null.
+/// Removes an owner from `object`. The last one runs its Class's destroy and release, then frees
+/// it, unless a Weak<T> still refers to it; a Destroy() that keeps a reference to its object
+/// panics. Does nothing for null.
 void fb_object_release(fb_object_t* object);
 /// Like fb_object_retain and fb_object_release, for objects that threads share (a Shared Class,
 /// in M4), whose counts change atomically.
 void fb_object_retain_atomic(fb_object_t* object);
 void fb_object_release_atomic(fb_object_t* object);
+/// Adds a Weak<T> that refers to `object`, which keeps its memory, not the object. Does nothing
+/// for null.
+void fb_object_retain_weak(fb_object_t* object);
+/// Removes a Weak<T> that refers to `object`. The last one frees an object that's already gone.
+/// Does nothing for null.
+void fb_object_release_weak(fb_object_t* object);
+/// What reading a Weak<T> gives: `object` with a new owner, which the caller releases, or null
+/// once the object is gone. `object` can be null.
+fb_object_t* fb_object_load_weak(fb_object_t* object);
+/// Lets go of an object whose New threw: its fields are released, without its Destroy(), since
+/// New may not have set what Destroy() reads. If New gave Self to something that kept it, the
+/// object stays, like any other.
+void fb_object_discard(fb_object_t* object);
 /// Whether `object` is of `type`, or of a Class that extends it, for 'Is'. 0 for null.
 std::int32_t fb_object_is(const fb_object_t* object, const fb_class_t* type);
 /// Panics at `location` unless `object` is of `type`, or of a Class that extends it, for 'As':
@@ -169,4 +202,11 @@ void fb_print(const fb_string_t* string);
 /// Compiled code calls it when a run-time check fails. `location` can be null, which leaves out
 /// the " at ..." part.
 [[noreturn]] void fb_panic(const char* message, const fb_location_t* location);
+/// Like fb_panic, with a String the program made as the message, for Panic and Assert. The
+/// String is only borrowed.
+[[noreturn]] void fb_panic_string(const fb_string_t* message, const fb_location_t* location);
+/// Prints "uncaught <Class>: <Message> at <file>:<line>:<column>" to stderr and exits with code
+/// 1, for an error that top-level code let out. `error` is an object of a Class that extends
+/// Error, whose first field is its Message. `location` can be null, as for fb_panic.
+[[noreturn]] void fb_error_uncaught(const fb_object_t* error, const fb_location_t* location);
 }

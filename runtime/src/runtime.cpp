@@ -4,7 +4,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <limits>
-#include <span>
+#include <string>
 
 #ifdef _WIN32
 #ifndef WIN32_LEAN_AND_MEAN
@@ -24,6 +24,8 @@ namespace {
 
 /// Lets tests and tools tell a panic from a normal exit.
 constexpr int panic_exit_code = 101;
+/// A program that let an error out failed, like a command that couldn't do its job.
+constexpr int error_exit_code = 1;
 
 /// Keeps the low `bits` bits of `value`, sign-extending them when `is_signed`.
 std::uint64_t truncate(const std::uint64_t value, const std::uint32_t bits, const bool is_signed) {
@@ -113,20 +115,6 @@ void fb_start() {
 #endif
 }
 
-void fb_finish(fb_class_t* const* classes, const std::int64_t count) {
-    if (const std::int64_t strings = fb_string_live_count(); strings != 0) {
-        std::fprintf(stderr, "leak: %lld Strings were never released\n",
-                     static_cast<long long>(strings));
-    }
-
-    for (const fb_class_t* type : std::span(classes, static_cast<std::size_t>(count))) {
-        if (type->live != 0) {
-            std::fprintf(stderr, "leak: %lld %s objects were never released\n",
-                         static_cast<long long>(type->live), type->name);
-        }
-    }
-}
-
 void fb_print(const fb_string_t* string) {
     const auto* bytes = reinterpret_cast<const char*>(string + 1);
     std::fwrite(bytes, 1, static_cast<std::size_t>(string->length), stdout);
@@ -145,6 +133,31 @@ void fb_panic(const char* message, const fb_location_t* location) {
     }
 
     std::exit(panic_exit_code);
+}
+
+void fb_panic_string(const fb_string_t* message, const fb_location_t* location) {
+    const auto* bytes = reinterpret_cast<const char*>(message + 1);
+    const std::string text(bytes, static_cast<std::size_t>(message->length));
+    fb_panic(text.c_str(), location);
+}
+
+void fb_error_uncaught(const fb_object_t* error, const fb_location_t* location) {
+    std::fflush(stdout);
+    // Every error's Class extends Error, so its first field is the Message.
+    const fb_string_t* message = *reinterpret_cast<fb_string_t* const*>(error + 1);
+    const char* label = color_panics() ? "\x1b[1;31muncaught\x1b[0m" : "uncaught";
+    std::fprintf(stderr, "%s %s", label, error->type->name);
+    if (message != nullptr && message->length != 0) {
+        std::fprintf(stderr, ": %.*s", static_cast<int>(message->length),
+                     reinterpret_cast<const char*>(message + 1));
+    }
+
+    if (location != nullptr) {
+        std::fprintf(stderr, " at %s:%u:%u", location->file, location->line, location->column);
+    }
+
+    std::fputc('\n', stderr);
+    std::exit(error_exit_code);
 }
 
 std::int64_t fb_power_int(const std::int64_t base, const std::int64_t exponent,

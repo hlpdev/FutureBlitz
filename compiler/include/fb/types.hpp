@@ -76,6 +76,18 @@ enum class type_kind_t : std::uint8_t {
     CLASS,
     /// An Enum the program declares: a value of an integer type, among the named ones.
     ENUM,
+    /// "(A, B)": a value made of its elements, like a Struct without a name. Its fields are named
+    /// "0", "1", and so on.
+    TUPLE,
+    /// "Func(A, B): R": a function value, which refers to a closure: an object of a Class that
+    /// holds the variables it captures, with its code in the Method table.
+    FUNCTION,
+    /// A generic Function's, Struct's, or Class's type parameter, like the T in "Box<T>". Generic
+    /// code is checked with it, and lowering puts each type argument in its place.
+    PARAMETER,
+    /// "Weak<T>": a reference to an object of the Class T that doesn't keep it. Reading one gives
+    /// a T?, which is Null once the object is gone.
+    WEAK,
 };
 
 /// One of a Struct's or Class's fields.
@@ -96,12 +108,13 @@ struct type_t {
     type_kind_t kind = type_kind_t::BUILTIN;
     /// As errors and dumps show it, like "Int32", "String[]", or "Int32[]?".
     std::string name;
-    /// NULLABLE, ARRAY, and FIXED_ARRAY: the type inside. ENUM: its integer type.
+    /// NULLABLE, ARRAY, FIXED_ARRAY, and WEAK: the type inside. ENUM: its integer type.
+    /// FUNCTION: the type it returns, NONE when it returns nothing.
     type_id_t inner = type_id_t::INVALID;
     /// FIXED_ARRAY: each dimension's size. The elements are stored in one run, the last
     /// dimension's changing fastest.
     std::vector<std::uint32_t> sizes;
-    /// STRUCT and CLASS: the fields in declaration order, which is also their order in memory.
+    /// STRUCT, CLASS, and TUPLE: the fields in order, which is also their order in memory.
     /// NULLABLE: one field, "value", the T inside. Places reach it once the T? is known to hold
     /// one. A Class's start with the fields of the Class it extends.
     std::vector<field_t> fields;
@@ -111,6 +124,13 @@ struct type_t {
     std::vector<enum_value_t> values;
     /// ENUM: written with @Flags, so its values are bits that combine.
     bool flags = false;
+    /// FUNCTION: its parameters' types. A generic STRUCT or CLASS: its type parameters.
+    std::vector<type_id_t> parameters;
+    /// An instance of a generic Struct or Class, like "Box<Int32>": the generic one, and a type
+    /// argument for each of its type parameters. Its fields are the generic one's, with the
+    /// arguments in place of the parameters.
+    type_id_t generic = type_id_t::INVALID;
+    std::vector<type_id_t> arguments;
 };
 
 /// Every type one program uses. The built-ins are always there, with their fixed ids. A type
@@ -119,6 +139,12 @@ struct type_t {
 class type_table_t {
 public:
     type_table_t();
+    /// A copy has the same types at the same ids, and adds its own after them.
+    type_table_t(const type_table_t& other);
+    type_table_t& operator=(const type_table_t& other);
+    type_table_t(type_table_t&& other) noexcept = default;
+    type_table_t& operator=(type_table_t&& other) noexcept = default;
+    ~type_table_t() = default;
 
     [[nodiscard]] const type_t& get(type_id_t id) const;
 
@@ -137,8 +163,37 @@ public:
     /// "T[]". An array of INVALID is INVALID.
     [[nodiscard]] type_id_t array(type_id_t element);
 
+    /// "Weak<T>", for a Class T. It makes "T?" too, which reading one gives.
+    [[nodiscard]] type_id_t weak(type_id_t inner);
+
+    /// "T?" when it's been made already, as for any T that has a Weak<T>. INVALID otherwise.
+    [[nodiscard]] type_id_t find_nullable(type_id_t inner) const;
+
     /// "T[N]", or "T[W, H]" with two sizes. Of INVALID, it's INVALID.
     [[nodiscard]] type_id_t fixed_array(type_id_t element, const std::vector<std::uint32_t>& sizes);
+
+    /// "(A, B)", of two or more elements. With an INVALID element, it's INVALID.
+    [[nodiscard]] type_id_t tuple(const std::vector<type_id_t>& elements);
+
+    /// "Func(A, B): R", with a `result` of NONE for one that returns nothing. With an INVALID
+    /// part, it's INVALID.
+    [[nodiscard]] type_id_t function(const std::vector<type_id_t>& parameters, type_id_t result);
+
+    /// A new type parameter, like the T in "Box<T>".
+    [[nodiscard]] type_id_t add_parameter(std::string name);
+
+    /// Makes a Struct or Class generic, with these type parameters.
+    void set_parameters(type_id_t type, std::vector<type_id_t> parameters);
+
+    /// A generic Struct or Class with these type arguments, like "Box<Int32>", made once for
+    /// each set of them. With its own type parameters as the arguments, it's the generic one
+    /// itself. INVALID with an INVALID argument, or past a limit on how deep instances nest.
+    [[nodiscard]] type_id_t instance(type_id_t generic, const std::vector<type_id_t>& arguments);
+
+    /// `type` with each of `parameters` replaced by the argument at the same place, in it or in
+    /// the types it's made of.
+    [[nodiscard]] type_id_t substitute(type_id_t type, const std::vector<type_id_t>& parameters,
+                                       const std::vector<type_id_t>& arguments);
 
     /// A fixed array's number of elements, in all its dimensions.
     [[nodiscard]] std::uint64_t element_count(type_id_t type) const;
@@ -168,30 +223,41 @@ public:
     [[nodiscard]] bool extends(type_id_t type, type_id_t base) const;
 
     /// Whether a value holds references that need retain and release: a String, a Class, a T[],
-    /// or a Struct, T?, or fixed array with one inside.
+    /// a Weak<T>, a function value, or a Struct, T?, tuple, or fixed array with one inside.
     [[nodiscard]] bool has_references(type_id_t type) const;
 
     /// Whether a variable of the type has a value before it's assigned: zero, False, "", Null, or
-    /// a Struct or fixed array of those. A Class or T[] has none, since it can't be Null, and
-    /// neither does a Struct with a field of one.
+    /// a Struct, tuple, or fixed array of those. A Class, T[], or function value has none, since
+    /// it can't be Null, and neither does a Struct with a field of one.
     [[nodiscard]] bool has_zero(type_id_t type) const;
 
 private:
     struct entry_t {
         /// On the heap, so the type and its name never move.
         std::unique_ptr<type_t> type;
-        /// This type's "T?" and "T[]", once they've been made. INVALID until then.
+        /// This type's "T?", "T[]", and "Weak<T>", once they've been made. INVALID until then.
         type_id_t nullable = type_id_t::INVALID;
         type_id_t array = type_id_t::INVALID;
+        type_id_t weak = type_id_t::INVALID;
     };
 
     /// Indexed by type_id_t.
     std::vector<entry_t> m_entries;
-    /// Every fixed array made so far, to find one again.
+    /// Every fixed array, tuple, Func, and instance made so far, to find one again.
     std::vector<type_id_t> m_fixed_arrays;
+    std::vector<type_id_t> m_tuples;
+    std::vector<type_id_t> m_functions;
+    std::vector<type_id_t> m_instances;
+    /// How many instances are being filled in, one inside another.
+    std::uint32_t m_depth = 0;
 
     type_id_t add(type_t type);
-    type_id_t make(type_kind_t kind, type_id_t inner, std::string_view suffix);
+    type_id_t make(type_kind_t kind, type_id_t inner, std::string full_name);
+    /// A type's name before a "?" or "[]": a Func that returns something goes in parentheses,
+    /// so "(Func(): Int32)?" can't be read as returning an Int32?.
+    [[nodiscard]] std::string suffixed(type_id_t type) const;
+    /// Gives an instance its generic type's fields and base, with its type arguments in them.
+    void fill(type_id_t instance);
 };
 
 } // namespace fb

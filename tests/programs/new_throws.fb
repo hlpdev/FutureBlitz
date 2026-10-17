@@ -1,0 +1,69 @@
+// A New that throws: its object is let go without its Destroy, and the error goes to the caller.
+Class BadInput Extends Error
+End Class
+
+Class Config
+    Field name: String
+    Field size: Int
+
+    New(name: String, size: Int) Throws BadInput
+        Self.name = "config {name}"
+        If size < 0 Then Throw BadInput("size {size} for {name}")
+        Self.size = size
+    End New
+
+    Method Destroy()
+        Print("{name} destroyed")
+    End Method
+End Class
+
+// Without a New of its own, Sized takes Config's, which throws.
+Class Sized Extends Config
+End Class
+
+// A New that throws in the Class it extends is called with Try.
+Class Named Extends Config
+    Field label: String
+
+    New(label: String) Throws BadInput
+        Try Super.New(label, label == "bad" ? -1 : 1)
+        Self.label = label
+    End New
+End Class
+
+Local good = Try? Config("good", 3)
+Print("good: {good?.size ?? -1}")
+Local bad = Try? Config("bad", -1)
+Print("bad is Null: {bad == Null}")
+
+Try
+    Local sized = Sized("sized", -5)
+    Print("not printed")
+Catch e As BadInput
+    Print("caught {e.Message}")
+End Try
+
+Try
+    Local named = Named("bad")
+    Print("not printed")
+Catch e As BadInput
+    Print("named: {e.Message}")
+End Try
+
+// A Struct's New that throws gives back nothing, and lets go of what Self held.
+Struct Range
+    Field low: Int
+    Field high: Int
+    Field label: String
+
+    New(low: Int, high: Int) Throws BadInput
+        label = "{low} to {high}"
+        If low > high Then Throw BadInput("{label} is empty")
+        Self.low = low
+        Self.high = high
+    End New
+End Struct
+
+Print("range: {(Try? Range(1, 5))?.label ?? "none"}")
+Print("range: {(Try? Range(5, 1))?.label ?? "none"}")
+Print("end")

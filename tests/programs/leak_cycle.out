@@ -1,0 +1,9 @@
+end
+leak: 3 Node objects were never released
+leak: 1 Owner objects were never released
+leak: 2 Tree objects were never released
+leak: 1 Node[] objects were never released
+leak: 2 Tree[] objects were never released
+leak: a cycle of 2 objects: Node.next -> Node.next -> the first Node
+leak: a cycle of 1 object: Owner.me -> the first Owner
+leak: a cycle of 3 objects: Tree.children -> Tree[] element -> Tree.parent -> the first Tree

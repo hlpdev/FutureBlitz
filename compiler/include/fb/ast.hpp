@@ -113,6 +113,8 @@ struct null_expr_t {};
 /// A name used as a value or a callee, like `x` in "x + 1" or `Print` in "Print(x)".
 struct name_expr_t {
     std::string_view name;
+    /// The type arguments in "Max<Float>(1, 2.5)" or "Box<Int>(5)".
+    std::vector<type_expr_id_t> type_arguments;
 };
 
 struct unary_expr_t {
@@ -148,11 +150,14 @@ struct call_expr_t {
     std::vector<argument_t> arguments;
 };
 
-/// "object.member", or "object?.member" when `null_safe`. Not supported in M1.
+/// "object.member", or "object?.member" when `null_safe`. A tuple's element is a member named
+/// by its number, as in "pair.0".
 struct member_expr_t {
     expr_id_t object;
     name_t member;
     bool null_safe;
+    /// The type arguments in "box.Map<String>(f)".
+    std::vector<type_expr_id_t> type_arguments;
 };
 
 /// "object[indices]", like "grid[x, y]".
@@ -187,11 +192,46 @@ struct array_expr_t {
     std::vector<expr_id_t> elements;
 };
 
+/// "(a, b)", a tuple of two or more values. As an assignment's target, each element is assigned:
+/// "a, b = (b, a)".
+struct tuple_expr_t {
+    std::vector<expr_id_t> elements;
+};
+
+/// One of a lambda's parameters: "x", or "x: Int". Without a type, it takes the one the Func
+/// expected where the lambda is has.
+struct lambda_parameter_t {
+    name_t name;
+    std::optional<type_expr_id_t> type;
+};
+
+/// "Function(x: Int) => x * 2", or a block lambda: "Function(x)", its body, and "End Function". It
+/// makes a function value, which can use the variables around it. "Function[Weak Self]()" lists
+/// the ones it refers to weakly.
+struct lambda_expr_t {
+    /// The names in "[Weak Self, Weak node]": Self, or a variable.
+    std::vector<name_t> weak;
+    std::vector<lambda_parameter_t> parameters;
+    std::optional<type_expr_id_t> return_type;
+    /// For "=> value": the value it returns, or the call it makes.
+    std::optional<expr_id_t> value;
+    /// A block lambda's statements.
+    block_t body;
+};
+
+/// "Try operand" lets the errors of the calls in `operand` go on to the code around it. "Try?
+/// operand" gives a T? instead, which is Null when one of them throws.
+struct try_expr_t {
+    expr_id_t operand;
+    /// Written "Try?".
+    bool optional;
+};
+
 using expr_node_t =
     std::variant<error_expr_t, integer_expr_t, decimal_expr_t, character_expr_t, string_expr_t,
                  bool_expr_t, null_expr_t, name_expr_t, unary_expr_t, binary_expr_t, ternary_expr_t,
                  call_expr_t, member_expr_t, index_expr_t, cast_expr_t, is_expr_t, self_expr_t,
-                 super_expr_t, array_expr_t>;
+                 super_expr_t, array_expr_t, try_expr_t, tuple_expr_t, lambda_expr_t>;
 
 struct expr_t {
     span_t span;
@@ -203,9 +243,11 @@ struct expr_t {
 /// Where a type failed to parse.
 struct error_type_t {};
 
-/// A type by name, like "Int" or "String".
+/// A type by name, like "Int" or "String", or a generic one with its type arguments, like
+/// "Box<Int>".
 struct named_type_t {
     std::string_view name;
+    std::vector<type_expr_id_t> arguments;
 };
 
 /// "Type?". Not supported in M1.
@@ -220,7 +262,24 @@ struct array_type_t {
     std::vector<expr_id_t> sizes;
 };
 
-using type_expr_node_t = std::variant<error_type_t, named_type_t, nullable_type_t, array_type_t>;
+/// "Weak<T>", a reference that doesn't keep its object. M2 has no other generic types.
+struct weak_type_t {
+    type_expr_id_t inner;
+};
+
+/// "(A, B)", a tuple of two or more types. "(T)" is just T.
+struct tuple_type_t {
+    std::vector<type_expr_id_t> elements;
+};
+
+/// "Func(A, B): R", or "Func(A)" for a function that returns nothing.
+struct function_type_t {
+    std::vector<type_expr_id_t> parameters;
+    std::optional<type_expr_id_t> result;
+};
+
+using type_expr_node_t = std::variant<error_type_t, named_type_t, nullable_type_t, array_type_t,
+                                      weak_type_t, tuple_type_t, function_type_t>;
 
 struct type_expr_t {
     span_t span;
@@ -251,6 +310,18 @@ struct increment_stmt_t {
     bool decrement;
 };
 
+/// What Abstract, Final, Override, Static, and ReadOnly say about a declaration: a Class, a
+/// Method, a Field, or a Property.
+struct modifiers_t {
+    bool is_abstract = false;
+    bool is_final = false;
+    bool is_override = false;
+    /// "Static": a Field or Method of the type itself, rather than of each value or object.
+    bool is_static = false;
+    /// "ReadOnly": a Field that only its Class's New can change.
+    bool is_read_only = false;
+};
+
 /// The keyword that declares a variable: Local, Global, Const, or a Struct's Field.
 enum class variable_kind_t : std::uint8_t {
     LOCAL,
@@ -266,6 +337,15 @@ struct variable_stmt_t {
     name_t name;
     std::optional<type_expr_id_t> type;
     std::optional<expr_id_t> value;
+    /// Static and ReadOnly, which only a Field can have.
+    modifiers_t modifiers;
+};
+
+/// "Local lo, hi = value": takes a tuple apart into new Locals, one for each element, which
+/// take the elements' types. A name "_" skips its element.
+struct destructure_stmt_t {
+    std::vector<name_t> names;
+    expr_id_t value;
 };
 
 /// "ByRef name: Type = default". ByRef and the default are optional.
@@ -285,22 +365,22 @@ enum class function_kind_t : std::uint8_t {
     BYREF_METHOD,
     /// "New()" in a Struct: makes a new value. Its name is the "New" keyword.
     CONSTRUCTOR,
-};
-
-/// What Abstract, Final, and Override say about a Class or a Method.
-struct modifiers_t {
-    bool is_abstract = false;
-    bool is_final = false;
-    bool is_override = false;
+    /// "Operator +(a: Money, b: Money): Money" in a Struct or Class: what the operator does on
+    /// its type. It's Static, and its name is the operator, like "+".
+    OPERATOR,
 };
 
 /// "Function Name(parameters): Type ... End Function", or a Struct's Method or New.
 struct function_stmt_t {
     function_kind_t kind = function_kind_t::FUNCTION;
     name_t name;
+    /// The names in "Function First<T>(...)": a generic function's type parameters.
+    std::vector<name_t> type_parameters;
     std::vector<parameter_t> parameters;
     /// nullopt when the function returns nothing.
     std::optional<type_expr_id_t> return_type;
+    /// The Classes after Throws: the errors it can throw extend them.
+    std::vector<type_expr_id_t> throws;
     /// For the one-line form, "Function Name() => value", a single Return of the value. An
     /// Abstract Method has none.
     block_t body;
@@ -415,15 +495,50 @@ struct type_stmt_t {
     /// "Class" rather than "Struct".
     bool is_class = false;
     name_t name;
+    /// The names in "Class Stack<T>": a generic type's type parameters.
+    std::vector<name_t> type_parameters;
     block_t members;
     /// The Class after Extends.
     std::optional<name_t> base;
     modifiers_t modifiers;
 };
 
+/// "Property Name: Type", with "Get => value" or a Get block, and maybe "Set(value)" and its
+/// block. Each part is a Method the parser makes: the Get takes nothing and returns the value,
+/// and the Set takes it as its one parameter.
+struct property_stmt_t {
+    name_t name;
+    type_expr_id_t type;
+    /// A function_stmt_t. nullopt when it's missing, which the parser reported.
+    std::optional<stmt_id_t> getter;
+    std::optional<stmt_id_t> setter;
+    modifiers_t modifiers;
+};
+
 /// "Defer statement": runs the statement when the enclosing block exits, however it exits.
 struct defer_stmt_t {
     stmt_id_t statement;
+};
+
+/// "Throw error": the code here ends with an error, an object of a Class that extends Error.
+struct throw_stmt_t {
+    expr_id_t error;
+};
+
+/// "Catch e As FileError", or "Catch e" for any error, and the code it runs.
+struct catch_t {
+    name_t name;
+    /// nullopt for "Catch e", which catches every Error.
+    std::optional<type_expr_id_t> type;
+    block_t body;
+};
+
+/// "Try ... Catch ... Finally ... End Try". An error in the body goes to the first Catch that
+/// matches it, and the Finally runs however the Try ends. It has a Catch or a Finally.
+struct try_stmt_t {
+    block_t body;
+    std::vector<catch_t> catches;
+    std::optional<block_t> finally_body;
 };
 
 /// One of an Enum's members: "Name", or "Name = value".
@@ -447,15 +562,17 @@ using stmt_node_t =
     std::variant<error_stmt_t, expression_stmt_t, assign_stmt_t, increment_stmt_t, variable_stmt_t,
                  function_stmt_t, if_stmt_t, while_stmt_t, repeat_stmt_t, loop_stmt_t, for_stmt_t,
                  for_in_stmt_t, select_stmt_t, break_stmt_t, continue_stmt_t, return_stmt_t,
-                 type_stmt_t, enum_stmt_t, defer_stmt_t>;
+                 type_stmt_t, enum_stmt_t, defer_stmt_t, throw_stmt_t, try_stmt_t, property_stmt_t,
+                 destructure_stmt_t>;
 
 struct stmt_t {
     span_t span;
     stmt_node_t node;
 };
 
-/// A parsed file. It holds every node, and its items are the top-level statements in source
-/// order. Names and spans refer to the source file's text.
+/// A parsed program: the main file and the library files the compiler adds, in one AST. It holds
+/// every node, and its items are the top-level statements in source order, the library files'
+/// first. Names and spans refer to the source files' text.
 class ast_t {
 public:
     expr_id_t add(expr_t expr);
@@ -484,11 +601,23 @@ public:
         m_items.push_back(id);
     }
 
+    /// The program's main file, whose top-level code runs. Any other file is a library file,
+    /// which only declares things.
+    void set_main_file(const file_id_t file) {
+        m_main = file;
+    }
+
+    /// Whether a statement is in a library file rather than the main file.
+    [[nodiscard]] bool from_library(const stmt_id_t id) const {
+        return get(id).span.file != m_main;
+    }
+
 private:
     std::vector<expr_t> m_exprs;
     std::vector<stmt_t> m_stmts;
     std::vector<type_expr_t> m_types;
     block_t m_items;
+    file_id_t m_main{};
 };
 
 } // namespace fb

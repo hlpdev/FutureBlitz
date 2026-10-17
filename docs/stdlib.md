@@ -11,6 +11,18 @@ the compiler come first. Full stdlib is milestone M6.
 Until `std.core` exists (M5), the compiler provides a temporary built-in `Print(String)`. It's
 removed once `std.core` provides `Print`.
 
+## Until modules
+
+Until M5 turns files into modules, every `.fb` file under std/ is part of every program, and all
+of them share the program's namespace. A library file only declares things: Functions, Structs,
+Classes, Enums, Globals, and Consts. A program gets only the library code it uses.
+
+So far, std/ holds:
+
+| File | Contents |
+|---|---|
+| std/core/error.fb | `Error`, the Class every error extends |
+
 ## `std` modules
 
 | Module | Contents |

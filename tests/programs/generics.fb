@@ -1,0 +1,198 @@
+// Generics: each Function, Struct, and Class is checked once, with its type parameters, and gets
+// an instance for each set of type arguments the program uses.
+Function First<T>(xs: T[]): T => xs[0]
+
+Function Map<T, U>(xs: T[], f: Func(T): U): U[]
+    Local result: U[] = []
+    For x In xs
+        result.Add(f(x))
+    End For
+
+    Return result
+End Function
+
+Function Swap<T>(ByRef a: T, ByRef b: T)
+    Local t = a
+    a = b
+    b = t
+End Function
+
+Struct Pair<A, B>
+    Field First: A
+    Field Second: B
+End Struct
+
+Class Stack<T>
+    Field Items: T[] = []
+
+    Method Push(item: T)
+        Items.Add(item)
+    End Method
+
+    Method Pop(): T
+        Local last = Items[Items.Count - 1]
+        Items.RemoveAt(Items.Count - 1)
+        Return last
+    End Method
+
+    // A generic Method has type parameters of its own.
+    Method Map<U>(f: Func(T): U): Stack<U>
+        Local result = Stack<U>()
+        For item In Items
+            result.Push(f(item))
+        End For
+
+        Return result
+    End Method
+End Class
+
+// Type arguments come from the arguments, from the type expected, or from what's written.
+Local n = First([3, 4])
+Local names = Map([1, 2], Function(x) => "n{x}")
+Local p = Pair(1, "one")
+Local q: Pair<Long, String> = Pair<Long, String>(2, "two")
+Local s = Stack<String>()
+s.Push("a")
+Local top = s.Pop()
+Local a = 1
+Local b = 2
+Swap(ByRef a, ByRef b)
+Local f = First<Float>([1, 2])
+Print("{n} {names[0]} {names[1]} {p.First} {p.Second} {q.First} {top} {a} {b} {f}")
+
+Local ns: Stack<Int> = Stack()
+ns.Push(5)
+ns.Push(6)
+Local doubled = ns.Map(Function(x) => x * 2)
+Print("{doubled.Pop()} {doubled.Pop()}")
+
+// An instance of a generic Class overrides its base's Methods and has its own Destroy.
+Class Animal
+    Method Speak(): String => "..."
+End Class
+
+Class Pet<T> Extends Animal
+    Field Tag: T
+    Field Name: String
+
+    New(name: String, tag: T)
+        Name = name
+        Tag = tag
+    End New
+
+    Override Method Speak(): String => "{Name} speaks"
+
+    Property Label: String
+        Get => "pet {Name}"
+    End Property
+
+    Method Destroy()
+        Print("bye {Name}")
+    End Method
+End Class
+
+Struct Box<T>
+    Field Value: T
+
+    ByRef Method Set(value: T)
+        Value = value
+    End Method
+
+    Method Get(): T => Value
+End Struct
+
+Function Find<T>(xs: T[], i: Int): T?
+    If i < xs.Count Then Return xs[i]
+    Return Null
+End Function
+
+Function Both<A, B>(a: A, b: B): (A, B) => (a, b)
+
+Function Count<T>(xs: T[]): Int
+    If xs.Count == 0 Then Return 0
+    Local rest: T[] = []
+    For i = 1 Until xs.Count
+        rest.Add(xs[i])
+    End For
+
+    Return 1 + Count(rest)
+End Function
+
+// A lambda in generic code captures generic Locals in their cells.
+Function Counter<T>(start: T): Func(T): T
+    Local last = start
+    Return Function(next: T): T
+        Local previous = last
+        last = next
+        Return previous
+    End Function
+End Function
+
+Function Wrap<T>(x: T): Box<T> => Box(x)
+
+Local pet: Animal = Pet("rex", 7)
+Print(pet.Speak())
+Local cat = Pet<String>("tom", "cat")
+Print("{cat.Label} {cat.Tag}")
+
+Local box = Box(1)
+box.Set(5)
+Print("{box.Get()}")
+Local nested = Box(Box("deep"))
+Print(nested.Value.Value)
+Local w = Wrap(Wrap(2.5))
+Print("{w.Get().Get()}")
+
+// A T? with an Int? for T is an Int?.
+Local letters = ["a", "b"]
+Print("{Find(letters, 1) ?? "none"} {Find(letters, 5) ?? "none"}")
+Local maybe: Int?[] = [1, Null]
+Print("{Find(maybe, 1) == Null}")
+
+Print("{Both(1, "x")}")
+Print("{Count([1, 2, 3])} {Count(["x"])}")
+
+Local swap = Counter("first")
+Print(swap("second"))
+Print(swap("third"))
+Local nums = Counter(1)
+Print("{nums(2)} {nums(3)}")
+
+Local find: Func(String[], Int): String? = Find
+Print(find(letters, 0) ?? "")
+
+Class Oops Extends Error
+End Class
+
+Function Check<T>(x: T, ok: Bool): T Throws Oops
+    If !ok Then Throw Oops("bad")
+    Return x
+End Function
+
+Class Node<T>
+    Field Value: T
+    Field Next: Node<T>?
+
+    New(value: T, next: Node<T>?)
+        Value = value
+        Next = next
+    End New
+End Class
+
+Print("{Try? Check("fine", True) ?? "-"} {Try? Check(5, False) ?? -1}")
+Try
+    Print("{Try Check(1.5, True)}")
+    Check(2, False)
+Catch e As Oops
+    Print(e.Message)
+End Try
+
+Local head = Node(1, Node(2, Null))
+Local item: Node<Int>? = head
+Local total = 0
+While item != Null
+    total += item.Value
+    item = item.Next
+End While
+
+Print("{total}")

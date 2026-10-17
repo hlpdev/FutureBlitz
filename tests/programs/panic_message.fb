@@ -1,0 +1,8 @@
+// Panic stops the program with a message the program made.
+Function Hp(level: Int): Int
+    If level > 0 Then Return level * 10
+    Panic("level {level} has no hp")
+End Function
+
+Print("{Hp(2)}")
+Print("{Hp(0)}")

@@ -84,5 +84,8 @@ keeps binaries small and fast.
 ## Assertions
 
 ```vb
-Assert(hp >= 0, "negative hp")    // panics on failure; stripped in release builds
+Assert(hp >= 0, "negative hp")    // panics on failure, in debug and release builds alike
 ```
+
+An Assert is checked in every build, since the code after it counts on its condition: after
+`Assert(e != Null)`, `e` is used as non-null. See [09](09-errors.md#panics).

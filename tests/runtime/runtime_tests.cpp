@@ -93,17 +93,25 @@ TEST_CASE("integer powers wrap, or overflow when checked", "[runtime]") {
 
 namespace {
 
-/// An array's destroy when its elements need no releasing.
+/// An array's release when its elements need no releasing.
 void free_numbers(fb_object_t* object) {
     fb_array_free(reinterpret_cast<fb_array_t*>(object));
 }
 
-/// How many times destroy_thing has run.
+/// How many times destroy_thing and release_thing have run.
 int destroyed = 0;
+int released = 0;
 
 void destroy_thing(fb_object_t* /*object*/) {
     ++destroyed;
 }
+
+void release_thing(fb_object_t* /*object*/) {
+    ++released;
+}
+
+/// A visit for objects whose fields refer to no objects.
+void visit_nothing(const fb_object_t* /*object*/, fb_visitor_t /*visitor*/, void* /*context*/) {}
 
 /// An object with one field after the header, laid out the way compiled code lays it out.
 struct thing_t {
@@ -117,6 +125,8 @@ fb_class_t thing_class() {
         .name = "Thing",
         .size = sizeof(thing_t),
         .destroy = destroy_thing,
+        .release = release_thing,
+        .visit = visit_nothing,
         .live = 0,
         .base = nullptr,
     };
@@ -138,6 +148,45 @@ TEST_CASE("an object is destroyed when its last owner lets go", "[runtime]") {
     fb_object_release(object);
     CHECK(destroyed == 1);
     CHECK(type.live == 0);
+}
+
+TEST_CASE("a Weak reference reads as null once its object is gone", "[runtime]") {
+    fb_class_t type = thing_class();
+    destroyed = 0;
+    released = 0;
+    fb_object_t* object = fb_object_new(&type);
+    fb_object_retain_weak(object);
+    fb_object_t* read = fb_object_load_weak(object);
+    CHECK(read == object);
+    CHECK(object->refcount == 2);
+    fb_object_release(read);
+
+    // The memory waits for the Weak reference, which frees it.
+    fb_object_release(object);
+    CHECK(destroyed == 1);
+    CHECK(released == 1);
+    CHECK(type.live == 0);
+    CHECK(fb_object_load_weak(object) == nullptr);
+    fb_object_release_weak(object);
+    CHECK(fb_object_load_weak(nullptr) == nullptr);
+}
+
+TEST_CASE("an object whose New threw is released without its Destroy", "[runtime]") {
+    fb_class_t type = thing_class();
+    destroyed = 0;
+    released = 0;
+    fb_object_discard(fb_object_new(&type));
+    CHECK(destroyed == 0);
+    CHECK(released == 1);
+    CHECK(type.live == 0);
+
+    // One that New gave to something else stays, and is destroyed as usual later.
+    fb_object_t* kept = fb_object_new(&type);
+    fb_object_retain(kept);
+    fb_object_discard(kept);
+    CHECK(type.live == 1);
+    fb_object_release(kept);
+    CHECK(destroyed == 1);
 }
 
 TEST_CASE("a new object's fields start at zero", "[runtime]") {
@@ -201,7 +250,9 @@ fb_class_t numbers_class() {
     return {
         .name = "Int64[]",
         .size = sizeof(fb_array_t),
-        .destroy = free_numbers,
+        .destroy = nullptr,
+        .release = free_numbers,
+        .visit = visit_nothing,
         .live = 0,
         .base = nullptr,
     };

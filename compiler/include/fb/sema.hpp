@@ -39,6 +39,9 @@ enum class symbol_kind_t : std::uint8_t {
     /// A New, or the one a type without a New gets: a Struct's takes its fields, and a Class's
     /// takes nothing. Its `type` is the Struct or Class.
     CONSTRUCTOR,
+    /// A Struct's or Class's Property. Its `type` is its value's, and its Get and Set are
+    /// Methods, which aren't members themselves.
+    PROPERTY,
 };
 
 /// Something a name can refer to: a function, a variable, a Const, a parameter, a Struct, or one
@@ -63,6 +66,8 @@ struct symbol_t {
     std::optional<const_value_t> value;
     /// A function's parameters, in order.
     std::vector<symbol_id_t> parameters;
+    /// A function's Throws: the Classes its errors extend. Empty when it can't throw.
+    std::vector<type_id_t> throws;
     /// The statement that declares it. nullopt for parameters, builtins, and the constructor a
     /// Struct gets.
     std::optional<stmt_id_t> declaration;
@@ -77,7 +82,8 @@ struct symbol_t {
     std::vector<symbol_id_t> members;
     /// A field's position among its type's fields, which start with the inherited ones.
     std::uint32_t field = 0;
-    /// A Class's or Method's Abstract, Final, and Override.
+    /// A Class's, Method's, Field's, or Property's modifiers. A Static Field is a GLOBAL whose
+    /// owner is its type.
     modifiers_t modifiers;
     /// A Method that overrides one of the Class it extends: that one.
     std::optional<symbol_id_t> overrides;
@@ -86,6 +92,49 @@ struct symbol_t {
     std::optional<symbol_id_t> base_new;
     /// A parameter or field whose default is "[]", which gives each use a new empty array.
     bool empty_default = false;
+    /// A Property's Get and Set. A Property that overrides another may leave out its Set, and
+    /// then uses that one's.
+    std::optional<symbol_id_t> getter;
+    std::optional<symbol_id_t> setter;
+    /// A Local that a lambda captures: the Class of the cell it lives in, which the lambda shares
+    /// with the code around it.
+    type_id_t cell = type_id_t::INVALID;
+    /// A generic Function's or Method's own type parameters. A generic Struct's or Class's are in
+    /// its type.
+    std::vector<type_id_t> type_parameters;
+};
+
+/// How a closure keeps a variable from around its lambda.
+enum class capture_kind_t : std::uint8_t {
+    /// A copy, of a variable that can't change: a parameter, a loop variable, a Const, or Self.
+    VALUE,
+    /// The cell a Local lives in, which the closure shares with the code around it.
+    CELL,
+    /// "[Weak x]": a Weak<T> of the object the variable refers to when the closure is made.
+    WEAK,
+};
+
+/// A variable that a lambda uses from around it.
+struct capture_t {
+    /// The variable outside the lambda.
+    symbol_id_t variable;
+    /// What the lambda's code uses: the variable itself, or for a Weak capture, a read-only
+    /// Weak<T> named like it.
+    symbol_id_t inside;
+    capture_kind_t kind = capture_kind_t::VALUE;
+};
+
+/// A function value: a lambda, or a Function used by name.
+struct closure_t {
+    /// The lambda's symbol, which has its parameters and return type, or the Function.
+    symbol_id_t function;
+    /// The Class of its objects: a field for each capture, in order.
+    type_id_t type;
+    /// Its Func type.
+    type_id_t func;
+    std::vector<capture_t> captures;
+    /// The lambda. nullopt for a Function used by name.
+    std::optional<expr_id_t> lambda;
 };
 
 /// What analysis found out about one expression.
@@ -110,8 +159,19 @@ struct expr_info_t {
 
     /// For a call: one entry per parameter of the function, in parameter order. Each is the
     /// argument's expression, or nullopt when the parameter takes its default value. Empty
-    /// when the arguments couldn't be matched to the parameters.
+    /// when the arguments couldn't be matched to the parameters. For an operator that calls an
+    /// Operator, whose symbol is `symbol`: its operands.
     std::vector<std::optional<expr_id_t>> arguments;
+
+    /// For a lambda, or a Function's name used as a value: its closure's index in
+    /// analysis_t::closures.
+    std::optional<std::size_t> closure;
+
+    /// For a call of a generic Function or Method, or a generic Function used as a value: a type
+    /// argument for each of the function's own type parameters. Those of a generic Struct or
+    /// Class come from the type of the object, or of the one New makes. For an operator that
+    /// calls an Operator of a generic type, its type's.
+    std::vector<type_id_t> type_arguments;
 };
 
 /// What analysis found out about one statement.
@@ -121,13 +181,17 @@ struct stmt_info_t {
     std::optional<symbol_id_t> symbol;
     /// For Break and Continue: the loop statement they leave or continue.
     std::optional<stmt_id_t> loop;
-    /// For a Select of type matches: each Case's variable, in order.
+    /// For a Select of type matches, or a Try's Catches: each one's variable, in order. For a
+    /// Local that takes a tuple apart, each new Local, without the "_"s.
     std::vector<symbol_id_t> matches;
     /// For a "For index, value In": the index's variable. `symbol` is the value's.
     std::optional<symbol_id_t> index;
     /// For a Select on an Enum without a Default: whether its Cases cover every value, so no
     /// path goes past them all.
     bool exhaustive = false;
+    /// For "x op= y" with an Operator, whose symbol is `symbol`: a type argument for each type
+    /// parameter of its Struct or Class.
+    std::vector<type_id_t> type_arguments;
 };
 
 /// Everything analysis found out about a file, for lowering and tools. `exprs` and `stmts` have
@@ -144,6 +208,13 @@ struct analysis_t {
     std::vector<symbol_id_t> globals;
     /// Every type the program uses, the built-ins first.
     type_table_t types;
+    /// The Error Class from std/core/error.fb, which every error extends, and Error?, which
+    /// holds the error a call throws, or Null.
+    type_id_t error_class = type_id_t::INVALID;
+    type_id_t nullable_error = type_id_t::INVALID;
+    /// The function values the program makes. The expression that makes each one, a lambda or
+    /// a Function's name, has its index.
+    std::vector<closure_t> closures;
 
     [[nodiscard]] const symbol_t& symbol(const symbol_id_t id) const {
         return symbols[std::to_underlying(id)];
@@ -159,9 +230,10 @@ struct analysis_t {
 };
 
 /// Resolves names, checks types and that variables are assigned before they're read, folds
-/// constants, and reports errors to `diagnostics`. It always returns a full analysis, but only
+/// constants, and reports errors to `diagnostics`. Every file in `ast` shares one namespace, and
+/// `sources` holds them all. It always returns a full analysis, but only
 /// one without errors can be lowered.
-[[nodiscard]] analysis_t analyze(const source_file_t& file, const ast_t& ast,
+[[nodiscard]] analysis_t analyze(const source_manager_t& sources, const ast_t& ast,
                                  diagnostic_bag_t& diagnostics);
 
 } // namespace fb

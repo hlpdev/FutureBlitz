@@ -46,12 +46,18 @@ section.
 | A label must come right before a loop | labels only exist for `Break` and `Continue` |
 | `>>`, `As?`, and `T?` are written without spaces | tells shifts from nested generics and `T?` from the ternary |
 | Lambdas are always written with `Function` (`=> expr` or a block); no `() =>` | one way to write a function |
+| `Func(A, B): R`; a `?` or `[]` after it belongs to the return type, so `(Func(): Int)?` needs parentheses | the return type reads like any other type annotation |
+| A lambda's parameter types and return type come from the Func expected where it is, unless it writes them | `list.Filter(Function(x) => x > 0)` stays short |
 
 ## Operators
 
 | Decision | Why |
 |---|---|
 | C-style operators for arithmetic, comparison, logical, bitwise | no word operators like `And`/`Or`/`Not`/`Mod` |
+| `Operator +(a: T, b: T): T` in a Struct or Class: a Static function named by its operator, taking a value of its type | operators are found through their operands' types, with ordinary overloading |
+| `!=` is always `!(a == b)`; `&&`, `\|\|`, `??`, `?:`, `Is`, and `As` can't be overloaded | the operators that decide control flow or types keep one meaning |
+| `x op= y` uses `op`; a type's `Operator ==` is used by every `==` on it, inside Structs, tuples, `T?`, and `Contains` too | one definition of equality per type |
+| An Operator has no ByRef or default parameters, no type parameters of its own, and doesn't throw | an operator reads like arithmetic, which has no hidden effects |
 | Split `=` (assignment) and `==` (comparison) | BASIC's dual-use `=` is ambiguous |
 | Assignment is a statement; `++`/`--` are statements | avoids `x = i++` trickery |
 | Ternary `? :` | C-style |
@@ -70,6 +76,11 @@ section.
 | Single inheritance + interfaces with default methods | |
 | Visibility: `Private` (default, file), `Protected`, `Package`, `Public` | |
 | Statics on classes and structs | |
+| A Static Field is a Global named after its type, initialized with the Globals in source order; a Static Method has no Self and isn't virtual | statics are module data and functions in a type's namespace |
+| `ReadOnly` goes before Fields only: they change only in their Class's `New`, through Self; a Global that never changes is a `Const` | `Const` already holds values made at run time, objects included |
+| A ReadOnly Field can be assigned more than once in `New` | the point is that nothing changes it afterwards, which needs no flow analysis |
+| A Property's Get and Set are Methods; a Class's are virtual, and `Override Property` replaces them | Properties fit the existing Method tables, and overriding works the same way |
+| A Struct's Set changes the variable, like a ByRef Method; a Struct-typed Property gives a copy, so changing part of it is an error | a change that would land on a copy is always a mistake |
 | `T[]` and collections are references; `T[N]` is a value; `.Clone()` copies | |
 | Struct `==` field-wise; class `==` via `Equatable` or identity; `RefEquals` | |
 | Overflow traps in debug, wraps in release; explicit wrapping/checked ops | |
@@ -95,6 +106,7 @@ section.
 | Methods are virtual unless `Final`; `Override` must match the parameter types, `ByRef`, and return type exactly | one rule for what overrides what |
 | Every Class's `Destroy` runs, the most derived first, and none overrides another | each Class cleans up its own fields |
 | A Class's `New` runs the base's first: `Super.New(...)` as its first statement, or the base's `New` that takes no arguments; `Self` waits for it | the object is set up from the base down, like the field layout |
+| A Class without a `New` that extends another takes the parameters of each of its base's News, and passes them on | an error Class is two lines, and fields with defaults don't need a New |
 | An object's fields start with its base Class's, and its Class's info has a Method table after `fb_class_t` | inherited fields and overrides cost no lookups |
 | `As` to a subclass, and from a `T?` to a `T`, checks at run time and panics with the Class it found; `As?` gives `Null`; unrelated Classes are a compile error | casts that can't work are caught early, and ones that fail at run time say why |
 | Two Classes meet at the nearest one both extend: `True ? rect : circle` is a `Shape` | the ternary works across a hierarchy |
@@ -113,6 +125,14 @@ section.
 | An Enum's zero is its first member, or no flags | fields and arrays of Enums start at a real value |
 | A string shows an Enum value's name; a `@Flags` one that isn't a member shows its flags | debugging output reads as source |
 | `@Flags` is the one attribute in M2 | the rest come with compile-time features |
+| A tuple `(A, B)` is a value like a Struct without a name; its elements are `.0`, `.1`, and so on | multiple returns and pairs need no declared Struct; numbered as in Swift and Rust |
+| `Local lo, hi = t` takes a tuple apart, with a name for every element and `_` to skip one; only a Local can | each name takes its element's type, and the tuple's whole shape is checked |
+| `a, b = (b, a)` makes the whole value before assigning any target, then assigns them from the left | a swap works, in the order Python uses |
+| A tuple literal converts element by element to the tuple its context expects; another tuple value converts only to its own type or its `T?` | `Return (lo, hi)` works for a `(Long, Long)`, and whole tuples don't convert behind the scenes |
+| Tuples compare and show in strings element by element, as `(1, a)` | they're plain values with nothing else to show, and printing pairs is common |
+| A tuple can't hold a `Weak<T>` | a check can't narrow what it reads; a Weak belongs in an object's field |
+| A Func can't throw; a lambda catches the errors of what it calls, and Functions that throw aren't values | a caller of a function value can't know what it throws until interfaces and generics can say |
+| Inside a lambda, a captured `Local` isn't narrowed; outside, a `Local` that a lambda assigns stops narrowing once the lambda exists | any call could run the lambda between a check and a use |
 | `Defer` runs one call, assignment, `++`/`--`, or one-line `If`, which can't leave the block | a way out can't jump somewhere else halfway through its cleanup |
 | A Defer's expressions are evaluated when it runs, as in Swift; `Return`'s value is computed first | it cleans up what's there at the exit, and can't change the result behind the `Return` |
 | A block's Defers and the releases of its variables run together, the last first | what's declared before a Defer is still alive when it runs |
@@ -151,9 +171,16 @@ section.
 | `Weak<T>`; debug cycle detector | break cycles |
 | `Destroy()` runs when refcount hits 0 | deterministic cleanup |
 | `Destroy` is `Method Destroy()`, without parameters or a result; it runs before the fields are released, can't be called, and panics if it keeps a reference to its object | the object is about to be freed, so nothing may hold on to it |
-| An object starts with a header: its refcount and its Class's info (name, size, destroy, count); the leak report names Classes | leaks are easy to find, and the runtime needs no type tables |
+| An object starts with a header: its counts and its Class's info (name, size, destroy, release, visit, count); the leak report names Classes | leaks are easy to find, and the runtime needs no type tables |
 | A `Weak<T>` is assigned a `T`; reading it gives a `T?` that's `Null` once the object is gone | `parent?.name` works with the null operators already in the language |
+| Reading a `Weak<T>` makes a strong reference, which a check can't narrow | the object can't go away while it's used, but it can between reads |
+| An object's header has a 32-bit refcount and a 32-bit weak count; memory waits for the last Weak, the object doesn't | Weak needs no side table, and the header stays 16 bytes |
+| `fb_class_t` has separate destroy, release, and visit functions | a `New` that threw skips `Destroy()`, and the cycle detector walks references |
+| Debug builds track every object and report each leaked cycle by its fields; release builds only count leaks | finding a cycle is the hard part of fixing a leak, and release builds shouldn't pay for it |
 | Closures capture by reference; C++-style capture lists `[Weak Self]`; compiler warns on strong `Self` capture stored in a field | prevent refcount cycles |
+| A function value is a reference to a closure: an object of a Class made for its lambda, named like "Function at main.fb:3:12", with a field for each capture and its code in the Method table | closures are counted and freed like any object, and leak reports name them and the cycles through them |
+| A captured `Local` lives in a `Cell<T>` object for its whole life; what can't change (parameters, loop variables, Consts, Self) is copied | sharing a variable needs somewhere both sides can reach, and copies cost nothing; each `For` pass gets its own variable |
+| A Function used by name becomes a new closure object each time, whose code calls it | one way to call every function value; a static object for closures without captures can come later |
 | Pointers only in `Unsafe` | normal code never needs them |
 
 ## Generics
@@ -166,6 +193,13 @@ section.
 | Invariant generics | avoids soundness bugs |
 | Const generics | `T[W, H]`, fixed-size math |
 | C#-style `<` disambiguation | |
+| A generic body is checked once with opaque type parameters, then lowered once per set of type arguments | errors point at the generic code, and each instance is ordinary code |
+| Type arguments are inferred from the arguments' types, then literals, then lambdas, then the type expected | each step uses what the earlier ones learned, so `Map(xs, Function(x) => ...)` needs nothing written |
+| A non-generic overload beats a generic one that fits as well | the specific function is the one meant |
+| Generic Methods aren't in the Method table, so they can't be Abstract or Override | each set of type arguments is a different function, which a table can't hold ahead of time |
+| `T?` with a nullable `T` is that type, not a `T??` | one kind of Null |
+| A lambda's Class, and `Cell<T>`, are generic in generic code | a closure's captures have the instance's types |
+| Until M3's later steps: no constraints, no generic base Classes, and no Static members in generic types | constraints need interfaces (step 6); the others need their own design |
 
 ## Errors
 
@@ -174,6 +208,21 @@ section.
 | Checked `Throws` + `Try`/`Catch`/`Finally` + `Try`/`Try?` prefixes | explicit, no surprise exceptions |
 | `Panic` for bugs | |
 | Errors lowered as return values | zero cost when nothing throws |
+| `Error` is a Class with a `Message`, in std/core/error.fb; every error's Class extends it | one root for Catch and Throws, and a message every error has |
+| `Throws` lists Classes, and each error a call can throw is caught or in the function's `Throws` | the compiler knows what can go wrong where |
+| A call that throws needs `Try`, `Try?`, or a Try block around it | every place that can throw is marked |
+| `Try` and `Try?` bind like prefix operators | `Try? Parse(s) ?? 0` reads the way it's meant |
+| `Try?` catches every error and gives a `T?` | treating a failure as no value takes one word |
+| A Catch that an earlier one covers, or that nothing in the body throws, is an error | a Catch that can't run is a mistake |
+| A Catch and the Finally start from what was true before the Try | the error can come from any part of the body |
+| `Finally` runs on every way out of its Try, and can't throw or leave itself; neither can a Defer's statement | cleanup can't replace the error, or jump away in the middle of leaving |
+| An `Override` can't throw more than the Method it overrides | a call through the base handles every error |
+| A `New` can throw; its object is released without its `Destroy()`, and a throwing base `New` is called `Try Super.New(...)` | opening or parsing in `New` is normal, and `Destroy()` could read fields `New` didn't set |
+| `Destroy` can't throw | it runs at whatever release is last, with no caller to give the error to |
+| Top-level code can let errors out: its Defers and Finallys run, then "uncaught Class: Message" and exit code 1 | scripts don't need a Try around everything, and still clean up |
+| `Panic(message)` and `Assert(condition, message)` are built-ins; code after a Panic doesn't run, and an Assert narrows | a bug stops the program where it's found |
+| Assert is checked in release builds too | code after it relies on its condition, so skipping the check would turn a clear panic into a crash |
+| A function that throws takes its caller's `Error?` as a hidden last parameter; every Method in a slot does when the first one throws | errors are return values, and overrides stay callable through the Method table |
 | `Task.Wait()`/`Await` **re-throw** the task's error | like C# |
 
 ## Concurrency
@@ -191,6 +240,9 @@ section.
 | Decision | Why |
 |---|---|
 | File = module; `Import`; private by default; no textual include | replaces `Include` |
+| Until modules (M5), a program is its main file plus every file in std/, which share one namespace; library files only declare things | `std.collections` can be written in FutureBlitz before `Import` exists |
+| A program gets only the library code it uses: a library function once something calls it, and a library Class once the program makes one or tests for it | std/ can grow without every program's MIR and executable growing with it |
+| The compiler reads std/ from its source tree (`build_config::std_directory`) for now | there's no install layout yet |
 | `project.toml` packages with versioned deps and `[native]` libs; static linking default | single-binary games |
 | In-source `Extern "C"` blocks + `@CLayout` + `Callback` + bindgen | replaces `.decls` |
 | `Const Function`s evaluated at compile time | |
@@ -233,4 +285,5 @@ section.
 | Temporary built-in `Print(String)` until `std.core` exists (M5) | M1 needs output before there are modules |
 | M1 type checking covers `Bool`, integers, floats, and `String`, with `As` between numbers | the smallest set that compiles real programs; the rest arrives in M2 |
 | M2 is built in 11 steps, each designed and then built in one go; see [milestones.md](milestones.md) | plumbing first, and every step ends with leak-free programs |
+| M3 is built in 12 steps the same way, from several-file programs to `std.collections` in FutureBlitz | the library needs files before modules, and each feature needs the ones before it |
 | M2 leaves interfaces, `Extend`, operator overloading, tuples, lambdas, slices, variadics, and `.Chars`/`.Bytes` to M3, and visibility to M5 | they need generics or modules; M2 stays about data |

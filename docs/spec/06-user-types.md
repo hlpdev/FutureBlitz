@@ -98,6 +98,9 @@ End Class
   called that way.
 - A Class's `New` starts with `Super.New(...)`, or else the `New` of the Class it extends that
   takes no arguments runs first. Until `Super.New` runs, `Self` can't be used.
+- A Class without a `New` of its own takes the parameters of each `New` of the Class it extends,
+  and their Throws, and passes them on: `Class FileError Extends Error` makes
+  `FileError("missing")`.
 - Every Class's `Destroy` runs, the most derived first, so `Destroy` is never `Override`.
 - An object converts to any Class its Class extends. `x Is T` tests its Class at run time,
   `x As T` panics when it isn't a `T` ("expected Boss, found Grunt"), and `x As? T` gives `Null`
@@ -140,6 +143,22 @@ Class Enemy
 End Class
 ```
 
+- A Property has a Get, `Get => value` or a block ending in `End Get`, and maybe a Set, whose
+  parameter takes the value. Each is a Method, and its name is the Property's.
+- Reading `e.Health` calls the Get. `e.Health = 5`, `e.Health += 5`, and `e.Health++` call the
+  Set, after the Get for the last two. One without a Set can't be assigned.
+- In a Struct, the Get can't change Self and the Set can, like a ByRef Method. A Property of a
+  Struct type gives a copy, so changing part of it, as in `e.Pos.x = 1`, is an error.
+- A Property can't be passed `ByRef`, since it has no variable.
+- A Class's Properties are virtual, like its Methods: `Override Property` replaces the Get, and
+  the Set if it has one. They can't be Static or Abstract yet.
+
+### ReadOnly fields
+
+`ReadOnly Field id: Int` can only change in its own Class's `New`, through Self, by name or as
+`Self.id`: not later, and not in a Class that extends it. Its parts can't change either, and it
+can't be passed `ByRef` outside that `New`. A Global that never changes is a `Const`.
+
 ## Statics
 
 ```vb
@@ -154,6 +173,13 @@ End Class
 Enemy.Spawn("grunt")
 ```
 
+- A Static Field is one variable for the type, which starts with its value when the program
+  does, in source order with the Globals. A Static Method has no Self.
+- Both are used through the type, like `Enemy.count`, or by name in the type's own Methods. A
+  Static Method can't use the other members by name, since it has no object.
+- Struct and Class both have them. They aren't virtual, so they can't be Abstract, Final, or
+  Override. A `Static ReadOnly Field` keeps the value it starts with.
+
 ## Operator overloading
 
 ```vb
@@ -163,6 +189,21 @@ Struct Money
     Operator ==(a: Money, b: Money): Bool => a.cents == b.cents
 End Struct
 ```
+
+- A Struct or Class can define `+ - * / % ** & | ^ << >>` and `== < > <= >=`, and `-`, `!`, and
+  `~` with one parameter. `&&`, `||`, `??`, `? :`, `Is`, and `As` mean what they always do.
+- `!=` is always the opposite of `==`, so it's never defined on its own.
+- An Operator is Static, has no Self, and takes a value of its own type as one of its
+  parameters. A comparison gives a `Bool`. Its parameters aren't `ByRef` and have no defaults,
+  it has no type parameters of its own, and it doesn't throw.
+- `a + b` calls the Operator `+` that `a`'s or `b`'s type defines, or inherits from a Class it
+  extends, chosen among them like among a function's overloads; a literal takes the type of the
+  parameter it's passed for. Comparing with `Null` is never an Operator.
+- `x op= y` assigns what `x op y` gives, which must fit in `x`.
+- A type with an `Operator ==` uses it for every `==` on its values: in a Struct's or tuple's
+  field-wise `==`, a `T[]`'s `Contains`, and between `T?` values. `RefEquals` still compares
+  objects themselves.
+- A generic type's Operators take its type arguments from their operands.
 
 ## Extend
 

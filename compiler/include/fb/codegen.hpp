@@ -25,15 +25,17 @@ struct codegen_options_t {
     std::string target_triple;
 };
 
-/// The module as LLVM IR text, optimized in release builds. `file` gives panics their path,
-/// line, and column. Fails when the target isn't available or the IR is invalid.
-[[nodiscard]] std::expected<std::string, std::string>
-emit_ir(const mir_module_t& module, const source_file_t& file, const codegen_options_t& options);
+/// The module as LLVM IR text, optimized in release builds. `sources` gives panics their path,
+/// line, and column, and the module is named after the `main` file. Fails when the target isn't
+/// available or the IR is invalid.
+[[nodiscard]] std::expected<std::string, std::string> emit_ir(const mir_module_t& module,
+                                                              const source_manager_t& sources,
+                                                              file_id_t main,
+                                                              const codegen_options_t& options);
 
 /// Like emit_ir(), but writes a native object file to `path`.
-[[nodiscard]] std::expected<void, std::string> emit_object(const mir_module_t& module,
-                                                           const source_file_t& file,
-                                                           const codegen_options_t& options,
-                                                           const std::filesystem::path& path);
+[[nodiscard]] std::expected<void, std::string>
+emit_object(const mir_module_t& module, const source_manager_t& sources, file_id_t main,
+            const codegen_options_t& options, const std::filesystem::path& path);
 
 } // namespace fb

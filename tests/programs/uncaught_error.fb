@@ -1,0 +1,22 @@
+// An error that top-level code lets out runs its Defers and Finallys, then ends the program
+// with exit code 1.
+Class ConfigError Extends Error
+End Class
+
+Function Setting(name: String): Int Throws ConfigError
+    If name == "speed" Then Return 3
+    Throw ConfigError("no setting '{name}'")
+End Function
+
+Defer Print("the Defer runs")
+Print("speed {Try Setting("speed")}")
+Try
+    Print("size {Setting("size")}")
+Catch e As ConfigError
+    Print("caught {e.Message}")
+    Local extra = Try Setting("extra")
+Finally
+    Print("the Finally runs")
+End Try
+
+Print("not printed")
