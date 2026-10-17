@@ -155,7 +155,7 @@ struct member_expr_t {
     bool null_safe;
 };
 
-/// "object[indices]", like "grid[x, y]". Not supported in M1.
+/// "object[indices]", like "grid[x, y]".
 struct index_expr_t {
     expr_id_t object;
     std::vector<expr_id_t> indices;
@@ -178,10 +178,20 @@ struct is_expr_t {
 /// "Self": the value a Method or New works on.
 struct self_expr_t {};
 
+/// "Super", which only comes before a call: "Super.Hurt(5)" calls the Method of the Class that
+/// Self's Class extends, and "Super.New()" its New.
+struct super_expr_t {};
+
+/// "[1, 2, 3]", a new array of the elements.
+struct array_expr_t {
+    std::vector<expr_id_t> elements;
+};
+
 using expr_node_t =
     std::variant<error_expr_t, integer_expr_t, decimal_expr_t, character_expr_t, string_expr_t,
                  bool_expr_t, null_expr_t, name_expr_t, unary_expr_t, binary_expr_t, ternary_expr_t,
-                 call_expr_t, member_expr_t, index_expr_t, cast_expr_t, is_expr_t, self_expr_t>;
+                 call_expr_t, member_expr_t, index_expr_t, cast_expr_t, is_expr_t, self_expr_t,
+                 super_expr_t, array_expr_t>;
 
 struct expr_t {
     span_t span;
@@ -203,9 +213,11 @@ struct nullable_type_t {
     type_expr_id_t inner;
 };
 
-/// "Type[]". Not supported in M1.
+/// "Type[]", or a fixed array "Type[N]" or "Type[W, H]", whose sizes are known at compile time.
 struct array_type_t {
     type_expr_id_t element;
+    /// Empty for "Type[]".
+    std::vector<expr_id_t> sizes;
 };
 
 using type_expr_node_t = std::variant<error_type_t, named_type_t, nullable_type_t, array_type_t>;
@@ -275,6 +287,13 @@ enum class function_kind_t : std::uint8_t {
     CONSTRUCTOR,
 };
 
+/// What Abstract, Final, and Override say about a Class or a Method.
+struct modifiers_t {
+    bool is_abstract = false;
+    bool is_final = false;
+    bool is_override = false;
+};
+
 /// "Function Name(parameters): Type ... End Function", or a Struct's Method or New.
 struct function_stmt_t {
     function_kind_t kind = function_kind_t::FUNCTION;
@@ -282,8 +301,10 @@ struct function_stmt_t {
     std::vector<parameter_t> parameters;
     /// nullopt when the function returns nothing.
     std::optional<type_expr_id_t> return_type;
-    /// For the one-line form, "Function Name() => value", a single Return of the value.
+    /// For the one-line form, "Function Name() => value", a single Return of the value. An
+    /// Abstract Method has none.
     block_t body;
+    modifiers_t modifiers;
 };
 
 /// The If, or one ElseIf: a condition and the code it runs.
@@ -336,7 +357,7 @@ struct for_stmt_t {
     block_t body;
 };
 
-/// "For value In sequence", or "For index, value In sequence". Not supported in M1.
+/// "For value In sequence", or "For index, value In sequence".
 struct for_in_stmt_t {
     std::optional<name_t> label;
     std::optional<name_t> index;
@@ -351,9 +372,18 @@ struct case_value_t {
     std::optional<expr_id_t> range_end;
 };
 
-/// "Case values" and the code it runs.
+/// "Case e As Boss": matches an object of a Class, or of one that extends it, and names it as
+/// one in the Case's code.
+struct type_case_t {
+    name_t name;
+    type_expr_id_t type;
+};
+
+/// "Case values", or a type match, and the code it runs.
 struct case_t {
     std::vector<case_value_t> values;
+    /// A type match, which has no values.
+    std::optional<type_case_t> match;
     block_t body;
 };
 
@@ -379,13 +409,16 @@ struct return_stmt_t {
     std::optional<expr_id_t> value;
 };
 
-/// "Struct Name ... End Struct". Its members are Fields (variable_stmt_t) and Methods and News
-/// (function_stmt_t), in source order.
+/// "Struct Name ... End Struct", or "Class Name Extends Base ... End Class". Its members are
+/// Fields (variable_stmt_t) and Methods and News (function_stmt_t), in source order.
 struct type_stmt_t {
     /// "Class" rather than "Struct".
     bool is_class = false;
     name_t name;
     block_t members;
+    /// The Class after Extends.
+    std::optional<name_t> base;
+    modifiers_t modifiers;
 };
 
 using stmt_node_t =

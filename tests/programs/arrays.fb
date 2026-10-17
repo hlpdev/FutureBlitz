@@ -1,0 +1,105 @@
+// Arrays: T[] literals, indexing, Count, Add, Insert, RemoveAt, Clear, Contains, Clone,
+// For ... In, and fixed T[N] and T[W, H].
+Class Item
+    Field name: String
+
+    New(name: String)
+        Self.name = name
+    End New
+
+    Method Destroy()
+        Print("{name} freed")
+    End Method
+End Class
+
+Struct Point
+    Field x: Int
+    Field y: Int
+End Struct
+
+Class Bag
+    Field items: Item[] = []
+    Field tags: String[]
+
+    New(tags: String[])
+        Self.tags = tags
+    End New
+End Class
+
+Function Sum(values: Int[]): Int
+    Local total = 0
+    For value In values
+        total += value
+    End For
+
+    Return total
+End Function
+
+Function Describe(words: String[]): String
+    Local text = ""
+    For i, word In words
+        If i > 0 Then text += ", "
+        text += word
+    End For
+
+    Return "[{text}]"
+End Function
+
+Local numbers = [3, 1, 4]
+numbers.Add(1)
+numbers.Insert(0, 9)
+Print("{numbers.Count} {Sum(numbers)} {numbers[0]} {numbers[4]}")
+numbers.RemoveAt(1)
+numbers[0] += 10
+Print("{numbers[0]} {numbers.Count} {numbers.Contains(4)} {numbers.Contains(3)}")
+
+Local words = ["a", "b"]
+Local copy = words.Clone()
+copy.Add("c")
+copy[0] = "z"
+Print("{Describe(words)} {Describe(copy)} {RefEquals(words, copy)}")
+words.Clear()
+Print("{words.Count} {Describe(words)}")
+
+Local points: Point[] = [Point(1, 2)]
+points.Add(Point(3, 4))
+points[1].x = 30
+Print("{points[1].x} {points[1].y} {points.Contains(Point(1, 2))}")
+
+Function Maybe(some: Bool): Int[]? => some ? [7] : Null
+
+Print("{Maybe(False)?.Count ?? -1} {Maybe(True)?.Count ?? -1}")
+
+// Elements that are objects are released with the array, or when they're taken out.
+Local bag = Bag(["x"])
+bag.items.Add(Item("sword"))
+bag.items.Add(Item("shield"))
+bag.items.Add(Item("potion"))
+bag.items.RemoveAt(1)
+For item In bag.items
+    Print("has {item.name}")
+End For
+
+Local grid: Int[3, 4]
+For x = 0 Until 3
+    For y = 0 Until 4
+        grid[x, y] = x * 10 + y
+    End For
+End For
+
+Local total = 0
+For cell In grid
+    total += cell
+End For
+
+Print("{grid[2, 3]} {grid.Count} {total}")
+
+Local triple: Float[3] = [0.5, 1.5, 2.5]
+Local other = triple
+other[0] = 9.0
+Print("{triple[0]} {other[0]}")
+
+Local nested = [[1, 2], [3]]
+nested[1].Add(4)
+Print("{nested.Count} {nested[1].Count} {nested[1][1]}")
+Print("end of main")

@@ -67,6 +67,28 @@ Local copy = nums.Clone()
 
 Out-of-bounds access panics.
 
+- An array literal takes the type it's used as, like `Local a: Long[] = [1, 2]`, or else its
+  elements' common type, with literals taking it: `[1, 2.5]` is a `Float[]`. `[]` needs a type
+  from where it's used. A `T[N]` can come from a literal of N elements; a `T[W, H]` can't.
+- A `T[]` has `Count` (an `Int`) and the Methods `Add(value)`, `Insert(index, value)`,
+  `RemoveAt(index)`, `Clear()`, `Contains(value)`, and `Clone()`. `Clone` copies the elements,
+  not what they refer to. `Contains` compares with `==`. A fixed array has `Count` only.
+- An index can be any integer. A `T[W, H]` takes one per dimension, `grid[x, y]`, and stores
+  its elements row by row. An index out of range panics: "index 5 is out of range for 3
+  elements". A fixed array's index known at compile time is checked then.
+- A `T[]` is a reference, so its elements change through any reference to it. A fixed array is
+  a value, copied on assignment, and starts with every element at zero; a `Local` of one is
+  ready when declared.
+- A `T[]` has no zero. A `Global` of one needs a value, and a field needs a default or a `New`
+  that assigns it. `[]` is a default anywhere: each use gets a new empty array.
+- A `T[]` only holds `T`: a `Boss[]` isn't an `Enemy[]`, since adding an `Enemy` to it would
+  break it.
+- Arrays don't have `==` yet; `RefEquals` tells whether two `T[]`s are the same array.
+- An element can't be passed `ByRef` yet, and a `ByRef Method` can't change a `T[]`'s element
+  in place, since the elements move when the array grows.
+- A fixed array's sizes are integers known at compile time: literals, or `Const`s in code.
+- Slices (`arr[a..b]`) come in M3.
+
 ## Collections (`std.collections`)
 
 | Type | Notes |

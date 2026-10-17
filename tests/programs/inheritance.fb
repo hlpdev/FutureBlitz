@@ -1,0 +1,116 @@
+// Inheritance: Extends, Override, Super, Abstract, Final, Is, As, As?, and Case e As T.
+Abstract Class Shape
+    Field name: String
+
+    New(name: String)
+        Self.name = name
+    End New
+
+    Abstract Method Area(): Float
+
+    Method Describe(): String => "{name} with area {Area()}"
+
+    Method Destroy()
+        Print("shape {name} freed")
+    End Method
+End Class
+
+Class Rect Extends Shape
+    Field width: Float
+    Field height: Float
+
+    New(width: Float, height: Float)
+        Super.New("rect")
+        Self.width = width
+        Self.height = height
+    End New
+
+    Override Method Area(): Float => width * height
+
+    Method Destroy()
+        Print("rect {width}x{height} freed")
+    End Method
+End Class
+
+Final Class Square Extends Rect
+    New(side: Float)
+        Super.New(side, side)
+        name = "square"
+    End New
+
+    Override Method Describe(): String => "a square: " + Super.Describe()
+End Class
+
+Class Circle Extends Shape
+    Field radius: Float
+
+    New(radius: Float)
+        Super.New("circle")
+        Self.radius = radius
+    End New
+
+    Override Final Method Area(): Float => 3.0 * radius * radius
+End Class
+
+// A Class without a New runs the plain New of the one it extends.
+Class Counter
+    Field count: Int = 10
+
+    New()
+        count += 1
+    End New
+
+    Method Bump()
+        count++
+    End Method
+End Class
+
+Class Twice Extends Counter
+    Override Method Bump()
+        Super.Bump()
+        Super.Bump()
+    End Method
+End Class
+
+Function Total(shapes: Shape, more: Shape): Float => shapes.Area() + more.Area()
+
+Function Kind(shape: Shape?): String
+    Select shape
+        Case s As Square
+            Return "square of side {s.width}"
+        Case r As Rect
+            Return "rect {r.width} by {r.height}"
+        Case c As Circle
+            Return "circle of radius {c.radius}"
+        Default
+            Return "nothing"
+    End Select
+End Function
+
+Local rect = Rect(2.0, 3.0)
+Local square: Shape = Square(4.0)
+Local circle = Circle(1.0)
+Print(rect.Describe())
+Print(square.Describe())
+Print(circle.Describe())
+Print("{Total(rect, square)}")
+Print("{Kind(rect)}, {Kind(square)}, {Kind(circle)}, {Kind(Null)}")
+
+Local round: Shape = circle
+Print("{square Is Rect} {square Is Square} {round Is Rect}")
+Local maybe = square As? Rect
+Print(maybe?.name ?? "no rect")
+Print((round As? Rect)?.name ?? "no rect")
+Local back = square As Square
+Print("{back.width} {RefEquals(back, square)}")
+
+// The nearest Class both extend.
+Local either = True ? rect : circle
+Print(either.Describe())
+
+Local counter = Counter()
+counter.Bump()
+Local twice: Counter = Twice()
+twice.Bump()
+Print("{counter.count} {twice.count}")
+Print("end of main")

@@ -30,6 +30,9 @@ struct fb_class_t {
     void (*destroy)(fb_object_t* object);
     /// How many objects of the Class exist, for the leak report.
     std::int64_t live;
+    /// The Class it extends, or null. Compiled code puts the Class's Method table right after
+    /// this, for the calls that a Class extending it could override.
+    const fb_class_t* base;
 };
 
 /// The header of a Class's object, which its fields follow.
@@ -117,6 +120,47 @@ void fb_object_release(fb_object_t* object);
 /// in M4), whose counts change atomically.
 void fb_object_retain_atomic(fb_object_t* object);
 void fb_object_release_atomic(fb_object_t* object);
+/// Whether `object` is of `type`, or of a Class that extends it, for 'Is'. 0 for null.
+std::int32_t fb_object_is(const fb_object_t* object, const fb_class_t* type);
+/// Panics at `location` unless `object` is of `type`, or of a Class that extends it, for 'As':
+/// "expected Boss, found Grunt", or "found Null".
+void fb_object_expect(const fb_object_t* object, const fb_class_t* type,
+                      const fb_location_t* location);
+
+/// A T[]: an object of a Class the compiler makes for each array type, like "Int32[]", whose
+/// fields are its count, its capacity, and its elements. They live in a buffer of their own, so
+/// the array can grow without the object moving. Compiled code stores, retains, and releases
+/// the elements, since only it knows their type.
+struct fb_array_t {
+    fb_object_t header;
+    std::int64_t count;
+    std::int64_t capacity;
+    void* data;
+};
+
+/// A new array of `type` with `count` elements of `element_size` bytes, all zero bytes, which
+/// compiled code sets next.
+fb_array_t* fb_array_new(fb_class_t* type, std::int64_t element_size, std::int64_t count);
+/// Makes room for one more element at the end, and returns where compiled code stores it.
+void* fb_array_push(fb_array_t* array, std::int64_t element_size);
+/// Makes room for one more element at `index`, moving the ones from there up, and returns
+/// where compiled code stores it. Panics at `location` unless `index` is from 0 to the count.
+void* fb_array_insert(fb_array_t* array, std::int64_t element_size, std::int64_t index,
+                      const fb_location_t* location);
+/// Takes out the element at `index`, which compiled code checked and released, moving the ones
+/// after it down.
+void fb_array_remove(fb_array_t* array, std::int64_t element_size, std::int64_t index);
+/// Empties the array, whose elements compiled code released. The buffer stays for new ones.
+void fb_array_clear(fb_array_t* array);
+/// A new array of the same Class, with a copy of each element's bytes. Compiled code retains
+/// the references in them.
+fb_array_t* fb_array_clone(const fb_array_t* array, std::int64_t element_size);
+/// Frees the buffer, for an array's destroy once it released the elements. The runtime frees
+/// the object itself.
+void fb_array_free(const fb_array_t* array);
+/// Panics at `location`: "index 5 is out of range for 3 elements".
+[[noreturn]] void fb_index_out_of_range(std::int64_t index, std::int64_t count,
+                                        const fb_location_t* location);
 
 /// Writes `string` and a newline to stdout, for the built-in Print. The String is only borrowed.
 void fb_print(const fb_string_t* string);

@@ -62,11 +62,8 @@ enum class unsupported_t : std::uint8_t {
 constexpr unsupported_t unsupported(const token_kind_t kind) {
     switch (kind) {
     case token_kind_t::AT:
-    case token_kind_t::KW_ABSTRACT:
     case token_kind_t::KW_ASYNC:
     case token_kind_t::KW_DEFER:
-    case token_kind_t::KW_FINAL:
-    case token_kind_t::KW_OVERRIDE:
     case token_kind_t::KW_PACKAGE:
     case token_kind_t::KW_PARALLEL:
     case token_kind_t::KW_PRIVATE:
@@ -452,7 +449,11 @@ private:
             return parse_simple();
         case token_kind_t::KW_STRUCT:
         case token_kind_t::KW_CLASS:
-            return parse_type_declaration();
+            return parse_type_declaration({});
+        case token_kind_t::KW_ABSTRACT:
+        case token_kind_t::KW_FINAL:
+        case token_kind_t::KW_OVERRIDE:
+            return parse_modified();
         case token_kind_t::KW_IF:
             return parse_if();
         case token_kind_t::KW_WHILE:
@@ -479,6 +480,55 @@ private:
         default:
             return parse_simple();
         }
+    }
+
+    /// Which of `modifiers` a keyword sets, or null when it isn't one.
+    static bool* modifier_flag(modifiers_t& modifiers, const token_kind_t kind) {
+        switch (kind) {
+        case token_kind_t::KW_ABSTRACT:
+            return &modifiers.is_abstract;
+        case token_kind_t::KW_FINAL:
+            return &modifiers.is_final;
+        case token_kind_t::KW_OVERRIDE:
+            return &modifiers.is_override;
+        default:
+            return nullptr;
+        }
+    }
+
+    /// Abstract, Final, and Override, in any order, then the declaration they're on. Analysis
+    /// checks which ones it can have.
+    stmt_id_t parse_modified() {
+        modifiers_t modifiers;
+        while (bool* flag = modifier_flag(modifiers, peek().kind)) {
+            const token_t& token = advance();
+            if (*flag) {
+                error(token.span, "{} is written twice", describe(token.kind));
+            }
+
+            *flag = true;
+        }
+
+        switch (peek().kind) {
+        case token_kind_t::KW_STRUCT:
+        case token_kind_t::KW_CLASS:
+            return parse_type_declaration(modifiers);
+        case token_kind_t::KW_FUNCTION:
+            return parse_function(function_kind_t::FUNCTION, modifiers);
+        case token_kind_t::KW_METHOD:
+            return parse_function(function_kind_t::METHOD, modifiers);
+        case token_kind_t::KW_NEW:
+            return parse_function(function_kind_t::CONSTRUCTOR, modifiers);
+        default:
+            break;
+        }
+
+        if (at(token_kind_t::KW_BYREF) && peek(1).kind == token_kind_t::KW_METHOD) {
+            return parse_function(function_kind_t::BYREF_METHOD, modifiers);
+        }
+
+        error(peek().span, "Abstract, Final, and Override only go before a Class or a Method");
+        return parse_statement();
     }
 
     /// Reports a modifier or attribute that comes after M1, then parses the statement it's on.
@@ -595,8 +645,8 @@ private:
     }
 
     /// A Function, or a Struct's Method, "ByRef Method", or New. New has no name of its own:
-    /// the keyword is its name.
-    stmt_id_t parse_function(const function_kind_t kind) {
+    /// the keyword is its name. An Abstract Method is only the line that declares it.
+    stmt_id_t parse_function(const function_kind_t kind, const modifiers_t modifiers = {}) {
         const std::size_t start = m_pos;
         const std::uint32_t begin = peek().span.begin;
         if (kind == function_kind_t::BYREF_METHOD) {
@@ -637,7 +687,9 @@ private:
 
         // "Function F(): Int => x" is short for a body that returns x.
         block_t body;
-        if (accept(token_kind_t::ARROW)) {
+        if (modifiers.is_abstract) {
+            // The line ends without a body, and the caller finishes it.
+        } else if (accept(token_kind_t::ARROW)) {
             skip_continuation_newlines();
             const expr_id_t value = parse_expression();
             body.push_back(add_stmt(span_of(value), return_stmt_t{ .value = value }));
@@ -652,17 +704,23 @@ private:
                                               .parameters = std::move(parameters),
                                               .return_type = return_type,
                                               .body = std::move(body),
+                                              .modifiers = modifiers,
                                           });
     }
 
-    /// "Struct Name" or "Class Name", the members, then the matching End. Members parse like
-    /// statements; analysis checks that each one is a Field, Method, or New. A Class's base and
-    /// interfaces come later.
-    stmt_id_t parse_type_declaration() {
+    /// "Struct Name" or "Class Name Extends Base", the members, then the matching End. Members
+    /// parse like statements; analysis checks that each one is a Field, Method, or New.
+    /// Interfaces come later.
+    stmt_id_t parse_type_declaration(const modifiers_t modifiers) {
         const std::size_t start = m_pos;
         const token_t& keyword = advance();
         const name_t name = expect_name();
-        if (at(token_kind_t::KW_EXTENDS) || at(token_kind_t::KW_IMPLEMENTS)) {
+        std::optional<name_t> base;
+        if (accept(token_kind_t::KW_EXTENDS)) {
+            base = expect_name();
+        }
+
+        if (at(token_kind_t::KW_IMPLEMENTS)) {
             error(peek().span, "{} isn't supported yet", describe(peek().kind));
             skip_rest_of_line();
         }
@@ -674,6 +732,8 @@ private:
                             .is_class = keyword.kind == token_kind_t::KW_CLASS,
                             .name = name,
                             .members = std::move(members),
+                            .base = base,
+                            .modifiers = modifiers,
                         });
     }
 
@@ -890,6 +950,21 @@ private:
         while (at(token_kind_t::KW_CASE)) {
             const std::size_t line = m_pos;
             advance();
+            // "Case e As Boss" is a type match, unlike "Case e As? Boss".
+            const bool checked =
+                peek(2).kind == token_kind_t::QUESTION && touches(peek(1), peek(2));
+            if (at(token_kind_t::IDENTIFIER) && peek(1).kind == token_kind_t::KW_AS && !checked) {
+                const name_t name = take_name();
+                advance(); // As
+                const type_expr_id_t type = parse_type();
+                finish_line(line);
+                cases.push_back({
+                    .match = type_case_t{ .name = name, .type = type },
+                    .body = parse_block(),
+                });
+                continue;
+            }
+
             // Values and inclusive ranges, separated by commas: "Case 1, 3 To 5".
             std::vector<case_value_t> values;
             while (true) {
@@ -1214,9 +1289,10 @@ private:
         }
     }
 
+    /// "object.name". The name can be New, for "Super.New()".
     expr_id_t parse_member(const expr_id_t object) {
         const bool null_safe = advance().kind == token_kind_t::QUESTION_DOT;
-        if (!at(token_kind_t::IDENTIFIER)) {
+        if (!at(token_kind_t::IDENTIFIER) && !at(token_kind_t::KW_NEW)) {
             report_expected(describe(token_kind_t::IDENTIFIER));
             return add_expr(span_from(span_of(object).begin), error_expr_t{});
         }
@@ -1309,11 +1385,14 @@ private:
             advance();
             return add_expr(token.span, self_expr_t{});
         case token_kind_t::KW_SUPER:
+            advance();
+            return add_expr(token.span, super_expr_t{});
+        case token_kind_t::LEFT_BRACKET:
+            return parse_array();
         case token_kind_t::KW_NEW:
         case token_kind_t::KW_AWAIT:
         case token_kind_t::KW_TRY:
         case token_kind_t::KW_FUNCTION:
-        case token_kind_t::LEFT_BRACKET:
         case token_kind_t::LEFT_BRACE:
             error(token.span, "{} isn't supported yet", describe(token.kind));
             return missing_expr();
@@ -1321,6 +1400,24 @@ private:
             report_expected("an expression");
             return missing_expr();
         }
+    }
+
+    /// "[a, b, c]". The elements can go over several lines, with a comma after the last one.
+    expr_id_t parse_array() {
+        const token_t& open = advance();
+        ++m_bracket_depth;
+        std::vector<expr_id_t> elements;
+        while (!at(token_kind_t::RIGHT_BRACKET) && !at(token_kind_t::END_OF_FILE)) {
+            elements.push_back(parse_expression());
+            if (!accept(token_kind_t::COMMA)) {
+                break;
+            }
+        }
+
+        expect_closing(token_kind_t::RIGHT_BRACKET, open.span);
+        --m_bracket_depth;
+        return add_expr(span_from(open.span.begin),
+                        array_expr_t{ .elements = std::move(elements) });
     }
 
     /// Parentheses only group: they get no node, and the inner expression's span leaves them out.
@@ -1378,7 +1475,7 @@ private:
 
     // Types
 
-    /// A type name followed by any "?" and "[]" suffixes, like "Int[]?".
+    /// A type name followed by any "?", "[]", and "[N]" suffixes, like "Int[]?" or "Float[4, 4]".
     type_expr_id_t parse_type() {
         const token_t& token = peek();
         if (token.kind != token_kind_t::IDENTIFIER) {
@@ -1408,8 +1505,20 @@ private:
                 advance();
                 type = add_type(span_from(token.span.begin), array_type_t{ .element = type });
             } else if (at(token_kind_t::LEFT_BRACKET)) {
-                error(peek().span, "fixed-size arrays aren't supported yet");
-                return type;
+                const token_t& open = advance();
+                ++m_bracket_depth;
+                std::vector<expr_id_t> sizes;
+                while (!at(token_kind_t::RIGHT_BRACKET) && !at(token_kind_t::END_OF_FILE)) {
+                    sizes.push_back(parse_expression());
+                    if (!accept(token_kind_t::COMMA)) {
+                        break;
+                    }
+                }
+
+                expect_closing(token_kind_t::RIGHT_BRACKET, open.span);
+                --m_bracket_depth;
+                type = add_type(span_from(token.span.begin),
+                                array_type_t{ .element = type, .sizes = std::move(sizes) });
             } else {
                 return type;
             }

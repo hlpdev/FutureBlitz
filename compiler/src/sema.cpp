@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <format>
 #include <functional>
+#include <limits>
 #include <optional>
 #include <ranges>
 #include <span>
@@ -224,8 +225,10 @@ public:
             declare_item(id);
         }
 
+        link_classes();
         check_struct_cycles();
         check_field_zeros();
+        link_constructors();
         initialize_globals();
         for (const stmt_id_t id : m_ast.items()) {
             check_defaults(id);
@@ -257,11 +260,18 @@ private:
     flow_t m_flow;
     /// The branches of the condition checked last, when it narrows something.
     std::optional<branches_t> m_branches;
-    /// While checking a New: its type's fields without a zero, which it must assign.
+    /// While checking a New: its type's fields without a zero, which it must assign. Inherited
+    /// ones are assigned by the base Class's New.
     std::vector<symbol_id_t> m_required;
+    /// While checking a New that starts with Super.New: that call. Until it's checked, the
+    /// object isn't set up, so Self can't be used.
+    std::optional<expr_id_t> m_super_new;
+    bool m_before_super = false;
     /// An assignment's target, or the Self in "Self.x". Neither reads the fields that New hasn't
     /// assigned yet.
     std::optional<expr_id_t> m_partial;
+    /// Each T[]'s Methods, made the first time they're looked up.
+    std::unordered_map<type_id_t, std::vector<symbol_id_t>> m_array_methods;
     bool m_initializing = false; // checking Global and Const initializers
 
     // Helpers
@@ -353,6 +363,17 @@ private:
             error(node->name.span, "'{}' is a built-in type", node->name.text);
         }
 
+        const modifiers_t& modifiers = node->modifiers;
+        if (!node->is_class && (modifiers.is_abstract || modifiers.is_final)) {
+            error(node->name.span, "a Struct can't be Abstract or Final; only a Class can");
+        } else if (modifiers.is_abstract && modifiers.is_final) {
+            error(node->name.span, "'{}' can't be both Abstract and Final", node->name.text);
+        }
+
+        if (modifiers.is_override) {
+            error(node->name.span, "Override only goes before a Method");
+        }
+
         std::string name(node->name.text);
         const type_id_t type = node->is_class ? m_analysis.types.add_class(std::move(name))
                                               : m_analysis.types.add_struct(std::move(name));
@@ -362,6 +383,7 @@ private:
             .span = node->name.span,
             .type = type,
             .declaration = id,
+            .modifiers = modifiers,
         });
         m_analysis.stmts[index(id)].symbol = declared;
         m_declared_types[type] = declared;
@@ -409,6 +431,10 @@ private:
 
         const symbol_id_t owner_id = *declared_struct;
         const type_id_t owner = symbol(owner_id).type;
+        if (node.base) {
+            declare_base(owner, *node.base);
+        }
+
         std::vector<symbol_id_t> members;
         std::vector<field_t> fields;
         bool has_new = false;
@@ -451,6 +477,59 @@ private:
         }
 
         symbol(owner_id).members = std::move(members);
+    }
+
+    /// The Class after Extends. A Struct is a value, so it can't extend anything, and a Class
+    /// can't extend a Final one or itself.
+    void declare_base(const type_id_t type, const name_t& name) {
+        if (!is_class(type)) {
+            error(name.span, "only a Class can extend another; a Struct is a value");
+            return;
+        }
+
+        const auto found = m_file_scope.find(name.text);
+        if (found == m_file_scope.end() ||
+            symbol(found->second.front()).kind != symbol_kind_t::TYPE ||
+            !is_class(symbol(found->second.front()).type)) {
+            error(name.span, "'{}' isn't a Class", name.text);
+            return;
+        }
+
+        const symbol_t& base = symbol(found->second.front());
+        if (base.modifiers.is_final) {
+            error(name.span, "{} is Final, so it can't be extended", base.name);
+        } else if (m_analysis.types.extends(base.type, type)) {
+            error(name.span, "{} can't extend itself, directly or through other Classes",
+                  name_of(type));
+        } else {
+            m_analysis.types.set_base(type, base.type);
+        }
+    }
+
+    /// Abstract, Final, and Override only go on a Class's Methods. An Abstract Method needs an
+    /// Abstract Class.
+    void check_modifiers(const function_stmt_t& node, const type_id_t owner) {
+        const modifiers_t& modifiers = node.modifiers;
+        if (!modifiers.is_abstract && !modifiers.is_final && !modifiers.is_override) {
+            return;
+        }
+
+        if (node.kind == function_kind_t::FUNCTION) {
+            error(node.name.span, "Abstract, Final, and Override only go before a Class's Methods");
+        } else if (node.kind == function_kind_t::CONSTRUCTOR) {
+            error(node.name.span, "New can't be Abstract, Final, or Override");
+        } else if (!is_class(owner)) {
+            error(node.name.span, "a Struct's Methods can't be Abstract, Final, or Override");
+        } else if (node.name.text == "Destroy") {
+            error(node.name.span,
+                  "Destroy can't be Abstract, Final, or Override; every Class's Destroy runs");
+        } else if (modifiers.is_abstract && modifiers.is_final) {
+            error(node.name.span, "'{}' can't be both Abstract and Final", node.name.text);
+        } else if (modifiers.is_abstract &&
+                   !symbol(m_declared_types.at(owner)).modifiers.is_abstract) {
+            error(node.name.span, "'{}' is Abstract, so {} must be Abstract too", node.name.text,
+                  name_of(owner));
+        }
     }
 
     /// Only a Class's Destroy runs by itself, and only a Struct's Methods can be ByRef: a
@@ -534,6 +613,230 @@ private:
         members.push_back(id);
     }
 
+    /// The Class a type extends, or INVALID.
+    [[nodiscard]] type_id_t base_of(const type_id_t type) const {
+        return m_analysis.types.get(type).base;
+    }
+
+    /// Each Class gets the fields of the Class it extends before its own, and its Methods are
+    /// checked against the ones it inherits. The Class it extends goes first.
+    void link_classes() {
+        std::vector<type_id_t> linked;
+        for (const stmt_id_t id : m_ast.items()) {
+            const auto* declared = std::get_if<type_stmt_t>(&m_ast.get(id).node);
+            const std::optional<symbol_id_t> owner = m_analysis.stmts[index(id)].symbol;
+            if (declared != nullptr && declared->is_class && owner) {
+                link_class(symbol(*owner).type, linked);
+            }
+        }
+    }
+
+    void link_class(const type_id_t type, std::vector<type_id_t>& linked) {
+        if (std::ranges::contains(linked, type)) {
+            return;
+        }
+
+        linked.push_back(type);
+        const type_id_t base = base_of(type);
+        if (base == type_id_t::INVALID) {
+            check_abstract(type);
+            return;
+        }
+
+        link_class(base, linked);
+        std::vector<field_t> fields = m_analysis.types.get(base).fields;
+        const auto inherited = static_cast<std::uint32_t>(fields.size());
+        for (const symbol_id_t member : symbol(m_declared_types.at(type)).members) {
+            symbol_t& declared = symbol(member);
+            if (declared.kind == symbol_kind_t::FIELD) {
+                declared.field += inherited;
+                fields.push_back({ .name = std::string(declared.name), .type = declared.type });
+            }
+
+            check_inherited(member, base);
+        }
+
+        m_analysis.types.set_fields(type, std::move(fields));
+        check_abstract(type);
+    }
+
+    /// A member against what a Class inherits: a field's name is taken, and a Method with the
+    /// parameters of an inherited one overrides it, which takes Override.
+    void check_inherited(const symbol_id_t id, const type_id_t base) {
+        symbol_t& member = symbol(id);
+        // Every Class's Destroy runs, so none overrides another.
+        if (member.kind == symbol_kind_t::CONSTRUCTOR || member.name == "Destroy") {
+            return;
+        }
+
+        const std::vector<symbol_id_t> inherited = members_of(base, member.name);
+        const bool is_method = member.kind == symbol_kind_t::METHOD;
+        if (inherited.empty()) {
+            if (member.modifiers.is_override) {
+                error(member.span, "'{}' has Override, but {} has no Method like it", member.name,
+                      name_of(base));
+            }
+
+            return;
+        }
+
+        if (!is_method || symbol(inherited.front()).kind == symbol_kind_t::FIELD) {
+            error(member.span, "'{}' is already declared in {}", member.name,
+                  name_of(symbol(inherited.front()).owner));
+            return;
+        }
+
+        const auto overridden = std::ranges::find_if(inherited, [&](const symbol_id_t other) {
+            return same_parameters(member, symbol(other));
+        });
+        if (overridden == inherited.end()) {
+            if (member.modifiers.is_override) {
+                error(member.span, "'{}' has Override, but {} has no Method like it", member.name,
+                      name_of(base));
+            }
+
+            return; // an overload
+        }
+
+        const symbol_t& original = symbol(*overridden);
+        member.overrides = *overridden;
+        if (!member.modifiers.is_override) {
+            error(member.span, "'{}' overrides {}'s; write 'Override Method {}'", member.name,
+                  name_of(original.owner), member.name);
+        } else if (original.modifiers.is_final) {
+            error(member.span, "'{}' is Final in {}, so it can't be overridden", member.name,
+                  name_of(original.owner));
+        } else if (member.type != original.type) {
+            error(member.span, "'{}' must return {}, like {}'s", member.name,
+                  name_of(original.type), name_of(original.owner));
+        } else if (!std::ranges::equal(
+                       member.parameters, original.parameters, {},
+                       [this](const symbol_id_t parameter) { return symbol(parameter).by_ref; },
+                       [this](const symbol_id_t parameter) { return symbol(parameter).by_ref; })) {
+            error(member.span, "'{}' must take the same ByRef parameters as {}'s", member.name,
+                  name_of(original.owner));
+        }
+    }
+
+    /// A Class that isn't Abstract overrides every Abstract Method it inherits.
+    void check_abstract(const type_id_t type) {
+        const symbol_t& declared = symbol(m_declared_types.at(type));
+        if (declared.modifiers.is_abstract) {
+            return;
+        }
+
+        for (const symbol_id_t method : methods_of(type)) {
+            if (symbol(method).modifiers.is_abstract && symbol(method).owner != type) {
+                error(declared.span, "{} must override {}'s Abstract Method '{}', or be Abstract",
+                      declared.name, name_of(symbol(method).owner), symbol(method).name);
+            }
+        }
+    }
+
+    /// Every Method a Class has, its own and the ones it inherits, without the ones it overrides.
+    std::vector<symbol_id_t> methods_of(const type_id_t type) {
+        std::vector<symbol_id_t> methods;
+        for (type_id_t current = type; current != type_id_t::INVALID; current = base_of(current)) {
+            for (const symbol_id_t member : symbol(m_declared_types.at(current)).members) {
+                const symbol_t& method = symbol(member);
+                const bool hidden = std::ranges::any_of(methods, [&](const symbol_id_t other) {
+                    return symbol(other).name == method.name &&
+                           same_parameters(symbol(other), method);
+                });
+                if (method.kind == symbol_kind_t::METHOD && !hidden) {
+                    methods.push_back(member);
+                }
+            }
+        }
+
+        return methods;
+    }
+
+    /// A Class's New runs the New of the Class it extends first: the one that starts it with
+    /// Super.New, or else one that takes no arguments.
+    void link_constructors() {
+        for (const stmt_id_t id : m_ast.items()) {
+            const std::optional<symbol_id_t> owner = m_analysis.stmts[index(id)].symbol;
+            if (!std::holds_alternative<type_stmt_t>(m_ast.get(id).node) || !owner) {
+                continue;
+            }
+
+            const type_id_t base = base_of(symbol(*owner).type);
+            if (base == type_id_t::INVALID) {
+                continue;
+            }
+
+            const std::optional<symbol_id_t> plain = plain_constructor(base);
+            for (const symbol_id_t member : symbol(*owner).members) {
+                symbol_t& constructor = symbol(member);
+                if (constructor.kind != symbol_kind_t::CONSTRUCTOR || super_new_of(constructor)) {
+                    continue;
+                }
+
+                if (plain) {
+                    constructor.base_new = plain;
+                } else if (constructor.declaration) {
+                    error(constructor.span,
+                          "New must start with Super.New(...), since {} has no New without "
+                          "parameters",
+                          name_of(base));
+                } else {
+                    error(constructor.span,
+                          "{} needs a New that starts with Super.New(...), since {} has no New "
+                          "without parameters",
+                          symbol(*owner).name, name_of(base));
+                }
+            }
+        }
+    }
+
+    /// A Class's New that can be called without arguments, if it has one.
+    std::optional<symbol_id_t> plain_constructor(const type_id_t type) {
+        for (const symbol_id_t member : symbol(m_declared_types.at(type)).members) {
+            const symbol_t& constructor = symbol(member);
+            const bool plain =
+                std::ranges::all_of(constructor.parameters, [this](const symbol_id_t parameter) {
+                    return symbol(parameter).has_default;
+                });
+            if (constructor.kind == symbol_kind_t::CONSTRUCTOR && plain) {
+                return member;
+            }
+        }
+
+        return std::nullopt;
+    }
+
+    /// The "Super.New(...)" call that starts a New, if it has one.
+    [[nodiscard]] std::optional<expr_id_t> super_new_of(const symbol_t& constructor) const {
+        if (!constructor.declaration) {
+            return std::nullopt;
+        }
+
+        const auto& node = std::get<function_stmt_t>(m_ast.get(*constructor.declaration).node);
+        if (node.body.empty()) {
+            return std::nullopt;
+        }
+
+        const auto* statement = std::get_if<expression_stmt_t>(&m_ast.get(node.body.front()).node);
+        if (statement == nullptr || !is_super_call(statement->expression, "New")) {
+            return std::nullopt;
+        }
+
+        return statement->expression;
+    }
+
+    /// Whether an expression is a call to Super's `name`, like "Super.New()".
+    [[nodiscard]] bool is_super_call(const expr_id_t id, const std::string_view name) const {
+        const auto* call = std::get_if<call_expr_t>(&m_ast.get(id).node);
+        if (call == nullptr) {
+            return false;
+        }
+
+        const auto* member = std::get_if<member_expr_t>(&m_ast.get(call->callee).node);
+        return member != nullptr && member->member.text == name &&
+               std::holds_alternative<super_expr_t>(m_ast.get(member->object).node);
+    }
+
     /// A Struct is stored inline, so it can't contain itself, directly or through other Structs.
     /// A Class's fields are in its object, so they can refer to it.
     void check_struct_cycles() {
@@ -564,8 +867,8 @@ private:
             return true;
         }
 
-        if (is_nullable(type)) {
-            return contains(non_null(type), target, seen);
+        if (is_nullable(type) || is_fixed_array(type)) {
+            return contains(element_of(type), target, seen);
         }
 
         if (!is_struct(type) || std::ranges::contains(seen, type)) {
@@ -616,12 +919,20 @@ private:
                std::get<variable_stmt_t>(m_ast.get(*field.declaration).node).value.has_value();
     }
 
+    /// A field's type, in its type's fields and in those of every Class extending it.
     void set_field_type(const symbol_id_t id, const type_id_t type) {
         symbol(id).type = type;
         const symbol_t& field = symbol(id);
-        std::vector<field_t> fields = m_analysis.types.get(field.owner).fields;
-        fields[field.field].type = type;
-        m_analysis.types.set_fields(field.owner, std::move(fields));
+        for (const auto& entry : m_declared_types) {
+            const type_id_t declared = entry.first;
+            if (!m_analysis.types.extends(declared, field.owner)) {
+                continue;
+            }
+
+            std::vector<field_t> fields = m_analysis.types.get(declared).fields;
+            fields[field.field].type = type;
+            m_analysis.types.set_fields(declared, std::move(fields));
+        }
     }
 
     /// A Function, or a type's Method or New when `owner` is set. A Method's Self is a parameter
@@ -674,6 +985,7 @@ private:
             kind = constructor ? symbol_kind_t::CONSTRUCTOR : symbol_kind_t::METHOD;
         }
 
+        check_modifiers(node, owner);
         const symbol_id_t function = add_symbol({
             .kind = kind,
             .name = node.name.text,
@@ -684,6 +996,7 @@ private:
             .declaration = id,
             .owner = owner,
             .self = self,
+            .modifiers = node.modifiers,
         });
         m_analysis.stmts[index(id)].symbol = function;
         m_analysis.functions.push_back(function);
@@ -826,6 +1139,40 @@ private:
         return m_analysis.types.get(type).kind == type_kind_t::NULLABLE;
     }
 
+    /// "T[]", a reference to an array that can grow.
+    [[nodiscard]] bool is_array(const type_id_t type) const {
+        return m_analysis.types.get(type).kind == type_kind_t::ARRAY;
+    }
+
+    /// "T[N]" or "T[W, H]", stored inline.
+    [[nodiscard]] bool is_fixed_array(const type_id_t type) const {
+        return m_analysis.types.get(type).kind == type_kind_t::FIXED_ARRAY;
+    }
+
+    [[nodiscard]] bool is_any_array(const type_id_t type) const {
+        return is_array(type) || is_fixed_array(type);
+    }
+
+    /// An array's T.
+    [[nodiscard]] type_id_t element_of(const type_id_t type) const {
+        return m_analysis.types.get(type).inner;
+    }
+
+    /// Whether == works on a type: not on arrays, or a Struct or T? holding one.
+    [[nodiscard]] bool comparable(const type_id_t type) const {
+        if (is_any_array(type)) {
+            return false;
+        }
+
+        if (is_nullable(type)) {
+            return comparable(non_null(type));
+        }
+
+        return !is_struct(type) ||
+               std::ranges::all_of(m_analysis.types.get(type).fields,
+                                   [this](const field_t& field) { return comparable(field.type); });
+    }
+
     /// The T of a T?, and any other type as it is.
     [[nodiscard]] type_id_t non_null(const type_id_t type) const {
         return is_nullable(type) ? m_analysis.types.get(type).inner : type;
@@ -836,14 +1183,24 @@ private:
         return is_nullable(type) ? type : m_analysis.types.nullable(type);
     }
 
-    /// Whether `from` converts to `to` without an 'As': losslessly between numbers, and from a T,
-    /// or a T?, to a U? when the T converts to the U.
+    /// Whether `from` converts to `to` without an 'As': losslessly between numbers, from a Class
+    /// to one it extends, and from a T, or a T?, to a U? when the T converts to the U.
     [[nodiscard]] bool converts(const type_id_t from, const type_id_t to) const {
         if (from == to || !is_nullable(to)) {
-            return converts_losslessly(from, to);
+            return converts_plainly(from, to);
         }
 
-        return converts_losslessly(non_null(from), non_null(to));
+        return converts_plainly(non_null(from), non_null(to));
+    }
+
+    [[nodiscard]] bool converts_plainly(const type_id_t from, const type_id_t to) const {
+        return converts_losslessly(from, to) ||
+               (is_class(from) && is_class(to) && m_analysis.types.extends(from, to));
+    }
+
+    /// Whether objects of two Classes can be the same object: one extends the other.
+    [[nodiscard]] bool related(const type_id_t a, const type_id_t b) const {
+        return m_analysis.types.extends(a, b) || m_analysis.types.extends(b, a);
     }
 
     /// The type both sides convert to, if there is one. Int32 and Int64? meet at Int64?.
@@ -854,6 +1211,17 @@ private:
 
         if (converts(b, a)) {
             return a;
+        }
+
+        // Two Classes meet at the nearest one both extend.
+        if (is_class(non_null(a)) && is_class(non_null(b))) {
+            for (type_id_t base = non_null(a); base != type_id_t::INVALID; base = base_of(base)) {
+                if (m_analysis.types.extends(non_null(b), base)) {
+                    return is_nullable(a) || is_nullable(b) ? nullable_of(base) : base;
+                }
+            }
+
+            return std::nullopt;
         }
 
         if (!is_nullable(a) && !is_nullable(b)) {
@@ -885,10 +1253,19 @@ private:
         return converted;
     }
 
-    /// The type an annotation names: a built-in, a Struct, a Class, or a T? of one. Types that
-    /// don't exist yet are reported and give INVALID.
+    /// The type an annotation names: a built-in, a Struct, a Class, or a T?, T[], or fixed
+    /// array of one. Types that don't exist yet are reported and give INVALID.
     type_id_t resolve_type(const type_expr_id_t id) {
         const type_expr_t& type = m_ast.get(id);
+        if (const auto* array = std::get_if<array_type_t>(&type.node)) {
+            const type_id_t element = resolve_type(array->element);
+            if (array->sizes.empty()) {
+                return m_analysis.types.array(element);
+            }
+
+            return resolve_fixed_array(element, *array, type.span);
+        }
+
         if (const auto* nullable = std::get_if<nullable_type_t>(&type.node)) {
             const type_id_t inner = resolve_type(nullable->inner);
             if (is_nullable(inner)) {
@@ -916,11 +1293,68 @@ private:
             } else {
                 error(type.span, "'{}' isn't a type", named->name);
             }
-        } else if (std::holds_alternative<array_type_t>(type.node)) {
-            error(type.span, "arrays aren't supported yet");
         }
 
         return type_id_t::INVALID;
+    }
+
+    /// "T[N]" or "T[W, H]". Each size is a positive integer known at compile time, and the
+    /// elements have to fit an Int's count.
+    type_id_t resolve_fixed_array(const type_id_t element, const array_type_t& node,
+                                  const span_t span) {
+        std::vector<std::uint32_t> sizes;
+        std::uint64_t count = 1;
+        for (const expr_id_t expression : node.sizes) {
+            if (check(expression, type_id_t::INT64) == type_id_t::INVALID) {
+                return type_id_t::INVALID;
+            }
+
+            const std::optional<std::int64_t> size = integer_value(expression);
+            if (!size) {
+                error(span_of(expression),
+                      "a fixed array's size must be an integer known at compile time, like 64 or "
+                      "8 * 8");
+                return type_id_t::INVALID;
+            }
+
+            if (*size < 1) {
+                error(span_of(expression), "a fixed array's size must be at least 1");
+                return type_id_t::INVALID;
+            }
+
+            count *= static_cast<std::uint64_t>(*size);
+            if (count > max_count) {
+                error(span, "a fixed array can hold at most {} elements", max_count);
+                return type_id_t::INVALID;
+            }
+
+            sizes.push_back(static_cast<std::uint32_t>(*size));
+        }
+
+        return m_analysis.types.fixed_array(element, sizes);
+    }
+
+    /// The most elements an array can hold: as many as an Int counts.
+    static constexpr std::uint64_t max_count = 2'147'483'647;
+
+    /// A checked integer's value, when it's known and fits an Int64.
+    [[nodiscard]] std::optional<std::int64_t> integer_value(const expr_id_t id) {
+        const std::optional<const_value_t>& value = info(id).value;
+        if (!value) {
+            return std::nullopt;
+        }
+
+        if (const auto* number = std::get_if<std::int64_t>(&value->data)) {
+            return *number;
+        }
+
+        const auto* number = std::get_if<std::uint64_t>(&value->data);
+        if (number == nullptr ||
+            *number > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max())) {
+            return std::nullopt;
+        }
+
+        return static_cast<std::int64_t>(*number);
     }
 
     // Flow
@@ -1132,9 +1566,14 @@ private:
         }
     }
 
-    /// In a New, Self can only be used whole once the fields without a zero are assigned, since
-    /// a Method could read them.
+    /// In a New, Self can only be used whole once Super.New has set up what it inherits, and
+    /// the fields without a zero are assigned, since a Method could read them.
     void check_self_ready(const span_t span) {
+        if (m_before_super) {
+            error(span, "Self can't be used before Super.New");
+            return;
+        }
+
         for (const symbol_id_t field : m_required) {
             if (!is_assigned(field)) {
                 error(span, "Self can't be used before New assigns '{}'", symbol(field).name);
@@ -1173,9 +1612,16 @@ private:
         m_initializing = false;
     }
 
+    /// "[]" of a T[]: a default that isn't known at compile time, but gives each use a new empty
+    /// array.
+    [[nodiscard]] bool is_empty_array(const expr_id_t id) {
+        const auto* array = std::get_if<array_expr_t>(&m_ast.get(id).node);
+        return array != nullptr && array->elements.empty() && is_array(info(id).converted);
+    }
+
     /// A field's default is a parameter default of the constructor its Struct gets, so it must be
-    /// known at compile time. Field defaults are checked in source order with the Globals, so
-    /// they can use Consts declared above the Struct.
+    /// known at compile time, or be "[]". Field defaults are checked in source order with the
+    /// Globals, so they can use Consts declared above the Struct.
     void check_field_default(const stmt_id_t id) {
         const auto* node = std::get_if<variable_stmt_t>(&m_ast.get(id).node);
         const std::optional<symbol_id_t> field = m_analysis.stmts[index(id)].symbol;
@@ -1197,6 +1643,8 @@ private:
 
         if (info(value).value) {
             symbol(*field).value = info(value).value;
+        } else if (is_empty_array(value)) {
+            symbol(*field).empty_default = true;
         } else if (info(value).type != type_id_t::INVALID) {
             error(span_of(value), "a field's default must be known at compile time");
         }
@@ -1247,6 +1695,8 @@ private:
 
             if (info(value).value) {
                 symbol(parameter).value = info(value).value;
+            } else if (is_empty_array(value)) {
+                symbol(parameter).empty_default = true;
             } else if (info(value).type != type_id_t::INVALID) {
                 error(span_of(value), "a default value must be known at compile time");
             }
@@ -1296,13 +1746,28 @@ private:
             mark_assigned(*function.self); // New's Self starts with the fields' defaults
         }
 
-        // New must assign the fields that have no zero.
+        // New must assign the fields that have no zero. The base Class's New assigns the ones
+        // Self inherits, first thing.
         m_required.clear();
+        const bool extends = function.kind == symbol_kind_t::CONSTRUCTOR &&
+                             is_class(function.owner) &&
+                             base_of(function.owner) != type_id_t::INVALID;
+        m_super_new = extends ? super_new_of(function) : std::nullopt;
+        m_before_super = m_super_new.has_value();
         if (function.kind == symbol_kind_t::CONSTRUCTOR) {
-            for (const symbol_id_t member : symbol(m_declared_types.at(function.owner)).members) {
-                if (symbol(member).kind == symbol_kind_t::FIELD &&
-                    !m_analysis.types.has_zero(symbol(member).type)) {
-                    m_required.push_back(member);
+            for (type_id_t type = function.owner; type != type_id_t::INVALID;
+                 type = base_of(type)) {
+                for (const symbol_id_t member : symbol(m_declared_types.at(type)).members) {
+                    // "[]" gives a T[] field its value.
+                    if (symbol(member).kind == symbol_kind_t::FIELD &&
+                        !m_analysis.types.has_zero(symbol(member).type) &&
+                        !symbol(member).empty_default) {
+                        m_required.push_back(member);
+                    }
+
+                    if (type != function.owner && !m_super_new) {
+                        mark_assigned(member);
+                    }
                 }
             }
         }
@@ -1317,12 +1782,14 @@ private:
         const bool returns_value = function.kind != symbol_kind_t::CONSTRUCTOR &&
                                    function.type != type_id_t::NONE &&
                                    function.type != type_id_t::INVALID;
-        if (returns_value && m_flow.reachable) {
+        // An Abstract Method has no body to return from.
+        if (returns_value && m_flow.reachable && !function.modifiers.is_abstract) {
             error(function.span, "'{}' doesn't return a value on every path", function.name);
         }
 
         check_required(function.span, "on every path");
         m_required.clear();
+        m_super_new.reset();
         m_scopes.clear();
         m_function.reset();
     }
@@ -1426,6 +1893,14 @@ private:
         if (node.value) {
             mark_assigned(local);
             narrow_after_assigning(local, *node.value);
+        } else if (is_fixed_array(symbol(local).type) && node.kind == variable_kind_t::LOCAL) {
+            // A fixed array starts with every element at zero, ready to be filled in.
+            if (m_analysis.types.has_zero(symbol(local).type)) {
+                mark_assigned(local);
+            } else {
+                error(node.name.span, "'{}' needs a value, since {} has no zero value",
+                      node.name.text, name_of(symbol(local).type));
+            }
         }
     }
 
@@ -1588,30 +2063,43 @@ private:
         leave_loop(loop);
     }
 
-    void check_stmt(const stmt_id_t id, const span_t span, const for_in_stmt_t& node) {
-        const span_t header = {
-            .file = span.file,
-            .begin = span.begin,
-            .end = span_of(node.sequence).end,
-        };
-        error(header, "'For ... In' isn't supported yet");
+    /// "For x In items" goes over an array's elements in order, and "For i, x In items" counts
+    /// them with an Int. A T[] is read once, and its Count before each pass.
+    void check_stmt(const stmt_id_t id, span_t /*span*/, const for_in_stmt_t& node) {
+        const type_id_t sequence = check(node.sequence, type_id_t::NONE);
+        type_id_t element = type_id_t::INVALID;
+        if (is_any_array(sequence)) {
+            element = element_of(sequence);
+        } else if (is_nullable(sequence) && is_any_array(non_null(sequence))) {
+            report_maybe_null(node.sequence);
+        } else if (sequence != type_id_t::INVALID) {
+            error(span_of(node.sequence), "'For ... In' goes over arrays, not {}",
+                  name_of(sequence));
+        }
 
-        // The body is still checked, with variables that have no type.
+        // The body may not run, so the flow after the loop is the flow before it, plus any
+        // Breaks.
         forget_changed(node.body);
         const flow_t entry = m_flow;
         push_loop(id, node.label);
         push_scope();
-        for (const std::optional<name_t>& name : { node.index, std::optional(node.value) }) {
-            if (name) {
-                declare_local({
-                    .kind = symbol_kind_t::LOOP_VARIABLE,
-                    .name = name->text,
-                    .span = name->span,
-                    .declaration = id,
-                });
-            }
+        if (node.index) {
+            m_analysis.stmts[index(id)].index = declare_local({
+                .kind = symbol_kind_t::LOOP_VARIABLE,
+                .name = node.index->text,
+                .span = node.index->span,
+                .type = type_id_t::INT32,
+                .declaration = id,
+            });
         }
 
+        m_analysis.stmts[index(id)].symbol = declare_local({
+            .kind = symbol_kind_t::LOOP_VARIABLE,
+            .name = node.value.text,
+            .span = node.value.span,
+            .type = element,
+            .declaration = id,
+        });
         check_block(node.body);
         pop_scope();
         const loop_t loop = pop_loop();
@@ -1619,7 +2107,96 @@ private:
         leave_loop(loop);
     }
 
-    void check_stmt(stmt_id_t /*id*/, span_t /*span*/, const select_stmt_t& node) {
+    /// "Case e As Boss": each Case matches an object of a Class related to the subject's, and
+    /// names it as one. A Case after one for a Class it extends never matches.
+    void check_type_select(const stmt_id_t id, const select_stmt_t& node) {
+        const type_id_t subject = check(node.subject, type_id_t::NONE);
+        const type_id_t object = non_null(subject);
+        const bool valid = subject != type_id_t::INVALID && is_class(object);
+        if (subject != type_id_t::INVALID && !valid) {
+            error(span_of(node.subject), "'Case ... As' matches objects of Classes, not {}",
+                  name_of(subject));
+        }
+
+        const flow_t entry = m_flow;
+        flow_t result = unreachable_flow;
+        std::vector<std::pair<type_id_t, span_t>> seen;
+        std::vector<symbol_id_t> matches;
+        for (const case_t& branch : node.cases) {
+            m_flow = entry;
+            if (!branch.match) {
+                error(span_of(branch.values.front().value),
+                      "a Select's Cases are all values, or all type matches like 'Case e As Boss'");
+                check_block(branch.body);
+                result = join(result, m_flow);
+                continue;
+            }
+
+            const type_id_t type =
+                check_case_type(*branch.match, valid ? object : type_id_t::INVALID, seen);
+            push_scope();
+            const symbol_id_t variable = declare_local({
+                .kind = symbol_kind_t::LOCAL,
+                .name = branch.match->name.text,
+                .span = branch.match->name.span,
+                .type = type,
+                .declaration = id,
+            });
+            mark_assigned(variable);
+            matches.push_back(variable);
+            check_block(branch.body);
+            pop_scope();
+            result = join(result, m_flow);
+        }
+
+        m_flow = entry;
+        if (node.default_body) {
+            check_block(*node.default_body);
+        }
+
+        m_flow = join(result, m_flow);
+        m_analysis.stmts[index(id)].matches = std::move(matches);
+    }
+
+    /// One type match's Class, which an earlier Case in `seen` mustn't cover.
+    type_id_t check_case_type(const type_case_t& match, const type_id_t object,
+                              std::vector<std::pair<type_id_t, span_t>>& seen) {
+        const type_id_t type = resolve_type(match.type);
+        const span_t span = m_ast.get(match.type).span;
+        if (type == type_id_t::INVALID) {
+            return type;
+        }
+
+        if (!is_class(type)) {
+            error(span, "'Case ... As' matches a Class, not {}", name_of(type));
+            return type_id_t::INVALID;
+        }
+
+        if (object != type_id_t::INVALID && !related(object, type)) {
+            error(span, "{} and {} aren't related, so this Case never matches", name_of(object),
+                  name_of(type));
+            return type;
+        }
+
+        for (const auto& [earlier, earlier_span] : seen) {
+            if (m_analysis.types.extends(type, earlier)) {
+                error(span, "this Case is already covered by an earlier Case")
+                    .with_label(earlier_span, "covered here");
+                return type;
+            }
+        }
+
+        seen.emplace_back(type, span);
+        return type;
+    }
+
+    void check_stmt(const stmt_id_t id, span_t /*span*/, const select_stmt_t& node) {
+        if (std::ranges::any_of(node.cases,
+                                [](const case_t& branch) { return branch.match.has_value(); })) {
+            check_type_select(id, node);
+            return;
+        }
+
         type_id_t type = check(node.subject, type_id_t::NONE);
         if (type != type_id_t::INVALID && !is_integer(type) && type != type_id_t::BOOL &&
             type != type_id_t::STRING) {
@@ -1866,12 +2443,20 @@ private:
         }
 
         if (std::holds_alternative<member_expr_t>(node) ||
-            std::holds_alternative<self_expr_t>(node)) {
+            std::holds_alternative<self_expr_t>(node) ||
+            std::holds_alternative<index_expr_t>(node)) {
             // Assigning doesn't read the target, so New can assign the fields it hasn't yet.
             m_partial = id;
             const type_id_t type = check(id, type_id_t::NONE);
             m_partial.reset();
             if (type == type_id_t::INVALID) {
+                return std::nullopt;
+            }
+
+            if (const auto* member = std::get_if<member_expr_t>(&node);
+                member != nullptr && is_any_array(non_null(info(member->object).type))) {
+                error(span_of(id),
+                      "an array's Count can't be changed; use Add, Insert, RemoveAt, or Clear");
                 return std::nullopt;
             }
 
@@ -1899,9 +2484,7 @@ private:
             };
         }
 
-        if (std::holds_alternative<index_expr_t>(node)) {
-            check(id, type_id_t::NONE);
-        } else if (!std::holds_alternative<error_expr_t>(node)) {
+        if (!std::holds_alternative<error_expr_t>(node)) {
             error(span_of(id), "only a variable can be assigned to");
         }
 
@@ -1924,12 +2507,17 @@ private:
         return info(id).symbol;
     }
 
-    /// Whether a place, after it's checked, is a field of an object: "e.hp" with `e` a Class, or a
-    /// field used by name in a Class's Method. A reference lets its holder use the object, so
-    /// those fields can change even through a read-only variable.
+    /// Whether a place, after it's checked, is in an object: "e.hp" with `e` a Class, a field
+    /// used by name in a Class's Method, or an element of a T[]. A reference lets its holder use
+    /// the object, so those can change even through a read-only variable.
     [[nodiscard]] bool in_object(const expr_id_t id) {
         if (const auto* member = std::get_if<member_expr_t>(&m_ast.get(id).node)) {
             return is_class(info(member->object).type) || in_object(member->object);
+        }
+
+        // A T[]'s elements are in its object too.
+        if (const auto* element = std::get_if<index_expr_t>(&m_ast.get(id).node)) {
+            return is_array(info(element->object).type) || in_object(element->object);
         }
 
         const std::optional<symbol_id_t> found = info(id).symbol;
@@ -1946,6 +2534,10 @@ private:
             return member->null_safe ? std::nullopt : root_of(member->object);
         }
 
+        if (const auto* element = std::get_if<index_expr_t>(&node)) {
+            return root_of(element->object);
+        }
+
         if (!std::holds_alternative<name_expr_t>(node) &&
             !std::holds_alternative<self_expr_t>(node)) {
             return std::nullopt;
@@ -1957,6 +2549,30 @@ private:
         }
 
         return found;
+    }
+
+    /// Whether a place is stored in a T[]'s elements, which move when the array grows: "a[i]" or
+    /// "a[i].pos", but not a field of an object the element refers to.
+    [[nodiscard]] bool in_array_storage(const expr_id_t id) {
+        const expr_node_t& node = m_ast.get(id).node;
+        if (const auto* element = std::get_if<index_expr_t>(&node)) {
+            return is_array(info(element->object).type) || in_array_storage(element->object);
+        }
+
+        const auto* member = std::get_if<member_expr_t>(&node);
+        return member != nullptr && !is_class(info(member->object).type) &&
+               in_array_storage(member->object);
+    }
+
+    /// Whether a place goes through an array's element.
+    [[nodiscard]] bool through_element(const expr_id_t id) {
+        const expr_node_t& node = m_ast.get(id).node;
+        if (std::holds_alternative<index_expr_t>(node)) {
+            return true;
+        }
+
+        const auto* member = std::get_if<member_expr_t>(&node);
+        return member != nullptr && through_element(member->object);
     }
 
     /// The fields a place goes through from its root, outermost first. Together with the root,
@@ -2178,11 +2794,6 @@ private:
         }
     }
 
-    type_id_t unsupported(const expr_id_t id, const std::string_view what) {
-        error(span_of(id), "{} isn't supported yet", what);
-        return type_id_t::INVALID;
-    }
-
     static type_id_t check_expr(expr_id_t /*id*/, const error_expr_t& /*node*/,
                                 type_id_t /*hint*/) {
         return type_id_t::INVALID;
@@ -2241,7 +2852,8 @@ private:
             }
 
             const expr_id_t inner = std::get<expr_id_t>(part);
-            if (const type_id_t type = check(inner, type_id_t::NONE); has_members(type)) {
+            if (const type_id_t type = check(inner, type_id_t::NONE);
+                has_members(type) || is_any_array(type)) {
                 error(span_of(inner), "{} can't be shown in a string", name_of(type));
             } else if (is_nullable(type)) {
                 error(span_of(inner),
@@ -2381,21 +2993,129 @@ private:
         return members_of(owner, name);
     }
 
-    /// A Struct's fields or Methods with a name. Constructors aren't reached by name.
+    /// A Struct's or Class's fields or Methods with a name, its own first, then the ones it
+    /// inherits, without a Method that one further down overrides. Constructors aren't reached
+    /// by name.
     std::vector<symbol_id_t> members_of(const type_id_t type, const std::string_view name) {
-        const auto found = m_declared_types.find(type);
-        if (found == m_declared_types.end()) {
-            return {};
-        }
-
         std::vector<symbol_id_t> members;
-        for (const symbol_id_t member : symbol(found->second).members) {
-            if (symbol(member).name == name && symbol(member).kind != symbol_kind_t::CONSTRUCTOR) {
-                members.push_back(member);
+        for (type_id_t current = type; current != type_id_t::INVALID; current = base_of(current)) {
+            const auto found = m_declared_types.find(current);
+            if (found == m_declared_types.end()) {
+                break;
+            }
+
+            for (const symbol_id_t id : symbol(found->second).members) {
+                const symbol_t& member = symbol(id);
+                const bool overridden = std::ranges::any_of(members, [&](const symbol_id_t other) {
+                    return symbol(other).kind == symbol_kind_t::METHOD &&
+                           same_parameters(symbol(other), member);
+                });
+                if (member.name == name && member.kind != symbol_kind_t::CONSTRUCTOR &&
+                    (member.kind != symbol_kind_t::METHOD || !overridden)) {
+                    members.push_back(id);
+                }
             }
         }
 
         return members;
+    }
+
+    /// Using a T? as its T needs a null check, which only narrows some variables.
+    void report_maybe_null(const expr_id_t id) {
+        if (narrowable_variable(id)) {
+            error(span_of(id), "'{}' may be Null; check that it isn't, or use '?.'", text(id));
+        } else {
+            error(span_of(id), "'{}' may be Null; check a Local copy of it, or use '?.'", text(id));
+        }
+    }
+
+    /// A T[]'s Methods: Add, Insert, RemoveAt, Clear, Contains, and Clone. Their owner is the
+    /// array type, and they have no declaration.
+    const std::vector<symbol_id_t>& array_methods(const type_id_t type) {
+        if (const auto found = m_array_methods.find(type); found != m_array_methods.end()) {
+            return found->second;
+        }
+
+        const type_id_t element = element_of(type);
+        const auto parameter = [this](const std::string_view name, const type_id_t parameter_type) {
+            return add_symbol(
+                { .kind = symbol_kind_t::PARAMETER, .name = name, .type = parameter_type });
+        };
+
+        std::vector<symbol_id_t> methods;
+        const auto method = [&](const std::string_view name, const type_id_t result,
+                                std::vector<symbol_id_t> parameters) {
+            methods.push_back(add_symbol({
+                .kind = symbol_kind_t::METHOD,
+                .name = name,
+                .type = result,
+                .parameters = std::move(parameters),
+                .owner = type,
+            }));
+        };
+
+        method("Add", type_id_t::NONE, { parameter("value", element) });
+        method("Insert", type_id_t::NONE,
+               { parameter("index", type_id_t::INT32), parameter("value", element) });
+        method("RemoveAt", type_id_t::NONE, { parameter("index", type_id_t::INT32) });
+        method("Clear", type_id_t::NONE, {});
+        method("Contains", type_id_t::BOOL, { parameter("value", element) });
+        method("Clone", type, {});
+        return m_array_methods[type] = std::move(methods);
+    }
+
+    /// The Methods after a '.' on an array, by name. A fixed array has only its Count.
+    std::vector<symbol_id_t> lookup_array_method(const type_id_t type, const name_t& member) {
+        if (member.text == "Count") {
+            error(member.span, "Count isn't a Method; leave out the ()");
+            return {};
+        }
+
+        std::vector<symbol_id_t> methods;
+        if (is_array(type)) {
+            for (const symbol_id_t method : array_methods(type)) {
+                if (symbol(method).name == member.text) {
+                    methods.push_back(method);
+                }
+            }
+        }
+
+        if (methods.empty()) {
+            error(member.span, "{} has no member named '{}'", name_of(type), member.text);
+        }
+
+        return methods;
+    }
+
+    /// "a.Count": how many elements an array has, as an Int. A fixed array's is known at compile
+    /// time.
+    type_id_t check_count(const expr_id_t id, const member_expr_t& node, const type_id_t object) {
+        if (node.member.text != "Count") {
+            const bool method =
+                is_array(object) &&
+                std::ranges::any_of(array_methods(object), [&](const symbol_id_t found) {
+                    return symbol(found).name == node.member.text;
+                });
+            if (method) {
+                error(node.member.span, "'{}' is a method; call it with ()", node.member.text);
+            } else {
+                error(node.member.span, "{} has no member named '{}'", name_of(object),
+                      node.member.text);
+            }
+
+            return type_id_t::INVALID;
+        }
+
+        if (node.null_safe) {
+            return nullable_of(type_id_t::INT32);
+        }
+
+        if (is_fixed_array(object)) {
+            info(id).value =
+                make_number(m_analysis.types.element_count(object), false, type_id_t::INT32);
+        }
+
+        return type_id_t::INT32;
     }
 
     /// The members named after a '.' on `object`: a field, or a Method's overloads. Reports a
@@ -2407,14 +3127,7 @@ private:
         }
 
         if (is_nullable(type) && has_members(non_null(type))) {
-            if (narrowable_variable(object)) {
-                error(span_of(object), "'{}' may be Null; check that it isn't, or use '?.'",
-                      text(object));
-            } else {
-                error(span_of(object), "'{}' may be Null; check a Local copy of it, or use '?.'",
-                      text(object));
-            }
-
+            report_maybe_null(object);
             return {};
         }
 
@@ -2662,6 +3375,13 @@ private:
 
         convert(left, *common);
         convert(right, *common);
+        if ((op == binary_op_t::EQUAL || op == binary_op_t::NOT_EQUAL) && !comparable(*common)) {
+            error(span, "'{}' can't be used on {}{}", spelling(op), name_of(*common),
+                  is_array(non_null(*common)) ? "; RefEquals tells whether two are the same array"
+                                              : "");
+            return type_id_t::INVALID;
+        }
+
         if (supports(op, *common)) {
             return *common;
         }
@@ -2764,10 +3484,14 @@ private:
         }
 
         const auto* member = std::get_if<member_expr_t>(&m_ast.get(node.callee).node);
-        // A Method called by name gets Self.
-        if (symbol(*function).kind == symbol_kind_t::METHOD && member == nullptr) {
+        const bool on_super = member != nullptr &&
+                              std::holds_alternative<super_expr_t>(m_ast.get(member->object).node);
+        // A Method called by name, or on Super, gets Self.
+        if (symbol(*function).kind == symbol_kind_t::METHOD && (member == nullptr || on_super)) {
             check_self_ready(span_of(node.callee));
         }
+
+        check_class_call(id, symbol(*function), on_super);
 
         // "a?.M()" gives Null when a is Null.
         const type_id_t type = symbol(*function).type;
@@ -2778,6 +3502,38 @@ private:
         return type;
     }
 
+    /// An Abstract Class can't be made, and Super can't call an Abstract Method. Super.New only
+    /// starts a New, and sets up what Self inherits.
+    void check_class_call(const expr_id_t id, const symbol_t& function, const bool on_super) {
+        const bool is_new = function.kind == symbol_kind_t::CONSTRUCTOR;
+        if (is_new && !on_super && is_class(function.owner) &&
+            symbol(m_declared_types.at(function.owner)).modifiers.is_abstract) {
+            error(span_of(id), "{} is Abstract, so it can't be made; make a Class that extends it",
+                  name_of(function.owner));
+        }
+
+        if (!on_super) {
+            return;
+        }
+
+        if (function.modifiers.is_abstract) {
+            error(span_of(id), "'{}' is Abstract in {}, so Super can't call it", function.name,
+                  name_of(function.owner));
+        }
+
+        if (is_new && m_super_new != id) {
+            error(span_of(id), "Super.New can only start a New");
+        } else if (is_new && m_function) {
+            m_before_super = false;
+            const type_id_t owner = symbol(*m_function).owner;
+            for (const symbol_id_t field : m_required) {
+                if (symbol(field).owner != owner) {
+                    mark_assigned(field);
+                }
+            }
+        }
+    }
+
     /// RefEquals only compares Class references, and Destroy runs by itself.
     void check_special_call(const call_expr_t& node, const symbol_t& function) {
         if (function.kind == symbol_kind_t::BUILTIN_FUNCTION && function.name == "RefEquals") {
@@ -2786,11 +3542,18 @@ private:
                 if (is_null(argument.value)) {
                     error(span_of(argument.value),
                           "RefEquals compares two references; check for Null with '== Null'");
-                } else if (type != type_id_t::INVALID && !is_class(non_null(type))) {
+                } else if (type != type_id_t::INVALID && !is_class(non_null(type)) &&
+                           !is_array(non_null(type))) {
                     error(span_of(argument.value), "RefEquals compares Class references, not {}",
                           name_of(type));
                 }
             }
+        }
+
+        if (function.kind == symbol_kind_t::METHOD && function.name == "Contains" &&
+            is_array(function.owner) && !comparable(element_of(function.owner))) {
+            error(span_of(node.callee), "Contains compares with ==, which {} doesn't have",
+                  name_of(element_of(function.owner)));
         }
 
         if (function.kind == symbol_kind_t::METHOD && function.name == "Destroy" &&
@@ -2821,6 +3584,20 @@ private:
             return;
         }
 
+        // An element of a T[] could move while the Method changes it, if the array grows.
+        if (in_array_storage(member->object)) {
+            error(span_of(member->object),
+                  "'{}' is a ByRef Method, and an element of a T[] can move when the array grows; "
+                  "change a Local copy, then store it back",
+                  function.name);
+            return;
+        }
+
+        // An object's fields, and a T[]'s elements, change through any reference.
+        if (in_object(member->object)) {
+            return;
+        }
+
         const std::optional<symbol_id_t> root = root_of(member->object);
         if (!root) {
             error(span_of(member->object),
@@ -2841,14 +3618,35 @@ private:
         }
     }
 
+    void check_alone(const std::vector<expr_id_t>& expressions) {
+        for (const expr_id_t expression : expressions) {
+            check(expression, type_id_t::NONE);
+        }
+    }
+
     /// What a callee names: a function's overloads, a Struct's constructors, or Methods. A Method
     /// is called after a '.' or '?.' on a Struct value, or by name in another of its Struct's
     /// Methods.
     std::vector<symbol_id_t> lookup_callee(const expr_id_t callee) {
+        if (const auto* member = std::get_if<member_expr_t>(&m_ast.get(callee).node);
+            member != nullptr &&
+            std::holds_alternative<super_expr_t>(m_ast.get(member->object).node)) {
+            return lookup_super(*member);
+        }
+
         if (const auto* member = std::get_if<member_expr_t>(&m_ast.get(callee).node)) {
             type_id_t type = check(member->object, type_id_t::NONE);
             if (member->null_safe) {
                 type = check_safe_object(member->object, type);
+            }
+
+            if (is_any_array(type)) {
+                return lookup_array_method(type, member->member);
+            }
+
+            if (is_nullable(type) && is_any_array(non_null(type))) {
+                report_maybe_null(member->object);
+                return {};
             }
 
             std::vector<symbol_id_t> members = lookup_member(member->object, type, member->member);
@@ -2914,6 +3712,38 @@ private:
         }
 
         return found->second;
+    }
+
+    /// "Super.M" names the Methods of the Class that Self's Class extends, and "Super.New" its
+    /// News. They're called on Self, without the overrides further down.
+    std::vector<symbol_id_t> lookup_super(const member_expr_t& member) {
+        const span_t span = span_of(member.object);
+        const type_id_t owner = m_function ? symbol(*m_function).owner : type_id_t::INVALID;
+        if (!is_class(owner) || base_of(owner) == type_id_t::INVALID) {
+            error(span, "'Super' needs a Class that extends another, in one of its Methods");
+            return {};
+        }
+
+        const type_id_t base = base_of(owner);
+        info(member.object) = { .type = base, .converted = base, .symbol = current_self() };
+        if (member.member.text == "New") {
+            std::vector<symbol_id_t> constructors;
+            for (const symbol_id_t id : symbol(m_declared_types.at(base)).members) {
+                if (symbol(id).kind == symbol_kind_t::CONSTRUCTOR) {
+                    constructors.push_back(id);
+                }
+            }
+
+            return constructors;
+        }
+
+        std::vector<symbol_id_t> members = lookup_member(member.object, base, member.member);
+        if (!members.empty() && symbol(members.front()).kind == symbol_kind_t::FIELD) {
+            error(member.member.span, "'{}' is a field; use it without Super", member.member.text);
+            return {};
+        }
+
+        return members;
     }
 
     /// How errors name something callable: a constructor by its Struct.
@@ -3176,6 +4006,12 @@ private:
             return;
         }
 
+        if (through_element(value)) {
+            error(span_of(value),
+                  "an array's element can't be passed ByRef yet; copy it into a Local");
+            return;
+        }
+
         // An object's fields can be passed through any reference to it. Two references might be
         // the same object, so only the same variable counts as overlapping.
         const std::optional<symbol_id_t> variable = root_of(value);
@@ -3252,6 +4088,15 @@ private:
             object = check_safe_object(node.object, object);
         }
 
+        if (is_any_array(object)) {
+            return check_count(id, node, object);
+        }
+
+        if (is_nullable(object) && is_any_array(non_null(object))) {
+            report_maybe_null(node.object);
+            return type_id_t::INVALID;
+        }
+
         const std::vector<symbol_id_t> members = lookup_member(node.object, object, node.member);
         if (members.empty()) {
             return type_id_t::INVALID;
@@ -3300,25 +4145,187 @@ private:
         return symbol(*self).type;
     }
 
-    type_id_t check_expr(const expr_id_t id, const index_expr_t& /*node*/, type_id_t /*hint*/) {
-        return unsupported(id, "indexing");
+    /// Super only comes before a call, which lookup_super() checks.
+    type_id_t check_expr(const expr_id_t id, const super_expr_t& /*node*/, type_id_t /*hint*/) {
+        error(span_of(id), "'Super' only comes before a call, like 'Super.Hurt(5)'");
+        return type_id_t::INVALID;
+    }
+
+    /// "a[i]", or "grid[x, y]" with an index for each dimension. Indices are integers of any
+    /// type. A T[]'s are checked when the program runs, and a fixed array's known ones here too.
+    type_id_t check_expr(const expr_id_t id, const index_expr_t& node, type_id_t /*hint*/) {
+        const type_id_t object = check(node.object, type_id_t::NONE);
+        if (object == type_id_t::INVALID) {
+            check_alone(node.indices);
+            return type_id_t::INVALID;
+        }
+
+        if (is_nullable(object) && is_any_array(non_null(object))) {
+            report_maybe_null(node.object);
+            return type_id_t::INVALID;
+        }
+
+        if (!is_any_array(object)) {
+            error(span_of(node.object), "{} can't be indexed", name_of(object));
+            check_alone(node.indices);
+            return type_id_t::INVALID;
+        }
+
+        const std::vector<std::uint32_t>& sizes = m_analysis.types.get(object).sizes;
+        const std::size_t dimensions = is_array(object) ? 1 : sizes.size();
+        if (node.indices.size() != dimensions) {
+            error(span_of(id), "{} takes {} {}", name_of(object), dimensions,
+                  dimensions == 1 ? "index" : "indices");
+            check_alone(node.indices);
+            return type_id_t::INVALID;
+        }
+
+        bool valid = true;
+        for (std::size_t i = 0; i < dimensions; ++i) {
+            valid = check_index(node.indices[i], is_array(object) ? 0 : sizes[i], object) && valid;
+        }
+
+        return valid ? element_of(object) : type_id_t::INVALID;
+    }
+
+    /// One index: an integer, which can't be negative, or past `size` when it's known (0 for a
+    /// T[], whose size isn't).
+    bool check_index(const expr_id_t id, const std::uint32_t size, const type_id_t array) {
+        const type_id_t type = check(id, type_id_t::INT32);
+        if (type == type_id_t::INVALID) {
+            return false;
+        }
+
+        if (!is_integer(type)) {
+            error(span_of(id), "an index must be an integer, not {}", name_of(type));
+            return false;
+        }
+
+        const std::optional<std::int64_t> value = integer_value(id);
+        if (value && *value < 0) {
+            error(span_of(id), "an index can't be negative");
+            return false;
+        }
+
+        if (value && size != 0 && std::cmp_greater_equal(*value, size)) {
+            error(span_of(id), "index {} is out of range for {}", *value, name_of(array));
+            return false;
+        }
+
+        return true;
+    }
+
+    /// "[a, b, c]": a new T[], or a T[N] when one is expected. The elements take the expected
+    /// T, or else meet at a common one, with literals taking it.
+    type_id_t check_expr(const expr_id_t id, const array_expr_t& node, const type_id_t hint) {
+        const type_id_t expected = non_null(hint);
+        if (is_fixed_array(expected) && m_analysis.types.get(expected).sizes.size() > 1) {
+            error(span_of(id),
+                  "{} can't come from an array literal; it starts with every element at zero",
+                  name_of(expected));
+            check_alone(node.elements);
+            return type_id_t::INVALID;
+        }
+
+        if (is_any_array(expected)) {
+            return check_elements(id, node, expected);
+        }
+
+        if (node.elements.empty()) {
+            error(span_of(id), "an empty array needs a type from where it's used, like 'Local a: "
+                               "Int[] = []'");
+            return type_id_t::INVALID;
+        }
+
+        // Typed elements first, then Null and literals, which take the type they meet at. NONE
+        // until the first one.
+        type_id_t common = type_id_t::NONE;
+        for (const bool flexible : { false, true }) {
+            for (const expr_id_t element : node.elements) {
+                if ((is_flexible(element) || is_null(element)) != flexible) {
+                    continue;
+                }
+
+                type_id_t element_hint = type_id_t::NONE;
+                if (is_null(element) && common != type_id_t::NONE) {
+                    element_hint = nullable_of(common);
+                } else if (is_numeric(common)) {
+                    element_hint = common;
+                } else if (is_flexible(element)) {
+                    element_hint =
+                        has_decimal_among(node.elements) ? type_id_t::FLOAT32 : type_id_t::INT32;
+                }
+
+                const type_id_t type = check(element, element_hint);
+                if (type == type_id_t::INVALID) {
+                    return type_id_t::INVALID;
+                }
+
+                const std::optional<type_id_t> meet =
+                    common == type_id_t::NONE ? type : common_type(common, type);
+                if (!meet) {
+                    error(span_of(element),
+                          "the elements of an array have different types, {} and {}",
+                          name_of(common), name_of(type));
+                    return type_id_t::INVALID;
+                }
+
+                common = *meet;
+            }
+        }
+
+        for (const expr_id_t element : node.elements) {
+            convert(element, common);
+        }
+
+        return m_analysis.types.array(common);
+    }
+
+    /// Whether any of the literal elements has a decimal, which makes them all Floats.
+    [[nodiscard]] bool has_decimal_among(const std::vector<expr_id_t>& elements) const {
+        return std::ranges::any_of(elements, [this](const expr_id_t element) {
+            return is_flexible(element) && has_decimal(element);
+        });
+    }
+
+    /// The elements of an array literal of the type `array`, which a fixed array has a number
+    /// of.
+    type_id_t check_elements(const expr_id_t id, const array_expr_t& node, const type_id_t array) {
+        const type_id_t element = element_of(array);
+        bool valid = true;
+        for (const expr_id_t value : node.elements) {
+            check(value, element);
+            valid = expect_type(value, element) && valid;
+        }
+
+        const std::uint64_t count = m_analysis.types.element_count(array);
+        if (is_fixed_array(array) && node.elements.size() != count) {
+            error(span_of(id), "{} needs {} elements, not {}", name_of(array), count,
+                  node.elements.size());
+            return type_id_t::INVALID;
+        }
+
+        return valid ? array : type_id_t::INVALID;
     }
 
     /// A cast gives a literal its type directly: `5_000_000_000 As Long`.
     type_id_t check_expr(const expr_id_t id, const cast_expr_t& node, type_id_t /*hint*/) {
-        if (node.checked) {
-            return unsupported(id, "'As?'");
-        }
-
         const type_id_t target = resolve_type(node.type);
-        const type_id_t source = check(node.value, target);
+        const type_id_t source = check(node.value, node.checked ? type_id_t::NONE : target);
         if (target == type_id_t::INVALID || source == type_id_t::INVALID) {
             return type_id_t::INVALID;
         }
 
+        if (node.checked) {
+            return check_checked_cast(id, node, source, target);
+        }
+
         // Numbers convert to each other, a Bool to an integer as 0 or 1, and anything to what
-        // it converts to without 'As', like a T to a T?.
-        const bool allowed = converts(source, target) ||
+        // it converts to without 'As', like a T to a T?. An object converts to a related Class,
+        // which is checked at run time.
+        const bool classes = is_class(non_null(source)) && is_class(non_null(target)) &&
+                             related(non_null(source), non_null(target));
+        const bool allowed = converts(source, target) || classes ||
                              (is_numeric(source) && is_numeric(target)) ||
                              (source == type_id_t::BOOL && is_integer(target));
         if (!allowed) {
@@ -3326,10 +4333,11 @@ private:
             return type_id_t::INVALID;
         }
 
+        // The only known object is Null, which a T? keeps, and a T can't be.
         if (const std::optional<const_value_t>& value = info(node.value).value) {
             if (is_nullable(target)) {
                 info(id).value = convert_value(*value, target);
-            } else {
+            } else if (!classes) {
                 fold(id, fold_cast(*value, target));
             }
         }
@@ -3337,8 +4345,70 @@ private:
         return target;
     }
 
-    type_id_t check_expr(const expr_id_t id, const is_expr_t& /*node*/, type_id_t /*hint*/) {
-        return unsupported(id, "'Is'");
+    /// "x As? T": x as a T?, which is Null when x isn't a T, or is Null.
+    type_id_t check_checked_cast(const expr_id_t id, const cast_expr_t& node,
+                                 const type_id_t source, const type_id_t target) {
+        const span_t type_span = m_ast.get(node.type).span;
+        if (is_nullable(target)) {
+            error(type_span, "'As?' gives a {} already; write 'As? {}'", name_of(target),
+                  name_of(non_null(target)));
+            return type_id_t::INVALID;
+        }
+
+        const type_id_t object = non_null(source);
+        if (!is_class(object) || !is_class(target)) {
+            error(span_of(id), "'As?' converts objects between Classes, not {} to {}",
+                  name_of(source), name_of(target));
+            return type_id_t::INVALID;
+        }
+
+        if (!related(object, target)) {
+            error(span_of(id), "{} and {} aren't related, so this is always Null", name_of(object),
+                  name_of(target));
+            return type_id_t::INVALID;
+        }
+
+        const type_id_t type = nullable_of(target);
+        if (const std::optional<const_value_t>& value = info(node.value).value) {
+            info(id).value = convert_value(*value, type);
+        }
+
+        return type;
+    }
+
+    /// "x Is T": whether x is an object of the Class T, or of one that extends it. False for
+    /// Null.
+    type_id_t check_expr(const expr_id_t id, const is_expr_t& node, type_id_t /*hint*/) {
+        const type_id_t target = resolve_type(node.type);
+        const type_id_t source = check(node.value, type_id_t::NONE);
+        if (target == type_id_t::INVALID || source == type_id_t::INVALID) {
+            return type_id_t::INVALID;
+        }
+
+        const type_id_t object = non_null(source);
+        if (!is_class(object)) {
+            error(span_of(node.value), "'Is' tests objects of Classes, not {}", name_of(source));
+            return type_id_t::INVALID;
+        }
+
+        if (!is_class(target)) {
+            error(m_ast.get(node.type).span, "'Is' tests for a Class, not {}", name_of(target));
+            return type_id_t::INVALID;
+        }
+
+        if (!related(object, target)) {
+            error(span_of(id), "{} and {} aren't related, so this is always False", name_of(object),
+                  name_of(target));
+            return type_id_t::INVALID;
+        }
+
+        if (!is_nullable(source) && m_analysis.types.extends(object, target)) {
+            warning(span_of(id), "this is always True: '{}' is {} already", text(node.value),
+                    name_of(object));
+        }
+
+        info(id).tested = target;
+        return type_id_t::BOOL;
     }
 };
 

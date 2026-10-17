@@ -1,0 +1,17 @@
+rect with area 6
+a square: square with area 16
+circle with area 3
+22
+rect 2 by 3, square of side 4, circle of radius 1, nothing
+True True False
+square
+no rect
+4 True
+rect with area 6
+12 13
+end of main
+shape circle freed
+rect 4x4 freed
+shape square freed
+rect 2x3 freed
+shape rect freed

@@ -45,11 +45,24 @@ struct global_t {
     std::optional<const_value_t> initial;
 };
 
-/// Somewhere a value is stored: a local or a global, or a field inside one, like "_1.pos.x".
+/// One step inward from a place: into a field, or into an element of an array.
+struct step_t {
+    /// The field's position, for a Struct, a Class's object, or a T?'s value.
+    std::uint32_t field = 0;
+    /// For an element: the locals holding its indices, one per dimension. Lowering also goes
+    /// through a fixed array of several dimensions with one index, which counts every element.
+    /// Empty for a field.
+    std::vector<local_id_t> indices;
+    /// Where an index that's out of range panics.
+    span_t span;
+};
+
+/// Somewhere a value is stored: a local or a global, or a field or element inside one, like
+/// "_1.pos.x" or "_2[_3]".
 struct place_t {
     std::variant<local_id_t, global_id_t> root;
-    /// The positions of the fields from the root inward.
-    std::vector<std::uint32_t> fields;
+    /// The steps from the root inward.
+    std::vector<step_t> steps;
 
     // Implicit, so a local or global can be used wherever a place goes.
     place_t(const local_id_t local) : root(local) {}
@@ -109,6 +122,10 @@ struct call_t {
     function_id_t function;
     /// One per parameter, in order, with default values already filled in.
     std::vector<call_argument_t> arguments;
+    /// For a Method that a Class could override: its slot in the Method table of the object's
+    /// Class, which has the one to call. `function` is the one the receiver's type has, which
+    /// takes the same arguments. A Class's Self takes an object of any Class extending it.
+    std::optional<std::uint32_t> slot;
 };
 
 /// The runtime library functions MIR calls; see runtime/include/fb/runtime.hpp. A String they
@@ -124,11 +141,25 @@ enum class runtime_function_t : std::uint8_t {
     TO_TEXT,
     /// (String) to nothing: prints it and a line break.
     PRINT,
+    /// (T[]) to its Count, an Int32.
+    ARRAY_COUNT,
+    /// (T[], T) to nothing: adds the value at the end, taking over its references.
+    ARRAY_ADD,
+    /// (T[], an integer, T) to nothing: puts the value at the index, taking over its references.
+    ARRAY_INSERT,
+    /// (T[], an integer) to nothing: releases the element at the index and takes it out.
+    ARRAY_REMOVE_AT,
+    /// (T[]) to nothing: releases every element, leaving none.
+    ARRAY_CLEAR,
+    /// (T[]) to a new T[] with the same elements, retained.
+    ARRAY_CLONE,
 };
 
 struct runtime_call_t {
     runtime_function_t function;
     std::vector<operand_t> arguments;
+    /// For Insert and RemoveAt: where an index out of range panics.
+    std::optional<span_t> span;
 };
 
 /// A Struct value made of one operand per field, in order. It holds the fields' references,
@@ -136,6 +167,13 @@ struct runtime_call_t {
 struct aggregate_t {
     type_id_t type;
     std::vector<operand_t> fields;
+};
+
+/// A new T[] holding the elements, which have their references already, or a fixed array's
+/// value made of them.
+struct array_t {
+    type_id_t type;
+    std::vector<operand_t> elements;
 };
 
 /// The value every variable of `type` starts with: zero, False, "", or Null, and the same for
@@ -151,9 +189,26 @@ struct new_t {
     type_id_t type;
 };
 
+/// "x Is T": a Bool, whether `value`'s object is of the Class `type`, or of one that extends it.
+/// False for Null.
+struct is_t {
+    operand_t value;
+    type_id_t type;
+};
+
+/// An object as a Class that extends its type: the same reference, as a `type`. It panics at
+/// `span` unless the object is of that Class, or one extending it. Null panics too, unless
+/// `type` is a T?. With `or_null`, for 'As?', it gives Null instead of panicking.
+struct downcast_t {
+    operand_t value;
+    type_id_t type;
+    span_t span;
+    bool or_null = false;
+};
+
 /// Something a statement computes.
 using rvalue_t = std::variant<use_t, unary_t, binary_t, cast_t, call_t, runtime_call_t, aggregate_t,
-                              zero_t, new_t>;
+                              array_t, zero_t, new_t, is_t, downcast_t>;
 
 /// "target = value". It doesn't count references; lowering adds retain_t and release_t for
 /// Strings, and for Structs that hold them.
@@ -234,8 +289,11 @@ struct mir_function_t {
 /// Destroy() and releases its fields.
 struct mir_class_t {
     type_id_t type;
-    /// The Class's Destroy() Method, if it has one.
+    /// The Class's own Destroy() Method, if it has one. The ones of the Classes it extends run
+    /// after it.
     std::optional<function_id_t> destroy;
+    /// The Method table: for each slot, the Method its objects run.
+    std::vector<function_id_t> methods;
 };
 
 /// A whole program, lowered from one file. Names view the source text, so the file must

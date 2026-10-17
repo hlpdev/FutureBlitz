@@ -1,0 +1,5 @@
+// Indexing past the end of an array panics, with the index and the count.
+Local scores = [10, 20, 30]
+Local i = 3
+Print("{scores[i - 1]}")
+Print("{scores[i]}")

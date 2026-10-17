@@ -659,16 +659,8 @@ TEST_CASE("Select", "[sema]") {
           errors_t{ "s: Select works on integers, Bool, and String, not Float32" });
 }
 
-TEST_CASE("features after M1 are reported as not supported yet", "[sema]") {
-    CHECK(errors_of("Local x: Int[]") == errors_t{ "Int[]: arrays aren't supported yet" });
-    CHECK(errors_of("Local a = 1\nLocal x = a[0]") ==
-          errors_t{ "a[0]: indexing isn't supported yet" });
-    CHECK(errors_of("Local a = 1\nLocal x = a Is Int") ==
-          errors_t{ "a Is Int: 'Is' isn't supported yet" });
-    CHECK(errors_of("Local a = 1\nLocal x = a As? Int") ==
-          errors_t{ "a As? Int: 'As?' isn't supported yet" });
-    CHECK(errors_of("Local a = 1\nFor e In a\nEnd For") ==
-          errors_t{ "For e In a: 'For ... In' isn't supported yet" });
+TEST_CASE("built-in types after M2 are reported as not supported yet", "[sema]") {
+    CHECK(errors_of("Local x: Vec3") == errors_t{ "Vec3: 'Vec3' isn't supported yet" });
 }
 
 // Structs
@@ -1227,6 +1219,360 @@ TEST_CASE("a Struct with a field that has no zero has none either", "[sema]") {
     CHECK(errors_of("Struct S\n    Field next: S?\nEnd Struct") ==
           errors_t{ "next: 'S' can't contain itself; a Struct is stored inline" });
     CHECK(errors_of("Class N\n    Field next: N?\nEnd Class").empty());
+}
+
+// Inheritance
+
+TEST_CASE("a Class extends one other Class and inherits its members", "[sema]") {
+    constexpr std::string_view base = "Class A\n"
+                                      "    Field hp: Int = 3\n"
+                                      "    Method Hit(n: Int)\n"
+                                      "    End Method\n"
+                                      "End Class\n";
+    const auto with_base = [&](const std::string_view text) {
+        return std::format("{}{}", base, text);
+    };
+
+    CHECK(probe(with_base("Class B Extends A\nEnd Class\nLocal hp = B().hp")) == "Int32");
+    CHECK(errors_of(with_base("Class B Extends A\n"
+                              "    Method Show()\n"
+                              "        Hit(hp)\n"
+                              "        Self.Hit(Self.hp)\n"
+                              "    End Method\n"
+                              "End Class\n"
+                              "B().Hit(1)"))
+              .empty());
+    CHECK(errors_of(with_base("Class B Extends A\n    Field hp: Int\nEnd Class")) ==
+          errors_t{ "hp: 'hp' is already declared in A" });
+
+    CHECK(errors_of("Struct S\nEnd Struct\nStruct T Extends S\nEnd Struct") ==
+          errors_t{ "S: only a Class can extend another; a Struct is a value" });
+    CHECK(errors_of("Class B Extends Nope\nEnd Class") == errors_t{ "Nope: 'Nope' isn't a Class" });
+    CHECK(errors_of("Class A Extends B\nEnd Class\nClass B Extends A\nEnd Class") ==
+          errors_t{ "A: B can't extend itself, directly or through other Classes" });
+    CHECK(errors_of("Final Class A\nEnd Class\nClass B Extends A\nEnd Class") ==
+          errors_t{ "A: A is Final, so it can't be extended" });
+}
+
+TEST_CASE("overriding a Method takes Override", "[sema]") {
+    constexpr std::string_view base = "Class A\n"
+                                      "    Method F(): Int => 1\n"
+                                      "    Final Method G()\n"
+                                      "    End Method\n"
+                                      "End Class\n";
+    const auto with_base = [&](const std::string_view text) {
+        return errors_of(std::format("{}{}", base, text));
+    };
+
+    CHECK(with_base("Class B Extends A\n    Override Method F(): Int => 2\nEnd Class").empty());
+    CHECK(with_base("Class B Extends A\n    Method F(): Int => 2\nEnd Class") ==
+          errors_t{ "F: 'F' overrides A's; write 'Override Method F'" });
+    CHECK(with_base("Class B Extends A\n    Override Method F(x: Int): Int => 2\nEnd Class") ==
+          errors_t{ "F: 'F' has Override, but A has no Method like it" });
+    CHECK(with_base("Class B Extends A\n    Override Method F(): Long => 2\nEnd Class") ==
+          errors_t{ "F: 'F' must return Int32, like A's" });
+    CHECK(with_base("Class B Extends A\n    Override Method G()\n    End Method\nEnd Class") ==
+          errors_t{ "G: 'G' is Final in A, so it can't be overridden" });
+
+    // Other parameters make an overload. Every Class's Destroy runs, so none overrides another.
+    CHECK(with_base("Class B Extends A\n    Method F(x: Int): Int => x\nEnd Class").empty());
+    CHECK(with_base("Class B Extends A\n"
+                    "    Override Method Destroy()\n"
+                    "    End Method\n"
+                    "End Class") ==
+          errors_t{ "Destroy: Destroy can't be Abstract, Final, or Override; every Class's "
+                    "Destroy runs" });
+}
+
+TEST_CASE("Abstract and Final", "[sema]") {
+    CHECK(errors_of("Abstract Class A\nEnd Class\nLocal a = A()") ==
+          errors_t{ "A(): A is Abstract, so it can't be made; make a Class that extends it" });
+    CHECK(errors_of("Class A\n    Abstract Method F()\nEnd Class") ==
+          errors_t{ "F: 'F' is Abstract, so A must be Abstract too" });
+    CHECK(errors_of("Abstract Class A\n"
+                    "    Abstract Method F(): Int\n"
+                    "End Class\n"
+                    "Class B Extends A\n"
+                    "End Class") ==
+          errors_t{ "B: B must override A's Abstract Method 'F', or be Abstract" });
+    CHECK(errors_of("Abstract Final Class A\nEnd Class") ==
+          errors_t{ "A: 'A' can't be both Abstract and Final" });
+    CHECK(errors_of("Final Struct S\n    Override Method F()\n    End Method\nEnd Struct") ==
+          errors_t{ "S: a Struct can't be Abstract or Final; only a Class can",
+                    "F: a Struct's Methods can't be Abstract, Final, or Override" });
+    CHECK(errors_of("Final Function F()\nEnd Function") ==
+          errors_t{ "F: Abstract, Final, and Override only go before a Class's Methods" });
+}
+
+TEST_CASE("Super calls the Methods and New of the Class extended", "[sema]") {
+    constexpr std::string_view base = "Abstract Class A\n"
+                                      "    Field hp: Int\n"
+                                      "    New(hp: Int)\n"
+                                      "        Self.hp = hp\n"
+                                      "    End New\n"
+                                      "    Method F(): Int => hp\n"
+                                      "    Abstract Method G()\n"
+                                      "End Class\n";
+    const auto with_base = [&](const std::string_view text) {
+        return errors_of(std::format("{}{}", base, text));
+    };
+
+    CHECK(with_base("Class B Extends A\n"
+                    "    New()\n"
+                    "        Super.New(1)\n"
+                    "    End New\n"
+                    "    Override Method F(): Int => Super.F() + 1\n"
+                    "    Override Method G()\n"
+                    "    End Method\n"
+                    "End Class")
+              .empty());
+    CHECK(with_base("Class B Extends A\n"
+                    "    New()\n"
+                    "        Super.New(1)\n"
+                    "    End New\n"
+                    "    Override Method G()\n"
+                    "        Super.G()\n"
+                    "    End Method\n"
+                    "End Class") ==
+          errors_t{ "Super.G(): 'G' is Abstract in A, so Super can't call it" });
+
+    // A has no New without parameters, so B's New starts with Super.New, and Self waits for it.
+    CHECK(with_base("Abstract Class B Extends A\nEnd Class") ==
+          errors_t{ "B: B needs a New that starts with Super.New(...), since A has no New "
+                    "without parameters" });
+    CHECK(with_base("Abstract Class B Extends A\n"
+                    "    New()\n"
+                    "        Print(\"x\")\n"
+                    "        Super.New(1)\n"
+                    "    End New\n"
+                    "End Class") ==
+          errors_t{ "New: New must start with Super.New(...), since A has no New without "
+                    "parameters",
+                    "Super.New(1): Super.New can only start a New" });
+    CHECK(with_base("Abstract Class B Extends A\n"
+                    "    New()\n"
+                    "        Super.New(F())\n"
+                    "    End New\n"
+                    "End Class") == errors_t{ "F: Self can't be used before Super.New" });
+
+    CHECK(errors_of("Class A\n    Method F()\n        Super.F()\n    End Method\nEnd Class") ==
+          errors_t{ "Super: 'Super' needs a Class that extends another, in one of its Methods" });
+    CHECK(with_base("Abstract Class B Extends A\n"
+                    "    New()\n"
+                    "        Super.New(1)\n"
+                    "    End New\n"
+                    "    Method H()\n"
+                    "        Local x = Super\n"
+                    "    End Method\n"
+                    "End Class") ==
+          errors_t{ "Super: 'Super' only comes before a call, like 'Super.Hurt(5)'" });
+}
+
+TEST_CASE("an object converts to the Classes its Class extends", "[sema]") {
+    constexpr std::string_view family = "Class A\nEnd Class\n"
+                                        "Class B Extends A\nEnd Class\n"
+                                        "Class C Extends A\nEnd Class\n"
+                                        "Class D\nEnd Class\n";
+    const auto with_family = [&](const std::string_view text) {
+        return std::format("{}{}", family, text);
+    };
+
+    CHECK(probe(with_family("Local a: A = B()\nLocal x: A? = a")) == "A? (from A)");
+    CHECK(probe(with_family("Local x = True ? B() : C()")) == "A");
+    CHECK(probe(with_family("Local a: A = B()\nLocal x = a Is B")) == "Bool");
+    CHECK(probe(with_family("Local a: A = B()\nLocal x = a As B")) == "B");
+    CHECK(probe(with_family("Local a: A = B()\nLocal x = a As? C")) == "C?");
+    CHECK(probe(with_family("Local a: A? = Null\nLocal x = a As A")) == "A");
+
+    CHECK(errors_of(with_family("Local x = B() Is D")) ==
+          errors_t{ "B() Is D: B and D aren't related, so this is always False" });
+    CHECK(errors_of(with_family("Local x = B() As C")) ==
+          errors_t{ "B() As C: 'As' can't convert B to C" });
+    CHECK(errors_of(with_family("Local x = B() As? D")) ==
+          errors_t{ "B() As? D: B and D aren't related, so this is always Null" });
+    CHECK(errors_of(with_family("Local a: A = B()\nLocal x = a As? B?")) ==
+          errors_t{ "B?: 'As?' gives a B? already; write 'As? B'" });
+    CHECK(errors_of("Local x = 1 Is Int") ==
+          errors_t{ "1: 'Is' tests objects of Classes, not Int32" });
+    CHECK(errors_of(with_family("Local b = B()\nLocal x = b Is A")) ==
+          errors_t{ "b Is A: this is always True: 'b' is B already" });
+}
+
+TEST_CASE("a Select can match Classes", "[sema]") {
+    constexpr std::string_view family = "Class A\nEnd Class\n"
+                                        "Class B Extends A\nEnd Class\n"
+                                        "Class D\nEnd Class\n"
+                                        "Local a: A? = B()\n";
+    const auto with_family = [&](const std::string_view text) {
+        return errors_of(std::format("{}{}", family, text));
+    };
+
+    CHECK(with_family("Select a\n"
+                      "    Case b As B\n"
+                      "        Local x: B = b\n"
+                      "    Case other As A\n"
+                      "End Select")
+              .empty());
+    CHECK(with_family("Select a\n    Case x As A\n    Case y As B\nEnd Select") ==
+          errors_t{ "B: this Case is already covered by an earlier Case" });
+    CHECK(with_family("Select a\n    Case x As D\nEnd Select") ==
+          errors_t{ "D: A and D aren't related, so this Case never matches" });
+    CHECK(with_family("Select a\n    Case x As B\n    Case 1\nEnd Select") ==
+          errors_t{ "1: a Select's Cases are all values, or all type matches like 'Case e As "
+                    "Boss'" });
+}
+
+// Arrays
+
+TEST_CASE("an array literal takes the expected type, or its elements' common one", "[sema]") {
+    CHECK(probe("Local a = [1, 2]") == "Int32[]");
+    CHECK(probe("Local a = [1, 2.5]") == "Float32[]");
+    CHECK(probe("Local big: Long = 5\nLocal a = [big, 1]") == "Int64[]");
+    CHECK(probe("Local a: Long[] = [1, 2]") == "Int64[]");
+    CHECK(probe("Local a: Int[3] = [1, 2, 3]") == "Int32[3]");
+    CHECK(probe("Local a = [[1], [2, 3]]") == "Int32[][]");
+    CHECK(probe("Local a: String[]? = []") == "String[]? (from String[])");
+
+    CHECK(errors_of("Local a = []") ==
+          errors_t{ "[]: an empty array needs a type from where it's used, like 'Local a: Int[] = "
+                    "[]'" });
+    CHECK(errors_of("Local a = [1, \"x\"]") ==
+          errors_t{ "1: the elements of an array have different types, String and Int32" });
+    CHECK(errors_of("Local a: Int[3] = [1, 2]") ==
+          errors_t{ "[1, 2]: Int32[3] needs 3 elements, not 2" });
+    CHECK(errors_of("Local a: Int[2, 2] = [1, 2, 3, 4]") ==
+          errors_t{ "[1, 2, 3, 4]: Int32[2, 2] can't come from an array literal; it starts with "
+                    "every element at zero" });
+
+    // A T[] holds what it's made with, not what extends it: a B[] isn't an A[].
+    constexpr std::string_view family = "Class A\nEnd Class\nClass B Extends A\nEnd Class\n";
+    const auto with_family = [&](const std::string_view text) {
+        return errors_of(std::format("{}{}", family, text));
+    };
+
+    CHECK(with_family("Local a: A[] = [B()]").empty());
+    CHECK(with_family("Local b = [B()]\nLocal a: A[] = b") ==
+          errors_t{ "b: expected A[], found B[]" });
+}
+
+TEST_CASE("a fixed array's size is known at compile time", "[sema]") {
+    CHECK(probe("Local g: Int[2, 3]\nLocal n = g.Count") == "Int32 6");
+    CHECK(probe("Const N = 4\nFunction F()\n    Local a: Int[N * 2]\nEnd Function\nLocal x = 1") ==
+          "Int32 1");
+    CHECK(errors_of("Function F(n: Int)\n    Local a: Int[n]\nEnd Function") ==
+          errors_t{ "n: a fixed array's size must be an integer known at compile time, like 64 "
+                    "or 8 * 8" });
+    CHECK(errors_of("Local a: Int[0]") == errors_t{ "0: a fixed array's size must be at least 1" });
+
+    // It starts at zero, unless its elements have none.
+    CHECK(errors_of("Local g: Float[4]\ng[1] = 2.5").empty());
+    CHECK(errors_of("Class E\nEnd Class\nLocal e: E[2]") ==
+          errors_t{ "e: 'e' needs a value, since E[2] has no zero value" });
+    CHECK(errors_of("Struct S\n    Field kids: S[2]\nEnd Struct") ==
+          errors_t{ "kids: 'S' can't contain itself; a Struct is stored inline" });
+    CHECK(errors_of("Struct S\n    Field kids: S[] = []\nEnd Struct").empty());
+}
+
+TEST_CASE("indexing", "[sema]") {
+    CHECK(probe("Local a = [1.5]\nLocal x = a[0]") == "Float32");
+    CHECK(probe("Local g: Int[2, 3]\nLocal i: Byte = 1\nLocal x = g[1, i]") == "Int32");
+
+    CHECK(errors_of("Local x = 1\nLocal y = x[0]") == errors_t{ "x: Int32 can't be indexed" });
+    CHECK(errors_of("Local g: Int[2, 2]\nLocal y = g[0]") ==
+          errors_t{ "g[0]: Int32[2, 2] takes 2 indices" });
+    CHECK(errors_of("Local a = [1]\nLocal y = a[0.5]") ==
+          errors_t{ "0.5: an index must be an integer, not Float32" });
+    CHECK(errors_of("Local a = [1]\nLocal y = a[-1]") ==
+          errors_t{ "-1: an index can't be negative" });
+    CHECK(errors_of("Local g: Int[4]\nLocal y = g[4]") ==
+          errors_t{ "4: index 4 is out of range for Int32[4]" });
+    CHECK(errors_of("Function F(a: Int[]?): Int => a[0]") ==
+          errors_t{ "a: 'a' may be Null; check that it isn't, or use '?.'" });
+
+    // A T[]'s elements change through any reference to it; a fixed array is a value.
+    CHECK(errors_of("Function F(a: Int[])\n    a[0] = 5\nEnd Function").empty());
+    CHECK(errors_of("Function F(a: Int[2])\n    a[0] = 5\nEnd Function") ==
+          errors_t{ "a[0]: 'a' is a parameter and can't be changed; copy it into a Local, or make "
+                    "it ByRef" });
+}
+
+TEST_CASE("a T[]'s Count and Methods", "[sema]") {
+    CHECK(probe("Local a = [1]\nLocal x = a.Count") == "Int32");
+    CHECK(probe("Local a = [1]\nLocal x = a.Contains(1)") == "Bool");
+    CHECK(probe("Local a = [1]\nLocal x = a.Clone()") == "Int32[]");
+    CHECK(errors_of("Local a = [1]\na.Add(2)\na.Insert(0, 3)\na.RemoveAt(1)\na.Clear()").empty());
+
+    CHECK(errors_of("Local a = [1]\na.Count = 3") ==
+          errors_t{ "a.Count: an array's Count can't be changed; use Add, Insert, RemoveAt, or "
+                    "Clear" });
+    CHECK(errors_of("Local a = [1]\nLocal n = a.Count()") ==
+          errors_t{ "Count: Count isn't a Method; leave out the ()" });
+    CHECK(errors_of("Local a = [1]\nLocal f = a.Add") ==
+          errors_t{ "Add: 'Add' is a method; call it with ()" });
+    CHECK(errors_of("Local g: Int[3]\ng.Add(1)") ==
+          errors_t{ "Add: Int32[3] has no member named 'Add'" });
+    CHECK(errors_of("Local a = [1]\na.Add(\"x\")") ==
+          errors_t{ "\"x\": expected Int32, found String" });
+    CHECK(errors_of("Local a = [[1]]\nLocal b = a.Contains([1])") ==
+          errors_t{ "a.Contains: Contains compares with ==, which Int32[] doesn't have" });
+}
+
+TEST_CASE("arrays have no ==, but RefEquals tells T[]s apart", "[sema]") {
+    CHECK(errors_of("Local a = [1]\nLocal b = a == a") ==
+          errors_t{ "a == a: '==' can't be used on Int32[]; RefEquals tells whether two are the "
+                    "same array" });
+    CHECK(errors_of("Local a: Int[2]\nLocal b = a == a") ==
+          errors_t{ "a == a: '==' can't be used on Int32[2]" });
+    CHECK(errors_of("Struct S\n"
+                    "    Field v: Int[]\n"
+                    "End Struct\n"
+                    "Local s = S([1])\n"
+                    "Local b = s == s") == errors_t{ "s == s: '==' can't be used on S" });
+    CHECK(probe("Local a = [1]\nLocal b = RefEquals(a, a)") == "Bool");
+}
+
+TEST_CASE("For ... In goes over an array", "[sema]") {
+    CHECK(errors_of("Local total = 0\n"
+                    "For i, x In [1, 2]\n"
+                    "    total += i + x\n"
+                    "End For")
+              .empty());
+    CHECK(errors_of("For x In 5\nEnd For") ==
+          errors_t{ "5: 'For ... In' goes over arrays, not Int32" });
+    CHECK(errors_of("For x In [1, 2]\n    x = 3\nEnd For") ==
+          errors_t{ "x: 'x' is a loop variable and can't be changed" });
+    CHECK(errors_of("Function F(a: Int[]?)\n    For x In a\n    End For\nEnd Function") ==
+          errors_t{ "a: 'a' may be Null; check that it isn't, or use '?.'" });
+}
+
+TEST_CASE("an array's element can't be changed ByRef where it could move", "[sema]") {
+    constexpr std::string_view point = "Struct P\n"
+                                       "    Field x: Int\n"
+                                       "    ByRef Method Move()\n"
+                                       "        x += 1\n"
+                                       "    End Method\n"
+                                       "End Struct\n";
+    const auto with_point = [&](const std::string_view text) {
+        return errors_of(std::format("{}{}", point, text));
+    };
+
+    CHECK(errors_of("Function S(ByRef n: Int)\nEnd Function\nLocal a = [1]\nS(ByRef a[0])") ==
+          errors_t{ "a[0]: an array's element can't be passed ByRef yet; copy it into a Local" });
+    CHECK(with_point("Local a = [P(1)]\na[0].Move()") ==
+          errors_t{ "a[0]: 'Move' is a ByRef Method, and an element of a T[] can move when the "
+                    "array grows; change a Local copy, then store it back" });
+    CHECK(with_point("Local g: P[2]\ng[1].Move()").empty());
+}
+
+TEST_CASE("a T[] has no zero, but [] can be a default", "[sema]") {
+    CHECK(errors_of("Global g: Int[]") ==
+          errors_t{ "g: 'g' needs a value, since Int32[] has no zero value" });
+    CHECK(errors_of("Class C\n    Field a: Int[]\nEnd Class") ==
+          errors_t{ "a: C needs a New that assigns 'a', since Int32[] has no zero value" });
+    CHECK(errors_of("Class C\n    Field a: Int[] = []\nEnd Class\nLocal c = C()").empty());
+    CHECK(errors_of("Struct S\n    Field a: Int[]\nEnd Struct\nLocal s = S()") ==
+          errors_t{ "S(): missing an argument for parameter 'a'" });
+    CHECK(probe("Function F(a: Int[] = []): Int => a.Count\nLocal n = F()") == "Int32");
 }
 
 // What codegen reads

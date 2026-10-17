@@ -96,3 +96,34 @@ TEST_CASE("a T? has its T inside, and Null for a zero", "[types]") {
     CHECK(types.has_zero(types.nullable(pair)));
     CHECK(types.has_zero(fb::type_id_t::STRING));
 }
+
+TEST_CASE("a Class extends the Classes above it", "[types]") {
+    fb::type_table_t types;
+    const fb::type_id_t shape = types.add_class("Shape");
+    const fb::type_id_t rect = types.add_class("Rect");
+    const fb::type_id_t square = types.add_class("Square");
+    types.set_base(rect, shape);
+    types.set_base(square, rect);
+    CHECK(types.get(square).base == rect);
+    CHECK(types.extends(square, shape));
+    CHECK(types.extends(square, square));
+    CHECK_FALSE(types.extends(shape, rect));
+}
+
+TEST_CASE("fixed arrays are made once and shared", "[types]") {
+    fb::type_table_t types;
+    const fb::type_id_t grid = types.fixed_array(fb::type_id_t::FLOAT32, { 64, 32 });
+    CHECK(types.fixed_array(fb::type_id_t::FLOAT32, { 64, 32 }) == grid);
+    CHECK(types.fixed_array(fb::type_id_t::FLOAT32, { 32, 64 }) != grid);
+    CHECK(types.name(grid) == "Float32[64, 32]");
+    CHECK(types.element_count(grid) == 2048);
+    CHECK(types.fixed_array(fb::type_id_t::INVALID, { 2 }) == fb::type_id_t::INVALID);
+
+    // A T[] is a reference with no zero; a fixed array is as its elements are.
+    const fb::type_id_t list = types.array(fb::type_id_t::INT32);
+    CHECK(types.has_references(list));
+    CHECK_FALSE(types.has_zero(list));
+    CHECK_FALSE(types.has_references(grid));
+    CHECK(types.has_zero(grid));
+    CHECK(types.has_references(types.fixed_array(fb::type_id_t::STRING, { 2 })));
+}

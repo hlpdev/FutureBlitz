@@ -39,6 +39,10 @@ For key, val In scores ... End For         // map entries
 
 - `For` declares its variables; they exist only inside the loop. A counting loop's variable
   takes the type of its start value; a `For ... In` variable takes the element type.
+- `For ... In` evaluates the array once and holds it for the loop. It reads a `T[]`'s `Count`
+  before each pass, so removing elements during the loop ends it sooner. The index is an `Int`,
+  and both variables are read-only copies. A `T[W, H]` goes row by row, with one index that
+  counts every element.
 - A literal start takes the end's type instead: `For i = 0 Until n` with `n: Long` counts with
   a `Long`.
 - The start, end, and step are each evaluated once, in that order, before the first pass.
@@ -102,6 +106,9 @@ End Select
 - `Select` on an enum must be **exhaustive** or include `Default`.
 - The subject is an integer, `Bool`, `String`, or enum value, unless every `Case` is a type
   match like `Case e As Boss`.
+- A type match runs for an object of that Class, or of one extending it, with `e` naming it as
+  one. A `Case` after one for a Class it extends never matches, so it's an error. `Null` goes to
+  `Default`. `Case x As T` always matches a Class; a value cast in a `Case` needs parentheses.
 - `Case` values are of the subject's type and must be known at compile time. `To` ranges work
   on integers. The same value can't appear in two cases.
 

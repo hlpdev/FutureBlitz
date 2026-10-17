@@ -23,6 +23,18 @@ std::string_view runtime_name(const runtime_function_t function) {
         return "to_text";
     case runtime_function_t::PRINT:
         return "print";
+    case runtime_function_t::ARRAY_COUNT:
+        return "count";
+    case runtime_function_t::ARRAY_ADD:
+        return "add";
+    case runtime_function_t::ARRAY_INSERT:
+        return "insert";
+    case runtime_function_t::ARRAY_REMOVE_AT:
+        return "remove_at";
+    case runtime_function_t::ARRAY_CLEAR:
+        return "clear";
+    case runtime_function_t::ARRAY_CLONE:
+        return "clone";
     }
 
     std::unreachable();
@@ -72,16 +84,22 @@ public:
                                paint(global.name, tone_t::NAME), type(global.type), initial);
         }
 
-        // "class Enemy, Destroy: Enemy.Destroy()"
+        // "class Boss Extends Enemy, Destroy: Boss.Destroy()", then its Method table.
         for (const mir_class_t& info : m_module.classes) {
             out += std::format("{} {}", keyword("class"), type(info.type));
+            if (const type_id_t base = m_module.types->get(info.type).base;
+                base != type_id_t::INVALID) {
+                out += std::format(" {} {}", keyword("Extends"), type(base));
+            }
+
             if (info.destroy) {
-                const mir_function_t& destroy =
-                    m_module.functions[std::to_underlying(*info.destroy)];
-                out += std::format(", Destroy: {}", paint(destroy.name, tone_t::BOLD));
+                out += std::format(", Destroy: {}", function_name(*info.destroy));
             }
 
             out += '\n';
+            for (std::size_t i = 0; i < info.methods.size(); ++i) {
+                out += std::format("    {}: {}\n", i, function_name(info.methods[i]));
+            }
         }
 
         for (const mir_function_t& function : m_module.functions) {
@@ -122,6 +140,10 @@ private:
         }
 
         return constant(value);
+    }
+
+    [[nodiscard]] std::string function_name(const function_id_t id) const {
+        return paint(m_module.functions[std::to_underlying(id)].name, tone_t::BOLD);
     }
 
     [[nodiscard]] std::string label(const block_id_t block) const {
@@ -166,8 +188,8 @@ private:
         return out;
     }
 
-    /// "_3" for a local and "@score" for a global, with any fields after: "_3.pos.x". The T in
-    /// a T? is its "value".
+    /// "_3" for a local and "@score" for a global, with any fields and elements after:
+    /// "_3.pos.x" or "_3[_4]". The T in a T? is its "value".
     [[nodiscard]] std::string place(const place_t& target) const {
         std::string text;
         type_id_t current = type_id_t::INVALID;
@@ -181,10 +203,22 @@ private:
             current = global.type;
         }
 
-        for (const std::uint32_t field : target.fields) {
-            const field_t& info = m_module.types->get(current).fields[field];
-            text += "." + info.name;
-            current = info.type;
+        for (const step_t& step : target.steps) {
+            const type_t& info = m_module.types->get(current);
+            if (step.indices.empty()) {
+                text += "." + info.fields[step.field].name;
+                current = info.fields[step.field].type;
+                continue;
+            }
+
+            std::string indices;
+            for (const local_id_t local : step.indices) {
+                indices +=
+                    std::format("{}_{}", indices.empty() ? "" : ", ", std::to_underlying(local));
+            }
+
+            text += std::format("[{}]", indices);
+            current = info.inner;
         }
 
         return paint(text, tone_t::NAME);
@@ -230,9 +264,9 @@ private:
             arguments += operand(argument.value);
         }
 
-        const mir_function_t& function = m_module.functions[std::to_underlying(node.function)];
-        return std::format("{} {}({})", keyword("call"), paint(function.name, tone_t::BOLD),
-                           arguments);
+        // "call virtual" goes through the object's Method table.
+        return std::format("{} {}({})", keyword(node.slot ? "call virtual" : "call"),
+                           function_name(node.function), arguments);
     }
 
     [[nodiscard]] std::string dump(const runtime_call_t& node) const {
@@ -257,12 +291,36 @@ private:
         return std::format("{} {{ {} }}", type(node.type), fields);
     }
 
+    /// "Int32[] [1, _2]"
+    [[nodiscard]] std::string dump(const array_t& node) const {
+        std::string elements;
+        for (const operand_t& element : node.elements) {
+            elements += (elements.empty() ? "" : ", ") + operand(element);
+        }
+
+        return std::format("{} [{}]", type(node.type), elements);
+    }
+
     [[nodiscard]] std::string dump(const zero_t& node) const {
         return std::format("{} {}", keyword("zero"), type(node.type));
     }
 
     [[nodiscard]] std::string dump(const new_t& node) const {
         return std::format("{} {}", keyword("new"), type(node.type));
+    }
+
+    [[nodiscard]] std::string dump(const is_t& node) const {
+        return std::format("{} {} {}", operand(node.value), keyword("Is"), type(node.type));
+    }
+
+    /// "downcast _1 As Boss", or "_1 As? Boss?".
+    [[nodiscard]] std::string dump(const downcast_t& node) const {
+        if (node.or_null) {
+            return std::format("{} {} {}", operand(node.value), keyword("As?"), type(node.type));
+        }
+
+        return std::format("{} {} {} {}", keyword("downcast"), operand(node.value), keyword("As"),
+                           type(node.type));
     }
 
     // Statements

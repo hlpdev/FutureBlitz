@@ -87,6 +87,22 @@ End Class
 
 - `Abstract` classes/methods, `Final` classes/methods.
 - `Override` is required when overriding.
+- A Class inherits the fields and Methods of the one it extends, and can't declare a field with
+  an inherited member's name. A Method with the parameter types of an inherited one overrides it
+  and returns the same type; other parameter types make an overload.
+- Methods are virtual: a call runs the override of the object's Class. A `Final` Method can't be
+  overridden, and a `Final` Class can't be extended.
+- An `Abstract` Method is only its first line, in an `Abstract` Class, which can't be made. A
+  Class that isn't Abstract overrides every Abstract Method it inherits.
+- `Super.Hurt(5)` calls the Method of the Class extended, on `Self`. An Abstract one can't be
+  called that way.
+- A Class's `New` starts with `Super.New(...)`, or else the `New` of the Class it extends that
+  takes no arguments runs first. Until `Super.New` runs, `Self` can't be used.
+- Every Class's `Destroy` runs, the most derived first, so `Destroy` is never `Override`.
+- An object converts to any Class its Class extends. `x Is T` tests its Class at run time,
+  `x As T` panics when it isn't a `T` ("expected Boss, found Grunt"), and `x As? T` gives `Null`
+  instead. Classes that aren't related are an error with each.
+- A Struct can't extend anything. Interfaces come in M3.
 
 ## Interfaces
 

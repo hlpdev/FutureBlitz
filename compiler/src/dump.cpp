@@ -194,8 +194,30 @@ private:
         return type_text(node.inner) + "?";
     }
 
+    /// "Float[64, 64]". The sizes show the way the tree shows expressions.
     [[nodiscard]] std::string type_text(const array_type_t& node) const {
-        return type_text(node.element) + "[]";
+        std::string sizes;
+        const builder_t tree(m_ast, true);
+        for (std::size_t i = 0; i < node.sizes.size(); ++i) {
+            sizes += i == 0 ? "" : ", ";
+            sizes += plain(tree.expr(node.sizes[i]));
+        }
+
+        return std::format("{}[{}]", type_text(node.element), sizes);
+    }
+
+    /// A node as unstyled text on one line.
+    static std::string plain(const node_t& node) {
+        if (!node.list) {
+            return node.text;
+        }
+
+        std::string out = "(";
+        for (std::size_t i = 0; i < node.items.size(); ++i) {
+            out += (i == 0 ? "" : " ") + plain(node.items[i]);
+        }
+
+        return out + ")";
     }
 
     // Expressions
@@ -315,6 +337,34 @@ private:
         return atom("Self", tone_t::KEYWORD);
     }
 
+    static node_t build(const super_expr_t& /*node*/) {
+        return atom("Super", tone_t::KEYWORD);
+    }
+
+    [[nodiscard]] node_t build(const array_expr_t& node) const {
+        node_t out = list("array");
+        for (const expr_id_t element : node.elements) {
+            out.items.push_back(expr(element));
+        }
+
+        return out;
+    }
+
+    /// Abstract, Final, and Override, as keywords after the node's head.
+    static void add_modifiers(node_t& out, const modifiers_t& modifiers) {
+        if (modifiers.is_abstract) {
+            out.items.push_back(atom("Abstract", tone_t::KEYWORD));
+        }
+
+        if (modifiers.is_final) {
+            out.items.push_back(atom("Final", tone_t::KEYWORD));
+        }
+
+        if (modifiers.is_override) {
+            out.items.push_back(atom("Override", tone_t::KEYWORD));
+        }
+    }
+
     // Statements
 
     static node_t build(const error_stmt_t& /*node*/) {
@@ -372,6 +422,7 @@ private:
         }
 
         node_t out = list(kind);
+        add_modifiers(out, node.modifiers);
         if (node.kind != function_kind_t::CONSTRUCTOR) {
             out.items.push_back(atom(std::string(node.name.text), tone_t::NAME));
         }
@@ -478,6 +529,12 @@ private:
         node_t out = list("select", { expr(node.subject) });
         for (const case_t& branch : node.cases) {
             node_t item = list("case");
+            if (branch.match) {
+                item.items.push_back(atom(std::string(branch.match->name.text), tone_t::NAME));
+                item.items.push_back(atom("As", tone_t::KEYWORD));
+                item.items.push_back(type(branch.match->type));
+            }
+
             for (const case_value_t& value : branch.values) {
                 if (value.range_end) {
                     item.items.push_back(
@@ -525,11 +582,19 @@ private:
         return out;
     }
 
-    /// "(struct Name (block members...))", or "(class ...)". In the tree, each member gets its
-    /// own line.
+    /// "(struct Name (block members...))", or "(class ...)", with "Extends Base" after the name.
+    /// In the tree, each member gets its own line.
     [[nodiscard]] node_t build(const type_stmt_t& node) const {
-        return list(node.is_class ? "class" : "struct",
-                    { atom(std::string(node.name.text), tone_t::NAME), block(node.members) });
+        node_t out = list(node.is_class ? "class" : "struct");
+        add_modifiers(out, node.modifiers);
+        out.items.push_back(atom(std::string(node.name.text), tone_t::NAME));
+        if (node.base) {
+            out.items.push_back(atom("Extends", tone_t::KEYWORD));
+            out.items.push_back(atom(std::string(node.base->text), tone_t::NAME));
+        }
+
+        out.items.push_back(block(node.members));
+        return out;
     }
 };
 

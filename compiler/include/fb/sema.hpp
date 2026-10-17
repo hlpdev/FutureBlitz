@@ -72,10 +72,20 @@ struct symbol_t {
     /// Struct's New, a Local that New returns. A Class's Self is a reference, which can't be
     /// replaced, though its object's fields can change.
     std::optional<symbol_id_t> self;
-    /// A Struct's or Class's fields in order, then its Methods and constructors.
+    /// A Struct's or Class's fields in order, then its Methods and constructors. What a Class
+    /// inherits isn't among them.
     std::vector<symbol_id_t> members;
-    /// A field's position among its type's fields.
+    /// A field's position among its type's fields, which start with the inherited ones.
     std::uint32_t field = 0;
+    /// A Class's or Method's Abstract, Final, and Override.
+    modifiers_t modifiers;
+    /// A Method that overrides one of the Class it extends: that one.
+    std::optional<symbol_id_t> overrides;
+    /// A Class's New that doesn't start with Super.New: the New of the Class it extends that
+    /// runs first, without arguments.
+    std::optional<symbol_id_t> base_new;
+    /// A parameter or field whose default is "[]", which gives each use a new empty array.
+    bool empty_default = false;
 };
 
 /// What analysis found out about one expression.
@@ -95,6 +105,9 @@ struct expr_info_t {
     /// the function, after choosing among overloads.
     std::optional<symbol_id_t> symbol;
 
+    /// For 'Is': the Class it tests for.
+    type_id_t tested = type_id_t::INVALID;
+
     /// For a call: one entry per parameter of the function, in parameter order. Each is the
     /// argument's expression, or nullopt when the parameter takes its default value. Empty
     /// when the arguments couldn't be matched to the parameters.
@@ -108,6 +121,10 @@ struct stmt_info_t {
     std::optional<symbol_id_t> symbol;
     /// For Break and Continue: the loop statement they leave or continue.
     std::optional<stmt_id_t> loop;
+    /// For a Select of type matches: each Case's variable, in order.
+    std::vector<symbol_id_t> matches;
+    /// For a "For index, value In": the index's variable. `symbol` is the value's.
+    std::optional<symbol_id_t> index;
 };
 
 /// Everything analysis found out about a file, for lowering and tools. `exprs` and `stmts` have

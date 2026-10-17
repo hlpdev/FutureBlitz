@@ -1,0 +1,14 @@
+// A failed As panics with the Class it found.
+Class Animal
+End Class
+
+Class Cat Extends Animal
+End Class
+
+Class Dog Extends Animal
+End Class
+
+Local pet: Animal = Dog()
+Print("{pet Is Cat}")
+Local cat = pet As Cat
+Print("not reached")

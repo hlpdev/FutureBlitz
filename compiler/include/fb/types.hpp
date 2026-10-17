@@ -65,8 +65,10 @@ enum class type_kind_t : std::uint8_t {
     /// "T?": a T, or Null. A String? or a Class? is a reference that's null for Null; any other
     /// T? is a flag and a T.
     NULLABLE,
-    /// "T[]": a dynamic array of T.
+    /// "T[]": a dynamic array of T, which is a reference to an object holding its elements.
     ARRAY,
+    /// "T[N]" or "T[W, H]": a fixed number of T, stored inline like a Struct's fields.
+    FIXED_ARRAY,
     /// A Struct the program declares: a value made of fields.
     STRUCT,
     /// A Class the program declares: a reference to an object of fields, which counts its
@@ -85,12 +87,17 @@ struct type_t {
     type_kind_t kind = type_kind_t::BUILTIN;
     /// As errors and dumps show it, like "Int32", "String[]", or "Int32[]?".
     std::string name;
-    /// NULLABLE and ARRAY: the type inside.
+    /// NULLABLE, ARRAY, and FIXED_ARRAY: the type inside.
     type_id_t inner = type_id_t::INVALID;
+    /// FIXED_ARRAY: each dimension's size. The elements are stored in one run, the last
+    /// dimension's changing fastest.
+    std::vector<std::uint32_t> sizes;
     /// STRUCT and CLASS: the fields in declaration order, which is also their order in memory.
     /// NULLABLE: one field, "value", the T inside. Places reach it once the T? is known to hold
-    /// one.
+    /// one. A Class's start with the fields of the Class it extends.
     std::vector<field_t> fields;
+    /// CLASS: the Class it extends, or INVALID.
+    type_id_t base = type_id_t::INVALID;
 };
 
 /// Every type one program uses. The built-ins are always there, with their fixed ids. A type
@@ -117,6 +124,12 @@ public:
     /// "T[]". An array of INVALID is INVALID.
     [[nodiscard]] type_id_t array(type_id_t element);
 
+    /// "T[N]", or "T[W, H]" with two sizes. Of INVALID, it's INVALID.
+    [[nodiscard]] type_id_t fixed_array(type_id_t element, const std::vector<std::uint32_t>& sizes);
+
+    /// A fixed array's number of elements, in all its dimensions.
+    [[nodiscard]] std::uint64_t element_count(type_id_t type) const;
+
     /// A new Struct type. Its fields come later, from set_fields(), once every type they might
     /// use exists.
     [[nodiscard]] type_id_t add_struct(std::string name);
@@ -126,13 +139,19 @@ public:
 
     void set_fields(type_id_t type, std::vector<field_t> fields);
 
-    /// Whether a value holds references that need retain and release: a String, a Class, or a
-    /// Struct or T? with one inside.
+    /// Makes a Class extend another. The caller makes sure that doesn't make a cycle.
+    void set_base(type_id_t type, type_id_t base);
+
+    /// Whether `type` is the Class `base`, or extends it directly or through others.
+    [[nodiscard]] bool extends(type_id_t type, type_id_t base) const;
+
+    /// Whether a value holds references that need retain and release: a String, a Class, a T[],
+    /// or a Struct, T?, or fixed array with one inside.
     [[nodiscard]] bool has_references(type_id_t type) const;
 
     /// Whether a variable of the type has a value before it's assigned: zero, False, "", Null, or
-    /// a Struct of those. A Class has none, since it can't be Null, and neither does a Struct
-    /// with a field of one.
+    /// a Struct or fixed array of those. A Class or T[] has none, since it can't be Null, and
+    /// neither does a Struct with a field of one.
     [[nodiscard]] bool has_zero(type_id_t type) const;
 
 private:
@@ -146,6 +165,8 @@ private:
 
     /// Indexed by type_id_t.
     std::vector<entry_t> m_entries;
+    /// Every fixed array made so far, to find one again.
+    std::vector<type_id_t> m_fixed_arrays;
 
     type_id_t add(type_t type);
     type_id_t make(type_kind_t kind, type_id_t inner, std::string_view suffix);

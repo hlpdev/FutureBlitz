@@ -162,6 +162,8 @@ private:
     mir_module_t m_module;
     std::unordered_map<symbol_id_t, function_id_t> m_functions;
     std::unordered_map<symbol_id_t, global_id_t> m_globals;
+    /// Each Class Method's slot in the Method tables.
+    std::unordered_map<symbol_id_t, std::uint32_t> m_slots;
     /// Each Struct's symbol, by its type.
     std::unordered_map<type_id_t, symbol_id_t> m_declared_types;
 
@@ -213,28 +215,39 @@ private:
     void declare_functions() {
         for (const symbol_id_t id : m_analysis.functions) {
             const symbol_t& symbol = m_analysis.symbol(id);
+            // A Class's New sets up an object that its caller made, and returns nothing.
+            const bool sets_up = symbol.kind == symbol_kind_t::CONSTRUCTOR && is_class(symbol.type);
             m_functions[id] = static_cast<function_id_t>(m_module.functions.size());
-            m_module.functions.push_back(
-                { .name = function_name(m_analysis, symbol), .return_type = symbol.type });
+            m_module.functions.push_back({
+                .name = function_name(m_analysis, symbol),
+                .return_type = sets_up ? type_id_t::NONE : symbol.type,
+            });
         }
 
         m_module.entry = static_cast<function_id_t>(m_module.functions.size());
         m_module.functions.push_back({ .name = "main" });
     }
 
-    /// Each Class, with its Destroy() if it has one.
+    /// Each Class, with its Destroy() if it has one, and its Method table.
     void declare_classes() {
-        for (const auto& [type, declared] : m_declared_types) {
-            if (!is_class(type)) {
-                continue;
+        std::unordered_map<type_id_t, std::vector<symbol_id_t>> tables;
+        for (const auto& entry : m_declared_types) {
+            if (is_class(entry.first)) {
+                method_table(entry.first, tables);
             }
+        }
 
+        for (const auto& [type, table] : tables) {
             mir_class_t info{ .type = type };
-            for (const symbol_id_t member : m_analysis.symbol(declared).members) {
+            for (const symbol_id_t member : m_analysis.symbol(m_declared_types.at(type)).members) {
                 const symbol_t& method = m_analysis.symbol(member);
                 if (method.kind == symbol_kind_t::METHOD && method.name == "Destroy") {
                     info.destroy = m_functions.at(member);
                 }
+            }
+
+            for (const symbol_id_t method : table) {
+                info.methods.push_back(m_functions.at(method));
             }
 
             m_module.classes.push_back(info);
@@ -242,6 +255,47 @@ private:
 
         // The map has no order, and the module should come out the same every time.
         std::ranges::sort(m_module.classes, {}, &mir_class_t::type);
+    }
+
+    /// A Class's Method table: the slots of the Class it extends, with its overrides in them,
+    /// then a slot for each of its other Methods. Destroy has none, since each Class's runs.
+    const std::vector<symbol_id_t>&
+    method_table(const type_id_t type,
+                 std::unordered_map<type_id_t, std::vector<symbol_id_t>>& tables) {
+        if (const auto found = tables.find(type); found != tables.end()) {
+            return found->second;
+        }
+
+        std::vector<symbol_id_t> table;
+        if (const type_id_t base = m_analysis.types.get(type).base; base != type_id_t::INVALID) {
+            table = method_table(base, tables);
+        }
+
+        for (const symbol_id_t member : m_analysis.symbol(m_declared_types.at(type)).members) {
+            const symbol_t& method = m_analysis.symbol(member);
+            if (method.kind != symbol_kind_t::METHOD || method.name == "Destroy") {
+                continue;
+            }
+
+            if (method.overrides) {
+                const std::uint32_t slot = m_slots.at(*method.overrides);
+                m_slots[member] = slot;
+                table[slot] = member;
+            } else {
+                m_slots[member] = static_cast<std::uint32_t>(table.size());
+                table.push_back(member);
+            }
+        }
+
+        return tables[type] = std::move(table);
+    }
+
+    /// Whether a call to a Class's Method goes through the object's Method table: unless the
+    /// Method or its Class is Final, a Class extending it could override it.
+    [[nodiscard]] bool is_virtual(const symbol_t& method) const {
+        return method.kind == symbol_kind_t::METHOD && is_class(method.owner) &&
+               !method.modifiers.is_final &&
+               !m_analysis.symbol(m_declared_types.at(method.owner)).modifiers.is_final;
     }
 
     void begin_function(const function_id_t id) {
@@ -272,11 +326,12 @@ private:
         const symbol_id_t symbol_id = expect(m_analysis.stmt(id).symbol);
         const symbol_t& function = m_analysis.symbol(symbol_id);
         begin_function(m_functions.at(symbol_id));
-        m_returns_self = function.kind == symbol_kind_t::CONSTRUCTOR;
-        // A Method's Self is its first parameter, then come the others, in order. Parameters
-        // aren't in any scope: they borrow the caller's references, so the function never
-        // releases them.
-        if (function.kind == symbol_kind_t::METHOD) {
+        const bool sets_up = function.kind == symbol_kind_t::CONSTRUCTOR && is_class(function.type);
+        m_returns_self = function.kind == symbol_kind_t::CONSTRUCTOR && !sets_up;
+        // A Method's Self is its first parameter, then come the others, in order, and so is the
+        // object a Class's New sets up. Parameters aren't in any scope: they borrow the caller's
+        // references, so the function never releases them.
+        if (function.kind == symbol_kind_t::METHOD || sets_up) {
             const symbol_t& self = m_analysis.symbol(expect(function.self));
             m_self = add_local(self.type, "Self", self.by_ref);
         }
@@ -288,21 +343,54 @@ private:
 
         current().parameter_count = current().locals.size();
 
-        // New's Self starts with the fields' defaults: a Struct value, or a new object. It isn't
-        // in a scope either: New hands it to the caller.
+        // A Struct's New starts Self with the fields' defaults. It isn't in a scope either: New
+        // hands it to the caller.
         if (m_returns_self) {
             const local_id_t self = add_local(function.type, "Self");
             m_self = self;
-            if (is_class(function.type)) {
-                emit(assign_t{ .target = self, .value = new_t{ .type = function.type } });
-                initialize_fields(self, function.type);
-            } else {
-                emit(assign_t{ .target = self, .value = defaults_of(function.type) });
-            }
+            emit(assign_t{ .target = self, .value = defaults_of(function.type) });
+        }
+
+        // A Class's New sets up what Self inherits first, unless it starts with Super.New.
+        if (function.base_new) {
+            set_up(*function.base_new, expect(m_self), {});
+        }
+
+        // An Abstract Method has no body. Only an override of it can run.
+        if (function.modifiers.is_abstract) {
+            terminate(
+                panic_t{ .message = "an Abstract Method was called", .span = node.name.span });
         }
 
         lower_statements(node.body);
         finish_function();
+    }
+
+    /// Runs a Class's New on an object that's already made, with its fields at their defaults:
+    /// a New the source declares, or else the one its Class got, which sets up what the object
+    /// inherits. Missing arguments take their defaults.
+    void set_up(const symbol_id_t constructor_id, const place_t& object,
+                std::vector<call_argument_t> arguments) {
+        const symbol_t& constructor = m_analysis.symbol(constructor_id);
+        if (!constructor.declaration) {
+            if (constructor.base_new) {
+                set_up(*constructor.base_new, object, {});
+            }
+
+            return;
+        }
+
+        for (std::size_t i = arguments.size(); i < constructor.parameters.size(); ++i) {
+            arguments.push_back(
+                { .value = default_of(m_analysis.symbol(constructor.parameters[i])) });
+        }
+
+        arguments.insert(arguments.begin(), { .value = object });
+        call_t call{
+            .function = m_functions.at(constructor_id),
+            .arguments = std::move(arguments),
+        };
+        emit(evaluate_t{ .value = std::move(call) });
     }
 
     /// New's Return: Self goes back to the caller, which takes over its references.
@@ -371,8 +459,9 @@ private:
             type = m_module.globals[index(std::get<global_id_t>(target.root))].type;
         }
 
-        for (const std::uint32_t field : target.fields) {
-            type = m_analysis.types.get(type).fields[field].type;
+        for (const step_t& step : target.steps) {
+            const type_t& info = m_analysis.types.get(type);
+            type = step.indices.empty() ? info.fields[step.field].type : info.inner;
         }
 
         return type;
@@ -388,6 +477,14 @@ private:
 
     [[nodiscard]] bool is_nullable(const type_id_t type) const {
         return m_analysis.types.get(type).kind == type_kind_t::NULLABLE;
+    }
+
+    [[nodiscard]] bool is_array(const type_id_t type) const {
+        return m_analysis.types.get(type).kind == type_kind_t::ARRAY;
+    }
+
+    [[nodiscard]] bool is_fixed_array(const type_id_t type) const {
+        return m_analysis.types.get(type).kind == type_kind_t::FIXED_ARRAY;
     }
 
     /// Null, as a constant of a T?.
@@ -419,7 +516,7 @@ private:
         }
 
         place_t place = std::get<place_t>(value);
-        place.fields.push_back(0);
+        place.steps.push_back({ .field = 0 });
         return place;
     }
 
@@ -430,19 +527,7 @@ private:
             return value;
         }
 
-        bool owned = false;
-        if (const auto* place = std::get_if<place_t>(&value)) {
-            const auto* local = std::get_if<local_id_t>(&place->root);
-            const auto found = local != nullptr && place->fields.empty()
-                                   ? std::ranges::find(m_temporaries, *local)
-                                   : m_temporaries.end();
-            if (found != m_temporaries.end()) {
-                m_temporaries.erase(found);
-                owned = true;
-            }
-        }
-
-        return temporary(cast_t{ .value = value, .type = type, .span = span }, type, owned);
+        return retype(value, cast_t{ .value = value, .type = type, .span = span }, type);
     }
 
     /// Whether a type's zero has bits that aren't 0, unlike the fields of a new object: a
@@ -457,6 +542,10 @@ private:
             return info.inner != type_id_t::STRING && needs_zeroing(info.inner);
         }
 
+        if (info.kind == type_kind_t::FIXED_ARRAY) {
+            return needs_zeroing(info.inner);
+        }
+
         return info.kind == type_kind_t::STRUCT &&
                std::ranges::any_of(
                    info.fields, [this](const field_t& field) { return needs_zeroing(field.type); });
@@ -469,21 +558,26 @@ private:
         return object;
     }
 
-    /// Sets a new object's fields. The runtime zeroes them, so only the ones with a default
-    /// other than Null, or whose zero isn't all zero bits, need setting.
+    /// Sets a new object's fields, inherited ones included. The runtime zeroes them, so only the
+    /// ones with a default other than Null, or whose zero isn't all zero bits, need setting.
     void initialize_fields(const place_t& object, const type_id_t type) {
+        const type_id_t base = m_analysis.types.get(type).base;
+        if (base != type_id_t::INVALID) {
+            initialize_fields(object, base);
+        }
+
         for (const symbol_id_t member : m_analysis.symbol(m_declared_types.at(type)).members) {
             const symbol_t& field = m_analysis.symbol(member);
             const bool zero =
-                !field.value || std::holds_alternative<std::nullptr_t>(field.value->data);
+                !field.empty_default &&
+                (!field.value || std::holds_alternative<std::nullptr_t>(field.value->data));
             if (field.kind != symbol_kind_t::FIELD || (zero && !needs_zeroing(field.type))) {
                 continue;
             }
 
             place_t target = object;
-            target.fields.push_back(field.field);
-            const operand_t value =
-                field.value ? operand_t{ *field.value } : zero_value(field.type);
+            target.steps.push_back({ .field = field.field });
+            const operand_t value = default_of(field);
             take(value);
             emit(assign_t{ .target = target, .value = use_t{ .value = value } });
         }
@@ -494,10 +588,24 @@ private:
         return m_analysis.types.has_references(type);
     }
 
-    /// What a variable holds before it's assigned. A Struct's or Class's zero needs a temporary,
-    /// and a T?'s is Null.
+    /// A parameter's or field's default: its value known at compile time, a new empty array for
+    /// "[]", or else its type's zero.
+    operand_t default_of(const symbol_t& symbol) {
+        if (symbol.value) {
+            return *symbol.value;
+        }
+
+        if (symbol.empty_default) {
+            return temporary(array_t{ .type = symbol.type }, symbol.type, true);
+        }
+
+        return zero_value(symbol.type);
+    }
+
+    /// What a variable holds before it's assigned. The zero of a Struct, Class, or array needs a
+    /// temporary, and a T?'s is Null.
     operand_t zero_value(const type_id_t type) {
-        if (is_struct(type) || is_class(type)) {
+        if (is_struct(type) || is_class(type) || is_array(type) || is_fixed_array(type)) {
             return temporary(zero_t{ .type = type }, type, has_references(type));
         }
 
@@ -514,12 +622,11 @@ private:
         for (const symbol_id_t member : m_analysis.symbol(m_declared_types.at(type)).members) {
             const symbol_t& field = m_analysis.symbol(member);
             if (field.kind == symbol_kind_t::FIELD) {
-                value.fields.push_back(field.value ? operand_t{ *field.value }
-                                                   : zero_value(field.type));
+                value.fields.push_back(default_of(field));
             }
         }
 
-        // Defaults are constants, or zeroes made just for this, so they need no retains.
+        // Defaults are constants, or values made just for this, so they need no retains.
         for (const operand_t& field : value.fields) {
             take(field);
         }
@@ -607,7 +714,7 @@ private:
 
         const auto& place = std::get<place_t>(value);
         if (const auto* local = std::get_if<local_id_t>(&place.root);
-            local != nullptr && place.fields.empty()) {
+            local != nullptr && place.steps.empty()) {
             const auto found = std::ranges::find(m_temporaries, *local);
             if (found != m_temporaries.end()) {
                 m_temporaries.erase(found);
@@ -958,6 +1065,90 @@ private:
             branch_t{ .condition = done, .if_true = exit, .if_false = advance };
     }
 
+    /// "For x In items": the array is evaluated once and held for the loop, and a counter goes
+    /// through its elements, checking a T[]'s Count before each pass. Each pass's x is a Local of
+    /// its own, with its own references to the element's.
+    void lower_stmt(const stmt_id_t id, const span_t span, const for_in_stmt_t& node) {
+        const stmt_info_t& info = m_analysis.stmt(id);
+        const type_id_t type = m_analysis.expr(node.sequence).converted;
+        push_scope();
+        const operand_t value = lower_value(node.sequence);
+        place_t sequence = as_place(value);
+        if (is_array(type)) {
+            const local_id_t held = add_local(type);
+            initialize(held, value);
+            m_scopes.back().push_back(held);
+            sequence = held;
+        } else if (take_temporary(value)) {
+            m_scopes.back().push_back(std::get<local_id_t>(sequence.root));
+        }
+
+        finish_statement();
+        const local_id_t counter =
+            add_local(type_id_t::INT32, node.index ? node.index->text : std::string_view{});
+        if (info.index) {
+            m_locals[*info.index] = counter;
+        }
+
+        emit(assign_t{ .target = counter, .value = use_t{ .value = zero(type_id_t::INT32) } });
+        const block_id_t head = new_block();
+        jump(head);
+        start(head);
+        const auto fixed = static_cast<std::int64_t>(m_analysis.types.element_count(type));
+        const operand_t count = is_array(type)
+                                    ? count_of(sequence)
+                                    : const_value_t{ .type = type_id_t::INT32, .data = fixed };
+        const operand_t in_range = compare(binary_op_t::LESS, counter, count, span);
+        const block_id_t test = here();
+        m_block.reset();
+
+        const block_id_t body = new_block();
+        start(body);
+        m_loops.push_back({ .stmt = id, .scope_depth = m_scopes.size() });
+        push_scope();
+        const symbol_id_t variable = expect(info.symbol);
+        const local_id_t local = add_local(m_analysis.symbol(variable).type, node.value.text);
+        m_locals[variable] = local;
+        place_t element = sequence;
+        element.steps.push_back({ .indices = { counter }, .span = span });
+        initialize(local, element);
+        if (has_references(m_analysis.symbol(variable).type)) {
+            m_scopes.back().push_back(local);
+        }
+
+        lower_statements(node.body);
+        pop_scope();
+        loop_t loop = std::move(m_loops.back());
+        m_loops.pop_back();
+        leave(loop.continues); // the end of the body goes on to the next pass, like Continue
+        join(loop.continues);
+        count_up(counter, span);
+        jump(head);
+
+        const block_id_t exit = join(loop.breaks);
+        block_at(test).terminator =
+            branch_t{ .condition = in_range, .if_true = body, .if_false = exit };
+        pop_scope();
+    }
+
+    /// Whether `value` is a temporary that owns its references. If it is, it stops being one, and
+    /// its new holder releases it.
+    bool take_temporary(const operand_t& value) {
+        const auto* place = std::get_if<place_t>(&value);
+        const auto* local = place != nullptr ? std::get_if<local_id_t>(&place->root) : nullptr;
+        if (local == nullptr || !place->steps.empty()) {
+            return false;
+        }
+
+        const auto found = std::ranges::find(m_temporaries, *local);
+        if (found == m_temporaries.end()) {
+            return false;
+        }
+
+        m_temporaries.erase(found);
+        return true;
+    }
+
     /// A copy of a variable, so later changes to it don't matter.
     operand_t stable(const operand_t& value) {
         if (std::holds_alternative<const_value_t>(value)) {
@@ -1004,7 +1195,7 @@ private:
                          type, owned);
     }
 
-    void lower_stmt(stmt_id_t /*id*/, const span_t span, const select_stmt_t& node) {
+    void lower_stmt(const stmt_id_t id, const span_t span, const select_stmt_t& node) {
         // The subject is evaluated once, into a local of the Select's own scope.
         push_scope();
         const type_id_t type = m_analysis.expr(node.subject).converted;
@@ -1018,6 +1209,7 @@ private:
         finish_statement();
 
         std::vector<block_id_t> exits;
+        std::size_t matches = 0;
         for (const case_t& branch : node.cases) {
             /// One Case value's test, in `block`: a match goes to the body, anything else to
             /// `next`.
@@ -1027,7 +1219,21 @@ private:
                 block_id_t next;
             };
 
+            // A type match has one test, and values each have their own.
             std::vector<test_t> tests;
+            std::optional<symbol_id_t> variable;
+            if (branch.match) {
+                variable = m_analysis.stmt(id).matches[matches++];
+                const type_id_t match = m_analysis.symbol(*variable).type;
+                const operand_t matched =
+                    temporary(is_t{ .value = subject, .type = match }, type_id_t::BOOL);
+                const block_id_t block = here();
+                m_block.reset();
+                const block_id_t next = new_block();
+                start(next);
+                tests.push_back({ .block = block, .matched = matched, .next = next });
+            }
+
             for (const case_value_t& case_value : branch.values) {
                 const operand_t matched = case_test(subject, case_value, span);
                 const block_id_t block = here();
@@ -1047,8 +1253,23 @@ private:
                     branch_t{ .condition = test.matched, .if_true = body, .if_false = test.next };
             }
 
+            // A type match's variable holds the subject as its Class, in a scope around the body.
             start(body);
-            lower_block(branch.body);
+            if (variable) {
+                push_scope();
+                const symbol_t& symbol = m_analysis.symbol(*variable);
+                const local_id_t local = add_local(symbol.type, symbol.name);
+                m_locals[*variable] = local;
+                const operand_t object = temporary(
+                    downcast_t{ .value = subject, .type = symbol.type, .span = span }, symbol.type);
+                initialize(local, object);
+                m_scopes.back().push_back(local);
+                lower_block(branch.body);
+                pop_scope();
+            } else {
+                lower_block(branch.body);
+            }
+
             leave(exits);
             start(no_match);
         }
@@ -1128,7 +1349,7 @@ private:
 
         if (const symbol_t& field = m_analysis.symbol(symbol); field.kind == symbol_kind_t::FIELD) {
             place_t place{ expect(m_self) };
-            place.fields.push_back(field.field);
+            place.steps.push_back({ .field = field.field });
             return place;
         }
 
@@ -1140,7 +1361,7 @@ private:
         const symbol_id_t symbol = expect(m_analysis.expr(id).symbol);
         place_t place = place_of(symbol);
         if (is_nullable(m_analysis.symbol(symbol).type) && !is_nullable(m_analysis.expr(id).type)) {
-            place.fields.push_back(0);
+            place.steps.push_back({ .field = 0 });
         }
 
         return place;
@@ -1153,7 +1374,8 @@ private:
         if (const auto* member = std::get_if<member_expr_t>(&node);
             member != nullptr && !member->null_safe) {
             place_t place = lower_place(member->object);
-            place.fields.push_back(m_analysis.symbol(expect(m_analysis.expr(id).symbol)).field);
+            place.steps.push_back(
+                { .field = m_analysis.symbol(expect(m_analysis.expr(id).symbol)).field });
             return place;
         }
 
@@ -1163,6 +1385,20 @@ private:
 
         if (std::holds_alternative<name_expr_t>(node)) {
             return variable_place(id);
+        }
+
+        // Each index goes in a local of its own, so the place keeps the value the index had.
+        if (const auto* element = std::get_if<index_expr_t>(&node)) {
+            place_t place = lower_place(element->object);
+            step_t step{ .span = span_of(id) };
+            for (const expr_id_t position : element->indices) {
+                const operand_t value = lower_value(position);
+                const operand_t local = temporary(use_t{ .value = value }, type_of(value));
+                step.indices.push_back(std::get<local_id_t>(std::get<place_t>(local).root));
+            }
+
+            place.steps.push_back(std::move(step));
+            return place;
         }
 
         return as_place(lower_value(id));
@@ -1201,17 +1437,144 @@ private:
         return variable_place(id);
     }
 
+    /// A field, or an array's Count.
     operand_t lower_expr(const expr_id_t id, const member_expr_t& node) {
+        if (!node.null_safe && is_array(m_analysis.expr(node.object).converted)) {
+            return count_of(lower_value(node.object));
+        }
+
         if (!node.null_safe) {
             return lower_place(id);
         }
 
-        const std::uint32_t field = m_analysis.symbol(expect(m_analysis.expr(id).symbol)).field;
+        const std::optional<symbol_id_t> field = m_analysis.expr(id).symbol;
         return expect(lower_safe(id, node.object, [&](const operand_t& object) {
+            const type_id_t type = type_of(object);
+            if (is_array(type)) {
+                return std::optional<operand_t>(count_of(object));
+            }
+
+            if (is_fixed_array(type)) {
+                const auto count = static_cast<std::int64_t>(m_analysis.types.element_count(type));
+                return std::optional<operand_t>(
+                    const_value_t{ .type = type_id_t::INT32, .data = count });
+            }
+
             place_t place = as_place(object);
-            place.fields.push_back(field);
+            place.steps.push_back({ .field = m_analysis.symbol(expect(field)).field });
             return std::optional<operand_t>(place);
         }));
+    }
+
+    operand_t lower_expr(const expr_id_t id, const index_expr_t& /*node*/) {
+        return lower_place(id);
+    }
+
+    /// "[a, b, c]": a new T[] that holds the elements' references, or a fixed array's value.
+    operand_t lower_expr(const expr_id_t id, const array_expr_t& node) {
+        const type_id_t type = m_analysis.expr(id).type;
+        array_t value{ .type = type };
+        for (const expr_id_t element : node.elements) {
+            value.elements.push_back(lower_value(element));
+        }
+
+        for (const operand_t& element : value.elements) {
+            take(element);
+        }
+
+        return temporary(std::move(value), type, has_references(type));
+    }
+
+    /// A T[]'s Count, as an Int.
+    operand_t count_of(const operand_t& array) {
+        return runtime_call(runtime_function_t::ARRAY_COUNT, { array }, type_id_t::INT32);
+    }
+
+    /// A T[]'s Methods, with the array as the first argument. Add and Insert take over the
+    /// value's references.
+    std::optional<operand_t> array_method(const symbol_t& method,
+                                          const std::vector<call_argument_t>& arguments,
+                                          const span_t span) {
+        const operand_t& array = arguments[0].value;
+        const auto run = [&](const runtime_function_t function, std::vector<operand_t> operands) {
+            runtime_call_t call{
+                .function = function,
+                .arguments = std::move(operands),
+                .span = span,
+            };
+            emit(evaluate_t{ .value = std::move(call) });
+        };
+
+        if (method.name == "Add") {
+            take(arguments[1].value);
+            run(runtime_function_t::ARRAY_ADD, { array, arguments[1].value });
+        } else if (method.name == "Insert") {
+            take(arguments[2].value);
+            run(runtime_function_t::ARRAY_INSERT,
+                { array, arguments[1].value, arguments[2].value });
+        } else if (method.name == "RemoveAt") {
+            run(runtime_function_t::ARRAY_REMOVE_AT, { array, arguments[1].value });
+        } else if (method.name == "Clear") {
+            run(runtime_function_t::ARRAY_CLEAR, { array });
+        } else if (method.name == "Contains") {
+            return contains(array, arguments[1].value, span);
+        } else {
+            return runtime_call(runtime_function_t::ARRAY_CLONE, { array }, method.type, true);
+        }
+
+        return std::nullopt;
+    }
+
+    /// Whether a T[] has an element equal to `value`, comparing them in order.
+    operand_t contains(const operand_t& array, const operand_t& value, const span_t span) {
+        const local_id_t result = add_local(type_id_t::BOOL);
+        const local_id_t counter = add_local(type_id_t::INT32);
+        emit(assign_t{ .target = result, .value = use_t{ .value = make_bool(false) } });
+        emit(assign_t{ .target = counter, .value = use_t{ .value = zero(type_id_t::INT32) } });
+        const block_id_t head = new_block();
+        jump(head);
+        start(head);
+        const operand_t in_range = compare(binary_op_t::LESS, counter, count_of(array), span);
+        const block_id_t test = here();
+        m_block.reset();
+
+        const block_id_t check = new_block();
+        start(check);
+        place_t element = as_place(array);
+        element.steps.push_back({ .indices = { counter }, .span = span });
+        const operand_t same = equal(element, value, span);
+        const block_id_t matched = here();
+        m_block.reset();
+
+        std::vector<block_id_t> exits;
+        const block_id_t found = new_block();
+        start(found);
+        emit(assign_t{ .target = result, .value = use_t{ .value = make_bool(true) } });
+        leave(exits);
+
+        const block_id_t next = new_block();
+        start(next);
+        count_up(counter, span);
+        jump(head);
+
+        const block_id_t exit = join(exits);
+        block_at(test).terminator =
+            branch_t{ .condition = in_range, .if_true = check, .if_false = exit };
+        block_at(matched).terminator =
+            branch_t{ .condition = same, .if_true = found, .if_false = next };
+        return place_t{ result };
+    }
+
+    /// Adds 1 to a counter, which never overflows.
+    void count_up(const local_id_t counter, const span_t span) {
+        const binary_t next{
+            .op = binary_op_t::ADD,
+            .left = counter,
+            .right = one(type_id_t::INT32),
+            .span = span,
+            .wrapping = true,
+        };
+        emit(assign_t{ .target = counter, .value = next });
     }
 
     /// "a?.b" and "a?.M()": `access` reads the field, or makes the call, on the value in a, and
@@ -1383,8 +1746,8 @@ private:
         for (std::uint32_t i = 0; i < fields.size(); ++i) {
             place_t a = left;
             place_t b = right;
-            a.fields.push_back(i);
-            b.fields.push_back(i);
+            a.steps.push_back({ .field = i });
+            b.steps.push_back({ .field = i });
             const operand_t same = equal(a, b, span);
             result = i == 0 ? same : compare(binary_op_t::AND, result, same, span);
         }
@@ -1585,9 +1948,7 @@ private:
             // A missing argument gets the parameter's default, which is known at compile time,
             // or a field's zero. ByRef passes the variable itself.
             if (!argument) {
-                const operand_t value =
-                    parameter.value ? operand_t{ *parameter.value } : zero_value(parameter.type);
-                arguments.push_back({ .value = value });
+                arguments.push_back({ .value = default_of(parameter) });
             } else if (parameter.by_ref) {
                 arguments.push_back({ .value = lower_place(*argument), .by_ref = true });
             } else {
@@ -1595,10 +1956,24 @@ private:
             }
         }
 
-        // The constructor a Class gets makes an object with its fields at their defaults.
-        if (function.kind == symbol_kind_t::CONSTRUCTOR && !function.declaration &&
-            is_class(function.type)) {
-            return new_object(function.type);
+        if (function.kind == symbol_kind_t::METHOD && is_array(function.owner)) {
+            return array_method(function, arguments, span_of(id));
+        }
+
+        // A Class's New sets up a new object with its fields at their defaults, or Self for
+        // Super.New.
+        const auto* member = std::get_if<member_expr_t>(&m_ast.get(node.callee).node);
+        const bool on_super = member != nullptr &&
+                              std::holds_alternative<super_expr_t>(m_ast.get(member->object).node);
+        if (function.kind == symbol_kind_t::CONSTRUCTOR && is_class(function.type)) {
+            if (on_super) {
+                set_up(expect(info.symbol), expect(m_self), std::move(arguments));
+                return std::nullopt;
+            }
+
+            operand_t object = new_object(function.type);
+            set_up(expect(info.symbol), std::get<place_t>(object), std::move(arguments));
+            return object;
         }
 
         // The constructor a Struct gets puts its arguments in the fields, which take their own
@@ -1630,10 +2005,15 @@ private:
             return std::nullopt;
         }
 
+        // Super calls the Method the base Class has, not an override further down.
         call_t call{
             .function = m_functions.at(expect(info.symbol)),
             .arguments = std::move(arguments),
         };
+        if (is_virtual(function) && !on_super) {
+            call.slot = m_slots.at(expect(info.symbol));
+        }
+
         if (function.type == type_id_t::NONE) {
             emit(evaluate_t{ .value = std::move(call) });
             return std::nullopt;
@@ -1642,9 +2022,49 @@ private:
         return temporary(std::move(call), function.type, has_references(function.type));
     }
 
+    /// 'As' between Classes checks the object's Class at run time, unless it converts anyway.
+    /// So does 'As' from a T? to a T, for Null.
     operand_t lower_expr(const expr_id_t id, const cast_expr_t& node) {
         const operand_t value = lower_value(node.value);
-        return convert(value, m_analysis.expr(id).type, span_of(id));
+        const type_id_t type = m_analysis.expr(id).type;
+        if (node.checked) {
+            return retype(
+                value,
+                downcast_t{ .value = value, .type = type, .span = span_of(id), .or_null = true },
+                type);
+        }
+
+        const type_t& from = m_analysis.types.get(type_of(value));
+        const type_id_t source = from.kind == type_kind_t::NULLABLE ? from.inner : type_of(value);
+        const type_id_t target = is_nullable(type) ? m_analysis.types.get(type).inner : type;
+        const bool checks = is_class(source) && is_class(target) &&
+                            (!m_analysis.types.extends(source, target) ||
+                             (from.kind == type_kind_t::NULLABLE && !is_nullable(type)));
+        if (checks) {
+            return retype(value, downcast_t{ .value = value, .type = type, .span = span_of(id) },
+                          type);
+        }
+
+        return convert(value, type, span_of(id));
+    }
+
+    /// "x Is T".
+    operand_t lower_expr(const expr_id_t id, const is_expr_t& node) {
+        const operand_t value = lower_value(node.value);
+        return temporary(is_t{ .value = value, .type = m_analysis.expr(id).tested },
+                         type_id_t::BOOL);
+    }
+
+    /// Super before a call is Self, as an object of the Class it extends.
+    operand_t lower_expr(expr_id_t /*id*/, const super_expr_t& /*node*/) {
+        return place_t{ expect(m_self) };
+    }
+
+    /// A temporary holding `value`'s object as another type, from `rvalue`. A temporary that owned
+    /// it hands it over.
+    operand_t retype(const operand_t& value, rvalue_t rvalue, const type_id_t type) {
+        const bool owned = take_temporary(value);
+        return temporary(std::move(rvalue), type, owned);
     }
 };
 

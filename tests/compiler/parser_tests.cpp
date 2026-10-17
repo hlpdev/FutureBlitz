@@ -456,7 +456,49 @@ TEST_CASE("Classes", "[parser]") {
     CHECK(parsed.dump == "(class Enemy (block (field hp: Int) (method Destroy (block))))");
     CHECK(parsed.errors.empty());
 
-    // A base Class or interfaces come later. "Extends" is at 8-15.
-    CHECK(parse_text("Class A Extends B\nEnd Class").errors ==
-          std::vector<std::string>{ "8-15: 'Extends' isn't supported yet" });
+    // Interfaces come later. "Implements" is at 8-18.
+    CHECK(parse_text("Class A Implements B\nEnd Class").errors ==
+          std::vector<std::string>{ "8-18: 'Implements' isn't supported yet" });
+}
+
+TEST_CASE("Extends, modifiers, and Super", "[parser]") {
+    // An Abstract Method is only its first line.
+    const parsed_t parsed = parse_text("Abstract Class Shape Extends Thing\n"
+                                       "    Abstract Method Area(): Float\n"
+                                       "    Override Final Method Name(): String => \"s\"\n"
+                                       "    New()\n"
+                                       "        Super.New(1)\n"
+                                       "    End New\n"
+                                       "End Class");
+    CHECK(parsed.dump == "(class Abstract Shape Extends Thing (block "
+                         "(method Abstract Area -> Float (block)) "
+                         "(method Final Override Name -> String (block (return (string \"s\")))) "
+                         "(new (block (call (. Super New) (int 1))))))");
+    CHECK(parsed.errors.empty());
+
+    CHECK(parse_text("Final Final Class A\nEnd Class").errors ==
+          std::vector<std::string>{ "6-11: 'Final' is written twice" });
+    CHECK(parse_text("Final Local x = 1").errors ==
+          std::vector<std::string>{
+              "6-11: Abstract, Final, and Override only go before a Class or a Method" });
+}
+
+TEST_CASE("a Case can match a Class", "[parser]") {
+    // "Case e As? Boss" stays a value, a checked cast.
+    const parsed_t parsed = parse_text("Select x\n"
+                                       "    Case e As Boss\n"
+                                       "        e.Enrage()\n"
+                                       "    Case e As? Boss\n"
+                                       "End Select");
+    CHECK(parsed.dump == "(select x (case e As Boss (block (call (. e Enrage)))) "
+                         "(case (as? e Boss) (block)))");
+    CHECK(parsed.errors.empty());
+}
+
+TEST_CASE("array literals and fixed array types", "[parser]") {
+    CHECK(parse_text("Local a = [1, 2,\n    3,\n]").dump ==
+          "(local a = (array (int 1) (int 2) (int 3)))");
+    CHECK(parse_text("Local e = []").dump == "(local e = (array))");
+    CHECK(parse_text("Local g: Float[64, 8 * 8]").dump == "(local g: Float[64, (* 8 8)])");
+    CHECK(parse_text("Local g: Int[4][]?").dump == "(local g: Int[4][]?)");
 }

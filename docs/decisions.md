@@ -92,6 +92,21 @@ section.
 | A Class's Methods can always change its fields; `ByRef Method` is only for Structs | `Self` is a reference, so there's no copy to protect |
 | An object's fields change through any reference to it, even a read-only parameter or `Const`; a Class's `Self` can't be replaced | read-only covers the reference, not the object |
 | Class `==` compares identity until `Equatable` (M3); `RefEquals` always does | identity is the only equality an object has before interfaces |
+| Methods are virtual unless `Final`; `Override` must match the parameter types, `ByRef`, and return type exactly | one rule for what overrides what |
+| Every Class's `Destroy` runs, the most derived first, and none overrides another | each Class cleans up its own fields |
+| A Class's `New` runs the base's first: `Super.New(...)` as its first statement, or the base's `New` that takes no arguments; `Self` waits for it | the object is set up from the base down, like the field layout |
+| An object's fields start with its base Class's, and its Class's info has a Method table after `fb_class_t` | inherited fields and overrides cost no lookups |
+| `As` to a subclass, and from a `T?` to a `T`, checks at run time and panics with the Class it found; `As?` gives `Null`; unrelated Classes are a compile error | casts that can't work are caught early, and ones that fail at run time say why |
+| Two Classes meet at the nearest one both extend: `True ? rect : circle` is a `Shape` | the ternary works across a hierarchy |
+| `Is` doesn't narrow; `Case e As T` binds the object as a `T` | narrowing stays about `Null`; a type match names the result |
+| A `T[]` is an object whose elements are in a buffer of their own, with a Class named like `Int32[]` | it grows without moving, and leak reports name arrays |
+| A `T[]`'s `Count` is an `Int`; its Methods are `Add`, `Insert`, `RemoveAt`, `Clear`, `Contains`, and `Clone` | the collection vocabulary, starting small |
+| A `T[]` has no zero; `[]` as a default gives each use a new array | non-null by default, without a shared mutable default |
+| `T[]` is invariant: a `B[]` isn't an `A[]` | adding an `A` to a `B[]` would break it |
+| Arrays have no `==` until `Equatable` (M3); `RefEquals` tells `T[]`s apart | equality of elements needs a rule for every element type |
+| A fixed array starts at zero, so a `Local` of one is ready when declared; sizes are known at compile time | declaring then filling a grid is the common case |
+| An array element can't be passed `ByRef`, and a `ByRef Method` can't change a `T[]`'s element in place | the buffer moves when the array grows |
+| `For ... In` holds the array and reads `Count` before each pass; its variables are read-only copies | removing during a loop can't go past the end |
 | A Class, or a Struct holding one, has no zero: a `Global` of one needs a value, a Struct's generated constructor requires the field, and every `New` assigns it on every path before reading it or using `Self` | a reference that can't be `Null` must point at an object before anything reads it |
 | `Null` takes the `T?` its context expects; a `T` or `T?` converts to a `U?` when the `T` converts to the `U` | `Null` alone has no type |
 | Null checks narrow a Local, a Const, or a parameter that isn't `ByRef`, until it's assigned a `T?` or passed `ByRef`; a loop that changes it can't use a check from before the loop; a Global or field needs a Local copy | anything a call could change can't stay narrowed |

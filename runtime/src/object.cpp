@@ -81,4 +81,30 @@ void fb_object_release_atomic(fb_object_t* object) {
         destroy(object);
     }
 }
+
+std::int32_t fb_object_is(const fb_object_t* object, const fb_class_t* type) {
+    if (object == nullptr) {
+        return 0;
+    }
+
+    for (const fb_class_t* current = object->type; current != nullptr; current = current->base) {
+        if (current == type) {
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
+void fb_object_expect(const fb_object_t* object, const fb_class_t* type,
+                      const fb_location_t* location) {
+    if (fb_object_is(object, type) != 0) {
+        return;
+    }
+
+    std::array<char, 256> message{};
+    std::snprintf(message.data(), message.size(), "expected %s, found %s", type->name,
+                  object != nullptr ? object->type->name : "Null");
+    fb_panic(message.data(), location);
+}
 }

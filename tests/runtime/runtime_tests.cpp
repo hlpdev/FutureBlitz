@@ -93,6 +93,11 @@ TEST_CASE("integer powers wrap, or overflow when checked", "[runtime]") {
 
 namespace {
 
+/// An array's destroy when its elements need no releasing.
+void free_numbers(fb_object_t* object) {
+    fb_array_free(reinterpret_cast<fb_array_t*>(object));
+}
+
 /// How many times destroy_thing has run.
 int destroyed = 0;
 
@@ -108,7 +113,13 @@ struct thing_t {
 
 /// The Class of a thing_t, with no objects yet.
 fb_class_t thing_class() {
-    return { .name = "Thing", .size = sizeof(thing_t), .destroy = destroy_thing, .live = 0 };
+    return {
+        .name = "Thing",
+        .size = sizeof(thing_t),
+        .destroy = destroy_thing,
+        .live = 0,
+        .base = nullptr,
+    };
 }
 
 } // namespace
@@ -165,4 +176,73 @@ TEST_CASE("the String count follows allocations", "[runtime]") {
     CHECK(fb_string_live_count() == before + 1);
     fb_string_release(string);
     CHECK(fb_string_live_count() == before);
+}
+
+TEST_CASE("an object is of its Class and the ones it extends", "[runtime]") {
+    const fb_class_t base = thing_class();
+    fb_class_t type = thing_class();
+    type.base = &base;
+    const fb_class_t other = thing_class();
+    fb_object_t* object = fb_object_new(&type);
+    CHECK(fb_object_is(object, &type) == 1);
+    CHECK(fb_object_is(object, &base) == 1);
+    CHECK(fb_object_is(object, &other) == 0);
+    CHECK(fb_object_is(nullptr, &base) == 0);
+
+    // A Class it extends passes; the rest would panic.
+    fb_object_expect(object, &base, nullptr);
+    fb_object_release(object);
+}
+
+namespace {
+
+/// The Class of an array of Int64, whose elements need no releasing.
+fb_class_t numbers_class() {
+    return {
+        .name = "Int64[]",
+        .size = sizeof(fb_array_t),
+        .destroy = free_numbers,
+        .live = 0,
+        .base = nullptr,
+    };
+}
+
+/// The element at `index` of an array of Int64.
+std::int64_t& at(const fb_array_t* array, const std::int64_t index) {
+    return static_cast<std::int64_t*>(array->data)[index];
+}
+
+/// Puts `value` where the runtime made room for it.
+void store(void* slot, const std::int64_t value) {
+    *static_cast<std::int64_t*>(slot) = value;
+}
+
+} // namespace
+
+TEST_CASE("an array grows, and its elements move to make room", "[runtime]") {
+    fb_class_t type = numbers_class();
+    constexpr std::int64_t size = sizeof(std::int64_t);
+    fb_array_t* array = fb_array_new(&type, size, 0);
+    CHECK(array->count == 0);
+    for (std::int64_t i = 0; i < 10; ++i) {
+        store(fb_array_push(array, size), i);
+    }
+
+    CHECK(array->count == 10);
+    CHECK(array->capacity >= 10);
+    store(fb_array_insert(array, size, 0, nullptr), 100);
+    CHECK(at(array, 0) == 100);
+    CHECK(at(array, 1) == 0);
+    fb_array_remove(array, size, 0);
+    CHECK(at(array, 0) == 0);
+    CHECK(array->count == 10);
+
+    fb_array_t* copy = fb_array_clone(array, size);
+    at(copy, 9) = 42;
+    CHECK(at(array, 9) == 9);
+    fb_array_clear(array);
+    CHECK(array->count == 0);
+    fb_object_release(&copy->header);
+    fb_object_release(&array->header);
+    CHECK(type.live == 0);
 }

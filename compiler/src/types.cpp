@@ -175,6 +175,42 @@ type_id_t type_table_t::make(const type_kind_t kind, const type_id_t inner,
     return made();
 }
 
+type_id_t type_table_t::fixed_array(const type_id_t element,
+                                    const std::vector<std::uint32_t>& sizes) {
+    if (element == type_id_t::INVALID) {
+        return type_id_t::INVALID;
+    }
+
+    for (const type_id_t made : m_fixed_arrays) {
+        if (get(made).inner == element && get(made).sizes == sizes) {
+            return made;
+        }
+    }
+
+    std::string text = std::format("{}[", name(element));
+    for (std::size_t i = 0; i < sizes.size(); ++i) {
+        text += std::format("{}{}", i == 0 ? "" : ", ", sizes[i]);
+    }
+
+    const type_id_t id = add({
+        .kind = type_kind_t::FIXED_ARRAY,
+        .name = text + "]",
+        .inner = element,
+        .sizes = sizes,
+    });
+    m_fixed_arrays.push_back(id);
+    return id;
+}
+
+std::uint64_t type_table_t::element_count(const type_id_t type) const {
+    std::uint64_t count = 1;
+    for (const std::uint32_t size : get(type).sizes) {
+        count *= size;
+    }
+
+    return count;
+}
+
 type_id_t type_table_t::add_struct(std::string name) {
     return add({ .kind = type_kind_t::STRUCT, .name = std::move(name) });
 }
@@ -188,9 +224,29 @@ void type_table_t::set_fields(const type_id_t type, std::vector<field_t> fields)
     m_entries[std::to_underlying(type)].type->fields = std::move(fields);
 }
 
+void type_table_t::set_base(const type_id_t type, const type_id_t base) {
+    assert(get(type).kind == type_kind_t::CLASS && get(base).kind == type_kind_t::CLASS);
+    m_entries[std::to_underlying(type)].type->base = base;
+}
+
+bool type_table_t::extends(const type_id_t type, const type_id_t base) const {
+    for (type_id_t current = type; current != type_id_t::INVALID; current = get(current).base) {
+        if (current == base) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 bool type_table_t::has_references(const type_id_t type) const {
-    if (type == type_id_t::STRING || get(type).kind == type_kind_t::CLASS) {
+    const type_kind_t kind = get(type).kind;
+    if (type == type_id_t::STRING || kind == type_kind_t::CLASS || kind == type_kind_t::ARRAY) {
         return true;
+    }
+
+    if (kind == type_kind_t::FIXED_ARRAY) {
+        return has_references(get(type).inner);
     }
 
     return std::ranges::any_of(get(type).fields,
@@ -198,8 +254,13 @@ bool type_table_t::has_references(const type_id_t type) const {
 }
 
 bool type_table_t::has_zero(const type_id_t type) const {
-    if (get(type).kind == type_kind_t::CLASS) {
+    const type_kind_t kind = get(type).kind;
+    if (kind == type_kind_t::CLASS || kind == type_kind_t::ARRAY) {
         return false;
+    }
+
+    if (kind == type_kind_t::FIXED_ARRAY) {
+        return has_zero(get(type).inner);
     }
 
     // A T?'s zero is Null, whatever the T.
