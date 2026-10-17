@@ -224,6 +224,24 @@ void type_table_t::set_fields(const type_id_t type, std::vector<field_t> fields)
     m_entries[std::to_underlying(type)].type->fields = std::move(fields);
 }
 
+type_id_t type_table_t::add_enum(std::string name) {
+    return add({ .kind = type_kind_t::ENUM, .name = std::move(name), .inner = type_id_t::INT32 });
+}
+
+void type_table_t::set_values(const type_id_t type, const type_id_t integer,
+                              std::vector<enum_value_t> values, const bool flags) {
+    assert(get(type).kind == type_kind_t::ENUM);
+    type_t& entry = *m_entries[std::to_underlying(type)].type;
+    entry.inner = integer;
+    entry.values = std::move(values);
+    entry.flags = flags;
+}
+
+std::uint64_t type_table_t::enum_zero(const type_id_t type) const {
+    const type_t& entry = get(type);
+    return entry.flags || entry.values.empty() ? 0 : entry.values.front().bits;
+}
+
 void type_table_t::set_base(const type_id_t type, const type_id_t base) {
     assert(get(type).kind == type_kind_t::CLASS && get(base).kind == type_kind_t::CLASS);
     m_entries[std::to_underlying(type)].type->base = base;

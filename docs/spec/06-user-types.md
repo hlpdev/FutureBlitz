@@ -190,7 +190,19 @@ End Enum
 Local mask = Layer.World | Layer.Player
 ```
 
-- Optional underlying type after `:` (default `Int`).
+- Optional underlying type after `:` (default `Int`), which must be an integer.
+- Members are separated by commas or lines. A member without a value takes the next integer
+  after the one above, starting at 0. In a `@Flags` Enum, it takes the next bit after every
+  value so far, starting at 1. A value is known at compile time and can use the members above
+  it by name, as integers: `Solid = World | Player`. Names and values don't repeat.
+- `State.Walk` is a member. Values compare with `==` and `!=`; a `@Flags` Enum's also combine
+  with `|`, `&`, `^`, and `~`, and `mask.Has(flags)` tells whether all of `flags` are set.
+- `As` turns an Enum into any integer type, and an integer into an Enum. For an Enum without
+  `@Flags`, the integer must be one of its values: known ones are checked at compile time, and
+  others panic.
+- An Enum's zero is its first member, or no flags for a `@Flags` Enum.
+- A string shows a member's name. A `@Flags` value that isn't a member shows its flags,
+  like `World | Player`.
 
 ## Visibility
 

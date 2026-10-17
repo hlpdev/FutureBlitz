@@ -26,8 +26,7 @@ compiler (lib), runtime (lib), cli (exe), lsp (exe)
 
 ## Current step
 M2 (data: structs, classes, refcounting, arrays, errors, `Defer`), planned 2026-10-16 in 11
-steps (docs/milestones.md). Step 6, arrays, is built except runtime/src/array.cpp, which Hunter
-types; then step 7: enums.
+steps (docs/milestones.md). Step 9: errors.
 
 Done in M2: step 1, the type table (`type_table_t` in types.hpp: built-ins at fixed ids, other
 types interned; the analysis owns it and MIR points at it). Step 2, structs: `Struct` with
@@ -46,7 +45,13 @@ a Class's New is an MIR function that sets up an object its caller made (`base_n
 object (`fb_array_t`, runtime/src/array.cpp) with a Class per array type that codegen makes;
 FIXED_ARRAY types are inline; MIR places have `steps`, each a field or an element with index
 locals; `array_t` makes arrays; runtime_function_t has the T[] operations; sema makes each T[]'s
-Methods as symbols owned by the array type.
+Methods as symbols owned by the array type. Step 7, enums: ENUM types keep their integer type
+and `enum_value_t`s in the type table; sema folds Enum constants as their integers; `As` to an
+Enum checks membership in lowering; lowering makes a "State.Text(State)" function for strings;
+`stmt_info_t::exhaustive` marks a Select that covers every value. Step 8, `Defer`: sema checks
+the statement where it's written in a copy of the flow, forgetting narrowing for what the rest of
+the block changes; lowering's scopes hold `cleanup_t`s (a variable to release or a statement to
+run), and each way out lowers the deferred statements again.
 
 Done: M1, finished 2026-10-16, in six steps: source and diagnostics; tokens and lexer; AST and
 parser with error recovery (tests compare `fb::dump_ast`); semantic analysis (types, const_value,

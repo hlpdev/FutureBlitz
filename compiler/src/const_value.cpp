@@ -446,7 +446,7 @@ fold_result_t fold_binary(const binary_op_t op, const const_value_t& left,
     case binary_op_t::SHIFT_RIGHT:
         return fold_shift(op, left, right);
     case binary_op_t::COALESCE:
-        // Sema reports '??' as not supported yet.
+        // Sema folds '??' itself.
         std::unreachable();
     default:
         break;

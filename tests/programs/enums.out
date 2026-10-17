@@ -1,0 +1,12 @@
+Idle World calm
+Dead 11 gone
+10 Dead True True
+World | Trigger True False 5
+World | Player | Trigger True Player | Trigger None
+Solid World 16
+East 0
+South 1
+West 2
+North -1
+True False
+end of main

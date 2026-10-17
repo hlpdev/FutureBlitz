@@ -109,6 +109,15 @@ std::string function_name(const analysis_t& analysis, const symbol_t& function) 
     return name + ")";
 }
 
+/// What leaving a scope does: releases a variable, or runs a Defer's statement.
+struct cleanup_t {
+    std::variant<local_id_t, stmt_id_t> action;
+
+    // Implicit, so a variable or a deferred statement can be put in a scope directly.
+    cleanup_t(const local_id_t local) : action(local) {}
+    cleanup_t(const stmt_id_t deferred) : action(deferred) {}
+};
+
 /// A loop being lowered. Break and Continue end their blocks without a target, and the loop
 /// fills it in once it has made its exit and the place where its next pass starts.
 struct loop_t {
@@ -153,6 +162,10 @@ public:
         }
 
         lower_top_level();
+        for (const auto& [type, function] : m_texts) {
+            lower_text(type, function);
+        }
+
         return std::move(m_module);
     }
 
@@ -164,16 +177,19 @@ private:
     std::unordered_map<symbol_id_t, global_id_t> m_globals;
     /// Each Class Method's slot in the Method tables.
     std::unordered_map<symbol_id_t, std::uint32_t> m_slots;
+    /// The Enums whose values strings show, with the function that gives each value's text.
+    /// Their bodies are lowered last.
+    std::vector<std::pair<type_id_t, function_id_t>> m_texts;
     /// Each Struct's symbol, by its type.
     std::unordered_map<type_id_t, symbol_id_t> m_declared_types;
 
     // The function being lowered
     function_id_t m_function{};
     std::unordered_map<symbol_id_t, local_id_t> m_locals;
-    std::optional<block_id_t> m_block;             // nullopt after a jump: nothing reaches here
-    std::vector<std::vector<local_id_t>> m_scopes; // locals to release, innermost last
-    std::vector<local_id_t> m_temporaries;         // owned values to release after the statement
-    std::vector<loop_t> m_loops;                   // innermost last
+    std::optional<block_id_t> m_block;            // nullopt after a jump: nothing reaches here
+    std::vector<std::vector<cleanup_t>> m_scopes; // what leaving each does, innermost last
+    std::vector<local_id_t> m_temporaries;        // owned values to release after the statement
+    std::vector<loop_t> m_loops;                  // innermost last
     /// A Method's or New's Self.
     std::optional<local_id_t> m_self;
     /// Lowering a New, whose Returns give back Self.
@@ -195,6 +211,8 @@ private:
                 initial = zero(symbol.type);
             } else if (is_nullable(symbol.type)) {
                 initial = null_of(symbol.type);
+            } else if (is_enum(symbol.type)) {
+                initial = enum_constant(symbol.type, m_analysis.types.enum_zero(symbol.type));
             }
 
             if (node.value) {
@@ -421,7 +439,8 @@ private:
             const auto* variable = std::get_if<variable_stmt_t>(&node);
             const bool global = variable != nullptr && variable->kind != variable_kind_t::LOCAL;
             if (!global && !std::holds_alternative<function_stmt_t>(node) &&
-                !std::holds_alternative<type_stmt_t>(node)) {
+                !std::holds_alternative<type_stmt_t>(node) &&
+                !std::holds_alternative<enum_stmt_t>(node)) {
                 lower_stmt(id);
             }
         }
@@ -481,6 +500,22 @@ private:
 
     [[nodiscard]] bool is_array(const type_id_t type) const {
         return m_analysis.types.get(type).kind == type_kind_t::ARRAY;
+    }
+
+    [[nodiscard]] bool is_enum(const type_id_t type) const {
+        return m_analysis.types.get(type).kind == type_kind_t::ENUM;
+    }
+
+    /// One of an Enum's values, as a constant of the Enum, or of its integer type.
+    [[nodiscard]] const_value_t enum_constant(const type_id_t type, const std::uint64_t bits,
+                                              const bool as_integer = false) const {
+        const type_id_t integer = m_analysis.types.get(type).inner;
+        const type_id_t result = as_integer ? integer : type;
+        if (is_signed(integer)) {
+            return { .type = result, .data = static_cast<std::int64_t>(bits) };
+        }
+
+        return { .type = result, .data = bits };
     }
 
     [[nodiscard]] bool is_fixed_array(const type_id_t type) const {
@@ -544,6 +579,10 @@ private:
 
         if (info.kind == type_kind_t::FIXED_ARRAY) {
             return needs_zeroing(info.inner);
+        }
+
+        if (info.kind == type_kind_t::ENUM) {
+            return m_analysis.types.enum_zero(type) != 0;
         }
 
         return info.kind == type_kind_t::STRUCT &&
@@ -611,6 +650,10 @@ private:
 
         if (is_nullable(type)) {
             return null_of(type);
+        }
+
+        if (is_enum(type)) {
+            return enum_constant(type, m_analysis.types.enum_zero(type));
         }
 
         return zero(type);
@@ -763,25 +806,43 @@ private:
     }
 
     void pop_scope() {
-        release_scope(m_scopes.back());
+        release_scope(m_scopes.size() - 1);
         m_scopes.pop_back();
     }
 
-    void release_scope(const std::vector<local_id_t>& scope) {
+    /// Leaving a scope releases its variables and runs its Defers' statements, the last first.
+    /// A deferred statement is lowered again at each way out, after the ones further in. Code
+    /// that nothing reaches does none of it.
+    void release_scope(const std::size_t depth) {
         if (!m_block) {
             return;
         }
 
-        for (const local_id_t local : std::views::reverse(scope)) {
-            emit(release_t{ .target = local });
+        // A copy, since a deferred statement's own blocks add scopes.
+        const std::vector<cleanup_t> scope = m_scopes[depth];
+        for (const cleanup_t& cleanup : std::views::reverse(scope)) {
+            if (const auto* local = std::get_if<local_id_t>(&cleanup.action)) {
+                emit(release_t{ .target = *local });
+            } else {
+                lower_stmt(std::get<stmt_id_t>(cleanup.action));
+            }
         }
     }
 
-    /// Releases the Strings of every scope from `depth` inward, for a jump out of them.
+    /// Leaves every scope from `depth` inward, for a jump out of them.
     void release_scopes(const std::size_t depth) {
         for (std::size_t i = m_scopes.size(); i-- > depth;) {
-            release_scope(m_scopes[i]);
+            release_scope(i);
         }
+    }
+
+    /// Whether leaving the scopes from `depth` inward runs a deferred statement.
+    [[nodiscard]] bool defers_from(const std::size_t depth) const {
+        return std::ranges::any_of(m_scopes | std::views::drop(depth), [](const auto& scope) {
+            return std::ranges::any_of(scope, [](const cleanup_t& cleanup) {
+                return std::holds_alternative<stmt_id_t>(cleanup.action);
+            });
+        });
     }
 
     // Statements
@@ -862,7 +923,7 @@ private:
         m_locals[symbol_id] = local;
         initialize(local, value);
         if (has_references(symbol.type)) {
-            m_scopes.back().push_back(local);
+            m_scopes.back().emplace_back(local);
         }
 
         finish_statement();
@@ -1077,10 +1138,10 @@ private:
         if (is_array(type)) {
             const local_id_t held = add_local(type);
             initialize(held, value);
-            m_scopes.back().push_back(held);
+            m_scopes.back().emplace_back(held);
             sequence = held;
         } else if (take_temporary(value)) {
-            m_scopes.back().push_back(std::get<local_id_t>(sequence.root));
+            m_scopes.back().emplace_back(std::get<local_id_t>(sequence.root));
         }
 
         finish_statement();
@@ -1113,7 +1174,7 @@ private:
         element.steps.push_back({ .indices = { counter }, .span = span });
         initialize(local, element);
         if (has_references(m_analysis.symbol(variable).type)) {
-            m_scopes.back().push_back(local);
+            m_scopes.back().emplace_back(local);
         }
 
         lower_statements(node.body);
@@ -1203,7 +1264,7 @@ private:
         const local_id_t subject = add_local(type);
         initialize(subject, value);
         if (has_references(type)) {
-            m_scopes.back().push_back(subject);
+            m_scopes.back().emplace_back(subject);
         }
 
         finish_statement();
@@ -1263,7 +1324,7 @@ private:
                 const operand_t object = temporary(
                     downcast_t{ .value = subject, .type = symbol.type, .span = span }, symbol.type);
                 initialize(local, object);
-                m_scopes.back().push_back(local);
+                m_scopes.back().emplace_back(local);
                 lower_block(branch.body);
                 pop_scope();
             } else {
@@ -1276,6 +1337,11 @@ private:
 
         if (node.default_body) {
             lower_block(*node.default_body);
+        }
+
+        // Analysis checked that the Cases cover every value an Enum can have.
+        if (m_analysis.stmt(id).exhaustive) {
+            terminate(panic_t{ .message = "no Case matched", .span = span });
         }
 
         leave(exits);
@@ -1324,15 +1390,25 @@ private:
             return;
         }
 
+        // The value is computed before the Defers run, so a copy keeps a variable's from their
+        // changes.
         std::optional<operand_t> result;
         if (node.value) {
             result = lower_value(*node.value);
             take(*result); // the caller owns the references it gets back
+            if (std::holds_alternative<place_t>(*result) && defers_from(0)) {
+                result = temporary(use_t{ .value = *result }, type_of(*result));
+            }
         }
 
         finish_statement();
         release_scopes(0);
         terminate(return_t{ .value = result });
+    }
+
+    /// A Defer puts its statement in its scope, which runs it on the way out.
+    void lower_stmt(stmt_id_t /*id*/, span_t /*span*/, const defer_stmt_t& node) {
+        m_scopes.back().emplace_back(node.statement);
     }
 
     // Expressions
@@ -1657,7 +1733,14 @@ private:
 
             const expr_id_t inner = std::get<expr_id_t>(part);
             operand_t value = lower_value(inner);
-            if (m_analysis.expr(inner).converted != type_id_t::STRING) {
+            const type_id_t type = m_analysis.expr(inner).converted;
+            if (is_enum(type)) {
+                call_t call{
+                    .function = text_function(type),
+                    .arguments = { { .value = value } },
+                };
+                value = temporary(std::move(call), type_id_t::STRING, true);
+            } else if (type != type_id_t::STRING) {
                 value =
                     runtime_call(runtime_function_t::TO_TEXT, { value }, type_id_t::STRING, true);
             }
@@ -1960,6 +2043,18 @@ private:
             return array_method(function, arguments, span_of(id));
         }
 
+        // A @Flags Enum's Has: whether every one of the flags is set.
+        if (function.kind == symbol_kind_t::METHOD && is_enum(function.owner)) {
+            const binary_t flags{
+                .op = binary_op_t::BIT_AND,
+                .left = arguments[0].value,
+                .right = arguments[1].value,
+                .span = span_of(id),
+            };
+            const operand_t set = temporary(flags, function.owner);
+            return compare(binary_op_t::EQUAL, set, arguments[1].value, span_of(id));
+        }
+
         // A Class's New sets up a new object with its fields at their defaults, or Self for
         // Super.New.
         const auto* member = std::get_if<member_expr_t>(&m_ast.get(node.callee).node);
@@ -2045,7 +2140,160 @@ private:
                           type);
         }
 
+        if (is_enum(type) && !is_enum(type_of(value)) && !m_analysis.types.get(type).flags) {
+            return to_enum(value, type, span_of(id));
+        }
+
         return convert(value, type, span_of(id));
+    }
+
+    /// An integer as one of an Enum's values, which it has to be. Values in a run need only a
+    /// check that it's in range.
+    operand_t to_enum(const operand_t& value, const type_id_t type, const span_t span) {
+        const type_id_t integer = m_analysis.types.get(type).inner;
+        const operand_t number = convert(value, integer, span);
+        std::vector<std::uint64_t> values;
+        for (const enum_value_t& member : m_analysis.types.get(type).values) {
+            values.push_back(member.bits);
+        }
+
+        const auto by_value = [&](const std::uint64_t a, const std::uint64_t b) {
+            return is_signed(integer) ? static_cast<std::int64_t>(a) < static_cast<std::int64_t>(b)
+                                      : a < b;
+        };
+        std::ranges::sort(values, by_value);
+        bool run = true;
+        for (std::size_t i = 1; i < values.size(); ++i) {
+            run = run && values[i] == values[i - 1] + 1;
+        }
+
+        operand_t valid = make_bool(false);
+        if (run) {
+            const operand_t above = compare(binary_op_t::GREATER_EQUAL, number,
+                                            enum_constant(type, values.front(), true), span);
+            const operand_t below = compare(binary_op_t::LESS_EQUAL, number,
+                                            enum_constant(type, values.back(), true), span);
+            valid = compare(binary_op_t::AND, above, below, span);
+        } else {
+            for (const std::uint64_t bits : values) {
+                const operand_t same =
+                    compare(binary_op_t::EQUAL, number, enum_constant(type, bits, true), span);
+                valid = compare(binary_op_t::OR, valid, same, span);
+            }
+        }
+
+        const block_id_t fail = new_block();
+        const block_id_t ok = new_block();
+        terminate(branch_t{ .condition = valid, .if_true = ok, .if_false = fail });
+        start(fail);
+        terminate(panic_t{
+            .message = std::format("the value isn't one of {}'s", m_analysis.types.name(type)),
+            .span = span,
+        });
+        start(ok);
+        return cast(number, type, span);
+    }
+
+    /// The function that gives the text a string shows for an Enum's values, made the first
+    /// time one is needed. Its body is lowered last, by lower_text().
+    function_id_t text_function(const type_id_t type) {
+        if (const auto found =
+                std::ranges::find(m_texts, type, &std::pair<type_id_t, function_id_t>::first);
+            found != m_texts.end()) {
+            return found->second;
+        }
+
+        const auto id = static_cast<function_id_t>(m_module.functions.size());
+        const std::string_view name = m_analysis.types.name(type);
+        m_module.functions.push_back({
+            .name = std::format("{}.Text({})", name, name),
+            .return_type = type_id_t::STRING,
+        });
+        m_texts.emplace_back(type, id);
+        return id;
+    }
+
+    /// An Enum value's text: its member's name. A @Flags Enum's value that isn't one of its
+    /// members shows the flags it has, like "World | Player". Anything else shows its integer.
+    void lower_text(const type_id_t type, const function_id_t id) {
+        begin_function(id);
+        const local_id_t value = add_local(type, "value");
+        current().parameter_count = 1;
+        const type_t& info = m_analysis.types.get(type);
+        for (const enum_value_t& member : info.values) {
+            const operand_t same =
+                compare(binary_op_t::EQUAL, value, enum_constant(type, member.bits), {});
+            const block_id_t named = new_block();
+            const block_id_t next = new_block();
+            terminate(branch_t{ .condition = same, .if_true = named, .if_false = next });
+            start(named);
+            terminate(return_t{ .value = make_string(member.name) });
+            start(next);
+        }
+
+        if (info.flags) {
+            const local_id_t text = add_local(type_id_t::STRING, "text");
+            initialize(text, make_string(""));
+            m_scopes.back().emplace_back(text);
+            for (const enum_value_t& member : info.values) {
+                if (std::has_single_bit(member.bits)) {
+                    add_flag_text(value, text, type, member);
+                }
+            }
+
+            const operand_t empty =
+                runtime_call(runtime_function_t::EQUAL, { text, make_string("") }, type_id_t::BOOL);
+            const block_id_t named = new_block();
+            const block_id_t number = new_block();
+            terminate(branch_t{ .condition = empty, .if_true = number, .if_false = named });
+            start(named);
+            take(place_t{ text });
+            release_scopes(0);
+            terminate(return_t{ .value = place_t{ text } });
+            start(number);
+        }
+
+        const operand_t integer = cast(value, info.inner, {});
+        const operand_t shown =
+            runtime_call(runtime_function_t::TO_TEXT, { integer }, type_id_t::STRING, true);
+        take(shown);
+        release_scopes(0);
+        terminate(return_t{ .value = shown });
+    }
+
+    /// Adds a flag's name to `text` when `value` has it, after a " | " if `text` has others.
+    void add_flag_text(const local_id_t value, const local_id_t text, const type_id_t type,
+                       const enum_value_t& member) {
+        const operand_t flag = enum_constant(type, member.bits);
+        const span_t nowhere;
+        const binary_t flags{
+            .op = binary_op_t::BIT_AND,
+            .left = value,
+            .right = flag,
+            .span = nowhere,
+        };
+        const operand_t set = temporary(flags, type);
+        const operand_t has = compare(binary_op_t::EQUAL, set, flag, nowhere);
+        const block_id_t adding = new_block();
+        const block_id_t done = new_block();
+        terminate(branch_t{ .condition = has, .if_true = adding, .if_false = done });
+        start(adding);
+        const operand_t empty =
+            runtime_call(runtime_function_t::EQUAL, { text, make_string("") }, type_id_t::BOOL);
+        const block_id_t first = new_block();
+        const block_id_t more = new_block();
+        terminate(branch_t{ .condition = empty, .if_true = first, .if_false = more });
+        start(first);
+        store(text, make_string(member.name));
+        jump(done);
+        start(more);
+        const operand_t joined = runtime_call(
+            runtime_function_t::JOIN, { text, make_string(" | "), make_string(member.name) },
+            type_id_t::STRING, true);
+        store(text, joined);
+        finish_statement();
+        jump(done);
+        start(done);
     }
 
     /// "x Is T".

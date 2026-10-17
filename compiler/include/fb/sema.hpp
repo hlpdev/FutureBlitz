@@ -30,7 +30,7 @@ enum class symbol_kind_t : std::uint8_t {
     PARAMETER,
     /// A For loop's variable, which can't be assigned.
     LOOP_VARIABLE,
-    /// A Struct or Class. Its `type` is the type itself.
+    /// A Struct, Class, or Enum. Its `type` is the type itself.
     TYPE,
     /// One of a Struct's or Class's fields.
     FIELD,
@@ -125,6 +125,9 @@ struct stmt_info_t {
     std::vector<symbol_id_t> matches;
     /// For a "For index, value In": the index's variable. `symbol` is the value's.
     std::optional<symbol_id_t> index;
+    /// For a Select on an Enum without a Default: whether its Cases cover every value, so no
+    /// path goes past them all.
+    bool exhaustive = false;
 };
 
 /// Everything analysis found out about a file, for lowering and tools. `exprs` and `stmts` have

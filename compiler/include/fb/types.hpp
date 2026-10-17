@@ -74,6 +74,8 @@ enum class type_kind_t : std::uint8_t {
     /// A Class the program declares: a reference to an object of fields, which counts its
     /// owners.
     CLASS,
+    /// An Enum the program declares: a value of an integer type, among the named ones.
+    ENUM,
 };
 
 /// One of a Struct's or Class's fields.
@@ -82,12 +84,19 @@ struct field_t {
     type_id_t type = type_id_t::INVALID;
 };
 
+/// One of an Enum's values, and its name.
+struct enum_value_t {
+    std::string name;
+    /// The value's bits, in the Enum's integer type.
+    std::uint64_t bits = 0;
+};
+
 /// One entry in a type table.
 struct type_t {
     type_kind_t kind = type_kind_t::BUILTIN;
     /// As errors and dumps show it, like "Int32", "String[]", or "Int32[]?".
     std::string name;
-    /// NULLABLE, ARRAY, and FIXED_ARRAY: the type inside.
+    /// NULLABLE, ARRAY, and FIXED_ARRAY: the type inside. ENUM: its integer type.
     type_id_t inner = type_id_t::INVALID;
     /// FIXED_ARRAY: each dimension's size. The elements are stored in one run, the last
     /// dimension's changing fastest.
@@ -98,6 +107,10 @@ struct type_t {
     std::vector<field_t> fields;
     /// CLASS: the Class it extends, or INVALID.
     type_id_t base = type_id_t::INVALID;
+    /// ENUM: its values, in declaration order.
+    std::vector<enum_value_t> values;
+    /// ENUM: written with @Flags, so its values are bits that combine.
+    bool flags = false;
 };
 
 /// Every type one program uses. The built-ins are always there, with their fixed ids. A type
@@ -138,6 +151,15 @@ public:
     [[nodiscard]] type_id_t add_class(std::string name);
 
     void set_fields(type_id_t type, std::vector<field_t> fields);
+
+    /// A new Enum type. Its integer type and values come later, from set_values().
+    [[nodiscard]] type_id_t add_enum(std::string name);
+
+    void set_values(type_id_t type, type_id_t integer, std::vector<enum_value_t> values,
+                    bool flags);
+
+    /// An Enum's zero: no flags for @Flags, and else its first value.
+    [[nodiscard]] std::uint64_t enum_zero(type_id_t type) const;
 
     /// Makes a Class extend another. The caller makes sure that doesn't make a cycle.
     void set_base(type_id_t type, type_id_t base);

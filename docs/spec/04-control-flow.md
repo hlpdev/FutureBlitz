@@ -103,7 +103,9 @@ End Select
 ```
 
 - No fallthrough.
-- `Select` on an enum must be **exhaustive** or include `Default`.
+- `Select` on an enum must be **exhaustive** or include `Default`. An exhaustive one leaves no
+  path past it, so a function can return from every Case. A `@Flags` Enum's values combine, so
+  a `Select` on one always needs a `Default`.
 - The subject is an integer, `Bool`, `String`, or enum value, unless every `Case` is a type
   match like `Case e As Boss`.
 - A type match runs for an object of that Class, or of one extending it, with `e` naming it as
@@ -114,13 +116,23 @@ End Select
 
 ## Defer
 
-Runs a statement when the enclosing scope exits, in reverse order of declaration,
-including when exiting via `Return`, `Break`, or a thrown error.
+Runs a statement when the enclosing block exits, however it exits: at its end, or through
+`Return`, `Break`, `Continue`, or a thrown error.
 
 ```vb
 Local f = File.Open(path)
 Defer f.Close()
 ```
+
+- The statement is one call, assignment, `++` or `--`, or a one-line `If` of those. It can't
+  leave the block or declare anything.
+- A block's Defers run the last first, after those of the blocks inside it. A loop's body is a
+  block, so each pass runs its own. Variables declared before a Defer are alive when it runs.
+- Its expressions are evaluated when it runs: `Defer Print("{n}")` shows `n` as it is at the
+  exit. `Return` computes its value first, so a Defer can't change what's returned.
+- It's checked where it's written, as if it ran there. A null check above it still holds unless
+  the rest of the block changes the variable, and what it assigns isn't assigned after it.
+- A panic ends the program without running Defers.
 
 ## Removed
 

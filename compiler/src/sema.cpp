@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cstddef>
 #include <format>
 #include <functional>
@@ -270,7 +271,9 @@ private:
     /// An assignment's target, or the Self in "Self.x". Neither reads the fields that New hasn't
     /// assigned yet.
     std::optional<expr_id_t> m_partial;
-    /// Each T[]'s Methods, made the first time they're looked up.
+    /// The blocks being checked, innermost last, with the position of the statement in each.
+    std::vector<std::pair<const block_t*, std::size_t>> m_positions;
+    /// Each T[]'s Methods, and each @Flags Enum's, made the first time they're looked up.
     std::unordered_map<type_id_t, std::vector<symbol_id_t>> m_array_methods;
     bool m_initializing = false; // checking Global and Const initializers
 
@@ -354,6 +357,11 @@ private:
     /// Gives a Struct or Class its type before anything else is declared, so types can use each
     /// other in any order.
     void declare_type(const stmt_id_t id) {
+        if (const auto* declared = std::get_if<enum_stmt_t>(&m_ast.get(id).node)) {
+            declare_enum(id, *declared);
+            return;
+        }
+
         const auto* node = std::get_if<type_stmt_t>(&m_ast.get(id).node);
         if (node == nullptr) {
             return;
@@ -390,6 +398,152 @@ private:
         declare_in_file(declared);
     }
 
+    /// An Enum's type. Its values come in declare_item(), once every type exists.
+    void declare_enum(const stmt_id_t id, const enum_stmt_t& node) {
+        if (builtin_type(node.name.text)) {
+            error(node.name.span, "'{}' is a built-in type", node.name.text);
+        }
+
+        const type_id_t type = m_analysis.types.add_enum(std::string(node.name.text));
+        const symbol_id_t declared = add_symbol({
+            .kind = symbol_kind_t::TYPE,
+            .name = node.name.text,
+            .span = node.name.span,
+            .type = type,
+            .declaration = id,
+        });
+        m_analysis.stmts[index(id)].symbol = declared;
+        m_declared_types[type] = declared;
+        declare_in_file(declared);
+    }
+
+    /// An Enum's integer type and values. A value is known at compile time, and can use the
+    /// members above it by name, as integers. Without one, a member takes the next integer, or
+    /// for @Flags the next bit. Names and values don't repeat.
+    void declare_values(const stmt_id_t id, const enum_stmt_t& node) {
+        const std::optional<symbol_id_t> declared = m_analysis.stmts[index(id)].symbol;
+        if (!declared) {
+            return;
+        }
+
+        type_id_t integer = type_id_t::INT32;
+        if (node.type) {
+            const type_id_t written = resolve_type(*node.type);
+            if (written != type_id_t::INVALID && !is_integer(written)) {
+                error(m_ast.get(*node.type).span, "an Enum's type must be an integer, not {}",
+                      name_of(written));
+            } else if (written != type_id_t::INVALID) {
+                integer = written;
+            }
+        }
+
+        if (node.members.empty()) {
+            error(node.name.span, "an Enum needs at least one member");
+        }
+
+        std::vector<enum_value_t> values;
+        std::vector<const_value_t> known;
+        std::optional<const_value_t> last;
+        std::uint64_t used = 0;
+        push_scope();
+        for (const enum_member_t& member : node.members) {
+            const std::optional<const_value_t> value = member_value(
+                member, integer, node.flags ? std::optional(used) : std::nullopt, last);
+            const auto same_name = std::ranges::find(values, member.name.text, &enum_value_t::name);
+            if (same_name != values.end()) {
+                error(member.name.span, "'{}' is already a member of {}", member.name.text,
+                      node.name.text);
+                continue;
+            }
+
+            if (value) {
+                if (const auto same = std::ranges::find(known, *value); same != known.end()) {
+                    error(member.name.span, "'{}' has the same value as '{}'", member.name.text,
+                          values[static_cast<std::size_t>(same - known.begin())].name);
+                    continue;
+                }
+            }
+
+            values.push_back(
+                { .name = std::string(member.name.text), .bits = value ? bits_of(*value) : 0 });
+            known.push_back(value.value_or(const_value_t{}));
+            if (value) {
+                last = value;
+                used |= bits_of(*value);
+            }
+
+            enter_scope(add_symbol({
+                .kind = symbol_kind_t::CONSTANT,
+                .name = member.name.text,
+                .span = member.name.span,
+                .type = integer,
+                .value = value,
+            }));
+        }
+
+        pop_scope();
+        m_analysis.types.set_values(symbol(*declared).type, integer, std::move(values), node.flags);
+    }
+
+    /// A member's value: the one written, or the next integer after the `last` value, or for
+    /// @Flags the next bit after the bits `used` so far, starting at 1.
+    std::optional<const_value_t> member_value(const enum_member_t& member, const type_id_t integer,
+                                              const std::optional<std::uint64_t> used,
+                                              const std::optional<const_value_t>& last) {
+        if (member.value) {
+            check(*member.value, integer);
+            if (!expect_type(*member.value, integer)) {
+                return std::nullopt;
+            }
+
+            if (!info(*member.value).value) {
+                error(span_of(*member.value), "an Enum's value must be known at compile time");
+            }
+
+            return info(*member.value).value;
+        }
+
+        std::optional<const_value_t> value;
+        if (used) {
+            const std::uint64_t top = *used == 0 ? 0 : std::bit_floor(*used);
+            if (top != (1ULL << 63U)) {
+                value = make_number(top == 0 ? 1 : top << 1U, false, integer);
+            }
+        } else if (!last) {
+            value = make_number(0, false, integer);
+        } else if (const std::optional<const_value_t> one = make_number(1, false, integer)) {
+            const fold_result_t next = fold_binary(binary_op_t::ADD, *last, *one);
+            value = next ? std::optional(*next) : std::nullopt;
+        }
+
+        if (!value) {
+            error(member.name.span, "'{}' doesn't fit in {}; give it a value", member.name.text,
+                  name_of(integer));
+        }
+
+        return value;
+    }
+
+    /// An integer's bits, signed ones sign-extended.
+    [[nodiscard]] static std::uint64_t bits_of(const const_value_t& value) {
+        if (const auto* number = std::get_if<std::int64_t>(&value.data)) {
+            return static_cast<std::uint64_t>(*number);
+        }
+
+        const auto* number = std::get_if<std::uint64_t>(&value.data);
+        return number != nullptr ? *number : 0;
+    }
+
+    /// One of an Enum's values, as a constant of the Enum.
+    [[nodiscard]] const_value_t enum_constant(const type_id_t type,
+                                              const std::uint64_t bits) const {
+        if (is_signed(element_of(type))) {
+            return { .type = type, .data = static_cast<std::int64_t>(bits) };
+        }
+
+        return { .type = type, .data = bits };
+    }
+
     [[nodiscard]] static bool is_global(const variable_stmt_t& node) {
         return node.kind == variable_kind_t::GLOBAL || node.kind == variable_kind_t::CONSTANT;
     }
@@ -410,6 +564,8 @@ private:
             declare_global(id, *variable);
         } else if (const auto* declared = std::get_if<type_stmt_t>(&node)) {
             declare_members(id, *declared);
+        } else if (const auto* enumeration = std::get_if<enum_stmt_t>(&node)) {
+            declare_values(id, *enumeration);
         }
     }
 
@@ -1139,6 +1295,15 @@ private:
         return m_analysis.types.get(type).kind == type_kind_t::NULLABLE;
     }
 
+    [[nodiscard]] bool is_enum(const type_id_t type) const {
+        return m_analysis.types.get(type).kind == type_kind_t::ENUM;
+    }
+
+    /// An Enum written with @Flags, whose values combine with | & ^ ~.
+    [[nodiscard]] bool is_flags(const type_id_t type) const {
+        return is_enum(type) && m_analysis.types.get(type).flags;
+    }
+
     /// "T[]", a reference to an array that can grow.
     [[nodiscard]] bool is_array(const type_id_t type) const {
         return m_analysis.types.get(type).kind == type_kind_t::ARRAY;
@@ -1441,6 +1606,11 @@ private:
             changed_in(*condition, names);
         }
 
+        forget(names);
+    }
+
+    /// Ends the narrowing of the variables with these names.
+    void forget(const std::vector<std::string_view>& names) {
         for (std::size_t i = 0; i < m_flow.narrowed.size(); ++i) {
             if (std::ranges::contains(names, m_analysis.symbols[i].name)) {
                 m_flow.narrowed[i] = false;
@@ -1471,6 +1641,8 @@ private:
             }
         } else if (const auto* expression = std::get_if<expression_stmt_t>(&node)) {
             changed_in(expression->expression, names);
+        } else if (const auto* deferred = std::get_if<defer_stmt_t>(&node)) {
+            changed_in(deferred->statement, names);
         } else if (const auto* returned = std::get_if<return_stmt_t>(&node)) {
             if (returned->value) {
                 changed_in(*returned->value, names);
@@ -1708,13 +1880,17 @@ private:
     void check_top_level() {
         m_flow = {};
         m_scopes.assign(1, {});
-        for (const stmt_id_t id : m_ast.items()) {
-            const stmt_node_t& node = m_ast.get(id).node;
+        const block_t& items = m_ast.items();
+        for (std::size_t i = 0; i < items.size(); ++i) {
+            const stmt_node_t& node = m_ast.get(items[i]).node;
             const auto* variable = std::get_if<variable_stmt_t>(&node);
             const bool initialized_already = variable != nullptr && is_global(*variable);
             if (!initialized_already && !std::holds_alternative<function_stmt_t>(node) &&
-                !std::holds_alternative<type_stmt_t>(node)) {
-                check_stmt(id);
+                !std::holds_alternative<type_stmt_t>(node) &&
+                !std::holds_alternative<enum_stmt_t>(node)) {
+                m_positions.emplace_back(&items, i);
+                check_stmt(items[i]);
+                m_positions.pop_back();
             }
         }
 
@@ -1796,9 +1972,13 @@ private:
 
     // Statements
 
+    /// The statements of a block, in order. The statements after the one being checked are
+    /// what a Defer in it runs after.
     void check_statements(const block_t& block) {
-        for (const stmt_id_t id : block) {
-            check_stmt(id);
+        for (std::size_t i = 0; i < block.size(); ++i) {
+            m_positions.emplace_back(&block, i);
+            check_stmt(block[i]);
+            m_positions.pop_back();
         }
     }
 
@@ -1945,6 +2125,58 @@ private:
 
     void check_stmt(stmt_id_t /*id*/, span_t /*span*/, const type_stmt_t& node) {
         error(node.name.span, "Structs can only be declared at the top level");
+    }
+
+    void check_stmt(stmt_id_t /*id*/, span_t /*span*/, const enum_stmt_t& node) {
+        error(node.name.span, "Enums can only be declared at the top level");
+    }
+
+    /// "Defer statement" runs the statement when its block exits, so it's checked here but
+    /// changes nothing here: what it assigns isn't assigned yet. A variable that the rest of the
+    /// block changes may be Null by then, whatever a check above it said.
+    void check_stmt(stmt_id_t /*id*/, const span_t span, const defer_stmt_t& node) {
+        // Not checked further, so a Local in it declares nothing.
+        if (!deferrable(node.statement)) {
+            error(span, "Defer runs one call, assignment, ++ or --, or one-line If, which can't "
+                        "leave the block");
+            return;
+        }
+
+        const flow_t before = m_flow;
+        if (!m_positions.empty()) {
+            const auto [block, position] = m_positions.back();
+            std::vector<std::string_view> names;
+            for (std::size_t i = position + 1; i < block->size(); ++i) {
+                changed_in((*block)[i], names);
+            }
+
+            forget(names);
+        }
+
+        check_stmt(node.statement);
+        m_flow = before;
+    }
+
+    /// Whether a statement can be deferred: it does one thing and goes on, without declaring
+    /// anything or leaving the block.
+    [[nodiscard]] bool deferrable(const stmt_id_t id) const {
+        const stmt_node_t& node = m_ast.get(id).node;
+        if (const auto* branch = std::get_if<if_stmt_t>(&node)) {
+            const auto deferrable_block = [this](const block_t& block) {
+                return std::ranges::all_of(
+                    block, [this](const stmt_id_t inner) { return deferrable(inner); });
+            };
+            return branch->single_line &&
+                   std::ranges::all_of(
+                       branch->branches,
+                       [&](const if_branch_t& part) { return deferrable_block(part.body); }) &&
+                   (!branch->else_body || deferrable_block(*branch->else_body));
+        }
+
+        return std::holds_alternative<expression_stmt_t>(node) ||
+               std::holds_alternative<assign_stmt_t>(node) ||
+               std::holds_alternative<increment_stmt_t>(node) ||
+               std::holds_alternative<error_stmt_t>(node);
     }
 
     /// Each condition starts from the flow where the ones before it were False, since a branch
@@ -2199,18 +2431,19 @@ private:
 
         type_id_t type = check(node.subject, type_id_t::NONE);
         if (type != type_id_t::INVALID && !is_integer(type) && type != type_id_t::BOOL &&
-            type != type_id_t::STRING) {
-            error(span_of(node.subject), "Select works on integers, Bool, and String, not {}",
-                  name_of(type));
+            type != type_id_t::STRING && !is_enum(type)) {
+            error(span_of(node.subject),
+                  "Select works on integers, Bool, String, and Enums, not {}", name_of(type));
             type = type_id_t::INVALID;
         }
 
         const flow_t entry = m_flow;
         flow_t result = unreachable_flow;
         std::vector<case_range_t> seen;
+        bool valid = true;
         for (const case_t& branch : node.cases) {
             for (const case_value_t& value : branch.values) {
-                check_case_value(value, type, seen);
+                valid = check_case_value(value, type, seen) && valid;
             }
 
             m_flow = entry;
@@ -2223,11 +2456,50 @@ private:
             check_block(*node.default_body);
         }
 
+        // When the Cases cover all of an Enum's values, no path goes past them. A Case value
+        // with an error was reported already.
+        if (is_enum(type) && !node.default_body && valid && check_exhaustive(node, type, seen)) {
+            m_analysis.stmts[index(id)].exhaustive = true;
+            m_flow = std::move(result);
+            return;
+        }
+
         m_flow = join(result, m_flow);
     }
 
-    /// Checks one Case value or 'To' range, and that no earlier Case in `seen` covers it.
-    void check_case_value(const case_value_t& value, const type_id_t type,
+    /// Without a Default, a Select on an Enum has a Case for each value. A @Flags Enum's values
+    /// combine, so a Select on one needs a Default.
+    bool check_exhaustive(const select_stmt_t& node, const type_id_t type,
+                          const std::vector<case_range_t>& seen) {
+        if (is_flags(type)) {
+            error(span_of(node.subject),
+                  "a Select on {}, a @Flags Enum, needs a Default, since its values combine",
+                  name_of(type));
+            return false;
+        }
+
+        std::string missing;
+        for (const enum_value_t& value : m_analysis.types.get(type).values) {
+            const const_value_t constant = enum_constant(type, value.bits);
+            if (std::ranges::none_of(
+                    seen, [&](const case_range_t& range) { return range.low == constant; })) {
+                missing +=
+                    std::format("{}{}.{}", missing.empty() ? "" : ", ", name_of(type), value.name);
+            }
+        }
+
+        if (!missing.empty()) {
+            error(span_of(node.subject),
+                  "Select doesn't cover {}; add a Case for each, or a Default", missing);
+            return false;
+        }
+
+        return true;
+    }
+
+    /// Checks one Case value or 'To' range, and that no earlier Case in `seen` covers it. False
+    /// when it has an error.
+    bool check_case_value(const case_value_t& value, const type_id_t type,
                           std::vector<case_range_t>& seen) {
         const std::optional<const_value_t> low = case_constant(value.value, type);
         std::optional<const_value_t> high = low;
@@ -2237,17 +2509,17 @@ private:
             span = merge(span, span_of(*value.range_end));
             if (type != type_id_t::INVALID && !is_integer(type)) {
                 error(span, "'To' ranges only work on integers");
-                return;
+                return false;
             }
         }
 
         if (!low || !high) {
-            return;
+            return false;
         }
 
         if (value.range_end && compare(*low, *high) > 0) {
             error(span, "this range is empty");
-            return;
+            return false;
         }
 
         const case_range_t range{ .low = *low, .high = *high, .span = span };
@@ -2255,11 +2527,12 @@ private:
             if (overlaps(range, earlier)) {
                 error(span, "this Case value is already covered by an earlier Case")
                     .with_label(earlier.span, "covered here");
-                return;
+                return false;
             }
         }
 
         seen.push_back(range);
+        return true;
     }
 
     /// A Case value's compile-time value, which must have the subject's type. nullopt when it
@@ -2862,7 +3135,9 @@ private:
                       name_of(type), spelling(binary_op_t::COALESCE));
             }
 
-            if (const std::optional<const_value_t>& inner_value = info(inner).value) {
+            // An Enum's text is its member's name, which lowering looks up.
+            const std::optional<const_value_t>& inner_value = info(inner).value;
+            if (inner_value && !is_enum(inner_value->type)) {
                 value += to_text(*inner_value);
             } else {
                 known = false;
@@ -3159,7 +3434,9 @@ private:
             return type_id_t::INVALID;
         }
 
-        if (!supports(node.op, type)) {
+        // '~' flips a @Flags Enum's flags.
+        const bool flags = node.op == unary_op_t::BIT_NOT && is_flags(type);
+        if (!flags && (!supports(node.op, type) || is_enum(type))) {
             error(span_of(id), "'{}' can't be used on {}", spelling(node.op), name_of(type));
             return type_id_t::INVALID;
         }
@@ -3175,7 +3452,7 @@ private:
         }
 
         if (const std::optional<const_value_t>& value = info(node.operand).value) {
-            fold(id, fold_unary(node.op, *value));
+            fold(id, as_enum(type, fold_unary(node.op, as_integer(*value))));
         }
 
         return type;
@@ -3211,10 +3488,29 @@ private:
         const std::optional<const_value_t>& left = info(node.left).value;
         const std::optional<const_value_t>& right = info(node.right).value;
         if (type != type_id_t::INVALID && left && right) {
-            fold(id, fold_binary(node.op, *left, *right));
+            const type_id_t common = info(node.left).converted;
+            fold(id, as_enum(common, fold_binary(node.op, as_integer(*left), as_integer(*right))));
         }
 
         return type;
+    }
+
+    /// An Enum's constant as its integer type's, which folding works on.
+    [[nodiscard]] const_value_t as_integer(const const_value_t& value) const {
+        if (!is_enum(value.type)) {
+            return value;
+        }
+
+        return { .type = element_of(value.type), .data = value.data };
+    }
+
+    /// A folded integer as a value of `type`, when that's an Enum.
+    [[nodiscard]] fold_result_t as_enum(const type_id_t type, fold_result_t result) const {
+        if (result && is_enum(type) && result->type == element_of(type)) {
+            result->type = type;
+        }
+
+        return result;
     }
 
     /// && and ||: the right side only runs when the left doesn't decide, so it sees the left's
@@ -3379,6 +3675,20 @@ private:
             error(span, "'{}' can't be used on {}{}", spelling(op), name_of(*common),
                   is_array(non_null(*common)) ? "; RefEquals tells whether two are the same array"
                                               : "");
+            return type_id_t::INVALID;
+        }
+
+        // Enums compare with == and !=, and only @Flags combine.
+        if (is_enum(*common)) {
+            const bool bits = op == binary_op_t::BIT_AND || op == binary_op_t::BIT_OR ||
+                              op == binary_op_t::BIT_XOR;
+            if (op == binary_op_t::EQUAL || op == binary_op_t::NOT_EQUAL ||
+                (bits && is_flags(*common))) {
+                return *common;
+            }
+
+            error(span, "'{}' can't be used on {}{}", spelling(op), name_of(*common),
+                  bits ? "; only @Flags Enums combine" : "");
             return type_id_t::INVALID;
         }
 
@@ -3642,6 +3952,10 @@ private:
 
             if (is_any_array(type)) {
                 return lookup_array_method(type, member->member);
+            }
+
+            if (is_flags(type) && member->member.text == "Has") {
+                return flags_methods(type);
             }
 
             if (is_nullable(type) && is_any_array(non_null(type))) {
@@ -4075,10 +4389,66 @@ private:
         return non_null(type);
     }
 
+    /// The Enum a name refers to, when it isn't hidden by a variable or a field.
+    std::optional<type_id_t> enum_named(const expr_id_t id) {
+        const auto* name = std::get_if<name_expr_t>(&m_ast.get(id).node);
+        if (name == nullptr || find_local(name->name) || !own_members(name->name).empty()) {
+            return std::nullopt;
+        }
+
+        const auto found = m_file_scope.find(name->name);
+        if (found == m_file_scope.end()) {
+            return std::nullopt;
+        }
+
+        const symbol_t& declared = symbol(found->second.front());
+        if (declared.kind != symbol_kind_t::TYPE || !is_enum(declared.type)) {
+            return std::nullopt;
+        }
+
+        return declared.type;
+    }
+
+    /// "State.Walk": one of an Enum's values, known at compile time.
+    type_id_t check_enum_value(const expr_id_t id, const member_expr_t& node,
+                               const type_id_t type) {
+        const std::vector<enum_value_t>& values = m_analysis.types.get(type).values;
+        const auto found = std::ranges::find(values, node.member.text, &enum_value_t::name);
+        if (found == values.end()) {
+            error(node.member.span, "{} has no member named '{}'", name_of(type), node.member.text);
+            return type_id_t::INVALID;
+        }
+
+        info(id).value = enum_constant(type, found->bits);
+        return type;
+    }
+
+    /// A @Flags Enum's Method: Has(flags), whether a value has all of those flags.
+    const std::vector<symbol_id_t>& flags_methods(const type_id_t type) {
+        if (const auto found = m_array_methods.find(type); found != m_array_methods.end()) {
+            return found->second;
+        }
+
+        const symbol_id_t flags =
+            add_symbol({ .kind = symbol_kind_t::PARAMETER, .name = "flags", .type = type });
+        const symbol_id_t has = add_symbol({
+            .kind = symbol_kind_t::METHOD,
+            .name = "Has",
+            .type = type_id_t::BOOL,
+            .parameters = { flags },
+            .owner = type,
+        });
+        return m_array_methods[type] = { has };
+    }
+
     /// A field after a '.', or after a '?.', which gives Null when the object is Null. Methods
     /// can only be called. "Self.x" only uses one field, so a New can use it before the others
     /// are assigned.
     type_id_t check_expr(const expr_id_t id, const member_expr_t& node, type_id_t /*hint*/) {
+        if (const std::optional<type_id_t> enumeration = enum_named(node.object)) {
+            return check_enum_value(id, node, *enumeration);
+        }
+
         const bool target = m_partial == id;
         const bool on_self = std::holds_alternative<self_expr_t>(m_ast.get(node.object).node);
         m_partial = on_self ? std::optional(node.object) : std::nullopt;
@@ -4094,6 +4464,11 @@ private:
 
         if (is_nullable(object) && is_any_array(non_null(object))) {
             report_maybe_null(node.object);
+            return type_id_t::INVALID;
+        }
+
+        if (is_flags(object) && node.member.text == "Has") {
+            error(node.member.span, "'Has' is a method; call it with ()");
             return type_id_t::INVALID;
         }
 
@@ -4325,7 +4700,10 @@ private:
         // which is checked at run time.
         const bool classes = is_class(non_null(source)) && is_class(non_null(target)) &&
                              related(non_null(source), non_null(target));
-        const bool allowed = converts(source, target) || classes ||
+        // An Enum converts to and from integers.
+        const bool enums =
+            (is_enum(source) && is_integer(target)) || (is_integer(source) && is_enum(target));
+        const bool allowed = converts(source, target) || classes || enums ||
                              (is_numeric(source) && is_numeric(target)) ||
                              (source == type_id_t::BOOL && is_integer(target));
         if (!allowed) {
@@ -4337,12 +4715,31 @@ private:
         if (const std::optional<const_value_t>& value = info(node.value).value) {
             if (is_nullable(target)) {
                 info(id).value = convert_value(*value, target);
+            } else if (is_enum(target) && source != target) {
+                fold_to_enum(id, *value, target);
             } else if (!classes) {
-                fold(id, fold_cast(*value, target));
+                fold(id, fold_cast(as_integer(*value), target));
             }
         }
 
         return target;
+    }
+
+    /// A known integer as an Enum. One that isn't @Flags only has its own values.
+    void fold_to_enum(const expr_id_t id, const const_value_t& value, const type_id_t type) {
+        const fold_result_t integer = fold_cast(value, element_of(type));
+        if (!integer) {
+            return;
+        }
+
+        const std::vector<enum_value_t>& values = m_analysis.types.get(type).values;
+        const bool member = std::ranges::contains(values, bits_of(*integer), &enum_value_t::bits);
+        if (!is_flags(type) && !member) {
+            error(span_of(id), "{} isn't one of {}'s values", to_text(*integer), name_of(type));
+            return;
+        }
+
+        info(id).value = enum_constant(type, bits_of(*integer));
     }
 
     /// "x As? T": x as a T?, which is Null when x isn't a T, or is Null.

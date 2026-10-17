@@ -127,3 +127,18 @@ TEST_CASE("fixed arrays are made once and shared", "[types]") {
     CHECK(types.has_zero(grid));
     CHECK(types.has_references(types.fixed_array(fb::type_id_t::STRING, { 2 })));
 }
+
+TEST_CASE("an Enum's zero is its first value, or no flags", "[types]") {
+    fb::type_table_t types;
+    const fb::type_id_t state = types.add_enum("State");
+    types.set_values(state, fb::type_id_t::UINT8,
+                     { { .name = "Idle", .bits = 5 }, { .name = "Walk", .bits = 6 } }, false);
+    CHECK(types.get(state).inner == fb::type_id_t::UINT8);
+    CHECK(types.enum_zero(state) == 5);
+    CHECK(types.has_zero(state));
+    CHECK_FALSE(types.has_references(state));
+
+    const fb::type_id_t layer = types.add_enum("Layer");
+    types.set_values(layer, fb::type_id_t::INT32, { { .name = "World", .bits = 1 } }, true);
+    CHECK(types.enum_zero(layer) == 0);
+}

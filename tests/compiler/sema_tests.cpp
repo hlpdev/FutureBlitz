@@ -656,7 +656,7 @@ TEST_CASE("Select", "[sema]") {
     CHECK(select("Local s = 3", "Case 5 To 1") == errors_t{ "5 To 1: this range is empty" });
     CHECK(select("Local s: Byte = 1", "Case 300") == errors_t{ "300: 300 doesn't fit in UInt8" });
     CHECK(select("Local s = 1.5", "Case 1") ==
-          errors_t{ "s: Select works on integers, Bool, and String, not Float32" });
+          errors_t{ "s: Select works on integers, Bool, String, and Enums, not Float32" });
 }
 
 TEST_CASE("built-in types after M2 are reported as not supported yet", "[sema]") {
@@ -1573,6 +1573,192 @@ TEST_CASE("a T[] has no zero, but [] can be a default", "[sema]") {
     CHECK(errors_of("Struct S\n    Field a: Int[]\nEnd Struct\nLocal s = S()") ==
           errors_t{ "S(): missing an argument for parameter 'a'" });
     CHECK(probe("Function F(a: Int[] = []): Int => a.Count\nLocal n = F()") == "Int32");
+}
+
+// Enums
+
+TEST_CASE("an Enum's values count up, or take the next bit for @Flags", "[sema]") {
+    constexpr std::string_view state = "Enum State: UInt8\n"
+                                       "    Idle, Walk, Attack = 10, Dead\n"
+                                       "End Enum\n";
+    constexpr std::string_view layer =
+        "@Flags Enum Layer\n"
+        "    None = 0, World, Player, Trigger, Solid = World | Player\n"
+        "End Enum\n";
+    const auto with = [](const std::string_view declaration, const std::string_view text) {
+        return std::format("{}{}", declaration, text);
+    };
+
+    CHECK(probe(with(state, "Local x = State.Walk As Int")) == "Int32 1");
+    CHECK(probe(with(state, "Local x = State.Dead As Int")) == "Int32 11");
+    CHECK(probe(with(state, "Local x = State.Dead As Byte")) == "UInt8 11");
+    CHECK(probe(with(layer, "Local x = Layer.Trigger As Int")) == "Int32 4");
+    CHECK(probe(with(layer, "Local x = Layer.Solid As Int")) == "Int32 3");
+    CHECK(probe(with(layer, "Local x = (Layer.World | Layer.Trigger) As Int")) == "Int32 5");
+    CHECK(probe("Enum D\n    North = -1, East\nEnd Enum\nLocal x = D.East As Int") == "Int32 0");
+
+    CHECK(errors_of("Enum E: Float\n    A\nEnd Enum") ==
+          errors_t{ "Float: an Enum's type must be an integer, not Float32" });
+    CHECK(errors_of("Enum E\nEnd Enum") == errors_t{ "E: an Enum needs at least one member" });
+    CHECK(errors_of("Enum E\n    A, B, A\nEnd Enum") ==
+          errors_t{ "A: 'A' is already a member of E" });
+    CHECK(errors_of("Enum E\n    A = 1, B = 0, C\nEnd Enum") ==
+          errors_t{ "C: 'C' has the same value as 'A'" });
+    CHECK(errors_of("Enum E: UInt8\n    A = 255, B\nEnd Enum") ==
+          errors_t{ "B: 'B' doesn't fit in UInt8; give it a value" });
+    CHECK(errors_of("@Flags Enum E: UInt8\n    A = 128, B\nEnd Enum") ==
+          errors_t{ "B: 'B' doesn't fit in UInt8; give it a value" });
+    CHECK(errors_of("Global g = 1\nEnum E\n    A = g\nEnd Enum") ==
+          errors_t{ "g: an Enum's value must be known at compile time" });
+    CHECK(errors_of("Function F()\n    Enum E\n        A\n    End Enum\nEnd Function") ==
+          errors_t{ "E: Enums can only be declared at the top level" });
+}
+
+TEST_CASE("an Enum's values compare, and @Flags ones combine", "[sema]") {
+    constexpr std::string_view state = "Enum State\n    Idle, Walk\nEnd Enum\n";
+    constexpr std::string_view layer = "@Flags Enum Layer\n    World, Player\nEnd Enum\n";
+    const auto with = [](const std::string_view declaration, const std::string_view text) {
+        return std::format("{}{}", declaration, text);
+    };
+
+    CHECK(probe(with(state, "Local x = State.Idle == State.Walk")) == "Bool False");
+    constexpr std::string_view both = "Const both = Layer.World | Layer.Player\n"
+                                      "Local x = both == ~(~Layer.World & ~Layer.Player)";
+    CHECK(probe(with(layer, both)) == "Bool True");
+    CHECK(probe(with(layer, "Local l = Layer.World\nLocal x = l.Has(Layer.Player)")) == "Bool");
+
+    CHECK(errors_of(with(state, "Local s = State.Run")) ==
+          errors_t{ "Run: State has no member named 'Run'" });
+    CHECK(errors_of(with(state, "Local s = State.Idle | State.Walk")) ==
+          errors_t{ "State.Idle | State.Walk: '|' can't be used on State; only @Flags Enums "
+                    "combine" });
+    CHECK(errors_of(with(state, "Local b = State.Idle < State.Walk")) ==
+          errors_t{ "State.Idle < State.Walk: '<' can't be used on State" });
+    CHECK(errors_of(with(state, "Local b = State.Idle == 0")) ==
+          errors_t{ "State.Idle == 0: '==' can't combine State and Int32" });
+    CHECK(errors_of(with(state, "Local s: State = 1")) ==
+          errors_t{ "1: expected State, found Int32" });
+    CHECK(errors_of(with(layer, "Local l = Layer.World\nLocal h = l.Has")) ==
+          errors_t{ "Has: 'Has' is a method; call it with ()" });
+}
+
+TEST_CASE("As turns an Enum to and from integers", "[sema]") {
+    constexpr std::string_view state = "Enum State\n    Idle, Walk\nEnd Enum\n";
+    constexpr std::string_view layer = "@Flags Enum Layer\n    World, Player\nEnd Enum\n";
+    const auto with = [](const std::string_view declaration, const std::string_view text) {
+        return std::format("{}{}", declaration, text);
+    };
+
+    CHECK(probe(with(state, "Local x = 1 As State")) == "State 1");
+    CHECK(probe(with(layer, "Local x = 7 As Layer")) == "Layer 7");
+    CHECK(probe(with(state, "Local n: Long = 1\nLocal x = n As State")) == "State");
+    CHECK(errors_of(with(state, "Local x = 7 As State")) ==
+          errors_t{ "7 As State: 7 isn't one of State's values" });
+    CHECK(errors_of(with(state, "Local f = State.Idle As Float")) ==
+          errors_t{ "State.Idle As Float: 'As' can't convert State to Float32" });
+}
+
+TEST_CASE("a Select on an Enum covers every value, or has a Default", "[sema]") {
+    constexpr std::string_view state = "Enum State\n    Idle, Walk, Dead\nEnd Enum\n";
+    const auto with_state = [&](const std::string_view text) {
+        return errors_of(std::format("{}{}", state, text));
+    };
+
+    // Covering every value is like having a Default: no path goes past the Select.
+    CHECK(with_state("Function F(s: State): Int\n"
+                     "    Select s\n"
+                     "        Case State.Idle, State.Walk\n"
+                     "            Return 1\n"
+                     "        Case State.Dead\n"
+                     "            Return 2\n"
+                     "    End Select\n"
+                     "End Function")
+              .empty());
+    CHECK(with_state("Local s = State.Idle\nSelect s\n    Case State.Idle\nEnd Select") ==
+          errors_t{ "s: Select doesn't cover State.Walk, State.Dead; add a Case for each, or a "
+                    "Default" });
+    CHECK(errors_of("@Flags Enum Layer\n"
+                    "    World, Player\n"
+                    "End Enum\n"
+                    "Local l = Layer.World\n"
+                    "Select l\n"
+                    "    Case Layer.World\n"
+                    "End Select") ==
+          errors_t{ "l: a Select on Layer, a @Flags Enum, needs a Default, since its values "
+                    "combine" });
+    CHECK(with_state("Local s = State.Idle\n"
+                     "Select s\n"
+                     "    Case State.Idle To State.Dead\n"
+                     "End Select") ==
+          errors_t{ "State.Idle To State.Dead: 'To' ranges only work on integers" });
+}
+
+TEST_CASE("an Enum's zero is its first value, or no flags", "[sema]") {
+    CHECK(errors_of("Enum State\n"
+                    "    Idle, Walk\n"
+                    "End Enum\n"
+                    "Struct S\n"
+                    "    Field s: State\n"
+                    "End Struct\n"
+                    "Global g: State\n"
+                    "Local s = S()")
+              .empty());
+
+    // A string shows a member's name, which isn't known until lowering looks it up.
+    CHECK(probe("Enum State\n    Idle, Walk\nEnd Enum\nLocal t = \"{State.Walk}\"") == "String");
+}
+
+// Defer
+
+TEST_CASE("Defer runs one statement that can't leave the block", "[sema]") {
+    constexpr std::string_view message = "Defer runs one call, assignment, ++ or --, or one-line "
+                                         "If, which can't leave the block";
+    const auto rejected = [&](const std::string_view statement) {
+        return errors_t{ std::format("{}: {}", statement, message) };
+    };
+
+    CHECK(errors_of("Local n = 0\n"
+                    "Defer Print(\"{n}\")\n"
+                    "Defer n += 1\n"
+                    "Defer n++\n"
+                    "Defer If n > 1 Then Print(\"big\") Else n = 0")
+              .empty());
+    CHECK(errors_of("Function F(): Int\n    Defer Return 1\n    Return 0\nEnd Function") ==
+          rejected("Defer Return 1"));
+    CHECK(errors_of("For i = 1 To 2\n    Defer If i == 2 Then Break\nEnd For") ==
+          rejected("Defer If i == 2 Then Break"));
+
+    // A Local in it would be declared where its value isn't, so it isn't checked any further.
+    CHECK(errors_of("Defer Local x = 1") == rejected("Defer Local x = 1"));
+    CHECK(errors_of("Defer If True\n    Print(\"a\")\nEnd If") ==
+          rejected("Defer If True\n    Print(\"a\")\nEnd If"));
+    CHECK(errors_of("Defer Defer Print(\"a\")") == rejected("Defer Defer Print(\"a\")"));
+}
+
+TEST_CASE("a Defer's statement runs as its block exits", "[sema]") {
+    constexpr std::string_view enemy = "Class E\n    Field hp: Int\nEnd Class\n";
+    const auto with_enemy = [&](const std::string_view text) {
+        return errors_of(std::format("{}{}", enemy, text));
+    };
+
+    // A check before it lasts unless the rest of the block changes the variable.
+    CHECK(with_enemy("Local x: E? = E()\nDefer Print(\"{x.hp}\")").empty());
+    CHECK(with_enemy("Local x: E? = E()\nDefer Print(\"{x.hp}\")\nx = Null") ==
+          errors_t{ "x: 'x' may be Null; check that it isn't, or use '?.'" });
+    CHECK(with_enemy("Function F(ok: Bool)\n"
+                     "    Local x: E? = E()\n"
+                     "    If ok\n"
+                     "        Defer Print(\"{x.hp}\")\n"
+                     "    End If\n"
+                     "    x = Null\n"
+                     "End Function")
+              .empty());
+
+    // What it assigns isn't assigned until then, and what it reads must already be.
+    CHECK(errors_of("Local n: Int\nDefer n = 1\nPrint(\"{n}\")") ==
+          errors_t{ "n: 'n' is read before it's assigned" });
+    CHECK(errors_of("Local n: Int\nDefer Print(\"{n}\")\nn = 1") ==
+          errors_t{ "n: 'n' is read before it's assigned" });
 }
 
 // What codegen reads

@@ -1,0 +1,9 @@
+// As panics on an integer that isn't one of the Enum's values.
+Enum Speed
+    Slow = 1, Fast = 2
+End Enum
+
+Local level = 2
+Print("{level As Speed}")
+level = 3
+Print("{level As Speed}")

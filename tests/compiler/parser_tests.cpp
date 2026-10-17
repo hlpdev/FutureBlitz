@@ -502,3 +502,25 @@ TEST_CASE("array literals and fixed array types", "[parser]") {
     CHECK(parse_text("Local g: Float[64, 8 * 8]").dump == "(local g: Float[64, (* 8 8)])");
     CHECK(parse_text("Local g: Int[4][]?").dump == "(local g: Int[4][]?)");
 }
+
+TEST_CASE("Enums and @Flags", "[parser]") {
+    // Members are separated by commas, which can end a line, or by lines.
+    CHECK(parse_text("Enum State: UInt8\n"
+                     "    Idle, Walk,\n"
+                     "    Attack = 10\n"
+                     "    Dead\n"
+                     "End Enum")
+              .dump == "(enum State: UInt8 Idle Walk (= Attack (int 10)) Dead)");
+    CHECK(parse_text("@Flags Enum Layer\n    World, Player\nEnd Enum").dump ==
+          "(enum @Flags Layer World Player)");
+    CHECK(parse_text("@Flags Struct S\nEnd Struct").errors ==
+          std::vector<std::string>{ "1-6: @Flags only goes before an Enum" });
+    CHECK(parse_text("@Inline Function F()\nEnd Function").errors ==
+          std::vector<std::string>{ "0-1: attributes aren't supported yet" });
+}
+
+TEST_CASE("Defer takes any statement; analysis checks which", "[parser]") {
+    CHECK(parse_text("Defer Print(\"bye\")").dump == "(defer (call Print (string \"bye\")))");
+    CHECK(parse_text("Defer If x Then f.Close()").dump ==
+          "(defer (if-then x (block (call (. f Close)))))");
+}

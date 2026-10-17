@@ -582,6 +582,35 @@ private:
         return out;
     }
 
+    [[nodiscard]] node_t build(const defer_stmt_t& node) const {
+        return list("defer", { stmt(node.statement) });
+    }
+
+    /// "(enum State: UInt8 Idle (= Attack 10))", with "@Flags" before the name.
+    [[nodiscard]] node_t build(const enum_stmt_t& node) const {
+        node_t out = list("enum");
+        if (node.flags) {
+            out.items.push_back(atom("@Flags", tone_t::KEYWORD));
+        }
+
+        out.items.push_back(
+            atom(std::format("{}{}", node.name.text, node.type ? ":" : ""), tone_t::NAME));
+        if (node.type) {
+            out.items.push_back(type(*node.type));
+        }
+
+        for (const enum_member_t& member : node.members) {
+            node_t name = atom(std::string(member.name.text), tone_t::NAME);
+            if (member.value) {
+                out.items.push_back(list("=", { std::move(name), expr(*member.value) }));
+            } else {
+                out.items.push_back(std::move(name));
+            }
+        }
+
+        return out;
+    }
+
     /// "(struct Name (block members...))", or "(class ...)", with "Extends Base" after the name.
     /// In the tree, each member gets its own line.
     [[nodiscard]] node_t build(const type_stmt_t& node) const {

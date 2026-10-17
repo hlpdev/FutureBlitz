@@ -1,0 +1,30 @@
+open a
+working on a
+leaving a
+close a
+a freed
+2
+open b
+early exit
+leaving b
+close b
+b freed
+1
+10
+3 items
+end of round 1
+stopping
+end of round 2
+pass 1
+end of pass 1
+end of pass 2
+pass 3
+end of pass 3
+end of pass 4
+open c
+open d
+c freed
+end of main
+last
+close d
+d freed

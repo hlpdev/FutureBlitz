@@ -1,0 +1,58 @@
+// Enums: integer types, automatic values, @Flags, As to and from integers, exhaustive Select,
+// and their names in strings.
+Enum State: UInt8
+    Idle, Walk
+    Attack = 10, Dead
+End Enum
+
+@Flags Enum Layer
+    None = 0
+    World, Player
+    Trigger
+    Solid = World | Player
+End Enum
+
+Enum Direction
+    North = -1, East, South, West
+End Enum
+
+Struct Actor
+    Field name: String
+    Field state: State
+    Field layers: Layer = Layer.World
+End Struct
+
+Function Describe(state: State): String
+    Select state
+        Case State.Idle, State.Walk
+            Return "calm"
+        Case State.Attack
+            Return "busy"
+        Case State.Dead
+            Return "gone"
+    End Select
+End Function
+
+Function Turn(direction: Direction): Direction => ((direction As Int + 2) % 4 - 1) As Direction
+
+Local actor = Actor("hero")
+Print("{actor.state} {actor.layers} {Describe(actor.state)}")
+actor.state = State.Dead
+Print("{actor.state} {actor.state As Int} {Describe(actor.state)}")
+Print("{State.Attack As Int} {(11 As State)} {State.Walk == State.Walk} {State.Idle != State.Walk}")
+
+Local mask = Layer.World | Layer.Trigger
+Print("{mask} {mask.Has(Layer.World)} {mask.Has(Layer.Solid)} {mask As Int}")
+mask = mask | Layer.Player
+Print("{mask} {mask.Has(Layer.Solid)} {mask & ~Layer.World} {Layer.None}")
+Print("{Layer.Solid} {(Layer.Solid ^ Layer.Player)} {(16 As Layer)}")
+
+Local heading = Direction.North
+For i = 1 To 4
+    heading = Turn(heading)
+    Print("{heading} {heading As Int}")
+End For
+
+Local states: State[] = [State.Walk, State.Attack]
+Print("{states.Contains(State.Attack)} {states.Contains(State.Dead)}")
+Print("end of main")

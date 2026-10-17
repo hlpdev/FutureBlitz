@@ -326,6 +326,11 @@ private:
                 return m_ptr;
             }
 
+            // An Enum is its integer type.
+            if (is_enum(type)) {
+                return llvm_type(inner_of(type));
+            }
+
             // A fixed array's elements are in one run, whatever its dimensions.
             if (is_fixed_array(type)) {
                 return LLVMArrayType2(llvm_type(inner_of(type)), m_mir.types->element_count(type));
@@ -368,6 +373,10 @@ private:
         return m_mir.types->get(type).kind == type_kind_t::FIXED_ARRAY;
     }
 
+    [[nodiscard]] bool is_enum(const type_id_t type) const {
+        return m_mir.types->get(type).kind == type_kind_t::ENUM;
+    }
+
     /// Whether a type's zero is all zero bytes: everything's but a String's, and what holds one.
     [[nodiscard]] bool zero_is_null(const type_id_t type) const {
         if (type == type_id_t::STRING) {
@@ -386,6 +395,10 @@ private:
 
         if (info.kind == type_kind_t::FIXED_ARRAY) {
             return zero_is_null(info.inner);
+        }
+
+        if (info.kind == type_kind_t::ENUM) {
+            return m_mir.types->enum_zero(type) == 0;
         }
 
         return std::ranges::all_of(
@@ -612,6 +625,10 @@ private:
         const type_t& info = m_mir.types->get(type);
         if (zero_is_null(type)) {
             return LLVMConstNull(llvm_type(type));
+        }
+
+        if (info.kind == type_kind_t::ENUM) {
+            return LLVMConstInt(llvm_type(type), m_mir.types->enum_zero(type), 0);
         }
 
         if (info.kind == type_kind_t::FIXED_ARRAY) {
@@ -1156,7 +1173,7 @@ private:
     }
 
     void generate(const panic_t& node) {
-        panic(std::string(node.message), node.span);
+        panic(node.message, node.span);
     }
 
     void generate(const unreachable_t& /*node*/) {
@@ -1441,9 +1458,14 @@ private:
     }
 
     /// Between numbers, or from a Bool to an integer. An object of a Class is the same
-    /// reference as an object of the one it extends.
+    /// reference as an object of the one it extends, and an Enum is its integer type.
     LLVMValueRef convert(LLVMValueRef value, const type_id_t from, const type_id_t to,
                          const span_t span) {
+        if (is_enum(from) || is_enum(to)) {
+            return convert(value, is_enum(from) ? inner_of(from) : from,
+                           is_enum(to) ? inner_of(to) : to, span);
+        }
+
         LLVMTypeRef target = llvm_type(to);
         if (from == to || (is_class(from) && is_class(to))) {
             return value;

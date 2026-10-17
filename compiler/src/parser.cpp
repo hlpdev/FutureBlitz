@@ -63,7 +63,6 @@ constexpr unsupported_t unsupported(const token_kind_t kind) {
     switch (kind) {
     case token_kind_t::AT:
     case token_kind_t::KW_ASYNC:
-    case token_kind_t::KW_DEFER:
     case token_kind_t::KW_PACKAGE:
     case token_kind_t::KW_PARALLEL:
     case token_kind_t::KW_PRIVATE:
@@ -76,7 +75,6 @@ constexpr unsupported_t unsupported(const token_kind_t kind) {
     case token_kind_t::KW_IMPORT:
     case token_kind_t::KW_THROW:
         return unsupported_t::LINE;
-    case token_kind_t::KW_ENUM:
     case token_kind_t::KW_EXTEND:
     case token_kind_t::KW_EXTERN:
     case token_kind_t::KW_INTERFACE:
@@ -411,6 +409,12 @@ private:
     /// One statement, without its line break: the caller ends the line with finish_line().
     /// Block statements end their own header line and parse through to the end of the block.
     stmt_id_t parse_statement() {
+        // @Flags is the one attribute M2 has.
+        if (at(token_kind_t::AT) && peek(1).kind == token_kind_t::IDENTIFIER &&
+            text(peek(1)) == "Flags") {
+            return parse_flags();
+        }
+
         switch (unsupported(peek().kind)) {
         case unsupported_t::PREFIX:
             return parse_unsupported_prefix();
@@ -454,6 +458,14 @@ private:
         case token_kind_t::KW_FINAL:
         case token_kind_t::KW_OVERRIDE:
             return parse_modified();
+        case token_kind_t::KW_ENUM:
+            return parse_enum(false, peek().span.begin);
+        case token_kind_t::KW_DEFER: {
+            // Analysis checks which statements can be deferred.
+            const token_t& keyword = advance();
+            const stmt_id_t statement = parse_statement();
+            return add_stmt(span_from(keyword.span.begin), defer_stmt_t{ .statement = statement });
+        }
         case token_kind_t::KW_IF:
             return parse_if();
         case token_kind_t::KW_WHILE:
@@ -480,6 +492,66 @@ private:
         default:
             return parse_simple();
         }
+    }
+
+    /// "@Flags Enum ...". On anything else, @Flags is an error, and the statement still parses.
+    stmt_id_t parse_flags() {
+        const std::uint32_t begin = advance().span.begin;
+        const token_t& name = advance();
+        if (at(token_kind_t::KW_ENUM)) {
+            return parse_enum(true, begin);
+        }
+
+        error(name.span, "@Flags only goes before an Enum");
+        return parse_statement();
+    }
+
+    /// "Enum Name: Type", its members, then "End Enum". Members are separated by commas, which
+    /// can end a line, or by lines.
+    stmt_id_t parse_enum(const bool flags, const std::uint32_t begin) {
+        const std::size_t start = m_pos;
+        const token_t& keyword = advance();
+        const name_t name = expect_name();
+        std::optional<type_expr_id_t> type;
+        if (accept(token_kind_t::COLON)) {
+            type = parse_type();
+        }
+
+        finish_line(start);
+        m_blocks.push_back(keyword.kind);
+        std::vector<enum_member_t> members;
+        while (!is_block_end(peek().kind)) {
+            const std::size_t line = m_pos;
+            while (at(token_kind_t::IDENTIFIER)) {
+                const name_t member = take_name();
+                std::optional<expr_id_t> value;
+                if (accept(token_kind_t::EQUAL)) {
+                    value = parse_expression();
+                }
+
+                members.push_back({ .name = member, .value = value });
+                if (!accept(token_kind_t::COMMA)) {
+                    break;
+                }
+
+                skip_continuation_newlines();
+            }
+
+            if (m_pos == line) {
+                report_expected("a member's name");
+            }
+
+            finish_line(line);
+        }
+
+        expect_end(keyword);
+        m_blocks.pop_back();
+        return add_stmt(span_from(begin), enum_stmt_t{
+                                              .name = name,
+                                              .type = type,
+                                              .members = std::move(members),
+                                              .flags = flags,
+                                          });
     }
 
     /// Which of `modifiers` a keyword sets, or null when it isn't one.

@@ -107,6 +107,16 @@ section.
 | A fixed array starts at zero, so a `Local` of one is ready when declared; sizes are known at compile time | declaring then filling a grid is the common case |
 | An array element can't be passed `ByRef`, and a `ByRef Method` can't change a `T[]`'s element in place | the buffer moves when the array grows |
 | `For ... In` holds the array and reads `Count` before each pass; its variables are read-only copies | removing during a loop can't go past the end |
+| Enum values are known at compile time and can use the members above; names and values don't repeat | a value names one member, so `Select` and strings are unambiguous |
+| An Enum compares with `==` and `!=` only; `@Flags` adds `\| & ^ ~` and `Has`; `As` converts to and from integers | an Enum isn't a number, but a set of flags is a set of bits |
+| `As` to an Enum without `@Flags` checks that the integer is one of its values | every value of a plain Enum is a member, so `Select` can be exhaustive |
+| An Enum's zero is its first member, or no flags | fields and arrays of Enums start at a real value |
+| A string shows an Enum value's name; a `@Flags` one that isn't a member shows its flags | debugging output reads as source |
+| `@Flags` is the one attribute in M2 | the rest come with compile-time features |
+| `Defer` runs one call, assignment, `++`/`--`, or one-line `If`, which can't leave the block | a way out can't jump somewhere else halfway through its cleanup |
+| A Defer's expressions are evaluated when it runs, as in Swift; `Return`'s value is computed first | it cleans up what's there at the exit, and can't change the result behind the `Return` |
+| A block's Defers and the releases of its variables run together, the last first | what's declared before a Defer is still alive when it runs |
+| A panic doesn't run Defers | a panic ends the program, and cleanup in a broken state could hide the first failure |
 | A Class, or a Struct holding one, has no zero: a `Global` of one needs a value, a Struct's generated constructor requires the field, and every `New` assigns it on every path before reading it or using `Self` | a reference that can't be `Null` must point at an object before anything reads it |
 | `Null` takes the `T?` its context expects; a `T` or `T?` converts to a `U?` when the `T` converts to the `U` | `Null` alone has no type |
 | Null checks narrow a Local, a Const, or a parameter that isn't `ByRef`, until it's assigned a `T?` or passed `ByRef`; a loop that changes it can't use a check from before the loop; a Global or field needs a Local copy | anything a call could change can't stay narrowed |

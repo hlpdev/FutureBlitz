@@ -253,9 +253,9 @@ struct return_t {
 };
 
 /// Stops the program, printing `message` and the line and column of `span`. For loops use it
-/// for a Step that's 0 at run time. `message` is static text.
+/// for a Step that's 0 at run time, and 'As' for an integer that isn't one of an Enum's values.
 struct panic_t {
-    std::string_view message;
+    std::string message;
     span_t span;
 };
 

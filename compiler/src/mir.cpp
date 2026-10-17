@@ -131,9 +131,21 @@ private:
         return paint(m_module.types->name(id), tone_t::TYPE);
     }
 
-    /// A constant. One of a T? prints as its T would, or as Null.
+    /// A constant. One of a T? prints as its T would, or as Null, and one of an Enum by its
+    /// member's name, like "State.Walk", or else as its integer.
     [[nodiscard]] std::string literal(const const_value_t& value) const {
         const type_t& info = m_module.types->get(value.type);
+        if (info.kind == type_kind_t::ENUM) {
+            for (const enum_value_t& member : info.values) {
+                if (const_value_t{ .type = value.type, .data = member_data(member, info) } ==
+                    value) {
+                    return std::format("{}.{}", info.name, member.name);
+                }
+            }
+
+            return to_text(value);
+        }
+
         if (info.kind == type_kind_t::NULLABLE &&
             !std::holds_alternative<std::nullptr_t>(value.data)) {
             return constant({ .type = info.inner, .data = value.data });
@@ -144,6 +156,16 @@ private:
 
     [[nodiscard]] std::string function_name(const function_id_t id) const {
         return paint(m_module.functions[std::to_underlying(id)].name, tone_t::BOLD);
+    }
+
+    /// An Enum member's bits as a constant's data: signed for a signed integer type.
+    static decltype(const_value_t::data) member_data(const enum_value_t& member,
+                                                     const type_t& info) {
+        if (is_signed(info.inner)) {
+            return static_cast<std::int64_t>(member.bits);
+        }
+
+        return member.bits;
     }
 
     [[nodiscard]] std::string label(const block_id_t block) const {

@@ -421,11 +421,33 @@ struct type_stmt_t {
     modifiers_t modifiers;
 };
 
+/// "Defer statement": runs the statement when the enclosing block exits, however it exits.
+struct defer_stmt_t {
+    stmt_id_t statement;
+};
+
+/// One of an Enum's members: "Name", or "Name = value".
+struct enum_member_t {
+    name_t name;
+    std::optional<expr_id_t> value;
+};
+
+/// "Enum Name: Type ... End Enum", or "@Flags Enum Name ... End Enum". Members are separated by
+/// commas or lines.
+struct enum_stmt_t {
+    name_t name;
+    /// The integer type after ':'. nullopt for Int.
+    std::optional<type_expr_id_t> type;
+    std::vector<enum_member_t> members;
+    /// Written with @Flags: the values are bits, which combine.
+    bool flags = false;
+};
+
 using stmt_node_t =
     std::variant<error_stmt_t, expression_stmt_t, assign_stmt_t, increment_stmt_t, variable_stmt_t,
                  function_stmt_t, if_stmt_t, while_stmt_t, repeat_stmt_t, loop_stmt_t, for_stmt_t,
                  for_in_stmt_t, select_stmt_t, break_stmt_t, continue_stmt_t, return_stmt_t,
-                 type_stmt_t>;
+                 type_stmt_t, enum_stmt_t, defer_stmt_t>;
 
 struct stmt_t {
     span_t span;

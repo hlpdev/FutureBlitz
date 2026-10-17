@@ -1,0 +1,75 @@
+// Defer: runs when its block exits, the last first, through Return, Break, and Continue.
+Class Resource
+    Field name: String
+
+    New(name: String)
+        Self.name = name
+        Print("open {name}")
+    End New
+
+    Method Close()
+        Print("close {name}")
+    End Method
+
+    Method Destroy()
+        Print("{name} freed")
+    End Method
+End Class
+
+Function Use(name: String, early: Bool): Int
+    Local resource = Resource(name)
+    Defer resource.Close()
+    Defer Print("leaving {name}")
+    If early
+        Defer Print("early exit")
+        Return 1
+    End If
+
+    Print("working on {name}")
+    Return 2
+End Function
+
+// The value is computed before the Defers run, so they can't change it.
+Function Counted(): Int
+    Local count = 10
+    Defer count += 5
+    Return count
+End Function
+
+// A String too: the caller gets the one the Return named.
+Function Named(count: Int): String
+    Local text = "{count} items"
+    Defer text = "changed"
+    Return text
+End Function
+
+Print("{Use("a", False)}")
+Print("{Use("b", True)}")
+Print("{Counted()}")
+Print(Named(3))
+
+// The innermost first, and a Break runs those of every block it leaves.
+Local round = 0
+While True
+    round += 1
+    Defer Print("end of round {round}")
+    If round == 2
+        Defer Print("stopping")
+        Break
+    End If
+End While
+
+// Each pass runs its own, and Break and Continue run the ones of the passes they leave.
+For i = 1 To 4
+    Defer Print("end of pass {i}")
+    If i == 2 Then Continue
+    If i == 4 Then Break
+    Print("pass {i}")
+End For
+
+// A Defer's expressions are evaluated when it runs, so it closes "d", not "c".
+Local maybe: Resource? = Resource("c")
+Defer If maybe != Null Then maybe.Close()
+Defer Print("last")
+maybe = Resource("d")
+Print("end of main")
