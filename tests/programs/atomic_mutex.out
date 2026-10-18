@@ -1,0 +1,14 @@
+frames 2
+before 2, now 7
+swapped True 9
+not swapped False 9
+subtract gives 9, leaves 5
+ready True
+was True, now False
+score 15
+hits 1 2
+b 2
+bump 100 105
+log first
+score 18
+field Label

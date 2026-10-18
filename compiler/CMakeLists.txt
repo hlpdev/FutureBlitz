@@ -19,7 +19,7 @@ if(MINGW)
 elseif(APPLE)
   set(FB_LINK_OPTIONS "\"-Wl,-dead_strip\"")
 else()
-  set(FB_LINK_OPTIONS "\"-static-libstdc++\", \"-static-libgcc\"")
+  set(FB_LINK_OPTIONS "\"-static-libstdc++\", \"-static-libgcc\", \"-pthread\"")
 endif()
 
 file(GENERATE OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/generated/fb/build_config.hpp CONTENT

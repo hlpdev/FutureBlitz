@@ -1,0 +1,81 @@
+// Atomic and Mutex: values that threads share, which stay where they're made.
+
+Struct Stats
+    Field Hits: Int
+    Field Name: String
+End Struct
+
+Global frames = Atomic<Int>(0)
+Global ready: Atomic<Bool>
+Global score = Mutex<Int>(10)
+Global stats = Mutex(Stats(0, "none"))
+
+Class Counter
+    Field Total: Atomic<Int64> = Atomic<Int64>(100)
+    Field Log: Mutex<String>
+    Field Label: String = "counter"
+
+    Method Bump(): Int64 => Total.Add(5)
+End Class
+
+Function Tick(ByRef counter: Atomic<Int>)
+    counter.Add(1)
+End Function
+
+// Return leaves the Lock, which lets go of the Mutex.
+Function AddHit(name: String): Int
+    Lock stats As st
+        st.Hits += 1
+        st.Name = name
+        Return st.Hits
+    End Lock
+End Function
+
+frames.Add(1)
+Tick(ByRef frames)
+Print("frames {frames.Load()}")
+Print("before {frames.Exchange(7)}, now {frames.Load()}")
+Print("swapped {frames.CompareExchange(7, 9)} {frames.Load()}")
+Print("not swapped {frames.CompareExchange(7, 1)} {frames.Load()}")
+Print("subtract gives {frames.Subtract(4)}, leaves {frames.Load()}")
+
+ready.Store(True)
+Print("ready {ready.Load()}")
+Print("was {ready.Exchange(False)}, now {ready.Load()}")
+
+Lock score As s
+    s += 5
+    Print("score {s}")
+End Lock
+
+Print("hits {AddHit("a")} {AddHit("b")}")
+Lock stats As st
+    Print("{st.Name} {st.Hits}")
+End Lock
+
+Local counter = Counter()
+Print("bump {counter.Bump()} {counter.Total.Load()}")
+Lock counter.Log As line
+    line = line + "first"
+End Lock
+
+Lock counter.Log As line
+    Print("log {line}")
+End Lock
+
+// Break leaves the Lock too.
+For i = 1 To 3
+    Lock score As s
+        s += i
+        If i == 2 Then Break
+    End Lock
+End For
+
+Lock score As s
+    Print("score {s}")
+End Lock
+
+// A For Field loop leaves out what can't be copied.
+For Field f In Counter
+    Print("field {f.Name}")
+End For

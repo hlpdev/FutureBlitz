@@ -61,18 +61,14 @@ enum class unsupported_t : std::uint8_t {
 /// How to skip a statement that starts with `kind`. NONE means M1 parses it.
 constexpr unsupported_t unsupported(const token_kind_t kind) {
     switch (kind) {
-    case token_kind_t::KW_ASYNC:
     case token_kind_t::KW_PACKAGE:
-    case token_kind_t::KW_PARALLEL:
     case token_kind_t::KW_PRIVATE:
     case token_kind_t::KW_PROTECTED:
     case token_kind_t::KW_PUBLIC:
-    case token_kind_t::KW_SHARED:
         return unsupported_t::PREFIX;
     case token_kind_t::KW_IMPORT:
         return unsupported_t::LINE;
     case token_kind_t::KW_EXTERN:
-    case token_kind_t::KW_LOCK:
     case token_kind_t::KW_UNSAFE:
         return unsupported_t::BLOCK;
     default:
@@ -481,6 +477,8 @@ private:
         case token_kind_t::KW_OVERRIDE:
         case token_kind_t::KW_STATIC:
         case token_kind_t::KW_READONLY:
+        case token_kind_t::KW_SHARED:
+        case token_kind_t::KW_ASYNC:
             return parse_modified();
         case token_kind_t::KW_PROPERTY:
             return parse_property({});
@@ -513,8 +511,12 @@ private:
             return parse_loop({});
         case token_kind_t::KW_FOR:
             return parse_for({});
+        case token_kind_t::KW_PARALLEL:
+            return parse_parallel({});
         case token_kind_t::KW_SELECT:
             return parse_select();
+        case token_kind_t::KW_LOCK:
+            return parse_lock();
         case token_kind_t::KW_BREAK:
         case token_kind_t::KW_CONTINUE:
             return parse_jump();
@@ -668,21 +670,44 @@ private:
             return &modifiers.is_static;
         case token_kind_t::KW_READONLY:
             return &modifiers.is_read_only;
+        case token_kind_t::KW_SHARED:
+            return &modifiers.is_shared;
+        case token_kind_t::KW_ASYNC:
+            return &modifiers.is_async;
         default:
             return nullptr;
         }
     }
 
-    /// Abstract, Final, Override, Static, and ReadOnly, in any order, then the declaration
-    /// they're on, which may be a "Const Function". Analysis checks which ones it can have.
+    /// Abstract, Final, Override, Static, ReadOnly, and Shared, in any order, then the
+    /// declaration they're on, which may be a "Const Function". Analysis checks which ones it can
+    /// have, but Shared only goes before a type.
     stmt_id_t parse_modified(modifiers_t modifiers = {}) {
+        std::optional<span_t> shared;
+        std::optional<span_t> async;
         while (bool* flag = modifier_flag(modifiers, peek().kind)) {
             const token_t& token = advance();
             if (*flag) {
                 error(token.span, "{} is written twice", describe(token.kind));
             }
 
+            if (token.kind == token_kind_t::KW_SHARED) {
+                shared = token.span;
+            } else if (token.kind == token_kind_t::KW_ASYNC) {
+                async = token.span;
+            }
+
             *flag = true;
+        }
+
+        if (shared && !at(token_kind_t::KW_CLASS) && !at(token_kind_t::KW_STRUCT) &&
+            !at(token_kind_t::KW_INTERFACE)) {
+            error(*shared, "Shared only goes before a Class, whose objects threads share");
+        }
+
+        if (async && !at(token_kind_t::KW_FUNCTION) && !at(token_kind_t::KW_METHOD) &&
+            !at(token_kind_t::KW_BYREF)) {
+            error(*async, "Async only goes before a Function or Method, whose code can Await");
         }
 
         switch (peek().kind) {
@@ -909,6 +934,7 @@ private:
                 name.text == "Flags" || name.text == "Inline" || name.text == "Deprecated";
             const bool repeated = (name.text == "Flags" && flags) ||
                                   (name.text == "Inline" && modifiers.is_inline) ||
+                                  (name.text == "MainThread" && modifiers.is_main_thread) ||
                                   (name.text == "Deprecated" && modifiers.deprecated);
             if (repeated) {
                 error(name.span, "@{} is written twice", name.text);
@@ -917,10 +943,11 @@ private:
                 flags_span = name.span;
             } else if (name.text == "Inline") {
                 modifiers.is_inline = true;
+            } else if (name.text == "MainThread") {
+                modifiers.is_main_thread = true;
             } else if (name.text == "Deprecated") {
                 modifiers.deprecated = deprecation(arguments, span);
-            } else if (name.text == "CLayout" || name.text == "MainThread" ||
-                       name.text == "Serialize") {
+            } else if (name.text == "CLayout" || name.text == "Serialize") {
                 error(name.span, "@{} isn't supported yet", name.text);
             } else if (!name.text.empty()) {
                 // One an Attribute declaration declares, which analysis finds.
@@ -1086,10 +1113,24 @@ private:
             return parse_loop(label);
         case token_kind_t::KW_FOR:
             return parse_for(label);
+        case token_kind_t::KW_PARALLEL:
+            return parse_parallel(label);
         default:
             error(label.span, "a label must be followed by a loop");
             return parse_statement();
         }
+    }
+
+    /// "Parallel For i = 0 Until n": a counting loop whose passes run at once.
+    stmt_id_t parse_parallel(const std::optional<name_t>& label) {
+        const token_t& keyword = advance();
+        if (!at(token_kind_t::KW_FOR)) {
+            error(keyword.span,
+                  "Parallel only goes before a For, like 'Parallel For i = 0 Until n'");
+            return parse_statement();
+        }
+
+        return parse_for(label, keyword.span);
     }
 
     stmt_id_t parse_variable(const modifiers_t& modifiers = {}) {
@@ -1527,6 +1568,8 @@ private:
         case token_kind_t::KW_INTERFACE:
         case token_kind_t::KW_EXTEND:
         case token_kind_t::KW_TRY:
+        case token_kind_t::KW_LOCK:
+        case token_kind_t::KW_PARALLEL:
             error(peek().span, "a single-line If can't contain {}", describe(peek().kind));
             return add_stmt(point(peek().span.begin), error_stmt_t{});
         default:
@@ -1576,6 +1619,25 @@ private:
             repeat_stmt_t{ .label = label, .body = std::move(body), .condition = condition });
     }
 
+    /// "Lock m As s": the Mutex is an expression without 'As' or 'Is' in it, and s names its
+    /// value in the body.
+    stmt_id_t parse_lock() {
+        const std::size_t start = m_pos;
+        const token_t& keyword = advance();
+        const expr_id_t mutex = parse_expression(precedence::bit_or);
+        name_t name{ .span = point(peek().span.begin) };
+        if (accept(token_kind_t::KW_AS)) {
+            name = expect_name();
+        } else {
+            report_expected("'As' and a name for the Mutex's value");
+        }
+
+        finish_line(start);
+        block_t body = parse_body(keyword);
+        return add_stmt(span_from(keyword.span.begin),
+                        lock_stmt_t{ .mutex = mutex, .name = name, .body = std::move(body) });
+    }
+
     stmt_id_t parse_loop(const std::optional<name_t>& label) {
         const std::size_t start = m_pos;
         const token_t& keyword = advance();
@@ -1585,12 +1647,20 @@ private:
                         loop_stmt_t{ .label = label, .body = std::move(body) });
     }
 
-    stmt_id_t parse_for(const std::optional<name_t>& label) {
+    stmt_id_t parse_for(const std::optional<name_t>& label,
+                        const std::optional<span_t> parallel = std::nullopt) {
         const std::size_t start = m_pos;
         const token_t& keyword = advance();
+        const auto counts = [&] {
+            if (parallel) {
+                error(*parallel, "a Parallel For counts, like 'Parallel For i = 0 Until n'");
+            }
+        };
+
         if (at(token_kind_t::KW_FIELD) || at(token_kind_t::KW_METHOD) ||
             at(token_kind_t::KW_PROPERTY) ||
             (at(token_kind_t::KW_STATIC) && peek(1).kind == token_kind_t::KW_FIELD)) {
+            counts();
             return parse_for_member(label, start, keyword);
         }
 
@@ -1598,6 +1668,7 @@ private:
 
         // "For x In items" or "For i, x In items". Anything else is a counting loop.
         if (at(token_kind_t::COMMA) || at(token_kind_t::KW_IN)) {
+            counts();
             std::optional<name_t> index;
             name_t value = first;
             if (accept(token_kind_t::COMMA)) {
@@ -1638,15 +1709,22 @@ private:
 
         finish_line(start);
         block_t body = parse_body(keyword);
-        return add_stmt(span_from(begin_of(label, keyword)), for_stmt_t{
-                                                                 .label = label,
-                                                                 .variable = first,
-                                                                 .start = from,
-                                                                 .end = to,
-                                                                 .inclusive = inclusive,
-                                                                 .step = step,
-                                                                 .body = std::move(body),
-                                                             });
+        // A label comes first, then Parallel.
+        std::uint32_t begin = parallel ? parallel->begin : keyword.span.begin;
+        if (label) {
+            begin = label->span.begin;
+        }
+
+        return add_stmt(span_from(begin), for_stmt_t{
+                                              .label = label,
+                                              .variable = first,
+                                              .start = from,
+                                              .end = to,
+                                              .inclusive = inclusive,
+                                              .step = step,
+                                              .body = std::move(body),
+                                              .parallel = parallel,
+                                          });
     }
 
     /// "For Field f: F In T", "For Method m In T", "For Property p: P In T", or "For Static
@@ -1843,7 +1921,9 @@ private:
             return calls(tried->operand);
         }
 
-        return std::holds_alternative<call_expr_t>(node);
+        // Awaiting is an effect of its own: the code waits there.
+        return std::holds_alternative<call_expr_t>(node) ||
+               std::holds_alternative<await_expr_t>(node);
     }
 
     [[nodiscard]] std::optional<assignment_t> assignment_at_current() const {
@@ -2025,6 +2105,13 @@ private:
         const token_t& token = peek();
         if (token.kind == token_kind_t::KW_TRY) {
             return parse_try_expression();
+        }
+
+        // "Await x" takes what comes before the next binary operator, like Try.
+        if (token.kind == token_kind_t::KW_AWAIT) {
+            advance();
+            const expr_id_t operand = parse_unary();
+            return add_expr(span_from(token.span.begin), await_expr_t{ .operand = operand });
         }
 
         std::optional<unary_op_t> op;
@@ -2409,8 +2496,14 @@ private:
             return parse_map();
         case token_kind_t::KW_FUNCTION:
             return parse_lambda();
+        case token_kind_t::KW_ASYNC:
+            if (peek(1).kind == token_kind_t::KW_FUNCTION) {
+                return parse_lambda(advance().span.begin);
+            }
+
+            report_expected("an expression");
+            return missing_expr();
         case token_kind_t::KW_NEW:
-        case token_kind_t::KW_AWAIT:
             error(token.span, "{} isn't supported yet", describe(token.kind));
             return missing_expr();
         default:
@@ -2421,9 +2514,10 @@ private:
 
     /// "Function(x: Int) => x * 2", or a block lambda: "Function(x)", its body on the lines after
     /// it, then "End Function". Wherever it is, even in a call's brackets, its body ends
-    /// statements at line breaks.
-    expr_id_t parse_lambda() {
+    /// statements at line breaks. After "Async", which starts at `async`, it's an Async lambda.
+    expr_id_t parse_lambda(const std::optional<std::uint32_t> async = std::nullopt) {
         const token_t& keyword = advance();
+        const std::uint32_t begin = async.value_or(keyword.span.begin);
         std::vector<name_t> weak;
         if (at(token_kind_t::LEFT_BRACKET)) {
             weak = parse_capture_list();
@@ -2455,11 +2549,12 @@ private:
             .weak = std::move(weak),
             .parameters = std::move(parameters),
             .return_type = return_type,
+            .is_async = async.has_value(),
         };
         if (accept(token_kind_t::ARROW)) {
             skip_continuation_newlines();
             lambda.value = parse_expression();
-            return add_expr(span_from(keyword.span.begin), std::move(lambda));
+            return add_expr(span_from(begin), std::move(lambda));
         }
 
         const std::uint32_t depth = std::exchange(m_bracket_depth, 0);
@@ -2472,7 +2567,7 @@ private:
         m_line_failed = false;
         lambda.body = parse_body(keyword);
         m_bracket_depth = depth;
-        return add_expr(span_from(keyword.span.begin), std::move(lambda));
+        return add_expr(span_from(begin), std::move(lambda));
     }
 
     /// "[Weak Self, Weak node]": what a lambda refers to weakly, which is all a capture list says.

@@ -3773,10 +3773,10 @@ TEST_CASE("narrowing is forgotten for what a loop changes inside any expression"
 
 TEST_CASE("a name that a later milestone declares isn't supported yet, wherever it's used",
           "[sema]") {
-    CHECK(errors_of("Local t: Task") == errors_t{ "Task: 'Task' isn't supported yet" });
-    CHECK(errors_of("Function F<T>()\n    Where T: Sendable\nEnd Function") ==
-          errors_t{ "Sendable: 'Sendable' isn't supported yet" });
-    CHECK(errors_of("Thread.Start()") == errors_t{ "Thread: 'Thread' isn't supported yet" });
+    CHECK(errors_of("Local t: Clock") == errors_t{ "Clock: 'Clock' isn't supported yet" });
+    CHECK(errors_of("Function F<T>()\n    Where T: CString\nEnd Function") ==
+          errors_t{ "CString: 'CString' isn't supported yet" });
+    CHECK(errors_of("Mem.Copy()") == errors_t{ "Mem: 'Mem' isn't supported yet" });
     CHECK(errors_of("Local v = Vec3(1, 2, 3)") == errors_t{ "Vec3: 'Vec3' isn't supported yet" });
 
     // A program can still declare one of them.
@@ -4084,4 +4084,767 @@ TEST_CASE("a type's own attributes", "[sema]") {
     CHECK(errors_of("Struct P\nEnd Struct\nLocal x = P.Has(P)") ==
           errors_t{ "P.Has: 'P.Has' takes the name of an Attribute, which an Attribute declaration "
                     "makes" });
+}
+
+TEST_CASE("Sendable is what the compiler says can go to another thread", "[sema]") {
+    const std::string_view send = "Function Send<T: Sendable>(value: T): T => value\n"
+                                  "Class Enemy\n    Field HP: Int\nEnd Class\n"
+                                  "Enum State\n    IDLE\n    RUNNING\nEnd Enum\n"
+                                  "Struct Point\n    Field X: Int\n    Field Y: Float\nEnd Struct\n"
+                                  "Struct Holder\n    Field Target: Enemy?\nEnd Struct\n"
+                                  "Struct Outer\n    Field Inner: Holder\nEnd Struct\n";
+    for (const std::string_view value :
+         { "1", "2.5", "True", "\"text\"", "State.IDLE", "Point(1, 2.0)", "(1, \"a\")",
+           "Point(1, 2.0) As Point?" }) {
+        CHECK(errors_of(std::format("{}Local x = Send({})", send, value)).empty());
+    }
+
+    CHECK(errors_of(std::format("{}Local p: Point[2]\nLocal x = Send(p)", send)).empty());
+    CHECK(errors_of(std::format("{}Local x = Send(Enemy())", send)) ==
+          errors_t{ "Send: Enemy isn't Sendable, which 'Send' needs for T: a Class's objects stay "
+                    "on the thread that made them, unless it's a Shared Class" });
+    CHECK(errors_of(std::format("{}Local x = Send([1, 2])", send)) ==
+          errors_t{ "Send: Int32[] isn't Sendable, which 'Send' needs for T: an array "
+                    "stays on the thread that made it" });
+    CHECK(errors_of(std::format("{}Local x = Send(Function() => 1)", send)) ==
+          errors_t{ "Send: Func(): Int32 isn't Sendable, which 'Send' needs for "
+                    "T: a function value stays on the thread that made it" });
+    CHECK(errors_of(std::format("{}Local x = Send(Holder(Null))", send)) ==
+          errors_t{ "Send: Holder isn't Sendable, which 'Send' needs for T: its field 'Target' is "
+                    "Enemy?, and a Class's objects stay on the thread that made them, unless it's "
+                    "a Shared Class" });
+    CHECK(errors_of(std::format("{}Local x = Send(Outer(Holder(Null)))", send)) ==
+          errors_t{ "Send: Outer isn't Sendable, which 'Send' needs for T: its field 'Inner' is "
+                    "Holder, whose field 'Target' is Enemy?, and a Class's objects stay on the "
+                    "thread that made them, unless it's a Shared Class" });
+    CHECK(errors_of(std::format("{}Local x = Send((1, Enemy()))", send)) ==
+          errors_t{ "Send: (Int32, Enemy) isn't Sendable, which 'Send' needs for T: its element "
+                    "'1' is Enemy, and a Class's objects stay on the thread that made them, unless "
+                    "it's a Shared Class" });
+
+    // A type parameter is Sendable when its constraints say so.
+    CHECK(errors_of(std::format("{}Function Pass<U>(value: U): U => Send(value)", send)) ==
+          errors_t{ "Send: U isn't Sendable, which 'Send' needs for T: nothing says U is "
+                    "Sendable" });
+    CHECK(errors_of(std::format("{}Function Pass<U: Sendable>(value: U): U => Send(value)", send))
+              .empty());
+
+    // A generic Struct's instance is Sendable when its fields are.
+    const std::string_view box = "Struct Box<T>\n    Field Item: T\nEnd Struct\n";
+    CHECK(errors_of(std::format("{}{}Local x = Send(Box(1))", send, box)).empty());
+    CHECK(errors_of(std::format("{}{}Local x = Send(Box(Enemy()))", send, box)) ==
+          errors_t{ "Send: Box<Enemy> isn't Sendable, which 'Send' needs for T: its field 'Item' "
+                    "is Enemy, and a Class's objects stay on the thread that made them, unless "
+                    "it's a Shared Class" });
+
+    // It's only a constraint.
+    CHECK(errors_of("Local x: Sendable = 1") ==
+          errors_t{ "Sendable: Sendable can only be a constraint, like <T: Sendable>, since it "
+                    "says what can go to another thread" });
+}
+
+TEST_CASE("a type that lists Sendable, or an Interface that extends it, is checked", "[sema]") {
+    const std::string_view enemy = "Class Enemy\n    Field HP: Int\nEnd Class\n";
+    CHECK(errors_of("Struct Packet Implements Sendable\n    Field Id: Int\nEnd Struct").empty());
+    CHECK(errors_of(std::format("{}Struct Packet Implements Sendable\n"
+                                "    Field Id: Int\n"
+                                "    Field Sender: Enemy\n"
+                                "End Struct",
+                                enemy)) ==
+          errors_t{ "Sendable: Packet isn't Sendable: its field 'Sender' is Enemy, and a Class's "
+                    "objects stay on the thread that made them, unless it's a Shared Class" });
+    CHECK(errors_of(
+              std::format("{}Class Boss Extends Enemy Implements Sendable\nEnd Class", enemy)) ==
+          errors_t{ "Sendable: Boss isn't Sendable: a Class's objects stay on the thread that made "
+                    "them, unless it's a Shared Class" });
+
+    // A generic Struct says its type parameters are Sendable.
+    CHECK(errors_of("Struct Box<T> Implements Sendable\n    Field Item: T\nEnd Struct") ==
+          errors_t{ "Sendable: Box<T> isn't Sendable: its field 'Item' is T, and nothing says T "
+                    "is Sendable" });
+    CHECK(errors_of("Struct Box<T: Sendable> Implements Sendable\n    Field Item: T\nEnd Struct")
+              .empty());
+
+    // An Interface that extends it can be a constraint that implies it.
+    const std::string_view message = "Interface Message Extends Sendable\n"
+                                     "    Method Kind(): Int\n"
+                                     "End Interface\n"
+                                     "Function Send<T: Sendable>(value: T): T => value\n"
+                                     "Function Post<M: Message>(value: M): M => Send(value)\n";
+    CHECK(errors_of(std::format("{}Struct Ping Implements Message\n"
+                                "    Field Id: Int\n"
+                                "    Method Kind(): Int => 1\n"
+                                "End Struct\n"
+                                "Post(Ping(1))",
+                                message))
+              .empty());
+    CHECK(errors_of(std::format("{}{}Struct Ping Implements Message\n"
+                                "    Field From: Enemy\n"
+                                "    Method Kind(): Int => 1\n"
+                                "End Struct",
+                                message, enemy)) ==
+          errors_t{ "Message: Ping can't implement Message, which extends Sendable: its field "
+                    "'From' is Enemy, and a Class's objects stay on the thread that made them, "
+                    "unless it's a Shared Class" });
+    CHECK(errors_of(std::format("{}Extend Int[] Implements Message\n"
+                                "    Method Kind(): Int => 2\n"
+                                "End Extend",
+                                message)) ==
+          errors_t{ "Message: Int32[] can't implement Message, which extends Sendable: an array "
+                    "stays on the thread that made it" });
+}
+
+TEST_CASE("an Atomic and a Mutex stay where they're made", "[sema]") {
+    const std::string_view shared = "Global frames = Atomic<Int>(0)\n"
+                                    "Global ready: Atomic<Bool>\n"
+                                    "Global score = Mutex<Int>(0)\n"
+                                    "Class Enemy\n    Field HP: Int\nEnd Class\n";
+    CHECK(errors_of(std::format("{}Local f = frames.Add(1)\nLocal r: Bool = ready.Load()\n"
+                                "Local swapped = frames.CompareExchange(1, 2)\n"
+                                "Lock score As s\n    s += f\nEnd Lock",
+                                shared))
+              .empty());
+    CHECK(probe(std::format("{}Local x = frames.Exchange(3)", shared)) == "Int32");
+
+    // Copies, which would each be a variable of their own.
+    CHECK(errors_of(std::format("{}Local copy = frames", shared)) ==
+          errors_t{ "frames: Atomic<Int32> stays where it's made, so it can't be copied; use its "
+                    "Methods, like Load()" });
+    CHECK(errors_of(std::format("{}Print(\"{{score}}\")", shared)) ==
+          errors_t{ "score: Mutex<Int32> stays where it's made, so it can't be copied; use its "
+                    "value in a Lock block, like 'Lock m As value'" });
+    CHECK(errors_of("Local a = Atomic<Int>(0)") ==
+          errors_t{ "Atomic<Int>(0): Atomic<Int32> stays where it's made, so it's made only as "
+                    "what a Global, a Static Field, or a Class's Field starts with" });
+    CHECK(errors_of("Local a: Atomic<Int>") ==
+          errors_t{ "Atomic<Int>: Atomic<Int32> stays where it's made, so a Local or Const can't "
+                    "hold one; make it a Global, a Static Field, or a Class's Field" });
+    CHECK(errors_of("Function F(a: Atomic<Int>)\nEnd Function") ==
+          errors_t{ "Atomic<Int>: Atomic<Int32> stays where it's made, so a parameter can't hold "
+                    "one; make it ByRef" });
+    CHECK(errors_of("Function F(ByRef a: Atomic<Int>): Int => a.Load()").empty());
+    CHECK(errors_of("Function F(): Mutex<Int>\nEnd Function") ==
+          errors_t{ "Mutex<Int>: Mutex<Int32> stays where it's made, so a function can't give "
+                    "one back" });
+    CHECK(errors_of("Struct S\n    Field Count: Atomic<Int>\nEnd Struct") ==
+          errors_t{ "Atomic<Int>: Atomic<Int32> stays where it's made, so a Struct, which is "
+                    "copied, can't hold one; make S a Class" });
+    CHECK(errors_of("Global counts: Atomic<Int>[]") ==
+          errors_t{ "Atomic<Int>: Atomic<Int32> stays where it's made, so it can't be part of "
+                    "another type" });
+    CHECK(errors_of(std::format("{}frames = Atomic<Int>(1)", shared)) ==
+          errors_t{ "frames: Atomic<Int32> stays where it's made, so it can't be assigned; use its "
+                    "Store(value)" });
+
+    // What they hold.
+    CHECK(errors_of("Global name: Atomic<String>") ==
+          errors_t{ "Atomic<String>: an Atomic holds an integer or a Bool, not String; a Mutex "
+                    "holds any Sendable value" });
+    CHECK(errors_of(std::format("{}Global enemies: Mutex<Enemy[]>", shared)) ==
+          errors_t{ "Mutex<Enemy[]>: a Mutex holds a Sendable value, which Enemy[] isn't: an array "
+                    "stays on the thread that made it" });
+    CHECK(errors_of("Global m = Mutex((1, \"one\"))\n"
+                    "Lock m As pair\n"
+                    "    Local text: String = pair.1\n"
+                    "End Lock")
+              .empty());
+
+    // Their members.
+    CHECK(errors_of(std::format("{}Local x = ready.Add(1)", shared)) ==
+          errors_t{ "Add: Atomic<Bool> has no member named 'Add'; it has Load, Store, Exchange, "
+                    "CompareExchange" });
+    CHECK(errors_of("Extend Atomic<Int>\n    Method Twice(): Int => 2\nEnd Extend") ==
+          errors_t{ "Atomic<Int>: an Atomic can't be extended; it has only its own operations" });
+    CHECK(errors_of(std::format("{}Local x = score.value", shared)) ==
+          errors_t{ "value: a Mutex's value is used in a Lock block, like 'Lock m As value', where "
+                    "only one thread has it at a time" });
+}
+
+TEST_CASE("a Lock block holds a Mutex while it uses the value", "[sema]") {
+    const std::string_view shared = "Global frames = Atomic<Int>(0)\n"
+                                    "Global score = Mutex<Int>(0)\n";
+    CHECK(errors_of(std::format("{}Lock frames As f\nEnd Lock", shared)) ==
+          errors_t{ "frames: Lock takes a Mutex, not Atomic<Int32>" });
+    CHECK(errors_of(
+              std::format("{}Lock score As s\n    Local f = Function() => s\nEnd Lock", shared)) ==
+          errors_t{ "s: 's' is ByRef, so a lambda can't capture it; copy it into a Local first" });
+
+    // Return leaves the Lock, so nothing comes after it.
+    CHECK(errors_of(std::format("{}Function Take(): Int\n"
+                                "    Lock score As s\n"
+                                "        Return s\n"
+                                "    End Lock\n"
+                                "End Function",
+                                shared))
+              .empty());
+    CHECK(errors_of(std::format("{}Const Function F(): Int\n"
+                                "    Lock score As s\n"
+                                "    End Lock\n"
+                                "    Return 1\n"
+                                "End Function",
+                                shared)) ==
+          errors_t{ "score: a Const Function can't Lock, since only the running program has "
+                    "Mutexes" });
+
+    // A Class's Field can be one, starting with its zero or, for an Atomic, a known value.
+    CHECK(errors_of("Class Counter\n"
+                    "    Field Total: Atomic<Int64> = Atomic<Int64>(5)\n"
+                    "    Field Log: Mutex<String>\n"
+                    "    Method Note(text: String)\n"
+                    "        Lock Log As log\n"
+                    "            log = log + text\n"
+                    "        End Lock\n"
+                    "        Total.Add(1)\n"
+                    "    End Method\n"
+                    "End Class")
+              .empty());
+    CHECK(errors_of("Class Counter\n    Field Log: Mutex<Int> = Mutex<Int>(3)\nEnd Class") ==
+          errors_t{ "Mutex<Int>(3): a Mutex Field starts with its value's zero, which a Lock block "
+                    "in New can change" });
+}
+
+TEST_CASE("a Shared Class's objects can go to another thread", "[sema]") {
+    const std::string_view hub = "Shared Class Hub\n"
+                                 "    Field Visits: Atomic<Int>\n"
+                                 "    Field Names: Mutex<String>\n"
+                                 "    ReadOnly Field Title: String\n"
+                                 "    New(title: String)\n"
+                                 "        Title = title\n"
+                                 "    End New\n"
+                                 "End Class\n"
+                                 "Function Hand<T: Sendable>(value: T): T => value\n";
+    CHECK(errors_of(std::format("{}Local h = Hand(Hub(\"main\"))\nLocal n = h.Visits.Add(1)", hub))
+              .empty());
+    CHECK(errors_of("Shared Class Bad\n    Field Count: Int\nEnd Class") ==
+          errors_t{ "Count: 'Count' must be an Atomic, a Mutex, or ReadOnly, since threads share "
+                    "Bad's objects" });
+    CHECK(errors_of("Class Enemy\nEnd Class\n"
+                    "Shared Class Bad\n    ReadOnly Field Target: Enemy?\nEnd Class") ==
+          errors_t{ "Target: 'Target' is ReadOnly, but threads share Bad's objects, so it must be "
+                    "Sendable too: a Class's objects stay on the thread that made them, unless "
+                    "it's a Shared Class" });
+    CHECK(errors_of(
+              std::format("{}Shared Class Room\n    ReadOnly Field Owner: Hub?\nEnd Class", hub))
+              .empty());
+
+    // Shared Classes extend each other only.
+    CHECK(errors_of(std::format("{}Class Plain Extends Hub\nEnd Class", hub)) ==
+          errors_t{ "Plain: Hub is a Shared Class, so only a Shared Class can extend it" });
+    CHECK(errors_of("Class Plain\nEnd Class\nShared Class Hub Extends Plain\nEnd Class") ==
+          errors_t{ "Hub: a Shared Class extends only a Shared Class, and Plain isn't one" });
+
+    // A generic one says its type parameters are Sendable.
+    const std::string_view made = "    New(item: T)\n        Item = item\n    End New\n";
+    CHECK(errors_of(
+              std::format("Shared Class Box<T>\n    ReadOnly Field Item: T\n{}End Class", made)) ==
+          errors_t{ "Item: 'Item' is ReadOnly, but threads share Box<T>'s objects, so it must be "
+                    "Sendable too: nothing says T is Sendable" });
+    CHECK(errors_of(
+              std::format("Shared Class Box<T: Sendable>\n    ReadOnly Field Item: T\n{}End Class",
+                          made))
+              .empty());
+
+    // Shared only goes before a Class.
+    CHECK(errors_of("Shared Struct S\nEnd Struct") ==
+          errors_t{ "S: a Struct can't be Shared, since it's copied; it's Sendable when its "
+                    "fields are" });
+    CHECK(errors_of("Shared Function F()\nEnd Function") ==
+          errors_t{ "Shared: Shared only goes before a Class, whose objects threads share" });
+}
+
+TEST_CASE("Spawn runs work on another thread, and gives its Task", "[sema]") {
+    CHECK(probe("Local x = Spawn(Function() => 1)") == "Task<Int32>");
+    CHECK(probe("Local x = Spawn(Function() => \"a\").Wait()") == "String");
+    CHECK(probe("Local x = Spawn(Function() => 1).IsDone()") == "Bool");
+    CHECK(probe("Function Work()\nEnd Function\nLocal x = Spawn(Work)") == "Task");
+    CHECK(probe("Local x = Thread.Start(Function() => Print(\"hi\"))") == "Thread");
+    CHECK(errors_of("Local t: Task<Int64> = Spawn(Function() => 1)\nLocal x: Int64 = t.Wait()")
+              .empty());
+    CHECK(errors_of("Local t = Thread.Start(Function() => Print(\"hi\"))\nt.Join()").empty());
+
+    // What it captures can't change, and is Sendable.
+    CHECK(errors_of("Const name = \"a\"\n"
+                    "Function Run(count: Int): Task<Int>\n"
+                    "    Return Spawn(Function() => count + name.Bytes.Count)\n"
+                    "End Function")
+              .empty());
+    CHECK(errors_of("Function Run(): Task<Int>\n"
+                    "    Local count = 1\n"
+                    "    Return Spawn(Function() => count)\n"
+                    "End Function") ==
+          errors_t{ "Function() => count: 'count' is a Local, which another thread can't share; "
+                    "make it a Const" });
+    CHECK(errors_of("Class Enemy\n    Field HP: Int\nEnd Class\n"
+                    "Function Run(enemy: Enemy): Task<Int>\n"
+                    "    Return Spawn(Function() => enemy.HP)\n"
+                    "End Function") ==
+          errors_t{ "Function() => enemy.HP: 'enemy' is Enemy, which another thread can't have: "
+                    "a Class's objects stay on the thread that made them, unless it's a Shared "
+                    "Class" });
+    CHECK(errors_of("Shared Class Hub\n    Field Hits: Atomic<Int>\nEnd Class\n"
+                    "Function Run(hub: Hub): Task<Int>\n"
+                    "    Return Spawn(Function() => hub.Hits.Add(1))\n"
+                    "End Function")
+              .empty());
+
+    // It takes a lambda or a Function's name, of no arguments.
+    CHECK(errors_of("Local f = Function() => 1\nLocal t = Spawn(f)") ==
+          errors_t{ "f: Spawn takes a lambda or a Function's name, since a function value it "
+                    "was given would stay on this thread too" });
+    CHECK(errors_of("Local t = Spawn(Function(x: Int) => x)") ==
+          errors_t{ "Function(x: Int) => x: the work Spawn runs takes no arguments; a lambda can "
+                    "pass them" });
+    CHECK(errors_of("Local t = Spawn()") ==
+          errors_t{ "Spawn(): Spawn takes the work to run, like Spawn(Function() => Work())" });
+
+    // A Task stays on the thread that spawned it.
+    CHECK(errors_of("Function Hand<T: Sendable>(value: T): T => value\n"
+                    "Local t = Hand(Spawn(Function() => 1))") ==
+          errors_t{ "Hand: Task<Int32> isn't Sendable, which 'Hand' needs for T: a Task stays on "
+                    "the thread that spawned it" });
+    CHECK(errors_of("Local t = Spawn(Function() => 1)\nLocal x = t.Join()") ==
+          errors_t{ "Join: Task<Int32> has no member named 'Join'; it has Wait and IsDone" });
+}
+
+TEST_CASE("work on another thread reaches nothing only the main thread may", "[sema]") {
+    const std::string_view globals = "Global score = 0\n"
+                                     "Global hits = Atomic<Int>(0)\n"
+                                     "Global names = Mutex<String>(\"\")\n"
+                                     "Const title = \"game\"\n"
+                                     "Class Enemy\n    Field HP: Int\nEnd Class\n"
+                                     "Const boss = Enemy()\n";
+    CHECK(errors_of(std::format("{}Local t = Spawn(Function() => score)", globals)) ==
+          errors_t{ "Spawn: this work runs on another thread, but it uses the Global 'score', "
+                    "which only the main thread can, unless it's an Atomic or a Mutex" });
+    CHECK(errors_of(std::format("{}Local t = Thread.Start(Function()\n"
+                                "    Lock names As n\n"
+                                "        n = n + title\n"
+                                "    End Lock\n"
+                                "    hits.Add(1)\n"
+                                "End Function)",
+                                globals))
+              .empty());
+    CHECK(errors_of(std::format("{}Local t = Spawn(Function() => boss.HP)", globals)) ==
+          errors_t{ "Spawn: this work runs on another thread, but it uses the Const 'boss', which "
+                    "holds Enemy, which isn't Sendable" });
+
+    // Through what it calls, and assigning counts.
+    CHECK(errors_of(std::format("{}Function Bump()\n    score += 1\nEnd Function\n"
+                                "Function Step()\n    Bump()\nEnd Function\n"
+                                "Local t = Spawn(Step)",
+                                globals)) ==
+          errors_t{ "Spawn: this work runs on another thread, but it calls 'Bump', which uses the "
+                    "Global 'score', which only the main thread can, unless it's an Atomic or a "
+                    "Mutex" });
+
+    // A Static Field is a Global, and top-level code is the main thread's.
+    CHECK(errors_of("Class Enemy\n"
+                    "    Static Field Count: Int\n"
+                    "    Method Think(): Int => Count\n"
+                    "End Class\n"
+                    "Function Run(): Task<Int>\n"
+                    "    Return Spawn(Function() => Enemy().Think())\n"
+                    "End Function\n"
+                    "Enemy.Count = 3") ==
+          errors_t{ "Spawn: this work runs on another thread, but it calls 'Enemy.Think', which "
+                    "uses the Static Field 'Enemy.Count', which only the main thread can, unless "
+                    "it's an Atomic or a Mutex" });
+
+    // @MainThread
+    const std::string_view render = "@MainThread Function Render()\nEnd Function\n";
+    CHECK(errors_of(std::format("{}Local t = Spawn(Function() => Render())", render)) ==
+          errors_t{ "Spawn: this work runs on another thread, but it calls 'Render', which is "
+                    "@MainThread" });
+    CHECK(errors_of(std::format("{}Local t = Spawn(Render)", render)) ==
+          errors_t{ "Spawn: this work runs on another thread, but 'Render' is @MainThread" });
+    CHECK(errors_of(std::format("{}Render()", render)).empty());
+    CHECK(errors_of("@MainThread Struct S\nEnd Struct") ==
+          errors_t{ "S: @MainThread only goes before a Function or Method" });
+}
+
+TEST_CASE("what a call can run on another thread includes overrides and lambdas", "[sema]") {
+    const std::string_view score = "Global score = 0\n";
+    CHECK(errors_of(std::format("{}Class Enemy\n"
+                                "    Method Think(): Int => 1\n"
+                                "End Class\n"
+                                "Class Grunt Extends Enemy\n"
+                                "    Override Method Think(): Int => score\n"
+                                "End Class\n"
+                                "Local t = Spawn(Function() => Enemy().Think())",
+                                score)) ==
+          errors_t{ "Spawn: this work runs on another thread, but it calls 'Enemy.Think', which "
+                    "calls 'Grunt.Think', which uses the Global 'score', which only the main "
+                    "thread can, unless it's an Atomic or a Mutex" });
+    CHECK(errors_of(std::format("{}Interface Scored\n"
+                                "    Method Points(): Int\n"
+                                "End Interface\n"
+                                "Struct Coin Implements Scored\n"
+                                "    Method Points(): Int => score\n"
+                                "End Struct\n"
+                                "Function Total<S: Scored>(item: S): Int => item.Points()\n"
+                                "Local t = Spawn(Function() => Total(Coin()))",
+                                score)) ==
+          errors_t{ "Spawn: this work runs on another thread, but it calls 'Total', which calls "
+                    "'Points', which calls 'Coin.Points', which uses the Global 'score', which "
+                    "only the main thread can, unless it's an Atomic or a Mutex" });
+    CHECK(errors_of(std::format("{}Function Apply(f: Func(): Int): Int => f()\n"
+                                "Local t = Spawn(Function() => Apply(Function() => score))",
+                                score)) ==
+          errors_t{ "Spawn: this work runs on another thread, but it uses the Global 'score', "
+                    "which only the main thread can, unless it's an Atomic or a Mutex" });
+
+    // A Shared Class's Destroy() runs on whichever thread lets go last.
+    CHECK(errors_of(std::format("{}Shared Class Hub\n"
+                                "    Method Destroy()\n"
+                                "        score += 1\n"
+                                "    End Method\n"
+                                "End Class",
+                                score)) ==
+          errors_t{ "Destroy: a Shared Class's Destroy() runs on whichever thread lets go last, "
+                    "but it uses the Global 'score', which only the main thread can, unless it's "
+                    "an Atomic or a Mutex" });
+}
+
+TEST_CASE("a Parallel For's passes share only copies and their own elements", "[sema]") {
+    const std::string_view setup = "Local values = [1, 2, 3]\n"
+                                   "Local scale = 2\n"
+                                   "Local results = [0, 0, 0]\n";
+    CHECK(errors_of(std::format("{}Parallel For i = 0 Until values.Count\n"
+                                "    results[i] = values[2 - i] * scale\n"
+                                "End For",
+                                setup))
+              .empty());
+
+    // What's outside is a copy, which it can't change.
+    CHECK(errors_of(std::format("{}Parallel For i = 0 Until 3\n    scale += i\nEnd For", setup)) ==
+          errors_t{ "scale: a Parallel For's body can't change 'scale', which is outside it" });
+
+    // An array from outside changes only at the pass's own index, and is used only through its
+    // elements.
+    CHECK(errors_of(
+              std::format("{}Parallel For i = 0 Until 3\n    results[0] = i\nEnd For", setup)) ==
+          errors_t{ "results: a Parallel For's body changes 'results', an array from outside the "
+                    "body, only at its own index, results[i]" });
+    CHECK(errors_of(
+              std::format("{}Parallel For i = 0 Until 3\n    results.Add(i)\nEnd For", setup)) ==
+          errors_t{ "results: a Parallel For's body uses 'results', an array from outside the "
+                    "body, only through its elements, like results[i], and its Count" });
+    CHECK(errors_of(std::format("{}Parallel For i = 0 Until 3\n"
+                                "    Local f = Function() => values[i]\n"
+                                "End For",
+                                setup)) ==
+          errors_t{ "values: a lambda in a Parallel For's body can't take 'values', an array "
+                    "from outside the body" });
+
+    // What it uses is Sendable.
+    CHECK(errors_of("Class Enemy\n    Field HP: Int\nEnd Class\n"
+                    "Local boss = Enemy()\n"
+                    "Parallel For i = 0 Until 3\n    Local hp = boss.HP\nEnd For") ==
+          errors_t{ "Parallel: 'boss' is Enemy, which another thread can't have: a Class's "
+                    "objects stay on the thread that made them, unless it's a Shared Class" });
+    CHECK(errors_of("Class Enemy\n    Field HP: Int\nEnd Class\n"
+                    "Local enemies = [Enemy()]\n"
+                    "Parallel For i = 0 Until 1\n    Local hp = enemies[i].HP\nEnd For") ==
+          errors_t{ "Parallel: 'enemies' is Enemy[], whose elements another thread can't have: "
+                    "a Class's objects stay on the thread that made them, unless it's a Shared "
+                    "Class" });
+
+    // It counts with integers, by 1, and its passes don't leave it.
+    CHECK(errors_of("Parallel For x = 0.0 Until 1.0\nEnd For") ==
+          errors_t{ "0.0: a Parallel For counts with integers, not Float32" });
+    CHECK(errors_of("Parallel For i = 0 Until 10 Step 2\nEnd For") ==
+          errors_t{ "2: a Parallel For counts up by 1, so it has no Step" });
+    CHECK(errors_of("Parallel For i = 0 Until 10\n    If i == 3 Then Break\nEnd For") ==
+          errors_t{ "Break: Break can't leave a Parallel For, whose passes run at once" });
+    CHECK(errors_of("Function F()\n"
+                    "    Parallel For i = 0 Until 10\n"
+                    "        Return\n"
+                    "    End For\n"
+                    "End Function") ==
+          errors_t{ "Return: a Parallel For's body can't Return; Continue goes on to its next "
+                    "index" });
+
+    // The main-thread rules hold for it.
+    CHECK(errors_of("Global score = 0\nParallel For i = 0 Until 10\n    score += i\nEnd For") ==
+          errors_t{ "Parallel: a Parallel For's body runs on other threads, but it uses the "
+                    "Global 'score', which only the main thread can, unless it's an Atomic or a "
+                    "Mutex" });
+}
+
+TEST_CASE("a Channel carries Sendable values between threads", "[sema]") {
+    CHECK(probe("Local x = Channel<String>(8)") == "Channel<String>");
+    CHECK(probe("Const ch = Channel<Int>(2)\nLocal x = ch.Receive()") == "Int32?");
+    CHECK(probe("Const ch = Channel<Int>(2)\nLocal x = ch.TrySend(1)") == "Bool");
+    CHECK(errors_of("Const ch = Channel<Int>(2)\n"
+                    "Local value = 0\n"
+                    "Local got = ch.TryReceive(ByRef value)\n"
+                    "ch.Send(value)\n"
+                    "ch.Close()\n"
+                    "For x In ch\n    Print(\"{x}\")\nEnd For")
+              .empty());
+
+    // A Channel is Sendable, so tasks can share one, and it carries only Sendable values.
+    CHECK(errors_of("Const ch = Channel<Int>(4)\n"
+                    "Function Fill(out: Channel<Int>)\n    out.Send(1)\nEnd Function\n"
+                    "Local t = Spawn(Function() => Fill(ch))")
+              .empty());
+    CHECK(
+        errors_of("Class Enemy\nEnd Class\nLocal ch = Channel<Enemy>(2)") ==
+        errors_t{ "Channel<Enemy>: a Channel carries Sendable values to other threads, which Enemy "
+                  "isn't: a Class's objects stay on the thread that made them, unless it's a "
+                  "Shared Class" });
+
+    // It's made with its type and its room.
+    CHECK(errors_of("Local ch = Channel(2)") ==
+          errors_t{ "Channel(2): a Channel is made with its type and how many it has room for, "
+                    "like Channel<Packet>(64)" });
+    CHECK(errors_of("Local ch = Channel<Int>(2.5)") ==
+          errors_t{ "2.5: a Channel's room is an integer, not Float32" });
+    CHECK(errors_of("Const ch = Channel<Int>(2)\nLocal x = ch.Peek()") ==
+          errors_t{ "Peek: Channel<Int32> has no member named 'Peek'; it has Send, TrySend, "
+                    "Receive, TryReceive, and Close" });
+    CHECK(errors_of("Const ch = Channel<Int>(2)\nFor i, x In ch\nEnd For") ==
+          errors_t{ "i: a Channel gives one value at a time, so 'For x In' takes one name" });
+}
+
+TEST_CASE("an Async Function's call gives its Task, and its code can Await", "[sema]") {
+    const std::string_view sum = "Async Function Sum(n: Int): Int\n"
+                                 "    Return Await Spawn(Function() => n * 2)\n"
+                                 "End Function\n";
+    CHECK(probe(std::format("{}Local x = Sum(3)", sum)) == "Task<Int32>");
+    CHECK(probe("Async Function Log()\nEnd Function\nLocal x = Log()") == "Task");
+    CHECK(errors_of(std::format("{}Async Function Twice(n: Int): Int\n"
+                                "    Local first: Int = Await Sum(n)\n"
+                                "    Await Spawn(Function() => Print(\"done\"))\n"
+                                "    Return first * 2\n"
+                                "End Function",
+                                sum))
+              .empty());
+
+    // Await waits only in an Async Function, for a Task.
+    CHECK(errors_of(std::format("{}Local x = Await Sum(1)", sum)) ==
+          errors_t{ "Await Sum(1): Await goes in an Async Function or lambda, whose code can "
+                    "wait without blocking its thread" });
+    CHECK(errors_of("Async Function F(): Int\n    Return Await 5\nEnd Function") ==
+          errors_t{ "5: Await waits for a Task, not Int32" });
+    CHECK(errors_of(std::format("{}Async Function F()\n"
+                                "    Local f = Function() => Await Sum(1)\n"
+                                "End Function",
+                                sum)) ==
+          errors_t{ "Await Sum(1): Await goes in an Async Function or lambda, whose code can "
+                    "wait without blocking its thread" });
+    CHECK(errors_of(std::format("{}Global m = Mutex<Int>(0)\n"
+                                "Async Function F()\n"
+                                "    Lock m As value\n"
+                                "        value = Await Sum(1)\n"
+                                "    End Lock\n"
+                                "End Function",
+                                sum)) ==
+          errors_t{ "Await Sum(1): Await can't wait in a Lock block, which would hold the Mutex "
+                    "meanwhile" });
+    CHECK(errors_of("Async Function Log()\nEnd Function\n"
+                    "Async Function F(): Int\n    Return Await Log()\nEnd Function") ==
+          errors_t{ "Await Log(): this Await gives nothing, since what it waits for gives "
+                    "nothing" });
+
+    // What can be Async.
+    CHECK(errors_of("Async Function F(ByRef n: Int)\nEnd Function") ==
+          errors_t{ "n: an Async Function's parameter can't be ByRef, since the Function can go "
+                    "on after its caller's variable is gone" });
+    CHECK(errors_of(std::format("{}Local f: Func(Int): Task<Int> = Sum", sum)) ==
+          errors_t{ "Sum: 'Sum' is Async, so it isn't a function value; a lambda can call it" });
+
+    // Its code runs on the main thread.
+    CHECK(errors_of(std::format("{}Local t = Spawn(Function() => Sum(1))", sum)) ==
+          errors_t{ "Spawn: this work runs on another thread, but it calls 'Sum', which is Async, "
+                    "so its code runs on the main thread" });
+}
+
+TEST_CASE("NextFrame, Seconds, and Schedulers time coroutines on the main thread", "[sema]") {
+    CHECK(probe("Local x = Seconds(2)") == "Task");
+    CHECK(probe("Local x = Scheduler()") == "Scheduler");
+    CHECK(errors_of("Async Function Door()\n"
+                    "    Await Seconds(1.5)\n"
+                    "    Await RealSeconds(1)\n"
+                    "    Await NextFrame()\n"
+                    "    Await MainThread()\n"
+                    "End Function\n"
+                    "Global gameplay = Scheduler()\n"
+                    "gameplay.Run(Door())\n"
+                    "gameplay.Tick(0.016)\n"
+                    "Local idle: Bool = gameplay.IsIdle()")
+              .empty());
+
+    // A Scheduler runs an Async Function's Task.
+    CHECK(errors_of("Global s = Scheduler()\ns.Run(5)") ==
+          errors_t{ "5: a Scheduler runs an Async Function's Task, not Int32" });
+    CHECK(errors_of("Global s = Scheduler()\ns.Pause()") ==
+          errors_t{ "Pause: a Scheduler has no member named 'Pause'; it has Run, Tick, and "
+                    "IsIdle" });
+    CHECK(errors_of("Local s = Scheduler(60)") ==
+          errors_t{ "Scheduler(60): a Scheduler is made without arguments, like Scheduler()" });
+    CHECK(errors_of("Local s: Scheduler<Int> = Scheduler()") ==
+          errors_t{ "Scheduler<Int>: 'Scheduler' isn't generic" });
+
+    // The timers and the Schedulers stay on the main thread, but MainThread() can go anywhere.
+    CHECK(errors_of("Local t = Spawn(Function() => Seconds(1))") ==
+          errors_t{ "Spawn: this work runs on another thread, but it calls 'Seconds', which is "
+                    "@MainThread" });
+    CHECK(errors_of("Local t = Spawn(Function() => Scheduler().IsIdle())") ==
+          errors_t{ "Spawn: this work runs on another thread, but it makes a Scheduler, whose "
+                    "coroutines run on the main thread" });
+    CHECK(errors_of("Function F(s: Scheduler)\n"
+                    "    Local t = Spawn(Function() => s.IsIdle())\n"
+                    "End Function") ==
+          errors_t{ "Function() => s.IsIdle(): 's' is Scheduler, which another thread can't "
+                    "have: a Scheduler runs coroutines, which stay on the main thread" });
+    CHECK(errors_of("Local t = Spawn(Function() => MainThread())").empty());
+
+    // A program can still declare the names.
+    CHECK(errors_of("Class Scheduler\nEnd Class\nLocal s = Scheduler()").empty());
+}
+
+TEST_CASE("an Async Function's Task keeps its error, which Await and Wait re-throw", "[sema]") {
+    const std::string_view load = "Class Oops Extends Error\nEnd Class\n"
+                                  "Async Function Load(): Int Throws Oops\n"
+                                  "    Throw Oops(\"no\")\n"
+                                  "End Function\n";
+    CHECK(probe(std::format("{}Local x = Load()", load)) == "Task<Int32> Throws Oops");
+    CHECK(errors_of(std::format("{}Local x = Load()\n"
+                                "Local y = Try x.Wait()\n"
+                                "Async Function Twice(): Int Throws Oops\n"
+                                "    Return 2 * Try Await Load()\n"
+                                "End Function\n"
+                                "Async Function Quiet(): Int\n"
+                                "    Return (Try? Await Load()) ?? 0\n"
+                                "End Function",
+                                load))
+              .empty());
+
+    // Waiting for it is what throws.
+    CHECK(errors_of(std::format("{}Local x = Load().Wait()", load)) ==
+          errors_t{ "Load().Wait(): 'Wait' can throw Oops, so calling it needs Try, Try?, or a "
+                    "Try block" });
+    CHECK(errors_of(std::format("{}Async Function F(): Int\n"
+                                "    Return Await Load()\n"
+                                "End Function",
+                                load)) ==
+          errors_t{ "Await Load(): this Await can throw Oops, as its Task's Async Function can, "
+                    "so it needs Try, Try?, or a Try block" });
+    CHECK(errors_of(std::format("{}Async Function F(): Int\n"
+                                "    Return Try Await Load()\n"
+                                "End Function",
+                                load)) ==
+          errors_t{ "Await Load(): Oops isn't caught; catch it in a Try block, or add it to the "
+                    "Throws of 'F'" });
+}
+
+TEST_CASE("a Method can be Async, and its overrides are too", "[sema]") {
+    CHECK(probe("Class C\n"
+                "    Async Method M(): Int\n"
+                "        Return 1\n"
+                "    End Method\n"
+                "End Class\n"
+                "Local x = C().M()") == "Task<Int32>");
+    CHECK(errors_of("Class A\n"
+                    "    Async Method M(): Int\n"
+                    "        Return 1\n"
+                    "    End Method\n"
+                    "End Class\n"
+                    "Class B Extends A\n"
+                    "    Override Async Method M(): Int\n"
+                    "        Return 2 * Await Super.M()\n"
+                    "    End Method\n"
+                    "End Class\n"
+                    "Struct S\n"
+                    "    Field x: Int\n"
+                    "    Async Method M(): Int\n"
+                    "        Return x\n"
+                    "    End Method\n"
+                    "    Static Async Method N()\n"
+                    "    End Method\n"
+                    "End Struct")
+              .empty());
+
+    CHECK(errors_of("Class A\n    Async Method M()\n    End Method\nEnd Class\n"
+                    "Class B Extends A\n    Override Method M()\n    End Method\nEnd Class") ==
+          errors_t{ "M: 'M' overrides A's, which is Async, so it has to be Async too" });
+    CHECK(
+        errors_of("Class A\n    Method M()\n    End Method\nEnd Class\n"
+                  "Class B Extends A\n    Override Async Method M()\n    End Method\nEnd Class") ==
+        errors_t{ "M: 'M' is Async, so it can't override A's, which isn't" });
+    CHECK(errors_of("Interface I\n    Method M()\nEnd Interface\n"
+                    "Class C Implements I\n    Async Method M()\n    End Method\nEnd Class") ==
+          errors_t{ "I: 'M' is Async, so it can't implement I's, which isn't" });
+    CHECK(errors_of("Interface Loader\n    Async Method Load(): Int\nEnd Interface") ==
+          errors_t{ "Load: an Interface's Method can't be Async yet" });
+    CHECK(errors_of("Struct S\n    Field x: Int\n    Async ByRef Method M()\n    End Method\n"
+                    "End Struct") ==
+          errors_t{ "M: a ByRef Method can't be Async, since it can go on after its caller's "
+                    "variable is gone" });
+    CHECK(errors_of("Class C\n    Async Method Destroy()\n    End Method\nEnd Class") ==
+          errors_t{ "Destroy: Destroy can't be Async, since it runs when the last reference "
+                    "goes" });
+}
+
+TEST_CASE("an Async lambda's call gives its Task, and its code can Await", "[sema]") {
+    CHECK(probe("Local x = Async Function() => 5") == "Func(): Task<Int32>");
+    CHECK(probe("Local x = Async Function(text: String)\n"
+                "    Await NextFrame()\n"
+                "    Print(text)\n"
+                "End Function") == "Func(String): Task");
+    CHECK(errors_of("Local f: Func(Int): Task<Int> = Async Function(n) => n + 1\n"
+                    "Local t = f(2)\n"
+                    "Global m = Mutex<Int>(0)\n"
+                    "Lock m As value\n"
+                    "    Local g = Async Function()\n"
+                    "        Await NextFrame()\n"
+                    "    End Function\n"
+                    "End Lock")
+              .empty());
+
+    // Await goes in its own code, not in a lambda inside it.
+    CHECK(errors_of("Local f = Async Function()\n"
+                    "    Local g = Function() => Await NextFrame()\n"
+                    "End Function") ==
+          errors_t{ "Await NextFrame(): Await goes in an Async Function or lambda, whose code can "
+                    "wait without blocking its thread" });
+
+    // Its code runs on the main thread.
+    CHECK(errors_of("Local t = Spawn(Function() => (Async Function() => 1)())") ==
+          errors_t{ "Spawn: this work runs on another thread, but it makes an Async lambda, "
+                    "whose code runs on the main thread" });
+}
+
+TEST_CASE("a lambda in generic code can loop over the members of its type parameters", "[sema]") {
+    const std::string_view describe = "Function Describe<T>(value: T): String\n"
+                                      "    Local text = \"\"\n"
+                                      "    Local add = Function()\n"
+                                      "        For Field f: F In T\n"
+                                      "            Where F: Printable\n"
+                                      "            text = text + \"{f.Get(value)}\"\n"
+                                      "        End For\n"
+                                      "    End Function\n"
+                                      "    add()\n"
+                                      "    Return text\n"
+                                      "End Function\n";
+    CHECK(errors_of(std::format("{}Local s = Describe((1, 2))", describe)).empty());
+    CHECK(errors_of("Function Names<T>(): String\n"
+                    "    Local names = Function(): String\n"
+                    "        Local text = \"\"\n"
+                    "        For Field f In T\n"
+                    "            text = text + f.Name\n"
+                    "        End For\n"
+                    "        Return text\n"
+                    "    End Function\n"
+                    "    Return names()\n"
+                    "End Function")
+              .empty());
+
+    // Each call checks the loop's Where lines.
+    CHECK(errors_of(std::format("Class Thing\nEnd Class\nStruct Holder\n    Field T: Thing\n"
+                                "End Struct\n{}Local s = Describe(Holder(Thing()))",
+                                describe)) ==
+          errors_t{ "Describe: 'Describe' needs each field of Holder to implement Printable, but "
+                    "its field 'T' is Thing, which doesn't" });
 }

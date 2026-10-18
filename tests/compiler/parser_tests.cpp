@@ -853,6 +853,25 @@ TEST_CASE("For Field and For Method go over a type's members", "[parser]") {
     CHECK(parse_text("For Method m: M In T\n    Where M: Func(Int): String\nEnd For").dump ==
           "(for-method m: M T (where M: Func(Int): String) (block))");
     CHECK(parse_text("For Property p: P In T\nEnd For").dump == "(for-property p: P T (block))");
+    CHECK(parse_text("Async Function F(): Int\n    Return Await G()\nEnd Function").dump ==
+          "(function Async F -> Int (block (return (await (call G)))))");
+    CHECK(parse_text("Async Local x = 1").errors ==
+          std::vector<std::string>{
+              "0-5: Async only goes before a Function or Method, whose code can Await" });
+    CHECK(parse_text("Local f = Async Function(n: Int) => n").dump ==
+          "(local f = (lambda Async (n: Int) => n))");
+    CHECK(parse_text("Local f = Async 5").errors ==
+          std::vector<std::string>{ "10-15: expected an expression, found 'Async'" });
+    CHECK(parse_text("Parallel For i = 0 Until n\nEnd For").dump ==
+          "(parallel-for i (int 0) until n (block))");
+    CHECK(parse_text("Parallel For x In items\nEnd For").errors ==
+          std::vector<std::string>{
+              "0-8: a Parallel For counts, like 'Parallel For i = 0 Until n'" });
+    CHECK(parse_text("Lock game.score As s\n    s += 1\nEnd Lock").dump ==
+          "(lock (. game score) s (block (+= s (int 1))))");
+    CHECK(parse_text("Lock score\nEnd Lock").errors ==
+          std::vector<std::string>{
+              "10-11: expected 'As' and a name for the Mutex's value, found newline" });
     CHECK(parse_text("For Static Field s In T\nEnd For").dump == "(for-static-field s T (block))");
 }
 

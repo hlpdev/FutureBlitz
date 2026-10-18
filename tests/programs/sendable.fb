@@ -1,0 +1,46 @@
+// Sendable: what the compiler says can go to another thread, checked through constraints.
+
+Enum Weather
+    SUN
+    RAIN
+End Enum
+
+Struct Reading Implements Sendable
+    Field Place: String
+    Field Degrees: Float
+    Field Sky: Weather
+End Struct
+
+Struct Batch<T: Sendable> Implements Sendable
+    Field Items: T[3]
+    Field Label: String?
+End Struct
+
+Interface Message Extends Sendable
+    Method Describe(): String
+End Interface
+
+Struct Alert Implements Message
+    Field Level: Int
+    Method Describe(): String => "alert {Level}"
+End Struct
+
+// Only Sendable values get this far: another thread could have them.
+Function Hand<T: Sendable>(value: T): T
+    Return value
+End Function
+
+Function Post<M: Message>(message: M): String
+    Return Hand(message).Describe()
+End Function
+
+Local reading = Hand(Reading("Oslo", -3.5, Weather.RAIN))
+Print("{reading.Place} {reading.Degrees} {reading.Sky}")
+
+Local copy = Hand(Batch<Int>([4, 0, 9], "counts"))
+Print("{copy.Label ?? "none"}: {copy.Items[0]} {copy.Items[1]} {copy.Items[2]}")
+
+Local pair = Hand((7, "seven"))
+Print("{pair.0} is {pair.1}")
+Print(Post(Alert(2)))
+Print("{Hand(Weather.SUN)}")

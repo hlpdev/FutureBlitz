@@ -95,6 +95,25 @@ enum class type_kind_t : std::uint8_t {
     /// A Const type parameter's argument: an integer known at compile time, like the 64 in
     /// "Grid<Float32, 64, 64>". It's never a value's type.
     VALUE,
+    /// "Atomic<T>": an integer or a Bool that threads change with atomic operations. It stays
+    /// where it's made, in a Global, a Static Field, or a Class's Field, so it's never copied.
+    ATOMIC,
+    /// "Mutex<T>": a Sendable T and a lock, which a Lock block holds while it uses the value. It
+    /// stays where it's made, like an Atomic. Its fields are the lock's state and the number of
+    /// the thread holding it, then the value.
+    MUTEX,
+    /// "Task<T>": work that a Spawn runs on the pool, and then its result, the `inner`. "Task"
+    /// alone is work that gives nothing. It's a reference to an object whose fields are the job
+    /// running it, the closure doing the work, and the result.
+    TASK,
+    /// "Thread": work that Thread.Start runs on a thread of its own, an object like a Task's.
+    THREAD,
+    /// "Channel<T>": a queue of Sendable T that threads send to and receive from, a reference to
+    /// an object of the runtime's fb_channel_t.
+    CHANNEL,
+    /// "Scheduler": runs the coroutines given to it when it's ticked, on the main thread. A
+    /// reference to an object of the runtime's fb_scheduler_t.
+    SCHEDULER,
 };
 
 /// One of a Struct's or Class's fields.
@@ -144,6 +163,10 @@ struct type_t {
     std::vector<enum_value_t> values;
     /// ENUM: written with @Flags, so its values are bits that combine.
     bool flags = false;
+    /// VALUE: how one computed from others is worked out, or NONE for a number.
+    value_op_t operation = value_op_t::NONE;
+    /// CLASS: a Shared Class, whose objects count their owners atomically.
+    bool shared = false;
     /// FUNCTION: its parameters' types. A generic STRUCT, CLASS, or INTERFACE: its type
     /// parameters. FIXED_ARRAY: for each size that's a Const type parameter, that parameter, with
     /// 0 in `sizes`, and INVALID for the others; empty when every size is known.
@@ -153,11 +176,13 @@ struct type_t {
     /// with the arguments in place of the parameters.
     type_id_t generic = type_id_t::INVALID;
     std::vector<type_id_t> arguments;
-    /// VALUE: the value, or for one computed from others, how: `parameters` has the two it's
-    /// computed from, a Const type parameter or another VALUE each, and each instance works it
-    /// out.
+    /// VALUE: the value. One computed from others has 0, and `parameters` has the two it's
+    /// computed from, a Const type parameter or another VALUE each, which each instance works out
+    /// with `operation`.
     std::int64_t number = 0;
-    value_op_t operation = value_op_t::NONE;
+    /// TASK: the Classes that its Async Function's errors extend, which Wait and Await re-throw.
+    /// Its last field, "error", holds the error, or Null.
+    std::vector<type_id_t> throws;
 };
 
 /// Every type one program uses. The built-ins are always there, with their fixed ids. A type
@@ -192,6 +217,29 @@ public:
 
     /// "Weak<T>", for a Class T. It makes "T?" too, which reading one gives.
     [[nodiscard]] type_id_t weak(type_id_t inner);
+
+    /// "Atomic<T>", for an integer or Bool T.
+    [[nodiscard]] type_id_t atomic(type_id_t inner);
+
+    /// "Mutex<T>", for a Sendable T.
+    [[nodiscard]] type_id_t mutex(type_id_t inner);
+
+    /// "Task<T>", or "Task" for a `result` of NONE.
+    [[nodiscard]] type_id_t task(type_id_t result);
+
+    /// "Task<T> Throws A, B": the Task of an Async Function that throws, whose "error" field is
+    /// an `error`, the Error? type. Without `throws`, it's task(result).
+    [[nodiscard]] type_id_t task(type_id_t result, const std::vector<type_id_t>& throws,
+                                 type_id_t error);
+
+    /// "Thread".
+    [[nodiscard]] type_id_t thread();
+
+    /// "Channel<T>", for a Sendable T.
+    [[nodiscard]] type_id_t channel(type_id_t element);
+
+    /// "Scheduler".
+    [[nodiscard]] type_id_t scheduler();
 
     /// "T?" when it's been made already, as for any T that has a Weak<T>. INVALID otherwise.
     [[nodiscard]] type_id_t find_nullable(type_id_t inner) const;
@@ -266,6 +314,9 @@ public:
     /// Makes a Class extend another. The caller makes sure that doesn't make a cycle.
     void set_base(type_id_t type, type_id_t base);
 
+    /// Makes a Class a Shared Class, before any of its instances are made.
+    void set_shared(type_id_t type);
+
     /// Whether `type` is the Class `base`, or extends it directly or through others. For an
     /// Interface, whether it's `base`, or extends that Interface.
     [[nodiscard]] bool extends(type_id_t type, type_id_t base) const;
@@ -284,10 +335,15 @@ private:
     struct entry_t {
         /// On the heap, so the type and its name never move.
         std::unique_ptr<type_t> type;
-        /// This type's "T?", "T[]", and "Weak<T>", once they've been made. INVALID until then.
+        /// This type's "T?", "T[]", "Weak<T>", "Atomic<T>", and "Mutex<T>", once they've been
+        /// made. INVALID until then.
         type_id_t nullable = type_id_t::INVALID;
         type_id_t array = type_id_t::INVALID;
         type_id_t weak = type_id_t::INVALID;
+        type_id_t atomic = type_id_t::INVALID;
+        type_id_t mutex = type_id_t::INVALID;
+        type_id_t task = type_id_t::INVALID;
+        type_id_t channel = type_id_t::INVALID;
     };
 
     /// Indexed by type_id_t.
@@ -296,8 +352,13 @@ private:
     std::vector<type_id_t> m_fixed_arrays;
     std::vector<type_id_t> m_tuples;
     std::vector<type_id_t> m_functions;
+    /// The Tasks of Async Functions that throw.
+    std::vector<type_id_t> m_throwing_tasks;
     std::vector<type_id_t> m_instances;
     std::vector<type_id_t> m_values;
+    /// "Thread" and "Scheduler", once they've been made.
+    type_id_t m_thread = type_id_t::INVALID;
+    type_id_t m_scheduler = type_id_t::INVALID;
     /// How many instances are being filled in, one inside another.
     std::uint32_t m_depth = 0;
 

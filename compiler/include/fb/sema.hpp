@@ -194,6 +194,8 @@ struct closure_t {
     std::vector<capture_t> captures;
     /// The lambda. nullopt for a Function used by name.
     std::optional<expr_id_t> lambda;
+    /// A Parallel For's body: the For, whose code goes over a chunk of its indexes.
+    std::optional<stmt_id_t> body;
 };
 
 /// What analysis found out about one expression.
@@ -250,6 +252,8 @@ struct stmt_info_t {
     /// What it declares: a Function's symbol, a Local's, Global's, or Const's, or a For loop's
     /// variable.
     std::optional<symbol_id_t> symbol;
+    /// A Parallel For's body, as a closure, by its index in `analysis_t::closures`.
+    std::optional<std::size_t> closure;
     /// For Break and Continue: the loop statement they leave or continue.
     std::optional<stmt_id_t> loop;
     /// For a Select of type matches, or a Try's Catches: each one's variable, in order. For a
@@ -295,6 +299,8 @@ struct builtin_interfaces_t {
     type_id_t numeric = type_id_t::INVALID;
     /// Iterator<T>, from std/core/iterator.fb, which 'For ... In' goes over.
     type_id_t iterator = type_id_t::INVALID;
+    /// What can go to another thread, which the compiler decides from a type's fields.
+    type_id_t sendable = type_id_t::INVALID;
 };
 
 /// Everything analysis found out about a file, for lowering and tools. `exprs` and `stmts` have

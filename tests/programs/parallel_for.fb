@@ -1,0 +1,95 @@
+// Parallel For runs its passes on the pool at once, and the next statement waits for them all.
+
+Struct Particle
+    Field X: Float
+    Field Speed: Float
+
+    ByRef Method Step(dt: Float)
+        X += Speed * dt
+    End Method
+End Struct
+
+Function Collatz(start: Int64): Int
+    Local n = start
+    Local steps = 0
+    While n != 1
+        If n % 2 == 0 Then n = n / 2 Else n = 3 * n + 1
+        steps += 1
+    End While
+
+    Return steps
+End Function
+
+Global total = Atomic<Int64>(0)
+Global evens = Atomic<Int>(0)
+Global cells = Atomic<Int>(0)
+
+// Each pass changes its own element of an array from outside.
+Local particles: Particle[] = []
+For i = 1 To 1000
+    particles.Add(Particle(0.0, i As Float))
+End For
+
+Const dt = 0.5
+Parallel For i = 0 Until particles.Count
+    particles[i].Step(dt)
+End For
+
+Print("{particles[0].X} {particles[999].X}")
+
+Local steps: Int[] = []
+For i = 0 Until 30
+    steps.Add(0)
+End For
+
+Parallel For i = 0 Until 30
+    steps[i] = Collatz(i + 1)
+End For
+
+Print("{steps[0]} {steps[5]} {steps[26]}")
+
+// What it uses from outside is a copy, and an array it doesn't change can be read anywhere.
+Local scale = 3
+Local inputs = [1, 2, 3, 4]
+Local outputs = [0, 0, 0, 0]
+Parallel For i = 0 Until inputs.Count
+    outputs[i] = inputs[inputs.Count - 1 - i] * scale
+End For
+
+Print("{outputs}")
+
+// Atomics add up what the passes do, and Continue goes on to the next index.
+Parallel For i = 1 To 100000
+    total.Add(i)
+End For
+
+Print("total {total.Load()}")
+
+Parallel For i = 0 Until 100
+    If i % 2 == 1 Then Continue
+    evens.Add(1)
+End For
+
+Print("evens {evens.Load()}")
+
+// A Parallel For inside one waits for its own passes, on the same pool.
+Parallel For row = 0 Until 10
+    Parallel For column = 0 Until 10
+        cells.Add(1)
+    End For
+End For
+
+Print("cells {cells.Load()}")
+
+// Strings are Sendable, so passes make them and store them.
+Const prefix = "item"
+Local names: String[] = []
+For i = 0 Until 5
+    names.Add("")
+End For
+
+Parallel For i = 0 Until 5
+    names[i] = "{prefix} {i}"
+End For
+
+Print("{names[0]}, {names[4]}")

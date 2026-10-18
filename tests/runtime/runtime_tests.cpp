@@ -198,15 +198,37 @@ TEST_CASE("a new object's fields start at zero", "[runtime]") {
     fb_object_release(&thing->header);
 }
 
-TEST_CASE("atomic retain and release count the same way", "[runtime]") {
+TEST_CASE("a Shared Class's object counts the same way", "[runtime]") {
     fb_class_t type = thing_class();
+    type.shared = 1;
     destroyed = 0;
+    released = 0;
     fb_object_t* object = fb_object_new(&type);
-    fb_object_retain_atomic(object);
+    // It holds a Weak reference to itself while it lives.
+    CHECK(object->weak_count == 1);
+    fb_object_retain(object);
     CHECK(object->refcount == 2);
-    fb_object_release_atomic(object);
-    fb_object_release_atomic(object);
+    fb_object_release(object);
+    fb_object_release(object);
     CHECK(destroyed == 1);
+    CHECK(released == 1);
+    CHECK(type.live == 0);
+
+    // A Weak reference keeps the memory, reads as null once the object is gone, and frees it.
+    fb_object_t* watched = fb_object_new(&type);
+    fb_object_retain_weak(watched);
+    fb_object_t* read = fb_object_load_weak(watched);
+    CHECK(read == watched);
+    fb_object_release(read);
+    fb_object_release(watched);
+    CHECK(destroyed == 2);
+    CHECK(fb_object_load_weak(watched) == nullptr);
+    fb_object_release_weak(watched);
+
+    // One whose New threw goes without its Destroy.
+    fb_object_discard(fb_object_new(&type));
+    CHECK(destroyed == 2);
+    CHECK(released == 3);
     CHECK(type.live == 0);
 }
 
@@ -215,8 +237,8 @@ TEST_CASE("null objects and Strings are ignored", "[runtime]") {
     // Class? holds null for Null.
     fb_object_retain(nullptr);
     fb_object_release(nullptr);
-    fb_object_retain_atomic(nullptr);
-    fb_object_release_atomic(nullptr);
+    fb_object_retain_weak(nullptr);
+    fb_object_release_weak(nullptr);
     fb_string_retain(nullptr);
     fb_string_release(nullptr);
 }

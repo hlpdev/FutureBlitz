@@ -84,8 +84,10 @@ Local table: Int[Fib(10)]          // usable in types
   Function, Method, Property, Struct, Class, Interface, Enum, Field, Global, or Const. Each use
   outside it, and outside its type's own code, gets a warning: "'Spawn' is deprecated: use
   Spawn2".
-- `@CLayout` comes with FFI (M5), `@MainThread` with concurrency (M4), and `@Serialize` with
-  the serialization library (M6); until then they're reported as not supported yet.
+- `@MainThread` goes before a Function or Method, which work on another thread can't call (see
+  [10-concurrency.md](10-concurrency.md#main-thread-rules)).
+- `@CLayout` comes with FFI (M5), and `@Serialize` with the serialization library (M6); until
+  then they're reported as not supported yet.
 
 ### Declaring attributes
 
@@ -139,7 +141,7 @@ End Function
 ```
 
 - `For Field f: F In T` goes over the fields of a Struct, a Class (the inherited ones first), or
-  a tuple ("0", "1", and so on), in order. The compiler makes a copy of the body for each field,
+  a tuple ("0", "1", and so on), in order, but not an Atomic or Mutex, which can't be copied. The compiler makes a copy of the body for each field,
   in which `F` is that field's type. `: F` can be left out when nothing names it.
 - The body is checked once, with `F` a type parameter that only its Where lines, at the top of
   the body, say anything about. Over a concrete type, each field's type must meet them. Over
@@ -165,7 +167,8 @@ End Function
   whose Where lines then make the Method conditional, as a Where line on it would. `Self` is the
   type of the code it's in, and in an Interface's default, the type that takes it, which has to
   meet the loop's Where lines.
-- A lambda in the loop's body is one for each copy.
+- A lambda in the loop's body is one for each copy. A lambda in code with type parameters can
+  loop over them too, since each instance of the code has its own copy of the lambda.
 - `T.Has(A)` and `T.Attribute(A)` read the attributes on a type's own declaration, for a type or
   a type parameter, unless it has a Static member by that name.
 - `Continue` goes on to the next copy, and `Break` past the last. Other types, like Int, have no

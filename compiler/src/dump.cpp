@@ -407,6 +407,12 @@ private:
         return list(node.optional ? "try?" : "try", { expr(node.operand) });
     }
 
+    [[nodiscard]] node_t build(const await_expr_t& node) const {
+        node_t out = list("await");
+        out.items.push_back(expr(node.operand));
+        return out;
+    }
+
     [[nodiscard]] node_t build(const ternary_expr_t& node) const {
         return list("?", { expr(node.condition), expr(node.if_true), expr(node.if_false) });
     }
@@ -499,9 +505,14 @@ private:
         return out;
     }
 
-    /// "(lambda [Weak Self] (x) (y: Int) -> Bool => value)", or with a block for the body.
+    /// "(lambda [Weak Self] (x) (y: Int) -> Bool => value)", or with a block for the body, and
+    /// Async after "lambda" for an Async one.
     [[nodiscard]] node_t build(const lambda_expr_t& node) const {
         node_t out = list("lambda");
+        if (node.is_async) {
+            out.items.push_back(atom("Async", tone_t::KEYWORD));
+        }
+
         if (!node.weak.empty()) {
             std::string names;
             for (const name_t& name : node.weak) {
@@ -546,7 +557,7 @@ private:
         return out;
     }
 
-    /// Abstract, Final, and Override, as keywords after the node's head.
+    /// The modifiers, like Abstract and Async, as keywords after the node's head.
     void add_modifiers(node_t& out, const modifiers_t& modifiers) const {
         if (modifiers.is_abstract) {
             out.items.push_back(atom("Abstract", tone_t::KEYWORD));
@@ -574,6 +585,18 @@ private:
 
         if (modifiers.is_inline) {
             out.items.push_back(atom("@Inline", tone_t::KEYWORD));
+        }
+
+        if (modifiers.is_shared) {
+            out.items.push_back(atom("Shared", tone_t::KEYWORD));
+        }
+
+        if (modifiers.is_async) {
+            out.items.push_back(atom("Async", tone_t::KEYWORD));
+        }
+
+        if (modifiers.is_main_thread) {
+            out.items.push_back(atom("@MainThread", tone_t::KEYWORD));
         }
 
         for (const attribute_t& attribute : modifiers.attributes) {
@@ -762,6 +785,14 @@ private:
         return out;
     }
 
+    [[nodiscard]] node_t build(const lock_stmt_t& node) const {
+        node_t out = list("lock");
+        out.items.push_back(expr(node.mutex));
+        out.items.push_back(atom(std::string(node.name.text), tone_t::NAME));
+        out.items.push_back(block(node.body));
+        return out;
+    }
+
     [[nodiscard]] node_t build(const loop_stmt_t& node) const {
         node_t out = list("loop");
         add_label(out, node.label);
@@ -770,7 +801,7 @@ private:
     }
 
     [[nodiscard]] node_t build(const for_stmt_t& node) const {
-        node_t out = list("for");
+        node_t out = list(node.parallel ? "parallel-for" : "for");
         add_label(out, node.label);
         out.items.push_back(atom(std::string(node.variable.text), tone_t::NAME));
         out.items.push_back(expr(node.start));

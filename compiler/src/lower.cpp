@@ -120,13 +120,20 @@ std::string function_name(const analysis_t& analysis, const symbol_t& function) 
 }
 
 /// What leaving a scope does: releases a variable, or runs a Defer's statement or a Finally.
-struct cleanup_t {
-    std::variant<local_id_t, stmt_id_t, const block_t*> action;
+/// The Mutex that a Lock block holds, which leaving the block lets go of.
+struct unlock_t {
+    place_t mutex;
+};
 
-    // Implicit, so a variable, a deferred statement, or a Finally can be put in a scope directly.
+struct cleanup_t {
+    std::variant<local_id_t, stmt_id_t, const block_t*, unlock_t> action;
+
+    // Implicit, so a variable, a deferred statement, a Finally, or a Lock's Mutex can be put in
+    // a scope directly.
     cleanup_t(const local_id_t local) : action(local) {}
     cleanup_t(const stmt_id_t deferred) : action(deferred) {}
     cleanup_t(const block_t* finally) : action(finally) {}
+    cleanup_t(unlock_t unlock) : action(std::move(unlock)) {}
 };
 
 /// A loop being lowered. Break and Continue end their blocks without a target, and the loop
@@ -283,12 +290,16 @@ private:
         std::vector<type_id_t> arguments;
         /// Inside a copy of a loop over a type's members: the member each loop's variable is.
         std::unordered_map<symbol_id_t, reflected_t> reflected;
+        /// An Async lambda's coroutine, rather than the code its calls run, which starts it.
+        bool coroutine = false;
     };
 
     /// The function values the program makes, whose code is lowered after the function that
     /// makes them, and that code's function, by the closure's Class.
     std::vector<pending_closure_t> m_closures;
     std::unordered_map<type_id_t, function_id_t> m_closure_code;
+    /// Each Async lambda's coroutine, by the closure's Class.
+    std::unordered_map<type_id_t, function_id_t> m_coroutine_code;
     /// An instance of a generic function: the function, and a type argument for each type
     /// parameter it has, its Struct's or Class's first.
     using instance_t = std::pair<symbol_id_t, std::vector<type_id_t>>;
@@ -309,6 +320,8 @@ private:
         EQUAL,
         HASH,
         TEXT,
+        /// A Task's or Thread's: runs its closure and keeps the result.
+        RUN,
     };
 
     struct generated_t {
@@ -317,7 +330,8 @@ private:
         function_id_t function;
     };
 
-    /// The array functions the program uses, whose bodies are lowered with the library's.
+    /// The array functions the program uses, and each Task's and Thread's work, whose bodies are
+    /// lowered with the library's.
     std::vector<generated_t> m_generated;
     /// Each Struct's symbol, by its type.
     std::unordered_map<type_id_t, symbol_id_t> m_declared_types;
@@ -335,6 +349,12 @@ private:
     // The function being lowered
     function_id_t m_function{};
     std::unordered_map<symbol_id_t, local_id_t> m_locals;
+    /// In an Async Function: its Task, its first parameter, which gets the result.
+    std::optional<local_id_t> m_async_task;
+    /// In an Async Function: the parameters it keeps references to while it runs.
+    std::vector<local_id_t> m_async_kept;
+    /// A Lock block's variable: the value in its Mutex, where it is.
+    std::unordered_map<symbol_id_t, place_t> m_aliases;
     std::optional<block_id_t> m_block;            // nullopt after a jump: nothing reaches here
     std::vector<std::vector<cleanup_t>> m_scopes; // what leaving each does, innermost last
     std::vector<local_id_t> m_temporaries;        // owned values to release after the statement
@@ -485,10 +505,12 @@ private:
         const bool sets_up = symbol.kind == symbol_kind_t::CONSTRUCTOR && is_class(symbol.type);
         const auto function = static_cast<function_id_t>(m_module.functions.size());
         m_functions[id] = function;
+        // An Async Function's code gives its result through its Task.
         m_module.functions.push_back({
             .name = function_name(m_analysis, symbol),
-            .return_type = sets_up ? type_id_t::NONE : symbol.type,
+            .return_type = sets_up || symbol.modifiers.is_async ? type_id_t::NONE : symbol.type,
             .is_inline = symbol.modifiers.is_inline,
+            .is_async = symbol.modifiers.is_async,
         });
         return function;
     }
@@ -530,9 +552,11 @@ private:
         const auto function = static_cast<function_id_t>(m_module.functions.size());
         m_module.functions.push_back({
             .name = instance_name(symbol, parameters, arguments),
-            .return_type =
-                sets_up ? type_id_t::NONE : types().substitute(symbol.type, parameters, arguments),
+            .return_type = sets_up || symbol.modifiers.is_async
+                               ? type_id_t::NONE
+                               : types().substitute(symbol.type, parameters, arguments),
             .is_inline = symbol.modifiers.is_inline,
+            .is_async = symbol.modifiers.is_async,
         });
         m_instances.emplace(key, function);
         m_pending_instances.push_back(std::move(key));
@@ -1031,6 +1055,11 @@ private:
     /// same way.
     [[nodiscard]] bool takes_error(const symbol_id_t id) const {
         const symbol_t& function = m_analysis.symbol(id);
+        // An Async Function's error goes in its Task.
+        if (function.modifiers.is_async) {
+            return false;
+        }
+
         return !function.throws.empty() || m_takes_error.contains(id) ||
                (function.overrides && takes_error(*function.overrides));
     }
@@ -1111,6 +1140,9 @@ private:
     void begin_function(const function_id_t id) {
         m_function = id;
         m_locals.clear();
+        m_aliases.clear();
+        m_async_task.reset();
+        m_async_kept.clear();
         m_scopes.clear();
         m_temporaries.clear();
         m_loops.clear();
@@ -1123,11 +1155,28 @@ private:
     }
 
     /// Ends the block that runs off the end of the function, if code reaches there.
+    /// An Async Function is done: what waits for its Task goes on, and it lets go of what it
+    /// kept.
+    void finish_async(const local_id_t task) {
+        runtime_call_t finish{
+            .function = runtime_function_t::ASYNC_FINISH,
+            .arguments = { place_t{ task } },
+        };
+        emit(evaluate_t{ std::move(finish) });
+        for (const local_id_t kept : std::views::reverse(m_async_kept)) {
+            emit(release_t{ .target = kept });
+        }
+    }
+
     void finish_function() {
         if (m_returns_self) {
             return_self();
         } else if (current().return_type == type_id_t::NONE) {
             release_scopes(0);
+            if (const std::optional<local_id_t> task = m_async_task) {
+                finish_async(*task);
+            }
+
             terminate(return_t{});
         } else {
             terminate(unreachable_t{}); // analysis checked that every path returns
@@ -1151,6 +1200,13 @@ private:
             m_self = add_local(type, "Self", self.by_ref && !is_object(type));
         }
 
+        // An Async Function's Task comes first.
+        if (function.modifiers.is_async) {
+            const type_id_t task =
+                types().task(concrete(function.type), function.throws, m_analysis.nullable_error);
+            m_async_task = add_local(task, "task");
+        }
+
         for (const symbol_id_t parameter_id : function.parameters) {
             const symbol_t& parameter = m_analysis.symbol(parameter_id);
             m_locals[parameter_id] =
@@ -1163,6 +1219,18 @@ private:
         }
 
         current().parameter_count = current().locals.size();
+
+        // An Async Function goes on after its caller returns, so it keeps its own references to
+        // its Task and parameters until it's done.
+        if (m_async_task) {
+            for (std::size_t i = 0; i < current().parameter_count; ++i) {
+                const auto local = static_cast<local_id_t>(i);
+                if (has_references(current().locals[i].type)) {
+                    emit(retain_t{ .value = place_t{ local } });
+                    m_async_kept.push_back(local);
+                }
+            }
+        }
 
         // A Struct's New starts Self with the fields' defaults. It isn't in a scope either: New
         // hands it to the caller.
@@ -1230,6 +1298,26 @@ private:
         if (error) {
             check_error(*error, span, discard);
         }
+    }
+
+    /// Where the Task of an Async Function that throws keeps its error: its last field.
+    place_t error_field(const operand_t& task) {
+        const type_id_t type = concrete(type_of(task));
+        return element_of(as_place(task),
+                          static_cast<std::uint32_t>(types().get(type).fields.size() - 1));
+    }
+
+    /// After a Task of an Async Function that throws is done, its error, if it has one, is raised
+    /// here. Each Wait and Await re-throws it.
+    void rethrow(const operand_t& task, const span_t span) {
+        if (types().get(concrete(type_of(task))).throws.empty()) {
+            return;
+        }
+
+        const local_id_t error = error_variable();
+        emit(assign_t{ .target = error, .value = use_t{ .value = error_field(task) } });
+        emit(retain_t{ .value = place_t{ error } });
+        check_error(error, span);
     }
 
     /// A call's variable for its error, Null until it throws.
@@ -1346,7 +1434,22 @@ private:
 
     /// A Class or an Interface: a reference to an object.
     [[nodiscard]] bool is_object(const type_id_t type) const {
-        return is_class(type) || is_interface(type);
+        return is_class(type) || is_interface(type) || is_task(type) || is_channel(type) ||
+               is_scheduler(type);
+    }
+
+    [[nodiscard]] bool is_scheduler(const type_id_t type) const {
+        return types().get(type).kind == type_kind_t::SCHEDULER;
+    }
+
+    [[nodiscard]] bool is_channel(const type_id_t type) const {
+        return types().get(type).kind == type_kind_t::CHANNEL;
+    }
+
+    /// A Task or Thread, a reference to its object.
+    [[nodiscard]] bool is_task(const type_id_t type) const {
+        const type_kind_t kind = types().get(type).kind;
+        return kind == type_kind_t::TASK || kind == type_kind_t::THREAD;
     }
 
     [[nodiscard]] bool is_tuple(const type_id_t type) const {
@@ -1457,8 +1560,8 @@ private:
     }
 
     /// Whether a type's zero has bits that aren't 0, unlike the fields of a new object: a
-    /// String's is the static "", and a Struct, tuple, or T? may hold one. A String? is Null,
-    /// which is 0.
+    /// String's is the static "", and a Struct, tuple, T?, or Mutex<T> may hold one. A String? is
+    /// Null, which is 0.
     [[nodiscard]] bool needs_zeroing(const type_id_t type) const {
         if (type == type_id_t::STRING) {
             return true;
@@ -1477,7 +1580,8 @@ private:
             return types().enum_zero(type) != 0;
         }
 
-        return (info.kind == type_kind_t::STRUCT || info.kind == type_kind_t::TUPLE) &&
+        return (info.kind == type_kind_t::STRUCT || info.kind == type_kind_t::TUPLE ||
+                info.kind == type_kind_t::MUTEX) &&
                std::ranges::any_of(
                    info.fields, [this](const field_t& field) { return needs_zeroing(field.type); });
     }
@@ -1543,10 +1647,11 @@ private:
         return zero_value(type);
     }
 
-    /// What a variable holds before it's assigned. The zero of a Struct, tuple, Class, or array
-    /// needs a temporary, and a T?'s is Null.
+    /// What a variable holds before it's assigned. The zero of a Struct, tuple, Mutex, Class, or
+    /// array needs a temporary, and a T?'s is Null.
     operand_t zero_value(const type_id_t type) {
-        if (has_fields(type) || is_object(type) || is_array(type) || is_fixed_array(type)) {
+        if (has_fields(type) || is_object(type) || is_array(type) || is_fixed_array(type) ||
+            types().get(type).kind == type_kind_t::MUTEX) {
             return temporary(zero_t{ .type = type }, type, has_references(type));
         }
 
@@ -1730,6 +1835,8 @@ private:
                 emit(release_t{ .target = *local });
             } else if (const auto* deferred = std::get_if<stmt_id_t>(&cleanup.action)) {
                 lower_stmt(*deferred);
+            } else if (const auto* unlock = std::get_if<unlock_t>(&cleanup.action)) {
+                emit(evaluate_t{ lock_t{ .target = unlock->mutex, .unlock = true } });
             } else {
                 lower_block(*std::get<const block_t*>(cleanup.action));
             }
@@ -2037,6 +2144,35 @@ private:
             branch_t{ .condition = condition, .if_true = exit, .if_false = body };
     }
 
+    /// "Lock m As s": takes the Mutex where it is, and lets go of it on every way out of the
+    /// body, whose s is the value inside it. An object holding the Mutex is kept until then, so
+    /// the body can't make it go, or reach another object's Mutex through the same name.
+    void lower_stmt(const stmt_id_t id, span_t /*span*/, const lock_stmt_t& node) {
+        push_scope();
+        place_t mutex = lower_place(node.mutex);
+        const auto* member = std::get_if<member_expr_t>(&m_ast.get(node.mutex).node);
+        if (member != nullptr &&
+            m_analysis.symbol(expect(m_analysis.expr(node.mutex).symbol)).kind ==
+                symbol_kind_t::FIELD) {
+            const operand_t object = lower_value(member->object);
+            const local_id_t holder = add_local(type_of(object));
+            initialize(holder, object);
+            m_scopes.back().emplace_back(holder);
+            const std::uint32_t field = mutex.steps.back().field;
+            mutex = place_t{ holder };
+            mutex.steps.push_back({ .field = field });
+        }
+
+        finish_statement();
+        emit(evaluate_t{ lock_t{ .target = mutex, .span = span_of(node.mutex) } });
+        m_scopes.back().emplace_back(unlock_t{ .mutex = mutex });
+        place_t value = mutex;
+        value.steps.push_back({ .field = 2 });
+        m_aliases.insert_or_assign(expect(m_analysis.stmt(id).symbol), std::move(value));
+        lower_block(node.body);
+        pop_scope();
+    }
+
     void lower_stmt(const stmt_id_t id, span_t /*span*/, const loop_stmt_t& node) {
         const block_id_t body = new_block();
         jump(body);
@@ -2047,7 +2183,43 @@ private:
         join(loop.breaks);
     }
 
+    /// "Parallel For i = a Until b": the body's closure, which the runtime runs for chunks of
+    /// the indexes from a up to b, or through b for To.
+    void lower_parallel_for(const stmt_id_t id, const span_t span, const for_stmt_t& node) {
+        const closure_t& closure = m_analysis.closures[expect(m_analysis.stmt(id).closure)];
+        const auto wide = [&](const operand_t& value) {
+            return temporary(cast_t{ .value = value, .type = type_id_t::INT64, .span = span },
+                             type_id_t::INT64);
+        };
+
+        const operand_t first = wide(lower_value(node.start));
+        operand_t last = wide(lower_value(node.end));
+        if (node.inclusive) {
+            binary_t through{
+                .op = binary_op_t::ADD,
+                .left = last,
+                .right = one(type_id_t::INT64),
+                .span = span,
+                .wrapping = true,
+            };
+            last = temporary(std::move(through), type_id_t::INT64);
+        }
+
+        const operand_t body = make_closure(closure, span);
+        runtime_call_t run{
+            .function = runtime_function_t::PARALLEL_FOR,
+            .arguments = { first, last, body },
+        };
+        emit(evaluate_t{ std::move(run) });
+        finish_statement();
+    }
+
     void lower_stmt(const stmt_id_t id, const span_t span, const for_stmt_t& node) {
+        if (node.parallel) {
+            lower_parallel_for(id, span, node);
+            return;
+        }
+
         const symbol_id_t symbol_id = expect(m_analysis.stmt(id).symbol);
         const type_id_t type = m_analysis.symbol(symbol_id).type;
         const local_id_t variable = add_local(type, node.variable.text);
@@ -2171,6 +2343,11 @@ private:
         }
 
         const type_id_t type = converted_type(node.sequence);
+        if (is_channel(type)) {
+            lower_channel_iteration(id, span, node, type);
+            return;
+        }
+
         push_scope();
         const operand_t value = lower_value(node.sequence);
         place_t sequence = as_place(value);
@@ -2283,6 +2460,12 @@ private:
         } else if (is_struct(type) || is_class(type) || is_tuple(type)) {
             const std::vector<field_t> fields = types().get(type).fields;
             for (std::uint32_t i = 0; i < fields.size(); ++i) {
+                // An Atomic or Mutex can't be copied, so the loop leaves it out.
+                const type_kind_t kind = types().get(fields[i].type).kind;
+                if (kind == type_kind_t::ATOMIC || kind == type_kind_t::MUTEX) {
+                    continue;
+                }
+
                 reflected_t member{ .name = fields[i].name, .index = i };
                 member.symbol = field_symbol(type, i);
                 copy(std::move(member), fields[i].type);
@@ -2396,7 +2579,8 @@ private:
                     kind == member_kind_t::PROPERTY
                         ? found.kind == symbol_kind_t::PROPERTY && !found.modifiers.is_static
                         : found.kind == symbol_kind_t::GLOBAL;
-                if (!wanted) {
+                const type_kind_t held = types().get(found.type).kind;
+                if (!wanted || held == type_kind_t::ATOMIC || held == type_kind_t::MUTEX) {
                     continue;
                 }
 
@@ -2737,6 +2921,24 @@ private:
     void lower_stmt(stmt_id_t /*id*/, span_t /*span*/, const return_stmt_t& node) {
         if (m_returns_self) {
             return_self();
+            return;
+        }
+
+        // An Async Function's result goes in its Task.
+        if (const std::optional<local_id_t> task = m_async_task) {
+            if (node.value) {
+                const operand_t result = lower_value(*node.value);
+                take(result);
+                emit(assign_t{
+                    .target = element_of(place_t{ *task }, 2),
+                    .value = use_t{ .value = result },
+                });
+            }
+
+            finish_statement();
+            release_scopes(0);
+            finish_async(*task);
+            terminate(return_t{});
             return;
         }
 
@@ -3086,6 +3288,15 @@ private:
                 .value = use_t{ .value = place_t{ error } },
             });
             leave(m_handlers.back().exits);
+        } else if (const std::optional<local_id_t> task = m_async_task) {
+            // An Async Function's error goes in its Task, which Wait and Await re-throw.
+            release_scopes(0);
+            emit(assign_t{
+                .target = error_field(*task),
+                .value = use_t{ .value = place_t{ error } },
+            });
+            finish_async(*task);
+            terminate(return_t{});
         } else if (const std::optional<local_id_t> slot = m_error_slot) {
             release_scopes(0);
             // A Struct's New only hands Self to its caller when it doesn't throw.
@@ -3138,6 +3349,10 @@ private:
     /// A variable's place. A field used by name in a Method or New is in Self, and a Local that a
     /// lambda captures is in its cell.
     place_t place_of(const symbol_id_t symbol) {
+        if (const auto found = m_aliases.find(symbol); found != m_aliases.end()) {
+            return found->second;
+        }
+
         if (const auto found = m_locals.find(symbol); found != m_locals.end()) {
             place_t place{ found->second };
             if (m_analysis.symbol(symbol).cell != type_id_t::INVALID) {
@@ -3831,12 +4046,112 @@ private:
             .arguments = m_arguments,
             .reflected = m_reflected,
         });
+
+        // An Async lambda's code starts its coroutine, which is a function of its own.
+        if (closure.lambda && m_analysis.symbol(closure.function).modifiers.is_async) {
+            m_coroutine_code[type] = static_cast<function_id_t>(m_module.functions.size());
+            m_module.functions.push_back({
+                .name = std::format("{} (Async)", types().name(type)),
+                .is_async = true,
+            });
+            m_closures.push_back({
+                .closure = closure,
+                .type = type,
+                .parameters = m_parameters,
+                .arguments = m_arguments,
+                .reflected = m_reflected,
+                .coroutine = true,
+            });
+        }
+
         return id;
+    }
+
+    /// What a closure's code captured, from its object into locals, which borrow the object's
+    /// references.
+    void load_captures(const pending_closure_t& pending, const local_id_t object) {
+        // The type table keeps each type where it is, so the locals can use the fields' names.
+        const closure_t& closure = pending.closure;
+        const std::vector<field_t>& fields = types().get(pending.type).fields;
+        for (std::uint32_t i = 0; i < closure.captures.size(); ++i) {
+            const capture_t& capture = closure.captures[i];
+            const local_id_t local = add_local(fields[i].type, fields[i].name);
+            emit(assign_t{
+                .target = local,
+                .value = use_t{ .value = element_of(place_t{ object }, i) },
+            });
+            const bool self = capture.kind != capture_kind_t::WEAK &&
+                              m_analysis.symbol(capture.variable).name == "Self";
+            if (self) {
+                m_self = local;
+            } else {
+                m_locals[capture.inside] = local;
+            }
+        }
+    }
+
+    /// A Parallel For's body's code takes its object and a chunk of the indexes, from `first` up
+    /// to `last`, and runs the body for each, as the loop variable. Every thread running a chunk
+    /// shares the object, which only borrows.
+    void lower_parallel_body(const pending_closure_t& pending, const local_id_t object) {
+        const closure_t& closure = pending.closure;
+        const local_id_t first = add_local(type_id_t::INT64, "first");
+        const local_id_t last = add_local(type_id_t::INT64, "last");
+        current().parameter_count = current().locals.size();
+        load_captures(pending, object);
+
+        const stmt_id_t id = expect(closure.body);
+        const auto& node = std::get<for_stmt_t>(m_ast.get(id).node);
+        const span_t span = m_ast.get(id).span;
+        const symbol_id_t symbol_id = m_analysis.symbol(closure.function).parameters.front();
+        const type_id_t type = concrete(m_analysis.symbol(symbol_id).type);
+        const local_id_t position = add_local(type_id_t::INT64, "index");
+        emit(assign_t{ .target = position, .value = use_t{ .value = place_t{ first } } });
+
+        const block_id_t head = new_block();
+        jump(head);
+        start(head);
+        const operand_t more =
+            compare(binary_op_t::LESS, place_t{ position }, place_t{ last }, span);
+        const block_id_t test = here();
+        m_block.reset();
+
+        const block_id_t body = new_block();
+        start(body);
+        const local_id_t variable = add_local(type, node.variable.text);
+        m_locals[symbol_id] = variable;
+        emit(assign_t{
+            .target = variable,
+            .value = cast_t{ .value = place_t{ position }, .type = type, .span = span },
+        });
+        loop_t loop = lower_loop_body(id, node.body);
+        leave(loop.continues);
+        join(loop.continues);
+        binary_t next{
+            .op = binary_op_t::ADD,
+            .left = place_t{ position },
+            .right = one(type_id_t::INT64),
+            .span = span,
+            .wrapping = true,
+        };
+        emit(assign_t{ .target = position, .value = std::move(next) });
+        jump(head);
+
+        const block_id_t done = new_block();
+        block_at(test).terminator =
+            branch_t{ .condition = more, .if_true = body, .if_false = done };
+        start(done);
+        terminate(return_t{});
     }
 
     /// A closure's code takes its object, then the arguments. It reads what it captured from the
     /// object, which lives as long as the call. A Function used by name just calls it.
     void lower_closure(const pending_closure_t& pending) {
+        if (pending.coroutine) {
+            lower_async_closure(pending);
+            return;
+        }
+
         const closure_t& closure = pending.closure;
         m_parameters = pending.parameters;
         m_arguments = pending.arguments;
@@ -3844,6 +4159,11 @@ private:
         begin_function(m_closure_code.at(pending.type));
         const local_id_t object = add_local(pending.type, "closure");
         const symbol_t& function = m_analysis.symbol(closure.function);
+
+        if (closure.body) {
+            lower_parallel_body(pending, object);
+            return;
+        }
 
         // A Function used by name has its own type parameters, which the closure's Class has.
         if (!closure.lambda) {
@@ -3876,24 +4196,31 @@ private:
             return;
         }
 
-        // The type table keeps each type where it is, so the locals can use the fields' names.
-        const std::vector<field_t>& fields = types().get(pending.type).fields;
-        for (std::uint32_t i = 0; i < closure.captures.size(); ++i) {
-            const capture_t& capture = closure.captures[i];
-            const local_id_t local = add_local(fields[i].type, fields[i].name);
-            emit(assign_t{
-                .target = local,
-                .value = use_t{ .value = element_of(place_t{ object }, i) },
-            });
-            const bool self = capture.kind != capture_kind_t::WEAK &&
-                              m_analysis.symbol(capture.variable).name == "Self";
-            if (self) {
-                m_self = local;
-            } else {
-                m_locals[capture.inside] = local;
-            }
+        // An Async lambda's code makes its Task and starts the coroutine, which runs until it
+        // first Awaits, as an Async Function's call does.
+        if (function.modifiers.is_async) {
+            const type_id_t type = types().get(concrete(closure.func)).inner;
+            generated(generated_kind_t::RUN, type);
+            const operand_t task = temporary(new_t{ .type = type }, type, true);
+            runtime_call_t begin{
+                .function = runtime_function_t::ASYNC_BEGIN,
+                .arguments = { task },
+            };
+            emit(evaluate_t{ std::move(begin) });
+            arguments.insert(arguments.begin(), { .value = task });
+            arguments.insert(arguments.begin(), { .value = place_t{ object } });
+            call_t start{
+                .function = m_coroutine_code.at(pending.type),
+                .arguments = std::move(arguments),
+            };
+            emit(evaluate_t{ std::move(start) });
+            take(task);
+            finish_statement();
+            terminate(return_t{ .value = task });
+            return;
         }
 
+        load_captures(pending, object);
         const auto& node = std::get<lambda_expr_t>(m_ast.get(*closure.lambda).node);
         if (!node.value) {
             lower_statements(node.body);
@@ -3914,6 +4241,58 @@ private:
         finish_statement();
         release_scopes(0);
         terminate(return_t{ .value = value });
+    }
+
+    /// An Async lambda's coroutine takes its object, its Task, then the arguments, and keeps its
+    /// own references to them until it's done, as an Async Function does.
+    void lower_async_closure(const pending_closure_t& pending) {
+        const closure_t& closure = pending.closure;
+        m_parameters = pending.parameters;
+        m_arguments = pending.arguments;
+        m_reflected = pending.reflected;
+        begin_function(m_coroutine_code.at(pending.type));
+        const local_id_t object = add_local(pending.type, "closure");
+        const symbol_t& function = m_analysis.symbol(closure.function);
+        const type_id_t result = concrete(function.type);
+        const local_id_t task = add_local(types().task(result), "task");
+        m_async_task = task;
+        for (const symbol_id_t parameter_id : function.parameters) {
+            const symbol_t& parameter = m_analysis.symbol(parameter_id);
+            m_locals[parameter_id] = add_local(concrete(parameter.type), parameter.name);
+        }
+
+        current().parameter_count = current().locals.size();
+        for (std::size_t i = 0; i < current().parameter_count; ++i) {
+            const auto local = static_cast<local_id_t>(i);
+            if (has_references(current().locals[i].type)) {
+                emit(retain_t{ .value = place_t{ local } });
+                m_async_kept.push_back(local);
+            }
+        }
+
+        load_captures(pending, object);
+        const auto& node = std::get<lambda_expr_t>(m_ast.get(expect(closure.lambda)).node);
+        if (!node.value) {
+            lower_statements(node.body);
+            finish_function();
+            return;
+        }
+
+        if (result == type_id_t::NONE) {
+            lower_effect(*node.value);
+        } else {
+            const operand_t value = lower_value(*node.value);
+            take(value);
+            emit(assign_t{
+                .target = element_of(place_t{ task }, 2),
+                .value = use_t{ .value = value },
+            });
+        }
+
+        finish_statement();
+        release_scopes(0);
+        finish_async(task);
+        terminate(return_t{});
     }
 
     /// Interpolation: every part becomes a String, then they're joined.
@@ -4091,6 +4470,9 @@ private:
         } else if (kind == generated_kind_t::HASH) {
             full = std::format("{}.Hash()", name);
             result = type_id_t::UINT64;
+        } else if (kind == generated_kind_t::RUN) {
+            full = std::format("{}.Run()", name);
+            result = type_id_t::NONE;
         } else {
             full = std::format("{}.ToString()", name);
             result = type_id_t::STRING;
@@ -4099,6 +4481,11 @@ private:
         const auto id = static_cast<function_id_t>(m_module.functions.size());
         m_module.functions.push_back({ .name = std::move(full), .return_type = result });
         m_generated.push_back({ .kind = kind, .type = type, .function = id });
+        // A Task's Class has its work first in its Method table, where the runtime finds it.
+        if (kind == generated_kind_t::RUN) {
+            add_runtime_class(type, { id });
+        }
+
         return id;
     }
 
@@ -4179,6 +4566,31 @@ private:
             take(place_t{ text });
             release_scopes(0);
             terminate(return_t{ .value = place_t{ text } });
+            break;
+        }
+        case generated_kind_t::RUN: {
+            // The closure runs once, so the work takes it from the object, and lets go of it
+            // when it's done. A Task keeps the result.
+            const type_id_t func = types().get(type).fields[1].type;
+            const local_id_t work = add_local(func, "work");
+            const place_t closure = element_of(place_t{ array }, 1);
+            emit(assign_t{ .target = work, .value = use_t{ .value = closure } });
+            emit(assign_t{
+                .target = closure,
+                .value = use_t{ .value = const_value_t{ .type = func, .data = nullptr } },
+            });
+            invoke_t call{ .callee = place_t{ work } };
+            if (element == type_id_t::NONE) {
+                emit(evaluate_t{ std::move(call) });
+            } else {
+                emit(assign_t{
+                    .target = element_of(place_t{ array }, 2),
+                    .value = std::move(call),
+                });
+            }
+
+            emit(release_t{ .target = work });
+            terminate(return_t{});
             break;
         }
         }
@@ -4617,10 +5029,60 @@ private:
         return expect(lower_try(id));
     }
 
+    /// "Await t": the scheduler resumes this coroutine once the Task is done, and its result is
+    /// in the Task.
+    std::optional<operand_t> lower_await(const expr_id_t id) {
+        const auto& node = std::get<await_expr_t>(m_ast.get(id).node);
+        const operand_t task = lower_value(node.operand);
+        runtime_call_t wait{
+            .function = runtime_function_t::AWAIT,
+            .arguments = { task, place_t{ expect(m_async_task) } },
+        };
+        emit(evaluate_t{ std::move(wait) });
+        const block_id_t resume = new_block();
+        const block_id_t cancel = new_block();
+        terminate(suspend_t{ .resume = resume, .cancel = cancel });
+        // Destroyed here, the coroutine lets go of what it holds, without running its Defers or
+        // Finally blocks, and its Task is never done.
+        start(cancel);
+        for (const local_id_t temporary : std::views::reverse(m_temporaries)) {
+            emit(release_t{ .target = temporary });
+        }
+
+        for (const std::vector<cleanup_t>& scope : std::views::reverse(m_scopes)) {
+            for (const cleanup_t& cleanup : std::views::reverse(scope)) {
+                if (const auto* local = std::get_if<local_id_t>(&cleanup.action)) {
+                    emit(release_t{ .target = *local });
+                }
+            }
+        }
+
+        for (const local_id_t kept : std::views::reverse(m_async_kept)) {
+            emit(release_t{ .target = kept });
+        }
+
+        terminate(return_t{});
+        start(resume);
+        rethrow(task, span_of(id));
+        if (types().get(concrete(type_of(task))).inner == type_id_t::NONE) {
+            return std::nullopt;
+        }
+
+        return element_of(as_place(task), 2);
+    }
+
+    operand_t lower_expr(const expr_id_t id, const await_expr_t& /*node*/) {
+        return expect(lower_await(id));
+    }
+
     /// A call, or a Try, for its effects: its result, or nullopt when it gives nothing.
     std::optional<operand_t> lower_effect(const expr_id_t id) {
         if (std::holds_alternative<try_expr_t>(m_ast.get(id).node)) {
             return lower_try(id);
+        }
+
+        if (std::holds_alternative<await_expr_t>(m_ast.get(id).node)) {
+            return lower_await(id);
         }
 
         return lower_call(id);
@@ -4717,8 +5179,327 @@ private:
 
     /// A call's result, or nullopt when it returns nothing. A result with references is released
     /// after the statement unless something takes it. "a?.M()" only calls when a holds a value.
+    /// "Atomic<Int>(0)" or "Mutex(value)": what a Global or Field starts with. A Mutex starts
+    /// with no thread holding it.
+    operand_t make_in_place(const expr_id_t id) {
+        const type_id_t type = concrete(expr_type(id));
+        const operand_t value = lower_value(expect(m_analysis.expr(id).arguments.front()));
+        if (types().get(type).kind == type_kind_t::ATOMIC) {
+            return temporary(
+                atomic_t{ .op = atomic_op_t::MAKE, .operands = { value }, .type = type }, type);
+        }
+
+        take(value);
+        return temporary(
+            aggregate_t{
+                .type = type,
+                .fields = { zero(type_id_t::INT32), zero(type_id_t::UINT32), value },
+            },
+            type, true);
+    }
+
+    /// An Atomic's Methods, on the Atomic where it is, which comes first.
+    std::optional<operand_t> atomic_call(const symbol_t& method,
+                                         const std::vector<call_argument_t>& arguments) {
+        constexpr auto names = std::to_array<std::pair<std::string_view, atomic_op_t>>({
+            { "Load", atomic_op_t::LOAD },
+            { "Store", atomic_op_t::STORE },
+            { "Add", atomic_op_t::ADD },
+            { "Subtract", atomic_op_t::SUBTRACT },
+            { "Exchange", atomic_op_t::EXCHANGE },
+            { "CompareExchange", atomic_op_t::COMPARE_EXCHANGE },
+        });
+        const atomic_op_t op =
+            std::ranges::find(names, method.name, &std::pair<std::string_view, atomic_op_t>::first)
+                ->second;
+        const type_id_t type = concrete(method.owner);
+        atomic_t operation{
+            .op = op,
+            .target = std::get<place_t>(arguments.front().value),
+            .type = type,
+        };
+        for (const call_argument_t& argument : arguments | std::views::drop(1)) {
+            operation.operands.push_back(argument.value);
+        }
+
+        if (op == atomic_op_t::STORE) {
+            emit(evaluate_t{ std::move(operation) });
+            return std::nullopt;
+        }
+
+        return temporary(std::move(operation), op == atomic_op_t::COMPARE_EXCHANGE
+                                                   ? type_id_t::BOOL
+                                                   : types().get(type).inner);
+    }
+
+    /// "Spawn(work)" or "Thread.Start(work)": a new object of the Task's or Thread's Class,
+    /// holding the work's closure, which the runtime starts.
+    operand_t spawn(const expr_id_t id) {
+        const type_id_t type = concrete(expr_type(id));
+        const operand_t work = lower_value(expect(m_analysis.expr(id).arguments.front()));
+        generated(generated_kind_t::RUN, type);
+        const operand_t task = temporary(new_t{ .type = type }, type, true);
+        take(work);
+        emit(assign_t{
+            .target = element_of(std::get<place_t>(task), 1),
+            .value = use_t{ .value = work },
+        });
+        const bool thread = types().get(type).kind == type_kind_t::THREAD;
+        runtime_call_t start{
+            .function = thread ? runtime_function_t::THREAD_START : runtime_function_t::TASK_START,
+            .arguments = { task },
+        };
+        emit(evaluate_t{ std::move(start) });
+        return task;
+    }
+
+    /// A Channel's Methods. What's sent goes in with its references, and what's received comes
+    /// out with them.
+    std::optional<operand_t> channel_call(const symbol_t& method,
+                                          const std::vector<call_argument_t>& arguments,
+                                          const span_t span) {
+        const operand_t& channel = arguments.front().value;
+        const type_id_t element = types().get(concrete(method.owner)).inner;
+        const auto run = [&](const runtime_function_t function, const local_id_t slot) {
+            return runtime_call_t{
+                .function = function,
+                .arguments = { channel, place_t{ slot } },
+                .span = span,
+            };
+        };
+
+        // `then` runs when `condition` holds, and the code goes on after.
+        const auto when = [&](const operand_t& condition, const auto& then) {
+            const block_id_t test = here();
+            m_block.reset();
+            std::vector<block_id_t> exits;
+            const block_id_t yes = new_block();
+            start(yes);
+            then();
+            leave(exits);
+            const block_id_t no = new_block();
+            start(no);
+            leave(exits);
+            block_at(test).terminator =
+                branch_t{ .condition = condition, .if_true = yes, .if_false = no };
+            join(exits);
+        };
+
+        if (method.name == "Close") {
+            runtime_call_t close{
+                .function = runtime_function_t::CHANNEL_CLOSE,
+                .arguments = { channel },
+            };
+            emit(evaluate_t{ std::move(close) });
+            return std::nullopt;
+        }
+
+        if (method.name == "Send" || method.name == "TrySend") {
+            const local_id_t slot = add_local(element);
+            take(arguments[1].value);
+            emit(assign_t{ .target = slot, .value = use_t{ .value = arguments[1].value } });
+            if (method.name == "Send") {
+                emit(evaluate_t{ run(runtime_function_t::CHANNEL_SEND, slot) });
+                return std::nullopt;
+            }
+
+            // What wasn't sent is still this code's.
+            operand_t sent =
+                temporary(run(runtime_function_t::CHANNEL_TRY_SEND, slot), type_id_t::BOOL);
+            if (has_references(element)) {
+                const operand_t kept =
+                    temporary(unary_t{ .op = unary_op_t::NOT, .operand = sent, .span = span },
+                              type_id_t::BOOL);
+                when(kept, [&] { emit(release_t{ .target = slot }); });
+            }
+
+            return sent;
+        }
+
+        if (method.name == "TryReceive") {
+            const place_t target = std::get<place_t>(arguments[1].value);
+            const local_id_t slot = add_local(element);
+            operand_t got =
+                temporary(run(runtime_function_t::CHANNEL_TRY_RECEIVE, slot), type_id_t::BOOL);
+            when(got, [&] {
+                if (has_references(element)) {
+                    emit(release_t{ .target = target });
+                }
+
+                emit(assign_t{ .target = target, .value = use_t{ .value = place_t{ slot } } });
+            });
+            return got;
+        }
+
+        // Receive: Null once it's closed and empty.
+        const local_id_t slot = add_local(element);
+        const operand_t got =
+            temporary(run(runtime_function_t::CHANNEL_RECEIVE, slot), type_id_t::BOOL);
+        const type_id_t result_type = concrete(method.type);
+        const local_id_t result = add_local(result_type);
+        emit(assign_t{ .target = result, .value = use_t{ .value = null_of(result_type) } });
+        when(got, [&] {
+            const operand_t value = convert(place_t{ slot }, result_type, span);
+            emit(assign_t{ .target = result, .value = use_t{ .value = value } });
+        });
+        if (has_references(result_type)) {
+            m_temporaries.push_back(result);
+        }
+
+        return place_t{ result };
+    }
+
+    /// "For x In ch": each pass receives one, until the Channel is closed and empty, and x takes
+    /// its references.
+    void lower_channel_iteration(const stmt_id_t id, const span_t span, const for_in_stmt_t& node,
+                                 const type_id_t type) {
+        const stmt_info_t& info = m_analysis.stmt(id);
+        push_scope();
+        const local_id_t channel = add_local(type);
+        initialize(channel, lower_value(node.sequence));
+        m_scopes.back().emplace_back(channel);
+        finish_statement();
+
+        const symbol_id_t variable = expect(info.symbol);
+        const type_id_t element = concrete(m_analysis.symbol(variable).type);
+        const local_id_t slot = add_local(element);
+        const block_id_t head = new_block();
+        jump(head);
+        start(head);
+        runtime_call_t receive{
+            .function = runtime_function_t::CHANNEL_RECEIVE,
+            .arguments = { place_t{ channel }, place_t{ slot } },
+            .span = span,
+        };
+        const operand_t received = temporary(std::move(receive), type_id_t::BOOL);
+        const block_id_t test = here();
+        m_block.reset();
+
+        const block_id_t body = new_block();
+        start(body);
+        m_loops.push_back({ .stmt = id, .scope_depth = m_scopes.size() });
+        push_scope();
+        const local_id_t local = add_local(element, node.value.text);
+        m_locals[variable] = local;
+        emit(assign_t{ .target = local, .value = use_t{ .value = place_t{ slot } } });
+        if (has_references(element)) {
+            m_scopes.back().emplace_back(local);
+        }
+
+        lower_statements(node.body);
+        pop_scope();
+        loop_t loop = std::move(m_loops.back());
+        m_loops.pop_back();
+        leave(loop.continues);
+        join(loop.continues);
+        jump(head);
+
+        const block_id_t exit = join(loop.breaks);
+        block_at(test).terminator =
+            branch_t{ .condition = received, .if_true = body, .if_false = exit };
+        pop_scope();
+    }
+
+    /// A Task's Wait and a Thread's Join, which give the result a Task keeps, and IsDone.
+    std::optional<operand_t> task_call(const symbol_t& method,
+                                       const std::vector<call_argument_t>& arguments,
+                                       const span_t span) {
+        const operand_t& task = arguments.front().value;
+        if (method.name == "IsDone") {
+            return temporary(
+                runtime_call_t{ .function = runtime_function_t::TASK_DONE, .arguments = { task } },
+                type_id_t::BOOL);
+        }
+
+        runtime_call_t wait{ .function = runtime_function_t::TASK_WAIT, .arguments = { task } };
+        emit(evaluate_t{ std::move(wait) });
+        rethrow(task, span);
+        if (concrete(method.type) == type_id_t::NONE) {
+            return std::nullopt;
+        }
+
+        return element_of(as_place(task), 2);
+    }
+
+    /// NextFrame, Seconds, and RealSeconds make a Task for the scheduler running the code to
+    /// finish, and MainThread one that's done.
+    operand_t timing_call(const expr_id_t id, const symbol_t& function,
+                          const std::vector<call_argument_t>& arguments) {
+        const type_id_t type = concrete(expr_type(id));
+        generated(generated_kind_t::RUN, type);
+        const operand_t task = temporary(new_t{ .type = type }, type, true);
+        runtime_call_t begin{ .function = runtime_function_t::ASYNC_BEGIN, .arguments = { task } };
+        emit(evaluate_t{ std::move(begin) });
+        runtime_call_t timer{ .function = runtime_function_t::ASYNC_FINISH, .arguments = { task } };
+        if (function.name == "NextFrame") {
+            timer.function = runtime_function_t::WAIT_FRAME;
+        } else if (function.name != "MainThread") {
+            const const_value_t real{
+                .type = type_id_t::BOOL,
+                .data = function.name == "RealSeconds",
+            };
+            timer.function = runtime_function_t::WAIT_SECONDS;
+            timer.arguments = { task, arguments[0].value, real };
+        }
+
+        emit(evaluate_t{ std::move(timer) });
+        return task;
+    }
+
+    /// A Scheduler's Run, Tick, and IsIdle.
+    std::optional<operand_t> scheduler_call(const symbol_t& method,
+                                            const std::vector<call_argument_t>& arguments) {
+        const operand_t& scheduler = arguments.front().value;
+        if (method.name == "IsIdle") {
+            return temporary(
+                runtime_call_t{
+                    .function = runtime_function_t::SCHEDULER_IDLE,
+                    .arguments = { scheduler },
+                },
+                type_id_t::BOOL);
+        }
+
+        runtime_call_t call{
+            .function = method.name == "Run" ? runtime_function_t::SCHEDULER_RUN
+                                             : runtime_function_t::SCHEDULER_TICK,
+            .arguments = { scheduler, arguments[1].value },
+        };
+        emit(evaluate_t{ std::move(call) });
+        return std::nullopt;
+    }
+
     std::optional<operand_t> lower_call(const expr_id_t id) {
         const auto& node = std::get<call_expr_t>(m_ast.get(id).node);
+        // No function gives back an Atomic or Mutex, so a call that does makes one.
+        if (const type_kind_t kind = types().get(concrete(expr_type(id))).kind;
+            kind == type_kind_t::ATOMIC || kind == type_kind_t::MUTEX) {
+            return make_in_place(id);
+        }
+
+        // Spawn and Thread.Start are built in, without a symbol, and so is making a Channel. A
+        // function value that gives a Task has no symbol either.
+        if (is_task(concrete(expr_type(id))) && !m_analysis.expr(id).symbol &&
+            !is_func(expr_type(node.callee))) {
+            return spawn(id);
+        }
+
+        if (is_scheduler(concrete(expr_type(id))) && !m_analysis.expr(id).symbol) {
+            const type_id_t type = concrete(expr_type(id));
+            return temporary(
+                channel_t{ .type = type, .capacity = zero(type_id_t::INT64), .span = span_of(id) },
+                type, true);
+        }
+
+        if (is_channel(concrete(expr_type(id))) && !m_analysis.expr(id).symbol) {
+            const type_id_t type = concrete(expr_type(id));
+            const operand_t capacity = lower_value(expect(m_analysis.expr(id).arguments.front()));
+            const operand_t wide = temporary(
+                cast_t{ .value = capacity, .type = type_id_t::INT64, .span = span_of(id) },
+                type_id_t::INT64);
+            return temporary(channel_t{ .type = type, .capacity = wide, .span = span_of(id) }, type,
+                             true);
+        }
+
         if (const std::optional<symbol_id_t> variable = m_analysis.expr(id).symbol;
             variable && m_analysis.symbol(*variable).kind == symbol_kind_t::MEMBER_VARIABLE) {
             return lower_reflection(id, node, m_reflected.at(*variable));
@@ -4926,6 +5707,26 @@ private:
             return integer_call(function, arguments, span_of(id));
         }
 
+        // And an Atomic's, a Task's, and a Thread's.
+        if (function.kind == symbol_kind_t::METHOD &&
+            types().get(function.owner).kind == type_kind_t::ATOMIC) {
+            return atomic_call(function, arguments);
+        }
+
+        if (function.kind == symbol_kind_t::METHOD && is_task(function.owner) &&
+            !function.declaration) {
+            return task_call(function, arguments, span_of(id));
+        }
+
+        if (function.kind == symbol_kind_t::METHOD && is_channel(function.owner) &&
+            !function.declaration) {
+            return channel_call(function, arguments, span_of(id));
+        }
+
+        if (function.kind == symbol_kind_t::METHOD && is_scheduler(function.owner)) {
+            return scheduler_call(function, arguments);
+        }
+
         // A @Flags Enum's Has: whether every one of the flags is set.
         if (function.kind == symbol_kind_t::METHOD && is_enum(function.owner) &&
             !function.declaration) {
@@ -4977,6 +5778,10 @@ private:
             return compare(binary_op_t::EQUAL, arguments[0].value, arguments[1].value, span_of(id));
         }
 
+        if (function.kind == symbol_kind_t::BUILTIN_FUNCTION && function.name != "Print") {
+            return timing_call(id, function, arguments);
+        }
+
         // Print is the other built-in function.
         if (function.kind == symbol_kind_t::BUILTIN_FUNCTION) {
             emit(evaluate_t{
@@ -4987,6 +5792,32 @@ private:
                     },
             });
             return std::nullopt;
+        }
+
+        // An Async Function's call makes its Task and starts its coroutine, which runs until it
+        // first Awaits. The Task comes first, after a Method's object.
+        if (function.modifiers.is_async) {
+            const type_id_t type = concrete(expr_type(id));
+            generated(generated_kind_t::RUN, type);
+            operand_t task = temporary(new_t{ .type = type }, type, true);
+            runtime_call_t begin{
+                .function = runtime_function_t::ASYNC_BEGIN,
+                .arguments = { task },
+            };
+            emit(evaluate_t{ std::move(begin) });
+            const bool has_self =
+                function.kind == symbol_kind_t::METHOD && !function.modifiers.is_static;
+            arguments.insert(arguments.begin() + (has_self ? 1 : 0), { .value = task });
+            call_t start{
+                .function = function_of(expect(info.symbol), type_arguments),
+                .arguments = std::move(arguments),
+            };
+            if (is_virtual(function) && !on_super) {
+                start.slot = slot_of(expect(info.symbol));
+            }
+
+            emit(evaluate_t{ std::move(start) });
+            return task;
         }
 
         // Super calls the Method the base Class has, not an override further down.

@@ -1,0 +1,7 @@
+total 30
+failed: toolong is too big
+quiet -1
+wait: abcd is too big
+again: 0
+early: True
+caught early

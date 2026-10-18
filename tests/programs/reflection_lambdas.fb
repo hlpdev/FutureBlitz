@@ -1,0 +1,77 @@
+// A lambda in generic code can loop over the members of the code's type parameters: each
+// instance's lambda has its own copies of the loop's body.
+
+Struct Point
+    Field X: Int
+    Field Y: Float
+End Struct
+
+Function Describe<T>(value: T): String
+    Local text = ""
+    Local add = Function()
+        For Field f: F In T
+            Where F: Printable
+            text = text + "[{f.Name}={f.Get(value)}]"
+        End For
+    End Function
+
+    add()
+    Return text
+End Function
+
+Function Names<T>(): String
+    Local names = Function(): String
+        Local text = ""
+        For Field f In T
+            text = text + f.Name
+        End For
+
+        Return text
+    End Function
+
+    Return names()
+End Function
+
+Class Robot
+    Method Beep()
+        Print("beep")
+    End Method
+
+    Method Boop()
+        Print("boop")
+    End Method
+End Class
+
+Function CallAll<T>(value: T)
+    Local run = Function()
+        For Method m In T
+            m.Call(value)
+        End For
+    End Function
+
+    run()
+End Function
+
+// And over its type's.
+Struct Box<T>
+    Field Value: T
+
+    Method Fields(): String
+        Local list = Function(): String
+            Local text = ""
+            For Field f In T
+                text = text + "<{f.Name}>"
+            End For
+
+            Return text
+        End Function
+
+        Return list()
+    End Method
+End Struct
+
+Print(Describe(Point(1, 2.5)))
+Print(Describe((7, "seven")))
+Print(Names<Point>())
+CallAll(Robot())
+Print(Box<Point>(Point(3, 4.5)).Fields())

@@ -37,3 +37,9 @@ Interface Numeric
     Operator *(a: Self, b: Self): Self
     Operator /(a: Self, b: Self): Self
 End Interface
+
+// What can go to another thread, which the compiler decides: numbers, Bools, Strings, and
+// Enums, and the Structs, tuples, and fixed arrays whose fields and elements all are, with a T?
+// of any of them. A type can list it, or an Interface that extends it, to have that checked.
+Interface Sendable
+End Interface

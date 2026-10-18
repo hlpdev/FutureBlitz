@@ -182,6 +182,48 @@ enum class runtime_function_t : std::uint8_t {
     STRING_CHARS,
     /// (String, UInt8[]) to nothing: adds the String's UTF-8 bytes to the array.
     STRING_BYTES,
+    /// (Task) to nothing: starts its work on the pool.
+    TASK_START,
+    /// (Thread) to nothing: starts its work on a thread of its own.
+    THREAD_START,
+    /// (Task or Thread) to nothing: returns once its work is done.
+    TASK_WAIT,
+    /// (Task or Thread) to a Bool: whether its work is done.
+    TASK_DONE,
+    /// (Int64, Int64, a Parallel For's body) to nothing: runs the body's code for chunks of the
+    /// indexes from the first up to the second, on the pool, and returns once they're done.
+    PARALLEL_FOR,
+    /// (Channel<T>, a place holding a T) to nothing: sends the T, with its references, waiting
+    /// while the Channel is full. Panics at the span once it's closed.
+    CHANNEL_SEND,
+    /// (Channel<T>, a place holding a T) to a Bool: whether it sent the T, which it does only
+    /// when there's room and the Channel is open.
+    CHANNEL_TRY_SEND,
+    /// (Channel<T>, a place for a T) to a Bool: puts the oldest T there, with its references,
+    /// waiting while the Channel is empty, or gives False once it's closed and empty.
+    CHANNEL_RECEIVE,
+    /// (Channel<T>, a place for a T) to a Bool: like CHANNEL_RECEIVE, without waiting.
+    CHANNEL_TRY_RECEIVE,
+    /// (Channel<T>) to nothing: closes it.
+    CHANNEL_CLOSE,
+    /// (Task) to nothing: gives a new Task its completion, which an Async Function finishes.
+    ASYNC_BEGIN,
+    /// (Task) to nothing: the Async Function is done, which wakes what waits for it.
+    ASYNC_FINISH,
+    /// (Task, this Async Function's own Task) to nothing: the scheduler running it resumes this
+    /// coroutine once the first Task is done. A suspend_t comes right after.
+    AWAIT,
+    /// (Task) to nothing: the scheduler running the code finishes it at its next tick.
+    WAIT_FRAME,
+    /// (Task, Float64 seconds, Bool real) to nothing: the scheduler running the code finishes it
+    /// once that much of its time, or the real clock's, has passed.
+    WAIT_SECONDS,
+    /// (Scheduler, Task) to nothing: the Scheduler runs the Task's coroutine from then on.
+    SCHEDULER_RUN,
+    /// (Scheduler, Float64 seconds) to nothing: moves its time on and runs its coroutines.
+    SCHEDULER_TICK,
+    /// (Scheduler) to a Bool: whether no coroutine waits on it.
+    SCHEDULER_IDLE,
 };
 
 struct runtime_call_t {
@@ -243,8 +285,54 @@ struct invoke_t {
     std::vector<operand_t> arguments;
 };
 
-using rvalue_t = std::variant<use_t, unary_t, binary_t, cast_t, call_t, runtime_call_t, aggregate_t,
-                              array_t, zero_t, new_t, is_t, downcast_t, invoke_t>;
+/// What an atomic_t does.
+enum class atomic_op_t : std::uint8_t {
+    /// (T) to a new Atomic<T> holding it.
+    MAKE,
+    /// () to the T it holds.
+    LOAD,
+    /// (T) to nothing: holds the T instead.
+    STORE,
+    /// (T) to the T it held before adding it, wrapping around.
+    ADD,
+    /// (T) to the T it held before subtracting it, wrapping around.
+    SUBTRACT,
+    /// (T) to the T it held before holding this one.
+    EXCHANGE,
+    /// (expected, desired) to a Bool: whether it held the expected T, and now holds the desired
+    /// one.
+    COMPARE_EXCHANGE,
+};
+
+/// An Atomic<T>'s operation on `target`, where it stays, which every thread sees in one order.
+/// MAKE has no target, and gives the Atomic<T> to put in one.
+struct atomic_t {
+    atomic_op_t op;
+    std::optional<place_t> target;
+    std::vector<operand_t> operands;
+    /// The Atomic<T>.
+    type_id_t type;
+};
+
+/// A new Channel<T> of `type`, with room for `capacity` elements, an Int64, which panics at
+/// `span` unless that's 1 or more; or a new Scheduler, whose `capacity` is 0.
+struct channel_t {
+    type_id_t type;
+    operand_t capacity;
+    span_t span;
+};
+
+/// Takes the Mutex<T> at `target`, waiting while another thread holds it, or lets go of it.
+/// Taking one that this thread holds already panics at `span`.
+struct lock_t {
+    place_t target;
+    bool unlock = false;
+    span_t span;
+};
+
+using rvalue_t =
+    std::variant<use_t, unary_t, binary_t, cast_t, call_t, runtime_call_t, aggregate_t, array_t,
+                 zero_t, new_t, is_t, downcast_t, invoke_t, atomic_t, lock_t, channel_t>;
 
 /// "target = value". It doesn't count references; lowering adds retain_t and release_t for
 /// Strings, and for Structs that hold them.
@@ -301,8 +389,15 @@ struct panic_t {
 /// has it until it gets a real terminator.
 struct unreachable_t {};
 
+/// In an Async Function: its coroutine stops here, and the scheduler resumes it at `resume`, or
+/// destroys it at `cancel`, when its Scheduler goes first.
+struct suspend_t {
+    block_id_t resume;
+    block_id_t cancel;
+};
+
 /// How a block ends: where control goes next.
-using terminator_t = std::variant<goto_t, branch_t, return_t, panic_t, unreachable_t>;
+using terminator_t = std::variant<goto_t, branch_t, return_t, panic_t, unreachable_t, suspend_t>;
 
 /// Statements that run in order, then the terminator that leaves the block.
 struct basic_block_t {
@@ -323,6 +418,9 @@ struct mir_function_t {
     std::vector<basic_block_t> blocks;
     /// Written with @Inline: every call to it is inlined, in debug builds too.
     bool is_inline = false;
+    /// An Async Function's code: a coroutine, whose first parameter is its Task. Its Returns end
+    /// the coroutine, and it gives LLVM its handle.
+    bool is_async = false;
 };
 
 /// An Interface that a Class's objects implement, and the Class's table for it: for each of the

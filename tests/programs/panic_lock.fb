@@ -1,0 +1,10 @@
+// A thread that Locks a Mutex it holds already would wait for itself forever.
+Global score = Mutex<Int>(0)
+
+Lock score As outer
+    outer = 1
+    Print("holding")
+    Lock score As inner
+        inner = 2
+    End Lock
+End Lock

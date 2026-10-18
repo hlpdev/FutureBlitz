@@ -28,6 +28,18 @@ THREADS         so they don't tie up a pool worker
 
 Most game code never leaves the main thread.
 
+- The pool starts its workers the first time it's used, so a program that never uses it has
+  only the main thread. It has one per core but one, and at least one.
+- A worker that waits for the pool's work, like a task's `Wait()` or a `Parallel For`, runs the
+  work it started itself meanwhile, so a task that waits for tasks of its own doesn't leave the
+  pool a worker short. It runs no one else's, which could wait for it in turn. A thread waiting
+  on a Channel runs nothing, so a task that waits on one holds its worker: work that mostly waits
+  belongs on a Thread.
+- When top-level code ends, the program waits for the pool's work to finish, then releases the
+  Globals and ends.
+- Lines that `Print` writes from different threads don't mix, and a panic on any thread ends
+  the whole program at once (see [09](09-errors.md#panics)).
+
 ## Tasks and parallel loops
 
 ```vb
@@ -42,6 +54,31 @@ End For
 
 - Work-stealing thread pool in the runtime.
 - `Thread.Start(fn)` for long-lived blocking work.
+- `Spawn(work)` runs the work on the pool and gives its `Task<T>`, where T is what the work
+  gives; work that gives nothing gives a `Task`. `t.Wait()` returns once it's done, with its
+  result, and `t.IsDone()` says whether it is. `Thread.Start(work)` gives a `Thread`, with
+  `Join()` and `IsDone()`, and runs the work on a thread of its own.
+- The work is a lambda or a Function's name, which takes no arguments, since nothing else here
+  can hold the closure that goes to the other thread. A `Task<T>` expected says what the lambda
+  gives, as in `Local t: Task<Int64> = Spawn(Function() => 5)`.
+- What the work makes is its own: it reaches only Sendable values from outside it, so its result
+  moves safely to the thread that waits for it, even an object or an array.
+- A Task or Thread stays on the thread that started it, so it isn't Sendable, and only that
+  thread waits for it.
+- The program waits for every Task and Thread when its top-level code ends. A panic in one ends
+  the whole program.
+- The work's lambda can't throw, like any function value's. A Task whose Wait throws comes from
+  an Async Function with a Throws, in M4 step 9.
+- `Parallel For i = a Until b`, or `To b`, runs its passes on the pool at once, in chunks, with
+  the calling thread taking some, and the next statement waits for them all. It counts integers
+  up by 1, with no Step.
+- What the body uses from outside it is a copy, made once, which it can't change, and which is
+  Sendable. An array from outside whose elements are Sendable is used only through its elements
+  and its Count: each pass reads any element, but changes one only at its own index, `a[i]`, so
+  no two passes change the same element. A ByRef Method can change `a[i]` there, since the array
+  can't grow meanwhile, and a lambda in the body can't take the array.
+- Continue goes on to the next index; Break and Return can't leave the body, and neither can an
+  error. The body is work on other threads, so the main-thread rules hold for it.
 
 ## Async / Await
 
@@ -54,6 +91,27 @@ Async Function LoadLevel(path: String): Level Throws FileError
     Return Level(bytes, nav)                           // back on the main thread
 End Function
 ```
+
+- Calling an `Async Function` starts it and gives its `Task<T>`, where T is its return type, or
+  a `Task` when it returns nothing. It runs on the main thread until it first Awaits, then the
+  call returns.
+- `Await t` in an Async Function waits for a Task, a Spawn's or another Async Function's, and
+  gives its result. Meanwhile the main thread goes on; the Function's Locals and parameters wait
+  with it.
+- The main thread runs the waiting Async Functions once top-level code ends, until none is left,
+  and whenever it waits for a Task with `Wait()`. Their code never runs on another thread, so work
+  on another thread can't call one.
+- Await goes only in the code of an Async Function, Method, or lambda, not in a lambda inside
+  it, and not in a Lock block, which would hold its Mutex while it waits.
+- An Async Function's errors go in its Task, so its call doesn't throw, but `Await t` and
+  `t.Wait()` re-throw them, each time, and need Try, Try?, or a Try block, as a call that throws
+  does. The Task's type says so: `Task<Level> Throws FileError`.
+- A Method can be Async, but not a ByRef Method, Destroy, or an Interface's Method yet. An
+  Override of an Async Method is Async, and an Async Method overrides only an Async one.
+- `Async Function(x) => ...` is an Async lambda, whose call gives a Task, through a function
+  value too: `Func(Int): Task<Int>`. Making one is main-thread code, since its code runs there.
+- An Async Function's parameters can't be ByRef, and it isn't a function value; a lambda can
+  call it.
 
 ## Coroutines
 
@@ -103,12 +161,26 @@ End While
 
 Rules:
 
+- Until the engine's `Flip()` (M8), the main scheduler ticks once top-level code ends, until no
+  coroutine waits on it, and whenever the main thread waits for a Task with `Wait()`. Its time is
+  the real clock's.
+- `Scheduler()` makes one, only on the main thread, since its coroutines run there, and it isn't
+  Sendable. `s.Tick(seconds)` moves its time on by that much and resumes what can go on, and
+  `s.IsIdle()` says whether no coroutine waits on it.
+- An Async call starts on the scheduler running the code. `s.Run(task)` moves its coroutine to
+  `s`, with the coroutines and timers it waits for. A Task that's done, or a Spawn's, has nothing
+  to move.
 - `Await NextFrame()` resumes at the next tick of the owning scheduler.
 - `Await Seconds(n)` uses the scheduler's time (respects pause and time scale).
-  `Await RealSeconds(n)` ignores both.
+  `Await RealSeconds(n)` ignores both. NextFrame, Seconds, and RealSeconds give a Task that the
+  scheduler running the code finishes, so only the main thread calls them.
 - An I/O await resumes on the scheduler that started it, at its next tick. Coroutine code
-  never runs on a background thread.
-- `Await MainThread()` hops back to the main thread.
+  never runs on a background thread. A coroutine that starts waiting during a tick waits for the
+  next one, even for a Task that's done.
+- `Await MainThread()` hops back to the main thread. Coroutine code is always there already, so
+  `MainThread()` gives a Task that's done, and the Await goes on at the next tick.
+- A coroutine still waiting on a Scheduler when the Scheduler goes is destroyed: it lets go of
+  what it holds, without running its Defers or Finally blocks, and its Task is never done.
 
 ## Communication
 
@@ -134,6 +206,39 @@ Global frames = Atomic<Int>(0)
 frames.Add(1)
 ```
 
+### Channel
+
+- `Channel<T>(capacity)` makes a Channel of a Sendable T with room for that many, 1 or more. It's
+  Sendable itself, so tasks share one, through a Const or a parameter.
+- `ch.Send(value)` waits while it's full, and panics once it's closed. `ch.TrySend(value)` gives
+  False instead of waiting, when it's full or closed.
+- `ch.Receive()` waits while it's empty, and gives a `T?`, which is Null once it's closed and
+  empty. `ch.TryReceive(ByRef value)` gives False instead of waiting, and sets the variable when
+  it gives True.
+- `ch.Close()` lets the receivers take what's left. `For x In ch` receives until then.
+- Values come out in the order they went in, and what's left when the Channel goes is released.
+
+### Atomic and Mutex
+
+- An `Atomic<T>` holds an integer or a Bool. `Load()`, `Store(value)`, `Exchange(value)`, and
+  `CompareExchange(expected, desired)`, which says whether it held `expected` and now holds
+  `desired`, work on it at once, in one order every thread sees. An integer's also has
+  `Add(amount)` and `Subtract(amount)`, which wrap around. Exchange, Add, and Subtract give what
+  it held before.
+- A `Mutex<T>` holds a Sendable T. Its value is used only in `Lock m As value ... End Lock`,
+  where `value` is the Mutex's own, like a ByRef parameter, which a lambda can't capture. Another
+  thread's Lock of it waits until the block is done, however it ends: at End Lock, or by Return,
+  Break, Continue, or an error. A thread that Locks a Mutex it holds already panics, since it
+  would wait for itself forever.
+- Both stay where they're made, so every thread shares the one: a Global, a Static Field, or a
+  Class's Field. A Struct is copied, so it can't hold one. Code can pass one ByRef, but can't
+  copy, assign, or give one back, and neither can be part of another type, like an array.
+- `Atomic<Int>(0)` and `Mutex<Stats>(Stats())` make one, as what a Global or Field starts with.
+  Without a type argument, the T is the value's type: `Mutex(Stats())`. A Field of one starts at
+  its zero, or an Atomic's at a value known at compile time; New can change a Mutex Field's value
+  in a Lock block.
+- Both are Sendable. A For Field loop leaves them out, since `f.Get(value)` would copy one.
+
 ## Safety: data races are compile errors
 
 **Rule: an object belongs to one thread unless its type says otherwise.**
@@ -144,16 +249,48 @@ frames.Add(1)
 | `Sendable` data | may cross threads | n/a |
 | `Shared Class` | may cross threads; fields must be `Atomic`, `Mutex`, or `ReadOnly` | atomic |
 
-`Sendable` covers: primitives, `String`s (immutable, with atomic refcounts), `Struct`s (copied;
-see the open question below), `ReadOnly`/frozen data, `Channel`, `Mutex`, `Atomic`, and
+`Sendable` covers: primitives, `String`s (immutable, with atomic refcounts), `Struct`s (copied)
+whose fields are all Sendable, `ReadOnly`/frozen data, `Channel`, `Mutex`, `Atomic`, and
 `Shared Class` instances.
+
+```vb
+Shared Class Hub
+    ReadOnly Field Title: String
+    Field Visits: Atomic<Int>
+    Field Log: Mutex<String>
+End Class
+```
+
+- A `Shared Class`'s own Fields are Atomic, Mutex, or ReadOnly, and a ReadOnly one is Sendable,
+  so no two threads change one at once. Its Methods can run on any thread.
+- It extends only a Shared Class, and only a Shared Class extends it, so a variable of one always
+  holds a Shared Class's object. A generic one says its type parameters are Sendable, as in
+  `Shared Class Box<T: Sendable>`, for a ReadOnly Field of type T.
+- Its objects count their owners atomically, Weak references too, and whichever thread lets go
+  last runs its Destroy(). An Interface's value can hold either kind of object, so the runtime
+  tells them apart by their Class.
 
 The compiler checks every `Spawn` capture, `Parallel For` body, and channel send.
 
-**Captures across threads (Proposed: recommended, not explicitly confirmed).** Closures
-capture by reference ([05](05-functions.md#closures)), so sharing a mutable `Local` with another
-thread would be a data race. A closure passed to `Spawn`, or the body of a `Parallel For`, can
-only capture `Const`s holding `Sendable` values.
+- `Sendable` is an Interface in std/core/interfaces.fb that the compiler decides from a type's
+  parts: numbers, Bools, Strings, and Enums are Sendable, and so are the Structs, tuples, and
+  fixed arrays whose fields and elements all are, and a `T?` of any of them.
+- Classes, arrays, function values, and `Weak<T>`s aren't, since an object's refcount isn't
+  atomic: an object stays on the thread that made it. Neither is a Struct that holds one.
+- Generic code says a type parameter is Sendable with a constraint, `<T: Sendable>`, and an
+  instance like `Box<Int>` is Sendable when its fields are.
+- No type has to list it. One that does, `Struct Packet Implements Sendable`, or that lists an
+  Interface extending it, has the compiler check that its fields are; a generic one needs
+  `<T: Sendable>` for a field of type T.
+- It's only a constraint, so it isn't a type of its own. An Interface that extends it can be
+  one.
+- An error says which part isn't: "Holder isn't Sendable, which 'Send' needs for T: its field
+  'Target' is Enemy?, and a Class's objects stay on the thread that made them".
+
+**Captures across threads.** Closures capture by reference ([05](05-functions.md#closures)), so
+sharing a mutable `Local` with another thread would be a data race. A closure passed to `Spawn`
+or `Thread.Start`, or the body of a `Parallel For`, can only capture what can't change, holding
+a `Sendable` value: a `Const`, a parameter, a loop variable, or a Self that's Sendable.
 
 ```vb
 Const enemy = Enemy("grunt")
@@ -168,9 +305,6 @@ Spawn(Function() => ComputePath(target))
 // ✗ compile error: a Local can't be captured by another thread; make it a Const
 ```
 
-**Open:** is a `Struct` that holds a class reference `Sendable`? Recommended: a struct is
-`Sendable` only when all its fields are, so it isn't (see
-[open-questions.md](../open-questions.md)).
 
 ### Main-thread rules
 
@@ -181,6 +315,18 @@ Spawn(Function() => ComputePath(target))
 ```vb
 Spawn(Function() => PositionEntity(cam, 0, 0, 0))   // ✗ compile error: @MainThread
 ```
+
+- Work on another thread is a Spawn's or Thread.Start's, with everything it can run: what it
+  calls, its lambdas, what overrides the Methods it calls, and what implements the Interface
+  Methods it calls, with each New's Class's Destroy(). A Shared Class's Destroy() is too, since
+  whichever thread lets go last runs it.
+- That code can't use a Global or Static Field unless it's an Atomic or a Mutex, or a top-level
+  Const that isn't Sendable, or call a `@MainThread` Function or Method. Async code, the timers,
+  and Schedulers are the main thread's too. A top-level Const that's
+  Sendable is fine, and so is all of it in top-level code, which runs on the main thread.
+- The error says how the work gets there: "this work runs on another thread, but it calls
+  'Bump', which uses the Global 'score', which only the main thread can, unless it's an Atomic or
+  a Mutex".
 
 ## Scope for v1
 

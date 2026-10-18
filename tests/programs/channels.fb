@@ -1,0 +1,73 @@
+// Channels carry Sendable values from thread to thread.
+
+Struct Packet
+    Field Id: Int
+    Field Text: String
+End Struct
+
+Function Produce(out: Channel<Packet>, count: Int)
+    For i = 1 To count
+        out.Send(Packet(i, "packet {i}"))
+    End For
+
+    out.Close()
+End Function
+
+// A task sends, and the main thread receives until the Channel is closed and empty.
+Const packets = Channel<Packet>(4)
+Local producer = Spawn(Function() => Produce(packets, 10))
+Local total = 0
+Local last = ""
+For p In packets
+    total += p.Id
+    last = p.Text
+End For
+
+producer.Wait()
+Print("received {total}, the last {last}")
+
+// TrySend doesn't wait, so it gives False when the Channel is full or closed, and Receive gives
+// Null once it's closed and empty.
+Const numbers = Channel<Int>(2)
+Print("{numbers.TrySend(1)} {numbers.TrySend(2)} {numbers.TrySend(3)}")
+Print("{numbers.Receive() ?? -1}")
+numbers.Close()
+Print("{numbers.TrySend(4)}")
+Print("{numbers.Receive() ?? -1} {numbers.Receive() ?? -1}")
+
+// TryReceive doesn't wait either.
+Const words = Channel<String>(8)
+Local word = "none"
+Print("{words.TryReceive(ByRef word)} {word}")
+words.Send("hel" + "lo")
+Print("{words.TryReceive(ByRef word)} {word}")
+
+// Workers send their results back, and the main thread adds them up.
+Const results = Channel<Int64>(16)
+Local workers: Task[] = []
+For w = 1 To 8
+    workers.Add(Spawn(Function()
+        Local sum: Int64 = 0
+        For k = 1 To 1000
+            sum += k * w
+        End For
+
+        results.Send(sum)
+    End Function))
+End For
+
+Local grand: Int64 = 0
+For w = 1 To 8
+    grand += results.Receive() ?? 0
+End For
+
+For worker In workers
+    worker.Wait()
+End For
+
+Print("grand {grand}")
+
+// What's left in a Channel goes with it.
+Const leftovers = Channel<String>(4)
+leftovers.Send("a" + "b")
+leftovers.Send("c" + "d")

@@ -1,0 +1,52 @@
+// A Method can be Async: its coroutine keeps its object while it waits.
+
+Class Door
+    Field name: String
+
+    Async Method Open(): String
+        Await NextFrame()
+        Return "{name} open"
+    End Method
+
+    Async Method Knock(times: Int): Int
+        Return times
+    End Method
+
+    Method Destroy()
+        Print("{name} let go")
+    End Method
+End Class
+
+// An override is Async too, and a call through the base goes to it.
+Class LoudDoor Extends Door
+    Override Async Method Knock(times: Int): Int
+        Local quiet = Await Super.Knock(times)
+        Return quiet * 10
+    End Method
+End Class
+
+Struct Counter
+    Field step: Int
+
+    Async Method Count(n: Int): Int
+        Const each = step
+        Return Await Spawn(Function() => n * each)
+    End Method
+
+    Static Async Method Zero(): Int
+        Return 0
+    End Method
+End Struct
+
+Async Function Main()
+    Local door: Door = LoudDoor()
+    door.name = "front"
+    Print(Await door.Open())
+    Print("knock {Await door.Knock(3)}")
+    Local counter = Counter(2)
+    Print("count {Await counter.Count(3)}")
+    Print("zero {Await Counter.Zero()}")
+End Function
+
+Main()
+Print("top-level code is done")

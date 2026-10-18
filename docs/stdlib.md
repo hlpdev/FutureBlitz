@@ -22,7 +22,7 @@ So far, std/ holds:
 | File | Contents |
 |---|---|
 | std/core/error.fb | `Error`, the Class every error extends |
-| std/core/interfaces.fb | `Equatable`, `Comparable`, `Hashable`, `Printable`, and `Numeric`, which `==`, `<`, strings, and generic code go through |
+| std/core/interfaces.fb | `Equatable`, `Comparable`, `Hashable`, `Printable`, and `Numeric`, which `==`, `<`, strings, and generic code go through, and `Sendable`, which the compiler decides |
 | std/core/iterator.fb | `Iterator<T>`, which `For ... In` goes over |
 | std/collections/array.fb | `Remove`, `Sort`, `Filter`, `Map`, and `Find` on `T[]` |
 | std/collections/map.fb | `Map<K, V>`, which `{key: value}` makes |

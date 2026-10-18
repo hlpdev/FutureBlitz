@@ -230,15 +230,6 @@ bool overlaps(const case_range_t& a, const case_range_t& b) {
 /// The names that later milestones declare, like Task or Vec3.
 bool is_later_name(const std::string_view name) {
     constexpr auto names = std::to_array<std::string_view>({
-        // Concurrency, in M4
-        "Task",
-        "Spawn",
-        "Scheduler",
-        "Channel",
-        "Mutex",
-        "Atomic",
-        "Thread",
-        "Sendable",
         // FFI, in M5
         "Ptr",
         "Void",
@@ -341,6 +332,7 @@ public:
             check_function(id);
         }
 
+        check_threads();
         return std::move(m_analysis);
     }
 
@@ -376,6 +368,12 @@ private:
     /// An assignment's target, or the Self in "Self.x". Neither reads the fields that New hasn't
     /// assigned yet.
     std::optional<expr_id_t> m_partial;
+    /// An expression that may be an Atomic or a Mutex, which isn't copied: a Method's object, a
+    /// Lock's Mutex, a ByRef argument, or what a Global or Class Field starts with.
+    std::optional<expr_id_t> m_place_use;
+    /// An expression that may be an array from outside a Parallel For's body, which uses one
+    /// only through its elements and Count: an index's object, or Count's.
+    std::optional<expr_id_t> m_element_use;
     /// The blocks being checked, innermost last, with the position of the statement in each.
     std::vector<std::pair<const block_t*, std::size_t>> m_positions;
     /// What takes the errors of the code being checked, innermost last.
@@ -387,6 +385,40 @@ private:
     std::unordered_map<type_id_t, std::vector<symbol_id_t>> m_array_methods;
     /// Each integer type's Wrapping and Checked Methods, made when first used.
     std::unordered_map<type_id_t, std::vector<symbol_id_t>> m_integer_methods;
+    /// Each Atomic<T>'s Methods, made when first used.
+    std::unordered_map<type_id_t, std::vector<symbol_id_t>> m_atomic_methods;
+    /// Each Task's and Thread's Methods, made when first used.
+    std::unordered_map<type_id_t, std::vector<symbol_id_t>> m_task_methods;
+    /// Each Channel's Methods, made when first used.
+    std::unordered_map<type_id_t, std::vector<symbol_id_t>> m_channel_methods;
+    /// A Scheduler's Methods, once something uses them.
+    std::vector<symbol_id_t> m_scheduler_methods;
+
+    /// The first thing a function's or lambda's own code does that only the main thread may: it
+    /// uses a mutable Global or Static Field, or a top-level Const that isn't Sendable, or calls
+    /// a @MainThread function.
+    struct main_only_t {
+        std::string what;
+        span_t span;
+    };
+
+    /// Work that runs on another thread: a Spawn's or Thread.Start's, or a Shared Class's
+    /// Destroy(), which whichever thread lets go last runs. `span` is where it's started, and
+    /// `where` says where it runs.
+    struct worker_t {
+        symbol_id_t work;
+        span_t span;
+        std::string_view where;
+    };
+
+    std::unordered_map<symbol_id_t, main_only_t> m_main_only;
+    /// The code each function's or lambda's code can run: what it calls, and its lambdas.
+    std::unordered_map<symbol_id_t, std::vector<symbol_id_t>> m_reaches;
+    /// The lambdas' symbols, which an error's path leaves out, as part of the code around them.
+    std::unordered_set<symbol_id_t> m_lambda_code;
+    /// How many Lock blocks the code being checked is in, where it can't Await.
+    std::size_t m_locks = 0;
+    std::vector<worker_t> m_workers;
     /// Each tuple's elements, as fields, made the first time they're looked up.
     std::unordered_map<type_id_t, std::vector<symbol_id_t>> m_tuple_elements;
 
@@ -398,6 +430,9 @@ private:
         std::vector<capture_t> captures;
         /// With "[Weak Self]": the Weak<T> that stands for Self in it.
         std::optional<symbol_id_t> weak_self;
+        /// A Parallel For's body, which copies what it uses from outside, and its loop variable.
+        bool parallel = false;
+        std::optional<symbol_id_t> index;
     };
 
     /// The lambdas being checked, innermost last.
@@ -471,6 +506,8 @@ private:
     /// Each For Field loop's type parameter for its fields' types, made when its function is
     /// declared.
     std::unordered_map<stmt_id_t, type_id_t> m_loop_fields;
+    /// What block_lambdas() gives, once it's found them.
+    std::optional<std::vector<expr_id_t>> m_block_lambdas;
     /// Why each Interface can only be a constraint, once that's been worked out.
     std::unordered_map<type_id_t, std::optional<std::string_view>> m_constraint_only;
     /// How far each top-level Const's initializer is. One that something needs before
@@ -606,8 +643,9 @@ private:
 
     // Declarations
 
-    /// The temporary built-in Print(String), until std.core exists, and RefEquals(a, b), which
-    /// tells whether two Class references are the same object. User functions can overload them.
+    /// The temporary built-in Print(String), until std.core exists, RefEquals(a, b), which
+    /// tells whether two Class references are the same object, and the rest below. User
+    /// functions can overload them.
     void declare_builtins() {
         const symbol_id_t value = add_symbol({
             .kind = symbol_kind_t::PARAMETER,
@@ -666,6 +704,34 @@ private:
             .parameters = { condition, note },
         });
         m_file_scope["Assert"].push_back(assertion);
+
+        // NextFrame(), Seconds(n), and RealSeconds(n) give a Task that the scheduler running the
+        // code finishes later, for an Async Function to Await, so only the main thread calls
+        // them. MainThread() gives one that's done.
+        const type_id_t task = m_analysis.types.task(type_id_t::NONE);
+        const auto timing = [&](const std::string_view name, const bool timed) {
+            std::vector<symbol_id_t> parameters;
+            if (timed) {
+                parameters.push_back(add_symbol({
+                    .kind = symbol_kind_t::PARAMETER,
+                    .name = "seconds",
+                    .type = type_id_t::FLOAT64,
+                }));
+            }
+
+            const symbol_id_t timer = add_symbol({
+                .kind = symbol_kind_t::BUILTIN_FUNCTION,
+                .name = name,
+                .type = task,
+                .parameters = std::move(parameters),
+                .modifiers = { .is_main_thread = name != "MainThread" },
+            });
+            m_file_scope[name].push_back(timer);
+        };
+        timing("NextFrame", false);
+        timing("Seconds", true);
+        timing("RealSeconds", true);
+        timing("MainThread", false);
     }
 
     /// The Error Class, from std/core/error.fb, which every error extends. Without the standard
@@ -725,6 +791,7 @@ private:
                                 m_analysis.types.get(iterator).parameters.size() == 1
                             ? iterator
                             : type_id_t::INVALID,
+            .sendable = find("Sendable"),
         };
     }
 
@@ -763,6 +830,11 @@ private:
             error(node->name.span, "'{}' can't be both Abstract and Final", node->name.text);
         }
 
+        if (!node->is_class && modifiers.is_shared) {
+            error(node->name.span,
+                  "a Struct can't be Shared, since it's copied; it's Sendable when its fields are");
+        }
+
         if (modifiers.is_override) {
             error(node->name.span, "Override only goes before a Method");
         }
@@ -772,11 +844,19 @@ private:
                                    "Property");
         }
 
+        if (modifiers.is_main_thread) {
+            error(node->name.span, "@MainThread only goes before a Function or Method");
+        }
+
         const std::vector<type_id_t> parameters =
             add_type_parameters(node->type_parameters, node->value_types);
         std::string name = generic_name(node->name.text, parameters);
         const type_id_t type = node->is_class ? m_analysis.types.add_class(std::move(name))
                                               : m_analysis.types.add_struct(std::move(name));
+        if (node->is_class && modifiers.is_shared) {
+            m_analysis.types.set_shared(type);
+        }
+
         if (!parameters.empty()) {
             m_analysis.types.set_parameters(type, parameters);
         }
@@ -802,7 +882,7 @@ private:
 
         const modifiers_t& modifiers = node.modifiers;
         if (modifiers.is_abstract || modifiers.is_final || modifiers.is_override ||
-            modifiers.is_static || modifiers.is_read_only) {
+            modifiers.is_static || modifiers.is_read_only || modifiers.is_shared) {
             error(node.name.span, "an Interface doesn't take modifiers like Abstract or Final");
         } else if (modifiers.is_inline) {
             error(node.name.span, "@Inline only goes before a Function, Method, Operator, or "
@@ -1015,6 +1095,12 @@ private:
             return found->second;
         }
 
+        // Sendable says what can go to another thread, which a value of it couldn't use.
+        if (interface == m_analysis.interfaces.sendable) {
+            m_constraint_only[interface] = "says what can go to another thread";
+            return m_constraint_only[interface];
+        }
+
         // An Interface that extends itself was reported, and doesn't loop here.
         m_constraint_only[interface] = std::nullopt;
         const symbol_t& declared = symbol(m_declared_types.at(interface));
@@ -1048,8 +1134,11 @@ private:
                 continue;
             }
 
+            // An Interface that extends Sendable can be a type: its values can all go to
+            // another thread.
             const symbol_t& other = symbol(found->second.front());
-            if (other.kind == symbol_kind_t::TYPE && is_interface(other.type)) {
+            if (other.kind == symbol_kind_t::TYPE && is_interface(other.type) &&
+                other.type != m_analysis.interfaces.sendable) {
                 reason = constraint_only(other.type);
             }
         }
@@ -1475,6 +1564,12 @@ private:
         }
 
         const auto found = m_file_scope.find(named->name);
+        if (found == m_file_scope.end() && (named->name == "Atomic" || named->name == "Mutex")) {
+            error(written.span, "{} can't be extended; it has only its own operations",
+                  named->name == "Atomic" ? "an Atomic" : "a Mutex");
+            return type_id_t::INVALID;
+        }
+
         if (found == m_file_scope.end() && is_later_name(named->name)) {
             error(written.span, "'{}' isn't supported yet", named->name);
             return type_id_t::INVALID;
@@ -2013,11 +2108,19 @@ private:
         }
 
         check_field_modifiers(node);
+        type_id_t type = node.type ? resolve_type(*node.type) : type_id_t::INVALID;
+        if (node.type && !is_class(owner)) {
+            type = keep_in_place(type, m_ast.get(*node.type).span,
+                                 std::format("a Struct, which is copied, can't hold one; make {} a "
+                                             "Class",
+                                             name_of(owner)));
+        }
+
         const symbol_id_t field = add_symbol({
             .kind = symbol_kind_t::FIELD,
             .name = node.name.text,
             .span = node.name.span,
-            .type = node.type ? resolve_type(*node.type) : type_id_t::INVALID,
+            .type = type,
             .has_default = true,
             .declaration = id,
             .owner = owner,
@@ -2040,6 +2143,8 @@ private:
         } else if (modifiers.is_inline) {
             error(node.name.span, "@Inline only goes before a Function, Method, Operator, or "
                                   "Property");
+        } else if (modifiers.is_main_thread) {
+            error(node.name.span, "@MainThread only goes before a Function or Method");
         }
     }
 
@@ -2057,6 +2162,8 @@ private:
         } else if (modifiers.is_inline) {
             error(node.name.span, "@Inline only goes before a Function, Method, Operator, or "
                                   "Property");
+        } else if (modifiers.is_main_thread) {
+            error(node.name.span, "@MainThread only goes before a Function or Method");
         } else if (modifiers.deprecated && node.kind == variable_kind_t::LOCAL) {
             error(node.name.span, "a Local can't be @Deprecated, since only its own code uses it");
         } else if (!modifiers.attributes.empty() && node.kind == variable_kind_t::LOCAL) {
@@ -2097,7 +2204,8 @@ private:
                                  const type_id_t owner) {
         check_property_modifiers(node, owner);
         const modifiers_t& modifiers = node.modifiers;
-        const type_id_t type = resolve_type(node.type);
+        const type_id_t type = keep_in_place(resolve_type(node.type), m_ast.get(node.type).span,
+                                             "a Property can't give one");
         const auto accessor = [&](const std::optional<stmt_id_t> part, const bool is_set) {
             if (node.required) {
                 return std::optional(required_accessor(node, owner, type, is_set));
@@ -2286,12 +2394,67 @@ private:
         }
     }
 
+    /// A Shared Class's objects go to any thread, so it extends only a Shared Class, and only a
+    /// Shared Class extends it. Its own Fields are Atomic, Mutex, or ReadOnly and Sendable, so no
+    /// two threads change one at once.
+    void check_shared(const type_id_t type) {
+        const symbol_t& declared = symbol(m_declared_types.at(type));
+        const bool shared = m_analysis.types.get(type).shared;
+        const type_id_t base = base_of(type);
+        if (base != type_id_t::INVALID && m_analysis.types.get(base).shared != shared) {
+            if (shared) {
+                error(declared.span, "a Shared Class extends only a Shared Class, and {} isn't one",
+                      name_of(base));
+            } else {
+                error(declared.span, "{} is a Shared Class, so only a Shared Class can extend it",
+                      name_of(base));
+            }
+        }
+
+        if (!shared) {
+            return;
+        }
+
+        // A generic one's type parameters are Sendable when its constraints say so.
+        const std::vector<bound_t> outer = std::exchange(m_bounds, declared.constraints);
+        for (const symbol_id_t member : declared.members) {
+            const symbol_t& field = symbol(member);
+            if (field.kind == symbol_kind_t::METHOD && field.name == "Destroy") {
+                m_workers.push_back({
+                    .work = member,
+                    .span = field.span,
+                    .where = "a Shared Class's Destroy() runs on whichever thread lets go last",
+                });
+            }
+
+            if (field.kind != symbol_kind_t::FIELD || field.type == type_id_t::INVALID ||
+                in_place(field.type)) {
+                continue;
+            }
+
+            if (!field.modifiers.is_read_only) {
+                error(field.span,
+                      "'{}' must be an Atomic, a Mutex, or ReadOnly, since threads share {}'s "
+                      "objects",
+                      field.name, name_of(type));
+            } else if (const std::optional<std::string> why = unsendable(field.type)) {
+                error(field.span,
+                      "'{}' is ReadOnly, but threads share {}'s objects, so it must be Sendable "
+                      "too: {}",
+                      field.name, name_of(type), *why);
+            }
+        }
+
+        m_bounds = outer;
+    }
+
     void link_class(const type_id_t type, std::vector<type_id_t>& linked) {
         if (std::ranges::contains(linked, type)) {
             return;
         }
 
         linked.push_back(type);
+        check_shared(type);
         const type_id_t base = base_of(type);
         if (base == type_id_t::INVALID) {
             conform(type);
@@ -2375,6 +2538,18 @@ private:
                 }
 
                 seen.push_back(implemented);
+                // Listing Sendable, or an Interface that extends it, has the compiler check it.
+                if (implemented == m_analysis.interfaces.sendable) {
+                    if (const std::optional<std::string> why = unsendable(type)) {
+                        if (interface == implemented) {
+                            error(span, "{} isn't Sendable: {}", name_of(type), *why);
+                        } else {
+                            error(span, "{} can't implement {}, which extends Sendable: {}",
+                                  name_of(type), name_of(interface), *why);
+                        }
+                    }
+                }
+
                 const bool done = std::ranges::any_of(
                     m_analysis.conformances, [&](const conformance_t& conformance) {
                         return conformance.type == type && conformance.interface == implemented;
@@ -2602,6 +2777,9 @@ private:
         } else if (found.by_ref && !required.by_ref) {
             error(span, "'{}' is a ByRef Method, so it can't implement {}'s, which isn't",
                   found.name, name_of(interface));
+        } else if (found.modifiers.is_async) {
+            error(span, "'{}' is Async, so it can't implement {}'s, which isn't", found.name,
+                  name_of(interface));
         } else if (required.by_ref && !found.by_ref && is_struct(found.owner)) {
             // A Class's Methods can always change its fields; a Struct's need ByRef.
             error(span, "'{}' must be a ByRef Method to implement {}'s, which changes its value",
@@ -2776,6 +2954,12 @@ private:
                        [this](const symbol_id_t parameter) { return symbol(parameter).by_ref; },
                        [this](const symbol_id_t parameter) { return symbol(parameter).by_ref; })) {
             error(member.span, "'{}' must take the same ByRef parameters as {}'s", member.name,
+                  name_of(original.owner));
+        } else if (original.modifiers.is_async && !member.modifiers.is_async) {
+            error(member.span, "'{}' overrides {}'s, which is Async, so it has to be Async too",
+                  member.name, name_of(original.owner));
+        } else if (member.modifiers.is_async && !original.modifiers.is_async) {
+            error(member.span, "'{}' is Async, so it can't override {}'s, which isn't", member.name,
                   name_of(original.owner));
         }
     }
@@ -3510,6 +3694,18 @@ private:
         }
 
         collect_field_bounds(node.body, reflectable, constraints);
+        // And in the block lambdas in it, whose code each instance has its own copy of.
+        if (!reflectable.empty()) {
+            const span_t span = m_ast.get(id).span;
+            for (const expr_id_t lambda : block_lambdas()) {
+                const span_t inner = span_of(lambda);
+                if (inner.file == span.file && inner.begin >= span.begin && inner.end <= span.end) {
+                    collect_field_bounds(std::get<lambda_expr_t>(m_ast.get(lambda).node).body,
+                                         reflectable, constraints);
+                }
+            }
+        }
+
         const std::vector<bound_t> outer_bounds = m_bounds;
         m_bounds.insert(m_bounds.end(), constraints.begin(), constraints.end());
         std::vector<symbol_id_t> parameters;
@@ -3524,6 +3720,11 @@ private:
             const bool variadic = parameter.variadic &&
                                   check_variadic(parameter, &parameter == &node.parameters.back());
             type_id_t type = resolve_type(parameter.type);
+            if (!parameter.by_ref) {
+                type = keep_in_place(type, m_ast.get(parameter.type).span,
+                                     "a parameter can't hold one; make it ByRef");
+            }
+
             if (parameter.variadic) {
                 type = m_analysis.types.array(type);
             }
@@ -3544,8 +3745,10 @@ private:
         const bool constructor = node.kind == function_kind_t::CONSTRUCTOR;
         const bool by_ref = node.kind == function_kind_t::BYREF_METHOD;
         // The parser already reported a return type on New.
-        type_id_t return_type =
-            node.return_type ? resolve_type(*node.return_type) : type_id_t::NONE;
+        type_id_t return_type = node.return_type ? keep_in_place(resolve_type(*node.return_type),
+                                                                 m_ast.get(*node.return_type).span,
+                                                                 "a function can't give one back")
+                                                 : type_id_t::NONE;
         if (constructor) {
             return_type = owner;
         }
@@ -3584,6 +3787,10 @@ private:
             check_const_function(node, parameters, return_type, throws);
         }
 
+        if (node.modifiers.is_async) {
+            check_async_function(node, owner, parameters);
+        }
+
         const symbol_id_t function = add_symbol({
             .kind = kind,
             .name = node.name.text,
@@ -3611,6 +3818,32 @@ private:
         }
 
         return function;
+    }
+
+    /// An Async Function or Method runs as a coroutine on the main thread, which goes on after the
+    /// call
+    /// that starts it returns, so its parameters can't be ByRef.
+    void check_async_function(const function_stmt_t& node, const type_id_t owner,
+                              const std::vector<symbol_id_t>& parameters) {
+        if (owner != type_id_t::INVALID && is_interface(owner)) {
+            error(node.name.span, "an Interface's Method can't be Async yet");
+        } else if (node.kind == function_kind_t::BYREF_METHOD) {
+            error(node.name.span, "a ByRef Method can't be Async, since it can go on after its "
+                                  "caller's variable is gone");
+        } else if (owner != type_id_t::INVALID && node.name.text == "Destroy") {
+            error(node.name.span, "Destroy can't be Async, since it runs when the last reference "
+                                  "goes");
+        } else if (node.modifiers.is_const) {
+            error(node.name.span, "a Const Function runs in the compiler, so it can't be Async");
+        }
+
+        for (const symbol_id_t parameter : parameters) {
+            if (symbol(parameter).by_ref) {
+                error(symbol(parameter).span,
+                      "an Async Function's parameter can't be ByRef, since the Function can go on "
+                      "after its caller's variable is gone");
+            }
+        }
     }
 
     /// An Operator is Static, takes a value of its own type, and is for an operator a type can
@@ -3724,7 +3957,12 @@ private:
         const auto* node = std::get_if<variable_stmt_t>(&m_ast.get(id).node);
         const std::optional<symbol_id_t> global = m_analysis.stmts[index(id)].symbol;
         if (node != nullptr && global && node->type && is_global(*node)) {
-            const type_id_t type = resolve_type(*node->type);
+            type_id_t type = resolve_type(*node->type);
+            if (node->kind == variable_kind_t::CONSTANT) {
+                type = keep_in_place(type, m_ast.get(*node->type).span,
+                                     "a Const can't hold one; make it a Global");
+            }
+
             symbol(*global).type = type;
         }
     }
@@ -3914,6 +4152,10 @@ private:
             return true;
         }
 
+        if (interface == m_analysis.interfaces.sendable) {
+            return !unsendable(type);
+        }
+
         if (is_parameter(type)) {
             return std::ranges::contains(bounds_of(type), interface);
         }
@@ -3927,6 +4169,96 @@ private:
         }
 
         return listed_implements(type, interface) || extension_implements(type, interface);
+    }
+
+    /// Why a value of `type` can't go to another thread, or nullopt when it can: it's a number,
+    /// Bool, String, or Enum, or a Struct, tuple, fixed array, or T? whose parts all can, or a type
+    /// parameter or Interface that says it's Sendable. Objects stay on the thread that made them,
+    /// since their refcounts aren't atomic. A Struct's reason names the field, and goes on into a
+    /// Struct or tuple it holds: "its field 'Inner' is Holder, whose field 'Target' is Enemy, and
+    /// a Class's objects stay on the thread that made them".
+    [[nodiscard]] std::optional<std::string> unsendable(const type_id_t type) const {
+        const type_id_t sendable = m_analysis.interfaces.sendable;
+        if (type == type_id_t::INVALID || sendable == type_id_t::INVALID || is_numeric(type) ||
+            type == type_id_t::BOOL || type == type_id_t::STRING || is_enum(type) ||
+            in_place(type) || is_channel(type)) {
+            return std::nullopt;
+        }
+
+        if (is_scheduler(type)) {
+            return "a Scheduler runs coroutines, which stay on the main thread";
+        }
+
+        if (is_parameter(type)) {
+            return std::ranges::contains(bounds_of(type), sendable)
+                       ? std::nullopt
+                       : std::optional(std::format("nothing says {} is Sendable", name_of(type)));
+        }
+
+        if (is_interface(type)) {
+            return m_analysis.types.extends(type, sendable)
+                       ? std::nullopt
+                       : std::optional<std::string>("an Interface's values are objects, which "
+                                                    "stay on the thread that made them");
+        }
+
+        if (is_nullable(type)) {
+            return unsendable(non_null(type));
+        }
+
+        if (is_fixed_array(type)) {
+            return unsendable(element_of(type));
+        }
+
+        if (is_struct(type) || is_tuple(type)) {
+            const std::string_view part = is_tuple(type) ? "element" : "field";
+            for (const field_t& field : m_analysis.types.get(type).fields) {
+                const std::optional<std::string> why = unsendable(field.type);
+                if (!why) {
+                    continue;
+                }
+
+                // A Struct or tuple inside goes on with its own part: "whose field ...".
+                constexpr std::string_view its = "its ";
+                if (why->starts_with(its)) {
+                    return std::format("its {} '{}' is {}, whose {}", part, field.name,
+                                       name_of(field.type), why->substr(its.size()));
+                }
+
+                return std::format("its {} '{}' is {}, and {}", part, field.name,
+                                   name_of(field.type), *why);
+            }
+
+            return std::nullopt;
+        }
+
+        if (is_class(type) && !m_analysis.types.get(type).shared) {
+            return "a Class's objects stay on the thread that made them, unless it's a Shared "
+                   "Class";
+        }
+
+        if (is_class(type)) {
+            return std::nullopt;
+        }
+
+        if (is_array(type)) {
+            return "an array stays on the thread that made it";
+        }
+
+        if (is_weak(type)) {
+            return m_analysis.types.get(element_of(type)).shared
+                       ? std::nullopt
+                       : std::optional<std::string>("a Weak<T> stays on the thread that made it, "
+                                                    "unless T is a Shared Class");
+        }
+
+        if (is_task(type)) {
+            return m_analysis.types.get(type).kind == type_kind_t::THREAD
+                       ? "a Thread stays on the thread that started it"
+                       : "a Task stays on the thread that spawned it";
+        }
+
+        return "a function value stays on the thread that made it";
     }
 
     /// Whether a Struct or Class implements an Interface for all of its instances: one it, or a
@@ -4209,7 +4541,12 @@ private:
                 continue;
             }
 
-            if (!implements(argument, interface)) {
+            if (interface == m_analysis.interfaces.sendable) {
+                if (const std::optional<std::string> why = unsendable(argument)) {
+                    error(span, "{} isn't Sendable, which {} needs for {}: {}", name_of(argument),
+                          what, name_of(bound.parameter), *why);
+                }
+            } else if (!implements(argument, interface)) {
                 error(span, "{} doesn't implement {}, which {} needs for {}", name_of(argument),
                       name_of(interface), what, name_of(bound.parameter));
             }
@@ -4298,7 +4635,9 @@ private:
                         ? substitute(member.type, m_analysis.types.get(info.generic).parameters,
                                      info.arguments)
                         : member.type;
-                found.push_back({ .name = std::string(member.name), .type = seen });
+                if (!in_place(seen)) {
+                    found.push_back({ .name = std::string(member.name), .type = seen });
+                }
             }
 
             if (kind == member_kind_t::STATIC_FIELD) {
@@ -4307,6 +4646,22 @@ private:
         }
 
         return found;
+    }
+
+    /// The program's lambdas with a block for a body, found the first time they're needed.
+    const std::vector<expr_id_t>& block_lambdas() {
+        if (!m_block_lambdas) {
+            m_block_lambdas.emplace();
+            for (std::size_t i = 0; i < m_ast.expr_count(); ++i) {
+                const auto id = static_cast<expr_id_t>(i);
+                const auto* lambda = std::get_if<lambda_expr_t>(&m_ast.get(id).node);
+                if (lambda != nullptr && !lambda->value) {
+                    m_block_lambdas->push_back(id);
+                }
+            }
+        }
+
+        return *m_block_lambdas;
     }
 
     /// The constraints that the Where lines of For Field loops put on the fields of a function's
@@ -4394,6 +4749,8 @@ private:
             visit(member->body);
         } else if (const auto* deferred = std::get_if<defer_stmt_t>(&node)) {
             visit(block_t{ deferred->statement });
+        } else if (const auto* lock = std::get_if<lock_stmt_t>(&node)) {
+            visit(lock->body);
         }
     }
 
@@ -4457,7 +4814,191 @@ private:
 
     /// A warning at a use of something @Deprecated, or of a New of a @Deprecated type. Its own
     /// code, and its type's, can use it.
+    /// The function or lambda whose code is being checked, or nullopt for top-level code, which
+    /// runs on the main thread.
+    [[nodiscard]] std::optional<symbol_id_t> current_code() const {
+        return m_lambdas.empty() ? m_function : std::optional(m_lambdas.back().function);
+    }
+
+    /// What a use of a symbol means for the main-thread rules: a mutable Global or Static Field,
+    /// a top-level Const that isn't Sendable, or a @MainThread function is the main thread's,
+    /// and a function's, Method's, or Property's code runs from here.
+    void note_thread_use(const symbol_id_t id, const span_t span) {
+        const std::optional<symbol_id_t> code = current_code();
+        if (!code) {
+            return;
+        }
+
+        const symbol_t& used = symbol(id);
+        const auto main_only = [&](std::string what) {
+            m_main_only.try_emplace(*code, main_only_t{ .what = std::move(what), .span = span });
+        };
+
+        switch (used.kind) {
+        case symbol_kind_t::GLOBAL:
+            if (!in_place(used.type)) {
+                const std::string variable =
+                    used.owner != type_id_t::INVALID
+                        ? std::format("the Static Field '{}.{}'", name_of(used.owner), used.name)
+                        : std::format("the Global '{}'", used.name);
+                main_only(std::format("uses {}, which only the main thread can, unless it's an "
+                                      "Atomic or a Mutex",
+                                      variable));
+            }
+
+            break;
+        case symbol_kind_t::CONSTANT:
+            if (!used.value && !scope_of(id) && unsendable(used.type)) {
+                main_only(std::format("uses the Const '{}', which holds {}, which isn't Sendable",
+                                      used.name, name_of(used.type)));
+            }
+
+            break;
+        case symbol_kind_t::BUILTIN_FUNCTION:
+            if (used.modifiers.is_main_thread) {
+                main_only(std::format("calls {}, which is @MainThread", code_name(used)));
+            }
+
+            break;
+        case symbol_kind_t::FUNCTION:
+        case symbol_kind_t::METHOD:
+        case symbol_kind_t::CONSTRUCTOR:
+            m_reaches[*code].push_back(id);
+            if (used.modifiers.is_main_thread) {
+                main_only(std::format("calls {}, which is @MainThread", code_name(used)));
+            } else if (used.modifiers.is_async) {
+                main_only(std::format("calls {}, which is Async, so its code runs on the main "
+                                      "thread",
+                                      code_name(used)));
+            }
+
+            break;
+        case symbol_kind_t::PROPERTY:
+            for (const std::optional<symbol_id_t> accessor : { used.getter, used.setter }) {
+                if (accessor) {
+                    m_reaches[*code].push_back(*accessor);
+                }
+            }
+
+            break;
+        default:
+            break;
+        }
+    }
+
+    /// "'Enemy.Think'" for a Method, and "'Think'" for a Function.
+    [[nodiscard]] std::string code_name(const symbol_t& code) const {
+        if (code.owner != type_id_t::INVALID && !is_interface(code.owner)) {
+            return std::format("'{}.{}'", name_of(code.owner), code.name);
+        }
+
+        return std::format("'{}'", code.name);
+    }
+
+    /// Each worker's code, and all it can run, reaches nothing only the main thread may. A call
+    /// of a Method reaches what overrides it, and of an Interface's Method, what implements it;
+    /// a New reaches its Class's Destroy(). The error says how the code gets there.
+    void check_threads() {
+        std::unordered_map<symbol_id_t, std::vector<symbol_id_t>> also;
+        for (std::size_t i = 0; i < m_analysis.symbols.size(); ++i) {
+            const auto id = static_cast<symbol_id_t>(i);
+            const symbol_t& found = m_analysis.symbols[i];
+            if (found.overrides) {
+                also[*found.overrides].push_back(id);
+            }
+
+            if (found.default_method) {
+                also[id].push_back(*found.default_method);
+            }
+
+            if (found.kind == symbol_kind_t::CONSTRUCTOR && is_class(found.owner)) {
+                for (type_id_t type = found.owner; type != type_id_t::INVALID;
+                     type = base_of(type)) {
+                    const auto declared = m_declared_types.find(definition_of(type));
+                    if (declared == m_declared_types.end()) {
+                        break;
+                    }
+
+                    for (const symbol_id_t member : symbol(declared->second).members) {
+                        if (symbol(member).name == "Destroy" &&
+                            symbol(member).kind == symbol_kind_t::METHOD) {
+                            also[id].push_back(member);
+                        }
+                    }
+                }
+            }
+        }
+
+        for (const conformance_t& conformance : m_analysis.conformances) {
+            const auto declared = m_declared_types.find(definition_of(conformance.interface));
+            if (declared == m_declared_types.end()) {
+                continue;
+            }
+
+            const std::vector<symbol_id_t>& required = symbol(declared->second).members;
+            for (std::size_t i = 0; i < required.size() && i < conformance.members.size(); ++i) {
+                also[required[i]].push_back(conformance.members[i]);
+            }
+        }
+
+        for (const worker_t& worker : m_workers) {
+            check_worker(worker, also);
+        }
+    }
+
+    void check_worker(const worker_t& worker,
+                      const std::unordered_map<symbol_id_t, std::vector<symbol_id_t>>& also) {
+        if (symbol(worker.work).modifiers.is_main_thread) {
+            error(worker.span, "{}, but {} is @MainThread", worker.where,
+                  code_name(symbol(worker.work)));
+            return;
+        }
+
+        // Breadth first, so the error names the shortest way there.
+        std::unordered_map<symbol_id_t, symbol_id_t> came_from{ { worker.work, worker.work } };
+        std::vector<symbol_id_t> queue{ worker.work };
+        for (std::size_t next = 0; next < queue.size(); ++next) {
+            const symbol_id_t code = queue[next];
+            if (const auto found = m_main_only.find(code); found != m_main_only.end()) {
+                // The named functions on the way, from the work to here.
+                std::vector<std::string> path;
+                for (symbol_id_t at = code; at != worker.work; at = came_from.at(at)) {
+                    const symbol_kind_t kind = symbol(at).kind;
+                    if ((kind == symbol_kind_t::FUNCTION || kind == symbol_kind_t::METHOD ||
+                         kind == symbol_kind_t::CONSTRUCTOR) &&
+                        !m_lambda_code.contains(at)) {
+                        path.push_back(code_name(symbol(at)));
+                    }
+                }
+
+                std::string how = "it";
+                for (const std::string& step : std::views::reverse(path)) {
+                    how += std::format(" calls {}, which", step);
+                }
+
+                error(worker.span, "{}, but {} {}", worker.where, how, found->second.what)
+                    .with_label(found->second.span, "here");
+                return;
+            }
+
+            const auto visit = [&](const symbol_id_t reached) {
+                if (came_from.try_emplace(reached, code).second) {
+                    queue.push_back(reached);
+                }
+            };
+
+            if (const auto edges = m_reaches.find(code); edges != m_reaches.end()) {
+                std::ranges::for_each(edges->second, visit);
+            }
+
+            if (const auto edges = also.find(code); edges != also.end()) {
+                std::ranges::for_each(edges->second, visit);
+            }
+        }
+    }
+
     void note_use(const symbol_id_t id, const span_t span) {
+        note_thread_use(id, span);
         const symbol_t* used = &symbol(id);
         if (!used->modifiers.deprecated && used->kind == symbol_kind_t::CONSTRUCTOR) {
             const auto type = m_declared_types.find(definition_of(used->owner));
@@ -4513,6 +5054,10 @@ private:
         case type_kind_t::NULLABLE:
         case type_kind_t::ARRAY:
         case type_kind_t::WEAK:
+        case type_kind_t::ATOMIC:
+        case type_kind_t::MUTEX:
+        case type_kind_t::TASK:
+        case type_kind_t::CHANNEL:
             return mentions(info.inner, parameters);
         case type_kind_t::FUNCTION:
             return any(info.parameters) || mentions(info.inner, parameters);
@@ -4630,6 +5175,255 @@ private:
     /// "Weak<T>": reading one gives a T?.
     [[nodiscard]] bool is_weak(const type_id_t type) const {
         return m_analysis.types.get(type).kind == type_kind_t::WEAK;
+    }
+
+    [[nodiscard]] bool is_atomic(const type_id_t type) const {
+        return m_analysis.types.get(type).kind == type_kind_t::ATOMIC;
+    }
+
+    [[nodiscard]] bool is_mutex(const type_id_t type) const {
+        return m_analysis.types.get(type).kind == type_kind_t::MUTEX;
+    }
+
+    /// "Task<T>" or "Thread": work running on another thread.
+    [[nodiscard]] bool is_task(const type_id_t type) const {
+        const type_kind_t kind = m_analysis.types.get(type).kind;
+        return kind == type_kind_t::TASK || kind == type_kind_t::THREAD;
+    }
+
+    [[nodiscard]] bool is_channel(const type_id_t type) const {
+        return m_analysis.types.get(type).kind == type_kind_t::CHANNEL;
+    }
+
+    [[nodiscard]] bool is_scheduler(const type_id_t type) const {
+        return m_analysis.types.get(type).kind == type_kind_t::SCHEDULER;
+    }
+
+    /// A Scheduler's Methods: Run, which moves an Async Function's coroutine to it, Tick, and
+    /// IsIdle. Run takes any Task, so its parameter has no type, and check_special_call() checks
+    /// its argument.
+    const std::vector<symbol_id_t>& scheduler_methods() {
+        if (!m_scheduler_methods.empty()) {
+            return m_scheduler_methods;
+        }
+
+        const type_id_t type = m_analysis.types.scheduler();
+        const symbol_id_t task = add_symbol({ .kind = symbol_kind_t::PARAMETER, .name = "task" });
+        const symbol_id_t seconds = add_symbol({
+            .kind = symbol_kind_t::PARAMETER,
+            .name = "seconds",
+            .type = type_id_t::FLOAT64,
+        });
+        m_scheduler_methods.push_back(add_symbol({
+            .kind = symbol_kind_t::METHOD,
+            .name = "Run",
+            .type = type_id_t::NONE,
+            .parameters = { task },
+            .owner = type,
+        }));
+        m_scheduler_methods.push_back(add_symbol({
+            .kind = symbol_kind_t::METHOD,
+            .name = "Tick",
+            .type = type_id_t::NONE,
+            .parameters = { seconds },
+            .owner = type,
+        }));
+        m_scheduler_methods.push_back(add_symbol({
+            .kind = symbol_kind_t::METHOD,
+            .name = "IsIdle",
+            .type = type_id_t::BOOL,
+            .owner = type,
+        }));
+        return m_scheduler_methods;
+    }
+
+    /// A Channel's Methods: Send and TrySend, Receive, which gives Null once it's closed and
+    /// empty, TryReceive into a ByRef variable, and Close. Their owner is the Channel, and they
+    /// have no declaration.
+    const std::vector<symbol_id_t>& channel_methods(const type_id_t type) {
+        if (const auto found = m_channel_methods.find(type); found != m_channel_methods.end()) {
+            return found->second;
+        }
+
+        const type_id_t element = element_of(type);
+        const auto parameter = [this](const std::string_view name, const type_id_t parameter_type,
+                                      const bool by_ref = false) {
+            return add_symbol({
+                .kind = symbol_kind_t::PARAMETER,
+                .name = name,
+                .type = parameter_type,
+                .by_ref = by_ref,
+            });
+        };
+
+        std::vector<symbol_id_t> methods;
+        const auto method = [&](const std::string_view name, const type_id_t result,
+                                std::vector<symbol_id_t> parameters) {
+            methods.push_back(add_symbol({
+                .kind = symbol_kind_t::METHOD,
+                .name = name,
+                .type = result,
+                .parameters = std::move(parameters),
+                .owner = type,
+            }));
+        };
+
+        method("Send", type_id_t::NONE, { parameter("value", element) });
+        method("TrySend", type_id_t::BOOL, { parameter("value", element) });
+        method("Receive", nullable_of(element), {});
+        method("TryReceive", type_id_t::BOOL, { parameter("value", element, true) });
+        method("Close", type_id_t::NONE, {});
+        return m_channel_methods[type] = std::move(methods);
+    }
+
+    /// A Task's Methods, Wait and IsDone, and a Thread's, Join and IsDone. Their owner is the
+    /// Task or Thread, and they have no declaration.
+    const std::vector<symbol_id_t>& task_methods(const type_id_t type) {
+        if (const auto found = m_task_methods.find(type); found != m_task_methods.end()) {
+            return found->second;
+        }
+
+        const bool thread = m_analysis.types.get(type).kind == type_kind_t::THREAD;
+        std::vector<symbol_id_t> methods;
+        // An Async Function's Wait re-throws its errors.
+        methods.push_back(add_symbol({
+            .kind = symbol_kind_t::METHOD,
+            .name = thread ? "Join" : "Wait",
+            .type = element_of(type),
+            .throws = m_analysis.types.get(type).throws,
+            .owner = type,
+        }));
+        methods.push_back(add_symbol({
+            .kind = symbol_kind_t::METHOD,
+            .name = "IsDone",
+            .type = type_id_t::BOOL,
+            .owner = type,
+        }));
+        return m_task_methods[type] = std::move(methods);
+    }
+
+    /// An Atomic or a Mutex, which stays where it's made, so every thread shares the one: in a
+    /// Global, a Static Field, or a Class's Field. It's never copied.
+    [[nodiscard]] bool in_place(const type_id_t type) const {
+        return is_atomic(type) || is_mutex(type);
+    }
+
+    /// `type`, unless it stays where it's made, which is reported where it would be copied, with
+    /// `why`, like "a Local can't hold one". Then INVALID.
+    type_id_t keep_in_place(const type_id_t type, const span_t span, const std::string_view why) {
+        if (!in_place(type)) {
+            return type;
+        }
+
+        error(span, "{} stays where it's made, so {}", name_of(type), why);
+        return type_id_t::INVALID;
+    }
+
+    /// An Atomic or Mutex used as a value, which would copy it.
+    void report_copy(const expr_id_t id, const type_id_t type) {
+        if (std::holds_alternative<call_expr_t>(m_ast.get(id).node)) {
+            error(span_of(id),
+                  "{} stays where it's made, so it's made only as what a Global, a Static Field, "
+                  "or a Class's Field starts with",
+                  name_of(type));
+        } else if (is_atomic(type)) {
+            error(span_of(id),
+                  "{} stays where it's made, so it can't be copied; use its Methods, like Load()",
+                  name_of(type));
+        } else {
+            error(span_of(id),
+                  "{} stays where it's made, so it can't be copied; use its value in a Lock block, "
+                  "like 'Lock m As value'",
+                  name_of(type));
+        }
+    }
+
+    /// "Channel<T>" of a Sendable T, or INVALID, which is reported.
+    type_id_t channel_of(const type_id_t element, const span_t span) {
+        if (element == type_id_t::INVALID ||
+            keep_in_place(element, span, "it can't be part of another type") ==
+                type_id_t::INVALID) {
+            return type_id_t::INVALID;
+        }
+
+        if (const std::optional<std::string> why = unsendable(element)) {
+            error(span, "a Channel carries Sendable values to other threads, which {} isn't: {}",
+                  name_of(element), *why);
+            return type_id_t::INVALID;
+        }
+
+        return m_analysis.types.channel(element);
+    }
+
+    /// "Atomic<T>" of an integer or Bool, or "Mutex<T>" of a Sendable T, or INVALID, which is
+    /// reported.
+    type_id_t in_place_of(const type_kind_t kind, const type_id_t inner, const span_t span) {
+        if (inner == type_id_t::INVALID) {
+            return type_id_t::INVALID;
+        }
+
+        if (kind == type_kind_t::ATOMIC) {
+            if (!is_integer(inner) && inner != type_id_t::BOOL) {
+                error(span,
+                      "an Atomic holds an integer or a Bool, not {}; a Mutex holds any "
+                      "Sendable value",
+                      name_of(inner));
+                return type_id_t::INVALID;
+            }
+
+            return m_analysis.types.atomic(inner);
+        }
+
+        if (keep_in_place(inner, span, "it can't be part of another type") == type_id_t::INVALID) {
+            return type_id_t::INVALID;
+        }
+
+        if (const std::optional<std::string> why = unsendable(inner)) {
+            error(span, "a Mutex holds a Sendable value, which {} isn't: {}", name_of(inner), *why);
+            return type_id_t::INVALID;
+        }
+
+        return m_analysis.types.mutex(inner);
+    }
+
+    /// An Atomic<T>'s Methods: Load, Store, Exchange, and CompareExchange, and for an integer,
+    /// Add and Subtract, which give what it held before. They work on it where it is, as ByRef
+    /// Methods do. Their owner is the Atomic, and they have no declaration.
+    const std::vector<symbol_id_t>& atomic_methods(const type_id_t type) {
+        if (const auto found = m_atomic_methods.find(type); found != m_atomic_methods.end()) {
+            return found->second;
+        }
+
+        const type_id_t inner = element_of(type);
+        const auto parameter = [this](const std::string_view name, const type_id_t parameter_type) {
+            return add_symbol(
+                { .kind = symbol_kind_t::PARAMETER, .name = name, .type = parameter_type });
+        };
+
+        std::vector<symbol_id_t> methods;
+        const auto method = [&](const std::string_view name, const type_id_t result,
+                                std::vector<symbol_id_t> parameters) {
+            methods.push_back(add_symbol({
+                .kind = symbol_kind_t::METHOD,
+                .name = name,
+                .type = result,
+                .by_ref = true,
+                .parameters = std::move(parameters),
+                .owner = type,
+            }));
+        };
+
+        method("Load", inner, {});
+        method("Store", type_id_t::NONE, { parameter("value", inner) });
+        method("Exchange", inner, { parameter("value", inner) });
+        method("CompareExchange", type_id_t::BOOL,
+               { parameter("expected", inner), parameter("desired", inner) });
+        if (is_integer(inner)) {
+            method("Add", inner, { parameter("amount", inner) });
+            method("Subtract", inner, { parameter("amount", inner) });
+        }
+
+        return m_atomic_methods[type] = std::move(methods);
     }
 
     /// What reading a value of `type` gives: a T? for a Weak<T>, and the type itself otherwise.
@@ -4899,8 +5693,14 @@ private:
     /// array of one. Types that don't exist yet are reported and give INVALID.
     type_id_t resolve_type(const type_expr_id_t id) {
         const type_expr_t& type = m_ast.get(id);
+        // An Atomic or a Mutex isn't copied, so it's never part of another type.
+        const auto part = [this](const type_expr_id_t inner) {
+            return keep_in_place(resolve_type(inner), m_ast.get(inner).span,
+                                 "it can't be part of another type");
+        };
+
         if (const auto* array = std::get_if<array_type_t>(&type.node)) {
-            const type_id_t element = resolve_type(array->element);
+            const type_id_t element = part(array->element);
             if (array->sizes.empty()) {
                 return m_analysis.types.array(element);
             }
@@ -4909,7 +5709,7 @@ private:
         }
 
         if (const auto* nullable = std::get_if<nullable_type_t>(&type.node)) {
-            const type_id_t inner = resolve_type(nullable->inner);
+            const type_id_t inner = part(nullable->inner);
             if (is_nullable(inner)) {
                 error(type.span, "{} can already be Null", name_of(inner));
                 return inner;
@@ -4928,11 +5728,10 @@ private:
             std::vector<type_id_t> parameters;
             parameters.reserve(function->parameters.size());
             for (const type_expr_id_t parameter : function->parameters) {
-                parameters.push_back(resolve_type(parameter));
+                parameters.push_back(part(parameter));
             }
 
-            const type_id_t result =
-                function->result ? resolve_type(*function->result) : type_id_t::NONE;
+            const type_id_t result = function->result ? part(*function->result) : type_id_t::NONE;
             return m_analysis.types.function(parameters, result);
         }
 
@@ -4940,7 +5739,7 @@ private:
         if (const auto* tuple = std::get_if<tuple_type_t>(&type.node)) {
             std::vector<type_id_t> elements;
             for (const type_expr_id_t element : tuple->elements) {
-                elements.push_back(resolve_type(element));
+                elements.push_back(part(element));
                 if (is_weak(elements.back())) {
                     error(m_ast.get(element).span, "a tuple can't hold a {}",
                           name_of(elements.back()));
@@ -4992,6 +5791,58 @@ private:
                 error(type.span,
                       "Self is a type only in an Interface, where it's the type implementing it");
                 return type_id_t::INVALID;
+            }
+
+            // "Channel<T>", of a Sendable T.
+            if (named->name == "Channel" && !m_file_scope.contains(named->name)) {
+                if (named->arguments.size() != 1) {
+                    error(type.span, "Channel<T> takes one type argument");
+                    return type_id_t::INVALID;
+                }
+
+                return channel_of(resolve_type(named->arguments.front()), type.span);
+            }
+
+            if (named->name == "Scheduler" && !m_file_scope.contains(named->name)) {
+                if (!named->arguments.empty()) {
+                    error(type.span, "'Scheduler' isn't generic");
+                }
+
+                return m_analysis.types.scheduler();
+            }
+
+            // "Task<T>", "Task" for work that gives nothing, and "Thread".
+            if ((named->name == "Task" || named->name == "Thread") &&
+                !m_file_scope.contains(named->name)) {
+                if (named->name == "Thread" || named->arguments.empty()) {
+                    if (named->name == "Thread" && !named->arguments.empty()) {
+                        error(type.span, "'Thread' isn't generic");
+                    }
+
+                    return named->name == "Thread" ? m_analysis.types.thread()
+                                                   : m_analysis.types.task(type_id_t::NONE);
+                }
+
+                if (named->arguments.size() != 1) {
+                    error(type.span, "Task<T> takes one type argument");
+                    return type_id_t::INVALID;
+                }
+
+                const type_expr_id_t result = named->arguments.front();
+                return m_analysis.types.task(keep_in_place(
+                    resolve_type(result), m_ast.get(result).span, "it can't be a type argument"));
+            }
+
+            if ((named->name == "Atomic" || named->name == "Mutex") &&
+                !m_file_scope.contains(named->name)) {
+                if (named->arguments.size() != 1) {
+                    error(type.span, "{}<T> takes one type argument", named->name);
+                    return type_id_t::INVALID;
+                }
+
+                const auto kind =
+                    named->name == "Atomic" ? type_kind_t::ATOMIC : type_kind_t::MUTEX;
+                return in_place_of(kind, resolve_type(named->arguments.front()), type.span);
             }
 
             if (const auto found = m_file_scope.find(named->name); found != m_file_scope.end()) {
@@ -5060,7 +5911,9 @@ private:
         std::vector<type_id_t> arguments;
         arguments.reserve(named.arguments.size());
         for (std::size_t i = 0; i < named.arguments.size(); ++i) {
-            arguments.push_back(resolve_argument(named.arguments[i], parameters[i]));
+            arguments.push_back(keep_in_place(resolve_argument(named.arguments[i], parameters[i]),
+                                              m_ast.get(named.arguments[i]).span,
+                                              "it can't be a type argument"));
         }
 
         check_type_bounds(type, arguments, span);
@@ -5522,6 +6375,9 @@ private:
         } else if (const auto* each = std::get_if<for_in_stmt_t>(&node)) {
             changed_in(each->sequence, names);
             changed_in(each->body, names);
+        } else if (const auto* lock = std::get_if<lock_stmt_t>(&node)) {
+            changed_in(lock->mutex, names);
+            changed_in(lock->body, names);
         }
     }
 
@@ -5761,15 +6617,30 @@ private:
     }
 
     void check_field_value(const symbol_id_t field, const expr_id_t value, const bool typed) {
+        // A Class's Field can start with an Atomic or Mutex, where it stays.
+        const std::optional<expr_id_t> outer = m_place_use;
+        if (is_class(symbol(field).owner)) {
+            m_place_use = value;
+        }
+
         if (typed) {
             const type_id_t type = symbol(field).type;
             check(value, type);
+            m_place_use = outer;
             if (!expect_type(value, type)) {
                 return;
             }
         } else {
             set_field_type(field, check(value, type_id_t::NONE));
+            m_place_use = outer;
             std::erase(m_untyped_fields, field);
+        }
+
+        if (is_mutex(symbol(field).type) && info(value).type != type_id_t::INVALID) {
+            error(span_of(value),
+                  "a Mutex Field starts with its value's zero, which a Lock block in New can "
+                  "change");
+            return;
         }
 
         if (info(value).value) {
@@ -6051,9 +6922,12 @@ private:
             return;
         }
 
+        // An Atomic or Mutex made for a target that can't take it was reported with the target.
         const std::optional<target_t> target = check_target(node.target);
         if (!target) {
+            const std::optional<expr_id_t> outer = std::exchange(m_place_use, node.value);
             check_any(node.value, type_id_t::NONE);
+            m_place_use = outer;
             return;
         }
 
@@ -6221,7 +7095,10 @@ private:
                                                            : symbol_kind_t::LOCAL,
             .name = node.name.text,
             .span = node.name.span,
-            .type = node.type ? resolve_type(*node.type) : type_id_t::INVALID,
+            .type = node.type ? keep_in_place(resolve_type(*node.type), m_ast.get(*node.type).span,
+                                              "a Local or Const can't hold one; make it a Global, "
+                                              "a Static Field, or a Class's Field")
+                              : type_id_t::INVALID,
             .declaration = id,
         };
         if (in_const_function() && needs_objects(declared.type)) {
@@ -6267,6 +7144,14 @@ private:
             return;
         }
 
+        // A Global and a Static Field can start with an Atomic or Mutex, where it stays. So can
+        // a Local whose type was already reported, which needn't be reported again.
+        const std::optional<expr_id_t> outer = m_place_use;
+        if (declared.kind == symbol_kind_t::GLOBAL ||
+            (annotated && declared.type == type_id_t::INVALID)) {
+            m_place_use = node.value;
+        }
+
         if (annotated) {
             check(*node.value, declared.type);
             expect_type(*node.value, declared.type);
@@ -6274,6 +7159,7 @@ private:
             declared.type = check(*node.value, type_id_t::NONE);
         }
 
+        m_place_use = outer;
         if (declared.kind == symbol_kind_t::CONSTANT) {
             declared.value = info(*node.value).value;
         }
@@ -6468,17 +7354,23 @@ private:
         }
     }
 
+    /// Whether nothing around the code takes its errors: no Try, Try?, or Try block.
+    [[nodiscard]] bool untried() const {
+        const handler_kind_t around =
+            m_handlers.empty() ? handler_kind_t::FUNCTION : m_handlers.back().kind;
+        return around == handler_kind_t::FUNCTION || around == handler_kind_t::SEALED;
+    }
+
     /// A call to a function that throws needs Try, Try?, or a Try block around it, and each error
-    /// it can throw is caught, or let out of the function.
+    /// it can throw is caught, or let out of the function. An Async Function's errors go in its
+    /// Task instead, which Wait and Await re-throw.
     void check_throwing_call(const expr_id_t id, const symbol_id_t function_id) {
         const symbol_t& function = symbol(function_id);
-        if (function.throws.empty()) {
+        if (function.throws.empty() || function.modifiers.is_async) {
             return;
         }
 
-        const handler_kind_t around =
-            m_handlers.empty() ? handler_kind_t::FUNCTION : m_handlers.back().kind;
-        if (around == handler_kind_t::FUNCTION || around == handler_kind_t::SEALED) {
+        if (untried()) {
             // A New is called by its Class's name.
             const std::string_view name = function.kind == symbol_kind_t::CONSTRUCTOR
                                               ? name_of(function.owner)
@@ -6628,6 +7520,42 @@ private:
         leave_loop(loop);
     }
 
+    /// "Lock m As s": the body has the Mutex's value as s, a variable like a ByRef parameter,
+    /// which a lambda can't capture.
+    void check_stmt(const stmt_id_t id, span_t /*span*/, const lock_stmt_t& node) {
+        if (in_const_function()) {
+            error(span_of(node.mutex),
+                  "a Const Function can't Lock, since only the running program has Mutexes");
+            return;
+        }
+
+        const std::optional<expr_id_t> outer = std::exchange(m_place_use, node.mutex);
+        const type_id_t mutex = check(node.mutex, type_id_t::NONE);
+        m_place_use = outer;
+        type_id_t inner = type_id_t::INVALID;
+        if (is_mutex(mutex)) {
+            if (check_changeable(node.mutex)) {
+                inner = element_of(mutex);
+            }
+        } else if (mutex != type_id_t::INVALID) {
+            error(span_of(node.mutex), "Lock takes a Mutex, not {}", name_of(mutex));
+        }
+
+        push_scope();
+        m_analysis.stmts[index(id)].symbol = declare_local({
+            .kind = symbol_kind_t::PARAMETER,
+            .name = node.name.text,
+            .span = node.name.span,
+            .type = inner,
+            .by_ref = true,
+            .declaration = id,
+        });
+        ++m_locks;
+        check_block(node.body);
+        --m_locks;
+        pop_scope();
+    }
+
     void check_stmt(const stmt_id_t id, span_t /*span*/, const loop_stmt_t& node) {
         forget_changed(node.body);
         push_loop(id, node.label);
@@ -6638,7 +7566,133 @@ private:
         leave_loop(loop);
     }
 
+    /// "Parallel For i = 0 Until n": the passes run on the pool at once, so the body is code of
+    /// its own, like a lambda's, which runs for chunks of the indexes. What it uses from outside
+    /// is a copy, which it can't change, and Sendable, but an array from outside can be changed
+    /// at the pass's own index.
+    void check_parallel_for(const stmt_id_t id, const for_stmt_t& node) {
+        const span_t keyword = node.parallel.value_or(span_t{});
+        if (in_const_function()) {
+            error(keyword, "a Const Function can't use Parallel For, since only the running "
+                           "program has threads");
+        }
+
+        type_id_t type = type_id_t::INVALID;
+        if (is_flexible(node.start) && !is_flexible(node.end)) {
+            type = check(node.start, check(node.end, type_id_t::NONE));
+        } else {
+            type = check(node.start, type_id_t::NONE);
+            check(node.end, type);
+        }
+
+        if (type != type_id_t::INVALID && !is_integer(type)) {
+            error(span_of(node.start), "a Parallel For counts with integers, not {}",
+                  name_of(type));
+            type = type_id_t::INVALID;
+        }
+
+        expect_type(node.end, type);
+        if (node.step) {
+            check(*node.step, type);
+            error(span_of(*node.step), "a Parallel For counts up by 1, so it has no Step");
+        }
+
+        // The body's code, which takes the loop variable, as a lambda takes its parameter.
+        const std::string where = lambda_name(keyword);
+        const type_id_t closure = m_analysis.types.add_class(
+            std::format("Parallel For {}", std::string_view(where).substr(where.find("at "))));
+        if (!m_type_scope.empty()) {
+            m_analysis.types.set_parameters(closure, m_type_scope);
+        }
+
+        const symbol_id_t variable = add_symbol({
+            .kind = symbol_kind_t::LOOP_VARIABLE,
+            .name = node.variable.text,
+            .span = node.variable.span,
+            .type = type,
+        });
+        const symbol_id_t function = add_symbol({
+            .kind = symbol_kind_t::FUNCTION,
+            .name = name_of(closure),
+            .span = keyword,
+            .type = type_id_t::NONE,
+            .parameters = { variable },
+        });
+        m_analysis.stmts[index(id)].symbol = variable;
+
+        const flow_t outer = m_flow;
+        std::vector<loop_t> loops = std::exchange(m_loops, {});
+        std::vector<std::size_t> finally_loops = std::exchange(m_finally_loops, {});
+        std::vector<symbol_id_t> required = std::exchange(m_required, {});
+        std::optional<branches_t> branches = std::exchange(m_branches, std::nullopt);
+        const std::optional<expr_id_t> partial = std::exchange(m_partial, std::nullopt);
+        m_flow.narrowed.clear();
+        m_flow.reachable = true;
+        m_handlers.push_back({ .kind = handler_kind_t::SEALED, .what = "a Parallel For's body" });
+        if (const std::optional<symbol_id_t> code = current_code()) {
+            m_reaches[*code].push_back(function);
+        }
+
+        m_lambda_code.insert(function);
+        m_lambdas.push_back({
+            .function = function,
+            .boundary = m_scopes.size(),
+            .parallel = true,
+            .index = variable,
+        });
+        push_scope();
+        enter_scope(variable);
+        push_loop(id, node.label);
+        check_block(node.body);
+        pop_loop();
+        pop_scope();
+        lambda_context_t body = std::move(m_lambdas.back());
+        m_lambdas.pop_back();
+        m_handlers.pop_back();
+        m_flow = outer;
+        m_loops = std::move(loops);
+        m_finally_loops = std::move(finally_loops);
+        m_required = std::move(required);
+        m_branches = std::move(branches);
+        m_partial = partial;
+
+        // Every pass has the copies, at once.
+        std::vector<field_t> fields;
+        for (const capture_t& capture : body.captures) {
+            const std::string_view name = symbol(capture.variable).name;
+            const type_id_t held = symbol(capture.inside).type;
+            const bool array = is_array(held);
+            if (const std::optional<std::string> why =
+                    unsendable(array ? element_of(held) : held)) {
+                error(keyword, "'{}' is {}, {} another thread can't have: {}", name, name_of(held),
+                      array ? "whose elements" : "which", *why);
+            }
+
+            fields.push_back({ .name = std::string(name), .type = held });
+        }
+
+        m_analysis.types.set_fields(closure, std::move(fields));
+        m_analysis.stmts[index(id)].closure = m_analysis.closures.size();
+        m_analysis.closures.push_back({
+            .function = function,
+            .type = closure,
+            .func = m_analysis.types.function({ type }, type_id_t::NONE),
+            .captures = std::move(body.captures),
+            .body = id,
+        });
+        m_workers.push_back({
+            .work = function,
+            .span = keyword,
+            .where = "a Parallel For's body runs on other threads",
+        });
+    }
+
     void check_stmt(const stmt_id_t id, span_t /*span*/, const for_stmt_t& node) {
+        if (node.parallel) {
+            check_parallel_for(id, node);
+            return;
+        }
+
         // The variable takes the start's type, unless the start is a literal and the end isn't.
         type_id_t type = type_id_t::INVALID;
         if (is_flexible(node.start) && !is_flexible(node.end)) {
@@ -6702,7 +7756,7 @@ private:
 
         type_id_t element = type_id_t::INVALID;
         std::optional<iteration_t> iteration;
-        if (is_any_array(sequence)) {
+        if (is_any_array(sequence) || is_channel(sequence)) {
             element = element_of(sequence);
         } else if (is_nullable(sequence) &&
                    (is_any_array(non_null(sequence)) || iteration_of(non_null(sequence)))) {
@@ -6722,6 +7776,10 @@ private:
                 element = iteration->element;
                 m_analysis.stmts[index(id)].next = iteration->next;
                 m_analysis.stmts[index(id)].iterate = iteration->iterate;
+                note_thread_use(iteration->next, span_of(node.sequence));
+                if (iteration->iterate) {
+                    note_thread_use(*iteration->iterate, span_of(node.sequence));
+                }
             }
         }
 
@@ -6732,6 +7790,11 @@ private:
                 warning(span_of(node.sequence), "'{}' doesn't throw, so it doesn't need Try",
                         text(tried->operand));
             }
+        }
+
+        if (is_channel(sequence) && node.index) {
+            error(node.index->span, "a Channel gives one value at a time, so 'For x In' takes one "
+                                    "name");
         }
 
         // Over an Iterator, two names take each element apart, like a Map's keys and values.
@@ -6993,7 +8056,10 @@ private:
             return {};
         }
 
-        return m_analysis.types.get(type).fields;
+        // An Atomic or Mutex can't be copied, so f.Get(value) can't give one.
+        std::vector<field_t> fields = m_analysis.types.get(type).fields;
+        std::erase_if(fields, [this](const field_t& field) { return in_place(field.type); });
+        return fields;
     }
 
     /// A For Field's or For Method's variable, when the expression is its name alone.
@@ -7465,6 +8531,11 @@ private:
                 error(span, "{} can't leave a Finally", keyword);
             }
 
+            const auto* counted = std::get_if<for_stmt_t>(&m_ast.get(loop->stmt).node);
+            if (is_break && counted != nullptr && counted->parallel) {
+                error(span, "Break can't leave a Parallel For, whose passes run at once");
+            }
+
             m_analysis.stmts[index(id)].loop = loop->stmt;
             (is_break ? loop->breaks : loop->continues).push_back(m_flow);
         }
@@ -7479,7 +8550,12 @@ private:
             error(span, "Return can't leave a Finally");
         }
 
-        if (!m_lambdas.empty()) {
+        if (!m_lambdas.empty() && m_lambdas.back().parallel) {
+            error(span, "a Parallel For's body can't Return; Continue goes on to its next index");
+            if (node.value) {
+                check_any(*node.value, type_id_t::NONE);
+            }
+        } else if (!m_lambdas.empty()) {
             check_lambda_return(span, node);
         } else if (!m_function) {
             if (node.value) {
@@ -7636,6 +8712,19 @@ private:
     /// Checks what an assignment changes: a variable, Self, or a field inside one. Plain '='
     /// doesn't read a whole variable, so it may be unassigned; changing a field reads the rest.
     std::optional<target_t> check_target(const expr_id_t id) {
+        std::optional<target_t> target = check_target_place(id);
+        if (target && in_place(target->type)) {
+            error(span_of(id), "{} stays where it's made, so it can't be assigned; {}",
+                  name_of(target->type),
+                  is_atomic(target->type) ? "use its Store(value)"
+                                          : "change its value in a Lock block");
+            return std::nullopt;
+        }
+
+        return target;
+    }
+
+    std::optional<target_t> check_target_place(const expr_id_t id) {
         const expr_node_t& node = m_ast.get(id).node;
         if (const auto* name = std::get_if<name_expr_t>(&node)) {
             const std::optional<symbol_id_t> found = lookup_value(name->name, span_of(id));
@@ -7645,6 +8734,13 @@ private:
 
             const type_id_t type = symbol(*found).type;
             info(id) = { .type = type, .converted = type, .symbol = found };
+            note_thread_use(*found, span_of(id));
+            if (parallel_outside(*found) != nullptr) {
+                error(span_of(id), "a Parallel For's body can't change '{}', which is outside it",
+                      name->name);
+                return std::nullopt;
+            }
+
             if (!check_assignable(*found, span_of(id), "changed") ||
                 !check_settable(*found, span_of(id))) {
                 return std::nullopt;
@@ -7771,6 +8867,19 @@ private:
             inner = member->object;
         } else if (const auto* element = std::get_if<index_expr_t>(&node)) {
             inner = element->object;
+            if (!check_parallel_element(*element)) {
+                return false;
+            }
+        }
+
+        // A Parallel For's body can't change what's from outside it.
+        if (const auto* name = std::get_if<name_expr_t>(&node)) {
+            const std::optional<symbol_id_t> variable = info(id).symbol;
+            if (variable && parallel_outside(*variable) != nullptr) {
+                error(span_of(id), "a Parallel For's body can't change '{}', which is outside it",
+                      name->name);
+                return false;
+            }
         }
 
         if (inner) {
@@ -7808,6 +8917,30 @@ private:
 
         error(span_of(id), "'{}' is ReadOnly; only {}'s New can change it", symbol(*found).name,
               name_of(symbol(*found).owner));
+        return false;
+    }
+
+    /// Each pass of a Parallel For changes an array from outside it only at the pass's own
+    /// index, so no two change the same element.
+    bool check_parallel_element(const index_expr_t& element) {
+        const lambda_context_t* parallel = outside_array(element.object);
+        if (parallel == nullptr) {
+            return true;
+        }
+
+        const auto* index = element.indices.size() == 1
+                                ? std::get_if<name_expr_t>(&m_ast.get(element.indices[0]).node)
+                                : nullptr;
+        if (index != nullptr && info(element.indices[0]).symbol == parallel->index) {
+            return true;
+        }
+
+        const std::string_view array = text(element.object);
+        const std::string_view variable = symbol(parallel->index.value_or(symbol_id_t{})).name;
+        error(span_of(element.object),
+              "a Parallel For's body changes '{}', an array from outside the body, only at its "
+              "own index, {}[{}]",
+              array, array, variable);
         return false;
     }
 
@@ -8068,6 +9201,13 @@ private:
             return type;
         }
 
+        if (std::holds_alternative<await_expr_t>(m_ast.get(id).node)) {
+            error(span_of(id), "this Await gives nothing, since what it waits for gives nothing");
+            info(id).type = type_id_t::INVALID;
+            info(id).converted = type_id_t::INVALID;
+            return type_id_t::INVALID;
+        }
+
         // Only a call to a function without a return type has no type, with Try or without.
         expr_id_t call = id;
         while (const auto* tried = std::get_if<try_expr_t>(&m_ast.get(call).node)) {
@@ -8097,12 +9237,29 @@ private:
         // Trying overloads checks arguments more than once, so each check starts fresh.
         info(id) = {};
         const bool target = m_partial == id; // checking a member changes m_partial
+        const bool kept = m_place_use == id;
+        const bool element = m_element_use == id;
         type_id_t type = std::visit(
             [this, id, hint](const auto& node) { return this->check_expr(id, node, hint); },
             m_ast.get(id).node);
         // Reading a Weak<T> gives a T?. An assignment's target keeps the Weak<T>.
         if (!target) {
             type = read_type(type);
+        }
+
+        // An Atomic or a Mutex isn't copied: it's used where it is.
+        if (!target && !kept && in_place(type)) {
+            report_copy(id, type);
+            type = type_id_t::INVALID;
+        }
+
+        // Each pass of a Parallel For uses an array from outside only through its elements.
+        if (!element && type != type_id_t::INVALID && outside_array(id) != nullptr) {
+            error(span_of(id),
+                  "a Parallel For's body uses '{}', an array from outside the body, only through "
+                  "its elements, like {}[i], and its Count",
+                  text(id), text(id));
+            type = type_id_t::INVALID;
         }
 
         // A Const Function runs in the compiler, which has no objects.
@@ -8433,6 +9590,11 @@ private:
             return type_id_t::INVALID;
         }
 
+        if (function.modifiers.is_async) {
+            error(span, "'{}' is Async, so it isn't a function value; a lambda can call it", name);
+            return type_id_t::INVALID;
+        }
+
         if (std::ranges::any_of(function.parameters,
                                 [this](const symbol_id_t p) { return symbol(p).by_ref; })) {
             error(span, "'{}' has a ByRef parameter, and a function value can't", name);
@@ -8617,24 +9779,68 @@ private:
             return std::nullopt;
         }
 
-        capture_kind_t kind = capture_kind_t::VALUE;
-        if (symbol(variable).kind == symbol_kind_t::LOCAL) {
-            kind = capture_kind_t::CELL;
-            if (symbol(variable).type != type_id_t::INVALID) {
-                const type_id_t cell = cell_of(symbol(variable).type);
-                symbol(variable).cell = cell;
-            }
+        // A Parallel For's body copies what it uses from outside, which it can't change, so a
+        // Local needs no cell for it, nor for the lambdas inside it. An array from outside is
+        // used only through its elements, which a lambda there can't keep.
+        const lambda_context_t* parallel = parallel_outside(variable);
+        if (parallel != nullptr && is_array(symbol(variable).type) &&
+            &m_lambdas.back() != parallel) {
+            error(span,
+                  "a lambda in a Parallel For's body can't take '{}', an array from outside "
+                  "the body",
+                  symbol(variable).name);
+            return std::nullopt;
         }
 
+        const bool local = symbol(variable).kind == symbol_kind_t::LOCAL;
+        bool cells = false;
         for (lambda_context_t& lambda : std::views::reverse(m_lambdas)) {
             if (lambda.boundary <= *scope) {
                 break;
             }
 
+            const bool copies = parallel != nullptr && lambda.boundary >= parallel->boundary;
+            const capture_kind_t kind =
+                local && !copies ? capture_kind_t::CELL : capture_kind_t::VALUE;
+            cells = cells || kind == capture_kind_t::CELL;
             add_capture(lambda, { .variable = variable, .inside = variable, .kind = kind });
         }
 
+        if (cells && symbol(variable).type != type_id_t::INVALID) {
+            const type_id_t cell = cell_of(symbol(variable).type);
+            symbol(variable).cell = cell;
+        }
+
         return variable;
+    }
+
+    /// The outermost Parallel For body being checked that `variable` is from outside of, if
+    /// any: that body can't change it.
+    [[nodiscard]] const lambda_context_t* parallel_outside(const symbol_id_t variable) const {
+        const std::optional<std::size_t> scope = scope_of(variable);
+        if (!scope) {
+            return nullptr;
+        }
+
+        for (const lambda_context_t& lambda : m_lambdas) {
+            if (lambda.parallel && *scope < lambda.boundary) {
+                return &lambda;
+            }
+        }
+
+        return nullptr;
+    }
+
+    /// An array from outside the Parallel For body being checked, as `id` names it.
+    [[nodiscard]] const lambda_context_t* outside_array(const expr_id_t id) const {
+        const auto* name = std::get_if<name_expr_t>(&m_ast.get(id).node);
+        const std::optional<symbol_id_t> found =
+            name != nullptr ? m_analysis.exprs[index(id)].symbol : std::nullopt;
+        if (!found || !is_array(m_analysis.symbols[index(*found)].type)) {
+            return nullptr;
+        }
+
+        return parallel_outside(*found);
     }
 
     /// The Class of the cells that Locals of `type` live in once a lambda captures them, with one
@@ -8867,6 +10073,34 @@ private:
             }
 
             return members.empty() ? builtin_methods(type, name) : members;
+        }
+
+        if (is_atomic(type)) {
+            std::ranges::copy_if(atomic_methods(type), std::back_inserter(members),
+                                 [&](const symbol_id_t id) { return symbol(id).name == name; });
+            return members;
+        }
+
+        if (is_mutex(type)) {
+            return members;
+        }
+
+        if (is_task(type)) {
+            std::ranges::copy_if(task_methods(type), std::back_inserter(members),
+                                 [&](const symbol_id_t id) { return symbol(id).name == name; });
+            return members;
+        }
+
+        if (is_channel(type)) {
+            std::ranges::copy_if(channel_methods(type), std::back_inserter(members),
+                                 [&](const symbol_id_t id) { return symbol(id).name == name; });
+            return members;
+        }
+
+        if (is_scheduler(type)) {
+            std::ranges::copy_if(scheduler_methods(), std::back_inserter(members),
+                                 [&](const symbol_id_t id) { return symbol(id).name == name; });
+            return members;
         }
 
         // What Extends add to a built-in type, an Enum, or arrays, then the built-in Interfaces'
@@ -9134,6 +10368,59 @@ private:
         if (is_nullable(type) && has_members(non_null(type))) {
             report_maybe_null(object);
             return {};
+        }
+
+        if (is_mutex(type)) {
+            error(member.span,
+                  "a Mutex's value is used in a Lock block, like 'Lock m As value', where only "
+                  "one thread has it at a time");
+            return {};
+        }
+
+        if (is_task(type)) {
+            std::vector<symbol_id_t> methods = members_of(type, member.text);
+            if (methods.empty()) {
+                error(member.span, "{} has no member named '{}'; it has {} and IsDone",
+                      name_of(type), member.text, symbol(task_methods(type).front()).name);
+            }
+
+            return methods;
+        }
+
+        if (is_channel(type)) {
+            std::vector<symbol_id_t> methods = members_of(type, member.text);
+            if (methods.empty()) {
+                error(member.span,
+                      "{} has no member named '{}'; it has Send, TrySend, Receive, TryReceive, "
+                      "and Close",
+                      name_of(type), member.text);
+            }
+
+            return methods;
+        }
+
+        if (is_scheduler(type)) {
+            std::vector<symbol_id_t> methods = members_of(type, member.text);
+            if (methods.empty()) {
+                error(member.span,
+                      "a Scheduler has no member named '{}'; it has Run, Tick, and IsIdle",
+                      member.text);
+            }
+
+            return methods;
+        }
+
+        if (is_atomic(type)) {
+            std::vector<symbol_id_t> methods = members_of(type, member.text);
+            if (methods.empty()) {
+                error(member.span,
+                      "{} has no member named '{}'; it has Load, Store, Exchange, "
+                      "CompareExchange{}",
+                      name_of(type), member.text,
+                      is_integer(element_of(type)) ? ", Add, and Subtract" : "");
+            }
+
+            return methods;
         }
 
         // A type parameter has what its constraints give.
@@ -9737,7 +11024,229 @@ private:
         return *common;
     }
 
+    /// "Atomic", "Mutex", "Channel", or "Scheduler" as a call's callee, when the program doesn't
+    /// declare the name: the kind of what the call makes.
+    std::optional<type_kind_t> in_place_maker(const expr_id_t callee) {
+        const auto* name = std::get_if<name_expr_t>(&m_ast.get(callee).node);
+        if (name == nullptr || find_local(name->name) || m_file_scope.contains(name->name)) {
+            return std::nullopt;
+        }
+
+        if (name->name == "Atomic") {
+            return type_kind_t::ATOMIC;
+        }
+
+        if (name->name == "Channel") {
+            return type_kind_t::CHANNEL;
+        }
+
+        if (name->name == "Scheduler") {
+            return type_kind_t::SCHEDULER;
+        }
+
+        return name->name == "Mutex" ? std::optional(type_kind_t::MUTEX) : std::nullopt;
+    }
+
+    /// "Scheduler()": a new Scheduler, which only the main thread makes, since its coroutines run
+    /// there.
+    type_id_t check_scheduler_made(const expr_id_t id, const call_expr_t& node) {
+        const auto& name = std::get<name_expr_t>(m_ast.get(node.callee).node);
+        if (!node.arguments.empty() || !name.type_arguments.empty()) {
+            check_alone(node.arguments);
+            error(span_of(id), "a Scheduler is made without arguments, like Scheduler()");
+            return type_id_t::INVALID;
+        }
+
+        if (const std::optional<symbol_id_t> code = current_code()) {
+            m_main_only.try_emplace(*code,
+                                    main_only_t{
+                                        .what = "makes a Scheduler, whose coroutines run on the "
+                                                "main thread",
+                                        .span = span_of(node.callee),
+                                    });
+        }
+
+        return m_analysis.types.scheduler();
+    }
+
+    /// "Channel<Packet>(64)": a new Channel with room for that many, an integer.
+    type_id_t check_channel_made(const expr_id_t id, const call_expr_t& node) {
+        const auto& name = std::get<name_expr_t>(m_ast.get(node.callee).node);
+        if (node.arguments.size() != 1 || node.arguments.front().name ||
+            node.arguments.front().by_ref || name.type_arguments.size() != 1) {
+            check_alone(node.arguments);
+            error(span_of(id), "a Channel is made with its type and how many it has room for, "
+                               "like Channel<Packet>(64)");
+            return type_id_t::INVALID;
+        }
+
+        const expr_id_t capacity = node.arguments.front().value;
+        const type_id_t size = check(capacity, type_id_t::INT32);
+        if (size != type_id_t::INVALID && !is_integer(size)) {
+            error(span_of(capacity), "a Channel's room is an integer, not {}", name_of(size));
+        }
+
+        info(id).arguments = { capacity };
+        return channel_of(resolve_type(name.type_arguments.front()), span_of(node.callee));
+    }
+
+    /// "Atomic<Int>(0)" or "Mutex(Stats())": a new Atomic or Mutex holding the argument. Without
+    /// a type argument, the T is the argument's type. An Atomic of a value known at compile time
+    /// is known too, so a Field can start with one.
+    type_id_t check_in_place_made(const expr_id_t id, const call_expr_t& node,
+                                  const type_kind_t kind) {
+        const auto& name = std::get<name_expr_t>(m_ast.get(node.callee).node);
+        if (node.arguments.size() != 1 || node.arguments.front().name ||
+            node.arguments.front().by_ref) {
+            check_alone(node.arguments);
+            error(span_of(id), "{}(value) takes the value it starts with", name.name);
+            return type_id_t::INVALID;
+        }
+
+        if (name.type_arguments.size() > 1) {
+            error(span_of(node.callee), "{}<T> takes one type argument", name.name);
+            return type_id_t::INVALID;
+        }
+
+        const expr_id_t argument = node.arguments.front().value;
+        type_id_t inner = type_id_t::INVALID;
+        if (name.type_arguments.empty()) {
+            inner = check(argument, type_id_t::NONE);
+        } else {
+            inner = resolve_type(name.type_arguments.front());
+            check(argument, inner);
+            if (!expect_type(argument, inner)) {
+                return type_id_t::INVALID;
+            }
+        }
+
+        const type_id_t made = in_place_of(kind, inner, span_of(node.callee));
+        if (made == type_id_t::INVALID) {
+            return type_id_t::INVALID;
+        }
+
+        info(id).arguments = { argument };
+        if (const std::optional<const_value_t> known = info(argument).value;
+            kind == type_kind_t::ATOMIC && known) {
+            info(id).value =
+                const_value_t{ .type = made, .data = convert_value(*known, inner).data };
+        }
+
+        return made;
+    }
+
+    /// "Spawn" or "Thread.Start" as a call's callee, when the program doesn't declare the name:
+    /// the kind of what the call starts.
+    std::optional<type_kind_t> spawner(const expr_id_t callee) {
+        const expr_node_t& node = m_ast.get(callee).node;
+        const auto declared = [&](const std::string_view name) {
+            return find_local(name) || m_file_scope.contains(name);
+        };
+
+        if (const auto* name = std::get_if<name_expr_t>(&node)) {
+            return name->name == "Spawn" && !declared(name->name) ? std::optional(type_kind_t::TASK)
+                                                                  : std::nullopt;
+        }
+
+        const auto* member = std::get_if<member_expr_t>(&node);
+        const auto* object =
+            member != nullptr ? std::get_if<name_expr_t>(&m_ast.get(member->object).node) : nullptr;
+        if (object == nullptr || object->name != "Thread" || declared(object->name) ||
+            member->member.text != "Start") {
+            return std::nullopt;
+        }
+
+        return type_kind_t::THREAD;
+    }
+
+    /// "Spawn(Function() => Work())" or "Thread.Start(Listen)": the work runs on another thread,
+    /// so it's a lambda or a Function's name, which nothing here keeps, and it takes nothing.
+    /// What it captures can't change, and is Sendable. A Spawn gives a Task of the work's
+    /// result, and Thread.Start a Thread.
+    type_id_t check_spawn(const expr_id_t id, const call_expr_t& node, const type_kind_t kind,
+                          const type_id_t hint) {
+        const bool thread = kind == type_kind_t::THREAD;
+        const std::string_view what = thread ? "Thread.Start" : "Spawn";
+        if (node.arguments.size() != 1 || node.arguments.front().name ||
+            node.arguments.front().by_ref) {
+            check_alone(node.arguments);
+            error(span_of(id), "{} takes the work to run, like {}(Function() => Work())", what,
+                  what);
+            return type_id_t::INVALID;
+        }
+
+        // A Task<T> expected says what the work gives.
+        const expr_id_t work = node.arguments.front().value;
+        const type_id_t expected = !thread && m_analysis.types.get(hint).kind == type_kind_t::TASK
+                                       ? m_analysis.types.function({}, element_of(hint))
+                                       : type_id_t::NONE;
+        const type_id_t func = check(work, expected);
+        if (func == type_id_t::INVALID) {
+            return type_id_t::INVALID;
+        }
+
+        const std::optional<std::size_t> closure = info(work).closure;
+        const expr_node_t& written = m_ast.get(work).node;
+        if (!closure || (!std::holds_alternative<lambda_expr_t>(written) &&
+                         !std::holds_alternative<name_expr_t>(written))) {
+            error(span_of(work),
+                  "{} takes a lambda or a Function's name, since a function value it was given "
+                  "would stay on this thread too",
+                  what);
+            return type_id_t::INVALID;
+        }
+
+        if (!m_analysis.types.get(func).parameters.empty()) {
+            error(span_of(work), "the work {} runs takes no arguments; a lambda can pass them",
+                  what);
+            return type_id_t::INVALID;
+        }
+
+        bool shareable = true;
+        for (const capture_t& capture : m_analysis.closures[*closure].captures) {
+            const symbol_t& variable = symbol(capture.variable);
+            const type_id_t type = symbol(capture.inside).type;
+            if (capture.kind == capture_kind_t::CELL) {
+                error(span_of(work),
+                      "'{}' is a Local, which another thread can't share; make it a "
+                      "Const",
+                      variable.name);
+                shareable = false;
+            } else if (const std::optional<std::string> why = unsendable(type)) {
+                error(span_of(work), "'{}' is {}, which another thread can't have: {}",
+                      variable.name, name_of(type), *why);
+                shareable = false;
+            }
+        }
+
+        if (!shareable) {
+            return type_id_t::INVALID;
+        }
+
+        m_workers.push_back({
+            .work = m_analysis.closures[*closure].function,
+            .span = span_of(node.callee),
+            .where = "this work runs on another thread",
+        });
+        info(id).arguments = { work };
+        return thread ? m_analysis.types.thread()
+                      : m_analysis.types.task(m_analysis.types.get(func).inner);
+    }
+
     type_id_t check_expr(const expr_id_t id, const call_expr_t& node, const type_id_t hint) {
+        if (const std::optional<type_kind_t> kind = in_place_maker(node.callee)) {
+            if (*kind == type_kind_t::SCHEDULER) {
+                return check_scheduler_made(id, node);
+            }
+
+            return *kind == type_kind_t::CHANNEL ? check_channel_made(id, node)
+                                                 : check_in_place_made(id, node, *kind);
+        }
+
+        if (const std::optional<type_kind_t> kind = spawner(node.callee)) {
+            return check_spawn(id, node, *kind, hint);
+        }
+
         if (const auto* member = std::get_if<member_expr_t>(&m_ast.get(node.callee).node)) {
             if (const std::optional<symbol_id_t> variable = member_variable(member->object)) {
                 return check_member_call(id, node, *variable, member->member);
@@ -9809,6 +11318,11 @@ private:
         m_substitution = outer;
         if (symbol(*function).modifiers.is_const) {
             run_at_compile_time(id, *function);
+        }
+
+        // Calling an Async Function starts it, and gives its Task, which holds its error.
+        if (symbol(*function).modifiers.is_async) {
+            return m_analysis.types.task(type, symbol(*function).throws, m_analysis.nullable_error);
         }
 
         return type;
@@ -9992,6 +11506,12 @@ private:
         case type_kind_t::ARRAY:
         case type_kind_t::FUNCTION:
         case type_kind_t::WEAK:
+        case type_kind_t::ATOMIC:
+        case type_kind_t::MUTEX:
+        case type_kind_t::TASK:
+        case type_kind_t::THREAD:
+        case type_kind_t::CHANNEL:
+        case type_kind_t::SCHEDULER:
             return true;
         case type_kind_t::NULLABLE:
         case type_kind_t::FIXED_ARRAY:
@@ -10125,8 +11645,20 @@ private:
         }
     }
 
-    /// RefEquals only compares Class references, and Destroy runs by itself.
+    /// RefEquals only compares Class references, a Scheduler runs a Task, and Destroy runs by
+    /// itself.
     void check_special_call(const call_expr_t& node, const symbol_t& function) {
+        if (function.kind == symbol_kind_t::METHOD && function.owner != type_id_t::INVALID &&
+            is_scheduler(function.owner) && function.name == "Run") {
+            const expr_id_t task = node.arguments.front().value;
+            if (const type_id_t type = info(task).type;
+                type != type_id_t::INVALID &&
+                m_analysis.types.get(type).kind != type_kind_t::TASK) {
+                error(span_of(task), "a Scheduler runs an Async Function's Task, not {}",
+                      name_of(type));
+            }
+        }
+
         if (function.kind == symbol_kind_t::BUILTIN_FUNCTION && function.name == "RefEquals") {
             for (const argument_t& argument : node.arguments) {
                 const type_id_t type = info(argument.value).type;
@@ -10179,8 +11711,11 @@ private:
             return;
         }
 
-        // An element of a T[] could move while the Method changes it, if the array grows.
-        if (in_array_storage(member->object)) {
+        // An element of a T[] could move while the Method changes it, if the array grows, which
+        // one from outside a Parallel For's body can't there.
+        const auto* element = std::get_if<index_expr_t>(&m_ast.get(member->object).node);
+        const bool fixed = element != nullptr && outside_array(element->object) != nullptr;
+        if (in_array_storage(member->object) && !fixed) {
             error(span_of(member->object),
                   "'{}' is a ByRef Method, and an element of a T[] can move when the array grows; "
                   "change a Local copy, then store it back",
@@ -10525,6 +12060,10 @@ private:
             break;
         case type_kind_t::ARRAY:
         case type_kind_t::WEAK:
+        case type_kind_t::ATOMIC:
+        case type_kind_t::MUTEX:
+        case type_kind_t::TASK:
+        case type_kind_t::CHANNEL:
             unify(want.inner, have.inner, parameters, arguments);
             break;
         case type_kind_t::TUPLE:
@@ -10640,7 +12179,10 @@ private:
                 return static_members(*named, member->member, true);
             }
 
+            // An Atomic's Methods work on it where it is.
+            const std::optional<expr_id_t> outer = std::exchange(m_place_use, member->object);
             type_id_t type = check(member->object, type_id_t::NONE);
+            m_place_use = outer;
             if (member->null_safe) {
                 type = check_safe_object(member->object, type);
             }
@@ -11118,8 +12660,15 @@ private:
         const symbol_t& parameter = symbol(parameter_id);
         const type_id_t parameter_type = substituted(parameter.type);
         const expr_id_t value = argument.value;
-        // This reads a ByRef variable too, so it must already be assigned.
+        // This reads a ByRef variable too, so it must already be assigned. An Atomic or a Mutex
+        // goes ByRef where it is.
+        const std::optional<expr_id_t> outer = m_place_use;
+        if (argument.by_ref) {
+            m_place_use = value;
+        }
+
         const type_id_t checked = check(value, parameter_type);
+        m_place_use = outer;
         if (argument.by_ref != parameter.by_ref) {
             if (parameter.by_ref) {
                 error(span_of(value), "parameter '{}' is ByRef; write 'ByRef {}'", parameter.name,
@@ -11318,7 +12867,16 @@ private:
         const bool target = m_partial == id;
         const bool on_self = std::holds_alternative<self_expr_t>(m_ast.get(node.object).node);
         m_partial = on_self ? std::optional(node.object) : std::nullopt;
+        // An Atomic's Methods work on it where it is, and an array's Count is one of its uses.
+        const std::optional<expr_id_t> outer = std::exchange(m_place_use, node.object);
+        const std::optional<expr_id_t> outer_element = m_element_use;
+        if (node.member.text == "Count") {
+            m_element_use = node.object;
+        }
+
         type_id_t object = check(node.object, type_id_t::NONE);
+        m_place_use = outer;
+        m_element_use = outer_element;
         m_partial.reset();
         if (node.null_safe) {
             object = check_safe_object(node.object, object);
@@ -11467,7 +13025,8 @@ private:
             const lambda_parameter_t& parameter = node.parameters[i];
             type_id_t type = type_id_t::INVALID;
             if (parameter.type) {
-                type = resolve_type(*parameter.type);
+                type = keep_in_place(resolve_type(*parameter.type), m_ast.get(*parameter.type).span,
+                                     "a lambda's parameter can't hold one");
             } else if (fits && known(m_analysis.types.get(expected).parameters[i])) {
                 type = m_analysis.types.get(expected).parameters[i];
             } else {
@@ -11485,11 +13044,24 @@ private:
             }));
         }
 
+        // What the Func expected here returns, or for an Async lambda, what its Task gives.
+        type_id_t wanted = type_id_t::INVALID;
+        if (fits && known(m_analysis.types.get(expected).inner)) {
+            wanted = m_analysis.types.get(expected).inner;
+        }
+
+        if (node.is_async && wanted != type_id_t::INVALID) {
+            wanted = m_analysis.types.get(wanted).kind == type_kind_t::TASK ? element_of(wanted)
+                                                                            : type_id_t::INVALID;
+        }
+
         std::optional<type_id_t> result;
         if (node.return_type) {
-            result = resolve_type(*node.return_type);
-        } else if (fits && known(m_analysis.types.get(expected).inner)) {
-            result = m_analysis.types.get(expected).inner;
+            result =
+                keep_in_place(resolve_type(*node.return_type), m_ast.get(*node.return_type).span,
+                              "a lambda can't give one back");
+        } else if (wanted != type_id_t::INVALID) {
+            result = wanted;
         } else if (!node.value) {
             result = type_id_t::NONE;
         }
@@ -11507,7 +13079,18 @@ private:
             .span = { .file = span.file, .begin = span.begin, .end = span.begin + 8 },
             .type = result.value_or(type_id_t::NONE),
             .parameters = parameters,
+            .modifiers = { .is_async = node.is_async },
         });
+        // An Async lambda's code runs on the main thread, as an Async Function's does.
+        if (const std::optional<symbol_id_t> code = current_code(); code && node.is_async) {
+            m_main_only.try_emplace(*code,
+                                    main_only_t{
+                                        .what = "makes an Async lambda, whose code runs on the "
+                                                "main thread",
+                                        .span = span,
+                                    });
+        }
+
         lambda_context_t lambda = check_lambda_body(node, function, weak, result);
         forget_assigned_by(node, lambda.captures);
 
@@ -11522,7 +13105,10 @@ private:
         }
 
         m_analysis.types.set_fields(closure, std::move(fields));
-        const type_id_t func = m_analysis.types.function(types, symbol(function).type);
+        // An Async lambda's call gives its Task.
+        const type_id_t func = m_analysis.types.function(
+            types,
+            node.is_async ? m_analysis.types.task(symbol(function).type) : symbol(function).type);
         info(id).symbol = function;
         info(id).closure = m_analysis.closures.size();
         m_analysis.closures.push_back({
@@ -11599,6 +13185,14 @@ private:
         m_flow.narrowed.clear();
         m_flow.reachable = true;
         m_handlers.push_back({ .kind = handler_kind_t::SEALED, .what = "a lambda" });
+        if (const std::optional<symbol_id_t> code = current_code()) {
+            m_reaches[*code].push_back(function);
+        }
+
+        m_lambda_code.insert(function);
+        // Its code runs when it's called, not in the Lock blocks around it.
+        const std::size_t locks = std::exchange(m_locks, 0);
+
         m_lambdas.push_back({ .function = function, .boundary = m_scopes.size() });
         push_scope();
 
@@ -11638,6 +13232,7 @@ private:
         lambda_context_t lambda = std::move(m_lambdas.back());
         m_lambdas.pop_back();
         m_handlers.pop_back();
+        m_locks = locks;
         m_flow = outer;
         m_loops = std::move(loops);
         m_finally_loops = std::move(finally_loops);
@@ -11737,8 +13332,53 @@ private:
 
     /// "a[i]", or "grid[x, y]" with an index for each dimension. Indices are integers of any
     /// type. A T[]'s are checked when the program runs, and a fixed array's known ones here too.
+    /// "Await t": an Async Function or lambda waits for a Task, a Spawn's or another Async
+    /// Function's, without blocking the main thread, and gets its result.
+    type_id_t check_expr(const expr_id_t id, const await_expr_t& node, type_id_t /*hint*/) {
+        const std::optional<symbol_id_t> code =
+            m_lambdas.empty() ? m_function : std::optional(m_lambdas.back().function);
+        const bool async = code && symbol(*code).modifiers.is_async;
+        const type_id_t task = check(node.operand, type_id_t::NONE);
+        if (!async) {
+            error(span_of(id), "Await goes in an Async Function or lambda, whose code can wait "
+                               "without blocking its thread");
+            return type_id_t::INVALID;
+        }
+
+        if (m_locks > 0) {
+            error(span_of(id), "Await can't wait in a Lock block, which would hold the Mutex "
+                               "meanwhile");
+        }
+
+        if (task == type_id_t::INVALID) {
+            return type_id_t::INVALID;
+        }
+
+        if (m_analysis.types.get(task).kind != type_kind_t::TASK) {
+            error(span_of(node.operand), "Await waits for a Task, not {}", name_of(task));
+            return type_id_t::INVALID;
+        }
+
+        // It re-throws what its Task's Async Function can.
+        const std::vector<type_id_t> throws = m_analysis.types.get(task).throws;
+        if (!throws.empty() && untried()) {
+            error(span_of(id),
+                  "this Await can throw {}, as its Task's Async Function can, so it needs Try, "
+                  "Try?, or a Try block",
+                  names_of(throws));
+        } else {
+            for (const type_id_t type : throws) {
+                propagate(type, span_of(id));
+            }
+        }
+
+        return element_of(task);
+    }
+
     type_id_t check_expr(const expr_id_t id, const index_expr_t& node, type_id_t /*hint*/) {
+        const std::optional<expr_id_t> outer = std::exchange(m_element_use, node.object);
         const type_id_t object = check(node.object, type_id_t::NONE);
+        m_element_use = outer;
         if (object == type_id_t::INVALID) {
             check_alone(node.indices);
             return type_id_t::INVALID;
@@ -12193,6 +13833,10 @@ public:
             return m_types.extends(type, interface);
         }
 
+        if (interface == m_analysis.interfaces.sendable) {
+            return sendable(type);
+        }
+
         if (info.kind == type_kind_t::STRUCT || info.kind == type_kind_t::CLASS) {
             for (type_id_t current = type; current != type_id_t::INVALID;
                  current = m_types.get(current).base) {
@@ -12246,6 +13890,31 @@ private:
         return holds && m_types.extends(m_types.substitute(extension.interface,
                                                            extension.parameters, arguments),
                                         interface);
+    }
+
+    /// As sema's unsendable(), for types without type parameters.
+    [[nodiscard]] bool sendable(const type_id_t type) const {
+        const type_t& info = m_types.get(type);
+        switch (info.kind) {
+        case type_kind_t::INTERFACE:
+            return m_types.extends(type, m_analysis.interfaces.sendable);
+        case type_kind_t::ENUM:
+        case type_kind_t::ATOMIC:
+        case type_kind_t::MUTEX:
+        case type_kind_t::CHANNEL:
+            return true;
+        case type_kind_t::CLASS:
+            return info.shared;
+        case type_kind_t::NULLABLE:
+        case type_kind_t::FIXED_ARRAY:
+            return sendable(info.inner);
+        case type_kind_t::STRUCT:
+        case type_kind_t::TUPLE:
+            return std::ranges::all_of(info.fields,
+                                       [&](const field_t& field) { return sendable(field.type); });
+        default:
+            return is_numeric(type) || type == type_id_t::BOOL || type == type_id_t::STRING;
+        }
     }
 
     /// As sema's builtin_implements(): numbers implement every built-in Interface, Strings all

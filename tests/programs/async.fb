@@ -1,0 +1,61 @@
+// Async Functions wait for Tasks without blocking the main thread, which runs them as
+// coroutines.
+
+Function Slow(n: Int): Int
+    Local total = 0
+    For i = 1 To n
+        total += i
+    End For
+
+    Return total
+End Function
+
+// It waits for work on the pool, and gives the result.
+Async Function Sum(n: Int): Int
+    Return Await Spawn(Function() => Slow(n))
+End Function
+
+// A String parameter and Locals live across each Await.
+Async Function Describe(name: String, count: Int): String
+    Local parts = ""
+    For i = 1 To count
+        Local value = Await Sum(i * 10)
+        parts = parts + " {value}"
+    End For
+
+    Return "{name}:{parts}"
+End Function
+
+// One that never waits is done when its call returns.
+Async Function Quick(): Int
+    Return 7
+End Function
+
+Async Function Chain()
+    Print(Await Describe("chain", 3))
+    Print("quick {Await Quick()}")
+End Function
+
+Async Function Later(label: String)
+    Local value = Await Sum(4)
+    Print("{label} {value}")
+End Function
+
+Local quick = Quick()
+Print("quick done {quick.IsDone()}, {quick.Wait()}")
+
+// Wait on the main thread runs the coroutines until the Task is done.
+Local chain = Chain()
+Print("top-level code goes on")
+chain.Wait()
+Print("chain done {chain.IsDone()}")
+
+// Two at once, each with its own Locals.
+Local first = Describe("first", 2)
+Local second = Describe("second", 4)
+Print(first.Wait())
+Print(second.Wait())
+
+// One no one waits for runs to its end once top-level code is done.
+Local later = Later("later")
+Print("top-level code is done")

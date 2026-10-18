@@ -236,6 +236,8 @@ struct lambda_expr_t {
     std::optional<expr_id_t> value;
     /// A block lambda's statements.
     block_t body;
+    /// "Async Function() ...": its code can Await, and a call gives its Task.
+    bool is_async = false;
 };
 
 /// "Try operand" lets the errors of the calls in `operand` go on to the code around it. "Try?
@@ -246,12 +248,17 @@ struct try_expr_t {
     bool optional;
 };
 
+/// "Await operand": an Async Function waits for a Task without blocking its thread.
+struct await_expr_t {
+    expr_id_t operand;
+};
+
 using expr_node_t =
     std::variant<error_expr_t, integer_expr_t, decimal_expr_t, character_expr_t, string_expr_t,
                  bool_expr_t, null_expr_t, name_expr_t, unary_expr_t, binary_expr_t, ternary_expr_t,
                  call_expr_t, member_expr_t, index_expr_t, slice_expr_t, cast_expr_t, is_expr_t,
                  self_expr_t, super_expr_t, array_expr_t, map_expr_t, try_expr_t, tuple_expr_t,
-                 lambda_expr_t>;
+                 lambda_expr_t, await_expr_t>;
 
 struct expr_t {
     span_t span;
@@ -353,10 +360,17 @@ struct modifiers_t {
     bool is_static = false;
     /// "ReadOnly": a Field that only its Class's New can change.
     bool is_read_only = false;
+    /// "Shared Class": a Class whose objects threads share.
+    bool is_shared = false;
     /// "Const Function": the compiler runs a call whose arguments are known at compile time.
     bool is_const = false;
     /// "@Inline": every call to it is inlined.
     bool is_inline = false;
+    /// "@MainThread": only the main thread can call it, like the engine's functions.
+    bool is_main_thread = false;
+    /// "Async Function": a call starts it on the main thread and gives its Task, and its code
+    /// can Await.
+    bool is_async = false;
     /// "@Deprecated", with its message, which may be empty: each use gets a warning.
     std::optional<std::string> deprecated;
     /// The attributes that Attribute declarations declare, which reflection reads.
@@ -498,6 +512,8 @@ struct for_stmt_t {
     /// nullopt without a Step, which counts by 1.
     std::optional<expr_id_t> step;
     block_t body;
+    /// "Parallel For": the Parallel keyword. Its passes run on the pool at once.
+    std::optional<span_t> parallel;
 };
 
 /// "For value In sequence", or "For index, value In sequence".
@@ -627,6 +643,14 @@ struct defer_stmt_t {
     stmt_id_t statement;
 };
 
+/// "Lock m As s ... End Lock": the body holds the Mutex m, whose value it uses as s. Another
+/// thread's Lock of it waits until the body is done, however it ends.
+struct lock_stmt_t {
+    expr_id_t mutex;
+    name_t name;
+    block_t body;
+};
+
 /// "Throw error": the code here ends with an error, an object of a Class that extends Error.
 struct throw_stmt_t {
     expr_id_t error;
@@ -684,7 +708,7 @@ using stmt_node_t =
                  function_stmt_t, if_stmt_t, while_stmt_t, repeat_stmt_t, loop_stmt_t, for_stmt_t,
                  for_in_stmt_t, select_stmt_t, break_stmt_t, continue_stmt_t, return_stmt_t,
                  type_stmt_t, enum_stmt_t, defer_stmt_t, throw_stmt_t, try_stmt_t, property_stmt_t,
-                 destructure_stmt_t, extend_stmt_t, for_member_stmt_t>;
+                 destructure_stmt_t, extend_stmt_t, for_member_stmt_t, lock_stmt_t>;
 
 struct stmt_t {
     span_t span;

@@ -1,0 +1,8 @@
+// A panic in a task ends the whole program, from the thread it runs on.
+Function Check(n: Int): Int
+    Assert(n > 0, "{n} isn't positive")
+    Return n
+End Function
+
+Local t = Spawn(Function() => Check(-1))
+Print("{t.Wait()}")

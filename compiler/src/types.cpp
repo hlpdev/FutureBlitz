@@ -139,7 +139,9 @@ type_table_t::type_table_t() {
 
 type_table_t::type_table_t(const type_table_t& other)
     : m_fixed_arrays(other.m_fixed_arrays), m_tuples(other.m_tuples),
-      m_functions(other.m_functions), m_instances(other.m_instances), m_values(other.m_values) {
+      m_functions(other.m_functions), m_throwing_tasks(other.m_throwing_tasks),
+      m_instances(other.m_instances), m_values(other.m_values), m_thread(other.m_thread),
+      m_scheduler(other.m_scheduler) {
     m_entries.reserve(other.m_entries.size());
     for (const entry_t& entry : other.m_entries) {
         m_entries.push_back({
@@ -147,6 +149,10 @@ type_table_t::type_table_t(const type_table_t& other)
             .nullable = entry.nullable,
             .array = entry.array,
             .weak = entry.weak,
+            .atomic = entry.atomic,
+            .mutex = entry.mutex,
+            .task = entry.task,
+            .channel = entry.channel,
         });
     }
 }
@@ -181,6 +187,96 @@ type_id_t type_table_t::weak(const type_id_t inner) {
     return make(type_kind_t::WEAK, inner, std::format("Weak<{}>", name(inner)));
 }
 
+type_id_t type_table_t::atomic(const type_id_t inner) {
+    return make(type_kind_t::ATOMIC, inner, std::format("Atomic<{}>", name(inner)));
+}
+
+type_id_t type_table_t::mutex(const type_id_t inner) {
+    return make(type_kind_t::MUTEX, inner, std::format("Mutex<{}>", name(inner)));
+}
+
+type_id_t type_table_t::task(const type_id_t result) {
+    if (result == type_id_t::INVALID) {
+        return type_id_t::INVALID;
+    }
+
+    if (const type_id_t made = m_entries[std::to_underlying(result)].task;
+        made != type_id_t::INVALID) {
+        return made;
+    }
+
+    // fb_task_t's job and closure, then the result.
+    const type_id_t work = function({}, result);
+    type_t type{
+        .kind = type_kind_t::TASK,
+        .name =
+            result == type_id_t::NONE ? std::string("Task") : std::format("Task<{}>", name(result)),
+        .inner = result,
+        .fields = { { .name = "job", .type = type_id_t::UINT64 } },
+    };
+    type.fields.push_back({ .name = "closure", .type = work });
+    if (result != type_id_t::NONE) {
+        type.fields.push_back({ .name = "result", .type = result });
+    }
+
+    const type_id_t made = add(std::move(type));
+    m_entries[std::to_underlying(result)].task = made;
+    return made;
+}
+
+type_id_t type_table_t::task(const type_id_t result, const std::vector<type_id_t>& throws,
+                             const type_id_t error) {
+    if (throws.empty() || result == type_id_t::INVALID) {
+        return task(result);
+    }
+
+    for (const type_id_t made : m_throwing_tasks) {
+        if (get(made).inner == result && get(made).throws == throws) {
+            return made;
+        }
+    }
+
+    type_t type = get(task(result));
+    type.name += " Throws ";
+    for (std::size_t i = 0; i < throws.size(); ++i) {
+        type.name += std::format("{}{}", i == 0 ? "" : ", ", name(throws[i]));
+    }
+
+    type.fields.push_back({ .name = "error", .type = error });
+    type.throws = throws;
+    const type_id_t made = add(std::move(type));
+    m_throwing_tasks.push_back(made);
+    return made;
+}
+
+type_id_t type_table_t::thread() {
+    if (m_thread == type_id_t::INVALID) {
+        const type_id_t work = function({}, type_id_t::NONE);
+        type_t type{
+            .kind = type_kind_t::THREAD,
+            .name = "Thread",
+            .inner = type_id_t::NONE,
+            .fields = { { .name = "job", .type = type_id_t::UINT64 } },
+        };
+        type.fields.push_back({ .name = "closure", .type = work });
+        m_thread = add(std::move(type));
+    }
+
+    return m_thread;
+}
+
+type_id_t type_table_t::scheduler() {
+    if (m_scheduler == type_id_t::INVALID) {
+        m_scheduler = add({ .kind = type_kind_t::SCHEDULER, .name = "Scheduler" });
+    }
+
+    return m_scheduler;
+}
+
+type_id_t type_table_t::channel(const type_id_t element) {
+    return make(type_kind_t::CHANNEL, element, std::format("Channel<{}>", name(element)));
+}
+
 type_id_t type_table_t::find_nullable(const type_id_t inner) const {
     return m_entries[std::to_underlying(inner)].nullable;
 }
@@ -193,16 +289,32 @@ type_id_t type_table_t::make(const type_kind_t kind, const type_id_t inner, std:
     // Found by index each time, since adding a type can move the entries.
     const auto made = [&] -> type_id_t& {
         entry_t& entry = m_entries[std::to_underlying(inner)];
-        if (kind == type_kind_t::NULLABLE) {
+        switch (kind) {
+        case type_kind_t::NULLABLE:
             return entry.nullable;
+        case type_kind_t::ARRAY:
+            return entry.array;
+        case type_kind_t::ATOMIC:
+            return entry.atomic;
+        case type_kind_t::MUTEX:
+            return entry.mutex;
+        case type_kind_t::CHANNEL:
+            return entry.channel;
+        default:
+            return entry.weak;
         }
-
-        return kind == type_kind_t::ARRAY ? entry.array : entry.weak;
     };
 
     if (made() == type_id_t::INVALID) {
         type_t type{ .kind = kind, .name = std::move(full_name), .inner = inner };
         if (kind == type_kind_t::NULLABLE) {
+            type.fields.push_back({ .name = "value", .type = inner });
+        }
+
+        // fb_mutex_t, then the value.
+        if (kind == type_kind_t::MUTEX) {
+            type.fields.push_back({ .name = "state", .type = type_id_t::INT32 });
+            type.fields.push_back({ .name = "owner", .type = type_id_t::UINT32 });
             type.fields.push_back({ .name = "value", .type = inner });
         }
 
@@ -361,8 +473,8 @@ type_id_t type_table_t::value_expression(const type_id_t type, const value_op_t 
         .kind = type_kind_t::VALUE,
         .name = std::format("{} {} {}", part(left), op == value_op_t::ADD ? "+" : "*", part(right)),
         .inner = type,
-        .parameters = { left, right },
         .operation = op,
+        .parameters = { left, right },
     });
     m_values.push_back(id);
     return id;
@@ -404,6 +516,7 @@ type_id_t type_table_t::instance(const type_id_t generic, const std::vector<type
         .kind = get(generic).kind,
         .name = text + ">",
         .inner = get(generic).inner,
+        .shared = get(generic).shared,
         .generic = generic,
         .arguments = arguments,
     });
@@ -495,6 +608,19 @@ type_id_t type_table_t::substitute(const type_id_t type, const std::vector<type_
     }
     case type_kind_t::WEAK:
         return weak(substitute(info.inner, parameters, arguments));
+    case type_kind_t::ATOMIC:
+        return atomic(substitute(info.inner, parameters, arguments));
+    case type_kind_t::MUTEX:
+        return mutex(substitute(info.inner, parameters, arguments));
+    case type_kind_t::TASK:
+        if (!info.throws.empty()) {
+            return task(substitute(info.inner, parameters, arguments), info.throws,
+                        info.fields.back().type);
+        }
+
+        return task(substitute(info.inner, parameters, arguments));
+    case type_kind_t::CHANNEL:
+        return channel(substitute(info.inner, parameters, arguments));
     case type_kind_t::VALUE:
         // A computed one is known once what it's computed from is.
         if (info.operation == value_op_t::NONE) {
@@ -592,6 +718,11 @@ std::uint64_t type_table_t::enum_zero(const type_id_t type) const {
     return entry.flags || entry.values.empty() ? 0 : entry.values.front().bits;
 }
 
+void type_table_t::set_shared(const type_id_t type) {
+    assert(get(type).kind == type_kind_t::CLASS);
+    m_entries[std::to_underlying(type)].type->shared = true;
+}
+
 void type_table_t::set_base(const type_id_t type, const type_id_t base) {
     assert(get(type).kind == type_kind_t::CLASS && get(base).kind == type_kind_t::CLASS);
     m_entries[std::to_underlying(type)].type->base = base;
@@ -621,7 +752,9 @@ bool type_table_t::extends(const type_id_t type, const type_id_t base) const {
 bool type_table_t::has_references(const type_id_t type) const {
     const type_kind_t kind = get(type).kind;
     if (type == type_id_t::STRING || kind == type_kind_t::CLASS || kind == type_kind_t::INTERFACE ||
-        kind == type_kind_t::ARRAY || kind == type_kind_t::WEAK || kind == type_kind_t::FUNCTION) {
+        kind == type_kind_t::ARRAY || kind == type_kind_t::WEAK || kind == type_kind_t::FUNCTION ||
+        kind == type_kind_t::TASK || kind == type_kind_t::THREAD || kind == type_kind_t::CHANNEL ||
+        kind == type_kind_t::SCHEDULER) {
         return true;
     }
 
@@ -638,7 +771,9 @@ bool type_table_t::has_zero(const type_id_t type) const {
     const type_kind_t kind = get(type).kind;
     if (kind == type_kind_t::CLASS || kind == type_kind_t::INTERFACE ||
         kind == type_kind_t::ARRAY || kind == type_kind_t::FUNCTION ||
-        kind == type_kind_t::PARAMETER) {
+        kind == type_kind_t::PARAMETER || kind == type_kind_t::TASK ||
+        kind == type_kind_t::THREAD || kind == type_kind_t::CHANNEL ||
+        kind == type_kind_t::SCHEDULER) {
         return false;
     }
 
@@ -646,8 +781,9 @@ bool type_table_t::has_zero(const type_id_t type) const {
         return has_zero(get(type).inner);
     }
 
-    // A T?'s zero is Null, whatever the T, and a Weak<T>'s refers to nothing.
-    if (kind != type_kind_t::STRUCT && kind != type_kind_t::TUPLE) {
+    // A T?'s zero is Null, whatever the T, and a Weak<T>'s refers to nothing. A Mutex<T>'s is
+    // its T's.
+    if (kind != type_kind_t::STRUCT && kind != type_kind_t::TUPLE && kind != type_kind_t::MUTEX) {
         return true;
     }
 

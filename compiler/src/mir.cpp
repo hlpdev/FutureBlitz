@@ -51,6 +51,42 @@ std::string_view runtime_name(const runtime_function_t function) {
         return "string_chars";
     case runtime_function_t::STRING_BYTES:
         return "string_bytes";
+    case runtime_function_t::TASK_START:
+        return "task_start";
+    case runtime_function_t::THREAD_START:
+        return "thread_start";
+    case runtime_function_t::TASK_WAIT:
+        return "task_wait";
+    case runtime_function_t::TASK_DONE:
+        return "task_done";
+    case runtime_function_t::PARALLEL_FOR:
+        return "parallel_for";
+    case runtime_function_t::CHANNEL_SEND:
+        return "send";
+    case runtime_function_t::CHANNEL_TRY_SEND:
+        return "try_send";
+    case runtime_function_t::CHANNEL_RECEIVE:
+        return "receive";
+    case runtime_function_t::CHANNEL_TRY_RECEIVE:
+        return "try_receive";
+    case runtime_function_t::CHANNEL_CLOSE:
+        return "close";
+    case runtime_function_t::ASYNC_BEGIN:
+        return "async_begin";
+    case runtime_function_t::ASYNC_FINISH:
+        return "async_finish";
+    case runtime_function_t::AWAIT:
+        return "await";
+    case runtime_function_t::WAIT_FRAME:
+        return "wait_frame";
+    case runtime_function_t::WAIT_SECONDS:
+        return "wait_seconds";
+    case runtime_function_t::SCHEDULER_RUN:
+        return "scheduler_run";
+    case runtime_function_t::SCHEDULER_TICK:
+        return "scheduler_tick";
+    case runtime_function_t::SCHEDULER_IDLE:
+        return "scheduler_idle";
     }
 
     std::unreachable();
@@ -384,6 +420,30 @@ private:
         return std::format("{} {}", keyword("new"), type(node.type));
     }
 
+    /// "atomic add _1.hits(1)", or "atomic make Atomic<Int32>(0)".
+    [[nodiscard]] std::string dump(const atomic_t& node) const {
+        constexpr auto names = std::to_array<std::string_view>(
+            { "make", "load", "store", "add", "subtract", "exchange", "compare-exchange" });
+        std::string operands;
+        for (const operand_t& value : node.operands) {
+            operands += (operands.empty() ? "" : ", ") + operand(value);
+        }
+
+        const std::string target = node.target ? place(*node.target) : std::string(type(node.type));
+        return std::format("{} {} {}({})", keyword("atomic"), names[std::to_underlying(node.op)],
+                           target, operands);
+    }
+
+    /// "new Channel<Int32>(64)"
+    [[nodiscard]] std::string dump(const channel_t& node) const {
+        return std::format("{} {}({})", keyword("new"), type(node.type), operand(node.capacity));
+    }
+
+    /// "lock global.score", or "unlock global.score".
+    [[nodiscard]] std::string dump(const lock_t& node) const {
+        return std::format("{} {}", keyword(node.unlock ? "unlock" : "lock"), place(node.target));
+    }
+
     [[nodiscard]] std::string dump(const is_t& node) const {
         return std::format("{} {} {}", operand(node.value), keyword("Is"), type(node.type));
     }
@@ -441,6 +501,12 @@ private:
 
     [[nodiscard]] std::string dump(const unreachable_t& /*node*/) const {
         return keyword("unreachable");
+    }
+
+    /// "suspend, then bb3"
+    [[nodiscard]] std::string dump(const suspend_t& node) const {
+        return std::format("{}, {} {}, {} {}", keyword("suspend"), keyword("then"),
+                           label(node.resume), keyword("cancel"), label(node.cancel));
     }
 };
 

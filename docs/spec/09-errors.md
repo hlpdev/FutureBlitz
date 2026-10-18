@@ -83,13 +83,17 @@ A call to a throwing function must be inside a `Try` block or prefixed with `Try
   builds, integer division by zero, use of a freed engine resource (see
   [02](02-types.md#integer-overflow) for the full list of arithmetic checks).
 - Panics are not catchable, and don't run Defers or Finallys.
+- A panic on any thread ends the whole program. When two threads panic at once, only the first
+  one's message shows.
 - A panic prints `panic: <message> at <file>:<line>:<column>` and exits with code 101, so
   tests and tools can tell it from a normal exit.
 
 ## Tasks
 
 `Task.Wait()` and `Await` **re-throw** the task's error (like C#). Waiting on a task that
-came from a `Throws` function therefore counts as a throwing call.
+came from a `Throws` function therefore counts as a throwing call. The call of an Async Function
+doesn't throw: its errors go in its Task, whose type lists them, like `Task<Level> Throws
+FileError` (see [10](10-concurrency.md#async--await)).
 
 ## Implementation
 

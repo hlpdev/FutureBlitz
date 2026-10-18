@@ -1,0 +1,28 @@
+waited
+front opens
+blink 1
+gate opens
+idle False
+frame 1
+blink 2
+frame 2
+blink 3
+frame 3 paused
+frame 4 paused
+frame 5
+blink done
+frame 6
+front closes
+gate closes
+frame 7
+sequence done
+frame 8
+loaded 42
+idle True
+lamp waits
+lamp let go
+dropped
+top-level code is done
+ui next frame
+ui after real time
+ui on the main thread

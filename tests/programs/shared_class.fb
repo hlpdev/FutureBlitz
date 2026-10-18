@@ -1,0 +1,64 @@
+// Shared Classes: objects that threads share, whose fields are Atomic, Mutex, or ReadOnly.
+
+Interface Named Extends Sendable
+    Method Name(): String
+End Interface
+
+Shared Class Hub Implements Named
+    ReadOnly Field Title: String
+    Field Visits: Atomic<Int>
+    Field Log: Mutex<String>
+
+    New(title: String)
+        Title = title
+    End New
+
+    Method Name(): String => Title
+
+    Method Visit(who: String): Int
+        Lock Log As log
+            log = log + who + ";"
+        End Lock
+
+        Return Visits.Add(1) + 1
+    End Method
+
+    Method Destroy()
+        Print("{Title} closes")
+    End Method
+End Class
+
+Shared Class Room Extends Hub
+    ReadOnly Field Seats: Int
+
+    New(title: String, seats: Int)
+        Super.New(title)
+        Seats = seats
+    End New
+End Class
+
+// Only what could go to another thread gets here.
+Function Hand<T: Sendable>(value: T): T
+    Return value
+End Function
+
+Function Describe<N: Named>(thing: N): String
+    Return Hand(thing).Name()
+End Function
+
+Local hub = Hand(Hub("lobby"))
+Print("{hub.Visit("ann")} {hub.Visit("bo")}")
+Lock hub.Log As log
+    Print(log)
+End Lock
+
+Local room = Room("hall", 40)
+Print("{Describe(room)} has {room.Seats} seats, {room.Visit("cy")} visit")
+
+// A Weak reference to a Shared Class's object reads Null once it's gone.
+Local watched: Weak<Hub> = room
+Local named: Named = room
+Print("{named.Name()} is {(watched?.Title) ?? "gone"}")
+room = Room("other", 2)
+named = room
+Print("hall is {(watched?.Title) ?? "gone"}")

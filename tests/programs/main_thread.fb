@@ -1,0 +1,37 @@
+// Work on another thread uses Atomic and Mutex Globals, Sendable Consts, and its own values. The
+// main thread has the rest.
+
+Global frames = 0
+Global hits = Atomic<Int>(0)
+Global log = Mutex<String>("")
+Const greeting = "hi"
+
+@MainThread Function Draw()
+    frames += 1
+End Function
+
+Function Work(n: Int): Int
+    hits.Add(n)
+    Lock log As text
+        text = text + greeting
+    End Lock
+
+    Return n * 2
+End Function
+
+Local tasks: Task<Int>[] = []
+For i = 1 To 4
+    tasks.Add(Spawn(Function() => Work(i)))
+    Draw()
+End For
+
+Local total = 0
+For t In tasks
+    total += t.Wait()
+End For
+
+Lock log As text
+    Print("{text.Bytes.Count} bytes of greetings")
+End Lock
+
+Print("total {total}, hits {hits.Load()}, frames {frames}")

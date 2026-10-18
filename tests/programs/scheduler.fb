@@ -1,0 +1,103 @@
+// A Scheduler runs the coroutines given to it each time it's ticked, by its own time, so a game
+// can pause it or scale it. The main scheduler runs the rest, by the real clock.
+
+Async Function Door(name: String)
+    Print("{name} opens")
+    Await Seconds(2)
+    Print("{name} closes")
+End Function
+
+Async Function Blink(times: Int)
+    For i = 1 To times
+        Print("blink {i}")
+        Await NextFrame()
+    End For
+
+    Print("blink done")
+End Function
+
+// What it waits for moves with it.
+Async Function Sequence()
+    Await Door("gate")
+    Print("sequence done")
+End Function
+
+Async Function Load(): Int
+    Return Await Spawn(Function() => 6 * 7)
+End Function
+
+Async Function Report()
+    Print("loaded {Await Load()}")
+End Function
+
+Class Light
+    Field name: String
+
+    Method Destroy()
+        Print("{name} let go")
+    End Method
+End Class
+
+Async Function Stuck(light: Light): Int
+    Local label = "{light.name} waits"
+    Defer Print("never")
+    Print(label)
+    Await Seconds(100)
+    Return 1
+End Function
+
+Async Function Outer(light: Light)
+    Local inner = "outer {light.name}"
+    Print("{inner}: {Await Stuck(light)}")
+End Function
+
+// A coroutine still waiting on a Scheduler when it goes is destroyed, and lets go of what it
+// holds, without running its Defers.
+Function Drop()
+    Local paused = Scheduler()
+    Local light = Light()
+    light.name = "lamp"
+    paused.Run(Outer(light))
+    paused.Tick(1.0)
+End Function
+
+Async Function Ui()
+    Await NextFrame()
+    Print("ui next frame")
+    Await RealSeconds(0.01)
+    Print("ui after real time")
+    Await MainThread()
+    Print("ui on the main thread")
+End Function
+
+// Top-level code's Wait ticks the main scheduler.
+Seconds(0.01).Wait()
+Print("waited")
+
+Global gameplay = Scheduler()
+gameplay.Run(Door("front"))
+gameplay.Run(Blink(3))
+gameplay.Run(Sequence())
+Print("idle {gameplay.IsIdle()}")
+
+// Each tick is half a second of the Scheduler's time, which doesn't move while it's paused.
+For frame = 1 To 8
+    Local paused = frame == 3 || frame == 4
+    Print("frame {frame}{paused ? " paused" : ""}")
+    If !paused Then gameplay.Tick(0.5)
+End For
+
+// What a coroutine Awaits on another thread goes on at a tick of the Scheduler running it.
+gameplay.Run(Report())
+While !gameplay.IsIdle()
+    gameplay.Tick(0.0)
+End While
+
+Print("idle {gameplay.IsIdle()}")
+
+Drop()
+Print("dropped")
+
+// The main scheduler runs what's left once top-level code is done.
+Ui()
+Print("top-level code is done")

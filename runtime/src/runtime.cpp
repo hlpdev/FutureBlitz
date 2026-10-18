@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <limits>
+#include <mutex>
 #include <string>
 
 #ifdef _WIN32
@@ -90,6 +91,26 @@ bool power_overflows(Int base, std::uint64_t exponent, Int& result) {
     return false;
 }
 
+/// Held while a line goes to stdout, so lines from different threads don't mix.
+std::mutex& output() {
+    static std::mutex instance;
+    return instance;
+}
+
+/// Held by the first thread that ends the program, so another that panics meanwhile waits.
+std::mutex& ending() {
+    static std::mutex instance;
+    return instance;
+}
+
+/// Ends the program with `code` at once, with what it printed flushed. Exiting normally would
+/// destroy what other threads may still be using, like the pool.
+[[noreturn]] void end_program(const int code) {
+    std::fflush(stdout);
+    std::fflush(stderr);
+    std::_Exit(code);
+}
+
 /// Panics are colored when stderr is a terminal that shows colors, unless NO_COLOR is set.
 bool color_panics() {
     const char* no_color = std::getenv("NO_COLOR");
@@ -128,12 +149,16 @@ void fb_start() {
 
 void fb_print(const fb_string_t* string) {
     const auto* bytes = reinterpret_cast<const char*>(string + 1);
+    const std::scoped_lock lock(output());
     std::fwrite(bytes, 1, static_cast<std::size_t>(string->length), stdout);
     std::fputc('\n', stdout);
 }
 
 void fb_panic(const char* message, const fb_location_t* location) {
-    // Whatever the program printed shows up before the panic.
+    // The lock is never let go: the program ends with it held.
+    ending().lock();
+    // Whatever the program printed shows up before the panic, without a line cut in half.
+    output().lock();
     std::fflush(stdout);
     const char* label = color_panics() ? "\x1b[1;31mpanic\x1b[0m" : "panic";
     if (location != nullptr) {
@@ -143,7 +168,7 @@ void fb_panic(const char* message, const fb_location_t* location) {
         std::fprintf(stderr, "%s: %s\n", label, message);
     }
 
-    std::exit(panic_exit_code);
+    end_program(panic_exit_code);
 }
 
 void fb_panic_string(const fb_string_t* message, const fb_location_t* location) {
@@ -153,6 +178,8 @@ void fb_panic_string(const fb_string_t* message, const fb_location_t* location) 
 }
 
 void fb_error_uncaught(const fb_object_t* error, const fb_location_t* location) {
+    ending().lock();
+    output().lock();
     std::fflush(stdout);
     // Every error's Class extends Error, so its first field is the Message.
     const fb_string_t* message = *reinterpret_cast<fb_string_t* const*>(error + 1);
@@ -168,7 +195,7 @@ void fb_error_uncaught(const fb_object_t* error, const fb_location_t* location) 
     }
 
     std::fputc('\n', stderr);
-    std::exit(error_exit_code);
+    end_program(error_exit_code);
 }
 
 std::int64_t fb_power_int(const std::int64_t base, const std::int64_t exponent,

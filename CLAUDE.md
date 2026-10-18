@@ -25,16 +25,94 @@ Source of truth: docs/spec/
 compiler (lib), runtime (lib), cli (exe), lsp (exe)
 
 ## Current step
-M3 (generics, interfaces, `Extend`, compile-time functions, reflection), planned 2026-10-17 in
-13 steps (docs/milestones.md), all done. Next: plan M4 (concurrency). docs/milestones.md's
-Deferred work lists everything left for later, and where it's planned.
+M4 is done. Next: M5 (modules, packages, `project.toml`, FFI, bindgen), not planned yet.
+docs/milestones.md's Deferred work lists everything left for later, and where it's planned.
 
-Done in M3: step 1, programs of several files: the driver adds every std/**/*.fb file after the
-main file (`standard_library()`, `build_config::std_directory`; tests pass `library_file_t`s to
-compile()); parse_into() puts them all in one AST, library items first, and
-`ast_t::from_library()` tells them apart; sema takes the source_manager_t, finds Error in
-std/core/error.fb (`find_error_class()`), and reports code that runs in a library file; lowering
-declares library functions in function_of() and Classes in use_class() when the program uses
+Done: M4 (concurrency: Sendable, Shared Class, tasks, `Parallel For`, async and coroutines,
+channels, Mutex and Atomic), planned 2026-10-17 and finished 2026-10-18, in 11 steps.
+Step 1, threads in the runtime: runtime/src/thread.cpp's `pool_t` starts its workers
+on the first job, one per core but one, each with a `queue_t` (own newest first, then steals the
+oldest); `fb_job_start()`, `fb_job_done()`, `fb_job_wait()` (which runs the jobs a worker started
+itself meanwhile, run_own()), and
+`fb_job_release()`; `fb_parallel_for()` hands out chunks from a counter, the caller taking some;
+main calls `fb_pool_finish()` before releasing the Globals, and fb_finish() again;
+`fb_job_start_thread()` for a job on a thread of its own; fb_print() holds `output()`,
+and fb_panic() and fb_error_uncaught() hold `ending()` and end with end_program() (`_Exit`).
+Step 2, `Sendable`: an Interface in std/core/interfaces.fb (`builtin_interfaces_t::sendable`)
+that sema's unsendable() decides from a type's parts, saying why not; implements() and the
+exported fb::implements() (conformance_query_t::sendable()) ask it; conform() checks a type that
+lists it or an Interface extending it; it's constraint_only, and Interfaces extending it aren't.
+Step 3, `Atomic` and `Mutex`: ATOMIC and MUTEX type kinds (`type_table_t::atomic()`, `mutex()`;
+a Mutex's fields are state, owner, and value, as `fb_mutex_t` and then T); sema's in_place() types
+are kept where they're made by keep_in_place() at declarations and parts of types, and
+check_any() reports a copy unless `m_place_use` marks a Method's object, a Lock's Mutex, a ByRef
+argument, or a Global's or Class Field's start; check_in_place_made() checks `Atomic<T>(value)`;
+atomic_methods() are ByRef Methods; `lock_stmt_t` (parse_lock()) declares a ByRef PARAMETER for
+the value; lowering's make_in_place(), atomic_call() (MIR `atomic_t`), and a Lock's `lock_t`
+with an `unlock_t` cleanup, its value in `m_aliases`; codegen uses LLVM's atomics (an
+Atomic<Bool> is a byte) and the runtime's fb_mutex_lock() and fb_mutex_unlock().
+Step 4, `Shared Class`: `modifiers_t::is_shared` (parse_modified() keeps it to types),
+`type_t::shared` (set_shared(), copied to instances); sema's check_shared() in link_class()
+checks bases and Fields, and unsendable() lets Shared Classes through; `fb_class_t::shared`,
+which codegen's class_value() fills, makes the runtime's retain, release, Weak, and discard
+atomic for its objects (destroy_shared(), finish_shared(), `dying`, and the object's own Weak).
+Step 5, `Spawn` and `Task`: TASK and THREAD type kinds (`task()`, `thread()`; fields job,
+closure, and a Task's result, as `fb_task_t` and then T); sema's spawner() and check_spawn()
+check the work and its captures, and task_methods() give Wait, Join, and IsDone; lowering's
+spawn() fills a new object and starts it (TASK_START, THREAD_START), generated() RUN makes each
+Task type's Class, whose first Method runs the closure and keeps the result, and task_call()
+waits (TASK_WAIT, TASK_DONE); the runtime's fb_task_start() and fb_task_start_thread() run it
+through fb_job_start() or fb_job_start_thread(), whose threads fb_pool_finish() joins.
+Step 6, main-thread rules: `modifiers_t::is_main_thread` (@MainThread); sema's note_use() calls
+note_thread_use(), which records each function's or lambda's (current_code()) first
+`main_only_t` use and what it reaches in `m_reaches`; check_spawn() and check_shared() add
+`worker_t`s, and check_threads() walks from each, through overrides, conformances, defaults, and
+Destroys, reporting the shortest path to a use (check_worker()).
+Step 7, `Parallel For`: `for_stmt_t::parallel` (parse_parallel()); sema's check_parallel_for()
+checks the body as a lambda with `lambda_context_t::parallel`, whose capture() copies Locals,
+parallel_outside() and check_parallel_element() keep outside variables unchanged and arrays
+changed at the loop's own index, and `m_element_use` marks an outside array's allowed uses; the
+closure_t has `body`, and stmt_info_t `closure`; lowering's lower_parallel_for() makes it and
+calls PARALLEL_FOR, and lower_parallel_body() loops over a chunk, which the runtime's
+fb_parallel_closure() runs.
+Step 8, `Channel`: a CHANNEL type kind (`channel()`); sema's check_channel_made() and
+channel_methods(); lowering makes one with MIR `channel_t`, channel_call() copies through a slot
+local (CHANNEL_SEND, TRY_SEND, RECEIVE, TRY_RECEIVE, CLOSE), and lower_channel_iteration() is For
+x In ch; codegen's channel_class() and generate_channel_functions() release what's left; the
+runtime's `fb_channel_t` waits with pool_t::wait_until(), which runs no jobs.
+Step 9, `Async` and `Await`: `modifiers_t::is_async` and `await_expr_t`; sema's
+check_async_function(), an Async call typed as its Task, and the Await check (`m_locks`);
+`mir_function_t::is_async`, whose code takes its Task first (`m_async_task`), keeps its
+parameters, and finishes with finish_async() (ASYNC_FINISH); a call makes the Task (ASYNC_BEGIN)
+and calls the coroutine; lower_await() emits AWAIT and a `suspend_t`; codegen's begin_coroutine()
+uses LLVM's coroutine intrinsics (presplitcoroutine, coro passes in debug builds too); the
+runtime's `scheduler_t` resumes coroutines whose Tasks are done, in fb_scheduler_finish() and in
+fb_task_wait() on the main thread.
+Step 10, coroutines and schedulers: the built-ins NextFrame, Seconds, RealSeconds (@MainThread),
+and MainThread give a Task, which lowering's timing_call() makes and the runtime's timers finish
+(WAIT_FRAME, WAIT_SECONDS); a SCHEDULER type kind, made by `Scheduler()` (check_scheduler_made(),
+main-only) with scheduler_methods() Run, Tick, and IsIdle (scheduler_call()); AWAIT passes the
+coroutine's own Task too; the runtime's scheduler_t has its time, ticks, timers, and
+current_scheduler(), take() moves a coroutine and what it waits for, and fb_scheduler_free()
+destroys what still waits, through each `suspend_t`'s cancel block, which releases what the
+coroutine holds.
+Step 11, loose ends: Async Throws, whose Task type is `task(result, throws, error)` ("Task<T>
+Throws E", `type_t::throws`, with an "error" field last), its Wait symbol has the Throws, and
+sema's Await check propagates them (untried()); lowering's takes_error() is false for Async code,
+raise() puts the error in the Task (error_field()), and rethrow() checks it after a Wait or an
+Await. Async Methods: call_on() passes the Task after Self, through the Method table's slot, and
+Overrides match, but not in Interfaces. Async lambdas: `lambda_expr_t::is_async`, from
+parse_lambda() after Async; the closure's code makes the Task and calls a coroutine of its own
+(`m_coroutine_code`, lower_async_closure()). block_lambdas() lets collect_field_bounds() reach
+member loops in lambdas in generic code. tests/programs/concurrency_mix.fb runs it all at once.
+
+Done: M3 (generics, interfaces, `Extend`, compile-time functions, reflection), planned and
+finished 2026-10-17, in 13 steps. Step 1, programs of several files: the driver adds every
+std/**/*.fb file after the main file (`standard_library()`, `build_config::std_directory`;
+tests pass `library_file_t`s to compile()); parse_into() puts them all in one AST, library
+items first, and `ast_t::from_library()` tells them apart; sema takes the source_manager_t,
+finds Error in std/core/error.fb (`find_error_class()`), and reports code that runs in a
+library file; lowering declares library functions in function_of() and Classes in use_class() when the program uses
 them, then lower_library() lowers them after main; codegen names the module after the main file
 and gives panics the right file. Step 2, tuples: TUPLE types in the type table, interned by
 `tuple()`, with fields "0", "1", and so on; `tuple_expr_t`, `tuple_type_t`, and

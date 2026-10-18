@@ -1,0 +1,70 @@
+// Spawn runs work on the pool, and Wait gives its result to the thread that waits.
+
+Function Fib(n: Int): Int
+    If n < 2 Then Return n
+    Return Fib(n - 1) + Fib(n - 2)
+End Function
+
+Function Squares(count: Int): Int[]
+    Local result: Int[] = []
+    For i = 1 To count
+        result.Add(i * i)
+    End For
+
+    Return result
+End Function
+
+Shared Class Tally
+    Field Total: Atomic<Int64>
+End Class
+
+// Each task captures its own i, which can't change.
+Local tasks: Task<Int>[] = []
+For i = 20 To 24
+    tasks.Add(Spawn(Function() => Fib(i)))
+End For
+
+For t In tasks
+    Print("{t.Wait()}")
+End For
+
+// What a task makes is its own, and moves to the thread that waits.
+Local squares = Spawn(Function() => Squares(5))
+Local list = squares.Wait()
+Print("{list.Count} squares, the last {list[4]}")
+
+// A Shared Class's object is Sendable, so tasks share it.
+Const tally = Tally()
+Local adders: Task[] = []
+For i = 1 To 10
+    adders.Add(Spawn(Function()
+        For j = 1 To 1000
+            tally.Total.Add(i)
+        End For
+    End Function))
+End For
+
+For adder In adders
+    adder.Wait()
+End For
+
+Print("total {tally.Total.Load()}")
+
+// A task can wait for tasks of its own.
+Local outer = Spawn(Function(): Int
+    Local inner = Spawn(Function() => Fib(15))
+    Return inner.Wait() * 2
+End Function)
+Print("outer {outer.Wait()}")
+
+// A Thread runs long work on a thread of its own, and Join waits for it.
+Const label = "worker"
+Local thread = Thread.Start(Function()
+    tally.Total.Store(7)
+End Function)
+thread.Join()
+Print("{label} set {tally.Total.Load()}, done {thread.IsDone()}")
+
+// A Task expected says what the work gives.
+Local wide: Task<Int64> = Spawn(Function() => 5)
+Print("{wide.Wait() * 1000000000000}")

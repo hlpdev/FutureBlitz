@@ -282,6 +282,65 @@ section.
 | Engine APIs `@MainThread`; mutable globals main-thread-only unless `Atomic`/`Mutex` | |
 | v1 ships tasks, async, channels, Mutex, Atomic, `Thread.Start`; defers lock-free collections, actors, GPU compute | |
 | Strings are `Sendable`, so their refcounts are atomic from M2; class objects stay non-atomic | immutable text is the data most often shared between threads |
+| The pool starts its workers when it's first used | a program that never uses it has no threads to start or stop |
+| A worker that waits for a job runs only the jobs it started itself meanwhile, newest first, and a Channel wait runs none (changed in M4 step 8) | a job it ran for someone else could wait on a Channel for what this thread would do after it, which would never come |
+| Each worker's queue is a deque behind a lock; it takes its newest job, and others steal its oldest | simple and correct first; a lock-free deque can replace it without changing the runtime's API |
+| A parallel range hands out a few chunks per thread from a shared counter, and the calling thread takes chunks too | a thread that finishes early takes more, and a small range needs no other thread |
+| main waits for the pool's jobs before releasing the Globals | a job may still use a Global, like an Atomic |
+| A panic or an uncaught error ends the program with `_Exit`, after flushing, and a second thread's panic waits for the end | exiting normally would destroy what other threads still use, like the pool |
+| `Sendable` is an Interface in std/core/interfaces.fb, which the compiler decides from a type's parts | generic code constrains on it like any Interface, and no type has to say it |
+| A Struct is Sendable only when its fields all are, so one holding a Class reference isn't (settled from open-questions.md) | a copy of the Struct shares the object, whose refcount isn't atomic |
+| A type can list Sendable, or an Interface that extends it, and the compiler checks it | a promise a type makes, which a later field can't break quietly |
+| Sendable is only a constraint, but an Interface that extends it can be a type | a value of Sendable alone could do nothing; one of an Interface extending it has its Methods |
+| `Atomic<T>` and `Mutex<T>` are built-in types, ATOMIC and MUTEX in the type table, that stay where they're made: a Global, a Static Field, or a Class's Field, or passed ByRef | every thread has to share the one; a copy would be a variable of its own, and a Struct is copied |
+| An Atomic holds an integer or a Bool, and its operations are sequentially consistent | the simplest order to reason about; LLVM's atomics do it directly |
+| Add, Subtract, and Exchange give what the Atomic held before | like fetch_add, which hands out tickets |
+| A Lock block's variable is the Mutex's value in place, like a ByRef parameter | the body changes the shared value, and a lambda can't keep it past the Lock |
+| A Mutex lets go on every way out of its Lock, as a Defer runs | an error or a Return can't leave it held |
+| Locking a Mutex the thread holds already panics, which the runtime knows from each thread's number | it would wait forever, which is worse to find than a panic |
+| The runtime's Mutex is a word that's 0, 1, or 2 (held with waiters), waiting with C++20's atomic wait | its zero is a Mutex no thread holds, so Globals and objects need no setup |
+| A Shared Class's fb_class_t says it's shared, and the runtime's retain and release check it | an Interface's value can hold either kind of object, so only the object knows; every retain already goes through the runtime |
+| A Shared Class extends only a Shared Class, and only a Shared Class extends it | a variable of one never holds an object that one thread owns |
+| A Shared Class's object holds a Weak reference to itself while it lives, and counts far above any real count while its Destroy() runs | another thread's last Weak reference can't free it early, and a Weak read can't bring it back while it goes |
+| Work on another thread captures only what can't change, holding a Sendable value: a Const, a parameter, a loop variable, or Self (settled from open-questions.md) | a Local is shared by reference, which another thread would change at the same time |
+| Spawn and Thread.Start take a lambda or a Function's name, of no arguments | the closure moves to the other thread; one the program kept would be on two threads |
+| A Task or Thread stays on the thread that started it, for now | only that thread takes its result, which may be an object of the work's own |
+| A Task's object is of a Class the compiler makes for each Task type, shared, whose Method table's first entry runs the closure and keeps the result | the runtime runs any Task the same way, without knowing T |
+| The program waits for every Task and Thread before releasing the Globals | they may still use an Atomic or Mutex Global |
+| Thread.Start's work runs on a thread of its own that fb_pool_finish joins, as a job the pool counts | one way to wait for both, and a waiting thread still helps with the pool's jobs |
+| The main-thread rules follow what a worker's code can reach, through calls, lambdas, overrides, Interface implementations, and a New's Destroy(), once every body is checked | a Func value or object a worker uses is one its own code made, so that's all it can run |
+| A Global or Static Field is the main thread's unless it's an Atomic or a Mutex, and so is a top-level Const that isn't Sendable | the main thread could change one while another thread reads it |
+| A Shared Class's Destroy() is checked as work on another thread | whichever thread lets go of the object last runs it |
+| The error names the shortest way from the work to the use, with the use labeled | the use can be far from the Spawn that reaches it |
+| A Parallel For's body is a closure whose code loops over a chunk of the indexes, which the runtime finds first in its Class's Method table | one call per chunk, not per index, and the closure's captures carry what the body uses |
+| A Parallel For's body copies what it uses from outside, even a Local, which it can't change | passes run at once, so a shared variable would be a race; the copies need no cell |
+| An array from outside a Parallel For's body is used only through its elements and Count, and changed only at the pass's own index | each pass owns its element, and the array object's refcount is never touched off the calling thread |
+| Parallel For counts up by 1, with no Step | the runtime's ranges are of consecutive indexes |
+| A Channel is a built-in, shared object of the runtime's, with a ring of element bytes that compiled code copies in and out with their references | like an array, the runtime needn't know T, and each Channel type's Class releases what's left |
+| A Channel's Receive gives a T?, Null once it's closed and empty, and TryReceive sets a ByRef variable | one value says both whether it got one and what, and For x In ch stops at the Null |
+| A Channel waits on the pool's condition, whose generation every send, receive, and close changes | one way to sleep and wake for jobs and Channels alike |
+| An Async Function is an LLVM coroutine (switched resume), whose frame holds its allocas across an Await | LLVM does the frame and the splitting; lowering only marks where it suspends |
+| An Async Function's call makes its Task, which the coroutine takes as its first parameter and finishes, and it keeps references to its parameters while it runs | it goes on after its caller has let go of them |
+| The runtime's scheduler resumes a coroutine once its awaited Task is done, on the main thread, when top-level code ends and in every Wait() there | the coroutines' code stays on the main thread, and a Wait there can't block what it waits for |
+| A Wait or Await on any Task works the same way: a job's done flag, which an Async Function's Task has without the pool running it | Spawns and Async Functions give the same Task |
+| Only a Function can be Async for now, without Throws or ByRef parameters, and Await can't be in a Lock | a Method needs its Self kept, Throws needs a Task that holds the error, and a Lock would stay held across the wait |
+| `Task`, `Spawn`, `Channel`, `Mutex`, `Atomic`, `Scheduler`, and `Thread` are built in, as `T[]` is, and backed by the runtime | std/ files can't call the runtime until FFI (M5) |
+| NextFrame, Seconds, and RealSeconds give a Task that the scheduler running the code finishes at a tick | Await, Wait, and IsDone work on them as on any Task |
+| A coroutine waits on the scheduler that ran its Await, and a Scheduler's Run moves it there, with the coroutines and timers it waits for | an Async call starts on the scheduler running the code, before Run has its Task |
+| The main scheduler's time is the real clock's, and a Scheduler's is the sum of its Ticks | pausing one is not ticking it, and scaling it is ticking it by less |
+| `MainThread()` gives a Task that's done | coroutine code only runs on the main thread, so there's nowhere to hop from |
+| A coroutine that starts waiting during a tick goes on at the next one | a loop that Awaits a done Task can't keep a tick from ending |
+| A Scheduler that goes destroys the coroutines waiting on it, which let go of what they hold without running their Defers | a Global Scheduler goes at the end with coroutines mid-wait, which would leak; a release shouldn't run user code |
+| An Async Function's errors go in its Task, whose type lists them, "Task<T> Throws E", and Wait and Await re-throw them each time (M4 step 11) | the call returns before the errors happen, and the type says what waiting for it can throw |
+| An Async lambda's code makes its Task and calls a coroutine of its own | a call through a function value works the same whatever the lambda is |
+| An Override of an Async Method is Async, and an Interface's Methods can't be Async yet | a call through the base, or an Interface, has to make the Task the same way |
+| A member loop in a lambda in generic code gets the fields of each instance's type arguments | each instance of the code already lowers its own copy of the lambda's code |
+
+## M4 build order
+
+| Decision | Why |
+|---|---|
+| Eleven steps: threads in the runtime, `Sendable`, `Atomic` and `Mutex`, `Shared Class`, `Spawn` and `Task`, the main-thread rules, `Parallel For`, `Channel`, `Async` and `Await`, coroutines and schedulers, then loose ends | each step's checks are in place before the code that relies on them; see milestones.md |
 
 ## Compile time
 

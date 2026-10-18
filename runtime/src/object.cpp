@@ -64,6 +64,46 @@ void finish(fb_object_t* object) {
     }
 }
 
+/// What a Shared Class's object counts while its Destroy() runs: so far above any real count
+/// that a Weak read on another thread sees it's going, and Destroy()'s own retains and releases
+/// never bring it to 0.
+constexpr std::int32_t dying = 0x40000000;
+
+[[nodiscard]] bool is_shared(const fb_object_t* object) {
+    return object->type->shared != 0;
+}
+
+/// A Shared Class's object is gone. It holds a Weak reference to itself while it lives, which
+/// keeps its memory while its fields go, as other threads' Weak references let go at any time.
+void finish_shared(fb_object_t* object) {
+    std::atomic_ref(object->refcount).store(0, std::memory_order_release);
+    object->type->release(object);
+    // ReSharper disable once CppExpressionWithoutSideEffects
+    std::atomic_ref(object->type->live).fetch_sub(1, std::memory_order_relaxed);
+    if (std::atomic_ref(object->weak_count).fetch_sub(1, std::memory_order_acq_rel) == 1) {
+        std::free(object);
+    }
+}
+
+/// Like destroy(), for a Shared Class's object, which another thread may read through a Weak
+/// reference meanwhile.
+void destroy_shared(fb_object_t* object) {
+    forget(object);
+    if (object->type->destroy != nullptr) {
+        const std::atomic_ref refcount(object->refcount);
+        refcount.store(dying + 1, std::memory_order_relaxed);
+        object->type->destroy(object);
+        if (refcount.load(std::memory_order_acquire) != dying + 1) {
+            std::array<char, 256> message{};
+            std::snprintf(message.data(), message.size(),
+                          "%s's Destroy() kept a reference to its object", object->type->name);
+            fb_panic(message.data(), nullptr);
+        }
+    }
+
+    finish_shared(object);
+}
+
 /// The last owner let go: Destroy() runs, if the object's Class or one it extends has one, then
 /// the object is finished. During Destroy() the object counts one owner, so Self can be used
 /// normally. If it has more afterwards, Destroy() stored Self somewhere, and that reference would
@@ -314,6 +354,7 @@ void fb_track_objects() {
 }
 
 void fb_finish(fb_class_t* const* classes, const std::int64_t count) {
+    fb_pool_finish();
     // Whatever the program printed shows up before the report.
     std::fflush(stdout);
     if (const std::int64_t strings = fb_string_live_count(); strings != 0) {
@@ -343,6 +384,8 @@ fb_object_t* fb_object_new(fb_class_t* type) {
 
     object->refcount = 1;
     object->type = type;
+    // A Shared Class's object holds a Weak reference to itself while it lives.
+    object->weak_count = type->shared != 0 ? 1 : 0;
     remember(object);
 
     // Objects of an ordinary Class can be made on any thread, even if they stay on it.
@@ -352,7 +395,14 @@ fb_object_t* fb_object_new(fb_class_t* type) {
 }
 
 void fb_object_retain(fb_object_t* object) {
-    if (object != nullptr) {
+    if (object == nullptr) {
+        return;
+    }
+
+    if (is_shared(object)) {
+        // ReSharper disable once CppExpressionWithoutSideEffects
+        std::atomic_ref(object->refcount).fetch_add(1, std::memory_order_relaxed);
+    } else {
         ++object->refcount;
     }
 }
@@ -362,38 +412,47 @@ void fb_object_release(fb_object_t* object) {
         return;
     }
 
+    // Whichever thread lets go of a Shared Class's object last destroys it, after every other
+    // owner's last use.
+    if (is_shared(object)) {
+        if (std::atomic_ref(object->refcount).fetch_sub(1, std::memory_order_acq_rel) == 1) {
+            destroy_shared(object);
+        }
+
+        return;
+    }
+
     --object->refcount;
     if (object->refcount == 0) {
         destroy(object);
     }
 }
 
-void fb_object_retain_atomic(fb_object_t* object) {
-    if (object != nullptr) {
-        // ReSharper disable once CppExpressionWithoutSideEffects
-        std::atomic_ref(object->refcount).fetch_add(1, std::memory_order_relaxed);
-    }
-}
-
-void fb_object_release_atomic(fb_object_t* object) {
+void fb_object_retain_weak(fb_object_t* object) {
     if (object == nullptr) {
         return;
     }
 
-    // Whichever thread lets go last destroys it, after every other owner's last use.
-    if (std::atomic_ref(object->refcount).fetch_sub(1, std::memory_order_acq_rel) == 1) {
-        destroy(object);
-    }
-}
-
-void fb_object_retain_weak(fb_object_t* object) {
-    if (object != nullptr) {
+    if (is_shared(object)) {
+        // ReSharper disable once CppExpressionWithoutSideEffects
+        std::atomic_ref(object->weak_count).fetch_add(1, std::memory_order_relaxed);
+    } else {
         ++object->weak_count;
     }
 }
 
 void fb_object_release_weak(fb_object_t* object) {
     if (object == nullptr) {
+        return;
+    }
+
+    // A Shared Class's object holds a Weak reference to itself while it lives, so the last one
+    // comes once it's gone.
+    if (is_shared(object)) {
+        if (std::atomic_ref(object->weak_count).fetch_sub(1, std::memory_order_acq_rel) == 1) {
+            std::free(object);
+        }
+
         return;
     }
 
@@ -405,7 +464,25 @@ void fb_object_release_weak(fb_object_t* object) {
 }
 
 fb_object_t* fb_object_load_weak(fb_object_t* object) {
-    if (object == nullptr || object->refcount == 0) {
+    if (object == nullptr) {
+        return nullptr;
+    }
+
+    // Another thread may let go of a Shared Class's object meanwhile, so it only gets an owner
+    // while it has one.
+    if (is_shared(object)) {
+        const std::atomic_ref refcount(object->refcount);
+        std::int32_t seen = refcount.load(std::memory_order_relaxed);
+        do {
+            if (seen <= 0 || seen >= dying) {
+                return nullptr;
+            }
+        } while (!refcount.compare_exchange_weak(seen, seen + 1, std::memory_order_acquire,
+                                                 std::memory_order_relaxed));
+        return object;
+    }
+
+    if (object->refcount == 0) {
         return nullptr;
     }
 
@@ -416,6 +493,15 @@ fb_object_t* fb_object_load_weak(fb_object_t* object) {
 void fb_object_discard(fb_object_t* object) {
     // A New that gave Self to something that keeps it leaves the object there, and its Destroy
     // runs when that lets go.
+    if (is_shared(object)) {
+        if (std::atomic_ref(object->refcount).fetch_sub(1, std::memory_order_acq_rel) == 1) {
+            forget(object);
+            finish_shared(object);
+        }
+
+        return;
+    }
+
     --object->refcount;
     if (object->refcount != 0) {
         return;

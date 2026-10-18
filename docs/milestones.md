@@ -97,6 +97,28 @@ written with operators. `Sendable`, `Shared Class`, `@MainThread`, and atomics c
 modules, visibility, `@CLayout`, and `Callback` in M5. Running ordinary functions at compile time,
 not only `Const Function`s, stays an open question.
 
+## M4 build order
+
+Every step ends with programs in tests/programs that run with no leaks, the same output every
+time, in debug and release builds.
+
+| Step | What | Why this order |
+|---|---|---|
+| 1 | Threads in the runtime: a work-stealing pool with a worker per core but one, started when first used; jobs, completions that a thread waits on while it helps run jobs, ranges split into chunks, and dedicated threads; Print writes whole lines, a panic on any thread ends the program once, and fb_finish stops the pool before the leak report | everything after runs on it; runtime-only and tested in tests/runtime, as M2 built the object runtime first |
+| 2 | `Sendable`: a built-in Interface that the compiler decides, which a type can list to have it checked: primitives, Strings, Enums, and the Structs, tuples, and fixed arrays whose fields and elements all are; `<T: Sendable>` and `Where T: Sendable`; errors that say which field isn't | the rule every later step checks |
+| 3 | `Atomic<T>` and `Mutex<T>`: `Atomic` of an integer or Bool, with `Load`, `Store`, `Add`, `Subtract`, `Exchange`, and `CompareExchange`, lowered to LLVM's atomics; `Mutex<T>` of a Sendable T, read and changed only in `Lock m As s ... End Lock`, which lets go on every way out, as a Defer runs; both Sendable | the shared data that Shared Classes and Globals hold |
+| 4 | `Shared Class`: atomic refcounts and Weak counts; Fields that are Atomic, Mutex, or ReadOnly and Sendable; a Shared Class extends only a Shared Class; its objects are Sendable | objects that cross threads, which need step 3's Fields |
+| 5 | `Spawn` and `Task<T>`: a lambda runs on the pool, `t.Wait()` blocks for its result, and `t.IsDone()` checks; captures can't change and are Sendable; the result moves to the thread that waits, and a Task stays on the thread that spawned it; `Thread.Start(fn)` and `Join()` for long blocking work | the first code that runs on another thread |
+| 6 | Main-thread rules: `@MainThread` Functions and mutable Globals and Statics are the main thread's; code that reaches one, through its calls, overrides, and Interface implementations, can't run in a Spawn or on a Thread; a Global that's Atomic or Mutex, or a Const that's Sendable, can be used anywhere | data races become compile errors, M4's promise |
+| 7 | `Parallel For i = a Until b` (and `To`): chunks on the pool, all done before the next statement; the body follows step 5's and step 6's rules, and can change an outside array's element at the loop variable; no Break, Return, or error leaves it | the second way to do heavy work, on top of the pool and the rules |
+| 8 | `Channel<T>(capacity)` of a Sendable T: `Send` waits while it's full and `Receive` while it's empty, `TrySend`, `TryReceive`, and `Close`, and `For x In ch` until it's closed and empty | threads that talk, which needs Sendable and the pool |
+| 9 | `Async` Functions and `Await`: stackless coroutines; an Async call without Await starts it and gives its Task; Await on a Task, a Spawn, or another Async call, in Async code; Throws on Async Functions, re-thrown through Await and Wait | spec 10's second job, waiting without freezing |
+| 10 | Coroutines and schedulers: the main scheduler, `Scheduler()` with `Run` and `Tick(dt)`, `NextFrame()`, `Seconds(n)` on the scheduler's time (paused and scaled with it), `RealSeconds(n)`, and `MainThread()` | spec 10's third job, doing things over time, on top of Async |
+| 11 | Loose ends: the rows of the Deferred work below planned for it, and programs that run a parallel job and an async chain together, many times over, with no leaks | M4's "done when" |
+
+**Not in M4:** lock-free collections, actors, and GPU compute stay out of v1 (spec 10). I/O awaits,
+like `File.ReadAsync`, come with `std.io` in M6, and `Flip()` with the engine in M8.
+
 ## Deferred work
 
 Everything the spec describes that the compiler doesn't do yet, and where it's planned. Each step
@@ -107,9 +129,12 @@ adds what it leaves out. Checked against all of docs/spec/ on 2026-10-17.
 | Computed Const type arguments with `-`, `/`, or `%`, which can leave a size below 1 | M3 step 13 | open question |
 | Setting a reflected Property or Static Field, which needs telling apart the ones without a Set or that are ReadOnly | M3 step 13 | open question |
 | Indexing a Map, `hp["boss"]`, which needs an index Operator the spec doesn't have yet | M3 step 12 | open question |
-| A loop over members inside a lambda, over the type parameters of the code around it | M3 step 13 | M4 |
 | `@Serialize`, which generates serialization code with reflection | M3 step 11 | M6 |
-| `Sendable`, `Shared Class`, tasks, `Parallel For`, `Async` and `Await`, coroutines, `Channel`, `Mutex`, `Atomic`, `Lock`, `@MainThread`, and `Thread.Start` | | M4 |
+| A Task that another thread waits for, which needs a Sendable result and one waiter for its error | M4 step 5 | open question |
+| A Step in a Parallel For | M4 step 7 | open question |
+| A task that waits on a Channel holds its worker, so tasks that all wait can leave none for the work they wait for | M4 step 8 | open question |
+| A throwing Task's type written out, like `Task<Level> Throws FileError`, which only inference gives now; after a function's return type, Throws is the function's | M4 step 11 | open question |
+| Async Methods in Interfaces, required or default | M4 step 11 | open question |
 | Modules: one per file, `Import`, `From`, visibility, and `project.toml` | | M5 |
 | FFI: `Extern`, `Ptr<T>`, `Void`, `CString`, `Callback`, `@CLayout`, `Unsafe`, `Mem`, `AddressOf`, and bindgen | | M5 |
 | The math types, `Vec2` through `Color` | | M6 |

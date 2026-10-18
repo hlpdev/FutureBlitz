@@ -106,6 +106,8 @@ public:
         }
 
         generate_array_functions();
+        generate_channel_functions();
+        generate_scheduler_functions();
         generate_main();
 
         char* error = nullptr;
@@ -115,7 +117,10 @@ public:
 
         take_message(error);
         // A debug build only inlines what @Inline asks for.
-        return optimize(m_options.mode == build_mode_t::RELEASE ? "default<O2>" : "always-inline");
+        // Async Functions' coroutines are split into their pieces in every build.
+        return optimize(m_options.mode == build_mode_t::RELEASE
+                            ? "default<O2>"
+                            : "always-inline,coro-early,cgscc(coro-split),coro-cleanup");
     }
 
     [[nodiscard]] std::string ir() const {
@@ -159,6 +164,7 @@ private:
 
     // The runtime's functions
     function_ref_t m_start;
+    function_ref_t m_pool_finish;
     function_ref_t m_finish;
     function_ref_t m_retain;
     function_ref_t m_release;
@@ -197,6 +203,40 @@ private:
     function_ref_t m_interface_methods;
     function_ref_t m_object_implements;
     function_ref_t m_object_expect_implements;
+    function_ref_t m_mutex_lock;
+    function_ref_t m_mutex_unlock;
+    function_ref_t m_task_start;
+    function_ref_t m_task_start_thread;
+    function_ref_t m_task_wait;
+    function_ref_t m_task_done;
+    function_ref_t m_task_release;
+    function_ref_t m_parallel_for;
+    function_ref_t m_channel_new;
+    function_ref_t m_channel_send;
+    function_ref_t m_channel_try_send;
+    function_ref_t m_channel_receive;
+    function_ref_t m_channel_try_receive;
+    function_ref_t m_channel_close;
+    function_ref_t m_channel_take_left;
+    function_ref_t m_channel_free;
+    function_ref_t m_task_begin;
+    function_ref_t m_task_finish;
+    function_ref_t m_await;
+    function_ref_t m_wait_frame;
+    function_ref_t m_wait_seconds;
+    function_ref_t m_scheduler_new;
+    function_ref_t m_scheduler_run;
+    function_ref_t m_scheduler_tick;
+    function_ref_t m_scheduler_idle;
+    function_ref_t m_scheduler_free;
+    function_ref_t m_coroutine_alloc;
+    function_ref_t m_coroutine_free;
+    function_ref_t m_scheduler_finish;
+    /// In an Async Function's code: its coroutine's id and handle, and its last two blocks.
+    LLVMValueRef m_coroutine_id = nullptr;
+    LLVMValueRef m_coroutine = nullptr;
+    LLVMBasicBlockRef m_coroutine_cleanup = nullptr;
+    LLVMBasicBlockRef m_coroutine_end = nullptr;
     /// Each Interface's fb_interface_t, by its type, made when it's first needed.
     std::unordered_map<type_id_t, LLVMValueRef> m_interfaces;
     function_ref_t m_array_new;
@@ -241,6 +281,14 @@ private:
     };
 
     std::vector<array_class_t> m_array_classes;
+    /// Each Channel type's Class, made when the program makes one: its release releases the
+    /// elements left and frees the ring.
+    std::vector<array_class_t> m_channel_classes;
+    /// fb_channel_t.
+    LLVMTypeRef m_channel_type = nullptr;
+    /// The Scheduler's Class, once the program makes one: its release frees what the runtime
+    /// keeps for it.
+    std::optional<array_class_t> m_scheduler_class;
     /// What a Class's visit calls with each object it refers to: (context, object, field name).
     LLVMTypeRef m_visitor = nullptr;
 
@@ -326,6 +374,10 @@ private:
         std::array<LLVMTypeRef, 5> array{ m_i64, m_ptr, m_i64, m_i64, m_ptr };
         m_array_type = LLVMStructTypeInContext(context(), array.data(),
                                                static_cast<unsigned>(array.size()), 0);
+        // The header, the element size, capacity, head, count, and closed, the ring, and the lock.
+        std::array channel{ m_i64, m_ptr, m_i64, m_i64, m_i64, m_i64, m_i64, m_ptr, m_ptr };
+        m_channel_type = LLVMStructTypeInContext(context(), channel.data(),
+                                                 static_cast<unsigned>(channel.size()), 0);
     }
 
     /// A String is a pointer to its header, a Struct is an LLVM struct of its fields, and no type
@@ -377,6 +429,18 @@ private:
                                                static_cast<unsigned>(fields.size()), 0);
             }
 
+            // An Atomic is its integer. An Atomic<Bool> is a byte, since atomic operations
+            // need one at least.
+            if (m_mir.types->get(type).kind == type_kind_t::ATOMIC) {
+                return inner_of(type) == type_id_t::BOOL ? LLVMInt8TypeInContext(context())
+                                                         : llvm_type(inner_of(type));
+            }
+
+            // A Mutex is its lock, then its value.
+            if (m_mir.types->get(type).kind == type_kind_t::MUTEX) {
+                return struct_type(type);
+            }
+
             return m_void;
         }
     }
@@ -403,8 +467,16 @@ private:
     /// A Class, an Interface, or a function value, which refers to a closure: each one is a
     /// reference to an object.
     [[nodiscard]] bool is_object(const type_id_t type) const {
-        return is_class(type) || is_interface(type) ||
-               m_mir.types->get(type).kind == type_kind_t::FUNCTION;
+        const type_kind_t kind = m_mir.types->get(type).kind;
+        return is_class(type) || is_interface(type) || is_task(type) ||
+               kind == type_kind_t::FUNCTION || kind == type_kind_t::CHANNEL ||
+               kind == type_kind_t::SCHEDULER;
+    }
+
+    /// A Task or Thread, which refers to an object of a Class the compiler makes for it.
+    [[nodiscard]] bool is_task(const type_id_t type) const {
+        const type_kind_t kind = m_mir.types->get(type).kind;
+        return kind == type_kind_t::TASK || kind == type_kind_t::THREAD;
     }
 
     [[nodiscard]] bool is_interface(const type_id_t type) const {
@@ -438,7 +510,8 @@ private:
         const type_t& info = m_mir.types->get(type);
         if (info.kind == type_kind_t::CLASS || info.kind == type_kind_t::INTERFACE ||
             info.kind == type_kind_t::ARRAY || info.kind == type_kind_t::WEAK ||
-            info.kind == type_kind_t::FUNCTION) {
+            info.kind == type_kind_t::FUNCTION || info.kind == type_kind_t::CHANNEL ||
+            info.kind == type_kind_t::SCHEDULER || is_task(type)) {
             return true;
         }
 
@@ -514,6 +587,7 @@ private:
         LLVMTypeRef f64 = LLVMDoubleTypeInContext(context());
         m_start = declare("fb_start", m_void, {});
         m_track_objects = declare("fb_track_objects", m_void, {});
+        m_pool_finish = declare("fb_pool_finish", m_void, {});
         m_finish = declare("fb_finish", m_void, { m_ptr, m_i64 });
         m_retain = declare("fb_string_retain", m_void, { m_ptr });
         m_release = declare("fb_string_release", m_void, { m_ptr });
@@ -552,6 +626,35 @@ private:
         m_object_implements = declare("fb_object_implements", m_i32, { m_ptr, m_ptr });
         m_object_expect_implements =
             declare("fb_object_expect_implements", m_void, { m_ptr, m_ptr, m_ptr });
+        m_mutex_lock = declare("fb_mutex_lock", m_void, { m_ptr, m_ptr });
+        m_mutex_unlock = declare("fb_mutex_unlock", m_void, { m_ptr });
+        m_task_start = declare("fb_task_start", m_void, { m_ptr });
+        m_task_start_thread = declare("fb_task_start_thread", m_void, { m_ptr });
+        m_task_wait = declare("fb_task_wait", m_void, { m_ptr });
+        m_task_done = declare("fb_task_done", m_i32, { m_ptr });
+        m_task_release = declare("fb_task_release", m_void, { m_ptr });
+        m_parallel_for = declare("fb_parallel_closure", m_void, { m_i64, m_i64, m_ptr });
+        m_channel_new = declare("fb_channel_new", m_ptr, { m_ptr, m_i64, m_i64, m_ptr });
+        m_channel_send = declare("fb_channel_send", m_void, { m_ptr, m_ptr, m_ptr });
+        m_channel_try_send = declare("fb_channel_try_send", m_i32, { m_ptr, m_ptr });
+        m_channel_receive = declare("fb_channel_receive", m_i32, { m_ptr, m_ptr });
+        m_channel_try_receive = declare("fb_channel_try_receive", m_i32, { m_ptr, m_ptr });
+        m_channel_close = declare("fb_channel_close", m_void, { m_ptr });
+        m_channel_take_left = declare("fb_channel_take_left", m_ptr, { m_ptr });
+        m_channel_free = declare("fb_channel_free", m_void, { m_ptr });
+        m_task_begin = declare("fb_task_begin", m_void, { m_ptr });
+        m_task_finish = declare("fb_task_finish", m_void, { m_ptr });
+        m_await = declare("fb_await", m_void, { m_ptr, m_ptr, m_ptr });
+        m_wait_frame = declare("fb_wait_frame", m_void, { m_ptr });
+        m_wait_seconds = declare("fb_wait_seconds", m_void, { m_ptr, f64, m_i32 });
+        m_scheduler_new = declare("fb_scheduler_new", m_ptr, { m_ptr });
+        m_scheduler_run = declare("fb_scheduler_run", m_void, { m_ptr, m_ptr });
+        m_scheduler_tick = declare("fb_scheduler_tick", m_void, { m_ptr, f64 });
+        m_scheduler_idle = declare("fb_scheduler_idle", m_i32, { m_ptr });
+        m_scheduler_free = declare("fb_scheduler_free", m_void, { m_ptr });
+        m_coroutine_alloc = declare("fb_coroutine_alloc", m_ptr, { m_i64 });
+        m_coroutine_free = declare("fb_coroutine_free", m_void, { m_ptr });
+        m_scheduler_finish = declare("fb_scheduler_finish", m_void, {});
         m_array_new = declare("fb_array_new", m_ptr, { m_ptr, m_i64, m_i64 });
         m_array_push = declare("fb_array_push", m_ptr, { m_ptr, m_i64 });
         m_array_insert = declare("fb_array_insert", m_ptr, { m_ptr, m_i64, m_i64, m_ptr });
@@ -566,9 +669,9 @@ private:
     /// destroy, release, and visit, its count of objects, its Interfaces and their count, and the
     /// Class it extends.
     LLVMTypeRef class_type(LLVMTypeRef table) {
-        std::array<LLVMTypeRef, 10> fields{
+        std::array<LLVMTypeRef, 11> fields{
             m_ptr, m_i64, m_ptr, m_ptr, m_ptr, m_i64, // name, size, destroy, release, visit, live
-            m_ptr, m_i64,                             // interfaces, interface_count
+            m_ptr, m_i64, m_i64,                      // interfaces, interface_count, shared
             m_ptr, table,                             // base, methods
         };
         return LLVMStructTypeInContext(context(), fields.data(),
@@ -576,7 +679,7 @@ private:
     }
 
     /// Where the Method table is in an fb_class_t.
-    static constexpr unsigned methods_field = 9;
+    static constexpr unsigned methods_field = 10;
 
     /// An Interface's fb_interface_t, made the first time it's needed.
     LLVMValueRef interface_info(const type_id_t interface) {
@@ -691,23 +794,27 @@ private:
             const type_id_t base = m_mir.types->get(info.type).base;
             LLVMValueRef extended =
                 base != type_id_t::INVALID ? m_classes.at(base) : LLVMConstNull(m_ptr);
-            LLVMSetInitializer(m_classes.at(info.type),
-                               class_value(name, LLVMSizeOf(object_type(info.type)),
-                                           functions.destroy, functions.release, functions.visit,
-                                           implementations(info), extended, std::move(methods)));
+            LLVMSetInitializer(
+                m_classes.at(info.type),
+                class_value(name, LLVMSizeOf(object_type(info.type)), functions.destroy,
+                            functions.release, functions.visit, implementations(info), extended,
+                            std::move(methods),
+                            m_mir.types->get(info.type).shared || is_task(info.type)));
             m_class_functions.push_back(functions);
         }
     }
 
     /// An fb_class_t's value, with no objects counted yet. `destroy` is nullopt for a Class
     /// without a Destroy() in its line, and `base` is null for one that extends nothing.
-    /// `interfaces` is its list of fb_implementation_t and their count.
+    /// `interfaces` is its list of fb_implementation_t and their count. A Shared Class's objects
+    /// count their owners atomically.
     LLVMValueRef class_value(const std::string_view name, LLVMValueRef size,
                              const std::optional<function_ref_t>& destroy,
                              const function_ref_t& release, const function_ref_t& visit,
                              const std::pair<LLVMValueRef, LLVMValueRef>& interfaces,
-                             LLVMValueRef base, std::vector<LLVMValueRef> methods) {
-        std::array<LLVMValueRef, 10> values{
+                             LLVMValueRef base, std::vector<LLVMValueRef> methods,
+                             const bool shared = false) {
+        std::array<LLVMValueRef, 11> values{
             c_string(std::string(name)),
             size,
             destroy ? destroy->value : LLVMConstNull(m_ptr),
@@ -716,6 +823,7 @@ private:
             LLVMConstInt(m_i64, 0, 0),
             interfaces.first,
             interfaces.second,
+            LLVMConstInt(m_i64, shared ? 1 : 0, 0),
             base,
             LLVMConstArray2(m_ptr, methods.data(), methods.size()),
         };
@@ -746,10 +854,20 @@ private:
                 parameters.push_back(parameter.by_ref ? m_ptr : llvm_type(parameter.type));
             }
 
+            // An Async Function's code is a coroutine, which gives its handle.
             const std::string name = "fb." + function.name;
             const function_ref_t declared =
-                declare(name.c_str(), llvm_type(function.return_type), std::move(parameters));
+                declare(name.c_str(), function.is_async ? m_ptr : llvm_type(function.return_type),
+                        std::move(parameters));
             LLVMSetLinkage(declared.value, LLVMInternalLinkage);
+            if (function.is_async) {
+                constexpr std::string_view coroutine = "presplitcoroutine";
+                const unsigned kind =
+                    LLVMGetEnumAttributeKindForName(coroutine.data(), coroutine.size());
+                LLVMAddAttributeAtIndex(declared.value,
+                                        static_cast<LLVMAttributeIndex>(LLVMAttributeFunctionIndex),
+                                        LLVMCreateEnumAttribute(context(), kind, 0));
+            }
             if (function.is_inline) {
                 constexpr std::string_view always = "alwaysinline";
                 const unsigned kind = LLVMGetEnumAttributeKindForName(always.data(), always.size());
@@ -910,8 +1028,10 @@ private:
         LLVMPositionBuilderAtEnd(builder(), m_entry);
 
         // Every local lives in an alloca; LLVM turns them into registers when optimizing. A
-        // ByRef parameter is already the address of the caller's variable.
+        // ByRef parameter is already the address of the caller's variable. An Async Function's
+        // coroutine starts before the parameters are stored, so they're in its frame.
         m_slots.clear();
+        std::vector<std::pair<LLVMValueRef, LLVMValueRef>> stores;
         for (std::size_t i = 0; i < m_function->locals.size(); ++i) {
             const local_t& local = m_function->locals[i];
             const bool parameter = i < m_function->parameter_count;
@@ -925,10 +1045,18 @@ private:
             const std::string name(local.name);
             LLVMValueRef slot = LLVMBuildAlloca(builder(), llvm_type(local.type), name.c_str());
             if (parameter) {
-                LLVMBuildStore(builder(), argument, slot);
+                stores.emplace_back(argument, slot);
             }
 
             m_slots.push_back(slot);
+        }
+
+        if (m_function->is_async) {
+            begin_coroutine();
+        }
+
+        for (const auto& [argument, slot] : stores) {
+            LLVMBuildStore(builder(), argument, slot);
         }
 
         m_blocks.clear();
@@ -989,6 +1117,11 @@ private:
             }
         }
 
+        // A Task's or Thread's job is the runtime's.
+        if (is_task(info.type)) {
+            call(m_task_release, { LLVMGetParam(release, 0) });
+        }
+
         LLVMBuildRetVoid(builder());
 
         LLVMValueRef visit = functions.visit.value;
@@ -1015,12 +1148,17 @@ private:
         case type_kind_t::INTERFACE:
         case type_kind_t::ARRAY:
         case type_kind_t::FUNCTION:
+        case type_kind_t::TASK:
+        case type_kind_t::THREAD:
+        case type_kind_t::CHANNEL:
+        case type_kind_t::SCHEDULER:
             return true;
         case type_kind_t::NULLABLE:
         case type_kind_t::FIXED_ARRAY:
             return holds_objects(info.inner);
         case type_kind_t::STRUCT:
         case type_kind_t::TUPLE:
+        case type_kind_t::MUTEX:
             return std::ranges::any_of(
                 info.fields, [this](const field_t& field) { return holds_objects(field.type); });
         default:
@@ -1128,9 +1266,10 @@ private:
         }
     }
 
-    /// main: starts the runtime, runs the top-level code, releases the Globals, and lets the
-    /// runtime check that nothing leaked, with every Class's count. Debug builds keep track of
-    /// the objects, so the report can point out cycles among the ones left.
+    /// main: starts the runtime, runs the top-level code, waits for the pool's jobs, releases
+    /// the Globals, and lets the runtime check that nothing leaked, with every Class's count.
+    /// Debug builds keep track of the objects, so the report can point out cycles among the ones
+    /// left.
     void generate_main() {
         const function_ref_t main = declare("main", m_i32, {});
         LLVMPositionBuilderAtEnd(builder(),
@@ -1141,6 +1280,9 @@ private:
         }
 
         call(m_functions[index(m_mir.entry)], {});
+        // The coroutines run to their ends, and a job may still use a Global.
+        call(m_scheduler_finish, {});
+        call(m_pool_finish, {});
         for (std::size_t i = 0; i < m_mir.globals.size(); ++i) {
             if (m_mir.types->has_references(m_mir.globals[i].type)) {
                 for_each_reference(m_globals[i], m_mir.globals[i].type, false);
@@ -1155,6 +1297,14 @@ private:
 
         for (const array_class_t& entry : m_array_classes) {
             classes.push_back(m_classes.at(entry.type));
+        }
+
+        for (const array_class_t& entry : m_channel_classes) {
+            classes.push_back(m_classes.at(entry.type));
+        }
+
+        if (m_scheduler_class) {
+            classes.push_back(m_classes.at(m_scheduler_class->type));
         }
 
         LLVMValueRef list = LLVMConstNull(m_ptr);
@@ -1249,7 +1399,7 @@ private:
             }
 
             const std::uint32_t field = step.field;
-            if (is_class(type)) {
+            if (is_class(type) || is_task(type)) {
                 // A Class's variable holds a pointer; the fields are in the object, after the
                 // header's two.
                 LLVMValueRef object = LLVMBuildLoad2(builder(), m_ptr, address, "");
@@ -1473,7 +1623,66 @@ private:
                         m_blocks[index(node.if_false)]);
     }
 
+    /// An Async Function's coroutine: its frame, from the runtime, holds what lives across an
+    /// Await. Its end frees the frame, and gives LLVM the handle.
+    void begin_coroutine() {
+        LLVMValueRef null = LLVMConstNull(m_ptr);
+        m_coroutine_id =
+            call_plain_intrinsic("llvm.coro.id", { LLVMConstInt(m_i32, 0, 0), null, null, null });
+        LLVMValueRef size = call_intrinsic("llvm.coro.size", m_i64, {});
+        LLVMValueRef frame = call(m_coroutine_alloc, { size });
+        m_coroutine = call_plain_intrinsic("llvm.coro.begin", { m_coroutine_id, frame });
+        LLVMBasicBlockRef entry = LLVMGetInsertBlock(builder());
+
+        m_coroutine_cleanup = LLVMAppendBasicBlockInContext(context(), m_llvm_function, "free");
+        m_coroutine_end = LLVMAppendBasicBlockInContext(context(), m_llvm_function, "end");
+        LLVMPositionBuilderAtEnd(builder(), m_coroutine_cleanup);
+        LLVMValueRef memory =
+            call_plain_intrinsic("llvm.coro.free", { m_coroutine_id, m_coroutine });
+        call(m_coroutine_free, { memory });
+        LLVMBuildBr(builder(), m_coroutine_end);
+        LLVMPositionBuilderAtEnd(builder(), m_coroutine_end);
+        std::vector<LLVMValueRef> end{ m_coroutine, LLVMConstInt(m_bool, 0, 0) };
+        const unsigned end_id = LLVMLookupIntrinsicID("llvm.coro.end", 13);
+        if (LLVMCountParamTypes(LLVMIntrinsicGetType(context(), end_id, nullptr, 0)) == 3) {
+            end.push_back(LLVMConstNull(LLVMTokenTypeInContext(context())));
+        }
+
+        call_plain_intrinsic("llvm.coro.end", std::move(end));
+        LLVMBuildRet(builder(), m_coroutine);
+        LLVMPositionBuilderAtEnd(builder(), entry);
+    }
+
+    /// Calls an LLVM intrinsic that isn't overloaded, like "llvm.coro.begin".
+    LLVMValueRef call_plain_intrinsic(const std::string_view name,
+                                      std::vector<LLVMValueRef> arguments) {
+        const unsigned id = LLVMLookupIntrinsicID(name.data(), name.size());
+        const function_ref_t intrinsic{
+            .type = LLVMIntrinsicGetType(context(), id, nullptr, 0),
+            .value = LLVMGetIntrinsicDeclaration(m_module.get(), id, nullptr, 0),
+        };
+        return call(intrinsic, std::move(arguments));
+    }
+
+    /// The coroutine stops; LLVM's switch says where it goes when it's resumed, or destroyed,
+    /// which ends at the block that frees the frame.
+    void generate(const suspend_t& node) {
+        LLVMValueRef none = LLVMConstNull(LLVMTokenTypeInContext(context()));
+        LLVMValueRef state =
+            call_plain_intrinsic("llvm.coro.suspend", { none, LLVMConstInt(m_bool, 0, 0) });
+        LLVMTypeRef i8 = LLVMInt8TypeInContext(context());
+        LLVMValueRef choice = LLVMBuildSwitch(builder(), state, m_coroutine_end, 2);
+        LLVMAddCase(choice, LLVMConstInt(i8, 0, 0), m_blocks[index(node.resume)]);
+        LLVMAddCase(choice, LLVMConstInt(i8, 1, 0), m_blocks[index(node.cancel)]);
+    }
+
     void generate(const return_t& node) {
+        // An Async Function's Return ends its coroutine, whose result is in its Task.
+        if (m_function->is_async) {
+            LLVMBuildBr(builder(), m_coroutine_cleanup);
+            return;
+        }
+
         if (node.value) {
             LLVMBuildRet(builder(), value_of(*node.value));
         } else {
@@ -1904,6 +2113,187 @@ private:
         return LLVMBuildLoad2(builder(), m_ptr, entry, "");
     }
 
+    /// An Atomic's operation, in one order that every thread sees. A Bool goes in and out of
+    /// its byte.
+    LLVMValueRef value(const atomic_t& node) {
+        const bool flag = inner_of(node.type) == type_id_t::BOOL;
+        LLVMTypeRef storage = llvm_type(node.type);
+        const auto in = [&](const operand_t& operand) {
+            LLVMValueRef given = value_of(operand);
+            return flag ? LLVMBuildZExt(builder(), given, storage, "") : given;
+        };
+        const auto out = [&](LLVMValueRef held) {
+            return flag ? LLVMBuildTrunc(builder(), held, m_bool, "") : held;
+        };
+
+        if (node.op == atomic_op_t::MAKE || !node.target) {
+            return in(node.operands.front());
+        }
+
+        constexpr LLVMAtomicOrdering order = LLVMAtomicOrderingSequentiallyConsistent;
+        const auto bytes = static_cast<unsigned>(LLVMGetIntTypeWidth(storage) / 8);
+        LLVMValueRef address = address_of(*node.target);
+        const auto modify = [&](const LLVMAtomicRMWBinOp op) {
+            return out(
+                LLVMBuildAtomicRMW(builder(), op, address, in(node.operands.front()), order, 0));
+        };
+
+        switch (node.op) {
+        case atomic_op_t::LOAD: {
+            LLVMValueRef loaded = LLVMBuildLoad2(builder(), storage, address, "");
+            LLVMSetOrdering(loaded, order);
+            LLVMSetAlignment(loaded, bytes);
+            return out(loaded);
+        }
+        case atomic_op_t::STORE: {
+            LLVMValueRef stored = LLVMBuildStore(builder(), in(node.operands.front()), address);
+            LLVMSetOrdering(stored, order);
+            LLVMSetAlignment(stored, bytes);
+            return stored;
+        }
+        case atomic_op_t::ADD:
+            return modify(LLVMAtomicRMWBinOpAdd);
+        case atomic_op_t::SUBTRACT:
+            return modify(LLVMAtomicRMWBinOpSub);
+        case atomic_op_t::EXCHANGE:
+            return modify(LLVMAtomicRMWBinOpXchg);
+        default: {
+            LLVMValueRef pair = LLVMBuildAtomicCmpXchg(builder(), address, in(node.operands[0]),
+                                                       in(node.operands[1]), order, order, 0);
+            return LLVMBuildExtractValue(builder(), pair, 1, "");
+        }
+        }
+    }
+
+    /// A new Channel, of a Class made for its type, or a new Scheduler.
+    LLVMValueRef value(const channel_t& node) {
+        if (m_mir.types->get(node.type).kind == type_kind_t::SCHEDULER) {
+            return call(m_scheduler_new, { scheduler_class(node.type) });
+        }
+
+        LLVMValueRef size = LLVMSizeOf(llvm_type(inner_of(node.type)));
+        return call(m_channel_new, {
+                                       channel_class(node.type),
+                                       size,
+                                       value_of(node.capacity),
+                                       location(node.span),
+                                   });
+    }
+
+    /// A Channel type's fb_class_t, made the first time it's needed. Threads share its objects.
+    LLVMValueRef channel_class(const type_id_t type) {
+        if (const auto found = m_classes.find(type); found != m_classes.end()) {
+            return found->second;
+        }
+
+        const std::string_view name = m_mir.types->name(type);
+        const array_class_t functions{
+            .type = type,
+            .release = declare_internal(std::format("fb.{}.release", name), m_void, { m_ptr }),
+            .visit =
+                declare_internal(std::format("fb.{}.visit", name), m_void, { m_ptr, m_ptr, m_ptr }),
+        };
+        LLVMValueRef info = class_value(
+            name, LLVMSizeOf(m_channel_type), std::nullopt, functions.release, functions.visit,
+            { LLVMConstNull(m_ptr), LLVMConstInt(m_i64, 0, 0) }, LLVMConstNull(m_ptr), {}, true);
+        const std::string global_name = std::format("fb.{}.class", name);
+        LLVMValueRef global = LLVMAddGlobal(m_module.get(), LLVMTypeOf(info), global_name.c_str());
+        LLVMSetInitializer(global, info);
+        LLVMSetLinkage(global, LLVMInternalLinkage);
+        m_classes.emplace(type, global);
+        m_channel_classes.push_back(functions);
+        return global;
+    }
+
+    /// The Scheduler's fb_class_t, made the first time it's needed. Its objects stay on the main
+    /// thread.
+    LLVMValueRef scheduler_class(const type_id_t type) {
+        if (const auto found = m_classes.find(type); found != m_classes.end()) {
+            return found->second;
+        }
+
+        const array_class_t functions{
+            .type = type,
+            .release = declare_internal("fb.Scheduler.release", m_void, { m_ptr }),
+            .visit = declare_internal("fb.Scheduler.visit", m_void, { m_ptr, m_ptr, m_ptr }),
+        };
+        std::array fields{ m_object_header, m_ptr };
+        LLVMTypeRef object = LLVMStructTypeInContext(context(), fields.data(),
+                                                     static_cast<unsigned>(fields.size()), 0);
+        LLVMValueRef info = class_value(
+            "Scheduler", LLVMSizeOf(object), std::nullopt, functions.release, functions.visit,
+            { LLVMConstNull(m_ptr), LLVMConstInt(m_i64, 0, 0) }, LLVMConstNull(m_ptr), {}, false);
+        LLVMValueRef global = LLVMAddGlobal(m_module.get(), LLVMTypeOf(info), "fb.Scheduler.class");
+        LLVMSetInitializer(global, info);
+        LLVMSetLinkage(global, LLVMInternalLinkage);
+        m_classes.emplace(type, global);
+        m_scheduler_class = functions;
+        return global;
+    }
+
+    /// The Scheduler's functions: its release frees what the runtime keeps for it, and its visit
+    /// visits nothing, since the runtime holds its Tasks.
+    void generate_scheduler_functions() {
+        if (!m_scheduler_class) {
+            return;
+        }
+
+        const array_class_t& functions = *m_scheduler_class;
+        LLVMValueRef release = functions.release.value;
+        LLVMPositionBuilderAtEnd(builder(),
+                                 LLVMAppendBasicBlockInContext(context(), release, "entry"));
+        call(m_scheduler_free, { LLVMGetParam(release, 0) });
+        LLVMBuildRetVoid(builder());
+        LLVMValueRef visit = functions.visit.value;
+        LLVMPositionBuilderAtEnd(builder(),
+                                 LLVMAppendBasicBlockInContext(context(), visit, "entry"));
+        LLVMBuildRetVoid(builder());
+    }
+
+    /// Each Channel type's functions: its release releases the elements left, then frees the
+    /// ring and the lock, and the runtime frees the object. Its elements are Sendable, which
+    /// can't keep it, so its visit visits nothing.
+    void generate_channel_functions() {
+        for (const array_class_t& functions : m_channel_classes) {
+            const type_id_t element = inner_of(functions.type);
+            LLVMValueRef release = functions.release.value;
+            LLVMBasicBlockRef entry = LLVMAppendBasicBlockInContext(context(), release, "entry");
+            LLVMBasicBlockRef next = LLVMAppendBasicBlockInContext(context(), release, "next");
+            LLVMBasicBlockRef one = LLVMAppendBasicBlockInContext(context(), release, "one");
+            LLVMBasicBlockRef done = LLVMAppendBasicBlockInContext(context(), release, "done");
+            LLVMValueRef channel = LLVMGetParam(release, 0);
+            LLVMPositionBuilderAtEnd(builder(), entry);
+            LLVMBuildBr(builder(), next);
+            LLVMPositionBuilderAtEnd(builder(), next);
+            LLVMValueRef left = call(m_channel_take_left, { channel });
+            LLVMBuildCondBr(builder(), LLVMBuildIsNull(builder(), left, ""), done, one);
+            LLVMPositionBuilderAtEnd(builder(), one);
+            if (m_mir.types->has_references(element)) {
+                for_each_reference(left, element, false);
+            }
+
+            LLVMBuildBr(builder(), next);
+            LLVMPositionBuilderAtEnd(builder(), done);
+            call(m_channel_free, { channel });
+            LLVMBuildRetVoid(builder());
+
+            LLVMValueRef visit = functions.visit.value;
+            LLVMPositionBuilderAtEnd(builder(),
+                                     LLVMAppendBasicBlockInContext(context(), visit, "entry"));
+            LLVMBuildRetVoid(builder());
+        }
+    }
+
+    /// Takes or lets go of a Mutex, through the runtime.
+    LLVMValueRef value(const lock_t& node) {
+        LLVMValueRef address = address_of(node.target);
+        if (node.unlock) {
+            return call(m_mutex_unlock, { address });
+        }
+
+        return call(m_mutex_lock, { address, location(node.span) });
+    }
+
     /// A function value's code is in slot 0 of its object's Method table. It takes the object
     /// first, then the arguments.
     LLVMValueRef value(const invoke_t& node) {
@@ -2050,6 +2440,76 @@ private:
         case runtime_function_t::STRING_BYTES:
             return call(m_string_bytes,
                         { value_of(node.arguments[0]), value_of(node.arguments[1]) });
+        case runtime_function_t::TASK_START:
+            return call(m_task_start, { value_of(node.arguments[0]) });
+        case runtime_function_t::THREAD_START:
+            return call(m_task_start_thread, { value_of(node.arguments[0]) });
+        case runtime_function_t::TASK_WAIT:
+            return call(m_task_wait, { value_of(node.arguments[0]) });
+        case runtime_function_t::TASK_DONE:
+            return LLVMBuildICmp(builder(), LLVMIntNE,
+                                 call(m_task_done, { value_of(node.arguments[0]) }),
+                                 LLVMConstInt(m_i32, 0, 0), "");
+        case runtime_function_t::CHANNEL_SEND:
+            return call(m_channel_send, {
+                                            value_of(node.arguments[0]),
+                                            address_of(std::get<place_t>(node.arguments[1])),
+                                            location(node.span.value_or(span_t{})),
+                                        });
+        case runtime_function_t::CHANNEL_TRY_SEND:
+        case runtime_function_t::CHANNEL_RECEIVE:
+        case runtime_function_t::CHANNEL_TRY_RECEIVE: {
+            const function_ref_t* function = &m_channel_try_receive;
+            if (node.function == runtime_function_t::CHANNEL_TRY_SEND) {
+                function = &m_channel_try_send;
+            } else if (node.function == runtime_function_t::CHANNEL_RECEIVE) {
+                function = &m_channel_receive;
+            }
+
+            LLVMValueRef done =
+                call(*function, {
+                                    value_of(node.arguments[0]),
+                                    address_of(std::get<place_t>(node.arguments[1])),
+                                });
+            return LLVMBuildICmp(builder(), LLVMIntNE, done, LLVMConstInt(m_i32, 0, 0), "");
+        }
+        case runtime_function_t::CHANNEL_CLOSE:
+            return call(m_channel_close, { value_of(node.arguments[0]) });
+        case runtime_function_t::ASYNC_BEGIN:
+            return call(m_task_begin, { value_of(node.arguments[0]) });
+        case runtime_function_t::ASYNC_FINISH:
+            return call(m_task_finish, { value_of(node.arguments[0]) });
+        case runtime_function_t::AWAIT:
+            return call(m_await, {
+                                     m_coroutine,
+                                     value_of(node.arguments[1]),
+                                     value_of(node.arguments[0]),
+                                 });
+        case runtime_function_t::WAIT_FRAME:
+            return call(m_wait_frame, { value_of(node.arguments[0]) });
+        case runtime_function_t::WAIT_SECONDS:
+            return call(m_wait_seconds,
+                        {
+                            value_of(node.arguments[0]),
+                            value_of(node.arguments[1]),
+                            LLVMBuildZExt(builder(), value_of(node.arguments[2]), m_i32, ""),
+                        });
+        case runtime_function_t::SCHEDULER_RUN:
+            return call(m_scheduler_run,
+                        { value_of(node.arguments[0]), value_of(node.arguments[1]) });
+        case runtime_function_t::SCHEDULER_TICK:
+            return call(m_scheduler_tick,
+                        { value_of(node.arguments[0]), value_of(node.arguments[1]) });
+        case runtime_function_t::SCHEDULER_IDLE:
+            return LLVMBuildICmp(builder(), LLVMIntNE,
+                                 call(m_scheduler_idle, { value_of(node.arguments[0]) }),
+                                 LLVMConstInt(m_i32, 0, 0), "");
+        case runtime_function_t::PARALLEL_FOR:
+            return call(m_parallel_for, {
+                                            value_of(node.arguments[0]),
+                                            value_of(node.arguments[1]),
+                                            value_of(node.arguments[2]),
+                                        });
         default:
             return array_call(node);
         }

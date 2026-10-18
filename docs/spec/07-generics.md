@@ -122,7 +122,8 @@ End Function
 
 `Equatable`, `Comparable`, `Hashable`, `Numeric`, and `Printable` are in std/core/interfaces.fb,
 and `Iterator<T>`, which `For ... In` goes over, is in std/core/iterator.fb (see
-[04-control-flow.md](04-control-flow.md)). `Sendable` comes with concurrency (M4).
+[04-control-flow.md](04-control-flow.md)). `Sendable`, also in std/core/interfaces.fb, says what
+can go to another thread, which the compiler decides (see [10-concurrency.md](10-concurrency.md)).
 
 ```vb
 Interface Equatable

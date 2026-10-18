@@ -60,6 +60,8 @@ struct fb_class_t {
     /// Class's table for it.
     const fb_implementation_t* interfaces;
     std::int64_t interface_count;
+    /// Not 0 for a Shared Class, whose objects threads share: their counts change atomically.
+    std::int64_t shared;
     /// The Class it extends, or null. Compiled code puts the Class's Method table right after
     /// this, for the calls that a Class extending it could override.
     const fb_class_t* base;
@@ -93,7 +95,8 @@ void fb_start();
 /// fb_finish can point out the cycles among the ones left.
 void fb_track_objects();
 
-/// The last thing a program's main calls, after releasing the Globals. Prints a leak report to
+/// The last thing a program's main calls, after fb_pool_finish and releasing the Globals. It
+/// finishes the pool again, for jobs that releasing the Globals started. Prints a leak report to
 /// stderr for Strings, and for the objects of each of the `count` Classes in `classes`, that were
 /// never released, then the cycles among those objects that kept them alive, if fb_track_objects
 /// ran.
@@ -162,16 +165,13 @@ std::uint64_t fb_power_uint(std::uint64_t base, std::uint64_t exponent, std::uin
 /// next.
 fb_object_t* fb_object_new(fb_class_t* type);
 /// Adds an owner to `object`. Does nothing for null, which a variable of a Class holds before
-/// it's assigned.
+/// it's assigned. A Shared Class's object counts atomically, so any thread can.
 void fb_object_retain(fb_object_t* object);
 /// Removes an owner from `object`. The last one runs its Class's destroy and release, then frees
 /// it, unless a Weak<T> still refers to it; a Destroy() that keeps a reference to its object
-/// panics. Does nothing for null.
+/// panics. Does nothing for null. A Shared Class's object is destroyed by whichever thread lets
+/// go last.
 void fb_object_release(fb_object_t* object);
-/// Like fb_object_retain and fb_object_release, for objects that threads share (a Shared Class,
-/// in M4), whose counts change atomically.
-void fb_object_retain_atomic(fb_object_t* object);
-void fb_object_release_atomic(fb_object_t* object);
 /// Adds a Weak<T> that refers to `object`, which keeps its memory, not the object. Does nothing
 /// for null.
 void fb_object_retain_weak(fb_object_t* object);
@@ -243,12 +243,168 @@ void fb_string_bytes(const fb_string_t* string, fb_array_t* into);
 [[noreturn]] void fb_index_out_of_range(std::int64_t index, std::int64_t count,
                                         const fb_location_t* location);
 
+/// Work for another thread: a function, and what it works on.
+using fb_work_t = void (*)(void* context);
+/// What a range runs for each chunk: the indexes from `first` up to, not including, `last`.
+using fb_range_body_t = void (*)(void* context, std::int64_t first, std::int64_t last);
+
+/// Work queued on the pool, which runs it on one of its workers, or on a thread that waits.
+struct fb_job_t;
+
+/// Queues `work(context)` on the pool, and starts the pool's workers if they aren't running: one
+/// per core but one, and at least one. The caller owns the job, and releases it once it's waited
+/// for or no longer wanted; the work runs either way.
+fb_job_t* fb_job_start(fb_work_t work, void* context);
+/// 1 once the job's work has returned, and 0 before.
+std::int32_t fb_job_done(const fb_job_t* job);
+/// Returns once the job's work has returned. Meanwhile the thread runs other jobs, so a worker
+/// that waits doesn't leave the pool a worker short, and one waiting for a job it started runs it.
+void fb_job_wait(const fb_job_t* job);
+/// Lets go of the job, whose memory goes once its work has returned too.
+void fb_job_release(fb_job_t* job);
+/// Calls `body` with `context` for chunks of the indexes from `begin` up to, not including,
+/// `end`, on the pool's workers and the calling thread, and returns once every chunk is done.
+/// Each index is in one chunk. Does nothing when `end` isn't after `begin`.
+void fb_parallel_for(std::int64_t begin, std::int64_t end, fb_range_body_t body, void* context);
+/// For a Parallel For: like fb_parallel_for, with the code in `body`'s Class's Method table's
+/// first entry, which takes the object and a chunk's first and last indexes.
+void fb_parallel_closure(std::int64_t begin, std::int64_t end, fb_object_t* body);
+/// How many workers the pool has, or will once it starts.
+std::int64_t fb_pool_size();
+/// main calls it when the top-level code ends, before releasing the Globals: runs the jobs left,
+/// waits for the running ones, and stops the workers. A job started afterwards starts them again.
+void fb_pool_finish();
+
+/// A Mutex<T>'s lock, which its value follows. Zero is a Mutex that no thread holds.
+struct fb_mutex_t {
+    /// 0 when no thread holds it, 1 when one does, and 2 when one does and others may wait.
+    std::int32_t state;
+    /// The number of the thread holding it, or 0. Each thread gets its own the first time it
+    /// takes a Mutex.
+    std::uint32_t owner;
+};
+
+/// Takes `mutex`, waiting while another thread holds it, for a Lock block. Panics at `location`
+/// when this thread holds it already, since it would wait forever.
+void fb_mutex_lock(fb_mutex_t* mutex, const fb_location_t* location);
+/// Lets go of `mutex`, at the end of a Lock block, and wakes a thread waiting for it.
+void fb_mutex_unlock(fb_mutex_t* mutex);
+
+/// Like fb_job_start, on a thread of its own, for long, blocking work that would keep a worker
+/// from the pool. fb_pool_finish waits for it too.
+fb_job_t* fb_job_start_thread(fb_work_t work, void* context);
+
+/// A Channel<T>'s object: a ring of `capacity` elements of `element_size` bytes, which threads
+/// send to and receive from, behind a lock. Compiled code copies an element's bytes in and out,
+/// with its references.
+struct fb_channel_t {
+    fb_object_t header;
+    std::int64_t element_size;
+    std::int64_t capacity;
+    /// Where the oldest element is, and how many there are.
+    std::int64_t head;
+    std::int64_t count;
+    /// Not 0 once it's closed: no more can be sent, and receiving takes what's left.
+    std::int64_t closed;
+    unsigned char* data;
+    /// The runtime's lock.
+    void* lock;
+};
+
+/// A new Channel of `type`, a Class compiled code makes for each Channel type, with room for
+/// `capacity` elements. Panics at `location` unless that's 1 or more.
+fb_channel_t* fb_channel_new(fb_class_t* type, std::int64_t element_size, std::int64_t capacity,
+                             const fb_location_t* location);
+/// Copies `element` in, waiting while the Channel is full and running other jobs meanwhile. The
+/// Channel takes the element's references. Panics at `location` once it's closed.
+void fb_channel_send(fb_channel_t* channel, const void* element, const fb_location_t* location);
+/// Copies `element` in, unless the Channel is full or closed: 1 when it did, and 0 when it
+/// didn't, and the caller still has the element's references.
+std::int32_t fb_channel_try_send(fb_channel_t* channel, const void* element);
+/// Copies the oldest element out to `element`, with its references, waiting while the Channel is
+/// empty and running other jobs meanwhile: 1 when it did, and 0 once it's closed and empty.
+std::int32_t fb_channel_receive(fb_channel_t* channel, void* element);
+/// Like fb_channel_receive, without waiting: 0 when nothing is there.
+std::int32_t fb_channel_try_receive(fb_channel_t* channel, void* element);
+/// Closes the Channel, which wakes the threads waiting on it.
+void fb_channel_close(fb_channel_t* channel);
+/// For a Channel's Class's release: takes out the oldest element left, whose references compiled
+/// code releases, or gives null when none are left.
+void* fb_channel_take_left(fb_channel_t* channel);
+/// For a Channel's Class's release, once the elements are released: frees the ring and the lock.
+void fb_channel_free(const fb_channel_t* channel);
+
+/// A Task's or Thread's object: the header, the job running its work, and the closure that does
+/// it, until it runs. A Task's result follows. Compiled code makes a Class for each Task type,
+/// whose Method table's first entry runs the closure and keeps the result. Threads share the
+/// object, so the Class is shared.
+struct fb_task_t {
+    fb_object_t header;
+    fb_job_t* job;
+    fb_object_t* closure;
+};
+
+/// Starts a Task's work on the pool. The job holds a reference to the task until it's done.
+void fb_task_start(fb_task_t* task);
+/// Starts a Thread's work on a thread of its own.
+void fb_task_start_thread(fb_task_t* task);
+/// Returns once the task's work is done, for Wait and Join. Meanwhile the thread runs other jobs.
+void fb_task_wait(const fb_task_t* task);
+/// 1 once the task's work is done, and 0 before, for IsDone.
+std::int32_t fb_task_done(const fb_task_t* task);
+/// Gives an Async Function's new Task its completion, which fb_task_finish sets.
+void fb_task_begin(fb_task_t* task);
+/// The Async Function is done: what waits for its Task can go on.
+void fb_task_finish(const fb_task_t* task);
+/// The scheduler running the code resumes `coroutine`, which is `own`'s Async Function's, once
+/// `task` is done. Coroutines run on the main thread, which runs the main scheduler once
+/// top-level code ends, and whenever it waits for a Task; a Scheduler's run when it's ticked.
+void fb_await(void* coroutine, fb_task_t* own, fb_task_t* task);
+/// For NextFrame: the scheduler running the code finishes `task`, which fb_task_begin set up, at
+/// its next tick.
+void fb_wait_frame(fb_task_t* task);
+/// For Seconds and RealSeconds: the scheduler running the code finishes `task` once `seconds`
+/// of its time have passed, or of the real clock's when `real` isn't 0. The main scheduler's
+/// time is the real clock's.
+void fb_wait_seconds(fb_task_t* task, double seconds, std::int32_t real);
+
+/// A Scheduler's object: what the runtime keeps for it, which runs its coroutines when it's
+/// ticked.
+struct fb_scheduler_t {
+    fb_object_t header;
+    void* state;
+};
+
+/// A new Scheduler of `type`, a Class compiled code makes for it.
+fb_scheduler_t* fb_scheduler_new(fb_class_t* type);
+/// Moves the coroutine of `task`'s Async Function, with the coroutines and timers it waits for,
+/// from the scheduler running the code to the Scheduler, which runs it from then on. A Task
+/// that's done, or that isn't an Async Function's, has nothing to move.
+void fb_scheduler_run(const fb_scheduler_t* scheduler, const fb_task_t* task);
+/// Moves the Scheduler's time on by `seconds`, then resumes its coroutines that can go on.
+void fb_scheduler_tick(const fb_scheduler_t* scheduler, double seconds);
+/// 1 when no coroutine waits on the Scheduler, and 0 otherwise.
+std::int32_t fb_scheduler_idle(const fb_scheduler_t* scheduler);
+/// For a Scheduler's Class's release: lets go of what it holds. A coroutine still waiting on it
+/// is destroyed, which lets go of what that holds, and its Task is never done.
+void fb_scheduler_free(const fb_scheduler_t* scheduler);
+/// Memory for an Async Function's coroutine, and back.
+void* fb_coroutine_alloc(std::int64_t size);
+void fb_coroutine_free(void* frame);
+/// main calls it when the top-level code ends, before fb_pool_finish: runs the coroutines until
+/// none is waiting.
+void fb_scheduler_finish();
+/// Lets go of the task's job, for its Class's release.
+void fb_task_release(const fb_task_t* task);
+
 /// Writes `string` and a newline to stdout, for the built-in Print. The String is only borrowed.
+/// Lines from different threads don't mix.
 void fb_print(const fb_string_t* string);
 
 /// Prints "panic: <message> at <file>:<line>:<column>" to stderr and exits with code 101.
 /// Compiled code calls it when a run-time check fails. `location` can be null, which leaves out
-/// the " at ..." part.
+/// the " at ..." part. On any thread, it ends the whole program, at once: a second thread that
+/// panics meanwhile waits for the end, so only the first one's message shows.
 [[noreturn]] void fb_panic(const char* message, const fb_location_t* location);
 /// Like fb_panic, with a String the program made as the message, for Panic and Assert. The
 /// String is only borrowed.

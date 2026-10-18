@@ -1,0 +1,59 @@
+// An Async Function's errors go in its Task, and Await and Wait re-throw them.
+
+Class LoadError Extends Error
+End Class
+
+Async Function Load(name: String): Int Throws LoadError
+    Local size = Await Spawn(Function() => name.Chars.Count * 10)
+    If size > 30 Then Throw LoadError("{name} is too big")
+    Return size
+End Function
+
+// Try lets an Await's error go on, out of the Function.
+Async Function LoadAll(names: String[]): Int Throws LoadError
+    Local total = 0
+    For name In names
+        total += Try Await Load(name)
+    End For
+
+    Return total
+End Function
+
+// A Try block catches it.
+Async Function Report(names: String[])
+    Try
+        Print("total {Await LoadAll(names)}")
+    Catch e As LoadError
+        Print("failed: {e.Message}")
+    End Try
+End Function
+
+// Try? drops it.
+Async Function Quiet(): Int
+    Return (Try? Await Load("enormous")) ?? -1
+End Function
+
+// One that throws before it ever waits.
+Async Function Early() Throws LoadError
+    Throw LoadError("early")
+End Function
+
+Report(["a", "bb"]).Wait()
+Report(["a", "toolong"]).Wait()
+Print("quiet {Quiet().Wait()}")
+
+// Wait re-throws it too, as often as it's called.
+Local t = Load("abcd")
+Try
+    Print("{t.Wait()}")
+Catch e
+    Print("wait: {e.Message}")
+End Try
+
+Print("again: {(Try? t.Wait()) ?? 0}")
+Print("early: {Early().IsDone()}")
+Try
+    Early().Wait()
+Catch e
+    Print("caught {e.Message}")
+End Try

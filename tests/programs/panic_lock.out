@@ -1,0 +1,2 @@
+holding
+panic: this thread holds the Mutex already, so Lock would wait for itself forever at panic_lock.fb:7:10

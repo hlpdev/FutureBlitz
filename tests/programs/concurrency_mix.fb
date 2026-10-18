@@ -1,0 +1,91 @@
+// All of M4 at once: a Parallel For in work on the pool, a task that sends over a Channel, a
+// Shared object they all count on, and async chains that wait for them, on the main scheduler
+// and on a Scheduler.
+
+Shared Class Tally
+    Field sent: Atomic<Int>
+    Field rounds: Mutex<Int>
+End Class
+
+Function Collatz(start: Int64): Int
+    Local n = start
+    Local steps = 0
+    While n != 1
+        If n % 2 == 0 Then n = n / 2 Else n = 3 * n + 1
+        steps += 1
+    End While
+
+    Return steps
+End Function
+
+// The steps for 1 to n, counted on the pool.
+Function Steps(n: Int): Int64
+    Local steps: Int[] = []
+    For i = 1 To n
+        steps.Add(0)
+    End For
+
+    Parallel For i = 0 Until n
+        steps[i] = Collatz((i + 1) As Int64)
+    End For
+
+    Local total: Int64 = 0
+    For s In steps
+        total += s
+    End For
+
+    Return total
+End Function
+
+Function Produce(out: Channel<Int>, count: Int, tally: Tally)
+    For i = 1 To count
+        out.Send(i)
+        tally.sent.Add(1)
+    End For
+
+    out.Close()
+End Function
+
+Async Function Round(n: Int, tally: Tally): Int64
+    Local steps = Await Spawn(Function() => Steps(200))
+    Const numbers = Channel<Int>(4)
+    Local producer = Spawn(Function() => Produce(numbers, 20, tally))
+    Local sum = 0
+    For x In numbers
+        sum += x
+    End For
+
+    Await producer
+    Await NextFrame()
+    Lock tally.rounds As rounds
+        rounds += 1
+    End Lock
+
+    Return steps + sum + n
+End Function
+
+Async Function Rounds(count: Int, tally: Tally): Int64
+    Local total: Int64 = 0
+    For i = 1 To count
+        total += Await Round(i, tally)
+    End For
+
+    Return total
+End Function
+
+Const tally = Tally()
+Global gameplay = Scheduler()
+Local main = Rounds(5, tally)
+Local timed = Rounds(5, tally)
+gameplay.Run(timed)
+While !gameplay.IsIdle()
+    gameplay.Tick(0.016)
+End While
+
+Print("on the Scheduler {timed.Wait()}")
+Print("on the main thread {main.Wait()}")
+Print("steps {Steps(1000)}")
+Print("sent {tally.sent.Load()}")
+Lock tally.rounds As rounds
+    Print("rounds {rounds}")
+End Lock
