@@ -15,7 +15,10 @@
 | **Asset system details** | Direction locked in [assets.md](assets.md); details at M12 |
 | **Captures across threads** (M4) | Proposed in [spec/10-concurrency.md](spec/10-concurrency.md): since closures capture by reference, a closure run on another thread can only capture `Const`s holding `Sendable` values |
 | **Structs holding class references** (M4) | Is such a struct `Sendable`? Proposed: a struct is `Sendable` only when all its fields are, so it isn't |
-| **Running ordinary functions at compile time** | `Const Function`s already do. Proposed: also run other functions when the compiler can prove they're pure (no I/O, globals, or allocation). Needs a compile-time interpreter, so after M3 |
+| **Indexing collections** | `hp["boss"]` reads as a Map lookup, but needs an index Operator, which the spec doesn't have. Proposed: `Operator [](key: K): V?` and `Operator []=(key: K, value: V)`, with `Get` and `Add` until then |
+| **Running ordinary functions at compile time** | `Const Function`s already do, on M3 step 10's MIR interpreter. Proposed: also run other functions when the compiler can prove they're pure (no I/O, globals, or allocation); what's left is that proof |
+| **`-` and `/` in Const type arguments** | `Int[N + M]` and `Grid<W * 2>` work, since they stay positive. `N - 1` can reach 0. Proposed: allow them, and report an instance whose size works out below 1 where it's made |
+| **Setting reflected members** | `p.Get(value)` and `s.Get()` read a Property or Static Field. Proposed: `p.Set(value, x)`, with a Where line like `Where p: Settable` to pick the ones with a Set or that aren't ReadOnly |
 
 ## Spec details to settle while implementing
 

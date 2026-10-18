@@ -1,0 +1,41 @@
+// Each instance of a generic type has its own Static Fields, Methods, and Properties, in the
+// type and in its Extends.
+
+Class Counter<T>
+    Static Field Made: Int = 0
+    Static Field Last: T?
+    Field Value: T
+
+    New(value: T)
+        Value = value
+        Made += 1
+        Last = value
+    End New
+
+    Static Method Report(): String => "{Made} made"
+
+    Static Property Twice: Int
+        Get => Made * 2
+    End Property
+End Class
+
+Struct Registry<T>
+    Static Field Count: Int
+    Static Method Bump(): Int
+        Count += 1
+        Return Count
+    End Method
+End Struct
+
+Extend Counter<T>
+    Static Method Fresh(value: T): Counter<T> => Counter<T>(value)
+End Extend
+
+Local a = Counter(1)
+Local b = Counter(2)
+Local c = Counter("x")
+Print("{Counter<Int>.Made} {Counter<String>.Made} {Counter<Int>.Last ?? -1} {Counter<String>.Last ?? "none"}")
+Print("{Counter<Int>.Report()} {Counter<String>.Report()} {Counter<Int>.Twice}")
+Print("{Registry<Int>.Bump()} {Registry<Int>.Bump()} {Registry<Bool>.Bump()}")
+Local d = Counter<Int>.Fresh(9)
+Print("{Counter<Int>.Made} {d.Value}")

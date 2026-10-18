@@ -1,0 +1,116 @@
+// The built-in Interfaces: the built-in types implement the ones that fit them, and a Struct
+// or Class implements one by listing it.
+Function Max<T: Comparable>(a: T, b: T): T => a > b ? a : b
+
+Function Sum<T: Numeric>(items: T[]): T
+    Local total = T.Zero()
+    For item In items
+        total += item
+    End For
+
+    Return total
+End Function
+
+Function Find<T: Equatable>(items: T[], wanted: T): Int
+    For i, item In items
+        If item == wanted Then Return i
+    End For
+
+    Return -1
+End Function
+
+Function Show<T: Printable>(value: T): String => "<{value}>"
+
+// Without an Operator == or a Hash of its own, a Struct compares and hashes its fields.
+Struct Point Implements Hashable, Printable
+    Field X: Int
+    Field Y: Int
+
+    Method ToString(): String => "({X}, {Y})"
+End Struct
+
+// Comparable gives >, <=, and >= from <.
+Struct Money Implements Comparable
+    Field Cents: Long
+
+    Operator <(a: Money, b: Money): Bool => a.Cents < b.Cents
+End Struct
+
+// A Class's built-in == and Hash are its object's.
+Class Enemy Implements Printable, Hashable
+    Field Name: String
+
+    New(name: String)
+        Name = name
+    End New
+
+    Method ToString(): String => "enemy " + Name
+End Class
+
+Print("{Max(3, 7)} {Max(2.5, 1.5)} {Max("pear", "apple")}")
+Print("{Sum([1, 2, 3])} {Sum([0.5, 0.25])}")
+Print("{Find(["a", "b", "c"], "c")} {Find([Point(1, 2), Point(3, 4)], Point(3, 4))}")
+Print("{Show(5)} {Show("hi")} {Show(Point(1, 2))} {Show([1, 2])}")
+
+// Strings order by their text, code point by code point.
+Print("{"apple" < "banana"} {"b" >= "a"} {"Z" < "a"}")
+Print("{Money(5) > Money(3)} {Money(5) <= Money(3)} {Money(5) == Money(5)}")
+Print("{Max(Money(5), Money(9)).Cents}")
+
+// What implements Printable shows its ToString, and arrays show their elements.
+Local ogre = Enemy("ogre")
+Print("{ogre} {[ogre, Enemy("imp")]} {[1, 2, 3]} {(1, [2, 3])}")
+Local shown: Printable = ogre
+Print("{shown} {[shown, Enemy("bat") As Printable]}")
+
+// Arrays compare their elements.
+Print("{[1, 2] == [1, 2]} {[1, 2] == [1, 3]} {[[1], [2]] == [[1], [2]]}")
+
+// Equal values hash the same.
+Print("{Point(1, 2).Hash() == Point(1, 2).Hash()} {Point(1, 2).Hash() == Point(2, 1).Hash()}")
+Print("{5.Hash() == 5.Hash()} {"a".Hash() == "a".Hash()} {ogre.Hash() == Enemy("ogre").Hash()}")
+Print("{5.ToString()} {True.ToString()} {(1, "a").ToString()} {[1.5, 2.5].ToString()}")
+
+// A generic Struct is Hashable when its type argument is, and a T? hashes like its value.
+Struct Box<T: Hashable> Implements Hashable
+    Field Item: T
+    Field Tags: String[]
+End Struct
+
+Function Same<T: Hashable>(a: T, b: T): Bool => a == b && a.Hash() == b.Hash()
+
+Print("{Same(Box("x", ["p"]), Box("x", ["p"]))} {Same(Box(1, []), Box(2, []))}")
+Local maybe: Int? = 5
+Local none: Int? = Null
+Print("{(5 As Int?).Hash() == 5.Hash()} {none.Hash() == maybe.Hash()} {Same(0.0, -0.0)}")
+
+// A fixed array compares, hashes, and shows its elements too.
+Local grid: Int[3]
+grid[1] = 7
+Local copy = grid
+Print("{grid} {grid == copy} {grid.Hash() == copy.Hash()}")
+copy[2] = 1
+Print("{grid == copy}")
+
+// A Class extending one that's Printable shows its own ToString, and so does an object
+// through an Interface that extends Printable.
+Class Animal Implements Printable
+    Method ToString(): String => "an animal"
+End Class
+
+Class Dog Extends Animal
+    Override Method ToString(): String => "a dog"
+End Class
+
+Interface Named Extends Printable
+    Method Name(): String
+End Interface
+
+Class Cat Implements Named
+    Method Name(): String => "tom"
+    Method ToString(): String => "cat " + Name()
+End Class
+
+Local pets: Animal[] = [Animal(), Dog()]
+Local named: Named = Cat()
+Print("{pets} {named} {[named]}")

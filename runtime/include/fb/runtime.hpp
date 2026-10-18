@@ -23,6 +23,21 @@ struct fb_object_t;
 /// the field it's in, or null for an element of a T[]. `object` can be null.
 using fb_visitor_t = void (*)(void* context, const fb_object_t* object, const char* field);
 
+/// What the runtime knows about an Interface. The compiler makes one for each Interface that
+/// can be a type.
+struct fb_interface_t {
+    /// The Interface's name, NUL-terminated, for panics.
+    const char* name;
+};
+
+/// An Interface that a Class's objects implement, and the Class's table for it: for each of the
+/// Interface's Methods, and each Get and Set of its Properties, in order, the function that the
+/// Class's objects run.
+struct fb_implementation_t {
+    const fb_interface_t* interface;
+    void* const* methods;
+};
+
 /// What the runtime knows about a Class. The compiler makes one for each Class in the program,
 /// with its functions.
 struct fb_class_t {
@@ -41,6 +56,10 @@ struct fb_class_t {
     void (*visit)(const fb_object_t* object, fb_visitor_t visitor, void* context);
     /// How many objects of the Class exist, for the leak report.
     std::int64_t live;
+    /// The Interfaces its objects implement, its own and the ones it inherits, each with the
+    /// Class's table for it.
+    const fb_implementation_t* interfaces;
+    std::int64_t interface_count;
     /// The Class it extends, or null. Compiled code puts the Class's Method table right after
     /// this, for the calls that a Class extending it could override.
     const fb_class_t* base;
@@ -98,6 +117,19 @@ fb_string_t* fb_string_concat(const fb_string_t* left, const fb_string_t* right)
 fb_string_t* fb_string_join(const fb_string_t* const* parts, std::int64_t count);
 /// 1 when `left` and `right` hold the same bytes, and 0 otherwise, for `==` and `!=` on Strings.
 std::int32_t fb_string_equal(const fb_string_t* left, const fb_string_t* right);
+/// Below 0, 0, or above 0 as `left` comes before `right`, is the same, or comes after, for `<`
+/// and the rest on Strings. They compare byte by byte, which puts UTF-8 in code point order.
+std::int32_t fb_string_compare(const fb_string_t* left, const fb_string_t* right);
+/// A hash of a String's bytes, for Hashable.
+std::uint64_t fb_string_hash(const fb_string_t* string);
+
+/// A hash of an integer's bits, which spreads each bit over all of the result, for Hashable.
+std::uint64_t fb_hash_integer(std::uint64_t bits);
+/// A hash of a float, the same for 0.0 and -0.0, since they're equal.
+std::uint64_t fb_hash_float(double value);
+/// A hash so far combined with the next part's, as a Struct's, tuple's, or array's Hash combines
+/// its parts' in order.
+std::uint64_t fb_hash_combine(std::uint64_t seed, std::uint64_t hash);
 
 /// `value` as decimal text, like "-42", for interpolated strings. The caller owns the result.
 fb_string_t* fb_string_from_int(std::int64_t value);
@@ -153,12 +185,24 @@ fb_object_t* fb_object_load_weak(fb_object_t* object);
 /// New may not have set what Destroy() reads. If New gave Self to something that kept it, the
 /// object stays, like any other.
 void fb_object_discard(fb_object_t* object);
+/// A hash of which object `object` is, for a Class's built-in Hash, which goes with comparing
+/// objects themselves.
+std::uint64_t fb_hash_object(const fb_object_t* object);
 /// Whether `object` is of `type`, or of a Class that extends it, for 'Is'. 0 for null.
 std::int32_t fb_object_is(const fb_object_t* object, const fb_class_t* type);
 /// Panics at `location` unless `object` is of `type`, or of a Class that extends it, for 'As':
 /// "expected Boss, found Grunt", or "found Null".
 void fb_object_expect(const fb_object_t* object, const fb_class_t* type,
                       const fb_location_t* location);
+/// The table that `object`'s Class has for `interface`, for a call through an Interface. The
+/// compiler makes sure the Class implements it.
+void* const* fb_interface_methods(const fb_object_t* object, const fb_interface_t* interface);
+/// Whether `object`'s Class implements `interface`, for 'Is'. 0 for null.
+std::int32_t fb_object_implements(const fb_object_t* object, const fb_interface_t* interface);
+/// Panics at `location` unless `object`'s Class implements `interface`, for 'As': "expected
+/// Damageable, found Rock", or "found Null".
+void fb_object_expect_implements(const fb_object_t* object, const fb_interface_t* interface,
+                                 const fb_location_t* location);
 
 /// A T[]: an object of a Class the compiler makes for each array type, like "Int32[]", whose
 /// fields are its count, its capacity, and its elements. They live in a buffer of their own, so
@@ -191,6 +235,10 @@ fb_array_t* fb_array_clone(const fb_array_t* array, std::int64_t element_size);
 /// Frees the buffer, for an array's destroy once it released the elements. The runtime frees
 /// the object itself.
 void fb_array_free(const fb_array_t* array);
+/// Adds the code points of `string`'s UTF-8 to `into`, an Int32[], for "s.Chars".
+void fb_string_chars(const fb_string_t* string, fb_array_t* into);
+/// Adds `string`'s UTF-8 bytes to `into`, a UInt8[], for "s.Bytes".
+void fb_string_bytes(const fb_string_t* string, fb_array_t* into);
 /// Panics at `location`: "index 5 is out of range for 3 elements".
 [[noreturn]] void fb_index_out_of_range(std::int64_t index, std::int64_t count,
                                         const fb_location_t* location);

@@ -1,0 +1,89 @@
+// Pool<T>: values kept by Handles that stay valid until their value is removed, like a game's
+// enemies. A removed value's slot is reused, and its Generation counts how many times, so an
+// old Handle to it finds nothing.
+
+Struct Handle<T>
+    Field Index: Int
+    Field Generation: Int
+End Struct
+
+Class Pool<T>
+    Field Items: T?[] = []
+    Field Generations: Int[] = []
+    // The empty slots, to reuse.
+    Field Free: Int[] = []
+
+    Property Count: Int
+        Get => Items.Count - Free.Count
+    End Property
+
+    // Adds the value, and gives its Handle.
+    Method Add(value: T): Handle<T>
+        If Free.Count == 0
+            Items.Add(value)
+            Generations.Add(0)
+            Return Handle<T>(Items.Count - 1, 0)
+        End If
+
+        Local index = Free[Free.Count - 1]
+        Free.RemoveAt(Free.Count - 1)
+        Items[index] = value
+        Return Handle<T>(index, Generations[index])
+    End Method
+
+    // The handle's value, or Null once it's removed.
+    Method Get(handle: Handle<T>): T?
+        If !Contains(handle) Then Return Null
+        Return Items[handle.Index]
+    End Method
+
+    // Gives the handle's value a new value, and tells whether it's still there.
+    Method Set(handle: Handle<T>, value: T): Bool
+        If !Contains(handle) Then Return False
+        Items[handle.Index] = value
+        Return True
+    End Method
+
+    // Whether the handle's value is still there: its slot hasn't been emptied since.
+    Method Contains(handle: Handle<T>): Bool
+        Return handle.Index >= 0 && handle.Index < Items.Count &&
+               Generations[handle.Index] == handle.Generation
+    End Method
+
+    // Removes the handle's value, and tells whether it was there.
+    Method Remove(handle: Handle<T>): Bool
+        If !Contains(handle) Then Return False
+        Items[handle.Index] = Null
+        Generations[handle.Index] += 1
+        Free.Add(handle.Index)
+        Return True
+    End Method
+
+    // Removes every value. Their Handles find nothing after.
+    Method Clear()
+        For i = 0 Until Items.Count
+            If Items[i] != Null
+                Items[i] = Null
+                Generations[i] += 1
+                Free.Add(i)
+            End If
+        End For
+    End Method
+
+    // The values, in the order of their slots. Removing values while going over them is fine.
+    Method Iterate(): PoolIterator<T> => PoolIterator<T>(Items, 0)
+End Class
+
+Struct PoolIterator<T> Implements Iterator<T>
+    Field Items: T?[]
+    Field Index: Int
+
+    ByRef Method Next(): T?
+        While Index < Items.Count
+            Local item = Items[Index]
+            Index += 1
+            If item != Null Then Return item
+        End While
+        Return Null
+    End Method
+End Struct

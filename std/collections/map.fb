@@ -1,0 +1,176 @@
+// Map<K, V>: a hash map from keys to values. Its entries are in an array, in the order they were
+// added, and each bucket starts a chain of the entries whose hashes land in it.
+
+Struct MapEntry<K, V>
+    Field Key: K
+    Field Value: V
+    Field Hash: UInt64
+    // The next entry in the same bucket, or -1.
+    Field Next: Int
+End Struct
+
+Class Map<K, V>
+    Where K: Hashable
+
+    Field Entries: MapEntry<K, V>[] = []
+    // The first entry in each bucket, or -1. There are none until the first Add, then always a
+    // power of two.
+    Field Buckets: Int[] = []
+
+    Property Count: Int
+        Get => Entries.Count
+    End Property
+
+    // Adds an entry, or gives an existing key its new value.
+    Method Add(key: K, value: V)
+        Local hash = key.Hash()
+        Local found = IndexOf(key, hash)
+        If found >= 0
+            Entries[found].Value = value
+            Return
+        End If
+
+        If Entries.Count >= Buckets.Count Then Grow()
+        Local bucket = BucketOf(hash)
+        Entries.Add(MapEntry<K, V>(key, value, hash, Buckets[bucket]))
+        Buckets[bucket] = Entries.Count - 1
+    End Method
+
+    // The key's value, or Null when it isn't there.
+    Method Get(key: K): V?
+        Local found = IndexOf(key, key.Hash())
+        If found < 0 Then Return Null
+        Return Entries[found].Value
+    End Method
+
+    Method Contains(key: K): Bool => IndexOf(key, key.Hash()) >= 0
+
+    // Removes the key's entry, and tells whether there was one. The last entry takes its place.
+    Method Remove(key: K): Bool
+        Local found = IndexOf(key, key.Hash())
+        If found < 0 Then Return False
+        Unlink(found)
+        Local last = Entries.Count - 1
+        If found != last
+            Unlink(last)
+            Local bucket = BucketOf(Entries[last].Hash)
+            Entries[found] = Entries[last]
+            Entries[found].Next = Buckets[bucket]
+            Buckets[bucket] = found
+        End If
+
+        Entries.RemoveAt(last)
+        Return True
+    End Method
+
+    Method Clear()
+        Entries.Clear()
+        For i = 0 Until Buckets.Count
+            Buckets[i] = -1
+        End For
+    End Method
+
+    Method Keys(): K[]
+        Local keys: K[] = []
+        For entry In Entries
+            keys.Add(entry.Key)
+        End For
+        Return keys
+    End Method
+
+    Method Values(): V[]
+        Local values: V[] = []
+        For entry In Entries
+            values.Add(entry.Value)
+        End For
+        Return values
+    End Method
+
+    // A new Map with the same entries.
+    Method Clone(): Map<K, V>
+        Local copy = Map<K, V>()
+        copy.Entries = Entries.Clone()
+        copy.Buckets = Buckets.Clone()
+        Return copy
+    End Method
+
+    // A new Map of the entries that keep says to keep.
+    Method Filter(keep: Func(K, V): Bool): Map<K, V>
+        Local kept = Map<K, V>()
+        For entry In Entries
+            If keep(entry.Key, entry.Value) Then kept.Add(entry.Key, entry.Value)
+        End For
+        Return kept
+    End Method
+
+    // Each key and its value, for 'For key, value In map'.
+    Method Iterate(): MapIterator<K, V> => MapIterator<K, V>(Entries, 0)
+
+    // Where the key's entry is, or -1.
+    Method IndexOf(key: K, hash: UInt64): Int
+        If Buckets.Count == 0 Then Return -1
+        Local at = Buckets[BucketOf(hash)]
+        While at >= 0
+            If Entries[at].Hash == hash && Entries[at].Key == key Then Return at
+            at = Entries[at].Next
+        End While
+        Return -1
+    End Method
+
+    Method BucketOf(hash: UInt64): Int => (hash & ((Buckets.Count - 1) As UInt64)) As Int
+
+    // Takes an entry out of its bucket's chain.
+    Method Unlink(index: Int)
+        Local bucket = BucketOf(Entries[index].Hash)
+        If Buckets[bucket] == index
+            Buckets[bucket] = Entries[index].Next
+            Return
+        End If
+
+        Local at = Buckets[bucket]
+        While Entries[at].Next != index
+            at = Entries[at].Next
+        End While
+        Entries[at].Next = Entries[index].Next
+    End Method
+
+    // Twice the buckets, or 8 at first, with every entry chained again.
+    Method Grow()
+        Local count = Buckets.Count == 0 ? 8 : Buckets.Count * 2
+        Buckets.Clear()
+        For i = 0 Until count
+            Buckets.Add(-1)
+        End For
+
+        For i = 0 Until Entries.Count
+            Local bucket = BucketOf(Entries[i].Hash)
+            Entries[i].Next = Buckets[bucket]
+            Buckets[bucket] = i
+        End For
+    End Method
+End Class
+
+Struct MapIterator<K, V> Implements Iterator<(K, V)>
+    Field Entries: MapEntry<K, V>[]
+    Field Index: Int
+
+    ByRef Method Next(): (K, V)?
+        If Index >= Entries.Count Then Return Null
+        Index += 1
+        Return (Entries[Index - 1].Key, Entries[Index - 1].Value)
+    End Method
+End Struct
+
+// "{a: 1, b: 2}", when the keys and values can be shown.
+Extend Map<K, V> Implements Printable
+    Where K: Printable
+    Where V: Printable
+
+    Method ToString(): String
+        Local text = ""
+        For key, value In Self
+            text = text + (text == "" ? "" : ", ") + "{key}: {value}"
+        End For
+        Return "{{" + text + "}}"
+    End Method
+End Extend

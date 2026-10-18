@@ -7,6 +7,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <string_view>
 #include <utility>
@@ -37,6 +38,24 @@ struct punctuation_t {
     token_kind_t kind;
 };
 
+/// The symbols an #If can test. Each is true when the build defines it.
+constexpr auto condition_symbols = std::to_array<std::string_view>(
+    { "DEBUG", "RELEASE", "PLATFORM_WINDOWS", "PLATFORM_LINUX", "PLATFORM_MACOS" });
+
+/// An #If whose #End If hasn't come yet.
+struct condition_t {
+    /// The "#If", where a missing #End If is reported.
+    span_t span;
+    /// The lines of the branch being read are lexed.
+    bool active = false;
+    /// A branch has been active already, so the rest aren't.
+    bool taken = false;
+    /// #Else came, so nothing but #End If can.
+    bool otherwise = false;
+    /// The #If is in lines that are lexed. In ones that aren't, no branch is.
+    bool outer = false;
+};
+
 constexpr std::array punctuation = {
 #define FB_PUNCTUATION(name, spelling) punctuation_t{ spelling, token_kind_t::name },
 #include "fb/token_kinds.def" // NOLINT(readability-trailing-comma)
@@ -59,8 +78,9 @@ constexpr bool is_digit(const char c, const std::uint32_t base) {
 /// every token, ending with END_OF_FILE.
 class lexer_t {
 public:
-    lexer_t(const source_file_t& file, diagnostic_bag_t& diagnostics)
-        : m_file(file), m_text(file.text()), m_diagnostics(diagnostics) {}
+    lexer_t(const source_file_t& file, diagnostic_bag_t& diagnostics,
+            const std::span<const std::string_view> defined)
+        : m_file(file), m_text(file.text()), m_diagnostics(diagnostics), m_defined(defined) {}
 
     std::vector<token_t> run() {
         while (true) {
@@ -77,6 +97,10 @@ public:
             report_unterminated(state);
         }
 
+        for (const condition_t& condition : m_conditions) {
+            m_diagnostics.error(condition.span, "this #If needs an #End If");
+        }
+
         add(token_kind_t::END_OF_FILE, m_pos);
         return std::move(m_tokens);
     }
@@ -85,9 +109,12 @@ private:
     const source_file_t& m_file;
     std::string_view m_text;
     diagnostic_bag_t& m_diagnostics;
+    std::span<const std::string_view> m_defined;
     std::vector<token_t> m_tokens;
     /// Strings waiting while one of their interpolations is lexed, innermost last.
     std::vector<string_state_t> m_strings;
+    /// The #Ifs around the current line, innermost last.
+    std::vector<condition_t> m_conditions;
     std::uint32_t m_pos = 0;
 
     [[nodiscard]] bool at_end() const {
@@ -185,7 +212,7 @@ private:
             lex_character();
         } else if (c == '#' && at_line_start()) {
             // Directives are the first thing on their line. Anywhere else, "#" is unexpected.
-            skip_directive();
+            lex_directive();
         } else if (c == '}' && !m_strings.empty() && m_strings.back().brace_depth == 0) {
             // A "}" that closes no "{" of its own ends an interpolation, and its string goes on.
             continue_string();
@@ -534,17 +561,179 @@ private:
         return true;
     }
 
-    /// #If and friends are deferred past M1. The directive's name is reported and the rest of
-    /// its line skipped.
-    void skip_directive() {
+    /// "#If", "#ElseIf", "#Else", or "#End If", which give no tokens. After one, the lines of a
+    /// branch that isn't taken are skipped up to the next directive, without being lexed.
+    void lex_directive() {
         const std::uint32_t begin = m_pos;
         ++m_pos;
+        const std::string_view name = take_word();
+        const span_t where = span(begin, m_pos);
+        const bool in_active = m_conditions.empty() || m_conditions.back().active;
+        if (name == "If") {
+            const bool outer = in_active;
+            const bool holds = outer && condition_holds();
+            m_conditions.push_back(
+                { .span = where, .active = holds, .taken = holds, .outer = outer });
+        } else if (name == "ElseIf" || name == "Else") {
+            if (m_conditions.empty()) {
+                m_diagnostics.error(where, "#{} needs an #If before it", name);
+                skip_to_line_end();
+            } else if (m_conditions.back().otherwise) {
+                m_diagnostics.error(where, "#{} can't come after #Else", name);
+                skip_to_line_end();
+            } else {
+                condition_t& condition = m_conditions.back();
+                bool holds = name == "Else";
+                if (!holds && condition.outer && !condition.taken) {
+                    holds = condition_holds();
+                } else {
+                    finish_directive(holds);
+                }
+
+                condition.active = condition.outer && !condition.taken && holds;
+                condition.taken = condition.taken || condition.active;
+                condition.otherwise = name == "Else";
+            }
+        } else if (name == "End" && skip_spaces() && take_word() == "If") {
+            if (m_conditions.empty()) {
+                m_diagnostics.error(span(begin, m_pos), "#End If needs an #If before it");
+            } else {
+                m_conditions.pop_back();
+            }
+
+            finish_directive(true);
+        } else {
+            // In lines that aren't lexed, it's only skipped.
+            if (in_active) {
+                m_diagnostics.error(where,
+                                    "'#{}' isn't a directive; there are #If, #ElseIf, #Else, and "
+                                    "#End If",
+                                    name);
+            }
+
+            skip_to_line_end();
+        }
+
+        if (!m_conditions.empty() && !m_conditions.back().active) {
+            skip_inactive_lines();
+        }
+    }
+
+    /// The letters after a directive's "#", or after "#End".
+    std::string_view take_word() {
+        const std::uint32_t begin = m_pos;
         while (is_identifier_continue(peek())) {
             ++m_pos;
         }
 
-        m_diagnostics.error(span(begin, m_pos), "conditional compilation isn't supported yet");
+        return m_text.substr(begin, m_pos - begin);
+    }
+
+    /// Spaces and tabs, and true, so it can go in a condition.
+    bool skip_spaces() {
+        while (peek() == ' ' || peek() == '\t') {
+            ++m_pos;
+        }
+
+        return true;
+    }
+
+    /// The rest of a directive's line holds nothing but a comment. `report` is false where the
+    /// line is skipped anyway.
+    void finish_directive(const bool report) {
+        skip_spaces();
+        const bool comment = peek() == '/' && (peek(1) == '/' || peek(1) == '*');
+        if (report && !comment && !at_end() && peek() != '\n' && peek() != '\r') {
+            m_diagnostics.error(span(m_pos, m_pos + 1), "expected the end of the line");
+        }
+
         skip_to_line_end();
+    }
+
+    /// The lines of a branch that isn't taken, up to the next line that starts with "#". They
+    /// don't need to lex.
+    void skip_inactive_lines() {
+        skip_to_line_end();
+        while (!at_end()) {
+            skip_line_break();
+            skip_spaces();
+            if (peek() == '#') {
+                return;
+            }
+
+            while (!at_end() && peek() != '\n' && peek() != '\r') {
+                ++m_pos;
+            }
+        }
+    }
+
+    /// An #If's or #ElseIf's condition, then the end of its line. A mistake makes it false.
+    bool condition_holds() {
+        const std::optional<bool> value = parse_any();
+        finish_directive(value.has_value());
+        return value.value_or(false);
+    }
+
+    /// "a || b": either holds.
+    std::optional<bool> parse_any() {
+        std::optional<bool> value = parse_all();
+        while (value && skip_spaces() && peek() == '|' && peek(1) == '|') {
+            m_pos += 2;
+            const std::optional<bool> right = parse_all();
+            value = right ? std::optional(*value || *right) : std::nullopt;
+        }
+
+        return value;
+    }
+
+    /// "a && b": both hold.
+    std::optional<bool> parse_all() {
+        std::optional<bool> value = parse_one();
+        while (value && skip_spaces() && peek() == '&' && peek(1) == '&') {
+            m_pos += 2;
+            const std::optional<bool> right = parse_one();
+            value = right ? std::optional(*value && *right) : std::nullopt;
+        }
+
+        return value;
+    }
+
+    /// A symbol, "!" before one, or a condition in parentheses. A symbol holds when it's defined.
+    std::optional<bool> parse_one() {
+        skip_spaces();
+        if (peek() == '!') {
+            ++m_pos;
+            const std::optional<bool> value = parse_one();
+            return value ? std::optional(!*value) : std::nullopt;
+        }
+
+        if (peek() == '(') {
+            const std::uint32_t open = m_pos++;
+            const std::optional<bool> value = parse_any();
+            if (value && skip_spaces() && peek() != ')') {
+                m_diagnostics.error(span(open, open + 1), "this '(' needs a ')'");
+                return std::nullopt;
+            }
+
+            ++m_pos;
+            return value;
+        }
+
+        const std::uint32_t begin = m_pos;
+        if (!is_identifier_start(peek())) {
+            m_diagnostics.error(span(m_pos, m_pos + 1), "expected a symbol, like DEBUG");
+            return std::nullopt;
+        }
+
+        const std::string_view symbol = take_word();
+        if (!std::ranges::contains(condition_symbols, symbol)) {
+            m_diagnostics.warning(span(begin, m_pos),
+                                  "'{}' is never defined; #If can test DEBUG, RELEASE, "
+                                  "PLATFORM_WINDOWS, PLATFORM_LINUX, and PLATFORM_MACOS",
+                                  symbol);
+        }
+
+        return std::ranges::contains(m_defined, symbol);
     }
 
     /// One INVALID token for a character nothing else takes, so the parser can carry on. A bad
@@ -571,8 +760,9 @@ private:
 
 } // namespace
 
-std::vector<token_t> lex(const source_file_t& file, diagnostic_bag_t& diagnostics) {
-    return lexer_t(file, diagnostics).run();
+std::vector<token_t> lex(const source_file_t& file, diagnostic_bag_t& diagnostics,
+                         const std::span<const std::string_view> defined) {
+    return lexer_t(file, diagnostics, defined).run();
 }
 
 } // namespace fb

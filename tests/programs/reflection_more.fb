@@ -1,0 +1,110 @@
+// What step 13 adds to reflection: loops over a type's own type parameter and over Self,
+// Properties, Static Fields, Methods of a Func type, a type's own attributes, and lambdas in
+// the loops.
+
+Attribute Saved
+Attribute Label(Text: String)
+
+@Saved @Label("hero")
+Class Player
+    Field Name: String
+    Field HP: Int
+    Static Field Count: Int = 3
+    Static Field Title: String = "players"
+
+    Property Shout: String
+        Get => Name + "!"
+    End Property
+
+    @Label("health")
+    Property Half: Int
+        Get => HP / 2
+    End Property
+
+    Method Hit(amount: Int): Int
+        HP -= amount
+        Return HP
+    End Method
+
+    Method Rename(name: String): String
+        Local old = Name
+        Name = name
+        Return old
+    End Method
+
+    Method Heal(amount: Int): Int
+        HP += amount
+        Return HP
+    End Method
+End Class
+
+// The type's own type parameter, in a generic Struct's Method.
+Struct Wrapper<T>
+    Field Item: T
+    Method Describe(): String
+        Local text = ""
+        For Field f: F In T
+            Where F: Printable
+            text = text + "{f.Name}={f.Get(Item)} "
+        End For
+        Return text
+    End Method
+End Struct
+
+Struct Point
+    Field X: Int
+    Field Y: Int
+End Struct
+
+// Self, in an Interface's default.
+Interface Dumped
+    Method Dump(): String
+        Local text = ""
+        For Field f: F In Self
+            Where F: Printable
+            text = text + "{f.Name}:{f.Get(Self)} "
+        End For
+        Return text
+    End Method
+End Interface
+
+Struct Pair Implements Dumped
+    Field Left: Int
+    Field Right: String
+End Struct
+
+Local p = Player()
+p.Name = "Ann"
+p.HP = 40
+For Property q: Q In Player
+    Where Q: Printable
+    Print("{q.Name} = {q.Get(p)} {q.Attribute(Label)?.Text ?? "-"}")
+End For
+For Static Field s: S In Player
+    Where S: Printable
+    Print("{s.Name} = {s.Get()}")
+End For
+For Method m: M In Player
+    Where M: Func(Int): Int
+    Print("{m.Name}(5) = {m.Call(p, 5)}")
+End For
+For Method m: M In Player
+    Where M: Func(String): String
+    Print("{m.Name}: {m.Call(p, "Bo")} -> {p.Name}")
+End For
+Print("{Player.Has(Saved)} {Player.Attribute(Label)?.Text ?? "-"} {Point.Has(Saved)}")
+Print(Wrapper(Point(1, 2)).Describe())
+Print(Pair(7, "x").Dump())
+
+// Lambdas inside the loops: each copy has its own.
+Local names: (Func(): String)[] = []
+For Field f In Point
+    names.Add(Function() => f.Name)
+End For
+For Method m: M In Player
+    Where M: Func(Int): Int
+    names.Add(Function() => m.Name + "!")
+End For
+For name In names
+    Print(name())
+End For

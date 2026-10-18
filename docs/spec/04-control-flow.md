@@ -52,6 +52,34 @@ For key, val In scores ... End For         // map entries
   of `0` is a compile error when known and a panic at run time.
 - Assigning to a loop variable inside the loop is an error.
 
+### Iterators
+
+`For ... In` also goes over an Iterator, and over a value whose `Iterate()` gives one, like a
+collection. An `Iterator<T>` (std/core/iterator.fb) has a `ByRef Method Next(): T?`, which gives
+the next element each time, and Null once there are no more.
+
+```vb
+Struct Countdown Implements Iterator<Int>
+    Field N: Int
+
+    ByRef Method Next(): Int?
+        If N == 0 Then Return Null
+        N -= 1
+        Return N + 1
+    End Method
+End Struct
+
+For n In Countdown(3) ... End For          // 3, 2, 1
+```
+
+- The loop holds the Iterator, evaluated once: a copy of a Struct, so the variable it came from
+  doesn't change, or a Class's object, which its Next changes. An `Iterate()` takes no
+  arguments. One that throws needs the loop in a Try block, or written `For x In Try items`,
+  which lets its errors go on like Try on a call.
+- Over an Iterator, two names take each element apart, so the elements must be pairs: `For key,
+  val In scores`. Only arrays give an index.
+- Next can't give Null as an element: an `Iterator<String?>` ends at its first Null.
+
 `Parallel For` is covered in [10-concurrency.md](10-concurrency.md).
 
 ## While, Repeat, Loop

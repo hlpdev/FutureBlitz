@@ -11,6 +11,7 @@
 #include <ranges>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -154,6 +155,16 @@ struct handler_t {
     std::vector<block_id_t> exits;
 };
 
+/// A member that a copy of a loop over a type's members is for.
+struct reflected_t {
+    std::string name;
+    std::uint32_t index = 0;
+    /// The member's symbol. A tuple's elements have none.
+    std::optional<symbol_id_t> symbol;
+    /// The type it's a member of.
+    type_id_t owner = type_id_t::INVALID;
+};
+
 /// Turns the analyzed AST into MIR: one function per Function, Method, and New, plus "main" for
 /// the top-level code. Each variable holding a String, or a Struct with Strings in it, owns a
 /// reference to each one, so lowering adds the retains and releases. Parameters borrow the
@@ -165,6 +176,19 @@ public:
         for (std::size_t i = 0; i < analysis.symbols.size(); ++i) {
             if (analysis.symbols[i].kind == symbol_kind_t::TYPE) {
                 m_declared_types[analysis.symbols[i].type] = static_cast<symbol_id_t>(i);
+            }
+        }
+
+        // What implements an Interface's Method that throws is called through its table the
+        // same way, with an error variable, whether or not it throws itself.
+        for (const conformance_t& conformance : analysis.conformances) {
+            const symbol_t& interface =
+                analysis.symbol(m_declared_types.at(definition_of(conformance.interface)));
+            for (std::size_t i = 0; i < interface.members.size() && i < conformance.members.size();
+                 ++i) {
+                if (!analysis.symbol(interface.members[i]).throws.empty()) {
+                    m_takes_error.insert(conformance.members[i]);
+                }
             }
         }
     }
@@ -193,9 +217,19 @@ public:
                 function != nullptr && function->type_parameters.empty()) {
                 lower_function(id, *function);
             } else if (const auto* declared = std::get_if<type_stmt_t>(&node);
-                       declared != nullptr && declared->type_parameters.empty()) {
+                       declared != nullptr && declared->type_parameters.empty() &&
+                       !declared->is_interface) {
+                // An Interface's Methods run with the type for Self, as each one needs them.
                 for (const stmt_id_t member : declared->members) {
                     lower_member(member);
+                }
+            } else if (const auto* extension = std::get_if<extend_stmt_t>(&node)) {
+                // What an Extend adds to a generic type, or to T[], has its type parameters.
+                for (const stmt_id_t member : extension->members) {
+                    const std::optional<symbol_id_t> added = m_analysis.stmt(member).symbol;
+                    if (added && type_parameters_of(m_analysis.symbol(*added)).empty()) {
+                        lower_member(member);
+                    }
                 }
             }
         }
@@ -212,12 +246,25 @@ public:
         return std::move(m_module);
     }
 
+    /// One function, and the ones it calls, after it.
+    mir_module_t run_one(const symbol_id_t id, const std::vector<type_id_t>& type_arguments) {
+        (void)function_of(id, type_arguments);
+        lower_library();
+        for (const auto& [type, function] : m_texts) {
+            lower_text(type, function);
+        }
+
+        return std::move(m_module);
+    }
+
 private:
     const ast_t& m_ast;
     const analysis_t& m_analysis;
     mir_module_t m_module;
     std::unordered_map<symbol_id_t, function_id_t> m_functions;
     std::unordered_map<symbol_id_t, global_id_t> m_globals;
+    /// Each instance's Static Fields of a generic type, by the field and the type arguments.
+    std::map<std::pair<symbol_id_t, std::vector<type_id_t>>, global_id_t> m_instance_globals;
     /// Each Class's Method table, by its type, made when it's first needed.
     std::unordered_map<type_id_t, std::vector<symbol_id_t>> m_tables;
     /// Each Class Method's slot in the Method tables.
@@ -234,6 +281,8 @@ private:
         type_id_t type;
         std::vector<type_id_t> parameters;
         std::vector<type_id_t> arguments;
+        /// Inside a copy of a loop over a type's members: the member each loop's variable is.
+        std::unordered_map<symbol_id_t, reflected_t> reflected;
     };
 
     /// The function values the program makes, whose code is lowered after the function that
@@ -253,8 +302,35 @@ private:
     /// The Enums whose values strings show, with the function that gives each value's text.
     /// Their bodies are lowered last.
     std::vector<std::pair<type_id_t, function_id_t>> m_texts;
+
+    /// What a function that lowering makes for an array type does: compare two arrays element
+    /// by element, hash one, or give its text.
+    enum class generated_kind_t : std::uint8_t {
+        EQUAL,
+        HASH,
+        TEXT,
+    };
+
+    struct generated_t {
+        generated_kind_t kind;
+        type_id_t type;
+        function_id_t function;
+    };
+
+    /// The array functions the program uses, whose bodies are lowered with the library's.
+    std::vector<generated_t> m_generated;
     /// Each Struct's symbol, by its type.
     std::unordered_map<type_id_t, symbol_id_t> m_declared_types;
+    /// The Methods that implement an Interface's Method that throws.
+    std::unordered_set<symbol_id_t> m_takes_error;
+    /// While lowering a copy of a For Field's or For Method's body: the member each loop's
+    /// variable is, by the variable.
+    std::unordered_map<symbol_id_t, reflected_t> m_reflected;
+    /// Each copy of a loop's body, inside the loops around it, has its own closure Classes, by
+    /// the Class and the copies.
+    std::vector<std::uint32_t> m_copies;
+    std::uint32_t m_next_copy = 0;
+    std::map<std::pair<type_id_t, std::vector<std::uint32_t>>, type_id_t> m_closure_copies;
 
     // The function being lowered
     function_id_t m_function{};
@@ -277,7 +353,9 @@ private:
     /// A Method or New, or a Property's Get and Set, which are Methods.
     void lower_member(const stmt_id_t id) {
         const stmt_node_t& node = m_ast.get(id).node;
-        if (const auto* method = std::get_if<function_stmt_t>(&node)) {
+        // A generic Method is lowered for each set of type arguments it's called with.
+        if (const auto* method = std::get_if<function_stmt_t>(&node);
+            method != nullptr && method->type_parameters.empty()) {
             lower_function(id, *method);
         } else if (const auto* property = std::get_if<property_stmt_t>(&node)) {
             for (const std::optional<stmt_id_t> part : { property->getter, property->setter }) {
@@ -293,6 +371,12 @@ private:
     void declare_globals() {
         for (const symbol_id_t id : m_analysis.globals) {
             const symbol_t& symbol = m_analysis.symbol(id);
+            // A generic type's Static Fields are each instance's, made as it's used.
+            if (symbol.owner != type_id_t::INVALID &&
+                !types().get(symbol.owner).parameters.empty()) {
+                continue;
+            }
+
             const auto& node =
                 std::get<variable_stmt_t>(m_ast.get(expect(symbol.declaration)).node);
             // Only a built-in type's zero is a constant, and a T?'s, which is Null. A Struct or
@@ -325,6 +409,61 @@ private:
         }
     }
 
+    /// A generic type's Static Field for one instance, which starts with its value known at
+    /// compile time, or its zero.
+    global_id_t instance_global(const symbol_id_t field, const std::vector<type_id_t>& arguments) {
+        const auto key = std::pair(field, arguments);
+        if (const auto found = m_instance_globals.find(key); found != m_instance_globals.end()) {
+            return found->second;
+        }
+
+        const symbol_t& symbol = m_analysis.symbol(field);
+        const type_id_t owner = types().instance(symbol.owner, arguments);
+        const type_id_t type =
+            types().substitute(symbol.type, types().get(symbol.owner).parameters, arguments);
+        std::optional<const_value_t> initial;
+        const auto& node = std::get<variable_stmt_t>(m_ast.get(expect(symbol.declaration)).node);
+        if (node.value && m_analysis.expr(*node.value).value) {
+            initial = *m_analysis.expr(*node.value).value;
+        } else if (types().get(type).kind == type_kind_t::BUILTIN) {
+            initial = zero(type);
+        } else if (is_nullable(type)) {
+            initial = null_of(type);
+        } else if (is_enum(type)) {
+            initial = enum_constant(type, types().enum_zero(type));
+        }
+
+        const auto global = static_cast<global_id_t>(m_module.globals.size());
+        m_module.globals.push_back({
+            .name = std::format("{}.{}", types().name(owner), symbol.name),
+            .type = type,
+            .initial = std::move(initial),
+        });
+        m_instance_globals[key] = global;
+        return global;
+    }
+
+    /// A Static Field's global, through an expression that uses it: for a generic type's, the
+    /// instance's, from the type arguments analysis recorded.
+    global_id_t global_of(const symbol_id_t field, const expr_id_t use) {
+        const symbol_t& symbol = m_analysis.symbol(field);
+        if (symbol.owner == type_id_t::INVALID || types().get(symbol.owner).parameters.empty()) {
+            return m_globals.at(field);
+        }
+
+        // Used by name, it's in its type's own code, whose instance is being lowered.
+        std::vector<type_id_t> arguments = m_analysis.expr(use).type_arguments;
+        if (arguments.empty()) {
+            arguments = types().get(symbol.owner).parameters;
+        }
+
+        for (type_id_t& argument : arguments) {
+            argument = concrete(argument);
+        }
+
+        return instance_global(field, arguments);
+    }
+
     /// The main file's functions get their ids before any body is lowered, so a call can reach
     /// a function declared further down. "main" comes after them, then the library functions and
     /// the instances of generic ones, as the program uses them.
@@ -349,6 +488,7 @@ private:
         m_module.functions.push_back({
             .name = function_name(m_analysis, symbol),
             .return_type = sets_up ? type_id_t::NONE : symbol.type,
+            .is_inline = symbol.modifiers.is_inline,
         });
         return function;
     }
@@ -362,7 +502,9 @@ private:
     /// program only gets the library code it uses. A generic one has one for each set of type
     /// arguments it's used with.
     function_id_t function_of(const symbol_id_t id, const std::vector<type_id_t>& arguments = {}) {
-        if (!arguments.empty()) {
+        // A Method a type got from an Interface runs the default's code with the type for Self,
+        // like an instance of generic code.
+        if (!arguments.empty() || m_analysis.symbol(id).default_method) {
             return instance_of(id, arguments);
         }
 
@@ -390,6 +532,7 @@ private:
             .name = instance_name(symbol, parameters, arguments),
             .return_type =
                 sets_up ? type_id_t::NONE : types().substitute(symbol.type, parameters, arguments),
+            .is_inline = symbol.modifiers.is_inline,
         });
         m_instances.emplace(key, function);
         m_pending_instances.push_back(std::move(key));
@@ -403,7 +546,11 @@ private:
         std::string name;
         std::size_t own = 0;
         if (function.owner != type_id_t::INVALID) {
-            own = types().get(function.owner).parameters.size();
+            // What an Extend adds to T[] has T as a type parameter of its own, which the array
+            // shows.
+            own = function.extended && is_array(function.owner)
+                      ? 1
+                      : owner_parameters(function.owner).size();
             const type_id_t owner = types().substitute(function.owner, parameters, arguments);
             name = std::format("{}.", types().name(owner));
         }
@@ -424,12 +571,29 @@ private:
         return name + ")";
     }
 
-    /// The type parameters a function's types can use: its Struct's or Class's, then its own.
+    /// The type parameters a type's members can use: a generic Struct's or Class's, or an
+    /// Interface's Self.
+    [[nodiscard]] std::vector<type_id_t> owner_parameters(const type_id_t owner) const {
+        const type_t& info = types().get(owner);
+        if (info.kind == type_kind_t::INTERFACE) {
+            std::vector<type_id_t> parameters{ info.inner };
+            parameters.insert(parameters.end(), info.parameters.begin(), info.parameters.end());
+            return parameters;
+        }
+
+        if (info.kind == type_kind_t::STRUCT || info.kind == type_kind_t::CLASS) {
+            return info.parameters;
+        }
+
+        return {};
+    }
+
+    /// The type parameters a function's types can use: its Struct's or Class's, or its
+    /// Interface's Self and type parameters, then its own.
     [[nodiscard]] std::vector<type_id_t> type_parameters_of(const symbol_t& function) const {
         std::vector<type_id_t> parameters;
-        if (function.owner != type_id_t::INVALID && !is_array(function.owner) &&
-            !is_enum(function.owner)) {
-            parameters = types().get(function.owner).parameters;
+        if (function.owner != type_id_t::INVALID) {
+            parameters = owner_parameters(function.owner);
         }
 
         parameters.insert(parameters.end(), function.type_parameters.begin(),
@@ -486,7 +650,7 @@ private:
         std::vector<type_id_t> arguments;
         if (!type_parameters_of(function).empty() && function.owner != type_id_t::INVALID &&
             !types().get(function.owner).parameters.empty()) {
-            arguments = types().get(non_null(object)).arguments;
+            arguments = owner_arguments(non_null(object), function.owner);
         }
 
         for (const type_id_t argument : info.type_arguments) {
@@ -494,6 +658,21 @@ private:
         }
 
         return arguments;
+    }
+
+    /// The type arguments of the instance of `owner`, a generic Struct or Class, that `type` is
+    /// or extends: Base<Int32>'s for a Derived<Int32> that extends Base<T> with its T. None when
+    /// it isn't generic.
+    [[nodiscard]] std::vector<type_id_t> owner_arguments(const type_id_t type,
+                                                         const type_id_t owner) const {
+        for (type_id_t current = type; current != type_id_t::INVALID;
+             current = types().get(current).base) {
+            if (definition_of(current) == owner) {
+                return types().get(current).arguments;
+            }
+        }
+
+        return {};
     }
 
     /// The T of a T?, and any other type as it is.
@@ -523,10 +702,20 @@ private:
         std::size_t functions = 0;
         std::size_t closures = 0;
         std::size_t instances = 0;
+        std::size_t generated = 0;
         while (classes < m_used_classes.size() || functions < m_library_functions.size() ||
-               closures < m_closures.size() || instances < m_pending_instances.size()) {
+               closures < m_closures.size() || instances < m_pending_instances.size() ||
+               generated < m_generated.size()) {
             if (classes < m_used_classes.size()) {
                 add_class(m_used_classes[classes++]);
+                continue;
+            }
+
+            if (generated < m_generated.size()) {
+                const generated_t function = m_generated[generated++];
+                m_parameters.clear();
+                m_arguments.clear();
+                lower_generated(function);
                 continue;
             }
 
@@ -539,24 +728,73 @@ private:
 
             if (instances < m_pending_instances.size()) {
                 const instance_t instance = m_pending_instances[instances++];
-                const symbol_t& symbol = m_analysis.symbol(instance.first);
-                const stmt_id_t id = expect(symbol.declaration);
-                m_parameters = type_parameters_of(symbol);
-                m_arguments = instance.second;
-                lower_function(id, std::get<function_stmt_t>(m_ast.get(id).node),
-                               m_instances.at(instance));
+                lower_instance(instance);
                 continue;
             }
 
             m_parameters.clear();
             m_arguments.clear();
-            const stmt_id_t id =
-                expect(m_analysis.symbol(m_library_functions[functions++]).declaration);
-            lower_function(id, std::get<function_stmt_t>(m_ast.get(id).node));
+            lower_body(m_library_functions[functions++], std::nullopt);
         }
 
         m_parameters.clear();
         m_arguments.clear();
+    }
+
+    /// An instance of generic code, with its type arguments for its type parameters. A Method a
+    /// type got from an Interface runs the default's code, with the type for Self.
+    void lower_instance(const instance_t& instance) {
+        const symbol_t& symbol = m_analysis.symbol(instance.first);
+        const function_id_t function = m_instances.at(instance);
+        if (symbol.default_method) {
+            // With the type for Self, then a generic Interface's type arguments.
+            const symbol_t& method = m_analysis.symbol(*symbol.default_method);
+            const std::vector<type_id_t> parameters = type_parameters_of(symbol);
+            const type_id_t interface =
+                types().substitute(symbol.default_interface, parameters, instance.second);
+            m_parameters = type_parameters_of(method);
+            m_arguments = { types().substitute(symbol.owner, parameters, instance.second) };
+            std::ranges::copy(types().get(interface).arguments, std::back_inserter(m_arguments));
+            lower_body(*symbol.default_method, function);
+            return;
+        }
+
+        m_parameters = type_parameters_of(symbol);
+        m_arguments = instance.second;
+        lower_body(instance.first, function);
+    }
+
+    /// A function's code, from its declaration. A Get or Set without one, an Abstract
+    /// Property's or an Interface's, only panics: what overrides or implements it runs instead.
+    void lower_body(const symbol_id_t id, const std::optional<function_id_t> instance) {
+        const symbol_t& function = m_analysis.symbol(id);
+        if (!function.declaration) {
+            lower_abstract(id, instance);
+            return;
+        }
+
+        const stmt_id_t declaration = *function.declaration;
+        lower_function(declaration, std::get<function_stmt_t>(m_ast.get(declaration).node),
+                       instance);
+    }
+
+    void lower_abstract(const symbol_id_t id, const std::optional<function_id_t> instance) {
+        const symbol_t& function = m_analysis.symbol(id);
+        begin_function(instance ? *instance : m_functions.at(id));
+        if (function.self) {
+            const symbol_t& self = m_analysis.symbol(*function.self);
+            const type_id_t type = concrete(self.type);
+            m_self = add_local(type, "Self", self.by_ref && !is_object(type));
+        }
+
+        for (const symbol_id_t parameter_id : function.parameters) {
+            const symbol_t& parameter = m_analysis.symbol(parameter_id);
+            m_locals[parameter_id] =
+                add_local(concrete(parameter.type), parameter.name, parameter.by_ref);
+        }
+
+        current().parameter_count = current().locals.size();
+        terminate(panic_t{ .message = "an Abstract Method was called", .span = function.span });
     }
 
     /// A Class's entry in the module, with its Destroy() if it has one, and its Method table.
@@ -573,19 +811,228 @@ private:
             }
         }
 
+        // An inherited Method has the type arguments of the instance of its Class.
         for (const symbol_id_t method : method_table(definition)) {
-            const bool own = m_analysis.symbol(method).owner == definition;
-            info.methods.push_back(function_of(method, own ? arguments : std::vector<type_id_t>{}));
+            info.methods.push_back(
+                function_of(method, owner_arguments(type, m_analysis.symbol(method).owner)));
+        }
+
+        // A table for each Interface its objects implement.
+        for (const type_id_t interface : implemented(type)) {
+            mir_implementation_t table{ .interface = interface };
+            for (const symbol_id_t required : interface_slots(interface)) {
+                table.methods.push_back(table_entry(info, required, type));
+            }
+
+            info.interfaces.push_back(std::move(table));
         }
 
         m_module.classes.push_back(std::move(info));
     }
 
+    /// The Interfaces that can be types which a Class's objects implement: the ones it lists, and
+    /// that the Classes it extends list, and the ones those extend.
+    [[nodiscard]] std::vector<type_id_t> implemented(const type_id_t type) const {
+        // An instance's Interfaces have its type arguments in them.
+        std::vector<type_id_t> found;
+        for (type_id_t current = type; current != type_id_t::INVALID;
+             current = types().get(current).base) {
+            std::vector<type_id_t> pending = types().get(current).interfaces;
+            while (!pending.empty()) {
+                const type_id_t interface = pending.front();
+                pending.erase(pending.begin());
+                if (std::ranges::contains(found, interface)) {
+                    continue;
+                }
+
+                found.push_back(interface);
+                std::ranges::copy(types().get(interface).interfaces, std::back_inserter(pending));
+            }
+        }
+
+        // And the ones an Extend gives the instances whose type arguments meet its constraints.
+        for (const extension_interface_t& extension : m_analysis.extension_interfaces) {
+            if (extension.bounds.empty() || extension.target != definition_of(type)) {
+                continue;
+            }
+
+            const type_id_t interface = types().substitute(
+                extension.interface, extension.parameters, types().get(type).arguments);
+            if (!std::ranges::contains(found, interface) &&
+                fb::implements(m_analysis, types(), type, interface)) {
+                found.push_back(interface);
+            }
+        }
+
+        std::erase_if(found, [this](const type_id_t interface) {
+            return m_analysis.symbol(m_declared_types.at(definition_of(interface))).constraint_only;
+        });
+        return found;
+    }
+
+    /// What an Interface's table holds, in order: its Methods, and each Get and Set of its
+    /// Properties. Its Statics and Operators aren't called through objects.
+    [[nodiscard]] std::vector<symbol_id_t> interface_slots(const type_id_t interface) const {
+        std::vector<symbol_id_t> slots;
+        for (const symbol_id_t member :
+             m_analysis.symbol(m_declared_types.at(definition_of(interface))).members) {
+            const symbol_t& declared = m_analysis.symbol(member);
+            if (declared.modifiers.is_static) {
+                continue;
+            }
+
+            // A generic Method has an instance for each set of type arguments, so it's only
+            // called on a type parameter, never through a table.
+            if (declared.kind == symbol_kind_t::PROPERTY) {
+                slots.push_back(expect(declared.getter));
+                if (declared.setter) {
+                    slots.push_back(*declared.setter);
+                }
+            } else if (declared.kind == symbol_kind_t::METHOD && declared.type_parameters.empty()) {
+                slots.push_back(member);
+            }
+        }
+
+        return slots;
+    }
+
+    /// An Interface's Method's, Get's, or Set's place in its table.
+    [[nodiscard]] std::uint32_t interface_slot(const symbol_id_t member) const {
+        const std::vector<symbol_id_t> slots = interface_slots(m_analysis.symbol(member).owner);
+        return static_cast<std::uint32_t>(std::ranges::find(slots, member) - slots.begin());
+    }
+
+    /// What objects of a Class run for one of an Interface's Methods, Gets, or Sets: what
+    /// implements it, from the Class's own Method table when a Class could override it.
+    function_id_t table_entry(const mir_class_t& info, const symbol_id_t required,
+                              const type_id_t type) {
+        const symbol_id_t found = expect(implementation(type, required));
+        if (is_virtual(m_analysis.symbol(found))) {
+            return info.methods[slot_of(found)];
+        }
+
+        return function_of(found, implementation_arguments(type, found));
+    }
+
+    /// The member of a Struct or Class that implements one of an Interface's: from how the type,
+    /// or a Class it extends, implements the Interface. A Get or Set is the one of the Property
+    /// that implements its Property. nullopt for the built-in meaning, which a built-in type
+    /// has, and a Struct or Class without its own == or Hash.
+    std::optional<symbol_id_t> implementation(const type_id_t type, const symbol_id_t required) {
+        const symbol_t& member = m_analysis.symbol(required);
+        if (!is_struct(type) && !is_class(type)) {
+            return extension_implementation(type, required);
+        }
+
+        const std::vector<symbol_id_t>& members =
+            m_analysis.symbol(m_declared_types.at(member.owner)).members;
+        if (!std::ranges::contains(members, required)) {
+            for (const symbol_id_t property : members) {
+                const symbol_t& declared = m_analysis.symbol(property);
+                if (declared.kind == symbol_kind_t::PROPERTY &&
+                    (declared.getter == required || declared.setter == required)) {
+                    const symbol_t& found =
+                        m_analysis.symbol(expect(implementation(type, property)));
+                    return declared.getter == required ? expect(found.getter) : setter_of(found);
+                }
+            }
+        }
+
+        const auto place =
+            static_cast<std::size_t>(std::ranges::find(members, required) - members.begin());
+        // How an Extend of this one instance implements it, then the generic type.
+        for (const conformance_t& conformance : m_analysis.conformances) {
+            if (conformance.type == type && type != definition_of(type) &&
+                definition_of(conformance.interface) == member.owner) {
+                return conformance.members[place];
+            }
+        }
+
+        for (type_id_t current = definition_of(type); current != type_id_t::INVALID;
+             current = types().get(current).base) {
+            // A type implements one instance of a generic Interface.
+            for (const conformance_t& conformance : m_analysis.conformances) {
+                if (conformance.type == current &&
+                    definition_of(conformance.interface) == member.owner) {
+                    const symbol_id_t found = conformance.members[place];
+                    return found != required ? std::optional(found) : std::nullopt;
+                }
+            }
+        }
+
+        assert(false); // analysis checked that the type implements the Interface
+        return std::nullopt;
+    }
+
+    /// What an Extend gives a built-in type, an Enum, or arrays to implement an Interface's
+    /// member, or nullopt for the built-in meaning, without one.
+    [[nodiscard]] std::optional<symbol_id_t>
+    extension_implementation(const type_id_t type, const symbol_id_t required) const {
+        const symbol_t& member = m_analysis.symbol(required);
+        const std::vector<symbol_id_t>& members =
+            m_analysis.symbol(m_declared_types.at(member.owner)).members;
+        const auto place =
+            static_cast<std::size_t>(std::ranges::find(members, required) - members.begin());
+        for (const conformance_t& conformance : m_analysis.conformances) {
+            // One array type's, or every T[]'s.
+            const bool every =
+                is_array(conformance.type) &&
+                types().get(types().get(conformance.type).inner).kind == type_kind_t::PARAMETER;
+            const bool same = conformance.type == type || (every && is_array(type));
+            if (same && definition_of(conformance.interface) == member.owner &&
+                place < members.size()) {
+                const symbol_id_t found = conformance.members[place];
+                return found != required ? std::optional(found) : std::nullopt;
+            }
+        }
+
+        return std::nullopt;
+    }
+
+    /// One of a built-in Interface's members, by name.
+    [[nodiscard]] symbol_id_t builtin_member(const type_id_t interface,
+                                             const std::string_view name) const {
+        const std::vector<symbol_id_t>& members =
+            m_analysis.symbol(m_declared_types.at(interface)).members;
+        return *std::ranges::find(
+            members, name, [this](const symbol_id_t id) { return m_analysis.symbol(id).name; });
+    }
+
+    /// The type arguments of what implements an Interface's member on `type`: the instance's,
+    /// for a member of a generic Struct or Class itself.
+    [[nodiscard]] std::vector<type_id_t> implementation_arguments(const type_id_t type,
+                                                                  const symbol_id_t found) const {
+        // What an Extend of T[] adds takes the array's element for T.
+        const symbol_t& member = m_analysis.symbol(found);
+        if (member.extended && is_array(member.owner) &&
+            types().get(types().get(member.owner).inner).kind == type_kind_t::PARAMETER) {
+            return { types().get(type).inner };
+        }
+
+        return owner_arguments(type, member.owner);
+    }
+
+    /// Whether every object of `source` is a `target` already: one of a Class it extends, or an
+    /// Interface it implements.
+    [[nodiscard]] bool upcasts(const type_id_t source, const type_id_t target) const {
+        if (!is_interface(target)) {
+            return is_class(source) && types().extends(source, target);
+        }
+
+        if (is_interface(source)) {
+            return types().extends(source, target);
+        }
+
+        return std::ranges::contains(implemented(source), target);
+    }
+
     /// Whether a function gets an error variable: it throws, or it overrides a Method that gets
-    /// one, since every Method in a slot is called the same way.
-    [[nodiscard]] bool takes_error(const symbol_t& function) const {
-        return !function.throws.empty() ||
-               (function.overrides && takes_error(m_analysis.symbol(*function.overrides)));
+    /// one, or implements an Interface's that does, since every Method in a slot is called the
+    /// same way.
+    [[nodiscard]] bool takes_error(const symbol_id_t id) const {
+        const symbol_t& function = m_analysis.symbol(id);
+        return !function.throws.empty() || m_takes_error.contains(id) ||
+               (function.overrides && takes_error(*function.overrides));
     }
 
     /// A Class's Method table: the slots of the Class it extends, with its overrides in them,
@@ -597,7 +1044,7 @@ private:
 
         std::vector<symbol_id_t> table;
         if (const type_id_t base = types().get(type).base; base != type_id_t::INVALID) {
-            table = method_table(base);
+            table = method_table(definition_of(base));
         }
 
         for (const symbol_id_t member : m_analysis.symbol(m_declared_types.at(type)).members) {
@@ -626,10 +1073,17 @@ private:
     /// The Methods a member puts in its Class's Method table: a Method, or a Property's Get and
     /// Set. A Static Method isn't called through an object.
     [[nodiscard]] std::vector<symbol_id_t> slotted(const symbol_id_t member) const {
-        // A generic Method has an instance for each set of type arguments, so it has no slot.
+        // A generic Method has an instance for each set of type arguments, so it has no slot,
+        // and neither does a conditional one, which only some instances have.
+        // What an Extend adds isn't in the table either.
         const symbol_t& declared = m_analysis.symbol(member);
+        if (declared.extended) {
+            return {};
+        }
+
         if (declared.kind == symbol_kind_t::METHOD && declared.name != "Destroy" &&
-            !declared.modifiers.is_static && declared.type_parameters.empty()) {
+            !declared.modifiers.is_static && declared.type_parameters.empty() &&
+            declared.constraints.empty()) {
             return { member };
         }
 
@@ -650,7 +1104,7 @@ private:
     [[nodiscard]] bool is_virtual(const symbol_t& method) const {
         return method.kind == symbol_kind_t::METHOD && is_class(method.owner) &&
                !method.modifiers.is_final && !method.modifiers.is_static &&
-               method.type_parameters.empty() &&
+               method.type_parameters.empty() && method.constraints.empty() && !method.extended &&
                !m_analysis.symbol(m_declared_types.at(method.owner)).modifiers.is_final;
     }
 
@@ -690,9 +1144,11 @@ private:
         // A Method's Self is its first parameter, then come the others, in order, and so is the
         // object a Class's New sets up. Parameters aren't in any scope: they borrow the caller's
         // references, so the function never releases them.
+        // An object's Self is never ByRef, even when an Interface's Method runs on one.
         if (function.self && (function.kind == symbol_kind_t::METHOD || sets_up)) {
             const symbol_t& self = m_analysis.symbol(*function.self);
-            m_self = add_local(concrete(self.type), "Self", self.by_ref);
+            const type_id_t type = concrete(self.type);
+            m_self = add_local(type, "Self", self.by_ref && !is_object(type));
         }
 
         for (const symbol_id_t parameter_id : function.parameters) {
@@ -702,7 +1158,7 @@ private:
         }
 
         // A function that throws puts its error in the caller's variable, which comes last.
-        if (takes_error(function)) {
+        if (takes_error(symbol_id)) {
             m_error_slot = add_local(m_analysis.nullable_error, "error", true);
         }
 
@@ -751,7 +1207,8 @@ private:
         // A generic Class's New has the type arguments of the object's instance.
         const std::vector<type_id_t> parameters = type_parameters_of(constructor);
         const std::vector<type_id_t> type_arguments =
-            parameters.empty() ? std::vector<type_id_t>{} : types().get(type_of(object)).arguments;
+            parameters.empty() ? std::vector<type_id_t>{}
+                               : owner_arguments(type_of(object), constructor.owner);
         for (std::size_t i = arguments.size(); i < constructor.parameters.size(); ++i) {
             const symbol_t& parameter = m_analysis.symbol(constructor.parameters[i]);
             const type_id_t type = types().substitute(parameter.type, parameters, type_arguments);
@@ -764,7 +1221,7 @@ private:
             .arguments = std::move(arguments),
         };
         std::optional<local_id_t> error;
-        if (takes_error(constructor)) {
+        if (takes_error(constructor_id)) {
             error = error_variable();
             call.arguments.push_back({ .value = place_t{ *error }, .by_ref = true });
         }
@@ -812,7 +1269,8 @@ private:
             const bool global = variable != nullptr && variable->kind != variable_kind_t::LOCAL;
             if (!global && !std::holds_alternative<function_stmt_t>(node) &&
                 !std::holds_alternative<type_stmt_t>(node) &&
-                !std::holds_alternative<enum_stmt_t>(node)) {
+                !std::holds_alternative<enum_stmt_t>(node) &&
+                !std::holds_alternative<extend_stmt_t>(node)) {
                 lower_stmt(id);
             }
         }
@@ -882,6 +1340,15 @@ private:
         return types().get(type).kind == type_kind_t::CLASS;
     }
 
+    [[nodiscard]] bool is_interface(const type_id_t type) const {
+        return types().get(type).kind == type_kind_t::INTERFACE;
+    }
+
+    /// A Class or an Interface: a reference to an object.
+    [[nodiscard]] bool is_object(const type_id_t type) const {
+        return is_class(type) || is_interface(type);
+    }
+
     [[nodiscard]] bool is_tuple(const type_id_t type) const {
         return types().get(type).kind == type_kind_t::TUPLE;
     }
@@ -921,6 +1388,10 @@ private:
 
     [[nodiscard]] bool is_fixed_array(const type_id_t type) const {
         return types().get(type).kind == type_kind_t::FIXED_ARRAY;
+    }
+
+    [[nodiscard]] bool is_any_array(const type_id_t type) const {
+        return is_array(type) || is_fixed_array(type);
     }
 
     [[nodiscard]] bool is_weak(const type_id_t type) const {
@@ -1075,7 +1546,7 @@ private:
     /// What a variable holds before it's assigned. The zero of a Struct, tuple, Class, or array
     /// needs a temporary, and a T?'s is Null.
     operand_t zero_value(const type_id_t type) {
-        if (has_fields(type) || is_class(type) || is_array(type) || is_fixed_array(type)) {
+        if (has_fields(type) || is_object(type) || is_array(type) || is_fixed_array(type)) {
             return temporary(zero_t{ .type = type }, type, has_references(type));
         }
 
@@ -1333,13 +1804,12 @@ private:
         };
 
         if (const std::optional<symbol_id_t> property = property_of(node.target)) {
-            set_property(node.target, *property, [&](const call_argument_t& receiver) {
+            set_property(node.target, *property, [&](const auto& read) {
                 if (!node.op) {
                     return lower_value(node.value);
                 }
 
-                const operand_t current =
-                    get_property(m_analysis.symbol(*property), receiver.value);
+                const operand_t current = read();
                 return apply(current, lower_value(node.value));
             });
             return;
@@ -1392,9 +1862,8 @@ private:
 
             const place_t element = element_of(place_t{ tuple }, i);
             if (const std::optional<symbol_id_t> property = property_of(target)) {
-                set_property(
-                    target, *property,
-                    [&](const call_argument_t& /*receiver*/) -> operand_t { return element; });
+                set_property(target, *property,
+                             [&](const auto& /*read*/) -> operand_t { return element; });
                 continue;
             }
 
@@ -1431,11 +1900,9 @@ private:
     void lower_stmt(stmt_id_t /*id*/, const span_t span, const increment_stmt_t& node) {
         const binary_op_t change = node.decrement ? binary_op_t::SUBTRACT : binary_op_t::ADD;
         if (const std::optional<symbol_id_t> property = property_of(node.target)) {
-            const type_id_t type = m_analysis.symbol(*property).type;
-            set_property(node.target, *property, [&](const call_argument_t& receiver) {
-                const operand_t current =
-                    get_property(m_analysis.symbol(*property), receiver.value);
-                return combine(change, current, one(type), span);
+            set_property(node.target, *property, [&](const auto& read) {
+                const operand_t current = read();
+                return combine(change, current, one(type_of(current)), span);
             });
             return;
         }
@@ -1698,6 +2165,11 @@ private:
     /// its own, with its own references to the element's.
     void lower_stmt(const stmt_id_t id, const span_t span, const for_in_stmt_t& node) {
         const stmt_info_t& info = m_analysis.stmt(id);
+        if (info.next) {
+            lower_iteration(id, span, node);
+            return;
+        }
+
         const type_id_t type = converted_type(node.sequence);
         push_scope();
         const operand_t value = lower_value(node.sequence);
@@ -1758,6 +2230,316 @@ private:
         block_at(test).terminator =
             branch_t{ .condition = in_range, .if_true = body, .if_false = exit };
         pop_scope();
+    }
+
+    /// "For Field f In T" or "For Method m In T": a copy of the body for each of T's fields or
+    /// Methods, in order, with the field's type in place of the loop's type parameter for it.
+    /// Continue goes on to the next copy, and Break past the last.
+    void lower_stmt(const stmt_id_t id, span_t /*span*/, const for_member_stmt_t& node) {
+        const stmt_info_t& info = m_analysis.stmt(id);
+        const type_id_t type = concrete(info.type_arguments.at(0));
+        const symbol_id_t variable = expect(info.symbol);
+        std::vector<block_id_t> breaks;
+        const auto copy = [&](reflected_t member, const type_id_t field) {
+            member.owner = type;
+            m_reflected[variable] = std::move(member);
+            const bool typed =
+                field != type_id_t::INVALID && info.type_arguments.at(1) != type_id_t::INVALID;
+            if (typed) {
+                m_parameters.push_back(info.type_arguments.at(1));
+                m_arguments.push_back(field);
+            }
+
+            m_copies.push_back(m_next_copy++);
+            loop_t loop = lower_loop_body(id, node.body);
+            m_copies.pop_back();
+            if (typed) {
+                m_parameters.pop_back();
+                m_arguments.pop_back();
+            }
+
+            leave(loop.continues);
+            join(loop.continues);
+            std::ranges::copy(loop.breaks, std::back_inserter(breaks));
+        };
+
+        if (node.kind == member_kind_t::METHOD) {
+            const type_id_t signature = concrete(info.type_arguments.at(2));
+            for (const symbol_id_t method : reflected_methods(type, signature)) {
+                reflected_t member{ .name = std::string(m_analysis.symbol(method).name) };
+                member.symbol = method;
+                copy(std::move(member), signature);
+            }
+        } else if (node.kind == member_kind_t::PROPERTY ||
+                   node.kind == member_kind_t::STATIC_FIELD) {
+            for (const symbol_id_t found : reflected_members(type, node.kind)) {
+                const symbol_t& declared = m_analysis.symbol(found);
+                reflected_t member{ .name = std::string(declared.name) };
+                member.symbol = found;
+                copy(std::move(member),
+                     types().substitute(declared.type, type_parameters_of(declared),
+                                        owner_arguments(type, declared.owner)));
+            }
+        } else if (is_struct(type) || is_class(type) || is_tuple(type)) {
+            const std::vector<field_t> fields = types().get(type).fields;
+            for (std::uint32_t i = 0; i < fields.size(); ++i) {
+                reflected_t member{ .name = fields[i].name, .index = i };
+                member.symbol = field_symbol(type, i);
+                copy(std::move(member), fields[i].type);
+            }
+        }
+
+        m_reflected.erase(variable);
+        leave(breaks);
+        join(breaks);
+    }
+
+    /// The symbol of a Struct's or Class's field, by its position, which may be in a base Class.
+    [[nodiscard]] std::optional<symbol_id_t> field_symbol(const type_id_t type,
+                                                          const std::uint32_t index) const {
+        for (type_id_t at = type; at != type_id_t::INVALID;
+             at = types().get(definition_of(at)).base) {
+            const auto found = m_declared_types.find(definition_of(at));
+            if (found == m_declared_types.end()) {
+                return std::nullopt;
+            }
+
+            for (const symbol_id_t member : m_analysis.symbol(found->second).members) {
+                const symbol_t& field = m_analysis.symbol(member);
+                if (field.kind == symbol_kind_t::FIELD && field.field == index) {
+                    return member;
+                }
+            }
+        }
+
+        return std::nullopt;
+    }
+
+    /// The Methods a For Method loop goes over: a Struct's or Class's own and inherited ones
+    /// that take no arguments, give nothing, and throw nothing, the base Class's first, each in
+    /// the place of what it overrides. Destroy isn't among them.
+    [[nodiscard]] std::vector<symbol_id_t> reflected_methods(const type_id_t type,
+                                                             const type_id_t signature) {
+        std::vector<symbol_id_t> chain;
+        for (type_id_t at = type; at != type_id_t::INVALID;
+             at = types().get(definition_of(at)).base) {
+            const auto found = m_declared_types.find(definition_of(at));
+            if (found == m_declared_types.end() || !(is_struct(at) || is_class(at))) {
+                break;
+            }
+
+            chain.push_back(found->second);
+        }
+
+        std::vector<symbol_id_t> methods;
+        for (const symbol_id_t declared : chain | std::views::reverse) {
+            for (const symbol_id_t member : m_analysis.symbol(declared).members) {
+                const symbol_t& method = m_analysis.symbol(member);
+                if (method.kind != symbol_kind_t::METHOD || method.modifiers.is_static ||
+                    method.by_ref || !method.type_parameters.empty() || !method.throws.empty() ||
+                    method.name == "Destroy" || method_type(type, member) != signature) {
+                    continue;
+                }
+
+                const auto overridden = method.overrides
+                                            ? std::ranges::find(methods, *method.overrides)
+                                            : methods.end();
+                if (overridden != methods.end()) {
+                    *overridden = member;
+                } else {
+                    methods.push_back(member);
+                }
+            }
+        }
+
+        return methods;
+    }
+
+    /// A Method's Func type, as an object of `type` has it: what it takes, besides the object,
+    /// and what it gives.
+    type_id_t method_type(const type_id_t type, const symbol_id_t id) {
+        const symbol_t& method = m_analysis.symbol(id);
+        const std::vector<type_id_t> parameters = type_parameters_of(method);
+        const std::vector<type_id_t> arguments = owner_arguments(type, method.owner);
+        std::vector<type_id_t> takes;
+        for (const symbol_id_t parameter : method.parameters) {
+            takes.push_back(
+                types().substitute(m_analysis.symbol(parameter).type, parameters, arguments));
+        }
+
+        return types().function(takes, types().substitute(method.type, parameters, arguments));
+    }
+
+    /// The Properties a For Property loop goes over, the inherited ones first, each in the place
+    /// of what it overrides, or the Static Fields of a For Static Field loop, the type's own.
+    [[nodiscard]] std::vector<symbol_id_t> reflected_members(const type_id_t type,
+                                                             const member_kind_t kind) const {
+        std::vector<symbol_id_t> chain;
+        for (type_id_t at = type; at != type_id_t::INVALID;
+             at = types().get(definition_of(at)).base) {
+            const auto found = m_declared_types.find(definition_of(at));
+            if (found == m_declared_types.end() || !(is_struct(at) || is_class(at))) {
+                break;
+            }
+
+            chain.push_back(found->second);
+            if (kind == member_kind_t::STATIC_FIELD) {
+                break;
+            }
+        }
+
+        std::vector<symbol_id_t> members;
+        for (const symbol_id_t declared : chain | std::views::reverse) {
+            for (const symbol_id_t member : m_analysis.symbol(declared).members) {
+                const symbol_t& found = m_analysis.symbol(member);
+                const bool wanted =
+                    kind == member_kind_t::PROPERTY
+                        ? found.kind == symbol_kind_t::PROPERTY && !found.modifiers.is_static
+                        : found.kind == symbol_kind_t::GLOBAL;
+                if (!wanted) {
+                    continue;
+                }
+
+                const auto same = std::ranges::find_if(members, [&](const symbol_id_t other) {
+                    return m_analysis.symbol(other).name == found.name;
+                });
+                if (same != members.end()) {
+                    *same = member;
+                } else {
+                    members.push_back(member);
+                }
+            }
+        }
+
+        return members;
+    }
+
+    /// "For x In items" over an Iterator, or the one an Iterate Method gives: it's held for the
+    /// loop, a copy of a Struct, and each pass calls its Next, until it gives Null. Each pass's x
+    /// is a Local of its own, which takes the references of what Next gave.
+    void lower_iteration(const stmt_id_t id, const span_t span, const for_in_stmt_t& node) {
+        const stmt_info_t& info = m_analysis.stmt(id);
+        push_scope();
+        operand_t value = lower_value(node.sequence);
+        if (info.iterate) {
+            value =
+                call_method(*info.iterate, as_place(value), type_of(value), span_of(node.sequence));
+        }
+
+        const type_id_t type = type_of(value);
+        const local_id_t held = add_local(type);
+        initialize(held, value);
+        if (has_references(type)) {
+            m_scopes.back().emplace_back(held);
+        }
+
+        finish_statement();
+        const block_id_t head = new_block();
+        jump(head);
+        start(head);
+        const operand_t next = call_method(expect(info.next), place_t{ held }, type);
+        (void)take_temporary(next);
+        const operand_t present = has_value(next, span);
+        const block_id_t test = here();
+        m_block.reset();
+
+        const block_id_t body = new_block();
+        start(body);
+        m_loops.push_back({ .stmt = id, .scope_depth = m_scopes.size() });
+        push_scope();
+        const auto declare = [&](const symbol_id_t variable, const std::string_view name,
+                                 const operand_t& part) {
+            const type_id_t variable_type = concrete(m_analysis.symbol(variable).type);
+            const local_id_t local = add_local(variable_type, name);
+            m_locals[variable] = local;
+            emit(assign_t{ .target = local, .value = use_t{ .value = part } });
+            if (has_references(variable_type)) {
+                m_scopes.back().emplace_back(local);
+            }
+        };
+
+        // With two names, each takes one part of the element.
+        const operand_t element = unwrap(next);
+        if (info.index) {
+            const place_t pair = as_place(element);
+            declare(*info.index, expect(node.index).text, element_of(pair, 0));
+            declare(expect(info.symbol), node.value.text, element_of(pair, 1));
+        } else {
+            declare(expect(info.symbol), node.value.text, element);
+        }
+
+        lower_statements(node.body);
+        pop_scope();
+        loop_t loop = std::move(m_loops.back());
+        m_loops.pop_back();
+        leave(loop.continues);
+        join(loop.continues);
+        jump(head);
+
+        const block_id_t exit = join(loop.breaks);
+        block_at(test).terminator =
+            branch_t{ .condition = present, .if_true = body, .if_false = exit };
+        pop_scope();
+    }
+
+    /// Calls a Method without arguments on `receiver`, a variable of `type`: an Interface's
+    /// through what implements it, or through the table of an Interface's object, and a Class's
+    /// through its Method table. A Struct's ByRef Method gets the variable itself.
+    operand_t call_method(const symbol_id_t id, const place_t& receiver, const type_id_t type,
+                          const span_t span = {}) {
+        const symbol_t& method = m_analysis.symbol(id);
+        if (is_interface(method.owner) && is_interface(type)) {
+            const type_id_t interface = extended_instance(type, method.owner);
+            std::vector<type_id_t> arguments{ interface };
+            std::ranges::copy(types().get(interface).arguments, std::back_inserter(arguments));
+            const type_id_t result =
+                types().substitute(method.type, type_parameters_of(method), arguments);
+            call_t call{
+                .function = function_of(id, arguments),
+                .arguments = { { .value = receiver } },
+                .slot = interface_slot(id),
+                .interface = interface,
+            };
+            return checked_call(std::move(call), result, takes_error(id), span);
+        }
+
+        const symbol_id_t target =
+            is_interface(method.owner) ? expect(implementation(type, id)) : id;
+        const symbol_t& callee = m_analysis.symbol(target);
+        const std::vector<type_id_t> arguments = implementation_arguments(type, target);
+        const type_id_t result =
+            types().substitute(callee.type, type_parameters_of(callee), arguments);
+        call_t call{
+            .function = function_of(target, arguments),
+            .arguments = { { .value = receiver, .by_ref = callee.by_ref && !is_object(type) } },
+        };
+        if (is_virtual(callee)) {
+            call.slot = slot_of(target);
+        }
+
+        return checked_call(std::move(call), result, takes_error(target), span);
+    }
+
+    /// A temporary for a call's result. One that `throws` gets a variable for its error, which
+    /// is checked right after, and its result is only the caller's once it didn't throw.
+    operand_t checked_call(call_t call, const type_id_t result, const bool throws,
+                           const span_t span) {
+        std::optional<local_id_t> error;
+        if (throws) {
+            error = error_variable();
+            call.arguments.push_back({ .value = place_t{ *error }, .by_ref = true });
+        }
+
+        const operand_t value = temporary(std::move(call), result);
+        if (error) {
+            check_error(*error, span);
+        }
+
+        if (has_references(result)) {
+            m_temporaries.push_back(std::get<local_id_t>(std::get<place_t>(value).root));
+        }
+
+        return value;
     }
 
     /// Whether `value` is a temporary that owns its references. If it is, it stops being one, and
@@ -1984,38 +2766,103 @@ private:
         return std::nullopt;
     }
 
-    /// Reading a Property calls its Get on `receiver`, through the Method table when a Class
-    /// extending it could override it.
-    operand_t get_property(const symbol_t& property, const operand_t& receiver) {
-        const std::vector<type_id_t> arguments = property_arguments(property, receiver);
-        const type_id_t type =
-            types().substitute(property.type, type_parameters_of(property), arguments);
-        return expect(
-            call_accessor(expect(property.getter), { { .value = receiver } }, type, arguments));
-    }
+    /// How a Property's Get or Set is called on a type: which one, with what type arguments, and
+    /// whether through the object's Method table or the table its Class has for an Interface.
+    struct accessor_call_t {
+        symbol_id_t accessor;
+        std::vector<type_id_t> arguments;
+        /// The Property's type, with the type arguments in it.
+        type_id_t type = type_id_t::INVALID;
+        std::optional<std::uint32_t> slot;
+        type_id_t interface = type_id_t::INVALID;
+    };
 
-    /// The type arguments of a Property's object, when its Struct or Class is generic.
-    std::vector<type_id_t> property_arguments(const symbol_t& property, const operand_t& receiver) {
-        if (type_parameters_of(property).empty()) {
-            return {};
+    /// The Get, or the Set, of a Property used on `self`. An Interface's is the one of the
+    /// Property that implements it, or through an Interface's object, the one in the table.
+    accessor_call_t accessor_of(const symbol_id_t property_id, const type_id_t self,
+                                const bool set) {
+        const symbol_t& property = m_analysis.symbol(property_id);
+        if (is_interface(property.owner) && !is_interface(self)) {
+            return accessor_of(expect(implementation(self, property_id)), self, set);
         }
 
-        return types().get(non_null(type_of(receiver))).arguments;
-    }
+        if (is_interface(property.owner)) {
+            const symbol_id_t accessor = set ? expect(property.setter) : expect(property.getter);
+            const type_id_t interface = extended_instance(self, property.owner);
+            std::vector<type_id_t> arguments{ interface };
+            std::ranges::copy(types().get(interface).arguments, std::back_inserter(arguments));
+            return {
+                .accessor = accessor,
+                .arguments = arguments,
+                .type = types().substitute(property.type, type_parameters_of(property), arguments),
+                .slot = interface_slot(accessor),
+                .interface = interface,
+            };
+        }
 
-    /// Calls a Property's Get or Set, which returns `type`, or nothing.
-    std::optional<operand_t> call_accessor(const symbol_id_t accessor,
-                                           std::vector<call_argument_t> arguments,
-                                           const type_id_t type,
-                                           const std::vector<type_id_t>& type_arguments) {
-        call_t call{
-            .function = function_of(accessor, type_arguments),
-            .arguments = std::move(arguments),
+        const symbol_id_t accessor = set ? setter_of(property) : expect(property.getter);
+        std::vector<type_id_t> arguments;
+        if (!type_parameters_of(property).empty()) {
+            arguments = implementation_arguments(self, property_id);
+        }
+
+        accessor_call_t call{
+            .accessor = accessor,
+            .arguments = arguments,
+            .type = types().substitute(property.type, type_parameters_of(property), arguments),
         };
         if (is_virtual(m_analysis.symbol(accessor))) {
             call.slot = slot_of(accessor);
         }
 
+        return call;
+    }
+
+    /// Reading a Property calls its Get on `receiver`, which a Static Property doesn't have.
+    /// `self` is the type it's used on.
+    operand_t get_property(const symbol_id_t property, const std::optional<operand_t>& receiver,
+                           const type_id_t self) {
+        const accessor_call_t access = accessor_of(property, self, false);
+        std::vector<call_argument_t> arguments;
+        if (receiver && !m_analysis.symbol(access.accessor).modifiers.is_static) {
+            arguments.push_back({ .value = *receiver });
+        }
+
+        return expect(call_accessor(access, std::move(arguments), access.type));
+    }
+
+    /// The type a Static Property is used on: its own, or for an Interface's, the type for Self,
+    /// which analysis gave the expression that uses it. Used by name in the Interface, it's
+    /// Self.
+    type_id_t static_self(const symbol_t& property, const expr_id_t use) {
+        // A generic type's is the instance it's used on.
+        if (!is_interface(property.owner) && !types().get(property.owner).parameters.empty()) {
+            std::vector<type_id_t> arguments;
+            for (const type_id_t argument : m_analysis.expr(use).type_arguments) {
+                arguments.push_back(concrete(argument));
+            }
+
+            return types().instance(property.owner, arguments);
+        }
+
+        if (!is_interface(property.owner)) {
+            return property.owner;
+        }
+
+        const std::vector<type_id_t>& arguments = m_analysis.expr(use).type_arguments;
+        return concrete(arguments.empty() ? types().get(property.owner).inner : arguments.front());
+    }
+
+    /// Calls a Property's Get or Set, which returns `type`, or nothing.
+    std::optional<operand_t> call_accessor(const accessor_call_t& access,
+                                           std::vector<call_argument_t> arguments,
+                                           const type_id_t type) {
+        call_t call{
+            .function = function_of(access.accessor, access.arguments),
+            .arguments = std::move(arguments),
+            .slot = access.slot,
+            .interface = access.interface,
+        };
         if (type == type_id_t::NONE) {
             emit(evaluate_t{ .value = std::move(call) });
             return std::nullopt;
@@ -2033,29 +2880,41 @@ private:
         return setter_of(m_analysis.symbol(*property.overrides));
     }
 
-    /// "x.P = value", "x.P += value", or "x.P++": the receiver first, then `value` with it, which
-    /// may read the Property, then the Set. A Struct's Set takes the variable itself, like a ByRef
-    /// Method, and a Property used by name is Self's.
+    /// "x.P = value", "x.P += value", or "x.P++": the receiver first, then `value`, with a
+    /// function that reads the Property, then the Set. A Struct's Set takes the variable itself,
+    /// like a ByRef Method, a Property used by name is Self's, and a Static one has none.
     template <typename Value>
     void set_property(const expr_id_t target, const symbol_id_t property_id, const Value& value) {
         const symbol_t& property = m_analysis.symbol(property_id);
-        const bool changes_struct = !is_class(property.owner);
         const auto* member = std::get_if<member_expr_t>(&m_ast.get(target).node);
-        call_argument_t receiver{ .value = make_bool(false) };
-        if (member == nullptr) {
-            receiver = { .value = place_t{ expect(m_self) }, .by_ref = changes_struct };
-        } else if (changes_struct) {
-            receiver = { .value = lower_place(member->object), .by_ref = true };
+        std::optional<call_argument_t> receiver;
+        type_id_t self = type_id_t::INVALID;
+        if (property.modifiers.is_static) {
+            self = static_self(property, target);
+        } else if (member == nullptr) {
+            self = type_of(place_t{ expect(m_self) });
+            receiver = { .value = place_t{ expect(m_self) }, .by_ref = !is_object(self) };
         } else {
-            receiver = { .value = lower_value(member->object) };
+            self = converted_type(member->object);
+            receiver = is_object(self) ? call_argument_t{ .value = lower_value(member->object) }
+                                       : call_argument_t{
+                                             .value = lower_place(member->object),
+                                             .by_ref = true,
+                                         };
         }
 
-        const std::vector<type_id_t> arguments = property_arguments(property, receiver.value);
-        const type_id_t type =
-            types().substitute(property.type, type_parameters_of(property), arguments);
-        const operand_t assigned = convert(value(receiver), type, span_of(target));
-        call_accessor(setter_of(property), { receiver, { .value = assigned } }, type_id_t::NONE,
-                      arguments);
+        const std::optional<operand_t> on =
+            receiver ? std::optional(receiver->value) : std::nullopt;
+        const auto read = [&] { return get_property(property_id, on, self); };
+        const accessor_call_t access = accessor_of(property_id, self, true);
+        const operand_t assigned = convert(value(read), access.type, span_of(target));
+        std::vector<call_argument_t> arguments;
+        if (receiver) {
+            arguments.push_back(*receiver);
+        }
+
+        arguments.push_back({ .value = assigned });
+        call_accessor(access, std::move(arguments), type_id_t::NONE);
         finish_statement();
     }
 
@@ -2262,7 +3121,7 @@ private:
 
     /// What a function returns when it throws, which its caller never reads: its type's zero.
     operand_t placeholder(const type_id_t type) {
-        if (has_fields(type) || is_class(type) || is_array(type) || is_fixed_array(type) ||
+        if (has_fields(type) || is_object(type) || is_array(type) || is_fixed_array(type) ||
             is_func(type)) {
             return temporary(zero_t{ .type = type }, type);
         }
@@ -2301,8 +3160,18 @@ private:
     /// used by name is Self's, read into a temporary.
     place_t variable_place(const expr_id_t id) {
         const symbol_id_t symbol = expect(m_analysis.expr(id).symbol);
-        if (m_analysis.symbol(symbol).kind == symbol_kind_t::PROPERTY) {
-            return as_place(get_property(m_analysis.symbol(symbol), place_t{ expect(m_self) }));
+        if (m_analysis.symbol(symbol).kind == symbol_kind_t::GLOBAL && !m_locals.contains(symbol)) {
+            return global_of(symbol, id);
+        }
+
+        if (const symbol_t& property = m_analysis.symbol(symbol);
+            property.kind == symbol_kind_t::PROPERTY) {
+            if (property.modifiers.is_static) {
+                return as_place(get_property(symbol, std::nullopt, static_self(property, id)));
+            }
+
+            const place_t self{ expect(m_self) };
+            return as_place(get_property(symbol, self, type_of(self)));
         }
 
         place_t place = place_of(symbol);
@@ -2322,11 +3191,22 @@ private:
             // A Static Field is a global, and a Property's value comes from its Get.
             const symbol_t& found = m_analysis.symbol(expect(m_analysis.expr(id).symbol));
             if (found.kind == symbol_kind_t::GLOBAL) {
-                return m_globals.at(expect(m_analysis.expr(id).symbol));
+                return global_of(expect(m_analysis.expr(id).symbol), id);
+            }
+
+            if (found.kind == symbol_kind_t::MEMBER_VARIABLE) {
+                return as_place(lower_value(id));
+            }
+
+            if (found.kind == symbol_kind_t::PROPERTY && found.modifiers.is_static) {
+                const symbol_id_t property = expect(m_analysis.expr(id).symbol);
+                return as_place(get_property(property, std::nullopt, static_self(found, id)));
             }
 
             if (found.kind == symbol_kind_t::PROPERTY) {
-                return as_place(get_property(found, lower_value(member->object)));
+                const operand_t object = lower_value(member->object);
+                return as_place(
+                    get_property(expect(m_analysis.expr(id).symbol), object, type_of(object)));
             }
 
             place_t place = lower_place(member->object);
@@ -2388,19 +3268,59 @@ private:
         return const_value_t{};
     }
 
-    /// A variable, or a Function's name alone, which is a function value.
+    /// A variable, or a Function's name alone, which is a function value. A Const type
+    /// parameter is the value its instance has.
     operand_t lower_expr(const expr_id_t id, const name_expr_t& /*node*/) {
+        if (const type_id_t parameter = m_analysis.expr(id).parameter;
+            parameter != type_id_t::INVALID) {
+            const type_t& value = types().get(concrete(parameter));
+            return *fold_cast({ .type = type_id_t::INT64, .data = value.number }, value.inner);
+        }
+
         if (const std::optional<std::size_t> closure = m_analysis.expr(id).closure) {
             return make_closure(m_analysis.closures[*closure], span_of(id));
+        }
+
+        // Count alone, in an Extend of T[], is Self's, which a lambda has captured.
+        if (m_analysis.expr(id).count) {
+            const symbol_id_t self = expect(m_analysis.expr(id).symbol);
+            return count_of(
+                place_t{ m_locals.contains(self) ? m_locals.at(self) : expect(m_self) });
         }
 
         return variable_place(id);
     }
 
-    /// A field, or an array's Count.
+    /// A field, an array's Count, or a String's Chars or Bytes. A For Field's "f.Name" and
+    /// "f.Index" are constants in each copy of its body.
     operand_t lower_expr(const expr_id_t id, const member_expr_t& node) {
-        if (!node.null_safe && is_array(converted_type(node.object))) {
+        if (const std::optional<symbol_id_t> variable = m_analysis.expr(id).symbol;
+            variable && m_analysis.symbol(*variable).kind == symbol_kind_t::MEMBER_VARIABLE) {
+            const reflected_t& member = m_reflected.at(*variable);
+            if (node.member.text == "Index") {
+                const auto position = static_cast<std::int64_t>(member.index);
+                return const_value_t{ .type = type_id_t::INT32, .data = position };
+            }
+
+            return const_value_t{ .type = type_id_t::STRING, .data = member.name };
+        }
+
+        // An array's Count, unless it's a Property an Extend gives it.
+        const std::optional<symbol_id_t> found = m_analysis.expr(id).symbol;
+        const bool property = found && m_analysis.symbol(*found).kind == symbol_kind_t::PROPERTY;
+        if (!node.null_safe && is_array(converted_type(node.object)) && !property) {
             return count_of(lower_value(node.object));
+        }
+
+        // A fixed array's Count, when its size is a Const type parameter's, is the instance's.
+        if (!node.null_safe && is_fixed_array(converted_type(node.object)) && !property) {
+            const auto count =
+                static_cast<std::int64_t>(types().element_count(converted_type(node.object)));
+            return const_value_t{ .type = type_id_t::INT32, .data = count };
+        }
+
+        if (!node.null_safe && converted_type(node.object) == type_id_t::STRING) {
+            return string_parts(lower_value(node.object), node.member.text, expr_type(id));
         }
 
         if (!node.null_safe) {
@@ -2410,7 +3330,7 @@ private:
         const std::optional<symbol_id_t> field = m_analysis.expr(id).symbol;
         return expect(lower_safe(id, node.object, [&](const operand_t& object) {
             const type_id_t type = type_of(object);
-            if (is_array(type)) {
+            if (is_array(type) && !property) {
                 return std::optional<operand_t>(count_of(object));
             }
 
@@ -2420,9 +3340,14 @@ private:
                     const_value_t{ .type = type_id_t::INT32, .data = count });
             }
 
-            if (const symbol_t& found = m_analysis.symbol(expect(field));
-                found.kind == symbol_kind_t::PROPERTY) {
-                return std::optional<operand_t>(get_property(found, object));
+            if (type == type_id_t::STRING) {
+                return std::optional<operand_t>(
+                    string_parts(object, node.member.text, types().get(expr_type(id)).inner));
+            }
+
+            if (m_analysis.symbol(expect(field)).kind == symbol_kind_t::PROPERTY) {
+                return std::optional<operand_t>(
+                    get_property(expect(field), object, type_of(object)));
             }
 
             place_t place = as_place(object);
@@ -2431,15 +3356,156 @@ private:
         }));
     }
 
+    /// A String's code points, for "s.Chars", or its UTF-8 bytes, for "s.Bytes", in a new array
+    /// of `type`.
+    operand_t string_parts(const operand_t& text, const std::string_view member,
+                           const type_id_t type) {
+        const operand_t made = temporary(array_t{ .type = type }, type, true);
+        runtime_call_t call{
+            .function = member == "Chars" ? runtime_function_t::STRING_CHARS
+                                          : runtime_function_t::STRING_BYTES,
+            .arguments = { text, made },
+        };
+        emit(evaluate_t{ .value = std::move(call) });
+        return made;
+    }
+
     operand_t lower_expr(const expr_id_t id, const index_expr_t& /*node*/) {
         return lower_place(id);
     }
 
+    /// "a[from..to]": a new T[] of the elements from `from` up to `to`, each with its own
+    /// references. The bounds are checked first; out of range, the program panics with them.
+    operand_t lower_expr(const expr_id_t id, const slice_expr_t& node) {
+        const type_id_t type = expr_type(id);
+        const span_t span = span_of(id);
+        const operand_t object = lower_value(node.object);
+        const place_t source = as_place(object);
+        // The bounds and count are compared as Int64s. A bound known at compile time is one
+        // already.
+        const auto wide = [&](const operand_t& value) -> operand_t {
+            const auto* constant = std::get_if<const_value_t>(&value);
+            if (constant != nullptr && std::holds_alternative<std::int64_t>(constant->data)) {
+                return const_value_t{ .type = type_id_t::INT64, .data = constant->data };
+            }
+
+            return type_of(value) == type_id_t::INT64 ? value : cast(value, type_id_t::INT64, span);
+        };
+
+        const operand_t from = node.from ? wide(lower_value(*node.from)) : zero(type_id_t::INT64);
+        const std::optional<operand_t> written =
+            node.to ? std::optional(wide(lower_value(*node.to))) : std::nullopt;
+        const type_id_t source_type = type_of(object);
+        const auto fixed = static_cast<std::int64_t>(
+            is_array(source_type) ? 0 : types().element_count(source_type));
+        const operand_t count = is_array(source_type)
+                                    ? wide(count_of(source))
+                                    : const_value_t{ .type = type_id_t::INT64, .data = fixed };
+        const operand_t to = written.value_or(count);
+
+        // 0 <= from <= to <= count.
+        const operand_t starts =
+            compare(binary_op_t::GREATER_EQUAL, from, zero(type_id_t::INT64), span);
+        const operand_t ordered = compare(binary_op_t::LESS_EQUAL, from, to, span);
+        const operand_t ends = compare(binary_op_t::LESS_EQUAL, to, count, span);
+        const operand_t fits =
+            compare(binary_op_t::AND, compare(binary_op_t::AND, starts, ordered, span), ends, span);
+        const block_id_t fail = new_block();
+        const block_id_t ok = new_block();
+        terminate(branch_t{ .condition = fits, .if_true = ok, .if_false = fail });
+        start(fail);
+        const std::size_t mark = m_temporaries.size();
+        const auto text = [&](const operand_t& number) {
+            return runtime_call(runtime_function_t::TO_TEXT, { number }, type_id_t::STRING, true);
+        };
+        std::vector<operand_t> parts{
+            make_string("slice "),
+            text(from),
+            make_string(".."),
+            text(to),
+            make_string(" is out of range for "),
+            text(count),
+            make_string(" elements"),
+        };
+        const operand_t message =
+            runtime_call(runtime_function_t::JOIN, std::move(parts), type_id_t::STRING, true);
+        terminate(panic_t{ .span = span, .text = message });
+        release_temporaries_from(mark); // the program stops, so they're only dropped
+
+        start(ok);
+        const operand_t made = temporary(array_t{ .type = type }, type, true);
+        const local_id_t at = add_local(type_id_t::INT64);
+        emit(assign_t{ .target = at, .value = use_t{ .value = from } });
+        const block_id_t head = new_block();
+        jump(head);
+        start(head);
+        const operand_t more = compare(binary_op_t::LESS, at, to, span);
+        const block_id_t test = here();
+        m_block.reset();
+
+        const block_id_t body = new_block();
+        start(body);
+        place_t element = source;
+        element.steps.push_back({ .indices = { at }, .span = span });
+        take(element);
+        runtime_call_t add{
+            .function = runtime_function_t::ARRAY_ADD,
+            .arguments = { made, element },
+        };
+        emit(evaluate_t{ .value = std::move(add) });
+        const binary_t next{
+            .op = binary_op_t::ADD,
+            .left = at,
+            .right = one(type_id_t::INT64),
+            .span = span,
+            .wrapping = true,
+        };
+        emit(assign_t{ .target = at, .value = next });
+        jump(head);
+
+        const block_id_t exit = new_block();
+        block_at(test).terminator =
+            branch_t{ .condition = more, .if_true = body, .if_false = exit };
+        start(exit);
+        return made;
+    }
+
     /// "[a, b, c]": a new T[] that holds the elements' references, or a fixed array's value.
     operand_t lower_expr(const expr_id_t id, const array_expr_t& node) {
+        return array_of(node.elements, expr_type(id));
+    }
+
+    /// "{key: value}": a new Map, which its fields' defaults set up, since std's Map has no New,
+    /// with each entry passed to its Add, in order.
+    operand_t lower_expr(const expr_id_t id, const map_expr_t& node) {
         const type_id_t type = expr_type(id);
+        const operand_t map = new_object(type);
+        const symbol_id_t add = expect(m_analysis.expr(id).symbol);
+        const function_id_t function = function_of(add, implementation_arguments(type, add));
+        for (const map_entry_t& entry : node.entries) {
+            call_t call{
+                .function = function,
+                .arguments = {
+                    { .value = map },
+                    { .value = lower_value(entry.key) },
+                    { .value = lower_value(entry.value) },
+                },
+            };
+            if (is_virtual(m_analysis.symbol(add))) {
+                call.slot = slot_of(add);
+            }
+
+            emit(evaluate_t{ .value = std::move(call) });
+        }
+
+        return map;
+    }
+
+    /// A new array of `type` made of the elements, holding their references, or a fixed array's
+    /// value made of them.
+    operand_t array_of(const std::vector<expr_id_t>& elements, const type_id_t type) {
         array_t value{ .type = type };
-        for (const expr_id_t element : node.elements) {
+        for (const expr_id_t element : elements) {
             value.elements.push_back(lower_value(element));
         }
 
@@ -2474,6 +3540,45 @@ private:
     /// A T[]'s Count, as an Int.
     operand_t count_of(const operand_t& array) {
         return runtime_call(runtime_function_t::ARRAY_COUNT, { array }, type_id_t::INT32);
+    }
+
+    /// An integer's Wrapping or Checked Method, with the integer as the first argument: what
+    /// wraps around, or for a Checked one, a T? that's Null when it would overflow or divide by
+    /// zero.
+    operand_t integer_call(const symbol_t& method, const std::vector<call_argument_t>& arguments,
+                           const span_t span) {
+        const integer_method_t operation = expect(integer_method(method.name));
+        const type_id_t type = method.owner;
+        const operand_t left = operation.negate ? zero(type) : arguments[0].value;
+        const operand_t right = operation.negate ? arguments[0].value : arguments[1].value;
+        if (!operation.checked) {
+            return wrapping(operation.op, left, right, span);
+        }
+
+        const type_id_t result_type = types().find_nullable(type);
+        const local_id_t result = add_local(result_type);
+        const operand_t overflows = temporary(
+            binary_t{
+                .op = operation.op, .left = left, .right = right, .span = span, .overflows = true },
+            type_id_t::BOOL);
+        const block_id_t test = here();
+        m_block.reset();
+
+        std::vector<block_id_t> exits;
+        const block_id_t fails = new_block();
+        start(fails);
+        emit(assign_t{ .target = result, .value = use_t{ .value = null_of(result_type) } });
+        leave(exits);
+        const block_id_t works = new_block();
+        start(works);
+        const operand_t value = wrapping(operation.op, left, right, span);
+        emit(assign_t{ .target = result,
+                       .value = use_t{ .value = convert(value, result_type, span) } });
+        leave(exits);
+        block_at(test).terminator =
+            branch_t{ .condition = overflows, .if_true = fails, .if_false = works };
+        join(exits);
+        return place_t{ result };
     }
 
     /// A T[]'s Methods, with the array as the first argument. Add and Insert take over the
@@ -2646,8 +3751,9 @@ private:
     /// A new object of a closure's Class, which is the function value, as its Func type. It holds
     /// what the lambda captures, and its code is in the Class's Method table.
     operand_t make_closure(const closure_t& closure, const span_t span) {
-        // In generic code, the closure's Class is an instance too.
-        const type_id_t type = concrete(closure.type);
+        // In generic code, the closure's Class is an instance too, and in a copy of a loop over
+        // a type's members, the copy's own.
+        const type_id_t type = closure_copy(concrete(closure.type));
         const type_id_t func = concrete(closure.func);
         code_of(closure, type);
         const operand_t object = temporary(new_t{ .type = type }, type, true);
@@ -2665,6 +3771,29 @@ private:
         }
 
         return retype(object, cast_t{ .value = object, .type = func, .span = span }, func);
+    }
+
+    /// A closure Class for the copies of loop bodies being lowered: one with the same fields,
+    /// named after them.
+    type_id_t closure_copy(const type_id_t type) {
+        if (m_copies.empty()) {
+            return type;
+        }
+
+        const auto key = std::pair(type, m_copies);
+        if (const auto found = m_closure_copies.find(key); found != m_closure_copies.end()) {
+            return found->second;
+        }
+
+        std::string name(types().name(type));
+        for (const std::uint32_t copy : m_copies) {
+            name += std::format(" #{}", copy);
+        }
+
+        const type_id_t made = types().add_class(std::move(name));
+        types().set_fields(made, types().get(type).fields);
+        m_closure_copies[key] = made;
+        return made;
     }
 
     /// What a closure keeps of a variable: a Local's cell, or else the variable's value. Self is
@@ -2700,6 +3829,7 @@ private:
             .type = type,
             .parameters = m_parameters,
             .arguments = m_arguments,
+            .reflected = m_reflected,
         });
         return id;
     }
@@ -2710,6 +3840,7 @@ private:
         const closure_t& closure = pending.closure;
         m_parameters = pending.parameters;
         m_arguments = pending.arguments;
+        m_reflected = pending.reflected;
         begin_function(m_closure_code.at(pending.type));
         const local_id_t object = add_local(pending.type, "closure");
         const symbol_t& function = m_analysis.symbol(closure.function);
@@ -2816,6 +3947,22 @@ private:
             return;
         }
 
+        // An array's text is its elements', from a function made for its type.
+        if (is_any_array(type)) {
+            call_t call{
+                .function = generated(generated_kind_t::TEXT, type),
+                .arguments = { { .value = value } },
+            };
+            parts.push_back(temporary(std::move(call), type_id_t::STRING, true));
+            return;
+        }
+
+        // A Struct or Class shows what its ToString gives, and so does an Interface's object.
+        if (is_struct(type) || is_class(type) || is_interface(type)) {
+            parts.push_back(to_string(value, type));
+            return;
+        }
+
         if (is_enum(type)) {
             call_t call{
                 .function = text_function(type),
@@ -2828,6 +3975,257 @@ private:
         } else {
             parts.push_back(value);
         }
+    }
+
+    /// A Struct's, Class's, or Interface's object's text: what Printable's ToString gives, called
+    /// through the Interface for an Interface's object.
+    operand_t to_string(const operand_t& value, const type_id_t type) {
+        const type_id_t printable = m_analysis.interfaces.printable;
+        const symbol_id_t method = builtin_member(printable, "ToString");
+        call_t call{ .arguments = { { .value = value } } };
+        if (is_interface(type)) {
+            call.function = function_of(method, { printable });
+            call.slot = interface_slot(method);
+            call.interface = printable;
+        } else {
+            const symbol_id_t found = expect(implementation(type, method));
+            call.function = function_of(found, implementation_arguments(type, found));
+            if (is_virtual(m_analysis.symbol(found))) {
+                call.slot = slot_of(found);
+            }
+        }
+
+        return temporary(std::move(call), type_id_t::STRING, true);
+    }
+
+    /// A value's Hash: a Struct's or Class's own, or else the built-in one. A built-in type's
+    /// comes from the runtime, and so does a Class's object's. A Struct or tuple combines its
+    /// fields', an array its elements', and a T? its value's, or 0 for Null.
+    operand_t hash_of(const operand_t& value, const type_id_t type) {
+        if (is_struct(type) || is_class(type)) {
+            const symbol_id_t method = builtin_member(m_analysis.interfaces.hashable, "Hash");
+            if (const std::optional<symbol_id_t> own = implementation(type, method)) {
+                call_t call{
+                    .function = function_of(*own, implementation_arguments(type, *own)),
+                    .arguments = { { .value = value } },
+                };
+                if (is_virtual(m_analysis.symbol(*own))) {
+                    call.slot = slot_of(*own);
+                }
+
+                return temporary(std::move(call), type_id_t::UINT64);
+            }
+        }
+
+        if (has_fields(type)) {
+            const place_t whole = as_place(value);
+            const std::vector<field_t>& fields = types().get(type).fields;
+            operand_t hash = const_value_t{ .type = type_id_t::UINT64, .data = std::uint64_t{ 0 } };
+            for (std::uint32_t i = 0; i < fields.size(); ++i) {
+                const operand_t part = hash_of(element_of(whole, i), fields[i].type);
+                hash = runtime_call(runtime_function_t::HASH_COMBINE, { hash, part },
+                                    type_id_t::UINT64);
+            }
+
+            return hash;
+        }
+
+        if (is_nullable(type)) {
+            const local_id_t hash = add_local(type_id_t::UINT64);
+            emit(assign_t{ .target = hash, .value = use_t{ .value = zero(type_id_t::UINT64) } });
+            const block_id_t some = new_block();
+            const block_id_t done = new_block();
+            terminate(
+                branch_t{ .condition = has_value(value, {}), .if_true = some, .if_false = done });
+            start(some);
+            const operand_t inner = hash_of(unwrap(value), types().get(type).inner);
+            emit(assign_t{ .target = hash, .value = use_t{ .value = inner } });
+            jump(done);
+            start(done);
+            return place_t{ hash };
+        }
+
+        if (is_any_array(type)) {
+            call_t call{
+                .function = generated(generated_kind_t::HASH, type),
+                .arguments = { { .value = value } },
+            };
+            return temporary(std::move(call), type_id_t::UINT64);
+        }
+
+        return runtime_call(runtime_function_t::HASH, { value }, type_id_t::UINT64);
+    }
+
+    /// A built-in Interface's Method on a type without one of its own: a Hash, a ToString that
+    /// gives what a string shows, or Numeric's Zero.
+    operand_t builtin_method(const symbol_t& method, const type_id_t type,
+                             const std::optional<operand_t>& receiver) {
+        if (method.name == "Zero") {
+            return zero_value(type);
+        }
+
+        if (method.name == "Hash") {
+            return hash_of(expect(receiver), type);
+        }
+
+        std::vector<operand_t> parts;
+        add_text(parts, expect(receiver), type);
+        return runtime_call(runtime_function_t::JOIN, std::move(parts), type_id_t::STRING, true);
+    }
+
+    /// The function that compares, hashes, or gives the text of arrays of `type`, declared the
+    /// first time it's needed.
+    function_id_t generated(const generated_kind_t kind, const type_id_t type) {
+        const auto found = std::ranges::find_if(m_generated, [&](const generated_t& function) {
+            return function.kind == kind && function.type == type;
+        });
+        if (found != m_generated.end()) {
+            return found->function;
+        }
+
+        const std::string_view name = types().name(type);
+        std::string full;
+        type_id_t result = type_id_t::BOOL;
+        if (kind == generated_kind_t::EQUAL) {
+            full = std::format("{}.Operator ==({}, {})", name, name, name);
+        } else if (kind == generated_kind_t::HASH) {
+            full = std::format("{}.Hash()", name);
+            result = type_id_t::UINT64;
+        } else {
+            full = std::format("{}.ToString()", name);
+            result = type_id_t::STRING;
+        }
+
+        const auto id = static_cast<function_id_t>(m_module.functions.size());
+        m_module.functions.push_back({ .name = std::move(full), .return_type = result });
+        m_generated.push_back({ .kind = kind, .type = type, .function = id });
+        return id;
+    }
+
+    /// An array function's body. An array's are equal when they have as many elements, each
+    /// equal to the other's; its Hash combines its count and its elements'; and its text is
+    /// like "[1, 2, 3]".
+    void lower_generated(const generated_t& generated) {
+        begin_function(generated.function);
+        const type_id_t type = generated.type;
+        const type_id_t element = types().get(type).inner;
+        const local_id_t array =
+            add_local(type, generated.kind == generated_kind_t::EQUAL ? "a" : "Self");
+        const local_id_t other =
+            generated.kind == generated_kind_t::EQUAL ? add_local(type, "b") : array;
+        current().parameter_count = current().locals.size();
+        const span_t nowhere;
+        switch (generated.kind) {
+        case generated_kind_t::EQUAL: {
+            if (is_array(type)) {
+                const operand_t count = count_of(place_t{ array });
+                const operand_t other_count = count_of(place_t{ other });
+                return_false_unless(compare(binary_op_t::EQUAL, count, other_count, nowhere));
+            }
+
+            each_element(array, type, [&](const place_t& left, const local_id_t counter) {
+                place_t right{ other };
+                right.steps.push_back({ .indices = { counter }, .span = nowhere });
+                return_false_unless(equal(left, right, nowhere));
+            });
+            terminate(return_t{ .value = make_bool(true) });
+            break;
+        }
+        case generated_kind_t::HASH: {
+            const local_id_t hash = add_local(type_id_t::UINT64);
+            const runtime_call_t count{
+                .function = runtime_function_t::HASH,
+                .arguments = { element_count_of(array, type) },
+            };
+            emit(assign_t{ .target = hash, .value = count });
+            each_element(array, type, [&](const place_t& item, local_id_t /*counter*/) {
+                const runtime_call_t combined{
+                    .function = runtime_function_t::HASH_COMBINE,
+                    .arguments = { place_t{ hash }, hash_of(item, element) },
+                };
+                emit(assign_t{ .target = hash, .value = combined });
+            });
+            terminate(return_t{ .value = place_t{ hash } });
+            break;
+        }
+        case generated_kind_t::TEXT: {
+            const local_id_t text = add_local(type_id_t::STRING, "text");
+            initialize(text, make_string("["));
+            m_scopes.back().emplace_back(text);
+            each_element(array, type, [&](const place_t& item, const local_id_t counter) {
+                // ", " goes before each element after the first.
+                const operand_t later =
+                    compare(binary_op_t::GREATER, counter, zero(type_id_t::INT32), nowhere);
+                const block_id_t separate = new_block();
+                const block_id_t next = new_block();
+                terminate(branch_t{ .condition = later, .if_true = separate, .if_false = next });
+                start(separate);
+                store(text, runtime_call(runtime_function_t::CONCAT,
+                                         { place_t{ text }, make_string(", ") }, type_id_t::STRING,
+                                         true));
+                finish_statement();
+                jump(next);
+                start(next);
+                std::vector<operand_t> parts{ place_t{ text } };
+                add_text(parts, item, element);
+                store(text, runtime_call(runtime_function_t::JOIN, std::move(parts),
+                                         type_id_t::STRING, true));
+                finish_statement();
+            });
+            store(text,
+                  runtime_call(runtime_function_t::CONCAT, { place_t{ text }, make_string("]") },
+                               type_id_t::STRING, true));
+            finish_statement();
+            take(place_t{ text });
+            release_scopes(0);
+            terminate(return_t{ .value = place_t{ text } });
+            break;
+        }
+        }
+    }
+
+    /// Returns False from the function unless `condition` holds, and goes on where it does.
+    void return_false_unless(const operand_t& condition) {
+        const block_id_t next = new_block();
+        const block_id_t differ = new_block();
+        terminate(branch_t{ .condition = condition, .if_true = next, .if_false = differ });
+        start(differ);
+        terminate(return_t{ .value = make_bool(false) });
+        start(next);
+    }
+
+    /// How many elements an array has: a T[]'s count, or a fixed array's.
+    operand_t element_count_of(const local_id_t array, const type_id_t type) {
+        if (is_array(type)) {
+            return count_of(place_t{ array });
+        }
+
+        const auto count = static_cast<std::int64_t>(types().element_count(type));
+        return const_value_t{ .type = type_id_t::INT32, .data = count };
+    }
+
+    /// Runs `body` with each element of the array in `array`, in order, and a local with its
+    /// index, then goes on after the loop.
+    template <typename Body>
+    void each_element(const local_id_t array, const type_id_t type, const Body& body) {
+        const span_t nowhere;
+        const local_id_t counter = add_local(type_id_t::INT32);
+        emit(assign_t{ .target = counter, .value = use_t{ .value = zero(type_id_t::INT32) } });
+        const block_id_t head = new_block();
+        jump(head);
+        start(head);
+        const operand_t in_range =
+            compare(binary_op_t::LESS, counter, element_count_of(array, type), nowhere);
+        const block_id_t loop = new_block();
+        const block_id_t exit = new_block();
+        terminate(branch_t{ .condition = in_range, .if_true = loop, .if_false = exit });
+        start(loop);
+        place_t element{ array };
+        element.steps.push_back({ .indices = { counter }, .span = nowhere });
+        body(element, counter);
+        count_up(counter, nowhere);
+        jump(head);
+        start(exit);
     }
 
     operand_t lower_expr(const expr_id_t id, const unary_expr_t& node) {
@@ -2862,9 +4260,15 @@ private:
                                 true);
         }
 
-        // Structs, tuples, Strings, and the values in T?s only have == and !=, which take steps
-        // of their own.
-        if (has_fields(type) || type == type_id_t::STRING || compares_values(left, right)) {
+        // Strings order by their text.
+        if (type == type_id_t::STRING && is_ordering(node.op)) {
+            return order(node.op, left, right, span_of(id));
+        }
+
+        // Structs, tuples, arrays, Strings, and the values in T?s only have == and !=, which take
+        // steps of their own.
+        if (has_fields(type) || is_any_array(type) || type == type_id_t::STRING ||
+            compares_values(left, right)) {
             operand_t same = equal(left, right, span_of(id));
             if (node.op == binary_op_t::EQUAL) {
                 return same;
@@ -2890,6 +4294,15 @@ private:
 
         if (has_fields(type)) {
             return equal_fields(std::get<place_t>(left), std::get<place_t>(right), span);
+        }
+
+        // Arrays compare their elements, in a function made for their type.
+        if (is_any_array(type)) {
+            call_t call{
+                .function = generated(generated_kind_t::EQUAL, type),
+                .arguments = { { .value = left }, { .value = right } },
+            };
+            return temporary(std::move(call), type_id_t::BOOL);
         }
 
         if (type == type_id_t::STRING) {
@@ -2923,10 +4336,21 @@ private:
                          type_id_t::BOOL);
     }
 
-    /// Calls an Operator, with the type arguments of its Struct or Class.
+    /// Calls an Operator, with the type arguments of its Struct or Class. An Interface's is the
+    /// one of the type for Self that implements it.
     operand_t call_operator(const symbol_id_t id, const std::vector<type_id_t>& arguments,
                             const std::vector<operand_t>& operands, const span_t span) {
         const symbol_t& function = m_analysis.symbol(id);
+        if (is_interface(function.owner)) {
+            const std::optional<symbol_id_t> found = implementation(arguments.front(), id);
+            if (!found) {
+                return builtin_operator(function.name, arguments.front(), operands, span);
+            }
+
+            return call_operator(*found, implementation_arguments(arguments.front(), *found),
+                                 operands, span);
+        }
+
         const std::vector<type_id_t> parameters = type_parameters_of(function);
         call_t call{ .function = function_of(id, arguments) };
         for (std::size_t i = 0; i < operands.size(); ++i) {
@@ -2937,6 +4361,57 @@ private:
 
         const type_id_t result = types().substitute(function.type, parameters, arguments);
         return temporary(std::move(call), result, has_references(result));
+    }
+
+    /// A built-in Interface's Operator on a type without one of its own: the operator a
+    /// built-in type has, or == on a Struct's fields or a Class's objects.
+    operand_t builtin_operator(const std::string_view name, const type_id_t type,
+                               const std::vector<operand_t>& operands, const span_t span) {
+        const operand_t left = convert(operands[0], type, span);
+        const operand_t right = convert(operands[1], type, span);
+        static constexpr std::array<std::pair<std::string_view, binary_op_t>, 9> operators{
+            {
+                { "==", binary_op_t::EQUAL },
+                { "<", binary_op_t::LESS },
+                { ">", binary_op_t::GREATER },
+                { "<=", binary_op_t::LESS_EQUAL },
+                { ">=", binary_op_t::GREATER_EQUAL },
+                { "+", binary_op_t::ADD },
+                { "-", binary_op_t::SUBTRACT },
+                { "*", binary_op_t::MULTIPLY },
+                { "/", binary_op_t::DIVIDE },
+            },
+        };
+        const binary_op_t op =
+            std::ranges::find(operators, name, &std::pair<std::string_view, binary_op_t>::first)
+                ->second;
+        if (op == binary_op_t::EQUAL) {
+            return equal(left, right, span);
+        }
+
+        if (is_ordering(op)) {
+            return order(op, left, right, span);
+        }
+
+        return temporary(binary_t{ .op = op, .left = left, .right = right, .span = span }, type);
+    }
+
+    [[nodiscard]] static bool is_ordering(const binary_op_t op) {
+        return op == binary_op_t::LESS || op == binary_op_t::LESS_EQUAL ||
+               op == binary_op_t::GREATER || op == binary_op_t::GREATER_EQUAL;
+    }
+
+    /// "a < b" and the rest: a number's comparison, or for Strings, the runtime's order of their
+    /// text.
+    operand_t order(const binary_op_t op, const operand_t& left, const operand_t& right,
+                    const span_t span) {
+        if (type_of(left) != type_id_t::STRING) {
+            return compare(op, left, right, span);
+        }
+
+        const operand_t order =
+            runtime_call(runtime_function_t::COMPARE, { left, right }, type_id_t::INT32);
+        return compare(op, order, zero(type_id_t::INT32), span);
     }
 
     /// The Operator == that a Struct or Class defines for two of itself, which every == on it
@@ -2967,7 +4442,7 @@ private:
     [[nodiscard]] bool compares_values(const operand_t& left, const operand_t& right) {
         const type_id_t type = type_of(left);
         return is_nullable(type) && !is_null(left) && !is_null(right) &&
-               !is_class(types().get(type).inner);
+               !is_object(types().get(type).inner);
     }
 
     /// Whether two Structs or tuples of the same type have equal fields, each compared the way ==
@@ -3244,6 +4719,24 @@ private:
     /// after the statement unless something takes it. "a?.M()" only calls when a holds a value.
     std::optional<operand_t> lower_call(const expr_id_t id) {
         const auto& node = std::get<call_expr_t>(m_ast.get(id).node);
+        if (const std::optional<symbol_id_t> variable = m_analysis.expr(id).symbol;
+            variable && m_analysis.symbol(*variable).kind == symbol_kind_t::MEMBER_VARIABLE) {
+            return lower_reflection(id, node, m_reflected.at(*variable));
+        }
+
+        // A type's own attributes, of its declaration.
+        if (const type_id_t reflected = m_analysis.expr(id).reflected;
+            reflected != type_id_t::INVALID) {
+            const auto declared = m_declared_types.find(definition_of(concrete(reflected)));
+            const bool has =
+                std::get<member_expr_t>(m_ast.get(node.callee).node).member.text == "Has";
+            return attribute_of(id,
+                                declared != m_declared_types.end()
+                                    ? &m_analysis.symbol(declared->second).attributes
+                                    : nullptr,
+                                has);
+        }
+
         if (is_func(expr_type(node.callee))) {
             return invoke(node);
         }
@@ -3255,6 +4748,92 @@ private:
         }
 
         return call_on(id, std::nullopt);
+    }
+
+    /// "f.Get(value)", "f.Set(ByRef value, x)", "f.Has(A)", "f.Attribute(A)", or
+    /// "m.Call(value)", for the field or Method of this copy of the loop's body. An attribute's
+    /// values are constants.
+    std::optional<operand_t> lower_reflection(const expr_id_t id, const call_expr_t& node,
+                                              const reflected_t& member) {
+        const std::string_view name =
+            std::get<member_expr_t>(m_ast.get(node.callee).node).member.text;
+        const symbol_t* declared = member.symbol ? &m_analysis.symbol(*member.symbol) : nullptr;
+        // A Static Field is a global, the instance's for a generic type's.
+        if (name == "Get" && declared != nullptr && declared->kind == symbol_kind_t::GLOBAL) {
+            const std::vector<type_id_t> arguments = owner_arguments(member.owner, declared->owner);
+            return place_t{ arguments.empty() ? m_globals.at(*member.symbol)
+                                              : instance_global(*member.symbol, arguments) };
+        }
+
+        if (name == "Get" && declared != nullptr && declared->kind == symbol_kind_t::PROPERTY) {
+            const operand_t object = lower_value(node.arguments[0].value);
+            return get_property(*member.symbol, object, type_of(object));
+        }
+
+        if (name == "Get" || name == "Set") {
+            place_t place = lower_place(node.arguments[0].value);
+            place.steps.push_back({ .field = member.index });
+            if (name == "Get") {
+                return place;
+            }
+
+            store(place, lower_value(node.arguments[1].value));
+            return std::nullopt;
+        }
+
+        if (name == "Call") {
+            const symbol_id_t method = expect(member.symbol);
+            const operand_t value = lower_value(node.arguments[0].value);
+            const type_id_t type = type_of(value);
+            call_t call{
+                .function = function_of(method, implementation_arguments(type, method)),
+                .arguments = { { .value = value } },
+            };
+            for (std::size_t i = 1; i < node.arguments.size(); ++i) {
+                call.arguments.push_back({ .value = lower_value(node.arguments[i].value) });
+            }
+
+            if (is_virtual(m_analysis.symbol(method))) {
+                call.slot = slot_of(method);
+            }
+
+            const type_id_t result = types().get(method_type(type, method)).inner;
+            if (result == type_id_t::NONE) {
+                emit(evaluate_t{ .value = std::move(call) });
+                return std::nullopt;
+            }
+
+            return temporary(std::move(call), result, has_references(result));
+        }
+
+        return attribute_of(id, declared != nullptr ? &declared->attributes : nullptr,
+                            name == "Has");
+    }
+
+    /// "Has(A)", whether the attributes have an A, or "Attribute(A)", its values, or Null.
+    operand_t attribute_of(const expr_id_t id, const std::vector<attribute_value_t>* attributes,
+                           const bool has) {
+        const type_id_t attribute = m_analysis.expr(id).tested;
+        const attribute_value_t* found = nullptr;
+        if (attributes != nullptr) {
+            const auto at = std::ranges::find(*attributes, attribute, &attribute_value_t::type);
+            found = at != attributes->end() ? &*at : nullptr;
+        }
+
+        if (has) {
+            return const_value_t{ .type = type_id_t::BOOL, .data = found != nullptr };
+        }
+
+        if (found == nullptr) {
+            return null_of(expr_type(id));
+        }
+
+        aggregate_t value{ .type = attribute };
+        for (const const_value_t& field : found->values) {
+            value.fields.emplace_back(concrete(field));
+        }
+
+        return temporary(std::move(value), attribute, has_references(attribute));
     }
 
     /// Calling a function value runs its object's code.
@@ -3283,6 +4862,10 @@ private:
             (function.name == "Panic" || function.name == "Assert")) {
             lower_panic(id, function);
             return std::nullopt;
+        }
+
+        if (function.owner != type_id_t::INVALID && is_interface(function.owner)) {
+            return call_interface_member(id, receiver);
         }
 
         std::vector<call_argument_t> arguments;
@@ -3316,11 +4899,14 @@ private:
             const symbol_t& parameter = m_analysis.symbol(function.parameters[i]);
             const std::optional<expr_id_t> argument = info.arguments[i];
             // A missing argument gets the parameter's default, which is known at compile time,
-            // or a field's zero. ByRef passes the variable itself.
+            // or a field's zero, and a variadic parameter gets its packed ones. ByRef passes the
+            // variable itself.
             if (!argument) {
                 const type_id_t type =
                     types().substitute(parameter.type, type_parameters, type_arguments);
-                arguments.push_back({ .value = default_of(parameter, type) });
+                const operand_t value =
+                    parameter.variadic ? array_of(info.packed, type) : default_of(parameter, type);
+                arguments.push_back({ .value = value });
             } else if (parameter.by_ref) {
                 arguments.push_back({ .value = lower_place(*argument), .by_ref = true });
             } else {
@@ -3328,12 +4914,21 @@ private:
             }
         }
 
-        if (function.kind == symbol_kind_t::METHOD && is_array(function.owner)) {
+        // A T[]'s own Methods, and a @Flags Enum's Has, are built in; an Extend's aren't.
+        if (function.kind == symbol_kind_t::METHOD && is_array(function.owner) &&
+            !function.declaration) {
             return array_method(function, arguments, span_of(id));
         }
 
+        // So are an integer's Wrapping and Checked Methods.
+        if (function.kind == symbol_kind_t::METHOD && is_integer(function.owner) &&
+            !function.declaration) {
+            return integer_call(function, arguments, span_of(id));
+        }
+
         // A @Flags Enum's Has: whether every one of the flags is set.
-        if (function.kind == symbol_kind_t::METHOD && is_enum(function.owner)) {
+        if (function.kind == symbol_kind_t::METHOD && is_enum(function.owner) &&
+            !function.declaration) {
             const binary_t flags{
                 .op = binary_op_t::BIT_AND,
                 .left = arguments[0].value,
@@ -3406,7 +5001,7 @@ private:
         // A call that throws gets a variable for its error, which is checked right after. Its
         // result is only the caller's once it didn't throw.
         std::optional<local_id_t> error;
-        if (takes_error(function)) {
+        if (takes_error(expect(info.symbol))) {
             error = error_variable();
             call.arguments.push_back({ .value = place_t{ *error }, .by_ref = true });
         }
@@ -3431,15 +5026,164 @@ private:
         return result;
     }
 
+    /// A call of an Interface's member. Through an Interface's object, it goes through the table
+    /// the object's Class has for the Interface. Anywhere else, the type for Self is known, and
+    /// the call goes to its member that implements this one.
+    std::optional<operand_t> call_interface_member(const expr_id_t id,
+                                                   const std::optional<operand_t>& receiver) {
+        const expr_info_t& info = m_analysis.expr(id);
+        const symbol_id_t required = expect(info.symbol);
+        const symbol_t& function = m_analysis.symbol(required);
+        const auto& node = std::get<call_expr_t>(m_ast.get(id).node);
+        const auto* member = std::get_if<member_expr_t>(&m_ast.get(node.callee).node);
+        // The type for Self, then a generic Interface's type arguments.
+        std::vector<type_id_t> type_arguments;
+        type_arguments.reserve(info.type_arguments.size());
+        for (const type_id_t argument : info.type_arguments) {
+            type_arguments.push_back(concrete(argument));
+        }
+
+        const type_id_t self = type_arguments.front();
+        const bool dynamic = is_interface(self);
+        const std::optional<symbol_id_t> found =
+            dynamic ? std::optional(required) : implementation(self, required);
+        // A built-in type, and a Struct or Class without its own Hash, has the built-in one.
+        if (!found) {
+            std::optional<operand_t> object = receiver;
+            if (!object && member == nullptr && !function.modifiers.is_static) {
+                object = place_t{ expect(m_self) };
+            } else if (!object && !function.modifiers.is_static) {
+                object = lower_value(member->object);
+            }
+
+            return builtin_method(function, self, object);
+        }
+
+        const symbol_id_t target = *found;
+        const symbol_t& callee = m_analysis.symbol(target);
+
+        // The object first, or the variable itself for a Struct's ByRef Method. Called by name,
+        // it's Self.
+        std::vector<call_argument_t> arguments;
+        if (!callee.modifiers.is_static) {
+            const bool by_ref = callee.by_ref && !is_object(self);
+            operand_t value = make_bool(false);
+            if (receiver) {
+                value = *receiver;
+            } else if (member == nullptr) {
+                value = place_t{ expect(m_self) };
+            } else if (by_ref) {
+                value = lower_place(member->object);
+            } else {
+                value = lower_value(member->object);
+            }
+
+            arguments.push_back(by_ref ? call_argument_t{ .value = as_place(value), .by_ref = true }
+                                       : call_argument_t{ .value = value });
+        }
+
+        const std::vector<type_id_t> parameters = type_parameters_of(function);
+        for (std::size_t i = 0; i < info.arguments.size(); ++i) {
+            const symbol_t& parameter = m_analysis.symbol(function.parameters[i]);
+            const std::optional<expr_id_t> argument = info.arguments[i];
+            if (!argument) {
+                const type_id_t type =
+                    types().substitute(parameter.type, parameters, type_arguments);
+                const operand_t value =
+                    parameter.variadic ? array_of(info.packed, type) : default_of(parameter, type);
+                arguments.push_back({ .value = value });
+            } else if (parameter.by_ref) {
+                arguments.push_back({ .value = lower_place(*argument), .by_ref = true });
+            } else {
+                arguments.push_back({ .value = lower_value(*argument) });
+            }
+        }
+
+        // Through an object, the call has the Interface for Self, and goes through its table
+        // for the instance of a generic one.
+        const type_id_t interface = interface_instance(function, type_arguments);
+        std::vector<type_id_t> abstract{ interface };
+        abstract.insert(abstract.end(), type_arguments.begin() + 1, type_arguments.end());
+        // A generic Method's own type arguments come after the Interface's.
+        std::vector<type_id_t> concrete_arguments = implementation_arguments(self, target);
+        const std::size_t owned = types().get(function.owner).parameters.size() + 1;
+        if (type_arguments.size() > owned) {
+            concrete_arguments.insert(concrete_arguments.end(),
+                                      type_arguments.begin() + static_cast<std::ptrdiff_t>(owned),
+                                      type_arguments.end());
+        }
+
+        call_t call{
+            .function = function_of(target, dynamic ? abstract : concrete_arguments),
+            .arguments = std::move(arguments),
+        };
+        if (dynamic) {
+            call.slot = interface_slot(required);
+            call.interface = interface;
+        } else if (is_virtual(callee)) {
+            call.slot = slot_of(target);
+        }
+
+        std::optional<local_id_t> error;
+        if (takes_error(required)) {
+            error = error_variable();
+            call.arguments.push_back({ .value = place_t{ *error }, .by_ref = true });
+        }
+
+        const type_id_t result = types().substitute(function.type, parameters, type_arguments);
+        std::optional<operand_t> value;
+        if (result == type_id_t::NONE) {
+            emit(evaluate_t{ .value = std::move(call) });
+        } else {
+            value = temporary(std::move(call), result);
+        }
+
+        if (error) {
+            check_error(*error, span_of(id));
+        }
+
+        if (value && has_references(result)) {
+            m_temporaries.push_back(std::get<local_id_t>(std::get<place_t>(*value).root));
+        }
+
+        return value;
+    }
+
+    /// The Interface an Interface's member belongs to, with the type arguments after Self in
+    /// `type_arguments`: an instance for a generic one.
+    type_id_t interface_instance(const symbol_t& member,
+                                 const std::vector<type_id_t>& type_arguments) {
+        return types().instance(
+            member.owner, std::vector<type_id_t>(type_arguments.begin() + 1, type_arguments.end()));
+    }
+
+    /// The instance of a generic Interface among an Interface and the ones it extends, like the
+    /// Iterator<Int32> of "Numbers Extends Iterator<Int32>". One that isn't generic is its own.
+    [[nodiscard]] type_id_t extended_instance(const type_id_t interface,
+                                              const type_id_t definition) const {
+        std::vector<type_id_t> pending{ interface };
+        while (!pending.empty()) {
+            const type_id_t current = pending.back();
+            pending.pop_back();
+            if (definition_of(current) == definition) {
+                return current;
+            }
+
+            std::ranges::copy(types().get(current).interfaces, std::back_inserter(pending));
+        }
+
+        return definition;
+    }
+
     /// 'As' between Classes checks the object's Class at run time, unless it converts anyway.
     /// So does 'As' from a T? to a T, for Null.
     operand_t lower_expr(const expr_id_t id, const cast_expr_t& node) {
         const operand_t value = lower_value(node.value);
         const type_id_t type = expr_type(id);
         use_class(type);
+        // 'As?' can give Null, so it borrows the object, whose temporary keeps its reference.
         if (node.checked) {
-            return retype(
-                value,
+            return temporary(
                 downcast_t{ .value = value, .type = type, .span = span_of(id), .or_null = true },
                 type);
         }
@@ -3447,8 +5191,8 @@ private:
         const type_t& from = types().get(type_of(value));
         const type_id_t source = from.kind == type_kind_t::NULLABLE ? from.inner : type_of(value);
         const type_id_t target = is_nullable(type) ? types().get(type).inner : type;
-        const bool checks = is_class(source) && is_class(target) &&
-                            (!types().extends(source, target) ||
+        const bool checks = is_object(source) && is_object(target) &&
+                            (!upcasts(source, target) ||
                              (from.kind == type_kind_t::NULLABLE && !is_nullable(type)));
         if (checks) {
             return retype(value, downcast_t{ .value = value, .type = type, .span = span_of(id) },
@@ -3636,6 +5380,12 @@ private:
 
 mir_module_t lower(const ast_t& ast, const analysis_t& analysis) {
     return lowerer_t(ast, analysis).run();
+}
+
+mir_module_t lower_function(const ast_t& ast, const analysis_t& analysis,
+                            const symbol_id_t function,
+                            const std::vector<type_id_t>& type_arguments) {
+    return lowerer_t(ast, analysis).run_one(function, type_arguments);
 }
 
 } // namespace fb

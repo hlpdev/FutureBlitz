@@ -1,0 +1,18 @@
+// An integer's Wrapping and Checked Methods, which say what overflow does in every build.
+Local big: Int = 2147483647
+Local small: Int8 = -128
+Local b: Byte = 250
+Print("{big.WrappingAdd(1)} {small.WrappingNegate()} {b.WrappingAdd(10)} {b.WrappingSubtract(251)} {big.WrappingMultiply(2)}")
+Print("{big.CheckedAdd(1) ?? -1} {big.CheckedAdd(-1) ?? -1} {small.CheckedNegate() ?? 0} {small.CheckedSubtract(1) ?? 0}")
+Print("{b.CheckedAdd(5) ?? 0} {b.CheckedAdd(6) ?? 0} {b.CheckedSubtract(251) ?? 0} {b.CheckedMultiply(2) ?? 0}")
+Local zero = 0
+Print("{big.CheckedDivide(zero) ?? -1} {big.CheckedDivide(2) ?? -1} {small.CheckedDivide(-1) ?? 0} {(7 As Long).CheckedMultiply(3) ?? 0}")
+Const C = 2147483647.WrappingAdd(1)
+Const D = 100.CheckedMultiply(100)
+Const E = 2147483647.CheckedAdd(1)
+Print("{C} {D ?? 0} {E ?? 0}")
+Const Function Mix(a: Int, b: Int): Int
+    Return a.WrappingMultiply(b).WrappingAdd(a.CheckedAdd(b) ?? 0)
+End Function
+Const M = Mix(2147483647, 3)
+Print("{M} {Mix(big, 3)}")

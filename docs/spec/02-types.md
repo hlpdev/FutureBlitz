@@ -9,7 +9,7 @@
 | `UInt8` `UInt16` `UInt32` `UInt64` | unsigned integers |
 | `Float32` `Float64` | IEEE floats |
 | `String` | immutable UTF-8, refcounted |
-| `Vec2` `Vec3` `Vec4` `Quat` `Mat3` `Mat4` `Color` | built-in math value types with operators |
+| `Vec2` `Vec3` `Vec4` `Quat` `Mat3` `Mat4` `Color` | math value types with operators, from `std.math` (M6) |
 | `Void` | "no value"; only meaningful in FFI pointer types (`Ptr<Void>`) |
 
 Aliases:
@@ -94,6 +94,8 @@ Print(hp)              // ✗ error: hp read before assignment
 - A field with no zero, a non-nullable Class or a Struct holding one, must be assigned by every
   constructor (compile-checked): a Struct's generated constructor requires it, and a Class with
   one needs a `New`, which assigns it on every path before reading it or using `Self`.
+- A field's default must be known at compile time, like a parameter's, or be `[]`, which gives
+  each one a new empty array.
 
 ## Nullability
 
@@ -162,5 +164,8 @@ side's type when its value fits.
   range in release builds.
 - Integer division or remainder by zero, and a float `As` an integer that doesn't fit, panic in
   every build.
-- Explicit intent is always available: `WrappingAdd`, `CheckedAdd` (returns `T?`), and
-  equivalents for the other operations.
+- Explicit intent is always available, as an integer's Methods: `a.WrappingAdd(b)`,
+  `WrappingSubtract`, `WrappingMultiply`, and `WrappingNegate()` wrap around in every build, and
+  `a.CheckedAdd(b)`, `CheckedSubtract`, `CheckedMultiply`, `CheckedDivide`, and `CheckedNegate()`
+  give a `T?` that's Null when the operation would overflow or divide by zero. With known values,
+  they're worked out at compile time, and a Const Function can use them.

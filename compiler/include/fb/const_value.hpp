@@ -9,6 +9,7 @@
 #include <expected>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <variant>
 
 namespace fb {
@@ -56,5 +57,25 @@ using fold_result_t = std::expected<const_value_t, std::string>;
 
 /// Orders two integers of the same signedness.
 [[nodiscard]] std::strong_ordering compare(const const_value_t& left, const const_value_t& right);
+
+/// What an integer's Wrapping or Checked Method does, like WrappingAdd or CheckedNegate: `op`
+/// on Self and its argument, or for a Negate, on 0 and Self. A Wrapping one wraps around, and a
+/// Checked one gives Null when it overflows or divides by zero.
+struct integer_method_t {
+    binary_op_t op;
+    bool checked = false;
+    bool negate = false;
+};
+
+/// The integer Method named `name`: WrappingAdd, WrappingSubtract, WrappingMultiply, and
+/// WrappingNegate, and CheckedAdd, CheckedSubtract, CheckedMultiply, CheckedDivide, and
+/// CheckedNegate. nullopt for any other name.
+[[nodiscard]] std::optional<integer_method_t> integer_method(std::string_view name);
+
+/// `method` on known integers of one type, `other` being ignored for a Negate: nullopt when a
+/// Checked one gives Null.
+[[nodiscard]] std::optional<const_value_t> fold_integer_method(const integer_method_t& method,
+                                                               const const_value_t& self,
+                                                               const const_value_t& other);
 
 } // namespace fb

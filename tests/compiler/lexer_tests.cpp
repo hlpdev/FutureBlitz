@@ -4,6 +4,7 @@
 #include <array>
 #include <catch2/catch_test_macros.hpp>
 #include <format>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -19,13 +20,15 @@ struct lexed_t {
     std::vector<std::string> errors; // "begin-end: message"
 };
 
-/// Lexes `text` as a file named "test.fb". Error spans are byte offsets into `text`.
-lexed_t lex_text(const std::string_view text) {
+/// Lexes `text` as a file named "test.fb", with `defined` the symbols #If finds. Error spans are
+/// byte offsets into `text`.
+lexed_t lex_text(const std::string_view text,
+                 const std::span<const std::string_view> defined = {}) {
     const fb::source_file_t file(fb::file_id_t{}, "test.fb", std::string(text));
     fb::diagnostic_bag_t bag;
 
     lexed_t lexed;
-    for (const fb::token_t& token : fb::lex(file, bag)) {
+    for (const fb::token_t& token : fb::lex(file, bag, defined)) {
         if (token.kind != token_kind_t::END_OF_FILE) {
             lexed.tokens.push_back(token);
             lexed.kinds.push_back(token.kind);
@@ -173,15 +176,64 @@ TEST_CASE("invalid UTF-8 is reported, even in comments", "[lexer]") {
     CHECK(lexed.errors == std::vector<std::string>{ "2-3: invalid UTF-8", "9-10: invalid UTF-8" });
 }
 
-TEST_CASE("directives aren't supported yet", "[lexer]") {
-    // A '#' that starts a line skips the rest of it. Anywhere else, '#' is just unexpected.
+TEST_CASE("#If keeps the lines of the branch whose condition holds", "[lexer]") {
+    constexpr std::array<std::string_view, 2> debug = { "DEBUG", "PLATFORM_WINDOWS" };
+    constexpr std::array<std::string_view, 1> release = { "RELEASE" };
+    const std::string_view text = "#If DEBUG\n"
+                                  "a\n"
+                                  "#ElseIf RELEASE\n"
+                                  "b\n"
+                                  "#Else\n"
+                                  "c\n"
+                                  "#End If\n"
+                                  "d";
+    CHECK(lex_text(text, debug).texts == std::vector<std::string>{ "a", "\n", "d" });
+    CHECK(lex_text(text, release).texts == std::vector<std::string>{ "b", "\n", "d" });
+    CHECK(lex_text(text).texts == std::vector<std::string>{ "c", "\n", "d" });
+
+    // The lines of a branch that isn't taken aren't lexed at all.
+    const lexed_t skipped = lex_text("#If RELEASE\nx \"unterminated @@\n#End If\ny", debug);
+    CHECK(skipped.texts == std::vector<std::string>{ "y" });
+    CHECK(skipped.errors.empty());
+
+    // Conditions combine symbols, and #Ifs nest.
+    const std::string_view combined = "#If !RELEASE && (DEBUG || PLATFORM_LINUX)\na\n#End If";
+    // The line break after a line that's kept still ends its statement.
+    CHECK(lex_text(combined, debug).texts == std::vector<std::string>{ "a", "\n" });
+    CHECK(lex_text(combined, release).texts.empty());
+    CHECK(lex_text("#If DEBUG\n#If RELEASE\na\n#Else\nb\n#End If\n#End If", debug).texts ==
+          std::vector<std::string>{ "b", "\n" });
+    CHECK(lex_text("#If RELEASE\n#If DEBUG\na\n#End If\n#Else\nb\n#End If", debug).texts ==
+          std::vector<std::string>{ "b", "\n" });
+}
+
+TEST_CASE("#If mistakes", "[lexer]") {
     using enum token_kind_t;
-    const lexed_t lexed = lex_text("#If DEBUG\nx\ny #");
-    CHECK(lexed.kinds == std::vector{ IDENTIFIER, NEWLINE, IDENTIFIER, INVALID });
-    CHECK(lexed.errors == std::vector<std::string>{
-                              "0-3: conditional compilation isn't supported yet",
-                              "14-15: unexpected character '#'",
-                          });
+    CHECK(lex_text("#Else").errors ==
+          std::vector<std::string>{ "0-5: #Else needs an #If before it" });
+    CHECK(lex_text("#End If").errors ==
+          std::vector<std::string>{ "0-7: #End If needs an #If before it" });
+    CHECK(lex_text("#If DEBUG\nx").errors ==
+          std::vector<std::string>{ "0-3: this #If needs an #End If" });
+    CHECK(lex_text("#If DEBUG\n#Else\n#Else\n#End If").errors ==
+          std::vector<std::string>{ "16-21: #Else can't come after #Else" });
+    CHECK(lex_text("#Pragma x").errors ==
+          std::vector<std::string>{
+              "0-7: '#Pragma' isn't a directive; there are #If, #ElseIf, #Else, and #End If" });
+    CHECK(lex_text("#If\n#End If").errors ==
+          std::vector<std::string>{ "3-4: expected a symbol, like DEBUG" });
+    CHECK(lex_text("#If (DEBUG\n#End If").errors ==
+          std::vector<std::string>{ "4-5: this '(' needs a ')'" });
+    CHECK(lex_text("#If DEBUG DEBUG\n#End If").errors ==
+          std::vector<std::string>{ "10-11: expected the end of the line" });
+    CHECK(lex_text("#If DEBG\n#End If").errors ==
+          std::vector<std::string>{ "4-8: 'DEBG' is never defined; #If can test DEBUG, RELEASE, "
+                                    "PLATFORM_WINDOWS, PLATFORM_LINUX, and PLATFORM_MACOS" });
+
+    // Anywhere but the start of a line, '#' is unexpected.
+    const lexed_t lexed = lex_text("y #");
+    CHECK(lexed.kinds == std::vector{ IDENTIFIER, INVALID });
+    CHECK(lexed.errors == std::vector<std::string>{ "2-3: unexpected character '#'" });
 }
 
 TEST_CASE("integer literals", "[lexer]") {

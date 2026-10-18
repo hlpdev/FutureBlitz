@@ -1,0 +1,144 @@
+// Sequences: 'For ... In' over an Iterator, or the one a value's Iterate gives; a String's
+// Chars and Bytes; slices; and variadic parameters.
+Struct Countdown Implements Iterator<Int>
+    Field N: Int
+
+    ByRef Method Next(): Int?
+        If N == 0 Then Return Null
+        N -= 1
+        Return N + 1
+    End Method
+End Struct
+
+// A Class's Next changes its object, which the loop shares.
+Class Lines Implements Iterator<String>
+    Field Left: Int
+
+    New(left: Int)
+        Left = left
+    End New
+
+    Method Next(): String?
+        If Left == 0 Then Return Null
+        Left -= 1
+        Return "line {Left}"
+    End Method
+End Class
+
+// A collection gives an Iterator from its Iterate.
+Class Pile<T>
+    Field Items: T[] = []
+
+    Method Push(values: T...)
+        For value In values
+            Items.Add(value)
+        End For
+    End Method
+
+    Method Iterate(): PileIterator<T> => PileIterator(Items, Items.Count)
+End Class
+
+Struct PileIterator<T> Implements Iterator<T>
+    Field Items: T[]
+    Field At: Int
+
+    ByRef Method Next(): T?
+        If At == 0 Then Return Null
+        At -= 1
+        Return Items[At]
+    End Method
+End Struct
+
+// Two names take each pair apart.
+Struct Squares Implements Iterator<(String, Int)>
+    Field At: Int
+
+    ByRef Method Next(): (String, Int)?
+        If At == 3 Then Return Null
+        At += 1
+        Return ("{At}", At * At)
+    End Method
+End Struct
+
+Function Collect<S, E>(items: S): E[]
+    Where S: Iterator<E>
+    Local found: E[] = []
+    For item In items
+        found.Add(item)
+    End For
+
+    Return found
+End Function
+
+Function Sum(numbers: Int...): Int
+    Local total = 0
+    For n In numbers
+        total += n
+    End For
+
+    Return total
+End Function
+
+Function Largest<T: Comparable>(first: T, rest: T...): T
+    Local best = first
+    For item In rest
+        If item > best Then best = item
+    End For
+
+    Return best
+End Function
+
+Local countdown = Countdown(3)
+For n In countdown
+    Print("{n}")
+End For
+
+Print("still {countdown.N}")
+Local lines = Lines(3)
+For line In lines
+    If line == "line 1" Then Continue
+    Print(line)
+End For
+
+Print("left {lines.Left}")
+Local iterator: Iterator<String> = Lines(2)
+For line In iterator
+    Print("through an Interface: {line}")
+End For
+
+Local stack = Pile<String>()
+stack.Push("a", "b")
+stack.Push("c")
+For item In stack
+    If item == "a" Then Break
+    Print(item)
+End For
+
+For name, square In Squares(0)
+    Print("{name} squared is {square}")
+End For
+
+Print("{Collect(Countdown(2))} {Collect(Lines(2))} {Collect(stack.Iterate())}")
+
+// Chars are code points, and Bytes are UTF-8.
+Print("{"héllo".Chars} {"héllo".Bytes}")
+Local vowels = 0
+For c In "education".Chars
+    If c == 'a' || c == 'e' || c == 'i' || c == 'o' || c == 'u' Then vowels++
+End For
+
+Print("{vowels} vowels")
+
+// A slice is a new array of the elements from its start up to its end.
+Local numbers = [10, 20, 30, 40, 50]
+Local from = 1
+Print("{numbers[from..3]} {numbers[..2]} {numbers[3..]} {numbers[..].Count}")
+Local fixed: Int[4] = [1, 2, 3, 4]
+Print("{fixed[1..3]}")
+Local words = ["a", "b", "c"]
+Local some = words[1..]
+some.Add("d")
+Print("{words} {some}")
+
+Print("{Sum()} {Sum(1)} {Sum(1, 2, 3)} {Sum(numbers)} {Sum([4, 5])}")
+Print("{Largest(3, 9, 4)} {Largest("pear", "apple")} {Largest(1.5)}")

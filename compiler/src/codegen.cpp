@@ -114,11 +114,8 @@ public:
         }
 
         take_message(error);
-        if (m_options.mode == build_mode_t::RELEASE) {
-            return optimize();
-        }
-
-        return {};
+        // A debug build only inlines what @Inline asks for.
+        return optimize(m_options.mode == build_mode_t::RELEASE ? "default<O2>" : "always-inline");
     }
 
     [[nodiscard]] std::string ir() const {
@@ -168,6 +165,14 @@ private:
     function_ref_t m_concat;
     function_ref_t m_join;
     function_ref_t m_equal;
+    function_ref_t m_compare;
+    function_ref_t m_hash_string;
+    function_ref_t m_hash_integer;
+    function_ref_t m_hash_float;
+    function_ref_t m_hash_object;
+    function_ref_t m_hash_combine;
+    function_ref_t m_string_chars;
+    function_ref_t m_string_bytes;
     function_ref_t m_from_int;
     function_ref_t m_from_uint;
     function_ref_t m_from_float32;
@@ -189,6 +194,11 @@ private:
     function_ref_t m_object_release;
     function_ref_t m_object_is;
     function_ref_t m_object_expect;
+    function_ref_t m_interface_methods;
+    function_ref_t m_object_implements;
+    function_ref_t m_object_expect_implements;
+    /// Each Interface's fb_interface_t, by its type, made when it's first needed.
+    std::unordered_map<type_id_t, LLVMValueRef> m_interfaces;
     function_ref_t m_array_new;
     function_ref_t m_array_push;
     function_ref_t m_array_insert;
@@ -285,9 +295,9 @@ private:
         return {};
     }
 
-    std::expected<void, std::string> optimize() {
+    std::expected<void, std::string> optimize(const char* passes) {
         LLVMPassBuilderOptionsRef options = LLVMCreatePassBuilderOptions();
-        LLVMErrorRef error = LLVMRunPasses(m_module.get(), "default<O2>", m_machine.get(), options);
+        LLVMErrorRef error = LLVMRunPasses(m_module.get(), passes, m_machine.get(), options);
         LLVMDisposePassBuilderOptions(options);
         if (error != nullptr) {
             char* message = LLVMGetErrorMessage(error);
@@ -390,10 +400,15 @@ private:
                                      is_object(inner_of(type)) || is_array(inner_of(type)));
     }
 
-    /// A Class, or a function value, which refers to a closure: either one is a reference to an
-    /// object.
+    /// A Class, an Interface, or a function value, which refers to a closure: each one is a
+    /// reference to an object.
     [[nodiscard]] bool is_object(const type_id_t type) const {
-        return is_class(type) || m_mir.types->get(type).kind == type_kind_t::FUNCTION;
+        return is_class(type) || is_interface(type) ||
+               m_mir.types->get(type).kind == type_kind_t::FUNCTION;
+    }
+
+    [[nodiscard]] bool is_interface(const type_id_t type) const {
+        return m_mir.types->get(type).kind == type_kind_t::INTERFACE;
     }
 
     [[nodiscard]] bool is_array(const type_id_t type) const {
@@ -418,10 +433,12 @@ private:
             return false;
         }
 
-        // A Class's, T[]'s, Weak<T>'s, or function value's zero is a null reference.
+        // A Class's, Interface's, T[]'s, Weak<T>'s, or function value's zero is a null
+        // reference.
         const type_t& info = m_mir.types->get(type);
-        if (info.kind == type_kind_t::CLASS || info.kind == type_kind_t::ARRAY ||
-            info.kind == type_kind_t::WEAK || info.kind == type_kind_t::FUNCTION) {
+        if (info.kind == type_kind_t::CLASS || info.kind == type_kind_t::INTERFACE ||
+            info.kind == type_kind_t::ARRAY || info.kind == type_kind_t::WEAK ||
+            info.kind == type_kind_t::FUNCTION) {
             return true;
         }
 
@@ -503,6 +520,14 @@ private:
         m_concat = declare("fb_string_concat", m_ptr, { m_ptr, m_ptr });
         m_join = declare("fb_string_join", m_ptr, { m_ptr, m_i64 });
         m_equal = declare("fb_string_equal", m_i32, { m_ptr, m_ptr });
+        m_compare = declare("fb_string_compare", m_i32, { m_ptr, m_ptr });
+        m_hash_string = declare("fb_string_hash", m_i64, { m_ptr });
+        m_hash_integer = declare("fb_hash_integer", m_i64, { m_i64 });
+        m_hash_float = declare("fb_hash_float", m_i64, { f64 });
+        m_hash_object = declare("fb_hash_object", m_i64, { m_ptr });
+        m_hash_combine = declare("fb_hash_combine", m_i64, { m_i64, m_i64 });
+        m_string_chars = declare("fb_string_chars", m_void, { m_ptr, m_ptr });
+        m_string_bytes = declare("fb_string_bytes", m_void, { m_ptr, m_ptr });
         m_from_int = declare("fb_string_from_int", m_ptr, { m_i64 });
         m_from_uint = declare("fb_string_from_uint", m_ptr, { m_i64 });
         m_from_float32 = declare("fb_string_from_float32", m_ptr, { f32 });
@@ -523,6 +548,10 @@ private:
         m_discard = declare("fb_object_discard", m_void, { m_ptr });
         m_object_is = declare("fb_object_is", m_i32, { m_ptr, m_ptr });
         m_object_expect = declare("fb_object_expect", m_void, { m_ptr, m_ptr, m_ptr });
+        m_interface_methods = declare("fb_interface_methods", m_ptr, { m_ptr, m_ptr });
+        m_object_implements = declare("fb_object_implements", m_i32, { m_ptr, m_ptr });
+        m_object_expect_implements =
+            declare("fb_object_expect_implements", m_void, { m_ptr, m_ptr, m_ptr });
         m_array_new = declare("fb_array_new", m_ptr, { m_ptr, m_i64, m_i64 });
         m_array_push = declare("fb_array_push", m_ptr, { m_ptr, m_i64 });
         m_array_insert = declare("fb_array_insert", m_ptr, { m_ptr, m_i64, m_i64, m_ptr });
@@ -534,15 +563,78 @@ private:
     }
 
     /// An fb_class_t, with a Method table of type `table`: its name, its objects' size, its
-    /// destroy, release, and visit, its count of objects, and the Class it extends.
+    /// destroy, release, and visit, its count of objects, its Interfaces and their count, and the
+    /// Class it extends.
     LLVMTypeRef class_type(LLVMTypeRef table) {
-        std::array<LLVMTypeRef, 8> fields{ m_ptr, m_i64, m_ptr, m_ptr, m_ptr, m_i64, m_ptr, table };
+        std::array<LLVMTypeRef, 10> fields{
+            m_ptr, m_i64, m_ptr, m_ptr, m_ptr, m_i64, // name, size, destroy, release, visit, live
+            m_ptr, m_i64,                             // interfaces, interface_count
+            m_ptr, table,                             // base, methods
+        };
         return LLVMStructTypeInContext(context(), fields.data(),
                                        static_cast<unsigned>(fields.size()), 0);
     }
 
     /// Where the Method table is in an fb_class_t.
-    static constexpr unsigned methods_field = 7;
+    static constexpr unsigned methods_field = 9;
+
+    /// An Interface's fb_interface_t, made the first time it's needed.
+    LLVMValueRef interface_info(const type_id_t interface) {
+        if (const auto found = m_interfaces.find(interface); found != m_interfaces.end()) {
+            return found->second;
+        }
+
+        const std::string_view name = m_mir.types->name(interface);
+        LLVMValueRef name_value = c_string(std::string(name));
+        LLVMValueRef global = LLVMAddGlobal(
+            m_module.get(), LLVMTypeOf(LLVMConstStructInContext(context(), &name_value, 1, 0)),
+            std::format("fb.{}.interface", name).c_str());
+        LLVMSetInitializer(global, LLVMConstStructInContext(context(), &name_value, 1, 0));
+        LLVMSetGlobalConstant(global, 1);
+        LLVMSetLinkage(global, LLVMInternalLinkage);
+        return m_interfaces[interface] = global;
+    }
+
+    /// A Class's fb_implementation_t for each Interface its objects implement, each with a table
+    /// of its own, and how many there are.
+    std::pair<LLVMValueRef, LLVMValueRef> implementations(const mir_class_t& info) {
+        if (info.interfaces.empty()) {
+            return { LLVMConstNull(m_ptr), LLVMConstInt(m_i64, 0, 0) };
+        }
+
+        const std::string_view name = m_mir.types->name(info.type);
+        std::vector<LLVMValueRef> entries;
+        for (const mir_implementation_t& implementation : info.interfaces) {
+            std::vector<LLVMValueRef> methods;
+            methods.reserve(implementation.methods.size());
+            for (const function_id_t method : implementation.methods) {
+                methods.push_back(m_functions[index(method)].value);
+            }
+
+            LLVMValueRef table_value = LLVMConstArray2(m_ptr, methods.data(), methods.size());
+            LLVMValueRef table = LLVMAddGlobal(
+                m_module.get(), LLVMTypeOf(table_value),
+                std::format("fb.{}.{}.methods", name, m_mir.types->name(implementation.interface))
+                    .c_str());
+            LLVMSetInitializer(table, table_value);
+            LLVMSetGlobalConstant(table, 1);
+            LLVMSetLinkage(table, LLVMInternalLinkage);
+            std::array<LLVMValueRef, 2> entry{ interface_info(implementation.interface), table };
+            entries.push_back(LLVMConstStructInContext(context(), entry.data(),
+                                                       static_cast<unsigned>(entry.size()), 0));
+        }
+
+        std::array<LLVMTypeRef, 2> entry_fields{ m_ptr, m_ptr };
+        LLVMTypeRef entry_type = LLVMStructTypeInContext(
+            context(), entry_fields.data(), static_cast<unsigned>(entry_fields.size()), 0);
+        LLVMValueRef list_value = LLVMConstArray2(entry_type, entries.data(), entries.size());
+        LLVMValueRef list = LLVMAddGlobal(m_module.get(), LLVMTypeOf(list_value),
+                                          std::format("fb.{}.interfaces", name).c_str());
+        LLVMSetInitializer(list, list_value);
+        LLVMSetGlobalConstant(list, 1);
+        LLVMSetLinkage(list, LLVMInternalLinkage);
+        return { list, LLVMConstInt(m_i64, entries.size(), 0) };
+    }
 
     /// A function only this module calls.
     function_ref_t declare_internal(const std::string& name, LLVMTypeRef result,
@@ -602,24 +694,28 @@ private:
             LLVMSetInitializer(m_classes.at(info.type),
                                class_value(name, LLVMSizeOf(object_type(info.type)),
                                            functions.destroy, functions.release, functions.visit,
-                                           extended, std::move(methods)));
+                                           implementations(info), extended, std::move(methods)));
             m_class_functions.push_back(functions);
         }
     }
 
     /// An fb_class_t's value, with no objects counted yet. `destroy` is nullopt for a Class
     /// without a Destroy() in its line, and `base` is null for one that extends nothing.
+    /// `interfaces` is its list of fb_implementation_t and their count.
     LLVMValueRef class_value(const std::string_view name, LLVMValueRef size,
                              const std::optional<function_ref_t>& destroy,
                              const function_ref_t& release, const function_ref_t& visit,
+                             const std::pair<LLVMValueRef, LLVMValueRef>& interfaces,
                              LLVMValueRef base, std::vector<LLVMValueRef> methods) {
-        std::array<LLVMValueRef, 8> values{
+        std::array<LLVMValueRef, 10> values{
             c_string(std::string(name)),
             size,
             destroy ? destroy->value : LLVMConstNull(m_ptr),
             release.value,
             visit.value,
             LLVMConstInt(m_i64, 0, 0),
+            interfaces.first,
+            interfaces.second,
             base,
             LLVMConstArray2(m_ptr, methods.data(), methods.size()),
         };
@@ -654,6 +750,14 @@ private:
             const function_ref_t declared =
                 declare(name.c_str(), llvm_type(function.return_type), std::move(parameters));
             LLVMSetLinkage(declared.value, LLVMInternalLinkage);
+            if (function.is_inline) {
+                constexpr std::string_view always = "alwaysinline";
+                const unsigned kind = LLVMGetEnumAttributeKindForName(always.data(), always.size());
+                LLVMAddAttributeAtIndex(declared.value,
+                                        static_cast<LLVMAttributeIndex>(LLVMAttributeFunctionIndex),
+                                        LLVMCreateEnumAttribute(context(), kind, 0));
+            }
+
             m_functions.push_back(declared);
         }
     }
@@ -908,6 +1012,7 @@ private:
         const type_t& info = m_mir.types->get(type);
         switch (info.kind) {
         case type_kind_t::CLASS:
+        case type_kind_t::INTERFACE:
         case type_kind_t::ARRAY:
         case type_kind_t::FUNCTION:
             return true;
@@ -980,9 +1085,9 @@ private:
             .visit =
                 declare_internal(std::format("fb.{}.visit", name), m_void, { m_ptr, m_ptr, m_ptr }),
         };
-        LLVMValueRef info =
-            class_value(name, LLVMSizeOf(m_array_type), std::nullopt, functions.release,
-                        functions.visit, LLVMConstNull(m_ptr), {});
+        LLVMValueRef info = class_value(
+            name, LLVMSizeOf(m_array_type), std::nullopt, functions.release, functions.visit,
+            { LLVMConstNull(m_ptr), LLVMConstInt(m_i64, 0, 0) }, LLVMConstNull(m_ptr), {});
         const std::string global_name = std::format("fb.{}.class", name);
         LLVMValueRef global = LLVMAddGlobal(m_module.get(), LLVMTypeOf(info), global_name.c_str());
         LLVMSetInitializer(global, info);
@@ -1455,6 +1560,10 @@ private:
         }
 
         const bool is_signed_type = is_signed(type);
+        if (node.overflows) {
+            return overflows(node.op, type, left, right);
+        }
+
         // Lowering marks arithmetic it adds itself, like a For loop's counting, as wrapping.
         const bool check = checked() && !node.wrapping;
         switch (node.op) {
@@ -1562,6 +1671,40 @@ private:
         default:
             std::unreachable();
         }
+    }
+
+    /// Whether integer + - * overflows, from LLVM's intrinsics, or / divides by zero or computes
+    /// MIN / -1: a Bool.
+    LLVMValueRef overflows(const binary_op_t op, const type_id_t type, LLVMValueRef left,
+                           LLVMValueRef right) {
+        const bool is_signed_type = is_signed(type);
+        LLVMTypeRef llvm = LLVMTypeOf(left);
+        if (op == binary_op_t::DIVIDE) {
+            LLVMValueRef by_zero =
+                LLVMBuildICmp(builder(), LLVMIntEQ, right, LLVMConstNull(llvm), "");
+            if (!is_signed_type) {
+                return by_zero;
+            }
+
+            const unsigned long long min = 1ULL << (bit_width(type) - 1);
+            LLVMValueRef is_min =
+                LLVMBuildICmp(builder(), LLVMIntEQ, left, LLVMConstInt(llvm, min, 0), "");
+            LLVMValueRef is_minus_one =
+                LLVMBuildICmp(builder(), LLVMIntEQ, right, LLVMConstAllOnes(llvm), "");
+            return LLVMBuildOr(builder(), by_zero,
+                               LLVMBuildAnd(builder(), is_min, is_minus_one, ""), "");
+        }
+
+        std::string_view intrinsic =
+            is_signed_type ? "llvm.smul.with.overflow" : "llvm.umul.with.overflow";
+        if (op == binary_op_t::ADD) {
+            intrinsic = is_signed_type ? "llvm.sadd.with.overflow" : "llvm.uadd.with.overflow";
+        } else if (op == binary_op_t::SUBTRACT) {
+            intrinsic = is_signed_type ? "llvm.ssub.with.overflow" : "llvm.usub.with.overflow";
+        }
+
+        LLVMValueRef result = call_intrinsic(intrinsic, llvm, { left, right });
+        return LLVMBuildExtractValue(builder(), result, 1, "");
     }
 
     /// Division by zero always panics. MIN / -1 overflows: debug builds panic, and release builds
@@ -1728,11 +1871,23 @@ private:
         }
 
         function_ref_t function = m_functions[index(node.function)];
-        if (node.slot) {
+        if (node.interface != type_id_t::INVALID && node.slot) {
+            function.value = interface_method(arguments[0], node.interface, *node.slot);
+        } else if (node.slot) {
             function.value = method_of(arguments[0], *node.slot);
         }
 
         return call(function, std::move(arguments));
+    }
+
+    /// The function in a slot of the table that an object's Class has for an Interface, which
+    /// the runtime finds.
+    LLVMValueRef interface_method(LLVMValueRef object, const type_id_t interface,
+                                  const std::uint32_t slot) {
+        LLVMValueRef table = call(m_interface_methods, { object, interface_info(interface) });
+        LLVMValueRef position = LLVMConstInt(m_i64, slot, 0);
+        LLVMValueRef entry = LLVMBuildGEP2(builder(), m_ptr, table, &position, 1, "");
+        return LLVMBuildLoad2(builder(), m_ptr, entry, "");
     }
 
     /// The function in a slot of an object's Method table, which its Class's info holds.
@@ -1814,24 +1969,36 @@ private:
     }
 
     LLVMValueRef value(const is_t& node) {
-        LLVMValueRef is = call(m_object_is, { value_of(node.value), m_classes.at(node.type) });
+        LLVMValueRef is = call(is_interface(node.type) ? m_object_implements : m_object_is,
+                               { value_of(node.value), type_info(node.type) });
         return LLVMBuildICmp(builder(), LLVMIntNE, is, LLVMConstNull(m_i32), "");
     }
 
+    /// A Class's fb_class_t, or an Interface's fb_interface_t.
+    LLVMValueRef type_info(const type_id_t type) {
+        return is_interface(type) ? interface_info(type) : m_classes.at(type);
+    }
+
     /// The runtime checks the object's Class, and reports the one it found. For 'As?', a wrong
-    /// Class gives Null instead, and for 'As T?', Null isn't checked.
+    /// Class gives Null instead, and for 'As T?', Null isn't checked. For an Interface, the
+    /// Class has to implement it.
     LLVMValueRef value(const downcast_t& node) {
         LLVMValueRef object = value_of(node.value);
         const bool nullable = is_nullable(node.type);
-        LLVMValueRef type = m_classes.at(nullable ? inner_of(node.type) : node.type);
+        const type_id_t target = nullable ? inner_of(node.type) : node.type;
+        LLVMValueRef type = type_info(target);
+        const function_ref_t& is_function =
+            is_interface(target) ? m_object_implements : m_object_is;
+        const function_ref_t& expect_function =
+            is_interface(target) ? m_object_expect_implements : m_object_expect;
         if (node.or_null) {
-            LLVMValueRef is = call(m_object_is, { object, type });
+            LLVMValueRef is = call(is_function, { object, type });
             LLVMValueRef fits = LLVMBuildICmp(builder(), LLVMIntNE, is, LLVMConstNull(m_i32), "");
             return LLVMBuildSelect(builder(), fits, object, LLVMConstNull(m_ptr), "");
         }
 
         if (!nullable) {
-            call(m_object_expect, { object, type, location(node.span) });
+            call(expect_function, { object, type, location(node.span) });
             return object;
         }
 
@@ -1841,7 +2008,7 @@ private:
         LLVMValueRef null = LLVMBuildICmp(builder(), LLVMIntEQ, object, LLVMConstNull(m_ptr), "");
         LLVMBuildCondBr(builder(), null, done, check);
         LLVMPositionBuilderAtEnd(builder(), check);
-        call(m_object_expect, { object, type, location(node.span) });
+        call(expect_function, { object, type, location(node.span) });
         LLVMBuildBr(builder(), done);
         LLVMPositionBuilderAtEnd(builder(), done);
         return object;
@@ -1870,9 +2037,47 @@ private:
             return call(m_load_weak, { value_of(node.arguments[0]) });
         case runtime_function_t::OBJECT_DISCARD:
             return call(m_discard, { value_of(node.arguments[0]) });
+        case runtime_function_t::COMPARE:
+            return call(m_compare, { value_of(node.arguments[0]), value_of(node.arguments[1]) });
+        case runtime_function_t::HASH:
+            return hash(node.arguments[0]);
+        case runtime_function_t::HASH_COMBINE:
+            return call(m_hash_combine,
+                        { value_of(node.arguments[0]), value_of(node.arguments[1]) });
+        case runtime_function_t::STRING_CHARS:
+            return call(m_string_chars,
+                        { value_of(node.arguments[0]), value_of(node.arguments[1]) });
+        case runtime_function_t::STRING_BYTES:
+            return call(m_string_bytes,
+                        { value_of(node.arguments[0]), value_of(node.arguments[1]) });
         default:
             return array_call(node);
         }
+    }
+
+    /// A value's hash from the runtime: a String's of its bytes, an object's of which object it
+    /// is, a float's of its value, and anything else's of its integer bits.
+    LLVMValueRef hash(const operand_t& operand) {
+        const type_id_t type = type_of(operand);
+        LLVMValueRef value = value_of(operand);
+        if (type == type_id_t::STRING) {
+            return call(m_hash_string, { value });
+        }
+
+        if (is_object(type)) {
+            return call(m_hash_object, { value });
+        }
+
+        if (is_float(type)) {
+            LLVMValueRef wide =
+                LLVMBuildFPExt(builder(), value, LLVMDoubleTypeInContext(context()), "");
+            return call(m_hash_float, { wide });
+        }
+
+        const type_id_t integer = is_enum(type) ? inner_of(type) : type;
+        LLVMValueRef bits = is_signed(integer) ? LLVMBuildSExt(builder(), value, m_i64, "")
+                                               : LLVMBuildZExt(builder(), value, m_i64, "");
+        return call(m_hash_integer, { bits });
     }
 
     /// A T[]'s operations. The runtime moves the elements around, and this stores, retains, and

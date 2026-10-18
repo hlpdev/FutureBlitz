@@ -166,6 +166,14 @@ struct index_expr_t {
     std::vector<expr_id_t> indices;
 };
 
+/// "object[from..to]": a new array of the elements from `from` up to `to`, without the one at
+/// `to`. Either can be left out, as in "a[2..]" or "a[..n]", for the start or the end.
+struct slice_expr_t {
+    expr_id_t object;
+    std::optional<expr_id_t> from;
+    std::optional<expr_id_t> to;
+};
+
 /// "value As Type", or "value As? Type" when `checked`: a downcast that gives Null when it
 /// fails, which isn't supported in M1.
 struct cast_expr_t {
@@ -190,6 +198,17 @@ struct super_expr_t {};
 /// "[1, 2, 3]", a new array of the elements.
 struct array_expr_t {
     std::vector<expr_id_t> elements;
+};
+
+/// "key: value" in a Map literal.
+struct map_entry_t {
+    expr_id_t key;
+    expr_id_t value;
+};
+
+/// "{"a": 1, "b": 2}", a new Map of the entries.
+struct map_expr_t {
+    std::vector<map_entry_t> entries;
 };
 
 /// "(a, b)", a tuple of two or more values. As an assignment's target, each element is assigned:
@@ -230,8 +249,9 @@ struct try_expr_t {
 using expr_node_t =
     std::variant<error_expr_t, integer_expr_t, decimal_expr_t, character_expr_t, string_expr_t,
                  bool_expr_t, null_expr_t, name_expr_t, unary_expr_t, binary_expr_t, ternary_expr_t,
-                 call_expr_t, member_expr_t, index_expr_t, cast_expr_t, is_expr_t, self_expr_t,
-                 super_expr_t, array_expr_t, try_expr_t, tuple_expr_t, lambda_expr_t>;
+                 call_expr_t, member_expr_t, index_expr_t, slice_expr_t, cast_expr_t, is_expr_t,
+                 self_expr_t, super_expr_t, array_expr_t, map_expr_t, try_expr_t, tuple_expr_t,
+                 lambda_expr_t>;
 
 struct expr_t {
     span_t span;
@@ -278,8 +298,14 @@ struct function_type_t {
     std::optional<type_expr_id_t> result;
 };
 
+/// A value where a type argument goes, for a Const type parameter: the 64 in
+/// "Grid<Float, 64, 64>".
+struct value_type_t {
+    expr_id_t value;
+};
+
 using type_expr_node_t = std::variant<error_type_t, named_type_t, nullable_type_t, array_type_t,
-                                      weak_type_t, tuple_type_t, function_type_t>;
+                                      weak_type_t, tuple_type_t, function_type_t, value_type_t>;
 
 struct type_expr_t {
     span_t span;
@@ -310,6 +336,13 @@ struct increment_stmt_t {
     bool decrement;
 };
 
+/// "@Rename("hp")": an attribute that an Attribute declaration declares, with its arguments,
+/// which can be named, like a call's.
+struct attribute_t {
+    name_t name;
+    std::vector<argument_t> arguments;
+};
+
 /// What Abstract, Final, Override, Static, and ReadOnly say about a declaration: a Class, a
 /// Method, a Field, or a Property.
 struct modifiers_t {
@@ -320,6 +353,14 @@ struct modifiers_t {
     bool is_static = false;
     /// "ReadOnly": a Field that only its Class's New can change.
     bool is_read_only = false;
+    /// "Const Function": the compiler runs a call whose arguments are known at compile time.
+    bool is_const = false;
+    /// "@Inline": every call to it is inlined.
+    bool is_inline = false;
+    /// "@Deprecated", with its message, which may be empty: each use gets a warning.
+    std::optional<std::string> deprecated;
+    /// The attributes that Attribute declarations declare, which reflection reads.
+    std::vector<attribute_t> attributes;
 };
 
 /// The keyword that declares a variable: Local, Global, Const, or a Struct's Field.
@@ -353,7 +394,19 @@ struct parameter_t {
     name_t name;
     bool by_ref;
     type_expr_id_t type;
+    /// "nums: Int...": the last parameter, which takes the rest of a call's arguments as an
+    /// Int[].
+    bool variadic;
     std::optional<expr_id_t> default_value;
+};
+
+/// "T: Hashable & Equatable": the Interfaces a type parameter implements, written in the type
+/// parameters, as in "<T: Comparable>", or on a Where line at the top of the body.
+struct constraint_t {
+    name_t parameter;
+    std::vector<type_expr_id_t> interfaces;
+    /// Written on a "Where" line.
+    bool where = false;
 };
 
 /// What a function_stmt_t declares.
@@ -376,6 +429,13 @@ struct function_stmt_t {
     name_t name;
     /// The names in "Function First<T>(...)": a generic function's type parameters.
     std::vector<name_t> type_parameters;
+    /// For each type parameter written "Const N: Int", the type of its value, at the same place
+    /// as its name. Empty when none is Const.
+    std::vector<std::optional<type_expr_id_t>> value_types;
+    /// What its type parameters implement. On a Method's Where line, one for its Struct's or
+    /// Class's type parameter makes the Method conditional: it's only there when the type
+    /// argument implements those Interfaces.
+    std::vector<constraint_t> constraints;
     std::vector<parameter_t> parameters;
     /// nullopt when the function returns nothing.
     std::optional<type_expr_id_t> return_type;
@@ -385,6 +445,9 @@ struct function_stmt_t {
     /// Abstract Method has none.
     block_t body;
     modifiers_t modifiers;
+    /// In an Interface: written as its first line alone, without a body, so each type that
+    /// implements the Interface gives it.
+    bool required = false;
 };
 
 /// The If, or one ElseIf: a condition and the code it runs.
@@ -446,6 +509,30 @@ struct for_in_stmt_t {
     block_t body;
 };
 
+/// What a loop over a type's members goes over.
+enum class member_kind_t : std::uint8_t {
+    FIELD,
+    METHOD,
+    PROPERTY,
+    STATIC_FIELD,
+};
+
+/// "For Field f: F In T", "For Method m In T", "For Property p: P In T", or "For Static Field
+/// s: S In T": a loop over a type's members, which the compiler unrolls into a copy of the body
+/// for each one.
+struct for_member_stmt_t {
+    std::optional<name_t> label;
+    member_kind_t kind = member_kind_t::FIELD;
+    name_t variable;
+    /// The "F" in "For Field f: F In T": a name for each member's type in the body, or for a
+    /// Method's, the Func type its Where line gives.
+    std::optional<name_t> type_name;
+    type_expr_id_t type;
+    /// The Where lines at the top of the body, on the member's type.
+    std::vector<constraint_t> constraints;
+    block_t body;
+};
+
 /// One value of a Case, or an inclusive range like "1 To 5" when `range_end` is set.
 struct case_value_t {
     expr_id_t value;
@@ -489,17 +576,33 @@ struct return_stmt_t {
     std::optional<expr_id_t> value;
 };
 
-/// "Struct Name ... End Struct", or "Class Name Extends Base ... End Class". Its members are
-/// Fields (variable_stmt_t) and Methods and News (function_stmt_t), in source order.
+/// "Struct Name ... End Struct", "Class Name Extends Base Implements A, B ... End Class", or
+/// "Interface Name Extends A, B ... End Interface". Its members are Fields (variable_stmt_t),
+/// Methods, Operators, and News (function_stmt_t), and Properties, in source order.
 struct type_stmt_t {
     /// "Class" rather than "Struct".
     bool is_class = false;
+    /// "Interface": what the types that implement it have. Its members without a body are
+    /// required, and the others are defaults.
+    bool is_interface = false;
+    /// "Attribute Rename(Name: String)": a Struct whose fields are its parameters, which goes on
+    /// declarations as "@Rename("hp")" for reflection to read.
+    bool is_attribute = false;
     name_t name;
     /// The names in "Class Stack<T>": a generic type's type parameters.
     std::vector<name_t> type_parameters;
+    /// For each type parameter written "Const W: Int", the type of its value, at the same place
+    /// as its name. Empty when none is Const.
+    std::vector<std::optional<type_expr_id_t>> value_types;
+    /// What its type parameters implement, from "<T: Printable>" and the Where lines at the top
+    /// of its body.
+    std::vector<constraint_t> constraints;
     block_t members;
-    /// The Class after Extends.
+    /// The Class after Extends, and its type arguments when it's generic: "Extends Base<Int>".
     std::optional<name_t> base;
+    std::vector<type_expr_id_t> base_arguments;
+    /// The Interfaces after Implements, or for an Interface, after Extends.
+    std::vector<type_expr_id_t> interfaces;
     modifiers_t modifiers;
 };
 
@@ -513,6 +616,10 @@ struct property_stmt_t {
     std::optional<stmt_id_t> getter;
     std::optional<stmt_id_t> setter;
     modifiers_t modifiers;
+    /// Written as its first line alone, in an Interface or as Abstract: each type that implements
+    /// the Interface, or Class that extends this one, gives its Get, and its Set unless it's
+    /// ReadOnly.
+    bool required = false;
 };
 
 /// "Defer statement": runs the statement when the enclosing block exits, however it exits.
@@ -541,6 +648,18 @@ struct try_stmt_t {
     std::optional<block_t> finally_body;
 };
 
+/// "Extend Type Implements A, B ... End Extend": Methods, Operators, Properties, and Interfaces
+/// added to a type that's declared already. Its type is a Struct, Class, Enum, or built-in
+/// type, a generic one written with its own type parameters, like "Box<T>", or "T[]" for every
+/// array.
+struct extend_stmt_t {
+    type_expr_id_t type;
+    std::vector<type_expr_id_t> interfaces;
+    /// From the Where lines at the top of its body, which only some instances, or arrays, meet.
+    std::vector<constraint_t> constraints;
+    block_t members;
+};
+
 /// One of an Enum's members: "Name", or "Name = value".
 struct enum_member_t {
     name_t name;
@@ -556,6 +675,8 @@ struct enum_stmt_t {
     std::vector<enum_member_t> members;
     /// Written with @Flags: the values are bits, which combine.
     bool flags = false;
+    /// Its attributes, like @Deprecated.
+    modifiers_t modifiers;
 };
 
 using stmt_node_t =
@@ -563,7 +684,7 @@ using stmt_node_t =
                  function_stmt_t, if_stmt_t, while_stmt_t, repeat_stmt_t, loop_stmt_t, for_stmt_t,
                  for_in_stmt_t, select_stmt_t, break_stmt_t, continue_stmt_t, return_stmt_t,
                  type_stmt_t, enum_stmt_t, defer_stmt_t, throw_stmt_t, try_stmt_t, property_stmt_t,
-                 destructure_stmt_t>;
+                 destructure_stmt_t, extend_stmt_t, for_member_stmt_t>;
 
 struct stmt_t {
     span_t span;

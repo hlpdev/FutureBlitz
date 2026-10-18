@@ -30,6 +30,16 @@ Function Sum(nums: Int...): Int                 // variadic; nums is Int[]
 - Parameters are read-only inside the function. To change one, copy it into a `Local`.
 - Default values must be known at compile time.
 
+### Variadic parameters
+
+- `nums: Int...` takes the rest of a call's arguments as an `Int[]`: `Sum()`, `Sum(1)`, and
+  `Sum(1, 2, 3)` pack theirs into a new array. One argument that's an array already, a `T[]` or
+  an array literal, is passed as it is: `Sum(xs)`. Named, it takes an array: `Sum(nums: xs)`.
+- Only the last parameter can take the rest of the arguments. It can't be `ByRef` or have a
+  default, since without any it's an empty array, and an Operator can't have one.
+- A generic one infers its type argument from each argument: `Largest(1.5, 2, 3)` with `rest:
+  T...` gives `Float`.
+
 ### ByRef
 
 A `ByRef` parameter is the caller's own variable: assigning to it changes the caller's
@@ -41,8 +51,8 @@ Swap(x, y)                 // ✗ error: Swap takes a ByRef; write ByRef x
 ```
 
 - Only something assignable can be passed `ByRef`: a `Local`, a `Global`, a `ByRef` parameter,
-  and later a field or array element. Not a `Const`, a literal, a loop variable, a read-only
-  parameter, or a computed expression.
+  or a field of one. Not a `Const`, a literal, a loop variable, a read-only parameter, a computed
+  expression, or an array's element, which can move when the array grows.
 - The argument's type must match the parameter's exactly, and it must already be assigned.
 - The same variable can't be passed `ByRef` twice in one call.
 - A `ByRef` parameter can't have a default value, can't be captured by a closure, and can't be

@@ -101,6 +101,9 @@ struct binary_t {
     /// Integer + - * wrap around on overflow instead of panicking. Release builds always wrap;
     /// this makes debug builds wrap too. For loops use it where wrapping is intended.
     bool wrapping = false;
+    /// Gives a Bool instead: whether integer + - * would overflow, or / would divide by zero or
+    /// overflow. An integer's Checked Methods test with it.
+    bool overflows = false;
 };
 
 /// Converts between numbers, or from a Bool to an integer (0 or 1), for 'As' and for implicit
@@ -128,6 +131,10 @@ struct call_t {
     /// Class, which has the one to call. `function` is the one the receiver's type has, which
     /// takes the same arguments. A Class's Self takes an object of any Class extending it.
     std::optional<std::uint32_t> slot;
+    /// For a call through an Interface's object: the Interface. `slot` is the place in the table
+    /// that the object's Class has for it, and `function` is the Interface's own, with the
+    /// Interface for Self, which takes the same arguments.
+    type_id_t interface = type_id_t::INVALID;
 };
 
 /// The runtime library functions MIR calls; see runtime/include/fb/runtime.hpp. A String they
@@ -163,6 +170,18 @@ enum class runtime_function_t : std::uint8_t {
     /// (T) to nothing: lets go of an object whose New threw. Its fields are released, and its
     /// Destroy doesn't run.
     OBJECT_DISCARD,
+    /// (String, String) to an Int32: below 0, 0, or above 0 as the first comes before the
+    /// second, is the same, or comes after, for `<` and the rest on Strings.
+    COMPARE,
+    /// (a number, Bool, Enum, String, or Class's object) to a UInt64 hash, the same for equal
+    /// values.
+    HASH,
+    /// (UInt64, UInt64) to a UInt64: a hash so far, combined with the next part's.
+    HASH_COMBINE,
+    /// (String, Int32[]) to nothing: adds the String's code points to the array.
+    STRING_CHARS,
+    /// (String, UInt8[]) to nothing: adds the String's UTF-8 bytes to the array.
+    STRING_BYTES,
 };
 
 struct runtime_call_t {
@@ -302,6 +321,15 @@ struct mir_function_t {
     type_id_t return_type = type_id_t::NONE;
     /// The function starts at blocks[0].
     std::vector<basic_block_t> blocks;
+    /// Written with @Inline: every call to it is inlined, in debug builds too.
+    bool is_inline = false;
+};
+
+/// An Interface that a Class's objects implement, and the Class's table for it: for each of the
+/// Interface's Methods, and each Get and Set of its Properties, in order, the one they run.
+struct mir_implementation_t {
+    type_id_t interface;
+    std::vector<function_id_t> methods;
 };
 
 /// A Class, for the runtime: codegen makes its fb_class_t, and the destroy that runs its
@@ -313,6 +341,8 @@ struct mir_class_t {
     std::optional<function_id_t> destroy;
     /// The Method table: for each slot, the Method its objects run.
     std::vector<function_id_t> methods;
+    /// The Interfaces its objects implement that can be types, with its table for each.
+    std::vector<mir_implementation_t> interfaces;
 };
 
 /// A whole program, lowered from one file. Names view the source text, so the file must

@@ -1,0 +1,92 @@
+// Interfaces: what the Structs and Classes that implement them have. One that can be a type
+// holds an object of a Class, and calls run what that object's Class gives.
+Interface Shown
+    Method Text(): String
+
+    // A default: a type implementing Shown without a Loud of its own gets this one.
+    Method Loud(): String => Text() + "!"
+
+    // A default's lambda can use Self too.
+    Method Later(): Func(): String => Function() => "later: " + Text()
+End Interface
+
+Interface Damageable Extends Shown
+    Method Hurt(amount: Int)
+    ReadOnly Property Health: Int
+
+    Method Kill()
+        Hurt(Health * 2)
+    End Method
+End Interface
+
+Class Enemy Implements Damageable
+    Field Name: String
+    Field hp: Int = 10
+
+    New(name: String)
+        Name = name
+    End New
+
+    Method Text(): String => "{Name} ({hp})"
+
+    Method Hurt(amount: Int)
+        hp -= amount
+    End Method
+
+    Property Health: Int
+        Get => hp
+    End Property
+End Class
+
+// A Class extending one implements what that one does, and can override what it got from a
+// default.
+Class Boss Extends Enemy
+    New(name: String)
+        Super.New(name)
+    End New
+
+    Override Method Hurt(amount: Int)
+        Super.Hurt(amount / 2)
+    End Method
+
+    Override Method Loud(): String => "BOSS " + Text()
+End Class
+
+Class Rock Implements Shown
+    Method Text(): String => "a rock"
+End Class
+
+Function Report(things: Shown[])
+    For thing In things
+        Select thing
+        Case boss As Boss
+            Print("boss: {boss.Loud()}")
+        Case target As Damageable
+            Print("target with {target.Health}: {target.Loud()}")
+        Default
+            Print("thing: {thing.Loud()}")
+        End Select
+    End For
+End Function
+
+Local grunt = Enemy("grunt")
+Local ogre = Boss("ogre")
+Local targets: Damageable[] = [grunt, ogre]
+For target In targets
+    target.Hurt(4)
+End For
+
+Report([grunt, ogre, Rock()])
+ogre.Kill()
+Print(ogre.Text())
+Print(grunt.Later()())
+
+// An object converts to an Interface its Class implements, and Is, As, and As? test for one.
+Local shown: Shown = grunt
+Print("{shown Is Damageable} {Rock() As? Damageable == Null}")
+Local back = shown As Enemy
+back.Kill()
+Print(back.Text())
+
+Local nobody: Shown? = Null
+Print(nobody?.Text() ?? "nobody")

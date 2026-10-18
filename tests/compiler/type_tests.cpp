@@ -235,3 +235,62 @@ TEST_CASE("a copy of a type table keeps its types and adds its own", "[types]") 
     CHECK(copy.name(points) == "Point[]");
     CHECK(types.size() < copy.size());
 }
+
+TEST_CASE("an Interface has a Self, and extends the Interfaces it lists", "[types]") {
+    fb::type_table_t types;
+    const fb::type_id_t shown = types.add_interface("Shown");
+    const fb::type_id_t item = types.add_interface("Item");
+    types.set_interfaces(item, { shown });
+    CHECK(types.name(item) == "Item");
+    CHECK(types.get(types.get(item).inner).kind == fb::type_kind_t::PARAMETER);
+    CHECK(types.get(item).inner != types.get(shown).inner);
+    CHECK(types.extends(item, shown));
+    CHECK(types.extends(item, item));
+    CHECK_FALSE(types.extends(shown, item));
+
+    // Its values are references to objects, which can't be Null.
+    CHECK(types.has_references(item));
+    CHECK_FALSE(types.has_zero(item));
+    CHECK(types.has_zero(types.nullable(item)));
+
+    // A generic Class's instances implement what it does.
+    const fb::type_id_t t = types.add_parameter("T");
+    const fb::type_id_t box = types.add_class("Box<T>");
+    types.set_parameters(box, { t });
+    const fb::type_id_t ints = types.instance(box, { fb::type_id_t::INT32 });
+    types.set_interfaces(box, { item });
+    CHECK(types.get(ints).interfaces == std::vector{ item });
+}
+
+TEST_CASE("a generic Interface's instances share its Self, and extend instances", "[types]") {
+    fb::type_table_t types;
+    const fb::type_id_t t = types.add_parameter("T");
+    const fb::type_id_t source = types.add_interface("Source<T>");
+    types.set_parameters(source, { t });
+    const fb::type_id_t sink = types.add_interface("Sink<T>");
+    types.set_parameters(sink, { t });
+    types.set_interfaces(sink, { types.instance(source, { types.array(t) }) });
+
+    const fb::type_id_t ints = types.instance(sink, { fb::type_id_t::INT32 });
+    CHECK(types.name(ints) == "Sink<Int32>");
+    CHECK(types.get(ints).inner == types.get(sink).inner);
+    CHECK(types.name(types.get(ints).interfaces.front()) == "Source<Int32[]>");
+    CHECK(types.instance(sink, { fb::type_id_t::INT32 }) == ints);
+    CHECK(types.substitute(sink, { t }, { fb::type_id_t::INT32 }) == ints);
+}
+
+TEST_CASE("a Const type parameter's arguments are values, which fixed arrays take as sizes",
+          "[types]") {
+    fb::type_table_t types;
+    const fb::type_id_t w = types.add_value_parameter("W", fb::type_id_t::INT32);
+    CHECK(types.get(w).inner == fb::type_id_t::INT32);
+    const fb::type_id_t four = types.value(fb::type_id_t::INT32, 4);
+    CHECK(types.name(four) == "4");
+    CHECK(types.value(fb::type_id_t::INT32, 4) == four);
+
+    const fb::type_id_t cells = types.fixed_array(fb::type_id_t::FLOAT32, { 0, 2 }, { w });
+    CHECK(types.name(cells) == "Float32[W, 2]");
+    const fb::type_id_t made = types.substitute(cells, { w }, { four });
+    CHECK(made == types.fixed_array(fb::type_id_t::FLOAT32, { 4, 2 }));
+    CHECK(types.name(made) == "Float32[4, 2]");
+}

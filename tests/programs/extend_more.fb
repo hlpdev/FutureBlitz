@@ -1,0 +1,66 @@
+// What step 13 adds to Extend: one instance, one array type, Properties on every array, and
+// Interfaces that an Extend's Where gives a Class as values of it.
+
+Struct Box<T>
+    Field Value: T
+    Method Get(): T => Value
+End Struct
+
+// One instance.
+Extend Box<Int>
+    Method Doubled(): Int => Value * 2
+    Method Bumped(): Box<Int> => Box(Get() + 1)
+    Property Half: Int
+        Get => Value / 2
+    End Property
+End Extend
+
+Extend Box<String> Implements Printable
+    Method ToString(): String => "box of '{Value}'"
+End Extend
+
+// One array type, and a Property on every array.
+Extend Int[]
+    Method Sum(): Int
+        Local total = 0
+        For n In Self
+            total += n
+        End For
+        Return total
+    End Method
+End Extend
+
+Extend T[]
+    Property Last: T
+        Get => Self[Count - 1]
+    End Property
+End Extend
+
+// A Class that implements an Interface through an Extend's Where is a value of it.
+Interface Shown
+    Method Show(): String
+End Interface
+
+Class Holder<T>
+    Field Item: T
+
+    New(item: T)
+        Item = item
+    End New
+End Class
+
+Extend Holder<T> Implements Shown
+    Where T: Printable
+    Method Show(): String => "holding {Item}"
+End Extend
+
+Function Make<T>(item: T): Holder<T> => Holder<T>(item)
+
+Local b = Box(21)
+Print("{b.Doubled()} {b.Bumped().Value} {b.Half} {Box("x")}")
+Local nums = [1, 2, 3]
+Print("{nums.Sum()} {nums.Last} {["a", "b"].Last}")
+Local shown: Shown[] = [Make(5), Make("five")]
+For s In shown
+    Print(s.Show())
+End For

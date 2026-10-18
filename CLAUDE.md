@@ -26,7 +26,8 @@ compiler (lib), runtime (lib), cli (exe), lsp (exe)
 
 ## Current step
 M3 (generics, interfaces, `Extend`, compile-time functions, reflection), planned 2026-10-17 in
-12 steps (docs/milestones.md). Step 6: interfaces and constraints.
+13 steps (docs/milestones.md), all done. Next: plan M4 (concurrency). docs/milestones.md's
+Deferred work lists everything left for later, and where it's planned.
 
 Done in M3: step 1, programs of several files: the driver adds every std/**/*.fb file after the
 main file (`standard_library()`, `build_config::std_directory`; tests pass `library_file_t`s to
@@ -64,7 +65,91 @@ symbol named by its operator, like "+"; sema's resolve_operator() picks among th
 types' operators_of() and records the call on the expression (`symbol`, `arguments`,
 `type_arguments`), or on an "op=" statement's stmt_info_t; lowering's lower_operator() and
 call_operator() call it ("!=" negates "=="), and equal_operator() makes every == on a type use its
-Operator ==.
+Operator ==. Step 6, interfaces: INTERFACE types (`add_interface()`, whose `inner` is its Self
+parameter) and `type_t::interfaces` for Implements and Extends; `type_stmt_t::is_interface`,
+`constraint_t`s on functions and types, and `required` members, which parse_function() and
+parse_property() tell from the next line; sema's declare_interface_members() declares members with
+Self in the type scope, conform() records each `conformance_t` and copies defaults into the type
+(`symbol_t::default_method`), `constraint_only` marks Interfaces that can't be types, `m_bounds`
+holds the constraints in scope (bounds_of(), implements()), and report_bounds() checks calls and
+instances, or check_pending_bounds() once types are declared; a call of an Interface's member keeps
+Self in `expr_info_t::type_arguments`; lowering's call_interface_member() and call_operator() call
+what implements it, or go through the Interface's table (`call_t::interface`), add_class() makes
+each `mir_implementation_t`, and accessor_of() handles Interface, Abstract, and Static Properties;
+fb_class_t lists `fb_implementation_t`s, which fb_interface_methods() and fb_object_implements()
+search. Step 7, built-in interfaces: std/core/interfaces.fb declares Equatable, Comparable,
+Hashable, Printable, and Numeric, which sema finds by name (`analysis_t::interfaces`);
+builtin_implements() says which the built-in types implement, builtin_methods() gives them
+ToString and Hash, and synthesized() lets a Struct or Class that lists Equatable or Hashable keep
+the built-in == or Hash, whose conformance member is the Interface's own; showable() goes through
+Printable, and Strings order with `<`; lowering's implementation() is nullopt for the built-in
+meaning, which builtin_operator() and builtin_method() lower, hash_of() and to_string() give a
+value's Hash and text, and generated() makes each array type's ==, Hash, and text functions; the
+runtime has fb_string_compare(), fb_string_hash(), fb_hash_integer(), fb_hash_float(),
+fb_hash_object(), and fb_hash_combine(). Step 8, `Extend`: `extend_stmt_t`, from parse_extend();
+sema's declare_extension() runs after every declare_item(), finds the target with
+extension_target() (a type, a generic type's definition, or T[] over `m_array_element`), and adds
+the members, marked `symbol_t::extended`, to a Struct's or Class's members or to `m_extensions` /
+`m_array_extensions`, which members_of() reads; T[]'s members take T as their first type
+parameter, which known_arguments() fills from the array; an Extend's Interfaces join
+`type_t::interfaces`, or with a Where or for a built-in type, `analysis_t::extension_interfaces`,
+which extension_implements() checks; link_extensions() conforms the built-in types, Enums, and
+T[]; lowering keeps extended members out of the Method table, and extension_implementation()
+finds a built-in type's conformance. Step 9, sequences: generic Interfaces, named like
+"Iterator<T>", whose instances fill() gives substituted `interfaces`; an Interface's
+owner_parameters() are Self, then its own, so its members' `type_arguments` are Self, then the
+instance's (`self_arguments()`); a type implements one instance of each (`instance_for()`,
+`interfaces_of()`), a conformance records it, `symbol_t::default_interface` holds a default's, and
+infer() takes type arguments from constraints; `For ... In` over an `Iterator<T>`
+(std/core/iterator.fb, `builtin_interfaces_t::iterator`) or what an `Iterate()` gives
+(`stmt_info_t::next` and `iterate`), lowered by lower_iteration() with call_method(); `.Chars` and
+`.Bytes` fill a new array with the runtime's fb_string_chars() and fb_string_bytes();
+`slice_expr_t`, lowered with a bounds check and an ARRAY_ADD loop; variadic parameters
+(`parameter_t::variadic`, `symbol_t::variadic`), whose arguments are `binding_t::packed` and
+`expr_info_t::packed`, which lowering's array_of() makes into an array. Step 10, compile time:
+`#If`, `#ElseIf`, `#Else`, and `#End If` in the lexer, which takes the symbols from
+`defined_symbols()` (compile() with a library and compile_file() take the build mode) and skips
+the lines it leaves out; `modifiers_t` has is_const, is_inline, and deprecated, from
+parse_attributed(), and sema's note_use() warns about @Deprecated uses; `mir_function_t::is_inline`
+becomes LLVM's alwaysinline, with the always-inline pass in debug builds; Globals and Consts are
+declared first, and initialize_early() checks a Const's initializer when something needs its
+value, in a fresh `body_t` (swap_body()); run_at_compile_time() runs a Const Function's call with
+known arguments: check_const_body() checks its body on demand, lower_function() lowers it, and
+evaluate() (compiler/src/evaluate.cpp) runs the MIR on a stack of frames; a Const type parameter
+is a PARAMETER with an `inner`, its arguments are VALUE types (`type_table_t::value()`), a fixed
+array's size can be one (`type_t::parameters`), `value_type_t` is a value in type arguments,
+resolve_argument() reads one, and `expr_info_t::parameter` marks a Const type parameter used as a
+value, which lowering gives its instance's number. Step 11, reflection: `Attribute Name(params)`
+is a `type_stmt_t` with is_attribute, from parse_attribute_declaration(), and a use is an
+`attribute_t` in `modifiers_t::attributes`, with `argument_t`s; sema's check_attributes() runs
+after the defaults and puts each one's `attribute_value_t` in `symbol_t::attributes`;
+`for_member_stmt_t` is For Field or For Method, whose variable is a MEMBER_VARIABLE symbol and
+whose stmt_info_t `type_arguments` are {T, F}; collect_field_bounds() makes F (`m_loop_fields`)
+when the function is declared and turns the Where lines into `bound_t`s with `field` set, which
+field_misfit() checks at calls; check_member_variable() and check_member_call() check f.Name,
+f.Get(value), and the rest; lowering's lower_stmt() makes a copy of the body per field or
+reflected_methods() Method, with F in m_parameters and the member in `m_reflected`, and
+lower_reflection() lowers the calls. Step 12, std.collections: std/collections/*.fb (array.fb's
+`Extend T[]`, Map, Set, Stack, Queue, Deque, PriorityQueue, and Pool), which the user typed;
+`map_expr_t` is a `{key: value}` literal, which sema checks against std's Map (`m_map`, from
+find_map_class()) with common_type_of(), recording its Add in `expr_info_t::symbol`, and
+lowering makes with new_object() and a call of Add per entry; own_members() finds an array's
+Methods in an Extend of T[], and `expr_info_t::count` marks Count alone there; sema's symbols are
+a std::deque, so references to them survive add_symbol(); changed_in() reaches calls inside
+array and Map literals, indexes, slices, and Is. Step 13, loose ends: `is_later_name()` for
+names later milestones declare; an integer's Wrapping and Checked Methods (`integer_methods()`,
+`integer_method()` and `fold_integer_method()` in const_value, `binary_t::overflows`, lowered by
+integer_call()); Interface constraints, Const type parameters, Throws (`m_takes_error` in
+lowering), and generic Methods (`own_type_parameters()`, skipped in interface_slots());
+`For x In Try items` (check_iterate_call(), checked_call()); Extends of one instance or array type
+(`is_instance()`, `is_every_array()`, own_view()), and conditional Interfaces as values through
+`fb::implements()`, which lowering's implemented() asks; generic bases (`base_arguments`,
+`member_type()` and owner_arguments() through the bases); generic Statics (instance_global(),
+global_of(), Static Methods keeping their instance's type arguments); generic Const Functions
+(`m_runs` and `m_const_modules` by instance), run_early() with `m_member_types` for sizes in
+declarations' types, and `value_op_t` VALUE types for `N + M` (computed_value()); reflection's
+`member_kind_t`, reflected_types(), method_signature(), `expr_info_t::reflected` for `T.Has(A)`,
+check_default_loops(), and closure_copy() for lambdas in the loops.
 
 Done: M2 (data: structs, classes, refcounting, arrays, errors, `Defer`), planned 2026-10-16 and
 finished 2026-10-17, in 11 steps. Step 1, the type table (`type_table_t` in types.hpp: built-ins

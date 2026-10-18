@@ -108,6 +108,10 @@ TEST_CASE("postfix chains", "[parser]") {
     CHECK(expression("a?.b") == "(?. a b)");
     CHECK(expression("f()") == "(call f)");
     CHECK(expression("grid[x, y]") == "(index grid x y)");
+    CHECK(expression("a[1..n]") == "(slice a (int 1) .. n)");
+    CHECK(expression("a[i + 1..]") == "(slice a (+ i (int 1)) ..)");
+    CHECK(expression("a[..2]") == "(slice a .. (int 2))");
+    CHECK(expression("a[..]") == "(slice a ..)");
     CHECK(expression(R"(Spawn(pos, name: "boss"))") == R"((call Spawn pos name: (string "boss")))");
 }
 
@@ -183,6 +187,11 @@ TEST_CASE("functions", "[parser]") {
     CHECK(parse_text("Function Square(x: Float): Float => x * x").dump ==
           "(function Square (x: Float) -> Float (block (return (* x x))))");
     CHECK(parse_text("Function Main()\nEnd Function").dump == "(function Main (block))");
+}
+
+TEST_CASE("a variadic parameter takes the rest of the arguments", "[parser]") {
+    CHECK(parse_text("Function Sum(first: Int, rest: Int...): Int => first").dump ==
+          "(function Sum (first: Int) (rest: Int ...) -> Int (block (return first)))");
 }
 
 TEST_CASE("ByRef parameters and arguments", "[parser]") {
@@ -346,19 +355,19 @@ TEST_CASE("only calls, assignments, and ++/-- can be statements", "[parser]") {
 }
 
 TEST_CASE("constructs past M1 are reported once and skipped", "[parser]") {
-    const parsed_t parsed = parse_text("Interface Damageable\n"
+    const parsed_t parsed = parse_text("Unsafe\n"
                                        "    Method Hurt()\n"
-                                       "End Interface\n"
+                                       "End Unsafe\n"
                                        "Public Function F()\n"
                                        "End Function\n"
                                        "x = 1");
 
-    // The whole Interface becomes one (error). 'Public' is dropped, and its Function still
+    // The whole Unsafe block becomes one (error). 'Public' is dropped, and its Function still
     // parses.
     CHECK(parsed.dump == "(error)\n(function F (block))\n(= x (int 1))");
     CHECK(parsed.errors == std::vector<std::string>{
-                               "0-9: 'Interface' isn't supported yet",
-                               "53-59: 'Public' isn't supported yet",
+                               "0-6: 'Unsafe' isn't supported yet",
+                               "36-42: 'Public' isn't supported yet",
                            });
 }
 
@@ -424,6 +433,20 @@ TEST_CASE("broken input always finishes with at least one error", "[parser]") {
     }
 }
 
+TEST_CASE("a mistake in a name or an Operator doesn't hide the lines after it", "[parser]") {
+    const parsed_t unsafe = parse_text("Unsafe Function F()\nEnd Function\nLocal x = 1");
+    CHECK(unsafe.errors == std::vector<std::string>{ "0-6: 'Unsafe' isn't supported yet" });
+    CHECK(unsafe.dump.ends_with("(local x = (int 1))"));
+    CHECK(parse_text("Struct S\n"
+                     "    Operator &&(a: S, b: S): Bool => True\n"
+                     "    Field X: Int\n"
+                     "End Struct")
+              .errors == std::vector<std::string>{
+                             "22-24: '&&' always means what it does, so it can't be an Operator" });
+    CHECK(parse_text("Local Async = 1").errors ==
+          std::vector<std::string>{ "6-11: expected identifier, found 'Async'" });
+}
+
 TEST_CASE("Structs", "[parser]") {
     const parsed_t parsed = parse_text("Struct Point\n"
                                        "    Field x: Int\n"
@@ -455,10 +478,10 @@ TEST_CASE("Classes", "[parser]") {
                                        "End Class");
     CHECK(parsed.dump == "(class Enemy (block (field hp: Int) (method Destroy (block))))");
     CHECK(parsed.errors.empty());
-
-    // Interfaces come later. "Implements" is at 8-18.
-    CHECK(parse_text("Class A Implements B\nEnd Class").errors ==
-          std::vector<std::string>{ "8-18: 'Implements' isn't supported yet" });
+    CHECK(parse_text("Class Boss Extends Enemy Implements Damageable, Shown\nEnd Class").dump ==
+          "(class Boss Extends Enemy Implements Damageable Shown (block))");
+    CHECK(parse_text("Struct Money Implements Numeric\nEnd Struct").dump ==
+          "(struct Money Implements Numeric (block))");
 }
 
 TEST_CASE("Extends, modifiers, and Super", "[parser]") {
@@ -500,6 +523,16 @@ TEST_CASE("array literals and fixed array types", "[parser]") {
     CHECK(parse_text("Local e = []").dump == "(local e = (array))");
     CHECK(parse_text("Local g: Float[64, 8 * 8]").dump == "(local g: Float[64, (* 8 8)])");
     CHECK(parse_text("Local g: Int[4][]?").dump == "(local g: Int[4][]?)");
+}
+
+TEST_CASE("a Map literal is its entries in braces", "[parser]") {
+    CHECK(parse_text("Local m = {\"a\": 1, \"b\": x + 1,}").dump ==
+          "(local m = (map (entry (string \"a\") (int 1)) (entry (string \"b\") (+ x (int 1)))))");
+    CHECK(parse_text("Local e = {}").dump == "(local e = (map))");
+    CHECK(parse_text("Local n = {\n    1: {2: 3},\n}").dump ==
+          "(local n = (map (entry (int 1) (map (entry (int 2) (int 3))))))");
+    CHECK(parse_text("Local m = {\"a\" 1}").errors ==
+          std::vector<std::string>{ "15-16: expected ':', found integer literal" });
 }
 
 TEST_CASE("Weak<T> and generic types take type arguments", "[parser]") {
@@ -557,8 +590,8 @@ TEST_CASE("Enums and @Flags", "[parser]") {
           "(enum @Flags Layer World Player)");
     CHECK(parse_text("@Flags Struct S\nEnd Struct").errors ==
           std::vector<std::string>{ "1-6: @Flags only goes before an Enum" });
-    CHECK(parse_text("@Inline Function F()\nEnd Function").errors ==
-          std::vector<std::string>{ "0-1: attributes aren't supported yet" });
+    CHECK(parse_text("@Flags @Deprecated Enum E\n    A\nEnd Enum").dump ==
+          "(enum @Flags @Deprecated E A)");
 }
 
 TEST_CASE("Defer takes any statement; analysis checks which", "[parser]") {
@@ -687,11 +720,11 @@ TEST_CASE("generic functions and types, and their type arguments", "[parser]") {
     CHECK(expression("F(a < b, c > d)") == "(call F (< a b) (> c d))");
 }
 
-TEST_CASE("generic mistakes are reported", "[parser]") {
-    CHECK(parse_text("Function F<T: Comparable>()\nEnd Function").errors ==
-          std::vector<std::string>{ "12-13: constraints on type parameters aren't supported yet" });
-    CHECK(parse_text("Class B Extends A<Int>\nEnd Class").errors ==
-          std::vector<std::string>{ "17-18: extending a generic Class isn't supported yet" });
+TEST_CASE("a Class can extend an instance of a generic one", "[parser]") {
+    CHECK(parse_text("Class B Extends A<Int>\nEnd Class").dump ==
+          "(class B Extends A<Int> (block))");
+    CHECK(parse_text("Class D<T> Extends Pair<String, T>\nEnd Class").dump ==
+          "(class D<T> Extends Pair<String, T> (block))");
 }
 
 TEST_CASE("Operators are named by their operator", "[parser]") {
@@ -703,4 +736,131 @@ TEST_CASE("Operators are named by their operator", "[parser]") {
           "(operator >> (a: M) (n: Int) -> M (block (return a)))");
     CHECK(parse_text("Operator Add(a: M): M => a").errors ==
           std::vector<std::string>{ "9-12: expected an operator, like + or ==, found identifier" });
+}
+
+TEST_CASE("Interfaces", "[parser]") {
+    // A Method's first line alone is required, and one with a body is a default, even an empty
+    // body. Properties are only their first line.
+    const parsed_t parsed = parse_text("Interface Damageable Extends Living, Named\n"
+                                       "    Method Hurt(amount: Int)\n"
+                                       "    Method Kill()\n"
+                                       "        Hurt(100)\n"
+                                       "    End Method\n"
+                                       "    Method Rest()\n"
+                                       "    End Method\n"
+                                       "    ReadOnly Property Health: Int\n"
+                                       "    Operator +(a: Self, b: Self): Self\n"
+                                       "    Static Method Zero(): Self\n"
+                                       "End Interface");
+    CHECK(parsed.dump == "(interface Damageable Extends Living Named (block "
+                         "(method Hurt (amount: Int)) "
+                         "(method Kill (block (call Hurt (int 100)))) "
+                         "(method Rest (block)) "
+                         "(property ReadOnly Health: Int) "
+                         "(operator + (a: Self) (b: Self) -> Self) "
+                         "(method Static Zero -> Self)))");
+    CHECK(parsed.errors.empty());
+
+    // An Abstract Property is its first line too.
+    CHECK(parse_text("Abstract Property Area: Float").dump == "(property Abstract Area: Float)");
+    CHECK(parse_text("Interface I Implements J\nEnd Interface").errors ==
+          std::vector<std::string>{
+              "12-22: an Interface extends other Interfaces; write 'Extends'" });
+}
+
+TEST_CASE("constraints go in the type parameters, or on Where lines", "[parser]") {
+    CHECK(parse_text("Function Max<T: Comparable>(a: T, b: T): T => a").dump ==
+          "(function Max<T: Comparable> (a: T) (b: T) -> T (block (return a)))");
+    CHECK(parse_text("Function F<T: A & B, U>()\nEnd Function").dump ==
+          "(function F<T: A & B, U> (block))");
+    CHECK(parse_text("Class Cache<K, V>\n"
+                     "    Where K: Hashable & Equatable\n"
+                     "    Where V: Sendable\n"
+                     "End Class")
+              .dump == "(class Cache<K, V> (where K: Hashable & Equatable) (where V: Sendable) "
+                       "(block))");
+    CHECK(parse_text("Method Sum(): T\n    Where T: Numeric\n    Return x\nEnd Method").dump ==
+          "(method Sum -> T (where T: Numeric) (block (return x)))");
+
+    // Where lines come first. This one is at 35-40.
+    CHECK(parse_text("Function F<T>()\n    Print(\"a\")\n    Where T: I\nEnd Function").errors ==
+          std::vector<std::string>{ "35-40: a Where line goes at the top of a generic Function, "
+                                    "Method, Struct, or Class, before the rest of its body" });
+}
+
+TEST_CASE("Extend adds to a type that's declared already", "[parser]") {
+    CHECK(parse_text("Extend Box<T> Implements Printable, Shown\n"
+                     "    Where T: Printable\n"
+                     "    Method ToString(): String => Item\n"
+                     "End Extend")
+              .dump == "(extend Box<T> Implements Printable Shown (where T: Printable) "
+                       "(block (method ToString -> String (block (return Item)))))");
+    CHECK(parse_text("Extend T[]\nEnd Extend").dump == "(extend T[] (block))");
+    CHECK(parse_text("Extend Int\n    Method M()\n    End Method\nEnd Extend").dump ==
+          "(extend Int (block (method M (block))))");
+}
+
+TEST_CASE("attributes go before declarations, on their line or the one above", "[parser]") {
+    CHECK(parse_text("@Inline Function Twice(x: Int): Int => x * 2").dump ==
+          "(function @Inline Twice (x: Int) -> Int (block (return (* x (int 2)))))");
+    CHECK(parse_text("@Deprecated(\"use G\")\nFunction F()\nEnd Function").dump ==
+          "(function @Deprecated(\"use G\") F (block))");
+    CHECK(parse_text("@Deprecated Struct S\nEnd Struct").dump == "(struct @Deprecated S (block))");
+    CHECK(parse_text("Const Function One(): Int => 1").dump ==
+          "(function Const One -> Int (block (return (int 1))))");
+}
+
+TEST_CASE("attribute mistakes are reported", "[parser]") {
+    // Analysis finds the Attribute an unknown name declares, if there is one.
+    CHECK(parse_text("@Foo Function F()\nEnd Function").errors.empty());
+    CHECK(parse_text("@CLayout Struct S\nEnd Struct").errors ==
+          std::vector<std::string>{ "1-8: @CLayout isn't supported yet" });
+    CHECK(parse_text("@Inline(1) Function F()\nEnd Function").errors ==
+          std::vector<std::string>{ "7-10: @Inline takes no arguments" });
+    CHECK(parse_text("@Deprecated(1) Function F()\nEnd Function").errors ==
+          std::vector<std::string>{
+              "12-13: @Deprecated takes a message, a string without interpolation" });
+    CHECK(parse_text("@Inline @Inline Function F()\nEnd Function").errors ==
+          std::vector<std::string>{ "9-15: @Inline is written twice" });
+    CHECK(parse_text("@Inline x = 1").errors ==
+          std::vector<std::string>{
+              "8-9: attributes go before a declaration, like a Function or a Struct" });
+}
+
+TEST_CASE("an Attribute declares an attribute, whose arguments can be named", "[parser]") {
+    CHECK(parse_text("Attribute Rename(Name: String, Level: Int = 1)").dump ==
+          "(attribute Rename (block (field Name: String) (field Level: Int = (int 1))))");
+    CHECK(parse_text("Attribute Skip").dump == "(attribute Skip (block))");
+    CHECK(parse_text("Struct S\n"
+                     "    @Rename(\"hp\", Level: 2) @Skip\n"
+                     "    Field Health: Int\n"
+                     "End Struct")
+              .dump == "(struct S (block (field @Rename(\"hp\", Level: 2) @Skip Health: Int)))");
+
+    // "Attribute" is only a keyword before a name.
+    CHECK(parse_text("Local Attribute = 1").dump == "(local Attribute = (int 1))");
+}
+
+TEST_CASE("For Field and For Method go over a type's members", "[parser]") {
+    CHECK(parse_text("For Field f: F In T\n"
+                     "    Where F: Printable\n"
+                     "    Print(f.Name)\n"
+                     "End For")
+              .dump == "(for-field f: F T (where F: Printable) (block (call Print (. f Name))))");
+    CHECK(parse_text("For Field f In Point\nEnd For").dump == "(for-field f Point (block))");
+    CHECK(parse_text("Outer: For Method m In T\n    Continue Outer\nEnd For").dump ==
+          "(for-method Outer: m T (block (continue Outer)))");
+    CHECK(parse_text("For Method m: M In T\n    Where M: Func(Int): String\nEnd For").dump ==
+          "(for-method m: M T (where M: Func(Int): String) (block))");
+    CHECK(parse_text("For Property p: P In T\nEnd For").dump == "(for-property p: P T (block))");
+    CHECK(parse_text("For Static Field s In T\nEnd For").dump == "(for-static-field s T (block))");
+}
+
+TEST_CASE("Const type parameters take values as their type arguments", "[parser]") {
+    CHECK(parse_text("Struct Grid<T, Const W: Int, Const H: Int>\nEnd Struct").dump ==
+          "(struct Grid<T, Const W: Int, Const H: Int> (block))");
+    CHECK(parse_text("Function Sum<Const N: Int>(v: Int[N]): Int => N").dump ==
+          "(function Sum<Const N: Int> (v: Int[N]) -> Int (block (return N)))");
+    CHECK(parse_text("Local g: Grid<Float, 64, -1>").dump == "(local g: Grid<Float, 64, (- 1)>)");
+    CHECK(expression("Make<3>()") == "(call Make<3>)");
 }

@@ -1,0 +1,105 @@
+// Deque<T>: values added and taken at either end. Front holds the first values backwards, so
+// both ends are at the end of an array, and when one side runs out it takes half of the other.
+
+Class Deque<T>
+    Field Front: T[] = []
+    Field Back: T[] = []
+
+    Property Count: Int
+        Get => Front.Count + Back.Count
+    End Property
+
+    Method AddFirst(value: T)
+        Front.Add(value)
+    End Method
+
+    Method AddLast(value: T)
+        Back.Add(value)
+    End Method
+
+    // The same as AddLast.
+    Method Add(value: T)
+        Back.Add(value)
+    End Method
+
+    // Takes the first value off and gives it. Panics when the Deque is empty.
+    Method RemoveFirst(): T
+        Local value = First()
+        Front.RemoveAt(Front.Count - 1)
+        Return value
+    End Method
+
+    // Takes the last value off and gives it. Panics when the Deque is empty.
+    Method RemoveLast(): T
+        Local value = Last()
+        Back.RemoveAt(Back.Count - 1)
+        Return value
+    End Method
+
+    // The first value, which stays. Panics when the Deque is empty.
+    Method First(): T
+        If Front.Count == 0 Then Balance(Back, Front)
+        Return Front[Front.Count - 1]
+    End Method
+
+    // The last value, which stays. Panics when the Deque is empty.
+    Method Last(): T
+        If Back.Count == 0 Then Balance(Front, Back)
+        Return Back[Back.Count - 1]
+    End Method
+
+    Method Contains(value: T): Bool
+        Where T: Equatable
+        Return Front.Contains(value) || Back.Contains(value)
+    End Method
+
+    Method Clear()
+        Front.Clear()
+        Back.Clear()
+    End Method
+
+    Method Clone(): Deque<T>
+        Local copy = Deque<T>()
+        copy.Front = Front.Clone()
+        copy.Back = Back.Clone()
+        Return copy
+    End Method
+
+    // The values from first to last.
+    Method Iterate(): DequeIterator<T> => DequeIterator<T>(Front, Back, Front.Count, 0)
+
+    // Moves the half of from that's nearest the middle into to, which is empty, so that from's
+    // start is to's end.
+    Method Balance(from: T[], to: T[])
+        If from.Count == 0 Then Panic("the Deque is empty")
+        Local moved = (from.Count + 1) / 2
+        For i = moved - 1 To 0 Step -1
+            to.Add(from[i])
+        End For
+
+        Local kept = from[moved..]
+        from.Clear()
+        For value In kept
+            from.Add(value)
+        End For
+    End Method
+End Class
+
+// Front's values backwards from FrontLeft, then Back's from BackAt on.
+Struct DequeIterator<T> Implements Iterator<T>
+    Field Front: T[]
+    Field Back: T[]
+    Field FrontLeft: Int
+    Field BackAt: Int
+
+    ByRef Method Next(): T?
+        If FrontLeft > 0
+            FrontLeft -= 1
+            Return Front[FrontLeft]
+        End If
+
+        If BackAt >= Back.Count Then Return Null
+        BackAt += 1
+        Return Back[BackAt - 1]
+    End Method
+End Struct

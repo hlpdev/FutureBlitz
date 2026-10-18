@@ -19,18 +19,20 @@ namespace fb {
 namespace {
 
 /// The main file is already in `compilation`, and the library files are added after it.
-void run_front_end(compilation_t& compilation, std::vector<library_file_t> library) {
+void run_front_end(compilation_t& compilation, std::vector<library_file_t> library,
+                   const build_mode_t mode) {
     // The library files come first in the AST, so a main file that declares one of their names
     // again is the one with the error.
+    const std::vector<std::string_view> defined = defined_symbols(mode);
     for (library_file_t& added : library) {
         const source_file_t& file = compilation.sources.get(
             compilation.sources.add(std::move(added.path), std::move(added.text)));
-        const std::vector<token_t> tokens = lex(file, compilation.diagnostics);
+        const std::vector<token_t> tokens = lex(file, compilation.diagnostics, defined);
         parse_into(file, tokens, compilation.diagnostics, compilation.ast);
     }
 
     const source_file_t& file = compilation.source();
-    compilation.tokens = lex(file, compilation.diagnostics);
+    compilation.tokens = lex(file, compilation.diagnostics, defined);
     parse_into(file, compilation.tokens, compilation.diagnostics, compilation.ast);
     compilation.ast.set_main_file(compilation.file);
     compilation.analysis = analyze(compilation.sources, compilation.ast, compilation.diagnostics);
@@ -39,6 +41,18 @@ void run_front_end(compilation_t& compilation, std::vector<library_file_t> libra
 }
 
 } // namespace
+
+std::vector<std::string_view> defined_symbols(const build_mode_t mode) {
+    std::vector<std::string_view> defined{ mode == build_mode_t::RELEASE ? "RELEASE" : "DEBUG" };
+#ifdef _WIN32
+    defined.emplace_back("PLATFORM_WINDOWS");
+#elifdef __APPLE__
+    defined.emplace_back("PLATFORM_MACOS");
+#elifdef __linux__
+    defined.emplace_back("PLATFORM_LINUX");
+#endif
+    return defined;
+}
 
 compilation_t compile(std::string path, std::string text) {
     std::expected<std::vector<library_file_t>, std::string> library = standard_library();
@@ -51,14 +65,16 @@ compilation_t compile(std::string path, std::string text) {
     return compilation;
 }
 
-compilation_t compile(std::string path, std::string text, std::vector<library_file_t> library) {
+compilation_t compile(std::string path, std::string text, std::vector<library_file_t> library,
+                      const build_mode_t mode) {
     compilation_t compilation;
     compilation.file = compilation.sources.add(std::move(path), std::move(text));
-    run_front_end(compilation, std::move(library));
+    run_front_end(compilation, std::move(library), mode);
     return compilation;
 }
 
-std::expected<compilation_t, std::string> compile_file(const std::filesystem::path& path) {
+std::expected<compilation_t, std::string> compile_file(const std::filesystem::path& path,
+                                                       const build_mode_t mode) {
     compilation_t compilation;
     const std::expected<file_id_t, std::string> file = compilation.sources.load(path);
     if (!file) {
@@ -71,7 +87,7 @@ std::expected<compilation_t, std::string> compile_file(const std::filesystem::pa
     }
 
     compilation.file = *file;
-    run_front_end(compilation, std::move(*library));
+    run_front_end(compilation, std::move(*library), mode);
     return compilation;
 }
 

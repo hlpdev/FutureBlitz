@@ -3,7 +3,8 @@
 Two tiers:
 
 - **Errors**: expected failures (missing file, bad input). Checked, recoverable.
-- **Panics**: bugs. Crash with a message and stack trace.
+- **Panics**: bugs. Crash with a message and where it happened. A stack trace comes with debug
+  info (see [open-questions.md](../open-questions.md)).
 
 ## Errors
 

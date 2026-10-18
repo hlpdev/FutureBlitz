@@ -1,11 +1,13 @@
 #include "fb/runtime.hpp"
 
+#include <algorithm>
 #include <array>
 #include <catch2/catch_test_macros.hpp>
 #include <cstdint>
 #include <format>
 #include <limits>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace {
@@ -243,6 +245,29 @@ TEST_CASE("an object is of its Class and the ones it extends", "[runtime]") {
     fb_object_release(object);
 }
 
+TEST_CASE("an object implements the Interfaces its Class lists, with a table for each",
+          "[runtime]") {
+    const fb_interface_t shown{ .name = "Shown" };
+    const fb_interface_t other{ .name = "Other" };
+    int method = 0;
+    std::array<void*, 1> methods{ &method };
+    const std::array<fb_implementation_t, 1> interfaces{
+        { { .interface = &shown, .methods = methods.data() } },
+    };
+    fb_class_t type = thing_class();
+    type.interfaces = interfaces.data();
+    type.interface_count = 1;
+    fb_object_t* object = fb_object_new(&type);
+    CHECK(fb_object_implements(object, &shown) == 1);
+    CHECK(fb_object_implements(object, &other) == 0);
+    CHECK(fb_object_implements(nullptr, &shown) == 0);
+    CHECK(fb_interface_methods(object, &shown) == methods.data());
+
+    // One it implements passes; the rest would panic.
+    fb_object_expect_implements(object, &shown, nullptr);
+    fb_object_release(object);
+}
+
 namespace {
 
 /// The Class of an array of Int64, whose elements need no releasing.
@@ -295,5 +320,58 @@ TEST_CASE("an array grows, and its elements move to make room", "[runtime]") {
     CHECK(array->count == 0);
     fb_object_release(&copy->header);
     fb_object_release(&array->header);
+    CHECK(type.live == 0);
+}
+
+TEST_CASE("Strings order by their bytes, and equal values hash the same", "[runtime]") {
+    fb_string_t* apple = fb_string_from_bool(0);
+    fb_string_t* same = fb_string_from_bool(0);
+    fb_string_t* other = fb_string_from_bool(1);
+    // "False" comes before "True".
+    CHECK(fb_string_compare(apple, other) < 0);
+    CHECK(fb_string_compare(other, apple) > 0);
+    CHECK(fb_string_compare(apple, same) == 0);
+    CHECK(fb_string_hash(apple) == fb_string_hash(same));
+    CHECK(fb_string_hash(apple) != fb_string_hash(other));
+    fb_string_release(apple);
+    fb_string_release(same);
+    fb_string_release(other);
+
+    CHECK(fb_hash_integer(1) != fb_hash_integer(2));
+    CHECK(fb_hash_float(0.0) == fb_hash_float(-0.0));
+    CHECK(fb_hash_combine(fb_hash_integer(1), fb_hash_integer(2)) !=
+          fb_hash_combine(fb_hash_integer(2), fb_hash_integer(1)));
+}
+
+namespace {
+
+/// A String like the compiler's literals: a static block that's never freed, its bytes right
+/// after the header.
+struct literal_t {
+    fb_string_t header;
+    std::array<char, 10> bytes;
+};
+
+} // namespace
+
+TEST_CASE("a String's Chars are its code points, and its Bytes are its UTF-8", "[runtime]") {
+    // "aé€😀" has characters of one, two, three, and four bytes.
+    constexpr std::string_view text = "a\xC3\xA9\xE2\x82\xAC\xF0\x9F\x98\x80";
+    literal_t literal{ .header = { .refcount = -1, .length = 10 }, .bytes = {} };
+    std::ranges::copy(text, literal.bytes.begin());
+    fb_class_t type = numbers_class();
+    fb_array_t* chars = fb_array_new(&type, sizeof(std::int32_t), 0);
+    fb_string_chars(&literal.header, chars);
+    const std::vector<std::int32_t> points(static_cast<const std::int32_t*>(chars->data),
+                                           static_cast<const std::int32_t*>(chars->data) +
+                                               chars->count);
+    CHECK(points == std::vector<std::int32_t>{ 0x61, 0xE9, 0x20AC, 0x1F600 });
+
+    fb_array_t* bytes = fb_array_new(&type, 1, 0);
+    fb_string_bytes(&literal.header, bytes);
+    CHECK(std::string_view(static_cast<const char*>(bytes->data),
+                           static_cast<std::size_t>(bytes->count)) == text);
+    fb_object_release(&chars->header);
+    fb_object_release(&bytes->header);
     CHECK(type.live == 0);
 }

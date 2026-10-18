@@ -1,0 +1,54 @@
+// What step 13 adds at compile time: generic Const Functions, a Const Function in a
+// declaration's type, and sizes and Const type arguments computed from Const type parameters.
+
+// A generic Const Function.
+Const Function Largest<T: Comparable>(a: T, b: T): T => a > b ? a : b
+Const Function Square<T: Numeric>(x: T): T => x * x
+
+Const BIG = Largest(3, 9)
+Const NAME = Largest("ant", "bee")
+Const AREA = Square(1.5)
+Print("{BIG} {NAME} {AREA} {Largest(BIG, 4)}")
+
+// A Const Function in a declaration's type, declared after it.
+Struct Board
+    Field Cells: Int[Cells()]
+End Struct
+
+Const Function Cells(): Int => Square(4)
+
+Function Total(b: Board): Int
+    Local sum = 0
+    For c In b.Cells
+        sum += c
+    End For
+    Return sum
+End Function
+
+Local board = Board()
+board.Cells[15] = 7
+Print("{board.Cells.Count} {Total(board)}")
+
+// Const type arguments computed from Const type parameters.
+Function Join<Const N: Int, Const M: Int>(a: Int[N], b: Int[M]): Int[N + M]
+    Local joined: Int[N + M]
+    For i = 0 Until N
+        joined[i] = a[i]
+    End For
+    For i = 0 Until M
+        joined[N + i] = b[i]
+    End For
+    Return joined
+End Function
+
+Struct Grid<Const W: Int>
+    Field Cells: Int[W * 2]
+    Method Size(): Int => Cells.Count
+End Struct
+
+Function Doubled<Const W: Int>(g: Grid<W>): Grid<W * 2> => Grid<W * 2>()
+
+Local a: Int[2] = [1, 2]
+Local b: Int[3] = [3, 4, 5]
+Local joined = Join(a, b)
+Print("{joined.Count} {joined[4]} {Grid<3>().Size()} {Doubled(Grid<3>()).Size()}")

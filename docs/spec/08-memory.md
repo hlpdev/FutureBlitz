@@ -5,7 +5,7 @@
 | Kind | Semantics |
 |---|---|
 | Primitives, `Struct`, tuples, fixed arrays `T[N]` | **values**: copied on assignment |
-| `Class`, `String`, dynamic arrays `T[]`, collections | **references**: shared; copy explicitly with `.Clone()` |
+| `Class`, Interface values, `String`, dynamic arrays `T[]`, collections | **references**: shared; copy explicitly with `.Clone()` |
 
 ## Automatic reference counting
 

@@ -1,0 +1,139 @@
+// Constraints: generic code says what its type parameters implement, and uses what those
+// Interfaces have, Statics and Operators too. Each use runs the type argument's own.
+Interface Summable
+    Static Method Zero(): Self
+    Operator +(a: Self, b: Self): Self
+End Interface
+
+Interface Ordered
+    Operator <(a: Self, b: Self): Bool
+    Operator ==(a: Self, b: Self): Bool
+
+    Method Below(other: Self): Bool => Self < other
+End Interface
+
+Interface Labeled
+    Method Label(): String
+End Interface
+
+Struct Money Implements Summable, Ordered, Labeled
+    Field Cents: Long
+
+    Static Method Zero(): Money => Money(0)
+    Operator +(a: Money, b: Money): Money => Money(a.Cents + b.Cents)
+    Operator <(a: Money, b: Money): Bool => a.Cents < b.Cents
+    Operator ==(a: Money, b: Money): Bool => a.Cents == b.Cents
+    Method Label(): String => "${Cents}"
+End Struct
+
+Struct Meters Implements Summable, Labeled
+    Field Value: Float
+
+    Static Method Zero(): Meters => Meters(0)
+    Operator +(a: Meters, b: Meters): Meters => Meters(a.Value + b.Value)
+    Method Label(): String => "{Value}m"
+End Struct
+
+Function Sum<T: Summable>(items: T[]): T
+    Local total = T.Zero()
+    For item In items
+        total += item
+    End For
+
+    Return total
+End Function
+
+Function Largest<T>(items: T[]): T
+    Where T: Ordered
+    Local best = items[0]
+    For item In items
+        If best < item Then best = item
+    End For
+
+    Return best
+End Function
+
+Function Show<T: Labeled & Summable>(items: T[]): String => Sum(items).Label()
+
+// A Method with a Where line of its own is only there for the type arguments that meet it.
+Class Bag<T: Labeled>
+    Field Items: T[] = []
+
+    Method Add(item: T)
+        Items.Add(item)
+    End Method
+
+    Method Text(): String
+        Local text = ""
+        For item In Items
+            text += item.Label() + ";"
+        End For
+
+        Return text
+    End Method
+
+    Method Total(): T
+        Where T: Summable
+        Return Sum(Items)
+    End Method
+End Class
+
+// A default can change a Struct, as a ByRef Method, or be Static.
+Interface Counter
+    ByRef Method Step()
+    ReadOnly Property Count: Int
+
+    ByRef Method Twice()
+        Step()
+        Step()
+    End Method
+
+    Static Method Start(): Int => 100
+End Interface
+
+Struct Ticker Implements Counter
+    Field N: Int
+
+    ByRef Method Step()
+        N++
+    End Method
+
+    Property Count: Int
+        Get => N
+    End Property
+End Struct
+
+Class Clock Implements Counter
+    Field N: Int
+
+    Method Step()
+        N += 10
+    End Method
+
+    Property Count: Int
+        Get => N
+    End Property
+End Class
+
+Function Run<T: Counter>(ByRef counter: T)
+    counter.Twice()
+    Print("{counter.Count} from {T.Start()}")
+End Function
+
+Local wallet = [Money(150), Money(99), Money(1000)]
+Print(Sum(wallet).Label())
+Print(Largest(wallet).Label())
+Print("{Money(1).Below(Money(2))} {Money(5).Below(Money(2))} {Money(5) != Money(6)}")
+Print(Show([Meters(1.5), Meters(2)]))
+
+Local bag = Bag<Meters>()
+bag.Add(Meters(3))
+bag.Add(Meters(4))
+Print(bag.Text())
+Print(bag.Total().Label())
+
+Local ticker = Ticker(0)
+Run(ByRef ticker)
+Run(ByRef ticker)
+Local clock = Clock()
+Run(ByRef clock)

@@ -139,7 +139,7 @@ type_table_t::type_table_t() {
 
 type_table_t::type_table_t(const type_table_t& other)
     : m_fixed_arrays(other.m_fixed_arrays), m_tuples(other.m_tuples),
-      m_functions(other.m_functions), m_instances(other.m_instances) {
+      m_functions(other.m_functions), m_instances(other.m_instances), m_values(other.m_values) {
     m_entries.reserve(other.m_entries.size());
     for (const entry_t& entry : other.m_entries) {
         m_entries.push_back({
@@ -213,20 +213,32 @@ type_id_t type_table_t::make(const type_kind_t kind, const type_id_t inner, std:
 }
 
 type_id_t type_table_t::fixed_array(const type_id_t element,
-                                    const std::vector<std::uint32_t>& sizes) {
+                                    const std::vector<std::uint32_t>& sizes,
+                                    const std::vector<type_id_t>& dimensions) {
     if (element == type_id_t::INVALID) {
         return type_id_t::INVALID;
     }
 
+    // Every size known is no dimensions.
+    std::vector<type_id_t> parameters = dimensions;
+    if (std::ranges::all_of(parameters,
+                            [](const type_id_t d) { return d == type_id_t::INVALID; })) {
+        parameters.clear();
+    }
+
     for (const type_id_t made : m_fixed_arrays) {
-        if (get(made).inner == element && get(made).sizes == sizes) {
+        if (get(made).inner == element && get(made).sizes == sizes &&
+            get(made).parameters == parameters) {
             return made;
         }
     }
 
     std::string text = std::format("{}[", suffixed(element));
     for (std::size_t i = 0; i < sizes.size(); ++i) {
-        text += std::format("{}{}", i == 0 ? "" : ", ", sizes[i]);
+        text += i == 0 ? "" : ", ";
+        text += i < parameters.size() && parameters[i] != type_id_t::INVALID
+                    ? std::string(name(parameters[i]))
+                    : std::to_string(sizes[i]);
     }
 
     const type_id_t id = add({
@@ -234,6 +246,7 @@ type_id_t type_table_t::fixed_array(const type_id_t element,
         .name = text + "]",
         .inner = element,
         .sizes = sizes,
+        .parameters = parameters,
     });
     m_fixed_arrays.push_back(id);
     return id;
@@ -297,8 +310,67 @@ type_id_t type_table_t::add_parameter(std::string name) {
     return add({ .kind = type_kind_t::PARAMETER, .name = std::move(name) });
 }
 
+type_id_t type_table_t::add_value_parameter(std::string name, const type_id_t type) {
+    return add({ .kind = type_kind_t::PARAMETER, .name = std::move(name), .inner = type });
+}
+
+type_id_t type_table_t::value(const type_id_t type, const std::int64_t number) {
+    for (const type_id_t made : m_values) {
+        if (get(made).inner == type && get(made).number == number) {
+            return made;
+        }
+    }
+
+    const type_id_t id = add({
+        .kind = type_kind_t::VALUE,
+        .name = std::to_string(number),
+        .inner = type,
+        .number = number,
+    });
+    m_values.push_back(id);
+    return id;
+}
+
+type_id_t type_table_t::value_expression(const type_id_t type, const value_op_t op,
+                                         const type_id_t left, const type_id_t right) {
+    if (left == type_id_t::INVALID || right == type_id_t::INVALID) {
+        return type_id_t::INVALID;
+    }
+
+    const type_t& a = get(left);
+    const type_t& b = get(right);
+    if (a.kind == type_kind_t::VALUE && a.operation == value_op_t::NONE &&
+        b.kind == type_kind_t::VALUE && b.operation == value_op_t::NONE) {
+        return value(type, op == value_op_t::ADD ? a.number + b.number : a.number * b.number);
+    }
+
+    for (const type_id_t made : m_values) {
+        if (get(made).inner == type && get(made).operation == op &&
+            get(made).parameters == std::vector{ left, right }) {
+            return made;
+        }
+    }
+
+    // "(N + 1) * 2" keeps the sum together.
+    const auto part = [this, op](const type_id_t side) {
+        const bool sum = get(side).operation == value_op_t::ADD;
+        return sum && op == value_op_t::MULTIPLY ? std::format("({})", name(side))
+                                                 : std::string(name(side));
+    };
+    const type_id_t id = add({
+        .kind = type_kind_t::VALUE,
+        .name = std::format("{} {} {}", part(left), op == value_op_t::ADD ? "+" : "*", part(right)),
+        .inner = type,
+        .parameters = { left, right },
+        .operation = op,
+    });
+    m_values.push_back(id);
+    return id;
+}
+
 void type_table_t::set_parameters(const type_id_t type, std::vector<type_id_t> parameters) {
-    assert(get(type).kind == type_kind_t::STRUCT || get(type).kind == type_kind_t::CLASS);
+    assert(get(type).kind == type_kind_t::STRUCT || get(type).kind == type_kind_t::CLASS ||
+           get(type).kind == type_kind_t::INTERFACE);
     m_entries[std::to_underlying(type)].type->parameters = std::move(parameters);
 }
 
@@ -331,6 +403,7 @@ type_id_t type_table_t::instance(const type_id_t generic, const std::vector<type
     const type_id_t id = add({
         .kind = get(generic).kind,
         .name = text + ">",
+        .inner = get(generic).inner,
         .generic = generic,
         .arguments = arguments,
     });
@@ -344,6 +417,7 @@ void type_table_t::fill(const type_id_t instance) {
     const std::vector<type_id_t> parameters = get(generic).parameters;
     const std::vector<type_id_t> arguments = get(instance).arguments;
     const std::vector<field_t> generic_fields = get(generic).fields;
+    const std::vector<type_id_t> generic_interfaces = get(generic).interfaces;
     ++m_depth;
     std::vector<field_t> fields;
     fields.reserve(generic_fields.size());
@@ -352,10 +426,20 @@ void type_table_t::fill(const type_id_t instance) {
             { .name = field.name, .type = substitute(field.type, parameters, arguments) });
     }
 
+    // "Range<T> Implements Iterator<T>" makes Range<Int32> implement Iterator<Int32>, and
+    // "Derived<T> Extends Base<T>" makes Derived<Int32> extend Base<Int32>.
+    std::vector<type_id_t> interfaces;
+    interfaces.reserve(generic_interfaces.size());
+    for (const type_id_t interface : generic_interfaces) {
+        interfaces.push_back(substitute(interface, parameters, arguments));
+    }
+
+    const type_id_t base = substitute(get(generic).base, parameters, arguments);
     --m_depth;
     type_t& entry = *m_entries[std::to_underlying(instance)].type;
     entry.fields = std::move(fields);
-    entry.base = get(generic).base;
+    entry.base = base;
+    entry.interfaces = std::move(interfaces);
 }
 
 type_id_t type_table_t::substitute(const type_id_t type, const std::vector<type_id_t>& parameters,
@@ -390,10 +474,36 @@ type_id_t type_table_t::substitute(const type_id_t type, const std::vector<type_
     }
     case type_kind_t::ARRAY:
         return array(substitute(info.inner, parameters, arguments));
-    case type_kind_t::FIXED_ARRAY:
-        return fixed_array(substitute(info.inner, parameters, arguments), info.sizes);
+    case type_kind_t::FIXED_ARRAY: {
+        // A size that's a Const type parameter takes its argument's value.
+        std::vector<std::uint32_t> sizes = info.sizes;
+        std::vector<type_id_t> dimensions = info.parameters;
+        for (std::size_t i = 0; i < dimensions.size(); ++i) {
+            if (dimensions[i] == type_id_t::INVALID) {
+                continue;
+            }
+
+            dimensions[i] = substitute(dimensions[i], parameters, arguments);
+            if (get(dimensions[i]).kind == type_kind_t::VALUE &&
+                get(dimensions[i]).operation == value_op_t::NONE) {
+                sizes[i] = static_cast<std::uint32_t>(get(dimensions[i]).number);
+                dimensions[i] = type_id_t::INVALID;
+            }
+        }
+
+        return fixed_array(substitute(info.inner, parameters, arguments), sizes, dimensions);
+    }
     case type_kind_t::WEAK:
         return weak(substitute(info.inner, parameters, arguments));
+    case type_kind_t::VALUE:
+        // A computed one is known once what it's computed from is.
+        if (info.operation == value_op_t::NONE) {
+            return type;
+        }
+
+        return value_expression(info.inner, info.operation,
+                                substitute(info.parameters[0], parameters, arguments),
+                                substitute(info.parameters[1], parameters, arguments));
     case type_kind_t::TUPLE: {
         std::vector<type_id_t> elements;
         elements.reserve(info.fields.size());
@@ -407,6 +517,7 @@ type_id_t type_table_t::substitute(const type_id_t type, const std::vector<type_
         return function(each(info.parameters), substitute(info.inner, parameters, arguments));
     case type_kind_t::STRUCT:
     case type_kind_t::CLASS:
+    case type_kind_t::INTERFACE:
         if (info.generic != type_id_t::INVALID) {
             return instance(info.generic, each(info.arguments));
         }
@@ -448,6 +559,21 @@ void type_table_t::set_fields(const type_id_t type, std::vector<field_t> fields)
     }
 }
 
+type_id_t type_table_t::add_interface(std::string name) {
+    const type_id_t self = add_parameter("Self");
+    return add({ .kind = type_kind_t::INTERFACE, .name = std::move(name), .inner = self });
+}
+
+void type_table_t::set_interfaces(const type_id_t type, std::vector<type_id_t> interfaces) {
+    m_entries[std::to_underlying(type)].type->interfaces = std::move(interfaces);
+    const std::vector<type_id_t> instances = m_instances;
+    for (const type_id_t made : instances) {
+        if (get(made).generic == type) {
+            fill(made);
+        }
+    }
+}
+
 type_id_t type_table_t::add_enum(std::string name) {
     return add({ .kind = type_kind_t::ENUM, .name = std::move(name), .inner = type_id_t::INT32 });
 }
@@ -477,6 +603,12 @@ void type_table_t::set_base(const type_id_t type, const type_id_t base) {
 }
 
 bool type_table_t::extends(const type_id_t type, const type_id_t base) const {
+    if (get(type).kind == type_kind_t::INTERFACE) {
+        return type == base ||
+               std::ranges::any_of(get(type).interfaces,
+                                   [&](const type_id_t other) { return extends(other, base); });
+    }
+
     for (type_id_t current = type; current != type_id_t::INVALID; current = get(current).base) {
         if (current == base) {
             return true;
@@ -488,8 +620,8 @@ bool type_table_t::extends(const type_id_t type, const type_id_t base) const {
 
 bool type_table_t::has_references(const type_id_t type) const {
     const type_kind_t kind = get(type).kind;
-    if (type == type_id_t::STRING || kind == type_kind_t::CLASS || kind == type_kind_t::ARRAY ||
-        kind == type_kind_t::WEAK || kind == type_kind_t::FUNCTION) {
+    if (type == type_id_t::STRING || kind == type_kind_t::CLASS || kind == type_kind_t::INTERFACE ||
+        kind == type_kind_t::ARRAY || kind == type_kind_t::WEAK || kind == type_kind_t::FUNCTION) {
         return true;
     }
 
@@ -504,7 +636,8 @@ bool type_table_t::has_references(const type_id_t type) const {
 bool type_table_t::has_zero(const type_id_t type) const {
     // A type parameter might stand for any of them.
     const type_kind_t kind = get(type).kind;
-    if (kind == type_kind_t::CLASS || kind == type_kind_t::ARRAY || kind == type_kind_t::FUNCTION ||
+    if (kind == type_kind_t::CLASS || kind == type_kind_t::INTERFACE ||
+        kind == type_kind_t::ARRAY || kind == type_kind_t::FUNCTION ||
         kind == type_kind_t::PARAMETER) {
         return false;
     }

@@ -126,6 +126,73 @@ std::int32_t fb_string_equal(const fb_string_t* left, const fb_string_t* right) 
     return equal ? 1 : 0;
 }
 
+std::int32_t fb_string_compare(const fb_string_t* left, const fb_string_t* right) {
+    const std::string_view a(bytes_of(left), size_of(left));
+    const std::string_view b(bytes_of(right), size_of(right));
+    const int order = a.compare(b);
+    if (order == 0) {
+        return 0;
+    }
+
+    return order < 0 ? -1 : 1;
+}
+
+std::uint64_t fb_string_hash(const fb_string_t* string) {
+    // FNV-1a, whose result fb_hash_integer spreads out.
+    constexpr std::uint64_t offset = 0xcbf29ce484222325ULL;
+    constexpr std::uint64_t prime = 0x100000001b3ULL;
+    std::uint64_t hash = offset;
+    for (const char byte : std::string_view(bytes_of(string), size_of(string))) {
+        hash = (hash ^ static_cast<unsigned char>(byte)) * prime;
+    }
+
+    return fb_hash_integer(hash);
+}
+
+void fb_string_chars(const fb_string_t* string, fb_array_t* into) {
+    // A String is always valid UTF-8: its lead byte says how many continuation bytes follow,
+    // each with 6 bits of the code point.
+    constexpr std::uint32_t four = 0xF0;
+    constexpr std::uint32_t three = 0xE0;
+    constexpr std::uint32_t two = 0xC0;
+    constexpr std::uint32_t continuation_bits = 0x3F;
+    constexpr std::uint32_t bits_per_continuation = 6;
+    const std::string_view text(bytes_of(string), size_of(string));
+    const auto byte_at = [&](const std::size_t at) {
+        return static_cast<std::uint32_t>(static_cast<unsigned char>(text[at]));
+    };
+
+    for (std::size_t i = 0; i < text.size();) {
+        const std::uint32_t lead = byte_at(i);
+        std::size_t length = 1;
+        std::uint32_t point = lead;
+        if (lead >= four) {
+            length = 4;
+            point = lead & 0x07U;
+        } else if (lead >= three) {
+            length = 3;
+            point = lead & 0x0FU;
+        } else if (lead >= two) {
+            length = 2;
+            point = lead & 0x1FU;
+        }
+
+        for (std::size_t j = 1; j < length; ++j) {
+            point = (point << bits_per_continuation) | (byte_at(i + j) & continuation_bits);
+        }
+
+        const auto value = static_cast<std::int32_t>(point);
+        std::memcpy(fb_array_push(into, sizeof value), &value, sizeof value);
+        i += length;
+    }
+}
+
+void fb_string_bytes(const fb_string_t* string, fb_array_t* into) {
+    for (const char byte : std::string_view(bytes_of(string), size_of(string))) {
+        *static_cast<char*>(fb_array_push(into, 1)) = byte;
+    }
+}
+
 fb_string_t* fb_string_from_int(const std::int64_t value) {
     return from_number(value);
 }

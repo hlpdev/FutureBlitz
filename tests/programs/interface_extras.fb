@@ -1,0 +1,134 @@
+// What step 13 adds to Interfaces: Throws on their Methods, generic Methods, constraints on
+// their type parameters, Const type parameters, and For ... In over an Iterate that throws.
+
+Class ParseError Extends Error
+End Class
+
+// Throws on an Interface's Method.
+Interface Parser
+    Method Parse(text: String): Int Throws ParseError
+End Interface
+
+Class Digits Implements Parser
+    Method Parse(text: String): Int Throws ParseError
+        If text == "" Then Throw ParseError("empty")
+        Return text.Bytes.Count
+    End Method
+End Class
+
+Class Lenient Implements Parser
+    // Throws less than the Interface's: nothing.
+    Method Parse(text: String): Int
+        Return 0
+    End Method
+End Class
+
+Function Use(p: Parser, text: String): String
+    Local n = Try? p.Parse(text)
+    Return "{n ?? -1}"
+End Function
+
+Function Generic<T: Parser>(p: T, text: String): Int Throws ParseError
+    Return Try p.Parse(text)
+End Function
+
+Print("{Use(Digits(), "abc")} {Use(Digits(), "")} {Use(Lenient(), "")}")
+Print("{Try? Generic(Digits(), "") ?? -2} {Try? Generic(Lenient(), "x") ?? -2}")
+Try
+    Print("{Generic(Digits(), "")}")
+Catch e As ParseError
+    Print("caught {e.Message}")
+End Try
+
+// Constraints on an Interface's type parameters.
+Interface Sorted<T: Comparable>
+    Method Smallest(): T
+End Interface
+
+Struct Pair<T> Implements Sorted<T>
+    Where T: Comparable
+    Field A: T
+    Field B: T
+    Method Smallest(): T => A < B ? A : B
+End Struct
+
+Function Least<S: Sorted<E>, E: Comparable>(s: S): E => s.Smallest()
+Print("{Pair(3, 2).Smallest()} {Least(Pair("b", "a"))}")
+
+// Const type parameters on an Interface.
+Interface Sized<Const N: Int>
+    Method Size(): Int => N
+End Interface
+
+Struct Row Implements Sized<4>
+End Struct
+
+Function SizeOf<T: Sized<4>>(value: T): Int => value.Size()
+Print("{Row().Size()} {SizeOf(Row())}")
+
+// A generic Method of an Interface, called on a type parameter.
+Interface Mapper
+    Method Apply<U>(f: Func(Int): U): U
+End Interface
+
+Struct Box Implements Mapper
+    Field Value: Int
+    Method Apply<U>(f: Func(Int): U): U => f(Value)
+End Struct
+
+Function Twice<T: Mapper>(m: T): String => m.Apply(Function(x: Int) => "{x * 2}")
+Print("{Twice(Box(21))} {Box(5).Apply(Function(x: Int) => x + 1)}")
+
+// For ... In over an Iterate that throws.
+Class LoadError Extends Error
+End Class
+
+Class Levels
+    Field Names: String[] = []
+    Field Broken: Bool
+
+    Method Iterate(): LevelIterator Throws LoadError
+        If Broken Then Throw LoadError("can't read the levels")
+        Return LevelIterator(Names, 0)
+    End Method
+End Class
+
+Struct LevelIterator Implements Iterator<String>
+    Field Names: String[]
+    Field Index: Int
+
+    ByRef Method Next(): String?
+        If Index >= Names.Count Then Return Null
+        Index += 1
+        Return Names[Index - 1]
+    End Method
+End Struct
+
+Function Count(levels: Levels): Int Throws LoadError
+    Local n = 0
+    For name In Try levels
+        n += 1
+    End For
+    Return n
+End Function
+
+Local levels = Levels()
+levels.Names = ["a", "b", "c"]
+Print("{Try? Count(levels) ?? -1}")
+levels.Broken = True
+Print("{Try? Count(levels) ?? -1}")
+Try
+    For name In levels
+        Print(name)
+    End For
+Catch e As LoadError
+    Print("caught: {e.Message}")
+End Try
+levels.Broken = False
+Try
+    For name In levels
+        Print(name)
+    End For
+Catch e
+    Print("never")
+End Try

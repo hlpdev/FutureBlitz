@@ -1,0 +1,161 @@
+// For Field and For Method go over a type's members at compile time, and attributes that
+// Attribute declarations declare say things about them.
+
+Enum Level
+    Low
+    High
+End Enum
+
+Const Limit = 10
+
+Attribute Skip
+Attribute Rename(Name: String)
+Attribute Check(Max: Int = Limit, Level: Level = Level.Low, Label: String = "")
+
+Struct Player
+    Field Name: String
+    @Rename("hp") @Check(Limit * 20, Label: "health")
+    Field Health: Int
+    @Skip
+    Field Cache: Int
+    Field Speed: Float
+
+    Method Greet()
+        Print("hi, " + Name)
+    End Method
+
+    @Check(Level: Level.High)
+    Method Wave()
+        Print("{Name} waves")
+    End Method
+End Struct
+
+Class Animal
+    Field Name: String
+    Field Legs: Int
+
+    Method Speak()
+        Print("...")
+    End Method
+End Class
+
+Class Dog Extends Animal
+    Field Good: Bool
+
+    Override Method Speak()
+        Print("woof from " + Name)
+    End Method
+
+    Method Fetch()
+        Print("fetching")
+    End Method
+End Class
+
+Struct Box<T>
+    Field Value: T
+    Field Count: Int
+End Struct
+
+Struct Point
+    Field X: Int
+    Field Y: Float
+End Struct
+
+// Each field's type is F in its copy of the body, so the Where line holds for every field.
+Function Describe<T>(value: T): String
+    Local text = ""
+    For Field f: F In T
+        Where F: Printable
+        If f.Has(Skip) Then Continue
+        Local name = f.Attribute(Rename)?.Name ?? f.Name
+        text = text + "{name}={f.Get(value)} "
+    End For
+    Return text
+End Function
+
+Function Clear<T>(ByRef value: T)
+    For Field f: F In T
+        Where F: Numeric
+        f.Set(ByRef value, F.Zero())
+    End For
+End Function
+
+// Break leaves after the copies so far, and a Defer runs at the end of each copy.
+Function Show<T>(value: T)
+    For Field f: F In T
+        Where F: Printable
+        If f.Index == 2 Then Break
+        Defer Print("  after {f.Name}")
+        Print("  {f.Name} = {f.Get(value)}")
+    End For
+End Function
+
+Function First<T>(value: T): String
+    For Field f In T
+        Return f.Name
+    End For
+    Return "none"
+End Function
+
+// U's own loop says what Show needs of U's fields.
+Function Pass<U>(value: U)
+    For Field f: F In U
+        Where F: Printable
+    End For
+    Show(value)
+End Function
+
+Function Same<T>(a: T, b: T): Bool
+    For Field f: F In T
+        Where F: Equatable
+        If f.Get(a) != f.Get(b) Then Return False
+    End For
+    Return True
+End Function
+
+Local p = Player("Ann", 50, 7, 1.5)
+Print(Describe(p))
+Print(Describe((1, "two", True)))
+
+For Field f In Player
+    Local check = f.Attribute(Check)
+    If check != Null Then Print("{f.Index} {f.Name}: up to {check.Max}, {check.Level}, '{check.Label}'")
+End For
+
+For Method m In Player
+    Print("{m.Name}: {m.Attribute(Check)?.Level ?? Level.Low}")
+    m.Call(p)
+End For
+
+Local d = Dog()
+d.Name = "Rex"
+d.Legs = 4
+d.Good = True
+Show(d)
+For Method m In Dog
+    m.Call(d)
+End For
+
+Local a: Animal = d
+For Method m In Animal
+    m.Call(a)
+End For
+
+Pass(Box<String>("hi", 2))
+Pass((1.5, "s"))
+
+Local point = Point(3, 4.5)
+Clear(ByRef point)
+Show(point)
+
+Print(First(p))
+Print(First(5))
+Print("{Same(Point(1, 2), Point(1, 2))}")
+Print("{Same(Point(1, 2), Point(1, 3))}")
+
+For Field outer In Point
+    For Field inner In Point
+        If inner.Index > outer.Index Then Continue
+        Print(outer.Name + inner.Name)
+    End For
+End For

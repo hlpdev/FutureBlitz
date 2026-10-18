@@ -22,6 +22,16 @@ So far, std/ holds:
 | File | Contents |
 |---|---|
 | std/core/error.fb | `Error`, the Class every error extends |
+| std/core/interfaces.fb | `Equatable`, `Comparable`, `Hashable`, `Printable`, and `Numeric`, which `==`, `<`, strings, and generic code go through |
+| std/core/iterator.fb | `Iterator<T>`, which `For ... In` goes over |
+| std/collections/array.fb | `Remove`, `Sort`, `Filter`, `Map`, and `Find` on `T[]` |
+| std/collections/map.fb | `Map<K, V>`, which `{key: value}` makes |
+| std/collections/set.fb | `Set<T>` |
+| std/collections/stack.fb, queue.fb, deque.fb | `Stack<T>`, `Queue<T>`, and `Deque<T>` |
+| std/collections/priority_queue.fb | `PriorityQueue<T>` |
+| std/collections/pool.fb | `Pool<T>` and `Handle<T>` |
+
+A program declaring one of these names, like its own `Stack`, is an error until modules.
 
 ## `std` modules
 

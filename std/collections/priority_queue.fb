@@ -1,0 +1,78 @@
+// PriorityQueue<T>: Pop gives the value that comes first, the smallest unless a before function
+// says what comes first. The values are a binary heap: each one comes before its two children,
+// at 2i + 1 and 2i + 2.
+
+Class PriorityQueue<T>
+    Field Items: T[] = []
+    Field Before: Func(T, T): Bool
+
+    New()
+        Where T: Comparable
+        Before = Function(a: T, b: T) => a < b
+    End New
+
+    New(before: Func(T, T): Bool)
+        Before = before
+    End New
+
+    Property Count: Int
+        Get => Items.Count
+    End Property
+
+    Method Add(value: T)
+        Items.Add(value)
+        Local at = Items.Count - 1
+        While at > 0
+            Local parent = (at - 1) / 2
+            If !Before(Items[at], Items[parent]) Then Break
+            Swap(at, parent)
+            at = parent
+        End While
+    End Method
+
+    // Takes the first value off and gives it. Panics when the PriorityQueue is empty.
+    Method Pop(): T
+        Local first = Peek()
+        Local last = Items.Count - 1
+        Items[0] = Items[last]
+        Items.RemoveAt(last)
+        Local at = 0
+        Loop
+            Local child = at * 2 + 1
+            If child >= Items.Count Then Break
+            If child + 1 < Items.Count && Before(Items[child + 1], Items[child]) Then child += 1
+            If !Before(Items[child], Items[at]) Then Break
+            Swap(at, child)
+            at = child
+        End Loop
+
+        Return first
+    End Method
+
+    // The first value, which stays. Panics when the PriorityQueue is empty.
+    Method Peek(): T
+        If Items.Count == 0 Then Panic("the PriorityQueue is empty")
+        Return Items[0]
+    End Method
+
+    Method Contains(value: T): Bool
+        Where T: Equatable
+        Return Items.Contains(value)
+    End Method
+
+    Method Clear()
+        Items.Clear()
+    End Method
+
+    Method Clone(): PriorityQueue<T>
+        Local copy = PriorityQueue<T>(Before)
+        copy.Items = Items.Clone()
+        Return copy
+    End Method
+
+    Method Swap(a: Int, b: Int)
+        Local value = Items[a]
+        Items[a] = Items[b]
+        Items[b] = value
+    End Method
+End Class

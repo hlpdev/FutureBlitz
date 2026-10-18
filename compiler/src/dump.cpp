@@ -204,18 +204,58 @@ private:
         return std::format("<{}>", text);
     }
 
-    /// "<T, U>", or nothing for a type or function that isn't generic.
-    static std::string parameters_text(const std::vector<name_t>& parameters) {
+    /// "<T, U: Comparable>", or nothing for a type or function that isn't generic.
+    [[nodiscard]] std::string
+    parameters_text(const std::vector<name_t>& parameters,
+                    const std::vector<std::optional<type_expr_id_t>>& value_types,
+                    const std::vector<constraint_t>& constraints) const {
         if (parameters.empty()) {
             return {};
         }
 
         std::string text;
-        for (const name_t& parameter : parameters) {
-            text += std::format("{}{}", text.empty() ? "" : ", ", parameter.text);
+        for (std::size_t i = 0; i < parameters.size(); ++i) {
+            const name_t& parameter = parameters[i];
+            text += text.empty() ? "" : ", ";
+            const std::optional<type_expr_id_t> value =
+                i < value_types.size() ? value_types[i] : std::nullopt;
+            if (value) {
+                text += std::format("Const {}: {}", parameter.text, type_text(*value));
+                continue;
+            }
+
+            text += parameter.text;
+            for (const constraint_t& constraint : constraints) {
+                if (!constraint.where && constraint.parameter.span.begin == parameter.span.begin) {
+                    text += ": " + constraint_text(constraint);
+                }
+            }
         }
 
         return std::format("<{}>", text);
+    }
+
+    /// "Hashable & Equatable".
+    [[nodiscard]] std::string constraint_text(const constraint_t& constraint) const {
+        std::string text;
+        for (const type_expr_id_t interface : constraint.interfaces) {
+            text += (text.empty() ? "" : " & ") + type_text(interface);
+        }
+
+        return text;
+    }
+
+    /// "(where T: Hashable & Equatable)" for each Where line.
+    void add_where_lines(node_t& out, const std::vector<constraint_t>& constraints) const {
+        for (const constraint_t& constraint : constraints) {
+            if (constraint.where) {
+                out.items.push_back(list(
+                    "where", {
+                                 atom(std::format("{}:", constraint.parameter.text), tone_t::NAME),
+                                 atom(constraint_text(constraint)),
+                             }));
+            }
+        }
     }
 
     [[nodiscard]] std::string type_text(const nullable_type_t& node) const {
@@ -264,6 +304,10 @@ private:
     }
 
     /// "Float[64, 64]". The sizes show the way the tree shows expressions.
+    [[nodiscard]] std::string type_text(const value_type_t& node) const {
+        return plain(builder_t(m_ast, true).expr(node.value));
+    }
+
     [[nodiscard]] std::string type_text(const array_type_t& node) const {
         std::string sizes;
         const builder_t tree(m_ast, true);
@@ -402,6 +446,21 @@ private:
         return out;
     }
 
+    /// "(slice a 1 .. n)", without a bound that's left out.
+    [[nodiscard]] node_t build(const slice_expr_t& node) const {
+        node_t out = list("slice", { expr(node.object) });
+        if (node.from) {
+            out.items.push_back(expr(*node.from));
+        }
+
+        out.items.push_back(atom(".."));
+        if (node.to) {
+            out.items.push_back(expr(*node.to));
+        }
+
+        return out;
+    }
+
     [[nodiscard]] node_t build(const cast_expr_t& node) const {
         return list(node.checked ? "as?" : "as", { expr(node.value), type(node.type) });
     }
@@ -422,6 +481,19 @@ private:
         node_t out = list("array");
         for (const expr_id_t element : node.elements) {
             out.items.push_back(expr(element));
+        }
+
+        return out;
+    }
+
+    /// "(map (entry key value) ...)"
+    [[nodiscard]] node_t build(const map_expr_t& node) const {
+        node_t out = list("map");
+        for (const map_entry_t& entry : node.entries) {
+            node_t pair = list("entry");
+            pair.items.push_back(expr(entry.key));
+            pair.items.push_back(expr(entry.value));
+            out.items.push_back(std::move(pair));
         }
 
         return out;
@@ -475,7 +547,7 @@ private:
     }
 
     /// Abstract, Final, and Override, as keywords after the node's head.
-    static void add_modifiers(node_t& out, const modifiers_t& modifiers) {
+    void add_modifiers(node_t& out, const modifiers_t& modifiers) const {
         if (modifiers.is_abstract) {
             out.items.push_back(atom("Abstract", tone_t::KEYWORD));
         }
@@ -494,6 +566,40 @@ private:
 
         if (modifiers.is_read_only) {
             out.items.push_back(atom("ReadOnly", tone_t::KEYWORD));
+        }
+
+        if (modifiers.is_const) {
+            out.items.push_back(atom("Const", tone_t::KEYWORD));
+        }
+
+        if (modifiers.is_inline) {
+            out.items.push_back(atom("@Inline", tone_t::KEYWORD));
+        }
+
+        for (const attribute_t& attribute : modifiers.attributes) {
+            std::string text = std::format("@{}", attribute.name.text);
+            if (!attribute.arguments.empty()) {
+                const builder_t tree(m_ast, true);
+                text += '(';
+                for (std::size_t i = 0; i < attribute.arguments.size(); ++i) {
+                    const argument_t& argument = attribute.arguments[i];
+                    text += i == 0 ? "" : ", ";
+                    text += argument.name ? std::format("{}: ", argument.name->text) : "";
+                    text += plain(tree.expr(argument.value));
+                }
+
+                text += ')';
+            }
+
+            out.items.push_back(atom(text, tone_t::KEYWORD));
+        }
+
+        if (modifiers.deprecated) {
+            out.items.push_back(
+                atom(modifiers.deprecated->empty()
+                         ? std::string("@Deprecated")
+                         : std::format("@Deprecated(\"{}\")", *modifiers.deprecated),
+                     tone_t::KEYWORD));
         }
     }
 
@@ -572,8 +678,10 @@ private:
         node_t out = list(kind);
         add_modifiers(out, node.modifiers);
         if (node.kind != function_kind_t::CONSTRUCTOR) {
-            out.items.push_back(atom(
-                std::string(node.name.text) + parameters_text(node.type_parameters), tone_t::NAME));
+            out.items.push_back(
+                atom(std::string(node.name.text) +
+                         parameters_text(node.type_parameters, node.value_types, node.constraints),
+                     tone_t::NAME));
         }
 
         // Each parameter is a list without a head, like "(ByRef n: Int = 1)".
@@ -585,6 +693,10 @@ private:
 
             item.items.push_back(atom(std::format("{}:", parameter.name.text), tone_t::NAME));
             item.items.push_back(type(parameter.type));
+            if (parameter.variadic) {
+                item.items.push_back(atom("..."));
+            }
+
             if (parameter.default_value) {
                 item.items.push_back(atom("="));
                 item.items.push_back(expr(*parameter.default_value));
@@ -605,7 +717,12 @@ private:
             }
         }
 
-        out.items.push_back(block(node.body));
+        add_where_lines(out, node.constraints);
+        // An Interface's Method without a body is only its first line.
+        if (!node.required) {
+            out.items.push_back(block(node.body));
+        }
+
         return out;
     }
 
@@ -677,6 +794,23 @@ private:
 
         out.items.push_back(atom(std::string(node.value.text), tone_t::NAME));
         out.items.push_back(expr(node.sequence));
+        out.items.push_back(block(node.body));
+        return out;
+    }
+
+    /// "(for-field f: F T (where F: Printable) (block ...))", or "(for-method m T ...)",
+    /// "(for-property ...)", or "(for-static-field ...)".
+    [[nodiscard]] node_t build(const for_member_stmt_t& node) const {
+        constexpr auto kinds = std::to_array<std::string_view>(
+            { "for-field", "for-method", "for-property", "for-static-field" });
+        node_t out = list(std::string(kinds[std::to_underlying(node.kind)]));
+        add_label(out, node.label);
+        out.items.push_back(
+            atom(node.type_name ? std::format("{}: {}", node.variable.text, node.type_name->text)
+                                : std::string(node.variable.text),
+                 tone_t::NAME));
+        out.items.push_back(type(node.type));
+        add_where_lines(out, node.constraints);
         out.items.push_back(block(node.body));
         return out;
     }
@@ -799,6 +933,8 @@ private:
             out.items.push_back(atom("@Flags", tone_t::KEYWORD));
         }
 
+        add_modifiers(out, node.modifiers);
+
         out.items.push_back(
             atom(std::format("{}{}", node.name.text, node.type ? ":" : ""), tone_t::NAME));
         if (node.type) {
@@ -817,18 +953,58 @@ private:
         return out;
     }
 
-    /// "(struct Name (block members...))", or "(class ...)", with "Extends Base" after the name.
-    /// In the tree, each member gets its own line.
-    [[nodiscard]] node_t build(const type_stmt_t& node) const {
-        node_t out = list(node.is_class ? "class" : "struct");
-        add_modifiers(out, node.modifiers);
-        out.items.push_back(atom(
-            std::string(node.name.text) + parameters_text(node.type_parameters), tone_t::NAME));
-        if (node.base) {
-            out.items.push_back(atom("Extends", tone_t::KEYWORD));
-            out.items.push_back(atom(std::string(node.base->text), tone_t::NAME));
+    /// "(extend Box<T> Implements Printable (where T: Printable) (block members...))".
+    [[nodiscard]] node_t build(const extend_stmt_t& node) const {
+        node_t out = list("extend", { type(node.type) });
+        if (!node.interfaces.empty()) {
+            out.items.push_back(atom("Implements", tone_t::KEYWORD));
+            for (const type_expr_id_t interface : node.interfaces) {
+                out.items.push_back(type(interface));
+            }
         }
 
+        add_where_lines(out, node.constraints);
+        out.items.push_back(block(node.members));
+        return out;
+    }
+
+    /// "(struct Name (block members...))", "(class ...)", or "(interface ...)", with "Extends
+    /// Base" and "Implements A B" after the name. In the tree, each member gets its own line.
+    [[nodiscard]] node_t build(const type_stmt_t& node) const {
+        std::string_view kind = node.is_class ? "class" : "struct";
+        if (node.is_interface) {
+            kind = "interface";
+        } else if (node.is_attribute) {
+            kind = "attribute";
+        }
+
+        node_t out = list(kind);
+        add_modifiers(out, node.modifiers);
+        out.items.push_back(
+            atom(std::string(node.name.text) +
+                     parameters_text(node.type_parameters, node.value_types, node.constraints),
+                 tone_t::NAME));
+        if (node.base) {
+            std::string base(node.base->text);
+            for (std::size_t i = 0; i < node.base_arguments.size(); ++i) {
+                base += i == 0 ? "<" : ", ";
+                base += type_text(node.base_arguments[i]);
+            }
+
+            out.items.push_back(atom("Extends", tone_t::KEYWORD));
+            out.items.push_back(
+                atom(node.base_arguments.empty() ? base : base + ">", tone_t::NAME));
+        }
+
+        if (!node.interfaces.empty()) {
+            out.items.push_back(
+                atom(node.is_interface ? "Extends" : "Implements", tone_t::KEYWORD));
+            for (const type_expr_id_t interface : node.interfaces) {
+                out.items.push_back(type(interface));
+            }
+        }
+
+        add_where_lines(out, node.constraints);
         out.items.push_back(block(node.members));
         return out;
     }

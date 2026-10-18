@@ -1,0 +1,74 @@
+// Classes that extend an instance of a generic Class: one instance, or the base with their
+// own type parameters, with overrides, inherited News, and calls through the base.
+
+Class Container<T>
+    Field Items: T[] = []
+
+    Method Add(item: T)
+        Items.Add(item)
+    End Method
+
+    Method Describe(): String => "{Items.Count} items"
+
+    Method First(): T => Items[0]
+End Class
+
+// A Class that extends one instance.
+Class Names Extends Container<String>
+    Method Joined(): String
+        Local text = ""
+        For name In Items
+            text = text + name
+        End For
+        Return text
+    End Method
+
+    Override Method Describe(): String => "names: {Joined()}"
+End Class
+
+// A generic Class that extends the base with its own type parameter.
+Class Sorted<T> Extends Container<T>
+    Where T: Comparable
+
+    Override Method Add(item: T)
+        Local at = 0
+        While at < Items.Count && Items[at] < item
+            at += 1
+        End While
+        Items.Insert(at, item)
+    End Method
+End Class
+
+Class Pair<A, B>
+    Field Left: A
+    Field Right: B
+
+    New(left: A, right: B)
+        Left = left
+        Right = right
+    End New
+
+End Class
+
+Class Labeled<T> Extends Pair<String, T>
+    Method Label(): String => Left
+End Class
+
+Local names = Names()
+names.Add("a")
+names.Add("b")
+Print("{names.Describe()} {names.First()}")
+Local container: Container<String> = names
+Print(container.Describe())
+
+Local sorted = Sorted<Int>()
+For n In [5, 1, 4, 2]
+    sorted.Add(n)
+End For
+Print("{sorted.Items} {sorted.First()} {sorted.Describe()}")
+Local base: Container<Int> = sorted
+base.Add(3)
+Print("{sorted.Items}")
+
+Local labeled = Labeled<Int>("hp", 50)
+Print("{labeled.Label()} {labeled.Right}")

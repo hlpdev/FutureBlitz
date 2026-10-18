@@ -1,5 +1,6 @@
 #include "fb/runtime.hpp"
 
+#include <bit>
 #include <cstddef>
 #include <cstdio>
 #include <cstdlib>
@@ -21,6 +22,16 @@
 #endif
 
 namespace {
+
+/// splitmix64's finalizer: each bit of `value` changes about half the bits of the result.
+std::uint64_t mix(std::uint64_t value) {
+    value ^= value >> 30U;
+    value *= 0xbf58476d1ce4e5b9ULL;
+    value ^= value >> 27U;
+    value *= 0x94d049bb133111ebULL;
+    value ^= value >> 31U;
+    return value;
+}
 
 /// Lets tests and tools tell a panic from a normal exit.
 constexpr int panic_exit_code = 101;
@@ -199,5 +210,22 @@ std::uint64_t fb_power_uint(const std::uint64_t base, const std::uint64_t expone
     }
 
     return truncate(wrapping_power(base, exponent), bits, false);
+}
+
+std::uint64_t fb_hash_integer(const std::uint64_t bits) {
+    return mix(bits);
+}
+
+std::uint64_t fb_hash_float(double value) {
+    // 0.0 and -0.0 are equal, so they hash the same.
+    if (value == 0.0) {
+        value = 0.0;
+    }
+
+    return mix(std::bit_cast<std::uint64_t>(value));
+}
+
+std::uint64_t fb_hash_combine(const std::uint64_t seed, const std::uint64_t hash) {
+    return mix(seed ^ (hash + 0x9e3779b97f4a7c15ULL + (seed << 6U) + (seed >> 2U)));
 }
 }

@@ -1,0 +1,114 @@
+// Extend: Methods, Properties, Operators, and Interfaces added to a type that's declared
+// already, a built-in one included.
+Interface Shown
+    Method Text(): String
+    Method Loud(): String => Text() + "!"
+End Interface
+
+Struct Point
+    Field X: Int
+    Field Y: Int
+End Struct
+
+Extend Point Implements Shown, Printable
+    Method Text(): String => "({X}, {Y})"
+    Method ToString(): String => Text()
+
+    Property Sum: Int
+        Get => X + Y
+    End Property
+
+    Operator +(a: Point, b: Point): Point => Point(a.X + b.X, a.Y + b.Y)
+
+    ByRef Method Move(dx: Int)
+        X += dx
+    End Method
+End Extend
+
+// A built-in type gets Methods, Static Methods, and Interfaces of its own.
+Extend Int Implements Shown
+    Method Doubled(): Int => Self * 2
+    Method Text(): String => "int {Self}"
+    Static Method Parse(text: String): Int => text == "seven" ? 7 : 0
+End Extend
+
+Extend String
+    Method Twice(): String => Self + Self
+End Extend
+
+// T[] is every array, and a Where line makes a Method conditional.
+Extend T[] Implements Shown
+    Method Text(): String => "{Self.Count} items"
+    Method Last(): T => Self[Self.Count - 1]
+
+    Method Sum(): T
+        Where T: Numeric
+        Local total = T.Zero()
+        For item In Self
+            total += item
+        End For
+
+        Return total
+    End Method
+End Extend
+
+Enum Mood
+    Calm, Angry
+End Enum
+
+Extend Mood Implements Shown
+    Method Text(): String => Self == Mood.Calm ? "calm" : "angry"
+End Extend
+
+// A generic type's Extend names its type parameters as the type does. With a Where line, only
+// the instances that meet it implement what it lists.
+Class Box<T>
+    Field Item: T
+
+    New(item: T)
+        Item = item
+    End New
+End Class
+
+Extend Box<T> Implements Printable
+    Where T: Printable
+    Method ToString(): String => "box of {Item}"
+End Extend
+
+Extend Box<T>
+    Method Get(): T => Item
+End Extend
+
+// A Class's Extend goes for the Classes extending it, through an Interface too.
+Class Enemy
+    Field Name: String
+
+    New(name: String)
+        Name = name
+    End New
+End Class
+
+Class Boss Extends Enemy
+    New(name: String)
+        Super.New(name)
+    End New
+End Class
+
+Extend Enemy Implements Shown
+    Method Text(): String => "enemy " + Name
+End Extend
+
+Function Show<T: Shown>(value: T): String => value.Loud()
+
+Local p = Point(1, 2)
+p.Move(10)
+Print("{p} {p.Sum} {(p + p).Text()} {Show(p)}")
+Print("{5.Doubled()} {Show(7)} {Int.Parse("seven")} {"ab".Twice()}")
+Print("{[1, 2, 3].Last()} {[1, 2, 3].Sum()} {[1.5, 2.5].Sum()} {["a", "b"].Last()}")
+Print("{Show([1, 2, 3])} {Show(Mood.Angry)} {Mood.Calm.Loud()}")
+Local box = Box(5)
+Print("{box} {box.Get()} {Box("s").Get()}")
+Local foes: Shown[] = [Enemy("grunt"), Boss("ogre")]
+For foe In foes
+    Print(foe.Loud())
+End For

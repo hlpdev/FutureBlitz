@@ -1,0 +1,33 @@
+Name=Ann hp=50 Speed=1.5 
+0=1 1=two 2=True 
+1 Health: up to 200, Low, 'health'
+Greet: Low
+hi, Ann
+Wave: High
+Ann waves
+  Name = Rex
+  after Name
+  Legs = 4
+  after Legs
+woof from Rex
+fetching
+woof from Rex
+  Value = hi
+  after Value
+  Count = 2
+  after Count
+  0 = 1.5
+  after 0
+  1 = s
+  after 1
+  X = 0
+  after X
+  Y = 0
+  after Y
+Name
+none
+True
+False
+XX
+YX
+YY

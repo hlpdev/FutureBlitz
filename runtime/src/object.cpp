@@ -288,6 +288,23 @@ void report_cycles() {
     }
 }
 
+/// The table an object's Class has for an Interface, or null when it doesn't implement it.
+void* const* find_implementation(const fb_object_t* object, const fb_interface_t* interface) {
+    if (object == nullptr) {
+        return nullptr;
+    }
+
+    const fb_class_t* type = object->type;
+    for (const fb_implementation_t& implementation :
+         std::span(type->interfaces, static_cast<std::size_t>(type->interface_count))) {
+        if (implementation.interface == interface) {
+            return implementation.methods;
+        }
+    }
+
+    return nullptr;
+}
+
 } // namespace
 
 extern "C" {
@@ -430,6 +447,30 @@ void fb_object_expect(const fb_object_t* object, const fb_class_t* type,
 
     std::array<char, 256> message{};
     std::snprintf(message.data(), message.size(), "expected %s, found %s", type->name,
+                  object != nullptr ? object->type->name : "Null");
+    fb_panic(message.data(), location);
+}
+
+std::uint64_t fb_hash_object(const fb_object_t* object) {
+    return fb_hash_integer(reinterpret_cast<std::uintptr_t>(object));
+}
+
+void* const* fb_interface_methods(const fb_object_t* object, const fb_interface_t* interface) {
+    return find_implementation(object, interface);
+}
+
+std::int32_t fb_object_implements(const fb_object_t* object, const fb_interface_t* interface) {
+    return find_implementation(object, interface) != nullptr ? 1 : 0;
+}
+
+void fb_object_expect_implements(const fb_object_t* object, const fb_interface_t* interface,
+                                 const fb_location_t* location) {
+    if (find_implementation(object, interface) != nullptr) {
+        return;
+    }
+
+    std::array<char, 256> message{};
+    std::snprintf(message.data(), message.size(), "expected %s, found %s", interface->name,
                   object != nullptr ? object->type->name : "Null");
     fb_panic(message.data(), location);
 }

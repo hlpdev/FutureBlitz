@@ -1,0 +1,14 @@
+Shout = Ann! -
+Half = 20 health
+Count = 3
+Title = players
+Hit(5) = 35
+Heal(5) = 40
+Rename: Ann -> Bo
+True hero False
+X=1 Y=2 
+Left:7 Right:x 
+X
+Y
+Hit!
+Heal!

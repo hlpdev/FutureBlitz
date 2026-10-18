@@ -1,0 +1,71 @@
+// Queue<T>: first in, first out. Enqueue puts a value at the back, and Dequeue takes the one at
+// the front. The values start at Head, and the ones before it are dropped once they're half.
+
+Class Queue<T>
+    Field Items: T[] = []
+    Field Head: Int
+
+    Property Count: Int
+        Get => Items.Count - Head
+    End Property
+
+    Method Enqueue(value: T)
+        Items.Add(value)
+    End Method
+
+    // The same as Enqueue.
+    Method Add(value: T)
+        Items.Add(value)
+    End Method
+
+    // Takes the front value off and gives it. Panics when the Queue is empty.
+    Method Dequeue(): T
+        Local front = Peek()
+        Head += 1
+        If Head * 2 >= Items.Count
+            Items = Items[Head..]
+            Head = 0
+        End If
+
+        Return front
+    End Method
+
+    // The front value, which stays. Panics when the Queue is empty.
+    Method Peek(): T
+        If Head == Items.Count Then Panic("the Queue is empty")
+        Return Items[Head]
+    End Method
+
+    Method Contains(value: T): Bool
+        Where T: Equatable
+        For i = Head Until Items.Count
+            If Items[i] == value Then Return True
+        End For
+        Return False
+    End Method
+
+    Method Clear()
+        Items.Clear()
+        Head = 0
+    End Method
+
+    Method Clone(): Queue<T>
+        Local copy = Queue<T>()
+        copy.Items = Items[Head..]
+        Return copy
+    End Method
+
+    // The values from the front, the order Dequeue gives them.
+    Method Iterate(): QueueIterator<T> => QueueIterator<T>(Items, Head)
+End Class
+
+Struct QueueIterator<T> Implements Iterator<T>
+    Field Items: T[]
+    Field Index: Int
+
+    ByRef Method Next(): T?
+        If Index >= Items.Count Then Return Null
+        Index += 1
+        Return Items[Index - 1]
+    End Method
+End Struct

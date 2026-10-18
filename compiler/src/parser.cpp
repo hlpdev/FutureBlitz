@@ -61,7 +61,6 @@ enum class unsupported_t : std::uint8_t {
 /// How to skip a statement that starts with `kind`. NONE means M1 parses it.
 constexpr unsupported_t unsupported(const token_kind_t kind) {
     switch (kind) {
-    case token_kind_t::AT:
     case token_kind_t::KW_ASYNC:
     case token_kind_t::KW_PACKAGE:
     case token_kind_t::KW_PARALLEL:
@@ -72,9 +71,7 @@ constexpr unsupported_t unsupported(const token_kind_t kind) {
         return unsupported_t::PREFIX;
     case token_kind_t::KW_IMPORT:
         return unsupported_t::LINE;
-    case token_kind_t::KW_EXTEND:
     case token_kind_t::KW_EXTERN:
-    case token_kind_t::KW_INTERFACE:
     case token_kind_t::KW_LOCK:
     case token_kind_t::KW_UNSAFE:
         return unsupported_t::BLOCK;
@@ -232,6 +229,15 @@ private:
         }
 
         report_expected(describe(token_kind_t::IDENTIFIER));
+        // A keyword used as a name is skipped, so the rest of the declaration still parses.
+        const token_kind_t next = peek(1).kind;
+        if (keyword_kind(text(peek())) &&
+            (next == token_kind_t::EQUAL || next == token_kind_t::COLON ||
+             next == token_kind_t::LEFT_PAREN)) {
+            const token_t& keyword = advance();
+            return { .text = {}, .span = point(keyword.span.begin) };
+        }
+
         return { .text = {}, .span = point(peek().span.begin) };
     }
 
@@ -405,10 +411,18 @@ private:
     /// One statement, without its line break: the caller ends the line with finish_line().
     /// Block statements end their own header line and parse through to the end of the block.
     stmt_id_t parse_statement() {
-        // @Flags is the one attribute M2 has.
-        if (at(token_kind_t::AT) && peek(1).kind == token_kind_t::IDENTIFIER &&
-            text(peek(1)) == "Flags") {
-            return parse_flags();
+        if (at(token_kind_t::AT)) {
+            return parse_attributed();
+        }
+
+        if (at(token_kind_t::IDENTIFIER) && text(peek()) == "Attribute" &&
+            peek(1).kind == token_kind_t::IDENTIFIER) {
+            return parse_attribute_declaration();
+        }
+
+        // "Unsafe Function" is a modifier, unlike an "Unsafe" block.
+        if (at(token_kind_t::KW_UNSAFE) && peek(1).kind == token_kind_t::KW_FUNCTION) {
+            return parse_unsupported_prefix();
         }
 
         switch (unsupported(peek().kind)) {
@@ -424,9 +438,8 @@ private:
 
         switch (peek().kind) {
         case token_kind_t::KW_CONST:
-            // "Const Function" declares a const function, which comes after M1.
             if (peek(1).kind == token_kind_t::KW_FUNCTION) {
-                return parse_unsupported_prefix();
+                return parse_modified();
             }
 
             return parse_variable();
@@ -451,7 +464,18 @@ private:
             return parse_simple();
         case token_kind_t::KW_STRUCT:
         case token_kind_t::KW_CLASS:
+        case token_kind_t::KW_INTERFACE:
             return parse_type_declaration({});
+        case token_kind_t::KW_EXTEND:
+            return parse_extend();
+        case token_kind_t::KW_WHERE: {
+            const token_t& keyword = advance();
+            error(keyword.span,
+                  "a Where line goes at the top of a generic Function, Method, Struct, or Class, "
+                  "before the rest of its body");
+            skip_rest_of_line();
+            return add_stmt(span_from(keyword.span.begin), error_stmt_t{});
+        }
         case token_kind_t::KW_ABSTRACT:
         case token_kind_t::KW_FINAL:
         case token_kind_t::KW_OVERRIDE:
@@ -557,20 +581,9 @@ private:
     }
 
     /// "@Flags Enum ...". On anything else, @Flags is an error, and the statement still parses.
-    stmt_id_t parse_flags() {
-        const std::uint32_t begin = advance().span.begin;
-        const token_t& name = advance();
-        if (at(token_kind_t::KW_ENUM)) {
-            return parse_enum(true, begin);
-        }
-
-        error(name.span, "@Flags only goes before an Enum");
-        return parse_statement();
-    }
-
     /// "Enum Name: Type", its members, then "End Enum". Members are separated by commas, which
     /// can end a line, or by lines.
-    stmt_id_t parse_enum(const bool flags, const std::uint32_t begin) {
+    stmt_id_t parse_enum(const bool flags, const std::uint32_t begin, modifiers_t modifiers = {}) {
         const std::size_t start = m_pos;
         const token_t& keyword = advance();
         const name_t name = expect_name();
@@ -608,12 +621,38 @@ private:
 
         expect_end(keyword);
         m_blocks.pop_back();
-        return add_stmt(span_from(begin), enum_stmt_t{
-                                              .name = name,
-                                              .type = type,
-                                              .members = std::move(members),
-                                              .flags = flags,
-                                          });
+        enum_stmt_t declared{
+            .name = name,
+            .type = type,
+            .members = std::move(members),
+            .flags = flags,
+            .modifiers = std::move(modifiers),
+        };
+        return add_stmt(span_from(begin), std::move(declared));
+    }
+
+    /// Whether a statement that starts with `kind` declares something, which modifiers and
+    /// attributes can go before.
+    static bool starts_declaration(const token_kind_t kind) {
+        modifiers_t ignored;
+        switch (kind) {
+        case token_kind_t::KW_STRUCT:
+        case token_kind_t::KW_CLASS:
+        case token_kind_t::KW_INTERFACE:
+        case token_kind_t::KW_FUNCTION:
+        case token_kind_t::KW_OPERATOR:
+        case token_kind_t::KW_METHOD:
+        case token_kind_t::KW_NEW:
+        case token_kind_t::KW_CONST:
+        case token_kind_t::KW_FIELD:
+        case token_kind_t::KW_LOCAL:
+        case token_kind_t::KW_GLOBAL:
+        case token_kind_t::KW_PROPERTY:
+        case token_kind_t::KW_BYREF:
+            return true;
+        default:
+            return modifier_flag(ignored, kind) != nullptr;
+        }
     }
 
     /// Which of `modifiers` a keyword sets, or null when it isn't one.
@@ -635,9 +674,8 @@ private:
     }
 
     /// Abstract, Final, Override, Static, and ReadOnly, in any order, then the declaration
-    /// they're on. Analysis checks which ones it can have.
-    stmt_id_t parse_modified() {
-        modifiers_t modifiers;
+    /// they're on, which may be a "Const Function". Analysis checks which ones it can have.
+    stmt_id_t parse_modified(modifiers_t modifiers = {}) {
         while (bool* flag = modifier_flag(modifiers, peek().kind)) {
             const token_t& token = advance();
             if (*flag) {
@@ -650,6 +688,7 @@ private:
         switch (peek().kind) {
         case token_kind_t::KW_STRUCT:
         case token_kind_t::KW_CLASS:
+        case token_kind_t::KW_INTERFACE:
             return parse_type_declaration(modifiers);
         case token_kind_t::KW_FUNCTION:
             return parse_function(function_kind_t::FUNCTION, modifiers);
@@ -659,10 +698,17 @@ private:
             return parse_function(function_kind_t::METHOD, modifiers);
         case token_kind_t::KW_NEW:
             return parse_function(function_kind_t::CONSTRUCTOR, modifiers);
+        case token_kind_t::KW_CONST:
+            if (peek(1).kind == token_kind_t::KW_FUNCTION) {
+                advance();
+                modifiers.is_const = true;
+                return parse_function(function_kind_t::FUNCTION, modifiers);
+            }
+
+            return parse_variable(modifiers);
         case token_kind_t::KW_FIELD:
         case token_kind_t::KW_LOCAL:
         case token_kind_t::KW_GLOBAL:
-        case token_kind_t::KW_CONST:
             return parse_variable(modifiers);
         case token_kind_t::KW_PROPERTY:
             return parse_property(modifiers);
@@ -679,14 +725,25 @@ private:
     }
 
     /// "Property Name: Type", then "Get => value" or a Get block, and maybe "Set(value)" and its
-    /// block, then "End Property". Get and Set are names everywhere else.
-    stmt_id_t parse_property(const modifiers_t modifiers) {
+    /// block, then "End Property". Get and Set are names everywhere else. In an Interface, or with
+    /// Abstract, it's the first line alone, unless a Get or Set follows.
+    stmt_id_t parse_property(const modifiers_t& modifiers) {
         const std::size_t start = m_pos;
         const token_t& keyword = advance();
         const name_t name = expect_name();
         const type_expr_id_t type = expect(token_kind_t::COLON)
                                         ? parse_type()
                                         : add_type(point(peek().span.begin), error_type_t{});
+        if ((modifiers.is_abstract || in_interface()) && !next_line_is_accessor()) {
+            // The caller finishes the line.
+            return add_stmt(span_from(keyword.span.begin), property_stmt_t{
+                                                               .name = name,
+                                                               .type = type,
+                                                               .modifiers = modifiers,
+                                                               .required = true,
+                                                           });
+        }
+
         finish_line(start);
         m_blocks.push_back(keyword.kind);
         std::optional<stmt_id_t> getter;
@@ -718,6 +775,58 @@ private:
                                                            .setter = setter,
                                                            .modifiers = modifiers,
                                                        });
+    }
+
+    /// Whether the members being parsed are an Interface's.
+    [[nodiscard]] bool in_interface() const {
+        return !m_blocks.empty() && m_blocks.back() == token_kind_t::KW_INTERFACE;
+    }
+
+    /// The first token of the line after this one.
+    [[nodiscard]] const token_t& next_line_start() const {
+        std::size_t index = m_pos;
+        while (m_tokens[index].kind != token_kind_t::NEWLINE &&
+               m_tokens[index].kind != token_kind_t::END_OF_FILE) {
+            ++index;
+        }
+
+        return m_tokens[index].kind == token_kind_t::NEWLINE ? m_tokens[index + 1]
+                                                             : m_tokens[index];
+    }
+
+    /// Whether the next line starts with Get or Set, so a Property has its parts.
+    [[nodiscard]] bool next_line_is_accessor() const {
+        const token_t& next = next_line_start();
+        return next.kind == token_kind_t::IDENTIFIER &&
+               (text(next) == "Get" || text(next) == "Set");
+    }
+
+    /// Whether the next line starts an Interface Method's body, rather than another member or the
+    /// Interface's End: a Method without one is only its first line.
+    [[nodiscard]] bool next_line_is_body() const {
+        const token_t& next = next_line_start();
+        switch (next.kind) {
+        case token_kind_t::KW_METHOD:
+        case token_kind_t::KW_BYREF:
+        case token_kind_t::KW_STATIC:
+        case token_kind_t::KW_OPERATOR:
+        case token_kind_t::KW_PROPERTY:
+        case token_kind_t::KW_FUNCTION:
+        case token_kind_t::KW_FIELD:
+        case token_kind_t::KW_NEW:
+        case token_kind_t::KW_ABSTRACT:
+        case token_kind_t::KW_FINAL:
+        case token_kind_t::KW_OVERRIDE:
+        case token_kind_t::KW_READONLY:
+        case token_kind_t::END_OF_FILE:
+            return false;
+        case token_kind_t::KW_END: {
+            const auto after = static_cast<std::size_t>(&next - m_tokens.data()) + 1;
+            return after >= m_tokens.size() || m_tokens[after].kind != token_kind_t::KW_INTERFACE;
+        }
+        default:
+            return true;
+        }
     }
 
     /// "Get => value", or "Get", its block, and "End Get": a Method that returns the Property's
@@ -777,36 +886,161 @@ private:
         return body;
     }
 
-    /// Reports a modifier or attribute that comes after M1, then parses the statement it's on.
+    /// Reports a modifier that comes after M3, then parses the statement it's on.
     stmt_id_t parse_unsupported_prefix() {
         const token_t& token = advance();
-        if (token.kind == token_kind_t::AT) {
-            error(token.span, "attributes aren't supported yet");
-            accept(token_kind_t::IDENTIFIER);
-            if (at(token_kind_t::LEFT_PAREN)) {
-                skip_parenthesized();
-            }
-        } else {
-            error(token.span, "{} isn't supported yet", describe(token.kind));
-        }
-
+        error(token.span, "{} isn't supported yet", describe(token.kind));
         return parse_statement();
     }
 
-    /// Skips from '(' to its matching ')', like an attribute's arguments.
-    void skip_parenthesized() {
-        advance();
+    /// "@Inline", "@Deprecated("why")", and "@Flags", then the declaration they're on.
+    /// Analysis checks which declarations can have them.
+    stmt_id_t parse_attributed() {
+        const std::uint32_t begin = peek().span.begin;
+        modifiers_t modifiers;
+        bool flags = false;
+        span_t flags_span;
+        while (at(token_kind_t::AT)) {
+            advance();
+            const name_t name = expect_name();
+            std::optional<span_t> span;
+            std::vector<argument_t> arguments = parse_attribute_arguments(span);
+            const bool builtin =
+                name.text == "Flags" || name.text == "Inline" || name.text == "Deprecated";
+            const bool repeated = (name.text == "Flags" && flags) ||
+                                  (name.text == "Inline" && modifiers.is_inline) ||
+                                  (name.text == "Deprecated" && modifiers.deprecated);
+            if (repeated) {
+                error(name.span, "@{} is written twice", name.text);
+            } else if (name.text == "Flags") {
+                flags = true;
+                flags_span = name.span;
+            } else if (name.text == "Inline") {
+                modifiers.is_inline = true;
+            } else if (name.text == "Deprecated") {
+                modifiers.deprecated = deprecation(arguments, span);
+            } else if (name.text == "CLayout" || name.text == "MainThread" ||
+                       name.text == "Serialize") {
+                error(name.span, "@{} isn't supported yet", name.text);
+            } else if (!name.text.empty()) {
+                // One an Attribute declaration declares, which analysis finds.
+                modifiers.attributes.push_back({ .name = name, .arguments = std::move(arguments) });
+            }
+
+            if (span && builtin && name.text != "Deprecated") {
+                error(*span, "@{} takes no arguments", name.text);
+            }
+
+            // An attribute can be on its own line, before the declaration.
+            accept(token_kind_t::NEWLINE);
+        }
+
+        if (at(token_kind_t::KW_ENUM)) {
+            return parse_enum(flags, begin, std::move(modifiers));
+        }
+
+        if (flags) {
+            error(flags_span, "@Flags only goes before an Enum");
+        }
+
+        if (!starts_declaration(peek().kind)) {
+            error(peek().span, "attributes go before a declaration, like a Function or a Struct");
+            return parse_statement();
+        }
+
+        return parse_modified(std::move(modifiers));
+    }
+
+    /// An attribute's arguments in parentheses, and in `span`, where they are. None without
+    /// parentheses. Like a call's, they can be named.
+    std::vector<argument_t> parse_attribute_arguments(std::optional<span_t>& span) {
+        std::vector<argument_t> arguments;
+        if (!at(token_kind_t::LEFT_PAREN)) {
+            return arguments;
+        }
+
+        const token_t& open = advance();
         ++m_bracket_depth;
         while (!at(token_kind_t::RIGHT_PAREN) && !at(token_kind_t::END_OF_FILE)) {
-            if (at(token_kind_t::LEFT_PAREN)) {
-                skip_parenthesized();
-            } else {
-                advance();
+            std::optional<name_t> name;
+            if (at(token_kind_t::IDENTIFIER) && peek(1).kind == token_kind_t::COLON) {
+                name = take_name();
+                advance(); // ':'
+            }
+
+            const bool by_ref = accept(token_kind_t::KW_BYREF);
+            arguments.push_back({ .name = name, .by_ref = by_ref, .value = parse_expression() });
+            if (!accept(token_kind_t::COMMA)) {
+                break;
             }
         }
 
-        accept(token_kind_t::RIGHT_PAREN);
+        expect_closing(token_kind_t::RIGHT_PAREN, open.span);
         --m_bracket_depth;
+        span = span_from(open.span.begin);
+        return arguments;
+    }
+
+    /// @Deprecated's message: a string without interpolation, or nothing.
+    std::string deprecation(const std::vector<argument_t>& arguments,
+                            const std::optional<span_t> span) {
+        if (arguments.empty()) {
+            return {};
+        }
+
+        const argument_t& first = arguments.front();
+        const auto* text = std::get_if<string_expr_t>(&m_ast.get(first.value).node);
+        const bool plain = arguments.size() == 1 && !first.name && !first.by_ref &&
+                           text != nullptr && text->parts.size() <= 1 &&
+                           std::ranges::all_of(text->parts, [](const string_part_t& part) {
+                               return std::holds_alternative<std::string>(part);
+                           });
+        if (!plain) {
+            error(arguments.size() == 1 ? span_of(first.value) : span.value_or(span_t{}),
+                  "@Deprecated takes a message, a string without interpolation");
+            return {};
+        }
+
+        return text->parts.empty() ? "" : std::get<std::string>(text->parts.front());
+    }
+
+    /// "Attribute Rename(Name: String)", which declares an attribute: a Struct whose fields are
+    /// its parameters. "Attribute" is only a keyword here.
+    stmt_id_t parse_attribute_declaration() {
+        const std::size_t start = m_pos;
+        const token_t& keyword = advance();
+        const name_t name = expect_name();
+        block_t fields;
+        if (at(token_kind_t::LEFT_PAREN)) {
+            const token_t& open = advance();
+            ++m_bracket_depth;
+            while (!at(token_kind_t::RIGHT_PAREN) && !at(token_kind_t::END_OF_FILE)) {
+                const parameter_t parameter = parse_parameter();
+                if (parameter.by_ref || parameter.variadic) {
+                    error(parameter.name.span, "an Attribute's parameters are plain values");
+                }
+
+                fields.push_back(add_stmt(parameter.name.span, variable_stmt_t{
+                                                                   .kind = variable_kind_t::FIELD,
+                                                                   .name = parameter.name,
+                                                                   .type = parameter.type,
+                                                                   .value = parameter.default_value,
+                                                               }));
+                if (!accept(token_kind_t::COMMA)) {
+                    break;
+                }
+            }
+
+            expect_closing(token_kind_t::RIGHT_PAREN, open.span);
+            --m_bracket_depth;
+        }
+
+        finish_line(start);
+        return add_stmt(span_from(keyword.span.begin), type_stmt_t{
+                                                           .is_attribute = true,
+                                                           .name = name,
+                                                           .members = std::move(fields),
+                                                       });
     }
 
     stmt_id_t parse_unsupported_line() {
@@ -858,7 +1092,7 @@ private:
         }
     }
 
-    stmt_id_t parse_variable(const modifiers_t modifiers = {}) {
+    stmt_id_t parse_variable(const modifiers_t& modifiers = {}) {
         const token_t& keyword = advance();
         const name_t name = expect_name();
         std::optional<type_expr_id_t> type;
@@ -930,8 +1164,9 @@ private:
     }
 
     /// A Function, or a Struct's Method, "ByRef Method", or New. New has no name of its own:
-    /// the keyword is its name. An Abstract Method is only the line that declares it.
-    stmt_id_t parse_function(const function_kind_t kind, const modifiers_t modifiers = {}) {
+    /// the keyword is its name. An Abstract Method is only the line that declares it, and so is
+    /// an Interface's Method without a body. Where lines start the body.
+    stmt_id_t parse_function(const function_kind_t kind, const modifiers_t& modifiers = {}) {
         const std::size_t start = m_pos;
         const std::uint32_t begin = peek().span.begin;
         if (kind == function_kind_t::BYREF_METHOD) {
@@ -947,12 +1182,14 @@ private:
         }
 
         std::vector<name_t> type_parameters;
+        std::vector<std::optional<type_expr_id_t>> value_types;
+        std::vector<constraint_t> constraints;
         if (at(token_kind_t::LESS)) {
             if (kind == function_kind_t::CONSTRUCTOR) {
                 error(peek().span, "New can't have type parameters; its Struct or Class can");
             }
 
-            type_parameters = parse_type_parameters();
+            type_parameters = parse_type_parameters(constraints, value_types);
         }
 
         std::vector<parameter_t> parameters;
@@ -995,14 +1232,18 @@ private:
 
         // "Function F(): Int => x" is short for a body that returns x.
         block_t body;
+        bool required = false;
         if (modifiers.is_abstract) {
             // The line ends without a body, and the caller finishes it.
         } else if (accept(token_kind_t::ARROW)) {
             skip_continuation_newlines();
             const expr_id_t value = parse_expression();
             body.push_back(add_stmt(span_of(value), return_stmt_t{ .value = value }));
+        } else if (in_interface() && !next_line_is_body()) {
+            required = true;
         } else {
             finish_line(start);
+            parse_where_lines(constraints);
             body = parse_body(keyword);
         }
 
@@ -1010,11 +1251,14 @@ private:
                                               .kind = kind,
                                               .name = name,
                                               .type_parameters = std::move(type_parameters),
+                                              .value_types = std::move(value_types),
+                                              .constraints = std::move(constraints),
                                               .parameters = std::move(parameters),
                                               .return_type = return_type,
                                               .throws = std::move(throws),
                                               .body = std::move(body),
                                               .modifiers = modifiers,
+                                              .required = required,
                                           });
     }
 
@@ -1056,10 +1300,18 @@ private:
 
             return { .text = text(token), .span = token.span };
         }
+        case token_kind_t::AMP_AMP:
+        case token_kind_t::PIPE_PIPE:
+        case token_kind_t::QUESTION_QUESTION:
+            advance();
+            error(token.span, "{} always means what it does, so it can't be an Operator",
+                  describe(token.kind));
+            return { .text = {}, .span = point(token.span.begin) };
         default:
-            // A name where the operator goes is skipped, so the rest of the line still parses.
+            // Whatever is where the operator goes is skipped, so the rest of the line still
+            // parses.
             report_expected("an operator, like + or ==");
-            if (at(token_kind_t::IDENTIFIER)) {
+            if (!at(token_kind_t::LEFT_PAREN) && !at_line_end()) {
                 advance();
             }
 
@@ -1067,43 +1319,118 @@ private:
         }
     }
 
-    /// "Struct Name" or "Class Name Extends Base", the members, then the matching End. Members
-    /// parse like statements; analysis checks that each one is a Field, Method, or New.
-    /// Interfaces come later.
-    stmt_id_t parse_type_declaration(const modifiers_t modifiers) {
+    /// "Struct Name Implements A", "Class Name Extends Base Implements A, B", or "Interface
+    /// Name Extends A, B", any Where lines, the members, then the matching End. Members parse
+    /// like statements; analysis checks what each one can be.
+    stmt_id_t parse_type_declaration(const modifiers_t& modifiers) {
         const std::size_t start = m_pos;
         const token_t& keyword = advance();
+        const bool is_interface = keyword.kind == token_kind_t::KW_INTERFACE;
         const name_t name = expect_name();
         std::vector<name_t> type_parameters;
+        std::vector<std::optional<type_expr_id_t>> value_types;
+        std::vector<constraint_t> constraints;
         if (at(token_kind_t::LESS)) {
-            type_parameters = parse_type_parameters();
+            type_parameters = parse_type_parameters(constraints, value_types);
         }
 
+        // An Interface extends any number of Interfaces, and a Class one Class.
         std::optional<name_t> base;
-        if (accept(token_kind_t::KW_EXTENDS)) {
+        std::vector<type_expr_id_t> base_arguments;
+        std::vector<type_expr_id_t> interfaces;
+        if (is_interface && accept(token_kind_t::KW_EXTENDS)) {
+            interfaces = parse_type_list();
+        } else if (accept(token_kind_t::KW_EXTENDS)) {
             base = expect_name();
             if (at(token_kind_t::LESS)) {
-                error(peek().span, "extending a generic Class isn't supported yet");
-                (void)parse_type_arguments();
+                base_arguments = parse_type_arguments();
             }
         }
 
         if (at(token_kind_t::KW_IMPLEMENTS)) {
-            error(peek().span, "{} isn't supported yet", describe(peek().kind));
-            skip_rest_of_line();
+            const token_t& word = advance();
+            if (is_interface) {
+                error(word.span, "an Interface extends other Interfaces; write 'Extends'");
+            }
+
+            std::ranges::copy(parse_type_list(), std::back_inserter(interfaces));
         }
 
         finish_line(start);
+        parse_where_lines(constraints);
         block_t members = parse_body(keyword);
         return add_stmt(span_from(keyword.span.begin),
                         type_stmt_t{
                             .is_class = keyword.kind == token_kind_t::KW_CLASS,
+                            .is_interface = is_interface,
                             .name = name,
                             .type_parameters = std::move(type_parameters),
+                            .value_types = std::move(value_types),
+                            .constraints = std::move(constraints),
                             .members = std::move(members),
                             .base = base,
+                            .base_arguments = std::move(base_arguments),
+                            .interfaces = std::move(interfaces),
                             .modifiers = modifiers,
                         });
+    }
+
+    /// "Extend Type Implements A, B", any Where lines, the members, then "End Extend". Members
+    /// parse like statements; analysis checks what each one can be.
+    stmt_id_t parse_extend() {
+        const std::size_t start = m_pos;
+        const token_t& keyword = advance();
+        const type_expr_id_t type = parse_type();
+        std::vector<type_expr_id_t> interfaces;
+        if (accept(token_kind_t::KW_IMPLEMENTS)) {
+            interfaces = parse_type_list();
+        }
+
+        finish_line(start);
+        std::vector<constraint_t> constraints;
+        parse_where_lines(constraints);
+        block_t members = parse_body(keyword);
+        return add_stmt(span_from(keyword.span.begin), extend_stmt_t{
+                                                           .type = type,
+                                                           .interfaces = std::move(interfaces),
+                                                           .constraints = std::move(constraints),
+                                                           .members = std::move(members),
+                                                       });
+    }
+
+    /// "A, B": the types after Implements, or after an Interface's Extends.
+    std::vector<type_expr_id_t> parse_type_list() {
+        std::vector<type_expr_id_t> types{ parse_type() };
+        while (accept(token_kind_t::COMMA)) {
+            types.push_back(parse_type());
+        }
+
+        return types;
+    }
+
+    /// "Hashable & Equatable": the Interfaces a type parameter implements.
+    std::vector<type_expr_id_t> parse_constraint() {
+        std::vector<type_expr_id_t> interfaces{ parse_type() };
+        while (accept(token_kind_t::AMP)) {
+            interfaces.push_back(parse_type());
+        }
+
+        return interfaces;
+    }
+
+    /// "Where T: Hashable & Equatable" lines at the top of a body, each for one type parameter.
+    void parse_where_lines(std::vector<constraint_t>& constraints) {
+        while (at(token_kind_t::KW_WHERE)) {
+            const std::size_t line = m_pos;
+            advance();
+            const name_t parameter = expect_name();
+            if (expect(token_kind_t::COLON)) {
+                constraints.push_back(
+                    { .parameter = parameter, .interfaces = parse_constraint(), .where = true });
+            }
+
+            finish_line(line);
+        }
     }
 
     parameter_t parse_parameter() {
@@ -1112,12 +1439,19 @@ private:
         const type_expr_id_t type = expect(token_kind_t::COLON)
                                         ? parse_type()
                                         : add_type(point(peek().span.begin), error_type_t{});
+        const bool variadic = accept(token_kind_t::DOT_DOT_DOT);
         std::optional<expr_id_t> default_value;
         if (accept(token_kind_t::EQUAL)) {
             default_value = parse_expression();
         }
 
-        return { .name = name, .by_ref = by_ref, .type = type, .default_value = default_value };
+        return {
+            .name = name,
+            .by_ref = by_ref,
+            .type = type,
+            .variadic = variadic,
+            .default_value = default_value,
+        };
     }
 
     stmt_id_t parse_if() {
@@ -1190,6 +1524,8 @@ private:
         case token_kind_t::KW_FUNCTION:
         case token_kind_t::KW_STRUCT:
         case token_kind_t::KW_CLASS:
+        case token_kind_t::KW_INTERFACE:
+        case token_kind_t::KW_EXTEND:
         case token_kind_t::KW_TRY:
             error(peek().span, "a single-line If can't contain {}", describe(peek().kind));
             return add_stmt(point(peek().span.begin), error_stmt_t{});
@@ -1252,6 +1588,12 @@ private:
     stmt_id_t parse_for(const std::optional<name_t>& label) {
         const std::size_t start = m_pos;
         const token_t& keyword = advance();
+        if (at(token_kind_t::KW_FIELD) || at(token_kind_t::KW_METHOD) ||
+            at(token_kind_t::KW_PROPERTY) ||
+            (at(token_kind_t::KW_STATIC) && peek(1).kind == token_kind_t::KW_FIELD)) {
+            return parse_for_member(label, start, keyword);
+        }
+
         const name_t first = expect_name();
 
         // "For x In items" or "For i, x In items". Anything else is a counting loop.
@@ -1305,6 +1647,44 @@ private:
                                                                  .step = step,
                                                                  .body = std::move(body),
                                                              });
+    }
+
+    /// "For Field f: F In T", "For Method m In T", "For Property p: P In T", or "For Static
+    /// Field s: S In T", with Where lines on F at the top of the body.
+    stmt_id_t parse_for_member(const std::optional<name_t>& label, const std::size_t start,
+                               const token_t& keyword) {
+        member_kind_t kind = member_kind_t::FIELD;
+        if (accept(token_kind_t::KW_STATIC)) {
+            kind = member_kind_t::STATIC_FIELD;
+        } else if (at(token_kind_t::KW_METHOD)) {
+            kind = member_kind_t::METHOD;
+        } else if (at(token_kind_t::KW_PROPERTY)) {
+            kind = member_kind_t::PROPERTY;
+        }
+
+        advance(); // Field, Method, or Property
+        const name_t variable = expect_name();
+        std::optional<name_t> type_name;
+        if (accept(token_kind_t::COLON)) {
+            type_name = expect_name();
+        }
+
+        expect(token_kind_t::KW_IN);
+        const type_expr_id_t type = parse_type();
+        finish_line(start);
+        std::vector<constraint_t> constraints;
+        parse_where_lines(constraints);
+        block_t body = parse_body(keyword);
+        return add_stmt(span_from(begin_of(label, keyword)),
+                        for_member_stmt_t{
+                            .label = label,
+                            .kind = kind,
+                            .variable = variable,
+                            .type_name = type_name,
+                            .type = type,
+                            .constraints = std::move(constraints),
+                            .body = std::move(body),
+                        });
     }
 
     stmt_id_t parse_select() {
@@ -1761,6 +2141,10 @@ private:
             case token_kind_t::LEFT_BRACKET:
             case token_kind_t::RIGHT_BRACKET:
             case token_kind_t::INTEGER:
+            case token_kind_t::DECIMAL:
+            case token_kind_t::MINUS:
+            case token_kind_t::PLUS:
+            case token_kind_t::STAR:
             case token_kind_t::KW_FUNC:
             case token_kind_t::LEFT_PAREN:
             case token_kind_t::RIGHT_PAREN:
@@ -1780,7 +2164,7 @@ private:
         ++m_bracket_depth;
         std::vector<type_expr_id_t> arguments;
         while (!at(token_kind_t::GREATER) && !at(token_kind_t::END_OF_FILE)) {
-            arguments.push_back(parse_type());
+            arguments.push_back(parse_type_argument());
             if (!accept(token_kind_t::COMMA)) {
                 break;
             }
@@ -1791,18 +2175,65 @@ private:
         return arguments;
     }
 
-    /// "<T, U>" after the name of a generic Function, Method, Struct, or Class. Constraints come
-    /// with interfaces.
-    std::vector<name_t> parse_type_parameters() {
+    /// A type, or a Const type parameter's argument. One that goes on with + or *, like
+    /// "N * 2", is a value computed from Const type parameters, which takes no comparisons, so
+    /// the '>' still ends the list.
+    type_expr_id_t parse_type_argument() {
+        const std::size_t start = m_pos;
+        const type_expr_id_t type = parse_type();
+        if (!at(token_kind_t::PLUS) && !at(token_kind_t::STAR)) {
+            return type;
+        }
+
+        m_pos = start;
+        const expr_id_t value = parse_value_sum();
+        return add_type(span_of(value), value_type_t{ .value = value });
+    }
+
+    /// Products added together, each of unary operands.
+    expr_id_t parse_value_sum() {
+        expr_id_t left = parse_value_product();
+        while (accept(token_kind_t::PLUS)) {
+            const expr_id_t right = parse_value_product();
+            left = add_expr(span_from(span_of(left).begin),
+                            binary_expr_t{ .op = binary_op_t::ADD, .left = left, .right = right });
+        }
+
+        return left;
+    }
+
+    expr_id_t parse_value_product() {
+        expr_id_t left = parse_unary();
+        while (accept(token_kind_t::STAR)) {
+            const expr_id_t right = parse_unary();
+            left = add_expr(
+                span_from(span_of(left).begin),
+                binary_expr_t{ .op = binary_op_t::MULTIPLY, .left = left, .right = right });
+        }
+
+        return left;
+    }
+
+    /// "<T, U: Comparable, Const N: Int>" after the name of a generic Function, Method, Struct,
+    /// or Class. A constraint after a ':' goes in `constraints`, and a Const one's type in
+    /// `value_types`.
+    std::vector<name_t>
+    parse_type_parameters(std::vector<constraint_t>& constraints,
+                          std::vector<std::optional<type_expr_id_t>>& value_types) {
         const token_t& open = advance();
         ++m_bracket_depth;
         std::vector<name_t> names;
         while (!at(token_kind_t::GREATER) && !at(token_kind_t::END_OF_FILE)) {
+            const bool is_value = accept(token_kind_t::KW_CONST);
             names.push_back(expect_name());
-            if (at(token_kind_t::COLON)) {
-                error(peek().span, "constraints on type parameters aren't supported yet");
-                advance();
-                (void)parse_type();
+            if (is_value) {
+                value_types.resize(names.size());
+                value_types.back() = expect(token_kind_t::COLON)
+                                         ? parse_type()
+                                         : add_type(point(peek().span.begin), error_type_t{});
+            } else if (accept(token_kind_t::COLON)) {
+                constraints.push_back(
+                    { .parameter = names.back(), .interfaces = parse_constraint() });
             }
 
             if (!accept(token_kind_t::COMMA)) {
@@ -1812,6 +2243,10 @@ private:
 
         expect_closing(token_kind_t::GREATER, open.span);
         --m_bracket_depth;
+        if (!value_types.empty()) {
+            value_types.resize(names.size());
+        }
+
         return names;
     }
 
@@ -1887,15 +2322,31 @@ private:
                         call_expr_t{ .callee = callee, .arguments = std::move(arguments) });
     }
 
+    /// "a[i]", "grid[x, y]", or a slice, "a[from..to]", where either can be left out.
     expr_id_t parse_index(const expr_id_t object) {
         const token_t& open = advance();
         ++m_bracket_depth;
         std::vector<expr_id_t> indices;
-        while (!at(token_kind_t::RIGHT_BRACKET) && !at(token_kind_t::END_OF_FILE)) {
+        while (!at(token_kind_t::RIGHT_BRACKET) && !at(token_kind_t::END_OF_FILE) &&
+               !at(token_kind_t::DOT_DOT)) {
             indices.push_back(parse_expression());
             if (!accept(token_kind_t::COMMA)) {
                 break;
             }
+        }
+
+        if (indices.size() <= 1 && accept(token_kind_t::DOT_DOT)) {
+            std::optional<expr_id_t> to;
+            if (!at(token_kind_t::RIGHT_BRACKET)) {
+                to = parse_expression();
+            }
+
+            expect_closing(token_kind_t::RIGHT_BRACKET, open.span);
+            --m_bracket_depth;
+            const std::optional<expr_id_t> from =
+                indices.empty() ? std::nullopt : std::optional(indices.front());
+            return add_expr(span_from(span_of(object).begin),
+                            slice_expr_t{ .object = object, .from = from, .to = to });
         }
 
         expect_closing(token_kind_t::RIGHT_BRACKET, open.span);
@@ -1954,11 +2405,12 @@ private:
             return add_expr(token.span, super_expr_t{});
         case token_kind_t::LEFT_BRACKET:
             return parse_array();
+        case token_kind_t::LEFT_BRACE:
+            return parse_map();
         case token_kind_t::KW_FUNCTION:
             return parse_lambda();
         case token_kind_t::KW_NEW:
         case token_kind_t::KW_AWAIT:
-        case token_kind_t::LEFT_BRACE:
             error(token.span, "{} isn't supported yet", describe(token.kind));
             return missing_expr();
         default:
@@ -2091,6 +2543,26 @@ private:
                         array_expr_t{ .elements = std::move(elements) });
     }
 
+    /// "{key: value, ...}", a new Map of the entries. A comma can end the last one, as in an
+    /// array.
+    expr_id_t parse_map() {
+        const token_t& open = advance();
+        ++m_bracket_depth;
+        std::vector<map_entry_t> entries;
+        while (!at(token_kind_t::RIGHT_BRACE) && !at(token_kind_t::END_OF_FILE)) {
+            const expr_id_t key = parse_expression();
+            expect(token_kind_t::COLON);
+            entries.push_back({ .key = key, .value = parse_expression() });
+            if (!accept(token_kind_t::COMMA)) {
+                break;
+            }
+        }
+
+        expect_closing(token_kind_t::RIGHT_BRACE, open.span);
+        --m_bracket_depth;
+        return add_expr(span_from(open.span.begin), map_expr_t{ .entries = std::move(entries) });
+    }
+
     /// Parentheses only group: they get no node, and the inner expression's span leaves them out.
     /// With commas inside, they make a tuple, "(a, b)", whose span has them. A comma can end the
     /// last value, as in an array.
@@ -2172,10 +2644,24 @@ private:
     type_expr_id_t parse_type() {
         const token_t& token = peek();
         type_expr_id_t type{};
+        // A number is a Const type parameter's argument: the 64 in "Grid<Float, 64, 64>".
+        const bool number =
+            token.kind == token_kind_t::INTEGER || token.kind == token_kind_t::DECIMAL;
+        const token_kind_t after = peek(1).kind;
+        if (number || (token.kind == token_kind_t::MINUS &&
+                       (after == token_kind_t::INTEGER || after == token_kind_t::DECIMAL))) {
+            const expr_id_t value = parse_unary();
+            return add_type(span_of(value), value_type_t{ .value = value });
+        }
+
         if (token.kind == token_kind_t::LEFT_PAREN) {
             type = parse_tuple_type();
         } else if (token.kind == token_kind_t::IDENTIFIER) {
             type = parse_named_type();
+        } else if (token.kind == token_kind_t::KW_SELF) {
+            // In an Interface, Self is the type that implements it.
+            advance();
+            type = add_type(token.span, named_type_t{ .name = text(token) });
         } else if (token.kind == token_kind_t::KW_FUNC) {
             type = parse_function_type();
         } else {

@@ -1,0 +1,79 @@
+// Abstract and Static Properties, and an Interface's.
+Abstract Class Shape
+    // Each Class extending Shape gives Area's Get, and Label's Get and Set.
+    Abstract ReadOnly Property Area: Float
+    Abstract Property Label: String
+
+    Static Field made: Int
+
+    // A Static Property belongs to the type, like a Static Field.
+    Static Property Made: Int
+        Get => made
+        Set(value)
+            made = value
+        End Set
+    End Property
+
+    New()
+        Made += 1
+    End New
+End Class
+
+Class Square Extends Shape
+    Field Side: Float
+    Field name: String = "square"
+
+    New(side: Float)
+        Side = side
+    End New
+
+    Override Property Area: Float
+        Get => Side * Side
+    End Property
+
+    Override Property Label: String
+        Get => name
+        Set(value)
+            name = value
+        End Set
+    End Property
+End Class
+
+// An Interface's Properties, Static ones too, are only their first line.
+Interface Scored
+    Static ReadOnly Property Best: Int
+    Property Score: Int
+End Interface
+
+Struct Player Implements Scored
+    Field points: Int
+
+    Static Property Best: Int
+        Get => 100
+    End Property
+
+    Property Score: Int
+        Get => points
+        Set(value)
+            points = value > Best ? Best : value
+        End Set
+    End Property
+End Struct
+
+Function Reward<T: Scored>(ByRef player: T)
+    player.Score += 30
+    player.Score++
+    Print("{player.Score} of {T.Best}")
+End Function
+
+Local shape: Shape = Square(3)
+Print("{shape.Area} {shape.Label}")
+shape.Label = "big"
+Print("{shape.Label} {Shape.Made}")
+Local other = Square(1)
+Shape.Made *= 10
+Print("{Shape.Made}")
+
+Local player = Player(60)
+Reward(ByRef player)
+Reward(ByRef player)

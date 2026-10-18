@@ -1,0 +1,79 @@
+// Compile time: Const Functions run in the compiler, Consts can be used before their line,
+// Const type parameters stand for sizes, #If keeps one branch, and @Inline inlines.
+Const Function Fib(n: Int): Int
+    Return n < 2 ? n : Fib(n - 1) + Fib(n - 2)
+End Function
+
+Const Function Primes(limit: Int): Int
+    Local sieve: Bool[200]
+    Local count = 0
+    For i = 2 Until limit
+        If !sieve[i]
+            count += 1
+            For j = i * i Until limit Step i
+                sieve[j] = True
+            End For
+        End If
+    End For
+
+    Return count
+End Function
+
+Const Function Banner(title: String, width: Int): String
+    Local line = ""
+    For i = 1 To width
+        line += "="
+    End For
+
+    Return "{line} {title} {line}"
+End Function
+
+Const Function Depth(n: Int): Int => n == 0 ? 0 : 1 + Depth(n - 1)
+
+// A Const used above its line, in a Field's type.
+Struct Board
+    Field Cells: Int[SIDE, SIDE]
+End Struct
+
+Const AREA = SIDE * SIDE
+Const SIDE = 3
+
+Struct Grid<T, Const W: Int, Const H: Int>
+    Field Cells: T[W, H]
+
+    Method Width(): Int => W
+    Method Height(): Int => H
+End Struct
+
+Function Sum<Const N: Int>(values: Int[N]): Int
+    Local total = 0
+    For i = 0 Until N
+        total += values[i]
+    End For
+
+    Return total
+End Function
+
+@Inline Function Lerp(a: Float, b: Float, t: Float): Float => a + (b - a) * t
+
+Const FIB_20 = Fib(20)
+Print("{FIB_20} {Fib(12)} {Primes(200)} {Depth(2000)}")
+Print(Banner("FutureBlitz", 3))
+Local table: Int[Fib(6)]
+Print("{table.Count} {AREA} {Board().Cells.Count}")
+Local cells: Float[2, 3]
+Local grid = Grid<Float, 2, 3>(cells)
+Print("{grid.Width()} x {grid.Height()} = {grid.Cells.Count}")
+Local numbers: Int[4] = [1, 2, 3, 4]
+Print("{Sum(numbers)} {Sum<2>([10, 20])}")
+Local n = 8
+Print("{Fib(n)} {Lerp(0, 10, 0.25)}")
+
+#If DEBUG || RELEASE
+Print("every build")
+#Else
+This branch isn't lexed, so anything can go here: @@@ "
+#End If
+#If PLATFORM_WINDOWS || PLATFORM_LINUX || PLATFORM_MACOS
+Print("a known platform")
+#End If

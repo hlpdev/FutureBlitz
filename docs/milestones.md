@@ -90,20 +90,31 @@ Every step ends with programs in tests/programs that run with no leaks, as in M2
 | 10 | Compile time: `Const Function`s, run by an interpreter over MIR; const generics like `Grid<T, Const W: Int, Const H: Int>`; the attributes `@Inline` and `@Deprecated`; `#If` conditional compilation with `DEBUG`, `RELEASE`, and `PLATFORM_*` | const generics need generics and compile-time values, and reflection builds on attributes |
 | 11 | Compile-time reflection: generic code reads a type's fields, Methods, and attributes, in loops the compiler unrolls, to generate code like a serializer | the last language feature; it needs generics, interfaces, and attributes |
 | 12 | `std.collections` in FutureBlitz: `Map` and its `{key: value}` literal, `Set`, `Queue`, `Stack`, `Deque`, `PriorityQueue`, and `Pool`, sharing `Add`, `Remove`, `Contains`, `Count`, `Clear`, `Sort`, `Filter`, `Map`, `Find`, and `Clone` | M3's goal; it exercises every step before it |
-
-**Proposed, to settle in its step:**
-
-- Step 6: constraints say what a generic body can do with its type parameters, which step 4
-  checks once and lowers per set of type arguments.
-- Step 6: an interface type holds a Class's object and calls through a table for that Class and
-  interface. A Struct implements interfaces for generic code, which never boxes it.
-- Step 11: the spec doesn't say how reflection is written yet, so the step starts with that
-  design.
+| 13 | Loose ends: explicit arithmetic; Throws, generic Methods, constraints, and Const type parameters on Interfaces; a throwing Iterate; Extends of one instance or array type, Properties in `Extend T[]`, and conditional Interfaces as values; generic bases and Statics; generic Const Functions, Const Functions in declarations' types, and computed Const type arguments; reflection over Properties, Statics, Methods of a Func type, the owner's type parameters and Self, a type's attributes, and lambdas in the loops; consistent errors for later names and parser recovery | so M3 doesn't leave half-done the language it started |
 
 **Not in M3:** the math types (`Vec3`, `Mat4`, `Color`, and the rest) come with `std.math` in M6,
 written with operators. `Sendable`, `Shared Class`, `@MainThread`, and atomics come in M4, and
 modules, visibility, `@CLayout`, and `Callback` in M5. Running ordinary functions at compile time,
 not only `Const Function`s, stays an open question.
+
+## Deferred work
+
+Everything the spec describes that the compiler doesn't do yet, and where it's planned. Each step
+adds what it leaves out. Checked against all of docs/spec/ on 2026-10-17.
+
+| What | Left out in | Planned for |
+|---|---|---|
+| Computed Const type arguments with `-`, `/`, or `%`, which can leave a size below 1 | M3 step 13 | open question |
+| Setting a reflected Property or Static Field, which needs telling apart the ones without a Set or that are ReadOnly | M3 step 13 | open question |
+| Indexing a Map, `hp["boss"]`, which needs an index Operator the spec doesn't have yet | M3 step 12 | open question |
+| A loop over members inside a lambda, over the type parameters of the code around it | M3 step 13 | M4 |
+| `@Serialize`, which generates serialization code with reflection | M3 step 11 | M6 |
+| `Sendable`, `Shared Class`, tasks, `Parallel For`, `Async` and `Await`, coroutines, `Channel`, `Mutex`, `Atomic`, `Lock`, `@MainThread`, and `Thread.Start` | | M4 |
+| Modules: one per file, `Import`, `From`, visibility, and `project.toml` | | M5 |
+| FFI: `Extern`, `Ptr<T>`, `Void`, `CString`, `Callback`, `@CLayout`, `Unsafe`, `Mem`, `AddressOf`, and bindgen | | M5 |
+| The math types, `Vec2` through `Color` | | M6 |
+| A fix-it for a miscased keyword, like `if` for `If`, and `///` doc comments | M1 | M7 |
+| Stack traces for panics, which need debug info; a panic in std/, like popping an empty Stack, points at the library's line, not the caller's | M1 | open question |
 
 ## Process
 

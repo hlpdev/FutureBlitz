@@ -46,17 +46,23 @@ struct library_file_t {
     std::string text;
 };
 
-/// A main file through the front end, with the standard library: every stage runs, even after
-/// errors.
+/// The symbols an #If finds defined in a build of `mode`: DEBUG or RELEASE, and the platform's,
+/// like PLATFORM_WINDOWS.
+[[nodiscard]] std::vector<std::string_view> defined_symbols(build_mode_t mode);
+
+/// A main file through the front end, with the standard library, for a debug build: every
+/// stage runs, even after errors.
 [[nodiscard]] compilation_t compile(std::string path, std::string text);
 
-/// Like compile(), but with `library` in place of the standard library.
+/// Like compile(), but with `library` in place of the standard library, for a build of `mode`,
+/// which #If can test.
 [[nodiscard]] compilation_t compile(std::string path, std::string text,
-                                    std::vector<library_file_t> library);
+                                    std::vector<library_file_t> library,
+                                    build_mode_t mode = build_mode_t::DEBUG);
 
 /// Fails when the file, or one of the standard library's, can't be read.
 [[nodiscard]] std::expected<compilation_t, std::string>
-compile_file(const std::filesystem::path& path);
+compile_file(const std::filesystem::path& path, build_mode_t mode = build_mode_t::DEBUG);
 
 /// The standard library's files, from std/ in the source tree, sorted by path. Each is named
 /// like "std/core/error.fb". Fails when one can't be read.

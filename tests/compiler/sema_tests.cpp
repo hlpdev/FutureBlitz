@@ -197,8 +197,8 @@ TEST_CASE("strings", "[sema]") {
     CHECK(probe("Local hp = 5\nLocal x = \"HP: {hp}\"") == "String");
     CHECK(probe("Const MAX = 100\nLocal x = \"{MAX} {0.1} {True} {'A'}\"") ==
           "String 100 0.1 True 65");
-    CHECK(errors_of("Local x = \"a\" < \"b\"") ==
-          errors_t{ "\"a\" < \"b\": Strings can only be compared with == and != for now" });
+    CHECK(probe("Local x = \"a\" < \"b\"") == "Bool True");
+    CHECK(probe("Local x = \"b\" <= \"a\"") == "Bool False");
     CHECK(errors_of("Local x = \"a\" + 1") ==
           errors_t{ "\"a\" + 1: '+' can't combine String and Int32" });
     CHECK(errors_of("Local x = \"a\" - \"b\"") ==
@@ -731,7 +731,8 @@ TEST_CASE("member access", "[sema]") {
     CHECK(with_point("Local z = p.z") == errors_t{ "z: P has no member named 'z'" });
     CHECK(with_point("Local m = p.M") == errors_t{ "M: 'M' is a method; call it with ()" });
     CHECK(with_point("p.x()") == errors_t{ "x: 'x' is a field, not a method" });
-    CHECK(errors_of("Local a = 1\nLocal b = a.x") == errors_t{ "x: Int32 has no members" });
+    CHECK(errors_of("Local a = 1\nLocal b = a.x") ==
+          errors_t{ "x: Int32 has no member named 'x'" });
     CHECK(errors_of("Struct P\nEnd Struct\nLocal p = P") ==
           errors_t{ "P: 'P' is a type, not a value" });
     CHECK(errors_of("Local s = Self") ==
@@ -829,7 +830,7 @@ TEST_CASE("Structs compare with == and != only", "[sema]") {
     CHECK(errors_of(with_point("Local b = P() == Q()")) ==
           errors_t{ "P() == Q(): '==' can't combine P and Q" });
     CHECK(errors_of(with_point("Local p = P()\nPrint(\"{p}\")")) ==
-          errors_t{ "p: P can't be shown in a string" });
+          errors_t{ "p: P can't be shown in a string; implement Printable, with a ToString" });
 }
 
 TEST_CASE("New", "[sema]") {
@@ -963,7 +964,8 @@ TEST_CASE("Class references", "[sema]") {
                     "2: RefEquals compares Class references, not Int32" });
     CHECK(errors_of(with_a("Local b = A() < A()")) ==
           errors_t{ "A() < A(): '<' can't be used on A" });
-    CHECK(errors_of(with_a("Print(\"{A()}\")")) == errors_t{ "A(): A can't be shown in a string" });
+    CHECK(errors_of(with_a("Print(\"{A()}\")")) ==
+          errors_t{ "A(): A can't be shown in a string; implement Printable, with a ToString" });
 
     // RefEquals takes an A? too, but checking for Null takes ==.
     CHECK(probe(with_a("Local x: A? = Null\nLocal same = RefEquals(x, A())")) == "Bool");
@@ -1535,21 +1537,21 @@ TEST_CASE("a T[]'s Count and Methods", "[sema]") {
           errors_t{ "Add: Int32[3] has no member named 'Add'" });
     CHECK(errors_of("Local a = [1]\na.Add(\"x\")") ==
           errors_t{ "\"x\": expected Int32, found String" });
-    CHECK(errors_of("Local a = [[1]]\nLocal b = a.Contains([1])") ==
-          errors_t{ "a.Contains: Contains compares with ==, which Int32[] doesn't have" });
+    CHECK(errors_of("Local a = [Function() => 1]\nLocal b = a.Contains(a[0])") ==
+          errors_t{ "a.Contains: Contains compares with ==, which Func(): Int32 doesn't have" });
 }
 
-TEST_CASE("arrays have no ==, but RefEquals tells T[]s apart", "[sema]") {
-    CHECK(errors_of("Local a = [1]\nLocal b = a == a") ==
-          errors_t{ "a == a: '==' can't be used on Int32[]; RefEquals tells whether two are the "
-                    "same array" });
-    CHECK(errors_of("Local a: Int[2]\nLocal b = a == a") ==
-          errors_t{ "a == a: '==' can't be used on Int32[2]" });
-    CHECK(errors_of("Struct S\n"
-                    "    Field v: Int[]\n"
-                    "End Struct\n"
-                    "Local s = S([1])\n"
-                    "Local b = s == s") == errors_t{ "s == s: '==' can't be used on S" });
+TEST_CASE("arrays compare their elements with ==, and RefEquals tells T[]s apart", "[sema]") {
+    CHECK(probe("Local a = [1]\nLocal b = a == a") == "Bool");
+    CHECK(probe("Local a: Int[2]\nLocal b = a == a") == "Bool");
+    CHECK(probe("Struct S\n"
+                "    Field v: Int[]\n"
+                "End Struct\n"
+                "Local s = S([1])\n"
+                "Local b = s == s") == "Bool");
+    CHECK(errors_of("Local a = [Function() => 1]\nLocal b = a == a") ==
+          errors_t{ "a == a: '==' can't be used on (Func(): Int32)[]; RefEquals tells whether two "
+                    "are the same array" });
     CHECK(probe("Local a = [1]\nLocal b = RefEquals(a, a)") == "Bool");
 }
 
@@ -1560,7 +1562,8 @@ TEST_CASE("For ... In goes over an array", "[sema]") {
                     "End For")
               .empty());
     CHECK(errors_of("For x In 5\nEnd For") ==
-          errors_t{ "5: 'For ... In' goes over arrays, not Int32" });
+          errors_t{ "5: 'For ... In' goes over arrays, Iterators, and values whose Iterate() "
+                    "gives an Iterator, not Int32" });
     CHECK(errors_of("For x In [1, 2]\n    x = 3\nEnd For") ==
           errors_t{ "x: 'x' is a loop variable and can't be changed" });
     CHECK(errors_of("Function F(a: Int[]?)\n    For x In a\n    End For\nEnd Function") ==
@@ -2341,8 +2344,8 @@ TEST_CASE("tuple mistakes", "[sema]") {
           errors_t{ "n, o += Pair(): '+=' can't take a tuple apart; use '='" });
     CHECK(errors_of("Class Node\nEnd Class\nLocal w: (Weak<Node>, Int)") ==
           errors_t{ "Weak<Node>: a tuple can't hold a Weak<Node>" });
-    CHECK(errors_of("Local e = ([1], 2)\nLocal same = e == e") ==
-          errors_t{ "e == e: '==' can't be used on (Int32[], Int32)" });
+    CHECK(errors_of("Local e = (Function() => 1, 2)\nLocal same = e == e") ==
+          errors_t{ "e == e: '==' can't be used on (Func(): Int32, Int32)" });
     CHECK(errors_of("Class Node\nEnd Class\nLocal t = \"{(Node(), 1)}\"") ==
           errors_t{ "(Node(), 1): (Node, Int32) can't be shown in a string, since one of its "
                     "elements can't be" });
@@ -2492,7 +2495,7 @@ TEST_CASE("calling a function value", "[sema]") {
 // Generics
 
 constexpr std::string_view generics = "Function First<T>(xs: T[]): T => xs[0]\n"
-                                      "Function Map<T, U>(xs: T[], f: Func(T): U): U[]\n"
+                                      "Function Transform<T, U>(xs: T[], f: Func(T): U): U[]\n"
                                       "    Local result: U[] = []\n"
                                       "    For x In xs\n"
                                       "        result.Add(f(x))\n"
@@ -2504,7 +2507,7 @@ constexpr std::string_view generics = "Function First<T>(xs: T[]): T => xs[0]\n"
                                       "    Field First: A\n"
                                       "    Field Second: B\n"
                                       "End Struct\n"
-                                      "Class Stack<T>\n"
+                                      "Class Pile<T>\n"
                                       "    Field Items: T[] = []\n"
                                       "    Method Push(item: T)\n"
                                       "        Items.Add(item)\n"
@@ -2534,22 +2537,22 @@ TEST_CASE("type arguments are inferred from the arguments", "[sema]") {
     CHECK(probe_generic("Local m = Max(1, 2.5)") == "Float32");
 
     // A lambda's parameters take the types already known, and its result gives the rest.
-    CHECK(probe_generic("Local s = Map([1, 2], Function(x) => \"n{x}\")") == "String[]");
+    CHECK(probe_generic("Local s = Transform([1, 2], Function(x) => \"n{x}\")") == "String[]");
 }
 
 TEST_CASE("type arguments can be written, or come from the type expected", "[sema]") {
     CHECK(probe_generic("Local f = First<Float>([1, 2])") == "Float32");
     CHECK(probe_generic("Local p: Pair<Long, String> = Pair<Long, String>(2, \"two\")") ==
           "Pair<Int64, String>");
-    CHECK(probe_generic("Local s: Stack<Int> = Stack()") == "Stack<Int32>");
+    CHECK(probe_generic("Local s: Pile<Int> = Pile()") == "Pile<Int32>");
     CHECK(probe_generic("Local f: Func(String[]): String = First") == "Func(String[]): String");
 }
 
 TEST_CASE("an instance's members have its type arguments", "[sema]") {
-    CHECK(probe_generic("Local s = Stack<String>()\nLocal top = s.Top()") == "String");
-    CHECK(probe_generic("Local s = Stack<Int>()\nLocal items = s.Items") == "Int32[]");
+    CHECK(probe_generic("Local s = Pile<String>()\nLocal top = s.Top()") == "String");
+    CHECK(probe_generic("Local s = Pile<Int>()\nLocal items = s.Items") == "Int32[]");
     CHECK(probe_generic("Local p = Pair(1, 2.5)\nLocal x = p.Second") == "Float32");
-    CHECK(with_generics("Local s = Stack<Int>()\ns.Push(\"a\")") ==
+    CHECK(with_generics("Local s = Pile<Int>()\ns.Push(\"a\")") ==
           errors_t{ "\"a\": expected Int32, found String" });
 }
 
@@ -2557,9 +2560,9 @@ TEST_CASE("a type parameter can only be passed around until interfaces", "[sema]
     CHECK(errors_of("Function F<T>(a: T, b: T): Bool => a == b") ==
           errors_t{ "a == b: '==' can't be used on T" });
     CHECK(errors_of("Function F<T>(a: T): String => \"{a}\"") ==
-          errors_t{ "a: T can't be shown in a string" });
+          errors_t{ "a: T can't be shown in a string without a constraint, like <T: Printable>" });
     CHECK(errors_of("Function F<T>(a: T): Int => a.Count") ==
-          errors_t{ "Count: T has no members" });
+          errors_t{ "Count: T has no members without a constraint, like <T: I>" });
     CHECK(errors_of("Function F<T>(): T\n    Local x: T\n    Return x\nEnd Function") ==
           errors_t{ "x: 'x' is read before it's assigned" });
 }
@@ -2569,15 +2572,15 @@ TEST_CASE("generic mistakes", "[sema]") {
     CHECK(errors_of("Function Zero<T>(): T => Zero()\nLocal z = Zero()") ==
           errors_t{ "Zero: can't tell what T is in this call; write the type arguments, like "
                     "Zero<Int>(...)" });
-    CHECK(with_generics("Local s: Stack") ==
-          errors_t{ "Stack: Stack<T> is generic, so it needs type arguments, like Stack<Int>" });
-    CHECK(with_generics("Local s: Stack<Int, Int>") ==
-          errors_t{ "Stack<Int, Int>: Stack<T> takes 1 type argument, not 2" });
+    CHECK(with_generics("Local s: Pile") ==
+          errors_t{ "Pile: Pile<T> is generic, so it needs type arguments, like Pile<Int>" });
+    CHECK(with_generics("Local s: Pile<Int, Int>") ==
+          errors_t{ "Pile<Int, Int>: Pile<T> takes 1 type argument, not 2" });
     CHECK(errors_of("Local d: Int<Int>") == errors_t{ "Int<Int>: 'Int' isn't generic" });
     CHECK(errors_of("Function F<T, T>()\nEnd Function") ==
           errors_t{ "T: 'T' is already a type parameter here" });
-    CHECK(errors_of("Class H<T>\n    Static Field Count = 0\nEnd Class") ==
-          errors_t{ "Field Count = 0: a generic Class can't have Static members yet" });
+    CHECK(errors_of("Class H<T>\n    Static Field Count = 0\nEnd Class\nLocal n = H.Count") ==
+          errors_t{ "H: H<T> is generic, so it needs type arguments, like H<Int>" });
     CHECK(with_generics("Local f = First") ==
           errors_t{ "First: 'First' is generic, so it needs a Func type to say what T is, or type "
                     "arguments, like First<Int>" });
@@ -2646,6 +2649,9 @@ TEST_CASE("Operator mistakes", "[sema]") {
           errors_t{ "==: Operator == gives a Bool, not Int32" });
     CHECK(in_struct("Operator *(a: Int, b: Int): Int => a") ==
           errors_t{ "*: an Operator of M needs a parameter of that type" });
+    CHECK(in_struct("Operator +(a: M, b: M...): M => a") ==
+          errors_t{ "+: an Operator takes its operands, so no parameter takes the rest of the "
+                    "arguments" });
     CHECK(in_struct("Operator /(ByRef a: M, b: M): M => a") ==
           errors_t{ "/: an Operator's parameters can't be ByRef or have defaults" });
     CHECK(in_struct("Static Operator %(a: M, b: M): M => a") ==
@@ -2661,4 +2667,1421 @@ TEST_CASE("a type with Operator == can be compared, whatever its fields are", "[
                     "End Struct\n"
                     "Local bags = [Bag()]\nLocal found = bags.Contains(Bag())")
               .empty());
+}
+
+// Interfaces
+
+constexpr std::string_view shapes = "Interface Shape\n"
+                                    "    Method Area(): Int\n"
+                                    "    Method Twice(): Int => Area() * 2\n"
+                                    "    ReadOnly Property Sides: Int\n"
+                                    "End Interface\n"
+                                    "Class Square Implements Shape\n"
+                                    "    Field Side: Int = 1\n"
+                                    "    Method Area(): Int => Side * Side\n"
+                                    "    Property Sides: Int\n"
+                                    "        Get => 4\n"
+                                    "    End Property\n"
+                                    "End Class\n"
+                                    "Struct Tile Implements Shape\n"
+                                    "    Method Area(): Int => 1\n"
+                                    "    Property Sides: Int\n"
+                                    "        Get => 4\n"
+                                    "    End Property\n"
+                                    "End Struct\n";
+
+namespace {
+
+std::string probe_shapes(const std::string_view text) {
+    return probe(std::format("{}{}", shapes, text));
+}
+
+errors_t with_shapes(const std::string_view text) {
+    return errors_of(std::format("{}{}", shapes, text));
+}
+
+} // namespace
+
+TEST_CASE("an Interface's value is an object of a Class that implements it", "[sema]") {
+    CHECK(probe_shapes("Local s: Shape = Square()\nLocal a = s.Area()") == "Int32");
+    CHECK(probe_shapes("Local s: Shape = Square()\nLocal n = s.Sides") == "Int32");
+    CHECK(probe_shapes("Local shapes: Shape[] = [Square(), Square()]\nLocal s = shapes[0]") ==
+          "Shape");
+    CHECK(probe_shapes("Local maybe: Shape? = Square()") == "Shape? (from Square)");
+    // A default is a Method of each type that implements it.
+    CHECK(probe_shapes("Local a = Square().Twice()") == "Int32");
+    CHECK(probe_shapes("Local a = Tile().Twice()") == "Int32");
+
+    // Is, As, and As? test for an Interface, and from one for a Class.
+    CHECK(probe_shapes("Local s: Shape = Square()\nLocal q = s As Square") == "Square");
+    CHECK(probe_shapes("Local s: Shape = Square()\nLocal q = s Is Square") == "Bool");
+    CHECK(probe_shapes("Class Rock\nEnd Class\nLocal q = Rock() As? Shape") == "Shape?");
+}
+
+TEST_CASE("what an Interface's values can't do", "[sema]") {
+    CHECK(
+        with_shapes("Local s: Shape = Tile()") ==
+        errors_t{ "Tile(): expected Shape, found Tile, which is a Struct; an Interface's values "
+                  "are objects of Classes, but a type parameter like <T: Shape> takes a Struct" });
+    CHECK(with_shapes("Local s: Shape = Square()\nLocal same = s == s") ==
+          errors_t{ "s == s: '==' can't be used on Shape; RefEquals tells whether two are the same "
+                    "object" });
+    CHECK(with_shapes("Local s: Shape = Square()\nLocal same = RefEquals(s, s)").empty());
+    CHECK(with_shapes("Local s = Shape()") ==
+          errors_t{ "Shape: Shape is an Interface, so it can't be made; make a Struct or Class "
+                    "that implements it" });
+    CHECK(with_shapes("Final Class Rock\nEnd Class\nLocal q = Rock() Is Shape") ==
+          errors_t{ "Rock() Is Shape: Rock and Shape aren't related, so this is always False" });
+    CHECK(with_shapes("Local q = Square() Is Shape") ==
+          errors_t{ "Square() Is Shape: this is always True: every Square is a Shape" });
+}
+
+TEST_CASE("an Interface that needs Statics or Operators, or uses Self, is only a constraint",
+          "[sema]") {
+    CHECK(errors_of("Interface Zeroed\n    Static Method Zero(): Self\nEnd Interface\n"
+                    "Local n: Zeroed") ==
+          errors_t{ "Zeroed: Zeroed can only be a constraint, like <T: Zeroed>, since it needs "
+                    "Static Methods" });
+    CHECK(errors_of("Interface Adds\n    Operator +(a: Self, b: Self): Self\nEnd Interface\n"
+                    "Function F(a: Adds)\nEnd Function") ==
+          errors_t{ "Adds: Adds can only be a constraint, like <T: Adds>, since it needs "
+                    "Operators" });
+    CHECK(errors_of("Interface Copies\n    Method Copy(): Self\nEnd Interface\n"
+                    "Interface More Extends Copies\nEnd Interface\n"
+                    "Function F(m: More[])\nEnd Function") ==
+          errors_t{ "More: More can only be a constraint, like <T: More>, since it uses Self" });
+}
+
+TEST_CASE("a type implements each of its Interfaces' members", "[sema]") {
+    CHECK(with_shapes("Class C Implements Shape\nEnd Class") ==
+          errors_t{
+              "Shape: C implements Shape, so it needs a Method 'Area'",
+              "Shape: C implements Shape, so it needs a Property 'Sides'",
+          });
+    CHECK(with_shapes("Class C Implements Shape\n"
+                      "    Method Area(): Float => 1\n"
+                      "    Property Sides: String\n"
+                      "        Get => \"\"\n"
+                      "    End Property\n"
+                      "End Class") ==
+          errors_t{
+              "Shape: C's 'Area' doesn't match Shape's, which takes () and returns Int32",
+              "Shape: 'Sides' must be Int32 to implement Shape's",
+          });
+
+    // The members of the Interfaces it extends too, and Self is the type itself.
+    CHECK(errors_of("Interface Adds\n    Operator +(a: Self, b: Self): Self\nEnd Interface\n"
+                    "Interface Sums Extends Adds\n    Static Method Zero(): Self\nEnd Interface\n"
+                    "Struct M Implements Sums\n"
+                    "    Static Method Zero(): Int => 0\n"
+                    "End Struct") ==
+          errors_t{
+              "Sums: M's 'Zero' doesn't match Sums's, which takes () and returns M",
+              "Sums: M implements Adds, so it needs an Operator '+'",
+          });
+
+    // What implements a Method doesn't throw, or change a Struct when the Interface's doesn't.
+    CHECK(errors_of("Interface Hurts\n    Method Hurt()\n    Property Hp: Int\nEnd Interface\n"
+                    "Struct S Implements Hurts\n"
+                    "    ByRef Method Hurt()\n    End Method\n"
+                    "    Property Hp: Int\n        Get => 1\n    End Property\n"
+                    "End Struct\n"
+                    "Class C Implements Hurts\n"
+                    "    Method Hurt() Throws Error\n        Throw Error()\n    End Method\n"
+                    "    Property Hp: Int\n        Get => 1\n    End Property\n"
+                    "End Class") ==
+          errors_t{
+              "Hurts: 'Hurt' is a ByRef Method, so it can't implement Hurts's, which isn't",
+              "Hurts: 'Hp' needs a Set to implement Hurts's",
+              "Hurts: 'Hurt' can't throw Error, since Hurts's doesn't",
+              "Hurts: 'Hp' needs a Set to implement Hurts's",
+          });
+}
+
+TEST_CASE("Interface mistakes", "[sema]") {
+    CHECK(errors_of("Interface A Extends B\nEnd Interface\nInterface B Extends A\nEnd Interface") ==
+          errors_t{ "A: B can't extend itself, directly or through other Interfaces" });
+    CHECK(errors_of("Final Interface C\n"
+                    "    Field X: Int\n"
+                    "    New()\n    End New\n"
+                    "    Method Destroy()\n"
+                    "End Interface") ==
+          errors_t{
+              "C: an Interface doesn't take modifiers like Abstract or Final",
+              "X: an Interface can't hold Fields; a Property can stand for one",
+              "New: an Interface can't have a New; the types that implement it make their values",
+              "Destroy: an Interface can't have a Destroy; each Class's runs by itself",
+          });
+    CHECK(errors_of("Interface I\n    Property P: Int\n        Get => 1\n    End Property\n"
+                    "End Interface") ==
+          errors_t{ "P: an Interface's Property is only its first line; the types that implement "
+                    "it give its Get and Set" });
+    CHECK(errors_of("Interface I\n    Operator +(a: Int, b: Int): Int\nEnd Interface") ==
+          errors_t{ "+: an Operator of I needs a parameter of type Self" });
+    CHECK(errors_of("Interface I\nEnd Interface\nClass C Extends I\nEnd Class") ==
+          errors_t{ "I: 'I' is an Interface, so it goes after Implements" });
+    CHECK(errors_of("Struct S Implements Int, S\nEnd Struct") ==
+          errors_t{ "Int: Int32 isn't an Interface", "S: S isn't an Interface" });
+    CHECK(errors_of("Struct S\n    Method M(x: Self)\n    End Method\nEnd Struct") ==
+          errors_t{
+              "Self: Self is a type only in an Interface, where it's the type implementing it" });
+}
+
+// Constraints
+
+constexpr std::string_view numbers = "Interface Summable\n"
+                                     "    Static Method Zero(): Self\n"
+                                     "    Operator +(a: Self, b: Self): Self\n"
+                                     "    Operator ==(a: Self, b: Self): Bool\n"
+                                     "End Interface\n"
+                                     "Struct Money Implements Summable\n"
+                                     "    Field Cents: Long\n"
+                                     "    Static Method Zero(): Money => Money(0)\n"
+                                     "    Operator +(a: Money, b: Money): Money => Money(a.Cents "
+                                     "+ b.Cents)\n"
+                                     "    Operator ==(a: Money, b: Money): Bool => a.Cents == "
+                                     "b.Cents\n"
+                                     "End Struct\n"
+                                     "Function Sum<T: Summable>(xs: T[]): T\n"
+                                     "    Local total = T.Zero()\n"
+                                     "    For x In xs\n"
+                                     "        total += x\n"
+                                     "    End For\n"
+                                     "    Return total\n"
+                                     "End Function\n";
+
+namespace {
+
+std::string probe_numbers(const std::string_view text) {
+    return probe(std::format("{}{}", numbers, text));
+}
+
+errors_t with_numbers(const std::string_view text) {
+    return errors_of(std::format("{}{}", numbers, text));
+}
+
+} // namespace
+
+TEST_CASE("generic code uses what its constraints give", "[sema]") {
+    CHECK(probe_numbers("Local s = Sum([Money(1), Money(2)])") == "Money");
+    CHECK(probe_numbers("Function Same<T>(a: T, b: T): Bool\n"
+                        "    Where T: Summable\n"
+                        "    Return a == b && !(a != b)\n"
+                        "End Function\n"
+                        "Local s = Same(Money(1), Money(2))") == "Bool");
+    // A type parameter with a constraint meets another's.
+    CHECK(probe_numbers("Function Twice<T: Summable>(x: T): T => Sum([x, x])\n"
+                        "Local m = Twice(Money(3))") == "Money");
+    CHECK(with_numbers("Function F<T: Summable>(x: T): T => x.Zero()") ==
+          errors_t{ "Zero: 'Zero' is Static; call it on T" });
+    CHECK(with_numbers("Function F<T: Summable>(x: T): Int => x.Count") ==
+          errors_t{ "Count: T's constraints have no member named 'Count'" });
+}
+
+TEST_CASE("each use of generic code meets its constraints", "[sema]") {
+    CHECK(with_numbers("Local s = Sum([1, 2])") ==
+          errors_t{ "Sum: Int32 doesn't implement Summable, which 'Sum' needs for T" });
+    CHECK(with_numbers("Struct Box<T: Summable>\n    Field Item: T\nEnd Struct\n"
+                       "Local b: Box<String>? = Null") ==
+          errors_t{ "Box<String>: String doesn't implement Summable, which Box<T> needs for T" });
+    CHECK(with_numbers("Function Bad(b: Later<Int>)\nEnd Function\n"
+                       "Class Later<T: Summable>\nEnd Class") ==
+          errors_t{ "Later<Int>: Int32 doesn't implement Summable, which Later<T> needs for T" });
+    CHECK(with_numbers("Local f: Func(Money[]): Money = Sum").empty());
+
+    // A Method with a Where line is only there for the type arguments that meet it.
+    CHECK(with_numbers("Class Bag<T>\n"
+                       "    Field Items: T[] = []\n"
+                       "    Method Total(): T\n"
+                       "        Where T: Summable\n"
+                       "        Return Sum(Items)\n"
+                       "    End Method\n"
+                       "End Class\n"
+                       "Local money = Bag<Money>().Total()\n"
+                       "Local words = Bag<String>().Total()") ==
+          errors_t{ "Bag<String>().Total: String doesn't implement Summable, which 'Total' needs "
+                    "for T" });
+}
+
+TEST_CASE("a Class extending one gets the Interfaces it implements, unless they use Self",
+          "[sema]") {
+    CHECK(with_shapes("Class Big Extends Square\nEnd Class\n"
+                      "Function F<T: Shape>(x: T): Int => x.Area()\n"
+                      "Local s: Shape = Big()\nLocal a = F(Big())")
+              .empty());
+    CHECK(with_numbers("Class A Implements Summable\n"
+                       "    Static Method Zero(): A => A()\n"
+                       "    Operator +(a: A, b: A): A => a\n"
+                       "    Operator ==(a: A, b: A): Bool => True\n"
+                       "End Class\n"
+                       "Class B Extends A\nEnd Class\n"
+                       "Local b = Sum([B()])") ==
+          errors_t{ "Sum: B doesn't implement Summable, which 'Sum' needs for T" });
+}
+
+TEST_CASE("constraint mistakes", "[sema]") {
+    CHECK(errors_of("Function F<T: Int>(x: T)\nEnd Function") ==
+          errors_t{ "Int: Int32 isn't an Interface" });
+    CHECK(errors_of("Function F<T>(x: T)\n    Where U: Int\nEnd Function") ==
+          errors_t{ "U: 'U' isn't a type parameter here" });
+    CHECK(
+        errors_of("Interface I\nEnd Interface\nFunction F(x: Int)\n    Where T: I\nEnd Function") ==
+        errors_t{ "T: 'T' isn't a type parameter here" });
+}
+
+// Abstract and Static Properties
+
+TEST_CASE("an Abstract Property is overridden, and a Static one belongs to its type", "[sema]") {
+    const std::string_view shape = "Abstract Class Shape\n"
+                                   "    Abstract ReadOnly Property Area: Float\n"
+                                   "    Abstract Property Label: String\n"
+                                   "    Static Property Made: Int\n"
+                                   "        Get => 1\n"
+                                   "    End Property\n"
+                                   "End Class\n";
+    CHECK(probe(std::format("{}Local s: Shape? = Null\nLocal m = Shape.Made", shape)) == "Int32");
+    CHECK(errors_of(std::format("{}Class Circle Extends Shape\n"
+                                "    Override Property Label: String\n"
+                                "        Get => \"\"\n"
+                                "    End Property\n"
+                                "End Class",
+                                shape)) ==
+          errors_t{
+              "Circle: Circle must override Shape's Abstract Property 'Area', or be Abstract",
+              "Label: 'Label' needs a Set, like Shape's Abstract one",
+          });
+    CHECK(errors_of(std::format("{}Local s = Shape.Made\nShape.Made = 2", shape)) ==
+          errors_t{ "Shape.Made: 'Made' has no Set, so it can't be assigned" });
+}
+
+TEST_CASE("Property mistakes", "[sema]") {
+    const auto in_class = [](const std::string_view member) {
+        return errors_of(std::format("Class C\n    {}\nEnd Class", member));
+    };
+
+    CHECK(in_class("Abstract Property P: Int") ==
+          errors_t{ "P: 'P' is Abstract, so C must be Abstract too" });
+    CHECK(in_class("ReadOnly Property P: Int\n        Get => 1\n    End Property") ==
+          errors_t{ "P: a Property without a Set is read-only already; ReadOnly only goes on an "
+                    "Abstract one or an Interface's" });
+    CHECK(in_class("Static Override Property P: Int\n        Get => 1\n    End Property") ==
+          errors_t{ "P: a Static Property can't be Abstract, Final, or Override; it isn't used "
+                    "through an object" });
+    CHECK(in_class("Abstract Property P: Int\n        Get => 1\n    End Property") ==
+          errors_t{ "P: an Abstract Property is only its first line; a Class that extends it "
+                    "gives its Get and Set" });
+    CHECK(errors_of("Struct S\n    Abstract Property P: Int\nEnd Struct") ==
+          errors_t{ "P: a Struct's Properties can't be Abstract, Final, or Override" });
+}
+
+// Built-in Interfaces
+
+TEST_CASE("the built-in types implement the built-in Interfaces that fit them", "[sema]") {
+    const auto meets = [](const std::string_view constraint, const std::string_view value) {
+        return errors_of(
+                   std::format("Function F<T: {}>(x: T)\nEnd Function\nF({})", constraint, value))
+            .empty();
+    };
+
+    CHECK(meets("Numeric & Comparable & Hashable & Printable", "2.5"));
+    CHECK(meets("Comparable & Hashable & Printable", "\"a\""));
+    CHECK(meets("Equatable & Hashable & Printable", "True"));
+    CHECK(meets("Hashable & Printable", "[(1, \"a\")]"));
+    CHECK(meets("Hashable", "(1 As Int?)"));
+    CHECK_FALSE(meets("Numeric", "\"a\""));
+    CHECK_FALSE(meets("Comparable", "True"));
+    CHECK_FALSE(meets("Comparable", "[1]"));
+    CHECK_FALSE(meets("Printable", "(1 As Int?)"));
+    CHECK_FALSE(meets("Equatable", "[Function() => 1]"));
+
+    CHECK(errors_of("Function Max<T: Comparable>(a: T, b: T): T => a > b ? a : b\n"
+                    "Local m = Max(True, False)") ==
+          errors_t{ "Max: Bool doesn't implement Comparable, which 'Max' needs for T" });
+}
+
+TEST_CASE("a Struct or Class that lists Equatable or Hashable can have the built-in == and Hash",
+          "[sema]") {
+    CHECK(probe("Struct P Implements Hashable\n    Field X: Int\n    Field Name: String\n"
+                "End Struct\nLocal h = P(1, \"a\").Hash()") == "UInt64");
+    CHECK(probe("Class C Implements Hashable\nEnd Class\nLocal h = C().Hash()") == "UInt64");
+    CHECK(errors_of("Struct Money Implements Hashable\n"
+                    "    Field Cents: Long\n"
+                    "    Operator ==(a: Money, b: Money): Bool => a.Cents == b.Cents\n"
+                    "End Struct") ==
+          errors_t{ "Hashable: Money has an Operator == of its own, so it needs a Hash that agrees "
+                    "with it" });
+    CHECK(errors_of("Class Rock\nEnd Class\n"
+                    "Struct Bag Implements Hashable\n    Field Owner: Rock\nEnd Struct") ==
+          errors_t{ "Hashable: 'Owner' isn't Hashable, so Bag needs a Hash of its own to implement "
+                    "Hashable" });
+    CHECK(errors_of("Struct Holder Implements Equatable\n    Field Run: Func(): Int\nEnd Struct") ==
+          errors_t{ "Equatable: 'Run' can't be compared with ==, so Holder needs an Operator == of "
+                    "its own to implement Equatable" });
+
+    // Comparable gives the other comparisons from <.
+    CHECK(probe("Struct M Implements Comparable\n"
+                "    Field V: Int\n"
+                "    Operator <(a: M, b: M): Bool => a.V < b.V\n"
+                "End Struct\n"
+                "Local x = M(1) >= M(2)") == "Bool");
+}
+
+TEST_CASE("the built-in types have the built-in Interfaces' Methods", "[sema]") {
+    CHECK(probe("Local s = 5.ToString()") == "String");
+    CHECK(probe("Local h = \"a\".Hash()") == "UInt64");
+    CHECK(probe("Local h = [1, 2].Hash()") == "UInt64");
+    CHECK(probe("Local h = (1, \"a\").ToString()") == "String");
+    CHECK(errors_of("Class Rock\nEnd Class\nLocal h = Rock().Hash()") ==
+          errors_t{ "Hash: Rock has no member named 'Hash'" });
+    CHECK(errors_of("Local f = 1.5.Hash") ==
+          errors_t{ "Hash: 'Hash' is a method; call it with ()" });
+}
+
+TEST_CASE("Printable puts a value in a string", "[sema]") {
+    const std::string_view point = "Struct Point Implements Printable\n"
+                                   "    Field X: Int\n"
+                                   "    Method ToString(): String => \"({X})\"\n"
+                                   "End Struct\n";
+    CHECK(probe(std::format("{}Local s = \"{{Point(1)}} {{[Point(2)]}}\"", point)) == "String");
+    CHECK(probe("Function F<T: Printable>(x: T): String => \"{x}\"\nLocal s = F([1, 2])") ==
+          "String");
+    CHECK(probe(std::format("{}Class C Implements Printable\n"
+                            "    Method ToString(): String => \"c\"\n"
+                            "End Class\n"
+                            "Local p: Printable = C()\nLocal s = \"{{p}}\"",
+                            point)) == "String");
+    CHECK(errors_of("Local s = \"{[Function() => 1]}\"") ==
+          errors_t{ "[Function() => 1]: (Func(): Int32)[] can't be shown in a string, since its "
+                    "elements can't be" });
+}
+
+// Extend
+
+TEST_CASE("an Extend adds Methods, Properties, and Operators to a type", "[sema]") {
+    const std::string_view point = "Struct Point\n"
+                                   "    Field X: Int\n"
+                                   "End Struct\n"
+                                   "Extend Point\n"
+                                   "    Method Doubled(): Point => Point(X * 2)\n"
+                                   "    Property Big: Bool\n"
+                                   "        Get => X > 10\n"
+                                   "    End Property\n"
+                                   "    Operator +(a: Point, b: Point): Point => Point(a.X + b.X)\n"
+                                   "    ByRef Method Grow()\n"
+                                   "        X++\n"
+                                   "    End Method\n"
+                                   "End Extend\n";
+    CHECK(probe(std::format("{}Local p = Point(1).Doubled()", point)) == "Point");
+    CHECK(probe(std::format("{}Local b = Point(1).Big", point)) == "Bool");
+    CHECK(probe(std::format("{}Local p = Point(1) + Point(2)", point)) == "Point");
+    CHECK(errors_of(std::format("{}Point(1).Grow()", point)) ==
+          errors_t{ "Point(1): 'Grow' is a ByRef Method, so it needs a variable to change, not a "
+                    "value" });
+
+    // Built-in types, Enums, and every array.
+    CHECK(probe("Extend Int\n    Method Doubled(): Int => Self * 2\nEnd Extend\n"
+                "Local x = 5.Doubled()") == "Int32");
+    CHECK(probe("Extend Int\n    Static Method Parse(text: String): Int => 0\nEnd Extend\n"
+                "Local x = Int.Parse(\"1\")") == "Int32");
+    CHECK(probe("Extend String\n    Method Twice(): String => Self + Self\nEnd Extend\n"
+                "Local x = \"a\".Twice()") == "String");
+    CHECK(probe("Enum Mood\n    Calm, Angry\nEnd Enum\n"
+                "Extend Mood\n    Method Calm(): Bool => Self == Mood.Calm\nEnd Extend\n"
+                "Local x = Mood.Angry.Calm()") == "Bool");
+    CHECK(probe("Extend T[]\n    Method Last(): T => Self[Self.Count - 1]\nEnd Extend\n"
+                "Local x = [\"a\"].Last()") == "String");
+}
+
+TEST_CASE("an Extend's Where makes what it adds conditional", "[sema]") {
+    const std::string_view sums = "Extend T[]\n"
+                                  "    Method Sum(): T\n"
+                                  "        Where T: Numeric\n"
+                                  "        Local total = T.Zero()\n"
+                                  "        For x In Self\n"
+                                  "            total += x\n"
+                                  "        End For\n"
+                                  "        Return total\n"
+                                  "    End Method\n"
+                                  "End Extend\n";
+    CHECK(probe(std::format("{}Local s = [1.5].Sum()", sums)) == "Float32");
+    CHECK(errors_of(std::format("{}Local s = [\"a\"].Sum()", sums)) ==
+          errors_t{ "[\"a\"].Sum: String doesn't implement Numeric, which 'Sum' needs for T" });
+
+    const std::string_view box = "Class Box<T>\n"
+                                 "    Field Item: T?\n"
+                                 "End Class\n"
+                                 "Extend Box<T> Implements Printable\n"
+                                 "    Where T: Printable\n"
+                                 "    Method ToString(): String => \"box\"\n"
+                                 "End Extend\n";
+    CHECK(probe(std::format("{}Local s = \"{{Box<Int>()}}\"", box)) == "String");
+    CHECK(errors_of(std::format("{}Class Rock\nEnd Class\nLocal s = \"{{Box<Rock>()}}\"", box)) ==
+          errors_t{ "Box<Rock>(): Box<Rock> can't be shown in a string; implement Printable, with "
+                    "a ToString" });
+    // A Class that implements an Interface through an Extend's Where is its value.
+    CHECK(errors_of(std::format("{}Local p: Printable = Box<Int>()", box)).empty());
+    CHECK(
+        errors_of(std::format("{}Class Rock\nEnd Class\nLocal p: Printable = Box<Rock>()", box)) ==
+        errors_t{ "Box<Rock>(): expected Printable, found Box<Rock>" });
+}
+
+TEST_CASE("an Extend can make a type implement an Interface", "[sema]") {
+    const std::string_view shown = "Interface Shown\n"
+                                   "    Method Text(): String\n"
+                                   "    Method Loud(): String => Text() + \"!\"\n"
+                                   "End Interface\n"
+                                   "Function Show<T: Shown>(x: T): String => x.Loud()\n";
+    CHECK(probe(std::format("{}Extend Int Implements Shown\n"
+                            "    Method Text(): String => \"int\"\n"
+                            "End Extend\n"
+                            "Local s = Show(5) + 5.Loud()",
+                            shown)) == "String");
+    CHECK(probe(std::format("{}Extend T[] Implements Shown\n"
+                            "    Method Text(): String => \"items\"\n"
+                            "End Extend\n"
+                            "Local s = Show([1, 2])",
+                            shown)) == "String");
+    CHECK(probe(std::format("{}Class Enemy\nEnd Class\n"
+                            "Extend Enemy Implements Shown\n"
+                            "    Method Text(): String => \"enemy\"\n"
+                            "End Extend\n"
+                            "Local s: Shown = Enemy()",
+                            shown)) == "Shown (from Enemy)");
+    CHECK(errors_of(std::format(
+              "{}Class Enemy\nEnd Class\nExtend Enemy Implements Shown\nEnd Extend", shown)) ==
+          errors_t{ "Shown: Enemy implements Shown, so it needs a Method 'Text'" });
+    CHECK(
+        errors_of("Extend Int Implements Printable\nEnd Extend") ==
+        errors_t{ "Printable: Int32 comes with the built-in Interfaces that fit it; an Extend can "
+                  "give it others" });
+}
+
+TEST_CASE("what an Extend adds neither overrides nor is overridden", "[sema]") {
+    CHECK(errors_of("Class Enemy\nEnd Class\nClass Boss Extends Enemy\nEnd Class\n"
+                    "Extend Enemy\n    Method Name(): String => \"enemy\"\nEnd Extend\n"
+                    "Extend Boss\n    Method Name(): String => \"boss\"\nEnd Extend") ==
+          errors_t{ "Name: 'Name' is already a member of Enemy, which an Extend can't override" });
+    CHECK(errors_of("Class Enemy\n    Method Hit(): Int => 1\nEnd Class\n"
+                    "Extend Enemy\n    Method Hit(): Int => 2\nEnd Extend") ==
+          errors_t{ "Hit: 'Hit' is already declared with the same parameter types" });
+}
+
+TEST_CASE("Extend mistakes", "[sema]") {
+    CHECK(errors_of("Class Box<T>\n    Field Item: T?\nEnd Class\nExtend Box<U>\nEnd Extend") ==
+          errors_t{ "Box<U>: Box is generic, so Extend it with its own type parameters, as Box<T>, "
+                    "or with types, as one instance" });
+    CHECK(errors_of("Interface I\nEnd Interface\nExtend I\nEnd Extend") ==
+          errors_t{ "I: an Interface can't be extended; its defaults go in the Interface" });
+    CHECK(errors_of("Extend Int\n"
+                    "    Field Extra: Int\n"
+                    "    New()\n    End New\n"
+                    "    Operator +(a: Int, b: Int): Int => a\n"
+                    "    Method ToString(): String => \"x\"\n"
+                    "    Override Method M()\n    End Method\n"
+                    "End Extend") ==
+          errors_t{
+              "Extra: an Extend can't add Fields; a Property can compute a value",
+              "New: an Extend can't add a New",
+              "+: an Extend of Int32 can't add Operators; only a Struct's or Class's can",
+              "ToString: Int32 already has a member named 'ToString'",
+              "M: what an Extend adds can't be Abstract, Final, or Override; nothing overrides it",
+          });
+    CHECK(errors_of("Extend String\n    Where T: Printable\nEnd Extend") ==
+          errors_t{ "T: 'T' isn't a type parameter here" });
+    CHECK(errors_of("Function F()\n    Extend Int\n    End Extend\nEnd Function") ==
+          errors_t{ "Extend Int\n    End Extend: an Extend can only be at the top level" });
+}
+
+TEST_CASE("a generic Interface's instances have its type arguments in their members", "[sema]") {
+    const std::string_view pair = "Interface Pair<A, B>\n"
+                                  "    Method First(): A\n"
+                                  "    Method Second(): B\n"
+                                  "    Method Swapped(): (B, A) => (Second(), First())\n"
+                                  "End Interface\n"
+                                  "Struct Named Implements Pair<String, Int>\n"
+                                  "    Method First(): String => \"a\"\n"
+                                  "    Method Second(): Int => 1\n"
+                                  "End Struct\n";
+    CHECK(probe(std::format("{}Local s = Named().Swapped()", pair)) == "(Int32, String)");
+    CHECK(probe(std::format("{}Function F<T: Pair<String, Int>>(x: T): Int => x.Second()\n"
+                            "Local n = F(Named())",
+                            pair)) == "Int32");
+    CHECK(probe("Class Words Implements Iterator<String>\n"
+                "    Method Next(): String? => Null\n"
+                "End Class\n"
+                "Local it: Iterator<String> = Words()\n"
+                "Local next = it.Next()") == "String?");
+
+    // A generic type can pass its own type parameters on, and an Interface can extend an
+    // instance.
+    CHECK(probe("Struct Again<T> Implements Iterator<T>\n"
+                "    Field Value: T\n"
+                "    ByRef Method Next(): T? => Value\n"
+                "End Struct\n"
+                "Local a = Again(1.5)\n"
+                "Local x = a.Next()") == "Float32?");
+    CHECK(errors_of("Interface Numbers Extends Iterator<Int>\nEnd Interface\n"
+                    "Function F(n: Numbers): Int? => n.Next()\n"
+                    "Function G(n: Numbers): Iterator<Int> => n")
+              .empty());
+}
+
+TEST_CASE("a constraint's type arguments are inferred from what the type argument implements",
+          "[sema]") {
+    // E is the Iterator<E> that S implements.
+    CHECK(probe("Struct Count Implements Iterator<Int>\n"
+                "    ByRef Method Next(): Int? => Null\n"
+                "End Struct\n"
+                "Function First<S, E>(items: S): E?\n"
+                "    Where S: Iterator<E>\n"
+                "    Local copy = items\n"
+                "    Return copy.Next()\n"
+                "End Function\n"
+                "Local x = First(Count())") == "Int32?");
+    CHECK(errors_of("Function Total<S: Iterator<Int>>(items: S): Int => 0\n"
+                    "Class Words Implements Iterator<String>\n"
+                    "    Method Next(): String? => Null\n"
+                    "End Class\n"
+                    "Local t = Total(Words())") ==
+          errors_t{ "Total: Words doesn't implement Iterator<Int32>, which 'Total' needs for S" });
+}
+
+TEST_CASE("generic Interface mistakes", "[sema]") {
+    CHECK(errors_of("Struct Both Implements Iterator<Int>, Iterator<String>\n"
+                    "    ByRef Method Next(): Int? => Null\n"
+                    "End Struct") ==
+          errors_t{ "Iterator<String>: Both implements Iterator<Int32> already; a type implements "
+                    "a generic Interface with one set of type arguments" });
+    CHECK(errors_of("Class Base Implements Iterator<Int>\n"
+                    "    Method Next(): Int? => Null\n"
+                    "End Class\n"
+                    "Class Derived Extends Base Implements Iterator<String>\n"
+                    "End Class") ==
+          errors_t{ "Iterator<String>: Derived implements Iterator<Int32> already; a type "
+                    "implements a generic Interface with one set of type arguments" });
+    CHECK(errors_of("Function F<T>(x: T)\n"
+                    "    Where T: Iterator<Int> & Iterator<String>\n"
+                    "End Function") ==
+          errors_t{ "Iterator<String>: T is Iterator<Int32> already; a type implements a generic "
+                    "Interface with one set of type arguments" });
+    CHECK(errors_of("Function F(x: Iterator)\nEnd Function") ==
+          errors_t{ "Iterator: Iterator<T> is generic, so it needs type arguments, like "
+                    "Iterator<Int>" });
+    CHECK(errors_of("Function F(x: Iterator<Int, Int>)\nEnd Function") ==
+          errors_t{ "Iterator<Int, Int>: Iterator<T> takes 1 type argument, not 2" });
+    CHECK(errors_of("Struct Wrong Implements Iterator<Int>\n"
+                    "    ByRef Method Next(): String? => Null\n"
+                    "End Struct") ==
+          errors_t{ "Iterator<Int>: Wrong's 'Next' doesn't match Iterator<Int32>'s, which takes () "
+                    "and returns Int32?" });
+    CHECK(errors_of("Interface Grow<T> Extends Grow<T[]>\nEnd Interface") ==
+          errors_t{ "Grow<T[]>: Grow<T> can't extend itself, directly or through other "
+                    "Interfaces" });
+    CHECK(errors_of("Interface Picky<T>\n    Where T: Comparable\nEnd Interface\n"
+                    "Struct P\n    Field X: Int\nEnd Struct\n"
+                    "Function F(x: Picky<P>)\nEnd Function") ==
+          errors_t{ "Picky<P>: P doesn't implement Comparable, which Picky<T> needs for T" });
+}
+
+TEST_CASE("For ... In goes over an Iterator, or the one a value's Iterate gives", "[sema]") {
+    const std::string_view count = "Struct Count Implements Iterator<Int>\n"
+                                   "    Field N: Int\n"
+                                   "    ByRef Method Next(): Int? => Null\n"
+                                   "End Struct\n";
+    CHECK(errors_of(std::format("{}For x In Count(3)\n    Local s: String = x\nEnd For", count)) ==
+          errors_t{ "x: expected String, found Int32" });
+    CHECK(errors_of(std::format("{}Class Bag\n"
+                                "    Method Iterate(): Count => Count(2)\n"
+                                "End Class\n"
+                                "For x In Bag()\n    Local s: String = x\nEnd For",
+                                count)) == errors_t{ "x: expected String, found Int32" });
+    CHECK(errors_of("Function F(it: Iterator<Int>)\n"
+                    "    For x In it\n"
+                    "        Local s: String = x\n"
+                    "    End For\n"
+                    "End Function") == errors_t{ "x: expected String, found Int32" });
+
+    // Two names take each pair apart, like a Map's keys and values.
+    CHECK(errors_of("Struct Pairs Implements Iterator<(String, Int)>\n"
+                    "    ByRef Method Next(): (String, Int)? => Null\n"
+                    "End Struct\n"
+                    "For key, value In Pairs()\n"
+                    "    Local n: String = value\n"
+                    "End For") == errors_t{ "value: expected String, found Int32" });
+    CHECK(errors_of(std::format("{}For i, x In Count(3)\nEnd For", count)) ==
+          errors_t{ "i: 'For a, b In' takes each of Count's elements apart, so they must be pairs, "
+                    "not Int32; an index only comes with arrays" });
+    CHECK(errors_of("Function F(s: String?)\n    For c In s\n    End For\nEnd Function") ==
+          errors_t{ "s: 'For ... In' goes over arrays, Iterators, and values whose Iterate() gives "
+                    "an Iterator, not String?" });
+}
+
+TEST_CASE("a String's Chars and Bytes are arrays of its code points and bytes", "[sema]") {
+    CHECK(probe("Local c = \"abc\".Chars") == "Int32[]");
+    CHECK(probe("Local b = \"abc\".Bytes") == "UInt8[]");
+    CHECK(probe("Function F(s: String?): Int[]? => s?.Chars\nLocal c = F(Null)") == "Int32[]?");
+    CHECK(errors_of("Local c = \"abc\".Chars()") ==
+          errors_t{ "Chars: Chars isn't a Method; leave out the ()" });
+    CHECK(errors_of("Function F(s: String?)\n    Local c = s.Bytes\nEnd Function") ==
+          errors_t{ "s: 's' may be Null; check that it isn't, or use '?.'" });
+    CHECK(errors_of("Extend String\n    Method Chars(): Int => 0\nEnd Extend") ==
+          errors_t{ "Chars: String already has a member named 'Chars'" });
+}
+
+TEST_CASE("a slice is a new array of some of an array's elements", "[sema]") {
+    CHECK(probe("Local s = [1, 2, 3][1..]") == "Int32[]");
+    CHECK(probe("Local a: Int[3] = [1, 2, 3]\nLocal s = a[..2]") == "Int32[]");
+    CHECK(probe("Local a = [\"x\"]\nLocal n: Long = 1\nLocal s = a[0..n]") == "String[]");
+    CHECK(errors_of("Local a = [1, 2, 3]\nLocal s = a[2..1]") ==
+          errors_t{ "a[2..1]: the slice 2..1 ends before it starts" });
+    CHECK(errors_of("Local a = [1, 2, 3]\nLocal s = a[-1..]") ==
+          errors_t{ "-1: a slice's bounds can't be negative" });
+    CHECK(errors_of("Local a: Int[3] = [1, 2, 3]\nLocal s = a[..4]") ==
+          errors_t{ "4: 4 is past the end of Int32[3]" });
+    CHECK(errors_of("Local g: Int[2, 2]\nLocal s = g[0..1]") ==
+          errors_t{ "g: Int32[2, 2] can't be sliced; a slice goes over one dimension" });
+    CHECK(errors_of("Local s = \"abc\"[0..1]") == errors_t{ "\"abc\": String can't be sliced" });
+    CHECK(errors_of("Local a = [1]\nLocal s = a[0.5..]") ==
+          errors_t{ "0.5: a slice's bounds must be integers, not Float32" });
+    CHECK(errors_of("Local a = [1]\na[0..1] = [2]") ==
+          errors_t{ "a[0..1]: only a variable can be assigned to" });
+}
+
+TEST_CASE("a variadic parameter takes the rest of the arguments as an array", "[sema]") {
+    const std::string_view sum = "Function Sum(nums: Int...): Int => nums.Count\n";
+    CHECK(probe(std::format("{}Local n = Sum()", sum)) == "Int32");
+    CHECK(probe(std::format("{}Local n = Sum(1, 2, 3)", sum)) == "Int32");
+    CHECK(probe(std::format("{}Local xs = [1, 2]\nLocal n = Sum(xs)", sum)) == "Int32");
+    CHECK(probe(std::format("{}Local n = Sum([1, 2])", sum)) == "Int32");
+    CHECK(probe(std::format("{}Local n = Sum(nums: [1, 2])", sum)) == "Int32");
+    CHECK(probe("Function Largest<T: Comparable>(first: T, rest: T...): T => first\n"
+                "Local x = Largest(1.5, 2, 3)") == "Float32");
+    CHECK(errors_of(std::format("{}Local n = Sum(1, \"x\")", sum)) ==
+          errors_t{ "\"x\": expected Int32, found String" });
+    CHECK(errors_of(std::format("{}Local x = 1\nLocal n = Sum(ByRef x)", sum)) ==
+          errors_t{ "x: 'nums' takes the rest of the arguments, which can't be ByRef" });
+    CHECK(errors_of(std::format("{}Local n = Sum(1, nums: [2])", sum)) ==
+          errors_t{ "[2]: parameter 'nums' already has an argument" });
+}
+
+TEST_CASE("variadic parameter mistakes", "[sema]") {
+    CHECK(errors_of("Function F(xs: Int..., y: Int)\nEnd Function") ==
+          errors_t{ "xs: only the last parameter can take the rest of the arguments" });
+    CHECK(errors_of("Function F(ByRef xs: Int...)\nEnd Function") ==
+          errors_t{ "xs: 'xs' takes the rest of the arguments, so it can't be ByRef" });
+    CHECK(errors_of("Function F(xs: Int... = [])\nEnd Function") ==
+          errors_t{ "[]: 'xs' takes the rest of the arguments, so it has no default; without "
+                    "any, it's an empty array" });
+}
+
+TEST_CASE("@Deprecated warns at each use outside what it's on", "[sema]") {
+    CHECK(errors_of("@Deprecated(\"use G\") Function F(): Int => 1\n"
+                    "Function G(): Int => F()\n"
+                    "Local x = F()") ==
+          errors_t{ "F: 'F' is deprecated: use G", "F: 'F' is deprecated: use G" });
+    CHECK(errors_of("@Deprecated Struct Old\n    Field X: Int\nEnd Struct\nLocal o = Old(1)") ==
+          errors_t{ "Old: 'Old' is deprecated" });
+    CHECK(errors_of("Class E\n"
+                    "    @Deprecated Method Hit()\n"
+                    "    End Method\n"
+                    "    Method Use()\n"
+                    "        Hit()\n"
+                    "    End Method\n"
+                    "End Class\n"
+                    "E().Hit()") == errors_t{ "Hit: 'E.Hit' is deprecated" });
+    CHECK(errors_of("@Deprecated Const LIMIT = 3\nLocal x = LIMIT") ==
+          errors_t{ "LIMIT: 'LIMIT' is deprecated" });
+    CHECK(errors_of("@Deprecated Enum Mood\n    Calm\nEnd Enum\nLocal m = Mood.Calm") ==
+          errors_t{ "Mood: 'Mood' is deprecated" });
+}
+
+TEST_CASE("attribute mistakes", "[sema]") {
+    CHECK(errors_of("@Inline Struct S\nEnd Struct") ==
+          errors_t{ "S: @Inline only goes before a Function, Method, Operator, or Property" });
+    CHECK(errors_of("@Inline Global g = 1") ==
+          errors_t{ "g: @Inline only goes before a Function, Method, Operator, or Property" });
+    CHECK(errors_of("Abstract Class C\n    @Inline Abstract Method M()\nEnd Class") ==
+          errors_t{ "M: 'M' has no body, so @Inline has nothing to inline" });
+    CHECK(errors_of("Function F()\n    @Deprecated Local x = 1\nEnd Function") ==
+          errors_t{ "x: a Local can't be @Deprecated, since only its own code uses it" });
+}
+
+TEST_CASE("a Const known at compile time can be used before its line", "[sema]") {
+    CHECK(probe("Const A = B * 2\nConst B = 3\nLocal x = A") == "Int32 6");
+    CHECK(probe("Struct S\n    Field a: Int[N]\nEnd Struct\n"
+                "Function F(x: Int[N]): Int => x.Count\n"
+                "Const N = 4\n"
+                "Local x = S().a.Count") == "Int32 4");
+    CHECK(errors_of("Const A = B\nConst B = A") ==
+          errors_t{ "A: 'A' needs its own value to be worked out" });
+    CHECK(errors_of("Function Spot(): Int => 4\nConst Z = Spot()\n"
+                    "Struct T\n    Field b: Int[Z]\nEnd Struct") ==
+          errors_t{ "Z: a fixed array's size must be an integer known at compile time, like 64 "
+                    "or 8 * 8" });
+    CHECK(errors_of("Global g = Z\nConst Z = Spot()\nFunction Spot(): Int => 4") ==
+          errors_t{ "Z: 'Z' isn't initialized yet; Globals and Consts initialize in source "
+                    "order" });
+}
+
+TEST_CASE("a call of a Const Function runs at compile time when its arguments are known",
+          "[sema]") {
+    const std::string_view fib = "Const Function Fib(n: Int): Int\n"
+                                 "    Return n < 2 ? n : Fib(n - 1) + Fib(n - 2)\n"
+                                 "End Function\n";
+    CHECK(probe(std::format("{}Const X = Fib(10)", fib)) == "Int32 55");
+    CHECK(probe(std::format("{}Local x = Fib(10) + 1", fib)) == "Int32 56");
+    CHECK(probe(std::format("{}Local n = 3\nLocal x = Fib(n)", fib)) == "Int32");
+    CHECK(probe(std::format("{}Local t: Int[Fib(5)]\nLocal x = t.Count", fib)) == "Int32 5");
+    CHECK(probe("Const Function Shout(s: String): String => s + \"!\"\nLocal x = Shout(\"hi\")") ==
+          "String hi!");
+    CHECK(probe("Struct P\n    Field X: Int\nEnd Struct\n"
+                "Const Function Get(): Int\n    Local p = P(4)\n    Return p.X\nEnd Function\n"
+                "Local x = Get()") == "Int32 4");
+    CHECK(probe("Const Function Count(n: Int): Int\n"
+                "    Local seen: Bool[10]\n"
+                "    For i = 0 Until n\n"
+                "        seen[i] = True\n"
+                "    End For\n"
+                "    Local total = 0\n"
+                "    For Each = 0 Until 10\n"
+                "        If seen[Each] Then total += 1\n"
+                "    End For\n"
+                "    Return total\n"
+                "End Function\n"
+                "Local x = Count(4)") == "Int32 4");
+}
+
+TEST_CASE("what a Const Function can't do", "[sema]") {
+    CHECK(errors_of("Global g = 1\n"
+                    "Class Box\nEnd Class\n"
+                    "Function Plain(): Int => 1\n"
+                    "Const Function F(): Int\n"
+                    "    Print(\"x\")\n"
+                    "    Local a = [1, 2]\n"
+                    "    Return g + Plain()\n"
+                    "End Function") ==
+          errors_t{
+              "Print: a Const Function can only call Const Functions, and 'Print' isn't one",
+              "[1, 2]: a Const Function can't use Int32[], which only the running program has",
+              "g: a Const Function can't use Globals, which only the running program has",
+              "Plain: a Const Function can only call Const Functions, and 'Plain' isn't one",
+          });
+    CHECK(errors_of("Const Function F<T>(x: T[]): Int => 1") ==
+          errors_t{ "x: a Const Function takes numbers, Bools, Strings, and Enums, not T[]" });
+    CHECK(errors_of("Const Function F()\nEnd Function") ==
+          errors_t{ "F: a Const Function gives a value, so it needs a result type" });
+    CHECK(errors_of("Const Function F(ByRef x: Int): Int => x") ==
+          errors_t{ "x: a Const Function's parameters can't be ByRef" });
+    CHECK(errors_of("Const Function F(x: Int[]): Int => 1") ==
+          errors_t{ "x: a Const Function takes numbers, Bools, Strings, and Enums, not Int32[]" });
+}
+
+TEST_CASE("a Const Function that fails at compile time is an error at its call", "[sema]") {
+    CHECK(errors_of("Const Function Div(a: Int, b: Int): Int => a / b\nConst X = Div(1, 0)") ==
+          errors_t{ "Div(1, 0): 'Div' can't run at compile time: division by zero" });
+    CHECK(
+        errors_of("Const Function Check(n: Int): Int\n"
+                  "    Assert(n > 0, \"n must be positive\")\n"
+                  "    Return n\n"
+                  "End Function\n"
+                  "Const X = Check(-1)") ==
+        errors_t{ "Check(-1): 'Check' can't run at compile time: it panics: n must be positive" });
+    CHECK(errors_of("Const Function Forever(): Int\n"
+                    "    Local x = 0\n"
+                    "    While True\n"
+                    "        x += 1\n"
+                    "        If x == -5 Then Break\n"
+                    "    End While\n"
+                    "    Return x\n"
+                    "End Function\n"
+                    "Const X = Forever()") ==
+          errors_t{ "Forever(): 'Forever' can't run at compile time: it runs more than 10000000 "
+                    "steps" });
+    CHECK(errors_of("Struct S\n"
+                    "    Field a: Int[Width()]\n"
+                    "End Struct\n"
+                    "Struct P\n"
+                    "    Field X: Int\n"
+                    "End Struct\n"
+                    "Const Function Width(): Int\n"
+                    "    Local p = P(3)\n"
+                    "    Return p.X\n"
+                    "End Function") ==
+          errors_t{ "Width(): this Const Function can't run here, since its code needs types that "
+                    "aren't declared yet" });
+}
+
+TEST_CASE("a Const type parameter stands for an integer", "[sema]") {
+    const std::string_view grid = "Struct Grid<Const W: Int, Const H: Int>\n"
+                                  "    Field Cells: Float[W, H]\n"
+                                  "    Method Size(): Int => W * H\n"
+                                  "End Struct\n";
+    CHECK(probe(std::format("{}Local g = Grid<3, 2>()", grid)) == "Grid<3, 2>");
+    CHECK(probe(std::format("{}Const N = 4\nLocal g = Grid<N, N>()\nLocal x = g.Cells", grid)) ==
+          "Float32[4, 4]");
+    CHECK(probe("Function Sum<Const N: Int>(v: Int[N]): Int => N\n"
+                "Local a: Int[3]\n"
+                "Local x = Sum(a)") == "Int32");
+}
+
+TEST_CASE("Const type parameter mistakes", "[sema]") {
+    const std::string_view grid = "Struct Grid<Const W: Int, Const H: Int>\n"
+                                  "    Field Cells: Float[W, H]\n"
+                                  "End Struct\n";
+    CHECK(
+        errors_of("Struct Bad<Const F: Float>\nEnd Struct") ==
+        errors_t{ "Float: a Const type parameter is an integer, like Const N: Int, not Float32" });
+    CHECK(errors_of("Function F<Const N: Int>()\n    Where N: Printable\nEnd Function") ==
+          errors_t{ "N: 'N' is Const, so it has no constraints" });
+    CHECK(errors_of("Function F<Const N: Int>()\n    Local a: Int[N] = [1, 2]\nEnd Function") ==
+          errors_t{ "[1, 2]: Int32[N] can't come from an array literal, since its size is a Const "
+                    "type parameter" });
+    CHECK(errors_of("Interface I<Const N: Int>\n    Method Size(): Int => N\nEnd Interface\n"
+                    "Struct Row Implements I<0>\nEnd Struct") ==
+          errors_t{ "0: N is a size, from 1 to 2147483647, not 0" });
+    CHECK(errors_of(std::format("{}Local a = Grid<Int, 2>()", grid)) ==
+          errors_t{ "Int: W is Const, so it takes an integer known at compile time, like 64, not "
+                    "Int" });
+    CHECK(errors_of(std::format("{}Local a = Grid<-1, 2>()", grid)) ==
+          errors_t{ "-1: W is a size, from 1 to 2147483647, not -1" });
+    CHECK(errors_of("Struct Box<T>\n    Field Item: T?\nEnd Struct\nLocal b = Box<4>()") ==
+          errors_t{ "4: T is a type, so it takes one, not a value" });
+    CHECK(errors_of("Local f: 5 = 1") == errors_t{ "5: 5 is a value, not a type" });
+}
+
+TEST_CASE("a Struct's Method implements a ByRef Method only when it's ByRef too", "[sema]") {
+    CHECK(errors_of("Interface Counter\n    ByRef Method Bump()\nEnd Interface\n"
+                    "Struct S Implements Counter\n    Method Bump()\n    End Method\nEnd Struct") ==
+          errors_t{ "Counter: 'Bump' must be a ByRef Method to implement Counter's, which changes "
+                    "its value" });
+    CHECK(errors_of("Interface Counter\n    ByRef Method Bump()\nEnd Interface\n"
+                    "Class C Implements Counter\n    Method Bump()\n    End Method\nEnd Class")
+              .empty());
+}
+
+TEST_CASE("an attribute's arguments are values known at compile time", "[sema]") {
+    const std::string_view check = "Const Limit = 10\n"
+                                   "Attribute Check(Max: Int = Limit, Label: String = \"\")\n";
+    CHECK(errors_of(std::format("{}@Check(Limit * 2, Label: \"size\") Global size = 1", check))
+              .empty());
+    CHECK(errors_of(std::format("{}@Check Function F()\nEnd Function", check)).empty());
+    CHECK(errors_of("Attribute Tag(Code: Int)\n@Tag Function F()\nEnd Function") ==
+          errors_t{ "Tag: missing an argument for parameter 'Code'" });
+    CHECK(errors_of(std::format("{}@Check(1, Max: 2) Global g = 1", check)) ==
+          errors_t{ "2: parameter 'Max' already has an argument" });
+    CHECK(errors_of(std::format("{}@Check(1, \"a\", 3) Global g = 1", check)) ==
+          errors_t{ "3: too many arguments to '@Check'" });
+    CHECK(errors_of(std::format("{}@Check(Min: 1) Global g = 1", check)) ==
+          errors_t{ "Min: '@Check' has no parameter named 'Min'" });
+    CHECK(errors_of(std::format("{}@Check(\"no\") Global g = 1", check)) ==
+          errors_t{ "\"no\": expected Int32, found String" });
+    CHECK(errors_of(std::format("{}Function Max(): Int => 3\n@Check(Max()) Global g = 1", check)) ==
+          errors_t{ "Max(): an attribute's arguments must be known at compile time" });
+    CHECK(errors_of(std::format("{}@Check @Check Global g = 1", check)) ==
+          errors_t{ "Check: @Check is written twice" });
+}
+
+TEST_CASE("attribute declaration mistakes", "[sema]") {
+    CHECK(errors_of("@Missing Function F()\nEnd Function") ==
+          errors_t{ "Missing: '@Missing' isn't an attribute; an Attribute declaration makes one" });
+    CHECK(errors_of("Struct Missing\nEnd Struct\n@Missing Function F()\nEnd Function") ==
+          errors_t{ "Missing: '@Missing' isn't an attribute; an Attribute declaration makes one" });
+    CHECK(errors_of("Attribute Inline") == errors_t{ "Inline: @Inline is a built-in attribute" });
+    CHECK(errors_of("Attribute Bad(Items: Int[])") ==
+          errors_t{ "Items: an Attribute's parameters are numbers, Bools, Strings, and Enums, not "
+                    "Int32[]" });
+    CHECK(errors_of("Function Two(): Int => 2\nAttribute Bad(Code: Int = Two())") ==
+          errors_t{ "Two(): a field's default must be known at compile time" });
+    CHECK(errors_of("Attribute Tag\nFunction F()\n    @Tag Local x = 1\nEnd Function") ==
+          errors_t{ "x: a Local can't have attributes, since only its own code uses it" });
+}
+
+TEST_CASE("For Field goes over a type's fields, with a type parameter for each one's type",
+          "[sema]") {
+    const std::string_view show = "Function Show<T>(value: T)\n"
+                                  "    For Field f: F In T\n"
+                                  "        Where F: Printable\n"
+                                  "        Print(\"{f.Name} {f.Index}: {f.Get(value)}\")\n"
+                                  "    End For\n"
+                                  "End Function\n";
+    CHECK(errors_of(std::format("{}Struct P\n    Field X: Int\nEnd Struct\nShow(P(1))", show))
+              .empty());
+    CHECK(errors_of(std::format("{}Show((1, \"two\"))\nShow(5)", show)).empty());
+    CHECK(errors_of(std::format("{}Struct Q\n    Field A: Int\nEnd Struct\n"
+                                "Struct H\n    Field Items: Int[]\n    Field Inner: Q\nEnd Struct\n"
+                                "Show(H([1], Q(1)))",
+                                show)) ==
+          errors_t{ "Show: 'Show' needs each field of H to implement Printable, but its field "
+                    "'Inner' is Q, which doesn't" });
+
+    // A type parameter's fields meet a constraint only when its own loops say so.
+    CHECK(errors_of(
+              std::format("{}Function Pass<U>(value: U)\n    Show(value)\nEnd Function", show)) ==
+          errors_t{ "Show: 'Show' needs each field of U to implement Printable, but nothing says "
+                    "that of U's fields" });
+    CHECK(errors_of(std::format("{}Function Pass<U>(value: U)\n"
+                                "    For Field f: F In U\n"
+                                "        Where F: Printable\n"
+                                "    End For\n"
+                                "    Show(value)\n"
+                                "End Function",
+                                show))
+              .empty());
+    // A Const Function can count them at compile time.
+    CHECK(probe("Struct P\n    Field X: Int\n    Field Y: Bool\nEnd Struct\n"
+                "Const Function Count(): Int\n"
+                "    Local n = 0\n"
+                "    For Field f In P\n"
+                "        n += 1\n"
+                "    End For\n"
+                "    Return n\n"
+                "End Function\n"
+                "Const FIELDS = Count()") == "Int32 2");
+    CHECK(errors_of("Struct P\n    Field X: Int\n    Field Name: String\nEnd Struct\n"
+                    "For Field f: F In P\n    Where F: Numeric\nEnd For") ==
+          errors_t{ "P: P's field 'Name' is String, which doesn't implement Numeric, as this loop "
+                    "needs" });
+}
+
+TEST_CASE("Set changes a field, and For Method calls Methods that take nothing", "[sema]") {
+    CHECK(errors_of("Function Clear<T>(ByRef value: T)\n"
+                    "    For Field f: F In T\n"
+                    "        Where F: Numeric\n"
+                    "        f.Set(ByRef value, F.Zero())\n"
+                    "    End For\n"
+                    "End Function")
+              .empty());
+    CHECK(errors_of("Function Clear<T>(value: T)\n"
+                    "    For Field f: F In T\n"
+                    "        Where F: Numeric\n"
+                    "        f.Set(ByRef value, F.Zero())\n"
+                    "    End For\n"
+                    "End Function") ==
+          errors_t{ "value: 'value' is a parameter and can't be passed ByRef; copy it into a "
+                    "Local, or make it ByRef" });
+    CHECK(errors_of("Attribute Tag\n"
+                    "Struct S\n    @Tag Method M()\n    End Method\nEnd Struct\n"
+                    "For Method m In S\n"
+                    "    If m.Has(Tag) Then m.Call(S())\n"
+                    "End For")
+              .empty());
+}
+
+TEST_CASE("what a For Field's or For Method's variable can't do", "[sema]") {
+    const std::string_view point = "Struct P\n    Field X: Int\nEnd Struct\n";
+    CHECK(errors_of(std::format("{}Function F<T>(value: T)\n"
+                                "    For Field f In T\n"
+                                "        Print(f.Get(value))\n"
+                                "    End For\n"
+                                "End Function",
+                                point)) ==
+          errors_t{ "f.Get(value): expected String, found the type of f" });
+    CHECK(errors_of(std::format("{}For Field f In P\n    Print(f)\nEnd For", point)) ==
+          errors_t{ "f: 'f' is a field of P; it has Name, Index, Get(value), Set(ByRef value, x), "
+                    "Has(A), and Attribute(A)" });
+    CHECK(errors_of(std::format("{}For Method m In P\n    Print(m.Index)\nEnd For", point)) ==
+          errors_t{ "Index: 'm' is a Method of P; it has Name, Has(A), Attribute(A), and "
+                    "Call(value, ...)" });
+    CHECK(errors_of(std::format("{}For Field f In P\n    f.Name = \"x\"\nEnd For", point)) ==
+          errors_t{ "f.Name: only a variable or one of its fields can be assigned to" });
+    // Each copy of the body has its own lambda.
+    CHECK(errors_of(
+              std::format("{}For Field f In P\n    Local g = Function() => f.Name\nEnd For", point))
+              .empty());
+    CHECK(
+        errors_of(std::format("{}For Field f In P\n    Print(\"{{f.Has(P)}}\")\nEnd For", point)) ==
+        errors_t{ "P: 'f.Has' takes the name of an Attribute, which an Attribute declaration "
+                  "makes" });
+    CHECK(errors_of(std::format("{}For Method m In P\n    m.Call(1)\nEnd For", point)) ==
+          errors_t{ "1: expected P, found Int32" });
+    CHECK(errors_of(std::format("{}For Method m In P\n    Where X: Printable\nEnd For", point)) ==
+          errors_t{ "X: a For Method loop names the Methods' Func type, as 'For Method m: M In T', "
+                    "to give it a Where line" });
+    CHECK(errors_of(std::format("{}For Method m: M In P\nEnd For", point)) ==
+          errors_t{ "M: a For Method loop says which Methods it goes over with a Where line, like "
+                    "'Where M: Func(Int): String'" });
+}
+
+TEST_CASE("a Map literal is a Map of the expected type, or of its entries' common types",
+          "[sema]") {
+    CHECK(probe("Local m = {\"a\": 1, \"b\": 2}") == "Map<String, Int32>");
+    CHECK(probe("Local m = {1: 1.5, 2: 2}") == "Map<Int32, Float32>");
+    CHECK(probe("Local m: Map<String, Long> = {\"a\": 1}\nLocal n = m") == "Map<String, Int64>");
+    CHECK(probe("Local m: Map<Int, String>? = {}") ==
+          "Map<Int32, String>? (from Map<Int32, String>)");
+    CHECK(errors_of("Function Total(scores: Map<String, Int>): Int => scores.Count\n"
+                    "Local t = Total({})")
+              .empty());
+}
+
+TEST_CASE("Map literal mistakes", "[sema]") {
+    CHECK(errors_of("Local m = {}") ==
+          errors_t{ "{}: an empty Map needs a type from where it's used, like 'Local m: "
+                    "Map<String, Int> = {}'" });
+    CHECK(errors_of("Local m = {\"a\": 1, 2: 3}") ==
+          errors_t{ "2: the keys of a Map have different types, String and Int32" });
+    CHECK(errors_of("Local m = {1: \"a\", 2: True}") ==
+          errors_t{ "True: the values of a Map have different types, String and Bool" });
+    CHECK(errors_of("Struct P\n    Field X: Int\nEnd Struct\nLocal m = {P(1): 2}") ==
+          errors_t{ "{P(1): 2}: P doesn't implement Hashable, which Map<K, V> needs for K" });
+    CHECK(errors_of("Local m: Map<String, Int> = {\"a\": \"b\"}") ==
+          errors_t{ "\"b\": expected Int32, found String" });
+    CHECK(errors_of("Local m: Int = {\"a\": 1}") ==
+          errors_t{ "{\"a\": 1}: expected Int32, found Map<String, Int32>" });
+}
+
+TEST_CASE("an Extend of T[] uses the array's Count and Methods by name", "[sema]") {
+    CHECK(errors_of("Extend T[]\n"
+                    "    Method Last(): T => Self[Count - 1]\n"
+                    "    Method Drop()\n"
+                    "        RemoveAt(Count - 1)\n"
+                    "    End Method\n"
+                    "    Method Later(): Func(): Int => Function() => Count + Clone().Count\n"
+                    "End Extend\n"
+                    "Local a = [1, 2]\n"
+                    "a.Drop()\n"
+                    "Local last = a.Last()")
+              .empty());
+    CHECK(errors_of("Extend T[]\n    Method M()\n        Count = 1\n    End Method\nEnd Extend") ==
+          errors_t{ "Count: Count is how many elements Self has, which only its Methods "
+                    "change" });
+}
+
+TEST_CASE("a call's lambda argument can declare symbols while the call is checked", "[sema]") {
+    // Its parameters are new symbols; checking the call keeps working on the parameter it's for.
+    CHECK(probe("Local nums = [5, 3, 8]\n"
+                "Local text = \"{nums.Filter(Function(n: Int) => n % 2 == 1)}\"") == "String");
+}
+
+TEST_CASE("narrowing is forgotten for what a loop changes inside any expression", "[sema]") {
+    CHECK(errors_of("Function Clear(ByRef s: String?): Int\n"
+                    "    s = Null\n"
+                    "    Return 0\n"
+                    "End Function\n"
+                    "Function Pick(): String? => \"a\"\n"
+                    "Local s = Pick()\n"
+                    "If s != Null\n"
+                    "    For i = 0 Until 2\n"
+                    "        Print(s)\n"
+                    "        Local a = [Clear(ByRef s)]\n"
+                    "    End For\n"
+                    "End If") ==
+          errors_t{ "s: expected String, found String?, which may be Null; check it first, or give "
+                    "a value for Null with '?"
+                    "?'" });
+}
+
+TEST_CASE("a name that a later milestone declares isn't supported yet, wherever it's used",
+          "[sema]") {
+    CHECK(errors_of("Local t: Task") == errors_t{ "Task: 'Task' isn't supported yet" });
+    CHECK(errors_of("Function F<T>()\n    Where T: Sendable\nEnd Function") ==
+          errors_t{ "Sendable: 'Sendable' isn't supported yet" });
+    CHECK(errors_of("Thread.Start()") == errors_t{ "Thread: 'Thread' isn't supported yet" });
+    CHECK(errors_of("Local v = Vec3(1, 2, 3)") == errors_t{ "Vec3: 'Vec3' isn't supported yet" });
+
+    // A program can still declare one of them.
+    CHECK(errors_of("Function Spawn(): Int => 1\nLocal s = Spawn()").empty());
+}
+
+TEST_CASE("a generic type's field default can name its type parameters", "[sema]") {
+    CHECK(errors_of("Struct S<T>\n"
+                    "    Where T: Hashable\n"
+                    "    Field M: Map<T, Bool> = Map<T, Bool>()\n"
+                    "End Struct") ==
+          errors_t{ "Map<T, Bool>(): a field's default must be known at compile time" });
+}
+
+TEST_CASE("an integer's Wrapping and Checked Methods say what overflow does", "[sema]") {
+    CHECK(probe("Local x = (250 As Byte).WrappingAdd(10)") == "UInt8 4");
+    CHECK(probe("Local x = (-128 As Int8).WrappingNegate()") == "Int8 -128");
+    CHECK(probe("Local x = 100.CheckedMultiply(3)") == "Int32? 300");
+    CHECK(probe("Local x = 2147483647.CheckedAdd(1)") == "Int32? Null");
+    CHECK(probe("Local x = 7.CheckedDivide(0)") == "Int32? Null");
+    CHECK(probe("Local a = 1\nLocal x = a.CheckedSubtract(2)") == "Int32?");
+    CHECK(probe("Const Function Twice(n: Int): Int => n.WrappingMultiply(2)\n"
+                "Const X = Twice(2147483647)") == "Int32 -2");
+}
+
+TEST_CASE("integer Method mistakes", "[sema]") {
+    CHECK(errors_of("Local x = 1.WrappingDivide(2)") ==
+          errors_t{ "WrappingDivide: Int32 has no member named 'WrappingDivide'" });
+    CHECK(errors_of("Local x = (1.5).CheckedAdd(1)") ==
+          errors_t{ "CheckedAdd: Float32 has no member named 'CheckedAdd'" });
+    CHECK(errors_of("Extend Int\n    Method CheckedAdd(x: Int): Int? => x\nEnd Extend") ==
+          errors_t{ "CheckedAdd: Int32 already has a member named 'CheckedAdd'" });
+}
+
+TEST_CASE("an Interface's type parameters can have constraints and be Const", "[sema]") {
+    CHECK(errors_of("Interface Sorted<T: Comparable>\n"
+                    "    Method Smallest(): T\n"
+                    "    Method Less(a: T, b: T): Bool => a < b\n"
+                    "End Interface\n"
+                    "Struct Pair<T> Implements Sorted<T>\n"
+                    "    Where T: Comparable\n"
+                    "    Field A: T\n"
+                    "    Field B: T\n"
+                    "    Method Smallest(): T => A < B ? A : B\n"
+                    "End Struct\n"
+                    "Function Least<S: Sorted<E>, E: Comparable>(s: S): E => s.Smallest()\n"
+                    "Local x = Least(Pair(3, 2))")
+              .empty());
+    CHECK(probe("Interface Sized<Const N: Int>\n    Method Size(): Int => N\nEnd Interface\n"
+                "Struct Row Implements Sized<4>\nEnd Struct\n"
+                "Local n = Row().Size()") == "Int32");
+}
+
+TEST_CASE("an Interface's Methods can throw, and be generic", "[sema]") {
+    const std::string_view parser = "Class ParseError Extends Error\nEnd Class\n"
+                                    "Interface Parser\n"
+                                    "    Method Parse(text: String): Int Throws ParseError\n"
+                                    "End Interface\n";
+    CHECK(errors_of(std::format("{}Class Lenient Implements Parser\n"
+                                "    Method Parse(text: String): Int => 0\n"
+                                "End Class\n"
+                                "Function Use(p: Parser): Int => Try? p.Parse(\"x\") ?? -1",
+                                parser))
+              .empty());
+    CHECK(errors_of(std::format("{}Class Loud Implements Parser\n"
+                                "    Method Parse(text: String): Int Throws Error\n"
+                                "        Return 0\n"
+                                "    End Method\n"
+                                "End Class",
+                                parser)) ==
+          errors_t{ "Parser: 'Parse' can't throw Error, since Parser's doesn't" });
+    CHECK(errors_of(std::format("{}Function Use(p: Parser): Int => p.Parse(\"x\")", parser)) ==
+          errors_t{ "p.Parse(\"x\"): 'Parse' can throw ParseError, so calling it needs Try, "
+                    "Try?, or a Try block" });
+
+    const std::string_view mapper = "Interface Mapper\n"
+                                    "    Method Apply<U>(f: Func(Int): U): U\n"
+                                    "End Interface\n";
+    CHECK(errors_of(std::format("{}Struct Box Implements Mapper\n"
+                                "    Method Apply<U>(f: Func(Int): U): U => f(1)\n"
+                                "End Struct\n"
+                                "Function Twice<T: Mapper>(m: T): Int => m.Apply(Function(x: Int) "
+                                "=> x * 2)",
+                                mapper))
+              .empty());
+    CHECK(errors_of(std::format("{}Struct Picky Implements Mapper\n"
+                                "    Method Apply<U: Printable>(f: Func(Int): U): U => f(1)\n"
+                                "End Struct",
+                                mapper)) ==
+          errors_t{ "Mapper: 'Apply' needs U to implement Printable, which Mapper's doesn't, so it "
+                    "can't implement it" });
+    CHECK(errors_of(std::format("{}Function Through(m: Mapper): Int => m.Apply(Function(x: Int) => "
+                                "x)",
+                                mapper)) ==
+          errors_t{ "m.Apply: 'Apply' is generic, so it's called on a type parameter, like <T: "
+                    "Mapper>, not on an Interface's value" });
+}
+
+TEST_CASE("For ... In Try passes on the errors of a throwing Iterate", "[sema]") {
+    const std::string_view levels = "Class LoadError Extends Error\nEnd Class\n"
+                                    "Struct None Implements Iterator<Int>\n"
+                                    "    ByRef Method Next(): Int? => Null\n"
+                                    "End Struct\n"
+                                    "Class Levels\n"
+                                    "    Method Iterate(): None Throws LoadError => None()\n"
+                                    "End Class\n";
+    CHECK(errors_of(std::format("{}Function Count(l: Levels): Int Throws LoadError\n"
+                                "    For n In Try l\n"
+                                "    End For\n"
+                                "    Return 0\n"
+                                "End Function\n"
+                                "Try\n"
+                                "    For n In Levels()\n"
+                                "    End For\n"
+                                "Catch e As LoadError\n"
+                                "End Try",
+                                levels))
+              .empty());
+    CHECK(errors_of(std::format("{}Function Count(l: Levels): Int\n"
+                                "    For n In l\n"
+                                "    End For\n"
+                                "    Return 0\n"
+                                "End Function",
+                                levels)) ==
+          errors_t{ "l: Levels's Iterate can throw LoadError, so the loop needs 'In Try l', or a "
+                    "Try block around it" });
+    CHECK(errors_of("For n In Try [1, 2]\nEnd For") ==
+          errors_t{ "Try [1, 2]: '[1, 2]' doesn't throw, so it doesn't need Try" });
+}
+
+TEST_CASE("an Extend can add to one instance, or one array type", "[sema]") {
+    const std::string_view box = "Struct Box<T>\n    Field Value: T\nEnd Struct\n";
+    CHECK(
+        probe(std::format("{}Extend Box<Int>\n    Method Doubled(): Int => Value * 2\nEnd Extend\n"
+                          "Local x = Box(4).Doubled()",
+                          box)) == "Int32");
+    CHECK(errors_of(std::format("{}Extend Box<Int>\n    Method Doubled(): Int => Value * 2\n"
+                                "End Extend\nLocal x = Box(\"a\").Doubled()",
+                                box)) ==
+          errors_t{ "Doubled: Box<String> has no member named 'Doubled'" });
+    CHECK(probe("Extend Int[]\n    Method Total(): Int => Count\nEnd Extend\n"
+                "Local x = [1, 2].Total()") == "Int32");
+    CHECK(errors_of("Extend Int[]\n    Method Total(): Int => Count\nEnd Extend\n"
+                    "Local x = [\"a\"].Total()") ==
+          errors_t{ "Total: String[] has no member named 'Total'" });
+    CHECK(probe("Extend T[]\n    Property Second: T\n        Get => Self[1]\n    End Property\n"
+                "End Extend\nLocal x = [\"a\", \"b\"].Second") == "String");
+}
+
+TEST_CASE("a Class can extend an instance of a generic Class", "[sema]") {
+    const std::string_view container = "Class Container<T>\n"
+                                       "    Field Items: T[] = []\n"
+                                       "    Method Add(item: T)\n"
+                                       "        Items.Add(item)\n"
+                                       "    End Method\n"
+                                       "    Method First(): T => Items[0]\n"
+                                       "End Class\n";
+    CHECK(probe(std::format("{}Class Names Extends Container<String>\n"
+                            "    Method Last(): String => Items[Items.Count - 1]\n"
+                            "End Class\n"
+                            "Local x = Names().First()",
+                            container)) == "String");
+    CHECK(probe(std::format("{}Class Sorted<T> Extends Container<T>\n"
+                            "    Where T: Comparable\n"
+                            "    Override Method Add(item: T)\n"
+                            "        Items.Insert(0, item)\n"
+                            "    End Method\n"
+                            "End Class\n"
+                            "Local c: Container<Int> = Sorted<Int>()",
+                            container)) == "Container<Int32> (from Sorted<Int32>)");
+    CHECK(errors_of(std::format("{}Class Names Extends Container<String>\n"
+                                "    Override Method Add(item: Int)\n"
+                                "    End Method\n"
+                                "End Class",
+                                container)) ==
+          errors_t{ "Add: 'Add' has Override, but Container<String> has no Method like it" });
+    CHECK(errors_of(std::format("{}Class Bad Extends Container\nEnd Class", container)) ==
+          errors_t{ "Container: Container<T> is generic, so it needs type arguments, like "
+                    "Container<Int>" });
+}
+
+TEST_CASE("each instance of a generic type has its own Statics", "[sema]") {
+    const std::string_view counter = "Class Counter<T>\n"
+                                     "    Static Field Made: Int = 0\n"
+                                     "    Static Field Last: T?\n"
+                                     "    Static Method Report(): String => \"{Made}\"\n"
+                                     "End Class\n";
+    CHECK(probe(std::format("{}Local x = Counter<String>.Last", counter)) == "String?");
+    CHECK(probe(std::format("{}Local x = Counter<Int>.Report()", counter)) == "String");
+    CHECK(errors_of("Function Start(): Int => 3\n"
+                    "Class Box<T>\n    Static Field Made: Int = Start()\nEnd Class") ==
+          errors_t{ "Start(): a generic type's Static Field starts with a value known at compile "
+                    "time, since each instance has its own" });
+    CHECK(errors_of("Extend T[]\n    Static Method Make(): Int => 1\nEnd Extend") ==
+          errors_t{ "Make: an array type can't come before a '.', so T[] can't have Statics" });
+}
+
+TEST_CASE("Const Functions can be generic, and give the sizes in declarations' types", "[sema]") {
+    CHECK(probe("Const Function Largest<T: Comparable>(a: T, b: T): T => a > b ? a : b\n"
+                "Const X = Largest(3, 9)") == "Int32 9");
+    CHECK(probe("Const Function Square<T: Numeric>(x: T): T => x * x\n"
+                "Const X = Square(1.5)") == "Float32 2.25");
+    CHECK(probe("Struct Board\n"
+                "    Field Cells: Int[Cells()]\n"
+                "End Struct\n"
+                "Const Function Cells(): Int => 4 * 4\n"
+                "Local b = Board()\n"
+                "Local x = b.Cells") == "Int32[16]");
+}
+
+TEST_CASE("a Const type argument or size can be computed from Const type parameters", "[sema]") {
+    CHECK(probe("Function Join<Const N: Int, Const M: Int>(a: Int[N], b: Int[M]): Int[N + M]\n"
+                "    Local joined: Int[N + M]\n"
+                "    Return joined\n"
+                "End Function\n"
+                "Local a: Int[2]\n"
+                "Local b: Int[3]\n"
+                "Local x = Join(a, b)") == "Int32[5]");
+    CHECK(probe("Struct Grid<Const W: Int>\n    Field Cells: Int[W * 2]\nEnd Struct\n"
+                "Function Doubled<Const W: Int>(g: Grid<W>): Grid<W * 2> => Grid<W * 2>()\n"
+                "Local x = Doubled(Grid<3>())") == "Grid<6>");
+    CHECK(errors_of("Function F<Const N: Int>(a: Int[N - 1])\nEnd Function") ==
+          errors_t{ "N - 1: a value computed from Const type parameters uses integers known at "
+                    "compile time, with + and *, like N * 2" });
+}
+
+TEST_CASE("a loop can go over a type's own type parameter, or Self", "[sema]") {
+    const std::string_view wrapper = "Struct Wrapper<T>\n"
+                                     "    Field Item: T\n"
+                                     "    Method Describe(): String\n"
+                                     "        Local text = \"\"\n"
+                                     "        For Field f: F In T\n"
+                                     "            Where F: Printable\n"
+                                     "            text = text + \"{f.Get(Item)}\"\n"
+                                     "        End For\n"
+                                     "        Return text\n"
+                                     "    End Method\n"
+                                     "End Struct\n"
+                                     "Struct Q\n    Field A: Int\nEnd Struct\n"
+                                     "Struct H\n    Field Inner: Q\nEnd Struct\n";
+    CHECK(probe(std::format("{}Local x = Wrapper(Q(1)).Describe()", wrapper)) == "String");
+    CHECK(errors_of(std::format("{}Local x = Wrapper(H(Q(1))).Describe()", wrapper)) ==
+          errors_t{ "Wrapper(H(Q(1))).Describe: 'Describe' needs each field of H to implement "
+                    "Printable, but its field 'Inner' is Q, which doesn't" });
+
+    const std::string_view dumped = "Interface Dumped\n"
+                                    "    Method Dump(): String\n"
+                                    "        For Field f: F In Self\n"
+                                    "            Where F: Printable\n"
+                                    "        End For\n"
+                                    "        Return \"\"\n"
+                                    "    End Method\n"
+                                    "End Interface\n"
+                                    "Struct Q\n    Field A: Int\nEnd Struct\n";
+    CHECK(
+        errors_of(std::format("{}Struct P Implements Dumped\n    Field X: Int\nEnd Struct", dumped))
+            .empty());
+    CHECK(errors_of(std::format("{}Struct H Implements Dumped\n    Field Inner: Q\nEnd Struct",
+                                dumped)) ==
+          errors_t{ "Dumped: H takes Dumped's 'Dump', which needs each of its fields to implement "
+                    "Printable, but its field 'Inner' is Q, which doesn't" });
+}
+
+TEST_CASE("loops over Properties, Static Fields, and Methods of a Func type", "[sema]") {
+    const std::string_view player = "Class Player\n"
+                                    "    Field HP: Int\n"
+                                    "    Static Field Count: Int = 3\n"
+                                    "    Property Half: Int\n"
+                                    "        Get => HP / 2\n"
+                                    "    End Property\n"
+                                    "    Method Hit(amount: Int): Int => HP - amount\n"
+                                    "End Class\n";
+    CHECK(errors_of(std::format("{}For Property p: P In Player\n"
+                                "    Where P: Printable\n"
+                                "    Print(\"{{p.Name}} {{p.Get(Player())}}\")\n"
+                                "End For\n"
+                                "For Static Field s: S In Player\n"
+                                "    Where S: Printable\n"
+                                "    Print(\"{{s.Get()}}\")\n"
+                                "End For\n"
+                                "For Method m: M In Player\n"
+                                "    Where M: Func(Int): Int\n"
+                                "    Local after = m.Call(Player(), 5)\n"
+                                "End For",
+                                player))
+              .empty());
+    CHECK(errors_of(std::format("{}For Method m: M In Player\n"
+                                "    Where M: Func(Int): Int\n"
+                                "    Local after = m.Call(Player(), \"five\")\n"
+                                "End For",
+                                player)) == errors_t{ "\"five\": expected Int32, found String" });
+    CHECK(
+        errors_of(std::format("{}For Method m: M In Player\n    Where M: Int\nEnd For", player)) ==
+        errors_t{ "Int: M is the Methods' Func type, like Func(Int): String, not Int32" });
+    CHECK(errors_of(std::format("{}For Property p In Player\n    p.Set(1)\nEnd For", player)) ==
+          errors_t{ "Set: 'p' is a Property of Player; it has Name, Get(value), Has(A), and "
+                    "Attribute(A)" });
+}
+
+TEST_CASE("a type's own attributes", "[sema]") {
+    CHECK(probe("Attribute Saved\n@Saved Struct P\nEnd Struct\nLocal x = P.Has(Saved)") == "Bool");
+    CHECK(probe("Attribute Label(Text: String)\nStruct P\nEnd Struct\n"
+                "Function L<T>(): Label? => T.Attribute(Label)\n"
+                "Local x = L<P>()") == "Label?");
+    CHECK(errors_of("Struct P\nEnd Struct\nLocal x = P.Has(P)") ==
+          errors_t{ "P.Has: 'P.Has' takes the name of an Attribute, which an Attribute declaration "
+                    "makes" });
 }

@@ -41,6 +41,16 @@ std::string_view runtime_name(const runtime_function_t function) {
         return "load_weak";
     case runtime_function_t::OBJECT_DISCARD:
         return "discard";
+    case runtime_function_t::COMPARE:
+        return "compare";
+    case runtime_function_t::HASH:
+        return "hash";
+    case runtime_function_t::HASH_COMBINE:
+        return "hash_combine";
+    case runtime_function_t::STRING_CHARS:
+        return "string_chars";
+    case runtime_function_t::STRING_BYTES:
+        return "string_bytes";
     }
 
     std::unreachable();
@@ -105,6 +115,14 @@ public:
             out += '\n';
             for (std::size_t i = 0; i < info.methods.size(); ++i) {
                 out += std::format("    {}: {}\n", i, function_name(info.methods[i]));
+            }
+
+            // Each Interface's table, like "Shape 0: Square.Area()".
+            for (const mir_implementation_t& implementation : info.interfaces) {
+                for (std::size_t i = 0; i < implementation.methods.size(); ++i) {
+                    out += std::format("    {} {}: {}\n", type(implementation.interface), i,
+                                       function_name(implementation.methods[i]));
+                }
             }
         }
 
@@ -180,7 +198,8 @@ private:
 
     [[nodiscard]] std::string dump(const mir_function_t& function) {
         m_function = &function;
-        std::string out = keyword("function") + " " + paint(function.name, tone_t::BOLD);
+        std::string out = function.is_inline ? keyword("@Inline") + " " : std::string();
+        out += keyword("function") + " " + paint(function.name, tone_t::BOLD);
         if (function.return_type != type_id_t::NONE) {
             out += " -> " + type(function.return_type);
         }
@@ -277,6 +296,10 @@ private:
     [[nodiscard]] std::string dump(const binary_t& node) const {
         const std::string text =
             std::format("{} {} {}", operand(node.left), spelling(node.op), operand(node.right));
+        if (node.overflows) {
+            return std::format("{}({})", keyword("overflows"), text);
+        }
+
         return node.wrapping ? std::format("{}({})", keyword("wrapping"), text) : text;
     }
 
@@ -292,9 +315,14 @@ private:
             arguments += operand(argument.value);
         }
 
-        // "call virtual" goes through the object's Method table.
-        return std::format("{} {}({})", keyword(node.slot ? "call virtual" : "call"),
-                           function_name(node.function), arguments);
+        // "call virtual" goes through the object's Method table, and "call interface" through
+        // the table its Class has for an Interface.
+        std::string_view call = node.slot ? "call virtual" : "call";
+        if (node.interface != type_id_t::INVALID) {
+            call = "call interface";
+        }
+
+        return std::format("{} {}({})", keyword(call), function_name(node.function), arguments);
     }
 
     /// "invoke _3(1, _2)"

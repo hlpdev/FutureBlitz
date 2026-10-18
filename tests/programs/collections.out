@@ -1,0 +1,43 @@
+[1, 2, 3, 5, 8, 9]
+True False [1, 2, 3, 5, 9]
+[fig, pear, kiwi, apple]
+[1, 3, 5, 9]
+[10, 20, 30, 50, 90] [3, 4, 4, 5]
+5 -1
+2 60 -1 True {grunt: 60, boss: 500}
+  grunt: 60
+  boss: 500
+66 215589 16 -1
+[98, 97, 95] [9604, 9409, 9025]
+0 {grunt: 60, boss: 500, imp: 5}
+{sword: 50, shield: 30} {a: 1} {} 0 {1: 1.5, 2: 2}
+80 6 0
+{one: {1: [True]}, two: {2: [False, True]}} 1
+{k: 9}
+{3, 1, 2, 5} 4 True False
+False True False {5, 1, 2}
+{5, 1} 5 3
+5 50 50 40 3
+  99
+  30
+  20
+  10
+True False
+0 4
+a b c d 2
+def True False
+0 3 d
+12345 1 5
+1 2 3 4 5 0
+1 2 6 3 True
+1 2 3 5 7 8 9 
+banana 4 True
+apple banana
+3 boss
+2 gone False False
+True gone bat
+  grunt
+  bat
+2
+0 gone
+2

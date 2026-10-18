@@ -28,7 +28,8 @@ std::expected<fb::process_result_t, std::string> build_and_run(const std::filesy
                                                                const fb::build_mode_t mode) {
     // Panics report just the file name, so the expected output doesn't depend on the checkout.
     const fb::compilation_t compilation =
-        fb::compile(source.filename().string(), read_file(source));
+        fb::compile(source.filename().string(), read_file(source),
+                    fb::standard_library().value_or(std::vector<fb::library_file_t>{}), mode);
     if (compilation.diagnostics.has_errors()) {
         const fb::diagnostic_t& first = compilation.diagnostics.diagnostics().front();
         return std::unexpected(std::format(

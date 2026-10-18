@@ -1,5 +1,6 @@
 #include "fb/const_value.hpp"
 
+#include <array>
 #include <bit>
 #include <cmath>
 #include <format>
@@ -323,6 +324,11 @@ fold_result_t fold_shift(const binary_op_t op, const const_value_t& left,
 
 /// Orders two numbers of the same type: floats as doubles, integers with compare().
 std::partial_ordering order(const const_value_t& left, const const_value_t& right) {
+    // Strings compare by their UTF-8 bytes, which orders them by code point.
+    if (const auto* text = std::get_if<std::string>(&left.data)) {
+        return *text <=> std::get<std::string>(right.data);
+    }
+
     if (is_float(left.type)) {
         return std::get<double>(left.data) <=> std::get<double>(right.data);
     }
@@ -566,6 +572,64 @@ std::strong_ordering compare(const const_value_t& left, const const_value_t& rig
     }
 
     return std::get<std::uint64_t>(left.data) <=> std::get<std::uint64_t>(right.data);
+}
+
+std::optional<integer_method_t> integer_method(const std::string_view name) {
+    const bool checked = name.starts_with("Checked");
+    if (!checked && !name.starts_with("Wrapping")) {
+        return std::nullopt;
+    }
+
+    const std::string_view operation = name.substr(checked ? 7 : 8);
+    if (operation == "Negate") {
+        return integer_method_t{ .op = binary_op_t::SUBTRACT, .checked = checked, .negate = true };
+    }
+
+    constexpr auto operations = std::to_array<std::pair<std::string_view, binary_op_t>>({
+        { "Add", binary_op_t::ADD },
+        { "Subtract", binary_op_t::SUBTRACT },
+        { "Multiply", binary_op_t::MULTIPLY },
+        { "Divide", binary_op_t::DIVIDE },
+    });
+    for (const auto& [spelling, op] : operations) {
+        // Only Checked divides: a Wrapping divide would still panic on zero.
+        if (operation == spelling && (checked || op != binary_op_t::DIVIDE)) {
+            return integer_method_t{ .op = op, .checked = checked };
+        }
+    }
+
+    return std::nullopt;
+}
+
+std::optional<const_value_t> fold_integer_method(const integer_method_t& method,
+                                                 const const_value_t& self,
+                                                 const const_value_t& other) {
+    const const_value_t zero =
+        *fold_cast({ .type = type_id_t::UINT64, .data = std::uint64_t{ 0 } }, self.type);
+    const const_value_t& left = method.negate ? zero : self;
+    const const_value_t& right = method.negate ? self : other;
+    if (method.checked) {
+        const fold_result_t result = fold_binary(method.op, left, right);
+        return result ? std::optional(*result) : std::nullopt;
+    }
+
+    // Wrapping: the low bits of the result.
+    const auto bits = [](const const_value_t& value) {
+        if (const auto* number = std::get_if<std::int64_t>(&value.data)) {
+            return std::bit_cast<std::uint64_t>(*number);
+        }
+
+        return std::get<std::uint64_t>(value.data);
+    };
+
+    std::uint64_t raw = bits(left) * bits(right);
+    if (method.op == binary_op_t::ADD) {
+        raw = bits(left) + bits(right);
+    } else if (method.op == binary_op_t::SUBTRACT) {
+        raw = bits(left) - bits(right);
+    }
+
+    return fold_cast({ .type = type_id_t::UINT64, .data = raw }, self.type).value();
 }
 
 } // namespace fb

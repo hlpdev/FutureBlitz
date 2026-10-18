@@ -2,7 +2,7 @@
 // an instance for each set of type arguments the program uses.
 Function First<T>(xs: T[]): T => xs[0]
 
-Function Map<T, U>(xs: T[], f: Func(T): U): U[]
+Function Transform<T, U>(xs: T[], f: Func(T): U): U[]
     Local result: U[] = []
     For x In xs
         result.Add(f(x))
@@ -22,7 +22,7 @@ Struct Pair<A, B>
     Field Second: B
 End Struct
 
-Class Stack<T>
+Class Pile<T>
     Field Items: T[] = []
 
     Method Push(item: T)
@@ -36,8 +36,8 @@ Class Stack<T>
     End Method
 
     // A generic Method has type parameters of its own.
-    Method Map<U>(f: Func(T): U): Stack<U>
-        Local result = Stack<U>()
+    Method Map<U>(f: Func(T): U): Pile<U>
+        Local result = Pile<U>()
         For item In Items
             result.Push(f(item))
         End For
@@ -48,10 +48,10 @@ End Class
 
 // Type arguments come from the arguments, from the type expected, or from what's written.
 Local n = First([3, 4])
-Local names = Map([1, 2], Function(x) => "n{x}")
+Local names = Transform([1, 2], Function(x) => "n{x}")
 Local p = Pair(1, "one")
 Local q: Pair<Long, String> = Pair<Long, String>(2, "two")
-Local s = Stack<String>()
+Local s = Pile<String>()
 s.Push("a")
 Local top = s.Pop()
 Local a = 1
@@ -60,7 +60,7 @@ Swap(ByRef a, ByRef b)
 Local f = First<Float>([1, 2])
 Print("{n} {names[0]} {names[1]} {p.First} {p.Second} {q.First} {top} {a} {b} {f}")
 
-Local ns: Stack<Int> = Stack()
+Local ns: Pile<Int> = Pile()
 ns.Push(5)
 ns.Push(6)
 Local doubled = ns.Map(Function(x) => x * 2)

@@ -98,11 +98,11 @@ section.
 | A Struct is stored inline, so it can't contain itself, directly or through other Structs | it would have no size; use a class reference (M2 step 3) |
 | A field, like a variable, can be passed `ByRef`; two `ByRef` arguments that overlap (`p` and `p.x`) are an error | the same rule as passing one variable twice |
 | Changing a field of a `Local` reads the rest of it, so the `Local` must be assigned first | definite assignment tracks whole variables |
-| A Struct can't go in a string until `Printable` (M3) | there's no `ToString` to call yet |
+| A Struct or Class goes in a string through `Printable`'s `ToString` | its text is a choice the type makes |
 | A Class without a `New` gets one without parameters | an object always starts from its field defaults |
 | A Class's Methods can always change its fields; `ByRef Method` is only for Structs | `Self` is a reference, so there's no copy to protect |
 | An object's fields change through any reference to it, even a read-only parameter or `Const`; a Class's `Self` can't be replaced | read-only covers the reference, not the object |
-| Class `==` compares identity until `Equatable` (M3); `RefEquals` always does | identity is the only equality an object has before interfaces |
+| Class `==` compares identity unless the Class has an Operator `==`; `RefEquals` always compares identity | identity is the equality every object has |
 | Methods are virtual unless `Final`; `Override` must match the parameter types, `ByRef`, and return type exactly | one rule for what overrides what |
 | Every Class's `Destroy` runs, the most derived first, and none overrides another | each Class cleans up its own fields |
 | A Class's `New` runs the base's first: `Super.New(...)` as its first statement, or the base's `New` that takes no arguments; `Self` waits for it | the object is set up from the base down, like the field layout |
@@ -115,7 +115,7 @@ section.
 | A `T[]`'s `Count` is an `Int`; its Methods are `Add`, `Insert`, `RemoveAt`, `Clear`, `Contains`, and `Clone` | the collection vocabulary, starting small |
 | A `T[]` has no zero; `[]` as a default gives each use a new array | non-null by default, without a shared mutable default |
 | `T[]` is invariant: a `B[]` isn't an `A[]` | adding an `A` to a `B[]` would break it |
-| Arrays have no `==` until `Equatable` (M3); `RefEquals` tells `T[]`s apart | equality of elements needs a rule for every element type |
+| An array's `==` compares its elements, when they have `==`; `RefEquals` tells `T[]`s apart | the same equality a Struct's fields have |
 | A fixed array starts at zero, so a `Local` of one is ready when declared; sizes are known at compile time | declaring then filling a grid is the common case |
 | An array element can't be passed `ByRef`, and a `ByRef Method` can't change a `T[]`'s element in place | the buffer moves when the array grows |
 | `For ... In` holds the array and reads `Count` before each pass; its variables are read-only copies | removing during a loop can't go past the end |
@@ -199,7 +199,55 @@ section.
 | Generic Methods aren't in the Method table, so they can't be Abstract or Override | each set of type arguments is a different function, which a table can't hold ahead of time |
 | `T?` with a nullable `T` is that type, not a `T??` | one kind of Null |
 | A lambda's Class, and `Cell<T>`, are generic in generic code | a closure's captures have the instance's types |
-| Until M3's later steps: no constraints, no generic base Classes, and no Static members in generic types | constraints need interfaces (step 6); the others need their own design |
+| No generic base Classes, and no Static members in generic types, yet; see the Deferred work in [milestones.md](milestones.md) | each needs a design of its own |
+| Constraints are checked at each call, `New`, and type written with type arguments; a constrained `T` has its Interfaces' Methods, Properties, Statics through `T.Zero()`, and Operators | errors point at the use that doesn't meet them, and generic code reads like the code it stands for |
+| A conditional Method, whose Where line constrains its type's type parameter, isn't in the Method table | only some instances have it, and a generic Class can't be extended yet |
+
+## Interfaces
+
+| Decision | Why |
+|---|---|
+| An Interface's Method that's only its first line is required, and one with a body is a default, which a type without its own gets as a Method | a default becomes a Method like any other, which a Class extending it can override |
+| An Interface is a type only when it needs no Statics or Operators and doesn't use Self in its members' types; the rest are only constraints | only those can be called on an object whose Class isn't known |
+| An Interface's value is a Class's object, and a call goes through a table its Class has for the Interface, which the runtime finds in the Class's list | the value is the object's own reference, so converting it costs nothing and `Is` and `As` work as for Classes; a cache can make the search faster later |
+| A Struct implements Interfaces only for generic code, which never boxes it | a Struct stays a value, with no hidden objects |
+| A Class extending one inherits its Interfaces, except those that are only constraints | their Self would be the base Class, not the one extending it |
+| A required `ByRef Method` is implemented by a Struct's ByRef Method or a Class's Method; a Property by a Property, with a Set if the Interface's has one | a Class's Methods can always change its fields |
+| In generic code, an Interface's member calls the type argument's own: directly for a Struct, through the Method table for a Class | generic code costs what the code it stands for would |
+| An Interface's Methods can't throw or have type parameters yet, its Properties have no defaults, and its type parameters have no constraints | each needs a design of its own |
+| `==` on an Interface's values is an error; `RefEquals` compares the objects | their Classes' == could differ, so neither one is the answer |
+| `Abstract Property`, `Abstract ReadOnly Property`, and `Static Property` work like Abstract and Static Methods | a Property's Get and Set are Methods |
+| The built-in Interfaces are FutureBlitz code in std/core/interfaces.fb, which the compiler finds by name | the language's own interfaces read like any other |
+| Built-in types implement the built-in Interfaces that fit them, and tuples, `T?`s, and arrays by their elements; a Struct or Class implements what it lists | generic code works on the built-in types without anything written, and a user type says what it is |
+| A Struct or Class that lists `Equatable` or `Hashable` without its own `==` or `Hash` gets the built-in one: its fields', or its object's | the common case needs nothing written; the built-in `Hash` only goes with the built-in `==`, so equal values always hash the same |
+| `Comparable` needs only `<`, and gives `>`, `<=`, and `>=` as defaults | one comparison to write, which the others can't contradict |
+| `Hash` gives a `UInt64`; the runtime mixes and combines hashes | combining them by hand needs wrapping arithmetic, which isn't in the language yet |
+| A built-in type has the built-in Interfaces' Methods, like `5.ToString()` | what generic code can call on a `T` works on the type itself too |
+| An array's `==`, `Hash`, and text are functions lowering makes for each array type | the loop over elements is written once per type |
+
+## Extend
+
+| Decision | Why |
+|---|---|
+| `Extend` adds Methods, Static Methods, Properties, Operators, and Interfaces to a type, as if its declaration had them; not Fields, a New, or a Destroy | a type's data and its making stay in one place |
+| A generic type is extended with its own type parameters' names, `Extend Box<T>`, for every instance; every array is `Extend T[]` | the names mean what they mean in the type, and one Extend fits every instance |
+| What an Extend adds isn't in the Method table: nothing overrides it, and it overrides nothing | an Extend in another file can't change what a Class's objects run |
+| A built-in type, Enum, or array gets the Interfaces an Extend lists, but not the built-in ones | those come with it by the rules for built-in types |
+| An Extend's Where makes what it adds, and what it lists, conditional on its type parameters | `List<T>` is Printable exactly when its elements are |
+| A Class that implements an Interface only through an Extend's Where isn't a value of it yet | each instance's object would need a table of its own, which codegen doesn't make yet |
+
+## Sequences
+
+| Decision | Why |
+|---|---|
+| Interfaces can be generic, like `Iterator<T>`, and a type implements one instance of each | its members' types are always known from the type alone |
+| A call infers a constraint's type arguments from what the type argument implements | `Collect(numbers)` needs none written for `Where S: Iterator<E>` |
+| `For ... In` goes over an `Iterator<T>`, whose `ByRef Method Next(): T?` gives each element, then Null | an Iterator is usually a Struct, which a loop steps without making an object; like Swift's and Rust's `next` |
+| A value whose `Iterate()` gives an Iterator is gone over by that Iterator, with no Interface for it | an Interface would have to name the Iterator's type, which a Struct's would need; like C#'s `foreach` |
+| Over an Iterator, `For a, b In` takes each pair apart; only arrays give an index | `For key, value In map` reads the way it's meant |
+| `s.Chars` and `s.Bytes` are new arrays | they index and loop like any array; Iterators that don't copy can come with `std.text` |
+| A slice is a new `T[]` with copies of the elements, like C#'s ranges on arrays | a view would see the elements move when the array grows or shrinks |
+| `nums: Int...` packs the rest of a call's arguments into a new array, and one array argument is passed as it is | like C#'s `params`, both kinds of call read naturally |
 
 ## Errors
 
@@ -234,6 +282,58 @@ section.
 | Engine APIs `@MainThread`; mutable globals main-thread-only unless `Atomic`/`Mutex` | |
 | v1 ships tasks, async, channels, Mutex, Atomic, `Thread.Start`; defers lock-free collections, actors, GPU compute | |
 | Strings are `Sendable`, so their refcounts are atomic from M2; class objects stay non-atomic | immutable text is the data most often shared between threads |
+
+## Compile time
+
+| Decision | Why |
+|---|---|
+| `#If` is handled by the lexer, which skips the lines of a branch that isn't taken without lexing them | the spec says inactive code needn't parse, and the parser never sees it |
+| The symbols are DEBUG or RELEASE, and the platform's; an #If that tests another gets a warning | a misspelled symbol would quietly be False |
+| An attribute goes before a declaration, on its line or the one above; the ones for later milestones are reported as not supported yet | attributes read like modifiers, and long ones fit on a line of their own |
+| `@Inline` is LLVM's alwaysinline, and debug builds run the pass that inlines it | the attribute asks for inlining whatever the build |
+| `@Deprecated` warns at each use outside the declaration and its type | the deprecated code can still use itself while callers move off it |
+| A top-level Const known at compile time can be used anywhere, even above its line; one that something needs early is worked out then | sizes in types need them, and the order of known values shouldn't matter |
+| A Const Function runs on MIR: sema lowers it and the interpreter in compiler/src/evaluate.cpp runs it, with its own stack of calls | lowering already says what every construct means, so the interpreter only needs MIR; deep recursion doesn't use the compiler's stack |
+| A Const Function takes and gives what a Const holds, calls only Const Functions, and uses no Globals or objects | that's what the compiler can hold and run without the runtime |
+| A Const Function that fails while it runs is a compile error at the call, with where it failed; it stops after 10 million steps or 10,000 calls deep | the spec makes overflow and division by zero at compile time errors, and a loop that never ends can't hang the compiler |
+| In a declaration's type, a size can't come from a Const Function yet | declarations' types are worked out before Const Functions' bodies are checked |
+| A Const type parameter is a positive integer, written as a literal, a Const, or another Const type parameter; calls infer it from fixed arrays' sizes | it's for sizes and counts, which are known when types are made |
+| `Attribute Name(params)` declares an attribute, a Struct of its parameters, whose values are known at compile time; `f.Attribute(Name)` gives a `Name?` | reflection reads attributes as ordinary values, and their parameters work like a call's, with defaults and names |
+| Reflection is `For Field f: F In T` and `For Method m In T`, which lowering unrolls into a copy of the body for each member | it's code generation without a second language: the body is ordinary code, checked once |
+| A For Field's body is checked once, with `F` a type parameter that its Where lines constrain; over a function's own `T`, they're constraints on T's fields that each call checks | errors show up where the loop is written or where it's called, never inside a copy |
+| For Method goes over Methods that take nothing and give nothing, which `m.Call(value)` calls | they can all be called the same way; Methods with parameters need a way to pass them, which comes later |
+
+## Collections
+
+| Decision | Why |
+|---|---|
+| The collections are FutureBlitz code in std/collections/, and `T[]`'s new Methods are an `Extend T[]` | they exercise the language, and the compiler only adds the `{key: value}` literal |
+| A Map keeps its entries in an array, with each bucket starting a chain of them; removing one moves the last entry into its place | entries without empty slots need no placeholder values, and iterating is in the order added until something is removed |
+| A Set is a Map whose values are True | one hash table to get right |
+| A Map literal makes a Map, then calls its `Add` for each entry | the literal means what the code it stands for means; a repeated key keeps its last value |
+| Stack, Queue, and Deque have their own words (`Push`, `Enqueue`, `AddFirst`), and `Add` too | each reads as what it is, and every collection still has `Add` |
+| Taking a value from an empty Stack, Queue, Deque, or PriorityQueue panics | `Count` says whether there is one, and a `T?` would make every use unwrap |
+| A Queue drops its taken values once they're half its array, and a Deque is two arrays that take half of each other when one runs out | both are amortized constant time without placeholder slots |
+| A Pool's Handles carry their slot's generation | a Handle to a removed value never finds the one that reuses its slot |
+| Sema's symbols are a `std::deque` | a reference to one stays valid while checking adds more, like a lambda's parameters in a call's argument |
+
+## Loose ends (M3 step 13)
+
+| Decision | Why |
+|---|---|
+| Explicit arithmetic is an integer's Methods, `a.WrappingAdd(b)` and `a.CheckedAdd(b)`, which gives a `T?`; MIR tests for overflow with a flag on `binary_t` | reads like the operation it replaces, and LLVM's `with.overflow` intrinsics do the test |
+| What implements an Interface's throwing Method gets the error variable, whether it throws or not | every Method in a table is called the same way, without an adapter in between |
+| An Interface's generic Methods are called only on type parameters | each set of type arguments makes a Method of its own, which a table can't hold |
+| `For x In Try items` passes on a throwing Iterate's errors | Try already means "let this go on"; the loop has no call to put it before |
+| An Extend of one instance or one array type has the instance's types | `Extend Box<Int>` should let `Value` be an Int, not a T |
+| A Class that implements an Interface through an Extend's Where gets the table for each instance that meets it, which lowering asks sema's implements() about | lowering makes instances analysis never saw |
+| A generic base is an instance in `type_t::base`, and walks over a Class's bases go through each one's definition | inherited members keep the instance's type arguments |
+| A generic type's Statics are each instance's globals, made as lowering uses them, and start with what's known at compile time | the instances are only all known once lowering is done |
+| Const Functions are declared with the Globals, and while types are declared, one runs only when its code reaches no type whose members are still being declared | a size in a Field's type can come from one, without order mattering |
+| A computed Const type argument uses only `+` and `*` | the result is positive whenever the parameters are |
+| Reflected Properties and Static Fields have no Set | a Property without a Set or a ReadOnly Static Field can't be told apart for a type parameter |
+| A For Method's Where line picks the Methods of a Func type | so `m.Call(value, ...)` can be checked once |
+| Each copy of a loop over members has its own closure Classes | a lambda there can use the copy's member |
 
 ## Modules, FFI, compile-time
 

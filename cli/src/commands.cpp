@@ -218,7 +218,8 @@ int compile_command(const options_t& options) {
     console.status(checking ? "Checking" : "Compiling", name);
 
     // This only fails when the file can't be read, which counts as bad usage.
-    const std::expected<compilation_t, std::string> compiled = compile_file(options.input);
+    const std::expected<compilation_t, std::string> compiled =
+        compile_file(options.input, options.mode);
     if (!compiled) {
         console.error(compiled.error());
         return usage_exit_code;

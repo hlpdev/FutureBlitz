@@ -1,0 +1,39 @@
+// The Interfaces that the language's operators and strings work through. The built-in types
+// implement the ones that fit them, and a Struct or Class implements one by listing it.
+
+// What == says, and != is always its opposite. A Struct that lists Equatable without an
+// Operator == of its own compares its fields, and a Class compares whether two are the same
+// object.
+Interface Equatable
+    Operator ==(a: Self, b: Self): Bool
+End Interface
+
+// An order: what < says, which the other comparisons follow unless a type gives its own.
+Interface Comparable Extends Equatable
+    Operator <(a: Self, b: Self): Bool
+
+    Operator >(a: Self, b: Self): Bool => b < a
+    Operator <=(a: Self, b: Self): Bool => !(b < a)
+    Operator >=(a: Self, b: Self): Bool => !(a < b)
+End Interface
+
+// A number for Maps and Sets to find a value by, the same for values that are equal. A Struct
+// that lists Hashable without a Hash of its own combines its fields', and a Class's comes from
+// its object.
+Interface Hashable Extends Equatable
+    Method Hash(): UInt64
+End Interface
+
+// What a value shows in a string, like "{point}".
+Interface Printable
+    Method ToString(): String
+End Interface
+
+// What arithmetic needs, so generic code like a Sum works on any number.
+Interface Numeric
+    Static Method Zero(): Self
+    Operator +(a: Self, b: Self): Self
+    Operator -(a: Self, b: Self): Self
+    Operator *(a: Self, b: Self): Self
+    Operator /(a: Self, b: Self): Self
+End Interface

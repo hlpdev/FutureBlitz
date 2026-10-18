@@ -1,0 +1,76 @@
+// What every collection has, on T[]: Remove, Sort, Filter, Map, and Find, besides the built-in
+// Add, Insert, RemoveAt, Clear, Contains, Clone, and Count.
+
+Extend T[]
+    // Removes the first element equal to value, and tells whether there was one.
+    Method Remove(value: T): Bool
+        Where T: Equatable
+        For i, element In Self
+            If element == value
+                RemoveAt(i)
+                Return True
+            End If
+        End For
+        Return False
+    End Method
+
+    // Sorts the elements in place, smallest first. Equal elements keep their order.
+    Method Sort()
+        Where T: Comparable
+        Sort(Function(a: T, b: T) => a < b)
+    End Method
+
+    // Sorts the elements in place, by what before says comes first. It's a merge sort, so equal
+    // elements keep their order.
+    Method Sort(before: Func(T, T): Bool)
+        If Count < 2 Then Return
+        Local from = Clone()
+        MergeSort(from, Self, 0, Count, before)
+    End Method
+
+    // Each element that keep says to keep, in a new array.
+    Method Filter(keep: Func(T): Bool): T[]
+        Local kept: T[] = []
+        For element In Self
+            If keep(element) Then kept.Add(element)
+        End For
+        Return kept
+    End Method
+
+    // What change gives for each element, in a new array.
+    Method Map<U>(change: Func(T): U): U[]
+        Local changed: U[] = []
+        For element In Self
+            changed.Add(change(element))
+        End For
+        Return changed
+    End Method
+
+    // The first element that test says is the one, or Null.
+    Method Find(test: Func(T): Bool): T?
+        For element In Self
+            If test(element) Then Return element
+        End For
+        Return Null
+    End Method
+End Extend
+
+// Sorts to's elements from start up to finish, which from holds copies of: each half is sorted
+// into from, then they're merged back into to.
+Function MergeSort<T>(from: T[], to: T[], start: Int, finish: Int, before: Func(T, T): Bool)
+    If finish - start < 2 Then Return
+    Local middle = start + (finish - start) / 2
+    MergeSort(to, from, start, middle, before)
+    MergeSort(to, from, middle, finish, before)
+    Local left = start
+    Local right = middle
+    For i = start Until finish
+        If left < middle && (right >= finish || !before(from[right], from[left]))
+            to[i] = from[left]
+            left += 1
+        Else
+            to[i] = from[right]
+            right += 1
+        End If
+    End For
+End Function

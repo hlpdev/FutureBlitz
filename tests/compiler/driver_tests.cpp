@@ -42,7 +42,7 @@ TEST_CASE("compile adds the standard library after the main file", "[driver]") {
     const fb::compilation_t compilation = fb::compile("test.fb", "Throw Error(\"x\")");
     CHECK(compilation.diagnostics.diagnostics().empty());
     CHECK(compilation.file == fb::file_id_t{});
-    CHECK(compilation.sources.get(fb::file_id_t{ 1 }).path() == "std/core/error.fb");
+    CHECK(compilation.sources.get(fb::file_id_t{ 1 }).path().starts_with("std/"));
     CHECK(compilation.analysis.error_class != fb::type_id_t::INVALID);
 
     const std::expected<std::vector<fb::library_file_t>, std::string> library =

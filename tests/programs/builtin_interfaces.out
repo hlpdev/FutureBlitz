@@ -1,0 +1,18 @@
+7 2.5 pear
+6 0.75
+2 1
+<5> <hi> <(1, 2)> <[1, 2]>
+True True True
+True False True
+9
+enemy ogre [enemy ogre, enemy imp] [1, 2, 3] (1, [2, 3])
+enemy ogre [enemy ogre, enemy bat]
+True False True
+True False
+True True False
+5 True (1, a) [1.5, 2.5]
+True False
+True False True
+[0, 7, 0] True True
+False
+[an animal, a dog] cat tom [cat tom]

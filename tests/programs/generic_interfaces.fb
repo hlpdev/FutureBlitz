@@ -1,0 +1,79 @@
+// Generic Interfaces: each set of type arguments makes an instance, whose members have them
+// in their types. A type implements one instance of each.
+Interface Source<T>
+    Method Take(): T
+    Method TakeTwo(): (T, T) => (Take(), Take())
+End Interface
+
+Interface Pair<A, B>
+    Method First(): A
+    Method Second(): B
+    Method Swapped(): (B, A) => (Second(), First())
+End Interface
+
+Class Counter Implements Source<Int>
+    Field N: Int = 0
+
+    Method Take(): Int
+        N += 1
+        Return N
+    End Method
+End Class
+
+// A generic type passes its own type parameters on.
+Struct Constant<T> Implements Source<T>
+    Field Value: T
+    Method Take(): T => Value
+End Struct
+
+Struct NamedAge Implements Pair<String, Int>
+    Field Name: String
+    Field Age: Int
+    Method First(): String => Name
+    Method Second(): Int => Age
+End Struct
+
+// An Interface can extend an instance of a generic one.
+Interface Labeled Extends Source<String>
+    ReadOnly Property Label: String
+End Interface
+
+Class Greetings Implements Labeled
+    Field Count: Int = 0
+
+    Property Label: String
+        Get => "greetings"
+    End Property
+
+    Method Take(): String
+        Count += 1
+        Return "hello {Count}"
+    End Method
+End Class
+
+// T comes from the instance of Source that S implements.
+Function Twice<S, T>(source: S): (T, T)
+    Where S: Source<T>
+    Return source.TakeTwo()
+End Function
+
+Function Sum<S: Source<Int>>(source: S, count: Int): Int
+    Local total = 0
+    For i = 1 To count
+        total += source.Take()
+    End For
+
+    Return total
+End Function
+
+Local counter = Counter()
+Print("{counter.TakeTwo()} {Twice(counter)} {Sum(counter, 3)}")
+Local source: Source<Int> = counter
+Print("{source.Take()} {source.TakeTwo()}")
+Print("{Twice(Constant("x"))} {Constant(1.5).TakeTwo()}")
+Print("{NamedAge("Ann", 30).Swapped()}")
+Local greetings: Labeled = Greetings()
+Print("{greetings.Label}: {greetings.Take()}")
+Local strings: Source<String> = greetings
+Print("{strings.TakeTwo()} {Twice(Greetings())}")
+Print("{strings Is Labeled} {source Is Labeled} {(strings As Labeled).Label}")

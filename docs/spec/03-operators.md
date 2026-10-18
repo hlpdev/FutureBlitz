@@ -24,7 +24,8 @@ A shift's result has the left side's type, and the amount can be any integer typ
 known at compile time must be from 0 to the left side's width minus 1.
 
 `+` on strings only joins `String` to `String`; use interpolation for everything else
-(see [14](14-strings-collections.md)).
+(see [14](14-strings-collections.md)). Strings compare with `<` and the rest by code point,
+the order their UTF-8 bytes have. `==` on arrays compares their elements.
 
 When the two operands have different numeric types, see
 [02](02-types.md#mixed-numeric-types).

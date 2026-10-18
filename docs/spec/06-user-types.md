@@ -19,8 +19,9 @@ Local p = Particle(pos: Vec3(0, 0, 0), vel: Vec3(0, 1, 0), life: 1.0)
   the fields' defaults. Like any call, it takes positional or named arguments. Declaring a `New`
   replaces it.
 - A method sees `Self` and its fields read-only. A `ByRef Method` can change them, so it can only
-  be called on something assignable: a `Local`, a `Global`, a `ByRef` parameter, or a field or
-  element of one.
+  be called on something assignable: a `Local`, a `Global`, a `ByRef` parameter, or a field of
+  one, or an element of a fixed array. A `T[]`'s elements can move when the array grows, so not
+  one of those.
 
 ```vb
 Struct Counter
@@ -101,28 +102,67 @@ End Class
 - A Class without a `New` of its own takes the parameters of each `New` of the Class it extends,
   and their Throws, and passes them on: `Class FileError Extends Error` makes
   `FileError("missing")`.
+- A Class can extend an instance of a generic Class: `Class Names Extends Container<String>`, or
+  with its own type parameters, `Class Sorted<T> Extends Container<T>`. What it inherits has the
+  instance's type arguments in it, and its overrides take those types.
 - Every Class's `Destroy` runs, the most derived first, so `Destroy` is never `Override`.
 - An object converts to any Class its Class extends. `x Is T` tests its Class at run time,
   `x As T` panics when it isn't a `T` ("expected Boss, found Grunt"), and `x As? T` gives `Null`
   instead. Classes that aren't related are an error with each.
-- A Struct can't extend anything. Interfaces come in M3.
+- A Struct can't extend anything, but it can implement Interfaces.
 
 ## Interfaces
 
 ```vb
-Interface Damageable
+Interface Damageable Extends Shown
     Method Hurt(amount: Int)
+    ReadOnly Property Health: Int
 
     Method Kill()                   // default implementation
-        Hurt(1_000_000)
+        Hurt(Health)
     End Method
 End Interface
+
+Class Enemy Implements Damageable
+    ...
+End Class
 ```
 
-- Interfaces may provide **default method bodies**.
-- Interfaces may require static members, operators, and use `Self` as a type
-  (see [07-generics.md](07-generics.md)).
-- Structs can implement interfaces too.
+- An Interface holds Methods, `ByRef Method`s, Static Methods, Operators, and Properties. A
+  Method or Operator that's only its first line is required, and one with a body is a
+  **default**. A Property is only its first line: it needs a Get, and a Set unless it's
+  `ReadOnly`.
+- In an Interface, `Self` is a type: the type that implements it. A Method's `Self` is a value
+  of that type.
+- `Interface A Extends B, C` has the members of B and C too, and what implements A implements
+  them.
+- `Class Boss Extends Enemy Implements Damageable, Shown`, or `Struct Money Implements Numeric`.
+  Each of an Interface's members is implemented by one of the type's, its own or one it
+  inherits, with the same name, kind, parameter types (ByRef included), and result, with the
+  type for Self. A required `ByRef Method` is implemented by a Struct's ByRef Method or a Class's
+  Method, and one that isn't ByRef by one that isn't. A Property is implemented by a Property of
+  its type, which has a Set if the Interface's does. What implements a member doesn't throw.
+- A type that doesn't have a default's Method gets the default as a Method of its own, which a
+  Class extending it can override.
+- An Interface is a type of its own unless it needs Statics or Operators, or uses Self in its
+  members' types: those are only constraints (see [07-generics.md](07-generics.md)). Its values
+  are references to objects of Classes that implement it, and calls on them run what the
+  object's Class gives. A Class's object converts to the Interfaces its Class implements, and an
+  Interface's to the ones it extends. `Is`, `As`, `As?`, and `Case x As I` test for an
+  Interface, and from one for a Class.
+- A Struct implements Interfaces for generic code: it's never an Interface's value, which would
+  have to put it in an object.
+- A Class extending one that implements an Interface implements it too, unless the Interface is
+  only a constraint, whose Self would be the other Class.
+- An Interface's values have no `==`: `Equatable` uses Self, so it's only a constraint, and an
+  Interface extending it is too. `RefEquals` tells whether two are the same object.
+- An Interface can be generic, like `Iterator<T>` (see [07-generics.md](07-generics.md)).
+- An Interface can't be made, and has no Fields or News.
+- Its Methods can throw: what implements one throws only what it can, or less. A call through an
+  Interface's value needs Try, as any call that can throw does.
+- Its Methods can be generic. One is called on a type parameter, like `<T: Mapper>`, but not on
+  an Interface's value, since each set of type arguments makes a Method of its own, which no
+  table can hold. What implements it has as many type parameters, and constrains them no more.
 
 ## Properties
 
@@ -151,7 +191,11 @@ End Class
   Struct type gives a copy, so changing part of it, as in `e.Pos.x = 1`, is an error.
 - A Property can't be passed `ByRef`, since it has no variable.
 - A Class's Properties are virtual, like its Methods: `Override Property` replaces the Get, and
-  the Set if it has one. They can't be Static or Abstract yet.
+  the Set if it has one.
+- An `Abstract Property` is only its first line, in an Abstract Class. A Class extending it
+  overrides its Get, and its Set unless it's `Abstract ReadOnly Property`.
+- A `Static Property` belongs to its type, like a Static Field: `Enemy.Count`. Its Get and Set
+  have no Self.
 
 ### ReadOnly fields
 
@@ -179,6 +223,9 @@ Enemy.Spawn("grunt")
   Static Method can't use the other members by name, since it has no object.
 - Struct and Class both have them. They aren't virtual, so they can't be Abstract, Final, or
   Override. A `Static ReadOnly Field` keeps the value it starts with.
+- A generic Struct or Class has its Statics for each instance: `Box<Int>.count` and
+  `Box<String>.count` are two variables, and by name in its own code, they're the instance's. A
+  generic type's Static Field starts with a value known at compile time, or its zero.
 
 ## Operator overloading
 
@@ -213,7 +260,35 @@ Adds methods or interface conformances to an existing type, including built-ins.
 Extend Vec3 Implements Printable
     Method ToString(): String => "({x}, {y}, {z})"
 End Extend
+
+Extend Int
+    Method Doubled(): Int => Self * 2
+    Static Method Parse(text: String): Int => ...
+End Extend
+
+Extend T[]                          // every array
+    Method Last(): T => Self[Count - 1]
+End Extend
 ```
+
+- An Extend adds to a Struct, Class, Enum, or built-in type, to a generic Struct or Class
+  written with its own type parameters (`Extend Box<T>`), to one instance (`Extend Box<Int>`),
+  to every array (`Extend T[]`), or to one array type (`Extend Int[]`). In an Extend of one
+  instance, the members have the instance's types: a `Box<Int>`'s field `Value: T` is an Int.
+- It holds Methods, Static Methods, Properties, and Operators, and adds them to the type, as
+  if the type had declared them. A `ByRef Method` changes a value; a Class's or array's Methods
+  can always change it, so theirs aren't ByRef. Only a Struct or Class gets Operators, and an
+  array gets no Statics, since an array type can't come before a '.'.
+- It can't add Fields, a New, or a Destroy: a type's data and how it's made are the type's own.
+- Its members use the type's own by name, as a type's Methods do, like an array's `Count` and
+  `RemoveAt` in an `Extend T[]`.
+- What it adds isn't virtual. Nothing overrides it, it overrides nothing, and it can't have a
+  member the type has already. A built-in type's, Enum's, or array's can't share a name with
+  the members it has already, like `ToString` or an array's `Add`.
+- `Extend T Implements I` makes the type implement `I`, with members its Extends or its own
+  declaration give. A built-in type, Enum, or array comes with the built-in Interfaces that fit
+  it, so an Extend gives it others.
+- An Extend only goes at the top level of a file.
 
 Conditional extensions use `Where` (see [07-generics.md](07-generics.md)).
 
@@ -258,7 +333,10 @@ Local mask = Layer.World | Layer.Player
 
 | Kind | `==` means |
 |---|---|
-| Struct | field-by-field comparison, generated automatically |
-| Class | `Equatable` implementation if present, otherwise reference identity |
+| Struct | its Operator `==` if it has one, otherwise field-by-field comparison |
+| Class | its Operator `==` if it has one, otherwise reference identity |
+| Array | element-by-element comparison, when the elements have `==` |
+| Interface | nothing: an Interface's objects have no `==`, since their Classes' could differ |
 
-`RefEquals(a, b)` always tests reference identity.
+`RefEquals(a, b)` always tests reference identity. `Equatable` makes `==` work in generic code
+(see [07-generics.md](07-generics.md)).
