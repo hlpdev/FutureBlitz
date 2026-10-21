@@ -365,7 +365,7 @@ section.
 
 | Decision | Why |
 |---|---|
-| Twenty steps, planned 2026-10-20: the foundation (libuv, the I/O thread, Errors, `@PanicsAtCaller`), indexing and lazy iterators, collections, formatting, text, regex, math twice, std.ffi, io twice, time, os, concurrent and log, data, crypto and compress, then net in three; see milestones.md | each language change comes just before its first user, and each bundled C library with the first step that uses it, so every step builds on the last |
+| Thirty-two steps, planned 2026-10-20 and 2026-10-21: the foundation (libuv, the I/O thread, Imports for every std name, output and Input, Errors, `@PanicsAtCaller`), indexing, iteration, and ranges, collections twice, formatting and the debug form, text three times, math three times, std.ffi, io three times, time, os, concurrent with log and events, data twice, crypto, compress, uuid and db, image twice, term, algo, then net in four; see milestones.md | each language change comes just before its first user, and each bundled C library with the first step that uses it, so every step builds on the last |
 
 ## Compile time
 
@@ -576,6 +576,53 @@ Planned 2026-10-20 with the user; the design is in [stdlib.md](stdlib.md#m6s-des
 | Code after an `Await` on I/O resumes where it started, as Tasks do now: at a Wait, a Scheduler's Tick or Run, or `Flip()` | main-thread code stays on the main thread, so `@MainThread` holds across an Await |
 | `@PanicsAtCaller` on a Function or Method passes the call's place as a hidden parameter, so its Panics and Asserts report where it was called; std uses it on what panics on misuse | a panic in std, like popping an empty Stack, points at the program's line, as Rust's `#[track_caller]` does |
 | After a build that links bundled C libraries, `fb` prints which ones and their licenses; shipping the notices is the programmer's job | the programmer knows what to credit, and fb writes no files of its own beside the program |
+
+| std is batteries included: what Python's standard library and its most common packages cover together, plus std.db (SQLite), std.image, std.algo, std.uuid, std.text.template, std.term, std.events, and XML and YAML; packages are for niche domains (2026-10-21) | a programmer needs FFI only for a C library of their own choosing |
+| Every std name needs an Import, std.core's too; the language's own features and the compiler's built-ins don't | a file always says what it depends on |
+| `Print(values...)` prints any Printable values, spaced; `Input(prompt)` gives a `String?`; both are std.core's | a first program needs one Import, and `Print(score)` just works |
+| Text becomes a number through Static Methods on the number types, `Int.Parse("42")`, giving a `T?` | type `Int.` and see them |
+| Ranges are values: `0 Until 10`, `1 To 10`, and `Step`, the For loop's own words | they're stored, passed, and chained with the iterator adapters |
+| Throw fills `Error.Place` in debug and release builds, and an uncaught error prints its message, place, and Cause chain | release crash reports say where, at a few bytes per Throw |
+| Every value has a debug form from reflection, `"{x:?}"` and `Dump(x)`; Printable stays the form for people | debugging doesn't need a ToString per type |
+| A collection's `Filter` and `Map` stay eager and give arrays; `Iterate()`'s adapters are lazy | the common case stays simple, and long chains don't allocate |
+| Sorting by key is `SortBy(key)` with `ThenBy` for ties, stable and in place, and `OrderBy` on iterators | multi-key sorts read as what they mean |
+| `ArrayView<T>` views part of an array without copying and keeps it alive; `ReadOnly(x)` gives read-only views; slices stay copies | APIs hand out their lists safely, and hot loops don't copy |
+| `Map<K, V>(default: v)` gives the default on `[]` reads without adding it, beside `Get(key, fallback)` and `GetOrAdd` | counters and adjacency lists are one line |
+| std.collections has spatial structures (SpatialHash, QuadTree, Octree), Trie, LinkedList, IntervalTree, and Immutable collections that share structure | games' queries, and snapshots that cross threads |
+| `s.Length` is the byte count, with `CharCount` and `GraphemeCount` beside; `Char` is a built-in 32-bit code point, which `'a'` makes | Length matches byte positions, and code points aren't confused with numbers |
+| std reads and writes UTF-8, UTF-16, UTF-32, ASCII, Latin-1, and Windows-1252, with BOM detection | old files, Blitz-era saves among them, keep their accents |
+| Templates are Mustache-style `{{ }}`, with HTML escaping on for .html | logic stays out of templates, and braces don't clash with code |
+| The compiler checks regex literals with PCRE2; a Regex type and String shortcuts (`s.Matches`, `s.ReplaceAll`) | a bad pattern is a compile error, and one-offs are one line |
+| std.text has diffs, fuzzy matching, Markdown, and Humanize | they're what people otherwise go looking for packages to get |
+| `Color` is four linear Float32s and `Color32` four sRGB bytes, converting with the right gamma | math in floats, pixels in bytes, and no gamma bugs |
+| Angles are radians everywhere, with `Deg(90)` and `ToDegrees` to convert | every formula and GPU uses radians |
+| The default random generator is seeded randomly each run until `SeedRandom(n)`; `Random(seed)` objects always repeat | players see new worlds, and tests and replays can still repeat |
+| std.math has fixed-point numbers, curves and splines, polygon geometry, and typed units | lockstep multiplayer, paths, level tools, and safer physics |
+| `Int` stays 32 bits on 64-bit targets; byte sizes stay Int64 | half the memory in arrays and structs, and 2 billion is plenty for counts |
+| Paths are a `Path` type, which a String converts to | paths don't mix with other text, and plain strings still read naturally |
+| Reading splits lines on `\n` and `\r\n`, and writing uses `\n` on every OS unless asked | a file is the same on every machine |
+| `Embed`, `EmbedText`, and `EmbedFolder` put files in the program at compile time | single-file tools and games carry their data |
+| std.io has Preferences, MappedFile, a virtual file system, atomic writes, and file locks | saves never come out half-written, and paks build on the VFS |
+| Durations are `2.Seconds` and `500.Milliseconds`, and the timing built-ins take one | no clash with the built-in `Seconds(n)` |
+| std.time has a type for each meaning: Timestamp, Date, TimeOfDay, LocalDateTime, ZonedDateTime | 9:00 in New York can't be confused with 9:00 UTC |
+| Command-line options are a Struct with attributes, filled by `Args.Parse<T>()`, over a builder | help and errors come free |
+| std.concurrent has Select over Channels, TaskSource, parallel algorithms, and `Lazy<T>` | the concurrency tools the built-ins leave out |
+| The default logger prints readable lines to stderr, and `FB_LOG` sets levels by module at run time | logging works before anyone sets it up |
+| Events are typed `Event<T>` Fields that hold handlers strongly; `Subscribe(owner, handler)` ties one to an owner held weakly; no global bus | wiring stays easy to follow, and forgotten listeners don't leak |
+| Serialization is automatic by compile-time reflection, every Field, Private ones too, with attributes to adjust (replacing spec 13's opt-in @Serialize sketch) | one line saves a game |
+| MessagePack is std's binary format, with `@Since` and `@Renamed` keeping old saves loading | standard binary, and saves survive a game's changes |
+| JSON integers stay exact as Longs | ids and big counts survive a round trip |
+| std.data reads `.proto` files at compile time, and `.env` files at run time | protobuf services and server configs without tools |
+| std.crypto has password hashing, authenticated encryption, signatures and key exchange, and BLAKE3 | secure saves, logins, and update signing without C |
+| std.compress has Tar, XZ, and 7z reading beside the common formats | releases, packages, and asset packs |
+| An HTTP server's handlers are Async code on its own loop, with `Workers = n` once they're Sendable-safe | no data races by default, and many connections share one thread |
+| Routes are Functions, or attributed Classes registered by reflection | small servers stay small, and big APIs stay organized |
+| std.net has reliable UDP for games, LAN discovery, and automatic HTTPS | multiplayer, local lobbies, and public servers out of the box |
+| std.db is SQLite with typed queries, transactions, and migrations; no query builder or server databases | SQL stays SQL, and every program has a database |
+| std.image has the common codecs, WebP, SVG, and animations, transforms, and drawing with TrueType text | tools and servers work with images, and the engine's 2D shares the code |
+| std.term has line widgets and full-screen apps | CLI tools look finished |
+| Navigation meshes, game AI, and procedural generation wait for the engine phase; Delaunay and Voronoi are std.algo's | they act on levels and entities, which come later |
+| M6 is one milestone of 32 steps | the user's call over splitting it |
 
 ## Engine, renderer, assets
 
