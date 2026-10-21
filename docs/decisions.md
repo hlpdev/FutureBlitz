@@ -624,6 +624,15 @@ Planned 2026-10-20 with the user; the design is in [stdlib.md](stdlib.md#m6s-des
 | Navigation meshes, game AI, and procedural generation wait for the engine phase; Delaunay and Voronoi are std.algo's | they act on levels and entities, which come later |
 | M6 is one milestone of 32 steps | the user's call over splitting it |
 
+| Before M6 step 1, CI (GitHub Actions) builds and tests on Windows, Linux, and macOS for each push (2026-10-21) | M6 adds most of the platform code, which only CI can check on Linux and macOS |
+| Coroutine scheduling is confirmed: games tick the main scheduler with `Flip()`, and other programs Await in top-level code while the runtime runs the scheduler until no work is left; coroutines stay on the thread they started on (2026-10-21) | FutureBlitz isn't only for games, so no program needs a frame loop, and Globals and @MainThread stay safe across an Await |
+| Reading data (`Json.Read<T>`, `Args.Parse<T>`, `db.Query<T>`) makes a T Field by Field: the data's value, else the Field's default, else its zero, else an error naming it; New isn't run, and `OnLoaded()` runs after | Structs and Classes load with no ceremony, as in Rust's serde and Go |
+| `CData` is a constraint the compiler decides, like Sendable, so a `Ptr<T>` can take a type parameter that has it (`Buffer<T: CData>`) | generic code can hand C memory of any C type, @CLayout Structs included |
+| `Task<T> Throws E` can be written as a type, parenthesized where a function's own Throws could be confused with it, and E can be a type parameter | WhenAll and other generic APIs pass a task's errors through |
+| `-`, `/`, and `%` are allowed in Const type arguments, and an instance whose size comes out below 1, or that divides by 0, is an error where it's made | typed units need exponents that subtract |
+| M6's steps are tracked in docs/milestones.md alone, not as GitHub issues | one tracker, nothing to keep in sync |
+| The name FutureBlitz is settled, with futureblitz.dev for the website, docs, and package registry (2026-10-21) | the domain is bought |
+
 ## Engine, renderer, assets
 
 | Decision | Why |

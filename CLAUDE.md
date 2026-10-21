@@ -27,7 +27,7 @@ exe)
 
 ## Current step
 M6 (the full standard library), planned 2026-10-20 and 2026-10-21 in 32 steps (docs/milestones.md;
-design in docs/stdlib.md). Step 1, the foundation, is next.
+design in docs/stdlib.md). Step 0, CI on Windows, Linux, and macOS, is next.
 docs/milestones.md's Deferred work lists everything left for later, and where it's planned.
 
 Done: M5 (modules, packages, `project.toml`, FFI, bindgen), planned 2026-10-18 and finished

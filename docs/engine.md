@@ -39,7 +39,7 @@ End While
 ```
 
 `Flip()` is the frame boundary. It also ticks the main coroutine scheduler
-(see [spec/10-concurrency.md](spec/10-concurrency.md#scheduling-proposed-recommended-not-explicitly-confirmed)).
+(see [spec/10-concurrency.md](spec/10-concurrency.md#scheduling)).
 
 ## Threading
 

@@ -104,11 +104,14 @@ End Function
 - The main thread runs the waiting Async Functions once top-level code ends, until none is left,
   and whenever it waits for a Task with `Wait()`. Their code never runs on another thread, so work
   on another thread can't call one.
-- Await goes only in the code of an Async Function, Method, or lambda, not in a lambda inside
-  it, and not in a Lock block, which would hold its Mutex while it waits.
+- Await goes only in the code of an Async Function, Method, or lambda, or in top-level code (M6
+  step 1), not in a lambda inside one, and not in a Lock block, which would hold its Mutex while
+  it waits.
 - An Async Function's errors go in its Task, so its call doesn't throw, but `Await t` and
   `t.Wait()` re-throw them, each time, and need Try, Try?, or a Try block, as a call that throws
-  does. The Task's type says so: `Task<Level> Throws FileError`.
+  does. The Task's type says so: `Task<Level> Throws FileError`, which can be written as a type,
+  in parentheses where a function's own Throws could be confused with it, and whose error type
+  can be a type parameter: `WhenAll<T, E>(tasks: (Task<T> Throws E)[])` (M6 step 18).
 - A Method can be Async, but not a ByRef Method, Destroy, or an Interface's Method yet. An
   Override of an Async Method is Async, and an Async Method overrides only an Async one.
 - `Async Function(x) => ...` is an Async lambda, whose call gives a Task, through a function
@@ -128,9 +131,12 @@ End Function
 DoorSequence(door)    // calling without Await starts it on the main scheduler
 ```
 
-### Scheduling (Proposed: recommended, not explicitly confirmed)
+### Scheduling
 
-The user owns the main loop, so the frame boundary is `Flip()`.
+Confirmed 2026-10-21. A game owns its main loop, so its frame boundary is `Flip()`. A program
+that isn't a game never needs a loop: its top-level code can Await (M6 step 1), and the runtime
+runs the main scheduler until no work is left, as Node and Python's asyncio do. Either way a
+coroutine stays on the thread it started on, and CPU-heavy work goes to Spawn and Parallel For.
 
 **Main scheduler, ticked by `Flip()`.** After presenting, `Flip()` resumes ready
 coroutines, so they run at the start of the next frame before update code. Nothing extra
