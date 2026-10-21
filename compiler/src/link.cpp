@@ -8,12 +8,16 @@
 #include <array>
 #include <cstddef>
 #include <cstdlib>
+#include <expected>
+#include <filesystem>
 #include <format>
 #include <optional>
 #include <random>
+#include <span>
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <utility>
 #include <vector>
 
 #ifdef _WIN32
@@ -29,10 +33,13 @@
 namespace fb {
 namespace {
 
+#ifdef _WIN32
+// Only Windows' C++ driver reads paths in a code page that isn't UTF-8.
 [[nodiscard]] bool is_ascii(const std::string_view text) {
     return std::ranges::all_of(text,
                                [](const char c) { return static_cast<unsigned char>(c) < 0x80; });
 }
+#endif
 
 /// Where the C++ driver can make temporary files. It reads TMP and TEMP in the ANSI code page,
 /// so on Windows, where a user's name can put the temporary folder outside it, that's the

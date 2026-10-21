@@ -8,11 +8,20 @@ FetchContent_Declare(
   GIT_SHALLOW TRUE
   SYSTEM
 )
-FetchContent_MakeAvailable(tomlplusplus)
+# fast_float reads floats, as std::from_chars does where the C++ library has it for floats; Apple's
+# libc++ doesn't yet.
+FetchContent_Declare(
+  fast_float
+  GIT_REPOSITORY https://github.com/fastfloat/fast_float.git
+  GIT_TAG v8.0.2
+  GIT_SHALLOW TRUE
+  SYSTEM
+)
+FetchContent_MakeAvailable(tomlplusplus fast_float)
 
 add_library(fb_compiler STATIC ${FB_COMPILER_SOURCES})
 target_include_directories(fb_compiler PUBLIC include ${CMAKE_CURRENT_BINARY_DIR}/generated)
-target_link_libraries(fb_compiler PUBLIC fb_llvm PRIVATE tomlplusplus::tomlplusplus)
+target_link_libraries(fb_compiler PUBLIC fb_llvm PRIVATE tomlplusplus::tomlplusplus FastFloat::fast_float)
 target_compile_definitions(fb_compiler PRIVATE TOML_EXCEPTIONS=0)
 fb_set_warnings(fb_compiler)
 

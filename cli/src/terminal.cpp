@@ -1,9 +1,12 @@
 #include "fb/terminal.hpp"
 
+#include <cstdio>
 #include <cstdlib>
 #include <span>
+#include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 #ifdef _WIN32
 #ifndef WIN32_LEAN_AND_MEAN

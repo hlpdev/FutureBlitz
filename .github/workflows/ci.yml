@@ -1,0 +1,90 @@
+# Builds fb and runs every test on Windows, Linux, and macOS, then the test programs built in
+# release mode and the concurrent ones many times over (tools/verify.py).
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows
+            os: windows-2025
+            shell: msys2 {0}
+          - name: Linux
+            os: ubuntu-24.04
+            shell: bash
+          - name: macOS
+            os: macos-15
+            shell: bash
+    defaults:
+      run:
+        shell: ${{ matrix.shell }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Windows: MinGW's GCC from MSYS2, as the CLion toolchain fb is developed with, and the
+      # official LLVM installer, whose LLVM-C.dll and libclang.dll fb uses.
+      - name: Install MinGW
+        if: runner.os == 'Windows'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: false
+          path-type: inherit
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-ninja
+
+      - name: Install LLVM (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $url = "https://github.com/llvm/llvm-project/releases/download/llvmorg-22.1.8/LLVM-22.1.8-win64.exe"
+          Invoke-WebRequest $url -OutFile llvm.exe
+          Start-Process -Wait -FilePath .\llvm.exe -ArgumentList '/S', '/D=C:\LLVM'
+          C:\LLVM\bin\clang.exe --version
+          "FB_CONFIGURE=-DFB_LLVM_ROOT=C:/LLVM" >> $env:GITHUB_ENV
+
+      # Linux: GCC 14 and LLVM 22 from apt.llvm.org.
+      - name: Install the toolchain (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build g++-14
+          wget -q https://apt.llvm.org/llvm.sh
+          sudo bash llvm.sh 22
+          sudo apt-get install -y llvm-22-dev libclang-22-dev lld-22 libpolly-22-dev
+          echo "CC=gcc-14" >> "$GITHUB_ENV"
+          echo "CXX=g++-14" >> "$GITHUB_ENV"
+          echo "FB_CONFIGURE=-DLLVM_DIR=/usr/lib/llvm-22/lib/cmake/llvm" >> "$GITHUB_ENV"
+
+      # macOS: Apple's Clang and Homebrew's LLVM 22.
+      - name: Install the toolchain (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install ninja llvm@22 lld@22 || brew install ninja llvm lld
+          prefix="$(brew --prefix llvm@22 2>/dev/null || brew --prefix llvm)"
+          echo "FB_CONFIGURE=-DLLVM_DIR=$prefix/lib/cmake/llvm" >> "$GITHUB_ENV"
+          "$prefix/bin/clang" --version
+
+      - name: Configure
+        run: cmake -G Ninja -B build -DCMAKE_BUILD_TYPE=Debug $FB_CONFIGURE
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Test
+        run: ctest --test-dir build -j 4 --output-on-failure
+
+      - name: Release builds and repeated concurrent programs
+        run: python tools/verify.py --build build --no-build --no-tests --no-format --no-tidy

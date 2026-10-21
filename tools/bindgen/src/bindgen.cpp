@@ -19,6 +19,8 @@
 #include <expected>
 #include <filesystem>
 #include <format>
+#include <functional>
+#include <iterator>
 #include <llvm-c/Core.h>
 #include <llvm-c/TargetMachine.h>
 #include <map>
@@ -1540,7 +1542,7 @@ private:
         if (by_value_struct(type) && c_abi_of(target()) == c_abi_t::OTHER) {
             skip(item,
                  std::format("{}, which passes a struct by value, which FutureBlitz does only on "
-                             "x86-64 yet",
+                             "x86-64 and AArch64 yet",
                              c_name),
                  true);
             return;

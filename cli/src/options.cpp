@@ -5,12 +5,14 @@
 #include <algorithm>
 #include <array>
 #include <cstddef>
+#include <expected>
 #include <format>
 #include <ranges>
 #include <span>
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 namespace fb {
 namespace {

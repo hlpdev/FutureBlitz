@@ -11,6 +11,8 @@
 #include <filesystem>
 #include <format>
 #include <fstream>
+#include <ios>
+#include <iterator>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -851,9 +853,16 @@ class packages_t {
 public:
     packages_t() : m_folder(fb::temporary_path("packages", "")) {
         std::filesystem::create_directories(m_folder);
+        // A package's files are named by their real paths, and a program's by the path it's given,
+        // which differ where the temporary folder is reached through a link, as macOS's /var is
+        // /private/var. The real one goes first, since it can hold the other.
         std::error_code ignored;
-        m_root = fb::to_utf8(std::filesystem::weakly_canonical(m_folder, ignored));
-        std::ranges::replace(m_root, '\\', '/');
+        for (const std::filesystem::path& root :
+             { std::filesystem::weakly_canonical(m_folder, ignored), m_folder }) {
+            std::string text = fb::to_utf8(root);
+            std::ranges::replace(text, '\\', '/');
+            m_roots.push_back(std::move(text));
+        }
     }
 
     void remove() const {
@@ -877,9 +886,11 @@ public:
         for (const std::string& error : errors_of(compilation)) {
             std::string shown = error;
             std::ranges::replace(shown, '\\', '/');
-            for (std::size_t at = shown.find(m_root); at != std::string::npos;
-                 at = shown.find(m_root)) {
-                shown.replace(at, m_root.size() + 1, "");
+            for (const std::string& root : m_roots) {
+                for (std::size_t at = shown.find(root); at != std::string::npos;
+                     at = shown.find(root)) {
+                    shown.replace(at, root.size() + 1, "");
+                }
             }
 
             messages.push_back(shown);
@@ -890,7 +901,7 @@ public:
 
 private:
     std::filesystem::path m_folder;
-    std::string m_root;
+    std::vector<std::string> m_roots;
 };
 
 /// Makes `link` a link to the folder `target`: a symlink, or where making one needs privileges,

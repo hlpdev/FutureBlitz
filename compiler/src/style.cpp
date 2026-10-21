@@ -1,6 +1,8 @@
 #include "fb/style.hpp"
 
 #include <format>
+#include <string>
+#include <string_view>
 #include <utility>
 
 namespace fb {

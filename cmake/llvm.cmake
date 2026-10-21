@@ -62,7 +62,7 @@ if(WIN32)
   endforeach()
 
   # The release headers include files that LLVM's own build generates. These stand in for them,
-  # with only the native target.
+  # with the native target, and the targets FutureBlitz has: x86-64 and AArch64.
   if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(AMD64|x86_64)$")
     set(fb_llvm_native X86)
   elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "^(ARM64|aarch64|arm64)$")
@@ -81,8 +81,9 @@ if(WIN32)
     "#define LLVM_NATIVE_ASMPRINTER LLVMInitialize${fb_llvm_native}AsmPrinter\n"
     "#define LLVM_NATIVE_ASMPARSER LLVMInitialize${fb_llvm_native}AsmParser\n"
     "#define LLVM_NATIVE_DISASSEMBLER LLVMInitialize${fb_llvm_native}Disassembler\n")
-  file(WRITE "${fb_llvm_config}/Targets.def" "LLVM_TARGET(${fb_llvm_native})\n")
-  file(WRITE "${fb_llvm_config}/AsmPrinters.def" "LLVM_ASM_PRINTER(${fb_llvm_native})\n")
+  file(WRITE "${fb_llvm_config}/Targets.def" "LLVM_TARGET(X86)\nLLVM_TARGET(AArch64)\n")
+  file(WRITE "${fb_llvm_config}/AsmPrinters.def"
+    "LLVM_ASM_PRINTER(X86)\nLLVM_ASM_PRINTER(AArch64)\n")
   file(WRITE "${fb_llvm_config}/AsmParsers.def" "LLVM_ASM_PARSER(${fb_llvm_native})\n")
   file(WRITE "${fb_llvm_config}/Disassemblers.def" "LLVM_DISASSEMBLER(${fb_llvm_native})\n")
 
@@ -99,7 +100,7 @@ else()
   if(TARGET LLVM)
     target_link_libraries(fb_llvm INTERFACE LLVM)
   else()
-    llvm_map_components_to_libnames(fb_llvm_libraries core analysis passes target native)
+    llvm_map_components_to_libnames(fb_llvm_libraries core analysis passes target X86 AArch64)
     target_link_libraries(fb_llvm INTERFACE ${fb_llvm_libraries})
   endif()
 

@@ -3,9 +3,17 @@
 #include <array>
 #include <bit>
 #include <cmath>
+#include <compare>
+#include <cstddef>
+#include <cstdint>
+#include <expected>
 #include <format>
 #include <limits>
+#include <optional>
+#include <string>
+#include <string_view>
 #include <utility>
+#include <variant>
 
 // Compile-time evaluation for sema. Overflow, division by zero, and out-of-range casts are compile
 // errors here, in debug and release builds alike (docs/spec/13-compile-time.md).

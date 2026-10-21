@@ -13,16 +13,23 @@
 #include <array>
 #include <cctype>
 #include <cstddef>
+#include <expected>
+#include <filesystem>
 #include <format>
 #include <fstream>
 #include <functional>
+#include <ios>
 #include <iterator>
 #include <map>
 #include <optional>
 #include <random>
 #include <ranges>
+#include <string>
+#include <string_view>
 #include <system_error>
 #include <utility>
+#include <variant>
+#include <vector>
 
 namespace fb {
 namespace {
@@ -1731,8 +1738,14 @@ std::optional<diagnostic_t> link_error(const compilation_t& compilation,
         return undefined_symbol(compilation, symbol);
     }
 
-    constexpr std::string_view library = "unable to find library -l";
-    if (const std::size_t at = line.find(library); at != std::string_view::npos) {
+    // ld.lld and lld-link say one thing, and ld64.lld another.
+    for (const std::string_view library :
+         { "unable to find library -l", "library not found for -l" }) {
+        const std::size_t at = line.find(library);
+        if (at == std::string_view::npos) {
+            continue;
+        }
+
         const std::string_view name = line.substr(at + library.size());
         const auto found = std::ranges::find(compilation.natives.system, name);
         if (found != compilation.natives.system.end()) {

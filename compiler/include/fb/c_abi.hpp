@@ -42,7 +42,10 @@ enum class c_abi_t : std::uint8_t {
     WIN64,
     /// x86-64 everywhere else: Linux, macOS, and the BSDs.
     SYSV,
-    /// One whose Structs aren't supported yet, like AArch64's.
+    /// AArch64's procedure call standard: Linux's, Windows', and Apple's, which differ only in
+    /// what LLVM handles itself, like how arguments pack on the stack.
+    AAPCS64,
+    /// One whose Structs aren't supported yet.
     OTHER,
 };
 
@@ -82,6 +85,9 @@ struct c_passing_t {
     c_pass_t pass = c_pass_t::DIRECT;
     /// For DIRECT, in order.
     std::vector<c_piece_t> pieces;
+    /// For DIRECT on AArch64: the pieces, all alike, go as one array, which the ABI keeps in
+    /// consecutive registers, or on the stack whole when too few are left, as clang has it.
+    bool together = false;
 
     bool operator==(const c_passing_t&) const = default;
 };
@@ -93,8 +99,8 @@ struct c_registers_t {
 };
 
 /// How a Struct of `layout` goes, by the ABI `abi`: as an argument, taking the registers its
-/// pieces need from `registers`, or as a call's result when `result`. Every Struct goes in
-/// memory when the ABI is OTHER.
+/// pieces need from `registers` (SysV's; LLVM counts AArch64's), or as a call's result when
+/// `result`. Every Struct goes in memory when the ABI is OTHER.
 [[nodiscard]] c_passing_t classify(const c_layout_t& layout, c_abi_t abi, bool result,
                                    c_registers_t& registers);
 

@@ -6,9 +6,13 @@
 #include <bit>
 #include <cstddef>
 #include <cstdint>
+#include <expected>
 #include <format>
+#include <optional>
+#include <string>
 #include <utility>
 #include <variant>
+#include <vector>
 
 namespace fb {
 namespace {

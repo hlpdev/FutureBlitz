@@ -1,8 +1,13 @@
 #include "fb/c_abi.hpp"
 
 #include <algorithm>
+#include <cstddef>
+#include <cstdint>
 #include <iterator>
+#include <optional>
 #include <string_view>
+#include <utility>
+#include <vector>
 
 namespace fb {
 namespace {
@@ -14,6 +19,53 @@ namespace {
 /// A scalar's layout: one field of `size` bytes, aligned to its size.
 [[nodiscard]] c_layout_t scalar(const std::uint64_t size, const c_scalar_t kind) {
     return { .size = size, .align = size, .fields = { { .size = size, .kind = kind } } };
+}
+
+/// AArch64's homogeneous floating-point aggregate: one to four floats, or one to four doubles,
+/// and nothing else, which go in that many vector registers. The part, and how many.
+[[nodiscard]] std::optional<std::pair<c_part_t, std::size_t>>
+homogeneous_floats(const c_layout_t& layout) {
+    const std::size_t count = layout.fields.size();
+    if (count == 0 || count > 4) {
+        return std::nullopt;
+    }
+
+    const c_scalar_t kind = layout.fields.front().kind;
+    const bool alike = std::ranges::all_of(
+        layout.fields, [&](const c_field_t& field) { return field.kind == kind; });
+    const std::uint64_t size = kind == c_scalar_t::DOUBLE ? 8 : 4;
+    if (kind == c_scalar_t::INTEGER || !alike || layout.size != count * size) {
+        return std::nullopt;
+    }
+
+    return std::pair{ kind == c_scalar_t::DOUBLE ? c_part_t::DOUBLE : c_part_t::FLOAT, count };
+}
+
+/// How AArch64 passes a Struct, as clang does: a homogeneous floating-point aggregate as an
+/// array of its floats or doubles; any other of 16 bytes or less as an i64, or two together
+/// (a result of 8 bytes or less as an integer its size); and anything bigger through a pointer
+/// to a copy the caller makes, or for a result, memory the caller passes.
+[[nodiscard]] c_passing_t aapcs64(const c_layout_t& layout, const bool result) {
+    if (const auto floats = homogeneous_floats(layout)) {
+        const auto& [part, count] = *floats;
+        return { .pieces = std::vector<c_piece_t>(count, { .part = part }), .together = true };
+    }
+
+    if (layout.size > 16) {
+        return { .pass = result ? c_pass_t::MEMORY : c_pass_t::INDIRECT };
+    }
+
+    if (layout.size <= 8) {
+        return { .pieces = { { .part = c_part_t::INTEGER, .size = result ? layout.size : 8 } } };
+    }
+
+    return {
+        .pieces = {
+            { .part = c_part_t::INTEGER, .size = 8 },
+            { .part = c_part_t::INTEGER, .size = 8 },
+        },
+        .together = true,
+    };
 }
 
 /// The piece an SSE eightbyte goes in: a double, a float, or two floats.
@@ -67,8 +119,9 @@ c_layout_t c_layout(const type_table_t& types, const type_id_t type) {
         // Past what a std::uint64_t counts, it's as big as one: more than any machine has.
         const bool huge = element.size != 0 && count > UINT64_MAX / element.size;
         layout.size = huge ? UINT64_MAX : element.size * count;
-        // Only a value of 16 bytes or less goes in registers, so only its fields matter.
-        if (layout.size <= 16) {
+        // Only a value of 32 bytes or less goes in registers, AArch64's four doubles at most, so
+        // only its fields matter.
+        if (layout.size <= 32) {
             for (std::uint64_t i = 0; i < count && !element.fields.empty(); ++i) {
                 for (c_field_t field : element.fields) {
                     field.offset += i * element.size;
@@ -107,6 +160,10 @@ c_layout_t c_layout(const type_table_t& types, const type_id_t type) {
 }
 
 c_abi_t c_abi_of(const std::string_view triple) {
+    if (triple.starts_with("aarch64") || triple.starts_with("arm64")) {
+        return c_abi_t::AAPCS64;
+    }
+
     if (!triple.starts_with("x86_64") && !triple.starts_with("amd64")) {
         return c_abi_t::OTHER;
     }
@@ -128,6 +185,10 @@ c_passing_t classify(const c_layout_t& layout, const c_abi_t abi, const bool res
         }
 
         return { .pass = result ? c_pass_t::MEMORY : c_pass_t::INDIRECT };
+    }
+
+    if (abi == c_abi_t::AAPCS64 && layout.size > 0) {
+        return aapcs64(layout, result);
     }
 
     if (abi == c_abi_t::OTHER || layout.size == 0 || layout.size > 16) {

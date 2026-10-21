@@ -1,15 +1,20 @@
 #include "fb/lower.hpp"
 
 #include <algorithm>
+#include <array>
+#include <bit>
 #include <cassert>
 #include <cctype>
 #include <cstddef>
 #include <cstdint>
 #include <format>
+#include <iterator>
 #include <map>
+#include <memory>
 #include <optional>
 #include <ranges>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>

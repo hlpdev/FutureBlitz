@@ -4,11 +4,13 @@ From-scratch Blitz3D successor: language (.fb), compiler, tooling, then engine.
 Source of truth: docs/spec/
 
 ## How we work
-- I type all C++ and other real code myself. Write it in chat; I'll rewrite it.
-  Keep snippets focused on the current step.
+- Since M6, you write the code, std's .fb files included, directly in the repo, one step at a
+  time, in my code style. Verify each step before calling it done: ctest, release outputs,
+  clang-format, and clang-tidy. Every high or medium bug a check or review finds is fixed, with a
+  test, before the step closes.
+- Commit each verified step as me (a short lowercase message, no Claude attribution) and push.
+- Do the work yourself; ask before starting review agents or separate sessions.
 - You write the tests (tests/) directly, in my code style.
-- You may do project setup yourself: CMake, tool configs, dependencies, stub files, and docs
-  when I ask.
 - When I ask for a review, read my files and point out problems. Fix minor issues yourself
   (formatting, naming, comments, small portability fixes); leave real changes to me.
 - Keep explanations short.
@@ -27,8 +29,28 @@ exe)
 
 ## Current step
 M6 (the full standard library), planned 2026-10-20 and 2026-10-21 in 32 steps (docs/milestones.md;
-design in docs/stdlib.md). Step 0, CI on Windows, Linux, and macOS, is next.
+design in docs/stdlib.md). Step 1, the foundation, is next.
 docs/milestones.md's Deferred work lists everything left for later, and where it's planned.
+
+Done in M6: step 0, CI: .github/workflows/ci.yml builds Debug and runs ctest on windows-2025
+(MSYS2's MinGW GCC, the LLVM installer in C:\LLVM), ubuntu-24.04 (g++-14, apt.llvm.org's LLVM 22),
+and macos-15 on arm64 (AppleClang, Homebrew's llvm@22), then tools/verify.py's program checks;
+tools/verify.py is the local check too (build, ctest, release outputs but RELEASE_DIFFERS,
+concurrent programs ten times each way, clang-format and clang-tidy on what changed since
+`--base`). .gitattributes checks text out with LF; fast_float reads floats (Apple's libc++ has no
+float from_chars); every file includes what it uses (misc-include-cleaner); is_ascii() is
+Windows-only. The AArch64 C ABI: `c_abi_t::AAPCS64` (aarch64 and arm64 triples), aapcs64() and
+homogeneous_floats() (an HFA as `c_passing_t::together` pieces, one [N x float] or [N x double];
+others of 16 bytes or less as i64 or [2 x i64], a result of 8 or less as an integer its size;
+bigger ones INDIRECT or MEMORY), c_layout() listing a fixed array's fields up to 32 bytes, and
+codegen's pieces_types() and entry_alloca() of at least 16 bytes; codegen registers X86 and
+AArch64 (cmake/llvm.cmake's stand-in Targets.def too), so either's IR is made and tested on any
+machine; c_extension() leaves a Bool alone on AArch64 outside Apple's targets, as clang does,
+thunks too. driver_tests' packages_t takes off both spellings of its folder (macOS's /var is
+/private/var); link_error() reads ld64.lld's "library not found for -l"; native_calls calls sqrt
+(exact everywhere) where it called cbrt; bindgen's foreign target is riscv64, and the intrinsics
+test reads the host's header. Two tests are Windows-only by nature: the ANSI code page one and
+Windows thread handles.
 
 Done: M5 (modules, packages, `project.toml`, FFI, bindgen), planned 2026-10-18 and finished
 2026-10-20, in 11 steps, then a review of each project (compiler, runtime, cli, std).

@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <array>
+#include <optional>
+#include <string_view>
 #include <utility>
 
 namespace fb {

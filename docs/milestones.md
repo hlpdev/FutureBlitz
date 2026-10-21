@@ -148,10 +148,9 @@ module of its own are M6; M4's built-ins stay built in. Separate compilation or 
 modules stays an open question, and so do C varargs functions like printf, unions, bit fields, C
 globals, `long double`, macros other than number constants, typed opaque handles, C++ headers,
 `@MainThread` callbacks, and building FutureBlitz code as a C library. Callbacks that capture
-stay out, as spec 12 says. CI on Linux and macOS (M0) can't be checked from this machine, so the
-SysV struct ABI is only unit- and IR-tested, and by-value structs on AArch64 wait. The
-self-contained toolchain stays open for M7: M5 still links through the C++ compiler that built
-the runtime.
+stay out, as spec 12 says. CI on Linux and macOS (M0) waited for M6 step 0, which ran the SysV
+struct ABI's C calls on Linux and added AArch64's for macOS. The self-contained toolchain stays
+open for M7: M5 still links through the C++ compiler that built the runtime.
 
 ## M6 build order
 
@@ -245,7 +244,7 @@ adds what it leaves out. Checked against all of docs/spec/ on 2026-10-17.
 | An attribute from a module imported only with As, like `@C.Rename("hp")`, which doesn't parse; an attribute is found by its name alone, through an Import without As or a From line | M5 step 2 | M6 step 1 |
 | A generic type's own Operator used on a Class extending one of its instances, like Box<T>'s `<` on `Class Nums Extends Box<Int>`, whose type arguments aren't inferred through the base, so "no Operator < takes (Nums, Nums)"; what an Extend of the instance adds works | M5 step 3 | open question |
 | A `Ptr<T>` whose T is a type parameter, which a Where line would have to keep to C data | M5 step 7 | M6 step 12 (`CData`) |
-| By-value Structs to and from C on AArch64 and other targets that aren't x86-64, which wait until macOS can be checked; until then fb-bindgen skips functions that pass one there, and the packages that do (native_calls, bound, panic_enum_*) and bound's bindings test hold only on x86-64 | M5 step 8 | open question |
+| By-value Structs to and from C on 64-bit targets that aren't x86-64 or AArch64, like RISC-V, where fb-bindgen skips functions that pass one | M5 step 8 | open question |
 | A Callback that takes or gives a Struct by value, whose thunk would need the C ABI's lowering in reverse | M5 step 9 | open question |
 | The math types, `Vec2` through `Color` | | M6 step 9 |
 | A fix-it for a miscased keyword, like `if` for `If`, and `///` doc comments | M1 | M7 |

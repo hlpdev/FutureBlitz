@@ -10,12 +10,16 @@
 #include <array>
 #include <bit>
 #include <cstddef>
+#include <cstdint>
+#include <expected>
 #include <filesystem>
 #include <format>
 #include <functional>
 #include <initializer_list>
+#include <iterator>
 #include <limits>
 #include <map>
+#include <memory>
 #include <optional>
 #include <ranges>
 #include <set>
@@ -2048,7 +2052,8 @@ private:
         } else if (by_value && is_struct(type) &&
                    c_abi_of(build_config::target_triple) == c_abi_t::OTHER) {
             error(span,
-                  "a Struct goes to and from C by value only on x86-64 yet; pass a Ptr to it");
+                  "a Struct goes to and from C by value only on x86-64 and AArch64 yet; pass a "
+                  "Ptr to it");
         }
     }
 

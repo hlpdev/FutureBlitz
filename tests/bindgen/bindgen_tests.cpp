@@ -7,11 +7,13 @@
 
 #include <catch2/catch_test_macros.hpp>
 #include <chrono>
+#include <cstddef>
 #include <expected>
 #include <filesystem>
 #include <format>
 #include <fstream>
 #include <functional>
+#include <ios>
 #include <iterator>
 #include <string>
 #include <string_view>
@@ -820,8 +822,13 @@ TEST_CASE("declarations a macro makes are the header's", "[bindgen]") {
 }
 
 TEST_CASE("a header reads clang's own headers, like the intrinsics", "[bindgen]") {
-    // GCC's own intrinsics aren't clang's, so clang reads its own in their place.
-    CHECK(module_of("#include <immintrin.h>\n"
+    // GCC's own intrinsics aren't clang's, so clang reads its own in their place. Each
+    // architecture has its own.
+    CHECK(module_of("#if defined(__x86_64__)\n"
+                    "#include <immintrin.h>\n"
+                    "#else\n"
+                    "#include <arm_neon.h>\n"
+                    "#endif\n"
                     "int simd_thing(int x);\n") == "Public Extern \"C\"\n"
                                                    "    Function simd_thing(x: Int32): Int32\n"
                                                    "End Extern\n");
@@ -829,14 +836,15 @@ TEST_CASE("a header reads clang's own headers, like the intrinsics", "[bindgen]"
 
 TEST_CASE("another target has clang's own headers, and its C library comes through -I",
           "[bindgen]") {
+    // RISC-V is another target on every machine that builds fb.
     CHECK(module_of("#include <stdint.h>\n"
                     "#include <stdbool.h>\n"
                     "int64_t f(int32_t a, bool b);\n",
-                    "x86_64-unknown-linux-gnu") == "Public Extern \"C\"\n"
-                                                   "    Function f(a: Int32, b: Bool): Int64\n"
-                                                   "End Extern\n");
+                    "riscv64-unknown-linux-gnu") == "Public Extern \"C\"\n"
+                                                    "    Function f(a: Int32, b: Bool): Int64\n"
+                                                    "End Extern\n");
     const std::expected<fb::bindings_t, std::string> without =
-        generate("#include <stdio.h>\n", "x86_64-unknown-linux-gnu");
+        generate("#include <stdio.h>\n", "riscv64-unknown-linux-gnu");
     REQUIRE(!without);
     CHECK(without.error().ends_with("test.h:1:10: 'stdio.h' file not found"));
 }
@@ -885,20 +893,30 @@ TEST_CASE("fb-bindgen breaks long Fields and one-parameter Functions too", "[bin
 }
 
 TEST_CASE("a target whose C ABI FutureBlitz hasn't gets no Struct by value", "[bindgen]") {
-    CHECK(module_of("struct point { int x, y; };\n"
-                    "struct point add(struct point a, struct point b);\n"
-                    "int area(const struct point* p);\n",
-                    "aarch64-unknown-linux-gnu") ==
-          "@CLayout Public Struct point\n"
-          "    Public Field x: Int32\n"
-          "    Public Field y: Int32\n"
-          "End Struct\n"
-          "\n"
-          "Public Extern \"C\"\n"
-          "    // skipped: add, which passes a struct by value, which FutureBlitz does only on "
-          "x86-64 yet\n"
-          "    Function area(p: Ptr<point>): Int32\n"
-          "End Extern\n");
+    const std::string_view header = "struct point { int x, y; };\n"
+                                    "struct point add(struct point a, struct point b);\n"
+                                    "int area(const struct point* p);\n";
+    const std::string_view point = "@CLayout Public Struct point\n"
+                                   "    Public Field x: Int32\n"
+                                   "    Public Field y: Int32\n"
+                                   "End Struct\n"
+                                   "\n";
+    // The module compiles for this machine, so only a target it can pass Structs to C for is
+    // checked as a whole.
+    const std::string riscv =
+        generate(header, "riscv64-unknown-linux-gnu").value_or(fb::bindings_t{}).text;
+    CHECK(riscv.ends_with(std::string(point) +
+                          "Public Extern \"C\"\n"
+                          "    // skipped: add, which passes a struct by value, which FutureBlitz "
+                          "does only on x86-64 and\n"
+                          "    // AArch64 yet\n"
+                          "    Function area(p: Ptr<point>): Int32\n"
+                          "End Extern\n"));
+    CHECK(module_of(header, "aarch64-unknown-linux-gnu") ==
+          std::string(point) + "Public Extern \"C\"\n"
+                               "    Function add(a: point, b: point): point\n"
+                               "    Function area(p: Ptr<point>): Int32\n"
+                               "End Extern\n");
 }
 
 TEST_CASE("a macro is a Const only where C reads its body as one number", "[bindgen]") {

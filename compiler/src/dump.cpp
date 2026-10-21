@@ -6,6 +6,8 @@
 #include <cstdint>
 #include <format>
 #include <optional>
+#include <span>
+#include <string>
 #include <utility>
 #include <variant>
 #include <vector>

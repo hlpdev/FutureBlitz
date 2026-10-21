@@ -3,8 +3,11 @@
 #include <algorithm>
 #include <array>
 #include <cstddef>
+#include <cstdint>
+#include <filesystem>
 #include <iterator>
 #include <string>
+#include <string_view>
 
 namespace fb {
 namespace {

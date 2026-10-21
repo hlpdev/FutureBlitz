@@ -8,6 +8,8 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <expected>
+#include <filesystem>
 #include <format>
 #include <llvm-c/Analysis.h>
 #include <llvm-c/Core.h>
@@ -19,6 +21,7 @@
 #include <mutex>
 #include <optional>
 #include <span>
+#include <string>
 #include <string_view>
 #include <unordered_map>
 #include <utility>
@@ -358,11 +361,18 @@ private:
 
     /// Sets up the target machine, and gives the module its triple and data layout.
     std::expected<void, std::string> create_machine() {
-        // LLVM's targets are registered once per process.
+        // LLVM's targets are registered once per process: both of FutureBlitz's, so either's code
+        // can be made on either.
         static std::once_flag initialized;
         std::call_once(initialized, [] {
-            LLVMInitializeNativeTarget();
-            LLVMInitializeNativeAsmPrinter();
+            LLVMInitializeX86TargetInfo();
+            LLVMInitializeX86Target();
+            LLVMInitializeX86TargetMC();
+            LLVMInitializeX86AsmPrinter();
+            LLVMInitializeAArch64TargetInfo();
+            LLVMInitializeAArch64Target();
+            LLVMInitializeAArch64TargetMC();
+            LLVMInitializeAArch64AsmPrinter();
         });
 
         LLVMTargetRef target = nullptr;
@@ -1055,7 +1065,8 @@ private:
     c_struct_abi_t struct_abi(const type_id_t type, const bool result, c_registers_t& registers) {
         if (c_abi_of(m_triple) == c_abi_t::OTHER) {
             m_unsupported = std::format(
-                "a Struct goes to and from C by value only on x86-64 yet, not on {}", m_triple);
+                "a Struct goes to and from C by value only on x86-64 and AArch64 yet, not on {}",
+                m_triple);
         }
 
         c_struct_abi_t abi{
@@ -1083,6 +1094,22 @@ private:
         }
 
         std::unreachable();
+    }
+
+    /// The LLVM types a Struct's pieces go as: each its own, or one array of them all, which
+    /// AArch64 keeps in consecutive registers.
+    [[nodiscard]] std::vector<LLVMTypeRef> pieces_types(const c_passing_t& passing) const {
+        if (passing.together) {
+            return { LLVMArrayType2(piece_type(passing.pieces.front()), passing.pieces.size()) };
+        }
+
+        std::vector<LLVMTypeRef> types;
+        types.reserve(passing.pieces.size());
+        for (const c_piece_t& piece : passing.pieces) {
+            types.push_back(piece_type(piece));
+        }
+
+        return types;
     }
 
     /// An attribute like "sret" or "byval" that holds a type, or "align" with a number.
@@ -1115,11 +1142,7 @@ private:
                 registers.integers = registers.integers > 0 ? registers.integers - 1 : 0;
                 result = m_void;
             } else {
-                std::vector<LLVMTypeRef> pieces;
-                for (const c_piece_t& piece : signature.result->passing.pieces) {
-                    pieces.push_back(piece_type(piece));
-                }
-
+                std::vector<LLVMTypeRef> pieces = pieces_types(signature.result->passing);
                 result = pieces.size() == 1
                              ? pieces.front()
                              : LLVMStructTypeInContext(context(), pieces.data(),
@@ -1141,9 +1164,7 @@ private:
 
             const c_struct_abi_t abi = struct_abi(parameter.type, false, registers);
             if (abi.passing.pass == c_pass_t::DIRECT) {
-                for (const c_piece_t& piece : abi.passing.pieces) {
-                    parameters.push_back(piece_type(piece));
-                }
+                std::ranges::copy(pieces_types(abi.passing), std::back_inserter(parameters));
             } else {
                 parameters.push_back(m_ptr);
             }
@@ -1177,7 +1198,7 @@ private:
 
                 ++index;
             } else if (abi->passing.pass == c_pass_t::DIRECT) {
-                index += static_cast<unsigned>(abi->passing.pieces.size());
+                index += static_cast<unsigned>(pieces_types(abi->passing).size());
             } else {
                 // A SysV argument in memory takes eightbytes of the stack, as clang has it.
                 if (abi->passing.pass == c_pass_t::MEMORY) {
@@ -1194,11 +1215,16 @@ private:
         return { .type = type, .value = value };
     }
 
-    /// Memory for a value of `type` in the entry block, aligned for the C ABI's 8-byte pieces.
-    LLVMValueRef entry_alloca(LLVMTypeRef type) {
+    /// Memory for a Struct of `type` in the entry block, aligned for the C ABI's 8-byte pieces, and
+    /// at least 16 bytes, since AArch64 reads a Struct of 12 bytes as two i64s, and one of 4 as an
+    /// i64.
+    LLVMValueRef entry_alloca(const type_id_t type) {
+        const std::uint64_t size = std::max<std::uint64_t>(c_layout(*m_mir.types, type).size, 16);
         LLVMBasicBlockRef current = LLVMGetInsertBlock(builder());
         LLVMPositionBuilderAtEnd(builder(), m_entry); // it has no terminator until the end
-        LLVMValueRef slot = LLVMBuildAlloca(builder(), type, "c_struct");
+        LLVMValueRef slot = LLVMBuildAlloca(
+            builder(), LLVMArrayType2(LLVMInt8TypeInContext(context()), (size + 7) / 8 * 8),
+            "c_struct");
         LLVMSetAlignment(slot, 16);
         LLVMPositionBuilderAtEnd(builder(), current);
         return slot;
@@ -1211,7 +1237,7 @@ private:
         LLVMValueRef result_memory = nullptr;
         const type_id_t result_type = m_mir.functions[index(node.function)].return_type;
         if (signature.result && signature.result->passing.pass == c_pass_t::MEMORY) {
-            result_memory = entry_alloca(llvm_type(result_type));
+            result_memory = entry_alloca(result_type);
             arguments.push_back(result_memory);
         }
 
@@ -1230,7 +1256,7 @@ private:
             }
 
             const type_id_t type = type_of(argument.value);
-            LLVMValueRef copy = entry_alloca(llvm_type(type));
+            LLVMValueRef copy = entry_alloca(type);
             LLVMBuildStore(builder(), value_of(argument.value), copy);
             if (abi->passing.pass != c_pass_t::DIRECT) {
                 if (abi->passing.pass == c_pass_t::MEMORY) {
@@ -1238,6 +1264,13 @@ private:
                 }
 
                 arguments.push_back(copy);
+                continue;
+            }
+
+            // Pieces that go together are one array, the Struct's bytes from its start.
+            if (abi->passing.together) {
+                arguments.push_back(
+                    LLVMBuildLoad2(builder(), pieces_types(abi->passing).front(), copy, ""));
                 continue;
             }
 
@@ -1268,9 +1301,14 @@ private:
             return made;
         }
 
-        // The pieces go back into the Struct's bytes.
-        LLVMValueRef back = entry_alloca(llvm_type(result_type));
+        // The pieces go back into the Struct's bytes, an array of them at its start.
+        LLVMValueRef back = entry_alloca(result_type);
         const std::vector<c_piece_t>& pieces = signature.result->passing.pieces;
+        if (signature.result->passing.together) {
+            LLVMBuildStore(builder(), made, back);
+            return LLVMBuildLoad2(builder(), llvm_type(result_type), back, "");
+        }
+
         for (std::size_t k = 0; k < pieces.size(); ++k) {
             LLVMValueRef piece =
                 pieces.size() == 1
@@ -1287,9 +1325,9 @@ private:
 
     /// C passes a Bool extended to a register with zeros, and on x86-64 outside Windows and on
     /// Apple's targets, an integer narrower than 32 bits too, with zeros for an unsigned one and
-    /// its sign for a signed one; Windows and other AArch64 targets leave those as they are, as
-    /// clang does. `index` is 0 for the result,
-    /// and from 1 for the parameters.
+    /// its sign for a signed one; Windows leaves those as they are, and AArch64 outside Apple's
+    /// targets a Bool too, as clang does. `index` is 0 for the result, and from 1 for the
+    /// parameters.
     void extend_for_c(LLVMValueRef function, const unsigned index, const type_id_t type) {
         if (const std::string_view name = c_extension(type); !name.empty()) {
             const unsigned kind = LLVMGetEnumAttributeKindForName(name.data(), name.size());
@@ -1308,14 +1346,18 @@ private:
     /// "zeroext" or "signext" for a value C passes extended, or empty for one it doesn't.
     [[nodiscard]] std::string_view c_extension(const type_id_t type) const {
         const type_id_t integer = is_enum(type) ? m_mir.types->get(type).inner : type;
-        const bool small_extended = !m_triple.contains("windows") &&
-                                    (m_triple.starts_with("x86_64") || m_triple.contains("apple"));
-        if (integer != type_id_t::BOOL &&
-            (!small_extended || !is_integer(integer) || bit_width(integer) >= 32)) {
+        const bool apple = m_triple.contains("apple");
+        if (integer == type_id_t::BOOL) {
+            return c_abi_of(m_triple) == c_abi_t::AAPCS64 && !apple ? "" : "zeroext";
+        }
+
+        const bool small_extended =
+            !m_triple.contains("windows") && (m_triple.starts_with("x86_64") || apple);
+        if (!small_extended || !is_integer(integer) || bit_width(integer) >= 32) {
             return {};
         }
 
-        return integer != type_id_t::BOOL && is_signed(integer) ? "signext" : "zeroext";
+        return is_signed(integer) ? "signext" : "zeroext";
     }
 
     /// A Callback's LLVM function type: C's for its parameters and result.

@@ -58,9 +58,12 @@ End Struct
   caller makes, or for a result, memory the caller passes. On x86-64 elsewhere (System V), one
   over 16 bytes goes in memory; a smaller one goes in up to two registers, each eightbyte in an
   integer register when anything in it is an integer, or else in an SSE one, and in memory when
-  the registers that are left don't take it. Other targets, like AArch64, don't take Structs by
-  value yet, and neither does any target take one of 4 GiB or more; a `Ptr` to one works
-  everywhere.
+  the registers that are left don't take it. On AArch64 (Linux, Windows, and macOS), one of one
+  to four `Float`s, or one to four `Double`s, and nothing else goes in that many floating-point
+  registers; any other of 16 bytes or less goes in one or two integer registers; and a bigger one
+  goes as a pointer to a copy the caller makes, or for a result, memory the caller passes. Other
+  targets don't take Structs by value yet, and neither does any target take one of 4 GiB or more;
+  a `Ptr` to one works everywhere.
 
 ## Type mapping
 

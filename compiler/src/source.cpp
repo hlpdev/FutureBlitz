@@ -4,10 +4,18 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cstddef>
+#include <cstdint>
+#include <expected>
+#include <filesystem>
 #include <format>
 #include <fstream>
+#include <ios>
 #include <iterator>
 #include <limits>
+#include <memory>
+#include <string>
+#include <string_view>
 #include <system_error>
 #include <utility>
 

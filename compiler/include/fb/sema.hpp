@@ -6,6 +6,7 @@
 #include "fb/source.hpp"
 #include "fb/types.hpp"
 
+#include <cstddef>
 #include <cstdint>
 #include <deque>
 #include <optional>

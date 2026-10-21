@@ -4,6 +4,8 @@
 #include "fb/mir.hpp"
 #include "fb/sema.hpp"
 
+#include <vector>
+
 namespace fb {
 
 /// Turns an analyzed file into MIR: each Function becomes a MIR function, and the top-level code

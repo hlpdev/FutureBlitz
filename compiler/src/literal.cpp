@@ -2,9 +2,16 @@
 
 #include "fb/utf8.hpp"
 
-#include <charconv>
+#include <cstddef>
+#include <cstdint>
+#include <fast_float/fast_float.h>
 #include <limits>
+#include <optional>
+#include <span>
+#include <string>
+#include <string_view>
 #include <system_error>
+#include <vector>
 
 namespace fb {
 namespace {
@@ -216,7 +223,8 @@ escape_t decode_escape(const std::string_view text, const std::size_t pos) {
 }
 
 std::optional<double> parse_decimal(std::string_view text) {
-    // from_chars doesn't know "_" separators.
+    // fast_float reads it as std::from_chars does, which not every C++ library has for floats
+    // yet, and neither knows "_" separators.
     std::string digits;
     for (const char c : text) {
         if (c != '_') {
@@ -225,8 +233,8 @@ std::optional<double> parse_decimal(std::string_view text) {
     }
 
     double value = 0;
-    const std::from_chars_result result =
-        std::from_chars(digits.data(), digits.data() + digits.size(), value);
+    const fast_float::from_chars_result result =
+        fast_float::from_chars(digits.data(), digits.data() + digits.size(), value);
     if (result.ec != std::errc{}) {
         return std::nullopt;
     }

@@ -3,7 +3,11 @@
 #include <array>
 #include <cstdint>
 #include <cstdio>
+#include <expected>
+#include <filesystem>
 #include <format>
+#include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <system_error>
