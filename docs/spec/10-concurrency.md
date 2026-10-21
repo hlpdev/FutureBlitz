@@ -133,10 +133,14 @@ DoorSequence(door)    // calling without Await starts it on the main scheduler
 
 ### Scheduling
 
-Confirmed 2026-10-21. A game owns its main loop, so its frame boundary is `Flip()`. A program
-that isn't a game never needs a loop: its top-level code can Await (M6 step 1), and the runtime
-runs the main scheduler until no work is left, as Node and Python's asyncio do. Either way a
-coroutine stays on the thread it started on, and CPU-heavy work goes to Spawn and Parallel For.
+Confirmed 2026-10-21, one rule for every program, game or not: a coroutine resumes on the
+thread it started on whenever that thread hands control to the runtime, which does the
+resuming; nothing is ticked by hand. The main thread hands it over at an `Await` (in an Async
+Function, or in top-level code, M6 step 1), at `Wait()`, once top-level code ends (the runtime
+then runs until nothing waits, as Node does), and at `Flip()`, which a game's frame loop calls
+anyway to show the frame. A blocking call, like reading a file, doesn't, so no other code runs
+in the middle of one. Main-thread code stays single-threaded across an Await, as in C#'s UI
+apps, Unity, and JavaScript; CPU-heavy work goes to Spawn and Parallel For, on every core.
 
 **Main scheduler, ticked by `Flip()`.** After presenting, `Flip()` resumes ready
 coroutines, so they run at the start of the next frame before update code. Nothing extra
