@@ -1,0 +1,62 @@
+// Reflection loops go over what the code they're written in sees: every member, Private ones
+// too, what an Extend of one instance adds, and the Extends their own file sees.
+
+Import "./reflection_modules/lib"
+
+// An Extend beside lib's Private P and Run, which it can't use, so it clashes with neither.
+Extend Base
+    Property P: Int
+        Get => 20
+    End Property
+
+    Method Run()
+        Print("main's Run")
+    End Method
+End Extend
+
+Extend Box<Int>
+    Property Extra: Int
+        Get => 3
+    End Property
+
+    Method Pang()
+        Print("instance pang")
+    End Method
+End Extend
+
+// lib's loops see lib's members, Private ones too, but not main's Extend.
+Local b = Base()
+Print(Fields(b))
+Print(Props(b))
+Print(Statics<Base>())
+RunAll(b)
+
+// main's loops see both, each its own member.
+Print(Props(b))
+Local seen = ""
+For Property p: P In Base
+    Where P: Printable
+    seen = seen + "{p.Name}={p.Get(b)} "
+End For
+
+Print(seen)
+For Method m In Base
+    m.Call(b)
+End For
+
+// What an Extend of one instance adds is that instance's.
+Local ints = Box<Int>()
+Local extra = ""
+For Property p: P In Box<Int>
+    Where P: Printable
+    extra = extra + "{p.Name}={p.Get(ints)} "
+End For
+
+Print(extra)
+For Method m In Box<Int>
+    m.Call(ints)
+End For
+
+For Method m In Box<String>
+    m.Call(Box<String>())
+End For

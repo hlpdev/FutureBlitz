@@ -7,6 +7,9 @@
 #include <cstddef>
 #include <format>
 #include <ranges>
+#include <span>
+#include <string>
+#include <string_view>
 #include <utility>
 
 namespace fb {
@@ -18,7 +21,8 @@ constexpr std::array<std::string_view, 5> stage_names = { "tokens", "ast", "type
 /// One of the commands that take a file, by name. Anything else starting with '-' is reported as
 /// an unknown option.
 std::expected<command_t, std::string> find_command(const std::string_view name) {
-    for (const command_t command : { command_t::CHECK, command_t::BUILD, command_t::RUN }) {
+    for (const command_t command :
+         { command_t::CHECK, command_t::BUILD, command_t::RUN, command_t::BINDGEN }) {
         if (command_name(command) == name) {
             return command;
         }
@@ -51,6 +55,10 @@ std::expected<color_t, std::string> parse_color(const std::string_view when) {
 /// parse_options removes them.
 std::expected<void, std::string> add_stages(const std::string_view list,
                                             std::vector<stage_t>& show) {
+    if (list.empty()) {
+        return std::unexpected("'--show' needs stages: tokens, ast, types, mir, llvm, or all");
+    }
+
     for (const auto part : std::views::split(list, ',')) {
         const std::string_view name(part.begin(), part.end());
         if (name == "all") {
@@ -87,6 +95,8 @@ std::string_view command_name(const command_t command) {
         return "build";
     case command_t::RUN:
         return "run";
+    case command_t::BINDGEN:
+        return "bindgen";
     }
 
     std::unreachable();
@@ -96,21 +106,41 @@ std::string_view stage_name(const stage_t stage) {
     return stage_names[std::to_underlying(stage)];
 }
 
-std::expected<options_t, std::string>
-parse_options(const std::span<const std::string_view> arguments) {
+std::expected<options_t, std::string> parse_options(const std::span<const std::string_view> all) {
     // A new options_t is HELP without help_for: the help for fb as a whole.
     options_t options;
-    if (arguments.empty() || arguments[0] == "-h" || arguments[0] == "--help") {
-        return options;
+
+    // fb's --color can come before the command too: "fb --color never check x.fb".
+    std::size_t start = 0;
+    while (start < all.size() && (all[start] == "--color" || all[start].starts_with("--color="))) {
+        std::string_view when;
+        if (all[start] != "--color") {
+            when = all[start].substr(std::string_view("--color=").size());
+        } else if (start + 1 < all.size()) {
+            when = all[++start];
+        } else {
+            return std::unexpected("'--color' needs a value");
+        }
+
+        const std::expected<color_t, std::string> color = parse_color(when);
+        if (!color) {
+            return std::unexpected(color.error());
+        }
+
+        options.color = *color;
+        ++start;
     }
 
-    if (arguments[0] == "--version") {
-        options.command = command_t::VERSION;
-        return options;
-    }
+    const std::span<const std::string_view> arguments = all.subspan(start);
+    // "fb help build" and "fb --help build" show a command's help, and "fb help help" fb's.
+    if (arguments.empty() || arguments[0] == "-h" || arguments[0] == "--help" ||
+        arguments[0] == "help") {
+        if (arguments.size() > 2) {
+            return std::unexpected(
+                std::format("unexpected argument '{}'; 'fb help' takes one command", arguments[2]));
+        }
 
-    if (arguments[0] == "help") {
-        if (arguments.size() > 1) {
+        if (arguments.size() == 2 && arguments[1] != "help") {
             const std::expected<command_t, std::string> command = find_command(arguments[1]);
             if (!command) {
                 return std::unexpected(command.error());
@@ -122,12 +152,57 @@ parse_options(const std::span<const std::string_view> arguments) {
         return options;
     }
 
+    if (arguments[0] == "--version") {
+        if (arguments.size() > 1) {
+            return std::unexpected(
+                std::format("unexpected argument '{}'; 'fb --version' takes none", arguments[1]));
+        }
+
+        options.command = command_t::VERSION;
+        return options;
+    }
+
     const std::expected<command_t, std::string> command = find_command(arguments[0]);
     if (!command) {
         return std::unexpected(command.error());
     }
 
     options.command = *command;
+    // fb-bindgen reads its own options, but fb's --color is fb's.
+    if (options.command == command_t::BINDGEN) {
+        for (std::size_t i = 1; i < arguments.size(); ++i) {
+            const std::string_view argument = arguments[i];
+            if (argument == "-h" || argument == "--help") {
+                options.help_for = command_t::BINDGEN;
+                options.command = command_t::HELP;
+                return options;
+            }
+
+            if (argument == "--color" || argument.starts_with("--color=")) {
+                std::string_view when;
+                if (argument != "--color") {
+                    when = argument.substr(std::string_view("--color=").size());
+                } else if (i + 1 < arguments.size()) {
+                    when = arguments[++i];
+                } else {
+                    return std::unexpected("'--color' needs a value");
+                }
+
+                const std::expected<color_t, std::string> color = parse_color(when);
+                if (!color) {
+                    return std::unexpected(color.error());
+                }
+
+                options.color = *color;
+                continue;
+            }
+
+            options.passed.emplace_back(argument);
+        }
+
+        return options;
+    }
+
     for (std::size_t i = 1; i < arguments.size(); ++i) {
         const std::string_view argument = arguments[i];
 
@@ -155,6 +230,18 @@ parse_options(const std::span<const std::string_view> arguments) {
             return options;
         }
 
+        // What comes after "--" goes to the program `fb run` runs.
+        if (argument == "--") {
+            if (options.command != command_t::RUN) {
+                return std::unexpected(
+                    "'--' passes what follows it to the program, which only 'fb run' runs");
+            }
+
+            options.program_arguments.assign(arguments.begin() + static_cast<std::ptrdiff_t>(i) + 1,
+                                             arguments.end());
+            break;
+        }
+
         // Stays a success unless an option's value is bad.
         std::expected<void, std::string> parsed;
         if (argument == "--release") {
@@ -164,8 +251,17 @@ parse_options(const std::span<const std::string_view> arguments) {
                 return std::unexpected(std::format("'{}' only works with 'fb build'", name));
             }
 
-            parsed = value().transform(
-                [&](const std::string_view path) { options.output = path_from_utf8(path); });
+            parsed = value().and_then(
+                [&](const std::string_view path) -> std::expected<void, std::string> {
+                    // A name the executable can have, not a folder's.
+                    if (path.empty() || path.ends_with('/') || path.ends_with('\\')) {
+                        return std::unexpected(std::format(
+                            "'{}' takes the executable's file name, like 'out/game'", name));
+                    }
+
+                    options.output = path_from_utf8(path);
+                    return {};
+                });
         } else if (name == "--color") {
             parsed = value().and_then(parse_color).transform([&](const color_t color) {
                 options.color = color;
@@ -176,8 +272,9 @@ parse_options(const std::span<const std::string_view> arguments) {
         } else if (argument.starts_with('-')) {
             return std::unexpected(std::format("unknown option '{}'", argument));
         } else if (!options.input.empty()) {
-            return std::unexpected(std::format("unexpected argument '{}'; 'fb {}' takes one file",
-                                               argument, command_name(options.command)));
+            return std::unexpected(std::format(
+                "unexpected argument '{}'; 'fb {}' takes one .fb file or package folder", argument,
+                command_name(options.command)));
         } else {
             options.input = path_from_utf8(argument);
         }
@@ -185,11 +282,6 @@ parse_options(const std::span<const std::string_view> arguments) {
         if (!parsed) {
             return std::unexpected(parsed.error());
         }
-    }
-
-    if (options.input.empty()) {
-        return std::unexpected(
-            std::format("'fb {}' needs a .fb file", command_name(options.command)));
     }
 
     // Views print once each, in pipeline order, however they were given.

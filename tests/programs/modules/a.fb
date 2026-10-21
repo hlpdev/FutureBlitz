@@ -1,0 +1,8 @@
+// One module's Node and Make. b.fb has its own.
+
+Public Class Node
+    Public Field Label: String = "a"
+    Public Field Next: Node?
+End Class
+
+Public Function Make(): Node => Node()

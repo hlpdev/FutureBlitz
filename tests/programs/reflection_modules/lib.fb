@@ -1,0 +1,62 @@
+// Its loops go over every member, Private ones too, but not what an Extend it doesn't see adds.
+
+Public Class Base
+    Public New()
+    End New
+
+    Field Secret: Int = 7
+    Static Field Count: Int = 3
+
+    Property P: Int
+        Get => 10
+    End Property
+
+    Method Run()
+        Print("lib's Run")
+    End Method
+End Class
+
+Public Class Box<T>
+    Public New()
+    End New
+
+    Method Ping()
+        Print("own ping")
+    End Method
+End Class
+
+Public Function Fields<T>(value: T): String
+    Local text = ""
+    For Field f: F In T
+        Where F: Printable
+        text = text + "{f.Name}={f.Get(value)} "
+    End For
+
+    Return text
+End Function
+
+Public Function Props<T>(value: T): String
+    Local text = ""
+    For Property p: P In T
+        Where P: Printable
+        text = text + "{p.Name}={p.Get(value)} "
+    End For
+
+    Return text
+End Function
+
+Public Function Statics<T>(): String
+    Local text = ""
+    For Static Field s: S In T
+        Where S: Printable
+        text = text + "{s.Name}={s.Get()} "
+    End For
+
+    Return text
+End Function
+
+Public Function RunAll<T>(value: T)
+    For Method m In T
+        m.Call(value)
+    End For
+End Function

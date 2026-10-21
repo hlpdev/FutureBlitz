@@ -31,7 +31,7 @@ T expect(const std::optional<T>& value) {
     return value.value_or(T{});
 }
 
-/// What a variable holds before it's assigned: zero, False, or "".
+/// What a variable holds before it's assigned: zero, False, "", or a null CString.
 const_value_t zero(const type_id_t type) {
     if (type == type_id_t::BOOL) {
         return make_bool(false);
@@ -39,6 +39,10 @@ const_value_t zero(const type_id_t type) {
 
     if (type == type_id_t::STRING) {
         return make_string("");
+    }
+
+    if (type == type_id_t::CSTRING) {
+        return { .type = type, .data = nullptr };
     }
 
     if (is_float(type)) {
@@ -93,30 +97,11 @@ type_id_t unsigned_of(const type_id_t type) {
     }
 }
 
-/// "Add(Int32, Int32)": overloads get different names. A Struct's members start with its name:
-/// "Point.Move(Int32)".
 /// An Operator's name in MIR, like "Operator +", or any other function's name as it is.
 std::string operator_name(const std::string_view name) {
     const bool letter =
         !name.empty() && (std::isalpha(static_cast<unsigned char>(name[0])) != 0 || name[0] == '_');
     return letter || name.empty() ? std::string(name) : std::format("Operator {}", name);
-}
-
-std::string function_name(const analysis_t& analysis, const symbol_t& function) {
-    std::string name;
-    if (function.owner != type_id_t::INVALID) {
-        name = std::format("{}.", analysis.types.name(function.owner));
-    }
-
-    name += operator_name(function.name) + "(";
-    for (std::size_t i = 0; i < function.parameters.size(); ++i) {
-        const symbol_t& parameter = analysis.symbol(function.parameters[i]);
-        name += i == 0 ? "" : ", ";
-        name += parameter.by_ref ? "ByRef " : "";
-        name += analysis.types.name(parameter.type);
-    }
-
-    return name + ")";
 }
 
 /// What leaving a scope does: releases a variable, or runs a Defer's statement or a Finally.
@@ -180,6 +165,10 @@ class lowerer_t {
 public:
     lowerer_t(const ast_t& ast, const analysis_t& analysis) : m_ast(ast), m_analysis(analysis) {
         m_module.types = std::make_shared<type_table_t>(analysis.types);
+        if (const std::optional<module_id_t> main = ast.modules().main()) {
+            m_module.main_module = ast.modules().get(*main).name;
+        }
+
         for (std::size_t i = 0; i < analysis.symbols.size(); ++i) {
             if (analysis.symbols[i].kind == symbol_kind_t::TYPE) {
                 m_declared_types[analysis.symbols[i].type] = static_cast<symbol_id_t>(i);
@@ -203,18 +192,18 @@ public:
     mir_module_t run() {
         declare_globals();
         declare_functions();
-        // Every Class in the main file is in the module, whether or not the program makes one. A
-        // generic one has one for each instance.
+        // Every Class in the main module is in the MIR module, whether or not the program makes
+        // one. A generic one has one for each instance.
         for (const symbol_t& symbol : m_analysis.symbols) {
-            if (symbol.kind == symbol_kind_t::TYPE && !from_library(symbol) &&
+            if (symbol.kind == symbol_kind_t::TYPE && !outside_main(symbol) &&
                 types().get(symbol.type).parameters.empty()) {
                 use_class(symbol.type);
             }
         }
 
         for (const stmt_id_t id : m_ast.items()) {
-            // A library file's code is lowered once the program uses it, in lower_library().
-            if (m_ast.from_library(id)) {
+            // Other modules' code is lowered once the program uses it, in lower_library().
+            if (m_ast.outside_main(id)) {
                 continue;
             }
 
@@ -250,7 +239,28 @@ public:
         // The Classes come in the order the program used them, and the module should come out
         // the same however the code is laid out.
         std::ranges::sort(m_module.classes, {}, &mir_class_t::type);
+        number_alike_names();
         return std::move(m_module);
+    }
+
+    /// Two functions or Globals can come out with one name, since a module's name and a type's
+    /// are both dotted: module x's Class y's Static Method Z and module x.y's Function Z are both
+    /// "x.y.Z()", as are a Static of the main module's Class lib and a Global of module lib.
+    /// Each after the first gets "#2", "#3", and so on, so a name means one thing.
+    void number_alike_names() {
+        std::unordered_map<std::string, int> seen;
+        const auto number = [&](std::string& name) {
+            if (const int count = ++seen[name]; count > 1) {
+                name += std::format("#{}", count);
+            }
+        };
+        for (mir_function_t& function : m_module.functions) {
+            number(function.name);
+        }
+
+        for (auto& global : m_module.globals) {
+            number(global.name);
+        }
     }
 
     /// One function, and the ones it calls, after it.
@@ -278,8 +288,8 @@ private:
     std::unordered_map<symbol_id_t, std::uint32_t> m_slots;
     /// The Classes the module has, in the order the program used them.
     std::vector<type_id_t> m_used_classes;
-    /// The library functions the program uses, in the order it used them. Their bodies are
-    /// lowered after the main file's code.
+    /// The functions from outside the main module that the program uses, in the order it used
+    /// them. Their bodies are lowered after the main module's code.
     std::vector<symbol_id_t> m_library_functions;
     /// A closure whose code waits to be lowered: the code that made it may be an instance of
     /// generic code, whose type arguments the closure's code has too.
@@ -331,7 +341,7 @@ private:
     };
 
     /// The array functions the program uses, and each Task's and Thread's work, whose bodies are
-    /// lowered with the library's.
+    /// lowered with the code used from outside the main module.
     std::vector<generated_t> m_generated;
     /// Each Struct's symbol, by its type.
     std::unordered_map<type_id_t, symbol_id_t> m_declared_types;
@@ -355,6 +365,9 @@ private:
     std::vector<local_id_t> m_async_kept;
     /// A Lock block's variable: the value in its Mutex, where it is.
     std::unordered_map<symbol_id_t, place_t> m_aliases;
+    /// In a closure's code: the locals holding copies it captured, which never change. A
+    /// Parallel For's threads share them.
+    std::vector<local_id_t> m_unchanging;
     std::optional<block_id_t> m_block;            // nullopt after a jump: nothing reaches here
     std::vector<std::vector<cleanup_t>> m_scopes; // what leaving each does, innermost last
     std::vector<local_id_t> m_temporaries;        // owned values to release after the statement
@@ -417,15 +430,22 @@ private:
                 }
             }
 
-            // A Static Field is named after its type.
+            // A Static Field is named after its type, and one outside the main module after its
+            // module.
             std::string name(symbol.name);
             if (symbol.owner != type_id_t::INVALID) {
-                name = std::format("{}.{}", types().name(symbol.owner), symbol.name);
+                name = std::format("{}.{}", types().qualified_name(symbol.owner), symbol.name);
+            } else if (const std::string_view module = qualifier_of(symbol); !module.empty()) {
+                name = std::format("{}.{}", module, symbol.name);
             }
 
             m_globals[id] = static_cast<global_id_t>(m_module.globals.size());
-            m_module.globals.push_back(
-                { .name = std::move(name), .type = symbol.type, .initial = std::move(initial) });
+            m_module.globals.push_back({
+                .name = std::move(name),
+                .type = symbol.type,
+                .initial = std::move(initial),
+                .set_in_main = node.value && !m_analysis.expr(*node.value).value,
+            });
         }
     }
 
@@ -439,12 +459,14 @@ private:
 
         const symbol_t& symbol = m_analysis.symbol(field);
         const type_id_t owner = types().instance(symbol.owner, arguments);
-        const type_id_t type =
-            types().substitute(symbol.type, types().get(symbol.owner).parameters, arguments);
+        const std::vector<type_id_t>& parameters = types().get(symbol.owner).parameters;
+        const type_id_t type = types().substitute(symbol.type, parameters, arguments);
         std::optional<const_value_t> initial;
         const auto& node = std::get<variable_stmt_t>(m_ast.get(expect(symbol.declaration)).node);
         if (node.value && m_analysis.expr(*node.value).value) {
+            // A T?'s Null is the instance's.
             initial = *m_analysis.expr(*node.value).value;
+            initial->type = types().substitute(initial->type, parameters, arguments);
         } else if (types().get(type).kind == type_kind_t::BUILTIN) {
             initial = zero(type);
         } else if (is_nullable(type)) {
@@ -455,7 +477,7 @@ private:
 
         const auto global = static_cast<global_id_t>(m_module.globals.size());
         m_module.globals.push_back({
-            .name = std::format("{}.{}", types().name(owner), symbol.name),
+            .name = std::format("{}.{}", types().qualified_name(owner), symbol.name),
             .type = type,
             .initial = std::move(initial),
         });
@@ -468,7 +490,7 @@ private:
     global_id_t global_of(const symbol_id_t field, const expr_id_t use) {
         const symbol_t& symbol = m_analysis.symbol(field);
         if (symbol.owner == type_id_t::INVALID || types().get(symbol.owner).parameters.empty()) {
-            return m_globals.at(field);
+            return ready(m_globals.at(field), use);
         }
 
         // Used by name, it's in its type's own code, whose instance is being lowered.
@@ -484,12 +506,12 @@ private:
         return instance_global(field, arguments);
     }
 
-    /// The main file's functions get their ids before any body is lowered, so a call can reach
-    /// a function declared further down. "main" comes after them, then the library functions and
-    /// the instances of generic ones, as the program uses them.
+    /// The main module's functions get their ids before any body is lowered, so a call can reach
+    /// a function declared further down. "main" comes after them, then the other modules'
+    /// functions and the instances of generic ones, as the program uses them.
     void declare_functions() {
         for (const symbol_id_t id : m_analysis.functions) {
-            if (!from_library(m_analysis.symbol(id)) &&
+            if (!outside_main(m_analysis.symbol(id)) &&
                 type_parameters_of(m_analysis.symbol(id)).empty()) {
                 declare_function(id);
             }
@@ -506,23 +528,107 @@ private:
         const auto function = static_cast<function_id_t>(m_module.functions.size());
         m_functions[id] = function;
         // An Async Function's code gives its result through its Task.
-        m_module.functions.push_back({
-            .name = function_name(m_analysis, symbol),
+        mir_function_t declared{
+            .name = function_name(symbol),
             .return_type = sets_up || symbol.modifiers.is_async ? type_id_t::NONE : symbol.type,
             .is_inline = symbol.modifiers.is_inline,
             .is_async = symbol.modifiers.is_async,
-        });
+        };
+        // An Extern Function is only its parameters, under its C symbol. C gives a String's text
+        // as a CString, which the call copies.
+        if (const external_t* external = external_of(symbol)) {
+            declared.external = {
+                .symbol = external->symbol.value_or(std::string(symbol.name)),
+                .c_abi = external->convention != convention_t::RUNTIME,
+            };
+            if (declared.external->c_abi && is_text(symbol.type)) {
+                declared.return_type = type_id_t::CSTRING;
+            }
+
+            for (const symbol_id_t parameter : symbol.parameters) {
+                const symbol_t& found = m_analysis.symbol(parameter);
+                declared.locals.push_back(
+                    { .type = found.type, .name = found.name, .by_ref = found.by_ref });
+            }
+
+            declared.parameter_count = declared.locals.size();
+        }
+
+        m_module.functions.push_back(std::move(declared));
         return function;
     }
 
-    /// Whether a symbol is declared in a library file.
-    [[nodiscard]] bool from_library(const symbol_t& symbol) const {
-        return symbol.declaration && m_ast.from_library(*symbol.declaration);
+    /// A String or String?, which C gives as a CString.
+    [[nodiscard]] bool is_text(const type_id_t type) const {
+        return type == type_id_t::STRING ||
+               (is_nullable(type) && types().get(type).inner == type_id_t::STRING);
     }
 
-    /// A function's id. A library function gets one when the program first uses it, so the
-    /// program only gets the library code it uses. A generic one has one for each set of type
-    /// arguments it's used with.
+    /// What defines an Extern Function, or null for any other function.
+    [[nodiscard]] const external_t* external_of(const symbol_t& function) const {
+        if (!function.declaration) {
+            return nullptr;
+        }
+
+        const auto* node = std::get_if<function_stmt_t>(&m_ast.get(*function.declaration).node);
+        return node != nullptr && node->external ? &*node->external : nullptr;
+    }
+
+    /// Whether a symbol is declared outside the main module.
+    [[nodiscard]] bool outside_main(const symbol_t& symbol) const {
+        return symbol.declaration && m_ast.outside_main(*symbol.declaration);
+    }
+
+    /// The module that a symbol's MIR name starts with: its declaration's, or none in the main
+    /// module.
+    [[nodiscard]] std::string_view qualifier_of(const symbol_t& symbol) const {
+        if (!symbol.declaration || !m_ast.outside_main(*symbol.declaration)) {
+            return {};
+        }
+
+        const file_id_t file = m_ast.get(*symbol.declaration).span.file;
+        return m_ast.modules().get(m_ast.modules().of(file).value_or(module_id_t{})).name;
+    }
+
+    /// What a function's MIR name starts with: its Struct's or Class's qualified name, if it has
+    /// one, and before that, outside the main module, its module, unless the type's name starts
+    /// with it already. What an Extend adds to another module's type, or to a built-in one,
+    /// starts with the Extend's module.
+    [[nodiscard]] std::string name_start(const symbol_t& function, const type_id_t owner) const {
+        std::string start =
+            owner != type_id_t::INVALID ? std::format("{}.", types().qualified_name(owner)) : "";
+        const std::string_view module = qualifier_of(function);
+        if (owner == type_id_t::INVALID) {
+            return module.empty() ? start : std::format("{}.", module);
+        }
+
+        // A type's own member, or what an Extend in its module adds.
+        if (!function.extended || types().get(owner).module == module) {
+            return start;
+        }
+
+        return std::format("{}.{}", module.empty() ? m_module.main_module : module, start);
+    }
+
+    /// "Add(Int32, Int32)": overloads get different names. A Struct's members start with its
+    /// name, "Point.Move(Int32)", and outside the main module, functions start with the module,
+    /// "std.core.error.Error.New(String)".
+    [[nodiscard]] std::string function_name(const symbol_t& function) const {
+        std::string name = name_start(function, function.owner);
+        name += operator_name(function.name) + "(";
+        for (std::size_t i = 0; i < function.parameters.size(); ++i) {
+            const symbol_t& parameter = m_analysis.symbol(function.parameters[i]);
+            name += i == 0 ? "" : ", ";
+            name += parameter.by_ref ? "ByRef " : "";
+            name += types().qualified_name(parameter.type);
+        }
+
+        return name + ")";
+    }
+
+    /// A function's id. One outside the main module gets one when the program first uses it, so
+    /// the program only gets the library code it uses. A generic one has one for each set of
+    /// type arguments it's used with.
     function_id_t function_of(const symbol_id_t id, const std::vector<type_id_t>& arguments = {}) {
         // A Method a type got from an Interface runs the default's code with the type for Self,
         // like an instance of generic code.
@@ -534,12 +640,16 @@ private:
             return found->second;
         }
 
-        m_library_functions.push_back(id);
+        // An Extern Function has no body to lower.
+        if (external_of(m_analysis.symbol(id)) == nullptr) {
+            m_library_functions.push_back(id);
+        }
+
         return declare_function(id);
     }
 
     /// An instance of a generic function, declared the first time it's used. Its body is lowered
-    /// with the others, after the main file's code.
+    /// with the others, after the main module's code.
     function_id_t instance_of(const symbol_id_t id, const std::vector<type_id_t>& arguments) {
         instance_t key{ id, arguments };
         if (const auto found = m_instances.find(key); found != m_instances.end()) {
@@ -567,21 +677,21 @@ private:
     /// arguments of its Struct or Class and its own, and its parameter types.
     std::string instance_name(const symbol_t& function, const std::vector<type_id_t>& parameters,
                               const std::vector<type_id_t>& arguments) {
-        std::string name;
         std::size_t own = 0;
+        type_id_t owner = type_id_t::INVALID;
         if (function.owner != type_id_t::INVALID) {
             // What an Extend adds to T[] has T as a type parameter of its own, which the array
             // shows.
             own = function.extended && is_array(function.owner)
                       ? 1
                       : owner_parameters(function.owner).size();
-            const type_id_t owner = types().substitute(function.owner, parameters, arguments);
-            name = std::format("{}.", types().name(owner));
+            owner = types().substitute(function.owner, parameters, arguments);
         }
 
-        name += operator_name(function.name);
+        std::string name = name_start(function, owner) + operator_name(function.name);
         for (std::size_t i = own; i < arguments.size(); ++i) {
-            name += std::format("{}{}", i == own ? "<" : ", ", types().name(arguments[i]));
+            name +=
+                std::format("{}{}", i == own ? "<" : ", ", types().qualified_name(arguments[i]));
         }
 
         name += arguments.size() > own ? ">(" : "(";
@@ -589,7 +699,7 @@ private:
             const symbol_t& parameter = m_analysis.symbol(function.parameters[i]);
             const type_id_t type = types().substitute(parameter.type, parameters, arguments);
             name += std::format("{}{}{}", i == 0 ? "" : ", ", parameter.by_ref ? "ByRef " : "",
-                                types().name(type));
+                                types().qualified_name(type));
         }
 
         return name + ")";
@@ -718,9 +828,9 @@ private:
         }
     }
 
-    /// What the program uses from the library files: each Class it used, then the bodies of the
-    /// functions it called, which can use more. The code of the function values it makes comes
-    /// here too.
+    /// What the program uses from outside the main module: each Class it used, then the bodies
+    /// of the functions it called, which can use more. The code of the function values it makes,
+    /// and the instances of generic code, come here too.
     void lower_library() {
         std::size_t classes = 0;
         std::size_t functions = 0;
@@ -771,7 +881,8 @@ private:
         const symbol_t& symbol = m_analysis.symbol(instance.first);
         const function_id_t function = m_instances.at(instance);
         if (symbol.default_method) {
-            // With the type for Self, then a generic Interface's type arguments.
+            // With the type for Self, then a generic Interface's type arguments, then a generic
+            // Method's own, which the copy's last type parameters are.
             const symbol_t& method = m_analysis.symbol(*symbol.default_method);
             const std::vector<type_id_t> parameters = type_parameters_of(symbol);
             const type_id_t interface =
@@ -779,6 +890,10 @@ private:
             m_parameters = type_parameters_of(method);
             m_arguments = { types().substitute(symbol.owner, parameters, instance.second) };
             std::ranges::copy(types().get(interface).arguments, std::back_inserter(m_arguments));
+            const std::size_t own = method.type_parameters.size();
+            assert(instance.second.size() >= own);
+            std::ranges::copy(instance.second | std::views::drop(instance.second.size() - own),
+                              std::back_inserter(m_arguments));
             lower_body(*symbol.default_method, function);
             return;
         }
@@ -855,7 +970,7 @@ private:
     }
 
     /// The Interfaces that can be types which a Class's objects implement: the ones it lists, and
-    /// that the Classes it extends list, and the ones those extend.
+    /// that the Classes it extends list, or Extends give them, and the ones those extend.
     [[nodiscard]] std::vector<type_id_t> implemented(const type_id_t type) const {
         // An instance's Interfaces have its type arguments in them.
         std::vector<type_id_t> found;
@@ -874,17 +989,34 @@ private:
             }
         }
 
-        // And the ones an Extend gives the instances whose type arguments meet its constraints.
-        for (const extension_interface_t& extension : m_analysis.extension_interfaces) {
-            if (extension.bounds.empty() || extension.target != definition_of(type)) {
-                continue;
-            }
+        // And the ones an Extend gives the instances whose type arguments meet its constraints,
+        // this one or one a Class it extends is, with the ones those extend.
+        for (type_id_t current = type; current != type_id_t::INVALID;
+             current = types().get(current).base) {
+            for (const extension_interface_t& extension : m_analysis.extension_interfaces) {
+                if (extension.bounds.empty() || extension.target != definition_of(current)) {
+                    continue;
+                }
 
-            const type_id_t interface = types().substitute(
-                extension.interface, extension.parameters, types().get(type).arguments);
-            if (!std::ranges::contains(found, interface) &&
-                fb::implements(m_analysis, types(), type, interface)) {
-                found.push_back(interface);
+                // A copy, since making types can move the entries.
+                const std::vector<type_id_t> arguments = types().get(current).arguments;
+                const type_id_t interface =
+                    types().substitute(extension.interface, extension.parameters, arguments);
+                if (std::ranges::contains(found, interface) ||
+                    !fb::implements(m_analysis, types(), current, interface)) {
+                    continue;
+                }
+
+                std::vector<type_id_t> pending{ interface };
+                while (!pending.empty()) {
+                    const type_id_t next = pending.front();
+                    pending.erase(pending.begin());
+                    if (!std::ranges::contains(found, next)) {
+                        found.push_back(next);
+                        std::ranges::copy(types().get(next).interfaces,
+                                          std::back_inserter(pending));
+                    }
+                }
             }
         }
 
@@ -964,22 +1096,18 @@ private:
 
         const auto place =
             static_cast<std::size_t>(std::ranges::find(members, required) - members.begin());
-        // How an Extend of this one instance implements it, then the generic type.
-        for (const conformance_t& conformance : m_analysis.conformances) {
-            if (conformance.type == type && type != definition_of(type) &&
-                definition_of(conformance.interface) == member.owner) {
-                return conformance.members[place];
-            }
-        }
-
-        for (type_id_t current = definition_of(type); current != type_id_t::INVALID;
+        // How the type, or the nearest Class it extends that does, implements it: an Extend of
+        // that one instance, like Box<String>, first, then the generic type. A type implements
+        // one instance of a generic Interface.
+        for (type_id_t current = type; current != type_id_t::INVALID;
              current = types().get(current).base) {
-            // A type implements one instance of a generic Interface.
-            for (const conformance_t& conformance : m_analysis.conformances) {
-                if (conformance.type == current &&
-                    definition_of(conformance.interface) == member.owner) {
-                    const symbol_id_t found = conformance.members[place];
-                    return found != required ? std::optional(found) : std::nullopt;
+            for (const type_id_t listed : { current, definition_of(current) }) {
+                for (const conformance_t& conformance : m_analysis.conformances) {
+                    if (conformance.type == listed &&
+                        definition_of(conformance.interface) == member.owner) {
+                        const symbol_id_t found = conformance.members[place];
+                        return found != required ? std::optional(found) : std::nullopt;
+                    }
                 }
             }
         }
@@ -1141,6 +1269,7 @@ private:
         m_function = id;
         m_locals.clear();
         m_aliases.clear();
+        m_unchanging.clear();
         m_async_task.reset();
         m_async_kept.clear();
         m_scopes.clear();
@@ -1358,7 +1487,9 @@ private:
             if (!global && !std::holds_alternative<function_stmt_t>(node) &&
                 !std::holds_alternative<type_stmt_t>(node) &&
                 !std::holds_alternative<enum_stmt_t>(node) &&
-                !std::holds_alternative<extend_stmt_t>(node)) {
+                !std::holds_alternative<extend_stmt_t>(node) &&
+                !std::holds_alternative<import_stmt_t>(node) &&
+                !std::holds_alternative<extern_stmt_t>(node)) {
                 lower_stmt(id);
             }
         }
@@ -1379,7 +1510,19 @@ private:
         if (const auto found = m_globals.find(symbol); found != m_globals.end()) {
             store(found->second, lower_value(*node->value));
             finish_statement();
+            emit(ready_t{ .global = found->second, .mark = true });
         }
+    }
+
+    /// Before a function's use of a Global that main sets, at `use`: a check that main has, since
+    /// an earlier Global's initializer could call the function first. Main's own code uses only
+    /// the Globals above, which analysis checks.
+    global_id_t ready(const global_id_t global, const expr_id_t use) {
+        if (m_function != m_module.entry && m_module.globals[index(global)].set_in_main) {
+            emit(ready_t{ .global = global, .span = m_ast.get(use).span });
+        }
+
+        return global;
     }
 
     // Building blocks
@@ -1499,6 +1642,10 @@ private:
 
     [[nodiscard]] bool is_weak(const type_id_t type) const {
         return types().get(type).kind == type_kind_t::WEAK;
+    }
+
+    [[nodiscard]] bool is_pointer(const type_id_t type) const {
+        return types().get(type).kind == type_kind_t::PTR;
     }
 
     /// Null, as a constant of a T?.
@@ -1706,7 +1853,23 @@ private:
         m_block = id;
     }
 
+    /// Adds a statement where the current block is. What a call in it borrows is pinned before
+    /// it and let go right after it.
     void emit(statement_t statement) {
+        std::vector<local_id_t> pins;
+        if (auto* assign = std::get_if<assign_t>(&statement)) {
+            pins = pin_arguments(assign->value);
+        } else if (auto* evaluate = std::get_if<evaluate_t>(&statement)) {
+            pins = pin_arguments(evaluate->value);
+        }
+
+        add_statement(std::move(statement));
+        for (const local_id_t pin : pins) {
+            add_statement(release_t{ .target = place_t{ pin } });
+        }
+    }
+
+    void add_statement(statement_t statement) {
         block_at(here()).statements.push_back(std::move(statement));
     }
 
@@ -1746,6 +1909,205 @@ private:
 
     // Strings
 
+    /// Whether evaluating an expression could change a variable, field, or element: anything
+    /// but reading literals, variables, fields, and elements, and the built-in operators on them.
+    /// A call, an Await, a Property's Get, a type's own Operator, or a conversion could.
+    [[nodiscard]] bool may_change(const expr_id_t id) const {
+        const expr_node_t& node = m_ast.get(id).node;
+        const auto any = [this](const std::vector<expr_id_t>& parts) {
+            return std::ranges::any_of(parts,
+                                       [this](const expr_id_t part) { return may_change(part); });
+        };
+        if (const std::optional<symbol_id_t> used = m_analysis.expr(id).symbol) {
+            const symbol_t& called = m_analysis.symbol(*used);
+            // A Struct's own constructor, which the compiler makes, only puts its arguments
+            // together.
+            const auto* call = std::get_if<call_expr_t>(&node);
+            if (call != nullptr && called.kind == symbol_kind_t::CONSTRUCTOR &&
+                !called.declaration && is_struct(called.owner)) {
+                return std::ranges::any_of(call->arguments, [this](const argument_t& argument) {
+                    return argument.by_ref || may_change(argument.value);
+                });
+            }
+
+            if (called.kind == symbol_kind_t::PROPERTY || called.kind == symbol_kind_t::METHOD ||
+                called.kind == symbol_kind_t::FUNCTION ||
+                called.kind == symbol_kind_t::CONSTRUCTOR ||
+                called.kind == symbol_kind_t::BUILTIN_FUNCTION) {
+                return true;
+            }
+        }
+
+        if (std::holds_alternative<integer_expr_t>(node) ||
+            std::holds_alternative<decimal_expr_t>(node) ||
+            std::holds_alternative<character_expr_t>(node) ||
+            std::holds_alternative<bool_expr_t>(node) ||
+            std::holds_alternative<null_expr_t>(node) ||
+            std::holds_alternative<name_expr_t>(node) ||
+            std::holds_alternative<self_expr_t>(node) ||
+            std::holds_alternative<lambda_expr_t>(node)) {
+            return false;
+        }
+
+        // A value's text, and ==, can run a type's own ToString or Operator ==.
+        if (const auto* text = std::get_if<string_expr_t>(&node)) {
+            return std::ranges::any_of(text->parts, [this](const string_part_t& part) {
+                const auto* inner = std::get_if<expr_id_t>(&part);
+                return inner != nullptr &&
+                       (may_change(*inner) || runs_code(m_analysis.expr(*inner).type));
+            });
+        }
+
+        if (const auto* unary = std::get_if<unary_expr_t>(&node)) {
+            return may_change(unary->operand);
+        }
+
+        if (const auto* binary = std::get_if<binary_expr_t>(&node)) {
+            const bool equality =
+                binary->op == binary_op_t::EQUAL || binary->op == binary_op_t::NOT_EQUAL;
+            return may_change(binary->left) || may_change(binary->right) ||
+                   (equality && (runs_code(m_analysis.expr(binary->left).type) ||
+                                 runs_code(m_analysis.expr(binary->right).type)));
+        }
+
+        if (const auto* choice = std::get_if<ternary_expr_t>(&node)) {
+            return any({ choice->condition, choice->if_true, choice->if_false });
+        }
+
+        if (const auto* member = std::get_if<member_expr_t>(&node)) {
+            return may_change(member->object);
+        }
+
+        if (const auto* index = std::get_if<index_expr_t>(&node)) {
+            return may_change(index->object) || any(index->indices);
+        }
+
+        if (const auto* test = std::get_if<is_expr_t>(&node)) {
+            return may_change(test->value);
+        }
+
+        if (const auto* tuple = std::get_if<tuple_expr_t>(&node)) {
+            return any(tuple->elements);
+        }
+
+        if (const auto* array = std::get_if<array_expr_t>(&node)) {
+            return any(array->elements);
+        }
+
+        return true;
+    }
+
+    /// Whether making a value's text, or comparing two with ==, could run a type's own ToString
+    /// or Operator ==: a Struct's, Class's, or Interface's, or one of what a tuple, an array, or
+    /// a T? holds. A type parameter could be any of them.
+    [[nodiscard]] bool runs_code(const type_id_t type) const {
+        const type_t& found = types().get(type);
+        switch (found.kind) {
+        case type_kind_t::BUILTIN:
+        case type_kind_t::ENUM:
+            return false;
+        case type_kind_t::NULLABLE:
+        case type_kind_t::ARRAY:
+        case type_kind_t::FIXED_ARRAY:
+            return runs_code(found.inner);
+        case type_kind_t::TUPLE:
+            return std::ranges::any_of(
+                found.fields, [this](const field_t& field) { return runs_code(field.type); });
+        default:
+            return true;
+        }
+    }
+
+    /// Operands go left to right: one read from a variable, field, or element that a later
+    /// operand could change is copied first, with its own references, which go after the
+    /// statement.
+    operand_t settled(const operand_t& value, const bool changes_later) {
+        if (!changes_later || !std::holds_alternative<place_t>(value)) {
+            return value;
+        }
+
+        // Self's reference to an object never changes, and nor does a copy a closure captured.
+        const auto& place = std::get<place_t>(value);
+        const auto* local = std::get_if<local_id_t>(&place.root);
+        const type_id_t type = type_of(value);
+        if (local != nullptr && place.steps.empty() &&
+            (std::ranges::contains(m_unchanging, *local) ||
+             (*local == m_self && is_object(type)))) {
+            return value;
+        }
+
+        // A whole temporary is nothing a later operand can reach. One that borrows what a
+        // variable refers to, like a cast of it, takes references of its own, so the object
+        // outlives a change to the variable.
+        if (local != nullptr && place.steps.empty() && !holds_variable(*local)) {
+            if (has_references(type) && !std::ranges::contains(m_temporaries, *local)) {
+                emit(retain_t{ .value = value });
+                m_temporaries.push_back(*local);
+            }
+
+            return value;
+        }
+
+        const local_id_t copy = add_local(type);
+        emit(assign_t{ .target = copy, .value = use_t{ .value = value } });
+        if (has_references(type)) {
+            emit(retain_t{ .value = place_t{ copy } });
+            m_temporaries.push_back(copy);
+        }
+
+        return place_t{ copy };
+    }
+
+    /// A place whose last reference on the way in, to an object, a T[], or what a Ptr points at,
+    /// is copied first, so a later operand that changes a variable or field on the way can't
+    /// change which object, array, or memory the place is in. Without one, the place is a
+    /// variable's own, which stays where it is. The place itself counts as on the way when it's
+    /// what an element is taken from, but not when it's an assignment's target.
+    place_t settled_place(const place_t& place, const bool itself) {
+        for (std::size_t count = place.steps.size() + (itself ? 1 : 0); count-- > 0;) {
+            place_t prefix = place;
+            prefix.steps.erase(prefix.steps.begin() + static_cast<std::ptrdiff_t>(count),
+                               prefix.steps.end());
+            const type_id_t type = type_of(prefix);
+            if (is_object(type) || is_array(type) || is_pointer(type)) {
+                place_t settled_prefix = std::get<place_t>(settled(prefix, true));
+                settled_prefix.steps.insert(
+                    settled_prefix.steps.end(),
+                    place.steps.begin() + static_cast<std::ptrdiff_t>(count), place.steps.end());
+                return settled_prefix;
+            }
+        }
+
+        return place;
+    }
+
+    /// Whether a local is a variable's, Self, or another name for one, which code can change.
+    [[nodiscard]] bool holds_variable(const local_id_t local) const {
+        if (std::ranges::contains(m_unchanging, local)) {
+            return false;
+        }
+
+        return m_self == local ||
+               std::ranges::any_of(m_locals,
+                                   [&](const auto& entry) { return entry.second == local; }) ||
+               std::ranges::any_of(m_aliases, [&](const auto& entry) {
+                   const auto* root = std::get_if<local_id_t>(&entry.second.root);
+                   return root != nullptr && *root == local;
+               });
+    }
+
+    /// For each of a list of operands, whether one after it could change what it reads.
+    [[nodiscard]] std::vector<bool> changes_after(const std::vector<expr_id_t>& operands) const {
+        std::vector<bool> later(operands.size(), false);
+        bool seen = false;
+        for (std::size_t i = operands.size(); i-- > 0;) {
+            later[i] = seen;
+            seen = seen || may_change(operands[i]);
+        }
+
+        return later;
+    }
+
     /// A new temporary holding `value`. An owned String in it is released after the statement.
     operand_t temporary(rvalue_t value, const type_id_t type, const bool owned = false) {
         const local_id_t local = add_local(type);
@@ -1755,6 +2117,138 @@ private:
         }
 
         return place_t{ local };
+    }
+
+    /// Whether a place is reached through a reference: it's a Global's, or a step goes into an
+    /// object, an array, what a Ptr points at, or a captured variable's cell. Code that a call
+    /// runs could change such a place, which a variable of the caller's own can't be.
+    [[nodiscard]] bool through_reference(const place_t& place) {
+        if (!std::holds_alternative<local_id_t>(place.root)) {
+            return true;
+        }
+
+        for (std::size_t count = 0; count < place.steps.size(); ++count) {
+            place_t prefix = place;
+            prefix.steps.erase(prefix.steps.begin() + static_cast<std::ptrdiff_t>(count),
+                               prefix.steps.end());
+            const type_id_t type = type_of(prefix);
+            if (is_object(type) || is_array(type) || is_pointer(type)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// A call's argument as the callee borrows it: what it reads through a reference, or from a
+    /// variable the call takes ByRef too, is copied with references of its own, which go right
+    /// after the call, so the callee can't free what it uses by changing where it came from, as
+    /// `g.Replace()` would by assigning the Global g. Each copy goes in `pins`.
+    operand_t pinned(const operand_t& value, const std::vector<local_id_t>& by_ref_roots,
+                     std::vector<local_id_t>& pins) {
+        const auto* place = std::get_if<place_t>(&value);
+        if (place == nullptr || !has_references(type_of(value))) {
+            return value;
+        }
+
+        const auto* local = std::get_if<local_id_t>(&place->root);
+        const bool aliased = local != nullptr && std::ranges::contains(by_ref_roots, *local);
+        if (!aliased && !through_reference(*place)) {
+            return value;
+        }
+
+        const local_id_t copy = add_local(type_of(value));
+        add_statement(assign_t{ .target = copy, .value = use_t{ .value = value } });
+        add_statement(retain_t{ .value = place_t{ copy } });
+        pins.push_back(copy);
+        return place_t{ copy };
+    }
+
+    /// A place a call takes ByRef, with its last reference on the way in, to an object, a T[], or
+    /// what a Ptr points at, pinned, so the callee can't free what holds the variable it's
+    /// changing.
+    place_t pinned_place(const place_t& place, std::vector<local_id_t>& pins) {
+        for (std::size_t count = place.steps.size(); count-- > 0;) {
+            place_t prefix = place;
+            prefix.steps.erase(prefix.steps.begin() + static_cast<std::ptrdiff_t>(count),
+                               prefix.steps.end());
+            const type_id_t type = type_of(prefix);
+            if (is_object(type) || is_array(type) || is_pointer(type)) {
+                place_t pinned_prefix = std::get<place_t>(pinned(prefix, {}, pins));
+                pinned_prefix.steps.insert(pinned_prefix.steps.end(),
+                                           place.steps.begin() + static_cast<std::ptrdiff_t>(count),
+                                           place.steps.end());
+                return pinned_prefix;
+            }
+        }
+
+        return place;
+    }
+
+    /// Pins what a call borrows: its object and arguments, the function value it invokes, and
+    /// what the runtime calls that run the program's code, like a Scheduler's Tick, are given.
+    /// Gives the pins, which go after the call.
+    std::vector<local_id_t> pin_arguments(rvalue_t& value) {
+        std::vector<local_id_t> pins;
+        // The runtime's own functions run none of the program's code.
+        auto* call = std::get_if<call_t>(&value);
+        const std::optional<mir_extern_t>& external =
+            call != nullptr ? m_module.functions[index(call->function)].external : std::nullopt;
+        if (call != nullptr && (!external || external->c_abi)) {
+            std::vector<local_id_t> roots;
+            for (const call_argument_t& argument : call->arguments) {
+                const auto* place = std::get_if<place_t>(&argument.value);
+                const auto* local =
+                    place != nullptr ? std::get_if<local_id_t>(&place->root) : nullptr;
+                if (argument.by_ref && local != nullptr) {
+                    roots.push_back(*local);
+                }
+            }
+
+            for (call_argument_t& argument : call->arguments) {
+                if (!argument.by_ref) {
+                    argument.value = pinned(argument.value, roots, pins);
+                } else if (const auto* place = std::get_if<place_t>(&argument.value);
+                           place != nullptr && through_reference(*place)) {
+                    argument.value = pinned_place(*place, pins);
+                }
+            }
+        } else if (auto* invoke = std::get_if<invoke_t>(&value)) {
+            invoke->callee = pinned(invoke->callee, {}, pins);
+            for (operand_t& argument : invoke->arguments) {
+                argument = pinned(argument, {}, pins);
+            }
+        } else if (auto* runtime = std::get_if<runtime_call_t>(&value)) {
+            static constexpr std::array runs_code{
+                runtime_function_t::TASK_WAIT,
+                runtime_function_t::PARALLEL_FOR,
+                runtime_function_t::SCHEDULER_RUN,
+                runtime_function_t::SCHEDULER_TICK,
+            };
+            if (std::ranges::contains(runs_code, runtime->function)) {
+                for (operand_t& argument : runtime->arguments) {
+                    argument = pinned(argument, {}, pins);
+                }
+            }
+        }
+
+        return pins;
+    }
+
+    /// A value that reads a part of something, like Make()[1]'s element or a Local object's
+    /// field, copied into a local of its own, so a Return can still give it once the statement's
+    /// temporaries and the scopes' variables, and the objects they alone held, are gone.
+    /// Anything else, or anything when nothing goes, as it is.
+    operand_t outliving(const operand_t& value) {
+        const auto* place = std::get_if<place_t>(&value);
+        const bool releases =
+            !m_temporaries.empty() ||
+            std::ranges::any_of(m_scopes, [](const auto& scope) { return !scope.empty(); });
+        if (place == nullptr || place->steps.empty() || !releases) {
+            return value;
+        }
+
+        return temporary(use_t{ .value = value }, type_of(value));
     }
 
     /// Gives a value's new holder its own references: a whole temporary hands its references
@@ -1886,6 +2380,11 @@ private:
         assert(false);
     }
 
+    /// "Unsafe ... End Unsafe" is a block like any other here.
+    void lower_stmt(stmt_id_t /*id*/, span_t /*span*/, const unsafe_stmt_t& node) {
+        lower_block(node.body);
+    }
+
     void lower_stmt(stmt_id_t /*id*/, span_t /*span*/, const expression_stmt_t& node) {
         // Only a call can be a statement on its own, with Try or Try? before it or not.
         lower_effect(node.expression);
@@ -1911,7 +2410,7 @@ private:
         };
 
         if (const std::optional<symbol_id_t> property = property_of(node.target)) {
-            set_property(node.target, *property, [&](const auto& read) {
+            set_property(node.target, *property, may_change(node.value), [&](const auto& read) {
                 if (!node.op) {
                     return lower_value(node.value);
                 }
@@ -1922,24 +2421,36 @@ private:
             return;
         }
 
-        const place_t target = lower_place(node.target);
+        // The target goes first: the object or T[] it's in, and for op=, its value.
+        const bool value_changes = may_change(node.value);
+        place_t target = lower_place(node.target);
+        if (value_changes) {
+            target = settled_place(target, false);
+        }
+
         const type_id_t type = type_of(target);
+        const operand_t current = node.op ? settled(target, value_changes) : operand_t{ target };
         const operand_t value = lower_value(node.value);
         if (!node.op) {
             store(target, value);
         } else if (info.symbol) {
-            store(target, convert(apply(target, value), type, span));
+            store(target, convert(apply(current, value), type, span));
+        } else if (is_pointer(type)) {
+            emit(assign_t{
+                .target = target,
+                .value = pointer_t{ .op = *node.op, .left = current, .right = value },
+            });
         } else if (type == type_id_t::STRING) {
             // += is the only compound assignment a String has.
             const runtime_call_t concat{
                 .function = runtime_function_t::CONCAT,
-                .arguments = { target, value },
+                .arguments = { current, value },
             };
             store(target, temporary(concat, type_id_t::STRING, true));
         } else {
             emit(assign_t{
                 .target = target,
-                .value = binary_t{ .op = *node.op, .left = target, .right = value, .span = span },
+                .value = binary_t{ .op = *node.op, .left = current, .right = value, .span = span },
             });
         }
 
@@ -1969,7 +2480,7 @@ private:
 
             const place_t element = element_of(place_t{ tuple }, i);
             if (const std::optional<symbol_id_t> property = property_of(target)) {
-                set_property(target, *property,
+                set_property(target, *property, false,
                              [&](const auto& /*read*/) -> operand_t { return element; });
                 continue;
             }
@@ -2007,7 +2518,7 @@ private:
     void lower_stmt(stmt_id_t /*id*/, const span_t span, const increment_stmt_t& node) {
         const binary_op_t change = node.decrement ? binary_op_t::SUBTRACT : binary_op_t::ADD;
         if (const std::optional<symbol_id_t> property = property_of(node.target)) {
-            set_property(node.target, *property, [&](const auto& read) {
+            set_property(node.target, *property, false, [&](const auto& read) {
                 const operand_t current = read();
                 return combine(change, current, one(type_of(current)), span);
             });
@@ -2184,7 +2695,9 @@ private:
     }
 
     /// "Parallel For i = a Until b": the body's closure, which the runtime runs for chunks of
-    /// the indexes from a up to b, or through b for To.
+    /// the indexes from a up to b, or through b for To, when there are any. They compare as the
+    /// loop variable's type, signed or not, and the runtime counts up from the first, wrapping
+    /// past an Int64's end, so a range at a type's end has its passes too.
     void lower_parallel_for(const stmt_id_t id, const span_t span, const for_stmt_t& node) {
         const closure_t& closure = m_analysis.closures[expect(m_analysis.stmt(id).closure)];
         const auto wide = [&](const operand_t& value) {
@@ -2192,25 +2705,27 @@ private:
                              type_id_t::INT64);
         };
 
-        const operand_t first = wide(lower_value(node.start));
-        operand_t last = wide(lower_value(node.end));
-        if (node.inclusive) {
-            binary_t through{
-                .op = binary_op_t::ADD,
-                .left = last,
-                .right = one(type_id_t::INT64),
-                .span = span,
-                .wrapping = true,
-            };
-            last = temporary(std::move(through), type_id_t::INT64);
+        const operand_t first = lower_value(node.start);
+        const operand_t end = lower_value(node.end);
+        const operand_t body = make_closure(closure, span);
+        const operand_t any =
+            compare(node.inclusive ? binary_op_t::LESS_EQUAL : binary_op_t::LESS, first, end, span);
+        const block_id_t run = new_block();
+        const block_id_t done = new_block();
+        terminate(branch_t{ .condition = any, .if_true = run, .if_false = done });
+        start(run);
+        operand_t last = end;
+        if (!node.inclusive) {
+            last = wrapping(binary_op_t::SUBTRACT, end, one(type_of(end)), span);
         }
 
-        const operand_t body = make_closure(closure, span);
-        runtime_call_t run{
+        runtime_call_t call{
             .function = runtime_function_t::PARALLEL_FOR,
-            .arguments = { first, last, body },
+            .arguments = { wide(first), wide(last), body },
         };
-        emit(evaluate_t{ std::move(run) });
+        emit(evaluate_t{ std::move(call) });
+        jump(done);
+        start(done);
         finish_statement();
     }
 
@@ -2412,7 +2927,7 @@ private:
     /// "For Field f In T" or "For Method m In T": a copy of the body for each of T's fields or
     /// Methods, in order, with the field's type in place of the loop's type parameter for it.
     /// Continue goes on to the next copy, and Break past the last.
-    void lower_stmt(const stmt_id_t id, span_t /*span*/, const for_member_stmt_t& node) {
+    void lower_stmt(const stmt_id_t id, const span_t span, const for_member_stmt_t& node) {
         const stmt_info_t& info = m_analysis.stmt(id);
         const type_id_t type = concrete(info.type_arguments.at(0));
         const symbol_id_t variable = expect(info.symbol);
@@ -2442,14 +2957,14 @@ private:
 
         if (node.kind == member_kind_t::METHOD) {
             const type_id_t signature = concrete(info.type_arguments.at(2));
-            for (const symbol_id_t method : reflected_methods(type, signature)) {
+            for (const symbol_id_t method : reflected_methods(type, signature, span.file)) {
                 reflected_t member{ .name = std::string(m_analysis.symbol(method).name) };
                 member.symbol = method;
                 copy(std::move(member), signature);
             }
         } else if (node.kind == member_kind_t::PROPERTY ||
                    node.kind == member_kind_t::STATIC_FIELD) {
-            for (const symbol_id_t found : reflected_members(type, node.kind)) {
+            for (const symbol_id_t found : reflected_members(type, node.kind, span.file)) {
                 const symbol_t& declared = m_analysis.symbol(found);
                 reflected_t member{ .name = std::string(declared.name) };
                 member.symbol = found;
@@ -2498,29 +3013,101 @@ private:
         return std::nullopt;
     }
 
-    /// The Methods a For Method loop goes over: a Struct's or Class's own and inherited ones
-    /// that take no arguments, give nothing, and throw nothing, the base Class's first, each in
-    /// the place of what it overrides. Destroy isn't among them.
-    [[nodiscard]] std::vector<symbol_id_t> reflected_methods(const type_id_t type,
-                                                             const type_id_t signature) {
-        std::vector<symbol_id_t> chain;
-        for (type_id_t at = type; at != type_id_t::INVALID;
-             at = types().get(definition_of(at)).base) {
+    /// Whether an object of `type` has a member that Where lines on its Struct's or Class's type
+    /// parameters make conditional, like what an Extend with one adds: they hold for the type
+    /// arguments of the instance `type` is or extends, as analysis checks at a use.
+    [[nodiscard]] bool has_member(const type_id_t type, const symbol_t& member) const {
+        if (member.constraints.empty() || member.owner == type_id_t::INVALID) {
+            return true;
+        }
+
+        const type_id_t owner = definition_of(member.owner);
+        const std::vector<type_id_t> parameters = types().get(owner).parameters;
+        const std::vector<type_id_t> arguments = owner_arguments(type, owner);
+        if (parameters.empty() || arguments.size() != parameters.size()) {
+            return true;
+        }
+
+        return std::ranges::all_of(member.constraints, [&](const bound_t& bound) {
+            const auto at = std::ranges::find(parameters, bound.parameter);
+            if (at == parameters.end() || bound.field != type_id_t::INVALID) {
+                return true;
+            }
+
+            const type_id_t argument = arguments[static_cast<std::size_t>(at - parameters.begin())];
+            return fb::implements(m_analysis, types(), argument,
+                                  types().substitute(bound.interface, parameters, arguments));
+        });
+    }
+
+    /// The members of each Struct or Class in a chain from `type` through the Classes it extends,
+    /// the base Class's first: its declaration's, with what an Extend of that one instance adds,
+    /// like Box<Int>'s, without what an Extend that code in `file` doesn't see adds, as analysis
+    /// decides for a use there.
+    [[nodiscard]] std::vector<std::vector<symbol_id_t>>
+    member_chain(const type_id_t type, const bool own_only, const file_id_t file) const {
+        std::vector<std::vector<symbol_id_t>> chain;
+        for (type_id_t at = type; at != type_id_t::INVALID; at = types().get(at).base) {
             const auto found = m_declared_types.find(definition_of(at));
             if (found == m_declared_types.end() || !(is_struct(at) || is_class(at))) {
                 break;
             }
 
-            chain.push_back(found->second);
+            std::vector<symbol_id_t> members = m_analysis.symbol(found->second).members;
+            if (const auto added = m_analysis.instance_members.find(at);
+                added != m_analysis.instance_members.end()) {
+                std::ranges::copy(added->second, std::back_inserter(members));
+            }
+
+            std::erase_if(members, [&](const symbol_id_t member) {
+                return !sees_extension(m_analysis.symbol(member), file);
+            });
+            chain.push_back(std::move(members));
+            if (own_only) {
+                break;
+            }
         }
 
+        std::ranges::reverse(chain);
+        return chain;
+    }
+
+    /// Whether code in `file` sees a member: what an Extend adds, the defaults it gives
+    /// included, only where the Extend's module is, or is imported.
+    [[nodiscard]] bool sees_extension(const symbol_t& member, const file_id_t file) const {
+        if (!member.extended) {
+            return true;
+        }
+
+        const module_table_t& modules = m_ast.modules();
+        const std::optional<module_id_t> here = modules.of(file);
+        const std::optional<module_id_t> there = modules.of(member.span.file);
+        if (!here || !there || *here == *there) {
+            return true;
+        }
+
+        return std::ranges::any_of(modules.get(*here).imports,
+                                   [&](const module_import_t& imported) {
+                                       return std::ranges::contains(imported.modules, *there);
+                                   });
+    }
+
+    /// The Methods a For Method loop goes over: a Struct's or Class's own and inherited ones
+    /// that take no arguments, give nothing, and throw nothing, the base Class's first, each in
+    /// the place of what it overrides. Destroy and Unsafe Methods aren't among them, nor what
+    /// the instance's type arguments don't meet the Where lines of, nor what an Extend the loop's
+    /// file doesn't see adds.
+    [[nodiscard]] std::vector<symbol_id_t>
+    reflected_methods(const type_id_t type, const type_id_t signature, const file_id_t file) {
         std::vector<symbol_id_t> methods;
-        for (const symbol_id_t declared : chain | std::views::reverse) {
-            for (const symbol_id_t member : m_analysis.symbol(declared).members) {
+        for (const std::vector<symbol_id_t>& level : member_chain(type, false, file)) {
+            for (const symbol_id_t member : level) {
                 const symbol_t& method = m_analysis.symbol(member);
                 if (method.kind != symbol_kind_t::METHOD || method.modifiers.is_static ||
-                    method.by_ref || !method.type_parameters.empty() || !method.throws.empty() ||
-                    method.name == "Destroy" || method_type(type, member) != signature) {
+                    method.modifiers.is_unsafe || method.by_ref ||
+                    !method.type_parameters.empty() || !method.throws.empty() ||
+                    method.name == "Destroy" || !has_member(type, method) ||
+                    method_type(type, member) != signature) {
                     continue;
                 }
 
@@ -2554,39 +3141,29 @@ private:
     }
 
     /// The Properties a For Property loop goes over, the inherited ones first, each in the place
-    /// of what it overrides, or the Static Fields of a For Static Field loop, the type's own.
-    [[nodiscard]] std::vector<symbol_id_t> reflected_members(const type_id_t type,
-                                                             const member_kind_t kind) const {
-        std::vector<symbol_id_t> chain;
-        for (type_id_t at = type; at != type_id_t::INVALID;
-             at = types().get(definition_of(at)).base) {
-            const auto found = m_declared_types.find(definition_of(at));
-            if (found == m_declared_types.end() || !(is_struct(at) || is_class(at))) {
-                break;
-            }
-
-            chain.push_back(found->second);
-            if (kind == member_kind_t::STATIC_FIELD) {
-                break;
-            }
-        }
-
+    /// of what it overrides, or the Static Fields of a For Static Field loop, the type's own;
+    /// what an Extend the loop's file doesn't see adds isn't among them.
+    [[nodiscard]] std::vector<symbol_id_t>
+    reflected_members(const type_id_t type, const member_kind_t kind, const file_id_t file) const {
         std::vector<symbol_id_t> members;
-        for (const symbol_id_t declared : chain | std::views::reverse) {
-            for (const symbol_id_t member : m_analysis.symbol(declared).members) {
+        for (const std::vector<symbol_id_t>& level :
+             member_chain(type, kind == member_kind_t::STATIC_FIELD, file)) {
+            for (const symbol_id_t member : level) {
                 const symbol_t& found = m_analysis.symbol(member);
                 const bool wanted =
                     kind == member_kind_t::PROPERTY
                         ? found.kind == symbol_kind_t::PROPERTY && !found.modifiers.is_static
                         : found.kind == symbol_kind_t::GLOBAL;
                 const type_kind_t held = types().get(found.type).kind;
-                if (!wanted || held == type_kind_t::ATOMIC || held == type_kind_t::MUTEX) {
+                if (!wanted || held == type_kind_t::ATOMIC || held == type_kind_t::MUTEX ||
+                    !has_member(type, found)) {
                     continue;
                 }
 
-                const auto same = std::ranges::find_if(members, [&](const symbol_id_t other) {
-                    return m_analysis.symbol(other).name == found.name;
-                });
+                // An Override takes the place of what it overrides. Another Property of the
+                // name, like what an Extend adds beside one its code can't use, is its own.
+                const auto same =
+                    found.overrides ? std::ranges::find(members, *found.overrides) : members.end();
                 if (same != members.end()) {
                     *same = member;
                 } else {
@@ -2951,6 +3528,8 @@ private:
             if (std::holds_alternative<place_t>(*result) && defers_from(0)) {
                 result = temporary(use_t{ .value = *result }, type_of(*result));
             }
+
+            result = outliving(*result);
         }
 
         finish_statement();
@@ -3084,9 +3663,11 @@ private:
 
     /// "x.P = value", "x.P += value", or "x.P++": the receiver first, then `value`, with a
     /// function that reads the Property, then the Set. A Struct's Set takes the variable itself,
-    /// like a ByRef Method, a Property used by name is Self's, and a Static one has none.
+    /// like a ByRef Method, a Property used by name is Self's, and a Static one has none. The
+    /// receiver is settled when the value `changes` what it reads.
     template <typename Value>
-    void set_property(const expr_id_t target, const symbol_id_t property_id, const Value& value) {
+    void set_property(const expr_id_t target, const symbol_id_t property_id, const bool changes,
+                      const Value& value) {
         const symbol_t& property = m_analysis.symbol(property_id);
         const auto* member = std::get_if<member_expr_t>(&m_ast.get(target).node);
         std::optional<call_argument_t> receiver;
@@ -3098,11 +3679,15 @@ private:
             receiver = { .value = place_t{ expect(m_self) }, .by_ref = !is_object(self) };
         } else {
             self = converted_type(member->object);
-            receiver = is_object(self) ? call_argument_t{ .value = lower_value(member->object) }
-                                       : call_argument_t{
-                                             .value = lower_place(member->object),
-                                             .by_ref = true,
-                                         };
+            if (is_object(self)) {
+                receiver = { .value = settled(lower_value(member->object), changes) };
+            } else {
+                const place_t place = lower_place(member->object);
+                receiver = {
+                    .value = changes ? settled_place(place, false) : place,
+                    .by_ref = true,
+                };
+            }
         }
 
         const std::optional<operand_t> on =
@@ -3390,8 +3975,17 @@ private:
         }
 
         place_t place = place_of(symbol);
-        if (is_nullable(concrete(m_analysis.symbol(symbol).type)) && !is_nullable(expr_type(id))) {
+        // A top-level Const that main sets.
+        if (const auto* global = std::get_if<global_id_t>(&place.root)) {
+            ready(*global, id);
+        }
+
+        // Narrowed, it's the T inside each T? that analysis took off.
+        type_id_t held = concrete(m_analysis.symbol(symbol).type);
+        const type_id_t read = expr_type(id);
+        while (is_nullable(held) && held != read) {
             place.steps.push_back({ .field = 0 });
+            held = types().get(held).inner;
         }
 
         return place;
@@ -3401,6 +3995,11 @@ private:
     /// like a call, gives a temporary.
     place_t lower_place(const expr_id_t id) {
         const expr_node_t& node = m_ast.get(id).node;
+        // "game.score" is the variable, as its name alone would be.
+        if (m_analysis.expr(id).qualified) {
+            return variable_place(id);
+        }
+
         if (const auto* member = std::get_if<member_expr_t>(&node);
             member != nullptr && !member->null_safe) {
             // A Static Field is a global, and a Property's value comes from its Get.
@@ -3424,8 +4023,9 @@ private:
                     get_property(expect(m_analysis.expr(id).symbol), object, type_of(object)));
             }
 
+            // A Ptr's Value is a step through it, which panics where the Ptr is Null.
             place_t place = lower_place(member->object);
-            place.steps.push_back({ .field = found.field });
+            place.steps.push_back({ .field = found.field, .span = span_of(id) });
             return place;
         }
 
@@ -3440,6 +4040,14 @@ private:
         // Each index goes in a local of its own, so the place keeps the value the index had.
         if (const auto* element = std::get_if<index_expr_t>(&node)) {
             place_t place = lower_place(element->object);
+            // Operands go left to right: the object or T[] the element is in is read before an
+            // index that could change which one it is.
+            if (std::ranges::any_of(element->indices, [this](const expr_id_t position) {
+                    return may_change(position);
+                })) {
+                place = settled_place(place, true);
+            }
+
             step_t step{ .span = span_of(id) };
             for (const expr_id_t position : element->indices) {
                 const operand_t value = lower_value(position);
@@ -3496,6 +4104,18 @@ private:
             return make_closure(m_analysis.closures[*closure], span_of(id));
         }
 
+        // A Function's name where a Callback is expected is its code's address, by the C ABI.
+        if (m_analysis.expr(id).callback) {
+            const type_id_t type = concrete(expr_type(id));
+            const symbol_id_t symbol = expect(m_analysis.expr(id).symbol);
+            const callback_t code{
+                .function = function_of(symbol),
+                .type = type,
+                .span = m_analysis.symbol(symbol).span,
+            };
+            return temporary(code, type);
+        }
+
         // Count alone, in an Extend of T[], is Self's, which a lambda has captured.
         if (m_analysis.expr(id).count) {
             const symbol_id_t self = expect(m_analysis.expr(id).symbol);
@@ -3509,6 +4129,11 @@ private:
     /// A field, an array's Count, or a String's Chars or Bytes. A For Field's "f.Name" and
     /// "f.Index" are constants in each copy of its body.
     operand_t lower_expr(const expr_id_t id, const member_expr_t& node) {
+        // A name after a module's qualifier is what the name alone would be.
+        if (m_analysis.expr(id).qualified) {
+            return lower_expr(id, name_expr_t{});
+        }
+
         if (const std::optional<symbol_id_t> variable = m_analysis.expr(id).symbol;
             variable && m_analysis.symbol(*variable).kind == symbol_kind_t::MEMBER_VARIABLE) {
             const reflected_t& member = m_reflected.at(*variable);
@@ -3594,7 +4219,9 @@ private:
     operand_t lower_expr(const expr_id_t id, const slice_expr_t& node) {
         const type_id_t type = expr_type(id);
         const span_t span = span_of(id);
-        const operand_t object = lower_value(node.object);
+        const bool from_changes = node.from && may_change(*node.from);
+        const bool to_changes = node.to && may_change(*node.to);
+        const operand_t object = settled(lower_value(node.object), from_changes || to_changes);
         const place_t source = as_place(object);
         // The bounds and count are compared as Int64s. A bound known at compile time is one
         // already.
@@ -3607,7 +4234,8 @@ private:
             return type_of(value) == type_id_t::INT64 ? value : cast(value, type_id_t::INT64, span);
         };
 
-        const operand_t from = node.from ? wide(lower_value(*node.from)) : zero(type_id_t::INT64);
+        const operand_t from =
+            node.from ? wide(settled(lower_value(*node.from), to_changes)) : zero(type_id_t::INT64);
         const std::optional<operand_t> written =
             node.to ? std::optional(wide(lower_value(*node.to))) : std::nullopt;
         const type_id_t source_type = type_of(object);
@@ -3702,7 +4330,7 @@ private:
                 .function = function,
                 .arguments = {
                     { .value = map },
-                    { .value = lower_value(entry.key) },
+                    { .value = settled(lower_value(entry.key), may_change(entry.value)) },
                     { .value = lower_value(entry.value) },
                 },
             };
@@ -3720,8 +4348,9 @@ private:
     /// value made of them.
     operand_t array_of(const std::vector<expr_id_t>& elements, const type_id_t type) {
         array_t value{ .type = type };
-        for (const expr_id_t element : elements) {
-            value.elements.push_back(lower_value(element));
+        const std::vector<bool> later = changes_after(elements);
+        for (std::size_t i = 0; i < elements.size(); ++i) {
+            value.elements.push_back(settled(lower_value(elements[i]), later[i]));
         }
 
         for (const operand_t& element : value.elements) {
@@ -3735,8 +4364,9 @@ private:
     operand_t lower_expr(const expr_id_t id, const tuple_expr_t& node) {
         const type_id_t type = expr_type(id);
         aggregate_t value{ .type = type };
-        for (const expr_id_t element : node.elements) {
-            value.fields.push_back(lower_value(element));
+        const std::vector<bool> later = changes_after(node.elements);
+        for (std::size_t i = 0; i < node.elements.size(); ++i) {
+            value.fields.push_back(settled(lower_value(node.elements[i]), later[i]));
         }
 
         for (const operand_t& element : value.fields) {
@@ -3958,9 +4588,19 @@ private:
         return place_t{ expect(m_self) };
     }
 
-    /// "Function(x) => ...": a new function value.
+    /// "Function(x) => ...": a new function value, or where a Callback is expected, its code's
+    /// address, by the C ABI.
     operand_t lower_expr(const expr_id_t id, const lambda_expr_t& /*node*/) {
-        return make_closure(m_analysis.closures[expect(m_analysis.expr(id).closure)], span_of(id));
+        const closure_t& closure = m_analysis.closures[expect(m_analysis.expr(id).closure)];
+        if (m_analysis.expr(id).callback) {
+            const type_id_t type = concrete(expr_type(id));
+            const function_id_t code = code_of(closure, closure_copy(concrete(closure.type)));
+            return temporary(
+                callback_t{ .function = code, .closure = true, .type = type, .span = span_of(id) },
+                type);
+        }
+
+        return make_closure(closure, span_of(id));
     }
 
     /// A new object of a closure's Class, which is the function value, as its Func type. It holds
@@ -4005,7 +4645,7 @@ private:
             name += std::format(" #{}", copy);
         }
 
-        const type_id_t made = types().add_class(std::move(name));
+        const type_id_t made = types().add_class(std::move(name), types().get(type).module);
         types().set_fields(made, types().get(type).fields);
         m_closure_copies[key] = made;
         return made;
@@ -4034,7 +4674,7 @@ private:
 
         const auto id = static_cast<function_id_t>(m_module.functions.size());
         m_module.functions.push_back({
-            .name = std::string(types().name(type)),
+            .name = types().qualified_name(type),
             .return_type = types().get(concrete(closure.func)).inner,
         });
         m_closure_code[type] = id;
@@ -4051,7 +4691,7 @@ private:
         if (closure.lambda && m_analysis.symbol(closure.function).modifiers.is_async) {
             m_coroutine_code[type] = static_cast<function_id_t>(m_module.functions.size());
             m_module.functions.push_back({
-                .name = std::format("{} (Async)", types().name(type)),
+                .name = std::format("{} (Async)", types().qualified_name(type)),
                 .is_async = true,
             });
             m_closures.push_back({
@@ -4082,6 +4722,10 @@ private:
             });
             const bool self = capture.kind != capture_kind_t::WEAK &&
                               m_analysis.symbol(capture.variable).name == "Self";
+            if (capture.kind == capture_kind_t::VALUE) {
+                m_unchanging.push_back(local);
+            }
+
             if (self) {
                 m_self = local;
             } else {
@@ -4096,7 +4740,7 @@ private:
     void lower_parallel_body(const pending_closure_t& pending, const local_id_t object) {
         const closure_t& closure = pending.closure;
         const local_id_t first = add_local(type_id_t::INT64, "first");
-        const local_id_t last = add_local(type_id_t::INT64, "last");
+        const local_id_t count = add_local(type_id_t::INT64, "count");
         current().parameter_count = current().locals.size();
         load_captures(pending, object);
 
@@ -4112,7 +4756,7 @@ private:
         jump(head);
         start(head);
         const operand_t more =
-            compare(binary_op_t::LESS, place_t{ position }, place_t{ last }, span);
+            compare(binary_op_t::NOT_EQUAL, place_t{ count }, zero(type_id_t::INT64), span);
         const block_id_t test = here();
         m_block.reset();
 
@@ -4127,6 +4771,7 @@ private:
         loop_t loop = lower_loop_body(id, node.body);
         leave(loop.continues);
         join(loop.continues);
+        // The index wraps past an Int64's end, where an unsigned range can go.
         binary_t next{
             .op = binary_op_t::ADD,
             .left = place_t{ position },
@@ -4135,6 +4780,13 @@ private:
             .wrapping = true,
         };
         emit(assign_t{ .target = position, .value = std::move(next) });
+        binary_t fewer{
+            .op = binary_op_t::SUBTRACT,
+            .left = place_t{ count },
+            .right = one(type_id_t::INT64),
+            .span = span,
+        };
+        emit(assign_t{ .target = count, .value = std::move(fewer) });
         jump(head);
 
         const block_id_t done = new_block();
@@ -4181,6 +4833,20 @@ private:
 
         current().parameter_count = current().locals.size();
         const type_id_t result = concrete(function.type);
+        if (!closure.lambda && external_of(function) != nullptr) {
+            const std::optional<operand_t> value =
+                extern_call(closure.function, std::move(arguments), function.span);
+            if (value) {
+                take(*value); // the caller owns the references it gets back
+            }
+
+            const std::optional<operand_t> returned =
+                value ? std::optional(outliving(*value)) : std::nullopt;
+            finish_statement();
+            terminate(return_t{ .value = returned });
+            return;
+        }
+
         if (!closure.lambda) {
             call_t call{
                 .function = function_of(closure.function, m_arguments),
@@ -4238,9 +4904,10 @@ private:
 
         const operand_t value = lower_value(*node.value);
         take(value); // the caller owns the references it gets back
+        const operand_t returned = outliving(value);
         finish_statement();
         release_scopes(0);
-        terminate(return_t{ .value = value });
+        terminate(return_t{ .value = returned });
     }
 
     /// An Async lambda's coroutine takes its object, its Task, then the arguments, and keeps its
@@ -4295,9 +4962,19 @@ private:
         terminate(return_t{});
     }
 
-    /// Interpolation: every part becomes a String, then they're joined.
+    /// Interpolation: every part becomes a String, then they're joined. The parts go left to
+    /// right, so a String read in one is copied first if a later one could change it.
     operand_t lower_expr(expr_id_t /*id*/, const string_expr_t& node) {
+        std::vector<expr_id_t> inners;
+        for (const string_part_t& part : node.parts) {
+            if (const auto* inner = std::get_if<expr_id_t>(&part)) {
+                inners.push_back(*inner);
+            }
+        }
+
+        const std::vector<bool> later = changes_after(inners);
         std::vector<operand_t> parts;
+        std::size_t next = 0;
         for (const string_part_t& part : node.parts) {
             if (const auto* text = std::get_if<std::string>(&part)) {
                 parts.emplace_back(make_string(*text));
@@ -4305,7 +4982,7 @@ private:
             }
 
             const expr_id_t inner = std::get<expr_id_t>(part);
-            add_text(parts, lower_value(inner), converted_type(inner));
+            add_text(parts, settled(lower_value(inner), later[next++]), converted_type(inner));
         }
 
         return runtime_call(runtime_function_t::JOIN, std::move(parts), type_id_t::STRING, true);
@@ -4462,7 +5139,7 @@ private:
             return found->function;
         }
 
-        const std::string_view name = types().name(type);
+        const std::string name = types().qualified_name(type);
         std::string full;
         type_id_t result = type_id_t::BOOL;
         if (kind == generated_kind_t::EQUAL) {
@@ -4663,9 +5340,15 @@ private:
             return lower_operator(id, node.op == binary_op_t::NOT_EQUAL);
         }
 
-        const operand_t left = lower_value(node.left);
+        const operand_t left = settled(lower_value(node.left), may_change(node.right));
         const operand_t right = lower_value(node.right);
         const type_id_t type = type_of(left);
+        // A Ptr steps by its T's size.
+        if (is_pointer(type) && (node.op == binary_op_t::ADD || node.op == binary_op_t::SUBTRACT)) {
+            return temporary(pointer_t{ .op = node.op, .left = left, .right = right },
+                             expr_type(id));
+        }
+
         // Strings add through the runtime.
         if (type == type_id_t::STRING && node.op == binary_op_t::ADD) {
             return runtime_call(runtime_function_t::CONCAT, { left, right }, type_id_t::STRING,
@@ -4695,13 +5378,14 @@ private:
             expr_type(id));
     }
 
-    /// A Bool: whether two values of one type are equal, the way == compares them. A Struct or
-    /// tuple compares its fields, a String its text, and a T? is equal when both are Null or both
-    /// hold equal values. A Class, or Class?, compares references.
+    /// A Bool: whether two values of one type are equal, the way == compares them: with the
+    /// type's Operator == if it has one, and otherwise a Struct or tuple compares its fields, a
+    /// String its text, and a T? is equal when both are Null or both hold equal values. A Class,
+    /// or Class?, without an Operator == compares references.
     operand_t equal(const operand_t& left, const operand_t& right, const span_t span) {
         const type_id_t type = type_of(left);
-        if (const std::optional<symbol_id_t> defined = equal_operator(type)) {
-            return call_operator(*defined, types().get(type).arguments, { left, right }, span);
+        if (const auto defined = equal_operator(type)) {
+            return call_operator(defined->first, defined->second, { left, right }, span);
         }
 
         if (has_fields(type)) {
@@ -4732,10 +5416,17 @@ private:
     /// is the opposite of "==".
     operand_t lower_operator(const expr_id_t id, const bool negate) {
         const expr_info_t& info = m_analysis.expr(id);
-        std::vector<operand_t> operands;
-        operands.reserve(info.arguments.size());
+        std::vector<expr_id_t> written;
+        written.reserve(info.arguments.size());
         for (const std::optional<expr_id_t> operand : info.arguments) {
-            operands.push_back(lower_value(expect(operand)));
+            written.push_back(expect(operand));
+        }
+
+        const std::vector<bool> later = changes_after(written);
+        std::vector<operand_t> operands;
+        operands.reserve(written.size());
+        for (std::size_t i = 0; i < written.size(); ++i) {
+            operands.push_back(settled(lower_value(written[i]), later[i]));
         }
 
         operand_t result = call_operator(expect(info.symbol), concrete(info.type_arguments),
@@ -4826,35 +5517,67 @@ private:
         return compare(op, order, zero(type_id_t::INT32), span);
     }
 
-    /// The Operator == that a Struct or Class defines for two of itself, which every == on it
-    /// uses: in a Struct's or tuple's fields, a T[]'s Contains, and a T?'s value too.
-    [[nodiscard]] std::optional<symbol_id_t> equal_operator(const type_id_t type) const {
-        const type_id_t definition = definition_of(type);
-        const auto declared = m_declared_types.find(definition);
-        if ((!has_fields(type) && !is_class(type)) || declared == m_declared_types.end()) {
+    /// The Operator == that a Struct or Class has for two of itself, which every == on it uses:
+    /// in a Struct's or tuple's fields, a T[]'s Contains, and a T?'s value too, with the type
+    /// arguments to call it with. It's the one analysis picks for a == written on the type: one
+    /// that an Extend of the instance adds, like Box<Int32>'s, before the generic type's own,
+    /// and else the nearest Class's it extends. One that a Where line makes conditional, like
+    /// what an Extend with one adds or a default it gives, is only the instances' that meet it,
+    /// and the others compare the built-in way.
+    [[nodiscard]] std::optional<std::pair<symbol_id_t, std::vector<type_id_t>>>
+    equal_operator(const type_id_t type) const {
+        if (!has_fields(type) && !is_class(type)) {
             return std::nullopt;
         }
 
-        for (const symbol_id_t member : m_analysis.symbol(declared->second).members) {
-            const symbol_t& candidate = m_analysis.symbol(member);
-            const bool pair = candidate.parameters.size() == 2 &&
-                              m_analysis.symbol(candidate.parameters[0]).type == definition &&
-                              m_analysis.symbol(candidate.parameters[1]).type == definition;
-            if (candidate.kind == symbol_kind_t::METHOD && candidate.name == "==" &&
-                candidate.modifiers.is_static && pair) {
-                return member;
+        for (type_id_t current = type; current != type_id_t::INVALID;
+             current = types().get(current).base) {
+            if (const auto added = m_analysis.instance_members.find(current);
+                added != m_analysis.instance_members.end()) {
+                for (const symbol_id_t member : added->second) {
+                    if (compares_two(member, current)) {
+                        return std::pair{ member, std::vector<type_id_t>{} };
+                    }
+                }
+            }
+
+            const type_id_t definition = definition_of(current);
+            const auto declared = m_declared_types.find(definition);
+            if (declared == m_declared_types.end()) {
+                break;
+            }
+
+            for (const symbol_id_t member : m_analysis.symbol(declared->second).members) {
+                if (compares_two(member, definition) &&
+                    has_member(current, m_analysis.symbol(member))) {
+                    return std::pair{ member, types().get(current).arguments };
+                }
             }
         }
 
         return std::nullopt;
     }
 
+    /// Whether a member is an Operator == that takes two of `type`.
+    [[nodiscard]] bool compares_two(const symbol_id_t member, const type_id_t type) const {
+        const symbol_t& candidate = m_analysis.symbol(member);
+        return candidate.kind == symbol_kind_t::METHOD && candidate.name == "==" &&
+               candidate.modifiers.is_static && candidate.parameters.size() == 2 &&
+               m_analysis.symbol(candidate.parameters[0]).type == type &&
+               m_analysis.symbol(candidate.parameters[1]).type == type;
+    }
+
     /// Whether == on two T? values compares the values inside. Comparing with Null only asks
-    /// whether the other holds a value, and a Class? compares references.
+    /// whether the other holds a value, and a Class? compares references, unless its Class has an
+    /// Operator ==, which every == on its values uses, narrowed or not.
     [[nodiscard]] bool compares_values(const operand_t& left, const operand_t& right) {
         const type_id_t type = type_of(left);
-        return is_nullable(type) && !is_null(left) && !is_null(right) &&
-               !is_object(types().get(type).inner);
+        if (!is_nullable(type) || is_null(left) || is_null(right)) {
+            return false;
+        }
+
+        const type_id_t inner = types().get(type).inner;
+        return !is_object(inner) || equal_operator(inner).has_value();
     }
 
     /// Whether two Structs or tuples of the same type have equal fields, each compared the way ==
@@ -5470,6 +6193,39 @@ private:
 
     std::optional<operand_t> lower_call(const expr_id_t id) {
         const auto& node = std::get<call_expr_t>(m_ast.get(id).node);
+        // AddressOf(x) is x's place's address.
+        if (m_analysis.expr(id).address_of) {
+            return temporary(address_of_t{ .place = lower_place(node.arguments.front().value) },
+                             concrete(expr_type(id)));
+        }
+
+        // A CString's ToString copies its text, and its NULL has none.
+        if (m_analysis.expr(id).symbol && m_analysis.expr(id).symbol == m_analysis.cstring_text) {
+            // "cs.ToString()", or "ToString()" by name in an Extend of CString, Self's.
+            const auto* method = std::get_if<member_expr_t>(&m_ast.get(node.callee).node);
+            const operand_t text = method != nullptr ? lower_value(method->object)
+                                                     : operand_t{ place_t{ expect(m_self) } };
+            const block_id_t fail = new_block();
+            const block_id_t ok = new_block();
+            const binary_t compare{
+                .op = binary_op_t::EQUAL,
+                .left = text,
+                .right = const_value_t{ .type = type_id_t::CSTRING, .data = nullptr },
+                .span = span_of(id),
+            };
+            const operand_t null = temporary(compare, type_id_t::BOOL);
+            terminate(branch_t{ .condition = null, .if_true = fail, .if_false = ok });
+            start(fail);
+            terminate(panic_t{
+                .message = "the CString is Null, so it has no text",
+                .span = span_of(id),
+            });
+            start(ok);
+            const operand_t copy = runtime_call(runtime_function_t::STRING_FROM_CSTRING, { text },
+                                                types().nullable(type_id_t::STRING), true);
+            return unwrap(copy);
+        }
+
         // No function gives back an Atomic or Mutex, so a call that does makes one.
         if (const type_kind_t kind = types().get(concrete(expr_type(id))).kind;
             kind == type_kind_t::ATOMIC || kind == type_kind_t::MUTEX) {
@@ -5518,8 +6274,10 @@ private:
                                 has);
         }
 
-        if (is_func(expr_type(node.callee))) {
-            return invoke(node);
+        // A function value, or a Callback, which is called by the C ABI.
+        if (is_func(expr_type(node.callee)) ||
+            types().get(expr_type(node.callee)).kind == type_kind_t::CALLBACK) {
+            return invoke(node, span_of(id));
         }
 
         if (const auto* member = std::get_if<member_expr_t>(&m_ast.get(node.callee).node);
@@ -5542,7 +6300,7 @@ private:
         // A Static Field is a global, the instance's for a generic type's.
         if (name == "Get" && declared != nullptr && declared->kind == symbol_kind_t::GLOBAL) {
             const std::vector<type_id_t> arguments = owner_arguments(member.owner, declared->owner);
-            return place_t{ arguments.empty() ? m_globals.at(*member.symbol)
+            return place_t{ arguments.empty() ? ready(m_globals.at(*member.symbol), id)
                                               : instance_global(*member.symbol, arguments) };
         }
 
@@ -5558,20 +6316,32 @@ private:
                 return place;
             }
 
+            // The variable's object, if it's in one, goes before the value.
+            if (may_change(node.arguments[1].value)) {
+                place = settled_place(place, false);
+            }
+
             store(place, lower_value(node.arguments[1].value));
             return std::nullopt;
         }
 
         if (name == "Call") {
+            std::vector<expr_id_t> operands;
+            operands.reserve(node.arguments.size());
+            for (const argument_t& argument : node.arguments) {
+                operands.push_back(argument.value);
+            }
+
+            const std::vector<bool> later = changes_after(operands);
             const symbol_id_t method = expect(member.symbol);
-            const operand_t value = lower_value(node.arguments[0].value);
+            const operand_t value = settled(lower_value(operands[0]), later[0]);
             const type_id_t type = type_of(value);
             call_t call{
                 .function = function_of(method, implementation_arguments(type, method)),
                 .arguments = { { .value = value } },
             };
-            for (std::size_t i = 1; i < node.arguments.size(); ++i) {
-                call.arguments.push_back({ .value = lower_value(node.arguments[i].value) });
+            for (std::size_t i = 1; i < operands.size(); ++i) {
+                call.arguments.push_back({ .value = settled(lower_value(operands[i]), later[i]) });
             }
 
             if (is_virtual(m_analysis.symbol(method))) {
@@ -5618,11 +6388,17 @@ private:
     }
 
     /// Calling a function value runs its object's code.
-    std::optional<operand_t> invoke(const call_expr_t& node) {
-        const operand_t callee = lower_value(node.callee);
-        invoke_t call{ .callee = callee };
+    std::optional<operand_t> invoke(const call_expr_t& node, const span_t span) {
+        std::vector<expr_id_t> operands{ node.callee };
         for (const argument_t& argument : node.arguments) {
-            call.arguments.push_back(lower_value(argument.value));
+            operands.push_back(argument.value);
+        }
+
+        const std::vector<bool> later = changes_after(operands);
+        const operand_t callee = settled(lower_value(node.callee), later.front());
+        invoke_t call{ .callee = callee, .span = span };
+        for (std::size_t i = 0; i < node.arguments.size(); ++i) {
+            call.arguments.push_back(settled(lower_value(node.arguments[i].value), later[i + 1]));
         }
 
         const type_id_t result = types().get(type_of(callee)).inner;
@@ -5631,7 +6407,221 @@ private:
             return std::nullopt;
         }
 
-        return temporary(std::move(call), result, has_references(result));
+        operand_t given = temporary(std::move(call), result, has_references(result));
+        // An Enum C's code gives has to be one of its values, as an Extern Function's does.
+        if (types().get(type_of(callee)).kind == type_kind_t::CALLBACK && is_enum(result) &&
+            !types().get(result).flags) {
+            return to_enum(given, result, span,
+                           std::format("a Callback gave a value that isn't one of {}'s",
+                                       types().name(result)));
+        }
+
+        return given;
+    }
+
+    /// A call's arguments in the order they're written, packed ones too.
+    [[nodiscard]] std::vector<expr_id_t> written_arguments(const expr_id_t id) const {
+        const expr_info_t& info = m_analysis.expr(id);
+        const auto& node = std::get<call_expr_t>(m_ast.get(id).node);
+        std::vector<expr_id_t> written;
+        written.reserve(node.arguments.size());
+        for (const argument_t& argument : node.arguments) {
+            if (std::ranges::contains(info.arguments, std::optional(argument.value)) ||
+                std::ranges::contains(info.packed, argument.value)) {
+                written.push_back(argument.value);
+            }
+        }
+
+        return written;
+    }
+
+    /// Whether a call's arguments could change what its object reads.
+    [[nodiscard]] bool arguments_change(const expr_id_t id) const {
+        return std::ranges::any_of(written_arguments(id), [this](const expr_id_t argument) {
+            return may_change(argument);
+        });
+    }
+
+    /// A Method's object, which goes before its arguments: the variable itself for a ByRef
+    /// Method, reached through what it was in, else its value, copied first if an argument could
+    /// change it. After a '?.', it's `receiver`, and called by name, it's Self.
+    operand_t object_of(const std::optional<operand_t>& receiver, const member_expr_t* member,
+                        const bool by_ref, const bool changes_later) {
+        if (receiver) {
+            return by_ref ? *receiver : settled(*receiver, changes_later);
+        }
+
+        if (member == nullptr) {
+            const operand_t self = place_t{ expect(m_self) };
+            return by_ref ? self : settled(self, changes_later);
+        }
+
+        if (by_ref) {
+            const place_t place = lower_place(member->object);
+            return changes_later ? settled_place(place, false) : place;
+        }
+
+        return settled(lower_value(member->object), changes_later);
+    }
+
+    /// A call's arguments for its parameters in order, after any object in `arguments`. They're
+    /// evaluated in the order they're written, each copied first if one written after it could
+    /// change what it reads. A missing one gets the parameter's default, which is known at
+    /// compile time, or a field's zero, and a variadic parameter gets its packed ones, which are
+    /// written last. ByRef passes the variable itself.
+    void lower_arguments(const expr_id_t id, const symbol_t& function,
+                         const std::vector<type_id_t>& type_arguments,
+                         std::vector<call_argument_t>& arguments) {
+        const expr_info_t& info = m_analysis.expr(id);
+        std::vector<std::optional<call_argument_t>> lowered(info.arguments.size());
+        const auto lower_one = [&](const std::size_t index, const bool changes_later) {
+            const expr_id_t argument = expect(info.arguments[index]);
+            if (!m_analysis.symbol(function.parameters[index]).by_ref) {
+                lowered[index] = { .value = settled(lower_value(argument), changes_later) };
+                return;
+            }
+
+            const place_t place = lower_place(argument);
+            lowered[index] = {
+                .value = changes_later ? settled_place(place, false) : place,
+                .by_ref = true,
+            };
+        };
+        const std::vector<expr_id_t> written = written_arguments(id);
+        const std::vector<bool> later = changes_after(written);
+        for (std::size_t i = 0; i < written.size(); ++i) {
+            const auto found = std::ranges::find(info.arguments, std::optional(written[i]));
+            if (found != info.arguments.end()) {
+                lower_one(static_cast<std::size_t>(found - info.arguments.begin()), later[i]);
+            }
+        }
+
+        const std::vector<type_id_t> type_parameters = type_parameters_of(function);
+        for (std::size_t i = 0; i < info.arguments.size(); ++i) {
+            if (!lowered[i] && info.arguments[i]) {
+                lower_one(i, false);
+            }
+
+            if (const std::optional<call_argument_t>& argument = lowered[i]) {
+                arguments.push_back(*argument);
+                continue;
+            }
+
+            const symbol_t& parameter = m_analysis.symbol(function.parameters[i]);
+            const type_id_t type =
+                types().substitute(parameter.type, type_parameters, type_arguments);
+            const operand_t value =
+                parameter.variadic ? array_of(info.packed, type) : default_of(parameter, type);
+            arguments.push_back({ .value = value });
+        }
+    }
+
+    /// A call of an Extern Function. A String for a CString parameter goes as a copy with a NUL
+    /// after it, which C code reads during the call, and which is freed right after it. A String
+    /// C gives is a copy of its text, made before that, and Null for a String? where C gives
+    /// NULL, which panics for a String.
+    std::optional<operand_t>
+    extern_call(const symbol_id_t id, std::vector<call_argument_t> arguments, const span_t span) {
+        const symbol_t& function = m_analysis.symbol(id);
+        const external_t* external = external_of(function);
+        const bool text = external != nullptr && external->convention != convention_t::RUNTIME &&
+                          is_text(function.type);
+        std::vector<operand_t> copies;
+        for (std::size_t i = 0; i < arguments.size(); ++i) {
+            if (m_analysis.symbol(function.parameters[i]).converts_string &&
+                type_of(arguments[i].value) == type_id_t::STRING) {
+                arguments[i].value = runtime_call(runtime_function_t::CSTRING_NEW,
+                                                  { arguments[i].value }, type_id_t::CSTRING);
+                copies.push_back(arguments[i].value);
+            }
+        }
+
+        std::vector<operand_t> called;
+        called.reserve(arguments.size());
+        for (const call_argument_t& argument : arguments) {
+            called.push_back(argument.value);
+        }
+
+        call_t call{ .function = function_of(id), .arguments = std::move(arguments) };
+        std::optional<operand_t> result;
+        if (function.type == type_id_t::NONE) {
+            emit(evaluate_t{ .value = std::move(call) });
+        } else if (text) {
+            const operand_t given = temporary(std::move(call), type_id_t::CSTRING);
+            result = runtime_call(runtime_function_t::STRING_FROM_CSTRING, { given },
+                                  types().nullable(type_id_t::STRING), true);
+        } else {
+            result = temporary(std::move(call), function.type, has_references(function.type));
+        }
+
+        for (const operand_t& copy : copies) {
+            const runtime_call_t free{
+                .function = runtime_function_t::CSTRING_FREE,
+                .arguments = { copy },
+            };
+            emit(evaluate_t{ .value = free });
+        }
+
+        // An Enum C gives, or sets ByRef, has to be one of its values.
+        const auto checked_enum = [&](const type_id_t type) {
+            return is_enum(type) && !types().get(type).flags;
+        };
+        const std::string gave =
+            std::format("'{}' gave a value that isn't one of {}'s", function.name,
+                        checked_enum(function.type) ? types().name(function.type) : "");
+        if (result && checked_enum(function.type)) {
+            result = to_enum(*result, function.type, span, gave);
+        }
+
+        for (std::size_t i = 0; i < function.parameters.size(); ++i) {
+            const symbol_t& parameter = m_analysis.symbol(function.parameters[i]);
+            if (parameter.by_ref && checked_enum(parameter.type)) {
+                (void)to_enum(called[i], parameter.type, span,
+                              std::format("'{}' set '{}' to a value that isn't one of {}'s",
+                                          function.name, parameter.name,
+                                          types().name(parameter.type)));
+            }
+        }
+
+        // And so is each one in a Struct it gives or sets ByRef.
+        if (result && is_struct(function.type)) {
+            const std::string gives(types().name(function.type));
+            check_enum_fields(std::get<place_t>(*result), function.type, {}, span,
+                              [&](const std::string& path, const std::string_view enumeration) {
+                                  return std::format(
+                                      "'{}' gave {}'s Field {} a value that isn't one of {}'s",
+                                      function.name, gives, path, enumeration);
+                              });
+        }
+
+        for (std::size_t i = 0; i < function.parameters.size(); ++i) {
+            const symbol_t& parameter = m_analysis.symbol(function.parameters[i]);
+            if (parameter.by_ref && is_struct(parameter.type)) {
+                check_enum_fields(
+                    std::get<place_t>(called[i]), parameter.type, {}, span,
+                    [&](const std::string& path, const std::string_view enumeration) {
+                        return std::format(
+                            "'{}' set Field {} of '{}' to a value that isn't one of {}'s",
+                            function.name, path, parameter.name, enumeration);
+                    });
+            }
+        }
+
+        if (result && text && function.type == type_id_t::STRING) {
+            const operand_t given = has_value(*result, span);
+            const block_id_t fail = new_block();
+            const block_id_t ok = new_block();
+            terminate(branch_t{ .condition = given, .if_true = ok, .if_false = fail });
+            start(fail);
+            terminate(panic_t{
+                .message = std::format("'{}' gave a null CString for its String", function.name),
+                .span = span,
+            });
+            start(ok);
+            result = unwrap(*result);
+        }
+
+        return result;
     }
 
     /// A call, on `receiver` when it's a Method called after a '?.'.
@@ -5658,13 +6648,8 @@ private:
         // Called by name, it's Self. A Static Method has none.
         if (function.kind == symbol_kind_t::METHOD && !function.modifiers.is_static) {
             const auto* member = std::get_if<member_expr_t>(&m_ast.get(node.callee).node);
-            operand_t value = receiver ? *receiver : operand_t{};
-            if (!receiver && member == nullptr) {
-                value = place_t{ expect(m_self) };
-            } else if (!receiver) {
-                value = function.by_ref ? lower_place(member->object) : lower_value(member->object);
-            }
-
+            const operand_t value =
+                object_of(receiver, member, function.by_ref, arguments_change(id));
             if (function.by_ref) {
                 arguments.push_back({ .value = as_place(value), .by_ref = true });
             } else {
@@ -5675,24 +6660,9 @@ private:
         }
 
         const std::vector<type_id_t> type_arguments = call_arguments(function, info, object);
-        const std::vector<type_id_t> type_parameters = type_parameters_of(function);
-        for (std::size_t i = 0; i < info.arguments.size(); ++i) {
-            const symbol_t& parameter = m_analysis.symbol(function.parameters[i]);
-            const std::optional<expr_id_t> argument = info.arguments[i];
-            // A missing argument gets the parameter's default, which is known at compile time,
-            // or a field's zero, and a variadic parameter gets its packed ones. ByRef passes the
-            // variable itself.
-            if (!argument) {
-                const type_id_t type =
-                    types().substitute(parameter.type, type_parameters, type_arguments);
-                const operand_t value =
-                    parameter.variadic ? array_of(info.packed, type) : default_of(parameter, type);
-                arguments.push_back({ .value = value });
-            } else if (parameter.by_ref) {
-                arguments.push_back({ .value = lower_place(*argument), .by_ref = true });
-            } else {
-                arguments.push_back({ .value = lower_value(*argument) });
-            }
+        lower_arguments(id, function, type_arguments, arguments);
+        if (external_of(function) != nullptr) {
+            return extern_call(expect(info.symbol), std::move(arguments), span_of(id));
         }
 
         // A T[]'s own Methods, and a @Flags Enum's Has, are built in; an Extend's aren't.
@@ -5778,20 +6748,8 @@ private:
             return compare(binary_op_t::EQUAL, arguments[0].value, arguments[1].value, span_of(id));
         }
 
-        if (function.kind == symbol_kind_t::BUILTIN_FUNCTION && function.name != "Print") {
-            return timing_call(id, function, arguments);
-        }
-
-        // Print is the other built-in function.
         if (function.kind == symbol_kind_t::BUILTIN_FUNCTION) {
-            emit(evaluate_t{
-                .value =
-                    runtime_call_t{
-                        .function = runtime_function_t::PRINT,
-                        .arguments = { arguments[0].value },
-                    },
-            });
-            return std::nullopt;
+            return timing_call(id, function, arguments);
         }
 
         // An Async Function's call makes its Task and starts its coroutine, which runs until it
@@ -5838,7 +6796,7 @@ private:
         }
 
         const type_id_t result_type =
-            types().substitute(function.type, type_parameters, type_arguments);
+            types().substitute(function.type, type_parameters_of(function), type_arguments);
         std::optional<operand_t> result;
         if (result_type == type_id_t::NONE) {
             emit(evaluate_t{ .value = std::move(call) });
@@ -5898,37 +6856,12 @@ private:
         std::vector<call_argument_t> arguments;
         if (!callee.modifiers.is_static) {
             const bool by_ref = callee.by_ref && !is_object(self);
-            operand_t value = make_bool(false);
-            if (receiver) {
-                value = *receiver;
-            } else if (member == nullptr) {
-                value = place_t{ expect(m_self) };
-            } else if (by_ref) {
-                value = lower_place(member->object);
-            } else {
-                value = lower_value(member->object);
-            }
-
+            const operand_t value = object_of(receiver, member, by_ref, arguments_change(id));
             arguments.push_back(by_ref ? call_argument_t{ .value = as_place(value), .by_ref = true }
                                        : call_argument_t{ .value = value });
         }
 
-        const std::vector<type_id_t> parameters = type_parameters_of(function);
-        for (std::size_t i = 0; i < info.arguments.size(); ++i) {
-            const symbol_t& parameter = m_analysis.symbol(function.parameters[i]);
-            const std::optional<expr_id_t> argument = info.arguments[i];
-            if (!argument) {
-                const type_id_t type =
-                    types().substitute(parameter.type, parameters, type_arguments);
-                const operand_t value =
-                    parameter.variadic ? array_of(info.packed, type) : default_of(parameter, type);
-                arguments.push_back({ .value = value });
-            } else if (parameter.by_ref) {
-                arguments.push_back({ .value = lower_place(*argument), .by_ref = true });
-            } else {
-                arguments.push_back({ .value = lower_value(*argument) });
-            }
-        }
+        lower_arguments(id, function, type_arguments, arguments);
 
         // Through an object, the call has the Interface for Self, and goes through its table
         // for the instance of a generic one.
@@ -5961,7 +6894,8 @@ private:
             call.arguments.push_back({ .value = place_t{ *error }, .by_ref = true });
         }
 
-        const type_id_t result = types().substitute(function.type, parameters, type_arguments);
+        const type_id_t result =
+            types().substitute(function.type, type_parameters_of(function), type_arguments);
         std::optional<operand_t> value;
         if (result == type_id_t::NONE) {
             emit(evaluate_t{ .value = std::move(call) });
@@ -6037,9 +6971,75 @@ private:
         return convert(value, type, span_of(id));
     }
 
-    /// An integer as one of an Enum's values, which it has to be. Values in a run need only a
-    /// check that it's in range.
-    operand_t to_enum(const operand_t& value, const type_id_t type, const span_t span) {
+    /// Whether a value of `type` has an Enum inside that C could set to another value: one that
+    /// isn't @Flags, in a Struct's fields or a fixed array's elements.
+    [[nodiscard]] bool holds_checked_enum(const type_id_t type) const {
+        if (is_enum(type)) {
+            return !types().get(type).flags;
+        }
+
+        if (is_fixed_array(type)) {
+            return holds_checked_enum(types().get(type).inner);
+        }
+
+        return is_struct(type) &&
+               std::ranges::any_of(types().get(type).fields, [this](const field_t& field) {
+                   return holds_checked_enum(field.type);
+               });
+    }
+
+    /// Checks each Enum in a Struct that C gave, at `path` inside it, whose fields and fixed
+    /// arrays' elements it walks: each has to be one of its values, or the program panics with
+    /// what `message` says of the Field's path and the Enum's name.
+    template <typename Message>
+    void check_enum_fields(const place_t& place, const type_id_t type, const std::string& path,
+                           const span_t span, const Message& message) {
+        if (!holds_checked_enum(type)) {
+            return;
+        }
+
+        if (is_enum(type)) {
+            (void)to_enum(place, type, span, message(path, types().name(type)));
+            return;
+        }
+
+        if (is_fixed_array(type)) {
+            const local_id_t counter = add_local(type_id_t::INT32);
+            emit(assign_t{ .target = counter, .value = use_t{ .value = zero(type_id_t::INT32) } });
+            const block_id_t head = new_block();
+            jump(head);
+            start(head);
+            const auto count = static_cast<std::int64_t>(types().element_count(type));
+            const operand_t in_range =
+                compare(binary_op_t::LESS, counter,
+                        const_value_t{ .type = type_id_t::INT32, .data = count }, span);
+            const block_id_t loop = new_block();
+            const block_id_t exit = new_block();
+            terminate(branch_t{ .condition = in_range, .if_true = loop, .if_false = exit });
+            start(loop);
+            place_t element = place;
+            element.steps.push_back({ .indices = { counter }, .span = span });
+            check_enum_fields(element, types().get(type).inner, path, span, message);
+            count_up(counter, span);
+            jump(head);
+            start(exit);
+            return;
+        }
+
+        const std::vector<field_t>& fields = types().get(type).fields;
+        for (std::size_t i = 0; i < fields.size(); ++i) {
+            place_t field = place;
+            field.steps.push_back({ .field = static_cast<std::uint32_t>(i), .span = span });
+            check_enum_fields(field, fields[i].type,
+                              path.empty() ? fields[i].name : path + "." + fields[i].name, span,
+                              message);
+        }
+    }
+
+    /// An integer as one of an Enum's values, which it has to be, or the program panics with
+    /// `message`. Values in a run need only a check that it's in range.
+    operand_t to_enum(const operand_t& value, const type_id_t type, const span_t span,
+                      std::string message = {}) {
         const type_id_t integer = types().get(type).inner;
         const operand_t number = convert(value, integer, span);
         std::vector<std::uint64_t> values;
@@ -6076,10 +7076,11 @@ private:
         const block_id_t ok = new_block();
         terminate(branch_t{ .condition = valid, .if_true = ok, .if_false = fail });
         start(fail);
-        terminate(panic_t{
-            .message = std::format("the value isn't one of {}'s", types().name(type)),
-            .span = span,
-        });
+        if (message.empty()) {
+            message = std::format("the value isn't one of {}'s", types().name(type));
+        }
+
+        terminate(panic_t{ .message = std::move(message), .span = span });
         start(ok);
         return cast(number, type, span);
     }
@@ -6094,7 +7095,7 @@ private:
         }
 
         const auto id = static_cast<function_id_t>(m_module.functions.size());
-        const std::string_view name = types().name(type);
+        const std::string name = types().qualified_name(type);
         m_module.functions.push_back({
             .name = std::format("{}.Text({})", name, name),
             .return_type = type_id_t::STRING,

@@ -1,25 +1,28 @@
 // Queue<T>: first in, first out. Enqueue puts a value at the back, and Dequeue takes the one at
 // the front. The values start at Head, and the ones before it are dropped once they're half.
 
-Class Queue<T>
+Public Class Queue<T>
     Field Items: T[] = []
     Field Head: Int
+    // How many times the values changed, so a For ... In over them can tell.
+    Field Changes: Int64
 
-    Property Count: Int
+    Public Property Count: Int
         Get => Items.Count - Head
     End Property
 
-    Method Enqueue(value: T)
+    Public Method Enqueue(value: T)
         Items.Add(value)
+        Changes += 1
     End Method
 
     // The same as Enqueue.
-    Method Add(value: T)
-        Items.Add(value)
+    Public Method Add(value: T)
+        Enqueue(value)
     End Method
 
     // Takes the front value off and gives it. Panics when the Queue is empty.
-    Method Dequeue(): T
+    Public Method Dequeue(): T
         Local front = Peek()
         Head += 1
         If Head * 2 >= Items.Count
@@ -27,16 +30,17 @@ Class Queue<T>
             Head = 0
         End If
 
+        Changes += 1
         Return front
     End Method
 
     // The front value, which stays. Panics when the Queue is empty.
-    Method Peek(): T
+    Public Method Peek(): T
         If Head == Items.Count Then Panic("the Queue is empty")
         Return Items[Head]
     End Method
 
-    Method Contains(value: T): Bool
+    Public Method Contains(value: T): Bool
         Where T: Equatable
         For i = Head Until Items.Count
             If Items[i] == value Then Return True
@@ -44,28 +48,32 @@ Class Queue<T>
         Return False
     End Method
 
-    Method Clear()
+    Public Method Clear()
         Items.Clear()
         Head = 0
+        Changes += 1
     End Method
 
-    Method Clone(): Queue<T>
+    Public Method Clone(): Queue<T>
         Local copy = Queue<T>()
         copy.Items = Items[Head..]
         Return copy
     End Method
 
-    // The values from the front, the order Dequeue gives them.
-    Method Iterate(): QueueIterator<T> => QueueIterator<T>(Items, Head)
+    // The values from the front, the order Dequeue gives them. Changing the Queue while going
+    // over them panics.
+    Public Method Iterate(): QueueIterator<T> => QueueIterator<T>(Self, Head, Changes)
 End Class
 
-Struct QueueIterator<T> Implements Iterator<T>
-    Field Items: T[]
+Public Struct QueueIterator<T> Implements Iterator<T>
+    Field Owner: Queue<T>
     Field Index: Int
+    Field Changes: Int64
 
-    ByRef Method Next(): T?
-        If Index >= Items.Count Then Return Null
+    Public ByRef Method Next(): T?
+        If Owner.Changes != Changes Then Panic("the Queue changed while a For ... In went over it")
+        If Index >= Owner.Items.Count Then Return Null
         Index += 1
-        Return Items[Index - 1]
+        Return Owner.Items[Index - 1]
     End Method
 End Struct

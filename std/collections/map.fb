@@ -9,20 +9,23 @@ Struct MapEntry<K, V>
     Field Next: Int
 End Struct
 
-Class Map<K, V>
+Public Class Map<K, V>
     Where K: Hashable
 
     Field Entries: MapEntry<K, V>[] = []
     // The first entry in each bucket, or -1. There are none until the first Add, then always a
-    // power of two.
+    // power of two, whose bits a mixed hash's top Shift bits leave.
     Field Buckets: Int[] = []
+    Field Shift: Int
+    // How many times keys were added or removed, so a For ... In over the entries can tell.
+    Field Changes: Int64
 
-    Property Count: Int
+    Public Property Count: Int
         Get => Entries.Count
     End Property
 
     // Adds an entry, or gives an existing key its new value.
-    Method Add(key: K, value: V)
+    Public Method Add(key: K, value: V)
         Local hash = key.Hash()
         Local found = IndexOf(key, hash)
         If found >= 0
@@ -34,19 +37,20 @@ Class Map<K, V>
         Local bucket = BucketOf(hash)
         Entries.Add(MapEntry<K, V>(key, value, hash, Buckets[bucket]))
         Buckets[bucket] = Entries.Count - 1
+        Changes += 1
     End Method
 
     // The key's value, or Null when it isn't there.
-    Method Get(key: K): V?
+    Public Method Get(key: K): V?
         Local found = IndexOf(key, key.Hash())
         If found < 0 Then Return Null
         Return Entries[found].Value
     End Method
 
-    Method Contains(key: K): Bool => IndexOf(key, key.Hash()) >= 0
+    Public Method Contains(key: K): Bool => IndexOf(key, key.Hash()) >= 0
 
     // Removes the key's entry, and tells whether there was one. The last entry takes its place.
-    Method Remove(key: K): Bool
+    Public Method Remove(key: K): Bool
         Local found = IndexOf(key, key.Hash())
         If found < 0 Then Return False
         Unlink(found)
@@ -60,17 +64,19 @@ Class Map<K, V>
         End If
 
         Entries.RemoveAt(last)
+        Changes += 1
         Return True
     End Method
 
-    Method Clear()
+    Public Method Clear()
         Entries.Clear()
         For i = 0 Until Buckets.Count
             Buckets[i] = -1
         End For
+        Changes += 1
     End Method
 
-    Method Keys(): K[]
+    Public Method Keys(): K[]
         Local keys: K[] = []
         For entry In Entries
             keys.Add(entry.Key)
@@ -78,7 +84,7 @@ Class Map<K, V>
         Return keys
     End Method
 
-    Method Values(): V[]
+    Public Method Values(): V[]
         Local values: V[] = []
         For entry In Entries
             values.Add(entry.Value)
@@ -87,15 +93,16 @@ Class Map<K, V>
     End Method
 
     // A new Map with the same entries.
-    Method Clone(): Map<K, V>
+    Public Method Clone(): Map<K, V>
         Local copy = Map<K, V>()
         copy.Entries = Entries.Clone()
         copy.Buckets = Buckets.Clone()
+        copy.Shift = Shift
         Return copy
     End Method
 
     // A new Map of the entries that keep says to keep.
-    Method Filter(keep: Func(K, V): Bool): Map<K, V>
+    Public Method Filter(keep: Func(K, V): Bool): Map<K, V>
         Local kept = Map<K, V>()
         For entry In Entries
             If keep(entry.Key, entry.Value) Then kept.Add(entry.Key, entry.Value)
@@ -103,8 +110,14 @@ Class Map<K, V>
         Return kept
     End Method
 
-    // Each key and its value, for 'For key, value In map'.
-    Method Iterate(): MapIterator<K, V> => MapIterator<K, V>(Entries, 0)
+    // Each key and its value, for 'For key, value In map'. Giving a key a new value while going
+    // over them is fine, but adding or removing one panics.
+    Public Method Iterate(): MapIterator<K, V> => IterateAs("Map")
+
+    // The same, for a Set, whose values are a Map's keys, naming it when it changes.
+    Package Method IterateAs(name: String): MapIterator<K, V>
+        Return MapIterator<K, V>(Self, 0, Changes, name)
+    End Method
 
     // Where the key's entry is, or -1.
     Method IndexOf(key: K, hash: UInt64): Int
@@ -117,7 +130,12 @@ Class Map<K, V>
         Return -1
     End Method
 
-    Method BucketOf(hash: UInt64): Int => (hash & ((Buckets.Count - 1) As UInt64)) As Int
+    // The bucket a hash's entry goes in: the top bits of the hash once it's mixed, so hashes
+    // that differ only in their high bits, or only in their low ones, spread out alike.
+    Method BucketOf(hash: UInt64): Int
+        Local mixed = (hash ^ (hash >> 32)).WrappingMultiply(0x9E3779B97F4A7C15)
+        Return (mixed >> Shift) As Int
+    End Method
 
     // Takes an entry out of its bucket's chain.
     Method Unlink(index: Int)
@@ -137,6 +155,7 @@ Class Map<K, V>
     // Twice the buckets, or 8 at first, with every entry chained again.
     Method Grow()
         Local count = Buckets.Count == 0 ? 8 : Buckets.Count * 2
+        Shift = Buckets.Count == 0 ? 61 : Shift - 1
         Buckets.Clear()
         For i = 0 Until count
             Buckets.Add(-1)
@@ -150,14 +169,20 @@ Class Map<K, V>
     End Method
 End Class
 
-Struct MapIterator<K, V> Implements Iterator<(K, V)>
-    Field Entries: MapEntry<K, V>[]
-    Field Index: Int
+Public Struct MapIterator<K, V> Implements Iterator<(K, V)>
+    Where K: Hashable
 
-    ByRef Method Next(): (K, V)?
-        If Index >= Entries.Count Then Return Null
+    Field Owner: Map<K, V>
+    Field Index: Int
+    Field Changes: Int64
+    // What the loop goes over: "Map", or "Set".
+    Field Name: String
+
+    Public ByRef Method Next(): (K, V)?
+        If Owner.Changes != Changes Then Panic("the {Name} changed while a For ... In went over it")
+        If Index >= Owner.Entries.Count Then Return Null
         Index += 1
-        Return (Entries[Index - 1].Key, Entries[Index - 1].Value)
+        Return (Owner.Entries[Index - 1].Key, Owner.Entries[Index - 1].Value)
     End Method
 End Struct
 
@@ -166,11 +191,31 @@ Extend Map<K, V> Implements Printable
     Where K: Printable
     Where V: Printable
 
-    Method ToString(): String
-        Local text = ""
+    Public Method ToString(): String
+        Local parts: String[] = []
         For key, value In Self
-            text = text + (text == "" ? "" : ", ") + "{key}: {value}"
+            parts.Add("{key}: {value}")
         End For
-        Return "{{" + text + "}}"
+        Return "{{" + JoinedText(parts) + "}}"
     End Method
 End Extend
+
+// The parts with ", " between them, joined in pairs, then pairs of those, and so on, so the time
+// grows with their length times its logarithm, not with its square, as joining one at a time
+// would.
+Package Function JoinedText(parts: String[]): String
+    If parts.Count == 0 Then Return ""
+    Local joined = parts
+    While joined.Count > 1
+        Local pairs: String[] = []
+        For i = 0 Until joined.Count Step 2
+            If i + 1 < joined.Count
+                pairs.Add(joined[i] + ", " + joined[i + 1])
+            Else
+                pairs.Add(joined[i])
+            End If
+        End For
+        joined = pairs
+    End While
+    Return joined[0]
+End Function

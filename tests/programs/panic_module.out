@@ -1,0 +1,2 @@
+2 is fine
+panic: -1 isn't positive at panic_module/checks.fb:4:5

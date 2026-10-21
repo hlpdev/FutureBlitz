@@ -26,13 +26,16 @@ constexpr std::int64_t signed_min(const std::uint32_t bits) {
     return -signed_max(bits) - 1;
 }
 
-/// A Float32 value is the nearest float, kept as a double. Out of range it's infinite.
+/// A Float32 value is the nearest float, kept as a double. Out of range it's infinite: from
+/// halfway between the largest float and 2^128, which rounds to 2^128, as IEEE rounding has it,
+/// so 3.4028235e38, the largest float's shortest spelling, is that float.
 double round_to(const double value, const type_id_t type) {
     if (type != type_id_t::FLOAT32) {
         return value;
     }
 
-    if (std::abs(value) > std::numeric_limits<float>::max()) {
+    constexpr double overflows = 0x1.ffffffp127;
+    if (std::abs(value) >= overflows) {
         return std::numeric_limits<double>::infinity();
     }
 

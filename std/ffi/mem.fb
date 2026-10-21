@@ -1,0 +1,80 @@
+// Raw memory, which Unsafe code allocates, resizes, fills, copies, compares, and gives back,
+// through the runtime, whose C functions a program can declare as it likes. Sizes are Int64s, as
+// SizeOf's and two Ptrs' difference are, so one that went below 0 panics instead of wrapping
+// around to a huge size.
+
+Extern "runtime"
+    Function fb_mem_alloc(bytes: UInt64): Ptr<Void>
+    Function fb_mem_resize(memory: Ptr<Void>, bytes: UInt64): Ptr<Void>
+    Function fb_mem_free(memory: Ptr<Void>)
+    Function fb_mem_copy(destination: Ptr<Void>, source: Ptr<Void>, bytes: UInt64)
+    Function fb_mem_fill(destination: Ptr<Void>, value: UInt8, bytes: UInt64)
+    Function fb_mem_compare(a: Ptr<Void>, b: Ptr<Void>, bytes: UInt64): Int32
+End Extern
+
+// Mem's Static Methods. What Alloc and Resize give, Free gives back.
+Public Struct Mem
+    // Mem isn't made: it's only its Static Methods.
+    New()
+    End New
+
+    // `bytes` of new memory, all 0. Panics when `bytes` is negative, or there isn't that much.
+    Public Unsafe Static Method Alloc(bytes: Int64): Ptr<Void>
+        If bytes < 0 Then Panic("Mem.Alloc takes a size that isn't negative, not {bytes}")
+        Local memory = fb_mem_alloc(bytes As UInt64)
+        If memory == Null Then Panic("out of memory: Mem.Alloc couldn't have {bytes} bytes")
+        Return memory
+    End Method
+
+    // What Alloc or Resize gave, in `bytes` of memory, which may have moved: it keeps what fits,
+    // and what it adds isn't 0. Null is new memory. Panics when `bytes` is negative, or there
+    // isn't that much.
+    Public Unsafe Static Method Resize(memory: Ptr<Void>, bytes: Int64): Ptr<Void>
+        If bytes < 0 Then Panic("Mem.Resize takes a size that isn't negative, not {bytes}")
+        Local moved = fb_mem_resize(memory, bytes As UInt64)
+        If moved == Null Then Panic("out of memory: Mem.Resize couldn't have {bytes} bytes")
+        Return moved
+    End Method
+
+    // Gives back what Alloc or Resize gave. Null is nothing to give back.
+    Public Unsafe Static Method Free(memory: Ptr<Void>)
+        fb_mem_free(memory)
+    End Method
+
+    // Copies `bytes` from `source` to `destination`, which can overlap. Panics when `bytes` is
+    // negative, or when it isn't 0 and either is Null.
+    Public Unsafe Static Method Copy(destination: Ptr<Void>, source: Ptr<Void>, bytes: Int64)
+        If bytes < 0 Then Panic("Mem.Copy takes a size that isn't negative, not {bytes}")
+        If bytes == 0 Then Return
+        If destination == Null || source == Null
+            Panic("Mem.Copy copies {bytes} bytes, so neither Ptr can be Null")
+        End If
+
+        fb_mem_copy(destination, source, bytes As UInt64)
+    End Method
+
+    // Sets `bytes` of memory from `destination` on to `value`. Panics when `bytes` is negative,
+    // or when it isn't 0 and `destination` is Null.
+    Public Unsafe Static Method Fill(destination: Ptr<Void>, value: UInt8, bytes: Int64)
+        If bytes < 0 Then Panic("Mem.Fill takes a size that isn't negative, not {bytes}")
+        If bytes == 0 Then Return
+        If destination == Null Then Panic("Mem.Fill fills {bytes} bytes, so its Ptr can't be Null")
+        fb_mem_fill(destination, value, bytes As UInt64)
+    End Method
+
+    // Compares `bytes` of memory at `a` with as many at `b`: 0 when they're the same, or -1 or
+    // 1 as the first byte that differs, read as a UInt8, is lower at `a` or at `b`. Panics when
+    // `bytes` is negative, or when it isn't 0 and either is Null.
+    Public Unsafe Static Method Compare(a: Ptr<Void>, b: Ptr<Void>, bytes: Int64): Int32
+        If bytes < 0 Then Panic("Mem.Compare takes a size that isn't negative, not {bytes}")
+        If bytes == 0 Then Return 0
+        If a == Null || b == Null
+            Panic("Mem.Compare compares {bytes} bytes, so neither Ptr can be Null")
+        End If
+
+        Local order = fb_mem_compare(a, b, bytes As UInt64)
+        If order < 0 Then Return -1
+        If order > 0 Then Return 1
+        Return 0
+    End Method
+End Struct

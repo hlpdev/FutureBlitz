@@ -1,0 +1,15 @@
+// A cast panic names both Classes in full, however long their names are.
+Class Base
+End Class
+
+Class Holder<A, B, C> Extends Base
+End Class
+
+Class AVeryLongClassNameForTestingPanicMessagesInTheRuntimeNumberOne
+End Class
+
+Class AVeryLongClassNameForTestingPanicMessagesInTheRuntimeNumberTwo
+End Class
+
+Local b: Base = Holder<AVeryLongClassNameForTestingPanicMessagesInTheRuntimeNumberOne, AVeryLongClassNameForTestingPanicMessagesInTheRuntimeNumberTwo, AVeryLongClassNameForTestingPanicMessagesInTheRuntimeNumberOne>()
+Local h = b As Holder<AVeryLongClassNameForTestingPanicMessagesInTheRuntimeNumberTwo, AVeryLongClassNameForTestingPanicMessagesInTheRuntimeNumberTwo, AVeryLongClassNameForTestingPanicMessagesInTheRuntimeNumberTwo>

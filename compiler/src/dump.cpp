@@ -187,7 +187,9 @@ private:
     }
 
     [[nodiscard]] std::string type_text(const named_type_t& node) const {
-        return std::string(node.name) + arguments_text(node.arguments);
+        const std::string qualifier =
+            node.qualifier ? std::format("{}.", node.qualifier->text) : std::string();
+        return qualifier + std::string(node.name) + arguments_text(node.arguments);
     }
 
     /// "<Int, String>", or nothing without type arguments.
@@ -289,7 +291,7 @@ private:
             result = ": " + type_text(*node.result);
         }
 
-        return std::format("Func({}){}", parameters, result);
+        return std::format("{}({}){}", node.callback ? "Callback" : "Func", parameters, result);
     }
 
     /// "(Int, String)"
@@ -557,8 +559,13 @@ private:
         return out;
     }
 
-    /// The modifiers, like Abstract and Async, as keywords after the node's head.
+    /// The modifiers, like Public and Async, as keywords after the node's head. A visibility
+    /// shows only when it's written.
     void add_modifiers(node_t& out, const modifiers_t& modifiers) const {
+        if (modifiers.visibility_span) {
+            out.items.push_back(atom(std::string(spelling(modifiers.visibility)), tone_t::KEYWORD));
+        }
+
         if (modifiers.is_abstract) {
             out.items.push_back(atom("Abstract", tone_t::KEYWORD));
         }
@@ -593,6 +600,14 @@ private:
 
         if (modifiers.is_async) {
             out.items.push_back(atom("Async", tone_t::KEYWORD));
+        }
+
+        if (modifiers.is_unsafe) {
+            out.items.push_back(atom("Unsafe", tone_t::KEYWORD));
+        }
+
+        if (modifiers.is_c_layout) {
+            out.items.push_back(atom("@CLayout", tone_t::KEYWORD));
         }
 
         if (modifiers.is_main_thread) {
@@ -741,9 +756,41 @@ private:
         }
 
         add_where_lines(out, node.constraints);
-        // An Interface's Method without a body is only its first line.
-        if (!node.required) {
+        // An Extern block's Function names its C symbol when it isn't its own name.
+        if (node.external && node.external->symbol) {
+            out.items.push_back(atom("="));
+            out.items.push_back(atom(quote(*node.external->symbol), tone_t::LITERAL));
+        }
+
+        // An Interface's Method without a body, and an Extern block's Function, are only their
+        // first lines.
+        if (!node.required && !node.external) {
             out.items.push_back(block(node.body));
+        }
+
+        return out;
+    }
+
+    /// "(extern "C" Lib "joltc" (function Abs (n: Int32) -> Int32 = "abs"))", with its
+    /// visibility before the convention.
+    [[nodiscard]] node_t build(const extern_stmt_t& node) const {
+        node_t out = list("extern");
+        add_modifiers(out, node.modifiers);
+        std::string_view convention = "C";
+        if (node.convention == convention_t::STDCALL) {
+            convention = "stdcall";
+        } else if (node.convention == convention_t::RUNTIME) {
+            convention = "runtime";
+        }
+
+        out.items.push_back(atom(quote(convention), tone_t::LITERAL));
+        if (node.library) {
+            out.items.push_back(atom("Lib", tone_t::KEYWORD));
+            out.items.push_back(atom(quote(*node.library), tone_t::LITERAL));
+        }
+
+        for (const stmt_id_t function : node.functions) {
+            out.items.push_back(stmt(function));
         }
 
         return out;
@@ -789,6 +836,12 @@ private:
         node_t out = list("lock");
         out.items.push_back(expr(node.mutex));
         out.items.push_back(atom(std::string(node.name.text), tone_t::NAME));
+        out.items.push_back(block(node.body));
+        return out;
+    }
+
+    [[nodiscard]] node_t build(const unsafe_stmt_t& node) const {
+        node_t out = list("unsafe");
         out.items.push_back(block(node.body));
         return out;
     }
@@ -936,6 +989,27 @@ private:
         return list("throw", { expr(node.error) });
     }
 
+    /// "(import std.collections)", "(import "./ui/hud" As C)", or "(from std.math Import Vec3
+    /// Lerp)".
+    static node_t build(const import_stmt_t& node) {
+        node_t out = list(node.from ? "from" : "import");
+        out.items.push_back(node.quoted ? atom(quote(node.target), tone_t::LITERAL)
+                                        : atom(node.target, tone_t::NAME));
+        if (node.alias) {
+            out.items.push_back(atom("As", tone_t::KEYWORD));
+            out.items.push_back(atom(std::string(node.alias->text), tone_t::NAME));
+        }
+
+        if (node.from) {
+            out.items.push_back(atom("Import", tone_t::KEYWORD));
+            for (const name_t& name : node.names) {
+                out.items.push_back(atom(std::string(name.text), tone_t::NAME));
+            }
+        }
+
+        return out;
+    }
+
     /// "(try (block ...) (catch e As FileError (block ...)) (finally (block ...)))".
     [[nodiscard]] node_t build(const try_stmt_t& node) const {
         node_t out = list("try", { block(node.body) });
@@ -1016,7 +1090,9 @@ private:
                      parameters_text(node.type_parameters, node.value_types, node.constraints),
                  tone_t::NAME));
         if (node.base) {
-            std::string base(node.base->text);
+            std::string base = node.base_qualifier ? std::format("{}.{}", node.base_qualifier->text,
+                                                                 node.base->text)
+                                                   : std::string(node.base->text);
             for (std::size_t i = 0; i < node.base_arguments.size(); ++i) {
                 base += i == 0 ? "<" : ", ";
                 base += type_text(node.base_arguments[i]);
@@ -1129,13 +1205,25 @@ private:
 };
 
 /// The tree view, one top-level item per line. With an analysis, it's the types view.
-std::string render_tree(const ast_t& ast, const style_t& style, const analysis_t* analysis) {
+std::string render_tree(const ast_t& ast, const style_t& style, const analysis_t* analysis,
+                        const bool package) {
     const builder_t builder(ast, true);
     const renderer_t renderer(style, analysis);
+    const module_table_t& modules = ast.modules();
+    const std::optional<module_id_t> main = modules.main();
+    // Other modules' declarations aren't part of the main module's own code, or for a package,
+    // other packages' aren't part of its own.
+    const auto shown = [&](const stmt_id_t id) {
+        if (!package || !main) {
+            return !ast.outside_main(id);
+        }
+
+        const std::optional<module_id_t> module = modules.of(ast.get(id).span.file);
+        return module && modules.get(*module).package == modules.get(*main).package;
+    };
     std::string out;
     for (const stmt_id_t id : ast.items()) {
-        // The library files' declarations aren't part of the program's own code.
-        if (ast.from_library(id)) {
+        if (!shown(id)) {
             continue;
         }
 
@@ -1269,8 +1357,8 @@ std::string dump_ast(const ast_t& ast) {
     const renderer_t renderer(style_t(), nullptr);
     std::string out;
     for (const stmt_id_t id : ast.items()) {
-        // The library files' declarations aren't part of the program's own code.
-        if (ast.from_library(id)) {
+        // Other modules' declarations aren't part of the main module's own code.
+        if (ast.outside_main(id)) {
             continue;
         }
 
@@ -1284,12 +1372,13 @@ std::string dump_ast(const ast_t& ast) {
     return out;
 }
 
-std::string dump_tree(const ast_t& ast, const style_t& style) {
-    return render_tree(ast, style, nullptr);
+std::string dump_tree(const ast_t& ast, const style_t& style, const bool package) {
+    return render_tree(ast, style, nullptr, package);
 }
 
-std::string dump_types(const ast_t& ast, const analysis_t& analysis, const style_t& style) {
-    return render_tree(ast, style, &analysis);
+std::string dump_types(const ast_t& ast, const analysis_t& analysis, const style_t& style,
+                       const bool package) {
+    return render_tree(ast, style, &analysis, package);
 }
 
 std::string highlight_llvm(const std::string_view ir, const style_t& style) {

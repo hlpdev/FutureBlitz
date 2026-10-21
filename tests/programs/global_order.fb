@@ -1,0 +1,25 @@
+// Globals initialize in source order. A lambda in an initializer runs later, so it can use a
+// Global further down once that one's type is written, and functions use any Global once the
+// top-level code runs. A Global known at compile time, like counter, is set from the start.
+Class Thing
+    Field Name: String
+
+    New(name: String)
+        Name = name
+    End New
+End Class
+
+Global describe: Func(): String = Function(): String => "then {second.Name}"
+Global first = Thing("first")
+Global second: Thing = Thing("second")
+Global both = Both()
+
+Function Both(): String => first.Name + " " + Count()
+
+Function Count(): String => "{counter}"
+
+Global counter = 2
+
+Print(describe())
+Print(both)
+Print(Both())

@@ -1,0 +1,7 @@
+Import "./b"
+
+Public Class Thing
+    Public Field Name: String = "thing"
+End Class
+
+Public Global late = Thing()

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "fb/module.hpp"
 #include "fb/source.hpp"
 
 #include <cstddef>
@@ -66,9 +67,26 @@ enum class binary_op_t : std::uint8_t {
     COALESCE,
 };
 
+/// Who can use a declaration from another file, from the least to the most, but for Protected
+/// and Package, which reach different code: a Class extending one in another package sees a
+/// Protected member but not a Package one, and the package's other files the other way around.
+enum class visibility_t : std::uint8_t {
+    /// Its own file, the default.
+    PRIVATE,
+    /// Its file, and the Classes extending its Class, through Self or one of their objects. Only
+    /// a Class's members can be Protected.
+    PROTECTED,
+    /// Its package: the standard library is one, and a program's own files another.
+    PACKAGE,
+    /// Every file.
+    PUBLIC,
+};
+
 /// The operator as written in source, like "-" or "**".
 [[nodiscard]] std::string_view spelling(unary_op_t op);
 [[nodiscard]] std::string_view spelling(binary_op_t op);
+/// The keyword, like "Public".
+[[nodiscard]] std::string_view spelling(visibility_t visibility);
 
 // Expressions
 
@@ -271,10 +289,12 @@ struct expr_t {
 struct error_type_t {};
 
 /// A type by name, like "Int" or "String", or a generic one with its type arguments, like
-/// "Box<Int>".
+/// "Box<Int>". After a module's qualifier, it's that module's: "C.Map<K, V>".
 struct named_type_t {
     std::string_view name;
     std::vector<type_expr_id_t> arguments;
+    /// The "C" in "C.Map<K, V>": an imported module's last name, or its As name.
+    std::optional<name_t> qualifier;
 };
 
 /// "Type?". Not supported in M1.
@@ -303,6 +323,8 @@ struct tuple_type_t {
 struct function_type_t {
     std::vector<type_expr_id_t> parameters;
     std::optional<type_expr_id_t> result;
+    /// "Callback(A, B): R": a C function pointer, rather than a function value.
+    bool callback = false;
 };
 
 /// A value where a type argument goes, for a Const type parameter: the 64 in
@@ -350,9 +372,14 @@ struct attribute_t {
     std::vector<argument_t> arguments;
 };
 
-/// What Abstract, Final, Override, Static, and ReadOnly say about a declaration: a Class, a
-/// Method, a Field, or a Property.
+/// What Abstract, Final, Override, Static, ReadOnly, and Public say about a declaration: a Class,
+/// a Method, a Field, or a Property.
 struct modifiers_t {
+    /// Private, Protected, Package, or Public: which files can use it. Private when none is
+    /// written.
+    visibility_t visibility = visibility_t::PRIVATE;
+    /// Where its visibility is written. nullopt when none is.
+    std::optional<span_t> visibility_span;
     bool is_abstract = false;
     bool is_final = false;
     bool is_override = false;
@@ -371,6 +398,11 @@ struct modifiers_t {
     /// "Async Function": a call starts it on the main thread and gives its Task, and its code
     /// can Await.
     bool is_async = false;
+    /// "Unsafe Function" or "Unsafe Method": its code can use pointers, and only Unsafe code
+    /// calls it.
+    bool is_unsafe = false;
+    /// "@CLayout Struct": a Struct laid out as C lays it out, which C code takes and gives.
+    bool is_c_layout = false;
     /// "@Deprecated", with its message, which may be empty: each use gets a warning.
     std::optional<std::string> deprecated;
     /// The attributes that Attribute declarations declare, which reflection reads.
@@ -437,6 +469,27 @@ enum class function_kind_t : std::uint8_t {
     OPERATOR,
 };
 
+/// How an Extern block's Functions are called.
+enum class convention_t : std::uint8_t {
+    /// The C calling convention, the default.
+    C,
+    /// "stdcall", which is the C convention on x86-64.
+    STDCALL,
+    /// The runtime's own functions, which only std/ calls, with values passed as compiled code
+    /// holds them.
+    RUNTIME,
+};
+
+/// What makes a Function an Extern block's: C code defines it, or the runtime.
+struct external_t {
+    convention_t convention = convention_t::C;
+    /// "= "symbol"": the C symbol, when it isn't the Function's own name.
+    std::optional<std::string> symbol;
+    std::optional<span_t> symbol_span;
+    /// "Lib "name"": a library of the package's project.toml.
+    std::optional<std::string> library;
+};
+
 /// "Function Name(parameters): Type ... End Function", or a Struct's Method or New.
 struct function_stmt_t {
     function_kind_t kind = function_kind_t::FUNCTION;
@@ -462,6 +515,8 @@ struct function_stmt_t {
     /// In an Interface: written as its first line alone, without a body, so each type that
     /// implements the Interface gives it.
     bool required = false;
+    /// In an Extern block: what defines it, since it's its first line alone.
+    std::optional<external_t> external;
 };
 
 /// The If, or one ElseIf: a condition and the code it runs.
@@ -617,6 +672,8 @@ struct type_stmt_t {
     /// The Class after Extends, and its type arguments when it's generic: "Extends Base<Int>".
     std::optional<name_t> base;
     std::vector<type_expr_id_t> base_arguments;
+    /// The module's qualifier before the Class's name, as in "Extends shapes.Base".
+    std::optional<name_t> base_qualifier;
     /// The Interfaces after Implements, or for an Interface, after Extends.
     std::vector<type_expr_id_t> interfaces;
     modifiers_t modifiers;
@@ -648,6 +705,11 @@ struct defer_stmt_t {
 struct lock_stmt_t {
     expr_id_t mutex;
     name_t name;
+    block_t body;
+};
+
+/// "Unsafe ... End Unsafe": code that can use pointers, which the rest can't.
+struct unsafe_stmt_t {
     block_t body;
 };
 
@@ -703,21 +765,59 @@ struct enum_stmt_t {
     modifiers_t modifiers;
 };
 
+/// "Import std.collections", "Import "./ui/hud"", "Import std.collections As C", or "From
+/// std.math Import Vec3, Lerp": another module whose names this one uses. Import and From lines
+/// come before a file's other statements.
+struct import_stmt_t {
+    /// The module as written: a dotted name, like "std.collections", or for a quoted path, the
+    /// path, like "./ui/hud".
+    std::string target;
+    /// Written in quotes: a file's path from the importing file, without ".fb".
+    bool quoted = false;
+    /// Where the dotted name or the quoted path is.
+    span_t target_span;
+    /// The name its names come in under: the dotted name's last part, or the path's file name.
+    /// Empty when that isn't a name, like "hud-2".
+    name_t last;
+    /// After As: the only name its names come in under.
+    std::optional<name_t> alias;
+    /// "From ... Import": only `names` come in, without a qualifier.
+    bool from = false;
+    std::vector<name_t> names;
+};
+
+/// "Extern "C" Lib "joltc" ... End Extern": Functions that C code defines, called from safe
+/// code, or with "runtime", the runtime's, which only std/ calls. The convention is "C" when none
+/// is written.
+struct extern_stmt_t {
+    convention_t convention = convention_t::C;
+    /// Where the convention is written, if it is.
+    std::optional<span_t> convention_span;
+    /// "Lib "name"": a library of the package's project.toml.
+    std::optional<std::string> library;
+    std::optional<span_t> library_span;
+    /// Its Functions, each a function_stmt_t with `external`, which takes the block's visibility
+    /// unless it has its own.
+    block_t functions;
+    modifiers_t modifiers;
+};
+
 using stmt_node_t =
     std::variant<error_stmt_t, expression_stmt_t, assign_stmt_t, increment_stmt_t, variable_stmt_t,
                  function_stmt_t, if_stmt_t, while_stmt_t, repeat_stmt_t, loop_stmt_t, for_stmt_t,
                  for_in_stmt_t, select_stmt_t, break_stmt_t, continue_stmt_t, return_stmt_t,
                  type_stmt_t, enum_stmt_t, defer_stmt_t, throw_stmt_t, try_stmt_t, property_stmt_t,
-                 destructure_stmt_t, extend_stmt_t, for_member_stmt_t, lock_stmt_t>;
+                 destructure_stmt_t, extend_stmt_t, for_member_stmt_t, lock_stmt_t, import_stmt_t,
+                 extern_stmt_t, unsafe_stmt_t>;
 
 struct stmt_t {
     span_t span;
     stmt_node_t node;
 };
 
-/// A parsed program: the main file and the library files the compiler adds, in one AST. It holds
-/// every node, and its items are the top-level statements in source order, the library files'
-/// first. Names and spans refer to the source files' text.
+/// A parsed program: every module's file, in one AST. It holds every node, and its items are the
+/// top-level statements in source order, module by module in the module table's order, the main
+/// module's last. Names and spans refer to the source files' text.
 class ast_t {
 public:
     expr_id_t add(expr_t expr);
@@ -746,15 +846,23 @@ public:
         m_items.push_back(id);
     }
 
-    /// The program's main file, whose top-level code runs. Any other file is a library file,
-    /// which only declares things.
-    void set_main_file(const file_id_t file) {
-        m_main = file;
+    /// Puts the items in the module table's order, each module's in source order, once the
+    /// driver has added every module.
+    void sort_items();
+
+    /// The program's modules, one per file, which the driver adds as it parses them. Only the
+    /// main module's top-level code runs; the others only declare things.
+    [[nodiscard]] module_table_t& modules() {
+        return m_modules;
     }
 
-    /// Whether a statement is in a library file rather than the main file.
-    [[nodiscard]] bool from_library(const stmt_id_t id) const {
-        return get(id).span.file != m_main;
+    [[nodiscard]] const module_table_t& modules() const {
+        return m_modules;
+    }
+
+    /// Whether a statement is outside the main module.
+    [[nodiscard]] bool outside_main(const stmt_id_t id) const {
+        return !m_modules.is_main(get(id).span.file);
     }
 
 private:
@@ -762,7 +870,7 @@ private:
     std::vector<stmt_t> m_stmts;
     std::vector<type_expr_t> m_types;
     block_t m_items;
-    file_id_t m_main{};
+    module_table_t m_modules;
 };
 
 } // namespace fb

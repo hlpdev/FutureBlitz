@@ -1,0 +1,98 @@
+// A call has its own reference to what it's given through a Global, a field, or an element, so
+// the callee can replace where that came from and still use it: Self, an argument, a function
+// value, and a Scheduler that a coroutine replaces while it ticks.
+Class Node
+    Field name: String
+    Field items: Int[]
+
+    New()
+        items = [1, 2, 3]
+    End New
+
+    Method Replace()
+        current = Node()
+        current.name = "new"
+        Local junk: String[] = []
+        For i = 1 To 100
+            junk.Add("junk {i}")
+        End For
+        items.Add(4)
+        Print("still {name} with {items.Count} items")
+    End Method
+
+    Method Destroy()
+        Print("{name} goes")
+    End Method
+End Class
+
+Global current = Node()
+current.name = "old" + "!"
+current.Replace()
+Print("after Replace: {current.name}")
+
+// An argument, and a String.
+Global title = "old" + " title"
+
+Function Use(n: Node, t: String)
+    current = Node()
+    current.name = "newer"
+    title = "new" + " title"
+    Print("still {n.name}, {t}")
+End Function
+
+Use(current, title)
+Print("after Use: {current.name}, {title}")
+
+// Self through a field, after '?.'.
+Class Holder
+    Field node: Node?
+End Class
+
+Function Run(holder: Holder)
+    holder.node?.Replace()
+End Function
+
+Local holder = Holder()
+holder.node = current
+current = Node()
+current.name = "held"
+Run(holder)
+
+// A function value that replaces the object holding it while it runs.
+Class Button
+    Field label: String
+    Field click: Func(): String
+
+    New(label: String, click: Func(): String)
+        Self.label = label
+        Self.click = click
+    End New
+End Class
+
+Function Other(): String => "other"
+
+Function Clicked(): String
+    Local was = button.label
+    button = Button("second", Other)
+    Return "clicked " + was
+End Function
+
+Global button = Button("first", Clicked)
+Print(button.click())
+Print("after click: {button.label}")
+
+// A coroutine replaces the Scheduler ticking it, whose waiting coroutines go with it.
+Global gameplay = Scheduler()
+
+Async Function Dropper()
+    Await NextFrame()
+    Print("dropper replaces the Scheduler")
+    gameplay = Scheduler()
+    Await NextFrame()
+    Print("never: the old Scheduler is gone")
+End Function
+
+gameplay.Run(Dropper())
+gameplay.Tick(0.1)
+gameplay.Tick(0.1)
+Print("idle {gameplay.IsIdle()}")

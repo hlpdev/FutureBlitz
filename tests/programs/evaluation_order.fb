@@ -1,0 +1,370 @@
+// Operands go left to right: what a variable, field, or element holds is read before a later
+// operand can change it.
+
+Global g = 1
+
+Function BumpG(): Int
+    g += 1
+    Return g
+End Function
+
+Function Pair(a: Int, b: Int): String => "{a},{b}"
+
+Print("{g} {BumpG()}")
+Print(Pair(g, BumpG()))
+Local t = (g, BumpG())
+Print("{t.0} {t.1}")
+Local arr = [g, BumpG()]
+Print("{arr}")
+Print("{g < BumpG()}")
+
+Function Inc(ByRef n: Int): Int
+    n += 1
+    Return n
+End Function
+
+Local x = 1
+Print(Pair(x, Inc(ByRef x)))
+Local y = 1
+Print("{y + Inc(ByRef y)}")
+
+Function Grow(ByRef text: String): String
+    text = text + "b"
+    Return "!"
+End Function
+
+Local s = "a"
+Print(s + Grow(ByRef s))
+Print(s)
+
+// A field read before a call that replaces its object keeps the old object's value.
+Class Holder
+    Field Name: String = "first"
+End Class
+
+Global holder = Holder()
+
+Function Swap(): String
+    holder = Holder()
+    holder.Name = "second"
+    Return "!"
+End Function
+
+Function Join(a: String, b: String): String => a + b
+
+Print(Join(holder.Name, Swap()))
+Print(holder.Name)
+
+// An element read before a call that empties the array is still the element's.
+Global items = [10, 20]
+
+Function Shrink(): Int
+    items.Clear()
+    Return 1
+End Function
+
+Print("{items[0] + Shrink()} {items.Count}")
+
+// An array is read before an index that replaces it.
+Global numbers = [1, 2, 3]
+
+Function Replace(): Int
+    numbers = [10, 20, 30]
+    Return 0
+End Function
+
+Print("{numbers[Replace()]} {numbers[0]}")
+
+// Through an Interface, a constrained type parameter, and a Static through T, the object and
+// arguments go left to right too.
+g = 1
+
+Interface Joiner
+    Method Link(a: Int, b: Int): String
+End Interface
+
+Class Comma Implements Joiner
+    Method Link(a: Int, b: Int): String => "{a},{b}"
+End Class
+
+Struct Dash Implements Joiner
+    Field n: Int
+    Method Link(a: Int, b: Int): String => "{a}-{b}"
+End Struct
+
+Interface Maker
+    Static Method Make(a: Int, b: Int): String
+End Interface
+
+Struct Made Implements Maker
+    Field n: Int
+    Static Method Make(a: Int, b: Int): String => "{a}/{b}"
+End Struct
+
+Function Through<T: Joiner>(j: T): String => j.Link(g, BumpG())
+
+Function MakeIt<T: Maker>(): String => T.Make(g, BumpG())
+
+Local joiner: Joiner = Comma()
+Print(joiner.Link(g, BumpG()))
+Print(Through(Comma()))
+Print(Through(Dash(0)))
+Print(MakeIt<Made>())
+
+// Named arguments go in the order they're written.
+Function Say(text: String): String
+    Print("say {text}")
+    Return text
+End Function
+
+Function Both(a: String, b: String): String => a + b
+
+Print(Both(b: Say("b"), a: Say("a")))
+
+// op= reads its target before the value.
+g = 1
+g += BumpG()
+Print("{g}")
+
+// A slice reads its array, then its bounds.
+Global slices = [1, 2, 3]
+
+Function Cut(): Int
+    slices = [10, 20, 30]
+    Return 2
+End Function
+
+Print("{slices[0..Cut()]}")
+
+// A type's own ToString or Operator == that a value's text or == runs is a later operand too.
+Struct Loud Implements Printable
+    Field n: Int
+
+    Method ToString(): String
+        g += 1
+        Return "loud"
+    End Method
+End Struct
+
+Class Key
+    Field k: Int
+
+    Operator ==(a: Key, b: Key): Bool
+        g += 10
+        Return a.k == b.k
+    End Operator
+End Class
+
+Struct Keyed
+    Field key: Key
+End Struct
+
+Function Shown(a: Int, b: String): String => "{a} {b}"
+
+g = 1
+Print(Shown(g, "{Loud(0)}"))
+g = 1
+Print(Shown(g, "{Keyed(Key()) == Keyed(Key())}"))
+
+// A Method called by name on a Struct's Self reads Self before its arguments.
+Struct Counter
+    Field n: Int
+
+    Method Show(k: Int): String => "{n} {k}"
+
+    ByRef Method Step(): Int
+        n += 1
+        Return n
+    End Method
+
+    ByRef Method Report(): String => Show(Step())
+End Struct
+
+Local counter = Counter(1)
+Print(counter.Report())
+
+// What a Return gives outlives the Local object it's read from.
+Class Named
+    Field Name: String = "x"
+
+    Method Destroy()
+        Name = "gone"
+    End Method
+End Class
+
+Function NameOf(): String
+    Local named = Named()
+    named.Name = "abc" + "def"
+    Return named.Name
+End Function
+
+Print(NameOf())
+
+// An element of a fixed array in an object is that object's, read before the index or the value
+// that replaces it.
+Class Grid
+    Field cells: Int[3]
+End Class
+
+Global grid = Grid()
+grid.cells[0] = 7
+
+Function Regrid(): Int
+    grid = Grid()
+    Return 5
+End Function
+
+Print("{grid.cells[Regrid() - 5]} {grid.cells[0]}")
+Local old = grid
+grid.cells[1] = Regrid()
+Print("{old.cells[1]} {grid.cells[1]}")
+
+// A cast of a variable's object keeps the object for the operands after it.
+Class Animal
+    Field sound: String = "first"
+
+    Method Destroy()
+        sound = "gone"
+    End Method
+End Class
+
+Class Dog Extends Animal
+End Class
+
+Global dog = Dog()
+
+Function Redog(): String
+    dog = Dog()
+    dog.sound = "second"
+    Return "!"
+End Function
+
+Function Hear(a: Animal, s: String): String => a.sound + s
+
+Function HearDog(d: Dog, s: String): String => d.sound + s
+
+Print(Hear(dog, Redog()))
+Global pet: Animal = Dog()
+
+Function Repet(): String
+    pet = Animal()
+    pet.sound = "second"
+    Return "!"
+End Function
+
+Print(HearDog(pet As Dog, Repet()))
+pet = Dog()
+(pet As Dog).sound = Repet()
+Print(pet.sound)
+
+// A '?.' call's object is read before its arguments.
+Class Target
+    Field hp: Int = 10
+
+    Method Hit(damage: Int): Int
+        hp -= damage
+        Return hp
+    End Method
+End Class
+
+Global target: Target? = Target()
+
+Function Damage(): Int
+    target = Null
+    Return 3
+End Function
+
+Print("{target?.Hit(Damage()) ?? -1}")
+
+// Interpolation's parts go left to right, Strings and tuples too.
+Global word = "a"
+
+Function Lengthen(): String
+    word = word + "b"
+    Return "!"
+End Function
+
+Print("{word}{Lengthen()}")
+Global pairing = (1, "c" + "d")
+
+Function Repair(): Int
+    pairing = (2, "e" + "f")
+    Return 0
+End Function
+
+Print("{pairing.1}{Repair()} {pairing}")
+
+// A Property's object goes before the value it's set to, and so does the object a ByRef
+// argument is in.
+Class Gauge
+    Field level: Int
+
+    Property Level: Int
+        Get => level
+        Set(value)
+            level = value
+        End Set
+    End Property
+End Class
+
+Global gauge = Gauge()
+
+Function Regauge(): Int
+    gauge = Gauge()
+    Return 5
+End Function
+
+Function Raise(ByRef level: Int, by: Int)
+    level += by
+End Function
+
+Local kept = gauge
+gauge.Level = Regauge()
+Print("{kept.Level} {gauge.Level}")
+kept = gauge
+Raise(ByRef gauge.level, Regauge())
+Print("{kept.level} {gauge.level}")
+
+// And reflection's Call and Set.
+Class Dial
+    Field turns: Int
+
+    Method Turn(by: Int)
+        turns += by
+    End Method
+End Class
+
+Global dial = Dial()
+
+Function Redial(): Int
+    dial = Dial()
+    Return 4
+End Function
+
+Function NewDial(): Dial
+    dial = Dial()
+    Local made = Dial()
+    made.turns = 6
+    Return made
+End Function
+
+Function TurnAll()
+    For Method m: M In Dial
+        Where M: Func(Int)
+        m.Call(dial, Redial())
+    End For
+End Function
+
+Function SetAll()
+    For Field f: F In Dial
+        Where F: Numeric
+        f.Set(ByRef dial, f.Get(NewDial()))
+    End For
+End Function
+
+Local first = dial
+TurnAll()
+Print("{first.turns} {dial.turns}")
+first = dial
+SetAll()
+Print("{first.turns} {dial.turns}")

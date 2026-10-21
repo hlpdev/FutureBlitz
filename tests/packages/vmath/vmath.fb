@@ -1,0 +1,174 @@
+// What the package gives its users, over the C library.
+
+Import std.ffi
+Import "./c"
+
+Public Function Add(a: Int32, b: Int32): Int32 => vm_add(a, b)
+Public Function Add64(a: Int64, b: Int64): Int64 => vm_add64(a, b)
+Public Function Scale(value: Float64, by: Float64): Float64 => vm_scale(value, by)
+Public Function Halve(value: Float32): Float32 => vm_halve(value)
+Public Function IsEven(value: Int32): Bool => vm_is_even(value)
+Public Function Count(a: Bool, b: Bool, c: Bool): Int32 => vm_count(a, b, c)
+
+// C keeps the low bits of a value in a small integer, and the rest of the register as it was.
+Public Function Low8(value: Int32): Int32 => vm_low8(value)
+Public Function LowU8(value: Int32): Int32 => vm_low_u8(value)
+Public Function Low16(value: Int32): Int32 => vm_low16(value)
+Public Function Widen8(value: Int8): Int32 => vm_widen8(value)
+Public Function WidenU16(value: UInt16): UInt32 => vm_widen_u16(value)
+
+Public Function Length(text: String): Int32 => vm_length(text)
+Public Function Name(): String => vm_name()
+Public Function Nothing(): String? => vm_nothing()
+
+// "17 / 5 is 3, remainder 2", through C's out-parameters.
+Public Function Divided(a: Int32, b: Int32): String
+    Local quotient: Int32 = 0
+    Local remainder: Int32 = 0
+    vm_divide(a, b, ByRef quotient, ByRef remainder)
+    Return "{a} / {b} is {quotient}, remainder {remainder}"
+End Function
+
+Public Function Counter(): Int32 => vm_counter()
+
+// C reads the array through a Ptr at its first element.
+Public Function Sum(values: Int32[]): Int32
+    Unsafe
+        Return vm_sum(AddressOf(values[0]), values.Count)
+    End Unsafe
+End Function
+
+// C writes a fixed array through a Ptr at its first element.
+Public Function Filled(value: Int32): String
+    Local values: Int32[4]
+    Unsafe
+        vm_fill(AddressOf(values[0]), 4, value)
+    End Unsafe
+
+    Return "{values[0]} {values[3]}"
+End Function
+
+// C sets and reads a Struct, which SizeOf measures as C does.
+Public Function PairTotal(a: Int32, b: Int64, c: Int8): String
+    Local pair = Pair(0, 0, 0)
+    Unsafe
+        vm_pair_set(AddressOf(pair), a, b, c)
+        Local total = vm_pair_total(AddressOf(pair))
+        Return "{pair.a} {pair.b} {pair.c} {total} {vm_pair_size() == SizeOf<Pair>()}"
+    End Unsafe
+End Function
+
+// Text goes to C as CString.From's copy, and comes back as a CString C made, which C frees.
+Public Function Shout(text: String): String
+    Unsafe
+        Local copy = CString.From(text)
+        Local loud = vm_upper_copy(copy)
+        copy.Free()
+        Local result = loud.ToString()
+        vm_free_text(loud)
+        Return result
+    End Unsafe
+End Function
+
+// C sets a Ptr, ByRef, to its own numbers.
+Public Function Numbers(): String
+    Local numbers: Ptr<Int32> = Null
+    Local count = vm_numbers(ByRef numbers)
+    Unsafe
+        Return "{count} {numbers[0]} {numbers[count - 1]}"
+    End Unsafe
+End Function
+
+// Structs go to C and come back by value, as its ABI has them.
+Public Function Structs(): String
+    Local tiny = vm_tiny_swap(Tiny(1, 2))
+    Local point = vm_point_add(Point(1, 2), Point(3, 4))
+    Local v = vm_vec3_scale(Vec3(1.0, 2.0, 3.0), 2.0)
+    Local span = vm_span_grow(Span(10, 2.5), 5)
+    Local box = vm_box_make(1, 2, 3, 4, True)
+    Local odd = Odd()
+    odd.bytes[0] = 1
+    odd.bytes[1] = 2
+    odd.bytes[2] = 3
+    Local rotated = vm_odd_rotate(odd)
+    Local total = vm_spans(Span(1, 0.5), Span(2, 0.5), Span(3, 0.5), Span(4, 0.5), Span(5, 0.5),
+                           Span(6, 0.5), Span(7, 0.5), 5)
+    Local first = "{tiny.a} {tiny.b} {point.x} {point.y} {v.x} {v.y} {v.z} {span.start} {span.length}"
+    Local second = "{box.min.x} {box.max.y} {box.filled} {vm_box_area(box)} {rotated.bytes[0]}"
+    // An Extern Function is a function value too, whose calls pass Structs the same way.
+    Local add: Func(Point, Point): Point = vm_point_add
+    Local sum = add(Point(5, 6), Point(1, 1))
+    Return "{first} {second} {rotated.bytes[2]} {total} {sum.x} {sum.y}"
+End Function
+
+Function Plus(a: Int32, b: Int32): Int32 => a + b
+
+Function Negative(value: Int8): Bool => value < 0
+
+// Adds a value to what the user data points at.
+Function Collect(value: Int32, user: Ptr<Void>)
+    Unsafe
+        (user As Ptr<Int32>).Value += value
+    End Unsafe
+End Function
+
+Function Measure(name: CString): Float64
+    Unsafe
+        Return name.ToString() == "bb" ? 2.5 : 1.0
+    End Unsafe
+End Function
+
+// C calls back: a Function by its name, and a lambda that captures nothing.
+Public Function Callbacks(): String
+    Local applied = vm_apply(Plus, 3, 4)
+    Local multiplied = vm_apply(Function(a: Int32, b: Int32): Int32 => a * b, 3, 4)
+    Local signs: Int8[4]
+    signs[0] = -1
+    signs[1] = 2
+    signs[2] = -3
+    signs[3] = 4
+    Local numbers = [1, 2, 3, 4]
+    Local total: Int32 = 0
+    Unsafe
+        Local negative = vm_count_if(AddressOf(signs[0]), 4, Negative)
+        vm_each(AddressOf(numbers[0]), numbers.Count, Collect, AddressOf(total))
+        Return "{applied} {multiplied} {negative} {total} {vm_measure_all(Measure)}"
+    End Unsafe
+End Function
+
+// Enums C gives inside a Struct, which have to be their values. `color` and `edge` are C's
+// numbers for them.
+Public Function Shades(color: Int32, edge: Int32): String
+    Local shade = vm_shade_make(color, 50)
+    vm_shade_edge(ByRef shade, edge)
+    Return "{shade.color} {shade.alpha} {shade.edges[0]} {shade.edges[1]}"
+End Function
+
+Function Paint(color: Color)
+    Print("{color}")
+End Function
+
+// An Enum C passes a Callback has to be one of its values too. `color` is C's number for it.
+Public Function Paints(color: Int32)
+    vm_paint(Paint, color)
+End Function
+
+// C gives back code, whose Enum has to be one of its values.
+Public Function Colors(valid: Bool): String
+    Local colorer = vm_colorer_of(valid)
+    Unsafe
+        Return "{colorer()}"
+    End Unsafe
+End Function
+
+Function Times(a: Int32, b: Int32): Int32 => a * b
+
+// A Callback goes to C in a Struct, by value.
+Public Function Handled(): Int32 => vm_handle(Handler(Times, 6), 7)
+
+// An Extern Function is C's own code, which C compares as its own; a Function's goes through
+// code that calls it.
+Public Function SameCode(): String
+    Local own: Callback(Int32, Int32): Int32 = vm_add
+    Return "{vm_is_add(vm_add)} {vm_is_add(own)} {vm_is_add(Plus)} {own == vm_add}"
+End Function

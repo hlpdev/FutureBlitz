@@ -1,0 +1,8 @@
+// The other half of ping.fb's cycle.
+
+Import "./ping"
+
+Public Function Pong(n: Int): String
+    If n == 0 Then Return "pong"
+    Return "pong " + Ping(n - 1)
+End Function

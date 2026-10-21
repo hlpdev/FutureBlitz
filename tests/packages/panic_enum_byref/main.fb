@@ -1,0 +1,7 @@
+// So does one that C sets in a Struct passed ByRef, in a fixed array there too.
+
+Import vmath
+
+Print(Shades(1, 1))
+Print(Shades(1, 0))
+Print("unreachable")

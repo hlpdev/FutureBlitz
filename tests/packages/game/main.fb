@@ -1,0 +1,13 @@
+// A package that depends on another: Import physics brings in the modules in its folder, and
+// Import physics.shapes the ones in its shapes/ folder. Its own files import each other by
+// their paths.
+Import physics
+Import physics.shapes
+Import "./ui/hud"
+
+Local body = Body(Vec(0.0, 0.0), Vec(2.0, 1.0))
+body.Step(1.5)
+Show(body.position)
+Local circle = shapes.Circle(Vec(1.0, 1.0), 2.0)
+Print("area {circle.Area()}")
+Print("{physics.Vec(1.0, 2.0).y}")

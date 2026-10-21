@@ -1,0 +1,9 @@
+[project]
+name = "native_calls"
+version = "0.1.0"
+
+[dependencies]
+vmath = { path = "../vmath" }
+
+[native]
+m = { system = "m" }

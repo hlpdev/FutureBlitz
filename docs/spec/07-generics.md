@@ -24,6 +24,12 @@ Max<Float>(1, 2.5)     // explicit
   U): Stack<U>`. It has a copy for each set of type arguments, so it isn't in the Method table:
   it can't be `Abstract` or `Override`, and a call never goes through an override.
 - A type parameter can't share a name with a type, or with a type parameter it would hide.
+- Generic code is compiled once for each set of type arguments it's used with, so code that
+  calls itself, or each other, with a type holding its own type parameter, like `Deep<T>`
+  calling `Deep([x])` with a `T[]`, would need instances without end, and is an error at the
+  call: "'Deep' gets T[] for T here, which leads back to this code, so it would need a larger
+  instance each time, without end". A type that only names a larger instance, like a Field of
+  `Node<Node<T>>?`, is fine.
 
 ## Inference
 
@@ -78,9 +84,26 @@ End Extend
 ```
 
 - An Extend's Where lines constrain the type parameters it names: everything it adds is
-  conditional, and so is each Interface it lists. Without them, it adds to every instance.
+  conditional, and so is each Interface it lists, with the defaults it gives. Without them, it
+  adds to every instance.
+- What a Where line makes conditional implements an Interface only where the Interface is
+  listed for instances that meet it: a type that lists `Sized` for every instance implements it
+  with Sized's default, and the one a conditional `Doubled Extends Sized` gives is what a call
+  through Doubled runs. A conditional Method can't implement a member of an Interface listed for
+  every instance. A call on an instance that has both reaches the one every instance has, as it
+  would a type's own Method before an Extend's, and an Override in a Class extending it
+  overrides that one; a call through Doubled still runs the one the Extend gives, which nothing
+  overrides.
+- A conditional `Operator ==` is what `==` means for the instances that meet its Where, in a
+  direct `==` and inside the arrays, tuples, Structs, and T?s that hold them; the others have no
+  Operator == of their own and compare the built-in way.
+- A Class extending an instance that doesn't meet a Where, like `Base<Rock>`, has none of what it
+  makes conditional, so it can declare Methods and Properties of those names. One extending an
+  instance that meets it, or one with the Class's own type parameters in it, like `Base<T>`,
+  can't, as for any Extend's member.
 - A Class that implements an Interface only through an Extend's Where is a value of that
-  Interface for the instances whose type arguments meet it: each one's objects get the table.
+  Interface for the instances whose type arguments meet it: each one's objects get the table, and
+  the tables of the Interfaces it extends.
 
 **Relations between parameters**, through a generic Interface:
 
@@ -91,7 +114,9 @@ Function Collect<S, E>(items: S): E[]
 
 - A Where line goes at the top of the body. On a generic type, it constrains the type's type
   parameters. On a Method, one for its type's type parameter makes the Method conditional: only
-  the instances whose type argument meets it have it, and it isn't in the Method table.
+  the instances whose type argument meets it have it, and it isn't in the Method table, so a
+  Class extending one of its instances can't override it, or declare a Method of its name and
+  parameters.
 - Each call, `New`, and type written with type arguments meets the constraints. A type argument
   meets `T: I` when it's a Struct or Class that implements I, an Interface that is I or extends
   it, or a type parameter whose own constraints say so.
@@ -159,7 +184,8 @@ End Interface
   objects themselves, and one that lists `Hashable` without a `Hash` gets the built-in one,
   which combines a Struct's fields' hashes or comes from a Class's object. The built-in `Hash`
   goes with the built-in `==`, so a type with an Operator `==` of its own needs a `Hash` of its
-  own.
+  own, however it gets that `==`: written, from an Interface's default, from another file's
+  Extend, or, for one instance, from an Extend of it.
 - Values that are equal have equal hashes. A `T?` that holds a value hashes like it, and Null's
   hash is 0.
 - What implements `Printable` goes in a string through its `ToString`: `"{enemy}"`. An
@@ -192,7 +218,8 @@ End Interface
   arguments makes an instance, like `Source<Int>`, whose members have them in their types: a
   Counter's `TakeTwo` gives an `(Int, Int)`.
 - A type implements one instance of a generic Interface at most, counting the ones it lists, the
-  ones those extend, and the ones it inherits, so its members' types are always known. A type
+  ones those extend, and the ones it inherits, and for an instance like `Box<Int>`, the ones its
+  generic type gives every instance, so its members' types are always known. A type
   parameter's constraints name one instance of each too.
 - An instance that can be a type, like `Source<Int>`, has values like any Interface, and an
   Interface can extend an instance.
@@ -241,13 +268,15 @@ Sum(row)                           // N from row's Int[8]
   on it, `==` among them. It still isn't an Interface's value, since it may be a Struct.
 - Each instance calls its type argument's own members, so generic code costs what the code it
   stands for would.
-- `T?` with an `Int?` for `T` is `Int?`.
+- `T?` with an `Int?` for `T` is `Int??`, so generic code's `Null` for "none" stays apart from
+  a `Null` it holds: `Find` over an `Int?[]` tells an element that's `Null` from one past the end.
 
 ## Parsing `<`
 
 C#'s disambiguation rule: in expression context, `Name<...>` is parsed as type arguments
 when the token after the closing `>` is `(`, `.`, `)`, or `,`. Otherwise `<` is a
-comparison.
+comparison. Type arguments can be qualified, so `F(a < m.B, c > (d))` calls `a<m.B, c>`, as
+`F(a < b, c > (d))` does; parenthesize a comparison there: `F((a < m.B), c > (d))`.
 
 The closing `>>` of nested type arguments is read as two `>`s, so `Map<K, List<V>>` needs no
 space.

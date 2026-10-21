@@ -1,0 +1,14 @@
+// C's NULL for a CString is Null, and has no text to copy.
+Import std.ffi
+
+Extern "C"
+    Function getenv(name: CString): CString
+End Extern
+
+Unsafe
+    Local name = CString.From("FB_NO_SUCH_VARIABLE")
+    Local value = getenv(name)
+    name.Free()
+    Print("{value == Null}")
+    Print(value.ToString())
+End Unsafe

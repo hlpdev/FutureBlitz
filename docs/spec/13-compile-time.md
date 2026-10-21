@@ -40,18 +40,18 @@ Const FIB_20 = Fib(20)            // computed at compile time
 Local table: Int[Fib(10)]          // usable in types
 ```
 
-- A Const Function is a top-level `Function` that can't throw. It takes and gives numbers,
-  Bools, Strings, and Enums (or a `T?` of one). A generic one, like `Const Function Largest<T:
-  Comparable>(a: T, b: T): T`, runs at compile time when its type arguments are those types, and
-  a built-in Interface's Operators on its type parameters are the built-in ones. Its body can use Locals of those,
-  and Structs, tuples, and fixed arrays of them, and calls only Const Functions, `Assert`,
-  `Panic`, and the New a Struct gets. It doesn't use Globals, or Consts known only when the
-  program runs, and makes no objects, `T[]`s, or function values.
+- A Const Function is a top-level `Function` that can't throw. It takes and gives numbers, Bools,
+  Strings, and Enums (or a `T?` of one). A generic one, like `Const Function Largest<T:
+  Comparable>(a: T, b: T): T`, runs at compile time when its type arguments are those types, and a
+  built-in Interface's Operators on its type parameters are the built-in ones. Its body can use
+  Locals of those, and Structs, tuples, and fixed arrays of them, and calls only Const Functions,
+  `Assert`, `Panic`, and the New a Struct gets. It doesn't use Globals, or Consts known only when
+  the program runs, and makes no objects, `T[]`s, or function values.
 - A call whose arguments are all known runs in the compiler, and its value is the call's. With
   any argument that isn't known, it's an ordinary call that runs with the program.
 - A panic, an overflow, a division by zero, an index out of range, more than 10 million steps,
-  or calls more than 10,000 deep while it runs is a compile error at the call, pointing at where
-  in the Const Function it happened.
+  calls more than 10,000 deep, or variables that hold more than 256 MiB of text and parts while
+  it runs is a compile error at the call, pointing at where in the Const Function it happened.
 - A size in a declaration's type, like a Field's `Int[Cells()]`, can come from a Const Function
   anywhere in the file, since Const Functions are declared first. While types are still being
   declared, one whose code reaches a Struct or Class whose members aren't declared yet can't run
@@ -86,8 +86,8 @@ Local table: Int[Fib(10)]          // usable in types
   Spawn2".
 - `@MainThread` goes before a Function or Method, which work on another thread can't call (see
   [10-concurrency.md](10-concurrency.md#main-thread-rules)).
-- `@CLayout` comes with FFI (M5), and `@Serialize` with the serialization library (M6); until
-  then they're reported as not supported yet.
+- `@CLayout` lays a Struct out as C does (see [12-ffi.md](12-ffi.md)), and `@Serialize` comes
+  with the serialization library (M6); until then it's reported as not supported yet.
 
 ### Declaring attributes
 
@@ -140,9 +140,10 @@ Function Clear<T>(ByRef value: T)
 End Function
 ```
 
-- `For Field f: F In T` goes over the fields of a Struct, a Class (the inherited ones first), or
-  a tuple ("0", "1", and so on), in order, but not an Atomic or Mutex, which can't be copied. The compiler makes a copy of the body for each field,
-  in which `F` is that field's type. `: F` can be left out when nothing names it.
+- `For Field f: F In T` goes over the fields of a Struct, a Class (the inherited ones first), or a
+  tuple ("0", "1", and so on), in order, but not an Atomic or Mutex, which can't be copied. The
+  compiler makes a copy of the body for each field, in which `F` is that field's type. `: F` can be
+  left out when nothing names it.
 - The body is checked once, with `F` a type parameter that only its Where lines, at the top of
   the body, say anything about. Over a concrete type, each field's type must meet them. Over
   the function's own type parameter `T`, they're constraints on `T`'s fields, which each call
@@ -153,8 +154,8 @@ End Function
   of its own.
 - `For Method m In T` goes over the Methods of a Struct or Class that take nothing, give nothing,
   and throw nothing (the inherited ones first, each in the place of what it overrides), but not
-  Destroy. `m.Call(value)` calls it, through the Method table for a Class. `m` has `m.Name`,
-  `m.Has(A)`, and `m.Attribute(A)` too.
+  Destroy or Unsafe Methods. `m.Call(value)` calls it, through the Method table for a Class. `m`
+  has `m.Name`, `m.Has(A)`, and `m.Attribute(A)` too.
 - `For Method m: M In T` with `Where M: Func(Int): String` goes over the Methods of that Func
   type instead, and `m.Call(value, 5)` passes their arguments. Its Where line picks the Methods;
   it isn't a constraint to meet.
@@ -163,6 +164,12 @@ End Function
   T` over its own Static Fields, with `s.Get()`. They read; a Property without a Set and a
   ReadOnly Static Field couldn't be told apart, so neither has a Set. Where lines on P or S work
   as on F.
+- The loops go over Private members too, and over what an Extend of the type, or of that one
+  instance like `Box<Int>`, adds, but only where the loop's file sees the Extend's module, as a
+  call there would. A Method or Property that Where lines on the type's parameters make
+  conditional is among them only for the instances whose type arguments meet the lines. In
+  `For Property`, an Override takes the place of what it overrides, while another Property of its
+  name, like one an Extend adds beside a Private one, is a Property of its own.
 - A loop can go over the code's own type parameters: its function's, or in a Method, its type's,
   whose Where lines then make the Method conditional, as a Where line on it would. `Self` is the
   type of the code it's in, and in an Interface's default, the type that takes it, which has to

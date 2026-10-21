@@ -1,0 +1,47 @@
+// M5's done-when program: it calls the vecmath C library only through vecmath.fb, the bindings
+// fb-bindgen generated from vecmath.h, with numbers, strings, pointers, structs, enums,
+// constants, callbacks, and an opaque handle. tests/bindgen checks that fb-bindgen still makes
+// vecmath.fb of vecmath.h.
+
+Import "./vecmath"
+
+Function Twice(a: Int32, b: Int32): Int32 => a * 2 + b
+
+// Numbers and strings.
+Print("{vm_add(2, 3)} {vm_scale(1.5, 4.0)} {vm_is_even(4)} {vm_length("hello")}")
+Unsafe
+    Print(vm_name().ToString())
+End Unsafe
+
+// Pointers: C fills two Int32s, and adds up an array.
+Local quotient: Int32 = 0
+Local remainder: Int32 = 0
+Local numbers = [1, 2, 3, 4]
+Unsafe
+    vm_divide(17, 5, AddressOf(quotient), AddressOf(remainder))
+    Print("{quotient} {remainder} {vm_sum(AddressOf(numbers[0]), numbers.Count)}")
+End Unsafe
+
+// Structs, by value.
+Local point = vm_point_add(vm_point(1, 2), vm_point(3, 4))
+Local box = vm_box_make(1, 2, 3, 4, True)
+Print("{point.x} {point.y} {vm_box_area(box)} {box.filled}")
+
+// An Enum, in a Struct C gives.
+Local shade = vm_shade_make(2, 50)
+Print("{shade.color} {shade.alpha} {shade.color == vm_color.VM_GREEN}")
+
+// Constants.
+Print("{VM_VERSION} {VM_LIMIT} {VM_HALF} {VM_SLOTS}")
+
+// A Callback.
+Print("{vm_apply(Twice, 3, 4)}")
+
+// An opaque handle, which only C looks inside.
+Local bag = vm_bag_new()
+If bag == Null Then Panic("out of memory for a bag")
+Defer vm_bag_free(bag)
+For i = 1 To VM_SLOTS
+    vm_bag_add(bag, i * 10)
+End For
+Print("{vm_bag_total(bag)}")

@@ -28,6 +28,10 @@ using fb_visitor_t = void (*)(void* context, const fb_object_t* object, const ch
 struct fb_interface_t {
     /// The Interface's name, NUL-terminated, for panics.
     const char* name;
+    /// Its name with its module first, and its type arguments' modules, like
+    /// "std.core.iterator.Iterator<game.Node>", which a message shows instead when another name
+    /// in it is the same. Can be null.
+    const char* full_name;
 };
 
 /// An Interface that a Class's objects implement, and the Class's table for it: for each of the
@@ -43,6 +47,8 @@ struct fb_implementation_t {
 struct fb_class_t {
     /// The Class's name, NUL-terminated, for the leak report.
     const char* name;
+    /// Its name with each module first, like fb_interface_t's. Can be null.
+    const char* full_name;
     /// An object's size in bytes, header included.
     std::int64_t size;
     /// Runs the object's Destroy(), then those of the Classes it extends. Null when none of them
@@ -96,7 +102,8 @@ void fb_start();
 void fb_track_objects();
 
 /// The last thing a program's main calls, after fb_pool_finish and releasing the Globals. It
-/// finishes the pool again, for jobs that releasing the Globals started. Prints a leak report to
+/// ends the main scheduler (fb_scheduler_end), for coroutines that releasing the Globals
+/// started, and finishes the pool again, for jobs it started. Prints a leak report to
 /// stderr for Strings, and for the objects of each of the `count` Classes in `classes`, that were
 /// never released, then the cycles among those objects that kept them alive, if fb_track_objects
 /// ran.
@@ -104,6 +111,42 @@ void fb_finish(fb_class_t* const* classes, std::int64_t count);
 
 /// How many Strings exist right now.
 std::int64_t fb_string_live_count();
+
+/// A copy of `string`'s text with a NUL after it, for a call of C code that takes a CString,
+/// which reads it up to its first NUL. Compiled code frees it with fb_cstring_free right after
+/// the call.
+char* fb_cstring_new(const fb_string_t* string);
+
+/// Frees a copy that fb_cstring_new made. Panics for anything else, or a copy freed already.
+void fb_cstring_free(char* copy);
+
+/// How many of fb_cstring_new's copies exist right now.
+std::int64_t fb_cstring_live_count();
+
+/// For std.ffi's CString.Length: how many bytes `text` has before its NUL.
+std::uint64_t fb_cstring_length(const char* text);
+
+/// For std.ffi's Mem, which goes through these rather than C's own functions, so a program can
+/// declare those as it likes: `bytes` of new memory, all 0, or null when there isn't that much.
+/// It's always 1 byte or more, since calloc may give null for none.
+void* fb_mem_alloc(std::uint64_t bytes);
+/// What fb_mem_alloc or fb_mem_resize gave, or null for new memory, in `bytes` of memory, which
+/// keeps what fits, or null when there isn't that much, which leaves `memory` as it was. It's
+/// always 1 byte or more, since realloc may give memory back for none.
+void* fb_mem_resize(void* memory, std::uint64_t bytes);
+/// Gives back what fb_mem_alloc or fb_mem_resize gave. Null is nothing to give back.
+void fb_mem_free(void* memory);
+/// Copies `bytes` from `source` to `destination`, which can overlap. Neither is null.
+void fb_mem_copy(void* destination, const void* source, std::uint64_t bytes);
+/// Sets `bytes` from `destination` on to `value`. It isn't null.
+void fb_mem_fill(void* destination, std::uint8_t value, std::uint64_t bytes);
+/// memcmp's order of `bytes` at `a` and at `b`, which aren't null.
+std::int32_t fb_mem_compare(const void* a, const void* b, std::uint64_t bytes);
+
+/// A new String holding C's `text` up to its NUL, with U+FFFD for each byte that doesn't start
+/// well-formed UTF-8, or null for a null `text`, for an Extern Function that gives a String or
+/// String?.
+fb_string_t* fb_string_from_cstring(const char* text);
 
 /// Adds an owner to `string`. Compiled code calls it when a String gets a new holder, like a
 /// variable. Does nothing for a literal, or for null, which a String? holds for Null.
@@ -245,8 +288,9 @@ void fb_string_bytes(const fb_string_t* string, fb_array_t* into);
 
 /// Work for another thread: a function, and what it works on.
 using fb_work_t = void (*)(void* context);
-/// What a range runs for each chunk: the indexes from `first` up to, not including, `last`.
-using fb_range_body_t = void (*)(void* context, std::int64_t first, std::int64_t last);
+/// What a range runs for each chunk: `count` indexes from `first` on, 1 or more, which go up by
+/// 1 and wrap past an Int64's end.
+using fb_range_body_t = void (*)(void* context, std::int64_t first, std::int64_t count);
 
 /// Work queued on the pool, which runs it on one of its workers, or on a thread that waits.
 struct fb_job_t;
@@ -257,18 +301,21 @@ struct fb_job_t;
 fb_job_t* fb_job_start(fb_work_t work, void* context);
 /// 1 once the job's work has returned, and 0 before.
 std::int32_t fb_job_done(const fb_job_t* job);
-/// Returns once the job's work has returned. Meanwhile the thread runs other jobs, so a worker
-/// that waits doesn't leave the pool a worker short, and one waiting for a job it started runs it.
+/// Returns once the job's work has returned. Meanwhile a worker runs the jobs it started itself,
+/// which is where one it waits for usually is, so it doesn't leave the pool a worker short. It
+/// runs no one else's, which could wait for it in turn.
 void fb_job_wait(const fb_job_t* job);
 /// Lets go of the job, whose memory goes once its work has returned too.
 void fb_job_release(fb_job_t* job);
-/// Calls `body` with `context` for chunks of the indexes from `begin` up to, not including,
-/// `end`, on the pool's workers and the calling thread, and returns once every chunk is done.
-/// Each index is in one chunk. Does nothing when `end` isn't after `begin`.
-void fb_parallel_for(std::int64_t begin, std::int64_t end, fb_range_body_t body, void* context);
+/// Calls `body` with `context` for chunks of the indexes from `first` through `last`, on the
+/// pool's workers and the calling thread, and returns once every chunk is done. Each index is in
+/// one chunk. The indexes go up from `first` and wrap past an Int64's end, so `last` before
+/// `first` is a range through that end, as an unsigned one can be: there are 1 to 2^64 of them.
+/// The caller decides whether a range has any.
+void fb_parallel_for(std::int64_t first, std::int64_t last, fb_range_body_t body, void* context);
 /// For a Parallel For: like fb_parallel_for, with the code in `body`'s Class's Method table's
-/// first entry, which takes the object and a chunk's first and last indexes.
-void fb_parallel_closure(std::int64_t begin, std::int64_t end, fb_object_t* body);
+/// first entry, which takes the object and a chunk's first index and count.
+void fb_parallel_closure(std::int64_t first, std::int64_t last, fb_object_t* body);
 /// How many workers the pool has, or will once it starts.
 std::int64_t fb_pool_size();
 /// main calls it when the top-level code ends, before releasing the Globals: runs the jobs left,
@@ -315,14 +362,15 @@ struct fb_channel_t {
 /// `capacity` elements. Panics at `location` unless that's 1 or more.
 fb_channel_t* fb_channel_new(fb_class_t* type, std::int64_t element_size, std::int64_t capacity,
                              const fb_location_t* location);
-/// Copies `element` in, waiting while the Channel is full and running other jobs meanwhile. The
-/// Channel takes the element's references. Panics at `location` once it's closed.
+/// Copies `element` in, waiting while the Channel is full, which runs no jobs, since one could
+/// wait on the Channel in turn. The Channel takes the element's references. Panics at `location`
+/// once it's closed.
 void fb_channel_send(fb_channel_t* channel, const void* element, const fb_location_t* location);
 /// Copies `element` in, unless the Channel is full or closed: 1 when it did, and 0 when it
 /// didn't, and the caller still has the element's references.
 std::int32_t fb_channel_try_send(fb_channel_t* channel, const void* element);
 /// Copies the oldest element out to `element`, with its references, waiting while the Channel is
-/// empty and running other jobs meanwhile: 1 when it did, and 0 once it's closed and empty.
+/// empty, which runs no jobs: 1 when it did, and 0 once it's closed and empty.
 std::int32_t fb_channel_receive(fb_channel_t* channel, void* element);
 /// Like fb_channel_receive, without waiting: 0 when nothing is there.
 std::int32_t fb_channel_try_receive(fb_channel_t* channel, void* element);
@@ -331,6 +379,9 @@ void fb_channel_close(fb_channel_t* channel);
 /// For a Channel's Class's release: takes out the oldest element left, whose references compiled
 /// code releases, or gives null when none are left.
 void* fb_channel_take_left(fb_channel_t* channel);
+/// The element `index` after the oldest, or null past the last, for a Channel's Class's visit,
+/// which the leak report calls once no thread uses it.
+void* fb_channel_element(const fb_channel_t* channel, std::int64_t index);
 /// For a Channel's Class's release, once the elements are released: frees the ring and the lock.
 void fb_channel_free(const fb_channel_t* channel);
 
@@ -348,7 +399,8 @@ struct fb_task_t {
 void fb_task_start(fb_task_t* task);
 /// Starts a Thread's work on a thread of its own.
 void fb_task_start_thread(fb_task_t* task);
-/// Returns once the task's work is done, for Wait and Join. Meanwhile the thread runs other jobs.
+/// Returns once the task's work is done, for Wait and Join. Meanwhile a worker runs the jobs it
+/// started itself, as fb_job_wait does, and the main thread ticks the main scheduler.
 void fb_task_wait(const fb_task_t* task);
 /// 1 once the task's work is done, and 0 before, for IsDone.
 std::int32_t fb_task_done(const fb_task_t* task);
@@ -392,8 +444,13 @@ void fb_scheduler_free(const fb_scheduler_t* scheduler);
 void* fb_coroutine_alloc(std::int64_t size);
 void fb_coroutine_free(void* frame);
 /// main calls it when the top-level code ends, before fb_pool_finish: runs the coroutines until
-/// none is waiting.
+/// none is waiting, or none can go on, since what they wait for is on a Scheduler that nothing
+/// ticks any more, and then ends the main scheduler, as fb_scheduler_end does.
 void fb_scheduler_finish();
+/// Ends the main scheduler, as fb_scheduler_free does a Scheduler: the coroutines still waiting
+/// on it are destroyed, and their Tasks, and the timers', are never done. fb_finish calls it, for
+/// coroutines that releasing the Globals started.
+void fb_scheduler_end();
 /// Lets go of the task's job, for its Class's release.
 void fb_task_release(const fb_task_t* task);
 

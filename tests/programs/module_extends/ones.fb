@@ -1,0 +1,5 @@
+Import "./bag"
+
+Extend Bag
+    Public Method Iterate(): Steps => Steps(Size, 1)
+End Extend

@@ -1,0 +1,8 @@
+// Two modules bind C's div with Structs of their own, one C type, as two packages' bindings
+// of one header would.
+Import "./extern_twice/a"
+Import "./extern_twice/b" As B
+
+Local x = Divide(7, 2)
+Local y = B.Divide(9, 4)
+Print("{x.quot} {x.rem} {y.quot} {y.rem}")

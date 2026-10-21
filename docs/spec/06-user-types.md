@@ -135,15 +135,39 @@ End Class
 - In an Interface, `Self` is a type: the type that implements it. A Method's `Self` is a value
   of that type.
 - `Interface A Extends B, C` has the members of B and C too, and what implements A implements
-  them.
+  them. A member of A with the name, kind, and types of one of B's, A's Self for B's,
+  redeclares it: the two are one member, and A's default, if it has one, is what a type gets
+  for both, like a `>` that an Interface extending Comparable gives in Comparable's place.
 - `Class Boss Extends Enemy Implements Damageable, Shown`, or `Struct Money Implements Numeric`.
   Each of an Interface's members is implemented by one of the type's, its own or one it
   inherits, with the same name, kind, parameter types (ByRef included), and result, with the
   type for Self. A required `ByRef Method` is implemented by a Struct's ByRef Method or a Class's
   Method, and one that isn't ByRef by one that isn't. A Property is implemented by a Property of
   its type, which has a Set if the Interface's does. What implements a member doesn't throw.
-- A type that doesn't have a default's Method gets the default as a Method of its own, which a
-  Class extending it can override.
+- A type that doesn't have a default's Method, its own or one it inherits, gets the default.
+  Where its own declaration, or a Class's it extends, lists the Interface, the default is a
+  Method of its own, which a Class extending it can override, and which is checked against what
+  the Class inherits like a Method written there. Where an Extend lists it, the default is the
+  Extend's, like the Extend's own Methods: a member only where the Extend's module is seen,
+  hidden by a member of the type's own of its name, and overriding nothing, while the type
+  implements the Interface everywhere. A Method it has that takes the
+  default's parameters but gives another result is an error where the Interface is listed. An
+  Interface with a default takes its own, never another Interface's of the same name and types
+  that the type gets itself, so a type can get both: each Interface calls its own, and a call or
+  an Override that could mean either is ambiguous, as is an Interface's member without a default
+  that both would implement. The type's own Method implements both, and so does one it has from
+  a Class it extends, or an instance from its generic type, whichever Interface's default it is,
+  except that a default the Class it extends took gives way to the default of an Interface the
+  Class's own declaration lists that redeclares it, which overrides it, as in Java. An
+  Interface's member with the name and parameters of one of an Interface it extends gives what
+  that one does. Another Interface's default, refining or not, can't take the place of an
+  Interface's own default where it's seen less far than the type and that member, as a private
+  Interface's `>` in place of Comparable's on a Public type would be: code that sees the type
+  couldn't call what calls through Comparable run.
+  A default an Extend with a Where gives is conditional, like the Extend's own Methods (see
+  [07-generics.md](07-generics.md)). Two Interfaces' default `Operator ==`s, neither refining the
+  other, make `==` on the type ambiguous wherever it's used, in a direct `==` and inside arrays,
+  tuples, and Structs, which is an error at the type unless it has an `Operator ==` of its own.
 - An Interface is a type of its own unless it needs Statics or Operators, or uses Self in its
   members' types: those are only constraints (see [07-generics.md](07-generics.md)). Its values
   are references to objects of Classes that implement it, and calls on them run what the
@@ -152,8 +176,9 @@ End Class
   Interface, and from one for a Class.
 - A Struct implements Interfaces for generic code: it's never an Interface's value, which would
   have to put it in an object.
-- A Class extending one that implements an Interface implements it too, unless the Interface is
-  only a constraint, whose Self would be the other Class.
+- A Class extending one that implements an Interface implements it too, whether the other lists
+  it or an Extend gives it, with a Where line too, unless the Interface is only a constraint,
+  whose Self would be the other Class.
 - An Interface's values have no `==`: `Equatable` uses Self, so it's only a constraint, and an
   Interface extending it is too. `RefEquals` tells whether two are the same object.
 - An Interface can be generic, like `Iterator<T>` (see [07-generics.md](07-generics.md)).
@@ -275,6 +300,11 @@ End Extend
   written with its own type parameters (`Extend Box<T>`), to one instance (`Extend Box<Int>`),
   to every array (`Extend T[]`), or to one array type (`Extend Int[]`). In an Extend of one
   instance, the members have the instance's types: a `Box<Int>`'s field `Value: T` is an Int.
+  A Class extending that instance, like `Class Names Extends Box<Int>`, has them too, and an
+  Operator one adds beats a generic one the type has for all its instances, in generic code too,
+  where the instance implements the type's Interfaces with it. Its `==` is what `==` means for
+  the instance everywhere, inside the Structs, arrays, and tuples that hold one. The type's own
+  members, with the instance's types, implement what an Extend of the instance lists.
 - It holds Methods, Static Methods, Properties, and Operators, and adds them to the type, as
   if the type had declared them. A `ByRef Method` changes a value; a Class's or array's Methods
   can always change it, so theirs aren't ByRef. Only a Struct or Class gets Operators, and an
@@ -283,8 +313,9 @@ End Extend
 - Its members use the type's own by name, as a type's Methods do, like an array's `Count` and
   `RemoveAt` in an `Extend T[]`.
 - What it adds isn't virtual. Nothing overrides it, it overrides nothing, and it can't have a
-  member the type has already. A built-in type's, Enum's, or array's can't share a name with
-  the members it has already, like `ToString` or an array's `Add`.
+  member the type has already, or one an instance inherits from a Class its generic type
+  extends. A built-in type's, Enum's, or array's can't share a name with the members it has
+  already, like `ToString` or an array's `Add`.
 - `Extend T Implements I` makes the type implement `I`, with members its Extends or its own
   declaration give. A built-in type, Enum, or array comes with the built-in Interfaces that fit
   it, so an Extend gives it others.
@@ -325,9 +356,71 @@ Local mask = Layer.World | Layer.Player
 | Modifier | Visible to |
 |---|---|
 | `Private` (default) | the declaring file |
-| `Protected` | the declaring class and subclasses |
-| `Package` | the whole package |
+| `Protected` | the declaring file, and the code of the Classes extending its Class |
+| `Package` | the whole package: the modules of its project.toml's package, or of the standard library; without a project.toml, a program's own files are its package |
 | `Public` | everyone |
+
+```vb
+Public Class Enemy
+    Protected Field hp: Int = 100       // Enemy's file, and the Classes extending Enemy
+    Field cache: Int                    // Private: this file only
+
+    Public New()
+    End New
+
+    Public Method Hurt(amount: Int)
+        hp -= amount
+    End Method
+End Class
+```
+
+- A visibility goes on top-level Functions, Globals, Consts, Structs, Classes, Interfaces, Enums,
+  and Attributes, on the Fields, Static Fields, Methods, Static Methods, Properties, and News of
+  Structs and Classes, and on the Methods, Static Methods, and Properties an Extend adds. It goes
+  among a declaration's other modifiers, in any order, after its attributes: `@Inline Public Static
+  Method`. Members are Private too unless they say otherwise. A Local, or a Const in a function's
+  body or another block, is only its own code's, so it takes none.
+- `Protected` only goes on a Class's members. The code of a Class extending it, in any file, uses
+  one through `Self`, `Super`, or an object of its own Class or one extending it, not through an
+  `Enemy` that may be another Class's, and a Protected Static member through any. A Protected
+  `New` only starts its News, with `Super.New`, or is one a Class without a New takes, which is
+  Protected too. An Extend's code isn't the Class's own.
+- The standard library is one package. A program without a `project.toml` is another: its main
+  file and the files it imports by path.
+- Enum members, Interface members, and Operators have their type's visibility, and take no modifier.
+  An Abstract member has its Class's unless it says otherwise, since it's what the Classes extending
+  it have to give, as an Interface's member is; a Class that can't use one, like another file's
+  Private one, has to be Abstract itself. A default an Interface gives a type has the Interface's,
+  so code that can't name the Interface can't call it, even on a Public type an Extend gave it to. A
+  default Operator does too, except `==`, which is what `==` means for the type everywhere. What
+  implements an Interface's member can be Private: code anywhere calls it through the Interface, as
+  a value of it or a type parameter it constrains.
+- An `Override` is seen wherever what it overrides is, a default an Interface gives included: a
+  Public one's is Public, a Package one's Package or Public, and a Protected one's Protected or
+  Public, since a Class extending it in another package sees a Protected member but not a Package
+  one, and one that doesn't say its visibility has what it overrides'. A Method that a Class's code
+  can't use, like another file's Private one, isn't one it can override, or declare again.
+- A Struct's own constructor is as visible as its least visible Field, so a Private Field keeps
+  others from calling it. Its zero is still everyone's, in Fields, Globals, and arrays, so a type
+  whose values have to come from its own code makes its zero mean nothing, as a Pool's `Handle`
+  does: generations start at 1, so a zero Handle finds no value. A Class's own `New` is as visible
+  as the Class, and the News it takes from the Class it extends as the less visible of the Class and
+  that New, so a Private one stays its file's; a written `New` is Private unless it says otherwise.
+- What a Public or Package declaration shows is seen at least as far: a function's parameter,
+  result, Throws, and constraint types, a Global's, Const's, Field's, or Property's type, and a
+  type's base, Interfaces, and constraints. A member is seen no further than its type.
+- What code can't use hides nothing and clashes with nothing: another file's Private `Node` isn't
+  ambiguous beside a third's, a Private Method isn't among a call's overloads, and a Class
+  extending `Queue<T>`, or an Extend of it, can have a member named like its Private `Head`;
+  only a Class's Method that takes a hidden Method's parameters, or its Property named like a
+  hidden Property, is an error, as above. Where code can use both, a Class's member hides what
+  the Class it extends has of its name, Methods with other parameters aside, and a type's own
+  member hides what an Extend adds in its place. Using one that code can't is an error that
+  says where it's declared: "'Entries' is private to std/collections/map.fb".
+- Visibility is checked where code is written: a Public generic function uses its file's Private
+  helpers for every type it's called with. `For Field`, `For Method`, and `For Property` go over
+  every member, Private ones too, but what an Extend adds only where the loop's file sees the
+  Extend's module, as a call there would (see [13-compile-time.md](13-compile-time.md)).
 
 ## Equality
 

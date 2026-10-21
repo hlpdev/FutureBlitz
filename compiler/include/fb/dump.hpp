@@ -23,14 +23,17 @@ namespace fb {
 /// line, without color. Parser tests compare against it.
 [[nodiscard]] std::string dump_ast(const ast_t& ast);
 
-/// The AST as an indented tree, with each statement of a block on its own line. Literals are
-/// plain, like "1" instead of "(int 1)". What `--show ast` prints.
-[[nodiscard]] std::string dump_tree(const ast_t& ast, const style_t& style = {});
+/// The main module's AST as an indented tree, with each statement of a block on its own line.
+/// Literals are plain, like "1" instead of "(int 1)". What `--show ast` prints. With `package`,
+/// it's every module of the main module's package, as for a library, whose main module is a
+/// placeholder.
+[[nodiscard]] std::string dump_tree(const ast_t& ast, const style_t& style = style_t(),
+                                    bool package = false);
 
 /// dump_tree() with each expression's type, any conversion, and any known value, like
 /// "x: Int32 → Int64 = 3". What `--show types` prints.
 [[nodiscard]] std::string dump_types(const ast_t& ast, const analysis_t& analysis,
-                                     const style_t& style = {});
+                                     const style_t& style = style_t(), bool package = false);
 
 /// Colors LLVM IR text. Without color it comes back unchanged.
 [[nodiscard]] std::string highlight_llvm(std::string_view ir, const style_t& style = {});

@@ -2,6 +2,7 @@
 
 #include <expected>
 #include <filesystem>
+#include <optional>
 #include <span>
 #include <string>
 
@@ -19,6 +20,13 @@ struct process_result_t {
 /// program's own name. Fails only when the program can't be started.
 [[nodiscard]] std::expected<process_result_t, std::string>
 run_process(const std::filesystem::path& program, std::span<const std::string> arguments);
+
+/// The program that's running, like fb, with its whole path. Empty when the system won't say.
+[[nodiscard]] std::filesystem::path current_executable();
+
+/// Where a file or folder really is, as the system has it: with the links and junctions on the
+/// way followed, and each name in the disk's own letter case. nullopt when it isn't there.
+[[nodiscard]] std::optional<std::filesystem::path> real_path(const std::filesystem::path& path);
 
 /// Runs a program in this terminal, with this process's stdin, stdout, and stderr, and returns
 /// its exit code.

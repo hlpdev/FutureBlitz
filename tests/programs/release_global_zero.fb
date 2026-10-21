@@ -1,0 +1,29 @@
+// A release build reads a Global whose initializer hasn't run yet as its type's zero, as it lets
+// overflow wrap, unless that zero would hold a null object (release_panic_global_order.fb).
+Enum Mode
+    Idle
+    Busy
+End Enum
+
+Struct Point
+    Field x: Int
+    Field y: Int
+End Struct
+
+Global early = Peek()
+Global count = Start()
+Global name = "fb" + Suffix()
+Global mode = Pick()
+Global best: Int? = Start()
+Global where = Point(Start(), 2)
+
+Function Start(): Int => 3
+
+Function Suffix(): String => "!"
+
+Function Pick(): Mode => Mode.Busy
+
+Function Peek(): String => "{count} '{name}' {mode} {best ?? -1} {where.x}"
+
+Print(early)
+Print(Peek())

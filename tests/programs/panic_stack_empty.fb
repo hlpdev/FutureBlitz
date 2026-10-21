@@ -1,0 +1,7 @@
+// Pop on an empty Stack panics.
+Import std.collections
+
+Local stack = Stack<Int>()
+stack.Push(1)
+Print("{stack.Pop()}")
+stack.Pop()

@@ -3,7 +3,7 @@
 
 Extend T[]
     // Removes the first element equal to value, and tells whether there was one.
-    Method Remove(value: T): Bool
+    Public Method Remove(value: T): Bool
         Where T: Equatable
         For i, element In Self
             If element == value
@@ -15,21 +15,21 @@ Extend T[]
     End Method
 
     // Sorts the elements in place, smallest first. Equal elements keep their order.
-    Method Sort()
+    Public Method Sort()
         Where T: Comparable
         Sort(Function(a: T, b: T) => a < b)
     End Method
 
     // Sorts the elements in place, by what before says comes first. It's a merge sort, so equal
     // elements keep their order.
-    Method Sort(before: Func(T, T): Bool)
+    Public Method Sort(before: Func(T, T): Bool)
         If Count < 2 Then Return
         Local from = Clone()
         MergeSort(from, Self, 0, Count, before)
     End Method
 
     // Each element that keep says to keep, in a new array.
-    Method Filter(keep: Func(T): Bool): T[]
+    Public Method Filter(keep: Func(T): Bool): T[]
         Local kept: T[] = []
         For element In Self
             If keep(element) Then kept.Add(element)
@@ -38,7 +38,7 @@ Extend T[]
     End Method
 
     // What change gives for each element, in a new array.
-    Method Map<U>(change: Func(T): U): U[]
+    Public Method Map<U>(change: Func(T): U): U[]
         Local changed: U[] = []
         For element In Self
             changed.Add(change(element))
@@ -47,7 +47,7 @@ Extend T[]
     End Method
 
     // The first element that test says is the one, or Null.
-    Method Find(test: Func(T): Bool): T?
+    Public Method Find(test: Func(T): Bool): T?
         For element In Self
             If test(element) Then Return element
         End For

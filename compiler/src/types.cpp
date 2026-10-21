@@ -32,6 +32,7 @@ constexpr auto type_names = std::to_array<named_type_t>({
     { .name = "Float32", .type = type_id_t::FLOAT32 },
     { .name = "Float64", .type = type_id_t::FLOAT64 },
     { .name = "String", .type = type_id_t::STRING },
+    { .name = "CString", .type = type_id_t::CSTRING },
     { .name = "Byte", .type = type_id_t::UINT8 },
     { .name = "Int", .type = type_id_t::INT32 },
     { .name = "Long", .type = type_id_t::INT64 },
@@ -139,9 +140,9 @@ type_table_t::type_table_t() {
 
 type_table_t::type_table_t(const type_table_t& other)
     : m_fixed_arrays(other.m_fixed_arrays), m_tuples(other.m_tuples),
-      m_functions(other.m_functions), m_throwing_tasks(other.m_throwing_tasks),
-      m_instances(other.m_instances), m_values(other.m_values), m_thread(other.m_thread),
-      m_scheduler(other.m_scheduler) {
+      m_functions(other.m_functions), m_callbacks(other.m_callbacks),
+      m_throwing_tasks(other.m_throwing_tasks), m_instances(other.m_instances),
+      m_values(other.m_values), m_thread(other.m_thread), m_scheduler(other.m_scheduler) {
     m_entries.reserve(other.m_entries.size());
     for (const entry_t& entry : other.m_entries) {
         m_entries.push_back({
@@ -153,6 +154,7 @@ type_table_t::type_table_t(const type_table_t& other)
             .mutex = entry.mutex,
             .task = entry.task,
             .channel = entry.channel,
+            .pointer = entry.pointer,
         });
     }
 }
@@ -189,6 +191,12 @@ type_id_t type_table_t::weak(const type_id_t inner) {
 
 type_id_t type_table_t::atomic(const type_id_t inner) {
     return make(type_kind_t::ATOMIC, inner, std::format("Atomic<{}>", name(inner)));
+}
+
+type_id_t type_table_t::pointer(const type_id_t inner) {
+    const std::string full_name =
+        inner == type_id_t::NONE ? std::string("Ptr<Void>") : std::format("Ptr<{}>", name(inner));
+    return make(type_kind_t::PTR, inner, full_name);
 }
 
 type_id_t type_table_t::mutex(const type_id_t inner) {
@@ -300,6 +308,8 @@ type_id_t type_table_t::make(const type_kind_t kind, const type_id_t inner, std:
             return entry.mutex;
         case type_kind_t::CHANNEL:
             return entry.channel;
+        case type_kind_t::PTR:
+            return entry.pointer;
         default:
             return entry.weak;
         }
@@ -309,6 +319,11 @@ type_id_t type_table_t::make(const type_kind_t kind, const type_id_t inner, std:
         type_t type{ .kind = kind, .name = std::move(full_name), .inner = inner };
         if (kind == type_kind_t::NULLABLE) {
             type.fields.push_back({ .name = "value", .type = inner });
+        }
+
+        // What a Ptr points at, which Ptr<Void> doesn't say.
+        if (kind == type_kind_t::PTR && inner != type_id_t::NONE) {
+            type.fields.push_back({ .name = "Value", .type = inner });
         }
 
         // fb_mutex_t, then the value.
@@ -418,6 +433,37 @@ type_id_t type_table_t::function(const std::vector<type_id_t>& parameters, const
     return id;
 }
 
+type_id_t type_table_t::callback(const std::vector<type_id_t>& parameters, const type_id_t result) {
+    if (result == type_id_t::INVALID || std::ranges::contains(parameters, type_id_t::INVALID)) {
+        return type_id_t::INVALID;
+    }
+
+    for (const type_id_t made : m_callbacks) {
+        if (get(made).parameters == parameters && get(made).inner == result) {
+            return made;
+        }
+    }
+
+    std::string text = "Callback(";
+    for (std::size_t i = 0; i < parameters.size(); ++i) {
+        text += std::format("{}{}", i == 0 ? "" : ", ", name(parameters[i]));
+    }
+
+    text += ')';
+    if (result != type_id_t::NONE) {
+        text += std::format(": {}", name(result));
+    }
+
+    const type_id_t id = add({
+        .kind = type_kind_t::CALLBACK,
+        .name = std::move(text),
+        .inner = result,
+        .parameters = parameters,
+    });
+    m_callbacks.push_back(id);
+    return id;
+}
+
 type_id_t type_table_t::add_parameter(std::string name) {
     return add({ .kind = type_kind_t::PARAMETER, .name = std::move(name) });
 }
@@ -515,8 +561,10 @@ type_id_t type_table_t::instance(const type_id_t generic, const std::vector<type
     const type_id_t id = add({
         .kind = get(generic).kind,
         .name = text + ">",
+        .module = get(generic).module,
         .inner = get(generic).inner,
         .shared = get(generic).shared,
+        .made = get(generic).made,
         .generic = generic,
         .arguments = arguments,
     });
@@ -545,6 +593,14 @@ void type_table_t::fill(const type_id_t instance) {
     interfaces.reserve(generic_interfaces.size());
     for (const type_id_t interface : generic_interfaces) {
         interfaces.push_back(substitute(interface, parameters, arguments));
+    }
+
+    // What an Extend of this one instance lists stays. The generic type's Interfaces only grow,
+    // so the ones it gave before are among the new ones.
+    for (const type_id_t interface : get(instance).interfaces) {
+        if (!std::ranges::contains(interfaces, interface)) {
+            interfaces.push_back(interface);
+        }
     }
 
     const type_id_t base = substitute(get(generic).base, parameters, arguments);
@@ -580,11 +636,9 @@ type_id_t type_table_t::substitute(const type_id_t type, const std::vector<type_
                    ? type
                    : arguments[static_cast<std::size_t>(found - parameters.begin())];
     }
-    case type_kind_t::NULLABLE: {
-        // T? with an Int32? for T is Int32?.
-        const type_id_t inner = substitute(info.inner, parameters, arguments);
-        return get(inner).kind == type_kind_t::NULLABLE ? inner : nullable(inner);
-    }
+    case type_kind_t::NULLABLE:
+        // T? with an Int32? for T is Int32??, which holds an Int32? that can be Null itself.
+        return nullable(substitute(info.inner, parameters, arguments));
     case type_kind_t::ARRAY:
         return array(substitute(info.inner, parameters, arguments));
     case type_kind_t::FIXED_ARRAY: {
@@ -608,6 +662,8 @@ type_id_t type_table_t::substitute(const type_id_t type, const std::vector<type_
     }
     case type_kind_t::WEAK:
         return weak(substitute(info.inner, parameters, arguments));
+    case type_kind_t::PTR:
+        return pointer(substitute(info.inner, parameters, arguments));
     case type_kind_t::ATOMIC:
         return atomic(substitute(info.inner, parameters, arguments));
     case type_kind_t::MUTEX:
@@ -641,6 +697,8 @@ type_id_t type_table_t::substitute(const type_id_t type, const std::vector<type_
     }
     case type_kind_t::FUNCTION:
         return function(each(info.parameters), substitute(info.inner, parameters, arguments));
+    case type_kind_t::CALLBACK:
+        return callback(each(info.parameters), substitute(info.inner, parameters, arguments));
     case type_kind_t::STRUCT:
     case type_kind_t::CLASS:
     case type_kind_t::INTERFACE:
@@ -664,12 +722,20 @@ std::uint64_t type_table_t::element_count(const type_id_t type) const {
     return count;
 }
 
-type_id_t type_table_t::add_struct(std::string name) {
-    return add({ .kind = type_kind_t::STRUCT, .name = std::move(name) });
+type_id_t type_table_t::add_struct(std::string name, std::string module) {
+    return add({
+        .kind = type_kind_t::STRUCT,
+        .name = std::move(name),
+        .module = std::move(module),
+    });
 }
 
-type_id_t type_table_t::add_class(std::string name) {
-    return add({ .kind = type_kind_t::CLASS, .name = std::move(name) });
+type_id_t type_table_t::add_class(std::string name, std::string module) {
+    return add({
+        .kind = type_kind_t::CLASS,
+        .name = std::move(name),
+        .module = std::move(module),
+    });
 }
 
 void type_table_t::set_fields(const type_id_t type, std::vector<field_t> fields) {
@@ -685,9 +751,18 @@ void type_table_t::set_fields(const type_id_t type, std::vector<field_t> fields)
     }
 }
 
-type_id_t type_table_t::add_interface(std::string name) {
+void type_table_t::set_made(const type_id_t type) {
+    m_entries[std::to_underlying(type)].type->made = true;
+}
+
+type_id_t type_table_t::add_interface(std::string name, std::string module) {
     const type_id_t self = add_parameter("Self");
-    return add({ .kind = type_kind_t::INTERFACE, .name = std::move(name), .inner = self });
+    return add({
+        .kind = type_kind_t::INTERFACE,
+        .name = std::move(name),
+        .module = std::move(module),
+        .inner = self,
+    });
 }
 
 void type_table_t::set_interfaces(const type_id_t type, std::vector<type_id_t> interfaces) {
@@ -700,8 +775,13 @@ void type_table_t::set_interfaces(const type_id_t type, std::vector<type_id_t> i
     }
 }
 
-type_id_t type_table_t::add_enum(std::string name) {
-    return add({ .kind = type_kind_t::ENUM, .name = std::move(name), .inner = type_id_t::INT32 });
+type_id_t type_table_t::add_enum(std::string name, std::string module) {
+    return add({
+        .kind = type_kind_t::ENUM,
+        .name = std::move(name),
+        .module = std::move(module),
+        .inner = type_id_t::INT32,
+    });
 }
 
 void type_table_t::set_values(const type_id_t type, const type_id_t integer,
@@ -762,6 +842,11 @@ bool type_table_t::has_references(const type_id_t type) const {
         return has_references(get(type).inner);
     }
 
+    // What a Ptr points at isn't held in it.
+    if (kind == type_kind_t::PTR) {
+        return false;
+    }
+
     return std::ranges::any_of(get(type).fields,
                                [this](const field_t& field) { return has_references(field.type); });
 }
@@ -791,13 +876,109 @@ bool type_table_t::has_zero(const type_id_t type) const {
                                [this](const field_t& field) { return has_zero(field.type); });
 }
 
-std::string type_table_t::suffixed(const type_id_t type) const {
-    if (type != type_id_t::INVALID && get(type).kind == type_kind_t::FUNCTION &&
+std::string type_table_t::suffixed(const type_id_t type, const bool qualified,
+                                   const std::string_view main) const {
+    std::string text = qualified ? qualified_name(type, main) : std::string(name(type));
+    if (type != type_id_t::INVALID &&
+        (get(type).kind == type_kind_t::FUNCTION || get(type).kind == type_kind_t::CALLBACK) &&
         get(type).inner != type_id_t::NONE) {
-        return std::format("({})", name(type));
+        return std::format("({})", text);
     }
 
-    return std::string(name(type));
+    return text;
+}
+
+std::string type_table_t::qualified_name(const type_id_t id, const std::string_view main) const {
+    const type_t& type = get(id);
+    // The types inside, each qualified, between commas.
+    const auto list = [&](const std::vector<type_id_t>& types) {
+        std::string text;
+        for (std::size_t i = 0; i < types.size(); ++i) {
+            text += std::format("{}{}", i == 0 ? "" : ", ", qualified_name(types[i], main));
+        }
+
+        return text;
+    };
+
+    // Each kind is spelled as the function that makes it names it, with the parts qualified.
+    switch (type.kind) {
+    case type_kind_t::STRUCT:
+    case type_kind_t::CLASS:
+    case type_kind_t::INTERFACE:
+    case type_kind_t::ENUM: {
+        const type_t& declared = type.generic != type_id_t::INVALID ? get(type.generic) : type;
+        std::string_view module = declared.module.empty() ? main : declared.module;
+        if (declared.made) {
+            module = {};
+        }
+
+        std::string text = module.empty() ? std::string() : std::format("{}.", module);
+        if (type.generic == type_id_t::INVALID) {
+            return text + type.name;
+        }
+
+        const std::string_view generic = declared.name;
+        return std::format("{}{}<{}>", text, generic.substr(0, generic.find('<')),
+                           list(type.arguments));
+    }
+    case type_kind_t::NULLABLE:
+        return std::format("{}?", suffixed(type.inner, true, main));
+    case type_kind_t::ARRAY:
+        return std::format("{}[]", suffixed(type.inner, true, main));
+    case type_kind_t::FIXED_ARRAY: {
+        std::string text = std::format("{}[", suffixed(type.inner, true, main));
+        for (std::size_t i = 0; i < type.sizes.size(); ++i) {
+            text += i == 0 ? "" : ", ";
+            text += i < type.parameters.size() && type.parameters[i] != type_id_t::INVALID
+                        ? std::string(name(type.parameters[i]))
+                        : std::to_string(type.sizes[i]);
+        }
+
+        return text + "]";
+    }
+    case type_kind_t::WEAK:
+        return std::format("Weak<{}>", qualified_name(type.inner, main));
+    case type_kind_t::PTR:
+        return type.inner == type_id_t::NONE
+                   ? std::string("Ptr<Void>")
+                   : std::format("Ptr<{}>", qualified_name(type.inner, main));
+    case type_kind_t::ATOMIC:
+        return std::format("Atomic<{}>", qualified_name(type.inner, main));
+    case type_kind_t::MUTEX:
+        return std::format("Mutex<{}>", qualified_name(type.inner, main));
+    case type_kind_t::CHANNEL:
+        return std::format("Channel<{}>", qualified_name(type.inner, main));
+    case type_kind_t::TASK: {
+        std::string text = type.inner == type_id_t::NONE
+                               ? std::string("Task")
+                               : std::format("Task<{}>", qualified_name(type.inner, main));
+        if (!type.throws.empty()) {
+            text += " Throws " + list(type.throws);
+        }
+
+        return text;
+    }
+    case type_kind_t::TUPLE: {
+        std::vector<type_id_t> elements;
+        elements.reserve(type.fields.size());
+        for (const field_t& field : type.fields) {
+            elements.push_back(field.type);
+        }
+
+        return std::format("({})", list(elements));
+    }
+    case type_kind_t::FUNCTION:
+        return type.inner == type_id_t::NONE ? std::format("Func({})", list(type.parameters))
+                                             : std::format("Func({}): {}", list(type.parameters),
+                                                           qualified_name(type.inner, main));
+    case type_kind_t::CALLBACK:
+        return type.inner == type_id_t::NONE
+                   ? std::format("Callback({})", list(type.parameters))
+                   : std::format("Callback({}): {}", list(type.parameters),
+                                 qualified_name(type.inner, main));
+    default:
+        return type.name;
+    }
 }
 
 type_id_t type_table_t::add(type_t type) {

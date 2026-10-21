@@ -1,0 +1,19 @@
+// What an Extend adds has its own visibility: Length is for every file that imports this one,
+// and Squared only for this one.
+
+Import "./shapes"
+
+Extend Point
+    Public Method Length(): Int
+        Local length = 0
+        While (length + 1) * (length + 1) <= Squared()
+            length += 1
+        End While
+
+        Return length
+    End Method
+
+    Method Squared(): Int => X * X + Y * Y
+End Extend
+
+Public Attribute Unit(Name: String)

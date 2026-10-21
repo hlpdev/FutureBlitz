@@ -1,0 +1,2 @@
+allocated 3
+panic: Mem.Alloc takes a size that isn't negative, not -7 at std/ffi/mem.fb:23:27

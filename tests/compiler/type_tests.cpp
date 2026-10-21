@@ -220,20 +220,31 @@ TEST_CASE("a generic type's instances get its fields with their type arguments",
     CHECK(types.substitute(types.array(box), { t }, { fb::type_id_t::STRING }) ==
           types.array(types.instance(box, { fb::type_id_t::STRING })));
 
-    // T? with an Int32? for T is Int32?, not Int32??.
+    // T? with an Int32? for T is Int32??, which holds an Int32? that can be Null itself.
     const fb::type_id_t maybe = types.nullable(fb::type_id_t::INT32);
-    CHECK(types.substitute(types.nullable(t), { t }, { maybe }) == maybe);
+    const fb::type_id_t twice = types.substitute(types.nullable(t), { t }, { maybe });
+    CHECK(twice == types.nullable(maybe));
+    CHECK(types.name(twice) == "Int32??");
     CHECK_FALSE(types.has_zero(t));
 }
 
 TEST_CASE("a copy of a type table keeps its types and adds its own", "[types]") {
     fb::type_table_t types;
     const fb::type_id_t point = types.add_struct("Point");
+    const fb::type_id_t callback = types.callback({ fb::type_id_t::INT32 }, fb::type_id_t::INT32);
+    const fb::type_id_t pointer = types.pointer(callback);
     fb::type_table_t copy = types;
     CHECK(copy.name(point) == "Point");
     const fb::type_id_t points = copy.array(point);
     CHECK(copy.name(points) == "Point[]");
     CHECK(types.size() < copy.size());
+
+    // It makes the Callbacks the table has as the table would, not new ones.
+    CHECK(copy.callback({ fb::type_id_t::INT32 }, fb::type_id_t::INT32) == callback);
+    CHECK(copy.name(copy.array(callback)) == "(Callback(Int32): Int32)[]");
+
+    // And the Ptrs too, so a generic type's instance over one is one type.
+    CHECK(copy.pointer(callback) == pointer);
 }
 
 TEST_CASE("an Interface has a Self, and extends the Interfaces it lists", "[types]") {
@@ -260,6 +271,16 @@ TEST_CASE("an Interface has a Self, and extends the Interfaces it lists", "[type
     const fb::type_id_t ints = types.instance(box, { fb::type_id_t::INT32 });
     types.set_interfaces(box, { item });
     CHECK(types.get(ints).interfaces == std::vector{ item });
+
+    // One instance keeps what an Extend of it alone lists when the generic type's fields, base,
+    // or Interfaces are filled in again.
+    types.set_interfaces(ints, { item, shown });
+    types.set_fields(box, { { .name = "Value", .type = t } });
+    const fb::type_id_t other = types.add_interface("Other");
+    types.set_interfaces(box, { item, other });
+    CHECK(types.get(ints).interfaces == std::vector{ item, other, shown });
+    CHECK(types.get(types.instance(box, { fb::type_id_t::STRING })).interfaces ==
+          std::vector{ item, other });
 }
 
 TEST_CASE("a generic Interface's instances share its Self, and extend instances", "[types]") {
@@ -293,4 +314,23 @@ TEST_CASE("a Const type parameter's arguments are values, which fixed arrays tak
     const fb::type_id_t made = types.substitute(cells, { w }, { four });
     CHECK(made == types.fixed_array(fb::type_id_t::FLOAT32, { 4, 2 }));
     CHECK(types.name(made) == "Float32[4, 2]");
+}
+
+TEST_CASE("an instance has its generic type's module, and the compiler's Classes have none",
+          "[types]") {
+    fb::type_table_t types;
+    const fb::type_id_t t = types.add_parameter("T");
+    const fb::type_id_t box = types.add_struct("Box<T>", "lib.a");
+    types.set_parameters(box, { t });
+    const fb::type_id_t ints = types.instance(box, { fb::type_id_t::INT32 });
+    CHECK(types.get(ints).module == "lib.a");
+    CHECK(types.qualified_name(ints, "main") == "lib.a.Box<Int32>");
+
+    // A captured Local's Cell<T> is the compiler's, so only what's inside has a module.
+    const fb::type_id_t value = types.add_parameter("T");
+    const fb::type_id_t cell = types.add_class("Cell<T>");
+    types.set_made(cell);
+    types.set_parameters(cell, { value });
+    const fb::type_id_t node = types.add_class("Node");
+    CHECK(types.qualified_name(types.instance(cell, { node }), "main") == "Cell<main.Node>");
 }

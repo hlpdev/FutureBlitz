@@ -1,0 +1,5 @@
+// A check that panics on a value that isn't positive.
+
+Public Function Check(n: Int)
+    Assert(n > 0, "{n} isn't positive")
+End Function

@@ -1,0 +1,9 @@
+// Free gives back a CString that From made once: a second Free panics.
+Import std.ffi.cstring
+
+Local text = CString.From("hello")
+Unsafe
+    Print("{text.Length()}")
+    text.Free()
+    text.Free()
+End Unsafe

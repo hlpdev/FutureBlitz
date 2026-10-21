@@ -126,7 +126,10 @@ Local seen = Set<Int>()
 They're written in FutureBlitz, in std/collections/. Each has a `Count` Property, `Add`,
 `Clear`, `Contains`, and `Clone`, which copies the collection but not what its values refer to,
 and goes in a `For ... In`. Taking a value from an empty Stack, Queue, Deque, or PriorityQueue
-panics; `Count` says whether there is one.
+panics; `Count` says whether there is one. Adding or removing a value while a `For ... In` goes
+over the collection panics at the loop's next value, rather than skipping or repeating some,
+except in a Pool; a Map's key can get a new value meanwhile, and reading never changes a
+collection.
 
 | Type | Members besides those |
 |---|---|
@@ -136,9 +139,12 @@ panics; `Count` says whether there is one.
 | `Stack<T>` | `Push`, `Pop`, and `Peek`, at the top; it goes from the top down |
 | `Queue<T>` | `Enqueue` at the back, `Dequeue` and `Peek` at the front |
 | `Deque<T>` | `AddFirst`, `AddLast`, `RemoveFirst`, `RemoveLast`, `First`, and `Last`; `Add` is `AddLast` |
-| `PriorityQueue<T>` | `Pop` and `Peek` give the first: the smallest when T is `Comparable`, or what `PriorityQueue<T>(before)` says comes first |
+| `PriorityQueue<T>` | `Pop` and `Peek` give the first: the smallest when T is `Comparable`, or what `PriorityQueue<T>(before)` says comes first; it goes over its values in no particular order |
 | `Pool<T>` | `Add(value)` gives a `Handle<T>`; `Get(handle)` gives a `T?`; `Set(handle, value)`; `Remove(handle)` |
 
+- What gives a `T?` for "none", like `Get`, `Find`, and an Iterator's `Next`, gives a `T??` for
+  a collection of a `T?`, so a stored `Null` isn't "none": a For ... In over a `Stack<Int?>` goes
+  over its Nulls, and `Get` of a `Map<String, Int?>` tells a missing key from a `Null` value.
 - A Map or Set needs its keys to be `Hashable`. Its entries are in the order they were added;
   removing one moves the last into its place. A Map or Set whose keys and values are
   `Printable` is too: `{a: 1, b: 2}`, `{1, 2}`.
@@ -150,4 +156,8 @@ panics; `Count` says whether there is one.
 - A `Pool<T>` reuses removed values' slots. Each slot counts how many times it has been reused,
   and a `Handle<T>` has that count, so an old Handle finds nothing in a reused slot. Going over a
   Pool gives the values in the order of their slots, and removing one while going over them is
-  fine.
+  fine. A Handle's Index is ReadOnly, and only a Pool makes one, so a Handle is always one the
+  Pool gave; Handles are `Hashable`, equal when they're the same value's. A Pool's Clone has the
+  same Handles, and a Pool of a `T?` keeps a Null as a value.
+- A Map spreads its keys over its buckets by mixing their Hash, so one that differs only in its
+  high bits, like `x << 32 | y`, does as well as any.

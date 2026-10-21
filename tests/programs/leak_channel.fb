@@ -1,0 +1,16 @@
+// A Shared object that waits in its own Channel: a cycle the leak report should point out.
+Shared Class Hub
+    ReadOnly Field Inbox: Channel<Hub>
+
+    New()
+        Inbox = Channel<Hub>(2)
+    End New
+End Class
+
+Function Make()
+    Local hub = Hub()
+    hub.Inbox.Send(hub)
+End Function
+
+Make()
+Print("end")

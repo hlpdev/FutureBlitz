@@ -20,6 +20,8 @@ enum class command_t : std::uint8_t {
     CHECK,
     BUILD,
     RUN,
+    /// Runs fb-bindgen, which sits next to fb.
+    BINDGEN,
 };
 
 /// The `--color` choice. See use_color for what AUTO means.
@@ -42,14 +44,20 @@ enum class stage_t : std::uint8_t {
 struct options_t {
     command_t command = command_t::HELP;
     std::optional<command_t> help_for; // "fb help build" or "fb build --help"
-    /// The .fb file. Empty only for HELP and VERSION.
+    /// The .fb file, or a package's folder. Empty for the current folder, and for HELP and
+    /// VERSION.
     std::filesystem::path input;
-    /// From `-o`, which only `fb build` takes. Nullopt puts the executable next to the source.
+    /// From `-o`, which only `fb build` takes. Nullopt puts the executable next to the source, or
+    /// in a package's build/ folder.
     std::optional<std::filesystem::path> output;
     /// RELEASE with `--release`.
     build_mode_t mode = build_mode_t::DEBUG;
     color_t color = color_t::AUTO;
     std::vector<stage_t> show; // sorted, without repeats
+    /// What `fb bindgen` passes on to fb-bindgen, as it was written, but for fb's --color.
+    std::vector<std::string> passed;
+    /// What `fb run` passes to the program: what follows "--".
+    std::vector<std::string> program_arguments;
 };
 
 /// The command's name, like "build".
@@ -57,9 +65,9 @@ struct options_t {
 /// The name `--show` takes, like "mir".
 [[nodiscard]] std::string_view stage_name(stage_t stage);
 
-/// The arguments after the program's name, as UTF-8. No arguments mean HELP. Errors are messages
-/// for people.
+/// The arguments after the program's name, `all`, as UTF-8. No arguments mean HELP. Errors are
+/// messages for people.
 [[nodiscard]] std::expected<options_t, std::string>
-parse_options(std::span<const std::string_view> arguments);
+parse_options(std::span<const std::string_view> all);
 
 } // namespace fb

@@ -1,8 +1,19 @@
 file(GLOB_RECURSE FB_COMPILER_SOURCES CONFIGURE_DEPENDS src/*.cpp)
 
+# toml++ reads project.toml, header-only, without exceptions, so a bad manifest is a result.
+FetchContent_Declare(
+  tomlplusplus
+  GIT_REPOSITORY https://github.com/marzer/tomlplusplus.git
+  GIT_TAG v3.4.0
+  GIT_SHALLOW TRUE
+  SYSTEM
+)
+FetchContent_MakeAvailable(tomlplusplus)
+
 add_library(fb_compiler STATIC ${FB_COMPILER_SOURCES})
 target_include_directories(fb_compiler PUBLIC include ${CMAKE_CURRENT_BINARY_DIR}/generated)
-target_link_libraries(fb_compiler PUBLIC fb_llvm)
+target_link_libraries(fb_compiler PUBLIC fb_llvm PRIVATE tomlplusplus::tomlplusplus)
+target_compile_definitions(fb_compiler PRIVATE TOML_EXCEPTIONS=0)
 fb_set_warnings(fb_compiler)
 
 # What the compiler needs to link programs: the target, the C++ driver that built the runtime

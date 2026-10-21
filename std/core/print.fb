@@ -1,0 +1,11 @@
+// Print, std's way to the program's output, which calls the runtime through Extern "runtime",
+// as std's other modules will.
+
+Extern "runtime"
+    Function fb_print(text: String)
+End Extern
+
+// Prints `value` and a line break. A String holding a NUL prints whole.
+Public Function Print(value: String)
+    fb_print(value)
+End Function

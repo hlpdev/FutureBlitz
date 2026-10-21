@@ -1,0 +1,16 @@
+// A Class can have a Field named like a Private one of the Class it extends in another file. A
+// leaked cycle through the other file's says whose it is.
+Import "./leak_hidden/node"
+
+Class Sub Extends Node
+    Field hidden: Sub?
+End Class
+
+Local a = Sub()
+Local b = Sub()
+a.Link(b)
+b.Link(a)
+
+Local c = Sub()
+c.hidden = c
+Print("end")

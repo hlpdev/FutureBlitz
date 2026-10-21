@@ -31,6 +31,11 @@ Async Function Quick(): Int
     Return 7
 End Function
 
+// One the program never calls is still built, in debug builds too.
+Async Function Unused(): Int
+    Return Await Quick()
+End Function
+
 Async Function Chain()
     Print(Await Describe("chain", 3))
     Print("quick {Await Quick()}")

@@ -93,16 +93,33 @@ public:
     }
 
     /// Runs `job` on a thread of its own, which counts as a job the pool has started, so
-    /// finish() waits for it.
+    /// finish() waits for it. The threads that are done by now are joined, so a program that
+    /// starts many over time doesn't keep them all.
     void start_thread(fb_job_t* job) {
         m_pending.fetch_add(1, std::memory_order_acq_rel);
         const std::scoped_lock lock(m_mutex);
+        std::erase_if(m_threads, [this](std::thread& thread) {
+            if (!std::ranges::contains(m_finished, thread.get_id())) {
+                return false;
+            }
+
+            std::erase(m_finished, thread.get_id());
+            thread.join();
+            return true;
+        });
         m_threads.emplace_back([this, job] {
             job->work(job->context);
             job->done.store(true, std::memory_order_release);
             release(job);
             m_pending.fetch_sub(1, std::memory_order_acq_rel);
-            signal();
+            // The thread uses nothing of the pool's after this, but to wake the others.
+            {
+                const std::scoped_lock done(m_mutex);
+                m_generation.fetch_add(1, std::memory_order_acq_rel);
+                m_finished.push_back(std::this_thread::get_id());
+            }
+
+            m_wake.notify_all();
         });
     }
 
@@ -110,7 +127,15 @@ public:
     /// first, which is where a job it waits for usually is. It runs no one else's, which could
     /// wait for this thread in turn, as a Channel can.
     void wait_for(const fb_job_t& job) {
-        while (!job.done.load(std::memory_order_acquire)) {
+        wait_running_own([&] { return job.done.load(std::memory_order_acquire); });
+    }
+
+    /// Returns once `done` gives true, which it's asked again whenever a job is started or done,
+    /// or signal() is called. Meanwhile a worker runs the jobs it started itself, as wait_for()
+    /// does.
+    template <typename Done>
+    void wait_running_own(const Done& done) {
+        while (!done()) {
             const std::uint64_t seen = m_generation.load(std::memory_order_acquire);
             if (run_own()) {
                 continue;
@@ -118,10 +143,14 @@ public:
 
             std::unique_lock lock(m_mutex);
             m_wake.wait(lock, [&] {
-                return job.done.load(std::memory_order_acquire) ||
-                       m_generation.load(std::memory_order_acquire) != seen;
+                return done() || m_generation.load(std::memory_order_acquire) != seen;
             });
         }
+    }
+
+    /// Whether every job started is done, those on threads of their own too.
+    [[nodiscard]] bool idle() const {
+        return m_pending.load(std::memory_order_acquire) == 0;
     }
 
     /// Returns once `ready` gives true, which it's asked again whenever something changes: a job
@@ -175,6 +204,7 @@ public:
             workers.swap(m_workers);
             std::ranges::move(m_threads, std::back_inserter(workers));
             m_threads.clear();
+            m_finished.clear();
         }
 
         m_wake.notify_all();
@@ -280,8 +310,10 @@ private:
     std::mutex m_mutex;
     std::condition_variable m_wake;
     std::vector<std::thread> m_workers;
-    /// The threads started for jobs of their own, until finish() joins them.
+    /// The threads started for jobs of their own, until finish() or the next start_thread()
+    /// joins them, and the ones of those that are done.
     std::vector<std::thread> m_threads;
+    std::vector<std::thread::id> m_finished;
     bool m_stopping = false;
     /// Changes whenever a job is started or done, so a thread that found nothing to run knows to
     /// look again.
@@ -336,11 +368,11 @@ void pop(fb_channel_t* channel, void* element) {
 }
 
 /// A Parallel For's chunk: its body's code, the first entry of its Class's Method table.
-void run_chunk(void* context, const std::int64_t first, const std::int64_t last) {
+void run_chunk(void* context, const std::int64_t first, const std::int64_t count) {
     auto* body = static_cast<fb_object_t*>(context);
-    using chunk_t = void (*)(fb_object_t* body, std::int64_t first, std::int64_t last);
+    using chunk_t = void (*)(fb_object_t* body, std::int64_t first, std::int64_t count);
     const auto* methods = reinterpret_cast<void* const*>(body->type + 1);
-    reinterpret_cast<chunk_t>(methods[0])(body, first, last);
+    reinterpret_cast<chunk_t>(methods[0])(body, first, count);
 }
 
 /// A task's job: its work, and then the job lets go of the task.
@@ -456,9 +488,54 @@ public:
         }
     }
 
+    /// Destroys the coroutines waiting here, as cancel() does, and lets go of the timers'
+    /// Tasks, which are never done, until neither is left, since what's destroyed may start
+    /// more.
+    void end() {
+        while (busy()) {
+            cancel();
+            for (const timer_t& timer : std::exchange(m_timers, {})) {
+                fb_object_release(&timer.task->header);
+            }
+        }
+    }
+
     /// Whether no coroutine waits here.
     [[nodiscard]] bool empty() const {
         return m_waiting.empty();
+    }
+
+    /// Whether the coroutines waiting here can never go on: the pool has no work that could
+    /// finish a Task, and none waits for one that's done, or that a timer here finishes, or that
+    /// a coroutine here finishes once it goes on in turn. What they wait for is on a Scheduler,
+    /// or waits for one, which only code here could tick.
+    [[nodiscard]] bool stuck() const {
+        // The pool first: once it has nothing left, its Tasks are done, which the rest sees.
+        if (!pool().idle()) {
+            return false;
+        }
+
+        std::vector<const fb_task_t*> coming;
+        coming.reserve(m_timers.size());
+        for (const timer_t& timer : m_timers) {
+            coming.push_back(timer.task);
+        }
+
+        const auto goes_on = [&coming](const waiting_t& waiting) {
+            return fb_task_done(waiting.task) != 0 || std::ranges::contains(coming, waiting.task);
+        };
+        bool more = true;
+        while (more) {
+            more = false;
+            for (const waiting_t& waiting : m_waiting) {
+                if (goes_on(waiting) && !std::ranges::contains(coming, waiting.own)) {
+                    coming.push_back(waiting.own);
+                    more = true;
+                }
+            }
+        }
+
+        return std::ranges::none_of(m_waiting, goes_on);
     }
 
     /// Whether a tick could finish something: a coroutine waits, or a timer.
@@ -573,32 +650,52 @@ scheduler_t& state_of(const fb_scheduler_t* scheduler) {
 }
 
 /// A range that a Parallel For goes over, which each thread takes chunks of until none are left.
+/// The caller and each helper job hold it, since a helper may start after the caller's done.
 struct range_t {
     fb_range_body_t body;
     void* context;
-    std::int64_t begin;
-    std::uint64_t count;
+    std::int64_t first;
+    /// The last index's distance from the first, so the full 2^64 indexes fit.
+    std::uint64_t span;
     std::uint64_t size;
     std::uint64_t chunks;
     std::atomic<std::uint64_t> next;
+    /// The chunks that have run.
+    std::atomic<std::uint64_t> ran;
+    std::atomic<std::int32_t> owners;
 };
 
-void take_chunks(void* context) {
-    auto* range = static_cast<range_t*>(context);
+void release(range_t* range) {
+    if (range->owners.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+        delete range;
+    }
+}
+
+void take_chunks(range_t* range) {
     while (true) {
         const std::uint64_t chunk = range->next.fetch_add(1, std::memory_order_relaxed);
         if (chunk >= range->chunks) {
             return;
         }
 
-        // The arithmetic wraps, so a range across 0, or near the ends, works out.
+        // The arithmetic wraps, so a range across 0, or an unsigned one past an Int64's end,
+        // works out.
         const std::uint64_t offset = chunk * range->size;
-        const std::uint64_t length = std::min(range->size, range->count - offset);
+        const std::uint64_t count = std::min(range->size - 1, range->span - offset) + 1;
         const auto first =
-            static_cast<std::int64_t>(static_cast<std::uint64_t>(range->begin) + offset);
-        const auto last = static_cast<std::int64_t>(static_cast<std::uint64_t>(first) + length);
-        range->body(range->context, first, last);
+            static_cast<std::int64_t>(static_cast<std::uint64_t>(range->first) + offset);
+        range->body(range->context, first, static_cast<std::int64_t>(count));
+        if (range->ran.fetch_add(1, std::memory_order_acq_rel) + 1 == range->chunks) {
+            pool().signal();
+        }
     }
+}
+
+/// A helper's job: the chunks left, if any, then it lets go of the range.
+void help(void* context) {
+    auto* range = static_cast<range_t*>(context);
+    take_chunks(range);
+    release(range);
 }
 
 } // namespace
@@ -623,43 +720,41 @@ void fb_job_release(fb_job_t* job) {
     release(job);
 }
 
-void fb_parallel_for(const std::int64_t begin, const std::int64_t end, const fb_range_body_t body,
+void fb_parallel_for(const std::int64_t first, const std::int64_t last, const fb_range_body_t body,
                      void* context) {
-    if (end <= begin) {
-        return;
-    }
-
     // A few chunks for each thread, so one that finishes early takes some of the others' share.
-    const auto count = static_cast<std::uint64_t>(end) - static_cast<std::uint64_t>(begin);
+    const std::uint64_t span = static_cast<std::uint64_t>(last) - static_cast<std::uint64_t>(first);
     const std::uint64_t threads = pool().size() + 1;
-    const std::uint64_t size = std::max<std::uint64_t>(1, count / (threads * 4));
-    range_t range{
+    const std::uint64_t size = std::max<std::uint64_t>(1, span / (threads * 4));
+    const std::uint64_t chunks = (span / size) + 1;
+    // The calling thread takes chunks too, so a range of one chunk needs no other thread.
+    const std::uint64_t helpers = std::min<std::uint64_t>(pool().size(), chunks - 1);
+    auto* range = new range_t{
         .body = body,
         .context = context,
-        .begin = begin,
-        .count = count,
+        .first = first,
+        .span = span,
         .size = size,
-        .chunks = (count / size) + (count % size == 0 ? 0 : 1),
+        .chunks = chunks,
         .next = 0,
+        .ran = 0,
+        .owners = static_cast<std::int32_t>(helpers + 1),
     };
 
-    // The calling thread takes chunks too, so a range of one chunk needs no other thread.
-    std::vector<fb_job_t*> helpers;
-    const std::uint64_t wanted = std::min<std::uint64_t>(pool().size(), range.chunks - 1);
-    helpers.reserve(wanted);
-    for (std::uint64_t i = 0; i < wanted; ++i) {
-        helpers.push_back(fb_job_start(take_chunks, &range));
+    for (std::uint64_t i = 0; i < helpers; ++i) {
+        fb_job_release(fb_job_start(help, range));
     }
 
-    take_chunks(&range);
-    for (fb_job_t* helper : helpers) {
-        fb_job_wait(helper);
-        fb_job_release(helper);
-    }
+    // Every chunk is taken by now, so the wait is for the threads running one: a helper that
+    // hasn't started, since the workers are busy, finds none left once it does.
+    take_chunks(range);
+    pool().wait_running_own(
+        [range] { return range->ran.load(std::memory_order_acquire) == range->chunks; });
+    release(range);
 }
 
-void fb_parallel_closure(const std::int64_t begin, const std::int64_t end, fb_object_t* body) {
-    fb_parallel_for(begin, end, run_chunk, body);
+void fb_parallel_closure(const std::int64_t first, const std::int64_t last, fb_object_t* body) {
+    fb_parallel_for(first, last, run_chunk, body);
 }
 
 std::int64_t fb_pool_size() {
@@ -718,8 +813,10 @@ fb_channel_t* fb_channel_new(fb_class_t* type, const std::int64_t element_size,
     auto* channel = reinterpret_cast<fb_channel_t*>(fb_object_new(type));
     channel->element_size = element_size;
     channel->capacity = capacity;
+    // A byte or more, since calloc may give null for none, as a Struct without Fields would ask.
     channel->data = static_cast<unsigned char*>(
-        std::calloc(static_cast<std::size_t>(capacity), static_cast<std::size_t>(element_size)));
+        std::calloc(static_cast<std::size_t>(element_size == 0 ? 1 : capacity),
+                    static_cast<std::size_t>(std::max<std::int64_t>(element_size, 1))));
     if (channel->data == nullptr) {
         fb_panic("out of memory", location);
     }
@@ -810,6 +907,15 @@ void* fb_channel_take_left(fb_channel_t* channel) {
     channel->head = (channel->head + 1) % channel->capacity;
     --channel->count;
     return element;
+}
+
+void* fb_channel_element(const fb_channel_t* channel, const std::int64_t index) {
+    if (index >= channel->count) {
+        return nullptr;
+    }
+
+    const std::int64_t slot = (channel->head + index) % channel->capacity;
+    return channel->data + (slot * channel->element_size);
 }
 
 void fb_channel_free(const fb_channel_t* channel) {
@@ -905,7 +1011,13 @@ void fb_coroutine_free(void* frame) {
 }
 
 void fb_scheduler_finish() {
-    main_scheduler().run_until([] { return main_scheduler().empty(); });
+    scheduler_t& main = main_scheduler();
+    main.run_until([&main] { return main.empty() || main.stuck(); });
+    main.end();
+}
+
+void fb_scheduler_end() {
+    main_scheduler().end();
 }
 
 std::int32_t fb_task_done(const fb_task_t* task) {

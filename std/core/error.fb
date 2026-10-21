@@ -1,9 +1,9 @@
 // The Class every error extends. Its first field is Message, which the runtime reads when
 // top-level code lets an error out.
-Class Error
-    Field Message: String
+Public Class Error
+    Public Field Message: String
 
-    New(message: String = "")
+    Public New(message: String = "")
         Message = message
     End New
 End Class

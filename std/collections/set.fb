@@ -1,42 +1,45 @@
 // Set<T>: values without repeats, which a Map holds as its keys.
 
-Class Set<T>
+Import std.collections.array
+Import std.collections.map
+
+Public Class Set<T>
     Where T: Hashable
 
     Field Items: Map<T, Bool>
 
-    New()
+    Public New()
         Items = Map<T, Bool>()
     End New
 
-    Property Count: Int
+    Public Property Count: Int
         Get => Items.Count
     End Property
 
     // Adds the value, and tells whether it's new.
-    Method Add(value: T): Bool
+    Public Method Add(value: T): Bool
         If Items.Contains(value) Then Return False
         Items.Add(value, True)
         Return True
     End Method
 
-    // Removes the value, and tells whether it was there.
-    Method Remove(value: T): Bool => Items.Remove(value)
+    // Removes the value, and tells whether it was there. The last value takes its place.
+    Public Method Remove(value: T): Bool => Items.Remove(value)
 
-    Method Contains(value: T): Bool => Items.Contains(value)
+    Public Method Contains(value: T): Bool => Items.Contains(value)
 
-    Method Clear()
+    Public Method Clear()
         Items.Clear()
     End Method
 
-    Method Clone(): Set<T>
+    Public Method Clone(): Set<T>
         Local copy = Set<T>()
         copy.Items = Items.Clone()
         Return copy
     End Method
 
     // A new Set of the values that keep says to keep.
-    Method Filter(keep: Func(T): Bool): Set<T>
+    Public Method Filter(keep: Func(T): Bool): Set<T>
         Local kept = Set<T>()
         For value In Items.Keys()
             If keep(value) Then kept.Add(value)
@@ -45,18 +48,21 @@ Class Set<T>
     End Method
 
     // The first value that test says is the one, or Null.
-    Method Find(test: Func(T): Bool): T?
+    Public Method Find(test: Func(T): Bool): T?
         Return Items.Keys().Find(test)
     End Method
 
-    // The values, in the order they were added.
-    Method Iterate(): SetIterator<T> => SetIterator<T>(Items.Iterate())
+    // The values, in the order they were added, but for a removed one's place, which the last
+    // value took. Adding or removing one while going over them panics.
+    Public Method Iterate(): SetIterator<T> => SetIterator<T>(Items.IterateAs("Set"))
 End Class
 
-Struct SetIterator<T> Implements Iterator<T>
+Public Struct SetIterator<T> Implements Iterator<T>
+    Where T: Hashable
+
     Field Entries: MapIterator<T, Bool>
 
-    ByRef Method Next(): T?
+    Public ByRef Method Next(): T?
         Local entry = Entries.Next()
         If entry == Null Then Return Null
         Return entry.0
@@ -67,11 +73,11 @@ End Struct
 Extend Set<T> Implements Printable
     Where T: Printable
 
-    Method ToString(): String
-        Local text = ""
+    Public Method ToString(): String
+        Local parts: String[] = []
         For value In Self
-            text = text + (text == "" ? "" : ", ") + "{value}"
+            parts.Add("{value}")
         End For
-        Return "{{" + text + "}}"
+        Return "{{" + JoinedText(parts) + "}}"
     End Method
 End Extend

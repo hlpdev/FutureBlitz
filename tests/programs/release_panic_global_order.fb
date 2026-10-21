@@ -1,0 +1,17 @@
+// A release build checks a Global whose zero would hold a null object, like a Struct with a
+// Class in it, where a function an earlier initializer calls uses it, as a debug build does.
+Class Thing
+    Field Name: String = "thing"
+End Class
+
+Struct Holder
+    Field count: Int
+    Field thing: Thing
+End Struct
+
+Global early = Peek()
+Global held = Holder(1, Thing())
+
+Function Peek(): String => held.thing.Name
+
+Print(early)

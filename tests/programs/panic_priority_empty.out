@@ -1,0 +1,2 @@
+3
+panic: the PriorityQueue is empty at std/collections/priority_queue.fb:59:34

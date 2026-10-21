@@ -1,0 +1,12 @@
+// Shows that don't implement Shown.
+Import "./shown"
+
+Extend Point
+    Public Method Show(): String => "plain point"
+End Extend
+
+Extend Counter
+    Public Method Show(): String => "plain counter"
+End Extend
+
+Public Function PlainShow(point: Point): String => point.Show()

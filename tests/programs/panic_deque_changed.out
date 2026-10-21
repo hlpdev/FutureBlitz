@@ -1,0 +1,2 @@
+1
+panic: the Deque changed while a For ... In went over it at std/collections/deque.fb:108:42

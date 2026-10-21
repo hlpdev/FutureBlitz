@@ -60,6 +60,28 @@ Struct Player Implements Scored
     End Property
 End Struct
 
+// A Struct's Static Property is no part of Self, so a plain Method or a Static one sets it by
+// name.
+Struct Tally
+    Field step: Int
+    Static Field total: Int
+
+    Static Property Total: Int
+        Get => total
+        Set(value)
+            total = value
+        End Set
+    End Property
+
+    Method Add()
+        Total += step
+    End Method
+
+    Static Method Reset()
+        Total = 0
+    End Method
+End Struct
+
 Function Reward<T: Scored>(ByRef player: T)
     player.Score += 30
     player.Score++
@@ -77,3 +99,9 @@ Print("{Shape.Made}")
 Local player = Player(60)
 Reward(ByRef player)
 Reward(ByRef player)
+
+Tally(2).Add()
+Tally(5).Add()
+Print("{Tally.Total}")
+Tally.Reset()
+Print("{Tally.Total}")

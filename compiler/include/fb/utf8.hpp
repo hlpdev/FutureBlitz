@@ -28,6 +28,10 @@ struct decoded_t {
 
 void append_utf8(std::string& out, char32_t code_point);
 
+/// The columns a code point takes in a terminal: 2 for East Asian wide characters and emoji, 0
+/// for combining marks and invisible format characters, and 1 for the rest.
+[[nodiscard]] int display_width(char32_t code_point);
+
 /// A path as UTF-8 with forward slashes. path.string() isn't UTF-8 on Windows, and it can throw.
 [[nodiscard]] std::string to_utf8(const std::filesystem::path& path);
 

@@ -1,0 +1,12 @@
+// This module sees tens' Iterate, which the main file doesn't.
+Import "./bag"
+Import "./tens"
+
+Public Function TensTotal(bag: Bag): Int
+    Local total = 0
+    For x In bag
+        total += x
+    End For
+
+    Return total
+End Function

@@ -1,0 +1,6 @@
+Import physics
+
+// Shows a position, through the physics package's Public Vec.
+Public Function Show(position: Vec)
+    Print("at {position.x}, {position.y}")
+End Function

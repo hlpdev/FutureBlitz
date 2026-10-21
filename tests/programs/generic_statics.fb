@@ -39,3 +39,92 @@ Print("{Counter<Int>.Report()} {Counter<String>.Report()} {Counter<Int>.Twice}")
 Print("{Registry<Int>.Bump()} {Registry<Int>.Bump()} {Registry<Bool>.Bump()}")
 Local d = Counter<Int>.Fresh(9)
 Print("{Counter<Int>.Made} {d.Value}")
+
+// A Static Field can start as Null, and a Static Property used by name is the instance's.
+Class Slot<T>
+    Static Field Kept: T? = Null
+    Static Field Sets: Int = 0
+
+    Static Property Count: Int
+        Get => Sets
+        Set(value)
+            Sets = value
+        End Set
+    End Property
+
+    Method Keep(value: T)
+        Kept = value
+        Count += 1
+    End Method
+
+    Method Show(): String => "{Count}"
+End Class
+
+// A Class extending an instance, a generic one passing its own type, and an Extend of one
+// instance use that instance's Statics by name.
+Class IntSlot Extends Slot<Int>
+    Method Bump()
+        Count += 10
+        Kept = (Kept ?? 0) + 1
+    End Method
+End Class
+
+Class ListSlot<U> Extends Slot<U[]>
+    Method Sum(): Int => Sets + (Kept?.Count ?? 0)
+End Class
+
+Extend Slot<String>
+    Method Shout(): String => "{Kept ?? "none"}! {Count}"
+End Extend
+
+// A Struct's Static Property is no part of Self, so a plain Method or a Static one sets its
+// instance's by name.
+Struct Tally<T>
+    Field Item: T
+    Static Field total: Int = 0
+
+    Static Property Total: Int
+        Get => total
+        Set(value)
+            total = value
+        End Set
+    End Property
+
+    Method Note()
+        Total += 1
+    End Method
+
+    Static Method Reset()
+        Total = 0
+    End Method
+End Struct
+
+Print("{Slot<Int>.Kept ?? -1} {Slot<String>.Kept ?? "none"}")
+Local i = IntSlot()
+i.Keep(4)
+i.Bump()
+Local l = ListSlot<Bool>()
+l.Keep([True, False])
+Local s = Slot<String>()
+Print(s.Shout())
+s.Keep("hi")
+Print("{Slot<Int>.Kept ?? -1} {Slot<Int>.Count} {i.Show()} {l.Sum()} {s.Shout()} {Slot<Bool[]>.Sets}")
+
+Tally(1).Note()
+Tally(2).Note()
+Tally("a").Note()
+Print("{Tally<Int>.Total} {Tally<String>.Total}")
+Tally<Int>.Reset()
+Print("{Tally<Int>.Total} {Tally<String>.Total}")
+
+// Through a Class extending one of its instances, a Static Method is that instance's.
+Class Store<T>
+    Static Field made: Int = 5
+    Static Method Get(): Int => made
+End Class
+
+Class Ints Extends Store<Int>
+End Class
+
+Store<Int>.made = 6
+Print("{Ints.Get()} {Store<String>.Get()}")

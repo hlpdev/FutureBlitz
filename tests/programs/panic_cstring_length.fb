@@ -1,0 +1,7 @@
+// A Null CString has no length to count.
+Import std.ffi
+
+Local none: CString = Null
+Unsafe
+    Print("{none.Length()}")
+End Unsafe

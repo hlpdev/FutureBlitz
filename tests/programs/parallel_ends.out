@@ -1,0 +1,7 @@
+Int64 through its end: 10 passes, sum 45
+Int64 from its start: 5 passes, sum 10
+Int32 through its end: 100 passes, sum 0
+UInt8 0 To 255: 256 passes, sum 32640
+UInt64 across 2^63: 6 passes, sum 15
+UInt64 through its end: 4 passes, sum 0
+empty ranges: 0 passes, sum 0

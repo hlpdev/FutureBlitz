@@ -1,0 +1,7 @@
+// Pop on an empty PriorityQueue panics.
+Import std.collections
+
+Local queue = PriorityQueue<Int>()
+queue.Add(3)
+Print("{queue.Pop()}")
+queue.Pop()

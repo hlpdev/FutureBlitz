@@ -1,0 +1,94 @@
+// A program's own Interfaces named like the built-in ones hide std's for its code, while the
+// language's strings, comparisons, loops, Maps, Sets, and threads keep going through std's.
+
+Import std.collections
+
+Interface Printable
+    Method Show(): String
+End Interface
+
+Interface Equatable
+    Method Same(other: Self): Bool
+End Interface
+
+Interface Comparable
+    Method Rank(): Int
+End Interface
+
+Interface Hashable
+    Method Key(): String
+End Interface
+
+Interface Numeric
+    Method Value(): Int
+End Interface
+
+Interface Iterator<T>
+    Method Current(): T
+End Interface
+
+Interface Sendable
+    Method Address(): String
+End Interface
+
+Struct Point Implements Printable, Equatable, Comparable, Hashable, Numeric, Sendable
+    Field X: Int
+
+    Method Show(): String => "P{X}"
+    Method Same(other: Point): Bool => X == other.X
+    Method Rank(): Int => X * 10
+    Method Key(): String => "point {X}"
+    Method Value(): Int => X
+    Method Address(): String => "at {X}"
+End Struct
+
+Struct Countdown Implements Iterator<Int>
+    Field From: Int
+
+    Method Current(): Int => From
+End Struct
+
+Function Describe<T>(x: T): String
+    Where T: Printable & Comparable & Hashable & Sendable
+    Return "{x.Show()} ranks {x.Rank()}, {x.Key()}, {x.Address()}"
+End Function
+
+Function Total<T>(items: T[]): Int
+    Where T: Numeric
+    Local sum = 0
+    For item In items
+        sum += item.Value()
+    End For
+    Return sum
+End Function
+
+Local p = Point(3)
+Print(Describe(p))
+Print("same {p.Same(Point(3))}, == {p == Point(4)}, total {Total([p, Point(4)])}")
+Print("countdown from {Countdown(2).Current()}")
+
+// std's Interfaces still give strings, ==, <, Sort, Maps, Sets, and For ... In.
+Local names = ["cy", "ann", "bob"]
+names.Sort()
+Print("{names} {"ann" < "bob"} {2.5.Hash() == 2.5.Hash()}")
+
+Local scores = {"ann": 3, "bob": 5}
+Print("{scores}")
+For name, score In scores
+    Print("  {name}={score}")
+End For
+
+Local seen = Set<Int>()
+seen.Add(2)
+seen.Add(2)
+seen.Add(7)
+Print("{seen.Count} in {seen}")
+
+// What another thread gets is checked against std's Sendable, which Point is, being a Struct of
+// numbers.
+Function Later(point: Point): Int
+    Local task = Spawn(Function() => point.X + 39)
+    Return task.Wait()
+End Function
+
+Print("{Later(p)}")

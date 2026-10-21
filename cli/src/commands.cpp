@@ -4,6 +4,7 @@
 #include "fb/diagnostic_render.hpp"
 #include "fb/driver.hpp"
 #include "fb/dump.hpp"
+#include "fb/lexer.hpp"
 #include "fb/lower.hpp"
 #include "fb/process.hpp"
 #include "fb/style.hpp"
@@ -13,20 +14,27 @@
 #include <algorithm>
 #include <chrono>
 #include <cstddef>
+#include <cstdint>
 #include <cstdio>
 #include <expected>
 #include <filesystem>
 #include <format>
 #include <optional>
+#include <ranges>
+#include <span>
 #include <string>
 #include <system_error>
 #include <utility>
+#include <vector>
 
 namespace fb {
 namespace {
 
 /// What a program exits with when it panics. The runtime's fb_panic uses the same code.
 constexpr int panic_exit_code = 101;
+
+/// The most diagnostics a command shows; the count of the rest follows them.
+constexpr std::size_t shown_diagnostics = 100;
 
 /// Stage views go to stdout so they pipe cleanly. Everything else goes to stderr, like cargo.
 class console_t {
@@ -65,6 +73,10 @@ public:
                                 m_err.paint(message, tone_t::BOLD)));
     }
 
+    void note(const std::string_view message) const {
+        print_error(std::format("{}: {}\n", m_err.paint("note", tone_t::NOTE), message));
+    }
+
 private:
     style_t m_out;
     style_t m_err;
@@ -90,9 +102,35 @@ std::string_view summary(const command_t command) {
         return "Compile a program into an executable";
     case command_t::RUN:
         return "Compile a program and run it";
+    case command_t::BINDGEN:
+        return "Turn a C header into a FutureBlitz module, with fb-bindgen";
     default:
         return "";
     }
+}
+
+/// `fb bindgen`'s help, which lists fb-bindgen's options. Names pad to 21 columns, the width of
+/// "    --target <triple>".
+std::string bindgen_help(const style_t& style) {
+    const auto entry = [&](const std::string_view name, const std::string_view description) {
+        return std::format("  {}  {}\n", style.paint(std::format("{:<21}", name), tone_t::NAME),
+                           description);
+    };
+    std::string out =
+        std::format("{}\n\n{} fb bindgen <header.h> [options]\n", summary(command_t::BINDGEN),
+                    style.paint("Usage:", tone_t::SUCCESS));
+    out += std::format("\n{}\n", style.paint("Options:", tone_t::SUCCESS));
+    out += entry("-o, --output <file>", "Where the module goes (<header>.fb in this folder)");
+    out += entry("    --lib <name>",
+                 "The [native] library its Extern block names (the header's; \"\" for none)");
+    out += entry("    --target <triple>", "The target to read the header for (this build's)");
+    out += entry("    --std <standard>",
+                 "The C standard to read it with, like c17 (the C compiler's)");
+    out += entry("-I <folder>", "A folder the header's #includes are found in");
+    out += entry("-D <name>[=<value>]", "Defines a macro");
+    out += entry("    --color <when>", "Color fb's own output: auto, always, or never");
+    out += entry("-h, --help", "Show this help");
+    return out;
 }
 
 /// The help for one command, or for fb as a whole when `command` is nullopt.
@@ -106,15 +144,32 @@ std::string help_text(const std::optional<command_t> command, const style_t& sty
                            description);
     };
 
+    if (command == command_t::BINDGEN) {
+        return bindgen_help(style);
+    }
+
     std::string out = command ? std::format("{}\n\n", summary(*command))
                               : std::format("FutureBlitz {}: build and run .fb programs\n\n",
                                             build_config::version);
-    const std::string name =
-        command ? std::format("fb {}", command_name(*command)) : "fb <command>";
-    out += std::format("{} {} [options] <file.fb>\n", heading("Usage:"), name);
+    if (command) {
+        out += std::format("{} fb {} [options] [file.fb | package folder]{}\n", heading("Usage:"),
+                           command_name(*command),
+                           command == command_t::RUN ? " [-- <arguments>]" : "");
+        out +=
+            "\nWithout a file or folder, it's the package the current folder is in, from it up.\n";
+    } else {
+        out += std::format("{} fb [--color <when>] <command> [options] [<file or folder>]\n",
+                           heading("Usage:"));
+    }
+
+    if (command == command_t::RUN) {
+        out += "What follows -- goes to the program.\n";
+    }
+
     if (!command) {
         out += std::format("\n{}\n", heading("Commands:"));
-        for (const command_t each : { command_t::CHECK, command_t::BUILD, command_t::RUN }) {
+        for (const command_t each :
+             { command_t::CHECK, command_t::BUILD, command_t::RUN, command_t::BINDGEN }) {
             out += entry(command_name(each), summary(each));
         }
 
@@ -123,7 +178,8 @@ std::string help_text(const std::optional<command_t> command, const style_t& sty
 
     out += std::format("\n{}\n", heading("Options:"));
     if (!command || command == command_t::BUILD) {
-        out += entry("-o, --output <path>", "Where to write the executable (next to the source)");
+        out += entry("-o, --output <path>",
+                     "Where to write the executable (next to the source, or in build/)");
     }
 
     out += entry("    --release", "Optimize, and let integer overflow wrap instead of panicking");
@@ -160,13 +216,83 @@ void print_view(const console_t& console, const options_t& options, const stage_
     console_t::print(text);
 }
 
-/// `fb build`: writes the executable to the `-o` path, or next to the source.
+/// The tokens of each file of a library's own package, after a line with its path, lexed as
+/// the build lexed them.
+std::string package_tokens(const compilation_t& compilation, const build_mode_t mode,
+                           const style_t& style) {
+    const module_table_t& modules = compilation.ast.modules();
+    const std::optional<module_id_t> main = modules.main();
+    const std::vector<std::string_view> defined = defined_symbols(mode);
+    std::string out;
+    for (const module_t& module : modules.modules()) {
+        if (!main || module.is_main || module.package != modules.get(*main).package) {
+            continue;
+        }
+
+        const source_file_t& file = compilation.sources.get(module.file);
+        diagnostic_bag_t reported; // the build reported them
+        out += style.paint(file.path(), tone_t::BOLD) + "\n";
+        out += dump_tokens(file, lex(file, reported, defined), style);
+    }
+
+    return out;
+}
+
+/// Reports a build that failed: at the Extern Functions whose C symbols no library defines,
+/// and the project.toml lines of system libraries the linker can't find, then the rest as the
+/// linker said.
+void report_build_error(const console_t& console, const compilation_t& compilation,
+                        const std::string_view name, const std::string& failure) {
+    const link_errors_t found = link_errors(compilation, failure);
+    for (const diagnostic_t& diagnostic : found.errors) {
+        console_t::print_error(
+            render_pretty(diagnostic, compilation.sources, { .color = console.err().color }));
+    }
+
+    if (!found.complete) {
+        console.error(failure);
+    }
+
+    if (!found.errors.empty()) {
+        console.error(std::format("couldn't link {} because of {}", name,
+                                  count(found.errors.size(), "error")));
+    }
+}
+
+/// `fb build`: writes the executable to the `-o` path, or for a package, to its build/ folder,
+/// named after it, or else next to the source.
 int build(const console_t& console, const options_t& options, const compilation_t& compilation,
-          const mir_module_t& module, const std::chrono::steady_clock::time_point start) {
-    const std::filesystem::path output = options.output.value_or(
-        std::filesystem::path(options.input).replace_extension(executable_extension));
+          const std::string_view name, const mir_module_t& module,
+          const std::chrono::steady_clock::time_point start) {
+    std::filesystem::path output;
+    if (options.output) {
+        output = *options.output;
+    } else if (compilation.package) {
+        output = compilation.package->root / "build" / path_from_utf8(compilation.package->program);
+        output += executable_extension;
+    } else {
+        output = std::filesystem::path(options.input).replace_extension(executable_extension);
+    }
+
+    std::error_code error;
+    if (std::filesystem::is_directory(output, error)) {
+        console.error(std::format("'-o' names a folder, {}; give the executable's file name",
+                                  to_utf8(output)));
+        return usage_exit_code;
+    }
+
+    // Writing over one of the program's own files would lose it.
+    for (std::size_t i = 0; i < compilation.sources.size(); ++i) {
+        const std::string& path = compilation.sources.get(static_cast<file_id_t>(i)).path();
+        if (std::filesystem::equivalent(output, path_from_utf8(path), error)) {
+            console.error(
+                std::format("'-o' names {}, a file of the program; give another path", path));
+            return usage_exit_code;
+        }
+    }
+
     if (auto built = build_program(module, compilation, output, options.mode); !built) {
-        console.error(built.error());
+        report_build_error(console, compilation, name, built.error());
         return compile_errors_exit_code;
     }
 
@@ -177,19 +303,29 @@ int build(const console_t& console, const options_t& options, const compilation_
 /// `fb run`: builds the program in a temporary folder, runs it in this terminal, and deletes the
 /// folder. Returns the program's exit code, or 1 when it can't be built or started.
 int run(const console_t& console, const options_t& options, const compilation_t& compilation,
-        const mir_module_t& module, const std::chrono::steady_clock::time_point start) {
-    // A folder of its own, so the program keeps its name.
-    const std::filesystem::path folder = temporary_path(options.input.stem(), "");
-    std::filesystem::path program = folder / options.input.stem();
+        const std::string_view shown, const mir_module_t& module,
+        const std::chrono::steady_clock::time_point start) {
+    // A folder of its own, so the program keeps its name, or its package's.
+    const std::filesystem::path stem =
+        compilation.package ? path_from_utf8(compilation.package->program) : options.input.stem();
+    const std::filesystem::path folder = temporary_path(stem, "");
+    std::filesystem::path program = folder / stem;
     program += executable_extension;
     const std::string name = to_utf8(program.filename());
 
+    const std::expected<void, std::string> built =
+        build_program(module, compilation, program, options.mode);
+    if (!built) {
+        std::error_code ignored;
+        std::filesystem::remove_all(folder, ignored);
+        report_build_error(console, compilation, shown, built.error());
+        return compile_errors_exit_code;
+    }
+
+    report_built(console, options, start);
+    console.status("Running", name);
     const std::expected<int, std::string> exit_code =
-        build_program(module, compilation, program, options.mode).and_then([&] {
-            report_built(console, options, start);
-            console.status("Running", name);
-            return run_attached(program, {});
-        });
+        run_attached(program, options.program_arguments);
 
     // Cleaning up is best effort. A folder left in temp isn't worth an error.
     std::error_code ignored;
@@ -199,8 +335,13 @@ int run(const console_t& console, const options_t& options, const compilation_t&
         return compile_errors_exit_code;
     }
 
+    // A program that crashes on Windows gives an NTSTATUS, like 0xC0000409, which shows in hex.
     if (*exit_code == panic_exit_code) {
-        console.error(std::format("{} panicked (exit code {})", name, panic_exit_code));
+        console.error(
+            std::format("{} exited with code {}, which a panic gives", name, panic_exit_code));
+    } else if (*exit_code < 0) {
+        console.error(std::format("{} exited with code 0x{:08X}", name,
+                                  static_cast<std::uint32_t>(*exit_code)));
     } else if (*exit_code != 0) {
         console.error(std::format("{} exited with code {}", name, *exit_code));
     }
@@ -213,38 +354,82 @@ int run(const console_t& console, const options_t& options, const compilation_t&
 int compile_command(const options_t& options) {
     const auto start = std::chrono::steady_clock::now();
     const console_t console(options.color);
-    const std::string name = to_utf8(options.input);
     const bool checking = options.command == command_t::CHECK;
-    console.status(checking ? "Checking" : "Compiling", name);
 
-    // This only fails when the file can't be read, which counts as bad usage.
-    const std::expected<compilation_t, std::string> compiled =
-        compile_file(options.input, options.mode);
+    // This only fails when the file can't be read, or a folder isn't a package's, which counts as
+    // bad usage. Without either, it's the package the current folder is in, as cargo finds one.
+    std::filesystem::path input = options.input;
+    if (input.empty()) {
+        std::error_code error;
+        const std::optional<std::filesystem::path> found =
+            find_package(std::filesystem::current_path(error));
+        if (!found) {
+            console.error("there's no project.toml in this folder or above it; give a package's "
+                          "folder, or a .fb file");
+            return usage_exit_code;
+        }
+
+        input = *found;
+    }
+
+    const std::expected<compilation_t, std::string> compiled = compile_file(input, options.mode);
     if (!compiled) {
         console.error(compiled.error());
         return usage_exit_code;
     }
 
-    // The front-end views print even when there are errors, so they can help find them.
+    // A package is named as cargo names a crate: "game v0.1.0 (C:\games\game)".
+    const std::optional<package_info_t>& package = compiled->package;
+    const std::string name = package ? std::format("{} v{} ({})", package->name, package->version,
+                                                   to_utf8(package->root))
+                                     : to_utf8(input);
+    console.status(checking ? "Checking" : "Compiling", name);
+    if (package && package->library && !checking) {
+        console.error(std::format("{} is a library, with no main file to {}", package->name,
+                                  command_name(options.command)));
+        return usage_exit_code;
+    }
+
+    if (package && package->library &&
+        (wants(options, stage_t::MIR) || wants(options, stage_t::LLVM))) {
+        console.error(std::format("{} is a library, with no program of its own to show as MIR or "
+                                  "LLVM IR; its tokens, AST, and types show",
+                                  package->name));
+        return usage_exit_code;
+    }
+
+    // The front-end views print even when there are errors, so they can help find them. A
+    // library's main file is a placeholder, so its views are of the package's own files.
     const compilation_t& compilation = *compiled;
     const style_t& style = console.out();
+    const bool library = package && package->library;
     if (wants(options, stage_t::TOKENS)) {
         print_view(console, options, stage_t::TOKENS,
-                   dump_tokens(compilation.source(), compilation.tokens, style));
+                   library ? package_tokens(compilation, options.mode, style)
+                           : dump_tokens(compilation.source(), compilation.tokens, style));
     }
 
     if (wants(options, stage_t::AST)) {
-        print_view(console, options, stage_t::AST, dump_tree(compilation.ast, style));
+        print_view(console, options, stage_t::AST, dump_tree(compilation.ast, style, library));
     }
 
     if (wants(options, stage_t::TYPES)) {
         print_view(console, options, stage_t::TYPES,
-                   dump_types(compilation.ast, compilation.analysis, style));
+                   dump_types(compilation.ast, compilation.analysis, style, library));
     }
 
-    for (const diagnostic_t& diagnostic : compilation.diagnostics.diagnostics()) {
+    // A file with thousands of errors, like one that isn't source code, shows the first ones.
+    const std::span<const diagnostic_t> diagnostics = compilation.diagnostics.diagnostics();
+    for (const diagnostic_t& diagnostic : diagnostics | std::views::take(shown_diagnostics)) {
         console_t::print_error(
             render_pretty(diagnostic, compilation.sources, { .color = console.err().color }));
+    }
+
+    if (const std::size_t rest =
+            diagnostics.size() - std::min(diagnostics.size(), shown_diagnostics);
+        rest > 0) {
+        console.note(rest == 1 ? std::string("1 more diagnostic isn't shown")
+                               : std::format("{} more diagnostics aren't shown", rest));
     }
 
     if (const std::size_t errors = compilation.diagnostics.error_count(); errors > 0) {
@@ -273,13 +458,38 @@ int compile_command(const options_t& options) {
 
     switch (options.command) {
     case command_t::BUILD:
-        return build(console, options, compilation, module, start);
+        return build(console, options, compilation, name, module, start);
     case command_t::RUN:
-        return run(console, options, compilation, module, start);
+        return run(console, options, compilation, name, module, start);
     default:
         console.status("Finished", std::format("check in {}", seconds_since(start)));
         return 0;
     }
+}
+
+/// Runs fb-bindgen, next to fb, with what `fb bindgen` was given, and gives its exit code.
+int bindgen_command(const options_t& options) {
+    const console_t console(options.color);
+    std::filesystem::path tool = current_executable().parent_path() / "fb-bindgen";
+    tool += executable_extension;
+    std::error_code error;
+    if (!std::filesystem::is_regular_file(tool, error)) {
+        console.error(std::format("fb bindgen runs fb-bindgen, which isn't next to fb, at {}; it's "
+                                  "built where CMake finds libclang",
+                                  to_utf8(tool)));
+        return compile_errors_exit_code;
+    }
+
+    // "--fb" first tells fb-bindgen it's run as `fb bindgen`, which its messages then say.
+    std::vector<std::string> arguments{ "--fb" };
+    arguments.insert(arguments.end(), options.passed.begin(), options.passed.end());
+    const std::expected<int, std::string> ran = run_attached(tool, arguments);
+    if (!ran) {
+        console.error(ran.error());
+        return compile_errors_exit_code;
+    }
+
+    return *ran;
 }
 
 } // namespace
@@ -296,6 +506,8 @@ int run_command(const options_t& options) {
     case command_t::BUILD:
     case command_t::RUN:
         return compile_command(options);
+    case command_t::BINDGEN:
+        return bindgen_command(options);
     }
 
     std::unreachable();

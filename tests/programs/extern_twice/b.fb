@@ -1,0 +1,11 @@
+// One of two modules that bind C's div.
+@CLayout Public Struct Div
+    Public Field quot: Int32
+    Public Field rem: Int32
+End Struct
+
+Extern "C"
+    Function div(a: Int32, b: Int32): Div
+End Extern
+
+Public Function Divide(a: Int32, b: Int32): Div => div(a, b)

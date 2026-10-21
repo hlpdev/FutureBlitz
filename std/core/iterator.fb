@@ -1,6 +1,6 @@
 // What 'For ... In' goes over besides arrays. Each Next gives
 // the next element, or Null when there are no more. The loop
 // goes over a copy of a Struct, since its Next changes it.
-Interface Iterator<T>
+Public Interface Iterator<T>
     ByRef Method Next(): T?
 End Interface

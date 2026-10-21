@@ -1,0 +1,104 @@
+// The vecmath C library's functions, as its header declares them, for this package's modules.
+
+Package Extern "C" Lib "vecmath"
+    Function vm_add(a: Int32, b: Int32): Int32
+    Function vm_add64(a: Int64, b: Int64): Int64
+    Function vm_scale(value: Float64, by: Float64): Float64
+    Function vm_halve(value: Float32): Float32
+    Function vm_is_even(value: Int32): Bool
+    Function vm_count(a: Bool, b: Bool, c: Bool): Int32
+    Function vm_low8(value: Int32): Int8
+    Function vm_low_u8(value: Int32): UInt8
+    Function vm_low16(value: Int32): Int16
+    Function vm_widen8(value: Int8): Int32
+    Function vm_widen_u16(value: UInt16): UInt32
+    Function vm_length(text: CString): Int32
+    Function vm_name(): String
+    Function vm_nothing(): String?
+    Function vm_divide(a: Int32, b: Int32, ByRef quotient: Int32, ByRef remainder: Int32)
+    Function vm_counter(): Int32
+    Function vm_sum(values: Ptr<Int32>, count: Int32): Int32
+    Function vm_fill(values: Ptr<Int32>, count: Int32, value: Int32)
+    Function vm_pair_total(pair: Ptr<Pair>): Int64
+    Function vm_pair_set(pair: Ptr<Pair>, a: Int32, b: Int64, c: Int8)
+    Function vm_pair_size(): Int64
+    Function vm_upper_copy(text: CString): CString
+    Function vm_free_text(text: CString)
+    Function vm_numbers(ByRef numbers: Ptr<Int32>): Int32
+    Function vm_tiny_swap(tiny: Tiny): Tiny
+    Function vm_point_add(a: Point, b: Point): Point
+    Function vm_vec3_scale(v: Vec3, by: Float32): Vec3
+    Function vm_span_grow(span: Span, by: Int64): Span
+    Function vm_box_make(x: Int32, y: Int32, width: Int32, height: Int32, filled: Bool): Box
+    Function vm_box_area(box: Box): Int32
+    Function vm_odd_rotate(odd: Odd): Odd
+    Function vm_spans(a: Span, b: Span, c: Span, d: Span, e: Span, f: Span, g: Span,
+                      h: Int32): Float64
+    Function vm_apply(f: Callback(Int32, Int32): Int32, a: Int32, b: Int32): Int32
+    Function vm_count_if(values: Ptr<Int8>, count: Int32, test: Callback(Int8): Bool): Int32
+    Function vm_each(values: Ptr<Int32>, count: Int32, visit: Callback(Int32, Ptr<Void>),
+                     user: Ptr<Void>)
+    Function vm_measure_all(measure: Callback(CString): Float64): Float64
+    Function vm_shade_make(color: Int32, alpha: Int32): Shade
+    Function vm_shade_edge(ByRef shade: Shade, edge: Int32)
+    Function vm_paint(paint: Callback(Color), color: Int32)
+    Function vm_colorer_of(valid: Bool): Callback(): Color
+    Function vm_handle(handler: Handler, by: Int32): Int32
+    Function vm_is_add(f: Callback(Int32, Int32): Int32): Bool
+End Extern
+
+// vm_pair, laid out as C lays it out.
+@CLayout Public Struct Pair
+    Public Field a: Int32
+    Public Field b: Int64
+    Public Field c: Int8
+End Struct
+
+// The by-value Structs, as vecmath.h declares them.
+@CLayout Public Struct Tiny
+    Public Field a: Int8
+    Public Field b: Int8
+End Struct
+
+@CLayout Public Struct Point
+    Public Field x: Int32
+    Public Field y: Int32
+End Struct
+
+@CLayout Public Struct Vec3
+    Public Field x: Float32
+    Public Field y: Float32
+    Public Field z: Float32
+End Struct
+
+@CLayout Public Struct Span
+    Public Field start: Int64
+    Public Field length: Float64
+End Struct
+
+@CLayout Public Struct Box
+    Public Field min: Point
+    Public Field max: Point
+    Public Field filled: Bool
+End Struct
+
+@CLayout Public Struct Odd
+    Public Field bytes: UInt8[3]
+End Struct
+
+Public Enum Color: Int32
+    Red = 1
+    Green = 2
+    Blue = 3
+End Enum
+
+@CLayout Public Struct Shade
+    Public Field color: Color
+    Public Field alpha: Int32
+    Public Field edges: Color[2]
+End Struct
+
+@CLayout Public Struct Handler
+    Public Field f: Callback(Int32, Int32): Int32
+    Public Field value: Int32
+End Struct

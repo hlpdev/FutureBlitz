@@ -1,0 +1,7 @@
+// Two modules that import each other: b's Global calls a function that uses a's, whose
+// initializer runs after b's, since b's module initializes first. A debug build panics at the
+// use.
+Import "./panic_global_cycle/a"
+Import "./panic_global_cycle/b"
+
+Print(early)

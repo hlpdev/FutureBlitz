@@ -73,6 +73,25 @@ Local names = [first, Name("cy")]
 Print("{names.Contains(Name("cy"))}")
 Print("{(Money(5), 1) == (Money(5), 1)}")
 
+// So does == on its T?s, whether or not they're known to hold one, and on the Structs, arrays,
+// and tuples that hold them.
+Struct Tag
+    Field Owner: Name?
+End Struct
+
+Function Same(x: Name?, y: Name?): Bool => x == y
+Function Has(names: Name?[], name: Name?): Bool => names.Contains(name)
+Function Alike(x: (Name?, Int), y: (Name?, Int)): Bool => x == y
+Print("{Same(first, second)} {Same(first, Null)} {Same(Null, Null)} {Tag(first) == Tag(second)}")
+Print("{Has([Name("cy"), first], second)} {Alike((first, 1), (second, 1))}")
+
+// A T? and a T compare as two T?s, and so do a Weak<T>'s read and a T.
+Function Paid(x: Money?, y: Money): Bool => x == y
+Function Named(x: Name?, y: Name): Bool => y != x
+Local held: Weak<Name> = first
+Print("{Paid(Money(5), Money(5))} {Paid(Null, Money(5))} {Named(first, second)} {Named(Null, second)}")
+Print("{held == second} {held == Name("bob")}")
+
 // A generic type's Operator takes the type arguments of its operands.
 Local p = Pair(1, 2) << 3
 Print("{p.First} {p.Second}")

@@ -1,72 +1,84 @@
 // Deque<T>: values added and taken at either end. Front holds the first values backwards, so
-// both ends are at the end of an array, and when one side runs out it takes half of the other.
+// both ends are at the end of an array, and when one side runs out as values are taken, it takes
+// half of the other.
 
-Class Deque<T>
+Public Class Deque<T>
     Field Front: T[] = []
     Field Back: T[] = []
+    // How many times the values changed, so a For ... In over them can tell.
+    Field Changes: Int64
 
-    Property Count: Int
+    Public Property Count: Int
         Get => Front.Count + Back.Count
     End Property
 
-    Method AddFirst(value: T)
+    Public Method AddFirst(value: T)
         Front.Add(value)
+        Changes += 1
     End Method
 
-    Method AddLast(value: T)
+    Public Method AddLast(value: T)
         Back.Add(value)
+        Changes += 1
     End Method
 
     // The same as AddLast.
-    Method Add(value: T)
-        Back.Add(value)
+    Public Method Add(value: T)
+        AddLast(value)
     End Method
 
     // Takes the first value off and gives it. Panics when the Deque is empty.
-    Method RemoveFirst(): T
-        Local value = First()
+    Public Method RemoveFirst(): T
+        If Front.Count == 0 Then Balance(Back, Front)
+        Local value = Front[Front.Count - 1]
         Front.RemoveAt(Front.Count - 1)
+        Changes += 1
         Return value
     End Method
 
     // Takes the last value off and gives it. Panics when the Deque is empty.
-    Method RemoveLast(): T
-        Local value = Last()
+    Public Method RemoveLast(): T
+        If Back.Count == 0 Then Balance(Front, Back)
+        Local value = Back[Back.Count - 1]
         Back.RemoveAt(Back.Count - 1)
+        Changes += 1
         Return value
     End Method
 
-    // The first value, which stays. Panics when the Deque is empty.
-    Method First(): T
-        If Front.Count == 0 Then Balance(Back, Front)
-        Return Front[Front.Count - 1]
+    // The first value, which stays, as everything else does. Panics when the Deque is empty.
+    Public Method First(): T
+        If Front.Count > 0 Then Return Front[Front.Count - 1]
+        If Back.Count == 0 Then Panic("the Deque is empty")
+        Return Back[0]
     End Method
 
-    // The last value, which stays. Panics when the Deque is empty.
-    Method Last(): T
-        If Back.Count == 0 Then Balance(Front, Back)
-        Return Back[Back.Count - 1]
+    // The last value, which stays, as everything else does. Panics when the Deque is empty.
+    Public Method Last(): T
+        If Back.Count > 0 Then Return Back[Back.Count - 1]
+        If Front.Count == 0 Then Panic("the Deque is empty")
+        Return Front[0]
     End Method
 
-    Method Contains(value: T): Bool
+    Public Method Contains(value: T): Bool
         Where T: Equatable
         Return Front.Contains(value) || Back.Contains(value)
     End Method
 
-    Method Clear()
+    Public Method Clear()
         Front.Clear()
         Back.Clear()
+        Changes += 1
     End Method
 
-    Method Clone(): Deque<T>
+    Public Method Clone(): Deque<T>
         Local copy = Deque<T>()
         copy.Front = Front.Clone()
         copy.Back = Back.Clone()
         Return copy
     End Method
 
-    // The values from first to last.
-    Method Iterate(): DequeIterator<T> => DequeIterator<T>(Front, Back, Front.Count, 0)
+    // The values from first to last. Changing the Deque while going over them panics.
+    Public Method Iterate(): DequeIterator<T> => DequeIterator<T>(Self, Front.Count, 0, Changes)
 
     // Moves the half of from that's nearest the middle into to, which is empty, so that from's
     // start is to's end.
@@ -86,20 +98,21 @@ Class Deque<T>
 End Class
 
 // Front's values backwards from FrontLeft, then Back's from BackAt on.
-Struct DequeIterator<T> Implements Iterator<T>
-    Field Front: T[]
-    Field Back: T[]
+Public Struct DequeIterator<T> Implements Iterator<T>
+    Field Owner: Deque<T>
     Field FrontLeft: Int
     Field BackAt: Int
+    Field Changes: Int64
 
-    ByRef Method Next(): T?
+    Public ByRef Method Next(): T?
+        If Owner.Changes != Changes Then Panic("the Deque changed while a For ... In went over it")
         If FrontLeft > 0
             FrontLeft -= 1
-            Return Front[FrontLeft]
+            Return Owner.Front[FrontLeft]
         End If
 
-        If BackAt >= Back.Count Then Return Null
+        If BackAt >= Owner.Back.Count Then Return Null
         BackAt += 1
-        Return Back[BackAt - 1]
+        Return Owner.Back[BackAt - 1]
     End Method
 End Struct

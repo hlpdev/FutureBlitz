@@ -1,0 +1,13 @@
+// An Enum that C gives has to be one of its values, or the program panics at the call.
+Enum Small: Int32
+    One = 1
+    Two = 2
+End Enum
+
+Extern "C"
+    Function Magnitude(n: Int32): Small = "abs"
+End Extern
+
+Print("{Magnitude(-2)}")
+Local v = Magnitude(-7)
+Print("unreachable {v}")

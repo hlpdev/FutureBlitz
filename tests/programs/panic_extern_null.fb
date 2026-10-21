@@ -1,0 +1,7 @@
+// A String that C gives where it gives NULL panics at the call; a String? would be Null.
+Extern "C"
+    Function getenv(name: CString): String
+End Extern
+
+Print(getenv("PATH") != "" ? "set" : "empty")
+Print(getenv("FB_NO_SUCH_VARIABLE"))

@@ -1,0 +1,18 @@
+Import "./vector"
+
+// Something that moves.
+Public Class Body
+    Public Field position: Vec
+    Public Field velocity: Vec
+
+    Public New(position: Vec, velocity: Vec)
+        Self.position = position
+        Self.velocity = velocity
+    End New
+
+    // Moves by its velocity over `seconds`.
+    Public Method Step(seconds: Float64)
+        Local moved = Scaled(velocity, seconds)
+        position = Vec(position.x + moved.x, position.y + moved.y)
+    End Method
+End Class

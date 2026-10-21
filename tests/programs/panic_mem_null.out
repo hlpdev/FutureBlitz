@@ -1,0 +1,2 @@
+copied
+panic: Mem.Copy copies 8 bytes, so neither Ptr can be Null at std/ffi/mem.fb:50:13

@@ -2,24 +2,26 @@
 // says what comes first. The values are a binary heap: each one comes before its two children,
 // at 2i + 1 and 2i + 2.
 
-Class PriorityQueue<T>
+Public Class PriorityQueue<T>
     Field Items: T[] = []
     Field Before: Func(T, T): Bool
+    // How many times the values changed, so a For ... In over them can tell.
+    Field Changes: Int64
 
-    New()
+    Public New()
         Where T: Comparable
         Before = Function(a: T, b: T) => a < b
     End New
 
-    New(before: Func(T, T): Bool)
+    Public New(before: Func(T, T): Bool)
         Before = before
     End New
 
-    Property Count: Int
+    Public Property Count: Int
         Get => Items.Count
     End Property
 
-    Method Add(value: T)
+    Public Method Add(value: T)
         Items.Add(value)
         Local at = Items.Count - 1
         While at > 0
@@ -28,10 +30,12 @@ Class PriorityQueue<T>
             Swap(at, parent)
             at = parent
         End While
+
+        Changes += 1
     End Method
 
     // Takes the first value off and gives it. Panics when the PriorityQueue is empty.
-    Method Pop(): T
+    Public Method Pop(): T
         Local first = Peek()
         Local last = Items.Count - 1
         Items[0] = Items[last]
@@ -46,29 +50,35 @@ Class PriorityQueue<T>
             at = child
         End Loop
 
+        Changes += 1
         Return first
     End Method
 
     // The first value, which stays. Panics when the PriorityQueue is empty.
-    Method Peek(): T
+    Public Method Peek(): T
         If Items.Count == 0 Then Panic("the PriorityQueue is empty")
         Return Items[0]
     End Method
 
-    Method Contains(value: T): Bool
+    Public Method Contains(value: T): Bool
         Where T: Equatable
         Return Items.Contains(value)
     End Method
 
-    Method Clear()
+    Public Method Clear()
         Items.Clear()
+        Changes += 1
     End Method
 
-    Method Clone(): PriorityQueue<T>
+    Public Method Clone(): PriorityQueue<T>
         Local copy = PriorityQueue<T>(Before)
         copy.Items = Items.Clone()
         Return copy
     End Method
+
+    // The values, in no particular order: Pop gives them in order. Changing the PriorityQueue
+    // while going over them panics.
+    Public Method Iterate(): PriorityQueueIterator<T> => PriorityQueueIterator<T>(Self, 0, Changes)
 
     Method Swap(a: Int, b: Int)
         Local value = Items[a]
@@ -76,3 +86,19 @@ Class PriorityQueue<T>
         Items[b] = value
     End Method
 End Class
+
+Public Struct PriorityQueueIterator<T> Implements Iterator<T>
+    Field Owner: PriorityQueue<T>
+    Field Index: Int
+    Field Changes: Int64
+
+    Public ByRef Method Next(): T?
+        If Owner.Changes != Changes
+            Panic("the PriorityQueue changed while a For ... In went over it")
+        End If
+
+        If Index >= Owner.Items.Count Then Return Null
+        Index += 1
+        Return Owner.Items[Index - 1]
+    End Method
+End Struct

@@ -1,0 +1,144 @@
+// More of Unsafe code's pointers: a linked list of Structs that point at their own Struct, in
+// Mem's memory; places through a Ptr, reached before what comes after them, as through a T[];
+// ByRef through a Ptr; a Struct's Self's address; reflection, which leaves Unsafe Methods out;
+// and a generic's T? of a Ptr, whose Null is apart from a Null Ptr.
+
+Import std.ffi
+
+Struct Node
+    Field value: Int32
+    Field next: Ptr<Node>
+End Struct
+
+Unsafe Function Push(head: Ptr<Node>, value: Int32): Ptr<Node>
+    Local node = Mem.Alloc(SizeOf<Node>()) As Ptr<Node>
+    node.Value.value = value
+    node.Value.next = head
+    Return node
+End Function
+
+// Adds up the list, and gives its memory back.
+Unsafe Function Total(head: Ptr<Node>): Int32
+    Local total = 0
+    Local at = head
+    While at != Null
+        total += at.Value.value
+        Local next = at.Value.next
+        Mem.Free(at)
+        at = next
+    End While
+
+    Return total
+End Function
+
+Global first: Int32[2]
+Global second: Int32[2]
+Global p: Ptr<Int32> = Null
+
+// Points p somewhere else, after p is read.
+Unsafe Function Move(): Int32
+    p = AddressOf(second[0])
+    Return 5
+End Function
+
+Function Add(ByRef target: Int32, amount: Int32)
+    target += amount
+End Function
+
+Struct Point
+    Field x: Int32
+    Field y: Int32
+
+    // Self, the Point the Method changes, has an address too.
+    ByRef Method Shift(by: Int32)
+        Unsafe
+            Local here = AddressOf(Self)
+            here.Value.x += by
+            here.Value.y += by
+        End Unsafe
+    End Method
+End Struct
+
+Struct Danger
+    Field where: Ptr<Int32>
+
+    Unsafe Method Poke()
+        where.Value = 99
+    End Method
+
+    Method Safe()
+        Print("safe")
+    End Method
+End Struct
+
+// ToString() by name is Self's.
+Extend CString
+    Public Unsafe Method Text(): String => ToString()
+End Extend
+
+Function Swap(ByRef a: Int32, ByRef b: Int32)
+    Local c = a
+    a = b
+    b = c
+End Function
+
+Function First<T>(items: T[]): T?
+    If items.Count == 0 Then Return Null
+    Return items[0]
+End Function
+
+Unsafe
+    Local head: Ptr<Node> = Null
+    For i = 1 To 5
+        head = Push(head, i * i)
+    End For
+    Print("{Total(head)}")
+
+    p = AddressOf(first[0])
+    p.Value = Move()
+    p = AddressOf(first[0])
+    p[1] = Move()
+    Print("{first[0]} {first[1]} {second[0]} {second[1]}")
+    p = AddressOf(first[0])
+    p.Value += Move()
+    p = AddressOf(first[0])
+    Local read = p[Move() - 5]
+    Print("{first[0]} {read} {second[0]}")
+    p = AddressOf(first[0])
+    Add(ByRef p.Value, Move())
+    Add(ByRef p[1], 1)
+    Print("{first[0]} {second[1]}")
+End Unsafe
+
+Local point = Point(1, 2)
+point.Shift(10)
+Print("{point.x} {point.y}")
+
+Local n: Int32 = 1
+Local d = Danger(Null)
+Unsafe
+    d.where = AddressOf(n)
+End Unsafe
+For Method m In Danger
+    Print(m.Name)
+    m.Call(d)
+End For
+Print("{n}")
+
+Local none: Ptr<Int32> = Null
+Local empty: Ptr<Int32>[] = []
+Local found = First([none])
+Print("{found == Null} {First(empty) == Null}")
+If found != Null Then Print("{found == Null}")
+
+Local pair: Int32[2]
+pair[0] = 1
+pair[1] = 2
+Unsafe
+    Local copy = CString.From("by name")
+    Print(copy.Text())
+    copy.Free()
+    Local at = AddressOf(pair[0])
+    Swap(ByRef at[0], ByRef at[1])
+End Unsafe
+Print("{pair[0]} {pair[1]}")

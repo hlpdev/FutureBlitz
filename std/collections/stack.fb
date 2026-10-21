@@ -1,60 +1,68 @@
 // Stack<T>: last in, first out. Push puts a value on top, and Pop takes the top one off.
 
-Class Stack<T>
+Public Class Stack<T>
     Field Items: T[] = []
+    // How many times the values changed, so a For ... In over them can tell.
+    Field Changes: Int64
 
-    Property Count: Int
+    Public Property Count: Int
         Get => Items.Count
     End Property
 
-    Method Push(value: T)
+    Public Method Push(value: T)
         Items.Add(value)
+        Changes += 1
     End Method
 
     // The same as Push.
-    Method Add(value: T)
-        Items.Add(value)
+    Public Method Add(value: T)
+        Push(value)
     End Method
 
     // Takes the top value off and gives it. Panics when the Stack is empty.
-    Method Pop(): T
+    Public Method Pop(): T
         Local top = Peek()
         Items.RemoveAt(Items.Count - 1)
+        Changes += 1
         Return top
     End Method
 
     // The top value, which stays. Panics when the Stack is empty.
-    Method Peek(): T
+    Public Method Peek(): T
         If Items.Count == 0 Then Panic("the Stack is empty")
         Return Items[Items.Count - 1]
     End Method
 
-    Method Contains(value: T): Bool
+    Public Method Contains(value: T): Bool
         Where T: Equatable
         Return Items.Contains(value)
     End Method
 
-    Method Clear()
+    Public Method Clear()
         Items.Clear()
+        Changes += 1
     End Method
 
-    Method Clone(): Stack<T>
+    Public Method Clone(): Stack<T>
         Local copy = Stack<T>()
         copy.Items = Items.Clone()
         Return copy
     End Method
 
-    // The values from the top down, the order Pop gives them.
-    Method Iterate(): StackIterator<T> => StackIterator<T>(Items, Items.Count)
+    // The values from the top down, the order Pop gives them. Changing the Stack while going
+    // over them panics.
+    Public Method Iterate(): StackIterator<T> => StackIterator<T>(Self, Items.Count, Changes)
 End Class
 
-Struct StackIterator<T> Implements Iterator<T>
-    Field Items: T[]
+Public Struct StackIterator<T> Implements Iterator<T>
+    Field Owner: Stack<T>
     Field Index: Int
+    Field Changes: Int64
 
-    ByRef Method Next(): T?
+    Public ByRef Method Next(): T?
+        If Owner.Changes != Changes Then Panic("the Stack changed while a For ... In went over it")
         If Index == 0 Then Return Null
         Index -= 1
-        Return Items[Index]
+        Return Owner.Items[Index]
     End Method
 End Struct

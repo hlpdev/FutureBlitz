@@ -1,0 +1,25 @@
+Public Class Bag
+    Public Field Size: Int
+
+    Public New(size: Int)
+        Size = size
+    End New
+End Class
+
+// Counts up to a Bag's size, by a step.
+Public Class Steps Implements Iterator<Int>
+    Field At: Int = 0
+    Public Field Size: Int
+    Field Step: Int
+
+    Public New(size: Int, step: Int)
+        Size = size
+        Step = step
+    End New
+
+    Method Next(): Int?
+        If At >= Size Then Return Null
+        At += 1
+        Return At * Step
+    End Method
+End Class

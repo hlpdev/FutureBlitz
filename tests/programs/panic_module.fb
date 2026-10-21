@@ -1,0 +1,8 @@
+// A panic in an imported module says where in that module's file it is.
+
+Import "./panic_module/checks"
+
+Check(2)
+Print("2 is fine")
+Check(-1)
+Print("not reached")

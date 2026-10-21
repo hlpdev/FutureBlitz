@@ -402,9 +402,12 @@ TEST_CASE("strings nest inside interpolations", "[lexer]") {
 TEST_CASE("a single-line string can't continue past a line break inside an interpolation",
           "[lexer]") {
     using enum token_kind_t;
+    // The INVALID token tells the parser the lexer reported it, so the parser says no more.
     const lexed_t lexed = lex_text("\"a{b\nc");
-    CHECK(lexed.kinds == std::vector{ STRING_START, IDENTIFIER, NEWLINE, IDENTIFIER });
-    CHECK(lexed.errors == std::vector<std::string>{ "0-1: unterminated string" });
+    CHECK(lexed.kinds == std::vector{ STRING_START, IDENTIFIER, INVALID, NEWLINE, IDENTIFIER });
+    CHECK(lexed.errors ==
+          std::vector<std::string>{ "0-1: unterminated string: a '{' in it isn't closed on its "
+                                    "line, and a string ends with its line" });
 }
 
 TEST_CASE("a string still open at end of file is reported", "[lexer]") {

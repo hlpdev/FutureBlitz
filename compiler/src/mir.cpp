@@ -1,5 +1,6 @@
 #include "fb/mir.hpp"
 
+#include <array>
 #include <cstddef>
 #include <format>
 #include <utility>
@@ -21,8 +22,12 @@ std::string_view runtime_name(const runtime_function_t function) {
         return "equal";
     case runtime_function_t::TO_TEXT:
         return "to_text";
-    case runtime_function_t::PRINT:
-        return "print";
+    case runtime_function_t::CSTRING_NEW:
+        return "cstring_new";
+    case runtime_function_t::CSTRING_FREE:
+        return "cstring_free";
+    case runtime_function_t::STRING_FROM_CSTRING:
+        return "string_from_cstring";
     case runtime_function_t::ARRAY_COUNT:
         return "count";
     case runtime_function_t::ARRAY_ADD:
@@ -187,8 +192,9 @@ private:
         return paint(text, tone_t::KEYWORD);
     }
 
+    /// Types outside the main module start with their module, as LLVM names them.
     [[nodiscard]] std::string type(const type_id_t id) const {
-        return paint(m_module.types->name(id), tone_t::TYPE);
+        return paint(m_module.types->qualified_name(id), tone_t::TYPE);
     }
 
     /// A constant. One of a T? prints as its T would, or as Null, and one of an Enum by its
@@ -199,7 +205,8 @@ private:
             for (const enum_value_t& member : info.values) {
                 if (const_value_t{ .type = value.type, .data = member_data(member, info) } ==
                     value) {
-                    return std::format("{}.{}", info.name, member.name);
+                    return std::format("{}.{}", m_module.types->qualified_name(value.type),
+                                       member.name);
                 }
             }
 
@@ -235,9 +242,17 @@ private:
     [[nodiscard]] std::string dump(const mir_function_t& function) {
         m_function = &function;
         std::string out = function.is_inline ? keyword("@Inline") + " " : std::string();
+        if (function.external) {
+            out += keyword(function.external->c_abi ? "extern" : "extern runtime") + " ";
+        }
+
         out += keyword("function") + " " + paint(function.name, tone_t::BOLD);
         if (function.return_type != type_id_t::NONE) {
             out += " -> " + type(function.return_type);
+        }
+
+        if (function.external) {
+            out += " = " + paint(std::format("\"{}\"", function.external->symbol), tone_t::LITERAL);
         }
 
         out += '\n';
@@ -337,6 +352,21 @@ private:
         }
 
         return node.wrapping ? std::format("{}({})", keyword("wrapping"), text) : text;
+    }
+
+    [[nodiscard]] std::string dump(const address_of_t& node) const {
+        return std::format("{} {}", keyword("AddressOf"), operand(node.place));
+    }
+
+    [[nodiscard]] std::string dump(const callback_t& node) const {
+        return std::format("{} {}{}", keyword("Callback"),
+                           m_module.functions[std::to_underlying(node.function)].name,
+                           node.closure ? " (closure)" : "");
+    }
+
+    [[nodiscard]] std::string dump(const pointer_t& node) const {
+        return std::format("{} {} {} {}", keyword("Ptr"), operand(node.left), spelling(node.op),
+                           operand(node.right));
     }
 
     [[nodiscard]] std::string dump(const cast_t& node) const {
@@ -474,6 +504,10 @@ private:
 
     [[nodiscard]] std::string dump(const release_t& node) const {
         return keyword("release") + " " + place(node.target);
+    }
+
+    [[nodiscard]] std::string dump(const ready_t& node) const {
+        return keyword(node.mark ? "ready" : "check ready") + " " + place(place_t{ node.global });
     }
 
     // Terminators

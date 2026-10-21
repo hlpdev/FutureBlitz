@@ -1,0 +1,22 @@
+// What Extends add, seen where their modules are imported: an Interface an Extend lists is
+// implemented by what that Extend's module sees, whatever order the modules load in, and a
+// For loop goes through the Iterate its own file sees.
+
+Import "./module_extends/shown"
+Import "./module_extends/plain"
+Import "./module_extends/listed"
+Import "./module_extends/bag"
+Import "./module_extends/ones"
+Import "./module_extends/counting"
+
+// plain's Shows load first, and this file sees them too, but listed's implement Shown.
+Print(ShowIt(Point(1, 2)))
+Print(ShowAny(Counter()))
+Print(PlainShow(Point(1, 2)))
+
+// This file sees ones' Iterate, and counting.fb sees tens'.
+For x In Bag(3)
+    Print("{x}")
+End For
+
+Print("tens add up to {TensTotal(Bag(3))}")

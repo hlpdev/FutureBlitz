@@ -1,0 +1,4 @@
+end
+leak: 3 Sub objects were never released
+leak: a cycle of 2 objects: Sub.hidden (leak_hidden.node.Node's) -> Sub.hidden (leak_hidden.node.Node's) -> the first Sub
+leak: a cycle of 1 object: Sub.hidden -> the first Sub

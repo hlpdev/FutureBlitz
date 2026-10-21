@@ -1,0 +1,6 @@
+// Mem.Alloc of more memory than there is panics.
+Import std.ffi
+
+Unsafe
+    Mem.Alloc(4611686018427387904)
+End Unsafe

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cstddef>
 #include <cstdint>
 #include <expected>
 #include <filesystem>
@@ -117,6 +118,11 @@ public:
     [[nodiscard]] std::expected<file_id_t, std::string> load(const std::filesystem::path& path);
     /// `id` must come from this manager.
     [[nodiscard]] const source_file_t& get(file_id_t id) const;
+
+    /// How many files it has. Their ids run from 0 up to it.
+    [[nodiscard]] std::size_t size() const {
+        return m_files.size();
+    }
 
 private:
     std::vector<std::unique_ptr<source_file_t>> m_files;

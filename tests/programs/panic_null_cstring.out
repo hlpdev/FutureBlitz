@@ -1,0 +1,2 @@
+True
+panic: the CString is Null, so it has no text at panic_null_cstring.fb:13:11

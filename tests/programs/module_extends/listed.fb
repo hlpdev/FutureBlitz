@@ -1,0 +1,11 @@
+// This module sees plain's Shows, but its own hide them, so they're what implement Shown.
+Import "./shown"
+Import "./plain"
+
+Extend Point Implements Shown
+    Method Show(): String => "({X}, {Y})"
+End Extend
+
+Extend Counter Implements Shown
+    Method Show(): String => "counted {Count}"
+End Extend

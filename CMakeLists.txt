@@ -22,12 +22,15 @@ endif()
 
 include(FetchContent)
 include(cmake/warnings.cmake)
+include(cmake/stack.cmake)
 include(cmake/llvm.cmake)
+include(cmake/libclang.cmake)
 
 add_subdirectory(compiler)
 add_subdirectory(runtime)
 add_subdirectory(cli)
 add_subdirectory(lsp)
+add_subdirectory(tools/bindgen)
 
 if(FB_BUILD_TESTS)
   enable_testing()

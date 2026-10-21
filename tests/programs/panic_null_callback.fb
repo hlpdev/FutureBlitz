@@ -1,0 +1,5 @@
+// A debug build panics where a Null Callback is called, as where a Null Ptr's Value is used.
+Local cb: Callback(Int32): Int32 = Null
+Unsafe
+    Print("{cb(1)}")
+End Unsafe

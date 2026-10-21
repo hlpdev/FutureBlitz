@@ -1,0 +1,96 @@
+// std's collections at their edges: readers that change nothing during a loop, a Pool of a T?
+// holding Null, Handles as keys, a PriorityQueue's For ... In, Strings that show as nothing,
+// hashes that differ only in their high bits, and Mem and CString at zero sizes and NULs.
+Import std.collections
+Import std.ffi
+
+// First and Last read a Deque without moving its values, so a loop over it still sees them all.
+Local deque = Deque<Int>()
+For i = 1 To 6
+    deque.Add(i)
+End For
+Local seen = ""
+For value In deque
+    seen += "{value}:{deque.First()}:{deque.Last()} "
+End For
+Print(seen)
+deque.AddFirst(0)
+Print("{deque.RemoveLast()} {deque.RemoveFirst()} {deque.First()} {deque.Last()} {deque.Count}")
+
+// A Pool of a T? keeps a Null as a value, which Clear removes like any other.
+Local maybe = Pool<String?>()
+Local some = maybe.Add("some")
+Local none = maybe.Add(Null)
+Local stored = maybe.Get(none)
+Print("{maybe.Count} {maybe.Contains(none)} {stored == Null} {(stored ?? "gone") ?? "Null"}")
+maybe.Clear()
+Print("{maybe.Count} {maybe.Contains(some)} {maybe.Contains(none)} {maybe.Set(none, "back")}")
+
+// Removing values while going over a Pool is fine, and a Clone has the same Handles.
+Local enemies = Pool<String>()
+Local grunt = enemies.Add("grunt")
+Local boss = enemies.Add("boss")
+Local imp = enemies.Add("imp")
+For enemy In enemies
+    If enemy == "grunt" Then enemies.Remove(grunt)
+End For
+Local copy = enemies.Clone()
+enemies.Remove(boss)
+Print("{enemies.Count} {copy.Count} {copy.Get(boss) ?? "gone"} {copy.Get(grunt) ?? "gone"}")
+
+// Handles compare and hash as their value's, so a Set can hold them.
+Local chosen = Set<Handle<String>>()
+chosen.Add(imp)
+Local again = enemies.Add("ghost")
+Print("{chosen.Contains(imp)} {chosen.Contains(again)} {imp == again} {imp == imp}")
+
+// A PriorityQueue goes over its values in no particular order.
+Local queue = PriorityQueue<Int>()
+For value In [5, 1, 4, 2, 3]
+    queue.Add(value)
+End For
+Local values: Int[] = []
+For value In queue
+    values.Add(value)
+End For
+values.Sort()
+Print("{values} first {queue.Peek()}")
+
+// A value that shows as nothing still gets its comma.
+Local words = Set<String>()
+words.Add("")
+words.Add("a")
+words.Add("b")
+Local labels = {"": 1, "x": 2}
+Print("{words} {labels}")
+
+// Giving a key a new value while going over a Map is fine.
+Local scores = {"ann": 1, "bob": 2}
+For name, score In scores
+    scores.Add(name, score * 10)
+End For
+Print("{scores}")
+
+// Hashes that differ only in their high bits spread over the buckets too.
+Struct Cell Implements Hashable
+    Field X: Int
+    Field Y: Int
+
+    Method Hash(): UInt64 => ((X As UInt64) << 32) | (Y As UInt64)
+End Struct
+
+Local cells = Map<Cell, Int>()
+For x = 0 Until 20000
+    cells.Add(Cell(x, 0), x)
+End For
+Print("{cells.Count} {cells.Get(Cell(12345, 0)) ?? -1} {cells.Contains(Cell(0, 1))}")
+
+// Zero bytes of Null memory is nothing to copy, fill, or compare, and a NUL ends C's text.
+Unsafe
+    Mem.Copy(Null, Null, 0)
+    Mem.Fill(Null, 7, 0)
+    Print("{Mem.Compare(Null, Null, 0)}")
+    Local text = CString.From("ab\u{0}cd")
+    Print("{text.Length()} {text.ToString()}")
+    text.Free()
+End Unsafe

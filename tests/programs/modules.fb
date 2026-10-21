@@ -1,0 +1,57 @@
+// A program of several files: modules that import each other in a cycle, an alias and names
+// qualified by it in values, types, and bases, a From line, two modules' Nodes and Makes told
+// apart by their qualifiers, and a Global another module sets before this code runs.
+
+Import std.collections As C
+Import "./modules/ping"
+Import "./modules/shapes" As S
+Import "./modules/a"
+Import "./modules/b"
+From "./modules/config" Import greeting, Describe
+
+Print("main starts")
+Print(greeting)
+Print(Describe(3))
+
+// ping and pong import each other.
+Print(Ping(3))
+Print(ping.Ping(0))
+
+// What shapes declares is only S's.
+Local corner: S.Point = S.Point(1, 2)
+Local box = S.Box<S.Point>(corner)
+Local boxes: S.Box<Int>[] = [S.Box<Int>(7), S.Box<Int>(8)]
+Print("({box.Item.X}, {box.Item.Y}), {boxes[1].Item}, made {S.made}")
+S.made = 10
+S.made += 1
+Print("made {S.made}")
+Local kind = S.Kind.Square
+Print("{kind} of 3 has area {S.Area(kind, 3)}")
+Local area: Func(S.Kind, Int): Int = S.Area
+Print("a circle of 2 has area about {area(S.Kind.Circle, 2)}")
+
+// A Class can extend one of them, generic or not.
+Class Square Extends S.Shape
+    Public Override Method Name(): String => "square"
+End Class
+
+Class Tag Extends S.Box<String>
+End Class
+
+Local shape: S.Shape = Square()
+Print("{shape.Name()} {Tag("tagged").Item}")
+
+// So is what std.collections declares, though its Extend of T[] still adds Sort.
+Local stack = C.Stack<Int>()
+stack.Push(4)
+stack.Push(5)
+Local scores: C.Map<String, Int> = {"ann": 3}
+Local nums = [3, 1, 2]
+nums.Sort()
+Print("{stack.Pop()} {scores.Count} {nums}")
+
+// a and b each declare a Node and a Make.
+Local first: a.Node = a.Make()
+Local second: b.Node = b.Make()
+first.Next = a.Node()
+Print("{first.Label} {second.Value} {first.Next?.Label ?? "none"} {b.Make().Value}")

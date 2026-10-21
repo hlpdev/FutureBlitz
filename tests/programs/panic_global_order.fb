@@ -1,0 +1,13 @@
+// A Global's initializer calls a function that uses a Global whose initializer hasn't run yet,
+// which a debug build panics at.
+Class Thing
+    Field Name: String = "thing"
+End Class
+
+Global ready = Thing()
+Global early = Peek()
+Global late = Thing()
+
+Function Peek(): String => "{ready.Name}, then {late.Name}"
+
+Print(early)

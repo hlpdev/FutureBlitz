@@ -9,8 +9,9 @@
 | `UInt8` `UInt16` `UInt32` `UInt64` | unsigned integers |
 | `Float32` `Float64` | IEEE floats |
 | `String` | immutable UTF-8, refcounted |
+| `CString` | C's `const char*`, for `Extern` Functions; `Null`, C's NULL, is its zero (see [12-ffi.md](12-ffi.md)) |
 | `Vec2` `Vec3` `Vec4` `Quat` `Mat3` `Mat4` `Color` | math value types with operators, from `std.math` (M6) |
-| `Void` | "no value"; only meaningful in FFI pointer types (`Ptr<Void>`) |
+| `Void` | "no value"; only a Ptr's type, `Ptr<Void>`, which points at anything |
 
 Aliases:
 
@@ -72,7 +73,14 @@ Local hp: Int                 // typed, assigned later
 ### Global initialization
 
 `Global`s and top-level `Const`s are initialized in source order, before the rest of the
-top-level code runs. An initializer can only use `Const`s and `Global`s declared above it.
+top-level code runs. An initializer can only use `Const`s and `Global`s declared above it. A
+lambda in one runs later, so it can use one further down whose type is written. A function
+that an initializer calls can reach a Global whose initializer hasn't run yet, through any
+call, so a debug build panics where it uses it: "'late' is used before its initializer has
+run". A release build panics there too when the Global's zero would hold a null object, as a
+Class, an Interface, an array, a function value, or a Struct or tuple holding one would, since
+using it would crash; any other Global reads as its zero, a value of its type, as overflow
+wraps. A Global whose value is known at compile time has it from the start.
 
 A `Global` without an initializer starts at `0`, `0.0`, `False`, or `""`, like a field.
 
@@ -102,6 +110,9 @@ Print(hp)              // ✗ error: hp read before assignment
 - All types are **non-null by default**.
 - `T?` may hold `Null`. The `?` touches the type name (see [03](03-operators.md)).
 - After a null check, the compiler narrows `T?` to `T` (flow typing).
+- A `T?` of a `T?` is a type of its own: an `Int??` is `Null`, or holds an `Int?`, which can be
+  `Null` itself. Generic code makes them, like a `Map<String, Int?>`'s `Get`, whose `Null` is a
+  missing key and whose `Int?` is a key's value, `Null` or not, and they can be written too.
 
 ```vb
 Local target: Enemy? = Null
@@ -110,16 +121,22 @@ If target != Null Then target.Hurt(5)   // target is Enemy here
 ```
 
 - `Null` takes its type from where it's used: `Local e: Enemy? = Null` works, and
-  `Local e = Null` doesn't. A `T` converts to a `T?` without `As`.
+  `Local e = Null` doesn't. A `T` converts to a `T?` without `As`. A `T?` converts to a `T??`
+  as a value, so its `Null` is held, not the `T??`'s own, and a `T??` needs a check to be a
+  `T?`.
 - `If`, `ElseIf`, `While`, `? :`, `&&`, `||`, `!`, an early `Return`, and assigning a value that
   can't be `Null` all narrow. Narrowing applies to Locals, Consts, and parameters that aren't
-  `ByRef`, and ends when the variable is assigned a `T?` or passed `ByRef`. A loop that changes
-  the variable can't rely on a check from before it.
+  `ByRef`, and loop variables, and ends when the variable is assigned a `T?` or passed `ByRef`.
+  A loop that changes the variable can't rely on a check from before it. Each check takes off
+  one `T?`: a `T??` narrows to its `T?`, which a Local copy of it can narrow again.
 - A Global or a field can change during any call, so it isn't narrowed: check a Local copy.
 - `a?.b` is `Null` when `a` is, and a `B?` otherwise; `a?.M()` only calls `M` when `a` holds a
   value. Each `?.` is one check, so a chain is `a?.b?.c`.
-- `a ?? b` gives the value in `a`, or `b` when `a` is `Null`; `b` only runs then.
-- Two `T?` values are equal when both are `Null` or both hold equal values.
+- `a ?? b` gives the value in `a`, or `b` when `a` is `Null`; `b` only runs then. For a `T??`
+  it gives a `T?`, as `?.` takes off one `T?` too. Comparing a `T??` with `Null` asks about the
+  outer one.
+- Two `T?` values are equal when both are `Null` or both hold equal values. A `T?` and a `T`
+  compare the same way, the `T` as a `T?` holding it, with `T`'s `Operator ==` if it has one.
 - A `T?` can't go in a string; give a value for `Null` first: `"{name ?? "nobody"}"`.
 - `?.`, `??`, or comparing with `Null` on something that can't be `Null` is a warning.
 

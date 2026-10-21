@@ -1,0 +1,89 @@
+// Visibility across modules: Public declarations and the private code behind them, a Protected
+// Field and Method used by a Class extending theirs, a Package Function the program's files
+// share, private names in two modules that don't clash, members named like another file's
+// private ones, a constructor as visible as its Fields, a Static factory for a Class whose New
+// is Private, an Interface's Method called on a private implementation, two Interfaces' defaults
+// of one name, and a loop over another module's private Fields.
+
+Import "./visibility/shapes"
+Import "./visibility/names"
+Import "./visibility/extras"
+
+// It uses the Protected sides through Self and another Square, and overrides the Protected
+// Describe, which can't be less visible. Shape's label is private to its file, so Square's
+// own doesn't clash with it, and each Class's code uses its own.
+Class Square Extends Shape
+    Field label: String = "a square"
+
+    New()
+        Super.New(4)
+    End New
+
+    Protected Override Method Describe(): String => "a square's " + Super.Describe()
+
+    Method Corners(other: Square): Int => sides + other.sides
+
+    Method Named(): String => label
+End Class
+
+// Registry's entries Field is private to its file, so this is no clash either.
+Extend Registry
+    Method entries(): String => "{Count} entries"
+End Extend
+
+// Measure is private, and Total calls it through Measured.
+Struct Rod Implements Measured
+    @Unit("cm")
+    Field length: Int
+
+    Method Measure(): Int => length
+End Struct
+
+Print(Square().Show())
+Print("two squares have {Square().Corners(Square())} corners")
+Print("its own label is {Square().Named()}")
+
+Local p = Point(3, 4)
+Local q = Point(Y: 12, X: 5)
+Print("({p.X}, {p.Y}) is {p.Length()} from the origin, and ({q.X}, {q.Y}) is {q.Length()}")
+
+Local registry = Registry.Open()
+registry.Add("one")
+registry.Add("two")
+Print("the registry has {registry.Count} entries")
+Print("its Extend says {registry.entries()}")
+
+Print("the rods are {Total([Rod(2), Rod(5)])} long")
+Local ruler: Measured = Ruler()
+Print("a ruler is {ruler.Measure()}")
+Local doubled: Doubled = Ruler()
+Print("it doubles to {Ruler().Twice()}, and {doubled.Twice()} through Doubled")
+Print("its own file's Sized doubles it to {Inside(Ruler())}")
+
+Print(Label())
+Print("{Tally()} tallied")
+
+// A loop over a type's Fields goes over the ones its module keeps to itself too.
+Function Fields<T>(value: T): String
+    Local text = ""
+    For Field f: F In T
+        Where F: Printable
+        text = text + (text == "" ? "" : ", ") + "{f.Name} = {f.Get(value)}"
+    End For
+
+    Return text
+End Function
+
+Print(Fields(MakeHandle(7)))
+
+Function Units<T>(): String
+    Local text = ""
+    For Field f In T
+        Local unit = f.Attribute(Unit)
+        If unit != Null Then text = text + "{f.Name} in {unit.Name}"
+    End For
+
+    Return text
+End Function
+
+Print(Units<Rod>())

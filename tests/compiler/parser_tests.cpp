@@ -4,6 +4,7 @@
 
 #include <array>
 #include <catch2/catch_test_macros.hpp>
+#include <cstddef>
 #include <format>
 #include <string>
 #include <string_view>
@@ -354,21 +355,26 @@ TEST_CASE("only calls, assignments, and ++/-- can be statements", "[parser]") {
           std::vector<std::string>{ "0-5: calls need parentheses, like Print(...)" });
 }
 
-TEST_CASE("constructs past M1 are reported once and skipped", "[parser]") {
+TEST_CASE("Unsafe alone on a line opens a block, and before a Function or Method it's a modifier",
+          "[parser]") {
     const parsed_t parsed = parse_text("Unsafe\n"
-                                       "    Method Hurt()\n"
+                                       "    p.Value = 1\n"
                                        "End Unsafe\n"
-                                       "Public Function F()\n"
+                                       "Unsafe Function F()\n"
                                        "End Function\n"
+                                       "Public Unsafe Static Method M()\n"
+                                       "End Method\n"
                                        "x = 1");
+    CHECK(parsed.dump == "(unsafe (block (= (. p Value) (int 1))))\n"
+                         "(function Unsafe F (block))\n"
+                         "(method Public Static Unsafe M (block))\n"
+                         "(= x (int 1))");
+    CHECK(parsed.errors.empty());
 
-    // The whole Unsafe block becomes one (error). 'Public' is dropped, and its Function still
-    // parses.
-    CHECK(parsed.dump == "(error)\n(function F (block))\n(= x (int 1))");
-    CHECK(parsed.errors == std::vector<std::string>{
-                               "0-6: 'Unsafe' isn't supported yet",
-                               "36-42: 'Public' isn't supported yet",
-                           });
+    // Anything else it goes before is a mistake.
+    CHECK(parse_text("Unsafe Local y = 2").errors ==
+          std::vector<std::string>{ "0-6: Unsafe goes before a Function or Method, or alone on a "
+                                    "line, where it starts an Unsafe block" });
 }
 
 TEST_CASE("invalid characters aren't reported twice", "[parser]") {
@@ -434,9 +440,17 @@ TEST_CASE("broken input always finishes with at least one error", "[parser]") {
 }
 
 TEST_CASE("a mistake in a name or an Operator doesn't hide the lines after it", "[parser]") {
-    const parsed_t unsafe = parse_text("Unsafe Function F()\nEnd Function\nLocal x = 1");
-    CHECK(unsafe.errors == std::vector<std::string>{ "0-6: 'Unsafe' isn't supported yet" });
+    const parsed_t unsafe = parse_text("Unsafe Enum E\n    A\nEnd Enum\nLocal x = 1");
+    CHECK(unsafe.errors == std::vector<std::string>{ "0-6: Unsafe goes before a Function or "
+                                                     "Method, or alone on a line, where it starts "
+                                                     "an Unsafe block" });
     CHECK(unsafe.dump.ends_with("(local x = (int 1))"));
+    // Alone on its line after another modifier, it's still a block, so its End is its own.
+    const parsed_t block = parse_text("Public Unsafe\n    Local y = 2\nEnd Unsafe\nLocal x = 1");
+    CHECK(block.errors == std::vector<std::string>{ "7-13: Unsafe goes before a Function or "
+                                                    "Method, or alone on a line, where it starts "
+                                                    "an Unsafe block" });
+    CHECK(block.dump == "(unsafe (block (local y = (int 2))))\n(local x = (int 1))");
     CHECK(parse_text("Struct S\n"
                      "    Operator &&(a: S, b: S): Bool => True\n"
                      "    Field X: Int\n"
@@ -552,6 +566,41 @@ TEST_CASE("Static and ReadOnly go before Fields and Methods", "[parser]") {
     CHECK(parse_text("Static Method M()\nEnd Method").dump == "(method Static M (block))");
     CHECK(parse_text("Static Static Field n: Int").errors ==
           std::vector<std::string>{ "7-13: 'Static' is written twice" });
+}
+
+TEST_CASE("a visibility goes before a declaration, among its modifiers", "[parser]") {
+    CHECK(parse_text("Public Function F()\nEnd Function").dump == "(function Public F (block))");
+    CHECK(parse_text("Static Public Method M()\nEnd Method").dump ==
+          "(method Public Static M (block))");
+    CHECK(parse_text("Package Global g = 1").dump == "(global Package g = (int 1))");
+    CHECK(parse_text("Protected Field hp: Int").dump == "(field Protected hp: Int)");
+    CHECK(parse_text("@Flags Public Enum Layer\n    World\nEnd Enum").dump ==
+          "(enum @Flags Public Layer World)");
+    CHECK(parse_text("Public Attribute Rename(Name: String)").dump ==
+          "(attribute Public Rename (block (field Name: String)))");
+
+    // Private is the default, and shows only where it's written.
+    CHECK(parse_text("Private Const C = 1\nConst D = 2").dump ==
+          "(const Private C = (int 1))\n(const D = (int 2))");
+}
+
+TEST_CASE("visibility mistakes are reported", "[parser]") {
+    CHECK(parse_text("Public Private Function F()\nEnd Function").errors ==
+          std::vector<std::string>{
+              "7-14: this declaration is Public already, and has only one visibility" });
+    CHECK(parse_text("Public Print(1)").errors ==
+          std::vector<std::string>{
+              "0-6: Public only goes before a declaration, like a Function or a Field" });
+    CHECK(parse_text("Public Extend Int\nEnd Extend").errors ==
+          std::vector<std::string>{
+              "0-6: an Extend has no visibility of its own; put Public before its members" });
+
+    // An Enum's members have its visibility, and the member still parses.
+    const parsed_t member = parse_text("Enum E\n    Public A\nEnd Enum");
+    CHECK(member.dump == "(enum E A)");
+    CHECK(member.errors ==
+          std::vector<std::string>{ "11-17: an Enum's members have its visibility, so they take no "
+                                    "Public; put it before the Enum" });
 }
 
 TEST_CASE("a Property has a Get, and maybe a Set", "[parser]") {
@@ -813,8 +862,21 @@ TEST_CASE("attributes go before declarations, on their line or the one above", "
 TEST_CASE("attribute mistakes are reported", "[parser]") {
     // Analysis finds the Attribute an unknown name declares, if there is one.
     CHECK(parse_text("@Foo Function F()\nEnd Function").errors.empty());
-    CHECK(parse_text("@CLayout Struct S\nEnd Struct").errors ==
-          std::vector<std::string>{ "1-8: @CLayout isn't supported yet" });
+    CHECK(parse_text("@CLayout Public Struct S\nEnd Struct").dump ==
+          "(struct Public @CLayout S (block))");
+    CHECK(parse_text("Local c: Callback(Int, Ptr<Void>): Bool").dump ==
+          "(local c: Callback(Int, Ptr<Void>): Bool)");
+    CHECK(parse_text("Local c: Callback(ByRef Int)").errors ==
+          std::vector<std::string>{ "18-23: a Callback's parameters can't be ByRef" });
+    CHECK(parse_text("@CLayout Class C\nEnd Class").errors ==
+          std::vector<std::string>{ "1-8: @CLayout only goes before a Struct, which it lays out as "
+                                    "C does" });
+    CHECK(parse_text("@CLayout Shared Struct S\nEnd Struct").errors.empty());
+    CHECK(parse_text("@CLayout Enum E\n    A\nEnd Enum").errors ==
+          std::vector<std::string>{ "1-8: @CLayout only goes before a Struct, which it lays out as "
+                                    "C does" });
+    CHECK(parse_text("@CLayout @CLayout Struct S\nEnd Struct").errors ==
+          std::vector<std::string>{ "10-17: @CLayout is written twice" });
     CHECK(parse_text("@Inline(1) Function F()\nEnd Function").errors ==
           std::vector<std::string>{ "7-10: @Inline takes no arguments" });
     CHECK(parse_text("@Deprecated(1) Function F()\nEnd Function").errors ==
@@ -882,4 +944,134 @@ TEST_CASE("Const type parameters take values as their type arguments", "[parser]
           "(function Sum<Const N: Int> (v: Int[N]) -> Int (block (return N)))");
     CHECK(parse_text("Local g: Grid<Float, 64, -1>").dump == "(local g: Grid<Float, 64, (- 1)>)");
     CHECK(expression("Make<3>()") == "(call Make<3>)");
+}
+
+TEST_CASE("Import and From name another module", "[parser]") {
+    CHECK(parse_text("Import std.collections").dump == "(import std.collections)");
+    CHECK(parse_text("Import \"./ui/hud\"").dump == "(import \"./ui/hud\")");
+    CHECK(parse_text("Import std.collections As C").dump == "(import std.collections As C)");
+    CHECK(parse_text("From std.math Import Vec3, Lerp").dump == "(from std.math Import Vec3 Lerp)");
+    CHECK(parse_text("From \"./hud\" Import Draw,\n    Clear").dump ==
+          "(from \"./hud\" Import Draw Clear)");
+
+    // "From" is a keyword only before a module at the start of a line.
+    CHECK(parse_text("From = 1\nFrom(2)").dump == "(= From (int 1))\n(call From (int 2))");
+}
+
+TEST_CASE("an Extern block declares Functions that C code defines", "[parser]") {
+    CHECK(parse_text("Extern \"C\"\n"
+                     "    Function abs(n: Int32): Int32\n"
+                     "    Function Root(x: Float64): Float64 = \"sqrt\"\n"
+                     "End Extern")
+              .dump == "(extern \"C\" (function abs (n: Int32) -> Int32) (function Root (x: "
+                       "Float64) -> Float64 = \"sqrt\"))");
+
+    // The convention is "C" without one, and a visibility goes before the block or a Function.
+    CHECK(parse_text("Public Extern Lib \"vecmath\"\n"
+                     "    Private Function Add(ByRef a: Int32, b: Int32)\n"
+                     "End Extern")
+              .dump ==
+          "(extern Public \"C\" Lib \"vecmath\" (function Private Add (ByRef a: Int32) "
+          "(b: Int32)))");
+    CHECK(parse_text("Extern \"runtime\"\n    Function fb_print(text: String)\nEnd Extern").dump ==
+          "(extern \"runtime\" (function fb_print (text: String)))");
+    CHECK(parse_text("Extern \"stdcall\"\nEnd Extern").dump == "(extern \"stdcall\")");
+}
+
+TEST_CASE("Extern block mistakes are reported", "[parser]") {
+    CHECK(parse_text("Extern \"pascal\"\nEnd Extern").errors ==
+          std::vector<std::string>{ "7-15: an Extern block's calling convention is \"C\", "
+                                    "\"stdcall\", or \"runtime\", not \"pascal\"" });
+    CHECK(parse_text("Extern\n    Method M()\n    End Method\nEnd Extern").errors ==
+          std::vector<std::string>{ "11-36: an Extern block holds only Functions" });
+    CHECK(parse_text("Extern\n"
+                     "    Function F(): Int\n"
+                     "        Return 1\n"
+                     "    End Function\n"
+                     "    Async Function G()\n"
+                     "End Extern")
+              .errors == std::vector<std::string>{
+                             "20-21: an Extern block's Function has no body; C code defines it" });
+    CHECK(parse_text("Extern\n"
+                     "    Function F(n: Int): Int\n"
+                     "        If n > 0\n"
+                     "            Return n\n"
+                     "        End If\n"
+                     "        Return 0\n"
+                     "    End Function\n"
+                     "End Extern")
+              .errors == std::vector<std::string>{
+                             "20-21: an Extern block's Function has no body; C code defines it" });
+    CHECK(parse_text("Extern\n    Function F() => 1\nEnd Extern").errors ==
+          std::vector<std::string>{
+              "24-26: an Extern block's Function has no body; C code defines it" });
+    CHECK(parse_text("Extern\n    Function F() = 1\nEnd Extern").errors ==
+          std::vector<std::string>{ "26-27: expected the C symbol's name, like "
+                                    "\"JPH_CreateBody\", found integer literal" });
+    CHECK(parse_text("Static Extern\nEnd Extern").errors ==
+          std::vector<std::string>{
+              "7-13: an Extern block takes only a visibility, like 'Public Extern'" });
+    CHECK(parse_text("If True\n    Extern\n    End Extern\nEnd If").errors ==
+          std::vector<std::string>{ "12-18: an Extern block goes at the top level of a file" });
+    CHECK(parse_text("Extern Lib\nEnd Extern").errors ==
+          std::vector<std::string>{
+              "10-11: expected a library's name, like \"joltc\", found newline" });
+}
+
+TEST_CASE("names after a module's qualifier, in values and types", "[parser]") {
+    CHECK(parse_text("Local m: C.Map<String, C.Set<Int>>[]").dump ==
+          "(local m: C.Map<String, C.Set<Int>>[])");
+    CHECK(expression("C.Stack<C.Map<K, V>>()") == "(call (. C Stack<C.Map<K, V>>))");
+    CHECK(parse_text("Class Circle Extends shapes.Shape<Int>\nEnd Class").dump ==
+          "(class Circle Extends shapes.Shape<Int> (block))");
+}
+
+TEST_CASE("import mistakes are reported", "[parser]") {
+    CHECK(parse_text("Import").errors ==
+          std::vector<std::string>{ "6-6: expected a module, like std.collections, or a quoted "
+                                    "path, like \"./hud\", found end of file" });
+    CHECK(parse_text("Import std.").errors ==
+          std::vector<std::string>{ "11-11: expected identifier, found end of file" });
+    CHECK(parse_text("Import \"./{x}\"").errors ==
+          std::vector<std::string>{ "7-11: an Import's path is plain text, without {...}" });
+    CHECK(parse_text("From std.math Vec3").errors ==
+          std::vector<std::string>{ "14-18: expected 'Import', found identifier" });
+    CHECK(parse_text("Import std.math As").errors ==
+          std::vector<std::string>{ "18-18: expected identifier, found end of file" });
+    CHECK(parse_text("Import std.math, std.io").errors ==
+          std::vector<std::string>{ "15-16: expected end of line, found ','" });
+
+    // The next line still parses.
+    CHECK(parse_text("Import\nLocal x = 1").dump == "(error)\n(local x = (int 1))");
+}
+
+TEST_CASE("code nested deeper than the compiler goes is one error, not a crash", "[parser]") {
+    const auto repeated = [](const std::string_view part, const std::size_t count) {
+        std::string text;
+        for (std::size_t i = 0; i < count; ++i) {
+            text += part;
+        }
+
+        return text;
+    };
+    // The message after its span, when it's the only error.
+    const auto only_error = [](const std::string& text) {
+        const parsed_t parsed = parse_text(text);
+        REQUIRE(parsed.errors.size() == 1);
+        return parsed.errors.front().substr(parsed.errors.front().find(": ") + 2);
+    };
+    const std::string message =
+        "this is nested more than 1000 deep, deeper than the compiler goes; "
+        "split it up with Locals or Functions";
+
+    // Parentheses, a chain of operators, calls, prefix operators, and blocks.
+    CHECK(only_error("_ = " + repeated("(", 5000) + "1" + repeated(")", 5000)) == message);
+    CHECK(only_error("_ = 1" + repeated(" + 1", 3000)) == message);
+    CHECK(only_error("_ = f" + repeated("()", 3000)) == message);
+    CHECK(only_error("_ = " + repeated("- ", 3000) + "1") == message);
+    CHECK(only_error(repeated("If x\n", 3000) + repeated("End If\n", 3000)) == message);
+
+    // Up to the limit is fine.
+    CHECK(parse_text("_ = " + repeated("(", 990) + "1" + repeated(")", 990)).errors.empty());
+    CHECK(parse_text("_ = 1" + repeated(" + 1", 990)).errors.empty());
 }

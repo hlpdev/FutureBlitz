@@ -30,6 +30,9 @@ enum class type_id_t : std::uint32_t { // NOLINT(performance-enum-size)
     FLOAT32,
     FLOAT64,
     STRING,
+    /// A C string, `const char*`: what C code takes and gives for text. Its zero is null, and only
+    /// Unsafe code reads it.
+    CSTRING,
     /// Not a type: the first id a type table gives out.
     BUILTIN_COUNT,
 };
@@ -60,7 +63,7 @@ enum class type_id_t : std::uint32_t { // NOLINT(performance-enum-size)
 
 /// What a type in the table is.
 enum class type_kind_t : std::uint8_t {
-    /// INVALID through STRING.
+    /// INVALID through CSTRING.
     BUILTIN,
     /// "T?": a T, or Null. A String? or a Class? is a reference that's null for Null; any other
     /// T? is a flag and a T.
@@ -114,6 +117,13 @@ enum class type_kind_t : std::uint8_t {
     /// "Scheduler": runs the coroutines given to it when it's ticked, on the main thread. A
     /// reference to an object of the runtime's fb_scheduler_t.
     SCHEDULER,
+    /// "Ptr<T>": the address of a T, as C's T*, which only Unsafe code reads or writes through.
+    /// Its one field, "Value", is what it points at. "Ptr<Void>", whose inner is NONE, points at
+    /// anything, as C's void*, and has no field.
+    PTR,
+    /// "Callback(A, B): R": a C function pointer, which C code calls, taking the `parameters`
+    /// and giving the `inner`, NONE for nothing.
+    CALLBACK,
 };
 
 /// One of a Struct's or Class's fields.
@@ -142,6 +152,10 @@ struct type_t {
     type_kind_t kind = type_kind_t::BUILTIN;
     /// As errors and dumps show it, like "Int32", "String[]", or "Int32[]?".
     std::string name;
+    /// A Struct, Class, Interface, or Enum declared outside the main module: that module, like
+    /// "std.collections.map", which its qualified name starts with. Empty for the main module's,
+    /// and for the other kinds. An instance has its generic type's.
+    std::string module;
     /// NULLABLE, ARRAY, FIXED_ARRAY, and WEAK: the type inside. ENUM: its integer type. VALUE,
     /// and a PARAMETER that's Const: the type of its value.
     /// FUNCTION: the type it returns, NONE when it returns nothing. INTERFACE: Self, the type
@@ -157,7 +171,8 @@ struct type_t {
     /// CLASS: the Class it extends, or INVALID.
     type_id_t base = type_id_t::INVALID;
     /// STRUCT and CLASS: the Interfaces after Implements. INTERFACE: the ones it extends. An
-    /// instance's have its type arguments in them.
+    /// instance's have its type arguments in them, followed by what an Extend of that instance
+    /// alone lists.
     std::vector<type_id_t> interfaces;
     /// ENUM: its values, in declaration order.
     std::vector<enum_value_t> values;
@@ -167,6 +182,9 @@ struct type_t {
     value_op_t operation = value_op_t::NONE;
     /// CLASS: a Shared Class, whose objects count their owners atomically.
     bool shared = false;
+    /// Made by the compiler, not declared: the Cell<T> a captured Local lives in, and a lambda's
+    /// Class. It belongs to no module, so its qualified name has none, though its parts may.
+    bool made = false;
     /// FUNCTION: its parameters' types. A generic STRUCT, CLASS, or INTERFACE: its type
     /// parameters. FIXED_ARRAY: for each size that's a Const type parameter, that parameter, with
     /// 0 in `sizes`, and INVALID for the others; empty when every size is known.
@@ -205,6 +223,12 @@ public:
         return get(id).name;
     }
 
+    /// As MIR and LLVM name it: like name(), but each Struct, Class, Interface, and Enum in it
+    /// from outside the main module starts with its module, so two modules' types stay apart, as
+    /// in "std.collections.map.Map<Int32, Node>". With `main`, the main module's name, the main
+    /// module's start with it too, as a message shows two types whose names are the same.
+    [[nodiscard]] std::string qualified_name(type_id_t id, std::string_view main = {}) const;
+
     [[nodiscard]] std::size_t size() const {
         return m_entries.size();
     }
@@ -241,6 +265,9 @@ public:
     /// "Scheduler".
     [[nodiscard]] type_id_t scheduler();
 
+    /// "Ptr<T>", or "Ptr<Void>" for NONE.
+    [[nodiscard]] type_id_t pointer(type_id_t inner);
+
     /// "T?" when it's been made already, as for any T that has a Weak<T>. INVALID otherwise.
     [[nodiscard]] type_id_t find_nullable(type_id_t inner) const;
 
@@ -260,6 +287,9 @@ public:
     /// "Func(A, B): R", with a `result` of NONE for one that returns nothing. With an INVALID
     /// part, it's INVALID.
     [[nodiscard]] type_id_t function(const std::vector<type_id_t>& parameters, type_id_t result);
+
+    /// "Callback(A, B): R", or "Callback(A)" for one that gives nothing.
+    [[nodiscard]] type_id_t callback(const std::vector<type_id_t>& parameters, type_id_t result);
 
     /// A new type parameter, like the T in "Box<T>".
     [[nodiscard]] type_id_t add_parameter(std::string name);
@@ -286,24 +316,24 @@ public:
     /// A fixed array's number of elements, in all its dimensions.
     [[nodiscard]] std::uint64_t element_count(type_id_t type) const;
 
-    /// A new Struct type. Its fields come later, from set_fields(), once every type they might
-    /// use exists.
-    [[nodiscard]] type_id_t add_struct(std::string name);
+    /// A new Struct type, declared in `module`, or in the main module when it's empty. Its fields
+    /// come later, from set_fields(), once every type they might use exists.
+    [[nodiscard]] type_id_t add_struct(std::string name, std::string module = {});
 
     /// A new Class type, whose fields come later like a Struct's.
-    [[nodiscard]] type_id_t add_class(std::string name);
+    [[nodiscard]] type_id_t add_class(std::string name, std::string module = {});
 
     void set_fields(type_id_t type, std::vector<field_t> fields);
 
     /// A new Interface type, with a type parameter of its own for Self.
-    [[nodiscard]] type_id_t add_interface(std::string name);
+    [[nodiscard]] type_id_t add_interface(std::string name, std::string module = {});
 
     /// The Interfaces a Struct or Class implements, or that an Interface extends. The caller makes
     /// sure an Interface doesn't extend itself.
     void set_interfaces(type_id_t type, std::vector<type_id_t> interfaces);
 
     /// A new Enum type. Its integer type and values come later, from set_values().
-    [[nodiscard]] type_id_t add_enum(std::string name);
+    [[nodiscard]] type_id_t add_enum(std::string name, std::string module = {});
 
     void set_values(type_id_t type, type_id_t integer, std::vector<enum_value_t> values,
                     bool flags);
@@ -313,6 +343,9 @@ public:
 
     /// Makes a Class extend another. The caller makes sure that doesn't make a cycle.
     void set_base(type_id_t type, type_id_t base);
+
+    /// Marks a Class as the compiler's own, before any of its instances are made.
+    void set_made(type_id_t type);
 
     /// Makes a Class a Shared Class, before any of its instances are made.
     void set_shared(type_id_t type);
@@ -344,6 +377,7 @@ private:
         type_id_t mutex = type_id_t::INVALID;
         type_id_t task = type_id_t::INVALID;
         type_id_t channel = type_id_t::INVALID;
+        type_id_t pointer = type_id_t::INVALID;
     };
 
     /// Indexed by type_id_t.
@@ -352,6 +386,7 @@ private:
     std::vector<type_id_t> m_fixed_arrays;
     std::vector<type_id_t> m_tuples;
     std::vector<type_id_t> m_functions;
+    std::vector<type_id_t> m_callbacks;
     /// The Tasks of Async Functions that throw.
     std::vector<type_id_t> m_throwing_tasks;
     std::vector<type_id_t> m_instances;
@@ -365,10 +400,12 @@ private:
     type_id_t add(type_t type);
     type_id_t make(type_kind_t kind, type_id_t inner, std::string full_name);
     /// A type's name before a "?" or "[]": a Func that returns something goes in parentheses,
-    /// so "(Func(): Int32)?" can't be read as returning an Int32?.
-    [[nodiscard]] std::string suffixed(type_id_t type) const;
+    /// so "(Func(): Int32)?" can't be read as returning an Int32?. With `qualified`, it's the
+    /// qualified name, with `main` as qualified_name() takes it.
+    [[nodiscard]] std::string suffixed(type_id_t type, bool qualified = false,
+                                       std::string_view main = {}) const;
     /// Gives an instance its generic type's fields, base, and Interfaces, with its type arguments
-    /// in them.
+    /// in them, keeping the Interfaces an Extend of the instance itself lists.
     void fill(type_id_t instance);
 };
 

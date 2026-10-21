@@ -1,6 +1,8 @@
 // std/collections: what T[] gets, Map and its literal, Set, Stack, Queue, Deque, PriorityQueue,
 // and Pool.
 
+Import std.collections
+
 // T[]: Sort is stable, Remove takes the first equal element, and Filter, Map, and Find take
 // functions.
 Local nums = [5, 3, 8, 1, 9, 2]
@@ -187,3 +189,14 @@ Local points = Pool<Int>()
 Local point = points.Add(1)
 points.Set(point, 2)
 Print("{points.Get(point) ?? -1}")
+
+// A Handle's zero names no value: a Pool's generations start at 1.
+Class Keeper
+    Field h: Handle<String>
+End Class
+
+Local named = Pool<String>()
+named.Add("first")
+Local kept = Keeper()
+Local found = named.Get(kept.h) ?? "none"
+Print("{named.Contains(kept.h)} {found}")

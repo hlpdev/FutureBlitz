@@ -1,0 +1,10 @@
+// Mem.Alloc of a negative size panics, rather than asking for a huge one.
+Import std.ffi
+
+Local size: Int64 = 3
+Unsafe
+    Local memory = Mem.Alloc(size)
+    Mem.Free(memory)
+    Print("allocated {size}")
+    Mem.Alloc(size - 10)
+End Unsafe

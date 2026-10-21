@@ -1,0 +1,279 @@
+// Defaults that an Extend's Where makes conditional, which only the instances that meet it have,
+// beside what the type has for every instance; Interfaces that are only constraints, which a
+// Class doesn't have from the Class it extends, in Is and As; generic defaults; conditional
+// Operator ==s; the Interfaces a conditional one extends; and Classes extending instances that
+// don't have what's conditional, or have it beside what every instance has.
+
+Import std.collections
+
+Interface Sized
+    Method Size(): Int
+    Method Twice(): Int => Size() * 2
+End Interface
+
+// Doubled's Twice takes Sized's place, where Doubled is implemented.
+Interface Doubled Extends Sized
+    Method Twice(): Int => Size() + 100
+End Interface
+
+Class Rock
+End Class
+
+// Every Box is Sized, with Sized's Twice, and a Box of something Hashable is Doubled too.
+Class Box<T> Implements Sized
+    Method Size(): Int => 1
+End Class
+
+Extend Box<T> Implements Doubled
+    Where T: Hashable
+End Extend
+
+Function AsSized(s: Sized): Int => s.Twice()
+Function AsDoubled(d: Doubled): Int => d.Twice()
+Function Sizes<S: Sized>(s: S): Int => s.Twice()
+Function Doubles<D: Doubled>(d: D): Int => d.Twice()
+
+Print("{AsSized(Box<Int>())} {AsDoubled(Box<Int>())} {Sizes(Box<Int>())} {Doubles(Box<Int>())}")
+Print("{Box<Int>().Twice()} {AsSized(Box<Rock>())} {Box<Rock>().Twice()}")
+
+Local sized: Sized = Box<String>()
+If sized Is Doubled
+    Print("a Box<String> is Doubled: {(sized As Doubled).Twice()}")
+End If
+
+sized = Box<Rock>()
+Print("a Box<Rock> is Doubled: {sized Is Doubled}")
+
+// A Class extending one that's Doubled for some instances gets Sized's for every one, unless its
+// own Where says they're all Doubled.
+Interface Tripled
+    Method Size(): Int
+    Method Twice(): Int => Size() + 200
+End Interface
+
+Class Base<T>
+    Method Size(): Int => 1
+End Class
+
+Extend Base<T> Implements Tripled
+    Where T: Hashable
+End Extend
+
+Function AsTripled(t: Tripled): Int => t.Twice()
+
+Class Sub<T> Extends Base<T> Implements Sized
+End Class
+
+Class Keyed<T> Extends Base<T> Implements Sized
+    Where T: Hashable
+End Class
+
+Print("{AsSized(Sub<Rock>())} {AsSized(Sub<Int>())} {Sub<Int>().Twice()} {AsTripled(Sub<Int>())}")
+Print("{AsSized(Keyed<Int>())} {Keyed<Int>().Twice()}")
+
+// A For Method loop goes over what the instance has.
+Interface Announced
+    Method Label(): String
+    Method Announce()
+        Print("announcing {Label()}")
+    End Method
+End Interface
+
+Class Crate<T>
+    Method Open()
+        Print("open")
+    End Method
+End Class
+
+Extend Crate<T> Implements Announced
+    Where T: Hashable
+    Method Label(): String => "crate"
+    Method Seal()
+        Print("sealed")
+    End Method
+End Extend
+
+For Method m In Crate<Rock>
+    m.Call(Crate<Rock>())
+End For
+For Method m In Crate<Int>
+    m.Call(Crate<Int>())
+End For
+
+// Comparable is only a constraint, so a Class doesn't have it from the Class it extends, and a
+// Pair of one isn't Printable.
+Class Ranked<T>
+    Operator <(a: Ranked<T>, b: Ranked<T>): Bool => False
+End Class
+
+Extend Ranked<T> Implements Comparable
+    Where T: Hashable
+End Extend
+
+Class Ordered Implements Comparable
+    Operator <(a: Ordered, b: Ordered): Bool => False
+End Class
+
+Class Low Extends Ranked<Int>
+End Class
+
+Class Lower Extends Ordered
+End Class
+
+Class Thing
+End Class
+
+Class Pair<T> Extends Thing
+End Class
+
+Extend Pair<T> Implements Printable
+    Where T: Comparable
+    Method ToString(): String => "pair"
+End Extend
+
+Local things: Thing[] = [Pair<Int>(), Pair<Ranked<Int>>(), Pair<Low>(), Pair<Lower>()]
+For thing In things
+    If thing Is Printable
+        Print("{(thing As Printable).ToString()}")
+    Else
+        Print("not Printable")
+    End If
+End For
+
+// Generic defaults, called on the type, by name in another default, and on T[].
+Interface Picker
+    Method Size(): Int
+    Method Pick<U>(a: U, b: U): U => Size() > 1 ? b : a
+    Method Picked(): String => Pick("first", "second")
+    Static Method Make<U>(u: U): U => u
+End Interface
+
+Interface Counted Extends Picker
+    Method Count(): Int => Pick(Size(), 10)
+End Interface
+
+Struct Pile Implements Counted
+    Method Size(): Int => 2
+End Struct
+
+Extend T[] Implements Picker
+    Method Size(): Int => Count
+End Extend
+
+Print("{Pile().Pick(1, 2)} {Pile().Picked()} {Pile().Count()} {Pile.Make(7)}")
+Print("{[1].Pick("a", "b")} {[1, 2].Picked()}")
+
+// An Operator == that an Extend's Where makes conditional, a default it gives or its own, is what
+// == means for the instances that meet it, in arrays, tuples, and Structs too, and the others
+// compare the built-in way, without running code their type arguments don't have.
+Interface ByTag
+    Method Key(): Int
+    Operator ==(a: Self, b: Self): Bool => a.Key() == b.Key()
+End Interface
+
+Struct Plain
+    Field v: Int
+End Struct
+
+Struct Tagged<T>
+    Field item: T
+    Field tag: Int
+End Struct
+
+Extend Tagged<T> Implements ByTag
+    Where T: Hashable
+    Method Key(): Int => tag
+End Extend
+
+Struct Labeled<T>
+    Field item: T
+    Field label: String
+End Struct
+
+Extend Labeled<T>
+    Where T: Hashable
+    Operator ==(a: Labeled<T>, b: Labeled<T>): Bool => a.item.Hash() == b.item.Hash()
+End Extend
+
+Struct Holder
+    Field held: Tagged<Plain>
+End Struct
+
+Local tags = Tagged(1, 5)
+Local others = Tagged(2, 5)
+Print("{tags == others} {[tags].Contains(others)} {(tags, 0) == (others, 0)}")
+Local plainTags = Tagged(Plain(1), 5)
+Local plainOthers = Tagged(Plain(2), 5)
+Print("{plainTags == plainOthers} {plainTags != plainOthers} {[plainTags].Contains(plainOthers)} " +
+      "{(plainTags, 0) == (plainOthers, 0)} {Holder(plainTags) == Holder(plainOthers)}")
+Local labeled = Labeled(1, "a")
+Local plainLabeled = Labeled(Plain(1), "a")
+Print("{labeled == Labeled(1, "b")} {[labeled].Contains(Labeled(1, "b"))} " +
+      "{plainLabeled == Labeled(Plain(1), "b")} {[plainLabeled].Contains(Labeled(Plain(1), "b"))}")
+
+// An Interface that an Extend's Where gives a Class brings the ones it extends: a Bin<Int> is
+// Sized as a Doubled is, and Printable as a Shown is.
+Interface Shown Extends Printable
+    Method Label(): String
+End Interface
+
+Class Bin<T> Extends Thing
+    Method Size(): Int => 3
+    Method Label(): String => "bin"
+    Method ToString(): String => "a bin"
+End Class
+
+Extend Bin<T> Implements Doubled, Shown
+    Where T: Hashable
+End Extend
+
+Local sizedBin: Sized = Bin<Int>()
+Local shownBin: Shown = Bin<Int>()
+Local thing: Thing = Bin<Int>()
+Print("{sizedBin.Twice()} {AsSized(Bin<Int>())} {shownBin} {thing Is Sized} {thing Is Printable}")
+thing = Bin<Rock>()
+Print("{thing Is Sized} {thing Is Doubled} {thing Is Printable}")
+
+// Beside the default every instance has, an Override overrides that one, whatever instance the
+// Class extends; a call through Doubled runs Doubled's, which the Extend gives.
+Class Shelf<T> Implements Sized
+    Method Size(): Int => 1
+End Class
+
+Extend Shelf<T> Implements Doubled
+    Where T: Hashable
+End Extend
+
+Class IntShelf Extends Shelf<Int>
+    Override Method Twice(): Int => 7
+End Class
+
+Class RockShelf Extends Shelf<Rock>
+    Override Method Twice(): Int => 8
+End Class
+
+Print("{IntShelf().Twice()} {AsSized(IntShelf())} {AsDoubled(IntShelf())} {RockShelf().Twice()} " +
+      "{AsSized(RockShelf())}")
+
+// A Class extending an instance without what an Extend's Where adds declares those names itself,
+// like a ToString beside Map's, which is for keys and values that can be shown.
+Class RockCrate Extends Crate<Rock>
+    Method Label(): String => "a rock crate"
+    Method Seal()
+        Print("rock sealed")
+    End Method
+End Class
+
+RockCrate().Seal()
+Print(RockCrate().Label())
+
+Class Item
+End Class
+
+Class Inventory Extends Map<String, Item> Implements Printable
+    Method ToString(): String => "inventory of {Count}"
+End Class
+
+Local inventory = Inventory()
+inventory.Add("sword", Item())
+Print("{inventory}")

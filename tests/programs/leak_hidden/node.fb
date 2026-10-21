@@ -1,0 +1,8 @@
+// A Node whose link a Class extending it in another file can't see.
+Public Class Node
+    Field hidden: Node?
+
+    Public Method Link(other: Node)
+        hidden = other
+    End Method
+End Class

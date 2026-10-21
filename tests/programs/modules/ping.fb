@@ -1,0 +1,8 @@
+// Ping and pong call each other, so their modules import each other.
+
+Import "./pong"
+
+Public Function Ping(n: Int): String
+    If n == 0 Then Return "ping"
+    Return "ping " + Pong(n - 1)
+End Function

@@ -12,6 +12,7 @@
 #include <mutex>
 #include <span>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -94,10 +95,9 @@ void destroy_shared(fb_object_t* object) {
         refcount.store(dying + 1, std::memory_order_relaxed);
         object->type->destroy(object);
         if (refcount.load(std::memory_order_acquire) != dying + 1) {
-            std::array<char, 256> message{};
-            std::snprintf(message.data(), message.size(),
-                          "%s's Destroy() kept a reference to its object", object->type->name);
-            fb_panic(message.data(), nullptr);
+            const std::string message =
+                std::string(object->type->name) + "'s Destroy() kept a reference to its object";
+            fb_panic(message.c_str(), nullptr);
         }
     }
 
@@ -114,14 +114,101 @@ void destroy(fb_object_t* object) {
         object->refcount = 1;
         object->type->destroy(object);
         if (object->refcount != 1) {
-            std::array<char, 256> message{};
-            std::snprintf(message.data(), message.size(),
-                          "%s's Destroy() kept a reference to its object", object->type->name);
-            fb_panic(message.data(), nullptr);
+            const std::string message =
+                std::string(object->type->name) + "'s Destroy() kept a reference to its object";
+            fb_panic(message.c_str(), nullptr);
         }
     }
 
     finish(object);
+}
+
+/// The words of a type's name, between the punctuation that spells its kind: "MapEntry",
+/// "String", and "Node" in "MapEntry<String, Node>[]".
+std::vector<std::string_view> words_of(const std::string_view name) {
+    constexpr std::string_view punctuation = " <>,()[]?:";
+    std::vector<std::string_view> words;
+    std::size_t start = 0;
+    while (start < name.size()) {
+        const std::size_t end = std::min(name.find_first_of(punctuation, start), name.size());
+        if (end > start) {
+            words.push_back(name.substr(start, end - start));
+        }
+
+        start = end + 1;
+    }
+
+    return words;
+}
+
+/// One Struct, Class, Interface, or Enum that a type is or is made of: its name, and that name
+/// with its module.
+struct declared_part_t {
+    std::string_view name;
+    std::string_view full_name;
+};
+
+/// The declarations a Class or Interface is or is made of, as sema finds them: the Map and Node
+/// of "Map<String, Node>". A full name spells the name's words in order, with each declared
+/// one's module first, so those are the words that differ.
+template <typename Type>
+std::vector<declared_part_t> declared_parts(const Type* type) {
+    const std::vector<std::string_view> words = words_of(type->name);
+    const std::vector<std::string_view> full_words = words_of(type->full_name);
+    std::vector<declared_part_t> parts;
+    if (words.size() != full_words.size()) {
+        return parts;
+    }
+
+    for (std::size_t i = 0; i < words.size(); ++i) {
+        if (words[i] != full_words[i]) {
+            parts.push_back({ .name = words[i], .full_name = full_words[i] });
+        }
+    }
+
+    return parts;
+}
+
+/// Whether a message would show two types alike, as sema decides: they have the same name but
+/// are different types, or they are, or are made of, two declarations of one name, whatever
+/// their type arguments, like a program's own Map and std's Map<String, Int32>, or a
+/// MapEntry<String, Map>[] of the program's Map beside std's Map.
+template <typename Type, typename Other>
+bool alike(const Type* type, const Other* other) {
+    if (static_cast<const void*>(type) == static_cast<const void*>(other) ||
+        type->full_name == nullptr || other->full_name == nullptr) {
+        return false;
+    }
+
+    if (std::string_view(type->name) == other->name) {
+        return std::string_view(type->full_name) != other->full_name;
+    }
+
+    const std::vector<declared_part_t> theirs = declared_parts(other);
+    return std::ranges::any_of(declared_parts(type), [&](const declared_part_t& part) {
+        return std::ranges::any_of(theirs, [&](const declared_part_t& other_part) {
+            return part.name == other_part.name && part.full_name != other_part.full_name;
+        });
+    });
+}
+
+/// How a message that names `type` among `others`, Classes or Interfaces, shows it: by its
+/// name, or by its full name when it's alike one of the others.
+template <typename Type, typename Other>
+const char* shown_name(const Type* type, std::span<const Other* const> others) {
+    for (const Other* other : others) {
+        if (alike(type, other)) {
+            return type->full_name;
+        }
+    }
+
+    return type->name;
+}
+
+/// The same, for a message that names two.
+template <typename Type, typename Other>
+const char* shown_name(const Type* type, const Other* other) {
+    return shown_name(type, std::span<const Other* const>(&other, 1));
 }
 
 /// One strong reference among the objects left at the end.
@@ -294,8 +381,9 @@ std::vector<std::pair<std::size_t, const char*>> cycle_of(const leftovers_t& lef
 
 /// "leak: a cycle of 2 objects: Node.next -> Node.next -> the first Node", for each group of
 /// objects left at the end that keep each other alive. Objects that only a cycle keeps alive are
-/// in the counts already.
-void report_cycles() {
+/// in the counts already. The report is one message, so each Class is shown as the counts show
+/// it among the `leaked` ones.
+void report_cycles(const std::span<const fb_class_t* const> leaked) {
     constexpr std::size_t most = 5;
     const leftovers_t left = leftovers();
     std::size_t cycles = 0;
@@ -311,7 +399,7 @@ void report_cycles() {
 
         std::string path;
         for (const auto& [object, field] : cycle) {
-            const char* name = left.objects[object]->type->name;
+            const char* name = shown_name(left.objects[object]->type, leaked);
             path +=
                 field != nullptr ? std::string(name) + "." + field : std::string(name) + " element";
             path += " -> ";
@@ -319,7 +407,7 @@ void report_cycles() {
 
         std::fprintf(stderr, "leak: a cycle of %llu object%s: %sthe first %s\n",
                      static_cast<unsigned long long>(cycle.size()), cycle.size() == 1 ? "" : "s",
-                     path.c_str(), left.objects[cycle.front().first]->type->name);
+                     path.c_str(), shown_name(left.objects[cycle.front().first]->type, leaked));
     }
 
     if (cycles > most) {
@@ -354,6 +442,7 @@ void fb_track_objects() {
 }
 
 void fb_finish(fb_class_t* const* classes, const std::int64_t count) {
+    fb_scheduler_end();
     fb_pool_finish();
     // Whatever the program printed shows up before the report.
     std::fflush(stdout);
@@ -362,17 +451,28 @@ void fb_finish(fb_class_t* const* classes, const std::int64_t count) {
                      static_cast<long long>(strings));
     }
 
-    bool leaked = false;
+    if (const std::int64_t copies = fb_cstring_live_count(); copies != 0) {
+        std::fprintf(stderr, "leak: %lld CString copies of Strings were never freed\n",
+                     static_cast<long long>(copies));
+    }
+
+    // The report shows the leaked Classes by their names, or by their full names where two are
+    // alike, in the counts and the cycles both.
+    std::vector<const fb_class_t*> leaked;
     for (const fb_class_t* type : std::span(classes, static_cast<std::size_t>(count))) {
         if (type->live != 0) {
-            std::fprintf(stderr, "leak: %lld %s objects were never released\n",
-                         static_cast<long long>(type->live), type->name);
-            leaked = true;
+            leaked.push_back(type);
         }
     }
 
-    if (leaked && registry().tracking) {
-        report_cycles();
+    for (const fb_class_t* type : leaked) {
+        std::fprintf(stderr, "leak: %lld %s objects were never released\n",
+                     static_cast<long long>(type->live),
+                     shown_name(type, std::span<const fb_class_t* const>(leaked)));
+    }
+
+    if (!leaked.empty() && registry().tracking) {
+        report_cycles(leaked);
     }
 }
 
@@ -531,10 +631,11 @@ void fb_object_expect(const fb_object_t* object, const fb_class_t* type,
         return;
     }
 
-    std::array<char, 256> message{};
-    std::snprintf(message.data(), message.size(), "expected %s, found %s", type->name,
-                  object != nullptr ? object->type->name : "Null");
-    fb_panic(message.data(), location);
+    const std::string message = std::string("expected ") +
+                                (object != nullptr ? shown_name(type, object->type) : type->name) +
+                                ", found " +
+                                (object != nullptr ? shown_name(object->type, type) : "Null");
+    fb_panic(message.c_str(), location);
 }
 
 std::uint64_t fb_hash_object(const fb_object_t* object) {
@@ -555,9 +656,10 @@ void fb_object_expect_implements(const fb_object_t* object, const fb_interface_t
         return;
     }
 
-    std::array<char, 256> message{};
-    std::snprintf(message.data(), message.size(), "expected %s, found %s", interface->name,
-                  object != nullptr ? object->type->name : "Null");
-    fb_panic(message.data(), location);
+    const std::string message =
+        std::string("expected ") +
+        (object != nullptr ? shown_name(interface, object->type) : interface->name) + ", found " +
+        (object != nullptr ? shown_name(object->type, interface) : "Null");
+    fb_panic(message.c_str(), location);
 }
 }

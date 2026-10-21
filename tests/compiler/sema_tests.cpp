@@ -35,7 +35,7 @@ analyzed_t analyze_text(const std::string_view text) {
     }
 
     // The main file's items come last.
-    if (ast.items().empty() || ast.from_library(ast.items().back())) {
+    if (ast.items().empty() || ast.outside_main(ast.items().back())) {
         return analyzed;
     }
 
@@ -68,6 +68,25 @@ std::string probe(const std::string_view program) {
 
 errors_t errors_of(const std::string_view program) {
     return analyze_text(program).errors;
+}
+
+/// The errors of `program`, which can import `modules` by their paths, like "./lib/a" for
+/// lib/a.fb, besides the standard library's. An error in one of them starts with its path.
+errors_t errors_with(const std::string_view program,
+                     const std::vector<fb::library_file_t>& modules) {
+    std::vector<fb::library_file_t> files =
+        fb::standard_library().value_or(std::vector<fb::library_file_t>{});
+    files.insert(files.end(), modules.begin(), modules.end());
+    const fb::compilation_t compilation = fb::compile("test.fb", std::string(program), files);
+    errors_t errors;
+    for (const fb::diagnostic_t& diagnostic : compilation.diagnostics.diagnostics()) {
+        const fb::source_file_t& file = compilation.sources.get(diagnostic.span.file);
+        const std::string where = file.id() == compilation.file ? "" : file.path() + ": ";
+        errors.push_back(
+            std::format("{}{}: {}", where, file.slice(diagnostic.span), diagnostic.message));
+    }
+
+    return errors;
 }
 
 } // namespace
@@ -107,6 +126,11 @@ TEST_CASE("a literal that doesn't fit is an error", "[sema]") {
 
     // A decimal literal is a Float32 by default, and Float32 tops out near 3.4e38.
     CHECK(errors_of("Local x = 1.0e40") == errors_t{ "1.0e40: 1.0e40 doesn't fit in Float32" });
+
+    // A literal fits where it rounds to a float, as the largest one's shortest spelling does.
+    CHECK(errors_of("Local x = 3.4028235e38\nLocal y: Float32 = -3.4028235e38").empty());
+    CHECK(errors_of("Local x = 3.4028236e38") ==
+          errors_t{ "3.4028236e38: 3.4028236e38 doesn't fit in Float32" });
 }
 
 TEST_CASE("mixed numeric operands widen losslessly", "[sema]") {
@@ -230,9 +254,9 @@ TEST_CASE("operators check their operand types", "[sema]") {
 TEST_CASE("names must be declared", "[sema]") {
     CHECK(errors_of("Local x = y") == errors_t{ "y: 'y' isn't declared" });
     CHECK(errors_of("Local x = Int") == errors_t{ "Int: 'Int' is a type, not a value" });
-    CHECK(errors_of("Local x = Print") ==
-          errors_t{ "Print: 'Print' is built in, so it can't be a value; use a lambda that calls "
-                    "it" });
+    CHECK(errors_of("Local x = RefEquals") ==
+          errors_t{ "RefEquals: 'RefEquals' is built in, so it can't be a value; use a lambda that "
+                    "calls it" });
     CHECK(errors_of("Local x: Foo") == errors_t{ "Foo: 'Foo' isn't a type" });
 
     // Vec3 is a built-in type from the spec that comes after M1.
@@ -291,6 +315,18 @@ TEST_CASE("Globals and Consts initialize in source order", "[sema]") {
 
     // An initializer can only use the Consts and Globals above it, not top-level Locals.
     CHECK(errors_of("Local x = 1\nGlobal g = x") == errors_t{ "x: 'x' isn't declared" });
+
+    // A lambda's code runs later, so it uses any Global whose type is known by then; a Global
+    // that gets its type from a later initializer needs one written.
+    CHECK(errors_of("Global f: Func(): Int = Function(): Int => n * 2\n"
+                    "Global n: Int = Make()\n"
+                    "Function Make(): Int => 21")
+              .empty());
+    CHECK(errors_of("Global f: Func(): Int = Function(): Int => n * 2\n"
+                    "Global n = Make()\n"
+                    "Function Make(): Int => 21") ==
+          errors_t{ "n: 'n' gets its type from its initializer, which comes later; give it a type "
+                    "to use it in a lambda here" });
 }
 
 TEST_CASE("Consts", "[sema]") {
@@ -517,16 +553,102 @@ TEST_CASE("overloads: an exact match beats a conversion", "[sema]") {
     CHECK(errors_of(call("Show(True)")) == errors_t{ "Show: no overload of 'Show' takes (Bool)" });
     CHECK(errors_of("Function F(a: Int)\nEnd Function\nFunction F(b: Int)\nEnd Function") ==
           errors_t{ "F: 'F' is already declared with the same parameter types" });
+
+    // Generic overloads compare with their type parameters in order, whatever their names.
+    CHECK(errors_of("Function Id<T>(x: T): T => x\nFunction Id<U>(y: U): U => y") ==
+          errors_t{ "Id: 'Id' is already declared with the same parameter types" });
+    CHECK(errors_of("Function Id<T>(x: T): T => x\n"
+                    "Function Id<U>(y: U[], i: Int): U => y[i]\n"
+                    "Local a = Id(1)\n"
+                    "Local b = Id([2], 0)")
+              .empty());
+
+    // Their constraints count too, since a call picks the overload whose constraints its type
+    // arguments meet, though one that extends another asks what both do.
+    constexpr std::string_view describe = "Struct OnlyEq Implements Equatable\n"
+                                          "    Field X: Int\n"
+                                          "End Struct\n"
+                                          "Function Describe<T>(x: T): String\n"
+                                          "    Where T: Comparable\n"
+                                          "    Return \"comparable\"\n"
+                                          "End Function\n";
+    CHECK(probe(std::format("{}Function Describe<U>(y: U): Int\n"
+                            "    Where U: Equatable\n"
+                            "    Return 1\n"
+                            "End Function\n"
+                            "Local x = Describe(OnlyEq(1))",
+                            describe)) == "Int32");
+    CHECK(errors_of(std::format("{}Function Describe<U>(y: U): String\n"
+                                "    Where U: Comparable\n"
+                                "    Return \"again\"\n"
+                                "End Function",
+                                describe)) ==
+          errors_t{ "Describe: 'Describe' is already declared with the same parameter types" });
+    CHECK(errors_of(std::format("{}Function Describe<U>(y: U): String\n"
+                                "    Where U: Equatable & Comparable\n"
+                                "    Return \"again\"\n"
+                                "End Function",
+                                describe)) ==
+          errors_t{ "Describe: 'Describe' is already declared with the same parameter types" });
+
+    // That holds whatever is declared first: Const Functions are declared before any Interface
+    // knows what it extends, and here the Interfaces come after the Functions.
+    CHECK(errors_of("Const Function F<T>(x: T): Int\n"
+                    "    Where T: Comparable\n"
+                    "    Return 1\n"
+                    "End Function\n"
+                    "Const Function F<U>(y: U): Int\n"
+                    "    Where U: Comparable & Equatable\n"
+                    "    Return 2\n"
+                    "End Function\n"
+                    "Const A = F(1)") ==
+          errors_t{ "F: 'F' is already declared with the same parameter types" });
+    CHECK(errors_of("Function D<T>(x: T): Int\n"
+                    "    Where T: B\n"
+                    "    Return 1\n"
+                    "End Function\n"
+                    "Function D<U>(y: U): Int\n"
+                    "    Where U: B & A\n"
+                    "    Return 2\n"
+                    "End Function\n"
+                    "Interface A\n"
+                    "End Interface\n"
+                    "Interface B Extends A\n"
+                    "End Interface\n"
+                    "Struct S Implements B\n"
+                    "End Struct\n"
+                    "Local n = D(S())") ==
+          errors_t{ "D: 'D' is already declared with the same parameter types" });
+
+    // A Const type parameter only stands for one of the same type.
+    CHECK(errors_of("Function F<Const N: Int>(x: Int[N]): Int => N\n"
+                    "Function F<Const M: Int>(y: Int[M]): Int => M") ==
+          errors_t{ "F: 'F' is already declared with the same parameter types" });
+    CHECK(errors_of("Function F<Const N: Int>(x: Int[N]): Int => N\n"
+                    "Function F<Const N: UInt8>(x: Int[N]): Int => 2\n"
+                    "Local a: Int[3]\n"
+                    "Local n = F(a)") == errors_t{ "F: the call to 'F' is ambiguous" });
 }
 
-TEST_CASE("the built-in Print can be overloaded", "[sema]") {
+TEST_CASE("std's Print and the built-ins can be overloaded, and a module's own hides them",
+          "[sema]") {
     CHECK(errors_of("Function Print(value: Int)\n"
                     "End Function\n"
                     "Print(1)\n"
                     "Print(\"a\")")
               .empty());
-    CHECK(errors_of("Function Print(text: String)\nEnd Function") ==
-          errors_t{ "Print: 'Print' is already declared with the same parameter types" });
+    CHECK(errors_of("Function Print(text: String)\nEnd Function\nPrint(\"a\")").empty());
+    CHECK(errors_of("Function Panic(message: String)\n"
+                    "End Function\n"
+                    "Panic(\"not really\")\n"
+                    "Local after = 1")
+              .empty());
+    CHECK(errors_of("Struct Seconds\n"
+                    "    Field n: Int\n"
+                    "End Struct\n"
+                    "Local s = Seconds(2)\n"
+                    "Local n: Int = s.n")
+              .empty());
 }
 
 TEST_CASE("ByRef arguments", "[sema]") {
@@ -765,6 +887,34 @@ TEST_CASE("only a ByRef Method can change Self", "[sema]") {
                     "a ByRef Method too" });
     CHECK(in_struct("    ByRef Method M()\n        Bump()\n        Self = P()\n    End Method\n")
               .empty());
+
+    // A Property's Set changes Self too, but a Static Property belongs to its type.
+    CHECK(in_struct("    Property Twice: Int\n"
+                    "        Get => x * 2\n"
+                    "        Set(value)\n"
+                    "            x = value / 2\n"
+                    "        End Set\n"
+                    "    End Property\n"
+                    "    Method M()\n"
+                    "        Twice = 4\n"
+                    "    End Method\n") ==
+          errors_t{ "Twice: 'Twice' is a Property, and a Method can't change Self; make it a ByRef "
+                    "Method" });
+    CHECK(in_struct("    Static Field made: Int = 0\n"
+                    "    Static Property Made: Int\n"
+                    "        Get => made\n"
+                    "        Set(value)\n"
+                    "            made = value\n"
+                    "        End Set\n"
+                    "    End Property\n"
+                    "    Method M()\n"
+                    "        Made += 1\n"
+                    "        Made = Made + 1\n"
+                    "    End Method\n"
+                    "    Static Method Reset()\n"
+                    "        Made = 0\n"
+                    "    End Method\n")
+              .empty());
 }
 
 TEST_CASE("a ByRef Method needs something it can change", "[sema]") {
@@ -864,9 +1014,28 @@ TEST_CASE("Struct members only go in Structs", "[sema]") {
           errors_t{ "New: New can only be declared in a Struct or Class" });
     CHECK(errors_of("Function F()\n    Struct P\n    End Struct\nEnd Function") ==
           errors_t{ "P: Structs can only be declared at the top level" });
+    CHECK(errors_of("Function F()\n"
+                    "    Class C\n    End Class\n"
+                    "    Interface I\n    End Interface\n"
+                    "End Function") == errors_t{
+                                           "C: Classes can only be declared at the top level",
+                                           "I: Interfaces can only be declared at the top level",
+                                       });
     CHECK(errors_of("Struct P\n    Print(\"x\")\nEnd Struct") ==
           errors_t{ "Print(\"x\"): a Struct can only hold Fields, Methods, Properties, and News" });
     CHECK(errors_of("Struct Int\nEnd Struct") == errors_t{ "Int: 'Int' is a built-in type" });
+
+    // A built-in generic type's name, like Weak, Ptr, or Task, is the code's own type when it
+    // declares one, in types and calls alike.
+    CHECK(probe("Class Weak<T>\n"
+                "    Field x: Int = 7\n"
+                "End Class\n"
+                "Class Task\n"
+                "    Field y: Int = 2\n"
+                "End Class\n"
+                "Local typed: Weak<Int> = Weak<Int>()\n"
+                "Local job: Task = Task()\n"
+                "Local x = typed.x + job.y") == "Int32");
 }
 
 TEST_CASE("names in a Method", "[sema]") {
@@ -996,6 +1165,48 @@ TEST_CASE("a T? holds a T or Null", "[sema]") {
                     "Null'" });
     CHECK(errors_of("Local x: Int = Null") == errors_t{ "Null: Int32 can't be Null; Int32? can" });
     CHECK(errors_of("Print(Null)") == errors_t{ "Null: String can't be Null; String? can" });
+    // A function type's '?' would go on what it gives.
+    CHECK(errors_of("Local f: Func(): String = Null") ==
+          errors_t{ "Null: Func(): String can't be Null; (Func(): String)? can" });
+}
+
+TEST_CASE("a T? of a T? holds one that can be Null itself", "[sema]") {
+    // The messages are split around "??" so the compiler doesn't see a trigraph in them.
+    const std::string twice = "Int32?"
+                              "?";
+    CHECK(probe("Local a: Int?"
+                "? = Null\nLocal x = a") == twice);
+    CHECK(probe("Function F(): Int?"
+                "?? => 5\nLocal x = F()") == "Int32?"
+                                             "??");
+    // '??' and narrowing take off one T? at a time.
+    CHECK(probe("Local a: Int?"
+                "? = Null\nLocal x = a ?"
+                "? Null") == "Int32?");
+    CHECK(probe("Local a: Int?"
+                "? = Null\nLocal x = a ?"
+                "? 5") == "Int32?");
+    CHECK(errors_of("Function F(): Int?"
+                    "? => Null\n"
+                    "Local a = F()\n"
+                    "If a != Null\n"
+                    "    Local x: Int? = a\n"
+                    "End If")
+              .empty());
+    // A T?? can't lose a level without a check.
+    CHECK(errors_of("Local a: Int?"
+                    "? = Null\nLocal b: Int? = a") ==
+          errors_t{ std::format("a: expected Int32?, found {}, which may be Null; check it first, "
+                                "or give a value for Null with '?"
+                                "?'",
+                                twice) });
+    // Generic code's T? for an Int? is an Int??, as std's Map gives for a missing key.
+    CHECK(probe("Import std.collections\n"
+                "Local m: Map<String, Int?> = {}\n"
+                "Local x = m.Get(\"a\")") == twice);
+    CHECK(probe("Function First<T>(items: T[]): T? => items.Count > 0 ? items[0] : Null\n"
+                "Local holes: Int?[] = [Null]\n"
+                "Local x = First(holes)") == twice);
 }
 
 TEST_CASE("a T? has to be checked before it's used as a T", "[sema]") {
@@ -1294,6 +1505,19 @@ TEST_CASE("overriding a Method takes Override", "[sema]") {
 
     // Other parameters make an overload. Every Class's Destroy runs, so none overrides another.
     CHECK(with_base("Class B Extends A\n    Method F(x: Int): Int => x\nEnd Class").empty());
+
+    // Generic Methods aren't in the Method table, so one of the same shape neither overrides
+    // nor hides A's: it's another overload, and a call that fits both is ambiguous.
+    constexpr std::string_view generic = "Class A\n"
+                                         "    Method H<T>(x: T): String => \"a\"\n"
+                                         "End Class\n"
+                                         "Class B Extends A\n"
+                                         "    Method H<U>(x: U): String => \"b\"\n"
+                                         "End Class\n"
+                                         "Local b = B()\n";
+    CHECK(errors_of(std::format("{}Local s = b.H(1)", generic)) ==
+          errors_t{ "b.H: the call to 'H' is ambiguous" });
+    CHECK(errors_of(std::format("{}Local a: A = b\nLocal s = a.H(1)", generic)).empty());
     CHECK(with_base("Class B Extends A\n"
                     "    Override Method Destroy()\n"
                     "    End Method\n"
@@ -1487,6 +1711,10 @@ TEST_CASE("a fixed array's size is known at compile time", "[sema]") {
           errors_t{ "n: a fixed array's size must be an integer known at compile time, like 64 "
                     "or 8 * 8" });
     CHECK(errors_of("Local a: Int[0]") == errors_t{ "0: a fixed array's size must be at least 1" });
+    // A variable whose type was refused isn't reported again where it's used.
+    CHECK(errors_of("Local n = 3\nLocal a: Int[n]\na[0] = 1\nLocal b = a[0]") ==
+          errors_t{ "n: a fixed array's size must be an integer known at compile time, like 64 "
+                    "or 8 * 8" });
 
     // It starts at zero, unless its elements have none.
     CHECK(errors_of("Local g: Float[4]\ng[1] = 2.5").empty());
@@ -1808,7 +2036,32 @@ TEST_CASE("Error is a Class with a Message, from the standard library", "[sema]"
     CHECK(probe("Local m = Error().Message") == "String");
     CHECK(probe("Class Oops Extends Error\nEnd Class\nLocal e: Error = Oops(\"x\")") ==
           "Error (from Oops)");
-    CHECK(errors_of("Class Error\nEnd Class") == errors_t{ "Error: 'Error' is already declared" });
+
+    // A program's own Error hides std's for its code, but errors still extend std's.
+    CHECK(errors_of("Class Error\nEnd Class").empty());
+    CHECK(errors_of("Class Error\nEnd Class\nThrow Error()") ==
+          errors_t{ "Error(): Throw takes an object of a Class that extends std.core.error.Error, "
+                    "not test.Error" });
+
+    // Where the code has an Error of its own, the one errors extend says whose it is.
+    CHECK(errors_of("Class Error\nEnd Class\nClass Oops Extends Error\nEnd Class\nThrow Oops()") ==
+          errors_t{ "Oops(): Throw takes an object of a Class that extends std.core.error.Error, "
+                    "not Oops" });
+    CHECK(errors_of("Class Error\nEnd Class\nFunction F() Throws Error\nEnd Function") ==
+          errors_t{ "Error: Throws lists Classes that extend std.core.error.Error, "
+                    "not test.Error" });
+
+    // So do a Catch's, and a message that shows one beside a T? of the other.
+    CHECK(errors_of("Class Error\n"
+                    "End Class\n"
+                    "Local last: Error? = Null\n"
+                    "Try\n"
+                    "    Local x = 1\n"
+                    "Catch e\n"
+                    "    last = e\n"
+                    "End Try") ==
+          errors_t{ "e: nothing in the Try block throws std.core.error.Error",
+                    "e: expected test.Error?, found std.core.error.Error" });
 }
 
 TEST_CASE("Throws lists the Classes a function's errors extend", "[sema]") {
@@ -2373,7 +2626,8 @@ TEST_CASE("a Function's name alone is a function value", "[sema]") {
                 "Local f: Func(String): Int = P") == "Func(String): Int32");
     CHECK(errors_of("Function P(n: Int)\nEnd Function\nFunction P(s: String)\nEnd Function\n"
                     "Local f = P") ==
-          errors_t{ "P: 'P' has overloads, so a Func type has to say which one is meant" });
+          errors_t{ "P: 'P' has overloads, so a Func or Callback type has to say which one is "
+                    "meant" });
     CHECK(errors_of("Class Oops Extends Error\nEnd Class\nFunction F() Throws Oops\n"
                     "End Function\nLocal f = F") ==
           errors_t{ "F: 'F' can throw, and a function value can't" });
@@ -2567,6 +2821,42 @@ TEST_CASE("a type parameter can only be passed around until interfaces", "[sema]
           errors_t{ "x: 'x' is read before it's assigned" });
 }
 
+TEST_CASE("generic code that would need instances without end is an error", "[sema]") {
+    // Each instance of Deep calls one with a larger T, which has its own instance, and so on.
+    CHECK(errors_of("Function Deep<T>(x: T, n: Int): Int\n"
+                    "    If n == 0 Then Return 0\n"
+                    "    Return Deep([x], n - 1)\n"
+                    "End Function\n"
+                    "Local d = Deep(1, 3)") ==
+          errors_t{ "Deep([x], n - 1): 'Deep' gets T[] for T here, which leads back to this code, "
+                    "so it would need a larger instance each time, without end" });
+    CHECK(errors_of("Function A<T>(x: T, n: Int): Int\n"
+                    "    If n == 0 Then Return 0\n"
+                    "    Return B((x, 1), n - 1)\n"
+                    "End Function\n"
+                    "Function B<U>(y: U, n: Int): Int => A(y, n)") ==
+          errors_t{ "B((x, 1), n - 1): 'B' gets (T, Int32) for U here, which leads back to this "
+                    "code, so it would need a larger instance each time, without end" });
+    CHECK(errors_of("Class Node<T>\n"
+                    "    Method Wrap()\n"
+                    "        Local outer = Node<Node<T>>()\n"
+                    "    End Method\n"
+                    "End Class") ==
+          errors_t{ "Node<Node<T>>(): Node<T> gets Node<T> for T here, which leads back to this "
+                    "code, so it would need a larger instance each time, without end" });
+
+    // A call with the same T, or a larger one that doesn't lead back, has an end.
+    CHECK(errors_of("Function Same<T>(x: T, n: Int): Int\n"
+                    "    If n == 0 Then Return 0\n"
+                    "    Return Same(x, n - 1)\n"
+                    "End Function\n"
+                    "Function Wrap<T>(x: T): T[] => [x]\n"
+                    "Function Twice<T>(x: T): T[][] => Wrap(Wrap(x))\n"
+                    "Local s = Same(Twice(1), 3)\n"
+                    "Class Node<T>\n    Field next: Node<Node<T>>?\nEnd Class")
+              .empty());
+}
+
 TEST_CASE("generic mistakes", "[sema]") {
     // In Zero itself, the type expected, its own T, says what T is.
     CHECK(errors_of("Function Zero<T>(): T => Zero()\nLocal z = Zero()") ==
@@ -2667,6 +2957,29 @@ TEST_CASE("a type with Operator == can be compared, whatever its fields are", "[
                     "End Struct\n"
                     "Local bags = [Bag()]\nLocal found = bags.Contains(Bag())")
               .empty());
+}
+
+TEST_CASE("a T? and a T compare as two T?s, with the T's Operator ==", "[sema]") {
+    // A T converts to a T?, so == between them compares the values inside, as between two T?s,
+    // and so does a Weak<T>, whose read is a T?.
+    const std::string_view types = "Struct S\n"
+                                   "    Field n: Int\n"
+                                   "    Operator ==(a: S, b: S): Bool => a.n == b.n\n"
+                                   "End Struct\n"
+                                   "Class Box\n"
+                                   "    Operator ==(a: Box, b: Box): Bool => True\n"
+                                   "End Class\n";
+    CHECK(errors_of(std::format("{}"
+                                "Function Same(x: S?, y: S, a: Box?, b: Box): Bool\n"
+                                "    Local w: Weak<Box> = b\n"
+                                "    Return x == y && y != x && a == b && b != a && w == b\n"
+                                "End Function",
+                                types))
+              .empty());
+
+    // An Operator still takes only its own types.
+    CHECK(errors_of(std::format("{}Function F(x: S?, b: Box): Bool => x == b", types)) ==
+          errors_t{ "x == b: no Operator == takes (S?, Box)" });
 }
 
 // Interfaces
@@ -2997,6 +3310,20 @@ TEST_CASE("the built-in types implement the built-in Interfaces that fit them", 
     CHECK(errors_of("Function Max<T: Comparable>(a: T, b: T): T => a > b ? a : b\n"
                     "Local m = Max(True, False)") ==
           errors_t{ "Max: Bool doesn't implement Comparable, which 'Max' needs for T" });
+
+    // Among overloads, the one that fits but for its Where lines says which isn't met.
+    CHECK(errors_of("Class Thing\nEnd Class\n"
+                    "Class Line<T>\n"
+                    "    New()\n        Where T: Comparable\n    End New\n"
+                    "    New(before: Func(T, T): Bool)\n    End New\n"
+                    "End Class\n"
+                    "Local line = Line<Thing>()") ==
+          errors_t{ "Line<Thing>: Thing doesn't implement Comparable, which Line<T> needs for T" });
+    CHECK(errors_of("Class Thing\nEnd Class\n"
+                    "Function Sorted<T>(items: T[])\n    Where T: Comparable\nEnd Function\n"
+                    "Function Sorted<T>(items: T[], before: Func(T, T): Bool)\nEnd Function\n"
+                    "Sorted([Thing()])") ==
+          errors_t{ "Sorted: Thing doesn't implement Comparable, which 'Sorted' needs for T" });
 }
 
 TEST_CASE("a Struct or Class that lists Equatable or Hashable can have the built-in == and Hash",
@@ -3017,6 +3344,68 @@ TEST_CASE("a Struct or Class that lists Equatable or Hashable can have the built
     CHECK(errors_of("Struct Holder Implements Equatable\n    Field Run: Func(): Int\nEnd Struct") ==
           errors_t{ "Equatable: 'Run' can't be compared with ==, so Holder needs an Operator == of "
                     "its own to implement Equatable" });
+
+    // So does an == that comes after the built-in Hash, from an Interface's default an Extend
+    // gives, or an Extend of one instance.
+    const std::string_view keyed = "Interface Keyed\n"
+                                   "    Method Key(): Int\n"
+                                   "    Operator ==(a: Self, b: Self): Bool => a.Key() == b.Key()\n"
+                                   "End Interface\n";
+    CHECK(errors_of(std::format("{}Struct P Implements Hashable\n"
+                                "    Field N: Int\n"
+                                "    Method Key(): Int => N\n"
+                                "End Struct\n"
+                                "Extend P Implements Keyed\nEnd Extend",
+                                keyed)) ==
+          errors_t{ "Hashable: P has an Operator == of its own, so it needs a Hash that agrees "
+                    "with it" });
+    const std::string_view box = "Struct Box<T: Hashable> Implements Hashable\n"
+                                 "    Field Value: T\n"
+                                 "End Struct\n";
+    CHECK(errors_of(std::format("{}Extend Box<Int>\n"
+                                "    Operator ==(a: Box<Int>, b: Box<Int>): Bool => True\n"
+                                "End Extend",
+                                box)) ==
+          errors_t{ "Hashable: Box<Int32> has an Operator == of its own, so it needs a Hash that "
+                    "agrees with it" });
+    CHECK(errors_of(std::format("{}Extend Box<Int> Implements Hashable\n"
+                                "    Operator ==(a: Box<Int>, b: Box<Int>): Bool => True\n"
+                                "    Method Hash(): UInt64 => 0\n"
+                                "End Extend",
+                                box))
+              .empty());
+
+    // A Class's built-in == compares objects, whatever its fields are, and one extending an
+    // instance with an == of its own has that ==.
+    const std::string_view bag = "Class Bag<T>\n"
+                                 "    Field Items: T[] = []\n"
+                                 "End Class\n"
+                                 "Extend Bag<String>\n"
+                                 "    Operator ==(a: Bag<String>, b: Bag<String>): Bool => True\n"
+                                 "End Extend\n";
+    CHECK(errors_of(
+              std::format("{}Class Kept<T> Extends Bag<Int> Implements Hashable\nEnd Class", bag))
+              .empty());
+    CHECK(errors_of(
+              std::format("{}Class Kept<T> Extends Bag<T> Implements Hashable\nEnd Class", bag)) ==
+          errors_t{ "Hashable: Kept<String> has an Operator == of its own, so it needs a Hash "
+                    "that agrees with it" });
+
+    // Another file's == too, since == is what == means for the type in that file's Sets.
+    const std::vector<fb::library_file_t> modules{
+        {
+            .path = "lib/a.fb",
+            .text = "Public Struct P Implements Hashable\n    Public Field N: Int\nEnd Struct\n",
+        },
+    };
+    CHECK(errors_with(std::format("Import \"./lib/a\"\n{}"
+                                  "Extend P Implements Keyed\n"
+                                  "    Method Key(): Int => N\n"
+                                  "End Extend",
+                                  keyed),
+                      modules) ==
+          errors_t{ "lib/a.fb: Hashable: P has an Operator == of its own, so it needs a Hash "
+                    "that agrees with it" });
 
     // Comparable gives the other comparisons from <.
     CHECK(probe("Struct M Implements Comparable\n"
@@ -3053,6 +3442,72 @@ TEST_CASE("Printable puts a value in a string", "[sema]") {
     CHECK(errors_of("Local s = \"{[Function() => 1]}\"") ==
           errors_t{ "[Function() => 1]: (Func(): Int32)[] can't be shown in a string, since its "
                     "elements can't be" });
+}
+
+TEST_CASE("a program's own Interface named like a built-in one hides std's for its code",
+          "[sema]") {
+    // Each can be declared again, and the program's constraints mean its own.
+    CHECK(errors_of("Interface Equatable\nEnd Interface\n"
+                    "Interface Comparable\nEnd Interface\n"
+                    "Interface Hashable\nEnd Interface\n"
+                    "Interface Printable\nEnd Interface\n"
+                    "Interface Numeric\nEnd Interface\n"
+                    "Interface Sendable\nEnd Interface\n"
+                    "Interface Iterator<T>\nEnd Interface")
+              .empty());
+    CHECK(errors_of("Interface Printable\n"
+                    "    Method Show(): String\n"
+                    "End Interface\n"
+                    "Function F<T: Printable>(x: T): String => x.Show()\n"
+                    "Local s = F(1)") ==
+          errors_t{ "F: Int32 doesn't implement Printable, which 'F' needs for T" });
+
+    // The language's ==, <, strings, loops, Maps, Sets, and threads still go through std's.
+    CHECK(errors_of("Import std.collections\n"
+                    "Interface Equatable\nEnd Interface\n"
+                    "Interface Comparable\nEnd Interface\n"
+                    "Interface Hashable\nEnd Interface\n"
+                    "Interface Printable\nEnd Interface\n"
+                    "Interface Sendable\nEnd Interface\n"
+                    "Interface Iterator<T>\nEnd Interface\n"
+                    "Local m = {\"a\": 1}\n"
+                    "Local names = [\"b\", \"a\"]\n"
+                    "names.Sort()\n"
+                    "For k, v In m\n"
+                    "    Print(\"{k}={v} {m} {names} {k < \"b\"} {k == \"a\"}\")\n"
+                    "End For\n"
+                    "Local s = Set<Int>()\n"
+                    "s.Add(1)\n"
+                    "Local t = Spawn(Function() => 2)\n"
+                    "Local n = t.Wait()")
+              .empty());
+    CHECK(errors_of("Interface Sendable\nEnd Interface\n"
+                    "Class Rock\n"
+                    "    Field Weight: Int = 1\n"
+                    "End Class\n"
+                    "Function F(rock: Rock): Int\n"
+                    "    Return Spawn(Function() => rock.Weight).Wait()\n"
+                    "End Function") ==
+          errors_t{ "Function() => rock.Weight: 'rock' is Rock, which another thread can't "
+                    "have: a Class's objects stay on the thread that made them, unless it's a "
+                    "Shared Class" });
+
+    // Messages name std's Printable where the code means its own.
+    CHECK(errors_of("Interface Printable\n"
+                    "End Interface\n"
+                    "Struct P Implements Printable\n"
+                    "    Field X: Int\n"
+                    "End Struct\n"
+                    "Local s = \"{P(1)}\"") ==
+          errors_t{ "P(1): P can't be shown in a string; implement std.core.interfaces.Printable, "
+                    "with a ToString" });
+    CHECK(errors_of("Interface Printable\nEnd Interface\nFunction F<T>(x: T): String => \"{x}\"") ==
+          errors_t{ "x: T can't be shown in a string without a constraint, like "
+                    "<T: interfaces.Printable>, after Import std.core.interfaces" });
+    CHECK(errors_of("Import std.core.interfaces As I\n"
+                    "Interface Printable\nEnd Interface\nFunction F<T>(x: T): String => \"{x}\"") ==
+          errors_t{ "x: T can't be shown in a string without a constraint, like "
+                    "<T: I.Printable>" });
 }
 
 // Extend
@@ -3123,6 +3578,391 @@ TEST_CASE("an Extend's Where makes what it adds conditional", "[sema]") {
     CHECK(
         errors_of(std::format("{}Class Rock\nEnd Class\nLocal p: Printable = Box<Rock>()", box)) ==
         errors_t{ "Box<Rock>(): expected Printable, found Box<Rock>" });
+
+    // So is a Class extending an instance that does, as with what a Class it extends lists.
+    const std::string_view kept = "Class Kept Extends Box<Int>\n"
+                                  "End Class\n"
+                                  "Class Held<T> Extends Box<T>\n"
+                                  "End Class\n"
+                                  "Function Show<P: Printable>(p: P): String => p.ToString()\n";
+    CHECK(errors_of(std::format("{}{}"
+                                "Local p: Printable = Kept()\n"
+                                "Local q: Printable = Held<Int>()\n"
+                                "Local s = Show(Kept()) + Show(Held<Int>())",
+                                box, kept))
+              .empty());
+    CHECK(errors_of(std::format("{}{}Class Rock\nEnd Class\nLocal p: Printable = Held<Rock>()", box,
+                                kept)) ==
+          errors_t{ "Held<Rock>(): expected Printable, found Held<Rock>" });
+}
+
+TEST_CASE("an Extend's Where makes the defaults it gives conditional too", "[sema]") {
+    // "<owner> <Interface>" of what implements Sized's Twice for `type`.
+    const auto implementer = [](const std::string& program, const std::string_view type) {
+        const fb::compilation_t compilation = fb::compile("test.fb", program);
+        const fb::analysis_t& analysis = compilation.analysis;
+        INFO(program);
+        CHECK(compilation.diagnostics.diagnostics().empty());
+        for (const fb::conformance_t& conformance : analysis.conformances) {
+            if (analysis.types.name(conformance.type) == type &&
+                analysis.types.name(conformance.interface) == "Sized") {
+                const fb::symbol_t& twice = analysis.symbol(conformance.members.at(1));
+                return std::format("{} {}", analysis.types.name(twice.owner),
+                                   analysis.types.name(twice.default_interface));
+            }
+        }
+
+        return std::string();
+    };
+    const std::string doubled = "Interface Doubled\n"
+                                "    Method Size(): Int\n"
+                                "    Method Twice(): Int => Size() + 100\n"
+                                "End Interface\n"
+                                "Class Rock\n"
+                                "End Class\n";
+    const std::string box = doubled + "Class Box<T>\n"
+                                      "    Method Size(): Int => 1\n"
+                                      "End Class\n"
+                                      "Extend Box<T> Implements Doubled\n"
+                                      "    Where T: Hashable\n"
+                                      "End Extend\n";
+
+    // Only the instances that meet it have its default, as they have what it adds.
+    CHECK(probe(box + "Local n = Box<Int>().Twice()") == "Int32");
+    CHECK(errors_of(box + "Local n = Box<Rock>().Twice()") ==
+          errors_t{
+              "Box<Rock>().Twice: Rock doesn't implement Hashable, which 'Twice' needs for T" });
+    CHECK(errors_of(doubled + "Extend T[] Implements Doubled\n"
+                              "    Where T: Hashable\n"
+                              "    Method Size(): Int => Count\n"
+                              "End Extend\n"
+                              "Local n = [1].Twice()\n"
+                              "Local m = [Rock()].Twice()") ==
+          errors_t{ "[Rock()].Twice: Rock doesn't implement Hashable, which 'Twice' needs for T" });
+
+    // So where every Box is Sized, Sized's default is its Twice, however Doubled extends it,
+    // and it hides Doubled's in a call, which goes through Doubled.
+    const std::string sized = "Interface Sized\n"
+                              "    Method Size(): Int\n"
+                              "    Method Twice(): Int => Size() * 2\n"
+                              "End Interface\n";
+    const std::string refined = sized + "Interface Doubled Extends Sized\n"
+                                        "    Method Twice(): Int => Size() + 100\n"
+                                        "End Interface\n"
+                                        "Class Box<T> Implements Sized\n"
+                                        "    Method Size(): Int => 1\n"
+                                        "End Class\n"
+                                        "Extend Box<T> Implements Doubled\n"
+                                        "    Where T: Hashable\n"
+                                        "End Extend\n"
+                                        "Class Rock\n"
+                                        "End Class\n";
+    CHECK(implementer(refined, "Box<T>") == "Box<T> Sized");
+    CHECK(errors_of(refined + "Function S(s: Sized): Int => s.Twice()\n"
+                              "Function D(d: Doubled): Int => d.Twice()\n"
+                              "Local n = S(Box<Rock>()) + Box<Rock>().Twice() + D(Box<Int>()) +\n"
+                              "    Box<Int>().Twice()")
+              .empty());
+
+    // As it is for a Class extending Box, unless its own Where says each one is Doubled.
+    const std::string base = sized + doubled +
+                             "Class Base<T>\n"
+                             "    Method Size(): Int => 1\n"
+                             "End Class\n"
+                             "Extend Base<T> Implements Doubled\n"
+                             "    Where T: Hashable\n"
+                             "End Extend\n";
+    CHECK(implementer(base + "Class Sub<T> Extends Base<T> Implements Sized\nEnd Class",
+                      "Sub<T>") == "Sub<T> Sized");
+    CHECK(errors_of(base + "Class Sub<T> Extends Base<T> Implements Sized\n"
+                           "End Class\n"
+                           "Local n = Sub<Rock>().Twice() + Sub<Int>().Twice()")
+              .empty());
+    CHECK(implementer(base + "Class Sub<T> Extends Base<T> Implements Sized\n"
+                             "    Where T: Hashable\n"
+                             "End Class",
+                      "Sub<T>") == "Base<T> Doubled");
+
+    // A Method or Property an Extend's Where makes conditional can't implement an Interface
+    // listed for every instance, which would run it for the others.
+    // Keyed with `key` for its Key, and Box with `listing` after its name.
+    const auto keyed = [](const std::string_view key, const std::string_view listing) {
+        return std::format("Interface Keyed\n"
+                           "    {}\n"
+                           "End Interface\n"
+                           "Class Box<T>{}\n"
+                           "    Field Item: T?\n"
+                           "End Class\n"
+                           "Extend Box<T>\n"
+                           "    Where T: Hashable\n"
+                           "    Method Key(): UInt64 => Item.Hash()\n"
+                           "End Extend\n",
+                           key, listing);
+    };
+    const std::string narrower = "Keyed: Box<T>'s 'Key' needs T to implement Hashable, so it "
+                                 "can't implement Keyed's here";
+    CHECK(errors_of(keyed("Method Key(): UInt64", " Implements Keyed")) == errors_t{ narrower });
+    CHECK(errors_of(keyed("Method Key(): UInt64 => 0", " Implements Keyed")) ==
+          errors_t{ narrower });
+    CHECK(errors_of("Interface Named\n"
+                    "    ReadOnly Property Name: String\n"
+                    "End Interface\n"
+                    "Class Box<T> Implements Named\n"
+                    "End Class\n"
+                    "Extend Box<T>\n"
+                    "    Where T: Printable\n"
+                    "    Property Name: String\n"
+                    "        Get => \"box\"\n"
+                    "    End Property\n"
+                    "End Extend") ==
+          errors_t{ "Named: Box<T>'s 'Name' needs T to implement Printable, so it can't implement "
+                    "Named's here" });
+    // But it implements one listed where its Where holds.
+    CHECK(errors_of(keyed("Method Key(): UInt64", "") + "Extend Box<T> Implements Keyed\n"
+                                                        "    Where T: Hashable\n"
+                                                        "End Extend")
+              .empty());
+
+    // What overrides it would be in the Method table, which it isn't.
+    CHECK(
+        errors_of(base + "Class Sub<T> Extends Base<T>\n"
+                         "    Override Method Twice(): Int => 7\n"
+                         "End Class") ==
+        errors_t{ "Twice: 'Twice' was added to Base<T> by an Extend, so it can't be overridden" });
+
+    // Beside a default every instance has, an Override overrides that one, which a call on the
+    // Class reaches, whatever instance the Class extends, and whether or not the conditional
+    // one's Interface extends the other's.
+    // "<owner> <Interface>" of what the Twice of the Class named `name` overrides.
+    const auto overridden = [](const std::string& program, const std::string_view name) {
+        const fb::compilation_t compilation = fb::compile("test.fb", program);
+        const fb::analysis_t& analysis = compilation.analysis;
+        INFO(program);
+        CHECK(compilation.diagnostics.diagnostics().empty());
+        for (const fb::symbol_t& symbol : analysis.symbols) {
+            if (symbol.name == "Twice" && symbol.owner != fb::type_id_t::INVALID &&
+                analysis.types.name(symbol.owner) == name && symbol.overrides) {
+                const fb::symbol_t& original = analysis.symbol(*symbol.overrides);
+                return std::format("{} {}", analysis.types.name(original.owner),
+                                   analysis.types.name(original.default_interface));
+            }
+        }
+
+        return std::string();
+    };
+    // `program` and a Class, declared as `header`, that overrides Twice.
+    const auto with_override = [](const std::string_view program, const std::string_view header) {
+        return std::format("{}{}\n"
+                           "    Override Method Twice(): Int => 7\n"
+                           "End Class\n",
+                           program, header);
+    };
+    CHECK(overridden(with_override(refined, "Class Sub<T> Extends Box<T>"), "Sub<T>") ==
+          "Box<T> Sized");
+    CHECK(overridden(with_override(refined, "Class Sub Extends Box<Int>"), "Sub") ==
+          "Box<T> Sized");
+    CHECK(overridden(with_override(refined, "Class Sub Extends Box<Rock>"), "Sub") ==
+          "Box<T> Sized");
+    const std::string both = sized + doubled +
+                             "Class Base<T> Implements Sized\n"
+                             "    Method Size(): Int => 1\n"
+                             "End Class\n"
+                             "Extend Base<T> Implements Doubled\n"
+                             "    Where T: Hashable\n"
+                             "End Extend\n";
+    CHECK(overridden(with_override(both, "Class Sub<T> Extends Base<T>"), "Sub<T>") ==
+          "Base<T> Sized");
+
+    // A loop over an instance's Properties goes over the ones it has.
+    CHECK(errors_of(doubled + "Class Crate<T>\n"
+                              "End Class\n"
+                              "Extend Crate<T>\n"
+                              "    Where T: Hashable\n"
+                              "    Property Thing: Rock\n"
+                              "        Get => Rock()\n"
+                              "    End Property\n"
+                              "End Extend\n"
+                              "Function Show<C>(c: C): String\n"
+                              "    Local text = \"\"\n"
+                              "    For Property p: P In C\n"
+                              "        Where P: Printable\n"
+                              "        text += \"{p.Name} {p.Get(c)}\"\n"
+                              "    End For\n"
+                              "    Return text\n"
+                              "End Function\n"
+                              "Local a = Show(Crate<Rock>())\n"
+                              "Local b = Show(Crate<Int>())") ==
+          errors_t{ "Show: 'Show' needs each Property of Crate<Int32> to implement Printable, but "
+                    "its Property 'Thing' is Rock, which doesn't" });
+}
+
+TEST_CASE("an instance without a conditional Operator == compares the built-in way", "[sema]") {
+    // Whether the == on the program's last line calls an Operator.
+    const auto calls_operator = [](const std::string& program) {
+        const fb::compilation_t compilation = fb::compile("test.fb", program);
+        const fb::ast_t& ast = compilation.ast;
+        INFO(program);
+        CHECK(compilation.diagnostics.diagnostics().empty());
+        const auto& local = std::get<fb::variable_stmt_t>(ast.get(ast.items().back()).node);
+        REQUIRE(local.value);
+        return compilation.analysis.expr(local.value.value_or(fb::expr_id_t{})).symbol.has_value();
+    };
+    const std::string box = "Struct Plain\n"
+                            "    Field v: Int\n"
+                            "End Struct\n"
+                            "Struct Box<T>\n"
+                            "    Field item: T\n"
+                            "    Field n: Int\n"
+                            "End Struct\n";
+
+    // One an Extend's Where adds, and a default it gives, are the instances' that meet it.
+    const std::string own = box + "Extend Box<T>\n"
+                                  "    Where T: Hashable\n"
+                                  "    Operator ==(a: Box<T>, b: Box<T>): Bool => a.n == b.n\n"
+                                  "End Extend\n";
+    CHECK(calls_operator(own + "Local same = Box(1, 5) == Box(2, 5)"));
+    CHECK_FALSE(calls_operator(own + "Local same = Box(Plain(1), 5) == Box(Plain(2), 5)"));
+    CHECK_FALSE(calls_operator(own + "Local same = Box(Plain(1), 5) != Box(Plain(2), 5)"));
+    const std::string keyed = box +
+                              "Interface Keyed\n"
+                              "    Method Key(): Int\n"
+                              "    Operator ==(a: Self, b: Self): Bool => a.Key() == b.Key()\n"
+                              "End Interface\n"
+                              "Extend Box<T> Implements Keyed\n"
+                              "    Where T: Hashable\n"
+                              "    Method Key(): Int => n\n"
+                              "End Extend\n";
+    CHECK(calls_operator(keyed + "Local same = Box(1, 5) == Box(2, 5)"));
+    CHECK_FALSE(calls_operator(keyed + "Local same = Box(Plain(1), 5) == Box(Plain(2), 5)"));
+
+    // The built-in way compares the fields, which need == of their own.
+    CHECK(errors_of(own + "Interface Shape\n"
+                          "End Interface\n"
+                          "Function Same(s: Shape): Bool => Box(s, 1) == Box(s, 1)") ==
+          errors_t{ "Box(s, 1) == Box(s, 1): '==' can't be used on Box<Shape>" });
+    CHECK(errors_of(own + "Interface Shape\n"
+                          "End Interface\n"
+                          "Function Has(s: Shape): Bool => [Box(s, 1)].Contains(Box(s, 1))") ==
+          errors_t{ "[Box(s, 1)].Contains: Contains compares with ==, which Box<Shape> doesn't "
+                    "have" });
+
+    // Generic code has it where its constraints meet the Where.
+    CHECK(errors_of(own + "Function Same<U>(a: Box<U>, b: Box<U>): Bool => a == b") ==
+          errors_t{ "a == b: '==' can't be used on Box<U>" });
+    CHECK(errors_of(own + "Function Same<U: Hashable>(a: Box<U>, b: Box<U>): Bool => a == b")
+              .empty());
+}
+
+TEST_CASE("a Class declares what the instance it extends doesn't have", "[sema]") {
+    // Base<Rock> has neither what an Extend's Where adds nor the default it gives, so a Class
+    // extending it declares Methods and Properties of their names, which override nothing.
+    const std::string base = "Interface Doubled\n"
+                             "    Method Size(): Int\n"
+                             "    Method Twice(): Int => Size() + 100\n"
+                             "End Interface\n"
+                             "Class Rock\n"
+                             "End Class\n"
+                             "Class Base<T>\n"
+                             "    Method Size(): Int => 1\n"
+                             "End Class\n"
+                             "Extend Base<T> Implements Doubled\n"
+                             "    Where T: Hashable\n"
+                             "    Method Seal(): Int => 3\n"
+                             "    Property Mark: Int\n"
+                             "        Get => 3\n"
+                             "    End Property\n"
+                             "End Extend\n";
+    const std::string members = "    Method Twice(): Int => 7\n"
+                                "    Method Seal(): Int => 7\n"
+                                "    Property Mark: Int\n"
+                                "        Get => 7\n"
+                                "    End Property\n"
+                                "End Class\n";
+    CHECK(errors_of(std::format("{}Class RockSub Extends Base<Rock>\n"
+                                "{}Local n = RockSub().Twice() + RockSub().Seal() + RockSub().Mark",
+                                base, members))
+              .empty());
+
+    // One that has them, or with the Class's own type parameters in it, has what can't be
+    // overridden.
+    const errors_t added{
+        "Twice: 'Twice' was added to Base<T> by an Extend, so it can't be overridden",
+        "Seal: 'Seal' was added to Base<T> by an Extend, so it can't be overridden",
+        "Mark: 'Mark' was added to Base<T> by an Extend, so it can't be overridden",
+    };
+    CHECK(errors_of(std::format("{}Class IntSub Extends Base<Int>\n{}", base, members)) == added);
+    CHECK(errors_of(std::format("{}Class Sub<T> Extends Base<T>\n{}", base, members)) == added);
+
+    // Like a ToString beside Map's, which is for keys and values that can be shown.
+    CHECK(errors_of("Import std.collections\n"
+                    "Class Item\n"
+                    "End Class\n"
+                    "Class Inventory Extends Map<String, Item> Implements Printable\n"
+                    "    Method ToString(): String => \"inventory of {Count}\"\n"
+                    "End Class\n"
+                    "Local text = \"{Inventory()}\"")
+              .empty());
+    CHECK(errors_of("Import std.collections\n"
+                    "Class Names Extends Map<String, String>\n"
+                    "    Method ToString(): String => \"names\"\n"
+                    "End Class") ==
+          errors_t{ "ToString: 'ToString' was added to Map<K, V> by an Extend, so it can't be "
+                    "overridden" });
+}
+
+TEST_CASE("an Interface that's only a constraint isn't had from the Class extended", "[sema]") {
+    // Low has Comparable from neither Ranked<Int>'s Extend nor Ordered's listing, so a Pair of
+    // one isn't Printable, statically or as fb::implements() tells lowering.
+    const std::string program = "Class Ranked<T>\n"
+                                "    Operator <(a: Ranked<T>, b: Ranked<T>): Bool => False\n"
+                                "End Class\n"
+                                "Extend Ranked<T> Implements Comparable\n"
+                                "    Where T: Hashable\n"
+                                "End Extend\n"
+                                "Class Ordered Implements Comparable\n"
+                                "    Operator <(a: Ordered, b: Ordered): Bool => False\n"
+                                "End Class\n"
+                                "Class Low Extends Ranked<Int>\n"
+                                "End Class\n"
+                                "Class Lower Extends Ordered\n"
+                                "End Class\n"
+                                "Class Pair<T>\n"
+                                "End Class\n"
+                                "Extend Pair<T> Implements Printable\n"
+                                "    Where T: Comparable\n"
+                                "    Method ToString(): String => \"pair\"\n"
+                                "End Extend\n"
+                                "Local plain = Pair<Int>()\n"
+                                "Local ranked = Pair<Ranked<Int>>()\n"
+                                "Local low = Pair<Low>()\n"
+                                "Local lower = Pair<Lower>()\n";
+    CHECK(errors_of(program + "Local p: Printable = Pair<Ranked<Int>>()").empty());
+    CHECK(errors_of(program + "Local p: Printable = Pair<Low>()") ==
+          errors_t{ "Pair<Low>(): expected Printable, found Pair<Low>" });
+    CHECK(errors_of(program + "Local p: Printable = Pair<Lower>()") ==
+          errors_t{ "Pair<Lower>(): expected Printable, found Pair<Lower>" });
+
+    fb::compilation_t compilation = fb::compile("test.fb", program);
+    REQUIRE(compilation.diagnostics.diagnostics().empty());
+    fb::type_table_t& types = compilation.analysis.types;
+    const auto type_named = [&](const std::string_view name) {
+        for (std::size_t i = 0; i < types.size(); ++i) {
+            if (types.name(static_cast<fb::type_id_t>(i)) == name) {
+                return static_cast<fb::type_id_t>(i);
+            }
+        }
+
+        return fb::type_id_t::INVALID;
+    };
+    const fb::type_id_t printable = compilation.analysis.interfaces.printable;
+    const fb::type_id_t comparable = compilation.analysis.interfaces.comparable;
+    CHECK(
+        fb::implements(compilation.analysis, types, type_named("Pair<Ranked<Int32>>"), printable));
+    CHECK(fb::implements(compilation.analysis, types, type_named("Ranked<Int32>"), comparable));
+    CHECK_FALSE(fb::implements(compilation.analysis, types, type_named("Low"), comparable));
+    CHECK_FALSE(fb::implements(compilation.analysis, types, type_named("Lower"), comparable));
+    CHECK_FALSE(fb::implements(compilation.analysis, types, type_named("Pair<Low>"), printable));
+    CHECK_FALSE(fb::implements(compilation.analysis, types, type_named("Pair<Lower>"), printable));
 }
 
 TEST_CASE("an Extend can make a type implement an Interface", "[sema]") {
@@ -3150,10 +3990,26 @@ TEST_CASE("an Extend can make a type implement an Interface", "[sema]") {
     CHECK(errors_of(std::format(
               "{}Class Enemy\nEnd Class\nExtend Enemy Implements Shown\nEnd Extend", shown)) ==
           errors_t{ "Shown: Enemy implements Shown, so it needs a Method 'Text'" });
-    CHECK(
-        errors_of("Extend Int Implements Printable\nEnd Extend") ==
-        errors_t{ "Printable: Int32 comes with the built-in Interfaces that fit it; an Extend can "
-                  "give it others" });
+    CHECK(errors_of("Extend Int Implements Printable\nEnd Extend") ==
+          errors_t{ "Printable: Int32 comes with the built-in Interfaces that fit it, Printable "
+                    "among them; an Extend can give it others" });
+    CHECK(errors_of("Extend CString Implements Printable\nEnd Extend") ==
+          errors_t{ "Printable: CString doesn't fit Printable, a built-in Interface, which only "
+                    "the built-in types it fits implement; an Extend can give it others" });
+
+    // A second listing labels the first, which can be another module's.
+    const fb::compilation_t twice =
+        fb::compile("test.fb",
+                    "Interface D\n    Method Describe(): String\nEnd Interface\n"
+                    "Extend Int Implements D\n    Method Describe(): String => \"a\"\nEnd Extend\n"
+                    "Extend Int Implements D\nEnd Extend",
+                    fb::standard_library().value_or(std::vector<fb::library_file_t>{}));
+    const std::vector<fb::diagnostic_t>& diagnostics = twice.diagnostics.diagnostics();
+    REQUIRE(diagnostics.size() == 1);
+    CHECK(diagnostics[0].message == "Int32 implements D already");
+    REQUIRE(diagnostics[0].labels.size() == 1);
+    CHECK(diagnostics[0].labels[0].span.begin < diagnostics[0].span.begin);
+    CHECK(diagnostics[0].labels[0].message == "listed here");
 }
 
 TEST_CASE("what an Extend adds neither overrides nor is overridden", "[sema]") {
@@ -3264,6 +4120,48 @@ TEST_CASE("generic Interface mistakes", "[sema]") {
                     "End Function") ==
           errors_t{ "Iterator<String>: T is Iterator<Int32> already; a type implements a generic "
                     "Interface with one set of type arguments" });
+
+    // Nor can an Extend of one instance list another instance of one its generic type gives
+    // every instance, by its declaration or by an Extend, with constraints the instance meets.
+    const std::string_view holder = "Interface Holder<U>\n"
+                                    "    Method Put(x: U): Int\n"
+                                    "End Interface\n";
+    const std::string_view put_string = "Extend Box<Int> Implements Holder<String>\n"
+                                        "    Method Put(x: String): Int => 2\n"
+                                        "End Extend";
+    CHECK(errors_of(std::format("{}"
+                                "Class Box<T> Implements Holder<T>\n"
+                                "    Method Put(x: T): Int => 1\n"
+                                "End Class\n"
+                                "{}",
+                                holder, put_string)) ==
+          errors_t{ "Holder<String>: Box<Int32> implements Holder<Int32> already; a type "
+                    "implements a generic Interface with one set of type arguments" });
+    CHECK(errors_of(std::format("{}"
+                                "Class Base\n"
+                                "End Class\n"
+                                "Class Box<T> Extends Base\n"
+                                "End Class\n"
+                                "Extend Box<T> Implements Holder<T>\n"
+                                "    Where T: Hashable\n"
+                                "    Method Put(x: T): Int => 1\n"
+                                "End Extend\n"
+                                "{}",
+                                holder, put_string)) ==
+          errors_t{ "Holder<String>: Box<Int32> implements Holder<Int32> already; a type "
+                    "implements a generic Interface with one set of type arguments" });
+    CHECK(errors_of(std::format("{}"
+                                "Struct Box<T> Implements Holder<T>\n"
+                                "    Field V: T\n"
+                                "    Method Put(x: T): Int => 1\n"
+                                "End Struct\n"
+                                "Extend Box<Int> Implements Holder<Int>\n"
+                                "End Extend\n"
+                                "Extend Box<String> Implements Printable\n"
+                                "    Method ToString(): String => V\n"
+                                "End Extend",
+                                holder))
+              .empty());
     CHECK(errors_of("Function F(x: Iterator)\nEnd Function") ==
           errors_t{ "Iterator: Iterator<T> is generic, so it needs type arguments, like "
                     "Iterator<Int>" });
@@ -3497,6 +4395,46 @@ TEST_CASE("a Const Function that fails at compile time is an error at its call",
                     "Const X = Forever()") ==
           errors_t{ "Forever(): 'Forever' can't run at compile time: it runs more than 10000000 "
                     "steps" });
+    // Its values are Null or a value, so a T?'s Null inside a T?? only the program can hold.
+    CHECK(errors_of("Const Function Held(): Int\n"
+                    "    Local inner: Int? = Null\n"
+                    "    Local held: Int?"
+                    "? = inner\n"
+                    "    Return 1\n"
+                    "End Function\n"
+                    "Const X = Held()") ==
+          errors_t{ "Held(): 'Held' can't run at compile time: it puts a Null inside Int32?"
+                    "?, "
+                    "which only the running program can hold" });
+    // What its variables hold has a limit too: a String that doubles, a fixed array too big to
+    // make, and copies of one String.
+    const std::string_view holds = "can't run at compile time: it holds more than 256 MiB";
+    CHECK(errors_of("Const Function Big(n: Int): String\n"
+                    "    Local s = \"x\"\n"
+                    "    For i = 1 To n\n"
+                    "        s = s + s\n"
+                    "    End For\n"
+                    "    Return s\n"
+                    "End Function\n"
+                    "Const X = Big(40)") == errors_t{ std::format("Big(40): 'Big' {}", holds) });
+    CHECK(errors_of("Const Function Wide(): Int\n"
+                    "    Local a: Int64[100000000]\n"
+                    "    Return 1\n"
+                    "End Function\n"
+                    "Const X = Wide()") == errors_t{ std::format("Wide(): 'Wide' {}", holds) });
+    CHECK(errors_of("Const Function Copies(): Int\n"
+                    "    Local s = \"x\"\n"
+                    "    For i = 1 To 20\n"
+                    "        s = s + s\n"
+                    "    End For\n"
+                    "    Local a: String[1000]\n"
+                    "    For i = 0 Until 1000\n"
+                    "        a[i] = s\n"
+                    "    End For\n"
+                    "    Return 1\n"
+                    "End Function\n"
+                    "Const X = Copies()") ==
+          errors_t{ std::format("Copies(): 'Copies' {}", holds) });
     CHECK(errors_of("Struct S\n"
                     "    Field a: Int[Width()]\n"
                     "End Struct\n"
@@ -3706,10 +4644,12 @@ TEST_CASE("a Map literal is a Map of the expected type, or of its entries' commo
           "[sema]") {
     CHECK(probe("Local m = {\"a\": 1, \"b\": 2}") == "Map<String, Int32>");
     CHECK(probe("Local m = {1: 1.5, 2: 2}") == "Map<Int32, Float32>");
-    CHECK(probe("Local m: Map<String, Long> = {\"a\": 1}\nLocal n = m") == "Map<String, Int64>");
-    CHECK(probe("Local m: Map<Int, String>? = {}") ==
+    CHECK(probe("Import std.collections\nLocal m: Map<String, Long> = {\"a\": 1}\nLocal n = m") ==
+          "Map<String, Int64>");
+    CHECK(probe("Import std.collections\nLocal m: Map<Int, String>? = {}") ==
           "Map<Int32, String>? (from Map<Int32, String>)");
-    CHECK(errors_of("Function Total(scores: Map<String, Int>): Int => scores.Count\n"
+    CHECK(errors_of("Import std.collections\n"
+                    "Function Total(scores: Map<String, Int>): Int => scores.Count\n"
                     "Local t = Total({})")
               .empty());
 }
@@ -3724,10 +4664,31 @@ TEST_CASE("Map literal mistakes", "[sema]") {
           errors_t{ "True: the values of a Map have different types, String and Bool" });
     CHECK(errors_of("Struct P\n    Field X: Int\nEnd Struct\nLocal m = {P(1): 2}") ==
           errors_t{ "{P(1): 2}: P doesn't implement Hashable, which Map<K, V> needs for K" });
-    CHECK(errors_of("Local m: Map<String, Int> = {\"a\": \"b\"}") ==
+    // The instance that can't be made is reported, not each use of its Methods.
+    CHECK(errors_of("Import std.collections\n"
+                    "Struct P\n"
+                    "    Field X: Int\n"
+                    "End Struct\n"
+                    "Local s = Set<P>()\n"
+                    "s.Add(P(1))\n"
+                    "s.Add(P(2))\n"
+                    "Local m = Map<P, Int>()\n"
+                    "m.Add(P(1), 2)") ==
+          errors_t{ "Set<P>: P doesn't implement Hashable, which Set<T> needs for T",
+                    "Map<P, Int>: P doesn't implement Hashable, which Map<K, V> needs for K" });
+    CHECK(errors_of("Import std.collections\nLocal m: Map<String, Int> = {\"a\": \"b\"}") ==
           errors_t{ "\"b\": expected Int32, found String" });
     CHECK(errors_of("Local m: Int = {\"a\": 1}") ==
           errors_t{ "{\"a\": 1}: expected Int32, found Map<String, Int32>" });
+
+    // A Map literal makes std's Map, which a program's own Map isn't; two declarations of one
+    // name show their modules, whatever their type arguments, and inside other types too.
+    CHECK(errors_of("Class Map\nEnd Class\nLocal m: Map = {\"a\": 1}") ==
+          errors_t{ "{\"a\": 1}: expected test.Map, found "
+                    "std.collections.map.Map<String, Int32>" });
+    CHECK(errors_of("Class Map\nEnd Class\nLocal m: Map? = {\"a\": 1}") ==
+          errors_t{ "{\"a\": 1}: expected test.Map?, found "
+                    "std.collections.map.Map<String, Int32>" });
 }
 
 TEST_CASE("an Extend of T[] uses the array's Count and Methods by name", "[sema]") {
@@ -3749,7 +4710,8 @@ TEST_CASE("an Extend of T[] uses the array's Count and Methods by name", "[sema]
 
 TEST_CASE("a call's lambda argument can declare symbols while the call is checked", "[sema]") {
     // Its parameters are new symbols; checking the call keeps working on the parameter it's for.
-    CHECK(probe("Local nums = [5, 3, 8]\n"
+    CHECK(probe("Import std.collections\n"
+                "Local nums = [5, 3, 8]\n"
                 "Local text = \"{nums.Filter(Function(n: Int) => n % 2 == 1)}\"") == "String");
 }
 
@@ -3771,12 +4733,622 @@ TEST_CASE("narrowing is forgotten for what a loop changes inside any expression"
                     "?'" });
 }
 
+TEST_CASE("only Unsafe code uses what a Ptr points at", "[sema]") {
+    const std::string_view unsafe = "needs Unsafe code: an Unsafe block, Function, or Method";
+    CHECK(errors_of("Local n = 5\n"
+                    "Local p = AddressOf(n)\n"
+                    "Local q: Ptr<Int32> = Null\n"
+                    "Print(\"{q.Value}\")\n"
+                    "q[0] = 1\n"
+                    "Local r = q + 1\n"
+                    "Local s = q As Int64\n"
+                    "Local v: Ptr<Void> = q\n"
+                    "Local back: Ptr<Int32> = v\n"
+                    "Print(\"{q == Null} {q == back} {SizeOf<Int32>()}\")\n") ==
+          errors_t{
+              std::format("AddressOf: AddressOf {}", unsafe),
+              std::format("Value: a Ptr's Value {}", unsafe),
+              std::format("q[0]: indexing a Ptr {}", unsafe),
+              std::format("q + 1: '+' on a Ptr {}", unsafe),
+              std::format("q As Int64: 'As' from Ptr<Int32> to Int64 {}", unsafe),
+          });
+
+    // In Unsafe code, or a lambda made there, they're fine.
+    CHECK(errors_of("Local n = 5\n"
+                    "Unsafe\n"
+                    "    Local p = AddressOf(n)\n"
+                    "    p.Value = 6\n"
+                    "    p[0] += 1\n"
+                    "    Local f = Function() => (p + 1) - p\n"
+                    "End Unsafe\n")
+              .empty());
+
+    // A Ptr<Void> points at nothing in particular.
+    CHECK(errors_of("Local v: Ptr<Void> = Null\n"
+                    "Unsafe\n"
+                    "    Local a = v.Value\n"
+                    "    Local b = v + 1\n"
+                    "    Local c = v[0]\n"
+                    "End Unsafe\n") ==
+          errors_t{
+              "Value: a Ptr<Void> points at nothing in particular; make it a Ptr<T> with 'As' to "
+              "use its Value",
+              "v + 1: a Ptr<Void> has no size to step by; make it a Ptr<UInt8> with 'As'",
+              "v: a Ptr<Void> points at nothing in particular; make it a Ptr<T> with 'As' to index "
+              "it",
+          });
+    CHECK(errors_of("Local p: Ptr<Int32> = Null\n"
+                    "Local q: Ptr<Int64> = Null\n"
+                    "Unsafe\n"
+                    "    Local a = 1 + p\n"
+                    "    Local b = p - q\n"
+                    "    Local c = p.Size\n"
+                    "    Local d = p?.Value\n"
+                    "    Local e = AddressOf(5)\n"
+                    "End Unsafe\n") ==
+          errors_t{
+              "1 + p: a Ptr steps with p + n, the Ptr first",
+              std::string("p - q: '-' counts the values between two Ptrs of one type, not "
+                          "Ptr<Int32> and Ptr<Int64>"),
+              "Size: a Ptr has only Value, what it points at, which Unsafe code reads and sets",
+              "p?.Value: a Ptr's Value takes '.', not '?.'; compare the Ptr with Null first",
+              std::string("5: AddressOf takes a variable, a field, or an element, which is "
+                          "somewhere in memory, not a value"),
+          });
+}
+
+TEST_CASE("a @CLayout Struct sized by SizeOf of one declared later is laid out whole", "[sema]") {
+    CHECK(probe("@CLayout Struct Header\n"
+                "    Field raw: UInt8[SizeOf<Body>() * 2 + 8]\n"
+                "End Struct\n"
+                "@CLayout Struct Body\n"
+                "    Field a: Int64\n"
+                "    Field b: Float64\n"
+                "End Struct\n"
+                "Local size = SizeOf<Header>()") == "Int64 40");
+    CHECK(errors_of("@CLayout Struct Huge\n"
+                    "    Field cells: Int64[536870912]\n"
+                    "End Struct\n"
+                    "Extern\n"
+                    "    Function Take(huge: Huge)\n"
+                    "End Extern\n") ==
+          errors_t{ "Huge: Huge takes 4 GiB or more, so it goes to and from C through a Ptr, not "
+                    "by value" });
+}
+
+TEST_CASE("a @CLayout Struct that contains itself is an error, not a crash", "[sema]") {
+    CHECK(errors_of("@CLayout Struct R\n"
+                    "    Field r: R\n"
+                    "End Struct\n") ==
+          errors_t{ "r: 'R' can't contain itself; a Struct is stored inline" });
+    CHECK(errors_of("@CLayout Struct R\n"
+                    "    Field r: R[2]\n"
+                    "End Struct\n"
+                    "Struct S\n"
+                    "    Field s: S\n"
+                    "End Struct\n"
+                    "Local p: Ptr<S> = Null\n") ==
+          errors_t{
+              "r: 'R' can't contain itself; a Struct is stored inline",
+              "s: 'S' can't contain itself; a Struct is stored inline",
+          });
+}
+
+TEST_CASE("C code doesn't see a generic Struct's instance, which can't be @CLayout", "[sema]") {
+    CHECK(errors_of("Struct Box<T>\n"
+                    "    Field value: T\n"
+                    "End Struct\n"
+                    "@CLayout Struct Outer\n"
+                    "    Field box: Box<Int32>\n"
+                    "End Struct\n"
+                    "Extern\n"
+                    "    Function Take(box: Box<Int32>)\n"
+                    "End Extern\n") ==
+          errors_t{
+              std::string("box: a @CLayout Struct's Field holds other Structs only when they're "
+                          "@CLayout too, and Box<Int32> is a generic Struct's instance, which "
+                          "can't be"),
+              std::string("Box<Int32>: C code sees Box<Int32> here, a generic Struct's instance, "
+                          "which can't be @CLayout; declare a @CLayout Struct of the types C has"),
+          });
+}
+
+TEST_CASE("a Struct C gives that holds a CString takes no String's copy", "[sema]") {
+    const std::string escapes =
+        "this Extern Function gives, or sets through ByRef or a Ptr, what could point into text, "
+        "a CString or a Ptr to Int8s or UInt8s, and a String's copy goes right after the call; it "
+        "takes only CStrings";
+    CHECK(errors_of("@CLayout Struct Named\n"
+                    "    Field name: CString\n"
+                    "    Field n: Int32\n"
+                    "End Struct\n"
+                    "@CLayout Struct Sized\n"
+                    "    Field n: Int32\n"
+                    "End Struct\n"
+                    "Extern\n"
+                    "    Function Keep(text: CString): Named\n"
+                    "    Function KeepInto(ByRef named: Named, text: CString)\n"
+                    "    Function Measure(text: CString): Sized\n"
+                    "End Extern\n"
+                    "Local a = Keep(\"a\")\n"
+                    "Local b = Named(Null, 0)\n"
+                    "KeepInto(ByRef b, \"b\")\n"
+                    "Local c = Measure(\"c\")\n") == errors_t{
+                                                         "\"a\": " + escapes,
+                                                         "\"b\": " + escapes,
+                                                     });
+}
+
+TEST_CASE("C's pointers aren't T?s, so ?? and ?. don't take them", "[sema]") {
+    CHECK(errors_of("Local p: Ptr<Int32> = Null\n"
+                    "Local q: Ptr<Int32> = Null\n"
+                    "Local c: CString = Null\n"
+                    "Local r = p ?? q\n"
+                    "Local d = c ?? c\n"
+                    "Unsafe\n"
+                    "    Local t = c?.ToString()\n"
+                    "End Unsafe\n") ==
+          errors_t{
+              std::string("p: Ptr<Int32> is C's pointer, not a T?, so '\?\?' doesn't take it; "
+                          "compare it with Null instead"),
+              std::string("c: CString is C's pointer, not a T?, so '\?\?' doesn't take it; compare "
+                          "it with Null instead"),
+              std::string("c: CString is C's pointer, not a T?, so '?.' doesn't take it; compare "
+                          "it with Null instead"),
+          });
+
+    // A generic's T? of a Ptr is a T?, whose Null is apart from the Ptr's.
+    CHECK(
+        errors_of("Function First<T>(items: T[]): T?\n"
+                  "    If items.Count == 0 Then Return Null\n"
+                  "    Return items[0]\n"
+                  "End Function\n"
+                  "Local p: Ptr<Int32> = Null\n"
+                  "Local x = First([p])\n"
+                  "Local y = x ?? p\n"
+                  "Unsafe\n"
+                  "    Local v = x?.Value\n"
+                  "End Unsafe\n") ==
+        errors_t{ "x?.Value: a Ptr's Value takes '.', not '?.'; compare the Ptr with Null first" });
+}
+
+TEST_CASE("a Ptr isn't shown in a string", "[sema]") {
+    CHECK(errors_of("Local p: Ptr<Int32> = Null\n"
+                    "Print(\"{p} {[p]} {(1, p)}\")\n") ==
+          errors_t{
+              std::string("p: Ptr<Int32> can't be shown in a string; 'As UInt64' gives its address "
+                          "as a number, in Unsafe code"),
+              "[p]: Ptr<Int32>[] can't be shown in a string, since its elements can't be",
+              std::string("(1, p): (Int32, Ptr<Int32>) can't be shown in a string, since one of "
+                          "its elements can't be"),
+          });
+}
+
+TEST_CASE("For ... In calls an Unsafe Iterate only in Unsafe code", "[sema]") {
+    const std::string iterating = "Struct Counting Implements Iterator<Int32>\n"
+                                  "    Field at: Int32\n"
+                                  "    ByRef Method Next(): Int32?\n"
+                                  "        Return Null\n"
+                                  "    End Method\n"
+                                  "End Struct\n"
+                                  "Class Numbers\n"
+                                  "    Unsafe Method Iterate(): Counting\n"
+                                  "        Return Counting(0)\n"
+                                  "    End Method\n"
+                                  "End Class\n"
+                                  "Local box = Numbers()\n";
+    CHECK(
+        errors_of(iterating + "For x In box\nEnd For\n") ==
+        errors_t{ "box: going over Numbers, whose Iterate is Unsafe, needs Unsafe code: an Unsafe "
+                  "block, Function, or Method" });
+    CHECK(errors_of(iterating + "Unsafe\n    For x In box\n    End For\nEnd Unsafe\n").empty());
+}
+
+TEST_CASE("AddressOf follows the rules for a change to what it points at", "[sema]") {
+    // Each pass of a Parallel For changes what's outside it only at its own index.
+    CHECK(errors_of("Function Main()\n"
+                    "    Local n: Int32 = 0\n"
+                    "    Local cells: Int32[] = [0, 0]\n"
+                    "    Unsafe\n"
+                    "        Parallel For i = 0 Until 2\n"
+                    "            Local a = AddressOf(n)\n"
+                    "            Local b = AddressOf(cells[i])\n"
+                    "            Local c = AddressOf(cells[0])\n"
+                    "        End For\n"
+                    "    End Unsafe\n"
+                    "End Function\n") ==
+          errors_t{
+              "n: a Parallel For's body can't change 'n', which is outside it",
+              std::string("cells: a Parallel For's body changes 'cells', an array from outside the "
+                          "body, only at its own index, cells[i]"),
+          });
+
+    // A ReadOnly Field and a loop variable don't change, and the Ptr's type is the variable's.
+    // A Struct's Self is somewhere in memory too.
+    CHECK(errors_of("Class Box\n"
+                    "    ReadOnly Field id: Int32 = 1\n"
+                    "End Class\n"
+                    "Struct P\n"
+                    "    Field x: Int32\n"
+                    "    ByRef Method M()\n"
+                    "        Unsafe\n"
+                    "            Local p = AddressOf(Self)\n"
+                    "        End Unsafe\n"
+                    "    End Method\n"
+                    "End Struct\n"
+                    "Local box = Box()\n"
+                    "Local n: Int32 = 0\n"
+                    "Unsafe\n"
+                    "    Local a = AddressOf(box.id)\n"
+                    "    For i = 0 Until 2\n"
+                    "        Local b = AddressOf(i)\n"
+                    "    End For\n"
+                    "    Local c = AddressOf<Int64>(n)\n"
+                    "End Unsafe\n") ==
+          errors_t{
+              "box.id: 'id' is ReadOnly; only Box's New can change it",
+              std::string("i: AddressOf takes a variable, a field, or an element, which is "
+                          "somewhere in memory, not a loop variable, which can't be changed"),
+              std::string("AddressOf<Int64>: AddressOf takes no type arguments; its Ptr's type is "
+                          "the variable's"),
+          });
+
+    CHECK(
+        errors_of("Class Holder\n"
+                  "    Public Static ReadOnly Field limit: Int32 = 5\n"
+                  "    Method Poke()\n"
+                  "        Unsafe\n"
+                  "            Local p = AddressOf(limit)\n"
+                  "        End Unsafe\n"
+                  "    End Method\n"
+                  "End Class\n"
+                  "Function Make(): (Int32, Int32) => (1, 2)\n"
+                  "Struct P\n"
+                  "    Field x: Int32\n"
+                  "    Method M()\n"
+                  "        Unsafe\n"
+                  "            Local g = Function() => AddressOf(Self)\n"
+                  "        End Unsafe\n"
+                  "    End Method\n"
+                  "End Struct\n"
+                  "Unsafe\n"
+                  "    Local a = AddressOf(Holder.limit)\n"
+                  "    Local b = AddressOf(Make().0)\n"
+                  "End Unsafe\n") ==
+        errors_t{
+            "limit: 'limit' is ReadOnly and Static, so it keeps its first value",
+            std::string("Self: AddressOf(Self) here would point at this body's copy of Self; take "
+                        "the address outside it"),
+            "Holder.limit: 'limit' is ReadOnly and Static, so it keeps its first value",
+            std::string("Make().0: AddressOf takes a variable, or a field or element of one, not a "
+                        "part of a value the statement makes"),
+        });
+
+    // A part of a Const, a loop variable, or a parameter can't change, as they can't.
+    CHECK(
+        errors_of("Struct S\n    Field a: Int32\nEnd Struct\n"
+                  "Const C = S(1)\n"
+                  "Const F: Int32[2] = [1, 2]\n"
+                  "Function Poke(s: S, ByRef t: S)\n"
+                  "    Unsafe\n"
+                  "        Local p = AddressOf(s.a)\n"
+                  "        Local q = AddressOf(t.a)\n"
+                  "    End Unsafe\n"
+                  "End Function\n"
+                  "Unsafe\n"
+                  "    Local a = AddressOf(C.a)\n"
+                  "    Local b = AddressOf(F[0])\n"
+                  "    For each In [S(2)]\n"
+                  "        Local c = AddressOf(each.a)\n"
+                  "    End For\n"
+                  "End Unsafe\n") ==
+        errors_t{
+            "s.a: 's' is a parameter and can't be changed; copy it into a Local, or make it ByRef",
+            "C.a: 'C' is a Const and can't be changed",
+            "F[0]: 'F' is a Const and can't be changed",
+            "each.a: 'each' is a loop variable and can't be changed",
+        });
+}
+
+TEST_CASE("Ptrs and SizeOf say what's wrong with them", "[sema]") {
+    // SizeOf and AddressOf look like calls, but only give a value, so alone they do nothing.
+    CHECK(errors_of("SizeOf<Int32>()\n"
+                    "Defer SizeOf<Int64>()\n"
+                    "Unsafe\n    Local x = 1\n    AddressOf(x)\nEnd Unsafe\n"
+                    "Local f: Func() = Function() => SizeOf<Int32>()") ==
+          errors_t{
+              "SizeOf<Int32>(): expression has no effect",
+              "SizeOf<Int64>(): expression has no effect",
+              "AddressOf(x): expression has no effect",
+              "SizeOf<Int32>(): this lambda returns nothing, so its '=>' needs a call, like '=> "
+              "Print(x)'",
+          });
+    CHECK(errors_of("Struct Nothing\n"
+                    "End Struct\n"
+                    "Struct Big\n"
+                    "    Field cells: Int64[2147483647]\n"
+                    "End Struct\n"
+                    "Struct Bigger\n"
+                    "    Field rows: Big[2147483647]\n"
+                    "End Struct\n"
+                    "Local a = [Nothing(), Nothing()]\n"
+                    "Local p: Ptr<Int32> = Null\n"
+                    "Unsafe\n"
+                    "    p -= p\n"
+                    "    Local q = AddressOf(a[0])\n"
+                    "    Local count = q - q\n"
+                    "    Local big = SizeOf<Big>()\n"
+                    "    Local bigger = SizeOf<Bigger>()\n"
+                    "    Local r = SizeOf\n"
+                    "End Unsafe\n"
+                    "Extend Ptr<Int32>\n"
+                    "End Extend\n") ==
+          errors_t{
+              "p -= p: '-=' gives Int64, which can't be assigned to Ptr<Int32>",
+              "q - q: '-' counts the values between two Ptrs, and Nothing takes no bytes",
+              "SizeOf<Bigger>(): Bigger takes more bytes than an Int64 counts",
+              "SizeOf: 'SizeOf' is called, as in SizeOf<T>()",
+              "Ptr<Int32>: a Ptr can't be extended; it has only its own operations",
+          });
+    CHECK(errors_of("Struct Big\n"
+                    "    Field cells: Int64[2147483647]\n"
+                    "End Struct\n"
+                    "Struct Bigger\n"
+                    "    Field rows: Big[2147483647]\n"
+                    "End Struct\n"
+                    "Local p: Ptr<Bigger> = Null\n"
+                    "Local q: Ptr<Int32> = Null\n"
+                    "Unsafe\n"
+                    "    Local r = p + 1\n"
+                    "    Local s = q.ToString()\n"
+                    "End Unsafe\n") ==
+          errors_t{
+              std::string("p + 1: Bigger takes more bytes than an Int64 counts, so a Ptr at it "
+                          "doesn't step"),
+              "ToString: a Ptr has only Value, what it points at, which Unsafe code reads and sets",
+          });
+
+    // What a Ptr points at stays where it is, so its elements go ByRef, and an Unsafe
+    // Function's defaults are its Unsafe code's.
+    CHECK(errors_of("Function Add(ByRef target: Int32, amount: Int32)\n"
+                    "    target += amount\n"
+                    "End Function\n"
+                    "Global g: Int32 = 3\n"
+                    "Unsafe Function Read(p: Ptr<Int32> = AddressOf(g)): Int32 => p.Value\n"
+                    "Local n: Int32 = 1\n"
+                    "Unsafe\n"
+                    "    Local p = AddressOf(n)\n"
+                    "    Add(ByRef p[0], 1)\n"
+                    "    Add(ByRef p.Value, 1)\n"
+                    "End Unsafe\n") ==
+          errors_t{ "AddressOf(g): a default value must be known at compile time" });
+
+    // Mem is only its Static Methods.
+    CHECK(errors_of("Import std.ffi\nLocal m = Mem()") ==
+          errors_t{ "Mem: Mem's New is private to std/ffi/mem.fb" });
+}
+
+TEST_CASE("SizeOf measures types declared after it, and refuses one that holds itself", "[sema]") {
+    CHECK(probe("Struct A\n"
+                "    Field a: Int8[SizeOf<B>() + 1]\n"
+                "End Struct\n"
+                "Struct B\n"
+                "    Field x: Int64\n"
+                "    Field y: Int64\n"
+                "End Struct\n"
+                "Local size = SizeOf<A>()") == "Int64 17");
+    CHECK(probe("Struct A\n"
+                "    Field a: Int8[SizeOf<E>()]\n"
+                "    Field b: Int8[SizeOf<B[2]>() + 1]\n"
+                "End Struct\n"
+                "Enum E: Int64\n"
+                "    X\n"
+                "End Enum\n"
+                "Struct B\n"
+                "    Field x: Int32\n"
+                "End Struct\n"
+                "Local size = SizeOf<A>()") == "Int64 17");
+    CHECK(probe("Const N = SizeOf<B>()\n"
+                "Const Function Room(): Int64 => SizeOf<B>() + 1\n"
+                "Global buffer: Int8[N + 1]\n"
+                "Struct A\n"
+                "    Field a: Int8[Room()]\n"
+                "End Struct\n"
+                "Struct B\n"
+                "    Field x: Int64\n"
+                "    Field y: Int64\n"
+                "End Struct\n"
+                "Local size = SizeOf<A>() + N") == "Int64 33");
+
+    CHECK(errors_of("Struct R\n"
+                    "    Field r: R\n"
+                    "End Struct\n"
+                    "Struct U\n"
+                    "    Field a: Int8[SizeOf<R>()]\n"
+                    "End Struct\n"
+                    "Struct V\n"
+                    "    Field a: Int8[SizeOf<V>()]\n"
+                    "End Struct\n") ==
+          errors_t{
+              "r: 'R' can't contain itself; a Struct is stored inline",
+              "R: SizeOf can't measure R, whose size depends on itself",
+              "V: SizeOf can't measure V, whose size depends on itself",
+          });
+
+    // A Const Function waits for the cycle to be reported, rather than running into it.
+    CHECK(errors_of("Struct R\n"
+                    "    Field x: Int32\n"
+                    "    Field r: R\n"
+                    "End Struct\n"
+                    "Const Function Make(): Int32\n"
+                    "    Local r = R()\n"
+                    "    Return r.x + 1\n"
+                    "End Function\n"
+                    "Struct U\n"
+                    "    Field a: Int8[Make()]\n"
+                    "End Struct\n") ==
+          errors_t{
+              "r: 'R' can't contain itself; a Struct is stored inline",
+              std::string("Make(): this Const Function can't run here, since its code needs types "
+                          "that aren't declared yet"),
+          });
+}
+
+TEST_CASE("what a Ptr points at goes ByRef twice, as C's memory, which may be shared", "[sema]") {
+    CHECK(errors_of("Function Swap(ByRef a: Int32, ByRef b: Int32)\n"
+                    "    Local c = a\n"
+                    "    a = b\n"
+                    "    b = c\n"
+                    "End Function\n"
+                    "Local n = [1, 2]\n"
+                    "Unsafe\n"
+                    "    Local p = AddressOf(n[0])\n"
+                    "    Swap(ByRef p[0], ByRef p[1])\n"
+                    "    Swap(ByRef p.Value, ByRef p[0])\n"
+                    "End Unsafe\n")
+              .empty());
+
+    // A ByRef parameter is a pointer to C, as a Ptr is.
+    CHECK(
+        errors_of("Extern\n"
+                  "    Function frexp(value: Float64, ByRef exponent: Int32): Float64\n"
+                  "    Function Split(value: Float64, exponent: Ptr<Int32>): Float64 = \"frexp\"\n"
+                  "End Extern\n")
+            .empty());
+}
+
+TEST_CASE("one C symbol's declarations can differ in what their pointers point at", "[sema]") {
+    CHECK(errors_of("Extern\n"
+                    "    Function free(memory: Ptr<Void>)\n"
+                    "    Function FreeText(text: CString) = \"free\"\n"
+                    "    Function FreeBytes(bytes: Ptr<UInt8>) = \"free\"\n"
+                    "End Extern\n")
+              .empty());
+}
+
+TEST_CASE("a Ptr points at a value C code has, and Void is only a Ptr's", "[sema]") {
+    const std::string_view c_data = "a Ptr points at a value C code has: a number, Bool, Enum, "
+                                    "CString, Ptr, Callback, or a fixed array or Struct of these";
+    CHECK(errors_of("Local a: Ptr<String> = Null") ==
+          errors_t{ std::format("String: {}; String isn't one", c_data) });
+    CHECK(errors_of("Struct S\n    Field name: String\nEnd Struct\nLocal b: Ptr<S> = Null") ==
+          errors_t{ std::format("S: {}; S isn't one, since its Field name is String", c_data) });
+    CHECK(errors_of("Function F<T>(p: Ptr<T>)\nEnd Function") ==
+          errors_t{ std::format("T: {}; T is a type parameter, which could be any type", c_data) });
+    CHECK(errors_of("Local c: Void") ==
+          errors_t{ "Void: Void is only a Ptr's type, as Ptr<Void>, which points at anything" });
+    CHECK(errors_of("Local d: Ptr<Int32>? = Null") ==
+          errors_t{ "Ptr<Int32>?: Ptr<Int32> can be Null already, as C's NULL" });
+    CHECK(errors_of("Local e = SizeOf<String>()") ==
+          errors_t{ "String: SizeOf measures a value C code has: a number, Bool, Enum, CString, "
+                    "Ptr, Callback, or a fixed array or Struct of these; String isn't one" });
+
+    // A Struct's Fields are checked once they're all declared, so one can point at its own
+    // Struct.
+    CHECK(
+        errors_of("Struct Node\n    Field next: Ptr<Node>\n    Field value: Int32\nEnd Struct\n"
+                  "Struct Late\n    Field p: Ptr<Later>\nEnd Struct\n"
+                  "Struct Later\n    Field s: String\nEnd Struct\n") ==
+        errors_t{ std::format("Later: {}; Later isn't one, since its Field s is String", c_data) });
+
+    // SizeOf is known at compile time, as C lays the type out.
+    CHECK(
+        errors_of("Struct P\n    Field a: Int8\n    Field b: Int32\n    Field c: Int8\nEnd Struct\n"
+                  "Const size = SizeOf<P>()\n"
+                  "Local fits: Int8[size] \n")
+            .empty());
+}
+
+TEST_CASE("only Unsafe code calls an Unsafe Function or Method", "[sema]") {
+    CHECK(errors_of("Unsafe Function Danger(): Int32 => 1\n"
+                    "Local d = Danger()\n"
+                    "Local f: Func(): Int32 = Danger\n"
+                    "Unsafe\n"
+                    "    Local e = Danger()\n"
+                    "    Local g = Function() => Danger()\n"
+                    "End Unsafe\n") ==
+          errors_t{
+              "Danger: calling 'Danger', which is Unsafe, needs Unsafe code: an Unsafe block, "
+              "Function, or Method",
+              "Danger: 'Danger' is Unsafe, so it isn't a function value, which safe code could "
+              "call; a lambda in Unsafe code can call it",
+          });
+
+    // What code calls without saying so can't be Unsafe.
+    CHECK(errors_of("Class Base\n"
+                    "    Public Method Step()\n"
+                    "    End Method\n"
+                    "    Public Unsafe Method Risky()\n"
+                    "    End Method\n"
+                    "End Class\n"
+                    "Class Child Extends Base\n"
+                    "    Public Override Unsafe Method Step()\n"
+                    "    End Method\n"
+                    "    Public Override Method Risky()\n"
+                    "    End Method\n"
+                    "End Class\n") ==
+          errors_t{ "Step: 'Step' is Unsafe, so it can't override Base's, which isn't, since a "
+                    "call through Base needs no Unsafe code" });
+    CHECK(errors_of("Interface Shape\n"
+                    "    Method Area(): Int32\n"
+                    "    Unsafe Method Corners(): Int32\n"
+                    "End Interface\n"
+                    "Class Box Implements Shape\n"
+                    "    Public Unsafe Method Area(): Int32 => 1\n"
+                    "    Public Method Corners(): Int32 => 4\n"
+                    "End Class\n") ==
+          errors_t{
+              "Corners: an Interface's Method can't be Unsafe, since code calls it through "
+              "objects whose own Methods may not be",
+              "Shape: 'Area' is Unsafe, so it can't implement Shape's, since a call through the "
+              "Interface needs no Unsafe code",
+          });
+    CHECK(errors_of("Struct S\n"
+                    "    Field x: Int32\n"
+                    "    Unsafe Operator +(a: S, b: S): S => a\n"
+                    "End Struct\n"
+                    "Unsafe Const Function C(): Int32 => 1\n"
+                    "Const Function D(): Int32\n"
+                    "    Unsafe\n"
+                    "    End Unsafe\n"
+                    "    Return 1\n"
+                    "End Function\n") ==
+          errors_t{
+              "+: an Operator can't be Unsafe, since it's used like any operator",
+              "C: a Const Function runs in the compiler, so it can't be Unsafe",
+              "Unsafe: a Const Function can't have Unsafe code, since it runs in the compiler",
+          });
+}
+
+TEST_CASE("a CString is Null as C's NULL, and Unsafe code reads its text", "[sema]") {
+    CHECK(errors_of("Local cs: CString = Null\n"
+                    "Print(\"{cs == Null} {cs != Null}\")\n"
+                    "Print(cs.ToString())\n"
+                    "Local raw = cs As Ptr<UInt8>\n"
+                    "Local bad = cs As Ptr<Int32>\n"
+                    "Unsafe\n"
+                    "    Print(cs.ToString())\n"
+                    "    Local back = raw As CString\n"
+                    "End Unsafe\n") ==
+          errors_t{
+              "ToString: reading a CString's text needs Unsafe code: an Unsafe block, Function, or "
+              "Method",
+              "cs As Ptr<UInt8>: 'As' from CString to Ptr<UInt8> needs Unsafe code: an Unsafe "
+              "block, Function, or Method",
+              "cs As Ptr<Int32>: 'As' can't convert CString to Ptr<Int32>",
+          });
+
+    // A Ptr isn't Sendable.
+    CHECK(
+        errors_of("Local p: Ptr<Int32> = Null\nLocal t = Spawn(Function() => p == Null)").size() ==
+        1);
+}
+
 TEST_CASE("a name that a later milestone declares isn't supported yet, wherever it's used",
           "[sema]") {
     CHECK(errors_of("Local t: Clock") == errors_t{ "Clock: 'Clock' isn't supported yet" });
-    CHECK(errors_of("Function F<T>()\n    Where T: CString\nEnd Function") ==
-          errors_t{ "CString: 'CString' isn't supported yet" });
-    CHECK(errors_of("Mem.Copy()") == errors_t{ "Mem: 'Mem' isn't supported yet" });
+    CHECK(errors_of("Function F<T>()\n    Where T: Mat3\nEnd Function") ==
+          errors_t{ "Mat3: 'Mat3' isn't supported yet" });
     CHECK(errors_of("Local v = Vec3(1, 2, 3)") == errors_t{ "Vec3: 'Vec3' isn't supported yet" });
 
     // A program can still declare one of them.
@@ -3784,7 +5356,8 @@ TEST_CASE("a name that a later milestone declares isn't supported yet, wherever 
 }
 
 TEST_CASE("a generic type's field default can name its type parameters", "[sema]") {
-    CHECK(errors_of("Struct S<T>\n"
+    CHECK(errors_of("Import std.collections\n"
+                    "Struct S<T>\n"
                     "    Where T: Hashable\n"
                     "    Field M: Map<T, Bool> = Map<T, Bool>()\n"
                     "End Struct") ==
@@ -3924,6 +5497,24 @@ TEST_CASE("an Extend can add to one instance, or one array type", "[sema]") {
           errors_t{ "Total: String[] has no member named 'Total'" });
     CHECK(probe("Extend T[]\n    Property Second: T\n        Get => Self[1]\n    End Property\n"
                 "End Extend\nLocal x = [\"a\", \"b\"].Second") == "String");
+
+    // Its Operators are the instance's, and implement what its Interfaces need.
+    const std::string_view less =
+        "Extend Box<Int> Implements Comparable\n"
+        "    Operator <(a: Box<Int>, b: Box<Int>): Bool => a.Value < b.Value\n"
+        "End Extend\n";
+    CHECK(probe(std::format("{}{}Local x = Box(1) < Box(2)", box, less)) == "Bool");
+    CHECK(probe(std::format("{}{}Local x = Box(1) >= Box(2)", box, less)) == "Bool");
+    CHECK(errors_of(std::format("{}{}Local x = Box(\"a\") < Box(\"b\")", box, less)) ==
+          errors_t{ "Box(\"a\") < Box(\"b\"): '<' can't be used on Box<String>" });
+
+    // One that isn't generic beats the type's own for every instance, as a call would choose.
+    CHECK(probe(std::format("Struct Box<T>\n"
+                            "    Field Value: T\n"
+                            "    Operator <(a: Box<T>, b: Box<T>): Bool => False\n"
+                            "End Struct\n"
+                            "{}Local x = Box(1) < Box(2)",
+                            less)) == "Bool");
 }
 
 TEST_CASE("a Class can extend an instance of a generic Class", "[sema]") {
@@ -3956,6 +5547,181 @@ TEST_CASE("a Class can extend an instance of a generic Class", "[sema]") {
     CHECK(errors_of(std::format("{}Class Bad Extends Container\nEnd Class", container)) ==
           errors_t{ "Container: Container<T> is generic, so it needs type arguments, like "
                     "Container<Int>" });
+
+    // It has what an Extend of the instance adds, and what an Interface's defaults give it there,
+    // which it can't override.
+    const std::string_view sized = "Interface Sized\n"
+                                   "    Method Size(): Int => 1\n"
+                                   "End Interface\n"
+                                   "Extend Container<String> Implements Sized\n"
+                                   "    Method Joined(): String => \"\"\n"
+                                   "End Extend\n";
+    CHECK(probe(std::format("{}{}Class Names Extends Container<String>\nEnd Class\n"
+                            "Local x = Names().Size() + Names().Joined().Chars.Count",
+                            container, sized)) == "Int32");
+    CHECK(probe(std::format("{}{}Class Kept<T> Extends Container<T>\nEnd Class\n"
+                            "Local x: Sized = Kept<String>()",
+                            container, sized)) == "Sized (from Kept<String>)");
+    CHECK(errors_of(std::format("{}{}Class Names Extends Container<String>\n"
+                                "    Method Size(): Int => 2\n"
+                                "End Class",
+                                container, sized)) ==
+          errors_t{ "Size: 'Size' was added to Container<String> by an Extend, so it can't be "
+                    "overridden" });
+
+    // Super.New sets up the instance, and a field it inherits is assigned by name with the
+    // instance's types.
+    const std::string_view box = "Class Box<T>\n"
+                                 "    Field Open: T[] = []\n"
+                                 "    Field One: T? = Null\n"
+                                 "    New(first: T)\n"
+                                 "        Open.Add(first)\n"
+                                 "    End New\n"
+                                 "End Class\n";
+    CHECK(errors_of(std::format("{}Class IntBox Extends Box<Int>\n"
+                                "    New()\n"
+                                "        Super.New(41)\n"
+                                "        Open = [2, 3]\n"
+                                "        One = 5\n"
+                                "    End New\n"
+                                "End Class\n"
+                                "Local b = IntBox()",
+                                box))
+              .empty());
+    CHECK(errors_of(std::format("{}Class Other<T> Extends Box<T>\n"
+                                "    New(x: T)\n"
+                                "        Super.New(x)\n"
+                                "        One = x\n"
+                                "    End New\n"
+                                "End Class\n"
+                                "Local o = Other<String>(\"a\")",
+                                box))
+              .empty());
+    CHECK(errors_of(std::format("{}Class IntBox Extends Box<Int>\n"
+                                "    New()\n"
+                                "        Super.New(\"a\")\n"
+                                "        Open = [\"b\"]\n"
+                                "    End New\n"
+                                "End Class",
+                                box)) ==
+          errors_t{ "\"a\": expected Int32, found String", "\"b\": expected Int32, found String" });
+    CHECK(errors_of("Import std.collections\n"
+                    "Class Named Extends Queue<String>\n"
+                    "    Field Label: String\n"
+                    "    New(label: String)\n"
+                    "        Super.New()\n"
+                    "        Self.Label = label\n"
+                    "    End New\n"
+                    "End Class\n"
+                    "Local n = Named(\"q\")")
+              .empty());
+}
+
+TEST_CASE("what a generic type has implements what an Extend of one instance lists", "[sema]") {
+    // Its own Operators, Methods, and Properties, with the instance's types.
+    CHECK(probe("Struct Box<T>\n"
+                "    Field V: Int\n"
+                "    Operator <(a: Box<T>, b: Box<T>): Bool => a.V < b.V\n"
+                "    Operator >(a: Box<T>, b: Box<T>): Bool => True\n"
+                "End Struct\n"
+                "Extend Box<Int> Implements Comparable\n"
+                "End Extend\n"
+                "Function More<T: Comparable>(a: T, b: T): Bool => a > b\n"
+                "Local x = More(Box<Int>(1), Box<Int>(2))") == "Bool");
+    CHECK(errors_of("Interface Holder<U>\n"
+                    "    Method Put(x: U): Int\n"
+                    "End Interface\n"
+                    "Interface Alike\n"
+                    "    Method Same(other: Self): Bool\n"
+                    "    ReadOnly Property Size: Int\n"
+                    "End Interface\n"
+                    "Struct Box<T>\n"
+                    "    Field V: T\n"
+                    "    Method Put(x: T): Int => 1\n"
+                    "    Method Same(other: Box<T>): Bool => True\n"
+                    "    Property Size: T\n"
+                    "        Get => V\n"
+                    "    End Property\n"
+                    "End Struct\n"
+                    "Extend Box<Int> Implements Holder<Int>, Alike\n"
+                    "End Extend")
+              .empty());
+
+    // An instance of a Class with a base keeps what the Extend lists, and so do the Classes
+    // extending it.
+    const std::string_view named = "Interface Named\n"
+                                   "    Method Name(): String\n"
+                                   "End Interface\n"
+                                   "Class A<T>\n"
+                                   "    Field Items: T[] = []\n"
+                                   "End Class\n"
+                                   "Class B<T> Extends A<T>\n"
+                                   "End Class\n"
+                                   "Extend B<String> Implements Named\n"
+                                   "    Method Name(): String => \"named\"\n"
+                                   "End Extend\n";
+    CHECK(probe(std::format("{}Local m: Named = B<String>()", named)) == "Named (from B<String>)");
+    CHECK(probe(std::format("{}Class C Extends B<String>\nEnd Class\nLocal m: Named = C()",
+                            named)) == "Named (from C)");
+    CHECK(errors_of(std::format("{}Function Show<T: Named>(x: T): String => x.Name()\n"
+                                "Local s = Show(B<String>())",
+                                named))
+              .empty());
+    CHECK(errors_of(std::format("{}Local m: Named = B<Int>()", named)) ==
+          errors_t{ "B<Int>(): expected Named, found B<Int32>" });
+}
+
+TEST_CASE("an Operator an Extend of one instance adds beats the generic type's", "[sema]") {
+    // Through a Class extending the instance too, where both convert the same way.
+    const std::string_view box = "Class Box<T>\n"
+                                 "    Field V: Int = 0\n"
+                                 "    Operator <(a: Box<T>, b: Box<T>): Bool => a.V < b.V\n"
+                                 "End Class\n"
+                                 "Extend Box<String>\n"
+                                 "    Operator <(a: Box<String>, b: Box<String>): Bool => True\n"
+                                 "End Extend\n"
+                                 "Class Names Extends Box<String>\n"
+                                 "End Class\n";
+    CHECK(probe(std::format("{}Local x = Names() < Names()", box)) == "Bool");
+
+    // A default an Interface gives the instance beats nothing, but it's taken only where what the
+    // generic type has doesn't implement the Interface's member.
+    CHECK(errors_of("Struct Box<T>\n"
+                    "    Field V: T\n"
+                    "    Operator >(a: Box<T>, b: Box<T>): Bool => True\n"
+                    "End Struct\n"
+                    "Extend Box<Int> Implements Comparable\n"
+                    "    Operator <(a: Box<Int>, b: Box<Int>): Bool => a.V < b.V\n"
+                    "End Extend\n"
+                    "Local x = Box(1) > Box(2)")
+              .empty());
+}
+
+TEST_CASE("what an Extend of one instance adds can't override what the instance inherits",
+          "[sema]") {
+    const auto in_extend = [](const std::string_view base, const std::string_view member) {
+        return errors_of(std::format("Class Base\n    {}\nEnd Class\n"
+                                     "Class Box<T> Extends Base\nEnd Class\n"
+                                     "Extend Box<Int>\n    {}\nEnd Extend",
+                                     base, member));
+    };
+
+    CHECK(in_extend("Method Size(): Int => 1", "Method Size(): Int => 2") ==
+          errors_t{ "Size: 'Size' is already a member of Base, which an Extend can't override" });
+    CHECK(in_extend("Field Size: Int = 1", "Method Size(): Int => 2") ==
+          errors_t{ "Size: 'Size' is already declared in Base" });
+    CHECK(in_extend("Property Size: Int\n        Get => 1\n    End Property",
+                    "Property Size: Int\n        Get => 2\n    End Property") ==
+          errors_t{ "Size: 'Size' is already a member of Base, which an Extend can't override" });
+    CHECK(in_extend("Method Size(): Int => 1", "Method Size(extra: Int): Int => 2").empty());
+    CHECK(
+        errors_of("Class A<T>\n    Method Size(): Int => 1\nEnd Class\n"
+                  "Class B<T> Extends A<T>\nEnd Class\n"
+                  "Extend B<Int>\n    Method Size(): Int => 2\nEnd Extend") ==
+        errors_t{ "Size: 'Size' is already a member of A<Int32>, which an Extend can't override" });
+    CHECK(errors_of("Class A<T>\n    Method Size(): Int => 1\nEnd Class\n"
+                    "Class B Extends A<String>\n    Method Size(): Int => 2\nEnd Class") ==
+          errors_t{ "Size: 'Size' overrides A<String>'s; write 'Override Method Size'" });
 }
 
 TEST_CASE("each instance of a generic type has its own Statics", "[sema]") {
@@ -4093,9 +5859,16 @@ TEST_CASE("Sendable is what the compiler says can go to another thread", "[sema]
                                   "Struct Point\n    Field X: Int\n    Field Y: Float\nEnd Struct\n"
                                   "Struct Holder\n    Field Target: Enemy?\nEnd Struct\n"
                                   "Struct Outer\n    Field Inner: Holder\nEnd Struct\n";
-    for (const std::string_view value :
-         { "1", "2.5", "True", "\"text\"", "State.IDLE", "Point(1, 2.0)", "(1, \"a\")",
-           "Point(1, 2.0) As Point?" }) {
+    for (const std::string_view value : {
+             "1",
+             "2.5",
+             "True",
+             "\"text\"",
+             "State.IDLE",
+             "Point(1, 2.0)",
+             "(1, \"a\")",
+             "Point(1, 2.0) As Point?",
+         }) {
         CHECK(errors_of(std::format("{}Local x = Send({})", send, value)).empty());
     }
 
@@ -4516,6 +6289,32 @@ TEST_CASE("a Parallel For's passes share only copies and their own elements", "[
               .empty());
 
     // What's outside is a copy, which it can't change.
+    // A body that changes an array's elements reads only its own, since another pass may be
+    // changing any other at once; one that changes none reads any.
+    CHECK(errors_of(std::format("{}Parallel For i = 0 Until 3\n"
+                                "    Local next = results[(i + 1) % 3]\n"
+                                "    results[i] = next + values[i]\n"
+                                "    results[i] += results[i]\n"
+                                "End For",
+                                setup)) ==
+          errors_t{ "results[(i + 1) % 3]: a Parallel For's body that changes elements of "
+                    "'results', an array from outside the body, reads it only at its own index, "
+                    "results[i], since another pass may be changing this one at once" });
+    CHECK(errors_of("Struct Cell\n    Field hp = 0\nEnd Struct\n"
+                    "Local cells = [Cell(), Cell()]\n"
+                    "Parallel For i = 0 Until 2\n"
+                    "    Local first = cells[0].hp\n"
+                    "    cells[i].hp = first\n"
+                    "End For") ==
+          errors_t{ "cells[0]: a Parallel For's body that changes elements of 'cells', an array "
+                    "from outside the body, reads it only at its own index, cells[i], since "
+                    "another pass may be changing this one at once" });
+    CHECK(errors_of(std::format("{}Parallel For i = 0 Until 3\n"
+                                "    results[0] = results[1]\n"
+                                "End For",
+                                setup)) ==
+          errors_t{ "results: a Parallel For's body changes 'results', an array from outside the "
+                    "body, only at its own index, results[i]" });
     CHECK(errors_of(std::format("{}Parallel For i = 0 Until 3\n    scale += i\nEnd For", setup)) ==
           errors_t{ "scale: a Parallel For's body can't change 'scale', which is outside it" });
 
@@ -4847,4 +6646,3522 @@ TEST_CASE("a lambda in generic code can loop over the members of its type parame
                                 describe)) ==
           errors_t{ "Describe: 'Describe' needs each field of Holder to implement Printable, but "
                     "its field 'T' is Thing, which doesn't" });
+}
+
+// Modules
+
+TEST_CASE("a name the file doesn't import says which module has it", "[sema]") {
+    // std.collections isn't loaded, or only std.collections.map is, which a Map literal needs.
+    CHECK(errors_of("Local s = Stack<Int>()") ==
+          errors_t{ "Stack<Int>: 'Stack' is in std.collections, which this file doesn't import" });
+    CHECK(errors_of("Local m: Map<String, Int>? = Null") ==
+          errors_t{ "Map<String, Int>: 'Map' is in std.collections, which this file doesn't "
+                    "import" });
+    CHECK(errors_of("Local xs = [2, 1]\nxs.Sort()") ==
+          errors_t{ "Sort: 'Sort' is in std.collections, which this file doesn't import" });
+    CHECK(errors_of("Import std.collections\n"
+                    "Local s = Stack<Int>()\n"
+                    "Local xs = [2, 1]\n"
+                    "xs.Sort()")
+              .empty());
+
+    // What its import leaves out.
+    CHECK(errors_of("Import std.collections As C\nLocal s = Stack<Int>()") ==
+          errors_t{ "Stack<Int>: 'Stack' is in std.collections, which this file imports as C, so "
+                    "it's C.Stack" });
+    CHECK(errors_of("From std.collections Import Queue\nLocal s = Stack<Int>()") ==
+          errors_t{ "Stack<Int>: 'Stack' is in std.collections, but this file's From line "
+                    "doesn't name it" });
+}
+
+TEST_CASE("a type or variable two imports give is ambiguous where it's used", "[sema]") {
+    const std::vector<fb::library_file_t> modules{
+        { .path = "lib/a.fb", .text = "Public Class Node\nEnd Class\nPublic Global count = 1\n" },
+        { .path = "lib/b.fb", .text = "Public Class Node\nEnd Class\nPublic Global count = 2\n" },
+    };
+    const std::string_view both = "Import \"./lib/a\"\nImport \"./lib/b\"\n";
+    CHECK(errors_with(std::format("{}Local n: Node? = Null\nLocal c = count", both), modules) ==
+          errors_t{
+              "Node: 'Node' is ambiguous here: lib.a and lib.b each declare it",
+              "count: 'count' is ambiguous here: lib.a and lib.b each declare it",
+          });
+
+    // Neither one's type follows from it, so what's made or read gives no more errors.
+    CHECK(errors_with(std::format("{}Local m = Node()\nLocal y = m.y\nLocal c = count + 1\n"
+                                  "Local d = c.Missing",
+                                  both),
+                      modules) ==
+          errors_t{
+              "Node: 'Node' is ambiguous here: lib.a and lib.b each declare it",
+              "count: 'count' is ambiguous here: lib.a and lib.b each declare it",
+          });
+
+    // Qualified, or from one import, it isn't.
+    CHECK(errors_with(
+              std::format("{}Local n: a.Node? = b.Node() As? a.Node\nLocal c = b.count", both),
+              modules) == errors_t{ "b.Node() As? a.Node: lib.b.Node and lib.a.Node aren't "
+                                    "related, so this is always Null" });
+    CHECK(
+        errors_with("Import \"./lib/a\"\nLocal n: Node? = Null\nLocal c = count", modules).empty());
+}
+
+TEST_CASE("a module's own declaration hides an imported one", "[sema]") {
+    const std::vector<fb::library_file_t> modules{
+        {
+            .path = "lib/a.fb",
+            .text = "Public Class Node\nEnd Class\nPublic Function Make(): Node => Node()\n",
+        },
+    };
+    CHECK(errors_with("Import \"./lib/a\"\n"
+                      "Class Node\n"
+                      "    Field mine: Int = 1\n"
+                      "End Class\n"
+                      "Local n = Node()\n"
+                      "Local m = n.mine\n"
+                      "Local theirs: a.Node = Make()",
+                      modules)
+              .empty());
+    CHECK(errors_with("Import \"./lib/a\"\n"
+                      "Class Node\n"
+                      "End Class\n"
+                      "Local n: Node = Make()",
+                      modules) == errors_t{ "Make(): expected test.Node, found lib.a.Node" });
+}
+
+TEST_CASE("Functions of one name across a module and its imports are one overload set", "[sema]") {
+    const std::vector<fb::library_file_t> modules{
+        { .path = "lib/a.fb", .text = "Public Function Show(x: Int): String => \"a\"\n" },
+        { .path = "lib/b.fb", .text = "Public Function Show(x: String): String => x\n" },
+    };
+    const std::string_view both = "Import \"./lib/a\"\nImport \"./lib/b\"\n";
+    CHECK(errors_with(std::format("{}"
+                                  "Function Show(x: Bool): String => \"own\"\n"
+                                  "Local s = Show(1) + Show(\"b\") + Show(True)",
+                                  both),
+                      modules)
+              .empty());
+    CHECK(errors_with(std::format("{}Local s = Show(1.5)", both), modules) ==
+          errors_t{ "Show: no overload of 'Show' takes (Float32)" });
+}
+
+TEST_CASE("Import and From lines come before a file's other statements", "[sema]") {
+    CHECK(errors_of("// What it uses.\n"
+                    "\n"
+                    "Import std.collections\n"
+                    "From std.collections Import Stack\n"
+                    "Local s = Stack<Int>()")
+              .empty());
+    CHECK(errors_of("Local x = 1\nImport std.collections") ==
+          errors_t{ "Import std.collections: Import lines go at the top of a file, before its "
+                    "other statements" });
+    CHECK(errors_of("Function F()\n    From std.collections Import Stack\nEnd Function") ==
+          errors_t{ "From std.collections Import Stack: From lines go at the top of a file, "
+                    "before its other statements" });
+}
+
+TEST_CASE("a From line's names are declared in its module", "[sema]") {
+    CHECK(errors_of("From std.collections Import Stack, Nope") ==
+          errors_t{ "Nope: 'Nope' isn't declared in std.collections" });
+
+    // It brings in only those.
+    CHECK(errors_of("From std.collections Import Stack\n"
+                    "Local s = Stack<Int>()\n"
+                    "Local q = Queue<Int>()") ==
+          errors_t{ "Queue<Int>: 'Queue' is in std.collections, but this file's From line "
+                    "doesn't name it" });
+}
+
+TEST_CASE("a qualifier stands for its module only before a '.'", "[sema]") {
+    const std::string_view alias = "Import std.collections As C\n";
+    CHECK(errors_of(std::format("{}Local s: C.Stack<Int> = C.Stack<Int>()\ns.Push(1)", alias))
+              .empty());
+    CHECK(errors_of(std::format("{}Local c = C", alias)) ==
+          errors_t{ "C: 'C' is an imported module, not a value; use one of its names, like "
+                    "C.Name" });
+    CHECK(errors_of(std::format("{}C()", alias)) ==
+          errors_t{ "C: 'C' is an imported module, not a function; call one of its Functions, "
+                    "like C.Name()" });
+    CHECK(errors_of(std::format("{}Local x: C? = Null", alias)) ==
+          errors_t{ "C: 'C' is an imported module, not a type; use one of its types, like "
+                    "C.Name" });
+    CHECK(errors_of(std::format("{}Local s = C.Nope()", alias)) ==
+          errors_t{ "Nope: 'Nope' isn't declared in std.collections" });
+    CHECK(errors_of("Local s: D.Stack<Int>? = Null") ==
+          errors_t{ "D: 'D' isn't an imported module, so it can't come before '.'" });
+
+    // The dotted name's last part is a qualifier too, which a declaration can't take.
+    CHECK(errors_of("Import std.collections\nLocal s = collections.Stack<Int>()").empty());
+    CHECK(errors_of(std::format("{}Class C\nEnd Class", alias)) ==
+          errors_t{ "C: 'C' is already the name of an imported module" });
+}
+
+TEST_CASE("a Global can't read one that initializes after it", "[sema]") {
+    // x imports y, which imports x back, so y's Globals initialize first. A Const known at
+    // compile time is known before any of them.
+    const std::vector<fb::library_file_t> modules{
+        {
+            .path = "lib/x.fb",
+            .text = "Import \"./y\"\n"
+                    "Public Global first = Make()\n"
+                    "Function Make(): Int => 1\n"
+                    "Public Const KNOWN = 4\n",
+        },
+        {
+            .path = "lib/y.fb",
+            .text = "Import \"./x\"\nGlobal second = first + 1\nGlobal third = KNOWN + 1\n",
+        },
+    };
+    CHECK(errors_with("Import \"./lib/x\"\nGlobal mine = first + 1", modules) ==
+          errors_t{ "lib/y.fb: first: 'first' isn't initialized yet; lib.x's Globals and Consts "
+                    "initialize after this module's, since a module's imports initialize first, "
+                    "depth-first from the main module" });
+}
+
+TEST_CASE("an Extend's Methods are seen where its module is imported", "[sema]") {
+    // user.fb imports twice.fb, whose Twice it sees, and so does the main file only when it
+    // imports twice.fb too. Int implements Shape everywhere.
+    const std::vector<fb::library_file_t> modules{
+        {
+            .path = "lib/shape.fb",
+            .text = "Public Interface Shape\n    Method Area(): Int\nEnd Interface\n",
+        },
+        {
+            .path = "lib/twice.fb",
+            .text = "Import \"./shape\"\n"
+                    "Extend Int Implements Shape\n"
+                    "    Public Method Twice(): Int => Self * 2\n"
+                    "    Method Area(): Int => Self\n"
+                    "End Extend\n",
+        },
+        {
+            .path = "lib/user.fb",
+            .text = "Import \"./twice\"\nPublic Function Four(): Int => (2).Twice()\n",
+        },
+        {
+            .path = "lib/again.fb",
+            .text = "Extend Int\n    Public Method Twice(): Int => Self + Self\nEnd Extend\n",
+        },
+    };
+    const std::string_view total = "Function Total<T: Shape>(x: T): Int => x.Area()\n";
+    CHECK(errors_with(std::format("Import \"./lib/shape\"\n"
+                                  "Import \"./lib/user\"\n"
+                                  "{}"
+                                  "Local t = Total(3) + Four()\n"
+                                  "Local n = (2).Twice()",
+                                  total),
+                      modules) ==
+          errors_t{ "Twice: 'Twice' is in lib.twice, which this file doesn't import: Import "
+                    "\"./lib/twice\"" });
+    CHECK(errors_with("Import \"./lib/twice\"\nLocal n = (2).Twice()", modules).empty());
+
+    // Two modules' Extends can each add a Twice, which a call that sees both can't choose.
+    CHECK(errors_with("Import \"./lib/again\"\nLocal n = (2).Twice()", modules).empty());
+    CHECK(errors_with("Import \"./lib/twice\"\n"
+                      "Import \"./lib/again\"\n"
+                      "Local two = 2\n"
+                      "Local n = two.Twice()",
+                      modules) == errors_t{ "two.Twice: the call to 'Twice' is ambiguous" });
+}
+
+TEST_CASE("what two modules' Extends add to a Struct is ambiguous only where both are seen",
+          "[sema]") {
+    // a declares Node and adds a Twice and a Big to it, and so does b, which imports a, with
+    // another Twice too. c only names Node.
+    const std::vector<fb::library_file_t> modules{
+        {
+            .path = "lib/a.fb",
+            .text = "Public Struct Node\n"
+                    "    Public Field V: Int = 1\n"
+                    "End Struct\n"
+                    "Extend Node\n"
+                    "    Public Method Twice(): Int => V * 2\n"
+                    "    Public Property Big: Int\n"
+                    "        Get => V * 10\n"
+                    "    End Property\n"
+                    "End Extend\n",
+        },
+        {
+            .path = "lib/b.fb",
+            .text = "Import \"./a\"\n"
+                    "Extend Node\n"
+                    "    Public Method Twice(): Int => V * 200\n"
+                    "    Public Method Twice(times: Int): Int => V * times\n"
+                    "    Public Property Big: Int\n"
+                    "        Get => V * 1000\n"
+                    "    End Property\n"
+                    "End Extend\n"
+                    "Public Function UseB(): Int => Node().Twice() + Node().Big\n",
+        },
+        {
+            .path = "lib/c.fb",
+            .text = "Import \"./a\"\nPublic Function MakeNode(): Node => Node()\n",
+        },
+    };
+    const std::string_view both = "Import \"./lib/a\"\nImport \"./lib/b\"\n";
+    CHECK(errors_with(std::format("{}Local n = UseB() + Node().Twice(3)", both), modules).empty());
+    // Each Twice is an overload, so only a call that two fit is ambiguous, but a Property is
+    // ambiguous wherever it's used.
+    CHECK(errors_with(std::format("{}Local n = Node()\nLocal t = n.Twice() + n.Big", both),
+                      modules) ==
+          errors_t{
+              "n.Twice: the call to 'Twice' is ambiguous",
+              "Big: 'Big' is ambiguous here: lib.a and lib.b each add it to Node",
+          });
+    CHECK(errors_with(std::format("{}"
+                                  "Extend Node\n"
+                                  "    Method Huge(): Int => Big * 2\n"
+                                  "End Extend",
+                                  both),
+                      modules) ==
+          errors_t{ "Big: 'Big' is ambiguous here: lib.a and lib.b each add it to Node" });
+
+    // Seeing only b's, it's b's.
+    CHECK(errors_with("Import \"./lib/c\"\n"
+                      "Import \"./lib/b\"\n"
+                      "Local t = MakeNode().Twice() + MakeNode().Big",
+                      modules)
+              .empty());
+}
+
+TEST_CASE("what an Extend adds that the code doesn't see hides nothing", "[sema]") {
+    // names.fb adds a Name to Base, and derived.fb, which doesn't see it, one to Derived, which
+    // hides Base's where both are seen. user.fb has the program load both.
+    const std::vector<fb::library_file_t> modules{
+        {
+            .path = "lib/base.fb",
+            .text = "Public Class Base\nEnd Class\nPublic Class Derived Extends Base\nEnd Class\n",
+        },
+        {
+            .path = "lib/names.fb",
+            .text = "Import \"./base\"\n"
+                    "Extend Base\n"
+                    "    Public Method Name(): String => \"base\"\n"
+                    "End Extend\n",
+        },
+        {
+            .path = "lib/derived.fb",
+            .text = "Import \"./base\"\n"
+                    "Extend Derived\n"
+                    "    Public Method Name(): String => \"derived\"\n"
+                    "End Extend\n",
+        },
+        {
+            .path = "lib/user.fb",
+            .text = "Import \"./derived\"\nImport \"./names\"\nFunction Use()\nEnd Function\n",
+        },
+    };
+    CHECK(errors_with("Import \"./lib/base\"\n"
+                      "Import \"./lib/names\"\n"
+                      "Import \"./lib/user\"\n"
+                      "Local s = Derived().Name()",
+                      modules)
+              .empty());
+    CHECK(errors_with("Import \"./lib/base\"\n"
+                      "Import \"./lib/names\"\n"
+                      "Import \"./lib/derived\"\n"
+                      "Local s = Derived().Name() + Base().Name()",
+                      modules)
+              .empty());
+
+    // A Class whose module doesn't see names.fb has a Name of its own.
+    CHECK(errors_with("Import \"./lib/base\"\n"
+                      "Import \"./lib/user\"\n"
+                      "Class Mine Extends Base\n"
+                      "    Method Name(): String => \"mine\"\n"
+                      "End Class\n"
+                      "Local s = Mine().Name()",
+                      modules)
+              .empty());
+}
+
+TEST_CASE("an Interface an Extend lists is implemented by what the Extend's module sees",
+          "[sema]") {
+    // plain.fb and other.fb each add a Show without listing Shown. listed.fb sees plain's, but
+    // its own hides it; bare.fb sees neither, and both.fb sees both. c.fb's C lists Shown, and
+    // only cshow.fb, which c.fb doesn't import, adds its Show.
+    const std::vector<fb::library_file_t> modules{
+        {
+            .path = "lib/shown.fb",
+            .text = "Public Struct P\n"
+                    "    Public Field X: Int\n"
+                    "End Struct\n"
+                    "Public Interface Shown\n"
+                    "    Method Show(): String\n"
+                    "End Interface\n",
+        },
+        {
+            .path = "lib/plain.fb",
+            .text = "Import \"./shown\"\n"
+                    "Extend P\n"
+                    "    Public Method Show(): String => \"plain\"\n"
+                    "End Extend\n",
+        },
+        {
+            .path = "lib/other.fb",
+            .text = "Import \"./shown\"\n"
+                    "Extend P\n"
+                    "    Public Method Show(): String => \"other\"\n"
+                    "End Extend\n",
+        },
+        {
+            .path = "lib/listed.fb",
+            .text = "Import \"./shown\"\n"
+                    "Import \"./plain\"\n"
+                    "Extend P Implements Shown\n"
+                    "    Method Show(): String => \"listed\"\n"
+                    "End Extend\n",
+        },
+        {
+            .path = "lib/bare.fb",
+            .text = "Import \"./shown\"\nExtend P Implements Shown\nEnd Extend\n",
+        },
+        {
+            .path = "lib/both.fb",
+            .text = "Import \"./plain\"\n"
+                    "Import \"./other\"\n"
+                    "Import \"./shown\"\n"
+                    "Extend P Implements Shown\n"
+                    "End Extend\n",
+        },
+        {
+            .path = "lib/c.fb",
+            .text = "Import \"./shown\"\nPublic Class C Implements Shown\nEnd Class\n",
+        },
+        {
+            .path = "lib/cshow.fb",
+            .text = "Import \"./c\"\n"
+                    "Extend C\n"
+                    "    Public Method Show(): String => \"C\"\n"
+                    "End Extend\n",
+        },
+    };
+
+    // listed's Show implements it, whichever module loads first.
+    const auto implementer = [&](const std::string_view program) {
+        std::vector<fb::library_file_t> files =
+            fb::standard_library().value_or(std::vector<fb::library_file_t>{});
+        files.insert(files.end(), modules.begin(), modules.end());
+        const fb::compilation_t compilation = fb::compile("test.fb", std::string(program), files);
+        const fb::analysis_t& analysis = compilation.analysis;
+        CHECK(compilation.diagnostics.diagnostics().empty());
+        for (const fb::conformance_t& conformance : analysis.conformances) {
+            if (analysis.types.name(conformance.interface) == "Shown") {
+                REQUIRE(conformance.members.size() == 1);
+                return compilation.sources.get(analysis.symbol(conformance.members[0]).span.file)
+                    .path();
+            }
+        }
+
+        return std::string();
+    };
+    CHECK(implementer("Import \"./lib/plain\"\nImport \"./lib/listed\"") == "lib/listed.fb");
+    CHECK(implementer("Import \"./lib/listed\"\nImport \"./lib/plain\"") == "lib/listed.fb");
+
+    // What an Extend the listing's module doesn't see adds doesn't implement it.
+    CHECK(errors_with("Import \"./lib/plain\"\nImport \"./lib/bare\"", modules) ==
+          errors_t{ "lib/bare.fb: Shown: P implements Shown, so it needs a Method 'Show'; 'Show' "
+                    "is in lib.plain, which this file doesn't import: Import \"./plain\"" });
+    CHECK(errors_with("Import \"./lib/both\"", modules) ==
+          errors_t{ "lib/both.fb: Shown: 'Show' is ambiguous here: lib.plain and lib.other each "
+                    "add it to P" });
+
+    // Nor does it for a type that lists the Interface itself, though one in its own module does.
+    CHECK(errors_with("Import \"./lib/c\"\nImport \"./lib/cshow\"", modules) ==
+          errors_t{ "lib/c.fb: Shown: C implements Shown, so it needs a Method 'Show'; 'Show' is "
+                    "in lib.cshow, which this file doesn't import: Import \"./cshow\"" });
+    CHECK(errors_with("Import \"./lib/shown\"\n"
+                      "Class Mine Implements Shown\n"
+                      "End Class\n"
+                      "Extend Mine\n"
+                      "    Method Show(): String => \"mine\"\n"
+                      "End Extend",
+                      modules)
+              .empty());
+}
+
+TEST_CASE("a For loop takes the Iterate its file sees", "[sema]") {
+    // ones.fb and tens.fb each add an Iterate to Bag, and user.fb imports ones.fb.
+    const std::vector<fb::library_file_t> modules{
+        {
+            .path = "lib/bag.fb",
+            .text = "Public Class Bag\n"
+                    "End Class\n"
+                    "Public Class Steps Implements Iterator<Int>\n"
+                    "    Field At: Int = 0\n"
+                    "    Field Step: Int\n"
+                    "    Public New(step: Int)\n"
+                    "        Step = step\n"
+                    "    End New\n"
+                    "    Method Next(): Int?\n"
+                    "        If At >= 2 Then Return Null\n"
+                    "        At += 1\n"
+                    "        Return At * Step\n"
+                    "    End Method\n"
+                    "End Class\n",
+        },
+        {
+            .path = "lib/ones.fb",
+            .text = "Import \"./bag\"\n"
+                    "Extend Bag\n"
+                    "    Public Method Iterate(): Steps => Steps(1)\n"
+                    "End Extend\n",
+        },
+        {
+            .path = "lib/tens.fb",
+            .text = "Import \"./bag\"\n"
+                    "Extend Bag\n"
+                    "    Public Method Iterate(): Steps => Steps(10)\n"
+                    "End Extend\n",
+        },
+        { .path = "lib/user.fb", .text = "Import \"./ones\"\n" },
+    };
+    const std::string_view loop = "For x In Bag()\n    Print(\"{x}\")\nEnd For";
+    CHECK(errors_with(std::format("Import \"./lib/bag\"\nImport \"./lib/user\"\n{}", loop),
+                      modules) ==
+          errors_t{ "Bag(): 'For ... In' goes over arrays, Iterators, and values whose Iterate() "
+                    "gives an Iterator, not Bag; 'Iterate' is in lib.ones, which this file "
+                    "doesn't import: Import \"./lib/ones\"" });
+    CHECK(errors_with(std::format("Import \"./lib/bag\"\nImport \"./lib/ones\"\n{}", loop), modules)
+              .empty());
+    CHECK(errors_with(std::format("Import \"./lib/bag\"\n"
+                                  "Import \"./lib/ones\"\n"
+                                  "Import \"./lib/tens\"\n"
+                                  "{}",
+                                  loop),
+                      modules) ==
+          errors_t{ "Bag(): 'Iterate' is ambiguous here: lib.ones and lib.tens each add it to "
+                    "Bag" });
+
+    // The file's own Extend hides both.
+    CHECK(errors_with(std::format("Import \"./lib/bag\"\n"
+                                  "Import \"./lib/ones\"\n"
+                                  "Import \"./lib/tens\"\n"
+                                  "Extend Bag\n"
+                                  "    Method Iterate(): Steps => Steps(100)\n"
+                                  "End Extend\n"
+                                  "{}",
+                                  loop),
+                      modules)
+              .empty());
+}
+
+TEST_CASE("an Extend's Operators are seen where its module is imported, and its == everywhere",
+          "[sema]") {
+    const std::vector<fb::library_file_t> modules{
+        { .path = "lib/p.fb", .text = "Public Struct P\n    Public Field X: Int\nEnd Struct\n" },
+        {
+            .path = "lib/ops.fb",
+            .text = "Import \"./p\"\n"
+                    "Extend P\n"
+                    "    Operator +(a: P, b: P): P => P(a.X + b.X)\n"
+                    "    Operator ==(a: P, b: P): Bool => a.X == b.X\n"
+                    "End Extend\n",
+        },
+        {
+            .path = "lib/more.fb",
+            .text = "Import \"./p\"\n"
+                    "Import \"./ops\"\n"
+                    "Extend P\n"
+                    "    Operator +(a: P, b: P): P => P(a.X * b.X)\n"
+                    "End Extend\n"
+                    "Public Function Product(): P => P(2) + P(3)\n",
+        },
+        {
+            .path = "lib/user.fb",
+            .text = "Import \"./p\"\nImport \"./ops\"\nPublic Function Sum(): P => P(1) + P(2)\n",
+        },
+        {
+            .path = "lib/same.fb",
+            .text = "Import \"./p\"\n"
+                    "Extend P\n"
+                    "    Operator ==(a: P, b: P): Bool => True\n"
+                    "End Extend\n",
+        },
+    };
+
+    // user.fb sees ops.fb's +, and more.fb's own + hides it there.
+    CHECK(errors_with("Import \"./lib/p\"\n"
+                      "Import \"./lib/user\"\n"
+                      "Import \"./lib/more\"\n"
+                      "Local same = Sum() == Product()",
+                      modules)
+              .empty());
+    CHECK(
+        errors_with("Import \"./lib/p\"\nImport \"./lib/user\"\nLocal a = P(1) + P(2)", modules) ==
+        errors_t{ "P(1) + P(2): Operator + for P is in lib.ops, which this file doesn't "
+                  "import: Import \"./lib/ops\"" });
+    CHECK(errors_with("Import \"./lib/p\"\n"
+                      "Import \"./lib/ops\"\n"
+                      "Import \"./lib/more\"\n"
+                      "Local a = P(1) + P(2)",
+                      modules) == errors_t{ "P(1) + P(2): Operator + is ambiguous for (P, P)" });
+
+    // A type has one ==, which an Extend adds for the whole program.
+    CHECK(errors_with("Import \"./lib/p\"\n"
+                      "Import \"./lib/ops\"\n"
+                      "Import \"./lib/same\"\n"
+                      "Local same = P(1) == P(2)",
+                      modules) ==
+          errors_t{ "lib/same.fb: ==: '==' is already declared with the same parameter types" });
+}
+
+TEST_CASE("a declaration's messages show a type's module where its name means another type",
+          "[sema]") {
+    const std::vector<fb::library_file_t> modules{
+        {
+            .path = "lib/a.fb",
+            .text = "Public Class Node\n"
+                    "End Class\n"
+                    "Public Class Base\n"
+                    "    Public Method Make(): Node => Node()\n"
+                    "End Class\n"
+                    "Public Interface Maker\n"
+                    "    Method Build(): Node\n"
+                    "End Interface\n",
+        },
+    };
+    CHECK(errors_with("Import \"./lib/a\"\n"
+                      "Class Node\n"
+                      "End Class\n"
+                      "Class D Extends Base\n"
+                      "    Public Override Method Make(): Int => 1\n"
+                      "End Class\n"
+                      "Class M Implements Maker\n"
+                      "    Method Build(): Int => 1\n"
+                      "End Class\n"
+                      "Local n = Base().Make().Nope",
+                      modules) ==
+          errors_t{
+              "Make: 'Make' must return lib.a.Node, like Base's",
+              "Maker: M's 'Build' doesn't match Maker's, which takes () and returns lib.a.Node",
+              "Nope: lib.a.Node has no member named 'Nope'",
+          });
+
+    // Where the name means that type, it's shown as written.
+    CHECK(errors_with("Import \"./lib/a\"\nLocal n = Base().Make().Nope", modules) ==
+          errors_t{ "Nope: Node has no member named 'Nope'" });
+}
+
+TEST_CASE("a Function named through its module is a value, not a variable", "[sema]") {
+    const std::vector<fb::library_file_t> modules{
+        { .path = "lib/w.fb", .text = "Public Function Work(): Int => 42\n" },
+    };
+    const std::string_view take = "Function Take(ByRef f: Func(): Int)\nEnd Function\n";
+    CHECK(errors_with("Import \"./lib/w\" As W\n"
+                      "Local f: Func(): Int = W.Work\n"
+                      "Local n = f() + W.Work()",
+                      modules)
+              .empty());
+    CHECK(errors_with("Import \"./lib/w\" As W\nFunction Own(): Int => 1\nW.Work = Own", modules) ==
+          errors_t{ "W.Work: 'Work' is a function and can't be changed" });
+    CHECK(errors_with("Import \"./lib/w\"\nw.Work += 1", modules) ==
+          errors_t{ "w.Work: 'Work' is a function and can't be changed" });
+    CHECK(
+        errors_with(std::format("Import \"./lib/w\" As W\n{}Take(ByRef W.Work)", take), modules) ==
+        errors_t{ "W.Work: 'Work' is a function and can't be passed ByRef" });
+
+    // So is one of the module's own.
+    CHECK(errors_of(std::format("Function Work(): Int => 1\n{}Take(ByRef Work)", take)) ==
+          errors_t{ "Work: 'Work' is a function and can't be passed ByRef" });
+}
+
+TEST_CASE("an Import's qualifier names one import's modules", "[sema]") {
+    const std::vector<fb::library_file_t> modules{
+        { .path = "lib/a/util.fb", .text = "Public Function F(): Int => 1\n" },
+        { .path = "lib/b/util.fb", .text = "Public Function G(): Int => 2\n" },
+    };
+    CHECK(errors_with("Import \"./lib/a/util\"\nImport \"./lib/b/util\"", modules) ==
+          errors_t{ "util: 'util' names another Import's module already; give one of them its "
+                    "own name with As" });
+    CHECK(errors_with("Import \"./lib/a/util\"\n"
+                      "Import \"./lib/b/util\" As other\n"
+                      "Local n = util.F() + other.G()",
+                      modules)
+              .empty());
+
+    // An Import names a module of std, not std itself, and a quoted path stays out of a folder
+    // called std.
+    CHECK(errors_of("Import std") ==
+          errors_t{ "std: std is the standard library's folder; import one of its modules, like "
+                    "std.collections" });
+    CHECK(errors_with("Import \"./std/x\"", modules) ==
+          errors_t{ "\"./std/x\": \"./std/x\" names a file in a folder called std, which is "
+                    "the standard library's name" });
+}
+
+TEST_CASE("a Class can extend one through its module's qualifier", "[sema]") {
+    const std::vector<fb::library_file_t> modules{
+        {
+            .path = "lib/shapes.fb",
+            .text = "Public Class Shape\n"
+                    "    Public Method Area(): Int => 0\n"
+                    "End Class\n"
+                    "Public Class Holder<T>\n"
+                    "    Public Field Item: T\n"
+                    "    Public New(item: T)\n"
+                    "        Item = item\n"
+                    "    End New\n"
+                    "End Class\n",
+        },
+    };
+    const std::string_view alias = "Import \"./lib/shapes\" As S\n";
+    CHECK(errors_with(std::format("{}"
+                                  "Class Circle Extends S.Shape\n"
+                                  "    Public Override Method Area(): Int => 3\n"
+                                  "End Class\n"
+                                  "Class Tag Extends S.Holder<String>\n"
+                                  "End Class\n"
+                                  "Local s: S.Shape = Circle()\n"
+                                  "Local n = s.Area()\n"
+                                  "Local t = Tag(\"x\").Item",
+                                  alias),
+                      modules)
+              .empty());
+    CHECK(errors_with(std::format("{}Class A Extends S.Nope\nEnd Class", alias), modules) ==
+          errors_t{ "Nope: 'Nope' isn't declared in \"./lib/shapes\"" });
+    CHECK(errors_with(std::format("{}Class A Extends D.Shape\nEnd Class", alias), modules) ==
+          errors_t{ "D: 'D' isn't an imported module, so it can't come before '.'" });
+    CHECK(errors_with(std::format("{}Class A Extends Shape\nEnd Class", alias), modules) ==
+          errors_t{ "Shape: 'Shape' is in lib.shapes, which this file imports as S, so it's "
+                    "S.Shape" });
+}
+
+TEST_CASE("a qualifier that hides the type its module declares says so", "[sema]") {
+    // Circle is the Import's qualifier, which hides the Class Circle that Make is on.
+    const std::vector<fb::library_file_t> modules{
+        {
+            .path = "lib/Circle.fb",
+            .text = "Public Class Circle\n"
+                    "    Public Static Method Make(): Int => 1\n"
+                    "End Class\n",
+        },
+    };
+    CHECK(errors_with("Import \"./lib/Circle\"\nLocal n = Circle.Make()", modules) ==
+          errors_t{ "Make: 'Make' isn't declared in \"./lib/Circle\"; Circle here is the Import's "
+                    "qualifier, so the type Circle the module declares, whose 'Make' this may be, "
+                    "is Circle.Circle" });
+    CHECK(errors_with("Import \"./lib/Circle\"\nLocal n = Circle.Circle.Make()", modules).empty());
+}
+
+// Visibility
+
+TEST_CASE("what's private to a file can't be used from another module", "[sema]") {
+    const std::vector<fb::library_file_t> modules{
+        {
+            .path = "lib/a.fb",
+            .text = "Public Class Enemy\n"
+                    "    Field secret: Int = 1\n"
+                    "    Public Field Name: String = \"enemy\"\n"
+                    "    Method Hidden(): Int => secret\n"
+                    "    Public Method Shown(): Int => Hidden()\n"
+                    "    Property Mood: Int\n"
+                    "        Get => secret\n"
+                    "    End Property\n"
+                    "    Property Quiet: Int\n"
+                    "        Get => secret\n"
+                    "        Set(value)\n"
+                    "            secret = value\n"
+                    "        End Set\n"
+                    "    End Property\n"
+                    "    Public Property Level: Int\n"
+                    "        Get => secret\n"
+                    "        Set(value)\n"
+                    "            secret = value\n"
+                    "        End Set\n"
+                    "    End Property\n"
+                    "End Class\n"
+                    "Class Secret\n"
+                    "End Class\n"
+                    "Function Helper(): Int => 1\n"
+                    "Global count = 0\n"
+                    "Public Function Make(): Enemy => Enemy()\n",
+        },
+    };
+    const std::string_view import = "Import \"./lib/a\"\n";
+    CHECK(errors_with(
+              std::format("{}Local e = Make()\nLocal n = e.Name\nLocal s = e.Shown()", import),
+              modules)
+              .empty());
+
+    // A Field, a Method, a Property, a type, a Function, and a Global.
+    CHECK(errors_with(std::format("{}"
+                                  "Local e = Make()\n"
+                                  "Local a = e.secret\n"
+                                  "Local b = e.Hidden()\n"
+                                  "Local c = e.Mood\n"
+                                  "Local d: Secret? = Null\n"
+                                  "Local f = Helper() + count",
+                                  import),
+                      modules) == errors_t{
+                                      "secret: 'secret' is private to lib/a.fb",
+                                      "Hidden: 'Hidden' is private to lib/a.fb",
+                                      "Mood: 'Mood' is private to lib/a.fb",
+                                      "Secret: 'Secret' is private to lib/a.fb",
+                                      "Helper: 'Helper' is private to lib/a.fb",
+                                      "count: 'count' is private to lib/a.fb",
+                                  });
+
+    // Through the module's qualifier, or a From line, it's the same.
+    CHECK(errors_with(std::format("{}Local h = a.Helper()", import), modules) ==
+          errors_t{ "Helper: 'Helper' is private to lib/a.fb" });
+    CHECK(errors_with("From \"./lib/a\" Import Make, Secret", modules) ==
+          errors_t{ "Secret: 'Secret' is private to lib/a.fb" });
+
+    // Changing one is using it too, through a Property's Set as well.
+    CHECK(errors_with(std::format("{}Local e = Make()\ne.secret = 2", import), modules) ==
+          errors_t{ "secret: 'secret' is private to lib/a.fb" });
+    CHECK(errors_with(std::format("{}"
+                                  "Local e = Make()\n"
+                                  "e.Level = 3\n"
+                                  "e.Level += 1\n"
+                                  "e.Quiet = 3\n"
+                                  "e.Quiet += 1",
+                                  import),
+                      modules) == errors_t{
+                                      "Quiet: 'Quiet' is private to lib/a.fb",
+                                      "Quiet: 'Quiet' is private to lib/a.fb",
+                                  });
+}
+
+TEST_CASE("a declaration a file can't see hides nothing there", "[sema]") {
+    // a and b each have a private Node, and a Public one would be ambiguous.
+    const std::vector<fb::library_file_t> modules{
+        { .path = "lib/a.fb", .text = "Class Node\nEnd Class\nPublic Function A(): Int => 1\n" },
+        { .path = "lib/b.fb", .text = "Class Node\nEnd Class\nPublic Function B(): Int => 2\n" },
+        {
+            .path = "lib/c.fb",
+            .text = "Public Class Base\n"
+                    "    Field hp: Int = 1\n"
+                    "End Class\n",
+        },
+    };
+    CHECK(errors_with("Import \"./lib/a\"\nImport \"./lib/b\"\nLocal n = A() + B()", modules)
+              .empty());
+    CHECK(errors_with("Import \"./lib/a\"\nImport \"./lib/b\"\nLocal n: Node? = Null", modules) ==
+          errors_t{ "Node: 'Node' is private to lib/a.fb" });
+
+    // A Class extending one sees the Global its own module has, not a private Field of the base.
+    CHECK(errors_with("Import \"./lib/c\"\n"
+                      "Global hp = 5\n"
+                      "Class Mine Extends Base\n"
+                      "    Method Twice(): Int => hp * 2\n"
+                      "End Class",
+                      modules)
+              .empty());
+    CHECK(errors_with("Import \"./lib/c\"\n"
+                      "Class Mine Extends Base\n"
+                      "    Method Twice(): Int => hp * 2\n"
+                      "End Class",
+                      modules) == errors_t{ "hp: 'hp' is private to lib/c.fb" });
+}
+
+TEST_CASE("an overload a file can't use isn't one of its calls' choices", "[sema]") {
+    const std::vector<fb::library_file_t> modules{
+        {
+            .path = "lib/show.fb",
+            .text = "Public Function Show(x: Int): String => \"int\"\n"
+                    "Function Show(x: String): String => x\n"
+                    "Public Class Log\n"
+                    "    Public Method Add(x: Int)\n"
+                    "    End Method\n"
+                    "    Method Add(x: String)\n"
+                    "    End Method\n"
+                    "End Class\n",
+        },
+    };
+    const std::string_view import = "Import \"./lib/show\"\n";
+    CHECK(errors_with(std::format("{}Local s = Show(1)\nLog().Add(2)", import), modules).empty());
+
+    // A call that only one of them fits says why it can't use it.
+    CHECK(errors_with(std::format("{}Local s = Show(\"a\")\nLog().Add(\"b\")", import), modules) ==
+          errors_t{
+              "Show: 'Show' is private to lib/show.fb",
+              "Add: 'Add' is private to lib/show.fb",
+          });
+}
+
+TEST_CASE("a Protected member is used by the Classes extending its Class", "[sema]") {
+    const std::vector<fb::library_file_t> modules{
+        {
+            .path = "lib/enemy.fb",
+            .text = "Public Class Enemy\n"
+                    "    Protected Field hp: Int = 10\n"
+                    "    Protected Static Field made: Int = 0\n"
+                    "    Public New()\n"
+                    "    End New\n"
+                    "    Protected New(hp: Int)\n"
+                    "        Self.hp = hp\n"
+                    "    End New\n"
+                    "    Protected Method Heal(): Int => hp + 1\n"
+                    "    Protected Static Method Spawned(): Int => made\n"
+                    "End Class\n",
+        },
+    };
+
+    // From a Class extending it in another module, through Self, Super, or one of its own
+    // objects, and its Statics.
+    const std::string_view import = "Import \"./lib/enemy\"\n";
+    CHECK(errors_with(std::format("{}"
+                                  "Class Boss Extends Enemy\n"
+                                  "    New()\n"
+                                  "        Super.New(50)\n"
+                                  "    End New\n"
+                                  "    Protected Override Method Heal(): Int => Super.Heal() * 2\n"
+                                  "    Method Total(other: Boss): Int\n"
+                                  "        Local f = Function() => hp\n"
+                                  "        Return Self.hp + other.hp + Heal() + f() + Spawned() +\n"
+                                  "               Enemy.made\n"
+                                  "    End Method\n"
+                                  "End Class",
+                                  import),
+                      modules)
+              .empty());
+
+    // Not from code that isn't a Class extending it.
+    CHECK(errors_with(std::format("{}Local e = Enemy()\nLocal n = e.hp", import), modules) ==
+          errors_t{ "hp: 'hp' is Protected in lib/enemy.fb, so only that file and the Classes "
+                    "extending Enemy can use it" });
+    CHECK(errors_with(std::format("{}"
+                                  "Class Other\n"
+                                  "    Method Peek(e: Enemy): Int => e.Heal() + Enemy.Spawned()\n"
+                                  "End Class",
+                                  import),
+                      modules) ==
+          errors_t{
+              "Heal: 'Heal' is Protected in lib/enemy.fb, so only that file and the Classes "
+              "extending Enemy can use it",
+              "Spawned: 'Spawned' is Protected in lib/enemy.fb, so only that file and the Classes "
+              "extending Enemy can use it",
+          });
+
+    // Nor through an object that isn't one of the extending Class's, or to make one.
+    CHECK(errors_with(std::format("{}"
+                                  "Class Boss Extends Enemy\n"
+                                  "    Method Peek(other: Enemy): Int => other.hp\n"
+                                  "    Method Make(): Enemy => Enemy(5)\n"
+                                  "End Class",
+                                  import),
+                      modules) ==
+          errors_t{
+              "hp: 'hp' is Protected, so Boss's code can use it only through Self or another Boss",
+              "Enemy: Enemy's New is Protected, so Boss's code can use it only to start a New of "
+              "its own, with Super.New",
+          });
+    CHECK(errors_with(std::format("{}Local e = Enemy(5)", import), modules) ==
+          errors_t{ "Enemy: Enemy's New is Protected in lib/enemy.fb, so only that file and the "
+                    "Classes extending Enemy can use it, to start their News" });
+
+    // An Extend of the Class is not the Class's own code.
+    CHECK(errors_with(std::format("{}"
+                                  "Class Boss Extends Enemy\n"
+                                  "End Class\n"
+                                  "Extend Boss\n"
+                                  "    Method Peek(): Int => hp\n"
+                                  "End Extend",
+                                  import),
+                      modules) == errors_t{ "hp: 'hp' is Protected in lib/enemy.fb, so only that "
+                                            "file and the Classes extending Enemy can use it" });
+}
+
+TEST_CASE("Protected only goes before a Class's members", "[sema]") {
+    const std::string_view only =
+        "Protected only goes before a Class's members, which the Classes extending it can use";
+    CHECK(errors_of("Struct S\n    Protected Field x: Int\nEnd Struct") ==
+          errors_t{ std::format("Protected: {}", only) });
+    CHECK(errors_of("Protected Function F()\nEnd Function\n"
+                    "Protected Global g = 1\n"
+                    "Protected Class C\nEnd Class") == errors_t{
+                                                           std::format("Protected: {}", only),
+                                                           std::format("Protected: {}", only),
+                                                           std::format("Protected: {}", only),
+                                                       });
+    CHECK(errors_of("Struct S\nEnd Struct\nExtend S\n    Protected Method M()\n    End Method\n"
+                    "End Extend") ==
+          errors_t{ "Protected: what an Extend adds can't be Protected, since its code isn't the "
+                    "Class's own" });
+
+    // A Class's members can be.
+    CHECK(errors_of("Class C\n"
+                    "    Protected Field x: Int\n"
+                    "    Protected Method M()\n"
+                    "    End Method\n"
+                    "    Protected Property P: Int\n"
+                    "        Get => x\n"
+                    "    End Property\n"
+                    "End Class")
+              .empty());
+}
+
+TEST_CASE("Package is for the modules of a package", "[sema]") {
+    // std is a package, so one std module uses another's Package Function, but a program doesn't.
+    const std::vector<fb::library_file_t> modules{
+        {
+            .path = "std/extra/helper.fb",
+            .text = "Package Function Common(): Int => 2\n"
+                    "Public Class Box\n"
+                    "    Package Field Size: Int = 1\n"
+                    "End Class\n",
+        },
+        {
+            .path = "std/extra/user.fb",
+            .text = "Import std.extra.helper\n"
+                    "Public Function Double(): Int => Common() * 2 + Box().Size\n",
+        },
+        { .path = "lib/own.fb", .text = "Package Function Mine(): Int => 3\n" },
+    };
+    CHECK(errors_with("Import std.extra\nLocal n = Double()", modules).empty());
+    CHECK(errors_with("Import std.extra\nLocal n = Common() + Box().Size", modules) ==
+          errors_t{
+              "Common: 'Common' is Package in std/extra/helper.fb, so only the package std can use "
+              "it",
+              "Size: 'Size' is Package in std/extra/helper.fb, so only the package std can use it",
+          });
+
+    // A program without a project.toml is a package of its main file and what it imports by path.
+    CHECK(errors_with("Import \"./lib/own\"\nLocal n = Mine()", modules).empty());
+}
+
+TEST_CASE("a Struct's own constructor is as visible as its least visible Field", "[sema]") {
+    const std::vector<fb::library_file_t> modules{
+        {
+            .path = "lib/points.fb",
+            .text = "Public Struct Point\n"
+                    "    Public Field X: Int\n"
+                    "    Public Field Y: Int = 2\n"
+                    "End Struct\n"
+                    "Public Struct Handle\n"
+                    "    Public Field Index: Int\n"
+                    "    Field Generation: Int\n"
+                    "End Struct\n"
+                    "Public Function Origin(): Handle => Handle(0, 0)\n"
+                    "Public Class Made\n"
+                    "End Class\n"
+                    "Public Class Built\n"
+                    "    New()\n"
+                    "    End New\n"
+                    "    Public Static Method Make(): Built => Built()\n"
+                    "End Class\n",
+        },
+    };
+    const std::string_view import = "Import \"./lib/points\"\n";
+    CHECK(errors_with(std::format("{}"
+                                  "Local p = Point(1, 2)\n"
+                                  "Local q = Point(Y: 3, X: 1)\n"
+                                  "Local i = Origin().Index\n"
+                                  "Local m = Made()\n"
+                                  "Local b = Built.Make()",
+                                  import),
+                      modules)
+              .empty());
+    CHECK(errors_with(std::format("{}Local h = Handle(1, 2)", import), modules) ==
+          errors_t{ "Handle: Handle's constructor takes its Fields, and 'Generation' is private "
+                    "to lib/points.fb" });
+
+    // A written New is Private unless it says otherwise.
+    CHECK(errors_with(std::format("{}Local b = Built()", import), modules) ==
+          errors_t{ "Built: Built's New is private to lib/points.fb" });
+}
+
+TEST_CASE("a Class takes only the News of its base that its code can use", "[sema]") {
+    const std::vector<fb::library_file_t> modules{
+        {
+            .path = "lib/base.fb",
+            .text = "Public Class Shut\n"
+                    "    New()\n"
+                    "    End New\n"
+                    "End Class\n"
+                    "Public Class Half\n"
+                    "    Public New(x: Int)\n"
+                    "    End New\n"
+                    "    New(x: String)\n"
+                    "    End New\n"
+                    "End Class\n",
+        },
+    };
+    const std::string_view import = "Import \"./lib/base\"\n";
+    CHECK(
+        errors_with(std::format("{}Class Mine Extends Half\nEnd Class\nLocal m = Mine(1)", import),
+                    modules)
+            .empty());
+    CHECK(errors_with(
+              std::format("{}Class Mine Extends Half\nEnd Class\nLocal m = Mine(\"x\")", import),
+              modules) == errors_t{ "\"x\": expected Int32, found String" });
+    CHECK(errors_with(std::format("{}Class Mine Extends Shut\nEnd Class", import), modules) ==
+          errors_t{ "Mine: Shut's New is private to lib/base.fb" });
+    CHECK(errors_with(std::format("{}"
+                                  "Class Mine Extends Shut\n"
+                                  "    New()\n"
+                                  "    End New\n"
+                                  "End Class",
+                                  import),
+                      modules) == errors_t{ "New: Shut's New is private to lib/base.fb" });
+}
+
+TEST_CASE("a Public or Package declaration shows only types as visible", "[sema]") {
+    const std::string_view hidden = "Struct Hidden\n    Field X: Int\nEnd Struct\n"
+                                    "Interface Face\nEnd Interface\n"
+                                    "Class Base\nEnd Class\n";
+    CHECK(errors_of(std::format("{}"
+                                "Public Function Leak(): Hidden => Hidden(1)\n"
+                                "Public Function Take(h: Hidden?, f: Func(Hidden): Int)\n"
+                                "End Function\n"
+                                "Public Global shown: Hidden[] = []\n"
+                                "Package Function Inside(): Hidden? => Null\n"
+                                "Public Class Derived Extends Base Implements Face\n"
+                                "    Public Field Item: Hidden?\n"
+                                "    Public Method Get(): Hidden? => Item\n"
+                                "End Class",
+                                hidden)) ==
+          errors_t{
+              "Leak: 'Leak' is Public, but it gives Hidden, which is private to test.fb",
+              "Take: 'Take' is Public, but it takes Hidden, which is private to test.fb",
+              "shown: 'shown' is Public, but it holds Hidden, which is private to test.fb",
+              "Inside: 'Inside' is Package, but it gives Hidden, which is private to test.fb",
+              "Derived: 'Derived' is Public, but it extends Base, which is private to test.fb",
+              "Derived: 'Derived' is Public, but it implements Face, which is private to test.fb",
+              "Item: 'Item' is Public, but it holds Hidden, which is private to test.fb",
+              "Get: 'Get' is Public, but it gives Hidden, which is private to test.fb",
+          });
+
+    // So does a Public Interface's member, and an Operator of a Public type.
+    CHECK(errors_of(std::format("{}"
+                                "Public Interface Maker\n"
+                                "    Method Make(): Hidden\n"
+                                "End Interface\n"
+                                "Public Struct Money\n"
+                                "    Public Field Cents: Int\n"
+                                "    Operator +(a: Money, b: Hidden): Money => a\n"
+                                "End Struct",
+                                hidden)) ==
+          errors_t{
+              "Make: 'Make' is Public, but it gives Hidden, which is private to test.fb",
+              "+: Operator + is Public, but it takes Hidden, which is private to test.fb",
+          });
+
+    // A Public member of a type that isn't, or a private one of a Public type, can.
+    CHECK(errors_of(std::format("{}"
+                                "Struct Inner\n"
+                                "    Public Field Item: Hidden?\n"
+                                "End Struct\n"
+                                "Public Struct Outer\n"
+                                "    Field Item: Hidden?\n"
+                                "    Method Get(): Hidden? => Item\n"
+                                "End Struct",
+                                hidden))
+              .empty());
+
+    // A Package declaration can show a Package type, but a Public one can't.
+    CHECK(errors_of("Package Struct Wide\nEnd Struct\n"
+                    "Package Function Fine(): Wide => Wide()\n"
+                    "Public Function Leak(): Wide => Wide()") ==
+          errors_t{ "Leak: 'Leak' is Public, but it gives Wide, which is Package in test.fb" });
+
+    // A Protected member is seen as far as its Class, and a Public one of a Package type as far
+    // as the package; the error names the visibility each is declared with.
+    CHECK(errors_of(std::format("{}"
+                                "Package Struct Wide\nEnd Struct\n"
+                                "Public Class Enemy\n"
+                                "    Protected Field hp: Hidden?\n"
+                                "    Protected Method Range(): Wide? => Null\n"
+                                "End Class\n"
+                                "Package Class Holder\n"
+                                "    Public Field item: Hidden?\n"
+                                "    Public Field wide: Wide?\n"
+                                "    Protected Field kept: Wide?\n"
+                                "End Class",
+                                hidden)) ==
+          errors_t{
+              "hp: 'hp' is Protected in Enemy, which is Public, but it holds Hidden, which is "
+              "private to test.fb",
+              "Range: 'Range' is Protected in Enemy, which is Public, but it gives Wide, which is "
+              "Package in test.fb",
+              "item: 'item' is Public, but it holds Hidden, which is private to test.fb",
+          });
+}
+
+TEST_CASE("an Override can't be less visible than what it overrides", "[sema]") {
+    const std::vector<fb::library_file_t> modules{
+        {
+            .path = "lib/enemy.fb",
+            .text = "Public Class Enemy\n"
+                    "    Public Method Think(): String => \"enemy\"\n"
+                    "    Protected Method Plan(): String => \"plan\"\n"
+                    "    Package Method Route(): String => \"route\"\n"
+                    "    Method Secret(): String => \"secret\"\n"
+                    "    Public Property Health: Int\n"
+                    "        Get => 1\n"
+                    "    End Property\n"
+                    "    Protected Property Armor: Int\n"
+                    "        Get => 2\n"
+                    "    End Property\n"
+                    "End Class\n",
+        },
+    };
+    const std::string_view import = "Import \"./lib/enemy\"\n";
+    CHECK(errors_with(std::format("{}"
+                                  "Class Boss Extends Enemy\n"
+                                  "    Public Override Method Think(): String => \"boss\"\n"
+                                  "    Public Override Method Plan(): String => \"boss plan\"\n"
+                                  "End Class",
+                                  import),
+                      modules)
+              .empty());
+    CHECK(errors_with(std::format("{}"
+                                  "Class Boss Extends Enemy\n"
+                                  "    Private Override Method Think(): String => \"boss\"\n"
+                                  "End Class",
+                                  import),
+                      modules) ==
+          errors_t{ "Think: 'Think' is Private, so it can't override Enemy's, which is Public" });
+
+    // Protected and Package reach different code, so neither can override the other.
+    CHECK(errors_with(std::format("{}"
+                                  "Class Boss Extends Enemy\n"
+                                  "    Package Override Method Plan(): String => \"boss plan\"\n"
+                                  "    Protected Override Method Route(): String => \"boss\"\n"
+                                  "End Class",
+                                  import),
+                      modules) ==
+          errors_t{
+              "Plan: 'Plan' is Package, so it can't override Enemy's, which is Protected",
+              "Route: 'Route' is Protected, so it can't override Enemy's, which is Package",
+          });
+
+    // One that doesn't say its visibility has what it overrides'.
+    CHECK(errors_with(std::format("{}"
+                                  "Class Boss Extends Enemy\n"
+                                  "    Override Method Think(): String => \"boss\"\n"
+                                  "    Override Method Plan(): String => \"boss plan\"\n"
+                                  "End Class\n"
+                                  "Local b = Boss()\n"
+                                  "Local t = b.Think()",
+                                  import),
+                      modules)
+              .empty());
+
+    // One its code can't use isn't one it can override.
+    CHECK(errors_with(std::format("{}"
+                                  "Class Boss Extends Enemy\n"
+                                  "    Method Secret(): String => \"mine\"\n"
+                                  "End Class",
+                                  import),
+                      modules) == errors_t{ "Secret: 'Secret' can't override Enemy's: 'Secret' is "
+                                            "private to lib/enemy.fb" });
+
+    // A Property's Override is the same.
+    CHECK(errors_with(std::format("{}"
+                                  "Class Boss Extends Enemy\n"
+                                  "    Public Override Property Health: Int\n"
+                                  "        Get => 10\n"
+                                  "    End Property\n"
+                                  "    Protected Override Property Armor: Int\n"
+                                  "        Get => 20\n"
+                                  "    End Property\n"
+                                  "End Class",
+                                  import),
+                      modules)
+              .empty());
+    CHECK(errors_with(std::format("{}"
+                                  "Class Boss Extends Enemy\n"
+                                  "    Private Override Property Health: Int\n"
+                                  "        Get => 10\n"
+                                  "    End Property\n"
+                                  "    Private Override Property Armor: Int\n"
+                                  "        Get => 20\n"
+                                  "    End Property\n"
+                                  "End Class",
+                                  import),
+                      modules) ==
+          errors_t{
+              "Health: 'Health' is Private, so it can't override Enemy's, which is Public",
+              "Armor: 'Armor' is Private, so it can't override Enemy's, which is Protected",
+          });
+    CHECK(errors_with(std::format("{}"
+                                  "Class Boss Extends Enemy\n"
+                                  "    Override Property Health: Int\n"
+                                  "        Get => 10\n"
+                                  "    End Property\n"
+                                  "End Class\n"
+                                  "Local h = Boss().Health",
+                                  import),
+                      modules)
+              .empty());
+}
+
+TEST_CASE("what code can't use clashes with nothing", "[sema]") {
+    const std::vector<fb::library_file_t> modules{
+        {
+            .path = "lib/base.fb",
+            .text = "Public Class Base\n"
+                    "    Field cache: Int = 7\n"
+                    "    Field size: Int = 0\n"
+                    "    Method Grow(): Int => 1\n"
+                    "    Property Mood: Int\n"
+                    "        Get => 1\n"
+                    "    End Property\n"
+                    "    Public Field hp: Int = 1\n"
+                    "End Class\n"
+                    "Public Struct Point\n"
+                    "    Field secret: Int = 0\n"
+                    "    Method Scale(): Int => 1\n"
+                    "End Struct\n"
+                    "Public Function Origin(): Point => Point()\n"
+                    "Public Class Kept Extends Base\n"
+                    "End Class\n"
+                    "Public Class Held<T> Extends Base\n"
+                    "End Class\n",
+        },
+    };
+    const std::string_view import = "Import \"./lib/base\"\n";
+
+    // A Class extending another file's can have Fields and Methods named like its private ones,
+    // whichever they are, and its code uses its own.
+    CHECK(errors_with(std::format("{}"
+                                  "Class Mine Extends Base\n"
+                                  "    Field cache: String = \"mine\"\n"
+                                  "    Field Grow: String = \"field\"\n"
+                                  "    Method size(): String => cache + Grow\n"
+                                  "    Method Mood(x: Int): Int => x\n"
+                                  "End Class\n"
+                                  "Local text: String = Mine().size()",
+                                  import),
+                      modules)
+              .empty());
+
+    // So can an Extend, of another file's type or of std's.
+    CHECK(errors_with(std::format("{}"
+                                  "Extend Base\n"
+                                  "    Method cache(): String => \"extended\"\n"
+                                  "    Method Grow(): String => \"grown\"\n"
+                                  "    Property size: String\n"
+                                  "        Get => \"size\"\n"
+                                  "    End Property\n"
+                                  "End Extend\n"
+                                  "Extend Point\n"
+                                  "    Property secret: String\n"
+                                  "        Get => \"secret\"\n"
+                                  "    End Property\n"
+                                  "    Method Scale(): String => \"scaled\"\n"
+                                  "End Extend\n"
+                                  "Local b = Base()\n"
+                                  "Local p = Origin()\n"
+                                  "Local text: String = b.cache() + b.Grow() + b.size + p.secret + "
+                                  "p.Scale()",
+                                  import),
+                      modules)
+              .empty());
+
+    // And so can an Extend of a Class extending it, or of one instance of a generic one, whose
+    // Method takes a hidden Method's parameters: an Extend's members aren't in the Method table,
+    // so they override nothing.
+    CHECK(errors_with(std::format("{}"
+                                  "Extend Kept\n"
+                                  "    Method Grow(): Int => 2\n"
+                                  "    Property Mood: Int\n"
+                                  "        Get => 3\n"
+                                  "    End Property\n"
+                                  "End Extend\n"
+                                  "Extend Held<Int>\n"
+                                  "    Method Grow(): Int => 4\n"
+                                  "    Property Mood: Int\n"
+                                  "        Get => 5\n"
+                                  "    End Property\n"
+                                  "End Extend\n"
+                                  "Local n: Int = Kept().Grow() + Kept().Mood + "
+                                  "Held<Int>().Grow() + Held<Int>().Mood",
+                                  import),
+                      modules)
+              .empty());
+    CHECK(errors_of("Import std.collections\n"
+                    "Extend Map<K, V>\n"
+                    "    Method Grow(): Int => 1\n"
+                    "    Method Entries(): Int => 2\n"
+                    "End Extend\n"
+                    "Extend Stack<T>\n"
+                    "    Property Items: Int\n"
+                    "        Get => 3\n"
+                    "    End Property\n"
+                    "End Extend\n"
+                    "Class Named Extends Queue<String>\n"
+                    "    Field Head: String = \"first\"\n"
+                    "End Class\n"
+                    "Local m = Map<Int, Int>()\n"
+                    "Local n: Int = m.Grow() + m.Entries() + Stack<Int>().Items\n"
+                    "Local head: String = Named().Head")
+              .empty());
+    CHECK(errors_of("Import std.collections\n"
+                    "Class Names Extends Map<String, Int>\n"
+                    "End Class\n"
+                    "Extend Names\n"
+                    "    Method Grow(): Int => 4\n"
+                    "End Extend\n"
+                    "Class Counts<T> Extends Map<String, T>\n"
+                    "End Class\n"
+                    "Extend Counts<Int>\n"
+                    "    Method Grow(): Int => 5\n"
+                    "End Extend\n"
+                    "Local n: Int = Names().Grow() + Counts<Int>().Grow()")
+              .empty());
+
+    // What its code can use still clashes, and a Method that takes a hidden one's parameters is
+    // one it can't override.
+    CHECK(errors_with(std::format("{}"
+                                  "Class Mine Extends Base\n"
+                                  "    Field hp: Int = 2\n"
+                                  "    Method Grow(): Int => 2\n"
+                                  "End Class",
+                                  import),
+                      modules) ==
+          errors_t{
+              "hp: 'hp' is already declared in Base",
+              "Grow: 'Grow' can't override Base's: 'Grow' is private to lib/base.fb",
+          });
+    CHECK(errors_with(std::format("{}Extend Base\n    Method hp(): Int => 2\nEnd Extend", import),
+                      modules) == errors_t{ "hp: 'hp' is already declared" });
+
+    // So does a Property named like a hidden Property, which it would override, though an
+    // Extend's, which overrides nothing, doesn't.
+    CHECK(errors_with(std::format("{}"
+                                  "Class Mine Extends Base\n"
+                                  "    Property Mood: Int\n"
+                                  "        Get => 2\n"
+                                  "    End Property\n"
+                                  "End Class",
+                                  import),
+                      modules) ==
+          errors_t{ "Mood: 'Mood' can't override Base's: 'Mood' is private to lib/base.fb" });
+    CHECK(errors_with(std::format("{}"
+                                  "Extend Base\n"
+                                  "    Property Mood: Int\n"
+                                  "        Get => 2\n"
+                                  "    End Property\n"
+                                  "End Extend\n"
+                                  "Local mood: Int = Base().Mood",
+                                  import),
+                      modules)
+              .empty());
+
+    // But it's a Property that an Extend of a Class extending Base can't add again, as with a
+    // Method, though the hidden one comes first.
+    CHECK(errors_with(std::format("{}"
+                                  "Extend Base\n"
+                                  "    Property Mood: Int\n"
+                                  "        Get => 2\n"
+                                  "    End Property\n"
+                                  "End Extend\n"
+                                  "Extend Kept\n"
+                                  "    Property Mood: Int\n"
+                                  "        Get => 3\n"
+                                  "    End Property\n"
+                                  "End Extend",
+                                  import),
+                      modules) ==
+          errors_t{ "Mood: 'Mood' is already a member of Base, which an Extend can't override" });
+
+    // Where code can use both, a Class's member hides what its base has of the name, and a
+    // type's own hides what an Extend adds in its place.
+    const std::vector<fb::library_file_t> both{
+        {
+            .path = "lib/a.fb",
+            .text = "Import \"./b\"\n"
+                    "Import \"./m\"\n"
+                    "Public Class Base\n"
+                    "    Field cache: Int = 7\n"
+                    "    Method Grow(): Int => 1\n"
+                    "End Class\n"
+                    "Public Function Peek(m: Mine): String => m.cache\n"
+                    "Public Function Poke(b: Base): Int => b.cache + b.Grow()\n",
+        },
+        {
+            .path = "lib/b.fb",
+            .text = "Import \"./a\"\n"
+                    "Public Class Mine Extends Base\n"
+                    "    Public Field cache: String = \"mine\"\n"
+                    "End Class\n",
+        },
+        {
+            .path = "lib/m.fb",
+            .text = "Import \"./a\"\n"
+                    "Extend Base\n"
+                    "    Public Method Grow(): String => \"grown\"\n"
+                    "    Public Property cache: String\n"
+                    "        Get => \"extended\"\n"
+                    "    End Property\n"
+                    "End Extend\n",
+        },
+    };
+    CHECK(errors_with("Import \"./lib/a\"\n"
+                      "Import \"./lib/b\"\n"
+                      "Import \"./lib/m\"\n"
+                      "Local b = Base()\n"
+                      "Local text: String = b.cache + b.Grow() + Mine().cache + Peek(Mine())\n"
+                      "Local n: Int = Poke(b)",
+                      both)
+              .empty());
+}
+
+TEST_CASE("Enum members, Interface members, and Operators have their type's visibility", "[sema]") {
+    const std::vector<fb::library_file_t> modules{
+        {
+            .path = "lib/kinds.fb",
+            .text = "Public Enum Kind\n"
+                    "    Small, Large\n"
+                    "End Enum\n"
+                    "Public Struct Money\n"
+                    "    Public Field Cents: Int\n"
+                    "    Operator +(a: Money, b: Money): Money => Money(a.Cents + b.Cents)\n"
+                    "End Struct\n"
+                    "Public Interface Sized\n"
+                    "    Method Size(): Int\n"
+                    "End Interface\n",
+        },
+    };
+    CHECK(errors_with("Import \"./lib/kinds\"\n"
+                      "Local k = Kind.Large\n"
+                      "Local m = Money(1) + Money(2)\n"
+                      "Function Total(s: Sized): Int => s.Size()",
+                      modules)
+              .empty());
+
+    // A modifier on one is an error.
+    CHECK(errors_of("Enum Kind\n    Public Small\nEnd Enum") ==
+          errors_t{ "Public: an Enum's members have its visibility, so they take no Public; put "
+                    "it before the Enum" });
+    CHECK(errors_of("Interface Sized\n    Public Method Size(): Int\nEnd Interface") ==
+          errors_t{ "Public: an Interface's members have its visibility, so they take no Public; "
+                    "put it before the Interface" });
+    CHECK(errors_of("Struct Money\n"
+                    "    Field Cents: Int\n"
+                    "    Public Operator +(a: Money, b: Money): Money => Money(a.Cents + b.Cents)\n"
+                    "End Struct") ==
+          errors_t{ "Public: an Operator has its type's visibility, so it takes no Public" });
+}
+
+TEST_CASE("a default an Interface gives has the Interface's visibility", "[sema]") {
+    // An Extend can give a Public type an Interface that other files can't name, and its
+    // defaults are no more theirs to call than the Interface is.
+    const std::vector<fb::library_file_t> modules{
+        {
+            .path = "lib/a.fb",
+            .text = "Interface Secret\n"
+                    "    Method Hidden(): Int => 42\n"
+                    "End Interface\n"
+                    "Public Interface Shown\n"
+                    "    Method Visible(): Int => 7\n"
+                    "End Interface\n"
+                    "Public Class C\n"
+                    "End Class\n"
+                    "Extend C Implements Secret, Shown\n"
+                    "End Extend\n"
+                    "Public Function Ask(c: C): Int => c.Hidden()\n",
+        },
+        {
+            .path = "std/extra/kept.fb",
+            .text = "Package Interface Kept\n"
+                    "    Method Inside(): Int => 1\n"
+                    "End Interface\n"
+                    "Public Class Box\n"
+                    "End Class\n"
+                    "Extend Box Implements Kept\n"
+                    "End Extend\n",
+        },
+    };
+    CHECK(errors_with("Import \"./lib/a\"\nLocal n = C().Visible() + Ask(C())", modules).empty());
+    CHECK(errors_with("Import \"./lib/a\"\nLocal n = C().Hidden()", modules) ==
+          errors_t{ "Hidden: 'Hidden' is private to lib/a.fb" });
+    CHECK(errors_with("Import std.extra\nLocal n = Box().Inside()", modules) ==
+          errors_t{ "Inside: 'Inside' is Package in std/extra/kept.fb, so only the package std can "
+                    "use it" });
+
+    // A Class extending C can't use it, so it can't override it either.
+    CHECK(errors_with("Import \"./lib/a\"\n"
+                      "Class Mine Extends C\n"
+                      "    Method Hidden(): Int => 1\n"
+                      "End Class",
+                      modules) ==
+          errors_t{ "Hidden: 'Hidden' can't override C's: 'Hidden' is private to lib/a.fb" });
+}
+
+TEST_CASE("each Interface's default is its own, and two of one name are ambiguous", "[sema]") {
+    // A type that two Interfaces give defaults of one name and types has both, and each
+    // Interface calls its own, whichever is listed first.
+    const std::string both = "Interface Sized\n"
+                             "    Method Size(): Int\n"
+                             "    Method Twice(): Int => Size() * 2\n"
+                             "End Interface\n"
+                             "Interface Doubled\n"
+                             "    Method Size(): Int\n"
+                             "    Method Twice(): Int => Size() + 100\n"
+                             "End Interface\n"
+                             "Class Box Implements Sized, Doubled\n"
+                             "    Method Size(): Int => 1\n"
+                             "End Class\n";
+    CHECK(
+        errors_of(both + "Function F(s: Sized, d: Doubled): Int => s.Twice() + d.Twice()").empty());
+
+    // So a use that can reach both is ambiguous: a call, an Override, or an Interface that
+    // would take either one.
+    const std::string_view ambiguous =
+        "'Twice' is ambiguous here: Sized and Doubled each give Box a default of it";
+    CHECK(errors_of(both + "Local n = Box().Twice()") ==
+          errors_t{ "Box().Twice: the call to 'Twice' is ambiguous" });
+    CHECK(errors_of(both + "Class Sub Extends Box\n"
+                           "    Override Method Twice(): Int => 7\n"
+                           "End Class") == errors_t{ std::format("Twice: {}", ambiguous) });
+    CHECK(errors_of(both + "Interface Wants\n"
+                           "    Method Twice(): Int\n"
+                           "End Interface\n"
+                           "Extend Box Implements Wants\n"
+                           "End Extend") == errors_t{ std::format("Wants: {}", ambiguous) });
+
+    // A type's own implements both.
+    CHECK(errors_of("Interface Sized\n"
+                    "    Method Twice(): Int => 2\n"
+                    "End Interface\n"
+                    "Interface Doubled\n"
+                    "    Method Twice(): Int => 100\n"
+                    "End Interface\n"
+                    "Class Box Implements Sized, Doubled\n"
+                    "    Method Twice(): Int => 1\n"
+                    "End Class\n"
+                    "Local n = Box().Twice()")
+              .empty());
+
+    // Where code can use only one, a call finds that one, and a private Interface's default
+    // listed first doesn't implement a Public one's in its place.
+    const std::vector<fb::library_file_t> modules{
+        {
+            .path = "lib/a.fb",
+            .text = "Interface Secret\n"
+                    "    Method Twice(): Int => 42\n"
+                    "End Interface\n"
+                    "Public Interface Shown\n"
+                    "    Method Twice(): Int => 107\n"
+                    "End Interface\n"
+                    "Public Class C\n"
+                    "End Class\n"
+                    "Extend C Implements Secret, Shown\n"
+                    "End Extend\n",
+        },
+    };
+    CHECK(errors_with("Import \"./lib/a\"\n"
+                      "Local s: Shown = C()\n"
+                      "Local n = C().Twice() + s.Twice()",
+                      modules)
+              .empty());
+    // Beside the default code can use, the private one says nothing: the usable one says why.
+    CHECK(errors_with("Import \"./lib/a\"\n"
+                      "Class Mine Extends C\n"
+                      "    Override Method Twice(): Int => 1\n"
+                      "End Class",
+                      modules) ==
+          errors_t{ "Twice: 'Twice' was added to C by an Extend, so it can't be overridden" });
+}
+
+TEST_CASE("a default a type inherits is a Method it has, which implements what it fits", "[sema]") {
+    // "<owner> <Interface>" of what implements `interface`'s Twice for `type`.
+    const auto implementer = [](const std::string& program, const std::string_view type,
+                                const std::string_view interface) {
+        const fb::compilation_t compilation = fb::compile("test.fb", program);
+        const fb::analysis_t& analysis = compilation.analysis;
+        INFO(program);
+        CHECK(compilation.diagnostics.diagnostics().empty());
+        for (const fb::conformance_t& conformance : analysis.conformances) {
+            if (analysis.types.name(conformance.type) == type &&
+                analysis.types.name(conformance.interface) == interface) {
+                const fb::symbol_t& twice = analysis.symbol(conformance.members.at(1));
+                return std::format("{} {}", analysis.types.name(twice.owner),
+                                   analysis.types.name(twice.default_interface));
+            }
+        }
+
+        return std::string();
+    };
+    const std::string interfaces = "Interface Sized\n"
+                                   "    Method Size(): Int\n"
+                                   "    Method Twice(): Int => Size() * 2\n"
+                                   "End Interface\n"
+                                   "Interface Doubled\n"
+                                   "    Method Size(): Int\n"
+                                   "    Method Twice(): Int => Size() + 100\n"
+                                   "End Interface\n";
+
+    // What a Class has from the Class it extends, or an instance from its generic type, beats
+    // the Interface's default, so an Override overrides it for both Interfaces.
+    const std::string base = interfaces + "Class Base Implements Sized\n"
+                                          "    Method Size(): Int => 1\n"
+                                          "End Class\n";
+    CHECK(implementer(base + "Class Sub Extends Base Implements Doubled\nEnd Class", "Sub",
+                      "Doubled") == "Base Sized");
+    CHECK(implementer(base + "Class Sub Extends Base\n"
+                             "End Class\n"
+                             "Extend Sub Implements Doubled\n"
+                             "End Extend",
+                      "Sub", "Doubled") == "Base Sized");
+    CHECK(implementer(interfaces + "Class Box<T> Implements Sized\n"
+                                   "    Method Size(): Int => 1\n"
+                                   "End Class\n"
+                                   "Extend Box<Int> Implements Doubled\n"
+                                   "End Extend",
+                      "Box<Int32>", "Doubled") == "Box<T> Sized");
+    CHECK(errors_of(base + "Class Sub Extends Base Implements Doubled\n"
+                           "End Class\n"
+                           "Class Third Extends Sub\n"
+                           "    Override Method Twice(): Int => 7\n"
+                           "End Class\n"
+                           "Local n = Sub().Twice() + Third().Twice()")
+              .empty());
+
+    // Of two the Class it extends has, the Interface's own is its.
+    CHECK(implementer(interfaces + "Class Base Implements Sized, Doubled\n"
+                                   "    Method Size(): Int => 1\n"
+                                   "End Class\n"
+                                   "Class Sub Extends Base Implements Doubled\n"
+                                   "End Class",
+                      "Sub", "Doubled") == "Base Doubled");
+
+    // A Method the type has, or inherits, with a default's parameters and another result holds
+    // its place, so it doesn't match.
+    const auto mismatch = [](const std::string_view type) {
+        return std::format(
+            "Sized: {}'s 'Twice' doesn't match Sized's, which takes () and returns Int32", type);
+    };
+    CHECK(errors_of("Interface Sized\n"
+                    "    Method Twice(): Int => 2\n"
+                    "End Interface\n"
+                    "Class Box Implements Sized\n"
+                    "    Method Twice(): String => \"own\"\n"
+                    "End Class") == errors_t{ mismatch("Box") });
+    CHECK(errors_of("Interface Sized\n"
+                    "    Method Twice(): Int => 2\n"
+                    "End Interface\n"
+                    "Class Base\n"
+                    "    Method Twice(): String => \"base\"\n"
+                    "End Class\n"
+                    "Class Sub Extends Base Implements Sized\n"
+                    "End Class") == errors_t{ mismatch("Sub") });
+
+    // Overloads that an instance gives the same types aren't two defaults: an Override
+    // overrides the first.
+    CHECK(errors_of("Class Base<T>\n"
+                    "    Method Put(x: T): String => \"generic\"\n"
+                    "    Method Put(x: Int): String => \"int\"\n"
+                    "End Class\n"
+                    "Class Sub Extends Base<Int>\n"
+                    "    Override Method Put(x: Int): String => \"sub\"\n"
+                    "End Class\n"
+                    "Local s: String = Sub().Put(1)")
+              .empty());
+}
+
+TEST_CASE("an Interface's member like one of an Interface it extends takes its place", "[sema]") {
+    // Doubled's Twice redeclares Sized's, so its default is what a type gets for both, whichever
+    // is listed first, and a call through either, or on a type parameter, means one member.
+    const std::string refined = "Interface Sized\n"
+                                "    Method Size(): Int\n"
+                                "    Method Twice(): Int => Size() * 2\n"
+                                "End Interface\n"
+                                "Interface Doubled Extends Sized\n"
+                                "    Method Twice(): Int => Size() + 100\n"
+                                "End Interface\n";
+    const auto implementer = [](const std::string& program) {
+        const fb::compilation_t compilation = fb::compile("test.fb", program);
+        const fb::analysis_t& analysis = compilation.analysis;
+        INFO(program);
+        CHECK(compilation.diagnostics.diagnostics().empty());
+        for (const fb::conformance_t& conformance : analysis.conformances) {
+            if (analysis.types.name(conformance.type) == "Box" &&
+                analysis.types.name(conformance.interface) == "Sized") {
+                const fb::symbol_t& twice = analysis.symbol(conformance.members.at(1));
+                return std::string(analysis.types.name(twice.default_interface));
+            }
+        }
+
+        return std::string();
+    };
+    const std::string_view box = "    Method Size(): Int => 1\n"
+                                 "End Class\n";
+    CHECK(implementer(std::format("{}Class Box Implements Doubled\n{}", refined, box)) ==
+          "Doubled");
+    CHECK(implementer(std::format("{}Class Box Implements Sized, Doubled\n{}", refined, box)) ==
+          "Doubled");
+    CHECK(errors_of(std::format("{}Class Box Implements Doubled\n{}"
+                                "Function D(d: Doubled): Int => d.Twice()\n"
+                                "Function G<T: Doubled>(t: T): Int => t.Twice()\n"
+                                "Function H<T: Sized & Doubled>(t: T): Int => t.Twice()\n"
+                                "Local n = Box().Twice() + D(Box()) + G(Box()) + H(Box())",
+                                refined, box))
+              .empty());
+
+    // An Operator too, like an Interface extending Comparable that gives its own >.
+    const std::string_view ordered = "Interface Ordered Extends Comparable\n"
+                                     "    Operator >(a: Self, b: Self): Bool => True\n"
+                                     "End Interface\n";
+    const std::string_view point = "    Field n: Int\n"
+                                   "    Operator <(a: P, b: P): Bool => a.n < b.n\n"
+                                   "End Struct\n";
+    CHECK(errors_of(std::format("{}Struct P Implements Comparable, Ordered\n{}"
+                                "Function Big<T: Ordered>(a: T, b: T): Bool => a > b\n"
+                                "Local b = P(2) > P(1) && Big(P(1), P(2))",
+                                ordered, point))
+              .empty());
+
+    // Two Interfaces that each redeclare it give a type two defaults for the one they extend.
+    CHECK(errors_of(std::format("{}"
+                                "Interface Reversed Extends Comparable\n"
+                                "    Operator >(a: Self, b: Self): Bool => False\n"
+                                "End Interface\n"
+                                "Struct P Implements Ordered, Reversed\n{}",
+                                ordered, point)) ==
+          errors_t{ "Ordered: '>' is ambiguous here: Ordered and Reversed each give P a default of "
+                    "it" });
+
+    // In a default, a member of an Interface it extends used by name has this one's Self, with
+    // the type arguments it extends that one with.
+    CHECK(errors_of("Interface Shown<T>\n"
+                    "    ReadOnly Property Item: T\n"
+                    "    Method Get(): T\n"
+                    "End Interface\n"
+                    "Interface Damageable Extends Shown<String>\n"
+                    "    Method Describe(): String => \"hurt {Item} {Get()}\"\n"
+                    "    Method Size(): Int => Get().Chars.Count + Item.Chars.Count\n"
+                    "End Interface")
+              .empty());
+}
+
+TEST_CASE("a default Operator an Interface gives has the Interface's visibility, except ==",
+          "[sema]") {
+    // Code that can't name Ordered can't use its >, on a Public P either. Its == is what == means
+    // for P everywhere, as inside the Structs and arrays that hold one.
+    const std::string ordered = "Interface Ordered\n"
+                                "    Method Key(): Int\n"
+                                "    Operator >(a: Self, b: Self): Bool => a.Key() > b.Key()\n"
+                                "    Operator ==(a: Self, b: Self): Bool => a.Key() == b.Key()\n"
+                                "End Interface\n"
+                                "Public Struct P\n"
+                                "    Public Field n: Int\n"
+                                "End Struct\n"
+                                "Extend P Implements Ordered\n"
+                                "    Method Key(): Int => n\n"
+                                "End Extend\n";
+    const std::vector<fb::library_file_t> modules{
+        {
+            .path = "lib/a.fb",
+            .text = ordered + "Public Function Bigger(a: P, b: P): Bool => a > b\n",
+        },
+    };
+    CHECK(errors_with("Import \"./lib/a\"\n"
+                      "Local x = P(1) == P(2) || P(1) != P(2) || [P(1)].Contains(P(1))\n"
+                      "Local y = Bigger(P(1), P(2))",
+                      modules)
+              .empty());
+    CHECK(errors_with("Import \"./lib/a\"\nLocal x = P(5) > P(2)", modules) ==
+          errors_t{ "P(5) > P(2): Operator > is private to lib/a.fb" });
+
+    // Nor does the > it can't use implement Comparable's for an Extend in another file, which
+    // takes Comparable's own.
+    const std::vector<fb::library_file_t> alone{ { .path = "lib/a.fb", .text = ordered } };
+    CHECK(errors_with("Import \"./lib/a\"\n"
+                      "Extend P Implements Comparable\n"
+                      "    Operator <(a: P, b: P): Bool => a.n < b.n\n"
+                      "End Extend\n"
+                      "Local x = P(5) > P(2)",
+                      alone)
+              .empty());
+}
+
+TEST_CASE("what implements an Interface's member is called through the Interface anywhere",
+          "[sema]") {
+    const std::vector<fb::library_file_t> modules{
+        {
+            .path = "lib/quiet.fb",
+            .text = "Public Interface Shown\n"
+                    "    Method Show(): String\n"
+                    "End Interface\n"
+                    "Public Class Quiet Implements Shown\n"
+                    "    Method Show(): String => \"quiet\"\n"
+                    "End Class\n"
+                    "Public Function Make(): Quiet => Quiet()\n",
+        },
+    };
+    const std::string_view import = "Import \"./lib/quiet\"\n";
+    CHECK(errors_with(std::format("{}"
+                                  "Local s: Shown = Make()\n"
+                                  "Local text = s.Show()\n"
+                                  "Function Twice<T: Shown>(value: T): String => value.Show()\n"
+                                  "Local again = Twice(Make())",
+                                  import),
+                      modules)
+              .empty());
+    CHECK(errors_with(std::format("{}Local text = Make().Show()", import), modules) ==
+          errors_t{ "Show: 'Show' is private to lib/quiet.fb" });
+}
+
+TEST_CASE("std's helpers are its own", "[sema]") {
+    const std::string_view import = "Import std.collections\n";
+    CHECK(
+        errors_of(std::format("{}"
+                              "Local xs = [3, 1, 2]\n"
+                              "xs.Sort()\n"
+                              "MergeSort(xs, xs.Clone(), 0, 3, Function(a: Int, b: Int) => a < b)",
+                              import)) ==
+        errors_t{ "MergeSort: 'MergeSort' is private to std/collections/array.fb" });
+    CHECK(errors_of(std::format("{}"
+                                "Local m = Map<Int, Int>()\n"
+                                "m.Add(1, 2)\n"
+                                "m.Grow()\n"
+                                "Local n = m.Entries.Count + m.IndexOf(1, 0)",
+                                import)) ==
+          errors_t{
+              "Grow: 'Grow' is private to std/collections/map.fb",
+              "Entries: 'Entries' is private to std/collections/map.fb",
+              "IndexOf: 'IndexOf' is private to std/collections/map.fb",
+          });
+    CHECK(errors_of(std::format("{}Local s = Stack<Int>()\nLocal n = s.Items.Count", import)) ==
+          errors_t{ "Items: 'Items' is private to std/collections/stack.fb" });
+}
+
+TEST_CASE("visibility is checked where code is written", "[sema]") {
+    // A Public generic Function's code uses its module's own helpers for each type it's called
+    // with, and a loop over a type's Fields goes over its private ones too.
+    const std::vector<fb::library_file_t> modules{
+        {
+            .path = "lib/sum.fb",
+            .text = "Public Function Sum<T: Numeric>(items: T[]): T\n"
+                    "    Local total = T.Zero()\n"
+                    "    For item In items\n"
+                    "        total = Add(total, item)\n"
+                    "    End For\n"
+                    "    Return total\n"
+                    "End Function\n"
+                    "Function Add<T: Numeric>(a: T, b: T): T => a + b\n"
+                    "Public Struct Pair\n"
+                    "    Public Field A: Int = 1\n"
+                    "    Field B: Int = 2\n"
+                    "End Struct\n",
+        },
+    };
+    CHECK(errors_with("Import \"./lib/sum\"\n"
+                      "Local n = Sum([1, 2, 3])\n"
+                      "Local f = Sum([1.5, 2.5])\n"
+                      "Function Names<T>(): String\n"
+                      "    Local text = \"\"\n"
+                      "    For Field f In T\n"
+                      "        text = text + f.Name\n"
+                      "    End For\n"
+                      "    Return text\n"
+                      "End Function\n"
+                      "Local names = Names<Pair>()",
+                      modules)
+              .empty());
+}
+
+TEST_CASE("an attribute is used where its Attribute is visible", "[sema]") {
+    const std::vector<fb::library_file_t> modules{
+        {
+            .path = "lib/tags.fb",
+            .text = "Public Attribute Shown(Label: String = \"\")\nAttribute Hidden()\n",
+        },
+    };
+    CHECK(errors_with("Import \"./lib/tags\"\n"
+                      "Struct S\n"
+                      "    @Shown(\"x\") Field a: Int\n"
+                      "End Struct\n"
+                      "Function Label<T>(): String\n"
+                      "    For Field f In T\n"
+                      "        Local shown = f.Attribute(Shown)\n"
+                      "        If shown != Null Then Return shown.Label\n"
+                      "    End For\n"
+                      "    Return \"\"\n"
+                      "End Function\n"
+                      "Local label = Label<S>()",
+                      modules)
+              .empty());
+    CHECK(errors_with("Import \"./lib/tags\"\n@Hidden\nFunction F()\nEnd Function", modules) ==
+          errors_t{ "Hidden: 'Hidden' is private to lib/tags.fb" });
+}
+
+TEST_CASE("a Local or a block's Const takes no visibility", "[sema]") {
+    CHECK(errors_of("Function F()\n    Public Local x = 1\nEnd Function") ==
+          errors_t{ "Public: a Local is only its own code's, so it takes no Public; a top-level "
+                    "Global or Const can" });
+    CHECK(errors_of("Function F(): Int\n"
+                    "    Public Const X = 1\n"
+                    "    Protected Const Y = 2\n"
+                    "    @Deprecated Const Z = 3\n"
+                    "    Return X + Y + Z\n"
+                    "End Function") ==
+          errors_t{
+              "Public: a Const in a block is only its own code's, so it takes no Public; a "
+              "top-level Global or Const can",
+              "Protected: Protected only goes before a Class's members, which the Classes "
+              "extending it can use",
+              "Z: a Const in a block can't be @Deprecated, since only its own code uses it",
+          });
+    CHECK(errors_of("Protected Local x = 1") ==
+          errors_t{ "Protected: Protected only goes before a Class's members, which the Classes "
+                    "extending it can use" });
+
+    // A top-level one can.
+    CHECK(errors_of("Public Const X = 1\nPackage Global y = 2\nLocal z = X + y").empty());
+}
+
+TEST_CASE("a conditional Method isn't in the Method table, so it can't be overridden", "[sema]") {
+    const std::string_view base = "Class Base<T>\n"
+                                  "    Method Seal(): Int\n"
+                                  "        Where T: Hashable\n"
+                                  "        Return 3\n"
+                                  "    End Method\n"
+                                  "End Class\n";
+    const std::string_view message =
+        "'Seal' is a conditional Method of Base<T>, which only some of its instances have, so it "
+        "isn't in the Method table and can't be overridden; give this one another name";
+    CHECK(errors_of(std::format("{}Class IntSub Extends Base<Int>\n"
+                                "    Override Method Seal(): Int => 7\n"
+                                "End Class",
+                                base)) == errors_t{ std::format("Seal: {}", message) });
+    CHECK(errors_of(std::format("{}Class IntSub Extends Base<Int>\n"
+                                "    Method Seal(): Int => 7\n"
+                                "End Class",
+                                base)) == errors_t{ std::format("Seal: {}", message) });
+    CHECK(errors_of(std::format("{}Class Sub<T> Extends Base<T>\n"
+                                "    Override Method Seal(): Int\n"
+                                "        Where T: Hashable\n"
+                                "        Return 7\n"
+                                "    End Method\n"
+                                "End Class",
+                                base)) == errors_t{ std::format("Seal: {}", message) });
+
+    // An instance that never has it, like Base<Rock>, leaves its name free.
+    CHECK(errors_of(std::format("{}Class Rock\nEnd Class\n"
+                                "Class RockSub Extends Base<Rock>\n"
+                                "    Method Seal(): Int => 7\n"
+                                "End Class",
+                                base))
+              .empty());
+}
+
+TEST_CASE("a Const Function whose body didn't parse doesn't run in the compiler", "[sema]") {
+    CHECK(errors_of("Const Function F(n: Int): Int\n"
+                    "    Public\n"
+                    "    Return n\n"
+                    "End Function\n"
+                    "Const k = F(2)") ==
+          errors_t{ "Public: Public only goes before a declaration, like a Function or a Field" });
+    CHECK(errors_of("Const Function F(n: Int): Int\n"
+                    "    Return n +\n"
+                    "End Function\n"
+                    "Const k = F(2)") ==
+          errors_t{ "End: expected an expression, found 'End Function'" });
+}
+
+TEST_CASE("an Abstract member has its Class's visibility, and an Override can't narrow a default",
+          "[sema]") {
+    const std::vector<fb::library_file_t> modules{
+        {
+            .path = "lib/shape.fb",
+            .text = "Public Abstract Class Shape\n"
+                    "    Abstract Method Area(): Int\n"
+                    "    Abstract Property Sides: Int\n"
+                    "    Protected Abstract Method Plan(): Int\n"
+                    "End Class\n"
+                    "Public Abstract Class Sealed\n"
+                    "    Private Abstract Method Inside(): Int\n"
+                    "End Class\n"
+                    "Public Interface Doubled\n"
+                    "    Method Twice(): Int => 2\n"
+                    "End Interface\n"
+                    "Public Class Ruler Implements Doubled\n"
+                    "End Class\n",
+        },
+    };
+    const std::string_view import = "Import \"./lib/shape\"\n";
+
+    // Another file completes a Public Abstract Class without saying the members' visibility.
+    CHECK(errors_with(std::format("{}"
+                                  "Class Square Extends Shape\n"
+                                  "    Override Method Area(): Int => 4\n"
+                                  "    Override Property Sides: Int\n"
+                                  "        Get => 4\n"
+                                  "        Set(value)\n"
+                                  "        End Set\n"
+                                  "    End Property\n"
+                                  "    Override Method Plan(): Int => 1\n"
+                                  "End Class\n"
+                                  "Local s: Shape = Square()\n"
+                                  "Local a = s.Area() + s.Sides",
+                                  import),
+                      modules)
+              .empty());
+
+    // A Private Abstract member keeps the Classes that complete it in its file.
+    CHECK(errors_with(std::format("{}Class Mine Extends Sealed\nEnd Class", import), modules) ==
+          errors_t{ "Mine: Mine has to be Abstract: it can't override Sealed's Abstract Method "
+                    "'Inside', since 'Inside' is private to lib/shape.fb" });
+
+    // A default an Interface gives is no exception to the narrowing rule.
+    CHECK(errors_with(std::format("{}"
+                                  "Class Mine Extends Ruler\n"
+                                  "    Private Override Method Twice(): Int => 99\n"
+                                  "End Class",
+                                  import),
+                      modules) ==
+          errors_t{ "Twice: 'Twice' is Private, so it can't override Ruler's, which is Public" });
+}
+
+TEST_CASE("the signature rule covers every part a Public declaration shows", "[sema]") {
+    const std::vector<fb::library_file_t> modules{
+        {
+            .path = "lib/shapes.fb",
+            .text = "Class Hidden\n"
+                    "End Class\n"
+                    "Interface Face\n"
+                    "End Interface\n"
+                    "Class Oops Extends Error\n"
+                    "End Class\n"
+                    "Public Function Risky() Throws Oops\n"
+                    "End Function\n"
+                    "Public Function Pick<T>(x: T)\n"
+                    "    Where T: Face\n"
+                    "End Function\n"
+                    "Public Interface Wide Extends Face\n"
+                    "End Interface\n"
+                    "Public Struct P\n"
+                    "    Public Field n: Int\n"
+                    "End Struct\n"
+                    "Extend P\n"
+                    "    Public Method Make(): Hidden? => Null\n"
+                    "End Extend\n"
+                    "Public Class Saver\n"
+                    "    Public Static Field Saved: Hidden? = Null\n"
+                    "    Public Property Item: Hidden?\n"
+                    "        Get => Null\n"
+                    "    End Property\n"
+                    "End Class\n",
+        },
+    };
+    const std::string_view lib = "lib/shapes.fb";
+    CHECK(errors_with("Import \"./lib/shapes\"", modules) ==
+          errors_t{
+              std::format("{0}: Risky: 'Risky' is Public, but it throws Oops, which is private to "
+                          "{0}",
+                          lib),
+              std::format("{0}: Pick: 'Pick' is Public, but it needs Face, which is private to {0}",
+                          lib),
+              std::format("{0}: Wide: 'Wide' is Public, but it extends Face, which is private to "
+                          "{0}",
+                          lib),
+              std::format("{0}: Make: 'Make' is Public, but it gives Hidden, which is private to "
+                          "{0}",
+                          lib),
+              std::format("{0}: Saved: 'Saved' is Public, but it holds Hidden, which is private to "
+                          "{0}",
+                          lib),
+              std::format("{0}: Item: 'Item' is Public, but it holds Hidden, which is private to "
+                          "{0}",
+                          lib),
+          });
+
+    // What an Extend adds is seen no further than the type it's added to: an instance or an
+    // array of a Private type is its file's.
+    const std::vector<fb::library_file_t> boxes{
+        {
+            .path = "lib/box.fb",
+            .text = "Class Secret\n"
+                    "End Class\n"
+                    "Public Class Box<T>\n"
+                    "End Class\n"
+                    "Extend Box<Secret>\n"
+                    "    Public Method M(): Secret? => Null\n"
+                    "End Extend\n"
+                    "Extend Secret[]\n"
+                    "    Public Method N(): Secret? => Null\n"
+                    "End Extend\n",
+        },
+    };
+    CHECK(errors_with("Import \"./lib/box\"", boxes).empty());
+}
+
+TEST_CASE("an Extend's members have visibility across modules", "[sema]") {
+    const std::vector<fb::library_file_t> modules{
+        {
+            .path = "lib/a.fb",
+            .text = "Public Struct P\n"
+                    "    Public Field n: Int\n"
+                    "End Struct\n"
+                    "Extend P\n"
+                    "    Method Hidden(): Int => 1\n"
+                    "    Static Method Make(): P => P(1)\n"
+                    "    Property Twice: Int\n"
+                    "        Get => n * 2\n"
+                    "    End Property\n"
+                    "End Extend\n"
+                    "Extend Int\n"
+                    "    Method Triple(): Int => Self * 3\n"
+                    "End Extend\n"
+                    "Public Class Base\n"
+                    "    Public New()\n"
+                    "    End New\n"
+                    "    Method Size(): Int => 1\n"
+                    "End Class\n",
+        },
+    };
+    const std::string_view import = "Import \"./lib/a\"\n";
+    CHECK(errors_with(std::format("{}Local p = P(1)\nLocal a = p.Hidden()", import), modules) ==
+          errors_t{ "Hidden: 'Hidden' is private to lib/a.fb" });
+    CHECK(errors_with(std::format("{}Local p = P.Make()", import), modules) ==
+          errors_t{ "Make: 'Make' is private to lib/a.fb" });
+    CHECK(errors_with(std::format("{}Local p = P(1)\nLocal a = p.Twice", import), modules) ==
+          errors_t{ "Twice: 'Twice' is private to lib/a.fb" });
+    CHECK(errors_with(std::format("{}Local a = 5.Triple()", import), modules) ==
+          errors_t{ "Triple: 'Triple' is private to lib/a.fb" });
+
+    // The code that lists an Interface has to be able to use what implements it.
+    CHECK(errors_with(std::format("{}Interface Sized\n"
+                                  "    Method Size(): Int\n"
+                                  "End Interface\n"
+                                  "Extend Base Implements Sized\n"
+                                  "End Extend",
+                                  import),
+                      modules) ==
+          errors_t{ "Sized: Base implements Sized, so it needs a Method 'Size'; 'Size' is private "
+                    "to lib/a.fb" });
+
+    // Importing a module helps only where its member is one the code could use.
+    const std::vector<fb::library_file_t> hinted{
+        {
+            .path = "lib/b.fb",
+            .text = "Extend Int\n"
+                    "    Method Twice(): Int => Self * 2\n"
+                    "End Extend\n",
+        },
+        {
+            .path = "lib/c.fb",
+            .text = "Import \"./b\"\n",
+        },
+    };
+    CHECK(errors_with("Import \"./lib/c\"\nLocal a = 5.Twice()", hinted) ==
+          errors_t{ "Twice: Int32 has no member named 'Twice'" });
+}
+
+TEST_CASE("a Const type argument that the code can't use says so", "[sema]") {
+    const std::vector<fb::library_file_t> modules{
+        {
+            .path = "lib.fb",
+            .text = "Const N: Int = 3\n"
+                    "Public Class Sized<Const S: Int>\n"
+                    "    Public New()\n"
+                    "    End New\n"
+                    "End Class\n",
+        },
+    };
+    CHECK(errors_with("Import \"./lib\"\nLocal s = Sized<N>()", modules) ==
+          errors_t{ "N: 'N' is private to lib.fb" });
+    CHECK(errors_with("Import \"./lib\"\nLocal s: Sized<lib.N>? = Null", modules) ==
+          errors_t{ "lib.N: 'N' is private to lib.fb" });
+}
+
+TEST_CASE("the News a Class takes are no more visible than its base's", "[sema]") {
+    const std::vector<fb::library_file_t> modules{
+        {
+            .path = "lib.fb",
+            .text = "Class Secret\n"
+                    "End Class\n"
+                    "Public Class Base\n"
+                    "    New(s: Secret?)\n"
+                    "    End New\n"
+                    "    Public New(n: Int)\n"
+                    "    End New\n"
+                    "End Class\n"
+                    "Public Class Sub Extends Base\n"
+                    "End Class\n",
+        },
+    };
+    CHECK(errors_with("Import \"./lib\"\nLocal s = Sub(Null)", modules) ==
+          errors_t{
+              "Sub: Sub's New is private to lib.fb",
+              "Null: Null needs a type from where it's used, like 'Local e: Enemy? = Null'",
+          });
+    CHECK(errors_with("Import \"./lib\"\nLocal s = Sub(3)", modules).empty());
+}
+
+TEST_CASE("a Method the code can't use hides nothing above it", "[sema]") {
+    const std::vector<fb::library_file_t> modules{
+        {
+            .path = "lib/a.fb",
+            .text = "Public Class Base\n"
+                    "    Public New()\n"
+                    "    End New\n"
+                    "End Class\n",
+        },
+        {
+            .path = "lib/b.fb",
+            .text = "Import \"./a\"\n"
+                    "Public Class Sub Extends Base\n"
+                    "    Method Foo(): String => \"sub\"\n"
+                    "End Class\n",
+        },
+        {
+            .path = "lib/c.fb",
+            .text = "Import \"./a\"\n"
+                    "Extend Base\n"
+                    "    Public Method Foo(): Int => 42\n"
+                    "End Extend\n",
+        },
+    };
+    CHECK(errors_with("Import \"./lib/a\"\n"
+                      "Import \"./lib/b\"\n"
+                      "Import \"./lib/c\"\n"
+                      "Local n: Int = Sub().Foo()",
+                      modules)
+              .empty());
+}
+
+TEST_CASE("what an Extend's listing gives is the Extend's, and a default is checked like a "
+          "Method written there",
+          "[sema]") {
+    const std::vector<fb::library_file_t> modules{
+        {
+            .path = "lib/a.fb",
+            .text = "Public Interface Doubled\n"
+                    "    Method Twice(): Int => 200\n"
+                    "End Interface\n"
+                    "Public Class Base\n"
+                    "    Public New()\n"
+                    "    End New\n"
+                    "    Protected Method Twice(): Int => 2\n"
+                    "    Public Method UseTwice(): Int => Twice()\n"
+                    "End Class\n",
+        },
+    };
+    // A default another file's Extend gives doesn't clash with the type's own code.
+    CHECK(errors_with("Import \"./lib/a\"\n"
+                      "Extend Base Implements Doubled\n"
+                      "End Extend\n"
+                      "Local b = Base()\n"
+                      "Local d: Doubled = b\n"
+                      "Local n = b.UseTwice() + d.Twice()",
+                      modules)
+              .empty());
+
+    // A default named like an inherited Field, or beside a Method the Class can't override.
+    CHECK(errors_of("Interface Doubled\n"
+                    "    Method Twice(): Int => 200\n"
+                    "End Interface\n"
+                    "Class Base\n"
+                    "    Field Twice: Int = 2\n"
+                    "End Class\n"
+                    "Class Sub Extends Base Implements Doubled\n"
+                    "End Class") ==
+          errors_t{ "Doubled: Sub takes Doubled's default 'Twice', but 'Twice' is already "
+                    "declared in Base" });
+    CHECK(errors_with("Import \"./lib/b\"\n"
+                      "Interface Doubled\n"
+                      "    Method Twice(): Int => 200\n"
+                      "End Interface\n"
+                      "Class Sub Extends Base Implements Doubled\n"
+                      "End Class",
+                      { {
+                          .path = "lib/b.fb",
+                          .text = "Public Class Base\n"
+                                  "    Method Twice(): Int => 2\n"
+                                  "End Class\n",
+                      } }) ==
+          errors_t{ "Doubled: Sub takes Doubled's default 'Twice', which would be a second Method "
+                    "of its name and parameters beside Base's, which it can't override, since "
+                    "'Twice' is private to lib/b.fb" });
+}
+
+TEST_CASE("two Interfaces' default Operator ==s make == on a type ambiguous everywhere", "[sema]") {
+    const std::string_view interfaces =
+        "Interface Keyed\n"
+        "    Method Key(): Int\n"
+        "    Operator ==(a: Self, b: Self): Bool => a.Key() == b.Key()\n"
+        "End Interface\n"
+        "Interface Alike\n"
+        "    Operator ==(a: Self, b: Self): Bool => False\n"
+        "End Interface\n";
+    const std::string_view message = "Box takes Operator == from both Alike and Keyed, so == on it "
+                                     "is ambiguous; give it an Operator == of its own";
+    CHECK(errors_of(std::format("{}Struct Box Implements Alike, Keyed\n"
+                                "    Field n: Int\n"
+                                "    Method Key(): Int => n\n"
+                                "End Struct\n"
+                                "Local a = Box(1) == Box(1)\n"
+                                "Local b = [Box(1)].Contains(Box(1))\n"
+                                "Local c = (Box(1), 0) == (Box(1), 0)",
+                                interfaces)) == errors_t{ std::format("Box: {}", message) });
+
+    // Listing Equatable or Hashable too doesn't report it again.
+    CHECK(errors_of(std::format("{}Struct Box Implements Alike, Keyed, Equatable\n"
+                                "    Field n: Int\n"
+                                "    Method Key(): Int => n\n"
+                                "End Struct\n"
+                                "Function Same<T: Equatable>(a: T, b: T): Bool => a == b\n"
+                                "Local a = Same(Box(1), Box(1))",
+                                interfaces)) == errors_t{ std::format("Box: {}", message) });
+    CHECK(errors_of(std::format("{}Struct Box Implements Alike, Keyed, Hashable\n"
+                                "    Field n: Int\n"
+                                "    Method Key(): Int => n\n"
+                                "    Method Hash(): UInt64 => 0\n"
+                                "End Struct",
+                                interfaces)) == errors_t{ std::format("Box: {}", message) });
+
+    // Its own Operator == settles it.
+    CHECK(errors_of(std::format("{}Struct Box Implements Alike, Keyed\n"
+                                "    Field n: Int\n"
+                                "    Method Key(): Int => n\n"
+                                "    Operator ==(a: Box, b: Box): Bool => a.n == b.n\n"
+                                "End Struct\n"
+                                "Local a = [Box(1)].Contains(Box(1))",
+                                interfaces))
+              .empty());
+}
+
+TEST_CASE("a hint names only std modules whose names the code could use", "[sema]") {
+    CHECK(errors_of("Local s = Stack<Int>()") ==
+          errors_t{ "Stack<Int>: 'Stack' is in std.collections, which this file doesn't import" });
+    CHECK(errors_of("Local a = MergeSort([3, 1])") ==
+          errors_t{ "MergeSort: 'MergeSort' isn't declared" });
+}
+
+TEST_CASE("a visibility error labels the declaration, and a constructor's least visible Field",
+          "[sema]") {
+    std::vector<fb::library_file_t> files =
+        fb::standard_library().value_or(std::vector<fb::library_file_t>{});
+    files.push_back({
+        .path = "lib.fb",
+        .text = "Public Struct Handle\n"
+                "    Public Field Index: Int\n"
+                "    Field Generation: Int\n"
+                "End Struct\n"
+                "Public Function Visible()\n"
+                "End Function\n"
+                "Function Hidden()\n"
+                "End Function\n",
+    });
+    const fb::compilation_t compilation =
+        fb::compile("test.fb", "Import \"./lib\"\nLocal h = Handle(1, 2)\nHidden()", files);
+    const std::vector<fb::diagnostic_t>& diagnostics = compilation.diagnostics.diagnostics();
+    REQUIRE(diagnostics.size() == 2);
+    const auto label_text = [&](const fb::diagnostic_t& diagnostic) {
+        REQUIRE(diagnostic.labels.size() == 1);
+        const fb::span_t span = diagnostic.labels.front().span;
+        return std::string(compilation.sources.get(span.file).slice(span));
+    };
+    CHECK(diagnostics[0].message ==
+          "Handle's constructor takes its Fields, and 'Generation' is private to lib.fb");
+    CHECK(label_text(diagnostics[0]) == "Generation");
+    CHECK(diagnostics[1].message == "'Hidden' is private to lib.fb");
+    CHECK(label_text(diagnostics[1]) == "Hidden");
+}
+
+TEST_CASE("a Callback is a Function of exactly its types, or a lambda that captures nothing",
+          "[sema]") {
+    // A function value is a closure, which C can't call, whatever it holds.
+    CHECK(errors_of("Function Twice(n: Int32): Int32 => n * 2\n"
+                    "Local held: Func(Int32): Int32 = Twice\n"
+                    "Local c: Callback(Int32): Int32 = held") ==
+          errors_t{ "held: expected Callback(Int32): Int32, found Func(Int32): Int32, a function "
+                    "value, which C can't call; a Callback is a Function's name or a lambda that "
+                    "captures nothing, written where it's expected" });
+    CHECK(errors_of("Function Twice(n: Int32): Int32 => n * 2\n"
+                    "Local a: Callback(Int32): Int32 = Twice\n"
+                    "Local b: Callback(Int32): Int32 = Function(n: Int32): Int32 => n + 1\n"
+                    "Local c: Callback(Int32) = Null\n"
+                    "Unsafe\n"
+                    "    Local d = a(1) + b(2)\n"
+                    "End Unsafe\n"
+                    "Print(\"{a == b} {c == Null}\")\n")
+              .empty());
+    CHECK(errors_of("Function Wide(n: Int64): Int64 => n\n"
+                    "Function Pick<T>(n: Int32): Int32 => n\n"
+                    "Async Function Later(n: Int32): Int32 => n\n"
+                    "Function Fail(n: Int32): Int32 Throws Error\n"
+                    "    Return n\n"
+                    "End Function\n"
+                    "Unsafe Function Risky(n: Int32): Int32 => n\n"
+                    "Local base = 3\n"
+                    "Local a: Callback(Int32): Int32 = Wide\n"
+                    "Local b: Callback(Int32): Int32 = Pick\n"
+                    "Local c: Callback(Int32): Int32 = Later\n"
+                    "Local d: Callback(Int32): Int32 = Fail\n"
+                    "Local e: Callback(Int32): Int32 = Risky\n"
+                    "Local f: Callback(Int32): Int32 = Function(n: Int32): Int32 => n + base\n"
+                    "Local g: Callback(Int32): Int32 = Function(n: Int64): Int32 => 1\n") ==
+          errors_t{
+              std::string("Wide: 'Wide' is Func(Int64): Int64, not Callback(Int32): Int32; a "
+                          "Callback takes a Function of exactly its types"),
+              std::string("Pick: 'Pick' is generic, so it can't be a Callback, which C calls with "
+                          "one set of types"),
+              std::string("Later: 'Later' is Async, so it can't be a Callback"),
+              std::string("Fail: 'Fail' can throw, so it can't be a Callback, since C has no "
+                          "errors to catch"),
+              std::string("Risky: 'Risky' is Unsafe, so it can't be a Callback, since C calls it "
+                          "without Unsafe code"),
+              std::string("Function(n: Int32): Int32 => n + base: a Callback's lambda can't use "
+                          "'base' from around it, since C passes it only its arguments; a "
+                          "Ptr<Void> C passes along can carry what it needs"),
+              std::string("Function(n: Int64): Int32 => 1: this lambda is Func(Int64): Int32, not "
+                          "Callback(Int32): Int32; a Callback takes a lambda of exactly its types"),
+          });
+
+    // It takes and gives what C can, is Null already, and only Unsafe code calls it.
+    CHECK(errors_of("Local g: Callback(String): Int32 = Null\n"
+                    "Local h: Callback(Int32)? = Null\n"
+                    "Function Twice(n: Int32): Int32 => n * 2\n"
+                    "Local i: Callback(Int32): Int32 = Twice\n"
+                    "Print(\"{i(2)}\")\n") ==
+          errors_t{
+              std::string("String: a Callback takes and gives what C can: numbers, Bools, Enums, "
+                          "CStrings, Ptrs, and Callbacks, and a Struct through a Ptr, not String"),
+              std::string("Callback(Int32)?: Callback(Int32) can be Null already, as C's NULL"),
+              std::string("i: calling a Callback needs Unsafe code: an Unsafe block, Function, or "
+                          "Method"),
+          });
+
+    // C can call one on any thread.
+    CHECK(errors_of("@MainThread Function Frame(): Int32 => 1\n"
+                    "Function Uses(n: Int32): Int32 => Frame() + n\n"
+                    "Local cb: Callback(Int32): Int32 = Uses\n") ==
+          errors_t{ "Uses: C code can call a Callback on any thread, but it calls 'Frame', which "
+                    "is @MainThread" });
+
+    // It's C's pointer, which isn't a T? or shown in a string.
+    CHECK(errors_of("Local cb: Callback(Int32) = Null\n"
+                    "Local other = cb ?? cb\n"
+                    "Print(\"{cb}\")\n") ==
+          errors_t{
+              std::string("cb: Callback(Int32) is C's pointer, not a T?, so '\?\?' doesn't take "
+                          "it; compare it with Null instead"),
+              "cb: Callback(Int32) can't be shown in a string",
+          });
+}
+
+TEST_CASE("a Callback's Function takes values, and is the one Function that fits", "[sema]") {
+    CHECK(errors_of("Function Bump(ByRef n: Int32): Int32\n"
+                    "    n += 1\n"
+                    "    Return n\n"
+                    "End Function\n"
+                    "Local cb: Callback(Int32): Int32 = Bump\n") ==
+          errors_t{ "Bump: 'Bump' takes a parameter ByRef, so it can't be a Callback, whose "
+                    "parameters C passes as values" });
+
+    // Two imports' Functions that fit are ambiguous, and one after its qualifier is a Callback.
+    const std::vector<fb::library_file_t> modules{
+        { .path = "lib/a.fb", .text = "Public Function Pick(n: Int32): Int32 => n + 100\n" },
+        { .path = "lib/b.fb", .text = "Public Function Pick(n: Int32): Int32 => n + 200\n" },
+    };
+    CHECK(errors_with("Import \"./lib/a\"\n"
+                      "Import \"./lib/b\"\n"
+                      "Local cb: Callback(Int32): Int32 = Pick\n",
+                      modules) == errors_t{ "Pick: the Callback 'Pick' is ambiguous" });
+    CHECK(errors_with("Import \"./lib/a\" As A\n"
+                      "Local cb: Callback(Int32): Int32 = A.Pick\n"
+                      "Print(\"{cb == A.Pick}\")\n",
+                      modules)
+              .empty());
+
+    // An overload takes a Function's name or a lambda for its Callback parameter.
+    CHECK(errors_of("Function Twice(n: Int32): Int32 => n * 2\n"
+                    "Function Apply(f: Callback(Int32): Int32, n: Int32): Int32\n"
+                    "    Unsafe\n"
+                    "        Return f(n)\n"
+                    "    End Unsafe\n"
+                    "End Function\n"
+                    "Function Apply(f: Callback(Float64): Float64, n: Float64): Float64\n"
+                    "    Unsafe\n"
+                    "        Return f(n)\n"
+                    "    End Unsafe\n"
+                    "End Function\n"
+                    "Local a = Apply(Twice, 3)\n"
+                    "Local b = Apply(Function(n: Float64): Float64 => n / 2, 3.0)\n")
+              .empty());
+
+    // A lambda tried against a generic's Callback reports what its code reaches once.
+    CHECK(errors_of("@MainThread Function Frame(): Int32 => 1\n"
+                    "Function Run<T>(cb: Callback(Int32): Int32, x: T): T => x\n"
+                    "Local a = Run(Function(n: Int32): Int32 => Frame() + n, 5)\n")
+              .size() == 1);
+}
+
+TEST_CASE("a Callback's call takes its values in order, and a Callback is a pointer's size",
+          "[sema]") {
+    CHECK(errors_of("Function Twice(n: Int32): Int32 => n * 2\n"
+                    "Local cb: Callback(Int32): Int32 = Twice\n"
+                    "Local p: Ptr<Callback(Int32): Int32> = Null\n"
+                    "Unsafe\n"
+                    "    Local a = cb(n: 1)\n"
+                    "    Local b = p.Value(5)\n"
+                    "End Unsafe\n"
+                    "Local c: Int32 = [cb]\n") ==
+          errors_t{
+              "n: a Callback's parameters have no names",
+              "[cb]: expected Int32, found (Callback(Int32): Int32)[]",
+          });
+    CHECK(probe("Local size = SizeOf<Callback(Int32): Int32>()") == "Int64 8");
+}
+
+TEST_CASE("a @CLayout Struct holds what C can, and is the only Struct C sees", "[sema]") {
+    CHECK(errors_of("@CLayout Struct Good\n"
+                    "    Field x: Int32\n"
+                    "    Field next: Ptr<Good>\n"
+                    "    Field inner: Inner\n"
+                    "    Field bytes: UInt8[4]\n"
+                    "    Field name: CString\n"
+                    "End Struct\n"
+                    "@CLayout Struct Inner\n"
+                    "    Field f: Float\n"
+                    "End Struct\n"
+                    "Extern \"C\"\n"
+                    "    Function Take(good: Good, ByRef inner: Inner, p: Ptr<Good>): Good\n"
+                    "End Extern\n")
+              .empty());
+    CHECK(errors_of("@CLayout Struct Bad\n"
+                    "    Field s: String\n"
+                    "    Field plain: Plain\n"
+                    "    Field far: Ptr<Plain>\n"
+                    "End Struct\n"
+                    "Struct Plain\n"
+                    "    Field x: Int32\n"
+                    "End Struct\n"
+                    "@CLayout Struct Empty\n"
+                    "End Struct\n"
+                    "@CLayout Struct Generic<T>\n"
+                    "    Field x: Int32\n"
+                    "End Struct\n") ==
+          errors_t{
+              std::string("s: a @CLayout Struct's Field holds what C can: a number, Bool, Enum, "
+                          "CString, Ptr, Callback, or a fixed array or @CLayout Struct of these; "
+                          "String isn't one"),
+              std::string("plain: a @CLayout Struct's Field holds other Structs only when "
+                          "they're @CLayout too, and Plain isn't"),
+              std::string("far: a @CLayout Struct's Field holds other Structs only when they're "
+                          "@CLayout too, and Plain isn't"),
+              std::string("Empty: a @CLayout Struct needs a Field, since C has no empty structs"),
+              std::string("Generic: a @CLayout Struct can't be generic, since C lays out each "
+                          "type it has once"),
+          });
+
+    // A Struct that C code sees, by value, ByRef, or through a Ptr, is @CLayout.
+    const std::string_view sees = "C code sees Plain here, so it has to be @CLayout, which lays it "
+                                  "out as C does";
+    CHECK(errors_of("Struct Plain\n"
+                    "    Field x: Int32\n"
+                    "End Struct\n"
+                    "Extern \"C\"\n"
+                    "    Function Take(a: Plain, ByRef b: Plain, c: Ptr<Ptr<Plain>>): Plain[2]\n"
+                    "End Extern\n") ==
+          errors_t{
+              std::format("Plain: {}", sees),
+              std::format("Plain: {}", sees),
+              std::format("Ptr<Ptr<Plain>>: {}", sees),
+              std::string("Plain[2]: Plain[2] can't come from C: an Extern Function gives a "
+                          "number, Bool, an Enum, a Ptr, a Callback, a CString, a @CLayout Struct, "
+                          "or a String or String?, which is a copy of the text"),
+          });
+
+    // So is one C code sees through what a Callback takes or gives.
+    CHECK(errors_of("Struct Plain\n"
+                    "    Field x: Int32\n"
+                    "End Struct\n"
+                    "@CLayout Struct Hooks\n"
+                    "    Field each: Callback(Ptr<Plain>)\n"
+                    "End Struct\n"
+                    "Extern \"C\"\n"
+                    "    Function Visit(each: Callback(Ptr<Plain>))\n"
+                    "    Function Maker(): Callback(): Ptr<Plain>\n"
+                    "End Extern\n") ==
+          errors_t{
+              std::string("each: a @CLayout Struct's Field holds other Structs only when they're "
+                          "@CLayout too, and Plain isn't"),
+              std::format("Callback(Ptr<Plain>): {}", sees),
+              std::format("Callback(): Ptr<Plain>: {}", sees),
+          });
+}
+
+TEST_CASE("an Extern Function takes and gives what C has", "[sema]") {
+    // Numbers, Bool, Enums, and CString go as they are, a String becomes a CString for the call,
+    // a String C gives is a copy of its text, and ByRef passes a variable's address.
+    CHECK(errors_of("Enum Mode: UInt8\n"
+                    "    On\n"
+                    "End Enum\n"
+                    "Extern \"C\"\n"
+                    "    Function F(a: Int8, b: UInt64, c: Float32, d: Bool, e: Mode, f: CString,\n"
+                    "               ByRef g: Int32, ByRef h: CString): Bool\n"
+                    "    Function Look(name: CString): String?\n"
+                    "    Function Name(n: Int32): String = \"strerror\"\n"
+                    "End Extern\n"
+                    "Global h: CString\n"
+                    "Local g: Int32 = 0\n"
+                    "Local ok = F(1, 2, 3.0, True, Mode.On, h, ByRef g, ByRef h)\n"
+                    "Local found: String? = Look(\"PATH\")\n"
+                    "Local named: String = Name(2)\n"
+                    "Local f: Func(CString): String? = Look")
+              .empty());
+    CHECK(errors_of("Extern\n"
+                    "    Function F(s: String): Int[]\n"
+                    "    Function G(a: Int[], ByRef s: String)\n"
+                    "End Extern") ==
+          errors_t{
+              "String: C takes a CString, not a String; declare it CString, which a String "
+              "argument becomes for the call",
+              "Int[]: Int32[] can't come from C: an Extern Function gives a number, Bool, an "
+              "Enum, a Ptr, a Callback, a CString, a @CLayout Struct, or a String or String?, "
+              "which is a copy of the text",
+              "Int[]: Int32[] can't go to C: an Extern Function takes numbers, Bool, Enums, Ptrs, "
+              "Callbacks, CString, and @CLayout Structs",
+              "String: C takes text ByRef as a CString, which C can set; a String can't go ByRef",
+          });
+
+    // C could give back a pointer into a String's copy, which goes right after the call: a
+    // CString, a Ptr to its bytes, or what holds one. A Ptr<Void> is a handle, which can't.
+    const std::string escapes =
+        "this Extern Function gives, or sets through ByRef or a Ptr, what could point into text, "
+        "a CString or a Ptr to Int8s or UInt8s, and a String's copy goes right after the call; it "
+        "takes only CStrings";
+    CHECK(errors_of("Extern\n"
+                    "    Function strstr(text: CString, part: CString): CString\n"
+                    "    Function Split(text: CString, ByRef rest: CString): Int32\n"
+                    "End Extern\n"
+                    "Local found = strstr(\"abc\", \"b\")\n"
+                    "Local rest = found\n"
+                    "Local n = Split(\"a,b\", ByRef rest)") == errors_t{
+                                                                   "\"abc\": " + escapes,
+                                                                   "\"b\": " + escapes,
+                                                                   "\"a,b\": " + escapes,
+                                                               });
+    CHECK(
+        errors_of("@CLayout Struct Found\n"
+                  "    Field at: Ptr<UInt8>\n"
+                  "End Struct\n"
+                  "Extern\n"
+                  "    Function strchr(text: CString, c: Int32): Ptr<UInt8>\n"
+                  "    Function strtol(text: CString, ByRef rest: Ptr<Int8>, base: Int32): Int64\n"
+                  "    Function Find(text: CString): Ptr<Found>\n"
+                  "    Function Open(name: CString): Ptr<Void>\n"
+                  "End Extern\n"
+                  "Local a = strchr(\"abc\", 98)\n"
+                  "Local rest: Ptr<Int8> = Null\n"
+                  "Local b = strtol(\"12\", ByRef rest, 10)\n"
+                  "Local c = Find(\"x\")\n"
+                  "Local d = Open(\"y\")") == errors_t{
+                                                  "\"abc\": " + escapes,
+                                                  "\"12\": " + escapes,
+                                                  "\"x\": " + escapes,
+                                              });
+
+    // A Struct declared after the Function counts as one before it, and C writes text through
+    // a Ptr<CString> as through a ByRef CString.
+    CHECK(errors_of("Extern\n"
+                    "    Function First(text: CString): Ptr<Later>\n"
+                    "    Function strtol(text: CString, rest: Ptr<CString>, base: Int32): Int64\n"
+                    "    Function Count(text: CString, counts: Ptr<Int32>): Int32\n"
+                    "End Extern\n"
+                    "@CLayout Struct Later\n"
+                    "    Field name: CString\n"
+                    "End Struct\n"
+                    "Local a = First(\"a\")\n"
+                    "Local b = strtol(\"12\", Null, 10)\n"
+                    "Local c = Count(\"c\", Null)\n") == errors_t{
+                                                             "\"a\": " + escapes,
+                                                             "\"12\": " + escapes,
+                                                         });
+
+    // A String? that may be Null is checked first.
+    CHECK(errors_of("Extern\n"
+                    "    Function strlen(text: CString): UInt64\n"
+                    "End Extern\n"
+                    "Function Size(text: String?): UInt64 => strlen(text)") ==
+          errors_t{ "text: expected String, found String?, which may be Null; check it first, or "
+                    "give a value for Null with '?"
+                    "?'" });
+
+    // Only an Extern Function's CString parameter takes a String.
+    CHECK(errors_of("Function Keep(c: CString)\nEnd Function\nKeep(\"a\")") ==
+          errors_t{ "\"a\": expected CString, found String" });
+}
+
+TEST_CASE("an Extern Function has only what C code has", "[sema]") {
+    CHECK(errors_of("Class Oops Extends Error\n"
+                    "End Class\n"
+                    "Extern\n"
+                    "    Function A<T>(x: Int)\n"
+                    "    Function B() Throws Oops\n"
+                    "    Async Function C()\n"
+                    "    Const Function D(): Int\n"
+                    "    @Inline Function E()\n"
+                    "    Function F(x: Int = 1)\n"
+                    "End Extern") ==
+          errors_t{
+              "A: an Extern Function can't be generic, since C has one function for each symbol",
+              "Oops: an Extern Function can't throw, since C's functions have no errors",
+              "C: an Extern Function can't be Async, since C's functions can't Await",
+              "D: an Extern Function can't be Const, since the compiler can't run C's code",
+              "E: an Extern Function can't be @Inline, since its code is C's",
+              "1: an Extern Function's parameter has no default, since C's have none",
+          });
+
+    // A Const Function can't call one, since the compiler can't run it.
+    CHECK(errors_of("Extern\n"
+                    "    Function abs(n: Int32): Int32\n"
+                    "End Extern\n"
+                    "Const Function Twice(n: Int32): Int32 => abs(n) * 2") ==
+          errors_t{ "abs: a Const Function can only call Const Functions, and 'abs' isn't one" });
+
+    // Its parameters' names are one each, as a Function's with a body are.
+    CHECK(errors_of("Extern\n    Function div(a: Int32, a: Int32): Int32\nEnd Extern") ==
+          errors_t{ "a: 'a' is already declared in this scope" });
+}
+
+TEST_CASE("Extern blocks' conventions, libraries, and symbols are checked", "[sema]") {
+    const std::string intrinsic = "\"llvm.sqrt.f64\": 'llvm.sqrt.f64' is one of LLVM's own "
+                                  "functions, which C code doesn't define";
+    CHECK(errors_of("Extern \"runtime\"\n    Function fb_print(text: String)\nEnd Extern") ==
+          errors_t{ "\"runtime\": only the standard library calls the runtime; C code's "
+                    "convention is \"C\"" });
+    CHECK(errors_of("Extern Lib \"vecmath\"\nEnd Extern") ==
+          errors_t{ "\"vecmath\": 'Lib' names one of a package's [native] libraries, and this "
+                    "program has no project.toml" });
+    CHECK(errors_of("Extern\n"
+                    "    Function fb_panic()\n"
+                    "    Function Start() = \"main\"\n"
+                    "    Function Twice(n: Int32): Int32 = \"fb.Twice(Int32)\"\n"
+                    "    Function Root(x: Int32): Int32 = \"llvm.sqrt.f64\"\n"
+                    "    Function Nothing() = \"\"\n"
+                    "    Function fb_print(text: CString)\n"
+                    "    Function Cut() = \"abs\\x00wide\"\n"
+                    "    Function Spaced() = \"f x\"\n"
+                    "    Function Decorated() = \"_f@8\"\n"
+                    "End Extern") ==
+          errors_t{
+              "fb_panic: 'fb_panic' is a symbol the program defines itself",
+              "\"main\": 'main' is a symbol the program defines itself",
+              "\"fb.Twice(Int32)\": 'fb.Twice(Int32)' is a symbol the program defines itself",
+              intrinsic,
+              "\"\": a C symbol has a name",
+              "fb_print: 'fb_print' is a symbol the program defines itself",
+              "\"abs\\x00wide\": a C symbol can't hold a NUL",
+              "\"f x\": a C symbol can't hold a space or a control character",
+          });
+
+    // One C symbol has one signature, where an Enum is its integer type.
+    CHECK(errors_of("Enum Offset: Int32\n"
+                    "    Back = -3\n"
+                    "End Enum\n"
+                    "Extern\n"
+                    "    Function abs(n: Int32): Int32\n"
+                    "    Function Distance(n: Offset): Int32 = \"abs\"\n"
+                    "    Function Wide(n: Int64): Int64 = \"abs\"\n"
+                    "End Extern") ==
+          errors_t{ "Wide: 'abs' is a C symbol with one signature, but this declaration "
+                    "gives Int64 where the first gives Int32" });
+}
+
+TEST_CASE("a Spawn's work gives nothing that points at memory", "[sema]") {
+    CHECK(
+        errors_of("Struct Holder\n"
+                  "    Field where: Ptr<Int32>\n"
+                  "End Struct\n"
+                  "Local a = Spawn(Function(): Ptr<Int32> => Null)\n"
+                  "Local b = Spawn(Function() => Holder(Null))\n") ==
+        errors_t{
+            std::string("Function(): Ptr<Int32> => Null: the work Spawn runs can't give "
+                        "Ptr<Int32>, since a CString or a Ptr points at memory, which nothing "
+                        "keeps for another thread"),
+            std::string("Function() => Holder(Null): the work Spawn runs can't give Holder, since "
+                        "a CString or a Ptr points at memory, which nothing keeps for another "
+                        "thread"),
+        });
+}
+
+TEST_CASE("a CString is C's, so it isn't Printable, Equatable, or Sendable", "[sema]") {
+    CHECK(errors_of("Function Show(c: CString): String => \"{c}\"") ==
+          errors_t{ "c: a CString can't be shown in a string; show the String its ToString() "
+                    "gives, in Unsafe code" });
+    CHECK(errors_of("Function Same(a: CString, b: CString): Bool => a == b") ==
+          errors_t{ "a == b: '==' can't be used on CString; compare the Strings ToString() "
+                    "gives, in Unsafe code" });
+    CHECK(errors_of("Function Has(a: CString, b: CString): Bool => [a].Contains(b)") ==
+          errors_t{ "[a].Contains: Contains compares with ==, which CString doesn't have" });
+    CHECK(errors_of("Function Make(): CString[] => []\n"
+                    "Local t = Spawn(Function() => Make())") ==
+          errors_t{ "Function() => Make(): the work Spawn runs can't give CString[], since a "
+                    "CString or a Ptr points at memory, which nothing keeps for another thread" });
+    // An object it makes holds one too, however deep, even in a Class that holds its own kind.
+    CHECK(errors_of("Class Link\n"
+                    "    Field next: Link?\n"
+                    "    Field at: Ptr<Int32>\n"
+                    "End Class\n"
+                    "Class Chain\n    Field first: Link?\nEnd Class\n"
+                    "Local t = Spawn(Function() => Chain())") ==
+          errors_t{ "Function() => Chain(): the work Spawn runs can't give Chain, since a "
+                    "CString or a Ptr points at memory, which nothing keeps for another thread" });
+    CHECK(errors_of("Function Use(c: CString): Int => 1\n"
+                    "Function Send(c: CString)\n"
+                    "    Local t = Spawn(Function() => Use(c))\n"
+                    "End Function") ==
+          errors_t{ "Function() => Use(c): 'c' is CString, which another thread can't have: a "
+                    "CString points at C code's memory, which nothing keeps for another thread" });
+}
+
+TEST_CASE("an Extern block's visibility is its Functions'", "[sema]") {
+    const std::vector<fb::library_file_t> modules{
+        {
+            .path = "lib.fb",
+            .text = "Enum Secret: Int32\n"
+                    "    A\n"
+                    "End Enum\n"
+                    "Public Extern\n"
+                    "    Function abs(n: Int32): Int32\n"
+                    "    Private Function labs(n: Int32): Int32\n"
+                    "    Function Hidden(s: Secret): Int32 = \"abs\"\n"
+                    "End Extern\n",
+        },
+    };
+    CHECK(errors_with("Import \"./lib\"\nLocal a = abs(-1) + labs(-2)", modules) ==
+          errors_t{
+              "labs: 'labs' is private to lib.fb",
+              "lib.fb: Hidden: 'Hidden' is Public, but it takes Secret, which is private to lib.fb",
+          });
+
+    // Protected goes only before a Class's members; the block's Functions are then the file's.
+    const std::vector<fb::library_file_t> guarded{
+        {
+            .path = "lib.fb",
+            .text = "Protected Extern\n    Function abs(n: Int32): Int32\nEnd Extern\n",
+        },
+    };
+    CHECK(errors_with("Import \"./lib\"\nLocal a = abs(-1)", guarded) ==
+          errors_t{
+              "abs: 'abs' is private to lib.fb",
+              "lib.fb: Protected: Protected only goes before a Class's members, which the Classes "
+              "extending it can use",
+          });
+}
+
+TEST_CASE("a Function's own types beat a built-in's that take anything", "[sema]") {
+    // RefEquals takes any Classes, so one of a module's own that names its types is better.
+    CHECK(errors_of("Class Node\n"
+                    "End Class\n"
+                    "Function RefEquals(a: Int32, b: Int32): Bool => a == b\n"
+                    "Function RefEquals(a: Node, b: Node): Bool => False\n"
+                    "Local x = RefEquals(1, 2)\n"
+                    "Local y = RefEquals(Node(), Node())")
+              .empty());
+
+    // Even where the argument converts to the type it names, as a Class extending it does.
+    CHECK(errors_of("Class Base\n"
+                    "End Class\n"
+                    "Class Derived Extends Base\n"
+                    "End Class\n"
+                    "Function RefEquals(a: Base, b: Base): Bool => False\n"
+                    "Local x = RefEquals(Derived(), Derived())\n"
+                    "Local y: Base? = Null\n"
+                    "Local z = RefEquals(Base(), Derived())")
+              .empty());
+
+    // An overload of a built-in that a call fits as well as the built-in says so.
+    CHECK(errors_of("Function Assert(condition: Bool)\n"
+                    "End Function\n"
+                    "Assert(True)") ==
+          errors_t{ "Assert: the call to 'Assert' is ambiguous; the built-in one fits it as well "
+                    "as this one" });
+}
+
+TEST_CASE("a module's own Function hides only Functions, so a type name finds an import's type",
+          "[sema]") {
+    CHECK(errors_of("Import std.collections\n"
+                    "Function Map(x: Int): Int => x * 2\n"
+                    "Local m: Map<String, Int> = {\"a\": 1}\n"
+                    "Local n = Map(2)\n")
+              .empty());
+}
+
+TEST_CASE("Null fits an overload's Callback, Ptr, or CString parameter, and code its Callback",
+          "[sema]") {
+    CHECK(errors_of("Function Take(cb: Callback(Int32): Int32): Int32 => 1\n"
+                    "Function Take(s: String): Int32 => 2\n"
+                    "Function Point(p: Ptr<Int32>): Int32 => 1\n"
+                    "Function Point(s: String): Int32 => 2\n"
+                    "Function Text(c: CString): Int32 => 1\n"
+                    "Function Text(n: Int32): Int32 => 2\n"
+                    "Local a = Take(Null) + Point(Null) + Text(Null)\n")
+              .empty());
+
+    // A ternary of two Functions is code, which an overload's Callback parameter takes.
+    CHECK(errors_of("Function Twice(n: Int32): Int32 => n * 2\n"
+                    "Function Thrice(n: Int32): Int32 => n * 3\n"
+                    "Function Take(cb: Callback(Int32): Int32): Int32 => 1\n"
+                    "Function Take(s: String): Int32 => 2\n"
+                    "Local flag = True\n"
+                    "Local a = Take(flag ? Twice : Thrice)\n")
+              .empty());
+}
+
+TEST_CASE("a Callback read through '?.' may be Null, and a Ptr's Value is called in Unsafe code",
+          "[sema]") {
+    CHECK(errors_of("Class H\n"
+                    "    Field cb: Callback(Int32): Int32\n"
+                    "End Class\n"
+                    "Function Call(h: H?): Int32\n"
+                    "    Local f = h?.cb\n"
+                    "    Unsafe\n"
+                    "        Return f(1)\n"
+                    "    End Unsafe\n"
+                    "End Function\n") ==
+          errors_t{ "f: 'f' may be Null; check that it isn't before calling it" });
+
+    // Outside it, the Value is what needs it, once.
+    CHECK(
+        errors_of("Local p: Ptr<Callback(Int32): Int32> = Null\n"
+                  "Local a = p.Value(5)\n") ==
+        errors_t{ "Value: a Ptr's Value needs Unsafe code: an Unsafe block, Function, or Method" });
+}
+
+TEST_CASE("a Const's Callback first needed in a quiet try is still checked for its thread",
+          "[sema]") {
+    // Take's overloads are tried quietly, and the try that needs the Const keeps what it found.
+    const errors_t errors = errors_of("@MainThread Function Frame(): Int32 => 1\n"
+                                      "Function Uses(n: Int32): Int32 => Frame() + n\n"
+                                      "Function Take(cb: Callback(Int32): Int32): Int32 => 1\n"
+                                      "Function Take(s: String): Int32 => 2\n"
+                                      "Global g = Take(handler)\n"
+                                      "Const handler: Callback(Int32): Int32 = Uses\n");
+    CHECK(std::ranges::contains(errors, "Uses: C code can call a Callback on any thread, but it "
+                                        "calls 'Frame', which is @MainThread"));
+}
+
+TEST_CASE("std.ffi's CString.From is safe code, and what reads or frees C's memory is Unsafe",
+          "[sema]") {
+    CHECK(errors_of("Import std.ffi\n"
+                    "Local c = CString.From(\"x\")\n"
+                    "Local n = c.Length()\n"
+                    "c.Free()\n"
+                    "Local m = Mem.Resize(Null, 4)\n") ==
+          errors_t{
+              "Length: calling 'Length', which is Unsafe, needs Unsafe code: an Unsafe block, "
+              "Function, or Method",
+              "Free: calling 'Free', which is Unsafe, needs Unsafe code: an Unsafe block, "
+              "Function, or Method",
+              "Resize: calling 'Resize', which is Unsafe, needs Unsafe code: an Unsafe block, "
+              "Function, or Method",
+          });
+}
+
+TEST_CASE("a name two imports give is reported once, and nothing follows from either", "[sema]") {
+    const std::vector<fb::library_file_t> modules{
+        { .path = "lib/a.fb", .text = "Public Global Spawned = 1\nPublic Global Thing = 2\n" },
+        { .path = "lib/b.fb", .text = "Public Global Spawned = 3\nPublic Global Thing = 4\n" },
+    };
+    CHECK(errors_with("Import \"./lib/a\"\n"
+                      "Import \"./lib/b\"\n"
+                      "Local t = Spawned(5)\n"
+                      "Local m = Thing.Start()\n",
+                      modules) ==
+          errors_t{
+              "Spawned: 'Spawned' is ambiguous here: lib.a and lib.b each declare it",
+              "Thing: 'Thing' is ambiguous here: lib.a and lib.b each declare it",
+          });
+}
+
+TEST_CASE("an Import's name for its module isn't a built-in's", "[sema]") {
+    const std::vector<fb::library_file_t> modules{
+        { .path = "a/String.fb", .text = "Public Function F(): Int => 1\n" },
+    };
+    CHECK(errors_with("Import std.collections As Panic\n"
+                      "Import \"./a/String\"\n"
+                      "Local s: String = \"a\"\n",
+                      modules) ==
+          errors_t{
+              "Panic: 'Panic' is built in, so it can't name an imported module; give the module "
+              "another name with As",
+              "String: 'String' is built in, so it can't name an imported module; give the module "
+              "another name with As",
+          });
+}
+
+TEST_CASE("a hint says how a file imports another of the program's by its path", "[sema]") {
+    const std::vector<fb::library_file_t> modules{
+        { .path = "lib/x.fb", .text = "Public Function X(): Int => 2\n" },
+        { .path = "sub/a.fb", .text = "Public Function A(): Int => X() + M()\n" },
+    };
+    CHECK(errors_with("Import \"./sub/a\"\nImport \"./lib/x\"\nPublic Function M(): Int => 1\n",
+                      modules) ==
+          errors_t{
+              "sub/a.fb: X: 'X' is in lib.x, which this file doesn't import: Import "
+              "\"../lib/x\"",
+              "sub/a.fb: M: 'M' is in test, which this file doesn't import: Import \"../test\"",
+          });
+}
+
+TEST_CASE("modifiers go between the words of Const Function and ByRef Method too", "[sema]") {
+    CHECK(errors_of("Struct S\n"
+                    "    Field x: Int\n"
+                    "    ByRef Public Method B()\n"
+                    "        x = 1\n"
+                    "    End Method\n"
+                    "    Public ByRef Method C()\n"
+                    "        x = 2\n"
+                    "    End Method\n"
+                    "End Struct\n"
+                    "Const Public Function F(): Int => 4\n"
+                    "Const Unsafe Function G(): Int => 5\n"
+                    "Local s = S(0)\n"
+                    "s.B()\n"
+                    "s.C()\n"
+                    "Local n = F()\n") ==
+          errors_t{ "G: a Const Function runs in the compiler, so it can't be Unsafe" });
+}
+
+TEST_CASE("attributes come before modifiers, and a Get or Set has its Property's visibility",
+          "[sema]") {
+    CHECK(errors_of("Public @Inline Function F(): Int => 1\n"
+                    "Static Public @Inline Function G(): Int => 1\n"
+                    "Class D\n"
+                    "    Public Property P: Int\n"
+                    "        Get => 1\n"
+                    "        Private Set(value)\n"
+                    "        End Set\n"
+                    "    End Property\n"
+                    "End Class\n"
+                    "Interface I\n"
+                    "    Protected Method M(): Int\n"
+                    "End Interface\n"
+                    "Enum E\n"
+                    "    Protected A\n"
+                    "End Enum\n") ==
+          errors_t{
+              "Public: Public goes after a declaration's attributes, as in @Inline Public Function",
+              "@: attributes go before a declaration's modifiers, as in @Inline Static Function",
+              "Private: a Property's Get and Set have its visibility, so they take no Private",
+              "Protected: an Interface's members have its visibility, so they take no Protected",
+              "Protected: an Enum's members have its visibility, so they take no Protected",
+          });
+}
+
+TEST_CASE(
+    "a variable's visibility goes before its keyword, and one without a name declares nothing",
+    "[sema]") {
+    CHECK(errors_of("Const Public Limit = 4\nGlobal Package g = Limit\n") ==
+          errors_t{
+              "Public: Public goes before Const, as in Public Const x",
+              "Package: Package goes before Global, as in Package Global x",
+          });
+    CHECK(errors_of("Enum Mood\n"
+                    "    Calm\n"
+                    "End Enum\n"
+                    "Public Const Default = Mood.Calm\n"
+                    "Const Local = 1\n") == errors_t{
+                                                "Default: expected identifier, found 'Default'",
+                                                "Local: expected identifier, found 'Local'",
+                                            });
+}
+
+TEST_CASE("a visibility error labels the declaration it's about", "[sema]") {
+    const std::vector<fb::library_file_t> modules{
+        {
+            .path = "lib/a.fb",
+            .text = "Public Class Bag\n"
+                    "    Method Iterate(): Int[] => [1]\n"
+                    "End Class\n"
+                    "Public Interface Shown\n"
+                    "    Method Show(): String\n"
+                    "End Interface\n"
+                    "Public Class Thing\n"
+                    "    Method Show(): String => \"thing\"\n"
+                    "End Class\n"
+                    "Function Helper(): Int => 1\n"
+                    "Public Struct Half<A>\n"
+                    "    Public Field First: A\n"
+                    "    Field Second: A\n"
+                    "End Struct\n",
+        },
+    };
+    std::vector<fb::library_file_t> files =
+        fb::standard_library().value_or(std::vector<fb::library_file_t>{});
+    files.insert(files.end(), modules.begin(), modules.end());
+    const fb::compilation_t compilation = fb::compile("test.fb",
+                                                      "Import \"./lib/a\"\n"
+                                                      "For x In Bag()\nEnd For\n"
+                                                      "Extend Thing Implements Shown\nEnd Extend\n"
+                                                      "Local n = Helper()\n"
+                                                      "Local h = Half<Int>(1, 2)\n",
+                                                      files);
+
+    // Each one's message, and the line of lib/a.fb its "declared here" label is at.
+    std::vector<std::string> labeled;
+    for (const fb::diagnostic_t& diagnostic : compilation.diagnostics.diagnostics()) {
+        std::string line = diagnostic.message;
+        for (const fb::label_t& label : diagnostic.labels) {
+            const fb::source_file_t& file = compilation.sources.get(label.span.file);
+            line +=
+                std::format(" [{} at {}:{}]", label.message, file.path(),
+                            file.location_of(label.span.begin, fb::column_unit_t::UTF8).line + 1);
+        }
+
+        labeled.push_back(line);
+    }
+
+    CHECK(labeled ==
+          std::vector<std::string>{
+              "'For ... In' goes over arrays, Iterators, and values whose Iterate() gives an "
+              "Iterator, not Bag; 'Iterate' is private to lib/a.fb [declared here at lib/a.fb:2]",
+              "Thing implements Shown, so it needs a Method 'Show'; 'Show' is private to lib/a.fb "
+              "[declared here at lib/a.fb:8]",
+              "'Helper' is private to lib/a.fb [declared here at lib/a.fb:10]",
+              "Half<Int32>'s constructor takes its Fields, and 'Second' is private to lib/a.fb "
+              "[declared here at lib/a.fb:13]",
+          });
+}
+
+TEST_CASE("a Public type that lists an instance of a hidden type names the instance", "[sema]") {
+    CHECK(errors_of("Struct Hidden\n"
+                    "    Field X: Int\n"
+                    "End Struct\n"
+                    "Public Class Box<T>\n"
+                    "End Class\n"
+                    "Public Struct It Implements Iterator<Hidden>\n"
+                    "    Public ByRef Method Next(): Hidden? => Null\n"
+                    "End Struct\n"
+                    "Public Class Sub Extends Box<Hidden>\n"
+                    "End Class\n") ==
+          errors_t{
+              "It: 'It' is Public, but it implements Iterator<Hidden>, and Hidden is private to "
+              "test.fb",
+              "Next: 'Next' is Public, but it gives Hidden, which is private to test.fb",
+              "Sub: 'Sub' is Public, but it extends Box<Hidden>, and Hidden is private to test.fb",
+          });
+}
+
+TEST_CASE("a hidden Method an Extend adds sits beside a Class's own of its parameters", "[sema]") {
+    const std::vector<fb::library_file_t> modules{
+        { .path = "lib/a.fb", .text = "Public Class Base\nEnd Class\n" },
+        {
+            .path = "lib/m.fb",
+            .text = "Import \"./a\"\n"
+                    "Extend Base\n"
+                    "    Method Mx(): Int => 1\n"
+                    "End Extend\n"
+                    "Public Function Use(b: Base): Int => b.Mx()\n",
+        },
+    };
+    for (const std::string_view imports :
+         { "Import \"./lib/a\"\nImport \"./lib/m\"\n", "Import \"./lib/a\"\n" }) {
+        CHECK(errors_with(std::format("{}"
+                                      "Class Mine Extends Base\n"
+                                      "    Method Mx(): Int => 10\n"
+                                      "End Class\n"
+                                      "Local n = Mine().Mx()\n",
+                                      imports),
+                          modules)
+                  .empty());
+    }
+}
+
+TEST_CASE("two modules' @CLayout Structs of one shape are one C type", "[sema]") {
+    // As two packages' bindings of one header have them, each Field's name and C type alike.
+    const std::string_view div = "@CLayout Public Struct Div\n"
+                                 "    Public Field quot: Int32\n"
+                                 "    Public Field rem: Int32\n"
+                                 "End Struct\n";
+    const std::vector<fb::library_file_t> modules{
+        {
+            .path = "lib/a.fb",
+            .text = std::format("{}Public Extern \"C\"\n"
+                                "    Function div(a: Int32, b: Int32): Div\n"
+                                "End Extern\n",
+                                div),
+        },
+        {
+            .path = "lib/b.fb",
+            .text = std::format("{}@CLayout Public Struct Other\n"
+                                "    Public Field quotient: Int32\n"
+                                "    Public Field rem: Int32\n"
+                                "End Struct\n"
+                                "Public Extern \"C\"\n"
+                                "    Function div(a: Int32, b: Int32): Div\n"
+                                "    Function Divide(a: Int32, b: Int32): Other = \"div\"\n"
+                                "End Extern\n",
+                                div),
+        },
+    };
+    CHECK(errors_with("Import \"./lib/a\"\nImport \"./lib/b\" As B\n", modules) ==
+          errors_t{ "lib/b.fb: Divide: 'div' is a C symbol with one signature, but this "
+                    "declaration gives Other where the first gives Div" });
+}
+
+TEST_CASE("an Import that loads nothing is reported once, and its names say nothing more",
+          "[sema]") {
+    const std::vector<fb::library_file_t> modules{
+        { .path = "lib/a.fb", .text = "Public Function F(): Int => 1\n" },
+    };
+    CHECK(errors_with("Import \"./nothing\"\n"
+                      "Import \"./none\" As N\n"
+                      "From \"./gone\" Import G\n"
+                      "Import \"./lib/a.fb\"\n"
+                      "Local a = Missing() + N.F() + G()\n"
+                      "Local b = Typo()\n",
+                      modules) ==
+          errors_t{
+              "\"./nothing\": there's no module \"./nothing\": no nothing.fb",
+              "\"./none\": there's no module \"./none\": no none.fb",
+              "\"./gone\": there's no module \"./gone\": no gone.fb",
+              "\"./lib/a.fb\": there's no module \"./lib/a.fb\": an Import leaves out .fb, as in "
+              "\"./lib/a\"",
+          });
+    // Without one, a name that isn't declared is reported.
+    CHECK(errors_with("Import \"./lib/a\"\nLocal b = Typo()\n", modules) ==
+          errors_t{ "Typo: 'Typo' isn't declared" });
+}
+
+TEST_CASE("std's Methods of a built-in type say which module to import", "[sema]") {
+    CHECK(errors_of("Local c = CString.From(\"x\")\n"
+                    "Local xs = [3, 1, 2]\n"
+                    "xs.Sort()\n"
+                    "Local f: Int[3]\n"
+                    "f.Sort()\n") ==
+          errors_t{
+              "From: 'From' is in std.ffi, which this file doesn't import",
+              "Sort: 'Sort' is in std.collections, which this file doesn't import",
+              "Sort: Int32[3] has no member named 'Sort'",
+          });
+}
+
+TEST_CASE("a Static Field read through its type before it initializes is reported", "[sema]") {
+    // b initializes before a, which imports it, so Counter.count isn't set when b3 reads it.
+    const std::vector<fb::library_file_t> modules{
+        {
+            .path = "lib/a.fb",
+            .text = "Import \"./b\"\n"
+                    "Public Class Counter\n"
+                    "    Public Static Field count: Int = 10\n"
+                    "End Class\n",
+        },
+        { .path = "lib/b.fb", .text = "Import \"./a\"\nPublic Global b3 = Counter.count\n" },
+    };
+    CHECK(errors_with("Import \"./lib/a\"\nImport \"./lib/b\"\n", modules) ==
+          errors_t{ "lib/b.fb: Counter.count: 'count' isn't initialized yet; lib.a's Globals and "
+                    "Consts initialize after this module's, since a module's imports initialize "
+                    "first, depth-first from the main module" });
+}
+
+TEST_CASE("misleading messages about qualifiers, Super.New, and hidden modules", "[sema]") {
+    const std::vector<fb::library_file_t> modules{
+        { .path = "lib/s.fb", .text = "Public Enum Kind\n    Circle\nEnd Enum\n" },
+        { .path = "lib/t.fb", .text = "Public Function Make(): Int => 1\n" },
+    };
+    CHECK(errors_with("Import \"./lib/s\" As S\n"
+                      "Import \"./lib/t\"\n"
+                      "S.Kind.Circle = 2\n"
+                      "Local t = 1\n"
+                      "Local n = t.Make()\n"
+                      "Class Base\nEnd Class\n"
+                      "Class Box<T>\n    Public Field x: Int\nEnd Class\n"
+                      "Class Typed Extends Box<Int>\n"
+                      "    New()\n"
+                      "        Super.New<String>()\n"
+                      "    End New\n"
+                      "End Class\n"
+                      "Local b = Base<Int>()\n",
+                      modules) ==
+          errors_t{
+              "S.Kind.Circle: only a variable or one of its fields can be assigned to",
+              "Make: Int32 has no member named 'Make'; the Local 't' here hides the imported "
+              "module t",
+              "Super.New<String>: Super.New takes no type arguments, since the Class this one "
+              "extends has them",
+              "Base<Int>: 'Base<Int>' isn't generic",
+          });
+}
+
+TEST_CASE("a Method of T[] implements an Interface for one array type", "[sema]") {
+    CHECK(probe("Interface Headed\n"
+                "    Method Head(): Int\n"
+                "End Interface\n"
+                "Extend T[]\n"
+                "    Method Head(): T => Self[0]\n"
+                "End Extend\n"
+                "Extend Int[] Implements Headed\n"
+                "End Extend\n"
+                "Function First<T: Headed>(h: T): Int => h.Head()\n"
+                "Local n = First([3, 1, 2])") == "Int32");
+}
+
+TEST_CASE("what the code can't use is reported once, and says why where it's needed", "[sema]") {
+    const std::vector<fb::library_file_t> modules{
+        {
+            .path = "lib.fb",
+            .text = "Class Box\n"
+                    "    Public Field v: Int = 4\n"
+                    "End Class\n"
+                    "Interface Shown\n"
+                    "    Method Show(): String\n"
+                    "End Interface\n"
+                    "Public Function F(): String => \"F()\"\n"
+                    "Function F(x: Int): String => \"F(Int)\"\n"
+                    "Public Struct P\n"
+                    "    Public Field n: Int\n"
+                    "    Operator ==(a: P, b: P): Bool => a.n == b.n\n"
+                    "    Method Hash(): UInt64 => n As UInt64\n"
+                    "End Struct\n",
+        },
+    };
+    const std::string unhashed = "Hashable: P has an Operator == of its own, so it needs a Hash "
+                                 "that agrees with it; 'Hash' is private to lib.fb";
+    CHECK(errors_with("Import \"./lib\"\n"
+                      "Import std.collections\n"
+                      "Function G<T: Shown>(t: T): String => t.Show()\n"
+                      "Class C Extends Box\n"
+                      "End Class\n"
+                      "Local xs: Box[] = []\n"
+                      "Local n = C().v + xs.Count\n"
+                      "Local f: Func(Int): String = F\n"
+                      "Extend P Implements Hashable\n"
+                      "End Extend\n"
+                      "Class D\n"
+                      "    Public Method Destroy()\n"
+                      "    End Method\n"
+                      "End Class\n",
+                      modules) ==
+          errors_t{
+              "Shown: 'Shown' is private to lib.fb",
+              "Box: 'Box' is private to lib.fb",
+              "Box: 'Box' is private to lib.fb",
+              "F: 'F' is private to lib.fb",
+              unhashed,
+              "Public: Destroy runs by itself, so nothing calls it, and it takes no Public",
+          });
+}
+
+TEST_CASE("an Extern block's mistakes are reported once", "[sema]") {
+    CHECK(errors_of("Function F(): Int32\n"
+                    "    Extern \"C\"\n"
+                    "        Function abs(n: Int32): Int32\n"
+                    "    End Extern\n"
+                    "    Return abs(-3)\n"
+                    "End Function\n"
+                    "@Deprecated(\"old\")\n"
+                    "Extern \"C\"\n"
+                    "    Function labs(n: Int32): Int32\n"
+                    "End Extern\n"
+                    "Extend CString\n"
+                    "    Public Method ToString(): String => \"x\"\n"
+                    "    Public Method Hash(): UInt64 => 1\n"
+                    "End Extend\n") ==
+          errors_t{
+              "Extern: an Extern block goes at the top level of a file",
+              "Extern: an Extern block takes no attributes; put them before its Functions",
+              "ToString: CString already has a member named 'ToString'",
+          });
+}
+
+TEST_CASE("an Extend can't add the Method a default gives the type", "[sema]") {
+    // Where the type's declaration lists the Interface, the default is the type's own, whether
+    // or not the declaration sees the Extend.
+    const std::vector<fb::library_file_t> modules{
+        {
+            .path = "lib/p.fb",
+            .text = "Public Interface Shown\n"
+                    "    Method Show(): String => \"default\"\n"
+                    "End Interface\n"
+                    "Public Struct P Implements Shown\n"
+                    "    Public Field X: Int\n"
+                    "End Struct\n",
+        },
+        {
+            .path = "lib/y.fb",
+            .text = "Import \"./p\"\n"
+                    "Extend P\n"
+                    "    Public Method Show(): String => \"y's\"\n"
+                    "End Extend\n"
+                    "Public Function YShow(p: P): String => p.Show()\n",
+        },
+    };
+    CHECK(errors_with("Import \"./lib/p\"\n"
+                      "Import \"./lib/y\"\n"
+                      "Local a = P(1).Show()\n"
+                      "Local b = YShow(P(1))\n",
+                      modules) ==
+          errors_t{ "lib/y.fb: Show: 'Show' is already declared with the same parameter types" });
+}
+
+TEST_CASE("a quoted path whose file name isn't a name gives no qualifier", "[sema]") {
+    const std::vector<fb::library_file_t> modules{
+        { .path = "hud-2.fb", .text = "Public Function Two(): Int => 2\n" },
+        { .path = "End.fb", .text = "Public Function Ending(): Int => 3\n" },
+    };
+    CHECK(errors_with("Import \"./hud-2\"\n"
+                      "Import \"./End\"\n"
+                      "Local n = Two() + Ending()\n",
+                      modules)
+              .empty());
+    CHECK(errors_with("Import \"./hud-2\"\n"
+                      "Local n = hud.Two()\n",
+                      modules) == errors_t{ "hud: 'hud' isn't declared" });
+}
+
+TEST_CASE("an Interface's member like one it extends gives what that one does", "[sema]") {
+    // One with another result is reported once, at the Interface, and a type listing it
+    // implements the other.
+    CHECK(errors_of("Interface Source<T>\n"
+                    "    Method Get(): T\n"
+                    "    Method Both(): T[] => [Get(), Get()]\n"
+                    "End Interface\n"
+                    "Interface Wrapped<U> Extends Source<U[]>\n"
+                    "    Method Both(): U[] => Get()\n"
+                    "End Interface\n"
+                    "Class Box Implements Wrapped<Int>\n"
+                    "    Method Get(): Int[] => [1, 2, 3]\n"
+                    "End Class\n"
+                    "Class Crate Implements Wrapped<String>\n"
+                    "    Method Get(): String[] => []\n"
+                    "End Class\n"
+                    "Local n = Box().Both().Count") ==
+          errors_t{ "Both: 'Both' takes Source<U[]>'s parameters, so it gives what that one does, "
+                    "U[][], not U[]" });
+}
+
+TEST_CASE("a default seen less far can't take the place of one a type gives everyone", "[sema]") {
+    // A private Interface refining Comparable's > would make P's > private, though code with a
+    // T: Comparable would run it, and another one's default would do the same for Shown's.
+    CHECK(errors_of("Interface Ordered Extends Comparable\n"
+                    "    Operator >(a: Self, b: Self): Bool => True\n"
+                    "End Interface\n"
+                    "Public Struct P Implements Comparable\n"
+                    "    Public Field n: Int\n"
+                    "    Operator <(a: P, b: P): Bool => a.n < b.n\n"
+                    "End Struct\n"
+                    "Extend P Implements Ordered\n"
+                    "End Extend\n"
+                    "Interface Secret\n"
+                    "    Method Twice(): Int => 42\n"
+                    "End Interface\n"
+                    "Public Interface Shown\n"
+                    "    Method Twice(): Int => 107\n"
+                    "End Interface\n"
+                    "Public Class Base\n"
+                    "End Class\n"
+                    "Public Class Sub Extends Base Implements Shown\n"
+                    "End Class\n"
+                    "Extend Base Implements Secret\n"
+                    "End Extend\n") ==
+          errors_t{
+              "Ordered: Ordered's default '>' would take the place of Comparable's for P, which "
+              "is Public, but Ordered is private to test.fb",
+              "Secret: Secret's default 'Twice' would take the place of Shown's for Sub, which is "
+              "Public, but Secret is private to test.fb",
+          });
+
+    // As visible as the type, it does.
+    CHECK(errors_of("Public Interface Ordered Extends Comparable\n"
+                    "    Operator >(a: Self, b: Self): Bool => True\n"
+                    "End Interface\n"
+                    "Public Struct P Implements Comparable\n"
+                    "    Public Field n: Int\n"
+                    "    Operator <(a: P, b: P): Bool => a.n < b.n\n"
+                    "End Struct\n"
+                    "Extend P Implements Ordered\n"
+                    "End Extend\n")
+              .empty());
 }

@@ -1,0 +1,11 @@
+// What the program starts with. Its Global is set before the main module's code runs, since an
+// imported module's Globals initialize first.
+
+Public Global greeting = Announce()
+
+Function Announce(): String
+    Print("config sets its Global first")
+    Return "hello from config"
+End Function
+
+Public Function Describe(n: Int): String => "config says {n}"

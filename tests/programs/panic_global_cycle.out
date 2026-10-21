@@ -1,0 +1,1 @@
+panic: 'panic_global_cycle.a.late' is used before its initializer has run, since Globals initialize in source order at panic_global_cycle/b.fb:5:38

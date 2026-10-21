@@ -86,6 +86,11 @@ Class Door
     Method Later(): Func(): String
         Return Function() => "{Name} has {Opened}"
     End Method
+
+    // Self?. reads a Field too.
+    Method Counter(): Func(): Int
+        Return Function[Weak Self]() => Self?.Opened ?? -1
+    End Method
 End Class
 
 Local door = Door("front")
@@ -94,6 +99,7 @@ door.Bell.Click()
 Local report = door.Later()
 door.Open()
 Print(report())
+Print("{door.Counter()()}")
 
 // Lambdas inside lambdas share the outer Local's cell.
 Function Adder(start: Int): Func(Int): Func(): Int
@@ -132,3 +138,13 @@ Local pick: Func(String): Int = Pick
 Print("{pick("x")} {MakeOne()()}")
 
 Function MakeOne(): Func(): Int => Function() => 1
+
+// A Static Field or Property holding a function value is called through it, as a field is.
+Struct Rules
+    Static Field double: Func(Int32): Int32 = Function(x: Int32): Int32 => x * 2
+    Static Property Twice: Func(Int32): Int32
+        Get => double
+    End Property
+End Struct
+
+Print("{Rules.double(4)} {(Rules.double)(5)} {Rules.Twice(6)}")

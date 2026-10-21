@@ -1,0 +1,32 @@
+// Shapes, which modules.fb imports as S: a Struct, an Enum, a generic Class, a Global its New
+// counts in, a Function, and a Class to extend.
+
+Public Struct Point
+    Public Field X: Int
+    Public Field Y: Int
+End Struct
+
+Public Enum Kind
+    Circle
+    Square
+End Enum
+
+Public Global made = 0
+
+Public Class Box<T>
+    Public Field Item: T
+
+    Public New(item: T)
+        Item = item
+        made += 1
+    End New
+End Class
+
+Public Function Area(kind: Kind, size: Int): Int
+    If kind == Kind.Square Then Return size * size
+    Return size * size * 3
+End Function
+
+Public Class Shape
+    Public Method Name(): String => "shape"
+End Class

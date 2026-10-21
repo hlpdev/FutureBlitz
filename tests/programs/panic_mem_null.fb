@@ -1,0 +1,9 @@
+// Mem.Copy of some bytes to a Null Ptr panics, rather than passing it to C.
+Import std.ffi
+
+Unsafe
+    Local memory = Mem.Alloc(8)
+    Mem.Copy(memory, memory, 8)
+    Print("copied")
+    Mem.Copy(Null, memory, 8)
+End Unsafe

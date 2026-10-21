@@ -1,0 +1,104 @@
+// Interfaces' defaults: what a Class inherits implements another Interface's member, an
+// Interface's member like one it extends takes its place, and a default uses what it extends.
+Interface Sized
+    Method Size(): Int
+    Method Twice(): Int => Size() * 2
+End Interface
+
+Interface Doubled
+    Method Size(): Int
+    Method Twice(): Int => Size() + 100
+End Interface
+
+Function S(s: Sized): Int => s.Twice()
+Function D(d: Doubled): Int => d.Twice()
+
+// Sub has Base's Twice, Sized's default, which implements Doubled's too, so Third's Override
+// is what every call runs.
+Class Base Implements Sized
+    Method Size(): Int => 1
+End Class
+
+Class Sub Extends Base Implements Doubled
+End Class
+
+Class Third Extends Sub
+    Override Method Twice(): Int => 7
+End Class
+
+Function B(b: Base): Int => b.Twice()
+
+Local sub = Sub()
+Print("{sub.Twice()} {B(sub)} {S(sub)} {D(sub)}")
+Local third = Third()
+Print("{third.Twice()} {B(third)} {S(third)} {D(third)}")
+
+// An instance has what its generic type has.
+Class Box<T> Implements Sized
+    Method Size(): Int => 3
+End Class
+
+Extend Box<Int> Implements Doubled
+End Extend
+
+Local box = Box<Int>()
+Print("{box.Twice()} {S(box)} {D(box)}")
+
+// Tripled's Twice takes Sized's place, so it's the one every call runs, through either
+// Interface or on a type parameter.
+Interface Tripled Extends Sized
+    Method Twice(): Int => Size() * 3
+    Method Shown(): String => "{Size()} {Twice()}"
+End Interface
+
+Class Crate Implements Sized, Tripled
+    Method Size(): Int => 5
+End Class
+
+Function T(t: Tripled): Int => t.Twice()
+Function G<X: Tripled>(x: X): Int => x.Twice()
+Function H<X: Sized>(x: X): Int => x.Twice()
+
+Local crate = Crate()
+Print("{crate.Twice()} {S(crate)} {T(crate)} {G(crate)} {H(crate)} {crate.Shown()}")
+
+// An Operator too: Ordered's > is what Comparable's generic code runs.
+Interface Ordered Extends Comparable
+    Operator >(a: Self, b: Self): Bool => a.Key() > b.Key()
+    Method Key(): Int
+End Interface
+
+Struct Score Implements Ordered
+    Field points: Int
+    Operator <(a: Score, b: Score): Bool => a.points < b.points
+    Method Key(): Int => -points
+End Struct
+
+Function Bigger<X: Comparable>(a: X, b: X): Bool => a > b
+
+Print("{Score(1) > Score(2)} {Bigger(Score(1), Score(2))} {Score(1) < Score(2)} {Score(1) <= Score(2)}")
+
+// A default reaches a generic Interface's members by name, with the type arguments the
+// Interface extends it with.
+Interface Holder<U>
+    ReadOnly Property Item: U
+    Method Get(): U
+End Interface
+
+Interface Labeled Extends Holder<String>
+    Method Label(): String => "{Item}/{Get()}"
+End Interface
+
+Class Tag Implements Labeled
+    Property Item: String
+        Get => "item"
+    End Property
+
+    Method Get(): String => "got"
+End Class
+
+Function L<X: Labeled>(x: X): String => x.Label()
+
+Local tag = Tag()
+Local labeled: Labeled = tag
+Print("{tag.Label()} {labeled.Label()} {L(tag)}")

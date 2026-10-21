@@ -1,7 +1,9 @@
 #include "fb/codegen.hpp"
 
 #include "fb/build_config.hpp"
+#include "fb/c_abi.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstddef>
@@ -12,8 +14,11 @@
 #include <llvm-c/Target.h>
 #include <llvm-c/TargetMachine.h>
 #include <llvm-c/Transforms/PassBuilder.h>
+#include <map>
 #include <memory>
 #include <mutex>
+#include <optional>
+#include <span>
 #include <string_view>
 #include <unordered_map>
 #include <utility>
@@ -72,6 +77,21 @@ struct function_ref_t {
     LLVMValueRef value = nullptr;
 };
 
+/// How an Extern Function's call passes a Struct, or gets one back, by the target's C ABI.
+struct c_struct_abi_t {
+    c_passing_t passing;
+    /// Where the Struct's pieces start in it, one per piece, for DIRECT.
+    std::vector<std::uint64_t> offsets;
+};
+
+/// An Extern Function's C ABI, where it takes or gives a Struct by value. Each parameter's
+/// Struct, by its index, and what the declaration's parameters start with: the result's memory
+/// when it's MEMORY.
+struct c_signature_t {
+    std::vector<std::optional<c_struct_abi_t>> parameters;
+    std::optional<c_struct_abi_t> result;
+};
+
 /// Turns a MIR module into an LLVM module. Build it once, then print its IR or write an object
 /// file.
 class codegen_t {
@@ -98,7 +118,9 @@ public:
         declare_functions();
         declare_classes();
         for (std::size_t i = 0; i < m_mir.functions.size(); ++i) {
-            generate(i);
+            if (!m_mir.functions[i].external) {
+                generate(i);
+            }
         }
 
         for (std::size_t i = 0; i < m_mir.classes.size(); ++i) {
@@ -109,6 +131,9 @@ public:
         generate_channel_functions();
         generate_scheduler_functions();
         generate_main();
+        if (!m_unsupported.empty()) {
+            return std::unexpected(m_unsupported);
+        }
 
         char* error = nullptr;
         if (LLVMVerifyModule(m_module.get(), LLVMReturnStatusAction, &error) != 0) {
@@ -117,10 +142,13 @@ public:
 
         take_message(error);
         // A debug build only inlines what @Inline asks for.
-        // Async Functions' coroutines are split into their pieces in every build.
+        // Async Functions' coroutines are split into their pieces in every build. The call graph
+        // that coro-split walks starts from what's visible outside the module, so code nothing
+        // calls, like an Async Function the program never calls, goes first, or it would reach
+        // the backend unsplit.
         return optimize(m_options.mode == build_mode_t::RELEASE
                             ? "default<O2>"
-                            : "always-inline,coro-early,cgscc(coro-split),coro-cleanup");
+                            : "always-inline,globaldce,coro-early,cgscc(coro-split),coro-cleanup");
     }
 
     [[nodiscard]] std::string ir() const {
@@ -145,6 +173,13 @@ private:
     const codegen_options_t& m_options;
     /// The options' target, or else the one this compiler was built for, normalized.
     std::string m_triple;
+    /// Why the module can't be made for its target, found while making it.
+    std::string m_unsupported;
+    /// The C ABI of each Extern Function that takes or gives a Struct by value, by its index.
+    std::unordered_map<std::size_t, c_signature_t> m_c_signatures;
+    /// The function each Callback calls through, by the function it calls and whether that's a
+    /// lambda's code.
+    std::map<std::pair<std::uint32_t, bool>, LLVMValueRef> m_thunks;
     std::unique_ptr<LLVMOpaqueContext, context_deleter_t> m_context;
     std::unique_ptr<LLVMOpaqueModule, module_deleter_t> m_module;
     std::unique_ptr<LLVMOpaqueBuilder, builder_deleter_t> m_builder;
@@ -186,7 +221,9 @@ private:
     function_ref_t m_from_bool;
     function_ref_t m_power_int;
     function_ref_t m_power_uint;
-    function_ref_t m_print;
+    function_ref_t m_cstring_new;
+    function_ref_t m_cstring_free;
+    function_ref_t m_string_from_cstring;
     function_ref_t m_track_objects;
     function_ref_t m_retain_weak;
     function_ref_t m_release_weak;
@@ -218,6 +255,7 @@ private:
     function_ref_t m_channel_try_receive;
     function_ref_t m_channel_close;
     function_ref_t m_channel_take_left;
+    function_ref_t m_channel_element;
     function_ref_t m_channel_free;
     function_ref_t m_task_begin;
     function_ref_t m_task_finish;
@@ -250,6 +288,9 @@ private:
 
     /// Each MIR global's LLVM global, by global_id_t.
     std::vector<LLVMValueRef> m_globals;
+    /// In debug builds, for each Global main sets, a Bool that's true once its initializer has
+    /// run, and null for the rest.
+    std::vector<LLVMValueRef> m_ready;
     /// Each MIR function's declaration, by function_id_t.
     std::vector<function_ref_t> m_functions;
     std::unordered_map<std::string, LLVMValueRef> m_strings;   // static Strings, by text
@@ -401,6 +442,7 @@ private:
         case type_id_t::FLOAT64:
             return LLVMDoubleTypeInContext(context());
         case type_id_t::STRING:
+        case type_id_t::CSTRING:
             return m_ptr;
         default:
             if (m_mir.types->get(type).kind == type_kind_t::STRUCT ||
@@ -441,6 +483,10 @@ private:
                 return struct_type(type);
             }
 
+            if (is_pointer(type) || is_callback(type)) {
+                return m_ptr;
+            }
+
             return m_void;
         }
     }
@@ -456,6 +502,17 @@ private:
     /// The T of a T?.
     [[nodiscard]] type_id_t inner_of(const type_id_t type) const {
         return m_mir.types->get(type).inner;
+    }
+
+    /// How many T?s a type is inside: 2 for an Int32??.
+    [[nodiscard]] std::size_t nullable_depth(type_id_t type) const {
+        std::size_t depth = 0;
+        while (is_nullable(type)) {
+            type = inner_of(type);
+            ++depth;
+        }
+
+        return depth;
     }
 
     /// A String? or Class?: the reference itself, which is null for Null.
@@ -491,8 +548,20 @@ private:
         return m_mir.types->get(type).kind == type_kind_t::WEAK;
     }
 
+    [[nodiscard]] bool is_pointer(const type_id_t type) const {
+        return m_mir.types->get(type).kind == type_kind_t::PTR;
+    }
+
+    [[nodiscard]] bool is_callback(const type_id_t type) const {
+        return m_mir.types->get(type).kind == type_kind_t::CALLBACK;
+    }
+
     [[nodiscard]] bool is_fixed_array(const type_id_t type) const {
         return m_mir.types->get(type).kind == type_kind_t::FIXED_ARRAY;
+    }
+
+    [[nodiscard]] bool is_struct(const type_id_t type) const {
+        return m_mir.types->get(type).kind == type_kind_t::STRUCT;
     }
 
     [[nodiscard]] bool is_enum(const type_id_t type) const {
@@ -506,8 +575,12 @@ private:
         }
 
         // A Class's, Interface's, T[]'s, Weak<T>'s, or function value's zero is a null
-        // reference.
+        // reference, and a Ptr's is a null address.
         const type_t& info = m_mir.types->get(type);
+        if (info.kind == type_kind_t::PTR || info.kind == type_kind_t::CALLBACK) {
+            return true;
+        }
+
         if (info.kind == type_kind_t::CLASS || info.kind == type_kind_t::INTERFACE ||
             info.kind == type_kind_t::ARRAY || info.kind == type_kind_t::WEAK ||
             info.kind == type_kind_t::FUNCTION || info.kind == type_kind_t::CHANNEL ||
@@ -548,7 +621,7 @@ private:
             fields.push_back(llvm_type(field.type));
         }
 
-        const std::string name = std::format("fb.{}", m_mir.types->name(type));
+        const std::string name = std::format("fb.{}", m_mir.types->qualified_name(type));
         LLVMTypeRef result = LLVMStructCreateNamed(context(), name.c_str());
         LLVMStructSetBody(result, fields.data(), static_cast<unsigned>(fields.size()), 0);
         m_object_types.emplace(type, result);
@@ -567,7 +640,7 @@ private:
             fields.push_back(llvm_type(field.type));
         }
 
-        const std::string name = std::format("fb.{}", m_mir.types->name(type));
+        const std::string name = std::format("fb.{}", m_mir.types->qualified_name(type));
         LLVMTypeRef result = LLVMStructCreateNamed(context(), name.c_str());
         LLVMStructSetBody(result, fields.data(), static_cast<unsigned>(fields.size()), 0);
         m_struct_types.emplace(type, result);
@@ -609,7 +682,9 @@ private:
         m_from_bool = declare("fb_string_from_bool", m_ptr, { m_i32 });
         m_power_int = declare("fb_power_int", m_i64, { m_i64, m_i64, m_i32, m_i32, m_ptr });
         m_power_uint = declare("fb_power_uint", m_i64, { m_i64, m_i64, m_i32, m_i32, m_ptr });
-        m_print = declare("fb_print", m_void, { m_ptr });
+        m_cstring_new = declare("fb_cstring_new", m_ptr, { m_ptr });
+        m_cstring_free = declare("fb_cstring_free", m_void, { m_ptr });
+        m_string_from_cstring = declare("fb_string_from_cstring", m_ptr, { m_ptr });
         m_panic = declare("fb_panic", m_void, { m_ptr, m_ptr });
         m_panic_string = declare("fb_panic_string", m_void, { m_ptr, m_ptr });
         m_error_uncaught = declare("fb_error_uncaught", m_void, { m_ptr, m_ptr });
@@ -641,6 +716,7 @@ private:
         m_channel_try_receive = declare("fb_channel_try_receive", m_i32, { m_ptr, m_ptr });
         m_channel_close = declare("fb_channel_close", m_void, { m_ptr });
         m_channel_take_left = declare("fb_channel_take_left", m_ptr, { m_ptr });
+        m_channel_element = declare("fb_channel_element", m_ptr, { m_ptr, m_i64 });
         m_channel_free = declare("fb_channel_free", m_void, { m_ptr });
         m_task_begin = declare("fb_task_begin", m_void, { m_ptr });
         m_task_finish = declare("fb_task_finish", m_void, { m_ptr });
@@ -665,21 +741,28 @@ private:
         m_index_out_of_range = declare("fb_index_out_of_range", m_void, { m_i64, m_i64, m_ptr });
     }
 
-    /// An fb_class_t, with a Method table of type `table`: its name, its objects' size, its
-    /// destroy, release, and visit, its count of objects, its Interfaces and their count, and the
-    /// Class it extends.
+    /// An fb_class_t, with a Method table of type `table`: its name and full name, its objects'
+    /// size, its destroy, release, and visit, its count of objects, its Interfaces and their
+    /// count, and the Class it extends.
     LLVMTypeRef class_type(LLVMTypeRef table) {
-        std::array<LLVMTypeRef, 11> fields{
-            m_ptr, m_i64, m_ptr, m_ptr, m_ptr, m_i64, // name, size, destroy, release, visit, live
-            m_ptr, m_i64, m_i64,                      // interfaces, interface_count, shared
-            m_ptr, table,                             // base, methods
+        std::array<LLVMTypeRef, 12> fields{
+            m_ptr, m_ptr, m_i64, // name, full_name, size
+            m_ptr, m_ptr, m_ptr, // destroy, release, visit
+            m_i64, m_ptr, m_i64, // live, interfaces, interface_count
+            m_i64, m_ptr, table, // shared, base, methods
         };
         return LLVMStructTypeInContext(context(), fields.data(),
                                        static_cast<unsigned>(fields.size()), 0);
     }
 
     /// Where the Method table is in an fb_class_t.
-    static constexpr unsigned methods_field = 10;
+    static constexpr unsigned methods_field = 11;
+
+    /// How the runtime's messages show a type when another they show has the same name: with
+    /// each module first, the main module's too.
+    [[nodiscard]] std::string full_name(const type_id_t type) const {
+        return m_mir.types->qualified_name(type, m_mir.main_module);
+    }
 
     /// An Interface's fb_interface_t, made the first time it's needed.
     LLVMValueRef interface_info(const type_id_t interface) {
@@ -687,12 +770,16 @@ private:
             return found->second;
         }
 
-        const std::string_view name = m_mir.types->name(interface);
-        LLVMValueRef name_value = c_string(std::string(name));
+        std::array<LLVMValueRef, 2> names{
+            c_string(std::string(m_mir.types->name(interface))),
+            c_string(full_name(interface)),
+        };
+        LLVMValueRef value = LLVMConstStructInContext(context(), names.data(),
+                                                      static_cast<unsigned>(names.size()), 0);
         LLVMValueRef global = LLVMAddGlobal(
-            m_module.get(), LLVMTypeOf(LLVMConstStructInContext(context(), &name_value, 1, 0)),
-            std::format("fb.{}.interface", name).c_str());
-        LLVMSetInitializer(global, LLVMConstStructInContext(context(), &name_value, 1, 0));
+            m_module.get(), LLVMTypeOf(value),
+            std::format("fb.{}.interface", m_mir.types->qualified_name(interface)).c_str());
+        LLVMSetInitializer(global, value);
         LLVMSetGlobalConstant(global, 1);
         LLVMSetLinkage(global, LLVMInternalLinkage);
         return m_interfaces[interface] = global;
@@ -705,7 +792,7 @@ private:
             return { LLVMConstNull(m_ptr), LLVMConstInt(m_i64, 0, 0) };
         }
 
-        const std::string_view name = m_mir.types->name(info.type);
+        const std::string name = m_mir.types->qualified_name(info.type);
         std::vector<LLVMValueRef> entries;
         for (const mir_implementation_t& implementation : info.interfaces) {
             std::vector<LLVMValueRef> methods;
@@ -715,10 +802,11 @@ private:
             }
 
             LLVMValueRef table_value = LLVMConstArray2(m_ptr, methods.data(), methods.size());
-            LLVMValueRef table = LLVMAddGlobal(
-                m_module.get(), LLVMTypeOf(table_value),
-                std::format("fb.{}.{}.methods", name, m_mir.types->name(implementation.interface))
-                    .c_str());
+            LLVMValueRef table =
+                LLVMAddGlobal(m_module.get(), LLVMTypeOf(table_value),
+                              std::format("fb.{}.{}.methods", name,
+                                          m_mir.types->qualified_name(implementation.interface))
+                                  .c_str());
             LLVMSetInitializer(table, table_value);
             LLVMSetGlobalConstant(table, 1);
             LLVMSetLinkage(table, LLVMInternalLinkage);
@@ -767,14 +855,15 @@ private:
             const mir_class_t& info = m_mir.classes[i];
             m_class_index.emplace(info.type, i);
             LLVMTypeRef type = class_type(LLVMArrayType2(m_ptr, info.methods.size()));
-            const std::string name = std::format("fb.{}.class", m_mir.types->name(info.type));
+            const std::string name =
+                std::format("fb.{}.class", m_mir.types->qualified_name(info.type));
             LLVMValueRef global = LLVMAddGlobal(m_module.get(), type, name.c_str());
             LLVMSetLinkage(global, LLVMInternalLinkage);
             m_classes.emplace(info.type, global);
         }
 
         for (const mir_class_t& info : m_mir.classes) {
-            const std::string_view name = m_mir.types->name(info.type);
+            const std::string name = m_mir.types->qualified_name(info.type);
             class_functions_t functions{
                 .release = declare_internal(std::format("fb.{}.release", name), m_void, { m_ptr }),
                 .visit = declare_internal(std::format("fb.{}.visit", name), m_void,
@@ -796,7 +885,7 @@ private:
                 base != type_id_t::INVALID ? m_classes.at(base) : LLVMConstNull(m_ptr);
             LLVMSetInitializer(
                 m_classes.at(info.type),
-                class_value(name, LLVMSizeOf(object_type(info.type)), functions.destroy,
+                class_value(info.type, LLVMSizeOf(object_type(info.type)), functions.destroy,
                             functions.release, functions.visit, implementations(info), extended,
                             std::move(methods),
                             m_mir.types->get(info.type).shared || is_task(info.type)));
@@ -804,18 +893,19 @@ private:
         }
     }
 
-    /// An fb_class_t's value, with no objects counted yet. `destroy` is nullopt for a Class
-    /// without a Destroy() in its line, and `base` is null for one that extends nothing.
+    /// The fb_class_t's value of `type`, with no objects counted yet. `destroy` is nullopt for a
+    /// Class without a Destroy() in its line, and `base` is null for one that extends nothing.
     /// `interfaces` is its list of fb_implementation_t and their count. A Shared Class's objects
     /// count their owners atomically.
-    LLVMValueRef class_value(const std::string_view name, LLVMValueRef size,
+    LLVMValueRef class_value(const type_id_t type, LLVMValueRef size,
                              const std::optional<function_ref_t>& destroy,
                              const function_ref_t& release, const function_ref_t& visit,
                              const std::pair<LLVMValueRef, LLVMValueRef>& interfaces,
                              LLVMValueRef base, std::vector<LLVMValueRef> methods,
                              const bool shared = false) {
-        std::array<LLVMValueRef, 11> values{
-            c_string(std::string(name)),
+        std::array<LLVMValueRef, 12> values{
+            c_string(std::string(m_mir.types->name(type))),
+            c_string(full_name(type)),
             size,
             destroy ? destroy->value : LLVMConstNull(m_ptr),
             release.value,
@@ -831,6 +921,28 @@ private:
                                         static_cast<unsigned>(values.size()), 0);
     }
 
+    /// Whether the zero of `type` holds a null where the type promises an object: a Class's,
+    /// Interface's, T[]'s, function value's, Task's, Channel's, or Scheduler's, alone or in a
+    /// Struct, tuple, fixed array, or Mutex. A T?'s zero is Null, and a Weak<T>'s is gone.
+    [[nodiscard]] bool holds_null_object(const type_id_t type) const {
+        if (is_object(type) || is_array(type)) {
+            return true;
+        }
+
+        const type_t& info = m_mir.types->get(type);
+        if (info.kind == type_kind_t::FIXED_ARRAY) {
+            return holds_null_object(info.inner);
+        }
+
+        if (info.kind != type_kind_t::STRUCT && info.kind != type_kind_t::TUPLE &&
+            info.kind != type_kind_t::MUTEX) {
+            return false;
+        }
+
+        return std::ranges::any_of(
+            info.fields, [&](const field_t& field) { return holds_null_object(field.type); });
+    }
+
     /// Globals start out holding their `initial` value. Like functions, their names get an "fb."
     /// prefix.
     void declare_globals() {
@@ -842,12 +954,30 @@ private:
                                                      : zero_constant(global.type));
             LLVMSetLinkage(value, LLVMInternalLinkage);
             m_globals.push_back(value);
+
+            // Release builds check only a Global whose zero holds a null object, whose use would
+            // crash; any other zero is a value of its type, which they read, as they let
+            // overflow wrap.
+            LLVMValueRef ready = nullptr;
+            if ((checked() || holds_null_object(global.type)) && global.set_in_main) {
+                const std::string flag = std::format("fb.ready.{}", global.name);
+                ready = LLVMAddGlobal(m_module.get(), m_bool, flag.c_str());
+                LLVMSetInitializer(ready, LLVMConstInt(m_bool, 0, 0));
+                LLVMSetLinkage(ready, LLVMInternalLinkage);
+            }
+
+            m_ready.push_back(ready);
         }
     }
 
     /// Names get an "fb." prefix, so they can't clash with C functions like the runtime's.
     void declare_functions() {
         for (const mir_function_t& function : m_mir.functions) {
+            if (function.external) {
+                m_functions.push_back(declare_extern(function, *function.external));
+                continue;
+            }
+
             std::vector<LLVMTypeRef> parameters;
             for (std::size_t i = 0; i < function.parameter_count; ++i) {
                 const local_t& parameter = function.locals[i];
@@ -878,6 +1008,404 @@ private:
 
             m_functions.push_back(declared);
         }
+    }
+
+    /// An Extern Function's declaration under its symbol, which the runtime or C code defines,
+    /// or the one the runtime's functions have already. C's convention extends small integers
+    /// and Bools, as clang does.
+    function_ref_t declare_extern(const mir_function_t& function, const mir_extern_t& external) {
+        const bool structs =
+            external.c_abi &&
+            (is_struct(function.return_type) ||
+             std::ranges::any_of(std::span(function.locals).first(function.parameter_count),
+                                 [this](const local_t& parameter) {
+                                     return !parameter.by_ref && is_struct(parameter.type);
+                                 }));
+        if (structs) {
+            return declare_c_structs(function, external);
+        }
+
+        std::vector<LLVMTypeRef> parameters;
+        for (std::size_t i = 0; i < function.parameter_count; ++i) {
+            const local_t& parameter = function.locals[i];
+            parameters.push_back(parameter.by_ref ? m_ptr : llvm_type(parameter.type));
+        }
+
+        LLVMTypeRef type = LLVMFunctionType(llvm_type(function.return_type), parameters.data(),
+                                            static_cast<unsigned>(parameters.size()), 0);
+        if (LLVMValueRef found = LLVMGetNamedFunction(m_module.get(), external.symbol.c_str())) {
+            return { .type = type, .value = found };
+        }
+
+        LLVMValueRef value = LLVMAddFunction(m_module.get(), external.symbol.c_str(), type);
+        if (external.c_abi) {
+            extend_for_c(value, 0, function.return_type);
+            for (std::size_t i = 0; i < function.parameter_count; ++i) {
+                if (!function.locals[i].by_ref) {
+                    extend_for_c(value, static_cast<unsigned>(i + 1), function.locals[i].type);
+                }
+            }
+        }
+
+        return { .type = type, .value = value };
+    }
+
+    /// How a Struct goes by the target's C ABI, as an argument taking `registers`, or as the
+    /// result.
+    c_struct_abi_t struct_abi(const type_id_t type, const bool result, c_registers_t& registers) {
+        if (c_abi_of(m_triple) == c_abi_t::OTHER) {
+            m_unsupported = std::format(
+                "a Struct goes to and from C by value only on x86-64 yet, not on {}", m_triple);
+        }
+
+        c_struct_abi_t abi{
+            .passing =
+                classify(c_layout(*m_mir.types, type), c_abi_of(m_triple), result, registers),
+        };
+        for (std::size_t i = 0; i < abi.passing.pieces.size(); ++i) {
+            abi.offsets.push_back(8 * i);
+        }
+
+        return abi;
+    }
+
+    /// The LLVM type of one piece a Struct goes in.
+    [[nodiscard]] LLVMTypeRef piece_type(const c_piece_t& piece) const {
+        switch (piece.part) {
+        case c_part_t::INTEGER:
+            return LLVMIntTypeInContext(context(), static_cast<unsigned>(piece.size * 8));
+        case c_part_t::FLOAT:
+            return LLVMFloatTypeInContext(context());
+        case c_part_t::DOUBLE:
+            return LLVMDoubleTypeInContext(context());
+        case c_part_t::TWO_FLOATS:
+            return LLVMVectorType(LLVMFloatTypeInContext(context()), 2);
+        }
+
+        std::unreachable();
+    }
+
+    /// An attribute like "sret" or "byval" that holds a type, or "align" with a number.
+    void add_type_attribute(LLVMValueRef function, const LLVMAttributeIndex index,
+                            const std::string_view name, LLVMTypeRef type) {
+        const unsigned kind = LLVMGetEnumAttributeKindForName(name.data(), name.size());
+        LLVMAddAttributeAtIndex(function, index, LLVMCreateTypeAttribute(context(), kind, type));
+    }
+
+    void add_align(LLVMValueRef function, const LLVMAttributeIndex index,
+                   const std::uint64_t align) {
+        constexpr std::string_view name = "align";
+        const unsigned kind = LLVMGetEnumAttributeKindForName(name.data(), name.size());
+        LLVMAddAttributeAtIndex(function, index, LLVMCreateEnumAttribute(context(), kind, align));
+    }
+
+    /// An Extern Function that takes or gives a Struct by value, declared as the C ABI has it,
+    /// as clang does: a Struct in registers as its pieces, through a pointer to a copy, or in
+    /// memory, byval for an argument and sret for the result. Scalars take registers before and
+    /// after.
+    function_ref_t declare_c_structs(const mir_function_t& function, const mir_extern_t& external) {
+        c_registers_t registers;
+        c_signature_t signature;
+        std::vector<LLVMTypeRef> parameters;
+        LLVMTypeRef result = llvm_type(function.return_type);
+        if (is_struct(function.return_type)) {
+            signature.result = struct_abi(function.return_type, true, registers);
+            if (signature.result->passing.pass == c_pass_t::MEMORY) {
+                parameters.push_back(m_ptr);
+                registers.integers = registers.integers > 0 ? registers.integers - 1 : 0;
+                result = m_void;
+            } else {
+                std::vector<LLVMTypeRef> pieces;
+                for (const c_piece_t& piece : signature.result->passing.pieces) {
+                    pieces.push_back(piece_type(piece));
+                }
+
+                result = pieces.size() == 1
+                             ? pieces.front()
+                             : LLVMStructTypeInContext(context(), pieces.data(),
+                                                       static_cast<unsigned>(pieces.size()), 0);
+            }
+        }
+
+        for (std::size_t i = 0; i < function.parameter_count; ++i) {
+            const local_t& parameter = function.locals[i];
+            if (parameter.by_ref || !is_struct(parameter.type)) {
+                // A scalar takes a register of its kind, while one is left.
+                unsigned& left = !parameter.by_ref && is_float(parameter.type) ? registers.sse
+                                                                               : registers.integers;
+                left = left > 0 ? left - 1 : 0;
+                parameters.push_back(parameter.by_ref ? m_ptr : llvm_type(parameter.type));
+                signature.parameters.emplace_back();
+                continue;
+            }
+
+            const c_struct_abi_t abi = struct_abi(parameter.type, false, registers);
+            if (abi.passing.pass == c_pass_t::DIRECT) {
+                for (const c_piece_t& piece : abi.passing.pieces) {
+                    parameters.push_back(piece_type(piece));
+                }
+            } else {
+                parameters.push_back(m_ptr);
+            }
+
+            signature.parameters.emplace_back(abi);
+        }
+
+        LLVMTypeRef type = LLVMFunctionType(result, parameters.data(),
+                                            static_cast<unsigned>(parameters.size()), 0);
+        m_c_signatures[m_functions.size()] = signature;
+        if (LLVMValueRef found = LLVMGetNamedFunction(m_module.get(), external.symbol.c_str())) {
+            return { .type = type, .value = found };
+        }
+
+        LLVMValueRef value = LLVMAddFunction(m_module.get(), external.symbol.c_str(), type);
+        unsigned index = 1;
+        if (signature.result && signature.result->passing.pass == c_pass_t::MEMORY) {
+            add_type_attribute(value, index, "sret", llvm_type(function.return_type));
+            add_align(value, index, c_layout(*m_mir.types, function.return_type).align);
+            ++index;
+        } else if (!signature.result) {
+            extend_for_c(value, 0, function.return_type);
+        }
+
+        for (std::size_t i = 0; i < function.parameter_count; ++i) {
+            const std::optional<c_struct_abi_t>& abi = signature.parameters[i];
+            if (!abi) {
+                if (!function.locals[i].by_ref) {
+                    extend_for_c(value, index, function.locals[i].type);
+                }
+
+                ++index;
+            } else if (abi->passing.pass == c_pass_t::DIRECT) {
+                index += static_cast<unsigned>(abi->passing.pieces.size());
+            } else {
+                // A SysV argument in memory takes eightbytes of the stack, as clang has it.
+                if (abi->passing.pass == c_pass_t::MEMORY) {
+                    add_type_attribute(value, index, "byval", llvm_type(function.locals[i].type));
+                    add_align(value, index,
+                              std::max<std::uint64_t>(
+                                  c_layout(*m_mir.types, function.locals[i].type).align, 8));
+                }
+
+                ++index;
+            }
+        }
+
+        return { .type = type, .value = value };
+    }
+
+    /// Memory for a value of `type` in the entry block, aligned for the C ABI's 8-byte pieces.
+    LLVMValueRef entry_alloca(LLVMTypeRef type) {
+        LLVMBasicBlockRef current = LLVMGetInsertBlock(builder());
+        LLVMPositionBuilderAtEnd(builder(), m_entry); // it has no terminator until the end
+        LLVMValueRef slot = LLVMBuildAlloca(builder(), type, "c_struct");
+        LLVMSetAlignment(slot, 16);
+        LLVMPositionBuilderAtEnd(builder(), current);
+        return slot;
+    }
+
+    /// A call of an Extern Function that takes or gives a Struct by value, by `signature`.
+    LLVMValueRef call_c_structs(const function_ref_t& function, const c_signature_t& signature,
+                                const call_t& node) {
+        std::vector<LLVMValueRef> arguments;
+        LLVMValueRef result_memory = nullptr;
+        const type_id_t result_type = m_mir.functions[index(node.function)].return_type;
+        if (signature.result && signature.result->passing.pass == c_pass_t::MEMORY) {
+            result_memory = entry_alloca(llvm_type(result_type));
+            arguments.push_back(result_memory);
+        }
+
+        std::vector<std::pair<unsigned, type_id_t>> byval;
+        for (std::size_t i = 0; i < node.arguments.size(); ++i) {
+            const call_argument_t& argument = node.arguments[i];
+            if (argument.by_ref) {
+                arguments.push_back(address_of(std::get<place_t>(argument.value)));
+                continue;
+            }
+
+            const std::optional<c_struct_abi_t>& abi = signature.parameters[i];
+            if (!abi) {
+                arguments.push_back(value_of(argument.value));
+                continue;
+            }
+
+            const type_id_t type = type_of(argument.value);
+            LLVMValueRef copy = entry_alloca(llvm_type(type));
+            LLVMBuildStore(builder(), value_of(argument.value), copy);
+            if (abi->passing.pass != c_pass_t::DIRECT) {
+                if (abi->passing.pass == c_pass_t::MEMORY) {
+                    byval.emplace_back(static_cast<unsigned>(arguments.size() + 1), type);
+                }
+
+                arguments.push_back(copy);
+                continue;
+            }
+
+            for (std::size_t k = 0; k < abi->passing.pieces.size(); ++k) {
+                LLVMValueRef offset = LLVMConstInt(m_i64, abi->offsets[k], 0);
+                LLVMValueRef at = LLVMBuildGEP2(builder(), LLVMInt8TypeInContext(context()), copy,
+                                                &offset, 1, "");
+                arguments.push_back(
+                    LLVMBuildLoad2(builder(), piece_type(abi->passing.pieces[k]), at, ""));
+            }
+        }
+
+        LLVMValueRef made = call(function, std::move(arguments));
+        for (const auto& [position, type] : byval) {
+            const unsigned kind = LLVMGetEnumAttributeKindForName("byval", 5);
+            LLVMAddCallSiteAttribute(made, position,
+                                     LLVMCreateTypeAttribute(context(), kind, llvm_type(type)));
+        }
+
+        if (result_memory != nullptr) {
+            const unsigned kind = LLVMGetEnumAttributeKindForName("sret", 4);
+            LLVMAddCallSiteAttribute(
+                made, 1, LLVMCreateTypeAttribute(context(), kind, llvm_type(result_type)));
+            return LLVMBuildLoad2(builder(), llvm_type(result_type), result_memory, "");
+        }
+
+        if (!signature.result) {
+            return made;
+        }
+
+        // The pieces go back into the Struct's bytes.
+        LLVMValueRef back = entry_alloca(llvm_type(result_type));
+        const std::vector<c_piece_t>& pieces = signature.result->passing.pieces;
+        for (std::size_t k = 0; k < pieces.size(); ++k) {
+            LLVMValueRef piece =
+                pieces.size() == 1
+                    ? made
+                    : LLVMBuildExtractValue(builder(), made, static_cast<unsigned>(k), "");
+            LLVMValueRef offset = LLVMConstInt(m_i64, signature.result->offsets[k], 0);
+            LLVMValueRef at =
+                LLVMBuildGEP2(builder(), LLVMInt8TypeInContext(context()), back, &offset, 1, "");
+            LLVMBuildStore(builder(), piece, at);
+        }
+
+        return LLVMBuildLoad2(builder(), llvm_type(result_type), back, "");
+    }
+
+    /// C passes a Bool extended to a register with zeros, and on x86-64 outside Windows and on
+    /// Apple's targets, an integer narrower than 32 bits too, with zeros for an unsigned one and
+    /// its sign for a signed one; Windows and other AArch64 targets leave those as they are, as
+    /// clang does. `index` is 0 for the result,
+    /// and from 1 for the parameters.
+    void extend_for_c(LLVMValueRef function, const unsigned index, const type_id_t type) {
+        if (const std::string_view name = c_extension(type); !name.empty()) {
+            const unsigned kind = LLVMGetEnumAttributeKindForName(name.data(), name.size());
+            LLVMAddAttributeAtIndex(function, index, LLVMCreateEnumAttribute(context(), kind, 0));
+        }
+    }
+
+    /// The same, for a call through a Callback.
+    void extend_call_for_c(LLVMValueRef call, const unsigned index, const type_id_t type) {
+        if (const std::string_view name = c_extension(type); !name.empty()) {
+            const unsigned kind = LLVMGetEnumAttributeKindForName(name.data(), name.size());
+            LLVMAddCallSiteAttribute(call, index, LLVMCreateEnumAttribute(context(), kind, 0));
+        }
+    }
+
+    /// "zeroext" or "signext" for a value C passes extended, or empty for one it doesn't.
+    [[nodiscard]] std::string_view c_extension(const type_id_t type) const {
+        const type_id_t integer = is_enum(type) ? m_mir.types->get(type).inner : type;
+        const bool small_extended = !m_triple.contains("windows") &&
+                                    (m_triple.starts_with("x86_64") || m_triple.contains("apple"));
+        if (integer != type_id_t::BOOL &&
+            (!small_extended || !is_integer(integer) || bit_width(integer) >= 32)) {
+            return {};
+        }
+
+        return integer != type_id_t::BOOL && is_signed(integer) ? "signext" : "zeroext";
+    }
+
+    /// A Callback's LLVM function type: C's for its parameters and result.
+    LLVMTypeRef callback_type(const type_id_t callback) {
+        const type_t& info = m_mir.types->get(callback);
+        std::vector<LLVMTypeRef> parameters;
+        parameters.reserve(info.parameters.size());
+        for (const type_id_t parameter : info.parameters) {
+            parameters.push_back(llvm_type(parameter));
+        }
+
+        return LLVMFunctionType(llvm_type(info.inner), parameters.data(),
+                                static_cast<unsigned>(parameters.size()), 0);
+    }
+
+    /// A Callback's address: a function by the C ABI, one for each function it calls, which
+    /// passes its arguments on, and a null closure first to a lambda's code.
+    LLVMValueRef value(const callback_t& node) {
+        // An Extern Function is C's own, which C code calls and compares as it is.
+        if (const mir_function_t& code = m_mir.functions[index(node.function)];
+            !node.closure && code.external && code.external->c_abi) {
+            return m_functions[index(node.function)].value;
+        }
+
+        const auto key = std::pair(std::to_underlying(node.function), node.closure);
+        if (const auto found = m_thunks.find(key); found != m_thunks.end()) {
+            return found->second;
+        }
+
+        const type_t& info = m_mir.types->get(node.type);
+        const std::string name =
+            std::format("fb.callback.{}", m_mir.functions[index(node.function)].name);
+        LLVMValueRef thunk =
+            LLVMAddFunction(m_module.get(), name.c_str(), callback_type(node.type));
+        LLVMSetLinkage(thunk, LLVMInternalLinkage);
+        extend_for_c(thunk, 0, info.inner);
+        for (std::size_t i = 0; i < info.parameters.size(); ++i) {
+            extend_for_c(thunk, static_cast<unsigned>(i + 1), info.parameters[i]);
+        }
+
+        LLVMBasicBlockRef current = LLVMGetInsertBlock(builder());
+        LLVMValueRef outer = std::exchange(m_llvm_function, thunk);
+        LLVMPositionBuilderAtEnd(builder(),
+                                 LLVMAppendBasicBlockInContext(context(), thunk, "entry"));
+        std::vector<LLVMValueRef> arguments;
+        if (node.closure) {
+            arguments.push_back(LLVMConstPointerNull(m_ptr));
+        }
+
+        for (std::size_t i = 0; i < info.parameters.size(); ++i) {
+            LLVMValueRef argument = LLVMGetParam(thunk, static_cast<unsigned>(i));
+            // An Enum C passes has to be one of its values.
+            const type_t& parameter = m_mir.types->get(info.parameters[i]);
+            if (parameter.kind == type_kind_t::ENUM && !parameter.flags) {
+                const mir_function_t& code = m_mir.functions[index(node.function)];
+                const std::string_view parameter_name =
+                    code.locals[i + (node.closure ? 1 : 0)].name;
+                panic_if(LLVMBuildNot(builder(), is_enum_value(argument, info.parameters[i]), ""),
+                         std::format("C passed '{}' a value that isn't one of {}'s", parameter_name,
+                                     m_mir.types->name(info.parameters[i])),
+                         node.span);
+            }
+
+            arguments.push_back(argument);
+        }
+
+        LLVMValueRef result = call(m_functions[index(node.function)], std::move(arguments));
+        if (info.inner == type_id_t::NONE) {
+            LLVMBuildRetVoid(builder());
+        } else {
+            LLVMBuildRet(builder(), result);
+        }
+
+        m_llvm_function = outer;
+        LLVMPositionBuilderAtEnd(builder(), current);
+        m_thunks.emplace(key, thunk);
+        return thunk;
+    }
+
+    /// Whether `value`, an Enum's integer, is one of the Enum's values.
+    LLVMValueRef is_enum_value(LLVMValueRef value, const type_id_t type) {
+        LLVMTypeRef integer = LLVMTypeOf(value);
+        LLVMValueRef found = LLVMConstInt(m_bool, 0, 0);
+        for (const enum_value_t& member : m_mir.types->get(type).values) {
+            LLVMValueRef same = LLVMBuildICmp(builder(), LLVMIntEQ, value,
+                                              LLVMConstInt(integer, member.bits, 0), "");
+            found = LLVMBuildOr(builder(), found, same, "");
+        }
+
+        return found;
     }
 
     // Constants
@@ -1131,11 +1659,33 @@ private:
             if (holds_objects(fields[i].type)) {
                 LLVMValueRef field = LLVMBuildStructGEP2(builder(), object_type(info.type),
                                                          LLVMGetParam(visit, 0), i + 2, "");
-                visit_objects(field, fields[i].type, visit, c_string(fields[i].name));
+                visit_objects(field, fields[i].type, visit, c_string(field_label(info.type, i)));
             }
         }
 
         LLVMBuildRetVoid(builder());
+    }
+
+    /// A Class's field as leak reports name it: its name, and the Class it's declared in when a
+    /// field after it has the name too, as one of a Class extending that Class can where it
+    /// can't see it: "hidden (lib.Node's)".
+    [[nodiscard]] std::string field_label(const type_id_t type, const std::uint32_t at) const {
+        const std::vector<field_t>& fields = m_mir.types->get(type).fields;
+        const std::string& name = fields[at].name;
+        if (std::ranges::none_of(fields.begin() + at + 1, fields.end(),
+                                 [&](const field_t& field) { return field.name == name; })) {
+            return name;
+        }
+
+        // The Class that declares it is the furthest one along the bases that has it.
+        type_id_t owner = type;
+        for (type_id_t base = m_mir.types->get(type).base;
+             base != type_id_t::INVALID && m_mir.types->get(base).fields.size() > at;
+             base = m_mir.types->get(base).base) {
+            owner = base;
+        }
+
+        return std::format("{} ({}'s)", name, full_name(owner));
     }
 
     /// Whether a value of `type` refers to objects strongly, which could make a cycle: a Class or
@@ -1216,7 +1766,7 @@ private:
             return found->second;
         }
 
-        const std::string_view name = m_mir.types->name(type);
+        const std::string name = m_mir.types->qualified_name(type);
         const array_class_t functions{
             .type = type,
             .release = declare_internal(std::format("fb.{}.release", name), m_void, { m_ptr }),
@@ -1224,7 +1774,7 @@ private:
                 declare_internal(std::format("fb.{}.visit", name), m_void, { m_ptr, m_ptr, m_ptr }),
         };
         LLVMValueRef info = class_value(
-            name, LLVMSizeOf(m_array_type), std::nullopt, functions.release, functions.visit,
+            type, LLVMSizeOf(m_array_type), std::nullopt, functions.release, functions.visit,
             { LLVMConstNull(m_ptr), LLVMConstInt(m_i64, 0, 0) }, LLVMConstNull(m_ptr), {});
         const std::string global_name = std::format("fb.{}.class", name);
         LLVMValueRef global = LLVMAddGlobal(m_module.get(), LLVMTypeOf(info), global_name.c_str());
@@ -1398,6 +1948,13 @@ private:
                 continue;
             }
 
+            // A Ptr's variable holds the address of what it points at.
+            if (is_pointer(type)) {
+                address = pointee(LLVMBuildLoad2(builder(), m_ptr, address, ""), step.span);
+                type = inner_of(type);
+                continue;
+            }
+
             const std::uint32_t field = step.field;
             if (is_class(type) || is_task(type)) {
                 // A Class's variable holds a pointer; the fields are in the object, after the
@@ -1423,6 +1980,13 @@ private:
     /// object, whose buffer has the elements, and a fixed array has them inline. An index out of
     /// range panics.
     LLVMValueRef element_address(LLVMValueRef address, const type_id_t type, const step_t& step) {
+        // From a Ptr, the index counts T's on from where it points, or back.
+        if (is_pointer(type)) {
+            LLVMValueRef base = pointee(LLVMBuildLoad2(builder(), m_ptr, address, ""), step.span);
+            LLVMValueRef position = index_value(step.indices[0]);
+            return LLVMBuildGEP2(builder(), llvm_type(inner_of(type)), base, &position, 1, "");
+        }
+
         if (is_array(type)) {
             LLVMValueRef array = LLVMBuildLoad2(builder(), m_ptr, address, "");
             return array_element(array, inner_of(type), index_value(step.indices[0]), step.span);
@@ -1446,6 +2010,15 @@ private:
         }
 
         return LLVMBuildGEP2(builder(), llvm_type(inner_of(type)), address, &flat, 1, "");
+    }
+
+    /// What a Ptr, `address`, points at. A debug build panics at `span` when it's Null.
+    LLVMValueRef pointee(LLVMValueRef address, const span_t span) {
+        if (checked()) {
+            panic_if(LLVMBuildIsNull(builder(), address, ""), "the Ptr is Null", span);
+        }
+
+        return address;
     }
 
     /// The address of a T[]'s element at `position`, an Int64, which panics when it's out of
@@ -1612,6 +2185,27 @@ private:
         for_each_reference(address_of(node.target), type_of(node.target), false);
     }
 
+    /// Debug builds mark a Global main has set, and panic where a function uses one it hasn't
+    /// yet, which an earlier Global's initializer reached.
+    void generate(const ready_t& node) {
+        LLVMValueRef flag = m_ready[index(node.global)];
+        if (flag == nullptr) {
+            return;
+        }
+
+        if (node.mark) {
+            LLVMBuildStore(builder(), LLVMConstInt(m_bool, 1, 0), flag);
+            return;
+        }
+
+        LLVMValueRef set = LLVMBuildLoad2(builder(), m_bool, flag, "");
+        panic_if(LLVMBuildNot(builder(), set, ""),
+                 std::format("'{}' is used before its initializer has run, since Globals "
+                             "initialize in source order",
+                             m_mir.globals[index(node.global)].name),
+                 node.span);
+    }
+
     // Terminators
 
     void generate(const goto_t& node) {
@@ -1691,8 +2285,10 @@ private:
     }
 
     void generate(const panic_t& node) {
-        if (node.text) {
-            call(m_panic_string, { value_of(*node.text), location(node.span) });
+        // A message with a NUL in it goes as a String, which is shown whole.
+        if (node.text || node.message.contains('\0')) {
+            LLVMValueRef text = node.text ? value_of(*node.text) : static_string(node.message);
+            call(m_panic_string, { text, location(node.span) });
             LLVMBuildUnreachable(builder());
             return;
         }
@@ -1751,6 +2347,12 @@ private:
 
         LLVMValueRef left = value_of(node.left);
         LLVMValueRef right = value_of(node.right);
+        // Ptrs, CStrings, and Callbacks compare their addresses.
+        if (is_pointer(type) || type == type_id_t::CSTRING || is_callback(type)) {
+            return LLVMBuildICmp(builder(), node.op == binary_op_t::EQUAL ? LLVMIntEQ : LLVMIntNE,
+                                 left, right, "");
+        }
+
         if (is_float(type)) {
             return float_operation(node.op, type, left, right);
         }
@@ -1998,7 +2600,8 @@ private:
     }
 
     /// A T, or a T?, as a U? whose U the T converts to. A String? or Class? is the reference
-    /// either way; any other gets the converted value and the flag.
+    /// either way; any other gets the converted value and the flag. A T? as a U? of the same
+    /// depth keeps its flag, and in a deeper one it's wrapped, so a U?? holds its Null.
     LLVMValueRef to_nullable(LLVMValueRef value, const type_id_t from, const type_id_t to,
                              const span_t span) {
         if (from == to || is_nullable_reference(to)) {
@@ -2007,13 +2610,19 @@ private:
 
         LLVMValueRef holds = LLVMConstInt(m_bool, 1, 0);
         type_id_t from_inner = from;
-        if (is_nullable(from)) {
-            holds = LLVMBuildExtractValue(builder(), value, 0, "");
-            value = LLVMBuildExtractValue(builder(), value, 1, "");
+        if (is_nullable(from) && nullable_depth(from) == nullable_depth(to)) {
+            if (is_nullable_reference(from)) {
+                holds = LLVMBuildIsNotNull(builder(), value, "");
+            } else {
+                holds = LLVMBuildExtractValue(builder(), value, 0, "");
+                value = LLVMBuildExtractValue(builder(), value, 1, "");
+            }
+
             from_inner = inner_of(from);
         }
 
-        value = convert(value, from_inner, inner_of(to), span);
+        value = is_nullable(inner_of(to)) ? to_nullable(value, from_inner, inner_of(to), span)
+                                          : convert(value, from_inner, inner_of(to), span);
         LLVMValueRef result = LLVMGetUndef(llvm_type(to));
         result = LLVMBuildInsertValue(builder(), result, holds, 0, "");
         return LLVMBuildInsertValue(builder(), result, value, 1, "");
@@ -2032,6 +2641,25 @@ private:
         LLVMTypeRef target = llvm_type(to);
         if (from == to || (is_object(from) && is_object(to)) || is_weak(to)) {
             return value;
+        }
+
+        // A Ptr, CString, or Callback is an address, which an integer holds.
+        const auto is_address = [this](const type_id_t type) {
+            return is_pointer(type) || type == type_id_t::CSTRING ||
+                   m_mir.types->get(type).kind == type_kind_t::CALLBACK;
+        };
+        const bool from_address = is_address(from);
+        const bool to_address = is_address(to);
+        if (from_address && to_address) {
+            return value;
+        }
+
+        if (from_address) {
+            return LLVMBuildPtrToInt(builder(), value, target, "");
+        }
+
+        if (to_address) {
+            return LLVMBuildIntToPtr(builder(), value, target, "");
         }
 
         if (from == type_id_t::BOOL) {
@@ -2069,9 +2697,35 @@ private:
                          : LLVMBuildFPToUI(builder(), whole, target, "");
     }
 
+    LLVMValueRef value(const address_of_t& node) {
+        return address_of(node.place);
+    }
+
+    /// A Ptr's steps are its T's size, and a count of them is an Int64.
+    LLVMValueRef value(const pointer_t& node) {
+        const type_id_t type = type_of(node.left);
+        LLVMTypeRef element = llvm_type(inner_of(type));
+        LLVMValueRef left = value_of(node.left);
+        if (is_pointer(type_of(node.right))) {
+            return LLVMBuildPtrDiff2(builder(), element, left, value_of(node.right), "");
+        }
+
+        LLVMValueRef count = to_int64(node.right);
+        if (node.op == binary_op_t::SUBTRACT) {
+            count = LLVMBuildNeg(builder(), count, "");
+        }
+
+        return LLVMBuildGEP2(builder(), element, left, &count, 1, "");
+    }
+
     /// A call through the Method table goes to the slot's function in the table of the
     /// object's Class.
     LLVMValueRef value(const call_t& node) {
+        if (const auto found = m_c_signatures.find(index(node.function));
+            found != m_c_signatures.end()) {
+            return call_c_structs(m_functions[index(node.function)], found->second, node);
+        }
+
         std::vector<LLVMValueRef> arguments;
         arguments.reserve(node.arguments.size());
         for (const call_argument_t& argument : node.arguments) {
@@ -2186,7 +2840,7 @@ private:
             return found->second;
         }
 
-        const std::string_view name = m_mir.types->name(type);
+        const std::string name = m_mir.types->qualified_name(type);
         const array_class_t functions{
             .type = type,
             .release = declare_internal(std::format("fb.{}.release", name), m_void, { m_ptr }),
@@ -2194,7 +2848,7 @@ private:
                 declare_internal(std::format("fb.{}.visit", name), m_void, { m_ptr, m_ptr, m_ptr }),
         };
         LLVMValueRef info = class_value(
-            name, LLVMSizeOf(m_channel_type), std::nullopt, functions.release, functions.visit,
+            type, LLVMSizeOf(m_channel_type), std::nullopt, functions.release, functions.visit,
             { LLVMConstNull(m_ptr), LLVMConstInt(m_i64, 0, 0) }, LLVMConstNull(m_ptr), {}, true);
         const std::string global_name = std::format("fb.{}.class", name);
         LLVMValueRef global = LLVMAddGlobal(m_module.get(), LLVMTypeOf(info), global_name.c_str());
@@ -2221,7 +2875,7 @@ private:
         LLVMTypeRef object = LLVMStructTypeInContext(context(), fields.data(),
                                                      static_cast<unsigned>(fields.size()), 0);
         LLVMValueRef info = class_value(
-            "Scheduler", LLVMSizeOf(object), std::nullopt, functions.release, functions.visit,
+            type, LLVMSizeOf(object), std::nullopt, functions.release, functions.visit,
             { LLVMConstNull(m_ptr), LLVMConstInt(m_i64, 0, 0) }, LLVMConstNull(m_ptr), {}, false);
         LLVMValueRef global = LLVMAddGlobal(m_module.get(), LLVMTypeOf(info), "fb.Scheduler.class");
         LLVMSetInitializer(global, info);
@@ -2277,9 +2931,30 @@ private:
             call(m_channel_free, { channel });
             LLVMBuildRetVoid(builder());
 
+            // The visit goes over the elements in the ring, oldest first, for the leak report,
+            // once no thread uses the Channel.
             LLVMValueRef visit = functions.visit.value;
             LLVMPositionBuilderAtEnd(builder(),
                                      LLVMAppendBasicBlockInContext(context(), visit, "entry"));
+            if (holds_objects(element)) {
+                LLVMValueRef index = LLVMBuildAlloca(builder(), m_i64, "index");
+                LLVMBuildStore(builder(), LLVMConstInt(m_i64, 0, 0), index);
+                LLVMBasicBlockRef head = LLVMAppendBasicBlockInContext(context(), visit, "head");
+                LLVMBasicBlockRef each = LLVMAppendBasicBlockInContext(context(), visit, "each");
+                LLVMBasicBlockRef end = LLVMAppendBasicBlockInContext(context(), visit, "end");
+                LLVMBuildBr(builder(), head);
+                LLVMPositionBuilderAtEnd(builder(), head);
+                LLVMValueRef at = LLVMBuildLoad2(builder(), m_i64, index, "");
+                LLVMValueRef item = call(m_channel_element, { LLVMGetParam(visit, 0), at });
+                LLVMBuildCondBr(builder(), LLVMBuildIsNull(builder(), item, ""), end, each);
+                LLVMPositionBuilderAtEnd(builder(), each);
+                visit_objects(item, element, visit, LLVMConstNull(m_ptr));
+                LLVMBuildStore(builder(),
+                               LLVMBuildAdd(builder(), at, LLVMConstInt(m_i64, 1, 0), ""), index);
+                LLVMBuildBr(builder(), head);
+                LLVMPositionBuilderAtEnd(builder(), end);
+            }
+
             LLVMBuildRetVoid(builder());
         }
     }
@@ -2297,6 +2972,10 @@ private:
     /// A function value's code is in slot 0 of its object's Method table. It takes the object
     /// first, then the arguments.
     LLVMValueRef value(const invoke_t& node) {
+        if (is_callback(type_of(node.callee))) {
+            return call_callback(node);
+        }
+
         const type_t& func = m_mir.types->get(type_of(node.callee));
         std::vector<LLVMTypeRef> parameters{ m_ptr };
         std::vector<LLVMValueRef> arguments{ value_of(node.callee) };
@@ -2311,6 +2990,32 @@ private:
             .value = method_of(arguments.front(), 0),
         };
         return call(code, std::move(arguments));
+    }
+
+    /// A Callback's call, by the C ABI, through its address.
+    LLVMValueRef call_callback(const invoke_t& node) {
+        const type_id_t type = type_of(node.callee);
+        const type_t& info = m_mir.types->get(type);
+        std::vector<LLVMValueRef> arguments;
+        arguments.reserve(node.arguments.size());
+        for (const operand_t& argument : node.arguments) {
+            arguments.push_back(value_of(argument));
+        }
+
+        // A debug build panics on a Null Callback, as on a Null Ptr's Value.
+        LLVMValueRef callee = value_of(node.callee);
+        if (checked()) {
+            panic_if(LLVMBuildIsNull(builder(), callee, ""), "the Callback is Null", node.span);
+        }
+
+        LLVMValueRef made =
+            call({ .type = callback_type(type), .value = callee }, std::move(arguments));
+        extend_call_for_c(made, 0, info.inner);
+        for (std::size_t i = 0; i < info.parameters.size(); ++i) {
+            extend_call_for_c(made, static_cast<unsigned>(i + 1), info.parameters[i]);
+        }
+
+        return made;
     }
 
     LLVMValueRef value(const aggregate_t& node) {
@@ -2418,8 +3123,12 @@ private:
         }
         case runtime_function_t::TO_TEXT:
             return to_text(node.arguments[0]);
-        case runtime_function_t::PRINT:
-            return call(m_print, { value_of(node.arguments[0]) });
+        case runtime_function_t::CSTRING_NEW:
+            return call(m_cstring_new, { value_of(node.arguments[0]) });
+        case runtime_function_t::CSTRING_FREE:
+            return call(m_cstring_free, { value_of(node.arguments[0]) });
+        case runtime_function_t::STRING_FROM_CSTRING:
+            return call(m_string_from_cstring, { value_of(node.arguments[0]) });
         case runtime_function_t::ERROR_UNCAUGHT:
             return call(m_error_uncaught,
                         { value_of(node.arguments[0]), location(node.span.value_or(span_t{})) });

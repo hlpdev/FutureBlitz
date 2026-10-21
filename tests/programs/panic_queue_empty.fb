@@ -1,0 +1,7 @@
+// Dequeue on an empty Queue panics.
+Import std.collections
+
+Local queue = Queue<String>()
+queue.Enqueue("a")
+Print(queue.Dequeue())
+queue.Dequeue()

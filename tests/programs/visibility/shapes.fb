@@ -1,0 +1,93 @@
+// What visibility.fb uses: Public declarations, the private code behind them, a Protected
+// Field and Method for the Classes extending Shape, and a Package Function for the program's
+// other files.
+
+Public Class Shape
+    Protected Field sides: Int
+    Field label: String = "a shape"
+
+    Public New(sides: Int)
+        Self.sides = sides
+    End New
+
+    Protected Method Describe(): String => "{sides} sides"
+
+    Public Method Show(): String => label + " with " + Describe()
+End Class
+
+Public Interface Measured
+    Method Measure(): Int
+End Interface
+
+// Measure is called through the Interface, wherever the code that implements it is.
+Public Function Total<T: Measured>(items: T[]): Int
+    Local total = 0
+    For item In items
+        total = Add(total, item)
+    End For
+
+    Return total
+End Function
+
+Function Add<T: Measured>(total: Int, item: T): Int => total + item.Measure()
+
+// Its Measure is private, but any code calls it through Measured.
+Public Class Ruler Implements Measured
+    Method Measure(): Int => 30
+End Class
+
+// Ruler gets a Twice from each of these Interfaces' defaults. Other files can only use Doubled's,
+// since Sized is private, and each Interface calls its own.
+Interface Sized
+    Method Twice(): Int => 2
+End Interface
+
+Public Interface Doubled
+    Method Twice(): Int => 200
+End Interface
+
+Extend Ruler Implements Sized, Doubled
+End Extend
+
+Public Function Inside(ruler: Ruler): Int
+    Local sized: Sized = ruler
+    Return sized.Twice()
+End Function
+
+// Every Field is Public, so the constructor it gets is too.
+Public Struct Point
+    Public Field X: Int
+    Public Field Y: Int
+End Struct
+
+// Stamp isn't, so only this file makes Handles.
+Public Struct Handle
+    Public Field Index: Int
+    Field Stamp: Int
+End Struct
+
+Public Function MakeHandle(index: Int): Handle => Handle(index, index * 100)
+
+// Made only through Open, since its New is Private.
+Public Class Registry
+    Field entries: String[] = []
+
+    New()
+    End New
+
+    Public Static Method Open(): Registry => Registry()
+
+    Public Method Add(entry: String)
+        entries.Add(Tidy(entry))
+    End Method
+
+    Public Property Count: Int
+        Get => entries.Count
+    End Property
+End Class
+
+Function Tidy(entry: String): String => "<" + entry + ">"
+
+Package Function Tally(): Int => Helper() + 1
+
+Function Helper(): Int => 41

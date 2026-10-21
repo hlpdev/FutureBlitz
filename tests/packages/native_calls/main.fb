@@ -1,0 +1,24 @@
+// Calls a C library through the vmath package, which links it as a [native] static library,
+// and the system's math library directly.
+
+Import vmath
+
+Extern "C" Lib "m"
+    Function cbrt(x: Float64): Float64
+End Extern
+
+Print("{Add(2, 3)} {Add64(4000000000, 5)} {Scale(1.5, 4.0)} {Halve(5.0)}")
+Print("{IsEven(4)} {IsEven(7)} {Count(True, False, True)} {Count(False, False, False)}")
+Print("{Low8(305419760)} {LowU8(-1)} {Low16(-65236)} {Widen8(-3)} {WidenU16(65535)}")
+Print("{Length("hello")} {Name()} {Nothing() ?? "none"}")
+Print(Divided(17, 5))
+Print("{Counter()} {Counter()} {Counter()}")
+Print("{cbrt(27.0)}")
+Print("{Sum([1, 2, 3, 4])} {Filled(9)} {Shout("abc")} {Numbers()}")
+Print(PairTotal(1, 5000000000, -3))
+Print(Structs())
+Print(Shades(2, 3))
+Paints(3)
+Print("{Colors(True)} {Handled()}")
+Print(Callbacks())
+Print(SameCode())

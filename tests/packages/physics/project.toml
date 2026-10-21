@@ -1,0 +1,4 @@
+# A library: it has no main.fb, so fb check checks its files, and other packages import them.
+[project]
+name = "physics"
+version = "0.2.0"

@@ -10,6 +10,7 @@
 #include <deque>
 #include <optional>
 #include <string_view>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -47,6 +48,9 @@ enum class symbol_kind_t : std::uint8_t {
     /// which each copy of the loop's body has its own of. Its `type` is the type parameter for
     /// the field's type, or NONE for a Method.
     MEMBER_VARIABLE,
+    /// The qualifier an Import gives, like "collections" or an As name: it stands for its
+    /// `modules` before a '.', as in "collections.Stack<Int>()". It isn't a value.
+    MODULE,
 };
 
 /// A constraint, as analysis keeps it: a type parameter, and an Interface that its type argument
@@ -90,6 +94,11 @@ struct symbol_t {
     /// a parameter of the constructor a Struct gets, so it has one, its own or zero, unless its
     /// type has no zero.
     bool has_default = false;
+    /// An Extern "C" Function's CString parameter, which a String argument becomes for the call.
+    bool converts_string = false;
+    /// An Extern "C" Function's CString parameter that a String can't stand for, since the
+    /// Function gives a CString, or takes one ByRef, which could point into the String's copy.
+    bool string_escapes = false;
     /// A Const's value, or a parameter's or field's default value, when it's known at compile
     /// time. A field without one starts at zero.
     std::optional<const_value_t> value;
@@ -148,6 +157,8 @@ struct symbol_t {
     std::vector<bound_t> constraints;
     /// The attributes that Attribute declarations declare, on its declaration, in order.
     std::vector<attribute_value_t> attributes;
+    /// A MODULE's modules: the one its Import names, or each file of a folder.
+    std::vector<module_id_t> modules;
 };
 
 /// How a Struct or Class implements an Interface, directly or through one it lists that extends
@@ -216,6 +227,14 @@ struct expr_info_t {
     std::optional<symbol_id_t> symbol;
     /// For a name: "Count" alone in an Extend of T[], which is Self's. `symbol` is Self.
     bool count = false;
+    /// For "game.score" or "collections.Stack": a name after a module's qualifier, which works
+    /// as the name alone would. The qualifier's `symbol` is its MODULE.
+    bool qualified = false;
+    /// For "AddressOf(x)": a Ptr to its argument's place.
+    bool address_of = false;
+    /// For a Function's name or a lambda where a Callback is expected: a C function pointer to
+    /// its code, the Function `symbol` names or the lambda's `closure`.
+    bool callback = false;
     /// For "T.Has(A)" or "T.Attribute(A)": T, whose own attributes it reads. `tested` is A.
     type_id_t reflected = type_id_t::INVALID;
 
@@ -324,6 +343,9 @@ struct analysis_t { // NOLINT(bugprone-exception-escape)
     type_id_t error_class = type_id_t::INVALID;
     type_id_t nullable_error = type_id_t::INVALID;
     builtin_interfaces_t interfaces;
+    /// A CString's ToString, which copies its text into a String in Unsafe code, once a program
+    /// uses it.
+    std::optional<symbol_id_t> cstring_text;
     /// The function values the program makes. The expression that makes each one, a lambda or
     /// a Function's name, has its index.
     std::vector<closure_t> closures;
@@ -332,6 +354,13 @@ struct analysis_t { // NOLINT(bugprone-exception-escape)
     std::vector<conformance_t> conformances;
     /// What Extends make types implement, besides a Struct's or Class's own Interfaces.
     std::vector<extension_interface_t> extension_interfaces;
+    /// The Interfaces that are only constraints, as symbol_t::constraint_only marks them, which
+    /// a Class doesn't have from a Class it extends: its Self would be the other Class.
+    std::vector<type_id_t> constraint_only;
+    /// What Extends of one instance of a generic Struct or Class add to it, by instance, like
+    /// Box<Int32>'s: its Methods, Operators, and Properties, and the defaults of the Interfaces
+    /// they list. The generic type's own members have what Extends of all its instances add.
+    std::unordered_map<type_id_t, std::vector<symbol_id_t>> instance_members;
 
     [[nodiscard]] const symbol_t& symbol(const symbol_id_t id) const {
         return symbols[std::to_underlying(id)];
@@ -354,9 +383,10 @@ struct analysis_t { // NOLINT(bugprone-exception-escape)
                               type_id_t interface);
 
 /// Resolves names, checks types and that variables are assigned before they're read, folds
-/// constants, and reports errors to `diagnostics`. Every file in `ast` shares one namespace, and
-/// `sources` holds them all. It always returns a full analysis, but only
-/// one without errors can be lowered.
+/// constants, and reports errors to `diagnostics`. Each of the modules in `ast` has its own
+/// top-level names, and sees those of the modules it imports after them, as the module table
+/// says; `sources` holds their files. It always returns a full analysis, but only one without
+/// errors can be lowered.
 [[nodiscard]] analysis_t analyze(const source_manager_t& sources, const ast_t& ast,
                                  diagnostic_bag_t& diagnostics);
 

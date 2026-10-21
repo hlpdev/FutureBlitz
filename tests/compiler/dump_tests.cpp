@@ -128,6 +128,17 @@ TEST_CASE("the tree gives each Struct member its own line", "[dump]") {
                                                           "  (field x: Int))\n");
 }
 
+TEST_CASE("the tree shows imports, and names after a qualifier", "[dump]") {
+    CHECK(tree("Import std.collections As C\n"
+               "From std.collections Import Stack, Queue\n"
+               "Local s: C.Stack<Int>? = C.Stack<Int>()") ==
+          "(import std.collections As C)\n"
+          "(from std.collections Import Stack Queue)\n"
+          "(local s: C.Stack<Int>? = (call (. C Stack<Int>)))\n");
+    CHECK(tree("Import \"./hud\"", colored) ==
+          std::format("({} {})\n", ansi("35", "import"), ansi("32", "\"./hud\"")));
+}
+
 TEST_CASE("the tree prints literals as values", "[dump]") {
     // 3.0 keeps its ".0" so it doesn't look like an integer, and an interpolated string becomes
     // its parts.

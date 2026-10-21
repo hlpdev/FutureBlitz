@@ -1,0 +1,16 @@
+Public Struct Point
+    Public Field X: Int
+    Public Field Y: Int
+End Struct
+
+Public Class Counter
+    Public Field Count: Int = 2
+End Class
+
+Public Interface Shown
+    Method Show(): String
+End Interface
+
+Public Function ShowIt<T: Shown>(value: T): String => value.Show()
+
+Public Function ShowAny(value: Shown): String => value.Show()

@@ -119,6 +119,98 @@ time, in debug and release builds.
 **Not in M4:** lock-free collections, actors, and GPU compute stay out of v1 (spec 10). I/O awaits,
 like `File.ReadAsync`, come with `std.io` in M6, and `Flip()` with the engine in M8.
 
+## M5 build order
+
+Every step ends with programs that run with no leaks in debug and release builds, in
+tests/programs or, from step 5, as packages in tests/packages, and every earlier program still
+prints the same output.
+
+| Step | What | Why this order |
+|---|---|---|
+| 1 | Module scopes: each file is a module with its own top-level names, named by its path, with no new syntax yet; a name is found in the code's own scopes, then its module, then what the module imports, then the built-ins, and for now every module imports all of std; only the main module's top-level code runs; MIR and LLVM qualify the names outside the main module; a program can declare its own `Stack` or `Map` | everything after lives in modules, and swapping sema's one namespace for a scope per module is M5's riskiest refactor, so it goes first and alone, with every existing test as the check, like M2's type table and M3's step 1 |
+| 2 | `Import` and `From`: `Import std.collections`, `Import "./ui/hud"`, `As` aliases, `From x Import A, B`, and qualified names in values and types, like `C.Map<K, V>`; the driver loads std/core/ and what the imports reach, each file once, cycles allowed; missing and ambiguous names reported where they're used; Globals initialize imports first; std/ and the programs that use collections import what they use | with scopes in place, this finishes how programs and std/ are put together; packages, std.ffi, and bindgen's output are all modules that something imports |
+| 3 | Visibility: `Private` (the default), `Package`, `Protected`, and `Public` on top-level declarations and on the members of Structs, Classes, and Extends, checked at every use from another file; the rules for Overrides, Interface implementations, Operators, constructors, and Public signatures; std's API marked `Public` | a restriction on modules that already work; std/, std.ffi, and bindgen's output are written with their final visibility from here on |
+| 4 | `Extern "C"` and `"stdcall"` blocks of Functions, with `= "symbol"`, called from safe code; C's integers and floats, `Bool`, Enums, and `CString`, which a `String` argument becomes for the call; each C symbol declared once, as clang would; `Print` moves into std.core over `Extern "runtime"`, and the built-in one goes | the smallest FFI that runs, since every program links the C runtime already; Print is the first std code over it, which decisions.md said waits for std.core |
+| 5 | `project.toml` and packages: `[project]` and local `[dependencies]`, with errors at their lines; `Import physics` and `Import physics.shapes`; `Package` means the real package; `fb check`, `build`, and `run` on a package folder | importing packages and `Package` visibility need package boundaries, and `[native]` lives in the manifest |
+| 6 | Native libraries: `[native]` static archives and system libraries, linked statically, in order, for a package and its dependencies; `Lib` names an entry; a C test library in tests/native, built by CMake with the runtime's toolchain and called through hand-written Externs | the first separately compiled C library, linked before bindgen exists, so linking and C runtime mismatches show up on their own |
+| 7 | Pointers and `Unsafe`: `Ptr<T>` and `Ptr<Void>`, stored and passed in safe code; `Unsafe` blocks, Functions, and Methods, which alone dereference (`p.Value`, `p[i]`), do pointer arithmetic, take `AddressOf`, use `Mem`, and read a `CString`; `SizeOf<T>()`; std.ffi's `Mem`, written over the C runtime | C APIs pass memory, structs go through pointers, and callbacks take user data, so pointers come before the last two C types |
+| 8 | `@CLayout` Structs: Fields of C types only, laid out as C does, passed by value and through `Ptr` by the target's C ABI (Win64 and SysV x86-64) | LLVM leaves the C ABI to the front end, and a mistake corrupts memory silently, so it's done alone and checked against C; Callback and bindgen build on it |
+| 9 | `Callback(A, B): R`: a C function pointer, from a Function's name or a lambda that captures nothing, through a C-ABI thunk; closures rejected, saying why; its code checked as work on another thread | spec 12's last construct; it needs `Ptr<Void>` user data and step 8's ABI |
+| 10 | bindgen: tools/bindgen's `fb-bindgen`, over libclang's C API, turns a C header into a `Public Extern` module, mapping to every FFI construct and skipping what can't map with a comment; `fb bindgen` runs it | everything it writes already compiles and runs, and as a tool of its own, libclang's problems can't break `fb` |
+| 11 | Loose ends: the rows of the Deferred work below planned for it, and a package that calls the C test library through bindings fb-bindgen generates: numbers, strings, pointers, structs, enums, constants, callbacks, and an opaque handle | M5's "done when" |
+
+**Not in M5:** the package manager (versioned dependencies, resolving and fetching them, lock
+files, a registry, `fb new` and `fb add`) comes in M7, where spec 11 puts it, with `fb test`, the
+formatter, the LSP's use of modules, and running bindgen from the manifest at build time. Dynamic
+`[native]` libraries wait for M8, when SDL3 or Vulkan first needs one. The rest of std.ffi, the
+std modules that will use `Extern "runtime"` (std.text, std.io, std.os), and std.concurrent as a
+module of its own are M6; M4's built-ins stay built in. Separate compilation or caching of
+modules stays an open question, and so do C varargs functions like printf, unions, bit fields, C
+globals, `long double`, macros other than number constants, typed opaque handles, C++ headers,
+`@MainThread` callbacks, and building FutureBlitz code as a C library. Callbacks that capture
+stay out, as spec 12 says. CI on Linux and macOS (M0) can't be checked from this machine, so the
+SysV struct ABI is only unit- and IR-tested, and by-value structs on AArch64 wait. The
+self-contained toolchain stays open for M7: M5 still links through the C++ compiler that built
+the runtime.
+
+## M6 build order
+
+Every step ends with programs in tests/programs, or packages in tests/packages, that run with no
+leaks in debug and release builds, and every earlier program still prints the same output. A
+bundled C library arrives with the first step that uses it, built for the target by the C
+compiler that builds the runtime. A program that doesn't use one links none of its code. What
+a step adds to std is Public and documented in docs/stdlib.md. A test never depends on the OS,
+the locale, or the time of day, except where it's about those.
+
+| Step | What | Done when | Why this order |
+|---|---|---|---|
+| 1 | The foundation: third_party/ fetches and builds bundled C libraries, starting with libuv; the runtime's I/O thread runs libuv's loop, started on first use and stopped before the leak report, and finishes Tasks that Await and Wait resume where they started; `fb` prints the bundled libraries a build linked and their licenses; std.core's `Write`, `PrintError`, `WriteError`, and `Flush`; the area Errors, each with a `Kind`, and `Error.Cause`; `AssertEqual`, `DebugAssert`, `Unreachable`, and `Todo`; `@PanicsAtCaller`, on std's Methods that panic on misuse | a program writes to stdout and stderr in order; an Await on a runtime I/O request resumes on the main thread, many times over with no leaks; popping an empty Stack panics at the program's line, not std's; a program without I/O links none of libuv, and its build lists no libraries | every later step stands on the loop, the Errors, and caller-pointing panics, so they come first, alone, like M5's module scopes |
+| 2 | Indexing and iteration: `Operator []` and `Operator []=`, with one index or more; generic default Methods on Interfaces, called through the Interface's values; `Iterable<T>`; Iterator<T>'s lazy adapters (Map, Filter, Take, Skip, TakeWhile, SkipWhile, Enumerate, Zip, Chain, Flatten, StepBy, Chunks, Windows) and consumers (ToArray, Count, Any, All, Find, First, Last, Fold, Reduce, ForEach, Sum, Product, Min, Max, MinBy, MaxBy), and `Range`, `Repeat`, and `Empty` | `map["hp"] = 5` and `grid[x, y]` work on a program's own types; a chain of adapters runs through an `Iterator<T>` value and an `Iterable<T>` parameter, giving the same as a For loop; Indexing a Map leaves the Deferred work | the collections and every later module are written with these, so the language comes before the library that uses it |
+| 3 | Collections: Map and Set keep insertion order through removals; T[]'s search, ends, bulk, order (`SortUnstable` in place), and shape Methods; the Try twins; Map's `[]`, `TryAdd`, `GetOrAdd`, `Update`; Set's algebra; Pool's `IterateHandles`; `SortedMap`, `SortedSet`, `RingBuffer`, `Grid`, `BitSet`, `LruCache`, `Counter`, `MultiMap`; `Cloneable`, `Default`; `Min`, `Max`, `Clamp`, `Swap`, `HashCombine`, `TypeName`; a `T?`'s `Expect` and `OrElse` | each Method of each collection is tested, empty cases and panics included; removing and re-adding keeps a Map's order; `SortUnstable` sorts without making an array | the most-used part of std, on step 2's language, and what every later module stores things in |
+| 4 | Formatting and parsing numbers: format specifiers in interpolation (width, alignment, fill, precision, sign, bases, exponent, thousands), checked against the value's type at compile time; `Formattable`; `Format(template, values...)` for templates made at run time, which throws a `FormatError`; invariant always; `ParseInt`, `ParseFloat`, and `ParseBool`, giving a `T?` | `"{price:.2}"` prints 3.14; a spec that doesn't fit its value is a compile error at the spec; what Format writes Parse reads back to the same value, every Float64 included | the second language change, which text, time, data, and logging all write with |
+| 5 | std.text and Unicode: String's Methods by byte position (search, Slice, which panics mid-character, Before/After, split and join, trim, case, pad, compare, `Lines`, `Graphemes`), `String.FromUtf8`, `StringBuilder` (a `Writer` from step 9 on), `Scanner`; std.text.unicode over utf8proc: categories, full case mapping, `Normalize`, `CaseFold`, `DisplayWidth`, Utf8 and Utf16 | each Method's tests include text beyond ASCII, combining marks, and emoji; slicing mid-character panics at the caller; `ToUpper("straße")` is `STRASSE` | text is what io, data, and net read and write, and it needs step 4's formatting |
+| 6 | Encodings and regex: Base64 (standard and URL-safe), Hex, Base32, percent-encoding, `Escape`/`Unescape`; std.text.regex over PCRE2, with match limits that throw instead of hanging; `Glob`, `WordWrap`, `Dedent`, `Indent`, `Levenshtein` | encodings round-trip every byte; a pattern known to backtrack forever throws within its limit; captures by number and name, and Replace with `$1` and with a Function | the rest of std.text, apart so PCRE2 arrives alone |
+| 7 | std.math's numbers and linear algebra: constants, scalar functions, std.math.bits, `Vec2`, `Vec3`, `Vec4`, `Vec2i`, `Vec3i`, `Quat`, `Mat3`, `Mat4`, `Color`, with Operators, right-handed, Y up, -Z forward, column-major; geometry (`Rect`, `AABB`, `Sphere`, `Ray`, `Plane`, `Frustum`) | the math types leave the Deferred work; a matrix times its inverse is the identity within a tolerance; LookAt and Perspective match known values for 0..1 depth | the engine's types (M8 on), which don't need any I/O |
+| 8 | std.math's random, noise, and big numbers: `Random(seed)`, with the same numbers on every OS, `ThreadLocal Global` (the language change) behind `Rand`, and an array's `Shuffle` and `Sample`; noise, easing, stats; std.math.big's BigInt (libtommath), Decimal (mpdecimal), Rational, Complex | a seed gives the same numbers in debug, release, and on every thread's own generator; ThreadLocal values are released as their threads end; BigInt and Decimal match known results | random needs per-thread state, so ThreadLocal comes with its first user |
+| 9 | std.ffi's additions: `Buffer<T>` and its views; `CLong`, `CULong`, and `CWChar`, which bindgen writes; `Mem.AllocAligned`, `FreeAligned`, `AllocUninitialized`; `Extern "stdcall"` goes | a Buffer's view keeps it alive after the Buffer's last variable goes; C fills a Buffer through its Pointer, read back in safe code; a binding using CLong is right on every target | std.io reads into Buffers, so they come before it |
+| 10 | std.io's streams: `Reader`, `Writer`, and `Seeker`, with Async twins (Async Methods in Interfaces, deferred from M4 step 11); buffered, memory, and string streams; `BinaryReader` and `BinaryWriter` with endianness; `Copy`, `ReadAll`, `ReadExact` | each stream reads back what was written, at buffer edges too; an Async read through a Reader value awaits on the main thread | every file, console, socket, and compressor is one of these |
+| 11 | std.io's files and console: `File` with its one-call helpers, `File.Open` and options, `Metadata`, `Lock`, and Async twins over libuv; `Path` (`/` on every OS); `Dir` with `Entries`, `Walk`, and `Glob`; temporary files and folders; `FileWatcher`; the console's `ReadLine`, `ReadKey`, `ReadPassword`, `IsTerminal`, `TerminalSize`, and styles | a test writes, reads, renames, watches, and removes files in a temporary folder, with non-ASCII names; errors come as IOError Kinds; nothing's left behind | the first real OS work, on step 10's streams |
+| 12 | std.time: `Duration`, `Instant`, `Sleep`, `Stopwatch`, `Measure`; `Date`, `Time`, `DateTime` with time zones from embedded IANA data and the OS's local zone; Format and Parse patterns, ISO 8601, RFC 2822; timers on libuv's loop, `Deadline`, `FixedStep`, `RateLimiter`, `Debounce`; `FormatDuration` | date arithmetic and conversions match known values across DST changes in several zones; a timer fires on the main thread through Await; tests take time as a value, never the clock | io's timeouts and net's deadlines need it |
+| 13 | std.os: `Args` and an `ArgParser`; `Env`; `Process`, `Command`, and `Child` with piped streams; `OnInterrupt` and `OnTerminate`; `Platform`, `Arch`, `CpuCount`, `TotalMemory`, `Hostname`, `UserName`; the standard folders; `OpenDefault` | a program runs another with arguments and environment, reads its output, and gets its exit code, with no shell; ArgParser's help and errors read well | processes need streams and time |
+| 14 | std.concurrent and std.log: `RwLock`, `Semaphore`, `Barrier`, `WaitGroup`, `Once`, `ConcurrentMap`, `ConcurrentQueue`, `WhenAll`, `WhenAny`, `Cancellation`; `Logger` with levels, sinks (console, file, rotating file), and structured fields | each concurrent type runs under many threads, many times over, with the same result; a Cancellation stops a blocking read; logs go to a rotating file | blocking calls take a Cancellation, and logging writes through io and time |
+| 15 | std.data: `Value`; JSON's `Parse`, `Stringify`, and streaming reader and writer; `@Serialize` (deferred from M3 step 11) with `Rename`, `Skip`, and `Default`, through `Encoder` and `Decoder`; TOML, CSV, INI | JSON's conformance suite passes; a Struct with nested Structs, arrays, Maps, Enums, and T?s round-trips through JSON and TOML; `@Serialize` leaves the Deferred work | the formats net, config, and saves use, on text and io |
+| 16 | std.crypto and std.compress: SHA-1, SHA-256, SHA-512, MD5, HMAC, HKDF, PBKDF2, `SecureRandom`, `ConstantTimeEquals` over mbedTLS; CRC32 and xxHash; Deflate, Zlib, Gzip, Zstd, and Lz4 as Readers and Writers, and Zip archives | hashes match their published test vectors; each format round-trips, and reads what other tools wrote; a Zip from a common tool lists and extracts | TLS, HTTP, and WebSockets need them |
+| 17 | std.net's sockets: `IpAddress`, `SocketAddress`, `Dns.Resolve`; `TcpListener`, `TcpStream`, and `UdpSocket` with timeouts and Async twins; `IpcListener` and `IpcStream`; `Url` and `QueryParams` | a program talks to itself over TCP, UDP, and IPC, blocking and Async; a refused connection is a NetError Kind; URLs parse per the WHATWG tests that apply | the bottom of the network stack |
+| 18 | TLS and the HTTP client: `TlsStream` over mbedTLS with the OS's roots, and a TLS listener; `HttpClient`, `Http.Get` and the rest, `Request`, `Response`, `Headers`, `Body`, and `Download`, over libcurl | a TLS client and server in one program talk through a test certificate; the client gets, posts, follows redirects, and decompresses from a local test server, with no internet needed | the client M7's package manager needs |
+| 19 | The HTTP server and WebSockets: `HttpServer`, `Router` with path parameters, middleware, and static files; WebSocket client and server, plain and over TLS | the program's own HttpClient and WebSocket client run against its own server, over HTTP and HTTPS, with no leaks after many connections | the top of the stack, on everything before it |
+| 20 | Loose ends: the rows of the Deferred work planned for M6, `std.debug` (`Breakpoint`, `IsDebuggerAttached`, `Dump`), docs/stdlib.md as std's reference, and a program that uses std alone to fetch JSON over HTTPS, keep it in a file, read it back, and serve it to its own WebSocket client | every module in docs/stdlib.md exists, documented and tested | M6's "done when": `std.*` complete, with tests |
+
+**Decided for step 1:**
+
+- `@PanicsAtCaller` on a Function or Method passes the call's place as a hidden parameter, so its
+  Panics and Asserts report where it was called, as Rust's `#[track_caller]` does. std uses it
+  on everything that panics on misuse, and a program's own helpers can too. It closes the
+  "panic in std/ points at the library's line" half of the stack-traces row in the Deferred
+  work.
+- After a build that links a bundled C library, `fb` prints which ones it linked and their
+  licenses. Shipping the notices is the programmer's job, and fb writes no notices file.
+
+**Proposed, to settle in its step:**
+
+- Step 1: every bundled archive goes on the link line in one group after the runtime, so the
+  linker takes only what a program uses, in any order.
+- Step 3: `Expect` and `OrElse` need Methods on any `T?`, through an `Extend T?` or as
+  built-ins, whichever the language takes better.
+- Step 18: curl uses mbedTLS, given the OS's roots: Windows' and macOS' certificate stores, and
+  the distribution's bundle file on Linux.
+
+**Not in M6:** `std.test` comes with M7's `fb test`. Stack traces for panics wait for debug info
+(open question). An HTTP/2 server, QUIC and HTTP/3, FTP, and SMTP stay out until something
+needs them. Loading a library at run time waits for M8's dynamic `[native]` libraries. A
+`Locale` for formatting comes later, and only ever explicit. Platform-only APIs stay out of
+std. CI on Linux and macOS can't be checked from this machine, so steps there are checked by CI
+alone.
+
 ## Deferred work
 
 Everything the spec describes that the compiler doesn't do yet, and where it's planned. Each step
@@ -128,18 +220,22 @@ adds what it leaves out. Checked against all of docs/spec/ on 2026-10-17.
 |---|---|---|
 | Computed Const type arguments with `-`, `/`, or `%`, which can leave a size below 1 | M3 step 13 | open question |
 | Setting a reflected Property or Static Field, which needs telling apart the ones without a Set or that are ReadOnly | M3 step 13 | open question |
-| Indexing a Map, `hp["boss"]`, which needs an index Operator the spec doesn't have yet | M3 step 12 | open question |
-| `@Serialize`, which generates serialization code with reflection | M3 step 11 | M6 |
+| Indexing a Map, `hp["boss"]`, which needs an index Operator the spec doesn't have yet | M3 step 12 | M6 step 2 |
+| `@Serialize`, which generates serialization code with reflection | M3 step 11 | M6 step 15 |
 | A Task that another thread waits for, which needs a Sendable result and one waiter for its error | M4 step 5 | open question |
 | A Step in a Parallel For | M4 step 7 | open question |
 | A task that waits on a Channel holds its worker, so tasks that all wait can leave none for the work they wait for | M4 step 8 | open question |
 | A throwing Task's type written out, like `Task<Level> Throws FileError`, which only inference gives now; after a function's return type, Throws is the function's | M4 step 11 | open question |
-| Async Methods in Interfaces, required or default | M4 step 11 | open question |
-| Modules: one per file, `Import`, `From`, visibility, and `project.toml` | | M5 |
-| FFI: `Extern`, `Ptr<T>`, `Void`, `CString`, `Callback`, `@CLayout`, `Unsafe`, `Mem`, `AddressOf`, and bindgen | | M5 |
-| The math types, `Vec2` through `Color` | | M6 |
+| Async Methods in Interfaces, required or default | M4 step 11 | M6 step 10 |
+| An attribute from a module imported only with As, like `@C.Rename("hp")`, which doesn't parse; an attribute is found by its name alone, through an Import without As or a From line | M5 step 2 | open question |
+| A generic type's own Operator used on a Class extending one of its instances, like Box<T>'s `<` on `Class Nums Extends Box<Int>`, whose type arguments aren't inferred through the base, so "no Operator < takes (Nums, Nums)"; what an Extend of the instance adds works | M5 step 3 | open question |
+| A `Ptr<T>` whose T is a type parameter, which a Where line would have to keep to C data | M5 step 7 | open question |
+| By-value Structs to and from C on AArch64 and other targets that aren't x86-64, which wait until macOS can be checked; until then fb-bindgen skips functions that pass one there, and the packages that do (native_calls, bound, panic_enum_*) and bound's bindings test hold only on x86-64 | M5 step 8 | open question |
+| A Callback that takes or gives a Struct by value, whose thunk would need the C ABI's lowering in reverse | M5 step 9 | open question |
+| The math types, `Vec2` through `Color` | | M6 step 7 |
 | A fix-it for a miscased keyword, like `if` for `If`, and `///` doc comments | M1 | M7 |
-| Stack traces for panics, which need debug info; a panic in std/, like popping an empty Stack, points at the library's line, not the caller's | M1 | open question |
+| Stack traces for panics, which need debug info | M1 | open question |
+| A panic in std/, like popping an empty Stack, points at the library's line, not the caller's | M1 | M6 step 1 |
 
 ## Process
 

@@ -1,5 +1,7 @@
 // What step 13 adds to Extend: one instance, one array type, Properties on every array, and
-// Interfaces that an Extend's Where gives a Class as values of it.
+// Interfaces that an Extend's Where gives a Class as values of it. One instance gets Operators
+// and Interfaces' defaults too, which the Classes extending it have, and its Operator == is what
+// == means for it everywhere.
 
 Struct Box<T>
     Field Value: T
@@ -17,6 +19,98 @@ End Extend
 
 Extend Box<String> Implements Printable
     Method ToString(): String => "box of '{Value}'"
+End Extend
+
+// One instance's Operator, which implements Comparable's, whose defaults use it.
+Extend Box<Int> Implements Comparable
+    Operator <(a: Box<Int>, b: Box<Int>): Bool => a.Value < b.Value
+End Extend
+
+Function Least<T: Comparable>(items: T[]): T
+    Local least = items[0]
+    For item In items
+        If item < least Then least = item
+    End For
+    Return least
+End Function
+
+Interface Shown
+    Method Show(): String
+End Interface
+
+// One instance of a generic Class, with an Interface's defaults, and Classes extending it.
+Interface Sized
+    Method Size(): Int
+    Method Twice(): Int => Size() * 2
+End Interface
+
+Class Bag<T>
+    Field Items: T[] = []
+End Class
+
+Extend Bag<String> Implements Sized
+    Method Size(): Int => Items.Count
+End Extend
+
+Class Names Extends Bag<String>
+End Class
+
+Class Kept<T> Extends Bag<T>
+End Class
+
+// An instance of a Class with a base lists an Interface too.
+Class Shelf<T> Extends Bag<T>
+End Class
+
+Extend Shelf<String> Implements Shown
+    Method Show(): String => "a shelf of {Items.Count}"
+End Extend
+
+// Pair<Int>'s == looks only at X, and its > only at Y. They beat Pair's own for it, in what ==
+// means inside what holds one, and in generic code.
+Struct Pair<T: Comparable> Implements Comparable
+    Field X: T
+    Field Y: T
+    Operator <(a: Pair<T>, b: Pair<T>): Bool => a.X < b.X
+    Method Measure(): T => Y
+End Struct
+
+Extend Pair<Int>
+    Operator ==(a: Pair<Int>, b: Pair<Int>): Bool => a.X == b.X
+    Operator >(a: Pair<Int>, b: Pair<Int>): Bool => a.Y > b.Y
+End Extend
+
+Struct Holding
+    Field Inside: Pair<Int>
+End Struct
+
+Function Same<T: Equatable>(a: T, b: T): Bool => a == b
+
+Function More<T: Comparable>(a: T, b: T): Bool => a > b
+
+// What a generic type has implements what an Extend of one instance lists.
+Interface Measured<U>
+    Method Measure(): U
+End Interface
+
+Extend Pair<Int> Implements Measured<Int>
+End Extend
+
+Function Total<M: Measured<Int>>(items: M[]): Int
+    Local total = 0
+    For item In items
+        total += item.Measure()
+    End For
+    Return total
+End Function
+
+Struct Tally<T>
+    Field N: Int
+    Operator <(a: Tally<T>, b: Tally<T>): Bool => a.N < b.N
+    Operator >(a: Tally<T>, b: Tally<T>): Bool => a.N >= b.N
+End Struct
+
+Extend Tally<Int> Implements Comparable
 End Extend
 
 // One array type, and a Property on every array.
@@ -37,9 +131,6 @@ Extend T[]
 End Extend
 
 // A Class that implements an Interface through an Extend's Where is a value of it.
-Interface Shown
-    Method Show(): String
-End Interface
 
 Class Holder<T>
     Field Item: T
@@ -56,6 +147,12 @@ End Extend
 
 Function Make<T>(item: T): Holder<T> => Holder<T>(item)
 
+// So is a Class extending an instance that does.
+Class IntHolder Extends Holder<Int>
+End Class
+
+Function Showing<S: Shown>(s: S): String => s.Show()
+
 Local b = Box(21)
 Print("{b.Doubled()} {b.Bumped().Value} {b.Half} {Box("x")}")
 Local nums = [1, 2, 3]
@@ -64,3 +161,63 @@ Local shown: Shown[] = [Make(5), Make("five")]
 For s In shown
     Print(s.Show())
 End For
+
+Local held: Shown = IntHolder(7)
+Print("{held.Show()}, {Showing(IntHolder(8))}")
+
+Print("{Box(1) < Box(2)} {Box(3) > Box(2)} {Box(2) <= Box(1)} {Least([Box(6), Box(4)]).Value}")
+Local names = Names()
+names.Items.Add("a")
+names.Items.Add("b")
+Local sized: Sized = names
+Local kept = Kept<String>()
+kept.Items.Add("c")
+Print("{names.Size()} {names.Twice()} {sized.Twice()} {kept.Twice()} {Bag<String>().Twice()}")
+Local shelf: Shown = Shelf<String>()
+Print(shelf.Show())
+
+Local p = Pair(1, 2)
+Local q = Pair(1, 3)
+Local maybe: Pair<Int>? = p
+Print("{p == q} {p != q} {[p].Contains(q)} {[p] == [q]} {(p, 0) == (q, 0)} {maybe == q} " +
+      "{Holding(p) == Holding(q)} {Same(p, q)} {Same([p], [q])}")
+Print("{q > p} {More(q, p)} {Pair("a", "b") == Pair("a", "c")} {More(Pair("b", "a"), Pair("a", "b"))}")
+Print("{Total([p, q])} {More(Tally<Int>(1), Tally<Int>(1))} {Tally<Int>(1) > Tally<Int>(1)}")
+
+// A Method of T[] implements an Interface for one array type, with the array's element for T.
+Interface Headed
+    Method Head(): Int
+End Interface
+Extend T[]
+    Method Head(): T => Self[0]
+End Extend
+Extend Int[] Implements Headed
+End Extend
+Function FirstOf<T: Headed>(h: T): Int => h.Head()
+Print("{FirstOf([3, 1, 2])}")
+
+// A Class that lists an Interface refining a default the Class it extends took gets the refining
+// one, as in Java, which overrides it, through every way of calling it, and a Class extending
+// that one overrides the refining one.
+Interface Doubling Extends Sized
+    Method Twice(): Int => Size() + 100
+End Interface
+
+Class Plain Implements Sized
+    Method Size(): Int => 1
+End Class
+
+Class Refined Extends Plain Implements Doubling
+End Class
+
+Class Own Extends Refined
+    Override Method Twice(): Int => 7
+End Class
+
+Function ViaSized(s: Sized): Int => s.Twice()
+Function ViaDoubling(d: Doubling): Int => d.Twice()
+Function ViaBound<T: Doubling>(t: T): Int => t.Twice()
+Function ViaPlain(p: Plain): Int => p.Twice()
+Local refined = Refined()
+Print("{refined.Twice()} {ViaSized(refined)} {ViaDoubling(refined)} {ViaBound(refined)} " +
+      "{ViaPlain(refined)} {Plain().Twice()} {ViaSized(Own())} {ViaPlain(Own())}")

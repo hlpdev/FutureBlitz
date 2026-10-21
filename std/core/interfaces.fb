@@ -4,12 +4,12 @@
 // What == says, and != is always its opposite. A Struct that lists Equatable without an
 // Operator == of its own compares its fields, and a Class compares whether two are the same
 // object.
-Interface Equatable
+Public Interface Equatable
     Operator ==(a: Self, b: Self): Bool
 End Interface
 
 // An order: what < says, which the other comparisons follow unless a type gives its own.
-Interface Comparable Extends Equatable
+Public Interface Comparable Extends Equatable
     Operator <(a: Self, b: Self): Bool
 
     Operator >(a: Self, b: Self): Bool => b < a
@@ -20,17 +20,17 @@ End Interface
 // A number for Maps and Sets to find a value by, the same for values that are equal. A Struct
 // that lists Hashable without a Hash of its own combines its fields', and a Class's comes from
 // its object.
-Interface Hashable Extends Equatable
+Public Interface Hashable Extends Equatable
     Method Hash(): UInt64
 End Interface
 
 // What a value shows in a string, like "{point}".
-Interface Printable
+Public Interface Printable
     Method ToString(): String
 End Interface
 
 // What arithmetic needs, so generic code like a Sum works on any number.
-Interface Numeric
+Public Interface Numeric
     Static Method Zero(): Self
     Operator +(a: Self, b: Self): Self
     Operator -(a: Self, b: Self): Self
@@ -38,8 +38,9 @@ Interface Numeric
     Operator /(a: Self, b: Self): Self
 End Interface
 
-// What can go to another thread, which the compiler decides: numbers, Bools, Strings, and
-// Enums, and the Structs, tuples, and fixed arrays whose fields and elements all are, with a T?
-// of any of them. A type can list it, or an Interface that extends it, to have that checked.
-Interface Sendable
+// What can go to another thread, which the compiler decides: numbers, Bools, Strings, Enums,
+// Callbacks, and a Shared Class's objects, and the Structs, tuples, and fixed arrays whose fields
+// and elements all are, with a T? of any of them. A type can list it, or an Interface that
+// extends it, to have that checked.
+Public Interface Sendable
 End Interface

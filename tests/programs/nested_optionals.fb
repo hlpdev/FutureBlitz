@@ -1,0 +1,139 @@
+// A T? of a T? is a type of its own: an Int?? is Null, or holds an Int? that can be Null itself.
+// Narrowing, '??', and '?.' take off one T? at a time, and generic code that gives a T? for a T
+// that's a T? tells "none" from a Null it holds.
+
+Import std.collections
+
+// What an Int?? holds, one level at a time.
+Function Describe(value: Int??): String
+    If value == Null Then Return "none"
+    Local inner: Int? = value
+    If inner == Null Then Return "a Null"
+    Return "{inner}"
+End Function
+
+// An Int?? as a call gives it, which narrowing knows nothing of.
+Function Held(value: Int?): Int?? => value
+
+Local nothing: Int?? = Null
+Local wrappedNull: Int? = Null
+Local holdsNull: Int?? = wrappedNull
+Local five = Held(5)
+Print("{Describe(nothing)}, {Describe(holdsNull)}, {Describe(five)}")
+
+// '??' takes off one T?: an Int?? gives an Int?.
+Print("{(nothing ?? 7) ?? -1} {(holdsNull ?? 7) ?? -1} {(five ?? 7) ?? -1}")
+
+// == compares the outer T? with Null, and two Int??s level by level.
+Local alsoNull: Int?? = wrappedNull
+Print("{nothing == Null} {holdsNull == Null} {holdsNull == alsoNull} {holdsNull == nothing}")
+Print("{five == 5} {five == holdsNull}")
+
+// Narrowing once gives the Int? inside.
+If holdsNull != Null
+    Local inside = holdsNull
+    Print("inside is Null: {inside == Null}")
+End If
+
+// A Const's Null, in an Int??, is held, not the Int??'s own.
+Const noValue: Int? = Null
+Local fromConst: Int?? = noValue
+Print("{Describe(fromConst)}")
+
+// Numbers convert at the same depth, and each level keeps its Null.
+Local wide: Int64?? = holdsNull
+Local widened: Int64?? = five
+Print("{wide == Null} {(wide ?? 1) == Null} {(widened ?? 0) ?? 0}")
+
+// Strings and objects, which a T? holds as a reference, nest too.
+Class Node
+    Field name: String
+
+    New(name: String)
+        Self.name = name
+    End New
+
+    Method Destroy()
+        Print("{name} goes")
+    End Method
+End Class
+
+Function Texted(value: String?): String?? => value
+
+Local noNode: Node? = Null
+Local maybeNode: Node?? = noNode
+Local someNode: Node?? = Node("root")
+Local noText: String?? = Null
+Local text = Texted("text")
+Print("{maybeNode == Null} {(maybeNode ?? Node("fallback"))?.name ?? "a Null node"}")
+Print("{(someNode ?? noNode)?.name ?? "-"} {noText == Null} {(text ?? "x") ?? "-"}")
+
+// Generic code: Find gives a T?, which for an Int?[] is an Int??.
+Function Find<T>(items: T[], at: Int): T?
+    If at < items.Count Then Return items[at]
+    Return Null
+End Function
+
+Local holes: Int?[] = [1, Null, 3]
+Print("{Describe(Find(holes, 0))}, {Describe(Find(holes, 1))}, {Describe(Find(holes, 9))}")
+Print("{Find(["a", "b"], 1) ?? "none"}")
+
+// std's collections of an Int? go over the Nulls they hold, and a Map tells a missing key from
+// one whose value is Null.
+Local stack = Stack<Int?>()
+Local queue = Queue<Int?>()
+Local deque = Deque<Int?>()
+Local pool = Pool<Int?>()
+Local set = Set<Int?>()
+For value In holes
+    stack.Push(value)
+    queue.Enqueue(value)
+    deque.Add(value)
+    pool.Add(value)
+    set.Add(value)
+End For
+
+// A loop variable can't change, so a check narrows it.
+Function Listed(values: Int?[]): String
+    Local text = ""
+    For value In values
+        If value == Null
+            text += "Null "
+        Else
+            text += "{value} "
+        End If
+    End For
+    Return text
+End Function
+
+Local seen: Int?[] = []
+For value In stack
+    seen.Add(value)
+End For
+For value In queue
+    seen.Add(value)
+End For
+For value In deque
+    seen.Add(value)
+End For
+For value In pool
+    seen.Add(value)
+End For
+For value In set
+    seen.Add(value)
+End For
+Print(Listed(seen))
+
+Local scores: Map<String, Int?> = {"ann": 3, "bob": Null}
+Local bob = scores.Get("bob")
+Local cy = scores.Get("cy")
+Print("{bob == Null} {(bob ?? 0) == Null} {cy == Null} {scores.Contains("bob")}")
+Print("{Describe(Find(seen, 1))} {Describe(Find(seen, 99))}")
+
+// A Channel of an Int? tells a Null it carries from being closed and empty.
+Local carried = Channel<Int?>(2)
+carried.Send(Null)
+carried.Close()
+Local first = carried.Receive()
+Local second = carried.Receive()
+Print("{first == Null} {(first ?? 1) == Null} {second == Null}")

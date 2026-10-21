@@ -3,6 +3,7 @@
 #include "fb/literal.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
@@ -50,29 +51,27 @@ struct assignment_t {
     std::uint32_t tokens = 1; // ">>=" is '>' then ">="
 };
 
-/// How the parser skips a construct that comes after M1.
-enum class unsupported_t : std::uint8_t {
-    NONE,
-    PREFIX, // report it, then parse the rest of the statement: "Public Function F()"
-    LINE,   // report it and skip the line: "Import std.math"
-    BLOCK,  // report it and skip to its "End <keyword>": "Class ... End Class"
+/// What an Extern block's Functions take from it while it's parsed: how they're called, and
+/// the block's visibility, if it has one.
+struct extern_block_t {
+    external_t external;
+    std::optional<visibility_t> visibility;
 };
 
-/// How to skip a statement that starts with `kind`. NONE means M1 parses it.
-constexpr unsupported_t unsupported(const token_kind_t kind) {
+/// The visibility a keyword says, or nullopt when it isn't Private, Protected, Package, or
+/// Public.
+constexpr std::optional<visibility_t> visibility_of(const token_kind_t kind) {
     switch (kind) {
-    case token_kind_t::KW_PACKAGE:
     case token_kind_t::KW_PRIVATE:
+        return visibility_t::PRIVATE;
     case token_kind_t::KW_PROTECTED:
+        return visibility_t::PROTECTED;
+    case token_kind_t::KW_PACKAGE:
+        return visibility_t::PACKAGE;
     case token_kind_t::KW_PUBLIC:
-        return unsupported_t::PREFIX;
-    case token_kind_t::KW_IMPORT:
-        return unsupported_t::LINE;
-    case token_kind_t::KW_EXTERN:
-    case token_kind_t::KW_UNSAFE:
-        return unsupported_t::BLOCK;
+        return visibility_t::PUBLIC;
     default:
-        return unsupported_t::NONE;
+        return std::nullopt;
     }
 }
 
@@ -98,6 +97,17 @@ constexpr bool is_block_end(const token_kind_t kind) {
 /// written that way (docs/spec/03-operators.md).
 constexpr bool touches(const token_t& left, const token_t& right) {
     return left.span.end == right.span.begin;
+}
+
+/// Whether text could be an identifier: ASCII letters, digits, and '_', not starting with a
+/// digit, and not a keyword.
+bool is_name(const std::string_view text) {
+    const auto letter = [](const char c) {
+        return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_';
+    };
+    const auto letter_or_digit = [&](const char c) { return letter(c) || (c >= '0' && c <= '9'); };
+    return !text.empty() && letter(text.front()) && std::ranges::all_of(text, letter_or_digit) &&
+           !keyword_kind(text);
 }
 
 /// Recursive descent for statements, with precedence climbing for binary operators.
@@ -140,6 +150,14 @@ private:
     /// Open brackets and string interpolations. While it's above 0, NEWLINE tokens are skipped.
     std::uint32_t m_bracket_depth = 0;
     bool m_line_failed = false; // the current line already has an error
+    /// How many expressions and blocks the one being parsed is inside, which is how deep the
+    /// compiler's passes go into it. Past max_nesting it's an error, not a crash, and the rest of
+    /// the file's errors would be its fallout.
+    std::uint32_t m_nesting = 0;
+    static constexpr std::uint32_t max_nesting = 1000;
+    bool m_too_deep = false;
+    /// The Extern block whose Functions are being parsed.
+    std::optional<extern_block_t> m_extern;
 
     // Tokens
 
@@ -255,6 +273,12 @@ private:
         }
     }
 
+    /// Whether the line ends after the next `ahead` tokens.
+    [[nodiscard]] bool line_ends(const std::size_t ahead) const {
+        const token_kind_t kind = peek(ahead).kind;
+        return kind == token_kind_t::NEWLINE || kind == token_kind_t::END_OF_FILE;
+    }
+
     void skip_rest_of_line() {
         while (!at_line_end()) {
             advance();
@@ -292,7 +316,7 @@ private:
     /// One error per line: later errors on a line that already has one are usually fallout.
     template <typename... Args>
     diagnostic_t* error(const span_t span, std::format_string<Args...> fmt, Args&&... args) {
-        if (m_line_failed) {
+        if (m_line_failed || m_too_deep) {
             return nullptr;
         }
 
@@ -356,12 +380,19 @@ private:
     /// Statements up to the next block-ending keyword.
     block_t parse_block() {
         block_t block;
+        if (m_nesting >= max_nesting) {
+            report_too_deep();
+            return block;
+        }
+
+        ++m_nesting;
         while (!is_block_end(peek().kind)) {
             const std::size_t start = m_pos;
             block.push_back(parse_statement());
             finish_line(start);
         }
 
+        --m_nesting;
         return block;
     }
 
@@ -372,6 +403,16 @@ private:
         expect_end(opening);
         m_blocks.pop_back();
         return body;
+    }
+
+    /// Code nested past max_nesting, which the compiler's passes would follow until they ran out
+    /// of stack.
+    void report_too_deep() {
+        error(peek().span,
+              "this is nested more than {} deep, deeper than the compiler goes; split it up with "
+              "Locals or Functions",
+              max_nesting);
+        m_too_deep = true;
     }
 
     /// True when a block around the innermost one was opened by `kind`.
@@ -416,25 +457,23 @@ private:
             return parse_attribute_declaration();
         }
 
-        // "Unsafe Function" is a modifier, unlike an "Unsafe" block.
-        if (at(token_kind_t::KW_UNSAFE) && peek(1).kind == token_kind_t::KW_FUNCTION) {
-            return parse_unsupported_prefix();
+        // "Unsafe" alone on its line opens a block, and before a declaration it's a modifier.
+        if (at(token_kind_t::KW_UNSAFE)) {
+            return line_ends(1) ? parse_unsafe() : parse_modified();
         }
 
-        switch (unsupported(peek().kind)) {
-        case unsupported_t::PREFIX:
-            return parse_unsupported_prefix();
-        case unsupported_t::LINE:
-            return parse_unsupported_line();
-        case unsupported_t::BLOCK:
-            return parse_unsupported_block();
-        case unsupported_t::NONE:
-            break;
+        // "From" is a keyword only where it starts an import line, before a module.
+        if (at(token_kind_t::IDENTIFIER) && text(peek()) == "From" &&
+            (peek(1).kind == token_kind_t::IDENTIFIER || peek(1).kind == token_kind_t::STRING ||
+             peek(1).kind == token_kind_t::STRING_START)) {
+            return parse_import();
         }
 
         switch (peek().kind) {
+        case token_kind_t::KW_IMPORT:
+            return parse_import();
         case token_kind_t::KW_CONST:
-            if (peek(1).kind == token_kind_t::KW_FUNCTION) {
+            if (modifiers_lead_to(m_pos + 1, token_kind_t::KW_FUNCTION)) {
                 return parse_modified();
             }
 
@@ -453,8 +492,8 @@ private:
         case token_kind_t::KW_NEW:
             return parse_function(function_kind_t::CONSTRUCTOR);
         case token_kind_t::KW_BYREF:
-            if (peek(1).kind == token_kind_t::KW_METHOD) {
-                return parse_function(function_kind_t::BYREF_METHOD);
+            if (modifiers_lead_to(m_pos + 1, token_kind_t::KW_METHOD)) {
+                return parse_modified();
             }
 
             return parse_simple();
@@ -464,6 +503,8 @@ private:
             return parse_type_declaration({});
         case token_kind_t::KW_EXTEND:
             return parse_extend();
+        case token_kind_t::KW_EXTERN:
+            return parse_extern({});
         case token_kind_t::KW_WHERE: {
             const token_t& keyword = advance();
             error(keyword.span,
@@ -479,6 +520,10 @@ private:
         case token_kind_t::KW_READONLY:
         case token_kind_t::KW_SHARED:
         case token_kind_t::KW_ASYNC:
+        case token_kind_t::KW_PRIVATE:
+        case token_kind_t::KW_PROTECTED:
+        case token_kind_t::KW_PACKAGE:
+        case token_kind_t::KW_PUBLIC:
             return parse_modified();
         case token_kind_t::KW_PROPERTY:
             return parse_property({});
@@ -599,7 +644,15 @@ private:
         std::vector<enum_member_t> members;
         while (!is_block_end(peek().kind)) {
             const std::size_t line = m_pos;
-            while (at(token_kind_t::IDENTIFIER)) {
+            while (at(token_kind_t::IDENTIFIER) || visibility_of(peek().kind)) {
+                if (const std::optional<visibility_t> written = visibility_of(peek().kind)) {
+                    error(advance().span,
+                          "an Enum's members have its visibility, so they take no {}{}",
+                          spelling(*written),
+                          *written == visibility_t::PROTECTED ? "" : "; put it before the Enum");
+                    continue;
+                }
+
                 const name_t member = take_name();
                 std::optional<expr_id_t> value;
                 if (accept(token_kind_t::EQUAL)) {
@@ -653,8 +706,34 @@ private:
         case token_kind_t::KW_BYREF:
             return true;
         default:
-            return modifier_flag(ignored, kind) != nullptr;
+            return visibility_of(kind) || modifier_flag(ignored, kind) != nullptr;
         }
+    }
+
+    /// Whether the visibilities and modifiers from token `index` on come before a `kind`, as in
+    /// "Const Public Function", where they're between the words of one.
+    [[nodiscard]] bool modifiers_lead_to(std::size_t index, const token_kind_t kind) const {
+        modifiers_t ignored;
+        while (visibility_of(m_tokens[index].kind) ||
+               modifier_flag(ignored, m_tokens[index].kind) != nullptr) {
+            ++index;
+        }
+
+        return m_tokens[index].kind == kind;
+    }
+
+    /// Private, Protected, Package, or Public at the current token, into `modifiers`. A
+    /// declaration has one.
+    void take_visibility(modifiers_t& modifiers) {
+        const token_t& token = advance();
+        if (modifiers.visibility_span) {
+            error(token.span, "this declaration is {} already, and has only one visibility",
+                  spelling(modifiers.visibility));
+            return;
+        }
+
+        modifiers.visibility = visibility_of(token.kind).value_or(visibility_t::PRIVATE);
+        modifiers.visibility_span = token.span;
     }
 
     /// Which of `modifiers` a keyword sets, or null when it isn't one.
@@ -674,18 +753,51 @@ private:
             return &modifiers.is_shared;
         case token_kind_t::KW_ASYNC:
             return &modifiers.is_async;
+        case token_kind_t::KW_UNSAFE:
+            return &modifiers.is_unsafe;
         default:
             return nullptr;
         }
     }
 
-    /// Abstract, Final, Override, Static, ReadOnly, and Shared, in any order, then the
-    /// declaration they're on, which may be a "Const Function". Analysis checks which ones it can
-    /// have, but Shared only goes before a type.
+    /// Abstract, Final, Override, Static, ReadOnly, Shared, and a visibility like Public, in any
+    /// order, then the declaration they're on, which may be a "Const Function", or with only a
+    /// visibility, an Enum or an Attribute. Analysis checks which ones it can have, but Shared
+    /// only goes before a type.
     stmt_id_t parse_modified(modifiers_t modifiers = {}) {
         std::optional<span_t> shared;
         std::optional<span_t> async;
-        while (bool* flag = modifier_flag(modifiers, peek().kind)) {
+        std::optional<span_t> unsafe;
+        const token_t* unsafe_keyword = nullptr;
+        bool flagged = false;
+        bool by_ref = false;
+        while (true) {
+            if (visibility_of(peek().kind)) {
+                take_visibility(modifiers);
+                continue;
+            }
+
+            // "Const Function" and "ByRef Method" can have the others between their words.
+            const bool is_const = at(token_kind_t::KW_CONST) &&
+                                  modifiers_lead_to(m_pos + 1, token_kind_t::KW_FUNCTION);
+            if (is_const || (at(token_kind_t::KW_BYREF) &&
+                             modifiers_lead_to(m_pos + 1, token_kind_t::KW_METHOD))) {
+                const token_t& token = advance();
+                if (is_const ? modifiers.is_const : by_ref) {
+                    error(token.span, "{} is written twice", describe(token.kind));
+                }
+
+                (is_const ? modifiers.is_const : by_ref) = true;
+                flagged = true;
+                continue;
+            }
+
+            bool* flag = modifier_flag(modifiers, peek().kind);
+            if (flag == nullptr) {
+                break;
+            }
+
+            flagged = true;
             const token_t& token = advance();
             if (*flag) {
                 error(token.span, "{} is written twice", describe(token.kind));
@@ -695,6 +807,9 @@ private:
                 shared = token.span;
             } else if (token.kind == token_kind_t::KW_ASYNC) {
                 async = token.span;
+            } else if (token.kind == token_kind_t::KW_UNSAFE) {
+                unsafe = token.span;
+                unsafe_keyword = &token;
             }
 
             *flag = true;
@@ -710,6 +825,24 @@ private:
             error(*async, "Async only goes before a Function or Method, whose code can Await");
         }
 
+        // Analysis says which Functions can't be Unsafe, like an Operator or a Const Function.
+        const bool function_follows =
+            at(token_kind_t::KW_FUNCTION) || at(token_kind_t::KW_METHOD) ||
+            at(token_kind_t::KW_BYREF) || at(token_kind_t::KW_OPERATOR) ||
+            (at(token_kind_t::KW_CONST) && peek(1).kind == token_kind_t::KW_FUNCTION);
+        if (unsafe && !function_follows) {
+            error(*unsafe, "Unsafe goes before a Function or Method, or alone on a line, where it "
+                           "starts an Unsafe block");
+            // Alone on its line after other modifiers, it's still a block, whose body and End
+            // are taken as one.
+            if (at_line_end() && unsafe_keyword != nullptr) {
+                finish_line(m_pos);
+                block_t body = parse_body(*unsafe_keyword);
+                return add_stmt(span_from(unsafe_keyword->span.begin),
+                                unsafe_stmt_t{ .body = std::move(body) });
+            }
+        }
+
         switch (peek().kind) {
         case token_kind_t::KW_STRUCT:
         case token_kind_t::KW_CLASS:
@@ -720,32 +853,69 @@ private:
         case token_kind_t::KW_OPERATOR:
             return parse_function(function_kind_t::OPERATOR, modifiers);
         case token_kind_t::KW_METHOD:
-            return parse_function(function_kind_t::METHOD, modifiers);
+            return parse_function(by_ref ? function_kind_t::BYREF_METHOD : function_kind_t::METHOD,
+                                  modifiers);
         case token_kind_t::KW_NEW:
             return parse_function(function_kind_t::CONSTRUCTOR, modifiers);
         case token_kind_t::KW_CONST:
-            if (peek(1).kind == token_kind_t::KW_FUNCTION) {
-                advance();
-                modifiers.is_const = true;
-                return parse_function(function_kind_t::FUNCTION, modifiers);
-            }
-
-            return parse_variable(modifiers);
         case token_kind_t::KW_FIELD:
         case token_kind_t::KW_LOCAL:
         case token_kind_t::KW_GLOBAL:
             return parse_variable(modifiers);
         case token_kind_t::KW_PROPERTY:
             return parse_property(modifiers);
+        case token_kind_t::KW_EXTERN:
+            if (flagged) {
+                error(peek().span, "an Extern block takes only a visibility, like 'Public Extern'");
+            }
+
+            return parse_extern(modifiers);
         default:
             break;
         }
 
-        if (at(token_kind_t::KW_BYREF) && peek(1).kind == token_kind_t::KW_METHOD) {
-            return parse_function(function_kind_t::BYREF_METHOD, modifiers);
+        if (!flagged && modifiers.visibility_span) {
+            return parse_visible(modifiers);
+        }
+
+        // Lows 71, 78, 96, 120, 123: attributes come first, then the modifiers.
+        if (at(token_kind_t::AT)) {
+            error(peek().span,
+                  "attributes go before a declaration's modifiers, as in @Inline Static Function");
+            return parse_attributed();
         }
 
         error(peek().span, "{} doesn't take modifiers like Static or Final", describe_current());
+        return parse_statement();
+    }
+
+    /// The rest of a statement after its visibility, which isn't one parse_modified() takes: an
+    /// Enum or an Attribute declaration. Anything else is reported, then parsed.
+    stmt_id_t parse_visible(const modifiers_t& modifiers) {
+        if (at(token_kind_t::KW_ENUM)) {
+            return parse_enum(false, peek().span.begin, modifiers);
+        }
+
+        if (at(token_kind_t::IDENTIFIER) && text(peek()) == "Attribute" &&
+            peek(1).kind == token_kind_t::IDENTIFIER) {
+            return parse_attribute_declaration(modifiers);
+        }
+
+        const span_t written = modifiers.visibility_span.value_or(peek().span);
+        if (at(token_kind_t::AT)) {
+            error(written, "{0} goes after a declaration's attributes, as in @Inline {0} Function",
+                  spelling(modifiers.visibility));
+            return parse_attributed();
+        }
+
+        if (at(token_kind_t::KW_EXTEND)) {
+            error(written, "an Extend has no visibility of its own; put {} before its members",
+                  spelling(modifiers.visibility));
+        } else {
+            error(written, "{} only goes before a declaration, like a Function or a Field",
+                  spelling(modifiers.visibility));
+        }
+
         return parse_statement();
     }
 
@@ -775,6 +945,12 @@ private:
         std::optional<stmt_id_t> setter;
         while (!is_block_end(peek().kind)) {
             const std::size_t line = m_pos;
+            if (const std::optional<visibility_t> written = visibility_of(peek().kind)) {
+                error(advance().span,
+                      "a Property's Get and Set have its visibility, so they take no {}",
+                      spelling(*written));
+            }
+
             const bool word = at(token_kind_t::IDENTIFIER);
             if (word && text(peek()) == "Get" && !getter) {
                 getter = parse_getter(name, type);
@@ -843,11 +1019,21 @@ private:
         case token_kind_t::KW_FINAL:
         case token_kind_t::KW_OVERRIDE:
         case token_kind_t::KW_READONLY:
+        case token_kind_t::KW_PRIVATE:
+        case token_kind_t::KW_PROTECTED:
+        case token_kind_t::KW_PACKAGE:
+        case token_kind_t::KW_PUBLIC:
         case token_kind_t::END_OF_FILE:
             return false;
         case token_kind_t::KW_END: {
             const auto after = static_cast<std::size_t>(&next - m_tokens.data()) + 1;
             return after >= m_tokens.size() || m_tokens[after].kind != token_kind_t::KW_INTERFACE;
+        }
+        // "Unsafe Method" is a member, and "Unsafe" alone starts a block in a body.
+        case token_kind_t::KW_UNSAFE: {
+            const auto after = static_cast<std::size_t>(&next - m_tokens.data()) + 1;
+            return after >= m_tokens.size() || m_tokens[after].kind == token_kind_t::NEWLINE ||
+                   m_tokens[after].kind == token_kind_t::END_OF_FILE;
         }
         default:
             return true;
@@ -911,11 +1097,13 @@ private:
         return body;
     }
 
-    /// Reports a modifier that comes after M3, then parses the statement it's on.
-    stmt_id_t parse_unsupported_prefix() {
-        const token_t& token = advance();
-        error(token.span, "{} isn't supported yet", describe(token.kind));
-        return parse_statement();
+    /// "Unsafe ... End Unsafe".
+    stmt_id_t parse_unsafe() {
+        const std::size_t start = m_pos;
+        const token_t& keyword = advance();
+        finish_line(start);
+        block_t body = parse_body(keyword);
+        return add_stmt(span_from(keyword.span.begin), unsafe_stmt_t{ .body = std::move(body) });
     }
 
     /// "@Inline", "@Deprecated("why")", and "@Flags", then the declaration they're on.
@@ -925,15 +1113,17 @@ private:
         modifiers_t modifiers;
         bool flags = false;
         span_t flags_span;
+        span_t c_layout_span;
         while (at(token_kind_t::AT)) {
             advance();
             const name_t name = expect_name();
             std::optional<span_t> span;
             std::vector<argument_t> arguments = parse_attribute_arguments(span);
-            const bool builtin =
-                name.text == "Flags" || name.text == "Inline" || name.text == "Deprecated";
+            const bool builtin = name.text == "Flags" || name.text == "Inline" ||
+                                 name.text == "Deprecated" || name.text == "CLayout";
             const bool repeated = (name.text == "Flags" && flags) ||
                                   (name.text == "Inline" && modifiers.is_inline) ||
+                                  (name.text == "CLayout" && modifiers.is_c_layout) ||
                                   (name.text == "MainThread" && modifiers.is_main_thread) ||
                                   (name.text == "Deprecated" && modifiers.deprecated);
             if (repeated) {
@@ -947,7 +1137,10 @@ private:
                 modifiers.is_main_thread = true;
             } else if (name.text == "Deprecated") {
                 modifiers.deprecated = deprecation(arguments, span);
-            } else if (name.text == "CLayout" || name.text == "Serialize") {
+            } else if (name.text == "CLayout") {
+                modifiers.is_c_layout = true;
+                c_layout_span = name.span;
+            } else if (name.text == "Serialize") {
                 error(name.span, "@{} isn't supported yet", name.text);
             } else if (!name.text.empty()) {
                 // One an Attribute declaration declares, which analysis finds.
@@ -962,12 +1155,32 @@ private:
             accept(token_kind_t::NEWLINE);
         }
 
+        // "@Flags Public Enum Layer": the visibility comes after the attributes.
+        while (visibility_of(peek().kind)) {
+            take_visibility(modifiers);
+        }
+
+        // "@CLayout Shared Struct" is before a Struct too, which the Shared error is about.
+        const bool before_struct =
+            at(token_kind_t::KW_STRUCT) ||
+            (at(token_kind_t::KW_SHARED) && peek(1).kind == token_kind_t::KW_STRUCT);
+        if (modifiers.is_c_layout && !before_struct) {
+            error(c_layout_span, "@CLayout only goes before a Struct, which it lays out as C does");
+            modifiers.is_c_layout = false;
+        }
+
         if (at(token_kind_t::KW_ENUM)) {
             return parse_enum(flags, begin, std::move(modifiers));
         }
 
         if (flags) {
             error(flags_span, "@Flags only goes before an Enum");
+        }
+
+        if (at(token_kind_t::KW_EXTERN)) {
+            error(peek().span,
+                  "an Extern block takes no attributes; put them before its Functions");
+            return parse_statement();
         }
 
         if (!starts_declaration(peek().kind)) {
@@ -1032,8 +1245,8 @@ private:
     }
 
     /// "Attribute Rename(Name: String)", which declares an attribute: a Struct whose fields are
-    /// its parameters. "Attribute" is only a keyword here.
-    stmt_id_t parse_attribute_declaration() {
+    /// its parameters, which have its visibility. "Attribute" is only a keyword here.
+    stmt_id_t parse_attribute_declaration(const modifiers_t& modifiers = {}) {
         const std::size_t start = m_pos;
         const token_t& keyword = advance();
         const name_t name = expect_name();
@@ -1047,12 +1260,14 @@ private:
                     error(parameter.name.span, "an Attribute's parameters are plain values");
                 }
 
-                fields.push_back(add_stmt(parameter.name.span, variable_stmt_t{
-                                                                   .kind = variable_kind_t::FIELD,
-                                                                   .name = parameter.name,
-                                                                   .type = parameter.type,
-                                                                   .value = parameter.default_value,
-                                                               }));
+                fields.push_back(add_stmt(parameter.name.span,
+                                          variable_stmt_t{
+                                              .kind = variable_kind_t::FIELD,
+                                              .name = parameter.name,
+                                              .type = parameter.type,
+                                              .value = parameter.default_value,
+                                              .modifiers = { .visibility = modifiers.visibility },
+                                          }));
                 if (!accept(token_kind_t::COMMA)) {
                     break;
                 }
@@ -1067,37 +1282,101 @@ private:
                                                            .is_attribute = true,
                                                            .name = name,
                                                            .members = std::move(fields),
+                                                           .modifiers = modifiers,
                                                        });
     }
 
-    stmt_id_t parse_unsupported_line() {
+    /// "Import std.collections", "Import "./ui/hud"", either with "As C" after it, or "From
+    /// std.math Import Vec3, Lerp". Analysis checks that it comes before the file's other
+    /// statements.
+    stmt_id_t parse_import() {
         const token_t& keyword = advance();
-        error(keyword.span, "{} isn't supported yet", describe(keyword.kind));
-        skip_rest_of_line();
-        return add_stmt(span_from(keyword.span.begin), error_stmt_t{});
-    }
-
-    /// Skips to the matching "End <keyword>", counting nested blocks of the same kind.
-    stmt_id_t parse_unsupported_block() {
-        const token_t& keyword = advance();
-        error(keyword.span, "{} isn't supported yet", describe(keyword.kind));
-
-        std::uint32_t depth = 1;
-        while (depth > 0 && !at(token_kind_t::END_OF_FILE)) {
-            if (at(token_kind_t::KW_END) && peek(1).kind == keyword.kind) {
-                advance();
-                advance();
-                --depth;
-            } else {
-                if (at(keyword.kind)) {
-                    ++depth;
-                }
-
-                advance();
-            }
+        import_stmt_t node{ .from = keyword.kind != token_kind_t::KW_IMPORT };
+        if (!parse_import_target(node)) {
+            skip_rest_of_line();
+            return add_stmt(span_from(keyword.span.begin), error_stmt_t{});
         }
 
-        return add_stmt(span_from(keyword.span.begin), error_stmt_t{});
+        if (node.from) {
+            if (!expect(token_kind_t::KW_IMPORT)) {
+                return add_stmt(span_from(keyword.span.begin), error_stmt_t{});
+            }
+
+            node.names.push_back(expect_name());
+            while (accept(token_kind_t::COMMA)) {
+                skip_continuation_newlines();
+                node.names.push_back(expect_name());
+            }
+        } else if (accept(token_kind_t::KW_AS)) {
+            node.alias = expect_name();
+        }
+
+        return add_stmt(span_from(keyword.span.begin), std::move(node));
+    }
+
+    /// The module an Import or From names: a dotted name, like "std.collections", or a quoted
+    /// path, like "./ui/hud", which is plain text. False after an error.
+    bool parse_import_target(import_stmt_t& node) {
+        const token_t& first = peek();
+        if (first.kind == token_kind_t::STRING_START) {
+            error(first.span, "an Import's path is plain text, without {{...}}");
+            return false;
+        }
+
+        if (first.kind == token_kind_t::STRING) {
+            advance();
+            const std::array pieces{ text(first) };
+            std::vector<std::string> decoded = decode_string(pieces);
+            node.target = decoded.empty() ? std::string() : std::move(decoded.front());
+            node.quoted = true;
+            node.target_span = first.span;
+            node.last = path_name(first);
+            return true;
+        }
+
+        if (first.kind != token_kind_t::IDENTIFIER) {
+            report_expected("a module, like std.collections, or a quoted path, like \"./hud\"");
+            return false;
+        }
+
+        node.last = take_name();
+        node.target = node.last.text;
+        while (accept(token_kind_t::DOT)) {
+            if (!at(token_kind_t::IDENTIFIER)) {
+                report_expected(describe(token_kind_t::IDENTIFIER));
+                return false;
+            }
+
+            node.last = take_name();
+            node.target += '.';
+            node.target += node.last.text;
+        }
+
+        node.target_span = span_from(first.span.begin);
+        return true;
+    }
+
+    /// The file's name in a quoted path, when the path spells it plainly and it could be a
+    /// name: "hud" in "./ui/hud". Empty otherwise.
+    [[nodiscard]] name_t path_name(const token_t& token) const {
+        const std::string_view written = text(token);
+        const std::size_t close = written.size() - 1;
+        const std::size_t slash = written.rfind('/');
+        const std::size_t begin =
+            slash == std::string_view::npos ? written.find('"') + 1 : slash + 1;
+        const std::string_view stem = begin < close ? written.substr(begin, close - begin) : "";
+        if (!is_name(stem)) {
+            return { .text = {}, .span = point(token.span.begin) };
+        }
+
+        return {
+            .text = stem,
+            .span = {
+                .file = token.span.file,
+                .begin = token.span.begin + static_cast<std::uint32_t>(begin),
+                .end = token.span.begin + static_cast<std::uint32_t>(close),
+            },
+        };
     }
 
     /// A labeled loop, like "Outer: For ...". Break and Continue can name the label.
@@ -1135,6 +1414,13 @@ private:
 
     stmt_id_t parse_variable(const modifiers_t& modifiers = {}) {
         const token_t& keyword = advance();
+        modifiers_t written = modifiers;
+        if (const std::optional<visibility_t> visibility = visibility_of(peek().kind)) {
+            error(peek().span, "{0} goes before {1}, as in {0} {1} x", spelling(*visibility),
+                  text(keyword));
+            take_visibility(written);
+        }
+
         const name_t name = expect_name();
         std::optional<type_expr_id_t> type;
         if (accept(token_kind_t::COLON)) {
@@ -1151,6 +1437,11 @@ private:
             value = parse_expression();
         }
 
+        // expect_name() reported a name that's missing.
+        if (name.text.empty()) {
+            return add_stmt(span_from(keyword.span.begin), error_stmt_t{});
+        }
+
         variable_kind_t kind = variable_kind_t::CONSTANT;
         if (keyword.kind == token_kind_t::KW_LOCAL) {
             kind = variable_kind_t::LOCAL;
@@ -1165,7 +1456,7 @@ private:
                                                            .name = name,
                                                            .type = type,
                                                            .value = value,
-                                                           .modifiers = modifiers,
+                                                           .modifiers = written,
                                                        });
     }
 
@@ -1210,8 +1501,9 @@ private:
     stmt_id_t parse_function(const function_kind_t kind, const modifiers_t& modifiers = {}) {
         const std::size_t start = m_pos;
         const std::uint32_t begin = peek().span.begin;
-        if (kind == function_kind_t::BYREF_METHOD) {
-            advance(); // ByRef
+        // parse_modified() takes ByRef where modifiers come between it and Method.
+        if (kind == function_kind_t::BYREF_METHOD && at(token_kind_t::KW_BYREF)) {
+            advance();
         }
 
         const token_t& keyword = advance();
@@ -1274,7 +1566,33 @@ private:
         // "Function F(): Int => x" is short for a body that returns x.
         block_t body;
         bool required = false;
-        if (modifiers.is_abstract) {
+        std::optional<external_t> external;
+        modifiers_t own = modifiers;
+        if (m_extern && kind == function_kind_t::FUNCTION) {
+            // An Extern block's Function is its first line alone, maybe with "= "symbol"" after
+            // it, and the caller finishes the line.
+            external = m_extern->external;
+            if (!own.visibility_span && m_extern->visibility) {
+                own.visibility = *m_extern->visibility;
+            }
+
+            if (accept(token_kind_t::EQUAL)) {
+                if (at(token_kind_t::STRING)) {
+                    const token_t& written = advance();
+                    external->symbol = string_text(written);
+                    external->symbol_span = written.span;
+                } else {
+                    report_expected("the C symbol's name, like \"JPH_CreateBody\"");
+                }
+            } else if (at(token_kind_t::ARROW)) {
+                error(peek().span, "an Extern block's Function has no body; C code defines it");
+            } else if (at_line_end() && extern_body_follows()) {
+                // One written with a body anyway is skipped through its End Function.
+                error(name.span, "an Extern block's Function has no body; C code defines it");
+                finish_line(start);
+                (void)parse_body(keyword);
+            }
+        } else if (modifiers.is_abstract) {
             // The line ends without a body, and the caller finishes it.
         } else if (accept(token_kind_t::ARROW)) {
             skip_continuation_newlines();
@@ -1298,9 +1616,127 @@ private:
                                               .return_type = return_type,
                                               .throws = std::move(throws),
                                               .body = std::move(body),
-                                              .modifiers = modifiers,
+                                              .modifiers = own,
                                               .required = required,
+                                              .external = std::move(external),
                                           });
+    }
+
+    /// Whether the lines after an Extern block's Function are a body, as if it were an ordinary
+    /// Function: an End Function comes before the block's next Function or its End Extern.
+    [[nodiscard]] bool extern_body_follows() const {
+        modifiers_t ignored;
+        for (auto at = static_cast<std::size_t>(&next_line_start() - m_tokens.data());
+             at < m_tokens.size();) {
+            // The line's first word, after any visibility and modifiers.
+            std::size_t word = at;
+            while (word < m_tokens.size() &&
+                   (visibility_of(m_tokens[word].kind) ||
+                    modifier_flag(ignored, m_tokens[word].kind) != nullptr ||
+                    m_tokens[word].kind == token_kind_t::KW_CONST)) {
+                ++word;
+            }
+
+            const token_kind_t kind = m_tokens[word].kind;
+            if (kind == token_kind_t::END_OF_FILE || kind == token_kind_t::KW_FUNCTION ||
+                kind == token_kind_t::AT) {
+                return false;
+            }
+
+            // An End of a block in the body, like End If, goes on to the next line.
+            if (kind == token_kind_t::KW_END && word + 1 < m_tokens.size()) {
+                const token_kind_t ended = m_tokens[word + 1].kind;
+                if (ended == token_kind_t::KW_FUNCTION || ended == token_kind_t::KW_EXTERN) {
+                    return ended == token_kind_t::KW_FUNCTION;
+                }
+            }
+
+            while (at < m_tokens.size() && m_tokens[at].kind != token_kind_t::NEWLINE &&
+                   m_tokens[at].kind != token_kind_t::END_OF_FILE) {
+                ++at;
+            }
+
+            ++at;
+        }
+
+        return false;
+    }
+
+    /// A plain string token's text, decoded.
+    [[nodiscard]] std::string string_text(const token_t& token) const {
+        const std::array pieces{ text(token) };
+        std::vector<std::string> decoded = decode_string(pieces);
+        return decoded.empty() ? std::string() : std::move(decoded.front());
+    }
+
+    /// "Extern "C" Lib "joltc"", its Functions, each its first line alone, maybe with
+    /// "= "symbol"" after it, then "End Extern". It goes at a file's top level, and takes only a
+    /// visibility, which its Functions take unless they have their own.
+    stmt_id_t parse_extern(const modifiers_t& modifiers) {
+        const std::size_t start = m_pos;
+        const token_t& keyword = advance();
+        if (!m_blocks.empty()) {
+            error(keyword.span, "an Extern block goes at the top level of a file");
+        }
+
+        extern_stmt_t node{ .modifiers = modifiers };
+        if (at(token_kind_t::STRING)) {
+            const token_t& written = advance();
+            node.convention_span = written.span;
+            const std::string convention = string_text(written);
+            if (convention == "stdcall") {
+                node.convention = convention_t::STDCALL;
+            } else if (convention == "runtime") {
+                node.convention = convention_t::RUNTIME;
+            } else if (convention != "C") {
+                error(written.span,
+                      "an Extern block's calling convention is \"C\", \"stdcall\", or "
+                      "\"runtime\", not {}",
+                      text(written));
+            }
+        } else if (at(token_kind_t::STRING_START)) {
+            error(peek().span, "a calling convention is plain text, without {{...}}");
+            skip_rest_of_line();
+        }
+
+        if (at(token_kind_t::IDENTIFIER) && text(peek()) == "Lib") {
+            advance();
+            if (at(token_kind_t::STRING)) {
+                const token_t& written = advance();
+                node.library = string_text(written);
+                node.library_span = written.span;
+            } else {
+                report_expected("a library's name, like \"joltc\"");
+            }
+        }
+
+        finish_line(start);
+        m_blocks.push_back(keyword.kind);
+        const std::optional<extern_block_t> outer = std::exchange(
+            m_extern,
+            extern_block_t{
+                .external = { .convention = node.convention, .library = node.library },
+                .visibility =
+                    modifiers.visibility_span ? std::optional(modifiers.visibility) : std::nullopt,
+            });
+        while (!is_block_end(peek().kind)) {
+            const std::size_t line = m_pos;
+            const stmt_id_t id = parse_statement();
+            const stmt_node_t& parsed = m_ast.get(id).node;
+            const auto* function = std::get_if<function_stmt_t>(&parsed);
+            if (function != nullptr && function->kind == function_kind_t::FUNCTION) {
+                node.functions.push_back(id);
+            } else if (!std::holds_alternative<error_stmt_t>(parsed)) {
+                m_diagnostics.error(m_ast.get(id).span, "an Extern block holds only Functions");
+            }
+
+            finish_line(line);
+        }
+
+        m_extern = outer;
+        expect_end(keyword);
+        m_blocks.pop_back();
+        return add_stmt(span_from(keyword.span.begin), std::move(node));
     }
 
     /// The operator after "Operator", which names it: one a type can define, like "+" or "==".
@@ -1379,10 +1815,17 @@ private:
         std::optional<name_t> base;
         std::vector<type_expr_id_t> base_arguments;
         std::vector<type_expr_id_t> interfaces;
+        std::optional<name_t> base_qualifier;
         if (is_interface && accept(token_kind_t::KW_EXTENDS)) {
             interfaces = parse_type_list();
         } else if (accept(token_kind_t::KW_EXTENDS)) {
             base = expect_name();
+            // "Extends shapes.Base": a Class another module declares.
+            if (accept(token_kind_t::DOT)) {
+                base_qualifier = base;
+                base = expect_name();
+            }
+
             if (at(token_kind_t::LESS)) {
                 base_arguments = parse_type_arguments();
             }
@@ -1411,6 +1854,7 @@ private:
                             .members = std::move(members),
                             .base = base,
                             .base_arguments = std::move(base_arguments),
+                            .base_qualifier = base_qualifier,
                             .interfaces = std::move(interfaces),
                             .modifiers = modifiers,
                         });
@@ -1966,8 +2410,15 @@ private:
     /// `min_precedence`. An operator's right side only takes operators that bind tighter than it,
     /// so "a - b - c" is "(a - b) - c".
     expr_id_t parse_expression(const std::uint32_t min_precedence = precedence::ternary) {
+        if (m_nesting >= max_nesting) {
+            report_too_deep();
+            return missing_expr();
+        }
+
+        // Each operator around `left` puts it a level deeper, as each call in here does.
+        const std::uint32_t outer = m_nesting++;
         expr_id_t left = parse_unary();
-        while (true) {
+        while (m_nesting < max_nesting) {
             const token_kind_t kind = peek().kind;
             // The ternary and Is/As aren't plain binary operators: one takes two more operands,
             // the other a type.
@@ -1980,9 +2431,16 @@ private:
                        binary && binary->precedence >= min_precedence) {
                 left = parse_binary(left, *binary);
             } else {
+                m_nesting = outer;
                 return left;
             }
+
+            ++m_nesting;
         }
+
+        report_too_deep();
+        m_nesting = outer;
+        return left;
     }
 
     [[nodiscard]] std::optional<binary_t> binary_at_current() const {
@@ -2102,6 +2560,11 @@ private:
     /// Prefix operators bind tighter than any binary operator, even '**': "-a ** b" is
     /// "(-a) ** b".
     expr_id_t parse_unary() {
+        if (m_nesting >= max_nesting) {
+            report_too_deep();
+            return missing_expr();
+        }
+
         const token_t& token = peek();
         if (token.kind == token_kind_t::KW_TRY) {
             return parse_try_expression();
@@ -2110,7 +2573,7 @@ private:
         // "Await x" takes what comes before the next binary operator, like Try.
         if (token.kind == token_kind_t::KW_AWAIT) {
             advance();
-            const expr_id_t operand = parse_unary();
+            const expr_id_t operand = nested_unary();
             return add_expr(span_from(token.span.begin), await_expr_t{ .operand = operand });
         }
 
@@ -2130,8 +2593,16 @@ private:
         }
 
         advance();
-        const expr_id_t operand = parse_unary();
+        const expr_id_t operand = nested_unary();
         return add_expr(span_from(token.span.begin), unary_expr_t{ .op = *op, .operand = operand });
+    }
+
+    /// The operand of a prefix operator, Try, or Await, a level deeper.
+    expr_id_t nested_unary() {
+        ++m_nesting;
+        const expr_id_t operand = parse_unary();
+        --m_nesting;
+        return operand;
     }
 
     /// "Try operand" or "Try? operand", written without a space before '?'. Like a prefix
@@ -2144,14 +2615,16 @@ private:
             advance();
         }
 
-        const expr_id_t operand = parse_unary();
+        const expr_id_t operand = nested_unary();
         return add_expr(span_from(keyword.span.begin),
                         try_expr_t{ .operand = operand, .optional = optional });
     }
 
-    /// Member access, calls, and indexing after `expr`. They bind tightest of all.
+    /// Member access, calls, and indexing after `expr`. They bind tightest of all, and each puts
+    /// what's before it a level deeper.
     expr_id_t parse_postfix(expr_id_t expr) {
-        while (true) {
+        const std::uint32_t outer = m_nesting;
+        while (m_nesting < max_nesting) {
             switch (peek().kind) {
             case token_kind_t::DOT:
             case token_kind_t::QUESTION_DOT:
@@ -2164,9 +2637,16 @@ private:
                 expr = parse_index(expr);
                 break;
             default:
+                m_nesting = outer;
                 return expr;
             }
+
+            ++m_nesting;
         }
+
+        report_too_deep();
+        m_nesting = outer;
+        return expr;
     }
 
     /// "object.name". The name can be New, for "Super.New()", or a tuple element's number.
@@ -2223,6 +2703,7 @@ private:
                        next == token_kind_t::RIGHT_PAREN || next == token_kind_t::COMMA;
             }
             case token_kind_t::IDENTIFIER:
+            case token_kind_t::DOT:
             case token_kind_t::COMMA:
             case token_kind_t::QUESTION:
             case token_kind_t::LEFT_BRACKET:
@@ -2233,6 +2714,7 @@ private:
             case token_kind_t::PLUS:
             case token_kind_t::STAR:
             case token_kind_t::KW_FUNC:
+            case token_kind_t::KW_CALLBACK:
             case token_kind_t::LEFT_PAREN:
             case token_kind_t::RIGHT_PAREN:
             case token_kind_t::COLON:
@@ -2757,15 +3239,10 @@ private:
             // In an Interface, Self is the type that implements it.
             advance();
             type = add_type(token.span, named_type_t{ .name = text(token) });
-        } else if (token.kind == token_kind_t::KW_FUNC) {
+        } else if (token.kind == token_kind_t::KW_FUNC || token.kind == token_kind_t::KW_CALLBACK) {
             type = parse_function_type();
         } else {
-            if (token.kind == token_kind_t::KW_CALLBACK) {
-                error(token.span, "{} isn't supported yet", describe(token.kind));
-            } else {
-                report_expected("a type");
-            }
-
+            report_expected("a type");
             return add_type(point(token.span.begin), error_type_t{});
         }
 
@@ -2773,6 +3250,15 @@ private:
             // "T?" only when the '?' touches the type, so "x Is T ? a : b" stays a ternary.
             if (at(token_kind_t::QUESTION) && m_previous_end == peek().span.begin) {
                 advance();
+                type = add_type(span_from(token.span.begin), nullable_type_t{ .inner = type });
+            } else if (at(token_kind_t::QUESTION_QUESTION) && m_previous_end == peek().span.begin) {
+                const token_t& marks = advance();
+                const span_t first{
+                    .file = m_file.id(),
+                    .begin = token.span.begin,
+                    .end = marks.span.begin + 1,
+                };
+                type = add_type(first, nullable_type_t{ .inner = type });
                 type = add_type(span_from(token.span.begin), nullable_type_t{ .inner = type });
             } else if (at(token_kind_t::LEFT_BRACKET) &&
                        peek(1).kind == token_kind_t::RIGHT_BRACKET) {
@@ -2800,9 +3286,25 @@ private:
         }
     }
 
-    /// A type by name, like "Int", or "Weak<Node>".
+    /// A type by name, like "Int", or "Weak<Node>", or after a module's qualifier, like
+    /// "C.Map<K, V>".
     type_expr_id_t parse_named_type() {
         const token_t& token = advance();
+        if (accept(token_kind_t::DOT)) {
+            const name_t qualifier{ .text = text(token), .span = token.span };
+            const name_t name = expect_name();
+            std::vector<type_expr_id_t> arguments;
+            if (at(token_kind_t::LESS)) {
+                arguments = parse_type_arguments();
+            }
+
+            return add_type(span_from(token.span.begin), named_type_t{
+                                                             .name = name.text,
+                                                             .arguments = std::move(arguments),
+                                                             .qualifier = qualifier,
+                                                         });
+        }
+
         type_expr_id_t type = add_type(token.span, named_type_t{ .name = text(token) });
         // "Weak" is a contextual keyword, a name everywhere but before '<'.
         if (at(token_kind_t::LESS) && text(token) == "Weak") {
@@ -2819,17 +3321,20 @@ private:
         return type;
     }
 
-    /// "Func(A, B): R", or "Func(A)" for a function that returns nothing. The return type takes
-    /// any "?" after it, so a Func that can be Null is written "(Func(): Int)?".
+    /// "Func(A, B): R", or "Func(A)" for a function that returns nothing, and "Callback(A, B):
+    /// R" alike. The return type takes any "?" after it, so a Func that can be Null is written
+    /// "(Func(): Int)?".
     type_expr_id_t parse_function_type() {
         const token_t& keyword = advance();
+        const bool callback = keyword.kind == token_kind_t::KW_CALLBACK;
         std::vector<type_expr_id_t> parameters;
         if (at(token_kind_t::LEFT_PAREN)) {
             const token_t& open = advance();
             ++m_bracket_depth;
             while (!at(token_kind_t::RIGHT_PAREN) && !at(token_kind_t::END_OF_FILE)) {
                 if (at(token_kind_t::KW_BYREF)) {
-                    error(peek().span, "a Func's parameters can't be ByRef");
+                    error(peek().span, "a {}'s parameters can't be ByRef",
+                          callback ? "Callback" : "Func");
                     advance();
                 }
 
@@ -2850,8 +3355,11 @@ private:
             result = parse_type();
         }
 
-        return add_type(span_from(keyword.span.begin),
-                        function_type_t{ .parameters = std::move(parameters), .result = result });
+        return add_type(span_from(keyword.span.begin), function_type_t{
+                                                           .parameters = std::move(parameters),
+                                                           .result = result,
+                                                           .callback = callback,
+                                                       });
     }
 
     /// "(A, B)", a tuple type. Parentheses around one type only group it, as in an expression.

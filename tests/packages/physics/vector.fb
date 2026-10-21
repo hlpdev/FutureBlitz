@@ -1,0 +1,8 @@
+// A 2D vector, which the package's modules and the packages that depend on it share.
+Public Struct Vec
+    Public Field x: Float64
+    Public Field y: Float64
+End Struct
+
+// Only this package's own modules can scale one.
+Package Function Scaled(v: Vec, by: Float64): Vec => Vec(v.x * by, v.y * by)

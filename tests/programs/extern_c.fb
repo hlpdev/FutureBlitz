@@ -1,0 +1,54 @@
+// Calling C: the C runtime's functions, declared in Extern blocks, take and give numbers, Enums,
+// and CStrings, a String becomes a CString for the call, a String C gives is a copy of its text,
+// and ByRef passes a variable's address.
+
+Import "./extern_c/libc"
+
+Extern "C"
+    Function llabs(n: Int64): Int64
+    Function Sqrt(x: Float64): Float64 = "sqrt"
+    Function sqrtf(x: Float32): Float32
+    Function frexp(x: Float64, ByRef exponent: Int32): Float64
+    Function modf(x: Float64, ByRef whole: Float64): Float64
+    Function getenv(name: CString): String?
+    Function Find(text: CString, part: CString): String? = "strstr"
+    Function setlocale(category: Int32, locale: CString): String?
+End Extern
+
+// The same C symbol under another name, and with an Enum for its integer type.
+Enum Offset: Int32
+    Back = -3
+    Ahead = 3
+End Enum
+
+Extern "stdcall"
+    Function Magnitude(n: Int32): Int32 = "abs"
+    Function Distance(n: Offset): Int32 = "abs"
+End Extern
+
+Print("{abs(-5)} {Magnitude(-6)} {Distance(Offset.Back)} {llabs(-12345678901)}")
+Print("{Sqrt(2.0)} {sqrtf(9.0)} {Upper(97)}")
+
+// Strings go as copies with a NUL after them, which C reads up to the first NUL.
+Local text = "abc" + "def"
+Print("{strlen(text)} {strlen("hello")} {atoi("42")} {strlen("ab\x00cd")} {text}")
+
+// ByRef passes the variable's address, so C can set it.
+Local exponent: Int32 = 0
+Local mantissa = frexp(8.0, ByRef exponent)
+Local whole: Float64 = 0.0
+Local fraction = modf(3.25, ByRef whole)
+Print("{mantissa} {exponent} {whole} {fraction}")
+
+// A String C gives is a copy of its text, made before the arguments' copies go, or Null.
+Local name = "PATH"
+Local path = getenv(name)
+Print("{(path ?? "") != ""} {getenv("FB_NO_SUCH_VARIABLE") ?? "none"} {Find("hello world", "wor") ?? "?"}")
+
+// A CString's zero is null, C's NULL, which asks setlocale for the locale it has.
+Global nothing: CString
+Print(setlocale(0, nothing) ?? "no locale")
+
+// An Extern Function is a value like any Function.
+Local f: Func(Int32): Int32 = abs
+Print("{f(-7)}")

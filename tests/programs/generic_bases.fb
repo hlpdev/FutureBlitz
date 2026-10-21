@@ -1,5 +1,7 @@
 // Classes that extend an instance of a generic Class: one instance, or the base with their
-// own type parameters, with overrides, inherited News, and calls through the base.
+// own type parameters, with overrides, inherited and written News, and calls through the base.
+
+Import std.collections
 
 Class Container<T>
     Field Items: T[] = []
@@ -54,6 +56,43 @@ Class Labeled<T> Extends Pair<String, T>
     Method Label(): String => Left
 End Class
 
+// A written New sets up the instance with Super.New, and what it inherits is assigned by name
+// with the instance's types.
+Class Scores Extends Pair<String, Int[]>
+    Field Changes: Int = 0
+
+    New(name: String)
+        Super.New(name, [])
+        Right = [1]
+        Right.Add(2)
+    End New
+
+    Method Reset(first: Int)
+        Right = [first]
+        Changes += 1
+    End Method
+End Class
+
+Class Tagged<T> Extends Pair<String, T>
+    New(value: T)
+        Super.New("tag", value)
+    End New
+
+    Method Replace(value: T)
+        Right = value
+    End Method
+End Class
+
+// std's Classes are generic too.
+Class Named Extends Queue<String>
+    Field Label: String
+
+    New(label: String)
+        Super.New()
+        Self.Label = label
+    End New
+End Class
+
 Local names = Names()
 names.Add("a")
 names.Add("b")
@@ -72,3 +111,54 @@ Print("{sorted.Items}")
 
 Local labeled = Labeled<Int>("hp", 50)
 Print("{labeled.Label()} {labeled.Right}")
+
+Local scores = Scores("best")
+Print("{scores.Left} {scores.Right}")
+scores.Reset(9)
+Print("{scores.Right} {scores.Changes}")
+Local tagged = Tagged<Float>(1.5)
+tagged.Replace(2.5)
+Print("{tagged.Left} {tagged.Right}")
+Local named = Named("queue")
+named.Enqueue("a")
+named.Enqueue("b")
+Print("{named.Label} {named.Count} {named.Dequeue()}")
+
+// A Class extending a generic base with its own type parameter implements what the base does,
+// through the Interface too.
+Interface Measured
+    Method Length(): Int
+    Method Double(): Int => Length() * 2
+End Interface
+
+Class Crate<T> Implements Measured
+    Field items: T[] = []
+    Method Length(): Int => items.Count
+End Class
+
+Class Carton<T> Extends Crate<T>
+End Class
+
+Local carton = Carton<Int>()
+carton.items.Add(1)
+Local measured: Measured = carton
+Print("{measured.Double()} {measured.Length()}")
+
+// An Extend of one instance that lists Hashable gives it the built-in Hash and ==, which a Set
+// and a Map use.
+Struct Spot<T>
+    Field x: T
+    Field y: T
+End Struct
+
+Extend Spot<Int> Implements Hashable
+End Extend
+
+Local spots = Set<Spot<Int>>()
+spots.Add(Spot(1, 2))
+spots.Add(Spot(1, 2))
+spots.Add(Spot(1, 3))
+Local labels = Map<Spot<Int>, String>()
+labels.Add(Spot(4, 4), "four")
+Print("{spots.Count} {spots.Contains(Spot(1, 3))} {labels.Get(Spot(4, 4)) ?? "-"} " +
+      "{Spot(1, 2).Hash() == Spot(1, 2).Hash()}")

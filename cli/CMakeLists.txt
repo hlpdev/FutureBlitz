@@ -6,6 +6,7 @@ target_include_directories(fb_cli PRIVATE include)
 target_link_libraries(fb_cli PRIVATE fb_compiler)
 add_dependencies(fb_cli fb_runtime) # programs link against it
 fb_set_warnings(fb_cli)
+fb_set_stack(fb_cli)
 fb_copy_llvm(fb_cli)
 
 # MinGW's C++ runtime goes next to fb too, so it runs from any terminal.

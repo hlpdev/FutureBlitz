@@ -1,0 +1,11 @@
+// A module of C runtime functions, Public for the modules that import it, with one of its own.
+
+Public Extern "C"
+    Function abs(n: Int32): Int32
+    Function strlen(text: CString): UInt64
+    Function atoi(text: CString): Int32
+    Private Function toupper(c: Int32): Int32
+End Extern
+
+// Upper-cases an ASCII letter through C.
+Public Function Upper(c: Int32): Int32 => toupper(c)

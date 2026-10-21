@@ -1,0 +1,11 @@
+// A CString that CString.From made and nothing gave back shows in the leak report.
+Import std.ffi
+
+Local kept = CString.From("kept")
+Local freed = CString.From("freed")
+Local none: CString = Null
+Unsafe
+    freed.Free()
+    none.Free()
+    Print("{kept.ToString()} {kept.Length()}")
+End Unsafe

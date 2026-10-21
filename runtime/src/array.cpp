@@ -19,11 +19,12 @@ std::size_t bytes(const std::int64_t count, const std::int64_t element_size) {
     return static_cast<std::size_t>(count) * static_cast<std::size_t>(element_size);
 }
 
-/// A buffer for `count` elements, all zero bytes. It always has room for one, since calloc may
-/// give null for none.
+/// A buffer for `count` elements, all zero bytes. It always has a byte or more, since calloc
+/// may give null for none, as an empty array or a Struct without Fields would ask.
 void* allocate(const std::int64_t count, const std::int64_t element_size) {
-    void* data = std::calloc(static_cast<std::size_t>(std::max<std::int64_t>(count, 1)),
-                             static_cast<std::size_t>(element_size));
+    const std::int64_t room = element_size == 0 ? 1 : std::max<std::int64_t>(count, 1);
+    void* data = std::calloc(static_cast<std::size_t>(room),
+                             static_cast<std::size_t>(std::max<std::int64_t>(element_size, 1)));
     if (data == nullptr) {
         fb_panic("out of memory", nullptr);
     }
@@ -38,7 +39,7 @@ void reserve_one(fb_array_t* array, const std::int64_t element_size) {
     }
 
     const std::int64_t capacity = std::max<std::int64_t>(4, array->capacity * 2);
-    void* data = std::realloc(array->data, bytes(capacity, element_size));
+    void* data = std::realloc(array->data, std::max<std::size_t>(bytes(capacity, element_size), 1));
     if (data == nullptr) {
         fb_panic("out of memory", nullptr);
     }

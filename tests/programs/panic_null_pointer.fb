@@ -1,0 +1,9 @@
+// A debug build panics where a Null Ptr's Value is read, or it's indexed.
+Local values = [1, 2, 3]
+Local p: Ptr<Int32> = Null
+Unsafe
+    p = AddressOf(values[0])
+    Print("{p[2]}")
+    p = Null
+    Print("{p.Value}")
+End Unsafe

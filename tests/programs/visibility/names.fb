@@ -1,0 +1,10 @@
+// A Helper and a Counter of its own, like shapes.fb's private Helper, which neither file's
+// importers see, so they don't clash.
+
+Class Counter
+    Field Count: Int = 2
+End Class
+
+Function Helper(): String => "names"
+
+Public Function Label(): String => "{Helper()} counts {Counter().Count}"

@@ -1,0 +1,66 @@
+// A program's own names hide the standard library's for its own code, and std's code keeps its
+// own: this Stack and Map aren't std.collections', while a Map literal and a Set still make and
+// use std's Map.
+
+Import std.collections
+
+Class Stack
+    Field Items: String[] = []
+
+    Method Push(item: String)
+        Items.Add(item)
+    End Method
+
+    Method Pop(): String
+        Local item = Items[Items.Count - 1]
+        Items.RemoveAt(Items.Count - 1)
+        Return item
+    End Method
+End Class
+
+// A level's map, not a hash table.
+Class Map
+    Field Name: String
+    Field Width: Int
+    Field Height: Int
+
+    Method Area(): Int => Width * Height
+End Class
+
+// Named like std's iterator over a Map, which std's Map still gives.
+Struct MapIterator
+    Field Steps: Int
+End Struct
+
+Local plates = Stack()
+plates.Push("blue")
+plates.Push("red")
+plates.Push("green")
+Print("{plates.Pop()} {plates.Pop()}, {plates.Items.Count} left")
+
+Local level = Map()
+level.Name = "cellar"
+level.Width = 8
+level.Height = 4
+Print("{level.Name} is {level.Area()} tiles")
+Local walk = MapIterator(3)
+Print("{walk.Steps} steps")
+
+// A Map literal makes std's Map, whatever this file calls Map.
+Local scores = {"ann": 3, "bob": 5}
+scores.Add("cy", 4)
+scores.Add("ann", 6)
+Print("{scores.Count} scores, ann has {scores.Get("ann") ?? 0}: {scores}")
+For name, score In scores
+    Print("  {name}: {score}")
+End For
+
+// std's Set holds its values in std's Map.
+Local seen = Set<String>()
+For name In ["ann", "bob", "ann", "cy", "bob"]
+    seen.Add(name)
+End For
+Print("{seen.Count} names, cy {seen.Contains("cy")}, dee {seen.Contains("dee")}")
+For name In seen
+    Print("  {name}")
+End For

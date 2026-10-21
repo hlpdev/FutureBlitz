@@ -2,6 +2,7 @@
 
 #include "fb/types.hpp"
 
+#include <algorithm>
 #include <bit>
 #include <cstddef>
 #include <cstdint>
@@ -21,10 +22,12 @@ struct value_t {
 using result_t = std::expected<value_t, evaluation_error_t>;
 using done_t = std::expected<void, evaluation_error_t>;
 
-/// How many blocks and statements one evaluation runs, and how deep its calls go, before it
-/// stops.
+/// How many blocks and statements one evaluation runs, how deep its calls go, and how many bytes
+/// its variables hold, before it stops.
 constexpr std::uint64_t max_steps = 10'000'000;
 constexpr std::size_t max_depth = 10'000;
+constexpr std::uint64_t mebibyte = std::uint64_t{ 1024 } * 1024;
+constexpr std::uint64_t max_held = 256 * mebibyte;
 
 template <typename Id>
 std::size_t index(const Id id) {
@@ -71,6 +74,54 @@ private:
     const type_table_t& m_types;
     std::vector<frame_t> m_frames;
     std::uint64_t m_steps = 0;
+    /// How many T?s a type is inside: 2 for an Int32??.
+    [[nodiscard]] std::size_t depth(type_id_t type) const {
+        std::size_t count = 0;
+        while (type != type_id_t::INVALID && m_types.get(type).kind == type_kind_t::NULLABLE) {
+            type = m_types.get(type).inner;
+            ++count;
+        }
+
+        return count;
+    }
+
+    /// The bytes the frames' variables hold besides their own: Strings' text, and the parts of
+    /// Structs, tuples, and fixed arrays.
+    std::uint64_t m_held = 0;
+
+    /// What a value holds besides itself.
+    [[nodiscard]] static std::uint64_t held_by(const value_t& value) {
+        if (const auto* constant = std::get_if<const_value_t>(&value.data)) {
+            const auto* text = std::get_if<std::string>(&constant->data);
+            return text != nullptr ? text->size() : 0;
+        }
+
+        std::uint64_t held = 0;
+        for (const value_t& part : std::get<std::vector<value_t>>(value.data)) {
+            held += sizeof(value_t) + held_by(part);
+        }
+
+        return held;
+    }
+
+    /// Whether `bytes` more fit what a run can hold.
+    [[nodiscard]] bool fits(const std::uint64_t bytes) const {
+        return bytes <= max_held - std::min(m_held, max_held);
+    }
+
+    [[nodiscard]] static std::unexpected<evaluation_error_t> too_much() {
+        return failure(std::format("it holds more than {} MiB", max_held / mebibyte));
+    }
+
+    /// A variable takes a value, which it holds from now on.
+    done_t hold(const std::uint64_t bytes) {
+        if (!fits(bytes)) {
+            return too_much();
+        }
+
+        m_held += bytes;
+        return {};
+    }
 
     [[nodiscard]] frame_t frame_of(const function_id_t id) const {
         const mir_function_t& function = m_module.functions[index(id)];
@@ -164,6 +215,10 @@ private:
                 return std::unexpected(argument.error());
             }
 
+            if (const done_t held = hold(held_by(*argument)); !held) {
+                return held;
+            }
+
             callee.locals[i] = std::move(*argument);
         }
 
@@ -178,6 +233,10 @@ private:
     done_t finish_call(value_t value) {
         const frame_t callee = std::move(m_frames.back());
         m_frames.pop_back();
+        for (const value_t& local : callee.locals) {
+            m_held -= held_by(local);
+        }
+
         frame_t& caller = m_frames.back();
         const call_t& call = *caller.waiting;
         for (std::size_t i = 0; i < call.arguments.size(); ++i) {
@@ -391,6 +450,14 @@ private:
             return value; // a Struct, tuple, or fixed array as a T? is itself
         }
 
+        // A value here is Null or a value, so a T?'s Null inside a T?? would read as the T??'s own.
+        if (target.kind == type_kind_t::NULLABLE && is_null(*constant) &&
+            depth(constant->type) < depth(type)) {
+            return failure(
+                std::format("it puts a Null inside {}, which only the running program can hold",
+                            m_types.name(type)));
+        }
+
         const_value_t from = *constant;
         if (from.type != type_id_t::INVALID &&
             m_types.get(from.type).kind == type_kind_t::NULLABLE) {
@@ -440,6 +507,19 @@ private:
             return std::get<std::string>(arguments[i].data);
         };
 
+        // A String's text counts toward what a run holds before it's made.
+        std::uint64_t length = 0;
+        if (call.function == runtime_function_t::CONCAT ||
+            call.function == runtime_function_t::JOIN) {
+            for (std::size_t i = 0; i < arguments.size(); ++i) {
+                length += text(i).size();
+            }
+        }
+
+        if (!fits(length)) {
+            return too_much();
+        }
+
         switch (call.function) {
         case runtime_function_t::CONCAT:
             return value_t{ make_string(text(0) + text(1)) };
@@ -461,8 +541,6 @@ private:
                 static_cast<std::int64_t>(order > 0) - static_cast<std::int64_t>(order < 0);
             return value_t{ const_value_t{ .type = type_id_t::INT32, .data = sign } };
         }
-        case runtime_function_t::PRINT:
-            return failure("it prints, which only the running program can");
         default:
             return failure("it uses objects or arrays, which only the running program has");
         }
@@ -518,7 +596,14 @@ private:
                 return element;
             }
 
-            return value_t{ std::vector<value_t>(m_types.element_count(type), *element) };
+            // The elements count toward what a run holds before they're made.
+            const std::uint64_t count = m_types.element_count(type);
+            const std::uint64_t each = sizeof(value_t) + held_by(*element);
+            if (count != 0 && each > (max_held - std::min(m_held, max_held)) / count) {
+                return too_much();
+            }
+
+            return value_t{ std::vector<value_t>(count, *element) };
         }
         default:
             return failure("it uses an object, which only the running program has");
@@ -627,6 +712,11 @@ private:
         const auto found = locate(frame, place);
         if (!found) {
             return std::unexpected(found.error());
+        }
+
+        m_held -= held_by(*found->first);
+        if (const done_t held = hold(held_by(value)); !held) {
+            return held;
         }
 
         *found->first = std::move(value);

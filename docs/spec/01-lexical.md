@@ -59,6 +59,10 @@ Exception: `Repeat ... Until cond`.
 
 There is no `Wend`, `Next`, or `EndIf`.
 
+Blocks and expressions nest up to 1000 deep, counting each block, operator, call, member, index,
+and pair of parentheses around a part, as in a chain `a + b + c` or `f()()`. Deeper code is an
+error that says to split it up, with Locals or Functions.
+
 ## Identifiers
 
 - ASCII letters, digits, and `_`; cannot start with a digit. Unicode identifiers may be

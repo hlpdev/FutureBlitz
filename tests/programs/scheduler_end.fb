@@ -1,0 +1,53 @@
+// The program ends when its coroutines can't go on: one waiting for a cutscene on a Scheduler
+// that nothing ticks any more, timers nothing awaits, and one that a Destroy starts while the
+// Globals are released. Each is destroyed, letting go of what it holds, and nothing leaks.
+Class Note
+    Field text: String
+
+    Method Destroy()
+        Print("{text} goes")
+    End Method
+End Class
+
+Global gameplay = Scheduler()
+
+Async Function Cutscene()
+    Await Seconds(5)
+    Print("never: the cutscene's Scheduler isn't ticked once the game loop ends")
+End Function
+
+Async Function Ui(scene: Task)
+    Local note = Note()
+    note.text = "the ui's note"
+    Await scene
+    Print("never: the ui waits for the cutscene")
+End Function
+
+Async Function FadeOut(name: String)
+    Print("{name} fades")
+    Await NextFrame()
+    Print("never: {name} started fading as the program ended")
+End Function
+
+Class Door
+    Field name: String
+
+    Method Destroy()
+        FadeOut(name)
+    End Method
+End Class
+
+Global door = Door()
+door.name = "the gate"
+
+Local scene = Cutscene()
+gameplay.Run(scene)
+Ui(scene)
+Local timer = Seconds(100.0)
+Local frame = NextFrame()
+For tick = 1 To 3
+    gameplay.Tick(0.5)
+End For
+
+Print("timers done: {timer.IsDone()} {frame.IsDone()}")
+Print("the game loop ends")

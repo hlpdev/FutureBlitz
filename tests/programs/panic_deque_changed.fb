@@ -1,0 +1,12 @@
+// Taking from a Deque while going over it panics.
+Import std.collections
+
+Local deque = Deque<Int>()
+For i = 1 To 4
+    deque.Add(i)
+End For
+
+For value In deque
+    Print("{value}")
+    deque.RemoveLast()
+End For

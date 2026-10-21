@@ -1,0 +1,65 @@
+// A Parallel For's range at an integer type's ends, signed and unsigned, has every pass, and an
+// empty one has none.
+Global passes = Atomic<Int64>(0)
+Global sum = Atomic<Int64>(0)
+
+Function Report(name: String)
+    Print("{name}: {passes.Load()} passes, sum {sum.Load()}")
+    passes.Store(0)
+    sum.Store(0)
+End Function
+
+Local biggest: Int64 = 9223372036854775807
+Parallel For i = biggest - 9 To biggest
+    passes.Add(1)
+    sum.Add(biggest - i)
+End For
+Report("Int64 through its end")
+
+Local smallest: Int64 = -9223372036854775807 - 1
+Parallel For i = smallest Until smallest + 5
+    passes.Add(1)
+    sum.Add(i - smallest)
+End For
+Report("Int64 from its start")
+
+Local top: Int32 = 2147483647
+Parallel For i = top - 99 To top
+    passes.Add(1)
+End For
+Report("Int32 through its end")
+
+Local last: UInt8 = 255
+Parallel For b = 0 To last
+    passes.Add(1)
+    sum.Add(b As Int64)
+End For
+Report("UInt8 0 To 255")
+
+// Past an Int64's end, as an unsigned one goes.
+Local middle: UInt64 = 9223372036854775807
+Parallel For u = middle - 2 To middle + 3
+    passes.Add(1)
+    sum.Add((u - (middle - 2)) As Int64)
+End For
+Report("UInt64 across 2^63")
+
+Local most: UInt64 = 18446744073709551615
+Parallel For u = most - 3 To most
+    passes.Add(1)
+End For
+Report("UInt64 through its end")
+
+Parallel For u = 0 Until most - most
+    passes.Add(1)
+End For
+Parallel For i = 5 Until 5
+    passes.Add(1)
+End For
+Parallel For i = 5 To 4
+    passes.Add(1)
+End For
+Parallel For u = most To 0
+    passes.Add(1)
+End For
+Report("empty ranges")

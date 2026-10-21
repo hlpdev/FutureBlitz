@@ -1,0 +1,25 @@
+2 101 2 101
+2 2 2
+a Box<String> is Doubled: 101
+a Box<Rock> is Doubled: False
+2 2 2 201
+201 201
+open
+open
+sealed
+announcing crate
+pair
+pair
+not Printable
+not Printable
+2 second 10 7
+a second
+True True True
+False True False False False
+True True False False
+103 103 a bin True True
+False False False
+7 7 101 8 8
+rock sealed
+a rock crate
+inventory of 1

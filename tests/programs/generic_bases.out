@@ -3,3 +3,9 @@ names: ab
 [1, 2, 4, 5] 1 4 items
 [1, 2, 3, 4, 5]
 hp 50
+best [1, 2]
+[9] 1
+tag 2.5
+queue 2 a
+2 1
+2 True four True

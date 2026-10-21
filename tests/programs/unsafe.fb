@@ -1,0 +1,149 @@
+// Pointers in Unsafe code: AddressOf, Value, indexes, steps, conversions, SizeOf, Unsafe
+// Functions and Methods, and std.ffi's Mem and CString, with the C runtime.
+
+Import std.ffi
+
+Extern "C"
+    Function strlen(text: CString): UInt64
+End Extern
+
+Struct Point
+    Public Field x: Int32
+    Public Field y: Int32
+End Struct
+
+// Bytes go where their alignment says, as C puts them.
+Struct Mixed
+    Field flag: Bool
+    Field wide: Int64
+    Field small: Int16
+End Struct
+
+Enum Shade: UInt8
+    Light
+    Dark
+End Enum
+
+Class Holder
+    Public Field count: Int32 = 1
+    Public Field where: Ptr<Int32>
+End Class
+
+Global total: Int32 = 100
+
+// Adds `amount` to what `target` points at.
+Unsafe Function Bump(target: Ptr<Int32>, amount: Int32)
+    target.Value += amount
+End Function
+
+Struct Counter
+    Public Field value: Int32
+
+    // A Ptr at the Counter's own value, which only Unsafe code can have.
+    Public Unsafe ByRef Method Address(): Ptr<Int32>
+        Return AddressOf(value)
+    End Method
+
+    Public Unsafe Static Method Twice(target: Ptr<Int32>)
+        target.Value *= 2
+    End Method
+End Struct
+
+// A lambda made in Unsafe code is that code's, and safe code calls it.
+Function Bumper(): Func(Int32)
+    Unsafe
+        Return Function(amount: Int32)
+            Bump(AddressOf(total), amount)
+        End Function
+    End Unsafe
+End Function
+
+// Null is a Ptr's zero, and safe code compares and keeps Ptrs.
+Local nowhere: Ptr<Int32> = Null
+Print("{nowhere == Null} {Holder().where == Null} {SizeOf<Int8>()} {SizeOf<Mixed>()} {SizeOf<Point[3]>()}")
+Print("{SizeOf<Shade>()} {SizeOf<Ptr<Void>>()} {SizeOf<CString>()} {SizeOf<Bool>()}")
+
+Local n: Int32 = 5
+Local point = Point(1, 2)
+Local numbers = [10, 20, 30, 40]
+Local fixed: Int32[3]
+Local holder = Holder()
+Unsafe
+    // A Local's, a Global's, a field's, an element's, and an object's field's address.
+    Local p = AddressOf(n)
+    p.Value = 7
+    Bump(p, 3)
+    Bump(AddressOf(total), 1)
+    Local q = AddressOf(point)
+    q.Value.y = 9
+    Local px = AddressOf(point.x)
+    px.Value = 4
+    Local third = AddressOf(numbers[2])
+    third.Value += 5
+    third[-1] = 21
+    Local cells = AddressOf(fixed[0])
+    cells[2] = 8
+    holder.where = AddressOf(holder.count)
+    holder.where.Value = 6
+    Print("{n} {total} {point.x} {point.y} {numbers} {fixed[2]} {holder.count}")
+
+    // Steps go by the T's size, and the count between two is in T's.
+    Local first = AddressOf(numbers[0])
+    Local last = first + 3
+    Print("{last.Value} {(last - 2).Value} {last - first} {first - last}")
+    last -= 1
+    first += 1
+    Print("{first == last} {first != last} {(first + 1) == last} {last - first}")
+
+    // Ptr<Void> is any Ptr, both ways, and 'As' converts between Ptrs and to an address.
+    Local anything: Ptr<Void> = p
+    Local back: Ptr<Int32> = anything
+    Local bytes = p As Ptr<UInt8>
+    Local address = p As Int64
+    Print("{back.Value} {back == p} {bytes[0]} {(address As Ptr<Int32>).Value} {address != 0}")
+
+    // A Struct's Methods give and take Ptrs.
+    Local counter = Counter(3)
+    Local inside = counter.Address()
+    Counter.Twice(inside)
+    Print("{counter.value}")
+End Unsafe
+
+Local bump = Bumper()
+bump(10)
+Print("{total}")
+
+// Mem's memory, and a CString that it holds.
+Unsafe
+    Local block = Mem.Alloc(SizeOf<Int32>() * 4) As Ptr<Int32>
+    For i = 0 Until 4
+        block[i] = i * i
+    End For
+
+    Local copy = Mem.Alloc(16) As Ptr<Int32>
+    Mem.Copy(copy, block, 16)
+    Mem.Fill(block, 0, 8)
+    Print("{block[0]} {block[1]} {block[2]} {copy[3]}")
+    Print("{Mem.Compare(block, copy, 8)} {Mem.Compare(copy, block, 8)} " +
+          "{Mem.Compare(block + 2, copy + 2, 8)} {Mem.Compare(block, copy, 0)}")
+
+    // Resize keeps what fits, wherever the memory goes.
+    copy = Mem.Resize(copy, SizeOf<Int32>() * 8) As Ptr<Int32>
+    copy[7] = 49
+    Print("{copy[0]} {copy[3]} {copy[7]}")
+    copy = Mem.Resize(copy, 4) As Ptr<Int32>
+    Print("{copy[0]}")
+    Local fresh = Mem.Resize(Null, 4) As Ptr<Int32>
+    fresh[0] = 5
+    Print("{fresh[0]}")
+    Mem.Free(fresh)
+    Mem.Free(block)
+    Mem.Free(copy)
+
+    Local text = CString.From("héllo")
+    Local raw = text As Ptr<UInt8>
+    Print("{strlen(text)} {text.ToString()} {raw[0]} {raw[6]} {text != Null} {text.Length()}")
+    text.Free()
+    Local none: CString = Null
+    Print("{none == Null}")
+End Unsafe

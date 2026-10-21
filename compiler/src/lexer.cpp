@@ -232,9 +232,15 @@ private:
     void lex_newline() {
         // A single-line string can't span lines, even inside an interpolation, so any still
         // waiting end here. A multi-line one may, so it and the strings around it stay open.
+        // The parser takes the INVALID token for the error, so what it would say about the rest
+        // of the expression isn't said too.
         while (!m_strings.empty() && !m_strings.back().multi_line) {
-            report_unterminated(m_strings.back());
+            const string_state_t& state = m_strings.back();
+            m_diagnostics.error(span(state.begin, state.open_end),
+                                "unterminated string: a '{{' in it isn't closed on its line, and "
+                                "a string ends with its line");
             m_strings.pop_back();
+            add(token_kind_t::INVALID, m_pos);
         }
 
         const std::uint32_t begin = m_pos;

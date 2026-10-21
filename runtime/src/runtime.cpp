@@ -1,12 +1,16 @@
 #include "fb/runtime.hpp"
 
+#include <algorithm>
 #include <bit>
 #include <cstddef>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <limits>
 #include <mutex>
 #include <string>
+#include <string_view>
 
 #ifdef _WIN32
 #ifndef WIN32_LEAN_AND_MEAN
@@ -127,6 +131,25 @@ bool color_panics() {
 #endif
 }
 
+/// Ends the program with "panic: <message> at <file>:<line>:<column>" on stderr, the message
+/// whole, NULs too.
+[[noreturn]] void panic_with(const std::string_view message, const fb_location_t* location) {
+    // The lock is never let go: the program ends with it held.
+    ending().lock();
+    // Whatever the program printed shows up before the panic, without a line cut in half.
+    output().lock();
+    std::fflush(stdout);
+    const char* label = color_panics() ? "\x1b[1;31mpanic\x1b[0m" : "panic";
+    std::fprintf(stderr, "%s: ", label);
+    std::fwrite(message.data(), 1, message.size(), stderr);
+    if (location != nullptr) {
+        std::fprintf(stderr, " at %s:%u:%u", location->file, location->line, location->column);
+    }
+
+    std::fputc('\n', stderr);
+    end_program(panic_exit_code);
+}
+
 } // namespace
 
 extern "C" {
@@ -147,6 +170,30 @@ void fb_start() {
 #endif
 }
 
+void* fb_mem_alloc(const std::uint64_t bytes) {
+    return std::calloc(1, std::max<std::uint64_t>(bytes, 1));
+}
+
+void* fb_mem_resize(void* memory, const std::uint64_t bytes) {
+    return std::realloc(memory, std::max<std::uint64_t>(bytes, 1));
+}
+
+void fb_mem_free(void* memory) {
+    std::free(memory);
+}
+
+void fb_mem_copy(void* destination, const void* source, const std::uint64_t bytes) {
+    std::memmove(destination, source, bytes);
+}
+
+void fb_mem_fill(void* destination, const std::uint8_t value, const std::uint64_t bytes) {
+    std::memset(destination, value, bytes);
+}
+
+std::int32_t fb_mem_compare(const void* a, const void* b, const std::uint64_t bytes) {
+    return std::memcmp(a, b, bytes);
+}
+
 void fb_print(const fb_string_t* string) {
     const auto* bytes = reinterpret_cast<const char*>(string + 1);
     const std::scoped_lock lock(output());
@@ -155,26 +202,12 @@ void fb_print(const fb_string_t* string) {
 }
 
 void fb_panic(const char* message, const fb_location_t* location) {
-    // The lock is never let go: the program ends with it held.
-    ending().lock();
-    // Whatever the program printed shows up before the panic, without a line cut in half.
-    output().lock();
-    std::fflush(stdout);
-    const char* label = color_panics() ? "\x1b[1;31mpanic\x1b[0m" : "panic";
-    if (location != nullptr) {
-        std::fprintf(stderr, "%s: %s at %s:%u:%u\n", label, message, location->file, location->line,
-                     location->column);
-    } else {
-        std::fprintf(stderr, "%s: %s\n", label, message);
-    }
-
-    end_program(panic_exit_code);
+    panic_with(message, location);
 }
 
 void fb_panic_string(const fb_string_t* message, const fb_location_t* location) {
     const auto* bytes = reinterpret_cast<const char*>(message + 1);
-    const std::string text(bytes, static_cast<std::size_t>(message->length));
-    fb_panic(text.c_str(), location);
+    panic_with({ bytes, static_cast<std::size_t>(message->length) }, location);
 }
 
 void fb_error_uncaught(const fb_object_t* error, const fb_location_t* location) {
@@ -186,8 +219,8 @@ void fb_error_uncaught(const fb_object_t* error, const fb_location_t* location) 
     const char* label = color_panics() ? "\x1b[1;31muncaught\x1b[0m" : "uncaught";
     std::fprintf(stderr, "%s %s", label, error->type->name);
     if (message != nullptr && message->length != 0) {
-        std::fprintf(stderr, ": %.*s", static_cast<int>(message->length),
-                     reinterpret_cast<const char*>(message + 1));
+        std::fputs(": ", stderr);
+        std::fwrite(message + 1, 1, static_cast<std::size_t>(message->length), stderr);
     }
 
     if (location != nullptr) {

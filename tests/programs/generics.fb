@@ -1,5 +1,8 @@
 // Generics: each Function, Struct, and Class is checked once, with its type parameters, and gets
 // an instance for each set of type arguments the program uses.
+
+Import std.collections
+
 Function First<T>(xs: T[]): T => xs[0]
 
 Function Transform<T, U>(xs: T[], f: Func(T): U): U[]
@@ -143,11 +146,12 @@ Print(nested.Value.Value)
 Local w = Wrap(Wrap(2.5))
 Print("{w.Get().Get()}")
 
-// A T? with an Int? for T is an Int?.
+// A T? with an Int? for T is an Int??, which holds the Int?, so Find tells an element that's
+// Null from one past the end.
 Local letters = ["a", "b"]
 Print("{Find(letters, 1) ?? "none"} {Find(letters, 5) ?? "none"}")
 Local maybe: Int?[] = [1, Null]
-Print("{Find(maybe, 1) == Null}")
+Print("{Find(maybe, 1) == Null} {Find(maybe, 5) == Null}")
 
 Print("{Both(1, "x")}")
 Print("{Count([1, 2, 3])} {Count(["x"])}")

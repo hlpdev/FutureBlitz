@@ -1,0 +1,46 @@
+// A Struct without Fields takes no bytes, in an array, a slice, a fixed array, a Stack, or a
+// Channel.
+Import std.collections
+
+Struct Mark
+    Method Text(): String => "mark"
+End Struct
+
+Local marks: Mark[] = []
+For i = 1 To 10
+    marks.Add(Mark())
+End For
+marks.Insert(0, Mark())
+marks.RemoveAt(3)
+Print("marks: {marks.Count}, first {marks[0].Text()}")
+
+Local copy = marks.Clone()
+copy.Add(Mark())
+Print("copy: {copy.Count}, marks: {marks.Count}")
+
+Local counted = 0
+For mark In copy
+    counted += 1
+End For
+Print("counted {counted}")
+
+Local middle = marks[2..7]
+Print("middle {middle.Count}")
+
+Local fixed: Mark[3]
+Print("fixed {fixed.Count}")
+
+Local stack = Stack<Mark>()
+stack.Push(Mark())
+stack.Push(Mark())
+Print("stack {stack.Count}")
+
+Local channel = Channel<Mark>(4)
+channel.Send(Mark())
+channel.Send(Mark())
+channel.Close()
+Local received = 0
+For mark In channel
+    received += 1
+End For
+Print("received {received}")

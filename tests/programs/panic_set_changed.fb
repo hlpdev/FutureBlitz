@@ -1,0 +1,10 @@
+// Adding to a Set while going over it panics, rather than skipping or repeating values.
+Import std.collections
+
+Local seen = Set<Int>()
+seen.Add(1)
+seen.Add(2)
+For value In seen
+    Print("{value}")
+    seen.Add(value + 10)
+End For

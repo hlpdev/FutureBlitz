@@ -1,0 +1,6 @@
+[project]
+name = "bound"
+version = "0.1.0"
+
+[native]
+vecmath = "libs/vecmath"

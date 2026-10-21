@@ -1,0 +1,8 @@
+// An Enum that C gives inside a Struct has to be one of its values, or the program panics at
+// the call.
+
+Import vmath
+
+Print(Shades(2, 3))
+Print(Shades(7, 3))
+Print("unreachable")

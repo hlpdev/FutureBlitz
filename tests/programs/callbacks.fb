@@ -1,0 +1,74 @@
+// Callbacks: C's qsort calls the program back, through a Function's name and a lambda, with
+// pointers at the elements.
+
+Extern "C"
+    Function qsort(base: Ptr<Void>, count: UInt64, size: UInt64,
+                   compare: Callback(Ptr<Void>, Ptr<Void>): Int32)
+End Extern
+
+Function Ascending(a: Ptr<Void>, b: Ptr<Void>): Int32
+    Unsafe
+        Local x = (a As Ptr<Int32>).Value
+        Local y = (b As Ptr<Int32>).Value
+        Return x < y ? -1 : (x > y ? 1 : 0)
+    End Unsafe
+End Function
+
+// A Callback can be kept, compared, and passed on, and is Null until it's set.
+@CLayout Struct Sorter
+    Field compare: Callback(Ptr<Void>, Ptr<Void>): Int32
+End Struct
+
+// Generic code names Callback types as any code does.
+Function Maker<T>(x: T): Callback(Int32): Int32 => Function(n: Int32): Int32 => n + 1
+
+Class Handler<T>
+    Public Field f: Callback(Int32): Int32
+End Class
+
+Global unset: Sorter
+Local numbers = [5, 3, 9, 1, 7]
+Local sorter = Sorter(Ascending)
+Print("{sorter.compare == Null} {unset.compare == Null}")
+Unsafe
+    qsort(AddressOf(numbers[0]), 5, 4, sorter.compare)
+    Print("{numbers}")
+    qsort(AddressOf(numbers[0]), 5, 4, Function(a: Ptr<Void>, b: Ptr<Void>): Int32
+        Return (b As Ptr<Int32>).Value - (a As Ptr<Int32>).Value
+    End Function)
+    Print("{numbers}")
+
+    // The program calls one too, in Unsafe code.
+    Local one = 1
+    Local two = 2
+    Print("{sorter.compare(AddressOf(one), AddressOf(two))} {sorter.compare == Ascending}")
+End Unsafe
+
+Local handler = Handler<String>()
+handler.f = Maker("x")
+Unsafe
+    Print("{handler.f(10)}")
+End Unsafe
+
+// A generic Class's instance over a Ptr is one Class, in generic code too.
+Interface Thing
+End Interface
+Class Holder<T> Implements Thing
+    Field count: Int32
+End Class
+Function Open<T>(x: T, thing: Thing): Int32
+    Local held = thing As Holder<Ptr<Callback(Int32): Int32>>
+    Return held.count
+End Function
+Local held = Holder<Ptr<Callback(Int32): Int32>>()
+held.count = 7
+Print("{Open(1, held)} {held Is Holder<Ptr<Callback(Int32): Int32>>}")
+
+// Null is an overload's Callback, Ptr, or CString.
+Function Take(cb: Callback(Int32): Int32): String => "Callback"
+Function Take(s: String): String => "String"
+Function Point(p: Ptr<Int32>): String => "Ptr"
+Function Point(s: String): String => "String"
+Function Text(c: CString): String => "CString"
+Function Text(n: Int32): String => "Int32"
+Print("{Take(Null)} {Point(Null)} {Text(Null)}")

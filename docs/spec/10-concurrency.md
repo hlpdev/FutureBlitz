@@ -71,12 +71,15 @@ End For
   an Async Function with a Throws, in M4 step 9.
 - `Parallel For i = a Until b`, or `To b`, runs its passes on the pool at once, in chunks, with
   the calling thread taking some, and the next statement waits for them all. It counts integers
-  up by 1, with no Step.
+  up by 1, with no Step, through its type's last value too, as `For` does. The calling thread
+  waits only for the chunks being run: a worker busy elsewhere joins in only if chunks are left.
 - What the body uses from outside it is a copy, made once, which it can't change, and which is
   Sendable. An array from outside whose elements are Sendable is used only through its elements
-  and its Count: each pass reads any element, but changes one only at its own index, `a[i]`, so
-  no two passes change the same element. A ByRef Method can change `a[i]` there, since the array
-  can't grow meanwhile, and a lambda in the body can't take the array.
+  and its Count: each pass changes an element only at its own index, `a[i]`, so no two passes
+  change the same element, and a body that changes an array's elements reads that array only
+  there too, since another pass may be changing any other element at once; it reads any element
+  of an array it doesn't change. A ByRef Method can change `a[i]` there, since the array can't
+  grow meanwhile, and a lambda in the body can't take the array.
 - Continue goes on to the next index; Break and Return can't leave the body, and neither can an
   error. The body is work on other threads, so the main-thread rules hold for it.
 
@@ -164,6 +167,11 @@ Rules:
 - Until the engine's `Flip()` (M8), the main scheduler ticks once top-level code ends, until no
   coroutine waits on it, and whenever the main thread waits for a Task with `Wait()`. Its time is
   the real clock's.
+- Once top-level code ends, a coroutine that can never go on, since it waits for a Task on a
+  Scheduler that nothing ticks any more, or for one that waits for such a Task, is destroyed
+  before the Globals are released, as when its Scheduler goes. So is one that a Destroy starts
+  while the Globals are released, at its first Await, since the program has ended. A Task from
+  NextFrame, Seconds, or RealSeconds that nothing awaits is never done.
 - `Scheduler()` makes one, only on the main thread, since its coroutines run there, and it isn't
   Sendable. `s.Tick(seconds)` moves its time on by that much and resumes what can go on, and
   `s.IsIdle()` says whether no coroutine waits on it.
@@ -250,8 +258,8 @@ frames.Add(1)
 | `Shared Class` | may cross threads; fields must be `Atomic`, `Mutex`, or `ReadOnly` | atomic |
 
 `Sendable` covers: primitives, `String`s (immutable, with atomic refcounts), `Struct`s (copied)
-whose fields are all Sendable, `ReadOnly`/frozen data, `Channel`, `Mutex`, `Atomic`, and
-`Shared Class` instances.
+whose fields are all Sendable, `ReadOnly`/frozen data, `Channel`, `Mutex`, `Atomic`, `Callback`,
+and `Shared Class` instances.
 
 ```vb
 Shared Class Hub
@@ -273,8 +281,9 @@ End Class
 The compiler checks every `Spawn` capture, `Parallel For` body, and channel send.
 
 - `Sendable` is an Interface in std/core/interfaces.fb that the compiler decides from a type's
-  parts: numbers, Bools, Strings, and Enums are Sendable, and so are the Structs, tuples, and
-  fixed arrays whose fields and elements all are, and a `T?` of any of them.
+  parts: numbers, Bools, Strings, Enums, and Callbacks are Sendable, and so are the Structs,
+  tuples, and fixed arrays whose fields and elements all are, and a `T?` of any of them. A Ptr
+  or CString isn't, since nothing keeps what it points at for another thread.
 - Classes, arrays, function values, and `Weak<T>`s aren't, since an object's refcount isn't
   atomic: an object stays on the thread that made it. Neither is a Struct that holds one.
 - Generic code says a type parameter is Sendable with a constraint, `<T: Sendable>`, and an
@@ -316,7 +325,8 @@ Spawn(Function() => ComputePath(target))
 Spawn(Function() => PositionEntity(cam, 0, 0, 0))   // ✗ compile error: @MainThread
 ```
 
-- Work on another thread is a Spawn's or Thread.Start's, with everything it can run: what it
+- Work on another thread is a Spawn's or Thread.Start's, or a Callback's code, which C can call
+  on any thread (see [12](12-ffi.md#callbacks)), with everything it can run: what it
   calls, its lambdas, what overrides the Methods it calls, and what implements the Interface
   Methods it calls, with each New's Class's Destroy(). A Shared Class's Destroy() is too, since
   whichever thread lets go last runs it.

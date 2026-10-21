@@ -251,6 +251,49 @@ TEST_CASE("the String count follows allocations", "[runtime]") {
     CHECK(fb_string_live_count() == before);
 }
 
+TEST_CASE("a String goes to C as a counted copy with a NUL after it", "[runtime]") {
+    fb_string_t* string = fb_string_from_int(-125);
+    const std::int64_t before = fb_cstring_live_count();
+    char* copy = fb_cstring_new(string);
+    CHECK(fb_cstring_live_count() == before + 1);
+    CHECK(std::string_view(copy) == "-125");
+    CHECK(copy[4] == '\0');
+    fb_cstring_free(copy);
+    CHECK(fb_cstring_live_count() == before);
+    fb_string_release(string);
+}
+
+TEST_CASE("C's text comes back as a String up to its NUL, or null", "[runtime]") {
+    CHECK(take(fb_string_from_cstring("abc\0def")) == "abc");
+    CHECK(take(fb_string_from_cstring("")).empty());
+    CHECK(fb_string_from_cstring(nullptr) == nullptr);
+}
+
+TEST_CASE("C's text that isn't UTF-8 gets U+FFFD for each byte that doesn't start a code point",
+          "[runtime]") {
+    // Well-formed UTF-8 stays as it is, U+FFFD included.
+    CHECK(take(fb_string_from_cstring("\xC3\xA9 \xE2\x82\xAC \xF0\x9F\x98\x80 \xEF\xBF\xBD")) ==
+          "\xC3\xA9 \xE2\x82\xAC \xF0\x9F\x98\x80 \xEF\xBF\xBD");
+
+    // A code page's byte, a sequence cut short, an overlong form, a surrogate, and one past
+    // U+10FFFF.
+    const auto replaced = [](const std::size_t count) {
+        std::string text;
+        for (std::size_t i = 0; i < count; ++i) {
+            text += "\xEF\xBF\xBD";
+        }
+
+        return text;
+    };
+    CHECK(take(fb_string_from_cstring("a\xE9"
+                                      "b")) == "a\xEF\xBF\xBD"
+                                               "b");
+    CHECK(take(fb_string_from_cstring("\xE2\x82")) == replaced(2));
+    CHECK(take(fb_string_from_cstring("\xC0\xAF")) == replaced(2));
+    CHECK(take(fb_string_from_cstring("\xED\xA0\x80")) == replaced(3));
+    CHECK(take(fb_string_from_cstring("\xF4\x90\x80\x80")) == replaced(4));
+}
+
 TEST_CASE("an object is of its Class and the ones it extends", "[runtime]") {
     const fb_class_t base = thing_class();
     fb_class_t type = thing_class();

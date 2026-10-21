@@ -1,0 +1,6 @@
+[project]
+name = "panic_enum_callback"
+version = "0.1.0"
+
+[dependencies]
+vmath = { path = "../vmath" }

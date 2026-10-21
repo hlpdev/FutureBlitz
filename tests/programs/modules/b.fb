@@ -1,0 +1,7 @@
+// Another module's Node and Make, named like a.fb's.
+
+Public Class Node
+    Public Field Value: Int = 2
+End Class
+
+Public Function Make(): Node => Node()

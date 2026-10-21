@@ -1,0 +1,8 @@
+Import "../vector"
+
+Public Struct Circle
+    Public Field center: Vec
+    Public Field radius: Float64
+
+    Public Method Area(): Float64 => 3.0 * radius * radius
+End Struct

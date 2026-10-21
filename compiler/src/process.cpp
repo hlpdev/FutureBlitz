@@ -1,9 +1,12 @@
 #include "fb/process.hpp"
 
 #include <array>
+#include <cstdint>
 #include <cstdio>
 #include <format>
+#include <string>
 #include <string_view>
+#include <system_error>
 #include <vector>
 
 #ifdef _WIN32
@@ -20,6 +23,10 @@
 #include <spawn.h>
 #include <sys/wait.h>
 #include <unistd.h>
+
+#ifdef __APPLE__
+#include <mach-o/dyld.h>
+#endif
 
 extern char** environ;
 #endif
@@ -137,6 +144,25 @@ std::expected<process_result_t, std::string> run_process(const std::filesystem::
     return result;
 }
 
+std::filesystem::path current_executable() {
+    std::wstring path(MAX_PATH, L'\0');
+    while (true) {
+        const DWORD length =
+            GetModuleFileNameW(nullptr, path.data(), static_cast<DWORD>(path.size()));
+        if (length == 0) {
+            return {};
+        }
+
+        // A path that fills the buffer may have been cut short.
+        if (length < path.size()) {
+            path.resize(length);
+            return path;
+        }
+
+        path.resize(path.size() * 2);
+    }
+}
+
 std::expected<int, std::string> run_attached(const std::filesystem::path& program,
                                              std::span<const std::string> arguments) {
     std::wstring command = command_line(program, arguments);
@@ -241,6 +267,23 @@ std::expected<process_result_t, std::string> run_process(const std::filesystem::
     return result;
 }
 
+std::filesystem::path current_executable() {
+    std::error_code error;
+#ifdef __APPLE__
+    std::uint32_t size = 0;
+    _NSGetExecutablePath(nullptr, &size);
+    std::string path(size, '\0');
+    if (_NSGetExecutablePath(path.data(), &size) != 0) {
+        return {};
+    }
+
+    path.resize(path.find('\0'));
+    return std::filesystem::weakly_canonical(path, error);
+#else
+    return std::filesystem::read_symlink("/proc/self/exe", error);
+#endif
+}
+
 std::expected<int, std::string> run_attached(const std::filesystem::path& program,
                                              std::span<const std::string> arguments) {
     // What this process printed so far comes before the child's output.
@@ -249,5 +292,52 @@ std::expected<int, std::string> run_attached(const std::filesystem::path& progra
 }
 
 #endif
+
+std::optional<std::filesystem::path> real_path(const std::filesystem::path& path) {
+#ifdef _WIN32
+    // libstdc++'s canonical() doesn't follow a junction, but the handle of what it leads to has
+    // the final path.
+    HANDLE handle =
+        CreateFileW(path.c_str(), 0, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                    nullptr, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, nullptr);
+    if (handle == INVALID_HANDLE_VALUE) {
+        return std::nullopt;
+    }
+
+    std::wstring buffer(MAX_PATH, L'\0');
+    DWORD length = GetFinalPathNameByHandleW(
+        handle, buffer.data(), static_cast<DWORD>(buffer.size()), FILE_NAME_NORMALIZED);
+    if (length >= buffer.size()) {
+        buffer.resize(length + 1);
+        length = GetFinalPathNameByHandleW(handle, buffer.data(), static_cast<DWORD>(buffer.size()),
+                                           FILE_NAME_NORMALIZED);
+    }
+
+    CloseHandle(handle);
+    if (length == 0 || length >= buffer.size()) {
+        return std::nullopt;
+    }
+
+    buffer.resize(length);
+    // It starts "\\?\C:\" or "\\?\UNC\server\share\".
+    constexpr std::wstring_view unc = L"\\\\?\\UNC\\";
+    constexpr std::wstring_view local = L"\\\\?\\";
+    if (buffer.starts_with(unc)) {
+        buffer = L"\\\\" + buffer.substr(unc.size());
+    } else if (buffer.starts_with(local)) {
+        buffer.erase(0, local.size());
+    }
+
+    return std::filesystem::path(buffer);
+#else
+    std::error_code error;
+    std::filesystem::path real = std::filesystem::canonical(path, error);
+    if (error) {
+        return std::nullopt;
+    }
+
+    return real;
+#endif
+}
 
 } // namespace fb

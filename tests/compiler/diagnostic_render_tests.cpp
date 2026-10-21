@@ -149,3 +149,66 @@ TEST_CASE("color adds ANSI codes only when asked", "[render]") {
     CHECK_THAT(render_pretty(diagnostic, fixture.sources, { .color = true }),
                ContainsSubstring("\x1b[1;31merror\x1b[0m"));
 }
+
+namespace {
+
+/// A snippet's marker row: the gutter, then `padding` spaces, then `markers`.
+std::string marker_row(const std::size_t padding, const std::string_view markers) {
+    return "  | " + std::string(padding, ' ') + std::string(markers) + "\n";
+}
+
+} // namespace
+
+TEST_CASE("markers line up under wide characters and combining marks", "[render]") {
+    // 日本 takes four columns: "x = \"" is 5, the String 6, and " " 1 more before y.
+    const fixture_t wide("x = \"日本\" y\n");
+    const diagnostic_t after_wide{ .message = "unknown 'y'", .span = wide.span(13, 14) };
+    CHECK(render_pretty(after_wide, wide.sources) == "main.fb:1:10: error: unknown 'y'\n"
+                                                     "  |\n"
+                                                     "1 | x = \"日本\" y\n" +
+                                                         marker_row(11, "^"));
+    const diagnostic_t on_wide{ .message = "a String", .span = wide.span(4, 12) };
+    CHECK(render_pretty(on_wide, wide.sources) == "main.fb:1:5: error: a String\n"
+                                                  "  |\n"
+                                                  "1 | x = \"日本\" y\n" +
+                                                      marker_row(4, "^^^^^^"));
+
+    // An e with a combining acute accent takes one column.
+    const fixture_t combining("e\xCC\x81 + z\n");
+    const diagnostic_t after_mark{ .message = "unknown 'z'", .span = combining.span(6, 7) };
+    CHECK(render_pretty(after_mark, combining.sources) == "main.fb:1:6: error: unknown 'z'\n"
+                                                          "  |\n"
+                                                          "1 | e\xCC\x81 + z\n" +
+                                                              marker_row(4, "^"));
+}
+
+TEST_CASE("a snippet shows control characters escaped and bad bytes as U+FFFD", "[render]") {
+    // An ESC in a comment can't reach the terminal: it shows as the 4 columns of "\x1B". A byte
+    // that isn't UTF-8 shows as U+FFFD.
+    const fixture_t fixture("a \x1b[31m \xff b\n");
+    const diagnostic_t diagnostic{ .message = "unknown 'b'", .span = fixture.span(10, 11) };
+    CHECK(render_pretty(diagnostic, fixture.sources) == "main.fb:1:11: error: unknown 'b'\n"
+                                                        "  |\n"
+                                                        "1 | a \\x1B[31m \xEF\xBF\xBD b\n" +
+                                                            marker_row(13, "^"));
+}
+
+TEST_CASE("a long line shows the part around the span", "[render]") {
+    // 300 columns of "x, ", with the span on the last x, which shows 40 columns after "...".
+    std::string line;
+    for (int i = 0; i < 100; ++i) {
+        line += "x, ";
+    }
+
+    const fixture_t fixture(line + "\n");
+    const diagnostic_t diagnostic{ .message = "here", .span = fixture.span(297, 298) };
+    std::string shown = "... ";
+    for (int i = 0; i < 14; ++i) {
+        shown += "x, ";
+    }
+
+    CHECK(render_pretty(diagnostic, fixture.sources) == "main.fb:1:298: error: here\n"
+                                                        "  |\n"
+                                                        "1 | " +
+                                                            shown + "\n" + marker_row(43, "^"));
+}

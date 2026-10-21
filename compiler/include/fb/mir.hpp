@@ -38,16 +38,21 @@ struct local_t {
 
 /// A top-level Global or Const, or a Static Field.
 struct global_t {
-    /// "score", or "Enemy.count" for a Static Field.
+    /// "score", or "Enemy.count" for a Static Field, with its module first outside the main
+    /// module: "std.core.limits.score".
     std::string name;
     type_id_t type = type_id_t::INVALID;
     /// Its value when the program starts: the initializer's when that's known at compile time,
     /// else zero, False, or "" until main sets it. nullopt for a Struct, which starts with every
     /// field at zero.
     std::optional<const_value_t> initial;
+    /// Main sets it with its initializer, first. A function that an earlier one's initializer
+    /// calls could use it before that, which debug builds check (ready_t).
+    bool set_in_main = false;
 };
 
-/// One step inward from a place: into a field, or into an element of an array.
+/// One step inward from a place: into a field, or into an element of an array. From a Ptr,
+/// its field is what it points at, and an element is that many T's on.
 struct step_t {
     /// The field's position, for a Struct, a Class's object, or a T?'s value.
     std::uint32_t field = 0;
@@ -55,7 +60,7 @@ struct step_t {
     /// through a fixed array of several dimensions with one index, which counts every element.
     /// Empty for a field.
     std::vector<local_id_t> indices;
-    /// Where an index that's out of range panics.
+    /// Where an index that's out of range panics, or a step from a Null Ptr in a debug build.
     span_t span;
 };
 
@@ -107,7 +112,8 @@ struct binary_t {
 };
 
 /// Converts between numbers, or from a Bool to an integer (0 or 1), for 'As' and for implicit
-/// conversions. Integers are cut down or extended. A float to an integer drops the fraction,
+/// conversions. Ptrs and CStrings convert to each other as they are, and to and from integers as
+/// addresses. Integers are cut down or extended. A float to an integer drops the fraction,
 /// and panics at `span` when the rest doesn't fit. A T, or a T?, converts to a U? whose U the
 /// T converts to.
 struct cast_t {
@@ -148,8 +154,13 @@ enum class runtime_function_t : std::uint8_t {
     EQUAL,
     /// (a number or Bool) to a new String, as interpolation shows it.
     TO_TEXT,
-    /// (String) to nothing: prints it and a line break.
-    PRINT,
+    /// (String) to a new CString: a copy of its text with a NUL after it, for C code to read
+    /// during a call.
+    CSTRING_NEW,
+    /// (CString) to nothing: frees a copy that CSTRING_NEW made.
+    CSTRING_FREE,
+    /// (CString) to a new String?: a copy of C's text up to its NUL, or Null for a null one.
+    STRING_FROM_CSTRING,
     /// (T[]) to its Count, an Int32.
     ARRAY_COUNT,
     /// (T[], T) to nothing: adds the value at the end, taking over its references.
@@ -281,8 +292,12 @@ struct downcast_t {
 /// Calls a function value: the code in slot 0 of its object's Method table, with the object
 /// first, then the arguments.
 struct invoke_t {
+    /// A function value, whose code is in slot 0 of its object's Method table, or a Callback,
+    /// which is called by the C ABI.
     operand_t callee;
     std::vector<operand_t> arguments;
+    /// Where a debug build panics on a Null Callback.
+    span_t span;
 };
 
 /// What an atomic_t does.
@@ -322,6 +337,31 @@ struct channel_t {
     span_t span;
 };
 
+/// A place's address, as a Ptr: what AddressOf gives.
+struct address_of_t {
+    place_t place;
+};
+
+/// A Callback of `type`: the address of a function by the C ABI that calls `function`, a
+/// Function's code, or with `closure`, a lambda's, which gets a null closure, since it captures
+/// nothing.
+struct callback_t {
+    function_id_t function;
+    bool closure = false;
+    type_id_t type = type_id_t::INVALID;
+    /// The Function's or lambda's declaration, where an Enum C passes that isn't one of its
+    /// values panics.
+    span_t span;
+};
+
+/// "p + n" and "p - n", a Ptr n of its T's on or back, and "p - q", an Int64: how many T's there
+/// are from q to p. The steps are the T's size.
+struct pointer_t {
+    binary_op_t op;
+    operand_t left;
+    operand_t right;
+};
+
 /// Takes the Mutex<T> at `target`, waiting while another thread holds it, or lets go of it.
 /// Taking one that this thread holds already panics at `span`.
 struct lock_t {
@@ -330,9 +370,9 @@ struct lock_t {
     span_t span;
 };
 
-using rvalue_t =
-    std::variant<use_t, unary_t, binary_t, cast_t, call_t, runtime_call_t, aggregate_t, array_t,
-                 zero_t, new_t, is_t, downcast_t, invoke_t, atomic_t, lock_t, channel_t>;
+using rvalue_t = std::variant<use_t, unary_t, binary_t, cast_t, call_t, runtime_call_t, aggregate_t,
+                              array_t, zero_t, new_t, is_t, downcast_t, invoke_t, atomic_t, lock_t,
+                              channel_t, address_of_t, pointer_t, callback_t>;
 
 /// "target = value". It doesn't count references; lowering adds retain_t and release_t for
 /// Strings, and for Structs that hold them.
@@ -357,8 +397,17 @@ struct release_t {
     place_t target;
 };
 
+/// For a Global main sets: once its initializer has run, `mark` says so; before a function uses
+/// it, a check that it has, since a function that an earlier Global's initializer calls could
+/// get there first. Debug builds panic at `span` when it hasn't, and release builds do neither.
+struct ready_t {
+    global_id_t global;
+    bool mark = false;
+    span_t span;
+};
+
 /// Statements run in order, inside a block.
-using statement_t = std::variant<assign_t, evaluate_t, retain_t, release_t>;
+using statement_t = std::variant<assign_t, evaluate_t, retain_t, release_t, ready_t>;
 
 struct goto_t {
     block_id_t target;
@@ -405,6 +454,14 @@ struct basic_block_t {
     terminator_t terminator = unreachable_t{};
 };
 
+/// An Extern Function, which C code or the runtime defines: its symbol, and how it's called.
+struct mir_extern_t {
+    std::string symbol;
+    /// C's convention takes and gives its values, which extends small integers and Bools. The
+    /// runtime's take them as compiled code holds them.
+    bool c_abi = true;
+};
+
 /// A Function, or "main" for the top-level code.
 struct mir_function_t {
     /// The name with its parameter types, like "Add(Int32, Int32)", so overloads differ.
@@ -421,6 +478,8 @@ struct mir_function_t {
     /// An Async Function's code: a coroutine, whose first parameter is its Task. Its Returns end
     /// the coroutine, and it gives LLVM its handle.
     bool is_async = false;
+    /// An Extern Function: only its parameters, with no blocks, since other code defines it.
+    std::optional<mir_extern_t> external;
 };
 
 /// An Interface that a Class's objects implement, and the Class's table for it: for each of the
@@ -443,8 +502,11 @@ struct mir_class_t {
     std::vector<mir_implementation_t> interfaces;
 };
 
-/// A whole program, lowered from one file. Names view the source text, so the file must
-/// outlive the module.
+/// A whole program, lowered from its modules' files. Names view the source text, so the files
+/// must outlive the module. Names outside the main module start with their module, like
+/// "std.collections.map.Map<Int32, String>.Add(Int32, String)", so two modules' names stay apart,
+/// and the few that still come out alike, as module x's Class y's and module x.y's do, are
+/// numbered: "x.y.Z()#2".
 struct mir_module_t {
     std::vector<global_t> globals;
     std::vector<mir_class_t> classes;
@@ -456,6 +518,9 @@ struct mir_module_t {
     /// The types that locals, globals, and functions refer to: the analysis's, and the ones
     /// lowering made for the instances of generic code.
     std::shared_ptr<type_table_t> types;
+    /// The main module's name, which a message showing two types whose names are the same puts
+    /// before the main module's.
+    std::string main_module;
 };
 
 /// The module as text, which `fb --show mir` prints.

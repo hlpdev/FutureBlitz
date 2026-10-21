@@ -1,0 +1,9 @@
+P3 ranks 30, point 3, at 3
+same True, == False, total 7
+countdown from 2
+[ann, bob, cy] True True
+{ann: 3, bob: 5}
+  ann=3
+  bob=5
+2 in {2, 7}
+42
