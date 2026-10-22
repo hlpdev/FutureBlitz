@@ -341,6 +341,7 @@ public:
         link_structs();
         each_item([this](const stmt_id_t id) { check_c_layout(id); });
         link_extensions();
+        check_instance_defaults();
         conform_instance_operators();
         check_equality_defaults();
         check_hashes();
@@ -3585,6 +3586,63 @@ private:
                             [&] { check_inherited(member, base_of(instance)); });
                 }
             }
+        }
+    }
+
+    /// What an Extend of one instance adds, like Gen<Int32>'s, can't take the place of a default
+    /// outside an Interface's table that the generic type has, as a Method of the type's own
+    /// can't: a call through the Interface runs the default as written. Each is an error, and
+    /// goes, so a use finds the default alone.
+    void check_instance_defaults() {
+        for (const type_id_t instance : extended_instances()) {
+            const type_id_t definition = definition_of(instance);
+            std::vector<symbol_id_t>& members = m_analysis.instance_members.at(instance);
+            std::erase_if(members, [&](const symbol_id_t member) {
+                const symbol_t& added = symbol(member);
+                if (added.default_method || added.kind != symbol_kind_t::METHOD) {
+                    return false;
+                }
+
+                for (const symbol_id_t other : members_of(definition, added.name, added.span)) {
+                    const symbol_t& copy = symbol(other);
+                    if (copy.kind != symbol_kind_t::METHOD || !copy.default_method ||
+                        !outside_table(symbol(*copy.default_method)) ||
+                        copy.modifiers.is_static != added.modifiers.is_static) {
+                        continue;
+                    }
+
+                    const auto seen = [&](const type_id_t written) {
+                        return member_type(instance, copy, written);
+                    };
+                    const bool same = own_type_parameters(copy).empty() &&
+                                      std::ranges::equal(
+                                          added.parameters, copy.parameters, {},
+                                          [&](const symbol_id_t id) { return symbol(id).type; },
+                                          [&](const symbol_id_t id) {
+                                              return seen(symbol(id).type);
+                                          });
+                    if (!same && !takes_instance_of(added, instance, copy,
+                                                    own_type_parameters(copy), seen)) {
+                        continue;
+                    }
+
+                    const type_id_t interface =
+                        substitute(copy.default_interface,
+                                   m_analysis.types.get(definition).parameters,
+                                   arguments_of(instance));
+                    in_file(added.span.file, [&] {
+                        error(added.span,
+                              "'{}' would take the place of {}'s {} default, which is what a "
+                              "call through {} runs; give it another name",
+                              added.name, shown_name(interface),
+                              outside_kind(symbol(*copy.default_method)), shown_name(interface))
+                            .with_label(symbol(*copy.default_method).span, "declared here");
+                    });
+                    return true;
+                }
+
+                return false;
+            });
         }
     }
 
@@ -7932,6 +7990,17 @@ private:
                     for (const symbol_id_t far :
                          symbol(m_declared_types.at(definition_of(extended))).members) {
                         const std::optional<type_id_t> result = refined_result(near, far);
+                        // Nothing takes the place of a default a call runs as written.
+                        if (result && outside_table(symbol(far))) {
+                            error(symbol(near).span,
+                                  "'{}' would take the place of {}'s {} default, which a call "
+                                  "through {} runs as written; give it another name",
+                                  symbol(near).name, shown_name(extended),
+                                  outside_kind(symbol(far)), shown_name(extended))
+                                .with_label(symbol(far).span, "declared here");
+                            return true;
+                        }
+
                         if (result && *result != symbol(near).type) {
                             const std::vector<type_id_t> shown{
                                 extended,

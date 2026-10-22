@@ -6243,6 +6243,20 @@ TEST_CASE("a generic, conditional, or Final default runs as written, on an Inter
           errors_t{ "Total: 'Total' is Source<T>'s conditional default, which a call through "
                     "Source<T> runs as written, so it can't be overridden; give this one another "
                     "name" });
+    // Nor can an Interface extending it, required or with a default of its own.
+    CHECK(errors_of(std::format("{}Interface Counted<T> Extends Source<T>\n"
+                                "    Method Twice(): (T, T)\n"
+                                "End Interface\n"
+                                "Interface Paired<T> Extends Source<T>\n"
+                                "    Method With<U>(u: U): (T, U) => (Take(), u)\n"
+                                "End Interface",
+                                source)) ==
+          errors_t{
+              "Twice: 'Twice' would take the place of Source<T>'s Final default, which a call "
+              "through Source<T> runs as written; give it another name",
+              "With: 'With' would take the place of Source<T>'s generic default, which a call "
+              "through Source<T> runs as written; give it another name",
+          });
     CHECK(errors_of("Interface I\n    Final Method F()\nEnd Interface") ==
           errors_t{ "F: 'F' is Final, so it needs a body: a Final default is what every type that "
                     "implements the Interface has" });
