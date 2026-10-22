@@ -4369,7 +4369,8 @@ private:
         };
         const type_id_t given = given_type(candidate.type);
         const type_id_t wanted = implemented(required.type);
-        if ((result && given != wanted && !(required.throws.empty() && boxes_into(given, wanted))) ||
+        if ((result && given != wanted &&
+             !(required.throws.empty() && boxes_into(given, wanted))) ||
             candidate.parameters.size() != required.parameters.size()) {
             return false;
         }

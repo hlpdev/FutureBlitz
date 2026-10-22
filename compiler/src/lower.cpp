@@ -1155,8 +1155,10 @@ private:
         const symbol_t& method = m_analysis.symbol(found);
         std::vector<type_id_t> abstract{ interface };
         std::ranges::copy(types().get(interface).arguments, std::back_inserter(abstract));
-        const type_id_t wanted = types().substitute(member.type, type_parameters_of(member), abstract);
-        const type_id_t given = types().substitute(method.type, type_parameters_of(method), arguments);
+        const type_id_t wanted =
+            types().substitute(member.type, type_parameters_of(member), abstract);
+        const type_id_t given =
+            types().substitute(method.type, type_parameters_of(method), arguments);
         if (wanted == given || !is_struct(given)) {
             return entry;
         }

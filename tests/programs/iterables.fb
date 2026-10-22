@@ -1,0 +1,99 @@
+// A type is an Iterable<T> through an Iterate() that gives what implements Iterator<T>: a
+// Struct, which an Iterable<T>'s value or generic code gets in a box, an Iterator<T> object, or
+// a Class, whose object is one already. A For ... In goes over each the same way.
+Import std.core
+
+Struct Counting Implements Iterator<Int>
+    Field at: Int
+    Field last: Int
+
+    ByRef Method Next(): Int?
+        If at > last Then Return Null
+        at += 1
+        Return at - 1
+    End Method
+End Struct
+
+Class Span Implements Iterable<Int>
+    Field first: Int
+    Field last: Int
+
+    New(first: Int, last: Int)
+        Self.first = first
+        Self.last = last
+    End New
+
+    Method Iterate(): Counting => Counting(first, last)
+End Class
+
+Class Countdown Implements Iterator<Int>
+    Field left: Int
+
+    New(left: Int)
+        Self.left = left
+    End New
+
+    Method Next(): Int?
+        If left == 0 Then Return Null
+        left -= 1
+        Return left + 1
+    End Method
+End Class
+
+Class Down Implements Iterable<Int>
+    Field from: Int
+
+    New(from: Int)
+        Self.from = from
+    End New
+
+    Method Iterate(): Countdown => Countdown(from)
+End Class
+
+Function Total(items: Iterable<Int>): Int
+    Local total = 0
+    For n In items
+        total += n
+    End For
+
+    Return total
+End Function
+
+Function Drained<C: Iterable<Int>>(items: C): Int
+    Local source = items.Iterate()
+    Local total = 0
+    Local n = source.Next()
+    While n != Null
+        total = total * 10 + n
+        n = source.Next()
+    End While
+
+    Return total
+End Function
+
+Local span = Span(1, 4)
+Print("total", Total(span), Total(Down(3)))
+Print("drained", Drained(span), Drained(Down(3)), Drained<Iterable<Int>>(span))
+
+// On the type itself, Iterate() gives its own Struct, which a loop goes over a copy of.
+Local own = span.Iterate()
+For n In own
+    Write(n, "")
+End For
+
+Print("then", own.Next() ?? -1)
+
+// Through the Interface, the Struct is in a box, which the loop uses up.
+Local through: Iterable<Int> = span
+Local boxed = through.Iterate()
+For n In boxed
+    Write(n, "")
+End For
+
+Print("then", boxed.Next() ?? -1)
+
+For n In through
+    Write(n * 2, "")
+End For
+
+Print()

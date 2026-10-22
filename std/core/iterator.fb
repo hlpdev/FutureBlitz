@@ -4,3 +4,23 @@
 Public Interface Iterator<T>
     ByRef Method Next(): T?
 End Interface
+
+// What 'For ... In' goes over through its Iterate(), for code that takes any collection. A
+// collection's Iterate() gives a Struct of its own, which an Iterable<T>'s value or generic code
+// gets in a box, an Iterator<T> object.
+Public Interface Iterable<T>
+    Method Iterate(): Iterator<T>
+End Interface
+
+// The box a Struct that implements Iterator<T> goes in where an Iterator<T> value is wanted,
+// which the compiler makes.
+Package Class Boxed<S, T> Implements Iterator<T>
+    Where S: Iterator<T>
+    Field Source: S
+
+    New(source: S)
+        Source = source
+    End New
+
+    Method Next(): T? => Source.Next()
+End Class
