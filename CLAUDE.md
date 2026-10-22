@@ -170,10 +170,18 @@ can be set; a Map literal's Adds get an error variable; the type table refuses a
 argument is made of more than max_size types (measure()) and fills one the depth limit cut short
 again where it's asked for itself (`m_incomplete`), value_expression() can't overflow, and a fixed
 array keeps a size past max_count unresolved; lowering stops growth along a chain of instances
-made one from another (`origin_t`, chain_length() past max_chain), at a type past grown()'s depth
-or size, or a Method whose owner's instance lost its arguments, and check_arguments() and
-check_values() report a Const type argument an instance worked out outside 1 to max_count or its
-parameter's type (fits()); a String's Extend Property reads as a Property; unify() is const.
+made one from another (`origin_t`, chain_length() past max_chain), at a type too_large() (past
+max_depth, 1000, or max_size), saying which, or a Method whose owner's instance lost its
+arguments, and check_arguments() and check_values() report a Const type argument an instance
+worked out outside 1 to max_count or its parameter's type (fits()); a String's Extend Property
+reads as a Property; unify() is const. The lows: hide_in_place() lets an Extend's Method that a
+call tells apart by ByRef stand beside a default, check_default_places() drops the copy it
+reports, drop_clashing_extension() gives a generic default's clash its own message,
+implemented_bounds() gives a tuple's or Func's bound no copy when no type fits (unextendable()),
+report_uninferred() and implements_for_some() stay quiet after a constraint naming nothing,
+run_const() reports a module lowering stopped, a Const Function runs for a Const type argument's
+value, and a Const its own error left without a value is quiet where it's used
+(`symbol_t::failed`, `m_read_failed_const`).
 
 Done: M5 (modules, packages, `project.toml`, FFI, bindgen), planned 2026-10-18 and finished
 2026-10-20, in 11 steps, then a review of each project (compiler, runtime, cli, std).

@@ -36,10 +36,11 @@ Max<Float>(1, 2.5)     // explicit
   on the Holder, or the Holder's table holding it. One the compiler can't follow there, like a
   Static default, or one that only tests for a Holder, which still makes its table, is an error
   where the compiler makes the instance that keeps growing: one more than 50 instances of the
-  same function or Class deep in a chain of instances made one from another, one that nests
-  more than 48 deep, or one whose type arguments are made of more than 65536 types, as an
-  argument that doubles each time, like `Pair<Self, Self>`, soon is. A Field's type that grows
-  that way is left out past those limits, as it's never reached.
+  same function or Class deep in a chain of instances made one from another, or one whose type
+  arguments are made of more than 65536 types, as an argument that doubles each time, like
+  `Pair<Self, Self>`, soon is. A type nested more than 1000 deep, or made of more than 65536
+  types, is an error even where nothing grows. A Field's type that grows that way is left out
+  past those limits, as it's never reached.
 - A Const type argument an instance works out, like `N * 2`, has to be a size or a count, from 1
   to 2147483647, that fits its type parameter's type, or it's an error where the instance is made.
 
