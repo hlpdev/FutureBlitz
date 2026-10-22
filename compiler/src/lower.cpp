@@ -1245,6 +1245,71 @@ private:
         m_module.classes.push_back(std::move(info));
     }
 
+    /// An array type's tables for the Interfaces its objects implement, made the first time one
+    /// goes where an Interface is expected.
+    void use_array_tables(const type_id_t type) {
+        if (std::ranges::contains(m_module.array_classes, type, &mir_class_t::type)) {
+            return;
+        }
+
+        mir_class_t info{ .type = type };
+        for (const type_id_t interface : array_interfaces(type)) {
+            mir_implementation_t table{ .interface = interface };
+            for (const symbol_id_t required : interface_slots(interface)) {
+                table.methods.push_back(array_table_entry(info, required, type, interface));
+            }
+
+            info.interfaces.push_back(std::move(table));
+        }
+
+        m_module.array_classes.push_back(std::move(info));
+    }
+
+    /// The Interfaces that can be types which an array type implements: Printable, when its
+    /// elements are, the ones an Extend of T[] gives, and the ones those extend. The other
+    /// built-in ones can only be constraints.
+    [[nodiscard]] std::vector<type_id_t> array_interfaces(const type_id_t type) const {
+        std::vector<type_id_t> pending{ m_analysis.interfaces.printable };
+        const type_id_t element = types().get(type).inner;
+        for (const extension_interface_t& extension : m_analysis.extension_interfaces) {
+            if (is_array(extension.target) &&
+                types().get(types().get(extension.target).inner).kind == type_kind_t::PARAMETER) {
+                pending.push_back(
+                    types().substitute(extension.interface, extension.parameters, { element }));
+            }
+        }
+
+        std::vector<type_id_t> found;
+        while (!pending.empty()) {
+            const type_id_t interface = pending.front();
+            pending.erase(pending.begin());
+            if (interface == type_id_t::INVALID || std::ranges::contains(found, interface) ||
+                !fb::implements(m_analysis, types(), type, interface)) {
+                continue;
+            }
+
+            found.push_back(interface);
+            std::ranges::copy(types().get(interface).interfaces, std::back_inserter(pending));
+        }
+
+        std::erase_if(found, [this](const type_id_t interface) {
+            return m_analysis.symbol(m_declared_types.at(definition_of(interface))).constraint_only;
+        });
+        return found;
+    }
+
+    /// What an array type's table runs for an Interface's member: what an Extend of T[] gives,
+    /// or the array's own text, for Printable's ToString.
+    function_id_t array_table_entry(const mir_class_t& info, const symbol_id_t required,
+                                    const type_id_t type, const type_id_t interface) {
+        if (implementation(type, required)) {
+            return table_entry(info, required, type, interface);
+        }
+
+        assert(m_analysis.symbol(required).name == "ToString");
+        return generated(generated_kind_t::TEXT, type);
+    }
+
     /// The Interfaces that can be types which a Class's objects implement: the ones it lists, and
     /// that the Classes it extends list, or Extends give them, and the ones those extend.
     [[nodiscard]] std::vector<type_id_t> implemented(const type_id_t type) const {
@@ -2124,6 +2189,16 @@ private:
         const type_id_t from = type_of(value);
         if (from == type) {
             return value;
+        }
+
+        // An array where an Interface is expected needs its type's tables.
+        if (const type_id_t source = types().get(from).kind == type_kind_t::NULLABLE
+                                         ? types().get(from).inner
+                                         : from;
+            is_array(source) && is_interface(types().get(type).kind == type_kind_t::NULLABLE
+                                                 ? types().get(type).inner
+                                                 : type)) {
+            use_array_tables(source);
         }
 
         // Reading a Weak<T> gives a T? with a reference of its own, or Null once the object is

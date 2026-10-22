@@ -2686,3 +2686,25 @@ TEST_CASE("lowering makes as many instances as a program uses, one from another 
     REQUIRE(deep.diagnostics.diagnostics().empty());
     CHECK(!fb::lower(deep.ast, deep.analysis).error);
 }
+
+TEST_CASE("an array type has tables only once its arrays go where an Interface is expected",
+          "[mir]") {
+    // Iterable<T>'s Iterate is what the Extend of T[] gives, in a box, and Printable's ToString
+    // is the array's own text.
+    const std::string mir = lower_text("Import std.core\n"
+                                       "Import std.collections\n"
+                                       "Function Show(p: Printable): String => p.ToString()\n"
+                                       "Local items: Iterable<Int> = [1, 2]\n"
+                                       "Local text = Show([\"a\"])\n"
+                                       "Local plain = [True]");
+    INFO(mir);
+    CHECK(mir.contains("array Int32[]\n"
+                       "    std.core.interfaces.Printable 0: Int32[].ToString()\n"
+                       "    std.core.iterator.Iterable<Int32> 0: std.collections.array.Int32[]."
+                       "Iterate() as std.core.iterator.Iterator<Int32>\n"));
+    CHECK(mir.contains("array String[]\n"
+                       "    std.core.interfaces.Printable 0: String[].ToString()\n"
+                       "    std.core.iterator.Iterable<String> 0: std.collections.array."
+                       "String[].Iterate() as std.core.iterator.Iterator<String>\n"));
+    CHECK(!mir.contains("array Bool[]"));
+}

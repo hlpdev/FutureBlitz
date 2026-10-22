@@ -535,6 +535,9 @@ struct mir_error_t {
 struct mir_module_t {
     std::vector<global_t> globals;
     std::vector<mir_class_t> classes;
+    /// The array types whose objects go where an Interface is expected, with a table for each
+    /// Interface they implement. They have no Destroy or Method table.
+    std::vector<mir_class_t> array_classes;
     /// The Functions in source order, then the entry.
     std::vector<mir_function_t> functions;
     /// "main": the top-level code, which runs when the program starts. Globals whose values

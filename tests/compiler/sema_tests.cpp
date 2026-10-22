@@ -1872,6 +1872,22 @@ TEST_CASE("a T[]'s Count and Methods", "[sema]") {
     CHECK(errors_of("Local a = [1]\nLocal n = a.Count()") ==
           errors_t{ "Count: Count isn't a Method; leave out the ()" });
 
+    // It goes where an Interface it implements is expected, and a generic call takes T from what
+    // it implements.
+    const std::string imports = "Import std.core\nImport std.collections\n";
+    CHECK(probe(imports + "Local items: Iterable<Int> = [1]\nLocal x = items") ==
+          "Iterable<Int32>");
+    CHECK(probe(imports +
+                "Function First<T>(values: Iterable<T>): T? => values.Iterate().First()\n"
+                "Local x = First([\"a\"])") == "String?");
+    CHECK(probe(imports +
+                "Function First<T>(values: Iterable<T>): T? => values.Iterate().First()\n"
+                "Local x = First(Set<Int>())") == "Int32?");
+    CHECK(errors_of(imports + "Local items: Iterable<Int> = [\"a\"]") ==
+          errors_t{ "[\"a\"]: expected Iterable<Int32>, found String[]" });
+    CHECK(errors_of("Import std.core\nLocal items: Printable = [Function() => 1]") ==
+          errors_t{ "[Function() => 1]: expected Printable, found (Func(): Int32)[]" });
+
     // Its Capacity is how many elements it has room for, which Reserve and TrimExcess change.
     CHECK(probe("Local a = [1]\nLocal x = a.Capacity") == "Int32");
     CHECK(errors_of("Local a = [1]\na.Reserve(10)\na.TrimExcess()").empty());
@@ -3201,9 +3217,8 @@ TEST_CASE("generic mistakes", "[sema]") {
           errors_t{
               "(1 To 3).Zip: Stack<Int32> doesn't implement Iterator<U>, which 'Zip' needs for O; "
               "its Iterate() gives one",
-              "(1 To 3).Zip: Int32[] doesn't implement Iterator<U>, which 'Zip' needs for O",
-              "(1 To 6).Chunks(2).Flatten: Int32[] doesn't implement Iterable<U>, which 'Flatten' "
-              "needs for T",
+              "(1 To 3).Zip: Int32[] doesn't implement Iterator<U>, which 'Zip' needs for O; its "
+              "Iterate() gives one",
           });
     // A copy's bound on a type made of its type parameters says so, rather than asking for the
     // type arguments.

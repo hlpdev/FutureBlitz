@@ -10665,9 +10665,9 @@ private:
         }
 
         // Only one that all of its Class's objects implement: one that an Extend's constraints
-        // make conditional would need a table for each instance.
+        // make conditional would need a table for each instance. Each array type has its own.
         if (is_interface(to) && from != to) {
-            return (is_class(from) && implements(from, to)) ||
+            return ((is_class(from) || is_array(from)) && implements(from, to)) ||
                    (is_interface(from) && m_analysis.types.extends(from, to));
         }
 
@@ -19156,6 +19156,17 @@ private:
 
         if (have.kind == type_kind_t::NULLABLE) {
             unify(pattern, have.inner, parameters, arguments);
+            return;
+        }
+
+        // An Interface's type arguments are those of the instance a Class, Struct, or array
+        // implements, as a Set<Int32> does Iterable<Int32>.
+        if (want.kind == type_kind_t::INTERFACE && have.kind != type_kind_t::INTERFACE) {
+            if (const type_id_t instance = instance_for(actual, pattern);
+                instance != type_id_t::INVALID) {
+                unify(pattern, instance, parameters, arguments);
+            }
+
             return;
         }
 

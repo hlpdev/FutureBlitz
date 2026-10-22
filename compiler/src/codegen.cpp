@@ -1918,9 +1918,14 @@ private:
             .visit =
                 declare_internal(std::format("fb.{}.visit", name), m_void, { m_ptr, m_ptr, m_ptr }),
         };
+        // Its tables, when its objects go where an Interface is expected.
+        const auto tables = std::ranges::find(m_mir.array_classes, type, &mir_class_t::type);
         LLVMValueRef info = class_value(
             type, LLVMSizeOf(m_array_type), std::nullopt, functions.release, functions.visit,
-            { LLVMConstNull(m_ptr), LLVMConstInt(m_i64, 0, 0) }, LLVMConstNull(m_ptr), {});
+            tables != m_mir.array_classes.end()
+                ? implementations(*tables)
+                : std::pair{ LLVMConstNull(m_ptr), LLVMConstInt(m_i64, 0, 0) },
+            LLVMConstNull(m_ptr), {});
         const std::string global_name = std::format("fb.{}.class", name);
         LLVMValueRef global = LLVMAddGlobal(m_module.get(), LLVMTypeOf(info), global_name.c_str());
         LLVMSetInitializer(global, info);
@@ -2774,7 +2779,8 @@ private:
     }
 
     /// Between numbers, or from a Bool to an integer. An object of a Class is the same
-    /// reference as an object of the one it extends, and an Enum is its integer type.
+    /// reference as an object of the one it extends, or of an Interface it implements, as an
+    /// array is, and an Enum is its integer type.
     LLVMValueRef convert(LLVMValueRef value, const type_id_t from, const type_id_t to,
                          const span_t span) {
         if (is_enum(from) || is_enum(to)) {
@@ -2784,7 +2790,7 @@ private:
 
         // A Weak<T> is made from the reference, or from null for Null.
         LLVMTypeRef target = llvm_type(to);
-        if (from == to || (is_object(from) && is_object(to)) || is_weak(to)) {
+        if (from == to || ((is_object(from) || is_array(from)) && is_object(to)) || is_weak(to)) {
             return value;
         }
 

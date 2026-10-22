@@ -1,0 +1,77 @@
+// An array goes where an Interface it implements is expected: Iterable<T>, which an Extend of T[]
+// gives, and Printable, each through its array type's table. A generic call takes T from it.
+Import std.core
+Import std.collections
+
+Function Total(values: Iterable<Int>): Int
+    Local total = 0
+    For value In values
+        total += value
+    End For
+    Return total
+End Function
+
+Function Joined<T: Printable>(values: Iterable<T>): String
+    Local text = ""
+    For value In values
+        text += "<{value}>"
+    End For
+    Return text
+End Function
+
+Function Show(value: Printable): String => value.ToString()
+
+Local numbers = [1, 2, 3, 4]
+Local empty: Int[] = []
+Print(Total(numbers), Total(empty), Joined<String>(["a", "b"]), Joined(numbers))
+
+// What's in an Iterable's value is the array itself, so changes show.
+Local kept: Iterable<Int> = numbers
+numbers.Add(10)
+Print(Total(kept))
+
+// Lazily, without a copy.
+Print(numbers.Iterate().Filter(Function(n: Int) => n % 2 == 0).Map(Function(n: Int) => n * 10)
+          .ToArray())
+
+// Collections take arrays.
+Local set = Set<String>()
+set.AddAll(["x", "y", "x"])
+Local stack = Stack<Int>()
+stack.AddAll(numbers)
+Print(set, stack.ToArray())
+
+// Printable, built in.
+Local shown: Printable = [[1, 2], [3]]
+Print(shown.ToString(), Show(numbers), Show(["a"]))
+
+// A generic call takes T from what a Set or a Stack implements too.
+Local stacked = Stack<String>()
+stacked.Push("s")
+Print(Joined(set), Joined(stacked))
+
+// Arrays of objects keep them alive while an Interface holds the array.
+Class Item
+    Field Name: String
+
+    New(name: String)
+        Name = name
+    End New
+End Class
+
+Function Names(items: Iterable<Item>): String
+    Local text = ""
+    For item In items
+        text += item.Name
+    End For
+    Return text
+End Function
+
+Local items: Iterable<Item> = [Item("p"), Item("q")]
+Print(Names(items))
+
+// An array that may be Null goes where an Iterable that may be is expected.
+Function Maybe(values: Iterable<Int>?): Int => values == Null ? -1 : Total(values)
+Local none: Int[]? = Null
+Local some: Int[]? = [5]
+Print(Maybe(none), Maybe(some))

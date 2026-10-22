@@ -180,6 +180,17 @@ public:
             }
         }
 
+        // An array type's tables, like "array Int32[]" and "Iterable<Int32> 0: ...".
+        for (const mir_class_t& info : m_module.array_classes) {
+            out += std::format("{} {}\n", keyword("array"), type(info.type));
+            for (const mir_implementation_t& implementation : info.interfaces) {
+                for (std::size_t i = 0; i < implementation.methods.size(); ++i) {
+                    out += std::format("    {} {}: {}\n", type(implementation.interface), i,
+                                       function_name(implementation.methods[i]));
+                }
+            }
+        }
+
         for (const mir_function_t& function : m_module.functions) {
             if (!out.empty()) {
                 out += '\n';
