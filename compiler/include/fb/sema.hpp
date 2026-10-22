@@ -108,6 +108,9 @@ struct symbol_t {
     /// An Extern "C" Function's CString parameter that a String can't stand for, since the
     /// Function gives a CString, or takes one ByRef, which could point into the String's copy.
     bool string_escapes = false;
+    /// A Const whose initializer had an error that left its value unknown, which is quiet where
+    /// it's used.
+    bool failed = false;
     /// A Const's value, or a parameter's or field's default value, when it's known at compile
     /// time. A field without one starts at zero.
     std::optional<const_value_t> value;

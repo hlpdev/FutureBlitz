@@ -1,0 +1,30 @@
+// Methods beside Interfaces' defaults that a call tells apart, and types nested deep but not
+// without end, which build and run.
+Import std.core
+
+// An Extend of one instance adds a Take a call tells from Iterator's Final one by its ByRef, as
+// the type's own can.
+Struct Gen<T> Implements Iterator<T>
+    ByRef Method Next(): T? => Null
+End Struct
+
+Extend Gen<Int>
+    Method Take(ByRef count: Int): Int => count * 10
+End Extend
+
+Local g = Gen<Int>()
+Local n = 3
+Print(g.Take(ByRef n), g.Take(2).Count())
+
+// An iterator of tuples has its own Flatten: no tuple is Iterable, so it never gets the default.
+Class Pairs<T> Implements Iterator<(T, T)>
+    Method Next(): (T, T)? => Null
+    Method Flatten(): Int => 1
+End Class
+
+Print(Pairs<Int>().Flatten())
+
+// Fifty levels of arrays, and of tuples, go through generic code.
+Function Id<T>(x: T): T => x
+Local deep: Int[][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][] = []
+Print(Id(deep).Count, Id(((((((((((((((((((((((((((((((((((((((((((((((((((1, 1), 1), 1), 1), 1), 1), 1), 1), 1), 1), 1), 1), 1), 1), 1), 1), 1), 1), 1), 1), 1), 1), 1), 1), 1), 1), 1), 1), 1), 1), 1), 1), 1), 1), 1), 1), 1), 1), 1), 1), 1), 1), 1), 1), 1), 1), 1), 1), 1), 1)).1)

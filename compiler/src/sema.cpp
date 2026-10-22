@@ -670,6 +670,8 @@ private:
     bool m_extending = false;
     /// A call of a Const Function that couldn't run, because types were being declared.
     bool m_run_refused = false;
+    /// Whether what check() just read used a Const its own error left without a value.
+    bool m_read_failed_const = false;
     /// Each For Field loop's type parameter for its fields' types, made when its function is
     /// declared.
     std::unordered_map<stmt_id_t, type_id_t> m_loop_fields;
@@ -3624,8 +3626,12 @@ private:
                         own_type_parameters(copy).empty() &&
                         std::ranges::equal(
                             added.parameters, copy.parameters, {},
-                            [&](const symbol_id_t id) { return symbol(id).type; },
-                            [&](const symbol_id_t id) { return seen(symbol(id).type); });
+                            [&](const symbol_id_t id) {
+                                return std::pair(symbol(id).type, symbol(id).by_ref);
+                            },
+                            [&](const symbol_id_t id) {
+                                return std::pair(seen(symbol(id).type), symbol(id).by_ref);
+                            });
                     if (!same && !takes_instance_of(added, instance, copy,
                                                     own_type_parameters(copy), seen)) {
                         continue;
@@ -4427,7 +4433,8 @@ private:
                 if (inside.empty()) {
                     return std::nullopt;
                 }
-            } else if (!is_parameter(implemented.parameter) && inside.empty() &&
+            } else if (!is_parameter(implemented.parameter) &&
+                       (inside.empty() || unextendable(implemented.parameter)) &&
                        !implements_for_some(implemented.parameter, implemented.interface, free)) {
                 return std::nullopt;
             }
@@ -4853,7 +4860,7 @@ private:
     /// The defaults' copies of `type`'s own, in `members`, against the ones outside the
     /// Interfaces' tables that it has, its own, the generic type's for an instance, or a Class's
     /// it extends. One reported is at `declared`, or at the Extend that lists its Interface.
-    void check_default_places(const type_id_t type, const std::vector<symbol_id_t>& members,
+    void check_default_places(const type_id_t type, std::vector<symbol_id_t>& members,
                               const span_t declared) {
         const auto copies_in = [&](const type_id_t owner, const std::vector<symbol_id_t>& from) {
             std::vector<symbol_id_t> copies;
@@ -4870,8 +4877,7 @@ private:
         const std::vector<symbol_id_t> own = copies_in(type, members);
         std::vector<symbol_id_t> held = own;
         const type_id_t first = is_instance(type) ? type : base_of(type);
-        for (type_id_t current = first; current != type_id_t::INVALID;
-             current = base_of(current)) {
+        for (type_id_t current = first; current != type_id_t::INVALID; current = base_of(current)) {
             const type_id_t definition = definition_of(current);
             // A Class it extends has what some of its instances could have.
             for (const symbol_id_t id :
@@ -4885,8 +4891,7 @@ private:
             if (current != type && is_instance(current)) {
                 if (const auto found = m_analysis.instance_members.find(current);
                     found != m_analysis.instance_members.end()) {
-                    std::ranges::copy(copies_in(current, found->second),
-                                      std::back_inserter(held));
+                    std::ranges::copy(copies_in(current, found->second), std::back_inserter(held));
                 }
             }
         }
@@ -4900,8 +4905,8 @@ private:
 
             const type_id_t interface = definition_of(given.owner);
             const std::vector<type_id_t> free = own_type_parameters(kept);
-            const auto seen = [&](const type_id_t written) {
-                return member_type(type, kept, written);
+            const auto seen = [&, object = type](const type_id_t written) {
+                return member_type(object, kept, written);
             };
             const auto other = std::ranges::find_if(own, [&](const symbol_id_t id) {
                 const symbol_t& copy = symbol(id);
@@ -4933,6 +4938,7 @@ private:
                       outside_kind(given), shown_name(shown))
                     .with_label(taking.span, "declared here");
             });
+            std::erase(members, *other);
             break;
         }
     }
@@ -4947,7 +4953,8 @@ private:
         const auto clash = std::ranges::find_if(members, [&](const symbol_id_t member) {
             const symbol_t& added = symbol(member);
             return added.extended && !added.default_method && added.name == method.name &&
-                   is_callable_member(added) && same_parameters(added, method);
+                   is_callable_member(added) && own_type_parameters(method).empty() &&
+                   same_parameters(added, method);
         });
         if (clash != members.end()) {
             error(symbol(*clash).span, "'{}' is already declared with the same parameter types",
@@ -8746,6 +8753,14 @@ private:
         });
     }
 
+    /// Whether no Extend can give a type an Interface: a tuple, a Func, or a Callback, which
+    /// implement only the built-in Interfaces their parts do, whatever their type parameters are.
+    [[nodiscard]] bool unextendable(const type_id_t type) const {
+        const type_kind_t kind = m_analysis.types.get(type).kind;
+        return kind == type_kind_t::TUPLE || kind == type_kind_t::FUNCTION ||
+               kind == type_kind_t::CALLBACK;
+    }
+
     /// Whether `type` implements `interface` with some types for the ones of `free` in it, as
     /// Stack<Int32> implements Iterable<U> with Int32 for U: it implements an instance of the
     /// generic Interface that those types make it.
@@ -8753,6 +8768,10 @@ private:
                                            const std::vector<type_id_t>& free) const {
         if (!mentions(interface, free)) {
             return implements(type, interface);
+        }
+
+        if (unknown_bounds(type)) {
+            return true;
         }
 
         const type_id_t instance = instance_for(type, interface);
@@ -11404,6 +11423,7 @@ private:
             // A Const that can't be worked out yet reports nothing itself.
             const std::size_t errors = m_diagnostics->error_count();
             m_run_refused = false;
+            m_read_failed_const = false;
             const type_id_t type = check(expression, type_id_t::INT64);
             // A Const type parameter's size is known in each instance.
             dimensions.push_back(info(expression).parameter);
@@ -11420,7 +11440,7 @@ private:
             }
 
             if (type == type_id_t::INVALID) {
-                if (m_diagnostics->error_count() == errors) {
+                if (m_diagnostics->error_count() == errors && !m_read_failed_const) {
                     error(span_of(expression), "a fixed array's size must be an integer known at "
                                                "compile time, like 64 or 8 * 8");
                 }
@@ -12702,6 +12722,7 @@ private:
             m_place_use = node.value;
         }
 
+        const std::size_t errors = m_diagnostics->error_count();
         if (annotated) {
             check(*node.value, declared.type);
             expect_type(*node.value, declared.type);
@@ -12712,6 +12733,11 @@ private:
         m_place_use = outer;
         if (declared.kind == symbol_kind_t::CONSTANT) {
             declared.value = info(*node.value).value;
+            // One whose value an error left unknown is quiet where it's used.
+            if (!declared.value && m_diagnostics->error_count() > errors && m_declared) {
+                declared.type = type_id_t::INVALID;
+                declared.failed = true;
+            }
         }
     }
 
@@ -14491,8 +14517,9 @@ private:
         } else if (is_fixed_array(object)) {
             error(span_of(id), "a fixed array's Count can't be changed");
         } else {
-            error(span_of(id), "a String's {} is a new array each time it's read, so it can't be "
-                               "changed",
+            error(span_of(id),
+                  "a String's {} is a new array each time it's read, so it can't be "
+                  "changed",
                   member.member.text);
         }
     }
@@ -14512,7 +14539,8 @@ private:
 
         // Count alone, in an Extend of T[], is Self's.
         if (info(id).count) {
-            error(span_of(id), "Count is how many elements Self has, which only its Methods change");
+            error(span_of(id),
+                  "Count is how many elements Self has, which only its Methods change");
             return false;
         }
 
@@ -15433,6 +15461,7 @@ private:
         name_static_instance(*found, span_of(id), info(id).type_arguments);
         if (target.kind == symbol_kind_t::CONSTANT) {
             info(id).value = target.value;
+            m_read_failed_const = m_read_failed_const || target.failed;
         }
 
         // After a null check, a nullable variable is its T until it's assigned again.
@@ -16327,6 +16356,7 @@ private:
 
             return steps;
         };
+        const auto by_ref = [this](const symbol_id_t id) { return symbol(id).by_ref; };
         // Whether two Methods take the same types, as `type` has them.
         const auto same_here = [&](const symbol_t& a, const symbol_t& b) {
             return std::ranges::equal(
@@ -16359,10 +16389,12 @@ private:
                         same_here(near, far));
             }
 
+            // One that a call tells apart by ByRef is no other's place.
             const bool added = far.extended && (!far.default_method || conditional_default(far));
             return near_depth == far_depth && !near.extended && added &&
                    (!is_callable_member(near) || !is_callable_member(far) ||
-                    same_parameters(near, far));
+                    (same_parameters(near, far) &&
+                     std::ranges::equal(near.parameters, far.parameters, {}, by_ref, by_ref)));
         };
         std::vector<symbol_id_t> hidden;
         for (const symbol_id_t id : found) {
@@ -16908,8 +16940,7 @@ private:
                         const std::array shown{ interface, parameter, needed };
                         return std::format("; {}'s default needs {} to implement {}",
                                            name_among(interface, shown),
-                                           name_among(parameter, shown),
-                                           name_among(needed, shown));
+                                           name_among(parameter, shown), name_among(needed, shown));
                     }
                 }
             }
@@ -18257,10 +18288,14 @@ private:
             arguments.push_back(*value);
         }
 
-        // A generic one runs once its type arguments are the types of values it can hold.
+        // A generic one runs once its type arguments are the types of values it can hold, or for
+        // a Const type parameter, a value.
         const std::vector<type_id_t>& type_arguments = info(id).type_arguments;
         if (!std::ranges::all_of(type_arguments, [this](const type_id_t type) {
-                return type != type_id_t::INVALID && is_compile_time(type);
+                const type_t& argument = m_analysis.types.get(type);
+                return type != type_id_t::INVALID &&
+                       (is_compile_time(type) || (argument.kind == type_kind_t::VALUE &&
+                                                  argument.operation == value_op_t::NONE));
             })) {
             return;
         }
@@ -18324,8 +18359,17 @@ private:
                 lower_function(m_ast, m_analysis, function, type_arguments));
         }
 
+        // Lowering that stopped left a module that can't run.
         std::expected<const_value_t, evaluation_error_t> result =
-            evaluate(*module, function_id_t{}, arguments);
+            std::unexpected(evaluation_error_t{});
+        if (module->error) {
+            result = std::unexpected(evaluation_error_t{
+                .message = module->error->message,
+                .span = module->error->span,
+            });
+        } else {
+            result = evaluate(*module, function_id_t{}, arguments);
+        }
         if (result) {
             result->type =
                 substitute(symbol(function).type, type_parameters_of(function), type_arguments);
@@ -19061,8 +19105,7 @@ private:
                 const type_id_t dimension = want.parameters[i];
                 if (dimension != type_id_t::INVALID && is_value_parameter(dimension)) {
                     unify(dimension,
-                          m_types->value(m_analysis.types.get(dimension).inner,
-                                                 have.sizes[i]),
+                          m_types->value(m_analysis.types.get(dimension).inner, have.sizes[i]),
                           parameters, arguments);
                 }
             }
@@ -19131,10 +19174,24 @@ private:
             // Iterable<U>", once they're told.
             const auto place = std::ranges::find(parameters, constraint.parameter);
             const auto index = static_cast<std::size_t>(place - parameters.begin());
-            const std::optional<type_id_t> argument =
-                place == parameters.end() ? told_type(constraint.parameter, parameters, told)
-                : index < told.size()     ? told[index]
-                                          : std::nullopt;
+            std::optional<type_id_t> argument;
+            if (place == parameters.end()) {
+                argument = told_type(constraint.parameter, parameters, told);
+            } else if (index < told.size()) {
+                argument = told[index];
+            }
+            std::vector<type_id_t> inside;
+            if (argument) {
+                parameters_in(*argument, inside);
+                inside.push_back(*argument);
+            }
+
+            // A constraint naming nothing was reported, and quiets what follows from it.
+            if (std::ranges::any_of(
+                    inside, [this](const type_id_t part) { return unknown_bounds(part); })) {
+                return;
+            }
+
             if (!argument || constraint.field != type_id_t::INVALID ||
                 !mentions(constraint.interface, unknown) ||
                 instance_for(*argument, constraint.interface) != type_id_t::INVALID) {
@@ -19186,9 +19243,11 @@ private:
             const std::optional<type_id_t> known = index < told.size() ? told[index] : std::nullopt;
             // A Const type parameter takes a value.
             example += example.empty() ? "" : ", ";
-            example += known                         ? name_of(*known)
-                       : is_value_parameter(parameter) ? "1"
-                                                       : "Int";
+            if (known) {
+                example += name_of(*known);
+            } else {
+                example += is_value_parameter(parameter) ? "1" : "Int";
+            }
         }
 
         error(span_of(node.callee),

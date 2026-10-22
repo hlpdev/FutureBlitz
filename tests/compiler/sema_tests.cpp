@@ -3155,10 +3155,10 @@ TEST_CASE("generic mistakes", "[sema]") {
                     "Local a = Pairs<Int>().Flatten()\n"
                     "Local b = Pairs<Int>().Flatten<Int>()") ==
           errors_t{
-              "Pairs<Int>().Flatten: (Int32, Int32) doesn't implement Iterable<U>, which "
-              "'Flatten' needs",
-              "Pairs<Int>().Flatten<Int>: (Int32, Int32) doesn't implement Iterable<Int32>, "
-              "which 'Flatten' needs",
+              "Flatten: Pairs<Int32> has no member named 'Flatten'; Iterator<(Int32, Int32)>'s "
+              "default needs (Int32, Int32) to implement Iterable<U>",
+              "Flatten: Pairs<Int32> has no member named 'Flatten'; Iterator<(Int32, Int32)>'s "
+              "default needs (Int32, Int32) to implement Iterable<U>",
           });
     CHECK(with_generics("Local s: Pile") ==
           errors_t{ "Pile: Pile<T> is generic, so it needs type arguments, like Pile<Int>" });
@@ -11564,4 +11564,66 @@ TEST_CASE("a default seen less far can't take the place of one a type gives ever
                     "Extend P Implements Ordered\n"
                     "End Extend\n")
               .empty());
+}
+
+TEST_CASE("a default's place, its inference, and a Const Function that can't lower say one thing",
+          "[sema]") {
+    constexpr std::string_view source = "Import std.core\n"
+                                        "Interface Source<T>\n"
+                                        "    Method Take(): T\n"
+                                        "    Method With<U>(u: U): (T, U) => (Take(), u)\n"
+                                        "End Interface\n"
+                                        "Interface Doubler\n"
+                                        "    Method With(u: Bool): (Int, Bool) => (2, u)\n"
+                                        "End Interface\n"
+                                        "Class Counter<T> Implements Source<T>\n"
+                                        "    Field v: T\n"
+                                        "    New(v: T)\n"
+                                        "        Self.v = v\n"
+                                        "    End New\n"
+                                        "    Method Take(): T => v\n"
+                                        "End Class\n";
+    // The copy reported goes, so a use finds the outside default alone, with no second error.
+    CHECK(errors_of(std::string(source) + "Extend Counter<T> Implements Doubler\n"
+                                          "    Where T: Equatable\n"
+                                          "End Extend\n"
+                                          "Local w = Counter<Int>(1).With(True)") ==
+          errors_t{ "Doubler: Counter<T> gets 'With' from Doubler's default, which would take the "
+                    "place of Source<T>'s generic default, which is what a call through Source<T> "
+                    "runs" });
+
+    // An Extend's Method in a generic default's place says so, from another module too.
+    CHECK(errors_with("Import std.collections\n"
+                      "Import \"./lib/rows\"\n"
+                      "Extend IntRows\n"
+                      "    Method Flatten(): Int => 5\n"
+                      "End Extend",
+                      { { .path = "lib/rows.fb",
+                          .text = "Import std.core\n"
+                                  "Import std.collections\n"
+                                  "Public Class IntRows Implements Iterator<Stack<Int>>\n"
+                                  "    Public Method Next(): Stack<Int>? => Null\n"
+                                  "End Class\n" } }) ==
+          errors_t{ "Flatten: 'Flatten' would take the place of Iterator<Stack<Int32>>'s generic "
+                    "default, which is what a call through Iterator<Stack<Int32>> runs; give it "
+                    "another name" });
+
+    // A constraint naming nothing says nothing more.
+    CHECK(errors_of("Import std.core\n"
+                    "Class Bag<T> Implements Iterator<T>\n"
+                    "    Method Next(): T? => Null\n"
+                    "End Class\n"
+                    "Function F<X: Nope>(b: Bag<X>): Int => b.Flatten().Count()") ==
+          errors_t{ "Nope: 'Nope' isn't a type" });
+
+    // A Const Function whose instance can't be made says why at the call.
+    CHECK(errors_of("Const Function Show<Const M: UInt8>(): Int => M\n"
+                    "Const Function Twice<Const N: UInt8>(): Int => Show<N * 2>()\n"
+                    "Const X = Twice<200>()\n"
+                    "Local y = X") ==
+          errors_t{ "Twice<200>(): 'Twice' can't run at compile time: a Const type argument comes "
+                    "out as 400 here, which doesn't fit in UInt8" });
+    // Nor is a use of a Const that an error left without a value.
+    CHECK(errors_of("Const X = 1 / 0\nLocal a: Int[X]\nLocal b: Int[X * 2]") ==
+          errors_t{ "1 / 0: division by zero" });
 }
