@@ -6,9 +6,16 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <unordered_map>
+#include <unordered_set>
+#include <utility>
 #include <vector>
 
 namespace fb {
+
+/// The most elements a fixed array's dimension holds, and the largest Const type argument, a size
+/// or a count.
+constexpr std::int64_t max_count = 2'147'483'647;
 
 /// A type: one of the built-ins named here, or from BUILTIN_COUNT on, a type that a type_table_t
 /// added. The order of the built-ins matters: is_integer() and is_signed() test ranges of it.
@@ -305,8 +312,17 @@ public:
 
     /// A generic Struct, Class, or Interface with these type arguments, like "Box<Int32>", made
     /// once for each set of them. With its own type parameters as the arguments, it's the generic
-    /// one itself. INVALID with an INVALID argument, or past a limit on how deep instances nest.
+    /// one itself. INVALID with an INVALID argument, past a limit on how deep instances nest
+    /// while they're filled in, or with an argument made of more types than max_size.
     [[nodiscard]] type_id_t instance(type_id_t generic, const std::vector<type_id_t>& arguments);
+
+    /// The most types an instance's argument can be made of, as one that doubles each time it's
+    /// made, like S<(T, T)>, gets to quickly.
+    static constexpr std::uint32_t max_size = 65'536;
+
+    /// How deep a type nests, and how many types it's made of, itself included, each counted no
+    /// higher than a little past max_size.
+    [[nodiscard]] std::pair<std::uint32_t, std::uint32_t> measure(type_id_t type) const;
 
     /// `type` with each of `parameters` replaced by the argument at the same place, in it or in
     /// the types it's made of.
@@ -396,6 +412,11 @@ private:
     type_id_t m_scheduler = type_id_t::INVALID;
     /// How many instances are being filled in, one inside another.
     std::uint32_t m_depth = 0;
+    /// The instances whose fill stopped at the limit on m_depth, which instance() fills again
+    /// when it's asked for one outside any other.
+    std::unordered_set<type_id_t> m_incomplete;
+    /// Each type's measure(), once it's asked for.
+    mutable std::unordered_map<type_id_t, std::pair<std::uint32_t, std::uint32_t>> m_measures;
 
     type_id_t add(type_t type);
     type_id_t make(type_kind_t kind, type_id_t inner, std::string full_name);

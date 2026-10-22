@@ -146,7 +146,8 @@ type_table_t::type_table_t(const type_table_t& other)
     : m_fixed_arrays(other.m_fixed_arrays), m_tuples(other.m_tuples),
       m_functions(other.m_functions), m_callbacks(other.m_callbacks),
       m_throwing_tasks(other.m_throwing_tasks), m_instances(other.m_instances),
-      m_values(other.m_values), m_thread(other.m_thread), m_scheduler(other.m_scheduler) {
+      m_values(other.m_values), m_thread(other.m_thread), m_scheduler(other.m_scheduler),
+      m_incomplete(other.m_incomplete), m_measures(other.m_measures) {
     m_entries.reserve(other.m_entries.size());
     for (const entry_t& entry : other.m_entries) {
         m_entries.push_back({
@@ -478,7 +479,8 @@ type_id_t type_table_t::add_value_parameter(std::string name, const type_id_t ty
 
 type_id_t type_table_t::value(const type_id_t type, const std::int64_t number) {
     for (const type_id_t made : m_values) {
-        if (get(made).inner == type && get(made).number == number) {
+        if (get(made).inner == type && get(made).number == number &&
+            get(made).operation == value_op_t::NONE) {
             return made;
         }
     }
@@ -503,7 +505,12 @@ type_id_t type_table_t::value_expression(const type_id_t type, const value_op_t 
     const type_t& b = get(right);
     if (a.kind == type_kind_t::VALUE && a.operation == value_op_t::NONE &&
         b.kind == type_kind_t::VALUE && b.operation == value_op_t::NONE) {
-        return value(type, op == value_op_t::ADD ? a.number + b.number : a.number * b.number);
+        // One past what an Int64 holds is past every limit too, which lowering reports.
+        std::int64_t number = 0;
+        const bool overflows = op == value_op_t::ADD
+                                   ? __builtin_add_overflow(a.number, b.number, &number)
+                                   : __builtin_mul_overflow(a.number, b.number, &number);
+        return value(type, overflows ? INT64_MAX : number);
     }
 
     for (const type_id_t made : m_values) {
@@ -538,10 +545,13 @@ void type_table_t::set_parameters(const type_id_t type, std::vector<type_id_t> p
 
 type_id_t type_table_t::instance(const type_id_t generic, const std::vector<type_id_t>& arguments) {
     // Instances that hold instances with ever deeper arguments, like a Struct S<T> with a
-    // field of S<T[]>, would never end.
+    // field of S<T[]>, would never end, and ones whose arguments double, like S<(T, T)>, would
+    // take all the memory there is before they got deep.
     constexpr std::uint32_t max_depth = 64;
     if (generic == type_id_t::INVALID || std::ranges::contains(arguments, type_id_t::INVALID) ||
-        m_depth > max_depth) {
+        m_depth > max_depth || std::ranges::any_of(arguments, [this](const type_id_t argument) {
+            return measure(argument).second > max_size;
+        })) {
         return type_id_t::INVALID;
     }
 
@@ -551,6 +561,11 @@ type_id_t type_table_t::instance(const type_id_t generic, const std::vector<type
 
     for (const type_id_t made : m_instances) {
         if (get(made).generic == generic && get(made).arguments == arguments) {
+            // One the limit cut short is filled again where it's asked for itself.
+            if (m_depth == 0 && m_incomplete.erase(made) > 0) {
+                fill(made);
+            }
+
             return made;
         }
     }
@@ -609,10 +624,52 @@ void type_table_t::fill(const type_id_t instance) {
 
     const type_id_t base = substitute(get(generic).base, parameters, arguments);
     --m_depth;
+
+    // A part that came out INVALID was cut short by the limit on how deep fills go.
+    const bool cut = (base == type_id_t::INVALID && get(generic).base != type_id_t::INVALID) ||
+                     std::ranges::contains(interfaces, type_id_t::INVALID) ||
+                     std::ranges::any_of(fields, [&](const field_t& field) {
+                         return field.type == type_id_t::INVALID;
+                     });
+    if (cut) {
+        m_incomplete.insert(instance);
+    }
+
     type_t& entry = *m_entries[std::to_underlying(instance)].type;
     entry.fields = std::move(fields);
     entry.base = base;
     entry.interfaces = std::move(interfaces);
+}
+
+std::pair<std::uint32_t, std::uint32_t> type_table_t::measure(const type_id_t type) const {
+    constexpr std::uint32_t ceiling = max_size + 1;
+    if (const auto found = m_measures.find(type); found != m_measures.end()) {
+        return found->second;
+    }
+
+    const type_t& info = get(type);
+    std::uint32_t depth = 0;
+    std::uint32_t size = 1;
+    const auto add = [&](const type_id_t part) {
+        if (part != type_id_t::INVALID) {
+            const auto [part_depth, part_size] = measure(part);
+            depth = std::min(ceiling, std::max(depth, part_depth + 1));
+            size = std::min(ceiling, size + part_size);
+        }
+    };
+    std::ranges::for_each(info.arguments, add);
+    add(info.inner);
+    if (info.kind == type_kind_t::TUPLE) {
+        for (const field_t& field : info.fields) {
+            add(field.type);
+        }
+    }
+
+    if (info.kind == type_kind_t::FUNCTION || info.kind == type_kind_t::CALLBACK) {
+        std::ranges::for_each(info.parameters, add);
+    }
+
+    return m_measures[type] = { depth, size };
 }
 
 type_id_t type_table_t::substitute(const type_id_t type, const std::vector<type_id_t>& parameters,
@@ -655,9 +712,11 @@ type_id_t type_table_t::substitute(const type_id_t type, const std::vector<type_
             }
 
             dimensions[i] = substitute(dimensions[i], parameters, arguments);
-            if (get(dimensions[i]).kind == type_kind_t::VALUE &&
-                get(dimensions[i]).operation == value_op_t::NONE) {
-                sizes[i] = static_cast<std::uint32_t>(get(dimensions[i]).number);
+            // One worked out past the limits stays a value, which lowering reports.
+            const type_t& dimension = get(dimensions[i]);
+            if (dimension.kind == type_kind_t::VALUE && dimension.operation == value_op_t::NONE &&
+                dimension.number >= 1 && dimension.number <= max_count) {
+                sizes[i] = static_cast<std::uint32_t>(dimension.number);
                 dimensions[i] = type_id_t::INVALID;
             }
         }

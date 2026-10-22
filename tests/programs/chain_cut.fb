@@ -1,0 +1,16 @@
+// Each instance of A extends Base with the next one, so making A<1> makes a chain of them, which
+// the compiler fills only so deep; one further down still gets its base where it's used.
+Import std.core
+
+Class Base<T>
+    Method Spawned(): Int => 7
+End Class
+
+Class A<Const N: Int> Extends Base<A<N + 1>>
+    Method Own(): Int => N
+End Class
+
+Local first = A<1>()
+Local far = A<65>()
+Local farther = A<66>()
+Print(first.Spawned(), far.Spawned(), far.Own(), farther.Own())
