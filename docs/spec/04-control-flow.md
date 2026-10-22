@@ -112,13 +112,14 @@ Print(evens.Sum(), (1 To 5).Product())
 - The start, end, and step are evaluated once, in that order, when the range is made. A Step of
   0 is an error when it's known, and a panic when the program runs otherwise.
 - `To` and `Until` bind looser than every binary operator but `? :`, so each end is a whole
-  expression: `0 Until n - 1`, `1 To count ?? 0`. A Method of the range needs parentheses:
-  `(1 To 5).Sum()`. In a For loop's bounds and a Case's values, To and Until are their own, as
-  they always were. A slice is still `a[from..to]`.
+  expression: `0 Until n - 1`, `1 To count ?? 0`, and the Step takes a whole expression, `? :`
+  too, as a For loop's does. A Method of the range needs parentheses: `(1 To 5).Sum()`. In a For
+  loop's bounds and a Case's values, To and Until are their own, as they always were. A slice is
+  still `a[from..to]`.
 - Ranges are `==` when they give the same values, so every range that gives none is `==` to
-  every other, one that Next has gone to the end of too, and an empty range is a Range's zero. A
-  range is a value, copied like any Struct, so a loop over a stored range goes over a copy of
-  it.
+  every other, one that Next has gone to the end of too, and an empty range is a Range's zero.
+  That `==` is an Operator, which a Const Function doesn't run. A range is a value, copied like
+  any Struct, so a loop over a stored range goes over a copy of it.
 
 `Parallel For` is covered in [10-concurrency.md](10-concurrency.md).
 

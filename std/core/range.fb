@@ -8,7 +8,6 @@ Import std.core.iterator
 
 Public Struct Range<T> Implements Iterator<T>, Iterable<T>
     Where T: Numeric
-    Where T: Equatable
     // The value Next gives next. The compiler makes these Fields, in this order.
     Field Current: T
     Field Step: T
@@ -35,11 +34,16 @@ Public Struct Range<T> Implements Iterator<T>, Iterable<T>
 
     // A copy of the range, which goes over its values from where it is.
     Public Method Iterate(): Range<T> => Self
+End Struct
 
-    // Whether the two give the same values: every range that gives none does, whatever it gave
-    // before, and the step counts only where there's a value after Current.
+// Whether the two give the same values: every range that gives none does, whatever it gave
+// before, and the step counts only where there's a value after Current. Every integer type is
+// Equatable, so every range a program makes has it.
+Extend Range<T>
+    Where T: Equatable
+
     Operator ==(a: Range<T>, b: Range<T>): Bool
         If !a.More || !b.More Then Return a.More == b.More
         Return a.Current == b.Current && a.Left == b.Left && (a.Left == 0 || a.Step == b.Step)
     End Operator
-End Struct
+End Extend

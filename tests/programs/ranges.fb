@@ -71,3 +71,8 @@ Print(value.Skip(2).ToArray(), (1 To 100).StepBy(25).ToArray(), (1 To 5).Product
 
 Local direction = -1
 Print((3 To 1 Step direction).ToArray())
+
+// Generic code takes a Range<T> of any Numeric T.
+Function Summed<T: Numeric>(counted: Range<T>): T => counted.Sum()
+
+Print(Summed(1 To 4), Summed(0 Until 10 Step 3))
