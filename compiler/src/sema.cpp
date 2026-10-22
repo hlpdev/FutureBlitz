@@ -18950,8 +18950,17 @@ private:
     /// Why a generic call's type arguments couldn't be inferred: a constraint a type argument
     /// can't meet, where the one that can't be told is only in its Interface, as O: Iterator<U>
     /// is for an O that's no Iterator, or else which ones can't be told.
-    void report_uninferred(const expr_id_t id, const symbol_id_t function, const call_expr_t& node,
-                           const type_id_t hint) {
+    void report_uninferred(const expr_id_t /*id*/, const symbol_id_t function,
+                           const call_expr_t& node, const type_id_t hint) {
+        // A call that wrote type arguments has them all, or was told how many it takes.
+        const expr_node_t& callee = m_ast.get(node.callee).node;
+        const auto* named = std::get_if<name_expr_t>(&callee);
+        const auto* member = std::get_if<member_expr_t>(&callee);
+        if ((named != nullptr && !named->type_arguments.empty()) ||
+            (member != nullptr && !member->type_arguments.empty())) {
+            return;
+        }
+
         const std::vector<type_id_t> parameters = type_parameters_of(function);
         const std::vector<std::optional<type_id_t>> told =
             quietly([&] { return told_arguments(function, node, hint); });
@@ -18985,7 +18994,9 @@ private:
                     : "";
             error(span_of(node.callee), "{} doesn't implement {}, which {} needs for {}{}",
                   name_among(given, shown), name_among(constraint.interface, shown),
-                  std::format("'{}'", symbol(function).name),
+                  symbol(function).kind == symbol_kind_t::CONSTRUCTOR
+                      ? shown_name(symbol(function).owner)
+                      : std::format("'{}'", symbol(function).name),
                   name_among(constraint.parameter, shown), advice);
             return;
         }
@@ -18999,15 +19010,25 @@ private:
             names += std::format("{}{}", names.empty() ? "" : ", ", name_of(parameter));
         }
 
-        // The call as written up to its name, with an opening parenthesis around the object.
-        const span_t written{
-            .file = span_of(node.callee).file,
-            .begin = span_of(id).begin,
-            .end = span_of(node.callee).end,
-        };
+        // The example writes each type argument the call takes after the name: a New's, its
+        // type's, and anything else's, its own, with the ones told filled in.
+        const symbol_t& called = symbol(function);
+        const std::vector<type_id_t> written = called.kind == symbol_kind_t::CONSTRUCTOR
+                                                   ? parameters
+                                                   : own_type_parameters(called);
+        std::string example;
+        for (const type_id_t parameter : written) {
+            const auto place = std::ranges::find(parameters, parameter);
+            const auto index = static_cast<std::size_t>(place - parameters.begin());
+            const std::optional<type_id_t> known =
+                index < told.size() ? told[index] : std::nullopt;
+            example += std::format("{}{}", example.empty() ? "" : ", ",
+                                   known ? name_of(*known) : std::string("Int"));
+        }
+
         error(span_of(node.callee),
-              "can't tell what {} {} in this call; write the type arguments, like {}<Int>(...)",
-              names, unknown.size() == 1 ? "is" : "are", text(written));
+              "can't tell what {} {} in this call; write the type arguments, like {}<{}>(...)",
+              names, unknown.size() == 1 ? "is" : "are", text(node.callee), example);
     }
 
     /// A call of a function value, whose callee was checked as a value: the arguments convert to

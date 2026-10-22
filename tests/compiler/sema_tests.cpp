@@ -3050,6 +3050,20 @@ TEST_CASE("generic mistakes", "[sema]") {
               "(1 To 3).Map: can't tell what U is in this call; write the type arguments, like "
               "(1 To 3).Map<Int>(...)",
           });
+    // The example writes every type argument, with what the call told; and a call that wrote
+    // too few is told that alone.
+    CHECK(errors_of("Function Pair<A, B>(a: A): B[] => []\n"
+                    "Function Make<T>(): T[] => []\n"
+                    "Local p = Pair(1)\n"
+                    "Local q = Pair<Int>(1)\n"
+                    "Local r = (Make)()") ==
+          errors_t{
+              "Pair: can't tell what B is in this call; write the type arguments, like "
+              "Pair<Int32, Int>(...)",
+              "Pair<Int>: 'Pair<Int>' takes 2 type arguments, not 1",
+              "Make: can't tell what T is in this call; write the type arguments, like "
+              "Make<Int>(...)",
+          });
     // A type argument that's only in another's constraint, which that one can't meet, is that.
     CHECK(errors_of("Import std.core\n"
                     "Import std.collections\n"
