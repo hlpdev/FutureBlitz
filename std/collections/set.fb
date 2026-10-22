@@ -4,7 +4,7 @@ Import std.core
 Import std.collections.array
 Import std.collections.map
 
-Public Class Set<T>
+Public Class Set<T> Implements Iterable<T>
     Where T: Hashable
 
     Field Items: Map<T, Bool>

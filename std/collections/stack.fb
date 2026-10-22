@@ -2,7 +2,7 @@
 
 Import std.core
 
-Public Class Stack<T>
+Public Class Stack<T> Implements Iterable<T>
     Field Items: T[] = []
     // How many times the values changed, so a For ... In over them can tell.
     Field Changes: Int64

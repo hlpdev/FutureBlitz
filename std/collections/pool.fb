@@ -11,7 +11,7 @@ Public Struct Handle<T> Implements Hashable
     ReadOnly Field Generation: Int64
 End Struct
 
-Public Class Pool<T>
+Public Class Pool<T> Implements Iterable<T>
     Field Items: T?[] = []
     // Whether each slot holds a value, which can be Null in a Pool of a T?.
     Field Used: Bool[] = []

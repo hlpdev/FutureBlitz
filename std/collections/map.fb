@@ -11,7 +11,7 @@ Struct MapEntry<K, V>
     Field Next: Int
 End Struct
 
-Public Class Map<K, V>
+Public Class Map<K, V> Implements Iterable<(K, V)>
     Where K: Hashable
 
     Field Entries: MapEntry<K, V>[] = []

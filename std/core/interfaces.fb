@@ -32,6 +32,7 @@ End Interface
 // What arithmetic needs, so generic code like a Sum works on any number.
 Public Interface Numeric
     Static Method Zero(): Self
+    Static Method One(): Self
     Operator +(a: Self, b: Self): Self
     Operator -(a: Self, b: Self): Self
     Operator *(a: Self, b: Self): Self

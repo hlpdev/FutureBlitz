@@ -4,7 +4,7 @@
 
 Import std.core
 
-Public Class PriorityQueue<T>
+Public Class PriorityQueue<T> Implements Iterable<T>
     Field Items: T[] = []
     Field Before: Func(T, T): Bool
     // How many times the values changed, so a For ... In over them can tell.

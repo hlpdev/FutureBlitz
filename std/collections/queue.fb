@@ -3,7 +3,7 @@
 
 Import std.core
 
-Public Class Queue<T>
+Public Class Queue<T> Implements Iterable<T>
     Field Items: T[] = []
     Field Head: Int
     // How many times the values changed, so a For ... In over them can tell.

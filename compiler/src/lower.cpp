@@ -1437,6 +1437,7 @@ private:
         return method.kind == symbol_kind_t::METHOD && is_class(method.owner) &&
                !method.modifiers.is_final && !method.modifiers.is_static &&
                method.type_parameters.empty() && method.constraints.empty() && !method.extended &&
+               !copies_outside_table(method) &&
                !m_analysis.symbol(m_declared_types.at(method.owner)).modifiers.is_final;
     }
 
@@ -5392,11 +5393,15 @@ private:
     }
 
     /// A built-in Interface's Method on a type without one of its own: a Hash, a ToString that
-    /// gives what a string shows, or Numeric's Zero.
+    /// gives what a string shows, or Numeric's Zero or One.
     operand_t builtin_method(const symbol_t& method, const type_id_t type,
                              const std::optional<operand_t>& receiver) {
         if (method.name == "Zero") {
             return zero_value(type);
+        }
+
+        if (method.name == "One") {
+            return one(type);
         }
 
         if (method.name == "Hash") {

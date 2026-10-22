@@ -4,7 +4,7 @@
 
 Import std.core
 
-Public Class Deque<T>
+Public Class Deque<T> Implements Iterable<T>
     Field Front: T[] = []
     Field Back: T[] = []
     // How many times the values changed, so a For ... In over them can tell.

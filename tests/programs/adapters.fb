@@ -1,0 +1,68 @@
+// Iterator<T>'s adapters are lazy, and its consumers go over the values once. A chain gives the
+// same as a For loop over the same values, on a collection's own Struct iterator, through an
+// Iterator<T> value, through an Iterable<T> parameter, and in generic code.
+Import std.core
+Import std.collections
+
+Function Squares(numbers: Iterable<Int>): Int[]
+    Local looped: Int[] = []
+    For n In numbers
+        If n % 2 == 1 Then looped.Add(n * n)
+    End For
+
+    Local chained = numbers.Iterate().Filter(Function(n: Int) => n % 2 == 1)
+    Local result = chained.Map(Function(n: Int) => n * n).ToArray()
+    Assert(result == looped)
+    Return result
+End Function
+
+Function Smallest<S: Iterable<Int>>(numbers: S): Int => numbers.Iterate().Min() ?? -1
+
+Local stack = Stack<Int>()
+For i = 1 To 10
+    stack.Push(i)
+End For
+
+// A Stack goes over its values from the top.
+Local it = stack.Iterate()
+Print(it.Take(3).ToArray(), it.Skip(8).ToArray(), it.Count())
+Print(Squares(stack), Smallest(stack))
+
+Local value: Iterator<Int> = stack.Iterate().Map(Function(n: Int) => n * 10)
+Print(value.TakeWhile(Function(n: Int) => n > 70).ToArray())
+Print(value.First() ?? -1, "the value's used up as it goes")
+
+Local queue = Queue<String>()
+For word In ["pear", "fig", "apple", "kiwi", "date"]
+    queue.Enqueue(word)
+End For
+
+Local words = queue.Iterate()
+Print(words.OrderBy(Function(w: String) => w.Chars.Count).ToArray())
+Print(words.OrderByDescending(Function(w: String) => w.Chars.Count).ToArray())
+Print(words.Enumerate().Skip(3).ToArray(), words.Last() ?? "none")
+Print(words.Zip(stack.Iterate()).ToArray())
+Print(words.Chain(Repeated("x", 2)).ToArray(), Empty<String>().Count())
+Print(words.Chunks(2).ToArray(), words.Windows(4).ToArray(), words.StepBy(2).ToArray())
+Local long = Function(w: String) => w.Chars.Count > 2
+Print(words.Any(Function(w: String) => w == "fig"), words.All(long))
+Print(words.Find(Function(w: String) => w.Chars.Count > 4) ?? "none")
+Print(words.Fold(0, Function(total: Int, w: String) => total + w.Chars.Count))
+Print(words.Reduce(Function(a: String, b: String) => "{a}+{b}") ?? "none")
+Local length = Function(w: String) => w.Chars.Count
+Print(words.MinBy(length) ?? "none", words.MaxBy(length) ?? "none")
+
+Local numbers = Set<Int>()
+For n In [4, 2, 9, 7]
+    numbers.Add(n)
+End For
+
+Local set = numbers.Iterate()
+Print(set.Sum(), set.Product(), set.Min() ?? -1, set.Max() ?? -1)
+set.Take(2).ForEach(Function(n: Int) => Print("each", n))
+
+// What each value is an Iterable of, one after another.
+Local stacks = Stack<Stack<Int>>()
+stacks.Push(stack)
+stacks.Push(stack)
+Print(stacks.Iterate().Flatten<Int>().Take(12).ToArray())

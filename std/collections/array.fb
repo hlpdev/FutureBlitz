@@ -56,23 +56,3 @@ Extend T[]
         Return Null
     End Method
 End Extend
-
-// Sorts to's elements from start up to finish, which from holds copies of: each half is sorted
-// into from, then they're merged back into to.
-Function MergeSort<T>(from: T[], to: T[], start: Int, finish: Int, before: Func(T, T): Bool)
-    If finish - start < 2 Then Return
-    Local middle = start + (finish - start) / 2
-    MergeSort(to, from, start, middle, before)
-    MergeSort(to, from, middle, finish, before)
-    Local left = start
-    Local right = middle
-    For i = start Until finish
-        If left < middle && (right >= finish || !before(from[right], from[left]))
-            to[i] = from[left]
-            left += 1
-        Else
-            to[i] = from[right]
-            right += 1
-        End If
-    End For
-End Function

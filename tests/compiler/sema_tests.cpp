@@ -9247,12 +9247,13 @@ TEST_CASE("what implements an Interface's member is called through the Interface
 TEST_CASE("std's helpers are its own", "[sema]") {
     const std::string_view import = "Import std.collections\n";
     CHECK(
-        errors_of(std::format("{}"
+        errors_of(std::format("Import std.core\n{}"
                               "Local xs = [3, 1, 2]\n"
                               "xs.Sort()\n"
                               "MergeSort(xs, xs.Clone(), 0, 3, Function(a: Int, b: Int) => a < b)",
                               import)) ==
-        errors_t{ "MergeSort: 'MergeSort' is private to std/collections/array.fb" });
+        errors_t{ "MergeSort: 'MergeSort' is Package in std/core/iterator.fb, so only the package "
+                  "std can use it" });
     CHECK(errors_of(std::format("{}"
                                 "Local m = Map<Int, Int>()\n"
                                 "m.Add(1, 2)\n"

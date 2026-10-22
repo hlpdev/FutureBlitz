@@ -1,0 +1,19 @@
+[10, 9, 8] [2, 1] 10
+[81, 49, 25, 9, 1] 1
+[100, 90, 80]
+60 the value's used up as it goes
+[fig, pear, kiwi, date, apple]
+[apple, pear, kiwi, date, fig]
+[(3, kiwi), (4, date)] date
+[(pear, 10), (fig, 9), (apple, 8), (kiwi, 7), (date, 6)]
+[pear, fig, apple, kiwi, date, x, x] 0
+[[pear, fig], [apple, kiwi], [date]] [[pear, fig, apple, kiwi], [fig, apple, kiwi, date]] [pear, apple, date]
+True True
+apple
+20
+pear+fig+apple+kiwi+date
+fig apple
+22 504 2 9
+each 4
+each 2
+[10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 10, 9]

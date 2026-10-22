@@ -1,8 +1,280 @@
-// What 'For ... In' goes over besides arrays. Each Next gives
-// the next element, or Null when there are no more. The loop
-// goes over a copy of a Struct, since its Next changes it.
+// What 'For ... In' goes over besides arrays. Each Next gives the next element, or Null when there
+// are no more. The loop goes over a copy of a Struct, since its Next changes it.
+//
+// Its adapters are lazy: each gives an Iterator of its own, which asks the one before it for a
+// value only when it's asked for one. Its consumers go over the values once. They're all Final,
+// so they're what every Iterator has, through its value too. Called on a Struct, they go over a
+// copy of it, and a Class's object is used up, as a For loop over it is.
+
+Import std.core.interfaces
+
 Public Interface Iterator<T>
     ByRef Method Next(): T?
+
+    // What change gives for each value.
+    Final Method Map<U>(change: Func(T): U): Iterator<U> => Mapped<Self, T, U>(Self, change)
+
+    // The values keep says to keep.
+    Final Method Filter(keep: Func(T): Bool): Iterator<T> => Filtered<Self, T>(Self, keep)
+
+    // The first count values, or all of them when there are fewer.
+    @PanicsAtCaller
+    Final Method Take(count: Int): Iterator<T>
+        If count < 0 Then Panic("Take takes a count that isn't negative, not {count}")
+        Return Taken<Self, T>(Self, count)
+    End Method
+
+    // The values after the first count.
+    @PanicsAtCaller
+    Final Method Skip(count: Int): Iterator<T>
+        If count < 0 Then Panic("Skip takes a count that isn't negative, not {count}")
+        Return Skipped<Self, T>(Self, count)
+    End Method
+
+    // The values before the first that keep says not to keep.
+    Final Method TakeWhile(keep: Func(T): Bool): Iterator<T> => TakenWhile<Self, T>(Self, keep)
+
+    // The values from the first that skip says not to skip.
+    Final Method SkipWhile(skip: Func(T): Bool): Iterator<T> => SkippedWhile<Self, T>(Self, skip)
+
+    // Each value with how many came before it.
+    Final Method Enumerate(): Iterator<(Int, T)> => Enumerated<Self, T>(Self)
+
+    // Each value with other's at the same place, as far as the shorter goes.
+    Final Method Zip<O, U>(other: O): Iterator<(T, U)>
+        Where O: Iterator<U>
+        Return Zipped<Self, O, T, U>(Self, other)
+    End Method
+
+    // These values, then other's.
+    Final Method Chain<O>(other: O): Iterator<T>
+        Where O: Iterator<T>
+        Return Chained<Self, O, T>(Self, other)
+    End Method
+
+    // The values of each value, which is an Iterable<U>, one after another.
+    Final Method Flatten<U>(): Iterator<U>
+        Where T: Iterable<U>
+        Return Flattened<Self, T, U>(Self)
+    End Method
+
+    // The first value, then each step-th one after it.
+    @PanicsAtCaller
+    Final Method StepBy(step: Int): Iterator<T>
+        If step < 1 Then Panic("StepBy takes a step of at least 1, not {step}")
+        Return Stepped<Self, T>(Self, step)
+    End Method
+
+    // The values in arrays of size, the last one shorter when they don't divide evenly.
+    @PanicsAtCaller
+    Final Method Chunks(size: Int): Iterator<T[]>
+        If size < 1 Then Panic("Chunks takes a size of at least 1, not {size}")
+        Return Chunked<Self, T>(Self, size)
+    End Method
+
+    // Each run of size values in a row, in an array of its own: none when there are fewer.
+    @PanicsAtCaller
+    Final Method Windows(size: Int): Iterator<T[]>
+        If size < 1 Then Panic("Windows takes a size of at least 1, not {size}")
+        Return Windowed<Self, T>(Self, size)
+    End Method
+
+    // The values, smallest key first, where equal keys keep their order. It goes over them all
+    // when it's first asked for one.
+    Final Method OrderBy<K: Comparable>(key: Func(T): K): Iterator<T>
+        Return Ordered<Self, T, K>(Self, key, False)
+    End Method
+
+    // The values, largest key first, where equal keys keep their order.
+    Final Method OrderByDescending<K: Comparable>(key: Func(T): K): Iterator<T>
+        Return Ordered<Self, T, K>(Self, key, True)
+    End Method
+
+    // The values, in a new array.
+    Final Method ToArray(): T[]
+        Local items: T[] = []
+        For value In Self
+            items.Add(value)
+        End For
+
+        Return items
+    End Method
+
+    // How many values there are.
+    Final Method Count(): Int
+        Local count = 0
+        For value In Self
+            count += 1
+        End For
+
+        Return count
+    End Method
+
+    // Whether test says yes for any value, going no further than the first.
+    Final Method Any(test: Func(T): Bool): Bool
+        For value In Self
+            If test(value) Then Return True
+        End For
+
+        Return False
+    End Method
+
+    // Whether test says yes for every value, going no further than the first it doesn't.
+    Final Method All(test: Func(T): Bool): Bool
+        For value In Self
+            If !test(value) Then Return False
+        End For
+
+        Return True
+    End Method
+
+    // The first value test says yes for, or Null.
+    Final Method Find(test: Func(T): Bool): T?
+        For value In Self
+            If test(value) Then Return value
+        End For
+
+        Return Null
+    End Method
+
+    // The first value, or Null when there's none.
+    Final Method First(): T?
+        For value In Self
+            Return value
+        End For
+
+        Return Null
+    End Method
+
+    // The last value, or Null when there's none.
+    Final Method Last(): T?
+        Local last: T? = Null
+        For value In Self
+            last = value
+        End For
+
+        Return last
+    End Method
+
+    // What combine makes of start and each value in turn.
+    Final Method Fold<A>(start: A, combine: Func(A, T): A): A
+        Local result = start
+        For value In Self
+            result = combine(result, value)
+        End For
+
+        Return result
+    End Method
+
+    // What combine makes of the values, the first two, then that and the next, and so on: the
+    // first alone when there's one, and Null when there's none.
+    Final Method Reduce(combine: Func(T, T): T): T?
+        Local result: T? = Null
+        For value In Self
+            If result == Null
+                result = value
+            Else
+                result = combine(result, value)
+            End If
+        End For
+
+        Return result
+    End Method
+
+    // Runs action for each value.
+    Final Method ForEach(action: Func(T))
+        For value In Self
+            action(value)
+        End For
+    End Method
+
+    // The values added up, or zero when there are none.
+    Final Method Sum(): T
+        Where T: Numeric
+        Local total = T.Zero()
+        For value In Self
+            total = total + value
+        End For
+
+        Return total
+    End Method
+
+    // The values multiplied together, or one when there are none.
+    Final Method Product(): T
+        Where T: Numeric
+        Local total = T.One()
+        For value In Self
+            total = total * value
+        End For
+
+        Return total
+    End Method
+
+    // The smallest value, the first of equal ones, or Null when there's none.
+    Final Method Min(): T?
+        Where T: Comparable
+        Local least: T? = Null
+        For value In Self
+            If least == Null
+                least = value
+            ElseIf value < least
+                least = value
+            End If
+        End For
+
+        Return least
+    End Method
+
+    // The largest value, the first of equal ones, or Null when there's none.
+    Final Method Max(): T?
+        Where T: Comparable
+        Local most: T? = Null
+        For value In Self
+            If most == Null
+                most = value
+            ElseIf most < value
+                most = value
+            End If
+        End For
+
+        Return most
+    End Method
+
+    // The value whose key is smallest, the first of equal ones, or Null when there's none.
+    Final Method MinBy<K: Comparable>(key: Func(T): K): T?
+        Local least: T? = Null
+        Local leastKey: K? = Null
+        For value In Self
+            Local thisKey = key(value)
+            If leastKey == Null
+                least = value
+                leastKey = thisKey
+            ElseIf thisKey < leastKey
+                least = value
+                leastKey = thisKey
+            End If
+        End For
+
+        Return least
+    End Method
+
+    // The value whose key is largest, the first of equal ones, or Null when there's none.
+    Final Method MaxBy<K: Comparable>(key: Func(T): K): T?
+        Local most: T? = Null
+        Local mostKey: K? = Null
+        For value In Self
+            Local thisKey = key(value)
+            If mostKey == Null
+                most = value
+                mostKey = thisKey
+            ElseIf mostKey < thisKey
+                most = value
+                mostKey = thisKey
+            End If
+        End For
+
+        Return most
+    End Method
 End Interface
 
 // What 'For ... In' goes over through its Iterate(), for code that takes any collection. A
@@ -12,9 +284,19 @@ Public Interface Iterable<T>
     Method Iterate(): Iterator<T>
 End Interface
 
+// value, count times.
+@PanicsAtCaller
+Public Function Repeated<T>(value: T, count: Int): Iterator<T>
+    If count < 0 Then Panic("Repeated takes a count that isn't negative, not {count}")
+    Return Repeating<T>(value, count)
+End Function
+
+// No values.
+Public Function Empty<T>(): Iterator<T> => Nothing<T>()
+
 // The box a Struct that implements Iterator<T> goes in where an Iterator<T> value is wanted,
 // which the compiler makes.
-Package Class Boxed<S, T> Implements Iterator<T>
+Package Final Class Boxed<S, T> Implements Iterator<T>
     Where S: Iterator<T>
     Field Source: S
 
@@ -23,4 +305,365 @@ Package Class Boxed<S, T> Implements Iterator<T>
     End New
 
     Method Next(): T? => Source.Next()
+End Class
+
+// Sorts to from from, which starts as a copy of it, between start and finish, by what before
+// says comes first. Equal values keep their order.
+Package Function MergeSort<T>(from: T[], to: T[], start: Int, finish: Int,
+                              before: Func(T, T): Bool)
+    If finish - start < 2 Then Return
+    Local middle = start + (finish - start) / 2
+    MergeSort(to, from, start, middle, before)
+    MergeSort(to, from, middle, finish, before)
+    Local left = start
+    Local right = middle
+    For i = start Until finish
+        If left < middle && (right >= finish || !before(from[right], from[left]))
+            to[i] = from[left]
+            left += 1
+        Else
+            to[i] = from[right]
+            right += 1
+        End If
+    End For
+End Function
+
+Final Class Mapped<S, T, U> Implements Iterator<U>
+    Where S: Iterator<T>
+    Field Source: S
+    Field Change: Func(T): U
+
+    New(source: S, change: Func(T): U)
+        Source = source
+        Change = change
+    End New
+
+    Method Next(): U?
+        Local value = Source.Next()
+        If value == Null Then Return Null
+        Return Change(value)
+    End Method
+End Class
+
+Final Class Filtered<S, T> Implements Iterator<T>
+    Where S: Iterator<T>
+    Field Source: S
+    Field Keep: Func(T): Bool
+
+    New(source: S, keep: Func(T): Bool)
+        Source = source
+        Keep = keep
+    End New
+
+    Method Next(): T?
+        Local value = Source.Next()
+        While value != Null
+            If Keep(value) Then Return value
+            value = Source.Next()
+        End While
+
+        Return Null
+    End Method
+End Class
+
+Final Class Taken<S, T> Implements Iterator<T>
+    Where S: Iterator<T>
+    Field Source: S
+    Field Left: Int
+
+    New(source: S, left: Int)
+        Source = source
+        Left = left
+    End New
+
+    Method Next(): T?
+        If Left == 0 Then Return Null
+        Left -= 1
+        Return Source.Next()
+    End Method
+End Class
+
+Final Class Skipped<S, T> Implements Iterator<T>
+    Where S: Iterator<T>
+    Field Source: S
+    Field Left: Int
+
+    New(source: S, left: Int)
+        Source = source
+        Left = left
+    End New
+
+    Method Next(): T?
+        While Left > 0
+            Left -= 1
+            If Source.Next() == Null Then Return Null
+        End While
+
+        Return Source.Next()
+    End Method
+End Class
+
+Final Class TakenWhile<S, T> Implements Iterator<T>
+    Where S: Iterator<T>
+    Field Source: S
+    Field Keep: Func(T): Bool
+    Field Done: Bool
+
+    New(source: S, keep: Func(T): Bool)
+        Source = source
+        Keep = keep
+    End New
+
+    Method Next(): T?
+        If Done Then Return Null
+        Local value = Source.Next()
+        If value != Null
+            If Keep(value) Then Return value
+        End If
+
+        Done = True
+        Return Null
+    End Method
+End Class
+
+Final Class SkippedWhile<S, T> Implements Iterator<T>
+    Where S: Iterator<T>
+    Field Source: S
+    Field Skipping: Func(T): Bool
+    Field Started: Bool
+
+    New(source: S, skip: Func(T): Bool)
+        Source = source
+        Skipping = skip
+    End New
+
+    Method Next(): T?
+        If Started Then Return Source.Next()
+        Started = True
+        Local value = Source.Next()
+        While value != Null
+            If !Skipping(value) Then Return value
+            value = Source.Next()
+        End While
+
+        Return Null
+    End Method
+End Class
+
+Final Class Enumerated<S, T> Implements Iterator<(Int, T)>
+    Where S: Iterator<T>
+    Field Source: S
+    Field Index: Int
+
+    New(source: S)
+        Source = source
+    End New
+
+    Method Next(): (Int, T)?
+        Local value = Source.Next()
+        If value == Null Then Return Null
+        Index += 1
+        Return (Index - 1, value)
+    End Method
+End Class
+
+Final Class Zipped<S, O, T, U> Implements Iterator<(T, U)>
+    Where S: Iterator<T>
+    Where O: Iterator<U>
+    Field Source: S
+    Field Other: O
+
+    New(source: S, other: O)
+        Source = source
+        Other = other
+    End New
+
+    Method Next(): (T, U)?
+        Local value = Source.Next()
+        If value == Null Then Return Null
+        Local paired = Other.Next()
+        If paired == Null Then Return Null
+        Return (value, paired)
+    End Method
+End Class
+
+Final Class Chained<S, O, T> Implements Iterator<T>
+    Where S: Iterator<T>
+    Where O: Iterator<T>
+    Field Source: S
+    Field Other: O
+    Field Ended: Bool
+
+    New(source: S, other: O)
+        Source = source
+        Other = other
+    End New
+
+    Method Next(): T?
+        If !Ended
+            Local value = Source.Next()
+            If value != Null Then Return value
+            Ended = True
+        End If
+
+        Return Other.Next()
+    End Method
+End Class
+
+Final Class Flattened<S, T, U> Implements Iterator<U>
+    Where S: Iterator<T>
+    Where T: Iterable<U>
+    Field Source: S
+    Field Current: Iterator<U>?
+
+    New(source: S)
+        Source = source
+    End New
+
+    Method Next(): U?
+        While True
+            Local current = Current
+            If current != Null
+                Local value = current.Next()
+                If value != Null Then Return value
+            End If
+
+            Local outer = Source.Next()
+            If outer == Null Then Return Null
+            Current = outer.Iterate()
+        End While
+
+        Return Null
+    End Method
+End Class
+
+Final Class Stepped<S, T> Implements Iterator<T>
+    Where S: Iterator<T>
+    Field Source: S
+    Field Stride: Int
+    Field Started: Bool
+
+    New(source: S, stride: Int)
+        Source = source
+        Stride = stride
+    End New
+
+    Method Next(): T?
+        If !Started
+            Started = True
+            Return Source.Next()
+        End If
+
+        For i = 1 Until Stride
+            If Source.Next() == Null Then Return Null
+        End For
+
+        Return Source.Next()
+    End Method
+End Class
+
+Final Class Chunked<S, T> Implements Iterator<T[]>
+    Where S: Iterator<T>
+    Field Source: S
+    Field Size: Int
+
+    New(source: S, size: Int)
+        Source = source
+        Size = size
+    End New
+
+    Method Next(): T[]?
+        Local chunk: T[] = []
+        While chunk.Count < Size
+            Local value = Source.Next()
+            If value == Null Then Break
+            chunk.Add(value)
+        End While
+
+        If chunk.Count == 0 Then Return Null
+        Return chunk
+    End Method
+End Class
+
+Final Class Windowed<S, T> Implements Iterator<T[]>
+    Where S: Iterator<T>
+    Field Source: S
+    Field Size: Int
+    Field Window: T[] = []
+
+    New(source: S, size: Int)
+        Source = source
+        Size = size
+    End New
+
+    Method Next(): T[]?
+        While Window.Count < Size
+            Local value = Source.Next()
+            If value == Null Then Return Null
+            Window.Add(value)
+        End While
+
+        Local made = Window.Clone()
+        Window.RemoveAt(0)
+        Return made
+    End Method
+End Class
+
+Final Class Ordered<S, T, K> Implements Iterator<T>
+    Where S: Iterator<T>
+    Where K: Comparable
+    Field Source: S
+    Field Key: Func(T): K
+    Field Descending: Bool
+    Field Sorted: (K, T)[] = []
+    Field Started: Bool
+    Field Index: Int
+
+    New(source: S, key: Func(T): K, descending: Bool)
+        Source = source
+        Key = key
+        Descending = descending
+    End New
+
+    Method Next(): T?
+        If !Started
+            Started = True
+            Local value = Source.Next()
+            While value != Null
+                Sorted.Add((Key(value), value))
+                value = Source.Next()
+            End While
+
+            If Sorted.Count > 1
+                Local from = Sorted.Clone()
+                Local before = Function(a: (K, T), b: (K, T)) => a.0 < b.0
+                If Descending Then before = Function(a: (K, T), b: (K, T)) => b.0 < a.0
+                MergeSort(from, Sorted, 0, Sorted.Count, before)
+            End If
+        End If
+
+        If Index >= Sorted.Count Then Return Null
+        Index += 1
+        Return Sorted[Index - 1].1
+    End Method
+End Class
+
+Final Class Repeating<T> Implements Iterator<T>
+    Field Value: T
+    Field Left: Int
+
+    New(value: T, left: Int)
+        Value = value
+        Left = left
+    End New
+
+    Method Next(): T?
+        If Left == 0 Then Return Null
+        Left -= 1
+        Return Value
+    End Method
+End Class
+
+Final Class Nothing<T> Implements Iterator<T>
+    Method Next(): T? => Null
 End Class

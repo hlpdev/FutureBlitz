@@ -20,7 +20,7 @@ Interface Stream<T> Extends Iterator<T>
     End Method
 
     // A Final one, which every Stream has as it's written.
-    Final Method Count(): Int
+    Final Method Tally(): Int
         Local count = 0
         For value In Self
             count += 1
@@ -88,8 +88,8 @@ Function Through(numbers: Stream<Int>): Int => numbers.Mapped(Function(n: Int) =
 Function Generic<S: Stream<Int>>(numbers: S): Int => numbers.Total()
 
 Local upto = Upto(1, 4)
-Print("loop", Looped(upto), "struct", upto.Total(), upto.Count())
-Print("class", Countdown(4).Total(), Countdown(3).Count())
+Print("loop", Looped(upto), "struct", upto.Total(), upto.Tally())
+Print("class", Countdown(4).Total(), Countdown(3).Tally())
 
 Local value: Stream<Int> = Countdown(4)
 Print("value", value.Total())
@@ -104,4 +104,4 @@ End For
 
 // A chain over a Class is used up by the first loop over it, as the Class is.
 Local lengths = Countdown(3).Mapped(Function(n: Int) => (n As Float) * 1.5)
-Print("floats", lengths.Total(), "then", lengths.Count())
+Print("floats", lengths.Total(), "then", lengths.Tally())
