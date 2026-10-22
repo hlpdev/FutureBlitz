@@ -39,6 +39,19 @@ Public Interface Numeric
     Operator /(a: Self, b: Self): Self
 End Interface
 
+// What makes a copy of itself, which changing one doesn't change the other: arrays and std's
+// collections are Cloneable.
+Public Interface Cloneable
+    Method Clone(): Self
+End Interface
+
+// What has a value to start from, for generic code that needs one: the numbers' is 0, Bool's
+// False, String's "", and an Enum's its first value, and a collection's is empty. It's
+// DefaultValue, since Default is Select's keyword.
+Public Interface Defaultable
+    Static Method DefaultValue(): Self
+End Interface
+
 // What can go to another thread, which the compiler decides: numbers, Bools, Strings, Enums,
 // Callbacks, and a Shared Class's objects, and the Structs, tuples, and fixed arrays whose fields
 // and elements all are, with a T? of any of them. A type can list it, or an Interface that

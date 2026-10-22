@@ -11,7 +11,7 @@ Public Struct Handle<T> Implements Hashable
     ReadOnly Field Generation: Int64
 End Struct
 
-Public Class Pool<T> Implements Iterable<T>
+Public Class Pool<T> Implements Iterable<T>, Cloneable, Defaultable
     Field Items: T?[] = []
     // Whether each slot holds a value, which can be Null in a Pool of a T?.
     Field Used: Bool[] = []
@@ -73,6 +73,9 @@ Public Class Pool<T> Implements Iterable<T>
     End Method
 
     // A new Pool with the same values, which the same Handles find.
+    // A new, empty Pool.
+    Public Static Method DefaultValue(): Pool<T> => Pool<T>()
+
     Public Method Clone(): Pool<T>
         Local copy = Pool<T>()
         copy.Items = Items.Clone()

@@ -2,7 +2,7 @@
 
 Import std.core
 
-Public Class Stack<T> Implements Iterable<T>
+Public Class Stack<T> Implements Iterable<T>, Cloneable, Defaultable
     Field Items: T[] = []
     // How many times the values changed, so a For ... In over them can tell.
     Field Changes: Int64
@@ -46,6 +46,9 @@ Public Class Stack<T> Implements Iterable<T>
         Items.Clear()
         Changes += 1
     End Method
+
+    // A new, empty Stack.
+    Public Static Method DefaultValue(): Stack<T> => Stack<T>()
 
     Public Method Clone(): Stack<T>
         Local copy = Stack<T>()

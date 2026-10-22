@@ -11,7 +11,7 @@ Struct MapEntry<K, V>
     Field Next: Int
 End Struct
 
-Public Class Map<K, V> Implements Iterable<(K, V)>
+Public Class Map<K, V> Implements Iterable<(K, V)>, Cloneable, Defaultable
     Where K: Hashable
 
     Field Entries: MapEntry<K, V>[] = []
@@ -95,6 +95,9 @@ Public Class Map<K, V> Implements Iterable<(K, V)>
     End Method
 
     // A new Map with the same entries.
+    // A new, empty Map.
+    Public Static Method DefaultValue(): Map<K, V> => Map<K, V>()
+
     Public Method Clone(): Map<K, V>
         Local copy = Map<K, V>()
         copy.Entries = Entries.Clone()

@@ -158,8 +158,9 @@ End Function
 
 ### Built-in interfaces
 
-`Equatable`, `Comparable`, `Hashable`, `Numeric`, and `Printable` are in std/core/interfaces.fb,
-and `Iterator<T>`, which `For ... In` goes over, is in std/core/iterator.fb (see
+`Equatable`, `Comparable`, `Hashable`, `Numeric`, `Printable`, `Cloneable`, and `Defaultable`
+are in std/core/interfaces.fb, and `Iterator<T>`, which `For ... In` goes over, is in
+std/core/iterator.fb (see
 [04-control-flow.md](04-control-flow.md)). `Sendable`, also in std/core/interfaces.fb, says what
 can go to another thread, which the compiler decides (see [10-concurrency.md](10-concurrency.md)).
 
@@ -192,6 +193,10 @@ End Interface
   but `Numeric`; and Bools and Enums `Equatable`, `Hashable`, and `Printable`. A `T?`, tuple, or
   array implements what its elements do, except that a `T?` is only `Equatable` and `Hashable`,
   and neither tuples nor arrays are `Comparable` or `Numeric`. The math types will in M6.
+- `Cloneable` (`Method Clone(): Self`) is what makes a copy of itself, which arrays are with
+  their own `Clone`, and `Defaultable` (`Static Method DefaultValue(): Self`) what has a value to
+  start from, which the numbers, Bools, Strings, and Enums are with their zero: `T.DefaultValue()`
+  is 0, False, "", or an Enum's first value. std's collections are both.
 - A built-in type has the Methods of the ones it implements: `5.ToString()`, `name.Hash()`.
 - A Struct or Class implements one by listing it. One that lists `Equatable` without an
   Operator `==` of its own gets the built-in one, which compares a Struct's fields or a Class's

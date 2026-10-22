@@ -4,7 +4,7 @@
 
 Import std.core
 
-Public Class PriorityQueue<T> Implements Iterable<T>
+Public Class PriorityQueue<T> Implements Iterable<T>, Cloneable
     Field Items: T[] = []
     Field Before: Func(T, T): Bool
     // How many times the values changed, so a For ... In over them can tell.
@@ -90,6 +90,14 @@ Public Class PriorityQueue<T> Implements Iterable<T>
         Items[b] = value
     End Method
 End Class
+
+// A new, empty PriorityQueue, which gives the smallest value first, where the values have an
+// order.
+Extend PriorityQueue<T> Implements Defaultable
+    Where T: Comparable
+
+    Public Static Method DefaultValue(): PriorityQueue<T> => PriorityQueue<T>()
+End Extend
 
 Public Struct PriorityQueueIterator<T> Implements Iterator<T>
     Field Owner: PriorityQueue<T>

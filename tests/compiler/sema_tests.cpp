@@ -3093,6 +3093,35 @@ TEST_CASE("generic code that would need instances without end is an error", "[se
               .empty());
 }
 
+TEST_CASE("arrays are Cloneable, and the numbers, Bool, String, and Enums Defaultable", "[sema]") {
+    constexpr std::string_view generic = "Import std.core\n"
+                                         "Function Copied<T: Cloneable>(v: T): T => v.Clone()\n"
+                                         "Function Made<T: Defaultable>(): T => T.DefaultValue()\n"
+                                         "Enum E\n    A\nEnd Enum\n"
+                                         "Class C\nEnd Class\n";
+    CHECK(errors_of(std::format("{}Local a = Copied([\"x\"])\n"
+                                "Local b = Made<Int64>()\n"
+                                "Local c = Made<String>()\n"
+                                "Local d = Made<E>()\n"
+                                "Local e = Made<Bool>()",
+                                generic))
+              .empty());
+    CHECK(errors_of(std::format("{}Local a = Made<C>()\n"
+                                "Local b = Made<Int[]>()\n"
+                                "Local c = Copied(C())\n"
+                                "Local d = Copied(1)",
+                                generic)) ==
+          errors_t{
+              "Made<C>: C doesn't implement Defaultable, which 'Made' needs for T",
+              "Made<Int[]>: Int32[] doesn't implement Defaultable, which 'Made' needs for T",
+              "Copied: C doesn't implement Cloneable, which 'Copied' needs for T",
+              "Copied: Int32 doesn't implement Cloneable, which 'Copied' needs for T",
+          });
+    CHECK(errors_of("Import std.core\nExtend Int Implements Defaultable\nEnd Extend") ==
+          errors_t{ "Defaultable: Int32 comes with the built-in Interfaces that fit it, "
+                    "Defaultable among them; an Extend can give it others" });
+}
+
 TEST_CASE("generic mistakes", "[sema]") {
     // In Zero itself, the type expected, its own T, says what T is.
     CHECK(errors_of("Function Zero<T>(): T => Zero()\nLocal z = Zero()") ==

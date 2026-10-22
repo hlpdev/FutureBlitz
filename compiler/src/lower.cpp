@@ -5786,11 +5786,16 @@ private:
     }
 
     /// A built-in Interface's Method on a type without one of its own: a Hash, a ToString that
-    /// gives what a string shows, or Numeric's Zero or One.
+    /// gives what a string shows, Numeric's Zero or One, Defaultable's DefaultValue, which is
+    /// the zero, or an array's Clone for Cloneable's.
     operand_t builtin_method(const symbol_t& method, const type_id_t type,
                              const std::optional<operand_t>& receiver) {
-        if (method.name == "Zero") {
+        if (method.name == "Zero" || method.name == "DefaultValue") {
             return zero_value(type);
+        }
+
+        if (method.name == "Clone") {
+            return runtime_call(runtime_function_t::ARRAY_CLONE, { expect(receiver) }, type, true);
         }
 
         if (method.name == "One") {

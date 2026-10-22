@@ -4,7 +4,7 @@ Import std.core
 Import std.collections.array
 Import std.collections.map
 
-Public Class Set<T> Implements Iterable<T>
+Public Class Set<T> Implements Iterable<T>, Cloneable, Defaultable
     Where T: Hashable
 
     Field Items: Map<T, Bool>
@@ -32,6 +32,9 @@ Public Class Set<T> Implements Iterable<T>
     Public Method Clear()
         Items.Clear()
     End Method
+
+    // A new, empty Set.
+    Public Static Method DefaultValue(): Set<T> => Set<T>()
 
     Public Method Clone(): Set<T>
         Local copy = Set<T>()

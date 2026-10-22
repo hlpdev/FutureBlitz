@@ -3,7 +3,7 @@
 
 Import std.core
 
-Public Class Queue<T> Implements Iterable<T>
+Public Class Queue<T> Implements Iterable<T>, Cloneable, Defaultable
     Field Items: T[] = []
     Field Head: Int
     // How many times the values changed, so a For ... In over them can tell.
@@ -57,6 +57,9 @@ Public Class Queue<T> Implements Iterable<T>
         Head = 0
         Changes += 1
     End Method
+
+    // A new, empty Queue.
+    Public Static Method DefaultValue(): Queue<T> => Queue<T>()
 
     Public Method Clone(): Queue<T>
         Local copy = Queue<T>()

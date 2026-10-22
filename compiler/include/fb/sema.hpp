@@ -328,6 +328,11 @@ struct builtin_interfaces_t {
     type_id_t hashable = type_id_t::INVALID;
     type_id_t printable = type_id_t::INVALID;
     type_id_t numeric = type_id_t::INVALID;
+    /// What makes a copy of itself, which arrays are with their own Clone.
+    type_id_t cloneable = type_id_t::INVALID;
+    /// What has a value to start from, which the numbers, Bool, String, and Enums are with their
+    /// zero.
+    type_id_t defaultable = type_id_t::INVALID;
     /// Iterator<T>, from std/core/iterator.fb, which 'For ... In' goes over.
     type_id_t iterator = type_id_t::INVALID;
     /// What can go to another thread, which the compiler decides from a type's fields.

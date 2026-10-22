@@ -4,7 +4,7 @@
 
 Import std.core
 
-Public Class Deque<T> Implements Iterable<T>
+Public Class Deque<T> Implements Iterable<T>, Cloneable, Defaultable
     Field Front: T[] = []
     Field Back: T[] = []
     // How many times the values changed, so a For ... In over them can tell.
@@ -75,6 +75,9 @@ Public Class Deque<T> Implements Iterable<T>
         Back.Clear()
         Changes += 1
     End Method
+
+    // A new, empty Deque.
+    Public Static Method DefaultValue(): Deque<T> => Deque<T>()
 
     Public Method Clone(): Deque<T>
         Local copy = Deque<T>()

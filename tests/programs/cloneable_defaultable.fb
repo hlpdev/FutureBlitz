@@ -1,0 +1,29 @@
+// Cloneable and Defaultable: generic code makes copies, and values to start from, of arrays, the
+// built-in types, and std's collections.
+Import std.core
+Import std.collections
+
+Function Copied<T: Cloneable>(value: T): T => value.Clone()
+
+Function Started<T: Defaultable>(): T => T.DefaultValue()
+
+Enum Color
+    Red
+    Green
+End Enum
+
+Local items = [1, 2, 3]
+Local copy = Copied(items)
+copy.Add(4)
+Print(items, copy)
+
+Local stack = Stack<String>()
+stack.Push("a")
+Local other = Copied(stack)
+other.Push("b")
+Print(stack.Count, other.Count)
+
+Print(Started<Int>(), Started<Float>(), Started<Bool>(), "[{Started<String>()}]", Started<Color>())
+Local map = Started<Map<String, Int>>()
+map.Add("x", 1)
+Print(map, Started<Set<Int>>().Count, Started<PriorityQueue<Int>>().Count)

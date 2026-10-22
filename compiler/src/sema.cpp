@@ -1146,6 +1146,8 @@ private:
             .hashable = find("Hashable"),
             .printable = find("Printable"),
             .numeric = find("Numeric"),
+            .cloneable = find("Cloneable"),
+            .defaultable = find("Defaultable"),
             .iterator = iterator != type_id_t::INVALID &&
                                 m_analysis.types.get(iterator).parameters.size() == 1
                             ? iterator
@@ -2771,9 +2773,11 @@ private:
     /// One of the Interfaces in std/core/interfaces.fb.
     [[nodiscard]] bool is_builtin_interface(const type_id_t interface) const {
         const builtin_interfaces_t& builtin = m_analysis.interfaces;
-        return interface == builtin.equatable || interface == builtin.comparable ||
-               interface == builtin.hashable || interface == builtin.printable ||
-               interface == builtin.numeric;
+        return interface != type_id_t::INVALID &&
+               (interface == builtin.equatable || interface == builtin.comparable ||
+                interface == builtin.hashable || interface == builtin.printable ||
+                interface == builtin.numeric || interface == builtin.cloneable ||
+                interface == builtin.defaultable);
     }
 
     /// An Interface's members, declared with Self as a type parameter that implements it, and the
@@ -8608,6 +8612,20 @@ private:
     /// Equatable and Hashable for a T?, and neither Comparable nor Numeric for the others.
     [[nodiscard]] bool builtin_implements(const type_id_t type, const type_id_t interface) const {
         const builtin_interfaces_t& builtin = m_analysis.interfaces;
+        if (interface == type_id_t::INVALID) {
+            return false;
+        }
+
+        // An array copies with its own Clone, and the rest start from their zero.
+        if (interface == builtin.cloneable) {
+            return is_array(type);
+        }
+
+        if (interface == builtin.defaultable) {
+            return is_numeric(type) || type == type_id_t::STRING || type == type_id_t::BOOL ||
+                   is_enum(type);
+        }
+
         const bool equality = interface == builtin.equatable || interface == builtin.hashable;
         const bool ordered = interface == builtin.comparable || interface == builtin.numeric;
         if (!equality && !ordered && interface != builtin.printable) {
