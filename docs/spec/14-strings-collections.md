@@ -79,8 +79,12 @@ Out-of-bounds access panics.
 - A `T[]` has `Count` (an `Int`) and the Methods `Add(value)`, `Insert(index, value)`,
   `RemoveAt(index)`, `Clear()`, `Contains(value)`, and `Clone()`. `Clone` copies the elements,
   not what they refer to. `Contains` compares with `==`. A fixed array has `Count` only.
-- std/collections/array.fb gives a `T[]` the rest of the collections' Methods (below): `Remove`,
-  `Sort`, `Filter`, `Map`, and `Find`.
+- A `T[]`'s `Capacity` is how many elements it has room for before it needs more memory;
+  `Reserve(capacity)` makes room for that many in all, and `TrimExcess()` gives back what's
+  beyond its Count. Neither changes the elements. A negative capacity panics.
+- std/collections/array.fb gives a `T[]` the rest of the collections' Methods (below), and
+  makes it an `Iterable<T>`, whose `Iterate()` gives its elements, so it goes where an
+  `Iterable<T>` is expected, as it does where a `Printable` is, when its elements are.
 - An index can be any integer. A `T[W, H]` takes one per dimension, `grid[x, y]`, and stores
   its elements row by row. An index out of range panics: "index 5 is out of range for 3
   elements". A fixed array's index known at compile time is checked then.
@@ -134,14 +138,14 @@ collection.
 
 | Type | Members besides those |
 |---|---|
-| `T[]` | `Remove(value)`, the first equal one, giving whether there was one; `Sort()` when T is `Comparable`, or `Sort(before)`, in place and stable; `Filter(keep)`, `Map(change)`, and `Find(test)`, which gives a `T?` |
+| `T[]` | `Remove(value)`, the first equal one, giving whether there was one; `Sort()` when T is `Comparable`, or `Sort(before)`, in place and stable, `SortUnstable()` and `SortUnstable(before)`, a heap sort that makes no array, and `SortBy(key)` and `SortByDescending(key)`, whose `ThenBy(key)` and `ThenByDescending(key)` sort again where the keys so far tie; `Filter(keep)`, `Map(change)`, and `Find(test)`, which gives a `T?`; `FindLast`, `FindIndex`, `IndexOf`, `LastIndexOf`, and `BinarySearch`, which give an `Int?`, and `Any` and `All`; `First()` and `Last()`, which give a `T?`, `RemoveLast()`, and `TryRemoveLast()`; `AddAll(values)`, `InsertAll(index, values)`, `RemoveRange(start, count)`, `RemoveAll(test)`, which gives how many went, `Resize(count, fill)`, and `Fill(value)`; `Reverse()` and `Swap(a, b)`; `Distinct()`, `Join(separator)`, `Fold(start, combine)`, and `Reduce(combine)`; `View(start, finish)` and `AsReadOnly()` |
 | `Map<K, V>` | `Add(key, value)` adds or replaces, `TryAdd` only adds, and `AddAll(other)` adds another's; `map[key]` reads a value and `map[key] = value` adds or replaces one; `Get(key)` gives a `V?`, `Get(key, fallback)` a V, and `GetOrAdd(key, make)` adds what `make` gives when the key isn't there; `Update(key, change)` gives a key's value what `change` gives for it; `Remove(key)` and `RemoveWhere(test)`; `Keys()`; `Values()`; `Filter(keep)`, `Find(test)`, and `Any(test)` with a `Func(K, V): Bool`; `MapValues(change)`; `Reserve(count)` |
 | `Set<T>` | `Add(value)` gives whether it's new; `Remove(value)`; `Filter(keep)`; `Find(test)`; `Union`, `Intersect`, `Difference`, and `SymmetricDifference` make a new Set, and `AddAll`, `RemoveAll`, and `KeepOnly` change it, from any `Iterable<T>`; `IsSubsetOf`, `IsSupersetOf`, `Overlaps`, and `SetEquals`; `ToArray()` |
-| `Stack<T>` | `Push`, `Pop`, and `Peek`, at the top; it goes from the top down |
-| `Queue<T>` | `Enqueue` at the back, `Dequeue` and `Peek` at the front |
-| `Deque<T>` | `AddFirst`, `AddLast`, `RemoveFirst`, `RemoveLast`, `First`, and `Last`; `Add` is `AddLast` |
-| `PriorityQueue<T>` | `Pop` and `Peek` give the first: the smallest when T is `Comparable`, or what `PriorityQueue<T>(before)` says comes first; it goes over its values in no particular order |
-| `Pool<T>` | `Add(value)` gives a `Handle<T>`; `Get(handle)` gives a `T?`; `Set(handle, value)`; `Remove(handle)` |
+| `Stack<T>` | `Push`, `Pop`, and `Peek`, at the top, and `TryPop` and `TryPeek`, which give a `T?`; it goes from the top down, and so does `ToArray()` |
+| `Queue<T>` | `Enqueue` at the back, `Dequeue` and `Peek` at the front, and `TryDequeue` and `TryPeek`; `ToArray()` goes from the front |
+| `Deque<T>` | `AddFirst`, `AddLast`, `RemoveFirst`, `RemoveLast`, `First`, and `Last`, and the Try twins of the last four; `Add` is `AddLast`; `deque[i]` reads and sets the value i from the first; `ToArray()` goes from the first |
+| `PriorityQueue<T>` | `Pop` and `Peek` give the first: the smallest when T is `Comparable`, or what `PriorityQueue<T>(before)` says comes first, and `TryPop` and `TryPeek` give a `T?`; `Drain()` takes every value off, in the order Pop would; it goes over its values in no particular order, and so does `ToArray()` |
+| `Pool<T>` | `Add(value)` gives a `Handle<T>`; `Get(handle)` gives a `T?`; `Set(handle, value)`; `Remove(handle)`; `IterateHandles()` gives each value with its Handle, `For handle, value In pool.IterateHandles()`; `Capacity` and `Reserve(count)` |
 
 - What gives a `T?` for "none", like `Get`, `Find`, and an Iterator's `Next`, gives a `T??` for
   a collection of a `T?`, so a stored `Null` isn't "none": a For ... In over a `Stack<Int?>` goes
@@ -161,6 +165,19 @@ collection.
 - `map[key]` of a key that isn't there panics where it's read, unless the Map was made with a
   default, as `Map<String, Int>(default: 0)` is, which `[]` gives without adding the key, so
   `counts[word] += 1` counts.
+- Stack, Queue, Deque, and PriorityQueue have `AddAll(values)`, adding each in turn, which for a
+  PriorityQueue orders its heap once. It and the Set Methods that take values take any
+  `Iterable<T>`, an array included, and read all of it first, so a collection can take its own.
+- `items.View(start, finish)` is an `ArrayView<T>` of the elements from start up to finish: it
+  reads and sets them in the array, which it keeps alive, so it sees the array's changes, and an
+  element the array no longer has panics. It has `Count`, `view[i]`, `View`, `ToArray()`, and
+  goes in a `For ... In`. A slice is still a copy.
+- `AsReadOnly()` gives an array, Map, or Set to read but not change, a `ReadOnlyArray<T>`,
+  `ReadOnlyMap<K, V>`, or `ReadOnlySet<T>`, which sees the changes of what it shows and keeps it
+  alive: `Count`, `[]`, `Contains`, `Get`, `Keys`, `Values`, `For ... In`, and a copy through
+  `ToArray()`, `ToMap()`, or `ToSet()`.
+- Each collection is `Cloneable`, with `Clone()`, and `Defaultable`, whose `DefaultValue()` is a
+  new empty one; a PriorityQueue is Defaultable when its values are Comparable.
 - A `Pool<T>` reuses removed values' slots. Each slot counts how many times it has been reused,
   and a `Handle<T>` has that count, so an old Handle finds nothing in a reused slot. Going over a
   Pool gives the values in the order of their slots, and removing one while going over them is

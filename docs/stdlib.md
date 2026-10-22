@@ -48,7 +48,8 @@ So far, std/ holds:
 | std/core/range.fb | `Range<T>`, which `0 Until 10`, `1 To 10`, and `Step` make |
 | std/core/print.fb | `Print`, `Write`, `PrintError`, `WriteError`, `Flush`, `Input`, and `InputAsync`, over the runtime's `fb_write` and its I/O thread |
 | std/core/values.fb | `Min`, `Max`, `Clamp`, `Swap`, and `HashCombine` |
-| std/collections/array.fb | `T[]`'s `Remove`, `Sort`, `SortUnstable`, `Filter`, `Map`, `Find`, `FindLast`, `FindIndex`, `IndexOf`, `LastIndexOf`, `BinarySearch`, `Any`, `All`, `First`, `Last`, `RemoveLast`, `TryRemoveLast`, `AddAll`, `InsertAll`, `RemoveRange`, `RemoveAll`, `Resize`, `Fill`, `Reverse`, `Swap`, `Distinct`, `Join`, `Fold`, and `Reduce` |
+| std/collections/array.fb | `T[]`'s `Remove`, `Sort`, `SortUnstable`, `SortBy`, `SortByDescending` (with `Sorting<T>`'s `ThenBy` and `ThenByDescending`), `Filter`, `Map`, `Find`, `FindLast`, `FindIndex`, `IndexOf`, `LastIndexOf`, `BinarySearch`, `Any`, `All`, `First`, `Last`, `RemoveLast`, `TryRemoveLast`, `AddAll`, `InsertAll`, `RemoveRange`, `RemoveAll`, `Resize`, `Fill`, `Reverse`, `Swap`, `Distinct`, `Join`, `Fold`, and `Reduce`; `Iterate()`, which makes a `T[]` an `Iterable<T>`, through `ArrayIterator<T>` |
+| std/collections/view.fb | `ArrayView<T>`, which `items.View(a, b)` gives, and `ReadOnlyArray<T>`, `ReadOnlyMap<K, V>`, and `ReadOnlySet<T>`, which `AsReadOnly()` gives |
 | std/collections/map.fb | `Map<K, V>`, which `{key: value}` makes |
 | std/collections/set.fb | `Set<T>` |
 | std/collections/stack.fb, queue.fb, deque.fb | `Stack<T>`, `Queue<T>`, and `Deque<T>` |
@@ -172,7 +173,8 @@ file or URL in the default app.
   own `Filter` and `Map` stay eager and give arrays.
 - Interfaces: `Iterable<T>`, `Cloneable`, and `Defaultable` (`Static Method DefaultValue():
   Self`), since `Default` is Select's keyword.
-- Small things: `Min`, `Max`, `Clamp`, `Swap`; `HashCombine`; `TypeName<T>()` at compile time.
+- Small things: `Min`, `Max`, `Clamp`, `Swap`; `HashCombine`; and the built-in `TypeName<T>()`,
+  at compile time, like SizeOf.
 
 #### std.collections
 
@@ -187,8 +189,8 @@ file or URL in the default app.
 - Sorting: `Sort()`, `Sort(before)`, `SortBy(key)`, `SortByDescending(key)`, and `ThenBy` and
   `ThenByDescending` for ties, stable and in place.
 - Views that don't copy: `items.View(a, b)` is an `ArrayView<T>` that keeps its array alive, and
-  `ReadOnly(x)` gives a `ReadOnlyArray`, `ReadOnlyMap`, or `ReadOnlySet` to hand out. Slices
-  (`items[a..b]`) stay copies.
+  `x.AsReadOnly()` gives a `ReadOnlyArray`, `ReadOnlyMap`, or `ReadOnlySet` to hand out
+  (`ReadOnly` is the modifier's keyword). Slices (`items[a..b]`) stay copies.
 - Map: `[]`, `TryAdd`, `Get(key, fallback)`, `GetOrAdd(key, make)`, `Update(key, change)`,
   `AddAll`, `RemoveWhere`, `Find`, `Any`, `MapValues`, `Reserve`; `Map<K, V>(default: v)`, whose
   `[]` reads give the default without adding it, so `counts[word] += 1` works.
