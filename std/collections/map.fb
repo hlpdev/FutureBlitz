@@ -1,5 +1,6 @@
-// Map<K, V>: a hash map from keys to values. Its entries are in an array, in the order they were
-// added, and each bucket starts a chain of the entries whose hashes land in it.
+// Map<K, V>: a hash map from keys to values, in the order they were added. Its entries are in an
+// array, each bucket starts a chain of the entries whose hashes land in it, and each entry links
+// to the ones added before and after it, so removing one leaves the others in order.
 
 Import std.core
 
@@ -9,6 +10,9 @@ Struct MapEntry<K, V>
     Field Hash: UInt64
     // The next entry in the same bucket, or -1.
     Field Next: Int
+    // The entries added just before and just after this one, or -1.
+    Field Before: Int
+    Field After: Int
 End Struct
 
 Public Class Map<K, V> Implements Iterable<(K, V)>, Cloneable, Defaultable
@@ -19,8 +23,21 @@ Public Class Map<K, V> Implements Iterable<(K, V)>, Cloneable, Defaultable
     // power of two, whose bits a mixed hash's top Shift bits leave.
     Field Buckets: Int[] = []
     Field Shift: Int
+    // The first and last entries in the order they were added, or -1.
+    Field First: Int = -1
+    Field Last: Int = -1
     // How many times keys were added or removed, so a For ... In over the entries can tell.
     Field Changes: Int64
+    // What [] gives for a key that isn't there, or Null when it panics.
+    Field Fallback: V?
+
+    Public New()
+    End New
+
+    // A Map whose [] gives value for a key that isn't there, without adding the key.
+    Public New(default: V)
+        Fallback = default
+    End New
 
     Public Property Count: Int
         Get => Entries.Count
@@ -35,11 +52,22 @@ Public Class Map<K, V> Implements Iterable<(K, V)>, Cloneable, Defaultable
             Return
         End If
 
-        If Entries.Count >= Buckets.Count Then Grow()
-        Local bucket = BucketOf(hash)
-        Entries.Add(MapEntry<K, V>(key, value, hash, Buckets[bucket]))
-        Buckets[bucket] = Entries.Count - 1
-        Changes += 1
+        Append(key, value, hash)
+    End Method
+
+    // Adds an entry when the key isn't there, and tells whether it wasn't.
+    Public Method TryAdd(key: K, value: V): Bool
+        Local hash = key.Hash()
+        If IndexOf(key, hash) >= 0 Then Return False
+        Append(key, value, hash)
+        Return True
+    End Method
+
+    // Adds each of other's entries, in its order, as Add does.
+    Public Method AddAll(other: Map<K, V>)
+        For key, value In other
+            Add(key, value)
+        End For
     End Method
 
     // The key's value, or Null when it isn't there.
@@ -49,25 +77,82 @@ Public Class Map<K, V> Implements Iterable<(K, V)>, Cloneable, Defaultable
         Return Entries[found].Value
     End Method
 
+    // The key's value, or fallback when it isn't there.
+    Public Method Get(key: K, fallback: V): V
+        Local found = IndexOf(key, key.Hash())
+        If found < 0 Then Return fallback
+        Return Entries[found].Value
+    End Method
+
+    // The key's value, adding what make gives for it first when it isn't there.
+    Public Method GetOrAdd(key: K, make: Func(): V): V
+        Local hash = key.Hash()
+        Local found = IndexOf(key, hash)
+        If found >= 0 Then Return Entries[found].Value
+        Local changes = Changes
+        Local value = make()
+        // What make did may have added the key.
+        If Changes == changes
+            Append(key, value, hash)
+        Else
+            Add(key, value)
+        End If
+
+        Return value
+    End Method
+
+    // Gives the key's value what change gives for it, and tells whether the key was there.
+    Public Method Update(key: K, change: Func(V): V): Bool
+        Local found = IndexOf(key, key.Hash())
+        If found < 0 Then Return False
+        Local changes = Changes
+        Local value = change(Entries[found].Value)
+        // What change did may have moved the entry, or removed it.
+        If Changes == changes
+            Entries[found].Value = value
+        Else
+            Add(key, value)
+        End If
+
+        Return True
+    End Method
+
+    // The key's value. A key that isn't there gives the Map's default, without adding the key,
+    // or panics when the Map has none.
+    @PanicsAtCaller
+    Operator [](key: K): V
+        Local found = IndexOf(key, key.Hash())
+        If found >= 0 Then Return Entries[found].Value
+        Return Fallback.Expect("the key isn't in the Map, which has no default")
+    End Operator
+
+    // Gives the key a value, adding it when it isn't there.
+    Operator []=(key: K, value: V)
+        Add(key, value)
+    End Operator
+
     Public Method Contains(key: K): Bool => IndexOf(key, key.Hash()) >= 0
 
-    // Removes the key's entry, and tells whether there was one. The last entry takes its place.
+    // Removes the key's entry, and tells whether there was one. The others keep their order.
     Public Method Remove(key: K): Bool
         Local found = IndexOf(key, key.Hash())
         If found < 0 Then Return False
-        Unlink(found)
-        Local last = Entries.Count - 1
-        If found != last
-            Unlink(last)
-            Local bucket = BucketOf(Entries[last].Hash)
-            Entries[found] = Entries[last]
-            Entries[found].Next = Buckets[bucket]
-            Buckets[bucket] = found
-        End If
-
-        Entries.RemoveAt(last)
-        Changes += 1
+        Take(found)
         Return True
+    End Method
+
+    // Removes each entry that test says to, and tells how many went.
+    @PanicsAtCaller
+    Public Method RemoveWhere(test: Func(K, V): Bool): Int
+        Local going: K[] = []
+        For key, value In Self
+            If test(key, value) Then going.Add(key)
+        End For
+
+        For key In going
+            Remove(key)
+        End For
+        Return going.Count
     End Method
 
     Public Method Clear()
@@ -75,44 +160,93 @@ Public Class Map<K, V> Implements Iterable<(K, V)>, Cloneable, Defaultable
         For i = 0 Until Buckets.Count
             Buckets[i] = -1
         End For
+        First = -1
+        Last = -1
         Changes += 1
+    End Method
+
+    // Makes room for count entries in all, so adding up to that many doesn't move them again.
+    @PanicsAtCaller
+    Public Method Reserve(count: Int)
+        If count < 0 Then Panic("Reserve takes a count that isn't negative, not {count}")
+        Entries.Reserve(count)
+        If count > Buckets.Count Then Grow(count)
     End Method
 
     Public Method Keys(): K[]
         Local keys: K[] = []
-        For entry In Entries
-            keys.Add(entry.Key)
-        End For
+        keys.Reserve(Entries.Count)
+        Local at = First
+        While at >= 0
+            keys.Add(Entries[at].Key)
+            at = Entries[at].After
+        End While
         Return keys
     End Method
 
     Public Method Values(): V[]
         Local values: V[] = []
-        For entry In Entries
-            values.Add(entry.Value)
-        End For
+        values.Reserve(Entries.Count)
+        Local at = First
+        While at >= 0
+            values.Add(Entries[at].Value)
+            at = Entries[at].After
+        End While
         Return values
     End Method
 
-    // A new Map with the same entries.
     // A new, empty Map.
     Public Static Method DefaultValue(): Map<K, V> => Map<K, V>()
 
+    // A new Map with the same entries, in the same order, and the same default.
     Public Method Clone(): Map<K, V>
         Local copy = Map<K, V>()
         copy.Entries = Entries.Clone()
         copy.Buckets = Buckets.Clone()
         copy.Shift = Shift
+        copy.First = First
+        copy.Last = Last
+        copy.Fallback = Fallback
         Return copy
     End Method
 
     // A new Map of the entries that keep says to keep.
+    @PanicsAtCaller
     Public Method Filter(keep: Func(K, V): Bool): Map<K, V>
         Local kept = Map<K, V>()
-        For entry In Entries
-            If keep(entry.Key, entry.Value) Then kept.Add(entry.Key, entry.Value)
+        For key, value In Self
+            If keep(key, value) Then kept.Add(key, value)
         End For
         Return kept
+    End Method
+
+    // The first entry that test says is the one, or Null.
+    @PanicsAtCaller
+    Public Method Find(test: Func(K, V): Bool): (K, V)?
+        For key, value In Self
+            If test(key, value) Then Return (key, value)
+        End For
+        Return Null
+    End Method
+
+    // Whether test says yes for any entry, going no further than the first.
+    @PanicsAtCaller
+    Public Method Any(test: Func(K, V): Bool): Bool
+        For key, value In Self
+            If test(key, value) Then Return True
+        End For
+        Return False
+    End Method
+
+    // A new Map of the same keys, in the same order, each with what change gives for its value.
+    @PanicsAtCaller
+    Public Method MapValues<U>(change: Func(V): U): Map<K, U>
+        Local changed = Map<K, U>()
+        changed.Reserve(Entries.Count)
+        For key, value In Self
+            changed.Add(key, change(value))
+        End For
+        Return changed
     End Method
 
     // Each key and its value, for 'For key, value In map'. Giving a key a new value while going
@@ -121,7 +255,7 @@ Public Class Map<K, V> Implements Iterable<(K, V)>, Cloneable, Defaultable
 
     // The same, for a Set, whose values are a Map's keys, naming it when it changes.
     Package Method IterateAs(name: String): MapIterator<K, V>
-        Return MapIterator<K, V>(Self, 0, Changes, name)
+        Return MapIterator<K, V>(Self, First, Changes, name)
     End Method
 
     // Where the key's entry is, or -1.
@@ -133,6 +267,69 @@ Public Class Map<K, V> Implements Iterable<(K, V)>, Cloneable, Defaultable
             at = Entries[at].Next
         End While
         Return -1
+    End Method
+
+    // Adds an entry for a key that isn't there, last in the order.
+    Method Append(key: K, value: V, hash: UInt64)
+        If Entries.Count >= Buckets.Count Then Grow(Buckets.Count + 1)
+        Local bucket = BucketOf(hash)
+        Local added = Entries.Count
+        Entries.Add(MapEntry<K, V>(key, value, hash, Buckets[bucket], Last, -1))
+        Buckets[bucket] = added
+        If Last >= 0
+            Entries[Last].After = added
+        Else
+            First = added
+        End If
+
+        Last = added
+        Changes += 1
+    End Method
+
+    // Takes the entry at index out of its bucket's chain and the order, and moves the last
+    // entry into its place.
+    Method Take(index: Int)
+        Unlink(index)
+        Local before = Entries[index].Before
+        Local after = Entries[index].After
+        If before >= 0
+            Entries[before].After = after
+        Else
+            First = after
+        End If
+
+        If after >= 0
+            Entries[after].Before = before
+        Else
+            Last = before
+        End If
+
+        Local last = Entries.Count - 1
+        If index != last Then Move(last, index)
+        Entries.RemoveAt(last)
+        Changes += 1
+    End Method
+
+    // Moves the entry at from into the empty place at to, with what links to it.
+    Method Move(from: Int, to: Int)
+        Unlink(from)
+        Entries[to] = Entries[from]
+        Local bucket = BucketOf(Entries[to].Hash)
+        Entries[to].Next = Buckets[bucket]
+        Buckets[bucket] = to
+        Local before = Entries[to].Before
+        Local after = Entries[to].After
+        If before >= 0
+            Entries[before].After = to
+        Else
+            First = to
+        End If
+
+        If after >= 0
+            Entries[after].Before = to
+        Else
+            Last = to
+        End If
     End Method
 
     // The bucket a hash's entry goes in: the top bits of the hash once it's mixed, so hashes
@@ -157,12 +354,20 @@ Public Class Map<K, V> Implements Iterable<(K, V)>, Cloneable, Defaultable
         Entries[at].Next = Entries[index].Next
     End Method
 
-    // Twice the buckets, or 8 at first, with every entry chained again.
-    Method Grow()
-        Local count = Buckets.Count == 0 ? 8 : Buckets.Count * 2
-        Shift = Buckets.Count == 0 ? 61 : Shift - 1
+    // Buckets for count entries or more: a power of two, at least 8, with every entry chained
+    // again.
+    Method Grow(count: Int)
+        Local buckets = 8
+        Local shift = 61
+        While buckets < count
+            buckets *= 2
+            shift -= 1
+        End While
+
+        Shift = shift
         Buckets.Clear()
-        For i = 0 Until count
+        Buckets.Reserve(buckets)
+        For i = 0 Until buckets
             Buckets.Add(-1)
         End For
 
@@ -178,7 +383,8 @@ Public Struct MapIterator<K, V> Implements Iterator<(K, V)>
     Where K: Hashable
 
     Field Owner: Map<K, V>
-    Field Index: Int
+    // The next entry, or -1.
+    Field At: Int
     Field Changes: Int64
     // What the loop goes over: "Map", or "Set".
     Field Name: String
@@ -186,11 +392,39 @@ Public Struct MapIterator<K, V> Implements Iterator<(K, V)>
     @PanicsAtCaller
     Public ByRef Method Next(): (K, V)?
         If Owner.Changes != Changes Then Panic("the {Name} changed while a For ... In went over it")
-        If Index >= Owner.Entries.Count Then Return Null
-        Index += 1
-        Return (Owner.Entries[Index - 1].Key, Owner.Entries[Index - 1].Value)
+        If At < 0 Then Return Null
+        Local entry = At
+        At = Owner.Entries[entry].After
+        Return (Owner.Entries[entry].Key, Owner.Entries[entry].Value)
     End Method
 End Struct
+
+// Two Maps are equal when they have the same keys, each with an equal value, in any order.
+Extend Map<K, V> Implements Equatable
+    Where V: Equatable
+
+    Operator ==(a: Map<K, V>, b: Map<K, V>): Bool
+        If a.Count != b.Count Then Return False
+        For entry In a.Entries
+            Local found = b.IndexOf(entry.Key, entry.Hash)
+            If found < 0 || b.Entries[found].Value != entry.Value Then Return False
+        End For
+        Return True
+    End Operator
+End Extend
+
+// A Map's hash, the same for equal Maps: each entry's, added up, so their order doesn't count.
+Extend Map<K, V> Implements Hashable
+    Where V: Hashable
+
+    Public Method Hash(): UInt64
+        Local total = Entries.Count As UInt64
+        For entry In Entries
+            total = total.WrappingAdd(HashCombine(entry.Hash, entry.Value.Hash()))
+        End For
+        Return total
+    End Method
+End Extend
 
 // "{a: 1, b: 2}", when the keys and values can be shown.
 Extend Map<K, V> Implements Printable

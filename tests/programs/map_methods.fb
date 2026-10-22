@@ -1,0 +1,86 @@
+// A Map keeps its entries in the order they were added, through removals too, and has [] with a
+// default, TryAdd, Get with a fallback, GetOrAdd, Update, AddAll, RemoveWhere, Find, Any,
+// MapValues, and Reserve, each on an empty Map too.
+Import std.core
+Import std.collections
+
+// Removing and adding again keeps the order of the rest, and the added key goes last.
+Local ages = {"ann": 30, "bo": 25, "cy": 41, "di": 19}
+ages.Remove("bo")
+ages.Add("bo", 26)
+ages.Remove("ann")
+ages.Add("ed", 50)
+Print(ages, ages.Keys(), ages.Values())
+ages.Remove("ed")
+ages.Remove("cy")
+ages.Remove("di")
+ages.Remove("bo")
+Print(ages, ages.Count)
+ages.Add("fay", 7)
+Print(ages)
+
+// Many removals and additions keep the order of what's left.
+Local numbers = Map<Int, Int>()
+For i = 0 Until 100
+    numbers.Add(i, i * i)
+End For
+For i = 0 Until 100 Step 3
+    numbers.Remove(i)
+End For
+For i = 0 Until 10
+    numbers.Add(i * 1000, i)
+End For
+Local keys = numbers.Keys()
+Print(numbers.Count, keys[0], keys[1], keys[65], keys[66], keys[75], numbers.Get(98) ?? -1)
+
+// [] reads a key's value, and []= adds or replaces one.
+Local counts = Map<String, Int>(default: 0)
+For word In ["a", "b", "a", "c", "a", "b"]
+    counts[word] += 1
+End For
+Print(counts, counts["z"], counts.Contains("z"))
+counts["z"] = 9
+Print(counts["z"], counts)
+
+// TryAdd, Get with a fallback, GetOrAdd, and Update.
+Local stock = {"apple": 3}
+Print(stock.TryAdd("apple", 9), stock.TryAdd("pear", 2), stock)
+Print(stock.Get("plum", 0), stock.Get("pear", 0))
+Local made = 0
+Local make = Function() => made + 10
+Print(stock.GetOrAdd("fig", make), stock.GetOrAdd("fig", make), stock)
+Print(stock.Update("fig", Function(n: Int) => n * 2), stock.Update("kiwi", Function(n: Int) => n),
+      stock)
+
+// AddAll, RemoveWhere, Find, Any, and MapValues.
+Local more = {"pear": 20, "lime": 1}
+stock.AddAll(more)
+stock.AddAll(stock)
+Print(stock)
+Print(stock.RemoveWhere(Function(name: String, n: Int) => n > 10), stock)
+Local found = stock.Find(Function(name: String, n: Int) => n < 3)
+Print(found?.0 ?? "none", stock.Any(Function(name: String, n: Int) => n == 3),
+      stock.Any(Function(name: String, n: Int) => n == 4))
+Print(stock.MapValues(Function(n: Int) => "{n}!"))
+
+// Reserve makes room ahead, and changes nothing else.
+Local roomy = Map<Int, String>()
+roomy.Reserve(100)
+roomy.Add(1, "one")
+roomy.Reserve(0)
+Print(roomy, roomy.Count)
+
+// Each on an empty Map.
+Local empty = Map<String, Int>()
+Local always = Function(k: String, v: Int) => True
+Print(empty.Keys(), empty.Values(), empty.Get("a", 5), empty.RemoveWhere(always),
+      empty.Find(always) == Null, empty.Any(always), empty.MapValues(Function(v: Int) => v),
+      empty.Remove("a"))
+empty.AddAll(Map<String, Int>())
+empty.Clear()
+Print(empty, empty.Count)
+
+// A Clone keeps the order and the default.
+Local copy = counts.Clone()
+copy.Remove("a")
+Print(copy, copy["q"], counts)

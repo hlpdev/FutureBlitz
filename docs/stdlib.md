@@ -176,7 +176,8 @@ file or URL in the default app.
 
 #### std.collections
 
-- Map and Set keep insertion order through removals (tombstones, compacted when they grow).
+- Map and Set keep insertion order through removals (each entry links to the ones added
+  before and after it).
   They're `==` by contents, and Hashable when their parts are.
 - `T[]`: `IndexOf`, `LastIndexOf`, `FindIndex`, `FindLast`, `Any`, `All`, `BinarySearch`;
   `First`, `Last`, `RemoveLast`, `TryRemoveLast`; `AddAll`, `InsertAll`, `RemoveRange`,

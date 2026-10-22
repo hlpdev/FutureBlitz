@@ -392,7 +392,7 @@ section.
 | Decision | Why |
 |---|---|
 | The collections are FutureBlitz code in std/collections/, and `T[]`'s new Methods are an `Extend T[]` | they exercise the language, and the compiler only adds the `{key: value}` literal |
-| A Map keeps its entries in an array, with each bucket starting a chain of them; removing one moves the last entry into its place | entries without empty slots need no placeholder values, and iterating is in the order added until something is removed |
+| A Map keeps its entries in an array, with each bucket starting a chain of them and each entry linking to the ones added before and after it; removing one moves the last entry into its place and mends what links to it (M6 step 3) | entries without empty slots need no placeholder for a removed key or value, which generic code can't make, and nothing needs compacting; the links keep the order they were added in through removals |
 | A Set is a Map whose values are True | one hash table to get right |
 | A Map literal makes a Map, then calls its `Add` for each entry | the literal means what the code it stands for means; a repeated key keeps its last value |
 | Stack, Queue, and Deque have their own words (`Push`, `Enqueue`, `AddFirst`), and `Add` too | each reads as what it is, and every collection still has `Add` |

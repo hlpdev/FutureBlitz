@@ -1,0 +1,18 @@
+{cy: 41, di: 19, bo: 26, ed: 50} [cy, di, bo, ed] [41, 19, 26, 50]
+{} 0
+{fay: 7}
+76 1 2 98 0 9000 9604
+{a: 3, b: 2, c: 1} 0 False
+9 {a: 3, b: 2, c: 1, z: 9}
+False True {apple: 3, pear: 2}
+0 2
+10 10 {apple: 3, pear: 2, fig: 10}
+True False {apple: 3, pear: 2, fig: 20}
+{apple: 3, pear: 20, fig: 20, lime: 1}
+2 {apple: 3, lime: 1}
+lime True False
+{apple: 3!, lime: 1!}
+{1: one} 1
+[] [] 5 0 True False {} False
+{} 0
+{b: 2, c: 1, z: 9} 0 {a: 3, b: 2, c: 1, z: 9}

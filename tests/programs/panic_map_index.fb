@@ -1,0 +1,6 @@
+// A Map without a default panics on [] of a key it doesn't have, where it's read.
+Import std.core
+
+Local ages = {"ann": 30}
+Print(ages["ann"])
+Print(ages["bo"])

@@ -8,15 +8,15 @@ True False [1, 2, 3, 5, 9]
   grunt: 60
   boss: 500
 66 215589 16 -1
-[98, 97, 95] [9604, 9409, 9025]
+[95, 97, 98] [9025, 9409, 9604]
 0 {grunt: 60, boss: 500, imp: 5}
 {sword: 50, shield: 30} {a: 1} {} 0 {1: 1.5, 2: 2}
 80 6 0
 {one: {1: [True]}, two: {2: [False, True]}} 1
 {k: 9}
 {3, 1, 2, 5} 4 True False
-False True False {5, 1, 2}
-{5, 1} 5 3
+False True False {1, 2, 5}
+{1, 5} 2 3
 5 50 50 40 3
   99
   30

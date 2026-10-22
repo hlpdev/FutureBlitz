@@ -135,8 +135,8 @@ collection.
 | Type | Members besides those |
 |---|---|
 | `T[]` | `Remove(value)`, the first equal one, giving whether there was one; `Sort()` when T is `Comparable`, or `Sort(before)`, in place and stable; `Filter(keep)`, `Map(change)`, and `Find(test)`, which gives a `T?` |
-| `Map<K, V>` | `Add(key, value)` adds or replaces; `Get(key)` gives a `V?`; `Remove(key)`; `Keys()`; `Values()`; `Filter(keep)` with a `Func(K, V): Bool` |
-| `Set<T>` | `Add(value)` gives whether it's new; `Remove(value)`; `Filter(keep)`; `Find(test)` |
+| `Map<K, V>` | `Add(key, value)` adds or replaces, `TryAdd` only adds, and `AddAll(other)` adds another's; `map[key]` reads a value and `map[key] = value` adds or replaces one; `Get(key)` gives a `V?`, `Get(key, fallback)` a V, and `GetOrAdd(key, make)` adds what `make` gives when the key isn't there; `Update(key, change)` gives a key's value what `change` gives for it; `Remove(key)` and `RemoveWhere(test)`; `Keys()`; `Values()`; `Filter(keep)`, `Find(test)`, and `Any(test)` with a `Func(K, V): Bool`; `MapValues(change)`; `Reserve(count)` |
+| `Set<T>` | `Add(value)` gives whether it's new; `Remove(value)`; `Filter(keep)`; `Find(test)`; `Union`, `Intersect`, `Difference`, and `SymmetricDifference` make a new Set, and `AddAll`, `RemoveAll`, and `KeepOnly` change it, from any `Iterable<T>`; `IsSubsetOf`, `IsSupersetOf`, `Overlaps`, and `SetEquals`; `ToArray()` |
 | `Stack<T>` | `Push`, `Pop`, and `Peek`, at the top; it goes from the top down |
 | `Queue<T>` | `Enqueue` at the back, `Dequeue` and `Peek` at the front |
 | `Deque<T>` | `AddFirst`, `AddLast`, `RemoveFirst`, `RemoveLast`, `First`, and `Last`; `Add` is `AddLast` |
@@ -146,14 +146,21 @@ collection.
 - What gives a `T?` for "none", like `Get`, `Find`, and an Iterator's `Next`, gives a `T??` for
   a collection of a `T?`, so a stored `Null` isn't "none": a For ... In over a `Stack<Int?>` goes
   over its Nulls, and `Get` of a `Map<String, Int?>` tells a missing key from a `Null` value.
-- A Map or Set needs its keys to be `Hashable`. Its entries are in the order they were added;
-  removing one moves the last into its place. A Map or Set whose keys and values are
-  `Printable` is too: `{a: 1, b: 2}`, `{1, 2}`.
+- A Map or Set needs its keys to be `Hashable`. Its entries are in the order they were added,
+  and removing one leaves the rest in order. A Map or Set whose keys and values are `Printable`
+  is too: `{a: 1, b: 2}`, `{1, 2}`.
+- Two Maps are `==` when they have the same keys, each with an equal value, in any order, and two
+  Sets when they have the same values; a Map of values that aren't Equatable compares as the
+  same object, like any Class. A Map whose values are `Hashable` is too, and so is a Set, with
+  hashes that their order doesn't change, so either can be a key.
 - `{key: value, ...}` is a new `Map<K, V>`. K and V are the expected Map type's, or else the
   keys' and the values' common types, as in an array literal. `{}` needs a type from where it's
   used, like `Local m: Map<String, Int> = {}`. Each entry goes to the Map's `Add`, in order, so
   a repeated key keeps its last value.
 - `For key, value In map` takes each entry apart; `For entry In map` gives each as a tuple.
+- `map[key]` of a key that isn't there panics where it's read, unless the Map was made with a
+  default, as `Map<String, Int>(default: 0)` is, which `[]` gives without adding the key, so
+  `counts[word] += 1` counts.
 - A `Pool<T>` reuses removed values' slots. Each slot counts how many times it has been reused,
   and a `Handle<T>` has that count, so an old Handle finds nothing in a reused slot. Going over a
   Pool gives the values in the order of their slots, and removing one while going over them is
