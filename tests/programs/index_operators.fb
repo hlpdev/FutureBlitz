@@ -1,0 +1,116 @@
+// A type's Operator [] and Operator []= index its values like an array's, with one index or
+// more: a Struct's []= changes it in place, a Class's is called through its Method table, an
+// Interface can require them and still have values, and generic types and code use them too.
+// "grid[x, y] += v" reads and sets the element with its object and indices worked out once.
+Import std.core
+
+Struct Grid
+    Field Cells: Int[]
+    Field Width: Int
+
+    Operator [](x: Int, y: Int): Int => Cells[y * Width + x]
+
+    Operator []=(x: Int, y: Int, value: Int)
+        Cells[y * Width + x] = value
+    End Operator
+End Struct
+
+Interface Indexed<T>
+    Operator [](i: Int): T
+    Operator []=(i: Int, value: T)
+End Interface
+
+Class Names Implements Indexed<String>
+    Field Items: String[] = []
+
+    Operator [](i: Int): String => i < Items.Count ? Items[i] : "-"
+
+    Operator []=(i: Int, value: String)
+        While Items.Count <= i
+            Items.Add("")
+        End While
+
+        Items[i] = value
+    End Operator
+
+    // Another overload, by name.
+    Operator [](name: String): Int
+        For i = 0 Until Items.Count
+            If Items[i] == name Then Return i
+        End For
+
+        Return -1
+    End Operator
+End Class
+
+// A Class extending one overrides what it indexes like any Method.
+Class Shouting Extends Names
+    Override Operator [](i: Int): String => "{Super[i]}!"
+End Class
+
+Struct Row<T>
+    Field Items: T[]
+
+    Operator [](i: Int): T => Items[i]
+
+    Operator []=(i: Int, value: T)
+        Items[i] = value
+    End Operator
+End Struct
+
+Function Total(grid: Grid): Int
+    Local sum = 0
+    For y = 0 Until 2
+        For x = 0 Until grid.Width
+            sum += grid[x, y]
+        End For
+    End For
+
+    Return sum
+End Function
+
+Function FirstOf<T>(items: Indexed<T>): T => items[0]
+
+// A type parameter's []= may change a Struct in place, so it takes the value ByRef.
+Function Swap<T, I: Indexed<T>>(ByRef items: I, a: Int, b: Int)
+    Local kept = items[a]
+    items[a] = items[b]
+    items[b] = kept
+End Function
+
+Global reads = 0
+
+Function Next(): Int
+    reads += 1
+    Return reads - 1
+End Function
+
+Local grid = Grid([0, 0, 0, 0, 0, 0], 3)
+grid[1, 1] = 5
+grid[2, 0] += 7
+grid[2, 0]++
+grid[0, 1]--
+Print(grid[1, 1], grid[2, 0], grid[0, 1], grid.Cells, Total(grid))
+
+Local names = Names()
+names[2] = "c"
+names[0] = "a"
+names[0] += "!"
+names[1] = "b"
+Print(names[0], names[1], names[2], names[5], names["c"], names["z"])
+Swap<String, Names>(ByRef names, 0, 2)
+Print(names.Items, FirstOf<String>(names))
+
+// The index is worked out once for each element op= sets.
+names[Next()] += "?"
+names[Next()] += "?"
+Print(names.Items, reads)
+
+Local shouting: Names = Shouting()
+shouting[0] = "hey"
+Local indexed: Indexed<String> = shouting
+Print(shouting[0], indexed[0], FirstOf(indexed))
+
+Local row = Row<Float>([1.5, 2.5])
+row[1] *= 2.0
+Print(row[0] + row[1])

@@ -785,6 +785,15 @@ TEST_CASE("Operators are named by their operator", "[parser]") {
           "(operator >> (a: M) (n: Int) -> M (block (return a)))");
     CHECK(parse_text("Operator Add(a: M): M => a").errors ==
           std::vector<std::string>{ "9-12: expected an operator, like + or ==, found identifier" });
+
+    // Indexing is "[]" and "[]=", their tokens touching.
+    CHECK(parse_text("Operator [](x: Int, y: Int): Int => x").dump ==
+          "(operator [] (x: Int) (y: Int) -> Int (block (return x)))");
+    CHECK(parse_text("Operator []=(x: Int, value: Int)\nEnd Operator").dump ==
+          "(operator []= (x: Int) (value: Int) (block))");
+    CHECK(parse_text("Operator [ ](x: Int): Int => x").errors ==
+          std::vector<std::string>{ "11-12: expected ']' right after '[', as in Operator [] or "
+                                    "Operator []=, found ']'" });
 }
 
 TEST_CASE("Interfaces", "[parser]") {

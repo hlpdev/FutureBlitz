@@ -449,6 +449,9 @@ private:
     /// An assignment's target, or the Self in "Self.x". Neither reads the fields that New hasn't
     /// assigned yet.
     std::optional<expr_id_t> m_partial;
+    /// Expressions checked already that another check uses again, which keep their info: an
+    /// index's object and indices in its Operator []='s call.
+    std::unordered_set<expr_id_t> m_checked;
     /// An expression that may be an Atomic or a Mutex, which isn't copied: a Method's object, a
     /// Lock's Mutex, a ByRef argument, or what a Global or Class Field starts with.
     std::optional<expr_id_t> m_place_use;
@@ -1493,7 +1496,8 @@ private:
             const stmt_node_t& written = m_ast.get(member).node;
             const auto* function = std::get_if<function_stmt_t>(&written);
             const auto* property = std::get_if<property_stmt_t>(&written);
-            if (function != nullptr && function->kind == function_kind_t::OPERATOR) {
+            if (function != nullptr && function->kind == function_kind_t::OPERATOR &&
+                !indexes(*function)) {
                 reason = "needs Operators";
             } else if (function != nullptr && function->modifiers.is_static) {
                 reason = "needs Static Methods";
@@ -2854,7 +2858,7 @@ private:
     /// and calls of it go through the Interface.
     void check_interface_method(const function_stmt_t& node) {
         const modifiers_t& modifiers = node.modifiers;
-        const bool is_operator = node.kind == function_kind_t::OPERATOR;
+        const bool is_operator = node.kind == function_kind_t::OPERATOR && !indexes(node);
         // check_operator() and check_static_modifiers() say what an Operator and a Static Method
         // can't be.
         if (!is_operator && !modifiers.is_static &&
@@ -2998,7 +3002,7 @@ private:
         }
 
         // check_operator() says what an Operator can't be.
-        if (node.kind == function_kind_t::OPERATOR) {
+        if (node.kind == function_kind_t::OPERATOR && !indexes(node)) {
             return;
         }
 
@@ -6092,7 +6096,9 @@ private:
         }
 
         const bool constructor = node.kind == function_kind_t::CONSTRUCTOR;
-        const bool by_ref = node.kind == function_kind_t::BYREF_METHOD;
+        const bool sets_element = indexes(node) && node.name.text == "[]=" &&
+                                  owner != type_id_t::INVALID && !is_class(owner);
+        const bool by_ref = node.kind == function_kind_t::BYREF_METHOD || sets_element;
         // The parser already reported a return type on New.
         type_id_t return_type = node.return_type ? keep_in_place(resolve_type(*node.return_type),
                                                                  m_ast.get(*node.return_type).span,
@@ -6102,9 +6108,9 @@ private:
             return_type = owner;
         }
 
-        // A Static Method has no Self, and neither does an Operator. In an Interface, Self is
-        // whatever implements it.
-        const bool is_operator = node.kind == function_kind_t::OPERATOR;
+        // A Static Method has no Self, and neither does an Operator, but for the index ones. In
+        // an Interface, Self is whatever implements it.
+        const bool is_operator = node.kind == function_kind_t::OPERATOR && !indexes(node);
         std::optional<symbol_id_t> self;
         if (owner != type_id_t::INVALID && !node.modifiers.is_static && !is_operator) {
             self = add_symbol({
@@ -6169,9 +6175,72 @@ private:
         if (is_operator) {
             symbol(function).modifiers.is_static = true;
             check_operator(node, owner, function);
+        } else if (indexes(node)) {
+            check_index_operator(node, owner, function);
         }
 
         return function;
+    }
+
+    /// "Operator [](indices): T" reads an element of Self, and "Operator []=(indices, value)"
+    /// sets one, so a Struct's []= changes it in place, as a ByRef Method does. Each takes its
+    /// indices as they are, and has its type's visibility, as other Operators do.
+    void check_index_operator(const function_stmt_t& node, const type_id_t owner,
+                              const symbol_id_t function) {
+        const std::string_view name = node.name.text;
+        const span_t span = node.name.span;
+        const bool sets = name == "[]=";
+        if (node.modifiers.is_static) {
+            error(span, "Operator {} indexes Self, so it can't be Static", name);
+        }
+
+        if (node.modifiers.visibility_span) {
+            error(*node.modifiers.visibility_span,
+                  "an Operator has its type's visibility, so it takes no {}",
+                  spelling(node.modifiers.visibility));
+        }
+
+        const auto declared_type = m_declared_types.find(definition_of(owner));
+        symbol(function).modifiers.visibility =
+            declared_type != m_declared_types.end()
+                ? symbol(declared_type->second).modifiers.visibility
+                : visibility_t::PUBLIC;
+
+        if (sets && node.parameters.size() < 2) {
+            error(span, "Operator []= takes the indices, then the value it sets");
+        } else if (!sets && node.parameters.empty()) {
+            error(span, "Operator [] takes an index, or more");
+        }
+
+        if (!sets && !node.return_type) {
+            error(span, "Operator [] gives the element, so it needs a return type");
+        } else if (sets && node.return_type) {
+            error(span, "Operator []= sets the element, so it gives nothing");
+        }
+
+        if (!node.type_parameters.empty()) {
+            error(span, "an Operator can't have type parameters of its own");
+        }
+
+        if (!node.throws.empty()) {
+            error(span, "an Operator can't throw");
+        }
+
+        if (node.modifiers.is_async) {
+            error(span, "an Operator can't be Async; it's used like any operator");
+        }
+
+        const bool plain = std::ranges::none_of(node.parameters, [](const parameter_t& parameter) {
+            return parameter.by_ref || parameter.default_value;
+        });
+        const bool variadic = std::ranges::any_of(
+            node.parameters, [](const parameter_t& parameter) { return parameter.variadic; });
+        if (!plain) {
+            error(span, "an Operator's parameters can't be ByRef or have defaults");
+        } else if (variadic) {
+            error(span, "an Operator takes its indices, so no parameter takes the rest of the "
+                        "arguments");
+        }
     }
 
     /// An Async Function or Method runs as a coroutine on the main thread, which goes on after the
@@ -9767,7 +9836,14 @@ private:
         }
 
         const auto* node = std::get_if<function_stmt_t>(&m_ast.get(*function.declaration).node);
-        return node != nullptr && node->kind == function_kind_t::OPERATOR;
+        return node != nullptr && node->kind == function_kind_t::OPERATOR && !indexes(*node);
+    }
+
+    /// Whether a function is an index Operator, "[]" or "[]=", which is a Method of Self rather
+    /// than a Static Operator.
+    [[nodiscard]] static bool indexes(const function_stmt_t& node) {
+        return node.kind == function_kind_t::OPERATOR &&
+               (node.name.text == "[]" || node.name.text == "[]=");
     }
 
     /// The T of a T?, and any other type as it is.
@@ -11557,6 +11633,10 @@ private:
             return;
         }
 
+        if (node.index_set && check_index_set(node.target, *node.index_set, node.op)) {
+            return;
+        }
+
         // An Atomic or Mutex made for a target that can't take it was reported with the target.
         const std::optional<target_t> target = check_target(node.target);
         if (!target) {
@@ -11596,6 +11676,80 @@ private:
         } else if (result != type_id_t::INVALID && type != type_id_t::INVALID && result != type) {
             report_mismatch(node.value, type);
         }
+    }
+
+    /// "grid[x, y] = value" on a type with an Operator []=, as the call "grid.[]=(x, y, value)"
+    /// the parser made, which shares the object and indices. With "op=" or "++", its value is
+    /// "grid[x, y] op value", whose Operator [] call shares them too, so they're checked once.
+    /// False when the target isn't an index of such a type, which a quiet look at its object
+    /// tells, so the target's own check goes on.
+    bool check_index_set(const expr_id_t target, const expr_id_t set,
+                         const std::optional<binary_op_t> op) {
+        const auto& element = std::get<index_expr_t>(m_ast.get(target).node);
+        if (std::holds_alternative<super_expr_t>(m_ast.get(element.object).node)) {
+            if (op && check(target, type_id_t::NONE) == type_id_t::INVALID) {
+                return true;
+            }
+
+            std::vector<expr_id_t> shared{ target };
+            std::ranges::copy(element.indices, std::back_inserter(shared));
+            if (op) {
+                m_checked.insert(shared.begin(), shared.end());
+            }
+
+            check_any(set, type_id_t::NONE);
+            for (const expr_id_t id : shared) {
+                m_checked.erase(id);
+            }
+
+            return true;
+        }
+
+        const type_id_t seen = quietly([&] { return check(element.object, type_id_t::NONE); });
+        if (seen == type_id_t::INVALID || is_any_array(non_null(seen)) || is_pointer(seen) ||
+            (!has_index_operator(seen, "[]=") && !has_index_operator(seen, "[]"))) {
+            return false;
+        }
+
+        const type_id_t object = check(element.object, type_id_t::NONE);
+        if (!has_index_operator(object, "[]=")) {
+            error(span_of(target),
+                  "{} has an Operator [] but no Operator []=, so '{}' can't be assigned",
+                  shown_name(non_null(object)), text(target));
+            check_alone(element.indices);
+            return true;
+        }
+
+        if (is_nullable(object)) {
+            report_maybe_null(element.object);
+            check_alone(element.indices);
+            return true;
+        }
+
+        std::vector<expr_id_t> shared{ element.object };
+        if (op) {
+            // The value reads the element first, through Operator [].
+            m_checked.insert(element.object);
+            const type_id_t read = check(target, type_id_t::NONE);
+            m_checked.erase(element.object);
+            if (read == type_id_t::INVALID) {
+                return true;
+            }
+
+            shared.push_back(target);
+            std::ranges::copy(element.indices, std::back_inserter(shared));
+        }
+
+        for (const expr_id_t id : shared) {
+            m_checked.insert(id);
+        }
+
+        check_any(set, type_id_t::NONE);
+        for (const expr_id_t id : shared) {
+            m_checked.erase(id);
+        }
+
+        return true;
     }
 
     /// "a, b = value": each target takes its element of the tuple, which converts to the target's
@@ -11708,6 +11862,12 @@ private:
     }
 
     void check_stmt(stmt_id_t /*id*/, const span_t span, const increment_stmt_t& node) {
+        if (node.index_set &&
+            check_index_set(node.target, *node.index_set,
+                            node.decrement ? binary_op_t::SUBTRACT : binary_op_t::ADD)) {
+            return;
+        }
+
         if (!check_target(node.target)) {
             return;
         }
@@ -13410,6 +13570,7 @@ private:
     /// doesn't read a whole variable, so it may be unassigned; changing a field reads the rest.
     std::optional<target_t> check_target(const expr_id_t id) {
         std::optional<target_t> target = check_target_place(id);
+
         if (target && in_place(target->type)) {
             error(span_of(id), "{} stays where it's made, so it can't be assigned; {}",
                   shown_name(target->type),
@@ -13474,6 +13635,15 @@ private:
             const type_id_t type = check(id, type_id_t::NONE);
             m_partial.reset();
             if (type == type_id_t::INVALID) {
+                return std::nullopt;
+            }
+
+            // An assignment of its own, like "grid[x] = v", goes through Operator []= instead.
+            if (indexes_through_operator(id)) {
+                error(span_of(id),
+                      "'{}' is set through Operator []=, which a tuple's element "
+                      "can't be; assign it on a line of its own",
+                      text(id));
                 return std::nullopt;
             }
 
@@ -13567,6 +13737,14 @@ private:
     /// ReadOnly Field outside its Class's New. Reports why not.
     bool check_changeable(const expr_id_t id) {
         const expr_node_t& node = m_ast.get(id).node;
+        if (indexes_through_operator(id)) {
+            error(span_of(id),
+                  "'{}' is what Operator [] gives, a copy; set it whole, through "
+                  "Operator []=",
+                  text(id));
+            return false;
+        }
+
         const auto* member = std::get_if<member_expr_t>(&node);
         std::optional<expr_id_t> inner;
         if (member != nullptr) {
@@ -14001,6 +14179,12 @@ private:
 
     /// Like check(), but a call that returns nothing is fine.
     type_id_t check_any(const expr_id_t id, type_id_t hint) {
+        // An expression that two checks share, like an index's object in its Operator []'s call,
+        // is checked once.
+        if (m_checked.contains(id)) {
+            return info(id).type;
+        }
+
         // A literal expected as a T? takes the T, then converts.
         if (is_flexible(id)) {
             hint = non_null(hint);
@@ -17025,13 +17209,17 @@ private:
         const bool field = std::holds_alternative<member_expr_t>(argument) && found &&
                            (symbol(*found).kind == symbol_kind_t::FIELD ||
                             symbol(*found).kind == symbol_kind_t::GLOBAL);
-        const bool element = std::holds_alternative<index_expr_t>(argument);
+        const bool element =
+            std::holds_alternative<index_expr_t>(argument) && !indexes_through_operator(value);
         // A Struct's Self is the Method's copy, or the Struct itself in a ByRef Method.
         const bool self = std::holds_alternative<self_expr_t>(argument);
+        const bool indexed = indexes_through_operator(value);
         if (!variable && !field && !element && !self) {
             std::string_view what = "a value";
             if (found && symbol(*found).kind == symbol_kind_t::PROPERTY) {
                 what = "a Property";
+            } else if (indexed) {
+                what = "what an Operator [] gives";
             } else if (found && symbol(*found).kind == symbol_kind_t::CONSTANT) {
                 what = "a Const, which has no place of its own";
             } else if (found && symbol(*found).kind == symbol_kind_t::LOOP_VARIABLE) {
@@ -18889,6 +19077,14 @@ private:
             return;
         }
 
+        if (indexes_through_operator(value)) {
+            error(span_of(value),
+                  "'{}' is what Operator [] gives, which has no variable to pass "
+                  "ByRef",
+                  text(value));
+            return;
+        }
+
         if (through_element(value)) {
             error(span_of(value),
                   "an array's element can't be passed ByRef yet; copy it into a Local");
@@ -19649,6 +19845,13 @@ private:
     }
 
     type_id_t check_expr(const expr_id_t id, const index_expr_t& node, type_id_t /*hint*/) {
+        // "Super[i]" calls the Operator [] of the Class this one extends, like "Super.M()".
+        if (std::holds_alternative<super_expr_t>(m_ast.get(node.object).node)) {
+            const type_id_t type = check_any(node.call, type_id_t::NONE);
+            info(id).symbol = info(node.call).symbol;
+            return type;
+        }
+
         const std::optional<expr_id_t> outer = std::exchange(m_element_use, node.object);
         const type_id_t object = check(node.object, type_id_t::NONE);
         m_element_use = outer;
@@ -19664,6 +19867,16 @@ private:
 
         if (is_pointer(object)) {
             return check_pointer_index(id, node, object);
+        }
+
+        if (!is_any_array(object) && has_index_operator(object, "[]")) {
+            if (is_nullable(object)) {
+                report_maybe_null(node.object);
+                check_alone(node.indices);
+                return type_id_t::INVALID;
+            }
+
+            return check_index_call(id, node.object, node.call);
         }
 
         if (!is_any_array(object)) {
@@ -19702,6 +19915,32 @@ private:
         }
 
         return element_of(object);
+    }
+
+    /// Whether a type that isn't an array indexes through its Operator `name`, "[]" or "[]=":
+    /// a Struct, Class, Interface, or type parameter that has one, or a T? of one.
+    [[nodiscard]] bool has_index_operator(const type_id_t type, const std::string_view name) {
+        const type_id_t inner = non_null(type);
+        return (is_struct(inner) || is_class(inner) || is_interface(inner) ||
+                is_parameter(inner)) &&
+               !members_of(inner, name).empty();
+    }
+
+    /// "object[indices]" through its Operator [] or []=, as the call the parser made beside it,
+    /// whose callee shares the object, which was checked. The index takes the call's symbol, so
+    /// lowering calls it.
+    type_id_t check_index_call(const expr_id_t id, const expr_id_t object, const expr_id_t call) {
+        m_checked.insert(object);
+        const type_id_t type = check_any(call, type_id_t::NONE);
+        m_checked.erase(object);
+        info(id).symbol = info(call).symbol;
+        return type;
+    }
+
+    /// Whether an index goes through its object's Operator [], as check_expr() found.
+    [[nodiscard]] bool indexes_through_operator(const expr_id_t id) {
+        const auto* element = std::get_if<index_expr_t>(&m_ast.get(id).node);
+        return element != nullptr && info(element->call).symbol.has_value();
     }
 
     /// "p[i]": the T i T's on from where a Ptr points, which can be before it, a variable that

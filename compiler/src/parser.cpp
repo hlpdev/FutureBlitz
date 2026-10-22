@@ -1763,10 +1763,34 @@ private:
     }
 
     /// The operator after "Operator", which names it: one a type can define, like "+" or "==".
-    /// ">>" is two '>' that touch.
+    /// ">>" is two '>' that touch, and "[]" and "[]=", which index, are their tokens touching.
     name_t parse_operator_name() {
         const token_t& token = peek();
         switch (token.kind) {
+        case token_kind_t::LEFT_BRACKET: {
+            advance();
+            if (!at(token_kind_t::RIGHT_BRACKET) || !touches(token, peek())) {
+                report_expected("']' right after '[', as in Operator [] or Operator []=");
+                // A spaced-out "[ ]" or "[ ]=" is skipped, so the parameters still parse.
+                if (accept(token_kind_t::RIGHT_BRACKET)) {
+                    accept(token_kind_t::EQUAL);
+                }
+
+                return { .text = {}, .span = point(token.span.begin) };
+            }
+
+            const token_t* last = &advance();
+            if (at(token_kind_t::EQUAL) && touches(*last, peek())) {
+                last = &advance();
+            }
+
+            const span_t span{
+                .file = token.span.file,
+                .begin = token.span.begin,
+                .end = last->span.end,
+            };
+            return { .text = m_file.slice(span), .span = span };
+        }
         case token_kind_t::PLUS:
         case token_kind_t::MINUS:
         case token_kind_t::STAR:
@@ -2351,15 +2375,42 @@ private:
 
             skip_continuation_newlines();
             const expr_id_t value = parse_expression();
-            return add_stmt(
-                span_from(begin),
-                assign_stmt_t{ .op = assignment->op, .target = target, .value = value });
+            // "grid[x] += v" sets what "grid[x] + v" gives.
+            const expr_id_t set = assignment->op ? add_expr(span_from(begin),
+                                                            binary_expr_t{
+                                                                .op = *assignment->op,
+                                                                .left = target,
+                                                                .right = value,
+                                                            })
+                                                 : value;
+            return add_stmt(span_from(begin), assign_stmt_t{
+                                                  .op = assignment->op,
+                                                  .target = target,
+                                                  .value = value,
+                                                  .index_set = index_set(target, set),
+                                              });
         }
 
         if (at(token_kind_t::PLUS_PLUS) || at(token_kind_t::MINUS_MINUS)) {
-            const bool decrement = advance().kind == token_kind_t::MINUS_MINUS;
-            return add_stmt(span_from(begin),
-                            increment_stmt_t{ .target = target, .decrement = decrement });
+            const token_t& token = advance();
+            const bool decrement = token.kind == token_kind_t::MINUS_MINUS;
+            std::optional<expr_id_t> set;
+            if (std::holds_alternative<index_expr_t>(m_ast.get(target).node)) {
+                const expr_id_t one = add_expr(token.span, integer_expr_t{ .value = 1 });
+                set = index_set(
+                    target, add_expr(span_from(begin),
+                                     binary_expr_t{
+                                         .op = decrement ? binary_op_t::SUBTRACT : binary_op_t::ADD,
+                                         .left = target,
+                                         .right = one,
+                                     }));
+            }
+
+            return add_stmt(span_from(begin), increment_stmt_t{
+                                                  .target = target,
+                                                  .decrement = decrement,
+                                                  .index_set = set,
+                                              });
         }
 
         const expr_node_t& node = m_ast.get(target).node;
@@ -2943,8 +2994,50 @@ private:
 
         expect_closing(token_kind_t::RIGHT_BRACKET, open.span);
         --m_bracket_depth;
-        return add_expr(span_from(span_of(object).begin),
-                        index_expr_t{ .object = object, .indices = std::move(indices) });
+        // What a type with an Operator [] calls, at the brackets.
+        std::vector<argument_t> arguments;
+        arguments.reserve(indices.size());
+        for (const expr_id_t index : indices) {
+            arguments.push_back({ .by_ref = false, .value = index });
+        }
+
+        const expr_id_t call =
+            index_call(object, "[]", span_from(open.span.begin), std::move(arguments));
+        return add_expr(
+            span_from(span_of(object).begin),
+            index_expr_t{ .object = object, .indices = std::move(indices), .call = call });
+    }
+
+    /// "object.[](indices)" or "object.[]=(indices, value)", which an index's Operator makes of
+    /// it, at `brackets`.
+    expr_id_t index_call(const expr_id_t object, const std::string_view name, const span_t brackets,
+                         std::vector<argument_t> arguments) {
+        const expr_id_t callee =
+            add_expr(brackets, member_expr_t{
+                                   .object = object,
+                                   .member = { .text = name, .span = brackets },
+                                   .null_safe = false,
+                               });
+        return add_expr(brackets,
+                        call_expr_t{ .callee = callee, .arguments = std::move(arguments) });
+    }
+
+    /// For an assignment to an index, like "grid[x, y] = value": the call of its Operator []=,
+    /// which gets `value` after the indices.
+    std::optional<expr_id_t> index_set(const expr_id_t target, const expr_id_t value) {
+        const auto* index = std::get_if<index_expr_t>(&m_ast.get(target).node);
+        if (index == nullptr) {
+            return std::nullopt;
+        }
+
+        std::vector<argument_t> arguments;
+        arguments.reserve(index->indices.size() + 1);
+        for (const expr_id_t argument : index->indices) {
+            arguments.push_back({ .by_ref = false, .value = argument });
+        }
+
+        arguments.push_back({ .by_ref = false, .value = value });
+        return index_call(index->object, "[]=", span_of(index->call), std::move(arguments));
     }
 
     expr_id_t parse_primary() {

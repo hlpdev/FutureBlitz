@@ -3099,6 +3099,90 @@ TEST_CASE("Operator mistakes", "[sema]") {
           errors_t{ "+: Operators can only be declared in a Struct or Class" });
 }
 
+TEST_CASE("Operator [] and Operator []= index a type's values, as Methods of Self", "[sema]") {
+    constexpr std::string_view grid = "Struct Grid\n"
+                                      "    Field Cells: Int[]\n"
+                                      "    Operator [](x: Int, y: Int): Int => Cells[y * 2 + x]\n"
+                                      "    Operator []=(x: Int, y: Int, value: Int)\n"
+                                      "        Cells[y * 2 + x] = value\n"
+                                      "    End Operator\n"
+                                      "    Operator [](name: String): String => name\n"
+                                      "End Struct\n"
+                                      "Local g = Grid([1, 2, 3, 4])\n";
+    CHECK(probe(std::format("{}Local x = g[1, 0]", grid)) == "Int32");
+    CHECK(probe(std::format("{}Local x = g[\"a\"]", grid)) == "String");
+    CHECK(
+        errors_of(std::format("{}g[1, 1] = 5\ng[0, 0] += 2\ng[0, 1]++\ng[1, 0]--", grid)).empty());
+
+    // An Interface that requires them still has values, and a type parameter it constrains
+    // indexes through them.
+    constexpr std::string_view indexed = "Interface Indexed\n"
+                                         "    Operator [](i: Int): Int\n"
+                                         "End Interface\n";
+    CHECK(errors_of(std::format("{}Function F(x: Indexed): Int => x[0]\n"
+                                "Function G<T: Indexed>(x: T): Int => x[1]",
+                                indexed))
+              .empty());
+
+    // A generic type's take the instance's types.
+    CHECK(probe("Struct Row<T>\n    Field Items: T[]\n    Operator [](i: Int): T => Items[i]\n"
+                "End Struct\nLocal x = Row<String>([\"a\"])[0]") == "String");
+}
+
+TEST_CASE("index Operator mistakes", "[sema]") {
+    const auto in_struct = [](const std::string_view member) {
+        return errors_of(std::format("Struct M\n    Field V = 0\n    {}\nEnd Struct", member));
+    };
+
+    CHECK(in_struct("Operator [](): Int => 1") ==
+          errors_t{ "[]: Operator [] takes an index, or more" });
+    CHECK(in_struct("Operator []=(value: Int)\n    End Operator") ==
+          errors_t{ "[]=: Operator []= takes the indices, then the value it sets" });
+    CHECK(in_struct("Operator []=(i: Int, value: Int): Int => 1") ==
+          errors_t{ "[]=: Operator []= sets the element, so it gives nothing" });
+    CHECK(in_struct("Static Operator [](i: Int): Int => i") ==
+          errors_t{ "[]: Operator [] indexes Self, so it can't be Static" });
+    CHECK(in_struct("Operator [](ByRef i: Int): Int => i") ==
+          errors_t{ "[]: an Operator's parameters can't be ByRef or have defaults" });
+    CHECK(in_struct("Operator [](i: Int...): Int => 1") ==
+          errors_t{ "[]: an Operator takes its indices, so no parameter takes the rest of the "
+                    "arguments" });
+
+    // What Operator [] gives is a copy, which can't be changed in place or passed ByRef, and
+    // assigning needs an Operator []=.
+    constexpr std::string_view types = "Struct P\n    Field X = 0\nEnd Struct\n"
+                                       "Struct R\n"
+                                       "    Operator [](i: Int): P => P()\n"
+                                       "End Struct\n"
+                                       "Struct W\n"
+                                       "    Operator [](i: Int): Int => i\n"
+                                       "    Operator []=(i: Int, value: Int)\n"
+                                       "    End Operator\n"
+                                       "End Struct\n"
+                                       "Function Bump(ByRef x: Int)\nEnd Function\n"
+                                       "Local r = R()\nLocal w = W()\nLocal n = 0\n";
+    CHECK(
+        errors_of(std::format("{}r[0] = P()", types)) ==
+        errors_t{ "r[0]: R has an Operator [] but no Operator []=, so 'r[0]' can't be assigned" });
+    CHECK(errors_of(std::format("{}r[0].X = 1", types)) ==
+          errors_t{ "r[0]: 'r[0]' is what Operator [] gives, a copy; set it whole, through "
+                    "Operator []=" });
+    CHECK(errors_of(std::format("{}Bump(ByRef w[0])", types)) ==
+          errors_t{ "w[0]: 'w[0]' is what Operator [] gives, which has no variable to pass "
+                    "ByRef" });
+    CHECK(errors_of(std::format("{}w[0], n = (1, 2)", types)) ==
+          errors_t{ "w[0]: 'w[0]' is set through Operator []=, which a tuple's element can't be; "
+                    "assign it on a line of its own" });
+    CHECK(errors_of(std::format("{}Local x = w[1.5]", types)) ==
+          errors_t{ "1.5: 1.5 doesn't fit in Int32" });
+    CHECK(errors_of(std::format("{}Local x = n[0]", types)) ==
+          errors_t{ "n: Int32 can't be indexed" });
+    // A Struct's []= changes it, as a ByRef Method does.
+    CHECK(errors_of(std::format("{}Function F(v: W)\n    v[0] = 1\nEnd Function", types)) ==
+          errors_t{ "v: 'v' is a parameter and can't be changed by '[]='; copy it into a Local, "
+                    "or make it ByRef" });
+}
+
 TEST_CASE("a type with Operator == can be compared, whatever its fields are", "[sema]") {
     CHECK(errors_of("Struct Bag\n    Field Items: Int[] = []\n"
                     "    Operator ==(a: Bag, b: Bag): Bool => a.Items.Count == b.Items.Count\n"

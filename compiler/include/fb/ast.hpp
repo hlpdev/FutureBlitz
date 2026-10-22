@@ -182,6 +182,9 @@ struct member_expr_t {
 struct index_expr_t {
     expr_id_t object;
     std::vector<expr_id_t> indices;
+    /// The call "object.[](indices)" the parser makes beside it, which analysis checks in its
+    /// place when the object's type has an Operator [], and which isn't in the tree otherwise.
+    expr_id_t call;
 };
 
 /// "object[from..to]": a new array of the elements from `from` up to `to`, without the one at
@@ -357,12 +360,18 @@ struct assign_stmt_t {
     std::optional<binary_op_t> op;
     expr_id_t target;
     expr_id_t value;
+    /// For a target that indexes, like "grid[x, y]": the call "grid.[]=(x, y, value)" the
+    /// parser makes beside it, with "grid[x, y] op value" for "op=", which analysis checks in
+    /// the assignment's place when the object's type has an Operator []=.
+    std::optional<expr_id_t> index_set;
 };
 
 /// "target++", or "target--" when `decrement`.
 struct increment_stmt_t {
     expr_id_t target;
     bool decrement;
+    /// For a target that indexes: the call "grid.[]=(x, y, grid[x, y] + 1)", as for "+= 1".
+    std::optional<expr_id_t> index_set;
 };
 
 /// "@Rename("hp")": an attribute that an Attribute declaration declares, with its arguments,

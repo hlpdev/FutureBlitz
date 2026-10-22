@@ -336,6 +336,9 @@ private:
     /// call of a @PanicsAtCaller function gives it. nullopt in code the compiler makes itself,
     /// like a function value's.
     std::optional<span_t> m_span;
+    /// Expressions lowered already that a statement uses again, by what they gave: an index's
+    /// object and indices, which "grid[x] += v" reads and sets the element with.
+    std::unordered_map<expr_id_t, operand_t> m_reused;
     /// Each Async lambda's coroutine, by the closure's Class.
     std::unordered_map<type_id_t, function_id_t> m_coroutine_code;
     /// An instance of a generic function: the function, and a type argument for each type
@@ -2446,6 +2449,11 @@ private:
             return;
         }
 
+        if (node.index_set && m_analysis.expr(*node.index_set).symbol) {
+            lower_index_set(node.target, *node.index_set, node.op.has_value());
+            return;
+        }
+
         // "x op= y" on a Struct or Class that defines the operator calls its Operator.
         const stmt_info_t& info = m_analysis.stmt(id);
         const std::vector<type_id_t> arguments = concrete(info.type_arguments);
@@ -2501,6 +2509,33 @@ private:
                 .target = target,
                 .value = binary_t{ .op = *node.op, .left = current, .right = value, .span = span },
             });
+        }
+
+        finish_statement();
+    }
+
+    /// "grid[x, y] = value" through Operator []=: its call, the object first, then the indices,
+    /// then the value. For "op=" and "++", the value is "grid[x, y] op value", which reads the
+    /// element through Operator [] with the same object and indices, lowered once: the object as
+    /// the Set takes it, a Struct's variable itself.
+    void lower_index_set(const expr_id_t target, const expr_id_t set, const bool reads) {
+        const auto& element = std::get<index_expr_t>(m_ast.get(target).node);
+        std::vector<expr_id_t> shared;
+        if (reads) {
+            const symbol_t& setter = m_analysis.symbol(expect(m_analysis.expr(set).symbol));
+            const bool in_place = setter.by_ref && !is_object(converted_type(element.object));
+            m_reused[element.object] =
+                in_place ? operand_t{ lower_place(element.object) } : lower_value(element.object);
+            shared.push_back(element.object);
+            for (const expr_id_t position : element.indices) {
+                m_reused[position] = lower_value(position);
+                shared.push_back(position);
+            }
+        }
+
+        lower_effect(set);
+        for (const expr_id_t id : shared) {
+            m_reused.erase(id);
         }
 
         finish_statement();
@@ -2565,6 +2600,11 @@ private:
     }
 
     void lower_stmt(stmt_id_t /*id*/, const span_t span, const increment_stmt_t& node) {
+        if (node.index_set && m_analysis.expr(*node.index_set).symbol) {
+            lower_index_set(node.target, *node.index_set, true);
+            return;
+        }
+
         const binary_op_t change = node.decrement ? binary_op_t::SUBTRACT : binary_op_t::ADD;
         if (const std::optional<symbol_id_t> property = property_of(node.target)) {
             set_property(node.target, *property, false, [&](const auto& read) {
@@ -4052,6 +4092,10 @@ private:
     /// Where a variable, Self, or a field inside one lives, without copying it. Anything else,
     /// like a call, gives a temporary.
     place_t lower_place(const expr_id_t id) {
+        if (const auto reused = m_reused.find(id); reused != m_reused.end()) {
+            return as_place(reused->second);
+        }
+
         const scoped_value_t<std::optional<span_t>> at(m_span, span_of(id));
         const expr_node_t& node = m_ast.get(id).node;
         // "game.score" is the variable, as its name alone would be.
@@ -4097,6 +4141,12 @@ private:
         }
 
         // Each index goes in a local of its own, so the place keeps the value the index had.
+        // Through an Operator [], the element is what its call gives.
+        if (const auto* element = std::get_if<index_expr_t>(&node);
+            element != nullptr && m_analysis.expr(element->call).symbol) {
+            return as_place(lower_value(element->call));
+        }
+
         if (const auto* element = std::get_if<index_expr_t>(&node)) {
             place_t place = lower_place(element->object);
             // Operands go left to right: the object or T[] the element is in is read before an
@@ -4132,6 +4182,10 @@ private:
 
     /// The value of an expression, converted to the type its context needs.
     operand_t lower_value(const expr_id_t id) {
+        if (const auto reused = m_reused.find(id); reused != m_reused.end()) {
+            return reused->second;
+        }
+
         const scoped_value_t<std::optional<span_t>> at(m_span, span_of(id));
         const expr_info_t& info = m_analysis.expr(id);
         if (info.value) {
@@ -4270,7 +4324,12 @@ private:
         return made;
     }
 
-    operand_t lower_expr(const expr_id_t id, const index_expr_t& /*node*/) {
+    /// An element, or for a type with an Operator [], what its call gives.
+    operand_t lower_expr(const expr_id_t id, const index_expr_t& node) {
+        if (m_analysis.expr(node.call).symbol) {
+            return lower_value(node.call);
+        }
+
         return lower_place(id);
     }
 
