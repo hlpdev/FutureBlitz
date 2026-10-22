@@ -13,6 +13,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -157,6 +158,9 @@ private:
     /// The bracket depth of a For loop's bounds or a Case's values while they're parsed, where
     /// To and Until end a bound instead of making a range. Inside brackets they make ranges.
     std::optional<std::uint32_t> m_counting;
+    /// Where the outermost parentheses around a grouped expression open, so an expression made
+    /// with it, like "(1 To 3).Sum()", starts there, though its own span leaves them out.
+    std::unordered_map<expr_id_t, std::uint32_t> m_grouped;
     bool m_line_failed = false; // the current line already has an error
     /// How many expressions and blocks the one being parsed is inside, which is how deep the
     /// compiler's passes go into it. Past max_nesting it's an error, not a crash, and the rest of
@@ -376,6 +380,12 @@ private:
 
     [[nodiscard]] span_t span_of(const expr_id_t id) const {
         return m_ast.get(id).span;
+    }
+
+    /// Where an expression made with `id` first starts: at the parentheses around it, if any.
+    [[nodiscard]] std::uint32_t begin_of(const expr_id_t id) const {
+        const auto found = m_grouped.find(id);
+        return found != m_grouped.end() ? found->second : span_of(id).begin;
     }
 
     /// Stands in for an expression that's missing or not supported yet.
@@ -2633,7 +2643,7 @@ private:
         const token_t& keyword = advance();
         if (keyword.kind == token_kind_t::KW_IS) {
             const type_expr_id_t type = parse_type();
-            return add_expr(span_from(span_of(value).begin),
+            return add_expr(span_from(begin_of(value)),
                             is_expr_t{ .value = value, .type = type });
         }
 
@@ -2643,7 +2653,7 @@ private:
         }
 
         const type_expr_id_t type = parse_type();
-        return add_expr(span_from(span_of(value).begin),
+        return add_expr(span_from(begin_of(value)),
                         cast_expr_t{ .value = value, .type = type, .checked = checked });
     }
 
@@ -2748,7 +2758,7 @@ private:
 
         if (!at(token_kind_t::IDENTIFIER) && !at(token_kind_t::KW_NEW)) {
             report_expected(describe(token_kind_t::IDENTIFIER));
-            return add_expr(span_from(span_of(object).begin), error_expr_t{});
+            return add_expr(span_from(begin_of(object)), error_expr_t{});
         }
 
         const name_t member = take_name();
@@ -2757,7 +2767,7 @@ private:
             type_arguments = parse_type_arguments();
         }
 
-        return add_expr(span_from(span_of(object).begin),
+        return add_expr(span_from(begin_of(object)),
                         member_expr_t{
                             .object = object,
                             .member = member,
@@ -2855,7 +2865,7 @@ private:
         expr_id_t left = parse_value_product();
         while (accept(token_kind_t::PLUS)) {
             const expr_id_t right = parse_value_product();
-            left = add_expr(span_from(span_of(left).begin),
+            left = add_expr(span_from(begin_of(left)),
                             binary_expr_t{ .op = binary_op_t::ADD, .left = left, .right = right });
         }
 
@@ -2867,7 +2877,7 @@ private:
         while (accept(token_kind_t::STAR)) {
             const expr_id_t right = parse_unary();
             left = add_expr(
-                span_from(span_of(left).begin),
+                span_from(begin_of(left)),
                 binary_expr_t{ .op = binary_op_t::MULTIPLY, .left = left, .right = right });
         }
 
@@ -2925,7 +2935,7 @@ private:
         };
         if (!plain(first) || (dot != std::string_view::npos && !plain(second))) {
             error(token.span, "a tuple's elements are numbered, like .0 and .1");
-            return add_expr(span_from(span_of(object).begin), error_expr_t{});
+            return add_expr(span_from(begin_of(object)), error_expr_t{});
         }
 
         const std::uint32_t begin = span_of(object).begin;
@@ -2978,7 +2988,7 @@ private:
 
         expect_closing(token_kind_t::RIGHT_PAREN, open.span);
         --m_bracket_depth;
-        return add_expr(span_from(span_of(callee).begin),
+        return add_expr(span_from(begin_of(callee)),
                         call_expr_t{ .callee = callee, .arguments = std::move(arguments) });
     }
 
@@ -2996,7 +3006,7 @@ private:
             step = parse_expression();
         }
 
-        return add_expr(span_from(span_of(start).begin), range_expr_t{
+        return add_expr(span_from(begin_of(start)), range_expr_t{
                                                              .start = start,
                                                              .end = end,
                                                              .inclusive = inclusive,
@@ -3027,7 +3037,7 @@ private:
             --m_bracket_depth;
             const std::optional<expr_id_t> from =
                 indices.empty() ? std::nullopt : std::optional(indices.front());
-            return add_expr(span_from(span_of(object).begin),
+            return add_expr(span_from(begin_of(object)),
                             slice_expr_t{ .object = object, .from = from, .to = to });
         }
 
@@ -3043,7 +3053,7 @@ private:
         const expr_id_t call =
             index_call(object, "[]", span_from(open.span.begin), std::move(arguments));
         return add_expr(
-            span_from(span_of(object).begin),
+            span_from(begin_of(object)),
             index_expr_t{ .object = object, .indices = std::move(indices), .call = call });
     }
 
@@ -3321,6 +3331,7 @@ private:
                 error(span_from(open.span.begin), "a tuple has at least two values");
             }
 
+            m_grouped[elements.front()] = open.span.begin;
             return elements.front();
         }
 
