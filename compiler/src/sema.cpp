@@ -4416,9 +4416,10 @@ private:
             std::vector<type_id_t> inside;
             parameters_in(implemented.parameter, inside);
             // One whose Interface has the Method's own type parameters, like Flatten's
-            // Stack<Int32>: Iterable<U>, is for the call to settle, once U is told.
-            if (!is_parameter(implemented.parameter) &&
-                !mentions(implemented.interface, method.type_parameters)) {
+            // Stack<Int32>: Iterable<U>, is for the call to settle, once U is told, unless no
+            // U makes it hold, as for an Int32.
+            const std::vector<type_id_t> free = own_type_parameters(method);
+            if (!is_parameter(implemented.parameter) && !mentions(implemented.interface, free)) {
                 if (implements(implemented.parameter, implemented.interface)) {
                     continue;
                 }
@@ -4426,6 +4427,9 @@ private:
                 if (inside.empty()) {
                     return std::nullopt;
                 }
+            } else if (!is_parameter(implemented.parameter) && inside.empty() &&
+                       !implements_for_some(implemented.parameter, implemented.interface, free)) {
+                return std::nullopt;
             }
 
             kept.push_back(implemented);
@@ -4835,54 +4839,99 @@ private:
     /// lists them in.
     void check_default_places() {
         for (const auto& [type, declared] : m_declared_types) {
-            if (!is_struct(type) && !is_class(type)) {
+            if (is_struct(type) || is_class(type)) {
+                check_default_places(type, symbol(declared).members, symbol(declared).span);
+            }
+        }
+
+        for (const type_id_t instance : extended_instances()) {
+            check_default_places(instance, m_analysis.instance_members.at(instance),
+                                 symbol(m_declared_types.at(definition_of(instance))).span);
+        }
+    }
+
+    /// The defaults' copies of `type`'s own, in `members`, against the ones outside the
+    /// Interfaces' tables that it has, its own, the generic type's for an instance, or a Class's
+    /// it extends. One reported is at `declared`, or at the Extend that lists its Interface.
+    void check_default_places(const type_id_t type, const std::vector<symbol_id_t>& members,
+                              const span_t declared) {
+        const auto copies_in = [&](const type_id_t owner, const std::vector<symbol_id_t>& from) {
+            std::vector<symbol_id_t> copies;
+            std::ranges::copy_if(from, std::back_inserter(copies), [&](const symbol_id_t id) {
+                const symbol_t& member = symbol(id);
+                return member.kind == symbol_kind_t::METHOD && member.default_method &&
+                       member.owner == owner && !member.modifiers.is_static;
+            });
+            return copies;
+        };
+
+        // What it has from its generic type and the Classes it extends, which their instances
+        // have.
+        const std::vector<symbol_id_t> own = copies_in(type, members);
+        std::vector<symbol_id_t> held = own;
+        const type_id_t first = is_instance(type) ? type : base_of(type);
+        for (type_id_t current = first; current != type_id_t::INVALID;
+             current = base_of(current)) {
+            const type_id_t definition = definition_of(current);
+            for (const symbol_id_t id :
+                 copies_in(definition, symbol(m_declared_types.at(definition)).members)) {
+                if (instance_has(current, symbol(id))) {
+                    held.push_back(id);
+                }
+            }
+
+            if (current != type && is_instance(current)) {
+                if (const auto found = m_analysis.instance_members.find(current);
+                    found != m_analysis.instance_members.end()) {
+                    std::ranges::copy(copies_in(current, found->second),
+                                      std::back_inserter(held));
+                }
+            }
+        }
+
+        for (const symbol_id_t held_id : held) {
+            const symbol_t& kept = symbol(held_id);
+            const symbol_t& given = symbol(kept.default_method.value_or(symbol_id_t{}));
+            if (!outside_table(given)) {
                 continue;
             }
 
-            std::vector<symbol_id_t> copies;
-            std::ranges::copy_if(
-                symbol(declared).members, std::back_inserter(copies), [&](const symbol_id_t id) {
-                    const symbol_t& member = symbol(id);
-                    return member.kind == symbol_kind_t::METHOD && member.default_method &&
-                           member.owner == type && !member.modifiers.is_static;
-                });
-            for (const symbol_id_t held_id : copies) {
-                const symbol_t& held = symbol(held_id);
-                const symbol_t& given = symbol(held.default_method.value_or(symbol_id_t{}));
-                if (!outside_table(given)) {
-                    continue;
-                }
-
-                const type_id_t interface = definition_of(given.owner);
-                const std::vector<type_id_t> own = own_type_parameters(held);
-                const auto other = std::ranges::find_if(copies, [&](const symbol_id_t id) {
-                    const symbol_t& copy = symbol(id);
-                    const type_id_t from =
-                        definition_of(symbol(copy.default_method.value_or(symbol_id_t{})).owner);
-                    return id != held_id && copy.name == held.name && from != interface &&
-                           !refines(from, interface) && !refines(interface, from) &&
-                           (same_parameters(copy, held) ||
-                            takes_instance_of(copy, type, held, own,
-                                              [](const type_id_t written) { return written; }));
-                });
-                if (other == copies.end()) {
-                    continue;
-                }
-
-                const symbol_t& taking =
-                    symbol(symbol(*other).default_method.value_or(symbol_id_t{}));
-                const type_id_t instance = instance_for(type, given.owner);
-                const type_id_t shown = instance != type_id_t::INVALID ? instance : given.owner;
-                in_file(symbol(declared).span.file, [&] {
-                    error(symbol(declared).span,
-                          "{} gets '{}' from {}'s default, which would take the place of {}'s {} "
-                          "default, which is what a call through {} runs",
-                          shown_name(type), held.name, shown_name(taking.owner), shown_name(shown),
-                          outside_kind(given), shown_name(shown))
-                        .with_label(taking.span, "declared here");
-                });
-                break;
+            const type_id_t interface = definition_of(given.owner);
+            const std::vector<type_id_t> free = own_type_parameters(kept);
+            const auto seen = [&](const type_id_t written) {
+                return member_type(type, kept, written);
+            };
+            const auto other = std::ranges::find_if(own, [&](const symbol_id_t id) {
+                const symbol_t& copy = symbol(id);
+                const type_id_t from =
+                    definition_of(symbol(copy.default_method.value_or(symbol_id_t{})).owner);
+                const bool same =
+                    free.empty() &&
+                    std::ranges::equal(
+                        copy.parameters, kept.parameters, {},
+                        [&](const symbol_id_t parameter) { return symbol(parameter).type; },
+                        [&](const symbol_id_t parameter) { return seen(symbol(parameter).type); });
+                return id != held_id && copy.name == kept.name && from != interface &&
+                       !refines(from, interface) && !refines(interface, from) &&
+                       (same || takes_instance_of(copy, type, kept, free, seen));
+            });
+            if (other == own.end()) {
+                continue;
             }
+
+            const symbol_t& taking = symbol(symbol(*other).default_method.value_or(symbol_id_t{}));
+            const type_id_t instance = instance_for(type, given.owner);
+            const type_id_t shown = instance != type_id_t::INVALID ? instance : given.owner;
+            const span_t at = symbol(*other).extended ? symbol(*other).span : declared;
+            in_file(at.file, [&] {
+                error(at,
+                      "{} gets '{}' from {}'s default, which would take the place of {}'s {} "
+                      "default, which is what a call through {} runs",
+                      shown_name(type), kept.name, shown_name(taking.owner), shown_name(shown),
+                      outside_kind(given), shown_name(shown))
+                    .with_label(taking.span, "declared here");
+            });
+            break;
         }
     }
 
@@ -5221,7 +5270,7 @@ private:
             return std::ranges::any_of(member.constraints, [&](const bound_t& bound) {
                 return bound.field == type_id_t::INVALID && mentions(bound.parameter, parameters) &&
                        !mentions(argument_for(bound.parameter, parameters, arguments), own) &&
-                       !bounds_hold({ bound }, parameters, arguments);
+                       !bounds_hold({ bound }, parameters, arguments, own_type_parameters(member));
             });
         }
 
@@ -8677,10 +8726,13 @@ private:
         return place < arguments.size() ? arguments[place] : type_id_t::INVALID;
     }
 
-    /// Whether every constraint holds for the type arguments.
+    /// Whether every constraint holds for the type arguments. One whose Interface has some of
+    /// `free`, a Method's own type parameters, which its calls tell, holds when some types for
+    /// them make it.
     [[nodiscard]] bool bounds_hold(const std::vector<bound_t>& bounds,
                                    const std::vector<type_id_t>& parameters,
-                                   const std::vector<type_id_t>& arguments) const {
+                                   const std::vector<type_id_t>& arguments,
+                                   const std::vector<type_id_t>& free = {}) const {
         return std::ranges::all_of(bounds, [&](const bound_t& bound) {
             const type_id_t argument = argument_for(bound.parameter, parameters, arguments);
             const type_id_t interface = substitute(bound.interface, parameters, arguments);
@@ -8688,8 +8740,33 @@ private:
                 return !field_misfit(bound, argument, interface);
             }
 
-            return implements(argument, interface);
+            return implements_for_some(argument, interface, free);
         });
+    }
+
+    /// Whether `type` implements `interface` with some types for the ones of `free` in it, as
+    /// Stack<Int32> implements Iterable<U> with Int32 for U: it implements an instance of the
+    /// generic Interface that those types make it.
+    [[nodiscard]] bool implements_for_some(const type_id_t type, const type_id_t interface,
+                                           const std::vector<type_id_t>& free) const {
+        if (!mentions(interface, free)) {
+            return implements(type, interface);
+        }
+
+        const type_id_t instance = instance_for(type, interface);
+        if (instance == type_id_t::INVALID) {
+            return false;
+        }
+
+        std::vector<std::optional<type_id_t>> told(free.size());
+        unify(interface, instance, free, told);
+        std::vector<type_id_t> arguments;
+        arguments.reserve(free.size());
+        for (std::size_t i = 0; i < free.size(); ++i) {
+            arguments.push_back(told[i].value_or(free[i]));
+        }
+
+        return substitute(interface, free, arguments) == instance;
     }
 
     /// Whether == on a type is ambiguous between two Interfaces' defaults, which is reported once,
@@ -8727,11 +8804,15 @@ private:
                           name_among(argument, shown), what, name_among(bound.parameter, shown),
                           reason_text(*why, shown));
                 }
-            } else if (!implements(argument, interface)) {
+            } else if (!implements(argument, interface) && is_parameter(bound.parameter)) {
                 error(span, "{} doesn't implement {}, which {} needs for {}",
                       name_of(argument, { interface, bound.parameter }),
                       name_of(interface, { argument, bound.parameter }), what,
                       name_of(bound.parameter, { argument, interface }));
+            } else if (!implements(argument, interface)) {
+                // A copy's bound is on a type, like Flatten's in Pairs<Int32>.
+                error(span, "{} doesn't implement {}, which {} needs", name_of(argument, interface),
+                      name_of(interface, argument), what);
             }
         }
     }
@@ -10392,7 +10473,7 @@ private:
                                             mentions(bound.parameter, parameters);
                                  });
             return arguments.size() != parameters.size() ||
-                   bounds_hold(where, parameters, arguments);
+                   bounds_hold(where, parameters, arguments, own_type_parameters(member));
         }
 
         return true;
@@ -14429,7 +14510,8 @@ private:
 
         const auto* member = std::get_if<member_expr_t>(&node);
         if (member != nullptr && !info(id).symbol && !info(id).qualified &&
-            !is_pointer(non_null(info(member->object).type))) {
+            (is_any_array(non_null(info(member->object).type)) ||
+             non_null(info(member->object).type) == type_id_t::STRING)) {
             report_worked_out(id, *member);
             return false;
         }
@@ -16780,11 +16862,52 @@ private:
             error(member.span, "{} has no element '{}'; its elements are .0 to .{}",
                   shown_name(type), member.text, m_analysis.types.get(type).fields.size() - 1);
         } else if (members.empty() && !report_hidden(type, member, through)) {
-            error(member.span, "{} has no member named '{}'{}", shown_name(type), member.text,
-                  hides_qualifier(object));
+            error(member.span, "{} has no member named '{}'{}{}", shown_name(type), member.text,
+                  hides_qualifier(object), missing_default_hint(type, member.text));
         }
 
         return members;
+    }
+
+    /// "; Iterator<Int32>'s default needs Int32 to implement Iterable<U>", for a member that an
+    /// Interface `type` implements has a default of, which `type` doesn't get, since one of the
+    /// default's Where lines can't hold for it, whatever its own type parameters are.
+    [[nodiscard]] std::string missing_default_hint(const type_id_t type,
+                                                   const std::string_view name) {
+        for (const type_id_t interface : interfaces_of(type)) {
+            const std::vector<type_id_t>& own =
+                m_analysis.types.get(definition_of(interface)).parameters;
+            for (const symbol_id_t id :
+                 symbol(m_declared_types.at(definition_of(interface))).members) {
+                const symbol_t& method = symbol(id);
+                if (method.name != name || method.kind != symbol_kind_t::METHOD ||
+                    implemented_bounds(method, interface, type)) {
+                    continue;
+                }
+
+                for (const bound_t& bound : method.constraints) {
+                    if (bound.field != type_id_t::INVALID ||
+                        !std::ranges::contains(own, bound.parameter)) {
+                        continue;
+                    }
+
+                    const type_id_t parameter = as_implemented(bound.parameter, interface, type);
+                    const type_id_t needed = as_implemented(bound.interface, interface, type);
+                    std::vector<type_id_t> inside;
+                    parameters_in(parameter, inside);
+                    if (inside.empty() &&
+                        !implements_for_some(parameter, needed, own_type_parameters(method))) {
+                        const std::array shown{ interface, parameter, needed };
+                        return std::format("; {}'s default needs {} to implement {}",
+                                           name_among(interface, shown),
+                                           name_among(parameter, shown),
+                                           name_among(needed, shown));
+                    }
+                }
+            }
+        }
+
+        return {};
     }
 
     type_id_t check_expr(const expr_id_t id, const unary_expr_t& node, const type_id_t hint) {
@@ -18586,8 +18709,16 @@ private:
             }
         }
 
+        // One told as itself, like a type's T in its own code, is told.
+        std::vector<type_id_t> unknown;
+        for (std::size_t i = 0; i < parameters.size(); ++i) {
+            if (i >= arguments.size() || !arguments[i]) {
+                unknown.push_back(parameters[i]);
+            }
+        }
+
         const type_id_t told = substitute(type, from, to);
-        if (mentions(told, parameters)) {
+        if (mentions(told, unknown)) {
             return std::nullopt;
         }
 
@@ -18876,7 +19007,7 @@ private:
     /// be: "T[]" and an Int32[] give Int32 for T. The first type found for each one counts.
     void unify(const type_id_t pattern, const type_id_t actual,
                const std::vector<type_id_t>& parameters,
-               std::vector<std::optional<type_id_t>>& arguments) {
+               std::vector<std::optional<type_id_t>>& arguments) const {
         if (actual == type_id_t::INVALID || actual == type_id_t::NONE) {
             return;
         }
@@ -18922,7 +19053,7 @@ private:
                 const type_id_t dimension = want.parameters[i];
                 if (dimension != type_id_t::INVALID && is_value_parameter(dimension)) {
                     unify(dimension,
-                          m_analysis.types.value(m_analysis.types.get(dimension).inner,
+                          m_types->value(m_analysis.types.get(dimension).inner,
                                                  have.sizes[i]),
                           parameters, arguments);
                 }
@@ -18988,11 +19119,15 @@ private:
         }
 
         for (const bound_t& constraint : call_bounds(function)) {
+            // A bound on a type made of the type parameters, like a copy's "Stack<T>:
+            // Iterable<U>", once they're told.
             const auto place = std::ranges::find(parameters, constraint.parameter);
             const auto index = static_cast<std::size_t>(place - parameters.begin());
             const std::optional<type_id_t> argument =
-                index < told.size() ? told[index] : std::nullopt;
-            if (place == parameters.end() || !argument || constraint.field != type_id_t::INVALID ||
+                place == parameters.end() ? told_type(constraint.parameter, parameters, told)
+                : index < told.size()     ? told[index]
+                                          : std::nullopt;
+            if (!argument || constraint.field != type_id_t::INVALID ||
                 !mentions(constraint.interface, unknown) ||
                 instance_for(*argument, constraint.interface) != type_id_t::INVALID) {
                 continue;
@@ -19008,12 +19143,17 @@ private:
                         instance_for(given, iterable) != type_id_t::INVALID
                     ? "; its Iterate() gives one"
                     : "";
-            error(span_of(node.callee), "{} doesn't implement {}, which {} needs for {}{}",
+            // A copy's bound is on a type, not one of the call's type parameters.
+            const std::string needed =
+                place == parameters.end()
+                    ? std::string()
+                    : std::format(" for {}", name_among(constraint.parameter, shown));
+            error(span_of(node.callee), "{} doesn't implement {}, which {} needs{}{}",
                   name_among(given, shown), name_among(constraint.interface, shown),
                   symbol(function).kind == symbol_kind_t::CONSTRUCTOR
                       ? shown_name(symbol(function).owner)
                       : std::format("'{}'", symbol(function).name),
-                  name_among(constraint.parameter, shown), advice);
+                  needed, advice);
             return;
         }
 

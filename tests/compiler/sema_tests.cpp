@@ -3118,6 +3118,20 @@ TEST_CASE("generic mistakes", "[sema]") {
               "(1 To 6).Chunks(2).Flatten: Int32[] doesn't implement Iterable<U>, which 'Flatten' "
               "needs for T",
           });
+    // A copy's bound on a type made of its type parameters says so, rather than asking for the
+    // type arguments.
+    CHECK(errors_of("Import std.core\n"
+                    "Class Pairs<T> Implements Iterator<(T, T)>\n"
+                    "    Method Next(): (T, T)? => Null\n"
+                    "End Class\n"
+                    "Local a = Pairs<Int>().Flatten()\n"
+                    "Local b = Pairs<Int>().Flatten<Int>()") ==
+          errors_t{
+              "Pairs<Int>().Flatten: (Int32, Int32) doesn't implement Iterable<U>, which "
+              "'Flatten' needs",
+              "Pairs<Int>().Flatten<Int>: (Int32, Int32) doesn't implement Iterable<Int32>, "
+              "which 'Flatten' needs",
+          });
     CHECK(with_generics("Local s: Pile") ==
           errors_t{ "Pile: Pile<T> is generic, so it needs type arguments, like Pile<Int>" });
     CHECK(with_generics("Local s: Pile<Int, Int>") ==
@@ -6292,7 +6306,8 @@ TEST_CASE("a generic, conditional, or Final default runs as written, on an Inter
     CHECK(errors_of(std::format("{}Function F(w: Source<String>): String => w.Total()", source)) ==
           errors_t{ "w.Total: String doesn't implement Numeric, which 'Total' needs for T" });
     CHECK(errors_of(std::format("{}Local w = Words().Total()", source)) ==
-          errors_t{ "Total: Words has no member named 'Total'" });
+          errors_t{ "Total: Words has no member named 'Total'; Source<String>'s default needs "
+                    "String to implement Numeric" });
     // One on a type made of the type's own type parameters holds for the instances it holds for.
     CHECK(errors_of("Import std.core\n"
                     "Struct Wrap<T>\n"
@@ -6307,8 +6322,8 @@ TEST_CASE("a generic, conditional, or Final default runs as written, on an Inter
                     "End Class\n"
                     "Local a = Each<Int>().Min()\n"
                     "Local b = Each<Bool>().Min()") ==
-          errors_t{ "Each<Bool>().Min: Wrap<Bool> doesn't implement Comparable, which 'Min' needs "
-                    "for Wrap<T>" });
+          errors_t{ "Each<Bool>().Min: Wrap<Bool> doesn't implement Comparable, which 'Min' "
+                    "needs" });
     // So a type that can't meet them can have a Method of its own of that name, of any type,
     // while one whose type parameters could still meet them can't.
     CHECK(probe(std::format("{}Class Joined Implements Source<String>\n"
@@ -6384,6 +6399,32 @@ TEST_CASE("a generic, conditional, or Final default runs as written, on an Inter
     CHECK(errors_of(doubled + "Class Both Implements Source<Int>, Doubler\n"
                               "    Method Take(): Int => 1\n"
                               "End Class") == errors_t{ taken });
+    // Nor where a Class it extends has the generic default, or an Extend lists the other, of the
+    // Class or of one instance.
+    const std::string base = doubled + "Class Base Implements Source<Int>\n"
+                                       "    Method Take(): Int => 1\n"
+                                       "End Class\n";
+    CHECK(errors_of(base + "Class Both Extends Base Implements Doubler\nEnd Class") ==
+          errors_t{ taken });
+    CHECK(errors_of(base + "Class Both Extends Base\nEnd Class\n"
+                           "Extend Both Implements Doubler\nEnd Extend") ==
+          errors_t{ "Doubler: Both gets 'With' from Doubler's default, which would take the "
+                    "place of Source<Int32>'s generic default, which is what a call through "
+                    "Source<Int32> runs" });
+    CHECK(errors_of(doubled + "Class Gen<T> Implements Source<T>\n"
+                              "    Field Items: T[] = []\n"
+                              "    Method Take(): T => Items[0]\n"
+                              "End Class\n"
+                              "Extend Gen<Int> Implements Doubler\nEnd Extend") ==
+          errors_t{ "Doubler: Gen<Int32> gets 'With' from Doubler's default, which would take "
+                    "the place of Source<Int32>'s generic default, which is what a call through "
+                    "Source<Int32> runs" });
+    // The other order, a Class it extends listing the other and this one Source, once.
+    CHECK(errors_of(doubled + "Class Base Implements Doubler\nEnd Class\n"
+                              "Class Both Extends Base Implements Source<Int>\n"
+                              "    Method Take(): Int => 1\n"
+                              "End Class")
+              .size() == 1);
     // Nor can an Extend of the type in a module where the listing doesn't see it.
     const std::vector<fb::library_file_t> counter{
         {
@@ -6414,6 +6455,55 @@ TEST_CASE("a generic, conditional, or Final default runs as written, on an Inter
                     "    Method Zip(other: Int): Int => other\n"
                     "End Class\n"
                     "Local c = Counting().Chain(Counting())")
+              .empty());
+    // Nor one a type doesn't get, since no types for its own make its Where lines hold, like
+    // Flatten for an Iterator of Int32s: the type's own, an Extend's, or a Class extending it.
+    constexpr std::string_view counting = "Import std.core\n"
+                                          "Class Counting Implements Iterator<Int>\n"
+                                          "    Method Next(): Int? => Null\n"
+                                          "{}"
+                                          "End Class\n";
+    CHECK(errors_of(std::format(counting, "    Method Flatten(): Int => 42\n") +
+                    "Local f = Counting().Flatten()")
+              .empty());
+    CHECK(errors_of(std::format(counting, "") +
+                    "Extend Counting\n    Method Flatten(): Int => 7\nEnd Extend")
+              .empty());
+    CHECK(errors_of(std::format(counting, "") +
+                    "Class Sub Extends Counting\n    Method Flatten(): Int => 9\nEnd Class")
+              .empty());
+    CHECK(errors_with("Import \"./lib/counting\"\n"
+                      "Extend Counting\n    Method Flatten(): Int => 5\nEnd Extend\n"
+                      "Local f = Counting().Flatten()",
+                      { { .path = "lib/counting.fb",
+                          .text = "Import std.core\n"
+                                  "Public Class Counting Implements Iterator<Int>\n"
+                                  "    Public Method Next(): Int? => Null\n"
+                                  "End Class\n" } })
+              .empty());
+    CHECK(errors_of(std::format(counting, "") + "Local f = Counting().Flatten()") ==
+          errors_t{ "Flatten: Counting has no member named 'Flatten'; Iterator<Int32>'s default "
+                    "needs Int32 to implement Iterable<U>" });
+    // One whose instance has it, though: its T: Iterable<U> holds for a U.
+    constexpr std::string_view bag = "Import std.core\n"
+                                     "Import std.collections\n"
+                                     "Class Bag<T> Implements Iterator<T>\n"
+                                     "    Method Next(): T? => Null\n"
+                                     "End Class\n";
+    CHECK(errors_of(std::string(bag) +
+                    "Extend Bag<Stack<Int>>\n    Method Flatten(): Int => 99\nEnd Extend") ==
+          errors_t{ "Flatten: 'Flatten' would take the place of Iterator<Stack<Int32>>'s generic "
+                    "default, which is what a call through Iterator<Stack<Int32>> runs; give it "
+                    "another name" });
+    CHECK(errors_of(std::string(bag) +
+                    "Class Rows Extends Bag<Stack<Int>>\n    Method Flatten(): Int => 99\n"
+                    "End Class") ==
+          errors_t{ "Flatten: 'Flatten' is Iterator<T>'s generic default, which a call through "
+                    "Iterator<T> runs as written, so it can't be overridden; give this one another "
+                    "name" });
+    CHECK(errors_of(std::string(bag) +
+                    "Extend Bag<Int>\n    Method Flatten(): Int => 99\nEnd Extend\n"
+                    "Local f = Bag<Int>().Flatten()")
               .empty());
     CHECK(errors_of("Import std.core\n"
                     "Class Counting Implements Iterator<Int>\n"

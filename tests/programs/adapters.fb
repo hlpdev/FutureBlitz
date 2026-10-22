@@ -112,8 +112,23 @@ Class Rows<T> Implements Iterator<Stack<T>>
         row.Push(Values[At - 1])
         Return row
     End Method
+
+    // Its own code tells Flatten's U from its T too.
+    Method All(): T[] => Flatten().ToArray()
 End Class
+
+// So does an Extend's, on Self or a Local.
+Extend Rows<T>
+    Method Both(other: Rows<T>): T[]
+        Local mine = Self.Flatten().ToArray()
+        For value In other.Flatten()
+            mine.Add(value)
+        End For
+        Return mine
+    End Method
+End Extend
 
 Local rows: Iterator<Stack<Int>> = IntRows()
 Print(IntRows().Flatten().ToArray(), rows.Flatten().ToArray(),
       Rows<String>(["x", "y"]).Flatten().ToArray())
+Print(Rows<Int>([1, 2]).All(), Rows<Int>([1, 2]).Both(Rows<Int>([3])))
