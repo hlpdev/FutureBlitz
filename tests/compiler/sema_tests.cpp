@@ -1386,6 +1386,30 @@ TEST_CASE("comparing with Null", "[sema]") {
     CHECK(probe("Const C: Int? = Null\nLocal x = C == Null") == "Bool True");
     CHECK(errors_of("Local a = 1\nLocal x = a == Null") ==
           errors_t{ "a == Null: 'a' can't be Null here, so this is always False" });
+    // An expression made with a parenthesized one starts at its parenthesis, and ends at the
+    // last one's.
+    CHECK(errors_of("Local s: String? = Null\n"
+                    "Local c = True\n"
+                    "Local a = ((s) ?? \"x\") == Null\n"
+                    "Local b = (\"x\" + (s ?? \"y\")) == Null\n"
+                    "Local d = ((c) ? \"a\" : \"b\") == Null") ==
+          errors_t{
+              "((s) ?? \"x\") == Null: '(s) ?? \"x\"' can't be Null here, so this is always "
+              "False",
+              "(\"x\" + (s ?? \"y\")) == Null: '\"x\" + (s ?? \"y\")' can't be Null here, so this "
+              "is always False",
+              "((c) ? \"a\" : \"b\") == Null: '(c) ? \"a\" : \"b\"' can't be Null here, so this is "
+              "always False",
+          });
+    CHECK(errors_of("Class Box\n    Field Name: String = \"\"\nEnd Class\n"
+                    "Function Get(): (Box?, Int) => (Null, 1)\n"
+                    "Local t = Get()\n"
+                    "Local a = (t).0.Name\n"
+                    "Local b = ((t)).0.Name") ==
+          errors_t{
+              "(t).0: '(t).0' may be Null; check a Local copy of it, or use '?.'",
+              "((t)).0: '((t)).0' may be Null; check a Local copy of it, or use '?.'",
+          });
 }
 
 TEST_CASE("overloads take Null as any T?", "[sema]") {

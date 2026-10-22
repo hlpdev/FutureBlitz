@@ -2623,7 +2623,7 @@ private:
         const std::uint32_t next =
             binary.right_associative ? binary.precedence : binary.precedence + 1;
         const expr_id_t right = parse_expression(next);
-        return add_expr(merge(span_of(left), span_of(right)),
+        return add_expr(span_from(begin_of(left)),
                         binary_expr_t{ .op = binary.op, .left = left, .right = right });
     }
 
@@ -2634,7 +2634,7 @@ private:
         expect(token_kind_t::COLON);
         const expr_id_t if_false = parse_expression();
         return add_expr(
-            merge(span_of(condition), span_of(if_false)),
+            span_from(begin_of(condition)),
             ternary_expr_t{ .condition = condition, .if_true = if_true, .if_false = if_false });
     }
 
@@ -2937,7 +2937,7 @@ private:
             return add_expr(span_from(begin_of(object)), error_expr_t{});
         }
 
-        const std::uint32_t begin = span_of(object).begin;
+        const std::uint32_t begin = begin_of(object);
         const span_t first_span{
             .file = token.span.file,
             .begin = token.span.begin,
