@@ -352,6 +352,10 @@ struct analysis_t { // NOLINT(bugprone-exception-escape)
     type_id_t error_class = type_id_t::INVALID;
     type_id_t nullable_error = type_id_t::INVALID;
     builtin_interfaces_t interfaces;
+    /// std's Boxed<S, T>, from std/core/iterator.fb: the Class a Struct that implements
+    /// Iterator<T> goes in where a Method of the Interface it implements gives an Iterator<T>,
+    /// as a collection's Iterate() does for Iterable<T>'s. INVALID without the standard library.
+    type_id_t boxed_iterator = type_id_t::INVALID;
     /// A CString's ToString, which copies its text into a String in Unsafe code, once a program
     /// uses it.
     std::optional<symbol_id_t> cstring_text;

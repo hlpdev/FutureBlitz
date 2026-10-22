@@ -374,6 +374,20 @@ private:
     /// The array functions the program uses, and each Task's and Thread's work, whose bodies are
     /// lowered with the code used from outside the main module.
     std::vector<generated_t> m_generated;
+
+    /// A Method that gives a Struct where the Interface it implements gives an Iterator<T>, as a
+    /// collection's Iterate() does for Iterable<T>'s, called through the Interface's table: a
+    /// function that calls it, then puts the Struct in a box.
+    struct boxing_t {
+        function_id_t function;
+        function_id_t inner;
+        /// The Method's parameters' types, Self first.
+        std::vector<type_id_t> parameters;
+        type_id_t given = type_id_t::INVALID;
+        type_id_t wanted = type_id_t::INVALID;
+    };
+
+    std::vector<boxing_t> m_boxings;
     /// Each Struct's symbol, by its type.
     std::unordered_map<type_id_t, symbol_id_t> m_declared_types;
     /// The Methods that implement an Interface's Method that throws.
@@ -876,9 +890,10 @@ private:
         std::size_t closures = 0;
         std::size_t instances = 0;
         std::size_t generated = 0;
+        std::size_t boxings = 0;
         while (classes < m_used_classes.size() || functions < m_library_functions.size() ||
                closures < m_closures.size() || instances < m_pending_instances.size() ||
-               generated < m_generated.size()) {
+               generated < m_generated.size() || boxings < m_boxings.size()) {
             if (classes < m_used_classes.size()) {
                 add_class(m_used_classes[classes++]);
                 continue;
@@ -889,6 +904,14 @@ private:
                 m_parameters.clear();
                 m_arguments.clear();
                 lower_generated(function);
+                continue;
+            }
+
+            if (boxings < m_boxings.size()) {
+                const boxing_t boxing = m_boxings[boxings++];
+                m_parameters.clear();
+                m_arguments.clear();
+                lower_boxing(boxing);
                 continue;
             }
 
@@ -999,7 +1022,7 @@ private:
         for (const type_id_t interface : implemented(type)) {
             mir_implementation_t table{ .interface = interface };
             for (const symbol_id_t required : interface_slots(interface)) {
-                table.methods.push_back(table_entry(info, required, type));
+                table.methods.push_back(table_entry(info, required, type, interface));
             }
 
             info.interfaces.push_back(std::move(table));
@@ -1121,13 +1144,96 @@ private:
     /// What objects of a Class run for one of an Interface's Methods, Gets, or Sets: what
     /// implements it, from the Class's own Method table when a Class could override it.
     function_id_t table_entry(const mir_class_t& info, const symbol_id_t required,
-                              const type_id_t type) {
+                              const type_id_t type, const type_id_t interface) {
         const symbol_id_t found = expect(implementation(type, required));
-        if (is_virtual(m_analysis.symbol(found))) {
-            return info.methods[slot_of(found)];
+        const std::vector<type_id_t> arguments = implementation_arguments(type, found);
+        const function_id_t entry = is_virtual(m_analysis.symbol(found))
+                                        ? info.methods[slot_of(found)]
+                                        : function_of(found, arguments);
+        // A Struct that a Method gives where the Interface's gives an Iterator<T> goes in a box.
+        const symbol_t& member = m_analysis.symbol(required);
+        const symbol_t& method = m_analysis.symbol(found);
+        std::vector<type_id_t> abstract{ interface };
+        std::ranges::copy(types().get(interface).arguments, std::back_inserter(abstract));
+        const type_id_t wanted = types().substitute(member.type, type_parameters_of(member), abstract);
+        const type_id_t given = types().substitute(method.type, type_parameters_of(method), arguments);
+        if (wanted == given || !is_struct(given)) {
+            return entry;
         }
 
-        return function_of(found, implementation_arguments(type, found));
+        return boxing_thunk(entry, method, type, arguments, given, wanted);
+    }
+
+    /// The function a table runs for a Method that gives a Struct where the Interface's gives an
+    /// Iterator<T>, declared the first time it's needed, like "Bag.Iterate() as Iterator<Int32>".
+    function_id_t boxing_thunk(const function_id_t inner, const symbol_t& method,
+                               const type_id_t type, const std::vector<type_id_t>& arguments,
+                               const type_id_t given, const type_id_t wanted) {
+        const auto found = std::ranges::find_if(m_boxings, [&](const boxing_t& boxing) {
+            return boxing.inner == inner && boxing.wanted == wanted;
+        });
+        if (found != m_boxings.end()) {
+            return found->function;
+        }
+
+        std::vector<type_id_t> parameters{ type };
+        for (const symbol_id_t parameter : method.parameters) {
+            parameters.push_back(types().substitute(m_analysis.symbol(parameter).type,
+                                                    type_parameters_of(method), arguments));
+        }
+
+        const auto id = static_cast<function_id_t>(m_module.functions.size());
+        m_module.functions.push_back({
+            .name = std::format("{} as {}", m_module.functions[index(inner)].name,
+                                types().qualified_name(wanted)),
+            .return_type = wanted,
+        });
+        m_boxings.push_back({
+            .function = id,
+            .inner = inner,
+            .parameters = std::move(parameters),
+            .given = given,
+            .wanted = wanted,
+        });
+        return id;
+    }
+
+    /// A boxing function's body: it calls the Method, and gives the Struct in a box.
+    void lower_boxing(const boxing_t& boxing) {
+        begin_function(boxing.function);
+        std::vector<call_argument_t> arguments;
+        for (std::size_t i = 0; i < boxing.parameters.size(); ++i) {
+            const local_id_t parameter =
+                add_local(boxing.parameters[i], i == 0 ? "Self" : std::string_view{});
+            arguments.push_back({ .value = place_t{ parameter } });
+        }
+
+        current().parameter_count = current().locals.size();
+        const operand_t value =
+            temporary(call_t{ .function = boxing.inner, .arguments = std::move(arguments) },
+                      boxing.given, has_references(boxing.given));
+        const operand_t box = boxed(value, boxing.wanted, {});
+        take(box);
+        finish_statement();
+        terminate(return_t{ .value = box });
+    }
+
+    /// The Iterator<T> a Struct that implements it is, in std's Boxed<S, T>, whose object holds
+    /// it. A Class's object is one already.
+    operand_t boxed(const operand_t& value, const type_id_t wanted, const span_t span) {
+        const type_id_t given = type_of(value);
+        if (!is_struct(given) || definition_of(wanted) != m_analysis.interfaces.iterator) {
+            return convert(value, wanted, span);
+        }
+
+        const type_id_t box = types().instance(m_analysis.boxed_iterator,
+                                               { given, types().get(wanted).arguments.front() });
+        const operand_t object = new_object(box);
+        place_t source = std::get<place_t>(object);
+        source.steps.push_back({ .field = 0 });
+        take(value);
+        emit(assign_t{ .target = source, .value = use_t{ .value = value } });
+        return convert(object, wanted, span);
     }
 
     /// The member of a Struct or Class that implements one of an Interface's: from how the type,
@@ -7144,19 +7250,29 @@ private:
 
         const type_id_t result =
             types().substitute(function.type, type_parameters_of(function), type_arguments);
+        // A Struct the type's Method gives where the Interface's gives an Iterator<T> goes in a
+        // box, and a Class's object is one already.
+        const type_id_t given =
+            is_interface(self)
+                ? result
+                : types().substitute(callee.type, type_parameters_of(callee), concrete_arguments);
         std::optional<operand_t> value;
         if (result == type_id_t::NONE) {
             emit(evaluate_t{ .value = std::move(call) });
         } else {
-            value = temporary(std::move(call), result);
+            value = temporary(std::move(call), given);
         }
 
         if (error) {
             check_error(*error, span_of(id));
         }
 
-        if (value && has_references(result)) {
+        if (value && has_references(given)) {
             m_temporaries.push_back(std::get<local_id_t>(std::get<place_t>(*value).root));
+        }
+
+        if (value && given != result) {
+            value = boxed(*value, result, span_of(id));
         }
 
         return value;

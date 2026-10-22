@@ -302,6 +302,10 @@ public:
         find_error_class();
         find_builtin_interfaces();
         find_map_class();
+        if (const type_id_t boxed = std_type("std.core", "Boxed");
+            boxed != type_id_t::INVALID && is_class(boxed)) {
+            m_analysis.boxed_iterator = boxed;
+        }
 
         // Globals and Consts come first, so any declaration's types can use them.
         each_item([this](const stmt_id_t id) { declare_global_item(id); });
@@ -4363,7 +4367,9 @@ private:
 
             return type;
         };
-        if ((result && given_type(candidate.type) != implemented(required.type)) ||
+        const type_id_t given = given_type(candidate.type);
+        const type_id_t wanted = implemented(required.type);
+        if ((result && given != wanted && !(required.throws.empty() && boxes_into(given, wanted))) ||
             candidate.parameters.size() != required.parameters.size()) {
             return false;
         }
@@ -4378,6 +4384,18 @@ private:
         }
 
         return true;
+    }
+
+    /// Whether a Method's result of `given` fits an Interface's of `wanted` the way a
+    /// collection's Iterate() fits Iterable<T>'s: `wanted` is an Iterator<T>, which `given`, a
+    /// Struct or Class, implements. Through the Interface, a Struct goes in std's Boxed<S, T>.
+    [[nodiscard]] bool boxes_into(const type_id_t given, const type_id_t wanted) const {
+        const type_id_t iterator = m_analysis.interfaces.iterator;
+        return given != wanted && iterator != type_id_t::INVALID &&
+               definition_of(wanted) == iterator &&
+               (is_class(given) ||
+                (is_struct(given) && m_analysis.boxed_iterator != type_id_t::INVALID)) &&
+               implements(given, wanted);
     }
 
     /// A Method's own type parameters. One that an Extend of T[] adds takes T first, which is
