@@ -1,0 +1,31 @@
+// std.core's small things: Min, Max, Clamp, Swap, and HashCombine.
+Import std.core
+
+Print(Min(3, 7), Max(3, 7), Min(2.5, -1.0), Max("apple", "pear"), Min("b", "a"))
+
+// The first of two that are neither smaller nor larger.
+Struct Ranked Implements Comparable
+    Field Rank: Int
+    Field Name: String
+
+    Operator <(a: Ranked, b: Ranked): Bool => a.Rank < b.Rank
+    Operator ==(a: Ranked, b: Ranked): Bool => a.Rank == b.Rank
+End Struct
+
+Print(Min(Ranked(1, "first"), Ranked(1, "second")).Name,
+      Max(Ranked(1, "first"), Ranked(1, "second")).Name)
+
+Print(Clamp(5, 0, 10), Clamp(-5, 0, 10), Clamp(15, 0, 10), Clamp(3, 3, 3), Clamp(0.5, 1.0, 2.0))
+
+// Swap takes any two variables of a type, like Locals and Fields.
+Local a = 1
+Local b = 2
+Swap(ByRef a, ByRef b)
+Local pair = Ranked(1, "one")
+Local other = Ranked(2, "two")
+Swap(ByRef pair.Name, ByRef other.Name)
+Print(a, b, pair.Name, other.Name)
+
+// HashCombine depends on the order, and gives the same for the same hashes.
+Local ab = HashCombine(1.Hash(), 2.Hash())
+Print(ab == HashCombine(1.Hash(), 2.Hash()), ab == HashCombine(2.Hash(), 1.Hash()))

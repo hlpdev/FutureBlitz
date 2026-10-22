@@ -1,0 +1,5 @@
+// Clamp's low end can't be above its high end, which panics where it's called.
+Import std.core
+
+Print(Clamp(1, 0, 10))
+Print(Clamp(1, 10, 0))
