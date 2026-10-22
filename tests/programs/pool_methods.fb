@@ -1,0 +1,44 @@
+// A Pool's IterateHandles gives each value with its Handle, in the order of their slots, and
+// removing values meanwhile is fine; Reserve makes room ahead, which Capacity shows.
+Import std.core
+Import std.collections
+
+Local pool = Pool<String>()
+Local a = pool.Add("a")
+Local b = pool.Add("b")
+Local c = pool.Add("c")
+pool.Remove(b)
+Local d = pool.Add("d")
+For handle, value In pool.IterateHandles()
+    Print(handle.Index, value, pool.Get(handle) ?? "gone", handle == d)
+End For
+
+// Removing while going over them.
+For handle, value In pool.IterateHandles()
+    If value == "a" Then pool.Remove(c)
+    pool.Remove(handle)
+    Print(value)
+End For
+Print(pool.Count)
+
+// A Pool of a T? gives its Nulls with their Handles.
+Local holes = Pool<Int?>()
+holes.Add(Null)
+holes.Add(2)
+For handle, value In holes.IterateHandles()
+    Print(handle.Index, value ?? -1)
+End For
+
+Local empty = Pool<Int>()
+For handle, value In empty.IterateHandles()
+    Print("never")
+End For
+
+// Reserve and Capacity.
+Local roomy = Pool<Int>()
+roomy.Reserve(50)
+Print(roomy.Capacity >= 50, roomy.Count)
+For i = 1 To 50
+    roomy.Add(i)
+End For
+Print(roomy.Capacity, roomy.Count)

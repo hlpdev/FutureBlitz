@@ -1,0 +1,6 @@
+// A Pool's Reserve panics on a negative count, where it's called.
+Import std.core
+Import std.collections
+
+Local pool = Pool<Int>()
+pool.Reserve(-2)

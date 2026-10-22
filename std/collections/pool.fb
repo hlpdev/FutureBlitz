@@ -23,6 +23,21 @@ Public Class Pool<T> Implements Iterable<T>, Cloneable, Defaultable
         Get => Items.Count - Free.Count
     End Property
 
+    // How many values it has slots for before it needs more memory.
+    Public Property Capacity: Int
+        Get => Items.Capacity
+    End Property
+
+    // Makes room for count slots in all, so adding up to that many values doesn't move them
+    // again.
+    @PanicsAtCaller
+    Public Method Reserve(count: Int)
+        If count < 0 Then Panic("Reserve takes a count that isn't negative, not {count}")
+        Items.Reserve(count)
+        Used.Reserve(count)
+        Generations.Reserve(count)
+    End Method
+
     // Adds the value, and gives its Handle.
     Public Method Add(value: T): Handle<T>
         If Free.Count == 0
@@ -88,6 +103,10 @@ Public Class Pool<T> Implements Iterable<T>, Cloneable, Defaultable
     // The values, in the order of their slots. Removing values while going over them is fine.
     Public Method Iterate(): PoolIterator<T> => PoolIterator<T>(Self, 0)
 
+    // Each value with its Handle, in the order of their slots, for 'For handle, value In
+    // pool.IterateHandles()'. Removing values while going over them is fine.
+    Public Method IterateHandles(): PoolHandles<T> => PoolHandles<T>(Self, 0)
+
     // Empties a slot that holds a value, for the next Add to reuse.
     Method Empty(index: Int)
         Items[index] = Null
@@ -105,6 +124,23 @@ Public Struct PoolIterator<T> Implements Iterator<T>
         While Index < Owner.Items.Count
             Index += 1
             If Owner.Used[Index - 1] Then Return Owner.Items[Index - 1]
+        End While
+        Return Null
+    End Method
+End Struct
+
+Public Struct PoolHandles<T> Implements Iterator<(Handle<T>, T)>
+    Field Owner: Pool<T>
+    Field Index: Int
+
+    Public ByRef Method Next(): (Handle<T>, T)?
+        While Index < Owner.Items.Count
+            Index += 1
+            Local at = Index - 1
+            If Owner.Used[at]
+                Local value = Owner.Items[at].Expect("a used slot holds a value")
+                Return (Handle<T>(at, Owner.Generations[at]), value)
+            End If
         End While
         Return Null
     End Method
