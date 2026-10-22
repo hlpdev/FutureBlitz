@@ -174,3 +174,22 @@ End Class
 Local wrapped: Iterator<Wrap<Int>> = Each<Int>([3, 1, 2])
 Print("wrapped", (Each<Int>([3, 1, 2]).Min() ?? Wrap<Int>(0)).Value,
       (wrapped.Max() ?? Wrap<Int>(0)).Value)
+
+// An Extend of one instance can add a Method of a conditional default's name where the instance
+// can't meet its Where lines, and a call on that instance runs it.
+Struct Bag<T> Implements Iterator<T>
+    Field Items: T[]
+    Field At = 0
+
+    ByRef Method Next(): T?
+        If At >= Items.Count Then Return Null
+        At += 1
+        Return Items[At - 1]
+    End Method
+End Struct
+
+Extend Bag<String>
+    Method Sum(): String => "joined"
+End Extend
+
+Print("bags", Bag<String>(["a", "b"]).Sum(), Bag<Int>([1, 2, 3]).Sum())

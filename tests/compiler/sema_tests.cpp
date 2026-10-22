@@ -6243,6 +6243,18 @@ TEST_CASE("a generic, conditional, or Final default runs as written, on an Inter
                             "End Class\n"
                             "Local p = Joined().Total()",
                             source)) == "String");
+    CHECK(errors_of(std::format("{}Class Risky Implements Source<String>\n"
+                                "    Method Take(): String => \"w\"\n"
+                                "    Method Total(): String Throws Error\n"
+                                "        Return \"t\"\n"
+                                "    End Method\n"
+                                "End Class\n"
+                                "Struct Changing Implements Source<String>\n"
+                                "    Method Take(): String => \"w\"\n"
+                                "    ByRef Method Total(): String => \"t\"\n"
+                                "End Struct",
+                                source))
+              .empty());
     CHECK(errors_of(std::format("{}Class Box<T> Implements Source<T>\n"
                                 "    Field Items: T[] = []\n"
                                 "    Method Take(): T => Items[0]\n"

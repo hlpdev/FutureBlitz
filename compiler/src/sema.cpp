@@ -3607,7 +3607,8 @@ private:
                 for (const symbol_id_t other : members_of(definition, added.name, added.span)) {
                     const symbol_t& copy = symbol(other);
                     if (copy.kind != symbol_kind_t::METHOD || !copy.default_method ||
-                        copy.owner != definition || !outside_table(symbol(*copy.default_method)) ||
+                        copy.owner != definition || !instance_has(instance, copy) ||
+                        !outside_table(symbol(*copy.default_method)) ||
                         copy.modifiers.is_static != added.modifiers.is_static) {
                         continue;
                     }
@@ -4210,6 +4211,12 @@ private:
             }
         }
 
+        // A conditional default whose Where lines this type can't meet isn't the type's, so a
+        // Method of the type's own of its name is just another Method, whatever its types.
+        if (!required.modifiers.is_abstract && !implemented_bounds(required, interface, type)) {
+            return std::nullopt;
+        }
+
         if (!matching.empty()) {
             report_clashing(type, required.name, span, matching);
             check_implementation(matching.front(), required, interface, type, span);
@@ -4224,12 +4231,6 @@ private:
         });
         if (narrower != conditional.end()) {
             report_conditional(*narrower, type, interface, span);
-            return std::nullopt;
-        }
-
-        // A conditional default whose Where lines this type can't meet isn't the type's, so a
-        // Method of the type's own of its name is just another Method.
-        if (!required.modifiers.is_abstract && !implemented_bounds(required, interface, type)) {
             return std::nullopt;
         }
 
@@ -16063,6 +16064,18 @@ private:
         const auto hides = [&](const symbol_id_t near_id, const symbol_id_t far_id) {
             const symbol_t& near = symbol(near_id);
             const symbol_t& far = symbol(far_id);
+            // A conditional default the instance doesn't have takes no place, so it hides nothing,
+            // and a Method of its types, like one an Extend of the instance adds, hides it.
+            if (near.default_method && !instance_has(type, near)) {
+                return false;
+            }
+
+            if (near.kind == symbol_kind_t::METHOD && far.kind == symbol_kind_t::METHOD &&
+                far.default_method && !near.default_method && !instance_has(type, far) &&
+                same_here(near, far)) {
+                return true;
+            }
+
             const std::size_t near_depth = depth(near);
             const std::size_t far_depth = depth(far);
             if (near_depth < far_depth) {
