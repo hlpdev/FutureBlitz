@@ -1778,8 +1778,10 @@ private:
                 report_expected("']' right after '[', as in Operator [] or Operator []=");
                 // A spaced-out "[ ]" or "[ ]=" is taken as meant, so the rest still parses.
                 if (accept(token_kind_t::RIGHT_BRACKET)) {
-                    return { .text = accept(token_kind_t::EQUAL) ? "[]=" : "[]",
-                             .span = token.span };
+                    return {
+                        .text = accept(token_kind_t::EQUAL) ? "[]=" : "[]",
+                        .span = token.span,
+                    };
                 }
 
                 return { .text = {}, .span = point(token.span.begin) };

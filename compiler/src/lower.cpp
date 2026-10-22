@@ -4495,7 +4495,7 @@ private:
             const block_id_t ok = new_block();
             terminate(branch_t{ .condition = is_zero, .if_true = fail, .if_false = ok });
             start(fail);
-            terminate(panic_t{ .message = "Step can't be 0", .span = span_of(*node.step) });
+            terminate(panic_t{ .message = "Step can't be 0", .span = span_of(expect(node.step)) });
             start(ok);
             if (is_signed(element)) {
                 up_at_run_time = compare(binary_op_t::GREATER, step, zero(element), span);
