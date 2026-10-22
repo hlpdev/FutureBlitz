@@ -75,3 +75,83 @@ Function Maybe(values: Iterable<Int>?): Int => values == Null ? -1 : Total(value
 Local none: Int[]? = Null
 Local some: Int[]? = [5]
 Print(Maybe(none), Maybe(some))
+
+// An Extend of one array type gives it Interfaces, Properties too, through their values.
+Interface Summed
+    Method Total(): Int
+End Interface
+
+Extend Int[] Implements Summed
+    Method Total(): Int
+        Local sum = 0
+        For n In Self
+            sum += n
+        End For
+        Return sum
+    End Method
+End Extend
+
+Interface Sized
+    ReadOnly Property Size: Int
+    Property Label: String
+End Interface
+
+Global labels = Map<Int, String>()
+
+Extend T[] Implements Sized
+    Public Property Size: Int
+        Get => Count
+    End Property
+
+    Public Property Label: String
+        Get => labels.Get(Count, "none")
+        Set(value)
+            labels[Count] = value
+        End Set
+    End Property
+End Extend
+
+Function SumOf(values: Summed): Int => values.Total()
+
+Function MaybeSummed(values: Int[]): Summed? => values.Count == 0 ? Null : values
+
+Local summed: Summed = [4, 5]
+Local maybeSummed = MaybeSummed([1, 2, 3])
+Local listed: Iterable<Int> = [7]
+Local words: Iterable<String> = ["w"]
+Print(summed.Total(), SumOf([10, 20]), maybeSummed?.Total() ?? -1, listed Is Summed,
+      words Is Summed)
+Local sized: Sized = [1.5, 2.5, 3.5]
+sized.Label = "three"
+Print(sized.Size, sized.Label, [9.5].AsReadOnly().Count)
+
+// An array where a T?? of an Interface is expected has its tables too.
+Function Inside(value: Printable??): String
+    If value == Null Then Return "outer null"
+    Local inner = value
+    If inner == Null Then Return "inner null"
+    Return inner.ToString()
+End Function
+
+Function Keep<T>(value: T?): T? => value
+
+Print(Inside([True, False]), Keep<Iterable<Bool>?>([False]) == Null)
+
+// An Interface's value tells the type arguments of a generic one it extends.
+Interface Sequence<T> Extends Iterable<T>
+    Method Length(): Int
+End Interface
+
+Extend T[] Implements Sequence<T>
+    Public Method Length(): Int => Count
+End Extend
+
+Local sequence: Sequence<Int> = [4, 5]
+Print(Total(sequence), Joined(sequence), sequence.Length())
+
+// A literal takes its element type from an Iterable<T> expected.
+Local wide = Set<Int64>()
+wide.AddAll([1, 2])
+Local floats = Stack<Float64>()
+floats.AddAll([1, 2.5])
+Print(wide, floats.ToArray(), Set<Int>().Union([]).Count)

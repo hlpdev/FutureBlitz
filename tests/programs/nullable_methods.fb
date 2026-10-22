@@ -1,0 +1,27 @@
+// Expect and OrElse work on every T?: an array's, a fixed array's, a Map's Get of arrays, and a
+// variable declared as a T? that holds a value here.
+Import std.core
+Import std.collections
+
+Local groups = Map<String, Int[]>()
+groups["a"] = [1, 2]
+Print(groups.Get("a").Expect("no a"), groups.Get("b").OrElse(Function(): Int[] => [0]))
+
+Local none: Int[]? = Null
+Local fixed: Int[2]? = Null
+Print(none.OrElse(Function(): Int[] => []).Count, fixed.OrElse(Function(): Int[2] => [3, 4]))
+
+Global calls = 0
+Function Four(): Int
+    calls += 1
+    Return 4
+End Function
+
+Function Named(name: String): String? => name == "" ? Null : name
+
+Local held: Int? = 3
+Local text = Named("hi")
+Print(held.OrElse(Four), text.Expect("no text"), calls)
+If text != Null
+    Print(text.Expect("still none"), text.OrElse(Function() => "never"))
+End If

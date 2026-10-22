@@ -28,3 +28,7 @@ Print(Describe(3), Describe("hi"), Describe([1.5]), Nested<Bool>(), Box<Point>()
 Const Function Label<T>(): String => "<" + TypeName<T>() + ">"
 Const label = Label<Int64>()
 Print(label)
+
+// Try before one, which doesn't throw, only warns, and still gives its value.
+Function Tried<T>(): String => Try TypeName<T>()
+Print(Tried<Int>(), (Try? TypeName<Bool>()) ?? "none", (Try? SizeOf<Int64>()) ?? -1)

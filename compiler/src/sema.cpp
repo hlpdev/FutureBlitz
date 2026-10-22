@@ -3268,7 +3268,8 @@ private:
             };
             if (modifiers.is_static) {
                 symbol(declared).self.reset();
-            } else if (is_set && !is_class(owner)) {
+            } else if (is_set && !is_class(owner) && !is_array(owner)) {
+                // A Struct's Set changes it; a T[] is a reference, as an object is.
                 symbol(declared).by_ref = true;
                 symbol(expect_self(declared)).by_ref = true;
             }
@@ -6587,7 +6588,8 @@ private:
 
         const bool constructor = node.kind == function_kind_t::CONSTRUCTOR;
         const bool sets_element = indexes(node) && node.name.text == "[]=" &&
-                                  owner != type_id_t::INVALID && !is_class(owner);
+                                  owner != type_id_t::INVALID && !is_class(owner) &&
+                                  !is_array(owner);
         const bool by_ref = node.kind == function_kind_t::BYREF_METHOD || sets_element;
         // The parser already reported a return type on New.
         type_id_t return_type = node.return_type ? keep_in_place(resolve_type(*node.return_type),
@@ -10659,7 +10661,12 @@ private:
     /// Null. An object converts to an Interface its Class implements, and an Interface to one it
     /// extends.
     [[nodiscard]] bool converts_plainly(const type_id_t from, const type_id_t to) const {
-        if (is_weak(to) && from != to && from != type_id_t::INVALID) {
+        // What's INVALID was reported where it went wrong.
+        if (from == type_id_t::INVALID || to == type_id_t::INVALID) {
+            return true;
+        }
+
+        if (is_weak(to) && from != to) {
             return is_class(non_null(from)) &&
                    m_analysis.types.extends(non_null(from), element_of(to));
         }
@@ -14578,7 +14585,9 @@ private:
     /// or a String's Chars or Bytes.
     void report_worked_out(const expr_id_t id, const member_expr_t& member) {
         const type_id_t object = non_null(info(member.object).type);
-        if (is_array(object)) {
+        if (is_array(object) && member.member.text == "Capacity") {
+            error(span_of(id), "an array's Capacity can't be set; use Reserve or TrimExcess");
+        } else if (is_array(object)) {
             error(span_of(id),
                   "an array's Count can't be changed; use Add, Insert, RemoveAt, or Clear");
         } else if (is_fixed_array(object)) {
@@ -14604,10 +14613,11 @@ private:
             return false;
         }
 
-        // Count alone, in an Extend of T[], is Self's.
+        // Count or Capacity alone, in an Extend of T[], is Self's.
         if (info(id).count) {
-            error(span_of(id),
-                  "Count is how many elements Self has, which only its Methods change");
+            const auto& name = std::get<name_expr_t>(node).name;
+            error(span_of(id), "{} is how many elements Self {}, which only its Methods change",
+                  name, name == "Count" ? "has" : "has room for");
             return false;
         }
 
@@ -17984,6 +17994,10 @@ private:
     /// Whether a call is SizeOf<T>(), TypeName<T>(), or AddressOf(x), which look like calls but
     /// only give a value, so on their own they do nothing.
     [[nodiscard]] bool only_gives_value(const expr_id_t id) {
+        if (const auto* tried = std::get_if<try_expr_t>(&m_ast.get(id).node)) {
+            return only_gives_value(tried->operand);
+        }
+
         const auto* call = std::get_if<call_expr_t>(&m_ast.get(id).node);
         const auto* name =
             call != nullptr ? std::get_if<name_expr_t>(&m_ast.get(call->callee).node) : nullptr;
@@ -19198,8 +19212,9 @@ private:
         }
 
         // An Interface's type arguments are those of the instance a Class, Struct, or array
-        // implements, as a Set<Int32> does Iterable<Int32>.
-        if (want.kind == type_kind_t::INTERFACE && have.kind != type_kind_t::INTERFACE) {
+        // implements, as a Set<Int32> does Iterable<Int32>, or another Interface extends.
+        if (want.kind == type_kind_t::INTERFACE &&
+            (have.kind != type_kind_t::INTERFACE || definition_of(pattern) != definition_of(actual))) {
             if (const type_id_t instance = instance_for(actual, pattern);
                 instance != type_id_t::INVALID) {
                 unify(pattern, instance, parameters, arguments);
@@ -19511,7 +19526,22 @@ private:
                 return flags_methods(type);
             }
 
-            if (is_nullable(type) && is_any_array(non_null(type))) {
+            // A T?'s own Methods work whether it holds a value or not, on an array's T? too, and
+            // on a variable declared as one that holds a value here.
+            const bool own = member->member.text == "Expect" || member->member.text == "OrElse";
+            if (own && !is_nullable(type)) {
+                if (const std::optional<symbol_id_t> variable = info(member->object).symbol;
+                    variable && is_nullable(symbol(*variable).type) &&
+                    non_null(symbol(*variable).type) == type) {
+                    return nullable_methods(symbol(*variable).type) |
+                           std::views::filter([&](const symbol_id_t id) {
+                               return symbol(id).name == member->member.text;
+                           }) |
+                           std::ranges::to<std::vector>();
+                }
+            }
+
+            if (is_nullable(type) && is_any_array(non_null(type)) && !own) {
                 report_maybe_null(member->object);
                 return {};
             }
@@ -21351,6 +21381,18 @@ private:
 
         if (is_any_array(expected)) {
             return check_elements(id, node, expected);
+        }
+
+        // Where an Iterable<T> of a known T is expected, it's a T[].
+        if (const type_id_t iterable = std_type("std.core", "Iterable");
+            iterable != type_id_t::INVALID && is_interface(expected) &&
+            definition_of(expected) == iterable) {
+            std::vector<type_id_t> inside;
+            const type_id_t element = arguments_of(expected).front();
+            parameters_in(element, inside);
+            if (inside.empty() && !is_parameter(element)) {
+                return check_elements(id, node, m_analysis.types.array(element));
+            }
         }
 
         if (node.elements.empty()) {

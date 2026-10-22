@@ -1841,6 +1841,16 @@ TEST_CASE("a T[]'s Count and Methods", "[sema]") {
     CHECK(errors_of(takers + "Local a = [1]\nBump(ByRef a.Count)") ==
           errors_t{ "a.Count: an array's Count can't be changed; use Add, Insert, RemoveAt, or "
                     "Clear" });
+    // Nor its Capacity, alone in an Extend of T[] or not.
+    CHECK(errors_of(takers + "Local a = [1]\nBump(ByRef a.Capacity)\n"
+                             "Extend T[]\n"
+                             "    Method Grow()\n"
+                             "        Bump(ByRef Capacity)\n"
+                             "    End Method\n"
+                             "End Extend") ==
+          errors_t{ "a.Capacity: an array's Capacity can't be set; use Reserve or TrimExcess",
+                    "Capacity: Capacity is how many elements Self has room for, which only its "
+                    "Methods change" });
     CHECK(errors_of(takers + "Local g: Int[3]\nBump(ByRef g.Count)\ng.Count += 1") ==
           errors_t{ "g.Count: a fixed array's Count can't be changed",
                     "g.Count: a fixed array's Count can't be changed" });
@@ -1882,7 +1892,7 @@ TEST_CASE("a T[]'s Count and Methods", "[sema]") {
     CHECK(probe(imports + "Function First<T>(values: Iterable<T>): T? => values.Iterate().First()\n"
                           "Local x = First(Set<Int>())") == "Int32?");
     CHECK(errors_of(imports + "Local items: Iterable<Int> = [\"a\"]") ==
-          errors_t{ "[\"a\"]: expected Iterable<Int32>, found String[]" });
+          errors_t{ "\"a\": expected Int32, found String" });
     CHECK(errors_of("Import std.core\nLocal items: Printable = [Function() => 1]") ==
           errors_t{ "[Function() => 1]: expected Printable, found (Func(): Int32)[]" });
 
@@ -5900,6 +5910,34 @@ TEST_CASE("AddressOf follows the rules for a change to what it points at", "[sem
             "F[0]: 'F' is a Const and can't be changed",
             "each.a: 'each' is a loop variable and can't be changed",
         });
+}
+
+TEST_CASE("a T?'s Expect and OrElse, Try on a value-only built-in, and what's INVALID are quiet "
+          "where they should be",
+          "[sema]") {
+    // An array's T?, and a variable declared as a T? that holds a value here, have them.
+    CHECK(probe("Local a: Int[]? = Null\nLocal b = a.OrElse(Function(): Int[] => [])") ==
+          "Int32[]");
+    CHECK(probe("Local f: Int[2]? = Null\nLocal g = f.Expect(\"none\")") == "Int32[2]");
+    CHECK(probe("Local n: Int? = 3\nLocal m = n.OrElse(Function() => 4)") == "Int32");
+    // Try only warns, and alone it does nothing.
+    CHECK(errors_of("Local t = Try TypeName<Int>()") ==
+          errors_t{ "Try TypeName<Int>(): 'TypeName<Int>()' doesn't throw, so it doesn't need "
+                    "Try" });
+    CHECK(errors_of("Try TypeName<Int>()") ==
+          errors_t{ "Try TypeName<Int>(): 'TypeName<Int>()' doesn't throw, so it doesn't need Try",
+                    "Try TypeName<Int>(): expression has no effect" });
+    // What's INVALID converts quietly, an Interface too, so each mistake is one error.
+    CHECK(errors_of("Import std.core\nLocal p: Printable = Nope") ==
+          errors_t{ "Nope: 'Nope' isn't declared" });
+    const std::string iterable = "Import std.core\nImport std.collections\n";
+    CHECK(errors_of(iterable + "Function F(x: Iterable<Int64>)\nEnd Function\nF([])\nF([1, 2])")
+              .empty());
+    CHECK(errors_of(iterable + "Function F<T>(x: Iterable<T>)\nEnd Function\nF([])") ==
+          errors_t{ "F: can't tell what T is in this call; write the type arguments, like "
+                    "F<Int>(...)",
+                    "[]: an empty array needs a type from where it's used, like 'Local a: Int[] = "
+                    "[]'" });
 }
 
 TEST_CASE("TypeName gives a type's name, known at compile time", "[sema]") {

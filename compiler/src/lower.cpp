@@ -1266,8 +1266,8 @@ private:
     }
 
     /// The Interfaces that can be types which an array type implements: Printable, when its
-    /// elements are, the ones an Extend of T[] gives, and the ones those extend. The other
-    /// built-in ones can only be constraints.
+    /// elements are, the ones an Extend of T[] or of the one array type gives, and the ones those
+    /// extend. The other built-in ones can only be constraints.
     [[nodiscard]] std::vector<type_id_t> array_interfaces(const type_id_t type) const {
         std::vector<type_id_t> pending{ m_analysis.interfaces.printable };
         const type_id_t element = types().get(type).inner;
@@ -1276,6 +1276,8 @@ private:
                 types().get(types().get(extension.target).inner).kind == type_kind_t::PARAMETER) {
                 pending.push_back(
                     types().substitute(extension.interface, extension.parameters, { element }));
+            } else if (extension.target == type) {
+                pending.push_back(extension.interface);
             }
         }
 
@@ -1306,7 +1308,8 @@ private:
             return table_entry(info, required, type, interface);
         }
 
-        assert(m_analysis.symbol(required).name == "ToString");
+        // The built-in meaning: Printable's ToString, the only one an array's table holds.
+        assert(required == builtin_member(m_analysis.interfaces.printable, "ToString"));
         return generated(generated_kind_t::TEXT, type);
     }
 
@@ -1571,12 +1574,12 @@ private:
     /// has, and a Struct or Class without its own == or Hash.
     std::optional<symbol_id_t> implementation(const type_id_t type, const symbol_id_t required) {
         const symbol_t& member = m_analysis.symbol(required);
-        if (!is_struct(type) && !is_class(type)) {
+        const std::vector<symbol_id_t>& members =
+            m_analysis.symbol(m_declared_types.at(member.owner)).members;
+        if (!is_struct(type) && !is_class(type) && std::ranges::contains(members, required)) {
             return extension_implementation(type, required);
         }
 
-        const std::vector<symbol_id_t>& members =
-            m_analysis.symbol(m_declared_types.at(member.owner)).members;
         if (!std::ranges::contains(members, required)) {
             for (const symbol_id_t property : members) {
                 const symbol_t& declared = m_analysis.symbol(property);
@@ -2160,6 +2163,15 @@ private:
         return constant != nullptr && std::holds_alternative<std::nullptr_t>(constant->data);
     }
 
+    /// The type inside every T? around it: Int32 for an Int32??.
+    [[nodiscard]] type_id_t without_nullables(type_id_t type) const {
+        while (types().get(type).kind == type_kind_t::NULLABLE) {
+            type = types().get(type).inner;
+        }
+
+        return type;
+    }
+
     /// A Bool: whether a T? holds a value.
     operand_t has_value(const operand_t& value, const span_t span) {
         if (const auto* constant = std::get_if<const_value_t>(&value)) {
@@ -2191,12 +2203,9 @@ private:
             return value;
         }
 
-        // An array where an Interface is expected needs its type's tables.
-        if (const type_id_t source =
-                types().get(from).kind == type_kind_t::NULLABLE ? types().get(from).inner : from;
-            is_array(source) &&
-            is_interface(types().get(type).kind == type_kind_t::NULLABLE ? types().get(type).inner
-                                                                         : type)) {
+        // An array where an Interface is expected, in any T?s, needs its type's tables.
+        if (const type_id_t source = without_nullables(from);
+            is_array(source) && is_interface(without_nullables(type))) {
             use_array_tables(source);
         }
 
@@ -6601,6 +6610,11 @@ private:
             return lower_await(id);
         }
 
+        // SizeOf<T>() and TypeName<T>() only give a value.
+        if (m_analysis.expr(id).value || m_analysis.expr(id).type_name) {
+            return lower_value(id);
+        }
+
         return lower_call(id);
     }
 
@@ -6963,6 +6977,11 @@ private:
                             const span_t span) {
         const operand_t value = arguments.front().value;
         const type_id_t type = concrete(method.type);
+        // A variable declared as a T? that holds a value here is its value.
+        if (!is_nullable(type_of(value))) {
+            return convert(value, type, span);
+        }
+
         const local_id_t result = add_local(type);
         const operand_t present = has_value(value, span);
         const block_id_t test = here();

@@ -6,3 +6,8 @@
 <x><y> <s>
 pq
 -1 5
+9 30 6 True False
+3 three 1
+[True, False] False
+9 <4><5> 2
+{1, 2} [2.5, 1] 0
