@@ -770,11 +770,9 @@ private:
         return std::ranges::any_of(info.arguments, deeper) || deeper(info.inner) ||
                std::ranges::any_of(info.fields,
                                    [&](const field_t& field) {
-                                       return info.kind == type_kind_t::TUPLE &&
-                                              deeper(field.type);
+                                       return info.kind == type_kind_t::TUPLE && deeper(field.type);
                                    }) ||
-               (info.kind == type_kind_t::FUNCTION &&
-                std::ranges::any_of(info.parameters, deeper));
+               (info.kind == type_kind_t::FUNCTION && std::ranges::any_of(info.parameters, deeper));
     }
 
     /// Records, once, that code needs a larger instance each time, where it's lowered.
@@ -963,8 +961,8 @@ private:
         std::size_t thunks = 0;
         while (!m_module.error &&
                (classes < m_used_classes.size() || functions < m_library_functions.size() ||
-               closures < m_closures.size() || instances < m_pending_instances.size() ||
-               generated < m_generated.size() || thunks < m_table_thunks.size())) {
+                closures < m_closures.size() || instances < m_pending_instances.size() ||
+                generated < m_generated.size() || thunks < m_table_thunks.size())) {
             if (classes < m_used_classes.size()) {
                 add_class(m_used_classes[classes++]);
                 continue;

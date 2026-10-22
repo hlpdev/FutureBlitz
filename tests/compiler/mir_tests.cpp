@@ -2540,8 +2540,8 @@ TEST_CASE("lowering stops where code needs a larger instance each time, which an
         REQUIRE(compilation.diagnostics.diagnostics().empty());
         const fb::mir_module_t module = fb::lower(compilation.ast, compilation.analysis);
         REQUIRE(module.error);
-        return std::string(compilation.sources.get(module.error->span.file)
-                               .slice(module.error->span)) +
+        return std::string(
+                   compilation.sources.get(module.error->span.file).slice(module.error->span)) +
                ": " + module.error->message;
     };
     constexpr std::string_view holder = "Class Holder<S: Shown> Implements Shown\n"

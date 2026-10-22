@@ -4474,9 +4474,9 @@ private:
 
             return type;
         };
-        const type_id_t given = given_type(candidate.type);
-        const type_id_t wanted = implemented(required.type);
-        if ((result && given != wanted && !boxes_into(given, wanted)) ||
+        const type_id_t given_result = given_type(candidate.type);
+        const type_id_t wanted_result = implemented(required.type);
+        if ((result && given_result != wanted_result && !boxes_into(given_result, wanted_result)) ||
             candidate.parameters.size() != required.parameters.size()) {
             return false;
         }
@@ -4522,10 +4522,9 @@ private:
         const std::vector<type_id_t> parameters = owner_parameters(definition_of(far.owner));
         std::vector<type_id_t> arguments{ self_of(definition_of(near.owner)) };
         std::ranges::copy(arguments_of(extended), std::back_inserter(arguments));
-        return takes_instance_of(near, type_id_t::INVALID, far, far.type_parameters,
-                                 [&](const type_id_t written) {
-                                     return substitute(written, parameters, arguments);
-                                 });
+        return takes_instance_of(
+            near, type_id_t::INVALID, far, far.type_parameters,
+            [&](const type_id_t written) { return substitute(written, parameters, arguments); });
     }
 
     /// Whether a Method of `self` takes what a generic one does with some types for `own`, the
@@ -4565,9 +4564,8 @@ private:
             }
         }
 
-        if (!std::ranges::equal(wanted, given, {}, [&](const type_id_t type) {
-                return substitute(type, from, to);
-            })) {
+        if (!std::ranges::equal(wanted, given, {},
+                                [&](const type_id_t type) { return substitute(type, from, to); })) {
             return false;
         }
 
@@ -4842,13 +4840,12 @@ private:
             }
 
             std::vector<symbol_id_t> copies;
-            std::ranges::copy_if(symbol(declared).members, std::back_inserter(copies),
-                                 [&](const symbol_id_t id) {
-                                     const symbol_t& member = symbol(id);
-                                     return member.kind == symbol_kind_t::METHOD &&
-                                            member.default_method && member.owner == type &&
-                                            !member.modifiers.is_static;
-                                 });
+            std::ranges::copy_if(
+                symbol(declared).members, std::back_inserter(copies), [&](const symbol_id_t id) {
+                    const symbol_t& member = symbol(id);
+                    return member.kind == symbol_kind_t::METHOD && member.default_method &&
+                           member.owner == type && !member.modifiers.is_static;
+                });
             for (const symbol_id_t held_id : copies) {
                 const symbol_t& held = symbol(held_id);
                 const symbol_t& given = symbol(held.default_method.value_or(symbol_id_t{}));
@@ -4918,13 +4915,15 @@ private:
             return;
         }
 
+        const symbol_t& generic = method;
         const auto covered = std::ranges::find_if(members, [&](const symbol_id_t member) {
-            const symbol_t& added = symbol(member);
-            return added.extended && !added.default_method && added.name == method.name &&
-                   added.kind == symbol_kind_t::METHOD &&
-                   takes_instance_of(added, type, method, own, [&](const type_id_t written) {
-                       return member_type(type, method, written);
-                   });
+            const symbol_t& candidate = symbol(member);
+            const auto given = [&, object = type](const type_id_t written) {
+                return member_type(object, generic, written);
+            };
+            return candidate.extended && !candidate.default_method &&
+                   candidate.name == generic.name && candidate.kind == symbol_kind_t::METHOD &&
+                   takes_instance_of(candidate, type, generic, own, given);
         });
         if (covered != members.end()) {
             error(symbol(*covered).span,
@@ -18559,7 +18558,8 @@ private:
 
     /// A type made of type parameters, with the type arguments told so far in it, or nullopt
     /// while it has one that isn't told.
-    std::optional<type_id_t> told_type(const type_id_t type, const std::vector<type_id_t>& parameters,
+    std::optional<type_id_t> told_type(const type_id_t type,
+                                       const std::vector<type_id_t>& parameters,
                                        const std::vector<std::optional<type_id_t>>& arguments) {
         std::vector<type_id_t> from;
         std::vector<type_id_t> to;
@@ -19013,17 +19013,15 @@ private:
         // The example writes each type argument the call takes after the name: a New's, its
         // type's, and anything else's, its own, with the ones told filled in.
         const symbol_t& called = symbol(function);
-        const std::vector<type_id_t> written = called.kind == symbol_kind_t::CONSTRUCTOR
-                                                   ? parameters
-                                                   : own_type_parameters(called);
+        const std::vector<type_id_t> written =
+            called.kind == symbol_kind_t::CONSTRUCTOR ? parameters : own_type_parameters(called);
         std::string example;
         for (const type_id_t parameter : written) {
             const auto place = std::ranges::find(parameters, parameter);
             const auto index = static_cast<std::size_t>(place - parameters.begin());
-            const std::optional<type_id_t> known =
-                index < told.size() ? told[index] : std::nullopt;
-            example += std::format("{}{}", example.empty() ? "" : ", ",
-                                   known ? name_of(*known) : std::string("Int"));
+            const std::optional<type_id_t> known = index < told.size() ? told[index] : std::nullopt;
+            example += example.empty() ? "" : ", ";
+            example += known ? name_of(*known) : "Int";
         }
 
         error(span_of(node.callee),
