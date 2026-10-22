@@ -5905,6 +5905,33 @@ TEST_CASE("AddressOf follows the rules for a change to what it points at", "[sem
         });
 }
 
+TEST_CASE("TypeName gives a type's name, known at compile time", "[sema]") {
+    CHECK(probe("Local x = TypeName<Int>()") == "String Int32");
+    CHECK(errors_of("Const n = TypeName<(Int, String?)>()\n"
+                    "Function F<T>(): String => TypeName<T[]>()\n"
+                    "Local s = F<Int>()")
+              .empty());
+    CHECK(errors_of("Local a = TypeName()\n"
+                    "Local b = TypeName<Int>(1)\n"
+                    "Local c = TypeName<Int, Int>()\n"
+                    "Local d = TypeName<Nowhere>()\n"
+                    "Local e = TypeName\n"
+                    "TypeName<Int>()") ==
+          errors_t{
+              "TypeName(): TypeName takes one type argument, and no arguments, like "
+              "TypeName<Int32>()",
+              "TypeName<Int>(1): TypeName takes one type argument, and no arguments, like "
+              "TypeName<Int32>()",
+              "TypeName<Int, Int>(): TypeName takes one type argument, and no arguments, like "
+              "TypeName<Int32>()",
+              "Nowhere: 'Nowhere' isn't a type",
+              "TypeName: 'TypeName' is called, as in TypeName<T>()",
+              "TypeName<Int>(): expression has no effect",
+          });
+    // A program's own TypeName takes the place of the built-in.
+    CHECK(probe("Function TypeName(): Int => 1\nLocal x = TypeName()") == "Int32");
+}
+
 TEST_CASE("Ptrs and SizeOf say what's wrong with them", "[sema]") {
     // SizeOf and AddressOf look like calls, but only give a value, so alone they do nothing.
     CHECK(errors_of("SizeOf<Int32>()\n"

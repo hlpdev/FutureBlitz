@@ -244,6 +244,12 @@ bool overlaps(const case_range_t& a, const case_range_t& b) {
     return compare(a.low, b.high) <= 0 && compare(b.low, a.high) <= 0;
 }
 
+/// Whether a name is a built-in that looks like a call but only gives a value: SizeOf<T>(),
+/// TypeName<T>(), or AddressOf(x).
+bool is_value_builtin(const std::string_view name) {
+    return name == "SizeOf" || name == "TypeName" || name == "AddressOf";
+}
+
 /// Whether a member of a T[] is one of its sizes, Count or Capacity, which aren't Methods.
 bool is_array_size(const std::string_view name) {
     return name == "Count" || name == "Capacity";
@@ -15778,9 +15784,9 @@ private:
             report_hint(span, *hint);
         } else if (is_later_name(name)) {
             error(span, "'{}' isn't supported yet", name);
-        } else if (name == "SizeOf" || name == "AddressOf") {
+        } else if (is_value_builtin(name)) {
             error(span, "'{}' is called, as in {}", name,
-                  name == "SizeOf" ? "SizeOf<T>()" : "AddressOf(x)");
+                  name == "AddressOf" ? "AddressOf(x)" : std::format("{}<T>()", name));
         } else if (!from_failed_import(name, span) && !m_misplaced_externs.contains(name)) {
             error(span, "'{}' isn't declared", name);
         }
@@ -17974,22 +17980,26 @@ private:
                       : m_analysis.types.task(m_analysis.types.get(func).inner);
     }
 
-    /// Whether a call is SizeOf<T>() or AddressOf(x), which look like calls but only give a value,
-    /// so on their own they do nothing.
+    /// Whether a call is SizeOf<T>(), TypeName<T>(), or AddressOf(x), which look like calls but
+    /// only give a value, so on their own they do nothing.
     [[nodiscard]] bool only_gives_value(const expr_id_t id) {
         const auto* call = std::get_if<call_expr_t>(&m_ast.get(id).node);
         const auto* name =
             call != nullptr ? std::get_if<name_expr_t>(&m_ast.get(call->callee).node) : nullptr;
-        return name != nullptr && (name->name == "AddressOf" || name->name == "SizeOf") &&
+        return name != nullptr && is_value_builtin(name->name) &&
                !declared_here(name->name, span_of(call->callee));
     }
 
     type_id_t check_expr(const expr_id_t id, const call_expr_t& node, const type_id_t hint) {
         if (const auto* name = std::get_if<name_expr_t>(&m_ast.get(node.callee).node);
-            name != nullptr && (name->name == "AddressOf" || name->name == "SizeOf") &&
+            name != nullptr && is_value_builtin(name->name) &&
             !declared_here(name->name, span_of(node.callee))) {
-            return name->name == "AddressOf" ? check_address_of(id, node)
-                                             : check_size_of(id, node, *name);
+            if (name->name == "AddressOf") {
+                return check_address_of(id, node);
+            }
+
+            return name->name == "SizeOf" ? check_size_of(id, node, *name)
+                                          : check_type_name(id, node, *name);
         }
 
         if (const std::optional<type_kind_t> kind = in_place_maker(node.callee)) {
@@ -18294,6 +18304,33 @@ private:
             info.fields, [&](const field_t& field) { return holds_itself(field.type, path); });
         path.pop_back();
         return holds;
+    }
+
+    /// "TypeName<T>()": T's name, like "Map<String, Int32>", known at compile time, or for a T
+    /// with type parameters in it, once its instance's type arguments are.
+    type_id_t check_type_name(const expr_id_t id, const call_expr_t& node,
+                              const name_expr_t& name) {
+        if (name.type_arguments.size() != 1 || !node.arguments.empty()) {
+            error(span_of(id), "TypeName takes one type argument, and no arguments, like "
+                               "TypeName<Int32>()");
+            check_alone(node.arguments);
+            return type_id_t::STRING;
+        }
+
+        const type_id_t type = resolve_type(name.type_arguments.front());
+        if (type == type_id_t::INVALID) {
+            return type_id_t::STRING;
+        }
+
+        std::vector<type_id_t> inside;
+        parameters_in(type, inside);
+        if (inside.empty() && !is_parameter(type)) {
+            info(id).value = make_string(std::string(m_analysis.types.name(type)));
+        } else {
+            info(id).type_name = type;
+        }
+
+        return type_id_t::STRING;
     }
 
     /// "SizeOf<T>()": how many bytes a T takes, as C lays it out, known at compile time.

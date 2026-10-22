@@ -1,0 +1,30 @@
+// TypeName<T>() is T's name, known at compile time, or in generic code, the instance's.
+Import std.core
+Import std.collections
+
+Struct Point
+    Field X: Int
+End Struct
+
+Enum Color
+    Red
+End Enum
+
+Function Describe<T: Printable>(value: T): String => "{TypeName<T>()}: {value}"
+
+Function Nested<T>(): String => TypeName<Map<String, T[]>>()
+
+Class Box<T>
+    Method Name(): String => TypeName<Box<T>>()
+End Class
+
+Print(TypeName<Int>(), TypeName<Float>(), TypeName<String?>(), TypeName<Point>(),
+      TypeName<Color>())
+Print(TypeName<Int[]>(), TypeName<(Int, String)>(), TypeName<Func(Int): Bool>(),
+      TypeName<Map<String, Int>>())
+Print(Describe(3), Describe("hi"), Describe([1.5]), Nested<Bool>(), Box<Point>().Name())
+
+// A Const Function can use it.
+Const Function Label<T>(): String => "<" + TypeName<T>() + ">"
+Const label = Label<Int64>()
+Print(label)

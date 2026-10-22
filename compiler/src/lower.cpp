@@ -4667,6 +4667,11 @@ private:
             return concrete(*info.value);
         }
 
+        // TypeName<T>() names the instance's type.
+        if (info.type_name) {
+            return make_string(std::string(types().name(concrete(*info.type_name))));
+        }
+
         const operand_t value =
             std::visit([this, id](const auto& node) { return this->lower_expr(id, node); },
                        m_ast.get(id).node);

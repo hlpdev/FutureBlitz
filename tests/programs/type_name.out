@@ -1,0 +1,4 @@
+Int32 Float32 String? Point Color
+Int32[] (Int32, String) Func(Int32): Bool Map<String, Int32>
+Int32: 3 String: hi Float32[]: [1.5] Map<String, Bool[]> Box<Point>
+<Int64>

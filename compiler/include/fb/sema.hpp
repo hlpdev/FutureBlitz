@@ -245,6 +245,9 @@ struct expr_info_t {
     bool qualified = false;
     /// For "AddressOf(x)": a Ptr to its argument's place.
     bool address_of = false;
+    /// For "TypeName<T>()" where T has type parameters in it: the type whose name, with the
+    /// instance's type arguments, the call gives.
+    std::optional<type_id_t> type_name;
     /// For a Function's name or a lambda where a Callback is expected: a C function pointer to
     /// its code, the Function `symbol` names or the lambda's `closure`.
     bool callback = false;
