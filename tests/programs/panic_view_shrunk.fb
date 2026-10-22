@@ -1,0 +1,9 @@
+// An element a view's array no longer has panics where the view reads it.
+Import std.core
+Import std.collections
+
+Local numbers = [1, 2, 3]
+Local view = numbers.View(0, 3)
+numbers.RemoveLast()
+Print(view[1])
+Print(view[2])

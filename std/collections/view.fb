@@ -1,0 +1,221 @@
+// Views that don't copy what they show: part of an array, which reads and sets it in place, and
+// an array, Map, or Set to read but not change, to hand out. Each keeps what it shows alive and
+// sees its changes. A slice, items[a..b], is still a copy.
+
+Import std.core
+Import std.collections.array
+Import std.collections.map
+Import std.collections.set
+
+Extend T[]
+    // The elements from start up to finish, without the one at finish, as a view of them in the
+    // array. They have to be in the array.
+    @PanicsAtCaller
+    Public Method View(start: Int, finish: Int): ArrayView<T>
+        If start < 0 || finish < start || finish > Count
+            Panic("view {start}..{finish} is out of range for {Count} element" +
+                  "{Count == 1 ? "" : "s"}")
+        End If
+
+        Return ArrayView<T>(Self, start, finish - start)
+    End Method
+
+    // The array, to read but not change.
+    Public Method AsReadOnly(): ReadOnlyArray<T> => ReadOnlyArray<T>(Self)
+End Extend
+
+Extend Map<K, V>
+    // The Map, to read but not change.
+    Public Method AsReadOnly(): ReadOnlyMap<K, V> => ReadOnlyMap<K, V>(Self)
+End Extend
+
+Extend Set<T>
+    // The Set, to read but not change.
+    Public Method AsReadOnly(): ReadOnlySet<T> => ReadOnlySet<T>(Self)
+End Extend
+
+// Part of an array, whose elements it reads and sets in place, counting from its own start. An
+// element the array no longer has panics.
+Public Class ArrayView<T> Implements Iterable<T>
+    Field Items: T[]
+    Field Start: Int
+    Field Length: Int
+
+    New(items: T[], start: Int, length: Int)
+        Items = items
+        Start = start
+        Length = length
+    End New
+
+    Public Property Count: Int
+        Get => Length
+    End Property
+
+    // The element at index, from 0 to Count minus 1.
+    @PanicsAtCaller
+    Operator [](index: Int): T
+        If index < 0 || index >= Length Then OutOfRange(index)
+        Return Items[Start + index]
+    End Operator
+
+    // Gives the element at index, from 0 to Count minus 1, a new value, in the array.
+    @PanicsAtCaller
+    Operator []=(index: Int, value: T)
+        If index < 0 || index >= Length Then OutOfRange(index)
+        Items[Start + index] = value
+    End Operator
+
+    // Part of this view, from start up to finish, without the one at finish.
+    @PanicsAtCaller
+    Public Method View(start: Int, finish: Int): ArrayView<T>
+        If start < 0 || finish < start || finish > Length
+            Panic("view {start}..{finish} is out of range for {Length} element" +
+                  "{Length == 1 ? "" : "s"}")
+        End If
+
+        Return ArrayView<T>(Items, Start + start, finish - start)
+    End Method
+
+    // The elements, in a new array.
+    @PanicsAtCaller
+    Public Method ToArray(): T[]
+        Local copy: T[] = []
+        copy.Reserve(Length)
+        For i = 0 Until Length
+            copy.Add(Items[Start + i])
+        End For
+        Return copy
+    End Method
+
+    // The elements, in order.
+    Public Method Iterate(): ArrayViewIterator<T> => ArrayViewIterator<T>(Self, 0)
+
+    @PanicsAtCaller
+    Method OutOfRange(index: Int)
+        Panic("index {index} is out of range for a view of {Length} element" +
+              "{Length == 1 ? "" : "s"}")
+    End Method
+End Class
+
+Public Struct ArrayViewIterator<T> Implements Iterator<T>
+    Field View: ArrayView<T>
+    Field Index: Int
+
+    @PanicsAtCaller
+    Public ByRef Method Next(): T?
+        If Index >= View.Count Then Return Null
+        Index += 1
+        Return View[Index - 1]
+    End Method
+End Struct
+
+// An array to read but not change, which AsReadOnly gives.
+Public Class ReadOnlyArray<T> Implements Iterable<T>
+    Field Items: T[]
+
+    New(items: T[])
+        Items = items
+    End New
+
+    Public Property Count: Int
+        Get => Items.Count
+    End Property
+
+    @PanicsAtCaller
+    Operator [](index: Int): T => Items[index]
+
+    Public Method Contains(value: T): Bool
+        Where T: Equatable
+        Return Items.Contains(value)
+    End Method
+
+    // The elements, in a new array, which can change.
+    Public Method ToArray(): T[] => Items.Clone()
+
+    Public Method Iterate(): ArrayIterator<T> => Items.Iterate()
+End Class
+
+// A Map to read but not change, which AsReadOnly gives.
+Public Class ReadOnlyMap<K, V> Implements Iterable<(K, V)>
+    Where K: Hashable
+
+    Field Items: Map<K, V>
+
+    New(items: Map<K, V>)
+        Items = items
+    End New
+
+    Public Property Count: Int
+        Get => Items.Count
+    End Property
+
+    // The key's value, or the Map's default when it isn't there, or a panic when it has none.
+    @PanicsAtCaller
+    Operator [](key: K): V => Items[key]
+
+    Public Method Get(key: K): V? => Items.Get(key)
+
+    Public Method Get(key: K, fallback: V): V => Items.Get(key, fallback)
+
+    Public Method Contains(key: K): Bool => Items.Contains(key)
+
+    Public Method Keys(): K[] => Items.Keys()
+
+    Public Method Values(): V[] => Items.Values()
+
+    // The entries, in a new Map, which can change.
+    Public Method ToMap(): Map<K, V> => Items.Clone()
+
+    Public Method Iterate(): MapIterator<K, V> => Items.Iterate()
+End Class
+
+// A Set to read but not change, which AsReadOnly gives.
+Public Class ReadOnlySet<T> Implements Iterable<T>
+    Where T: Hashable
+
+    Field Items: Set<T>
+
+    New(items: Set<T>)
+        Items = items
+    End New
+
+    Public Property Count: Int
+        Get => Items.Count
+    End Property
+
+    Public Method Contains(value: T): Bool => Items.Contains(value)
+
+    // The values, in a new array.
+    Public Method ToArray(): T[] => Items.ToArray()
+
+    // The values, in a new Set, which can change.
+    Public Method ToSet(): Set<T> => Items.Clone()
+
+    Public Method Iterate(): SetIterator<T> => Items.Iterate()
+End Class
+
+// "[1, 2, 3]", as an array of the view's elements would show them.
+Extend ArrayView<T> Implements Printable
+    Where T: Printable
+
+    Public Method ToString(): String => "{ToArray()}"
+End Extend
+
+Extend ReadOnlyArray<T> Implements Printable
+    Where T: Printable
+
+    Public Method ToString(): String => "{Items}"
+End Extend
+
+Extend ReadOnlyMap<K, V> Implements Printable
+    Where K: Printable
+    Where V: Printable
+
+    Public Method ToString(): String => "{Items}"
+End Extend
+
+Extend ReadOnlySet<T> Implements Printable
+    Where T: Printable
+
+    Public Method ToString(): String => "{Items}"
+End Extend

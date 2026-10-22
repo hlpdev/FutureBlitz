@@ -1,0 +1,6 @@
+// A view can't be made of elements the array doesn't have.
+Import std.core
+Import std.collections
+
+Local numbers = [1, 2, 3]
+Local view = numbers.View(2, 4)

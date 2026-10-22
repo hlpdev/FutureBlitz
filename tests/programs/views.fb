@@ -1,0 +1,72 @@
+// A view of part of an array reads and sets it in place, sees its changes, and keeps it alive;
+// AsReadOnly gives an array, Map, or Set to read but not change, which sees their changes too.
+Import std.core
+Import std.collections
+
+Local numbers = [1, 2, 3, 4, 5]
+Local middle = numbers.View(1, 4)
+Print(middle, middle.Count, middle[0], middle[2])
+middle[1] = 30
+numbers[3] = 40
+Print(numbers, middle, middle.View(1, 3), middle.View(0, 0).Count)
+middle[0] += 5
+Local total = 0
+For n In middle
+    total += n
+End For
+Print(numbers, total, middle.ToArray())
+
+// A view keeps its array alive after the last other reference goes.
+Class Item
+    Field Name: String
+
+    New(name: String)
+        Name = name
+    End New
+End Class
+
+Function Tail(): ArrayView<Item>
+    Local items = [Item("a"), Item("b"), Item("c")]
+    Return items.View(1, 3)
+End Function
+
+Local tail = Tail()
+Print(tail[0].Name, tail[1].Name, tail.Count)
+
+// An empty view, and views of an empty array.
+Local none: Int[] = []
+Print(none.View(0, 0).Count, numbers.View(5, 5).Count, numbers.View(0, 5).ToArray())
+
+// Read-only views.
+Local shared = numbers.AsReadOnly()
+numbers.Add(6)
+Print(shared, shared.Count, shared[5], shared.Contains(40), shared.Contains(9))
+Local copy = shared.ToArray()
+copy.Add(7)
+Print(copy.Count, shared.Count)
+
+Local scores = {"ann": 3}
+Local seen = scores.AsReadOnly()
+scores["bo"] = 5
+Print(seen, seen.Count, seen["bo"], seen.Get("cy") ?? -1, seen.Get("cy", 0), seen.Contains("ann"))
+Print(seen.Keys(), seen.Values(), seen.ToMap() == scores)
+For name, score In seen
+    Print(name, score)
+End For
+
+Local tags = Set<String>()
+tags.Add("x")
+Local visible = tags.AsReadOnly()
+tags.Add("y")
+Print(visible, visible.Count, visible.Contains("y"), visible.ToArray(), visible.ToSet() == tags)
+
+// Anything that takes an Iterable takes a view.
+Function Sum(values: Iterable<Int>): Int
+    Local sum = 0
+    For value In values
+        sum += value
+    End For
+    Return sum
+End Function
+
+Print(Sum(middle), Sum(shared))
