@@ -263,7 +263,8 @@ End Struct
 ```
 
 - A Struct or Class can define `+ - * / % ** & | ^ << >>` and `== < > <= >=`, and `-`, `!`, and
-  `~` with one parameter. `&&`, `||`, `??`, `? :`, `Is`, and `As` mean what they always do.
+  `~` with one parameter, and `[]` and `[]=`, which index (see below). `&&`, `||`, `??`, `? :`,
+  `Is`, and `As` mean what they always do.
 - `!=` is always the opposite of `==`, so it's never defined on its own.
 - An Operator is Static, has no Self, and takes a value of its own type as one of its
   parameters. A comparison gives a `Bool`. Its parameters aren't `ByRef` and have no defaults,
@@ -276,6 +277,37 @@ End Struct
   field-wise `==`, a `T[]`'s `Contains`, and between `T?` values. `RefEquals` still compares
   objects themselves.
 - A generic type's Operators take its type arguments from their operands.
+
+### Indexing
+
+```vb
+Struct Grid
+    Field Cells: Int[]
+    Field Width: Int
+
+    Operator [](x: Int, y: Int): Int => Cells[y * Width + x]
+
+    Operator []=(x: Int, y: Int, value: Int)
+        Cells[y * Width + x] = value
+    End Operator
+End Struct
+
+grid[1, 2] = 5
+grid[0, 0] += grid[1, 2]
+```
+
+- `Operator [](indexes): T` reads an element, and `Operator []=(indexes, value)` sets one, with
+  an index or more. Unlike the other Operators, they're Methods of Self, written without the
+  object: a Struct's `[]=` changes it in place, as a ByRef Method does, so it's called only on
+  what can change, and a Class's can be overridden like any Method. An Interface can require
+  them and still have values, and a type parameter it constrains indexes through them. They
+  overload by their indexes' types, their parameters aren't ByRef, variadic, or defaulted, they
+  have no type parameters of their own, and they don't throw.
+- `x[i] op= v`, `x[i]++`, and `x[i]--` read the element through `[]` and set what that gives
+  through `[]=`, with the object and the indexes worked out once, the object first. Assigning
+  needs `[]=`, and a tuple's element can't be set through it.
+- What `[]` gives is a copy: setting a Field of a Struct it gives, passing it ByRef, or calling a
+  ByRef Method on it is an error, as for a Property. `Super[i]` calls the Class it extends'.
 
 ## Extend
 
