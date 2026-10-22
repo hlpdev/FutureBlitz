@@ -1,0 +1,14 @@
+// A For ... In over a collection as an Iterable<T>'s value goes through a box, whose Next a
+// table calls with no place, so a Stack that changes meanwhile panics where its Next does, as a
+// call through any Interface's value does, not in the box.
+Import std.core
+Import std.collections
+
+Local items = Stack<String>()
+items.Push("a")
+items.Push("b")
+Local through: Iterable<String> = items
+For item In through
+    Print(item)
+    items.Push("c")
+End For

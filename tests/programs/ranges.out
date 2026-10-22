@@ -5,6 +5,7 @@
 [-128, -1, 126]
 [0, 2, 4, 6, 8] 20 True True
 True 20 10
+True True True True False False
 3 4 5 
 [1, 5, 9] [start, end, step]
 [4, 16, 36, 64, 100]

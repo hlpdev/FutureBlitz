@@ -97,3 +97,115 @@ For n In through
 End For
 
 Print()
+
+// A box's function passes a ByRef on, so the Method changes the caller's variable.
+Interface Sized
+    Method Iterate(n: Int, ByRef taken: Int): Iterator<Int>
+End Interface
+
+Class Upto Implements Sized
+    Method Iterate(n: Int, ByRef taken: Int): Counting
+        taken += n
+        Return Counting(1, n)
+    End Method
+End Class
+
+Function Taken<S: Sized>(sized: S, n: Int): Int
+    Local taken = 0
+    Local total = 0
+    For v In sized.Iterate(n, ByRef taken)
+        total += v
+    End For
+
+    Return total * 100 + taken
+End Function
+
+Local upto: Sized = Upto()
+Local taken = 0
+Local made = upto.Iterate(3, ByRef taken)
+Print("taken", taken, made.Next() ?? -1, Taken(upto, 4), Taken(Upto(), 2))
+
+// What overrides a Method that throws, or implements another Interface's, gets an error
+// variable, which a box's function and generic code pass, though nothing sets it.
+Class Source
+    Method Iterate(): Counting Throws Error
+        Return Counting(0, -1)
+    End Method
+End Class
+
+Class Fixed Extends Source Implements Iterable<Int>
+    Override Method Iterate(): Counting => Counting(1, 3)
+End Class
+
+Interface Risky
+    Method Iterate(): Counting Throws Error
+End Interface
+
+Struct Bag Implements Iterable<Int>, Risky
+    Field last: Int
+
+    Method Iterate(): Counting => Counting(1, last)
+End Struct
+
+Class Sack Implements Iterable<Int>, Risky
+    Method Iterate(): Counting => Counting(4, 5)
+End Class
+
+Local fixed: Iterable<Int> = Fixed()
+Local sack: Iterable<Int> = Sack()
+Print("error variables", Total(fixed), Drained(Fixed()), Total(sack), Drained(Bag(3)))
+
+// A Method that implements one that throws can give what implements its Iterator<T> too, and its
+// error goes on through the box's function.
+Class LineError Extends Error
+End Class
+
+Interface Lines
+    Method Iterate(): Iterator<Int> Throws LineError
+End Interface
+
+Class Reader Implements Lines
+    Field Broken: Bool
+
+    New(broken: Bool)
+        Broken = broken
+    End New
+
+    Method Iterate(): Counting Throws LineError
+        If Broken Then Throw LineError("can't read")
+        Return Counting(1, 2)
+    End Method
+End Class
+
+Class Calm Implements Lines
+    Method Iterate(): Countdown => Countdown(2)
+End Class
+
+Function Read(lines: Lines): Int
+    Local total = 0
+    Try
+        For n In lines
+            total += n
+        End For
+    Catch e As LineError
+        Return -1
+    End Try
+
+    Return total
+End Function
+
+Function ReadAny<L: Lines>(lines: L): Int
+    Local total = 0
+    Try
+        For n In lines
+            total += n
+        End For
+    Catch e As LineError
+        Return -1
+    End Try
+
+    Return total
+End Function
+
+Print("lines", Read(Reader(False)), Read(Reader(True)), Read(Calm()), ReadAny(Reader(False)),
+      ReadAny(Reader(True)), ReadAny(Calm()))

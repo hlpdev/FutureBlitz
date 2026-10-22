@@ -4382,8 +4382,7 @@ private:
         };
         const type_id_t given = given_type(candidate.type);
         const type_id_t wanted = implemented(required.type);
-        if ((result && given != wanted &&
-             !(required.throws.empty() && boxes_into(given, wanted))) ||
+        if ((result && given != wanted && !boxes_into(given, wanted)) ||
             candidate.parameters.size() != required.parameters.size()) {
             return false;
         }
@@ -12897,6 +12896,11 @@ private:
                     }
                 }
 
+                // The loop calls Next, which a Const Function can't, since it's a Method.
+                if (in_const_function()) {
+                    check_const_call(iteration->next, span_of(node.sequence));
+                }
+
                 element = iteration->element;
                 m_analysis.stmts[index(id)].next = iteration->next;
                 m_analysis.stmts[index(id)].iterate = iteration->iterate;
@@ -20268,9 +20272,6 @@ private:
         return element_of(pointer);
     }
 
-    /// "a[from..to]": a new T[] of the elements from `from` up to `to`, without the one at `to`,
-    /// from a T[] or a fixed array of one dimension. The bounds are checked when the program
-    /// runs, and known ones here too.
     /// "start To end Step step": std's Range<T> of the integers "For i = start To end Step step"
     /// counts, T being the start's type, or the end's when the start is a literal, or the T of
     /// the Range<T> expected.
@@ -20344,6 +20345,9 @@ private:
         return m_analysis.types.instance(m_range, { element });
     }
 
+    /// "a[from..to]": a new T[] of the elements from `from` up to `to`, without the one at `to`,
+    /// from a T[] or a fixed array of one dimension. The bounds are checked when the program
+    /// runs, and known ones here too.
     type_id_t check_expr(const expr_id_t id, const slice_expr_t& node, type_id_t /*hint*/) {
         const type_id_t object = check(node.object, type_id_t::NONE);
         std::vector<expr_id_t> bounds;

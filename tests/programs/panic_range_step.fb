@@ -1,0 +1,6 @@
+// A range's Step that's only known at run time is checked for 0 when the range is made.
+Import std.core
+
+Local step = 0
+Local counted = 1 To 3 Step step
+Print(counted.ToArray())

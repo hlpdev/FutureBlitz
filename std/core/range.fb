@@ -1,13 +1,14 @@
 // Range<T>: the integers a range gives, like 0 Until 10, 1 To 10, or 10 To 0 Step -2, which are
 // the values a For loop with those bounds counts. The compiler makes each one from what's written,
 // so a Range holds only the value it gives next, its step, and how many steps come after that
-// value. An empty range is a Range's zero.
+// value. An empty range is a Range's zero. Ranges are == when they give the same values.
 
 Import std.core.interfaces
 Import std.core.iterator
 
 Public Struct Range<T> Implements Iterator<T>, Iterable<T>
     Where T: Numeric
+    Where T: Equatable
     // The value Next gives next. The compiler makes these Fields, in this order.
     Field Current: T
     Field Step: T
@@ -34,4 +35,11 @@ Public Struct Range<T> Implements Iterator<T>, Iterable<T>
 
     // A copy of the range, which goes over its values from where it is.
     Public Method Iterate(): Range<T> => Self
+
+    // Whether the two give the same values: every range that gives none does, whatever it gave
+    // before, and the step counts only where there's a value after Current.
+    Operator ==(a: Range<T>, b: Range<T>): Bool
+        If !a.More || !b.More Then Return a.More == b.More
+        Return a.Current == b.Current && a.Left == b.Left && (a.Left == 0 || a.Step == b.Step)
+    End Operator
 End Struct

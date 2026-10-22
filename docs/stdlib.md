@@ -167,7 +167,7 @@ file or URL in the default app.
   `SkipWhile`, `Enumerate`, `Zip`, `Chain`, `Flatten`, `StepBy`, `Chunks`, `Windows`,
   `OrderBy`, `OrderByDescending`; consuming: `ToArray`, `Count`, `Any`, `All`, `Find`, `First`,
   `Last`, `Fold`, `Reduce`, `ForEach`, `Sum` and `Product` where Numeric, `Min` and `Max` where
-  Comparable, `MinBy`, `MaxBy`. Sources: `Repeat(value, count)`, `Empty<T>()`. A collection's
+  Comparable, `MinBy`, `MaxBy`. Sources: `Repeated(value, count)`, `Empty<T>()`. A collection's
   own `Filter` and `Map` stay eager and give arrays.
 - Interfaces: `Iterable<T>`, `Cloneable`, and `Default` (`Static Method Default(): Self`).
 - Small things: `Min`, `Max`, `Clamp`, `Swap`; `HashCombine`; `TypeName<T>()` at compile time.

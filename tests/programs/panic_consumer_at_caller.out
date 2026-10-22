@@ -1,0 +1,2 @@
+[1, 2]
+panic: too far at panic_consumer_at_caller.fb:17:7

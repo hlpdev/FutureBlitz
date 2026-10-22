@@ -2989,10 +2989,11 @@ private:
         skip_continuation_newlines();
         const expr_id_t end = parse_expression(precedence::range + 1);
         std::optional<expr_id_t> step;
+        // The Step is the range's last part, so it's a whole expression, as a For loop's is.
         if (at(token_kind_t::IDENTIFIER) && text(peek()) == "Step") {
             advance();
             skip_continuation_newlines();
-            step = parse_expression(precedence::range + 1);
+            step = parse_expression();
         }
 
         return add_expr(span_from(span_of(start).begin), range_expr_t{

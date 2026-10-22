@@ -1,0 +1,17 @@
+// An Iterator's consumers are @PanicsAtCaller, so a @PanicsAtCaller Next one calls on a Struct
+// panics where the consumer is called.
+Import std.core
+
+Struct Counter Implements Iterator<Int>
+    Field N: Int
+
+    @PanicsAtCaller
+    ByRef Method Next(): Int?
+        If N >= 2 Then Panic("too far")
+        N += 1
+        Return N
+    End Method
+End Struct
+
+Print(Counter(0).Take(2).ToArray())
+Print(Counter(0).ToArray())

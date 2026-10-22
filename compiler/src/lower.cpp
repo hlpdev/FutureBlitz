@@ -211,6 +211,14 @@ public:
                 }
             }
         }
+
+        // So is every Method in a Class's slot, so the one an override overrides gets one too.
+        for (const symbol_id_t id : std::vector(m_takes_error.begin(), m_takes_error.end())) {
+            for (std::optional<symbol_id_t> above = analysis.symbol(id).overrides; above;
+                 above = analysis.symbol(*above).overrides) {
+                m_takes_error.insert(*above);
+            }
+        }
     }
 
     mir_module_t run() {
@@ -375,19 +383,31 @@ private:
     /// lowered with the code used from outside the main module.
     std::vector<generated_t> m_generated;
 
-    /// A Method that gives a Struct where the Interface it implements gives an Iterator<T>, as a
-    /// collection's Iterate() does for Iterable<T>'s, called through the Interface's table: a
-    /// function that calls it, then puts the Struct in a box.
-    struct boxing_t {
+    /// What an Interface's table runs for a Method that isn't called the way the Interface's
+    /// is: one that gives a Struct where the Interface's gives an Iterator<T>, as a collection's
+    /// Iterate() does for Iterable<T>'s, or one that gets an error variable where the
+    /// Interface's doesn't. A function that calls it, then puts the Struct in a box.
+    struct table_thunk_t {
+        struct parameter_t {
+            type_id_t type;
+            bool by_ref = false;
+        };
+
         function_id_t function;
         function_id_t inner;
-        /// The Method's parameters' types, Self first.
-        std::vector<type_id_t> parameters;
+        /// The Method's parameters, Self first.
+        std::vector<parameter_t> parameters;
+        /// The Method gets an error variable, as what implements an Interface's Method that
+        /// throws does.
+        bool takes_error = false;
+        /// The Interface's Method throws, so the function puts the Method's error in its caller's
+        /// variable. Otherwise nothing sets it: what implements one that doesn't can't throw.
+        bool passes_error = false;
         type_id_t given = type_id_t::INVALID;
         type_id_t wanted = type_id_t::INVALID;
     };
 
-    std::vector<boxing_t> m_boxings;
+    std::vector<table_thunk_t> m_table_thunks;
     /// Each Struct's symbol, by its type.
     std::unordered_map<type_id_t, symbol_id_t> m_declared_types;
     /// The Methods that implement an Interface's Method that throws.
@@ -890,10 +910,10 @@ private:
         std::size_t closures = 0;
         std::size_t instances = 0;
         std::size_t generated = 0;
-        std::size_t boxings = 0;
+        std::size_t thunks = 0;
         while (classes < m_used_classes.size() || functions < m_library_functions.size() ||
                closures < m_closures.size() || instances < m_pending_instances.size() ||
-               generated < m_generated.size() || boxings < m_boxings.size()) {
+               generated < m_generated.size() || thunks < m_table_thunks.size()) {
             if (classes < m_used_classes.size()) {
                 add_class(m_used_classes[classes++]);
                 continue;
@@ -907,11 +927,11 @@ private:
                 continue;
             }
 
-            if (boxings < m_boxings.size()) {
-                const boxing_t boxing = m_boxings[boxings++];
+            if (thunks < m_table_thunks.size()) {
+                const table_thunk_t thunk = m_table_thunks[thunks++];
                 m_parameters.clear();
                 m_arguments.clear();
-                lower_boxing(boxing);
+                lower_table_thunk(thunk);
                 continue;
             }
 
@@ -1155,7 +1175,8 @@ private:
         const function_id_t entry = is_virtual(m_analysis.symbol(found))
                                         ? info.methods[slot_of(found)]
                                         : function_of(found, arguments);
-        // A Struct that a Method gives where the Interface's gives an Iterator<T> goes in a box.
+        // A Struct that a Method gives where the Interface's gives an Iterator<T> goes in a box,
+        // and a Method that gets an error variable where the Interface's doesn't is given one.
         const symbol_t& member = m_analysis.symbol(required);
         const symbol_t& method = m_analysis.symbol(found);
         std::vector<type_id_t> abstract{ interface };
@@ -1164,62 +1185,105 @@ private:
             types().substitute(member.type, type_parameters_of(member), abstract);
         const type_id_t given =
             types().substitute(method.type, type_parameters_of(method), arguments);
-        if (wanted == given || !is_struct(given)) {
+        const bool boxes = wanted != given && is_struct(given);
+        if (!boxes && (takes_error(required) || !takes_error(found))) {
             return entry;
         }
 
-        return boxing_thunk(entry, method, type, arguments, given, wanted);
+        return table_thunk(entry, found, required, type, arguments, boxes ? given : wanted,
+                           wanted);
     }
 
-    /// The function a table runs for a Method that gives a Struct where the Interface's gives an
-    /// Iterator<T>, declared the first time it's needed, like "Bag.Iterate() as Iterator<Int32>".
-    function_id_t boxing_thunk(const function_id_t inner, const symbol_t& method,
-                               const type_id_t type, const std::vector<type_id_t>& arguments,
-                               const type_id_t given, const type_id_t wanted) {
-        const auto found = std::ranges::find_if(m_boxings, [&](const boxing_t& boxing) {
-            return boxing.inner == inner && boxing.wanted == wanted;
+    /// The function a table runs for a Method that isn't called the way the Interface's is,
+    /// declared the first time it's needed, like "Bag.Iterate() as Iterator<Int32>", or
+    /// "Steady.Value() without an error variable".
+    function_id_t table_thunk(const function_id_t inner, const symbol_id_t method_id,
+                              const symbol_id_t required, const type_id_t type,
+                              const std::vector<type_id_t>& arguments, const type_id_t given,
+                              const type_id_t wanted) {
+        const bool passes_error = takes_error(required);
+        const auto found = std::ranges::find_if(m_table_thunks, [&](const table_thunk_t& thunk) {
+            return thunk.inner == inner && thunk.wanted == wanted &&
+                   thunk.passes_error == passes_error;
         });
-        if (found != m_boxings.end()) {
+        if (found != m_table_thunks.end()) {
             return found->function;
         }
 
-        std::vector<type_id_t> parameters{ type };
+        const symbol_t& method = m_analysis.symbol(method_id);
+        std::vector<table_thunk_t::parameter_t> parameters{ { .type = type } };
         for (const symbol_id_t parameter : method.parameters) {
-            parameters.push_back(types().substitute(m_analysis.symbol(parameter).type,
-                                                    type_parameters_of(method), arguments));
+            const symbol_t& symbol = m_analysis.symbol(parameter);
+            parameters.push_back({
+                .type = types().substitute(symbol.type, type_parameters_of(method), arguments),
+                .by_ref = symbol.by_ref,
+            });
         }
 
+        const std::string& name = m_module.functions[index(inner)].name;
         const auto id = static_cast<function_id_t>(m_module.functions.size());
         m_module.functions.push_back({
-            .name = std::format("{} as {}", m_module.functions[index(inner)].name,
-                                types().qualified_name(wanted)),
+            .name = given == wanted
+                        ? std::format("{} without an error variable", name)
+                        : std::format("{} as {}", name, types().qualified_name(wanted)),
             .return_type = wanted,
         });
-        m_boxings.push_back({
+        m_table_thunks.push_back({
             .function = id,
             .inner = inner,
             .parameters = std::move(parameters),
+            .takes_error = takes_error(method_id),
+            .passes_error = passes_error,
             .given = given,
             .wanted = wanted,
         });
         return id;
     }
 
-    /// A boxing function's body: it calls the Method, and gives the Struct in a box.
-    void lower_boxing(const boxing_t& boxing) {
-        begin_function(boxing.function);
+    /// A table thunk's body: it calls the Method, and gives what it gives, a Struct in a box.
+    void lower_table_thunk(const table_thunk_t& thunk) {
+        begin_function(thunk.function);
         std::vector<call_argument_t> arguments;
-        for (std::size_t i = 0; i < boxing.parameters.size(); ++i) {
-            const local_id_t parameter =
-                add_local(boxing.parameters[i], i == 0 ? "Self" : std::string_view{});
-            arguments.push_back({ .value = place_t{ parameter } });
+        for (std::size_t i = 0; i < thunk.parameters.size(); ++i) {
+            const table_thunk_t::parameter_t& parameter = thunk.parameters[i];
+            const local_id_t local = add_local(
+                parameter.type, i == 0 ? "Self" : std::string_view{}, parameter.by_ref);
+            arguments.push_back({ .value = place_t{ local }, .by_ref = parameter.by_ref });
+        }
+
+        if (thunk.passes_error) {
+            m_error_slot = add_local(m_analysis.nullable_error, "error", true);
         }
 
         current().parameter_count = current().locals.size();
-        const operand_t value =
-            temporary(call_t{ .function = boxing.inner, .arguments = std::move(arguments) },
-                      boxing.given, has_references(boxing.given));
-        const operand_t box = boxed(value, boxing.wanted, {});
+        std::optional<local_id_t> error;
+        if (thunk.takes_error) {
+            error = error_variable();
+            arguments.push_back({ .value = place_t{ *error }, .by_ref = true });
+        }
+
+        call_t call{ .function = thunk.inner, .arguments = std::move(arguments) };
+        if (thunk.given == type_id_t::NONE) {
+            emit(evaluate_t{ .value = std::move(call) });
+            if (thunk.passes_error) {
+                check_error(*error, {});
+            }
+
+            finish_statement();
+            terminate(return_t{});
+            return;
+        }
+
+        const operand_t value = temporary(std::move(call), thunk.given);
+        if (thunk.passes_error) {
+            check_error(*error, {});
+        }
+
+        if (has_references(thunk.given)) {
+            m_temporaries.push_back(std::get<local_id_t>(std::get<place_t>(value).root));
+        }
+
+        const operand_t box = boxed(value, thunk.wanted, {});
         take(box);
         finish_statement();
         terminate(return_t{ .value = box });
@@ -7373,8 +7437,9 @@ private:
             call.slot = slot_of(target);
         }
 
+        // A table's slot is called as the Interface's Method is, and a Method itself as it is.
         std::optional<local_id_t> error;
-        if (takes_error(required)) {
+        if (takes_error(dynamic ? required : target)) {
             error = error_variable();
             call.arguments.push_back({ .value = place_t{ *error }, .by_ref = true });
         }

@@ -4939,6 +4939,30 @@ TEST_CASE("what a Const Function can't do", "[sema]") {
               "g: a Const Function can't use Globals, which only the running program has",
               "Plain: a Const Function can only call Const Functions, and 'Plain' isn't one",
           });
+    // A For ... In over a range or any Iterator calls its Next, a Method, which a Const Function
+    // can't, whether it runs in a Const, a Global, or code.
+    CHECK(errors_of("Import std.core
+"
+                    "Const Function SumTo(n: Int): Int
+"
+                    "    Local total = 0
+"
+                    "    For x In 1 To n
+"
+                    "        total += x
+"
+                    "    End For
+"
+                    "    Return total
+"
+                    "End Function
+"
+                    "Const A = SumTo(10)
+"
+                    "Global g = SumTo(4)
+"
+                    "Print(A, g, SumTo(3))") ==
+          errors_t{ "1 To n: a Const Function can only call Const Functions, and 'Next' isn't one" });
     CHECK(errors_of("Const Function F<T>(x: T[]): Int => 1") ==
           errors_t{ "x: a Const Function takes numbers, Bools, Strings, and Enums, not T[]" });
     CHECK(errors_of("Const Function F()\nEnd Function") ==
@@ -6048,6 +6072,51 @@ TEST_CASE("an Interface's Methods can throw, and be generic", "[sema]") {
                                 mapper)) ==
           errors_t{ "Mapper: Mapper can only be a constraint, like <T: Mapper>, since it needs "
                     "generic Methods, which no table can hold" });
+}
+
+TEST_CASE("a Method can give what implements the Iterator<T> an Interface's Method gives",
+          "[sema]") {
+    constexpr std::string_view iterators = "Import std.core\n"
+                                           "Struct Counting Implements Iterator<Int>\n"
+                                           "    ByRef Method Next(): Int? => Null\n"
+                                           "End Struct\n"
+                                           "Struct Words Implements Iterator<String>\n"
+                                           "    ByRef Method Next(): String? => Null\n"
+                                           "End Struct\n"
+                                           "Struct Plain\nEnd Struct\n";
+    // A Struct or Class that implements it, where the Interface's Method throws too.
+    CHECK(errors_of(std::format("{}Class A Implements Iterable<Int>\n"
+                                "    Method Iterate(): Counting => Counting()\n"
+                                "End Class\n"
+                                "Interface Lines\n"
+                                "    Method Iterate(): Iterator<Int> Throws Error\n"
+                                "End Interface\n"
+                                "Class B Implements Lines\n"
+                                "    Method Iterate(): Counting Throws Error\n"
+                                "        Return Counting()\n"
+                                "    End Method\n"
+                                "End Class",
+                                iterators))
+              .empty());
+
+    // Not one of another T, or what isn't one, or for any other Interface.
+    CHECK(errors_of(std::format("{}Class A Implements Iterable<Int>\n"
+                                "    Method Iterate(): Words => Words()\n"
+                                "End Class",
+                                iterators)) ==
+          errors_t{ "Iterable<Int>: A's 'Iterate' doesn't match Iterable<Int32>'s, which takes () "
+                    "and returns Iterator<Int32>" });
+    CHECK(errors_of(std::format("{}Class A Implements Iterable<Int>\n"
+                                "    Method Iterate(): Plain => Plain()\n"
+                                "End Class",
+                                iterators)) ==
+          errors_t{ "Iterable<Int>: A's 'Iterate' doesn't match Iterable<Int32>'s, which takes () "
+                    "and returns Iterator<Int32>" });
+    CHECK(errors_of("Interface Shape\n    Method Area(): Int\nEnd Interface\n"
+                    "Class Square Implements Shape\n    Method Area(): Int => 4\nEnd Class\n"
+                    "Interface Maker\n    Method Make(): Shape\nEnd Interface\n"
+                    "Class M Implements Maker\n    Method Make(): Square => Square()\nEnd Class") ==
+          errors_t{ "Maker: M's 'Make' doesn't match Maker's, which takes () and returns Shape" });
 }
 
 TEST_CASE("a generic, conditional, or Final default runs as written, on an Interface's value too",

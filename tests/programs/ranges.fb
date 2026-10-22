@@ -45,6 +45,13 @@ Local copy = evens
 Print(evens.ToArray(), copy.Sum(), evens == copy, evens == (0 Until 10 Step 2))
 Print((0 Until 0) == (5 To 1), Total(evens), Total(1 To 4))
 
+// Ranges are == when they give the same values: the step of one with one value doesn't count,
+// and one that's given its last value is empty.
+Local single = 0 To 0
+single.Next()
+Print((0 To 0) == (0 To 0 Step 5), (3 To 3) == (3 To 3 Step -1), single == (1 To 0),
+      (0 To 4 Step 3) == (0 To 3 Step 3), (0 To 4) == (0 To 4 Step 2), (1 To 3) != (1 To 3))
+
 // A loop goes over it as a For loop counts.
 For n In 3 Until 6
     Write(n, "")

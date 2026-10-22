@@ -2866,9 +2866,16 @@ private:
                                                 : value_of(argument.value));
         }
 
-        // A @PanicsAtCaller function takes where its call is, or null where no code calls it.
+        // A @PanicsAtCaller function takes where its call is, or null where no code calls it. In
+        // another one's code, it takes the place that one's caller gives, which is null where
+        // the caller has none, so its panics report where they are.
         if (m_mir.functions[index(node.function)].panics_at_caller) {
-            arguments.push_back(node.place ? location(*node.place) : LLVMConstNull(m_ptr));
+            LLVMValueRef place = caller_place();
+            if (place == nullptr) {
+                place = node.place ? own_location(*node.place) : LLVMConstNull(m_ptr);
+            }
+
+            arguments.push_back(place);
         }
 
         function_ref_t function = m_functions[index(node.function)];

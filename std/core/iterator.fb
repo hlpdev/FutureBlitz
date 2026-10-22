@@ -4,7 +4,9 @@
 // Its adapters are lazy: each gives an Iterator of its own, which asks the one before it for a
 // value only when it's asked for one. Its consumers go over the values once. They're all Final,
 // so they're what every Iterator has, through its value too. Called on a Struct, they go over a
-// copy of it, and a Class's object is used up, as a For loop over it is.
+// copy of it, and a Class's object is used up, as a For loop over it is. A @PanicsAtCaller Next
+// panics where a consumer is called, and through an adapter or a box, where its panic is, as
+// through any Iterator<T> value.
 
 Import std.core.interfaces
 
@@ -91,6 +93,7 @@ Public Interface Iterator<T>
     End Method
 
     // The values, in a new array.
+    @PanicsAtCaller
     Final Method ToArray(): T[]
         Local items: T[] = []
         For value In Self
@@ -101,6 +104,7 @@ Public Interface Iterator<T>
     End Method
 
     // How many values there are.
+    @PanicsAtCaller
     Final Method Count(): Int
         Local count = 0
         For value In Self
@@ -111,6 +115,7 @@ Public Interface Iterator<T>
     End Method
 
     // Whether test says yes for any value, going no further than the first.
+    @PanicsAtCaller
     Final Method Any(test: Func(T): Bool): Bool
         For value In Self
             If test(value) Then Return True
@@ -120,6 +125,7 @@ Public Interface Iterator<T>
     End Method
 
     // Whether test says yes for every value, going no further than the first it doesn't.
+    @PanicsAtCaller
     Final Method All(test: Func(T): Bool): Bool
         For value In Self
             If !test(value) Then Return False
@@ -129,6 +135,7 @@ Public Interface Iterator<T>
     End Method
 
     // The first value test says yes for, or Null.
+    @PanicsAtCaller
     Final Method Find(test: Func(T): Bool): T?
         For value In Self
             If test(value) Then Return value
@@ -138,6 +145,7 @@ Public Interface Iterator<T>
     End Method
 
     // The first value, or Null when there's none.
+    @PanicsAtCaller
     Final Method First(): T?
         For value In Self
             Return value
@@ -147,6 +155,7 @@ Public Interface Iterator<T>
     End Method
 
     // The last value, or Null when there's none.
+    @PanicsAtCaller
     Final Method Last(): T?
         Local last: T? = Null
         For value In Self
@@ -157,6 +166,7 @@ Public Interface Iterator<T>
     End Method
 
     // What combine makes of start and each value in turn.
+    @PanicsAtCaller
     Final Method Fold<A>(start: A, combine: Func(A, T): A): A
         Local result = start
         For value In Self
@@ -168,6 +178,7 @@ Public Interface Iterator<T>
 
     // What combine makes of the values, the first two, then that and the next, and so on: the
     // first alone when there's one, and Null when there's none.
+    @PanicsAtCaller
     Final Method Reduce(combine: Func(T, T): T): T?
         Local result: T? = Null
         For value In Self
@@ -182,6 +193,7 @@ Public Interface Iterator<T>
     End Method
 
     // Runs action for each value.
+    @PanicsAtCaller
     Final Method ForEach(action: Func(T))
         For value In Self
             action(value)
@@ -189,6 +201,7 @@ Public Interface Iterator<T>
     End Method
 
     // The values added up, or zero when there are none.
+    @PanicsAtCaller
     Final Method Sum(): T
         Where T: Numeric
         Local total = T.Zero()
@@ -200,6 +213,7 @@ Public Interface Iterator<T>
     End Method
 
     // The values multiplied together, or one when there are none.
+    @PanicsAtCaller
     Final Method Product(): T
         Where T: Numeric
         Local total = T.One()
@@ -211,6 +225,7 @@ Public Interface Iterator<T>
     End Method
 
     // The smallest value, the first of equal ones, or Null when there's none.
+    @PanicsAtCaller
     Final Method Min(): T?
         Where T: Comparable
         Local least: T? = Null
@@ -226,6 +241,7 @@ Public Interface Iterator<T>
     End Method
 
     // The largest value, the first of equal ones, or Null when there's none.
+    @PanicsAtCaller
     Final Method Max(): T?
         Where T: Comparable
         Local most: T? = Null
@@ -241,6 +257,7 @@ Public Interface Iterator<T>
     End Method
 
     // The value whose key is smallest, the first of equal ones, or Null when there's none.
+    @PanicsAtCaller
     Final Method MinBy<K: Comparable>(key: Func(T): K): T?
         Local least: T? = Null
         Local leastKey: K? = Null
@@ -259,6 +276,7 @@ Public Interface Iterator<T>
     End Method
 
     // The value whose key is largest, the first of equal ones, or Null when there's none.
+    @PanicsAtCaller
     Final Method MaxBy<K: Comparable>(key: Func(T): K): T?
         Local most: T? = Null
         Local mostKey: K? = Null
@@ -304,6 +322,7 @@ Package Final Class Boxed<S, T> Implements Iterator<T>
         Source = source
     End New
 
+    @PanicsAtCaller
     Method Next(): T? => Source.Next()
 End Class
 
@@ -338,6 +357,7 @@ Final Class Mapped<S, T, U> Implements Iterator<U>
         Change = change
     End New
 
+    @PanicsAtCaller
     Method Next(): U?
         Local value = Source.Next()
         If value == Null Then Return Null
@@ -355,6 +375,7 @@ Final Class Filtered<S, T> Implements Iterator<T>
         Keep = keep
     End New
 
+    @PanicsAtCaller
     Method Next(): T?
         Local value = Source.Next()
         While value != Null
@@ -376,6 +397,7 @@ Final Class Taken<S, T> Implements Iterator<T>
         Left = left
     End New
 
+    @PanicsAtCaller
     Method Next(): T?
         If Left == 0 Then Return Null
         Left -= 1
@@ -393,6 +415,7 @@ Final Class Skipped<S, T> Implements Iterator<T>
         Left = left
     End New
 
+    @PanicsAtCaller
     Method Next(): T?
         While Left > 0
             Left -= 1
@@ -414,6 +437,7 @@ Final Class TakenWhile<S, T> Implements Iterator<T>
         Keep = keep
     End New
 
+    @PanicsAtCaller
     Method Next(): T?
         If Done Then Return Null
         Local value = Source.Next()
@@ -437,6 +461,7 @@ Final Class SkippedWhile<S, T> Implements Iterator<T>
         Skipping = skip
     End New
 
+    @PanicsAtCaller
     Method Next(): T?
         If Started Then Return Source.Next()
         Started = True
@@ -459,6 +484,7 @@ Final Class Enumerated<S, T> Implements Iterator<(Int, T)>
         Source = source
     End New
 
+    @PanicsAtCaller
     Method Next(): (Int, T)?
         Local value = Source.Next()
         If value == Null Then Return Null
@@ -478,6 +504,7 @@ Final Class Zipped<S, O, T, U> Implements Iterator<(T, U)>
         Other = other
     End New
 
+    @PanicsAtCaller
     Method Next(): (T, U)?
         Local value = Source.Next()
         If value == Null Then Return Null
@@ -499,6 +526,7 @@ Final Class Chained<S, O, T> Implements Iterator<T>
         Other = other
     End New
 
+    @PanicsAtCaller
     Method Next(): T?
         If !Ended
             Local value = Source.Next()
@@ -520,6 +548,7 @@ Final Class Flattened<S, T, U> Implements Iterator<U>
         Source = source
     End New
 
+    @PanicsAtCaller
     Method Next(): U?
         While True
             Local current = Current
@@ -548,6 +577,7 @@ Final Class Stepped<S, T> Implements Iterator<T>
         Stride = stride
     End New
 
+    @PanicsAtCaller
     Method Next(): T?
         If !Started
             Started = True
@@ -572,6 +602,7 @@ Final Class Chunked<S, T> Implements Iterator<T[]>
         Size = size
     End New
 
+    @PanicsAtCaller
     Method Next(): T[]?
         Local chunk: T[] = []
         While chunk.Count < Size
@@ -596,6 +627,7 @@ Final Class Windowed<S, T> Implements Iterator<T[]>
         Size = size
     End New
 
+    @PanicsAtCaller
     Method Next(): T[]?
         While Window.Count < Size
             Local value = Source.Next()
@@ -625,6 +657,7 @@ Final Class Ordered<S, T, K> Implements Iterator<T>
         Descending = descending
     End New
 
+    @PanicsAtCaller
     Method Next(): T?
         If !Started
             Started = True

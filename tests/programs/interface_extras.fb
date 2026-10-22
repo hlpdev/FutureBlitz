@@ -134,3 +134,38 @@ Try
 Catch e
     Print("never")
 End Try
+
+// What implements another Interface's Method that throws takes an error variable, which a call
+// through either Interface passes, and generic code too.
+Interface Plain
+    Method Value(): Int
+End Interface
+
+Interface Risky
+    Method Value(): Int Throws Error
+End Interface
+
+Class Steady Implements Plain, Risky
+    Method Value(): Int => 7
+End Class
+
+Function PlainValue<T: Plain>(item: T): Int => item.Value()
+
+Local steady = Steady()
+Local plain: Plain = steady
+Local risky: Risky = steady
+Print(PlainValue(steady), plain.Value(), Try? risky.Value() ?? -1)
+
+// So does the Method an override like that overrides, since a slot's Methods are called one way.
+Class Quiet Implements Plain
+    Method Value(): Int => 1
+End Class
+
+Class Loud Extends Quiet Implements Risky
+    Override Method Value(): Int => 2
+End Class
+
+Local quiet: Quiet = Loud()
+Local calm: Plain = Quiet()
+Local loud: Risky = Loud()
+Print(quiet.Value(), calm.Value(), PlainValue(Loud()), Try? loud.Value() ?? -1)

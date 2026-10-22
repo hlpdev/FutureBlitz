@@ -1,0 +1,27 @@
+// A @PanicsAtCaller Method called through an Interface's value has no place, and passes none
+// on, so a @PanicsAtCaller Function it calls panics where its own panic is.
+Import std.core
+
+Interface Source
+    Method Take(): Int
+End Interface
+
+@PanicsAtCaller
+Function Checked(left: Int): Int
+    If left == 0 Then Panic("nothing is left")
+    Return left - 1
+End Function
+
+Class Tokens Implements Source
+    Field Left: Int = 1
+
+    @PanicsAtCaller
+    Method Take(): Int
+        Left = Checked(Left)
+        Return Left
+    End Method
+End Class
+
+Local source: Source = Tokens()
+Print("{source.Take()}")
+source.Take()

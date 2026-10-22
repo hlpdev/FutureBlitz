@@ -113,7 +113,8 @@ A call to a throwing function must be inside a `Try` block or prefixed with `Try
   code report where it's called, as Rust's `#[track_caller]` does, so misuse points at the
   program's line: popping an empty Stack panics where `Pop` is called. A call of another
   @PanicsAtCaller function passes that place on. A call through an Interface's object, a
-  function value, or a Callback has no place to give, so there the panic reports where it is.
+  function value, or a Callback has no place to give, so there the panic reports where it is,
+  and a @PanicsAtCaller function called that way passes none on either.
   An Override of a @PanicsAtCaller Method is one too, and one that isn't can't be overridden by
   one that is, since a call through the Method table gives a place or doesn't.
 
