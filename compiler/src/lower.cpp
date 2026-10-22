@@ -6865,6 +6865,49 @@ private:
         pop_scope();
     }
 
+    /// A T?'s Expect, which gives its value or panics with the message where it's called, and
+    /// OrElse, which gives its value or what its function gives, called only when it's Null.
+    operand_t nullable_call(const symbol_t& method, const std::vector<call_argument_t>& arguments,
+                            const span_t span) {
+        const operand_t value = arguments.front().value;
+        const type_id_t type = concrete(method.type);
+        const local_id_t result = add_local(type);
+        const operand_t present = has_value(value, span);
+        const block_id_t test = here();
+        m_block.reset();
+
+        std::vector<block_id_t> exits;
+        const block_id_t holds = new_block();
+        start(holds);
+        const operand_t inner = convert(unwrap(value), type, span);
+        take(inner);
+        emit(assign_t{ .target = result, .value = use_t{ .value = inner } });
+        leave(exits);
+
+        const block_id_t missing = new_block();
+        start(missing);
+        if (method.name == "Expect") {
+            terminate(panic_t{ .span = span, .text = arguments[1].value });
+        } else {
+            const std::size_t mark = m_temporaries.size();
+            const operand_t made = temporary(invoke_t{ .callee = arguments[1].value, .span = span },
+                                             type, has_references(type));
+            take(made);
+            emit(assign_t{ .target = result, .value = use_t{ .value = made } });
+            release_temporaries_from(mark);
+            leave(exits);
+        }
+
+        block_at(test).terminator =
+            branch_t{ .condition = present, .if_true = holds, .if_false = missing };
+        join(exits);
+        if (has_references(type)) {
+            m_temporaries.push_back(result);
+        }
+
+        return place_t{ result };
+    }
+
     /// A Task's Wait and a Thread's Join, which give the result a Task keeps, and IsDone.
     std::optional<operand_t> task_call(const symbol_t& method,
                                        const std::vector<call_argument_t>& arguments,
@@ -7455,6 +7498,11 @@ private:
         if (function.kind == symbol_kind_t::METHOD && is_task(function.owner) &&
             !function.declaration) {
             return task_call(function, arguments, span_of(id));
+        }
+
+        if (function.kind == symbol_kind_t::METHOD && is_nullable(function.owner) &&
+            !function.declaration) {
+            return nullable_call(function, arguments, span_of(id));
         }
 
         if (function.kind == symbol_kind_t::METHOD && is_channel(function.owner) &&

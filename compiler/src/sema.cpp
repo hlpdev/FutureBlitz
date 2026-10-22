@@ -488,6 +488,8 @@ private:
     /// Each call's type arguments in full, its Struct's or Class's ones too, which
     /// check_expansion() follows as lowering makes the instance.
     std::unordered_map<expr_id_t, std::vector<type_id_t>> m_call_arguments;
+    /// Each T?'s Methods, made when first used.
+    std::unordered_map<type_id_t, std::vector<symbol_id_t>> m_nullable_methods;
     /// Each Channel's Methods, made when first used.
     std::unordered_map<type_id_t, std::vector<symbol_id_t>> m_channel_methods;
     /// A Scheduler's Methods, once something uses them.
@@ -10084,6 +10086,42 @@ private:
         return m_channel_methods[type] = std::move(methods);
     }
 
+    /// A T?'s Methods: Expect, which gives its value or panics with the message where it's
+    /// called, and OrElse, which gives its value or what the function gives when it's Null. Their
+    /// owner is the T?, and they have no declaration.
+    const std::vector<symbol_id_t>& nullable_methods(const type_id_t type) {
+        if (const auto found = m_nullable_methods.find(type); found != m_nullable_methods.end()) {
+            return found->second;
+        }
+
+        const type_id_t value = non_null(type);
+        const auto parameter = [this](const std::string_view name, const type_id_t parameter_type) {
+            return add_symbol({
+                .kind = symbol_kind_t::PARAMETER,
+                .name = name,
+                .type = parameter_type,
+            });
+        };
+        std::vector<symbol_id_t> methods;
+        methods.push_back(add_symbol({
+            .kind = symbol_kind_t::METHOD,
+            .name = "Expect",
+            .type = value,
+            .parameters = { parameter("message", type_id_t::STRING) },
+            .owner = type,
+            .modifiers = { .visibility = visibility_t::PUBLIC, .panics_at_caller = true },
+        }));
+        methods.push_back(add_symbol({
+            .kind = symbol_kind_t::METHOD,
+            .name = "OrElse",
+            .type = value,
+            .parameters = { parameter("make", m_analysis.types.function({}, value)) },
+            .owner = type,
+            .modifiers = { .visibility = visibility_t::PUBLIC },
+        }));
+        return m_nullable_methods[type] = std::move(methods);
+    }
+
     /// A Task's Methods, Wait and IsDone, and a Thread's, Join and IsDone. Their owner is the
     /// Task or Thread, and they have no declaration.
     const std::vector<symbol_id_t>& task_methods(const type_id_t type) {
@@ -16804,6 +16842,14 @@ private:
                                            const name_t& member) {
         if (type == type_id_t::INVALID || member.text.empty()) {
             return {};
+        }
+
+        // A T?'s own Methods are on it, Null or not.
+        if (is_nullable(type) && (member.text == "Expect" || member.text == "OrElse")) {
+            std::vector<symbol_id_t> methods;
+            std::ranges::copy_if(nullable_methods(type), std::back_inserter(methods),
+                                 [&](const symbol_id_t id) { return symbol(id).name == member.text; });
+            return methods;
         }
 
         if (is_nullable(type) && has_members(non_null(type))) {

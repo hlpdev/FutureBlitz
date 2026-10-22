@@ -3093,6 +3093,24 @@ TEST_CASE("generic code that would need instances without end is an error", "[se
               .empty());
 }
 
+TEST_CASE("a T? has Expect and OrElse, which give its value", "[sema]") {
+    constexpr std::string_view found = "Import std.core\n"
+                                       "Function Find(): Int? => Null\n"
+                                       "Function Deep(): String?? => Null\n";
+    CHECK(probe(std::format("{}Local x = Find().Expect(\"none\")", found)) == "Int32");
+    CHECK(probe(std::format("{}Local x = Find().OrElse(Function() => 7)", found)) == "Int32");
+    CHECK(probe(std::format("{}Local x = Deep().Expect(\"none\")", found)) == "String?");
+    CHECK(errors_of(std::format("{}Local a = Find().OrElse(7)\n"
+                                "Local b = Find().Expect(1)\n"
+                                "Local c = Find().Other()",
+                                found)) ==
+          errors_t{
+              "7: expected Func(): Int32, found Int32",
+              "1: expected String, found Int32",
+              "Other: Int32? has no member named 'Other'",
+          });
+}
+
 TEST_CASE("arrays are Cloneable, and the numbers, Bool, String, and Enums Defaultable", "[sema]") {
     constexpr std::string_view generic = "Import std.core\n"
                                          "Function Copied<T: Cloneable>(v: T): T => v.Clone()\n"

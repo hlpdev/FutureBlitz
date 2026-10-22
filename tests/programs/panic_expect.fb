@@ -1,0 +1,32 @@
+// A T?'s Expect gives its value, or panics with the message where it's called, and OrElse gives
+// its value, or what its function gives, which runs only when it's Null.
+Import std.core
+
+Function Find(names: String[], first: String): String?
+    For name In names
+        If name.Bytes[0] == first.Bytes[0] Then Return name
+    End For
+
+    Return Null
+End Function
+
+Function Count(word: String): Int?
+    If word == "" Then Return Null
+    Return word.Bytes.Count
+End Function
+
+Global made = 0
+Function Fallback(): String
+    made += 1
+    Return "nobody"
+End Function
+
+Local names = ["Ann", "Bo"]
+Print(Find(names, "B").Expect("a B name"), Find(names, "C").OrElse(Fallback), made)
+Print(Find(names, "A").OrElse(Fallback), made, Count("four").OrElse(Function() => -1),
+      Count("").OrElse(Function() => -1))
+
+// Nested: a T??'s Expect gives the T? inside.
+Local nested: String?? = Null
+Print(nested.OrElse(Function(): String? => Null) ?? "inner Null")
+Print(Find(names, "Z").Expect("no Z name"))

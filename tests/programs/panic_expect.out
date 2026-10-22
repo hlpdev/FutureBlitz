@@ -1,0 +1,4 @@
+Bo nobody 1
+Ann 1 4 -1
+inner Null
+panic: no Z name at panic_expect.fb:32:7

@@ -135,6 +135,10 @@ If target != Null Then target.Hurt(5)   // target is Enemy here
 - `a ?? b` gives the value in `a`, or `b` when `a` is `Null`; `b` only runs then. For a `T??`
   it gives a `T?`, as `?.` takes off one `T?` too. Comparing a `T??` with `Null` asks about the
   outer one.
+- Every `T?` has two Methods of its own, which work on it whether it holds a value or not:
+  `x.Expect(message)` gives the value, or panics with the message where it's called, and
+  `x.OrElse(make)` gives the value, or what `make`, a `Func(): T`, gives, called only when `x` is
+  `Null`.
 - Two `T?` values are equal when both are `Null` or both hold equal values. A `T?` and a `T`
   compare the same way, the `T` as a `T?` holding it, with `T`'s `Operator ==` if it has one.
 - A `T?` can't go in a string; give a value for `Null` first: `"{name ?? "nobody"}"`.
