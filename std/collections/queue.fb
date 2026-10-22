@@ -23,6 +23,13 @@ Public Class Queue<T> Implements Iterable<T>, Cloneable, Defaultable
         Enqueue(value)
     End Method
 
+    // Enqueues each of the values, in order.
+    Public Method AddAll(values: Iterable<T>)
+        For value In values.Iterate().ToArray()
+            Enqueue(value)
+        End For
+    End Method
+
     // Takes the front value off and gives it. Panics when the Queue is empty.
     @PanicsAtCaller
     Public Method Dequeue(): T
@@ -44,6 +51,21 @@ Public Class Queue<T> Implements Iterable<T>, Cloneable, Defaultable
         Return Items[Head]
     End Method
 
+    // Takes the front value off and gives it, or Null when the Queue is empty.
+    Public Method TryDequeue(): T?
+        If Head == Items.Count Then Return Null
+        Return Dequeue()
+    End Method
+
+    // The front value, which stays, or Null when the Queue is empty.
+    Public Method TryPeek(): T?
+        If Head == Items.Count Then Return Null
+        Return Items[Head]
+    End Method
+
+    // The values from the front, the order Dequeue gives them, in a new array.
+    Public Method ToArray(): T[] => Items[Head..]
+
     Public Method Contains(value: T): Bool
         Where T: Equatable
         For i = Head Until Items.Count
@@ -61,6 +83,7 @@ Public Class Queue<T> Implements Iterable<T>, Cloneable, Defaultable
     // A new, empty Queue.
     Public Static Method DefaultValue(): Queue<T> => Queue<T>()
 
+    // A new Queue with the same values.
     Public Method Clone(): Queue<T>
         Local copy = Queue<T>()
         copy.Items = Items[Head..]

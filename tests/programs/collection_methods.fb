@@ -1,0 +1,63 @@
+// Stack, Queue, Deque, and PriorityQueue: the Try twins, which give Null where the others panic,
+// ToArray, and AddAll from any Iterable, themselves too; Deque's [] and []=; and PriorityQueue's
+// Drain and the heap AddAll builds.
+Import std.core
+Import std.collections
+
+// Stack.
+Local stack = Stack<Int>()
+stack.AddAll([1, 2, 3])
+Local noStack = Stack<Int>()
+Print(stack.ToArray(), noStack.ToArray(), stack.TryPeek() ?? -1, noStack.TryPeek() ?? -1)
+Print(stack.TryPop() ?? -1, noStack.TryPop() ?? -1, stack.ToArray())
+stack.AddAll(stack)
+stack.AddAll(noStack)
+Print(stack.ToArray(), stack.Count)
+
+// Queue.
+Local queue = Queue<String>()
+queue.AddAll(["a", "b", "c"])
+Local noQueue = Queue<String>()
+Print(queue.ToArray(), queue.TryPeek() ?? "-", noQueue.TryPeek() ?? "-", noQueue.ToArray())
+Print(queue.TryDequeue() ?? "-", queue.TryDequeue() ?? "-", noQueue.TryDequeue() ?? "-")
+queue.AddAll(queue)
+Print(queue.ToArray())
+
+// Deque.
+Local deque = Deque<Int>()
+deque.AddAll([3, 4])
+deque.AddFirst(2)
+deque.AddFirst(1)
+deque.AddLast(5)
+Print(deque.ToArray(), deque[0], deque[1], deque[2], deque[4])
+deque[0] = 10
+deque[3] = 40
+deque[4] *= 2
+Print(deque.ToArray())
+Local noDeque = Deque<Int>()
+Print(deque.TryFirst() ?? -1, deque.TryLast() ?? -1, noDeque.TryFirst() ?? -1,
+      noDeque.TryLast() ?? -1)
+Print(deque.TryRemoveFirst() ?? -1, deque.TryRemoveLast() ?? -1, noDeque.TryRemoveFirst() ?? -1,
+      noDeque.TryRemoveLast() ?? -1, deque.ToArray())
+deque.AddAll(deque)
+Print(deque.ToArray(), noDeque.ToArray())
+
+// PriorityQueue.
+Local queued = PriorityQueue<Int>()
+queued.AddAll([5, 1, 9, 3, 7, 2, 8])
+queued.Add(4)
+Local noQueued = PriorityQueue<Int>()
+Print(queued.Count, queued.TryPeek() ?? -1, noQueued.TryPeek() ?? -1, noQueued.TryPop() ?? -1)
+Print(queued.TryPop() ?? -1, queued.ToArray().Count, queued.Drain(), queued.Count)
+Print(noQueued.Drain(), noQueued.ToArray())
+Local longer = Function(a: String, b: String) => a.Bytes.Count > b.Bytes.Count
+Local longest = PriorityQueue<String>(longer)
+longest.AddAll(["bb", "a", "dddd", "ccc"])
+longest.AddAll(longest)
+Print(longest.Drain())
+
+// A collection of a T? gives a T?? from its Try twins, so a stored Null isn't "none".
+Local holes = Stack<Int?>()
+holes.Push(Null)
+Local top = holes.TryPeek()
+Print(top != Null, (top ?? 1) ?? 0, holes.TryPop() != Null, holes.TryPop() == Null)

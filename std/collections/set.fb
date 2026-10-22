@@ -31,14 +31,14 @@ Public Class Set<T> Implements Iterable<T>, Cloneable, Defaultable, Hashable
 
     // Adds each of the values that isn't there yet, in their order.
     Public Method AddAll(values: Iterable<T>)
-        For value In Gathered(values)
+        For value In values.Iterate().ToArray()
             Add(value)
         End For
     End Method
 
     // Removes each of the values that's there.
     Public Method RemoveAll(values: Iterable<T>)
-        For value In Gathered(values)
+        For value In values.Iterate().ToArray()
             Remove(value)
         End For
     End Method
@@ -90,7 +90,7 @@ Public Class Set<T> Implements Iterable<T>, Cloneable, Defaultable, Hashable
 
     // Whether each of the values is in this one.
     Public Method IsSupersetOf(values: Iterable<T>): Bool
-        For value In Gathered(values)
+        For value In values
             If !Contains(value) Then Return False
         End For
         Return True
@@ -98,7 +98,7 @@ Public Class Set<T> Implements Iterable<T>, Cloneable, Defaultable, Hashable
 
     // Whether any of the values is in this one.
     Public Method Overlaps(values: Iterable<T>): Bool
-        For value In Gathered(values)
+        For value In values
             If Contains(value) Then Return True
         End For
         Return False
@@ -160,15 +160,6 @@ Public Class Set<T> Implements Iterable<T>, Cloneable, Defaultable, Hashable
     // The values, in the order they were added. Adding or removing one while going over them
     // panics.
     Public Method Iterate(): SetIterator<T> => SetIterator<T>(Items.IterateAs("Set"))
-
-    // The values, in an array, so a Set can take its own values, or ones that change it.
-    Static Method Gathered(values: Iterable<T>): T[]
-        Local gathered: T[] = []
-        For value In values
-            gathered.Add(value)
-        End For
-        Return gathered
-    End Method
 
     // The values as a Set, for looking them up.
     Static Method SetOf(values: Iterable<T>): Set<T>

@@ -3,6 +3,7 @@
 // at 2i + 1 and 2i + 2.
 
 Import std.core
+Import std.collections.array
 
 Public Class PriorityQueue<T> Implements Iterable<T>, Cloneable
     Field Items: T[] = []
@@ -36,6 +37,16 @@ Public Class PriorityQueue<T> Implements Iterable<T>, Cloneable
         Changes += 1
     End Method
 
+    // Adds each of the values, putting the heap in order once, in time that grows with the
+    // count.
+    Public Method AddAll(values: Iterable<T>)
+        Items.AddAll(values.Iterate().ToArray())
+        For at = Items.Count / 2 - 1 To 0 Step -1
+            SiftDown(at)
+        End For
+        Changes += 1
+    End Method
+
     // Takes the first value off and gives it. Panics when the PriorityQueue is empty.
     @PanicsAtCaller
     Public Method Pop(): T
@@ -43,19 +54,35 @@ Public Class PriorityQueue<T> Implements Iterable<T>, Cloneable
         Local last = Items.Count - 1
         Items[0] = Items[last]
         Items.RemoveAt(last)
-        Local at = 0
-        Loop
-            Local child = at * 2 + 1
-            If child >= Items.Count Then Break
-            If child + 1 < Items.Count && Before(Items[child + 1], Items[child]) Then child += 1
-            If !Before(Items[child], Items[at]) Then Break
-            Swap(at, child)
-            at = child
-        End Loop
-
+        SiftDown(0)
         Changes += 1
         Return first
     End Method
+
+    // Takes the first value off and gives it, or Null when the PriorityQueue is empty.
+    Public Method TryPop(): T?
+        If Items.Count == 0 Then Return Null
+        Return Pop()
+    End Method
+
+    // The first value, which stays, or Null when the PriorityQueue is empty.
+    Public Method TryPeek(): T?
+        If Items.Count == 0 Then Return Null
+        Return Items[0]
+    End Method
+
+    // Takes every value off, and gives them in the order Pop would.
+    Public Method Drain(): T[]
+        Local drained: T[] = []
+        drained.Reserve(Items.Count)
+        While Items.Count > 0
+            drained.Add(Pop())
+        End While
+        Return drained
+    End Method
+
+    // The values, in no particular order, in a new array.
+    Public Method ToArray(): T[] => Items.Clone()
 
     // The first value, which stays. Panics when the PriorityQueue is empty.
     @PanicsAtCaller
@@ -74,6 +101,7 @@ Public Class PriorityQueue<T> Implements Iterable<T>, Cloneable
         Changes += 1
     End Method
 
+    // A new PriorityQueue with the same values and order.
     Public Method Clone(): PriorityQueue<T>
         Local copy = PriorityQueue<T>(Before)
         copy.Items = Items.Clone()
@@ -83,6 +111,19 @@ Public Class PriorityQueue<T> Implements Iterable<T>, Cloneable
     // The values, in no particular order: Pop gives them in order. Changing the PriorityQueue
     // while going over them panics.
     Public Method Iterate(): PriorityQueueIterator<T> => PriorityQueueIterator<T>(Self, 0, Changes)
+
+    // Moves the value at at down the heap while a child comes before it.
+    Method SiftDown(at: Int)
+        Local parent = at
+        Loop
+            Local child = parent * 2 + 1
+            If child >= Items.Count Then Break
+            If child + 1 < Items.Count && Before(Items[child + 1], Items[child]) Then child += 1
+            If !Before(Items[child], Items[parent]) Then Break
+            Swap(parent, child)
+            parent = child
+        End Loop
+    End Method
 
     Method Swap(a: Int, b: Int)
         Local value = Items[a]

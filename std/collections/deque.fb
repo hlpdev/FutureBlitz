@@ -3,6 +3,7 @@
 // half of the other.
 
 Import std.core
+Import std.collections.array
 
 Public Class Deque<T> Implements Iterable<T>, Cloneable, Defaultable
     Field Front: T[] = []
@@ -27,6 +28,13 @@ Public Class Deque<T> Implements Iterable<T>, Cloneable, Defaultable
     // The same as AddLast.
     Public Method Add(value: T)
         AddLast(value)
+    End Method
+
+    // Adds each of the values last, in order.
+    Public Method AddAll(values: Iterable<T>)
+        For value In values.Iterate().ToArray()
+            AddLast(value)
+        End For
     End Method
 
     // Takes the first value off and gives it. Panics when the Deque is empty.
@@ -65,9 +73,62 @@ Public Class Deque<T> Implements Iterable<T>, Cloneable, Defaultable
         Return Front[0]
     End Method
 
+    // Takes the first value off and gives it, or Null when the Deque is empty.
+    Public Method TryRemoveFirst(): T?
+        If Count == 0 Then Return Null
+        Return RemoveFirst()
+    End Method
+
+    // Takes the last value off and gives it, or Null when the Deque is empty.
+    Public Method TryRemoveLast(): T?
+        If Count == 0 Then Return Null
+        Return RemoveLast()
+    End Method
+
+    // The first value, which stays, or Null when the Deque is empty.
+    Public Method TryFirst(): T?
+        If Count == 0 Then Return Null
+        Return First()
+    End Method
+
+    // The last value, which stays, or Null when the Deque is empty.
+    Public Method TryLast(): T?
+        If Count == 0 Then Return Null
+        Return Last()
+    End Method
+
+    // The value at index, counting from the first, which is 0. Panics unless index is from 0
+    // to Count minus 1.
+    @PanicsAtCaller
+    Operator [](index: Int): T
+        If index < 0 || index >= Count Then OutOfRange(index)
+        If index < Front.Count Then Return Front[Front.Count - 1 - index]
+        Return Back[index - Front.Count]
+    End Operator
+
+    // Gives the value at index, counting from the first, a new value. Panics unless index is
+    // from 0 to Count minus 1.
+    @PanicsAtCaller
+    Operator []=(index: Int, value: T)
+        If index < 0 || index >= Count Then OutOfRange(index)
+        If index < Front.Count
+            Front[Front.Count - 1 - index] = value
+        Else
+            Back[index - Front.Count] = value
+        End If
+    End Operator
+
     Public Method Contains(value: T): Bool
         Where T: Equatable
         Return Front.Contains(value) || Back.Contains(value)
+    End Method
+
+    // The values from first to last, in a new array.
+    Public Method ToArray(): T[]
+        Local values = Front.Clone()
+        values.Reverse()
+        values.AddAll(Back)
+        Return values
     End Method
 
     Public Method Clear()
@@ -79,6 +140,7 @@ Public Class Deque<T> Implements Iterable<T>, Cloneable, Defaultable
     // A new, empty Deque.
     Public Static Method DefaultValue(): Deque<T> => Deque<T>()
 
+    // A new Deque with the same values.
     Public Method Clone(): Deque<T>
         Local copy = Deque<T>()
         copy.Front = Front.Clone()
@@ -88,6 +150,11 @@ Public Class Deque<T> Implements Iterable<T>, Cloneable, Defaultable
 
     // The values from first to last. Changing the Deque while going over them panics.
     Public Method Iterate(): DequeIterator<T> => DequeIterator<T>(Self, Front.Count, 0, Changes)
+
+    @PanicsAtCaller
+    Method OutOfRange(index: Int)
+        Panic("index {index} is out of range for {Count} element{Count == 1 ? "" : "s"}")
+    End Method
 
     // Moves the half of from that's nearest the middle into to, which is empty, so that from's
     // start is to's end.

@@ -1,0 +1,9 @@
+// A Deque's [] panics at the index outside it, where it's read.
+Import std.core
+Import std.collections
+
+Local deque = Deque<Int>()
+deque.AddFirst(1)
+deque.AddLast(2)
+Print(deque[1])
+Print(deque[2])

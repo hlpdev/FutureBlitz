@@ -1,6 +1,7 @@
 // Stack<T>: last in, first out. Push puts a value on top, and Pop takes the top one off.
 
 Import std.core
+Import std.collections.array
 
 Public Class Stack<T> Implements Iterable<T>, Cloneable, Defaultable
     Field Items: T[] = []
@@ -21,6 +22,13 @@ Public Class Stack<T> Implements Iterable<T>, Cloneable, Defaultable
         Push(value)
     End Method
 
+    // Pushes each of the values, in order, so the last ends up on top.
+    Public Method AddAll(values: Iterable<T>)
+        For value In values.Iterate().ToArray()
+            Push(value)
+        End For
+    End Method
+
     // Takes the top value off and gives it. Panics when the Stack is empty.
     @PanicsAtCaller
     Public Method Pop(): T
@@ -37,6 +45,25 @@ Public Class Stack<T> Implements Iterable<T>, Cloneable, Defaultable
         Return Items[Items.Count - 1]
     End Method
 
+    // Takes the top value off and gives it, or Null when the Stack is empty.
+    Public Method TryPop(): T?
+        If Items.Count == 0 Then Return Null
+        Return Pop()
+    End Method
+
+    // The top value, which stays, or Null when the Stack is empty.
+    Public Method TryPeek(): T?
+        If Items.Count == 0 Then Return Null
+        Return Items[Items.Count - 1]
+    End Method
+
+    // The values from the top down, the order Pop gives them, in a new array.
+    Public Method ToArray(): T[]
+        Local values = Items.Clone()
+        values.Reverse()
+        Return values
+    End Method
+
     Public Method Contains(value: T): Bool
         Where T: Equatable
         Return Items.Contains(value)
@@ -50,6 +77,7 @@ Public Class Stack<T> Implements Iterable<T>, Cloneable, Defaultable
     // A new, empty Stack.
     Public Static Method DefaultValue(): Stack<T> => Stack<T>()
 
+    // A new Stack with the same values.
     Public Method Clone(): Stack<T>
         Local copy = Stack<T>()
         copy.Items = Items.Clone()
