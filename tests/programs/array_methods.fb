@@ -1,0 +1,63 @@
+// T[]'s Methods from std.collections: searching, the ends, many elements at once, order, and
+// shape, each on an empty array too.
+Import std.core
+Import std.collections
+
+Local numbers = [5, 3, 8, 3, 1]
+Local none: Int[] = []
+Local even = Function(n: Int) => n % 2 == 0
+
+// Searching.
+Print(numbers.IndexOf(3) ?? -1, numbers.LastIndexOf(3) ?? -1, numbers.IndexOf(9) ?? -1,
+      none.IndexOf(1) ?? -1)
+Print(numbers.FindIndex(even) ?? -1, numbers.FindLast(Function(n: Int) => n < 4) ?? -1,
+      none.FindLast(even) ?? -1, numbers.Any(even), numbers.All(even), none.Any(even),
+      none.All(even))
+Local sorted = [1, 3, 5, 7, 9, 11]
+Print(sorted.BinarySearch(7) ?? -1, sorted.BinarySearch(1) ?? -1, sorted.BinarySearch(11) ?? -1,
+      sorted.BinarySearch(4) ?? -1, none.BinarySearch(4) ?? -1)
+
+// The ends.
+Print(numbers.First() ?? -1, numbers.Last() ?? -1, none.First() ?? -1, none.Last() ?? -1)
+Local taken = [1, 2, 3]
+Print(taken.RemoveLast(), taken.TryRemoveLast() ?? -1, taken, none.TryRemoveLast() ?? -1)
+
+// Many at once.
+Local grown = [1, 2]
+grown.AddAll([3, 4])
+grown.AddAll(grown)
+grown.InsertAll(1, [9, 9])
+grown.InsertAll(grown.Count, [0])
+Print(grown)
+grown.RemoveRange(1, 2)
+grown.RemoveRange(0, 0)
+Print(grown, grown.RemoveAll(Function(n: Int) => n > 2), grown)
+grown.Resize(7, 7)
+Print(grown)
+grown.Resize(2, 0)
+grown.Fill(6)
+Print(grown)
+
+// Order.
+Local turned = [1, 2, 3, 4, 5]
+turned.Reverse()
+turned.Swap(0, 4)
+Print(turned)
+Local shuffled = [9, 4, 7, 1, 8, 2, 2, 6]
+shuffled.SortUnstable()
+Local words = ["pear", "fig", "apple", "kiwi"]
+words.SortUnstable(Function(a: String, b: String) => a.Bytes.Count < b.Bytes.Count)
+none.SortUnstable()
+Print(shuffled, words[0], words[3], none)
+
+// Shape.
+Print([3, 1, 3, 2, 1].Distinct(), [1, 2, 3].Join(", "), ["a"].Join("-"), none.Join("+"))
+Print(numbers.Fold(0, Function(total: Int, n: Int) => total + n),
+      numbers.Reduce(Function(a: Int, b: Int) => a * b) ?? -1,
+      none.Reduce(Function(a: Int, b: Int) => a + b) ?? -1,
+      ["a", "b"].Fold("", Function(text: String, s: String) => text + s))
+
+// Over values that can be Null, a lookup gives a T??.
+Local maybe: String?[] = [Null, "b"]
+Local first = maybe.First()
+Print(first != Null, (first ?? "none") ?? "null", (maybe.Last() ?? "none") ?? "null")

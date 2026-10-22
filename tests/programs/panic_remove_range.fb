@@ -1,0 +1,8 @@
+// RemoveRange takes only elements in the array.
+Import std.core
+Import std.collections
+
+Local items = [1, 2, 3]
+items.RemoveRange(1, 2)
+Print(items)
+items.RemoveRange(0, 2)

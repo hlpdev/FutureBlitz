@@ -1,0 +1,2 @@
+[1]
+panic: RemoveRange takes elements in the array, from 0 to 1, not 2 from 0 at panic_remove_range.fb:8:1

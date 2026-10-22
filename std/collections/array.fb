@@ -1,7 +1,10 @@
-// What every collection has, on T[]: Remove, Sort, Filter, Map, and Find, besides the built-in
-// Add, Insert, RemoveAt, Clear, Contains, Clone, and Count.
+// What every collection has, on T[], besides the built-in Add, Insert, RemoveAt, Clear, Contains,
+// Clone, and Count: searching, the ends, many elements at once, order, and shape. A lookup gives
+// a T?, or a T?? where the elements can be Null, and what's wrong with its arguments panics where
+// it's called.
 
 Import std.core
+Import std.collections.map
 
 Extend T[]
     // Removes the first element equal to value, and tells whether there was one.
@@ -55,4 +58,289 @@ Extend T[]
         End For
         Return Null
     End Method
+
+    // The last element that test says is the one, or Null.
+    Public Method FindLast(test: Func(T): Bool): T?
+        For i = Count - 1 To 0 Step -1
+            If test(Self[i]) Then Return Self[i]
+        End For
+        Return Null
+    End Method
+
+    // Where the first element that test says is the one is, or Null.
+    Public Method FindIndex(test: Func(T): Bool): Int?
+        For i, element In Self
+            If test(element) Then Return i
+        End For
+        Return Null
+    End Method
+
+    // Where the first element equal to value is, or Null.
+    Public Method IndexOf(value: T): Int?
+        Where T: Equatable
+        For i, element In Self
+            If element == value Then Return i
+        End For
+        Return Null
+    End Method
+
+    // Where the last element equal to value is, or Null.
+    Public Method LastIndexOf(value: T): Int?
+        Where T: Equatable
+        For i = Count - 1 To 0 Step -1
+            If Self[i] == value Then Return i
+        End For
+        Return Null
+    End Method
+
+    // Where an element equal to value is in an array sorted smallest first, or Null, looking at
+    // about log2(Count) of them.
+    Public Method BinarySearch(value: T): Int?
+        Where T: Comparable
+        Local low = 0
+        Local high = Count
+        While low < high
+            Local middle = low + (high - low) / 2
+            If Self[middle] < value
+                low = middle + 1
+            ElseIf value < Self[middle]
+                high = middle
+            Else
+                Return middle
+            End If
+        End While
+        Return Null
+    End Method
+
+    // Whether test says yes for any element, going no further than the first.
+    Public Method Any(test: Func(T): Bool): Bool
+        For element In Self
+            If test(element) Then Return True
+        End For
+        Return False
+    End Method
+
+    // Whether test says yes for every element, going no further than the first it doesn't.
+    Public Method All(test: Func(T): Bool): Bool
+        For element In Self
+            If !test(element) Then Return False
+        End For
+        Return True
+    End Method
+
+    // The first element, or Null when there's none.
+    Public Method First(): T?
+        If Count == 0 Then Return Null
+        Return Self[0]
+    End Method
+
+    // The last element, or Null when there's none.
+    Public Method Last(): T?
+        If Count == 0 Then Return Null
+        Return Self[Count - 1]
+    End Method
+
+    // Takes the last element off, and gives it. The array can't be empty.
+    @PanicsAtCaller
+    Public Method RemoveLast(): T
+        If Count == 0 Then Panic("RemoveLast takes the last element, but the array is empty")
+        Local last = Self[Count - 1]
+        RemoveAt(Count - 1)
+        Return last
+    End Method
+
+    // Takes the last element off, and gives it, or Null when there's none.
+    Public Method TryRemoveLast(): T?
+        If Count == 0 Then Return Null
+        Local last = Self[Count - 1]
+        RemoveAt(Count - 1)
+        Return last
+    End Method
+
+    // Adds each of the values at the end, in order.
+    Public Method AddAll(values: T[])
+        // A copy first, so adding an array to itself adds what it had.
+        For value In values.Clone()
+            Add(value)
+        End For
+    End Method
+
+    // Puts the values in, in order, from index on, which can be from 0 to Count.
+    @PanicsAtCaller
+    Public Method InsertAll(index: Int, values: T[])
+        If index < 0 || index > Count
+            Panic("InsertAll takes an index from 0 to {Count}, not {index}")
+        End If
+
+        Local added = values.Clone()
+        For i, value In added
+            Insert(index + i, value)
+        End For
+    End Method
+
+    // Takes out count elements, from start on, which must all be in the array.
+    @PanicsAtCaller
+    Public Method RemoveRange(start: Int, count: Int)
+        If start < 0 || count < 0 || start > Count - count
+            Panic("RemoveRange takes elements in the array, from 0 to {Count}, not {count} from " +
+                  "{start}")
+        End If
+
+        For i = start Until Count - count
+            Self[i] = Self[i + count]
+        End For
+        For i = 1 To count
+            RemoveAt(Count - 1)
+        End For
+    End Method
+
+    // Takes out each element that test says to, keeping the others in order, and tells how many
+    // went.
+    Public Method RemoveAll(test: Func(T): Bool): Int
+        Local kept = 0
+        For i = 0 Until Count
+            If !test(Self[i])
+                Self[kept] = Self[i]
+                kept += 1
+            End If
+        End For
+
+        Local removed = Count - kept
+        For i = 1 To removed
+            RemoveAt(Count - 1)
+        End For
+        Return removed
+    End Method
+
+    // Makes the array count elements long, taking elements off the end or adding fill.
+    @PanicsAtCaller
+    Public Method Resize(count: Int, fill: T)
+        If count < 0 Then Panic("Resize takes a count that isn't negative, not {count}")
+        While Count > count
+            RemoveAt(Count - 1)
+        End While
+        While Count < count
+            Add(fill)
+        End While
+    End Method
+
+    // Gives every element the value.
+    Public Method Fill(value: T)
+        For i = 0 Until Count
+            Self[i] = value
+        End For
+    End Method
+
+    // Puts the elements in the opposite order, in place.
+    Public Method Reverse()
+        For i = 0 Until Count / 2
+            Swap(i, Count - 1 - i)
+        End For
+    End Method
+
+    // Gives each of the two elements the other's place.
+    @PanicsAtCaller
+    Public Method Swap(a: Int, b: Int)
+        Local held = Self[a]
+        Self[a] = Self[b]
+        Self[b] = held
+    End Method
+
+    // Sorts the elements in place, smallest first, without making another array: a heap sort,
+    // so equal elements may change places.
+    Public Method SortUnstable()
+        Where T: Comparable
+        SortUnstable(Function(a: T, b: T) => a < b)
+    End Method
+
+    // Sorts the elements in place, by what before says comes first, without making another
+    // array: a heap sort, so equal elements may change places.
+    Public Method SortUnstable(before: Func(T, T): Bool)
+        For start = Count / 2 - 1 To 0 Step -1
+            SiftDown(start, Count, before)
+        End For
+        For last = Count - 1 To 1 Step -1
+            Swap(0, last)
+            SiftDown(0, last, before)
+        End For
+    End Method
+
+    // Moves the element at index down the heap in the first count elements, where each comes
+    // after its two children, at 2i + 1 and 2i + 2, by before.
+    Method SiftDown(index: Int, count: Int, before: Func(T, T): Bool)
+        Local at = index
+        While True
+            Local largest = at
+            Local left = 2 * at + 1
+            Local right = left + 1
+            If left < count && before(Self[largest], Self[left]) Then largest = left
+            If right < count && before(Self[largest], Self[right]) Then largest = right
+            If largest == at Then Return
+            Swap(at, largest)
+            at = largest
+        End While
+    End Method
+
+    // The elements, each only the first time it comes, in a new array.
+    Public Method Distinct(): T[]
+        Where T: Hashable
+        Local seen = map.Map<T, Bool>()
+        Local kept: T[] = []
+        For element In Self
+            If !seen.Contains(element)
+                seen.Add(element, True)
+                kept.Add(element)
+            End If
+        End For
+        Return kept
+    End Method
+
+    // The elements' text, as "{x}" shows each, with separator between each two.
+    Public Method Join(separator: String): String
+        Where T: Printable
+        Local parts: String[] = []
+        For element In Self
+            parts.Add("{element}")
+        End For
+        Return Joined(parts, separator)
+    End Method
+
+    // What combine gives for each element in turn, starting from start.
+    Public Method Fold<A>(start: A, combine: Func(A, T): A): A
+        Local total = start
+        For element In Self
+            total = combine(total, element)
+        End For
+        Return total
+    End Method
+
+    // What combine gives for each element in turn, starting from the first, or Null when there's
+    // none.
+    Public Method Reduce(combine: Func(T, T): T): T?
+        If Count == 0 Then Return Null
+        Local total = Self[0]
+        For i = 1 Until Count
+            total = combine(total, Self[i])
+        End For
+        Return total
+    End Method
 End Extend
+
+// The parts with separator between them, joined in pairs, then pairs of those, and so on, so the
+// time grows with their length times its logarithm, not with its square.
+Function Joined(parts: String[], separator: String): String
+    If parts.Count == 0 Then Return ""
+    Local joined = parts
+    While joined.Count > 1
+        Local pairs: String[] = []
+        For i = 0 Until joined.Count Step 2
+            If i + 1 < joined.Count
+                pairs.Add(joined[i] + separator + joined[i + 1])
+            Else
+                pairs.Add(joined[i])
+            End If
+        End For
+        joined = pairs
+    End While
+    Return joined[0]
+End Function

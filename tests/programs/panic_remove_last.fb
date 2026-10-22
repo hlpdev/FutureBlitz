@@ -1,0 +1,7 @@
+// RemoveLast on an empty array panics where it's called; TryRemoveLast gives Null.
+Import std.core
+Import std.collections
+
+Local items = [1]
+Print(items.RemoveLast(), items.TryRemoveLast() ?? -1)
+items.RemoveLast()

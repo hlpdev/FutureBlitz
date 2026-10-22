@@ -48,7 +48,7 @@ So far, std/ holds:
 | std/core/range.fb | `Range<T>`, which `0 Until 10`, `1 To 10`, and `Step` make |
 | std/core/print.fb | `Print`, `Write`, `PrintError`, `WriteError`, `Flush`, `Input`, and `InputAsync`, over the runtime's `fb_write` and its I/O thread |
 | std/core/values.fb | `Min`, `Max`, `Clamp`, `Swap`, and `HashCombine` |
-| std/collections/array.fb | `Remove`, `Sort`, `Filter`, `Map`, and `Find` on `T[]` |
+| std/collections/array.fb | `T[]`'s `Remove`, `Sort`, `SortUnstable`, `Filter`, `Map`, `Find`, `FindLast`, `FindIndex`, `IndexOf`, `LastIndexOf`, `BinarySearch`, `Any`, `All`, `First`, `Last`, `RemoveLast`, `TryRemoveLast`, `AddAll`, `InsertAll`, `RemoveRange`, `RemoveAll`, `Resize`, `Fill`, `Reverse`, `Swap`, `Distinct`, `Join`, `Fold`, and `Reduce` |
 | std/collections/map.fb | `Map<K, V>`, which `{key: value}` makes |
 | std/collections/set.fb | `Set<T>` |
 | std/collections/stack.fb, queue.fb, deque.fb | `Stack<T>`, `Queue<T>`, and `Deque<T>` |
