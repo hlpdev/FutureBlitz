@@ -2708,3 +2708,24 @@ TEST_CASE("an array type has tables only once its arrays go where an Interface i
                        "String[].Iterate() as std.core.iterator.Iterator<String>\n"));
     CHECK(!mir.contains("array Bool[]"));
 }
+
+TEST_CASE("SortUnstable sorts in place, making no array", "[mir]") {
+    const std::string mir = lower_text("Import std.core\n"
+                                       "Import std.collections\n"
+                                       "Local items = [3, 1, 2]\n"
+                                       "items.SortUnstable()");
+    INFO(mir);
+    // Each of the sort's functions, up to the blank line after it.
+    for (const std::string_view name : { "SortUnstable(", "SiftDown(", "Swap(" }) {
+        const std::size_t start =
+            mir.find(std::format("function std.collections.array.Int32[].{}", name));
+        REQUIRE(start != std::string::npos);
+        const std::string_view function =
+            std::string_view(mir).substr(start, mir.find("\n\n", start) - start);
+        INFO(function);
+        // An array's made as "Int32[] [...]", or copied.
+        CHECK(!function.contains("[] ["));
+        CHECK(!function.contains("Clone"));
+        CHECK(!function.contains("ToArray"));
+    }
+}

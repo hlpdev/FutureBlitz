@@ -3173,6 +3173,14 @@ TEST_CASE("arrays are Cloneable, and the numbers, Bool, String, and Enums Defaul
     CHECK(errors_of("Import std.core\nExtend Int Implements Defaultable\nEnd Extend") ==
           errors_t{ "Defaultable: Int32 comes with the built-in Interfaces that fit it, "
                     "Defaultable among them; an Extend can give it others" });
+
+    // A PriorityQueue is Defaultable only where its values are Comparable.
+    CHECK(errors_of(std::format("Import std.collections\n{}"
+                                "Local a = Made<PriorityQueue<Int>>()\n"
+                                "Local b = Made<PriorityQueue<C>>()",
+                                generic)) ==
+          errors_t{ "Made<PriorityQueue<C>>: PriorityQueue<C> doesn't implement Defaultable, which "
+                    "'Made' needs for T" });
 }
 
 TEST_CASE("generic mistakes", "[sema]") {
