@@ -3615,22 +3615,20 @@ private:
                     const auto seen = [&](const type_id_t written) {
                         return member_type(instance, copy, written);
                     };
-                    const bool same = own_type_parameters(copy).empty() &&
-                                      std::ranges::equal(
-                                          added.parameters, copy.parameters, {},
-                                          [&](const symbol_id_t id) { return symbol(id).type; },
-                                          [&](const symbol_id_t id) {
-                                              return seen(symbol(id).type);
-                                          });
+                    const bool same =
+                        own_type_parameters(copy).empty() &&
+                        std::ranges::equal(
+                            added.parameters, copy.parameters, {},
+                            [&](const symbol_id_t id) { return symbol(id).type; },
+                            [&](const symbol_id_t id) { return seen(symbol(id).type); });
                     if (!same && !takes_instance_of(added, instance, copy,
                                                     own_type_parameters(copy), seen)) {
                         continue;
                     }
 
-                    const type_id_t interface =
-                        substitute(copy.default_interface,
-                                   m_analysis.types.get(definition).parameters,
-                                   arguments_of(instance));
+                    const type_id_t interface = substitute(
+                        copy.default_interface, m_analysis.types.get(definition).parameters,
+                        arguments_of(instance));
                     in_file(added.span.file, [&] {
                         error(added.span,
                               "'{}' would take the place of {}'s {} default, which is what a "
@@ -4196,11 +4194,10 @@ private:
                 const symbol_t& method = symbol(id);
                 return method.default_method != required_id &&
                        (matches_required(method, required, interface, type, false) ||
-                        takes_instance_of(
-                            method, type, required, required.type_parameters,
-                            [&](const type_id_t written) {
-                                return as_implemented(written, interface, type);
-                            }));
+                        takes_instance_of(method, type, required, required.type_parameters,
+                                          [&, self = type](const type_id_t written) {
+                                              return as_implemented(written, interface, self);
+                                          }));
             });
             if (own != methods.end()) {
                 error(span,
@@ -4401,15 +4398,17 @@ private:
             implemented.parameter = as_implemented(bound.parameter, interface, self);
             std::vector<type_id_t> inside;
             parameters_in(implemented.parameter, inside);
-            if (is_parameter(implemented.parameter)) {
-                kept.push_back(implemented);
-            } else if (implements(implemented.parameter, implemented.interface)) {
-                continue;
-            } else if (!inside.empty()) {
-                kept.push_back(implemented);
-            } else {
-                return std::nullopt;
+            if (!is_parameter(implemented.parameter)) {
+                if (implements(implemented.parameter, implemented.interface)) {
+                    continue;
+                }
+
+                if (inside.empty()) {
+                    return std::nullopt;
+                }
             }
+
+            kept.push_back(implemented);
         }
 
         return kept;
@@ -4492,8 +4491,8 @@ private:
     /// pick it instead. `seen` gives the generic one's parameter types as `self` has them.
     template <typename Seen>
     [[nodiscard]] bool takes_instance_of(const symbol_t& method, const type_id_t self,
-                                         const symbol_t& generic,
-                                         const std::vector<type_id_t>& own, const Seen& seen) {
+                                         const symbol_t& generic, const std::vector<type_id_t>& own,
+                                         const Seen& seen) {
         if (own.empty() || method.parameters.size() != generic.parameters.size()) {
             return false;
         }
@@ -4516,15 +4515,14 @@ private:
         std::vector<type_id_t> from;
         std::vector<type_id_t> to;
         for (std::size_t i = 0; i < own.size(); ++i) {
-            if (arguments[i]) {
+            if (const std::optional<type_id_t> argument = arguments[i]) {
                 from.push_back(own[i]);
-                to.push_back(*arguments[i]);
+                to.push_back(*argument);
             }
         }
 
-        return std::ranges::equal(wanted, given, {}, [&](const type_id_t type) {
-            return substitute(type, from, to);
-        });
+        return std::ranges::equal(wanted, given, {},
+                                  [&](const type_id_t type) { return substitute(type, from, to); });
     }
 
     /// A Method's own type parameters. One that an Extend of T[] adds takes T first, which is
@@ -4846,7 +4844,7 @@ private:
     /// A Method in the place of a copy of an Interface's default outside its table, which the
     /// Class it extends has.
     void report_outside_override(const symbol_t& member, const symbol_t& copy) {
-        const symbol_t& given = symbol(*copy.default_method);
+        const symbol_t& given = symbol(copy.default_method.value_or(symbol_id_t{}));
         error(member.span,
               "'{}' is {}'s {} default, which a call through {} runs as written, so it can't be "
               "overridden; give this one another name",
@@ -5064,8 +5062,7 @@ private:
             }
 
             return std::ranges::any_of(member.constraints, [&](const bound_t& bound) {
-                return bound.field == type_id_t::INVALID &&
-                       mentions(bound.parameter, parameters) &&
+                return bound.field == type_id_t::INVALID && mentions(bound.parameter, parameters) &&
                        !mentions(argument_for(bound.parameter, parameters, arguments), own) &&
                        !bounds_hold({ bound }, parameters, arguments);
             });
@@ -5708,8 +5705,7 @@ private:
                 through = base_of(through);
             }
 
-            if (through == type_id_t::INVALID ||
-                (!is_struct(declared) && !is_class(declared))) {
+            if (through == type_id_t::INVALID || (!is_struct(declared) && !is_class(declared))) {
                 continue;
             }
 
@@ -10265,7 +10261,7 @@ private:
     }
 
     /// What kind of default outside its table a Method is, for messages.
-    [[nodiscard]] std::string_view outside_kind(const symbol_t& member) const {
+    [[nodiscard]] static std::string_view outside_kind(const symbol_t& member) {
         if (!member.type_parameters.empty()) {
             return "generic";
         }
@@ -18381,9 +18377,8 @@ private:
 
     /// The type arguments infer() can tell, one for each of type_parameters_of(), and nullopt
     /// for each it can't.
-    std::vector<std::optional<type_id_t>> told_arguments(const symbol_id_t function,
-                                                         const call_expr_t& node,
-                                                         const type_id_t hint) {
+    std::vector<std::optional<type_id_t>>
+    told_arguments(const symbol_id_t function, const call_expr_t& node, const type_id_t hint) {
         const std::vector<type_id_t> parameters = type_parameters_of(function);
         if (parameters.empty()) {
             return {};
@@ -18764,13 +18759,15 @@ private:
         for (const bound_t& constraint : call_bounds(function)) {
             const auto place = std::ranges::find(parameters, constraint.parameter);
             const auto index = static_cast<std::size_t>(place - parameters.begin());
-            if (place == parameters.end() || index >= told.size() || !told[index] ||
-                constraint.field != type_id_t::INVALID || !mentions(constraint.interface, unknown) ||
-                instance_for(*told[index], constraint.interface) != type_id_t::INVALID) {
+            const std::optional<type_id_t> argument =
+                index < told.size() ? told[index] : std::nullopt;
+            if (place == parameters.end() || !argument || constraint.field != type_id_t::INVALID ||
+                !mentions(constraint.interface, unknown) ||
+                instance_for(*argument, constraint.interface) != type_id_t::INVALID) {
                 continue;
             }
 
-            const type_id_t given = *told[index];
+            const type_id_t given = *argument;
             const std::vector<type_id_t> shown{ given, constraint.interface, constraint.parameter };
             // A collection is no Iterator, but its Iterate() gives one.
             const type_id_t iterable = std_type("std.core", "Iterable");
@@ -18783,8 +18780,7 @@ private:
             error(span_of(node.callee), "{} doesn't implement {}, which {} needs for {}{}",
                   name_among(given, shown), name_among(constraint.interface, shown),
                   std::format("'{}'", symbol(function).name),
-                  name_among(constraint.parameter, shown),
-                  advice);
+                  name_among(constraint.parameter, shown), advice);
             return;
         }
 
@@ -19022,9 +19018,9 @@ private:
     /// The top-level Functions a call by name means, where the type's Methods of the name are all
     /// what Interfaces' defaults give it and none takes the call's arguments, while a Function
     /// does. nullopt where the type's Methods are what it means.
-    std::optional<std::vector<symbol_id_t>> outer_functions(const call_expr_t& call,
-                                                           const std::string_view name,
-                                                           const std::vector<symbol_id_t>& members) {
+    std::optional<std::vector<symbol_id_t>>
+    outer_functions(const call_expr_t& call, const std::string_view name,
+                    const std::vector<symbol_id_t>& members) {
         const auto given = [&](const symbol_id_t id) {
             return symbol(id).default_method.has_value() || is_interface(symbol(id).owner);
         };
@@ -19035,7 +19031,8 @@ private:
             return std::nullopt;
         }
 
-        std::vector<symbol_id_t> found = quietly([&] { return top_level(name, span_of(call.callee)); });
+        std::vector<symbol_id_t> found =
+            quietly([&] { return top_level(name, span_of(call.callee)); });
         if (found.empty() || symbol(found.front()).kind != symbol_kind_t::FUNCTION ||
             !std::ranges::any_of(found, fits)) {
             return std::nullopt;

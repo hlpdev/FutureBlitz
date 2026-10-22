@@ -1190,8 +1190,7 @@ private:
             return entry;
         }
 
-        return table_thunk(entry, found, required, type, arguments, boxes ? given : wanted,
-                           wanted);
+        return table_thunk(entry, found, required, type, arguments, boxes ? given : wanted, wanted);
     }
 
     /// The function a table runs for a Method that isn't called the way the Interface's is,
@@ -1223,9 +1222,8 @@ private:
         const std::string& name = m_module.functions[index(inner)].name;
         const auto id = static_cast<function_id_t>(m_module.functions.size());
         m_module.functions.push_back({
-            .name = given == wanted
-                        ? std::format("{} without an error variable", name)
-                        : std::format("{} as {}", name, types().qualified_name(wanted)),
+            .name = given == wanted ? std::format("{} without an error variable", name)
+                                    : std::format("{} as {}", name, types().qualified_name(wanted)),
             .return_type = wanted,
         });
         m_table_thunks.push_back({
@@ -1246,8 +1244,8 @@ private:
         std::vector<call_argument_t> arguments;
         for (std::size_t i = 0; i < thunk.parameters.size(); ++i) {
             const table_thunk_t::parameter_t& parameter = thunk.parameters[i];
-            const local_id_t local = add_local(
-                parameter.type, i == 0 ? "Self" : std::string_view{}, parameter.by_ref);
+            const local_id_t local =
+                add_local(parameter.type, i == 0 ? "Self" : std::string_view{}, parameter.by_ref);
             arguments.push_back({ .value = place_t{ local }, .by_ref = parameter.by_ref });
         }
 
@@ -1262,22 +1260,23 @@ private:
             arguments.push_back({ .value = place_t{ *error }, .by_ref = true });
         }
 
+        // The Method's error goes on to the thunk's caller where the Interface's Method throws.
+        const auto pass_error = [&] {
+            if (thunk.passes_error && error) {
+                check_error(*error, {});
+            }
+        };
         call_t call{ .function = thunk.inner, .arguments = std::move(arguments) };
         if (thunk.given == type_id_t::NONE) {
             emit(evaluate_t{ .value = std::move(call) });
-            if (thunk.passes_error) {
-                check_error(*error, {});
-            }
-
+            pass_error();
             finish_statement();
             terminate(return_t{});
             return;
         }
 
         const operand_t value = temporary(std::move(call), thunk.given);
-        if (thunk.passes_error) {
-            check_error(*error, {});
-        }
+        pass_error();
 
         if (has_references(thunk.given)) {
             m_temporaries.push_back(std::get<local_id_t>(std::get<place_t>(value).root));

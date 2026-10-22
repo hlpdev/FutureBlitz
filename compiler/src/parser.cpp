@@ -2643,8 +2643,7 @@ private:
         const token_t& keyword = advance();
         if (keyword.kind == token_kind_t::KW_IS) {
             const type_expr_id_t type = parse_type();
-            return add_expr(span_from(begin_of(value)),
-                            is_expr_t{ .value = value, .type = type });
+            return add_expr(span_from(begin_of(value)), is_expr_t{ .value = value, .type = type });
         }
 
         const bool checked = at(token_kind_t::QUESTION) && touches(keyword, peek());
@@ -3007,11 +3006,11 @@ private:
         }
 
         return add_expr(span_from(begin_of(start)), range_expr_t{
-                                                             .start = start,
-                                                             .end = end,
-                                                             .inclusive = inclusive,
-                                                             .step = step,
-                                                         });
+                                                        .start = start,
+                                                        .end = end,
+                                                        .inclusive = inclusive,
+                                                        .step = step,
+                                                    });
     }
 
     /// "a[i]", "grid[x, y]", or a slice, "a[from..to]", where either can be left out.

@@ -4872,6 +4872,9 @@ TEST_CASE("@PanicsAtCaller goes on what code calls", "[sema]") {
                     "@PanicsAtCaller Enum E\n    A\nEnd Enum\n"
                     "@PanicsAtCaller Interface I\nEnd Interface") ==
           errors_t{ "S: " + where, "x: " + where, "g: " + where, "E: " + where, "I: " + where });
+    const std::string only_direct =
+        "of an Interface's members, only a Final, generic, or conditional default can be "
+        "@PanicsAtCaller, which a call runs directly; what implements one can be";
     CHECK(errors_of("Interface I\n"
                     "    @PanicsAtCaller Method M()\n"
                     "    @PanicsAtCaller Method D(): Int => 1\n"
@@ -4885,10 +4888,8 @@ TEST_CASE("@PanicsAtCaller goes on what code calls", "[sema]") {
                     "    @PanicsAtCaller Function abs(n: Int32): Int32\n"
                     "End Extern") ==
           errors_t{
-              "M: of an Interface's members, only a Final, generic, or conditional default can be "
-              "@PanicsAtCaller, which a call runs directly; what implements one can be",
-              "D: of an Interface's members, only a Final, generic, or conditional default can be "
-              "@PanicsAtCaller, which a call runs directly; what implements one can be",
+              "M: " + only_direct,
+              "D: " + only_direct,
               "P: an Interface's members can't be @PanicsAtCaller; what implements one can be",
               "Destroy: Destroy can't be @PanicsAtCaller, since no code calls it",
               "abs: an Extern Function can't be @PanicsAtCaller, since its code is C's",
@@ -4984,18 +4985,19 @@ TEST_CASE("what a Const Function can't do", "[sema]") {
           });
     // A For ... In over a range or any Iterator calls its Next, a Method, which a Const Function
     // can't, whether it runs in a Const, a Global, or code.
-    CHECK(errors_of("Import std.core\n"
-                    "Const Function SumTo(n: Int): Int\n"
-                    "    Local total = 0\n"
-                    "    For x In 1 To n\n"
-                    "        total += x\n"
-                    "    End For\n"
-                    "    Return total\n"
-                    "End Function\n"
-                    "Const A = SumTo(10)\n"
-                    "Global g = SumTo(4)\n"
-                    "Print(A, g, SumTo(3))") ==
-          errors_t{ "1 To n: a Const Function can only call Const Functions, and 'Next' isn't one" });
+    CHECK(
+        errors_of("Import std.core\n"
+                  "Const Function SumTo(n: Int): Int\n"
+                  "    Local total = 0\n"
+                  "    For x In 1 To n\n"
+                  "        total += x\n"
+                  "    End For\n"
+                  "    Return total\n"
+                  "End Function\n"
+                  "Const A = SumTo(10)\n"
+                  "Global g = SumTo(4)\n"
+                  "Print(A, g, SumTo(3))") ==
+        errors_t{ "1 To n: a Const Function can only call Const Functions, and 'Next' isn't one" });
     CHECK(errors_of("Const Function F<T>(x: T[]): Int => 1") ==
           errors_t{ "x: a Const Function takes numbers, Bools, Strings, and Enums, not T[]" });
     CHECK(errors_of("Const Function F()\nEnd Function") ==
@@ -6107,8 +6109,7 @@ TEST_CASE("an Interface's Methods can throw, and be generic", "[sema]") {
                     "generic Methods, which no table can hold" });
 }
 
-TEST_CASE("a generic Method's constraints compare as the type implements the Interface",
-          "[sema]") {
+TEST_CASE("a generic Method's constraints compare as the type implements the Interface", "[sema]") {
     // Holder<Int32>'s O: Holder<T> is O: Holder<Int32>, written or taken from the default.
     constexpr std::string_view holder = "Import std.core\n"
                                         "Interface Holder<T>\n"
