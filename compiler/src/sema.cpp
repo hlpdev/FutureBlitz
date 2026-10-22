@@ -19214,7 +19214,8 @@ private:
         // An Interface's type arguments are those of the instance a Class, Struct, or array
         // implements, as a Set<Int32> does Iterable<Int32>, or another Interface extends.
         if (want.kind == type_kind_t::INTERFACE &&
-            (have.kind != type_kind_t::INTERFACE || definition_of(pattern) != definition_of(actual))) {
+            (have.kind != type_kind_t::INTERFACE ||
+             definition_of(pattern) != definition_of(actual))) {
             if (const type_id_t instance = instance_for(actual, pattern);
                 instance != type_id_t::INVALID) {
                 unify(pattern, instance, parameters, arguments);
