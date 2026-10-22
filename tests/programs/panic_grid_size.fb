@@ -1,0 +1,6 @@
+// A Grid of a negative size panics where it's made.
+Import std.core
+Import std.collections
+
+Print(Grid<Int>(0, 2, 0).Count)
+Local grid = Grid<Int>(-1, 2, 0)

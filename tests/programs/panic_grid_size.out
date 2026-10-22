@@ -1,0 +1,2 @@
+0
+panic: a Grid can't be -1 by 2 at panic_grid_size.fb:6:14

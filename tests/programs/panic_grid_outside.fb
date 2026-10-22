@@ -1,0 +1,8 @@
+// A Grid's [] panics at a position outside it, where it's read.
+Import std.core
+Import std.collections
+
+Local grid = Grid<Int>(3, 2, 0)
+grid[2, 1] = 5
+Print(grid[2, 1])
+Print(grid[3, 1])

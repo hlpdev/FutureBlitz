@@ -1,0 +1,108 @@
+// Grid and Grid3 match an array of their cells, row by row and layer by layer, through many random
+// sets, and their neighbors are the cells around a position that are in the grid.
+Import std.core
+Import std.collections
+
+// The same numbers each run, from a linear congruential generator.
+Global seed: UInt64 = 12345
+
+Function Next(limit: Int): Int
+    seed = seed.WrappingMultiply(6364136223846793005).WrappingAdd(1442695040888963407)
+    Return ((seed >> 33) % (limit As UInt64)) As Int
+End Function
+
+Local grid = Grid<Int>(5, 4, 0)
+Local cells = [0]
+cells.Resize(20, 0)
+Local wrong = 0
+For round = 1 To 2000
+    Local x = Next(5)
+    Local y = Next(4)
+    grid[x, y] = round
+    cells[y * 5 + x] = round
+    If grid.ToArray() != cells || grid[x, y] != round Then wrong += 1
+End For
+
+// Each position's neighbors against going over the offsets around it.
+For y = -1 To 4
+    For x = -1 To 5
+        Local around: (Int, Int)[] = []
+        Local beside: (Int, Int)[] = []
+        For dy = -1 To 1
+            For dx = -1 To 1
+                Local inside = x + dx >= 0 && x + dx < 5 && y + dy >= 0 && y + dy < 4
+                If (dx != 0 || dy != 0) && inside Then around.Add((x + dx, y + dy))
+                If (dx == 0) != (dy == 0) && inside Then beside.Add((x + dx, y + dy))
+            End For
+        End For
+
+        Local holds = x >= 0 && x < 5 && y >= 0 && y < 4
+        If grid.InBounds(x, y) != holds Then wrong += 1
+        If holds && (grid.Neighbors8(x, y) != around || grid.Neighbors4(x, y) != beside)
+            wrong += 1
+        End If
+    End For
+End For
+Print(wrong)
+
+Local volume = Grid3<Int>(3, 4, 2, 0)
+Local voxels = [0]
+voxels.Resize(24, 0)
+For round = 1 To 2000
+    Local x = Next(3)
+    Local y = Next(4)
+    Local z = Next(2)
+    volume[x, y, z] = round
+    voxels[(z * 4 + y) * 3 + x] = round
+    If volume.ToArray() != voxels || volume[x, y, z] != round Then wrong += 1
+End For
+
+For z = -1 To 2
+    For y = -1 To 4
+        For x = -1 To 3
+            Local around: (Int, Int, Int)[] = []
+            Local faces = 0
+            For dz = -1 To 1
+                For dy = -1 To 1
+                    For dx = -1 To 1
+                        Local inside = volume.InBounds(x + dx, y + dy, z + dz)
+                        If (dx != 0 || dy != 0 || dz != 0) && inside
+                            around.Add((x + dx, y + dy, z + dz))
+                        End If
+
+                        If dx * dx + dy * dy + dz * dz == 1 && inside Then faces += 1
+                    End For
+                End For
+            End For
+
+            Local holds = x >= 0 && x < 3 && y >= 0 && y < 4 && z >= 0 && z < 2
+            If volume.InBounds(x, y, z) != holds Then wrong += 1
+            If holds && (volume.Neighbors26(x, y, z) != around ||
+                         volume.Neighbors6(x, y, z).Count != faces)
+                wrong += 1
+            End If
+        End For
+    End For
+End For
+Print(wrong)
+
+// The basics, and grids without cells.
+Local small = Grid<String>(2, 2, ".")
+small[1, 0] = "#"
+Print(small, small.Width, small.Height, small.Count, small.Neighbors4(0, 0), small.Neighbors8(1, 1))
+For cell In small
+    Print(cell)
+End For
+
+Local copy = small.Clone()
+copy[0, 1] = "@"
+Print(copy, small, copy == small, small.Clone() == small)
+small.Fill("o")
+Print(small, Grid<Int>(0, 3, 1), Grid<Int>(3, 0, 1).Count, Grid<Int>(0, 0, 1) == Grid<Int>(0, 0, 2))
+
+Local cube = Grid3<Int>(2, 1, 2, 7)
+cube[1, 0, 1] = 9
+Print(cube, cube.Width, cube.Height, cube.Depth, cube.Count, cube.Neighbors6(0, 0, 0))
+Local cubeCopy = cube.Clone()
+cubeCopy.Fill(0)
+Print(cubeCopy, cube == cubeCopy, cube.Clone() == cube, Grid3<Int>(0, 2, 2, 0))

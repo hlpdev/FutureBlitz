@@ -1,0 +1,6 @@
+// A Grid with more cells than an Int counts panics where it's made.
+Import std.core
+Import std.collections
+
+Print(Grid<Bool>(1000, 1000, False).Count)
+Local grid = Grid<Bool>(100000, 100000, False)

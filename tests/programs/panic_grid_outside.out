@@ -1,0 +1,2 @@
+5
+panic: (3, 1) is outside a Grid 3 by 2 at panic_grid_outside.fb:8:11

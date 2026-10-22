@@ -1,0 +1,6 @@
+// A Grid3 with more cells than an Int counts panics where it's made.
+Import std.core
+Import std.collections
+
+Print(Grid3<Bool>(100, 100, 100, False).Count)
+Local grid = Grid3<Bool>(2000, 2000, 2000, False)

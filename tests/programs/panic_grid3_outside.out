@@ -1,0 +1,2 @@
+0
+panic: (1, 1, 2) is outside a Grid3 2 by 2 by 2 at panic_grid3_outside.fb:7:11

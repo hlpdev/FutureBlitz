@@ -1,0 +1,10 @@
+// Adding to a BitSet while a For ... In goes over it panics.
+Import std.core
+Import std.collections
+
+Local bits = BitSet()
+bits.AddAll([1, 70])
+For value In bits
+    Print(value)
+    bits.Add(value + 1)
+End For

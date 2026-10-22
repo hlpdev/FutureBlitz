@@ -1,0 +1,2 @@
+0
+panic: a Grid3 can't be 1 by 1 by -2 at panic_grid3_size.fb:6:14

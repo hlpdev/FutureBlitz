@@ -1,0 +1,103 @@
+// A BitSet matches a Set of Ints, sorted, through many random additions and removals, and its
+// algebra matches a Set's.
+Import std.core
+Import std.collections
+
+// The same numbers each run, from a linear congruential generator.
+Global seed: UInt64 = 12345
+
+Function Next(limit: Int): Int
+    seed = seed.WrappingMultiply(6364136223846793005).WrappingAdd(1442695040888963407)
+    Return ((seed >> 33) % (limit As UInt64)) As Int
+End Function
+
+Function Sorted(values: Set<Int>): Int[]
+    Local sorted = values.ToArray()
+    sorted.Sort()
+    Return sorted
+End Function
+
+Local bits = BitSet()
+Local plain = Set<Int>()
+Local wrong = 0
+For round = 1 To 4000
+    Local value = Next(300)
+    If Next(3) == 0
+        If bits.Remove(value) != plain.Remove(value) Then wrong += 1
+    Else
+        If bits.Add(value) != plain.Add(value) Then wrong += 1
+    End If
+
+    Local sorted = Sorted(plain)
+    If bits.ToArray() != sorted || bits.Count != plain.Count Then wrong += 1
+    If bits.Contains(value) != plain.Contains(value) || bits.Contains(-value - 1) Then wrong += 1
+    If (bits.First() ?? -1) != (sorted.Count == 0 ? -1 : sorted[0]) Then wrong += 1
+    If (bits.Last() ?? -1) != (sorted.Count == 0 ? -1 : sorted[sorted.Count - 1]) Then wrong += 1
+End For
+Print(wrong)
+
+// The algebra, on random pairs.
+For round = 1 To 200
+    Local a = BitSet()
+    Local b = BitSet()
+    Local setA = Set<Int>()
+    Local setB = Set<Int>()
+    For i = 1 To Next(40)
+        Local value = Next(200)
+        a.Add(value)
+        setA.Add(value)
+    End For
+
+    For i = 1 To Next(40)
+        Local value = Next(150)
+        b.Add(value)
+        setB.Add(value)
+    End For
+
+    If a.Union(b).ToArray() != Sorted(setA.Union(setB)) Then wrong += 1
+    If a.Intersect(b).ToArray() != Sorted(setA.Intersect(setB)) Then wrong += 1
+    If a.Difference(b).ToArray() != Sorted(setA.Difference(setB)) Then wrong += 1
+    If a.SymmetricDifference(b).ToArray() != Sorted(setA.SymmetricDifference(setB)) Then wrong += 1
+    If a.IsSubsetOf(b) != setA.IsSubsetOf(setB) || a.IsSupersetOf(b) != setA.IsSupersetOf(setB)
+        wrong += 1
+    End If
+
+    If a.Overlaps(b) != setA.Overlaps(setB) Then wrong += 1
+    If a.Union(b).Count != setA.Union(setB).Count Then wrong += 1
+    If a.Intersect(b).Count != setA.Intersect(setB).Count Then wrong += 1
+    // Equal sets are equal, with equal hashes, however they were made.
+    Local made = a.Difference(b).Union(a.Intersect(b))
+    If made != a || made.Hash() != a.Hash() Then wrong += 1
+End For
+Print(wrong)
+
+// The basics, and the empty cases.
+Local some = BitSet()
+Print(some, some.Count, some.First() ?? -1, some.Last() ?? -1, some.Contains(0), some.Remove(3))
+some.AddAll([0, 63, 64, 127, 128, 1000])
+Print(some, some.Count, some.First() ?? -1, some.Last() ?? -1, some.Contains(64))
+Print(some.Remove(1000), some.Last() ?? -1, some == some.Clone(),
+      some.Hash() == some.Clone().Hash())
+Local other = BitSet()
+other.AddAll([64, 65])
+Local changed = some.Clone()
+changed.AddAll(other)
+Print(changed)
+changed.RemoveAll(other)
+Print(changed, changed == some)
+changed.KeepOnly(other)
+Print(changed, changed.Count, BitSet.DefaultValue() == BitSet())
+For value In some
+    Print(value)
+End For
+
+// One that grew and shrank is equal to one that never grew.
+Local grown = BitSet()
+grown.Add(5000)
+grown.Remove(5000)
+grown.Add(1)
+Local plainOne = BitSet()
+plainOne.Add(1)
+Print(grown == plainOne, grown.Hash() == plainOne.Hash(), {grown: "one"}[plainOne])
+some.Clear()
+Print(some, some.Count)

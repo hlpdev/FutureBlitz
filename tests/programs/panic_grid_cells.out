@@ -1,0 +1,2 @@
+1000000
+panic: a Grid 100000 by 100000 has more cells than an Int counts at panic_grid_cells.fb:6:14

@@ -1,0 +1,264 @@
+// BitSet: a Set of Ints from 0 up, a bit each in an array of words, which grows to hold the
+// largest. Adding, removing, and finding a value take the same time however many there are, and
+// the Set algebra goes a word at a time.
+
+Import std.core
+Import std.collections.array
+
+Public Class BitSet Implements Iterable<Int>, Cloneable, Defaultable, Hashable
+    // Bit b of word w is w * 64 + b. The last word is never 0, so equal BitSets have equal words.
+    Field Words: UInt64[] = []
+    Field Size: Int
+    // How many times values were added or removed, so a For ... In over them can tell.
+    Field Changes: Int64
+
+    Public Property Count: Int
+        Get => Size
+    End Property
+
+    // Adds the value, and tells whether it's new. A negative value panics.
+    @PanicsAtCaller
+    Public Method Add(value: Int): Bool
+        If value < 0 Then Panic("a BitSet holds Ints from 0 up, not {value}")
+        If Contains(value) Then Return False
+        While Words.Count <= value / 64
+            Words.Add(0)
+        End While
+
+        Words[value / 64] |= BitOf(value)
+        Size += 1
+        Changes += 1
+        Return True
+    End Method
+
+    // Adds each of the values, which are all read first. A negative value panics.
+    @PanicsAtCaller
+    Public Method AddAll(values: Iterable<Int>)
+        For value In values.Iterate().ToArray()
+            Add(value)
+        End For
+    End Method
+
+    // Removes the value, and tells whether it was there.
+    Public Method Remove(value: Int): Bool
+        If !Contains(value) Then Return False
+        Words[value / 64] &= ~BitOf(value)
+        Trim()
+        Size -= 1
+        Changes += 1
+        Return True
+    End Method
+
+    Public Method Contains(value: Int): Bool
+        Return value >= 0 && value / 64 < Words.Count && (Words[value / 64] & BitOf(value)) != 0
+    End Method
+
+    Public Method Clear()
+        Words.Clear()
+        Size = 0
+        Changes += 1
+    End Method
+
+    // The smallest value, or Null when there's none.
+    Public Method First(): Int?
+        For i, word In Words
+            If word != 0 Then Return i * 64 + LowestBit(word)
+        End For
+        Return Null
+    End Method
+
+    // The largest value, or Null when there's none.
+    Public Method Last(): Int?
+        If Words.Count == 0 Then Return Null
+        Local word = Words[Words.Count - 1]
+        Local bit = 63
+        While (word >> bit) == 0
+            bit -= 1
+        End While
+        Return (Words.Count - 1) * 64 + bit
+    End Method
+
+    // A new BitSet of the values in either.
+    Public Method Union(other: BitSet): BitSet
+        Local union = Clone()
+        union.AddAll(other)
+        Return union
+    End Method
+
+    // A new BitSet of the values in both.
+    Public Method Intersect(other: BitSet): BitSet
+        Local both = Clone()
+        both.KeepOnly(other)
+        Return both
+    End Method
+
+    // A new BitSet of this one's values that other doesn't have.
+    Public Method Difference(other: BitSet): BitSet
+        Local rest = Clone()
+        rest.RemoveAll(other)
+        Return rest
+    End Method
+
+    // A new BitSet of the values in one but not the other.
+    Public Method SymmetricDifference(other: BitSet): BitSet
+        Local either = BitSet()
+        For i = 0 Until Max(Words.Count, other.Words.Count)
+            either.Words.Add(WordAt(i) ^ other.WordAt(i))
+        End For
+        either.Recount()
+        Return either
+    End Method
+
+    // Adds each of other's values.
+    Public Method AddAll(other: BitSet)
+        Local words = other.Words.Clone()
+        While Words.Count < words.Count
+            Words.Add(0)
+        End While
+
+        For i, word In words
+            Words[i] |= word
+        End For
+        Recount()
+    End Method
+
+    // Removes each of other's values.
+    Public Method RemoveAll(other: BitSet)
+        Local words = other.Words.Clone()
+        For i = 0 Until Min(Words.Count, words.Count)
+            Words[i] &= ~words[i]
+        End For
+        Recount()
+    End Method
+
+    // Keeps only the values other has too.
+    Public Method KeepOnly(other: BitSet)
+        Local words = other.Words.Clone()
+        For i = 0 Until Words.Count
+            Words[i] &= i < words.Count ? words[i] : 0
+        End For
+        Recount()
+    End Method
+
+    // Whether each of its values is in other.
+    Public Method IsSubsetOf(other: BitSet): Bool
+        For i, word In Words
+            If (word & ~other.WordAt(i)) != 0 Then Return False
+        End For
+        Return True
+    End Method
+
+    // Whether it has each of other's values.
+    Public Method IsSupersetOf(other: BitSet): Bool => other.IsSubsetOf(Self)
+
+    // Whether the two have a value in common.
+    Public Method Overlaps(other: BitSet): Bool
+        For i, word In Words
+            If (word & other.WordAt(i)) != 0 Then Return True
+        End For
+        Return False
+    End Method
+
+    // The values, smallest first, in a new array.
+    Public Method ToArray(): Int[]
+        Local values: Int[] = []
+        values.Reserve(Size)
+        For value In Self
+            values.Add(value)
+        End For
+        Return values
+    End Method
+
+    // A new, empty BitSet.
+    Public Static Method DefaultValue(): BitSet => BitSet()
+
+    // A new BitSet with the same values.
+    Public Method Clone(): BitSet
+        Local copy = BitSet()
+        copy.Words = Words.Clone()
+        copy.Size = Size
+        Return copy
+    End Method
+
+    // Two BitSets are equal when they have the same values.
+    Operator ==(a: BitSet, b: BitSet): Bool => a.Words == b.Words
+
+    Public Method Hash(): UInt64 => Words.Hash()
+
+    // The values, smallest first. Adding or removing one while going over them panics.
+    Public Method Iterate(): BitSetIterator => BitSetIterator(Self, 0, Changes)
+
+    // The word at index, which is 0 past the last one.
+    Method WordAt(index: Int): UInt64 => index < Words.Count ? Words[index] : 0
+
+    // Counts the values again, after a change of whole words, and drops the 0 words at the end.
+    Method Recount()
+        Trim()
+        Size = 0
+        For word In Words
+            Size += BitCount(word)
+        End For
+        Changes += 1
+    End Method
+
+    // Drops the 0 words at the end.
+    Method Trim()
+        While Words.Count > 0 && Words[Words.Count - 1] == 0
+            Words.RemoveLast()
+        End While
+    End Method
+
+    Static Method BitOf(value: Int): UInt64 => (1 As UInt64) << (value % 64)
+
+    // Where the lowest 1 bit of a word that isn't 0 is.
+    Static Method LowestBit(word: UInt64): Int
+        Local bit = 0
+        While ((word >> bit) & 1) == 0
+            bit += 1
+        End While
+        Return bit
+    End Method
+
+    // How many 1 bits a word has.
+    Static Method BitCount(word: UInt64): Int
+        Local bits = word - ((word >> 1) & 0x5555555555555555)
+        bits = (bits & 0x3333333333333333) + ((bits >> 2) & 0x3333333333333333)
+        bits = (bits + (bits >> 4)) & 0x0F0F0F0F0F0F0F0F
+        Return (bits.WrappingMultiply(0x0101010101010101) >> 56) As Int
+    End Method
+End Class
+
+Public Struct BitSetIterator Implements Iterator<Int>
+    Field Owner: BitSet
+    // The next value to look at.
+    Field At: Int
+    Field Changes: Int64
+
+    @PanicsAtCaller
+    Public ByRef Method Next(): Int?
+        If Owner.Changes != Changes Then Panic("the BitSet changed while a For ... In went over it")
+        While At / 64 < Owner.Words.Count
+            Local word = Owner.Words[At / 64] >> (At % 64)
+            If word == 0
+                // Nothing more in this word.
+                At = (At / 64 + 1) * 64
+            Else
+                At += BitSet.LowestBit(word)
+                At += 1
+                Return At - 1
+            End If
+        End While
+        Return Null
+    End Method
+End Struct
+
+// "{1, 5, 64}", smallest first.
+Extend BitSet Implements Printable
+    Public Method ToString(): String
+        Local parts: String[] = []
+        For value In Self
+            parts.Add("{value}")
+        End For
+        Return "{{" + parts.Join(", ") + "}}"
+    End Method
+End Extend

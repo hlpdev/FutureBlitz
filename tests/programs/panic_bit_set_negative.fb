@@ -1,0 +1,7 @@
+// A BitSet panics at a negative value, where it's added.
+Import std.core
+Import std.collections
+
+Local bits = BitSet()
+Print(bits.Add(0), bits.Contains(-1), bits.Remove(-1))
+bits.Add(-1)

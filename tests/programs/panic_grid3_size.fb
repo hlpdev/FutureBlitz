@@ -1,0 +1,6 @@
+// A Grid3 of a negative size panics where it's made.
+Import std.core
+Import std.collections
+
+Print(Grid3<Int>(1, 1, 0, 0).Count)
+Local grid = Grid3<Int>(1, 1, -2, 0)

@@ -1,0 +1,2 @@
+True False False
+panic: a BitSet holds Ints from 0 up, not -1 at panic_bit_set_negative.fb:7:1
