@@ -4305,8 +4305,9 @@ private:
             return variable_place(id);
         }
 
+        // A member without a symbol, like a String's Bytes, is a value of its own.
         if (const auto* member = std::get_if<member_expr_t>(&node);
-            member != nullptr && !member->null_safe) {
+            member != nullptr && !member->null_safe && m_analysis.expr(id).symbol) {
             // A Static Field is a global, and a Property's value comes from its Get.
             const symbol_t& found = m_analysis.symbol(expect(m_analysis.expr(id).symbol));
             if (found.kind == symbol_kind_t::GLOBAL) {

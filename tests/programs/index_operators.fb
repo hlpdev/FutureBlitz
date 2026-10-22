@@ -155,3 +155,7 @@ Print(box.Name, box.Values)
 Local all: Indexed<String>[] = [Names(), Shouting()]
 all[1][0] = "in"
 Print(all[1][0], all[0][0])
+
+// An element of what a member makes, like a String's Bytes or Chars, without a Local first.
+Local word = "héllo"
+Print(word.Bytes[0], word.Chars[1], word.Bytes[word.Bytes.Count - 1])
