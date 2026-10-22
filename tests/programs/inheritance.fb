@@ -1,4 +1,6 @@
 // Inheritance: Extends, Override, Super, Abstract, Final, Is, As, As?, and Case e As T.
+Import std.core
+
 Abstract Class Shape
     Field name: String
 

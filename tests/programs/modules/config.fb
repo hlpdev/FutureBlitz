@@ -1,6 +1,8 @@
 // What the program starts with. Its Global is set before the main module's code runs, since an
 // imported module's Globals initialize first.
 
+Import std.core
+
 Public Global greeting = Announce()
 
 Function Announce(): String

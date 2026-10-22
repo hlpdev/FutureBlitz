@@ -2,6 +2,7 @@
 // own: this Stack and Map aren't std.collections', while a Map literal and a Set still make and
 // use std's Map.
 
+Import std.core
 Import std.collections
 
 Class Stack

@@ -1,5 +1,7 @@
 // Channels carry Sendable values from thread to thread.
 
+Import std.core
+
 Struct Packet
     Field Id: Int
     Field Text: String

@@ -368,6 +368,8 @@ struct increment_stmt_t {
 /// "@Rename("hp")": an attribute that an Attribute declaration declares, with its arguments,
 /// which can be named, like a call's.
 struct attribute_t {
+    /// Its module's qualifier, as in @C.Rename, when it's written with one.
+    std::optional<name_t> qualifier;
     name_t name;
     std::vector<argument_t> arguments;
 };
@@ -395,6 +397,8 @@ struct modifiers_t {
     bool is_inline = false;
     /// "@MainThread": only the main thread can call it, like the engine's functions.
     bool is_main_thread = false;
+    /// "@PanicsAtCaller": its panics report where it's called, as std's do for misuse.
+    bool panics_at_caller = false;
     /// "Async Function": a call starts it on the main thread and gives its Task, and its code
     /// can Await.
     bool is_async = false;

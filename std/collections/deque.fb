@@ -2,6 +2,8 @@
 // both ends are at the end of an array, and when one side runs out as values are taken, it takes
 // half of the other.
 
+Import std.core
+
 Public Class Deque<T>
     Field Front: T[] = []
     Field Back: T[] = []
@@ -28,6 +30,7 @@ Public Class Deque<T>
     End Method
 
     // Takes the first value off and gives it. Panics when the Deque is empty.
+    @PanicsAtCaller
     Public Method RemoveFirst(): T
         If Front.Count == 0 Then Balance(Back, Front)
         Local value = Front[Front.Count - 1]
@@ -37,6 +40,7 @@ Public Class Deque<T>
     End Method
 
     // Takes the last value off and gives it. Panics when the Deque is empty.
+    @PanicsAtCaller
     Public Method RemoveLast(): T
         If Back.Count == 0 Then Balance(Front, Back)
         Local value = Back[Back.Count - 1]
@@ -46,6 +50,7 @@ Public Class Deque<T>
     End Method
 
     // The first value, which stays, as everything else does. Panics when the Deque is empty.
+    @PanicsAtCaller
     Public Method First(): T
         If Front.Count > 0 Then Return Front[Front.Count - 1]
         If Back.Count == 0 Then Panic("the Deque is empty")
@@ -53,6 +58,7 @@ Public Class Deque<T>
     End Method
 
     // The last value, which stays, as everything else does. Panics when the Deque is empty.
+    @PanicsAtCaller
     Public Method Last(): T
         If Back.Count > 0 Then Return Back[Back.Count - 1]
         If Front.Count == 0 Then Panic("the Deque is empty")
@@ -82,6 +88,7 @@ Public Class Deque<T>
 
     // Moves the half of from that's nearest the middle into to, which is empty, so that from's
     // start is to's end.
+    @PanicsAtCaller
     Method Balance(from: T[], to: T[])
         If from.Count == 0 Then Panic("the Deque is empty")
         Local moved = (from.Count + 1) / 2
@@ -104,6 +111,7 @@ Public Struct DequeIterator<T> Implements Iterator<T>
     Field BackAt: Int
     Field Changes: Int64
 
+    @PanicsAtCaller
     Public ByRef Method Next(): T?
         If Owner.Changes != Changes Then Panic("the Deque changed while a For ... In went over it")
         If FrontLeft > 0

@@ -295,7 +295,8 @@ public:
         m_keys.emplace(key_of(path), 0);
         parse_file(0, &m_compilation.tokens);
 
-        // Every module imports std/core/, and a Map literal needs std.collections.map.
+        // The language uses std/core/'s Error, Interfaces, and Iterator, and a Map literal needs
+        // std.collections.map, whether or not anything imports them.
         for (const std::string& core : folder_files(m_files, "std/core")) {
             if (const std::optional<std::size_t> loaded = load(core)) {
                 m_core.push_back(*loaded);
@@ -854,15 +855,6 @@ private:
                     shown_path(m_files, m_loaded[taken->second].path));
             }
 
-            // std/core/, which isn't written, comes first: each module but its own.
-            module_import_t core;
-            for (const std::size_t file : m_core) {
-                if (file != index) {
-                    core.modules.push_back(ids[file]);
-                }
-            }
-
-            module.imports.push_back(std::move(core));
             for (const auto& [statement, targets] : loaded.imports) {
                 module_import_t imported{ .statement = statement };
                 for (const std::size_t target : targets) {
@@ -1662,6 +1654,22 @@ std::expected<std::vector<library_file_t>, std::string> standard_library() {
     return library;
 }
 
+std::vector<const build_config::bundled_library_t*> bundled_libraries(const mir_module_t& module) {
+    std::vector<const build_config::bundled_library_t*> used;
+    for (const build_config::bundled_library_t& library : build_config::bundled_libraries) {
+        const bool calls =
+            std::ranges::any_of(module.functions, [&](const mir_function_t& function) {
+                return function.external && !function.external->c_abi &&
+                       function.external->symbol.starts_with(library.prefix);
+            });
+        if (calls) {
+            used.push_back(&library);
+        }
+    }
+
+    return used;
+}
+
 std::expected<void, std::string> build_program(const mir_module_t& module,
                                                const compilation_t& compilation,
                                                const std::filesystem::path& output,
@@ -1673,12 +1681,24 @@ std::expected<void, std::string> build_program(const mir_module_t& module,
         std::filesystem::create_directories(output.parent_path(), ignored);
     }
 
+    // A bundled library's system libraries come with it, after the packages' own.
+    native_libraries_t natives = compilation.natives;
+    for (const build_config::bundled_library_t* library : bundled_libraries(module)) {
+        natives.bundled.push_back(path_from_utf8(library->runtime));
+        natives.bundled.push_back(path_from_utf8(library->archive));
+        for (const auto part : std::views::split(library->system, ' ')) {
+            const std::string name(part.begin(), part.end());
+            if (!name.empty() && !std::ranges::contains(natives.system, name)) {
+                natives.system.push_back(name);
+            }
+        }
+    }
+
     // The object file is only needed for linking, and is removed even when linking fails.
     const std::filesystem::path object = temporary_path(output.stem(), ".o");
     std::expected<void, std::string> built =
         emit_object(module, compilation.sources, compilation.file, { .mode = mode }, object)
-            .and_then(
-                [&] { return link_program(std::array{ object }, compilation.natives, output); });
+            .and_then([&] { return link_program(std::array{ object }, natives, output); });
     std::filesystem::remove(object, ignored);
     return built;
 }

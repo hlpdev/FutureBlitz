@@ -258,6 +258,10 @@ std::expected<void, std::string> link_program(const std::span<const std::filesys
     }
 
     arguments.push_back(linker_path(path_from_utf8(build_config::runtime_library), folder));
+    for (const std::filesystem::path& archive : natives.bundled) {
+        arguments.push_back(linker_path(archive, folder));
+    }
+
     for (const std::string& library : natives.system) {
         arguments.push_back(std::format("-l{}", library));
     }

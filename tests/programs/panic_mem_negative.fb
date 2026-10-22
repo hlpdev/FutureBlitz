@@ -1,4 +1,5 @@
 // Mem.Alloc of a negative size panics, rather than asking for a huge one.
+Import std.core
 Import std.ffi
 
 Local size: Int64 = 3

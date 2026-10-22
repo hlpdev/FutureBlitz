@@ -1,0 +1,22 @@
+// An Override of a @PanicsAtCaller Method is one too, so a call through the Method table reports
+// the caller's line.
+Import std.core
+
+Class Shape
+    @PanicsAtCaller
+    Method Scale(by: Int): Int
+        Assert(by > 0, "a Shape scales by a positive number, not {by}")
+        Return by
+    End Method
+End Class
+
+Class Square Extends Shape
+    Override Method Scale(by: Int): Int
+        If by == 0 Then Panic("a Square can't scale by 0")
+        Return by * 4
+    End Method
+End Class
+
+Local shape: Shape = Square()
+Print("{shape.Scale(2)}")
+shape.Scale(0)

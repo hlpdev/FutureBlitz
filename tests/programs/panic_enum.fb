@@ -1,4 +1,6 @@
 // As panics on an integer that isn't one of the Enum's values.
+Import std.core
+
 Enum Speed
     Slow = 1, Fast = 2
 End Enum

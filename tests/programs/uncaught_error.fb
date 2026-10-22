@@ -1,5 +1,7 @@
 // An error that top-level code lets out runs its Defers and Finallys, then ends the program
 // with exit code 1.
+Import std.core
+
 Class ConfigError Extends Error
 End Class
 

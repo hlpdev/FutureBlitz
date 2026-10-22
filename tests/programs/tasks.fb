@@ -1,5 +1,7 @@
 // Spawn runs work on the pool, and Wait gives its result to the thread that waits.
 
+Import std.core
+
 Function Fib(n: Int): Int
     If n < 2 Then Return n
     Return Fib(n - 1) + Fib(n - 2)

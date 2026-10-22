@@ -1,2 +1,2 @@
 125
-panic: integer overflow in '+' at panic_struct.fb:6:9
+panic: integer overflow in '+' at panic_struct.fb:8:9

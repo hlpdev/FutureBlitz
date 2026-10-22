@@ -1,5 +1,7 @@
 // Atomic and Mutex: values that threads share, which stay where they're made.
 
+Import std.core
+
 Struct Stats
     Field Hits: Int
     Field Name: String

@@ -1,5 +1,6 @@
 // A panic in an imported module says where in that module's file it is.
 
+Import std.core
 Import "./panic_module/checks"
 
 Check(2)

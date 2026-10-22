@@ -1,0 +1,32 @@
+// A release build leaves DebugAssert out: neither its condition nor its message is worked
+// out, and it doesn't panic. What a condition would have made, like a call's String or object,
+// isn't let go either.
+Import std.core
+
+Function Checked(): Bool
+    Print("the condition ran")
+    Return False
+End Function
+
+Function Name(n: Int): String => "name {n}"
+
+Class Node
+    Field name: String
+End Class
+
+Function Make(n: Int): Node
+    Local node = Node()
+    node.name = "node {n}"
+    Return node
+End Function
+
+Function Check(n: Int)
+    DebugAssert(Name(n) == "name {n}")
+    DebugAssert(Make(n).name == "node {n}", "bad {n}")
+    Print("checked {n}")
+End Function
+
+DebugAssert(Checked(), "never made")
+Print("left out")
+Check(1)
+Check(2)

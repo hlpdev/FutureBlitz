@@ -1,0 +1,8 @@
+// Todo panics, saying the code isn't done yet, then what.
+Import std.core
+
+Function Load(name: String): Int
+    Todo()
+End Function
+
+Load("level")

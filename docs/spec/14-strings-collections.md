@@ -28,8 +28,9 @@ Local text = """
 are no format specifiers in v0. Numbers print in the shortest form that reads back as the same
 value (`0.1`, not `0.100000001`), and a `Bool` prints as `True` or `False`. A tuple prints as
 `(1, a)`, and an array as `[1, 2, 3]`. A Struct, Class, or Interface's object that implements
-`Printable` prints what its `ToString` gives. In a single-line string, an interpolation must end
-on the same line.
+`Printable` prints what its `ToString` gives. A Task, Thread, Channel, Scheduler, Atomic, or
+Mutex has no text, so it can't be shown; a Task's result can, through Await or `Wait()`. In a
+single-line string, an interpolation must end on the same line.
 
 ### Multi-line strings
 

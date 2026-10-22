@@ -1,4 +1,6 @@
 // A panic in a ByRef Method points at the line inside it.
+Import std.core
+
 Struct Counter
     Field n: Int8 = 120
 

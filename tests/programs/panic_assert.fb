@@ -1,4 +1,6 @@
 // Assert panics when its condition is False, with its message, which is only made then.
+Import std.core
+
 Function Check(n: Int)
     Assert(n > 0, "{n} isn't positive")
     Print("{n} is fine")

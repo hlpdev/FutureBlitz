@@ -1,6 +1,9 @@
 #include "fb/runtime.hpp"
 
+#include "internal.hpp"
+
 #include <algorithm>
+#include <array>
 #include <bit>
 #include <cstddef>
 #include <cstdint>
@@ -9,6 +12,7 @@
 #include <cstring>
 #include <limits>
 #include <mutex>
+#include <ranges>
 #include <string>
 #include <string_view>
 
@@ -42,6 +46,17 @@ std::uint64_t mix(std::uint64_t value) {
 constexpr int panic_exit_code = 101;
 /// A program that let an error out failed, like a command that couldn't do its job.
 constexpr int error_exit_code = 1;
+/// How many Causes an uncaught error's report shows after it.
+constexpr std::size_t max_causes = 100;
+
+/// An error's fields from Error, which every error's Class extends, so they come first.
+fb_error_fields_t& error_fields(fb_object_t* error) {
+    return *reinterpret_cast<fb_error_fields_t*>(error + 1);
+}
+
+const fb_error_fields_t& error_fields(const fb_object_t* error) {
+    return *reinterpret_cast<const fb_error_fields_t*>(error + 1);
+}
 
 /// Keeps the low `bits` bits of `value`, sign-extending them when `is_signed`.
 std::uint64_t truncate(const std::uint64_t value, const std::uint32_t bits, const bool is_signed) {
@@ -152,12 +167,55 @@ bool color_panics() {
 
 } // namespace
 
+namespace fb::runtime {
+
+void write_string(const fb_string_t* string, std::FILE* stream) {
+    std::fwrite(string + 1, 1, static_cast<std::size_t>(string->length), stream);
+}
+
+void write_prompt(const fb_string_t* prompt) {
+    const std::scoped_lock lock(output());
+    write_string(prompt, stdout);
+    std::fflush(stdout);
+    std::fflush(stderr);
+}
+
+namespace {
+
+/// What at_finish() was given.
+std::array<void (*)(), 8>& finishers() {
+    static std::array<void (*)(), 8> instance{};
+    return instance;
+}
+
+} // namespace
+
+void at_finish(void (*stop)()) {
+    for (void (*&slot)() : finishers()) {
+        if (slot == nullptr || slot == stop) {
+            slot = stop;
+            return;
+        }
+    }
+}
+
+void run_finish() {
+    for (void (*const stop)() : std::views::reverse(finishers())) {
+        if (stop != nullptr) {
+            stop();
+        }
+    }
+}
+
+} // namespace fb::runtime
+
 extern "C" {
 
 void fb_start() {
 #ifdef _WIN32
     // Strings are UTF-8, and binary mode keeps "\n" from becoming "\r\n".
     SetConsoleOutputCP(CP_UTF8);
+    _setmode(_fileno(stdin), _O_BINARY);
     _setmode(_fileno(stdout), _O_BINARY);
     _setmode(_fileno(stderr), _O_BINARY);
 
@@ -194,11 +252,31 @@ std::int32_t fb_mem_compare(const void* a, const void* b, const std::uint64_t by
     return std::memcmp(a, b, bytes);
 }
 
-void fb_print(const fb_string_t* string) {
-    const auto* bytes = reinterpret_cast<const char*>(string + 1);
+void fb_write(const fb_array_t* texts, const std::int32_t to_error, const std::int32_t line) {
+    const auto* const* strings = static_cast<const fb_string_t* const*>(texts->data);
     const std::scoped_lock lock(output());
-    std::fwrite(bytes, 1, static_cast<std::size_t>(string->length), stdout);
-    std::fputc('\n', stdout);
+    std::FILE* stream = to_error != 0 ? stderr : stdout;
+    if (to_error != 0) {
+        std::fflush(stdout);
+    }
+
+    for (std::int64_t i = 0; i < texts->count; ++i) {
+        if (i > 0) {
+            std::fputc(' ', stream);
+        }
+
+        fb::runtime::write_string(strings[i], stream);
+    }
+
+    if (line != 0) {
+        std::fputc('\n', stream);
+    }
+}
+
+void fb_flush() {
+    const std::scoped_lock lock(output());
+    std::fflush(stdout);
+    std::fflush(stderr);
 }
 
 void fb_panic(const char* message, const fb_location_t* location) {
@@ -210,24 +288,52 @@ void fb_panic_string(const fb_string_t* message, const fb_location_t* location) 
     panic_with({ bytes, static_cast<std::size_t>(message->length) }, location);
 }
 
+void fb_error_thrown(fb_object_t* error, const fb_location_t* location) {
+    fb_error_fields_t& fields = error_fields(error);
+    if (fields.line != 0 || location == nullptr) {
+        return;
+    }
+
+    fb_string_release(fields.file);
+    fields.file = fb_string_from_cstring(location->file);
+    fields.line = static_cast<std::int32_t>(location->line);
+    fields.column = static_cast<std::int32_t>(location->column);
+}
+
 void fb_error_uncaught(const fb_object_t* error, const fb_location_t* location) {
     ending().lock();
     output().lock();
     std::fflush(stdout);
-    // Every error's Class extends Error, so its first field is the Message.
-    const fb_string_t* message = *reinterpret_cast<fb_string_t* const*>(error + 1);
     const char* label = color_panics() ? "\x1b[1;31muncaught\x1b[0m" : "uncaught";
-    std::fprintf(stderr, "%s %s", label, error->type->name);
-    if (message != nullptr && message->length != 0) {
-        std::fputs(": ", stderr);
-        std::fwrite(message + 1, 1, static_cast<std::size_t>(message->length), stderr);
+    // Then each Cause, as far as the chain goes, which a cycle can't make endless.
+    std::size_t shown = 0;
+    const fb_object_t* at = error;
+    for (; at != nullptr && shown <= max_causes; ++shown) {
+        const fb_error_fields_t& fields = error_fields(at);
+        std::fprintf(stderr, "%s %s", shown == 0 ? label : "caused by", at->type->name);
+        if (fields.message->length != 0) {
+            std::fputs(": ", stderr);
+            std::fwrite(fields.message + 1, 1, static_cast<std::size_t>(fields.message->length),
+                        stderr);
+        }
+
+        // Where it was thrown, or for one with no Place, where top-level code let it out.
+        if (fields.line != 0) {
+            std::fputs(" at ", stderr);
+            std::fwrite(fields.file + 1, 1, static_cast<std::size_t>(fields.file->length), stderr);
+            std::fprintf(stderr, ":%d:%d", fields.line, fields.column);
+        } else if (shown == 0 && location != nullptr) {
+            std::fprintf(stderr, " at %s:%u:%u", location->file, location->line, location->column);
+        }
+
+        std::fputc('\n', stderr);
+        at = fields.cause;
     }
 
-    if (location != nullptr) {
-        std::fprintf(stderr, " at %s:%u:%u", location->file, location->line, location->column);
+    if (at != nullptr) {
+        std::fputs("caused by more errors, which aren't shown\n", stderr);
     }
 
-    std::fputc('\n', stderr);
     end_program(error_exit_code);
 }
 

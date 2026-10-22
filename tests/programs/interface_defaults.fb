@@ -1,5 +1,7 @@
 // Interfaces' defaults: what a Class inherits implements another Interface's member, an
 // Interface's member like one it extends takes its place, and a default uses what it extends.
+Import std.core
+
 Interface Sized
     Method Size(): Int
     Method Twice(): Int => Size() * 2

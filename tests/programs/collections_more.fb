@@ -1,6 +1,7 @@
 // std's collections at their edges: readers that change nothing during a loop, a Pool of a T?
 // holding Null, Handles as keys, a PriorityQueue's For ... In, Strings that show as nothing,
 // hashes that differ only in their high bits, and Mem and CString at zero sizes and NULs.
+Import std.core
 Import std.collections
 Import std.ffi
 

@@ -1,0 +1,48 @@
+// InputAsync gives a Task of stdin's next line, which an Await, in an Async Function or lambda or
+// in top-level code, and a Wait resume from on the main thread, as many times as there are lines,
+// while Input reads in turn with them. Lines go out in the order they're asked for. The runtime
+// panics where a coroutine would go on off the main thread, so the output shows that none did.
+Import std.core
+
+// Prints each line it reads, up to `most`, and gives how many it read.
+Async Function Echo(name: String, most: Int): Int
+    Local count = 0
+    While count < most
+        Local line = Await InputAsync()
+        If line == Null Then Break
+        count += 1
+        Print("{name} {count}: [{line}]")
+    End While
+
+    Return count
+End Function
+
+Local first = Await InputAsync("top> ")
+Print()
+Print("top: [{first ?? "none"}]")
+Print("blocking: [{Input() ?? "none"}]")
+Print("echoed", Await Echo("a", 40))
+Print("waited", Echo("b", 5).Wait())
+
+// One asked for before Input still gets the line before Input's.
+Local early = InputAsync()
+Print("then blocking: [{Input() ?? "none"}]")
+Print("early: [{(Await early) ?? "none"}]")
+
+Local twice = Async Function(): String
+    Local x = Await InputAsync()
+    Local y = Await InputAsync()
+    Return "{x ?? "none"}+{y ?? "none"}"
+End Function
+
+Print("lambda: [{Await twice()}]")
+
+// What's left, then Null at the end, again and again.
+Local rest = 0
+While (Await InputAsync()) != Null
+    rest += 1
+End While
+
+Print("rest", rest)
+Print("after the end: [{(Await InputAsync()) ?? "none"}]")
+Print("blocking after the end: [{Input() ?? "none"}]")

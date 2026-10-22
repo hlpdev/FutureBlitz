@@ -1,5 +1,7 @@
 // Sendable: what the compiler says can go to another thread, checked through constraints.
 
+Import std.core
+
 Enum Weather
     SUN
     RAIN

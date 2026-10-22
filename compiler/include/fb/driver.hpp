@@ -1,6 +1,7 @@
 #pragma once
 
 #include "fb/ast.hpp"
+#include "fb/build_config.hpp"
 #include "fb/codegen.hpp"
 #include "fb/diagnostic.hpp"
 #include "fb/link.hpp"
@@ -146,8 +147,14 @@ find_package(const std::filesystem::path& folder);
 /// like "std/core/error.fb". Fails when one can't be read.
 [[nodiscard]] std::expected<std::vector<library_file_t>, std::string> standard_library();
 
+/// The C libraries std is built on that a program links, for the runtime's functions it calls
+/// that use them: each whose prefix one of their names starts with.
+[[nodiscard]] std::vector<const build_config::bundled_library_t*>
+bundled_libraries(const mir_module_t& module);
+
 /// Writes an executable for a module from a compilation without errors, creating the output's
-/// folder if needed. The object file in between is temporary.
+/// folder if needed, linking the bundled C libraries it uses. The object file in between is
+/// temporary.
 [[nodiscard]] std::expected<void, std::string> build_program(const mir_module_t& module,
                                                              const compilation_t& compilation,
                                                              const std::filesystem::path& output,

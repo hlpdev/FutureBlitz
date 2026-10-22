@@ -1,6 +1,8 @@
 // Operands go left to right: what a variable, field, or element holds is read before a later
 // operand can change it.
 
+Import std.core
+
 Global g = 1
 
 Function BumpG(): Int

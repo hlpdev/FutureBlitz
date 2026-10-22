@@ -1,1 +1,1 @@
-panic: the value doesn't fit in Int32 at panic_cast.fb:2:9
+panic: the value doesn't fit in Int32 at panic_cast.fb:4:9

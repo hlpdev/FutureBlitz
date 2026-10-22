@@ -1,5 +1,6 @@
 // A Struct without Fields takes no bytes, in an array, a slice, a fixed array, a Stack, or a
 // Channel.
+Import std.core
 Import std.collections
 
 Struct Mark

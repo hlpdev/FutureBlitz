@@ -39,6 +39,14 @@ Function Sum(nums: Int...): Int                 // variadic; nums is Int[]
   default, since without any it's an empty array, and an Operator can't have one.
 - A generic one infers its type argument from each argument: `Largest(1.5, 2, 3)` with `rest:
   T...` gives `Float`.
+- `values: Printable...`, with std.core's Printable, takes values of any types a string can
+  show, mixed, and each becomes its text at the call, as `"{x}"` makes it, so `values` is a
+  `String[]`: that's how `Print(score, name)` takes them. An array argument is a
+  value like any other, so it's shown; named, `values:` takes a `String[]` of texts. A value a
+  string can't show, like a T?, is an error that names the function: "String? can't be shown by
+  'Print', since it may be Null; give a value for Null with '??'".
+- Where two overloads fit a call as well as each other, one that takes the arguments as they are
+  beats one that packs them into its variadic parameter, as C#'s do.
 
 ### ByRef
 

@@ -1,1 +1,1 @@
-panic: 'late' is used before its initializer has run, since Globals initialize in source order at panic_global_order.fb:11:49
+panic: 'late' is used before its initializer has run, since Globals initialize in source order at panic_global_order.fb:13:49

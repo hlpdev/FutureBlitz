@@ -1,2 +1,4 @@
+Import std.core
+
 Local zero = 0
 Print("{10 / zero}")

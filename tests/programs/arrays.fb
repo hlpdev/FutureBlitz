@@ -1,5 +1,7 @@
 // Arrays: T[] literals, indexing, Count, Add, Insert, RemoveAt, Clear, Contains, Clone,
 // For ... In, and fixed T[N] and T[W, H].
+Import std.core
+
 Class Item
     Field name: String
 

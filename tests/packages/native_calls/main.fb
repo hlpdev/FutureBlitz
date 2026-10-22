@@ -1,6 +1,7 @@
 // Calls a C library through the vmath package, which links it as a [native] static library,
 // and the system's math library directly.
 
+Import std.core
 Import vmath
 
 Extern "C" Lib "m"

@@ -616,8 +616,15 @@ private:
             out.items.push_back(atom("@MainThread", tone_t::KEYWORD));
         }
 
+        if (modifiers.panics_at_caller) {
+            out.items.push_back(atom("@PanicsAtCaller", tone_t::KEYWORD));
+        }
+
         for (const attribute_t& attribute : modifiers.attributes) {
-            std::string text = std::format("@{}", attribute.name.text);
+            std::string text =
+                attribute.qualifier
+                    ? std::format("@{}.{}", attribute.qualifier->text, attribute.name.text)
+                    : std::format("@{}", attribute.name.text);
             if (!attribute.arguments.empty()) {
                 const builder_t tree(m_ast, true);
                 text += '(';

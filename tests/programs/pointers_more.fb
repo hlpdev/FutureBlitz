@@ -3,6 +3,7 @@
 // ByRef through a Ptr; a Struct's Self's address; reflection, which leaves Unsafe Methods out;
 // and a generic's T? of a Ptr, whose Null is apart from a Null Ptr.
 
+Import std.core
 Import std.ffi
 
 Struct Node

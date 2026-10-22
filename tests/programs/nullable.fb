@@ -1,4 +1,6 @@
 // Nullable types: Null, null checks that narrow, '?.', '??', and fields that refer to Classes.
+Import std.core
+
 Class Node
     Field name: String
     Field next: Node?

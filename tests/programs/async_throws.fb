@@ -1,5 +1,7 @@
 // An Async Function's errors go in its Task, and Await and Wait re-throw them.
 
+Import std.core
+
 Class LoadError Extends Error
 End Class
 

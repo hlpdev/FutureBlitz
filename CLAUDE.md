@@ -29,7 +29,7 @@ exe)
 
 ## Current step
 M6 (the full standard library), planned 2026-10-20 and 2026-10-21 in 32 steps (docs/milestones.md;
-design in docs/stdlib.md). Step 1, the foundation, is next.
+design in docs/stdlib.md). Step 2, indexing, iteration, and ranges, is next.
 docs/milestones.md's Deferred work lists everything left for later, and where it's planned.
 
 Done in M6: step 0, CI: .github/workflows/ci.yml builds Debug and runs ctest on windows-2025
@@ -51,6 +51,45 @@ thunks too. driver_tests' packages_t takes off both spellings of its folder (mac
 (exact everywhere) where it called cbrt; bindgen's foreign target is riscv64, and the intrinsics
 test reads the host's header. Two tests are Windows-only by nature: the ANSI code page one and
 Windows thread handles.
+Step 1, the foundation: std/core is loaded but imported like any module (the driver adds no core
+import; `module_import_t::statement`), so every std file and test imports what it uses; sema's
+`m_unknown_bounds` (unknown_bounds()) quiets what follows from a constraint naming nothing, and
+std_import_hint() says which Import. `attribute_t::qualifier` (`@C.Rename`, never a built-in),
+sema's attribute_of() and attribute_argument(); next_line_is_body() takes '@', so attributes go
+before required Interface members. `modifiers_t::panics_at_caller` (@PanicsAtCaller):
+`mir_function_t::panics_at_caller` and `call_t::place`, which lowering's give_place() fills from
+`m_span` (scoped_value_t); codegen gives such a function a trailing ptr, location() takes
+caller_place() or own_location(), an Interface table's slot is a without_place() thunk
+(`m_placeless`), and function values and Callback thunks pass null; check_inherited() and
+check_inherited_property() copy it to an Override and refuse adding it; std's Pops, Peeks, Nexts,
+Mem, and CString.Length have it. std/core/error.fb: Place, Error's Cause and Place
+(`fb_error_fields_t`, first in the object), and the area Errors with their Kind Enums; MIR's
+ERROR_THROWN fills a Place (fb_error_thrown()), and fb_error_uncaught() prints it and up to 100
+causes. Built-in DebugAssert (DEBUG_BUILD, true in the evaluator), Unreachable, and Todo
+(ends_program()); std/core/assert.fb's AssertEqual. `symbol_t::shows` makes a `Printable...`
+parameter a String[] whose arguments lowering's texts_of() makes text, with rank()'s fits and
+choose_overload()'s `unpacked` tie-breaker; std/core/print.fb's Print, Write, PrintError,
+WriteError (fb_write(), which flushes stdout before writing stderr), Flush, Input, and InputAsync;
+process.hpp's run_process() takes stdin, which the program tests give from <name>.in (console.fb,
+input_async.fb). third_party/ fetches libuv 1.52.1 (uv_a); runtime/src/io.cpp is fb_runtime_io,
+the I/O thread (io_t, reader_t for a console, pipe, or file, line_waiter_t), with internal.hpp's
+pending_requests(), which stuck() reads, and at_finish(), which fb_finish() runs before the leak
+report; build_config's `bundled_library_t`s (prefix, runtime part, archive, notice, system
+libraries), the driver's bundled_libraries(), `native_libraries_t::bundled`, and the CLI's
+"Bundled" lines. `symbol_t::gives_task`: an Extern "runtime" Function that gives a Task<T> is
+passed a new Task first (extern_call()); a top-level Await is TASK_WAIT and a rethrow
+(lower_await() without `m_async_task`). Its review's fixes: a DebugAssert's condition lets go of
+what it made before a release build's way past joins (lower_panic()); Await and Wait settle()
+their Task first; the I/O thread's finish_request() signals once the count is down
+(start_request(), requests_pending()); the scheduler's tick() panics off the main thread;
+showable() refuses runs_elsewhere() types; an Override Property and an Abstract one's
+required_accessor() keep @PanicsAtCaller; unknown_bounds() quiets For ... In, static_members(),
+and unsendable(), and an INVALID Throw quiets its Catch; an Attribute can take a built-in's name;
+attribute_of() says a type isn't a module; std's CString.Free panics at the caller over
+fb_cstring_free_known(); libuv's notices are one generated file (third_party's notices/libuv.txt)
+under `FB_LIBUV_LICENSES`; reader_t keeps stdin's flags on POSIX (a terminal's copy, a pipe's
+F_GETFL); run_process() writes the input from a thread of its own; an uncaught error shows 100
+Causes and says there are more.
 
 Done: M5 (modules, packages, `project.toml`, FFI, bindgen), planned 2026-10-18 and finished
 2026-10-20, in 11 steps, then a review of each project (compiler, runtime, cli, std).

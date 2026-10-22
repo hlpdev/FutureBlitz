@@ -1,4 +1,6 @@
 // Abstract and Static Properties, and an Interface's.
+Import std.core
+
 Abstract Class Shape
     // Each Class extending Shape gives Area's Get, and Label's Get and Set.
     Abstract ReadOnly Property Area: Float

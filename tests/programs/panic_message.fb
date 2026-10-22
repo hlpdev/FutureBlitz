@@ -1,4 +1,6 @@
 // Panic stops the program with a message the program made.
+Import std.core
+
 Function Hp(level: Int): Int
     If level > 0 Then Return level * 10
     Panic("level {level} has no hp")

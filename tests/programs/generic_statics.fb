@@ -1,6 +1,8 @@
 // Each instance of a generic type has its own Static Fields, Methods, and Properties, in the
 // type and in its Extends.
 
+Import std.core
+
 Class Counter<T>
     Static Field Made: Int = 0
     Static Field Last: T?

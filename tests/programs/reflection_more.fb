@@ -2,6 +2,8 @@
 // Properties, Static Fields, Methods of a Func type, a type's own attributes, and lambdas in
 // the loops.
 
+Import std.core
+
 Attribute Saved
 Attribute Label(Text: String)
 

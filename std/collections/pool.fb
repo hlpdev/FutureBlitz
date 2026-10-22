@@ -2,6 +2,8 @@
 // enemies. A removed value's slot is reused, and its Generation counts how many times, so an
 // old Handle to it finds nothing. Generations start at 1, so a Handle's zero finds nothing too.
 
+Import std.core
+
 // Where a value is in its Pool, which only the Pool makes. Two are equal when they're the same
 // value's, so a Handle can be a Map's key or a Set's value.
 Public Struct Handle<T> Implements Hashable

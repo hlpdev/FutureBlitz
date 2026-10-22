@@ -1,4 +1,6 @@
 // Strings: joining, interpolation, comparison, and reference counts.
+Import std.core
+
 Function Greet(name: String): String
     Return "Hello, " + name + "!"
 End Function

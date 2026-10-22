@@ -152,6 +152,25 @@ struct handler_t {
     std::vector<block_id_t> exits;
 };
 
+/// Sets a variable while it's in scope, and puts back what it held before.
+template <typename T>
+class scoped_value_t {
+public:
+    scoped_value_t(T& variable, T value)
+        : m_variable(variable), m_outer(std::exchange(variable, std::move(value))) {}
+    scoped_value_t(const scoped_value_t&) = delete;
+    scoped_value_t(scoped_value_t&&) = delete;
+    scoped_value_t& operator=(const scoped_value_t&) = delete;
+    scoped_value_t& operator=(scoped_value_t&&) = delete;
+    ~scoped_value_t() {
+        m_variable = std::move(m_outer);
+    }
+
+private:
+    T& m_variable;
+    T m_outer;
+};
+
 /// A member that a copy of a loop over a type's members is for.
 struct reflected_t {
     std::string name;
@@ -313,6 +332,10 @@ private:
     /// makes them, and that code's function, by the closure's Class.
     std::vector<pending_closure_t> m_closures;
     std::unordered_map<type_id_t, function_id_t> m_closure_code;
+    /// Where the code being lowered is: the innermost expression or statement, whose place a
+    /// call of a @PanicsAtCaller function gives it. nullopt in code the compiler makes itself,
+    /// like a function value's.
+    std::optional<span_t> m_span;
     /// Each Async lambda's coroutine, by the closure's Class.
     std::unordered_map<type_id_t, function_id_t> m_coroutine_code;
     /// An instance of a generic function: the function, and a type argument for each type
@@ -537,6 +560,7 @@ private:
             .name = function_name(symbol),
             .return_type = sets_up || symbol.modifiers.is_async ? type_id_t::NONE : symbol.type,
             .is_inline = symbol.modifiers.is_inline,
+            .panics_at_caller = symbol.modifiers.panics_at_caller,
             .is_async = symbol.modifiers.is_async,
         };
         // An Extern Function is only its parameters, under its C symbol. C gives a String's text
@@ -548,6 +572,12 @@ private:
             };
             if (declared.external->c_abi && is_text(symbol.type)) {
                 declared.return_type = type_id_t::CSTRING;
+            }
+
+            // The runtime takes the Task it gives first, and finishes it later.
+            if (symbol.gives_task) {
+                declared.return_type = type_id_t::NONE;
+                declared.locals.push_back({ .type = symbol.type, .name = "task" });
             }
 
             for (const symbol_id_t parameter : symbol.parameters) {
@@ -671,6 +701,7 @@ private:
                                ? type_id_t::NONE
                                : types().substitute(symbol.type, parameters, arguments),
             .is_inline = symbol.modifiers.is_inline,
+            .panics_at_caller = symbol.modifiers.panics_at_caller,
             .is_async = symbol.modifiers.is_async,
         });
         m_instances.emplace(key, function);
@@ -1272,6 +1303,7 @@ private:
 
     void begin_function(const function_id_t id) {
         m_function = id;
+        m_span.reset();
         m_locals.clear();
         m_aliases.clear();
         m_unchanging.clear();
@@ -1864,8 +1896,10 @@ private:
         std::vector<local_id_t> pins;
         if (auto* assign = std::get_if<assign_t>(&statement)) {
             pins = pin_arguments(assign->value);
+            give_place(assign->value);
         } else if (auto* evaluate = std::get_if<evaluate_t>(&statement)) {
             pins = pin_arguments(evaluate->value);
+            give_place(evaluate->value);
         }
 
         add_statement(std::move(statement));
@@ -2190,6 +2224,15 @@ private:
         return place;
     }
 
+    /// A call of a @PanicsAtCaller function gives it the place of the code being lowered.
+    void give_place(rvalue_t& value) {
+        auto* call = std::get_if<call_t>(&value);
+        if (call != nullptr && !call->place &&
+            m_module.functions[index(call->function)].panics_at_caller) {
+            call->place = m_span;
+        }
+    }
+
     /// Pins what a call borrows: its object and arguments, the function value it invokes, and
     /// what the runtime calls that run the program's code, like a Scheduler's Tick, are given.
     /// Gives the pins, which go after the call.
@@ -2375,6 +2418,7 @@ private:
 
     void lower_stmt(const stmt_id_t id) {
         const stmt_t& stmt = m_ast.get(id);
+        const scoped_value_t<std::optional<span_t>> at(m_span, stmt.span);
         std::visit([this, id, &stmt](const auto& node) { this->lower_stmt(id, stmt.span, node); },
                    stmt.node);
     }
@@ -3731,6 +3775,15 @@ private:
     void lower_stmt(stmt_id_t /*id*/, const span_t span, const throw_stmt_t& node) {
         const operand_t value = lower_value(node.error);
         take(value);
+        // The error is from here, unless an earlier Throw threw it.
+        emit(evaluate_t{
+            .value =
+                runtime_call_t{
+                    .function = runtime_function_t::ERROR_THROWN,
+                    .arguments = { value },
+                    .span = span,
+                },
+        });
         const local_id_t error = add_local(m_analysis.nullable_error);
         emit(assign_t{
             .target = error,
@@ -3999,6 +4052,7 @@ private:
     /// Where a variable, Self, or a field inside one lives, without copying it. Anything else,
     /// like a call, gives a temporary.
     place_t lower_place(const expr_id_t id) {
+        const scoped_value_t<std::optional<span_t>> at(m_span, span_of(id));
         const expr_node_t& node = m_ast.get(id).node;
         // "game.score" is the variable, as its name alone would be.
         if (m_analysis.expr(id).qualified) {
@@ -4078,6 +4132,7 @@ private:
 
     /// The value of an expression, converted to the type its context needs.
     operand_t lower_value(const expr_id_t id) {
+        const scoped_value_t<std::optional<span_t>> at(m_span, span_of(id));
         const expr_info_t& info = m_analysis.expr(id);
         if (info.value) {
             return concrete(*info.value);
@@ -4363,6 +4418,28 @@ private:
         }
 
         return temporary(std::move(value), type, has_references(type));
+    }
+
+    /// A new String[], `type`, of each element's text, as a string's "{x}" shows it, for a
+    /// parameter written "values: Printable...".
+    operand_t texts_of(const std::vector<expr_id_t>& elements, const type_id_t type) {
+        array_t value{ .type = type };
+        const std::vector<bool> later = changes_after(elements);
+        for (std::size_t i = 0; i < elements.size(); ++i) {
+            std::vector<operand_t> parts;
+            add_text(parts, settled(lower_value(elements[i]), later[i]),
+                     converted_type(elements[i]));
+            value.elements.push_back(parts.size() == 1
+                                         ? parts.front()
+                                         : runtime_call(runtime_function_t::JOIN, std::move(parts),
+                                                        type_id_t::STRING, true));
+        }
+
+        for (const operand_t& element : value.elements) {
+            take(element);
+        }
+
+        return temporary(std::move(value), type, true);
     }
 
     /// "(a, b)": a tuple, whose elements take their own references.
@@ -5761,7 +5838,26 @@ private:
     /// in the Task.
     std::optional<operand_t> lower_await(const expr_id_t id) {
         const auto& node = std::get<await_expr_t>(m_ast.get(id).node);
-        const operand_t task = lower_value(node.operand);
+        // What runs meanwhile can change a variable that holds the Task, so the wait and the
+        // result go through a reference of its own.
+        const operand_t task = settled(lower_value(node.operand), true);
+        // Top-level code waits as Wait does, while the main scheduler runs what can go on.
+        if (!m_async_task) {
+            emit(evaluate_t{
+                .value =
+                    runtime_call_t{
+                        .function = runtime_function_t::TASK_WAIT,
+                        .arguments = { task },
+                    },
+            });
+            rethrow(task, span_of(id));
+            if (types().get(concrete(type_of(task))).inner == type_id_t::NONE) {
+                return std::nullopt;
+            }
+
+            return element_of(as_place(task), 2);
+        }
+
         runtime_call_t wait{
             .function = runtime_function_t::AWAIT,
             .arguments = { task, place_t{ expect(m_async_task) } },
@@ -5874,23 +5970,64 @@ private:
     }
 
     /// Panic stops the program with its message. Assert does when its condition is False, with
-    /// its message, or one saying the assertion failed. The message is only made then.
+    /// its message, or one saying the assertion failed, and so does DebugAssert, in debug builds
+    /// only. Unreachable and Todo say what they are first. The message is only made then.
     void lower_panic(const expr_id_t id, const symbol_t& function) {
         const expr_info_t& info = m_analysis.expr(id);
-        const bool asserts = function.name == "Assert";
+        const bool asserts = function.name == "Assert" || function.name == "DebugAssert";
         std::optional<block_id_t> ok;
         if (asserts) {
-            const operand_t condition = lower_value(expect(info.arguments[0]));
-            const block_id_t fail = new_block();
             ok = new_block();
+            // A release build goes past a DebugAssert, whose code it then leaves out.
+            if (function.name == "DebugAssert") {
+                const operand_t debug = temporary(
+                    runtime_call_t{ .function = runtime_function_t::DEBUG_BUILD }, type_id_t::BOOL);
+                const block_id_t check = new_block();
+                terminate(branch_t{ .condition = debug, .if_true = check, .if_false = *ok });
+                start(check);
+            }
+
+            const std::size_t made = m_temporaries.size();
+            operand_t condition = lower_value(expect(info.arguments[0]));
+            // A release build never makes what a DebugAssert's condition does, so it's let go
+            // before the two ways join, the Bool kept apart from it.
+            if (function.name == "DebugAssert" && m_temporaries.size() > made) {
+                condition = temporary(use_t{ .value = condition }, type_id_t::BOOL);
+                release_temporaries_from(made);
+            }
+
+            const block_id_t fail = new_block();
             terminate(branch_t{ .condition = condition, .if_true = *ok, .if_false = fail });
             start(fail);
         }
 
-        panic_t panic{ .message = "assertion failed", .span = span_of(id) };
+        std::string_view first;
+        if (function.name == "Unreachable") {
+            first = "this code isn't meant to be reached";
+        } else if (function.name == "Todo") {
+            first = "this isn't done yet";
+        } else if (function.name == "DebugAssert") {
+            first = "debug assertion failed";
+        } else {
+            first = "assertion failed";
+        }
+
+        // Unreachable's and Todo's message goes after what they say.
+        const bool after = function.name == "Unreachable" || function.name == "Todo";
+        panic_t panic{ .message = std::string(first), .span = span_of(id) };
         const std::size_t mark = m_temporaries.size();
         if (const std::optional<expr_id_t> message = info.arguments[asserts ? 1 : 0]) {
-            const operand_t text = lower_value(*message);
+            operand_t text = lower_value(*message);
+            if (after) {
+                const auto* constant = std::get_if<const_value_t>(&text);
+                text = constant != nullptr
+                           ? operand_t{ make_string(std::format(
+                                 "{}: {}", first, std::get<std::string>(constant->data))) }
+                           : runtime_call(runtime_function_t::CONCAT,
+                                          { make_string(std::format("{}: ", first)), text },
+                                          type_id_t::STRING, true);
+            }
+
             if (const auto* constant = std::get_if<const_value_t>(&text)) {
                 panic.message = std::get<std::string>(constant->data);
             } else {
@@ -6132,7 +6269,7 @@ private:
     std::optional<operand_t> task_call(const symbol_t& method,
                                        const std::vector<call_argument_t>& arguments,
                                        const span_t span) {
-        const operand_t& task = arguments.front().value;
+        const operand_t task = settled(arguments.front().value, method.name != "IsDone");
         if (method.name == "IsDone") {
             return temporary(
                 runtime_call_t{ .function = runtime_function_t::TASK_DONE, .arguments = { task } },
@@ -6197,6 +6334,7 @@ private:
     }
 
     std::optional<operand_t> lower_call(const expr_id_t id) {
+        const scoped_value_t<std::optional<span_t>> at(m_span, span_of(id));
         const auto& node = std::get<call_expr_t>(m_ast.get(id).node);
         // AddressOf(x) is x's place's address.
         if (m_analysis.expr(id).address_of) {
@@ -6515,8 +6653,15 @@ private:
             const symbol_t& parameter = m_analysis.symbol(function.parameters[i]);
             const type_id_t type =
                 types().substitute(parameter.type, type_parameters, type_arguments);
-            const operand_t value =
-                parameter.variadic ? array_of(info.packed, type) : default_of(parameter, type);
+            operand_t value;
+            if (parameter.shows) {
+                value = texts_of(info.packed, type);
+            } else if (parameter.variadic) {
+                value = array_of(info.packed, type);
+            } else {
+                value = default_of(parameter, type);
+            }
+
             arguments.push_back({ .value = value });
         }
     }
@@ -6549,7 +6694,22 @@ private:
 
         call_t call{ .function = function_of(id), .arguments = std::move(arguments) };
         std::optional<operand_t> result;
-        if (function.type == type_id_t::NONE) {
+        if (function.gives_task) {
+            // The call makes the Task, which the runtime finishes later.
+            const type_id_t type = concrete(function.type);
+            generated(generated_kind_t::RUN, type);
+            const operand_t task = temporary(new_t{ .type = type }, type, true);
+            emit(evaluate_t{
+                .value =
+                    runtime_call_t{
+                        .function = runtime_function_t::ASYNC_BEGIN,
+                        .arguments = { task },
+                    },
+            });
+            call.arguments.insert(call.arguments.begin(), { .value = task });
+            emit(evaluate_t{ .value = std::move(call) });
+            result = task;
+        } else if (function.type == type_id_t::NONE) {
             emit(evaluate_t{ .value = std::move(call) });
         } else if (text) {
             const operand_t given = temporary(std::move(call), type_id_t::CSTRING);
@@ -6635,7 +6795,9 @@ private:
         const symbol_t& function = m_analysis.symbol(expect(info.symbol));
         const auto& node = std::get<call_expr_t>(m_ast.get(id).node);
         if (function.kind == symbol_kind_t::BUILTIN_FUNCTION &&
-            (function.name == "Panic" || function.name == "Assert")) {
+            (function.name == "Panic" || function.name == "Assert" ||
+             function.name == "DebugAssert" || function.name == "Unreachable" ||
+             function.name == "Todo")) {
             lower_panic(id, function);
             return std::nullopt;
         }

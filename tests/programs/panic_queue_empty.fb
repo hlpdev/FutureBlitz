@@ -1,4 +1,5 @@
 // Dequeue on an empty Queue panics.
+Import std.core
 Import std.collections
 
 Local queue = Queue<String>()

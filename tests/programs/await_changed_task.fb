@@ -1,0 +1,26 @@
+// What runs while code waits can change the variable that holds the Task it waits for. The wait,
+// and what it gives, are those of the Task the variable held when the wait began, for a
+// top-level Await and for Wait().
+Import std.core
+
+Async Function Slow(n: Int): Int
+    Await NextFrame()
+    Await NextFrame()
+    Return n
+End Function
+
+Global current = Slow(1)
+
+Async Function Swap(n: Int)
+    Await NextFrame()
+    current = Slow(n)
+End Function
+
+Local first = Swap(99)
+Print("awaited", Await current)
+Print("then", Await current)
+
+current = Slow(2)
+Local second = Swap(98)
+Print("waited", current.Wait())
+Print("then", current.Wait())

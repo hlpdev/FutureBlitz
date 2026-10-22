@@ -1,3 +1,5 @@
+Import std.core
+
 Local big = 2147483647
 Print("before")
 Local bigger = big + 1

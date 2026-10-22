@@ -1,4 +1,6 @@
 // A thread that Locks a Mutex it holds already would wait for itself forever.
+Import std.core
+
 Global score = Mutex<Int>(0)
 
 Lock score As outer

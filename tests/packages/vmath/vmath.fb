@@ -1,5 +1,6 @@
 // What the package gives its users, over the C library.
 
+Import std.core
 Import std.ffi
 Import "./c"
 

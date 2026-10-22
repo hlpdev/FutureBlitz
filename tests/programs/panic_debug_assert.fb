@@ -1,0 +1,7 @@
+// A DebugAssert panics in a debug build, with its message, which is only made then.
+Import std.core
+
+Local items = [1, 2, 3]
+DebugAssert(items.Count == 3)
+DebugAssert(items.Count > 5, "only {items.Count} items")
+Print("release builds get here")

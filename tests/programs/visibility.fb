@@ -5,6 +5,7 @@
 // is Private, an Interface's Method called on a private implementation, two Interfaces' defaults
 // of one name, and a loop over another module's private Fields.
 
+Import std.core
 Import "./visibility/shapes"
 Import "./visibility/names"
 Import "./visibility/extras"

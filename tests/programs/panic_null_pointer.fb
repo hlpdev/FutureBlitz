@@ -1,4 +1,6 @@
 // A debug build panics where a Null Ptr's Value is read, or it's indexed.
+Import std.core
+
 Local values = [1, 2, 3]
 Local p: Ptr<Int32> = Null
 Unsafe

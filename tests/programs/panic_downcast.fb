@@ -1,4 +1,6 @@
 // A failed As panics with the Class it found.
+Import std.core
+
 Class Animal
 End Class
 

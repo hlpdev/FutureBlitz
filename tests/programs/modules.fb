@@ -2,6 +2,7 @@
 // qualified by it in values, types, and bases, a From line, two modules' Nodes and Makes told
 // apart by their qualifiers, and a Global another module sets before this code runs.
 
+Import std.core
 Import std.collections As C
 Import "./modules/ping"
 Import "./modules/shapes" As S

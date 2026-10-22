@@ -1,4 +1,6 @@
 // Globals initialize in source order before the top-level code, and functions use them.
+Import std.core
+
 Print("start {count} {label}")
 Global count = 10
 Global label = "count is {count}"

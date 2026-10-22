@@ -1,0 +1,24 @@
+// Print, Write, PrintError, and WriteError show their values with a space between each two, to
+// stdout or stderr, which show what the program wrote in its order. Input writes its prompt,
+// then reads a line without its line break, "\r\n" too, as UTF-8, with U+FFFD for a byte that
+// isn't, and gives Null once the input ends.
+Import std.core
+
+Print("numbers", 1, 2.5, True, [1, 2], (3, "x"))
+Write("no", "break")
+Print()
+PrintError("an error line", 404)
+Write("then ")
+WriteError("stderr ")
+Print("back")
+Flush()
+
+Local count = 0
+Local line = Input("> ")
+While line != Null
+    count += 1
+    Print("got [{line}]")
+    line = Input("> ")
+End While
+
+Print(count, "lines, then the end")

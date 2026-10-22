@@ -35,6 +35,10 @@
 namespace fb {
 namespace {
 
+/// How a member loop names its type when it doesn't, as `For Field f In T` doesn't: "the type
+/// of f".
+constexpr std::string_view unnamed_member_type = "the type of ";
+
 std::size_t index(const expr_id_t id) {
     return std::to_underlying(id);
 }
@@ -361,7 +365,7 @@ private:
     /// share a name.
     using names_t = std::unordered_map<std::string_view, std::vector<symbol_id_t>>;
 
-    /// One Import or From line of a module, or the import of std/core/ that every module has.
+    /// One Import or From line of a module.
     struct import_scope_t {
         /// By index in m_modules: the module it names, or each file of a folder.
         std::vector<std::size_t> modules;
@@ -591,6 +595,10 @@ private:
     /// The constraints that hold in the code being checked: its function's and its Struct's or
     /// Class's, or in an Interface, Self's.
     std::vector<bound_t> m_bounds;
+    /// Type parameters with a constraint that names no Interface, which was reported, like one
+    /// a file doesn't import: what the code does with one isn't, since the constraint it meant
+    /// could allow it.
+    std::unordered_set<type_id_t> m_unknown_bounds;
     /// Every type's Interfaces and constraints are known, so constraints can be checked.
     bool m_declared = false;
     /// Every Interface knows the ones it extends, which same_signature() needs before it can
@@ -880,6 +888,24 @@ private:
         });
         m_builtins["Assert"].push_back(assertion);
 
+        // DebugAssert is an Assert that release builds leave out, and Unreachable and Todo are
+        // Panics with a message of their own.
+        const symbol_id_t debug_assertion = add_symbol({
+            .kind = symbol_kind_t::BUILTIN_FUNCTION,
+            .name = "DebugAssert",
+            .type = type_id_t::NONE,
+            .parameters = { condition, note },
+        });
+        m_builtins["DebugAssert"].push_back(debug_assertion);
+        for (const std::string_view name : { "Unreachable", "Todo" }) {
+            m_builtins[name].push_back(add_symbol({
+                .kind = symbol_kind_t::BUILTIN_FUNCTION,
+                .name = name,
+                .type = type_id_t::NONE,
+                .parameters = { note },
+            }));
+        }
+
         // NextFrame(), Seconds(n), and RealSeconds(n) give a Task that the scheduler running the
         // code finishes later, for an Async Function to Await, so only the main thread calls
         // them. MainThread() gives one that's done.
@@ -921,19 +947,18 @@ private:
                     scope.modules.push_back(std::to_underlying(module));
                 }
 
-                const stmt_id_t statement = imported.statement.value_or(stmt_id_t{});
-                const import_stmt_t* node = import_of(imported);
-                if (node != nullptr && node->from) {
-                    for (const name_t& name : node->names) {
+                const import_stmt_t& node = import_of(imported);
+                if (node.from) {
+                    for (const name_t& name : node.names) {
                         scope.names.push_back(name.text);
                     }
-                } else if (node != nullptr) {
-                    scope.unqualified = !node->alias;
-                    if (node->alias) {
-                        scope.alias = node->alias->text;
+                } else {
+                    scope.unqualified = !node.alias;
+                    if (node.alias) {
+                        scope.alias = node.alias->text;
                     }
 
-                    declare_qualifier(i, node->alias.value_or(node->last), statement,
+                    declare_qualifier(i, node.alias.value_or(node.last), imported.statement,
                                       imported.modules);
                 }
 
@@ -954,13 +979,9 @@ private:
         }
     }
 
-    /// The Import or From line an import is, or null for the import of std/core/.
-    [[nodiscard]] const import_stmt_t* import_of(const module_import_t& imported) const {
-        if (!imported.statement) {
-            return nullptr;
-        }
-
-        return std::get_if<import_stmt_t>(&m_ast.get(*imported.statement).node);
+    /// The Import or From line an import is.
+    [[nodiscard]] const import_stmt_t& import_of(const module_import_t& imported) const {
+        return std::get<import_stmt_t>(m_ast.get(imported.statement).node);
     }
 
     /// "Import and From lines go first": at an Import after a file's other statements, or in
@@ -1015,12 +1036,12 @@ private:
         const std::vector<module_t>& modules = m_ast.modules().modules();
         for (std::size_t here = 0; here < modules.size(); ++here) {
             for (const module_import_t& imported : modules[here].imports) {
-                const import_stmt_t* node = import_of(imported);
-                if (node == nullptr || !node->from || imported.modules.empty()) {
+                const import_stmt_t& node = import_of(imported);
+                if (!node.from || imported.modules.empty()) {
                     continue;
                 }
 
-                for (const name_t& name : node->names) {
+                for (const name_t& name : node.names) {
                     bool seen = false;
                     std::optional<symbol_id_t> hidden;
                     for (const module_id_t id : imported.modules) {
@@ -1038,7 +1059,7 @@ private:
                         report_unusable(*hidden, name.span, type_id_t::INVALID);
                     } else if (!seen && !name.text.empty()) {
                         error(name.span, "'{}' isn't declared in {}", name.text,
-                              import_shown(*node));
+                              import_shown(node));
                     }
                 }
             }
@@ -1133,12 +1154,6 @@ private:
             error(node->name.span, "'{}' is a built-in type", node->name.text);
         }
 
-        constexpr auto builtin_attributes = std::to_array<std::string_view>(
-            { "Inline", "Deprecated", "Flags", "CLayout", "MainThread", "Serialize" });
-        if (node->is_attribute && std::ranges::contains(builtin_attributes, node->name.text)) {
-            error(node->name.span, "@{} is a built-in attribute", node->name.text);
-        }
-
         const modifiers_t& modifiers = node->modifiers;
         if (!node->is_class && (modifiers.is_abstract || modifiers.is_final)) {
             error(node->name.span, "a Struct can't be Abstract or Final; only a Class can");
@@ -1162,6 +1177,12 @@ private:
 
         if (modifiers.is_main_thread) {
             error(node->name.span, "@MainThread only goes before a Function or Method");
+        }
+
+        if (modifiers.panics_at_caller) {
+            error(
+                node->name.span,
+                "@PanicsAtCaller only goes before a Function, Method, Operator, New, or Property");
         }
 
         if (modifiers.is_c_layout && !node->type_parameters.empty()) {
@@ -1232,6 +1253,10 @@ private:
         } else if (modifiers.is_inline) {
             error(node.name.span, "@Inline only goes before a Function, Method, Operator, or "
                                   "Property");
+        } else if (modifiers.panics_at_caller) {
+            error(
+                node.name.span,
+                "@PanicsAtCaller only goes before a Function, Method, Operator, New, or Property");
         }
 
         check_not_protected(modifiers);
@@ -1386,6 +1411,10 @@ private:
                     .parameter = *found,
                     .interface = resolve_interface(written_interface),
                 };
+                if (bound.interface == type_id_t::INVALID) {
+                    m_unknown_bounds.insert(*found);
+                }
+
                 const auto other = std::ranges::find_if(bounds, [&](const bound_t& listed) {
                     return listed.parameter == bound.parameter &&
                            is_other_instance(listed.interface, bound.interface);
@@ -1556,6 +1585,10 @@ private:
         if (node.modifiers.is_inline) {
             error(node.name.span, "@Inline only goes before a Function, Method, Operator, or "
                                   "Property");
+        } else if (node.modifiers.panics_at_caller) {
+            error(
+                node.name.span,
+                "@PanicsAtCaller only goes before a Function, Method, Operator, New, or Property");
         }
 
         check_not_protected(node.modifiers);
@@ -1939,6 +1972,11 @@ private:
                   target);
         }
 
+        if (node.modifiers.panics_at_caller) {
+            error(node.name.span,
+                  "an Extern Function can't be @PanicsAtCaller, since its code is {}'s", target);
+        }
+
         // Whether a String can stand for a CString is settled once every type is declared.
         const std::vector<symbol_id_t>& parameters = symbol(id).parameters;
         if (!runtime) {
@@ -1965,12 +2003,14 @@ private:
                             "argument becomes for the call");
             } else if (type == type_id_t::STRING && parameter.by_ref) {
                 error(span, "the runtime takes a String as it is, not ByRef");
+            } else if (runtime && is_array(type) && !parameter.by_ref) {
+                // The runtime takes an array as it is too, which it only borrows.
             } else if (!is_c_scalar(type) && type != type_id_t::STRING && !is_struct(type)) {
                 error(span,
                       "{} can't go to {}: an Extern Function takes numbers, Bool, Enums, Ptrs, "
                       "Callbacks, {}",
                       shown_name(type), target,
-                      runtime ? "CString, and String" : "CString, and @CLayout Structs");
+                      runtime ? "CString, String, and arrays" : "CString, and @CLayout Structs");
             } else {
                 check_c_struct(type, span, !parameter.by_ref);
             }
@@ -1980,7 +2020,13 @@ private:
         const type_id_t result = symbol(id).type;
         const bool text = result == type_id_t::STRING ||
                           (is_nullable(result) && non_null(result) == type_id_t::STRING);
-        if (node.return_type && !is_c_scalar(result) && !text && !is_struct(result)) {
+        // The runtime gives a Task it finishes later, as its I/O thread does: the call makes
+        // the Task, which the runtime takes first.
+        const bool task = runtime && result != type_id_t::INVALID &&
+                          m_analysis.types.get(result).kind == type_kind_t::TASK;
+        if (task) {
+            symbol(id).gives_task = true;
+        } else if (node.return_type && !is_c_scalar(result) && !text && !is_struct(result)) {
             error(m_ast.get(*node.return_type).span,
                   "{} can't come from {}: an Extern Function gives a number, Bool, an Enum, a "
                   "Ptr, a Callback, a CString, a @CLayout Struct, or a String or String?, which "
@@ -2910,6 +2956,15 @@ private:
                   node.name.text);
         }
 
+        // A call through an Interface's object has no place to give, and nothing calls Destroy.
+        if (modifiers.panics_at_caller && is_interface(owner)) {
+            error(node.name.span,
+                  "an Interface's members can't be @PanicsAtCaller; what implements one can be");
+        } else if (modifiers.panics_at_caller && node.name.text == "Destroy" &&
+                   node.kind == function_kind_t::METHOD) {
+            error(node.name.span, "Destroy can't be @PanicsAtCaller, since no code calls it");
+        }
+
         // declare_extension_member() says what an Extend's members can't be.
         if (m_extending) {
             return;
@@ -3057,6 +3112,10 @@ private:
                                   "Property");
         } else if (modifiers.is_main_thread) {
             error(node.name.span, "@MainThread only goes before a Function or Method");
+        } else if (modifiers.panics_at_caller) {
+            error(
+                node.name.span,
+                "@PanicsAtCaller only goes before a Function, Method, Operator, New, or Property");
         }
     }
 
@@ -3082,6 +3141,10 @@ private:
                                   "Property");
         } else if (modifiers.is_main_thread) {
             error(node.name.span, "@MainThread only goes before a Function or Method");
+        } else if (modifiers.panics_at_caller) {
+            error(
+                node.name.span,
+                "@PanicsAtCaller only goes before a Function, Method, Operator, New, or Property");
         } else if (modifiers.deprecated && in_block) {
             error(node.name.span, "{} can't be @Deprecated, since only its own code uses it", what);
         } else if (!modifiers.attributes.empty() && in_block) {
@@ -3148,6 +3211,7 @@ private:
                 .is_override = modifiers.is_override,
                 .is_static = modifiers.is_static,
                 .is_inline = modifiers.is_inline,
+                .panics_at_caller = modifiers.panics_at_caller,
             };
             if (modifiers.is_static) {
                 symbol(declared).self.reset();
@@ -3193,6 +3257,9 @@ private:
             if (virtual_modifier) {
                 error(span, "an Interface's Properties can't be Abstract, Final, or Override; "
                             "they're required");
+            } else if (modifiers.panics_at_caller) {
+                error(span, "an Interface's members can't be @PanicsAtCaller; what implements "
+                            "one can be");
             } else if (!node.required) {
                 error(span, "an Interface's Property is only its first line; the types that "
                             "implement it give its Get and Set");
@@ -3255,6 +3322,7 @@ private:
                 .visibility = node.modifiers.visibility,
                 .is_abstract = true,
                 .is_static = node.modifiers.is_static,
+                .panics_at_caller = node.modifiers.panics_at_caller,
             },
         });
     }
@@ -4700,7 +4768,17 @@ private:
                   "{} needs no Unsafe code",
                   member.name, shown_name(owner_in(base, original.owner)),
                   shown_name(owner_in(base, original.owner)));
+        } else if (member.modifiers.panics_at_caller && !original.modifiers.panics_at_caller) {
+            error(member.span,
+                  "'{}' is @PanicsAtCaller, so it can't override {}'s, which isn't, since a call "
+                  "through {} gives no place",
+                  member.name, shown_name(owner_in(base, original.owner)),
+                  shown_name(owner_in(base, original.owner)));
         }
+
+        // Every Method in one slot of the Method table takes the place its call gives, or none
+        // does.
+        member.modifiers.panics_at_caller = original.modifiers.panics_at_caller;
     }
 
     /// Whether the Class `extending` never has a member of `base`, the instance it extends, that
@@ -4900,13 +4978,27 @@ private:
                   shown_name(owner_in(base, original.owner)));
         }
 
+        if (member.modifiers.panics_at_caller && !original.modifiers.panics_at_caller) {
+            error(member.span,
+                  "'{}' is @PanicsAtCaller, so it can't override {}'s, which isn't, since a use "
+                  "through {} gives no place",
+                  member.name, shown_name(owner_in(base, original.owner)),
+                  shown_name(owner_in(base, original.owner)));
+        }
+
+        // It, and its Get and Set, take the place a use gives as the ones they override do.
         symbol(id).overrides = original_id;
+        symbol(id).modifiers.panics_at_caller = original.modifiers.panics_at_caller;
         if (getter && original_getter) {
             symbol(*getter).overrides = original_getter;
+            symbol(*getter).modifiers.panics_at_caller =
+                symbol(*original_getter).modifiers.panics_at_caller;
         }
 
         if (setter && original_setter) {
             symbol(*setter).overrides = original_setter;
+            symbol(*setter).modifiers.panics_at_caller =
+                symbol(*original_setter).modifiers.panics_at_caller;
         }
     }
 
@@ -5594,7 +5686,8 @@ private:
             for (const attribute_t& attribute : modifiers->attributes) {
                 if (std::optional<attribute_value_t> value = check_attribute(attribute)) {
                     if (std::ranges::contains(values, value->type, &attribute_value_t::type)) {
-                        error(attribute.name.span, "@{} is written twice", attribute.name.text);
+                        error(attribute.name.span, "@{} is written twice",
+                              attribute_text(attribute));
                         continue;
                     }
 
@@ -5615,17 +5708,12 @@ private:
     /// One attribute: its Attribute, and the values of its arguments, which are known at
     /// compile time. A parameter without an argument takes its default.
     std::optional<attribute_value_t> check_attribute(const attribute_t& written) {
-        const type_id_t type = attribute_named(written.name.text, written.name.span);
-        if (type == type_id_t::INVALID &&
-            !report_hidden_name(written.name.text, written.name.span)) {
-            error(written.name.span, "'@{}' isn't an attribute; an Attribute declaration makes one",
-                  written.name.text);
-        }
-
-        if (type == type_id_t::INVALID) {
+        const std::optional<type_id_t> attribute = attribute_of(written);
+        if (!attribute) {
             return std::nullopt;
         }
 
+        const type_id_t type = *attribute;
         const std::vector<symbol_id_t>& members = symbol(m_declared_types.at(type)).members;
         std::vector<symbol_id_t> fields;
         std::ranges::copy_if(members, std::back_inserter(fields), [this](const symbol_id_t id) {
@@ -5651,7 +5739,7 @@ private:
                                       [this](const symbol_id_t id) { return symbol(id).name; });
                 if (found == fields.end()) {
                     error(argument.name->span, "'@{}' has no parameter named '{}'",
-                          written.name.text, argument.name->text);
+                          attribute_text(written), argument.name->text);
                     return std::nullopt;
                 }
 
@@ -5662,7 +5750,7 @@ private:
             } else if (position < fields.size()) {
                 ++position;
             } else {
-                error(span, "too many arguments to '@{}'", written.name.text);
+                error(span, "too many arguments to '@{}'", attribute_text(written));
                 return std::nullopt;
             }
 
@@ -5733,6 +5821,105 @@ private:
 
         report_hint(span, *hint);
         return true;
+    }
+
+    /// An attribute as it's written, after its qualifier if it has one: "C.Rename".
+    [[nodiscard]] static std::string attribute_text(const attribute_t& written) {
+        return written.qualifier ? std::format("{}.{}", written.qualifier->text, written.name.text)
+                                 : std::string(written.name.text);
+    }
+
+    /// The Attribute `written` names, by its name or after its module's qualifier, as in
+    /// @C.Rename. nullopt, once it's reported, when it names none.
+    std::optional<type_id_t> attribute_of(const attribute_t& written) {
+        if (!written.qualifier) {
+            const span_t span = written.name.span;
+            const type_id_t type = attribute_named(written.name.text, span);
+            if (type != type_id_t::INVALID) {
+                return type;
+            }
+
+            // A name the code doesn't see says how it would, as another name does.
+            const std::optional<hint_t> hint = top_level(written.name.text, span).empty()
+                                                   ? import_hint(written.name.text, span)
+                                                   : std::nullopt;
+            if (hint) {
+                report_hint(span, *hint);
+            } else {
+                error(span, "'@{}' isn't an attribute; an Attribute declaration makes one",
+                      written.name.text);
+            }
+
+            return std::nullopt;
+        }
+
+        const name_t& qualifier = *written.qualifier;
+        const module_scope_t& module = m_modules[module_of(qualifier.span.file)];
+        const auto given = module.qualifiers.find(qualifier.text);
+        if (declares(module.names, qualifier.text)) {
+            error(qualifier.span,
+                  "'{}' is declared in this file, so it isn't an Import's qualifier",
+                  qualifier.text);
+            return std::nullopt;
+        }
+
+        // A name the code sees, like a type's, isn't a module; one it doesn't see may be in a
+        // module the file doesn't import.
+        if (given == module.qualifiers.end()) {
+            if (quietly([&] { return !top_level(qualifier.text, qualifier.span).empty(); })) {
+                error(qualifier.span, "'{}' isn't an imported module, so it can't come before '.'",
+                      qualifier.text);
+            } else {
+                report_undeclared(qualifier.text, qualifier.span, "a type, not a module");
+            }
+
+            return std::nullopt;
+        }
+
+        const std::vector<symbol_id_t> found =
+            in_module(given->second, written.name.text, written.name.span);
+        if (found.empty()) {
+            report_not_in_module(given->second, written.name);
+            return std::nullopt;
+        }
+
+        const symbol_t& declared = symbol(found.front());
+        if (declared.kind != symbol_kind_t::TYPE || !is_attribute_type(declared.type)) {
+            error(written.name.span, "'@{}' isn't an attribute; an Attribute declaration makes one",
+                  attribute_text(written));
+            return std::nullopt;
+        }
+
+        return declared.type;
+    }
+
+    /// The Attribute an argument names, like f.Has(Rename)'s, or f.Has(C.Rename)'s after its
+    /// module's qualifier, or INVALID. `reported` says whether why not was reported.
+    type_id_t attribute_argument(const expr_id_t value, bool& reported) {
+        const span_t span = span_of(value);
+        if (const auto* name = std::get_if<name_expr_t>(&m_ast.get(value).node)) {
+            const type_id_t found = attribute_named(name->name, span);
+            reported = found == type_id_t::INVALID && report_hidden_name(name->name, span);
+            return found;
+        }
+
+        const std::optional<qualified_t> qualified = qualified_name(value);
+        if (!qualified) {
+            return type_id_t::INVALID;
+        }
+
+        const name_t& member = qualified->member->member;
+        const std::vector<symbol_id_t> found = in_module(qualified->module, member.text, span);
+        if (found.empty()) {
+            report_not_in_module(qualified->module, member);
+            reported = true;
+            return type_id_t::INVALID;
+        }
+
+        const symbol_t& declared = symbol(found.front());
+        return declared.kind == symbol_kind_t::TYPE && is_attribute_type(declared.type)
+                   ? declared.type
+                   : type_id_t::INVALID;
     }
 
     /// The Attribute a name written at `span` declares, or INVALID.
@@ -5879,6 +6066,13 @@ private:
                                      "a parameter can't hold one; make it ByRef");
             }
 
+            // "values: Printable..." takes values of any types a string can show, as their texts.
+            const bool shows =
+                variadic && type != type_id_t::INVALID && type == m_analysis.interfaces.printable;
+            if (shows) {
+                type = type_id_t::STRING;
+            }
+
             if (parameter.variadic) {
                 type = m_analysis.types.array(type);
             }
@@ -5892,6 +6086,7 @@ private:
                 .type = type,
                 .by_ref = parameter.by_ref,
                 .variadic = variadic,
+                .shows = shows,
                 .has_default = parameter.default_value.has_value() && !parameter.by_ref,
             }));
         }
@@ -7292,7 +7487,8 @@ private:
                                              const span_t span) const {
         const std::string_view name = name_of(declared);
         if (!std_hidden(declared, span)) {
-            return std::format("<{}: {}>", shown_name(parameter), name);
+            return std::format("<{}: {}>{}", shown_name(parameter), name,
+                               std_import_hint(declared, span));
         }
 
         const std::string& module = m_analysis.types.get(declared).module;
@@ -7314,6 +7510,19 @@ private:
         const std::string_view last = std::string_view(module).substr(module.rfind('.') + 1);
         return std::format("<{}: {}.{}>, after Import {}", shown_name(parameter), last, name,
                            module);
+    }
+
+    /// ", after Import std.core" when code at `span` doesn't see std's `declared` by its name,
+    /// which nothing there hides, since the file doesn't import it. Empty when it sees it.
+    [[nodiscard]] std::string std_import_hint(const type_id_t declared, const span_t span) const {
+        const std::size_t here = module_of(span.file);
+        const std::string_view name = name_of(declared);
+        if (!givers_of(here, name).empty() || !names_in(m_modules[here].names, name).empty()) {
+            return {};
+        }
+
+        const std::optional<home_t> home = home_of(here, name);
+        return home ? std::format(", after Import {}", home->module) : std::string();
     }
 
     [[nodiscard]] std::string std_name(const type_id_t declared, const type_id_t beside,
@@ -7526,7 +7735,7 @@ private:
         }
 
         if (is_parameter(type)) {
-            return std::ranges::contains(bounds_of(type), interface);
+            return unknown_bounds(type) || std::ranges::contains(bounds_of(type), interface);
         }
 
         if (is_interface(type)) {
@@ -7538,6 +7747,11 @@ private:
         }
 
         return listed_implements(type, interface) || extension_implements(type, interface);
+    }
+
+    /// Whether `type` is a type parameter with a constraint that names no Interface.
+    [[nodiscard]] bool unknown_bounds(const type_id_t type) const {
+        return is_parameter(type) && m_unknown_bounds.contains(type);
     }
 
     /// Why a value of `type` can't go to another thread, or nullopt when it can: it's a number,
@@ -7573,7 +7787,7 @@ private:
         }
 
         if (is_parameter(type)) {
-            return std::ranges::contains(bounds_of(type), sendable)
+            return std::ranges::contains(bounds_of(type), sendable) || unknown_bounds(type)
                        ? std::nullopt
                        : std::optional(unsendable_t{ .parameter = type });
         }
@@ -8150,7 +8364,7 @@ private:
 
             const type_id_t field = m_analysis.types.add_parameter(
                 loop->type_name ? std::string(loop->type_name->text)
-                                : std::format("the type of {}", loop->variable.text));
+                                : std::format("{}{}", unnamed_member_type, loop->variable.text));
             m_loop_fields[id] = field;
             const auto* named = std::get_if<named_type_t>(&m_ast.get(loop->type).node);
             const auto parameter =
@@ -9289,7 +9503,7 @@ private:
     [[nodiscard]] bool comparable(const type_id_t type) const {
         // A type parameter compares with the Operator == its constraints give, if they give one.
         if (is_parameter(type)) {
-            return !operators_of(type, "==").empty();
+            return unknown_bounds(type) || !operators_of(type, "==").empty();
         }
 
         // An array compares its elements.
@@ -9340,44 +9554,71 @@ private:
             return printable != type_id_t::INVALID && implements(type, printable);
         }
 
-        return !is_nullable(type) && !is_func(type) && !is_weak(type) && !is_c_pointer(type);
+        return !is_nullable(type) && !is_func(type) && !is_weak(type) && !is_c_pointer(type) &&
+               !runs_elsewhere(type);
     }
 
-    /// Why a value can't be shown in a string. Printable is std's, which says so where the code
-    /// has a Printable of its own.
-    void report_unshowable(const expr_id_t id, const type_id_t type) {
+    /// A Task, Thread, Channel, Scheduler, Atomic, or Mutex: what work and the threads it runs
+    /// on share, which has no text of its own.
+    [[nodiscard]] bool runs_elsewhere(const type_id_t type) const {
+        return is_task(type) || is_channel(type) || is_scheduler(type) || is_atomic(type) ||
+               is_mutex(type);
+    }
+
+    /// Why a value can't be shown `where`: in a string, or by a function that takes values to
+    /// show, like "by 'Print'". Printable is std's, which says so where the code has a Printable
+    /// of its own.
+    void report_unshowable(const expr_id_t id, const type_id_t type,
+                           const std::string_view where = "in a string") {
         const span_t span = span_of(id);
         const type_id_t printable = m_analysis.interfaces.printable;
         if (is_nullable(type)) {
             error(span,
-                  "{} can't be shown in a string, since it may be Null; give a value for Null with "
+                  "{} can't be shown {}, since it may be Null; give a value for Null with "
                   "'{}'",
-                  shown_name(type), spelling(binary_op_t::COALESCE));
+                  shown_name(type), where, spelling(binary_op_t::COALESCE));
         } else if (is_tuple(type)) {
-            error(span, "{} can't be shown in a string, since one of its elements can't be",
-                  shown_name(type));
+            error(span, "{} can't be shown {}, since one of its elements can't be",
+                  shown_name(type), where);
         } else if (is_any_array(type)) {
-            error(span, "{} can't be shown in a string, since its elements can't be",
-                  shown_name(type));
+            error(span, "{} can't be shown {}, since its elements can't be", shown_name(type),
+                  where);
+        } else if (is_parameter(type) && name_of(type).starts_with(unnamed_member_type)) {
+            // A member loop's type needs a name for a Where line to constrain it.
+            error(span,
+                  "{} can't be shown {} without a constraint; name it, as in "
+                  "'For Field {}: F In T', then add 'Where F: Printable'{}",
+                  shown_name(type), where, name_of(type).substr(unnamed_member_type.size()),
+                  printable != type_id_t::INVALID && !std_hidden(printable, span)
+                      ? std_import_hint(printable, span)
+                      : std::string());
         } else if (is_parameter(type)) {
-            error(span, "{} can't be shown in a string without a constraint, like {}",
-                  shown_name(type),
-                  printable != type_id_t::INVALID
-                      ? std_constraint(printable, type, span)
-                      : std::format("<{}: Printable>", shown_name(type)));
+            error(
+                span, "{} can't be shown {} without a constraint, like {}", shown_name(type), where,
+                printable != type_id_t::INVALID ? std_constraint(printable, type, span)
+                                                : std::format("<{}: Printable>", shown_name(type)));
         } else if (has_members(type) && printable != type_id_t::INVALID) {
-            error(span, "{} can't be shown in a string; implement {}, with a ToString",
-                  name_of(type, printable), std_name(printable, type, span));
+            error(span, "{} can't be shown {}; implement {}, with a ToString{}",
+                  name_of(type, printable), where, std_name(printable, type, span),
+                  std_hidden(printable, span) ? std::string() : std_import_hint(printable, span));
+        } else if (m_analysis.types.get(type).kind == type_kind_t::TASK) {
+            error(span, "{} can't be shown {}; show what it gives, with Await or Wait()",
+                  shown_name(type), where);
+        } else if (runs_elsewhere(type)) {
+            error(span, "{} can't be shown {}, since it has no text of its own", shown_name(type),
+                  where);
         } else if (type == type_id_t::CSTRING) {
-            error(span, "a CString can't be shown in a string; show the String its ToString() "
-                        "gives, in Unsafe code");
+            error(span,
+                  "a CString can't be shown {}; show the String its ToString() gives, in "
+                  "Unsafe code",
+                  where);
         } else if (is_pointer(type)) {
             error(span,
-                  "{} can't be shown in a string; 'As UInt64' gives its address as a number, in "
+                  "{} can't be shown {}; 'As UInt64' gives its address as a number, in "
                   "Unsafe code",
-                  shown_name(type));
+                  shown_name(type), where);
         } else {
-            error(span, "{} can't be shown in a string", shown_name(type));
+            error(span, "{} can't be shown {}", shown_name(type), where);
         }
     }
 
@@ -11279,7 +11520,14 @@ private:
         }
     }
 
-    /// Code after Panic doesn't run, and code after Assert runs where its condition is True.
+    /// Whether a built-in always ends the program: Panic, Unreachable, or Todo.
+    [[nodiscard]] static bool ends_program(const symbol_t& called) {
+        return called.kind == symbol_kind_t::BUILTIN_FUNCTION &&
+               (called.name == "Panic" || called.name == "Unreachable" || called.name == "Todo");
+    }
+
+    /// Code after Panic, Unreachable, or Todo doesn't run, and code after Assert runs where its
+    /// condition is True.
     void check_stmt(stmt_id_t /*id*/, span_t /*span*/, const expression_stmt_t& node) {
         check_any(node.expression, type_id_t::NONE);
         if (only_gives_value(node.expression)) {
@@ -11292,7 +11540,8 @@ private:
             return;
         }
 
-        if (symbol(*call.symbol).name == "Panic") {
+        // A DebugAssert narrows nothing, since a release build doesn't check it.
+        if (ends_program(symbol(*call.symbol))) {
             m_flow = unreachable_flow;
         } else if (symbol(*call.symbol).name == "Assert" && !call.arguments.empty() &&
                    call.arguments.front()) {
@@ -11628,6 +11877,12 @@ private:
         } else if (type != type_id_t::INVALID) {
             error(span_of(node.error), "Throw takes an object of a Class that extends {}, not {}",
                   error_name(type, span_of(node.error)), name_of(type, m_analysis.error_class));
+        } else {
+            // What it throws was an error already, like an Error from a module the file doesn't
+            // import, so a Catch around it isn't one too.
+            for (handler_t& handler : m_handlers) {
+                handler.reached.push_back(type_id_t::INVALID);
+            }
         }
 
         m_flow = unreachable_flow;
@@ -11726,7 +11981,7 @@ private:
     void check_catch_reached(const catch_t& clause, const type_id_t type,
                              const std::vector<type_id_t>& reached) {
         const span_t span = clause.type ? m_ast.get(*clause.type).span : clause.name.span;
-        if (type != type_id_t::INVALID &&
+        if (type != type_id_t::INVALID && !std::ranges::contains(reached, type_id_t::INVALID) &&
             std::ranges::none_of(reached,
                                  [&](const type_id_t thrown) { return related(thrown, type); })) {
             error(span, "nothing in the Try block throws {}",
@@ -12181,7 +12436,7 @@ private:
                    (is_any_array(non_null(sequence)) ||
                     iteration_of(non_null(sequence), span_of(node.sequence)))) {
             report_maybe_null(node.sequence);
-        } else if (sequence != type_id_t::INVALID) {
+        } else if (sequence != type_id_t::INVALID && !unknown_bounds(sequence)) {
             iteration = iteration_of(sequence, span_of(node.sequence));
             if (!iteration) {
                 const hint_t hint = unseen_hint(sequence, "Iterate", span_of(node.sequence),
@@ -12305,8 +12560,9 @@ private:
             field = made != m_loop_fields.end()
                         ? made->second
                         : m_analysis.types.add_parameter(
-                              node.type_name ? std::string(node.type_name->text)
-                                             : std::format("the type of {}", node.variable.text));
+                              node.type_name
+                                  ? std::string(node.type_name->text)
+                                  : std::format("{}{}", unnamed_member_type, node.variable.text));
             bounds = resolve_constraints(node.constraints, { field });
             for (bound_t& bound : bounds) {
                 bound.members = node.kind;
@@ -12467,15 +12723,11 @@ private:
 
     type_id_t check_type_attribute(const expr_id_t id, const call_expr_t& node,
                                    const reflected_type_t& reflected) {
-        const auto* name = node.arguments.size() == 1 && !node.arguments[0].name
-                               ? std::get_if<name_expr_t>(&m_ast.get(node.arguments[0].value).node)
-                               : nullptr;
-        const type_id_t attribute =
-            name != nullptr ? attribute_named(name->name, span_of(node.arguments[0].value))
-                            : type_id_t::INVALID;
-        if (attribute == type_id_t::INVALID &&
-            (name == nullptr ||
-             !report_hidden_name(name->name, span_of(node.arguments[0].value)))) {
+        bool reported = false;
+        const type_id_t attribute = node.arguments.size() == 1 && !node.arguments[0].name
+                                        ? attribute_argument(node.arguments[0].value, reported)
+                                        : type_id_t::INVALID;
+        if (attribute == type_id_t::INVALID && !reported) {
             error(span_of(node.callee),
                   "'{}.{}' takes the name of an Attribute, which an Attribute declaration makes",
                   shown_name(reflected.type), reflected.member);
@@ -12658,12 +12910,9 @@ private:
                 return type_id_t::INVALID;
             }
 
-            const auto* name = std::get_if<name_expr_t>(&m_ast.get(arguments[0].value).node);
-            const type_id_t attribute =
-                name != nullptr ? attribute_named(name->name, span_of(arguments[0].value))
-                                : type_id_t::INVALID;
-            if (attribute == type_id_t::INVALID &&
-                (name == nullptr || !report_hidden_name(name->name, span_of(arguments[0].value)))) {
+            bool reported = false;
+            const type_id_t attribute = attribute_argument(arguments[0].value, reported);
+            if (attribute == type_id_t::INVALID && !reported) {
                 error(span_of(arguments[0].value),
                       "'{}.{}' takes the name of an Attribute, which an Attribute declaration "
                       "makes",
@@ -14795,7 +15044,7 @@ private:
 
         std::vector<symbol_id_t> found = members_here(type, member, type);
         if (found.empty()) {
-            if (!report_hidden(type, member, type)) {
+            if (!unknown_bounds(type) && !report_hidden(type, member, type)) {
                 error(member.span, "{} has no member named '{}'", shown_name(type), member.text);
             }
 
@@ -15594,6 +15843,10 @@ private:
         // A type parameter has what its constraints give.
         if (is_parameter(type)) {
             std::vector<symbol_id_t> members = members_of(type, member.text);
+            if (members.empty() && unknown_bounds(type)) {
+                return members;
+            }
+
             if (members.empty() && bounds_of(type).empty()) {
                 error(member.span, "{} has no members without a constraint, like <{}: I>",
                       shown_name(type), shown_name(type));
@@ -15677,6 +15930,10 @@ private:
 
         // '~' flips a @Flags Enum's flags.
         const bool flags = node.op == unary_op_t::BIT_NOT && is_flags(type);
+        if (unknown_bounds(type)) {
+            return type_id_t::INVALID;
+        }
+
         if (!flags && (!supports(node.op, type) || is_enum(type))) {
             error(span_of(id), "'{}' can't be used on {}", spelling(node.op), shown_name(type));
             return type_id_t::INVALID;
@@ -16193,6 +16450,10 @@ private:
                     spelling(op), { { left, left_type }, { right, right_type } }, span, *call)) {
                 return *result;
             }
+        }
+
+        if (unknown_bounds(non_null(left_type)) || unknown_bounds(non_null(right_type))) {
+            return type_id_t::INVALID;
         }
 
         if (const std::optional<type_id_t> stepped =
@@ -17173,8 +17434,9 @@ private:
             return;
         }
 
-        const bool builtin = called.kind == symbol_kind_t::BUILTIN_FUNCTION &&
-                             (called.name == "Assert" || called.name == "Panic");
+        const bool builtin =
+            called.kind == symbol_kind_t::BUILTIN_FUNCTION &&
+            (called.name == "Assert" || called.name == "DebugAssert" || ends_program(called));
         const bool made = called.kind == symbol_kind_t::CONSTRUCTOR && !called.declaration &&
                           is_struct(called.owner);
         const bool arithmetic =
@@ -18217,12 +18479,40 @@ private:
             }
         }
 
+        // One that takes the arguments as they are beats one that packs them into its variadic
+        // parameter, as C#'s overloads do.
+        const auto unpacked = [&](const std::vector<symbol_id_t>& tied) {
+            std::vector<symbol_id_t> kept;
+            for (const symbol_id_t candidate : tied) {
+                const std::optional<binding_t> bound =
+                    quietly([&] { return bind(candidate, node, span_of(node.callee)); });
+                const std::vector<symbol_id_t>& parameters = symbol(candidate).parameters;
+                const bool packs = bound && !parameters.empty() &&
+                                   symbol(parameters.back()).variadic && !bound->slots.back();
+                if (bound && !packs) {
+                    kept.push_back(candidate);
+                }
+            }
+
+            return kept.size() == 1 ? std::optional(kept.front()) : std::nullopt;
+        };
+
         if (exact.size() == 1) {
             return exact.front();
         }
 
+        if (const std::optional<symbol_id_t> kept =
+                exact.size() > 1 ? unpacked(exact) : std::nullopt) {
+            return kept;
+        }
+
         if (exact.empty() && convertible.size() == 1) {
             return convertible.front();
+        }
+
+        if (const std::optional<symbol_id_t> kept =
+                exact.empty() && convertible.size() > 1 ? unpacked(convertible) : std::nullopt) {
+            return kept;
         }
 
         if (exact.empty() && convertible.empty() && any.size() == 1) {
@@ -18314,11 +18604,25 @@ private:
             worst = argument.by_ref != parameter.by_ref ? match_t::NONE : std::min(worst, fit);
         }
 
+        const symbol_t* last =
+            slots.empty() ? nullptr : &symbol(symbol(function).parameters.back());
         for (const std::size_t slot : bound->packed) {
             const argument_t& argument = node.arguments[slot];
-            const type_id_t element =
-                element_of(substituted(symbol(symbol(function).parameters.back()).type));
-            worst = argument.by_ref ? match_t::NONE : std::min(worst, match(argument, element));
+            const type_id_t element = element_of(substituted(last->type));
+            match_t fit = match_t::NONE;
+            // A value a string can show fits a shown one, a String exactly.
+            if (last->shows) {
+                const type_id_t type = check(argument.value, type_id_t::NONE);
+                if (type == type_id_t::STRING) {
+                    fit = match_t::EXACT;
+                } else if (showable(type)) {
+                    fit = match_t::CONVERTIBLE;
+                }
+            } else {
+                fit = match(argument, element);
+            }
+
+            worst = argument.by_ref ? match_t::NONE : std::min(worst, fit);
         }
 
         m_substitution = outer;
@@ -18420,8 +18724,10 @@ private:
             return std::nullopt; // a missing argument is probably the misplaced one
         }
 
-        // One argument that's an array already is passed as it is.
-        if (bound.packed.size() == 1 && passes_array(node.arguments[bound.packed.front()].value)) {
+        // One argument that's an array already is passed as it is, but a shown one's arguments
+        // are always shown, arrays too.
+        if (bound.packed.size() == 1 && !symbol(function.parameters.back()).shows &&
+            passes_array(node.arguments[bound.packed.front()].value)) {
             bound.slots.back() = bound.packed.front();
             bound.packed.clear();
         }
@@ -18479,22 +18785,31 @@ private:
             }
         }
 
-        // A variadic parameter's arguments are its array's elements.
+        // A variadic parameter's arguments are its array's elements. A shown one's keep their
+        // own types, which lowering shows.
         std::vector<expr_id_t> packed;
         if (!slots.empty() && !slots.back() &&
             symbol(symbol(function).parameters.back()).variadic) {
-            const type_id_t element =
-                element_of(substituted(symbol(symbol(function).parameters.back()).type));
+            const symbol_t& last = symbol(symbol(function).parameters.back());
+            const type_id_t element = element_of(substituted(last.type));
             for (const std::size_t slot : bound->packed) {
                 const argument_t& argument = node.arguments[slot];
                 if (argument.by_ref) {
                     error(span_of(argument.value),
-                          "'{}' takes the rest of the arguments, which can't be ByRef",
-                          symbol(symbol(function).parameters.back()).name);
+                          "'{}' takes the rest of the arguments, which can't be ByRef", last.name);
                 }
 
-                check(argument.value, element);
-                expect_type(argument.value, element);
+                if (last.shows) {
+                    if (const type_id_t type = check(argument.value, type_id_t::NONE);
+                        type != type_id_t::INVALID && !showable(type)) {
+                        report_unshowable(argument.value, type,
+                                          std::format("by '{}'", symbol(function).name));
+                    }
+                } else {
+                    check(argument.value, element);
+                    expect_type(argument.value, element);
+                }
+
                 packed.push_back(argument.value);
             }
         }
@@ -19290,15 +19605,16 @@ private:
     /// "a[i]", or "grid[x, y]" with an index for each dimension. Indices are integers of any
     /// type. A T[]'s are checked when the program runs, and a fixed array's known ones here too.
     /// "Await t": an Async Function or lambda waits for a Task, a Spawn's or another Async
-    /// Function's, without blocking the main thread, and gets its result.
+    /// Function's, without blocking the main thread, and gets its result. Top-level code waits
+    /// as Wait does, while the main thread runs what else can go on.
     type_id_t check_expr(const expr_id_t id, const await_expr_t& node, type_id_t /*hint*/) {
         const std::optional<symbol_id_t> code =
             m_lambdas.empty() ? m_function : std::optional(m_lambdas.back().function);
         const bool async = code && symbol(*code).modifiers.is_async;
         const type_id_t task = check(node.operand, type_id_t::NONE);
-        if (!async) {
+        if (!async && code) {
             error(span_of(id), "Await goes in an Async Function or lambda, whose code can wait "
-                               "without blocking its thread");
+                               "without blocking its thread, or in top-level code");
             return type_id_t::INVALID;
         }
 

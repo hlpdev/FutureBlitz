@@ -1,4 +1,5 @@
 // First on an empty Deque panics, as RemoveFirst, Last, and RemoveLast do.
+Import std.core
 Import std.collections
 
 Local deque = Deque<Int>()

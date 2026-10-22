@@ -205,11 +205,12 @@ except where it's about those.
   on everything that panics on misuse, and a program's own helpers can too.
 - After a build that links a bundled C library, `fb` prints which ones it linked and their
   licenses. Shipping the notices is the programmer's job, and fb writes no notices file.
+- Each bundled library's runtime functions are an archive of their own, like `fb_runtime_io`
+  for the `fb_io_` ones over libuv, which a program links, with the library and its system
+  libraries, only when it calls one of them. lld takes archives in any order.
 
 **Proposed, to settle in its step:**
 
-- Step 1: every bundled archive goes on the link line in one group after the runtime, so the
-  linker takes only what a program uses, in any order.
 - Step 3: `Expect` and `OrElse` need Methods on any `T?`, through an `Extend T?` or as
   built-ins, whichever the language takes better.
 - Step 16: the lexer reads `2.Seconds` as `2` and then `.Seconds`, not as a float.
@@ -241,7 +242,6 @@ adds what it leaves out. Checked against all of docs/spec/ on 2026-10-17.
 | A task that waits on a Channel holds its worker, so tasks that all wait can leave none for the work they wait for | M4 step 8 | open question |
 | A throwing Task's type written out, like `Task<Level> Throws FileError`, which only inference gives now; after a function's return type, Throws is the function's | M4 step 11 | M6 step 18 |
 | Async Methods in Interfaces, required or default | M4 step 11 | M6 step 13 |
-| An attribute from a module imported only with As, like `@C.Rename("hp")`, which doesn't parse; an attribute is found by its name alone, through an Import without As or a From line | M5 step 2 | M6 step 1 |
 | A generic type's own Operator used on a Class extending one of its instances, like Box<T>'s `<` on `Class Nums Extends Box<Int>`, whose type arguments aren't inferred through the base, so "no Operator < takes (Nums, Nums)"; what an Extend of the instance adds works | M5 step 3 | open question |
 | A `Ptr<T>` whose T is a type parameter, which a Where line would have to keep to C data | M5 step 7 | M6 step 12 (`CData`) |
 | By-value Structs to and from C on 64-bit targets that aren't x86-64 or AArch64, like RISC-V, where fb-bindgen skips functions that pass one | M5 step 8 | open question |
@@ -249,8 +249,6 @@ adds what it leaves out. Checked against all of docs/spec/ on 2026-10-17.
 | The math types, `Vec2` through `Color` | | M6 step 9 |
 | A fix-it for a miscased keyword, like `if` for `If`, and `///` doc comments | M1 | M7 |
 | Stack traces for panics, which need debug info | M1 | open question |
-| A panic in std/, like popping an empty Stack, points at the library's line, not the caller's | M1 | M6 step 1 |
-| Await in top-level code, with the runtime running the main scheduler until no work is left | | M6 step 1 |
 
 ## Process
 

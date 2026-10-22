@@ -1,6 +1,7 @@
 // An Enum that C passes a Callback has to be one of its values, or the program panics where
 // the Callback's Function is.
 
+Import std.core
 Import vmath
 
 Paints(2)

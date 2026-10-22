@@ -1,6 +1,8 @@
 // A lambda in generic code can loop over the members of the code's type parameters: each
 // instance's lambda has its own copies of the loop's body.
 
+Import std.core
+
 Struct Point
     Field X: Int
     Field Y: Float

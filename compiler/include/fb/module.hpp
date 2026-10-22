@@ -21,11 +21,10 @@ enum class module_id_t : std::uint32_t {};
 /// A package's index in its module_table_t.
 enum class package_id_t : std::uint32_t {};
 
-/// One Import or From line of a module, as the driver resolved it, or the import of std/core/
-/// that every module has.
+/// One Import or From line of a module, as the driver resolved it.
 struct module_import_t {
-    /// The import_stmt_t. nullopt for the import of std/core/, which isn't written.
-    std::optional<stmt_id_t> statement;
+    /// The import_stmt_t.
+    stmt_id_t statement{};
     /// The modules it names: one file's, or each of a folder's files'. Empty when it names
     /// nothing, which the driver reported.
     std::vector<module_id_t> modules;
@@ -42,7 +41,8 @@ struct module_t {
     file_id_t file{};
     /// The program's main module, whose top-level code runs.
     bool is_main = false;
-    /// What it imports, in the order its lines say, after the import of std/core/.
+    /// What it imports, in the order its lines say. std's names need an Import too, std.core's
+    /// as well.
     std::vector<module_import_t> imports;
     /// The package it's part of, whose modules see its Package declarations.
     package_id_t package{};

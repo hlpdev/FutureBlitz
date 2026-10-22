@@ -1,0 +1,6 @@
+// The attributes a program takes from another module.
+
+Public Attribute Label(Text: String)
+
+// A built-in attribute's name, which code reaches through the qualifier alone.
+Public Attribute Inline

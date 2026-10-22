@@ -2,6 +2,7 @@
 // implemented by what that Extend's module sees, whatever order the modules load in, and a
 // For loop goes through the Iterate its own file sees.
 
+Import std.core
 Import "./module_extends/shown"
 Import "./module_extends/plain"
 Import "./module_extends/listed"

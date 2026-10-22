@@ -1,4 +1,6 @@
 // Structs: fields, constructors, methods, copies, equality, and Strings inside.
+Import std.core
+
 Struct Vec2
     Field x: Float
     Field y: Float

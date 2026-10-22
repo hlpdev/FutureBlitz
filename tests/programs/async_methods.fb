@@ -1,5 +1,7 @@
 // A Method can be Async: its coroutine keeps its object while it waits.
 
+Import std.core
+
 Class Door
     Field name: String
 

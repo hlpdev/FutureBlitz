@@ -1,7 +1,7 @@
 end
 leak: 2 Timer objects were never released
-leak: 1 Function at leak_closure.fb:19:14 objects were never released
+leak: 1 Function at leak_closure.fb:21:14 objects were never released
 leak: 1 Cell<Timer> objects were never released
-leak: 1 Function at leak_closure.fb:9:18 objects were never released
-leak: a cycle of 2 objects: Timer.OnTick -> Function at leak_closure.fb:9:18.Self -> the first Timer
-leak: a cycle of 3 objects: Timer.OnTick -> Function at leak_closure.fb:19:14.node -> Cell<Timer>.value -> the first Timer
+leak: 1 Function at leak_closure.fb:11:18 objects were never released
+leak: a cycle of 2 objects: Timer.OnTick -> Function at leak_closure.fb:11:18.Self -> the first Timer
+leak: a cycle of 3 objects: Timer.OnTick -> Function at leak_closure.fb:21:14.node -> Cell<Timer>.value -> the first Timer

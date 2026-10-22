@@ -4,6 +4,7 @@
 // Operator ==s; the Interfaces a conditional one extends; and Classes extending instances that
 // don't have what's conditional, or have it beside what every instance has.
 
+Import std.core
 Import std.collections
 
 Interface Sized

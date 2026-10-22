@@ -83,6 +83,16 @@ struct fb_object_t {
     fb_class_t* type;
 };
 
+/// The fields every error has first, from std.core's Error, after its object's header.
+struct fb_error_fields_t {
+    fb_string_t* message;
+    fb_object_t* cause;
+    /// Its Place: where it was first thrown, and nowhere while `line` is 0.
+    fb_string_t* file;
+    std::int32_t line;
+    std::int32_t column;
+};
+
 /// Where in the source a panic happened, as compiled code passes it to the runtime.
 struct fb_location_t {
     /// The source file's path, NUL-terminated.
@@ -120,6 +130,10 @@ char* fb_cstring_new(const fb_string_t* string);
 /// Frees a copy that fb_cstring_new made. Panics for anything else, or a copy freed already.
 void fb_cstring_free(char* copy);
 
+/// Frees a copy that fb_cstring_new made, giving 1, or 0 for anything else, or a copy freed
+/// already, which it leaves alone, so std's CString.Free panics where it's called.
+std::int32_t fb_cstring_free_known(char* copy);
+
 /// How many of fb_cstring_new's copies exist right now.
 std::int64_t fb_cstring_live_count();
 
@@ -147,6 +161,9 @@ std::int32_t fb_mem_compare(const void* a, const void* b, std::uint64_t bytes);
 /// well-formed UTF-8, or null for a null `text`, for an Extern Function that gives a String or
 /// String?.
 fb_string_t* fb_string_from_cstring(const char* text);
+/// A new String of `length` bytes from `text`, NULs too, with U+FFFD for each byte that doesn't
+/// start well-formed UTF-8, as the runtime reads text from outside the program.
+fb_string_t* fb_string_from_bytes(const char* text, std::int64_t length);
 
 /// Adds an owner to `string`. Compiled code calls it when a String gets a new holder, like a
 /// variable. Does nothing for a literal, or for null, which a String? holds for Null.
@@ -454,9 +471,26 @@ void fb_scheduler_end();
 /// Lets go of the task's job, for its Class's release.
 void fb_task_release(const fb_task_t* task);
 
-/// Writes `string` and a newline to stdout, for the built-in Print. The String is only borrowed.
-/// Lines from different threads don't mix.
-void fb_print(const fb_string_t* string);
+/// Writes `texts`, a String[], with a space between each two, to stdout, or to stderr when
+/// `to_error` isn't 0, then a line break when `line` isn't 0, for std.core's Print, Write,
+/// PrintError, and WriteError. What goes to stdout is flushed before anything goes to stderr, so
+/// the two show what the program wrote in its order. The array is only borrowed. Writes from
+/// different threads don't mix.
+void fb_write(const fb_array_t* texts, std::int32_t to_error, std::int32_t line);
+/// Flushes what's been written to stdout and stderr.
+void fb_flush();
+
+// The fb_io_ functions go through the I/O thread, which runs libuv's loop. It starts with the
+// first, and stops as the program ends. A program links libuv only when it calls one.
+
+/// Writes `prompt` to stdout, flushed, then reads a line from stdin, the next of what the I/O
+/// thread reads: a new String of it, without its line break ("\n" or "\r\n"), with U+FFFD for
+/// each byte that doesn't start well-formed UTF-8, or null at the end of input. It blocks,
+/// running nothing else meanwhile.
+fb_string_t* fb_io_input(const fb_string_t* prompt);
+/// Writes `prompt`, then finishes `task`, a new Task<String?>, with the line that fb_io_input
+/// would give, once the I/O thread has it. A Task's result is right after its fb_task_t.
+void fb_io_input_async(fb_task_t* task, const fb_string_t* prompt);
 
 /// Prints "panic: <message> at <file>:<line>:<column>" to stderr and exits with code 101.
 /// Compiled code calls it when a run-time check fails. `location` can be null, which leaves out
@@ -466,8 +500,12 @@ void fb_print(const fb_string_t* string);
 /// Like fb_panic, with a String the program made as the message, for Panic and Assert. The
 /// String is only borrowed.
 [[noreturn]] void fb_panic_string(const fb_string_t* message, const fb_location_t* location);
-/// Prints "uncaught <Class>: <Message> at <file>:<line>:<column>" to stderr and exits with code
-/// 1, for an error that top-level code let out. `error` is an object of a Class that extends
-/// Error, whose first field is its Message. `location` can be null, as for fb_panic.
+/// Sets a thrown error's Place to `location`, unless an earlier Throw set it. `error` is an
+/// object of a Class that extends Error, whose first fields are fb_error_fields_t's.
+void fb_error_thrown(fb_object_t* error, const fb_location_t* location);
+/// Prints "uncaught <Class>: <Message> at <file>:<line>:<column>" to stderr, at the error's
+/// Place, or else at `location`, where top-level code let it out, which can be null, then a
+/// "caused by" line like it for each Cause, and exits with code 1. `error` is an object of a
+/// Class that extends Error.
 [[noreturn]] void fb_error_uncaught(const fb_object_t* error, const fb_location_t* location);
 }

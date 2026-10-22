@@ -1,0 +1,25 @@
+// A @PanicsAtCaller Method that implements an Interface's member reports the caller's line when
+// it's called on its Class, but a call through the Interface has no place, so then it reports
+// where it panics.
+Import std.core
+
+Interface Counter
+    Method Take(): Int
+End Interface
+
+Class Tokens Implements Counter
+    Field Left: Int = 2
+
+    @PanicsAtCaller
+    Method Take(): Int
+        If Left == 0 Then Panic("no tokens are left")
+        Left -= 1
+        Return Left
+    End Method
+End Class
+
+Local tokens = Tokens()
+Print("{tokens.Take()}")
+Local counter: Counter = tokens
+Print("{counter.Take()}")
+counter.Take()

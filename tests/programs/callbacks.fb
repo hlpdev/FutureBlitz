@@ -1,6 +1,8 @@
 // Callbacks: C's qsort calls the program back, through a Function's name and a lambda, with
 // pointers at the elements.
 
+Import std.core
+
 Extern "C"
     Function qsort(base: Ptr<Void>, count: UInt64, size: UInt64,
                    compare: Callback(Ptr<Void>, Ptr<Void>): Int32)

@@ -1,4 +1,5 @@
 // Mem.Copy of some bytes to a Null Ptr panics, rather than passing it to C.
+Import std.core
 Import std.ffi
 
 Unsafe

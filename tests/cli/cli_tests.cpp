@@ -16,6 +16,16 @@
 #include <string_view>
 #include <vector>
 
+#ifndef _WIN32
+#include <array>
+#include <fcntl.h>
+#include <spawn.h>
+#include <sys/wait.h>
+#include <unistd.h>
+
+extern char** environ;
+#endif
+
 // These run the real fb, with its output going to a pipe like in a script.
 
 namespace {
@@ -124,7 +134,8 @@ TEST_CASE("fb build writes an executable that runs", "[cli]") {
 }
 
 TEST_CASE("fb build puts the executable next to the source", "[cli]") {
-    const std::filesystem::path source = write_source("next_to.fb", "Print(\"here\")\n");
+    const std::filesystem::path source =
+        write_source("next_to.fb", "Import std.core\nPrint(\"here\")\n");
     std::filesystem::path executable = source;
     executable.replace_extension(fb::executable_extension);
     std::filesystem::remove(executable);
@@ -136,8 +147,101 @@ TEST_CASE("fb build puts the executable next to the source", "[cli]") {
     CHECK(std::filesystem::exists(executable));
 }
 
+TEST_CASE("fb build names each bundled C library a program links, with its notice", "[cli]") {
+    // A program that doesn't read input links none of libuv.
+    const std::filesystem::path folder = std::filesystem::path(FB_TEST_OUTPUT) / "bundled";
+    const fb::process_result_t hello =
+        fb_run({ "build", program("hello.fb"), "-o", fb::to_utf8(folder / "hello") });
+    INFO(hello.output);
+    REQUIRE(hello.exit_code == 0);
+    CHECK_FALSE(hello.output.contains("Bundled"));
+
+    const std::filesystem::path source =
+        write_source("bundled/reads.fb", "Import std.core\nPrint(\"[{Input() ?? \"none\"}]\")\n");
+    std::filesystem::path executable = source;
+    executable.replace_extension(fb::executable_extension);
+    const fb::process_result_t reads = fb_run({ "build", fb::to_utf8(source) });
+    INFO(reads.output);
+    REQUIRE(reads.exit_code == 0);
+    const fb::build_config::bundled_library_t& libuv = fb::build_config::bundled_libraries[0];
+    CHECK(reads.output.contains(std::format("     Bundled libuv {}, under the MIT, BSD-2-Clause, "
+                                            "and ISC licenses; ship its notices with the "
+                                            "program: {}\n",
+                                            libuv.version, libuv.notice)));
+    // Its notices are libuv's own, and those of the code it has from others.
+    std::ifstream file(fb::path_from_utf8(libuv.notice), std::ios::binary);
+    const std::string notices{ std::istreambuf_iterator<char>(file), {} };
+    CHECK(notices.contains("libuv project contributors"));
+    CHECK(notices.contains("Joyent, Inc."));
+    CHECK(notices.contains("Niels Provos"));
+    CHECK(notices.contains("Internet Systems Consortium"));
+
+    const std::expected<fb::process_result_t, std::string> ran =
+        fb::run_process(executable, {}, "typed\n");
+    REQUIRE(ran);
+    CHECK(ran->output == "[typed]\n");
+}
+
+TEST_CASE("a program's input goes in while its output comes out, however much of each", "[cli]") {
+    // Each is more than a pipe holds, so writing all the input before reading would wait
+    // forever.
+    const std::filesystem::path source =
+        write_source("echo/echo.fb", "Import std.core\nLocal line = Input()\nWhile line != Null\n"
+                                     "    Print(line)\n    line = Input()\nEnd While\n");
+    std::filesystem::path executable = source;
+    executable.replace_extension(fb::executable_extension);
+    const fb::process_result_t built = fb_run({ "build", fb::to_utf8(source) });
+    INFO(built.output);
+    REQUIRE(built.exit_code == 0);
+
+    std::string input;
+    for (int i = 0; i < 20000; ++i) {
+        input += std::format("line {} of the input\n", i);
+    }
+
+    const std::expected<fb::process_result_t, std::string> ran =
+        fb::run_process(executable, {}, input);
+    REQUIRE(ran);
+    CHECK(ran->output == input);
+}
+
+#ifndef _WIN32
+TEST_CASE("a program that reads stdin leaves it as it was, for what else reads it", "[cli]") {
+    // A pipe's read end is the shell's too, which a non-blocking one would break.
+    const std::filesystem::path source =
+        write_source("flags/ask.fb", "Import std.core\nPrint(Input() ?? \"none\")\n");
+    std::filesystem::path executable = source;
+    executable.replace_extension(fb::executable_extension);
+    const fb::process_result_t built = fb_run({ "build", fb::to_utf8(source) });
+    INFO(built.output);
+    REQUIRE(built.exit_code == 0);
+
+    std::array<int, 2> ends{};
+    REQUIRE(pipe(ends.data()) == 0);
+    const int before = fcntl(ends[0], F_GETFL);
+    posix_spawn_file_actions_t actions;
+    posix_spawn_file_actions_init(&actions);
+    posix_spawn_file_actions_adddup2(&actions, ends[0], STDIN_FILENO);
+    posix_spawn_file_actions_addopen(&actions, STDOUT_FILENO, "/dev/null", O_WRONLY, 0);
+    const std::string path = executable.string();
+    std::array<char*, 2> argv{ const_cast<char*>(path.c_str()), nullptr };
+    pid_t pid = 0;
+    const int spawned = posix_spawn(&pid, path.c_str(), &actions, nullptr, argv.data(), environ);
+    posix_spawn_file_actions_destroy(&actions);
+    REQUIRE(spawned == 0);
+    CHECK(write(ends[1], "first\n", 6) == 6);
+    close(ends[1]);
+    int status = 0;
+    waitpid(pid, &status, 0);
+    CHECK(WIFEXITED(status));
+    CHECK(fcntl(ends[0], F_GETFL) == before);
+    close(ends[0]);
+}
+#endif
+
 TEST_CASE("fb build stops at compile errors", "[cli]") {
-    const std::filesystem::path source = write_source("broken.fb", "Print(missing)\n");
+    const std::filesystem::path source =
+        write_source("broken.fb", "Import std.core\nPrint(missing)\n");
     const fb::process_result_t result = fb_run({ "build", fb::to_utf8(source) });
     CHECK(result.exit_code == 1);
     CHECK(result.output.contains("error: couldn't build "));
@@ -167,7 +271,7 @@ TEST_CASE("fb --show prints the stages it names", "[cli]") {
         return result.output;
     };
 
-    CHECK(show("tokens").contains("1:1   identifier      Print\n"));
+    CHECK(show("tokens").contains("3:1   identifier      Print\n"));
     CHECK(show("ast").contains("\n(call Print \"hello\")\n"));
     CHECK(show("types").contains("\n(call Print \"hello\": String)\n"));
     CHECK(show("mir").contains("\nfunction main\n"));
@@ -359,7 +463,8 @@ TEST_CASE("fb bindgen runs fb-bindgen, which writes a C header's module", "[cli]
 
 TEST_CASE("fb build reports a C symbol that no library defines at its Extern Function", "[cli]") {
     const std::filesystem::path source =
-        write_source("missing_c.fb", "Extern \"C\"\n"
+        write_source("missing_c.fb", "Import std.core\n"
+                                     "Extern \"C\"\n"
                                      "    Function no_such_c_symbol(): Int32\n"
                                      "End Extern\n"
                                      "Print(\"{no_such_c_symbol()}\")\n");
@@ -374,7 +479,7 @@ TEST_CASE("fb build reports a C symbol that no library defines at its Extern Fun
         const fb::process_result_t built = fb_run(arguments);
         INFO(built.output);
         CHECK(built.exit_code == 1);
-        CHECK(built.output.contains("missing_c.fb:2:14: error: the C symbol 'no_such_c_symbol' "
+        CHECK(built.output.contains("missing_c.fb:3:14: error: the C symbol 'no_such_c_symbol' "
                                     "isn't in the C runtime, or any library the program links\n"));
         CHECK(built.output.contains("missing_c.fb because of 1 error\n"));
         CHECK(built.output.contains("error: couldn't link "));
@@ -403,7 +508,7 @@ TEST_CASE("fb without a file or folder uses the package the current folder is in
     const std::filesystem::path root = std::filesystem::path(FB_TEST_OUTPUT) / "no_input";
     std::filesystem::remove_all(root);
     write_source("no_input/app/project.toml", "[project]\nname = \"app\"\nversion = \"1.0.0\"\n");
-    write_source("no_input/app/main.fb", "Print(\"from app\")\n");
+    write_source("no_input/app/main.fb", "Import std.core\nPrint(\"from app\")\n");
     std::filesystem::create_directories(root / "app" / "ui" / "deep");
     std::filesystem::create_directories(root / "alone");
     const std::filesystem::path before = std::filesystem::current_path();
@@ -425,7 +530,8 @@ TEST_CASE("fb without a file or folder uses the package the current folder is in
 }
 
 TEST_CASE("fb build's -o names a new file, not a folder or the program's own", "[cli]") {
-    const std::filesystem::path source = write_source("output/hi.fb", "Print(\"hi\")\n");
+    const std::filesystem::path source =
+        write_source("output/hi.fb", "Import std.core\nPrint(\"hi\")\n");
     const std::filesystem::path folder = source.parent_path() / "made";
     std::filesystem::create_directories(folder);
     check_usage_error({ "build", fb::to_utf8(source), "-o", fb::to_utf8(folder) },
@@ -433,7 +539,8 @@ TEST_CASE("fb build's -o names a new file, not a folder or the program's own", "
     check_usage_error({ "build", fb::to_utf8(source), "-o", fb::to_utf8(source) },
                       "a file of the program; give another path");
     std::ifstream kept(source, std::ios::binary);
-    CHECK(std::string(std::istreambuf_iterator<char>(kept), {}) == "Print(\"hi\")\n");
+    CHECK(std::string(std::istreambuf_iterator<char>(kept), {}) ==
+          "Import std.core\nPrint(\"hi\")\n");
 
     // A path that isn't ASCII, without an extension, gets the one the target's executables have.
     const std::filesystem::path wide = source.parent_path() / fb::path_from_utf8("日本") / "out";
@@ -493,7 +600,8 @@ TEST_CASE("fb shows the first hundred diagnostics of a file with many", "[cli]")
 }
 
 TEST_CASE("fb takes a .fb file's extension in any letter case", "[cli]") {
-    const std::filesystem::path source = write_source("SHOUT.FB", "Print(\"loud\")\n");
+    const std::filesystem::path source =
+        write_source("SHOUT.FB", "Import std.core\nPrint(\"loud\")\n");
     const fb::process_result_t checked = fb_run({ "check", fb::to_utf8(source) });
     INFO(checked.output);
     CHECK(checked.exit_code == 0);

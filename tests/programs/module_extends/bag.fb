@@ -1,3 +1,5 @@
+Import std.core
+
 Public Class Bag
     Public Field Size: Int
 

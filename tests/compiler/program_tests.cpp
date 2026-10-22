@@ -76,7 +76,8 @@ std::vector<fb::library_file_t> program_files(const std::filesystem::path& sourc
     return files;
 }
 
-/// Fails with the first compile error, or when building or running the program fails.
+/// Fails with the first compile error, or when building or running the program fails. A
+/// program with a .in file beside it reads that as its input.
 std::expected<fb::process_result_t, std::string> build_and_run(const std::filesystem::path& source,
                                                                const fb::build_mode_t mode) {
     // Panics report paths from the program's folder, so the expected output doesn't depend on
@@ -91,9 +92,13 @@ std::expected<fb::process_result_t, std::string> build_and_run(const std::filesy
 
     std::filesystem::path program = std::filesystem::path(FB_TEST_OUTPUT) / source.stem();
     program += fb::executable_extension;
+    std::filesystem::path input_file = source;
+    input_file.replace_extension(".in");
+    const std::optional<std::string> input =
+        std::filesystem::exists(input_file) ? std::optional(read_file(input_file)) : std::nullopt;
     const fb::mir_module_t module = fb::lower(compilation.ast, compilation.analysis);
     return fb::build_program(module, compilation, program, mode).and_then([&] {
-        return fb::run_process(program, {});
+        return fb::run_process(program, {}, input);
     });
 }
 
@@ -276,6 +281,7 @@ TEST_CASE("two modules' Classes of one name stay apart, in the program and its l
     };
     const std::expected<fb::process_result_t, std::string> result =
         run_with_library("module_names",
+                         "Import std.core\n"
                          "Import \"./lib/linked\"\n"
                          "Import \"./lib/a\"\n"
                          "Import \"./lib/b\"\n"

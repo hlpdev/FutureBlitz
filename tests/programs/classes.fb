@@ -1,4 +1,6 @@
 // Classes: shared objects, constructors, methods, Destroy, and identity.
+Import std.core
+
 Class Enemy
     Field name: String
     Field hp: Int = 100

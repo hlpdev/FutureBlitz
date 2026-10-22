@@ -1,5 +1,7 @@
 // The built-in Interfaces: the built-in types implement the ones that fit them, and a Struct
 // or Class implements one by listing it.
+Import std.core
+
 Function Max<T: Comparable>(a: T, b: T): T => a > b ? a : b
 
 Function Sum<T: Numeric>(items: T[]): T

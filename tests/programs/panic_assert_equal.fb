@@ -1,0 +1,14 @@
+// AssertEqual says what it compared, and panics where it's called.
+Import std.core
+
+Function Total(xs: Int[]): Int
+    Local sum = 0
+    For x In xs
+        sum += x
+    End For
+
+    Return sum
+End Function
+
+AssertEqual(Total([1, 2]), 3)
+AssertEqual(Total([2, 2]), 5, "the total")

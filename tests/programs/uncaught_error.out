@@ -2,4 +2,4 @@ speed 3
 caught no setting 'size'
 the Finally runs
 the Defer runs
-uncaught ConfigError: no setting 'extra' at uncaught_error.fb:17:23
+uncaught ConfigError: no setting 'extra' at uncaught_error.fb:10:5

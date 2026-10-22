@@ -1,2 +1,4 @@
+Import std.core
+
 Local amount = 40
 Print("{1 << amount}")

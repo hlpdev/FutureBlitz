@@ -1,2 +1,2 @@
 a
-panic: the Queue is empty at std/collections/queue.fb:39:37
+panic: the Queue is empty at panic_queue_empty.fb:8:1

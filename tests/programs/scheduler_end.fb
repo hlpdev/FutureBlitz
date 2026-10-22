@@ -1,6 +1,8 @@
 // The program ends when its coroutines can't go on: one waiting for a cutscene on a Scheduler
 // that nothing ticks any more, timers nothing awaits, and one that a Destroy starts while the
 // Globals are released. Each is destroyed, letting go of what it holds, and nothing leaks.
+Import std.core
+
 Class Note
     Field text: String
 

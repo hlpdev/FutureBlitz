@@ -1,0 +1,2 @@
+9
+panic: a Box without a width has no size at panic_at_caller_property.fb:26:9

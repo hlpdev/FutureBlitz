@@ -1,6 +1,8 @@
 // A call has its own reference to what it's given through a Global, a field, or an element, so
 // the callee can replace where that came from and still use it: Self, an argument, a function
 // value, and a Scheduler that a coroutine replaces while it ticks.
+Import std.core
+
 Class Node
     Field name: String
     Field items: Int[]

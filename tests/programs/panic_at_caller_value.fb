@@ -1,0 +1,13 @@
+// A @PanicsAtCaller Function called through a function value has no caller's place, so its
+// panic reports where it is.
+Import std.core
+
+@PanicsAtCaller
+Function Half(n: Int): Int
+    If n % 2 != 0 Then Panic("{n} is odd")
+    Return n / 2
+End Function
+
+Local f: Func(Int): Int = Half
+Print("{f(4)}")
+Print("{f(3)}")

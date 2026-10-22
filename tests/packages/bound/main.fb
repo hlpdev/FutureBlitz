@@ -3,6 +3,7 @@
 // constants, callbacks, and an opaque handle. tests/bindgen checks that fb-bindgen still makes
 // vecmath.fb of vecmath.h.
 
+Import std.core
 Import "./vecmath"
 
 Function Twice(a: Int32, b: Int32): Int32 => a * 2 + b

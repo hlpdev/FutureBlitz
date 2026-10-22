@@ -91,6 +91,14 @@ struct symbol_t {
     /// A parameter written "nums: Int...". Its type is the Int[] that a call packs its last
     /// arguments into.
     bool variadic = false;
+    /// An Extern "runtime" Function that gives a Task<T>: its call makes the Task, which the
+    /// runtime takes before the arguments and finishes later, its result right after its
+    /// fb_task_t.
+    bool gives_task = false;
+    /// A variadic parameter written "values: Printable...", with std's Printable: a call shows
+    /// each of its last arguments, of any type a string can show, as "{x}" does, so it's a
+    /// String[] of their texts.
+    bool shows = false;
     /// A parameter that calls can leave out. ByRef parameters never have a default. A field is
     /// a parameter of the constructor a Struct gets, so it has one, its own or zero, unless its
     /// type has no zero.

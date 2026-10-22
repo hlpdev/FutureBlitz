@@ -2,6 +2,7 @@
 // Narrowing, '??', and '?.' take off one T? at a time, and generic code that gives a T? for a T
 // that's a T? tells "none" from a Null it holds.
 
+Import std.core
 Import std.collections
 
 // What an Int?? holds, one level at a time.

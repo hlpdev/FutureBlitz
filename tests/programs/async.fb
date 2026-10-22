@@ -1,6 +1,8 @@
 // Async Functions wait for Tasks without blocking the main thread, which runs them as
 // coroutines.
 
+Import std.core
+
 Function Slow(n: Int): Int
     Local total = 0
     For i = 1 To n

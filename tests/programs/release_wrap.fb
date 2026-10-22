@@ -1,4 +1,6 @@
 // Release builds wrap on overflow and mask shift amounts.
+Import std.core
+
 Local big = 2147483647
 Print("{big + 1}")
 Local small: Int8 = -128

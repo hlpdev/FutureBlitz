@@ -1,2 +1,2 @@
 Green 50 Green Blue
-panic: 'vm_shade_make' gave Shade's Field color a value that isn't one of Color's at vmath/vmath.fb:142:19
+panic: 'vm_shade_make' gave Shade's Field color a value that isn't one of Color's at vmath/vmath.fb:143:19

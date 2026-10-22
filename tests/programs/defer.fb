@@ -1,4 +1,6 @@
 // Defer: runs when its block exits, the last first, through Return, Break, and Continue.
+Import std.core
+
 Class Resource
     Field name: String
 

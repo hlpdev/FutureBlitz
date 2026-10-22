@@ -1,6 +1,8 @@
 // Queue<T>: first in, first out. Enqueue puts a value at the back, and Dequeue takes the one at
 // the front. The values start at Head, and the ones before it are dropped once they're half.
 
+Import std.core
+
 Public Class Queue<T>
     Field Items: T[] = []
     Field Head: Int
@@ -22,6 +24,7 @@ Public Class Queue<T>
     End Method
 
     // Takes the front value off and gives it. Panics when the Queue is empty.
+    @PanicsAtCaller
     Public Method Dequeue(): T
         Local front = Peek()
         Head += 1
@@ -35,6 +38,7 @@ Public Class Queue<T>
     End Method
 
     // The front value, which stays. Panics when the Queue is empty.
+    @PanicsAtCaller
     Public Method Peek(): T
         If Head == Items.Count Then Panic("the Queue is empty")
         Return Items[Head]
@@ -70,6 +74,7 @@ Public Struct QueueIterator<T> Implements Iterator<T>
     Field Index: Int
     Field Changes: Int64
 
+    @PanicsAtCaller
     Public ByRef Method Next(): T?
         If Owner.Changes != Changes Then Panic("the Queue changed while a For ... In went over it")
         If Index >= Owner.Items.Count Then Return Null

@@ -1,2 +1,2 @@
 30
-panic: index 3 is out of range for 3 elements at panic_index.fb:5:9
+panic: index 3 is out of range for 3 elements at panic_index.fb:7:9

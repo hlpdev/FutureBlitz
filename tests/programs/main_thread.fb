@@ -1,6 +1,8 @@
 // Work on another thread uses Atomic and Mutex Globals, Sendable Consts, and its own values. The
 // main thread has the rest.
 
+Import std.core
+
 Global frames = 0
 Global hits = Atomic<Int>(0)
 Global log = Mutex<String>("")

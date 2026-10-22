@@ -1,6 +1,8 @@
 // A lambda can be Async: calling it starts its coroutine and gives its Task, through a function
 // value too.
 
+Import std.core
+
 Async Function Double(n: Int): Int
     Return Await Spawn(Function() => n * 2)
 End Function

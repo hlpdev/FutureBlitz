@@ -1,1 +1,1 @@
-panic: the shift amount must be from 0 to 31 at panic_shift.fb:2:9
+panic: the shift amount must be from 0 to 31 at panic_shift.fb:4:9

@@ -1,4 +1,6 @@
 // Errors through nested Try blocks, Catches that throw, and results of every kind.
+Import std.core
+
 Class Oops Extends Error
     Method Destroy()
         Print("Oops '{Message}' freed")

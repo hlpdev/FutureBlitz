@@ -2,6 +2,8 @@
 // says what comes first. The values are a binary heap: each one comes before its two children,
 // at 2i + 1 and 2i + 2.
 
+Import std.core
+
 Public Class PriorityQueue<T>
     Field Items: T[] = []
     Field Before: Func(T, T): Bool
@@ -35,6 +37,7 @@ Public Class PriorityQueue<T>
     End Method
 
     // Takes the first value off and gives it. Panics when the PriorityQueue is empty.
+    @PanicsAtCaller
     Public Method Pop(): T
         Local first = Peek()
         Local last = Items.Count - 1
@@ -55,6 +58,7 @@ Public Class PriorityQueue<T>
     End Method
 
     // The first value, which stays. Panics when the PriorityQueue is empty.
+    @PanicsAtCaller
     Public Method Peek(): T
         If Items.Count == 0 Then Panic("the PriorityQueue is empty")
         Return Items[0]
@@ -92,6 +96,7 @@ Public Struct PriorityQueueIterator<T> Implements Iterator<T>
     Field Index: Int
     Field Changes: Int64
 
+    @PanicsAtCaller
     Public ByRef Method Next(): T?
         If Owner.Changes != Changes
             Panic("the PriorityQueue changed while a For ... In went over it")

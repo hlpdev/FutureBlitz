@@ -1,2 +1,2 @@
 1
-panic: the Stack is empty at std/collections/stack.fb:32:34
+panic: the Stack is empty at panic_stack_empty.fb:8:1

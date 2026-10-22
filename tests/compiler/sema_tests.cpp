@@ -266,7 +266,8 @@ TEST_CASE("names must be declared", "[sema]") {
 }
 
 TEST_CASE("functions and Globals are visible anywhere in the file", "[sema]") {
-    CHECK(errors_of("Print(Greeting())\n"
+    CHECK(errors_of("Import std.core\n"
+                    "Print(Greeting())\n"
                     "Function Greeting(): String\n"
                     "    Return \"hi {count}\"\n"
                     "End Function\n"
@@ -361,28 +362,34 @@ TEST_CASE("Globals and functions are declared only at the top level", "[sema]") 
 // Definite assignment
 
 TEST_CASE("Locals must be assigned before they're read", "[sema]") {
-    CHECK(errors_of("Local hp: Int\nPrint(\"{hp}\")") ==
+    CHECK(errors_of("Import std.core\n"
+                    "Local hp: Int\nPrint(\"{hp}\")") ==
           errors_t{ "hp: 'hp' is read before it's assigned" });
-    CHECK(errors_of("Local hp: Int\nhp = 5\nPrint(\"{hp}\")").empty());
+    CHECK(errors_of("Import std.core\n"
+                    "Local hp: Int\nhp = 5\nPrint(\"{hp}\")")
+              .empty());
     CHECK(errors_of("Local hp: Int\nhp += 1") ==
           errors_t{ "hp: 'hp' is read before it's assigned" });
 
     // Reported once, not at every read.
-    CHECK(errors_of("Local hp: Int\nPrint(\"{hp} {hp}\")") ==
+    CHECK(errors_of("Import std.core\n"
+                    "Local hp: Int\nPrint(\"{hp} {hp}\")") ==
           errors_t{ "hp: 'hp' is read before it's assigned" });
 }
 
 TEST_CASE("an ElseIf condition only sees what was assigned before the If", "[sema]") {
     // The condition only runs when the branches before it didn't, so their assignments don't
     // count, and a Return in one of them doesn't hide the read.
-    CHECK(errors_of("Local c = True\n"
+    CHECK(errors_of("Import std.core\n"
+                    "Local c = True\n"
                     "Local hp: Int\n"
                     "If c\n"
                     "    hp = 1\n"
                     "ElseIf hp > 0\n"
                     "    Print(\"positive\")\n"
                     "End If") == errors_t{ "hp: 'hp' is read before it's assigned" });
-    CHECK(errors_of("Local c = True\n"
+    CHECK(errors_of("Import std.core\n"
+                    "Local c = True\n"
                     "Local hp: Int\n"
                     "If c\n"
                     "    Return\n"
@@ -392,7 +399,8 @@ TEST_CASE("an ElseIf condition only sees what was assigned before the If", "[sem
 }
 
 TEST_CASE("assignment is tracked through branches and loops", "[sema]") {
-    CHECK(errors_of("Local c = True\n"
+    CHECK(errors_of("Import std.core\n"
+                    "Local c = True\n"
                     "Local hp: Int\n"
                     "If c\n"
                     "    hp = 1\n"
@@ -401,7 +409,8 @@ TEST_CASE("assignment is tracked through branches and loops", "[sema]") {
                     "End If\n"
                     "Print(\"{hp}\")")
               .empty());
-    CHECK(errors_of("Local c = True\n"
+    CHECK(errors_of("Import std.core\n"
+                    "Local c = True\n"
                     "Local hp: Int\n"
                     "If c\n"
                     "    hp = 1\n"
@@ -410,19 +419,22 @@ TEST_CASE("assignment is tracked through branches and loops", "[sema]") {
 
     // A While body may run zero times. A Repeat body runs at least once, and the Loop only ends
     // at its Break.
-    CHECK(errors_of("Local c = True\n"
+    CHECK(errors_of("Import std.core\n"
+                    "Local c = True\n"
                     "Local hp: Int\n"
                     "While c\n"
                     "    hp = 1\n"
                     "End While\n"
                     "Print(\"{hp}\")") == errors_t{ "hp: 'hp' is read before it's assigned" });
-    CHECK(errors_of("Local hp: Int\n"
+    CHECK(errors_of("Import std.core\n"
+                    "Local hp: Int\n"
                     "Repeat\n"
                     "    hp = 1\n"
                     "Until True\n"
                     "Print(\"{hp}\")")
               .empty());
-    CHECK(errors_of("Local hp: Int\n"
+    CHECK(errors_of("Import std.core\n"
+                    "Local hp: Int\n"
                     "Loop\n"
                     "    hp = 1\n"
                     "    Break\n"
@@ -431,7 +443,8 @@ TEST_CASE("assignment is tracked through branches and loops", "[sema]") {
               .empty());
 
     // Default returns, so only the Case 1 path reaches the Print.
-    CHECK(errors_of("Local n = 1\n"
+    CHECK(errors_of("Import std.core\n"
+                    "Local n = 1\n"
                     "Local hp: Int\n"
                     "Select n\n"
                     "    Case 1\n"
@@ -481,7 +494,9 @@ TEST_CASE("Return matches the function's return type", "[sema]") {
 }
 
 TEST_CASE("top-level code can end early with a bare Return", "[sema]") {
-    CHECK(errors_of("Print(\"a\")\nReturn\nPrint(\"b\")").empty());
+    CHECK(errors_of("Import std.core\n"
+                    "Print(\"a\")\nReturn\nPrint(\"b\")")
+              .empty());
     CHECK(errors_of("Return 1") == errors_t{ "1: top-level code can't return a value" });
 }
 
@@ -523,8 +538,9 @@ TEST_CASE("only functions can be called, and only values used", "[sema]") {
     CHECK(errors_of("Local x = Int(2)") ==
           errors_t{ "Int: 'Int' is a type; convert to it with 'As'" });
 
-    // The built-in Print takes a String.
-    CHECK(errors_of("Print(1)") == errors_t{ "1: expected String, found Int32" });
+    // A String parameter takes a String.
+    CHECK(errors_of("Function Shout(text: String)\nEnd Function\nShout(1)") ==
+          errors_t{ "1: expected String, found Int32" });
 }
 
 TEST_CASE("default values are known at compile time", "[sema]") {
@@ -567,26 +583,30 @@ TEST_CASE("overloads: an exact match beats a conversion", "[sema]") {
 
     // Their constraints count too, since a call picks the overload whose constraints its type
     // arguments meet, though one that extends another asks what both do.
-    constexpr std::string_view describe = "Struct OnlyEq Implements Equatable\n"
+    constexpr std::string_view describe = "Import std.core\n"
+                                          "Struct OnlyEq Implements Equatable\n"
                                           "    Field X: Int\n"
                                           "End Struct\n"
                                           "Function Describe<T>(x: T): String\n"
                                           "    Where T: Comparable\n"
                                           "    Return \"comparable\"\n"
                                           "End Function\n";
-    CHECK(probe(std::format("{}Function Describe<U>(y: U): Int\n"
+    CHECK(probe(std::format("Import std.core\n"
+                            "{}Function Describe<U>(y: U): Int\n"
                             "    Where U: Equatable\n"
                             "    Return 1\n"
                             "End Function\n"
                             "Local x = Describe(OnlyEq(1))",
                             describe)) == "Int32");
-    CHECK(errors_of(std::format("{}Function Describe<U>(y: U): String\n"
+    CHECK(errors_of(std::format("Import std.core\n"
+                                "{}Function Describe<U>(y: U): String\n"
                                 "    Where U: Comparable\n"
                                 "    Return \"again\"\n"
                                 "End Function",
                                 describe)) ==
           errors_t{ "Describe: 'Describe' is already declared with the same parameter types" });
-    CHECK(errors_of(std::format("{}Function Describe<U>(y: U): String\n"
+    CHECK(errors_of(std::format("Import std.core\n"
+                                "{}Function Describe<U>(y: U): String\n"
                                 "    Where U: Equatable & Comparable\n"
                                 "    Return \"again\"\n"
                                 "End Function",
@@ -595,7 +615,8 @@ TEST_CASE("overloads: an exact match beats a conversion", "[sema]") {
 
     // That holds whatever is declared first: Const Functions are declared before any Interface
     // knows what it extends, and here the Interfaces come after the Functions.
-    CHECK(errors_of("Const Function F<T>(x: T): Int\n"
+    CHECK(errors_of("Import std.core\n"
+                    "Const Function F<T>(x: T): Int\n"
                     "    Where T: Comparable\n"
                     "    Return 1\n"
                     "End Function\n"
@@ -634,12 +655,15 @@ TEST_CASE("overloads: an exact match beats a conversion", "[sema]") {
 
 TEST_CASE("std's Print and the built-ins can be overloaded, and a module's own hides them",
           "[sema]") {
-    CHECK(errors_of("Function Print(value: Int)\n"
+    CHECK(errors_of("Import std.core\n"
+                    "Function Print(value: Int)\n"
                     "End Function\n"
                     "Print(1)\n"
                     "Print(\"a\")")
               .empty());
-    CHECK(errors_of("Function Print(text: String)\nEnd Function\nPrint(\"a\")").empty());
+    CHECK(errors_of("Import std.core\n"
+                    "Function Print(text: String)\nEnd Function\nPrint(\"a\")")
+              .empty());
     CHECK(errors_of("Function Panic(message: String)\n"
                     "End Function\n"
                     "Panic(\"not really\")\n"
@@ -725,7 +749,9 @@ TEST_CASE("conditions must be Bool", "[sema]") {
 }
 
 TEST_CASE("For loops", "[sema]") {
-    CHECK(errors_of("For i = 0 To 9\n    Print(\"{i}\")\nEnd For").empty());
+    CHECK(errors_of("Import std.core\n"
+                    "For i = 0 To 9\n    Print(\"{i}\")\nEnd For")
+              .empty());
     CHECK(errors_of("For i = 0.0 To 1.0 Step 0.25\nEnd For").empty());
     CHECK(errors_of("For i = 10 To 0 Step -1\nEnd For").empty());
 
@@ -735,7 +761,8 @@ TEST_CASE("For loops", "[sema]") {
                     "    Local x: Int = i\n"
                     "End For") == errors_t{ "i: expected Int32, found Int64" });
 
-    CHECK(errors_of("For i = 0 To 9\nEnd For\nPrint(\"{i}\")") ==
+    CHECK(errors_of("Import std.core\n"
+                    "For i = 0 To 9\nEnd For\nPrint(\"{i}\")") ==
           errors_t{ "i: 'i' isn't declared" });
     CHECK(errors_of("For i = 0 To 9\n    Local i = 1\nEnd For") ==
           errors_t{ "i: 'i' is already declared in an enclosing block" });
@@ -971,6 +998,7 @@ TEST_CASE("a Struct can't contain itself", "[sema]") {
 
 TEST_CASE("Structs compare with == and != only", "[sema]") {
     constexpr std::string_view point =
+        "Import std.core\n"
         "Struct P\n    Field x: Int\nEnd Struct\nStruct Q\nEnd Struct\n";
     const auto with_point = [&](const std::string_view text) {
         return std::format("{}{}", point, text);
@@ -1125,7 +1153,8 @@ TEST_CASE("Destroy", "[sema]") {
 }
 
 TEST_CASE("Class references", "[sema]") {
-    constexpr std::string_view a = "Class A\nEnd Class\n";
+    constexpr std::string_view a = "Import std.core\n"
+                                   "Class A\nEnd Class\n";
     const auto with_a = [&](const std::string_view text) { return std::format("{}{}", a, text); };
 
     CHECK(probe(with_a("Local x = A()\nLocal same = x == x")) == "Bool");
@@ -1166,7 +1195,8 @@ TEST_CASE("a T? holds a T or Null", "[sema]") {
           errors_t{ "Null: Null needs a type from where it's used, like 'Local e: Enemy? = "
                     "Null'" });
     CHECK(errors_of("Local x: Int = Null") == errors_t{ "Null: Int32 can't be Null; Int32? can" });
-    CHECK(errors_of("Print(Null)") == errors_t{ "Null: String can't be Null; String? can" });
+    CHECK(errors_of("Function Shout(text: String)\nEnd Function\nShout(Null)") ==
+          errors_t{ "Null: String can't be Null; String? can" });
     // A function type's '?' would go on what it gives.
     CHECK(errors_of("Local f: Func(): String = Null") ==
           errors_t{ "Null: Func(): String can't be Null; (Func(): String)? can" });
@@ -1213,11 +1243,13 @@ TEST_CASE("a T? of a T? holds one that can be Null itself", "[sema]") {
 
 TEST_CASE("a T? has to be checked before it's used as a T", "[sema]") {
     // The messages are split around "??" so the compiler doesn't see a trigraph in them.
-    CHECK(errors_of("Function F(s: String?)\n    Print(s)\nEnd Function") ==
-          errors_t{ "s: expected String, found String?, which may be Null; check it first, or "
-                    "give a value for Null with '?"
+    CHECK(errors_of("Import std.core\n"
+                    "Function F(s: String?)\n    Print(s)\nEnd Function") ==
+          errors_t{ "s: String? can't be shown by 'Print', since it may be Null; give a "
+                    "value for Null with '?"
                     "?'" });
-    CHECK(errors_of("Function F(x: Int?)\n    Print(\"{x}\")\nEnd Function") ==
+    CHECK(errors_of("Import std.core\n"
+                    "Function F(x: Int?)\n    Print(\"{x}\")\nEnd Function") ==
           errors_t{ "x: Int32? can't be shown in a string, since it may be Null; give a value "
                     "for Null with '?"
                     "?'" });
@@ -1270,7 +1302,8 @@ TEST_CASE("a null check narrows a T? to its T", "[sema]") {
 }
 
 TEST_CASE("narrowing lasts while the variable can't change", "[sema]") {
-    constexpr std::string_view enemy = "Class E\n    Field hp: Int\nEnd Class\n";
+    constexpr std::string_view enemy = "Import std.core\n"
+                                       "Class E\n    Field hp: Int\nEnd Class\n";
     const auto with_enemy = [&](const std::string_view text) {
         return errors_of(std::format("{}{}", enemy, text));
     };
@@ -1549,7 +1582,8 @@ TEST_CASE("Abstract and Final", "[sema]") {
 }
 
 TEST_CASE("Super calls the Methods and New of the Class extended", "[sema]") {
-    constexpr std::string_view base = "Abstract Class A\n"
+    constexpr std::string_view base = "Import std.core\n"
+                                      "Abstract Class A\n"
                                       "    Field hp: Int\n"
                                       "    New(hp: Int)\n"
                                       "        Self.hp = hp\n"
@@ -1972,7 +2006,8 @@ TEST_CASE("Defer runs one statement that can't leave the block", "[sema]") {
         return errors_t{ std::format("{}: {}", statement, message) };
     };
 
-    CHECK(errors_of("Local n = 0\n"
+    CHECK(errors_of("Import std.core\n"
+                    "Local n = 0\n"
                     "Defer Print(\"{n}\")\n"
                     "Defer n += 1\n"
                     "Defer n++\n"
@@ -1985,13 +2020,16 @@ TEST_CASE("Defer runs one statement that can't leave the block", "[sema]") {
 
     // A Local in it would be declared where its value isn't, so it isn't checked any further.
     CHECK(errors_of("Defer Local x = 1") == rejected("Defer Local x = 1"));
-    CHECK(errors_of("Defer If True\n    Print(\"a\")\nEnd If") ==
+    CHECK(errors_of("Import std.core\n"
+                    "Defer If True\n    Print(\"a\")\nEnd If") ==
           rejected("Defer If True\n    Print(\"a\")\nEnd If"));
-    CHECK(errors_of("Defer Defer Print(\"a\")") == rejected("Defer Defer Print(\"a\")"));
+    CHECK(errors_of("Import std.core\n"
+                    "Defer Defer Print(\"a\")") == rejected("Defer Defer Print(\"a\")"));
 }
 
 TEST_CASE("a Defer's statement runs as its block exits", "[sema]") {
-    constexpr std::string_view enemy = "Class E\n    Field hp: Int\nEnd Class\n";
+    constexpr std::string_view enemy = "Import std.core\n"
+                                       "Class E\n    Field hp: Int\nEnd Class\n";
     const auto with_enemy = [&](const std::string_view text) {
         return errors_of(std::format("{}{}", enemy, text));
     };
@@ -2010,16 +2048,19 @@ TEST_CASE("a Defer's statement runs as its block exits", "[sema]") {
               .empty());
 
     // What it assigns isn't assigned until then, and what it reads must already be.
-    CHECK(errors_of("Local n: Int\nDefer n = 1\nPrint(\"{n}\")") ==
+    CHECK(errors_of("Import std.core\n"
+                    "Local n: Int\nDefer n = 1\nPrint(\"{n}\")") ==
           errors_t{ "n: 'n' is read before it's assigned" });
-    CHECK(errors_of("Local n: Int\nDefer Print(\"{n}\")\nn = 1") ==
+    CHECK(errors_of("Import std.core\n"
+                    "Local n: Int\nDefer Print(\"{n}\")\nn = 1") ==
           errors_t{ "n: 'n' is read before it's assigned" });
 }
 
 // Errors
 
 /// Two errors, and a function that can throw either.
-constexpr std::string_view two_errors = "Class FileError Extends Error\n"
+constexpr std::string_view two_errors = "Import std.core\n"
+                                        "Class FileError Extends Error\n"
                                         "End Class\n"
                                         "Class ParseError Extends Error\n"
                                         "End Class\n"
@@ -2034,27 +2075,36 @@ errors_t with_errors(const std::string_view text) {
 } // namespace
 
 TEST_CASE("Error is a Class with a Message, from the standard library", "[sema]") {
-    CHECK(probe("Local e = Error(\"x\")") == "Error");
-    CHECK(probe("Local m = Error().Message") == "String");
-    CHECK(probe("Class Oops Extends Error\nEnd Class\nLocal e: Error = Oops(\"x\")") ==
+    CHECK(probe("Import std.core\n"
+                "Local e = Error(\"x\")") == "Error");
+    CHECK(probe("Import std.core\n"
+                "Local m = Error().Message") == "String");
+    CHECK(probe("Import std.core\n"
+                "Class Oops Extends Error\nEnd Class\nLocal e: Error = Oops(\"x\")") ==
           "Error (from Oops)");
 
     // A program's own Error hides std's for its code, but errors still extend std's.
-    CHECK(errors_of("Class Error\nEnd Class").empty());
-    CHECK(errors_of("Class Error\nEnd Class\nThrow Error()") ==
+    CHECK(errors_of("Import std.core\n"
+                    "Class Error\nEnd Class")
+              .empty());
+    CHECK(errors_of("Import std.core\n"
+                    "Class Error\nEnd Class\nThrow Error()") ==
           errors_t{ "Error(): Throw takes an object of a Class that extends std.core.error.Error, "
                     "not test.Error" });
 
     // Where the code has an Error of its own, the one errors extend says whose it is.
-    CHECK(errors_of("Class Error\nEnd Class\nClass Oops Extends Error\nEnd Class\nThrow Oops()") ==
+    CHECK(errors_of("Import std.core\n"
+                    "Class Error\nEnd Class\nClass Oops Extends Error\nEnd Class\nThrow Oops()") ==
           errors_t{ "Oops(): Throw takes an object of a Class that extends std.core.error.Error, "
                     "not Oops" });
-    CHECK(errors_of("Class Error\nEnd Class\nFunction F() Throws Error\nEnd Function") ==
+    CHECK(errors_of("Import std.core\n"
+                    "Class Error\nEnd Class\nFunction F() Throws Error\nEnd Function") ==
           errors_t{ "Error: Throws lists Classes that extend std.core.error.Error, "
                     "not test.Error" });
 
     // So do a Catch's, and a message that shows one beside a T? of the other.
-    CHECK(errors_of("Class Error\n"
+    CHECK(errors_of("Import std.core\n"
+                    "Class Error\n"
                     "End Class\n"
                     "Local last: Error? = Null\n"
                     "Try\n"
@@ -2136,8 +2186,38 @@ TEST_CASE("Throw ends the path with an Error", "[sema]") {
                     "it to the Throws of 'F'" });
     CHECK(errors_of("Class Plain\nEnd Class\nThrow Plain()") ==
           errors_t{ "Plain(): Throw takes an object of a Class that extends Error, not Plain" });
-    CHECK(errors_of("Function F(e: Error?) Throws Error\n    Throw e\nEnd Function") ==
+    CHECK(errors_of("Import std.core\n"
+                    "Function F(e: Error?) Throws Error\n    Throw e\nEnd Function") ==
           errors_t{ "e: 'e' may be Null; check that it isn't, or use '?.'" });
+}
+
+TEST_CASE("an error has a Cause and the Place Throw gives it, and each area has its own",
+          "[sema]") {
+    CHECK(errors_of("Import std.core\n"
+                    "Local io = IOError(IOErrorKind.NOT_FOUND, \"gone\", \"a.txt\")\n"
+                    "Local parse = ParseError(ParseErrorKind.SYNTAX, \"bad\", 3, 4, io)\n"
+                    "Local where = \"{parse.Place} {parse.Line}:{parse.Column}\"\n"
+                    "Local kinds = [io.Kind == IOErrorKind.NOT_FOUND, io.Path == \"a.txt\"]\n"
+                    "Local cause: Error? = parse.Cause\n"
+                    "Local others: Error[] = [\n"
+                    "    ArgumentError(ArgumentErrorKind.MISSING, \"no --out\", \"out\"),\n"
+                    "    FormatError(FormatErrorKind.BAD_TEMPLATE, \"{{\"),\n"
+                    "    TimeoutError(\"slow\"),\n"
+                    "    NetError(NetErrorKind.REFUSED, \"no\", \"127.0.0.1:80\"),\n"
+                    "    DatabaseError(DatabaseErrorKind.BUSY, \"locked\")\n"
+                    "]")
+              .empty());
+
+    // Only Throw sets the Place, and the Kind and details are the New's to set.
+    CHECK(errors_of("Import std.core\n"
+                    "Local e = IOError(IOErrorKind.OTHER, \"x\")\n"
+                    "e.Place = Error().Place\n"
+                    "e.Kind = IOErrorKind.NOT_FOUND\n"
+                    "e.Cause = Error(\"why\")") ==
+          errors_t{
+              "e.Place: 'Place' is ReadOnly; only Error's New can change it",
+              "e.Kind: 'Kind' is ReadOnly; only IOError's New can change it",
+          });
 }
 
 TEST_CASE("a Catch takes the errors of its Class, in order", "[sema]") {
@@ -2157,7 +2237,8 @@ TEST_CASE("a Catch takes the errors of its Class, in order", "[sema]") {
           errors_t{ "String: Catch takes a Class that extends Error, not String" });
 
     // A Catch of a Class that extends one thrown may match.
-    CHECK(errors_of("Class Oops Extends Error\n"
+    CHECK(errors_of("Import std.core\n"
+                    "Class Oops Extends Error\n"
                     "End Class\n"
                     "Function F() Throws Error\n"
                     "End Function\n"
@@ -2192,8 +2273,8 @@ TEST_CASE("a Catch and a Finally start from what was true before the Try", "[sem
                       "        Print(t)\n"
                       "    End Try\n"
                       "End Function") ==
-          errors_t{ "t: expected String, found String?, which may be Null; check it first, or "
-                    "give a value for Null with '?"
+          errors_t{ "t: String? can't be shown by 'Print', since it may be Null; give a "
+                    "value for Null with '?"
                     "?'" });
 }
 
@@ -2223,14 +2304,16 @@ TEST_CASE("a Defer and a Finally can't let errors out, or leave", "[sema]") {
                     "        Return 2\n"
                     "    End Try\n"
                     "End Function") == errors_t{ "Return 2: Return can't leave a Finally" });
-    CHECK(errors_of("For i = 1 To 2\n"
+    CHECK(errors_of("Import std.core\n"
+                    "For i = 1 To 2\n"
                     "    Try\n"
                     "        Print(\"x\")\n"
                     "    Finally\n"
                     "        Break\n"
                     "    End Try\n"
                     "End For") == errors_t{ "Break: Break can't leave a Finally" });
-    CHECK(errors_of("Try\n"
+    CHECK(errors_of("Import std.core\n"
+                    "Try\n"
                     "    Print(\"x\")\n"
                     "Finally\n"
                     "    For i = 1 To 2\n"
@@ -2241,7 +2324,8 @@ TEST_CASE("a Defer and a Finally can't let errors out, or leave", "[sema]") {
 }
 
 TEST_CASE("a New can throw, and its callers handle it", "[sema]") {
-    constexpr std::string_view base = "Class Bad Extends Error\n"
+    constexpr std::string_view base = "Import std.core\n"
+                                      "Class Bad Extends Error\n"
                                       "End Class\n"
                                       "Class A\n"
                                       "    New() Throws Bad\n"
@@ -2292,7 +2376,8 @@ TEST_CASE("a Weak<T> refers to an object of a Class", "[sema]") {
 }
 
 TEST_CASE("a Weak<T> is assigned a T, and reading it gives a T?", "[sema]") {
-    constexpr std::string_view node = "Class Node\n"
+    constexpr std::string_view node = "Import std.core\n"
+                                      "Class Node\n"
                                       "    Field name: String\n"
                                       "End Class\n"
                                       "Class Leaf Extends Node\n"
@@ -2365,7 +2450,8 @@ TEST_CASE("Static members belong to their type", "[sema]") {
 
 TEST_CASE("a Static Method has no Self", "[sema]") {
     const auto in_static = [](const std::string_view body) {
-        return errors_of(std::format("Class A\n"
+        return errors_of(std::format("Import std.core\n"
+                                     "Class A\n"
                                      "    Static Field n: Int\n"
                                      "    Field x: Int\n"
                                      "    Method M()\n"
@@ -2502,9 +2588,63 @@ TEST_CASE("a Property overrides the one a Class inherits, with Override", "[sema
 TEST_CASE("Panic ends the path, and Assert goes on where its condition holds", "[sema]") {
     CHECK(errors_of("Function F(): Int\n    Panic(\"no\")\nEnd Function").empty());
     CHECK(errors_of("Function F(): Int\n    Assert(False, \"never\")\nEnd Function").empty());
-    CHECK(errors_of("Function F(s: String?)\n    Assert(s != Null)\n    Print(s)\nEnd Function")
+    CHECK(errors_of("Import std.core\n"
+                    "Function F(s: String?)\n    Assert(s != Null)\n    Print(s)\nEnd Function")
               .empty());
     CHECK(errors_of("Panic(1)") == errors_t{ "1: expected String, found Int32" });
+}
+
+TEST_CASE("Unreachable and Todo end the path, and DebugAssert narrows nothing", "[sema]") {
+    CHECK(errors_of("Function F(n: Int): Int\n"
+                    "    If n > 0 Then Return 1\n"
+                    "    Unreachable()\n"
+                    "End Function\n"
+                    "Function G(): String\n"
+                    "    Todo(\"G\")\n"
+                    "End Function\n"
+                    "Function H(): Int\n"
+                    "    Unreachable(\"never\")\n"
+                    "End Function")
+              .empty());
+
+    // A release build doesn't check it, so code after it can't count on it.
+    CHECK(errors_of("Function F(s: String?): String\n"
+                    "    DebugAssert(s != Null, \"s is set\")\n"
+                    "    Return s\n"
+                    "End Function") ==
+          errors_t{ "s: expected String, found String?, which may be Null; check it first, or "
+                    "give a value for Null with '?"
+                    "?'" });
+    CHECK(errors_of("Function F(): Int\n    DebugAssert(False)\nEnd Function") ==
+          errors_t{ "F: 'F' doesn't return a value on every path" });
+    CHECK(errors_of("Todo(1)\nUnreachable(True)\nDebugAssert(1)") ==
+          errors_t{
+              "1: expected String, found Int32",
+              "True: expected String, found Bool",
+              "1: expected Bool, found Int32",
+          });
+
+    // A Const Function can use them.
+    CHECK(probe("Const Function Half(n: Int): Int\n"
+                "    DebugAssert(n % 2 == 0)\n"
+                "    If n < 0 Then Todo()\n"
+                "    Return n / 2\n"
+                "End Function\n"
+                "Local x = Half(8)") == "Int32 4");
+}
+
+TEST_CASE("AssertEqual compares what's Equatable and Printable", "[sema]") {
+    CHECK(errors_of("Import std.core\nAssertEqual(1 + 1, 2)\nAssertEqual(\"a\", \"a\", \"same\")")
+              .empty());
+    CHECK(errors_of("Import std.core\n"
+                    "Struct P\n    Field x: Int\nEnd Struct\n"
+                    "AssertEqual(P(1), P(1))") ==
+          errors_t{
+              "AssertEqual: P doesn't implement Equatable, which 'AssertEqual' needs for T",
+              "AssertEqual: P doesn't implement Printable, which 'AssertEqual' needs for T",
+          });
+    CHECK(errors_of("AssertEqual(1, 1)") ==
+          errors_t{ "AssertEqual: 'AssertEqual' is in std.core, which this file doesn't import" });
 }
 
 // What codegen reads
@@ -2614,8 +2754,10 @@ TEST_CASE("tuple mistakes", "[sema]") {
 TEST_CASE("a lambda's type comes from its parameters and what it returns", "[sema]") {
     CHECK(probe("Local f = Function(x: Int) => x * 2") == "Func(Int32): Int32");
     CHECK(probe("Local f: Func(Long): Long = Function(x) => x + 1") == "Func(Int64): Int64");
-    CHECK(probe("Local f = Function() => Print(\"x\")") == "Func()");
-    CHECK(probe("Local f = Function()\n    Print(\"x\")\nEnd Function") == "Func()");
+    CHECK(probe("Import std.core\n"
+                "Local f = Function() => Print(\"x\")") == "Func()");
+    CHECK(probe("Import std.core\n"
+                "Local f = Function()\n    Print(\"x\")\nEnd Function") == "Func()");
     CHECK(probe("Local f = Function(): String\n    Return \"x\"\nEnd Function") ==
           "Func(): String");
     CHECK(probe("Local f = Function(x: Int) => x\nLocal n = f(2)") == "Int32");
@@ -2630,7 +2772,8 @@ TEST_CASE("a Function's name alone is a function value", "[sema]") {
                     "Local f = P") ==
           errors_t{ "P: 'P' has overloads, so a Func or Callback type has to say which one is "
                     "meant" });
-    CHECK(errors_of("Class Oops Extends Error\nEnd Class\nFunction F() Throws Oops\n"
+    CHECK(errors_of("Import std.core\n"
+                    "Class Oops Extends Error\nEnd Class\nFunction F() Throws Oops\n"
                     "End Function\nLocal f = F") ==
           errors_t{ "F: 'F' can throw, and a function value can't" });
 }
@@ -2700,10 +2843,11 @@ TEST_CASE("narrowing around lambdas", "[sema]") {
                     "?'" });
 
     // In a lambda, other code can change a Local from outside between a check and a use.
-    CHECK(errors_of("Local s: String? = \"a\"\n"
+    CHECK(errors_of("Import std.core\n"
+                    "Local s: String? = \"a\"\n"
                     "Local f = Function()\n    If s != Null Then Print(s)\nEnd Function") ==
-          errors_t{ "s: expected String, found String?, which may be Null; check it first, or "
-                    "give a value for Null with '?"
+          errors_t{ "s: String? can't be shown by 'Print', since it may be Null; give a "
+                    "value for Null with '?"
                     "?'" });
 }
 
@@ -2720,7 +2864,8 @@ TEST_CASE("lambda mistakes", "[sema]") {
           errors_t{ "Function: this lambda doesn't return a value on every path" });
     CHECK(errors_of("Function F(ByRef n: Int)\n    Local c = Function() => n\nEnd Function") ==
           errors_t{ "n: 'n' is ByRef, so a lambda can't capture it; copy it into a Local first" });
-    CHECK(errors_of("Class Oops Extends Error\nEnd Class\n"
+    CHECK(errors_of("Import std.core\n"
+                    "Class Oops Extends Error\nEnd Class\n"
                     "Local f = Function()\n    Throw Oops(\"x\")\nEnd Function") ==
           errors_t{ "Oops(\"x\"): a lambda can't throw, so Oops has to be caught in it" });
     CHECK(errors_of("Loop\n    Local f = Function()\n        Break\n    End Function\n    Break\n"
@@ -2731,7 +2876,8 @@ TEST_CASE("lambda mistakes", "[sema]") {
 }
 
 TEST_CASE("calling a function value", "[sema]") {
-    constexpr std::string_view f = "Local f: Func(Int): Int = Function(x) => x\n";
+    constexpr std::string_view f = "Import std.core\n"
+                                   "Local f: Func(Int): Int = Function(x) => x\n";
     const auto with_f = [&](const std::string_view text) {
         return errors_of(std::format("{}{}", f, text));
     };
@@ -2815,7 +2961,7 @@ TEST_CASE("an instance's members have its type arguments", "[sema]") {
 TEST_CASE("a type parameter can only be passed around until interfaces", "[sema]") {
     CHECK(errors_of("Function F<T>(a: T, b: T): Bool => a == b") ==
           errors_t{ "a == b: '==' can't be used on T" });
-    CHECK(errors_of("Function F<T>(a: T): String => \"{a}\"") ==
+    CHECK(errors_of("Import std.core\nFunction F<T>(a: T): String => \"{a}\"") ==
           errors_t{ "a: T can't be shown in a string without a constraint, like <T: Printable>" });
     CHECK(errors_of("Function F<T>(a: T): Int => a.Count") ==
           errors_t{ "Count: T has no members without a constraint, like <T: I>" });
@@ -3096,7 +3242,8 @@ TEST_CASE("a type implements each of its Interfaces' members", "[sema]") {
           });
 
     // What implements a Method doesn't throw, or change a Struct when the Interface's doesn't.
-    CHECK(errors_of("Interface Hurts\n    Method Hurt()\n    Property Hp: Int\nEnd Interface\n"
+    CHECK(errors_of("Import std.core\n"
+                    "Interface Hurts\n    Method Hurt()\n    Property Hp: Int\nEnd Interface\n"
                     "Struct S Implements Hurts\n"
                     "    ByRef Method Hurt()\n    End Method\n"
                     "    Property Hp: Int\n        Get => 1\n    End Property\n"
@@ -3242,6 +3389,44 @@ TEST_CASE("constraint mistakes", "[sema]") {
     CHECK(
         errors_of("Interface I\nEnd Interface\nFunction F(x: Int)\n    Where T: I\nEnd Function") ==
         errors_t{ "T: 'T' isn't a type parameter here" });
+
+    // A constraint that names no Interface is reported once, and nothing it would allow is.
+    CHECK(errors_of("Function Big<T: Ordered>(a: T, b: T): Bool => a < b || -a == b\n"
+                    "Function Name<T: Named>(x: T): String => \"{x.Name} {x}\"\n"
+                    "Function Same<T: Sameish>(xs: T[], x: T): Bool => xs.Contains(x)") ==
+          errors_t{
+              "Ordered: 'Ordered' isn't a type",
+              "Named: 'Named' isn't a type",
+              "Sameish: 'Sameish' isn't a type",
+          });
+}
+
+TEST_CASE("a missing Import's constraint is reported once, and nothing it would allow is",
+          "[sema]") {
+    // Without Import std.core, a For ... In over an Iterator, a Numeric's Static, a Sendable
+    // value's Spawn, and a Catch of the Error a Throw can't name aren't errors too.
+    CHECK(errors_of("Function Seq<T: Iterator<Int>>(x: T): Int\n"
+                    "    Local n = 0\n"
+                    "    For v In x\n"
+                    "        n += v\n"
+                    "    End For\n"
+                    "    Return n\n"
+                    "End Function\n"
+                    "Function Sum<T: Numeric>(xs: T[]): T => T.Zero()\n"
+                    "Function Send<T: Sendable>(x: T): T => Spawn(Function() => x).Wait()\n"
+                    "Function Fails()\n"
+                    "    Try\n"
+                    "        Throw Error(\"x\")\n"
+                    "    Catch e\n"
+                    "        Assert(e.Message == \"x\")\n"
+                    "    End Try\n"
+                    "End Function") ==
+          errors_t{
+              "Iterator<Int>: 'Iterator' is in std.core, which this file doesn't import",
+              "Numeric: 'Numeric' is in std.core, which this file doesn't import",
+              "Sendable: 'Sendable' is in std.core, which this file doesn't import",
+              "Error: 'Error' is in std.core, which this file doesn't import",
+          });
 }
 
 // Abstract and Static Properties
@@ -3294,7 +3479,8 @@ TEST_CASE("Property mistakes", "[sema]") {
 TEST_CASE("the built-in types implement the built-in Interfaces that fit them", "[sema]") {
     const auto meets = [](const std::string_view constraint, const std::string_view value) {
         return errors_of(
-                   std::format("Function F<T: {}>(x: T)\nEnd Function\nF({})", constraint, value))
+                   std::format("Import std.core\nFunction F<T: {}>(x: T)\nEnd Function\nF({})",
+                               constraint, value))
             .empty();
     };
 
@@ -3309,19 +3495,22 @@ TEST_CASE("the built-in types implement the built-in Interfaces that fit them", 
     CHECK_FALSE(meets("Printable", "(1 As Int?)"));
     CHECK_FALSE(meets("Equatable", "[Function() => 1]"));
 
-    CHECK(errors_of("Function Max<T: Comparable>(a: T, b: T): T => a > b ? a : b\n"
+    CHECK(errors_of("Import std.core\n"
+                    "Function Max<T: Comparable>(a: T, b: T): T => a > b ? a : b\n"
                     "Local m = Max(True, False)") ==
           errors_t{ "Max: Bool doesn't implement Comparable, which 'Max' needs for T" });
 
     // Among overloads, the one that fits but for its Where lines says which isn't met.
-    CHECK(errors_of("Class Thing\nEnd Class\n"
+    CHECK(errors_of("Import std.core\n"
+                    "Class Thing\nEnd Class\n"
                     "Class Line<T>\n"
                     "    New()\n        Where T: Comparable\n    End New\n"
                     "    New(before: Func(T, T): Bool)\n    End New\n"
                     "End Class\n"
                     "Local line = Line<Thing>()") ==
           errors_t{ "Line<Thing>: Thing doesn't implement Comparable, which Line<T> needs for T" });
-    CHECK(errors_of("Class Thing\nEnd Class\n"
+    CHECK(errors_of("Import std.core\n"
+                    "Class Thing\nEnd Class\n"
                     "Function Sorted<T>(items: T[])\n    Where T: Comparable\nEnd Function\n"
                     "Function Sorted<T>(items: T[], before: Func(T, T): Bool)\nEnd Function\n"
                     "Sorted([Thing()])") ==
@@ -3330,20 +3519,25 @@ TEST_CASE("the built-in types implement the built-in Interfaces that fit them", 
 
 TEST_CASE("a Struct or Class that lists Equatable or Hashable can have the built-in == and Hash",
           "[sema]") {
-    CHECK(probe("Struct P Implements Hashable\n    Field X: Int\n    Field Name: String\n"
+    CHECK(probe("Import std.core\n"
+                "Struct P Implements Hashable\n    Field X: Int\n    Field Name: String\n"
                 "End Struct\nLocal h = P(1, \"a\").Hash()") == "UInt64");
-    CHECK(probe("Class C Implements Hashable\nEnd Class\nLocal h = C().Hash()") == "UInt64");
-    CHECK(errors_of("Struct Money Implements Hashable\n"
+    CHECK(probe("Import std.core\n"
+                "Class C Implements Hashable\nEnd Class\nLocal h = C().Hash()") == "UInt64");
+    CHECK(errors_of("Import std.core\n"
+                    "Struct Money Implements Hashable\n"
                     "    Field Cents: Long\n"
                     "    Operator ==(a: Money, b: Money): Bool => a.Cents == b.Cents\n"
                     "End Struct") ==
           errors_t{ "Hashable: Money has an Operator == of its own, so it needs a Hash that agrees "
                     "with it" });
-    CHECK(errors_of("Class Rock\nEnd Class\n"
+    CHECK(errors_of("Import std.core\n"
+                    "Class Rock\nEnd Class\n"
                     "Struct Bag Implements Hashable\n    Field Owner: Rock\nEnd Struct") ==
           errors_t{ "Hashable: 'Owner' isn't Hashable, so Bag needs a Hash of its own to implement "
                     "Hashable" });
-    CHECK(errors_of("Struct Holder Implements Equatable\n    Field Run: Func(): Int\nEnd Struct") ==
+    CHECK(errors_of("Import std.core\n"
+                    "Struct Holder Implements Equatable\n    Field Run: Func(): Int\nEnd Struct") ==
           errors_t{ "Equatable: 'Run' can't be compared with ==, so Holder needs an Operator == of "
                     "its own to implement Equatable" });
 
@@ -3353,7 +3547,8 @@ TEST_CASE("a Struct or Class that lists Equatable or Hashable can have the built
                                    "    Method Key(): Int\n"
                                    "    Operator ==(a: Self, b: Self): Bool => a.Key() == b.Key()\n"
                                    "End Interface\n";
-    CHECK(errors_of(std::format("{}Struct P Implements Hashable\n"
+    CHECK(errors_of(std::format("Import std.core\n"
+                                "{}Struct P Implements Hashable\n"
                                 "    Field N: Int\n"
                                 "    Method Key(): Int => N\n"
                                 "End Struct\n"
@@ -3361,7 +3556,8 @@ TEST_CASE("a Struct or Class that lists Equatable or Hashable can have the built
                                 keyed)) ==
           errors_t{ "Hashable: P has an Operator == of its own, so it needs a Hash that agrees "
                     "with it" });
-    const std::string_view box = "Struct Box<T: Hashable> Implements Hashable\n"
+    const std::string_view box = "Import std.core\n"
+                                 "Struct Box<T: Hashable> Implements Hashable\n"
                                  "    Field Value: T\n"
                                  "End Struct\n";
     CHECK(errors_of(std::format("{}Extend Box<Int>\n"
@@ -3370,7 +3566,8 @@ TEST_CASE("a Struct or Class that lists Equatable or Hashable can have the built
                                 box)) ==
           errors_t{ "Hashable: Box<Int32> has an Operator == of its own, so it needs a Hash that "
                     "agrees with it" });
-    CHECK(errors_of(std::format("{}Extend Box<Int> Implements Hashable\n"
+    CHECK(errors_of(std::format("Import std.core\n"
+                                "{}Extend Box<Int> Implements Hashable\n"
                                 "    Operator ==(a: Box<Int>, b: Box<Int>): Bool => True\n"
                                 "    Method Hash(): UInt64 => 0\n"
                                 "End Extend",
@@ -3385,11 +3582,13 @@ TEST_CASE("a Struct or Class that lists Equatable or Hashable can have the built
                                  "Extend Bag<String>\n"
                                  "    Operator ==(a: Bag<String>, b: Bag<String>): Bool => True\n"
                                  "End Extend\n";
-    CHECK(errors_of(
-              std::format("{}Class Kept<T> Extends Bag<Int> Implements Hashable\nEnd Class", bag))
+    CHECK(errors_of(std::format("Import std.core\n"
+                                "{}Class Kept<T> Extends Bag<Int> Implements Hashable\nEnd Class",
+                                bag))
               .empty());
-    CHECK(errors_of(
-              std::format("{}Class Kept<T> Extends Bag<T> Implements Hashable\nEnd Class", bag)) ==
+    CHECK(errors_of(std::format("Import std.core\n"
+                                "{}Class Kept<T> Extends Bag<T> Implements Hashable\nEnd Class",
+                                bag)) ==
           errors_t{ "Hashable: Kept<String> has an Operator == of its own, so it needs a Hash "
                     "that agrees with it" });
 
@@ -3397,7 +3596,8 @@ TEST_CASE("a Struct or Class that lists Equatable or Hashable can have the built
     const std::vector<fb::library_file_t> modules{
         {
             .path = "lib/a.fb",
-            .text = "Public Struct P Implements Hashable\n    Public Field N: Int\nEnd Struct\n",
+            .text = "Import std.core\n"
+                    "Public Struct P Implements Hashable\n    Public Field N: Int\nEnd Struct\n",
         },
     };
     CHECK(errors_with(std::format("Import \"./lib/a\"\n{}"
@@ -3410,7 +3610,8 @@ TEST_CASE("a Struct or Class that lists Equatable or Hashable can have the built
                     "that agrees with it" });
 
     // Comparable gives the other comparisons from <.
-    CHECK(probe("Struct M Implements Comparable\n"
+    CHECK(probe("Import std.core\n"
+                "Struct M Implements Comparable\n"
                 "    Field V: Int\n"
                 "    Operator <(a: M, b: M): Bool => a.V < b.V\n"
                 "End Struct\n"
@@ -3429,14 +3630,17 @@ TEST_CASE("the built-in types have the built-in Interfaces' Methods", "[sema]") 
 }
 
 TEST_CASE("Printable puts a value in a string", "[sema]") {
-    const std::string_view point = "Struct Point Implements Printable\n"
+    const std::string_view point = "Import std.core\n"
+                                   "Struct Point Implements Printable\n"
                                    "    Field X: Int\n"
                                    "    Method ToString(): String => \"({X})\"\n"
                                    "End Struct\n";
     CHECK(probe(std::format("{}Local s = \"{{Point(1)}} {{[Point(2)]}}\"", point)) == "String");
-    CHECK(probe("Function F<T: Printable>(x: T): String => \"{x}\"\nLocal s = F([1, 2])") ==
+    CHECK(probe("Import std.core\n"
+                "Function F<T: Printable>(x: T): String => \"{x}\"\nLocal s = F([1, 2])") ==
           "String");
-    CHECK(probe(std::format("{}Class C Implements Printable\n"
+    CHECK(probe(std::format("Import std.core\n"
+                            "{}Class C Implements Printable\n"
                             "    Method ToString(): String => \"c\"\n"
                             "End Class\n"
                             "Local p: Printable = C()\nLocal s = \"{{p}}\"",
@@ -3449,7 +3653,8 @@ TEST_CASE("Printable puts a value in a string", "[sema]") {
 TEST_CASE("a program's own Interface named like a built-in one hides std's for its code",
           "[sema]") {
     // Each can be declared again, and the program's constraints mean its own.
-    CHECK(errors_of("Interface Equatable\nEnd Interface\n"
+    CHECK(errors_of("Import std.core\n"
+                    "Interface Equatable\nEnd Interface\n"
                     "Interface Comparable\nEnd Interface\n"
                     "Interface Hashable\nEnd Interface\n"
                     "Interface Printable\nEnd Interface\n"
@@ -3457,7 +3662,8 @@ TEST_CASE("a program's own Interface named like a built-in one hides std's for i
                     "Interface Sendable\nEnd Interface\n"
                     "Interface Iterator<T>\nEnd Interface")
               .empty());
-    CHECK(errors_of("Interface Printable\n"
+    CHECK(errors_of("Import std.core\n"
+                    "Interface Printable\n"
                     "    Method Show(): String\n"
                     "End Interface\n"
                     "Function F<T: Printable>(x: T): String => x.Show()\n"
@@ -3465,7 +3671,8 @@ TEST_CASE("a program's own Interface named like a built-in one hides std's for i
           errors_t{ "F: Int32 doesn't implement Printable, which 'F' needs for T" });
 
     // The language's ==, <, strings, loops, Maps, Sets, and threads still go through std's.
-    CHECK(errors_of("Import std.collections\n"
+    CHECK(errors_of("Import std.core\n"
+                    "Import std.collections\n"
                     "Interface Equatable\nEnd Interface\n"
                     "Interface Comparable\nEnd Interface\n"
                     "Interface Hashable\nEnd Interface\n"
@@ -3483,7 +3690,8 @@ TEST_CASE("a program's own Interface named like a built-in one hides std's for i
                     "Local t = Spawn(Function() => 2)\n"
                     "Local n = t.Wait()")
               .empty());
-    CHECK(errors_of("Interface Sendable\nEnd Interface\n"
+    CHECK(errors_of("Import std.core\n"
+                    "Interface Sendable\nEnd Interface\n"
                     "Class Rock\n"
                     "    Field Weight: Int = 1\n"
                     "End Class\n"
@@ -3495,7 +3703,8 @@ TEST_CASE("a program's own Interface named like a built-in one hides std's for i
                     "Shared Class" });
 
     // Messages name std's Printable where the code means its own.
-    CHECK(errors_of("Interface Printable\n"
+    CHECK(errors_of("Import std.core\n"
+                    "Interface Printable\n"
                     "End Interface\n"
                     "Struct P Implements Printable\n"
                     "    Field X: Int\n"
@@ -3550,7 +3759,8 @@ TEST_CASE("an Extend adds Methods, Properties, and Operators to a type", "[sema]
 }
 
 TEST_CASE("an Extend's Where makes what it adds conditional", "[sema]") {
-    const std::string_view sums = "Extend T[]\n"
+    const std::string_view sums = "Import std.core\n"
+                                  "Extend T[]\n"
                                   "    Method Sum(): T\n"
                                   "        Where T: Numeric\n"
                                   "        Local total = T.Zero()\n"
@@ -3564,7 +3774,8 @@ TEST_CASE("an Extend's Where makes what it adds conditional", "[sema]") {
     CHECK(errors_of(std::format("{}Local s = [\"a\"].Sum()", sums)) ==
           errors_t{ "[\"a\"].Sum: String doesn't implement Numeric, which 'Sum' needs for T" });
 
-    const std::string_view box = "Class Box<T>\n"
+    const std::string_view box = "Import std.core\n"
+                                 "Class Box<T>\n"
                                  "    Field Item: T?\n"
                                  "End Class\n"
                                  "Extend Box<T> Implements Printable\n"
@@ -3622,24 +3833,26 @@ TEST_CASE("an Extend's Where makes the defaults it gives conditional too", "[sem
                                 "End Interface\n"
                                 "Class Rock\n"
                                 "End Class\n";
-    const std::string box = doubled + "Class Box<T>\n"
-                                      "    Method Size(): Int => 1\n"
-                                      "End Class\n"
-                                      "Extend Box<T> Implements Doubled\n"
-                                      "    Where T: Hashable\n"
-                                      "End Extend\n";
+    const std::string box = "Import std.core\n" + doubled +
+                            "Class Box<T>\n"
+                            "    Method Size(): Int => 1\n"
+                            "End Class\n"
+                            "Extend Box<T> Implements Doubled\n"
+                            "    Where T: Hashable\n"
+                            "End Extend\n";
 
     // Only the instances that meet it have its default, as they have what it adds.
     CHECK(probe(box + "Local n = Box<Int>().Twice()") == "Int32");
     CHECK(errors_of(box + "Local n = Box<Rock>().Twice()") ==
           errors_t{
               "Box<Rock>().Twice: Rock doesn't implement Hashable, which 'Twice' needs for T" });
-    CHECK(errors_of(doubled + "Extend T[] Implements Doubled\n"
-                              "    Where T: Hashable\n"
-                              "    Method Size(): Int => Count\n"
-                              "End Extend\n"
-                              "Local n = [1].Twice()\n"
-                              "Local m = [Rock()].Twice()") ==
+    CHECK(errors_of("Import std.core\n" + doubled +
+                    "Extend T[] Implements Doubled\n"
+                    "    Where T: Hashable\n"
+                    "    Method Size(): Int => Count\n"
+                    "End Extend\n"
+                    "Local n = [1].Twice()\n"
+                    "Local m = [Rock()].Twice()") ==
           errors_t{ "[Rock()].Twice: Rock doesn't implement Hashable, which 'Twice' needs for T" });
 
     // So where every Box is Sized, Sized's default is its Twice, however Doubled extends it,
@@ -3648,17 +3861,18 @@ TEST_CASE("an Extend's Where makes the defaults it gives conditional too", "[sem
                               "    Method Size(): Int\n"
                               "    Method Twice(): Int => Size() * 2\n"
                               "End Interface\n";
-    const std::string refined = sized + "Interface Doubled Extends Sized\n"
-                                        "    Method Twice(): Int => Size() + 100\n"
-                                        "End Interface\n"
-                                        "Class Box<T> Implements Sized\n"
-                                        "    Method Size(): Int => 1\n"
-                                        "End Class\n"
-                                        "Extend Box<T> Implements Doubled\n"
-                                        "    Where T: Hashable\n"
-                                        "End Extend\n"
-                                        "Class Rock\n"
-                                        "End Class\n";
+    const std::string refined = "Import std.core\n" + sized +
+                                "Interface Doubled Extends Sized\n"
+                                "    Method Twice(): Int => Size() + 100\n"
+                                "End Interface\n"
+                                "Class Box<T> Implements Sized\n"
+                                "    Method Size(): Int => 1\n"
+                                "End Class\n"
+                                "Extend Box<T> Implements Doubled\n"
+                                "    Where T: Hashable\n"
+                                "End Extend\n"
+                                "Class Rock\n"
+                                "End Class\n";
     CHECK(implementer(refined, "Box<T>") == "Box<T> Sized");
     CHECK(errors_of(refined + "Function S(s: Sized): Int => s.Twice()\n"
                               "Function D(d: Doubled): Int => d.Twice()\n"
@@ -3667,7 +3881,7 @@ TEST_CASE("an Extend's Where makes the defaults it gives conditional too", "[sem
               .empty());
 
     // As it is for a Class extending Box, unless its own Where says each one is Doubled.
-    const std::string base = sized + doubled +
+    const std::string base = "Import std.core\n" + sized + doubled +
                              "Class Base<T>\n"
                              "    Method Size(): Int => 1\n"
                              "End Class\n"
@@ -3689,7 +3903,8 @@ TEST_CASE("an Extend's Where makes the defaults it gives conditional too", "[sem
     // listed for every instance, which would run it for the others.
     // Keyed with `key` for its Key, and Box with `listing` after its name.
     const auto keyed = [](const std::string_view key, const std::string_view listing) {
-        return std::format("Interface Keyed\n"
+        return std::format("Import std.core\n"
+                           "Interface Keyed\n"
                            "    {}\n"
                            "End Interface\n"
                            "Class Box<T>{}\n"
@@ -3706,7 +3921,8 @@ TEST_CASE("an Extend's Where makes the defaults it gives conditional too", "[sem
     CHECK(errors_of(keyed("Method Key(): UInt64", " Implements Keyed")) == errors_t{ narrower });
     CHECK(errors_of(keyed("Method Key(): UInt64 => 0", " Implements Keyed")) ==
           errors_t{ narrower });
-    CHECK(errors_of("Interface Named\n"
+    CHECK(errors_of("Import std.core\n"
+                    "Interface Named\n"
                     "    ReadOnly Property Name: String\n"
                     "End Interface\n"
                     "Class Box<T> Implements Named\n"
@@ -3765,7 +3981,7 @@ TEST_CASE("an Extend's Where makes the defaults it gives conditional too", "[sem
           "Box<T> Sized");
     CHECK(overridden(with_override(refined, "Class Sub Extends Box<Rock>"), "Sub") ==
           "Box<T> Sized");
-    const std::string both = sized + doubled +
+    const std::string both = "Import std.core\n" + sized + doubled +
                              "Class Base<T> Implements Sized\n"
                              "    Method Size(): Int => 1\n"
                              "End Class\n"
@@ -3776,24 +3992,25 @@ TEST_CASE("an Extend's Where makes the defaults it gives conditional too", "[sem
           "Base<T> Sized");
 
     // A loop over an instance's Properties goes over the ones it has.
-    CHECK(errors_of(doubled + "Class Crate<T>\n"
-                              "End Class\n"
-                              "Extend Crate<T>\n"
-                              "    Where T: Hashable\n"
-                              "    Property Thing: Rock\n"
-                              "        Get => Rock()\n"
-                              "    End Property\n"
-                              "End Extend\n"
-                              "Function Show<C>(c: C): String\n"
-                              "    Local text = \"\"\n"
-                              "    For Property p: P In C\n"
-                              "        Where P: Printable\n"
-                              "        text += \"{p.Name} {p.Get(c)}\"\n"
-                              "    End For\n"
-                              "    Return text\n"
-                              "End Function\n"
-                              "Local a = Show(Crate<Rock>())\n"
-                              "Local b = Show(Crate<Int>())") ==
+    CHECK(errors_of("Import std.core\n" + doubled +
+                    "Class Crate<T>\n"
+                    "End Class\n"
+                    "Extend Crate<T>\n"
+                    "    Where T: Hashable\n"
+                    "    Property Thing: Rock\n"
+                    "        Get => Rock()\n"
+                    "    End Property\n"
+                    "End Extend\n"
+                    "Function Show<C>(c: C): String\n"
+                    "    Local text = \"\"\n"
+                    "    For Property p: P In C\n"
+                    "        Where P: Printable\n"
+                    "        text += \"{p.Name} {p.Get(c)}\"\n"
+                    "    End For\n"
+                    "    Return text\n"
+                    "End Function\n"
+                    "Local a = Show(Crate<Rock>())\n"
+                    "Local b = Show(Crate<Int>())") ==
           errors_t{ "Show: 'Show' needs each Property of Crate<Int32> to implement Printable, but "
                     "its Property 'Thing' is Rock, which doesn't" });
 }
@@ -3818,14 +4035,15 @@ TEST_CASE("an instance without a conditional Operator == compares the built-in w
                             "End Struct\n";
 
     // One an Extend's Where adds, and a default it gives, are the instances' that meet it.
-    const std::string own = box + "Extend Box<T>\n"
-                                  "    Where T: Hashable\n"
-                                  "    Operator ==(a: Box<T>, b: Box<T>): Bool => a.n == b.n\n"
-                                  "End Extend\n";
+    const std::string own = "Import std.core\n" + box +
+                            "Extend Box<T>\n"
+                            "    Where T: Hashable\n"
+                            "    Operator ==(a: Box<T>, b: Box<T>): Bool => a.n == b.n\n"
+                            "End Extend\n";
     CHECK(calls_operator(own + "Local same = Box(1, 5) == Box(2, 5)"));
     CHECK_FALSE(calls_operator(own + "Local same = Box(Plain(1), 5) == Box(Plain(2), 5)"));
     CHECK_FALSE(calls_operator(own + "Local same = Box(Plain(1), 5) != Box(Plain(2), 5)"));
-    const std::string keyed = box +
+    const std::string keyed = "Import std.core\n" + box +
                               "Interface Keyed\n"
                               "    Method Key(): Int\n"
                               "    Operator ==(a: Self, b: Self): Bool => a.Key() == b.Key()\n"
@@ -3858,7 +4076,8 @@ TEST_CASE("an instance without a conditional Operator == compares the built-in w
 TEST_CASE("a Class declares what the instance it extends doesn't have", "[sema]") {
     // Base<Rock> has neither what an Extend's Where adds nor the default it gives, so a Class
     // extending it declares Methods and Properties of their names, which override nothing.
-    const std::string base = "Interface Doubled\n"
+    const std::string base = "Import std.core\n"
+                             "Interface Doubled\n"
                              "    Method Size(): Int\n"
                              "    Method Twice(): Int => Size() + 100\n"
                              "End Interface\n"
@@ -3896,7 +4115,8 @@ TEST_CASE("a Class declares what the instance it extends doesn't have", "[sema]"
     CHECK(errors_of(std::format("{}Class Sub<T> Extends Base<T>\n{}", base, members)) == added);
 
     // Like a ToString beside Map's, which is for keys and values that can be shown.
-    CHECK(errors_of("Import std.collections\n"
+    CHECK(errors_of("Import std.core\n"
+                    "Import std.collections\n"
                     "Class Item\n"
                     "End Class\n"
                     "Class Inventory Extends Map<String, Item> Implements Printable\n"
@@ -3915,7 +4135,8 @@ TEST_CASE("a Class declares what the instance it extends doesn't have", "[sema]"
 TEST_CASE("an Interface that's only a constraint isn't had from the Class extended", "[sema]") {
     // Low has Comparable from neither Ranked<Int>'s Extend nor Ordered's listing, so a Pair of
     // one isn't Printable, statically or as fb::implements() tells lowering.
-    const std::string program = "Class Ranked<T>\n"
+    const std::string program = "Import std.core\n"
+                                "Class Ranked<T>\n"
                                 "    Operator <(a: Ranked<T>, b: Ranked<T>): Bool => False\n"
                                 "End Class\n"
                                 "Extend Ranked<T> Implements Comparable\n"
@@ -3992,10 +4213,12 @@ TEST_CASE("an Extend can make a type implement an Interface", "[sema]") {
     CHECK(errors_of(std::format(
               "{}Class Enemy\nEnd Class\nExtend Enemy Implements Shown\nEnd Extend", shown)) ==
           errors_t{ "Shown: Enemy implements Shown, so it needs a Method 'Text'" });
-    CHECK(errors_of("Extend Int Implements Printable\nEnd Extend") ==
+    CHECK(errors_of("Import std.core\n"
+                    "Extend Int Implements Printable\nEnd Extend") ==
           errors_t{ "Printable: Int32 comes with the built-in Interfaces that fit it, Printable "
                     "among them; an Extend can give it others" });
-    CHECK(errors_of("Extend CString Implements Printable\nEnd Extend") ==
+    CHECK(errors_of("Import std.core\n"
+                    "Extend CString Implements Printable\nEnd Extend") ==
           errors_t{ "Printable: CString doesn't fit Printable, a built-in Interface, which only "
                     "the built-in types it fits implement; an Extend can give it others" });
 
@@ -4064,7 +4287,8 @@ TEST_CASE("a generic Interface's instances have its type arguments in their memb
     CHECK(probe(std::format("{}Function F<T: Pair<String, Int>>(x: T): Int => x.Second()\n"
                             "Local n = F(Named())",
                             pair)) == "Int32");
-    CHECK(probe("Class Words Implements Iterator<String>\n"
+    CHECK(probe("Import std.core\n"
+                "Class Words Implements Iterator<String>\n"
                 "    Method Next(): String? => Null\n"
                 "End Class\n"
                 "Local it: Iterator<String> = Words()\n"
@@ -4072,13 +4296,15 @@ TEST_CASE("a generic Interface's instances have its type arguments in their memb
 
     // A generic type can pass its own type parameters on, and an Interface can extend an
     // instance.
-    CHECK(probe("Struct Again<T> Implements Iterator<T>\n"
+    CHECK(probe("Import std.core\n"
+                "Struct Again<T> Implements Iterator<T>\n"
                 "    Field Value: T\n"
                 "    ByRef Method Next(): T? => Value\n"
                 "End Struct\n"
                 "Local a = Again(1.5)\n"
                 "Local x = a.Next()") == "Float32?");
-    CHECK(errors_of("Interface Numbers Extends Iterator<Int>\nEnd Interface\n"
+    CHECK(errors_of("Import std.core\n"
+                    "Interface Numbers Extends Iterator<Int>\nEnd Interface\n"
                     "Function F(n: Numbers): Int? => n.Next()\n"
                     "Function G(n: Numbers): Iterator<Int> => n")
               .empty());
@@ -4087,7 +4313,8 @@ TEST_CASE("a generic Interface's instances have its type arguments in their memb
 TEST_CASE("a constraint's type arguments are inferred from what the type argument implements",
           "[sema]") {
     // E is the Iterator<E> that S implements.
-    CHECK(probe("Struct Count Implements Iterator<Int>\n"
+    CHECK(probe("Import std.core\n"
+                "Struct Count Implements Iterator<Int>\n"
                 "    ByRef Method Next(): Int? => Null\n"
                 "End Struct\n"
                 "Function First<S, E>(items: S): E?\n"
@@ -4096,7 +4323,8 @@ TEST_CASE("a constraint's type arguments are inferred from what the type argumen
                 "    Return copy.Next()\n"
                 "End Function\n"
                 "Local x = First(Count())") == "Int32?");
-    CHECK(errors_of("Function Total<S: Iterator<Int>>(items: S): Int => 0\n"
+    CHECK(errors_of("Import std.core\n"
+                    "Function Total<S: Iterator<Int>>(items: S): Int => 0\n"
                     "Class Words Implements Iterator<String>\n"
                     "    Method Next(): String? => Null\n"
                     "End Class\n"
@@ -4105,19 +4333,22 @@ TEST_CASE("a constraint's type arguments are inferred from what the type argumen
 }
 
 TEST_CASE("generic Interface mistakes", "[sema]") {
-    CHECK(errors_of("Struct Both Implements Iterator<Int>, Iterator<String>\n"
+    CHECK(errors_of("Import std.core\n"
+                    "Struct Both Implements Iterator<Int>, Iterator<String>\n"
                     "    ByRef Method Next(): Int? => Null\n"
                     "End Struct") ==
           errors_t{ "Iterator<String>: Both implements Iterator<Int32> already; a type implements "
                     "a generic Interface with one set of type arguments" });
-    CHECK(errors_of("Class Base Implements Iterator<Int>\n"
+    CHECK(errors_of("Import std.core\n"
+                    "Class Base Implements Iterator<Int>\n"
                     "    Method Next(): Int? => Null\n"
                     "End Class\n"
                     "Class Derived Extends Base Implements Iterator<String>\n"
                     "End Class") ==
           errors_t{ "Iterator<String>: Derived implements Iterator<Int32> already; a type "
                     "implements a generic Interface with one set of type arguments" });
-    CHECK(errors_of("Function F<T>(x: T)\n"
+    CHECK(errors_of("Import std.core\n"
+                    "Function F<T>(x: T)\n"
                     "    Where T: Iterator<Int> & Iterator<String>\n"
                     "End Function") ==
           errors_t{ "Iterator<String>: T is Iterator<Int32> already; a type implements a generic "
@@ -4139,7 +4370,8 @@ TEST_CASE("generic Interface mistakes", "[sema]") {
                                 holder, put_string)) ==
           errors_t{ "Holder<String>: Box<Int32> implements Holder<Int32> already; a type "
                     "implements a generic Interface with one set of type arguments" });
-    CHECK(errors_of(std::format("{}"
+    CHECK(errors_of(std::format("Import std.core\n"
+                                "{}"
                                 "Class Base\n"
                                 "End Class\n"
                                 "Class Box<T> Extends Base\n"
@@ -4152,7 +4384,8 @@ TEST_CASE("generic Interface mistakes", "[sema]") {
                                 holder, put_string)) ==
           errors_t{ "Holder<String>: Box<Int32> implements Holder<Int32> already; a type "
                     "implements a generic Interface with one set of type arguments" });
-    CHECK(errors_of(std::format("{}"
+    CHECK(errors_of(std::format("Import std.core\n"
+                                "{}"
                                 "Struct Box<T> Implements Holder<T>\n"
                                 "    Field V: T\n"
                                 "    Method Put(x: T): Int => 1\n"
@@ -4164,12 +4397,15 @@ TEST_CASE("generic Interface mistakes", "[sema]") {
                                 "End Extend",
                                 holder))
               .empty());
-    CHECK(errors_of("Function F(x: Iterator)\nEnd Function") ==
+    CHECK(errors_of("Import std.core\n"
+                    "Function F(x: Iterator)\nEnd Function") ==
           errors_t{ "Iterator: Iterator<T> is generic, so it needs type arguments, like "
                     "Iterator<Int>" });
-    CHECK(errors_of("Function F(x: Iterator<Int, Int>)\nEnd Function") ==
+    CHECK(errors_of("Import std.core\n"
+                    "Function F(x: Iterator<Int, Int>)\nEnd Function") ==
           errors_t{ "Iterator<Int, Int>: Iterator<T> takes 1 type argument, not 2" });
-    CHECK(errors_of("Struct Wrong Implements Iterator<Int>\n"
+    CHECK(errors_of("Import std.core\n"
+                    "Struct Wrong Implements Iterator<Int>\n"
                     "    ByRef Method Next(): String? => Null\n"
                     "End Struct") ==
           errors_t{ "Iterator<Int>: Wrong's 'Next' doesn't match Iterator<Int32>'s, which takes () "
@@ -4177,14 +4413,16 @@ TEST_CASE("generic Interface mistakes", "[sema]") {
     CHECK(errors_of("Interface Grow<T> Extends Grow<T[]>\nEnd Interface") ==
           errors_t{ "Grow<T[]>: Grow<T> can't extend itself, directly or through other "
                     "Interfaces" });
-    CHECK(errors_of("Interface Picky<T>\n    Where T: Comparable\nEnd Interface\n"
+    CHECK(errors_of("Import std.core\n"
+                    "Interface Picky<T>\n    Where T: Comparable\nEnd Interface\n"
                     "Struct P\n    Field X: Int\nEnd Struct\n"
                     "Function F(x: Picky<P>)\nEnd Function") ==
           errors_t{ "Picky<P>: P doesn't implement Comparable, which Picky<T> needs for T" });
 }
 
 TEST_CASE("For ... In goes over an Iterator, or the one a value's Iterate gives", "[sema]") {
-    const std::string_view count = "Struct Count Implements Iterator<Int>\n"
+    const std::string_view count = "Import std.core\n"
+                                   "Struct Count Implements Iterator<Int>\n"
                                    "    Field N: Int\n"
                                    "    ByRef Method Next(): Int? => Null\n"
                                    "End Struct\n";
@@ -4195,14 +4433,16 @@ TEST_CASE("For ... In goes over an Iterator, or the one a value's Iterate gives"
                                 "End Class\n"
                                 "For x In Bag()\n    Local s: String = x\nEnd For",
                                 count)) == errors_t{ "x: expected String, found Int32" });
-    CHECK(errors_of("Function F(it: Iterator<Int>)\n"
+    CHECK(errors_of("Import std.core\n"
+                    "Function F(it: Iterator<Int>)\n"
                     "    For x In it\n"
                     "        Local s: String = x\n"
                     "    End For\n"
                     "End Function") == errors_t{ "x: expected String, found Int32" });
 
     // Two names take each pair apart, like a Map's keys and values.
-    CHECK(errors_of("Struct Pairs Implements Iterator<(String, Int)>\n"
+    CHECK(errors_of("Import std.core\n"
+                    "Struct Pairs Implements Iterator<(String, Int)>\n"
                     "    ByRef Method Next(): (String, Int)? => Null\n"
                     "End Struct\n"
                     "For key, value In Pairs()\n"
@@ -4254,7 +4494,8 @@ TEST_CASE("a variadic parameter takes the rest of the arguments as an array", "[
     CHECK(probe(std::format("{}Local xs = [1, 2]\nLocal n = Sum(xs)", sum)) == "Int32");
     CHECK(probe(std::format("{}Local n = Sum([1, 2])", sum)) == "Int32");
     CHECK(probe(std::format("{}Local n = Sum(nums: [1, 2])", sum)) == "Int32");
-    CHECK(probe("Function Largest<T: Comparable>(first: T, rest: T...): T => first\n"
+    CHECK(probe("Import std.core\n"
+                "Function Largest<T: Comparable>(first: T, rest: T...): T => first\n"
                 "Local x = Largest(1.5, 2, 3)") == "Float32");
     CHECK(errors_of(std::format("{}Local n = Sum(1, \"x\")", sum)) ==
           errors_t{ "\"x\": expected Int32, found String" });
@@ -4262,6 +4503,64 @@ TEST_CASE("a variadic parameter takes the rest of the arguments as an array", "[
           errors_t{ "x: 'nums' takes the rest of the arguments, which can't be ByRef" });
     CHECK(errors_of(std::format("{}Local n = Sum(1, nums: [2])", sum)) ==
           errors_t{ "[2]: parameter 'nums' already has an argument" });
+
+    // A call that fits a function without packing its arguments takes that one, as C#'s does.
+    CHECK(errors_of(std::format("{}Function Sum(n: Int): Int => 100\n"
+                                "Function Sum(a: Long, rest: Long...): Int => 200\n"
+                                "Local one = Sum(1)\n"
+                                "Local two = Sum(1, 2)",
+                                sum))
+              .empty());
+}
+
+TEST_CASE("what work and threads share has no text, so it can't be shown", "[sema]") {
+    constexpr std::string_view seven = "Import std.core\n"
+                                       "Async Function Seven(): Int\n"
+                                       "    Await NextFrame()\n"
+                                       "    Return 7\n"
+                                       "End Function\n";
+    CHECK(errors_of(std::format("{}Print(Seven())", seven)) ==
+          errors_t{ "Seven(): Task<Int32> can't be shown by 'Print'; show what it gives, with "
+                    "Await or Wait()" });
+    CHECK(errors_of(std::format("{}Local t = Seven()\nLocal s = \"{{t}}\"", seven)) ==
+          errors_t{ "t: Task<Int32> can't be shown in a string; show what it gives, with Await "
+                    "or Wait()" });
+    CHECK(errors_of(std::format("{}Print(Channel<Int>(2))\nPrint(Scheduler())", seven)) ==
+          errors_t{
+              "Channel<Int>(2): Channel<Int32> can't be shown by 'Print', since it has no text "
+              "of its own",
+              "Scheduler(): Scheduler can't be shown by 'Print', since it has no text of its own",
+          });
+}
+
+TEST_CASE("'values: Printable...' takes values of any types a string can show", "[sema]") {
+    // Each argument becomes its text at the call, so the function gets a String[].
+    const std::string_view log = "Import std.core\n"
+                                 "Function Log(level: Int, values: Printable...): String[] => "
+                                 "values\n";
+    CHECK(probe(std::format("{}Local texts = Log(1, \"a\", 2, 3.5, True, [1], (1, \"x\"))", log)) ==
+          "String[]");
+    CHECK(probe(std::format("{}Local texts = Log(1)", log)) == "String[]");
+    CHECK(probe(std::format("{}Local texts = Log(1, values: [\"given\"])", log)) == "String[]");
+    // An array is a value too, so it's shown, not passed as the texts.
+    CHECK(probe(std::format("{}Local xs = [1, 2]\nLocal texts = Log(1, xs)", log)) == "String[]");
+    CHECK(errors_of(std::format("{}Struct P\n    Field x: Int\nEnd Struct\n"
+                                "Local s: String? = Null\n"
+                                "Local texts = Log(1, P(1), s)",
+                                log)) ==
+          errors_t{
+              "P(1): P can't be shown by 'Log'; implement Printable, with a ToString",
+              "s: String? can't be shown by 'Log', since it may be Null; give a value for Null "
+              "with '?"
+              "?'",
+          });
+
+    // Only std's Printable means it: a program's own is an Interface of objects.
+    CHECK(errors_of("Interface Printable\n"
+                    "    Method ToString(): String\n"
+                    "End Interface\n"
+                    "Function Log(values: Printable...): Int => values.Count\n"
+                    "Local n = Log(1)") == errors_t{ "1: expected Printable, found Int32" });
 }
 
 TEST_CASE("variadic parameter mistakes", "[sema]") {
@@ -4304,6 +4603,102 @@ TEST_CASE("attribute mistakes", "[sema]") {
           errors_t{ "M: 'M' has no body, so @Inline has nothing to inline" });
     CHECK(errors_of("Function F()\n    @Deprecated Local x = 1\nEnd Function") ==
           errors_t{ "x: a Local can't be @Deprecated, since only its own code uses it" });
+}
+
+TEST_CASE("a Property's Override takes @PanicsAtCaller from what it overrides", "[sema]") {
+    // So one further down can be @PanicsAtCaller too.
+    CHECK(errors_of("Class A\n"
+                    "    @PanicsAtCaller\n"
+                    "    Property Size: Int\n"
+                    "        Get => 1\n"
+                    "    End Property\n"
+                    "End Class\n"
+                    "Class B Extends A\n"
+                    "    Override Property Size: Int\n"
+                    "        Get => 2\n"
+                    "    End Property\n"
+                    "End Class\n"
+                    "Class C Extends B\n"
+                    "    @PanicsAtCaller\n"
+                    "    Override Property Size: Int\n"
+                    "        Get => 3\n"
+                    "    End Property\n"
+                    "End Class")
+              .empty());
+}
+
+TEST_CASE("@PanicsAtCaller goes on what code calls", "[sema]") {
+    CHECK(errors_of("@PanicsAtCaller Function F()\nEnd Function\n"
+                    "Struct S\n"
+                    "    Field n: Int\n"
+                    "    @PanicsAtCaller New(n: Int)\n"
+                    "        Self.n = n\n"
+                    "    End New\n"
+                    "    @PanicsAtCaller Method M()\n"
+                    "    End Method\n"
+                    "    @PanicsAtCaller Static Method Make(): S => S(1)\n"
+                    "    @PanicsAtCaller Operator +(a: S, b: S): S => S(a.n + b.n)\n"
+                    "    @PanicsAtCaller Property Twice: Int\n"
+                    "        Get => n * 2\n"
+                    "    End Property\n"
+                    "End Struct\n"
+                    "Extend Int\n"
+                    "    @PanicsAtCaller Method Half(): Int => Self / 2\n"
+                    "End Extend")
+              .empty());
+    const std::string where =
+        "@PanicsAtCaller only goes before a Function, Method, Operator, New, or Property";
+    CHECK(errors_of("@PanicsAtCaller Struct S\nEnd Struct\n"
+                    "Struct T\n    @PanicsAtCaller Field x: Int\nEnd Struct\n"
+                    "@PanicsAtCaller Global g = 1\n"
+                    "@PanicsAtCaller Enum E\n    A\nEnd Enum\n"
+                    "@PanicsAtCaller Interface I\nEnd Interface") ==
+          errors_t{ "S: " + where, "x: " + where, "g: " + where, "E: " + where, "I: " + where });
+    CHECK(errors_of("Interface I\n"
+                    "    @PanicsAtCaller Method M()\n"
+                    "    @PanicsAtCaller Method D(): Int => 1\n"
+                    "    @PanicsAtCaller ReadOnly Property P: Int\n"
+                    "End Interface\n"
+                    "Class C\n"
+                    "    @PanicsAtCaller Method Destroy()\n"
+                    "    End Method\n"
+                    "End Class\n"
+                    "Extern \"C\"\n"
+                    "    @PanicsAtCaller Function abs(n: Int32): Int32\n"
+                    "End Extern") ==
+          errors_t{
+              "M: an Interface's members can't be @PanicsAtCaller; what implements one can be",
+              "D: an Interface's members can't be @PanicsAtCaller; what implements one can be",
+              "P: an Interface's members can't be @PanicsAtCaller; what implements one can be",
+              "Destroy: Destroy can't be @PanicsAtCaller, since no code calls it",
+              "abs: an Extern Function can't be @PanicsAtCaller, since its code is C's",
+          });
+
+    // An Override takes it from what it overrides, and can't add it.
+    CHECK(errors_of("Class A\n"
+                    "    @PanicsAtCaller Method M()\n"
+                    "    End Method\n"
+                    "    Method N()\n"
+                    "    End Method\n"
+                    "    Property P: Int\n"
+                    "        Get => 1\n"
+                    "    End Property\n"
+                    "End Class\n"
+                    "Class B Extends A\n"
+                    "    Override Method M()\n"
+                    "    End Method\n"
+                    "    @PanicsAtCaller Override Method N()\n"
+                    "    End Method\n"
+                    "    @PanicsAtCaller Override Property P: Int\n"
+                    "        Get => 2\n"
+                    "    End Property\n"
+                    "End Class") ==
+          errors_t{
+              "N: 'N' is @PanicsAtCaller, so it can't override A's, which isn't, since a call "
+              "through A gives no place",
+              "P: 'P' is @PanicsAtCaller, so it can't override A's, which isn't, since a use "
+              "through A gives no place",
+          });
 }
 
 TEST_CASE("a Const known at compile time can be used before its line", "[sema]") {
@@ -4352,7 +4747,8 @@ TEST_CASE("a call of a Const Function runs at compile time when its arguments ar
 }
 
 TEST_CASE("what a Const Function can't do", "[sema]") {
-    CHECK(errors_of("Global g = 1\n"
+    CHECK(errors_of("Import std.core\n"
+                    "Global g = 1\n"
                     "Class Box\nEnd Class\n"
                     "Function Plain(): Int => 1\n"
                     "Const Function F(): Int\n"
@@ -4526,7 +4922,9 @@ TEST_CASE("attribute declaration mistakes", "[sema]") {
           errors_t{ "Missing: '@Missing' isn't an attribute; an Attribute declaration makes one" });
     CHECK(errors_of("Struct Missing\nEnd Struct\n@Missing Function F()\nEnd Function") ==
           errors_t{ "Missing: '@Missing' isn't an attribute; an Attribute declaration makes one" });
-    CHECK(errors_of("Attribute Inline") == errors_t{ "Inline: @Inline is a built-in attribute" });
+    // An Attribute can have a built-in's name, which code reaches through its module's
+    // qualifier, since "@Inline" alone is always the built-in.
+    CHECK(errors_of("Attribute Inline\n@Inline Function F()\nEnd Function").empty());
     CHECK(errors_of("Attribute Bad(Items: Int[])") ==
           errors_t{ "Items: an Attribute's parameters are numbers, Bools, Strings, and Enums, not "
                     "Int32[]" });
@@ -4538,7 +4936,8 @@ TEST_CASE("attribute declaration mistakes", "[sema]") {
 
 TEST_CASE("For Field goes over a type's fields, with a type parameter for each one's type",
           "[sema]") {
-    const std::string_view show = "Function Show<T>(value: T)\n"
+    const std::string_view show = "Import std.core\n"
+                                  "Function Show<T>(value: T)\n"
                                   "    For Field f: F In T\n"
                                   "        Where F: Printable\n"
                                   "        Print(\"{f.Name} {f.Index}: {f.Get(value)}\")\n"
@@ -4559,7 +4958,8 @@ TEST_CASE("For Field goes over a type's fields, with a type parameter for each o
               std::format("{}Function Pass<U>(value: U)\n    Show(value)\nEnd Function", show)) ==
           errors_t{ "Show: 'Show' needs each field of U to implement Printable, but nothing says "
                     "that of U's fields" });
-    CHECK(errors_of(std::format("{}Function Pass<U>(value: U)\n"
+    CHECK(errors_of(std::format("Import std.core\n"
+                                "{}Function Pass<U>(value: U)\n"
                                 "    For Field f: F In U\n"
                                 "        Where F: Printable\n"
                                 "    End For\n"
@@ -4577,21 +4977,24 @@ TEST_CASE("For Field goes over a type's fields, with a type parameter for each o
                 "    Return n\n"
                 "End Function\n"
                 "Const FIELDS = Count()") == "Int32 2");
-    CHECK(errors_of("Struct P\n    Field X: Int\n    Field Name: String\nEnd Struct\n"
+    CHECK(errors_of("Import std.core\n"
+                    "Struct P\n    Field X: Int\n    Field Name: String\nEnd Struct\n"
                     "For Field f: F In P\n    Where F: Numeric\nEnd For") ==
           errors_t{ "P: P's field 'Name' is String, which doesn't implement Numeric, as this loop "
                     "needs" });
 }
 
 TEST_CASE("Set changes a field, and For Method calls Methods that take nothing", "[sema]") {
-    CHECK(errors_of("Function Clear<T>(ByRef value: T)\n"
+    CHECK(errors_of("Import std.core\n"
+                    "Function Clear<T>(ByRef value: T)\n"
                     "    For Field f: F In T\n"
                     "        Where F: Numeric\n"
                     "        f.Set(ByRef value, F.Zero())\n"
                     "    End For\n"
                     "End Function")
               .empty());
-    CHECK(errors_of("Function Clear<T>(value: T)\n"
+    CHECK(errors_of("Import std.core\n"
+                    "Function Clear<T>(value: T)\n"
                     "    For Field f: F In T\n"
                     "        Where F: Numeric\n"
                     "        f.Set(ByRef value, F.Zero())\n"
@@ -4609,17 +5012,23 @@ TEST_CASE("Set changes a field, and For Method calls Methods that take nothing",
 
 TEST_CASE("what a For Field's or For Method's variable can't do", "[sema]") {
     const std::string_view point = "Struct P\n    Field X: Int\nEnd Struct\n";
-    CHECK(errors_of(std::format("{}Function F<T>(value: T)\n"
+    CHECK(errors_of(std::format("Import std.core\n"
+                                "{}Function F<T>(value: T)\n"
                                 "    For Field f In T\n"
                                 "        Print(f.Get(value))\n"
                                 "    End For\n"
                                 "End Function",
                                 point)) ==
-          errors_t{ "f.Get(value): expected String, found the type of f" });
-    CHECK(errors_of(std::format("{}For Field f In P\n    Print(f)\nEnd For", point)) ==
+          errors_t{ "f.Get(value): the type of f can't be shown by 'Print' without a constraint; "
+                    "name it, as in 'For Field f: F In T', then add 'Where F: Printable'" });
+    CHECK(errors_of(std::format("Import std.core\n"
+                                "{}For Field f In P\n    Print(f)\nEnd For",
+                                point)) ==
           errors_t{ "f: 'f' is a field of P; it has Name, Index, Get(value), Set(ByRef value, x), "
                     "Has(A), and Attribute(A)" });
-    CHECK(errors_of(std::format("{}For Method m In P\n    Print(m.Index)\nEnd For", point)) ==
+    CHECK(errors_of(std::format("Import std.core\n"
+                                "{}For Method m In P\n    Print(m.Index)\nEnd For",
+                                point)) ==
           errors_t{ "Index: 'm' is a Method of P; it has Name, Has(A), Attribute(A), and "
                     "Call(value, ...)" });
     CHECK(errors_of(std::format("{}For Field f In P\n    f.Name = \"x\"\nEnd For", point)) ==
@@ -4628,13 +5037,16 @@ TEST_CASE("what a For Field's or For Method's variable can't do", "[sema]") {
     CHECK(errors_of(
               std::format("{}For Field f In P\n    Local g = Function() => f.Name\nEnd For", point))
               .empty());
-    CHECK(
-        errors_of(std::format("{}For Field f In P\n    Print(\"{{f.Has(P)}}\")\nEnd For", point)) ==
-        errors_t{ "P: 'f.Has' takes the name of an Attribute, which an Attribute declaration "
-                  "makes" });
+    CHECK(errors_of(std::format("Import std.core\n"
+                                "{}For Field f In P\n    Print(\"{{f.Has(P)}}\")\nEnd For",
+                                point)) ==
+          errors_t{ "P: 'f.Has' takes the name of an Attribute, which an Attribute declaration "
+                    "makes" });
     CHECK(errors_of(std::format("{}For Method m In P\n    m.Call(1)\nEnd For", point)) ==
           errors_t{ "1: expected P, found Int32" });
-    CHECK(errors_of(std::format("{}For Method m In P\n    Where X: Printable\nEnd For", point)) ==
+    CHECK(errors_of(std::format("Import std.core\n"
+                                "{}For Method m In P\n    Where X: Printable\nEnd For",
+                                point)) ==
           errors_t{ "X: a For Method loop names the Methods' Func type, as 'For Method m: M In T', "
                     "to give it a Where line" });
     CHECK(errors_of(std::format("{}For Method m: M In P\nEnd For", point)) ==
@@ -4718,7 +5130,8 @@ TEST_CASE("a call's lambda argument can declare symbols while the call is checke
 }
 
 TEST_CASE("narrowing is forgotten for what a loop changes inside any expression", "[sema]") {
-    CHECK(errors_of("Function Clear(ByRef s: String?): Int\n"
+    CHECK(errors_of("Import std.core\n"
+                    "Function Clear(ByRef s: String?): Int\n"
                     "    s = Null\n"
                     "    Return 0\n"
                     "End Function\n"
@@ -4730,14 +5143,15 @@ TEST_CASE("narrowing is forgotten for what a loop changes inside any expression"
                     "        Local a = [Clear(ByRef s)]\n"
                     "    End For\n"
                     "End If") ==
-          errors_t{ "s: expected String, found String?, which may be Null; check it first, or give "
-                    "a value for Null with '?"
+          errors_t{ "s: String? can't be shown by 'Print', since it may be Null; give a "
+                    "value for Null with '?"
                     "?'" });
 }
 
 TEST_CASE("only Unsafe code uses what a Ptr points at", "[sema]") {
     const std::string_view unsafe = "needs Unsafe code: an Unsafe block, Function, or Method";
-    CHECK(errors_of("Local n = 5\n"
+    CHECK(errors_of("Import std.core\n"
+                    "Local n = 5\n"
                     "Local p = AddressOf(n)\n"
                     "Local q: Ptr<Int32> = Null\n"
                     "Print(\"{q.Value}\")\n"
@@ -4915,7 +5329,8 @@ TEST_CASE("C's pointers aren't T?s, so ?? and ?. don't take them", "[sema]") {
 }
 
 TEST_CASE("a Ptr isn't shown in a string", "[sema]") {
-    CHECK(errors_of("Local p: Ptr<Int32> = Null\n"
+    CHECK(errors_of("Import std.core\n"
+                    "Local p: Ptr<Int32> = Null\n"
                     "Print(\"{p} {[p]} {(1, p)}\")\n") ==
           errors_t{
               std::string("p: Ptr<Int32> can't be shown in a string; 'As UInt64' gives its address "
@@ -4927,7 +5342,8 @@ TEST_CASE("a Ptr isn't shown in a string", "[sema]") {
 }
 
 TEST_CASE("For ... In calls an Unsafe Iterate only in Unsafe code", "[sema]") {
-    const std::string iterating = "Struct Counting Implements Iterator<Int32>\n"
+    const std::string iterating = "Import std.core\n"
+                                  "Struct Counting Implements Iterator<Int32>\n"
                                   "    Field at: Int32\n"
                                   "    ByRef Method Next(): Int32?\n"
                                   "        Return Null\n"
@@ -5323,7 +5739,8 @@ TEST_CASE("only Unsafe code calls an Unsafe Function or Method", "[sema]") {
 }
 
 TEST_CASE("a CString is Null as C's NULL, and Unsafe code reads its text", "[sema]") {
-    CHECK(errors_of("Local cs: CString = Null\n"
+    CHECK(errors_of("Import std.core\n"
+                    "Local cs: CString = Null\n"
                     "Print(\"{cs == Null} {cs != Null}\")\n"
                     "Print(cs.ToString())\n"
                     "Local raw = cs As Ptr<UInt8>\n"
@@ -5358,7 +5775,8 @@ TEST_CASE("a name that a later milestone declares isn't supported yet, wherever 
 }
 
 TEST_CASE("a generic type's field default can name its type parameters", "[sema]") {
-    CHECK(errors_of("Import std.collections\n"
+    CHECK(errors_of("Import std.core\n"
+                    "Import std.collections\n"
                     "Struct S<T>\n"
                     "    Where T: Hashable\n"
                     "    Field M: Map<T, Bool> = Map<T, Bool>()\n"
@@ -5387,7 +5805,8 @@ TEST_CASE("integer Method mistakes", "[sema]") {
 }
 
 TEST_CASE("an Interface's type parameters can have constraints and be Const", "[sema]") {
-    CHECK(errors_of("Interface Sorted<T: Comparable>\n"
+    CHECK(errors_of("Import std.core\n"
+                    "Interface Sorted<T: Comparable>\n"
                     "    Method Smallest(): T\n"
                     "    Method Less(a: T, b: T): Bool => a < b\n"
                     "End Interface\n"
@@ -5406,7 +5825,8 @@ TEST_CASE("an Interface's type parameters can have constraints and be Const", "[
 }
 
 TEST_CASE("an Interface's Methods can throw, and be generic", "[sema]") {
-    const std::string_view parser = "Class ParseError Extends Error\nEnd Class\n"
+    const std::string_view parser = "Import std.core\n"
+                                    "Class ParseError Extends Error\nEnd Class\n"
                                     "Interface Parser\n"
                                     "    Method Parse(text: String): Int Throws ParseError\n"
                                     "End Interface\n";
@@ -5416,7 +5836,8 @@ TEST_CASE("an Interface's Methods can throw, and be generic", "[sema]") {
                                 "Function Use(p: Parser): Int => Try? p.Parse(\"x\") ?? -1",
                                 parser))
               .empty());
-    CHECK(errors_of(std::format("{}Class Loud Implements Parser\n"
+    CHECK(errors_of(std::format("Import std.core\n"
+                                "{}Class Loud Implements Parser\n"
                                 "    Method Parse(text: String): Int Throws Error\n"
                                 "        Return 0\n"
                                 "    End Method\n"
@@ -5437,7 +5858,8 @@ TEST_CASE("an Interface's Methods can throw, and be generic", "[sema]") {
                                 "=> x * 2)",
                                 mapper))
               .empty());
-    CHECK(errors_of(std::format("{}Struct Picky Implements Mapper\n"
+    CHECK(errors_of(std::format("Import std.core\n"
+                                "{}Struct Picky Implements Mapper\n"
                                 "    Method Apply<U: Printable>(f: Func(Int): U): U => f(1)\n"
                                 "End Struct",
                                 mapper)) ==
@@ -5451,7 +5873,8 @@ TEST_CASE("an Interface's Methods can throw, and be generic", "[sema]") {
 }
 
 TEST_CASE("For ... In Try passes on the errors of a throwing Iterate", "[sema]") {
-    const std::string_view levels = "Class LoadError Extends Error\nEnd Class\n"
+    const std::string_view levels = "Import std.core\n"
+                                    "Class LoadError Extends Error\nEnd Class\n"
                                     "Struct None Implements Iterator<Int>\n"
                                     "    ByRef Method Next(): Int? => Null\n"
                                     "End Struct\n"
@@ -5483,7 +5906,7 @@ TEST_CASE("For ... In Try passes on the errors of a throwing Iterate", "[sema]")
 }
 
 TEST_CASE("an Extend can add to one instance, or one array type", "[sema]") {
-    const std::string_view box = "Struct Box<T>\n    Field Value: T\nEnd Struct\n";
+    const std::string_view box = "Import std.core\nStruct Box<T>\n    Field Value: T\nEnd Struct\n";
     CHECK(
         probe(std::format("{}Extend Box<Int>\n    Method Doubled(): Int => Value * 2\nEnd Extend\n"
                           "Local x = Box(4).Doubled()",
@@ -5511,7 +5934,8 @@ TEST_CASE("an Extend can add to one instance, or one array type", "[sema]") {
           errors_t{ "Box(\"a\") < Box(\"b\"): '<' can't be used on Box<String>" });
 
     // One that isn't generic beats the type's own for every instance, as a call would choose.
-    CHECK(probe(std::format("Struct Box<T>\n"
+    CHECK(probe(std::format("Import std.core\n"
+                            "Struct Box<T>\n"
                             "    Field Value: T\n"
                             "    Operator <(a: Box<T>, b: Box<T>): Bool => False\n"
                             "End Struct\n"
@@ -5532,7 +5956,8 @@ TEST_CASE("a Class can extend an instance of a generic Class", "[sema]") {
                             "End Class\n"
                             "Local x = Names().First()",
                             container)) == "String");
-    CHECK(probe(std::format("{}Class Sorted<T> Extends Container<T>\n"
+    CHECK(probe(std::format("Import std.core\n"
+                            "{}Class Sorted<T> Extends Container<T>\n"
                             "    Where T: Comparable\n"
                             "    Override Method Add(item: T)\n"
                             "        Items.Insert(0, item)\n"
@@ -5621,7 +6046,8 @@ TEST_CASE("a Class can extend an instance of a generic Class", "[sema]") {
 
 TEST_CASE("what a generic type has implements what an Extend of one instance lists", "[sema]") {
     // Its own Operators, Methods, and Properties, with the instance's types.
-    CHECK(probe("Struct Box<T>\n"
+    CHECK(probe("Import std.core\n"
+                "Struct Box<T>\n"
                 "    Field V: Int\n"
                 "    Operator <(a: Box<T>, b: Box<T>): Bool => a.V < b.V\n"
                 "    Operator >(a: Box<T>, b: Box<T>): Bool => True\n"
@@ -5688,7 +6114,8 @@ TEST_CASE("an Operator an Extend of one instance adds beats the generic type's",
 
     // A default an Interface gives the instance beats nothing, but it's taken only where what the
     // generic type has doesn't implement the Interface's member.
-    CHECK(errors_of("Struct Box<T>\n"
+    CHECK(errors_of("Import std.core\n"
+                    "Struct Box<T>\n"
                     "    Field V: T\n"
                     "    Operator >(a: Box<T>, b: Box<T>): Bool => True\n"
                     "End Struct\n"
@@ -5743,9 +6170,11 @@ TEST_CASE("each instance of a generic type has its own Statics", "[sema]") {
 }
 
 TEST_CASE("Const Functions can be generic, and give the sizes in declarations' types", "[sema]") {
-    CHECK(probe("Const Function Largest<T: Comparable>(a: T, b: T): T => a > b ? a : b\n"
+    CHECK(probe("Import std.core\n"
+                "Const Function Largest<T: Comparable>(a: T, b: T): T => a > b ? a : b\n"
                 "Const X = Largest(3, 9)") == "Int32 9");
-    CHECK(probe("Const Function Square<T: Numeric>(x: T): T => x * x\n"
+    CHECK(probe("Import std.core\n"
+                "Const Function Square<T: Numeric>(x: T): T => x * x\n"
                 "Const X = Square(1.5)") == "Float32 2.25");
     CHECK(probe("Struct Board\n"
                 "    Field Cells: Int[Cells()]\n"
@@ -5772,7 +6201,8 @@ TEST_CASE("a Const type argument or size can be computed from Const type paramet
 }
 
 TEST_CASE("a loop can go over a type's own type parameter, or Self", "[sema]") {
-    const std::string_view wrapper = "Struct Wrapper<T>\n"
+    const std::string_view wrapper = "Import std.core\n"
+                                     "Struct Wrapper<T>\n"
                                      "    Field Item: T\n"
                                      "    Method Describe(): String\n"
                                      "        Local text = \"\"\n"
@@ -5790,7 +6220,8 @@ TEST_CASE("a loop can go over a type's own type parameter, or Self", "[sema]") {
           errors_t{ "Wrapper(H(Q(1))).Describe: 'Describe' needs each field of H to implement "
                     "Printable, but its field 'Inner' is Q, which doesn't" });
 
-    const std::string_view dumped = "Interface Dumped\n"
+    const std::string_view dumped = "Import std.core\n"
+                                    "Interface Dumped\n"
                                     "    Method Dump(): String\n"
                                     "        For Field f: F In Self\n"
                                     "            Where F: Printable\n"
@@ -5817,7 +6248,8 @@ TEST_CASE("loops over Properties, Static Fields, and Methods of a Func type", "[
                                     "    End Property\n"
                                     "    Method Hit(amount: Int): Int => HP - amount\n"
                                     "End Class\n";
-    CHECK(errors_of(std::format("{}For Property p: P In Player\n"
+    CHECK(errors_of(std::format("Import std.core\n"
+                                "{}For Property p: P In Player\n"
                                 "    Where P: Printable\n"
                                 "    Print(\"{{p.Name}} {{p.Get(Player())}}\")\n"
                                 "End For\n"
@@ -5855,7 +6287,8 @@ TEST_CASE("a type's own attributes", "[sema]") {
 }
 
 TEST_CASE("Sendable is what the compiler says can go to another thread", "[sema]") {
-    const std::string_view send = "Function Send<T: Sendable>(value: T): T => value\n"
+    const std::string_view send = "Import std.core\n"
+                                  "Function Send<T: Sendable>(value: T): T => value\n"
                                   "Class Enemy\n    Field HP: Int\nEnd Class\n"
                                   "Enum State\n    IDLE\n    RUNNING\nEnd Enum\n"
                                   "Struct Point\n    Field X: Int\n    Field Y: Float\nEnd Struct\n"
@@ -5913,35 +6346,43 @@ TEST_CASE("Sendable is what the compiler says can go to another thread", "[sema]
                     "it's a Shared Class" });
 
     // It's only a constraint.
-    CHECK(errors_of("Local x: Sendable = 1") ==
+    CHECK(errors_of("Import std.core\n"
+                    "Local x: Sendable = 1") ==
           errors_t{ "Sendable: Sendable can only be a constraint, like <T: Sendable>, since it "
                     "says what can go to another thread" });
 }
 
 TEST_CASE("a type that lists Sendable, or an Interface that extends it, is checked", "[sema]") {
     const std::string_view enemy = "Class Enemy\n    Field HP: Int\nEnd Class\n";
-    CHECK(errors_of("Struct Packet Implements Sendable\n    Field Id: Int\nEnd Struct").empty());
-    CHECK(errors_of(std::format("{}Struct Packet Implements Sendable\n"
+    CHECK(errors_of("Import std.core\n"
+                    "Struct Packet Implements Sendable\n    Field Id: Int\nEnd Struct")
+              .empty());
+    CHECK(errors_of(std::format("Import std.core\n"
+                                "{}Struct Packet Implements Sendable\n"
                                 "    Field Id: Int\n"
                                 "    Field Sender: Enemy\n"
                                 "End Struct",
                                 enemy)) ==
           errors_t{ "Sendable: Packet isn't Sendable: its field 'Sender' is Enemy, and a Class's "
                     "objects stay on the thread that made them, unless it's a Shared Class" });
-    CHECK(errors_of(
-              std::format("{}Class Boss Extends Enemy Implements Sendable\nEnd Class", enemy)) ==
+    CHECK(errors_of(std::format("Import std.core\n"
+                                "{}Class Boss Extends Enemy Implements Sendable\nEnd Class",
+                                enemy)) ==
           errors_t{ "Sendable: Boss isn't Sendable: a Class's objects stay on the thread that made "
                     "them, unless it's a Shared Class" });
 
     // A generic Struct says its type parameters are Sendable.
-    CHECK(errors_of("Struct Box<T> Implements Sendable\n    Field Item: T\nEnd Struct") ==
+    CHECK(errors_of("Import std.core\n"
+                    "Struct Box<T> Implements Sendable\n    Field Item: T\nEnd Struct") ==
           errors_t{ "Sendable: Box<T> isn't Sendable: its field 'Item' is T, and nothing says T "
                     "is Sendable" });
-    CHECK(errors_of("Struct Box<T: Sendable> Implements Sendable\n    Field Item: T\nEnd Struct")
+    CHECK(errors_of("Import std.core\n"
+                    "Struct Box<T: Sendable> Implements Sendable\n    Field Item: T\nEnd Struct")
               .empty());
 
     // An Interface that extends it can be a constraint that implies it.
-    const std::string_view message = "Interface Message Extends Sendable\n"
+    const std::string_view message = "Import std.core\n"
+                                     "Interface Message Extends Sendable\n"
                                      "    Method Kind(): Int\n"
                                      "End Interface\n"
                                      "Function Send<T: Sendable>(value: T): T => value\n"
@@ -5970,7 +6411,8 @@ TEST_CASE("a type that lists Sendable, or an Interface that extends it, is check
 }
 
 TEST_CASE("an Atomic and a Mutex stay where they're made", "[sema]") {
-    const std::string_view shared = "Global frames = Atomic<Int>(0)\n"
+    const std::string_view shared = "Import std.core\n"
+                                    "Global frames = Atomic<Int>(0)\n"
                                     "Global ready: Atomic<Bool>\n"
                                     "Global score = Mutex<Int>(0)\n"
                                     "Class Enemy\n    Field HP: Int\nEnd Class\n";
@@ -6036,7 +6478,8 @@ TEST_CASE("an Atomic and a Mutex stay where they're made", "[sema]") {
 }
 
 TEST_CASE("a Lock block holds a Mutex while it uses the value", "[sema]") {
-    const std::string_view shared = "Global frames = Atomic<Int>(0)\n"
+    const std::string_view shared = "Import std.core\n"
+                                    "Global frames = Atomic<Int>(0)\n"
                                     "Global score = Mutex<Int>(0)\n";
     CHECK(errors_of(std::format("{}Lock frames As f\nEnd Lock", shared)) ==
           errors_t{ "frames: Lock takes a Mutex, not Atomic<Int32>" });
@@ -6079,7 +6522,8 @@ TEST_CASE("a Lock block holds a Mutex while it uses the value", "[sema]") {
 }
 
 TEST_CASE("a Shared Class's objects can go to another thread", "[sema]") {
-    const std::string_view hub = "Shared Class Hub\n"
+    const std::string_view hub = "Import std.core\n"
+                                 "Shared Class Hub\n"
                                  "    Field Visits: Atomic<Int>\n"
                                  "    Field Names: Mutex<String>\n"
                                  "    ReadOnly Field Title: String\n"
@@ -6115,7 +6559,8 @@ TEST_CASE("a Shared Class's objects can go to another thread", "[sema]") {
           errors_t{ "Item: 'Item' is ReadOnly, but threads share Box<T>'s objects, so it must be "
                     "Sendable too: nothing says T is Sendable" });
     CHECK(errors_of(
-              std::format("Shared Class Box<T: Sendable>\n    ReadOnly Field Item: T\n{}End Class",
+              std::format("Import std.core\n"
+                          "Shared Class Box<T: Sendable>\n    ReadOnly Field Item: T\n{}End Class",
                           made))
               .empty());
 
@@ -6132,10 +6577,13 @@ TEST_CASE("Spawn runs work on another thread, and gives its Task", "[sema]") {
     CHECK(probe("Local x = Spawn(Function() => \"a\").Wait()") == "String");
     CHECK(probe("Local x = Spawn(Function() => 1).IsDone()") == "Bool");
     CHECK(probe("Function Work()\nEnd Function\nLocal x = Spawn(Work)") == "Task");
-    CHECK(probe("Local x = Thread.Start(Function() => Print(\"hi\"))") == "Thread");
+    CHECK(probe("Import std.core\n"
+                "Local x = Thread.Start(Function() => Print(\"hi\"))") == "Thread");
     CHECK(errors_of("Local t: Task<Int64> = Spawn(Function() => 1)\nLocal x: Int64 = t.Wait()")
               .empty());
-    CHECK(errors_of("Local t = Thread.Start(Function() => Print(\"hi\"))\nt.Join()").empty());
+    CHECK(errors_of("Import std.core\n"
+                    "Local t = Thread.Start(Function() => Print(\"hi\"))\nt.Join()")
+              .empty());
 
     // What it captures can't change, and is Sendable.
     CHECK(errors_of("Const name = \"a\"\n"
@@ -6173,7 +6621,8 @@ TEST_CASE("Spawn runs work on another thread, and gives its Task", "[sema]") {
           errors_t{ "Spawn(): Spawn takes the work to run, like Spawn(Function() => Work())" });
 
     // A Task stays on the thread that spawned it.
-    CHECK(errors_of("Function Hand<T: Sendable>(value: T): T => value\n"
+    CHECK(errors_of("Import std.core\n"
+                    "Function Hand<T: Sendable>(value: T): T => value\n"
                     "Local t = Hand(Spawn(Function() => 1))") ==
           errors_t{ "Hand: Task<Int32> isn't Sendable, which 'Hand' needs for T: a Task stays on "
                     "the thread that spawned it" });
@@ -6376,7 +6825,8 @@ TEST_CASE("a Channel carries Sendable values between threads", "[sema]") {
     CHECK(probe("Local x = Channel<String>(8)") == "Channel<String>");
     CHECK(probe("Const ch = Channel<Int>(2)\nLocal x = ch.Receive()") == "Int32?");
     CHECK(probe("Const ch = Channel<Int>(2)\nLocal x = ch.TrySend(1)") == "Bool");
-    CHECK(errors_of("Const ch = Channel<Int>(2)\n"
+    CHECK(errors_of("Import std.core\n"
+                    "Const ch = Channel<Int>(2)\n"
                     "Local value = 0\n"
                     "Local got = ch.TryReceive(ByRef value)\n"
                     "ch.Send(value)\n"
@@ -6414,7 +6864,8 @@ TEST_CASE("an Async Function's call gives its Task, and its code can Await", "[s
                                  "End Function\n";
     CHECK(probe(std::format("{}Local x = Sum(3)", sum)) == "Task<Int32>");
     CHECK(probe("Async Function Log()\nEnd Function\nLocal x = Log()") == "Task");
-    CHECK(errors_of(std::format("{}Async Function Twice(n: Int): Int\n"
+    CHECK(errors_of(std::format("Import std.core\n"
+                                "{}Async Function Twice(n: Int): Int\n"
                                 "    Local first: Int = Await Sum(n)\n"
                                 "    Await Spawn(Function() => Print(\"done\"))\n"
                                 "    Return first * 2\n"
@@ -6422,10 +6873,12 @@ TEST_CASE("an Async Function's call gives its Task, and its code can Await", "[s
                                 sum))
               .empty());
 
-    // Await waits only in an Async Function, for a Task.
-    CHECK(errors_of(std::format("{}Local x = Await Sum(1)", sum)) ==
+    // Await waits only in an Async Function, or in top-level code, which waits as Wait does,
+    // for a Task.
+    CHECK(probe(std::format("{}Local x = Await Sum(1)", sum)) == "Int32");
+    CHECK(errors_of(std::format("{}Function F(): Int => Await Sum(1)", sum)) ==
           errors_t{ "Await Sum(1): Await goes in an Async Function or lambda, whose code can "
-                    "wait without blocking its thread" });
+                    "wait without blocking its thread, or in top-level code" });
     CHECK(errors_of("Async Function F(): Int\n    Return Await 5\nEnd Function") ==
           errors_t{ "5: Await waits for a Task, not Int32" });
     CHECK(errors_of(std::format("{}Async Function F()\n"
@@ -6433,7 +6886,7 @@ TEST_CASE("an Async Function's call gives its Task, and its code can Await", "[s
                                 "End Function",
                                 sum)) ==
           errors_t{ "Await Sum(1): Await goes in an Async Function or lambda, whose code can "
-                    "wait without blocking its thread" });
+                    "wait without blocking its thread, or in top-level code" });
     CHECK(errors_of(std::format("{}Global m = Mutex<Int>(0)\n"
                                 "Async Function F()\n"
                                 "    Lock m As value\n"
@@ -6506,7 +6959,8 @@ TEST_CASE("NextFrame, Seconds, and Schedulers time coroutines on the main thread
 }
 
 TEST_CASE("an Async Function's Task keeps its error, which Await and Wait re-throw", "[sema]") {
-    const std::string_view load = "Class Oops Extends Error\nEnd Class\n"
+    const std::string_view load = "Import std.core\n"
+                                  "Class Oops Extends Error\nEnd Class\n"
                                   "Async Function Load(): Int Throws Oops\n"
                                   "    Throw Oops(\"no\")\n"
                                   "End Function\n";
@@ -6590,7 +7044,8 @@ TEST_CASE("a Method can be Async, and its overrides are too", "[sema]") {
 
 TEST_CASE("an Async lambda's call gives its Task, and its code can Await", "[sema]") {
     CHECK(probe("Local x = Async Function() => 5") == "Func(): Task<Int32>");
-    CHECK(probe("Local x = Async Function(text: String)\n"
+    CHECK(probe("Import std.core\n"
+                "Local x = Async Function(text: String)\n"
                 "    Await NextFrame()\n"
                 "    Print(text)\n"
                 "End Function") == "Func(String): Task");
@@ -6609,7 +7064,7 @@ TEST_CASE("an Async lambda's call gives its Task, and its code can Await", "[sem
                     "    Local g = Function() => Await NextFrame()\n"
                     "End Function") ==
           errors_t{ "Await NextFrame(): Await goes in an Async Function or lambda, whose code can "
-                    "wait without blocking its thread" });
+                    "wait without blocking its thread, or in top-level code" });
 
     // Its code runs on the main thread.
     CHECK(errors_of("Local t = Spawn(Function() => (Async Function() => 1)())") ==
@@ -6618,7 +7073,8 @@ TEST_CASE("an Async lambda's call gives its Task, and its code can Await", "[sem
 }
 
 TEST_CASE("a lambda in generic code can loop over the members of its type parameters", "[sema]") {
-    const std::string_view describe = "Function Describe<T>(value: T): String\n"
+    const std::string_view describe = "Import std.core\n"
+                                      "Function Describe<T>(value: T): String\n"
                                       "    Local text = \"\"\n"
                                       "    Local add = Function()\n"
                                       "        For Field f: F In T\n"
@@ -6643,14 +7099,64 @@ TEST_CASE("a lambda in generic code can loop over the members of its type parame
               .empty());
 
     // Each call checks the loop's Where lines.
-    CHECK(errors_of(std::format("Class Thing\nEnd Class\nStruct Holder\n    Field T: Thing\n"
-                                "End Struct\n{}Local s = Describe(Holder(Thing()))",
+    CHECK(errors_of(std::format("{}Class Thing\nEnd Class\nStruct Holder\n    Field T: Thing\n"
+                                "End Struct\nLocal s = Describe(Holder(Thing()))",
                                 describe)) ==
           errors_t{ "Describe: 'Describe' needs each field of Holder to implement Printable, but "
                     "its field 'T' is Thing, which doesn't" });
 }
 
 // Modules
+
+TEST_CASE("std's names need their Import, std.core's too", "[sema]") {
+    CHECK(errors_of("Print(\"hi\")") ==
+          errors_t{ "Print: 'Print' is in std.core, which this file doesn't import" });
+    CHECK(errors_of("Class Oops Extends Error\nEnd Class") ==
+          errors_t{ "Error: 'Error' is in std.core, which this file doesn't import" });
+    CHECK(errors_of("Function Show<T: Printable>(x: T): String => \"{x}\"") ==
+          errors_t{ "Printable: 'Printable' is in std.core, which this file doesn't import" });
+    CHECK(errors_of("Struct Steps Implements Iterator<Int>\n"
+                    "    Method Next(): Int? => Null\n"
+                    "End Struct") ==
+          errors_t{ "Iterator<Int>: 'Iterator' is in std.core, which this file doesn't import" });
+    CHECK(errors_of("Import std.core\n"
+                    "Class Oops Extends Error\n"
+                    "End Class\n"
+                    "Print(\"hi\")")
+              .empty());
+
+    // What a message suggests from std.core says it needs the Import.
+    CHECK(errors_of("Function Show<T>(x: T): String => \"{x}\"") ==
+          errors_t{ "x: T can't be shown in a string without a constraint, like <T: Printable>, "
+                    "after Import std.core" });
+    CHECK(errors_of("Struct P\n    Field x: Int\nEnd Struct\nLocal s = \"{P(1)}\"") ==
+          errors_t{ "P(1): P can't be shown in a string; implement Printable, with a ToString, "
+                    "after Import std.core" });
+
+    // The language's own features go through std.core without it: Throw and Catch, ==,
+    // strings, For ... In, and a Map literal.
+    CHECK(errors_with("Import \"./lib/oops\"\n"
+                      "Try\n"
+                      "    Fail()\n"
+                      "Catch e\n"
+                      "    Local message = e.Message\n"
+                      "End Try\n"
+                      "Local m = {1: \"a\"}\n"
+                      "Local same = [1] == [1] && m.Count == 1\n"
+                      "For x In [1, 2]\n"
+                      "    Local text = \"{x} {m.Count}\"\n"
+                      "End For",
+                      {
+                          {
+                              .path = "lib/oops.fb",
+                              .text = "Import std.core\n"
+                                      "Public Function Fail() Throws Error\n"
+                                      "    Throw Error(\"oops\")\n"
+                                      "End Function\n",
+                          },
+                      })
+              .empty());
+}
 
 TEST_CASE("a name the file doesn't import says which module has it", "[sema]") {
     // std.collections isn't loaded, or only std.collections.map is, which a Map literal needs.
@@ -7086,7 +7592,8 @@ TEST_CASE("a For loop takes the Iterate its file sees", "[sema]") {
     const std::vector<fb::library_file_t> modules{
         {
             .path = "lib/bag.fb",
-            .text = "Public Class Bag\n"
+            .text = "Import std.core\n"
+                    "Public Class Bag\n"
                     "End Class\n"
                     "Public Class Steps Implements Iterator<Int>\n"
                     "    Field At: Int = 0\n"
@@ -7118,14 +7625,17 @@ TEST_CASE("a For loop takes the Iterate its file sees", "[sema]") {
         { .path = "lib/user.fb", .text = "Import \"./ones\"\n" },
     };
     const std::string_view loop = "For x In Bag()\n    Print(\"{x}\")\nEnd For";
-    CHECK(errors_with(std::format("Import \"./lib/bag\"\nImport \"./lib/user\"\n{}", loop),
-                      modules) ==
+    CHECK(errors_with(
+              std::format("Import std.core\nImport \"./lib/bag\"\nImport \"./lib/user\"\n{}", loop),
+              modules) ==
           errors_t{ "Bag(): 'For ... In' goes over arrays, Iterators, and values whose Iterate() "
                     "gives an Iterator, not Bag; 'Iterate' is in lib.ones, which this file "
                     "doesn't import: Import \"./lib/ones\"" });
-    CHECK(errors_with(std::format("Import \"./lib/bag\"\nImport \"./lib/ones\"\n{}", loop), modules)
+    CHECK(errors_with(
+              std::format("Import std.core\nImport \"./lib/bag\"\nImport \"./lib/ones\"\n{}", loop),
+              modules)
               .empty());
-    CHECK(errors_with(std::format("Import \"./lib/bag\"\n"
+    CHECK(errors_with(std::format("Import std.core\nImport \"./lib/bag\"\n"
                                   "Import \"./lib/ones\"\n"
                                   "Import \"./lib/tens\"\n"
                                   "{}",
@@ -7135,7 +7645,7 @@ TEST_CASE("a For loop takes the Iterate its file sees", "[sema]") {
                     "Bag" });
 
     // The file's own Extend hides both.
-    CHECK(errors_with(std::format("Import \"./lib/bag\"\n"
+    CHECK(errors_with(std::format("Import std.core\nImport \"./lib/bag\"\n"
                                   "Import \"./lib/ones\"\n"
                                   "Import \"./lib/tens\"\n"
                                   "Extend Bag\n"
@@ -8396,20 +8906,23 @@ TEST_CASE("an Interface's member like one of an Interface it extends takes its p
               .empty());
 
     // An Operator too, like an Interface extending Comparable that gives its own >.
-    const std::string_view ordered = "Interface Ordered Extends Comparable\n"
+    const std::string_view ordered = "Import std.core\n"
+                                     "Interface Ordered Extends Comparable\n"
                                      "    Operator >(a: Self, b: Self): Bool => True\n"
                                      "End Interface\n";
     const std::string_view point = "    Field n: Int\n"
                                    "    Operator <(a: P, b: P): Bool => a.n < b.n\n"
                                    "End Struct\n";
-    CHECK(errors_of(std::format("{}Struct P Implements Comparable, Ordered\n{}"
+    CHECK(errors_of(std::format("Import std.core\n"
+                                "{}Struct P Implements Comparable, Ordered\n{}"
                                 "Function Big<T: Ordered>(a: T, b: T): Bool => a > b\n"
                                 "Local b = P(2) > P(1) && Big(P(1), P(2))",
                                 ordered, point))
               .empty());
 
     // Two Interfaces that each redeclare it give a type two defaults for the one they extend.
-    CHECK(errors_of(std::format("{}"
+    CHECK(errors_of(std::format("Import std.core\n"
+                                "{}"
                                 "Interface Reversed Extends Comparable\n"
                                 "    Operator >(a: Self, b: Self): Bool => False\n"
                                 "End Interface\n"
@@ -8463,7 +8976,8 @@ TEST_CASE("a default Operator an Interface gives has the Interface's visibility,
     // Nor does the > it can't use implement Comparable's for an Extend in another file, which
     // takes Comparable's own.
     const std::vector<fb::library_file_t> alone{ { .path = "lib/a.fb", .text = ordered } };
-    CHECK(errors_with("Import \"./lib/a\"\n"
+    CHECK(errors_with("Import std.core\n"
+                      "Import \"./lib/a\"\n"
                       "Extend P Implements Comparable\n"
                       "    Operator <(a: P, b: P): Bool => a.n < b.n\n"
                       "End Extend\n"
@@ -8529,7 +9043,8 @@ TEST_CASE("visibility is checked where code is written", "[sema]") {
     const std::vector<fb::library_file_t> modules{
         {
             .path = "lib/sum.fb",
-            .text = "Public Function Sum<T: Numeric>(items: T[]): T\n"
+            .text = "Import std.core\n"
+                    "Public Function Sum<T: Numeric>(items: T[]): T\n"
                     "    Local total = T.Zero()\n"
                     "    For item In items\n"
                     "        total = Add(total, item)\n"
@@ -8558,6 +9073,12 @@ TEST_CASE("visibility is checked where code is written", "[sema]") {
               .empty());
 }
 
+TEST_CASE("an attribute's qualifier is an Import's", "[sema]") {
+    // A type's name isn't a module's, however the file imports it.
+    CHECK(errors_of("Import std.collections\n@Stack.Label(\"x\")\nFunction A()\nEnd Function") ==
+          errors_t{ "Stack: 'Stack' isn't an imported module, so it can't come before '.'" });
+}
+
 TEST_CASE("an attribute is used where its Attribute is visible", "[sema]") {
     const std::vector<fb::library_file_t> modules{
         {
@@ -8581,6 +9102,45 @@ TEST_CASE("an attribute is used where its Attribute is visible", "[sema]") {
               .empty());
     CHECK(errors_with("Import \"./lib/tags\"\n@Hidden\nFunction F()\nEnd Function", modules) ==
           errors_t{ "Hidden: 'Hidden' is private to lib/tags.fb" });
+
+    // Through an Import's As, it's after the qualifier, in an attribute and in reflection.
+    CHECK(errors_with("Import \"./lib/tags\" As T\n"
+                      "Struct S\n"
+                      "    @T.Shown(\"x\") Field a: Int\n"
+                      "End Struct\n"
+                      "Function Label<U>(): String\n"
+                      "    For Field f In U\n"
+                      "        Local shown = f.Attribute(T.Shown)\n"
+                      "        If shown != Null && f.Has(T.Shown) Then Return shown.Label\n"
+                      "    End For\n"
+                      "    Return \"\"\n"
+                      "End Function\n"
+                      "Local label = Label<S>() + \"{S.Has(T.Shown)}\"",
+                      modules)
+              .empty());
+    CHECK(errors_with("Import \"./lib/tags\" As T\n"
+                      "Struct S\n"
+                      "    @T.Gone Field a: Int\n"
+                      "    @T.Hidden Field b: Int\n"
+                      "    @Q.Shown Field c: Int\n"
+                      "    @S.Shown Field d: Int\n"
+                      "    @Shown Field e: Int\n"
+                      "End Struct\n"
+                      "Function Has<U>(): Bool\n"
+                      "    For Field f In U\n"
+                      "        Return f.Has(T.Missing)\n"
+                      "    End For\n"
+                      "    Return False\n"
+                      "End Function",
+                      modules) ==
+          errors_t{
+              "Gone: 'Gone' isn't declared in \"./lib/tags\"",
+              "Hidden: 'Hidden' is private to lib/tags.fb",
+              "Q: 'Q' isn't declared",
+              "S: 'S' is declared in this file, so it isn't an Import's qualifier",
+              "Shown: 'Shown' is in lib.tags, which this file imports as T, so it's T.Shown",
+              "Missing: 'Missing' isn't declared in \"./lib/tags\"",
+          });
 }
 
 TEST_CASE("a Local or a block's Const takes no visibility", "[sema]") {
@@ -8609,7 +9169,8 @@ TEST_CASE("a Local or a block's Const takes no visibility", "[sema]") {
 }
 
 TEST_CASE("a conditional Method isn't in the Method table, so it can't be overridden", "[sema]") {
-    const std::string_view base = "Class Base<T>\n"
+    const std::string_view base = "Import std.core\n"
+                                  "Class Base<T>\n"
                                   "    Method Seal(): Int\n"
                                   "        Where T: Hashable\n"
                                   "        Return 3\n"
@@ -8626,7 +9187,8 @@ TEST_CASE("a conditional Method isn't in the Method table, so it can't be overri
                                 "    Method Seal(): Int => 7\n"
                                 "End Class",
                                 base)) == errors_t{ std::format("Seal: {}", message) });
-    CHECK(errors_of(std::format("{}Class Sub<T> Extends Base<T>\n"
+    CHECK(errors_of(std::format("Import std.core\n"
+                                "{}Class Sub<T> Extends Base<T>\n"
                                 "    Override Method Seal(): Int\n"
                                 "        Where T: Hashable\n"
                                 "        Return 7\n"
@@ -8715,7 +9277,8 @@ TEST_CASE("the signature rule covers every part a Public declaration shows", "[s
     const std::vector<fb::library_file_t> modules{
         {
             .path = "lib/shapes.fb",
-            .text = "Class Hidden\n"
+            .text = "Import std.core\n"
+                    "Class Hidden\n"
                     "End Class\n"
                     "Interface Face\n"
                     "End Interface\n"
@@ -8995,14 +9558,16 @@ TEST_CASE("two Interfaces' default Operator ==s make == on a type ambiguous ever
                                 interfaces)) == errors_t{ std::format("Box: {}", message) });
 
     // Listing Equatable or Hashable too doesn't report it again.
-    CHECK(errors_of(std::format("{}Struct Box Implements Alike, Keyed, Equatable\n"
+    CHECK(errors_of(std::format("Import std.core\n"
+                                "{}Struct Box Implements Alike, Keyed, Equatable\n"
                                 "    Field n: Int\n"
                                 "    Method Key(): Int => n\n"
                                 "End Struct\n"
                                 "Function Same<T: Equatable>(a: T, b: T): Bool => a == b\n"
                                 "Local a = Same(Box(1), Box(1))",
                                 interfaces)) == errors_t{ std::format("Box: {}", message) });
-    CHECK(errors_of(std::format("{}Struct Box Implements Alike, Keyed, Hashable\n"
+    CHECK(errors_of(std::format("Import std.core\n"
+                                "{}Struct Box Implements Alike, Keyed, Hashable\n"
                                 "    Field n: Int\n"
                                 "    Method Key(): Int => n\n"
                                 "    Method Hash(): UInt64 => 0\n"
@@ -9067,7 +9632,8 @@ TEST_CASE("a Callback is a Function of exactly its types, or a lambda that captu
           errors_t{ "held: expected Callback(Int32): Int32, found Func(Int32): Int32, a function "
                     "value, which C can't call; a Callback is a Function's name or a lambda that "
                     "captures nothing, written where it's expected" });
-    CHECK(errors_of("Function Twice(n: Int32): Int32 => n * 2\n"
+    CHECK(errors_of("Import std.core\n"
+                    "Function Twice(n: Int32): Int32 => n * 2\n"
                     "Local a: Callback(Int32): Int32 = Twice\n"
                     "Local b: Callback(Int32): Int32 = Function(n: Int32): Int32 => n + 1\n"
                     "Local c: Callback(Int32) = Null\n"
@@ -9076,7 +9642,8 @@ TEST_CASE("a Callback is a Function of exactly its types, or a lambda that captu
                     "End Unsafe\n"
                     "Print(\"{a == b} {c == Null}\")\n")
               .empty());
-    CHECK(errors_of("Function Wide(n: Int64): Int64 => n\n"
+    CHECK(errors_of("Import std.core\n"
+                    "Function Wide(n: Int64): Int64 => n\n"
                     "Function Pick<T>(n: Int32): Int32 => n\n"
                     "Async Function Later(n: Int32): Int32 => n\n"
                     "Function Fail(n: Int32): Int32 Throws Error\n"
@@ -9109,7 +9676,8 @@ TEST_CASE("a Callback is a Function of exactly its types, or a lambda that captu
           });
 
     // It takes and gives what C can, is Null already, and only Unsafe code calls it.
-    CHECK(errors_of("Local g: Callback(String): Int32 = Null\n"
+    CHECK(errors_of("Import std.core\n"
+                    "Local g: Callback(String): Int32 = Null\n"
                     "Local h: Callback(Int32)? = Null\n"
                     "Function Twice(n: Int32): Int32 => n * 2\n"
                     "Local i: Callback(Int32): Int32 = Twice\n"
@@ -9130,7 +9698,8 @@ TEST_CASE("a Callback is a Function of exactly its types, or a lambda that captu
                     "is @MainThread" });
 
     // It's C's pointer, which isn't a T? or shown in a string.
-    CHECK(errors_of("Local cb: Callback(Int32) = Null\n"
+    CHECK(errors_of("Import std.core\n"
+                    "Local cb: Callback(Int32) = Null\n"
                     "Local other = cb ?? cb\n"
                     "Print(\"{cb}\")\n") ==
           errors_t{
@@ -9158,7 +9727,8 @@ TEST_CASE("a Callback's Function takes values, and is the one Function that fits
                       "Import \"./lib/b\"\n"
                       "Local cb: Callback(Int32): Int32 = Pick\n",
                       modules) == errors_t{ "Pick: the Callback 'Pick' is ambiguous" });
-    CHECK(errors_with("Import \"./lib/a\" As A\n"
+    CHECK(errors_with("Import std.core\n"
+                      "Import \"./lib/a\" As A\n"
                       "Local cb: Callback(Int32): Int32 = A.Pick\n"
                       "Print(\"{cb == A.Pick}\")\n",
                       modules)
@@ -9385,7 +9955,8 @@ TEST_CASE("an Extern Function takes and gives what C has", "[sema]") {
 }
 
 TEST_CASE("an Extern Function has only what C code has", "[sema]") {
-    CHECK(errors_of("Class Oops Extends Error\n"
+    CHECK(errors_of("Import std.core\n"
+                    "Class Oops Extends Error\n"
                     "End Class\n"
                     "Extern\n"
                     "    Function A<T>(x: Int)\n"
@@ -9818,7 +10389,8 @@ TEST_CASE("a visibility error labels the declaration it's about", "[sema]") {
 }
 
 TEST_CASE("a Public type that lists an instance of a hidden type names the instance", "[sema]") {
-    CHECK(errors_of("Struct Hidden\n"
+    CHECK(errors_of("Import std.core\n"
+                    "Struct Hidden\n"
                     "    Field X: Int\n"
                     "End Struct\n"
                     "Public Class Box<T>\n"
@@ -10011,7 +10583,8 @@ TEST_CASE("what the code can't use is reported once, and says why where it's nee
     };
     const std::string unhashed = "Hashable: P has an Operator == of its own, so it needs a Hash "
                                  "that agrees with it; 'Hash' is private to lib.fb";
-    CHECK(errors_with("Import \"./lib\"\n"
+    CHECK(errors_with("Import std.core\n"
+                      "Import \"./lib\"\n"
                       "Import std.collections\n"
                       "Function G<T: Shown>(t: T): String => t.Show()\n"
                       "Class C Extends Box\n"
@@ -10127,7 +10700,8 @@ TEST_CASE("an Interface's member like one it extends gives what that one does", 
 TEST_CASE("a default seen less far can't take the place of one a type gives everyone", "[sema]") {
     // A private Interface refining Comparable's > would make P's > private, though code with a
     // T: Comparable would run it, and another one's default would do the same for Shown's.
-    CHECK(errors_of("Interface Ordered Extends Comparable\n"
+    CHECK(errors_of("Import std.core\n"
+                    "Interface Ordered Extends Comparable\n"
                     "    Operator >(a: Self, b: Self): Bool => True\n"
                     "End Interface\n"
                     "Public Struct P Implements Comparable\n"
@@ -10156,7 +10730,8 @@ TEST_CASE("a default seen less far can't take the place of one a type gives ever
           });
 
     // As visible as the type, it does.
-    CHECK(errors_of("Public Interface Ordered Extends Comparable\n"
+    CHECK(errors_of("Import std.core\n"
+                    "Public Interface Ordered Extends Comparable\n"
                     "    Operator >(a: Self, b: Self): Bool => True\n"
                     "End Interface\n"
                     "Public Struct P Implements Comparable\n"

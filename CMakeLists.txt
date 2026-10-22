@@ -26,6 +26,7 @@ include(cmake/stack.cmake)
 include(cmake/llvm.cmake)
 include(cmake/libclang.cmake)
 
+add_subdirectory(third_party)
 add_subdirectory(compiler)
 add_subdirectory(runtime)
 add_subdirectory(cli)

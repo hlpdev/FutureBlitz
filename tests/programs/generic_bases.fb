@@ -1,6 +1,7 @@
 // Classes that extend an instance of a generic Class: one instance, or the base with their
 // own type parameters, with overrides, inherited and written News, and calls through the base.
 
+Import std.core
 Import std.collections
 
 Class Container<T>

@@ -1,5 +1,7 @@
 // A Parallel For's range at an integer type's ends, signed and unsigned, has every pass, and an
 // empty one has none.
+Import std.core
+
 Global passes = Atomic<Int64>(0)
 Global sum = Atomic<Int64>(0)
 

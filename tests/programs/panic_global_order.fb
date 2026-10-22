@@ -1,5 +1,7 @@
 // A Global's initializer calls a function that uses a Global whose initializer hasn't run yet,
 // which a debug build panics at.
+Import std.core
+
 Class Thing
     Field Name: String = "thing"
 End Class

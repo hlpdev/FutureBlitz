@@ -1,6 +1,7 @@
 // Generics: each Function, Struct, and Class is checked once, with its type parameters, and gets
 // an instance for each set of type arguments the program uses.
 
+Import std.core
 Import std.collections
 
 Function First<T>(xs: T[]): T => xs[0]

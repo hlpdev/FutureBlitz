@@ -1,5 +1,7 @@
 // Shared Classes: objects that threads share, whose fields are Atomic, Mutex, or ReadOnly.
 
+Import std.core
+
 Interface Named Extends Sendable
     Method Name(): String
 End Interface

@@ -1,5 +1,7 @@
 // A release build reads a Global whose initializer hasn't run yet as its type's zero, as it lets
 // overflow wrap, unless that zero would hold a null object (release_panic_global_order.fb).
+Import std.core
+
 Enum Mode
     Idle
     Busy

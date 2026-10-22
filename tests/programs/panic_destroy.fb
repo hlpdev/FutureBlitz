@@ -1,4 +1,6 @@
 // Destroy() that stores Self somewhere would leave a dangling reference, so it panics.
+Import std.core
+
 Class Ghost
     Field name: String
 

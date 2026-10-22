@@ -102,10 +102,13 @@ End Function
   gives its result. Meanwhile the main thread goes on; the Function's Locals and parameters wait
   with it.
 - The main thread runs the waiting Async Functions once top-level code ends, until none is left,
-  and whenever it waits for a Task with `Wait()`. Their code never runs on another thread, so work
+  and whenever it waits for a Task with `Wait()`, or with an Await in top-level code, which
+  waits as `Wait()` does. A wait, and the result it gives, are the Task's that the expression gave
+  when the wait began, even if what runs meanwhile changes the variable it came from. Their code
+  only ever goes on on the main thread: the runtime panics where it would go on anywhere else. Their code never runs on another thread, so work
   on another thread can't call one.
-- Await goes only in the code of an Async Function, Method, or lambda, or in top-level code (M6
-  step 1), not in a lambda inside one, and not in a Lock block, which would hold its Mutex while
+- Await goes only in the code of an Async Function, Method, or lambda, or in top-level code,
+  not in a lambda inside one, and not in a Lock block, which would hold its Mutex while
   it waits.
 - An Async Function's errors go in its Task, so its call doesn't throw, but `Await t` and
   `t.Wait()` re-throw them, each time, and need Try, Try?, or a Try block, as a call that throws
@@ -136,7 +139,7 @@ DoorSequence(door)    // calling without Await starts it on the main scheduler
 Confirmed 2026-10-21, one rule for every program, game or not: a coroutine resumes on the
 thread it started on whenever that thread hands control to the runtime, which does the
 resuming; nothing is ticked by hand. The main thread hands it over at an `Await` (in an Async
-Function, or in top-level code, M6 step 1), at `Wait()`, once top-level code ends (the runtime
+Function, or in top-level code), at `Wait()`, once top-level code ends (the runtime
 then runs until nothing waits, as Node does), and at `Flip()`, which a game's frame loop calls
 anyway to show the frame. A blocking call, like reading a file, doesn't, so no other code runs
 in the middle of one. Main-thread code stays single-threaded across an Await, as in C#'s UI

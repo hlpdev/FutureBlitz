@@ -81,19 +81,22 @@ std::string qualified_type(const fb::compilation_t& compilation, const std::stri
 TEST_CASE("compile runs every stage, even after errors", "[driver]") {
     // The first line has a type error, and the second still gets analyzed.
     const fb::compilation_t compilation =
-        fb::compile("test.fb", "Local x: Int = \"a\"\nPrint(\"{x}\")");
+        fb::compile("test.fb", "Import std.core\n"
+                               "Local x: Int = \"a\"\nPrint(\"{x}\")");
     CHECK(compilation.source().path() == "test.fb");
     CHECK(compilation.diagnostics.error_count() == 1);
     CHECK(compilation.tokens.back().kind == fb::token_kind_t::END_OF_FILE);
-    // The standard library's modules come first.
+    // The standard library's modules come first, and the main file's Import and two statements
+    // after them.
     CHECK(std::ranges::count_if(compilation.ast.items(), [&](const fb::stmt_id_t id) {
               return !compilation.ast.outside_main(id);
-          }) == 2);
+          }) == 3);
     CHECK(compilation.analysis.exprs.size() == compilation.ast.expr_count());
 }
 
 TEST_CASE("compile adds the standard library after the main file", "[driver]") {
-    const fb::compilation_t compilation = fb::compile("test.fb", "Throw Error(\"x\")");
+    const fb::compilation_t compilation =
+        fb::compile("test.fb", "Import std.core\nThrow Error(\"x\")");
     CHECK(compilation.diagnostics.diagnostics().empty());
     CHECK(compilation.file == fb::file_id_t{});
     CHECK(compilation.sources.get(fb::file_id_t{ 1 }).path().starts_with("std/"));
@@ -138,7 +141,7 @@ TEST_CASE("each module has its own names, then its imports'", "[driver]") {
             .text = "Public Function Helper(x: Int): Int => x\nPublic Const LIMIT = 10\n",
         },
     });
-    const std::string imports = "Import \"./lib/a\"\nImport \"./lib/b\"\n";
+    const std::string imports = "Import std.core\nImport \"./lib/a\"\nImport \"./lib/b\"\n";
     const fb::compilation_t compilation =
         fb::compile("test.fb", imports + "Print(\"{Twice(LIMIT)}\")", library);
     CHECK(errors_of(compilation).empty());
@@ -185,9 +188,11 @@ TEST_CASE("two modules' types of one name stay apart", "[driver]") {
 
     // Each library module finds its own Node first.
     const std::string imports = "Import \"./lib/a\"\nImport \"./lib/b\"\n";
-    const fb::compilation_t compilation = fb::compile(
-        "test.fb", imports + "Local a = MakeA()\nLocal b = MakeB()\nPrint(\"{a.a} {b.b}\")",
-        library);
+    const fb::compilation_t compilation =
+        fb::compile("test.fb",
+                    imports + "Import std.core\n"
+                              "Local a = MakeA()\nLocal b = MakeB()\nPrint(\"{a.a} {b.b}\")",
+                    library);
     CHECK(errors_of(compilation).empty());
     CHECK(qualified_type(compilation, "MakeA()") == "lib.a.Node");
     CHECK(qualified_type(compilation, "MakeB()") == "lib.b.Node");
@@ -201,7 +206,8 @@ TEST_CASE("two modules' types of one name stay apart", "[driver]") {
 
     // Its own Node hides theirs, and a message showing two Nodes says whose each is.
     const fb::compilation_t own = fb::compile("test.fb",
-                                              imports + "Struct Node\n"
+                                              imports + "Import std.core\n"
+                                                        "Struct Node\n"
                                                         "    Field c: Int\n"
                                                         "End Struct\n"
                                                         "Local n = Node(3)\n"
@@ -546,7 +552,8 @@ TEST_CASE("the reasons in messages tell two modules' types of one name apart", "
                                     "test.Node, but its field 'N' is lib.a.Node, which doesn't" });
 
     // Why a type isn't Sendable, through the fields on the way.
-    CHECK(errors("Struct Node\n"
+    CHECK(errors("Import std.core\n"
+                 "Struct Node\n"
                  "    Field W: Wrapper\n"
                  "End Struct\n"
                  "Function Send<T>(x: T): Int\n"
@@ -575,9 +582,16 @@ TEST_CASE("the reasons in messages tell two modules' types of one name apart", "
 
 TEST_CASE("only the main module's top-level code runs", "[driver]") {
     const std::vector<fb::library_file_t> library = with_std({
-        { .path = "lib/a.fb", .text = "Public Global count = 1\nPrint(\"x\")\nLocal y = 2\n" },
+        {
+            .path = "lib/a.fb",
+            .text = "Import std.core\n"
+                    "Public Global count = 1\nPrint(\"x\")\nLocal y = 2\n",
+        },
     });
-    CHECK(errors_of(fb::compile("test.fb", "Import \"./lib/a\"\nPrint(\"{count}\")", library)) ==
+    CHECK(errors_of(fb::compile("test.fb",
+                                "Import std.core\n"
+                                "Import \"./lib/a\"\nPrint(\"{count}\")",
+                                library)) ==
           std::vector<std::string>{
               "lib/a.fb: Print(\"x\"): only the main module's top-level code runs, so this "
               "module only declares things",
@@ -602,10 +616,31 @@ TEST_CASE("a program without imports loads only std/core and std.collections.map
         names.push_back(module.name);
     }
 
-    // std/core/'s initialize first, and the main module last.
-    CHECK(names == std::vector<std::string>{ "std.core.error", "std.core.interfaces",
-                                             "std.core.iterator", "std.core.print",
-                                             "std.collections.map", "test" });
+    // std/core/'s initialize first, each after what it imports, and the main module last.
+    CHECK(names == std::vector<std::string>{ "std.core.interfaces", "std.core.assert",
+                                             "std.core.error", "std.core.iterator",
+                                             "std.core.print", "std.collections.map", "test" });
+}
+
+TEST_CASE("a program links the bundled C libraries of the runtime functions it calls", "[driver]") {
+    const auto bundled = [](const std::string_view text) {
+        const fb::compilation_t compilation = fb::compile("test.fb", std::string(text));
+        CHECK(errors_of(compilation).empty());
+        std::vector<std::string_view> names;
+        for (const fb::build_config::bundled_library_t* library :
+             fb::bundled_libraries(fb::lower(compilation.ast, compilation.analysis))) {
+            names.push_back(library->name);
+        }
+
+        return names;
+    };
+
+    // Writing to the console doesn't need the I/O thread; reading does.
+    CHECK(bundled("Import std.core\nPrint(\"hello\")\nPrintError(1)\nFlush()").empty());
+    CHECK(bundled("Import std.core\nPrint(Input() ?? \"none\")") ==
+          std::vector<std::string_view>{ "libuv" });
+    CHECK(bundled("Import std.core\nLocal line = Await InputAsync()") ==
+          std::vector<std::string_view>{ "libuv" });
 }
 
 TEST_CASE("resolve_import() maps dotted names and relative paths", "[driver]") {
@@ -721,12 +756,12 @@ TEST_CASE("imports load each file once, and initialize before the modules that i
     CHECK(names == std::vector<std::string>{ "lib.c", "lib.b", "lib.a", "main" });
     CHECK(compilation.sources.size() == 4);
 
-    // Each import says which modules it names, after the import of std/core/, which has none.
+    // Each import says which modules it names. std/core/ is loaded, but only an Import of it
+    // brings in its names.
     const fb::module_t& main = compilation.ast.modules().modules().back();
-    REQUIRE(main.imports.size() == 3);
-    CHECK(main.imports[0].modules.empty());
-    CHECK(main.imports[1].modules == std::vector{ fb::module_id_t{ 2 } });
-    CHECK(main.imports[2].modules == std::vector{ fb::module_id_t{ 0 } });
+    REQUIRE(main.imports.size() == 2);
+    CHECK(main.imports[0].modules == std::vector{ fb::module_id_t{ 2 } });
+    CHECK(main.imports[1].modules == std::vector{ fb::module_id_t{ 0 } });
 }
 
 TEST_CASE("compile_file finds imported files beside the main file", "[driver]") {
@@ -736,7 +771,8 @@ TEST_CASE("compile_file finds imported files beside the main file", "[driver]") 
         std::ofstream file(folder / path, std::ios::binary);
         file << text;
     };
-    write("main.fb", "Import \"./ui/hud\"\nPrint(Title())\n");
+    write("main.fb", "Import std.core\n"
+                     "Import \"./ui/hud\"\nPrint(Title())\n");
     write("ui/hud.fb", "Public Function Title(): String => 1\n");
 
     const std::expected<fb::compilation_t, std::string> compiled =
@@ -795,7 +831,8 @@ TEST_CASE("a main file given without its folder is in the current one", "[driver
     const std::filesystem::path folder = fb::temporary_path("bare", "");
     std::filesystem::create_directories(folder / "ui");
     std::ofstream(folder / "main.fb", std::ios::binary)
-        << "Import \"./UI/Hud\"\nPrint(\"{Width()}\")\n";
+        << "Import std.core\n"
+           "Import \"./UI/Hud\"\nPrint(\"{Width()}\")\n";
     std::ofstream(folder / "ui" / "hud.fb", std::ios::binary)
         << "Public Function Width(): Int => 3\n";
     std::error_code ignored;
@@ -945,7 +982,8 @@ TEST_CASE("a package imports its dependencies by their names, whose Package name
     packages.write("lib/tools/b.fb",
                    "Import \"../a\"\nPublic Function Thrice(): Int => Helper() * 3\n");
     packages.write("app/project.toml", app_toml);
-    packages.write("app/main.fb", "Import lib\n"
+    packages.write("app/main.fb", "Import std.core\n"
+                                  "Import lib\n"
                                   "Import lib.tools\n"
                                   "Print(\"{Twice()} {tools.Thrice()} {lib.Twice()}\")\n");
     const std::expected<fb::compilation_t, std::string> app = fb::compile_file(packages / "app");
@@ -1000,7 +1038,8 @@ TEST_CASE("a package's own folders can be named like its dependencies, or std", 
     packages.write("app/project.toml", app_toml);
     packages.write("app/lib/own.fb", "Public Function Own(): Int => 7\n");
     packages.write("app/std/extra.fb", "Public Function Extra(): Int => 9\n");
-    packages.write("app/main.fb", "Import lib\n"
+    packages.write("app/main.fb", "Import std.core\n"
+                                  "Import lib\n"
                                   "Import \"./lib/own\"\n"
                                   "Import app.std.extra\n"
                                   "Print(\"{Twice()} {Own()} {Extra()}\")\n");
@@ -1022,6 +1061,7 @@ TEST_CASE("a package's own folders can be named like its dependencies, or std", 
 
     // A main file in such a folder is the package's too.
     packages.write("app/lib/tool.fb",
+                   "Import std.core\n"
                    "Import \"./own\"\nImport lib\nPrint(\"{Own()} {Twice()}\")\n");
     const std::expected<fb::compilation_t, std::string> tool =
         fb::compile_file(packages / "app/lib/tool.fb");
@@ -1047,7 +1087,8 @@ TEST_CASE("another package's files in a package's folder are only imported by it
     packages.write("app/vendor/other/project.toml",
                    "[project]\nname = \"other\"\nversion = \"0.1.0\"\n");
     packages.write("app/vendor/other/o.fb", "Public Function Other(): Int => 2\n");
-    packages.write("app/main.fb", "Import math\n"
+    packages.write("app/main.fb", "Import std.core\n"
+                                  "Import math\n"
                                   "Import \"./vendor/math/v\"\n"
                                   "Import \"./vendor/other/o\"\n"
                                   "Import app.vendor.other\n"
@@ -1088,10 +1129,12 @@ TEST_CASE("a folder Import brings in neither a package's main file nor the progr
     // project.toml can spell the main file in its own way.
     packages.write("lib/project.toml",
                    "[project]\nname = \"lib\"\nversion = \"0.1.0\"\nmain = \"./run.fb\"\n");
-    packages.write("lib/run.fb", "Print(\"lib\")\n");
+    packages.write("lib/run.fb", "Import std.core\n"
+                                 "Print(\"lib\")\n");
     packages.write("lib/a.fb", "Public Function A(): Int => 1\n");
     packages.write("app/project.toml", app_toml);
-    packages.write("app/main.fb", "Import lib\nPrint(\"{A()}\")\n");
+    packages.write("app/main.fb", "Import std.core\n"
+                                  "Import lib\nPrint(\"{A()}\")\n");
     const std::expected<fb::compilation_t, std::string> app = fb::compile_file(packages / "app");
     REQUIRE(app);
     CHECK(packages.messages(*app).empty());
@@ -1109,7 +1152,8 @@ TEST_CASE("a folder Import brings in neither a package's main file nor the progr
     packages.write("app/project.toml", "[project]\nname = \"app\"\nversion = \"1.0.0\"\n");
     packages.write("app/ui/hud.fb", "Import app\nPublic Function Hud(): Int => Common()\n");
     packages.write("app/shared.fb", "Public Function Common(): Int => 2\n");
-    packages.write("app/tool.fb", "Import \"./ui/hud\"\nPrint(\"{Hud()}\")\n");
+    packages.write("app/tool.fb", "Import std.core\n"
+                                  "Import \"./ui/hud\"\nPrint(\"{Hud()}\")\n");
     const std::expected<fb::compilation_t, std::string> tool =
         fb::compile_file(packages / "app/tool.fb");
     REQUIRE(tool);
@@ -1121,8 +1165,7 @@ TEST_CASE("a folder Import brings in neither a package's main file nor the progr
         }
 
         for (const fb::module_import_t& line : module.imports) {
-            for (const fb::module_id_t target :
-                 line.statement ? line.modules : std::vector<fb::module_id_t>{}) {
+            for (const fb::module_id_t target : line.modules) {
                 imported.push_back(tool->ast.modules().get(target).name);
             }
         }
@@ -1137,8 +1180,10 @@ TEST_CASE("a .fb file in a package's folder, or under it, builds in that package
     packages.write("lib/project.toml", lib_toml);
     packages.write("lib/a.fb", "Public Function Twice(n: Int): Int => n * 2\n");
     packages.write("app/project.toml", app_toml);
-    packages.write("app/main.fb", "Print(\"main\")\n");
-    packages.write("app/src/tool.fb", "Import lib\nPrint(\"{Twice(4)}\")\n");
+    packages.write("app/main.fb", "Import std.core\n"
+                                  "Print(\"main\")\n");
+    packages.write("app/src/tool.fb", "Import std.core\n"
+                                      "Import lib\nPrint(\"{Twice(4)}\")\n");
     const std::expected<fb::compilation_t, std::string> tool =
         fb::compile_file(packages / "app/src/tool.fb");
     REQUIRE(tool);
@@ -1159,7 +1204,8 @@ TEST_CASE("a .fb file in a package's folder, or under it, builds in that package
 TEST_CASE("a package's dependencies are packages of the names it gives, without cycles",
           "[driver]") {
     const packages_t packages;
-    packages.write("app/main.fb", "Print(\"app\")\n");
+    packages.write("app/main.fb", "Import std.core\n"
+                                  "Print(\"app\")\n");
     const auto check = [&](const std::string_view dependencies) {
         packages.write("app/project.toml", std::format("[project]\nname = \"app\"\nversion = "
                                                        "\"1.0.0\"\n\n[dependencies]\n{}",
@@ -1307,7 +1353,8 @@ TEST_CASE("a package links its [native] libraries and its dependencies', in orde
                    toml("app", "a = { path = \"../a\" }\nb = { path = \"../b\" }\n",
                         "own = \"libs/own\"\nm = { system = \"m\" }\n"));
     packages.write("app/libs/libown.a", archive);
-    packages.write("app/main.fb", "Import a\nImport b\nPrint(\"{A()} {B()}\")\n");
+    packages.write("app/main.fb", "Import std.core\n"
+                                  "Import a\nImport b\nPrint(\"{A()} {B()}\")\n");
     packages.write("a/project.toml",
                    toml("a", "c = { path = \"../c\" }\n", "x = \"a.a\"\ny = \"lib/x\"\n"));
     packages.write("a/a.a", archive);
@@ -1386,7 +1433,8 @@ TEST_CASE("a package in a folder of any name links its C libraries", "[driver]")
     const std::string folder = "\xe6\xb8\xb8\xe6\x88\x8f";
     packages.write(folder + "/project.toml", "[project]\nname = \"game\"\nversion = \"0.1.0\"\n\n"
                                              "[native]\nvecmath = \"libs/vecmath\"\n");
-    packages.write(folder + "/main.fb", "Extern \"C\" Lib \"vecmath\"\n"
+    packages.write(folder + "/main.fb", "Import std.core\n"
+                                        "Extern \"C\" Lib \"vecmath\"\n"
                                         "    Function vm_add(a: Int32, b: Int32): Int32\n"
                                         "End Extern\n"
                                         "Print(\"{vm_add(2, 3)}\")\n");
@@ -1416,7 +1464,8 @@ TEST_CASE("a system library the linker can't find is an error at its project.tom
     const packages_t packages;
     packages.write("app/project.toml", "[project]\nname = \"app\"\nversion = \"0.1.0\"\n\n"
                                        "[native]\nnope = { system = \"fb_no_such_library\" }\n");
-    packages.write("app/main.fb", "Print(\"app\")\n");
+    packages.write("app/main.fb", "Import std.core\n"
+                                  "Print(\"app\")\n");
     const std::expected<fb::compilation_t, std::string> app = fb::compile_file(packages / "app");
     REQUIRE(app);
     REQUIRE(packages.messages(*app).empty());
@@ -1443,7 +1492,8 @@ TEST_CASE("Lib names one of its package's [native] libraries", "[driver]") {
                                "End Extern\n"
                                "Public Function Root(x: Float64): Float64 => cbrt(x)\n");
     packages.write("app/project.toml", app_toml);
-    packages.write("app/main.fb", "Import lib\n"
+    packages.write("app/main.fb", "Import std.core\n"
+                                  "Import lib\n"
                                   "Extern \"C\" Lib \"m\"\n"
                                   "    Function sqrt(x: Float64): Float64\n"
                                   "End Extern\n"
@@ -1466,6 +1516,7 @@ TEST_CASE("Lib names one of its package's [native] libraries", "[driver]") {
 TEST_CASE("a C symbol no library defines is an error at its first Extern Function", "[driver]") {
     const fb::compilation_t compilation =
         fb::compile("main.fb",
+                    "Import std.core\n"
                     "Extern \"C\"\n"
                     "    Function Missing(): Int32 = \"no_such_c_symbol\"\n"
                     "    Function also_missing(): Int32\n"
@@ -1693,7 +1744,8 @@ TEST_CASE("an Import doesn't reach outside its package through a link", "[driver
     packages.write("lib/project.toml", lib_toml);
     packages.write("lib/tools/a.fb", "Public Function Twice(): Int => 2\n");
     packages.write("app/project.toml", "[project]\nname = \"app\"\nversion = \"1.0.0\"\n");
-    packages.write("app/main.fb", "Import \"./shared/a\"\n"
+    packages.write("app/main.fb", "Import std.core\n"
+                                  "Import \"./shared/a\"\n"
                                   "Import app.shared\n"
                                   "Print(\"{Twice()}\")\n");
     if (!make_link(packages / "lib/tools", packages / "app/shared")) {

@@ -1,5 +1,6 @@
 // Two modules bind C's div with Structs of their own, one C type, as two packages' bindings
 // of one header would.
+Import std.core
 Import "./extern_twice/a"
 Import "./extern_twice/b" As B
 

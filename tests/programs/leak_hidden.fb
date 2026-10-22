@@ -1,5 +1,6 @@
 // A Class can have a Field named like a Private one of the Class it extends in another file. A
 // leaked cycle through the other file's says whose it is.
+Import std.core
 Import "./leak_hidden/node"
 
 Class Sub Extends Node

@@ -1,4 +1,5 @@
 // Pop on an empty Stack panics.
+Import std.core
 Import std.collections
 
 Local stack = Stack<Int>()

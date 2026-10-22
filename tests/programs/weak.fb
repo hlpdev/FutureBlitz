@@ -1,4 +1,6 @@
 // Weak<T>: a parent and its children refer to each other without a cycle that leaks.
+Import std.core
+
 Class Node
     Field name: String
     Field children: Node[] = []

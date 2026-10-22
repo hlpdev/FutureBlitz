@@ -1,5 +1,7 @@
 // Sequences: 'For ... In' over an Iterator, or the one a value's Iterate gives; a String's
 // Chars and Bytes; slices; and variadic parameters.
+Import std.core
+
 Struct Countdown Implements Iterator<Int>
     Field N: Int
 

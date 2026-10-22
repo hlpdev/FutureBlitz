@@ -4,7 +4,7 @@
 
 Extern "runtime"
     Function fb_cstring_new(text: String): CString
-    Function fb_cstring_free(text: CString)
+    Function fb_cstring_free_known(text: CString): Int32
     Function fb_cstring_length(text: CString): UInt64
 End Extern
 
@@ -17,13 +17,19 @@ Extend CString
     End Method
 
     // How many bytes it has before its first NUL. Panics when it's Null.
+    @PanicsAtCaller
     Public Unsafe Method Length(): Int64
         If Self == Null Then Panic("the CString is Null, so it has no length")
         Return fb_cstring_length(Self) As Int64
     End Method
 
     // Gives back what From made, and nothing else, which panics. Null is nothing to give back.
+    @PanicsAtCaller
     Public Unsafe Method Free()
-        If Self != Null Then fb_cstring_free(Self)
+        If Self == Null Then Return
+        If fb_cstring_free_known(Self) == 0
+            Panic("Free gives back a CString that CString.From made, and this one isn't, or " +
+                  "it was given back already")
+        End If
     End Method
 End Extend

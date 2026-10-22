@@ -59,10 +59,14 @@ From std.math Import Vec3, Lerp     // selected names
   and a declaration of its module can't take its name.
 - Import and From lines come first in a file, before its other statements. `#If` can go around
   them, since the lexer skips lines.
-- Every module imports std/core/ without saying so. std.collections.map is always part of the
-  program, so a `{key: value}` literal makes its Map without an Import; naming Map, Set, and the
-  rest, or using array.fb's `Sort`, `Filter`, `Map`, `Find`, and `Remove`, needs
-  `Import std.collections`.
+- Every name of std's needs its Import, std.core's too: `Import std.core` brings in
+  Print, Error, the Interfaces, and Iterator. The language's own features go through std without
+  one: Throw and Catch, `==`, strings, `For ... In`, and a `{key: value}` literal, which makes
+  std.collections.map's Map, always part of the program. Naming Map, Set, and the rest, or using
+  array.fb's `Sort`, `Filter`, `Map`, `Find`, and `Remove`, needs `Import std.collections`. A
+  message that suggests one of std's names, like `<T: Printable>`, says which Import it needs.
+- A constraint that names no Interface is an error once, and what code does with the type
+  parameter that the constraint could have allowed isn't another.
 - A type or variable that two imports give is an error only where code uses it without a
   qualifier, naming the modules. A name the code doesn't see, that another module declares, gets
   an error saying which module to import: "'Stack' is in std.collections, which this file

@@ -1,2 +1,2 @@
 False
-panic: expected Cat, found Dog at panic_downcast.fb:13:13
+panic: expected Cat, found Dog at panic_downcast.fb:15:13

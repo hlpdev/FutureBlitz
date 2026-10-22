@@ -810,6 +810,15 @@ TEST_CASE("Interfaces", "[parser]") {
                          "(method Static Zero -> Self)))");
     CHECK(parsed.errors.empty());
 
+    // A member after attributes is the next member, not a body.
+    CHECK(parse_text("Interface Old\n"
+                     "    Method Kept()\n"
+                     "    @Deprecated Method Gone()\n"
+                     "    @Deprecated(\"use Kept\") ReadOnly Property Count: Int\n"
+                     "End Interface")
+              .dump == "(interface Old (block (method Kept) (method @Deprecated Gone) "
+                       "(property ReadOnly @Deprecated(\"use Kept\") Count: Int)))");
+
     // An Abstract Property is its first line too.
     CHECK(parse_text("Abstract Property Area: Float").dump == "(property Abstract Area: Float)");
     CHECK(parse_text("Interface I Implements J\nEnd Interface").errors ==
@@ -857,6 +866,9 @@ TEST_CASE("attributes go before declarations, on their line or the one above", "
     CHECK(parse_text("@Deprecated Struct S\nEnd Struct").dump == "(struct @Deprecated S (block))");
     CHECK(parse_text("Const Function One(): Int => 1").dump ==
           "(function Const One -> Int (block (return (int 1))))");
+    // One from a module imported As comes after its qualifier, even with a built-in's name.
+    CHECK(parse_text("@C.Rename(\"hp\") @C.Inline Function F()\nEnd Function").dump ==
+          "(function @C.Rename(\"hp\") @C.Inline F (block))");
 }
 
 TEST_CASE("attribute mistakes are reported", "[parser]") {
@@ -884,6 +896,14 @@ TEST_CASE("attribute mistakes are reported", "[parser]") {
               "12-13: @Deprecated takes a message, a string without interpolation" });
     CHECK(parse_text("@Inline @Inline Function F()\nEnd Function").errors ==
           std::vector<std::string>{ "9-15: @Inline is written twice" });
+    CHECK(parse_text("@PanicsAtCaller Function F()\nEnd Function").dump ==
+          "(function @PanicsAtCaller F (block))");
+    CHECK(parse_text("@PanicsAtCaller(1) Function F()\nEnd Function").errors ==
+          std::vector<std::string>{ "15-18: @PanicsAtCaller takes no arguments" });
+    CHECK(parse_text("@MainThread(5, \"x\") Function F()\nEnd Function").errors ==
+          std::vector<std::string>{ "11-19: @MainThread takes no arguments" });
+    CHECK(parse_text("@PanicsAtCaller @PanicsAtCaller Function F()\nEnd Function").errors ==
+          std::vector<std::string>{ "17-31: @PanicsAtCaller is written twice" });
     CHECK(parse_text("@Inline x = 1").errors ==
           std::vector<std::string>{
               "8-9: attributes go before a declaration, like a Function or a Struct" });

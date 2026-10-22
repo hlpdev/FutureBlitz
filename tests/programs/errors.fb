@@ -1,4 +1,6 @@
 // Errors: Throws, Throw, Try blocks, and the Try and Try? prefixes.
+Import std.core
+
 Class FileError Extends Error
 End Class
 

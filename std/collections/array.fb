@@ -1,6 +1,8 @@
 // What every collection has, on T[]: Remove, Sort, Filter, Map, and Find, besides the built-in
 // Add, Insert, RemoveAt, Clear, Contains, Clone, and Count.
 
+Import std.core
+
 Extend T[]
     // Removes the first element equal to value, and tells whether there was one.
     Public Method Remove(value: T): Bool

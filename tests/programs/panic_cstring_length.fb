@@ -1,4 +1,5 @@
 // A Null CString has no length to count.
+Import std.core
 Import std.ffi
 
 Local none: CString = Null

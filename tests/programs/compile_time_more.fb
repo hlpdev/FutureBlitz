@@ -1,6 +1,8 @@
 // What step 13 adds at compile time: generic Const Functions, a Const Function in a
 // declaration's type, and sizes and Const type arguments computed from Const type parameters.
 
+Import std.core
+
 // A generic Const Function.
 Const Function Largest<T: Comparable>(a: T, b: T): T => a > b ? a : b
 Const Function Square<T: Numeric>(x: T): T => x * x

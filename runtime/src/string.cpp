@@ -161,17 +161,23 @@ char* fb_cstring_new(const fb_string_t* string) {
 }
 
 void fb_cstring_free(char* copy) {
+    if (fb_cstring_free_known(copy) == 0) {
+        fb_panic("a CString the runtime didn't copy, or copied and freed already, was given back",
+                 nullptr);
+    }
+}
+
+std::int32_t fb_cstring_free_known(char* copy) {
     {
         cstrings_t& known = cstrings();
         const std::scoped_lock lock(known.mutex);
         if (known.live.erase(copy) == 0) {
-            fb_panic("Free gives back a CString that CString.From made, and this one isn't, or "
-                     "it was given back already",
-                     nullptr);
+            return 0;
         }
     }
 
     std::free(copy);
+    return 1;
 }
 
 std::uint64_t fb_cstring_length(const char* text) {
@@ -189,9 +195,14 @@ fb_string_t* fb_string_from_cstring(const char* text) {
         return nullptr;
     }
 
-    // A String holds UTF-8, so each byte of C's text that doesn't start a well-formed code point,
-    // like a code page's 'é', becomes U+FFFD.
     const std::string_view bytes(text);
+    return fb_string_from_bytes(bytes.data(), static_cast<std::int64_t>(bytes.size()));
+}
+
+fb_string_t* fb_string_from_bytes(const char* text, const std::int64_t length) {
+    // A String holds UTF-8, so each byte that doesn't start a well-formed code point, like a
+    // code page's 'é', becomes U+FFFD.
+    const std::string_view bytes(text, static_cast<std::size_t>(length));
     std::string valid;
     valid.reserve(bytes.size());
     for (std::size_t i = 0; i < bytes.size();) {

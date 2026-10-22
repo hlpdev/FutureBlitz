@@ -1,4 +1,5 @@
 // Adding to a Set while going over it panics, rather than skipping or repeating values.
+Import std.core
 Import std.collections
 
 Local seen = Set<Int>()

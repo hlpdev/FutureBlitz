@@ -1005,11 +1005,12 @@ private:
                (text(next) == "Get" || text(next) == "Set");
     }
 
-    /// Whether the next line starts an Interface Method's body, rather than another member or the
-    /// Interface's End: a Method without one is only its first line.
+    /// Whether the next line starts an Interface Method's body, rather than another member, maybe
+    /// after its attributes, or the Interface's End: a Method without one is only its first line.
     [[nodiscard]] bool next_line_is_body() const {
         const token_t& next = next_line_start();
         switch (next.kind) {
+        case token_kind_t::AT:
         case token_kind_t::KW_METHOD:
         case token_kind_t::KW_BYREF:
         case token_kind_t::KW_STATIC:
@@ -1119,17 +1120,34 @@ private:
         span_t c_layout_span;
         while (at(token_kind_t::AT)) {
             advance();
-            const name_t name = expect_name();
+            name_t name = expect_name();
+            // "@C.Rename": an Attribute after the qualifier its module's Import gives.
+            std::optional<name_t> qualifier;
+            if (accept(token_kind_t::DOT)) {
+                qualifier = name;
+                name = expect_name();
+            }
+
             std::optional<span_t> span;
             std::vector<argument_t> arguments = parse_attribute_arguments(span);
-            const bool builtin = name.text == "Flags" || name.text == "Inline" ||
-                                 name.text == "Deprecated" || name.text == "CLayout";
-            const bool repeated = (name.text == "Flags" && flags) ||
-                                  (name.text == "Inline" && modifiers.is_inline) ||
-                                  (name.text == "CLayout" && modifiers.is_c_layout) ||
-                                  (name.text == "MainThread" && modifiers.is_main_thread) ||
-                                  (name.text == "Deprecated" && modifiers.deprecated);
-            if (repeated) {
+            const bool builtin =
+                !qualifier && (name.text == "Flags" || name.text == "Inline" ||
+                               name.text == "Deprecated" || name.text == "CLayout" ||
+                               name.text == "PanicsAtCaller" || name.text == "MainThread");
+            const bool repeated =
+                !qualifier && ((name.text == "Flags" && flags) ||
+                               (name.text == "Inline" && modifiers.is_inline) ||
+                               (name.text == "CLayout" && modifiers.is_c_layout) ||
+                               (name.text == "MainThread" && modifiers.is_main_thread) ||
+                               (name.text == "PanicsAtCaller" && modifiers.panics_at_caller) ||
+                               (name.text == "Deprecated" && modifiers.deprecated));
+            if (qualifier) {
+                modifiers.attributes.push_back({
+                    .qualifier = qualifier,
+                    .name = name,
+                    .arguments = std::move(arguments),
+                });
+            } else if (repeated) {
                 error(name.span, "@{} is written twice", name.text);
             } else if (name.text == "Flags") {
                 flags = true;
@@ -1138,6 +1156,8 @@ private:
                 modifiers.is_inline = true;
             } else if (name.text == "MainThread") {
                 modifiers.is_main_thread = true;
+            } else if (name.text == "PanicsAtCaller") {
+                modifiers.panics_at_caller = true;
             } else if (name.text == "Deprecated") {
                 modifiers.deprecated = deprecation(arguments, span);
             } else if (name.text == "CLayout") {

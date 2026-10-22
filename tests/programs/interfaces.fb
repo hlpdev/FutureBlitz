@@ -1,5 +1,7 @@
 // Interfaces: what the Structs and Classes that implement them have. One that can be a type
 // holds an object of a Class, and calls run what that object's Class gives.
+Import std.core
+
 Interface Shown
     Method Text(): String
 

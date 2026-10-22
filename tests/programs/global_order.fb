@@ -1,6 +1,8 @@
 // Globals initialize in source order. A lambda in an initializer runs later, so it can use a
 // Global further down once that one's type is written, and functions use any Global once the
 // top-level code runs. A Global known at compile time, like counter, is set from the start.
+Import std.core
+
 Class Thing
     Field Name: String
 

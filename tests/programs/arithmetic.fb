@@ -1,4 +1,6 @@
 // Integer and float arithmetic, mixed types, bitwise operators, and casts.
+Import std.core
+
 Local a = 7
 Local b = 2
 Print("{a + b} {a - b} {a * b} {a / b} {a % b} {a ** b}")

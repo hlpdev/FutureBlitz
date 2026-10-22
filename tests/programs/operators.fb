@@ -1,5 +1,7 @@
 // Operators: a Struct or Class defines what operators do on it, as Static functions that the
 // operators call.
+Import std.core
+
 Struct Vec2
     Field X: Float
     Field Y: Float

@@ -1,4 +1,5 @@
 #include "fb/runtime.hpp"
+#include "internal.hpp"
 
 #include <algorithm>
 #include <array>
@@ -511,8 +512,9 @@ public:
     /// a coroutine here finishes once it goes on in turn. What they wait for is on a Scheduler,
     /// or waits for one, which only code here could tick.
     [[nodiscard]] bool stuck() const {
-        // The pool first: once it has nothing left, its Tasks are done, which the rest sees.
-        if (!pool().idle()) {
+        // The pool first: once it has nothing left, its Tasks are done, which the rest sees. A
+        // request the I/O thread hasn't finished may finish a Task too.
+        if (!pool().idle() || fb::runtime::requests_pending()) {
             return false;
         }
 
@@ -597,6 +599,35 @@ private:
     std::vector<timer_t> m_timers;
 };
 
+} // namespace
+
+namespace {
+
+/// How many requests the I/O thread has under way.
+std::atomic<std::int64_t>& pending_requests() {
+    static std::atomic<std::int64_t> count = 0;
+    return count;
+}
+
+} // namespace
+
+void fb::runtime::start_request() {
+    pending_requests().fetch_add(1, std::memory_order_acq_rel);
+}
+
+void fb::runtime::finish_request() {
+    pending_requests().fetch_sub(1, std::memory_order_acq_rel);
+    // Finishing the Task woke the threads that wait already, maybe before the count went
+    // down, so they're woken again to see it.
+    pool().signal();
+}
+
+bool fb::runtime::requests_pending() {
+    return pending_requests().load(std::memory_order_acquire) > 0;
+}
+
+namespace {
+
 scheduler_t& main_scheduler() {
     static scheduler_t instance(true);
     return instance;
@@ -636,6 +667,12 @@ bool scheduler_t::tick(const double seconds) {
 
         m_waiting.erase(m_waiting.begin() + static_cast<std::ptrdiff_t>(i));
         fb_object_release(&waiting.task->header);
+        // Async code is the main thread's: another thread, like the I/O thread, only finishes
+        // the Tasks it waits for.
+        if (std::this_thread::get_id() != main_thread) {
+            fb_panic("a coroutine went on off the main thread", nullptr);
+        }
+
         // A coroutine's frame starts with where it resumes.
         using resume_t = void (*)(void* coroutine);
         (*static_cast<resume_t*>(waiting.coroutine))(waiting.coroutine);

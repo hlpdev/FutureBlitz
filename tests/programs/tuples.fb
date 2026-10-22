@@ -1,4 +1,6 @@
 // Tuples: values made of their elements, for multiple returns and pairs.
+Import std.core
+
 Enum Suit
     Hearts, Spades
 End Enum

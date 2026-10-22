@@ -1,4 +1,5 @@
 // Pop on an empty PriorityQueue panics.
+Import std.core
 Import std.collections
 
 Local queue = PriorityQueue<Int>()

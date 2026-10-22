@@ -1,4 +1,6 @@
 // Class extras: Static Fields and Methods, Properties, and ReadOnly Fields.
+Import std.core
+
 Class Enemy
     Static Field count: Int = 0
     Static Field names: String[] = []

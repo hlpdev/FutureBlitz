@@ -545,6 +545,9 @@ private:
                 static_cast<std::int64_t>(order > 0) - static_cast<std::int64_t>(order < 0);
             return value_t{ const_value_t{ .type = type_id_t::INT32, .data = sign } };
         }
+        // Code that runs at compile time checks what a debug build does.
+        case runtime_function_t::DEBUG_BUILD:
+            return value_t{ make_bool(true) };
         default:
             return failure("it uses objects or arrays, which only the running program has");
         }

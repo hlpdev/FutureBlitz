@@ -1,4 +1,6 @@
 // A Shared object that waits in its own Channel: a cycle the leak report should point out.
+Import std.core
+
 Shared Class Hub
     ReadOnly Field Inbox: Channel<Hub>
 

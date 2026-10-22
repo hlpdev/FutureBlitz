@@ -1,5 +1,7 @@
 // Enums: integer types, automatic values, @Flags, As to and from integers, exhaustive Select,
 // and their names in strings.
+Import std.core
+
 Enum State: UInt8
     Idle, Walk
     Attack = 10, Dead

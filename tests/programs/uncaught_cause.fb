@@ -1,0 +1,30 @@
+// An uncaught error shows where it was thrown, then each error it came from, its Cause. An
+// error's Place says where it was first thrown, which a Catch that throws it again keeps.
+Import std.core
+
+Function ReadSettings(path: String): String Throws IOError
+    Throw IOError(IOErrorKind.NOT_FOUND, "{path} doesn't exist", path)
+End Function
+
+Function LoadLevel(): String Throws Error
+    Try
+        Return ReadSettings("level.toml")
+    Catch e As IOError
+        Print("{e.Message}, {e.Kind}, {e.Path ?? "no path"}, at {e.Place}")
+        Throw Error("the level didn't load", e)
+    End Try
+End Function
+
+Function Again(): String Throws Error
+    Try
+        Return LoadLevel()
+    Catch e
+        // Thrown again, it keeps its first Place.
+        Print("again from line {e.Place.Line}")
+        Throw e
+    End Try
+End Function
+
+// One not thrown yet is nowhere.
+Print("{Error("new").Place.Line}")
+Local text = Try Again()

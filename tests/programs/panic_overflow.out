@@ -1,2 +1,2 @@
 before
-panic: integer overflow in '+' at panic_overflow.fb:3:16
+panic: integer overflow in '+' at panic_overflow.fb:5:16

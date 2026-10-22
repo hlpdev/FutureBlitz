@@ -171,7 +171,8 @@ TEST_CASE("the types view shows types, conversions, and known values", "[dump]")
                 "Local twice = LIMIT * 2") == "(const LIMIT = 3: Int32)\n"
                                               "(local twice = (* LIMIT: Int32 = 3 2: Int32): "
                                               "Int32 = 6)\n");
-    CHECK(types("Print(\"hi\")") == "(call Print \"hi\": String)\n");
+    CHECK(types("Import std.core\nPrint(\"hi\")") ==
+          "(import std.core)\n(call Print \"hi\": String)\n");
 }
 
 // LLVM IR

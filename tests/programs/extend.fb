@@ -1,5 +1,7 @@
 // Extend: Methods, Properties, Operators, and Interfaces added to a type that's declared
 // already, a built-in one included.
+Import std.core
+
 Interface Shown
     Method Text(): String
     Method Loud(): String => Text() + "!"

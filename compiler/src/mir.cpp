@@ -45,6 +45,10 @@ std::string_view runtime_name(const runtime_function_t function) {
         return "clone";
     case runtime_function_t::ERROR_UNCAUGHT:
         return "uncaught";
+    case runtime_function_t::ERROR_THROWN:
+        return "thrown";
+    case runtime_function_t::DEBUG_BUILD:
+        return "debug_build";
     case runtime_function_t::WEAK_LOAD:
         return "load_weak";
     case runtime_function_t::OBJECT_DISCARD:
@@ -245,6 +249,10 @@ private:
     [[nodiscard]] std::string dump(const mir_function_t& function) {
         m_function = &function;
         std::string out = function.is_inline ? keyword("@Inline") + " " : std::string();
+        if (function.panics_at_caller) {
+            out += keyword("@PanicsAtCaller") + " ";
+        }
+
         if (function.external) {
             out += keyword(function.external->c_abi ? "extern" : "extern runtime") + " ";
         }

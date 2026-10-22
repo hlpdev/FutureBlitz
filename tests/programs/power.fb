@@ -1,4 +1,6 @@
 // ** on integers goes through the runtime; on floats it's LLVM's pow.
+Import std.core
+
 Local base = 3
 Print("{base ** 4} {2 ** 10} {base ** 0}")
 Local f: Double = 2

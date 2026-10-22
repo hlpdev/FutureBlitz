@@ -1,4 +1,6 @@
 // A New that throws: its object is let go without its Destroy, and the error goes to the caller.
+Import std.core
+
 Class BadInput Extends Error
 End Class
 

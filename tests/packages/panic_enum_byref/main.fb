@@ -1,5 +1,6 @@
 // So does one that C sets in a Struct passed ByRef, in a fixed array there too.
 
+Import std.core
 Import vmath
 
 Print(Shades(1, 1))

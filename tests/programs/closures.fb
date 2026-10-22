@@ -1,4 +1,6 @@
 // Function values: lambdas, which capture the variables around them, and Functions by name.
+Import std.core
+
 Function MakeCounter(): Func(): Int
     Local count = 0
     Return Function()

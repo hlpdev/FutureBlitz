@@ -1,6 +1,8 @@
 // Map<K, V>: a hash map from keys to values. Its entries are in an array, in the order they were
 // added, and each bucket starts a chain of the entries whose hashes land in it.
 
+Import std.core
+
 Struct MapEntry<K, V>
     Field Key: K
     Field Value: V
@@ -178,6 +180,7 @@ Public Struct MapIterator<K, V> Implements Iterator<(K, V)>
     // What the loop goes over: "Map", or "Set".
     Field Name: String
 
+    @PanicsAtCaller
     Public ByRef Method Next(): (K, V)?
         If Owner.Changes != Changes Then Panic("the {Name} changed while a For ... In went over it")
         If Index >= Owner.Entries.Count Then Return Null

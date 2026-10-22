@@ -1,1 +1,1 @@
-panic: 'held' is used before its initializer has run, since Globals initialize in source order at release_panic_global_order.fb:15:28
+panic: 'held' is used before its initializer has run, since Globals initialize in source order at release_panic_global_order.fb:17:28

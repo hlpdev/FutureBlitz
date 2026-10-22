@@ -1,5 +1,7 @@
 // Parallel For runs its passes on the pool at once, and the next statement waits for them all.
 
+Import std.core
+
 Struct Particle
     Field X: Float
     Field Speed: Float

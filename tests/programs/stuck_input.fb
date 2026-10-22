@@ -1,0 +1,27 @@
+// The program ends while a coroutine waits for what nothing will finish, and a request the I/O
+// thread answers at the end, which wakes the main thread once it's done, so the end comes.
+Import std.core
+
+Class Marker
+    Method Destroy()
+        Print("globals released")
+    End Method
+End Class
+
+Global marker = Marker()
+Global stalled = Scheduler()
+
+Async Function Inner(): Int
+    Await NextFrame()
+    Return 1
+End Function
+
+Async Function Outer(): Int
+    Local inner = Inner()
+    stalled.Run(inner)
+    Return Await inner
+End Function
+
+Local pending = InputAsync()
+Local outer = Outer()
+Print("end of top-level code")

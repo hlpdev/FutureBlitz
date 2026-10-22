@@ -1,4 +1,6 @@
 // Strong references in a cycle never go away. Debug builds point out each cycle that leaked.
+Import std.core
+
 Class Node
     Field next: Node?
 End Class

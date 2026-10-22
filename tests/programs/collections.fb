@@ -1,6 +1,7 @@
 // std/collections: what T[] gets, Map and its literal, Set, Stack, Queue, Deque, PriorityQueue,
 // and Pool.
 
+Import std.core
 Import std.collections
 
 // T[]: Sort is stable, Remove takes the first equal element, and Filter, Map, and Find take

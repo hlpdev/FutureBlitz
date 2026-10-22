@@ -3,6 +3,8 @@
 // and Interfaces' defaults too, which the Classes extending it have, and its Operator == is what
 // == means for it everywhere.
 
+Import std.core
+
 Struct Box<T>
     Field Value: T
     Method Get(): T => Value

@@ -1,5 +1,7 @@
 // Generic Interfaces: each set of type arguments makes an instance, whose members have them
 // in their types. A type implements one instance of each.
+Import std.core
+
 Interface Source<T>
     Method Take(): T
     Method TakeTwo(): (T, T) => (Take(), Take())

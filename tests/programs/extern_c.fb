@@ -2,6 +2,7 @@
 // and CStrings, a String becomes a CString for the call, a String C gives is a copy of its text,
 // and ByRef passes a variable's address.
 
+Import std.core
 Import "./extern_c/libc"
 
 Extern "C"

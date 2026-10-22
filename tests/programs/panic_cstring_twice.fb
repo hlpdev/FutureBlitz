@@ -1,4 +1,5 @@
 // Free gives back a CString that From made once: a second Free panics.
+Import std.core
 Import std.ffi.cstring
 
 Local text = CString.From("hello")

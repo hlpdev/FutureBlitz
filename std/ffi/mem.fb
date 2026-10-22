@@ -19,6 +19,7 @@ Public Struct Mem
     End New
 
     // `bytes` of new memory, all 0. Panics when `bytes` is negative, or there isn't that much.
+    @PanicsAtCaller
     Public Unsafe Static Method Alloc(bytes: Int64): Ptr<Void>
         If bytes < 0 Then Panic("Mem.Alloc takes a size that isn't negative, not {bytes}")
         Local memory = fb_mem_alloc(bytes As UInt64)
@@ -29,6 +30,7 @@ Public Struct Mem
     // What Alloc or Resize gave, in `bytes` of memory, which may have moved: it keeps what fits,
     // and what it adds isn't 0. Null is new memory. Panics when `bytes` is negative, or there
     // isn't that much.
+    @PanicsAtCaller
     Public Unsafe Static Method Resize(memory: Ptr<Void>, bytes: Int64): Ptr<Void>
         If bytes < 0 Then Panic("Mem.Resize takes a size that isn't negative, not {bytes}")
         Local moved = fb_mem_resize(memory, bytes As UInt64)
@@ -43,6 +45,7 @@ Public Struct Mem
 
     // Copies `bytes` from `source` to `destination`, which can overlap. Panics when `bytes` is
     // negative, or when it isn't 0 and either is Null.
+    @PanicsAtCaller
     Public Unsafe Static Method Copy(destination: Ptr<Void>, source: Ptr<Void>, bytes: Int64)
         If bytes < 0 Then Panic("Mem.Copy takes a size that isn't negative, not {bytes}")
         If bytes == 0 Then Return
@@ -55,6 +58,7 @@ Public Struct Mem
 
     // Sets `bytes` of memory from `destination` on to `value`. Panics when `bytes` is negative,
     // or when it isn't 0 and `destination` is Null.
+    @PanicsAtCaller
     Public Unsafe Static Method Fill(destination: Ptr<Void>, value: UInt8, bytes: Int64)
         If bytes < 0 Then Panic("Mem.Fill takes a size that isn't negative, not {bytes}")
         If bytes == 0 Then Return
@@ -65,6 +69,7 @@ Public Struct Mem
     // Compares `bytes` of memory at `a` with as many at `b`: 0 when they're the same, or -1 or
     // 1 as the first byte that differs, read as a UInt8, is lower at `a` or at `b`. Panics when
     // `bytes` is negative, or when it isn't 0 and either is Null.
+    @PanicsAtCaller
     Public Unsafe Static Method Compare(a: Ptr<Void>, b: Ptr<Void>, bytes: Int64): Int32
         If bytes < 0 Then Panic("Mem.Compare takes a size that isn't negative, not {bytes}")
         If bytes == 0 Then Return 0

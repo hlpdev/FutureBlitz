@@ -141,6 +141,9 @@ struct call_t {
     /// that the object's Class has for it, and `function` is the Interface's own, with the
     /// Interface for Self, which takes the same arguments.
     type_id_t interface = type_id_t::INVALID;
+    /// For a @PanicsAtCaller function: where the call is, which its panics report. nullopt where
+    /// no code calls it, as in a function value's code, so its panics report where they are.
+    std::optional<span_t> place;
 };
 
 /// The runtime library functions MIR calls; see runtime/include/fb/runtime.hpp. A String they
@@ -176,6 +179,11 @@ enum class runtime_function_t : std::uint8_t {
     /// (Error?) to nothing: prints an error that top-level code let out, which nothing caught, and
     /// ends the program with exit code 1.
     ERROR_UNCAUGHT,
+    /// (an Error) to nothing: sets its Place to where `span` is, unless an earlier Throw did.
+    ERROR_THROWN,
+    /// () to Bool: whether this is a debug build, which codegen makes a constant, so a release
+    /// build leaves out the code only a debug build runs.
+    DEBUG_BUILD,
     /// (Weak<T>) to a T?: a new reference to its object, or Null once the object is gone.
     WEAK_LOAD,
     /// (T) to nothing: lets go of an object whose New threw. Its fields are released, and its
@@ -475,6 +483,10 @@ struct mir_function_t {
     std::vector<basic_block_t> blocks;
     /// Written with @Inline: every call to it is inlined, in debug builds too.
     bool is_inline = false;
+    /// Written with @PanicsAtCaller, or overriding one that is: codegen gives it its call's
+    /// place as a hidden last parameter, which its panics report, and it passes that on to the
+    /// @PanicsAtCaller functions it calls.
+    bool panics_at_caller = false;
     /// An Async Function's code: a coroutine, whose first parameter is its Task. Its Returns end
     /// the coroutine, and it gives LLVM its handle.
     bool is_async = false;

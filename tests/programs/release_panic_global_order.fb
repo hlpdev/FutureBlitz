@@ -1,5 +1,7 @@
 // A release build checks a Global whose zero would hold a null object, like a Struct with a
 // Class in it, where a function an earlier initializer calls uses it, as a debug build does.
+Import std.core
+
 Class Thing
     Field Name: String = "thing"
 End Class

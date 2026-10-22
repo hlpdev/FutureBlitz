@@ -1,25 +1,28 @@
 # Standard Library
 
 Status: what std/ holds today, then [M6's design](#m6s-design), planned 2026-10-20 and built
-in M6's 20 steps (see [milestones.md](milestones.md#m6-build-order)). The design is planned,
-not built yet.
+in M6's 32 steps (see [milestones.md](milestones.md#m6-build-order)). Step 1's part is built;
+the rest is planned.
 
 ## Split
 
 - **`std`**: the pure language library; works with or without a window.
 - **`engine`**: the game engine modules (see [engine.md](engine.md)).
 
-`Print(String)` is std.core's, in std/core/print.fb, over the runtime's `fb_print` through
-`Extern "runtime"`, which only std/ can use. Panic, Assert, RefEquals, the timing Functions, and
-the concurrency types stay built in, since the compiler checks and lowers them itself.
+The console Functions, `Print` and the rest, are std.core's, in std/core/print.fb, over the
+runtime's `fb_write` and its I/O thread's `fb_io_` functions through `Extern "runtime"`, which
+only std/ can use. Panic, Assert, DebugAssert, Unreachable, Todo,
+RefEquals, the timing Functions, and the concurrency types stay built in, since the compiler
+checks and lowers them itself.
 
 ## As modules
 
 Each `.fb` file under std/ is a module named by its path: std/collections/map.fb is
-`std.collections.map`. Every module imports std/core/'s without saying so, and
+`std.collections.map`. Every name needs its Import, std.core's too, so hello world is
+`Import std.core` and then `Print("hi")`, and an error says which Import a name needs.
 std.collections.map is part of every program, so a `{key: value}` literal makes its Map
 anywhere; the rest, like `Stack` or array.fb's `Sort`, need `Import std.collections` (or a From
-line), and an error says so. A program's own names hide std's for its own code, so it can
+line). A program's own names hide std's for its own code, so it can
 declare its own `Stack`, `Map`, or `Error`, and std's code keeps using its own. A std module
 only declares things: Functions, Structs, Classes, Enums, Globals, and Consts, and imports what
 it uses, as set.fb imports std.collections.map and std.collections.array. A program gets only
@@ -38,10 +41,11 @@ So far, std/ holds:
 
 | File | Contents |
 |---|---|
-| std/core/error.fb | `Error`, the Class every error extends |
+| std/core/error.fb | `Error`, the Class every error extends, with its `Cause` and `Place`; `Place`; and each area's Error and its Kind: `ArgumentError`, `IOError`, `ParseError`, `FormatError`, `TimeoutError`, `NetError`, `DatabaseError` |
+| std/core/assert.fb | `AssertEqual`, an Assert that says what it compared |
 | std/core/interfaces.fb | `Equatable`, `Comparable`, `Hashable`, `Printable`, and `Numeric`, which `==`, `<`, strings, and generic code go through, and `Sendable`, which the compiler decides |
 | std/core/iterator.fb | `Iterator<T>`, which `For ... In` goes over |
-| std/core/print.fb | `Print`, over the runtime's `fb_print` |
+| std/core/print.fb | `Print`, `Write`, `PrintError`, `WriteError`, `Flush`, `Input`, and `InputAsync`, over the runtime's `fb_write` and its I/O thread |
 | std/collections/array.fb | `Remove`, `Sort`, `Filter`, `Map`, and `Find` on `T[]` |
 | std/collections/map.fb | `Map<K, V>`, which `{key: value}` makes |
 | std/collections/set.fb | `Set<T>` |
@@ -74,7 +78,7 @@ and the rest) aren't std's.
 
 | Library | License | Backs |
 |---|---|---|
-| libuv | MIT | std.io, std.os, std.net's sockets, IPC, and DNS, std.time's timers, Async I/O |
+| libuv | MIT, with parts under BSD-2-Clause and ISC | std.io, std.os, std.net's sockets, IPC, and DNS, std.time's timers, Async I/O |
 | libcurl | curl (MIT-style) | std.net.http's client |
 | mbedTLS | Apache-2.0 | std.net.tls, std.crypto's hashes, HMAC, HKDF, PBKDF2, ciphers, signatures, and secure random |
 | PCRE2 | BSD | std.text.regex, and the compiler's check of regex literals |
@@ -92,11 +96,17 @@ and the rest) aren't std's.
 | nanosvg | zlib | std.image's SVG |
 | md4c | MIT | std.text.markdown |
 
-Each is fetched with FetchContent and built by the C compiler that builds the runtime, for the
-build's target, as a separate archive, so a program links only what it uses. After a build
-that links any, `fb` prints which ones and their licenses; shipping the notices is the
-programmer's job. IANA's time-zone data is embedded in the runtime (only programs that use
-time zones link it), so every OS has the same zones.
+Each is fetched with FetchContent in third_party/ and built by the C compiler that builds the
+runtime, for the build's target, as a separate archive, beside an archive of the runtime's
+functions over it (the `fb_io_` ones over libuv), so a program that calls none of those links
+none of the library. After a build that links any, `fb` prints which ones and their licenses;
+shipping the notices is the programmer's job. IANA's time-zone data is embedded in the runtime
+(only programs that use time zones link it), so every OS has the same zones.
+
+The runtime's I/O thread runs libuv's loop. It starts with a program's first I/O request and
+stops as the program ends, before the leak report, answering what still waits with nothing. A
+request that gives a Task finishes it there, and the code that Awaits or Waits for it resumes on
+its own thread, as the scheduling rule in spec 10 says.
 
 The platform pieces that are truly necessary, all in the runtime: the OS certificate store,
 the local time zone's name, the standard folders (config, data, cache, documents), and opening a
@@ -128,13 +138,21 @@ file or URL in the default app.
 
 - Output: `Print(values...)` prints any Printable values with spaces between and a line break;
   `Write` is the same without the break; `PrintError` and `WriteError` go to stderr; `Flush`.
-- `Input(prompt)` reads a line, giving a `String?` that's Null at the end of input.
+- `Input(prompt)` reads a line, giving a `String?` that's Null at the end of input, and
+  nothing else runs meanwhile; `InputAsync(prompt)` gives a `Task<String?>` of the line, which
+  the I/O thread finishes. Lines go to both in the order they're asked for.
 - Errors: `Error` has `Message`, `Cause: Error?`, and `Place` (file, line, column), which Throw
   fills in debug and release builds. An uncaught error prints its message, place, and Cause
   chain, then exits with code 1. Each area has one Error with a `Kind` and its details:
-  `ArgumentError`, `IOError` (`NOT_FOUND`, `PERMISSION_DENIED`, `ALREADY_EXISTS`,
-  `UNEXPECTED_END`, `INTERRUPTED`, `OTHER`, and `Path: String?`), `ParseError` (`Line`,
-  `Column`), `FormatError`, `TimeoutError`, `NetError`, `DatabaseError`.
+  `ArgumentError` (`MISSING`, `UNKNOWN`, `INVALID`, `OTHER`, and `Name: String?`), `IOError`
+  (`NOT_FOUND`, `PERMISSION_DENIED`, `ALREADY_EXISTS`, `UNEXPECTED_END`, `INTERRUPTED`,
+  `OTHER`, and `Path: String?`), `ParseError` (`SYNTAX`, `UNEXPECTED_END`, `WRONG_TYPE`,
+  `OUT_OF_RANGE`, `OTHER`, and `Line`, `Column`), `FormatError` (`BAD_TEMPLATE`,
+  `MISSING_VALUE`, `BAD_VALUE`, `OTHER`), `TimeoutError` (one kind), `NetError` (`REFUSED`,
+  `RESET`, `UNREACHABLE`, `HOST_NOT_FOUND`, `CLOSED`, `TLS`, `OTHER`, and
+  `Address: String?`), `DatabaseError` (`CONSTRAINT`, `BUSY`, `QUERY`, `CORRUPT`, `OTHER`).
+  Each Kind is an Enum named for its Error, like `IOErrorKind`, and a later step can add to
+  its area's.
 - Assertions beside Panic and Assert: `AssertEqual(a, b)`, which shows both, `DebugAssert`
   (left out of release builds), `Unreachable()`, `Todo(message)`.
 - Parsing: Static Methods on the number types give a `T?`: `Int.Parse("42")`,

@@ -1,4 +1,5 @@
 #include "fb/runtime.hpp"
+#include "internal.hpp"
 
 #include <algorithm>
 #include <array>
@@ -444,6 +445,8 @@ void fb_track_objects() {
 void fb_finish(fb_class_t* const* classes, const std::int64_t count) {
     fb_scheduler_end();
     fb_pool_finish();
+    // The I/O thread stops first, letting go of the Tasks it has that nothing waits for.
+    fb::runtime::run_finish();
     // Whatever the program printed shows up before the report.
     std::fflush(stdout);
     if (const std::int64_t strings = fb_string_live_count(); strings != 0) {

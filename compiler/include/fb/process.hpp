@@ -5,6 +5,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <string_view>
 
 namespace fb {
 
@@ -17,9 +18,12 @@ struct process_result_t {
 };
 
 /// Runs a program and collects what it prints to stdout and stderr. `arguments` come after the
-/// program's own name. Fails only when the program can't be started.
+/// program's own name. With `input`, the program's stdin is that text, which ends there, and it
+/// has to fit in a pipe's buffer, a few KiB; without, it's this process's. Fails only when the
+/// program can't be started.
 [[nodiscard]] std::expected<process_result_t, std::string>
-run_process(const std::filesystem::path& program, std::span<const std::string> arguments);
+run_process(const std::filesystem::path& program, std::span<const std::string> arguments,
+            std::optional<std::string_view> input = std::nullopt);
 
 /// The program that's running, like fb, with its whole path. Empty when the system won't say.
 [[nodiscard]] std::filesystem::path current_executable();

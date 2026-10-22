@@ -1,4 +1,6 @@
 // An integer's Wrapping and Checked Methods, which say what overflow does in every build.
+Import std.core
+
 Local big: Int = 2147483647
 Local small: Int8 = -128
 Local b: Byte = 250

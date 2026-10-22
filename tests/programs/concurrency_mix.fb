@@ -2,6 +2,8 @@
 // Shared object they all count on, and async chains that wait for them, on the main scheduler
 // and on a Scheduler.
 
+Import std.core
+
 Shared Class Tally
     Field sent: Atomic<Int>
     Field rounds: Mutex<Int>

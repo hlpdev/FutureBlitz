@@ -11,6 +11,7 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <thread>
 #include <vector>
 
 #ifdef _WIN32
@@ -23,6 +24,8 @@
 #include <windows.h>
 #else
 #include <cerrno>
+#include <csignal>
+#include <cstddef>
 #include <cstring>
 #include <spawn.h>
 #include <sys/wait.h>
@@ -96,8 +99,9 @@ std::string last_error() {
 
 } // namespace
 
-std::expected<process_result_t, std::string> run_process(const std::filesystem::path& program,
-                                                         std::span<const std::string> arguments) {
+std::expected<process_result_t, std::string>
+run_process(const std::filesystem::path& program, std::span<const std::string> arguments,
+            const std::optional<std::string_view> input) {
     std::wstring command = command_line(program, arguments);
     SECURITY_ATTRIBUTES security{
         .nLength = sizeof(SECURITY_ATTRIBUTES),
@@ -110,12 +114,25 @@ std::expected<process_result_t, std::string> run_process(const std::filesystem::
         return std::unexpected(last_error());
     }
 
-    // The child only gets the write end.
+    // The input goes through a pipe of its own, whose read end is the child's.
+    HANDLE input_read = nullptr;
+    HANDLE input_write = nullptr;
+    if (input && CreatePipe(&input_read, &input_write, &security, 0) == 0) {
+        CloseHandle(read_end);
+        CloseHandle(write_end);
+        return std::unexpected(last_error());
+    }
+
+    // The child only gets the write end, and the input's read end.
     SetHandleInformation(read_end, HANDLE_FLAG_INHERIT, 0);
+    if (input) {
+        SetHandleInformation(input_write, HANDLE_FLAG_INHERIT, 0);
+    }
+
     STARTUPINFOW startup{};
     startup.cb = sizeof(startup);
     startup.dwFlags = STARTF_USESTDHANDLES;
-    startup.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
+    startup.hStdInput = input ? input_read : GetStdHandle(STD_INPUT_HANDLE);
     // Stdout and stderr share the pipe, so the output keeps the order it was written in.
     startup.hStdOutput = write_end;
     startup.hStdError = write_end;
@@ -123,6 +140,23 @@ std::expected<process_result_t, std::string> run_process(const std::filesystem::
     const BOOL started = CreateProcessW(nullptr, command.data(), nullptr, nullptr, TRUE,
                                         CREATE_NO_WINDOW, nullptr, nullptr, &startup, &process);
     CloseHandle(write_end); // the child has its own copy now
+    // The input goes in from a thread of its own while the output is read here, so neither
+    // side waits on a full pipe for the other. Closing it ends the child's input.
+    std::thread writer;
+    if (input) {
+        CloseHandle(input_read);
+        if (started != 0) {
+            writer = std::thread([input_write, text = *input] {
+                DWORD written = 0;
+                WriteFile(input_write, text.data(), static_cast<DWORD>(text.size()), &written,
+                          nullptr);
+                CloseHandle(input_write);
+            });
+        } else {
+            CloseHandle(input_write);
+        }
+    }
+
     if (started == 0) {
         CloseHandle(read_end);
         return std::unexpected(std::format("couldn't run {}: {}", program.string(), last_error()));
@@ -136,6 +170,10 @@ std::expected<process_result_t, std::string> run_process(const std::filesystem::
                0 &&
            count > 0) {
         result.output.append(buffer.data(), count);
+    }
+
+    if (writer.joinable()) {
+        writer.join();
     }
 
     WaitForSingleObject(process.hProcess, INFINITE);
@@ -233,26 +271,67 @@ int wait_for(const pid_t pid) {
 
 } // namespace
 
-std::expected<process_result_t, std::string> run_process(const std::filesystem::path& program,
-                                                         std::span<const std::string> arguments) {
+std::expected<process_result_t, std::string>
+run_process(const std::filesystem::path& program, std::span<const std::string> arguments,
+            const std::optional<std::string_view> input) {
     std::array<int, 2> pipe_ends{};
     if (pipe(pipe_ends.data()) != 0) {
         return std::unexpected(std::strerror(errno));
     }
 
+    // The input goes through a pipe of its own, whose read end is the child's stdin.
+    std::array<int, 2> input_ends{ -1, -1 };
+    if (input && pipe(input_ends.data()) != 0) {
+        close(pipe_ends[0]);
+        close(pipe_ends[1]);
+        return std::unexpected(std::strerror(errno));
+    }
+
     // Stdout and stderr share the pipe, so the output keeps the order it was written in. The
-    // child closes its original pipe descriptors and keeps just those two.
+    // child closes its original pipe descriptors and keeps just those two, and its stdin.
     posix_spawn_file_actions_t actions;
     posix_spawn_file_actions_init(&actions);
     posix_spawn_file_actions_adddup2(&actions, pipe_ends[1], STDOUT_FILENO);
     posix_spawn_file_actions_adddup2(&actions, pipe_ends[1], STDERR_FILENO);
     posix_spawn_file_actions_addclose(&actions, pipe_ends[0]);
     posix_spawn_file_actions_addclose(&actions, pipe_ends[1]);
+    if (input) {
+        posix_spawn_file_actions_adddup2(&actions, input_ends[0], STDIN_FILENO);
+        posix_spawn_file_actions_addclose(&actions, input_ends[0]);
+        posix_spawn_file_actions_addclose(&actions, input_ends[1]);
+    }
 
     const std::expected<pid_t, std::string> pid = spawn(program, arguments, &actions);
     posix_spawn_file_actions_destroy(&actions);
     // Reading only ends once every copy of the write end is closed, and the child has its own.
     close(pipe_ends[1]);
+    // The input goes in from a thread of its own while the output is read here, so neither
+    // side waits on a full pipe for the other. A child that ends before reading all of it
+    // makes the write fail, which mustn't end this process, as SIGPIPE would. Closing it ends
+    // the child's input.
+    std::thread writer;
+    if (input) {
+        close(input_ends[0]);
+        if (pid) {
+            std::signal(SIGPIPE, SIG_IGN);
+            writer = std::thread([end = input_ends[1], text = *input] {
+                std::size_t done = 0;
+                while (done < text.size()) {
+                    const ssize_t written = write(end, text.data() + done, text.size() - done);
+                    if (written <= 0 && errno != EINTR) {
+                        break;
+                    }
+
+                    done += written > 0 ? static_cast<std::size_t>(written) : 0;
+                }
+
+                close(end);
+            });
+        } else {
+            close(input_ends[1]);
+        }
+    }
+
     if (!pid) {
         close(pipe_ends[0]);
         return std::unexpected(pid.error());
@@ -264,6 +343,10 @@ std::expected<process_result_t, std::string> run_process(const std::filesystem::
     // Read everything before waiting: a child with lots of output would block on a full pipe.
     while ((count = read(pipe_ends[0], buffer.data(), buffer.size())) > 0) {
         result.output.append(buffer.data(), static_cast<std::size_t>(count));
+    }
+
+    if (writer.joinable()) {
+        writer.join();
     }
 
     close(pipe_ends[0]);

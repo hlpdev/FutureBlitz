@@ -1,0 +1,26 @@
+// An Abstract @PanicsAtCaller Property's Overrides are @PanicsAtCaller too, so a read through
+// the Method table reports the reader's line.
+Import std.core
+
+Abstract Class Shape
+    @PanicsAtCaller
+    Abstract ReadOnly Property Size: Int
+End Class
+
+Class Box Extends Shape
+    Field width = 0
+
+    Override Property Size: Int
+        Get
+            If width == 0 Then Panic("a Box without a width has no size")
+            Return width * width
+        End Get
+    End Property
+End Class
+
+Local box = Box()
+box.width = 3
+Local shape: Shape = box
+Print("{shape.Size}")
+box.width = 0
+Print("{shape.Size}")

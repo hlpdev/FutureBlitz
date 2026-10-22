@@ -1,6 +1,8 @@
 // A Scheduler runs the coroutines given to it each time it's ticked, by its own time, so a game
 // can pause it or scale it. The main scheduler runs the rest, by the real clock.
 
+Import std.core
+
 Async Function Door(name: String)
     Print("{name} opens")
     Await Seconds(2)

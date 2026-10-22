@@ -1,4 +1,5 @@
 // C's NULL for a CString is Null, and has no text to copy.
+Import std.core
 Import std.ffi
 
 Extern "C"

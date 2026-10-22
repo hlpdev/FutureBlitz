@@ -1,5 +1,7 @@
 // Constraints: generic code says what its type parameters implement, and uses what those
 // Interfaces have, Statics and Operators too. Each use runs the type argument's own.
+Import std.core
+
 Interface Summable
     Static Method Zero(): Self
     Operator +(a: Self, b: Self): Self

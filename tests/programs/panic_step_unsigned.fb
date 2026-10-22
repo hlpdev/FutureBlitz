@@ -1,4 +1,6 @@
 // An unsigned Step that's only known at run time is checked for 0 too.
+Import std.core
+
 Local first: UInt32 = 1
 Local step: UInt32 = 0
 For i = first To 3 Step step

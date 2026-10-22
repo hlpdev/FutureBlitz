@@ -1,0 +1,10 @@
+numbers 1 2.5 True [1, 2] (3, x)
+no break
+an error line 404
+then stderr back
+> got [first]
+> got [second line]
+> got []
+> got [naïve ☃ �]
+> got [last without a break]
+> 5 lines, then the end

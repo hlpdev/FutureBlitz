@@ -1,5 +1,6 @@
 // Set<T>: values without repeats, which a Map holds as its keys.
 
+Import std.core
 Import std.collections.array
 Import std.collections.map
 
@@ -62,6 +63,7 @@ Public Struct SetIterator<T> Implements Iterator<T>
 
     Field Entries: MapIterator<T, Bool>
 
+    @PanicsAtCaller
     Public ByRef Method Next(): T?
         Local entry = Entries.Next()
         If entry == Null Then Return Null

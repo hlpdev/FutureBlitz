@@ -1,0 +1,14 @@
+// Unreachable panics, saying the code wasn't meant to be reached, then why.
+Import std.core
+
+Enum Light
+    RED, GREEN
+End Enum
+
+Function Next(light: Light, broken: Bool): Light
+    If broken Then Unreachable("the light is broken")
+    Return light == Light.RED ? Light.GREEN : Light.RED
+End Function
+
+Print("{Next(Light.RED, False)}")
+Next(Light.GREEN, True)

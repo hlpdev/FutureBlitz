@@ -1,3 +1,6 @@
 # Text files check out with LF on every OS, as the repo stores them: the test programs' expected
 # output is compared byte for byte, and FutureBlitz writes \n everywhere.
 * text=auto eol=lf
+
+# A program's input is its exact bytes, "\r\n" too.
+*.in -text

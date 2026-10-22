@@ -1,4 +1,6 @@
 // If, loops, Break and Continue, labels, and Select.
+Import std.core
+
 Function Describe(n: Int): String
     If n < 0
         Return "negative"

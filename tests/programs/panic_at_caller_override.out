@@ -1,0 +1,2 @@
+8
+panic: a Square can't scale by 0 at panic_at_caller_override.fb:22:1

@@ -1,5 +1,7 @@
 // Its loops go over every member, Private ones too, but not what an Extend it doesn't see adds.
 
+Import std.core
+
 Public Class Base
     Public New()
     End New

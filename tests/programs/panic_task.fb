@@ -1,4 +1,6 @@
 // A panic in a task ends the whole program, from the thread it runs on.
+Import std.core
+
 Function Check(n: Int): Int
     Assert(n > 0, "{n} isn't positive")
     Return n

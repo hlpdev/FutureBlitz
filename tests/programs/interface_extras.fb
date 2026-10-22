@@ -1,6 +1,8 @@
 // What step 13 adds to Interfaces: Throws on their Methods, generic Methods, constraints on
 // their type parameters, Const type parameters, and For ... In over an Iterate that throws.
 
+Import std.core
+
 Class ParseError Extends Error
 End Class
 

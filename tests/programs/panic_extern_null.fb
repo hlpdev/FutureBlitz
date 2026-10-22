@@ -1,4 +1,6 @@
 // A String that C gives where it gives NULL panics at the call; a String? would be Null.
+Import std.core
+
 Extern "C"
     Function getenv(name: CString): String
 End Extern

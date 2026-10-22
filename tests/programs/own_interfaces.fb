@@ -1,6 +1,7 @@
 // A program's own Interfaces named like the built-in ones hide std's for its code, while the
 // language's strings, comparisons, loops, Maps, Sets, and threads keep going through std's.
 
+Import std.core
 Import std.collections
 
 Interface Printable

@@ -1,4 +1,6 @@
 // An Enum that C gives has to be one of its values, or the program panics at the call.
+Import std.core
+
 Enum Small: Int32
     One = 1
     Two = 2

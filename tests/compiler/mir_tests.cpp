@@ -28,14 +28,17 @@ constexpr std::string_view empty_main = "function main\n"
 std::string with_print(const std::string_view text) {
     return std::string(text) +
            "\n"
-           "function std.core.print.Print(String)\n"
-           "    _0 value: String\n"
+           "function std.core.print.Print(String[])\n"
+           "    _0 values: String[]\n"
            "bb0:\n"
-           "    call std.core.print.fb_print(String)(_0)\n"
+           "    call std.core.print.fb_write(String[], Int32, Int32)(_0, 0, 1)\n"
            "    return\n"
            "\n"
-           "extern runtime function std.core.print.fb_print(String) = \"fb_print\"\n"
-           "    _0 text: String\n";
+           "extern runtime function std.core.print.fb_write(String[], Int32, Int32) = "
+           "\"fb_write\"\n"
+           "    _0 texts: String[]\n"
+           "    _1 to_error: Int32\n"
+           "    _2 line: Int32\n";
 }
 
 } // namespace
@@ -58,7 +61,8 @@ TEST_CASE("a widening conversion is a cast", "[mir]") {
 TEST_CASE("a String temporary moves into the variable that takes it", "[mir]") {
     // The call's result _0 and the concat's _2 hand their references to s without a retain. s's
     // old value is released before it's replaced, and s itself when main ends.
-    CHECK(lower_text("Function Shout(text: String): String => text + \"!\"\n"
+    CHECK(lower_text("Import std.core\n"
+                     "Function Shout(text: String): String => text + \"!\"\n"
                      "Local s = Shout(\"hi\")\n"
                      "s = s + s\n"
                      "Print(s)") == with_print("function Shout(String) -> String\n"
@@ -72,13 +76,17 @@ TEST_CASE("a String temporary moves into the variable that takes it", "[mir]") {
                                                "    _0: String\n"
                                                "    _1 s: String\n"
                                                "    _2: String\n"
+                                               "    _3: String[]\n"
                                                "bb0:\n"
                                                "    _0 = call Shout(String)(\"hi\")\n"
                                                "    _1 = _0\n"
                                                "    _2 = concat(_1, _1)\n"
                                                "    release _1\n"
                                                "    _1 = _2\n"
-                                               "    call std.core.print.Print(String)(_1)\n"
+                                               "    retain _1\n"
+                                               "    _3 = String[] [_1]\n"
+                                               "    call std.core.print.Print(String[])(_3)\n"
+                                               "    release _3\n"
                                                "    release _1\n"
                                                "    return\n"));
 }
@@ -227,7 +235,8 @@ TEST_CASE("ByRef passes the variable, and defaults are filled in", "[mir]") {
 TEST_CASE("Globals known at compile time are static; the rest are set first in main", "[mir]") {
     // h depends on a Global, so it starts at 0, and main sets it before the Print even though
     // the Print comes first in the source, then marks it ready.
-    CHECK(lower_text("Print(name)\n"
+    CHECK(lower_text("Import std.core\n"
+                     "Print(name)\n"
                      "Global g = 1\n"
                      "Global h = g * 2\n"
                      "Global name = \"fb\"") ==
@@ -237,14 +246,14 @@ TEST_CASE("Globals known at compile time are static; the rest are set first in m
                      "\n"
                      "function main\n"
                      "    _0: Int32\n"
-                     "    _1: String\n"
+                     "    _1: String[]\n"
                      "bb0:\n"
                      "    _0 = @g * 2\n"
                      "    @h = _0\n"
                      "    ready @h\n"
-                     "    _1 = @name\n"
-                     "    retain _1\n"
-                     "    call std.core.print.Print(String)(_1)\n"
+                     "    retain @name\n"
+                     "    _1 = String[] [@name]\n"
+                     "    call std.core.print.Print(String[])(_1)\n"
                      "    release _1\n"
                      "    return\n"));
 
@@ -335,7 +344,8 @@ TEST_CASE("a ByRef Method gets its Struct's address, and == compares fields", "[
 TEST_CASE("a new object gets its field defaults, and a Class lists its Destroy", "[mir]") {
     // The runtime zeroes a new object, so only the String (whose zero is "") and the field with
     // a default are set. Changing t.name releases the old one through the reference.
-    CHECK(lower_text("Class Tag\n"
+    CHECK(lower_text("Import std.core\n"
+                     "Class Tag\n"
                      "    Field name: String\n"
                      "    Field id: Int = 7\n"
                      "    Field count: Int\n"
@@ -348,11 +358,11 @@ TEST_CASE("a new object gets its field defaults, and a Class lists its Destroy",
                                                      "\n"
                                                      "function Tag.Destroy()\n"
                                                      "    _0 Self: Tag\n"
-                                                     "    _1: String\n"
+                                                     "    _1: String[]\n"
                                                      "bb0:\n"
-                                                     "    _1 = _0.name\n"
-                                                     "    retain _1\n"
-                                                     "    call std.core.print.Print(String)(_1)\n"
+                                                     "    retain _0.name\n"
+                                                     "    _1 = String[] [_0.name]\n"
+                                                     "    call std.core.print.Print(String[])(_1)\n"
                                                      "    release _1\n"
                                                      "    return\n"
                                                      "\n"
@@ -697,7 +707,8 @@ TEST_CASE("For ... In holds the array, and checks its Count before each pass", "
 
 TEST_CASE("Has, As to an Enum, and an Enum's text", "[mir]") {
     // The values run from 0 to 1, so As checks a range. A string's State needs State.Text.
-    CHECK(lower_text("Enum State\n"
+    CHECK(lower_text("Import std.core\n"
+                     "Enum State\n"
                      "    Idle, Walk\n"
                      "End Enum\n"
                      "@Flags Enum Layer\n"
@@ -740,12 +751,14 @@ TEST_CASE("Has, As to an Enum, and an Enum's text", "[mir]") {
                      "    _0: State\n"
                      "    _1: String\n"
                      "    _2: String\n"
+                     "    _3: String[]\n"
                      "bb0:\n"
                      "    _0 = call F(Int32, Layer)(0, Layer.World)\n"
                      "    _1 = call State.Text(State)(_0)\n"
                      "    _2 = join(_1)\n"
-                     "    call std.core.print.Print(String)(_2)\n"
-                     "    release _2\n"
+                     "    _3 = String[] [_2]\n"
+                     "    call std.core.print.Print(String[])(_3)\n"
+                     "    release _3\n"
                      "    release _1\n"
                      "    return\n"
                      "\n"
@@ -774,7 +787,8 @@ TEST_CASE("Has, As to an Enum, and an Enum's text", "[mir]") {
 TEST_CASE("a Defer's statement is lowered at each way out of its block", "[mir]") {
     // Continue runs the loop body's; Return runs the loop body's, then the function's. The value
     // Return names is copied first.
-    CHECK(lower_text("Function F(n: Int): Int\n"
+    CHECK(lower_text("Import std.core\n"
+                     "Function F(n: Int): Int\n"
                      "    Defer Print(\"out\")\n"
                      "    For i = 1 To n\n"
                      "        Defer Print(\"pass\")\n"
@@ -789,13 +803,18 @@ TEST_CASE("a Defer's statement is lowered at each way out of its block", "[mir]"
                                  "    _2: Int32\n"
                                  "    _3: Bool\n"
                                  "    _4: Bool\n"
-                                 "    _5: Bool\n"
-                                 "    _6: Int32\n"
+                                 "    _5: String[]\n"
+                                 "    _6: Bool\n"
                                  "    _7: Int32\n"
-                                 "    _8: UInt32\n"
-                                 "    _9: UInt32\n"
-                                 "    _10: Bool\n"
+                                 "    _8: String[]\n"
+                                 "    _9: String[]\n"
+                                 "    _10: String[]\n"
                                  "    _11: Int32\n"
+                                 "    _12: UInt32\n"
+                                 "    _13: UInt32\n"
+                                 "    _14: Bool\n"
+                                 "    _15: Int32\n"
+                                 "    _16: String[]\n"
                                  "bb0:\n"
                                  "    _1 = 1\n"
                                  "    _2 = _0\n"
@@ -807,35 +826,45 @@ TEST_CASE("a Defer's statement is lowered at each way out of its block", "[mir]"
                                  "    _4 = _1 == 2\n"
                                  "    branch _4, bb3, bb4\n"
                                  "bb3:\n"
-                                 "    call std.core.print.Print(String)(\"pass\")\n"
+                                 "    _5 = String[] [\"pass\"]\n"
+                                 "    call std.core.print.Print(String[])(_5)\n"
+                                 "    release _5\n"
                                  "    goto bb9\n"
                                  "bb4:\n"
                                  "    goto bb5\n"
                                  "bb5:\n"
-                                 "    _5 = _1 == 3\n"
-                                 "    branch _5, bb6, bb7\n"
+                                 "    _6 = _1 == 3\n"
+                                 "    branch _6, bb6, bb7\n"
                                  "bb6:\n"
-                                 "    _6 = _1\n"
-                                 "    call std.core.print.Print(String)(\"pass\")\n"
-                                 "    call std.core.print.Print(String)(\"out\")\n"
-                                 "    return _6\n"
+                                 "    _7 = _1\n"
+                                 "    _8 = String[] [\"pass\"]\n"
+                                 "    call std.core.print.Print(String[])(_8)\n"
+                                 "    release _8\n"
+                                 "    _9 = String[] [\"out\"]\n"
+                                 "    call std.core.print.Print(String[])(_9)\n"
+                                 "    release _9\n"
+                                 "    return _7\n"
                                  "bb7:\n"
                                  "    goto bb8\n"
                                  "bb8:\n"
-                                 "    call std.core.print.Print(String)(\"pass\")\n"
+                                 "    _10 = String[] [\"pass\"]\n"
+                                 "    call std.core.print.Print(String[])(_10)\n"
+                                 "    release _10\n"
                                  "    goto bb9\n"
                                  "bb9:\n"
-                                 "    _7 = wrapping(_2 - _1)\n"
-                                 "    _8 = _7 As UInt32\n"
-                                 "    _9 = 1 As UInt32\n"
-                                 "    _10 = _8 < _9\n"
-                                 "    _11 = wrapping(_1 + 1)\n"
-                                 "    branch _10, bb11, bb10\n"
+                                 "    _11 = wrapping(_2 - _1)\n"
+                                 "    _12 = _11 As UInt32\n"
+                                 "    _13 = 1 As UInt32\n"
+                                 "    _14 = _12 < _13\n"
+                                 "    _15 = wrapping(_1 + 1)\n"
+                                 "    branch _14, bb11, bb10\n"
                                  "bb10:\n"
-                                 "    _1 = _11\n"
+                                 "    _1 = _15\n"
                                  "    goto bb2\n"
                                  "bb11:\n"
-                                 "    call std.core.print.Print(String)(\"out\")\n"
+                                 "    _16 = String[] [\"out\"]\n"
+                                 "    call std.core.print.Print(String[])(_16)\n"
+                                 "    release _16\n"
                                  "    return 0\n"
                                  "\n") +
                      std::string(empty_main)));
@@ -861,7 +890,8 @@ TEST_CASE("a function that throws puts its error in its caller's variable", "[mi
     // F's last parameter is the caller's variable. When it throws, it returns a value that G
     // never reads. G's Try? drops the error and gives Null. Error.New comes from the standard
     // library, which only adds what the program uses, after main.
-    CHECK(lower_text("Class Oops Extends Error\n"
+    CHECK(lower_text("Import std.core\n"
+                     "Class Oops Extends Error\n"
                      "End Class\n"
                      "Function F(n: Int): Int Throws Oops\n"
                      "    If n < 0 Then Throw Oops(\"negative\")\n"
@@ -876,16 +906,21 @@ TEST_CASE("a function that throws puts its error in its caller's variable", "[mi
           "    _1 ByRef error: std.core.error.Error?\n"
           "    _2: Bool\n"
           "    _3: Oops\n"
-          "    _4: std.core.error.Error?\n"
+          "    _4: std.core.error.Place\n"
+          "    _5: std.core.error.Error?\n"
           "bb0:\n"
           "    _2 = _0 < 0\n"
           "    branch _2, bb1, bb2\n"
           "bb1:\n"
           "    _3 = new Oops\n"
           "    _3.Message = \"\"\n"
-          "    call std.core.error.Error.New(String)(_3, \"negative\")\n"
-          "    _4 = _3 As std.core.error.Error?\n"
-          "    _1 = _4\n"
+          "    _4 = zero std.core.error.Place\n"
+          "    _3.Place = _4\n"
+          "    call std.core.error.Error.New(String, std.core.error.Error?)(_3, \"negative\", "
+          "Null)\n"
+          "    thrown(_3)\n"
+          "    _5 = _3 As std.core.error.Error?\n"
+          "    _1 = _5\n"
           "    return 0\n"
           "bb2:\n"
           "    goto bb3\n"
@@ -929,20 +964,25 @@ TEST_CASE("a function that throws puts its error in its caller's variable", "[mi
           "bb0:\n"
           "    return\n"
           "\n"
-          "function std.core.error.Error.New(String)\n"
+          "function std.core.error.Error.New(String, std.core.error.Error?)\n"
           "    _0 Self: std.core.error.Error\n"
           "    _1 message: String\n"
+          "    _2 cause: std.core.error.Error?\n"
           "bb0:\n"
           "    retain _1\n"
           "    release _0.Message\n"
           "    _0.Message = _1\n"
+          "    retain _2\n"
+          "    release _0.Cause\n"
+          "    _0.Cause = _2\n"
           "    return\n");
 }
 
 TEST_CASE("a Try's Catches test the error's Class, and its Finally runs on every way out",
           "[mir]") {
     // Where no Catch matches, top-level code lets the error out, after the Finally.
-    CHECK(lower_text("Class Oops Extends Error\n"
+    CHECK(lower_text("Import std.core\n"
+                     "Class Oops Extends Error\n"
                      "End Class\n"
                      "Function F() Throws Oops\n"
                      "End Function\n"
@@ -966,7 +1006,9 @@ TEST_CASE("a Try's Catches test the error's Class, and its Finally runs on every
                                               "    _2: Bool\n"
                                               "    _3: Bool\n"
                                               "    _4 e: Oops\n"
-                                              "    _5: String\n"
+                                              "    _5: String[]\n"
+                                              "    _6: String[]\n"
+                                              "    _7: String[]\n"
                                               "bb0:\n"
                                               "    _1 = Null\n"
                                               "    call F()(ByRef _1)\n"
@@ -982,21 +1024,24 @@ TEST_CASE("a Try's Catches test the error's Class, and its Finally runs on every
                                               "    branch _3, bb4, bb5\n"
                                               "bb4:\n"
                                               "    _4 = downcast _0 As Oops\n"
-                                              "    _5 = _4.Message\n"
-                                              "    retain _5\n"
-                                              "    call std.core.print.Print(String)(_5)\n"
+                                              "    retain _4.Message\n"
+                                              "    _5 = String[] [_4.Message]\n"
+                                              "    call std.core.print.Print(String[])(_5)\n"
                                               "    release _5\n"
                                               "    release _4\n"
                                               "    goto bb6\n"
                                               "bb5:\n"
-                                              "    call std.core.print.Print(String)(\"done\")\n"
+                                              "    _6 = String[] [\"done\"]\n"
+                                              "    call std.core.print.Print(String[])(_6)\n"
+                                              "    release _6\n"
                                               "    uncaught(_0)\n"
                                               "    unreachable\n"
                                               "bb6:\n"
-                                              "    call std.core.print.Print(String)(\"done\")\n"
+                                              "    _7 = String[] [\"done\"]\n"
+                                              "    call std.core.print.Print(String[])(_7)\n"
+                                              "    release _7\n"
                                               "    return\n"));
 }
-
 TEST_CASE("a Weak<T> counts a weak reference, and reading it makes a strong one", "[mir]") {
     // Storing retains and releases weak references. Reading gives a new reference, which
     // Return hands to the caller.
@@ -1035,7 +1080,8 @@ TEST_CASE("a Weak<T> counts a weak reference, and reading it makes a strong one"
 TEST_CASE("an object whose New throws is discarded instead of released", "[mir]") {
     // Discarding releases the fields without running Destroy, which could read ones that New
     // didn't set.
-    CHECK(lower_text("Class Bad Extends Error\n"
+    CHECK(lower_text("Import std.core\n"
+                     "Class Bad Extends Error\n"
                      "End Class\n"
                      "Class A\n"
                      "    New() Throws Bad\n"
@@ -2075,7 +2121,8 @@ TEST_CASE("what an Extend adds is a function of its type, and T[]'s has an insta
 
 TEST_CASE("For ... In over an Iterator calls its Next until it gives Null", "[mir]") {
     // The loop goes over a copy, which Next changes, and x takes what Next gave.
-    CHECK(lower_text("Struct Countdown Implements Iterator<Int>\n"
+    CHECK(lower_text("Import std.core\n"
+                     "Struct Countdown Implements Iterator<Int>\n"
                      "    Field N: Int\n"
                      "    ByRef Method Next(): Int?\n"
                      "        N -= 1\n"
@@ -2100,6 +2147,7 @@ TEST_CASE("For ... In over an Iterator calls its Next until it gives Null", "[mi
                                               "    _4 x: Int32\n"
                                               "    _5: String\n"
                                               "    _6: String\n"
+                                              "    _7: String[]\n"
                                               "bb0:\n"
                                               "    _0 = Countdown { N: 2 }\n"
                                               "    _1 = _0\n"
@@ -2112,8 +2160,9 @@ TEST_CASE("For ... In over an Iterator calls its Next until it gives Null", "[mi
                                               "    _4 = _2.value\n"
                                               "    _5 = to_text(_4)\n"
                                               "    _6 = join(_5)\n"
-                                              "    call std.core.print.Print(String)(_6)\n"
-                                              "    release _6\n"
+                                              "    _7 = String[] [_6]\n"
+                                              "    call std.core.print.Print(String[])(_7)\n"
+                                              "    release _7\n"
                                               "    release _5\n"
                                               "    goto bb3\n"
                                               "bb3:\n"
@@ -2121,7 +2170,6 @@ TEST_CASE("For ... In over an Iterator calls its Next until it gives Null", "[mi
                                               "bb4:\n"
                                               "    return\n"));
 }
-
 TEST_CASE("a slice checks its bounds, then copies the elements into a new array", "[mir]") {
     CHECK(lower_text("Local xs = [1, 2, 3]\nLocal s = xs[1..]") ==
           "function main\n"
@@ -2229,6 +2277,9 @@ TEST_CASE("@Inline marks the function, and a Const Function's call with known ar
                                                     "    _0 = call Twice(Int32)(3)\n"
                                                     "    _1 = _0\n"
                                                     "    return\n");
+    // So does @PanicsAtCaller, which codegen gives each call's place.
+    CHECK(lower_text("@PanicsAtCaller Function Half(x: Int): Int => x / 2\nLocal y = Half(4)")
+              .starts_with("@PanicsAtCaller function Half(Int32) -> Int32\n"));
 }
 
 TEST_CASE("a Const type parameter is its instance's value", "[mir]") {

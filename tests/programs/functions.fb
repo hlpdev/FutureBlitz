@@ -1,4 +1,6 @@
 // Recursion, overloads, defaults and named arguments, ByRef, Consts, and a top-level Return.
+Import std.core
+
 Function Fib(n: Int): Int
     If n < 2 Then Return n
     Return Fib(n - 1) + Fib(n - 2)

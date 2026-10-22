@@ -1,0 +1,19 @@
+// @PanicsAtCaller makes a function's panics report where it's called: here, the line that
+// calls Checked, through Element, which is @PanicsAtCaller too, so it passes that place on, even
+// for an index out of range.
+Import std.core
+
+Global values = [10, 20, 30]
+
+@PanicsAtCaller
+Function Element(n: Int): Int
+    Assert(n >= 0, "{n} is negative")
+    Return values[n]
+End Function
+
+@PanicsAtCaller
+Function Checked(n: Int): Int => Element(n) * 2
+
+Print("{Checked(1)}")
+Local total = Checked(1) +
+    Checked(5)

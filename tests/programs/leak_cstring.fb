@@ -1,4 +1,5 @@
 // A CString that CString.From made and nothing gave back shows in the leak report.
+Import std.core
 Import std.ffi
 
 Local kept = CString.From("kept")

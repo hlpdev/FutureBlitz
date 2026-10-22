@@ -1,0 +1,39 @@
+// An attribute from a module imported As comes after its qualifier, on a declaration and in
+// reflection, and a qualified one is the module's own, even with a built-in's name.
+
+Import std.core
+Import "./attribute_alias/tags" As T
+
+@T.Label("Settings")
+Struct Setting
+    @T.Label("Volume")
+    Field volume: Int
+    Field hidden: Bool
+    @T.Label("Name")
+    @T.Inline
+    Field name: String
+End Struct
+
+@Inline
+Function Twice(n: Int): Int => n * 2
+
+Function Labels<S>(): String
+    Local text = ""
+    For Field f In S
+        Local label = f.Attribute(T.Label)
+        If label != Null Then text = text + "[{f.Name}: {label.Text}]"
+        If !f.Has(T.Label) Then text = text + "[{f.Name}]"
+    End For
+
+    Return text
+End Function
+
+Print(Labels<Setting>())
+Local own = Setting.Attribute(T.Label)
+If own != Null Then Print("{Setting.Has(T.Label)} {own.Text}")
+
+For Field f In Setting
+    Print(f.Name, f.Has(T.Inline))
+End For
+
+Print(Twice(4))

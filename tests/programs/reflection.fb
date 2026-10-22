@@ -1,6 +1,8 @@
 // For Field and For Method go over a type's members at compile time, and attributes that
 // Attribute declarations declare say things about them.
 
+Import std.core
+
 Enum Level
     Low
     High

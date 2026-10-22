@@ -1,0 +1,10 @@
+// An uncaught error's report shows a hundred of its Causes, then says there are more, which a
+// Cause chain that goes in a circle always has.
+Import std.core
+
+Local e = Error("level 0")
+For i = 1 To 149
+    e = Error("level {i}", e)
+End For
+
+Throw e

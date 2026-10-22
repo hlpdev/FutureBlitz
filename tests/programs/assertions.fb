@@ -1,0 +1,24 @@
+// AssertEqual, DebugAssert, Unreachable, and Todo, where none of them fails: AssertEqual takes
+// what's Equatable and Printable, Unreachable ends a path that can't be taken, and Todo one that
+// isn't written yet.
+Import std.core
+
+AssertEqual(2 + 2, 4)
+AssertEqual("ab" + "c", "abc", "joined")
+AssertEqual([1, 2], [1, 2])
+DebugAssert(1 < 2)
+DebugAssert(True, "always")
+
+Function Sign(n: Int): Int
+    If n > 0 Then Return 1
+    If n < 0 Then Return -1
+    If n == 0 Then Return 0
+    Unreachable()
+End Function
+
+Function Save(path: String): Bool
+    If path == "" Then Return False
+    Todo("saving to {path}")
+End Function
+
+Print("{Sign(-4)} {Sign(0)} {Sign(9)} {Save("")}")

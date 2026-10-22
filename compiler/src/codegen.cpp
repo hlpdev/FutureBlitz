@@ -183,6 +183,9 @@ private:
     /// The function each Callback calls through, by the function it calls and whether that's a
     /// lambda's code.
     std::map<std::pair<std::uint32_t, bool>, LLVMValueRef> m_thunks;
+    /// For each @PanicsAtCaller function an Interface's table holds, the function that calls it
+    /// without a place.
+    std::unordered_map<function_id_t, LLVMValueRef> m_placeless;
     std::unique_ptr<LLVMOpaqueContext, context_deleter_t> m_context;
     std::unique_ptr<LLVMOpaqueModule, module_deleter_t> m_module;
     std::unique_ptr<LLVMOpaqueBuilder, builder_deleter_t> m_builder;
@@ -235,6 +238,7 @@ private:
     function_ref_t m_panic;
     function_ref_t m_panic_string;
     function_ref_t m_error_uncaught;
+    function_ref_t m_error_thrown;
     function_ref_t m_object_new;
     function_ref_t m_object_retain;
     function_ref_t m_object_release;
@@ -698,6 +702,7 @@ private:
         m_panic = declare("fb_panic", m_void, { m_ptr, m_ptr });
         m_panic_string = declare("fb_panic_string", m_void, { m_ptr, m_ptr });
         m_error_uncaught = declare("fb_error_uncaught", m_void, { m_ptr, m_ptr });
+        m_error_thrown = declare("fb_error_thrown", m_void, { m_ptr, m_ptr });
         m_object_new = declare("fb_object_new", m_ptr, { m_ptr });
         m_object_retain = declare("fb_object_retain", m_void, { m_ptr });
         m_object_release = declare("fb_object_release", m_void, { m_ptr });
@@ -795,6 +800,54 @@ private:
         return m_interfaces[interface] = global;
     }
 
+    /// A function as an Interface's table holds it: itself, or for a @PanicsAtCaller one, which
+    /// a call through the Interface gives no place, a function that calls it with none.
+    LLVMValueRef without_place(const function_id_t id) {
+        const mir_function_t& function = m_mir.functions[index(id)];
+        const function_ref_t& declared = m_functions[index(id)];
+        if (!function.panics_at_caller) {
+            return declared.value;
+        }
+
+        if (const auto found = m_placeless.find(id); found != m_placeless.end()) {
+            return found->second;
+        }
+
+        std::vector<LLVMTypeRef> parameters(LLVMCountParamTypes(declared.type));
+        LLVMGetParamTypes(declared.type, parameters.data());
+        parameters.pop_back();
+        LLVMTypeRef type = LLVMFunctionType(LLVMGetReturnType(declared.type), parameters.data(),
+                                            static_cast<unsigned>(parameters.size()), 0);
+        const std::string name = std::format("fb.{} without its place", function.name);
+        LLVMValueRef thunk = LLVMAddFunction(m_module.get(), name.c_str(), type);
+        LLVMSetLinkage(thunk, LLVMInternalLinkage);
+        LLVMBasicBlockRef current = LLVMGetInsertBlock(builder());
+        LLVMValueRef outer = std::exchange(m_llvm_function, thunk);
+        LLVMPositionBuilderAtEnd(builder(),
+                                 LLVMAppendBasicBlockInContext(context(), thunk, "entry"));
+        std::vector<LLVMValueRef> arguments;
+        arguments.reserve(parameters.size() + 1);
+        for (unsigned i = 0; i < parameters.size(); ++i) {
+            arguments.push_back(LLVMGetParam(thunk, i));
+        }
+
+        arguments.push_back(LLVMConstNull(m_ptr));
+        LLVMValueRef result = call(declared, std::move(arguments));
+        if (LLVMGetTypeKind(LLVMGetReturnType(type)) == LLVMVoidTypeKind) {
+            LLVMBuildRetVoid(builder());
+        } else {
+            LLVMBuildRet(builder(), result);
+        }
+
+        m_llvm_function = outer;
+        if (current != nullptr) {
+            LLVMPositionBuilderAtEnd(builder(), current);
+        }
+
+        m_placeless.emplace(id, thunk);
+        return thunk;
+    }
+
     /// A Class's fb_implementation_t for each Interface its objects implement, each with a table
     /// of its own, and how many there are.
     std::pair<LLVMValueRef, LLVMValueRef> implementations(const mir_class_t& info) {
@@ -808,7 +861,7 @@ private:
             std::vector<LLVMValueRef> methods;
             methods.reserve(implementation.methods.size());
             for (const function_id_t method : implementation.methods) {
-                methods.push_back(m_functions[index(method)].value);
+                methods.push_back(without_place(method));
             }
 
             LLVMValueRef table_value = LLVMConstArray2(m_ptr, methods.data(), methods.size());
@@ -992,6 +1045,11 @@ private:
             for (std::size_t i = 0; i < function.parameter_count; ++i) {
                 const local_t& parameter = function.locals[i];
                 parameters.push_back(parameter.by_ref ? m_ptr : llvm_type(parameter.type));
+            }
+
+            // A @PanicsAtCaller function takes its call's fb_location_t last.
+            if (function.panics_at_caller) {
+                parameters.push_back(m_ptr);
             }
 
             // An Async Function's code is a coroutine, which gives its handle.
@@ -1424,6 +1482,11 @@ private:
             arguments.push_back(argument);
         }
 
+        // C gives a @PanicsAtCaller function no place, so its panics report where they are.
+        if (m_mir.functions[index(node.function)].panics_at_caller) {
+            arguments.push_back(LLVMConstNull(m_ptr));
+        }
+
         LLVMValueRef result = call(m_functions[index(node.function)], std::move(arguments));
         if (info.inner == type_id_t::NONE) {
             LLVMBuildRetVoid(builder());
@@ -1570,8 +1633,36 @@ private:
         return global;
     }
 
-    /// An fb_location_t for a span, for panics to report.
+    /// An fb_location_t for a span, for panics to report. In a @PanicsAtCaller function's code,
+    /// it's where its call is, when its caller gives one.
     LLVMValueRef location(const span_t span) {
+        LLVMValueRef own = own_location(span);
+        LLVMValueRef place = caller_place();
+        if (place == nullptr) {
+            return own;
+        }
+
+        LLVMValueRef none = LLVMBuildICmp(builder(), LLVMIntEQ, place, LLVMConstNull(m_ptr), "");
+        return LLVMBuildSelect(builder(), none, own, place, "");
+    }
+
+    /// In the code of a @PanicsAtCaller function: the place its caller gives, the hidden
+    /// parameter after the others, which is null where the caller has none. Null in other code.
+    [[nodiscard]] LLVMValueRef caller_place() const {
+        if (m_function == nullptr || !m_function->panics_at_caller) {
+            return nullptr;
+        }
+
+        const auto at = static_cast<std::size_t>(m_function - m_mir.functions.data());
+        if (m_llvm_function != m_functions[at].value) {
+            return nullptr;
+        }
+
+        return LLVMGetParam(m_llvm_function, static_cast<unsigned>(m_function->parameter_count));
+    }
+
+    /// The fb_location_t of `span` itself.
+    LLVMValueRef own_location(const span_t span) {
         const source_file_t& file = m_sources.get(span.file);
         const location_t start = file.location_of(span.begin, column_unit_t::CODEPOINT);
         std::array<LLVMValueRef, 3> fields{
@@ -2775,6 +2866,11 @@ private:
                                                 : value_of(argument.value));
         }
 
+        // A @PanicsAtCaller function takes where its call is, or null where no code calls it.
+        if (m_mir.functions[index(node.function)].panics_at_caller) {
+            arguments.push_back(node.place ? location(*node.place) : LLVMConstNull(m_ptr));
+        }
+
         function_ref_t function = m_functions[index(node.function)];
         if (node.interface != type_id_t::INVALID && node.slot) {
             function.value = interface_method(arguments[0], node.interface, *node.slot);
@@ -3174,6 +3270,14 @@ private:
         case runtime_function_t::ERROR_UNCAUGHT:
             return call(m_error_uncaught,
                         { value_of(node.arguments[0]), location(node.span.value_or(span_t{})) });
+        case runtime_function_t::DEBUG_BUILD:
+            return LLVMConstInt(m_bool, checked() ? 1 : 0, 0);
+        // A Throw's place is its own, even in a @PanicsAtCaller function's code.
+        case runtime_function_t::ERROR_THROWN:
+            return call(m_error_thrown, {
+                                            value_of(node.arguments[0]),
+                                            own_location(node.span.value_or(span_t{})),
+                                        });
         case runtime_function_t::WEAK_LOAD:
             return call(m_load_weak, { value_of(node.arguments[0]) });
         case runtime_function_t::OBJECT_DISCARD:

@@ -1,9 +1,143 @@
-// The Class every error extends. Its first field is Message, which the runtime reads when
-// top-level code lets an error out.
+// Error, the Class every error extends, and each area's own: one Error per area, whose Kind says
+// what went wrong, so a Throws list stays short and a Catch can still tell kinds apart.
+
+Import std.core.interfaces
+
+// Where in a program's source something is: its file, as the build names it, and its line and
+// column, from 1. A Place whose Line is 0 is nowhere yet.
+Public Struct Place Implements Printable
+    Public ReadOnly Field File: String
+    Public ReadOnly Field Line: Int
+    Public ReadOnly Field Column: Int
+
+    Public Method ToString(): String => "{File}:{Line}:{Column}"
+End Struct
+
+// The Class every error extends. Its first fields are Message, Cause, and Place, in that order,
+// which the runtime reads and writes: Throw sets Place, unless the error has one from an earlier
+// Throw, and top-level code that lets an error out shows all three, and its Cause's.
 Public Class Error
     Public Field Message: String
+    // The error this one comes from, as when code that catches one throws its own.
+    Public Field Cause: Error?
+    // Where it was first thrown.
+    Public ReadOnly Field Place: Place
 
-    Public New(message: String = "")
+    Public New(message: String = "", cause: Error? = Null)
         Message = message
+        Cause = cause
+    End New
+End Class
+
+// What kind of ArgumentError: a required argument that's missing, one that isn't known, or one
+// whose value doesn't fit.
+Public Enum ArgumentErrorKind
+    MISSING, UNKNOWN, INVALID, OTHER
+End Enum
+
+// A program's arguments, or another function's, that it can't take. Name is the argument's,
+// when there is one.
+Public Class ArgumentError Extends Error
+    Public ReadOnly Field Kind: ArgumentErrorKind
+    Public ReadOnly Field Name: String?
+
+    Public New(kind: ArgumentErrorKind, message: String, name: String? = Null,
+               cause: Error? = Null)
+        Super.New(message, cause)
+        Kind = kind
+        Name = name
+    End New
+End Class
+
+Public Enum IOErrorKind
+    NOT_FOUND, PERMISSION_DENIED, ALREADY_EXISTS, UNEXPECTED_END, INTERRUPTED, OTHER
+End Enum
+
+// Reading or writing a file, a stream, or the console failed. Path is the file's, when there is
+// one.
+Public Class IOError Extends Error
+    Public ReadOnly Field Kind: IOErrorKind
+    Public ReadOnly Field Path: String?
+
+    Public New(kind: IOErrorKind, message: String, path: String? = Null, cause: Error? = Null)
+        Super.New(message, cause)
+        Kind = kind
+        Path = path
+    End New
+End Class
+
+// What kind of ParseError: text that isn't the format, text that ends too soon, a value of
+// another type than the one asked for, or a number too big for its type.
+Public Enum ParseErrorKind
+    SYNTAX, UNEXPECTED_END, WRONG_TYPE, OUT_OF_RANGE, OTHER
+End Enum
+
+// Text that doesn't read as its format, at Line and Column, from 1, or 0 when it isn't known.
+Public Class ParseError Extends Error
+    Public ReadOnly Field Kind: ParseErrorKind
+    Public ReadOnly Field Line: Int
+    Public ReadOnly Field Column: Int
+
+    Public New(kind: ParseErrorKind, message: String, line: Int = 0, column: Int = 0,
+               cause: Error? = Null)
+        Super.New(message, cause)
+        Kind = kind
+        Line = line
+        Column = column
+    End New
+End Class
+
+// What kind of FormatError: a template that isn't one, one that names a value it isn't given,
+// or a value its spec doesn't fit.
+Public Enum FormatErrorKind
+    BAD_TEMPLATE, MISSING_VALUE, BAD_VALUE, OTHER
+End Enum
+
+// A template that Format can't fill.
+Public Class FormatError Extends Error
+    Public ReadOnly Field Kind: FormatErrorKind
+
+    Public New(kind: FormatErrorKind, message: String, cause: Error? = Null)
+        Super.New(message, cause)
+        Kind = kind
+    End New
+End Class
+
+// Something took longer than it was given.
+Public Class TimeoutError Extends Error
+End Class
+
+// What kind of NetError: a connection the other side refused or reset, a network or host that
+// can't be reached or found, one that's closed, or TLS that failed.
+Public Enum NetErrorKind
+    REFUSED, RESET, UNREACHABLE, HOST_NOT_FOUND, CLOSED, TLS, OTHER
+End Enum
+
+// Talking over a network failed. Address is the other side's, when there is one.
+Public Class NetError Extends Error
+    Public ReadOnly Field Kind: NetErrorKind
+    Public ReadOnly Field Address: String?
+
+    Public New(kind: NetErrorKind, message: String, address: String? = Null,
+               cause: Error? = Null)
+        Super.New(message, cause)
+        Kind = kind
+        Address = address
+    End New
+End Class
+
+// What kind of DatabaseError: a constraint a change breaks, a database that another connection
+// holds, a query that isn't one, or a file that isn't a database.
+Public Enum DatabaseErrorKind
+    CONSTRAINT, BUSY, QUERY, CORRUPT, OTHER
+End Enum
+
+// A database couldn't do what it was asked.
+Public Class DatabaseError Extends Error
+    Public ReadOnly Field Kind: DatabaseErrorKind
+
+    Public New(kind: DatabaseErrorKind, message: String, cause: Error? = Null)
+        Super.New(message, cause)
+        Kind = kind
     End New
 End Class

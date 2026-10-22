@@ -1,6 +1,7 @@
 // Pointers in Unsafe code: AddressOf, Value, indexes, steps, conversions, SizeOf, Unsafe
 // Functions and Methods, and std.ffi's Mem and CString, with the C runtime.
 
+Import std.core
 Import std.ffi
 
 Extern "C"

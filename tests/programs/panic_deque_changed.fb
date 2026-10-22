@@ -1,4 +1,5 @@
 // Taking from a Deque while going over it panics.
+Import std.core
 Import std.collections
 
 Local deque = Deque<Int>()

@@ -27,6 +27,7 @@ RELEASE_DIFFERS = {
     "panic_struct": "release builds don't check the overflow it panics on",
     "panic_null_pointer": "release builds don't check a Ptr for Null",
     "panic_null_callback": "release builds don't check a Callback for Null, so it crashes",
+    "panic_debug_assert": "release builds leave DebugAssert out",
 }
 
 # A program is concurrent when it says one of these, and runs many times over.
@@ -83,8 +84,11 @@ def build_program(fb: Path, name: str, release: bool, folder: Path) -> Path | No
 
 
 def check_run(program: Path, name: str, expected: bytes, label: str) -> bool:
+    # A program with a .in file reads it as its input, as the program tests give it.
+    given = PROGRAMS / f"{name}.in"
     ran = subprocess.run([str(program)], cwd=PROGRAMS, stdout=subprocess.PIPE,
-                         stderr=subprocess.STDOUT)
+                         stderr=subprocess.STDOUT,
+                         input=given.read_bytes() if given.exists() else None)
     if ran.stdout == expected and ran.returncode == expected_code(name):
         return True
     fail(f"{name} ({label}) printed:\n{ran.stdout.decode(errors='replace')}"

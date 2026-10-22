@@ -1,3 +1,5 @@
 // A Panic's message is shown whole, past a NUL in it.
+Import std.core
+
 Print("before")
 Panic("first part\u{0}second part")
