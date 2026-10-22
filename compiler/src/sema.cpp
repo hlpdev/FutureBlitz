@@ -19176,8 +19176,11 @@ private:
             const auto place = std::ranges::find(parameters, parameter);
             const auto index = static_cast<std::size_t>(place - parameters.begin());
             const std::optional<type_id_t> known = index < told.size() ? told[index] : std::nullopt;
+            // A Const type parameter takes a value.
             example += example.empty() ? "" : ", ";
-            example += known ? name_of(*known) : "Int";
+            example += known                         ? name_of(*known)
+                       : is_value_parameter(parameter) ? "1"
+                                                       : "Int";
         }
 
         error(span_of(node.callee),

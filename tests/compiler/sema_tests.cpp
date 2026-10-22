@@ -3074,6 +3074,10 @@ TEST_CASE("generic mistakes", "[sema]") {
     CHECK(errors_of("Function Zero<T>(): T => Zero()\nLocal z = Zero()") ==
           errors_t{ "Zero: can't tell what T is in this call; write the type arguments, like "
                     "Zero<Int>(...)" });
+    // A Const type parameter's example is a value.
+    CHECK(errors_of("Function Sized<Const N: Int, T>(): Int => N\nLocal s = Sized()") ==
+          errors_t{ "Sized: can't tell what N, T are in this call; write the type arguments, "
+                    "like Sized<1, Int>(...)" });
     // Only what the call doesn't tell, not an Interface's Self and T, which its value does, and
     // the call as written, with its object's parentheses.
     CHECK(errors_of("Import std.core\n"
