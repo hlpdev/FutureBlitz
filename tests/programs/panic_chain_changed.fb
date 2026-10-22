@@ -1,0 +1,13 @@
+// A collection that changes while a chain of adapters goes over it panics at its next value,
+// where the chain's consumer runs.
+Import std.core
+Import std.collections
+
+Local stack = Stack<Int>()
+stack.Push(1)
+stack.Push(2)
+Local doubled = stack.Iterate().Map(Function(n: Int): Int
+    stack.Push(n)
+    Return n * 2
+End Function)
+Print(doubled.ToArray())

@@ -1,0 +1,5 @@
+// Windows panics on a size below 1 where it's called, through an Iterator's value.
+Import std.core
+
+Local values: Iterator<Int> = (1 To 4).Map(Function(n: Int) => n * 2)
+Print(values.Windows(0).Count())

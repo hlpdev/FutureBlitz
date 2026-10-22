@@ -1,0 +1,5 @@
+// Repeated panics on a negative count where it's called.
+Import std.core
+
+Print(Repeated("a", 2).ToArray())
+Print(Repeated("a", -1).ToArray())

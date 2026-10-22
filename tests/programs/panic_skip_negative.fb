@@ -1,0 +1,8 @@
+// Skip panics on a negative count where it's called, on a collection's own iterator.
+Import std.core
+Import std.collections
+
+Local stack = Stack<Int>()
+stack.Push(1)
+Print(stack.Iterate().Skip(0).Count())
+Print(stack.Iterate().Skip(-4).Count())
