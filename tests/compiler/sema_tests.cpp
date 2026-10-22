@@ -6115,6 +6115,26 @@ TEST_CASE("a generic, conditional, or Final default runs as written, on an Inter
     CHECK(errors_of("Interface I\n    Final Method F()\nEnd Interface") ==
           errors_t{ "F: 'F' is Final, so it needs a body: a Final default is what every type that "
                     "implements the Interface has" });
+
+    // A default in the table that wraps Self in a Class implementing the Interface would need a
+    // copy of its own for each one it makes, without end, but a Final one runs where it's called.
+    constexpr std::string_view shown = "Interface Shown\n"
+                                       "    Method Show(): String\n"
+                                       "    {}Method Boxed(): Shown => Holder<Self>(Self)\n"
+                                       "End Interface\n"
+                                       "Class Holder<S: Shown> Implements Shown\n"
+                                       "    Field Inner: S\n"
+                                       "    New(inner: S)\n"
+                                       "        Inner = inner\n"
+                                       "    End New\n"
+                                       "    Method Show(): String => \"x\"\n"
+                                       "End Class";
+    CHECK(
+        errors_of(std::vformat(shown, std::make_format_args(""))) ==
+        errors_t{ "Holder<Self>(Self): 'Boxed' is in Shown's table, so each Holder<Self> it makes "
+                  "would need a copy of its own, which makes another, without end; make 'Boxed' "
+                  "Final" });
+    CHECK(errors_of(std::vformat(shown, std::make_format_args("Final "))).empty());
 }
 
 TEST_CASE("For ... In Try passes on the errors of a throwing Iterate", "[sema]") {

@@ -29,7 +29,7 @@ exe)
 
 ## Current step
 M6 (the full standard library), planned 2026-10-20 and 2026-10-21 in 32 steps (docs/milestones.md;
-design in docs/stdlib.md). Step 2, indexing, iteration, and ranges, is next.
+design in docs/stdlib.md). Step 3, collections I, is next.
 docs/milestones.md's Deferred work lists everything left for later, and where it's planned.
 
 Done in M6: step 0, CI: .github/workflows/ci.yml builds Debug and runs ctest on windows-2025
@@ -90,6 +90,34 @@ fb_cstring_free_known(); libuv's notices are one generated file (third_party's n
 under `FB_LIBUV_LICENSES`; reader_t keeps stdin's flags on POSIX (a terminal's copy, a pipe's
 F_GETFL); run_process() writes the input from a thread of its own; an uncaught error shows 100
 Causes and says there are more.
+Step 2, indexing, iteration, and ranges: `Operator []` and `Operator []=` are Methods of Self
+(parse_operator_name()'s "[]" and "[]=", sema's indexes() and indexing(), check_index_operator(); a
+Struct's or Interface's []= is ByRef); the parser makes a hidden call beside each index
+(`index_expr_t::call`, "object.[](indices)") and each assignment, op=, ++, or -- to one
+(`index_set`, "object.[]=(indices, value)", the value "object[indices] op value"), which sema
+checks only for a type that has_index_operator() (check_index_call(), check_index_set(), with
+`m_checked` so a shared part is checked once, takes_indices(), a []= that takes the indices as []
+does) and lowering lowers (`m_reused`, settled, in lower_index_set()); check_receiver() refuses a
+ByRef Method on what a Property gives and lets an object receiver through. Interface defaults
+outside the table: generic ones, conditional ones (Where lines on the Interface's own type
+parameters, implemented_bounds() in take_default(), and a type that can't meet one doesn't get
+it), and Final ones (newly allowed) run as written, through a value as a direct call with the
+Interface for Self (sema's and lowering's outside_table(), copies_outside_table() out of slotted()
+and is_virtual()); a type's own Method can't take their place (implementation_of()), a Class
+can't override the copy (check_inherited()), and a required generic Method makes an Interface only
+a constraint; type_arguments_follow() takes Self. Iterable<T>: boxes_into() lets a Method giving a
+Struct or Class that implements Iterator<T> implement one giving Iterator<T>; a table gets a thunk
+("X.Iterate() as Iterator<T>", boxing_thunk(), lower_boxing()) and generic code boxes at the call
+(boxed(), std's Package `Boxed<S, T>`, `analysis_t::boxed_iterator`); std's collections implement
+it. std/core/iterator.fb has Iterator<T>'s Final adapters and consumers over private Final
+Classes (Mapped, Filtered, Taken, ... Ordered over the Package MergeSort, moved from array.fb),
+Repeated, and Empty; Numeric has One (lowering's builtin_method()); @PanicsAtCaller goes on a
+Final, generic, or conditional default. Ranges: `range_expr_t` from parse_range() at
+`precedence::range`, between ? : and ?? (`m_counting` keeps a For loop's bounds and a Case's
+values as they were), sema's check_expr(range_expr_t) (`m_range`, T by the For loop's rule,
+integers only), and lowering's lower_expr(range_expr_t), which fills std/core/range.fb's
+Range<T> (Current, Step, Left, More), its count of steps worked out unsigned with wrapping
+arithmetic, a run-time direction picked by a branch, and an empty range its zero.
 
 Done: M5 (modules, packages, `project.toml`, FFI, bindgen), planned 2026-10-18 and finished
 2026-10-20, in 11 steps, then a review of each project (compiler, runtime, cli, std).

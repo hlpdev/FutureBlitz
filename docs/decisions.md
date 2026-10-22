@@ -649,6 +649,7 @@ Planned 2026-10-20 with the user; the design is in [stdlib.md](stdlib.md#m6s-des
 | A Method giving a Struct that implements an Interface implements a member giving that Interface, as collections' Iterate() implements Iterable<T>'s; through an Interface's value or generic code, the Struct goes in a box object (step 2) | For loops over a concrete collection stay free of allocation, and every collection is still an Iterable<T> |
 | `a To b` and `a Until b`, with `Step`, make a `Range<T>`, a Struct implementing Iterator<T>, for every integer type, with T by the For loop's rule; they bind looser than every binary operator but `? :`, and a Float range is an error (step 2) | both sides read as whole expressions, as in a For header, a range is made without an object, and Floats don't count exactly |
 | Numeric has a Static `One` beside `Zero` (step 2) | Product gives a T, as Sum does |
+| A default in an Interface's table can't make an object of a generic Class that implements the Interface with Self in its type arguments, like `Holder<Self>(Self)`; it's Final instead (step 2) | each such Class's table would need a copy of the default of its own, which makes another, without end |
 
 ## Engine, renderer, assets
 

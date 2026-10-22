@@ -356,6 +356,7 @@ public:
         each_item([this](const stmt_id_t id) { check_function(id); });
         check_threads();
         check_expansion();
+        check_table_defaults();
         return std::move(m_analysis);
     }
 
@@ -8994,6 +8995,63 @@ private:
                       "larger instance each time, without end",
                       parameter_owner(edge.to), shown_name(edge.argument), shown_name(edge.to));
             });
+        }
+    }
+
+    /// A default in an Interface's table runs for each type that implements the Interface, so
+    /// one that makes an object of a generic Class implementing it with Self inside, like
+    /// Holder<Self>, would need its own copy for that Class's instance, which makes another, and
+    /// so on without end. A Final default runs only where it's called, so it can. Reports each.
+    void check_table_defaults() {
+        for (const symbol_id_t id : m_analysis.functions) {
+            const symbol_t& method = symbol(id);
+            if (method.kind != symbol_kind_t::METHOD || !is_interface(method.owner) ||
+                method.modifiers.is_abstract || method.modifiers.is_static ||
+                outside_table(method) || !method.declaration ||
+                constraint_only(definition_of(method.owner))) {
+                continue;
+            }
+
+            const type_id_t interface = definition_of(method.owner);
+            const type_id_t self = self_of(interface);
+            const auto implements_it = [&](const type_id_t made) {
+                for (type_id_t current = made; current != type_id_t::INVALID;
+                     current = base_of(current)) {
+                    for (const type_id_t listed : m_analysis.types.get(current).interfaces) {
+                        if (m_analysis.types.extends(definition_of(listed), interface)) {
+                            return true;
+                        }
+                    }
+                }
+
+                return false;
+            };
+            const span_t body = m_ast.get(*method.declaration).span;
+            for (std::size_t i = 0; i < m_analysis.exprs.size(); ++i) {
+                const expr_info_t& info = m_analysis.exprs[i];
+                const span_t span = span_of(static_cast<expr_id_t>(i));
+                if (span.file != body.file || span.begin < body.begin || span.end > body.end ||
+                    !info.symbol || symbol(*info.symbol).kind != symbol_kind_t::CONSTRUCTOR ||
+                    info.type == type_id_t::INVALID) {
+                    continue;
+                }
+
+                const type_id_t made = non_null(info.type);
+                std::vector<type_id_t> inside;
+                parameters_in(made, inside);
+                if (m_analysis.types.get(made).generic == type_id_t::INVALID ||
+                    !std::ranges::contains(inside, self) || !implements_it(made)) {
+                    continue;
+                }
+
+                in_file(span.file, [&] {
+                    error(span,
+                          "'{}' is in {}'s table, so each {} it makes would need a copy of its "
+                          "own, which makes another, without end; make '{}' Final",
+                          method.name, shown_name(method.owner), shown_name(made), method.name);
+                });
+                break;
+            }
         }
     }
 
