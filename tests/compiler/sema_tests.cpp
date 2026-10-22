@@ -1826,6 +1826,18 @@ TEST_CASE("a T[]'s Count and Methods", "[sema]") {
                                "    Field Items: Int[]\n"
                                "    Field Name: String\n"
                                "End Struct\n";
+    // Count alone, in an Extend of T[], neither.
+    CHECK(errors_of(takers + "Extend T[]\n"
+                             "    Method Grow()\n"
+                             "        Bump(ByRef Count)\n"
+                             "    End Method\n"
+                             "    Unsafe Method Peek(): Int\n"
+                             "        Local p = AddressOf(Count)\n"
+                             "        Return p.Value\n"
+                             "    End Method\n"
+                             "End Extend") ==
+          errors_t{ "Count: Count is how many elements Self has, which only its Methods change",
+                    "Count: Count is how many elements Self has, which only its Methods change" });
     CHECK(errors_of(takers + "Local a = [1]\nBump(ByRef a.Count)") ==
           errors_t{ "a.Count: an array's Count can't be changed; use Add, Insert, RemoveAt, or "
                     "Clear" });
@@ -3066,6 +3078,18 @@ TEST_CASE("generic code that would need instances without end is an error", "[se
                     "Function Twice<T>(x: T): T[][] => Wrap(Wrap(x))\n"
                     "Local s = Same(Twice(1), 3)\n"
                     "Class Node<T>\n    Field next: Node<Node<T>>?\nEnd Class")
+              .empty());
+    // So does a Field of an instance whose argument doubles, which stops being made long before
+    // its names fill the memory.
+    CHECK(errors_of("Class Seq<T>\n"
+                    "    Field Deeper: Seq<(T, T)>?\n"
+                    "    Field Value: T\n"
+                    "    New(value: T)\n"
+                    "        Value = value\n"
+                    "    End New\n"
+                    "End Class\n"
+                    "Local s = Seq<Int>(1)\n"
+                    "Local none = s.Deeper == Null")
               .empty());
 }
 
@@ -6410,6 +6434,21 @@ TEST_CASE("a generic, conditional, or Final default runs as written, on an Inter
                                        "End Class\n";
     CHECK(errors_of(base + "Class Both Extends Base Implements Doubler\nEnd Class") ==
           errors_t{ taken });
+    // A generic Class extending the instance its own T makes, which some of its instances meet
+    // the default's Where lines for.
+    CHECK(errors_of(std::format("{}Interface Totaler\n"
+                                "    Method Total(): String => \"t\"\n"
+                                "End Interface\n"
+                                "Class Base<T> Implements Source<T>\n"
+                                "    Field Items: T[] = []\n"
+                                "    Method Take(): T => Items[0]\n"
+                                "End Class\n"
+                                "Class Sub<T> Extends Base<T> Implements Totaler\n"
+                                "End Class",
+                                source)) ==
+          errors_t{ "Sub: Sub<T> gets 'Total' from Totaler's default, which would take the "
+                    "place of Source<T>'s conditional default, which is what a call through "
+                    "Source<T> runs" });
     CHECK(errors_of(base + "Class Both Extends Base\nEnd Class\n"
                            "Extend Both Implements Doubler\nEnd Extend") ==
           errors_t{ "Doubler: Both gets 'With' from Doubler's default, which would take the "

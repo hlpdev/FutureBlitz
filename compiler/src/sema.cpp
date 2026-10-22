@@ -4873,9 +4873,11 @@ private:
         for (type_id_t current = first; current != type_id_t::INVALID;
              current = base_of(current)) {
             const type_id_t definition = definition_of(current);
+            // A Class it extends has what some of its instances could have.
             for (const symbol_id_t id :
                  copies_in(definition, symbol(m_declared_types.at(definition)).members)) {
-                if (instance_has(current, symbol(id))) {
+                if (current == type ? instance_has(current, symbol(id))
+                                    : !never_has(current, symbol(id), type)) {
                     held.push_back(id);
                 }
             }
@@ -11458,7 +11460,7 @@ private:
     }
 
     /// The most elements an array can hold: as many as an Int counts.
-    static constexpr std::uint64_t max_count = 2'147'483'647;
+    static constexpr auto max_count = static_cast<std::uint64_t>(fb::max_count);
 
     /// A checked integer's value, when it's known and fits an Int64.
     [[nodiscard]] std::optional<std::int64_t> integer_value(const expr_id_t id) {
@@ -14505,6 +14507,12 @@ private:
                   "'{}' is what Operator [] gives, a copy; set it whole, through "
                   "Operator []=",
                   text(id));
+            return false;
+        }
+
+        // Count alone, in an Extend of T[], is Self's.
+        if (info(id).count) {
+            error(span_of(id), "Count is how many elements Self has, which only its Methods change");
             return false;
         }
 
