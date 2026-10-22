@@ -1,0 +1,9 @@
+// A sort whose before takes elements away panics where the sort is called.
+Import std.core
+Import std.collections
+
+Local items = [3, 1, 2]
+items.Sort(Function(a: Int, b: Int): Bool
+    If items.Count > 1 Then items.RemoveLast()
+    Return a < b
+End Function)

@@ -1,0 +1,9 @@
+// A view's ToArray panics, where it's called, at an element its array no longer has.
+Import std.core
+Import std.collections
+
+Local numbers = [1, 2, 3, 4]
+Local view = numbers.View(2, 4)
+Print(view.ToArray())
+numbers.RemoveLast()
+Print(view.ToArray())

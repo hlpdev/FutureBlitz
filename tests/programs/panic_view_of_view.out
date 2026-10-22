@@ -1,0 +1,2 @@
+[2, 3]
+panic: view 1..3 is out of range for 2 elements at panic_view_of_view.fb:8:15

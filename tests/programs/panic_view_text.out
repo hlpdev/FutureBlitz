@@ -1,0 +1,2 @@
+[2, 3]
+panic: index 0 of a view of 2 elements is past its array's end, at 0 elements at panic_view_text.fb:9:1

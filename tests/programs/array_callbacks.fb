@@ -1,0 +1,32 @@
+// An array's Methods that call a function go over what's in the array as each pass begins, as a
+// For ... In does, so a function that adds or removes elements changes what's left.
+Import std.core
+Import std.collections
+
+// RemoveAll tests what its test adds, and stops at what its test takes away.
+Local growing = [1, 2, 3, 4]
+Local removed = growing.RemoveAll(Function(x: Int): Bool
+    If x == 1 Then growing.Add(10)
+    Return x == 2 || x == 10
+End Function)
+Print(removed, growing)
+
+Local shrinking = [1, 2, 3, 4]
+removed = shrinking.RemoveAll(Function(x: Int): Bool
+    If x == 2 Then shrinking.RemoveLast()
+    Return x == 1
+End Function)
+Print(removed, shrinking)
+
+// FindLast and Reduce never step past the end.
+Local found = [1, 2, 3, 4]
+Print(found.FindLast(Function(x: Int): Bool
+    If x == 4 Then found.Clear()
+    Return x == 1
+End Function) ?? -1, found.Count)
+
+Local reduced = [1, 2, 3, 4]
+Print(reduced.Reduce(Function(a: Int, b: Int): Int
+    If reduced.Count > 2 Then reduced.RemoveLast()
+    Return a + b
+End Function) ?? -1, reduced)

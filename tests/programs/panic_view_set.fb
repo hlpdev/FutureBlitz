@@ -1,0 +1,9 @@
+// An ArrayView's []= panics at an index outside the view, where it's set.
+Import std.core
+Import std.collections
+
+Local numbers = [1, 2, 3, 4]
+Local view = numbers.View(1, 3)
+view[1] = 30
+Print(numbers)
+view[2] = 40

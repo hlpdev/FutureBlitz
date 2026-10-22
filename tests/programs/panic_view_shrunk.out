@@ -1,2 +1,2 @@
 2
-panic: index 2 is out of range for 2 elements at panic_view_shrunk.fb:9:11
+panic: index 2 of a view of 3 elements is past its array's end, at 2 elements at panic_view_shrunk.fb:9:11

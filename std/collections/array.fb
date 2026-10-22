@@ -1,7 +1,9 @@
 // What every collection has, on T[], besides the built-in Add, Insert, RemoveAt, Clear, Contains,
-// Clone, and Count: searching, the ends, many elements at once, order, and shape. A lookup gives
-// a T?, or a T?? where the elements can be Null, and what's wrong with its arguments panics where
-// it's called.
+// Clone, Reserve, TrimExcess, Count, and Capacity: searching, the ends, many elements at once,
+// order, and shape. A lookup gives a T?, or a T?? where the elements can be Null, and what's
+// wrong with its arguments panics where it's called. A function given to one that changes the
+// array changes what's left to go over, as in a For ... In, and an element it takes away panics
+// where the Method was called.
 
 Import std.core
 Import std.collections.map
@@ -20,6 +22,7 @@ Extend T[]
     End Method
 
     // Sorts the elements in place, smallest first. Equal elements keep their order.
+    @PanicsAtCaller
     Public Method Sort()
         Where T: Comparable
         Sort(Function(a: T, b: T) => a < b)
@@ -27,6 +30,7 @@ Extend T[]
 
     // Sorts the elements in place, by what before says comes first. It's a merge sort, so equal
     // elements keep their order.
+    @PanicsAtCaller
     Public Method Sort(before: Func(T, T): Bool)
         If Count < 2 Then Return
         Local from = Clone()
@@ -61,9 +65,12 @@ Extend T[]
 
     // The last element that test says is the one, or Null.
     Public Method FindLast(test: Func(T): Bool): T?
-        For i = Count - 1 To 0 Step -1
-            If test(Self[i]) Then Return Self[i]
-        End For
+        Local i = Count - 1
+        While i >= 0
+            Local element = Self[i]
+            If test(element) Then Return element
+            i = Min(i, Count) - 1
+        End While
         Return Null
     End Method
 
@@ -165,6 +172,11 @@ Extend T[]
         End For
     End Method
 
+    // The same, from any Iterable<T>, all of which is read first.
+    Public Method AddAll(values: Iterable<T>)
+        AddAll(values.Iterate().ToArray())
+    End Method
+
     // Puts the values in, in order, from index on, which can be from 0 to Count.
     @PanicsAtCaller
     Public Method InsertAll(index: Int, values: T[])
@@ -176,6 +188,12 @@ Extend T[]
         For i, value In added
             Insert(index + i, value)
         End For
+    End Method
+
+    // The same, from any Iterable<T>, all of which is read first.
+    @PanicsAtCaller
+    Public Method InsertAll(index: Int, values: Iterable<T>)
+        InsertAll(index, values.Iterate().ToArray())
     End Method
 
     // Takes out count elements, from start on, which must all be in the array.
@@ -195,18 +213,24 @@ Extend T[]
     End Method
 
     // Takes out each element that test says to, keeping the others in order, and tells how many
-    // went.
+    // went. An element test adds is tested too.
     Public Method RemoveAll(test: Func(T): Bool): Int
         Local kept = 0
-        For i = 0 Until Count
-            If !test(Self[i])
+        Local i = 0
+        While i < Count
+            Local going = test(Self[i])
+            // What test did may have shortened the array.
+            If i >= Count Then Break
+            If !going
                 Self[kept] = Self[i]
                 kept += 1
             End If
-        End For
+
+            i += 1
+        End While
 
         Local removed = Count - kept
-        For i = 1 To removed
+        For n = 1 To removed
             RemoveAt(Count - 1)
         End For
         Return removed
@@ -248,6 +272,7 @@ Extend T[]
 
     // Sorts the elements in place by what key gives for each, smallest first. Equal keys keep
     // their elements' order, and ThenBy on what it gives breaks their ties.
+    @PanicsAtCaller
     Public Method SortBy<K: Comparable>(key: Func(T): K): Sorting<T>
         Local before = Function(a: T, b: T) => key(a) < key(b)
         Sort(before)
@@ -255,6 +280,7 @@ Extend T[]
     End Method
 
     // The same, largest key first.
+    @PanicsAtCaller
     Public Method SortByDescending<K: Comparable>(key: Func(T): K): Sorting<T>
         Local before = Function(a: T, b: T) => key(b) < key(a)
         Sort(before)
@@ -263,6 +289,7 @@ Extend T[]
 
     // Sorts the elements in place, smallest first, without making another array: a heap sort,
     // so equal elements may change places.
+    @PanicsAtCaller
     Public Method SortUnstable()
         Where T: Comparable
         SortUnstable(Function(a: T, b: T) => a < b)
@@ -270,6 +297,7 @@ Extend T[]
 
     // Sorts the elements in place, by what before says comes first, without making another
     // array: a heap sort, so equal elements may change places.
+    @PanicsAtCaller
     Public Method SortUnstable(before: Func(T, T): Bool)
         For start = Count / 2 - 1 To 0 Step -1
             SiftDown(start, Count, before)
@@ -282,6 +310,7 @@ Extend T[]
 
     // Moves the element at index down the heap in the first count elements, where each comes
     // after its two children, at 2i + 1 and 2i + 2, by before.
+    @PanicsAtCaller
     Method SiftDown(index: Int, count: Int, before: Func(T, T): Bool)
         Local at = index
         While True
@@ -334,9 +363,11 @@ Extend T[]
     Public Method Reduce(combine: Func(T, T): T): T?
         If Count == 0 Then Return Null
         Local total = Self[0]
-        For i = 1 Until Count
+        Local i = 1
+        While i < Count
             total = combine(total, Self[i])
-        End For
+            i += 1
+        End While
         Return total
     End Method
 End Extend
@@ -366,17 +397,20 @@ Public Struct Sorting<T>
     Field Before: Func(T, T): Bool
 
     // Sorts the array again by what key gives, smallest first, where the keys so far tie.
+    @PanicsAtCaller
     Public Method ThenBy<K: Comparable>(key: Func(T): K): Sorting<T>
         Local first = Before
         Return Again(Function(a: T, b: T) => first(a, b) || (!first(b, a) && key(a) < key(b)))
     End Method
 
     // The same, largest key first.
+    @PanicsAtCaller
     Public Method ThenByDescending<K: Comparable>(key: Func(T): K): Sorting<T>
         Local first = Before
         Return Again(Function(a: T, b: T) => first(a, b) || (!first(b, a) && key(b) < key(a)))
     End Method
 
+    @PanicsAtCaller
     Method Again(before: Func(T, T): Bool): Sorting<T>
         Items.Sort(before)
         Return Sorting<T>(Items, before)

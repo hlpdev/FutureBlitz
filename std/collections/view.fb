@@ -34,8 +34,9 @@ Extend Set<T>
     Public Method AsReadOnly(): ReadOnlySet<T> => ReadOnlySet<T>(Self)
 End Extend
 
-// Part of an array, whose elements it reads and sets in place, counting from its own start. An
-// element the array no longer has panics.
+// Part of an array, whose elements it reads and sets in place, counting from its own start. Its
+// Count is the part's own, which stays as the array changes, and an element the array no longer
+// has panics.
 Public Class ArrayView<T> Implements Iterable<T>
     Field Items: T[]
     Field Start: Int
@@ -53,16 +54,12 @@ Public Class ArrayView<T> Implements Iterable<T>
 
     // The element at index, from 0 to Count minus 1.
     @PanicsAtCaller
-    Operator [](index: Int): T
-        If index < 0 || index >= Length Then OutOfRange(index)
-        Return Items[Start + index]
-    End Operator
+    Operator [](index: Int): T => Items[Place(index)]
 
     // Gives the element at index, from 0 to Count minus 1, a new value, in the array.
     @PanicsAtCaller
     Operator []=(index: Int, value: T)
-        If index < 0 || index >= Length Then OutOfRange(index)
-        Items[Start + index] = value
+        Items[Place(index)] = value
     End Operator
 
     // Part of this view, from start up to finish, without the one at finish.
@@ -82,7 +79,7 @@ Public Class ArrayView<T> Implements Iterable<T>
         Local copy: T[] = []
         copy.Reserve(Length)
         For i = 0 Until Length
-            copy.Add(Items[Start + i])
+            copy.Add(Self[i])
         End For
         Return copy
     End Method
@@ -90,10 +87,20 @@ Public Class ArrayView<T> Implements Iterable<T>
     // The elements, in order.
     Public Method Iterate(): ArrayViewIterator<T> => ArrayViewIterator<T>(Self, 0)
 
+    // Where the element at index of the view is in its array, which still has to have it.
     @PanicsAtCaller
-    Method OutOfRange(index: Int)
-        Panic("index {index} is out of range for a view of {Length} element" +
-              "{Length == 1 ? "" : "s"}")
+    Method Place(index: Int): Int
+        Local s = Length == 1 ? "" : "s"
+        If index < 0 || index >= Length
+            Panic("index {index} is out of range for a view of {Length} element{s}")
+        End If
+
+        If Start + index >= Items.Count
+            Panic("index {index} of a view of {Length} element{s} is past its array's end, at " +
+                  "{Items.Count} element{Items.Count == 1 ? "" : "s"}")
+        End If
+
+        Return Start + index
     End Method
 End Class
 
@@ -198,6 +205,7 @@ End Class
 Extend ArrayView<T> Implements Printable
     Where T: Printable
 
+    @PanicsAtCaller
     Public Method ToString(): String => "{ToArray()}"
 End Extend
 

@@ -328,6 +328,7 @@ End Class
 
 // Sorts to from from, which starts as a copy of it, between start and finish, by what before
 // says comes first. Equal values keep their order.
+@PanicsAtCaller
 Package Function MergeSort<T>(from: T[], to: T[], start: Int, finish: Int,
                               before: Func(T, T): Bool)
     If finish - start < 2 Then Return

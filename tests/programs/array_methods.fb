@@ -61,3 +61,25 @@ Print(numbers.Fold(0, Function(total: Int, n: Int) => total + n),
 Local maybe: String?[] = [Null, "b"]
 Local first = maybe.First()
 Print(first != Null, (first ?? "none") ?? "null", (maybe.Last() ?? "none") ?? "null")
+
+// Each on an empty array.
+Print(none.RemoveAll(even), none.FindIndex(even) ?? -1, none.LastIndexOf(1) ?? -1,
+      none.Distinct(), none.Fold(7, Function(total: Int, n: Int) => total + n))
+none.Fill(3)
+none.Reverse()
+none.AddAll(none)
+none.InsertAll(0, none)
+Print(none)
+
+// AddAll and InsertAll take any Iterable, read first, a Set's, a Stack's, or a view's.
+Local seen = Set<Int>()
+seen.Add(7)
+seen.Add(8)
+Local stacked = Stack<Int>()
+stacked.Push(1)
+stacked.Push(2)
+Local more = [0]
+more.AddAll(seen)
+more.InsertAll(0, stacked)
+more.AddAll(more.View(0, 2))
+Print(more)

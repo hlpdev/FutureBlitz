@@ -28,3 +28,5 @@ Print(Names(people))
 Local empty: Person[] = []
 empty.SortBy(age).ThenBy(name)
 Print(empty.Count)
+empty.SortByDescending(age).ThenByDescending(name)
+Print(empty.Count)
