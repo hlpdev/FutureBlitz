@@ -1,0 +1,114 @@
+// What implements an Interface's Method that throws takes an error variable, whether it throws or
+// not, and so does what an override of it overrides, and a type's copy of a default does too.
+// Every way of calling one passes it one: through a table, directly, in generic code, in a
+// string, in a hash, and through reflection.
+Import std.core
+Import std.collections
+
+Interface Greeter
+    Method Hello(): String => "hi"
+End Interface
+
+Interface Risky
+    Method Hello(): String Throws Error
+End Interface
+
+// A copy of Greeter's default implements Risky's Hello too.
+Class Friend Implements Greeter, Risky
+End Class
+
+// An override of a copy that implements Risky's Hello.
+Class Base Implements Greeter
+End Class
+
+Class Kid Extends Base Implements Risky
+    Override Method Hello(): String => "kid"
+End Class
+
+Local friend: Greeter = Friend()
+Local risky: Risky = Friend()
+Local base: Greeter = Base()
+Local kid: Greeter = Kid()
+Print(friend.Hello(), Try? risky.Hello() ?? "none", Friend().Hello(), base.Hello(), kid.Hello())
+
+// An Iterator's Final default, a copy that implements another Interface's Count that throws.
+Interface Sized
+    Method Count(): Int Throws Error
+End Interface
+
+Class Three Implements Iterator<Int>, Sized
+    Field At: Int
+
+    Method Next(): Int?
+        If At >= 3 Then Return Null
+        At += 1
+        Return At
+    End Method
+End Class
+
+Function Counted<T: Sized>(sized: T): Int => Try? sized.Count() ?? -1
+
+Local sized: Sized = Three()
+Print(Three().Count(), Counted(Three()), Try? sized.Count() ?? -1)
+
+// A ToString or Hash in a string or a hash, and a Method a reflection loop calls.
+Interface Described
+    Method ToString(): String Throws Error
+End Interface
+
+Class Plain Implements Printable
+    Method ToString(): String => "plain"
+End Class
+
+Class Fancy Extends Plain Implements Described
+    Override Method ToString(): String => "fancy"
+End Class
+
+Struct Label Implements Printable, Described
+    Field Text: String
+
+    Method ToString(): String => "label " + Text
+End Struct
+
+Local fancy: Plain = Fancy()
+Print("{Plain()}", "{fancy}", Label("a"), [Label("b"), Label("c")])
+
+Interface Keyed
+    Method Hash(): UInt64 Throws Error
+End Interface
+
+Struct Key Implements Hashable, Keyed
+    Field N: Int
+
+    Method Hash(): UInt64 => N As UInt64
+    Operator ==(a: Key, b: Key): Bool => a.N == b.N
+End Struct
+
+Local keyed = Map<(Key, Int), Int>()
+keyed.Add((Key(1), 2), 3)
+Print(keyed.Get((Key(1), 2)) ?? -1)
+
+Interface Pinged
+    Method Ping() Throws Error
+End Interface
+
+Class Quiet
+    Method Ping()
+        Print("quiet ping")
+    End Method
+End Class
+
+Class Loud Extends Quiet Implements Pinged
+    Override Method Ping()
+        Print("loud ping")
+    End Method
+End Class
+
+Function Pings<T>(value: T)
+    For Method m In T
+        m.Call(value)
+    End For
+End Function
+
+Pings(Quiet())
+Pings(Loud())

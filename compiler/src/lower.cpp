@@ -976,7 +976,7 @@ private:
             assert(instance.second.size() >= own);
             std::ranges::copy(instance.second | std::views::drop(instance.second.size() - own),
                               std::back_inserter(m_arguments));
-            lower_body(*symbol.default_method, function);
+            lower_body(*symbol.default_method, function, instance.first);
             return;
         }
 
@@ -987,7 +987,9 @@ private:
 
     /// A function's code, from its declaration. A Get or Set without one, an Abstract
     /// Property's or an Interface's, only panics: what overrides or implements it runs instead.
-    void lower_body(const symbol_id_t id, const std::optional<function_id_t> instance) {
+    /// `copy` is a type's copy of an Interface's default whose code this is.
+    void lower_body(const symbol_id_t id, const std::optional<function_id_t> instance,
+                    const std::optional<symbol_id_t> copy = std::nullopt) {
         const symbol_t& function = m_analysis.symbol(id);
         if (!function.declaration) {
             lower_abstract(id, instance);
@@ -996,7 +998,7 @@ private:
 
         const stmt_id_t declaration = *function.declaration;
         lower_function(declaration, std::get<function_stmt_t>(m_ast.get(declaration).node),
-                       instance);
+                       instance, copy);
     }
 
     void lower_abstract(const symbol_id_t id, const std::optional<function_id_t> instance) {
@@ -1553,7 +1555,8 @@ private:
     }
 
     void lower_function(const stmt_id_t id, const function_stmt_t& node,
-                        const std::optional<function_id_t> instance = std::nullopt) {
+                        const std::optional<function_id_t> instance = std::nullopt,
+                        const std::optional<symbol_id_t> copy = std::nullopt) {
         const symbol_id_t symbol_id = expect(m_analysis.stmt(id).symbol);
         const symbol_t& function = m_analysis.symbol(symbol_id);
         begin_function(instance ? *instance : m_functions.at(symbol_id));
@@ -1582,8 +1585,10 @@ private:
                 add_local(concrete(parameter.type), parameter.name, parameter.by_ref);
         }
 
-        // A function that throws puts its error in the caller's variable, which comes last.
-        if (takes_error(symbol_id)) {
+        // A function that throws puts its error in the caller's variable, which comes last. A
+        // type's copy of a default takes one as the copy does, as what implements another
+        // Interface's Method that throws, or what an override of that overrides.
+        if (takes_error(copy.value_or(symbol_id))) {
             m_error_slot = add_local(m_analysis.nullable_error, "error", true);
         }
 
@@ -5508,9 +5513,20 @@ private:
             if (is_virtual(m_analysis.symbol(found))) {
                 call.slot = slot_of(found);
             }
+
+            give_error_variable(call, found);
         }
 
         return temporary(std::move(call), type_id_t::STRING, true);
+    }
+
+    /// What implements an Interface's Method that doesn't throw gets an error variable all the
+    /// same where it takes one, as what implements another Interface's Method that throws does,
+    /// which nothing sets.
+    void give_error_variable(call_t& call, const symbol_id_t target) {
+        if (takes_error(target)) {
+            call.arguments.push_back({ .value = place_t{ error_variable() }, .by_ref = true });
+        }
     }
 
     /// A value's Hash: a Struct's or Class's own, or else the built-in one. A built-in type's
@@ -5528,6 +5544,7 @@ private:
                     call.slot = slot_of(*own);
                 }
 
+                give_error_variable(call, *own);
                 return temporary(std::move(call), type_id_t::UINT64);
             }
         }
@@ -6872,6 +6889,8 @@ private:
                 call.slot = slot_of(method);
             }
 
+            // A reflected Method doesn't throw, so its error variable is never set.
+            give_error_variable(call, method);
             const type_id_t result = types().get(method_type(type, method)).inner;
             if (result == type_id_t::NONE) {
                 emit(evaluate_t{ .value = std::move(call) });
