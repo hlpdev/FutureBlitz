@@ -171,10 +171,12 @@ End Class
 - An Interface is a type of its own unless it needs Statics, Operators (but `[]` and `[]=`), or
   generic Methods, or uses Self in its members' types: those are only constraints (see
   [07-generics.md](07-generics.md)). Its values
-  are references to objects of Classes that implement it, and calls on them run what the
-  object's Class gives. A Class's object converts to the Interfaces its Class implements, and an
-  Interface's to the ones it extends. `Is`, `As`, `As?`, and `Case x As I` test for an
-  Interface, and from one for a Class.
+  are references to objects of Classes that implement it, or to arrays, which implement
+  `Printable` and what an Extend of T[] or of their one array type gives (see
+  [14-strings-collections.md](14-strings-collections.md)), and calls on them run what the
+  object's Class or the Extend gives. A Class's object or an array converts to the Interfaces it
+  implements, and an Interface's value to the ones its Interface extends. `Is`, `As`, `As?`, and
+  `Case x As I` test for an Interface, and from one for a Class, not an array type.
 - A Struct implements Interfaces for generic code: it's never an Interface's value, which would
   have to put it in an object.
 - A Class extending one that implements an Interface implements it too, whether the other lists

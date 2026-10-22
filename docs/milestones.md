@@ -209,10 +209,12 @@ except where it's about those.
   for the `fb_io_` ones over libuv, which a program links, with the library and its system
   libraries, only when it calls one of them. lld takes archives in any order.
 
+**Decided for step 3:**
+
+- `Expect` and `OrElse` are built-in Methods of every `T?`, since no Extend can name a `T?`.
+
 **Proposed, to settle in its step:**
 
-- Step 3: `Expect` and `OrElse` need Methods on any `T?`, through an `Extend T?` or as
-  built-ins, whichever the language takes better.
 - Step 16: the lexer reads `2.Seconds` as `2` and then `.Seconds`, not as a float.
 - Step 18: `Select` is a builder (`Select().On(ch, f).Timeout(d).Wait()`) unless a statement
   reads better.

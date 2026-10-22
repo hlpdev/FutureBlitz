@@ -188,8 +188,9 @@ End Function
   loop over them too, since each instance of the code has its own copy of the lambda.
 - `T.Has(A)` and `T.Attribute(A)` read the attributes on a type's own declaration, for a type or
   a type parameter, unless it has a Static member by that name.
-- `TypeName<T>()` is a built-in, like SizeOf: a String of T's name as messages show it, like
-  `"Map<String, Int32>"` or `"(Int32, String?)"`, known at compile time, and in generic code the
+- `TypeName<T>()` is a built-in, like SizeOf: a String of T's declared name, without its module,
+  like `"Map<String, Int32>"` or `"(Int32, String?)"`, the same wherever it's asked for, known at
+  compile time, and in generic code the
   instance's, so `TypeName<T[]>()` in an instance for Int32 gives `"Int32[]"`. A program's own
   TypeName takes its place.
 - `Continue` goes on to the next copy, and `Break` past the last. Other types, like Int, have no

@@ -48,7 +48,10 @@ Max<Float>(1, 2.5)     // explicit
 
 A call can leave out its type arguments when the compiler can tell them:
 
-1. from the types of the arguments: `First(names)` with `names: String[]` gives `T = String`;
+1. from the types of the arguments: `First(names)` with `names: String[]` gives `T = String`,
+   and an argument whose Class, Struct, or array implements an instance of a generic Interface,
+   or whose Interface extends one, gives that instance's: `Total(set)` for `values: Iterable<T>`
+   with a `Set<Int>` gives `T = Int`;
 2. from literals passed for a type parameter: `Max(1, 2)` gives `Int`, and `Max(1, 2.5)` gives
    `Float`, since one of them has a decimal;
 3. from lambdas, once the type arguments their parameters need are known: `Transform(xs,
@@ -189,14 +192,16 @@ Interface Numeric
 End Interface
 ```
 
-- The built-in types implement the ones that fit them. Numbers implement all five; Strings all
-  but `Numeric`; and Bools and Enums `Equatable`, `Hashable`, and `Printable`. A `T?`, tuple, or
+- The built-in types implement the ones that fit them. Numbers implement all but `Cloneable`;
+  Strings all but `Numeric` and `Cloneable`; and Bools and Enums `Equatable`, `Hashable`,
+  `Printable`, and `Defaultable`. A `T?`, tuple, or
   array implements what its elements do, except that a `T?` is only `Equatable` and `Hashable`,
   and neither tuples nor arrays are `Comparable` or `Numeric`. The math types will in M6.
 - `Cloneable` (`Method Clone(): Self`) is what makes a copy of itself, which arrays are with
   their own `Clone`, and `Defaultable` (`Static Method DefaultValue(): Self`) what has a value to
   start from, which the numbers, Bools, Strings, and Enums are with their zero: `T.DefaultValue()`
-  is 0, False, "", or an Enum's first value. std's collections are both.
+  is 0, False, "", or an Enum's zero, its first value, or no flags for a @Flags Enum. std's
+  collection Classes are both.
 - A built-in type has the Methods of the ones it implements: `5.ToString()`, `name.Hash()`.
 - A Struct or Class implements one by listing it. One that lists `Equatable` without an
   Operator `==` of its own gets the built-in one, which compares a Struct's fields or a Class's

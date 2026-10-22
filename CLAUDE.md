@@ -29,7 +29,7 @@ exe)
 
 ## Current step
 M6 (the full standard library), planned 2026-10-20 and 2026-10-21 in 32 steps (docs/milestones.md;
-design in docs/stdlib.md). Step 3, collections I, is next.
+design in docs/stdlib.md). Step 4, collections II, is next.
 docs/milestones.md's Deferred work lists everything left for later, and where it's planned.
 
 Done in M6: step 0, CI: .github/workflows/ci.yml builds Debug and runs ctest on windows-2025
@@ -182,6 +182,34 @@ report_uninferred() and implements_for_some() stay quiet after a constraint nami
 run_const() reports a module lowering stopped, a Const Function runs for a Const type argument's
 value, and a Const its own error left without a value is quiet where it's used
 (`symbol_t::failed`, `m_read_failed_const`).
+Step 3, collections I: std/core/values.fb's Min, Max, Clamp, Swap, and HashCombine;
+interfaces.fb's Cloneable and Defaultable (`analysis_t::cloneable`, `defaultable`), which
+builtin_implements() gives arrays (Clone) and the numbers, Bool, String, and Enums (their zero,
+lowering's builtin_method()); a T?'s built-in Expect and OrElse (nullable_methods(),
+`m_nullable_methods`, lowering's nullable_call()), on an array's T? and on a variable narrowed to
+its T too; an array's Capacity (is_array_size(), `expr_info_t::count` for Count or Capacity alone
+in an Extend of T[]), Reserve, and TrimExcess (MIR ARRAY_CAPACITY, ARRAY_RESERVE, ARRAY_TRIM over
+the runtime's fb_array_reserve() and fb_array_trim()); TypeName<T>() (check_type_name(),
+is_value_builtin(), `expr_info_t::type_name` for generic code), the declared name without its
+module. Arrays go where Printable or an Interface an Extend of T[] or of the one array type gives is
+expected: lowering's use_array_tables() fills `mir_module_t::array_classes` (array_interfaces(),
+array_table_entry(), implementation() mapping a Property's Get and Set), which codegen's array
+classes list; unify() takes an Interface's type arguments from the instance a Class, Struct, array,
+or extending Interface implements (instance_for()); an array literal where an Iterable<T> of a known
+T is expected is a T[]; converts_plainly() passes INVALID. std.collections: array.fb's search, ends,
+bulk (AddAll and InsertAll from any Iterable<T>), order (Sort, SortUnstable's heap sort over
+SiftDown and Swap, SortBy/SortByDescending's Sorting<T> with ThenBy), shape, Fold, Reduce, View,
+and AsReadOnly, @PanicsAtCaller where they panic, going over what's left when a function changes
+the array; map.fb in insertion order (each entry's Before and After), `==` and Hash by contents,
+Operator [] and []=, `Map(default: v)` (Fallback, one shared value), Get(key, fallback), GetOrAdd,
+TryAdd, Update (a removed key stays removed), Reserve; set.fb's algebra; the Try twins, ToArray,
+AddAll, Drain, and Deque's index; Pool's IterateHandles and Capacity; view.fb's ArrayView (Place()
+names the view's index) and ReadOnlyArray, ReadOnlyMap, and ReadOnlySet. Its review's fixes are in
+those: the T? Methods on arrays and narrowed variables, Extends of one array type and Extend
+Properties through tables, a T?? of an Interface, Try before TypeName or SizeOf, Capacity refused
+ByRef and set, literals for Iterable<T>, inference through an extending Interface, views' and
+sorts' panics, RemoveAll, FindLast, and Reduce under a changing array, Update, and PriorityQueue's
+AddAll of nothing.
 
 Done: M5 (modules, packages, `project.toml`, FFI, bindgen), planned 2026-10-18 and finished
 2026-10-20, in 11 steps, then a review of each project (compiler, runtime, cli, std).

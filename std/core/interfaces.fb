@@ -46,7 +46,8 @@ Public Interface Cloneable
 End Interface
 
 // What has a value to start from, for generic code that needs one: the numbers' is 0, Bool's
-// False, String's "", and an Enum's its first value, and a collection's is empty. It's
+// False, String's "", an Enum's its zero, its first value or a @Flags Enum's no flags, and std's
+// collections' is empty. It's
 // DefaultValue, since Default is Select's keyword.
 Public Interface Defaultable
     Static Method DefaultValue(): Self
