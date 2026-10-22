@@ -4298,8 +4298,7 @@ private:
             return member_type(self, member, written);
         };
         for (const bound_t& bound : member.constraints) {
-            if (bound.field != type_id_t::INVALID ||
-                !std::ranges::contains(parameters, bound.parameter)) {
+            if (bound.field != type_id_t::INVALID || !mentions(bound.parameter, parameters)) {
                 continue;
             }
 
@@ -4380,9 +4379,10 @@ private:
     /// `type`, from one of an Interface's members, with `self` for Self, and with the type
     /// arguments of `interface`, the Interface's instance, for a generic one's type parameters.
     /// The Where lines that a default's copy in `self` keeps of those on the Interface's type
-    /// parameters, as `self` implements them: one on a type parameter of `self`'s stays, which
-    /// makes the copy conditional, and one that holds goes. nullopt when one can't hold, so
-    /// `self` doesn't get the default, which no call could reach.
+    /// parameters, as `self` implements them: one on a type parameter of `self`'s, or on a type
+    /// made of them that doesn't meet it for all of them, like Wrap<T> where T: Comparable makes
+    /// it Comparable, stays, which makes the copy conditional, and one that holds goes. nullopt
+    /// when one can't hold, so `self` doesn't get the default, which no call could reach.
     std::optional<std::vector<bound_t>>
     implemented_bounds(const symbol_t& method, const type_id_t interface, const type_id_t self) {
         const std::vector<type_id_t>& own =
@@ -4398,9 +4398,15 @@ private:
             }
 
             implemented.parameter = as_implemented(bound.parameter, interface, self);
+            std::vector<type_id_t> inside;
+            parameters_in(implemented.parameter, inside);
             if (is_parameter(implemented.parameter)) {
                 kept.push_back(implemented);
-            } else if (!implements(implemented.parameter, implemented.interface)) {
+            } else if (implements(implemented.parameter, implemented.interface)) {
+                continue;
+            } else if (!inside.empty()) {
+                kept.push_back(implemented);
+            } else {
                 return std::nullopt;
             }
         }
@@ -5058,7 +5064,7 @@ private:
 
             return std::ranges::any_of(member.constraints, [&](const bound_t& bound) {
                 return bound.field == type_id_t::INVALID &&
-                       std::ranges::contains(parameters, bound.parameter) &&
+                       mentions(bound.parameter, parameters) &&
                        !mentions(argument_for(bound.parameter, parameters, arguments), own) &&
                        !bounds_hold({ bound }, parameters, arguments);
             });
@@ -8490,10 +8496,15 @@ private:
         return bounds;
     }
 
-    /// The type argument for a type parameter, among a function's or type's.
-    [[nodiscard]] static type_id_t argument_for(const type_id_t parameter,
-                                                const std::vector<type_id_t>& parameters,
-                                                const std::vector<type_id_t>& arguments) {
+    /// The type argument for a type parameter, among a function's or type's, or a type made of
+    /// them, like a default's copy's Wrap<T> where T: Comparable, with theirs in it.
+    [[nodiscard]] type_id_t argument_for(const type_id_t parameter,
+                                         const std::vector<type_id_t>& parameters,
+                                         const std::vector<type_id_t>& arguments) const {
+        if (!is_parameter(parameter)) {
+            return substitute(parameter, parameters, arguments);
+        }
+
         const auto found = std::ranges::find(parameters, parameter);
         const auto place = static_cast<std::size_t>(found - parameters.begin());
         return place < arguments.size() ? arguments[place] : type_id_t::INVALID;
@@ -10202,7 +10213,7 @@ private:
             std::ranges::copy_if(member.constraints, std::back_inserter(where),
                                  [&](const bound_t& bound) {
                                      return bound.field == type_id_t::INVALID &&
-                                            std::ranges::contains(parameters, bound.parameter);
+                                            mentions(bound.parameter, parameters);
                                  });
             return arguments.size() != parameters.size() ||
                    bounds_hold(where, parameters, arguments);

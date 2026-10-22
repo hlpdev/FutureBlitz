@@ -144,3 +144,33 @@ Class Tokens Implements Iterator<String>
 End Class
 
 Print("own", Tokens().Sum(), Tokens().Count())
+
+// A conditional default's Where line on a type made of the type's own type parameters, like
+// Wrap<T>, which is Comparable where T is, holds for the instances it holds for.
+Struct Wrap<T>
+    Field Value: T
+End Struct
+
+Extend Wrap<T> Implements Comparable
+    Where T: Comparable
+    Operator <(a: Wrap<T>, b: Wrap<T>): Bool => a.Value < b.Value
+End Extend
+
+Class Each<T> Implements Iterator<Wrap<T>>
+    Field Items: T[]
+    Field At: Int
+
+    New(items: T[])
+        Items = items
+    End New
+
+    Method Next(): Wrap<T>?
+        If At >= Items.Count Then Return Null
+        At += 1
+        Return Wrap<T>(Items[At - 1])
+    End Method
+End Class
+
+Local wrapped: Iterator<Wrap<Int>> = Each<Int>([3, 1, 2])
+Print("wrapped", (Each<Int>([3, 1, 2]).Min() ?? Wrap<Int>(0)).Value,
+      (wrapped.Max() ?? Wrap<Int>(0)).Value)

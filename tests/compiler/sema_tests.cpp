@@ -6171,6 +6171,22 @@ TEST_CASE("a generic, conditional, or Final default runs as written, on an Inter
           errors_t{ "w.Total: String doesn't implement Numeric, which 'Total' needs for T" });
     CHECK(errors_of(std::format("{}Local w = Words().Total()", source)) ==
           errors_t{ "Total: Words has no member named 'Total'" });
+    // One on a type made of the type's own type parameters holds for the instances it holds for.
+    CHECK(errors_of("Import std.core\n"
+                    "Struct Wrap<T>\n"
+                    "    Field Value: T\n"
+                    "End Struct\n"
+                    "Extend Wrap<T> Implements Comparable\n"
+                    "    Where T: Comparable\n"
+                    "    Operator <(a: Wrap<T>, b: Wrap<T>): Bool => a.Value < b.Value\n"
+                    "End Extend\n"
+                    "Class Each<T> Implements Iterator<Wrap<T>>\n"
+                    "    Method Next(): Wrap<T>? => Null\n"
+                    "End Class\n"
+                    "Local a = Each<Int>().Min()\n"
+                    "Local b = Each<Bool>().Min()") ==
+          errors_t{ "Each<Bool>().Min: Wrap<Bool> doesn't implement Comparable, which 'Min' needs "
+                    "for Wrap<T>" });
     // So a type that can't meet them can have a Method of its own of that name, of any type,
     // while one whose type parameters could still meet them can't.
     CHECK(probe(std::format("{}Class Joined Implements Source<String>\n"
