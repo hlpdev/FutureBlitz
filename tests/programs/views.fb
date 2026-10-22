@@ -70,3 +70,13 @@ Function Sum(values: Iterable<Int>): Int
 End Function
 
 Print(Sum(middle), Sum(shared))
+
+// A read-only Set goes in a For ... In too.
+Local setTotal = 0
+Local numbersSet = Set<Int>()
+numbersSet.Add(4)
+numbersSet.Add(5)
+For n In numbersSet.AsReadOnly()
+    setTotal += n
+End For
+Print(setTotal)

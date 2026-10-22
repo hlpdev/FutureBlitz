@@ -1,0 +1,7 @@
+// A read-only Map's [] panics at a key it doesn't have, with no default.
+Import std.core
+Import std.collections
+
+Local shared = {"a": 1}.AsReadOnly()
+Print(shared["a"])
+Print(shared["b"])

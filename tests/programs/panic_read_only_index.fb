@@ -1,0 +1,7 @@
+// A read-only array's [] panics at an index outside it.
+Import std.core
+Import std.collections
+
+Local shared = [1, 2].AsReadOnly()
+Print(shared[1])
+Print(shared[3])

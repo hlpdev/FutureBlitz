@@ -1,0 +1,2 @@
+[3, 2, 1]
+panic: index 3 is out of range for 3 elements at panic_swap.fb:8:1

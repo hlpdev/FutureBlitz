@@ -1,0 +1,2 @@
+0
+panic: Resize takes a count that isn't negative, not -1 at panic_resize.fb:8:1

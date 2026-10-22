@@ -27,3 +27,12 @@ Print(Started<Int>(), Started<Float>(), Started<Bool>(), "[{Started<String>()}]"
 Local map = Started<Map<String, Int>>()
 map.Add("x", 1)
 Print(map, Started<Set<Int>>().Count, Started<PriorityQueue<Int>>().Count)
+
+// The other collections start empty too, and a @Flags Enum starts with no flags.
+@Flags
+Enum Access
+    Read, Write
+End Enum
+
+Print(Started<Stack<Int>>().Count, Started<Queue<String>>().Count, Started<Deque<Int>>().Count,
+      Started<Pool<Int>>().Count, Started<Access>() == Access.Read)

@@ -1,0 +1,8 @@
+// Swap panics on an index outside the array, where it's called.
+Import std.core
+Import std.collections
+
+Local items = [1, 2, 3]
+items.Swap(0, 2)
+Print(items)
+items.Swap(0, 3)

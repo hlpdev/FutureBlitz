@@ -1,0 +1,8 @@
+// Resize panics on a negative count, where it's called.
+Import std.core
+Import std.collections
+
+Local items = [1, 2]
+items.Resize(0, 0)
+Print(items.Count)
+items.Resize(-1, 0)

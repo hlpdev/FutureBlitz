@@ -1,0 +1,2 @@
+[1, 2, 3, 4]
+panic: InsertAll takes an index from 0 to 4, not 5 at panic_insert_all.fb:8:1

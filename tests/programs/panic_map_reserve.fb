@@ -1,0 +1,8 @@
+// A Map's Reserve panics on a negative count, where it's called.
+Import std.core
+Import std.collections
+
+Local ages = {"ann": 30}
+ages.Reserve(0)
+Print(ages.Count)
+ages.Reserve(-3)

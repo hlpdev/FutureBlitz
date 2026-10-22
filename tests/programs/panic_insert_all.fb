@@ -1,0 +1,8 @@
+// InsertAll panics on an index past the end, where it's called.
+Import std.core
+Import std.collections
+
+Local items = [1, 2, 3]
+items.InsertAll(3, [4])
+Print(items)
+items.InsertAll(5, [1])

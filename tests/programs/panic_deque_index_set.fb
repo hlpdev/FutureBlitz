@@ -1,0 +1,10 @@
+// A Deque's []= panics at an index outside it, where it's set.
+Import std.core
+Import std.collections
+
+Local deque = Deque<Int>()
+deque.AddFirst(1)
+deque.AddLast(2)
+deque[1] = 5
+Print(deque.ToArray())
+deque[2] = 5
