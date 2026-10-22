@@ -2988,7 +2988,8 @@ private:
             (modifiers.is_final || !node.type_parameters.empty() || !node.constraints.empty());
         if (modifiers.panics_at_caller && is_interface(owner) && !direct) {
             error(node.name.span,
-                  "an Interface's members can't be @PanicsAtCaller; what implements one can be");
+                  "of an Interface's members, only a Final, generic, or conditional default can "
+                  "be @PanicsAtCaller, which a call runs directly; what implements one can be");
         } else if (modifiers.panics_at_caller && node.name.text == "Destroy" &&
                    node.kind == function_kind_t::METHOD) {
             error(node.name.span, "Destroy can't be @PanicsAtCaller, since no code calls it");

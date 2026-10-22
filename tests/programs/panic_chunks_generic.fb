@@ -1,0 +1,8 @@
+// And in generic code, at the call there.
+Import std.core
+
+Function Groups<I: Iterator<Int>>(items: I): Int
+    Return items.Chunks(0).Count()
+End Function
+
+Print(Groups(1 To 4))

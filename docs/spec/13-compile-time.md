@@ -89,8 +89,9 @@ Local table: Int[Fib(10)]          // usable in types
 - `@MainThread` goes before a Function or Method, which work on another thread can't call (see
   [10-concurrency.md](10-concurrency.md#main-thread-rules)).
 - `@PanicsAtCaller` goes before a Function, Method, Operator, New, or Property, whose panics then
-  report where it's called (see [09-errors.md](09-errors.md#panics)), not an Interface's
-  members, Destroy, or an Extern Function.
+  report where it's called (see [09-errors.md](09-errors.md#panics)), not Destroy or an Extern
+  Function, and of an Interface's members only a Final, generic, or conditional default, which
+  a call runs directly.
 - `@CLayout` lays a Struct out as C does (see [12-ffi.md](12-ffi.md)), and `@Serialize` comes
   with the serialization library (M6); until then it's reported as not supported yet.
 

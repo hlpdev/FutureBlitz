@@ -1,0 +1,10 @@
+// An Iterator<T>'s Final defaults are called directly through its value, so Take's panic on a
+// negative count is at the call.
+Import std.core
+Import std.collections
+
+Local stack = Stack<Int>()
+stack.Push(1)
+Local through: Iterable<Int> = stack
+Local values = through.Iterate()
+Print(values.Take(-1).Count())

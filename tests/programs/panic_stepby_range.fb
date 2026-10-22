@@ -1,0 +1,4 @@
+// On a Struct, like a range, StepBy's panic is at the call too.
+Import std.core
+
+Print((1 To 5).StepBy(0).ToArray())

@@ -4853,6 +4853,17 @@ TEST_CASE("@PanicsAtCaller goes on what code calls", "[sema]") {
                     "    @PanicsAtCaller Method Half(): Int => Self / 2\n"
                     "End Extend")
               .empty());
+    // An Interface's default that a call runs directly, through its value too.
+    CHECK(errors_of("Import std.core\n"
+                    "Interface J<T>\n"
+                    "    @PanicsAtCaller Final Method F(): Int => 1\n"
+                    "    @PanicsAtCaller Method G<U>(x: U): U => x\n"
+                    "    @PanicsAtCaller Method H(): Int\n"
+                    "        Where T: Numeric\n"
+                    "        Return 1\n"
+                    "    End Method\n"
+                    "End Interface")
+              .empty());
     const std::string where =
         "@PanicsAtCaller only goes before a Function, Method, Operator, New, or Property";
     CHECK(errors_of("@PanicsAtCaller Struct S\nEnd Struct\n"
@@ -4874,8 +4885,10 @@ TEST_CASE("@PanicsAtCaller goes on what code calls", "[sema]") {
                     "    @PanicsAtCaller Function abs(n: Int32): Int32\n"
                     "End Extern") ==
           errors_t{
-              "M: an Interface's members can't be @PanicsAtCaller; what implements one can be",
-              "D: an Interface's members can't be @PanicsAtCaller; what implements one can be",
+              "M: of an Interface's members, only a Final, generic, or conditional default can be "
+              "@PanicsAtCaller, which a call runs directly; what implements one can be",
+              "D: of an Interface's members, only a Final, generic, or conditional default can be "
+              "@PanicsAtCaller, which a call runs directly; what implements one can be",
               "P: an Interface's members can't be @PanicsAtCaller; what implements one can be",
               "Destroy: Destroy can't be @PanicsAtCaller, since no code calls it",
               "abs: an Extern Function can't be @PanicsAtCaller, since its code is C's",
