@@ -1135,6 +1135,11 @@ private:
         });
     }
 
+    /// Whether a Method is a type's copy of a default outside its Interface's table.
+    [[nodiscard]] bool copies_outside_table(const symbol_t& method) const {
+        return method.default_method && outside_table(m_analysis.symbol(*method.default_method));
+    }
+
     /// An Interface's Method's, Get's, or Set's place in its table.
     [[nodiscard]] std::uint32_t interface_slot(const symbol_id_t member) const {
         const std::vector<symbol_id_t> slots = interface_slots(m_analysis.symbol(member).owner);
@@ -1406,9 +1411,11 @@ private:
             return {};
         }
 
+        // A copy of a default outside an Interface's table runs only where it's called, so its
+        // body isn't made for each instance, which could wrap Self in instances without end.
         if (declared.kind == symbol_kind_t::METHOD && declared.name != "Destroy" &&
             !declared.modifiers.is_static && declared.type_parameters.empty() &&
-            declared.constraints.empty()) {
+            declared.constraints.empty() && !copies_outside_table(declared)) {
             return { member };
         }
 
@@ -2653,11 +2660,13 @@ private:
         if (reads) {
             const symbol_t& setter = m_analysis.symbol(expect(m_analysis.expr(set).symbol));
             const bool in_place = setter.by_ref && !is_object(converted_type(element.object));
+            // Each is settled before what comes after it runs, which could change it.
             m_reused[element.object] =
-                in_place ? operand_t{ lower_place(element.object) } : lower_value(element.object);
+                in_place ? operand_t{ settled_place(lower_place(element.object), false) }
+                         : settled(lower_value(element.object), true);
             shared.push_back(element.object);
             for (const expr_id_t position : element.indices) {
-                m_reused[position] = lower_value(position);
+                m_reused[position] = settled(lower_value(position), true);
                 shared.push_back(position);
             }
         }
@@ -3324,8 +3333,8 @@ private:
                 if (method.kind != symbol_kind_t::METHOD || method.modifiers.is_static ||
                     method.modifiers.is_unsafe || method.by_ref ||
                     !method.type_parameters.empty() || !method.throws.empty() ||
-                    method.name == "Destroy" || !has_member(type, method) ||
-                    method_type(type, member) != signature) {
+                    method.name == "Destroy" || method.name == "[]" || method.name == "[]=" ||
+                    !has_member(type, method) || method_type(type, member) != signature) {
                     continue;
                 }
 

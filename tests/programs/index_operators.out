@@ -2,5 +2,9 @@
 a! b c - 2 -1
 [c, b, a!] c
 [c?, b?, a!] 2
-hey! hey! hey!
+hey~! hey~! hey~!
 6.5
+read first[1]
+set first[1] = 6
+second [0, 1, 2]
+in~! -

@@ -314,10 +314,12 @@ grid[0, 0] += grid[1, 2]
   overload by their indexes' types, their parameters aren't ByRef, variadic, or defaulted, they
   have no type parameters of their own, and they don't throw.
 - `x[i] op= v`, `x[i]++`, and `x[i]--` read the element through `[]` and set what that gives
-  through `[]=`, with the object and the indexes worked out once, the object first. Assigning
-  needs `[]=`, and a tuple's element can't be set through it.
+  through `[]=`, with the object and the indexes worked out once, the object first, so a `[]=`
+  has to take the indexes as the types the `[]` does. Assigning needs `[]=`, and a tuple's
+  element can't be set through it.
 - What `[]` gives is a copy: setting a Field of a Struct it gives, passing it ByRef, or calling a
-  ByRef Method on it is an error, as for a Property. `Super[i]` calls the Class it extends'.
+  ByRef Method on it is an error, as for a Property, and so is a Struct's `[]=` on what a
+  Property gives. `Super[i]` calls the Class it extends'.
 
 ## Extend
 

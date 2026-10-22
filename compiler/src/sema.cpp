@@ -2972,8 +2972,12 @@ private:
                   node.name.text);
         }
 
-        // A call through an Interface's object has no place to give, and nothing calls Destroy.
-        if (modifiers.panics_at_caller && is_interface(owner)) {
+        // A call through an Interface's object has no place to give, and nothing calls Destroy,
+        // but a Final, generic, or conditional default is called directly, through a value too.
+        const bool direct =
+            !node.required &&
+            (modifiers.is_final || !node.type_parameters.empty() || !node.constraints.empty());
+        if (modifiers.panics_at_caller && is_interface(owner) && !direct) {
             error(node.name.span,
                   "an Interface's members can't be @PanicsAtCaller; what implements one can be");
         } else if (modifiers.panics_at_caller && node.name.text == "Destroy" &&
@@ -4308,15 +4312,15 @@ private:
             m_analysis.types.get(definition_of(interface)).parameters;
         std::vector<bound_t> kept;
         for (const bound_t& bound : method.constraints) {
+            // One on the Method's own type parameter, like O: Iterator<T>, has `self`'s types.
+            bound_t implemented = bound;
+            implemented.interface = as_implemented(bound.interface, interface, self);
             if (bound.field != type_id_t::INVALID || !std::ranges::contains(own, bound.parameter)) {
-                kept.push_back(bound);
+                kept.push_back(implemented);
                 continue;
             }
 
-            const bound_t implemented{
-                .parameter = as_implemented(bound.parameter, interface, self),
-                .interface = as_implemented(bound.interface, interface, self),
-            };
+            implemented.parameter = as_implemented(bound.parameter, interface, self);
             if (is_parameter(implemented.parameter)) {
                 kept.push_back(implemented);
             } else if (!implements(implemented.parameter, implemented.interface)) {
@@ -4777,8 +4781,8 @@ private:
         });
         if (alike.empty()) {
             if (member.modifiers.is_override) {
-                error(member.span, "'{}' has Override, but {} has no Method like it", member.name,
-                      shown_name(base));
+                error(member.span, "'{}' has Override, but {} has no {} like it", member.name,
+                      shown_name(base), indexing(member) ? "Operator" : "Method");
             }
 
             return; // an overload
@@ -4837,8 +4841,9 @@ private:
         member.overrides = alike.front();
         inherit_visibility(member, original);
         if (!member.modifiers.is_override) {
-            error(member.span, "'{}' overrides {}'s; write 'Override Method {}'", member.name,
-                  shown_name(owner_in(base, original.owner)), member.name);
+            error(member.span, "'{}' overrides {}'s; write 'Override {} {}'", member.name,
+                  shown_name(owner_in(base, original.owner)),
+                  indexing(member) ? "Operator" : "Method", member.name);
         } else if (original.modifiers.is_final) {
             error(member.span, "'{}' is Final in {}, so it can't be overridden", member.name,
                   shown_name(owner_in(base, original.owner)));
@@ -6288,7 +6293,7 @@ private:
             error(span, "Operator {} indexes Self, so it can't be Static", name);
         }
 
-        if (node.modifiers.visibility_span) {
+        if (node.modifiers.visibility_span && !is_interface(owner)) {
             error(*node.modifiers.visibility_span,
                   "an Operator has its type's visibility, so it takes no {}",
                   spelling(node.modifiers.visibility));
@@ -6320,10 +6325,6 @@ private:
             error(span, "an Operator can't throw");
         }
 
-        if (node.modifiers.is_async) {
-            error(span, "an Operator can't be Async; it's used like any operator");
-        }
-
         const bool plain = std::ranges::none_of(node.parameters, [](const parameter_t& parameter) {
             return parameter.by_ref || parameter.default_value;
         });
@@ -6335,6 +6336,23 @@ private:
             error(span, "an Operator takes its indices, so no parameter takes the rest of the "
                         "arguments");
         }
+    }
+
+    /// Whether any of a type's index Operators `name` takes `count` indices, with the value
+    /// after them for "[]=". Reports when none does, at `span`.
+    bool takes_indices(const type_id_t type, const std::string_view name, const std::size_t count,
+                       const span_t span) {
+        const std::size_t wanted = name == "[]=" ? count + 1 : count;
+        const std::vector<symbol_id_t> found = members_of(non_null(type), name);
+        if (std::ranges::any_of(found, [&](const symbol_id_t id) {
+                return symbol(id).parameters.size() == wanted;
+            })) {
+            return true;
+        }
+
+        error(span, "{}'s Operator {} doesn't take {} {}", shown_name(non_null(type)), name, count,
+              count == 1 ? "index" : "indices");
+        return false;
     }
 
     /// An Async Function or Method runs as a coroutine on the main thread, which goes on after the
@@ -9963,6 +9981,12 @@ private:
         return member.modifiers.is_final ? "Final" : "conditional";
     }
 
+    /// Whether a Method is an index Operator, "[]" or "[]=".
+    [[nodiscard]] static bool indexing(const symbol_t& method) {
+        return method.kind == symbol_kind_t::METHOD &&
+               (method.name == "[]" || method.name == "[]=");
+    }
+
     /// Whether a function is an index Operator, "[]" or "[]=", which is a Method of Self rather
     /// than a Static Operator.
     [[nodiscard]] static bool indexes(const function_stmt_t& node) {
@@ -11757,7 +11781,7 @@ private:
             return;
         }
 
-        if (node.index_set && check_index_set(node.target, *node.index_set, node.op)) {
+        if (node.index_set && check_index_set(node.target, *node.index_set, node.op, node.value)) {
             return;
         }
 
@@ -11808,7 +11832,16 @@ private:
     /// False when the target isn't an index of such a type, which a quiet look at its object
     /// tells, so the target's own check goes on.
     bool check_index_set(const expr_id_t target, const expr_id_t set,
-                         const std::optional<binary_op_t> op) {
+                         const std::optional<binary_op_t> op, const std::optional<expr_id_t> value,
+                         const bool increment = false) {
+        // On the way out with an error, the value still gets its own errors.
+        const auto value_alone = [&] {
+            if (value) {
+                check_any(*value, type_id_t::NONE);
+            }
+
+            return true;
+        };
         const auto& element = std::get<index_expr_t>(m_ast.get(target).node);
         if (std::holds_alternative<super_expr_t>(m_ast.get(element.object).node)) {
             if (op && check(target, type_id_t::NONE) == type_id_t::INVALID) {
@@ -11841,27 +11874,74 @@ private:
                   "{} has an Operator [] but no Operator []=, so '{}' can't be assigned",
                   shown_name(non_null(object)), text(target));
             check_alone(element.indices);
-            return true;
+            return value_alone();
         }
 
         if (is_nullable(object)) {
             report_maybe_null(element.object);
             check_alone(element.indices);
-            return true;
+            return value_alone();
+        }
+
+        if (!takes_indices(object, "[]=", element.indices.size(), span_of(target))) {
+            check_alone(element.indices);
+            return value_alone();
         }
 
         std::vector<expr_id_t> shared{ element.object };
         if (op) {
-            // The value reads the element first, through Operator [].
+            // The value reads the element first, through Operator []. An error there is
+            // reported once, though the indices are []='s too.
+            const std::size_t errors = m_bag->error_count();
             m_checked.insert(element.object);
             const type_id_t read = check(target, type_id_t::NONE);
             m_checked.erase(element.object);
-            if (read == type_id_t::INVALID) {
+            if (read == type_id_t::INVALID || m_bag->error_count() != errors) {
+                return value_alone();
+            }
+
+            if (increment && !is_numeric(read)) {
+                error(span_of(target), "'{}' can't be used on {}",
+                      *op == binary_op_t::SUBTRACT ? "--" : "++", shown_name(read));
                 return true;
             }
 
             shared.push_back(target);
             std::ranges::copy(element.indices, std::back_inserter(shared));
+        }
+
+        // Both calls take the same indices, worked out once, so a []= has to take them as the
+        // types the [] does.
+        if (op) {
+            std::vector<type_id_t> read_as;
+            read_as.reserve(element.indices.size());
+            for (const expr_id_t index : element.indices) {
+                read_as.push_back(info(index).converted);
+            }
+
+            const type_id_t self = non_null(object);
+            const auto takes_them = [&](const symbol_id_t id) {
+                const symbol_t& setter = symbol(id);
+                if (setter.parameters.size() != read_as.size() + 1) {
+                    return false;
+                }
+
+                for (std::size_t i = 0; i < read_as.size(); ++i) {
+                    if (member_type(self, setter, symbol(setter.parameters[i]).type) !=
+                        read_as[i]) {
+                        return false;
+                    }
+                }
+
+                return true;
+            };
+            if (std::ranges::none_of(members_of(self, "[]="), takes_them)) {
+                error(span_of(target),
+                      "Operator [] takes the indices here as ({}), which no Operator []= of {} "
+                      "takes, so '{}' can't work them out once for both",
+                      names_of(read_as), shown_name(self), text(target));
+                return value_alone();
+            }
         }
 
         for (const expr_id_t id : shared) {
@@ -11988,7 +12068,8 @@ private:
     void check_stmt(stmt_id_t /*id*/, const span_t span, const increment_stmt_t& node) {
         if (node.index_set &&
             check_index_set(node.target, *node.index_set,
-                            node.decrement ? binary_op_t::SUBTRACT : binary_op_t::ADD)) {
+                            node.decrement ? binary_op_t::SUBTRACT : binary_op_t::ADD, std::nullopt,
+                            true)) {
             return;
         }
 
@@ -17911,6 +17992,21 @@ private:
             return;
         }
 
+        // An object changes through any reference to it, as one an Interface refers to does.
+        const type_id_t receiver = non_null(info(member->object).type);
+        if (is_object(receiver)) {
+            return;
+        }
+
+        if (const std::optional<symbol_id_t> part = info(member->object).symbol;
+            part && symbol(*part).kind == symbol_kind_t::PROPERTY) {
+            error(span_of(member->object),
+                  "'{}' is a Property, which gives a copy, so '{}' would change only the copy; set "
+                  "the whole of it instead",
+                  symbol(*part).name, function.name);
+            return;
+        }
+
         if (!check_changeable(member->object)) {
             return;
         }
@@ -17927,9 +18023,8 @@ private:
             return;
         }
 
-        // An object's fields, and a T[]'s elements, change through any reference, and so does
-        // an object an Interface refers to.
-        if (in_object(member->object) || is_object(non_null(info(member->object).type))) {
+        // An object's fields, and a T[]'s elements, change through any reference.
+        if (in_object(member->object)) {
             return;
         }
 
@@ -19991,7 +20086,19 @@ private:
                 return type_id_t::INVALID;
             }
 
+            if (!takes_indices(object, "[]", node.indices.size(), span_of(id))) {
+                check_alone(node.indices);
+                return type_id_t::INVALID;
+            }
+
             return check_index_call(id, node.object, node.call);
+        }
+
+        if (!is_any_array(object) && has_index_operator(object, "[]=")) {
+            error(span_of(id), "{} has an Operator []= but no Operator [], so '{}' can't be read",
+                  shown_name(non_null(object)), text(id));
+            check_alone(node.indices);
+            return type_id_t::INVALID;
         }
 
         if (!is_any_array(object)) {

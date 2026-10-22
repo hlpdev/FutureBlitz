@@ -1771,9 +1771,10 @@ private:
             advance();
             if (!at(token_kind_t::RIGHT_BRACKET) || !touches(token, peek())) {
                 report_expected("']' right after '[', as in Operator [] or Operator []=");
-                // A spaced-out "[ ]" or "[ ]=" is skipped, so the parameters still parse.
+                // A spaced-out "[ ]" or "[ ]=" is taken as meant, so the rest still parses.
                 if (accept(token_kind_t::RIGHT_BRACKET)) {
-                    accept(token_kind_t::EQUAL);
+                    return { .text = accept(token_kind_t::EQUAL) ? "[]=" : "[]",
+                             .span = token.span };
                 }
 
                 return { .text = {}, .span = point(token.span.begin) };

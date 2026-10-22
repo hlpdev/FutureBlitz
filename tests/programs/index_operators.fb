@@ -43,10 +43,43 @@ Class Names Implements Indexed<String>
     End Operator
 End Class
 
-// A Class extending one overrides what it indexes like any Method.
+// A Class extending one overrides what it indexes like any Method, and Super's still index.
 Class Shouting Extends Names
     Override Operator [](i: Int): String => "{Super[i]}!"
+
+    Override Operator []=(i: Int, value: String)
+        Super[i] = value
+        Super[i] += "~"
+    End Operator
 End Class
+
+// What op= reads and sets is the object there was before its index or value ran.
+Class Box
+    Field Name: String
+    Field Values: Int[]
+
+    New(name: String)
+        Name = name
+        Values = [0, 1, 2]
+    End New
+
+    Operator [](i: Int): Int
+        Print("read {Name}[{i}]")
+        Return Values[i]
+    End Operator
+
+    Operator []=(i: Int, value: Int)
+        Print("set {Name}[{i}] = {value}")
+        Values[i] = value
+    End Operator
+End Class
+
+Global box = Box("first")
+
+Function Replace(): Int
+    box = Box("second")
+    Return 1
+End Function
 
 Struct Row<T>
     Field Items: T[]
@@ -114,3 +147,11 @@ Print(shouting[0], indexed[0], FirstOf(indexed))
 Local row = Row<Float>([1.5, 2.5])
 row[1] *= 2.0
 Print(row[0] + row[1])
+
+box[Replace()] += 5
+Print(box.Name, box.Values)
+
+// An Interface's values are objects, so one in an array is indexed in place.
+Local all: Indexed<String>[] = [Names(), Shouting()]
+all[1][0] = "in"
+Print(all[1][0], all[0][0])

@@ -3177,10 +3177,89 @@ TEST_CASE("index Operator mistakes", "[sema]") {
           errors_t{ "1.5: 1.5 doesn't fit in Int32" });
     CHECK(errors_of(std::format("{}Local x = n[0]", types)) ==
           errors_t{ "n: Int32 can't be indexed" });
-    // A Struct's []= changes it, as a ByRef Method does.
+    // A Struct's []= changes it, as a ByRef Method does, so not what a Property gives.
     CHECK(errors_of(std::format("{}Function F(v: W)\n    v[0] = 1\nEnd Function", types)) ==
           errors_t{ "v: 'v' is a parameter and can't be changed by '[]='; copy it into a Local, "
                     "or make it ByRef" });
+    constexpr std::string_view holder = "Struct Bag\n"
+                                        "    Field N = 0\n"
+                                        "    Operator [](i: Int): Int => N\n"
+                                        "    Operator []=(i: Int, v: Int)\n"
+                                        "        N = v\n"
+                                        "    End Operator\n"
+                                        "    ByRef Method SetN(v: Int)\n"
+                                        "        N = v\n"
+                                        "    End Method\n"
+                                        "End Struct\n"
+                                        "Class Holder\n"
+                                        "    Field Inner: Bag\n"
+                                        "    Property Prop: Bag\n"
+                                        "        Get => Inner\n"
+                                        "        Set(value)\n"
+                                        "            Inner = value\n"
+                                        "        End Set\n"
+                                        "    End Property\n"
+                                        "End Class\n"
+                                        "Local h = Holder()\n";
+    CHECK(errors_of(std::format("{}h.Prop[0] = 1\nh.Prop[0] += 1\nh.Prop.SetN(1)", holder)) ==
+          errors_t{
+              "h.Prop: 'Prop' is a Property, which gives a copy, so '[]=' would change only the "
+              "copy; set the whole of it instead",
+              "h.Prop: 'Prop' is a Property, which gives a copy, so '[]=' would change only the "
+              "copy; set the whole of it instead",
+              "h.Prop: 'Prop' is a Property, which gives a copy, so 'SetN' would change only the "
+              "copy; set the whole of it instead",
+          });
+
+    // An Interface's []= is ByRef, for its Structs, but its values are objects.
+    CHECK(errors_of("Interface Indexed\n"
+                    "    Operator []=(i: Int, value: Int)\n"
+                    "End Interface\n"
+                    "Function F(items: Indexed[])\n"
+                    "    items[1][0] = 4\n"
+                    "End Function")
+              .empty());
+
+    // op= and ++ work the indices out once for both, so []= takes them as [] does.
+    CHECK(errors_of("Struct Mixed\n"
+                    "    Operator [](i: Int64): Int => 1\n"
+                    "    Operator []=(i: Int, value: Int)\n"
+                    "    End Operator\n"
+                    "End Struct\n"
+                    "Local m = Mixed()\nm[1] += 1") ==
+          errors_t{ "m[1]: Operator [] takes the indices here as (Int64), which no Operator []= of "
+                    "Mixed takes, so 'm[1]' can't work them out once for both" });
+    CHECK(errors_of("Struct Names\n"
+                    "    Operator [](i: Int): String => \"a\"\n"
+                    "    Operator []=(i: Int, value: String)\n"
+                    "    End Operator\n"
+                    "End Struct\n"
+                    "Local n = Names()\nn[1]++") ==
+          errors_t{ "n[1]: '++' can't be used on String" });
+    CHECK(errors_of(std::format("{}Local g = Bag()\ng[\"s\"] += 1", holder)) ==
+          errors_t{ "\"s\": expected Int32, found String" });
+
+    // The count of indices is the index's, and reading needs an Operator [].
+    CHECK(errors_of("Struct Board\n"
+                    "    Operator []=(x: Int, y: Int, value: String)\n"
+                    "    End Operator\n"
+                    "End Struct\n"
+                    "Local b = Board()\nb[1] = \"X\"\nLocal s = b[0, 1]") ==
+          errors_t{
+              "b[1]: Board's Operator []= doesn't take 1 index",
+              "b[0, 1]: Board has an Operator []= but no Operator [], so 'b[0, 1]' can't be read",
+          });
+
+    // An index Operator is overridden as one, and can't throw or have type parameters.
+    CHECK(errors_of("Class Base\n    Operator [](i: Int): Int => i\nEnd Class\n"
+                    "Class Child Extends Base\n    Operator [](i: Int): Int => i * 2\nEnd Class") ==
+          errors_t{ "[]: '[]' overrides Base's; write 'Override Operator []'" });
+    CHECK(errors_of("Import std.core\nStruct S\n    Operator [](i: Int): Int Throws Error => i\n"
+                    "    Operator []<U>(u: U): Int => 1\nEnd Struct") ==
+          errors_t{
+              "[]: an Operator can't throw",
+              "[]: an Operator can't have type parameters of its own",
+          });
 }
 
 TEST_CASE("a type with Operator == can be compared, whatever its fields are", "[sema]") {
