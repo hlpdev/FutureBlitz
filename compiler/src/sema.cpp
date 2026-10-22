@@ -4489,6 +4489,29 @@ private:
                implements(given, wanted);
     }
 
+    /// Whether an Interface's member takes what a generic default outside the table of one it
+    /// extends, `extended`, takes with some types for that one's own, as Map(change: Func(Int32):
+    /// Int32) does Iterator<Int32>'s Map<U>, which no type implementing it could then have.
+    [[nodiscard]] bool covers_outside_default(const symbol_id_t near_id, const symbol_id_t far_id,
+                                              const type_id_t extended) {
+        const symbol_t& near = symbol(near_id);
+        const symbol_t& far = symbol(far_id);
+        if (near.name != far.name || near.kind != symbol_kind_t::METHOD ||
+            far.kind != symbol_kind_t::METHOD || near.modifiers.is_static ||
+            far.modifiers.is_static || far.type_parameters.empty() || !outside_table(far)) {
+            return false;
+        }
+
+        // The other's Self and its Interface's type parameters, as this one has them.
+        const std::vector<type_id_t> parameters = owner_parameters(definition_of(far.owner));
+        std::vector<type_id_t> arguments{ self_of(definition_of(near.owner)) };
+        std::ranges::copy(arguments_of(extended), std::back_inserter(arguments));
+        return takes_instance_of(near, type_id_t::INVALID, far, far.type_parameters,
+                                 [&](const type_id_t written) {
+                                     return substitute(written, parameters, arguments);
+                                 });
+    }
+
     /// Whether a Method of `self` takes what a generic one does with some types for `own`, the
     /// generic one's own type parameters, as Map(change: Func(Int32): Int32) takes what
     /// Iterator<Int32>'s Map<U> does with Int32 for U, so a call that fits the generic one could
@@ -4512,7 +4535,8 @@ private:
             }
 
             wanted.push_back(seen(parameter.type));
-            given.push_back(member_type(self, method, taken.type));
+            given.push_back(self == type_id_t::INVALID ? taken.type
+                                                       : member_type(self, method, taken.type));
             unify(wanted.back(), given.back(), own, arguments);
         }
 
@@ -4525,8 +4549,39 @@ private:
             }
         }
 
-        return std::ranges::equal(wanted, given, {},
-                                  [&](const type_id_t type) { return substitute(type, from, to); });
+        if (!std::ranges::equal(wanted, given, {}, [&](const type_id_t type) {
+                return substitute(type, from, to);
+            })) {
+            return false;
+        }
+
+        // Where the generic one's Where lines can't hold for those types, like Chain's O:
+        // Iterator<T> for a String, no call that fits it fits the Method too. A type that still
+        // holds a type parameter may meet them.
+        for (const bound_t& bound : generic.constraints) {
+            if (bound.field != type_id_t::INVALID || !std::ranges::contains(own, bound.parameter)) {
+                continue;
+            }
+
+            const type_id_t argument = substitute(bound.parameter, from, to);
+            std::vector<type_id_t> inside;
+            parameters_in(argument, inside);
+            if (!inside.empty()) {
+                continue;
+            }
+
+            // One whose Interface has a type parameter only it tells, like Zip's U in
+            // Iterator<U>, needs an instance of that Interface.
+            const type_id_t interface = substitute(seen(bound.interface), from, to);
+            const bool fits = mentions(interface, own)
+                                  ? instance_for(argument, interface) != type_id_t::INVALID
+                                  : implements(argument, interface);
+            if (!fits) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /// A Method's own type parameters. One that an Extend of T[] adds takes T first, which is
@@ -4772,15 +4827,40 @@ private:
             return added.extended && !added.default_method && added.name == method.name &&
                    is_callable_member(added) && same_parameters(added, method);
         });
-        if (clash == members.end()) {
+        if (clash != members.end()) {
+            error(symbol(*clash).span, "'{}' is already declared with the same parameter types",
+                  method.name)
+                .with_label(listing, std::format("{} gets it from {}'s default here",
+                                                 shown_name(type), shown_name(interface)));
+            members.erase(clash);
             return;
         }
 
-        error(symbol(*clash).span, "'{}' is already declared with the same parameter types",
-              method.name)
-            .with_label(listing, std::format("{} gets it from {}'s default here", shown_name(type),
-                                             shown_name(interface)));
-        members.erase(clash);
+        // Nor one that takes a generic default's parameters with some types for its own, which a
+        // call on the type would pick where a call through the Interface runs the default.
+        const std::vector<type_id_t> own = own_type_parameters(method);
+        if (own.empty() || !method.default_method ||
+            !outside_table(symbol(*method.default_method))) {
+            return;
+        }
+
+        const auto covered = std::ranges::find_if(members, [&](const symbol_id_t member) {
+            const symbol_t& added = symbol(member);
+            return added.extended && !added.default_method && added.name == method.name &&
+                   added.kind == symbol_kind_t::METHOD &&
+                   takes_instance_of(added, type, method, own, [&](const type_id_t written) {
+                       return member_type(type, method, written);
+                   });
+        });
+        if (covered != members.end()) {
+            error(symbol(*covered).span,
+                  "'{}' would take the place of {}'s generic default, which is what a call "
+                  "through {} runs; give it another name",
+                  method.name, shown_name(interface), shown_name(interface))
+                .with_label(listing, std::format("{} gets it from {}'s default here",
+                                                 shown_name(type), shown_name(interface)));
+            members.erase(covered);
+        }
     }
 
     /// Whether the declaration of `type`, or of a Class it extends, lists an Interface at
@@ -8008,8 +8088,10 @@ private:
                     for (const symbol_id_t far :
                          symbol(m_declared_types.at(definition_of(extended))).members) {
                         const std::optional<type_id_t> result = refined_result(near, far);
-                        // Nothing takes the place of a default a call runs as written.
-                        if (result && outside_table(symbol(far))) {
+                        // Nothing takes the place of a default a call runs as written, or of a
+                        // generic one with some types for its own.
+                        if ((result && outside_table(symbol(far))) ||
+                            (!result && covers_outside_default(near, far, extended))) {
                             error(symbol(near).span,
                                   "'{}' would take the place of {}'s {} default, which a call "
                                   "through {} runs as written; give it another name",

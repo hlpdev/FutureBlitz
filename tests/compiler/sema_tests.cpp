@@ -6292,6 +6292,45 @@ TEST_CASE("a generic, conditional, or Final default runs as written, on an Inter
           errors_t{ "Source<Int>: Own's 'With' would take the place of Source<Int32>'s generic "
                     "default, which is what a call through Source<Int32> runs; give it another "
                     "name" });
+    // Nor can an Extend of the type in a module where the listing doesn't see it.
+    const std::vector<fb::library_file_t> counter{
+        {
+            .path = "lib/counter.fb",
+            .text = "Import std.core\n"
+                    "Public Interface Source<T>\n"
+                    "    Method Take(): T\n"
+                    "    Method With<U>(u: U): (T, U) => (Take(), u)\n"
+                    "End Interface\n"
+                    "Public Class Counter Implements Source<Int>\n"
+                    "    Public Method Take(): Int => 1\n"
+                    "End Class\n",
+        },
+    };
+    CHECK(errors_with("Import \"./lib/counter\"\n"
+                      "Extend Counter\n"
+                      "    Method With(u: Bool): (Int, Bool) => (42, u)\n"
+                      "End Extend",
+                      counter) ==
+          errors_t{ "With: 'With' would take the place of Source<Int32>'s generic default, which "
+                    "is what a call through Source<Int32> runs; give it another name" });
+    // Not one whose types the generic default's Where lines can't take, which no call that fits
+    // the default would pick.
+    CHECK(errors_of("Import std.core\n"
+                    "Class Counting Implements Iterator<Int>\n"
+                    "    Method Next(): Int? => Null\n"
+                    "    Method Chain(label: String): String => label\n"
+                    "    Method Zip(other: Int): Int => other\n"
+                    "End Class\n"
+                    "Local c = Counting().Chain(Counting())")
+              .empty());
+    CHECK(errors_of("Import std.core\n"
+                    "Class Counting Implements Iterator<Int>\n"
+                    "    Method Next(): Int? => Null\n"
+                    "    Method Chain(other: Counting): Int => 0\n"
+                    "End Class") ==
+          errors_t{ "Iterator<Int>: Counting's 'Chain' would take the place of Iterator<Int32>'s "
+                    "generic default, which is what a call through Iterator<Int32> runs; give it "
+                    "another name" });
     CHECK(errors_of(std::format("{}Class More Extends Counter\n"
                                 "    Method With(u: Bool): (Int, Bool) => (0, u)\n"
                                 "End Class\n"
@@ -6346,6 +6385,12 @@ TEST_CASE("a generic, conditional, or Final default runs as written, on an Inter
               "With: 'With' would take the place of Source<T>'s generic default, which a call "
               "through Source<T> runs as written; give it another name",
           });
+    CHECK(errors_of(std::format("{}Interface Paired Extends Source<Int>\n"
+                                "    Method With(u: String): (Int, String)\n"
+                                "End Interface",
+                                source)) ==
+          errors_t{ "With: 'With' would take the place of Source<Int32>'s generic default, which a "
+                    "call through Source<Int32> runs as written; give it another name" });
     CHECK(errors_of("Interface I\n    Final Method F()\nEnd Interface") ==
           errors_t{ "F: 'F' is Final, so it needs a body: a Final default is what every type that "
                     "implements the Interface has" });
