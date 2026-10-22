@@ -1,0 +1,107 @@
+// A generic, conditional, or Final default runs as written wherever it's called: on a Struct, on
+// a Class, on a type parameter, and through an Interface's value, whose Self it is then, so its
+// own calls on Self go through the value's object. Each gives what a For loop over the same
+// values does.
+Import std.core
+
+Interface Stream<T> Extends Iterator<T>
+    // A generic default, which wraps Self in a Class of its own.
+    Method Mapped<U>(change: Func(T): U): Stream<U> => Mapping<Self, T, U>(Self, change)
+
+    // A conditional one, for the Streams of numbers.
+    Method Total(): T
+        Where T: Numeric
+        Local total = T.Zero()
+        For value In Self
+            total = total + value
+        End For
+
+        Return total
+    End Method
+
+    // A Final one, which every Stream has as it's written.
+    Final Method Count(): Int
+        Local count = 0
+        For value In Self
+            count += 1
+        End For
+
+        Return count
+    End Method
+End Interface
+
+Class Mapping<S, T, U> Implements Stream<U>
+    Where S: Iterator<T>
+    Field source: S
+    Field change: Func(T): U
+
+    New(source: S, change: Func(T): U)
+        Self.source = source
+        Self.change = change
+    End New
+
+    Method Next(): U?
+        Local value = source.Next()
+        If value == Null Then Return Null
+        Return change(value)
+    End Method
+End Class
+
+// A Struct source, which a For loop goes over a copy of.
+Struct Upto Implements Stream<Int>
+    Field at: Int
+    Field last: Int
+
+    ByRef Method Next(): Int?
+        If at > last Then Return Null
+        at += 1
+        Return at - 1
+    End Method
+End Struct
+
+// A Class source, which a loop uses up.
+Class Countdown Implements Stream<Int>
+    Field left: Int
+
+    New(left: Int)
+        Self.left = left
+    End New
+
+    Method Next(): Int?
+        If left == 0 Then Return Null
+        left -= 1
+        Return left + 1
+    End Method
+End Class
+
+Function Looped(numbers: Upto): Int
+    Local total = 0
+    For n In numbers
+        total += n
+    End For
+
+    Return total
+End Function
+
+Function Through(numbers: Stream<Int>): Int => numbers.Mapped(Function(n: Int) => n * 10).Total()
+
+Function Generic<S: Stream<Int>>(numbers: S): Int => numbers.Total()
+
+Local upto = Upto(1, 4)
+Print("loop", Looped(upto), "struct", upto.Total(), upto.Count())
+Print("class", Countdown(4).Total(), Countdown(3).Count())
+
+Local value: Stream<Int> = Countdown(4)
+Print("value", value.Total())
+Print("through", Through(Countdown(3)), Through(upto.Mapped(Function(n: Int) => n + 1)))
+Print("generic", Generic(upto), Generic(Countdown(2)), Generic<Stream<Int>>(Countdown(5)))
+
+// A chain whose stages are values, each Mapped's Self the stage before.
+Local words = upto.Mapped(Function(n: Int) => "w{n}").Mapped(Function(w: String) => w + "!")
+For word In words
+    Print(word)
+End For
+
+// A chain over a Class is used up by the first loop over it, as the Class is.
+Local lengths = Countdown(3).Mapped(Function(n: Int) => (n As Float) * 1.5)
+Print("floats", lengths.Total(), "then", lengths.Count())

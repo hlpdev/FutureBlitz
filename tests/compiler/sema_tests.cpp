@@ -5949,11 +5949,79 @@ TEST_CASE("an Interface's Methods can throw, and be generic", "[sema]") {
                                 mapper)) ==
           errors_t{ "Mapper: 'Apply' needs U to implement Printable, which Mapper's doesn't, so it "
                     "can't implement it" });
+    // No table can hold a generic Method that no default gives, so Mapper is only a constraint.
     CHECK(errors_of(std::format("{}Function Through(m: Mapper): Int => m.Apply(Function(x: Int) => "
                                 "x)",
                                 mapper)) ==
-          errors_t{ "m.Apply: 'Apply' is generic, so it's called on a type parameter, like <T: "
-                    "Mapper>, not on an Interface's value" });
+          errors_t{ "Mapper: Mapper can only be a constraint, like <T: Mapper>, since it needs "
+                    "generic Methods, which no table can hold" });
+}
+
+TEST_CASE("a generic, conditional, or Final default runs as written, on an Interface's value too",
+          "[sema]") {
+    constexpr std::string_view source = "Import std.core\n"
+                                        "Interface Source<T>\n"
+                                        "    Method Take(): T\n"
+                                        "    Method With<U>(u: U): (T, U) => (Take(), u)\n"
+                                        "    Final Method Twice(): (T, T) => (Take(), Take())\n"
+                                        "    Method Total(): T\n"
+                                        "        Where T: Numeric\n"
+                                        "        Return Take() + Take()\n"
+                                        "    End Method\n"
+                                        "End Interface\n"
+                                        "Class Counter Implements Source<Int>\n"
+                                        "    Field n = 0\n"
+                                        "    Method Take(): Int\n"
+                                        "        n += 1\n"
+                                        "        Return n\n"
+                                        "    End Method\n"
+                                        "End Class\n"
+                                        "Class Words Implements Source<String>\n"
+                                        "    Method Take(): String => \"w\"\n"
+                                        "End Class\n";
+    CHECK(probe(std::format("{}Local s: Source<Int> = Counter()\nLocal p = s.With(\"a\")",
+                            source)) == "(Int32, String)");
+    CHECK(probe(std::format("{}Local s: Source<Int> = Counter()\nLocal p = s.Twice()", source)) ==
+          "(Int32, Int32)");
+    CHECK(probe(std::format("{}Local s: Source<Int> = Counter()\nLocal p = s.Total()", source)) ==
+          "Int32");
+    CHECK(probe(std::format("{}Local p = Counter().Total()", source)) == "Int32");
+    CHECK(errors_of(std::format("{}Function F<S: Source<Int>>(s: S): Int => s.Total()", source))
+              .empty());
+
+    // A conditional default is only where its Where lines hold.
+    CHECK(errors_of(std::format("{}Function F(w: Source<String>): String => w.Total()", source)) ==
+          errors_t{ "w.Total: String doesn't implement Numeric, which 'Total' needs for T" });
+    CHECK(errors_of(std::format("{}Local w = Words().Total()", source)) ==
+          errors_t{ "Total: Words has no member named 'Total'" });
+
+    // What a call through the Interface runs can't be replaced or overridden.
+    CHECK(errors_of(std::format("{}Class Own Implements Source<Int>\n"
+                                "    Method Take(): Int => 1\n"
+                                "    Method Twice(): (Int, Int) => (2, 2)\n"
+                                "End Class",
+                                source)) ==
+          errors_t{ "Source<Int>: Own's 'Twice' would take the place of Source<Int32>'s Final "
+                    "default, which is what a call through Source<Int32> runs; give it another "
+                    "name" });
+    CHECK(errors_of(std::format("{}Class Own Implements Source<Int>\n"
+                                "    Method Take(): Int => 1\n"
+                                "    Method With<U>(u: U): (Int, U) => (2, u)\n"
+                                "End Class",
+                                source)) ==
+          errors_t{ "Source<Int>: Own's 'With' would take the place of Source<Int32>'s generic "
+                    "default, which is what a call through Source<Int32> runs; give it another "
+                    "name" });
+    CHECK(errors_of(std::format("{}Class More Extends Counter\n"
+                                "    Override Method Total(): Int => 0\n"
+                                "End Class",
+                                source)) ==
+          errors_t{ "Total: 'Total' is Source<T>'s conditional default, which a call through "
+                    "Source<T> runs as written, so it can't be overridden; give this one another "
+                    "name" });
+    CHECK(errors_of("Interface I\n    Final Method F()\nEnd Interface") ==
+          errors_t{ "F: 'F' is Final, so it needs a body: a Final default is what every type that "
+                    "implements the Interface has" });
 }
 
 TEST_CASE("For ... In Try passes on the errors of a throwing Iterate", "[sema]") {

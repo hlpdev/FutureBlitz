@@ -1076,19 +1076,40 @@ private:
                 continue;
             }
 
-            // A generic Method has an instance for each set of type arguments, so it's only
-            // called on a type parameter, never through a table.
+            // A generic, conditional, or Final default runs as written, with the value for
+            // Self, so it isn't in the table, and neither is a generic Method, which has an
+            // instance for each set of type arguments.
             if (declared.kind == symbol_kind_t::PROPERTY) {
                 slots.push_back(expect(declared.getter));
                 if (declared.setter) {
                     slots.push_back(*declared.setter);
                 }
-            } else if (declared.kind == symbol_kind_t::METHOD && declared.type_parameters.empty()) {
+            } else if (declared.kind == symbol_kind_t::METHOD && declared.type_parameters.empty() &&
+                       !outside_table(declared)) {
                 slots.push_back(member);
             }
         }
 
         return slots;
+    }
+
+    /// Whether an Interface's Method is a default outside its table, as analysis has it: a
+    /// generic one, a conditional one, whose Where lines constrain the Interface's type
+    /// parameters, or a Final one, which a call through the Interface's value runs as written.
+    [[nodiscard]] bool outside_table(const symbol_t& member) const {
+        if (member.kind != symbol_kind_t::METHOD || !is_interface(member.owner) ||
+            member.modifiers.is_abstract || member.modifiers.is_static) {
+            return false;
+        }
+
+        if (!member.type_parameters.empty() || member.modifiers.is_final) {
+            return true;
+        }
+
+        const std::vector<type_id_t>& own = types().get(definition_of(member.owner)).parameters;
+        return std::ranges::any_of(member.constraints, [&](const bound_t& bound) {
+            return bound.field == type_id_t::INVALID && std::ranges::contains(own, bound.parameter);
+        });
     }
 
     /// An Interface's Method's, Get's, or Set's place in its table.
@@ -7059,9 +7080,10 @@ private:
         }
 
         const type_id_t self = type_arguments.front();
-        const bool dynamic = is_interface(self);
-        const std::optional<symbol_id_t> found =
-            dynamic ? std::optional(required) : implementation(self, required);
+        const bool dynamic = is_interface(self) && !outside_table(function);
+        const std::optional<symbol_id_t> found = dynamic || is_interface(self)
+                                                     ? std::optional(required)
+                                                     : implementation(self, required);
         // A built-in type, and a Struct or Class without its own Hash, has the built-in one.
         if (!found) {
             std::optional<operand_t> object = receiver;
@@ -7104,7 +7126,7 @@ private:
         }
 
         call_t call{
-            .function = function_of(target, dynamic ? abstract : concrete_arguments),
+            .function = function_of(target, is_interface(self) ? abstract : concrete_arguments),
             .arguments = std::move(arguments),
         };
         if (dynamic) {
@@ -7144,8 +7166,11 @@ private:
     /// `type_arguments`: an instance for a generic one.
     type_id_t interface_instance(const symbol_t& member,
                                  const std::vector<type_id_t>& type_arguments) {
-        return types().instance(
-            member.owner, std::vector<type_id_t>(type_arguments.begin() + 1, type_arguments.end()));
+        const std::size_t owned = types().get(definition_of(member.owner)).parameters.size();
+        return types().instance(member.owner,
+                                std::vector<type_id_t>(type_arguments.begin() + 1,
+                                                       type_arguments.begin() + 1 +
+                                                           static_cast<std::ptrdiff_t>(owned)));
     }
 
     /// The instance of a generic Interface among an Interface and the ones it extends, like the

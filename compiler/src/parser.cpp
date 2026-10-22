@@ -2777,6 +2777,7 @@ private:
                        next == token_kind_t::RIGHT_PAREN || next == token_kind_t::COMMA;
             }
             case token_kind_t::IDENTIFIER:
+            case token_kind_t::KW_SELF:
             case token_kind_t::DOT:
             case token_kind_t::COMMA:
             case token_kind_t::QUESTION:

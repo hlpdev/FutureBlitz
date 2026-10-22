@@ -168,8 +168,9 @@ End Class
   [07-generics.md](07-generics.md)). Two Interfaces' default `Operator ==`s, neither refining the
   other, make `==` on the type ambiguous wherever it's used, in a direct `==` and inside arrays,
   tuples, and Structs, which is an error at the type unless it has an `Operator ==` of its own.
-- An Interface is a type of its own unless it needs Statics or Operators, or uses Self in its
-  members' types: those are only constraints (see [07-generics.md](07-generics.md)). Its values
+- An Interface is a type of its own unless it needs Statics, Operators (but `[]` and `[]=`), or
+  generic Methods, or uses Self in its members' types: those are only constraints (see
+  [07-generics.md](07-generics.md)). Its values
   are references to objects of Classes that implement it, and calls on them run what the
   object's Class gives. A Class's object converts to the Interfaces its Class implements, and an
   Interface's to the ones it extends. `Is`, `As`, `As?`, and `Case x As I` test for an
@@ -185,9 +186,18 @@ End Class
 - An Interface can't be made, and has no Fields or News.
 - Its Methods can throw: what implements one throws only what it can, or less. A call through an
   Interface's value needs Try, as any call that can throw does.
-- Its Methods can be generic. One is called on a type parameter, like `<T: Mapper>`, but not on
-  an Interface's value, since each set of type arguments makes a Method of its own, which no
-  table can hold. What implements it has as many type parameters, and constrains them no more.
+- Its Methods can be generic. A generic default runs as written wherever it's called: on a
+  type, on a type parameter, and on an Interface's value, whose Self it is then, so its calls on
+  Self go through the value's object. A generic Method without a default can't be in a table,
+  since each set of type arguments makes a Method of its own, so an Interface that needs one, or
+  extends one that does, is only a constraint. What implements it has as many type parameters,
+  and constrains them no more.
+- A default's Where line can constrain the Interface's type parameters, which makes it
+  conditional: `Method Sum(): T` with `Where T: Numeric` on `Iterator<T>` is only where T is
+  Numeric, and a type whose instance can't meet it doesn't have it. A default can also be
+  `Final`. A generic, conditional, or Final default isn't in the Interface's table: a call
+  through its value runs the default with the value for Self, so a type can't have a Method of
+  its own in its place, and a Class can't override the copy it has.
 
 ## Properties
 

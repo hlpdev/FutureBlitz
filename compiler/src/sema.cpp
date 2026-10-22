@@ -1503,6 +1503,9 @@ private:
                 reason = "needs Static Methods";
             } else if (property != nullptr && property->modifiers.is_static) {
                 reason = "needs Static Properties";
+            } else if (function != nullptr && function->required &&
+                       !function->type_parameters.empty()) {
+                reason = "needs generic Methods, which no table can hold";
             } else if ((function != nullptr && uses_self(*function)) ||
                        (property != nullptr && mentions_self(property->type))) {
                 reason = "uses Self";
@@ -2862,9 +2865,14 @@ private:
         // check_operator() and check_static_modifiers() say what an Operator and a Static Method
         // can't be.
         if (!is_operator && !modifiers.is_static &&
-            (modifiers.is_abstract || modifiers.is_final || modifiers.is_override)) {
-            error(node.name.span, "an Interface's Methods can't be Abstract, Final, or Override; "
-                                  "one without a body is required");
+            (modifiers.is_abstract || modifiers.is_override)) {
+            error(node.name.span, "an Interface's Methods can't be Abstract or Override; one "
+                                  "without a body is required");
+        } else if (!is_operator && !modifiers.is_static && modifiers.is_final && node.required) {
+            error(node.name.span,
+                  "'{}' is Final, so it needs a body: a Final default is what every type that "
+                  "implements the Interface has",
+                  node.name.text);
         }
 
         // check_operator() says what an Operator's visibility is.
@@ -4102,6 +4110,24 @@ private:
             report_ambiguous_defaults(required.name, span, matching);
         }
 
+        // A call through the Interface's value runs a default outside its table as written, so
+        // a Method of the type's own in its place would be one that call never reaches.
+        if (outside_table(required) && !constraint_only(definition_of(interface))) {
+            const auto own = std::ranges::find_if(methods, [&](const symbol_id_t id) {
+                return symbol(id).default_method != required_id &&
+                       matches_required(symbol(id), required, interface, type, false);
+            });
+            if (own != methods.end()) {
+                error(span,
+                      "{}'s '{}' would take the place of {}'s {} default, which is what a call "
+                      "through {} runs; give it another name",
+                      name_of(type, interface), required.name, name_of(interface, type),
+                      outside_kind(required), shown_name(interface))
+                    .with_label(symbol(*own).span, "declared here");
+                return std::nullopt;
+            }
+        }
+
         if (!matching.empty()) {
             report_clashing(type, required.name, span, matching);
             check_implementation(matching.front(), required, interface, span);
@@ -4124,6 +4150,12 @@ private:
         const bool held = std::ranges::any_of(methods, [&](const symbol_id_t id) {
             return matches_required(symbol(id), required, interface, type, false);
         });
+        // A conditional default whose Where lines this type can't meet isn't the type's.
+        if (!required.modifiers.is_abstract && !held &&
+            !implemented_bounds(required, interface, type)) {
+            return std::nullopt;
+        }
+
         if (!required.modifiers.is_abstract && !held) {
             check_default_loops(type, required_id, interface, span);
             const symbol_id_t taken = take_default(type, required_id, interface, conditions, span);
@@ -4262,6 +4294,35 @@ private:
 
     /// `type`, from one of an Interface's members, with `self` for Self, and with the type
     /// arguments of `interface`, the Interface's instance, for a generic one's type parameters.
+    /// The Where lines that a default's copy in `self` keeps of those on the Interface's type
+    /// parameters, as `self` implements them: one on a type parameter of `self`'s stays, which
+    /// makes the copy conditional, and one that holds goes. nullopt when one can't hold, so
+    /// `self` doesn't get the default, which no call could reach.
+    std::optional<std::vector<bound_t>>
+    implemented_bounds(const symbol_t& method, const type_id_t interface, const type_id_t self) {
+        const std::vector<type_id_t>& own =
+            m_analysis.types.get(definition_of(interface)).parameters;
+        std::vector<bound_t> kept;
+        for (const bound_t& bound : method.constraints) {
+            if (bound.field != type_id_t::INVALID || !std::ranges::contains(own, bound.parameter)) {
+                kept.push_back(bound);
+                continue;
+            }
+
+            const bound_t implemented{
+                .parameter = as_implemented(bound.parameter, interface, self),
+                .interface = as_implemented(bound.interface, interface, self),
+            };
+            if (is_parameter(implemented.parameter)) {
+                kept.push_back(implemented);
+            } else if (!implements(implemented.parameter, implemented.interface)) {
+                return std::nullopt;
+            }
+        }
+
+        return kept;
+    }
+
     type_id_t as_implemented(const type_id_t type, const type_id_t interface,
                              const type_id_t self) {
         if (interface == type_id_t::INVALID) {
@@ -4509,6 +4570,8 @@ private:
 
         symbol_t taken = method;
         taken.type = as_implemented(method.type, interface, type);
+        taken.constraints =
+            implemented_bounds(method, interface, type).value_or(method.constraints);
         taken.by_ref = by_ref;
         taken.parameters = std::move(parameters);
         taken.owner = type;
@@ -4724,6 +4787,18 @@ private:
                 return symbol(other).default_method.has_value();
             })) {
             report_ambiguous_defaults(member.name, member.span, alike);
+            return;
+        }
+
+        // A default outside an Interface's table is what a call through the Interface runs.
+        if (original.default_method && outside_table(symbol(*original.default_method))) {
+            const symbol_t& given = symbol(*original.default_method);
+            error(member.span,
+                  "'{}' is {}'s {} default, which a call through {} runs as written, so it can't "
+                  "be overridden; give this one another name",
+                  member.name, shown_name(given.owner), outside_kind(given),
+                  shown_name(given.owner))
+                .with_label(original.span, "declared here");
             return;
         }
 
@@ -6021,7 +6096,7 @@ private:
         const std::size_t mark = enter_type_scope(type_parameters);
         // A Where line can constrain its type's type parameters too, which makes it conditional.
         std::vector<type_id_t> constrained = type_parameters;
-        if (owner != type_id_t::INVALID && !is_interface(owner)) {
+        if (owner != type_id_t::INVALID) {
             std::ranges::copy(m_analysis.types.get(owner).parameters,
                               std::back_inserter(constrained));
         }
@@ -9837,6 +9912,36 @@ private:
 
         const auto* node = std::get_if<function_stmt_t>(&m_ast.get(*function.declaration).node);
         return node != nullptr && node->kind == function_kind_t::OPERATOR && !indexes(*node);
+    }
+
+    /// Whether an Interface's Method is a default outside its table: a generic one, a conditional
+    /// one, whose Where lines constrain the Interface's type parameters, or a Final one. A call
+    /// through the Interface's value runs it as written, with the value for Self, so nothing can
+    /// take its place.
+    [[nodiscard]] bool outside_table(const symbol_t& member) const {
+        if (member.kind != symbol_kind_t::METHOD || !is_interface(member.owner) ||
+            member.modifiers.is_abstract || member.modifiers.is_static) {
+            return false;
+        }
+
+        if (!member.type_parameters.empty() || member.modifiers.is_final) {
+            return true;
+        }
+
+        const std::vector<type_id_t>& own =
+            m_analysis.types.get(definition_of(member.owner)).parameters;
+        return std::ranges::any_of(member.constraints, [&](const bound_t& bound) {
+            return bound.field == type_id_t::INVALID && std::ranges::contains(own, bound.parameter);
+        });
+    }
+
+    /// What kind of default outside its table a Method is, for messages.
+    [[nodiscard]] std::string_view outside_kind(const symbol_t& member) const {
+        if (!member.type_parameters.empty()) {
+            return "generic";
+        }
+
+        return member.modifiers.is_final ? "Final" : "conditional";
     }
 
     /// Whether a function is an index Operator, "[]" or "[]=", which is a Method of Self rather
@@ -17664,15 +17769,6 @@ private:
         check_class_call(id, symbol(function), on_super);
         check_throwing_call(id, function);
         fold_integer_call(id, node, symbol(function));
-        if (member != nullptr && is_interface_member(symbol(function)) &&
-            !symbol(function).type_parameters.empty() &&
-            is_interface(non_null(info(member->object).type))) {
-            error(span_of(node.callee),
-                  "'{}' is generic, so it's called on a type parameter, like <T: {}>, not on an "
-                  "Interface's value",
-                  symbol(function).name, shown_name(definition_of(symbol(function).owner)));
-        }
-
         // "a?.M()" gives Null when a is Null.
         const type_id_t type = substituted(symbol(function).type);
         if (member != nullptr && member->null_safe && type != type_id_t::NONE) {
