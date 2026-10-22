@@ -6450,6 +6450,37 @@ TEST_CASE("a generic, conditional, or Final default runs as written, on an Inter
                     "leads back to this code, so it would need a larger instance each time, "
                     "without end" });
     CHECK(wrapping("    Final Method Once(): String => Holder<Self>(Self).Show()\n").empty());
+    // A copy runs with the type that has it for Self, here a Class that a Wrapper extends, and
+    // a generic Method's own type arguments are its own, not its type's.
+    CHECK(errors_of("Interface Shown\n"
+                    "    Method Show(): String\n"
+                    "    Final Method Nest(n: Int): String\n"
+                    "        If n == 0 Then Return Show()\n"
+                    "        Return Wrapper<Self>(Self).Nest(n - 1)\n"
+                    "    End Method\n"
+                    "End Interface\n"
+                    "Class Base Implements Shown\n"
+                    "    Method Show(): String => \"base\"\n"
+                    "End Class\n"
+                    "Class Wrapper<Q> Extends Base\n"
+                    "    New(inner: Q)\n"
+                    "    End New\n"
+                    "End Class\n"
+                    "Class Maker<X>\n"
+                    "    Method Make<Q>(q: Q): String => \"made\"\n"
+                    "    Method Go(x: X): String => Make([x])\n"
+                    "End Class\n"
+                    "Local a = Base().Nest(2)\n"
+                    "Local b = Maker<Int>().Go(1)")
+              .empty());
+    CHECK(errors_of("Import std.core\n"
+                    "Class Each<T> Implements Iterator<T>\n"
+                    "    Method Next(): T? => Null\n"
+                    "    Method AndThen(other: Each<T>): Iterator<T> => Chain(other)\n"
+                    "    Method Doubled(): Iterator<(T, T)> => Map(Function(x: T) => (x, x))\n"
+                    "End Class\n"
+                    "Local e = Each<Int>().AndThen(Each<Int>())")
+              .empty());
 }
 
 TEST_CASE("For ... In Try passes on the errors of a throwing Iterate", "[sema]") {

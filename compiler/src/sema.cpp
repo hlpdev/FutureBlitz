@@ -485,6 +485,9 @@ private:
     std::unordered_map<type_id_t, std::vector<symbol_id_t>> m_atomic_methods;
     /// Each Task's and Thread's Methods, made when first used.
     std::unordered_map<type_id_t, std::vector<symbol_id_t>> m_task_methods;
+    /// Each call's type arguments in full, its Struct's or Class's ones too, which
+    /// check_expansion() follows as lowering makes the instance.
+    std::unordered_map<expr_id_t, std::vector<type_id_t>> m_call_arguments;
     /// Each Channel's Methods, made when first used.
     std::unordered_map<type_id_t, std::vector<symbol_id_t>> m_channel_methods;
     /// A Scheduler's Methods, once something uses them.
@@ -9311,19 +9314,23 @@ private:
                 });
             }
         };
-        // A default that a call of a type's copy runs, with the type it's called on for Self:
-        // the object's, or the type itself in its own code.
-        const auto runs_copy = [&](const expr_id_t id, const symbol_t& copy) {
-            const auto* call = std::get_if<call_expr_t>(&m_ast.get(id).node);
-            if (call == nullptr || !copy.default_method ||
-                !runs_as_default(symbol(*copy.default_method)) || is_interface(copy.owner)) {
+        // A default that a call of a type's copy runs, with the type that has the copy for
+        // Self: its instance with the call's type arguments, as lowering makes it.
+        const auto runs_copy = [&](const expr_id_t id, const symbol_t& copy,
+                                   const std::vector<type_id_t>& arguments) {
+            if (!copy.default_method || !runs_as_default(symbol(*copy.default_method)) ||
+                is_interface(copy.owner)) {
                 return;
             }
 
+            const std::vector<type_id_t>& own = m_analysis.types.get(copy.owner).parameters;
             type_id_t self = copy.owner;
-            const auto* member = std::get_if<member_expr_t>(&m_ast.get(call->callee).node);
-            if (member != nullptr && info(member->object).type != type_id_t::INVALID) {
-                self = non_null(info(member->object).type);
+            if (m_analysis.types.get(copy.owner).generic == type_id_t::INVALID && !own.empty() &&
+                arguments.size() >= own.size()) {
+                self = m_analysis.types.instance(
+                    copy.owner,
+                    std::vector(arguments.begin(),
+                                arguments.begin() + static_cast<std::ptrdiff_t>(own.size())));
             }
 
             const symbol_id_t given = *copy.default_method;
@@ -9372,10 +9379,15 @@ private:
 
         for (std::size_t i = 0; i < m_analysis.exprs.size(); ++i) {
             const expr_info_t& info = m_analysis.exprs[i];
-            const span_t span = span_of(static_cast<expr_id_t>(i));
-            calls(info.symbol, info.type_arguments, span);
-            if (info.symbol) {
-                runs_copy(static_cast<expr_id_t>(i), symbol(*info.symbol));
+            const auto id = static_cast<expr_id_t>(i);
+            const span_t span = span_of(id);
+            // A call's own type arguments, after its Struct's or Class's.
+            const auto full = m_call_arguments.find(id);
+            const std::vector<type_id_t>& arguments =
+                full != m_call_arguments.end() ? full->second : info.type_arguments;
+            calls(info.symbol, arguments, span);
+            if (info.symbol && full != m_call_arguments.end()) {
+                runs_copy(id, symbol(*info.symbol), arguments);
             }
 
             if (!info.symbol || symbol(*info.symbol).kind != symbol_kind_t::CONSTRUCTOR ||
@@ -17823,6 +17835,7 @@ private:
                 : symbol(*function).type_parameters.size();
         info(id).type_arguments.assign(arguments->end() - static_cast<std::ptrdiff_t>(own),
                                        arguments->end());
+        m_call_arguments[id] = *arguments;
         // A Method called on an object needs only its own Where lines: its type's were checked
         // where the object's type was written, as for a Set<Rock>, so they aren't again.
         const symbol_t& called = symbol(*function);
