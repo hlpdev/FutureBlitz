@@ -1,0 +1,8 @@
+// A Counter's Add panics at a negative number of times.
+Import std.core
+Import std.collections
+
+Local counts = Counter<String>()
+counts.Add("a", 0)
+Print(counts.Count)
+counts.Add("a", -2)

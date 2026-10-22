@@ -1,0 +1,9 @@
+// An LruCache made to hold nothing panics where it's resized.
+Import std.core
+Import std.collections
+
+Local cache = LruCache<String, Int>(2)
+cache.Add("a", 1)
+cache.Resize(1)
+Print(cache)
+cache.Resize(0)

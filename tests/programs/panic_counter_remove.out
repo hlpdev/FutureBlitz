@@ -1,0 +1,2 @@
+0
+panic: Remove takes a count that isn't negative, not -1 at panic_counter_remove.fb:8:7

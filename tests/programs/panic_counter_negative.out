@@ -1,0 +1,2 @@
+{a: 2}
+panic: a Counter's count isn't negative, but this one is -1 at panic_counter_negative.fb:8:7

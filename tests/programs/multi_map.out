@@ -1,0 +1,11 @@
+0
+{} 0 0 [] [] False False 0
+{fruit: [apple, pear, apple], veg: [kale]} 4 2 [apple, pear, apple] True
+fruit apple
+fruit pear
+fruit apple
+veg kale
+True {fruit: [pear, apple], veg: [kale]} True [fruit]
+{fruit: [pear, apple, plum]} {fruit: [pear, apple]} False True
+2 {} 0
+{} 0 True

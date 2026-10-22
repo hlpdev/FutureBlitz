@@ -1,0 +1,132 @@
+// Counter<T>: how many times each value was added, in the order the values were first added. A
+// value's count is never 0: one whose count goes down to 0 goes, and counter[value] of one that
+// isn't there is 0.
+
+Import std.core
+Import std.collections.array
+Import std.collections.map
+
+Public Class Counter<T> Implements Iterable<(T, Int)>, Cloneable, Defaultable, Hashable
+    Where T: Hashable
+
+    Field Counts: Map<T, Int>
+    Field Sum: Int
+
+    Public New()
+        Counts = Map<T, Int>()
+    End New
+
+    // How many values it counts, each once.
+    Public Property Count: Int
+        Get => Counts.Count
+    End Property
+
+    // All the counts added up.
+    Public Property Total: Int
+        Get => Sum
+    End Property
+
+    // Counts the value once more.
+    Public Method Add(value: T)
+        Add(value, 1)
+    End Method
+
+    // Counts the value times more times. A negative times panics.
+    @PanicsAtCaller
+    Public Method Add(value: T, times: Int)
+        If times < 0 Then Panic("Add takes a count that isn't negative, not {times}")
+        If times > 0 Then Self[value] = Self[value] + times
+    End Method
+
+    // Counts each of the values once more, all read first.
+    Public Method AddAll(values: Iterable<T>)
+        For value In values.Iterate().ToArray()
+            Add(value)
+        End For
+    End Method
+
+    // Counts the value once less, and tells whether it was there.
+    Public Method Remove(value: T): Bool => Remove(value, 1) > 0
+
+    // Counts the value up to times less, and gives how many it took away. A negative times
+    // panics.
+    @PanicsAtCaller
+    Public Method Remove(value: T, times: Int): Int
+        If times < 0 Then Panic("Remove takes a count that isn't negative, not {times}")
+        Local had = Self[value]
+        Local taken = Min(had, times)
+        Self[value] = had - taken
+        Return taken
+    End Method
+
+    // How many times the value was counted, or 0.
+    Operator [](value: T): Int => Counts.Get(value, 0)
+
+    // Gives the value a count, and a count of 0 removes it. A negative count panics.
+    @PanicsAtCaller
+    Operator []=(value: T, count: Int)
+        If count < 0 Then Panic("a Counter's count isn't negative, but this one is {count}")
+        Local had = Counts.Get(value, 0)
+        If count == 0
+            Counts.Remove(value)
+        Else
+            Counts.Add(value, count)
+        End If
+
+        Sum = Sum - had + count
+    End Operator
+
+    Public Method Contains(value: T): Bool => Counts.Contains(value)
+
+    Public Method Clear()
+        Counts.Clear()
+        Sum = 0
+    End Method
+
+    // The count most counted values and their counts, most first, and values counted the same
+    // number of times in the order they were first added. A negative count panics.
+    @PanicsAtCaller
+    Public Method MostCommon(count: Int): (T, Int)[]
+        If count < 0 Then Panic("MostCommon takes a count that isn't negative, not {count}")
+        Local entries: (T, Int)[] = []
+        entries.Reserve(Counts.Count)
+        For entry In Counts
+            entries.Add(entry)
+        End For
+
+        entries.SortByDescending(Function(entry: (T, Int)) => entry.1)
+        If entries.Count > count Then entries.RemoveRange(count, entries.Count - count)
+        Return entries
+    End Method
+
+    // The values, each once, in the order they were first added.
+    Public Method Values(): T[] => Counts.Keys()
+
+    // A new, empty Counter.
+    Public Static Method DefaultValue(): Counter<T> => Counter<T>()
+
+    // A new Counter with the same counts.
+    Public Method Clone(): Counter<T>
+        Local copy = Counter<T>()
+        copy.Counts = Counts.Clone()
+        copy.Sum = Sum
+        Return copy
+    End Method
+
+    // Two Counters are equal when they count the same values the same number of times, in any
+    // order.
+    Operator ==(a: Counter<T>, b: Counter<T>): Bool => a.Counts == b.Counts
+
+    Public Method Hash(): UInt64 => Counts.Hash()
+
+    // Each value and its count, for 'For value, count In counter'. Changing a count while going
+    // over them is fine, but adding or removing a value panics.
+    Public Method Iterate(): MapIterator<T, Int> => Counts.IterateAs("Counter")
+End Class
+
+// "{a: 2, b: 1}", in the order the values were first added, when they can be shown.
+Extend Counter<T> Implements Printable
+    Where T: Printable
+
+    Public Method ToString(): String => "{Counts}"
+End Extend

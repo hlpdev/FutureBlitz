@@ -1,0 +1,8 @@
+// A Counter's MostCommon panics at a negative count.
+Import std.core
+Import std.collections
+
+Local counts = Counter<String>()
+counts.Add("a")
+Print(counts.MostCommon(0))
+Print(counts.MostCommon(-1))

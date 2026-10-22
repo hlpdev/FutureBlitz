@@ -1,0 +1,89 @@
+// A Counter matches a Map from each value to its count, which drops a value whose count reaches
+// 0, through many random additions, removals, and sets.
+Import std.core
+Import std.collections
+
+// The same numbers each run, from a linear congruential generator.
+Global seed: UInt64 = 12345
+
+Function Next(limit: Int): Int
+    seed = seed.WrappingMultiply(6364136223846793005).WrappingAdd(1442695040888963407)
+    Return ((seed >> 33) % (limit As UInt64)) As Int
+End Function
+
+Local counts = Counter<Int>()
+Local plain = Map<Int, Int>()
+Local wrong = 0
+For round = 1 To 4000
+    Local value = Next(30)
+    Local times = Next(4)
+    Local op = Next(4)
+    If op == 0
+        counts.Add(value, times)
+        If times > 0 Then plain[value] = plain.Get(value, 0) + times
+    ElseIf op == 1
+        Local had = plain.Get(value, 0)
+        If counts.Remove(value, times) != Min(had, times) Then wrong += 1
+        If had > times
+            plain[value] = had - times
+        Else
+            plain.Remove(value)
+        End If
+    ElseIf op == 2
+        counts[value] = times
+        If times == 0
+            plain.Remove(value)
+        Else
+            plain[value] = times
+        End If
+    Else
+        If counts.Remove(value) != plain.Contains(value) Then wrong += 1
+        If plain.Get(value, 0) > 1
+            plain[value] -= 1
+        Else
+            plain.Remove(value)
+        End If
+    End If
+
+    Local total = 0
+    For key, count In plain
+        total += count
+        If counts[key] != count Then wrong += 1
+    End For
+
+    If counts.Count != plain.Count || counts.Total != total ||
+       counts.Contains(value) != plain.Contains(value)
+        wrong += 1
+    End If
+
+    If counts.Values().Count != plain.Count Then wrong += 1
+End For
+Print(wrong)
+
+// MostCommon against sorting the Map's entries by count, most first, ties in the order added.
+Local entries: (Int, Int)[] = []
+For entry In counts
+    entries.Add(entry)
+End For
+entries.SortByDescending(Function(entry: (Int, Int)) => entry.1)
+Print(counts.MostCommon(5) == entries[0..5], counts.MostCommon(100) == entries,
+      counts.MostCommon(0))
+
+// The basics, and the empty cases.
+Local words = Counter<String>()
+Print(words, words.Count, words.Total, words["a"], words.Remove("a"), words.Remove("a", 3),
+      words.MostCommon(2), words.Contains("a"))
+words.AddAll(["b", "a", "b", "c", "a", "b"])
+Print(words, words.Count, words.Total, words["b"], words.MostCommon(2), words.Values())
+For word, count In words
+    Print(word, count)
+End For
+
+words["c"] = 0
+words.Add("d", 0)
+Print(words, words.Total, words.Remove("b", 10), words)
+Local copy = words.Clone()
+copy.Add("z")
+Print(copy, words, copy == words, words.Clone() == words, words.Clone().Hash() == words.Hash())
+words.Clear()
+Print(words, words.Total, words == Counter<String>.DefaultValue())

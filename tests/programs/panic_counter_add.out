@@ -1,0 +1,2 @@
+0
+panic: Add takes a count that isn't negative, not -2 at panic_counter_add.fb:8:1

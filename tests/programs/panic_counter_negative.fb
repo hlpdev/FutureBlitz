@@ -1,0 +1,8 @@
+// A Counter's []= panics at a negative count.
+Import std.core
+Import std.collections
+
+Local counts = Counter<String>()
+counts["a"] = 2
+Print(counts)
+counts["a"] = -1

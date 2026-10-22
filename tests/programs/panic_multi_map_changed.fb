@@ -1,0 +1,10 @@
+// Adding to a MultiMap while a For ... In goes over it panics.
+Import std.core
+Import std.collections
+
+Local multi = MultiMap<String, Int>()
+multi.Add("a", 1)
+For key, value In multi
+    Print(key, value)
+    multi.Add(key, value)
+End For

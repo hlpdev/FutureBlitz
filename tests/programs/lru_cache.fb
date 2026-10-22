@@ -1,0 +1,82 @@
+// An LruCache matches a Map and an array of its keys from least to most recently used, through
+// many random reads, adds, and removals, dropping the least recently used key when it's full.
+Import std.core
+Import std.collections
+
+// The same numbers each run, from a linear congruential generator.
+Global seed: UInt64 = 12345
+
+Function Next(limit: Int): Int
+    seed = seed.WrappingMultiply(6364136223846793005).WrappingAdd(1442695040888963407)
+    Return ((seed >> 33) % (limit As UInt64)) As Int
+End Function
+
+Local cache = LruCache<Int, Int>(10)
+Local values = Map<Int, Int>()
+Local order: Int[] = []
+Local room = 10
+Local wrong = 0
+For round = 1 To 5000
+    Local key = Next(25)
+    Local op = Next(10)
+    If op <= 3
+        // Get uses the key.
+        If (cache.Get(key) ?? -1) != values.Get(key, -1) Then wrong += 1
+        If values.Contains(key)
+            order.Remove(key)
+            order.Add(key)
+        End If
+    ElseIf op == 4
+        If (cache.Peek(key) ?? -1) != values.Get(key, -1) Then wrong += 1
+        If cache.Contains(key) != values.Contains(key) Then wrong += 1
+    ElseIf op <= 7
+        Local dropped = cache.Add(key, round)
+        values.Add(key, round)
+        order.Remove(key)
+        order.Add(key)
+        If order.Count > room
+            Local oldest = order[0]
+            order.RemoveAt(0)
+            If dropped == Null || dropped.0 != oldest || dropped.1 != values[oldest] Then wrong += 1
+            values.Remove(oldest)
+        ElseIf dropped != Null
+            wrong += 1
+        End If
+    ElseIf op == 8
+        If cache.Remove(key) != values.Remove(key) Then wrong += 1
+        order.Remove(key)
+    ElseIf Next(20) == 0
+        room = 1 + Next(12)
+        cache.Resize(room)
+        While order.Count > room
+            values.Remove(order[0])
+            order.RemoveAt(0)
+        End While
+    End If
+
+    If cache.Keys() != order || cache.Count != order.Count || cache.Capacity != room Then wrong += 1
+    For k In order
+        If cache.Peek(k) != values[k] Then wrong += 1
+    End For
+End For
+Print(wrong)
+
+// The basics, and the empty cases.
+Local names = LruCache<String, Int>(2)
+Print(names, names.Count, names.Capacity, names.Get("a") ?? -1, names.Peek("a") ?? -1,
+      names.Remove("a"), names.Contains("a"))
+Print(names.Add("a", 1)?.0 ?? "-", names.Add("b", 2)?.0 ?? "-", names)
+Print(names.Peek("a") ?? -1, names.Add("c", 3)?.0 ?? "-", names)
+Print(names.Get("b") ?? -1, names.Add("a", 4)?.0 ?? "-", names, names.Keys(), names.Values())
+Print(names.Add("a", 5)?.0 ?? "-", names)
+For key, value In names
+    Print(key, value)
+End For
+
+Local copy = names.Clone()
+copy.Get("b")
+Print(copy, names, copy.Capacity)
+names.Resize(1)
+Print(names, names.Capacity)
+names.Clear()
+Print(names, names.Count)

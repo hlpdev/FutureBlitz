@@ -1,0 +1,84 @@
+// A MultiMap matches a Map from each key to an array of its values, which drops a key whose last
+// value goes, through many random additions and removals.
+Import std.core
+Import std.collections
+
+// The same numbers each run, from a linear congruential generator.
+Global seed: UInt64 = 12345
+
+Function Next(limit: Int): Int
+    seed = seed.WrappingMultiply(6364136223846793005).WrappingAdd(1442695040888963407)
+    Return ((seed >> 33) % (limit As UInt64)) As Int
+End Function
+
+Local multi = MultiMap<Int, Int>()
+Local plain = Map<Int, Int[]>()
+Local wrong = 0
+For round = 1 To 4000
+    Local key = Next(15)
+    Local value = Next(6)
+    Local op = Next(6)
+    If op <= 2
+        multi.Add(key, value)
+        plain.GetOrAdd(key, Function(): Int[] => []).Add(value)
+    ElseIf op == 3
+        Local values = plain.Get(key)
+        Local had = values != Null && values.Remove(value)
+        If multi.Remove(key, value) != had Then wrong += 1
+        If values != Null && values.Count == 0 Then plain.Remove(key)
+    ElseIf op == 4
+        Local values = plain.Get(key)
+        If multi.RemoveKey(key) != (values?.Count ?? 0) Then wrong += 1
+        plain.Remove(key)
+    Else
+        multi.AddAll(key, [value, value + 1])
+        plain.GetOrAdd(key, Function(): Int[] => []).AddAll([value, value + 1])
+    End If
+
+    Local count = 0
+    Local pairs: (Int, Int)[] = []
+    For k, values In plain
+        count += values.Count
+        If multi[k] != values Then wrong += 1
+        For v In values
+            pairs.Add((k, v))
+        End For
+    End For
+
+    Local seen: (Int, Int)[] = []
+    For pair In multi
+        seen.Add(pair)
+    End For
+
+    If multi.Count != count || multi.KeyCount != plain.Count || multi.Keys() != plain.Keys()
+        wrong += 1
+    End If
+
+    If seen != pairs || multi.Contains(key) != plain.Contains(key) Then wrong += 1
+    If multi.Contains(key, value) != (plain.Get(key)?.Contains(value) ?? False) Then wrong += 1
+End For
+Print(wrong)
+
+// The basics, and the empty cases.
+Local tags = MultiMap<String, String>()
+Print(tags, tags.Count, tags.KeyCount, tags["a"], tags.Get("a"), tags.Contains("a"),
+      tags.Remove("a", "x"), tags.RemoveKey("a"))
+tags.Add("fruit", "apple")
+tags.Add("veg", "kale")
+tags.Add("fruit", "pear")
+tags.Add("fruit", "apple")
+Print(tags, tags.Count, tags.KeyCount, tags["fruit"], tags.Contains("fruit", "pear"))
+For key, value In tags
+    Print(key, value)
+End For
+
+// What Get gives is a copy.
+tags["fruit"].Add("fig")
+Print(tags.Remove("fruit", "apple"), tags, tags.Remove("veg", "kale"), tags.Keys())
+Local copy = tags.Clone()
+copy.Add("fruit", "plum")
+Print(copy, tags, copy == tags, tags.Clone() == tags)
+Print(tags.RemoveKey("fruit"), tags, tags.Count)
+tags.Add("x", "y")
+tags.Clear()
+Print(tags, tags.Count, tags == MultiMap<String, String>.DefaultValue())
