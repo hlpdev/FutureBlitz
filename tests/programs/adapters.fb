@@ -81,3 +81,39 @@ End For
 Local first = maybe.Iterate().First()
 Local found = maybe.Iterate().Find(Function(s: String?) => s == "b")
 Print(looped, maybe.Iterate().Count(), (first ?? "none") ?? "null", (found ?? "none") ?? "null")
+
+// Flatten on a type whose values are a concrete collection, or one of its own type parameters,
+// tells its U from them, on the type as through its value.
+Class IntRows Implements Iterator<Stack<Int>>
+    Field Made: Int
+
+    Method Next(): Stack<Int>?
+        If Made >= 2 Then Return Null
+        Made += 1
+        Local row = Stack<Int>()
+        row.Push(Made)
+        row.Push(Made * 10)
+        Return row
+    End Method
+End Class
+
+Class Rows<T> Implements Iterator<Stack<T>>
+    Field Values: T[]
+    Field At: Int
+
+    New(values: T[])
+        Values = values
+    End New
+
+    Method Next(): Stack<T>?
+        If At >= Values.Count Then Return Null
+        At += 1
+        Local row = Stack<T>()
+        row.Push(Values[At - 1])
+        Return row
+    End Method
+End Class
+
+Local rows: Iterator<Stack<Int>> = IntRows()
+Print(IntRows().Flatten().ToArray(), rows.Flatten().ToArray(),
+      Rows<String>(["x", "y"]).Flatten().ToArray())

@@ -4399,7 +4399,10 @@ private:
             implemented.parameter = as_implemented(bound.parameter, interface, self);
             std::vector<type_id_t> inside;
             parameters_in(implemented.parameter, inside);
-            if (!is_parameter(implemented.parameter)) {
+            // One whose Interface has the Method's own type parameters, like Flatten's
+            // Stack<Int32>: Iterable<U>, is for the call to settle, once U is told.
+            if (!is_parameter(implemented.parameter) &&
+                !mentions(implemented.interface, method.type_parameters)) {
                 if (implements(implemented.parameter, implemented.interface)) {
                     continue;
                 }
@@ -18388,6 +18391,27 @@ private:
         return known;
     }
 
+    /// A type made of type parameters, with the type arguments told so far in it, or nullopt
+    /// while it has one that isn't told.
+    std::optional<type_id_t> told_type(const type_id_t type, const std::vector<type_id_t>& parameters,
+                                       const std::vector<std::optional<type_id_t>>& arguments) {
+        std::vector<type_id_t> from;
+        std::vector<type_id_t> to;
+        for (std::size_t i = 0; i < parameters.size() && i < arguments.size(); ++i) {
+            if (const std::optional<type_id_t> argument = arguments[i]) {
+                from.push_back(parameters[i]);
+                to.push_back(*argument);
+            }
+        }
+
+        const type_id_t told = substitute(type, from, to);
+        if (mentions(told, parameters)) {
+            return std::nullopt;
+        }
+
+        return told;
+    }
+
     /// The type arguments infer() can tell, one for each of type_parameters_of(), and nullopt
     /// for each it can't.
     std::vector<std::optional<type_id_t>>
@@ -18405,15 +18429,18 @@ private:
         }
 
         // Then from constraints, like the E of "S: Iterator<E>", from the Iterator that S
-        // implements.
+        // implements, or of one on a type made of them once they're known, like a copy's
+        // "Stack<T>: Iterable<U>".
         for (const bound_t& constraint : call_bounds(function)) {
-            const auto place = std::ranges::find(parameters, constraint.parameter);
-            if (place == parameters.end() || constraint.field != type_id_t::INVALID) {
+            if (constraint.field != type_id_t::INVALID) {
                 continue;
             }
 
+            const auto place = std::ranges::find(parameters, constraint.parameter);
             const std::optional<type_id_t> known =
-                arguments[static_cast<std::size_t>(place - parameters.begin())];
+                place != parameters.end()
+                    ? arguments[static_cast<std::size_t>(place - parameters.begin())]
+                    : told_type(constraint.parameter, parameters, arguments);
             const type_id_t found =
                 known ? instance_for(*known, constraint.interface) : type_id_t::INVALID;
             if (found != type_id_t::INVALID) {
