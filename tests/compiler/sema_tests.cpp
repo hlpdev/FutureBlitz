@@ -1817,6 +1817,46 @@ TEST_CASE("a T[]'s Count and Methods", "[sema]") {
     CHECK(errors_of("Local a = [1]\na.Count = 3") ==
           errors_t{ "a.Count: an array's Count can't be changed; use Add, Insert, RemoveAt, or "
                     "Clear" });
+    // Nor ByRef, nor a fixed array's, nor a String's Chars or Bytes, which are new each time.
+    const std::string takers = "Function Bump(ByRef n: Int)\n"
+                               "End Function\n"
+                               "Function Fill(ByRef bytes: UInt8[])\n"
+                               "End Function\n"
+                               "Struct Pair\n"
+                               "    Field Items: Int[]\n"
+                               "    Field Name: String\n"
+                               "End Struct\n";
+    CHECK(errors_of(takers + "Local a = [1]\nBump(ByRef a.Count)") ==
+          errors_t{ "a.Count: an array's Count can't be changed; use Add, Insert, RemoveAt, or "
+                    "Clear" });
+    CHECK(errors_of(takers + "Local g: Int[3]\nBump(ByRef g.Count)\ng.Count += 1") ==
+          errors_t{ "g.Count: a fixed array's Count can't be changed",
+                    "g.Count: a fixed array's Count can't be changed" });
+    CHECK(errors_of(takers + "Local w = \"abc\"\nFill(ByRef w.Bytes)\nw.Bytes = [1]") ==
+          errors_t{ "w.Bytes: a String's Bytes is a new array each time it's read, so it can't be "
+                    "changed",
+                    "w.Bytes: a String's Bytes is a new array each time it's read, so it can't be "
+                    "changed" });
+    CHECK(errors_of(takers + "Local p = Pair([1], \"x\")\nBump(ByRef p.Items.Count)\n"
+                             "p.Name.Chars = [65]") ==
+          errors_t{ "p.Items.Count: an array's Count can't be changed; use Add, Insert, RemoveAt, "
+                    "or Clear",
+                    "p.Name.Chars: a String's Chars is a new array each time it's read, so it "
+                    "can't be changed" });
+    // An element of the new array is a temporary's, like an element of what a call gives.
+    CHECK(errors_of("Local w = \"abc\"\nw.Bytes[0] = 5\nLocal b = w.Bytes[0]").empty());
+    // A Property an Extend gives arrays can be set.
+    CHECK(errors_of("Extend T[]\n"
+                    "    Property Top: T\n"
+                    "        Get => Self[Count - 1]\n"
+                    "        Set(value)\n"
+                    "            Self[Count - 1] = value\n"
+                    "        End Set\n"
+                    "    End Property\n"
+                    "End Extend\n"
+                    "Local a = [1, 2]\n"
+                    "a.Top = 5")
+              .empty());
     CHECK(errors_of("Local a = [1]\nLocal n = a.Count()") ==
           errors_t{ "Count: Count isn't a Method; leave out the ()" });
     CHECK(errors_of("Local a = [1]\nLocal f = a.Add") ==

@@ -14319,13 +14319,6 @@ private:
                 return std::nullopt;
             }
 
-            if (const auto* member = std::get_if<member_expr_t>(&node);
-                member != nullptr && is_any_array(non_null(info(member->object).type))) {
-                error(span_of(id),
-                      "an array's Count can't be changed; use Add, Insert, RemoveAt, or Clear");
-                return std::nullopt;
-            }
-
             if (!check_changeable(id)) {
                 return std::nullopt;
             }
@@ -14405,8 +14398,25 @@ private:
         return false;
     }
 
+    /// Reports a change to a member that's worked out when it's read, not kept: an array's Count,
+    /// or a String's Chars or Bytes.
+    void report_worked_out(const expr_id_t id, const member_expr_t& member) {
+        const type_id_t object = non_null(info(member.object).type);
+        if (is_array(object)) {
+            error(span_of(id),
+                  "an array's Count can't be changed; use Add, Insert, RemoveAt, or Clear");
+        } else if (is_fixed_array(object)) {
+            error(span_of(id), "a fixed array's Count can't be changed");
+        } else {
+            error(span_of(id), "a String's {} is a new array each time it's read, so it can't be "
+                               "changed",
+                  member.member.text);
+        }
+    }
+
     /// What a change to a place goes through can't be a Property's value, which is a copy, or a
-    /// ReadOnly Field outside its Class's New. Reports why not.
+    /// ReadOnly Field outside its Class's New, or what's worked out when it's read. Reports why
+    /// not.
     bool check_changeable(const expr_id_t id) {
         const expr_node_t& node = m_ast.get(id).node;
         if (indexes_through_operator(id)) {
@@ -14418,6 +14428,12 @@ private:
         }
 
         const auto* member = std::get_if<member_expr_t>(&node);
+        if (member != nullptr && !info(id).symbol && !info(id).qualified &&
+            !is_pointer(non_null(info(member->object).type))) {
+            report_worked_out(id, *member);
+            return false;
+        }
+
         std::optional<expr_id_t> inner;
         if (member != nullptr) {
             inner = member->object;
