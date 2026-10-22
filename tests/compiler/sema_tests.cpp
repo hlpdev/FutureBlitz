@@ -4941,26 +4941,16 @@ TEST_CASE("what a Const Function can't do", "[sema]") {
           });
     // A For ... In over a range or any Iterator calls its Next, a Method, which a Const Function
     // can't, whether it runs in a Const, a Global, or code.
-    CHECK(errors_of("Import std.core
-"
-                    "Const Function SumTo(n: Int): Int
-"
-                    "    Local total = 0
-"
-                    "    For x In 1 To n
-"
-                    "        total += x
-"
-                    "    End For
-"
-                    "    Return total
-"
-                    "End Function
-"
-                    "Const A = SumTo(10)
-"
-                    "Global g = SumTo(4)
-"
+    CHECK(errors_of("Import std.core\n"
+                    "Const Function SumTo(n: Int): Int\n"
+                    "    Local total = 0\n"
+                    "    For x In 1 To n\n"
+                    "        total += x\n"
+                    "    End For\n"
+                    "    Return total\n"
+                    "End Function\n"
+                    "Const A = SumTo(10)\n"
+                    "Global g = SumTo(4)\n"
                     "Print(A, g, SumTo(3))") ==
           errors_t{ "1 To n: a Const Function can only call Const Functions, and 'Next' isn't one" });
     CHECK(errors_of("Const Function F<T>(x: T[]): Int => 1") ==
@@ -6072,6 +6062,31 @@ TEST_CASE("an Interface's Methods can throw, and be generic", "[sema]") {
                                 mapper)) ==
           errors_t{ "Mapper: Mapper can only be a constraint, like <T: Mapper>, since it needs "
                     "generic Methods, which no table can hold" });
+}
+
+TEST_CASE("a generic Method's constraints compare as the type implements the Interface",
+          "[sema]") {
+    // Holder<Int32>'s O: Holder<T> is O: Holder<Int32>, written or taken from the default.
+    constexpr std::string_view holder = "Import std.core\n"
+                                        "Interface Holder<T>\n"
+                                        "    Method Get(): T\n"
+                                        "    Method Both<O: Holder<T>>(other: O): T[]\n"
+                                        "End Interface\n";
+    CHECK(errors_of(std::format("{}Class Base Implements Holder<Int>\n"
+                                "    Method Get(): Int => 4\n"
+                                "    Method Both<O: Holder<Int>>(other: O): Int[] => [Get()]\n"
+                                "End Class\n"
+                                "Class Child Extends Base Implements Holder<Int>\n"
+                                "End Class",
+                                holder))
+              .empty());
+    CHECK(errors_of(std::format("{}Class Base Implements Holder<Int>\n"
+                                "    Method Get(): Int => 4\n"
+                                "    Method Both<O: Holder<String>>(other: O): Int[] => [Get()]\n"
+                                "End Class",
+                                holder)) ==
+          errors_t{ "Holder<Int>: 'Both' needs O to implement Holder<String>, which "
+                    "Holder<Int32>'s doesn't, so it can't implement it" });
 }
 
 TEST_CASE("a Method can give what implements the Iterator<T> an Interface's Method gives",

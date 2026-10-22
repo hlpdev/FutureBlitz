@@ -247,7 +247,7 @@ TEST_CASE("ranges are values, outside a For loop's own bounds", "[parser]") {
     CHECK(parse_text("Local r = 1 To count ?? 0 Step 2").dump ==
           "(local r = (to (int 1) (?? count (int 0)) step (int 2)))");
     CHECK(parse_text("Local r = 0 To 10 Step c ? 1 : 2").dump ==
-          "(local r (to (int 0) (int 10) step (? c (int 1) (int 2))))");
+          "(local r = (to (int 0) (int 10) step (? c (int 1) (int 2))))");
     CHECK(parse_text("Local r = (0 Until 10).Sum()").dump ==
           "(local r = (call (. (until (int 0) (int 10)) Sum)))");
     CHECK(parse_text("For i In 0 Until 10\nEnd For").dump ==

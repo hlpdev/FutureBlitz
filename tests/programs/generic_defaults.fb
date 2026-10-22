@@ -105,3 +105,26 @@ End For
 // A chain over a Class is used up by the first loop over it, as the Class is.
 Local lengths = Countdown(3).Mapped(Function(n: Int) => (n As Float) * 1.5)
 Print("floats", lengths.Total(), "then", lengths.Tally())
+
+// A Class extending one that implements Stream<Int> can list it again, or an Interface that
+// extends it, and the defaults it has from its base, generic ones too, are what implement it.
+Interface Sized<T> Extends Stream<T>
+    Method Size(): Int
+End Interface
+
+Class Known Extends Countdown Implements Sized<Int>
+    New(left: Int)
+        Super.New(left)
+    End New
+
+    Method Size(): Int => 3
+End Class
+
+Class Again Extends Countdown Implements Stream<Int>
+    New(left: Int)
+        Super.New(left)
+    End New
+End Class
+
+Local known: Sized<Int> = Known(3)
+Print("relisted", known.Size(), Known(3).Sum(), Again(2).Chain(Countdown(1)).ToArray())

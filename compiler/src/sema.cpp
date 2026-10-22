@@ -3680,7 +3680,7 @@ private:
             }
 
             report_clashing(instance, wanted.name, span, written);
-            check_implementation(written.front(), wanted, interface, span);
+            check_implementation(written.front(), wanted, interface, instance, span);
             conformance.members[i] = written.front();
             changed = true;
         }
@@ -4147,7 +4147,7 @@ private:
 
         if (!matching.empty()) {
             report_clashing(type, required.name, span, matching);
-            check_implementation(matching.front(), required, interface, span);
+            check_implementation(matching.front(), required, interface, type, span);
             check_replaced_default(matching.front(), required, interface, type);
             return matching.front();
         }
@@ -4453,19 +4453,23 @@ private:
     /// What implements an Interface's Method throws only what the Interface's can, needs no
     /// more of its own type parameters, and changes Self only when the Interface's does.
     void check_implementation(const symbol_id_t id, const symbol_t& required,
-                              const type_id_t interface, const span_t span) {
+                              const type_id_t interface, const type_id_t self, const span_t span) {
         const symbol_t& found = symbol(id);
         const auto thrown = std::ranges::find_if(
             found.throws, [&](const type_id_t type) { return !covers(required.throws, type); });
-        // A constraint on one of its own type parameters that the Interface's doesn't have.
+        // A constraint on one of its own type parameters that the Interface's doesn't have, as
+        // `self` implements it: Iterator<T>'s O: Iterator<T> is Iterator<Int32>'s O:
+        // Iterator<Int32>.
         const std::vector<type_id_t> own = own_type_parameters(found);
         const auto stricter = std::ranges::find_if(found.constraints, [&](const bound_t& bound) {
             return std::ranges::contains(own, bound.parameter) &&
                    std::ranges::none_of(required.constraints, [&](const bound_t& wanted) {
+                       const type_id_t asked =
+                           substitute(wanted.interface, required.type_parameters, own);
                        return substitute(wanted.parameter, required.type_parameters, own) ==
                                   bound.parameter &&
-                              substitute(wanted.interface, required.type_parameters, own) ==
-                                  bound.interface;
+                              (asked == bound.interface ||
+                               as_implemented(asked, interface, self) == bound.interface);
                    });
         });
         if (thrown != found.throws.end()) {
