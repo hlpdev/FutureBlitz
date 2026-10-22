@@ -1,7 +1,7 @@
 // What implements an Interface's Method that throws takes an error variable, whether it throws or
 // not, and so does what an override of it overrides, and a type's copy of a default does too.
 // Every way of calling one passes it one: through a table, directly, in generic code, in a
-// string, in a hash, and through reflection.
+// string, in a hash, through reflection, and in a Map literal.
 Import std.core
 Import std.collections
 
@@ -112,3 +112,28 @@ End Function
 
 Pings(Quiet())
 Pings(Loud())
+
+// A Class extending Map that overrides Add to implement an Interface's that throws gives Map's
+// Add an error variable, and a Map literal's Adds pass one, though nothing makes the Class.
+Interface Store<K, V>
+    Method Add(key: K, value: V) Throws Error
+End Interface
+
+Class Checked Extends Map<String, Int> Implements Store<String, Int>
+    Override Method Add(key: String, value: Int)
+        Super.Add(key, value)
+    End Method
+End Class
+
+// And so does an Extend that gives Map an Interface whose Add throws.
+Interface Adder<K, V>
+    Method Add(key: K, value: V) Throws Error
+End Interface
+
+Extend Map<K, V> Implements Adder<K, V>
+End Extend
+
+Local scores = {"ann": 3, "bob": 5}
+Local adder: Adder<String, Int> = scores
+Try adder.Add("cy", 7)
+Print(scores.Count, scores.Get("bob") ?? -1)

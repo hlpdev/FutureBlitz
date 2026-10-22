@@ -4829,6 +4829,9 @@ private:
                 call.slot = slot_of(add);
             }
 
+            // Add can get an error variable, from an Override that throws, though std's never
+            // sets it.
+            give_error_variable(call, add);
             emit(evaluate_t{ .value = std::move(call) });
         }
 
