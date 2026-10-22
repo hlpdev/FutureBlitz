@@ -1,0 +1,276 @@
+// Trie<V>: String keys and their values in a tree with a node for each prefix of the keys' bytes,
+// so the keys with a prefix, or the longest key a text starts with, are found by going down the
+// prefix alone. The keys go in the order of their bytes, which is their code points' order. A
+// long key makes a long chain of nodes, which the Trie goes over and lets go of a node at a time,
+// so no key is too long for it.
+
+Import std.core
+Import std.collections.array
+
+Class TrieNode<V>
+    // The bytes that come next in the keys under this node, smallest first, and the nodes they
+    // lead to.
+    Field Bytes: UInt8[] = []
+    Field Children: TrieNode<V>[] = []
+    // The key that ends here and its value, or Null.
+    Field Key: String?
+    Field Value: V?
+
+    // Where byte leads, or Null.
+    Method Child(byte: UInt8): TrieNode<V>?
+        Local at = Place(byte)
+        If at < Bytes.Count && Bytes[at] == byte Then Return Children[at]
+        Return Null
+    End Method
+
+    // Where byte leads, which it makes when nothing does yet.
+    Method ChildOrAdd(byte: UInt8): TrieNode<V>
+        Local at = Place(byte)
+        If at < Bytes.Count && Bytes[at] == byte Then Return Children[at]
+        Local child = TrieNode<V>()
+        Bytes.Insert(at, byte)
+        Children.Insert(at, child)
+        Return child
+    End Method
+
+    // Where byte is among Bytes, or would go.
+    Method Place(byte: UInt8): Int
+        Local at = 0
+        While at < Bytes.Count && Bytes[at] < byte
+            at += 1
+        End While
+        Return at
+    End Method
+End Class
+
+Public Class Trie<V> Implements Iterable<(String, V)>, Cloneable, Defaultable
+    Field Root: TrieNode<V>
+    Field Size: Int
+    // How many times keys were added or removed, so a For ... In over them can tell.
+    Field Changes: Int64
+
+    Public New()
+        Root = TrieNode<V>()
+    End New
+
+    Public Property Count: Int
+        Get => Size
+    End Property
+
+    // Adds an entry, or gives an existing key its new value.
+    Public Method Add(key: String, value: V)
+        Local node = Root
+        For byte In key.Bytes
+            node = node.ChildOrAdd(byte)
+        End For
+
+        If node.Key == Null
+            node.Key = key
+            Size += 1
+            Changes += 1
+        End If
+
+        node.Value = value
+    End Method
+
+    // The key's value, or Null when it isn't there.
+    Public Method Get(key: String): V?
+        Local node = Find(key)
+        If node == Null || node.Key == Null Then Return Null
+        Return node.Value.Expect("a Trie's key has a value")
+    End Method
+
+    // The key's value. A key that isn't there panics.
+    @PanicsAtCaller
+    Operator [](key: String): V
+        Local node = Find(key)
+        If node == Null || node.Key == Null Then Panic("the key isn't in the Trie")
+        Return node.Value.Expect("a Trie's key has a value")
+    End Operator
+
+    // Gives the key a value, adding it when it isn't there.
+    Operator []=(key: String, value: V)
+        Add(key, value)
+    End Operator
+
+    Public Method Contains(key: String): Bool => Find(key)?.Key != Null
+
+    // Removes the key's entry, and tells whether there was one.
+    Public Method Remove(key: String): Bool
+        // The nodes on the way down, so the ones only this key needed can go.
+        Local path: TrieNode<V>[] = [Root]
+        For byte In key.Bytes
+            Local child = path[path.Count - 1].Child(byte)
+            If child == Null Then Return False
+            path.Add(child)
+        End For
+
+        Local node = path[path.Count - 1]
+        If node.Key == Null Then Return False
+        node.Key = Null
+        node.Value = Null
+        Local bytes = key.Bytes
+        Local at = path.Count - 1
+        While at > 0 && path[at].Key == Null && path[at].Children.Count == 0
+            Local parent = path[at - 1]
+            Local place = parent.Place(bytes[at - 1])
+            parent.Bytes.RemoveAt(place)
+            parent.Children.RemoveAt(place)
+            at -= 1
+        End While
+
+        Size -= 1
+        Changes += 1
+        Return True
+    End Method
+
+    Public Method Clear()
+        LetGo(Root)
+        Root = TrieNode<V>()
+        Size = 0
+        Changes += 1
+    End Method
+
+    // Whether a key starts with prefix, as every key starts with "".
+    Public Method HasPrefix(prefix: String): Bool => Find(prefix) != Null
+
+    // The keys that start with prefix, in order, in a new array.
+    Public Method KeysWithPrefix(prefix: String): String[]
+        Local keys: String[] = []
+        Local start = Find(prefix)
+        If start == Null Then Return keys
+        Local iterator = TrieIterator<V>(Self, [start], [-1], Changes)
+        Loop
+            Local entry = iterator.Next()
+            If entry == Null Then Return keys
+            keys.Add(entry.0)
+        End Loop
+    End Method
+
+    // The longest key that text starts with, or Null when none does.
+    Public Method LongestPrefixOf(text: String): String?
+        Local node = Root
+        Local longest = node.Key
+        For byte In text.Bytes
+            Local child = node.Child(byte)
+            If child == Null Then Return longest
+            node = child
+            If node.Key != Null Then longest = node.Key
+        End For
+        Return longest
+    End Method
+
+    // The keys, in order.
+    Public Method Keys(): String[] => KeysWithPrefix("")
+
+    // The values, in their keys' order.
+    Public Method Values(): V[]
+        Local values: V[] = []
+        values.Reserve(Size)
+        For key, value In Self
+            values.Add(value)
+        End For
+        Return values
+    End Method
+
+    // A new, empty Trie.
+    Public Static Method DefaultValue(): Trie<V> => Trie<V>()
+
+    // A new Trie with the same entries.
+    Public Method Clone(): Trie<V>
+        Local copy = Trie<V>()
+        For key, value In Self
+            copy.Add(key, value)
+        End For
+        Return copy
+    End Method
+
+    // Each key and its value, in order, for 'For key, value In trie'. Giving a key a new value
+    // while going over them is fine, but adding or removing one panics.
+    Public Method Iterate(): TrieIterator<V> => TrieIterator<V>(Self, [Root], [-1], Changes)
+
+    // The node where prefix ends, or Null when no key starts with it.
+    Method Find(prefix: String): TrieNode<V>?
+        Local node = Root
+        For byte In prefix.Bytes
+            Local child = node.Child(byte)
+            If child == Null Then Return Null
+            node = child
+        End For
+        Return node
+    End Method
+
+    // Lets go of the nodes under node one at a time, so a long chain of them isn't let go of
+    // through each other.
+    Static Method LetGo(node: TrieNode<V>)
+        Local nodes = [node]
+        While nodes.Count > 0
+            Local next = nodes.RemoveLast()
+            nodes.AddAll(next.Children)
+            next.Children.Clear()
+        End While
+    End Method
+
+    Method Destroy()
+        LetGo(Root)
+    End Method
+End Class
+
+// The keys in order: a stack of the nodes on the way down, each with the child it last went into,
+// or -1 before its own key.
+Public Struct TrieIterator<V> Implements Iterator<(String, V)>
+    Field Owner: Trie<V>
+    Field Nodes: TrieNode<V>[]
+    Field Places: Int[]
+    Field Changes: Int64
+
+    @PanicsAtCaller
+    Public ByRef Method Next(): (String, V)?
+        If Owner.Changes != Changes Then Panic("the Trie changed while a For ... In went over it")
+        While Nodes.Count > 0
+            Local top = Nodes.Count - 1
+            Local node = Nodes[top]
+            Local at = Places[top]
+            Places[top] = at + 1
+            If at == -1
+                Local key = node.Key
+                If key != Null Then Return (key, node.Value.Expect("a Trie's key has a value"))
+            ElseIf at < node.Children.Count
+                Nodes.Add(node.Children[at])
+                Places.Add(-1)
+            Else
+                Nodes.RemoveLast()
+                Places.RemoveLast()
+            End If
+        End While
+        Return Null
+    End Method
+End Struct
+
+// Two Tries are equal when they have the same keys, each with an equal value.
+Extend Trie<V> Implements Equatable
+    Where V: Equatable
+
+    Operator ==(a: Trie<V>, b: Trie<V>): Bool
+        If a.Count != b.Count Then Return False
+        Local others = b.Iterate()
+        For key, value In a
+            Local other = others.Next()
+            If other == Null || other.0 != key || other.1 != value Then Return False
+        End For
+        Return True
+    End Operator
+End Extend
+
+// "{a: 1, ab: 2}", in order, when the values can be shown.
+Extend Trie<V> Implements Printable
+    Where V: Printable
+
+    Public Method ToString(): String
+        Local parts: String[] = []
+        For key, value In Self
+            parts.Add("{key}: {value}")
+        End For
+        Return "{{" + parts.Join(", ") + "}}"
+    End Method
+End Extend

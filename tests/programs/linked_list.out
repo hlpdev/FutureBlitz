@@ -1,0 +1,16 @@
+0
+[] 0 True True - - False True
+[a, b, c, d, e, a] 6 a a
+True e
+a
+b
+c
+d
+e
+a
+[a, B, c, d, e, a] B a
+a a [B, c, d, e] True True
+[z, B, c, d, e] [B, c, d, e] False True False
+[] 0 True True True
+300000 300000 299999
+True True

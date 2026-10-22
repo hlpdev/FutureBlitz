@@ -1,0 +1,2 @@
+[2] [1]
+panic: the node isn't in this LinkedList at panic_linked_list_node.fb:10:1

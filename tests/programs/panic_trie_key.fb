@@ -1,0 +1,8 @@
+// A Trie's [] panics at a key it doesn't have, where it's read.
+Import std.core
+Import std.collections
+
+Local trie = Trie<Int>()
+trie["car"] = 1
+Print(trie["car"])
+Print(trie["ca"])

@@ -1,0 +1,9 @@
+// A LinkedList panics at a node that was removed, where something's added beside it.
+Import std.core
+Import std.collections
+
+Local list = LinkedList<Int>()
+Local node = list.Add(1)
+list.Remove(node)
+Print(list, node.List == Null)
+list.AddAfter(node, 2)

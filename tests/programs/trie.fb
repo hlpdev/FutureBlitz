@@ -1,0 +1,113 @@
+// A Trie matches a Map whose keys are sorted, through many random additions and removals, and its
+// prefix searches match going over the keys.
+Import std.core
+Import std.collections
+
+// The same numbers each run, from a linear congruential generator.
+Global seed: UInt64 = 12345
+
+Function Next(limit: Int): Int
+    seed = seed.WrappingMultiply(6364136223846793005).WrappingAdd(1442695040888963407)
+    Return ((seed >> 33) % (limit As UInt64)) As Int
+End Function
+
+// A key of up to four letters from a few, some of them more than a byte.
+Function RandomKey(): String
+    Local letters = ["a", "b", "c", "é"]
+    Local key = ""
+    For i = 1 To Next(5)
+        key += letters[Next(letters.Count)]
+    End For
+    Return key
+End Function
+
+Function StartsWith(text: String, prefix: String): Bool
+    Local bytes = text.Bytes
+    Local start = prefix.Bytes
+    Return bytes.Count >= start.Count && bytes[0..start.Count] == start
+End Function
+
+Local trie = Trie<Int>()
+Local plain = Map<String, Int>()
+Local wrong = 0
+For round = 1 To 4000
+    Local key = RandomKey()
+    If Next(3) == 0
+        If trie.Remove(key) != plain.Remove(key) Then wrong += 1
+    Else
+        trie.Add(key, round)
+        plain.Add(key, round)
+    End If
+
+    If trie.Count != plain.Count || trie.Contains(key) != plain.Contains(key) Then wrong += 1
+    If (trie.Get(key) ?? -1) != plain.Get(key, -1) Then wrong += 1
+    If round % 100 == 0
+        Local keys = plain.Keys()
+        keys.Sort()
+        If trie.Keys() != keys Then wrong += 1
+        Local values: Int[] = []
+        For k In keys
+            values.Add(plain[k])
+        End For
+
+        If trie.Values() != values Then wrong += 1
+        For i = 1 To 20
+            Local prefix = RandomKey()
+            Local with = keys.Filter(Function(k: String) => StartsWith(k, prefix))
+            If trie.KeysWithPrefix(prefix) != with || trie.HasPrefix(prefix) != (with.Count > 0)
+                wrong += 1
+            End If
+
+            // The longest key that the text starts with.
+            Local text = prefix + RandomKey()
+            Local longest: String? = Null
+            For k In keys
+                If StartsWith(text, k) && (longest == Null || StartsWith(k, longest))
+                    longest = k
+                End If
+            End For
+
+            If (trie.LongestPrefixOf(text) ?? "none") != (longest ?? "none") Then wrong += 1
+        End For
+    End If
+End For
+Print(wrong)
+
+// The basics, and the empty cases.
+Local words = Trie<String>()
+Print(words, words.Count, words.Get("a") ?? "-", words.Contains(""), words.HasPrefix(""),
+      words.KeysWithPrefix(""), words.LongestPrefixOf("abc") ?? "-", words.Remove("a"))
+words["tea"] = "drink"
+words["team"] = "group"
+words["ten"] = "number"
+words.Add("", "nothing")
+words["to"] = "toward"
+Print(words, words.Count, words["te" + "a"], words.Contains("te"), words.HasPrefix("te"))
+Print(words.KeysWithPrefix("te"), words.KeysWithPrefix("tea"), words.KeysWithPrefix("x"))
+Print(words.LongestPrefixOf("teammate") ?? "-", words.LongestPrefixOf("tex") ?? "-")
+For key, value In words
+    Print("[{key}]", value)
+End For
+
+Print(words.Remove("tea"), words.Remove("tea"), words.KeysWithPrefix("te"), words.Count)
+Local copy = words.Clone()
+copy["tea"] = "again"
+Print(copy, words, copy == words, words.Clone() == words)
+words.Clear()
+Print(words, words.Count, words.HasPrefix("t"), words == Trie<String>.DefaultValue())
+
+// A long key makes a long chain of nodes, which the Trie lets go of one at a time.
+Local long = "x"
+While long.Bytes.Count < 300000
+    long += long
+End While
+Local deep = Trie<Int>()
+deep.Add(long, 1)
+deep.Add(long + "y", 2)
+Print(deep.Count, deep[long], deep.LongestPrefixOf(long + "yz") == long + "y")
+deep.Clear()
+deep.Add(long, 3)
+Print(deep.Remove(long), deep.Count)
+deep.Add(long, 4)
+deep = Trie<Int>()
+Print(deep.Count)

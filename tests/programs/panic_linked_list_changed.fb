@@ -1,0 +1,10 @@
+// Adding to a LinkedList while a For ... In goes over it panics.
+Import std.core
+Import std.collections
+
+Local list = LinkedList<Int>()
+list.Add(1)
+For value In list
+    Print(value)
+    list.Add(value)
+End For

@@ -1,0 +1,10 @@
+// A LinkedList panics at another list's node, where it's removed.
+Import std.core
+Import std.collections
+
+Local a = LinkedList<Int>()
+Local b = LinkedList<Int>()
+Local node = b.Add(1)
+a.Add(2)
+Print(a, b)
+a.Remove(node)

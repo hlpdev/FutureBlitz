@@ -1,0 +1,11 @@
+// Adding to a Trie while a For ... In goes over it panics.
+Import std.core
+Import std.collections
+
+Local trie = Trie<Int>()
+trie["a"] = 1
+For key, value In trie
+    trie[key] = 2
+    Print(key, trie[key])
+    trie[key + "b"] = 3
+End For

@@ -1,0 +1,112 @@
+// A LinkedList matches an array of its values, with an array of their nodes beside it, through
+// many random additions and removals at either end and beside nodes, and the nodes link both
+// ways.
+Import std.core
+Import std.collections
+
+// The same numbers each run, from a linear congruential generator.
+Global seed: UInt64 = 12345
+
+Function Next(limit: Int): Int
+    seed = seed.WrappingMultiply(6364136223846793005).WrappingAdd(1442695040888963407)
+    Return ((seed >> 33) % (limit As UInt64)) As Int
+End Function
+
+Local list = LinkedList<Int>()
+Local plain: Int[] = []
+Local nodes: LinkedListNode<Int>[] = []
+Local wrong = 0
+For round = 1 To 4000
+    Local op = Next(8)
+    If op == 0
+        nodes.Insert(0, list.AddFirst(round))
+        plain.Insert(0, round)
+    ElseIf op == 1
+        nodes.Add(list.AddLast(round))
+        plain.Add(round)
+    ElseIf op == 2 && plain.Count > 0
+        Local at = Next(plain.Count)
+        nodes.Insert(at, list.AddBefore(nodes[at], round))
+        plain.Insert(at, round)
+    ElseIf op == 3 && plain.Count > 0
+        Local at = Next(plain.Count)
+        nodes.Insert(at + 1, list.AddAfter(nodes[at], round))
+        plain.Insert(at + 1, round)
+    ElseIf op == 4 && plain.Count > 0
+        Local at = Next(plain.Count)
+        Local node = nodes[at]
+        list.Remove(node)
+        If node.List != Null || node.Next != Null || node.Previous != Null Then wrong += 1
+        nodes.RemoveAt(at)
+        plain.RemoveAt(at)
+    ElseIf op == 5
+        If (list.TryRemoveFirst() ?? -1) != (plain.Count == 0 ? -1 : plain[0]) Then wrong += 1
+        If plain.Count > 0
+            plain.RemoveAt(0)
+            nodes.RemoveAt(0)
+        End If
+    ElseIf op == 6
+        If (list.TryRemoveLast() ?? -1) != (plain.TryRemoveLast() ?? -1) Then wrong += 1
+        nodes.TryRemoveLast()
+    ElseIf plain.Count > 0
+        Local value = plain[Next(plain.Count)]
+        If list.Find(value)?.Value != value || !list.Contains(value) Then wrong += 1
+        If list.Remove(value) != plain.Remove(value) Then wrong += 1
+        nodes = nodes.Filter(Function(n: LinkedListNode<Int>) => n.List != Null)
+    End If
+
+    If list.ToArray() != plain || list.Count != plain.Count Then wrong += 1
+    // Going back from the last node gives the values reversed, through the same nodes.
+    Local back: Int[] = []
+    Local node = list.Last
+    While node != Null
+        back.Add(node.Value)
+        node = node.Previous
+    End While
+
+    back.Reverse()
+    If back != plain Then wrong += 1
+    For i, held In nodes
+        If held.Value != plain[i] || !RefEquals(held.List ?? LinkedList<Int>(), list)
+            wrong += 1
+        End If
+    End For
+End For
+Print(wrong)
+
+// The basics, and the empty cases.
+Local names = LinkedList<String>()
+Print(names, names.Count, names.First == Null, names.Last == Null, names.TryRemoveFirst() ?? "-",
+      names.TryRemoveLast() ?? "-", names.Contains("a"), names.Find("a") == Null)
+Local b = names.Add("b")
+Local a = names.AddFirst("a")
+names.AddAfter(b, "d")
+names.AddBefore(names.Last ?? b, "c")
+names.AddAll(["e", "a"])
+Print(names, names.Count, names.First?.Value ?? "-", names.Last?.Value ?? "-")
+Print(RefEquals(names.Find("a") ?? b, a), (names.FindLast("a")?.Previous?.Value) ?? "-")
+For name In names
+    Print(name)
+End For
+
+// A node's Value can change, and it stays the same node.
+b.Value = "B"
+Print(names, a.Next?.Value ?? "-", b.Previous?.Value ?? "-")
+Print(names.RemoveFirst(), names.RemoveLast(), names, a.List == Null, a.Next == Null)
+Local copy = names.Clone()
+copy.AddFirst("z")
+Print(copy, names, copy == names, names.Clone() == names,
+      RefEquals(copy.Last ?? a, names.Last ?? a))
+names.Clear()
+Print(names, names.Count, b.List == Null, b.Next == Null,
+      names == LinkedList<String>.DefaultValue())
+
+// A long list's nodes are let go of one at a time.
+Local long = LinkedList<Int>()
+For i = 1 To 300000
+    long.AddLast(i)
+End For
+Local kept = long.Last ?? long.AddLast(0)
+Print(long.Count, kept.Value, kept.Previous?.Value ?? -1)
+long = LinkedList<Int>()
+Print(kept.List == Null, kept.Previous == Null)
