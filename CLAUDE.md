@@ -29,7 +29,7 @@ exe)
 
 ## Current step
 M6 (the full standard library), planned 2026-10-20 and 2026-10-21 in 32 steps (docs/milestones.md;
-design in docs/stdlib.md). Step 4, collections II, is next.
+design in docs/stdlib.md). Step 5, formatting, parsing, and the debug form, is next.
 docs/milestones.md's Deferred work lists everything left for later, and where it's planned.
 
 Done in M6: step 0, CI: .github/workflows/ci.yml builds Debug and runs ctest on windows-2025
@@ -210,6 +210,16 @@ Properties through tables, a T?? of an Interface, Try before TypeName or SizeOf,
 ByRef and set, literals for Iterable<T>, inference through an extending Interface, views' and
 sorts' panics, RemoveAll, FindLast, and Reduce under a changing array, Update, and PriorityQueue's
 AddAll of nothing.
+Step 4, collections II, std only: std/collections/sorted.fb's SortedMap and SortedSet (a B-tree,
+SortedNode, Order 16, Find(), Split(), Fill(), Merge(), SortedMapIterator's stack of nodes),
+ring_buffer.fb, grid.fb's Grid and Grid3 (GridIterator), bit_set.fb (UInt64 words, BitCount()),
+lru_cache.fb and counter.fb over a Map, multi_map.fb (a Map of arrays), trie.fb (TrieNode by
+byte, LetGo() in Clear and Destroy), linked_list.fb (LinkedListNode with a Weak Before and
+Owner, LetGo()), interval_tree.fb (an AVL tree, IntervalNode's Top), spatial.fb (PlacedValue,
+Bounds, SpatialHash's cells, and SpaceTree, which QuadTree and Octree wrap), and immutable.fb
+(ImmutableArray, ImmutableMap, and ImmutableSet, Structs over AVL trees of Shared ArrayNode,
+HashNode, and HashEntry); each is checked against a plain array or Map over random operations
+(tests/programs/<name>.fb), with a panic program for each panic.
 
 Done: M5 (modules, packages, `project.toml`, FFI, bindgen), planned 2026-10-18 and finished
 2026-10-20, in 11 steps, then a review of each project (compiler, runtime, cli, std).

@@ -1,7 +1,7 @@
 # Standard Library
 
 Status: what std/ holds today, then [M6's design](#m6s-design), planned 2026-10-20 and built
-in M6's 32 steps (see [milestones.md](milestones.md#m6-build-order)). Steps 1 to 3 are built;
+in M6's 32 steps (see [milestones.md](milestones.md#m6-build-order)). Steps 1 to 4 are built;
 the rest is planned.
 
 ## Split
