@@ -5695,18 +5695,29 @@ private:
                std::get<variable_stmt_t>(m_ast.get(*field.declaration).node).value.has_value();
     }
 
-    /// A field's type, in its type's fields and in those of every Class extending it.
+    /// A field's type, in its type's fields and in those of every Class extending it, or one of
+    /// its instances, like Box<Int32>, which has that instance's types.
     void set_field_type(const symbol_id_t id, const type_id_t type) {
         symbol(id).type = type;
         const symbol_t& field = symbol(id);
         for (const auto& entry : m_declared_types) {
             const type_id_t declared = entry.first;
-            if (!m_analysis.types.extends(declared, field.owner)) {
+            type_id_t through = declared;
+            while (through != type_id_t::INVALID && definition_of(through) != field.owner) {
+                through = base_of(through);
+            }
+
+            if (through == type_id_t::INVALID ||
+                (!is_struct(declared) && !is_class(declared))) {
                 continue;
             }
 
             std::vector<field_t> fields = m_analysis.types.get(declared).fields;
-            fields[field.field].type = type;
+            fields[field.field].type =
+                through == field.owner
+                    ? type
+                    : substitute(type, m_analysis.types.get(field.owner).parameters,
+                                 arguments_of(through));
             m_analysis.types.set_fields(declared, std::move(fields));
         }
     }

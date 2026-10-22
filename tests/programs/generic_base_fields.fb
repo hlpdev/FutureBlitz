@@ -1,0 +1,39 @@
+// A Field that takes its type from its default, in a generic Class, has that type in each
+// Class extending one of its instances, with a New of its own or without, generic or not.
+Import std.core
+
+Class Box<T>
+    Field Items: T[]
+    Field At = 0
+    Field Label = "box"
+
+    New(items: T[])
+        Items = items
+    End New
+
+    Method Next(): T
+        At += 1
+        Return Items[At - 1]
+    End Method
+End Class
+
+Class Ints Extends Box<Int>
+End Class
+
+Class Words Extends Box<String>
+    New(first: String)
+        Super.New([first, first + "!"])
+        Label = "words"
+    End New
+End Class
+
+Class Kept<T> Extends Box<T>
+    Field Kept = 0.5
+End Class
+
+Local ints = Ints([1, 2])
+Print(ints.Next(), ints.Next(), ints.At, ints.Label)
+Local words = Words("hi")
+Print(words.Next(), words.Next(), words.At, words.Label)
+Local kept = Kept<Bool>([True])
+Print(kept.Next(), kept.At, kept.Label, kept.Kept)
