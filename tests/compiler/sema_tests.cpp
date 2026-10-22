@@ -6278,11 +6278,12 @@ TEST_CASE("a generic, conditional, or Final default runs as written, on an Inter
           errors_t{ "F: 'F' is Final, so it needs a body: a Final default is what every type that "
                     "implements the Interface has" });
 
-    // A default in the table that wraps Self in a Class implementing the Interface would need a
-    // copy of its own for each one it makes, without end, but a Final one runs where it's called.
+    // A default runs with what each call gives it for Self, and the copies in a Class's table run
+    // when one of its objects is made, so one that wraps Self in a Class implementing the
+    // Interface and runs again on it would need a larger instance each time, without end.
     constexpr std::string_view shown = "Interface Shown\n"
                                        "    Method Show(): String\n"
-                                       "    {}Method Boxed(): Shown => Holder<Self>(Self)\n"
+                                       "{}"
                                        "End Interface\n"
                                        "Class Holder<S: Shown> Implements Shown\n"
                                        "    Field Inner: S\n"
@@ -6290,13 +6291,34 @@ TEST_CASE("a generic, conditional, or Final default runs as written, on an Inter
                                        "        Inner = inner\n"
                                        "    End New\n"
                                        "    Method Show(): String => \"x\"\n"
-                                       "End Class";
-    CHECK(
-        errors_of(std::vformat(shown, std::make_format_args(""))) ==
-        errors_t{ "Holder<Self>(Self): 'Boxed' is in Shown's table, so each Holder<Self> it makes "
-                  "would need a copy of its own, which makes another, without end; make 'Boxed' "
-                  "Final" });
-    CHECK(errors_of(std::vformat(shown, std::make_format_args("Final "))).empty());
+                                       "End Class\n"
+                                       "{}";
+    const auto wrapping = [&](const std::string_view members, const std::string_view rest = "") {
+        return errors_of(std::vformat(shown, std::make_format_args(members, rest)));
+    };
+    // In the table, it runs for each Holder it makes.
+    CHECK(wrapping("    Method Boxed(): Shown => Holder<Self>(Self)\n") ==
+          errors_t{ "Holder<Self>(Self): 'Boxed' gets Holder<Self> for Self here, which leads back "
+                    "to this code, so it would need a larger instance each time, without end" });
+    // Through a generic Function, or a Final default it calls.
+    CHECK(wrapping("    Method Boxed(): Shown => Wrap(Self)\n",
+                   "Function Wrap<S: Shown>(s: S): Shown => Holder<S>(s)") ==
+          errors_t{ "Holder<S>(s): 'Boxed' gets Holder<S> for Self here, which leads back to this "
+                    "code, so it would need a larger instance each time, without end" });
+    CHECK(wrapping("    Method Boxed(): Shown => Wrapped()\n"
+                   "    Final Method Wrapped(): Shown => Holder<Self>(Self)\n") ==
+          errors_t{ "Holder<Self>(Self): 'Boxed' gets Holder<Self> for Self here, which leads back "
+                    "to this code, so it would need a larger instance each time, without end" });
+    // Out of the table, it runs only where it's called, so only calling itself on one does.
+    CHECK(wrapping("    Final Method Boxed(): Shown => Holder<Self>(Self)\n").empty());
+    CHECK(wrapping("    Final Method Nest(n: Int): String\n"
+                   "        If n == 0 Then Return Show()\n"
+                   "        Return Holder<Self>(Self).Nest(n - 1)\n"
+                   "    End Method\n") ==
+          errors_t{ "Holder<Self>(Self).Nest(n - 1): 'Nest' gets Holder<Self> for Self here, which "
+                    "leads back to this code, so it would need a larger instance each time, "
+                    "without end" });
+    CHECK(wrapping("    Final Method Once(): String => Holder<Self>(Self).Show()\n").empty());
 }
 
 TEST_CASE("For ... In Try passes on the errors of a throwing Iterate", "[sema]") {

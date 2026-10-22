@@ -29,7 +29,11 @@ Max<Float>(1, 2.5)     // explicit
   calling `Deep([x])` with a `T[]`, would need instances without end, and is an error at the
   call: "'Deep' gets T[] for T here, which leads back to this code, so it would need a larger
   instance each time, without end". A type that only names a larger instance, like a Field of
-  `Node<Node<T>>?`, is fine.
+  `Node<Node<T>>?`, is fine. An Interface's default is code of this kind too, with what each
+  call gives it for Self, and a Class's copies of the defaults in the Interface's table run when
+  one of its objects is made, so a default that wraps Self in a Class implementing the
+  Interface, `Holder<Self>(Self)`, is an error where the wrapped one runs it again: a call of it
+  on the Holder, or the Holder's table holding it.
 
 ## Inference
 

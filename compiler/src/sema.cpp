@@ -357,7 +357,6 @@ public:
         each_item([this](const stmt_id_t id) { check_function(id); });
         check_threads();
         check_expansion();
-        check_table_defaults();
         return std::move(m_analysis);
     }
 
@@ -9012,16 +9011,34 @@ private:
         }
     }
 
+    /// A type parameter where lowering gives it a type. An Interface's own, its Self or a generic
+    /// one's, is each default's apart, since a default runs with what each call gives it, as a
+    /// generic function does.
+    struct expansion_node_t {
+        type_id_t parameter;
+        std::optional<symbol_id_t> scope;
+
+        bool operator==(const expansion_node_t&) const = default;
+    };
+
     /// A generic function's or type's type parameter given a type that holds another one, in a
     /// call, which lowering makes an instance for. `grows` when the type is more than that
     /// parameter alone.
     struct expansion_t {
-        type_id_t from;
-        type_id_t to;
+        expansion_node_t from;
+        expansion_node_t to;
         type_id_t argument;
         bool grows = false;
         span_t span;
     };
+
+    /// Whether lowering runs a Method's body as an Interface's default, for each type it's given
+    /// as Self.
+    [[nodiscard]] bool runs_as_default(const symbol_t& method) const {
+        return method.kind == symbol_kind_t::METHOD && is_interface(method.owner) &&
+               !method.modifiers.is_abstract && !method.modifiers.is_static &&
+               method.declaration.has_value();
+    }
 
     /// The type parameters in a type, where a type argument would go when it's lowered: an
     /// Interface's Self and an Enum's integer type aren't its parts, and a generic type used in
@@ -9073,22 +9090,68 @@ private:
 
     /// Lowering makes an instance of generic code for each set of type arguments a call gives it,
     /// so a type parameter that leads back to itself through a type that holds it, like
-    /// Deep<T> calling Deep<T[]>, would need instances without end. Reports each.
+    /// Deep<T> calling Deep<T[]>, would need instances without end. An Interface's default runs
+    /// with the type arguments of each call of it, a type's copy of it with that type for Self,
+    /// and the copies in a Class's tables when one of its objects is made, so a default that
+    /// makes or calls one on a type holding its own Self is one too. Reports each.
     void check_expansion() {
+        // Each default's body, where the Interface's type parameters are the default's own.
+        std::vector<std::pair<span_t, symbol_id_t>> bodies;
+        for (const symbol_id_t id : m_analysis.functions) {
+            if (runs_as_default(symbol(id))) {
+                bodies.emplace_back(m_ast.get(*symbol(id).declaration).span, id);
+            }
+        }
+
+        const auto scope_of = [&](const span_t span) -> std::optional<symbol_id_t> {
+            for (const auto& [body, id] : bodies) {
+                if (span.file == body.file && span.begin >= body.begin && span.end <= body.end) {
+                    return id;
+                }
+            }
+
+            return std::nullopt;
+        };
+        const auto node = [&](const type_id_t parameter, const std::optional<symbol_id_t> scope) {
+            const bool own =
+                scope && std::ranges::contains(
+                             owner_parameters(definition_of(symbol(*scope).owner)), parameter);
+            return expansion_node_t{ .parameter = parameter, .scope = own ? scope : std::nullopt };
+        };
+
         std::vector<expansion_t> edges;
-        const auto add = [&](const type_id_t parameter, const type_id_t argument,
+        const auto add = [&](const expansion_node_t to, const type_id_t argument,
                              const span_t span) {
+            const std::optional<symbol_id_t> scope = scope_of(span);
             std::vector<type_id_t> found;
             parameters_in(argument, found);
             for (const type_id_t from : found) {
                 edges.push_back({
-                    .from = from,
-                    .to = parameter,
+                    .from = node(from, scope),
+                    .to = to,
                     .argument = argument,
                     .grows = argument != from,
                     .span = span,
                 });
             }
+        };
+        // A default that a call of a type's copy runs, with the type it's called on for Self:
+        // the object's, or the type itself in its own code.
+        const auto runs_copy = [&](const expr_id_t id, const symbol_t& copy) {
+            const auto* call = std::get_if<call_expr_t>(&m_ast.get(id).node);
+            if (call == nullptr || !copy.default_method ||
+                !runs_as_default(symbol(*copy.default_method)) || is_interface(copy.owner)) {
+                return;
+            }
+
+            type_id_t self = copy.owner;
+            const auto* member = std::get_if<member_expr_t>(&m_ast.get(call->callee).node);
+            if (member != nullptr && info(member->object).type != type_id_t::INVALID) {
+                self = non_null(info(member->object).type);
+            }
+
+            const symbol_id_t given = *copy.default_method;
+            add(node(self_of(definition_of(symbol(given).owner)), given), self, span_of(id));
         };
 
         const auto calls = [&](const std::optional<symbol_id_t> callee,
@@ -9097,39 +9160,82 @@ private:
                 return;
             }
 
-            const symbol_kind_t kind = symbol(*callee).kind;
-            if (kind != symbol_kind_t::FUNCTION && kind != symbol_kind_t::METHOD &&
-                kind != symbol_kind_t::CONSTRUCTOR) {
+            const symbol_t& called = symbol(*callee);
+            if (called.kind != symbol_kind_t::FUNCTION && called.kind != symbol_kind_t::METHOD &&
+                called.kind != symbol_kind_t::CONSTRUCTOR) {
                 return;
             }
 
+            const std::optional<symbol_id_t> scope =
+                runs_as_default(called) ? callee : std::nullopt;
             const std::vector<type_id_t> parameters = type_parameters_of(*callee);
             for (std::size_t k = 0; k < parameters.size() && k < arguments.size(); ++k) {
-                add(parameters[k], arguments[k], span);
+                add(node(parameters[k], scope), arguments[k], span);
             }
         };
+
+        // The defaults each Class's tables run: the copies it has of Interfaces' defaults, in
+        // the slots of Methods that aren't outside their tables.
+        std::unordered_map<type_id_t, std::vector<symbol_id_t>> tables;
+        for (const conformance_t& conformance : m_analysis.conformances) {
+            const auto declared = m_declared_types.find(definition_of(conformance.interface));
+            if (!is_class(conformance.type) || declared == m_declared_types.end()) {
+                continue;
+            }
+
+            const std::vector<symbol_id_t>& required = symbol(declared->second).members;
+            for (std::size_t k = 0; k < required.size() && k < conformance.members.size(); ++k) {
+                const symbol_t& member = symbol(required[k]);
+                const symbol_t& copy = symbol(conformance.members[k]);
+                if (member.kind == symbol_kind_t::METHOD && !outside_table(member) &&
+                    copy.default_method && runs_as_default(symbol(*copy.default_method))) {
+                    tables[conformance.type].push_back(*copy.default_method);
+                }
+            }
+        }
 
         for (std::size_t i = 0; i < m_analysis.exprs.size(); ++i) {
             const expr_info_t& info = m_analysis.exprs[i];
             const span_t span = span_of(static_cast<expr_id_t>(i));
             calls(info.symbol, info.type_arguments, span);
-            // A New's type arguments are the instance's it makes.
-            if (info.symbol && symbol(*info.symbol).kind == symbol_kind_t::CONSTRUCTOR &&
-                info.type != type_id_t::INVALID) {
-                const type_t& made = m_analysis.types.get(non_null(info.type));
-                if (made.generic != type_id_t::INVALID) {
-                    const std::vector<type_id_t>& parameters =
-                        m_analysis.types.get(made.generic).parameters;
-                    for (std::size_t k = 0; k < parameters.size() && k < made.arguments.size();
-                         ++k) {
-                        add(parameters[k], made.arguments[k], span);
+            if (info.symbol) {
+                runs_copy(static_cast<expr_id_t>(i), symbol(*info.symbol));
+            }
+
+            if (!info.symbol || symbol(*info.symbol).kind != symbol_kind_t::CONSTRUCTOR ||
+                info.type == type_id_t::INVALID) {
+                continue;
+            }
+
+            // A New's type arguments are the instance's it makes, whose tables run their
+            // defaults with it for Self.
+            const type_id_t made = non_null(info.type);
+            const type_t& instance = m_analysis.types.get(made);
+            if (instance.generic != type_id_t::INVALID) {
+                const std::vector<type_id_t>& parameters =
+                    m_analysis.types.get(instance.generic).parameters;
+                for (std::size_t k = 0; k < parameters.size() && k < instance.arguments.size();
+                     ++k) {
+                    add(node(parameters[k], std::nullopt), instance.arguments[k], span);
+                }
+            }
+
+            std::vector<type_id_t> listed{ made };
+            if (definition_of(made) != made) {
+                listed.push_back(definition_of(made));
+            }
+
+            for (const type_id_t type : listed) {
+                if (const auto found = tables.find(type); found != tables.end()) {
+                    for (const symbol_id_t given : found->second) {
+                        add(node(self_of(definition_of(symbol(given).owner)), given), made, span);
                     }
                 }
             }
         }
 
         // Where a growing edge's parameter comes back to itself, in the order the code reads.
-        std::vector<type_id_t> reported;
+        std::vector<expansion_node_t> reported;
         for (const expansion_t& edge : edges) {
             if (!edge.grows || std::ranges::contains(reported, edge.to) ||
                 !leads_to(edges, edge.to, edge.from)) {
@@ -9141,72 +9247,16 @@ private:
                 error(edge.span,
                       "{} gets {} for {} here, which leads back to this code, so it would need a "
                       "larger instance each time, without end",
-                      parameter_owner(edge.to), shown_name(edge.argument), shown_name(edge.to));
+                      parameter_owner(edge.to), shown_name(edge.argument),
+                      shown_name(edge.to.parameter));
             });
         }
     }
 
-    /// A default in an Interface's table runs for each type that implements the Interface, so
-    /// one that makes an object of a generic Class implementing it with Self inside, like
-    /// Holder<Self>, would need its own copy for that Class's instance, which makes another, and
-    /// so on without end. A Final default runs only where it's called, so it can. Reports each.
-    void check_table_defaults() {
-        for (const symbol_id_t id : m_analysis.functions) {
-            const symbol_t& method = symbol(id);
-            if (method.kind != symbol_kind_t::METHOD || !is_interface(method.owner) ||
-                method.modifiers.is_abstract || method.modifiers.is_static ||
-                outside_table(method) || !method.declaration ||
-                constraint_only(definition_of(method.owner))) {
-                continue;
-            }
-
-            const type_id_t interface = definition_of(method.owner);
-            const type_id_t self = self_of(interface);
-            const auto implements_it = [&](const type_id_t made) {
-                for (type_id_t current = made; current != type_id_t::INVALID;
-                     current = base_of(current)) {
-                    for (const type_id_t listed : m_analysis.types.get(current).interfaces) {
-                        if (m_analysis.types.extends(definition_of(listed), interface)) {
-                            return true;
-                        }
-                    }
-                }
-
-                return false;
-            };
-            const span_t body = m_ast.get(*method.declaration).span;
-            for (std::size_t i = 0; i < m_analysis.exprs.size(); ++i) {
-                const expr_info_t& info = m_analysis.exprs[i];
-                const span_t span = span_of(static_cast<expr_id_t>(i));
-                if (span.file != body.file || span.begin < body.begin || span.end > body.end ||
-                    !info.symbol || symbol(*info.symbol).kind != symbol_kind_t::CONSTRUCTOR ||
-                    info.type == type_id_t::INVALID) {
-                    continue;
-                }
-
-                const type_id_t made = non_null(info.type);
-                std::vector<type_id_t> inside;
-                parameters_in(made, inside);
-                if (m_analysis.types.get(made).generic == type_id_t::INVALID ||
-                    !std::ranges::contains(inside, self) || !implements_it(made)) {
-                    continue;
-                }
-
-                in_file(span.file, [&] {
-                    error(span,
-                          "'{}' is in {}'s table, so each {} it makes would need a copy of its "
-                          "own, which makes another, without end; make '{}' Final",
-                          method.name, shown_name(method.owner), shown_name(made), method.name);
-                });
-                break;
-            }
-        }
-    }
-
     /// Whether a type parameter's types reach another's through the instances and calls.
-    [[nodiscard]] static bool leads_to(const std::vector<expansion_t>& edges, const type_id_t from,
-                                       const type_id_t to) {
-        std::vector<type_id_t> seen{ from };
+    [[nodiscard]] static bool leads_to(const std::vector<expansion_t>& edges,
+                                       const expansion_node_t from, const expansion_node_t to) {
+        std::vector<expansion_node_t> seen{ from };
         for (std::size_t next = 0; next < seen.size(); ++next) {
             if (seen[next] == to) {
                 return true;
@@ -9222,9 +9272,14 @@ private:
         return false;
     }
 
-    /// The generic function or type a type parameter is from, as an error names it: 'Deep', or
-    /// Box<T>.
-    [[nodiscard]] std::string parameter_owner(const type_id_t parameter) {
+    /// The generic function or type a type parameter is from, as an error names it: 'Deep',
+    /// Box<T>, or the default 'Shown.Boxed' for its Interface's.
+    [[nodiscard]] std::string parameter_owner(const expansion_node_t& node) {
+        if (node.scope) {
+            return code_name(symbol(*node.scope));
+        }
+
+        const type_id_t parameter = node.parameter;
         for (const symbol_id_t function : m_analysis.functions) {
             if (std::ranges::contains(symbol(function).type_parameters, parameter)) {
                 return code_name(symbol(function));
