@@ -3,6 +3,7 @@
 #include "fb/mir.hpp"
 
 #include <catch2/catch_test_macros.hpp>
+#include <format>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -2611,4 +2612,77 @@ TEST_CASE("lowering stops where code needs a larger instance each time, which an
                   "Local d = Step<1>.Depth(3)") ==
           "Step<N + 1>.Depth(n - 1): 'Depth' needs a larger instance each time it runs here, "
           "without end");
+    // A Class that tests for the next instance of itself, a chain of them made one from the
+    // other, stops before it has lowered many.
+    CHECK(stopped("Interface Stepper<Const N: Int>\n"
+                  "    Method Show(): Int\n"
+                  "    Method Probe(other: Stepper<N>): Bool => other Is Step<N + 1>\n"
+                  "End Interface\n"
+                  "Class Step<Const M: Int> Implements Stepper<M>\n"
+                  "    Method Show(): Int => M\n"
+                  "End Class\n"
+                  "Local s = Step<1>().Show()") ==
+          "other Is Step<N + 1>: Step<M> needs a larger instance each time it runs here, "
+          "without end");
+    // And one whose base is the next instance, past where the type table fills them.
+    CHECK(stopped("Interface Maker\n"
+                  "    Static Method Make(): Self\n"
+                  "End Interface\n"
+                  "Class Base<T: Maker>\n"
+                  "    Method Spawned(): Int\n"
+                  "        Local made = T.Make()\n"
+                  "        Return 1\n"
+                  "    End Method\n"
+                  "End Class\n"
+                  "Class A<Const N: Int> Extends Base<A<N + 1>> Implements Maker\n"
+                  "    Static Method Make(): A<N> => A<N>()\n"
+                  "End Class\n"
+                  "Local a = A<1>().Spawned()")
+              .ends_with("needs a larger instance each time it runs here, without end"));
+
+    // A Const type argument an instance works out has to be a size or a count too.
+    CHECK(stopped("Function Show<Const M: Int>(): Int => M\n"
+                  "Function Twice<Const N: Int>(): Int => Show<N * 2>()\n"
+                  "Local t = Twice<1073741824>()") ==
+          "Show<N * 2>(): a Const type argument comes out as 2147483648 here, but it's a size or "
+          "a count, from 1 to 2147483647");
+    CHECK(stopped("Function Count<Const N: Int>(): Int\n"
+                  "    Local a: Int[N * 4]\n"
+                  "    Return a.Count\n"
+                  "End Function\n"
+                  "Local c = Count<1073741824>()") ==
+          "Local a: Int[N * 4]: a Const type argument comes out as 4294967296 here, but it's a "
+          "size or a count, from 1 to 2147483647");
+    CHECK(stopped("Function Show<Const M: UInt8>(): Int => M\n"
+                  "Function Twice<Const N: UInt8>(): Int => Show<N * 2>()\n"
+                  "Local t = Twice<200>()") ==
+          "Show<N * 2>(): a Const type argument comes out as 400 here, which doesn't fit in UInt8");
+    CHECK(stopped("Function Show<Const M: Int>(): Int => M\n"
+                  "Function Wrap<Const N: Int>(): Int => Show<N * 65536 * 65536 * 65536 * 65536>()\n"
+                  "Local w = Wrap<1>()")
+              .contains("a Const type argument comes out as 9223372036854775807 here"));
+}
+
+TEST_CASE("lowering makes as many instances as a program uses, one from another or not",
+          "[mir]") {
+    // Many instances of one generic function or Class, made from the same code, aren't growth.
+    std::string calls = "Function Id<Const N: Int>(): Int => N\nLocal total = 0\n";
+    for (int i = 1; i <= 2100; ++i) {
+        calls += std::format("total += Id<{}>()\n", i);
+    }
+
+    const fb::compilation_t many = fb::compile("test.fb", calls);
+    REQUIRE(many.diagnostics.diagnostics().empty());
+    CHECK(!fb::lower(many.ast, many.analysis).error);
+
+    // Nor is a deep but finite type, like a tuple made of tuples twelve times.
+    std::string nested = "Function Both<T>(x: T): (T, T) => (x, x)\nLocal v = ";
+    for (int i = 0; i < 12; ++i) {
+        nested += "Both(";
+    }
+
+    nested += "1" + std::string(12, ')');
+    const fb::compilation_t deep = fb::compile("test.fb", nested);
+    REQUIRE(deep.diagnostics.diagnostics().empty());
+    CHECK(!fb::lower(deep.ast, deep.analysis).error);
 }

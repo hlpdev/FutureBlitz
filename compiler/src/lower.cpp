@@ -334,6 +334,8 @@ private:
         std::unordered_map<symbol_id_t, reflected_t> reflected;
         /// An Async lambda's coroutine, rather than the code its calls run, which starts it.
         bool coroutine = false;
+        /// Where the code that made it came from, which its own code continues.
+        std::optional<std::size_t> origin;
     };
 
     /// The function values the program makes, whose code is lowered after the function that
@@ -355,12 +357,21 @@ private:
     /// The instances the program uses, each lowered once, in the order they were used.
     std::map<instance_t, function_id_t> m_instances;
     std::vector<instance_t> m_pending_instances;
-    /// How many instances each generic function, and each generic Class, has, which one that
-    /// grows without end runs up.
-    std::unordered_map<symbol_id_t, std::size_t> m_instance_counts;
-    std::unordered_map<type_id_t, std::size_t> m_class_counts;
-    /// Each type's depth and size, as grown() measures them, once it has.
-    mutable std::unordered_map<type_id_t, std::pair<std::size_t, std::size_t>> m_measures;
+    /// Where an instance of generic code, or a Class's instance, came from: what it's an instance
+    /// of, and what was being lowered when the program first needed it, so code that makes a
+    /// larger instance each time makes a chain of them.
+    struct origin_t {
+        std::variant<symbol_id_t, type_id_t> of;
+        std::optional<std::size_t> parent;
+    };
+
+    std::vector<origin_t> m_origins;
+    std::unordered_map<function_id_t, std::size_t> m_instance_origins;
+    std::unordered_map<type_id_t, std::size_t> m_class_origins;
+    /// The origin of the instance, or Class's table, being lowered.
+    std::optional<std::size_t> m_origin;
+    /// The types whose Const values check_values() has checked.
+    std::unordered_set<type_id_t> m_checked_values;
     /// While lowering an instance of generic code: its type parameters, and the type argument
     /// that each one stands for.
     std::vector<type_id_t> m_parameters;
@@ -735,13 +746,16 @@ private:
         }
 
         const symbol_t& symbol = m_analysis.symbol(id);
+        const std::size_t origin = add_origin(id);
         const bool grown =
-            ++m_instance_counts[id] > max_instances ||
+            chain_length(origin) > max_chain ||
             std::ranges::any_of(arguments,
                                 [&](const type_id_t argument) { return this->grown(argument); });
         if (grown) {
             stop_growing(std::format("'{}'", symbol.name), symbol.span);
         }
+
+        check_arguments(type_parameters_of(symbol), arguments);
 
         const std::vector<type_id_t> parameters = type_parameters_of(symbol);
         const bool sets_up = symbol.kind == symbol_kind_t::CONSTRUCTOR && is_class(symbol.type);
@@ -756,6 +770,7 @@ private:
             .is_async = symbol.modifiers.is_async,
         });
         m_instances.emplace(key, function);
+        m_instance_origins.emplace(function, origin);
         if (!grown) {
             m_pending_instances.push_back(std::move(key));
         }
@@ -763,51 +778,113 @@ private:
         return function;
     }
 
-    /// More instances of one generic function or Class than any program needs, as code that makes
-    /// a new one each time, like Step<N + 1>, does.
-    static constexpr std::size_t max_instances = 2000;
-
-    /// Whether a type nests deeper, or is made of more types, than any program needs, as one that
-    /// grows without end does, a step at a time or doubling: analysis says where that happens,
-    /// and this only stops lowering where it didn't.
-    [[nodiscard]] bool grown(const type_id_t type) const {
-        static constexpr std::size_t max_depth = 48;
-        static constexpr std::size_t max_size = 4096;
-        const auto [depth, size] = measure(type);
-        return depth > max_depth || size > max_size;
+    /// A new origin, of an instance of `of` that the code being lowered needs.
+    std::size_t add_origin(const std::variant<symbol_id_t, type_id_t> of) {
+        m_origins.push_back({ .of = of, .parent = m_origin });
+        return m_origins.size() - 1;
     }
 
-    /// How deep a type nests, and how many types it's made of, itself included, each counted no
-    /// higher than a little past grown()'s limits.
-    [[nodiscard]] std::pair<std::size_t, std::size_t> measure(const type_id_t type) const {
-        static constexpr std::size_t ceiling = 5000;
-        if (const auto found = m_measures.find(type); found != m_measures.end()) {
-            return found->second;
+    /// How many instances of what `origin` is an instance of are on its chain, itself included.
+    [[nodiscard]] std::size_t chain_length(const std::size_t origin) const {
+        std::size_t length = 0;
+        for (std::optional<std::size_t> at = origin; at && length <= max_chain;
+             at = m_origins[*at].parent) {
+            if (m_origins[*at].of == m_origins[origin].of) {
+                ++length;
+            }
+        }
+
+        return length;
+    }
+
+    /// Whether an integer type holds `number` as it is, rather than its low bits.
+    [[nodiscard]] static bool fits(const std::int64_t number, const type_id_t type) {
+        const const_value_t value{ .type = type_id_t::INT64, .data = number };
+        const fold_result_t cast = fold_cast(value, type);
+        const fold_result_t back = cast ? fold_cast(*cast, type_id_t::INT64) : cast;
+        return back && back->data == value.data;
+    }
+
+    /// Reports, once, a Const type argument that an instance worked out outside what its type
+    /// parameter takes, or in a type argument, outside what one can be.
+    void check_arguments(const std::vector<type_id_t>& parameters,
+                         const std::vector<type_id_t>& arguments) {
+        for (std::size_t i = 0; i < arguments.size() && !m_module.error; ++i) {
+            check_values(arguments[i]);
+            const type_t& argument = types().get(arguments[i]);
+            const type_id_t takes = i < parameters.size() &&
+                                            types().get(parameters[i]).kind == type_kind_t::PARAMETER
+                                        ? types().get(parameters[i]).inner
+                                        : type_id_t::INVALID;
+            if (!m_module.error && takes != type_id_t::INVALID &&
+                argument.kind == type_kind_t::VALUE && argument.operation == value_op_t::NONE &&
+                !fits(argument.number, takes)) {
+                m_module.error = mir_error_t{
+                    .message = std::format(
+                        "a Const type argument comes out as {} here, which doesn't fit in {}",
+                        argument.number, types().name(takes)),
+                    .span = m_span.value_or(span_t{}),
+                };
+            }
+        }
+    }
+
+    /// Reports, once, a Const type argument or fixed array size that an instance worked out
+    /// outside what one can be, a size or a count from 1 to max_count that fits its type, as
+    /// N * 2 can be.
+    void check_values(const type_id_t type) {
+        if (m_module.error || !m_checked_values.insert(type).second) {
+            return;
         }
 
         const type_t& info = types().get(type);
-        std::size_t depth = 0;
-        std::size_t size = 1;
-        const auto add = [&](const type_id_t part) {
-            if (part != type_id_t::INVALID) {
-                const auto [part_depth, part_size] = measure(part);
-                depth = std::min(ceiling, std::max(depth, part_depth + 1));
-                size = std::min(ceiling, size + part_size);
+        if (info.kind == type_kind_t::VALUE && info.operation == value_op_t::NONE) {
+            std::string why;
+            if (info.number < 1 || info.number > max_count) {
+                why = std::format("but it's a size or a count, from 1 to {}", max_count);
+            } else if (!fits(info.number, info.inner)) {
+                why = std::format("which doesn't fit in {}", types().name(info.inner));
             }
-        };
-        std::ranges::for_each(info.arguments, add);
-        add(info.inner);
+
+            if (!why.empty()) {
+                m_module.error = mir_error_t{
+                    .message = std::format("a Const type argument comes out as {} here, {}",
+                                           info.number, why),
+                    .span = m_span.value_or(span_t{}),
+                };
+            }
+
+            return;
+        }
+
+        std::ranges::for_each(info.arguments, [this](const type_id_t part) { check_values(part); });
+        std::ranges::for_each(info.parameters, [this](const type_id_t part) {
+            if (part != type_id_t::INVALID) {
+                check_values(part);
+            }
+        });
+        if (info.inner != type_id_t::INVALID) {
+            check_values(info.inner);
+        }
+
         if (info.kind == type_kind_t::TUPLE) {
             for (const field_t& field : info.fields) {
-                add(field.type);
+                check_values(field.type);
             }
         }
+    }
 
-        if (info.kind == type_kind_t::FUNCTION) {
-            std::ranges::for_each(info.parameters, add);
-        }
+    /// How many instances of one generic function or Class a chain of code that needs them, one
+    /// from the other, can make before it's one that makes a new one each time, like Step<N + 1>.
+    static constexpr std::size_t max_chain = 50;
 
-        return m_measures[type] = { depth, size };
+    /// Whether a type nests deeper, or is made of more types, than any program needs, as one that
+    /// grows without end does: analysis says where that happens, and this only stops lowering
+    /// where it didn't.
+    [[nodiscard]] bool grown(const type_id_t type) const {
+        static constexpr std::uint32_t max_depth = 48;
+        const auto [depth, size] = types().measure(type);
+        return depth > max_depth || size > type_table_t::max_size;
     }
 
     /// Records, once, that code needs a larger instance each time, where it's lowered.
@@ -893,7 +970,12 @@ private:
 
     /// A type from the analysis, with the type arguments of the instance being lowered in it.
     type_id_t concrete(const type_id_t type) {
-        return types().substitute(type, m_parameters, m_arguments);
+        const type_id_t made = types().substitute(type, m_parameters, m_arguments);
+        if (made != type) {
+            check_values(made);
+        }
+
+        return made;
     }
 
     /// A constant from the analysis, like Null, whose type is concrete too.
@@ -973,11 +1055,14 @@ private:
             return;
         }
 
-        if (grown(type) || (definition_of(type) != type &&
-                            ++m_class_counts[definition_of(type)] > max_instances)) {
+        const std::size_t origin = add_origin(definition_of(type));
+        m_class_origins.emplace(type, origin);
+        if (grown(type) || (definition_of(type) != type && chain_length(origin) > max_chain)) {
             stop_growing(types().name(definition_of(type)), {});
             return;
         }
+
+        check_arguments(types().get(definition_of(type)).parameters, types().get(type).arguments);
 
         m_used_classes.push_back(type);
         if (const type_id_t base = types().get(type).base; base != type_id_t::INVALID) {
@@ -1000,7 +1085,12 @@ private:
                 closures < m_closures.size() || instances < m_pending_instances.size() ||
                 generated < m_generated.size() || thunks < m_table_thunks.size())) {
             if (classes < m_used_classes.size()) {
-                add_class(m_used_classes[classes++]);
+                const type_id_t type = m_used_classes[classes++];
+                const scoped_value_t<std::optional<std::size_t>> from(
+                    m_origin, m_class_origins.contains(type)
+                                  ? std::optional(m_class_origins.at(type))
+                                  : std::nullopt);
+                add_class(type);
                 continue;
             }
 
@@ -1023,18 +1113,22 @@ private:
             // Copies, since lowering them can make more.
             if (closures < m_closures.size()) {
                 const pending_closure_t closure = m_closures[closures++];
+                const scoped_value_t<std::optional<std::size_t>> from(m_origin, closure.origin);
                 lower_closure(closure);
                 continue;
             }
 
             if (instances < m_pending_instances.size()) {
                 const instance_t instance = m_pending_instances[instances++];
+                const scoped_value_t<std::optional<std::size_t>> from(
+                    m_origin, m_instance_origins.at(m_instances.at(instance)));
                 lower_instance(instance);
                 continue;
             }
 
             m_parameters.clear();
             m_arguments.clear();
+            const scoped_value_t<std::optional<std::size_t>> from(m_origin, std::nullopt);
             lower_body(m_library_functions[functions++], std::nullopt);
         }
 
@@ -1121,8 +1215,14 @@ private:
 
         // An inherited Method has the type arguments of the instance of its Class.
         for (const symbol_id_t method : method_table(definition)) {
-            info.methods.push_back(
-                function_of(method, owner_arguments(type, m_analysis.symbol(method).owner)));
+            const type_id_t owner = m_analysis.symbol(method).owner;
+            const std::vector<type_id_t> owners = owner_arguments(type, owner);
+            if (owners.empty() && !types().get(owner).parameters.empty()) {
+                stop_growing(types().name(definition), {});
+                return;
+            }
+
+            info.methods.push_back(function_of(method, owners));
         }
 
         // A table for each Interface its objects implement.
@@ -4566,7 +4666,7 @@ private:
             return const_value_t{ .type = type_id_t::INT32, .data = count };
         }
 
-        if (!node.null_safe && converted_type(node.object) == type_id_t::STRING) {
+        if (!node.null_safe && converted_type(node.object) == type_id_t::STRING && !property) {
             return string_parts(lower_value(node.object), node.member.text, expr_type(id));
         }
 
@@ -4581,13 +4681,13 @@ private:
                 return std::optional<operand_t>(count_of(object));
             }
 
-            if (is_fixed_array(type)) {
+            if (is_fixed_array(type) && !property) {
                 const auto count = static_cast<std::int64_t>(types().element_count(type));
                 return std::optional<operand_t>(
                     const_value_t{ .type = type_id_t::INT32, .data = count });
             }
 
-            if (type == type_id_t::STRING) {
+            if (type == type_id_t::STRING && !property) {
                 return std::optional<operand_t>(
                     string_parts(object, node.member.text, types().get(expr_type(id)).inner));
             }
@@ -5237,6 +5337,7 @@ private:
             .parameters = m_parameters,
             .arguments = m_arguments,
             .reflected = m_reflected,
+            .origin = m_origin,
         });
 
         // An Async lambda's code starts its coroutine, which is a function of its own.
@@ -5253,6 +5354,7 @@ private:
                 .arguments = m_arguments,
                 .reflected = m_reflected,
                 .coroutine = true,
+                .origin = m_origin,
             });
         }
 

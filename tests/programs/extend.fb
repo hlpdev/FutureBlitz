@@ -36,7 +36,23 @@ End Extend
 
 Extend String
     Method Twice(): String => Self + Self
+
+    // Read, through '?.' too, and set, as Chars and Bytes can't be.
+    Property Doubled: String
+        Get => Self + Self
+    End Property
+
+    Property Size: Int
+        Get => Self.Bytes.Count
+        Set(value)
+            sizes.Add(value)
+        End Set
+    End Property
 End Extend
+
+Global sizes: Int[] = []
+
+Function Maybe(text: String): String? => text == "" ? Null : text
 
 // T[] is every array, and a Where line makes a Method conditional.
 Extend T[] Implements Shown
@@ -114,3 +130,9 @@ Local foes: Shown[] = [Enemy("grunt"), Boss("ogre")]
 For foe In foes
     Print(foe.Loud())
 End For
+
+Local word = "ab"
+Print(word.Doubled, word.Size, Maybe(word)?.Doubled ?? "none", Maybe("")?.Size ?? -1)
+word.Size = 5
+word.Size += 1
+Print(word, sizes)
