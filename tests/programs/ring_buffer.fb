@@ -1,0 +1,70 @@
+// A RingBuffer keeps the last Capacity values, matching an array that drops its first value when
+// it grows past that, through many random adds, removals, and sets.
+Import std.core
+Import std.collections
+
+// The same numbers each run, from a linear congruential generator.
+Global seed: UInt64 = 12345
+
+Function Next(limit: Int): Int
+    seed = seed.WrappingMultiply(6364136223846793005).WrappingAdd(1442695040888963407)
+    Return ((seed >> 33) % (limit As UInt64)) As Int
+End Function
+
+Local ring = RingBuffer<Int>(7)
+Local plain: Int[] = []
+Local wrong = 0
+For round = 1 To 4000
+    Local op = Next(6)
+    If op <= 2
+        ring.Add(round)
+        plain.Add(round)
+        If plain.Count > 7 Then plain.RemoveAt(0)
+    ElseIf op == 3 && plain.Count > 0
+        If ring.RemoveFirst() != plain[0] Then wrong += 1
+        plain.RemoveAt(0)
+    ElseIf op == 4 && plain.Count > 0
+        If ring.RemoveLast() != plain.RemoveLast() Then wrong += 1
+    ElseIf op == 5 && plain.Count > 0
+        Local at = Next(plain.Count)
+        ring[at] = -round
+        plain[at] = -round
+    End If
+
+    If ring.ToArray() != plain || ring.Count != plain.Count || ring.IsFull != (plain.Count == 7)
+        wrong += 1
+    End If
+
+    If plain.Count > 0 && (ring.First() != plain[0] || ring.Last() != plain[plain.Count - 1])
+        wrong += 1
+    End If
+
+    For i, value In plain
+        If ring[i] != value Then wrong += 1
+    End For
+End For
+Print(wrong)
+
+// The basics, and the empty cases.
+Local window = RingBuffer<String>(3)
+Print(window, window.Count, window.Capacity, window.IsFull, window.TryFirst() ?? "-",
+      window.TryLast() ?? "-", window.TryRemoveFirst() ?? "-", window.TryRemoveLast() ?? "-")
+window.AddAll(["a", "b", "c", "d"])
+Print(window, window.IsFull, window.Contains("a"), window.Contains("d"), window[0], window[2])
+For value In window
+    Print(value)
+End For
+
+Local copy = window.Clone()
+copy.Add("e")
+Print(copy, window, copy.Capacity)
+window.Clear()
+Print(window, window.Count, window.Contains("b"))
+window.Add("x")
+Print(window, window.First(), window.Last())
+
+// One value at a time.
+Local one = RingBuffer<Int>(1)
+one.Add(1)
+one.Add(2)
+Print(one, one.RemoveLast(), one.Count)

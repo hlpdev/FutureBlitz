@@ -1,0 +1,10 @@
+0
+[] 0 3 False - - - -
+[b, c, d] True False True b d
+b
+c
+d
+[c, d, e] [b, c, d] 3
+[] 0 False
+[x] x x
+[2] 2 0

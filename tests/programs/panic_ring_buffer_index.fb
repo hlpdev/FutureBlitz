@@ -1,0 +1,8 @@
+// A RingBuffer's [] panics at an index it hasn't got.
+Import std.core
+Import std.collections
+
+Local ring = RingBuffer<Int>(5)
+ring.AddAll([1, 2, 3])
+Print(ring[2])
+Print(ring[3])

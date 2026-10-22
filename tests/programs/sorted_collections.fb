@@ -1,0 +1,132 @@
+// SortedMap and SortedSet keep their keys in order through many random additions and removals,
+// matching a Map whose keys are sorted, with First, Last, Floor, Ceiling, and Range too.
+Import std.core
+Import std.collections
+
+// The same numbers each run, from a linear congruential generator.
+Global seed: UInt64 = 12345
+
+Function Next(limit: Int): Int
+    seed = seed.WrappingMultiply(6364136223846793005).WrappingAdd(1442695040888963407)
+    Return ((seed >> 33) % (limit As UInt64)) As Int
+End Function
+
+Local sorted = SortedMap<Int, Int>()
+Local plain = Map<Int, Int>()
+Local wrong = 0
+For round = 1 To 4000
+    Local key = Next(500)
+    If Next(3) == 0
+        If sorted.Remove(key) != plain.Remove(key) Then wrong += 1
+    Else
+        sorted.Add(key, round)
+        plain.Add(key, round)
+    End If
+
+    If round % 500 == 0
+        Local keys = plain.Keys()
+        keys.Sort()
+        If sorted.Keys() != keys || sorted.Count != plain.Count Then wrong += 1
+        For k In keys
+            If sorted.Get(k) != plain.Get(k) Then wrong += 1
+        End For
+
+        // Floor, Ceiling, and Range against going over the sorted keys.
+        For probe = -1 To 501 Step 7
+            Local floor: Int? = Null
+            Local ceiling: Int? = Null
+            For k In keys
+                If k <= probe Then floor = k
+                If k >= probe && ceiling == Null Then ceiling = k
+            End For
+            If (sorted.Floor(probe)?.0 ?? -100) != (floor ?? -100) Then wrong += 1
+            If (sorted.Ceiling(probe)?.0 ?? -100) != (ceiling ?? -100) Then wrong += 1
+            Local inRange = keys.Filter(Function(k: Int) => k >= probe && k < probe + 40)
+            If sorted.Range(probe, probe + 40).Map(Function(e: (Int, Int)) => e.0) != inRange
+                wrong += 1
+            End If
+        End For
+    End If
+End For
+Print(sorted.Count == plain.Count, wrong)
+
+// Removing everything, in a random order, leaves it empty.
+Local keys = sorted.Keys()
+While keys.Count > 0
+    Local at = Next(keys.Count)
+    If !sorted.Remove(keys[at]) Then wrong += 1
+    keys.RemoveAt(at)
+End While
+Print(sorted.Count, sorted.First() == Null, sorted.Last() == Null, wrong)
+
+// The basics, on small ones.
+Local ages = SortedMap<String, Int>()
+ages["cy"] = 41
+ages["al"] = 30
+ages.Add("bo", 25)
+ages["al"] = 31
+Print(ages, ages.Count, ages["bo"], ages.Get("zz") ?? -1, ages.Get("zz", 0), ages.Contains("cy"))
+Print(ages.First()?.0 ?? "", ages.Last()?.0 ?? "", ages.Floor("b")?.0 ?? "-",
+      ages.Ceiling("b")?.0 ?? "-")
+Print(ages.Keys(), ages.Values(), ages.Range("al", "c"))
+For name, age In ages
+    Print(name, age)
+End For
+Local copy = ages.Clone()
+copy.Remove("al")
+Print(copy, ages, copy == ages, ages.Clone() == ages)
+ages.Clear()
+Print(ages, ages.Count, ages.First() == Null)
+
+Local set = SortedSet<Int>()
+For n In [5, 1, 9, 3, 7, 1]
+    set.Add(n)
+End For
+Print(set, set.Count, set.First() ?? -1, set.Last() ?? -1, set.Floor(4) ?? -1, set.Ceiling(4) ?? -1)
+Print(set.Range(3, 9), set.Remove(3), set.Remove(3), set.ToArray(), set.Contains(9))
+Local same = SortedSet<Int>()
+same.Add(9)
+same.Add(1)
+same.Add(5)
+same.Add(7)
+Print(set == same, set.Clone() == set, SortedSet<Int>().First() ?? -1)
+
+// SortedSet against a Set whose values are sorted.
+Local sortedSet = SortedSet<Int>()
+Local plainSet = Set<Int>()
+wrong = 0
+For round = 1 To 3000
+    Local value = Next(300)
+    If Next(2) == 0
+        If sortedSet.Add(value) != plainSet.Add(value) Then wrong += 1
+    Else
+        If sortedSet.Remove(value) != plainSet.Remove(value) Then wrong += 1
+    End If
+
+    If sortedSet.Contains(value) != plainSet.Contains(value) Then wrong += 1
+    If round % 100 == 0
+        Local values = plainSet.ToArray()
+        values.Sort()
+        If sortedSet.ToArray() != values || sortedSet.Count != plainSet.Count Then wrong += 1
+        Local probe = Next(320) - 10
+        Local below = values.Filter(Function(v: Int) => v <= probe)
+        Local above = values.Filter(Function(v: Int) => v >= probe)
+        If (sortedSet.Floor(probe) ?? -1) != (below.Count == 0 ? -1 : below[below.Count - 1])
+            wrong += 1
+        End If
+
+        If (sortedSet.Ceiling(probe) ?? -1) != (above.Count == 0 ? -1 : above[0]) Then wrong += 1
+        If sortedSet.Range(probe, probe + 30) != values.Filter(Function(v: Int) => v >= probe &&
+           v < probe + 30)
+            wrong += 1
+        End If
+    End If
+End For
+Print(sortedSet.Count == plainSet.Count, wrong)
+
+// A value that's Null is still there.
+Local maybe = SortedMap<Int, String?>()
+maybe.Add(1, Null)
+maybe.Add(2, "two")
+Print(maybe.Contains(1), maybe.Contains(3), maybe[1] ?? "null", maybe.Get(1, "fallback") ?? "null",
+      maybe.Get(3, "fallback") ?? "null", maybe.Count)

@@ -1,0 +1,7 @@
+// RemoveLast on an empty RingBuffer panics where it's called.
+Import std.core
+Import std.collections
+
+Local ring = RingBuffer<Int>(2)
+Print(ring.TryRemoveLast() ?? -1)
+Print(ring.RemoveLast())

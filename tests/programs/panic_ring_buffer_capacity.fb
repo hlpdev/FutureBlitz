@@ -1,0 +1,6 @@
+// A RingBuffer that holds nothing panics where it's made.
+Import std.core
+Import std.collections
+
+Print(RingBuffer<Int>(1).Capacity)
+Local ring = RingBuffer<Int>(0)

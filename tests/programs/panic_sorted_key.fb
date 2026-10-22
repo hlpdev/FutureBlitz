@@ -1,0 +1,8 @@
+// A SortedMap's [] panics at a key it doesn't have, where it's read.
+Import std.core
+Import std.collections
+
+Local map = SortedMap<Int, String>()
+map[1] = "one"
+Print(map[1])
+Print(map[2])

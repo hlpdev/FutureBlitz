@@ -1,0 +1,10 @@
+// Adding to a RingBuffer while a For ... In goes over it panics.
+Import std.core
+Import std.collections
+
+Local ring = RingBuffer<Int>(5)
+ring.AddAll([1, 2])
+For value In ring
+    Print(value)
+    ring.Add(3)
+End For

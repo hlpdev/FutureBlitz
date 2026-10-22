@@ -1,0 +1,10 @@
+// Adding to a SortedSet while a For ... In goes over it panics, naming the SortedSet.
+Import std.core
+Import std.collections
+
+Local set = SortedSet<Int>()
+set.Add(1)
+For value In set
+    Print(value, set.Add(value))
+    set.Add(value + 1)
+End For

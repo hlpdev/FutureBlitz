@@ -1,0 +1,2 @@
+1
+panic: a RingBuffer holds 1 value or more, not 0 at panic_ring_buffer_capacity.fb:6:14

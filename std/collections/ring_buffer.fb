@@ -1,0 +1,200 @@
+// RingBuffer<T>: the last values added, up to its Capacity, oldest first. Adding to a full one
+// drops the oldest, which makes it a history, or a window over what came last. Its values are in
+// a fixed array of slots, from Head on, round to the start.
+
+Import std.core
+Import std.collections.array
+
+Public Class RingBuffer<T> Implements Iterable<T>, Cloneable
+    Field Slots: T?[] = []
+    // The oldest value's slot.
+    Field Head: Int
+    Field Size: Int
+    // How many times the values changed, so a For ... In over them can tell.
+    Field Changes: Int64
+
+    // An empty RingBuffer that holds up to capacity values, which must be 1 or more.
+    @PanicsAtCaller
+    Public New(capacity: Int)
+        If capacity < 1 Then Panic("a RingBuffer holds 1 value or more, not {capacity}")
+        Slots.Resize(capacity, Null)
+    End New
+
+    Public Property Count: Int
+        Get => Size
+    End Property
+
+    Public Property Capacity: Int
+        Get => Slots.Count
+    End Property
+
+    // Whether the next Add drops the oldest value.
+    Public Property IsFull: Bool
+        Get => Size == Slots.Count
+    End Property
+
+    // Adds the value as the newest, dropping the oldest when the RingBuffer is full.
+    Public Method Add(value: T)
+        If Size == Slots.Count
+            Slots[Head] = value
+            Head = (Head + 1) % Slots.Count
+        Else
+            Slots[(Head + Size) % Slots.Count] = value
+            Size += 1
+        End If
+
+        Changes += 1
+    End Method
+
+    // Adds each of the values in turn, so the last Capacity of them stay.
+    Public Method AddAll(values: Iterable<T>)
+        For value In values.Iterate().ToArray()
+            Add(value)
+        End For
+    End Method
+
+    // Takes the oldest value off and gives it. Panics when the RingBuffer is empty.
+    @PanicsAtCaller
+    Public Method RemoveFirst(): T
+        Local first = First()
+        Slots[Head] = Null
+        Head = (Head + 1) % Slots.Count
+        Size -= 1
+        Changes += 1
+        Return first
+    End Method
+
+    // Takes the newest value off and gives it. Panics when the RingBuffer is empty.
+    @PanicsAtCaller
+    Public Method RemoveLast(): T
+        Local last = Last()
+        Slots[(Head + Size - 1) % Slots.Count] = Null
+        Size -= 1
+        Changes += 1
+        Return last
+    End Method
+
+    // Takes the oldest value off and gives it, or Null when the RingBuffer is empty.
+    Public Method TryRemoveFirst(): T?
+        If Size == 0 Then Return Null
+        Return RemoveFirst()
+    End Method
+
+    // Takes the newest value off and gives it, or Null when the RingBuffer is empty.
+    Public Method TryRemoveLast(): T?
+        If Size == 0 Then Return Null
+        Return RemoveLast()
+    End Method
+
+    // The oldest value, which stays. Panics when the RingBuffer is empty.
+    @PanicsAtCaller
+    Public Method First(): T
+        If Size == 0 Then Panic("the RingBuffer is empty")
+        Return Slots[Head].Expect("a RingBuffer's slot in use holds a value")
+    End Method
+
+    // The newest value, which stays. Panics when the RingBuffer is empty.
+    @PanicsAtCaller
+    Public Method Last(): T
+        If Size == 0 Then Panic("the RingBuffer is empty")
+        Local slot = Slots[(Head + Size - 1) % Slots.Count]
+        Return slot.Expect("a RingBuffer's slot in use holds a value")
+    End Method
+
+    // The oldest value, or Null when the RingBuffer is empty.
+    Public Method TryFirst(): T?
+        If Size == 0 Then Return Null
+        Return First()
+    End Method
+
+    // The newest value, or Null when the RingBuffer is empty.
+    Public Method TryLast(): T?
+        If Size == 0 Then Return Null
+        Return Last()
+    End Method
+
+    // The value at index, counting from the oldest, which is 0. Panics unless index is from 0 to
+    // Count minus 1.
+    @PanicsAtCaller
+    Operator [](index: Int): T
+        Return Slots[SlotOf(index)].Expect("a RingBuffer's slot in use holds a value")
+    End Operator
+
+    // Gives the value at index, counting from the oldest, a new value.
+    @PanicsAtCaller
+    Operator []=(index: Int, value: T)
+        Slots[SlotOf(index)] = value
+    End Operator
+
+    Public Method Contains(value: T): Bool
+        Where T: Equatable
+        For held In Self
+            If held == value Then Return True
+        End For
+        Return False
+    End Method
+
+    Public Method Clear()
+        For i = 0 Until Slots.Count
+            Slots[i] = Null
+        End For
+        Head = 0
+        Size = 0
+        Changes += 1
+    End Method
+
+    // The values, oldest first, in a new array.
+    Public Method ToArray(): T[]
+        Local values: T[] = []
+        values.Reserve(Size)
+        For value In Self
+            values.Add(value)
+        End For
+        Return values
+    End Method
+
+    // A new RingBuffer with the same values and Capacity.
+    Public Method Clone(): RingBuffer<T>
+        Local copy = RingBuffer<T>(Slots.Count)
+        copy.Slots = Slots.Clone()
+        copy.Head = Head
+        copy.Size = Size
+        Return copy
+    End Method
+
+    // The values, oldest first. Adding or removing a value while going over them panics.
+    Public Method Iterate(): RingBufferIterator<T> => RingBufferIterator<T>(Self, 0, Changes)
+
+    @PanicsAtCaller
+    Method SlotOf(index: Int): Int
+        If index < 0 || index >= Size
+            Panic("index {index} is out of range for {Size} value{Size == 1 ? "" : "s"}")
+        End If
+
+        Return (Head + index) % Slots.Count
+    End Method
+End Class
+
+Public Struct RingBufferIterator<T> Implements Iterator<T>
+    Field Owner: RingBuffer<T>
+    Field Index: Int
+    Field Changes: Int64
+
+    @PanicsAtCaller
+    Public ByRef Method Next(): T?
+        If Owner.Changes != Changes
+            Panic("the RingBuffer changed while a For ... In went over it")
+        End If
+
+        If Index >= Owner.Count Then Return Null
+        Index += 1
+        Return Owner[Index - 1]
+    End Method
+End Struct
+
+// "[1, 2, 3]", oldest first, when the values can be shown.
+Extend RingBuffer<T> Implements Printable
+    Where T: Printable
+
+    Public Method ToString(): String => "{ToArray()}"
+End Extend

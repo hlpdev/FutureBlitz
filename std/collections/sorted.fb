@@ -1,0 +1,582 @@
+// SortedMap<K, V> and SortedSet<T>: keys in order, in a B-tree. Each node holds from Order - 1 to
+// 2 * Order - 1 keys in order, but the root, which can hold fewer, and a node that isn't a leaf
+// has a child before, between, and after its keys, which hold the keys between them. Finding,
+// adding, and removing a key looks at about log(Count) nodes.
+
+Import std.core
+Import std.collections.array
+
+// How many keys a node holds at least, but the root: it holds at most twice that, less one.
+Const Order = 16
+
+Class SortedNode<K, V>
+    Field Keys: K[] = []
+    Field Values: V[] = []
+    // None for a leaf.
+    Field Children: SortedNode<K, V>[] = []
+
+    Method IsLeaf(): Bool => Children.Count == 0
+
+    Method IsFull(): Bool => Keys.Count == 2 * Order - 1
+
+    // A copy of the node and what's under it.
+    Method Clone(): SortedNode<K, V>
+        Local copy = SortedNode<K, V>()
+        copy.Keys = Keys.Clone()
+        copy.Values = Values.Clone()
+        For child In Children
+            copy.Children.Add(child.Clone())
+        End For
+        Return copy
+    End Method
+End Class
+
+Public Class SortedMap<K, V> Implements Iterable<(K, V)>, Cloneable, Defaultable
+    Where K: Comparable
+
+    Field Root: SortedNode<K, V>
+    Field Size: Int
+    // How many times keys were added or removed, so a For ... In over the entries can tell.
+    Field Changes: Int64
+
+    Public New()
+        Root = SortedNode<K, V>()
+    End New
+
+    Public Property Count: Int
+        Get => Size
+    End Property
+
+    // Adds an entry, or gives an existing key its new value.
+    Public Method Add(key: K, value: V)
+        If Root.IsFull()
+            Local root = SortedNode<K, V>()
+            root.Children.Add(Root)
+            Root = root
+            Split(root, 0)
+        End If
+
+        If Insert(Root, key, value)
+            Size += 1
+            Changes += 1
+        End If
+    End Method
+
+    // The key's value, or Null when it isn't there.
+    Public Method Get(key: K): V?
+        Local found = Find(key)
+        If found == Null Then Return Null
+        Return found.0.Values[found.1]
+    End Method
+
+    // The key's value, or fallback when it isn't there.
+    Public Method Get(key: K, fallback: V): V
+        Local found = Find(key)
+        If found == Null Then Return fallback
+        Return found.0.Values[found.1]
+    End Method
+
+    // The key's value. A key that isn't there panics.
+    @PanicsAtCaller
+    Operator [](key: K): V
+        Local found = Find(key)
+        If found == Null Then Panic("the key isn't in the SortedMap")
+        Return found.0.Values[found.1]
+    End Operator
+
+    // Gives the key a value, adding it when it isn't there.
+    Operator []=(key: K, value: V)
+        Add(key, value)
+    End Operator
+
+    Public Method Contains(key: K): Bool => Find(key) != Null
+
+    // Removes the key's entry, and tells whether there was one.
+    Public Method Remove(key: K): Bool
+        If !Delete(Root, key) Then Return False
+        // A root left without keys gives its place to its only child.
+        If Root.Keys.Count == 0 && !Root.IsLeaf() Then Root = Root.Children[0]
+        Size -= 1
+        Changes += 1
+        Return True
+    End Method
+
+    Public Method Clear()
+        Root = SortedNode<K, V>()
+        Size = 0
+        Changes += 1
+    End Method
+
+    // The smallest key and its value, or Null when there's none.
+    Public Method First(): (K, V)?
+        If Size == 0 Then Return Null
+        Local node = Root
+        While !node.IsLeaf()
+            node = node.Children[0]
+        End While
+        Return (node.Keys[0], node.Values[0])
+    End Method
+
+    // The largest key and its value, or Null when there's none.
+    Public Method Last(): (K, V)?
+        If Size == 0 Then Return Null
+        Local node = Root
+        While !node.IsLeaf()
+            node = node.Children[node.Children.Count - 1]
+        End While
+        Return (node.Keys[node.Keys.Count - 1], node.Values[node.Values.Count - 1])
+    End Method
+
+    // The largest key that isn't above key, and its value, or Null when there's none.
+    Public Method Floor(key: K): (K, V)?
+        Local best: (K, V)? = Null
+        Local node = Root
+        Loop
+            Local at = Place(node.Keys, key)
+            If at < node.Keys.Count && node.Keys[at] == key
+                Return (node.Keys[at], node.Values[at])
+            End If
+
+            If at > 0 Then best = (node.Keys[at - 1], node.Values[at - 1])
+            If node.IsLeaf() Then Return best
+            node = node.Children[at]
+        End Loop
+    End Method
+
+    // The smallest key that isn't below key, and its value, or Null when there's none.
+    Public Method Ceiling(key: K): (K, V)?
+        Local best: (K, V)? = Null
+        Local node = Root
+        Loop
+            Local at = Place(node.Keys, key)
+            If at < node.Keys.Count
+                If node.Keys[at] == key Then Return (node.Keys[at], node.Values[at])
+                best = (node.Keys[at], node.Values[at])
+            End If
+
+            If node.IsLeaf() Then Return best
+            node = node.Children[at]
+        End Loop
+    End Method
+
+    // The entries from low up to high, without high itself, in order, in a new array.
+    Public Method Range(low: K, high: K): (K, V)[]
+        Local found: (K, V)[] = []
+        Gather(Root, low, high, found)
+        Return found
+    End Method
+
+    // The keys, in order.
+    Public Method Keys(): K[]
+        Local keys: K[] = []
+        keys.Reserve(Size)
+        For key, value In Self
+            keys.Add(key)
+        End For
+        Return keys
+    End Method
+
+    // The values, in their keys' order.
+    Public Method Values(): V[]
+        Local values: V[] = []
+        values.Reserve(Size)
+        For key, value In Self
+            values.Add(value)
+        End For
+        Return values
+    End Method
+
+    // A new, empty SortedMap.
+    Public Static Method DefaultValue(): SortedMap<K, V> => SortedMap<K, V>()
+
+    // A new SortedMap with the same entries.
+    Public Method Clone(): SortedMap<K, V>
+        Local copy = SortedMap<K, V>()
+        copy.Root = Root.Clone()
+        copy.Size = Size
+        Return copy
+    End Method
+
+    // Each key and its value, in order, for 'For key, value In map'. Giving a key a new value
+    // while going over them is fine, but adding or removing one panics.
+    Public Method Iterate(): SortedMapIterator<K, V> => IterateAs("SortedMap")
+
+    // The same, for a SortedSet, whose values are a SortedMap's keys, naming it when it changes.
+    Package Method IterateAs(name: String): SortedMapIterator<K, V>
+        Local iterator = SortedMapIterator<K, V>(Self, [], [], Changes, name)
+        iterator.Descend(Root)
+        Return iterator
+    End Method
+
+    // The node that has key, and where it is among the node's keys, or Null.
+    Method Find(key: K): (SortedNode<K, V>, Int)?
+        Local node = Root
+        Loop
+            Local at = Place(node.Keys, key)
+            If at < node.Keys.Count && node.Keys[at] == key Then Return (node, at)
+            If node.IsLeaf() Then Return Null
+            node = node.Children[at]
+        End Loop
+    End Method
+
+    // Where key goes among keys: the first place whose key isn't below it.
+    Static Method Place(keys: K[], key: K): Int
+        Local low = 0
+        Local high = keys.Count
+        While low < high
+            Local middle = low + (high - low) / 2
+            If keys[middle] < key
+                low = middle + 1
+            Else
+                high = middle
+            End If
+        End While
+        Return low
+    End Method
+
+    // Puts an entry in a node that isn't full, or what's under it, and tells whether the key is
+    // new; an existing key gets the value.
+    Method Insert(node: SortedNode<K, V>, key: K, value: V): Bool
+        Local at = Place(node.Keys, key)
+        If at < node.Keys.Count && node.Keys[at] == key
+            node.Values[at] = value
+            Return False
+        End If
+
+        If node.IsLeaf()
+            node.Keys.Insert(at, key)
+            node.Values.Insert(at, value)
+            Return True
+        End If
+
+        If node.Children[at].IsFull()
+            Split(node, at)
+            If node.Keys[at] == key
+                node.Values[at] = value
+                Return False
+            End If
+
+            If node.Keys[at] < key Then at += 1
+        End If
+
+        Return Insert(node.Children[at], key, value)
+    End Method
+
+    // Splits the full child at index of a node that isn't full in two, with the key between
+    // them moving up into the node.
+    Method Split(node: SortedNode<K, V>, index: Int)
+        Local full = node.Children[index]
+        Local right = SortedNode<K, V>()
+        right.Keys = full.Keys[Order..]
+        right.Values = full.Values[Order..]
+        If !full.IsLeaf()
+            right.Children = full.Children[Order..]
+            full.Children.RemoveRange(Order, Order)
+        End If
+
+        node.Keys.Insert(index, full.Keys[Order - 1])
+        node.Values.Insert(index, full.Values[Order - 1])
+        node.Children.Insert(index + 1, right)
+        full.Keys.RemoveRange(Order - 1, Order)
+        full.Values.RemoveRange(Order - 1, Order)
+    End Method
+
+    // Takes key out of what's under node, which has Order keys or more, but the root, and tells
+    // whether it was there. On the way down, each node it goes into gets Order keys or more, so
+    // one can always be taken.
+    Method Delete(node: SortedNode<K, V>, key: K): Bool
+        Local at = Place(node.Keys, key)
+        Local here = at < node.Keys.Count && node.Keys[at] == key
+        If node.IsLeaf()
+            If !here Then Return False
+            node.Keys.RemoveAt(at)
+            node.Values.RemoveAt(at)
+            Return True
+        End If
+
+        If here
+            // The key before or after it, from a child that can spare one, takes its place, or
+            // else the two children and the key become one node.
+            If node.Children[at].Keys.Count >= Order
+                Local before = Largest(node.Children[at])
+                node.Keys[at] = before.0
+                node.Values[at] = before.1
+                Return Delete(node.Children[at], before.0)
+            End If
+
+            If node.Children[at + 1].Keys.Count >= Order
+                Local after = Smallest(node.Children[at + 1])
+                node.Keys[at] = after.0
+                node.Values[at] = after.1
+                Return Delete(node.Children[at + 1], after.0)
+            End If
+
+            Merge(node, at)
+            Return Delete(node.Children[at], key)
+        End If
+
+        // The child it would be in gets a key to spare first.
+        If node.Children[at].Keys.Count < Order Then at = Fill(node, at)
+        Return Delete(node.Children[at], key)
+    End Method
+
+    // Gives the child at index, which has Order - 1 keys, one more: from a sibling that can spare
+    // one, through the node, or else by merging it with a sibling. Gives where the child is then.
+    Method Fill(node: SortedNode<K, V>, index: Int): Int
+        Local child = node.Children[index]
+        If index > 0 && node.Children[index - 1].Keys.Count >= Order
+            Local left = node.Children[index - 1]
+            child.Keys.Insert(0, node.Keys[index - 1])
+            child.Values.Insert(0, node.Values[index - 1])
+            node.Keys[index - 1] = left.Keys[left.Keys.Count - 1]
+            node.Values[index - 1] = left.Values[left.Values.Count - 1]
+            left.Keys.RemoveAt(left.Keys.Count - 1)
+            left.Values.RemoveAt(left.Values.Count - 1)
+            If !left.IsLeaf()
+                child.Children.Insert(0, left.Children[left.Children.Count - 1])
+                left.Children.RemoveAt(left.Children.Count - 1)
+            End If
+
+            Return index
+        End If
+
+        If index < node.Children.Count - 1 && node.Children[index + 1].Keys.Count >= Order
+            Local right = node.Children[index + 1]
+            child.Keys.Add(node.Keys[index])
+            child.Values.Add(node.Values[index])
+            node.Keys[index] = right.Keys[0]
+            node.Values[index] = right.Values[0]
+            right.Keys.RemoveAt(0)
+            right.Values.RemoveAt(0)
+            If !right.IsLeaf()
+                child.Children.Add(right.Children[0])
+                right.Children.RemoveAt(0)
+            End If
+
+            Return index
+        End If
+
+        If index == node.Children.Count - 1
+            Merge(node, index - 1)
+            Return index - 1
+        End If
+
+        Merge(node, index)
+        Return index
+    End Method
+
+    // Makes the children at index and index + 1, with the node's key between them, one child.
+    Method Merge(node: SortedNode<K, V>, index: Int)
+        Local left = node.Children[index]
+        Local right = node.Children[index + 1]
+        left.Keys.Add(node.Keys[index])
+        left.Values.Add(node.Values[index])
+        left.Keys.AddAll(right.Keys)
+        left.Values.AddAll(right.Values)
+        left.Children.AddAll(right.Children)
+        node.Keys.RemoveAt(index)
+        node.Values.RemoveAt(index)
+        node.Children.RemoveAt(index + 1)
+    End Method
+
+    // The largest key under a node, and its value.
+    Static Method Largest(node: SortedNode<K, V>): (K, V)
+        Local at = node
+        While !at.IsLeaf()
+            at = at.Children[at.Children.Count - 1]
+        End While
+        Return (at.Keys[at.Keys.Count - 1], at.Values[at.Values.Count - 1])
+    End Method
+
+    // The smallest key under a node, and its value.
+    Static Method Smallest(node: SortedNode<K, V>): (K, V)
+        Local at = node
+        While !at.IsLeaf()
+            at = at.Children[0]
+        End While
+        Return (at.Keys[0], at.Values[0])
+    End Method
+
+    // Adds the entries under node from low up to high, without high, in order.
+    Static Method Gather(node: SortedNode<K, V>, low: K, high: K, found: (K, V)[])
+        Local at = Place(node.Keys, low)
+        Loop
+            If !node.IsLeaf() Then Gather(node.Children[at], low, high, found)
+            If at >= node.Keys.Count || !(node.Keys[at] < high) Then Return
+            found.Add((node.Keys[at], node.Values[at]))
+            at += 1
+        End Loop
+    End Method
+End Class
+
+// The entries in order: a stack of the nodes on the way down to the next one, with where each
+// node is at.
+Public Struct SortedMapIterator<K, V> Implements Iterator<(K, V)>
+    Where K: Comparable
+
+    Field Owner: SortedMap<K, V>
+    Field Nodes: SortedNode<K, V>[]
+    Field Places: Int[]
+    Field Changes: Int64
+    // What the loop goes over: "SortedMap", or "SortedSet".
+    Field Name: String
+
+    @PanicsAtCaller
+    Public ByRef Method Next(): (K, V)?
+        If Owner.Changes != Changes Then Panic("the {Name} changed while a For ... In went over it")
+        While Nodes.Count > 0
+            Local top = Nodes.Count - 1
+            Local node = Nodes[top]
+            Local at = Places[top]
+            If at < node.Keys.Count
+                Places[top] = at + 1
+                If !node.IsLeaf() Then Descend(node.Children[at + 1])
+                Return (node.Keys[at], node.Values[at])
+            End If
+
+            Nodes.RemoveAt(top)
+            Places.RemoveAt(top)
+        End While
+        Return Null
+    End Method
+
+    // Goes down from node to its smallest key, keeping each node on the way.
+    ByRef Method Descend(node: SortedNode<K, V>)
+        Local at = node
+        Loop
+            Nodes.Add(at)
+            Places.Add(0)
+            If at.IsLeaf() Then Return
+            at = at.Children[0]
+        End Loop
+    End Method
+End Struct
+
+// Two SortedMaps are equal when they have the same keys, each with an equal value.
+Extend SortedMap<K, V> Implements Equatable
+    Where V: Equatable
+
+    Operator ==(a: SortedMap<K, V>, b: SortedMap<K, V>): Bool
+        If a.Count != b.Count Then Return False
+        Local others = b.Iterate()
+        For key, value In a
+            Local other = others.Next()
+            If other == Null || other.0 != key || other.1 != value Then Return False
+        End For
+        Return True
+    End Operator
+End Extend
+
+// "{a: 1, b: 2}", in order, when the keys and values can be shown.
+Extend SortedMap<K, V> Implements Printable
+    Where K: Printable
+    Where V: Printable
+
+    Public Method ToString(): String
+        Local parts: String[] = []
+        For key, value In Self
+            parts.Add("{key}: {value}")
+        End For
+        Return "{{" + parts.Join(", ") + "}}"
+    End Method
+End Extend
+
+// Values without repeats, in order, which a SortedMap holds as its keys.
+Public Class SortedSet<T> Implements Iterable<T>, Cloneable, Defaultable, Equatable
+    Where T: Comparable
+
+    Field Items: SortedMap<T, Bool>
+
+    Public New()
+        Items = SortedMap<T, Bool>()
+    End New
+
+    Public Property Count: Int
+        Get => Items.Count
+    End Property
+
+    // Adds the value, and tells whether it's new.
+    Public Method Add(value: T): Bool
+        If Items.Contains(value) Then Return False
+        Items.Add(value, True)
+        Return True
+    End Method
+
+    // Removes the value, and tells whether it was there.
+    Public Method Remove(value: T): Bool => Items.Remove(value)
+
+    Public Method Contains(value: T): Bool => Items.Contains(value)
+
+    Public Method Clear()
+        Items.Clear()
+    End Method
+
+    // The smallest value, or Null when there's none.
+    Public Method First(): T? => Key(Items.First())
+
+    // The largest value, or Null when there's none.
+    Public Method Last(): T? => Key(Items.Last())
+
+    // The largest value that isn't above value, or Null when there's none.
+    Public Method Floor(value: T): T? => Key(Items.Floor(value))
+
+    // The smallest value that isn't below value, or Null when there's none.
+    Public Method Ceiling(value: T): T? => Key(Items.Ceiling(value))
+
+    // The values from low up to high, without high itself, in order, in a new array.
+    Public Method Range(low: T, high: T): T[]
+        Return Items.Range(low, high).Map(Function(entry: (T, Bool)) => entry.0)
+    End Method
+
+    // The values, in order, in a new array.
+    Public Method ToArray(): T[] => Items.Keys()
+
+    // A new, empty SortedSet.
+    Public Static Method DefaultValue(): SortedSet<T> => SortedSet<T>()
+
+    // A new SortedSet with the same values.
+    Public Method Clone(): SortedSet<T>
+        Local copy = SortedSet<T>()
+        copy.Items = Items.Clone()
+        Return copy
+    End Method
+
+    // Two SortedSets are equal when they have the same values.
+    Operator ==(a: SortedSet<T>, b: SortedSet<T>): Bool => a.Items == b.Items
+
+    // The values, in order. Adding or removing one while going over them panics.
+    Public Method Iterate(): SortedSetIterator<T>
+        Return SortedSetIterator<T>(Items.IterateAs("SortedSet"))
+    End Method
+
+    Static Method Key(entry: (T, Bool)?): T?
+        If entry == Null Then Return Null
+        Return entry.0
+    End Method
+End Class
+
+Public Struct SortedSetIterator<T> Implements Iterator<T>
+    Where T: Comparable
+
+    Field Entries: SortedMapIterator<T, Bool>
+
+    @PanicsAtCaller
+    Public ByRef Method Next(): T?
+        Local entry = Entries.Next()
+        If entry == Null Then Return Null
+        Return entry.0
+    End Method
+End Struct
+
+// "{1, 2, 3}", in order, when the values can be shown.
+Extend SortedSet<T> Implements Printable
+    Where T: Printable
+
+    Public Method ToString(): String
+        Local parts: String[] = []
+        For value In Self
+            parts.Add("{value}")
+        End For
+        Return "{{" + parts.Join(", ") + "}}"
+    End Method
+End Extend
