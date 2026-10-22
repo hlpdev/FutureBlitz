@@ -6243,6 +6243,23 @@ TEST_CASE("a generic, conditional, or Final default runs as written, on an Inter
           errors_t{ "Total: 'Total' is Source<T>'s conditional default, which a call through "
                     "Source<T> runs as written, so it can't be overridden; give this one another "
                     "name" });
+    // Nor can an Extend of one instance, which goes, so a use finds the default.
+    CHECK(errors_of(std::format("{}Struct Gen<T> Implements Source<T>\n"
+                                "    Field Items: T[] = []\n"
+                                "    Method Take(): T => Items[0]\n"
+                                "End Struct\n"
+                                "Extend Gen<Int>\n"
+                                "    Method Twice(): (Int, Int) => (0, 0)\n"
+                                "    Method With(u: String): (Int, String) => (0, u)\n"
+                                "End Extend\n"
+                                "Local p: (Int, Int) = Gen<Int>().Twice()",
+                                source)) ==
+          errors_t{
+              "Twice: 'Twice' would take the place of Source<Int32>'s Final default, which is "
+              "what a call through Source<Int32> runs; give it another name",
+              "With: 'With' would take the place of Source<Int32>'s generic default, which is "
+              "what a call through Source<Int32> runs; give it another name",
+          });
     // Nor can an Interface extending it, required or with a default of its own.
     CHECK(errors_of(std::format("{}Interface Counted<T> Extends Source<T>\n"
                                 "    Method Twice(): (T, T)\n"

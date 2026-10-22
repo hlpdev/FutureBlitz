@@ -3592,7 +3592,8 @@ private:
     /// What an Extend of one instance adds, like Gen<Int32>'s, can't take the place of a default
     /// outside an Interface's table that the generic type has, as a Method of the type's own
     /// can't: a call through the Interface runs the default as written. Each is an error, and
-    /// goes, so a use finds the default alone.
+    /// goes, so a use finds the default alone. One a Class it extends has, check_inherited()
+    /// reports.
     void check_instance_defaults() {
         for (const type_id_t instance : extended_instances()) {
             const type_id_t definition = definition_of(instance);
@@ -3606,7 +3607,7 @@ private:
                 for (const symbol_id_t other : members_of(definition, added.name, added.span)) {
                     const symbol_t& copy = symbol(other);
                     if (copy.kind != symbol_kind_t::METHOD || !copy.default_method ||
-                        !outside_table(symbol(*copy.default_method)) ||
+                        copy.owner != definition || !outside_table(symbol(*copy.default_method)) ||
                         copy.modifiers.is_static != added.modifiers.is_static) {
                         continue;
                     }
