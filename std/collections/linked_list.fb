@@ -1,8 +1,9 @@
 // LinkedList<T>: values in a chain of nodes, each linked to the ones before and after it, so
 // adding or removing one beside a node takes the same time however many there are. A node is the
 // same object for as long as it's in the list, so code can keep one to add beside or remove
-// later. Each node holds the one after it and, weakly, the one before, and the list lets go of
-// its nodes one at a time, so no list is too long to let go of.
+// later. Each node holds the one after it and, weakly, the one before, so the list makes no
+// cycles, and Clear and the list's end unlink every node, so a node kept elsewhere holds none of
+// the others.
 
 Import std.core
 Import std.collections.array
@@ -257,8 +258,7 @@ Public Class LinkedList<T> Implements Iterable<T>, Cloneable, Defaultable
         Changes += 1
     End Method
 
-    // Unlinks every node, one at a time, so a long chain of them isn't let go of through each
-    // other.
+    // Unlinks every node.
     Method LetGo()
         Local node = Head
         Head = Null

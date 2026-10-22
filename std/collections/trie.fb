@@ -1,8 +1,6 @@
 // Trie<V>: String keys and their values in a tree with a node for each prefix of the keys' bytes,
 // so the keys with a prefix, or the longest key a text starts with, are found by going down the
-// prefix alone. The keys go in the order of their bytes, which is their code points' order. A
-// long key makes a long chain of nodes, which the Trie goes over and lets go of a node at a time,
-// so no key is too long for it.
+// prefix alone. The keys go in the order of their bytes, which is their code points' order.
 
 Import std.core
 Import std.collections.array
@@ -125,7 +123,6 @@ Public Class Trie<V> Implements Iterable<(String, V)>, Cloneable, Defaultable
     End Method
 
     Public Method Clear()
-        LetGo(Root)
         Root = TrieNode<V>()
         Size = 0
         Changes += 1
@@ -200,20 +197,6 @@ Public Class Trie<V> Implements Iterable<(String, V)>, Cloneable, Defaultable
         Return node
     End Method
 
-    // Lets go of the nodes under node one at a time, so a long chain of them isn't let go of
-    // through each other.
-    Static Method LetGo(node: TrieNode<V>)
-        Local nodes = [node]
-        While nodes.Count > 0
-            Local next = nodes.RemoveLast()
-            nodes.AddAll(next.Children)
-            next.Children.Clear()
-        End While
-    End Method
-
-    Method Destroy()
-        LetGo(Root)
-    End Method
 End Class
 
 // The keys in order: a stack of the nodes on the way down, each with the child it last went into,

@@ -214,12 +214,15 @@ Step 4, collections II, std only: std/collections/sorted.fb's SortedMap and Sort
 SortedNode, Order 16, Find(), Split(), Fill(), Merge(), SortedMapIterator's stack of nodes),
 ring_buffer.fb, grid.fb's Grid and Grid3 (GridIterator), bit_set.fb (UInt64 words, BitCount()),
 lru_cache.fb and counter.fb over a Map, multi_map.fb (a Map of arrays), trie.fb (TrieNode by
-byte, LetGo() in Clear and Destroy), linked_list.fb (LinkedListNode with a Weak Before and
-Owner, LetGo()), interval_tree.fb (an AVL tree, IntervalNode's Top), spatial.fb (PlacedValue,
+byte), linked_list.fb (LinkedListNode with a Weak Before and Owner, LetGo() unlinking each node), interval_tree.fb (an AVL tree, IntervalNode's Top), spatial.fb (PlacedValue,
 Bounds, SpatialHash's cells, and SpaceTree, which QuadTree and Octree wrap), and immutable.fb
 (ImmutableArray, ImmutableMap, and ImmutableSet, Structs over AVL trees of Shared ArrayNode,
 HashNode, and HashEntry); each is checked against a plain array or Map over random operations
-(tests/programs/<name>.fb), with a panic program for each panic.
+(tests/programs/<name>.fb), with a panic program for each panic. The runtime's let_go() lets
+go of what an object's fields held one object at a time (`letting_go_t`, release_fields()), as
+tests/programs/long_chains.fb shows with a million of each kind of object, and lowering's store()
+copies a value read through a reference, or a Global's, before it releases the old one, as in
+`Root = Root.Children[0]` (assign_through.fb).
 
 Done: M5 (modules, packages, `project.toml`, FFI, bindgen), planned 2026-10-18 and finished
 2026-10-20, in 11 steps, then a review of each project (compiler, runtime, cli, std).

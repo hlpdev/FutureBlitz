@@ -9,6 +9,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <deque>
+#include <iterator>
 #include <limits>
 #include <mutex>
 #include <span>
@@ -53,12 +54,30 @@ void forget(const fb_object_t* object) {
     }
 }
 
+/// What this thread is letting go of: whether it's releasing an object's fields, and the objects
+/// whose last owner let go meanwhile, which wait for it to finish, so a long chain of objects
+/// goes one at a time rather than through a call for each.
+struct letting_go_t {
+    bool releasing = false;
+    std::vector<fb_object_t*> waiting;
+};
+
+thread_local letting_go_t t_letting_go;
+
+/// Releases an object's fields, and any object that loses its last owner by it waits.
+void release_fields(fb_object_t* object) {
+    letting_go_t& state = t_letting_go;
+    const bool releasing = std::exchange(state.releasing, true);
+    object->type->release(object);
+    state.releasing = releasing;
+}
+
 /// The object is gone: Weak references to it read as Null, and its fields are released. Its
 /// memory stays while Weak references to it remain, and the last of them frees it.
 void finish(fb_object_t* object) {
     object->refcount = 0;
     ++object->weak_count; // keeps the memory while the fields go, even if they held the last Weak
-    object->type->release(object);
+    release_fields(object);
     // ReSharper disable once CppExpressionWithoutSideEffects
     std::atomic_ref(object->type->live).fetch_sub(1, std::memory_order_relaxed);
     if (--object->weak_count == 0) {
@@ -79,7 +98,7 @@ constexpr std::int32_t dying = 0x40000000;
 /// keeps its memory while its fields go, as other threads' Weak references let go at any time.
 void finish_shared(fb_object_t* object) {
     std::atomic_ref(object->refcount).store(0, std::memory_order_release);
-    object->type->release(object);
+    release_fields(object);
     // ReSharper disable once CppExpressionWithoutSideEffects
     std::atomic_ref(object->type->live).fetch_sub(1, std::memory_order_relaxed);
     if (std::atomic_ref(object->weak_count).fetch_sub(1, std::memory_order_acq_rel) == 1) {
@@ -122,6 +141,53 @@ void destroy(fb_object_t* object) {
     }
 
     finish(object);
+}
+
+/// Destroys an object whose last owner let go, or without its Destroy() when it's discarded.
+void end(fb_object_t* object, const bool discard) {
+    if (!discard) {
+        if (is_shared(object)) {
+            destroy_shared(object);
+        } else {
+            destroy(object);
+        }
+
+        return;
+    }
+
+    forget(object);
+    if (is_shared(object)) {
+        finish_shared(object);
+    } else {
+        finish(object);
+    }
+}
+
+/// Ends an object whose last owner let go, then each object that lost its last owner as its
+/// fields were released, and theirs, one at a time. While another object's fields are being
+/// released, the object waits for its turn. What an object let go of goes in the order it let go
+/// of it, and before what was waiting already, so Destroy()s run in the order calls of their own
+/// would run them.
+void let_go(fb_object_t* object, const bool discard) {
+    letting_go_t& state = t_letting_go;
+    if (state.releasing) {
+        state.waiting.push_back(object);
+        return;
+    }
+
+    // A Destroy() that lets go of an object goes over what that let go of itself.
+    const std::size_t start = state.waiting.size();
+    end(object, discard);
+    std::reverse(std::next(state.waiting.begin(), static_cast<std::ptrdiff_t>(start)),
+                 state.waiting.end());
+    while (state.waiting.size() > start) {
+        fb_object_t* next = state.waiting.back();
+        state.waiting.pop_back();
+        const std::size_t before = state.waiting.size();
+        end(next, false);
+        std::reverse(std::next(state.waiting.begin(), static_cast<std::ptrdiff_t>(before)),
+                     state.waiting.end());
+    }
 }
 
 /// The words of a type's name, between the punctuation that spells its kind: "MapEntry",
@@ -519,7 +585,7 @@ void fb_object_release(fb_object_t* object) {
     // owner's last use.
     if (is_shared(object)) {
         if (std::atomic_ref(object->refcount).fetch_sub(1, std::memory_order_acq_rel) == 1) {
-            destroy_shared(object);
+            let_go(object, false);
         }
 
         return;
@@ -527,7 +593,7 @@ void fb_object_release(fb_object_t* object) {
 
     --object->refcount;
     if (object->refcount == 0) {
-        destroy(object);
+        let_go(object, false);
     }
 }
 
@@ -598,20 +664,16 @@ void fb_object_discard(fb_object_t* object) {
     // runs when that lets go.
     if (is_shared(object)) {
         if (std::atomic_ref(object->refcount).fetch_sub(1, std::memory_order_acq_rel) == 1) {
-            forget(object);
-            finish_shared(object);
+            let_go(object, true);
         }
 
         return;
     }
 
     --object->refcount;
-    if (object->refcount != 0) {
-        return;
+    if (object->refcount == 0) {
+        let_go(object, true);
     }
-
-    forget(object);
-    finish(object);
 }
 
 std::int32_t fb_object_is(const fb_object_t* object, const fb_class_t* type) {

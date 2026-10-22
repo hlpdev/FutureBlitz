@@ -1,0 +1,114 @@
+// Letting go of a long chain of objects goes one object at a time, so no chain is too long for
+// the stack: a Class's objects, a Shared Class's, arrays in arrays, and closures, on the main
+// thread and on another. Destroy()s still run in the order they always have, and a Destroy()
+// that lets go of an object sees it go at once.
+Import std.core
+
+Class Node
+    Field Next: Node?
+End Class
+
+Shared Class SharedNode
+    ReadOnly Field Next: SharedNode?
+
+    New(next: SharedNode?)
+        Next = next
+    End New
+End Class
+
+Class Holder
+    Field Items: Holder[] = []
+End Class
+
+Class Named
+    Field Name: String
+    Field Children: Named[] = []
+    Field Kept: Named?
+
+    New(name: String)
+        Name = name
+    End New
+
+    Method Destroy()
+        Print("{Name} goes")
+        If Name == "owner"
+            Kept = Null
+            Print("owner let go of what it kept")
+        End If
+    End Method
+End Class
+
+Const Length = 1000000
+
+Function Chain(): Node
+    Local head = Node()
+    For i = 2 To Length
+        Local node = Node()
+        node.Next = head
+        head = node
+    End For
+    Return head
+End Function
+
+Function SharedChain(): SharedNode
+    Local head = SharedNode(Null)
+    For i = 2 To Length
+        head = SharedNode(head)
+    End For
+    Return head
+End Function
+
+Function Nested(): Holder
+    Local outer = Holder()
+    For i = 2 To Length
+        Local next = Holder()
+        next.Items.Add(outer)
+        outer = next
+    End For
+    Return outer
+End Function
+
+Function Closures(): Func(): Int
+    Local f: Func(): Int = Function() => 0
+    For i = 2 To Length
+        Local before = f
+        f = Function(): Int => before() + 1
+    End For
+    Return f
+End Function
+
+Local chain: Node? = Chain()
+chain = Null
+Print("a million Nodes went")
+Local shared: SharedNode? = SharedChain()
+shared = Null
+Print("a million SharedNodes went")
+Local nested: Holder? = Nested()
+nested = Null
+Print("a million arrays in arrays went")
+Local closures: Func(): Int = Closures()
+closures = Function() => 0
+Print("a million closures went")
+
+// On another thread, whose stack is smaller.
+Local task = Spawn(Function(): Int
+    Local made = SharedChain()
+    Return 1
+End Function)
+Print(task.Wait(), "a million SharedNodes went on another thread")
+
+// An object goes, then each of its fields', in order, and what each holds before the next.
+Local root: Named? = Named("root")
+Local a = Named("a")
+a.Children.Add(Named("a1"))
+a.Children.Add(Named("a2"))
+root.Children.Add(a)
+root.Children.Add(Named("b"))
+a = Named("other")
+root = Null
+Print("the tree went")
+
+// What a Destroy() lets go of goes then and there.
+Local owner: Named? = Named("owner")
+owner.Kept = Named("kept")
+owner = Null

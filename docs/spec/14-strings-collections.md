@@ -223,11 +223,11 @@ collection.
 - An LruCache keeps its entries in a Map in the order they were last used, so a use moves an
   entry to the end: going over it while using one panics, as adding one does.
 - A Trie's node per byte of its keys makes `HasPrefix` and `LongestPrefixOf` go down the prefix
-  alone, and a Trie or a LinkedList lets go of its nodes one at a time, so a long key or list
-  never goes through a long chain of releases.
+  alone.
 - A LinkedList's node is the same object while it's in the list, holds the next node, and holds
   the one before weakly, so the list makes no cycles. A node removed, or of another list, panics
-  where it's given to the list, and a removed node has no `List`, `Next`, or `Previous`.
+  where it's given to the list, and a removed node, or one of a list that's cleared or gone, has
+  no `List`, `Next`, or `Previous`.
 - An IntervalTree is a balanced tree of the intervals, each node with the highest high under
   it, so `Overlapping` skips what ends too soon. A high below low panics where it's added, and
   finds nothing where it's searched for.

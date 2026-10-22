@@ -101,7 +101,7 @@ names.Clear()
 Print(names, names.Count, b.List == Null, b.Next == Null,
       names == LinkedList<String>.DefaultValue())
 
-// A long list's nodes are let go of one at a time.
+// A long list goes without running out of stack.
 Local long = LinkedList<Int>()
 For i = 1 To 300000
     long.AddLast(i)

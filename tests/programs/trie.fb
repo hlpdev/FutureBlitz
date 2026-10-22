@@ -96,7 +96,7 @@ Print(copy, words, copy == words, words.Clone() == words)
 words.Clear()
 Print(words, words.Count, words.HasPrefix("t"), words == Trie<String>.DefaultValue())
 
-// A long key makes a long chain of nodes, which the Trie lets go of one at a time.
+// A long key makes a long chain of nodes, which goes without running out of stack.
 Local long = "x"
 While long.Bytes.Count < 300000
     long += long

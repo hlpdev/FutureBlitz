@@ -12,6 +12,11 @@
 - Class instances are **refcounted**. Cleanup is deterministic: no GC pauses mid-frame.
 - There is no `Delete`. An object is freed when its last strong reference goes away.
 - `Destroy()` (if defined) runs at that moment. See [06](06-user-types.md#class-reference-type).
+- An object whose last reference was one of another object's fields goes once that object's
+  fields are all released, then what it held goes, and so on, one object at a time, so letting
+  go of a chain of any length never runs out of stack. The `Destroy()`s run in the same order
+  as ever: an object's, then its first field's object's and what that held, then its second's.
+  What a `Destroy()` itself lets go of goes at once.
 - Normal objects use **non-atomic** refcounts (fast). Only `Shared Class` instances use
   atomic refcounts (see [10-concurrency.md](10-concurrency.md)).
 
