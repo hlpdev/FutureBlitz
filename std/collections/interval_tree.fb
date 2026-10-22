@@ -1,0 +1,304 @@
+// IntervalTree<K, V>: values, each over an interval of keys from a low to a high, both in it,
+// which finds the intervals that overlap another, or hold a key, without going over the others.
+// It's a balanced tree of the intervals, by low and then by high, each node with the values over
+// its interval and the highest high under it, so a search skips what ends too soon.
+
+Import std.core
+Import std.collections.array
+
+Class IntervalNode<K, V>
+    Field Low: K
+    Field High: K
+    // The values over this interval, in the order they were added.
+    Field Values: V[] = []
+    Field Left: IntervalNode<K, V>?
+    Field Right: IntervalNode<K, V>?
+    Field Height: Int = 1
+    // The highest High here and under.
+    Field Top: K
+
+    New(low: K, high: K, value: V)
+        Low = low
+        High = high
+        Top = high
+        Values.Add(value)
+    End New
+End Class
+
+Public Class IntervalTree<K, V> Implements Iterable<(K, K, V)>, Cloneable, Defaultable
+    Where K: Comparable
+
+    Field Root: IntervalNode<K, V>?
+    Field Size: Int
+    // How many times values were added or removed, so a For ... In over them can tell.
+    Field Changes: Int64
+
+    // How many values it has, over all its intervals.
+    Public Property Count: Int
+        Get => Size
+    End Property
+
+    // Adds a value over the interval from low to high, after any others over it. A high below
+    // low panics.
+    @PanicsAtCaller
+    Public Method Add(low: K, high: K, value: V)
+        If high < low Then Panic("an interval's high is below its low")
+        Root = Insert(Root, low, high, value)
+        Size += 1
+        Changes += 1
+    End Method
+
+    // Removes the first value over the interval from low to high that's equal to value, and
+    // tells whether there was one.
+    Public Method Remove(low: K, high: K, value: V): Bool
+        Where V: Equatable
+        Local node = Root
+        While node != Null
+            Local order = Compare(low, high, node)
+            If order == 0
+                If !node.Values.Remove(value) Then Return False
+                If node.Values.Count == 0 Then Root = Delete(Root, low, high)
+                Size -= 1
+                Changes += 1
+                Return True
+            End If
+
+            node = order < 0 ? node.Left : node.Right
+        End While
+        Return False
+    End Method
+
+    Public Method Clear()
+        Root = Null
+        Size = 0
+        Changes += 1
+    End Method
+
+    // The intervals that overlap the one from low to high, with their values, by low and then by
+    // high, in a new array. A high below low overlaps nothing.
+    Public Method Overlapping(low: K, high: K): (K, K, V)[]
+        Local found: (K, K, V)[] = []
+        If !(high < low) Then Gather(Root, low, high, found)
+        Return found
+    End Method
+
+    // The intervals that hold key, with their values, by low and then by high, in a new array.
+    Public Method Containing(key: K): (K, K, V)[] => Overlapping(key, key)
+
+    // Each interval's low and high with each of its values, by low and then by high, in a new
+    // array.
+    Public Method ToArray(): (K, K, V)[]
+        Local entries: (K, K, V)[] = []
+        entries.Reserve(Size)
+        For entry In Self
+            entries.Add(entry)
+        End For
+        Return entries
+    End Method
+
+    // A new, empty IntervalTree.
+    Public Static Method DefaultValue(): IntervalTree<K, V> => IntervalTree<K, V>()
+
+    // A new IntervalTree with the same intervals and values.
+    Public Method Clone(): IntervalTree<K, V>
+        Local copy = IntervalTree<K, V>()
+        copy.Root = Copied(Root)
+        copy.Size = Size
+        Return copy
+    End Method
+
+    // Each interval's low and high with each of its values, as a tuple, by low and then by high.
+    // Adding or removing a value while going over them panics.
+    Public Method Iterate(): IntervalTreeIterator<K, V>
+        Local iterator = IntervalTreeIterator<K, V>(Self, [], Null, 0, Changes)
+        iterator.Descend(Root)
+        Return iterator
+    End Method
+
+    // Whether the interval from low to high comes before node's, -1, after it, 1, or is it, 0.
+    Static Method Compare(low: K, high: K, node: IntervalNode<K, V>): Int
+        If low < node.Low Then Return -1
+        If node.Low < low Then Return 1
+        If high < node.High Then Return -1
+        If node.High < high Then Return 1
+        Return 0
+    End Method
+
+    // Puts the value in the tree under node, and gives the node now at its top.
+    Static Method Insert(node: IntervalNode<K, V>?, low: K, high: K, value: V): IntervalNode<K, V>
+        If node == Null Then Return IntervalNode<K, V>(low, high, value)
+        Local order = Compare(low, high, node)
+        If order == 0
+            node.Values.Add(value)
+            Return node
+        End If
+
+        If order < 0
+            node.Left = Insert(node.Left, low, high, value)
+        Else
+            node.Right = Insert(node.Right, low, high, value)
+        End If
+
+        Return Balanced(node)
+    End Method
+
+    // Takes the interval from low to high, which is in the tree under node, out, and gives the
+    // node now at its top.
+    Static Method Delete(node: IntervalNode<K, V>?, low: K, high: K): IntervalNode<K, V>?
+        If node == Null Then Return Null
+        Local order = Compare(low, high, node)
+        If order < 0
+            node.Left = Delete(node.Left, low, high)
+        ElseIf order > 0
+            node.Right = Delete(node.Right, low, high)
+        Else
+            Local left = node.Left
+            Local right = node.Right
+            If left == Null Then Return right
+            If right == Null Then Return left
+            // The next interval takes this one's place.
+            Local next = right
+            Loop
+                Local smaller = next.Left
+                If smaller == Null Then Break
+                next = smaller
+            End Loop
+
+            node.Low = next.Low
+            node.High = next.High
+            node.Values = next.Values
+            node.Right = Delete(right, next.Low, next.High)
+        End If
+
+        Return Balanced(node)
+    End Method
+
+    // Adds the values of the intervals under node that overlap the one from low to high.
+    Static Method Gather(node: IntervalNode<K, V>?, low: K, high: K, found: (K, K, V)[])
+        If node == Null || node.Top < low Then Return
+        Gather(node.Left, low, high, found)
+        // The intervals after this one start too late.
+        If high < node.Low Then Return
+        If !(node.High < low)
+            For value In node.Values
+                found.Add((node.Low, node.High, value))
+            End For
+        End If
+
+        Gather(node.Right, low, high, found)
+    End Method
+
+    // A copy of node and what's under it.
+    Static Method Copied(node: IntervalNode<K, V>?): IntervalNode<K, V>?
+        If node == Null Then Return Null
+        Local copy = IntervalNode<K, V>(node.Low, node.High, node.Values[0])
+        copy.Values = node.Values.Clone()
+        copy.Left = Copied(node.Left)
+        copy.Right = Copied(node.Right)
+        copy.Height = node.Height
+        copy.Top = node.Top
+        Return copy
+    End Method
+
+    Static Method HeightOf(node: IntervalNode<K, V>?): Int => node?.Height ?? 0
+
+    // Works out node's Height and Top from its children's.
+    Static Method Measure(node: IntervalNode<K, V>)
+        node.Height = Max(HeightOf(node.Left), HeightOf(node.Right)) + 1
+        node.Top = node.High
+        Local left = node.Left
+        If left != Null && node.Top < left.Top Then node.Top = left.Top
+        Local right = node.Right
+        If right != Null && node.Top < right.Top Then node.Top = right.Top
+    End Method
+
+    // Turns node so its children's heights differ by 1 at most, and gives the node at its top.
+    Static Method Balanced(node: IntervalNode<K, V>): IntervalNode<K, V>
+        Measure(node)
+        Local lean = HeightOf(node.Left) - HeightOf(node.Right)
+        Local left = node.Left
+        Local right = node.Right
+        If lean > 1 && left != Null
+            If HeightOf(left.Left) < HeightOf(left.Right) Then node.Left = TurnLeft(left)
+            Return TurnRight(node)
+        End If
+
+        If lean < -1 && right != Null
+            If HeightOf(right.Right) < HeightOf(right.Left) Then node.Right = TurnRight(right)
+            Return TurnLeft(node)
+        End If
+
+        Return node
+    End Method
+
+    // Puts node's left child in its place, with node as its right child.
+    Static Method TurnRight(node: IntervalNode<K, V>): IntervalNode<K, V>
+        Local top = node.Left.Expect("an IntervalTree turns a node with a left child")
+        node.Left = top.Right
+        top.Right = node
+        Measure(node)
+        Measure(top)
+        Return top
+    End Method
+
+    // Puts node's right child in its place, with node as its left child.
+    Static Method TurnLeft(node: IntervalNode<K, V>): IntervalNode<K, V>
+        Local top = node.Right.Expect("an IntervalTree turns a node with a right child")
+        node.Right = top.Left
+        top.Left = node
+        Measure(node)
+        Measure(top)
+        Return top
+    End Method
+End Class
+
+// The intervals in order: the nodes on the way down to the next one, the node it's at, and which
+// of its values comes next.
+Public Struct IntervalTreeIterator<K, V> Implements Iterator<(K, K, V)>
+    Where K: Comparable
+
+    Field Owner: IntervalTree<K, V>
+    Field Nodes: IntervalNode<K, V>[]
+    Field Node: IntervalNode<K, V>?
+    Field Index: Int
+    Field Changes: Int64
+
+    @PanicsAtCaller
+    Public ByRef Method Next(): (K, K, V)?
+        If Owner.Changes != Changes
+            Panic("the IntervalTree changed while a For ... In went over it")
+        End If
+
+        Loop
+            Local node = Node
+            If node != Null && Index < node.Values.Count
+                Index += 1
+                Return (node.Low, node.High, node.Values[Index - 1])
+            End If
+
+            If Nodes.Count == 0 Then Return Null
+            Local next = Nodes.RemoveLast()
+            Node = next
+            Index = 0
+            Descend(next.Right)
+        End Loop
+    End Method
+
+    // Keeps node and each left child down from it, which come before it.
+    ByRef Method Descend(node: IntervalNode<K, V>?)
+        Local at = node
+        While at != Null
+            Nodes.Add(at)
+            at = at.Left
+        End While
+    End Method
+End Struct
+
+// "[(1, 3, a), (2, 5, b)]", each interval's low and high with each of its values, in order, when
+// they can be shown.
+Extend IntervalTree<K, V> Implements Printable
+    Where K: Printable
+    Where V: Printable
+
+    Public Method ToString(): String => "{ToArray()}"
+End Extend

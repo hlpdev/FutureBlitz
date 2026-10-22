@@ -1,0 +1,6 @@
+// A QuadTree whose box has its max below its min panics where it's made.
+Import std.core
+Import std.collections
+
+Print(QuadTree<Int>(1, 1, 1, 1).Count)
+Local tree = QuadTree<Int>(10, 0, 0, 10)

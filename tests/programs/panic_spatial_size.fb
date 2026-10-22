@@ -1,0 +1,6 @@
+// A SpatialHash whose cells have no size panics where it's made.
+Import std.core
+Import std.collections
+
+Print(SpatialHash<Int>(0.5).Count)
+Local hash = SpatialHash<Int>(0)

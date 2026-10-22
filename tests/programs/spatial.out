@@ -1,0 +1,10 @@
+0
+101 100 [other] True
+1 [other]
+0 [] [] False
+4 [edge, far, home, west] [home, edge]
+[home, edge] [west] [] []
+True [home, far] False
+0 []
+2 [1] [1, 2] [1, 2]
+0 []

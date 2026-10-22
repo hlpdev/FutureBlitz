@@ -1,0 +1,8 @@
+// An IntervalTree panics at an interval whose high is below its low, where it's added.
+Import std.core
+Import std.collections
+
+Local tree = IntervalTree<Int, String>()
+tree.Add(2, 2, "point")
+Print(tree)
+tree.Add(5, 2, "backwards")

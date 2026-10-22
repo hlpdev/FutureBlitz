@@ -1,0 +1,2 @@
+[(2, 2, point)]
+panic: an interval's high is below its low at panic_interval_backwards.fb:8:1

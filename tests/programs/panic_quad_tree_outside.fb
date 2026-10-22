@@ -1,0 +1,8 @@
+// A QuadTree panics at a point outside its box, where it's added.
+Import std.core
+Import std.collections
+
+Local tree = QuadTree<Int>(0, 0, 10, 10)
+tree.Add(1, 10, 10)
+Print(tree.Count)
+tree.Add(2, 10.5, 3)

@@ -1,0 +1,9 @@
+// A SpatialHash panics at a box with a NaN corner, where it's queried.
+Import std.core
+Import std.collections
+
+Local zero: Float = 0
+Local hash = SpatialHash<Int>(1)
+hash.Add(1, 2, 3)
+Print(hash.Query(0, 0, 5, 5))
+Print(hash.Query(0, zero / zero, 5, 5))

@@ -1,0 +1,6 @@
+// An Octree whose box has its max below its min panics where it's made.
+Import std.core
+Import std.collections
+
+Print(Octree<Int>(0, 0, 0, 0, 0, 0).Count)
+Local tree = Octree<Int>(0, 0, 5, 1, 1, 4)

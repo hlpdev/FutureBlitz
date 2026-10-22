@@ -1,0 +1,8 @@
+// An Octree panics at a point outside its box, where something moves there.
+Import std.core
+Import std.collections
+
+Local tree = Octree<Int>(0, 0, 0, 10, 10, 10)
+tree.Add(1, 1, 1, 1)
+Print(tree.Move(1, 1, 1, 1, 2, 2, 2))
+tree.Move(1, 2, 2, 2, 2, 2, -1)

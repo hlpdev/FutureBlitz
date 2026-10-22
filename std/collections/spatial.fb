@@ -1,0 +1,498 @@
+// SpatialHash<T>, QuadTree<T>, and Octree<T>: values at points, found by where they are, the ones
+// in a box or near a point, without going over the others. A SpatialHash keeps the points in
+// square cells of a size, for things spread over a world of any size; a QuadTree splits its
+// bounds in four where points crowd, and an Octree, in 3D, in eight. A box holds the points on its
+// edges, a point near another is no more than the radius from it, so a negative or NaN radius
+// finds nothing, and what's found comes in no order to count on. A coordinate that's NaN panics.
+
+Import std.core
+Import std.collections.array
+Import std.collections.map
+
+// A value and where it is. A 2D one's Z is 0.
+Struct PlacedValue<T>
+    Field Value: T
+    Field X: Float
+    Field Y: Float
+    Field Z: Float
+End Struct
+
+// A box, its edges included. A 2D one's Zs are 0.
+Struct Bounds
+    Field MinX: Float
+    Field MinY: Float
+    Field MinZ: Float
+    Field MaxX: Float
+    Field MaxY: Float
+    Field MaxZ: Float
+
+    Method Holds(x: Float, y: Float, z: Float): Bool
+        Return x >= MinX && x <= MaxX && y >= MinY && y <= MaxY && z >= MinZ && z <= MaxZ
+    End Method
+
+    // Whether the two have a point in common.
+    Method Meets(other: Bounds): Bool
+        Return other.MinX <= MaxX && other.MaxX >= MinX && other.MinY <= MaxY &&
+               other.MaxY >= MinY && other.MinZ <= MaxZ && other.MaxZ >= MinZ
+    End Method
+End Struct
+
+// Panics when a coordinate is NaN.
+@PanicsAtCaller
+Function CheckPoint(x: Float, y: Float, z: Float)
+    If x != x || y != y || z != z Then Panic("a point's coordinates can't be NaN")
+End Function
+
+// The box from (minX, minY, minZ) to (maxX, maxY, maxZ). A coordinate that's NaN panics.
+@PanicsAtCaller
+Function BoxOf(minX: Float, minY: Float, minZ: Float, maxX: Float, maxY: Float,
+               maxZ: Float): Bounds
+    CheckPoint(minX, minY, minZ)
+    CheckPoint(maxX, maxY, maxZ)
+    Return Bounds(minX, minY, minZ, maxX, maxY, maxZ)
+End Function
+
+// The values that were placed.
+Function ValuesOf<T>(placed: PlacedValue<T>[]): T[]
+    Local values: T[] = []
+    values.Reserve(placed.Count)
+    For held In placed
+        values.Add(held.Value)
+    End For
+    Return values
+End Function
+
+// The values placed no more than radius from (x, y, z).
+Function Within<T>(placed: PlacedValue<T>[], x: Float, y: Float, z: Float, radius: Float): T[]
+    Local values: T[] = []
+    For held In placed
+        Local dx = held.X - x
+        Local dy = held.Y - y
+        Local dz = held.Z - z
+        If dx * dx + dy * dy + dz * dz <= radius * radius Then values.Add(held.Value)
+    End For
+    Return values
+End Function
+
+Public Class SpatialHash<T>
+    Field Cells: Map<(Int64, Int64), PlacedValue<T>[]>
+    Field CellSize: Float
+    Field Size: Int
+
+    // An empty SpatialHash whose cells are size across, which has to be above 0 and finite.
+    @PanicsAtCaller
+    Public New(size: Float)
+        If !(size > 0) || size * 0 != 0
+            Panic("a SpatialHash's cells are a finite size above 0, not {size}")
+        End If
+
+        Cells = Map<(Int64, Int64), PlacedValue<T>[]>()
+        CellSize = size
+    End New
+
+    Public Property Count: Int
+        Get => Size
+    End Property
+
+    // Adds the value at (x, y).
+    @PanicsAtCaller
+    Public Method Add(value: T, x: Float, y: Float)
+        CheckPoint(x, y, 0)
+        Local placed = Cells.GetOrAdd(CellOf(x, y), Function(): PlacedValue<T>[] => [])
+        placed.Add(PlacedValue<T>(value, x, y, 0))
+        Size += 1
+    End Method
+
+    // Removes the first value equal to value at (x, y), and tells whether there was one.
+    @PanicsAtCaller
+    Public Method Remove(value: T, x: Float, y: Float): Bool
+        Where T: Equatable
+        CheckPoint(x, y, 0)
+        Local cell = CellOf(x, y)
+        Local placed = Cells.Get(cell)
+        If placed == Null Then Return False
+        For i, held In placed
+            If held.X == x && held.Y == y && held.Value == value
+                placed.RemoveAt(i)
+                If placed.Count == 0 Then Cells.Remove(cell)
+                Size -= 1
+                Return True
+            End If
+        End For
+        Return False
+    End Method
+
+    // Moves the first value equal to value at (x, y) to (toX, toY), and tells whether there was
+    // one.
+    @PanicsAtCaller
+    Public Method Move(value: T, x: Float, y: Float, toX: Float, toY: Float): Bool
+        Where T: Equatable
+        CheckPoint(toX, toY, 0)
+        If !Remove(value, x, y) Then Return False
+        Add(value, toX, toY)
+        Return True
+    End Method
+
+    Public Method Clear()
+        Cells.Clear()
+        Size = 0
+    End Method
+
+    // The values in the box from (minX, minY) to (maxX, maxY), in a new array.
+    @PanicsAtCaller
+    Public Method Query(minX: Float, minY: Float, maxX: Float, maxY: Float): T[]
+        Return ValuesOf(Placed(BoxOf(minX, minY, 0, maxX, maxY, 0)))
+    End Method
+
+    // The values no more than radius from (x, y), in a new array.
+    @PanicsAtCaller
+    Public Method Near(x: Float, y: Float, radius: Float): T[]
+        CheckPoint(x, y, 0)
+        If !(radius >= 0) Then Return []
+        Local box = Bounds(x - radius, y - radius, 0, x + radius, y + radius, 0)
+        Return Within(Placed(box), x, y, 0, radius)
+    End Method
+
+    // The values placed in the box.
+    Method Placed(box: Bounds): PlacedValue<T>[]
+        Local found: PlacedValue<T>[] = []
+        Local first = CellOf(box.MinX, box.MinY)
+        Local last = CellOf(box.MaxX, box.MaxY)
+        If last.0 < first.0 || last.1 < first.1 Then Return found
+        Local across = last.0 - first.0 + 1
+        Local down = last.1 - first.1 + 1
+        If across > Cells.Count || down > Cells.Count || across * down > Cells.Count
+            // Fewer cells hold values than the box covers, so it goes over those.
+            For cell, placed In Cells
+                If cell.0 >= first.0 && cell.0 <= last.0 && cell.1 >= first.1 && cell.1 <= last.1
+                    Gather(placed, box, found)
+                End If
+            End For
+            Return found
+        End If
+
+        For cy = first.1 To last.1
+            For cx = first.0 To last.0
+                Local placed = Cells.Get((cx, cy))
+                If placed != Null Then Gather(placed, box, found)
+            End For
+        End For
+        Return found
+    End Method
+
+    // The cell (x, y) is in. Far enough out, along either axis, it's the last cell.
+    Method CellOf(x: Float, y: Float): (Int64, Int64) => (Along(x), Along(y))
+
+    Method Along(coordinate: Float): Int64
+        Local cell = coordinate / CellSize
+        If cell >= 4.0e18 Then Return 4000000000000000000
+        If cell <= -4.0e18 Then Return -4000000000000000000
+        Local whole = cell As Int64
+        If (whole As Float) > cell Then whole -= 1
+        Return whole
+    End Method
+
+    // Adds the values among placed that are in the box.
+    Static Method Gather(placed: PlacedValue<T>[], box: Bounds, found: PlacedValue<T>[])
+        For held In placed
+            If box.Holds(held.X, held.Y, held.Z) Then found.Add(held)
+        End For
+    End Method
+End Class
+
+// How many points a node holds before it splits, and how many times nodes split, at most, on the
+// way down: past it, a node holds any number, as points at one place need.
+Const Crowd = 8
+Const Deepest = 16
+
+// A QuadTree's or an Octree's part of its bounds: a leaf with points, or a node split in four or
+// eight.
+Class SpaceNode<T>
+    Field Area: Bounds
+    Field Placed: PlacedValue<T>[] = []
+    Field Children: SpaceNode<T>[] = []
+    Field Depth: Int
+    // How many points it has, and the nodes under it.
+    Field Size: Int
+
+    New(area: Bounds, depth: Int)
+        Area = area
+        Depth = depth
+    End New
+End Class
+
+// What a QuadTree and an Octree are: one in 2D, with Axes 2, splits in four, and one in 3D, with
+// Axes 3, in eight.
+Class SpaceTree<T>
+    Field Root: SpaceNode<T>
+    Field Axes: Int
+    // "QuadTree" or "Octree", for messages.
+    Field Name: String
+
+    New(area: Bounds, axes: Int, name: String)
+        Root = SpaceNode<T>(area, 0)
+        Axes = axes
+        Name = name
+    End New
+
+    @PanicsAtCaller
+    Method Add(held: PlacedValue<T>)
+        CheckPoint(held.X, held.Y, held.Z)
+        If !Root.Area.Holds(held.X, held.Y, held.Z)
+            Panic("{PointText(held.X, held.Y, held.Z)} is outside the {Name}'s bounds")
+        End If
+
+        Local node = Root
+        Loop
+            node.Size += 1
+            If node.Children.Count == 0 Then Break
+            node = node.Children[ChildOf(node, held.X, held.Y, held.Z)]
+        End Loop
+
+        node.Placed.Add(held)
+        If node.Placed.Count > Crowd && node.Depth < Deepest Then Split(node)
+    End Method
+
+    @PanicsAtCaller
+    Method Remove(value: T, x: Float, y: Float, z: Float): Bool
+        Where T: Equatable
+        CheckPoint(x, y, z)
+        If !Root.Area.Holds(x, y, z) Then Return False
+        Local path = [Root]
+        While path[path.Count - 1].Children.Count > 0
+            Local node = path[path.Count - 1]
+            path.Add(node.Children[ChildOf(node, x, y, z)])
+        End While
+
+        Local leaf = path[path.Count - 1]
+        For i, held In leaf.Placed
+            If held.X == x && held.Y == y && held.Z == z && held.Value == value
+                leaf.Placed.RemoveAt(i)
+                For node In path
+                    node.Size -= 1
+                End For
+
+                // The highest node that no longer needs its children takes their points.
+                For node In path
+                    If node.Children.Count > 0 && node.Size <= Crowd
+                        node.Placed = Under(node)
+                        node.Children = []
+                        Break
+                    End If
+                End For
+                Return True
+            End If
+        End For
+        Return False
+    End Method
+
+    Method Clear()
+        Root = SpaceNode<T>(Root.Area, 0)
+    End Method
+
+    // The values placed in the box.
+    Method Placed(box: Bounds): PlacedValue<T>[]
+        Local found: PlacedValue<T>[] = []
+        Local nodes = [Root]
+        While nodes.Count > 0
+            Local node = nodes.RemoveLast()
+            If node.Area.Meets(box)
+                nodes.AddAll(node.Children)
+                For held In node.Placed
+                    If box.Holds(held.X, held.Y, held.Z) Then found.Add(held)
+                End For
+            End If
+        End While
+        Return found
+    End Method
+
+    // Which of node's children (x, y, z) is in, a point on a middle line going to the one after.
+    Method ChildOf(node: SpaceNode<T>, x: Float, y: Float, z: Float): Int
+        Local area = node.Area
+        Local child = 0
+        If x >= area.MinX + (area.MaxX - area.MinX) / 2 Then child += 1
+        If y >= area.MinY + (area.MaxY - area.MinY) / 2 Then child += 2
+        If Axes == 3 && z >= area.MinZ + (area.MaxZ - area.MinZ) / 2 Then child += 4
+        Return child
+    End Method
+
+    // Gives a leaf its children, with its points in them.
+    Method Split(node: SpaceNode<T>)
+        Local area = node.Area
+        Local middleX = area.MinX + (area.MaxX - area.MinX) / 2
+        Local middleY = area.MinY + (area.MaxY - area.MinY) / 2
+        Local middleZ = area.MinZ + (area.MaxZ - area.MinZ) / 2
+        For child = 0 Until (Axes == 3 ? 8 : 4)
+            Local part = area
+            If (child & 1) == 0 Then part.MaxX = middleX Else part.MinX = middleX
+            If (child & 2) == 0 Then part.MaxY = middleY Else part.MinY = middleY
+            If Axes == 3
+                If (child & 4) == 0 Then part.MaxZ = middleZ Else part.MinZ = middleZ
+            End If
+
+            node.Children.Add(SpaceNode<T>(part, node.Depth + 1))
+        End For
+
+        For held In node.Placed
+            Local child = node.Children[ChildOf(node, held.X, held.Y, held.Z)]
+            child.Placed.Add(held)
+            child.Size += 1
+        End For
+
+        node.Placed = []
+        // A child can be as crowded as its parent was.
+        For child In node.Children
+            If child.Placed.Count > Crowd && child.Depth < Deepest Then Split(child)
+        End For
+    End Method
+
+    // The points in the leaves under node.
+    Static Method Under(node: SpaceNode<T>): PlacedValue<T>[]
+        Local found: PlacedValue<T>[] = []
+        Local nodes = [node]
+        While nodes.Count > 0
+            Local next = nodes.RemoveLast()
+            nodes.AddAll(next.Children)
+            found.AddAll(next.Placed)
+        End While
+        Return found
+    End Method
+
+    Method PointText(x: Float, y: Float, z: Float): String
+        If Axes == 3 Then Return "({x}, {y}, {z})"
+        Return "({x}, {y})"
+    End Method
+End Class
+
+Public Class QuadTree<T>
+    Field Tree: SpaceTree<T>
+
+    // An empty QuadTree for the points in the box from (minX, minY) to (maxX, maxY). A box whose
+    // max is below its min along an axis panics.
+    @PanicsAtCaller
+    Public New(minX: Float, minY: Float, maxX: Float, maxY: Float)
+        Local area = BoxOf(minX, minY, 0, maxX, maxY, 0)
+        If maxX < minX || maxY < minY Then Panic("a QuadTree's box has its max below its min")
+        Tree = SpaceTree<T>(area, 2, "QuadTree")
+    End New
+
+    Public Property Count: Int
+        Get => Tree.Root.Size
+    End Property
+
+    // Adds the value at (x, y). A point outside the QuadTree's box panics.
+    @PanicsAtCaller
+    Public Method Add(value: T, x: Float, y: Float)
+        Tree.Add(PlacedValue<T>(value, x, y, 0))
+    End Method
+
+    // Removes the first value equal to value at (x, y), and tells whether there was one.
+    @PanicsAtCaller
+    Public Method Remove(value: T, x: Float, y: Float): Bool
+        Where T: Equatable
+        Return Tree.Remove(value, x, y, 0)
+    End Method
+
+    // Moves the first value equal to value at (x, y) to (toX, toY), and tells whether there was
+    // one. A point outside the QuadTree's box panics.
+    @PanicsAtCaller
+    Public Method Move(value: T, x: Float, y: Float, toX: Float, toY: Float): Bool
+        Where T: Equatable
+        CheckPoint(toX, toY, 0)
+        If !Tree.Root.Area.Holds(toX, toY, 0)
+            Panic("({toX}, {toY}) is outside the QuadTree's bounds")
+        End If
+
+        If !Tree.Remove(value, x, y, 0) Then Return False
+        Tree.Add(PlacedValue<T>(value, toX, toY, 0))
+        Return True
+    End Method
+
+    Public Method Clear()
+        Tree.Clear()
+    End Method
+
+    // The values in the box from (minX, minY) to (maxX, maxY), in a new array.
+    @PanicsAtCaller
+    Public Method Query(minX: Float, minY: Float, maxX: Float, maxY: Float): T[]
+        Return ValuesOf(Tree.Placed(BoxOf(minX, minY, 0, maxX, maxY, 0)))
+    End Method
+
+    // The values no more than radius from (x, y), in a new array.
+    @PanicsAtCaller
+    Public Method Near(x: Float, y: Float, radius: Float): T[]
+        CheckPoint(x, y, 0)
+        If !(radius >= 0) Then Return []
+        Local box = Bounds(x - radius, y - radius, 0, x + radius, y + radius, 0)
+        Return Within(Tree.Placed(box), x, y, 0, radius)
+    End Method
+End Class
+
+Public Class Octree<T>
+    Field Tree: SpaceTree<T>
+
+    // An empty Octree for the points in the box from (minX, minY, minZ) to (maxX, maxY, maxZ). A
+    // box whose max is below its min along an axis panics.
+    @PanicsAtCaller
+    Public New(minX: Float, minY: Float, minZ: Float, maxX: Float, maxY: Float, maxZ: Float)
+        Local area = BoxOf(minX, minY, minZ, maxX, maxY, maxZ)
+        If maxX < minX || maxY < minY || maxZ < minZ
+            Panic("an Octree's box has its max below its min")
+        End If
+
+        Tree = SpaceTree<T>(area, 3, "Octree")
+    End New
+
+    Public Property Count: Int
+        Get => Tree.Root.Size
+    End Property
+
+    // Adds the value at (x, y, z). A point outside the Octree's box panics.
+    @PanicsAtCaller
+    Public Method Add(value: T, x: Float, y: Float, z: Float)
+        Tree.Add(PlacedValue<T>(value, x, y, z))
+    End Method
+
+    // Removes the first value equal to value at (x, y, z), and tells whether there was one.
+    @PanicsAtCaller
+    Public Method Remove(value: T, x: Float, y: Float, z: Float): Bool
+        Where T: Equatable
+        Return Tree.Remove(value, x, y, z)
+    End Method
+
+    // Moves the first value equal to value at (x, y, z) to (toX, toY, toZ), and tells whether
+    // there was one. A point outside the Octree's box panics.
+    @PanicsAtCaller
+    Public Method Move(value: T, x: Float, y: Float, z: Float, toX: Float, toY: Float,
+                       toZ: Float): Bool
+        Where T: Equatable
+        CheckPoint(toX, toY, toZ)
+        If !Tree.Root.Area.Holds(toX, toY, toZ)
+            Panic("({toX}, {toY}, {toZ}) is outside the Octree's bounds")
+        End If
+
+        If !Tree.Remove(value, x, y, z) Then Return False
+        Tree.Add(PlacedValue<T>(value, toX, toY, toZ))
+        Return True
+    End Method
+
+    Public Method Clear()
+        Tree.Clear()
+    End Method
+
+    // The values in the box from (minX, minY, minZ) to (maxX, maxY, maxZ), in a new array.
+    @PanicsAtCaller
+    Public Method Query(minX: Float, minY: Float, minZ: Float, maxX: Float, maxY: Float,
+                        maxZ: Float): T[]
+        Return ValuesOf(Tree.Placed(BoxOf(minX, minY, minZ, maxX, maxY, maxZ)))
+    End Method
+
+    // The values no more than radius from (x, y, z), in a new array.
+    @PanicsAtCaller
+    Public Method Near(x: Float, y: Float, z: Float, radius: Float): T[]
+        CheckPoint(x, y, z)
+        If !(radius >= 0) Then Return []
+        Local box = Bounds(x - radius, y - radius, z - radius, x + radius, y + radius, z + radius)
+        Return Within(Tree.Placed(box), x, y, z, radius)
+    End Method
+End Class

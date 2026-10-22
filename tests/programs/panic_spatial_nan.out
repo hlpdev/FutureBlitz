@@ -1,0 +1,2 @@
+[]
+panic: a point's coordinates can't be NaN at panic_spatial_nan.fb:9:1

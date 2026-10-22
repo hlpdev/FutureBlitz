@@ -1,0 +1,2 @@
+0
+panic: an Octree's box has its max below its min at panic_octree_box.fb:6:14

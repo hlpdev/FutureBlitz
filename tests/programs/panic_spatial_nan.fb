@@ -1,0 +1,9 @@
+// A SpatialHash panics at a NaN coordinate, where it's added.
+Import std.core
+Import std.collections
+
+Local zero: Float = 0
+Local hash = SpatialHash<Int>(1)
+hash.Add(1, 2, 3)
+Print(hash.Near(2, 3, zero / zero))
+hash.Add(2, zero / zero, 3)

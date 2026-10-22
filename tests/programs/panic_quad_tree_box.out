@@ -1,0 +1,2 @@
+0
+panic: a QuadTree's box has its max below its min at panic_quad_tree_box.fb:6:14

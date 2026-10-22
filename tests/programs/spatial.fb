@@ -1,0 +1,158 @@
+// SpatialHash, QuadTree, and Octree find what an array of points finds by going over every point,
+// through many random additions, removals, and moves: the points in a box, and near a point.
+Import std.core
+Import std.collections
+
+// The same numbers each run, from a linear congruential generator.
+Global seed: UInt64 = 12345
+
+Function Next(limit: Int): Int
+    seed = seed.WrappingMultiply(6364136223846793005).WrappingAdd(1442695040888963407)
+    Return ((seed >> 33) % (limit As UInt64)) As Int
+End Function
+
+// A coordinate from 0 to 100 in quarters, so points share places and lie on edges.
+Function Coordinate(): Float => (Next(401) As Float) / 4
+
+Struct Point
+    Field Id: Int
+    Field X: Float
+    Field Y: Float
+    Field Z: Float
+End Struct
+
+Function Sorted(values: Int[]): Int[]
+    Local sorted = values.Clone()
+    sorted.Sort()
+    Return sorted
+End Function
+
+Function InBox(points: Point[], min: Point, max: Point): Int[]
+    Local found: Int[] = []
+    For p In points
+        If p.X >= min.X && p.X <= max.X && p.Y >= min.Y && p.Y <= max.Y && p.Z >= min.Z &&
+           p.Z <= max.Z
+            found.Add(p.Id)
+        End If
+    End For
+    Return Sorted(found)
+End Function
+
+Function Near(points: Point[], at: Point, radius: Float): Int[]
+    Local found: Int[] = []
+    For p In points
+        Local dx = p.X - at.X
+        Local dy = p.Y - at.Y
+        Local dz = p.Z - at.Z
+        If dx * dx + dy * dy + dz * dz <= radius * radius Then found.Add(p.Id)
+    End For
+    Return Sorted(found)
+End Function
+
+Local hash = SpatialHash<Int>(7.5)
+Local quad = QuadTree<Int>(0, 0, 100, 100)
+Local octree = Octree<Int>(0, 0, 0, 100, 100, 100)
+Local flat: Point[] = []
+Local deep: Point[] = []
+Local wrong = 0
+For round = 1 To 3000
+    Local op = Next(5)
+    If op <= 1 || flat.Count == 0
+        Local p = Point(round, Coordinate(), Coordinate(), 0)
+        hash.Add(p.Id, p.X, p.Y)
+        quad.Add(p.Id, p.X, p.Y)
+        flat.Add(p)
+        Local q = Point(round, Coordinate(), Coordinate(), Coordinate())
+        octree.Add(q.Id, q.X, q.Y, q.Z)
+        deep.Add(q)
+    ElseIf op == 2
+        Local at = Next(flat.Count)
+        Local p = flat[at]
+        If !hash.Remove(p.Id, p.X, p.Y) || !quad.Remove(p.Id, p.X, p.Y) Then wrong += 1
+        flat.RemoveAt(at)
+        Local q = deep[at]
+        If !octree.Remove(q.Id, q.X, q.Y, q.Z) Then wrong += 1
+        deep.RemoveAt(at)
+        // What isn't there isn't removed.
+        If hash.Remove(p.Id, p.X, p.Y) || quad.Remove(p.Id, p.X, p.Y) Then wrong += 1
+        If octree.Remove(q.Id, q.X, q.Y, q.Z) || quad.Remove(p.Id, -1, 0) Then wrong += 1
+    ElseIf op == 3
+        Local at = Next(flat.Count)
+        Local p = flat[at]
+        Local x = Coordinate()
+        Local y = Coordinate()
+        If !hash.Move(p.Id, p.X, p.Y, x, y) || !quad.Move(p.Id, p.X, p.Y, x, y) Then wrong += 1
+        flat[at] = Point(p.Id, x, y, 0)
+        Local q = deep[at]
+        Local z = Coordinate()
+        If !octree.Move(q.Id, q.X, q.Y, q.Z, x, y, z) Then wrong += 1
+        deep[at] = Point(q.Id, x, y, z)
+    Else
+        Local min = Point(0, Coordinate() - 10, Coordinate() - 10, Coordinate() - 10)
+        Local max = Point(0, min.X + Coordinate() / 2, min.Y + Coordinate() / 3,
+                          min.Z + Coordinate())
+        Local flatMin = Point(0, min.X, min.Y, 0)
+        Local flatMax = Point(0, max.X, max.Y, 0)
+        Local inFlat = InBox(flat, flatMin, flatMax)
+        If Sorted(hash.Query(min.X, min.Y, max.X, max.Y)) != inFlat Then wrong += 1
+        If Sorted(quad.Query(min.X, min.Y, max.X, max.Y)) != inFlat Then wrong += 1
+        If Sorted(octree.Query(min.X, min.Y, min.Z, max.X, max.Y, max.Z)) != InBox(deep, min, max)
+            wrong += 1
+        End If
+
+        Local radius = Coordinate() / 4
+        Local center = Point(0, Coordinate(), Coordinate(), 0)
+        Local nearFlat = Near(flat, center, radius)
+        If Sorted(hash.Near(center.X, center.Y, radius)) != nearFlat Then wrong += 1
+        If Sorted(quad.Near(center.X, center.Y, radius)) != nearFlat Then wrong += 1
+        Local center3 = Point(0, center.X, center.Y, Coordinate())
+        Local nearDeep = Near(deep, center3, radius)
+        If Sorted(octree.Near(center3.X, center3.Y, center3.Z, radius)) != nearDeep Then wrong += 1
+    End If
+
+    If hash.Count != flat.Count || quad.Count != flat.Count || octree.Count != deep.Count
+        wrong += 1
+    End If
+End For
+Print(wrong)
+
+// Many points at one place, past where a node splits.
+Local crowd = QuadTree<String>(-1, -1, 1, 1)
+For i = 1 To 100
+    crowd.Add("p{i}", 0.5, 0.5)
+End For
+crowd.Add("other", -0.5, 0.25)
+Print(crowd.Count, crowd.Query(0.5, 0.5, 0.5, 0.5).Count, crowd.Near(-0.5, 0.25, 0),
+      crowd.Remove("p7", 0.5, 0.5))
+For i = 1 To 100
+    crowd.Remove("p{i}", 0.5, 0.5)
+End For
+Print(crowd.Count, crowd.Query(-1, -1, 1, 1))
+
+// The basics, the empty cases, and points far apart.
+Local world = SpatialHash<String>(10)
+Print(world.Count, world.Query(0, 0, 100, 100), world.Near(0, 0, 50), world.Remove("a", 0, 0))
+world.Add("home", 0, 0)
+world.Add("far", 1.0e30, -1.0e30)
+world.Add("west", -25, 3)
+world.Add("edge", 10, 10)
+Print(world.Count, Sorted2(world.Query(-1.0e38, -1.0e38, 1.0e38, 1.0e38)),
+      world.Query(0, 0, 10, 10))
+Print(world.Near(0, 0, 25), world.Near(-25, 3, 0), world.Near(0, 0, -1), world.Query(5, 5, 0, 0))
+Print(world.Move("far", 1.0e30, -1.0e30, 1, 1), world.Query(0, 0, 1, 1),
+      world.Move("gone", 0, 0, 1, 1))
+world.Clear()
+Print(world.Count, world.Query(-100, -100, 100, 100))
+
+Local box = Octree<Int>(-5, -5, -5, 5, 5, 5)
+box.Add(1, 5, 5, 5)
+box.Add(2, -5, -5, -5)
+Print(box.Count, box.Query(5, 5, 5, 5, 5, 5), box.Near(0, 0, 0, 9), box.Near(0, 0, 0, 8.7))
+box.Clear()
+Print(box.Count, box.Query(-5, -5, -5, 5, 5, 5))
+
+Function Sorted2(values: String[]): String[]
+    Local sorted = values.Clone()
+    sorted.Sort()
+    Return sorted
+End Function

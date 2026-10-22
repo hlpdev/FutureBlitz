@@ -1,0 +1,10 @@
+// Adding to an IntervalTree while a For ... In goes over it panics.
+Import std.core
+Import std.collections
+
+Local tree = IntervalTree<Int, String>()
+tree.Add(1, 2, "a")
+For entry In tree
+    Print(entry)
+    tree.Add(3, 4, "b")
+End For

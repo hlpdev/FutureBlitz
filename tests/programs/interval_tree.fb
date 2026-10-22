@@ -1,0 +1,90 @@
+// An IntervalTree matches an array of intervals and their values, through many random additions
+// and removals, and what overlaps an interval or holds a key matches going over the array.
+Import std.core
+Import std.collections
+
+// The same numbers each run, from a linear congruential generator.
+Global seed: UInt64 = 12345
+
+Function Next(limit: Int): Int
+    seed = seed.WrappingMultiply(6364136223846793005).WrappingAdd(1442695040888963407)
+    Return ((seed >> 33) % (limit As UInt64)) As Int
+End Function
+
+// The intervals in the tree's order: by low, then by high, then the order they were added.
+Function Ordered(entries: (Int, Int, Int)[]): (Int, Int, Int)[]
+    Local sorted = entries.Clone()
+    sorted.SortBy(Function(e: (Int, Int, Int)) => e.0).ThenBy(Function(e: (Int, Int, Int)) => e.1)
+    Return sorted
+End Function
+
+Local tree = IntervalTree<Int, Int>()
+Local plain: (Int, Int, Int)[] = []
+Local wrong = 0
+For round = 1 To 3000
+    Local low = Next(100)
+    Local high = low + Next(15)
+    Local value = Next(4)
+    If Next(3) == 0 && plain.Count > 0
+        // Mostly an interval that's there.
+        Local chosen = plain[Next(plain.Count)]
+        If Next(4) != 0
+            low = chosen.0
+            high = chosen.1
+            value = chosen.2
+        End If
+
+        If tree.Remove(low, high, value) != plain.Remove((low, high, value)) Then wrong += 1
+    Else
+        tree.Add(low, high, value)
+        plain.Add((low, high, value))
+    End If
+
+    If tree.Count != plain.Count Then wrong += 1
+    If round % 50 == 0
+        Local ordered = Ordered(plain)
+        If tree.ToArray() != ordered Then wrong += 1
+        For i = 1 To 20
+            Local from = Next(120) - 10
+            Local to = from + Next(20) - 3
+            // A high below low overlaps nothing.
+            Local overlapping = ordered.Filter(Function(e: (Int, Int, Int)): Bool
+                Return e.0 <= to && e.1 >= from && from <= to
+            End Function)
+            If tree.Overlapping(from, to) != overlapping Then wrong += 1
+            Local holding = ordered.Filter(Function(e: (Int, Int, Int)) => e.0 <= from &&
+                                                                         e.1 >= from)
+            If tree.Containing(from) != holding Then wrong += 1
+        End For
+    End If
+End For
+Print(wrong)
+
+// The basics, and the empty cases.
+Local shifts = IntervalTree<Int, String>()
+Print(shifts, shifts.Count, shifts.Overlapping(0, 10), shifts.Containing(5),
+      shifts.Remove(1, 2, "x"))
+shifts.Add(9, 17, "ann")
+shifts.Add(6, 14, "bo")
+shifts.Add(14, 22, "cy")
+shifts.Add(9, 17, "dee")
+shifts.Add(0, 0, "eve")
+Print(shifts, shifts.Count)
+Print(shifts.Containing(14), shifts.Overlapping(18, 30), shifts.Overlapping(1, 5),
+      shifts.Overlapping(5, 1))
+For entry In shifts
+    Print(entry)
+End For
+
+Print(shifts.Remove(9, 17, "ann"), shifts.Remove(9, 17, "ann"), shifts.Containing(10))
+Local copy = shifts.Clone()
+copy.Add(3, 4, "fay")
+Print(copy.Count, shifts.Count, copy.Containing(3), shifts.Containing(3))
+shifts.Clear()
+Print(shifts, shifts.Count, IntervalTree<Int, String>.DefaultValue().Count)
+
+// Intervals of Strings work as well as numbers.
+Local words = IntervalTree<String, Int>()
+words.Add("apple", "banana", 1)
+words.Add("cherry", "date", 2)
+Print(words.Containing("avocado"), words.Overlapping("b", "c"))

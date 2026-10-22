@@ -1,0 +1,2 @@
+0
+panic: a SpatialHash's cells are a finite size above 0, not 0 at panic_spatial_size.fb:6:14
