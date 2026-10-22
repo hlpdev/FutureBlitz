@@ -84,3 +84,20 @@ Print(empty, empty.Count)
 Local copy = counts.Clone()
 copy.Remove("a")
 Print(copy, copy["q"], counts)
+
+// The rest on an empty Map, and a default of 4.
+Local fresh = Map<String, Int>()
+Print(fresh.TryAdd("a", 1), fresh.GetOrAdd("b", Function() => 2),
+      fresh.Update("c", Function(v: Int) => v), fresh, Map<String, Int>(default: 4)["a"])
+
+// What make gives is the key's value, though make added the key itself, and a key that change
+// removed stays removed.
+Local busy = {"x": 1}
+Print(busy.GetOrAdd("k", Function(): Int
+    busy.Add("k", 9)
+    Return 5
+End Function), busy)
+Print(busy.Update("x", Function(v: Int): Int
+    busy.Remove("x")
+    Return v * 10
+End Function), busy)

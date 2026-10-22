@@ -19,8 +19,8 @@ Public Class Map<K, V> Implements Iterable<(K, V)>, Cloneable, Defaultable
     Where K: Hashable
 
     Field Entries: MapEntry<K, V>[] = []
-    // The first entry in each bucket, or -1. There are none until the first Add, then always a
-    // power of two, whose bits a mixed hash's top Shift bits leave.
+    // The first entry in each bucket, or -1. There are none until the first Add or Reserve, then
+    // always a power of two, whose bits a mixed hash's top Shift bits leave.
     Field Buckets: Int[] = []
     Field Shift: Int
     // The first and last entries in the order they were added, or -1.
@@ -34,7 +34,9 @@ Public Class Map<K, V> Implements Iterable<(K, V)>, Cloneable, Defaultable
     Public New()
     End New
 
-    // A Map whose [] gives value for a key that isn't there, without adding the key.
+    // A Map whose [] gives value for a key that isn't there, without adding the key. It's one
+    // value, which every such read gives: a default that's an object or an array is shared, so
+    // to give each key one of its own, use GetOrAdd.
     Public New(default: V)
         Fallback = default
     End New
@@ -84,7 +86,8 @@ Public Class Map<K, V> Implements Iterable<(K, V)>, Cloneable, Defaultable
         Return Entries[found].Value
     End Method
 
-    // The key's value, adding what make gives for it first when it isn't there.
+    // The key's value, adding what make gives for it first when it isn't there, which is the
+    // key's value though make added the key itself.
     Public Method GetOrAdd(key: K, make: Func(): V): V
         Local hash = key.Hash()
         Local found = IndexOf(key, hash)
@@ -101,19 +104,17 @@ Public Class Map<K, V> Implements Iterable<(K, V)>, Cloneable, Defaultable
         Return value
     End Method
 
-    // Gives the key's value what change gives for it, and tells whether the key was there.
+    // Gives the key's value what change gives for it, and tells whether the key was there. A key
+    // that change removed stays removed.
     Public Method Update(key: K, change: Func(V): V): Bool
-        Local found = IndexOf(key, key.Hash())
+        Local hash = key.Hash()
+        Local found = IndexOf(key, hash)
         If found < 0 Then Return False
         Local changes = Changes
         Local value = change(Entries[found].Value)
         // What change did may have moved the entry, or removed it.
-        If Changes == changes
-            Entries[found].Value = value
-        Else
-            Add(key, value)
-        End If
-
+        If Changes != changes Then found = IndexOf(key, hash)
+        If found >= 0 Then Entries[found].Value = value
         Return True
     End Method
 

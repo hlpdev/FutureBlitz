@@ -16,3 +16,6 @@ lime True False
 [] [] 5 0 True False {} False
 {} 0
 {b: 2, c: 1, z: 9} 0 {a: 3, b: 2, c: 1, z: 9}
+True 2 False {a: 1, b: 2} 4
+5 {x: 1, k: 5}
+True {k: 5}
