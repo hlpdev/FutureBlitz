@@ -170,6 +170,7 @@ End Interface
 
 Interface Numeric
     Static Method Zero(): Self
+    Static Method One(): Self
     Operator +(a: Self, b: Self): Self                // and -, *, and /
 End Interface
 ```

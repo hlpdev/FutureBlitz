@@ -79,7 +79,8 @@ i++
 | 13 | `&&` |
 | 14 | `\|\|` |
 | 15 | `??` |
-| 16 | `? :` (right-associative) |
+| 16 | `To` `Until`, with `Step`: a range (see [04-control-flow.md](04-control-flow.md#ranges)) |
+| 17 | `? :` (right-associative) |
 
 Note: bitwise operators bind tighter than comparisons (unlike C), so `x & MASK == 0`
 means `(x & MASK) == 0`.

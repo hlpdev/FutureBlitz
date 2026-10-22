@@ -249,6 +249,9 @@ adds what it leaves out. Checked against all of docs/spec/ on 2026-10-17.
 | The math types, `Vec2` through `Color` | | M6 step 9 |
 | A fix-it for a miscased keyword, like `if` for `If`, and `///` doc comments | M1 | M7 |
 | Stack traces for panics, which need debug info | M1 | open question |
+| A Float range, like `0.0 To 1.0 Step 0.1`, which a For loop counts but a range doesn't | M6 step 2 | open question |
+| An array as an `Iterable<T>` value, which needs a table for each array type | M6 step 2 | M6 step 3 |
+| A `For i In 0 Until n` that counts without making a Range, as a For loop does | M6 step 2 | M6 step 32 |
 
 ## Process
 

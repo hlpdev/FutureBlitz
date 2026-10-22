@@ -157,7 +157,7 @@ Ordinary identifiers everywhere except in one position, where they act as keywor
 | Word | Keyword only |
 |---|---|
 | `Get`, `Set` | at the start of a line inside `Property ... End Property` |
-| `Step` | after the bound in a `For` header |
+| `Step` | after the bound in a `For` header, or a range's end |
 | `Lib` | directly after `Extern "<convention>"` |
 | `From` | at the start of an import line (`From std.math Import Vec3`) |
 | `Weak` | inside a capture list (`[Weak Self]`); elsewhere it names the type `Weak<T>` |

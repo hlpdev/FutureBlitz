@@ -44,7 +44,8 @@ So far, std/ holds:
 | std/core/error.fb | `Error`, the Class every error extends, with its `Cause` and `Place`; `Place`; and each area's Error and its Kind: `ArgumentError`, `IOError`, `ParseError`, `FormatError`, `TimeoutError`, `NetError`, `DatabaseError` |
 | std/core/assert.fb | `AssertEqual`, an Assert that says what it compared |
 | std/core/interfaces.fb | `Equatable`, `Comparable`, `Hashable`, `Printable`, and `Numeric`, which `==`, `<`, strings, and generic code go through, and `Sendable`, which the compiler decides |
-| std/core/iterator.fb | `Iterator<T>`, which `For ... In` goes over |
+| std/core/iterator.fb | `Iterator<T>`, which `For ... In` goes over, with its lazy adapters and its consumers as Final defaults; `Iterable<T>`, which std's collections are; `Repeated` and `Empty` |
+| std/core/range.fb | `Range<T>`, which `0 Until 10`, `1 To 10`, and `Step` make |
 | std/core/print.fb | `Print`, `Write`, `PrintError`, `WriteError`, `Flush`, `Input`, and `InputAsync`, over the runtime's `fb_write` and its I/O thread |
 | std/collections/array.fb | `Remove`, `Sort`, `Filter`, `Map`, and `Find` on `T[]` |
 | std/collections/map.fb | `Map<K, V>`, which `{key: value}` makes |

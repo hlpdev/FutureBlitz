@@ -79,6 +79,43 @@ For n In Countdown(3) ... End For          // 3, 2, 1
 - Over an Iterator, two names take each element apart, so the elements must be pairs: `For key,
   val In scores`. Only arrays give an index.
 - Next can't give Null as an element: an `Iterator<String?>` ends at its first Null.
+- An `Iterable<T>` (std/core/iterator.fb) is what has an `Iterate(): Iterator<T>`, for code that
+  takes any collection: std's collections are. A collection's own Iterate gives a Struct of its
+  own, which an `Iterable<T>`'s value, or generic code, gets in a box, an `Iterator<T>` object;
+  a For loop over the collection itself makes no box.
+- An Iterator's adapters are lazy, each giving an `Iterator<T>` that asks the one before it for a
+  value only when it's asked for one: `Map`, `Filter`, `Take`, `Skip`, `TakeWhile`,
+  `SkipWhile`, `Enumerate`, `Zip`, `Chain`, `Flatten`, `StepBy`, `Chunks`, `Windows`, `OrderBy`,
+  and `OrderByDescending`. Its consumers go over the values once: `ToArray`, `Count`, `Any`,
+  `All`, `Find`, `First`, `Last`, `Fold`, `Reduce`, `ForEach`, `Sum` and `Product` where T is
+  Numeric, `Min` and `Max` where it's Comparable, `MinBy`, and `MaxBy`. `Repeated(value, count)`
+  and `Empty<T>()` give values of their own. They're Final defaults, so what a type has, and a
+  call through an `Iterator<T>` value runs them as written (see
+  [06-user-types.md](06-user-types.md)). On a Struct, each goes over a copy of it, so the Struct
+  doesn't move, while a Class's object is used up, as a For loop over it is.
+
+### Ranges
+
+```vb
+For i In 1 To 3 ... End For                // 1, 2, 3
+Local evens = 0 Until 10 Step 2            // 0, 2, 4, 6, 8
+Print(evens.Sum(), (1 To 5).Product())
+```
+
+- `a To b` and `a Until b`, with `Step s` or without, are values of std.core's `Range<T>`, a
+  Struct that implements `Iterator<T>` and gives what `For i = a To b Step s` counts. T is the
+  start's type, or the end's when the start is a literal, as a For loop's is, or the T of the
+  `Range<T>` expected. A range counts with integers: a Float range is an error, though a For
+  loop counts Floats.
+- The start, end, and step are evaluated once, in that order, when the range is made. A Step of
+  0 is an error when it's known, and a panic when the program runs otherwise.
+- `To` and `Until` bind looser than every binary operator but `? :`, so each end is a whole
+  expression: `0 Until n - 1`, `1 To count ?? 0`. A Method of the range needs parentheses:
+  `(1 To 5).Sum()`. In a For loop's bounds and a Case's values, To and Until are their own, as
+  they always were. A slice is still `a[from..to]`.
+- Ranges with the same values are `==`, and every empty range is a Range's zero, so they're all
+  `==`. A range is a value, copied like any Struct, so a loop over a stored range goes over a
+  copy of it.
 
 `Parallel For` is covered in [10-concurrency.md](10-concurrency.md).
 
