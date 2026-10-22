@@ -107,7 +107,7 @@ and is_virtual()); a type's own Method can't take their place (implementation_of
 can't override the copy (check_inherited()), and a required generic Method makes an Interface only
 a constraint; type_arguments_follow() takes Self. Iterable<T>: boxes_into() lets a Method giving a
 Struct or Class that implements Iterator<T> implement one giving Iterator<T>; a table gets a thunk
-("X.Iterate() as Iterator<T>", boxing_thunk(), lower_boxing()) and generic code boxes at the call
+("X.Iterate() as Iterator<T>", table_thunk(), lower_table_thunk()) and generic code boxes at the call
 (boxed(), std's Package `Boxed<S, T>`, `analysis_t::boxed_iterator`); std's collections implement
 it. std/core/iterator.fb has Iterator<T>'s Final adapters and consumers over private Final
 Classes (Mapped, Filtered, Taken, ... Ordered over the Package MergeSort, moved from array.fb),
@@ -118,6 +118,27 @@ values as they were), sema's check_expr(range_expr_t) (`m_range`, T by the For l
 integers only), and lowering's lower_expr(range_expr_t), which fills std/core/range.fb's
 Range<T> (Current, Step, Left, More), its count of steps worked out unsigned with wrapping
 arithmetic, a run-time direction picked by a branch, and an empty range its zero.
+Its review's fixes: a table thunk (`table_thunk_t`) passes ByRef parameters on, gives a Method an
+error variable where it takes one and the Interface's member doesn't ("X without an error
+variable") or passes its own where the member throws, which a covariant Iterate may now; an
+overridden Method takes an error variable where an override does, and a static call decides by
+the callee; a @PanicsAtCaller call inside another passes that one's caller's place as it is,
+null too (codegen), and std's consumers and every box's and adapter's Next are @PanicsAtCaller;
+check_implementation() compares bounds through as_implemented(); implementation_of() decides a
+default the type can't have before its place checks, and takes_instance_of() refuses a Method
+taking a generic default's parameters with some types for its own, there and in check_inherited()
+(report_outside_override()); check_refinements() refuses an Interface redeclaring an
+outside-table default, and check_instance_defaults() an Extend of one instance doing it;
+check_expansion() follows each default's Interface parameters apart (`expansion_node_t`,
+runs_as_default()), calls of a type's copy (runs_copy()), and the defaults a Class's tables run
+when it's made, so a default wrapping Self without end is an error, not a hang
+(check_table_defaults() went); implemented_bounds() keeps a bound on a type made of the type's
+parameters, like Wrap<T>, which argument_for() and mentions() check per instance; set_field_type()
+reaches Classes extending an instance; outer_functions() lets a call by name in a type's code mean
+a top-level Function where none of its Interfaces' defaults of the name fits; report_uninferred()
+names only what told_arguments() can't tell, or a bound's failure; the parser's begin_of()
+(`m_grouped`) starts an expression made with a parenthesized one at its parenthesis; Step takes a
+whole expression; Range has an Operator ==; a Const Function's For ... In is refused at Next.
 
 Done: M5 (modules, packages, `project.toml`, FFI, bindgen), planned 2026-10-18 and finished
 2026-10-20, in 11 steps, then a review of each project (compiler, runtime, cli, std).
