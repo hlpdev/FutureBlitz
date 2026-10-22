@@ -156,6 +156,24 @@ lowers a member without a symbol, like `s.Bytes[0]`, as a value; the parser's be
 binary, ternary, and tuple-element spans too; Range's == is in a conditional Extend, and Range<T>
 is only Where T: Numeric; report_uninferred() writes every type argument in its advice and says
 nothing more after a count error.
+Its third and fourth reviews': implements_for_some() makes a Where line on a default's own type
+parameters hold when some types for them make it, for bounds_hold(), instance_has(), never_has(),
+and implemented_bounds() (a type that implements no instance of the bound's Interface, like an
+Iterator<Int32> for Flatten, gets no copy, and missing_default_hint() says why at "has no member
+named"); told_type() counts a parameter told as itself as told; report_uninferred() reads a bound
+on a type made of the parameters, and report_bounds() leaves out "for" on a copy's bound;
+check_default_places() compares a type's own copies with the outside defaults its bases (through
+never_has()) and its generic type have, and runs over Extends of one instance; check_changeable()
+refuses changing an array's Count, alone in an Extend of T[] too, or a String's Chars or Bytes
+(report_worked_out()), by assignment, op=, ByRef, or AddressOf, so an Extend's Property on arrays
+can be set; a Map literal's Adds get an error variable; the type table refuses an instance whose
+argument is made of more than max_size types (measure()) and fills one the depth limit cut short
+again where it's asked for itself (`m_incomplete`), value_expression() can't overflow, and a fixed
+array keeps a size past max_count unresolved; lowering stops growth along a chain of instances
+made one from another (`origin_t`, chain_length() past max_chain), at a type past grown()'s depth
+or size, or a Method whose owner's instance lost its arguments, and check_arguments() and
+check_values() report a Const type argument an instance worked out outside 1 to max_count or its
+parameter's type (fits()); a String's Extend Property reads as a Property; unify() is const.
 
 Done: M5 (modules, packages, `project.toml`, FFI, bindgen), planned 2026-10-18 and finished
 2026-10-20, in 11 steps, then a review of each project (compiler, runtime, cli, std).
