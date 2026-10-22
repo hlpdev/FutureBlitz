@@ -2571,4 +2571,44 @@ TEST_CASE("lowering stops where code needs a larger instance each time, which an
                   std::string(holder) + "Local p = Leaf().Probe(Leaf())") ==
           "other Is Holder<Self>: Holder<S> needs a larger instance each time it runs here, "
           "without end");
+
+    // One that doubles each time stops before its names grow long, and one that grows by a
+    // Const type parameter, which never nests, once it has made more instances than a program
+    // needs.
+    constexpr std::string_view pair = "Class Pair<A: Shown, B: Shown> Implements Shown\n"
+                                      "    Method Show(): Int => 1\n"
+                                      "End Class\n"
+                                      "Class Leaf Implements Shown\n"
+                                      "    Method Show(): Int => 0\n"
+                                      "End Class\n";
+    CHECK(stopped(std::string("Interface Shown\n"
+                              "    Method Show(): Int\n"
+                              "    Static Method Depth(n: Int): Int\n"
+                              "        If n == 0 Then Return 0\n"
+                              "        Return Pair<Self, Self>.Depth(n - 1) + 1\n"
+                              "    End Method\n"
+                              "End Interface\n") +
+                  std::string(pair) + "Local d = Leaf.Depth(3)") ==
+          "Pair<Self, Self>.Depth(n - 1): 'Depth' needs a larger instance each time it runs here, "
+          "without end");
+    CHECK(stopped(std::string("Interface Shown\n"
+                              "    Method Show(): Int\n"
+                              "    Method Probe(other: Shown): Bool => other Is Pair<Self, Self>\n"
+                              "End Interface\n") +
+                  std::string(pair) + "Local p = Leaf().Probe(Leaf())") ==
+          "other Is Pair<Self, Self>: Pair<A, B> needs a larger instance each time it runs here, "
+          "without end");
+    CHECK(stopped("Interface Stepper<Const N: Int>\n"
+                  "    Method Show(): Int\n"
+                  "    Static Method Depth(n: Int): Int\n"
+                  "        If n == 0 Then Return 0\n"
+                  "        Return Step<N + 1>.Depth(n - 1) + 1\n"
+                  "    End Method\n"
+                  "End Interface\n"
+                  "Class Step<Const M: Int> Implements Stepper<M>\n"
+                  "    Method Show(): Int => M\n"
+                  "End Class\n"
+                  "Local d = Step<1>.Depth(3)") ==
+          "Step<N + 1>.Depth(n - 1): 'Depth' needs a larger instance each time it runs here, "
+          "without end");
 }

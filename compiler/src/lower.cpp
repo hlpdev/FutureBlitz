@@ -355,6 +355,12 @@ private:
     /// The instances the program uses, each lowered once, in the order they were used.
     std::map<instance_t, function_id_t> m_instances;
     std::vector<instance_t> m_pending_instances;
+    /// How many instances each generic function, and each generic Class, has, which one that
+    /// grows without end runs up.
+    std::unordered_map<symbol_id_t, std::size_t> m_instance_counts;
+    std::unordered_map<type_id_t, std::size_t> m_class_counts;
+    /// Each type's depth and size, as grown() measures them, once it has.
+    mutable std::unordered_map<type_id_t, std::pair<std::size_t, std::size_t>> m_measures;
     /// While lowering an instance of generic code: its type parameters, and the type argument
     /// that each one stands for.
     std::vector<type_id_t> m_parameters;
@@ -729,8 +735,10 @@ private:
         }
 
         const symbol_t& symbol = m_analysis.symbol(id);
-        const bool grown = std::ranges::any_of(
-            arguments, [&](const type_id_t argument) { return too_deep(argument); });
+        const bool grown =
+            ++m_instance_counts[id] > max_instances ||
+            std::ranges::any_of(arguments,
+                                [&](const type_id_t argument) { return this->grown(argument); });
         if (grown) {
             stop_growing(std::format("'{}'", symbol.name), symbol.span);
         }
@@ -755,24 +763,51 @@ private:
         return function;
     }
 
-    /// Whether a type nests deeper than any program needs, as one that grows without end does:
-    /// analysis says where that happens, and this only stops lowering where it didn't.
-    [[nodiscard]] bool too_deep(const type_id_t type, const std::size_t depth = 0) const {
+    /// More instances of one generic function or Class than any program needs, as code that makes
+    /// a new one each time, like Step<N + 1>, does.
+    static constexpr std::size_t max_instances = 2000;
+
+    /// Whether a type nests deeper, or is made of more types, than any program needs, as one that
+    /// grows without end does, a step at a time or doubling: analysis says where that happens,
+    /// and this only stops lowering where it didn't.
+    [[nodiscard]] bool grown(const type_id_t type) const {
         static constexpr std::size_t max_depth = 48;
-        if (depth > max_depth) {
-            return true;
+        static constexpr std::size_t max_size = 4096;
+        const auto [depth, size] = measure(type);
+        return depth > max_depth || size > max_size;
+    }
+
+    /// How deep a type nests, and how many types it's made of, itself included, each counted no
+    /// higher than a little past grown()'s limits.
+    [[nodiscard]] std::pair<std::size_t, std::size_t> measure(const type_id_t type) const {
+        static constexpr std::size_t ceiling = 5000;
+        if (const auto found = m_measures.find(type); found != m_measures.end()) {
+            return found->second;
         }
 
         const type_t& info = types().get(type);
-        const auto deeper = [&](const type_id_t part) {
-            return part != type_id_t::INVALID && too_deep(part, depth + 1);
+        std::size_t depth = 0;
+        std::size_t size = 1;
+        const auto add = [&](const type_id_t part) {
+            if (part != type_id_t::INVALID) {
+                const auto [part_depth, part_size] = measure(part);
+                depth = std::min(ceiling, std::max(depth, part_depth + 1));
+                size = std::min(ceiling, size + part_size);
+            }
         };
-        return std::ranges::any_of(info.arguments, deeper) || deeper(info.inner) ||
-               std::ranges::any_of(info.fields,
-                                   [&](const field_t& field) {
-                                       return info.kind == type_kind_t::TUPLE && deeper(field.type);
-                                   }) ||
-               (info.kind == type_kind_t::FUNCTION && std::ranges::any_of(info.parameters, deeper));
+        std::ranges::for_each(info.arguments, add);
+        add(info.inner);
+        if (info.kind == type_kind_t::TUPLE) {
+            for (const field_t& field : info.fields) {
+                add(field.type);
+            }
+        }
+
+        if (info.kind == type_kind_t::FUNCTION) {
+            std::ranges::for_each(info.parameters, add);
+        }
+
+        return m_measures[type] = { depth, size };
     }
 
     /// Records, once, that code needs a larger instance each time, where it's lowered.
@@ -938,7 +973,8 @@ private:
             return;
         }
 
-        if (too_deep(type)) {
+        if (grown(type) || (definition_of(type) != type &&
+                            ++m_class_counts[definition_of(type)] > max_instances)) {
             stop_growing(types().name(definition_of(type)), {});
             return;
         }
