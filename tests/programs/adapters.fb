@@ -66,3 +66,18 @@ Local stacks = Stack<Stack<Int>>()
 stacks.Push(stack)
 stacks.Push(stack)
 Print(stacks.Iterate().Flatten<Int>().Take(12).ToArray())
+
+// Over values that can be Null, Next gives a T??, whose Null ends it while a Null value is one
+// of the values, and what gives one of them gives a T?? too.
+Local maybe = Queue<String?>()
+maybe.Enqueue(Null)
+maybe.Enqueue("b")
+maybe.Enqueue(Null)
+Local looped = 0
+For item In maybe
+    looped += 1
+End For
+
+Local first = maybe.Iterate().First()
+Local found = maybe.Iterate().Find(Function(s: String?) => s == "b")
+Print(looped, maybe.Iterate().Count(), (first ?? "none") ?? "null", (found ?? "none") ?? "null")

@@ -78,7 +78,9 @@ For n In Countdown(3) ... End For          // 3, 2, 1
   which lets its errors go on like Try on a call.
 - Over an Iterator, two names take each element apart, so the elements must be pairs: `For key,
   val In scores`. Only arrays give an index.
-- Next can't give Null as an element: an `Iterator<String?>` ends at its first Null.
+- Over values that can be Null, like an `Iterator<String?>`'s, Next gives a `String??`: its
+  Null ends the loop, and a Null value is one of the values, which the loop goes over. What
+  gives one of them, like First, Last, Find, and Reduce, gives a `String??` too.
 - An `Iterable<T>` (std/core/iterator.fb) is what has an `Iterate(): Iterator<T>`, for code that
   takes any collection: std's collections are. A collection's own Iterate gives a Struct of its
   own, which an `Iterable<T>`'s value, or generic code, gets in a box, an `Iterator<T>` object;
