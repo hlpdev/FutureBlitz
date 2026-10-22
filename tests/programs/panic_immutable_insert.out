@@ -1,0 +1,2 @@
+[1, 2, 3]
+panic: Insert takes an index from 0 to 2, not 4 at panic_immutable_insert.fb:7:14

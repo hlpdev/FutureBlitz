@@ -1,0 +1,162 @@
+// ImmutableArray, ImmutableMap, and ImmutableSet match an array, a Map, and a Set through many
+// random changes, each giving a new collection while the old ones stay as they were, and they go
+// to other threads.
+Import std.core
+Import std.collections
+
+// The same numbers each run, from a linear congruential generator.
+Global seed: UInt64 = 12345
+
+Function Next(limit: Int): Int
+    seed = seed.WrappingMultiply(6364136223846793005).WrappingAdd(1442695040888963407)
+    Return ((seed >> 33) % (limit As UInt64)) As Int
+End Function
+
+// A key whose hash is one of a few, so many keys share one.
+Struct Crowded Implements Hashable
+    Field N: Int
+
+    Method Hash(): UInt64 => (N % 3) As UInt64
+End Struct
+
+Local array = ImmutableArray<Int>()
+Local plain: Int[] = []
+Local oldArrays: ImmutableArray<Int>[] = []
+Local oldPlains: Int[][] = []
+Local wrong = 0
+For round = 1 To 3000
+    Local op = Next(5)
+    If op <= 1 || plain.Count == 0
+        Local at = Next(plain.Count + 1)
+        array = array.Insert(at, round)
+        plain.Insert(at, round)
+    ElseIf op == 2
+        Local at = Next(plain.Count)
+        array = array.RemoveAt(at)
+        plain.RemoveAt(at)
+    ElseIf op == 3
+        Local at = Next(plain.Count)
+        array = array.Set(at, -round)
+        plain[at] = -round
+    Else
+        array = array.Add(round)
+        plain.Add(round)
+    End If
+
+    If array.Count != plain.Count || array.ToArray() != plain Then wrong += 1
+    If round % 100 == 0
+        oldArrays.Add(array)
+        oldPlains.Add(plain.Clone())
+        For i, value In plain
+            If array[i] != value Then wrong += 1
+        End For
+    End If
+End For
+
+// The old ones are as they were.
+For i, old In oldArrays
+    If old.ToArray() != oldPlains[i] || (old == array) != (oldPlains[i] == plain) Then wrong += 1
+End For
+Print(wrong, ImmutableArray<Int>.From(plain) == array)
+
+Local map = ImmutableMap<Crowded, Int>()
+Local plainMap = Map<Crowded, Int>()
+Local oldMaps: ImmutableMap<Crowded, Int>[] = []
+Local oldPlainMaps: Map<Crowded, Int>[] = []
+For round = 1 To 3000
+    Local key = Crowded(Next(60))
+    If Next(3) == 0
+        Local removed = map.Remove(key)
+        If (removed.Count < map.Count) != plainMap.Remove(key) Then wrong += 1
+        map = removed
+    Else
+        map = map.Add(key, round)
+        plainMap.Add(key, round)
+    End If
+
+    If map.Count != plainMap.Count || map.Contains(key) != plainMap.Contains(key) Then wrong += 1
+    If (map.Get(key) ?? -1) != plainMap.Get(key, -1) || map.Get(key, -2) != plainMap.Get(key, -2)
+        wrong += 1
+    End If
+
+    If round % 100 == 0
+        oldMaps.Add(map)
+        oldPlainMaps.Add(plainMap.Clone())
+        If map.ToMap() != plainMap Then wrong += 1
+        For k, v In plainMap
+            If map[k] != v Then wrong += 1
+        End For
+    End If
+End For
+
+For i, old In oldMaps
+    If old.ToMap() != oldPlainMaps[i] || old.Count != oldPlainMaps[i].Count Then wrong += 1
+End For
+Print(wrong, ImmutableMap<Crowded, Int>.From(plainMap) == map,
+      map.Keys().Count == map.Values().Count)
+
+Local set = ImmutableSet<Int>()
+Local plainSet = Set<Int>()
+For round = 1 To 3000
+    Local value = Next(100)
+    If Next(3) == 0
+        set = set.Remove(value)
+        plainSet.Remove(value)
+    Else
+        set = set.Add(value)
+        plainSet.Add(value)
+    End If
+
+    If set.Count != plainSet.Count || set.Contains(value) != plainSet.Contains(value)
+        wrong += 1
+    End If
+    If round % 100 == 0
+        Local values = Set<Int>()
+        values.AddAll(set.ToArray())
+        If values != plainSet Then wrong += 1
+    End If
+End For
+Print(wrong, ImmutableSet<Int>.From(plainSet.ToArray()) == set)
+
+// Another thread reads one while this one makes others from it.
+Function Total(values: ImmutableMap<String, Int>): Int
+    Local task = Spawn(Function(): Int
+        Local total = 0
+        For key, value In values
+            total += value
+        End For
+        Return total
+    End Function)
+    Return task.Wait()
+End Function
+
+Local scores = ImmutableMap<String, Int>.From({"ann": 3, "bo": 4})
+Local more = scores.Add("cy", 5)
+Print(Total(scores), Total(more), Total(more.Remove("ann")), scores.Count)
+
+// The basics, and the empty cases.
+Local empty = ImmutableArray<String>.DefaultValue()
+Print(empty, empty.Count, empty.Contains("a"), empty.Add("a"), empty == ImmutableArray<String>())
+Local letters = ImmutableArray<String>.From(["a", "b", "c"])
+Print(letters, letters[1], letters.Set(1, "B"), letters.Insert(3, "d"), letters.RemoveAt(0),
+      letters)
+Print(letters.AddAll(["x", "y"]), letters.Contains("c"), letters.Insert(0, "z").Insert(2, "w"))
+For letter In letters
+    Print(letter)
+End For
+
+Local ages = ImmutableMap<String, Int>.DefaultValue()
+Print(ages, ages.Count, ages.Get("a") ?? -1, ages.Contains("a"), ages.Remove("a").Count,
+      ages.Keys())
+ages = ages.Add("ann", 30).Add("bo", 25)
+Print(ages.Count, ages["ann"], ages.Add("ann", 31)["ann"], ages["ann"], ages.Get("cy", 0))
+Print(ages == ImmutableMap<String, Int>.From({"bo": 25, "ann": 30}), ages == ages.Add("ann", 1))
+Print(ages.ToMap() == {"ann": 30, "bo": 25}, ImmutableMap<Int, Int>.From({1: 2}))
+
+Local colors = ImmutableSet<String>.From(["red", "red"])
+Print(colors, colors.Count, colors.Add("blue").Count, colors.Remove("red").Count,
+      colors.Remove("x") == colors)
+Print(colors.Contains("red"), colors.ToArray(), ImmutableSet<String>.DefaultValue().Count)
+For color In colors.Add("green")
+    Print(color.Bytes.Count)
+End For

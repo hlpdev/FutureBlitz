@@ -1,0 +1,707 @@
+// ImmutableArray<T>, ImmutableMap<K, V>, and ImmutableSet<T>: collections that never change, so
+// any thread can read one. A change gives a new collection, which shares all of the old one's
+// nodes but the ones on the way down to what changed, in a balanced tree, about log(Count) of
+// them. Their values are Sendable, as the collections are.
+
+Import std.core
+Import std.collections.array
+Import std.collections.map
+
+// A node of an ImmutableArray's tree: its values are its left child's, then Value, then its right
+// child's.
+Shared Class ArrayNode<T>
+    Where T: Sendable
+
+    ReadOnly Field Value: T
+    ReadOnly Field Left: ArrayNode<T>?
+    ReadOnly Field Right: ArrayNode<T>?
+    ReadOnly Field Height: Int
+    ReadOnly Field Size: Int
+
+    New(value: T, left: ArrayNode<T>?, right: ArrayNode<T>?)
+        Value = value
+        Left = left
+        Right = right
+        Height = Max(left?.Height ?? 0, right?.Height ?? 0) + 1
+        Size = (left?.Size ?? 0) + (right?.Size ?? 0) + 1
+    End New
+End Class
+
+Public Struct ImmutableArray<T> Implements Iterable<T>, Defaultable, Sendable
+    Where T: Sendable
+
+    Field Root: ArrayNode<T>?
+
+    // An empty one.
+    Public New()
+    End New
+
+    // One with the values, in order, all read first.
+    Public Static Method From(values: Iterable<T>): ImmutableArray<T>
+        Local all = values.Iterate().ToArray()
+        Return Of(Built(all, 0, all.Count))
+    End Method
+
+    Public Property Count: Int
+        Get => Root?.Size ?? 0
+    End Property
+
+    @PanicsAtCaller
+    Operator [](index: Int): T
+        Check(index, Count)
+        Local node = Root.Expect("an ImmutableArray with values has a root")
+        Local at = index
+        Loop
+            Local before = node.Left?.Size ?? 0
+            If at == before Then Return node.Value
+            If at < before
+                node = node.Left.Expect("an ImmutableArray's node has the values before it")
+            Else
+                at -= before + 1
+                node = node.Right.Expect("an ImmutableArray's node has the values after it")
+            End If
+        End Loop
+    End Operator
+
+    // A copy with value at index in place of what's there.
+    @PanicsAtCaller
+    Public Method Set(index: Int, value: T): ImmutableArray<T>
+        Check(index, Count)
+        Return Of(Changed(Root.Expect("an ImmutableArray with values has a root"), index, value))
+    End Method
+
+    // A copy with value added at the end.
+    Public Method Add(value: T): ImmutableArray<T> => Of(Inserted(Root, Count, value))
+
+    // A copy with each of the values added at the end, in order, all read first.
+    Public Method AddAll(values: Iterable<T>): ImmutableArray<T>
+        Local added = Self
+        For value In values.Iterate().ToArray()
+            added = added.Add(value)
+        End For
+        Return added
+    End Method
+
+    // A copy with value at index, moving what's there and after it along, where index is from 0
+    // to Count.
+    @PanicsAtCaller
+    Public Method Insert(index: Int, value: T): ImmutableArray<T>
+        If index < 0 || index > Count
+            Panic("Insert takes an index from 0 to {Count}, not {index}")
+        End If
+
+        Return Of(Inserted(Root, index, value))
+    End Method
+
+    // A copy without the value at index.
+    @PanicsAtCaller
+    Public Method RemoveAt(index: Int): ImmutableArray<T>
+        Check(index, Count)
+        Return Of(Removed(Root.Expect("an ImmutableArray with values has a root"), index))
+    End Method
+
+    Public Method Contains(value: T): Bool
+        Where T: Equatable
+        For held In Self
+            If held == value Then Return True
+        End For
+        Return False
+    End Method
+
+    // The values, in order, in a new array.
+    Public Method ToArray(): T[]
+        Local values: T[] = []
+        values.Reserve(Count)
+        For value In Self
+            values.Add(value)
+        End For
+        Return values
+    End Method
+
+    // An empty one.
+    Public Static Method DefaultValue(): ImmutableArray<T> => ImmutableArray<T>()
+
+    // The values, in order.
+    Public Method Iterate(): ImmutableArrayIterator<T>
+        Local iterator = ImmutableArrayIterator<T>([])
+        iterator.Descend(Root)
+        Return iterator
+    End Method
+
+    Static Method Of(root: ArrayNode<T>?): ImmutableArray<T>
+        Local made = ImmutableArray<T>()
+        made.Root = root
+        Return made
+    End Method
+
+    @PanicsAtCaller
+    Static Method Check(index: Int, count: Int)
+        If index < 0 || index >= count
+            Panic("index {index} is out of range for {count} value{count == 1 ? "" : "s"}")
+        End If
+    End Method
+
+    // A balanced tree of the values from start up to finish.
+    Static Method Built(values: T[], start: Int, finish: Int): ArrayNode<T>?
+        If start >= finish Then Return Null
+        Local middle = start + (finish - start) / 2
+        Return ArrayNode<T>(values[middle], Built(values, start, middle),
+                            Built(values, middle + 1, finish))
+    End Method
+
+    Static Method Changed(node: ArrayNode<T>, index: Int, value: T): ArrayNode<T>
+        Local before = node.Left?.Size ?? 0
+        If index == before Then Return ArrayNode<T>(value, node.Left, node.Right)
+        If index < before
+            Local left = node.Left.Expect("an ImmutableArray's node has the values before it")
+            Return ArrayNode<T>(node.Value, Changed(left, index, value), node.Right)
+        End If
+
+        Local right = node.Right.Expect("an ImmutableArray's node has the values after it")
+        Return ArrayNode<T>(node.Value, node.Left, Changed(right, index - before - 1, value))
+    End Method
+
+    Static Method Inserted(node: ArrayNode<T>?, index: Int, value: T): ArrayNode<T>
+        If node == Null Then Return ArrayNode<T>(value, Null, Null)
+        Local before = node.Left?.Size ?? 0
+        If index <= before
+            Return Balanced(node.Value, Inserted(node.Left, index, value), node.Right)
+        End If
+
+        Return Balanced(node.Value, node.Left, Inserted(node.Right, index - before - 1, value))
+    End Method
+
+    Static Method Removed(node: ArrayNode<T>, index: Int): ArrayNode<T>?
+        Local before = node.Left?.Size ?? 0
+        If index < before
+            Local left = node.Left.Expect("an ImmutableArray's node has the values before it")
+            Return Balanced(node.Value, Removed(left, index), node.Right)
+        End If
+
+        Local right = node.Right
+        If index > before
+            Local after = right.Expect("an ImmutableArray's node has the values after it")
+            Return Balanced(node.Value, node.Left, Removed(after, index - before - 1))
+        End If
+
+        If right == Null Then Return node.Left
+        Local left = node.Left
+        If left == Null Then Return right
+        // The value after this one takes its place.
+        Local next = right
+        Loop
+            Local smaller = next.Left
+            If smaller == Null Then Break
+            next = smaller
+        End Loop
+        Return Balanced(next.Value, left, Removed(right, 0))
+    End Method
+
+    Static Method HeightOf(node: ArrayNode<T>?): Int => node?.Height ?? 0
+
+    // A node with the value between left and right, whose heights differ by 2 at most, turned so
+    // its children's differ by 1 at most.
+    Static Method Balanced(value: T, left: ArrayNode<T>?, right: ArrayNode<T>?): ArrayNode<T>
+        If HeightOf(left) > HeightOf(right) + 1
+            Local tall = left.Expect("the taller side has a node")
+            Local inner = tall.Right
+            If HeightOf(tall.Left) >= HeightOf(inner) || inner == Null
+                Return ArrayNode<T>(tall.Value, tall.Left, ArrayNode<T>(value, inner, right))
+            End If
+
+            Return ArrayNode<T>(inner.Value, ArrayNode<T>(tall.Value, tall.Left, inner.Left),
+                                ArrayNode<T>(value, inner.Right, right))
+        End If
+
+        If HeightOf(right) > HeightOf(left) + 1
+            Local tall = right.Expect("the taller side has a node")
+            Local inner = tall.Left
+            If HeightOf(tall.Right) >= HeightOf(inner) || inner == Null
+                Return ArrayNode<T>(tall.Value, ArrayNode<T>(value, left, inner), tall.Right)
+            End If
+
+            Return ArrayNode<T>(inner.Value, ArrayNode<T>(value, left, inner.Left),
+                                ArrayNode<T>(tall.Value, inner.Right, tall.Right))
+        End If
+
+        Return ArrayNode<T>(value, left, right)
+    End Method
+End Struct
+
+// An ImmutableArray's values in order: the nodes on the way down to the next one.
+Public Struct ImmutableArrayIterator<T> Implements Iterator<T>
+    Where T: Sendable
+
+    Field Nodes: ArrayNode<T>[]
+
+    Public ByRef Method Next(): T?
+        If Nodes.Count == 0 Then Return Null
+        Local node = Nodes.RemoveLast()
+        Descend(node.Right)
+        Return node.Value
+    End Method
+
+    // Keeps node and each left child down from it, which come before it.
+    ByRef Method Descend(node: ArrayNode<T>?)
+        Local at = node
+        While at != Null
+            Nodes.Add(at)
+            at = at.Left
+        End While
+    End Method
+End Struct
+
+// Two ImmutableArrays are equal when they have equal values in the same order.
+Extend ImmutableArray<T> Implements Equatable
+    Where T: Equatable
+
+    Operator ==(a: ImmutableArray<T>, b: ImmutableArray<T>): Bool
+        If a.Count != b.Count Then Return False
+        Local others = b.Iterate()
+        For value In a
+            If others.Next() != value Then Return False
+        End For
+        Return True
+    End Operator
+End Extend
+
+// "[1, 2, 3]", in order, when the values can be shown.
+Extend ImmutableArray<T> Implements Printable
+    Where T: Printable
+
+    Public Method ToString(): String => "{ToArray()}"
+End Extend
+
+// One of an ImmutableMap's entries, and the next whose key has the same hash.
+Shared Class HashEntry<K, V>
+    Where K: Hashable
+    Where K: Sendable
+    Where V: Sendable
+
+    ReadOnly Field Key: K
+    ReadOnly Field Value: V
+    ReadOnly Field Next: HashEntry<K, V>?
+
+    New(key: K, value: V, next: HashEntry<K, V>?)
+        Key = key
+        Value = value
+        Next = next
+    End New
+End Class
+
+// A node of an ImmutableMap's tree, by hash: the entries whose keys have its Hash, in the order
+// they were added, with the smaller hashes to its left and the larger to its right.
+Shared Class HashNode<K, V>
+    Where K: Hashable
+    Where K: Sendable
+    Where V: Sendable
+
+    ReadOnly Field Hash: UInt64
+    ReadOnly Field Entries: HashEntry<K, V>
+    ReadOnly Field Left: HashNode<K, V>?
+    ReadOnly Field Right: HashNode<K, V>?
+    ReadOnly Field Height: Int
+
+    New(hash: UInt64, entries: HashEntry<K, V>, left: HashNode<K, V>?, right: HashNode<K, V>?)
+        Hash = hash
+        Entries = entries
+        Left = left
+        Right = right
+        Height = Max(left?.Height ?? 0, right?.Height ?? 0) + 1
+    End New
+End Class
+
+Public Struct ImmutableMap<K, V> Implements Iterable<(K, V)>, Defaultable, Sendable
+    Where K: Hashable
+    Where K: Sendable
+    Where V: Sendable
+
+    Field Root: HashNode<K, V>?
+    Field Size: Int
+
+    // An empty one.
+    Public New()
+    End New
+
+    // One with the entries, all read first, a later entry's value for a key taking the place of an
+    // earlier one's.
+    Public Static Method From(entries: Iterable<(K, V)>): ImmutableMap<K, V>
+        Local made = ImmutableMap<K, V>()
+        For entry In entries.Iterate().ToArray()
+            made = made.Add(entry.0, entry.1)
+        End For
+        Return made
+    End Method
+
+    Public Property Count: Int
+        Get => Size
+    End Property
+
+    // The key's value, or Null when it isn't there.
+    Public Method Get(key: K): V?
+        Local entry = EntryOf(key)
+        If entry == Null Then Return Null
+        Return entry.Value
+    End Method
+
+    // The key's value, or fallback when it isn't there.
+    Public Method Get(key: K, fallback: V): V
+        Local entry = EntryOf(key)
+        If entry == Null Then Return fallback
+        Return entry.Value
+    End Method
+
+    // The key's value. A key that isn't there panics.
+    @PanicsAtCaller
+    Operator [](key: K): V
+        Local entry = EntryOf(key)
+        If entry == Null Then Panic("the key isn't in the ImmutableMap")
+        Return entry.Value
+    End Operator
+
+    Public Method Contains(key: K): Bool => EntryOf(key) != Null
+
+    // A copy with the key's value, which takes the place of the one it has.
+    Public Method Add(key: K, value: V): ImmutableMap<K, V>
+        Local put = Put(Root, key.Hash(), key, value)
+        Return Of(put.0, put.1 ? Size + 1 : Size)
+    End Method
+
+    // A copy without the key's entry, or the same one when it has none.
+    Public Method Remove(key: K): ImmutableMap<K, V>
+        If !Contains(key) Then Return Self
+        Return Of(Deleted(Root, key.Hash(), key), Size - 1)
+    End Method
+
+    // The keys, in no order to count on.
+    Public Method Keys(): K[]
+        Local keys: K[] = []
+        keys.Reserve(Size)
+        For key, value In Self
+            keys.Add(key)
+        End For
+        Return keys
+    End Method
+
+    // The values, in their keys' order.
+    Public Method Values(): V[]
+        Local values: V[] = []
+        values.Reserve(Size)
+        For key, value In Self
+            values.Add(value)
+        End For
+        Return values
+    End Method
+
+    // A new Map with the same entries, in the same order.
+    Public Method ToMap(): Map<K, V>
+        Local map = Map<K, V>()
+        map.Reserve(Size)
+        For key, value In Self
+            map.Add(key, value)
+        End For
+        Return map
+    End Method
+
+    // An empty one.
+    Public Static Method DefaultValue(): ImmutableMap<K, V> => ImmutableMap<K, V>()
+
+    // Each key and its value, for 'For key, value In map', in no order to count on but the same
+    // each time for the same entries.
+    Public Method Iterate(): ImmutableMapIterator<K, V>
+        Local iterator = ImmutableMapIterator<K, V>([], Null)
+        iterator.Descend(Root)
+        Return iterator
+    End Method
+
+    // The key's entry, or Null.
+    Method EntryOf(key: K): HashEntry<K, V>?
+        Local hash = key.Hash()
+        Local node = Root
+        While node != Null
+            If hash < node.Hash
+                node = node.Left
+            ElseIf node.Hash < hash
+                node = node.Right
+            Else
+                Local entry: HashEntry<K, V>? = node.Entries
+                While entry != Null
+                    If entry.Key == key Then Return entry
+                    entry = entry.Next
+                End While
+                Return Null
+            End If
+        End While
+        Return Null
+    End Method
+
+    Static Method Of(root: HashNode<K, V>?, size: Int): ImmutableMap<K, V>
+        Local made = ImmutableMap<K, V>()
+        made.Root = root
+        made.Size = size
+        Return made
+    End Method
+
+    // The tree under node with the key's value, and whether the key is new.
+    Static Method Put(node: HashNode<K, V>?, hash: UInt64, key: K, value: V): (HashNode<K, V>, Bool)
+        If node == Null
+            Return (HashNode<K, V>(hash, HashEntry<K, V>(key, value, Null), Null, Null), True)
+        End If
+
+        If hash < node.Hash
+            Local put = Put(node.Left, hash, key, value)
+            Return (Balanced(node.Hash, node.Entries, put.0, node.Right), put.1)
+        End If
+
+        If node.Hash < hash
+            Local put = Put(node.Right, hash, key, value)
+            Return (Balanced(node.Hash, node.Entries, node.Left, put.0), put.1)
+        End If
+
+        // The entries before the key's are copied, and the ones after it shared.
+        Local before: HashEntry<K, V>[] = []
+        Local entry: HashEntry<K, V>? = node.Entries
+        Local after: HashEntry<K, V>? = Null
+        While entry != Null
+            If entry.Key == key
+                after = entry.Next
+                Break
+            End If
+
+            before.Add(entry)
+            entry = entry.Next
+        End While
+
+        Return (HashNode<K, V>(hash, Chained(before, HashEntry<K, V>(key, value, after)),
+                               node.Left, node.Right), entry == Null)
+    End Method
+
+    // The tree under node, which has the key, without it.
+    Static Method Deleted(node: HashNode<K, V>?, hash: UInt64, key: K): HashNode<K, V>?
+        Local at = node.Expect("an ImmutableMap's tree has the key it deletes")
+        If hash < at.Hash
+            Return Balanced(at.Hash, at.Entries, Deleted(at.Left, hash, key), at.Right)
+        End If
+
+        If at.Hash < hash
+            Return Balanced(at.Hash, at.Entries, at.Left, Deleted(at.Right, hash, key))
+        End If
+
+        // The entries before the key's are copied, and the ones after it shared.
+        Local before: HashEntry<K, V>[] = []
+        Local entry = at.Entries
+        While entry.Key != key
+            before.Add(entry)
+            entry = entry.Next.Expect("an ImmutableMap's entries have the key they delete")
+        End While
+
+        Local after = entry.Next
+        If before.Count > 0 || after != Null
+            Return HashNode<K, V>(hash, Chained(before, after), at.Left, at.Right)
+        End If
+
+        Local left = at.Left
+        Local right = at.Right
+        If left == Null Then Return right
+        If right == Null Then Return left
+        // The next hash's entries take this one's place.
+        Local next = right
+        Loop
+            Local smaller = next.Left
+            If smaller == Null Then Break
+            next = smaller
+        End Loop
+        Return Balanced(next.Hash, next.Entries, left, WithoutFirst(right))
+    End Method
+
+    // New entries with the keys and values of before, in order, then rest, which mustn't be Null
+    // when before is empty.
+    Static Method Chained(before: HashEntry<K, V>[], rest: HashEntry<K, V>?): HashEntry<K, V>
+        Local chain = rest
+        For i = before.Count - 1 To 0 Step -1
+            chain = HashEntry<K, V>(before[i].Key, before[i].Value, chain)
+        End For
+        Return chain.Expect("a node's entries aren't empty")
+    End Method
+
+    // The tree under node without its first node.
+    Static Method WithoutFirst(node: HashNode<K, V>): HashNode<K, V>?
+        Local left = node.Left
+        If left == Null Then Return node.Right
+        Return Balanced(node.Hash, node.Entries, WithoutFirst(left), node.Right)
+    End Method
+
+    Static Method HeightOf(node: HashNode<K, V>?): Int => node?.Height ?? 0
+
+    // A node with the entries between left and right, whose heights differ by 2 at most, turned so
+    // its children's differ by 1 at most.
+    Static Method Balanced(hash: UInt64, entries: HashEntry<K, V>, left: HashNode<K, V>?,
+                           right: HashNode<K, V>?): HashNode<K, V>
+        If HeightOf(left) > HeightOf(right) + 1
+            Local tall = left.Expect("the taller side has a node")
+            Local inner = tall.Right
+            If inner == Null || HeightOf(tall.Left) >= HeightOf(inner)
+                Return HashNode<K, V>(tall.Hash, tall.Entries, tall.Left,
+                                      HashNode<K, V>(hash, entries, inner, right))
+            End If
+
+            Return HashNode<K, V>(inner.Hash, inner.Entries,
+                                  HashNode<K, V>(tall.Hash, tall.Entries, tall.Left, inner.Left),
+                                  HashNode<K, V>(hash, entries, inner.Right, right))
+        End If
+
+        If HeightOf(right) > HeightOf(left) + 1
+            Local tall = right.Expect("the taller side has a node")
+            Local inner = tall.Left
+            If inner == Null || HeightOf(tall.Right) >= HeightOf(inner)
+                Return HashNode<K, V>(tall.Hash, tall.Entries,
+                                      HashNode<K, V>(hash, entries, left, inner), tall.Right)
+            End If
+
+            Return HashNode<K, V>(inner.Hash, inner.Entries,
+                                  HashNode<K, V>(hash, entries, left, inner.Left),
+                                  HashNode<K, V>(tall.Hash, tall.Entries, inner.Right, tall.Right))
+        End If
+
+        Return HashNode<K, V>(hash, entries, left, right)
+    End Method
+End Struct
+
+// An ImmutableMap's entries: the nodes on the way down to the next one, and the entry it's at.
+Public Struct ImmutableMapIterator<K, V> Implements Iterator<(K, V)>
+    Where K: Hashable
+    Where K: Sendable
+    Where V: Sendable
+
+    Field Nodes: HashNode<K, V>[]
+    Field Entry: HashEntry<K, V>?
+
+    Public ByRef Method Next(): (K, V)?
+        Local entry = Entry
+        If entry == Null
+            If Nodes.Count == 0 Then Return Null
+            Local node = Nodes.RemoveLast()
+            Descend(node.Right)
+            entry = node.Entries
+        End If
+
+        Entry = entry.Next
+        Return (entry.Key, entry.Value)
+    End Method
+
+    // Keeps node and each left child down from it, which come before it.
+    ByRef Method Descend(node: HashNode<K, V>?)
+        Local at = node
+        While at != Null
+            Nodes.Add(at)
+            at = at.Left
+        End While
+    End Method
+End Struct
+
+// Two ImmutableMaps are equal when they have the same keys, each with an equal value.
+Extend ImmutableMap<K, V> Implements Equatable
+    Where V: Equatable
+
+    Operator ==(a: ImmutableMap<K, V>, b: ImmutableMap<K, V>): Bool
+        If a.Count != b.Count Then Return False
+        For key, value In a
+            Local entry = b.EntryOf(key)
+            If entry == Null || entry.Value != value Then Return False
+        End For
+        Return True
+    End Operator
+End Extend
+
+// "{a: 1, b: 2}", when the keys and values can be shown.
+Extend ImmutableMap<K, V> Implements Printable
+    Where K: Printable
+    Where V: Printable
+
+    Public Method ToString(): String
+        Local parts: String[] = []
+        For key, value In Self
+            parts.Add("{key}: {value}")
+        End For
+        Return "{{" + parts.Join(", ") + "}}"
+    End Method
+End Extend
+
+Public Struct ImmutableSet<T> Implements Iterable<T>, Defaultable, Sendable, Equatable
+    Where T: Hashable
+    Where T: Sendable
+
+    Field Items: ImmutableMap<T, Bool>
+
+    // An empty one.
+    Public New()
+    End New
+
+    // One with the values, all read first.
+    Public Static Method From(values: Iterable<T>): ImmutableSet<T>
+        Local made = ImmutableSet<T>()
+        For value In values.Iterate().ToArray()
+            made = made.Add(value)
+        End For
+        Return made
+    End Method
+
+    Public Property Count: Int
+        Get => Items.Count
+    End Property
+
+    Public Method Contains(value: T): Bool => Items.Contains(value)
+
+    // A copy with the value, or the same one when it has it.
+    Public Method Add(value: T): ImmutableSet<T>
+        If Contains(value) Then Return Self
+        Local made = ImmutableSet<T>()
+        made.Items = Items.Add(value, True)
+        Return made
+    End Method
+
+    // A copy without the value, or the same one when it hasn't got it.
+    Public Method Remove(value: T): ImmutableSet<T>
+        Local made = ImmutableSet<T>()
+        made.Items = Items.Remove(value)
+        Return made
+    End Method
+
+    // The values, in a new array, in no order to count on.
+    Public Method ToArray(): T[] => Items.Keys()
+
+    // An empty one.
+    Public Static Method DefaultValue(): ImmutableSet<T> => ImmutableSet<T>()
+
+    // Two ImmutableSets are equal when they have the same values.
+    Operator ==(a: ImmutableSet<T>, b: ImmutableSet<T>): Bool => a.Items == b.Items
+
+    // The values, in no order to count on but the same each time for the same values.
+    Public Method Iterate(): ImmutableSetIterator<T> => ImmutableSetIterator<T>(Items.Iterate())
+End Struct
+
+Public Struct ImmutableSetIterator<T> Implements Iterator<T>
+    Where T: Hashable
+    Where T: Sendable
+
+    Field Entries: ImmutableMapIterator<T, Bool>
+
+    Public ByRef Method Next(): T?
+        Local entry = Entries.Next()
+        If entry == Null Then Return Null
+        Return entry.0
+    End Method
+End Struct
+
+// "{1, 2, 3}", when the values can be shown.
+Extend ImmutableSet<T> Implements Printable
+    Where T: Printable
+
+    Public Method ToString(): String
+        Local parts: String[] = []
+        For value In Self
+            parts.Add("{value}")
+        End For
+        Return "{{" + parts.Join(", ") + "}}"
+    End Method
+End Extend

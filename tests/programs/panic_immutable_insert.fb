@@ -1,0 +1,7 @@
+// An ImmutableArray's Insert panics past its end, where it's called.
+Import std.core
+Import std.collections
+
+Local array = ImmutableArray<Int>.From([1, 2])
+Print(array.Insert(2, 3))
+Local more = array.Insert(4, 3)

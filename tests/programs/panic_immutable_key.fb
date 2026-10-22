@@ -1,0 +1,7 @@
+// An ImmutableMap's [] panics at a key it doesn't have.
+Import std.core
+Import std.collections
+
+Local map = ImmutableMap<String, Int>.From({"a": 1})
+Print(map["a"])
+Print(map.Remove("a")["a"])

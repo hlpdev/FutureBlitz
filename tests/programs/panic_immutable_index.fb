@@ -1,0 +1,7 @@
+// An ImmutableArray's [] panics at an index it hasn't got.
+Import std.core
+Import std.collections
+
+Local array = ImmutableArray<Int>.From([1, 2])
+Print(array[1])
+Print(array[2])
