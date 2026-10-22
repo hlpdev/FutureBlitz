@@ -3010,6 +3010,36 @@ TEST_CASE("generic mistakes", "[sema]") {
     CHECK(errors_of("Function Zero<T>(): T => Zero()\nLocal z = Zero()") ==
           errors_t{ "Zero: can't tell what T is in this call; write the type arguments, like "
                     "Zero<Int>(...)" });
+    // Only what the call doesn't tell, not an Interface's Self and T, which its value does, and
+    // the call as written, with its object's parentheses.
+    CHECK(errors_of("Import std.core\n"
+                    "Local v = (1 To 3).Map(Function(n: Int) => n * 2)\n"
+                    "Local m = v.Map(Function(n: Int)\n"
+                    "    Print(n)\n"
+                    "End Function)\n"
+                    "Local w = (1 To 3).Map(Function(n: Int)\n"
+                    "    Print(n)\n"
+                    "End Function)") ==
+          errors_t{
+              "v.Map: can't tell what U is in this call; write the type arguments, like "
+              "v.Map<Int>(...)",
+              "(1 To 3).Map: can't tell what U is in this call; write the type arguments, like "
+              "(1 To 3).Map<Int>(...)",
+          });
+    // A type argument that's only in another's constraint, which that one can't meet, is that.
+    CHECK(errors_of("Import std.core\n"
+                    "Import std.collections\n"
+                    "Local s = Stack<Int>()\n"
+                    "Local z = (1 To 3).Zip(s)\n"
+                    "Local a = (1 To 3).Zip([1, 2])\n"
+                    "Local f = (1 To 6).Chunks(2).Flatten()") ==
+          errors_t{
+              "(1 To 3).Zip: Stack<Int32> doesn't implement Iterator<U>, which 'Zip' needs for O; "
+              "its Iterate() gives one",
+              "(1 To 3).Zip: Int32[] doesn't implement Iterator<U>, which 'Zip' needs for O",
+              "(1 To 6).Chunks(2).Flatten: Int32[] doesn't implement Iterable<U>, which 'Flatten' "
+              "needs for T",
+          });
     CHECK(with_generics("Local s: Pile") ==
           errors_t{ "Pile: Pile<T> is generic, so it needs type arguments, like Pile<Int>" });
     CHECK(with_generics("Local s: Pile<Int, Int>") ==

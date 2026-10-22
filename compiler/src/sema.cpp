@@ -17643,7 +17643,7 @@ private:
         // A generic function's types have its type arguments in them, while the call is checked.
         const std::optional<std::vector<type_id_t>> arguments = infer(*function, node, hint);
         if (!arguments) {
-            report_uninferred(*function, node);
+            report_uninferred(id, *function, node, hint);
             check_alone(node.arguments);
             return type_id_t::INVALID;
         }
@@ -18366,9 +18366,26 @@ private:
     std::optional<std::vector<type_id_t>> infer(const symbol_id_t function, const call_expr_t& node,
                                                 const type_id_t hint) {
         check_written_arguments(function, node);
+        std::vector<type_id_t> known;
+        for (const std::optional<type_id_t> argument : told_arguments(function, node, hint)) {
+            if (!argument) {
+                return std::nullopt;
+            }
+
+            known.push_back(*argument);
+        }
+
+        return known;
+    }
+
+    /// The type arguments infer() can tell, one for each of type_parameters_of(), and nullopt
+    /// for each it can't.
+    std::vector<std::optional<type_id_t>> told_arguments(const symbol_id_t function,
+                                                         const call_expr_t& node,
+                                                         const type_id_t hint) {
         const std::vector<type_id_t> parameters = type_parameters_of(function);
         if (parameters.empty()) {
-            return std::vector<type_id_t>{};
+            return {};
         }
 
         std::vector<std::optional<type_id_t>> arguments = known_arguments(function, node);
@@ -18403,17 +18420,7 @@ private:
             unify(result, hint, parameters, arguments);
         }
 
-        std::vector<type_id_t> known;
-        known.reserve(arguments.size());
-        for (const std::optional<type_id_t> argument : arguments) {
-            if (!argument) {
-                return std::nullopt;
-            }
-
-            known.push_back(*argument);
-        }
-
-        return known;
+        return arguments;
     }
 
     /// Infers type arguments from a call's arguments: from their own types first, then from
@@ -18738,17 +18745,66 @@ private:
         }
     }
 
-    /// Why a generic call's type arguments couldn't be inferred.
-    void report_uninferred(const symbol_id_t function, const call_expr_t& node) {
+    /// Why a generic call's type arguments couldn't be inferred: a constraint a type argument
+    /// can't meet, where the one that can't be told is only in its Interface, as O: Iterator<U>
+    /// is for an O that's no Iterator, or else which ones can't be told.
+    void report_uninferred(const expr_id_t id, const symbol_id_t function, const call_expr_t& node,
+                           const type_id_t hint) {
         const std::vector<type_id_t> parameters = type_parameters_of(function);
+        const std::vector<std::optional<type_id_t>> told =
+            quietly([&] { return told_arguments(function, node, hint); });
+        std::vector<type_id_t> unknown;
+        for (std::size_t i = 0; i < parameters.size(); ++i) {
+            if (i >= told.size() || !told[i]) {
+                unknown.push_back(parameters[i]);
+            }
+        }
+
+        for (const bound_t& constraint : call_bounds(function)) {
+            const auto place = std::ranges::find(parameters, constraint.parameter);
+            const auto index = static_cast<std::size_t>(place - parameters.begin());
+            if (place == parameters.end() || index >= told.size() || !told[index] ||
+                constraint.field != type_id_t::INVALID || !mentions(constraint.interface, unknown) ||
+                instance_for(*told[index], constraint.interface) != type_id_t::INVALID) {
+                continue;
+            }
+
+            const type_id_t given = *told[index];
+            const std::vector<type_id_t> shown{ given, constraint.interface, constraint.parameter };
+            // A collection is no Iterator, but its Iterate() gives one.
+            const type_id_t iterable = std_type("std.core", "Iterable");
+            const std::string advice =
+                iterable != type_id_t::INVALID &&
+                        definition_of(constraint.interface) == m_analysis.interfaces.iterator &&
+                        instance_for(given, iterable) != type_id_t::INVALID
+                    ? "; its Iterate() gives one"
+                    : "";
+            error(span_of(node.callee), "{} doesn't implement {}, which {} needs for {}{}",
+                  name_among(given, shown), name_among(constraint.interface, shown),
+                  std::format("'{}'", symbol(function).name),
+                  name_among(constraint.parameter, shown),
+                  advice);
+            return;
+        }
+
+        if (unknown.empty()) {
+            unknown = parameters;
+        }
+
         std::string names;
-        for (const type_id_t parameter : parameters) {
+        for (const type_id_t parameter : unknown) {
             names += std::format("{}{}", names.empty() ? "" : ", ", name_of(parameter));
         }
 
+        // The call as written up to its name, with an opening parenthesis around the object.
+        const span_t written{
+            .file = span_of(node.callee).file,
+            .begin = span_of(id).begin,
+            .end = span_of(node.callee).end,
+        };
         error(span_of(node.callee),
               "can't tell what {} {} in this call; write the type arguments, like {}<Int>(...)",
-              names, parameters.size() == 1 ? "is" : "are", text(node.callee));
+              names, unknown.size() == 1 ? "is" : "are", text(written));
     }
 
     /// A call of a function value, whose callee was checked as a value: the arguments convert to
