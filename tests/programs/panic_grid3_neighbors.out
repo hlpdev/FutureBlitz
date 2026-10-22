@@ -1,0 +1,2 @@
+7
+panic: (0, 0, 2) is outside a Grid3 2 by 2 by 2 at panic_grid3_neighbors.fb:7:7

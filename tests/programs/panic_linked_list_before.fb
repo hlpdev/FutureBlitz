@@ -1,0 +1,10 @@
+// A LinkedList panics at another list's node, where something's added before it.
+Import std.core
+Import std.collections
+
+Local a = LinkedList<Int>()
+Local b = LinkedList<Int>()
+Local node = b.Add(1)
+b.AddBefore(node, 0)
+Print(a, b)
+a.AddBefore(node, 2)

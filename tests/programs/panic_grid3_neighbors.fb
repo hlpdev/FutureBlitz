@@ -1,0 +1,7 @@
+// A Grid3's Neighbors26 panics at a position outside it, where it's called.
+Import std.core
+Import std.collections
+
+Local grid = Grid3<Int>(2, 2, 2, 0)
+Print(grid.Neighbors26(1, 1, 1).Count)
+Print(grid.Neighbors26(0, 0, 2))

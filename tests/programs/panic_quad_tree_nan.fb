@@ -1,0 +1,7 @@
+// A QuadTree whose box has a NaN corner panics where it's made.
+Import std.core
+Import std.collections
+
+Local zero: Float = 0
+Print(QuadTree<Int>(0, 0, 1, 1).Count)
+Local tree = QuadTree<Int>(zero / zero, 0, 1, 1)

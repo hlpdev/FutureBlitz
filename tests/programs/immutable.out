@@ -1,7 +1,7 @@
 0 True
 0 True True
 0 True
-7 12 9 2
+2285 2502 2
 [] 0 False [a] True
 [a, b, c] b [a, B, c] [a, b, c, d] [b, c] [a, b, c]
 [a, b, c, x, y] True [z, a, w, b, c]
@@ -16,3 +16,5 @@ True {1: 2}
 True [red] 0
 5
 3
+True True [1, 4] [4, 1]
+1 b 1 2 5

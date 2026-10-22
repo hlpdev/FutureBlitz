@@ -1,0 +1,10 @@
+// Adding to a QuadTree while a For ... In goes over it panics.
+Import std.core
+Import std.collections
+
+Local tree = QuadTree<Int>(0, 0, 10, 10)
+tree.Add(1, 1, 1)
+For value In tree
+    Print(value)
+    tree.Add(2, 2, 2)
+End For

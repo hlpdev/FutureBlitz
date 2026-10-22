@@ -1,0 +1,2 @@
+1
+panic: the QuadTree changed while a For ... In went over it at panic_spatial_changed.fb:7:1

@@ -55,6 +55,16 @@ So far, std/ holds:
 | std/collections/stack.fb, queue.fb, deque.fb | `Stack<T>`, `Queue<T>`, and `Deque<T>` |
 | std/collections/priority_queue.fb | `PriorityQueue<T>` |
 | std/collections/pool.fb | `Pool<T>` and `Handle<T>` |
+| std/collections/sorted.fb | `SortedMap<K, V>` and `SortedSet<T>`, B-trees, with their iterators |
+| std/collections/ring_buffer.fb | `RingBuffer<T>` |
+| std/collections/grid.fb | `Grid<T>`, `Grid3<T>`, and `GridIterator<T>` |
+| std/collections/bit_set.fb | `BitSet` |
+| std/collections/lru_cache.fb, counter.fb, multi_map.fb | `LruCache<K, V>`, `Counter<T>`, and `MultiMap<K, V>`, over a Map |
+| std/collections/trie.fb | `Trie<V>` |
+| std/collections/linked_list.fb | `LinkedList<T>` and `LinkedListNode<T>` |
+| std/collections/interval_tree.fb | `IntervalTree<K, V>` |
+| std/collections/spatial.fb | `SpatialHash<T>`, `QuadTree<T>`, and `Octree<T>` |
+| std/collections/immutable.fb | `ImmutableArray<T>`, `ImmutableMap<K, V>`, and `ImmutableSet<T>`, over Shared nodes |
 | std/ffi/mem.fb | `Mem`, raw memory for Unsafe code, over the runtime's `fb_mem_*` |
 | std/ffi/cstring.fb | `CString.From`, `Length`, and `Free`, over the runtime's copies |
 

@@ -1,0 +1,2 @@
+[] [0, 1]
+panic: the node isn't in this LinkedList at panic_linked_list_before.fb:10:1

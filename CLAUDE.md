@@ -214,8 +214,10 @@ Step 4, collections II, std only: std/collections/sorted.fb's SortedMap and Sort
 SortedNode, Order 16, Find(), Split(), Fill(), Merge(), SortedMapIterator's stack of nodes),
 ring_buffer.fb, grid.fb's Grid and Grid3 (GridIterator), bit_set.fb (UInt64 words, BitCount()),
 lru_cache.fb and counter.fb over a Map, multi_map.fb (a Map of arrays), trie.fb (TrieNode by
-byte), linked_list.fb (LinkedListNode with a Weak Before and Owner, LetGo() unlinking each node), interval_tree.fb (an AVL tree, IntervalNode's Top), spatial.fb (PlacedValue,
-Bounds, SpatialHash's cells, and SpaceTree, which QuadTree and Octree wrap), and immutable.fb
+byte), linked_list.fb (LinkedListNode with a Weak Before and Owner, LetGo() unlinking each
+node), interval_tree.fb (an AVL tree, IntervalNode's Top), spatial.fb (PlacedValue, Bounds in
+Doubles, Around(), SpatialHash's cells, and SpaceTree, which QuadTree and Octree wrap,
+SpatialIterator), and immutable.fb
 (ImmutableArray, ImmutableMap, and ImmutableSet, Structs over AVL trees of Shared ArrayNode,
 HashNode, and HashEntry); each is checked against a plain array or Map over random operations
 (tests/programs/<name>.fb), with a panic program for each panic. The runtime's let_go() lets

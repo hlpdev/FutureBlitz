@@ -56,7 +56,19 @@ For round = 1 To 4000
         wrong += 1
     End If
 
-    If counts.Values().Count != plain.Count Then wrong += 1
+    // The values go in the order they were first added since their count was last 0.
+    If counts.Values() != plain.Keys() Then wrong += 1
+    Local entries: (Int, Int)[] = []
+    For entry In counts
+        entries.Add(entry)
+    End For
+
+    Local plainEntries: (Int, Int)[] = []
+    For entry In plain
+        plainEntries.Add(entry)
+    End For
+
+    If entries != plainEntries Then wrong += 1
 End For
 Print(wrong)
 
@@ -87,3 +99,18 @@ copy.Add("z")
 Print(copy, words, copy == words, words.Clone() == words, words.Clone().Hash() == words.Hash())
 words.Clear()
 Print(words, words.Total, words == Counter<String>.DefaultValue())
+
+// Changing a count while going over them is fine.
+Local tally = Counter<String>()
+tally.AddAll(["x", "y", "x"])
+For value, count In tally
+    tally[value] = count + 10
+    tally.Remove(value)
+End For
+Print(tally, tally.Total)
+
+// The Total can be more than an Int holds.
+Local huge = Counter<String>()
+huge.Add("a", 2000000000)
+huge.Add("b", 2000000000)
+Print(huge.Total, huge["a"], huge.Remove("a", 2000000000), huge.Total)

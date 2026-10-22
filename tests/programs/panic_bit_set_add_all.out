@@ -1,0 +1,2 @@
+{0, 3}
+panic: a BitSet holds Ints from 0 up, not -3 at panic_bit_set_add_all.fb:8:1

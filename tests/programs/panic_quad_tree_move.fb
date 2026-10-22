@@ -1,0 +1,8 @@
+// A QuadTree panics at a point outside its box, where something moves there.
+Import std.core
+Import std.collections
+
+Local tree = QuadTree<Int>(0, 0, 10, 10)
+tree.Add(1, 1, 1)
+Print(tree.Move(1, 1, 1, 10, 10))
+tree.Move(1, 10, 10, 11, 1)

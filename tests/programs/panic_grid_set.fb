@@ -1,0 +1,8 @@
+// A Grid's []= panics at a position outside it, where it's set.
+Import std.core
+Import std.collections
+
+Local grid = Grid<Int>(2, 2, 0)
+grid[1, 1] = 4
+Print(grid)
+grid[-1, 0] = 4

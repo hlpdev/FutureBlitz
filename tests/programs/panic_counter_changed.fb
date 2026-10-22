@@ -1,0 +1,11 @@
+// Adding to a Counter while a For ... In goes over it panics.
+Import std.core
+Import std.collections
+
+Local counts = Counter<String>()
+counts.Add("a")
+For value, count In counts
+    counts[value] = 5
+    Print(value, counts[value])
+    counts.Add("b")
+End For

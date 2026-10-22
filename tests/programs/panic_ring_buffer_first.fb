@@ -1,0 +1,7 @@
+// A RingBuffer's First panics when it's empty, where it's called.
+Import std.core
+Import std.collections
+
+Local ring = RingBuffer<Int>(3)
+Print(ring.TryFirst() ?? -1)
+Print(ring.First())

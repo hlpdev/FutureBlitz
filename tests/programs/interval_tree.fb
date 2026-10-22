@@ -88,3 +88,15 @@ Local words = IntervalTree<String, Int>()
 words.Add("apple", "banana", 1)
 words.Add("cherry", "date", 2)
 Print(words.Containing("avocado"), words.Overlapping("b", "c"))
+
+// Contains finds a value over one interval, and two trees are equal with the same intervals and
+// values in the same order.
+Local a = IntervalTree<Int, String>()
+a.Add(1, 3, "x")
+a.Add(1, 3, "y")
+a.Add(2, 4, "z")
+Local b = a.Clone()
+Print(a.Contains(1, 3, "y"), a.Contains(1, 3, "z"), a.Contains(1, 4, "x"), a == b, a == a)
+b.Remove(1, 3, "x")
+b.Add(1, 3, "x")
+Print(a == b, b.ToArray())

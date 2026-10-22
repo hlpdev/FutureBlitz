@@ -200,42 +200,53 @@ collection.
 
 ### More collections
 
-| Type | What it's for, and its members besides the common ones |
+| Type | What it's for, and its members |
 |---|---|
-| `SortedMap<K, V>`, `SortedSet<T>` | keys or values in order, `K: Comparable`, in a B-tree: a Map's and a Set's members, and `First()`, `Last()`, `Floor(key)`, the largest key not above it, `Ceiling(key)`, the smallest not below it, which give a `(K, V)?` or a `T?`, and `Range(low, high)`, from low up to high, without high |
-| `RingBuffer<T>` | the last `Capacity` values added, oldest first, for a history or a window: `RingBuffer<T>(capacity)`, `Add` drops the oldest when it's full (`IsFull`), `RemoveFirst`, `RemoveLast`, `First`, `Last`, and their Try twins, `ring[i]` from the oldest, `AddAll`, `ToArray()` |
-| `Grid<T>`, `Grid3<T>` | a fixed number of cells, `Grid<T>(width, height, fill)` and `Grid3<T>(width, height, depth, fill)`: `grid[x, y]` and `grid[x, y, z]`, `Width`, `Height`, `Depth`, `InBounds`, `Neighbors4` and `Neighbors8`, or `Neighbors6` and `Neighbors26`, the positions around one that are in the grid, `Fill(value)`, `ToArray()` row by row; a position outside panics |
-| `BitSet` | a Set of Ints from 0 up, a bit each: a Set's members and algebra, with another BitSet, `First()`, `Last()`, and `ToArray()` smallest first; a negative value panics where it's added |
-| `LruCache<K, V>` | up to `Capacity` entries, `LruCache<K, V>(capacity)`: `Get(key)` gives a `V?` and uses the key, `Peek(key)` doesn't, `Add(key, value)` uses it and gives the least recently used entry when it had to go, `Resize(capacity)`, and it goes from the least recently used |
-| `Counter<T>` | how many times each value was added: `Add(value)` and `Add(value, times)`, `Remove(value)` and `Remove(value, times)`, `counter[value]`, 0 for one that isn't there, `Total`, `MostCommon(count)`, `Values()`; a count that reaches 0 takes its value out |
-| `MultiMap<K, V>` | keys with one value or more: `Add(key, value)`, `AddAll(key, values)`, `multi[key]` and `Get(key)` give a copy of its values, empty for none, `Remove(key, value)`, `RemoveKey(key)`, `KeyCount`, `Keys()`; `Count` counts values, and it goes over each key with each value |
-| `Trie<V>` | String keys by their bytes: a Map's members, and `HasPrefix(prefix)`, `KeysWithPrefix(prefix)`, `LongestPrefixOf(text)`; its keys go in their bytes' order |
-| `LinkedList<T>` | values in nodes linked both ways: `AddFirst`, `AddLast`, `AddBefore(node, value)`, `AddAfter(node, value)`, which give the value's `LinkedListNode<T>`, `Remove(node)`, `Remove(value)`, `RemoveFirst`, `RemoveLast`, their Try twins, `Find`, `FindLast`, `First`, `Last`; a node has `Value`, `Next`, `Previous`, and `List` |
-| `IntervalTree<K, V>` | values over intervals from a low to a high, both in them, `K: Comparable`: `Add(low, high, value)`, `Remove(low, high, value)`, `Overlapping(low, high)` and `Containing(key)`, which give `(K, K, V)`s by low and then by high |
-| `SpatialHash<T>`, `QuadTree<T>`, `Octree<T>` | values at points of `Float`s: `SpatialHash<T>(size)`, in square cells that size across, `QuadTree<T>(minX, minY, maxX, maxY)`, and `Octree<T>` with Zs too; `Add(value, x, y)`, `Remove(value, x, y)`, `Move(value, x, y, toX, toY)`, `Query(minX, minY, maxX, maxY)`, the values in a box, its edges included, and `Near(x, y, radius)`, no more than radius away |
-| `ImmutableArray<T>`, `ImmutableMap<K, V>`, `ImmutableSet<T>` | collections that never change, so they're `Sendable` and go to any thread: Structs whose `Add`, `Set`, `Insert`, `Remove`, and `RemoveAt` give a new one, sharing all but about log(Count) nodes with the old; `From(values)`, `[]`, `Contains`, `Get`, `ToArray()`, `ToMap()` |
+| `SortedMap<K, V>` | keys in order, `K: Comparable`, in a B-tree: `Add(key, value)`, which adds or replaces, `map[key]` and `map[key] = value`, `Get(key)` and `Get(key, fallback)`, `Contains`, `Remove(key)`, `Clear`, `Keys()` and `Values()` in order, `First()`, `Last()`, `Floor(key)`, the largest key not above it, and `Ceiling(key)`, the smallest not below it, which give a `(K, V)?`, and `Range(low, high)`, from low up to high, without high; `==` when its values are `Equatable` |
+| `SortedSet<T>` | values in order, `T: Comparable`: `Add(value)` gives whether it's new, `Remove`, `Contains`, `Clear`, `First()`, `Last()`, `Floor`, `Ceiling`, which give a `T?`, `Range(low, high)`, `ToArray()` in order, and `==` |
+| `RingBuffer<T>` | the last `Capacity` values added, oldest first, for a history or a window: `RingBuffer<T>(capacity)`, `Add` drops the oldest when it's full (`IsFull`), `AddAll`, `RemoveFirst`, `RemoveLast`, `First`, `Last`, and their Try twins, `ring[i]` and `ring[i] = value` from the oldest, `Contains`, `Clear`, `ToArray()` |
+| `Grid<T>`, `Grid3<T>` | a fixed number of cells, `Grid<T>(width, height, fill)` and `Grid3<T>(width, height, depth, fill)`: `grid[x, y]` and `grid[x, y, z]`, read and set, `Width`, `Height`, `Depth`, `InBounds`, `Neighbors4` and `Neighbors8`, or `Neighbors6` and `Neighbors26`, the positions around one that are in the grid, in the order their comments give, `Fill(value)`, `ToArray()` row by row and layer by layer, and `==`; a position outside panics |
+| `BitSet` | a Set of Ints from 0 up, a bit each: `Add(value)`, which gives whether it's new and panics at a negative value, `AddAll`, `Remove`, `Contains`, `Clear`, `First()` and `Last()`, which give an `Int?`, `Union`, `Intersect`, `Difference`, and `SymmetricDifference` with another BitSet, `AddAll`, `RemoveAll`, and `KeepOnly` with one in place, `IsSubsetOf`, `IsSupersetOf`, `Overlaps`, `ToArray()` smallest first, `==`, and `Hash` |
+| `LruCache<K, V>` | up to `Capacity` entries, `LruCache<K, V>(capacity)`: `Get(key)` gives a `V?` and uses the key, `Peek(key)` doesn't, `Add(key, value)` uses it and gives the least recently used entry when it had to go, `Contains`, `Remove`, `Clear`, `Resize(capacity)`, `Keys()` and `Values()` from the least recently used |
+| `Counter<T>` | how many times each value was added: `Add(value)` and `Add(value, times)`, `AddAll`, `Remove(value)` and `Remove(value, times)`, `counter[value]`, which is 0 for one that isn't there, and `counter[value] = count`, `Contains`, `Clear`, `Total`, an `Int64`, `MostCommon(count)`, `Values()`, `==`, and `Hash`; a count that reaches 0 takes its value out |
+| `MultiMap<K, V>` | keys with one value or more: `Add(key, value)`, `AddAll(key, values)`, `multi[key]` and `Get(key)`, which give a copy of its values, empty for none, `Contains(key)` and `Contains(key, value)`, `Remove(key, value)`, `RemoveKey(key)`, `Clear`, `KeyCount`, `Keys()`, and `==`; `Count` counts values, and it goes over each key with each value |
+| `Trie<V>` | String keys by their bytes: `Add(key, value)`, which adds or replaces, `trie[key]` and `trie[key] = value`, `Get(key)` and `Get(key, fallback)`, `Contains`, `Remove`, `Clear`, `Keys()` and `Values()` in order, `HasPrefix(prefix)`, `KeysWithPrefix(prefix)`, `LongestPrefixOf(text)`, and `==` |
+| `LinkedList<T>` | values in nodes linked both ways: `AddFirst`, `AddLast`, `Add`, `AddBefore(node, value)`, and `AddAfter(node, value)`, which give the value's `LinkedListNode<T>`, `AddAll`, `RemoveNode(node)`, `Remove(value)`, `RemoveFirst`, `RemoveLast`, `First`, `Last`, and their Try twins, `Find(test)` and `FindLast(test)`, `NodeOf(value)` and `LastNodeOf(value)`, the `FirstNode` and `LastNode` Properties, `Contains`, `Clear`, `ToArray()`, and `==`; a node has `Value`, which can be set, `Next`, `Previous`, and `List` |
+| `IntervalTree<K, V>` | values over intervals from a low to a high, both in them, `K: Comparable`: `Add(low, high, value)`, `Remove(low, high, value)`, `Contains(low, high, value)`, `Clear`, `Overlapping(low, high)` and `Containing(key)`, which give `(K, K, V)`s by low and then by high, `ToArray()`, and `==` |
+| `SpatialHash<T>`, `QuadTree<T>`, `Octree<T>` | values at points of `Float`s: `SpatialHash<T>(size)`, in square cells that size across, `QuadTree<T>(minX, minY, maxX, maxY)`, and `Octree<T>` with Zs too: `Add(value, x, y)`, `Remove(value, x, y)`, `Contains(value, x, y)`, `Move(value, x, y, toX, toY)`, `Clear`, `Query(minX, minY, maxX, maxY)`, the values in a box, its edges included, `Near(x, y, radius)`, no more than radius away, and `ToArray()` |
+| `ImmutableArray<T>`, `ImmutableMap<K, V>`, `ImmutableSet<T>` | collections that never change, so they're `Sendable` and go to any thread: Structs whose `Add`, `AddAll`, `Set`, `Insert`, `Remove`, and `RemoveAt` give a new one, sharing all but about log(Count) nodes with the old; `From(values)`, `array[i]` and `map[key]`, `Contains`, `Get`, `Keys()`, `Values()`, `ToArray()`, `ToMap()`, `==`, and `Hash` where their values are `Hashable` |
 
-- A SortedMap holds 15 to 31 keys in a node, so finding, adding, and removing a key looks at
-  about log₁₆(Count) nodes, each a binary search. Its order is the keys' `<`.
+- Each of these goes in a `For ... In`, and the Classes are `Cloneable`, with `Clone()`; the
+  immutable ones need neither Clone nor Clear, since a copy of one is the same collection and a
+  new one starts empty. Those that start empty are `Defaultable` too: SortedMap,
+  SortedSet, BitSet, Counter, MultiMap, Trie, LinkedList, IntervalTree, and the immutable ones.
+- A SortedMap holds 15 to 31 keys in a node but the root, so finding, adding, and removing a key
+  looks at about log₁₆(Count) nodes, each a binary search, and giving a key a new value or
+  removing one that isn't there leaves the tree as it is. Its order is the keys' `<`.
 - A RingBuffer, a Grid, and a Grid3 have a fixed size, set when they're made, and a size that
   isn't 1 or more for a RingBuffer, or is negative or has more cells than an Int counts for a
-  Grid, panics there. Giving a value a new value while going over them is fine.
+  Grid, panics there; a Grid3 without cells along an axis has none. Giving a value a new value
+  while going over them is fine.
 - An LruCache keeps its entries in a Map in the order they were last used, so a use moves an
   entry to the end: going over it while using one panics, as adding one does.
 - A Trie's node per byte of its keys makes `HasPrefix` and `LongestPrefixOf` go down the prefix
-  alone.
+  alone. `HasPrefix("")` is whether the Trie has a key.
 - A LinkedList's node is the same object while it's in the list, holds the next node, and holds
   the one before weakly, so the list makes no cycles. A node removed, or of another list, panics
   where it's given to the list, and a removed node, or one of a list that's cleared or gone, has
-  no `List`, `Next`, or `Previous`.
+  no `List`, `Next`, or `Previous`. Its `First`, `Last`, `Find`, and `Remove` mean what they do
+  on an array; what gives or takes a node says so in its name.
 - An IntervalTree is a balanced tree of the intervals, each node with the highest high under
   it, so `Overlapping` skips what ends too soon. A high below low panics where it's added, and
   finds nothing where it's searched for.
-- A spatial structure's coordinates are Floats; a NaN one panics where it's given, and a
-  negative or NaN radius finds nothing. A SpatialHash covers any space, a point far out going in
-  the last cell, while a QuadTree and an Octree hold only the points in their box, a point
-  outside panicking where it's added, and split a node in four or eight past 8 points, up to 16
-  times. What a query finds comes in no order to count on.
+- A spatial structure's coordinates are Floats, and its distances and boxes are worked out in
+  Doubles, so none overflows; a NaN coordinate panics where it's given, a negative or NaN radius
+  finds nothing, and an infinite one finds every point. A SpatialHash covers any space, a point
+  far out going in the last cell, while a QuadTree and an Octree hold only the points in their
+  box, which has to be finite, a point outside panicking where it's added or moved to, and split
+  a node in four or eight past 8 points, up to 16 times. What a query finds, and the order a
+  `For ... In` goes in, is no order to count on.
 - The immutable collections are Structs over balanced trees of Shared Class nodes, so their
   values, and an ImmutableMap's keys, are `Sendable`, and a key is `Hashable` too. An
-  ImmutableMap goes in its keys' hash order, which is the same each time for the same entries.
+  ImmutableMap and an ImmutableSet go by their keys' hashes, and keys of one hash in the order
+  they were added.

@@ -10,7 +10,7 @@ Public Class Counter<T> Implements Iterable<(T, Int)>, Cloneable, Defaultable, H
     Where T: Hashable
 
     Field Counts: Map<T, Int>
-    Field Sum: Int
+    Field Sum: Int64
 
     Public New()
         Counts = Map<T, Int>()
@@ -21,8 +21,8 @@ Public Class Counter<T> Implements Iterable<(T, Int)>, Cloneable, Defaultable, H
         Get => Counts.Count
     End Property
 
-    // All the counts added up.
-    Public Property Total: Int
+    // All the counts added up, which can be more than an Int holds.
+    Public Property Total: Int64
         Get => Sum
     End Property
 

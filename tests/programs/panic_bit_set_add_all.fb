@@ -1,0 +1,8 @@
+// A BitSet's AddAll panics at a negative value, where it's called.
+Import std.core
+Import std.collections
+
+Local bits = BitSet()
+bits.AddAll([0, 3])
+Print(bits)
+bits.AddAll([4, -3])

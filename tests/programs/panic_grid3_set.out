@@ -1,0 +1,2 @@
+[[[4]]]
+panic: (0, 1, 0) is outside a Grid3 1 by 1 by 1 at panic_grid3_set.fb:8:5

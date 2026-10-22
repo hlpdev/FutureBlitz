@@ -137,7 +137,7 @@ Public Struct ImmutableArray<T> Implements Iterable<T>, Defaultable, Sendable
     @PanicsAtCaller
     Static Method Check(index: Int, count: Int)
         If index < 0 || index >= count
-            Panic("index {index} is out of range for {count} value{count == 1 ? "" : "s"}")
+            Panic("index {index} is out of range for {count} element{count == 1 ? "" : "s"}")
         End If
     End Method
 
@@ -265,6 +265,19 @@ Extend ImmutableArray<T> Implements Equatable
     End Operator
 End Extend
 
+// Equal ImmutableArrays have equal hashes, so one can be a Map's key.
+Extend ImmutableArray<T> Implements Hashable
+    Where T: Hashable
+
+    Public Method Hash(): UInt64
+        Local total = Count As UInt64
+        For value In Self
+            total = HashCombine(total, value.Hash())
+        End For
+        Return total
+    End Method
+End Extend
+
 // "[1, 2, 3]", in order, when the values can be shown.
 Extend ImmutableArray<T> Implements Printable
     Where T: Printable
@@ -373,7 +386,7 @@ Public Struct ImmutableMap<K, V> Implements Iterable<(K, V)>, Defaultable, Senda
         Return Of(Deleted(Root, key.Hash(), key), Size - 1)
     End Method
 
-    // The keys, in no order to count on.
+    // The keys, in the order the entries go in.
     Public Method Keys(): K[]
         Local keys: K[] = []
         keys.Reserve(Size)
@@ -406,8 +419,8 @@ Public Struct ImmutableMap<K, V> Implements Iterable<(K, V)>, Defaultable, Senda
     // An empty one.
     Public Static Method DefaultValue(): ImmutableMap<K, V> => ImmutableMap<K, V>()
 
-    // Each key and its value, for 'For key, value In map', in no order to count on but the same
-    // each time for the same entries.
+    // Each key and its value, for 'For key, value In map', by their keys' hashes, and keys of one
+    // hash in the order they were added.
     Public Method Iterate(): ImmutableMapIterator<K, V>
         Local iterator = ImmutableMapIterator<K, V>([], Null)
         iterator.Descend(Root)
@@ -613,6 +626,19 @@ Extend ImmutableMap<K, V> Implements Equatable
     End Operator
 End Extend
 
+// Equal ImmutableMaps have equal hashes, whatever order their entries go in.
+Extend ImmutableMap<K, V> Implements Hashable
+    Where V: Hashable
+
+    Public Method Hash(): UInt64
+        Local total = Count As UInt64
+        For key, value In Self
+            total = total.WrappingAdd(HashCombine(key.Hash(), value.Hash()))
+        End For
+        Return total
+    End Method
+End Extend
+
 // "{a: 1, b: 2}", when the keys and values can be shown.
 Extend ImmutableMap<K, V> Implements Printable
     Where K: Printable
@@ -627,7 +653,7 @@ Extend ImmutableMap<K, V> Implements Printable
     End Method
 End Extend
 
-Public Struct ImmutableSet<T> Implements Iterable<T>, Defaultable, Sendable, Equatable
+Public Struct ImmutableSet<T> Implements Iterable<T>, Defaultable, Sendable, Hashable
     Where T: Hashable
     Where T: Sendable
 
@@ -667,7 +693,7 @@ Public Struct ImmutableSet<T> Implements Iterable<T>, Defaultable, Sendable, Equ
         Return made
     End Method
 
-    // The values, in a new array, in no order to count on.
+    // The values, in a new array, in the order they go in.
     Public Method ToArray(): T[] => Items.Keys()
 
     // An empty one.
@@ -676,7 +702,10 @@ Public Struct ImmutableSet<T> Implements Iterable<T>, Defaultable, Sendable, Equ
     // Two ImmutableSets are equal when they have the same values.
     Operator ==(a: ImmutableSet<T>, b: ImmutableSet<T>): Bool => a.Items == b.Items
 
-    // The values, in no order to count on but the same each time for the same values.
+    // Equal ImmutableSets have equal hashes, whatever order their values go in.
+    Public Method Hash(): UInt64 => Items.Hash()
+
+    // The values, by their hashes, and values of one hash in the order they were added.
     Public Method Iterate(): ImmutableSetIterator<T> => ImmutableSetIterator<T>(Items.Iterate())
 End Struct
 

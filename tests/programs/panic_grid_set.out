@@ -1,0 +1,2 @@
+[[0, 0], [0, 4]]
+panic: (-1, 0) is outside a Grid 2 by 2 at panic_grid_set.fb:8:5

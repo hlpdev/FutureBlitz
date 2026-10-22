@@ -1,0 +1,7 @@
+// An ImmutableArray's Set panics at an index it hasn't got.
+Import std.core
+Import std.collections
+
+Local array = ImmutableArray<Int>.From([1, 2])
+Print(array.Set(1, 5))
+Local changed = array.Set(2, 5)

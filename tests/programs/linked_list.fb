@@ -35,7 +35,7 @@ For round = 1 To 4000
     ElseIf op == 4 && plain.Count > 0
         Local at = Next(plain.Count)
         Local node = nodes[at]
-        list.Remove(node)
+        list.RemoveNode(node)
         If node.List != Null || node.Next != Null || node.Previous != Null Then wrong += 1
         nodes.RemoveAt(at)
         plain.RemoveAt(at)
@@ -50,7 +50,7 @@ For round = 1 To 4000
         nodes.TryRemoveLast()
     ElseIf plain.Count > 0
         Local value = plain[Next(plain.Count)]
-        If list.Find(value)?.Value != value || !list.Contains(value) Then wrong += 1
+        If list.NodeOf(value)?.Value != value || !list.Contains(value) Then wrong += 1
         If list.Remove(value) != plain.Remove(value) Then wrong += 1
         nodes = nodes.Filter(Function(n: LinkedListNode<Int>) => n.List != Null)
     End If
@@ -58,7 +58,7 @@ For round = 1 To 4000
     If list.ToArray() != plain || list.Count != plain.Count Then wrong += 1
     // Going back from the last node gives the values reversed, through the same nodes.
     Local back: Int[] = []
-    Local node = list.Last
+    Local node = list.LastNode
     While node != Null
         back.Add(node.Value)
         node = node.Previous
@@ -76,15 +76,21 @@ Print(wrong)
 
 // The basics, and the empty cases.
 Local names = LinkedList<String>()
-Print(names, names.Count, names.First == Null, names.Last == Null, names.TryRemoveFirst() ?? "-",
-      names.TryRemoveLast() ?? "-", names.Contains("a"), names.Find("a") == Null)
+Print(names, names.Count, names.FirstNode == Null, names.LastNode == Null,
+      names.TryRemoveFirst() ?? "-", names.TryRemoveLast() ?? "-", names.TryFirst() ?? "-",
+      names.TryLast() ?? "-", names.Contains("a"), names.NodeOf("a") == Null,
+      names.Find(Function(n: String) => True) ?? "-")
 Local b = names.Add("b")
 Local a = names.AddFirst("a")
 names.AddAfter(b, "d")
-names.AddBefore(names.Last ?? b, "c")
+names.AddBefore(names.LastNode ?? b, "c")
 names.AddAll(["e", "a"])
-Print(names, names.Count, names.First?.Value ?? "-", names.Last?.Value ?? "-")
-Print(RefEquals(names.Find("a") ?? b, a), (names.FindLast("a")?.Previous?.Value) ?? "-")
+Print(names, names.Count, names.FirstNode?.Value ?? "-", names.LastNode?.Value ?? "-",
+      names.First(), names.Last(), names.TryFirst() ?? "-", names.TryLast() ?? "-")
+Print(RefEquals(names.NodeOf("a") ?? b, a), (names.LastNodeOf("a")?.Previous?.Value) ?? "-",
+      names.Find(Function(n: String) => n > "b") ?? "-",
+      names.FindLast(Function(n: String) => n < "d") ?? "-",
+      names.Find(Function(n: String) => n == "z") ?? "-")
 For name In names
     Print(name)
 End For
@@ -96,7 +102,7 @@ Print(names.RemoveFirst(), names.RemoveLast(), names, a.List == Null, a.Next == 
 Local copy = names.Clone()
 copy.AddFirst("z")
 Print(copy, names, copy == names, names.Clone() == names,
-      RefEquals(copy.Last ?? a, names.Last ?? a))
+      RefEquals(copy.LastNode ?? a, names.LastNode ?? a))
 names.Clear()
 Print(names, names.Count, b.List == Null, b.Next == Null,
       names == LinkedList<String>.DefaultValue())
@@ -106,7 +112,19 @@ Local long = LinkedList<Int>()
 For i = 1 To 300000
     long.AddLast(i)
 End For
-Local kept = long.Last ?? long.AddLast(0)
+Local kept = long.LastNode ?? long.AddLast(0)
 Print(long.Count, kept.Value, kept.Previous?.Value ?? -1)
 long = LinkedList<Int>()
 Print(kept.List == Null, kept.Previous == Null)
+
+// Setting a node's Value while going over the values is fine.
+Local doubled = LinkedList<Int>()
+doubled.AddAll([1, 2, 3])
+Local at = doubled.FirstNode
+For value In doubled
+    If at != Null
+        at.Value = value * 2
+        at = at.Next
+    End If
+End For
+Print(doubled)

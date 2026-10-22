@@ -1,0 +1,7 @@
+// A QuadTree whose box isn't finite panics where it's made.
+Import std.core
+Import std.collections
+
+Local zero: Float = 0
+Print(QuadTree<Int>(-3.0e38, -3.0e38, 3.0e38, 3.0e38).Count)
+Local tree = QuadTree<Int>(0, 0, 1 / zero, 10)

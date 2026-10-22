@@ -6,7 +6,8 @@
 Import std.core
 Import std.collections.array
 
-// How many keys a node holds at least, but the root: it holds at most twice that, less one.
+// One more than the fewest keys a node holds, but the root: a node holds at most twice that, less
+// one.
 Const Order = 16
 
 Class SortedNode<K, V>
@@ -47,8 +48,14 @@ Public Class SortedMap<K, V> Implements Iterable<(K, V)>, Cloneable, Defaultable
         Get => Size
     End Property
 
-    // Adds an entry, or gives an existing key its new value.
+    // Adds an entry, or gives an existing key its new value, which leaves the tree as it is.
     Public Method Add(key: K, value: V)
+        Local found = Find(key)
+        If found != Null
+            found.0.Values[found.1] = value
+            Return
+        End If
+
         If Root.IsFull()
             Local root = SortedNode<K, V>()
             root.Children.Add(Root)
@@ -91,9 +98,11 @@ Public Class SortedMap<K, V> Implements Iterable<(K, V)>, Cloneable, Defaultable
 
     Public Method Contains(key: K): Bool => Find(key) != Null
 
-    // Removes the key's entry, and tells whether there was one.
+    // Removes the key's entry, and tells whether there was one. A key that isn't there leaves the
+    // tree as it is.
     Public Method Remove(key: K): Bool
-        If !Delete(Root, key) Then Return False
+        If Find(key) == Null Then Return False
+        Delete(Root, key)
         // A root left without keys gives its place to its only child.
         If Root.Keys.Count == 0 && !Root.IsLeaf() Then Root = Root.Children[0]
         Size -= 1

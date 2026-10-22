@@ -101,3 +101,23 @@ plainOne.Add(1)
 Print(grown == plainOne, grown.Hash() == plainOne.Hash(), {grown: "one"}[plainOne])
 some.Clear()
 Print(some, some.Count)
+
+// Adding, removing, or keeping what changes nothing changes nothing, so a For ... In goes on.
+Local steady = BitSet()
+steady.AddAll([1, 5, 9])
+Local kept = steady.Clone()
+For value In steady
+    steady.AddAll(kept)
+    steady.RemoveAll(BitSet())
+    steady.KeepOnly(kept)
+    Print(value)
+End For
+
+// Values up to the largest Int.
+Local high = BitSet()
+high.Add(2147483647)
+high.Add(2147483600)
+Print(high.Count, high.ToArray(), high.First() ?? -1, high.Last() ?? -1)
+For value In high
+    Print(value)
+End For

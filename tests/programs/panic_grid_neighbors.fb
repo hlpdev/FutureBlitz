@@ -1,4 +1,4 @@
-// A Grid's Neighbors4 panics at a position outside it, where it's called.
+// A Grid's Neighbors8 panics at a position outside it, where it's called.
 Import std.core
 Import std.collections
 

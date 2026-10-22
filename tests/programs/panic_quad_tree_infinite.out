@@ -1,0 +1,2 @@
+0
+panic: a QuadTree's box has to be finite at panic_quad_tree_infinite.fb:7:14

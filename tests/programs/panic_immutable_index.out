@@ -1,2 +1,2 @@
 2
-panic: index 2 is out of range for 2 values at panic_immutable_index.fb:7:12
+panic: index 2 is out of range for 2 elements at panic_immutable_index.fb:7:12

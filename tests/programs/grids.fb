@@ -106,3 +106,37 @@ Print(cube, cube.Width, cube.Height, cube.Depth, cube.Count, cube.Neighbors6(0, 
 Local cubeCopy = cube.Clone()
 cubeCopy.Fill(0)
 Print(cubeCopy, cube == cubeCopy, cube.Clone() == cube, Grid3<Int>(0, 2, 2, 0))
+
+// Neighbors6 gives the layer before, then above, left, right, and below, then the layer after.
+Local faceWrong = 0
+For z = 0 To 1
+    For y = 0 To 3
+        For x = 0 To 2
+            Local faces: (Int, Int, Int)[] = []
+            For offset In [(0, 0, -1), (0, -1, 0), (-1, 0, 0), (1, 0, 0), (0, 1, 0), (0, 0, 1)]
+                Local at = (x + offset.0, y + offset.1, z + offset.2)
+                If volume.InBounds(at.0, at.1, at.2) Then faces.Add(at)
+            End For
+
+            If volume.Neighbors6(x, y, z) != faces Then faceWrong += 1
+        End For
+    End For
+End For
+Print(faceWrong)
+
+// Giving a cell a new value while going over the cells is fine.
+Local tiles = Grid<Int>(2, 2, 1)
+Local visited = 0
+For tile In tiles
+    tiles[1, 1] = 5
+    tiles.Fill(visited)
+    visited += 1
+End For
+Local blocks = Grid3<Int>(1, 2, 2, 1)
+For block In blocks
+    blocks[0, 1, 1] = block + 10
+End For
+Print(visited, tiles, blocks)
+
+// A Grid3 without cells along one axis has none, however big the others are.
+Print(Grid3<Int>(100000, 100000, 0, 0).Count, Grid3<Int>(0, 100000, 100000, 0).Count)

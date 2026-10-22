@@ -1,0 +1,9 @@
+// A SpatialHash panics at a NaN center, where Near is called.
+Import std.core
+Import std.collections
+
+Local zero: Float = 0
+Local hash = SpatialHash<Int>(1)
+hash.Add(1, 0, 0)
+Print(hash.Near(0, 0, 1))
+Print(hash.Near(zero / zero, 0, 1))

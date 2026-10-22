@@ -8,3 +8,9 @@ True [home, far] False
 0 []
 2 [1] [1, 2] [1, 2]
 0 []
+[home] [corner, east, home] [] [corner, home] []
+21 [] 20 21
+[a] True False
+x
+y
+0 [] 2 True

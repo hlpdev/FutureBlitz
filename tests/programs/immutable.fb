@@ -118,21 +118,46 @@ For round = 1 To 3000
 End For
 Print(wrong, ImmutableSet<Int>.From(plainSet.ToArray()) == set)
 
-// Another thread reads one while this one makes others from it.
-Function Total(values: ImmutableMap<String, Int>): Int
-    Local task = Spawn(Function(): Int
-        Local total = 0
-        For key, value In values
-            total += value
-        End For
-        Return total
-    End Function)
-    Return task.Wait()
+// Other threads read one while this one makes others from it.
+Function Totals(values: ImmutableMap<String, Int>, items: ImmutableArray<Int>,
+                set: ImmutableSet<Int>): Int
+    Local tasks: Task<Int>[] = []
+    For i = 1 To 4
+        tasks.Add(Spawn(Function(): Int
+            Local total = 0
+            For key, value In values
+                total += value
+            End For
+
+            For item In items
+                total += item
+            End For
+
+            For n In set
+                total += n
+            End For
+            Return total
+        End Function))
+    End For
+
+    // Meanwhile, new ones from the same nodes.
+    Local made = 0
+    For i = 1 To 200
+        made += values.Add("k{i}", i).Count + items.Add(i).Count + set.Add(i).Count
+    End For
+
+    Local total = 0
+    For task In tasks
+        total += task.Wait()
+    End For
+    Return total + made
 End Function
 
 Local scores = ImmutableMap<String, Int>.From({"ann": 3, "bo": 4})
 Local more = scores.Add("cy", 5)
-Print(Total(scores), Total(more), Total(more.Remove("ann")), scores.Count)
+Local numbers = ImmutableArray<Int>.From([1, 2, 3])
+Local odds = ImmutableSet<Int>.From([1, 3, 5])
+Print(Totals(scores, numbers, odds), Totals(more, numbers.Add(4), odds.Remove(5)), scores.Count)
 
 // The basics, and the empty cases.
 Local empty = ImmutableArray<String>.DefaultValue()
@@ -160,3 +185,22 @@ Print(colors.Contains("red"), colors.ToArray(), ImmutableSet<String>.DefaultValu
 For color In colors.Add("green")
     Print(color.Bytes.Count)
 End For
+
+// Keys of one hash go in the order they were added, and equal collections are equal however
+// their entries were added.
+Local first = ImmutableSet<Crowded>.From([Crowded(1), Crowded(4)])
+Local second = ImmutableSet<Crowded>.From([Crowded(4), Crowded(1)])
+Print(first == second, first.Hash() == second.Hash(), first.ToArray().Map(Function(c: Crowded) => c.N),
+      second.ToArray().Map(Function(c: Crowded) => c.N))
+
+// They can be a Map's keys.
+Local seenBefore = Map<ImmutableArray<Int>, String>()
+seenBefore[ImmutableArray<Int>.From([1, 2])] = "a"
+seenBefore[ImmutableArray<Int>.From([1]).Add(2)] = "b"
+Local byMap = Map<ImmutableMap<String, Int>, Int>()
+byMap[ImmutableMap<String, Int>.From({"x": 1, "y": 2})] = 1
+byMap[ImmutableMap<String, Int>.From({"y": 2, "x": 1})] += 1
+Local bySet = Map<ImmutableSet<Int>, Int>()
+bySet[ImmutableSet<Int>.From([3, 2])] = 5
+Print(seenBefore.Count, seenBefore[ImmutableArray<Int>.From([1, 2])], byMap.Count,
+      byMap[ImmutableMap<String, Int>.From({"x": 1, "y": 2})], bySet[ImmutableSet<Int>.From([2, 3])])

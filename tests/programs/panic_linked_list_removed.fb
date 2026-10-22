@@ -4,6 +4,6 @@ Import std.collections
 
 Local list = LinkedList<Int>()
 Local node = list.Add(1)
-list.Remove(node)
+list.RemoveNode(node)
 Print(list, node.List == Null)
 list.AddAfter(node, 2)

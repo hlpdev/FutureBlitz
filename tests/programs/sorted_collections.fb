@@ -27,6 +27,8 @@ For round = 1 To 4000
         Local keys = plain.Keys()
         keys.Sort()
         If sorted.Keys() != keys || sorted.Count != plain.Count Then wrong += 1
+        If (sorted.First()?.0 ?? -1) != (keys.Count == 0 ? -1 : keys[0]) Then wrong += 1
+        If (sorted.Last()?.0 ?? -1) != (keys.Count == 0 ? -1 : keys[keys.Count - 1]) Then wrong += 1
         For k In keys
             If sorted.Get(k) != plain.Get(k) Then wrong += 1
         End For
@@ -130,3 +132,75 @@ maybe.Add(1, Null)
 maybe.Add(2, "two")
 Print(maybe.Contains(1), maybe.Contains(3), maybe[1] ?? "null", maybe.Get(1, "fallback") ?? "null",
       maybe.Get(3, "fallback") ?? "null", maybe.Count)
+
+// A tree of four levels: keys from a wide range, grown, then shrunk, then emptied, against a Map.
+Local deep = SortedMap<Int, Int>()
+Local deepPlain = Map<Int, Int>()
+wrong = 0
+For round = 1 To 60000
+    Local key = Next(100000)
+    If round > 40000 || Next(4) == 0
+        If deep.Remove(key) != deepPlain.Remove(key) Then wrong += 1
+    Else
+        deep.Add(key, round)
+        deepPlain.Add(key, round)
+    End If
+
+    If round % 10000 == 0
+        Local deepKeys = deepPlain.Keys()
+        deepKeys.Sort()
+        If deep.Keys() != deepKeys || deep.Count != deepPlain.Count Then wrong += 1
+        If (deep.First()?.0 ?? -1) != deepKeys[0] ||
+           (deep.Last()?.0 ?? -1) != deepKeys[deepKeys.Count - 1]
+            wrong += 1
+        End If
+
+        For i = 1 To 50
+            Local probe = Next(100000)
+            Local at = deepKeys.BinarySearch(probe)
+            Local floor = at != Null ? probe : -1
+            Local ceiling = floor
+            If at == Null
+                For k In deepKeys
+                    If k < probe Then floor = k
+                    If k > probe && ceiling == -1 Then ceiling = k
+                End For
+            End If
+
+            If (deep.Floor(probe)?.0 ?? -1) != floor || (deep.Ceiling(probe)?.0 ?? -1) != ceiling
+                wrong += 1
+            End If
+
+            If deep.Get(probe, -1) != deepPlain.Get(probe, -1) Then wrong += 1
+        End For
+    End If
+End For
+
+Local left = deep.Keys()
+While left.Count > 0
+    Local at = Next(left.Count)
+    If !deep.Remove(left[at]) Then wrong += 1
+    left.RemoveAt(at)
+    If deep.Count != left.Count Then wrong += 1
+End While
+Print(deep.Count, wrong)
+
+// Giving a key a new value while going over the entries is fine, and so is removing a key that
+// isn't there: neither changes the tree.
+Local loop = SortedMap<Int, Int>()
+For i = 1 To 200
+    loop.Add(i, i)
+End For
+
+Local seen = 0
+For key, value In loop
+    loop[key] = value * 2
+    loop.Remove(1000 + key)
+    seen += value
+End For
+Print(seen, loop[50], loop.Count, SortedMap<Int, Int>.DefaultValue().Count,
+      SortedSet<Int>.DefaultValue().Count)
+Local cleared = SortedSet<Int>()
+cleared.Add(1)
+cleared.Clear()
+Print(cleared.Count, cleared.First() ?? -1, cleared)

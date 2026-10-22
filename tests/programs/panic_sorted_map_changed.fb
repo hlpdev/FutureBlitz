@@ -1,0 +1,11 @@
+// Adding to a SortedMap while a For ... In goes over it panics.
+Import std.core
+Import std.collections
+
+Local map = SortedMap<Int, String>()
+map[1] = "one"
+For key, value In map
+    map[key] = "uno"
+    Print(key, map[key])
+    map[key + 1] = "two"
+End For

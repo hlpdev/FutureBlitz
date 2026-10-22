@@ -68,6 +68,18 @@ Public Class IntervalTree<K, V> Implements Iterable<(K, K, V)>, Cloneable, Defau
         Return False
     End Method
 
+    // Whether a value equal to value is over the interval from low to high.
+    Public Method Contains(low: K, high: K, value: V): Bool
+        Where V: Equatable
+        Local node = Root
+        While node != Null
+            Local order = Compare(low, high, node)
+            If order == 0 Then Return node.Values.Contains(value)
+            node = order < 0 ? node.Left : node.Right
+        End While
+        Return False
+    End Method
+
     Public Method Clear()
         Root = Null
         Size = 0
@@ -293,6 +305,16 @@ Public Struct IntervalTreeIterator<K, V> Implements Iterator<(K, K, V)>
         End While
     End Method
 End Struct
+
+// Two IntervalTrees are equal when they have the same intervals with equal values, in the same
+// order.
+Extend IntervalTree<K, V> Implements Equatable
+    Where V: Equatable
+
+    Operator ==(a: IntervalTree<K, V>, b: IntervalTree<K, V>): Bool
+        Return a.Count == b.Count && a.ToArray() == b.ToArray()
+    End Operator
+End Extend
 
 // "[(1, 3, a), (2, 5, b)]", each interval's low and high with each of its values, in order, when
 // they can be shown.

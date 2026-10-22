@@ -1,5 +1,5 @@
 0
-{} 0 - False True [] - False
+{} 0 - False False [] - False
 {: nothing, tea: drink, team: group, ten: number, to: toward} 5 drink False True
 [tea, team, ten] [tea, team] []
 team 
@@ -14,3 +14,6 @@ True False [team, ten] 4
 2 1 True
 True 0
 0
+False 7
+True True True False 1
+False False 0

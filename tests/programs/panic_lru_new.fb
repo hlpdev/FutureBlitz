@@ -1,0 +1,6 @@
+// An LruCache made to hold nothing panics where it's made.
+Import std.core
+Import std.collections
+
+Print(LruCache<String, Int>(1).Capacity)
+Local cache = LruCache<String, Int>(0)

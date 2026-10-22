@@ -1,2 +1,2 @@
 3
-panic: index 3 is out of range for 3 values at panic_ring_buffer_index.fb:8:11
+panic: index 3 is out of range for 3 elements at panic_ring_buffer_index.fb:8:11

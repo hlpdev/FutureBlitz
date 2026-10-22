@@ -1,0 +1,2 @@
+True
+panic: (11, 1) is outside the QuadTree's bounds at panic_quad_tree_move.fb:8:1

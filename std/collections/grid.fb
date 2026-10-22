@@ -151,7 +151,12 @@ Public Class Grid3<T> Implements Iterable<T>, Cloneable
             Panic("a Grid3 can't be {width} by {height} by {depth}")
         End If
 
-        Local count = width.CheckedMultiply(height)?.CheckedMultiply(depth)
+        // One without cells along any axis has none at all.
+        Local count: Int? = 0
+        If width != 0 && height != 0 && depth != 0
+            count = width.CheckedMultiply(height)?.CheckedMultiply(depth)
+        End If
+
         If count == Null
             Panic("a Grid3 {width} by {height} by {depth} has more cells than an Int counts")
         End If

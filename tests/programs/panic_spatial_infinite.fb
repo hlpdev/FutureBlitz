@@ -1,0 +1,7 @@
+// A SpatialHash whose cells are infinite panics where it's made.
+Import std.core
+Import std.collections
+
+Local zero: Float = 0
+Print(SpatialHash<Int>(1.0e38).Count)
+Local hash = SpatialHash<Int>(1 / zero)

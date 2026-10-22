@@ -1,0 +1,2 @@
+1
+panic: an LruCache holds 1 entry or more, not 0 at panic_lru_new.fb:6:15

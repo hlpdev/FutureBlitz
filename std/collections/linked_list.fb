@@ -48,14 +48,42 @@ Public Class LinkedList<T> Implements Iterable<T>, Cloneable, Defaultable
     End Property
 
     // The first node, or Null when the list is empty.
-    Public Property First: LinkedListNode<T>?
+    Public Property FirstNode: LinkedListNode<T>?
         Get => Head
     End Property
 
     // The last node, or Null when the list is empty.
-    Public Property Last: LinkedListNode<T>?
+    Public Property LastNode: LinkedListNode<T>?
         Get => Tail
     End Property
+
+    // The first value. Panics when the list is empty.
+    @PanicsAtCaller
+    Public Method First(): T
+        Local first = Head
+        If first == Null Then Panic("the LinkedList is empty")
+        Return first.Value
+    End Method
+
+    // The last value. Panics when the list is empty.
+    @PanicsAtCaller
+    Public Method Last(): T
+        Local last = Tail
+        If last == Null Then Panic("the LinkedList is empty")
+        Return last.Value
+    End Method
+
+    // The first value, or Null when the list is empty.
+    Public Method TryFirst(): T?
+        If Size == 0 Then Return Null
+        Return First()
+    End Method
+
+    // The last value, or Null when the list is empty.
+    Public Method TryLast(): T?
+        If Size == 0 Then Return Null
+        Return Last()
+    End Method
 
     // Adds the value at the start, and gives its node.
     Public Method AddFirst(value: T): LinkedListNode<T>
@@ -125,7 +153,7 @@ Public Class LinkedList<T> Implements Iterable<T>, Cloneable, Defaultable
 
     // Takes node, which has to be in this list, out of it.
     @PanicsAtCaller
-    Public Method Remove(node: LinkedListNode<T>)
+    Public Method RemoveNode(node: LinkedListNode<T>)
         Check(node)
         Local before = node.Previous
         Local after = node.After
@@ -151,9 +179,9 @@ Public Class LinkedList<T> Implements Iterable<T>, Cloneable, Defaultable
     // Takes out the first value equal to value, and tells whether there was one.
     Public Method Remove(value: T): Bool
         Where T: Equatable
-        Local found = Find(value)
+        Local found = NodeOf(value)
         If found == Null Then Return False
-        Remove(found)
+        RemoveNode(found)
         Return True
     End Method
 
@@ -162,7 +190,7 @@ Public Class LinkedList<T> Implements Iterable<T>, Cloneable, Defaultable
     Public Method RemoveFirst(): T
         Local first = Head
         If first == Null Then Panic("the LinkedList is empty")
-        Remove(first)
+        RemoveNode(first)
         Return first.Value
     End Method
 
@@ -171,7 +199,7 @@ Public Class LinkedList<T> Implements Iterable<T>, Cloneable, Defaultable
     Public Method RemoveLast(): T
         Local last = Tail
         If last == Null Then Panic("the LinkedList is empty")
-        Remove(last)
+        RemoveNode(last)
         Return last.Value
     End Method
 
@@ -188,7 +216,7 @@ Public Class LinkedList<T> Implements Iterable<T>, Cloneable, Defaultable
     End Method
 
     // The first node whose value is equal to value, or Null.
-    Public Method Find(value: T): LinkedListNode<T>?
+    Public Method NodeOf(value: T): LinkedListNode<T>?
         Where T: Equatable
         Local node = Head
         While node != Null
@@ -199,7 +227,7 @@ Public Class LinkedList<T> Implements Iterable<T>, Cloneable, Defaultable
     End Method
 
     // The last node whose value is equal to value, or Null.
-    Public Method FindLast(value: T): LinkedListNode<T>?
+    Public Method LastNodeOf(value: T): LinkedListNode<T>?
         Where T: Equatable
         Local node = Tail
         While node != Null
@@ -211,7 +239,27 @@ Public Class LinkedList<T> Implements Iterable<T>, Cloneable, Defaultable
 
     Public Method Contains(value: T): Bool
         Where T: Equatable
-        Return Find(value) != Null
+        Return NodeOf(value) != Null
+    End Method
+
+    // The first value that test says is the one, or Null.
+    Public Method Find(test: Func(T): Bool): T?
+        Local node = Head
+        While node != Null
+            If test(node.Value) Then Return node.Value
+            node = node.After
+        End While
+        Return Null
+    End Method
+
+    // The last value that test says is the one, or Null.
+    Public Method FindLast(test: Func(T): Bool): T?
+        Local node = Tail
+        While node != Null
+            If test(node.Value) Then Return node.Value
+            node = node.Previous
+        End While
+        Return Null
     End Method
 
     // Takes every value out. Their nodes are no longer in a list.

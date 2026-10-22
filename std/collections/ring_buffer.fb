@@ -168,7 +168,7 @@ Public Class RingBuffer<T> Implements Iterable<T>, Cloneable
     @PanicsAtCaller
     Method SlotOf(index: Int): Int
         If index < 0 || index >= Size
-            Panic("index {index} is out of range for {Size} value{Size == 1 ? "" : "s"}")
+            Panic("index {index} is out of range for {Size} element{Size == 1 ? "" : "s"}")
         End If
 
         Return (Head + index) % Slots.Count

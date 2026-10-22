@@ -40,11 +40,12 @@ End Function
 
 Function Near(points: Point[], at: Point, radius: Float): Int[]
     Local found: Int[] = []
+    Local most: Double = radius
     For p In points
-        Local dx = p.X - at.X
-        Local dy = p.Y - at.Y
-        Local dz = p.Z - at.Z
-        If dx * dx + dy * dy + dz * dz <= radius * radius Then found.Add(p.Id)
+        Local dx: Double = p.X - at.X
+        Local dy: Double = p.Y - at.Y
+        Local dz: Double = p.Z - at.Z
+        If dx * dx + dy * dy + dz * dz <= most * most Then found.Add(p.Id)
     End For
     Return Sorted(found)
 End Function
@@ -113,6 +114,32 @@ For round = 1 To 3000
     If hash.Count != flat.Count || quad.Count != flat.Count || octree.Count != deep.Count
         wrong += 1
     End If
+
+    If round % 300 == 0
+        // Each holds every point, in For ... In, ToArray, Contains, and a Clone.
+        Local ids = Sorted(flat.Map(Function(q: Point) => q.Id))
+        Local seenHash: Int[] = []
+        For value In hash
+            seenHash.Add(value)
+        End For
+
+        If Sorted(seenHash) != ids || Sorted(hash.ToArray()) != ids Then wrong += 1
+        If Sorted(quad.ToArray()) != ids || Sorted(hash.Clone().ToArray()) != ids Then wrong += 1
+        If Sorted(quad.Clone().ToArray()) != ids || Sorted(octree.Clone().ToArray()) != ids
+            wrong += 1
+        End If
+
+        For q In flat
+            If !hash.Contains(q.Id, q.X, q.Y) || !quad.Contains(q.Id, q.X, q.Y) Then wrong += 1
+            If hash.Contains(q.Id + 1, q.X, q.Y) && !InBox(flat, q, q).Contains(q.Id + 1)
+                wrong += 1
+            End If
+        End For
+
+        For q In deep
+            If !octree.Contains(q.Id, q.X, q.Y, q.Z) Then wrong += 1
+        End For
+    End If
 End For
 Print(wrong)
 
@@ -156,3 +183,34 @@ Function Sorted2(values: String[]): String[]
     sorted.Sort()
     Return sorted
 End Function
+
+// Far points, an infinite radius, and an infinite center: distances don't overflow.
+Local zero: Float = 0
+Local infinity = 1 / zero
+Local spread = SpatialHash<String>(1.0e18)
+spread.Add("corner", 1.9e19, 1.9e19)
+spread.Add("home", 0, 0)
+spread.Add("east", infinity, 0)
+Print(spread.Near(0, 0, 2.0e19), Sorted2(spread.Near(0, 0, infinity)), spread.Near(infinity, 0, 1),
+      Sorted2(spread.Near(infinity, 0, infinity)), spread.Near(0, 0, zero / zero))
+Local wide = QuadTree<String>(-3.0e38, -3.0e38, 3.0e38, 3.0e38)
+For i = 1 To 20
+    wide.Add("p{i}", (i As Float) * 1.0e37, (i As Float) * -1.0e37)
+End For
+wide.Add("corner", 1.9e19, 1.9e19)
+Print(wide.Count, wide.Near(0, 0, 2.0e19), wide.Query(0, -3.0e38, 3.0e38, 0).Count,
+      wide.Near(0, 0, infinity).Count)
+Local space = Octree<String>(-1, -1, -1, 1, 1, 1)
+space.Add("a", 1, 1, 1)
+Print(space.Near(0, 0, 0, infinity), space.Contains("a", 1, 1, 1), space.Contains("a", 0, 0, 0))
+
+// The basics of For ... In, Clone, and Clear.
+Local named = QuadTree<String>(0, 0, 10, 10)
+named.Add("x", 1, 1)
+named.Add("y", 2, 2)
+Local namedCopy = named.Clone()
+named.Clear()
+For value In namedCopy
+    Print(value)
+End For
+Print(named.Count, named.ToArray(), namedCopy.Count, namedCopy.Contains("x", 1, 1))

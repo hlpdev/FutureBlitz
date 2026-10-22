@@ -111,3 +111,12 @@ Print(deep.Remove(long), deep.Count)
 deep.Add(long, 4)
 deep = Trie<Int>()
 Print(deep.Count)
+
+// An empty Trie has no prefix, "" included, and Get gives a fallback for a key it hasn't got.
+Local fresh = Trie<Int>()
+Print(fresh.HasPrefix(""), fresh.Get("a", 7))
+fresh["ab"] = 1
+Print(fresh.HasPrefix(""), fresh.HasPrefix("a"), fresh.HasPrefix("ab"), fresh.HasPrefix("abc"),
+      fresh.Get("ab", 7))
+fresh.Remove("ab")
+Print(fresh.HasPrefix(""), fresh.HasPrefix("a"), fresh.Count)

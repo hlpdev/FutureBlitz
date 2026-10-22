@@ -1,0 +1,2 @@
+[1]
+panic: a point's coordinates can't be NaN at panic_spatial_near_nan.fb:9:7

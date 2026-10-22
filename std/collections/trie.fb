@@ -78,6 +78,13 @@ Public Class Trie<V> Implements Iterable<(String, V)>, Cloneable, Defaultable
         Return node.Value.Expect("a Trie's key has a value")
     End Method
 
+    // The key's value, or fallback when it isn't there.
+    Public Method Get(key: String, fallback: V): V
+        Local node = Find(key)
+        If node == Null || node.Key == Null Then Return fallback
+        Return node.Value.Expect("a Trie's key has a value")
+    End Method
+
     // The key's value. A key that isn't there panics.
     @PanicsAtCaller
     Operator [](key: String): V
@@ -91,7 +98,10 @@ Public Class Trie<V> Implements Iterable<(String, V)>, Cloneable, Defaultable
         Add(key, value)
     End Operator
 
-    Public Method Contains(key: String): Bool => Find(key)?.Key != Null
+    Public Method Contains(key: String): Bool
+        Local node = Find(key)
+        Return node != Null && node.Key != Null
+    End Method
 
     // Removes the key's entry, and tells whether there was one.
     Public Method Remove(key: String): Bool
@@ -128,8 +138,13 @@ Public Class Trie<V> Implements Iterable<(String, V)>, Cloneable, Defaultable
         Changes += 1
     End Method
 
-    // Whether a key starts with prefix, as every key starts with "".
-    Public Method HasPrefix(prefix: String): Bool => Find(prefix) != Null
+    // Whether a key starts with prefix, as every key starts with "", so an empty Trie has none.
+    // Every node but the root is on the way to a key, since Remove takes out what only its key
+    // needed.
+    Public Method HasPrefix(prefix: String): Bool
+        Local node = Find(prefix)
+        Return node != Null && (node.Key != Null || node.Children.Count > 0)
+    End Method
 
     // The keys that start with prefix, in order, in a new array.
     Public Method KeysWithPrefix(prefix: String): String[]
@@ -199,8 +214,8 @@ Public Class Trie<V> Implements Iterable<(String, V)>, Cloneable, Defaultable
 
 End Class
 
-// The keys in order: a stack of the nodes on the way down, each with the child it last went into,
-// or -1 before its own key.
+// The keys in order: a stack of the nodes on the way down, each with the next of its children to
+// go into, or -1 before its own key.
 Public Struct TrieIterator<V> Implements Iterator<(String, V)>
     Field Owner: Trie<V>
     Field Nodes: TrieNode<V>[]

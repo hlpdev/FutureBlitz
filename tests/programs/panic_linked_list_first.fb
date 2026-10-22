@@ -1,0 +1,7 @@
+// First on an empty LinkedList panics where it's called.
+Import std.core
+Import std.collections
+
+Local list = LinkedList<Int>()
+Print(list.TryFirst() ?? -1)
+Print(list.First())

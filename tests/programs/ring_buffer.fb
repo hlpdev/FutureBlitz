@@ -68,3 +68,14 @@ Local one = RingBuffer<Int>(1)
 one.Add(1)
 one.Add(2)
 Print(one, one.RemoveLast(), one.Count)
+
+// Giving a value a new value while going over them is fine, and the Try twins give what's there.
+Local tens = RingBuffer<Int>(3)
+tens.AddAll([1, 2, 3, 4])
+Local i = 0
+For value In tens
+    tens[i] = value * 10
+    i += 1
+End For
+Print(tens, tens.TryFirst() ?? -1, tens.TryLast() ?? -1, tens.TryRemoveFirst() ?? -1,
+      tens.TryRemoveLast() ?? -1, tens)

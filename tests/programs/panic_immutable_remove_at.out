@@ -1,0 +1,2 @@
+[2]
+panic: index -1 is out of range for 2 elements at panic_immutable_remove_at.fb:7:15

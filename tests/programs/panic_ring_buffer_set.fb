@@ -1,0 +1,9 @@
+// A RingBuffer's []= panics at an index it hasn't got, where it's set.
+Import std.core
+Import std.collections
+
+Local ring = RingBuffer<Int>(3)
+ring.Add(1)
+ring[0] = 2
+Print(ring)
+ring[1] = 3
