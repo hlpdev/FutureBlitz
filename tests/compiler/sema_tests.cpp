@@ -6171,6 +6171,27 @@ TEST_CASE("a generic, conditional, or Final default runs as written, on an Inter
           errors_t{ "w.Total: String doesn't implement Numeric, which 'Total' needs for T" });
     CHECK(errors_of(std::format("{}Local w = Words().Total()", source)) ==
           errors_t{ "Total: Words has no member named 'Total'" });
+    // So a type that can't meet them can have a Method of its own of that name, of any type,
+    // while one whose type parameters could still meet them can't.
+    CHECK(probe(std::format("{}Class Joined Implements Source<String>\n"
+                            "    Method Take(): String => \"w\"\n"
+                            "    Method Total(): String => \"t\"\n"
+                            "End Class\n"
+                            "Class Counted Implements Source<String>\n"
+                            "    Method Take(): String => \"w\"\n"
+                            "    Method Total(): Int => 2\n"
+                            "End Class\n"
+                            "Local p = Joined().Total()",
+                            source)) == "String");
+    CHECK(errors_of(std::format("{}Class Box<T> Implements Source<T>\n"
+                                "    Field Items: T[] = []\n"
+                                "    Method Take(): T => Items[0]\n"
+                                "    Method Total(): T => Items[0]\n"
+                                "End Class",
+                                source)) ==
+          errors_t{ "Source<T>: Box<T>'s 'Total' would take the place of Source<T>'s conditional "
+                    "default, which is what a call through Source<T> runs; give it another "
+                    "name" });
 
     // What a call through the Interface runs can't be replaced or overridden.
     CHECK(errors_of(std::format("{}Class Own Implements Source<Int>\n"
@@ -6189,6 +6210,32 @@ TEST_CASE("a generic, conditional, or Final default runs as written, on an Inter
           errors_t{ "Source<Int>: Own's 'With' would take the place of Source<Int32>'s generic "
                     "default, which is what a call through Source<Int32> runs; give it another "
                     "name" });
+    // So can't one that takes what a generic one does with some types for its own, which a call
+    // on the type would pick, in the Class or one extending it.
+    CHECK(errors_of(std::format("{}Class Own Implements Source<Int>\n"
+                                "    Method Take(): Int => 1\n"
+                                "    Method With(u: String): (Int, String) => (2, u)\n"
+                                "End Class",
+                                source)) ==
+          errors_t{ "Source<Int>: Own's 'With' would take the place of Source<Int32>'s generic "
+                    "default, which is what a call through Source<Int32> runs; give it another "
+                    "name" });
+    CHECK(errors_of(std::format("{}Class More Extends Counter\n"
+                                "    Method With(u: Bool): (Int, Bool) => (0, u)\n"
+                                "End Class\n"
+                                "Class Most Extends Counter\n"
+                                "    Method With<V>(v: V): (Int, V) => (0, v)\n"
+                                "End Class\n"
+                                "Class Other Extends Counter\n"
+                                "    Method With(a: Int, b: Int): Int => a\n"
+                                "End Class",
+                                source)) ==
+          errors_t{
+              "With: 'With' is Source<T>'s generic default, which a call through Source<T> runs "
+              "as written, so it can't be overridden; give this one another name",
+              "With: 'With' is Source<T>'s generic default, which a call through Source<T> runs "
+              "as written, so it can't be overridden; give this one another name",
+          });
     CHECK(errors_of(std::format("{}Class More Extends Counter\n"
                                 "    Override Method Total(): Int => 0\n"
                                 "End Class",

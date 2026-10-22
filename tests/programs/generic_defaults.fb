@@ -128,3 +128,19 @@ End Class
 
 Local known: Sized<Int> = Known(3)
 Print("relisted", known.Size(), Known(3).Sum(), Again(2).Chain(Countdown(1)).ToArray())
+
+// A type that can't meet a conditional default's Where lines, like Sum's T: Numeric, doesn't have
+// it, so it can have a Method of that name of its own.
+Class Tokens Implements Iterator<String>
+    Field Left: Int = 2
+
+    Method Next(): String?
+        If Left == 0 Then Return Null
+        Left -= 1
+        Return "t"
+    End Method
+
+    Method Sum(): String => "joined"
+End Class
+
+Print("own", Tokens().Sum(), Tokens().Count())

@@ -4128,11 +4128,20 @@ private:
         }
 
         // A call through the Interface's value runs a default outside its table as written, so
-        // a Method of the type's own in its place would be one that call never reaches.
-        if (outside_table(required) && !constraint_only(definition_of(interface))) {
+        // a Method of the type's own in its place would be one that call never reaches. A
+        // conditional default whose Where lines the type can't meet isn't the type's, so the
+        // type's own Method takes no place.
+        if (outside_table(required) && !constraint_only(definition_of(interface)) &&
+            implemented_bounds(required, interface, type)) {
             const auto own = std::ranges::find_if(methods, [&](const symbol_id_t id) {
-                return symbol(id).default_method != required_id &&
-                       matches_required(symbol(id), required, interface, type, false);
+                const symbol_t& method = symbol(id);
+                return method.default_method != required_id &&
+                       (matches_required(method, required, interface, type, false) ||
+                        takes_instance_of(
+                            method, type, required, required.type_parameters,
+                            [&](const type_id_t written) {
+                                return as_implemented(written, interface, type);
+                            }));
             });
             if (own != methods.end()) {
                 error(span,
@@ -4162,16 +4171,17 @@ private:
             return std::nullopt;
         }
 
+        // A conditional default whose Where lines this type can't meet isn't the type's, so a
+        // Method of the type's own of its name is just another Method.
+        if (!required.modifiers.is_abstract && !implemented_bounds(required, interface, type)) {
+            return std::nullopt;
+        }
+
         // A Method the type has, or inherits, that takes the default's parameters holds its
         // place, so it's one that doesn't match, not one the default could go beside.
         const bool held = std::ranges::any_of(methods, [&](const symbol_id_t id) {
             return matches_required(symbol(id), required, interface, type, false);
         });
-        // A conditional default whose Where lines this type can't meet isn't the type's.
-        if (!required.modifiers.is_abstract && !held &&
-            !implemented_bounds(required, interface, type)) {
-            return std::nullopt;
-        }
 
         if (!required.modifiers.is_abstract && !held) {
             check_default_loops(type, required_id, interface, span);
@@ -4409,6 +4419,47 @@ private:
                (is_class(given) ||
                 (is_struct(given) && m_analysis.boxed_iterator != type_id_t::INVALID)) &&
                implements(given, wanted);
+    }
+
+    /// Whether a Method of `self` takes what a generic one does with some types for `own`, the
+    /// generic one's own type parameters, as Map(change: Func(Int32): Int32) takes what
+    /// Iterator<Int32>'s Map<U> does with Int32 for U, so a call that fits the generic one could
+    /// pick it instead. `seen` gives the generic one's parameter types as `self` has them.
+    template <typename Seen>
+    [[nodiscard]] bool takes_instance_of(const symbol_t& method, const type_id_t self,
+                                         const symbol_t& generic,
+                                         const std::vector<type_id_t>& own, const Seen& seen) {
+        if (own.empty() || method.parameters.size() != generic.parameters.size()) {
+            return false;
+        }
+
+        std::vector<type_id_t> wanted;
+        std::vector<type_id_t> given;
+        std::vector<std::optional<type_id_t>> arguments(own.size());
+        for (std::size_t i = 0; i < generic.parameters.size(); ++i) {
+            const symbol_t& parameter = symbol(generic.parameters[i]);
+            const symbol_t& taken = symbol(method.parameters[i]);
+            if (parameter.by_ref != taken.by_ref) {
+                return false;
+            }
+
+            wanted.push_back(seen(parameter.type));
+            given.push_back(member_type(self, method, taken.type));
+            unify(wanted.back(), given.back(), own, arguments);
+        }
+
+        std::vector<type_id_t> from;
+        std::vector<type_id_t> to;
+        for (std::size_t i = 0; i < own.size(); ++i) {
+            if (arguments[i]) {
+                from.push_back(own[i]);
+                to.push_back(*arguments[i]);
+            }
+        }
+
+        return std::ranges::equal(wanted, given, {}, [&](const type_id_t type) {
+            return substitute(type, from, to);
+        });
     }
 
     /// A Method's own type parameters. One that an Extend of T[] adds takes T first, which is
@@ -4727,6 +4778,17 @@ private:
         }
     }
 
+    /// A Method in the place of a copy of an Interface's default outside its table, which the
+    /// Class it extends has.
+    void report_outside_override(const symbol_t& member, const symbol_t& copy) {
+        const symbol_t& given = symbol(*copy.default_method);
+        error(member.span,
+              "'{}' is {}'s {} default, which a call through {} runs as written, so it can't be "
+              "overridden; give this one another name",
+              member.name, shown_name(given.owner), outside_kind(given), shown_name(given.owner))
+            .with_label(copy.span, "declared here");
+    }
+
     /// A member against what a Class inherits: the name of a field its code can use is taken,
     /// and a Method with the parameters of an inherited one overrides it, which takes Override.
     void check_inherited(const symbol_id_t id, const type_id_t base) {
@@ -4791,6 +4853,25 @@ private:
         std::erase_if(alike, [&](const symbol_id_t other) {
             return !can_use(symbol(other), member.span, member.owner);
         });
+        // A Method that takes what a generic default outside the table does, with some types for
+        // its own, would be what a call on the Class picks in its place.
+        if (alike.empty() && is_method) {
+            const auto covered = std::ranges::find_if(inherited, [&](const symbol_id_t other) {
+                const symbol_t& copy = symbol(other);
+                return copy.kind == symbol_kind_t::METHOD && copy.default_method &&
+                       outside_table(symbol(*copy.default_method)) &&
+                       can_use(copy, member.span, member.owner) &&
+                       takes_instance_of(member, member.owner, copy, own_type_parameters(copy),
+                                         [&](const type_id_t written) {
+                                             return member_type(base, copy, written);
+                                         });
+            });
+            if (covered != inherited.end()) {
+                report_outside_override(member, symbol(*covered));
+                return;
+            }
+        }
+
         if (alike.empty()) {
             if (member.modifiers.is_override) {
                 error(member.span, "'{}' has Override, but {} has no {} like it", member.name,
@@ -4827,13 +4908,7 @@ private:
 
         // A default outside an Interface's table is what a call through the Interface runs.
         if (original.default_method && outside_table(symbol(*original.default_method))) {
-            const symbol_t& given = symbol(*original.default_method);
-            error(member.span,
-                  "'{}' is {}'s {} default, which a call through {} runs as written, so it can't "
-                  "be overridden; give this one another name",
-                  member.name, shown_name(given.owner), outside_kind(given),
-                  shown_name(given.owner))
-                .with_label(original.span, "declared here");
+            report_outside_override(member, original);
             return;
         }
 
