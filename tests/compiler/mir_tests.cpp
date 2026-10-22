@@ -1299,18 +1299,22 @@ TEST_CASE("assigning a tuple's elements makes the whole tuple first", "[mir]") {
           "    _0 a: String\n"
           "    _1 b: String\n"
           "    _2: (String, String)\n"
+          "    _3: String\n"
+          "    _4: String\n"
           "bb0:\n"
           "    _0 = \"x\"\n"
           "    _1 = \"y\"\n"
           "    retain _1\n"
           "    retain _0\n"
           "    _2 = (_1, _0)\n"
-          "    retain _2.0\n"
+          "    _3 = _2.0\n"
+          "    retain _3\n"
           "    release _0\n"
-          "    _0 = _2.0\n"
-          "    retain _2.1\n"
+          "    _0 = _3\n"
+          "    _4 = _2.1\n"
+          "    retain _4\n"
           "    release _1\n"
-          "    _1 = _2.1\n"
+          "    _1 = _4\n"
           "    release _2\n"
           "    release _1\n"
           "    release _0\n"
@@ -2707,6 +2711,34 @@ TEST_CASE("an array type has tables only once its arrays go where an Interface i
                        "    std.core.iterator.Iterable<String> 0: std.collections.array."
                        "String[].Iterate() as std.core.iterator.Iterator<String>\n"));
     CHECK(!mir.contains("array Bool[]"));
+}
+
+TEST_CASE("an assignment copies a value read through a reference before it lets go of the old one",
+          "[mir]") {
+    const std::string mir = lower_text("Import std.core\n"
+                                       "Class Node\n"
+                                       "    Field Next: Node?\n"
+                                       "    Field Items: Node[] = []\n"
+                                       "End Class\n"
+                                       "Global first: Node? = Null\n"
+                                       "Function Step(node: Node)\n"
+                                       "    node.Next = node.Items[0]\n"
+                                       "    node.Items = node.Items[0].Items\n"
+                                       "    first = node.Next\n"
+                                       "End Function");
+    INFO(mir);
+    CHECK(mir.contains("    _2 = _0.Items[_1] As Node?\n"
+                       "    retain _2\n"
+                       "    release _0.Next\n"
+                       "    _0.Next = _2\n"));
+    CHECK(mir.contains("    _4 = _0.Items[_3].Items\n"
+                       "    retain _4\n"
+                       "    release _0.Items\n"
+                       "    _0.Items = _4\n"));
+    CHECK(mir.contains("    _5 = _0.Next\n"
+                       "    retain _5\n"
+                       "    release @first\n"
+                       "    @first = _5\n"));
 }
 
 TEST_CASE("SortUnstable sorts in place, making no array", "[mir]") {

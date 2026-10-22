@@ -1,0 +1,41 @@
+// An assignment reads its value before it lets go of the old one: a value read through the old
+// one is still there, and so is a Global's value that the old one's Destroy() changes.
+Import std.core
+
+Class Box
+    Field Name: String
+    Field Items: Box[] = []
+
+    New(name: String)
+        Name = name
+    End New
+
+    Method Destroy()
+        Print("{Name} goes")
+        If Name == "old" Then latest = Box("made by old's Destroy")
+    End Method
+End Class
+
+Global latest: Box? = Null
+
+// The value is read through the object the assignment lets go of, which held it alone.
+Local outer = Box("outer")
+outer.Items.Add(Box("inner"))
+outer.Items[0].Items.Add(Box("innermost"))
+outer = outer.Items[0]
+Print(outer.Name, outer.Items.Count)
+outer = outer.Items[0]
+Print(outer.Name, outer.Items.Count)
+
+// The same, through a field of the object that gets the value.
+Local holder = Box("holder")
+holder.Items.Add(Box("first"))
+holder.Items[0].Items.Add(Box("second"))
+holder.Items = holder.Items[0].Items
+Print(holder.Items[0].Name)
+
+// A Global that the old value's Destroy() changes gives the value it had.
+Local kept: Box? = Box("old")
+latest = Box("first latest")
+kept = latest
+Print(kept?.Name ?? "none", latest?.Name ?? "none")

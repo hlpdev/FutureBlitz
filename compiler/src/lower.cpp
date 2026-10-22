@@ -2809,14 +2809,26 @@ private:
         emit(assign_t{ .target = local, .value = use_t{ .value = value } });
     }
 
-    /// A new value for a variable that already has one; its old references are released.
+    /// A new value for a variable that already has one; its old references are released. A value
+    /// read from a part of something, or a Global, is copied out first, since releasing the old
+    /// value can let go of what it was read through, as in `Root = Root.Children[0]`, or run a
+    /// Destroy() that changes it.
     void store(const place_t& target, const operand_t& value) {
-        if (has_references(type_of(value))) {
-            take(value);
-            emit(release_t{ .target = target });
+        if (!has_references(type_of(value))) {
+            emit(assign_t{ .target = target, .value = use_t{ .value = value } });
+            return;
         }
 
-        emit(assign_t{ .target = target, .value = use_t{ .value = value } });
+        operand_t kept = value;
+        if (const auto* place = std::get_if<place_t>(&value);
+            place != nullptr &&
+            (!place->steps.empty() || !std::holds_alternative<local_id_t>(place->root))) {
+            kept = temporary(use_t{ .value = value }, type_of(value));
+        }
+
+        take(kept);
+        emit(release_t{ .target = target });
+        emit(assign_t{ .target = target, .value = use_t{ .value = kept } });
     }
 
     /// Releases the temporaries made since `mark`, newest first. Code that nothing reaches just
