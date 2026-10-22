@@ -3099,6 +3099,20 @@ TEST_CASE("Operator mistakes", "[sema]") {
           errors_t{ "+: Operators can only be declared in a Struct or Class" });
 }
 
+TEST_CASE("a range is std's Range<T> of the integers a For loop with its bounds counts", "[sema]") {
+    CHECK(probe("Import std.core\nLocal r = 0 Until 10") == "Range<Int32>");
+    CHECK(probe("Import std.core\nLocal n: Int64 = 5\nLocal r = 0 To n Step 2") == "Range<Int64>");
+    CHECK(probe("Import std.core\nLocal r: Range<UInt8> = 0 Until 3") == "Range<UInt8>");
+    CHECK(errors_of("Import std.core\nLocal a = 0.5 To 2.5") ==
+          errors_t{ "0.5: a range counts with integers, not Float32" });
+    CHECK(errors_of("Import std.core\nLocal b = 1 To 10 Step 0") ==
+          errors_t{ "0: Step can't be 0" });
+    CHECK(errors_of("Import std.core\nLocal c: UInt32 = 3\nLocal d = c To 9 Step -1") ==
+          errors_t{ "-1: -1 doesn't fit in UInt32" });
+    CHECK(errors_of("Import std.core\nLocal f = 0 Until 10 Until 20") ==
+          errors_t{ "0 Until 10: a range counts with integers, not Range<Int32>" });
+}
+
 TEST_CASE("Operator [] and Operator []= index a type's values, as Methods of Self", "[sema]") {
     constexpr std::string_view grid = "Struct Grid\n"
                                       "    Field Cells: Int[]\n"

@@ -307,6 +307,12 @@ public:
             m_analysis.boxed_iterator = boxed;
         }
 
+        if (const type_id_t range = std_type("std.core", "Range");
+            range != type_id_t::INVALID && is_struct(range) &&
+            m_analysis.types.get(range).parameters.size() == 1) {
+            m_range = range;
+        }
+
         // Globals and Consts come first, so any declaration's types can use them.
         each_item([this](const stmt_id_t id) { declare_global_item(id); });
         each_item([this](const stmt_id_t id) { resolve_global_type(id); });
@@ -580,6 +586,8 @@ private:
     type_id_t m_cell = type_id_t::INVALID;
     /// Map<K, V>, from std/collections/map.fb, which a Map literal makes.
     type_id_t m_map = type_id_t::INVALID;
+    /// std's Range<T>, which "0 Until 10" makes, from std/core/range.fb.
+    type_id_t m_range = type_id_t::INVALID;
 
     /// The type parameters that names in types can refer to here: a generic Struct's or Class's,
     /// then a generic Method's or Function's.
@@ -11243,6 +11251,12 @@ private:
             if (slice->to) {
                 changed_in(*slice->to, names);
             }
+        } else if (const auto* range = std::get_if<range_expr_t>(&node)) {
+            changed_in(range->start, names);
+            changed_in(range->end, names);
+            if (range->step) {
+                changed_in(*range->step, names);
+            }
         } else if (const auto* test = std::get_if<is_expr_t>(&node)) {
             changed_in(test->value, names);
         } else if (const auto* lambda = std::get_if<lambda_expr_t>(&node)) {
@@ -20199,6 +20213,79 @@ private:
     /// "a[from..to]": a new T[] of the elements from `from` up to `to`, without the one at `to`,
     /// from a T[] or a fixed array of one dimension. The bounds are checked when the program
     /// runs, and known ones here too.
+    /// "start To end Step step": std's Range<T> of the integers "For i = start To end Step step"
+    /// counts, T being the start's type, or the end's when the start is a literal, or the T of
+    /// the Range<T> expected.
+    type_id_t check_expr(const expr_id_t id, const range_expr_t& node, const type_id_t hint) {
+        std::vector<expr_id_t> parts{ node.start, node.end };
+        if (node.step) {
+            parts.push_back(*node.step);
+        }
+
+        const std::vector<std::string_view> fields{ "Current", "Step", "Left", "More" };
+        const auto named = [&](const symbol_id_t member, const std::size_t i) {
+            return symbol(member).kind == symbol_kind_t::FIELD && symbol(member).name == fields[i];
+        };
+        if (m_range == type_id_t::INVALID) {
+            error(span_of(id), "a range needs std's Range, from std/core/range.fb");
+            check_alone(parts);
+            return type_id_t::INVALID;
+        }
+
+        std::vector<symbol_id_t> declared;
+        std::ranges::copy_if(
+            symbol(m_declared_types.at(m_range)).members, std::back_inserter(declared),
+            [&](const symbol_id_t member) { return symbol(member).kind == symbol_kind_t::FIELD; });
+        bool shaped = declared.size() == fields.size();
+        for (std::size_t i = 0; shaped && i < fields.size(); ++i) {
+            shaped = named(declared[i], i);
+        }
+
+        if (!shaped) {
+            error(span_of(id), "a range needs std's Range to have the Fields Current, Step, Left, "
+                               "and More");
+            check_alone(parts);
+            return type_id_t::INVALID;
+        }
+
+        type_id_t element = type_id_t::INVALID;
+        const type_id_t wanted = hint == type_id_t::INVALID ? hint : non_null(hint);
+        if (wanted != type_id_t::INVALID && wanted != type_id_t::NONE &&
+            m_analysis.types.get(wanted).generic == m_range) {
+            element = m_analysis.types.get(wanted).arguments.front();
+            check(node.start, element);
+            check(node.end, element);
+            expect_type(node.start, element);
+        } else if (is_flexible(node.start) && !is_flexible(node.end)) {
+            // As a For loop does, a literal start takes the end's type.
+            element = check(node.start, check(node.end, type_id_t::NONE));
+        } else {
+            element = check(node.start, type_id_t::NONE);
+            check(node.end, element);
+        }
+
+        if (element != type_id_t::INVALID && !is_integer(element)) {
+            error(span_of(node.start), "a range counts with integers, not {}", shown_name(element));
+            element = type_id_t::INVALID;
+        }
+
+        expect_type(node.end, element);
+        if (node.step) {
+            const expr_id_t step = *node.step;
+            check(step, element);
+            const std::optional<const_value_t>& value = info(step).value;
+            if (expect_type(step, element) && value && is_zero(*value)) {
+                error(span_of(step), "Step can't be 0");
+            }
+        }
+
+        if (element == type_id_t::INVALID) {
+            return type_id_t::INVALID;
+        }
+
+        return m_analysis.types.instance(m_range, { element });
+    }
+
     type_id_t check_expr(const expr_id_t id, const slice_expr_t& node, type_id_t /*hint*/) {
         const type_id_t object = check(node.object, type_id_t::NONE);
         std::vector<expr_id_t> bounds;

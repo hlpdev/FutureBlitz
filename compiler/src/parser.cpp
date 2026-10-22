@@ -24,19 +24,21 @@ namespace {
 /// by the structure of the parser instead.
 namespace precedence {
 constexpr std::uint32_t ternary = 1;
-constexpr std::uint32_t coalesce = 2;
-constexpr std::uint32_t logical_or = 3;
-constexpr std::uint32_t logical_and = 4;
-constexpr std::uint32_t equality = 5;
-constexpr std::uint32_t comparison = 6;
-constexpr std::uint32_t type_test = 7;
-constexpr std::uint32_t bit_or = 8;
-constexpr std::uint32_t bit_xor = 9;
-constexpr std::uint32_t bit_and = 10;
-constexpr std::uint32_t shift = 11;
-constexpr std::uint32_t additive = 12;
-constexpr std::uint32_t multiplicative = 13;
-constexpr std::uint32_t power = 14;
+// To and Until bind looser than every binary operator, so a range's ends are whole expressions.
+constexpr std::uint32_t range = 2;
+constexpr std::uint32_t coalesce = 3;
+constexpr std::uint32_t logical_or = 4;
+constexpr std::uint32_t logical_and = 5;
+constexpr std::uint32_t equality = 6;
+constexpr std::uint32_t comparison = 7;
+constexpr std::uint32_t type_test = 8;
+constexpr std::uint32_t bit_or = 9;
+constexpr std::uint32_t bit_xor = 10;
+constexpr std::uint32_t bit_and = 11;
+constexpr std::uint32_t shift = 12;
+constexpr std::uint32_t additive = 13;
+constexpr std::uint32_t multiplicative = 14;
+constexpr std::uint32_t power = 15;
 } // namespace precedence
 
 /// A binary operator found at the current token.
@@ -152,6 +154,9 @@ private:
     std::uint32_t m_previous_end = 0; // where the last consumed token ends
     /// Open brackets and string interpolations. While it's above 0, NEWLINE tokens are skipped.
     std::uint32_t m_bracket_depth = 0;
+    /// The bracket depth of a For loop's bounds or a Case's values while they're parsed, where
+    /// To and Until end a bound instead of making a range. Inside brackets they make ranges.
+    std::optional<std::uint32_t> m_counting;
     bool m_line_failed = false; // the current line already has an error
     /// How many expressions and blocks the one being parsed is inside, which is how deep the
     /// compiler's passes go into it. Past max_nesting it's an error, not a crash, and the rest of
@@ -2182,6 +2187,8 @@ private:
         }
 
         expect(token_kind_t::EQUAL);
+        // Here To and Until end the bounds, as they do in a Case's values.
+        const std::optional<std::uint32_t> outer = std::exchange(m_counting, m_bracket_depth);
         const expr_id_t from = parse_expression();
         // To includes the end; Until stops before it.
         bool inclusive = true;
@@ -2199,6 +2206,7 @@ private:
             step = parse_expression();
         }
 
+        m_counting = outer;
         finish_line(start);
         block_t body = parse_body(keyword);
         // A label comes first, then Parallel.
@@ -2292,6 +2300,7 @@ private:
 
             // Values and inclusive ranges, separated by commas: "Case 1, 3 To 5".
             std::vector<case_value_t> values;
+            const std::optional<std::uint32_t> outer = std::exchange(m_counting, m_bracket_depth);
             while (true) {
                 const expr_id_t value = parse_expression();
                 std::optional<expr_id_t> range_end;
@@ -2307,6 +2316,7 @@ private:
                 skip_continuation_newlines();
             }
 
+            m_counting = outer;
             finish_line(line);
             cases.push_back({ .values = std::move(values), .body = parse_block() });
         }
@@ -2499,6 +2509,9 @@ private:
             // the other a type.
             if (kind == token_kind_t::QUESTION && min_precedence <= precedence::ternary) {
                 left = parse_ternary(left);
+            } else if ((kind == token_kind_t::KW_TO || kind == token_kind_t::KW_UNTIL) &&
+                       min_precedence <= precedence::range && m_counting != m_bracket_depth) {
+                left = parse_range(left);
             } else if ((kind == token_kind_t::KW_AS || kind == token_kind_t::KW_IS) &&
                        min_precedence <= precedence::type_test) {
                 left = parse_type_test(left);
@@ -2967,6 +2980,27 @@ private:
                         call_expr_t{ .callee = callee, .arguments = std::move(arguments) });
     }
 
+    /// "start To end", "start Until end", and either with "Step step": a range, whose ends and
+    /// step are whole expressions but for another range.
+    expr_id_t parse_range(const expr_id_t start) {
+        const bool inclusive = advance().kind == token_kind_t::KW_TO;
+        skip_continuation_newlines();
+        const expr_id_t end = parse_expression(precedence::range + 1);
+        std::optional<expr_id_t> step;
+        if (at(token_kind_t::IDENTIFIER) && text(peek()) == "Step") {
+            advance();
+            skip_continuation_newlines();
+            step = parse_expression(precedence::range + 1);
+        }
+
+        return add_expr(span_from(span_of(start).begin), range_expr_t{
+                                                             .start = start,
+                                                             .end = end,
+                                                             .inclusive = inclusive,
+                                                             .step = step,
+                                                         });
+    }
+
     /// "a[i]", "grid[x, y]", or a slice, "a[from..to]", where either can be left out.
     expr_id_t parse_index(const expr_id_t object) {
         const token_t& open = advance();
@@ -3158,6 +3192,7 @@ private:
         }
 
         const std::uint32_t depth = std::exchange(m_bracket_depth, 0);
+        const std::optional<std::uint32_t> counting = std::exchange(m_counting, std::nullopt);
         if (!at_line_end()) {
             report_expected("'=>' or the end of the line");
             skip_rest_of_line();
@@ -3167,6 +3202,7 @@ private:
         m_line_failed = false;
         lambda.body = parse_body(keyword);
         m_bracket_depth = depth;
+        m_counting = counting;
         return add_expr(span_from(begin), std::move(lambda));
     }
 

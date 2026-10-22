@@ -471,6 +471,17 @@ private:
         return out;
     }
 
+    /// "(until (int 0) n step (int 2))"
+    [[nodiscard]] node_t build(const range_expr_t& node) const {
+        node_t out = list(node.inclusive ? "to" : "until", { expr(node.start), expr(node.end) });
+        if (node.step) {
+            out.items.push_back(atom("step"));
+            out.items.push_back(expr(*node.step));
+        }
+
+        return out;
+    }
+
     [[nodiscard]] node_t build(const cast_expr_t& node) const {
         return list(node.checked ? "as?" : "as", { expr(node.value), type(node.type) });
     }

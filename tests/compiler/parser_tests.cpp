@@ -240,6 +240,24 @@ TEST_CASE("loops", "[parser]") {
     CHECK(parse_text("For i, e In enemies\nEnd For").dump == "(for-in i e enemies (block))");
 }
 
+TEST_CASE("ranges are values, outside a For loop's own bounds", "[parser]") {
+    // Looser than every binary operator, so each end is a whole expression.
+    CHECK(parse_text("Local r = 0 Until n - 1").dump ==
+          "(local r = (until (int 0) (- n (int 1))))");
+    CHECK(parse_text("Local r = 1 To count ?? 0 Step 2").dump ==
+          "(local r = (to (int 1) (?? count (int 0)) step (int 2)))");
+    CHECK(parse_text("Local r = (0 Until 10).Sum()").dump ==
+          "(local r = (call (. (until (int 0) (int 10)) Sum)))");
+    CHECK(parse_text("For i In 0 Until 10\nEnd For").dump ==
+          "(for-in i (until (int 0) (int 10)) (block))");
+    // A For loop's own To and Until are its bounds, and inside brackets they make ranges again.
+    CHECK(parse_text("For i = c ? 0 : 1 To 9\nEnd For").dump ==
+          "(for i (? c (int 0) (int 1)) to (int 9) (block))");
+    CHECK(parse_text("For i = Sum(0 To 3) To 9\nEnd For").dump ==
+          "(for i (call Sum (to (int 0) (int 3))) to (int 9) (block))");
+    CHECK(parse_text("Select n\nCase 1 To 3\nEnd Select").errors.empty());
+}
+
 TEST_CASE("labels, Break, and Continue", "[parser]") {
     const parsed_t parsed = parse_text("Outer: For y = 0 Until h\n"
                                        "    For x = 0 Until w\n"

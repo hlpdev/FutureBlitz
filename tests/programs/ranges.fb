@@ -1,0 +1,66 @@
+// Ranges are values: 0 Until 10, 1 To 10, and Step, stored, passed, and gone over, giving what a
+// For loop with the same bounds counts, with the adapters, through an Iterator<T> value and an
+// Iterable<T> parameter too.
+Import std.core
+
+Function Counted(first: Int, last: Int, step: Int): Int[]
+    Local values: Int[] = []
+    For i = first To last Step step
+        values.Add(i)
+    End For
+
+    Return values
+End Function
+
+Function Total<S: Iterable<Int>>(numbers: S): Int
+    Local total = 0
+    For n In numbers
+        total += n
+    End For
+
+    Return total
+End Function
+
+Global calls: String[] = []
+
+Function Noted(name: String, value: Int): Int
+    calls.Add(name)
+    Return value
+End Function
+
+Print((1 To 5).ToArray(), (0 Until 5).ToArray(), (10 To 0 Step -3).ToArray())
+Print((0 Until 0).ToArray(), (5 To 1).ToArray(), (1 To 1).ToArray())
+Assert((10 To 0 Step -3).ToArray() == Counted(10, 0, -3))
+
+// A literal start takes the end's type, and a range never steps past its end.
+Local big: Int64 = 5000000000
+Print((big - 2 To big).ToArray())
+Local top: UInt8 = 255
+Print((top - 2 To top).ToArray(), (0 To top Step 100).ToArray())
+Print((-128 As Int8 To 127 As Int8 Step 127).ToArray())
+
+// It's a value: stored, copied, passed, and compared.
+Local evens = 0 Until 10 Step 2
+Local copy = evens
+Print(evens.ToArray(), copy.Sum(), evens == copy, evens == (0 Until 10 Step 2))
+Print((0 Until 0) == (5 To 1), Total(evens), Total(1 To 4))
+
+// A loop goes over it as a For loop counts.
+For n In 3 Until 6
+    Write(n, "")
+End For
+
+Print()
+
+// The start, end, and step are worked out once each, in that order.
+Local made = Noted("start", 1) To Noted("end", 9) Step Noted("step", 4)
+Print(made.ToArray(), calls)
+
+// The adapters, on the range and through a value.
+Local squares = (1 To 10).Map(Function(n: Int) => n * n)
+Print(squares.Filter(Function(n: Int) => n % 2 == 0).ToArray())
+Local value: Iterator<Int> = (1 To 6).Map(Function(n: Int) => n + 1)
+Print(value.Skip(2).ToArray(), (1 To 100).StepBy(25).ToArray(), (1 To 5).Product())
+
+Local direction = -1
+Print((3 To 1 Step direction).ToArray())

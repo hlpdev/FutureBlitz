@@ -4472,6 +4472,121 @@ private:
         return lower_place(id);
     }
 
+    /// "start To end Step step": a Range<T> of the values "For i = start To end Step step"
+    /// counts: its first value, its step, how many steps come after that value, and whether it
+    /// has values at all; an empty range is a Range's zero. The start, end, and step are
+    /// evaluated once, in that order, and a Step only known when the program runs is checked
+    /// then, as a For loop's is.
+    operand_t lower_expr(const expr_id_t id, const range_expr_t& node) {
+        const span_t span = span_of(id);
+        const type_id_t type = concrete(expr_type(id));
+        const type_id_t element = types().get(type).arguments.front();
+        const operand_t first = stable(lower_value(node.start));
+        const operand_t end = stable(lower_value(node.end));
+        const operand_t step = node.step ? stable(lower_value(*node.step)) : one(element);
+
+        std::optional<bool> up;
+        operand_t up_at_run_time;
+        if (const auto* constant = std::get_if<const_value_t>(&step)) {
+            up = !is_negative(*constant);
+        } else {
+            const operand_t is_zero = compare(binary_op_t::EQUAL, step, zero(element), span);
+            const block_id_t fail = new_block();
+            const block_id_t ok = new_block();
+            terminate(branch_t{ .condition = is_zero, .if_true = fail, .if_false = ok });
+            start(fail);
+            terminate(panic_t{ .message = "Step can't be 0", .span = span_of(*node.step) });
+            start(ok);
+            if (is_signed(element)) {
+                up_at_run_time = compare(binary_op_t::GREATER, step, zero(element), span);
+            } else {
+                up = true;
+            }
+        }
+
+        const auto by_direction = [&](const auto& make) {
+            if (up) {
+                return make(*up);
+            }
+
+            const operand_t if_up = make(true);
+            const operand_t if_down = make(false);
+            return choose(up_at_run_time, if_up, if_down, span);
+        };
+
+        // Whether the first value is in the range, as a For loop asks before its first pass.
+        const operand_t more = by_direction([&](const bool going_up) {
+            binary_op_t op = node.inclusive ? binary_op_t::LESS_EQUAL : binary_op_t::LESS;
+            if (!going_up) {
+                op = node.inclusive ? binary_op_t::GREATER_EQUAL : binary_op_t::GREATER;
+            }
+
+            return compare(op, first, end, span);
+        });
+
+        const local_id_t made = add_local(type);
+        const block_id_t filled = new_block();
+        const block_id_t empty = new_block();
+        const block_id_t joined = new_block();
+        terminate(branch_t{ .condition = more, .if_true = filled, .if_false = empty });
+        start(empty);
+        emit(assign_t{ .target = made, .value = zero_t{ .type = type } });
+        jump(joined);
+
+        // How many steps come after the first value: the distance to the end, counted without
+        // overflowing, over the step's size.
+        start(filled);
+        const auto steps_left = [&](const bool going_up) {
+            const type_id_t distance_type = unsigned_of(element);
+            const operand_t distance = going_up ? wrapping(binary_op_t::SUBTRACT, end, first, span)
+                                                : wrapping(binary_op_t::SUBTRACT, first, end, span);
+            operand_t steps = cast(distance, distance_type, span);
+            if (!node.inclusive) {
+                steps = wrapping(binary_op_t::SUBTRACT, steps, one(distance_type), span);
+            }
+
+            const operand_t size =
+                cast(going_up ? step : wrapping(binary_op_t::SUBTRACT, zero(element), step, span),
+                     distance_type, span);
+            const operand_t count = temporary(
+                binary_t{ .op = binary_op_t::DIVIDE, .left = steps, .right = size, .span = span },
+                distance_type);
+            return cast(count, type_id_t::UINT64, span);
+        };
+
+        // With the direction only known when the program runs, a branch picks the count.
+        operand_t left;
+        if (up) {
+            left = steps_left(*up);
+        } else {
+            const local_id_t chosen = add_local(type_id_t::UINT64);
+            const block_id_t counting_up = new_block();
+            const block_id_t counting_down = new_block();
+            const block_id_t counted = new_block();
+            terminate(branch_t{
+                .condition = up_at_run_time,
+                .if_true = counting_up,
+                .if_false = counting_down,
+            });
+            start(counting_up);
+            emit(assign_t{ .target = chosen, .value = use_t{ .value = steps_left(true) } });
+            jump(counted);
+            start(counting_down);
+            emit(assign_t{ .target = chosen, .value = use_t{ .value = steps_left(false) } });
+            jump(counted);
+            start(counted);
+            left = place_t{ chosen };
+        }
+
+        emit(assign_t{
+            .target = made,
+            .value = aggregate_t{ .type = type, .fields = { first, step, left, make_bool(true) } },
+        });
+        jump(joined);
+        start(joined);
+        return place_t{ made };
+    }
+
     /// "a[from..to]": a new T[] of the elements from `from` up to `to`, each with its own
     /// references. The bounds are checked first; out of range, the program panics with them.
     operand_t lower_expr(const expr_id_t id, const slice_expr_t& node) {

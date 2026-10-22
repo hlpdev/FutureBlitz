@@ -619,7 +619,8 @@ TEST_CASE("a program without imports loads only std/core and std.collections.map
     // std/core/'s initialize first, each after what it imports, and the main module last.
     CHECK(names == std::vector<std::string>{ "std.core.interfaces", "std.core.assert",
                                              "std.core.error", "std.core.iterator",
-                                             "std.core.print", "std.collections.map", "test" });
+                                             "std.core.print", "std.core.range",
+                                             "std.collections.map", "test" });
 }
 
 TEST_CASE("a program links the bundled C libraries of the runtime functions it calls", "[driver]") {

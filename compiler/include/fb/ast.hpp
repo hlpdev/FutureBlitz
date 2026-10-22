@@ -195,6 +195,17 @@ struct slice_expr_t {
     std::optional<expr_id_t> to;
 };
 
+/// "start Until end" or "start To end", with "Step step" or without: a value of std.core's
+/// Range<T>, whose values are the ones "For i = start To end Step step" counts.
+struct range_expr_t {
+    expr_id_t start;
+    expr_id_t end;
+    /// True for To, which includes `end`; False for Until, which stops before it.
+    bool inclusive;
+    /// nullopt without a Step, which counts by 1.
+    std::optional<expr_id_t> step;
+};
+
 /// "value As Type", or "value As? Type" when `checked`: a downcast that gives Null when it
 /// fails, which isn't supported in M1.
 struct cast_expr_t {
@@ -277,9 +288,9 @@ struct await_expr_t {
 using expr_node_t =
     std::variant<error_expr_t, integer_expr_t, decimal_expr_t, character_expr_t, string_expr_t,
                  bool_expr_t, null_expr_t, name_expr_t, unary_expr_t, binary_expr_t, ternary_expr_t,
-                 call_expr_t, member_expr_t, index_expr_t, slice_expr_t, cast_expr_t, is_expr_t,
-                 self_expr_t, super_expr_t, array_expr_t, map_expr_t, try_expr_t, tuple_expr_t,
-                 lambda_expr_t, await_expr_t>;
+                 call_expr_t, member_expr_t, index_expr_t, slice_expr_t, range_expr_t, cast_expr_t,
+                 is_expr_t, self_expr_t, super_expr_t, array_expr_t, map_expr_t, try_expr_t,
+                 tuple_expr_t, lambda_expr_t, await_expr_t>;
 
 struct expr_t {
     span_t span;
