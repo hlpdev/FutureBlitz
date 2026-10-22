@@ -148,7 +148,7 @@ Public Class Deque<T> Implements Iterable<T>, Cloneable, Defaultable
         Return copy
     End Method
 
-    // The values from first to last. Changing the Deque while going over them panics.
+    // The values from first to last. Adding or removing a value while going over them panics.
     Public Method Iterate(): DequeIterator<T> => DequeIterator<T>(Self, Front.Count, 0, Changes)
 
     @PanicsAtCaller

@@ -40,7 +40,9 @@ Public Class PriorityQueue<T> Implements Iterable<T>, Cloneable
     // Adds each of the values, putting the heap in order once, in time that grows with the
     // count.
     Public Method AddAll(values: Iterable<T>)
-        Items.AddAll(values.Iterate().ToArray())
+        Local added = values.Iterate().ToArray()
+        If added.Count == 0 Then Return
+        Items.AddAll(added)
         For at = Items.Count / 2 - 1 To 0 Step -1
             SiftDown(at)
         End For

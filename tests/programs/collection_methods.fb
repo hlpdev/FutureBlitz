@@ -61,3 +61,13 @@ Local holes = Stack<Int?>()
 holes.Push(Null)
 Local top = holes.TryPeek()
 Print(top != Null, (top ?? 1) ?? 0, holes.TryPop() != Null, holes.TryPop() == Null)
+
+// Adding nothing changes nothing, so a For ... In goes on.
+Local idle = PriorityQueue<Int>()
+idle.Add(1)
+Local nothing: Int[] = []
+For value In idle
+    idle.AddAll(nothing)
+    idle.AddAll(Stack<Int>())
+    Print(value)
+End For
