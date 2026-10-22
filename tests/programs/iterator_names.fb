@@ -1,0 +1,43 @@
+// What an Iterator's defaults give a type doesn't hide a top-level Function that takes a call's
+// arguments when none of them does, so an iterator's code calls the program's own Max and Sum by
+// name. Where a default takes them, the call is the default's, as it is for a type's own Methods.
+Import std.core
+
+Function Sum(values: Int[]): Int
+    Local total = 0
+    For v In values
+        total += v
+    End For
+
+    Return total
+End Function
+
+Function Max(a: Int, b: Int): Int
+    If a > b Then Return a
+    Return b
+End Function
+
+Function Count(): Int => -1
+
+Class Totals Implements Iterator<Int>
+    Field Rows: Int[][]
+    Field At: Int
+
+    New(rows: Int[][])
+        Rows = rows
+    End New
+
+    Method Next(): Int?
+        If At >= Rows.Count Then Return Null
+        At += 1
+        Return Max(Sum(Rows[At - 1]), 0)
+    End Method
+
+    Method Left(): Int => Count()
+End Class
+
+For t In Totals([[1, 2], [-5, 1], [3]])
+    Print(t)
+End For
+
+Print(Totals([[1], [2]]).Left(), Count())

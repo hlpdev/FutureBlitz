@@ -17590,7 +17590,7 @@ private:
 
         bool value = false;
         m_dropped.clear();
-        const std::vector<symbol_id_t> candidates = lookup_callee(node.callee, value);
+        const std::vector<symbol_id_t> candidates = lookup_callee(node, value);
         const std::vector<dropped_t> dropped = std::exchange(m_dropped, {});
         if (value) {
             return check_invoke(id, node);
@@ -18819,7 +18819,8 @@ private:
 
     /// The functions a call's callee names. A callee that's a value, like a variable holding a
     /// function value, is checked as one, and `value` is set.
-    std::vector<symbol_id_t> lookup_callee(const expr_id_t callee, bool& value) {
+    std::vector<symbol_id_t> lookup_callee(const call_expr_t& call, bool& value) {
+        const expr_id_t callee = call.callee;
         if (const auto* member = std::get_if<member_expr_t>(&m_ast.get(callee).node);
             member != nullptr &&
             std::holds_alternative<super_expr_t>(m_ast.get(member->object).node)) {
@@ -18936,6 +18937,14 @@ private:
                 return {};
             }
 
+            // What Interfaces' defaults give the type doesn't hide a top-level Function that
+            // takes the arguments when none of them does, like Iterator<T>'s Max beside a
+            // program's Max(a, b).
+            if (const std::optional<std::vector<symbol_id_t>> outer =
+                    outer_functions(call, name->name, members)) {
+                return callable(callee, *outer, name->name, value);
+            }
+
             if (!check_has_self(symbol(members.front()), span) ||
                 !capture_self_for(symbol(members.front()), span)) {
                 return {};
@@ -18951,6 +18960,31 @@ private:
         }
 
         return callable(callee, found, name->name, value);
+    }
+
+    /// The top-level Functions a call by name means, where the type's Methods of the name are all
+    /// what Interfaces' defaults give it and none takes the call's arguments, while a Function
+    /// does. nullopt where the type's Methods are what it means.
+    std::optional<std::vector<symbol_id_t>> outer_functions(const call_expr_t& call,
+                                                           const std::string_view name,
+                                                           const std::vector<symbol_id_t>& members) {
+        const auto given = [&](const symbol_id_t id) {
+            return symbol(id).default_method.has_value() || is_interface(symbol(id).owner);
+        };
+        const auto fits = [&](const symbol_id_t id) {
+            return quietly([&] { return rank(id, call); }) != match_t::NONE;
+        };
+        if (!std::ranges::all_of(members, given) || std::ranges::any_of(members, fits)) {
+            return std::nullopt;
+        }
+
+        std::vector<symbol_id_t> found = quietly([&] { return top_level(name, span_of(call.callee)); });
+        if (found.empty() || symbol(found.front()).kind != symbol_kind_t::FUNCTION ||
+            !std::ranges::any_of(found, fits)) {
+            return std::nullopt;
+        }
+
+        return top_level(name, span_of(call.callee));
     }
 
     /// The rest of lookup_callee() for a callee that names top-level declarations, `found`,

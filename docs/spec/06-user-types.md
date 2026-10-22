@@ -203,6 +203,9 @@ End Class
   `Final`. A generic, conditional, or Final default isn't in the Interface's table: a call
   through its value runs the default with the value for Self, so a type can't have a Method of
   its own in its place, and a Class can't override the copy it has.
+- What Interfaces' defaults give a type doesn't hide a top-level Function from the type's code
+  when none of them takes a call's arguments and the Function does: an iterator's Next can call
+  the program's `Max(a, b)` by name, though Iterator<T> gives it a Max.
 
 ## Properties
 
