@@ -139,6 +139,23 @@ a top-level Function where none of its Interfaces' defaults of the name fits; re
 names only what told_arguments() can't tell, or a bound's failure; the parser's begin_of()
 (`m_grouped`) starts an expression made with a parenthesized one at its parenthesis; Step takes a
 whole expression; Range has an Operator ==; a Const Function's For ... In is refused at Next.
+Its second review's: lower_function() decides a copy's error slot by the copy (lower_body()'s
+`copy`), and give_error_variable() passes one in to_string(), hash_of(), and reflection's Call;
+hide_in_place() lets a Method of a conditional default's types hide it where the instance doesn't
+have it, which then hides nothing, check_instance_defaults() skips what !instance_has(), and
+implementation_of() decides a default the type can't have before its matches; takes_instance_of()
+checks the generic default's Where lines on its own type parameters; drop_clashing_extension()
+refuses an unseen Extend's Method in a generic default's place, covers_outside_default() an
+extending Interface's, and check_default_places() another Interface's default (any listing order);
+implemented_bounds() keeps a bound whose Interface has the Method's own type parameters, which
+told_type() lets told_arguments() infer from (Flatten on Iterator<Stack<Int>>); check_expansion()
+reads each call's full type arguments (`m_call_arguments`) and gives runs_copy() the copy owner's
+instance for Self; lowering stops at an instance whose type nests past too_deep() and sets
+`mir_module_t::error` (`mir_error_t`), which codegen's build() and the CLI report; lower_place()
+lowers a member without a symbol, like `s.Bytes[0]`, as a value; the parser's begin_of() starts
+binary, ternary, and tuple-element spans too; Range's == is in a conditional Extend, and Range<T>
+is only Where T: Numeric; report_uninferred() writes every type argument in its advice and says
+nothing more after a count error.
 
 Done: M5 (modules, packages, `project.toml`, FFI, bindgen), planned 2026-10-18 and finished
 2026-10-20, in 11 steps, then a review of each project (compiler, runtime, cli, std).
