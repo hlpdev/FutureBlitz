@@ -449,6 +449,15 @@ int compile_command(const options_t& options) {
 
     // Lowering needs a program without errors, so the MIR and LLVM IR views only print from here.
     const mir_module_t module = lower(compilation.ast, compilation.analysis);
+    if (const std::optional<mir_error_t>& error = module.error) {
+        const diagnostic_t diagnostic{ .message = error->message, .span = error->span };
+        console_t::print_error(
+            render_pretty(diagnostic, compilation.sources, { .color = console.err().color }));
+        console.error(checking ? std::format("{} has 1 error", name)
+                               : std::format("couldn't build {} because of 1 error", name));
+        return compile_errors_exit_code;
+    }
+
     if (wants(options, stage_t::MIR)) {
         print_view(console, options, stage_t::MIR, dump(module, style));
     }

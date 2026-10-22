@@ -519,6 +519,13 @@ struct mir_class_t {
 /// "std.collections.map.Map<Int32, String>.Add(Int32, String)", so two modules' names stay apart,
 /// and the few that still come out alike, as module x's Class y's and module x.y's do, are
 /// numbered: "x.y.Z()#2".
+/// Why lowering stopped: code that would need a larger instance of generic code each time it
+/// runs, without end, which analysis didn't catch, at the code that makes the instance.
+struct mir_error_t {
+    std::string message;
+    span_t span;
+};
+
 struct mir_module_t {
     std::vector<global_t> globals;
     std::vector<mir_class_t> classes;
@@ -533,6 +540,8 @@ struct mir_module_t {
     /// The main module's name, which a message showing two types whose names are the same puts
     /// before the main module's.
     std::string main_module;
+    /// Set when lowering stopped, and the module can't be built.
+    std::optional<mir_error_t> error;
 };
 
 /// The module as text, which `fb --show mir` prints.

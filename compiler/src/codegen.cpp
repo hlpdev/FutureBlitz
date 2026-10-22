@@ -111,6 +111,14 @@ public:
 
     /// Builds the module, verifies it, and optimizes it in release builds.
     std::expected<void, std::string> build() {
+        // Lowering stopped where code needs a larger instance each time it runs.
+        if (const std::optional<mir_error_t>& error = m_mir.error) {
+            const source_file_t& file = m_sources.get(error->span.file);
+            const location_t at = file.location_of(error->span.begin, column_unit_t::CODEPOINT);
+            return std::unexpected(std::format("{}:{}:{}: {}", file.path(), at.line + 1,
+                                               at.column + 1, error->message));
+        }
+
         if (std::expected<void, std::string> machine = create_machine(); !machine) {
             return machine;
         }

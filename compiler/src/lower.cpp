@@ -729,6 +729,12 @@ private:
         }
 
         const symbol_t& symbol = m_analysis.symbol(id);
+        const bool grown = std::ranges::any_of(
+            arguments, [&](const type_id_t argument) { return too_deep(argument); });
+        if (grown) {
+            stop_growing(std::format("'{}'", symbol.name), symbol.span);
+        }
+
         const std::vector<type_id_t> parameters = type_parameters_of(symbol);
         const bool sets_up = symbol.kind == symbol_kind_t::CONSTRUCTOR && is_class(symbol.type);
         const auto function = static_cast<function_id_t>(m_module.functions.size());
@@ -742,8 +748,47 @@ private:
             .is_async = symbol.modifiers.is_async,
         });
         m_instances.emplace(key, function);
-        m_pending_instances.push_back(std::move(key));
+        if (!grown) {
+            m_pending_instances.push_back(std::move(key));
+        }
+
         return function;
+    }
+
+    /// Whether a type nests deeper than any program needs, as one that grows without end does:
+    /// analysis says where that happens, and this only stops lowering where it didn't.
+    [[nodiscard]] bool too_deep(const type_id_t type, const std::size_t depth = 0) const {
+        static constexpr std::size_t max_depth = 48;
+        if (depth > max_depth) {
+            return true;
+        }
+
+        const type_t& info = types().get(type);
+        const auto deeper = [&](const type_id_t part) {
+            return part != type_id_t::INVALID && too_deep(part, depth + 1);
+        };
+        return std::ranges::any_of(info.arguments, deeper) || deeper(info.inner) ||
+               std::ranges::any_of(info.fields,
+                                   [&](const field_t& field) {
+                                       return info.kind == type_kind_t::TUPLE &&
+                                              deeper(field.type);
+                                   }) ||
+               (info.kind == type_kind_t::FUNCTION &&
+                std::ranges::any_of(info.parameters, deeper));
+    }
+
+    /// Records, once, that code needs a larger instance each time, where it's lowered.
+    void stop_growing(const std::string_view what, const span_t fallback) {
+        if (m_module.error) {
+            return;
+        }
+
+        m_module.error = mir_error_t{
+            .message = std::format("{} needs a larger instance each time it runs here, without "
+                                   "end",
+                                   what),
+            .span = m_span.value_or(fallback),
+        };
     }
 
     /// Like "Box<Int32>.Map<String>(Func(Int32): String)": the function's name, with the type
@@ -895,6 +940,11 @@ private:
             return;
         }
 
+        if (too_deep(type)) {
+            stop_growing(types().name(definition_of(type)), {});
+            return;
+        }
+
         m_used_classes.push_back(type);
         if (const type_id_t base = types().get(type).base; base != type_id_t::INVALID) {
             use_class(base);
@@ -911,9 +961,10 @@ private:
         std::size_t instances = 0;
         std::size_t generated = 0;
         std::size_t thunks = 0;
-        while (classes < m_used_classes.size() || functions < m_library_functions.size() ||
+        while (!m_module.error &&
+               (classes < m_used_classes.size() || functions < m_library_functions.size() ||
                closures < m_closures.size() || instances < m_pending_instances.size() ||
-               generated < m_generated.size() || thunks < m_table_thunks.size()) {
+               generated < m_generated.size() || thunks < m_table_thunks.size())) {
             if (classes < m_used_classes.size()) {
                 add_class(m_used_classes[classes++]);
                 continue;

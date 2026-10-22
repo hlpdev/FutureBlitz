@@ -2530,3 +2530,45 @@ TEST_CASE("functions and Globals that come out with one name are numbered", "[mi
     CHECK(mir.contains("global x.y.count: Int32 = 2\n"));
     CHECK(mir.contains("global x.y.count#2: Int32 = 1\n"));
 }
+
+TEST_CASE("lowering stops where code needs a larger instance each time, which analysis missed",
+          "[mir]") {
+    // A Holder of the Interface's Self, which runs the default again: through a Static default,
+    // and through a table default that only tests for one, which still makes its table.
+    const auto stopped = [](const std::string_view text) {
+        const fb::compilation_t compilation = fb::compile("test.fb", std::string(text));
+        REQUIRE(compilation.diagnostics.diagnostics().empty());
+        const fb::mir_module_t module = fb::lower(compilation.ast, compilation.analysis);
+        REQUIRE(module.error);
+        return std::string(compilation.sources.get(module.error->span.file)
+                               .slice(module.error->span)) +
+               ": " + module.error->message;
+    };
+    constexpr std::string_view holder = "Class Holder<S: Shown> Implements Shown\n"
+                                        "    Field Inner: S\n"
+                                        "    New(inner: S)\n"
+                                        "        Inner = inner\n"
+                                        "    End New\n"
+                                        "    Method Show(): Int => 1\n"
+                                        "End Class\n"
+                                        "Class Leaf Implements Shown\n"
+                                        "    Method Show(): Int => 0\n"
+                                        "End Class\n";
+    CHECK(stopped(std::string("Interface Shown\n"
+                              "    Method Show(): Int\n"
+                              "    Static Method Depth(n: Int): Int\n"
+                              "        If n == 0 Then Return 0\n"
+                              "        Return Holder<Self>.Depth(n - 1) + 1\n"
+                              "    End Method\n"
+                              "End Interface\n") +
+                  std::string(holder) + "Local d = Leaf.Depth(3)") ==
+          "Holder<Self>.Depth(n - 1): 'Depth' needs a larger instance each time it runs here, "
+          "without end");
+    CHECK(stopped(std::string("Interface Shown\n"
+                              "    Method Show(): Int\n"
+                              "    Method Probe(other: Shown): Bool => other Is Holder<Self>\n"
+                              "End Interface\n") +
+                  std::string(holder) + "Local p = Leaf().Probe(Leaf())") ==
+          "other Is Holder<Self>: Holder<S> needs a larger instance each time it runs here, "
+          "without end");
+}

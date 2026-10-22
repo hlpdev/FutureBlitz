@@ -33,7 +33,9 @@ Max<Float>(1, 2.5)     // explicit
   call gives it for Self, and a Class's copies of the defaults in the Interface's table run when
   one of its objects is made, so a default that wraps Self in a Class implementing the
   Interface, `Holder<Self>(Self)`, is an error where the wrapped one runs it again: a call of it
-  on the Holder, or the Holder's table holding it.
+  on the Holder, or the Holder's table holding it. One the compiler can't follow there, like a
+  Static default, or one that only tests for a Holder, which still makes its table, is an error
+  where the compiler makes the instance that keeps growing.
 
 ## Inference
 
