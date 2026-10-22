@@ -16861,8 +16861,9 @@ private:
         // A T?'s own Methods are on it, Null or not.
         if (is_nullable(type) && (member.text == "Expect" || member.text == "OrElse")) {
             std::vector<symbol_id_t> methods;
-            std::ranges::copy_if(nullable_methods(type), std::back_inserter(methods),
-                                 [&](const symbol_id_t id) { return symbol(id).name == member.text; });
+            std::ranges::copy_if(
+                nullable_methods(type), std::back_inserter(methods),
+                [&](const symbol_id_t id) { return symbol(id).name == member.text; });
             return methods;
         }
 

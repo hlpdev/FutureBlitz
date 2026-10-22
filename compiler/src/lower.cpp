@@ -2192,12 +2192,11 @@ private:
         }
 
         // An array where an Interface is expected needs its type's tables.
-        if (const type_id_t source = types().get(from).kind == type_kind_t::NULLABLE
-                                         ? types().get(from).inner
-                                         : from;
-            is_array(source) && is_interface(types().get(type).kind == type_kind_t::NULLABLE
-                                                 ? types().get(type).inner
-                                                 : type)) {
+        if (const type_id_t source =
+                types().get(from).kind == type_kind_t::NULLABLE ? types().get(from).inner : from;
+            is_array(source) &&
+            is_interface(types().get(type).kind == type_kind_t::NULLABLE ? types().get(type).inner
+                                                                         : type)) {
             use_array_tables(source);
         }
 
@@ -4714,8 +4713,7 @@ private:
         if (m_analysis.expr(id).count) {
             const symbol_id_t self = expect(m_analysis.expr(id).symbol);
             return array_size(
-                place_t{ m_locals.contains(self) ? m_locals.at(self) : expect(m_self) },
-                node.name);
+                place_t{ m_locals.contains(self) ? m_locals.at(self) : expect(m_self) }, node.name);
         }
 
         return variable_place(id);

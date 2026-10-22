@@ -1877,12 +1877,10 @@ TEST_CASE("a T[]'s Count and Methods", "[sema]") {
     const std::string imports = "Import std.core\nImport std.collections\n";
     CHECK(probe(imports + "Local items: Iterable<Int> = [1]\nLocal x = items") ==
           "Iterable<Int32>");
-    CHECK(probe(imports +
-                "Function First<T>(values: Iterable<T>): T? => values.Iterate().First()\n"
-                "Local x = First([\"a\"])") == "String?");
-    CHECK(probe(imports +
-                "Function First<T>(values: Iterable<T>): T? => values.Iterate().First()\n"
-                "Local x = First(Set<Int>())") == "Int32?");
+    CHECK(probe(imports + "Function First<T>(values: Iterable<T>): T? => values.Iterate().First()\n"
+                          "Local x = First([\"a\"])") == "String?");
+    CHECK(probe(imports + "Function First<T>(values: Iterable<T>): T? => values.Iterate().First()\n"
+                          "Local x = First(Set<Int>())") == "Int32?");
     CHECK(errors_of(imports + "Local items: Iterable<Int> = [\"a\"]") ==
           errors_t{ "[\"a\"]: expected Iterable<Int32>, found String[]" });
     CHECK(errors_of("Import std.core\nLocal items: Printable = [Function() => 1]") ==
@@ -3131,12 +3129,11 @@ TEST_CASE("a T? has Expect and OrElse, which give its value", "[sema]") {
     CHECK(errors_of(std::format("{}Local a = Find().OrElse(7)\n"
                                 "Local b = Find().Expect(1)\n"
                                 "Local c = Find().Other()",
-                                found)) ==
-          errors_t{
-              "7: expected Func(): Int32, found Int32",
-              "1: expected String, found Int32",
-              "Other: Int32? has no member named 'Other'",
-          });
+                                found)) == errors_t{
+                                               "7: expected Func(): Int32, found Int32",
+                                               "1: expected String, found Int32",
+                                               "Other: Int32? has no member named 'Other'",
+                                           });
 }
 
 TEST_CASE("arrays are Cloneable, and the numbers, Bool, String, and Enums Defaultable", "[sema]") {
@@ -5553,10 +5550,10 @@ TEST_CASE("an Extend of T[] uses the array's Count and Methods by name", "[sema]
     CHECK(errors_of("Extend T[]\n    Method Room(): Int => Capacity - Count\nEnd Extend\n"
                     "Local room = [1].Room()")
               .empty());
-    CHECK(errors_of(
-              "Extend T[]\n    Method M()\n        Capacity = 1\n    End Method\nEnd Extend") ==
-          errors_t{ "Capacity: Capacity is how many elements Self has room for, which only its "
-                    "Methods change" });
+    CHECK(
+        errors_of("Extend T[]\n    Method M()\n        Capacity = 1\n    End Method\nEnd Extend") ==
+        errors_t{ "Capacity: Capacity is how many elements Self has room for, which only its "
+                  "Methods change" });
 }
 
 TEST_CASE("a call's lambda argument can declare symbols while the call is checked", "[sema]") {
@@ -5911,23 +5908,21 @@ TEST_CASE("TypeName gives a type's name, known at compile time", "[sema]") {
                     "Function F<T>(): String => TypeName<T[]>()\n"
                     "Local s = F<Int>()")
               .empty());
+    const std::string takes =
+        ": TypeName takes one type argument, and no arguments, like TypeName<Int32>()";
     CHECK(errors_of("Local a = TypeName()\n"
                     "Local b = TypeName<Int>(1)\n"
                     "Local c = TypeName<Int, Int>()\n"
                     "Local d = TypeName<Nowhere>()\n"
                     "Local e = TypeName\n"
-                    "TypeName<Int>()") ==
-          errors_t{
-              "TypeName(): TypeName takes one type argument, and no arguments, like "
-              "TypeName<Int32>()",
-              "TypeName<Int>(1): TypeName takes one type argument, and no arguments, like "
-              "TypeName<Int32>()",
-              "TypeName<Int, Int>(): TypeName takes one type argument, and no arguments, like "
-              "TypeName<Int32>()",
-              "Nowhere: 'Nowhere' isn't a type",
-              "TypeName: 'TypeName' is called, as in TypeName<T>()",
-              "TypeName<Int>(): expression has no effect",
-          });
+                    "TypeName<Int>()") == errors_t{
+                                              "TypeName()" + takes,
+                                              "TypeName<Int>(1)" + takes,
+                                              "TypeName<Int, Int>()" + takes,
+                                              "Nowhere: 'Nowhere' isn't a type",
+                                              "TypeName: 'TypeName' is called, as in TypeName<T>()",
+                                              "TypeName<Int>(): expression has no effect",
+                                          });
     // A program's own TypeName takes the place of the built-in.
     CHECK(probe("Function TypeName(): Int => 1\nLocal x = TypeName()") == "Int32");
 }
