@@ -2657,14 +2657,14 @@ TEST_CASE("lowering stops where code needs a larger instance each time, which an
                   "Function Twice<Const N: UInt8>(): Int => Show<N * 2>()\n"
                   "Local t = Twice<200>()") ==
           "Show<N * 2>(): a Const type argument comes out as 400 here, which doesn't fit in UInt8");
-    CHECK(stopped("Function Show<Const M: Int>(): Int => M\n"
-                  "Function Wrap<Const N: Int>(): Int => Show<N * 65536 * 65536 * 65536 * 65536>()\n"
-                  "Local w = Wrap<1>()")
-              .contains("a Const type argument comes out as 9223372036854775807 here"));
+    CHECK(
+        stopped("Function Show<Const M: Int>(): Int => M\n"
+                "Function Wrap<Const N: Int>(): Int => Show<N * 65536 * 65536 * 65536 * 65536>()\n"
+                "Local w = Wrap<1>()")
+            .contains("a Const type argument comes out as 9223372036854775807 here"));
 }
 
-TEST_CASE("lowering makes as many instances as a program uses, one from another or not",
-          "[mir]") {
+TEST_CASE("lowering makes as many instances as a program uses, one from another or not", "[mir]") {
     // Many instances of one generic function or Class, made from the same code, aren't growth.
     std::string calls = "Function Id<Const N: Int>(): Int => N\nLocal total = 0\n";
     for (int i = 1; i <= 2100; ++i) {

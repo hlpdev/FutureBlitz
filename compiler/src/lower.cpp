@@ -747,12 +747,13 @@ private:
 
         const symbol_t& symbol = m_analysis.symbol(id);
         const std::size_t origin = add_origin(id);
-        const bool grown =
-            chain_length(origin) > max_chain ||
-            std::ranges::any_of(arguments,
-                                [&](const type_id_t argument) { return this->grown(argument); });
+        // A type that's too large on a chain of the code that makes it grew there.
+        const std::size_t chain = chain_length(origin);
+        const bool large = std::ranges::any_of(
+            arguments, [&](const type_id_t argument) { return too_large(argument); });
+        const bool grown = chain > max_chain || large;
         if (grown) {
-            stop_growing(std::format("'{}'", symbol.name), symbol.span);
+            stop_growing(std::format("'{}'", symbol.name), symbol.span, chain == 1);
         }
 
         check_arguments(type_parameters_of(symbol), arguments);
@@ -812,10 +813,10 @@ private:
         for (std::size_t i = 0; i < arguments.size() && !m_module.error; ++i) {
             check_values(arguments[i]);
             const type_t& argument = types().get(arguments[i]);
-            const type_id_t takes = i < parameters.size() &&
-                                            types().get(parameters[i]).kind == type_kind_t::PARAMETER
-                                        ? types().get(parameters[i]).inner
-                                        : type_id_t::INVALID;
+            const type_id_t takes =
+                i < parameters.size() && types().get(parameters[i]).kind == type_kind_t::PARAMETER
+                    ? types().get(parameters[i]).inner
+                    : type_id_t::INVALID;
             if (!m_module.error && takes != type_id_t::INVALID &&
                 argument.kind == type_kind_t::VALUE && argument.operation == value_op_t::NONE &&
                 !fits(argument.number, takes)) {
@@ -878,25 +879,30 @@ private:
     /// from the other, can make before it's one that makes a new one each time, like Step<N + 1>.
     static constexpr std::size_t max_chain = 50;
 
-    /// Whether a type nests deeper, or is made of more types, than any program needs, as one that
-    /// grows without end does: analysis says where that happens, and this only stops lowering
-    /// where it didn't.
-    [[nodiscard]] bool grown(const type_id_t type) const {
-        static constexpr std::uint32_t max_depth = 48;
+    /// How deep a type can nest, as deep as the parser lets code write one.
+    static constexpr std::uint32_t max_depth = 1000;
+
+    /// Whether a type nests deeper, or is made of more types, than fb makes: one that grows by
+    /// doubling, like Pair<Self, Self>, gets there before a chain of instances is long.
+    [[nodiscard]] bool too_large(const type_id_t type) const {
         const auto [depth, size] = types().measure(type);
         return depth > max_depth || size > type_table_t::max_size;
     }
 
     /// Records, once, that code needs a larger instance each time, where it's lowered.
-    void stop_growing(const std::string_view what, const span_t fallback) {
+    void stop_growing(const std::string_view what, const span_t fallback, const bool large) {
         if (m_module.error) {
             return;
         }
 
         m_module.error = mir_error_t{
-            .message = std::format("{} needs a larger instance each time it runs here, without "
-                                   "end",
-                                   what),
+            .message = large
+                           ? std::format("{} needs an instance of a type nested more than {} deep, "
+                                         "or made of more than {} types, here",
+                                         what, max_depth, type_table_t::max_size)
+                           : std::format("{} needs a larger instance each time it runs here, "
+                                         "without end",
+                                         what),
             .span = m_span.value_or(fallback),
         };
     }
@@ -1057,8 +1063,9 @@ private:
 
         const std::size_t origin = add_origin(definition_of(type));
         m_class_origins.emplace(type, origin);
-        if (grown(type) || (definition_of(type) != type && chain_length(origin) > max_chain)) {
-            stop_growing(types().name(definition_of(type)), {});
+        const std::size_t chain = definition_of(type) != type ? chain_length(origin) : 1;
+        if (chain > max_chain || too_large(type)) {
+            stop_growing(types().name(definition_of(type)), span_t(), chain == 1);
             return;
         }
 
@@ -1218,7 +1225,7 @@ private:
             const type_id_t owner = m_analysis.symbol(method).owner;
             const std::vector<type_id_t> owners = owner_arguments(type, owner);
             if (owners.empty() && !types().get(owner).parameters.empty()) {
-                stop_growing(types().name(definition), {});
+                stop_growing(types().name(definition), span_t(), false);
                 return;
             }
 
