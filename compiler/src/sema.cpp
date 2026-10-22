@@ -244,6 +244,11 @@ bool overlaps(const case_range_t& a, const case_range_t& b) {
     return compare(a.low, b.high) <= 0 && compare(b.low, a.high) <= 0;
 }
 
+/// Whether a member of a T[] is one of its sizes, Count or Capacity, which aren't Methods.
+bool is_array_size(const std::string_view name) {
+    return name == "Count" || name == "Capacity";
+}
+
 /// The names that later milestones declare, like Task or Vec3.
 bool is_later_name(const std::string_view name) {
     constexpr auto names = std::to_array<std::string_view>({
@@ -2696,7 +2701,7 @@ private:
         // The built-in Interfaces' Methods, an array's own, and a @Flags Enum's Has.
         const bool array_name =
             is_array(target) &&
-            (name.text == "Count" ||
+            (is_array_size(name.text) ||
              std::ranges::any_of(array_methods(target), [&](const symbol_id_t method) {
                  return symbol(method).name == name.text;
              }));
@@ -15351,8 +15356,8 @@ private:
             return m_analysis.types.get(*parameter).inner;
         }
 
-        // In an Extend of T[], Count alone is Self's, like the array's own Methods.
-        if (node.name == "Count" && !find_local(node.name) && m_function &&
+        // In an Extend of T[], Count or Capacity alone is Self's, like the array's own Methods.
+        if (is_array_size(node.name) && !find_local(node.name) && m_function &&
             is_array(symbol(*m_function).owner) && own_members(node.name).empty()) {
             const std::optional<symbol_id_t> self =
                 m_lambdas.empty() ? current_self() : use_self(span_of(id));
@@ -15707,9 +15712,10 @@ private:
             return capture(*local, span);
         }
 
-        // Reading it is Self's Count, which check_expr() handles; anything else would change it.
-        if (name == "Count" && m_function && is_array(symbol(*m_function).owner)) {
-            error(span, "Count is how many elements Self has, which only its Methods change");
+        // Reading it is Self's, which check_expr() handles; anything else would change it.
+        if (is_array_size(name) && m_function && is_array(symbol(*m_function).owner)) {
+            error(span, "{} is how many elements Self {}, which only its Methods change", name,
+                  name == "Count" ? "has" : "has room for");
             return std::nullopt;
         }
 
@@ -16648,8 +16654,8 @@ private:
         }
     }
 
-    /// A T[]'s Methods: Add, Insert, RemoveAt, Clear, Contains, and Clone. Their owner is the
-    /// array type, and they have no declaration.
+    /// A T[]'s Methods: Add, Insert, RemoveAt, Clear, Reserve, TrimExcess, Contains, and Clone.
+    /// Their owner is the array type, and they have no declaration.
     const std::vector<symbol_id_t>& array_methods(const type_id_t type) {
         if (const auto found = m_array_methods.find(type); found != m_array_methods.end()) {
             return found->second;
@@ -16678,6 +16684,8 @@ private:
                { parameter("index", type_id_t::INT32), parameter("value", element) });
         method("RemoveAt", type_id_t::NONE, { parameter("index", type_id_t::INT32) });
         method("Clear", type_id_t::NONE, {});
+        method("Reserve", type_id_t::NONE, { parameter("capacity", type_id_t::INT32) });
+        method("TrimExcess", type_id_t::NONE, {});
         method("Contains", type_id_t::BOOL, { parameter("value", element) });
         method("Clone", type, {});
         return m_array_methods[type] = std::move(methods);
@@ -16754,8 +16762,8 @@ private:
 
     /// The Methods after a '.' on an array, by name. A fixed array has only its Count.
     std::vector<symbol_id_t> lookup_array_method(const type_id_t type, const name_t& member) {
-        if (member.text == "Count") {
-            error(member.span, "Count isn't a Method; leave out the ()");
+        if (member.text == "Count" || (member.text == "Capacity" && is_array(type))) {
+            error(member.span, "{} isn't a Method; leave out the ()", member.text);
             return {};
         }
 
@@ -16780,9 +16788,9 @@ private:
     }
 
     /// "a.Count": how many elements an array has, as an Int. A fixed array's is known at compile
-    /// time.
+    /// time. A T[]'s "a.Capacity" is how many it has room for.
     type_id_t check_count(const expr_id_t id, const member_expr_t& node, const type_id_t object) {
-        if (node.member.text != "Count") {
+        if (node.member.text != "Count" && (node.member.text != "Capacity" || !is_array(object))) {
             const bool method =
                 is_array(object) &&
                 std::ranges::any_of(array_methods(object), [&](const symbol_id_t found) {
@@ -20409,7 +20417,7 @@ private:
         // An Atomic's Methods work on it where it is, and an array's Count is one of its uses.
         const std::optional<expr_id_t> outer = std::exchange(m_place_use, node.object);
         const std::optional<expr_id_t> outer_element = m_element_use;
-        if (node.member.text == "Count") {
+        if (is_array_size(node.member.text)) {
             m_element_use = node.object;
         }
 
@@ -20435,9 +20443,10 @@ private:
 
         // An array's Count, or a Property an Extend gives it.
         if (is_any_array(object)) {
-            const std::vector<symbol_id_t> added = node.member.text == "Count"
-                                                       ? std::vector<symbol_id_t>{}
-                                                       : members_here(object, node.member, object);
+            const std::vector<symbol_id_t> added =
+                node.member.text == "Count" || (node.member.text == "Capacity" && is_array(object))
+                    ? std::vector<symbol_id_t>{}
+                    : members_here(object, node.member, object);
             if (!added.empty() && symbol(added.front()).kind == symbol_kind_t::PROPERTY) {
                 return check_member(id, node, added.front(), target, on_self);
             }

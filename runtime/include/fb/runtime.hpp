@@ -289,6 +289,12 @@ void* fb_array_insert(fb_array_t* array, std::int64_t element_size, std::int64_t
 void fb_array_remove(fb_array_t* array, std::int64_t element_size, std::int64_t index);
 /// Empties the array, whose elements compiled code released. The buffer stays for new ones.
 void fb_array_clear(fb_array_t* array);
+/// Makes room for `capacity` elements in all, so the array can grow to that many without moving
+/// them. Panics at `location` when `capacity` is negative.
+void fb_array_reserve(fb_array_t* array, std::int64_t element_size, std::int64_t capacity,
+                      const fb_location_t* location);
+/// Gives back the room beyond the array's count.
+void fb_array_trim(fb_array_t* array, std::int64_t element_size);
 /// A new array of the same Class, with a copy of each element's bytes. Compiled code retains
 /// the references in them.
 fb_array_t* fb_array_clone(const fb_array_t* array, std::int64_t element_size);

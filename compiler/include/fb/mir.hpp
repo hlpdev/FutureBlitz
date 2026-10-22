@@ -176,6 +176,12 @@ enum class runtime_function_t : std::uint8_t {
     ARRAY_CLEAR,
     /// (T[]) to a new T[] with the same elements, retained.
     ARRAY_CLONE,
+    /// (T[]) to its Capacity, an Int32: how many elements it has room for.
+    ARRAY_CAPACITY,
+    /// (T[], an integer) to nothing: makes room for that many elements in all.
+    ARRAY_RESERVE,
+    /// (T[]) to nothing: gives back the room beyond its Count.
+    ARRAY_TRIM,
     /// (Error?) to nothing: prints an error that top-level code let out, which nothing caught, and
     /// ends the program with exit code 1.
     ERROR_UNCAUGHT,

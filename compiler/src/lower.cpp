@@ -4607,7 +4607,7 @@ private:
 
     /// A variable, or a Function's name alone, which is a function value. A Const type
     /// parameter is the value its instance has.
-    operand_t lower_expr(const expr_id_t id, const name_expr_t& /*node*/) {
+    operand_t lower_expr(const expr_id_t id, const name_expr_t& node) {
         if (const type_id_t parameter = m_analysis.expr(id).parameter;
             parameter != type_id_t::INVALID) {
             const type_t& value = types().get(concrete(parameter));
@@ -4630,18 +4630,19 @@ private:
             return temporary(code, type);
         }
 
-        // Count alone, in an Extend of T[], is Self's, which a lambda has captured.
+        // Count or Capacity alone, in an Extend of T[], is Self's, which a lambda has captured.
         if (m_analysis.expr(id).count) {
             const symbol_id_t self = expect(m_analysis.expr(id).symbol);
-            return count_of(
-                place_t{ m_locals.contains(self) ? m_locals.at(self) : expect(m_self) });
+            return array_size(
+                place_t{ m_locals.contains(self) ? m_locals.at(self) : expect(m_self) },
+                node.name);
         }
 
         return variable_place(id);
     }
 
-    /// A field, an array's Count, or a String's Chars or Bytes. A For Field's "f.Name" and
-    /// "f.Index" are constants in each copy of its body.
+    /// A field, an array's Count or Capacity, or a String's Chars or Bytes. A For Field's
+    /// "f.Name" and "f.Index" are constants in each copy of its body.
     operand_t lower_expr(const expr_id_t id, const member_expr_t& node) {
         // A name after a module's qualifier is what the name alone would be.
         if (m_analysis.expr(id).qualified) {
@@ -4659,11 +4660,11 @@ private:
             return const_value_t{ .type = type_id_t::STRING, .data = member.name };
         }
 
-        // An array's Count, unless it's a Property an Extend gives it.
+        // An array's Count or Capacity, unless it's a Property an Extend gives it.
         const std::optional<symbol_id_t> found = m_analysis.expr(id).symbol;
         const bool property = found && m_analysis.symbol(*found).kind == symbol_kind_t::PROPERTY;
         if (!node.null_safe && is_array(converted_type(node.object)) && !property) {
-            return count_of(lower_value(node.object));
+            return array_size(lower_value(node.object), node.member.text);
         }
 
         // A fixed array's Count, when its size is a Const type parameter's, is the instance's.
@@ -4685,7 +4686,7 @@ private:
         return expect(lower_safe(id, node.object, [&](const operand_t& object) {
             const type_id_t type = type_of(object);
             if (is_array(type) && !property) {
-                return std::optional<operand_t>(count_of(object));
+                return std::optional<operand_t>(array_size(object, node.member.text));
             }
 
             if (is_fixed_array(type) && !property) {
@@ -5046,6 +5047,15 @@ private:
         return runtime_call(runtime_function_t::ARRAY_COUNT, { array }, type_id_t::INT32);
     }
 
+    /// A T[]'s Count or Capacity, by `member`, as an Int.
+    operand_t array_size(const operand_t& array, const std::string_view member) {
+        if (member == "Capacity") {
+            return runtime_call(runtime_function_t::ARRAY_CAPACITY, { array }, type_id_t::INT32);
+        }
+
+        return count_of(array);
+    }
+
     /// An integer's Wrapping or Checked Method, with the integer as the first argument: what
     /// wraps around, or for a Checked one, a T? that's Null when it would overflow or divide by
     /// zero.
@@ -5111,6 +5121,10 @@ private:
             run(runtime_function_t::ARRAY_REMOVE_AT, { array, arguments[1].value });
         } else if (method.name == "Clear") {
             run(runtime_function_t::ARRAY_CLEAR, { array });
+        } else if (method.name == "Reserve") {
+            run(runtime_function_t::ARRAY_RESERVE, { array, arguments[1].value });
+        } else if (method.name == "TrimExcess") {
+            run(runtime_function_t::ARRAY_TRIM, { array });
         } else if (method.name == "Contains") {
             return contains(array, arguments[1].value, span);
         } else {

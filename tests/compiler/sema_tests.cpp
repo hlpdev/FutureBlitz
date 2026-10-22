@@ -1871,6 +1871,18 @@ TEST_CASE("a T[]'s Count and Methods", "[sema]") {
               .empty());
     CHECK(errors_of("Local a = [1]\nLocal n = a.Count()") ==
           errors_t{ "Count: Count isn't a Method; leave out the ()" });
+
+    // Its Capacity is how many elements it has room for, which Reserve and TrimExcess change.
+    CHECK(probe("Local a = [1]\nLocal x = a.Capacity") == "Int32");
+    CHECK(errors_of("Local a = [1]\na.Reserve(10)\na.TrimExcess()").empty());
+    CHECK(errors_of("Local a = [1]\na.Capacity = 3") ==
+          errors_t{ "a.Capacity: an array's Capacity can't be set; use Reserve or TrimExcess" });
+    CHECK(errors_of("Local a = [1]\nLocal n = a.Capacity()") ==
+          errors_t{ "Capacity: Capacity isn't a Method; leave out the ()" });
+    CHECK(errors_of("Local g: Int[3]\nLocal n = g.Capacity") ==
+          errors_t{ "Capacity: Int32[3] has no member named 'Capacity'" });
+    CHECK(errors_of("Local g: Int[3]\ng.Reserve(4)") ==
+          errors_t{ "Reserve: Int32[3] has no member named 'Reserve'" });
     CHECK(errors_of("Local a = [1]\nLocal f = a.Add") ==
           errors_t{ "Add: 'Add' is a method; call it with ()" });
     CHECK(errors_of("Local g: Int[3]\ng.Add(1)") ==
@@ -5523,6 +5535,13 @@ TEST_CASE("an Extend of T[] uses the array's Count and Methods by name", "[sema]
     CHECK(errors_of("Extend T[]\n    Method M()\n        Count = 1\n    End Method\nEnd Extend") ==
           errors_t{ "Count: Count is how many elements Self has, which only its Methods "
                     "change" });
+    CHECK(errors_of("Extend T[]\n    Method Room(): Int => Capacity - Count\nEnd Extend\n"
+                    "Local room = [1].Room()")
+              .empty());
+    CHECK(errors_of(
+              "Extend T[]\n    Method M()\n        Capacity = 1\n    End Method\nEnd Extend") ==
+          errors_t{ "Capacity: Capacity is how many elements Self has room for, which only its "
+                    "Methods change" });
 }
 
 TEST_CASE("a call's lambda argument can declare symbols while the call is checked", "[sema]") {

@@ -237,7 +237,8 @@ struct expr_info_t {
     /// For a name: the variable, Const, or parameter it refers to. For a call and its callee:
     /// the function, after choosing among overloads.
     std::optional<symbol_id_t> symbol;
-    /// For a name: "Count" alone in an Extend of T[], which is Self's. `symbol` is Self.
+    /// For a name: "Count" or "Capacity" alone in an Extend of T[], which is Self's. `symbol`
+    /// is Self.
     bool count = false;
     /// For "game.score" or "collections.Stack": a name after a module's qualifier, which works
     /// as the name alone would. The qualifier's `symbol` is its MODULE.

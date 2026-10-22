@@ -298,6 +298,8 @@ private:
     function_ref_t m_array_remove;
     function_ref_t m_array_clear;
     function_ref_t m_array_clone;
+    function_ref_t m_array_reserve;
+    function_ref_t m_array_trim;
     function_ref_t m_array_free;
     function_ref_t m_index_out_of_range;
 
@@ -760,6 +762,8 @@ private:
         m_array_remove = declare("fb_array_remove", m_void, { m_ptr, m_i64, m_i64 });
         m_array_clear = declare("fb_array_clear", m_void, { m_ptr });
         m_array_clone = declare("fb_array_clone", m_ptr, { m_ptr, m_i64 });
+        m_array_reserve = declare("fb_array_reserve", m_void, { m_ptr, m_i64, m_i64, m_ptr });
+        m_array_trim = declare("fb_array_trim", m_void, { m_ptr, m_i64 });
         m_array_free = declare("fb_array_free", m_void, { m_ptr });
         m_index_out_of_range = declare("fb_index_out_of_range", m_void, { m_i64, m_i64, m_ptr });
     }
@@ -3448,6 +3452,18 @@ private:
             for_each_reference_in(copy, element, true);
             return copy;
         }
+        case runtime_function_t::ARRAY_CAPACITY: {
+            LLVMValueRef capacity = LLVMBuildLoad2(
+                builder(), m_i64, LLVMBuildStructGEP2(builder(), m_array_type, array, 3, ""), "");
+            return LLVMBuildTrunc(builder(), capacity, m_i32, "");
+        }
+        case runtime_function_t::ARRAY_RESERVE: {
+            LLVMValueRef capacity = to_int64(node.arguments[1]);
+            LLVMValueRef where = location(node.span.value_or(span_t{}));
+            return call(m_array_reserve, { array, size, capacity, where });
+        }
+        case runtime_function_t::ARRAY_TRIM:
+            return call(m_array_trim, { array, size });
         default:
             std::unreachable();
         }

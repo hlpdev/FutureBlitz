@@ -1,0 +1,5 @@
+// Reserve panics on a negative capacity, at the call.
+Import std.core
+
+Local numbers = [1, 2]
+numbers.Reserve(-1)

@@ -32,13 +32,14 @@ void* allocate(const std::int64_t count, const std::int64_t element_size) {
     return data;
 }
 
-/// Makes room for one more element, doubling the capacity when the buffer is full.
-void reserve_one(fb_array_t* array, const std::int64_t element_size) {
-    if (array->count < array->capacity) {
-        return;
+/// Moves the elements to a buffer for `capacity` of them, which must hold the count.
+void resize_buffer(fb_array_t* array, const std::int64_t element_size,
+                   const std::int64_t capacity) {
+    // More bytes than memory has would wrap around.
+    if (element_size > 0 && capacity > PTRDIFF_MAX / element_size) {
+        fb_panic("out of memory", nullptr);
     }
 
-    const std::int64_t capacity = std::max<std::int64_t>(4, array->capacity * 2);
     void* data = std::realloc(array->data, std::max<std::size_t>(bytes(capacity, element_size), 1));
     if (data == nullptr) {
         fb_panic("out of memory", nullptr);
@@ -46,6 +47,15 @@ void reserve_one(fb_array_t* array, const std::int64_t element_size) {
 
     array->data = data;
     array->capacity = capacity;
+}
+
+/// Makes room for one more element, doubling the capacity when the buffer is full.
+void reserve_one(fb_array_t* array, const std::int64_t element_size) {
+    if (array->count < array->capacity) {
+        return;
+    }
+
+    resize_buffer(array, element_size, std::max<std::int64_t>(4, array->capacity * 2));
 }
 
 /// Where the element at `index` is.
@@ -93,6 +103,26 @@ void fb_array_remove(fb_array_t* array, const std::int64_t element_size, const s
 
 void fb_array_clear(fb_array_t* array) {
     array->count = 0;
+}
+
+void fb_array_reserve(fb_array_t* array, const std::int64_t element_size,
+                      const std::int64_t capacity, const fb_location_t* location) {
+    if (capacity < 0) {
+        std::array<char, 96> message{};
+        std::snprintf(message.data(), message.size(),
+                      "Reserve takes a capacity that isn't negative, not %" PRId64, capacity);
+        fb_panic(message.data(), location);
+    }
+
+    if (capacity > array->capacity) {
+        resize_buffer(array, element_size, capacity);
+    }
+}
+
+void fb_array_trim(fb_array_t* array, const std::int64_t element_size) {
+    if (array->capacity > array->count) {
+        resize_buffer(array, element_size, array->count);
+    }
 }
 
 fb_array_t* fb_array_clone(const fb_array_t* array, const std::int64_t element_size) {

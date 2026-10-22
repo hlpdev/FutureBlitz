@@ -43,6 +43,12 @@ std::string_view runtime_name(const runtime_function_t function) {
         return "clear";
     case runtime_function_t::ARRAY_CLONE:
         return "clone";
+    case runtime_function_t::ARRAY_CAPACITY:
+        return "capacity";
+    case runtime_function_t::ARRAY_RESERVE:
+        return "reserve";
+    case runtime_function_t::ARRAY_TRIM:
+        return "trim";
     case runtime_function_t::ERROR_UNCAUGHT:
         return "uncaught";
     case runtime_function_t::ERROR_THROWN:

@@ -1,0 +1,49 @@
+// A T[]'s Capacity is how many elements it has room for: Reserve makes room ahead, adding
+// grows it, and TrimExcess gives back what's beyond the Count.
+Import std.core
+
+Local numbers: Int[] = []
+numbers.Reserve(10)
+Print(numbers.Count, numbers.Capacity)
+For i = 1 To 10
+    numbers.Add(i)
+End For
+Print(numbers.Count, numbers.Capacity)
+numbers.Add(11)
+Print(numbers.Count, numbers.Capacity >= 11)
+numbers.Reserve(5)
+Print(numbers.Capacity >= 11)
+numbers.TrimExcess()
+Print(numbers.Count, numbers.Capacity)
+numbers.Clear()
+numbers.TrimExcess()
+Print(numbers.Count, numbers.Capacity, numbers)
+numbers.Add(1)
+Print(numbers, numbers.Capacity >= 1)
+
+// Reserving keeps the elements, and their references.
+Local words = ["a", "b"]
+words.Reserve(100)
+Print(words, words.Capacity)
+words.TrimExcess()
+Print(words, words.Capacity)
+
+// Inside an Extend of T[], Capacity alone is Self's, as Count is, in a lambda too.
+Extend T[]
+    Method Room(): Int => Capacity - Count
+
+    Method RoomLater(): Func(): Int
+        Return Function() => Capacity - Count
+    End Method
+End Extend
+
+Function Maybe(numbers: Int[], give: Bool): Int[]?
+    If give Then Return numbers
+    Return Null
+End Function
+
+Local spare: Int[] = []
+spare.Reserve(8)
+spare.Add(1)
+Print(spare.Room(), spare.RoomLater()())
+Print(Maybe(spare, True)?.Capacity ?? -1, Maybe(spare, False)?.Capacity ?? -1)
