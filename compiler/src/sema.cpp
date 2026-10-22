@@ -344,6 +344,7 @@ public:
         check_instance_defaults();
         conform_instance_operators();
         check_equality_defaults();
+        check_default_places();
         check_hashes();
         check_throws();
         each_item([this](const stmt_id_t id) { check_field_zeros(id); });
@@ -4200,6 +4201,18 @@ private:
                                               return as_implemented(written, interface, self);
                                           }));
             });
+            // Another Interface's default the type has from a Class it extends says so.
+            if (own != methods.end() && symbol(*own).default_method) {
+                const symbol_t& taking = symbol(symbol(*own).default_method.value_or(required_id));
+                error(span,
+                      "{} gets '{}' from {}'s default, which would take the place of {}'s {} "
+                      "default, which is what a call through {} runs",
+                      name_of(type, interface), required.name, shown_name(taking.owner),
+                      name_of(interface, type), outside_kind(required), shown_name(interface))
+                    .with_label(taking.span, "declared here");
+                return std::nullopt;
+            }
+
             if (own != methods.end()) {
                 error(span,
                       "{}'s '{}' would take the place of {}'s {} default, which is what a call "
@@ -4813,6 +4826,64 @@ private:
         extension_members_of(type).push_back(id);
         check_default_inherited(type, id, interface, listing);
         return id;
+    }
+
+    /// One Interface's default that a type has can't take the place of another's outside its
+    /// table, as the type's own Method can't: a call on the type would run the one, and a call
+    /// through the other Interface the other. Each is an error at the type, whichever order it
+    /// lists them in.
+    void check_default_places() {
+        for (const auto& [type, declared] : m_declared_types) {
+            if (!is_struct(type) && !is_class(type)) {
+                continue;
+            }
+
+            std::vector<symbol_id_t> copies;
+            std::ranges::copy_if(symbol(declared).members, std::back_inserter(copies),
+                                 [&](const symbol_id_t id) {
+                                     const symbol_t& member = symbol(id);
+                                     return member.kind == symbol_kind_t::METHOD &&
+                                            member.default_method && member.owner == type &&
+                                            !member.modifiers.is_static;
+                                 });
+            for (const symbol_id_t held_id : copies) {
+                const symbol_t& held = symbol(held_id);
+                const symbol_t& given = symbol(held.default_method.value_or(symbol_id_t{}));
+                if (!outside_table(given)) {
+                    continue;
+                }
+
+                const type_id_t interface = definition_of(given.owner);
+                const std::vector<type_id_t> own = own_type_parameters(held);
+                const auto other = std::ranges::find_if(copies, [&](const symbol_id_t id) {
+                    const symbol_t& copy = symbol(id);
+                    const type_id_t from =
+                        definition_of(symbol(copy.default_method.value_or(symbol_id_t{})).owner);
+                    return id != held_id && copy.name == held.name && from != interface &&
+                           !refines(from, interface) && !refines(interface, from) &&
+                           (same_parameters(copy, held) ||
+                            takes_instance_of(copy, type, held, own,
+                                              [](const type_id_t written) { return written; }));
+                });
+                if (other == copies.end()) {
+                    continue;
+                }
+
+                const symbol_t& taking =
+                    symbol(symbol(*other).default_method.value_or(symbol_id_t{}));
+                const type_id_t instance = instance_for(type, given.owner);
+                const type_id_t shown = instance != type_id_t::INVALID ? instance : given.owner;
+                in_file(symbol(declared).span.file, [&] {
+                    error(symbol(declared).span,
+                          "{} gets '{}' from {}'s default, which would take the place of {}'s {} "
+                          "default, which is what a call through {} runs",
+                          shown_name(type), held.name, shown_name(taking.owner), shown_name(shown),
+                          outside_kind(given), shown_name(shown))
+                        .with_label(taking.span, "declared here");
+                });
+                break;
+            }
+        }
     }
 
     /// A default the type's declaration lists is the type's own member, so a Method of its name

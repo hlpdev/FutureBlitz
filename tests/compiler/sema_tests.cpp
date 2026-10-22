@@ -6292,6 +6292,20 @@ TEST_CASE("a generic, conditional, or Final default runs as written, on an Inter
           errors_t{ "Source<Int>: Own's 'With' would take the place of Source<Int32>'s generic "
                     "default, which is what a call through Source<Int32> runs; give it another "
                     "name" });
+    // Nor can another Interface's default the type has, whichever it lists first.
+    const std::string doubled = std::format("{}Interface Doubler\n"
+                                            "    Method With(u: Bool): (Int, Bool) => (2, u)\n"
+                                            "End Interface\n",
+                                            source);
+    const std::string taken = "Both: Both gets 'With' from Doubler's default, which would take the "
+                              "place of Source<Int32>'s generic default, which is what a call "
+                              "through Source<Int32> runs";
+    CHECK(errors_of(doubled + "Class Both Implements Doubler, Source<Int>\n"
+                              "    Method Take(): Int => 1\n"
+                              "End Class") == errors_t{ taken });
+    CHECK(errors_of(doubled + "Class Both Implements Source<Int>, Doubler\n"
+                              "    Method Take(): Int => 1\n"
+                              "End Class") == errors_t{ taken });
     // Nor can an Extend of the type in a module where the listing doesn't see it.
     const std::vector<fb::library_file_t> counter{
         {
