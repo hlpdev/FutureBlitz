@@ -1,10 +1,10 @@
-// Set<T>: values without repeats, which a Map holds as its keys.
+// Set<T>: values without repeats, in the order they were added, which a Map holds as its keys.
 
 Import std.core
 Import std.collections.array
 Import std.collections.map
 
-Public Class Set<T> Implements Iterable<T>, Cloneable, Defaultable
+Public Class Set<T> Implements Iterable<T>, Cloneable, Defaultable, Hashable
     Where T: Hashable
 
     Field Items: Map<T, Bool>
@@ -18,13 +18,9 @@ Public Class Set<T> Implements Iterable<T>, Cloneable, Defaultable
     End Property
 
     // Adds the value, and tells whether it's new.
-    Public Method Add(value: T): Bool
-        If Items.Contains(value) Then Return False
-        Items.Add(value, True)
-        Return True
-    End Method
+    Public Method Add(value: T): Bool => Items.TryAdd(value, True)
 
-    // Removes the value, and tells whether it was there. The last value takes its place.
+    // Removes the value, and tells whether it was there. The others keep their order.
     Public Method Remove(value: T): Bool => Items.Remove(value)
 
     Public Method Contains(value: T): Bool => Items.Contains(value)
@@ -33,9 +29,91 @@ Public Class Set<T> Implements Iterable<T>, Cloneable, Defaultable
         Items.Clear()
     End Method
 
+    // Adds each of the values that isn't there yet, in their order.
+    Public Method AddAll(values: Iterable<T>)
+        For value In Gathered(values)
+            Add(value)
+        End For
+    End Method
+
+    // Removes each of the values that's there.
+    Public Method RemoveAll(values: Iterable<T>)
+        For value In Gathered(values)
+            Remove(value)
+        End For
+    End Method
+
+    // Removes each value that isn't among the values.
+    Public Method KeepOnly(values: Iterable<T>)
+        Local kept = SetOf(values)
+        Items.RemoveWhere(Function(value: T, unused: Bool) => !kept.Contains(value))
+    End Method
+
+    // A new Set of this one's values, then the other values that aren't among them.
+    Public Method Union(values: Iterable<T>): Set<T>
+        Local union = Clone()
+        union.AddAll(values)
+        Return union
+    End Method
+
+    // A new Set of this one's values that are among the values too.
+    Public Method Intersect(values: Iterable<T>): Set<T>
+        Local other = SetOf(values)
+        Return Filter(Function(value: T) => other.Contains(value))
+    End Method
+
+    // A new Set of this one's values that aren't among the values.
+    Public Method Difference(values: Iterable<T>): Set<T>
+        Local other = SetOf(values)
+        Return Filter(Function(value: T) => !other.Contains(value))
+    End Method
+
+    // A new Set of the values that are in this one or among the values, but not both: this one's
+    // first, then the others.
+    Public Method SymmetricDifference(values: Iterable<T>): Set<T>
+        Local other = SetOf(values)
+        Local either = Filter(Function(value: T) => !other.Contains(value))
+        For value In other
+            If !Contains(value) Then either.Add(value)
+        End For
+        Return either
+    End Method
+
+    // Whether each of this one's values is among the values.
+    Public Method IsSubsetOf(values: Iterable<T>): Bool
+        Local other = SetOf(values)
+        For value In Self
+            If !other.Contains(value) Then Return False
+        End For
+        Return True
+    End Method
+
+    // Whether each of the values is in this one.
+    Public Method IsSupersetOf(values: Iterable<T>): Bool
+        For value In Gathered(values)
+            If !Contains(value) Then Return False
+        End For
+        Return True
+    End Method
+
+    // Whether any of the values is in this one.
+    Public Method Overlaps(values: Iterable<T>): Bool
+        For value In Gathered(values)
+            If Contains(value) Then Return True
+        End For
+        Return False
+    End Method
+
+    // Whether the values, without their repeats, are this one's, in any order.
+    Public Method SetEquals(values: Iterable<T>): Bool => SetOf(values) == Self
+
+    // The values, in order, in a new array.
+    Public Method ToArray(): T[] => Items.Keys()
+
     // A new, empty Set.
     Public Static Method DefaultValue(): Set<T> => Set<T>()
 
+    // A new Set with the same values, in the same order.
     Public Method Clone(): Set<T>
         Local copy = Set<T>()
         copy.Items = Items.Clone()
@@ -43,22 +121,61 @@ Public Class Set<T> Implements Iterable<T>, Cloneable, Defaultable
     End Method
 
     // A new Set of the values that keep says to keep.
+    @PanicsAtCaller
     Public Method Filter(keep: Func(T): Bool): Set<T>
         Local kept = Set<T>()
-        For value In Items.Keys()
+        For value In Self
             If keep(value) Then kept.Add(value)
         End For
         Return kept
     End Method
 
     // The first value that test says is the one, or Null.
+    @PanicsAtCaller
     Public Method Find(test: Func(T): Bool): T?
-        Return Items.Keys().Find(test)
+        For value In Self
+            If test(value) Then Return value
+        End For
+        Return Null
     End Method
 
-    // The values, in the order they were added, but for a removed one's place, which the last
-    // value took. Adding or removing one while going over them panics.
+    // Two Sets are equal when they have the same values, in any order.
+    Operator ==(a: Set<T>, b: Set<T>): Bool
+        If a.Count != b.Count Then Return False
+        For value In a
+            If !b.Contains(value) Then Return False
+        End For
+        Return True
+    End Operator
+
+    // A Set's hash, the same for equal Sets: its values', added up, so their order doesn't count.
+    Public Method Hash(): UInt64
+        Local total = Count As UInt64
+        For value In Self
+            total = total.WrappingAdd(HashCombine(0, value.Hash()))
+        End For
+        Return total
+    End Method
+
+    // The values, in the order they were added. Adding or removing one while going over them
+    // panics.
     Public Method Iterate(): SetIterator<T> => SetIterator<T>(Items.IterateAs("Set"))
+
+    // The values, in an array, so a Set can take its own values, or ones that change it.
+    Static Method Gathered(values: Iterable<T>): T[]
+        Local gathered: T[] = []
+        For value In values
+            gathered.Add(value)
+        End For
+        Return gathered
+    End Method
+
+    // The values as a Set, for looking them up.
+    Static Method SetOf(values: Iterable<T>): Set<T>
+        Local set = Set<T>()
+        set.AddAll(values)
+        Return set
+    End Method
 End Class
 
 Public Struct SetIterator<T> Implements Iterator<T>

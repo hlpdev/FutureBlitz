@@ -1,0 +1,52 @@
+// A Set keeps its values in the order they were added, through removals too, and has the
+// algebra: new Sets from two, changes in place, and questions, each with an empty Set too.
+Import std.core
+Import std.collections
+
+Function SetOf(values: Int[]): Set<Int>
+    Local set = Set<Int>()
+    For value In values
+        set.Add(value)
+    End For
+    Return set
+End Function
+
+Local a = SetOf([1, 2, 3, 4])
+Local b = SetOf([3, 4, 5, 6])
+Local none = Set<Int>()
+
+// Removing and adding again keeps the order of the rest.
+a.Remove(2)
+a.Add(2)
+Print(a, a.ToArray(), none.ToArray())
+
+// New Sets.
+Print(a.Union(b), a.Intersect(b), a.Difference(b), a.SymmetricDifference(b))
+Print(a.Union(none), a.Intersect(none), none.Difference(a), none.SymmetricDifference(b))
+Print(a.Union(a), a.Intersect(a), a.Difference(a), a.SymmetricDifference(a))
+
+// Questions.
+Print(SetOf([3, 4]).IsSubsetOf(b), a.IsSubsetOf(b), none.IsSubsetOf(a), a.IsSubsetOf(a))
+Print(b.IsSupersetOf(SetOf([5, 6])), b.IsSupersetOf(a), a.IsSupersetOf(none))
+Print(a.Overlaps(b), a.Overlaps(SetOf([9])), none.Overlaps(a))
+Print(a.SetEquals(SetOf([4, 3, 2, 1])), a.SetEquals(b), none.SetEquals(Set<Int>()))
+
+// In place, with itself too.
+Local c = SetOf([1, 2])
+c.AddAll(b)
+Print(c)
+c.AddAll(c)
+c.RemoveAll(SetOf([1, 5, 7]))
+Print(c)
+c.KeepOnly(SetOf([6, 4, 9]))
+Print(c)
+c.KeepOnly(c)
+Print(c)
+c.RemoveAll(c)
+Print(c, c.Count)
+none.AddAll(none)
+none.KeepOnly(a)
+Print(none)
+
+// Find and Filter go in order.
+Print(b.Find(Function(n: Int) => n > 4) ?? -1, b.Filter(Function(n: Int) => n % 2 == 0))

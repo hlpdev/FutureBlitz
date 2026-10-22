@@ -1,0 +1,51 @@
+// Maps and Sets are == by contents, whatever their order, and Hashable when their parts are, so
+// one can be another's key. A Map whose values aren't Equatable compares as the same object.
+Import std.core
+Import std.collections
+
+Local a = {"x": 1, "y": 2}
+Local b = {"y": 2, "x": 1}
+Local c = {"x": 1, "y": 3}
+Local d = {"x": 1}
+Print(a == b, a != b, a == c, a == d, d == a, a == a)
+Print(a.Hash() == b.Hash(), Map<String, Int>() == Map<String, Int>())
+
+// Removing and adding again changes the order, not what's equal.
+b.Remove("x")
+b.Add("x", 1)
+Print(a == b, a.Hash() == b.Hash())
+
+// A Map of Maps, and Maps as keys.
+Local nested = {1: {"a": 1}, 2: {"b": 2}}
+Local same = {2: {"b": 2}, 1: {"a": 1}}
+Print(nested == same)
+Local seen = Map<Map<String, Int>, String>()
+seen.Add(a, "first")
+seen.Add(b, "second")
+Print(seen.Count, seen.Get(b) ?? "none", seen.Get(c) ?? "none")
+
+// Values that are Null are values like any other.
+Local maybe: Map<String, Int?> = {"n": Null, "m": 1}
+Local other: Map<String, Int?> = {"m": 1, "n": Null}
+Local differs: Map<String, Int?> = {"m": 1, "n": 2}
+Print(maybe == other, maybe == differs, maybe.Hash() == other.Hash())
+
+// Sets.
+Local s = Set<Int>()
+Local t = Set<Int>()
+For i = 0 Until 5
+    s.Add(i)
+    t.Add(4 - i)
+End For
+Print(s == t, s.Hash() == t.Hash())
+t.Remove(0)
+Print(s == t, s != t)
+Local sets = Set<Set<Int>>()
+sets.Add(s)
+sets.Add(s.Clone())
+Print(sets.Count)
+
+// Values a Map can't compare make it compare as an object.
+Local calls: Map<String, Func(): Int> = {"a": Function() => 1}
+Local copied = calls.Clone()
+Print(calls == copied, calls == calls)
