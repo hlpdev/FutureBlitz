@@ -246,6 +246,21 @@ Extend T[]
         Self[b] = held
     End Method
 
+    // Sorts the elements in place by what key gives for each, smallest first. Equal keys keep
+    // their elements' order, and ThenBy on what it gives breaks their ties.
+    Public Method SortBy<K: Comparable>(key: Func(T): K): Sorting<T>
+        Local before = Function(a: T, b: T) => key(a) < key(b)
+        Sort(before)
+        Return Sorting<T>(Self, before)
+    End Method
+
+    // The same, largest key first.
+    Public Method SortByDescending<K: Comparable>(key: Func(T): K): Sorting<T>
+        Local before = Function(a: T, b: T) => key(b) < key(a)
+        Sort(before)
+        Return Sorting<T>(Self, before)
+    End Method
+
     // Sorts the elements in place, smallest first, without making another array: a heap sort,
     // so equal elements may change places.
     Public Method SortUnstable()
@@ -325,6 +340,30 @@ Extend T[]
         Return total
     End Method
 End Extend
+
+// An array SortBy or SortByDescending sorted, whose ThenBy and ThenByDescending sort it again
+// where the keys so far tie, in place.
+Public Struct Sorting<T>
+    Field Items: T[]
+    Field Before: Func(T, T): Bool
+
+    // Sorts the array again by what key gives, smallest first, where the keys so far tie.
+    Public Method ThenBy<K: Comparable>(key: Func(T): K): Sorting<T>
+        Local first = Before
+        Return Again(Function(a: T, b: T) => first(a, b) || (!first(b, a) && key(a) < key(b)))
+    End Method
+
+    // The same, largest key first.
+    Public Method ThenByDescending<K: Comparable>(key: Func(T): K): Sorting<T>
+        Local first = Before
+        Return Again(Function(a: T, b: T) => first(a, b) || (!first(b, a) && key(b) < key(a)))
+    End Method
+
+    Method Again(before: Func(T, T): Bool): Sorting<T>
+        Items.Sort(before)
+        Return Sorting<T>(Items, before)
+    End Method
+End Struct
 
 // The parts with separator between them, joined in pairs, then pairs of those, and so on, so the
 // time grows with their length times its logarithm, not with its square.

@@ -1,0 +1,30 @@
+// SortBy and SortByDescending sort an array in place by a key, keeping ties in order, and
+// ThenBy and ThenByDescending break their ties.
+Import std.core
+Import std.collections
+
+Struct Person
+    Field Name: String
+    Field Age: Int
+    Field Town: String
+End Struct
+
+Function Names(people: Person[]): String[] => people.Map(Function(p: Person) => p.Name)
+
+Local people = [Person("Cy", 30, "Oslo"), Person("Al", 25, "Rome"), Person("Bo", 30, "Bern"),
+                Person("Di", 25, "Oslo"), Person("Ed", 40, "Rome")]
+Local age = Function(p: Person) => p.Age
+Local name = Function(p: Person) => p.Name
+Local town = Function(p: Person) => p.Town
+people.SortBy(age)
+Print(Names(people))
+people.SortByDescending(age)
+Print(Names(people))
+people.SortBy(age).ThenBy(name)
+Print(Names(people))
+people.SortBy(town).ThenByDescending(age).ThenBy(name)
+Print(Names(people))
+
+Local empty: Person[] = []
+empty.SortBy(age).ThenBy(name)
+Print(empty.Count)
