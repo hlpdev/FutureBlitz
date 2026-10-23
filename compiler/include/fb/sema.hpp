@@ -408,6 +408,10 @@ struct analysis_t { // NOLINT(bugprone-exception-escape)
     /// A CString's ToString, which copies its text into a String in Unsafe code, once a program
     /// uses it.
     std::optional<symbol_id_t> cstring_text;
+    /// std.io's Path, from std/io/path.fb, which a String converts to through its New that takes
+    /// the String, `path_new`. INVALID when the program doesn't have it.
+    type_id_t path = type_id_t::INVALID;
+    std::optional<symbol_id_t> path_new;
     /// The function values the program makes. The expression that makes each one, a lambda or
     /// a Function's name, has its index.
     std::vector<closure_t> closures;

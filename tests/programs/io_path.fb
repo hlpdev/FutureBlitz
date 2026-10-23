@@ -71,6 +71,18 @@ seen.Add(Posix("a//b").Normalize())
 seen.Add(Windows("a/b"))
 Print("{seen.Count}")
 
+Print("From Strings")
+Function Named(p: Path): String => "{p.FileName()} in {p.Parent()}"
+Local saves = "saves"
+Print(Named("games/save.dat"))
+Print(Named(saves + "/one.dat"))
+Print(Named("{saves}/two.dat"))
+Local converted: Path = saves
+converted = converted / "three.dat"
+Print("{converted} {converted == "saves/three.dat"} {Posix("a") / Windows("b\\c")}")
+Local named: Path[] = ["x.txt", saves]
+Print(named)
+
 Print("Absolute")
 Local here = Try Path("x").Absolute()
 Print("{here.IsAbsolute()} {here.FileName()} {(Try Path("x/../y").Absolute()) == here.Parent() / "y"}")

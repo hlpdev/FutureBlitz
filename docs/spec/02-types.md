@@ -223,6 +223,12 @@ If target != Null Then target.Hurt(5)   // target is Enemy here
 
 - Only **lossless** conversions happen implicitly (e.g. `Int32` → `Int64`, `Int32` →
   `Float64`, `Float32` → `Float64`, `T` → `T?`).
+- A `String` converts to std.io's `Path` wherever one is expected, and to a `Path?`: a call
+  makes the Path with its New, as the program runs, so `File.ReadText("save.dat")` reads
+  naturally. It's a conversion in overloads, so one that takes the String exactly wins. A
+  `String?` doesn't convert, since its Null isn't a path, and neither does a `String[]` to a
+  `Path[]`, though an array literal's elements do. A Path isn't known at compile time, so a
+  String isn't a Path parameter's default. No other type gets a conversion of its own.
 - Everything else requires an explicit cast: `x As Float`.
 - `As?` is a checked downcast that yields `Null` on failure (see [03](03-operators.md)).
 - `Bool` never converts implicitly. `As` turns it into an integer: `True As Int` is `1` and

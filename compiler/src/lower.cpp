@@ -2446,7 +2446,23 @@ private:
             return temporary(cast_t{ .value = value, .type = type, .span = span }, type);
         }
 
+        if (from == type_id_t::STRING && m_analysis.path != type_id_t::INVALID &&
+            without_nullables(type) == m_analysis.path) {
+            return convert(path_of(value), type, span);
+        }
+
         return retype(value, cast_t{ .value = value, .type = type, .span = span }, type);
+    }
+
+    /// std.io's Path of a String, which its New makes, as a String converts to one.
+    operand_t path_of(const operand_t& text) {
+        call_t call{
+            .function = function_of(expect(m_analysis.path_new)),
+            .arguments = { { .value = text } },
+        };
+        const operand_t path = temporary(std::move(call), m_analysis.path);
+        m_temporaries.push_back(std::get<local_id_t>(std::get<place_t>(path).root));
+        return path;
     }
 
     /// Whether a type's zero has bits that aren't 0, unlike the fields of a new object: a

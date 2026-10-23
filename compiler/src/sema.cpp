@@ -389,6 +389,7 @@ public:
         check_extern_symbols();
         check_from_names();
         check_overloads();
+        find_path_struct();
         // An Extend adds to a type once the type's own members are declared.
         each_item([this](const stmt_id_t id) { declare_extension(id); });
         list_object_interfaces();
@@ -1372,6 +1373,42 @@ private:
             m_analysis.types.get(map).parameters.size() == 2) {
             m_map = map;
         }
+    }
+
+    /// std.io's Path, which a String converts to wherever one is expected, through the Path's New
+    /// that takes one String. Only a program that has std.io's paths has it.
+    void find_path_struct() {
+        const type_id_t path = std_type("std.io.path", "Path");
+        if (path == type_id_t::INVALID || !is_struct(path)) {
+            return;
+        }
+
+        const auto declared = m_declared_types.find(definition_of(path));
+        if (declared == m_declared_types.end()) {
+            return;
+        }
+
+        for (const symbol_id_t member : symbol(declared->second).members) {
+            const symbol_t& made = symbol(member);
+            if (made.kind == symbol_kind_t::CONSTRUCTOR && made.parameters.size() == 1 &&
+                symbol(made.parameters.front()).type == type_id_t::STRING &&
+                !symbol(made.parameters.front()).by_ref) {
+                m_analysis.path = path;
+                m_analysis.path_new = member;
+                return;
+            }
+        }
+    }
+
+    /// Whether `from` converts to `to` as a String to std.io's Path, in any number of T?s.
+    [[nodiscard]] bool makes_path(const type_id_t from, const type_id_t to) const {
+        type_id_t inner = to;
+        while (is_nullable(inner)) {
+            inner = non_null(inner);
+        }
+
+        return from == type_id_t::STRING && m_analysis.path != type_id_t::INVALID &&
+               inner == m_analysis.path;
     }
 
     /// The Interfaces in std.core that ==, <, strings, Hash, and 'For ... In' go through.
@@ -12180,9 +12217,14 @@ private:
     /// Whether `from` converts to `to` without an 'As': losslessly between numbers, from a Class
     /// to one it extends, from a T to a U? when the T converts to the U, and from a T? to a U? as
     /// its T does, keeping a Null. A T? to a U?? is wrapped, as a T is, so its Null is the U?'s.
+    /// A String converts to std.io's Path, but a String? doesn't, since its Null isn't one.
     [[nodiscard]] bool converts(const type_id_t from, const type_id_t to) const {
         if (from == to || !is_nullable(to)) {
             return converts_plainly(from, to);
+        }
+
+        if (is_nullable(from) && makes_path(non_null(from), to)) {
+            return false;
         }
 
         if (is_nullable(from) && nullable_depth(from) == nullable_depth(to)) {
@@ -12263,7 +12305,7 @@ private:
                    m_analysis.types.get(from).inner == m_analysis.types.get(to).inner;
         }
 
-        return converts_losslessly(from, to) ||
+        return converts_losslessly(from, to) || makes_path(from, to) ||
                (is_class(from) && is_class(to) && m_analysis.types.extends(from, to));
     }
 
@@ -17306,6 +17348,11 @@ private:
         // so it's wrapped as the program runs.
         if (out.value && std::holds_alternative<std::nullptr_t>(out.value->data) &&
             is_nullable(out.type) && nullable_depth(out.type) < nullable_depth(type)) {
+            out.value.reset();
+        }
+
+        // A Path made from a known String is made as the program runs, by its New.
+        if (out.value && makes_path(out.type, type)) {
             out.value.reset();
         }
 
@@ -24619,7 +24666,7 @@ private:
                 !is_integer(target)) {
                 info(id).value = const_value_t{ .type = target, .data = nullptr };
             }
-        } else if (value) {
+        } else if (value && !makes_path(source, target)) {
             if (is_nullable(target)) {
                 info(id).value = convert_value(*value, target);
             } else if (is_enum(target) && source != target) {
