@@ -1,0 +1,2 @@
+1
+panic: Offset takes a finite distance, not inf at panic_math_polygon_offset.fb:7:7

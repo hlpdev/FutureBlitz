@@ -1,0 +1,7 @@
+// ConvexHull takes points that are finite, which an order needs, and panics where it's called on
+// one that isn't.
+Import std.core
+Import std.math
+
+Print(ConvexHull([Vec2(0, 0), Vec2(1, 0)]))
+Print(ConvexHull([Vec2(0, 0), Vec2(NaN, 0), Vec2(1, 1)]))

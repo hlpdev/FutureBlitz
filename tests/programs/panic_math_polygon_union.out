@@ -1,0 +1,2 @@
+1
+panic: a polygon's corners are finite, not (nan, 1) at panic_math_polygon_union.fb:8:7

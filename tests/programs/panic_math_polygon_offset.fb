@@ -1,0 +1,7 @@
+// Offset takes a finite distance, which panics where it's called.
+Import std.core
+Import std.math
+
+Local square = [Vec2(0, 0), Vec2(4, 0), Vec2(4, 4), Vec2(0, 4)]
+Print(Offset([square], 1, False).Count)
+Print(Offset([square], Inf))

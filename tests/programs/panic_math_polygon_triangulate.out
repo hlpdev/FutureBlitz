@@ -1,0 +1,2 @@
+2
+panic: a polygon's corners are finite, not (-inf, 2) at panic_math_polygon_triangulate.fb:8:7

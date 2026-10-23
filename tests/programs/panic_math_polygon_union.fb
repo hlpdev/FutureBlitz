@@ -1,0 +1,8 @@
+// Union takes corners that are finite, which an order needs, and panics where it's called on one
+// that isn't.
+Import std.core
+Import std.math
+
+Local square = [Vec2(0, 0), Vec2(4, 0), Vec2(4, 4), Vec2(0, 4)]
+Print(Union([square], [square]).Count)
+Print(Union([square], [[Vec2(0, 0), Vec2(NaN, 1), Vec2(1, 1)]]))

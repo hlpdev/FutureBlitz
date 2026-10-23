@@ -77,6 +77,18 @@ Function Winding(p: Point2, rings: Point2[][]): Int
     Return winding
 End Function
 
+// Panics unless each corner's coordinates are finite, which an order needs to put it in its place.
+@PanicsAtCaller
+Function CheckFinite(rings: Vec2[][])
+    For ring In rings
+        For corner In ring
+            If !IsFinite(corner.x) || !IsFinite(corner.y)
+                Panic("a polygon's corners are finite, not {corner}")
+            End If
+        End For
+    End For
+End Function
+
 // The rings as Doubles.
 Function PointsOf(rings: Vec2[][]): Point2[][]
     Local points: Point2[][] = []
@@ -107,8 +119,10 @@ End Function
 
 // The smallest convex polygon holding every point, counterclockwise from the lowest of the
 // leftmost, with no corner on a straight edge: Andrew's monotone chain. Fewer than three points
-// that aren't on one line give those of them that are its ends.
+// that aren't on one line give those of them that are its ends. A corner that isn't finite panics.
+@PanicsAtCaller
 Public Function ConvexHull(points: Vec2[]): Vec2[]
+    CheckFinite([points])
     Local sorted = points.Clone()
     sorted.Sort(Function(a: Vec2, b: Vec2): Bool
         If a.x != b.x Then Return a.x < b.x
@@ -160,6 +174,7 @@ Struct Node
 End Struct
 
 // The triangles that fill the ring, each as indices of its corners, counterclockwise.
+@PanicsAtCaller
 Public Function Triangulate(outer: Vec2[]): (Int, Int, Int)[]
     Local none: Vec2[][] = []
     Return Triangulate(outer, none)
@@ -170,8 +185,11 @@ End Function
 // z-order hash, which cuts off one convex corner with no other corner in its triangle at a time,
 // once each hole is joined to the outer ring by a bridge from its leftmost corner to a corner it
 // sees. A ring's last corner may repeat its first. An outer ring of fewer than three corners gives
-// none, and a hole of fewer than three is left out.
+// none, and a hole of fewer than three is left out. A corner that isn't finite panics.
+@PanicsAtCaller
 Public Function Triangulate(outer: Vec2[], holes: Vec2[][]): (Int, Int, Int)[]
+    CheckFinite([outer])
+    CheckFinite(holes)
     Local triangles: (Int, Int, Int)[] = []
     If Corners(outer) < 3 Then Return triangles
     Local nodes: Node[] = []
@@ -818,26 +836,38 @@ Function Link(edges: Edge[]): Vec2[][]
     Return rings
 End Function
 
-// The region filled by either a or b, or both.
+// The region filled by either a or b, or both. A corner that isn't finite panics.
+@PanicsAtCaller
 Public Function Union(a: Vec2[][], b: Vec2[][]): Vec2[][]
+    CheckFinite(a)
+    CheckFinite(b)
     Return Boundary([PointsOf(a), PointsOf(b)], Function(w: Int[]) => w[0] != 0 || w[1] != 0)
 End Function
 
-// The region filled by both a and b.
+// The region filled by both a and b. A corner that isn't finite panics.
+@PanicsAtCaller
 Public Function Intersection(a: Vec2[][], b: Vec2[][]): Vec2[][]
+    CheckFinite(a)
+    CheckFinite(b)
     Return Boundary([PointsOf(a), PointsOf(b)], Function(w: Int[]) => w[0] != 0 && w[1] != 0)
 End Function
 
-// The region filled by a but not by b.
+// The region filled by a but not by b. A corner that isn't finite panics.
+@PanicsAtCaller
 Public Function Difference(a: Vec2[][], b: Vec2[][]): Vec2[][]
+    CheckFinite(a)
+    CheckFinite(b)
     Return Boundary([PointsOf(a), PointsOf(b)], Function(w: Int[]) => w[0] != 0 && w[1] == 0)
 End Function
 
 // The region grown by distance all around, or shrunk by a negative one: each ring's edges moved
 // out along their normals, joined around its corners by arcs when rounded, else by miters up to
 // twice the distance long, beyond which they're cut off, and what overlaps then merged, so a
-// shrunk part too thin for the distance goes.
+// shrunk part too thin for the distance goes. A corner or a distance that isn't finite panics.
+@PanicsAtCaller
 Public Function Offset(rings: Vec2[][], distance: Float, rounded: Bool = True): Vec2[][]
+    CheckFinite(rings)
+    If !IsFinite(distance) Then Panic("Offset takes a finite distance, not {distance}")
     // The region in order first, outer rings counterclockwise and holes clockwise, so each ring's
     // outside is on its right.
     Local clean = Boundary([PointsOf(rings)], Function(w: Int[]) => w[0] != 0)
