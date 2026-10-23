@@ -1,0 +1,14 @@
+// A Statement's Clear panics where it's called once its Database is closed, though its Parameters
+// still says how many it takes.
+Import std.core
+Import std.db
+
+Try
+    Local db = Database.Open(":memory:")
+    Local statement = db.Prepare("SELECT ?, ?")
+    db.Close()
+    Print(statement.Parameters)
+    statement.Clear()
+Catch e As DatabaseError
+    Print(e.Message)
+End Try

@@ -22,7 +22,7 @@ extern "C" {
 std::int32_t fb_db_open(const fb_string_t* path, void** database);
 /// What went wrong in the last call on `database` that failed, in English.
 fb_string_t* fb_db_message(void* database);
-/// Closes `database`, once its statements are finalized.
+/// Closes `database` now, finalizing the statements it has, which std.db then doesn't use.
 void fb_db_close(void* database);
 
 /// Runs each statement in `sql`, in turn, until one fails, or -3 when one takes parameters, which

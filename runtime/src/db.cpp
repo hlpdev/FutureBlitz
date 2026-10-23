@@ -100,6 +100,11 @@ fb_string_t* fb_db_message(void* database) {
 }
 
 void fb_db_close(void* database) {
+    // Its statements go with it, so it closes now, not once they're let go of.
+    while (sqlite3_stmt* statement = sqlite3_next_stmt(connection(database), nullptr)) {
+        sqlite3_finalize(statement);
+    }
+
     sqlite3_close_v2(connection(database));
 }
 

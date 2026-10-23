@@ -310,7 +310,8 @@ Public Class Database
     End Method
 
     // Closes it now, and rolls back what an open Transaction did, as its last reference going
-    // would. Using it after that panics, but for Close, which does nothing then.
+    // would, and finalizes its Statements, so it lets go of its file and locks then. Using it,
+    // or them, after that panics, but for Close, which does nothing then.
     Public Method Close()
         If Handle == Null Then Return
         If fb_db_in_transaction(Handle) != 0 Then fb_db_run(Handle, "ROLLBACK")
@@ -617,23 +618,27 @@ End Class
 // A statement prepared once, to run many times, its parameters bound to new values each time:
 // what Database.Prepare makes. Its parameters are ?, ?NNN, :name, @name, and $name, numbered
 // from 1 in order, as SQLite numbers them, and keep the values they're bound to until they're
-// bound again, or Clear sets them to NULL.
+// bound again, or Clear sets them to NULL. Closing its Database finalizes it, and using it
+// after that panics, but for Parameters.
 Public Class Statement
     Field Owner: Database
+    // SQLite's statement, which Close finalizes with the rest of the Database's.
     Field Handle: Ptr<Void>
+    Field Count: Int
 
     New(owner: Database, handle: Ptr<Void>)
         Owner = owner
         Handle = handle
+        Count = fb_db_parameter_count(handle)
     End New
 
     Method Destroy()
-        fb_db_finalize(Handle)
+        If !Owner.IsClosed Then fb_db_finalize(Handle)
     End Method
 
     // How many parameters it takes: the largest number one has.
     Public Property Parameters: Int
-        Get => fb_db_parameter_count(Handle)
+        Get => Count
     End Property
 
     // Binds the parameter at index, from 1, to value. Panics when it has none there.
@@ -658,7 +663,9 @@ Public Class Statement
     End Method
 
     // Sets each parameter to NULL.
+    @PanicsAtCaller
     Public Method Clear()
+        Owner.Connection()
         fb_db_clear(Handle)
     End Method
 
@@ -925,9 +932,10 @@ Public Class Statement
         If code != 0 Then Throw Failure(Owner.Handle, code)
     End Method
 
-    // Panics when it takes another number of parameters than count.
+    // Panics when its Database is closed, or it takes another number of parameters than count.
     @PanicsAtCaller
     Method Expect(count: Int)
+        Owner.Connection()
         If Parameters != count
             Panic("a value is given for each of the statement's parameters, {Parameters}, not " +
                   "{count}")

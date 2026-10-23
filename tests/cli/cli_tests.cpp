@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <array>
 #include <catch2/catch_test_macros.hpp>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
@@ -477,6 +478,101 @@ TEST_CASE("a program fb builds loads only the system's own libraries", "[cli]") 
         REQUIRE(ran);
         CHECK(ran->exit_code == 0);
         CHECK(ran->output == (name.ends_with("reads.fb") ? "[none]\n" : "36\n"));
+    }
+}
+
+TEST_CASE("a program's database is a file it makes, opens again, and shares", "[cli]") {
+    // Each run starts with only a file that isn't a database, which the programs find by its
+    // whole path, with forward slashes, as SQLite takes them everywhere.
+    const std::filesystem::path folder = std::filesystem::path(FB_TEST_OUTPUT) / "database";
+    std::filesystem::remove_all(folder);
+    std::filesystem::create_directories(folder);
+    std::ofstream(folder / "notes.db", std::ios::binary) << std::string(200, 'x');
+    std::string at = fb::to_utf8(folder);
+    std::ranges::replace(at, '\\', '/');
+    // How long the last one ran.
+    std::chrono::steady_clock::duration took{};
+    const auto run = [&](const std::string_view name, const std::string_view text) {
+        const std::filesystem::path source = write_source(
+            std::format("database/{}.fb", name),
+            std::format("Import std.core\nImport std.db\n\nConst folder = \"{}\"\n{}", at, text));
+        std::filesystem::path executable = source;
+        executable.replace_extension(fb::executable_extension);
+        const fb::process_result_t built = fb_run({ "build", fb::to_utf8(source) });
+        INFO(built.output);
+        REQUIRE(built.exit_code == 0);
+        const auto started = std::chrono::steady_clock::now();
+        const std::expected<fb::process_result_t, std::string> ran =
+            fb::run_process(executable, {});
+        REQUIRE(ran);
+        CHECK(ran->exit_code == 0);
+        took = std::chrono::steady_clock::now() - started;
+        return ran->output;
+    };
+
+    SECTION("files") {
+        // A file is made, kept, and opened again only to read; one connection writing makes another
+        // wait its 5 seconds, then throw BUSY; Close lets go of its file at once, though a
+        // Statement of it is kept; and a file that isn't a database is CORRUPT.
+        const std::string kinds = run("kinds", R"fb(
+Function Report(e: DatabaseError)
+    Print("{e.Kind}: {e.Message}")
+End Function
+
+Function Run() Throws DatabaseError
+    Local made = Try Database.Open(folder + "/kinds.db")
+    Try made.Execute("CREATE TABLE t (n INTEGER)")
+    Try made.Execute("INSERT INTO t VALUES (?)", 1)
+    made.Close()
+    Local again = Try Database.Open("file:" + folder + "/kinds.db?mode=ro")
+    Print((Try again.Rows("SELECT n FROM t"))[0].Integer(0) ?? -1)
+    Try
+        again.Execute("INSERT INTO t VALUES (2)")
+    Catch e As DatabaseError
+        Report(e)
+    End Try
+
+    Local first = Try Database.Open(folder + "/kinds.db")
+    Local second = Try Database.Open(folder + "/kinds.db")
+    Local transaction = Try first.Begin()
+    Try first.Execute("INSERT INTO t VALUES (3)")
+    Try
+        second.Execute("INSERT INTO t VALUES (4)")
+    Catch e As DatabaseError
+        Report(e)
+    End Try
+    Try transaction.Commit()
+    Print((Try second.Rows("SELECT count(*) FROM t"))[0].Integer(0) ?? -1)
+
+    Local locked = Try Database.Open(folder + "/locked.db")
+    Try locked.Execute("PRAGMA locking_mode = EXCLUSIVE; CREATE TABLE t (n INTEGER)")
+    Local kept = Try locked.Prepare("SELECT count(*) FROM t")
+    locked.Close()
+    Local other = Try Database.Open(folder + "/locked.db")
+    Try other.Execute("INSERT INTO t VALUES (1)")
+    Print((Try other.Rows("SELECT count(*) FROM t"))[0].Integer(0) ?? -1, kept.Parameters)
+
+    Try
+        Local notes = Database.Open(folder + "/notes.db")
+        notes.Rows("SELECT * FROM sqlite_schema")
+    Catch e As DatabaseError
+        Report(e)
+    End Try
+End Function
+
+Try
+    Run()
+Catch e As DatabaseError
+    Report(e)
+End Try
+)fb");
+        CHECK(kinds == "1\n"
+                       "OTHER: attempt to write a readonly database\n"
+                       "BUSY: database is locked\n"
+                       "2\n"
+                       "1 0\n"
+                       "CORRUPT: file is not a database\n");
+        CHECK(took >= std::chrono::seconds(4));
     }
 }
 
