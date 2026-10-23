@@ -228,9 +228,9 @@ file or URL in the default app.
   They're `==` by contents, and Hashable when their parts are.
 - `T[]`: `IndexOf`, `LastIndexOf`, `FindIndex`, `FindLast`, `Any`, `All`, `BinarySearch`;
   `First`, `Last`, `RemoveLast`, `TryRemoveLast`; `AddAll`, `InsertAll`, `RemoveRange`,
-  `RemoveAll(test)`, `Resize(count, fill)`, `Fill`; `Reverse`, `Swap`, `Shuffle(random)`,
-  `SortUnstable` (in place, making no array); `Distinct`, `Join(separator)`, `Fold`, `Reduce`;
-  `Capacity`, `Reserve`, `TrimExcess`.
+  `RemoveAll(test)`, `Resize(count, fill)`, `Fill`; `Reverse`, `Swap`, `SortUnstable` (in
+  place, making no array); `Distinct`, `Join(separator)`, `Fold`, `Reduce`; `Capacity`,
+  `Reserve`, `TrimExcess`. std.math adds `Shuffle` and `Sample`.
 - Sorting: `Sort()`, `Sort(before)`, `SortBy(key)`, `SortByDescending(key)`, and `ThenBy` and
   `ThenByDescending` for ties, stable and in place.
 - Views that don't copy: `items.View(a, b)` is an `ArrayView<T>` that keeps its array alive, and
@@ -291,9 +291,8 @@ file or URL in the default app.
 #### std.math
 
 Step 9 built the constants, the scalars, the angles, std.math.bits, the vectors, `Quat`, the
-matrices, the colors, and the shapes, and step 10 the polygons, curves, `Random`, noise, easing,
-stats, and fixed point, all but `Rand`, `RandInt`, `RandFloat`, `SeedRandom`, and an array's
-`Shuffle()` and `Sample()`, which wait on `ThreadLocal Global`; the rest is planned.
+matrices, the colors, and the shapes, and step 10 the polygons, curves, `Random` and the default
+generator, noise, easing, stats, and fixed point; the rest is planned.
 `Import std.math` brings in all of std/math/, std.math.bits too.
 
 - The math is Functions, as for Floats, beside the scalar ones of their names: `Lerp(a, b, t)`,
@@ -389,10 +388,13 @@ stats, and fixed point, all but `Rand`, `RandInt`, `RandFloat`, `SeedRandom`, an
   build and on every CPU, with `Int()`, `Int(count)`, `Int(low, high)` (both included), `Float()`
   and `Double()` from 0 up to 1, `Float(low, high)`, `Bool`, `Chance`, `Pick`, `WeightedPick`,
   `Shuffle` (Fisher and Yates'), `Sample` (none twice), `Normal(mean, deviation)`,
-  `InsideUnitCircle`, `UnitVector3`, `Fork`, and `State`, which saves and sets it back. Not
-  yet: `Rand`, `RandInt`, and `RandFloat` over a default generator per thread (a
-  `ThreadLocal Global`), seeded randomly each run until `SeedRandom(n)`, and an array's
-  `Shuffle()` and `Sample()` over it.
+  `InsideUnitCircle`, `UnitVector3`, `Fork`, and `State`, which saves and sets it back.
+- The default generator (random.fb): `Rand()` from 0 up to 1, `RandInt(count)`,
+  `RandInt(low, high)` (both included), and `RandFloat(low, high)`, over each thread's own
+  `Random`, a `ThreadLocal Global` seeded from the runtime's `fb_random_seed` (the OS's
+  randomness, the clock, and a count) each run, until `SeedRandom(n)` starts every thread's
+  again at `Random(n)`, from its next draw. An array's `Shuffle()` and `Sample(count)` draw
+  from it, and `Shuffle(random)` and `Sample(count, random)` from the generator given.
 - Noise (noise.fb): `Noise()`, from Ken Perlin's permutation, or `Noise(seed)`, with `Perlin`
   (his improved noise), `Simplex` (Gustavson's), `Value`, and `Worley` in 2D and 3D, of Double
   coordinates, giving Floats, and `Fbm`, octaves of Perlin noise, by its `Octaves`, `Lacunarity`,
