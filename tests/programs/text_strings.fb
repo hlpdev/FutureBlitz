@@ -45,6 +45,7 @@ Print("é-é".ReplaceFirst("é", "e"), "abc".ReplaceFirst("x", "y"), "aaa".Repla
 
 // Trimming whitespace, Unicode's too, and a prefix or suffix.
 Print("[{" \u{3000}héllo 😀\u{2003} ".Trim()}] [{"\u{A0}é ".TrimStart()}] [{" é\u{A0}".TrimEnd()}]")
+Print("[{"\u{A0} e\u{301}😀 ".TrimStart()}] [{" 😀e\u{301}\u{2003}".TrimEnd()}]")
 Print("[{"   ".Trim()}] [{"e\u{301} ".Trim()}]")
 Print("😀héllo".TrimPrefix("😀"), "héllo😀".TrimSuffix("😀"), word.TrimPrefix("x"),
       word.TrimSuffix("é"))

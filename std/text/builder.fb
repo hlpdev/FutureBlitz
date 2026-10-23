@@ -130,7 +130,7 @@ Public Class StringBuilder Implements Printable
     // Panics unless a character starts at the position at.
     @PanicsAtCaller
     Method CheckCharacter(at: Int)
-        If at == Bytes.Count
+        If at < 0 || at >= Bytes.Count
             Panic("[] takes a character's position, before the StringBuilder's Length, " +
                   "{Bytes.Count}, not {at}")
         End If
