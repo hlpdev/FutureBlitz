@@ -639,6 +639,50 @@ TEST_CASE("number macros have C's types and values for the target", "[bindgen]")
           "Public Const FROM_ANON: UInt32 = 1\n");
 }
 
+TEST_CASE("a macro of C's long or wchar_t is a CLong or CWChar where every target's holds it",
+          "[bindgen]") {
+    // C gives a wide character literal the type wchar_t, as a cast does, and a value only some
+    // targets' hold is of its size, as Windows' 16-bit wchar_t wraps 70000 to 4464.
+    const std::string_view header = "#include <stddef.h>\n"
+                                    "#define SEPARATOR L'/'\n"
+                                    "#define LETTER 'a'\n"
+                                    "#define CAST ((wchar_t)'/')\n"
+                                    "#define WIDE_MAX ((wchar_t)65535)\n"
+                                    "#define WIDE_BIG ((wchar_t)70000)\n"
+                                    "#define LOW (-2147483647L - 1)\n"
+                                    "#define HIGH 2147483647L\n"
+                                    "#define OVER 2147483648L\n";
+    const std::string_view same = "Public Const SEPARATOR: CWChar = 47\n"
+                                  "Public Const LETTER: Int32 = 97\n"
+                                  "Public Const CAST: CWChar = 47\n"
+                                  "Public Const WIDE_MAX: CWChar = 65535\n";
+    const std::string_view longs = "Public Const LOW: CLong = -2147483648\n"
+                                   "Public Const HIGH: CLong = 2147483647\n"
+                                   "Public Const OVER: Int64 = 2147483648\n";
+    CHECK(module_of(header, "x86_64-w64-mingw32") ==
+          std::format("{}Public Const WIDE_BIG: CWChar = 4464\n{}", same, longs));
+    CHECK(module_of(header, "x86_64-unknown-linux-gnu") ==
+          std::format("{}Public Const WIDE_BIG: Int32 = 70000\n{}", same, longs));
+    CHECK(module_of(header, "aarch64-unknown-linux-gnu") ==
+          std::format("{}Public Const WIDE_BIG: UInt32 = 70000\n{}", same, longs));
+}
+
+TEST_CASE("a header's own wchar_t is a CWChar only where it's the target's", "[bindgen]") {
+    // UTF-32 is the target's wchar_t only on AArch64 Linux.
+    const std::string_view header = "typedef unsigned int wchar_t;\n"
+                                    "struct glyph { wchar_t code; wchar_t next; };\n";
+    const auto glyph = [](const std::string_view type) {
+        return std::format("@CLayout Public Struct glyph\n"
+                           "    Public Field code: {0}\n"
+                           "    Public Field next: {0}\n"
+                           "End Struct\n",
+                           type);
+    };
+    CHECK(module_of(header, "x86_64-w64-mingw32") == glyph("UInt32"));
+    CHECK(module_of(header, "x86_64-unknown-linux-gnu") == glyph("UInt32"));
+    CHECK(module_of(header, "aarch64-unknown-linux-gnu") == glyph("CWChar"));
+}
+
 TEST_CASE("a macro can use what -D defines and what the header includes", "[bindgen]") {
     const std::string_view header = "#include <stdint.h>\n"
                                     "#include \"sizes.h\"\n"

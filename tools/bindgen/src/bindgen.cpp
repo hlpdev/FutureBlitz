@@ -726,8 +726,8 @@ private:
     }
 
     /// The Const for a macro that clang worked out as `variable`, or why it has none.
-    static std::expected<constant_t, std::string> constant_of(const CXCursor variable,
-                                                              const std::string& name) {
+    std::expected<constant_t, std::string> constant_of(const CXCursor variable,
+                                                       const std::string& name) const {
         const auto skipped = [&](const std::string_view why) {
             return std::unexpected(std::format("{}, a macro {}", name, why));
         };
@@ -781,8 +781,10 @@ private:
                     written = clang_getCursorType(child);
                 }
             });
-            if (const std::optional<std::string> integer = c_integer(written);
-                integer && fits_everywhere(*integer, bits)) {
+            const std::optional<std::string> integer = wide_character(variable)
+                                                           ? std::optional<std::string>("CWChar")
+                                                           : c_integer(written);
+            if (integer && fits_everywhere(*integer, bits)) {
                 return constant_t{ .type = *integer, .value = integer_literal(*integer, bits) };
             }
 
@@ -1110,12 +1112,13 @@ private:
     }
 
     /// CLong, CULong, or CWChar for a type written as C's `long`, `unsigned long`, or `wchar_t`,
-    /// through typedefs, but not through one whose name gives its integer's size.
-    static std::optional<std::string> c_integer(CXType type) {
+    /// through typedefs, but not through one whose name gives its integer's size, nor a header's
+    /// own `wchar_t` that isn't the target's.
+    [[nodiscard]] std::optional<std::string> c_integer(CXType type) const {
         while (true) {
             if (type.kind == CXType_Typedef) {
                 const std::string name = text_of(clang_getTypedefName(type));
-                if (name == "wchar_t") {
+                if (name == "wchar_t" && is_target_wchar(type)) {
                     return "CWChar";
                 }
 
@@ -1142,6 +1145,64 @@ private:
         default:
             return std::nullopt;
         }
+    }
+
+    /// Whether a type is of the size and sign of the target's wchar_t, as stddef.h's is and a
+    /// header's own typedef of that name may not be.
+    [[nodiscard]] bool is_target_wchar(const CXType type) const {
+        const type_id_t wchar = on_target(type_id_t::CWCHAR, c_integers_of(target()));
+        const CXType canonical = clang_getCanonicalType(type);
+        return clang_Type_getSizeOf(canonical) == bit_width(wchar) / 8 &&
+               signed_kind(canonical.kind) == is_signed(wchar);
+    }
+
+    /// Whether an integer kind is a signed one.
+    static bool signed_kind(const CXTypeKind kind) {
+        switch (kind) {
+        case CXType_Char_S:
+        case CXType_SChar:
+        case CXType_Short:
+        case CXType_Int:
+        case CXType_Long:
+        case CXType_LongLong:
+            return true;
+        default:
+            return false;
+        }
+    }
+
+    /// Whether a macro's value, the variable `variable` that clang worked it out as, is a wide
+    /// character literal, like L'/', which C gives the type wchar_t, though clang gives it the
+    /// target's integer.
+    static bool wide_character(const CXCursor variable) {
+        bool wide = false;
+        clang_visitChildren(
+            variable,
+            [](const CXCursor child, CXCursor /*parent*/, CXClientData data) {
+                const CXCursorKind kind = clang_getCursorKind(child);
+                if (kind != CXCursor_CharacterLiteral) {
+                    return kind == CXCursor_ParenExpr || kind == CXCursor_UnexposedExpr
+                               ? CXChildVisit_Recurse
+                               : CXChildVisit_Continue;
+                }
+
+                // Its text is where it's spelled, in the macro's definition, not where the
+                // macro's name is.
+                CXFile file = nullptr;
+                unsigned offset = 0;
+                clang_getSpellingLocation(clang_getRangeStart(clang_getCursorExtent(child)), &file,
+                                          nullptr, nullptr, &offset);
+                std::size_t size = 0;
+                const char* text =
+                    file != nullptr
+                        ? clang_getFileContents(clang_Cursor_getTranslationUnit(child), file, &size)
+                        : nullptr;
+                *static_cast<bool*>(data) = text != nullptr && offset + 1 < size &&
+                                            text[offset] == 'L' && text[offset + 1] == '\'';
+                return CXChildVisit_Break;
+            },
+            &wide);
+        return wide;
     }
 
     record_t* record_of(const CXType type) {

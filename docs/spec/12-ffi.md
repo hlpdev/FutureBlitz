@@ -274,9 +274,10 @@ fb bindgen vecmath.h [-o vecmath.fb] [--lib vecmath] [--target <triple>] [--std 
 - Integers map by their size and sign, but for what's written as `long`, `unsigned long`, or
   `wchar_t`, which are `CLong`, `CULong`, and `CWChar` on every target, through a typedef too,
   though not one whose name says its size, like `int64_t`, `size_t`, or `intptr_t`, which are a
-  `long` on some targets; a number macro of one of these is one where every target's holds its
-  value, as `1L` is, and is of its size where it isn't, as Linux's `~0UL` is. An Enum keeps its
-  integer type's size. `float` and `double` map to `Float32` and `Float64`, and
+  `long` on some targets; a number macro of one of these, a wide character like `L'/'` too, is
+  one where every target's holds its value, as `1L` is, and is of its size where it isn't, as
+  Linux's `~0UL` is. A header's own `wchar_t` of another size or sign than the target's is of
+  its size. An Enum keeps its integer type's size. `float` and `double` map to `Float32` and `Float64`, and
   `bool` to `Bool`. `const char*` is a `CString`, a function pointer a Callback, `void*` and a
   pointer to a struct that isn't one of the header's Structs, like an opaque handle, `Ptr<Void>`,
   and any other pointer a `Ptr<T>`, or a `Ptr<Void>` when `T` doesn't map; an array field
