@@ -1430,6 +1430,9 @@ private:
                 error(name.span, "'{}' is a built-in type", name.text);
             } else if (repeated || hides) {
                 error(name.span, "'{}' is already a type parameter here", name.text);
+            } else if (names_type(name)) {
+                error(name.span, "'{}' is a type here, so a type parameter can't take its name",
+                      name.text);
             }
 
             // "Const N: Int" stands for an integer, like a fixed array's size.
@@ -1453,6 +1456,16 @@ private:
         }
 
         return parameters;
+    }
+
+    /// Whether a name is a Struct's, Class's, Interface's, or Enum's that the code there sees,
+    /// its own or an import's.
+    [[nodiscard]] bool names_type(const name_t& name) {
+        const std::vector<symbol_id_t> found =
+            quietly([&] { return top_level(name.text, name.span); });
+        return std::ranges::any_of(found, [this](const symbol_id_t id) {
+            return symbol(id).kind == symbol_kind_t::TYPE;
+        });
     }
 
     /// Whether a type parameter is Const: one that stands for a value.
@@ -2647,11 +2660,19 @@ private:
         const type_expr_t& written = m_ast.get(id);
         if (const auto* array = std::get_if<array_type_t>(&written.node);
             array != nullptr && array->sizes.empty()) {
-            // "Extend Int[]" adds to one array type, and "Extend T[]" to every one, whatever
-            // else T names.
+            // "Extend Int[]" adds to one array type, and "Extend T[]" to every one. Its T is a
+            // type parameter, which can't take a type's name.
             const auto* element = std::get_if<named_type_t>(&m_ast.get(array->element).node);
-            if (element == nullptr || element->name != "T" || !element->arguments.empty()) {
+            if (element == nullptr || element->name != "T" || !element->arguments.empty() ||
+                element->qualifier) {
                 return resolve_type(id);
+            }
+
+            if (names_type({ .text = element->name, .span = m_ast.get(array->element).span })) {
+                error(m_ast.get(array->element).span,
+                      "'T' is a type here, so Extend T[] can't name every array; a type "
+                      "parameter can't take a type's name");
+                return type_id_t::INVALID;
             }
 
             if (m_array_element == type_id_t::INVALID) {

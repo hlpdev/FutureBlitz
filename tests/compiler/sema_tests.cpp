@@ -3681,6 +3681,24 @@ TEST_CASE("generic mistakes", "[sema]") {
     CHECK(errors_of("Local d: Int<Int>") == errors_t{ "Int<Int>: 'Int' isn't generic" });
     CHECK(errors_of("Function F<T, T>()\nEnd Function") ==
           errors_t{ "T: 'T' is already a type parameter here" });
+    // Nor a type's name, Extend T[]'s T too.
+    CHECK(errors_of("Struct Foo\n"
+                    "    Field n: Int\n"
+                    "End Struct\n"
+                    "Function F<Foo>(x: Foo): Foo => x\n"
+                    "Struct Box<Foo>\n"
+                    "    Field v: Foo\n"
+                    "End Struct") ==
+          errors_t{ "Foo: 'Foo' is a type here, so a type parameter can't take its name",
+                    "Foo: 'Foo' is a type here, so a type parameter can't take its name" });
+    CHECK(errors_of("Struct T\n"
+                    "    Field n: Int\n"
+                    "End Struct\n"
+                    "Extend T[]\n"
+                    "    Method First(): Int => Self[0].n\n"
+                    "End Extend") ==
+          errors_t{ "T: 'T' is a type here, so Extend T[] can't name every array; a type "
+                    "parameter can't take a type's name" });
     CHECK(errors_of("Class H<T>\n    Static Field Count = 0\nEnd Class\nLocal n = H.Count") ==
           errors_t{ "H: H<T> is generic, so it needs type arguments, like H<Int>" });
     CHECK(with_generics("Local f = First") ==

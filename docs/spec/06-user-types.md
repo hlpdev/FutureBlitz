@@ -370,8 +370,9 @@ End Extend
 
 - An Extend adds to a Struct, Class, Enum, or built-in type, to a generic Struct or Class
   written with its own type parameters (`Extend Box<T>`), to one instance (`Extend Box<Int>`),
-  to every array (`Extend T[]`), or to one array type (`Extend Int[]`). In an Extend of one
-  instance, the members have the instance's types: a `Box<Int>`'s field `Value: T` is an Int.
+  to every array (`Extend T[]`, whose T is a type parameter, so no type the code sees can be
+  named T), or to one array type (`Extend Int[]`). In an Extend of one instance, the members
+  have the instance's types: a `Box<Int>`'s field `Value: T` is an Int.
   A Class extending that instance, like `Class Names Extends Box<Int>`, has them too, and an
   Operator one adds beats a generic one the type has for all its instances, in generic code too,
   where the instance implements the type's Interfaces with it. Its `==` is what `==` means for
