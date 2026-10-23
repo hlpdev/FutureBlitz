@@ -825,6 +825,29 @@ TEST_CASE("a folder's import brings in its own files, not its subfolders'", "[dr
               "main.fb: Three: 'Three' is in std.extra.deep, which this file doesn't import" });
 }
 
+TEST_CASE("a built-in type's Methods and Properties from std say which module they're in",
+          "[driver]") {
+    const std::vector<fb::library_file_t> library{
+        {
+            .path = "std/extra/words.fb",
+            .text = "Extend String\n"
+                    "    Public Property Size: Int\n"
+                    "        Get => 1\n"
+                    "    End Property\n"
+                    "    Public Method Twice(): String => Self + Self\n"
+                    "End Extend\n",
+        },
+    };
+    CHECK(errors_of(
+              fb::compile("main.fb", "Local n = \"a\".Size\nLocal t = \"a\".Twice()", library)) ==
+          std::vector<std::string>{
+              "main.fb: Size: 'Size' is in std.extra, which this file doesn't import",
+              "main.fb: Twice: 'Twice' is in std.extra, which this file doesn't import",
+          });
+    CHECK(errors_of(fb::compile("main.fb", "Import std.extra\nLocal n = \"a\".Size", library))
+              .empty());
+}
+
 TEST_CASE("a missing module lists the paths tried", "[driver]") {
     const std::vector<fb::library_file_t> library{
         { .path = "lib/a.fb", .text = "" },
