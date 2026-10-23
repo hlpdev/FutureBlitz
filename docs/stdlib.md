@@ -420,11 +420,13 @@ file or URL in the default app.
   messages under one key, as many as a key should seal.
 - Keys and signatures: `Ed25519` (RFC 8032, over Monocypher, verifying only the point
   encodings RFC 8032 decodes), `EcdsaP256` (ES256: signatures r then s, deterministic as RFC
-  6979 makes them), `Rsa.Verify` (RS256) and `VerifyPss` (PS256), and `X25519` key exchange,
-  whose secret is Null for a public key that makes it 0. `Key.FromPem` reads a private or public key of a
-  `KeyKind` (ECDSA P-256, RSA, X25519, or Ed25519), and `ToPem` writes one;
-  `Certificate.FromPem` and `AllFromPem` read X.509 certificates: subject, issuer, serial
-  number, validity, public key, and DER. Checking a chain of them is std.net.tls's.
+  6979 makes them), `Rsa.Verify` (RS256) and `VerifyPss` (PS256), with keys of up to 8192 bits,
+  and `X25519` key exchange, whose secret is Null for a public key that makes it 0.
+  `Key.FromPem` reads the first private or public key in a PEM, of a `KeyKind` (ECDSA P-256,
+  RSA, X25519, or Ed25519), and `ToPem` writes one; `Certificate.FromPem` and `AllFromPem` read
+  X.509 certificates, of any of those keys: subject and issuer, as UTF-8 text with RFC 4514's
+  escapes, serial number, validity, public key, and DER. Checking a chain of them is
+  std.net.tls's.
 
 #### std.compress
 

@@ -260,3 +260,129 @@ End For
 Expect("no certificate", Try? Certificate.FromPem("hello") == Null)
 Expect("a key isn't a certificate", Try? Certificate.AllFromPem(edPublic) == Null)
 Done("Not PEM")
+
+// Counts a check of text, and says what it was when it's another.
+Function CheckText(name: String, actual: String, expected: String)
+    checked += 1
+    If actual != expected Then Print("{name}: {actual}, not {expected}")
+End Function
+
+// What reading a key from the PEM gives.
+Function Shown(pem: String): String
+    Try
+        Local key = Key.FromPem(pem)
+        Return "{key.Kind}, private: {key.IsPrivate}"
+    Catch e As ParseError
+        Return "{e.Kind}: {e.Message}"
+    End Try
+End Function
+
+// The first key in a PEM of several is the one read, whatever kinds the later ones are.
+Local publicThenPrivate = "-----BEGIN PUBLIC KEY-----\n" +
+    "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE7fjQvYW6EbS12khag4DR50TeVGnQ\n" +
+    "shZ9zqOhcohtENjhAtz48fWAh9Vyb70wSGpUU95N77iC16vx+JX6Cq+Wsw==\n" +
+    "-----END PUBLIC KEY-----\n" +
+    "-----BEGIN PRIVATE KEY-----\n" +
+    "MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQg+5kwlov2G2geVvtD\n" +
+    "6T5+2FOzjzOnhww0IiXreSqkzpmhRANCAATt+NC9hboRtLXaSFqDgNHnRN5UadCy\n" +
+    "Fn3Oo6FyiG0Q2OEC3Pjx9YCH1XJvvTBIalRT3k3vuILXq/H4lfoKr5az\n" +
+    "-----END PRIVATE KEY-----\n"
+Local edThenPublic = "-----BEGIN PRIVATE KEY-----\n" +
+    "MC4CAQAwBQYDK2VwBCIEIAMpMwWs7Xq0KatoYeKFjsxH6ezRfGNnJOGlUsStLXHY\n" +
+    "-----END PRIVATE KEY-----\n" +
+    "-----BEGIN PUBLIC KEY-----\n" +
+    "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE7fjQvYW6EbS12khag4DR50TeVGnQ\n" +
+    "shZ9zqOhcohtENjhAtz48fWAh9Vyb70wSGpUU95N77iC16vx+JX6Cq+Wsw==\n" +
+    "-----END PUBLIC KEY-----\n"
+Local ecThenRsa = "-----BEGIN EC PRIVATE KEY-----\n" +
+    "MHcCAQEEIMIOu/XUZ6Y6/CYAE3BK4yZ+0T9pmoFmDglWcN1m9NYboAoGCCqGSM49\n" +
+    "AwEHoUQDQgAEUmeec5j8fz7i/W1XDMikutqfb64GWewFitVl6ngU6rRKfQSbNcaZ\n" +
+    "zpu2r3ZEAI8bZKLzG/BTTHycv6iCTze1Vg==\n" +
+    "-----END EC PRIVATE KEY-----\n" +
+    "-----BEGIN RSA PRIVATE KEY-----\n" +
+    "MIIEoQIBAAKCAQBWrwa8XoHVIjF/EvgJaQ3YV9xkcf78P/7/0g3KWKqv7ct+WXlv\n" +
+    "lLhPE4sbaZM74GNK8dk9+PwiIm6+zo8N4QIaUSXrKhnnH1ykVMNZSsuIhLg9EqY0\n" +
+    "C3BVzk7yPlBdN58ZxkcsB1sgJNhjDx6B0MCs3zdiG73biZ4JP0UZ0H33y2+aHw4y\n" +
+    "NZNaDAvrYUePsOszEKA/oACwGKTJf38+Qsv3Q2m/bXi67y7n+/RlMjcW8DXSx6Tc\n" +
+    "LpQhTfwA7dR0Lj6UUuaQ6yXXr1WHYx2SjtVNFMPwS3x5s1E4LGjDpTuQ7EZ5ZIWS\n" +
+    "n350ZXxuSZllsg6Wjwx/r4hpYNwio1rHbuEzAgMBAAECggEAPtCYnfoSNWOQ4Jfb\n" +
+    "W95f5Q1OLQ+aiirJ25HY4m+8SL6V/tpRsHTh1pO/8z5fLj2dVlrJZSo/c3DmNaiz\n" +
+    "a4hJIM77Hl2k5aIJXR/7a4JS2Xvrkn4oKIC9h8B33v0e+V3sEh5nxtURyMpKcAYt\n" +
+    "wj6G0P70QEkAHM2t0t+hcGJwVhaZklL2ElVVnDmyGrmAqvXxCcuVaqQJSGv6Dt+n\n" +
+    "cvOp04dR0GeC/doPsXwrDLDX4tCBvZg/9d4KsFLlY60xznfs7KdNdKu/y/JlE977\n" +
+    "6P7xjcvKRORgvJKNk8p2gFZlMRH8hBFjpzyaFKGsfdGt6UtXGaNkZhRC3aNh7aDj\n" +
+    "WbjKyQKBgQDHPhwc5AHYP6Q4d8lXV1gAuQ5TiaQANqtThNDujgw8Gzj8bdFBM86q\n" +
+    "lOA3YwWkEHdncNIJK13OocGLSVAO2Su2jTTWZqXcoVbr8cScleoBv0z38iP9eZlo\n" +
+    "B3KH0JeOxqKAUkcqu6sP2MszXMySrvKf/MXCNKjzDLqd8Ie+oqcz9wKBgG9gfPWv\n" +
+    "tWOFUEiuh6gt1SPPssXE968577YAU5qvNxzsIAvkePX/v/WbvDij590sYvM7RZmh\n" +
+    "gam4E1gpE+LFGE0r13aXDhybikN7pb00R6o1y4FR6egDTTYghENlqUpRyyHJGBsj\n" +
+    "Biuj9DFdGDQwLvm1PMgHerCKlJjIbv7gyfWlAoGAbmTjfr52pzLb8s2sKVCj2gKv\n" +
+    "BWpGDDg+RVBZ01OxQ7xxnqvaPZ5O7AUBFq8u+PCGuDGyrpHwsATAEETWruN1bPhg\n" +
+    "Rkspq01Zs/GJVplZxw4Pv3HSryco8JLvyoCw+NLmRuNPu0WwSl98d0D7uGpm1G5h\n" +
+    "xHEZC1IKNGiJTf8hVZECgYAR2I8NOuNAmAreKoD4FKfzPgNyJvZc8FaVfgXnYi3d\n" +
+    "h4Q3A5vSJvGWJCcLmE+9o7ATMysay8Mf86u9048pJdWX/+9dRCTxtoZ3+6b54xec\n" +
+    "kVQTW5G0KFtF0f3/Ypm2m9aFilg/eOQzN+kXw8fuDM5qGn0ru+8PvJTEylDmrBQQ\n" +
+    "NQKBgQCerrfUSQYp4IubnkgTDMja2rnTRGFcTlYkBnJh8YKEEgftUDtHNLmVPP1a\n" +
+    "YeG2MiQOG3IcshK9AYtkKoHqJgWttMFcIFrOzF1fByt0T2WtSDV9W613KCYIfjuB\n" +
+    "wfE5KvRLNzvKPlZXr0Zt9uFIqqdifcnfjuwxUsEEmSFIeemDnw==\n" +
+    "-----END RSA PRIVATE KEY-----\n"
+Local rsaThenEc = "-----BEGIN RSA PRIVATE KEY-----\n" +
+    "MIIEoQIBAAKCAQBWrwa8XoHVIjF/EvgJaQ3YV9xkcf78P/7/0g3KWKqv7ct+WXlv\n" +
+    "lLhPE4sbaZM74GNK8dk9+PwiIm6+zo8N4QIaUSXrKhnnH1ykVMNZSsuIhLg9EqY0\n" +
+    "C3BVzk7yPlBdN58ZxkcsB1sgJNhjDx6B0MCs3zdiG73biZ4JP0UZ0H33y2+aHw4y\n" +
+    "NZNaDAvrYUePsOszEKA/oACwGKTJf38+Qsv3Q2m/bXi67y7n+/RlMjcW8DXSx6Tc\n" +
+    "LpQhTfwA7dR0Lj6UUuaQ6yXXr1WHYx2SjtVNFMPwS3x5s1E4LGjDpTuQ7EZ5ZIWS\n" +
+    "n350ZXxuSZllsg6Wjwx/r4hpYNwio1rHbuEzAgMBAAECggEAPtCYnfoSNWOQ4Jfb\n" +
+    "W95f5Q1OLQ+aiirJ25HY4m+8SL6V/tpRsHTh1pO/8z5fLj2dVlrJZSo/c3DmNaiz\n" +
+    "a4hJIM77Hl2k5aIJXR/7a4JS2Xvrkn4oKIC9h8B33v0e+V3sEh5nxtURyMpKcAYt\n" +
+    "wj6G0P70QEkAHM2t0t+hcGJwVhaZklL2ElVVnDmyGrmAqvXxCcuVaqQJSGv6Dt+n\n" +
+    "cvOp04dR0GeC/doPsXwrDLDX4tCBvZg/9d4KsFLlY60xznfs7KdNdKu/y/JlE977\n" +
+    "6P7xjcvKRORgvJKNk8p2gFZlMRH8hBFjpzyaFKGsfdGt6UtXGaNkZhRC3aNh7aDj\n" +
+    "WbjKyQKBgQDHPhwc5AHYP6Q4d8lXV1gAuQ5TiaQANqtThNDujgw8Gzj8bdFBM86q\n" +
+    "lOA3YwWkEHdncNIJK13OocGLSVAO2Su2jTTWZqXcoVbr8cScleoBv0z38iP9eZlo\n" +
+    "B3KH0JeOxqKAUkcqu6sP2MszXMySrvKf/MXCNKjzDLqd8Ie+oqcz9wKBgG9gfPWv\n" +
+    "tWOFUEiuh6gt1SPPssXE968577YAU5qvNxzsIAvkePX/v/WbvDij590sYvM7RZmh\n" +
+    "gam4E1gpE+LFGE0r13aXDhybikN7pb00R6o1y4FR6egDTTYghENlqUpRyyHJGBsj\n" +
+    "Biuj9DFdGDQwLvm1PMgHerCKlJjIbv7gyfWlAoGAbmTjfr52pzLb8s2sKVCj2gKv\n" +
+    "BWpGDDg+RVBZ01OxQ7xxnqvaPZ5O7AUBFq8u+PCGuDGyrpHwsATAEETWruN1bPhg\n" +
+    "Rkspq01Zs/GJVplZxw4Pv3HSryco8JLvyoCw+NLmRuNPu0WwSl98d0D7uGpm1G5h\n" +
+    "xHEZC1IKNGiJTf8hVZECgYAR2I8NOuNAmAreKoD4FKfzPgNyJvZc8FaVfgXnYi3d\n" +
+    "h4Q3A5vSJvGWJCcLmE+9o7ATMysay8Mf86u9048pJdWX/+9dRCTxtoZ3+6b54xec\n" +
+    "kVQTW5G0KFtF0f3/Ypm2m9aFilg/eOQzN+kXw8fuDM5qGn0ru+8PvJTEylDmrBQQ\n" +
+    "NQKBgQCerrfUSQYp4IubnkgTDMja2rnTRGFcTlYkBnJh8YKEEgftUDtHNLmVPP1a\n" +
+    "YeG2MiQOG3IcshK9AYtkKoHqJgWttMFcIFrOzF1fByt0T2WtSDV9W613KCYIfjuB\n" +
+    "wfE5KvRLNzvKPlZXr0Zt9uFIqqdifcnfjuwxUsEEmSFIeemDnw==\n" +
+    "-----END RSA PRIVATE KEY-----\n" +
+    "-----BEGIN EC PRIVATE KEY-----\n" +
+    "MHcCAQEEIMIOu/XUZ6Y6/CYAE3BK4yZ+0T9pmoFmDglWcN1m9NYboAoGCCqGSM49\n" +
+    "AwEHoUQDQgAEUmeec5j8fz7i/W1XDMikutqfb64GWewFitVl6ngU6rRKfQSbNcaZ\n" +
+    "zpu2r3ZEAI8bZKLzG/BTTHycv6iCTze1Vg==\n" +
+    "-----END EC PRIVATE KEY-----\n"
+CheckText("public, then private", Shown(publicThenPrivate), "ECDSA_P256, private: False")
+CheckText("Ed25519, then P-256", Shown(edThenPublic), "ED25519, private: True")
+CheckText("EC, then RSA", Shown(ecThenRsa), "ECDSA_P256, private: True")
+CheckText("RSA, then EC", Shown(rsaThenEc), "RSA, private: True")
+Done("The first key")
+
+// RFC 7748's Alice's X25519 private key (6.1), as RFC 8410's PKCS #8, reads as its bytes,
+// which aren't clamped, and writes back as it was.
+Local alice = "-----BEGIN PRIVATE KEY-----\n" +
+    "MC4CAQAwBQYDK2VuBCIEIHcHbQpzGKV9PBbBclGyZkXfTC+H68CZKrF3+6UduSwq\n" +
+    "-----END PRIVATE KEY-----\n"
+Local aliceKey = Try? Key.FromPem(alice)
+CheckText("Alice bytes", Hex(aliceKey?.Bytes ?? []), "77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a")
+CheckText("Alice PEM", aliceKey?.ToPem() ?? "", alice)
+Done("RFC 7748")
+
+// A damaged key, of a kind std.crypto takes and not encrypted, is SYNTAX's, as a damaged
+// certificate is: RFC 8410's Ed25519 private key cut short, and a P-256 one whose base64 is.
+Local cutShort = "-----BEGIN PRIVATE KEY-----\n" +
+    "MC4CAQAwBQYDK2VwBCIEINTuctv5E1hK1bbY8fdp\n" +
+    "-----END PRIVATE KEY-----\n"
+Local cutBase64 = "-----BEGIN PRIVATE KEY-----\n" +
+    "MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQg+5kwlov2G2geVvtD\n" +
+    "6T5+2FOzjzOnhww0IiXreSqkzpmh\n" +
+    "-----END PRIVATE KEY-----\n"
+CheckText("cut short", Shown(cutShort), "SYNTAX: the PEM's key doesn't read")
+CheckText("cut base64", Shown(cutBase64), "SYNTAX: the PEM's key doesn't read")
+Done("Damaged keys")

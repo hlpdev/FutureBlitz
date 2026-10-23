@@ -1,7 +1,7 @@
 // Key and Certificate, which read keys and X.509 certificates from PEM, the text between
 // "-----BEGIN ...-----" and "-----END ...-----" lines that keys and certificates are kept in,
 // over mbedTLS. A Key's Bytes are what its kind's Methods take, so a key read from PEM signs,
-// verifies, or exchanges.
+// verifies, or exchanges. RSA keys are of up to 8192 bits.
 
 Import std.core
 
@@ -40,14 +40,16 @@ Public Struct Key
         Bytes = bytes
     End New
 
-    // The first key in pem: a private one in PKCS #8 ("PRIVATE KEY"), SEC 1 ("EC PRIVATE KEY"),
-    // or PKCS #1 ("RSA PRIVATE KEY"), or a public one ("PUBLIC KEY", or "RSA PUBLIC KEY"). Throws
-    // a ParseError when pem has no key, or one that's encrypted, or of a kind there's no KeyKind
-    // for, like another curve's.
+    // The first key in pem, whatever comes after it: a private one in PKCS #8 ("PRIVATE KEY"),
+    // SEC 1 ("EC PRIVATE KEY"), or PKCS #1 ("RSA PRIVATE KEY"), or a public one ("PUBLIC KEY", or
+    // "RSA PUBLIC KEY"). Throws a ParseError of SYNTAX when pem has no key, or one that doesn't
+    // read, and of WRONG_TYPE when it's encrypted, or of a kind there's no KeyKind for, like
+    // another curve's.
     Public Static Method FromPem(pem: String): Key Throws ParseError
         Local bytes: UInt8[] = []
         Local found = fb_crypto_key_from_pem(pem, bytes)
         If found == -1 Then Throw ParseError(ParseErrorKind.SYNTAX, "there's no key in the PEM")
+        If found == -3 Then Throw ParseError(ParseErrorKind.SYNTAX, "the PEM's key doesn't read")
         If found < 0
             Throw ParseError(ParseErrorKind.WRONG_TYPE,
                              "the PEM's key is encrypted, or of a kind std.crypto doesn't take")
@@ -56,9 +58,9 @@ Public Struct Key
         Return Key((found / 2) As KeyKind, found % 2 == 1, bytes)
     End Method
 
-    // The key as PEM: a private one in PKCS #8, but an RSA one in PKCS #1 and a P-256 one in
-    // SEC 1, and a public one in SubjectPublicKeyInfo, but an RSA one in PKCS #1. Panics when
-    // Bytes isn't a key of its Kind.
+    // The key as PEM, as OpenSSL writes it: a private one in PKCS #8, but an RSA one in PKCS #1
+    // and a P-256 one in SEC 1, and a public one, RSA's too, in SubjectPublicKeyInfo. Panics
+    // when Bytes isn't a key of its Kind.
     @PanicsAtCaller
     Public Method ToPem(): String
         Local pem = fb_crypto_key_to_pem(Kind As Int32, IsPrivate ? 1 : 0, Bytes)
@@ -67,9 +69,10 @@ Public Struct Key
     End Method
 End Struct
 
-// An X.509 certificate, read from PEM: who it's for and who signed it, as "C=NL, O=Example,
-// CN=example.com", its serial number as hex bytes with colons between them, the UTC times it's
-// valid from and to, as "2026-10-23T12:00:00Z", its public key, and its DER. Checking that one
+// An X.509 certificate, read from PEM: who it's for and who signed it, as Python's ssl shows
+// them, "C=NL, O=Example, CN=example.com", in the certificate's order, as UTF-8 text with RFC
+// 4514's escapes; its serial number as hex bytes with colons between them; the UTC times it's
+// valid from and to, as "2026-10-23T12:00:00Z"; its public key; and its DER. Checking that one
 // certificate signed another, or that one is trusted, is TLS's.
 Public Struct Certificate
     Public ReadOnly Field Subject: String

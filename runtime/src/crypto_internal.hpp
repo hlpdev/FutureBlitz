@@ -11,7 +11,7 @@
 
 // What the runtime's two files over mbedTLS share: crypto.cpp's hashes, MACs, key derivation,
 // random, ciphers, signatures, and key exchange, and crypto_pem.cpp's PEM keys and certificates.
-// They're apart so a program that doesn't read PEM links none of mbedTLS's X.509.
+// They're apart so a program that doesn't read PEM links none of that code.
 namespace fb::crypto {
 
 /// A key's kind, as std.crypto numbers them.
@@ -42,6 +42,9 @@ std::span<const std::uint8_t> bytes_of(const fb_string_t* text);
 
 /// Makes `array`, a UInt8[], `size` bytes long, and gives where its bytes are, to be written.
 std::uint8_t* resized(fb_array_t* array, std::size_t size);
+
+/// Appends a DER length to `der`.
+void put_length(std::vector<std::uint8_t>& der, std::size_t length);
 
 /// Puts `bytes` in `array`, a UInt8[].
 void set(fb_array_t* array, std::span<const std::uint8_t> bytes);

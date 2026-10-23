@@ -32,9 +32,10 @@ foreach(part crypto xxhash blake3 argon2 bcrypt ed25519)
   fb_set_warnings(fb_runtime_${part})
 endforeach()
 # PEM keys and certificates are an object file of their own, so only a program that reads them
-# links mbedTLS's X.509.
+# links that code.
 target_sources(fb_runtime_crypto PRIVATE src/crypto_pem.cpp)
-target_link_libraries(fb_runtime_crypto PRIVATE tfpsacrypto mbedx509)
+target_link_libraries(fb_runtime_crypto PRIVATE tfpsacrypto)
+target_include_directories(fb_runtime_crypto SYSTEM PRIVATE ${FB_MBEDTLS_RSA_INCLUDES})
 target_link_libraries(fb_runtime_xxhash PRIVATE xxhash)
 target_link_libraries(fb_runtime_blake3 PRIVATE blake3)
 target_link_libraries(fb_runtime_argon2 PRIVATE argon2)
@@ -43,7 +44,7 @@ target_link_libraries(fb_runtime_ed25519 PRIVATE monocypher)
 
 # What a program can link: each part and its library, which fb and the tests that build programs
 # depend on.
-set(FB_RUNTIME_ARCHIVES fb_runtime fb_runtime_io uv_a fb_runtime_crypto tfpsacrypto mbedx509
+set(FB_RUNTIME_ARCHIVES fb_runtime fb_runtime_io uv_a fb_runtime_crypto tfpsacrypto
     fb_runtime_xxhash xxhash fb_runtime_blake3 blake3 fb_runtime_argon2 argon2 fb_runtime_bcrypt
     crypt_blowfish fb_runtime_ed25519 monocypher PARENT_SCOPE)
 

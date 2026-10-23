@@ -123,7 +123,8 @@ Public Struct EcdsaP256
 End Struct
 
 // RSA signatures, to verify, with SHA-256: a public key is PKCS #1's DER of its modulus and
-// exponent, which PublicKey makes from them, or Key reads from PEM.
+// exponent, which PublicKey makes from them, or Key reads from PEM. A modulus has up to 8192
+// bits, of any number, and a key with a larger one verifies nothing.
 Public Struct Rsa
     // Rsa isn't made: it's only its Static Methods.
     New()

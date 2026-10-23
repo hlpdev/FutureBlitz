@@ -18,9 +18,11 @@
 #include <string_view>
 #include <vector>
 
-// The one header of mbedTLS's without C++'s guard.
+// mbedTLS's headers without C++'s guard: its constant-time comparison, and its RSA module, which
+// reads RSA keys as PKCS #1's DER.
 extern "C" {
 #include <mbedtls/constant_time.h>
+#include <rsa_internal.h>
 }
 
 using fb::crypto::bytes_of;
@@ -30,6 +32,7 @@ using fb::crypto::exported;
 using fb::crypto::exported_public;
 using fb::crypto::p256_pair;
 using fb::crypto::p256_public;
+using fb::crypto::put_length;
 using fb::crypto::resized;
 using fb::crypto::set;
 using fb::crypto::start;
@@ -104,6 +107,21 @@ std::vector<std::uint8_t> exported_public(const mbedtls_svc_key_id_t id) {
     return bytes;
 }
 
+void put_length(std::vector<std::uint8_t>& der, const std::size_t length) {
+    if (length < 0x80) {
+        der.push_back(static_cast<std::uint8_t>(length));
+        return;
+    }
+
+    std::vector<std::uint8_t> bytes;
+    for (std::size_t rest = length; rest > 0; rest >>= 8U) {
+        bytes.insert(bytes.begin(), static_cast<std::uint8_t>(rest & 0xffU));
+    }
+
+    der.push_back(static_cast<std::uint8_t>(0x80U | bytes.size()));
+    der.insert(der.end(), bytes.begin(), bytes.end());
+}
+
 } // namespace fb::crypto
 
 namespace {
@@ -147,20 +165,35 @@ std::span<const std::uint8_t> hmac_key(const psa_algorithm_t hash,
     return std::span<const std::uint8_t>(hashed).first(size);
 }
 
-/// A DER length.
-void put_length(std::vector<std::uint8_t>& der, const std::size_t length) {
-    if (length < 0x80) {
-        der.push_back(static_cast<std::uint8_t>(length));
-        return;
+/// Whether `signature` is `public_key`'s, an RSA key as PKCS #1's DER, of `message`'s SHA-256: by
+/// RSASSA-PKCS1-v1_5, or by RSASSA-PSS with MGF1 by SHA-256 and a salt as long as the hash, as
+/// RFC 7518's PS256 has it, and only that. mbedTLS's RSA module verifies it rather than PSA,
+/// which takes no key of an odd number of bits.
+bool rsa_verified(const bool pss, const std::span<const std::uint8_t> public_key,
+                  const std::span<const std::uint8_t> message,
+                  const std::span<const std::uint8_t> signature) {
+    start();
+    std::array<std::uint8_t, PSA_HASH_LENGTH(PSA_ALG_SHA_256)> hash{};
+    std::size_t size = 0;
+    check(psa_hash_compute(PSA_ALG_SHA_256, message.data(), message.size(), hash.data(),
+                           hash.size(), &size),
+          "Verify");
+    mbedtls_rsa_context rsa;
+    mbedtls_rsa_init(&rsa);
+    bool verified = mbedtls_rsa_parse_pubkey(&rsa, public_key.data(), public_key.size()) == 0 &&
+                    mbedtls_rsa_check_pubkey(&rsa) == 0 &&
+                    signature.size() == mbedtls_rsa_get_len(&rsa);
+    if (verified && pss) {
+        verified = mbedtls_rsa_rsassa_pss_verify_ext(
+                       &rsa, MBEDTLS_MD_SHA256, hash.size(), hash.data(), MBEDTLS_MD_SHA256,
+                       static_cast<int>(hash.size()), signature.data()) == 0;
+    } else if (verified) {
+        verified = mbedtls_rsa_pkcs1_verify(&rsa, MBEDTLS_MD_SHA256, hash.size(), hash.data(),
+                                            signature.data()) == 0;
     }
 
-    std::vector<std::uint8_t> bytes;
-    for (std::size_t rest = length; rest > 0; rest >>= 8U) {
-        bytes.insert(bytes.begin(), static_cast<std::uint8_t>(rest & 0xffU));
-    }
-
-    der.push_back(static_cast<std::uint8_t>(0x80U | bytes.size()));
-    der.insert(der.end(), bytes.begin(), bytes.end());
+    mbedtls_rsa_free(&rsa);
+    return verified;
 }
 
 /// A DER INTEGER of big-endian `value`, which isn't negative.
@@ -407,24 +440,19 @@ std::int32_t fb_crypto_sign(const fb_array_t* private_key, const fb_array_t* mes
 
 std::int32_t fb_crypto_verify(const std::int32_t scheme, const fb_array_t* public_key,
                               const fb_array_t* message, const fb_array_t* signature) {
-    psa_algorithm_t algorithm = PSA_ALG_ECDSA(PSA_ALG_SHA_256);
-    psa_key_type_t type = p256_public;
-    if (scheme == 2) {
-        algorithm = PSA_ALG_RSA_PKCS1V15_SIGN(PSA_ALG_SHA_256);
-        type = PSA_KEY_TYPE_RSA_PUBLIC_KEY;
-    } else if (scheme == 3) {
-        // PS256's salt is as long as the hash, as RFC 7518 says, and only that verifies.
-        algorithm = PSA_ALG_RSA_PSS(PSA_ALG_SHA_256);
-        type = PSA_KEY_TYPE_RSA_PUBLIC_KEY;
+    const std::span<const std::uint8_t> input = bytes_of(message);
+    const std::span<const std::uint8_t> signed_bytes = bytes_of(signature);
+    if (scheme == 2 || scheme == 3) {
+        return rsa_verified(scheme == 3, bytes_of(public_key), input, signed_bytes) ? 1 : 0;
     }
 
-    const stored_key_t made(type, PSA_KEY_USAGE_VERIFY_MESSAGE, algorithm, bytes_of(public_key));
+    const psa_algorithm_t algorithm = PSA_ALG_ECDSA(PSA_ALG_SHA_256);
+    const stored_key_t made(p256_public, PSA_KEY_USAGE_VERIFY_MESSAGE, algorithm,
+                            bytes_of(public_key));
     if (!made.made()) {
         return 0;
     }
 
-    const std::span<const std::uint8_t> input = bytes_of(message);
-    const std::span<const std::uint8_t> signed_bytes = bytes_of(signature);
     return psa_verify_message(made.id(), algorithm, input.data(), input.size(), signed_bytes.data(),
                               signed_bytes.size()) == PSA_SUCCESS
                ? 1

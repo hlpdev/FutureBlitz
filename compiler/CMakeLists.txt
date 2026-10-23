@@ -47,7 +47,7 @@ endif()
 set(FB_LIBUV_SYSTEM "$<JOIN:$<TARGET_PROPERTY:uv_a,INTERFACE_LINK_LIBRARIES>, >")
 set(FB_MBEDTLS_SYSTEM "")
 if(WIN32)
-  set(FB_MBEDTLS_SYSTEM "ws2_32 bcrypt")
+  set(FB_MBEDTLS_SYSTEM "bcrypt")
 endif()
 
 file(GENERATE OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/generated/fb/build_config.hpp CONTENT
@@ -105,7 +105,7 @@ inline constexpr auto bundled_libraries = std::to_array<bundled_library_t>({
         .license = \"${FB_MBEDTLS_LICENSES}\",
         .prefix = \"fb_crypto_\",
         .runtime = \"$<TARGET_FILE:fb_runtime_crypto>\",
-        .archives = \"$<TARGET_FILE:mbedx509>;$<TARGET_FILE:tfpsacrypto>\",
+        .archives = \"$<TARGET_FILE:tfpsacrypto>\",
         .notice = \"${FB_MBEDTLS_NOTICE}\",
         .system = \"${FB_MBEDTLS_SYSTEM}\",
     },

@@ -92,8 +92,8 @@ endfunction()
 
 # mbedTLS: std.crypto's hashes, HMAC, HKDF, PBKDF2, ciphers, signatures, key exchange, keys and
 # certificates, and secure random, through TF-PSA-Crypto's PSA API, and std.net.tls later. Only
-# its crypto library (tfpsacrypto) and X.509's (mbedx509) are built. mbedtls_config.h turns its
-# locks on, so any thread can use it.
+# its crypto library (tfpsacrypto) is built. mbedtls_config.h turns its locks on, so any thread
+# can use it.
 set(FB_MBEDTLS_VERSION 4.1.1)
 set(ENABLE_PROGRAMS OFF CACHE BOOL "" FORCE)
 set(ENABLE_TESTING OFF CACHE BOOL "" FORCE)
@@ -115,6 +115,21 @@ fb_make_available(mbedtls)
 if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
   fb_options_after("${mbedtls_SOURCE_DIR}" "$<$<CONFIG:Debug>:-O2>;$<$<CONFIG:Debug>:-g2>")
 endif()
+# PSA takes RSA keys of up to 4096 bits, which crypto_sizes.h sets with no way to change it, so
+# it's raised to 8192 there, the most mbedTLS's bignums hold, as it was fetched.
+set(sizes "${mbedtls_SOURCE_DIR}/tf-psa-crypto/include/psa/crypto_sizes.h")
+file(READ "${sizes}" text)
+string(REPLACE "#define PSA_VENDOR_RSA_MAX_KEY_BITS 4096u" "#define PSA_VENDOR_RSA_MAX_KEY_BITS 8192u"
+       raised "${text}")
+if(NOT raised STREQUAL text)
+  file(WRITE "${sizes}" "${raised}")
+elseif(NOT text MATCHES "#define PSA_VENDOR_RSA_MAX_KEY_BITS 8192u")
+  message(FATAL_ERROR "mbedTLS's crypto_sizes.h doesn't set PSA_VENDOR_RSA_MAX_KEY_BITS to 4096u")
+endif()
+# Its RSA module's headers, which aren't its public ones: std.crypto verifies RSA through it,
+# since PSA takes no key of an odd number of bits.
+set(FB_MBEDTLS_RSA_INCLUDES "${mbedtls_SOURCE_DIR}/tf-psa-crypto/drivers/builtin/include"
+    "${mbedtls_SOURCE_DIR}/tf-psa-crypto/drivers/builtin/src" PARENT_SCOPE)
 set(FB_MBEDTLS_VERSION ${FB_MBEDTLS_VERSION} PARENT_SCOPE)
 # It's under Apache-2.0 or GPL-2.0-or-later, and std takes it under Apache-2.0. Its LICENSE has
 # both texts.

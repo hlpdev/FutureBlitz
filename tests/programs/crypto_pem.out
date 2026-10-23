@@ -4,3 +4,6 @@ ISRG Root X2: 8 checks
 Bundle: 1 check
 Keys there and back: 4 checks
 Not PEM: 5 checks
+The first key: 4 checks
+RFC 7748: 2 checks
+Damaged keys: 2 checks

@@ -1,0 +1,646 @@
+// std.crypto's Rsa verifies, and Key reads and writes, RSA keys PSA doesn't take: of 2047 and
+// 4104 bits, an odd number and more than 4096, and of 8192, the most std.crypto takes, which
+// openssl made, with its RS256 and PS256 signatures of "hello". A larger key, and an encrypted
+// one, are of a kind std.crypto doesn't take.
+Import std.core
+Import std.collections
+Import std.crypto
+
+Global checked = 0
+
+// The bytes of hex digits.
+Function Unhex(text: String): UInt8[]
+    Local bytes: UInt8[] = []
+    Local high = -1
+    For c In text.Bytes
+        Local code = c As Int
+        Local digit = code <= 57 ? code - 48 : code - 87
+        If high < 0
+            high = digit
+        Else
+            bytes.Add((high * 16 + digit) As UInt8)
+            high = -1
+        End If
+    End For
+    Return bytes
+End Function
+
+// Counts a check, and says which one failed.
+Function Expect(name: String, passed: Bool)
+    checked += 1
+    If !passed Then Print("{name} failed")
+End Function
+
+// Counts a check of text, and says what it was when it's another.
+Function Check(name: String, actual: String, expected: String)
+    checked += 1
+    If actual != expected Then Print("{name}: {actual}, not {expected}")
+End Function
+
+// Prints how many checks a section made, and starts the count again.
+Function Done(section: String)
+    Print("{section}: {checked} check{checked == 1 ? "" : "s"}")
+    checked = 0
+End Function
+
+Local private2047 = "-----BEGIN PRIVATE KEY-----\n" +
+    "MIIEuwIBADANBgkqhkiG9w0BAQEFAASCBKUwggShAgEAAoIBAFavBrxegdUiMX8S\n" +
+    "+AlpDdhX3GRx/vw//v/SDcpYqq/ty35ZeW+UuE8TixtpkzvgY0rx2T34/CIibr7O\n" +
+    "jw3hAhpRJesqGecfXKRUw1lKy4iEuD0SpjQLcFXOTvI+UF03nxnGRywHWyAk2GMP\n" +
+    "HoHQwKzfN2IbvduJngk/RRnQfffLb5ofDjI1k1oMC+thR4+w6zMQoD+gALAYpMl/\n" +
+    "fz5Cy/dDab9teLrvLuf79GUyNxbwNdLHpNwulCFN/ADt1HQuPpRS5pDrJdevVYdj\n" +
+    "HZKO1U0Uw/BLfHmzUTgsaMOlO5DsRnlkhZKffnRlfG5JmWWyDpaPDH+viGlg3CKj\n" +
+    "Wsdu4TMCAwEAAQKCAQA+0Jid+hI1Y5Dgl9tb3l/lDU4tD5qKKsnbkdjib7xIvpX+\n" +
+    "2lGwdOHWk7/zPl8uPZ1WWsllKj9zcOY1qLNriEkgzvseXaTlogldH/trglLZe+uS\n" +
+    "figogL2HwHfe/R75XewSHmfG1RHIykpwBi3CPobQ/vRASQAcza3S36FwYnBWFpmS\n" +
+    "UvYSVVWcObIauYCq9fEJy5VqpAlIa/oO36dy86nTh1HQZ4L92g+xfCsMsNfi0IG9\n" +
+    "mD/13gqwUuVjrTHOd+zsp010q7/L8mUT3vvo/vGNy8pE5GC8ko2TynaAVmUxEfyE\n" +
+    "EWOnPJoUoax90a3pS1cZo2RmFELdo2HtoONZuMrJAoGBAMc+HBzkAdg/pDh3yVdX\n" +
+    "WAC5DlOJpAA2q1OE0O6ODDwbOPxt0UEzzqqU4DdjBaQQd2dw0gkrXc6hwYtJUA7Z\n" +
+    "K7aNNNZmpdyhVuvxxJyV6gG/TPfyI/15mWgHcofQl47GooBSRyq7qw/YyzNczJKu\n" +
+    "8p/8xcI0qPMMup3wh76ipzP3AoGAb2B89a+1Y4VQSK6HqC3VI8+yxcT3rznvtgBT\n" +
+    "mq83HOwgC+R49f+/9Zu8OKPn3Sxi8ztFmaGBqbgTWCkT4sUYTSvXdpcOHJuKQ3ul\n" +
+    "vTRHqjXLgVHp6ANNNiCEQ2WpSlHLIckYGyMGK6P0MV0YNDAu+bU8yAd6sIqUmMhu\n" +
+    "/uDJ9aUCgYBuZON+vnanMtvyzawpUKPaAq8FakYMOD5FUFnTU7FDvHGeq9o9nk7s\n" +
+    "BQEWry748Ia4MbKukfCwBMAQRNau43Vs+GBGSymrTVmz8YlWmVnHDg+/cdKvJyjw\n" +
+    "ku/KgLD40uZG40+7RbBKX3x3QPu4ambUbmHEcRkLUgo0aIlN/yFVkQKBgBHYjw06\n" +
+    "40CYCt4qgPgUp/M+A3Im9lzwVpV+BediLd2HhDcDm9Im8ZYkJwuYT72jsBMzKxrL\n" +
+    "wx/zq73Tjykl1Zf/711EJPG2hnf7pvnjF5yRVBNbkbQoW0XR/f9imbab1oWKWD94\n" +
+    "5DM36RfDx+4MzmoafSu77w+8lMTKUOasFBA1AoGBAJ6ut9RJBingi5ueSBMMyNra\n" +
+    "udNEYVxOViQGcmHxgoQSB+1QO0c0uZU8/Vph4bYyJA4bchyyEr0Bi2QqgeomBa20\n" +
+    "wVwgWs7MXV8HK3RPZa1INX1brXcoJgh+O4HB8Tkq9Es3O8o+VlevRm324Uiqp2J9\n" +
+    "yd+O7DFSwQSZIUh56YOf\n" +
+    "-----END PRIVATE KEY-----\n"
+Local pkcs1Private2047 = "-----BEGIN RSA PRIVATE KEY-----\n" +
+    "MIIEoQIBAAKCAQBWrwa8XoHVIjF/EvgJaQ3YV9xkcf78P/7/0g3KWKqv7ct+WXlv\n" +
+    "lLhPE4sbaZM74GNK8dk9+PwiIm6+zo8N4QIaUSXrKhnnH1ykVMNZSsuIhLg9EqY0\n" +
+    "C3BVzk7yPlBdN58ZxkcsB1sgJNhjDx6B0MCs3zdiG73biZ4JP0UZ0H33y2+aHw4y\n" +
+    "NZNaDAvrYUePsOszEKA/oACwGKTJf38+Qsv3Q2m/bXi67y7n+/RlMjcW8DXSx6Tc\n" +
+    "LpQhTfwA7dR0Lj6UUuaQ6yXXr1WHYx2SjtVNFMPwS3x5s1E4LGjDpTuQ7EZ5ZIWS\n" +
+    "n350ZXxuSZllsg6Wjwx/r4hpYNwio1rHbuEzAgMBAAECggEAPtCYnfoSNWOQ4Jfb\n" +
+    "W95f5Q1OLQ+aiirJ25HY4m+8SL6V/tpRsHTh1pO/8z5fLj2dVlrJZSo/c3DmNaiz\n" +
+    "a4hJIM77Hl2k5aIJXR/7a4JS2Xvrkn4oKIC9h8B33v0e+V3sEh5nxtURyMpKcAYt\n" +
+    "wj6G0P70QEkAHM2t0t+hcGJwVhaZklL2ElVVnDmyGrmAqvXxCcuVaqQJSGv6Dt+n\n" +
+    "cvOp04dR0GeC/doPsXwrDLDX4tCBvZg/9d4KsFLlY60xznfs7KdNdKu/y/JlE977\n" +
+    "6P7xjcvKRORgvJKNk8p2gFZlMRH8hBFjpzyaFKGsfdGt6UtXGaNkZhRC3aNh7aDj\n" +
+    "WbjKyQKBgQDHPhwc5AHYP6Q4d8lXV1gAuQ5TiaQANqtThNDujgw8Gzj8bdFBM86q\n" +
+    "lOA3YwWkEHdncNIJK13OocGLSVAO2Su2jTTWZqXcoVbr8cScleoBv0z38iP9eZlo\n" +
+    "B3KH0JeOxqKAUkcqu6sP2MszXMySrvKf/MXCNKjzDLqd8Ie+oqcz9wKBgG9gfPWv\n" +
+    "tWOFUEiuh6gt1SPPssXE968577YAU5qvNxzsIAvkePX/v/WbvDij590sYvM7RZmh\n" +
+    "gam4E1gpE+LFGE0r13aXDhybikN7pb00R6o1y4FR6egDTTYghENlqUpRyyHJGBsj\n" +
+    "Biuj9DFdGDQwLvm1PMgHerCKlJjIbv7gyfWlAoGAbmTjfr52pzLb8s2sKVCj2gKv\n" +
+    "BWpGDDg+RVBZ01OxQ7xxnqvaPZ5O7AUBFq8u+PCGuDGyrpHwsATAEETWruN1bPhg\n" +
+    "Rkspq01Zs/GJVplZxw4Pv3HSryco8JLvyoCw+NLmRuNPu0WwSl98d0D7uGpm1G5h\n" +
+    "xHEZC1IKNGiJTf8hVZECgYAR2I8NOuNAmAreKoD4FKfzPgNyJvZc8FaVfgXnYi3d\n" +
+    "h4Q3A5vSJvGWJCcLmE+9o7ATMysay8Mf86u9048pJdWX/+9dRCTxtoZ3+6b54xec\n" +
+    "kVQTW5G0KFtF0f3/Ypm2m9aFilg/eOQzN+kXw8fuDM5qGn0ru+8PvJTEylDmrBQQ\n" +
+    "NQKBgQCerrfUSQYp4IubnkgTDMja2rnTRGFcTlYkBnJh8YKEEgftUDtHNLmVPP1a\n" +
+    "YeG2MiQOG3IcshK9AYtkKoHqJgWttMFcIFrOzF1fByt0T2WtSDV9W613KCYIfjuB\n" +
+    "wfE5KvRLNzvKPlZXr0Zt9uFIqqdifcnfjuwxUsEEmSFIeemDnw==\n" +
+    "-----END RSA PRIVATE KEY-----\n"
+Local public2047 = "-----BEGIN PUBLIC KEY-----\n" +
+    "MIIBITANBgkqhkiG9w0BAQEFAAOCAQ4AMIIBCQKCAQBWrwa8XoHVIjF/EvgJaQ3Y\n" +
+    "V9xkcf78P/7/0g3KWKqv7ct+WXlvlLhPE4sbaZM74GNK8dk9+PwiIm6+zo8N4QIa\n" +
+    "USXrKhnnH1ykVMNZSsuIhLg9EqY0C3BVzk7yPlBdN58ZxkcsB1sgJNhjDx6B0MCs\n" +
+    "3zdiG73biZ4JP0UZ0H33y2+aHw4yNZNaDAvrYUePsOszEKA/oACwGKTJf38+Qsv3\n" +
+    "Q2m/bXi67y7n+/RlMjcW8DXSx6TcLpQhTfwA7dR0Lj6UUuaQ6yXXr1WHYx2SjtVN\n" +
+    "FMPwS3x5s1E4LGjDpTuQ7EZ5ZIWSn350ZXxuSZllsg6Wjwx/r4hpYNwio1rHbuEz\n" +
+    "AgMBAAE=\n" +
+    "-----END PUBLIC KEY-----\n"
+Local rsaPublic2047 = "-----BEGIN RSA PUBLIC KEY-----\n" +
+    "MIIBCQKCAQBWrwa8XoHVIjF/EvgJaQ3YV9xkcf78P/7/0g3KWKqv7ct+WXlvlLhP\n" +
+    "E4sbaZM74GNK8dk9+PwiIm6+zo8N4QIaUSXrKhnnH1ykVMNZSsuIhLg9EqY0C3BV\n" +
+    "zk7yPlBdN58ZxkcsB1sgJNhjDx6B0MCs3zdiG73biZ4JP0UZ0H33y2+aHw4yNZNa\n" +
+    "DAvrYUePsOszEKA/oACwGKTJf38+Qsv3Q2m/bXi67y7n+/RlMjcW8DXSx6TcLpQh\n" +
+    "TfwA7dR0Lj6UUuaQ6yXXr1WHYx2SjtVNFMPwS3x5s1E4LGjDpTuQ7EZ5ZIWSn350\n" +
+    "ZXxuSZllsg6Wjwx/r4hpYNwio1rHbuEzAgMBAAE=\n" +
+    "-----END RSA PUBLIC KEY-----\n"
+Local der2047 = Unhex("308201090282010056af06bc5e81d522317f12f809690dd857dc6471fefc3ffeffd20dca58aaafedcb7e59796f94b84f138b1b69933be0634af1d93df8fc22226ebece8f0de1021a5125eb2a19e71f5ca454c3594acb8884b83d12a6340b7055ce4ef23e505d379f19c6472c075b2024d8630f1e81d0c0acdf37621bbddb899e093f4519d07df7cb6f9a1f0e3235935a0c0beb61478fb0eb3310a03fa000b018a4c97f7f3e42cbf74369bf6d78baef2ee7fbf465323716f035d2c7a4dc2e94214dfc00edd4742e3e9452e690eb25d7af5587631d928ed54d14c3f04b7c79b351382c68c3a53b90ec46796485929f7e74657c6e499965b20e968f0c7faf886960dc22a35ac76ee1330203010001")
+Local pkcs1Signature2047 = Unhex("4e39a4f87fee0c4efa5003a166b65e4ebfed563135a0e18e235e3d63413c26b5359c1ec6def76bef51d7f05173be2a0c86004b047038d7e59b9b5aaa52ceee5e0110229045e8c4dd84c6f213c9817c4d28770bd00e74f1c591bd2a616eb10f37052bc30f36cffffffa2376fece0e5af42c8a3451bea7bb2c256fae5f4d076ff666af63ba753099207ebec5aa23ee2b3344d4e329ed8edec3aad439bff141b30e6817413a8cb9e9033174c663dc252d5e6a346fe00e42fae898c3fda55def44709dc177beb53423dbd5b1e5e0d819fbdd2d1c5f4a285e85ab2dbeb045178c5af5c154bf2978991592ba15665f15df020e0731634945c4a098e473fc5b87e4237a")
+Local pssSignature2047 = Unhex("0d15a94a4585b3e7c97fdb031f7f7fdd159913fe9a5884118a13610c5fa78b4b83c25dd2c5e324b3e9a230c70d3873cebef357a615cf6472f2559746f2e1c9aa3ebc5f36e9a8f273e48a39308e2234ec837070a9f3dd2688e3e3a87de903b61216699749c7c3eab51934adff4c48972e3c7dfe7759d6a781ad30031a44b55029b0a2f1cc839b05830319a3f33b38b3b25b4a61aff8965058dc8eb7070c0983df73ea576e1a535f9a88a4145164be0c65abaead70a21051f804c34d807a481648a6642a2f7833cfaa03428422d9665db17061f849a11e6bf8e77fd013e03846f2d0060900e794c58d5df6791f9544d95747dca730413a5ea45db1db1610159523")
+Expect("2047 RS256", Rsa.Verify(der2047, "hello", pkcs1Signature2047))
+Expect("2047 PS256", Rsa.VerifyPss(der2047, "hello", pssSignature2047))
+Expect("2047 RS256 of another message", !Rsa.Verify(der2047, "hellO", pkcs1Signature2047))
+Expect("2047 PS256 of another message", !Rsa.VerifyPss(der2047, "hellO", pssSignature2047))
+Expect("2047 RS256 by PSS", !Rsa.VerifyPss(der2047, "hello", pkcs1Signature2047))
+Local public2047Key = Try? Key.FromPem(public2047)
+Expect("2047 public key", public2047Key?.Kind == KeyKind.RSA && public2047Key?.IsPrivate == False && public2047Key?.Bytes == der2047)
+Expect("2047 PKCS #1 public key", (Try? Key.FromPem(rsaPublic2047))?.Bytes == der2047)
+Check("2047 public PEM", public2047Key?.ToPem() ?? "", public2047)
+Local private2047Key = Try? Key.FromPem(private2047)
+Expect("2047 private key", private2047Key?.Kind == KeyKind.RSA && private2047Key?.IsPrivate == True)
+Check("2047 private PEM", private2047Key?.ToPem() ?? "", pkcs1Private2047)
+Expect("2047 PKCS #1 private key", (Try? Key.FromPem(pkcs1Private2047))?.Bytes == private2047Key?.Bytes)
+Done("2047 bits")
+
+Local private4104 = "-----BEGIN PRIVATE KEY-----\n" +
+    "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\n" +
+    "dveCmI8OM5G8QS8Vq3WX/6nmX+m4ooA6Qww=\n" +
+    "-----END PRIVATE KEY-----\n"
+Local pkcs1Private4104 = "-----BEGIN RSA PRIVATE KEY-----\n" +
+    "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\n" +
+    "-----END RSA PRIVATE KEY-----\n"
+Local public4104 = "-----BEGIN PUBLIC KEY-----\n" +
+    "MIICIzANBgkqhkiG9w0BAQEFAAOCAhAAMIICCwKCAgIAqDmtUu2iG4Tr7UFjd71e\n" +
+    "NbYIDUCdvIepGVISD64LKSKQ7cz3yONGw/eGsg9V4OgtoDyGymVp2f7gEu/P9q9I\n" +
+    "Z0SeuNT+id4Nm0Y6i2iD2KhZfaeeGjSATiwx1AR1mo8OE20RMtFhzVglOLz/TYzB\n" +
+    "AT3TNsn0TbNoSpbnj8zT3LI5EHTnS9sGdjUYV35KoWZI9BDVulwU4Jc29vThEwDU\n" +
+    "KQzvAxZirpzuPa2hGVWUs/MPCK5SkGKRAYvKkFMUzX5d++k/k/Iimjgf9JkpUg/T\n" +
+    "2JtjLMRSt+hSCHKqP94MQsvzd4k7tI3/IpAc9wNV2900yjXCC0W4SJT/3JOJoHLi\n" +
+    "ChLzq9aggEBvSn927fs/qZsMQHjgHfZBWRSq09ROnznbd9sJvfjITtJV6a/SFDTo\n" +
+    "0oZpwOYAk1EndNbd2hMjP63IlSbk1G2M/116CKGX41a9paiMDQNi9htLFiYcyre/\n" +
+    "x9ns1yQiPqA5k5NkZph9GA/H7xs/o5Jx4B5uaqYyxKIW4oirqXCjGSzzMDUOh4Ih\n" +
+    "rrF47cKrJyWz9ZDlR0s/6d9aQ1seue3CEHHz3HekTWDLEqbsxu1sSAxOyKCLHGqJ\n" +
+    "eUmgmIP47haGzbl4WnSSMG4JXel63sRI2RelIa6bUnoKO1pXmA00qdryq3FVQKhR\n" +
+    "gLr6flTGN9cgGnlAkp9gN3wBAgMBAAE=\n" +
+    "-----END PUBLIC KEY-----\n"
+Local rsaPublic4104 = "-----BEGIN RSA PUBLIC KEY-----\n" +
+    "MIICCwKCAgIAqDmtUu2iG4Tr7UFjd71eNbYIDUCdvIepGVISD64LKSKQ7cz3yONG\n" +
+    "w/eGsg9V4OgtoDyGymVp2f7gEu/P9q9IZ0SeuNT+id4Nm0Y6i2iD2KhZfaeeGjSA\n" +
+    "Tiwx1AR1mo8OE20RMtFhzVglOLz/TYzBAT3TNsn0TbNoSpbnj8zT3LI5EHTnS9sG\n" +
+    "djUYV35KoWZI9BDVulwU4Jc29vThEwDUKQzvAxZirpzuPa2hGVWUs/MPCK5SkGKR\n" +
+    "AYvKkFMUzX5d++k/k/Iimjgf9JkpUg/T2JtjLMRSt+hSCHKqP94MQsvzd4k7tI3/\n" +
+    "IpAc9wNV2900yjXCC0W4SJT/3JOJoHLiChLzq9aggEBvSn927fs/qZsMQHjgHfZB\n" +
+    "WRSq09ROnznbd9sJvfjITtJV6a/SFDTo0oZpwOYAk1EndNbd2hMjP63IlSbk1G2M\n" +
+    "/116CKGX41a9paiMDQNi9htLFiYcyre/x9ns1yQiPqA5k5NkZph9GA/H7xs/o5Jx\n" +
+    "4B5uaqYyxKIW4oirqXCjGSzzMDUOh4IhrrF47cKrJyWz9ZDlR0s/6d9aQ1seue3C\n" +
+    "EHHz3HekTWDLEqbsxu1sSAxOyKCLHGqJeUmgmIP47haGzbl4WnSSMG4JXel63sRI\n" +
+    "2RelIa6bUnoKO1pXmA00qdryq3FVQKhRgLr6flTGN9cgGnlAkp9gN3wBAgMBAAE=\n" +
+    "-----END RSA PUBLIC KEY-----\n"
+Local der4104 = Unhex("3082020b0282020200a839ad52eda21b84ebed416377bd5e35b6080d409dbc87a91952120fae0b292290edccf7c8e346c3f786b20f55e0e82da03c86ca6569d9fee012efcff6af4867449eb8d4fe89de0d9b463a8b6883d8a8597da79e1a34804e2c31d404759a8f0e136d1132d161cd582538bcff4d8cc1013dd336c9f44db3684a96e78fccd3dcb2391074e74bdb06763518577e4aa16648f410d5ba5c14e09736f6f4e11300d4290cef031662ae9cee3dada1195594b3f30f08ae52906291018bca905314cd7e5dfbe93f93f2229a381ff49929520fd3d89b632cc452b7e8520872aa3fde0c42cbf377893bb48dff22901cf70355dbdd34ca35c20b45b84894ffdc9389a072e20a12f3abd6a080406f4a7f76edfb3fa99b0c4078e01df6415914aad3d44e9f39db77db09bdf8c84ed255e9afd21434e8d28669c0e60093512774d6ddda13233fadc89526e4d46d8cff5d7a08a197e356bda5a88c0d0362f61b4b16261ccab7bfc7d9ecd724223ea03993936466987d180fc7ef1b3fa39271e01e6e6aa632c4a216e288aba970a3192cf330350e878221aeb178edc2ab2725b3f590e5474b3fe9df5a435b1eb9edc21071f3dc77a44d60cb12a6ecc6ed6c480c4ec8a08b1c6a897949a09883f8ee1686cdb9785a7492306e095de97adec448d917a521ae9b527a0a3b5a57980d34a9daf2ab715540a85180bafa7e54c637d7201a7940929f60377c010203010001")
+Local pkcs1Signature4104 = Unhex("2414ed0c51c160e05fc46c95a2cd60acc4984338df0b8f96ebda81e092e3d4f054c2d46f9dada8f8efc94564aa685cc2a3f7589046079eb657c45b628b09d1045666debd510bf022a08e7ad77a48ff19334b3c2282df6d1b5fe3f87665bf337aee4718a15e0e3b5004ef305605f975ec15a1f28a517c86d93757ffa61f01d28f25c4cb8353bb5d8e12f9704591c82085c8cc0cb2f4bd5c1a9e72ea974f74c22ace446948fc48f0717e88f96400db30938e5deeb8522e08bdbfc1a964854e698c27a28a00d481ebaebac5b29db9ef570f04bbb646c8f2fbf7af79260369dbef6cd1a623f2dc2fb49c4163bc946daaa3d0ec41f632c69436b30d9f92ddd8da50759ecb9161df144c080a4dbb3040bfe561798717886b31bf55c7218a904bff59a1f4b62677747e5ebfc33099cb920eb61123601d79c0383c14a133fee80a3a28765cda00d4e0b30139daab51d3930bb90d358bc9c05f77af962c5581194ecfc8b8a28858fd41e0834b95d1258a4344171b13eeee5a430d0b57ca012daf8275a2d272e5477edd4ee072374e1e4d8cb9606379643fc2aa8e01501b82505bfd0ec650532d91727a74d0ebb9f398817c5cd3d9d5cda2da5abe100a6d61ea98fd2766f8463cf3d09087e8013a1cac4c0a1d31d138e6d11f4362f476a655001a886d96574935ec4a2db7dee832e292a8081aebac0b6bfc7f872f3f2a776099f7a4dc3deb1f")
+Local pssSignature4104 = Unhex("22cd1943469c7270faac875ed076378d5e64ead0602a52a865376105ed00670b3600ddeb7612690c1f5e2361c8b3c7fa66b30bef2b4f9db01a22b434f1f8aba5b8d6c051a8cd52ad04500d3f96107ae49c8805c3232cb162fbffb78aa797ad9db2b594e33fa17cbe476774d43f5ff99e8bf393b385ece87562f0b5946f3f08d593f47baf51f666557289c25faaf921fd5359f90e2867682e17fa442461f31a0df932e9c7743458fa4949f7fd2690572bf3a15cc57b463c6a48c97c48c8a316481d3f12480659eaed7296a9519336f086daa421f937d75e81dc77fcd6d92d04d8aafd869b08f53ea913b5aeb96bbb4c14cc5e54a99209c602c7ce61f0ea4e86585d6a4d6cc319d84875abdc63dd8a98b2c45ff7d7188a5a5c70925ba2f42c9e1693043e07e66c9ad2ef0c43b0e0466a04ee012b255079b2a8f1ac4224cc45c5aa0ff073097d84b71d7b366643cc4a1a5a5deb55921f34b635e6b842279da9b3e109e32a90f98e38d946b9dd43ff3c072e1cd5285e7232e1d59acea567681c6e28198db55a5f6299968c69ee825b7b1ed3e09e46de62e03bb5bde171573792236a9d950e0e3bb1cf316b83cc68f4acd442f06c9501fc2e518e1fe5ff3885678fc3d79f1e1b56842e9cd2fe5e7ebd213f33b9646545114e4a8e1ac4994d813fd7df8a39e94edb67c2d0b46fc5d840187471d7489ba784dea95d5a73ded51dec44a38d")
+Expect("4104 RS256", Rsa.Verify(der4104, "hello", pkcs1Signature4104))
+Expect("4104 PS256", Rsa.VerifyPss(der4104, "hello", pssSignature4104))
+Expect("4104 RS256 of another message", !Rsa.Verify(der4104, "hellO", pkcs1Signature4104))
+Expect("4104 PS256 of another message", !Rsa.VerifyPss(der4104, "hellO", pssSignature4104))
+Expect("4104 RS256 by PSS", !Rsa.VerifyPss(der4104, "hello", pkcs1Signature4104))
+Local public4104Key = Try? Key.FromPem(public4104)
+Expect("4104 public key", public4104Key?.Kind == KeyKind.RSA && public4104Key?.IsPrivate == False && public4104Key?.Bytes == der4104)
+Expect("4104 PKCS #1 public key", (Try? Key.FromPem(rsaPublic4104))?.Bytes == der4104)
+Check("4104 public PEM", public4104Key?.ToPem() ?? "", public4104)
+Local private4104Key = Try? Key.FromPem(private4104)
+Expect("4104 private key", private4104Key?.Kind == KeyKind.RSA && private4104Key?.IsPrivate == True)
+Check("4104 private PEM", private4104Key?.ToPem() ?? "", pkcs1Private4104)
+Expect("4104 PKCS #1 private key", (Try? Key.FromPem(pkcs1Private4104))?.Bytes == private4104Key?.Bytes)
+Done("4104 bits")
+
+Local private8192 = "-----BEGIN PRIVATE KEY-----\n" +
+    "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\n" +
+    "ZX7Z9S+if4JjLhMYrpTTrK5vKBJ5cw==\n" +
+    "-----END PRIVATE KEY-----\n"
+Local pkcs1Private8192 = "-----BEGIN RSA PRIVATE KEY-----\n" +
+    "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\n" +
+    "-----END RSA PRIVATE KEY-----\n"
+Local public8192 = "-----BEGIN PUBLIC KEY-----\n" +
+    "MIIEIjANBgkqhkiG9w0BAQEFAAOCBA8AMIIECgKCBAEAtAHzaaKJ1RqkzmKaXj6l\n" +
+    "BOecA6O2N36rLhel/8DEtB3u05PdF73/CRajmnqczpwNQ7qs6Cz5ER1pATS+qmCe\n" +
+    "6ejldvdyM8cCqeA8LFAY5d/XqtpOBECcBcV2x09AjxHu99B5mfV+Hh6vP7S2PvMi\n" +
+    "n2qe+ryruOCyDY06gBfkHbV3hzYSDUebPMszIzT1SQ2b8JRRD7jKlFmI+JcMNU/w\n" +
+    "CBR3bv54nnt2yx41/3sI+EugpB+Slc+TUPBBaxN/JKrw9s6mgcHVKBZwq3cLKxtr\n" +
+    "WhBB+Fl7475btg+2KpThnU/kKZZAbK8U6aiTvUMaUuvotR6QuOxtLbTeAUo8B+ev\n" +
+    "Fu8CQJA7y7r1cbVb8PT95i3tDZFsIL7x6NLJPBHCXA9JIDJShy5ATanVbzRpMvX0\n" +
+    "XQhjZaM7Jw7MnygOKUOH6WaxrXLh+sukSSCSrDEausH1OCVyflVEtQSqlWCy2LFd\n" +
+    "v4t3DIn22zq1Km6T+Hwb23BVdzAx0oGWTKlqYHM+2sK++qLsvnkF1s7Xyr95AWfh\n" +
+    "1v0kZrkdZzip0PtOate2j6MX8vGLwG8YT36wyZNl67y46qKFaG9SbdV92QpC2SaD\n" +
+    "ob89rxmFaWq92zwBRzY9zshr/UvJurGIGx99iz+OVjaoxNWpFt9zMKWSAd+RsKHF\n" +
+    "U6dYR82eM3ve18BoQVgh2YPqcYU9WM22TOm4oGQrsmiN9OFw65djw+dJQhosZXSq\n" +
+    "HqhpJtlhtFJgi6UVX18qOHCenlWKUvQl8fxeO/nHlYWC63O4eVfT8F5tvk5CWcOA\n" +
+    "LL3xHCESdr/ZwO0RKkTY/DyUkGTKdLTpG3Uw0DRqiD6IpVT9NcQ3GVCt1a4/dWWB\n" +
+    "pxVahtMvYkyWOQ/xRC8S3CwBoq599dLopoDqbL4ScHFCcV6qzCruxDt3045bNt+F\n" +
+    "HRcGqzjxPL5vmofy/4GZ0nXDtHCnkoxf3aRfvmbwfaELLykc4iuFSrwQp92U14FO\n" +
+    "MLHMHA+sTZ89PGd4KgQ+y74Q6SygoMuo9o3uDE3iQNanTHg1+1/DurvUo+y70hvQ\n" +
+    "Bc5hPslTMmdmWEo10nIR7JETI+BH9mMRbayb05wg9nLRMgl7pdOqwuHQobPM3AN+\n" +
+    "XlR8WsaR2YEWlIyMLCpJCk1yYCyQ7IkpSbPPeuqpJ7gkGG11c7XIYcePSznaLF8U\n" +
+    "EA6onM7okF5E/CBOE+olAIxbzXAg3nC1Q0tMeUzrGn8w/LNYKk9LIcRi2YVI1gwn\n" +
+    "RDJ/5zC/QGeSFJYYPYBavAZY77nM21abQNIjtz29B34TKCiTZXhOcn1MLa0YjN4g\n" +
+    "5cQlu03vOGRes65RPQ6ZNskh5iiRKu8rlQrhD+YrjyMqBbWsuNPF6KUXDV1edbs3\n" +
+    "FwIDAQAB\n" +
+    "-----END PUBLIC KEY-----\n"
+Local rsaPublic8192 = "-----BEGIN RSA PUBLIC KEY-----\n" +
+    "MIIECgKCBAEAtAHzaaKJ1RqkzmKaXj6lBOecA6O2N36rLhel/8DEtB3u05PdF73/\n" +
+    "CRajmnqczpwNQ7qs6Cz5ER1pATS+qmCe6ejldvdyM8cCqeA8LFAY5d/XqtpOBECc\n" +
+    "BcV2x09AjxHu99B5mfV+Hh6vP7S2PvMin2qe+ryruOCyDY06gBfkHbV3hzYSDUeb\n" +
+    "PMszIzT1SQ2b8JRRD7jKlFmI+JcMNU/wCBR3bv54nnt2yx41/3sI+EugpB+Slc+T\n" +
+    "UPBBaxN/JKrw9s6mgcHVKBZwq3cLKxtrWhBB+Fl7475btg+2KpThnU/kKZZAbK8U\n" +
+    "6aiTvUMaUuvotR6QuOxtLbTeAUo8B+evFu8CQJA7y7r1cbVb8PT95i3tDZFsIL7x\n" +
+    "6NLJPBHCXA9JIDJShy5ATanVbzRpMvX0XQhjZaM7Jw7MnygOKUOH6WaxrXLh+suk\n" +
+    "SSCSrDEausH1OCVyflVEtQSqlWCy2LFdv4t3DIn22zq1Km6T+Hwb23BVdzAx0oGW\n" +
+    "TKlqYHM+2sK++qLsvnkF1s7Xyr95AWfh1v0kZrkdZzip0PtOate2j6MX8vGLwG8Y\n" +
+    "T36wyZNl67y46qKFaG9SbdV92QpC2SaDob89rxmFaWq92zwBRzY9zshr/UvJurGI\n" +
+    "Gx99iz+OVjaoxNWpFt9zMKWSAd+RsKHFU6dYR82eM3ve18BoQVgh2YPqcYU9WM22\n" +
+    "TOm4oGQrsmiN9OFw65djw+dJQhosZXSqHqhpJtlhtFJgi6UVX18qOHCenlWKUvQl\n" +
+    "8fxeO/nHlYWC63O4eVfT8F5tvk5CWcOALL3xHCESdr/ZwO0RKkTY/DyUkGTKdLTp\n" +
+    "G3Uw0DRqiD6IpVT9NcQ3GVCt1a4/dWWBpxVahtMvYkyWOQ/xRC8S3CwBoq599dLo\n" +
+    "poDqbL4ScHFCcV6qzCruxDt3045bNt+FHRcGqzjxPL5vmofy/4GZ0nXDtHCnkoxf\n" +
+    "3aRfvmbwfaELLykc4iuFSrwQp92U14FOMLHMHA+sTZ89PGd4KgQ+y74Q6SygoMuo\n" +
+    "9o3uDE3iQNanTHg1+1/DurvUo+y70hvQBc5hPslTMmdmWEo10nIR7JETI+BH9mMR\n" +
+    "bayb05wg9nLRMgl7pdOqwuHQobPM3AN+XlR8WsaR2YEWlIyMLCpJCk1yYCyQ7Ikp\n" +
+    "SbPPeuqpJ7gkGG11c7XIYcePSznaLF8UEA6onM7okF5E/CBOE+olAIxbzXAg3nC1\n" +
+    "Q0tMeUzrGn8w/LNYKk9LIcRi2YVI1gwnRDJ/5zC/QGeSFJYYPYBavAZY77nM21ab\n" +
+    "QNIjtz29B34TKCiTZXhOcn1MLa0YjN4g5cQlu03vOGRes65RPQ6ZNskh5iiRKu8r\n" +
+    "lQrhD+YrjyMqBbWsuNPF6KUXDV1edbs3FwIDAQAB\n" +
+    "-----END RSA PUBLIC KEY-----\n"
+Local der8192 = Unhex("3082040a0282040100b401f369a289d51aa4ce629a5e3ea504e79c03a3b6377eab2e17a5ffc0c4b41deed393dd17bdff0916a39a7a9cce9c0d43baace82cf9111d690134beaa609ee9e8e576f77233c702a9e03c2c5018e5dfd7aada4e04409c05c576c74f408f11eef7d07999f57e1e1eaf3fb4b63ef3229f6a9efabcabb8e0b20d8d3a8017e41db5778736120d479b3ccb332334f5490d9bf094510fb8ca945988f8970c354ff00814776efe789e7b76cb1e35ff7b08f84ba0a41f9295cf9350f0416b137f24aaf0f6cea681c1d5281670ab770b2b1b6b5a1041f8597be3be5bb60fb62a94e19d4fe42996406caf14e9a893bd431a52ebe8b51e90b8ec6d2db4de014a3c07e7af16ef0240903bcbbaf571b55bf0f4fde62ded0d916c20bef1e8d2c93c11c25c0f49203252872e404da9d56f346932f5f45d086365a33b270ecc9f280e294387e966b1ad72e1facba4492092ac311abac1f53825727e5544b504aa9560b2d8b15dbf8b770c89f6db3ab52a6e93f87c1bdb7055773031d281964ca96a60733edac2befaa2ecbe7905d6ced7cabf790167e1d6fd2466b91d6738a9d0fb4e6ad7b68fa317f2f18bc06f184f7eb0c99365ebbcb8eaa285686f526dd57dd90a42d92683a1bf3daf1985696abddb3c0147363dcec86bfd4bc9bab1881b1f7d8b3f8e5636a8c4d5a916df7330a59201df91b0a1c553a75847cd9e337bded7c068415821d983ea71853d58cdb64ce9b8a0642bb2688df4e170eb9763c3e749421a2c6574aa1ea86926d961b452608ba5155f5f2a38709e9e558a52f425f1fc5e3bf9c7958582eb73b87957d3f05e6dbe4e4259c3802cbdf11c211276bfd9c0ed112a44d8fc3c949064ca74b4e91b7530d0346a883e88a554fd35c4371950add5ae3f756581a7155a86d32f624c96390ff1442f12dc2c01a2ae7df5d2e8a680ea6cbe12707142715eaacc2aeec43b77d38e5b36df851d1706ab38f13cbe6f9a87f2ff8199d275c3b470a7928c5fdda45fbe66f07da10b2f291ce22b854abc10a7dd94d7814e30b1cc1c0fac4d9f3d3c67782a043ecbbe10e92ca0a0cba8f68dee0c4de240d6a74c7835fb5fc3babbd4a3ecbbd21bd005ce613ec953326766584a35d27211ec911323e047f663116dac9bd39c20f672d132097ba5d3aac2e1d0a1b3ccdc037e5e547c5ac691d98116948c8c2c2a490a4d72602c90ec892949b3cf7aeaa927b824186d7573b5c861c78f4b39da2c5f14100ea89ccee8905e44fc204e13ea25008c5bcd7020de70b5434b4c794ceb1a7f30fcb3582a4f4b21c462d98548d60c2744327fe730bf4067921496183d805abc0658efb9ccdb569b40d223b73dbd077e1328289365784e727d4c2dad188cde20e5c425bb4def38645eb3ae513d0e9936c921e628912aef2b950ae10fe62b8f232a05b5acb8d3c5e8a5170d5d5e75bb37170203010001")
+Local pkcs1Signature8192 = Unhex("7d283695c5c8d6b03325e3d213773193bd666848a584c7b9ad1bde77ebe0ecd5e3febbc30339a640f836eb76dbc0d0fba3abe13457126a0d8c90201403f5ceb12250558482839a47fcd1c69e6a9e1d966da1afd1b6ff169cc60e39c070aab25fa55aedbea8f42b4d0f618c1e3edcc3c36e799b4230ce139ad480b1bebed3e59ec390e501adac94e09fc9f7d33fcfcc777fb0520a3be2eace31b3e9aa4b7c0a469a1df02875b94f4cdf1b8445baa1d2836235a0339ddd9d135259d78fb55dfb9ccd61bd0881e6752665bf382385a63a431de722034285fc8175b1af3bd96951d57bb005cf6e25786519471c453e32195e75095ce469fdeac8f76ad8ddf50037251b88289a527259eb03d69e52b289ae61fe90d17768d66e91c70f2eab5330af31de5630eebd6ad24efd5b1d42966aea3d8278bd98628b70ba5e8843cbab59782529985f439f2bb5116924f46cb47dad0db2c8719e6bcdadfd19f3b7f9b1de30db329aec08231bbee1bc4e4909257998c4e6c323fd8c41abc59f900be89c743b5c154b1210fa186e9b71fa61da7c26a3068d2ee2853d9c6d9fc7b53253aaf3019267498268b7bdce25abd446dbcd2ec1ebde1835e3a098fa94767fe2879543aaf670b06bbca969c7429f70a357f87c0924306247c6f7203267a78b69659e8d0f7a95dea02e06a6909b8627b89c3a32978de372867caf15553f22c578fd2d265276430c0dd5ef8c0c416b42875a746a216e4875e566588b91813a47449d8d71dec9ef7a917309d7aab7d19d6fd323bd65737e94cf37e61b0574320ca4fb2372c6366adba3cf7870dc85fee79197ec5644fa5de809d5c8af8816ac90235bd34a0f388fc70d34f682d1f73b6d042ace36e7d9c9741d467fc2c1fca6e1d053ff6884d057bfb82b8547aaeddd552a119627a4197b5e38cb90681e64456a9999f396ddfc428073f9596a166a3f291be6efcb5dc2631f85ba1bc5cb3d203fd5068059689c09b11ff77cd06669049c36d82fadb503afa1e7762bbe0bbbe80cd65c98e19aaad03e92d1a4d6e64d26b2bf3d22dbcab262fb5730a6d6653c83a2812d1d267f0d245ddb1db23747e85f011a1422698c51e9fc4166bb9a8d8dac1abbedd52ea5fd2233136f540ff2ea2dcf783e39a80c245261923d1abb3f7f0509d43a7b67073fddb190600340efd21433e3020208edd5237f01efafc636de146e5a2e9a155f484694d632a6b0fa88523d7848e6f23f5d64a77a528046c70e00cac8b4906c6a59798d7ae539345473da9aeae66f2fb9036cd42cea776b65d60ba83239a4f80144dcaa226a84a418fca3b5d11a494a0b8d29d89e49179da4afc3050921e5355751fc379fb002c5ab594b2ec2abcba66a9aa03b22502a1bc6dc59d22ef70610de8a16103c012c358e9f01b8b415cba5f9917b6aab4333b8383ab6620ff2d241e131")
+Local pssSignature8192 = Unhex("ad7bcb24d7f3d2c0a880e19b4e86a1fe1934dc75a48f5fb09cabe8533bb267898c03de20892c4f4d2593560e5c32ca61bef6768d12243b41427a1e8312aedd6f80f9323d8c8228422fe9174dd647bd27aebdf2bc8929f6b0bef16f86bfb4c56fea043b8c3f1b3bcab4dc205371c6a836a4a21967d040968acda077ff80ed7fe2ff71c37886bb09eb0d83b692f6b401ada5f18e556696dbd3ed3c777aee06da8781d8c776cad84771d78eb608bce9d1a000f37d10f08f8669df1fbb6f42f4ab692fdf7a079013374e920d8015ffda8c0221c067d5059f5cdee1a440efac13b056cee21127f883ea6822cf8d4e4830b699831cea1b5de21a24c7ca83298c998f62999cfcbce17ee098e67d024a57a8e2766bad940a13ac829fa8b39af71ee8b2c8a74bb998e428d49196d2689d7404e476057960521949e05173b9554bd1090bedb9e4fffcfe1db705fafa4b348e1044abf6ae3ed04e0e957d2f8a67d72d2cde1fc3ad0493cceee56155a1fa6fe135d9eef7fed4d6b42812164180624da5d6e1454e9fdc7e3fb7a9cc2b1147cda130d36ade3f2841e55daa890a97adfe23b19bf7b0f9b22ac79fbb28030ed7be2fcff481774ad769ecc9fc17d4f3aa552fe60a2bf8fd1685c52e68994832430cc228b0b42ff649778b842ec9386a775cea74b720ed906716bf4d2cb802647d8adf46f2d06e34d52f0064ec00c0352283c0d9346181f2d80b8643a3aa5d9c55afca490feb930df241f4a8bfc8d715c82f41887a201626eacbc97c49a2277d0085291c1a779080ea7752a419dcb4ed98fab47481f35b7bcb8060db9d4988c681c693b66fd5f21588c54f5af426aa139b0e7d82a4d42703f29d5b380365d3a5c61708f5d76f753660a144e34263b175ae77460806d43d94614042ec6fef6d571e9c3e6b2bb1b4fe282cc4dd367a844d276267f8004872c7c3e1d496293b441ef0feaada5d098487458bdd45840697dca031c629cc4deeab4dc574f726e33870e568eb053f27f323f73a60cb5091b29a93f0223e8e9c9608480c680afb744891a76049e6e711bc40f8340a3cef41d6fc401e116d54dafe7e11e7788e2acbfbd136fe5f7666ba31609e88735033cb1f14cdaf1b246c30499134da00b673847ef2eb01cdff1107d57008976ab74debb90348c437b9620d56a28d1211a156ea22d8ba9253472493280ecbec591c79a3541be5691665e3f36e8884f419b01755d52007b5a363a18b4b1266ce602c79bf21b5673f116e625fa60fb9a360aae4a293181e29e89437844a7efeec5a00fdba2c007d083d330ed9b4ecd6910fea10b0295447ea590979b6c2add4680fd03f0f17fa0af8bc7d357bde5c0aeacf2c41727585be986c9d57cbd36d7d0acda0cc8d656ed8d15b8cf938195edf5c0d448763987476bbaf528a8d419630760a6c1d998eadc4973a34da75")
+Expect("8192 RS256", Rsa.Verify(der8192, "hello", pkcs1Signature8192))
+Expect("8192 PS256", Rsa.VerifyPss(der8192, "hello", pssSignature8192))
+Expect("8192 RS256 of another message", !Rsa.Verify(der8192, "hellO", pkcs1Signature8192))
+Expect("8192 PS256 of another message", !Rsa.VerifyPss(der8192, "hellO", pssSignature8192))
+Expect("8192 RS256 by PSS", !Rsa.VerifyPss(der8192, "hello", pkcs1Signature8192))
+Local public8192Key = Try? Key.FromPem(public8192)
+Expect("8192 public key", public8192Key?.Kind == KeyKind.RSA && public8192Key?.IsPrivate == False && public8192Key?.Bytes == der8192)
+Expect("8192 PKCS #1 public key", (Try? Key.FromPem(rsaPublic8192))?.Bytes == der8192)
+Check("8192 public PEM", public8192Key?.ToPem() ?? "", public8192)
+Local private8192Key = Try? Key.FromPem(private8192)
+Expect("8192 private key", private8192Key?.Kind == KeyKind.RSA && private8192Key?.IsPrivate == True)
+Check("8192 private PEM", private8192Key?.ToPem() ?? "", pkcs1Private8192)
+Expect("8192 PKCS #1 private key", (Try? Key.FromPem(pkcs1Private8192))?.Bytes == private8192Key?.Bytes)
+Done("8192 bits")
+
+Local tooLarge = "-----BEGIN RSA PUBLIC KEY-----\n" +
+    "MIIECwKCBAIAgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n" +
+    "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n" +
+    "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n" +
+    "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n" +
+    "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n" +
+    "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n" +
+    "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n" +
+    "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n" +
+    "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n" +
+    "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n" +
+    "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n" +
+    "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n" +
+    "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n" +
+    "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n" +
+    "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n" +
+    "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n" +
+    "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n" +
+    "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n" +
+    "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n" +
+    "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n" +
+    "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n" +
+    "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAECAwEAAQ==\n" +
+    "-----END RSA PUBLIC KEY-----\n"
+Local encrypted = "-----BEGIN ENCRYPTED PRIVATE KEY-----\n" +
+    "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\n" +
+    "Bb/J7RVmwHKWc/8XJSk2JG27+CEXWwHzyA==\n" +
+    "-----END ENCRYPTED PRIVATE KEY-----\n"
+Local procType = "-----BEGIN RSA PRIVATE KEY-----\n" +
+    "Proc-Type: 4,ENCRYPTED\n" +
+    "DEK-Info: AES-128-CBC,FF0E0649353222E76587783E14545F3D\n" +
+    "\n" +
+    "D2EQ7AlawKOunuAJggffgWTEmSL2Mf6GoVSWhNmVthDKjVwAKZ53jwbtKwNgnzd4\n" +
+    "EfPak5wFRNBsJ53fgb/a2oXTtw5lNqJTehpCi0p29s7FKaLtaDOmbq9yu1r295yc\n" +
+    "GGKUJw2lBJadFsLLnNjqoysd0MOP5dGUqNnkkaonqoJaTtkdB50ckQR1dPqXj8TR\n" +
+    "sNFCt3yDNvQQqyRdGiYykGxy27AHK1GMtineUL3BuPQyVPDZ56+z3tlsBKQRPnMN\n" +
+    "ngYhveIdHRykUmURpwrNErQhAKLLO84HYBGGYsIpS0MtkARLUWR7y1Pu6S17hzON\n" +
+    "sxK5u4qerpwwJ7LRlpAYrgrd5z11Xmc9+/a0GLtwuwc1N8ywqO508K/PILyf4eXl\n" +
+    "EDKbtyYgc+t6+pYEYS3L1azPc0qOemxgNZloSUdVQAS7Mr9l8vZx+l/pAwugdT5Q\n" +
+    "4hTRML2z6s0d6YAaqf9NGB9BaANO+NAy1xendj3Eo38iSPJwwnQy7tkbyAEFV+p5\n" +
+    "4SL+U3ye41WCrc1UryCm1iWrpz6IzZoYIUkiTbMPx3WY9omN9NfonHL28wa2s/BJ\n" +
+    "vXObFkWrYUoNCpba1+8fliMxFqU5Ow6GSnqZoKCTzG9yB2N7+Ce3JdUAsudkJ7gs\n" +
+    "1HXP7zgCe+m/vzCfgSkhueekbP2E6BNhbjXgDbu0wGvJ6kBoZB4FhVqUV1DydG9G\n" +
+    "jS/XhT/1j46Ew73y70WQ0OX91h2RP8HSpo9RxfT3oEp5KWroMrs/Z/zqjUoX2v6p\n" +
+    "M8AT6rNi/ldGdA67LfiTWwaJLjtmu8yA8CUctWCs96zblphjdBZf7m+h6wNEiFBF\n" +
+    "57OHcVSClRRBf3DdfzOTwf4GpS7642D8ryL0lHeEUE+6kRj4OWPmm2SItphf9vaO\n" +
+    "ixV8x0ROoLRdF/S1Gw5HPsxgXTSKwEeM445GOppUB7fKDRMMby7HyTYeldKLqws9\n" +
+    "LI33NEbaVzX9pJSDT7BIkScbM2rnkjxqzBco8wlUuoBoH6rkfQt9hhHiDaCEvnaL\n" +
+    "UmPLYhK2O2NEm9Z+W30ZpDL2iED9RMMAhYXm2xfzdot6sf+75gaxjwq9+cifLHIS\n" +
+    "xW+CKSPI1LOGCSLDrRfz5KTRs6MwtEdTlHb1iEFsCVqV7/SxpA+H8Q31Gm8QEepR\n" +
+    "OaAv7u34UkvJN7YWDUj7EwO+n6TFj2O5XyDC0NYLlknBkp5G+J/EGbHdst1H0E7w\n" +
+    "D4TXt3pVB+LtTy2yCWy58e/Slj/5PECXDyrEn8R6OL/Eqp9Jzrwqjm3tjYkJJewg\n" +
+    "9g2o8YMZIbgR7JM4saU7jPs+wLWvi4XFWfnMWLZLjQZudZQeU9N5xHAUpf1SsAfp\n" +
+    "sQPIOqPLCFjmbBF8hY53OyGYeQuzOx/fOjDb5zO6B24hPjh9H3J2a6hLvMV5E2Ou\n" +
+    "NENtjuU6Inke9XIVq/5lVn6JZXJQNoXMyGeMVxr0k5slBa9PQQptpvh0S/oydygc\n" +
+    "ds9XJX5pbnQ5Xb4Wxrslve+a8MUqJ9KSyNKyEUkERrF33YSM/ckAT/GKbn+3pdJY\n" +
+    "SQR1gN6IBZ2JnYzWqbKCxNCoMFj2ziwgjxJBrKzTVQugBpDpEXud4+H9VBEGPrCe\n" +
+    "-----END RSA PRIVATE KEY-----\n"
+Function Refused(name: String, pem: String)
+    Try
+        Key.FromPem(pem)
+        Expect("{name} read", False)
+    Catch e As ParseError
+        Expect("{name} refused", e.Kind == ParseErrorKind.WRONG_TYPE)
+    End Try
+End Function
+
+Refused("8200 bits", tooLarge)
+Refused("PKCS #8 encrypted", encrypted)
+Refused("PEM encrypted", procType)
+Done("refused")

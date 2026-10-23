@@ -75,8 +75,8 @@ std::int32_t fb_crypto_shared_secret(const fb_array_t* private_key, const fb_arr
                                      fb_array_t* output);
 
 /// The first key in `pem`, its bytes as std.crypto takes its kind's, into `output`, and its
-/// kind times 2, plus 1 for a private key; or -1 when `pem` has none, or -2 when its key is of a
-/// kind std.crypto doesn't take, or is encrypted.
+/// kind times 2, plus 1 for a private key; or -1 when `pem` has none, -2 when its key is of a
+/// kind std.crypto doesn't take, or is encrypted, or -3 when its key doesn't read.
 std::int32_t fb_crypto_key_from_pem(const fb_string_t* pem, fb_array_t* output);
 /// The PEM of a key of `kind`, private when `is_private` isn't 0, or null when `key` isn't one.
 fb_string_t* fb_crypto_key_to_pem(std::int32_t kind, std::int32_t is_private,
@@ -86,7 +86,8 @@ fb_string_t* fb_crypto_key_to_pem(std::int32_t kind, std::int32_t is_private,
 /// none, or one that doesn't parse.
 void* fb_crypto_certificates_new(const fb_string_t* pem);
 std::int64_t fb_crypto_certificates_count(const void* certificates);
-/// The certificate at `index`'s subject or issuer, as "C=NL, O=Example, CN=example.com".
+/// The certificate at `index`'s subject or issuer, as "C=NL, O=Example, CN=example.com", in
+/// its order, with RFC 4514's escapes.
 fb_string_t* fb_crypto_certificate_subject(const void* certificates, std::int64_t index);
 fb_string_t* fb_crypto_certificate_issuer(const void* certificates, std::int64_t index);
 /// Its serial number, as hex bytes with colons between them: "01:2F:A0".
