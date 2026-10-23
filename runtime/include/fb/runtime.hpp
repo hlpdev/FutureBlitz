@@ -193,6 +193,10 @@ std::uint64_t fb_hash_float(double value);
 /// A hash so far combined with the next part's, as a Struct's, tuple's, or array's Hash combines
 /// its parts' in order.
 std::uint64_t fb_hash_combine(std::uint64_t seed, std::uint64_t hash);
+/// A seed for std.math's default generator on a thread that draws before SeedRandom: the OS's
+/// randomness, mixed with the clock and a count of the seeds made, so each run and each thread
+/// differ.
+std::uint64_t fb_random_seed();
 
 /// `value` as decimal text, like "-42", for interpolated strings. The caller owns the result.
 fb_string_t* fb_string_from_int(std::int64_t value);
