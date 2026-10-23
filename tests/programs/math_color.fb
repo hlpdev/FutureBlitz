@@ -49,19 +49,22 @@ Print(Color32(255, 136, 0).ToHex(), Color32(1, 2, 3, 4).ToHex(), Color32.Gray.To
 Print(Color(0, 0, 1, 0.5).ToHex(), Color.Hex("#c0ffee").ToHex(), Color32.Hex("#C0FFEE").ToHex())
 
 // The named colors, the same in both: CSS's sRGB values.
-Print(Color32.Transparent, Color32.Black, Color32.White, Color32.Gray, Color32.Red, Color32.Green)
-Print(Color32.Blue, Color32.Yellow, Color32.Cyan, Color32.Magenta, Color32.Orange)
+Print(Color32.Transparent, Color32.Black, Color32.White, Color32.Gray, Color32.Red, Color32.Green,
+      Color32.Lime)
+Print(Color32.Blue, Color32.Yellow, Color32.Cyan, Color32.Magenta, Color32.Orange,
+      Color32.Green.ToHex(), Color32.Lime.ToHex())
 Print(Color.Transparent.ToColor32() == Color32.Transparent,
       Color.Black.ToColor32() == Color32.Black, Color.White.ToColor32() == Color32.White,
       Color.Gray.ToColor32() == Color32.Gray)
 Print(Color.Red.ToColor32() == Color32.Red, Color.Green.ToColor32() == Color32.Green,
       Color.Blue.ToColor32() == Color32.Blue, Color.Yellow.ToColor32() == Color32.Yellow)
 Print(Color.Cyan.ToColor32() == Color32.Cyan, Color.Magenta.ToColor32() == Color32.Magenta,
-      Color.Orange.ToColor32() == Color32.Orange)
+      Color.Orange.ToColor32() == Color32.Orange, Color.Lime.ToColor32() == Color32.Lime)
 // And each named Color is its Color32's, a byte's linear value rounded once.
 Print(Color.Gray == Color32.Gray.ToColor(), Color.Gray == Color.Hex("#808080"),
       Color.Orange == Color32.Orange.ToColor(), Color.Orange == Color.Hex("#ffa500"),
-      Color.Red == Color32.Red.ToColor(), Color.White == Color32.White.ToColor())
+      Color.Red == Color32.Red.ToColor(), Color.White == Color32.White.ToColor(),
+      Color.Green == Color32.Green.ToColor(), Color.Green == Color.Hex("#008000"))
 Print(Color.Gray.r.ToBits(), Color32.Gray.ToColor().r.ToBits(), Color.Orange.g.ToBits(),
       Color32.Orange.ToColor().g.ToBits())
 Print(Color.Gray, Color.Orange, Color.Transparent, Color(1, 0, 0), Color32(1, 2, 3))
@@ -87,13 +90,13 @@ Print(Shown(Color.Hex("#ff8800").ToHsv()), Shown(Color.Hex("#ff8800").ToHsl()))
 Print(Shown(Color.Hex("#336699").ToHsv()), Shown(Color.Hex("#336699").ToHsl()))
 Print(Shown(Color.Gray.ToHsv()), Shown(Color.Gray.ToHsl()), Shown(Color.Black.ToHsv()),
       Shown(Color.White.ToHsl()))
-Print(Shown(Color.Hex("#ff0080").ToHsv()), Shown(Color.Blue.ToHsl()), Shown(Color.Green.ToHsv()))
+Print(Shown(Color.Hex("#ff0080").ToHsv()), Shown(Color.Blue.ToHsl()), Shown(Color.Lime.ToHsv()))
 Local h, s, v = Color.Hex("#4080c0").ToHsv()
 Local hue, saturation, lightness = Color.Hex("#4080c0").ToHsl()
 Print(Color.Hsv(h, s, v).ToColor32(), Color.Hsl(hue, saturation, lightness).ToColor32())
 
 // OKLab, from linear light.
-Print(Shown(Color.Red.ToOkLab()), Shown(Color.Green.ToOkLab()), Shown(Color.Blue.ToOkLab()))
+Print(Shown(Color.Red.ToOkLab()), Shown(Color.Lime.ToOkLab()), Shown(Color.Blue.ToOkLab()))
 Print(Shown(Color.White.ToOkLab()), Shown(Color.Black.ToOkLab()), Shown(Color.Gray.ToOkLab()))
 Local l, a, b = Color.Hex("#ff8800").ToOkLab()
 Print(Color.OkLab(l, a, b).ToColor32(), Color.OkLab(1, 0, 0).ToColor32(),

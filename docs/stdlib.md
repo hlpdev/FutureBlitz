@@ -343,11 +343,12 @@ std/math/, std.math.bits too.
   gives Null. Release builds don't make SIMD instructions of them yet: Vec4's Operators and
   Mat4's `*` come out as scalar code until codegen runs LLVM's SLP vectorizer.
 - `Color` (four Float32s, linear RGB and alpha) and `Color32` (four bytes, sRGB), converting with
-  sRGB's gamma both ways, every byte coming back as it was, with named colors (CSS's sRGB values),
-  `Color.Hex("#ff8800")` and `Color32.Hex`, which panic on text that isn't hex, `TryHex`, which
-  gives Null, `ToHex`, `Color.Srgb`, HSV and HSL (`Color.Hsv`, `Color.Hsl`, `ToHsv`, and `ToHsl`,
-  in sRGB, with a hue from 0 to 1 around, as color pickers have it), and OKLab (`Color.OkLab` and
-  `ToOkLab`, from linear light). Math on a Color is in linear light, and `Lerp` blends there.
+  sRGB's gamma both ways, every byte coming back as it was, with named colors (CSS's sRGB values,
+  so `Green` is #008000, and `Lime` #00ff00), `Color.Hex("#ff8800")` and `Color32.Hex`, which
+  panic on text that isn't hex, `TryHex`, which gives Null, `ToHex`, `Color.Srgb`, HSV and HSL
+  (`Color.Hsv`, `Color.Hsl`, `ToHsv`, and `ToHsl`, in sRGB, with a hue from 0 to 1 around, as
+  color pickers have it), and OKLab (`Color.OkLab` and `ToOkLab`, from linear light). Math on a
+  Color is in linear light, and `Lerp` blends there.
 - Geometry: `Rect` (X, Y, Width, Height), `AABB` (Min, Max), `Sphere`, `Ray`, `Plane` (Normal,
   Distance), and `Frustum` (six Planes facing in, from a view-projection matrix), with `Contains`,
   `Intersects`, and `Raycast`, which gives how far along the ray, in lengths of its Direction, 0

@@ -34,7 +34,12 @@ Public Struct Color32 Implements Hashable, Printable
         Get => Color32(255, 0, 0)
     End Property
 
+    // CSS's green, #008000, half as bright as a screen's green, which is Lime.
     Public Static Property Green: Color32
+        Get => Color32(0, 128, 0)
+    End Property
+
+    Public Static Property Lime: Color32
         Get => Color32(0, 255, 0)
     End Property
 
@@ -141,7 +146,12 @@ Public Struct Color Implements Hashable, Printable
         Get => Color(1, 0, 0)
     End Property
 
+    // CSS's green, #008000, half as bright as a screen's green, which is Lime.
     Public Static Property Green: Color
+        Get => Color(0, 0.2158605, 0)
+    End Property
+
+    Public Static Property Lime: Color
         Get => Color(0, 1, 0)
     End Property
 
