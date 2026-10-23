@@ -770,10 +770,19 @@ TEST_CASE("fb and the programs it builds give the console its code page back", "
 TEST_CASE("Ctrl+C during fb run ends the program, and fb cleans up and gives its exit code",
           "[cli]") {
     // The terminal sends Ctrl+C to fb and the program alike. fb waits for the program to end,
-    // deletes the folder it built it in, and ends with its exit code, as a shell does.
-    const std::filesystem::path source = write_source(
-        "interrupt/interrupted.fb", "Import std.core\nPrintError(\"started\")\nLocal n = 0\n"
-                                    "While True\n    n = (n + 1) % 1000\nEnd While\n");
+    // deletes the folder it built it in, and ends with its exit code, as a shell does. The
+    // program is named for this process, so copies of this test that run at once each look for
+    // their own folder.
+#ifdef _WIN32
+    const auto own = static_cast<unsigned long>(GetCurrentProcessId());
+#else
+    const auto own = static_cast<unsigned long>(getpid());
+#endif
+    const std::string name = std::format("interrupted_{}", own);
+    const std::filesystem::path source =
+        write_source(std::format("interrupt/{}.fb", name),
+                     "Import std.core\nPrintError(\"started\")\nLocal n = 0\n"
+                     "While True\n    n = (n + 1) % 1000\nEnd While\n");
     // The temp folder is every run's, so a folder an earlier run that was stopped left there
     // isn't this one's.
     const std::filesystem::path temporary = fb::temporary_path("probe", ".none").parent_path();
@@ -782,7 +791,7 @@ TEST_CASE("Ctrl+C during fb run ends the program, and fb cleans up and gives its
         std::error_code ignored;
         for (const std::filesystem::directory_entry& entry :
              std::filesystem::directory_iterator(temporary, ignored)) {
-            if (fb::to_utf8(entry.path().filename()).starts_with("interrupted-")) {
+            if (fb::to_utf8(entry.path().filename()).starts_with(name + "-")) {
                 found.push_back(entry.path());
             }
         }
@@ -854,7 +863,7 @@ TEST_CASE("Ctrl+C during fb run ends the program, and fb cleans up and gives its
     REQUIRE(sent);
     // The program ends as Windows ends one on Ctrl+C or Ctrl+Break.
     CHECK(exit_code == 0xC000013A);
-    CHECK(output.contains("interrupted.exe exited with code 0xC000013A"));
+    CHECK(output.contains(std::format("{}.exe exited with code 0xC000013A", name)));
 #else
     // SIGINT, which Ctrl+C sends to the terminal's process group: fb's own here.
     std::array<int, 2> ends{};
@@ -899,7 +908,7 @@ TEST_CASE("Ctrl+C during fb run ends the program, and fb cleans up and gives its
     REQUIRE(WIFEXITED(status));
     // The program ends by SIGINT, which a shell reports as 128 plus its number.
     CHECK(WEXITSTATUS(status) == 128 + SIGINT);
-    CHECK(output.contains(std::format("interrupted exited with code {}", 128 + SIGINT)));
+    CHECK(output.contains(std::format("{} exited with code {}", name, 128 + SIGINT)));
 #endif
     CHECK_FALSE(left_behind());
 }

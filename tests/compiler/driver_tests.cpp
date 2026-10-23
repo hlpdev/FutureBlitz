@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <catch2/catch_test_macros.hpp>
+#include <chrono>
 #include <cstddef>
 #include <cstdlib>
 #include <expected>
@@ -18,6 +19,7 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -1061,6 +1063,32 @@ TEST_CASE("std.math.big's Complex doesn't change once it's made", "[driver]") {
           std::vector<std::string>{
               "main.fb: z.Real: 'Real' is ReadOnly; only Complex's New can change it",
           });
+}
+
+TEST_CASE("a temporary folder is removed once what holds its files lets go", "[driver]") {
+    const std::filesystem::path folder = fb::temporary_path("held", "");
+    std::filesystem::create_directories(folder);
+    const std::filesystem::path file = folder / "program.exe";
+    std::ofstream(file) << "built";
+#ifdef _WIN32
+    // As Windows holds a program's executable for a moment after it ends, or a scanner does
+    // while it reads one: opened without sharing, so it can't be deleted until it's let go.
+    int handle = -1;
+    REQUIRE(_wsopen_s(&handle, file.c_str(), _O_RDONLY, _SH_DENYRW, _S_IREAD) == 0);
+    std::error_code held;
+    std::filesystem::remove_all(folder, held);
+    CHECK(std::filesystem::exists(file));
+    std::thread holder([handle] {
+        std::this_thread::sleep_for(std::chrono::milliseconds(300));
+        _close(handle);
+    });
+    CHECK(fb::remove_temporary(folder));
+    holder.join();
+#else
+    CHECK(fb::remove_temporary(folder));
+#endif
+    CHECK_FALSE(std::filesystem::exists(folder));
+    CHECK(fb::remove_temporary(folder));
 }
 
 TEST_CASE("a program named std isn't the standard library", "[driver]") {
