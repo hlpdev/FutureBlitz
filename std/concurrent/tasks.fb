@@ -1,6 +1,6 @@
 // Tasks made of other Tasks, and a Task finished by hand: WhenAll waits for each of its tasks,
-// WhenAny for the first, and a TaskSource's Task is done once a thread gives it its result. They
-// give Tasks of Async Functions, so they're the main thread's, as Async code is.
+// WhenAny for the first, and a TaskSource's Task is done once a thread has given it its result.
+// They give Tasks of Async Functions, so they're the main thread's, as Async code is.
 
 Import std.core
 
@@ -24,8 +24,10 @@ Public Shared Class TaskSource<T: Sendable>
         Signal = fb_signal_new()
     End New
 
-    // A Task of the result, which is done once Finish gives it. Each one it gives is a new Task
-    // of the same result. Only the main thread has one, as its code is Async code.
+    // A Task of the result: done at once when Finish has given it, and otherwise at the main
+    // thread's first tick after Finish does, as an Async Function's Task is once what it awaits
+    // is done. Each one it gives is a new Task of the same result. Only the main thread has one,
+    // as its code is Async code.
     Public Property Task: Task<T>
         Get => Finished(Self, fb_signal_task(Signal))
     End Property
@@ -69,9 +71,9 @@ Public Shared Class TaskSource<T: Sendable>
     End Method
 End Class
 
-// A TaskSource's Task: its result, once its signal is given.
+// A TaskSource's Task: its result, at once when its signal is given already, or once it is.
 Async Function Finished<T: Sendable>(source: TaskSource<T>, given: Task): T
-    Await given
+    If !given.IsDone() Then Await given
     Return source.Given()
 End Function
 

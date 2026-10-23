@@ -85,3 +85,12 @@ Print(source.IsDone, source.Task.IsDone())
 source.Finish(Null)
 Local given = source.Task.Wait()
 Print(source.IsDone, given == Null, source.TryFinish("again"))
+
+// A Task read once Finish has given the result is done at once, and one read before is done at the
+// main thread's next tick, which a Wait runs.
+Const later = TaskSource<Int>()
+Local before = later.Task
+later.Finish(5)
+Local after = later.Task
+Print(later.IsDone, before.IsDone(), after.IsDone())
+Print(before.Wait(), before.IsDone(), after.IsDone())
