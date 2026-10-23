@@ -4,7 +4,7 @@
 
 ## S23-sqlite-1 (medium): Database.Rows(sql) with no values binds every parameter to NULL silently, where Execute(sql) panics
 
-Status: open
+Status: fixed in b8fcfb9 (Database.Rows(sql) calls Expect(0) on its Statement, so it panics at the caller; panic_db_rows_parameters)
 
 Where: std/db/database.fb:435
 
@@ -39,7 +39,7 @@ Skeptic: I ran C:/Users/Hunter/Projects/FutureBlitz/.claude/worktrees/rev-scratc
 
 ## S23-sqlite-2 (medium): A Statement's Rows reads column names before stepping, so after a schema change it drops, keeps, or makes up columns
 
-Status: open
+Status: fixed in 4b401ed (Collect reads the column count and names after the first step that gives a row; db_statements reuses a Statement across ADD, RENAME, and DROP COLUMN)
 
 Where: std/db/database.fb:948
 
@@ -89,7 +89,7 @@ Skeptic: I ran f2.fb (the reviewer's program) in debug and release. Both printed
 
 ## S23-sqlite-3 (medium): Close doesn't close the connection while a Statement lives: the file and its locks stay held
 
-Status: open
+Status: fixed in 508ff97 (fb_db_close finalizes the connection's statements, through sqlite3_next_stmt, before it closes; a Statement keeps its parameter count, and its Destroy skips a closed Database's; the CLI test's EXCLUSIVE-lock case)
 
 Where: std/db/database.fb:314
 
@@ -129,7 +129,7 @@ Skeptic: I ran f3.fb (the reviewer's EXCLUSIVE-lock program). In debug and relea
 
 ## S23-tx-1 (medium): A Statement's Rows reads its column names before stepping, so a statement SQLite re-prepares after a schema change gives values under the wrong names
 
-Status: open
+Status: fixed in 4b401ed (the same fix as S23-sqlite-2)
 
 Where: std/db/database.fb:951
 
@@ -170,7 +170,7 @@ Skeptic: I ran the finding's program as tx1.fb, debug and release. Both print `2
 
 ## S23-tx-2 (medium): Database.Rows(sql) with no values runs SQL that takes parameters with them all NULL instead of panicking
 
-Status: open
+Status: fixed in b8fcfb9 (the same fix as S23-sqlite-1)
 
 Where: std/db/database.fb:435
 
@@ -201,7 +201,7 @@ Skeptic: tx2.fb (the finding's program) prints `rows: 0` in debug and release, w
 
 ## S23-uuid-1 (medium): Database.Rows(sql) with no values silently binds NULL to a statement's parameters instead of panicking
 
-Status: open
+Status: fixed in b8fcfb9 (the same fix as S23-sqlite-1)
 
 Where: std/db/database.fb:435
 
@@ -237,7 +237,7 @@ Skeptic: I ran the finding's h.fb under .claude/worktrees/rev-scratch/s23/uuidre
 
 ## S23-sqlite-4 (low): A NaN Float32 or Float64 binds as NULL, not as a real
 
-Status: open
+Status: fixed in 9e8d3bc (Float64's BindTo, and Float32's through it, throw a DatabaseError of OTHER for a NaN; db_errors)
 
 Where: std/db/database.fb:128
 
@@ -276,7 +276,7 @@ Skeptic: I ran f4.fb in debug and release; I added a Float32 NaN to the reviewer
 
 ## S23-sqlite-5 (low): No test opens a file database, and the CORRUPT kind and the 5-second busy wait are untested
 
-Status: open
+Status: fixed in 508ff97 (the CLI test "a program's database is a file it makes, opens again, and shares" opens a file, reopens it with mode=ro, waits out a write lock to BUSY, at least 4 seconds, and opens a file that isn't a database, CORRUPT; it's a CLI test since a program test has no folder of its own to write in, and its files' paths are whole)
 
 Where: tests/programs/db_errors.fb:1
 
@@ -339,7 +339,7 @@ Skeptic: I grepped tests/programs and tests/cli/cli_tests.cpp. Every Database.Op
 
 ## S23-tx-3 (low): Migrate doesn't throw when the version it reads again inside its Transaction is past the last migration
 
-Status: open
+Status: fixed in 10f9acf (Version(count) throws past the last migration, read before the loop and again inside each Transaction; the CLI test's migrate section)
 
 Where: std/db/database.fb:565
 
@@ -394,7 +394,7 @@ Skeptic: I ran the finding's program as tx3.fb, deleting mig2.db first each time
 
 ## S23-tx-4 (low): A Float64 NaN binds as NULL, though the docs say a Float binds as a real
 
-Status: open
+Status: fixed in 9e8d3bc (the same fix as S23-sqlite-4)
 
 Where: std/db/database.fb:128
 
@@ -429,7 +429,7 @@ Skeptic: tx4.fb (the finding's program) prints `NULL` / `CONSTRAINT NOT NULL con
 
 ## S23-tx-5 (low): A Statement's Clear and Parameters don't panic once its Database is closed, though Bind, Execute, and Rows do
 
-Status: open
+Status: fixed in 508ff97 (Clear and Expect check Owner.Connection() first, so the values-taking Execute and Rows panic before binding; Parameters still works, from the count it keeps; panic_db_closed_clear and panic_db_closed_values)
 
 Where: std/db/database.fb:658
 
@@ -463,7 +463,7 @@ Skeptic: closed_statement.fb (the finding's program) prints `2` and then `panic:
 
 ## S23-uuid-2 (low): docs/stdlib.md's list of std.db panics leaves out two panics the code has
 
-Status: open
+Status: fixed in 1f1fead (stdlib.md names Execute(sql)'s panic at parameters and the outer Commit's panic, and says what Close, Rows(sql), and a NaN do)
 
 Where: docs/stdlib.md:563
 
