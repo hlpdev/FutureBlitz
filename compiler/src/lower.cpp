@@ -522,6 +522,12 @@ private:
     global_id_t declare_global(const symbol_id_t id) {
         const symbol_t& symbol = m_analysis.symbol(id);
         const auto& node = std::get<variable_stmt_t>(m_ast.get(expect(symbol.declaration)).node);
+        // An instance in its type has sizes it worked out, which are checked where it's declared.
+        {
+            const scoped_value_t<std::optional<span_t>> at(m_span, symbol.span);
+            check_values(symbol.type);
+        }
+
         // Only a built-in type's zero is a constant, and a T?'s, which is Null. A Struct or
         // Class starts all zero.
         std::optional<const_value_t> initial;
@@ -606,6 +612,7 @@ private:
         const type_id_t owner = types().instance(symbol.owner, arguments);
         const std::vector<type_id_t>& parameters = types().get(symbol.owner).parameters;
         const type_id_t type = types().substitute(symbol.type, parameters, arguments);
+        check_values(type);
         std::optional<const_value_t> initial;
         const auto& node = std::get<variable_stmt_t>(m_ast.get(expect(symbol.declaration)).node);
         if (node.value && m_analysis.expr(*node.value).value) {
@@ -931,14 +938,16 @@ private:
             check_values(info.inner);
         }
 
-        // An instance's Fields and base were worked out from its type arguments too.
-        if (info.kind == type_kind_t::TUPLE || info.generic != type_id_t::INVALID) {
+        // An instance's Fields and base were worked out from its type arguments too, and a Struct
+        // or Class that isn't generic can hold an instance in a Field, or extend one.
+        if (info.kind == type_kind_t::TUPLE || info.kind == type_kind_t::STRUCT ||
+            info.kind == type_kind_t::CLASS) {
             for (const field_t& field : info.fields) {
                 check_values(field.type);
             }
         }
 
-        if (info.generic != type_id_t::INVALID && info.base != type_id_t::INVALID) {
+        if (info.base != type_id_t::INVALID) {
             check_values(info.base);
         }
 
@@ -1937,8 +1946,10 @@ private:
             m_async_task = add_local(task, "task");
         }
 
+        // A parameter's type is checked where it's written, as an instance's sizes are.
         for (const symbol_id_t parameter_id : function.parameters) {
             const symbol_t& parameter = m_analysis.symbol(parameter_id);
+            const scoped_value_t<std::optional<span_t>> at(m_span, parameter.span);
             m_locals[parameter_id] =
                 add_local(concrete(parameter.type), parameter.name, parameter.by_ref);
         }

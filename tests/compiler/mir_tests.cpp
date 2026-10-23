@@ -2795,6 +2795,18 @@ TEST_CASE("lowering stops where code needs a larger instance each time, which an
                               grid)) ==
           "Wide<65536>(): Int8[65536, 65536] comes out here with more elements than a fixed array "
           "can hold, at most 2147483647");
+    // One that isn't generic holds the instance where it's used, a Global's type too.
+    CHECK(stopped(std::format("{}Struct Holder\n"
+                              "    Field g: Grid<65536, 65536>\n"
+                              "End Struct\n"
+                              "Function Count(h: Holder): Int => 1\n"
+                              "If False Then Count(Holder())",
+                              grid)) ==
+          "h: Int8[65536, 65536] comes out here with more elements than a fixed array can hold, "
+          "at most 2147483647");
+    CHECK(stopped(std::format("{}Global g: Grid<65536, 65536>?", grid)) ==
+          "g: Int8[65536, 65536] comes out here with more elements than a fixed array can hold, "
+          "at most 2147483647");
     CHECK(stopped("Function Cells<Const N: Int>(): Int\n"
                   "    Local c: Int8[N, N * 2]\n"
                   "    Return c.Count\n"
