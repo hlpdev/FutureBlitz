@@ -17,6 +17,7 @@
 #include <functional>
 #include <mutex>
 #include <optional>
+#include <ranges>
 #include <string>
 #include <sys/types.h>
 #include <thread>
@@ -335,6 +336,12 @@ public:
         job(nullptr);
     }
 
+    /// Has the I/O thread run `closing` as it stops.
+    void at_stop(void (*closing)(uv_loop_t* loop)) {
+        const std::scoped_lock lock(m_mutex);
+        m_stops.push_back(closing);
+    }
+
     /// Waits for a blocking caller's line.
     void wait_for(const line_waiter_t& waiter) {
         std::unique_lock lock(m_mutex);
@@ -374,6 +381,8 @@ private:
     std::vector<running_timer_t*> m_timers;
     /// What other parts of the runtime gave the thread to run.
     std::vector<std::function<void(uv_loop_t*)>> m_jobs;
+    /// What other parts run as the thread stops.
+    std::vector<void (*)(uv_loop_t* loop)> m_stops;
     bool m_stopped = false;
     uv_loop_t m_loop{};
     uv_async_t m_wake{};
@@ -396,6 +405,7 @@ private:
         std::vector<line_request_t> incoming;
         std::vector<timer_request_t> timers;
         std::vector<std::function<void(uv_loop_t*)>> jobs;
+        std::vector<void (*)(uv_loop_t* loop)> stops;
         bool stopped = false;
         {
             const std::scoped_lock lock(self.m_mutex);
@@ -403,6 +413,9 @@ private:
             timers.swap(self.m_timers_incoming);
             jobs.swap(self.m_jobs);
             stopped = self.m_stopped;
+            if (stopped) {
+                stops = self.m_stops;
+            }
         }
 
         for (const line_request_t& request : incoming) {
@@ -433,6 +446,10 @@ private:
         }
 
         if (stopped) {
+            for (const auto stop : std::views::reverse(stops)) {
+                stop(&self.m_loop);
+            }
+
             self.m_reader.close();
             // What still waits is finished at once, as the program ends.
             for (running_timer_t* timer : self.m_timers) {
@@ -492,6 +509,10 @@ namespace fb::runtime {
 
 void on_io_thread(std::function<void(uv_loop_t*)> job) {
     io().run(std::move(job));
+}
+
+void at_io_stop(void (*stop)(uv_loop_t* loop)) {
+    io().at_stop(stop);
 }
 
 } // namespace fb::runtime
