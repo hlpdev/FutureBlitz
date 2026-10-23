@@ -87,7 +87,7 @@ Public Struct Dir
     End Method
 
     // Removes the folder and everything in it, and gives whether there was one. A link in it is
-    // removed, not what it links to.
+    // removed, not what it links to, and a file throws an IOError of NOT_A_DIRECTORY.
     Public Static Method RemoveAll(path: Path): Bool Throws IOError
         Local request = Request()
         Return (Try Checked(fb_io_dir_remove(request.Native, path.Text, 1), "remove", path)) == 1
