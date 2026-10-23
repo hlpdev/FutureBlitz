@@ -213,6 +213,25 @@ increment_temporaries, for_in_fixed, scheduler_cancel_cleanups, globals_released
 panic_global_released, and cases in generic_bases, errors, borrowed, compile_time, async_throws, and
 reflection_more.
 
+Phase 1, lane 4's first batch, the review's A11 and A12 mediums and four lows: a Queue's Items are a
+`T?[]` and Dequeue empties the slot it takes, so a dequeued value goes when the program lets go of
+it, and its compaction compares Head with Count - Head (HalfEmptied()); T[]'s SiftDown and
+PriorityQueue's find a child through HeapChild(), which stops at count / 2, so no index overflows
+past 2^30 elements; a Map's Grow stops at 2^30 buckets (BucketsFor()) and returns when that leaves
+them as they are; a RingBuffer's index wraps through SlotFrom(); tests/compiler/std_tests.cpp runs
+those Package helpers through an extra std file with counts up to 2^31 - 1; spatial.fb's Within
+takes Doubles, so each offset is a Double's, and takes every value for an infinite radius, one at
+the center's infinity too; sorted.fb's CheckKey panics at a key that isn't equal to itself, like
+NaN, in SortedMap.Add and []= and SortedSet.Add, IntervalTree.Add does at such an end, and Floor,
+Ceiling, Range, Overlapping, Containing, Contains, and Remove find nothing for one; sema's
+unmet_extension() lets report_unshowable() name the type argument that keeps an Extend's Printable
+from a value; spec 14 gives FindLast a `T?`, says what compares values needs them Equatable, and
+fixes LinkedList's sentence, spec 10 lists what's Sendable, and stdlib.md and interfaces.fb's
+comments match. New tests: queue_releases, panic_sort_unstable_big, equatable_objects, spatial's
+Edge cases, panic_sorted_map_nan, panic_sorted_set_nan, panic_interval_nan, std_tests' overflow
+checks, and panics for a Map, Queue, PriorityQueue, SpatialHash, and Octree changed in a loop, every
+spatial NaN check, and an empty LinkedList's Last.
+
 ## M5, modules, packages, FFI, and bindgen
 
 Done: M5 (modules, packages, `project.toml`, FFI, bindgen), planned 2026-10-18 and finished

@@ -686,6 +686,9 @@ Planned 2026-10-20 with the user; the design is in [stdlib.md](stdlib.md#m6s-des
 | For Method leaves out Async Methods and Methods with a ByRef parameter (phase 1) | an Async one gives a Task where the loop covers Methods that give nothing, and no Func type has ByRef |
 | Globals are released last to first when the program ends, each reference zeroed before it goes; a released Global reads as its zero, and one with a ready flag panics that it's used after it's released (phase 1) | the reverse of setting them up, and a Global used after it's gone is reported, not read through freed memory |
 | For ... In over a fixed array holds a copy of it, but takes over a whole temporary (phase 1) | spec 04 says the loop holds what it goes over |
+| std's Methods that compare values, like Remove, IndexOf, and Contains, keep `Where T: Equatable`, so a plain Class lists Equatable to use them, and gets identity from the built-in == (phase 1) | spec 07 makes a Class Equatable only by listing it; every Class Equatable by identity would be a language change |
+| A Map's buckets stop at 2^30, past which its chains get longer, rather than a limit on its size (phase 1) | as Java's HashMap does; a Map that large is rare, and still works |
+| A key that isn't equal to itself, like NaN, panics where it's added to a SortedMap, SortedSet, or IntervalTree, and every lookup with one finds nothing (phase 1) | an order can't place it, as the spatial structures can't place a NaN coordinate |
 
 ## Libraries and packages (M7)
 
