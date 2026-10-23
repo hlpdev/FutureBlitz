@@ -142,6 +142,8 @@ Print(Deg(90) == Pi / 2, Deg(180) == Pi, Deg(360) == Tau, Deg(45.0) == Pi / 4, D
 Local degrees: Double = 180
 Print(Deg(degrees) == Pi64, ToRadians(90) == Deg(90), ToRadians(degrees) == Pi64)
 Print(Rad(2), Rad(1.5), ToDegrees(Pi), ToDegrees(Pi64), ToDegrees(Deg(30)), ToDegrees(-Pi / 2))
+Local turns: Int = 2
+Print(ToDegrees(1), ToDegrees(turns), ToDegrees(0))
 
 // A Float's and a Double's bits, as IEEE 754 lays them out.
 Print(1.0.ToBits(), (-0.0).ToBits(), Inf.ToBits(), Float.FromBits(0x40490FDB),

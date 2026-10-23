@@ -365,6 +365,9 @@ Public Function ToRadians(degrees: Int): Float => Deg(degrees)
 // The angle of so many degrees, in radians, as Deg gives it.
 Public Function ToRadians<T: FloatingPoint>(degrees: T): T => Deg(degrees)
 
+// The angle of so many radians, in degrees: ToDegrees(1) is about 57.3.
+Public Function ToDegrees(radians: Int): Float => (radians * (180 / Pi64)) As Float
+
 // The angle in radians, in degrees: ToDegrees(Pi) is 180.
 Public Function ToDegrees<T: FloatingPoint>(radians: T): T
     Return T.FromDouble(T.ToDouble(radians) * (180 / Pi64))
