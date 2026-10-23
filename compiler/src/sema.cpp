@@ -2986,13 +2986,24 @@ private:
 
         if (base.modifiers.is_final) {
             error(name.span, "{} is Final, so it can't be extended", base.name);
-        } else if (m_analysis.types.extends(extended, type) ||
-                   definition_of(extended) == definition_of(type)) {
+        } else if (reaches_class(extended, type)) {
             error(name.span, "{} can't extend itself, directly or through other Classes",
                   shown_name(type));
         } else {
             m_analysis.types.set_base(type, extended);
         }
+    }
+
+    /// Whether a Class, or one it extends, is `type` or one of its instances: with B<T> Extends
+    /// A, A Extends B<Int32> would extend itself through B<Int32>, whose base is A.
+    [[nodiscard]] bool reaches_class(const type_id_t from, const type_id_t type) const {
+        for (type_id_t current = from; current != type_id_t::INVALID; current = base_of(current)) {
+            if (definition_of(current) == definition_of(type)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /// Abstract, Final, and Override only go on a Class's Methods. An Abstract Method needs an

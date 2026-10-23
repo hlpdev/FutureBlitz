@@ -1568,6 +1568,20 @@ TEST_CASE("a Class extends one other Class and inherits its members", "[sema]") 
     CHECK(errors_of("Class B Extends Nope\nEnd Class") == errors_t{ "Nope: 'Nope' isn't a Class" });
     CHECK(errors_of("Class A Extends B\nEnd Class\nClass B Extends A\nEnd Class") ==
           errors_t{ "A: B can't extend itself, directly or through other Classes" });
+
+    // Through an instance of the Class being declared, whatever its type arguments.
+    CHECK(errors_of("Class A Extends B<Int32>\nEnd Class\nClass B<T> Extends A\nEnd Class") ==
+          errors_t{ "A: B<T> can't extend itself, directly or through other Classes" });
+    CHECK(errors_of("Class A<T> Extends B<Int32>\nEnd Class\n"
+                    "Class B<T> Extends A<String>\nEnd Class") ==
+          errors_t{ "A: B<T> can't extend itself, directly or through other Classes" });
+    CHECK(errors_of("Class A<T> Extends B<T>\nEnd Class\nClass B<T> Extends A<Int32>\nEnd Class") ==
+          errors_t{ "A: B<T> can't extend itself, directly or through other Classes" });
+    CHECK(errors_of("Class C\nEnd Class\n"
+                    "Class B<T> Extends C\nEnd Class\n"
+                    "Class A Extends B<Int32>\nEnd Class\n"
+                    "Class D Extends A\nEnd Class")
+              .empty());
     CHECK(errors_of("Final Class A\nEnd Class\nClass B Extends A\nEnd Class") ==
           errors_t{ "A: A is Final, so it can't be extended" });
 }
