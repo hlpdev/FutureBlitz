@@ -1004,6 +1004,17 @@ TEST_CASE("Interfaces", "[parser]") {
               .dump == "(interface Old (block (method Kept) (method @Deprecated Gone) "
                        "(property ReadOnly @Deprecated(\"use Kept\") Count: Int)))");
 
+    // So is an Async Method, and an Async Function starts a body.
+    CHECK(parse_text("Interface Loader\n"
+                     "    Method Size(): Int\n"
+                     "    Async Method Load(): Int\n"
+                     "    Method Later()\n"
+                     "        Async Function Inner() => 1\n"
+                     "    End Method\n"
+                     "End Interface")
+              .dump == "(interface Loader (block (method Size -> Int) (method Async Load -> Int) "
+                       "(method Later (block (function Async Inner (block (return (int 1))))))))");
+
     // An Abstract Property is its first line too.
     CHECK(parse_text("Abstract Property Area: Float").dump == "(property Abstract Area: Float)");
     CHECK(parse_text("Interface I Implements J\nEnd Interface").errors ==

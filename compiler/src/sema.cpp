@@ -4992,7 +4992,10 @@ private:
         };
         const type_id_t given_result = given_type(candidate.type);
         const type_id_t wanted_result = implemented(required.type);
-        if ((result && given_result != wanted_result && !boxes_into(given_result, wanted_result)) ||
+        // An Async one's Task is the caller's, so it gives just what the Interface's does.
+        const bool boxes = boxes_into(given_result, wanted_result) &&
+                           !candidate.modifiers.is_async && !required.modifiers.is_async;
+        if ((result && given_result != wanted_result && !boxes) ||
             candidate.parameters.size() != required.parameters.size()) {
             return false;
         }
@@ -5187,9 +5190,14 @@ private:
         } else if (found.by_ref && !required.by_ref) {
             error(span, "'{}' is a ByRef Method, so it can't implement {}'s, which isn't",
                   found.name, shown_name(interface));
-        } else if (found.modifiers.is_async) {
+        } else if (found.modifiers.is_async && !required.modifiers.is_async) {
             error(span, "'{}' is Async, so it can't implement {}'s, which isn't", found.name,
                   shown_name(interface));
+        } else if (required.modifiers.is_async && !found.modifiers.is_async) {
+            error(span,
+                  "'{}' implements {}'s, which is Async, so it has to be Async too, as a call "
+                  "through the Interface gets a Task",
+                  found.name, shown_name(interface));
         } else if (found.modifiers.is_unsafe) {
             error(span,
                   "'{}' is Unsafe, so it can't implement {}'s, since a call through the Interface "
@@ -7280,9 +7288,7 @@ private:
     /// call that starts it returns, so its parameters can't be ByRef.
     void check_async_function(const function_stmt_t& node, const type_id_t owner,
                               const std::vector<symbol_id_t>& parameters) {
-        if (owner != type_id_t::INVALID && is_interface(owner)) {
-            error(node.name.span, "an Interface's Method can't be Async yet");
-        } else if (node.kind == function_kind_t::BYREF_METHOD) {
+        if (node.kind == function_kind_t::BYREF_METHOD) {
             error(node.name.span, "a ByRef Method can't be Async, since it can go on after its "
                                   "caller's variable is gone");
         } else if (owner != type_id_t::INVALID && node.name.text == "Destroy") {
