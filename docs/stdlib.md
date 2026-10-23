@@ -75,6 +75,12 @@ So far, std/ holds:
 | std/math/matrix.fb | `Mat3` and `Mat4`, with `Transpose`, `Determinant`, `Inverse`, `TryInverse`, and `IsClose` |
 | std/math/color.fb | `Color` and `Color32`, with `Lerp` and `IsClose` |
 | std/math/geometry.fb | `Rect`, `AABB`, `Sphere`, `Ray`, `Plane`, and `Frustum` |
+| std/algo/search.fb | `Bfs`, `BfsOrder`, `Dfs`, `DfsOrder`, `Dijkstra`, `DijkstraAll`, `AStar`, `Path<N, C>`, and `ShortestPaths<N, C>` |
+| std/algo/grid.fb | `GridNeighbors`, `GridPath`, and `FlowField` |
+| std/algo/union_find.fb | `UnionFind` |
+| std/algo/topological.fb | `TopologicalSort` and `FindCycle` |
+| std/algo/combinatorics.fb | `Permutations`, `Combinations`, their `PermutationIterator<T>` and `CombinationIterator<T>`, `Factorial`, and `Binomial` |
+| std/algo/delaunay.fb | `Delaunay`, `Voronoi`, and `LloydRelax` |
 | std/ffi/mem.fb | `Mem`, raw memory for Unsafe code, over the runtime's `fb_mem_*` |
 | std/ffi/cstring.fb | `CString.From`, `Length`, and `Free`, over the runtime's copies |
 | std/crypto/hashes.fb | `Hasher`, and `Md5`, `Sha1`, `Sha256`, and `Sha512`, over mbedTLS through the runtime's `fb_crypto_` functions |
@@ -542,9 +548,45 @@ std/math/, std.math.bits too.
 
 #### std.algo
 
-- Graph search: BFS, DFS, Dijkstra, and A* on grids and graphs, and flow fields; union-find,
-  topological sort, permutations and combinations; Delaunay triangulation and Voronoi diagrams,
-  with Lloyd relaxation.
+Built in step 27. `Import std.algo` brings in all of std/algo/.
+
+- Graph search (search.fb): a graph is any values a successors Function steps between, so a
+  grid's cells, rooms, and a game's states are graphs alike, and a node is Hashable. `Bfs(start,
+  successors, goal)` gives the path with the fewest steps to the first node `goal` says is one,
+  `Dfs` a path found depth first, and `BfsOrder` and `DfsOrder` every node reached, in each
+  one's order. `Dijkstra(start, successors, goal)` and `AStar(start, successors, heuristic,
+  goal)` take each step's weight, of any Numeric and Comparable type (Ints for exact sums), and
+  give a `Path<N, C>`, its `Nodes` and `Cost`; `DijkstraAll(start, successors)` gives the
+  `ShortestPaths<N, C>` to every node reached, with `Nodes` (the cheapest first), `Contains`,
+  `CostTo`, `PathTo`, and `Parent`. A search goes over successors in the order they're given,
+  and its queue breaks ties by the least total, then the least guess, then the first added, so a
+  run finds what the last did; a weight that's negative or NaN panics, and what isn't reached is
+  Null. Block lambdas give their result type, like `Function(n: Int): (Int, Int)[]`, so the
+  weight's type can come from them.
+- Grids (grid.fb), of cells as `Vec2i` from (0, 0): `GridNeighbors(width, height, cell,
+  diagonal)`; `GridPath(width, height, start, goal, passable, diagonal)`, A* with the octile or
+  Manhattan distance, a step along an axis costing 1 and a diagonal one the square root of 2,
+  never cutting a corner a wall is on; and `FlowField(width, height, goals, cost, diagonal)`,
+  each cell's cheapest way to its nearest goal, worked out once, from the goals out, where
+  entering a cell costs what `cost` gives (Null for a wall), with `Distance`, `Next`,
+  `Direction`, and `Reaches`. A size that's negative or past what an Int counts, a cell off the
+  grid, or a cost that's negative or NaN panics.
+- `UnionFind(count)` (union_find.fb): the Ints from 0 up, in sets that only join, with `Find`
+  (halving paths), `Union` (by size), `Connected`, `SizeOf`, `Add`, `Groups`, `Count`, and
+  `SetCount`.
+- `TopologicalSort(nodes, successors)` (topological.fb), Kahn's algorithm, taking the earliest
+  ready node first, so nodes with no order between them keep the one they were given in; Null
+  for a cycle, which `FindCycle(nodes, successors)` gives.
+- `Permutations(items)`, `Permutations(items, count)`, and `Combinations(items, count)`
+  (combinatorics.fb), Iterators of new arrays in itertools' order, made as they're asked for;
+  `Factorial(n)` and `Binomial(n, k)` as Longs, which panic past what a Long holds.
+- `Delaunay(points)` (delaunay.fb): the triangles, counterclockwise, as indices into points,
+  Bowyer and Watson's, a point at a time in order of x then y, with a point at infinity so the
+  hull comes out whole, in Doubles; fewer than three points or a line of them have none, and of
+  equal points only the first is a corner. `Voronoi(points, bounds)`: each point's cell in a
+  Rect, counterclockwise, cut by its Delaunay neighbors' bisectors. `LloydRelax(points, bounds,
+  iterations)`: each point moved to its cell's centroid, so they spread evenly. A coordinate
+  that's infinite or NaN panics.
 
 #### std.uuid
 
