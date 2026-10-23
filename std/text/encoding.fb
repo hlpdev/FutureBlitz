@@ -20,15 +20,70 @@ Public Enum TextEncoding
     UTF8, UTF16_LE, UTF16_BE, UTF32_LE, UTF32_BE, ASCII, LATIN1, WINDOWS_1252
 End Enum
 
-// What Windows-1252 has at 0x80 to 0x9F, where Latin-1 has control characters, as WHATWG's
-// encoding standard has it: the five bytes Windows doesn't use are those control characters, so
-// every byte decodes and encodes back.
-Global Windows1252: Int[] = [
-    0x20AC, 0x81, 0x201A, 0x192, 0x201E, 0x2026, 0x2020, 0x2021,
-    0x2C6, 0x2030, 0x160, 0x2039, 0x152, 0x8D, 0x17D, 0x8F,
-    0x90, 0x2018, 0x2019, 0x201C, 0x201D, 0x2022, 0x2013, 0x2014,
-    0x2DC, 0x2122, 0x161, 0x203A, 0x153, 0x9D, 0x17E, 0x178
-]
+// What Windows-1252 has at byte, from 0x80 to 0x9F, where Latin-1 has control characters, as
+// WHATWG's encoding standard has it: the five bytes Windows doesn't use are those control
+// characters, so every byte decodes and encodes back. It's a Function, not a Global table, which
+// only the main thread could read.
+Function Windows1252Code(byte: Int): Int
+    Select byte
+        Case 0x80
+            Return 0x20AC
+        Case 0x82
+            Return 0x201A
+        Case 0x83
+            Return 0x192
+        Case 0x84
+            Return 0x201E
+        Case 0x85
+            Return 0x2026
+        Case 0x86
+            Return 0x2020
+        Case 0x87
+            Return 0x2021
+        Case 0x88
+            Return 0x2C6
+        Case 0x89
+            Return 0x2030
+        Case 0x8A
+            Return 0x160
+        Case 0x8B
+            Return 0x2039
+        Case 0x8C
+            Return 0x152
+        Case 0x8E
+            Return 0x17D
+        Case 0x91
+            Return 0x2018
+        Case 0x92
+            Return 0x2019
+        Case 0x93
+            Return 0x201C
+        Case 0x94
+            Return 0x201D
+        Case 0x95
+            Return 0x2022
+        Case 0x96
+            Return 0x2013
+        Case 0x97
+            Return 0x2014
+        Case 0x98
+            Return 0x2DC
+        Case 0x99
+            Return 0x2122
+        Case 0x9A
+            Return 0x161
+        Case 0x9B
+            Return 0x203A
+        Case 0x9C
+            Return 0x153
+        Case 0x9E
+            Return 0x17E
+        Case 0x9F
+            Return 0x178
+        Default
+            Return byte
+    End Select
+End Function
 
 // text in encoding, after the encoding's BOM when bom says and it has one, or Null when a
 // character of the text isn't in the encoding: ASCII has U+0000 to U+007F, Latin-1 U+0000 to
@@ -112,7 +167,7 @@ Public Function Decode(bytes: UInt8[], encoding: TextEncoding): String?
         Case TextEncoding.WINDOWS_1252
             For byte In bytes
                 Local code = byte As Int
-                AddUtf8(text, code >= 0x80 && code < 0xA0 ? Windows1252[code - 0x80] : code)
+                AddUtf8(text, code >= 0x80 && code < 0xA0 ? Windows1252Code(code) : code)
             End For
     End Select
 
@@ -508,8 +563,8 @@ Function ByteOf(code: Int, encoding: TextEncoding): UInt8?
     End If
 
     If encoding != TextEncoding.WINDOWS_1252 Then Return Null
-    For i = 0 Until Windows1252.Count
-        If Windows1252[i] == code Then Return (0x80 + i) As UInt8
+    For byte = 0x80 Until 0xA0
+        If Windows1252Code(byte) == code Then Return byte As UInt8
     End For
 
     Return Null
