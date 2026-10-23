@@ -8,6 +8,7 @@ Import std.text.string
 
 Extern "runtime"
     Function fb_text_find(text: String, part: String, from: Int64): Int64
+    Function fb_text_matches_at(text: String, part: String, at: Int64): Int32
     Function fb_text_slice(text: String, start: Int64, finish: Int64): String
 End Extern
 
@@ -58,9 +59,8 @@ Public Class Scanner
 
     // Reads text when it comes next, and gives whether it did.
     Public Method Take(text: String): Bool
-        Local finish = At + text.Length
-        If finish > Text.Length || fb_text_slice(Text, At, finish) != text Then Return False
-        PassUntil(finish)
+        If fb_text_matches_at(Text, text, At) == 0 Then Return False
+        PassUntil(At + text.Length)
         Return True
     End Method
 
