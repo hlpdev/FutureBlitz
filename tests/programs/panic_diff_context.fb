@@ -1,0 +1,6 @@
+// Unified panics at a negative context, where it's called.
+Import std.core
+Import std.text.diff
+
+Print(Diff.Unified("a\n", "b\n", context: 0) != "")
+Print(Diff.Unified("a\n", "b\n", context: -1))

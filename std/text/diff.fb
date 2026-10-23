@@ -1,0 +1,520 @@
+// std.text.diff: what changed between two texts, by Myers' algorithm, which finds the fewest
+// lines, or characters, to delete and insert. Diff.Lines and Diff.Chars give the runs of what's
+// the same, deleted, and inserted; Diff.Unified the text that diff -u and git diff show; and
+// Diff.Merge a three-way merge, as git merge-file makes it, with conflict markers where both
+// sides changed the same lines differently. A line keeps its line break, "\n", "\r\n", or "\r",
+// and a text's last line can have none.
+
+Import std.core
+Import std.collections.array
+Import std.text.char
+Import std.text.string
+
+Extern "runtime"
+    Function fb_text_byte(text: String, at: Int64): UInt8
+End Extern
+
+// What a run of a diff is: the same in both texts, deleted from the first, or inserted for the
+// second.
+Public Enum DiffKind
+    SAME, DELETED, INSERTED
+End Enum
+
+// A run of a diff: what kind it is, and its text, whole lines for Diff.Lines.
+Public Struct DiffRun
+    Public ReadOnly Field Kind: DiffKind
+    Public ReadOnly Field Text: String
+End Struct
+
+// A three-way merge: its text, and how many conflicts in it are marked.
+Public Struct Merged
+    Public ReadOnly Field Text: String
+    Public ReadOnly Field Conflicts: Int
+End Struct
+
+// A change from a base: its lines from Start up to Finish are replaced by the other text's from
+// OtherStart up to OtherFinish.
+Struct Change
+    Field Start: Int
+    Field Finish: Int
+    Field OtherStart: Int
+    Field OtherFinish: Int
+End Struct
+
+// Diffing's operations.
+Public Class Diff
+    // The runs of lines that are the same in a and b, deleted from a, and inserted for b, in
+    // order, as few lines as can be deleted and inserted. Where lines are replaced, the deleted
+    // ones come before the inserted ones.
+    Public Static Method Lines(a: String, b: String): DiffRun[]
+        Local from = LinesOf(a)
+        Local to = LinesOf(b)
+        Return Runs(Script(from, to), from, to)
+    End Method
+
+    // The runs of characters that are the same in a and b, deleted from a, and inserted for b.
+    Public Static Method Chars(a: String, b: String): DiffRun[]
+        Local from: String[] = []
+        For c In a.Chars
+            from.Add("{c}")
+        End For
+
+        Local to: String[] = []
+        For c In b.Chars
+            to.Add("{c}")
+        End For
+
+        Return Runs(Script(from, to), from, to)
+    End Method
+
+    // The unified diff of a and b, as diff -u and git diff write it, with context lines of each
+    // change's around it, and fromName and toName in its first two lines. "" when they're the
+    // same. Panics when context is negative.
+    @PanicsAtCaller
+    Public Static Method Unified(a: String, b: String, fromName: String = "a",
+                                 toName: String = "b", context: Int = 3): String
+        If context < 0 Then Panic("Unified takes a context of at least 0 lines, not {context}")
+        Local from = LinesOf(a)
+        Local to = LinesOf(b)
+        Local changes = ChangesOf(Script(from, to))
+        If changes.Count == 0 Then Return ""
+        Local text = "--- {fromName}\n+++ {toName}\n"
+        Local first = 0
+        While first < changes.Count
+            // A hunk takes each change whose context touches the one before's.
+            Local last = first
+            While last + 1 < changes.Count &&
+                  changes[last + 1].Start - changes[last].Finish <= 2 * context
+                last += 1
+            End While
+
+            Local start = Max(changes[first].Start - context, 0)
+            Local finish = Min(changes[last].Finish + context, from.Count)
+            Local otherStart = changes[first].OtherStart - (changes[first].Start - start)
+            Local otherFinish = changes[last].OtherFinish + (finish - changes[last].Finish)
+            text += "@@ -{Range(start, finish)} +{Range(otherStart, otherFinish)} @@\n"
+            Local at = start
+            For index = first To last
+                Local change = changes[index]
+                For line = at Until change.Start
+                    text += Shown(" ", from[line])
+                End For
+
+                For line = change.Start Until change.Finish
+                    text += Shown("-", from[line])
+                End For
+
+                For line = change.OtherStart Until change.OtherFinish
+                    text += Shown("+", to[line])
+                End For
+
+                at = change.Finish
+            End For
+
+            For line = at Until finish
+                text += Shown(" ", from[line])
+            End For
+
+            first = last + 1
+        End While
+
+        Return text
+    End Method
+
+    // ours and theirs, both changed from base, merged as git merge-file merges them: what each
+    // changed, and where both changed the same lines, or lines that touch, what they both made
+    // of them, or else a conflict, marked "<<<<<<< ours", ours' lines, "=======", theirs', and
+    // ">>>>>>> theirs", with oursName and theirsName. A conflict holds only the lines that differ
+    // between the two, and two conflicts with at most 3 lines between them, or lines without a
+    // letter or a digit, are one.
+    Public Static Method Merge(base: String, ours: String, theirs: String,
+                               oursName: String = "ours", theirsName: String = "theirs"): Merged
+        Local lines = LinesOf(base)
+        Local mine = LinesOf(ours)
+        Local others = LinesOf(theirs)
+        Local left = ChangesOf(Script(lines, mine))
+        Local right = ChangesOf(Script(lines, others))
+        Local chunks: Chunk[] = []
+        Local at = 0
+        Local l = 0
+        Local r = 0
+        While l < left.Count || r < right.Count
+            // The next region of base that changes: from the first change left on either side,
+            // taking in each change that overlaps or touches it.
+            Local start = l < left.Count ? left[l].Start : lines.Count
+            If r < right.Count && right[r].Start < start Then start = right[r].Start
+            Local finish = start
+            Local fromLeft = l
+            Local fromRight = r
+            Local grew = True
+            While grew
+                grew = False
+                If l < left.Count && left[l].Start <= finish
+                    finish = Max(finish, left[l].Finish)
+                    l += 1
+                    grew = True
+                End If
+
+                If r < right.Count && right[r].Start <= finish
+                    finish = Max(finish, right[r].Finish)
+                    r += 1
+                    grew = True
+                End If
+            End While
+
+            chunks.Add(Chunk(ChunkKind.SAME, Part(lines, at, start), []))
+            Local mineLines = Mapped(left, fromLeft, l, start, finish, mine)
+            Local otherLines = Mapped(right, fromRight, r, start, finish, others)
+            If l == fromLeft
+                chunks.Add(Chunk(ChunkKind.TAKEN, otherLines, []))
+            ElseIf r == fromRight
+                chunks.Add(Chunk(ChunkKind.TAKEN, mineLines, []))
+            Else
+                Refine(chunks, mineLines, otherLines)
+            End If
+
+            at = finish
+        End While
+
+        chunks.Add(Chunk(ChunkKind.SAME, Part(lines, at, lines.Count), []))
+        Local text = ""
+        Local conflicts = 0
+        For chunk In Simplified(chunks)
+            If chunk.Kind != ChunkKind.CONFLICT
+                text += "".Join(chunk.Lines)
+                Continue
+            End If
+
+            conflicts += 1
+            text += "<<<<<<< {oursName}\n" + Ended("".Join(chunk.Lines)) + "=======\n" +
+                    Ended("".Join(chunk.Other)) + ">>>>>>> {theirsName}\n"
+        End For
+
+        Return Merged(text, conflicts)
+    End Method
+End Class
+
+// text's lines, each with its line break.
+Function LinesOf(text: String): String[]
+    Local lines: String[] = []
+    Local start = 0
+    Local bytes = text.Length
+    Local at = 0
+    While at < bytes
+        Local byte = fb_text_byte(text, at)
+        If byte == 10 || byte == 13
+            Local finish = at + 1
+            If byte == 13 && finish < bytes && fb_text_byte(text, finish) == 10 Then finish += 1
+            lines.Add(text.Slice(start, finish))
+            start = finish
+            at = finish
+        Else
+            at += 1
+        End If
+    End While
+
+    If start < bytes Then lines.Add(text.Slice(start, bytes))
+    Return lines
+End Function
+
+// The fewest deletions from a and insertions from b that turn a into b, by Myers' algorithm, as
+// what each step does, in order: each round d finds how far along a each diagonal k, x - y, gets
+// with d edits, from the round before's, which it keeps for the diagonals it reads, -d - 1 to
+// d + 1, and the rounds are read back from the end. Where lines are replaced, the deletions go
+// before the insertions.
+Function Script(a: String[], b: String[]): DiffKind[]
+    Local n = a.Count
+    Local m = b.Count
+    Local most = n + m
+    Local offset = most + 1
+    Local reach: Int[] = []
+    reach.Resize(2 * most + 3, 0)
+    Local rounds: Int[][] = []
+    Local done = False
+    Local d = 0
+    While !done
+        Local kept: Int[] = []
+        For k = -d - 1 To d + 1
+            kept.Add(reach[offset + k])
+        End For
+
+        rounds.Add(kept)
+        For k = -d To d Step 2
+            Local x = 0
+            If k == -d || (k != d && reach[offset + k - 1] < reach[offset + k + 1])
+                x = reach[offset + k + 1]
+            Else
+                x = reach[offset + k - 1] + 1
+            End If
+
+            Local y = x - k
+            While x < n && y < m && a[x] == b[y]
+                x += 1
+                y += 1
+            End While
+
+            reach[offset + k] = x
+            If x >= n && y >= m
+                done = True
+                Break
+            End If
+        End For
+
+        If !done Then d += 1
+    End While
+
+    // Back from the end, each round's step, then its run of what's the same. A round keeps
+    // diagonal k at k + round + 1.
+    Local steps: DiffKind[] = []
+    Local x = n
+    Local y = m
+    For round = d To 0 Step -1
+        Local before = rounds[round]
+        Local k = x - y
+        Local previous = k - 1
+        If k == -round || (k != round && before[k + round] < before[k + round + 2])
+            previous = k + 1
+        End If
+
+        Local fromX = before[previous + round + 1]
+        Local fromY = fromX - previous
+        While x > fromX && y > fromY
+            steps.Add(DiffKind.SAME)
+            x -= 1
+            y -= 1
+        End While
+
+        If round > 0
+            If x == fromX
+                steps.Add(DiffKind.INSERTED)
+                y -= 1
+            Else
+                steps.Add(DiffKind.DELETED)
+                x -= 1
+            End If
+        End If
+    End For
+
+    steps.Reverse()
+    Return Ordered(steps)
+End Function
+
+// steps with each run of changes' deletions before its insertions.
+Function Ordered(steps: DiffKind[]): DiffKind[]
+    Local ordered: DiffKind[] = []
+    Local deleted = 0
+    Local inserted = 0
+    For step In steps
+        If step == DiffKind.DELETED
+            deleted += 1
+        ElseIf step == DiffKind.INSERTED
+            inserted += 1
+        Else
+            Flush(ordered, deleted, inserted)
+            deleted = 0
+            inserted = 0
+            ordered.Add(step)
+        End If
+    End For
+
+    Flush(ordered, deleted, inserted)
+    Return ordered
+End Function
+
+Function Flush(ordered: DiffKind[], deleted: Int, inserted: Int)
+    For i = 0 Until deleted
+        ordered.Add(DiffKind.DELETED)
+    End For
+
+    For i = 0 Until inserted
+        ordered.Add(DiffKind.INSERTED)
+    End For
+End Function
+
+// The runs that steps make of a and b.
+Function Runs(steps: DiffKind[], a: String[], b: String[]): DiffRun[]
+    Local runs: DiffRun[] = []
+    Local x = 0
+    Local y = 0
+    Local i = 0
+    While i < steps.Count
+        Local kind = steps[i]
+        Local text = ""
+        While i < steps.Count && steps[i] == kind
+            If kind == DiffKind.INSERTED
+                text += b[y]
+                y += 1
+            Else
+                text += a[x]
+                x += 1
+                If kind == DiffKind.SAME Then y += 1
+            End If
+
+            i += 1
+        End While
+
+        runs.Add(DiffRun(kind, text))
+    End While
+
+    Return runs
+End Function
+
+// The changes that steps make: each run of deletions and insertions, as the lines of a it
+// replaces and the lines of b it puts there.
+Function ChangesOf(steps: DiffKind[]): Change[]
+    Local changes: Change[] = []
+    Local x = 0
+    Local y = 0
+    Local i = 0
+    While i < steps.Count
+        If steps[i] == DiffKind.SAME
+            x += 1
+            y += 1
+            i += 1
+            Continue
+        End If
+
+        Local start = x
+        Local otherStart = y
+        While i < steps.Count && steps[i] != DiffKind.SAME
+            If steps[i] == DiffKind.DELETED Then x += 1 Else y += 1
+            i += 1
+        End While
+
+        changes.Add(Change(start, x, otherStart, y))
+    End While
+
+    Return changes
+End Function
+
+// What a chunk of a merge is: lines both sides keep from base, lines one side changed or both
+// changed alike, or a conflict.
+Enum ChunkKind
+    SAME, TAKEN, CONFLICT
+End Enum
+
+// A chunk of a merge: its Lines, ours' for a conflict, and theirs' Others.
+Struct Chunk
+    Field Kind: ChunkKind
+    Field Lines: String[]
+    Field Other: String[]
+End Struct
+
+// The lines of other in place of base's from start up to finish, as the changes from first up
+// to after map them: before the first change, and after the last, its lines line up with base's.
+Function Mapped(changes: Change[], first: Int, after: Int, start: Int, finish: Int,
+                other: String[]): String[]
+    Local otherStart = start
+    Local otherFinish = finish
+    If first > 0
+        Local before = changes[first - 1]
+        otherStart = start + before.OtherFinish - before.Finish
+        otherFinish = finish + before.OtherFinish - before.Finish
+    End If
+
+    If after > first
+        Local opening = changes[first]
+        Local closing = changes[after - 1]
+        otherStart = opening.OtherStart - (opening.Start - start)
+        otherFinish = closing.OtherFinish + (finish - closing.Finish)
+    End If
+
+    Return Part(other, otherStart, otherFinish)
+End Function
+
+// The chunks of where both sides changed the same lines: the lines they both have, and between
+// them, a conflict of each run that differs, unless one side has none, which is one conflict.
+Function Refine(chunks: Chunk[], mine: String[], others: String[])
+    If mine.Count == 0 || others.Count == 0
+        chunks.Add(Chunk(ChunkKind.CONFLICT, mine, others))
+        Return
+    End If
+
+    Local changes = ChangesOf(Script(mine, others))
+    If changes.Count == 0
+        chunks.Add(Chunk(ChunkKind.TAKEN, mine, []))
+        Return
+    End If
+
+    Local at = 0
+    For change In changes
+        chunks.Add(Chunk(ChunkKind.SAME, Part(mine, at, change.Start), []))
+        chunks.Add(Chunk(ChunkKind.CONFLICT, Part(mine, change.Start, change.Finish),
+                         Part(others, change.OtherStart, change.OtherFinish)))
+        at = change.Finish
+    End For
+
+    chunks.Add(Chunk(ChunkKind.SAME, Part(mine, at, mine.Count), []))
+End Function
+
+// chunks with each two conflicts that have only kept lines between them, at most 3 of them or
+// none with a letter or a digit, made one conflict that holds those lines on both sides.
+Function Simplified(chunks: Chunk[]): Chunk[]
+    Local simplified: Chunk[] = []
+    For chunk In chunks
+        If chunk.Kind == ChunkKind.SAME && chunk.Lines.Count == 0 Then Continue
+        If chunk.Kind == ChunkKind.CONFLICT && simplified.Count >= 2
+            Local between = simplified[simplified.Count - 1]
+            Local conflict = simplified[simplified.Count - 2]
+            If between.Kind == ChunkKind.SAME && conflict.Kind == ChunkKind.CONFLICT &&
+               (between.Lines.Count <= 3 || !HasAlnum(between.Lines))
+                Local mine = conflict.Lines.Clone()
+                mine.AddAll(between.Lines)
+                mine.AddAll(chunk.Lines)
+                Local others = conflict.Other.Clone()
+                others.AddAll(between.Lines)
+                others.AddAll(chunk.Other)
+                simplified.RemoveLast()
+                simplified.RemoveLast()
+                simplified.Add(Chunk(ChunkKind.CONFLICT, mine, others))
+                Continue
+            End If
+        End If
+
+        simplified.Add(chunk)
+    End For
+
+    Return simplified
+End Function
+
+// Whether any of lines has a letter or a digit.
+Function HasAlnum(lines: String[]): Bool
+    For line In lines
+        For c In line.Chars
+            If c.IsLetterOrDigit() Then Return True
+        End For
+    End For
+
+    Return False
+End Function
+
+// lines from start up to finish.
+Function Part(lines: String[], start: Int, finish: Int): String[]
+    Local part: String[] = []
+    For i = start Until finish
+        part.Add(lines[i])
+    End For
+
+    Return part
+End Function
+
+// A hunk's range, from start up to finish, as diff -u writes it: its first line, from 1, and its
+// count unless that's 1; an empty range names the line before it.
+Function Range(start: Int, finish: Int): String
+    Local count = finish - start
+    If count == 1 Then Return "{start + 1}"
+    If count == 0 Then Return "{start},0"
+    Return "{start + 1},{count}"
+End Function
+
+// A line of a unified diff: its mark, the line, and a note when the line has no line break.
+Function Shown(mark: String, line: String): String
+    If line.EndsWith("\n") || line.EndsWith("\r") Then Return mark + line
+    Return mark + line + "\n\\ No newline at end of file\n"
+End Function
+
+// text, ending in a line break.
+Function Ended(text: String): String
+    If text == "" || text.EndsWith("\n") || text.EndsWith("\r") Then Return text
+    Return text + "\n"
+End Function
