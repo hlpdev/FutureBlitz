@@ -386,6 +386,10 @@ struct analysis_t { // NOLINT(bugprone-exception-escape)
     /// The Interfaces that are only constraints, as symbol_t::constraint_only marks them, which
     /// a Class doesn't have from a Class it extends: its Self would be the other Class.
     std::vector<type_id_t> constraint_only;
+    /// The instances of a generic Class that's Hashable without listing it which aren't, though
+    /// they have its Interfaces, since an Extend of each gives it an Operator == without a Hash,
+    /// like Box<String>'s.
+    std::vector<type_id_t> unhashed_instances;
     /// What Extends of one instance of a generic Struct or Class add to it, by instance, like
     /// Box<Int32>'s: its Methods, Operators, and Properties, and the defaults of the Interfaces
     /// they list. The generic type's own members have what Extends of all its instances add.

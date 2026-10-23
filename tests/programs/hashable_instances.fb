@@ -1,0 +1,41 @@
+// An instance of a generic Class that an Extend gives an Operator == and a Hash is Hashable with
+// them, and so is a Class that extends it, while the other instances hash their objects.
+Import std.core
+Import std.collections
+
+Class Box<T>
+    Field v: T
+
+    New(v: T)
+        Self.v = v
+    End New
+End Class
+
+Extend Box<String>
+    Operator ==(a: Box<String>, b: Box<String>): Bool => a.v == b.v
+    Method Hash(): UInt64 => v.Hash()
+End Extend
+
+Class Named Extends Box<String>
+    New(v: String)
+        Super.New(v)
+    End New
+End Class
+
+Local ints = Set<Box<Int32>>()
+Local one = Box<Int32>(1)
+ints.Add(one)
+ints.Add(one)
+ints.Add(Box<Int32>(1))
+Print(ints.Count, ints.Contains(one), ints.Contains(Box<Int32>(1)))
+
+Local strings = Set<Box<String>>()
+strings.Add(Box<String>("a"))
+strings.Add(Box<String>("a"))
+strings.Add(Box<String>("b"))
+Print(strings.Count, strings.Contains(Box<String>("b")), strings.Contains(Box<String>("c")))
+
+Local names: Map<Named, Int> = {}
+names[Named("x")] = 1
+names[Named("x")] = 2
+Print(names.Count, names[Named("x")])

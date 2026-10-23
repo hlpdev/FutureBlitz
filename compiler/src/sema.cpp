@@ -2524,7 +2524,8 @@ private:
     /// Hashable, with its own Hash or else its object's, unless it has an Operator == without a
     /// Hash, which the built-in Hash wouldn't agree with. One that lists them, or that an Extend
     /// gives them, has what's listed, and one with an == that a Where line makes conditional is
-    /// Equatable where it holds, as a Struct is. They're listed once every Extend is declared.
+    /// Equatable where it holds, as a Struct is. An instance whose Extend gives it an == decides
+    /// for itself, in hash_instances(). They're listed once every Extend is declared.
     void list_object_interfaces() {
         const builtin_interfaces_t& builtin = m_analysis.interfaces;
         if (builtin.equatable == type_id_t::INVALID || builtin.hashable == type_id_t::INVALID) {
@@ -2562,10 +2563,44 @@ private:
             if (!lists(type, builtin.hashable) &&
                 (!equality || has_hash(type) || gets_default(type, "Hash"))) {
                 add(builtin.hashable);
+                hash_instances(type);
             }
 
             m_analysis.types.set_interfaces(type, std::move(listed));
         }
+    }
+
+    /// An Extend of one instance of a generic Class that's Hashable without listing it, like
+    /// Box<String> of Box<T>, that adds an Operator == decides that instance's Hashable: with a
+    /// Hash it adds too, or the Class's own, it hashes with that, as if the Extend listed
+    /// Hashable; without one it isn't Hashable, as a Class with an == and no Hash isn't.
+    void hash_instances(const type_id_t type) {
+        for (const type_id_t instance : extended_instances()) {
+            const std::vector<symbol_id_t> added = extensions_of(instance);
+            if (definition_of(instance) != type ||
+                std::ranges::none_of(added, [this](const symbol_id_t id) {
+                    return is_operator(symbol(id)) && symbol(id).name == "==";
+                })) {
+                continue;
+            }
+
+            const auto hash = std::ranges::find_if(
+                added, [this](const symbol_id_t id) { return is_hash(symbol(id)); });
+            if (hash != added.end()) {
+                m_implements[instance].push_back(
+                    { .interface = m_analysis.interfaces.hashable, .span = symbol(*hash).span });
+            } else if (!has_hash(type)) {
+                m_analysis.unhashed_instances.push_back(instance);
+            }
+        }
+    }
+
+    /// Whether a Method is one that implements Hashable's: Hash, with no parameters, not Static,
+    /// giving a UInt64.
+    [[nodiscard]] static bool is_hash(const symbol_t& method) {
+        return method.kind == symbol_kind_t::METHOD && method.name == "Hash" &&
+               method.parameters.empty() && !method.modifiers.is_static &&
+               method.type == type_id_t::UINT64;
     }
 
     /// Whether a Struct or Class lists an Interface, or one that extends it, itself or through
@@ -2579,7 +2614,7 @@ private:
     }
 
     /// Whether an Interface a Class or one it extends lists has a default named `name`, which
-    /// the Class gets once it's linked.
+    /// the Class gets once it's linked: for Hash, one that would implement Hashable's.
     [[nodiscard]] bool gets_default(const type_id_t type, const std::string_view name) const {
         for (type_id_t current = type; current != type_id_t::INVALID; current = base_of(current)) {
             const auto found = m_implements.find(definition_of(current));
@@ -2593,7 +2628,8 @@ private:
                         m_analysis.symbols[index(m_declared_types.at(definition_of(interface)))];
                     if (std::ranges::any_of(declared.members, [&](const symbol_id_t member) {
                             const symbol_t& candidate = m_analysis.symbols[index(member)];
-                            return candidate.name == name && !candidate.modifiers.is_abstract;
+                            return candidate.name == name && !candidate.modifiers.is_abstract &&
+                                   (name != "Hash" || is_hash(candidate));
                         })) {
                         return true;
                     }
@@ -2604,10 +2640,11 @@ private:
         return false;
     }
 
-    /// Whether an Extend of one instance of a Class, or of one it extends, adds a member named
-    /// `name`, like Box<String>'s Operator ==.
+    /// Whether an Extend of one instance of a Class a Class extends adds a member named `name`,
+    /// like Box<String>'s Operator ==. One of the Class's own instances decides for itself.
     [[nodiscard]] bool extended_with(const type_id_t type, const std::string_view name) const {
-        for (type_id_t current = type; current != type_id_t::INVALID; current = base_of(current)) {
+        for (type_id_t current = base_of(type); current != type_id_t::INVALID;
+             current = base_of(current)) {
             for (const auto& [instance, members] : m_analysis.instance_members) {
                 if (definition_of(instance) == definition_of(current) &&
                     std::ranges::any_of(members, [&](const symbol_id_t member) {
@@ -2621,20 +2658,17 @@ private:
         return false;
     }
 
-    /// Whether a Class, or one it extends, has a Hash of its own.
+    /// Whether a Class, or one it extends, has a Hash of its own, one that would implement
+    /// Hashable's: declared in it, or for an instance it extends, from an Extend of that one.
     [[nodiscard]] bool has_hash(const type_id_t type) const {
+        const auto hash = [this](const symbol_id_t member) {
+            return is_hash(m_analysis.symbols[index(member)]);
+        };
         for (type_id_t current = type; current != type_id_t::INVALID; current = base_of(current)) {
             const auto declared = m_declared_types.find(definition_of(current));
-            if (declared != m_declared_types.end() &&
-                std::ranges::any_of(m_analysis.symbols[index(declared->second)].members,
-                                    [this](const symbol_id_t member) {
-                                        const symbol_t& candidate =
-                                            m_analysis.symbols[index(member)];
-                                        return candidate.kind == symbol_kind_t::METHOD &&
-                                               candidate.name == "Hash" &&
-                                               candidate.parameters.empty() &&
-                                               !candidate.modifiers.is_static;
-                                    })) {
+            if ((declared != m_declared_types.end() &&
+                 std::ranges::any_of(m_analysis.symbols[index(declared->second)].members, hash)) ||
+                (current != type && std::ranges::any_of(extensions_of(current), hash))) {
                 return true;
             }
         }
@@ -8755,6 +8789,11 @@ private:
 
         if (!is_struct(type) && !is_class(type)) {
             return builtin_implements(type, interface) || extension_implements(type, interface);
+        }
+
+        if (interface == m_analysis.interfaces.hashable &&
+            std::ranges::contains(m_analysis.unhashed_instances, type)) {
+            return false;
         }
 
         return listed_implements(type, interface) || extension_implements(type, interface);
@@ -22807,6 +22846,11 @@ public:
                                    generic != type_id_t::INVALID ? generic : interface);
         if (interface == m_analysis.interfaces.sendable) {
             return sendable(type);
+        }
+
+        if (interface == m_analysis.interfaces.hashable &&
+            std::ranges::contains(m_analysis.unhashed_instances, type)) {
+            return false;
         }
 
         if (info.kind == type_kind_t::STRUCT || info.kind == type_kind_t::CLASS) {

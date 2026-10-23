@@ -4586,6 +4586,58 @@ TEST_CASE("every Class is Equatable and Hashable without listing them", "[sema]"
         errors_t{ "Set<Door>: Door doesn't implement Hashable, which Set<T> needs for T; Door has "
                   "an Operator == of its own, so it's Hashable only with a Hash of its own that "
                   "agrees with it" });
+    // A Hash of another kind, written or an Interface's default, is only a Method.
+    CHECK(errors_of("Import std.core\n"
+                    "Interface Digest\n"
+                    "    Method Hash(): String => \"digest\"\n"
+                    "End Interface\n"
+                    "Class Doc\n"
+                    "    Field text: String = \"abc\"\n"
+                    "    Operator ==(a: Doc, b: Doc): Bool => a.text == b.text\n"
+                    "    Method Hash(): String => \"sha:\" + text\n"
+                    "End Class\n"
+                    "Class Page Implements Digest\n"
+                    "    Operator ==(a: Page, b: Page): Bool => True\n"
+                    "End Class\n"
+                    "Local same = Doc() == Doc() && Page() == Page()\n"
+                    "Local digests = Doc().Hash() + Page().Hash()")
+              .empty());
+
+    // An Extend of one instance that gives it an == decides that one: with a Hash, it hashes
+    // with that, and without one it's Equatable only, as are the Classes that extend it.
+    constexpr std::string_view boxed = "Import std.core\n"
+                                       "Import std.collections\n"
+                                       "Class Box<T>\n"
+                                       "    Field v: T\n"
+                                       "    New(v: T)\n"
+                                       "        Self.v = v\n"
+                                       "    End New\n"
+                                       "End Class\n"
+                                       "Extend Box<String>\n"
+                                       "    Operator ==(a: Box<String>, b: Box<String>): Bool => "
+                                       "a.v == b.v\n"
+                                       "    Method Hash(): UInt64 => v.Hash()\n"
+                                       "End Extend\n"
+                                       "Extend Box<Int>\n"
+                                       "    Operator ==(a: Box<Int>, b: Box<Int>): Bool => "
+                                       "a.v == b.v\n"
+                                       "End Extend\n"
+                                       "Class Named Extends Box<String>\n"
+                                       "End Class\n"
+                                       "Class Counted Extends Box<Int>\n"
+                                       "End Class\n";
+    CHECK(errors_of(std::format("{}Local a = Set<Box<Bool>>()\n"
+                                "Local b = Set<Box<String>>()\n"
+                                "Local c = Set<Named>()",
+                                boxed))
+              .empty());
+    CHECK(errors_of(std::format("{}Local d = Set<Box<Int>>()\nLocal e = Set<Counted>()", boxed)) ==
+          errors_t{ "Set<Box<Int>>: Box<Int32> doesn't implement Hashable, which Set<T> needs for "
+                    "T; Box<Int32> has an Operator == of its own, so it's Hashable only with a "
+                    "Hash of its own that agrees with it",
+                    "Set<Counted>: Counted doesn't implement Hashable, which Set<T> needs for T; "
+                    "Counted has an Operator == of its own, so it's Hashable only with a Hash of "
+                    "its own that agrees with it" });
 
     // Listing Hashable says it has one, and Comparable and the Structs are as they were.
     CHECK(errors_of("Import std.core\n"
