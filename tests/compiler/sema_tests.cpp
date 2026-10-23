@@ -569,6 +569,15 @@ TEST_CASE("overloads: an exact match beats a conversion", "[sema]") {
     CHECK(errors_of(call("Show(b)")) == errors_t{ "Show: the call to 'Show' is ambiguous" });
     CHECK(errors_of(call("Show(5_000_000_000)")) ==
           errors_t{ "Show: the call to 'Show' is ambiguous" });
+    // Resolution has two tiers: an Int literal for an Int beats one for a Double only where the
+    // call's other arguments are exact too.
+    constexpr std::string_view fbm =
+        "Function Fbm(x: Double, y: Double, octaves: Int): Bool => True\n"
+        "Function Fbm(x: Double, y: Double, z: Double): String => \"\"\n"
+        "Local d: Double = 0.5\n";
+    CHECK(probe(std::format("{}Local x = Fbm(d, d, 3)", fbm)) == "Bool");
+    CHECK(errors_of(std::format("{}Local x = Fbm(0.5, d, 3)", fbm)) ==
+          errors_t{ "Fbm: the call to 'Fbm' is ambiguous" });
     CHECK(errors_of(call("Show(True)")) == errors_t{ "Show: no overload of 'Show' takes (Bool)" });
     // A literal too big for an Int, or a generic Function's name, has no type of its own, so it
     // shows as written.
