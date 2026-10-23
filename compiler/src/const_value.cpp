@@ -574,6 +574,15 @@ fold_result_t fold_cast(const const_value_t& value, const type_id_t type) {
     return const_value_t{ .type = type, .data = static_cast<std::uint64_t>(whole) };
 }
 
+std::string char_literal(const char32_t code) {
+    const auto value = static_cast<std::uint32_t>(code);
+    if (value > 0x20 && value < 0x7F) {
+        return std::format("'{}'", static_cast<char>(value));
+    }
+
+    return std::format("U+{:04X}", value);
+}
+
 std::string to_text(const const_value_t& value) {
     if (const auto* flag = std::get_if<bool>(&value.data)) {
         return *flag ? "True" : "False";

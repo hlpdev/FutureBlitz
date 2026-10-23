@@ -3002,3 +3002,18 @@ TEST_CASE("SortUnstable sorts in place, making no array", "[mir]") {
         CHECK(!function.contains("ToArray"));
     }
 }
+
+TEST_CASE("a folded Char constant prints as a Char literal does", "[mir]") {
+    // Visible ASCII as itself, in quotes, and the rest by its code point, a line break too.
+    CHECK(lower_text("Local letter = 65 As Char\n"
+                     "Local line = 10 As Char\n"
+                     "Local quote = '\"'") == "function main\n"
+                                              "    _0 letter: Char\n"
+                                              "    _1 line: Char\n"
+                                              "    _2 quote: Char\n"
+                                              "bb0:\n"
+                                              "    _0 = 'A'\n"
+                                              "    _1 = U+000A\n"
+                                              "    _2 = '\"'\n"
+                                              "    return\n");
+}
