@@ -220,11 +220,19 @@ Public Class Curve2
         Get => Lengths[Lengths.Count - 1] As Float
     End Property
 
-    // The point the curve's Function gives for t, kept from 0 to 1.
-    Public Method PointAt(t: Float): Vec2 => Point(Clamp(t, 0, 1))
+    // The point the curve's Function gives for t, kept from 0 to 1. A NaN t panics.
+    @PanicsAtCaller
+    Public Method PointAt(t: Float): Vec2
+        If t != t Then Panic("PointAt takes a t that isn't NaN")
+        Return Point(Clamp(t, 0, 1))
+    End Method
 
-    // The point so far along the curve, kept from 0 to its Length.
-    Public Method PointAtDistance(distance: Float): Vec2 => Point(TAtDistance(Lengths, distance))
+    // The point so far along the curve, kept from 0 to its Length. A NaN distance panics.
+    @PanicsAtCaller
+    Public Method PointAtDistance(distance: Float): Vec2
+        If distance != distance Then Panic("PointAtDistance takes a distance that isn't NaN")
+        Return Point(TAtDistance(Lengths, distance))
+    End Method
 
     // count points along the curve the same distance apart, from its start to its end. Fewer than
     // two panics.
@@ -304,11 +312,19 @@ Public Class Curve3
         Get => Lengths[Lengths.Count - 1] As Float
     End Property
 
-    // The point the curve's Function gives for t, kept from 0 to 1.
-    Public Method PointAt(t: Float): Vec3 => Point(Clamp(t, 0, 1))
+    // The point the curve's Function gives for t, kept from 0 to 1. A NaN t panics.
+    @PanicsAtCaller
+    Public Method PointAt(t: Float): Vec3
+        If t != t Then Panic("PointAt takes a t that isn't NaN")
+        Return Point(Clamp(t, 0, 1))
+    End Method
 
-    // The point so far along the curve, kept from 0 to its Length.
-    Public Method PointAtDistance(distance: Float): Vec3 => Point(TAtDistance(Lengths, distance))
+    // The point so far along the curve, kept from 0 to its Length. A NaN distance panics.
+    @PanicsAtCaller
+    Public Method PointAtDistance(distance: Float): Vec3
+        If distance != distance Then Panic("PointAtDistance takes a distance that isn't NaN")
+        Return Point(TAtDistance(Lengths, distance))
+    End Method
 
     // count points along the curve the same distance apart, from its start to its end. Fewer than
     // two panics.

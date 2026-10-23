@@ -1,0 +1,2 @@
+(0.25, 0)
+panic: PointAtDistance takes a distance that isn't NaN at panic_math_curve2_distance_nan.fb:7:7

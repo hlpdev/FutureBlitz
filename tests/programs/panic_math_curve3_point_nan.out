@@ -1,0 +1,2 @@
+(1, 0, 0)
+panic: PointAt takes a t that isn't NaN at panic_math_curve3_point_nan.fb:7:7
