@@ -8544,6 +8544,16 @@ TEST_CASE("an Async Function's call gives its Task, and its code can Await", "[s
                                 sum)) ==
           errors_t{ "Await Sum(1): Await can't wait in a Lock block, which would hold the Mutex "
                     "meanwhile" });
+    // A Const that a lambda's Lock block needs before its turn isn't in that block.
+    CHECK(errors_of(std::format("{}Global m = Mutex<Int>(0)\n"
+                                "Global f = Function(): Int\n"
+                                "    Lock m As v\n"
+                                "        Return v + k\n"
+                                "    End Lock\n"
+                                "End Function\n"
+                                "Const k = Await Sum(1)",
+                                sum))
+              .empty());
     CHECK(errors_of("Async Function Log()\nEnd Function\n"
                     "Async Function F(): Int\n    Return Await Log()\nEnd Function") ==
           errors_t{ "Await Log(): this Await gives nothing, since what it waits for gives "

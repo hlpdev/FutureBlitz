@@ -826,6 +826,7 @@ private:
         bool initializing = false;
         bool extending = false;
         std::size_t unsafe = 0;
+        std::size_t locks = 0;
     };
 
     // Helpers
@@ -937,6 +938,7 @@ private:
         std::swap(m_initializing, other.initializing);
         std::swap(m_extending, other.extending);
         std::swap(m_unsafe, other.unsafe);
+        std::swap(m_locks, other.locks);
     }
 
     // Declarations
