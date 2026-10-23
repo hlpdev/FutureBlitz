@@ -18490,10 +18490,11 @@ private:
             return type_id_t::INVALID;
         }
 
-        // A Task<T> expected says what the work gives.
+        // A Task<T> expected, or a Task<T>?, says what the work gives.
         const expr_id_t work = node.arguments.front().value;
-        const type_id_t expected = !thread && m_analysis.types.get(hint).kind == type_kind_t::TASK
-                                       ? m_analysis.types.function({}, element_of(hint))
+        const type_id_t task = non_null(hint);
+        const type_id_t expected = !thread && m_analysis.types.get(task).kind == type_kind_t::TASK
+                                       ? m_analysis.types.function({}, element_of(task))
                                        : type_id_t::NONE;
         const type_id_t func = check(work, expected);
         if (func == type_id_t::INVALID) {

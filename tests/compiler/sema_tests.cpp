@@ -8029,6 +8029,8 @@ TEST_CASE("Spawn runs work on another thread, and gives its Task", "[sema]") {
                 "Local x = Thread.Start(Function() => Print(\"hi\"))") == "Thread");
     CHECK(errors_of("Local t: Task<Int64> = Spawn(Function() => 1)\nLocal x: Int64 = t.Wait()")
               .empty());
+    CHECK(probe("Local t: Task<Int64>? = Spawn(Function() => 5)") ==
+          "Task<Int64>? (from Task<Int64>)");
     CHECK(errors_of("Import std.core\n"
                     "Local t = Thread.Start(Function() => Print(\"hi\"))\nt.Join()")
               .empty());
