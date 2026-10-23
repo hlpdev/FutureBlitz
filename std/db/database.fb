@@ -557,16 +557,12 @@ Public Class Database
     // when the database's version is past the last migration's, as a newer program's would be.
     @PanicsAtCaller
     Public Method Migrate(migrations: String...) Throws DatabaseError
-        Local version = Try Version()
-        If version < 0 || version > migrations.Count
-            Throw DatabaseError(DatabaseErrorKind.OTHER, "the database is at version " +
-                                "{version}, and there are {migrations.Count} migrations")
-        End If
-
+        Local version = Try Version(migrations.Count)
         For number = version + 1 To migrations.Count
             Local transaction = Try Begin()
-            // Another connection may have run it while this one waited to begin.
-            If (Try Version()) < number
+            // Another connection may have migrated it while this one waited to begin, past this
+            // migration, or past the last.
+            If (Try Version(migrations.Count)) < number
                 Try Execute(migrations[number - 1])
                 Try Execute("PRAGMA user_version = {number}")
             End If
@@ -575,10 +571,17 @@ Public Class Database
         End For
     End Method
 
-    // The database's version, which Migrate sets.
+    // The database's version, which Migrate sets. Throws a DatabaseError when it's past count
+    // migrations, or negative.
     @PanicsAtCaller
-    Method Version(): Int Throws DatabaseError
-        Return ((Try Rows("PRAGMA user_version"))[0].Integer(0) ?? 0) As Int
+    Method Version(count: Int): Int Throws DatabaseError
+        Local version = ((Try Rows("PRAGMA user_version"))[0].Integer(0) ?? 0) As Int
+        If version < 0 || version > count
+            Throw DatabaseError(DatabaseErrorKind.OTHER, "the database is at version " +
+                                "{version}, and there are {count} migrations")
+        End If
+
+        Return version
     End Method
 
     // SQLite's connection. Panics when it's closed.

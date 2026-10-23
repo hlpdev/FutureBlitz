@@ -574,6 +574,44 @@ End Try
                        "CORRUPT: file is not a database\n");
         CHECK(took >= std::chrono::seconds(4));
     }
+
+    SECTION("migrate") {
+        // A Migrate that waits to begin while another connection migrates the database past its
+        // last migration throws, as one that starts after would.
+        const std::string migrated = run("migrated", R"fb(
+Const first = "CREATE TABLE log (step TEXT); INSERT INTO log VALUES ('one')"
+Const ready = Channel<Int>(1)
+
+Function Older(): String
+    Try
+        Local db = Database.Open(folder + "/migrated.db")
+        ready.Send(1)
+        db.Migrate(first)
+        Return "older migrated"
+    Catch e As DatabaseError
+        Return "older: {e.Kind} {e.Message}"
+    End Try
+End Function
+
+Try
+    Local db = Database.Open(folder + "/migrated.db")
+    Local holding = db.Begin()
+    Local older = Spawn(Function() => Older())
+    ready.Receive()
+    db.Rows("WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM c WHERE x < 1000000) " +
+            "SELECT count(*) FROM c")
+    db.Execute(first)
+    db.Execute("INSERT INTO log VALUES ('two'); PRAGMA user_version = 2")
+    holding.Commit()
+    Print(older.Wait())
+    Print(db.Rows("SELECT count(*) FROM log")[0].Integer(0) ?? -1)
+Catch e As DatabaseError
+    Print("failed: {e.Kind} {e.Message}")
+End Try
+)fb");
+        CHECK(migrated ==
+              "older: OTHER the database is at version 2, and there are 1 migrations\n2\n");
+    }
 }
 
 TEST_CASE("a program's input goes in while its output comes out, however much of each", "[cli]") {
