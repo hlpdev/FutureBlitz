@@ -128,8 +128,10 @@ struct symbol_t {
     /// Struct's New, a Local that New returns. A Class's Self is a reference, which can't be
     /// replaced, though its object's fields can change.
     std::optional<symbol_id_t> self;
-    /// A Struct's or Class's fields in order, then its Methods and constructors. What a Class
-    /// inherits isn't among them.
+    /// A type's own members: a Struct's or Class's fields in order, then its Methods, Properties,
+    /// Static Fields, and constructors, what Extends of all its instances add, and the defaults
+    /// it takes from Interfaces; or an Interface's members. What a Class inherits isn't among
+    /// them.
     std::vector<symbol_id_t> members;
     /// A field's position among its type's fields, which start with the inherited ones.
     std::uint32_t field = 0;
@@ -177,7 +179,8 @@ struct symbol_t {
 /// How a Struct or Class implements an Interface, directly or through one it lists that extends
 /// it.
 struct conformance_t {
-    /// The Struct or Class. A generic one's instances implement the Interface the same way.
+    /// The Struct or Class, or the built-in type, Enum, array type, T[], or instance an Extend
+    /// gives the Interface. A generic one's instances implement the Interface the same way.
     type_id_t type;
     /// The Interface, an instance for a generic one, like "Iterator<T>" for a "Range<T>". A type
     /// implements one instance of a generic Interface.

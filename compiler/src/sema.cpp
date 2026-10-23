@@ -486,7 +486,7 @@ private:
     std::vector<std::vector<symbol_id_t>> m_scopes; // inside top-level code or a function
     std::vector<loop_t> m_loops;                    // innermost last
     std::optional<symbol_id_t> m_function;          // the function being checked
-    /// Each Struct's symbol, by its type.
+    /// Each declared Struct's, Class's, Interface's, and Enum's symbol, by its type.
     std::unordered_map<type_id_t, symbol_id_t> m_declared_types;
     /// Where each Class is declared, whose code can use the Protected members of the Classes it
     /// extends.
@@ -780,7 +780,6 @@ private:
     std::unordered_map<symbol_id_t, initialization_t> m_const_bodies;
     /// The Const Functions each Const Function's body calls, which have to be ready too.
     std::unordered_map<symbol_id_t, std::vector<symbol_id_t>> m_const_calls;
-    /// Each Const Function's MIR, lowered the first time a call runs it.
     /// The Structs and Classes whose members are declared, while types are being declared.
     std::unordered_set<type_id_t> m_member_types;
     /// The Extern Functions of C's convention, whose CString parameters may take Strings.
@@ -795,6 +794,7 @@ private:
     bool m_early_failed = false;
     /// A Const Function, with the type arguments of a generic one's instance.
     using const_instance_t = std::pair<symbol_id_t, std::vector<type_id_t>>;
+    /// Each Const Function's MIR, lowered the first time a call runs it.
     std::map<const_instance_t, std::shared_ptr<const mir_module_t>> m_const_modules;
     /// Calls already run, with the values they took: what each gave, or why it couldn't run.
     using run_t =
@@ -2882,10 +2882,10 @@ private:
         return declared;
     }
 
-    /// Whether a member can be added to a type: an Operator only to a Struct or Class, a ByRef
-    /// Method only to a value, a Static member only to a type that isn't generic, and a
-    /// Property not to T[] yet. A built-in type's, Enum's, or array's members can't share a name
-    /// with the ones it has already. Reports what can't be.
+    /// Whether a member can be added to a type: no Destroy, an Operator only to a Struct or Class,
+    /// a ByRef Method only to a value that isn't an array, and no Static member to an array,
+    /// which can't come before a '.'. A built-in type's, Enum's, or array's members can't share
+    /// a name with the ones it has already. Reports what can't be.
     bool extension_member_fits(const type_id_t target, const name_t& name,
                                const function_stmt_t* function, const property_stmt_t* property) {
         const bool object = is_struct(target) || is_class(target);
