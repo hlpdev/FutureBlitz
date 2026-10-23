@@ -1,6 +1,6 @@
 file(GLOB_RECURSE FB_RUNTIME_SOURCES CONFIGURE_DEPENDS src/*.cpp)
 # The parts over bundled C libraries are archives of their own.
-set(FB_RUNTIME_PARTS io crypto crypto_pem xxhash blake3 argon2 bcrypt ed25519)
+set(FB_RUNTIME_PARTS io crypto crypto_pem xxhash blake3 argon2 bcrypt ed25519 db)
 foreach(part ${FB_RUNTIME_PARTS})
   list(REMOVE_ITEM FB_RUNTIME_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/src/${part}.cpp)
 endforeach()
@@ -42,15 +42,21 @@ target_link_libraries(fb_runtime_argon2 PRIVATE argon2)
 target_link_libraries(fb_runtime_bcrypt PRIVATE crypt_blowfish)
 target_link_libraries(fb_runtime_ed25519 PRIVATE monocypher)
 
+# std.db's fb_db_ functions over SQLite are one more.
+add_library(fb_runtime_db STATIC src/db.cpp)
+target_include_directories(fb_runtime_db PUBLIC include)
+target_link_libraries(fb_runtime_db PRIVATE sqlite)
+fb_set_warnings(fb_runtime_db)
+
 # What a program can link: each part and its library, which fb and the tests that build programs
 # depend on.
 set(FB_RUNTIME_ARCHIVES fb_runtime fb_runtime_io uv_a fb_runtime_crypto tfpsacrypto
     fb_runtime_xxhash xxhash fb_runtime_blake3 blake3 fb_runtime_argon2 argon2 fb_runtime_bcrypt
-    crypt_blowfish fb_runtime_ed25519 monocypher PARENT_SCOPE)
+    crypt_blowfish fb_runtime_ed25519 monocypher fb_runtime_db sqlite PARENT_SCOPE)
 
 # Nothing in the runtime throws: exceptions can't cross into compiled programs.
 foreach(part fb_runtime fb_runtime_io fb_runtime_crypto fb_runtime_xxhash fb_runtime_blake3
-             fb_runtime_argon2 fb_runtime_bcrypt fb_runtime_ed25519)
+             fb_runtime_argon2 fb_runtime_bcrypt fb_runtime_ed25519 fb_runtime_db)
   if(MSVC)
     target_compile_options(${part} PRIVATE /EHs-c-)
   else()

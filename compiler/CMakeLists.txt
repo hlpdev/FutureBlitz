@@ -159,6 +159,16 @@ inline constexpr auto bundled_libraries = std::to_array<bundled_library_t>({
         .notice = \"${FB_MONOCYPHER_NOTICE}\",
         .system = \"\",
     },
+    {
+        .name = \"SQLite\",
+        .version = \"${FB_SQLITE_VERSION}\",
+        .license = \"${FB_SQLITE_LICENSES}\",
+        .prefix = \"fb_db_\",
+        .runtime = \"$<TARGET_FILE:fb_runtime_db>\",
+        .archives = \"$<TARGET_FILE:sqlite>\",
+        .notice = \"${FB_SQLITE_NOTICE}\",
+        .system = \"\",
+    },
 });
 
 } // namespace fb::build_config

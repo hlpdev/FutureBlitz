@@ -250,3 +250,36 @@ file(READ "${monocypher_SOURCE_DIR}/LICENCE.md" notices)
 fb_notice(monocypher "${notices}")
 set(FB_MONOCYPHER_NOTICE "${FB_MONOCYPHER_NOTICE}" PARENT_SCOPE)
 set(FB_MONOCYPHER_LICENSES "the CC0-1.0 license" PARENT_SCOPE)
+
+# SQLite: std.db, from its amalgamation, one C file. It leaves out loading extensions, which
+# would need the OS's dynamic loader, and what's deprecated, turns on foreign keys, which every
+# other database has on, and has FTS5 and its math functions.
+set(FB_SQLITE_VERSION 3.54.1)
+FetchContent_Declare(
+  sqlite
+  URL https://www.sqlite.org/2026/sqlite-amalgamation-3540100.zip
+  URL_HASH SHA256=0a9c8e34352dad46006aa82836d5383bff9dc6bc9ce5a60553c05aa30e6ad1f9
+  SYSTEM
+)
+FetchContent_MakeAvailable(sqlite)
+add_library(sqlite STATIC EXCLUDE_FROM_ALL "${sqlite_SOURCE_DIR}/sqlite3.c")
+target_include_directories(sqlite SYSTEM PUBLIC "${sqlite_SOURCE_DIR}")
+target_compile_definitions(sqlite PRIVATE
+  SQLITE_DQS=0
+  SQLITE_THREADSAFE=1
+  SQLITE_OMIT_LOAD_EXTENSION
+  SQLITE_OMIT_DEPRECATED
+  SQLITE_DEFAULT_FOREIGN_KEYS=1
+  SQLITE_DEFAULT_MEMSTATUS=0
+  SQLITE_ENABLE_FTS5
+  SQLITE_ENABLE_MATH_FUNCTIONS)
+fb_bundled_library(sqlite)
+set(FB_SQLITE_VERSION ${FB_SQLITE_VERSION} PARENT_SCOPE)
+# It's in the public domain, which the top of sqlite3.h's first comment says with a blessing, up
+# to the line of asterisks after them.
+file(READ "${sqlite_SOURCE_DIR}/sqlite3.h" text)
+string(FIND "${text}" "\n*****" end)
+string(SUBSTRING "${text}" 0 ${end} notices)
+fb_notice(sqlite "${notices}\n*/\n")
+set(FB_SQLITE_NOTICE "${FB_SQLITE_NOTICE}" PARENT_SCOPE)
+set(FB_SQLITE_LICENSES "a public-domain dedication" PARENT_SCOPE)
