@@ -1,0 +1,2 @@
+1
+panic: ModPow takes an exponent of 0 or more, not -1 at panic_bigint_exponent.fb:6:7

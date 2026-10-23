@@ -1,0 +1,7 @@
+// A BigInt is a whole number, and an infinity panics.
+Import std.core
+Import std.math.big
+
+Local zero = 0.0
+Print(BigInt.FromDouble(-2.5))
+Print(BigInt.FromDouble(1.0 / zero))

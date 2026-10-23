@@ -1,0 +1,6 @@
+// ModPow takes a modulus above 0, and 0 panics.
+Import std.core
+Import std.math.big
+
+Print(BigInt(3).ModPow(BigInt(4), BigInt(5)))
+Print(BigInt(3).ModPow(BigInt(4), BigInt(0)))

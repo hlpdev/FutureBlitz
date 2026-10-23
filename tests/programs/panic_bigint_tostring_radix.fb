@@ -1,0 +1,6 @@
+// So does ToString.
+Import std.core
+Import std.math.big
+
+Print(BigInt(255).ToString(2))
+Print(BigInt(255).ToString(1))

@@ -1,0 +1,6 @@
+// % by 0 panics too, with an Int64 on the right.
+Import std.core
+Import std.math.big
+
+Print(BigInt(-7) % 2)
+Print(BigInt(7) % 0)

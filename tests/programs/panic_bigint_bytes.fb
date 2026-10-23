@@ -1,0 +1,6 @@
+// ToBytes gives the bytes of a BigInt 0 or more, and -1 panics.
+Import std.core
+Import std.math.big
+
+Print(BigInt(258).ToBytes().Count)
+Print(BigInt(-1).ToBytes().Count)

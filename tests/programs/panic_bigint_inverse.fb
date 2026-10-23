@@ -1,0 +1,6 @@
+// ModInverse takes a modulus above 0, and -5 panics.
+Import std.core
+Import std.math.big
+
+Print(BigInt(3).ModInverse(BigInt(7)) ?? BigInt(0))
+Print(BigInt(3).ModInverse(BigInt(-5)) ?? BigInt(0))

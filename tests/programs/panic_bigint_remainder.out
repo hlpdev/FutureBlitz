@@ -1,0 +1,2 @@
+-1
+panic: division by zero at panic_bigint_remainder.fb:6:7

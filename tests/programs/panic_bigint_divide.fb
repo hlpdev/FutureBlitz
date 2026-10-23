@@ -1,0 +1,6 @@
+// Dividing a BigInt by 0 panics, as an Int's / does, where it's divided.
+Import std.core
+Import std.math.big
+
+Print(BigInt(7) / 2)
+Print(BigInt(7) / BigInt(0))

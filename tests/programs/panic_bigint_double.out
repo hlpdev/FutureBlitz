@@ -1,0 +1,2 @@
+-2
+panic: a BigInt is a whole number, not inf at panic_bigint_double.fb:7:7

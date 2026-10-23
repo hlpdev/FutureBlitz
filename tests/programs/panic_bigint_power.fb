@@ -1,0 +1,6 @@
+// A BigInt to a power below 0 panics, as an Int's does.
+Import std.core
+Import std.math.big
+
+Print(BigInt(2) ** 10)
+Print(BigInt(2) ** -1)

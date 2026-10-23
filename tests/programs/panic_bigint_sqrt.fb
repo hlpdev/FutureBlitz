@@ -1,0 +1,6 @@
+// The square root of a BigInt below 0 panics.
+Import std.core
+Import std.math.big
+
+Print(BigInt(17).Sqrt())
+Print(BigInt(-4).Sqrt())

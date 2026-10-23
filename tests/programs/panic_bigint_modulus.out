@@ -1,0 +1,2 @@
+1
+panic: a modulus is above 0, not 0 at panic_bigint_modulus.fb:6:7

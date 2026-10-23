@@ -1,0 +1,2 @@
+8
+panic: the shift amount must be 0 or more at panic_bigint_shift.fb:6:7

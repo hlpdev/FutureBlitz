@@ -1,0 +1,6 @@
+// Parse takes a radix from 2 to 36, and another panics.
+Import std.core
+Import std.math.big
+
+Print(BigInt.Parse("zz", 36) ?? BigInt(0))
+Print(BigInt.Parse("1", 37) ?? BigInt(0))
