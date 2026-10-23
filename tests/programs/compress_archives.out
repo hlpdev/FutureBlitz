@@ -1,0 +1,60 @@
+zip: 12 entries
+  folder/ True
+  folder/stored.txt (1542) poem True
+  folder/deflate.txt (1542) poem True
+  folder/fast.txt (1542) poem True
+  folder/lzma.txt (1542) poem True
+  folder/xz.txt (1542) poem True
+  folder/zstd.txt (1542) poem True
+  folder/noise.bin (50000) noise True
+  folder/empty.txt (0) True
+  folder/ünïcode.txt (8) True
+  folder/a-long-folder-name-to-go-past-what-a-ustar-header-holds-in-its-name-or-prefix-fields-which-are-a-hundred-and-a-hundred-and-fifty-five-bytes-long-so-pax-has-it/and-a-file-name.txt (1542) poem True
+  folder/stored.txt (31) True
+True True True True FOLDER True
+1 again.txt (1542) 0 entries
+tar: 0 bytes past its last block
+  raw: 8 entries True True True 31
+  compressed: 8 entries True True True 31
+  compressed: 8 entries True True True 31
+  compressed: 8 entries True True True 31
+  compressed: 8 entries True True True 31
+  folder/
+  folder/poem.txt (1542)
+  folder/noise.bin (50000)
+  folder/empty.txt (0)
+  folder/ünïcode.txt (8)
+  folder/a-long-folder-name-to-go-past-what-a-ustar-header-holds-in-its-name-or-prefix-fields-which-are-a-hundred-and-a-hundred-and-fifty-five-bytes-long-so-pax-has-it/and-a-file-name.txt (1542)
+  folder/a-folder-name-that-with-its-file-is-more-than-a-hundred-bytes-but-splits-in-two/file.txt (6)
+  folder/poem.txt (31)
+0 entries 0 entries
+7z: plain/one.txt (11), plain/ünïcode.txt (23), plain/bytes.bin (1024), plain/empty.txt (0), plain/
+7z: code.bin (2100)
+7z: samples.bin (3000), one.txt (11)
+7z: link -> target.txt, target.txt (11)
+7z: partial/one.txt (11), partial/
+True True True
+True True
+zip, not one: INVALID_DATA: the zip data isn't valid: it has no central directory
+zip, none: INVALID_DATA: the zip data isn't valid: it has no central directory
+zip, cut: INVALID_DATA: the zip data isn't valid: it has no central directory
+zip, stored byte flipped: INVALID_DATA: the zip data isn't valid: 'stored.txt' doesn't match its CRC-32
+tar, not one: INVALID_DATA: the tar data isn't valid: the header at byte 0 doesn't match its checksum
+tar, cut: UNEXPECTED_END: the tar data ends too soon
+tar, cut short of a block: UNEXPECTED_END: the tar data ends too soon
+tar, header flipped: INVALID_DATA: the tar data isn't valid: the header at byte 0 doesn't match its checksum
+tar.gz, cut: UNEXPECTED_END: the Gzip data ends too soon
+7z, not one: INVALID_DATA: the 7z data isn't valid: it doesn't start with 7z's signature
+7z, cut: UNEXPECTED_END: the 7z data ends too soon
+7z, start header flipped: INVALID_DATA: the 7z data isn't valid: its start header doesn't match its CRC-32
+7z, header flipped: INVALID_DATA: the 7z data isn't valid: its header doesn't match its CRC-32
+7z, a file's byte flipped: INVALID_DATA: the 7z data isn't valid: 'plain/one.txt' doesn't match its CRC-32
+7z, PPMd: OTHER: the 7z data uses what isn't supported: its coder PPMd isn't supported
+old tar: old.txt (5): 5 bytes
+base-256 size: big.txt (5): 5 bytes
+links: target.txt (2): 2 bytes, link -> target.txt: 0 bytes, hard -> target.txt: 0 bytes, long-link -> a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/target.txt: 0 bytes, sized.txt (3): 3 bytes
+sparse: sparse.bin (4): OTHER: the tar data uses what isn't supported: 'sparse.bin' is a GNU sparse file
+code page 437: café.txt (5): 5 bytes
+zip link: link -> target.txt: 0 bytes, target.txt (2): 2 bytes
+encrypted: secret.txt (18): OTHER: the zip data uses what isn't supported: 'secret.txt' is encrypted
+BZip2: bzip2.txt (200): OTHER: the zip data uses what isn't supported: 'bzip2.txt' is compressed by method 12

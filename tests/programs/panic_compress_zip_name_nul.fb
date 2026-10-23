@@ -1,0 +1,7 @@
+// A zip's names can't hold a NUL, and Add panics where it's called with one.
+Import std.core
+Import std.compress
+
+Local zip = ZipWriter()
+zip.Add("fine.txt", [])
+zip.Add("not\0fine.txt", [])

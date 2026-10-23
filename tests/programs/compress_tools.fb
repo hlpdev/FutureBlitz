@@ -1,0 +1,87 @@
+// std.compress reads what common tools wrote: GNU gzip's and xz's files, bsdtar's zstd frame, zip,
+// and 7z archives, and GNU tar's and bsdtar's tars, compressed and not. compress_tools/data.fb says
+// how each was made.
+
+Import std.core
+Import std.collections
+Import std.compress
+Import "./compress_tools/data"
+
+// poem.txt's bytes: 30 lines counting down.
+Function Poem(): UInt8[]
+    Local text = ""
+    For i = 30 To 1 Step -1
+        text = text + "{i} bottles of milk on the wall, {i} bottles of milk.\n"
+    End For
+    Return text.Bytes
+End Function
+
+// What each file of sample/ holds.
+Function Expected(): Map<String, UInt8[]>
+    Local files = Map<String, UInt8[]>()
+    files["sample/hello.txt"] = "Hello, world!\n".Bytes
+    files["sample/poem.txt"] = Poem()
+    files["sample/notes/ünïcode.txt"] = "Grüße aus Köln\n".Bytes
+    files["sample/notes/empty.txt"] = []
+    Local long = "a-folder-with-a-rather-long-name-so-that-paths-go-past-what-ustar-holds-in-its-" +
+                 "name-field"
+    files["sample/notes/{long}/deep.txt"] = "deep\n".Bytes
+    Return files
+End Function
+
+// "right" when an entry's bytes are what sample/ has, or else what's wrong.
+Function Matched(name: String, bytes: UInt8[]): String
+    Local expected = Expected().Get(name)
+    If expected == Null Then Return "not in sample/"
+    Return bytes == expected ? "right" : "wrong, {bytes.Count} bytes"
+End Function
+
+Function Show(entry: ArchiveEntry, bytes: UInt8[])
+    If entry.Kind == ArchiveEntryKind.FILE
+        Print("  {entry.Name}: {entry.Size} bytes, {Matched(entry.Name, bytes)}")
+    Else
+        Print("  {entry.Name}: {entry.Kind}")
+    End If
+End Function
+
+Function ShowZip(title: String, data: UInt8[]) Throws IOError
+    Local reader = Try Zip.Read(data)
+    Print("{title}: {reader.Count} entries")
+    For i = 0 Until reader.Count
+        Show(reader.Entries[i], Try reader.ReadAt(i))
+    End For
+End Function
+
+Function ShowTar(title: String, data: UInt8[]) Throws IOError
+    Local reader = Try Tar.Read(data)
+    Print("{title}: {reader.Count} entries")
+    For i = 0 Until reader.Count
+        Show(reader.Entries[i], Try reader.ReadAt(i))
+    End For
+End Function
+
+Function ShowSevenZip(title: String, data: UInt8[]) Throws IOError
+    Local reader = Try SevenZip.Read(data)
+    Print("{title}: {reader.Count} entries")
+    For i = 0 Until reader.Count
+        Show(reader.Entries[i], Try reader.ReadAt(i))
+    End For
+End Function
+
+Print("poem.txt.gz", Matched("sample/poem.txt", Try Gzip.Decompress(PoemGz())))
+Print("poem.txt.xz", Matched("sample/poem.txt", Try XZ.Decompress(PoemXz())))
+Print("poem.txt.zst", Matched("sample/poem.txt", Try Zstd.Decompress(PoemZst())))
+Try ShowZip("sample.zip", SampleZip())
+Try ShowTar("sample.tar", SampleTar())
+Try ShowTar("sample-pax.tar", SamplePaxTar())
+Try ShowTar("sample.tar.gz", SampleTarGz())
+Try ShowTar("sample.tar.zst", SampleTarZst())
+Try ShowTar("sample.tar.xz", SampleTarXz())
+Try ShowSevenZip("sample.7z", Sample7z())
+Try ShowSevenZip("sample-lzma2.7z", SampleLzma27z())
+
+// Reading by name gives the last entry of that name, and Null for none.
+Local zip = Try Zip.Read(SampleZip())
+Print(Matched("sample/poem.txt", (Try zip.Read("sample/poem.txt")) ?? []),
+      (Try zip.Read("nothing")) == Null, zip.Contains("sample/notes"),
+      zip.Find("sample/notes")?.Kind ?? ArchiveEntryKind.FILE)

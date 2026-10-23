@@ -1,0 +1,7 @@
+// A tar's names can't hold a NUL, and Add panics where it's called with one.
+Import std.core
+Import std.compress
+
+Local tar = TarWriter()
+tar.Add("fine.txt", [])
+tar.Add("not\0fine.txt", [])

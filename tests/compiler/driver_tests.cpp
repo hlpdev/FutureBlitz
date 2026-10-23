@@ -652,6 +652,61 @@ TEST_CASE("a program links the bundled C libraries of the runtime functions it c
           std::vector<std::string_view>{ "mbedTLS" });
 }
 
+TEST_CASE("std.compress's formats link the C libraries they're over, with their notices",
+          "[driver]") {
+    const auto bundled = [](const std::string_view code) {
+        const fb::compilation_t compilation = fb::compile(
+            "test.fb", std::format("Import std.core\nImport std.compress\nLocal none: UInt8[] = "
+                                   "[]\n{}\n",
+                                   code));
+        CHECK(errors_of(compilation).empty());
+        std::vector<std::string_view> names;
+        for (const fb::build_config::bundled_library_t* library :
+             fb::bundled_libraries(fb::lower(compilation.ast, compilation.analysis))) {
+            names.push_back(library->name);
+        }
+
+        return names;
+    };
+    using names_t = std::vector<std::string_view>;
+
+    CHECK(bundled("Print(Gzip.Compress(none).Count, Deflate.Compress(none).Count)") ==
+          names_t{ "zlib-ng" });
+    CHECK(bundled("Print(Zstd.Compress(none).Count)") == names_t{ "zstd" });
+    CHECK(bundled("Print(Lz4Compressor().Finish().Count)") == names_t{ "LZ4" });
+    CHECK(bundled("Print((Try XZ.Decompress(none)).Count)") == names_t{ "liblzma" });
+    CHECK(bundled("Print((Try SevenZip.Read(none)).Count)") == names_t{ "liblzma" });
+    CHECK(bundled("Print(ZipWriter().Finish().Count)") == names_t{ "minizip-ng" });
+    // A tar needs no library, but reading one decompresses it first, when it's compressed.
+    CHECK(bundled("Print(TarWriter().Finish().Count)").empty());
+    CHECK(bundled("Print((Try Tar.Read(none)).Count)") ==
+          names_t{ "zlib-ng", "zstd", "LZ4", "liblzma" });
+
+    // Each notice has its library's license, and minizip-ng's has those of the libraries a zip
+    // links with it, after the names its files' comments give.
+    const auto notice = [](const std::string_view name) {
+        for (const fb::build_config::bundled_library_t& library :
+             fb::build_config::bundled_libraries) {
+            if (library.name == name) {
+                std::ifstream file(fb::path_from_utf8(library.notice), std::ios::binary);
+                return std::string{ std::istreambuf_iterator<char>(file), {} };
+            }
+        }
+
+        return std::string();
+    };
+    CHECK(notice("zlib-ng").contains("Jean-loup Gailly and Mark Adler"));
+    CHECK(notice("zstd").contains("Meta Platforms"));
+    CHECK(notice("LZ4").contains("Yann Collet"));
+    CHECK(notice("liblzma").contains("liblzma is under the BSD Zero Clause License (0BSD)"));
+    const std::string minizip = notice("minizip-ng");
+    CHECK(minizip.contains("Nathan Moinvaziri"));
+    CHECK(minizip.contains("Gilles Vollant"));
+    CHECK(minizip.contains("Jean-loup Gailly and Mark Adler"));
+    CHECK(minizip.contains("Meta Platforms"));
+    CHECK(minizip.contains("BSD Zero Clause License"));
+}
+
 TEST_CASE("the bundled C libraries are optimized in every build", "[driver]") {
     // The build's compile_commands.json has each C file's command. Those of a bundled library
     // that third_party/ gives -O2 keep it to the end, and have no -g3 after it.

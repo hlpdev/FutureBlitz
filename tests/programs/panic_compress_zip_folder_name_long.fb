@@ -1,0 +1,12 @@
+// A zip's folder's name has a '/' after it, so it's 65534 bytes long at most, and
+// AddFolder panics where it's called with a longer one.
+Import std.core
+Import std.compress
+
+Local name = ""
+For i = 1 To 65534
+    name = name + "a"
+End For
+Local zip = ZipWriter()
+zip.AddFolder(name)
+zip.AddFolder(name + "a")
