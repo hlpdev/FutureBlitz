@@ -6379,10 +6379,12 @@ TEST_CASE("AddressOf follows the rules for a change to what it points at", "[sem
         errors_of("Struct S\n    Field a: Int32\nEnd Struct\n"
                   "Const C = S(1)\n"
                   "Const F: Int32[2] = [1, 2]\n"
-                  "Function Poke(s: S, ByRef t: S)\n"
+                  "Function Poke(s: S, ByRef t: S, n: Int32, ByRef m: Int32)\n"
                   "    Unsafe\n"
                   "        Local p = AddressOf(s.a)\n"
                   "        Local q = AddressOf(t.a)\n"
+                  "        Local r = AddressOf(n)\n"
+                  "        Local u = AddressOf(m)\n"
                   "    End Unsafe\n"
                   "End Function\n"
                   "Unsafe\n"
@@ -6394,6 +6396,7 @@ TEST_CASE("AddressOf follows the rules for a change to what it points at", "[sem
                   "End Unsafe\n") ==
         errors_t{
             "s.a: 's' is a parameter and can't be changed; copy it into a Local, or make it ByRef",
+            "n: 'n' is a parameter and can't be changed; copy it into a Local, or make it ByRef",
             "C.a: 'C' is a Const and can't be changed",
             "F[0]: 'F' is a Const and can't be changed",
             "each.a: 'each' is a loop variable and can't be changed",

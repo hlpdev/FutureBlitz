@@ -108,8 +108,8 @@ End Function
 - A debug build panics where a Null Ptr's Value is used or it's indexed, "the Ptr is Null", and
   where a Null Callback is called, "the Callback is Null".
   `ToString()` on a Null CString panics in every build.
-- `AddressOf(x)` takes a Local, parameter, Global, field, element of a `T[]` or fixed array, or
-  a Struct's Self, and gives a `Ptr<T>` that's good while what it points at is there: until the
+- `AddressOf(x)` takes a Local, ByRef parameter, Global, field, element of a `T[]` or fixed
+  array, or a Struct's Self, and gives a `Ptr<T>` that's good while what it points at is there: until the
   Local's block ends, the object goes, or the `T[]` changes size. It can change what it points
   at, so it takes only what code could change there: not a loop variable, a ReadOnly Field or
   Static Field, or a part of a value the statement makes, like `Make().x`; not Self in a lambda
