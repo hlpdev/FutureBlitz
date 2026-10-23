@@ -306,7 +306,7 @@ Skeptic: f2.fb (`Struct Late<Bar>` before `Struct Bar`) builds and prints c. f2b
 
 ## P1-sema-types-3 (medium): A Class with its own == and an unrelated Method named Hash is made Hashable implicitly, then refused
 
-Status: open
+Status: fixed in 775411a (has_hash() and gets_default() count only a Hash(): UInt64; spec 07 says so)
 
 Where: compiler/src/sema.cpp:2598
 
@@ -339,7 +339,7 @@ Skeptic: f3.fb (Class Doc with its own Operator == and `Method Hash(): String`, 
 
 ## P1-sema-types-4 (medium): An == from an Extend of one instance makes every instance non-Hashable, even ones with no == or with their own Hash
 
-Status: open
+Status: fixed in 775411a (hash_instances() decides Hashable per instance: an Extend's == and Hash make the instance Hashable with that Hash, an == alone leaves it Equatable only, in analysis_t's unhashed_instances, and a Class extending it inherits its Hash; spec 07 in 3de3380)
 
 Where: compiler/src/sema.cpp:2501
 
@@ -382,7 +382,7 @@ Skeptic: f4.fb (the finding's program) fails as described. At 16:11: "Box<Int32>
 
 ## P1-sema-types-5 (medium): == on a generic Struct that holds an array of a growing instance of itself gives invalid LLVM IR (A-new-2's generic neighbor)
 
-Status: open
+Status: fixed in d94b28f (comparable() stops at an instance whose Field the type table cut short, and == and Contains say a larger instance comes each time, without end)
 
 Where: compiler/src/sema.cpp:10759
 
@@ -410,7 +410,7 @@ Skeptic: `fb check` passes f5.fb (Tree<T> with `Field kids: Tree<T[]>[]`, then `
 
 ## P1-sema-checks-8 (low): SizeOf of an instance whose fixed array passes the element limit gives a size, not an error
 
-Status: open
+Status: fixed in 3f9f8c1 (check_size_of() holds a fixed array in the measured type to the written limit)
 
 Where: compiler/src/sema.cpp:19129
 
@@ -434,7 +434,7 @@ Skeptic: semachk/f8.fb prints 4294967296. f8c.fb (Const S = SizeOf<G<65536, 6553
 
 ## P1-sema-types-6 (low): A Static Property used by name before Super.New, or before a no-zero field is assigned, is refused as a use of Self
 
-Status: open
+Status: fixed in 9ea7546 (a Static Property used by name skips check_self_ready())
 
 Where: compiler/src/sema.cpp:16240
 
@@ -482,7 +482,7 @@ Skeptic: f6.fb gives "Self can't be used before Super.New" at 24:23 (Prefix) and
 
 ## P1-sema-types-8 (low): A ReadOnly assignment in a lambda or Parallel For in New says only that Class's New can change it
 
-Status: open
+Status: fixed in 64de963 (report_read_only() says a lambda in New runs later, and a Parallel For's body on other threads)
 
 Where: compiler/src/sema.cpp:15377
 
@@ -515,7 +515,7 @@ Skeptic: f8.fb (a Shared Class whose New has a Parallel For body assigning ReadO
 
 ## P1-sema-types-9 (low): in_new_of() has two stacked doc comments, the old one left above the new one
 
-Status: open
+Status: fixed in a7285b8 (the stale doc comment is gone; a comment has no test)
 
 Where: compiler/src/sema.cpp:15450
 
