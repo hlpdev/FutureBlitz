@@ -18,6 +18,7 @@ struct fb_string_t {
 };
 
 struct fb_object_t;
+struct fb_array_t;
 
 /// What a Class's visit calls with each object that `context`'s object refers to strongly, and
 /// the field it's in, or null for an element of a T[]. `object` can be null.
@@ -234,6 +235,21 @@ fb_string_t* fb_format_float(double value, std::int32_t float32, const fb_string
 fb_string_t* fb_format_text(const fb_string_t* text, const fb_string_t* spec, std::int32_t string);
 /// A String's debug form: in quotes, with source code's escapes. The caller owns the result.
 fb_string_t* fb_string_debug(const fb_string_t* text);
+
+/// 1, with the integer `text` writes in `base` (2 to 36) in `value`, or 0 when it isn't one or
+/// doesn't fit: a sign, then digits, which the base's "0x", "0o", or "0b" can start.
+std::int32_t fb_parse_int(const fb_string_t* text, std::int32_t base, std::int64_t* value);
+/// The same for an unsigned integer, which has no '-'.
+std::int32_t fb_parse_uint(const fb_string_t* text, std::int32_t base, std::uint64_t* value);
+/// 1, with the float `text` writes in `value`, read as a Float32 when `float32` isn't 0, or 0
+/// when it isn't one or doesn't fit: what Format writes, NaN, Inf, and -Inf included.
+std::int32_t fb_parse_float(const fb_string_t* text, std::int32_t float32, double* value);
+/// Splits a Format template into `texts`, one more than its fields, with "{{" and "}}" as braces,
+/// and each field's index, -1 for "{}", in `indexes`, and its spec, after a ':', in `specs`. 0 for
+/// a template, or what isn't one: 1 for a '{' without its '}', 2 for a lone '}', 3 for a field
+/// that isn't a value's number, and 4 for a brace in a spec.
+std::int32_t fb_format_split(const fb_string_t* text, fb_array_t* texts, fb_array_t* indexes,
+                             fb_array_t* specs);
 
 /// `base` to the power `exponent`, for `**` on a signed integer type that's `bits` wide (8, 16,
 /// 32, or 64). Compiled code widens the operands to 64 bits, and the result comes back
