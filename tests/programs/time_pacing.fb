@@ -71,6 +71,17 @@ Print(step.Tick(start), step.Tick(start + 50.Milliseconds), step.Tick(start + 51
 Local fixed = FixedStep(20.Milliseconds)
 Print(fixed.Step, fixed.StepSeconds, fixed.Advance(45.Milliseconds), fixed.Alpha,
       fixed.Advance(Duration.MaxValue()))
+// Past MaxSteps, only the whole steps are dropped, and the part of one left over stays, however
+// long the frame; and an Int's largest MaxSteps is no limit.
+For frame In [85, 95, 1005, 100000005]
+    Local tens = FixedStep(10.Milliseconds)
+    Print(tens.Advance((frame As Int64).Milliseconds), tens.Alpha)
+End For
+
+Local unlimited = FixedStep(60)
+unlimited.MaxSteps = 2147483647
+Print(unlimited.MaxSteps, unlimited.Advance(1.Seconds), unlimited.Advance(Duration.MaxValue()),
+      unlimited.Alpha)
 
 // A RateLimiter lets a burst through, then its rate.
 Local limiter = RateLimiter(2, 1.Seconds)
@@ -88,6 +99,16 @@ End For
 
 Print(taken, burst.UntilNext(start), burst.TryTake(start + 6.Seconds),
       burst.TryTake(start + 6.Seconds))
+
+// A burst or a time too long for an Int64 of nanoseconds is as long as one holds.
+Local long = RateLimiter(1, 1.Days, 200000)
+taken = 0
+For i = 1 To 5
+    If long.TryTake(start) Then taken += 1
+End For
+
+Local once = RateLimiter(1, Duration.MaxValue())
+Print(taken, once.TryTake(start), once.TryTake(start + 1.Seconds), once.UntilNext(start))
 
 // A Debounce says to act once a burst of Signals has stopped for its delay.
 Local bounce = Debounce(100.Milliseconds)

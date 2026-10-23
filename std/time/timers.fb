@@ -182,7 +182,8 @@ Public Class FixedStep
     End Property
 
     // The most steps a frame gives, 8 unless it's set, so a long frame doesn't make the next one
-    // longer still: the whole steps past them are dropped. One below 1 panics.
+    // longer still: the whole steps past them are dropped, and the part of a step left over
+    // stays. One below 1 panics.
     @PanicsAtCaller
     Public Property MaxSteps: Int
         Get => Most
@@ -199,14 +200,21 @@ Public Class FixedStep
 
     // How many steps to run for a frame that took that long. A Duration below 0 counts as 0.
     Public Method Advance(elapsed: Duration): Int
-        // Time past the most steps there can be is dropped anyway, so it's never counted.
-        Local most = ((Most + 1) As Int64).CheckedMultiply(PerStep) ?? 9223372036854775807
+        // The frame's whole steps, and the part of one left over, which with the part kept from
+        // before makes less than two steps: one more step when it's a whole one. A frame too
+        // long to count in parts is as long as they count.
         Local nanoseconds = elapsed.IsNegative ? 0 : elapsed.Nanoseconds
-        Local parts = nanoseconds > most / Scale ? most : nanoseconds * Scale
-        Left = Min(Left.CheckedAdd(parts) ?? most, most)
-        Local steps = Left / PerStep
-        Left = Left % PerStep
-        Return Min(steps, Most) As Int
+        Local parts = nanoseconds.CheckedMultiply(Scale) ?? 9223372036854775807
+        Local steps = parts / PerStep
+        Local rest = parts % PerStep
+        If rest >= PerStep - Left
+            steps += 1
+            Left = rest - (PerStep - Left)
+        Else
+            Left += rest
+        End If
+
+        Return Min(steps, Most As Int64) As Int
     End Method
 
     // How many steps to run for the time since the last Tick, now or at the Instant; the first
@@ -250,10 +258,13 @@ Public Class RateLimiter
     // Takes a token, now or at the Instant, when there is one, and gives whether it did.
     Public Method TryTake(): Bool => TryTake(Instant.Now())
 
+    // A bucket that won't be full for longer than an Instant counts is full at the last one.
     Public Method TryTake(now: Instant): Bool
         If !Remaining(now).IsZero Then Return False
         Local full = Full
-        Full = (full == Null || full < now ? now : full) + Duration.FromNanoseconds(Interval)
+        Local start = full == Null || full < now ? now : full
+        Full = Instant.FromNanoseconds(start.Nanoseconds.CheckedAdd(Interval) ??
+                                       9223372036854775807)
         Return True
     End Method
 
@@ -276,15 +287,19 @@ Public Class RateLimiter
 
         If per.Nanoseconds <= 0 Then Panic("a RateLimiter's time is longer than 0, not {per}")
         Interval = Max(per.Nanoseconds / count, 1)
-        Tolerance = Interval * (burst - 1)
+        Tolerance = Interval.CheckedMultiply(burst - 1) ?? 9223372036854775807
         Full = Null
     End Method
 
-    // How long until the bucket has a token: until it's full but for its burst.
+    // How long until the bucket has a token: until it's full but for its burst. A wait longer
+    // than a Duration holds is the longest one, and one past the tolerance below the shortest
+    // is none.
     Method Remaining(now: Instant): Duration
         Local full = Full
         If full == Null Then Return Duration.Zero()
-        Local early = (full - now).Nanoseconds - Tolerance
+        Local ahead = full.Nanoseconds.CheckedSubtract(now.Nanoseconds) ??
+                      (full > now ? 9223372036854775807 : -9223372036854775807 - 1)
+        Local early = ahead.CheckedSubtract(Tolerance) ?? 0
         Return Duration.FromNanoseconds(early > 0 ? early : 0)
     End Method
 End Class
