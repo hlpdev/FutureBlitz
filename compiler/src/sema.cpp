@@ -22427,6 +22427,33 @@ private:
         // NONE until the first one.
         type_id_t common = type_id_t::NONE;
         for (const int pass : { 0, 1, 2 }) {
+            // With no typed value to meet, the tuples that have a type alone give the one they
+            // meet at, for the rest to take, whichever comes first: a later one's, when the ones
+            // before take it, as (1, 2) takes (3, 4.5)'s.
+            const bool untyped = pass == 1 && common == type_id_t::NONE;
+            std::vector<expr_id_t> typed;
+            for (const expr_id_t value : values) {
+                if (!untyped || !std::holds_alternative<tuple_expr_t>(m_ast.get(value).node)) {
+                    continue;
+                }
+
+                const type_id_t alone = quietly([&] { return check(value, type_id_t::NONE); });
+                if (alone == type_id_t::INVALID) {
+                    continue;
+                }
+
+                if (const std::optional<type_id_t> meet =
+                        common == type_id_t::NONE ? alone : common_type(common, alone)) {
+                    common = *meet;
+                } else if (std::ranges::all_of(typed, [&](const expr_id_t other) {
+                               return quietly([&] { return check(other, alone); }) == alone;
+                           })) {
+                    common = alone;
+                }
+
+                typed.push_back(value);
+            }
+
             for (const expr_id_t value : values) {
                 if (pass_of(value) != pass) {
                     continue;

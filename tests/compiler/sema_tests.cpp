@@ -2061,6 +2061,13 @@ TEST_CASE("an array literal takes the expected type, or its elements' common one
     CHECK(probe("Local m = {\"x\": Null, \"y\": 2}") == "Map<String, Int32?>");
     CHECK(probe("Local i: Int[] = [1]\nLocal a = [i, []]") == "Int32[][]");
     CHECK(probe("Local i: Int[] = [1]\nLocal a = [[], i]") == "Int32[][]");
+    // So do tuples, and the parts in them.
+    CHECK(probe("Local i: Long[] = [1]\nLocal a = [(2, i), (1, [])]") == "(Int32, Int64[])[]");
+    CHECK(probe("Local i: Long[] = [1]\nLocal a = [(1, []), (2, i)]") == "(Int32, Int64[])[]");
+    CHECK(probe("Local i: Long[] = [1]\nLocal m = {\"x\": (1, []), \"y\": (2, i)}") ==
+          "Map<String, (Int32, Int64[])>");
+    CHECK(probe("Local a = [(1, 2), (3, 4.5)]") == "(Int32, Float32)[]");
+    CHECK(probe("Local a = [(3, 4.5), (1, 2)]") == "(Int32, Float32)[]");
 
     CHECK(errors_of("Local a = []") ==
           errors_t{ "[]: an empty array needs a type from where it's used, like 'Local a: Int[] = "
