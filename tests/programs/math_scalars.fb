@@ -68,6 +68,12 @@ Print(SmoothStep(0, 1, t), SmoothStep(0.0, 1.0, -1.0), SmoothStep(0.0, 1.0, 2.0)
 Print(SmoothStep(2.0, 2.0, 1.0), SmoothStep(2.0, 2.0, 2.0), SmoothStep(1.0, 0.0, t))
 Print(Wrap(370, 0, 360), Wrap(-10, 0, 360), Wrap(360, 0, 360), Wrap(5, 5, 5), Wrap(3, 10, 5))
 Print(Wrap(370.0, 0.0, 360.0), Wrap(-1.0, 0.0, 360.0), Wrap(7.5, 2.0, 2.0), Wrap(Tau + 1, 0, Tau))
+// A hair below 0 wraps to low, not to high, which is left out, as Mod gives 0, not b; a 0 has b's
+// sign.
+Local hair: Float = -0.00001
+Print(Wrap(hair, 0.0, 360.0), Wrap(-0.0000001 As Float, 0.0, Tau), Wrap(-1e-20, 0.0, 360.0),
+      Mod(hair, 360.0), Mod(0.00001 As Float, -360.0), Wrap(0.00001 As Float, 360.0, 0.0))
+Print(Mod(-4.0, 2.0), Mod(4.0, -2.0), Mod(-0.0, 3.0), Wrap(-360.0, 0.0, 360.0))
 Print(PingPong(0, 2), PingPong(1, 2), PingPong(2, 2), PingPong(3, 2), PingPong(4, 2),
       PingPong(-1, 2))
 Print(PingPong(3.5, 2.0), PingPong(0.5, 2.0), PingPong(5.0, 0.0), PingPong(7, 0))
