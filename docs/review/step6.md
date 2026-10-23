@@ -4,7 +4,7 @@
 
 ## S6-string-1 (high): PadLeft, PadRight, and Center fill with U+0000 by default, not a space: an Extend Method's defaults are never used
 
-Status: open
+Status: fixed by step 5's 32f5f14f (an extend's methods keep their default values), sema's check_defaults() going into an Extend's members; e9bcbdc4 (an extend's defaults of each kind are tested, and padleft, padright, and center fill with a space) adds this step's tests: sema tests of a mistyped default and one that isn't known at compile time, tests/programs/extend_defaults.fb's Int, String, Bool, Char, Double, Enum, and Int64 defaults in Extends of String, a Struct, a generic Class, and T[], and text_strings.fb's pads, whose .out has no NUL now
 
 Where: std/text/string.fb:255
 
@@ -37,7 +37,7 @@ Skeptic: Ran strref/s1.fb in debug and --release. Both printed `[0, 0, 120] [120
 
 ## S6-unicode-1 (high): Encode, Decode, and DecodeAny can't be called off the main thread because Windows1252 is a mutable Global
 
-Status: open
+Status: fixed in db58d254 (windows-1252's table is a function, so encode, decode, and decodeany work on any thread), with tests/programs/text_encoding_threads.fb, which encodes and decodes, Windows-1252's every byte too, in Spawns
 
 Where: std/text/encoding.fb:26
 
@@ -64,7 +64,7 @@ Skeptic: I ran t1.fb, which calls Decode(..., UTF16_LE) in a Spawn. It doesn't b
 
 ## S6-char-1 (medium): A Char works as a fixed array's size, as if it were a number
 
-Status: open
+Status: fixed in 0f8c6664 (a char or an enum value isn't a fixed array's size), with a sema test of a Char literal, a Char Const, and an Enum value
 
 Where: compiler/src/sema.cpp:12086
 
@@ -90,7 +90,7 @@ Skeptic: I ran the finding's program (final/char-refute/c1.fb) and it printed "1
 
 ## S6-unicode-2 (medium): Html.Unescape panics on integer overflow for an 8-digit hex entity in debug, but not in release
 
-Status: open
+Status: fixed in edd96984 (html.unescape reads a number of any length without overflowing, and looks for an entity's ; only past its name, so its time grows with its text), with text_encoding.fb's &#x80000000;, &#xFFFFFFFF;, and numbers with leading zeros: past U+10FFFF it stops adding
 
 Where: std/text/encoding.fb:479
 
@@ -114,7 +114,7 @@ Skeptic: I ran Html.Unescape("&#x80000000;"). Debug panics with "panic: integer 
 
 ## S6-unicode-4 (medium): DisplayWidth gives 1 for emoji presentation sequences (a character plus U+FE0F), which terminals draw 2 wide
 
-Status: open
+Status: fixed in 2ac782f4 (displaywidth gives 2 to an emoji presentation sequence, and to a flag, but 1 to a lone regional indicator), with text_unicode.fb's heart, warning sign, keycap, and ZWJ sequence, each with U+FE0F, and what's 1 without it
 
 Where: runtime/src/unicode.cpp:275
 
@@ -147,7 +147,7 @@ Skeptic: Debug and release both print "1 1" four times, for the heart, the warni
 
 ## S6-unicode-5 (medium): Html.Unescape takes quadratic time when many '&' come before a ';'
 
-Status: open
+Status: fixed in edd96984 (html.unescape reads a number of any length without overflowing, and looks for an entity's ; only past its name, so its time grows with its text), with a test in std_tests.cpp that a release build unescapes 1.6 MB of bare "&" within 10 seconds (the old code took 39)
 
 Where: std/text/encoding.fb:341
 
@@ -173,7 +173,7 @@ Skeptic: I timed the release exes of the program at three sizes. 100000 repetiti
 
 ## S6-char-2 (low): The types and MIR dumps print a folded Char bare, and a control character raw
 
-Status: open
+Status: fixed in dcd3204b (the types and mir dumps show a folded char as a char literal shows), with a mir_tests and a dump_tests case: const_value's char_literal() is the rule the dump had for Char literals
 
 Where: compiler/src/mir.cpp:114
 
@@ -198,7 +198,7 @@ Skeptic: I ran `fb build --show types,mir --color never` on the finding's progra
 
 ## S6-char-3 (low): text_chars.fb labels decimal codes with the hex U+ prefix
 
-Status: open
+Status: fixed in cdf755c7 (text_chars and text_strings write code points in hex after their u+), and their .out files: "U+0061", "U+1F600"
 
 Where: tests/programs/text_chars.fb:9
 
@@ -221,7 +221,7 @@ Skeptic: I ran `Print("U+{'a'.Code} U+{'\u{1F600}'.Code}")` and it printed `U+97
 
 ## S6-string-10 (low): The done-when's 'each Method's tests include text beyond ASCII, combining marks, and emoji' isn't fully checked
 
-Status: open
+Status: fixed in d0d94b06 (scanner's last line keeps a \r at its end, a stringbuilder's [] past its end says its range, and text_builder's replace and takes see emoji and combining marks), and text_strings.fb's TrimStart and TrimEnd of a combining mark and an emoji
 
 Where: tests/programs/text_builder.fb:19
 
@@ -254,7 +254,7 @@ Skeptic: Ran strref/s10.fb, which printed False then False: by the time text_bui
 
 ## S6-string-2 (low): PadLeft, PadRight, and Center overflow on a width near Int's least, and debug and release differ
 
-Status: open
+Status: fixed in 628998cb (repeated, padleft, padright, and center panic at their caller past a string's most bytes, and a width near int's least gives the string), with text_strings.fb's pads at Int's least width
 
 Where: std/text/string.fb:256
 
@@ -280,7 +280,7 @@ Skeptic: Ran strref/s2.fb. Debug: `panic: integer overflow in '-' at std/text/st
 
 ## S6-string-3 (low): Split (and Replace) on a String of the most bytes overflows Length + 1 in debug
 
-Status: open
+Status: fixed in d352f911 (split counts no length + 1, so it splits a string of the most bytes), by hand: a test would need two 2 GiB Strings in a debug build, which CI can't hold, so the finding's program was run, and printed 2147483647 and 1
 
 Where: std/text/string.fb:155
 
@@ -308,7 +308,7 @@ Skeptic: Ran strref/s3.fb. Debug printed 2147483647, then `panic: integer overfl
 
 ## S6-string-4 (low): Repeated on an empty String loops count times: "".Repeated(2147483647) takes about a minute
 
-Status: open
+Status: fixed in 8c214558 (repeated makes an empty string at once, however many times), with a test in std_tests.cpp that "".Repeated(2147483647) takes under 10 seconds (the old code took 58)
 
 Where: runtime/src/text.cpp:135
 
@@ -332,7 +332,7 @@ Skeptic: Ran strref/s4.fb, `"".Repeated(2147483647)` in debug. It printed `[]` a
 
 ## S6-string-5 (low): ToLower's final sigma doesn't follow Unicode's Final_Sigma: Cased and Case_Ignorable are incomplete
 
-Status: open
+Status: fixed in 49532956 (tolower's final sigma counts unicode's other cased characters and every script's case-ignorable apostrophes, periods, and colons), with text_strings.fb's eight final sigmas, as Python 3.12 lowers them
 
 Where: runtime/src/unicode.cpp:71
 
@@ -366,7 +366,7 @@ Skeptic: Ran strref/s5.fb. FB printed False False False True True. Python 3.12.1
 
 ## S6-string-6 (low): Scanner.TakeLine drops a "\r" at the end of Text that no "\n" follows
 
-Status: open
+Status: fixed in d0d94b06 (scanner's last line keeps a \r at its end, a stringbuilder's [] past its end says its range, and text_builder's replace and takes see emoji and combining marks), with text_builder.fb's "key\r", "a\rb\r", and "one\r\n"
 
 Where: std/text/scanner.fb:103
 
@@ -391,7 +391,7 @@ Skeptic: Ran strref/s6.fb. `Scanner("key\r").TakeLine()` gave Length 3, not 4. `
 
 ## S6-string-7 (low): Count("") panics with FindAll's name
 
-Status: open
+Status: fixed in 46f0ecb5 (count's panic at an empty string to look for names count), with tests/programs/panic_text_count.fb
 
 Where: std/text/string.fb:117
 
@@ -415,7 +415,7 @@ Skeptic: Ran strref/s7.fb and got `panic: FindAll takes a String to look for tha
 
 ## S6-string-8 (low): StringBuilder's [] past its Length says the range is 0 to the Length, which [] itself rejects
 
-Status: open
+Status: fixed in d0d94b06 (scanner's last line keeps a \r at its end, a stringbuilder's [] past its end says its range, and text_builder's replace and takes see emoji and combining marks), with tests/programs/panic_text_builder_past.fb
 
 Where: std/text/builder.fb:138
 
@@ -439,7 +439,7 @@ Skeptic: Ran strref/s8.fb, StringBuilder("é😀")[7], and got `panic: [] takes 
 
 ## S6-string-9 (low): Repeated's String-cap panic has no place, though Repeated is @PanicsAtCaller, and a test expects that
 
-Status: open
+Status: fixed in 628998cb (repeated, padleft, padright, and center panic at their caller past a string's most bytes, and a width near int's least gives the string), with panic_string_too_long.out, which has its place: Repeated checks the most a String holds before the runtime does
 
 Where: runtime/src/text.cpp:130
 
@@ -463,7 +463,7 @@ Skeptic: Ran strref/s9.fb and got `panic: a String holds at most 2147483647 byte
 
 ## S6-unicode-10 (low): stdlib.md lists utf8proc's license as MIT only, while the build and the driver also name the Unicode license
 
-Status: open
+Status: fixed in f4ef9951 (escape's docs say it writes futureblitz's string escapes, which c reads differently, and stdlib.md names both of utf8proc's licenses)
 
 Where: docs/stdlib.md:128
 
@@ -486,7 +486,7 @@ Skeptic: Building any program that uses utf8proc prints "Bundled utf8proc 2.12.0
 
 ## S6-unicode-3 (low): Base64.Decode and Base32.Decode accept '=' padding beyond what fills the last group
 
-Status: open
+Status: fixed in 750b9a6b (base64 and base32 take only as many = as fill out a last group that isn't whole), with text_encoding.fb's cases of too many and too few "="
 
 Where: std/text/encoding.fb:582
 
@@ -515,7 +515,7 @@ Skeptic: Debug and release both print "[104, 105] [104, 105, 33] []" and "[104, 
 
 ## S6-unicode-6 (low): A lone regional indicator is 1 column as a Char but 2 as a String
 
-Status: open
+Status: fixed in 2ac782f4 (displaywidth gives 2 to an emoji presentation sequence, and to a flag, but 1 to a lone regional indicator), with text_unicode.fb's lone regional indicator, as a Char and a String
 
 Where: runtime/src/unicode.cpp:274
 
@@ -540,7 +540,7 @@ Skeptic: Debug and release both print "1 2". The String overload forces width 2 
 
 ## S6-unicode-7 (low): ToLower's final-sigma rule misses some Case_Ignorable and Cased characters
 
-Status: open
+Status: fixed in 49532956 (tolower's final sigma counts unicode's other cased characters and every script's case-ignorable apostrophes, periods, and colons), with S6-string-5's cases, which hold these three
 
 Where: runtime/src/unicode.cpp:80
 
@@ -564,7 +564,7 @@ Skeptic: The program prints "α·σ ας·β ⅰσ". Python (Unicode 15) gives U
 
 ## S6-unicode-8 (low): Escape's doc says it writes a C string literal's contents, but C reads its output differently
 
-Status: open
+Status: fixed in f4ef9951 (escape's docs say it writes futureblitz's string escapes, which c reads differently, and stdlib.md names both of utf8proc's licenses), and stdlib.md's "C-style"
 
 Where: std/text/encoding.fb:359
 
@@ -588,7 +588,7 @@ Skeptic: The program prints "\x07A \01 \u{85}". Escape's doc (encoding.fb:359) a
 
 ## S6-unicode-9 (low): Html.Escape, Html.Unescape, and Escape have no test with a combining mark
 
-Status: open
+Status: fixed in ff0b4e0a (html's escaping, escape, and isnormalized are tested with combining marks and emoji)
 
 Where: tests/programs/text_encoding.fb:89
 
