@@ -372,7 +372,7 @@ TEST_CASE("an array grows, and its elements move to make room", "[runtime]") {
     fb_array_t* array = fb_array_new(&type, size, 0);
     CHECK(array->count == 0);
     for (std::int64_t i = 0; i < 10; ++i) {
-        store(fb_array_push(array, size), i);
+        store(fb_array_push(array, size, nullptr), i);
     }
 
     CHECK(array->count == 10);
@@ -398,7 +398,7 @@ TEST_CASE("an array's capacity stops at the most an Int counts", "[runtime]") {
     // Elements that take no bytes, like an empty Struct's, need no memory however many there are.
     fb_class_t type = numbers_class();
     fb_array_t* array = fb_array_new(&type, 0, INT32_MAX - 1);
-    fb_array_push(array, 0);
+    fb_array_push(array, 0, nullptr);
     CHECK(array->count == INT32_MAX);
     CHECK(array->capacity == INT32_MAX);
     fb_object_release(&array->header);
@@ -520,7 +520,7 @@ TEST_CASE("std.text's bytes are a String only when they're well-formed UTF-8", "
     fb_string_t* comma = fb_string_from_cstring(", ");
     CHECK(take(fb_text_join(parts, comma)).empty());
     for (int i = 0; i < 3; ++i) {
-        *static_cast<fb_string_t**>(fb_array_push(parts, sizeof(fb_string_t*))) = text;
+        *static_cast<fb_string_t**>(fb_array_push(parts, sizeof(fb_string_t*), nullptr)) = text;
     }
 
     CHECK(take(fb_text_join(parts, comma)) ==

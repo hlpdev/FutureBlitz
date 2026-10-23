@@ -329,8 +329,9 @@ struct fb_array_t {
 /// A new array of `type` with `count` elements of `element_size` bytes, all zero bytes, which
 /// compiled code sets next.
 fb_array_t* fb_array_new(fb_class_t* type, std::int64_t element_size, std::int64_t count);
-/// Makes room for one more element at the end, and returns where compiled code stores it.
-void* fb_array_push(fb_array_t* array, std::int64_t element_size);
+/// Makes room for one more element at the end, and returns where compiled code stores it. Past
+/// the most an array holds, it panics at `location`, or with no place when that's null.
+void* fb_array_push(fb_array_t* array, std::int64_t element_size, const fb_location_t* location);
 /// Makes room for one more element at `index`, moving the ones from there up, and returns
 /// where compiled code stores it. Panics at `location` unless `index` is from 0 to the count.
 void* fb_array_insert(fb_array_t* array, std::int64_t element_size, std::int64_t index,

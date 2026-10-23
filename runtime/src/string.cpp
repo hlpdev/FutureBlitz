@@ -364,14 +364,14 @@ void fb_string_chars(const fb_string_t* string, fb_array_t* into) {
     for (std::size_t i = 0; i < text.size();) {
         const decoded_t decoded = decode(text, i);
         const std::uint32_t value = decoded.point;
-        std::memcpy(fb_array_push(into, sizeof value), &value, sizeof value);
+        std::memcpy(fb_array_push(into, sizeof value, nullptr), &value, sizeof value);
         i += decoded.length;
     }
 }
 
 void fb_string_bytes(const fb_string_t* string, fb_array_t* into) {
     for (const char byte : std::string_view(bytes_of(string), size_of(string))) {
-        *static_cast<char*>(fb_array_push(into, 1)) = byte;
+        *static_cast<char*>(fb_array_push(into, 1, nullptr)) = byte;
     }
 }
 
