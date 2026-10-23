@@ -71,6 +71,29 @@ TEST_CASE("a Const Function past a limit points at where it got to", "[evaluate]
               "Big(40): 'Big' can't run at compile time: it holds more than 256 MiB",
               "here: s + s",
           });
+
+    // Before any call or operation, a Local's declaration, or else the function, is where it is.
+    CHECK(errors_of("Const Function Huge(): Int\n"
+                    "    Local cells: Int64[40000000]\n"
+                    "    Return 1\n"
+                    "End Function\n"
+                    "Const X = Huge()") ==
+          errors_t{
+              "Huge(): 'Huge' can't run at compile time: it holds more than 256 MiB",
+              "here: Local cells: Int64[40000000]",
+          });
+    CHECK(errors_of("Const Function Spin(): Int\n"
+                    "    Local x = 0\n"
+                    "    While True\n"
+                    "        x = 1\n"
+                    "    End While\n"
+                    "    Return x\n"
+                    "End Function\n"
+                    "Const X = Spin()") ==
+          errors_t{
+              "Spin(): 'Spin' can't run at compile time: it runs more than 10000000 steps",
+              "here: Spin",
+          });
 }
 
 TEST_CASE("calls just short of the depth limit run", "[evaluate]") {

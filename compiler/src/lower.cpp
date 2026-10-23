@@ -719,6 +719,7 @@ private:
             .is_inline = symbol.modifiers.is_inline,
             .panics_at_caller = symbol.modifiers.panics_at_caller,
             .is_async = symbol.modifiers.is_async,
+            .span = symbol.span,
         };
         // An Extern Function is only its parameters, under its C symbol. C gives a String's text
         // as a CString, which the call copies.
@@ -872,6 +873,7 @@ private:
             .is_inline = symbol.modifiers.is_inline,
             .panics_at_caller = symbol.modifiers.panics_at_caller,
             .is_async = symbol.modifiers.is_async,
+            .span = symbol.span,
         });
         m_instances.emplace(key, function);
         m_instance_origins.emplace(function, origin);
@@ -2504,11 +2506,11 @@ private:
     }
 
     /// What a variable holds before it's assigned. The zero of a Struct, tuple, Mutex, Class, or
-    /// array needs a temporary, and a T?'s is Null.
-    operand_t zero_value(const type_id_t type) {
+    /// array needs a temporary, and a T?'s is Null. `span` is the Local's declaration.
+    operand_t zero_value(const type_id_t type, const span_t span = {}) {
         if (has_fields(type) || is_object(type) || is_array(type) || is_fixed_array(type) ||
             types().get(type).kind == type_kind_t::MUTEX) {
-            return temporary(zero_t{ .type = type }, type, has_references(type));
+            return temporary(zero_t{ .type = type, .span = span }, type, has_references(type));
         }
 
         // A Weak<T>'s refers to nothing.
@@ -3362,7 +3364,7 @@ private:
         finish_statement();
     }
 
-    void lower_stmt(const stmt_id_t id, span_t /*span*/, const variable_stmt_t& node) {
+    void lower_stmt(const stmt_id_t id, const span_t span, const variable_stmt_t& node) {
         const symbol_id_t symbol_id = expect(m_analysis.stmt(id).symbol);
         const symbol_t& symbol = m_analysis.symbol(symbol_id);
         if (symbol.kind == symbol_kind_t::CONSTANT && symbol.value) {
@@ -3370,7 +3372,7 @@ private:
         }
 
         const operand_t value =
-            node.value ? lower_value(*node.value) : zero_value(concrete(symbol.type));
+            node.value ? lower_value(*node.value) : zero_value(concrete(symbol.type), span);
         const place_t variable = new_variable(symbol_id);
         take(value);
         emit(assign_t{ .target = variable, .value = use_t{ .value = value } });

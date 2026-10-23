@@ -81,8 +81,17 @@ private:
     std::vector<frame_t> m_frames;
     std::uint64_t m_steps = 0;
     /// Where in the code the run is, as near as MIR says: the last call or operation it reached
-    /// that has a place, which a limit's error points at.
+    /// that has a place, or Local it made, which a limit's error points at.
     std::optional<span_t> m_at;
+
+    /// Where a limit's error points: where the run is, or else the function it's in.
+    [[nodiscard]] std::optional<span_t> limit_place() const {
+        if (m_at || m_frames.empty() || m_frames.back().function->span.empty()) {
+            return m_at;
+        }
+
+        return m_frames.back().function->span;
+    }
 
     void reach(const span_t span) {
         if (!span.empty()) {
@@ -126,7 +135,8 @@ private:
     }
 
     [[nodiscard]] std::unexpected<evaluation_error_t> too_much() const {
-        return failure(std::format("it holds more than {} MiB", max_held / mebibyte), m_at);
+        return failure(std::format("it holds more than {} MiB", max_held / mebibyte),
+                       limit_place());
     }
 
     /// A variable takes a value, which it holds from now on.
@@ -148,7 +158,7 @@ private:
     result_t run() {
         while (true) {
             if (++m_steps > max_steps) {
-                return failure(std::format("it runs more than {} steps", max_steps), m_at);
+                return failure(std::format("it runs more than {} steps", max_steps), limit_place());
             }
 
             frame_t& frame = m_frames.back();
@@ -225,7 +235,7 @@ private:
         }
 
         if (m_frames.size() >= max_depth) {
-            return failure(std::format("its calls go more than {} deep", max_depth), m_at);
+            return failure(std::format("its calls go more than {} deep", max_depth), limit_place());
         }
 
         frame_t callee = frame_of(call.function);
@@ -367,6 +377,7 @@ private:
         }
 
         if (const auto* zero = std::get_if<zero_t>(&value)) {
+            reach(zero->span);
             return zero_of(zero->type);
         }
 
