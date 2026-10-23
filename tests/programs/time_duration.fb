@@ -1,0 +1,67 @@
+// std.time's Duration: the numbers' units, with a literal's Seconds and the rest after its dot,
+// arithmetic, rounding, and ToString and Parse, which match Go's String and ParseDuration on
+// Go's own test cases.
+
+Import std.core
+Import std.time
+
+// The units, on literals of every kind and on variables.
+Print(2.Seconds, 1.5.Minutes, 500.Milliseconds, 3.Hours, 2.Days, 7.Microseconds, 9.Nanoseconds)
+Print(5_000_000_000.Nanoseconds, (-3).Seconds, -3.Seconds, 0.25.Hours, 1e3.Milliseconds)
+Local small: UInt8 = 250
+Local big: Int64 = 100000
+Local half: Float = 0.5
+Print(small.Milliseconds, big.Hours, half.Seconds, (40 As Int16).Minutes, (7 As UInt64).Days)
+// A fraction rounds to the nearest nanosecond, ties to even.
+Print(1.5.Nanoseconds.Nanoseconds, 2.5.Nanoseconds.Nanoseconds, 0.1.Microseconds,
+      1.0000000004.Seconds.Nanoseconds)
+
+// Arithmetic.
+Local d = 2.Seconds + 500.Milliseconds
+Print(d, d - 3.Seconds, -d, d * 3, 3 * d, d * 1.5, 0.5 * d, d / 2, d / 0.5)
+Print(1.Hours / 1.Minutes, 90.Seconds / 1.Minutes, 7.Seconds % 2.Seconds, (-7).Seconds % 2.Seconds)
+Print(d * (4 As Int64), (4 As Int64) * d, d / (5 As Int64))
+Print(d < 3.Seconds, d > 3.Seconds, d == 2500.Milliseconds, d != 2500.Milliseconds, d <= d)
+Print(Min(1.Hours, 59.Minutes), Max(1.Hours, 59.Minutes), Clamp(5.Hours, 1.Hours, 2.Hours))
+
+// Its parts.
+Print(d.Nanoseconds, d.TotalMilliseconds, d.TotalSeconds, 90.Seconds.TotalMinutes,
+      36.Hours.TotalDays)
+Print(1500.Nanoseconds.TotalMicroseconds, 30.Minutes.TotalHours, d.IsZero, Duration.Zero().IsZero)
+Print((-d).IsNegative, d.IsNegative, (-d).Abs(), Duration.FromNanoseconds(42))
+Print(Duration.DefaultValue(), Duration.MaxValue(), Duration.MinValue())
+Print(d.Hash() == 2500.Milliseconds.Hash(), d.Hash() == 2501.Milliseconds.Hash())
+
+// Rounding: away from 0 for a half, and to the longest Durations past them.
+Local unit = 1.Hours
+Print(90.Minutes.Round(unit), (-90).Minutes.Round(unit), 89.Minutes.Round(unit),
+      1.Seconds.Round(unit))
+Print(75.Minutes.Truncate(unit), (-75).Minutes.Truncate(unit), d.Round(Duration.Zero()),
+      d.Truncate(-unit))
+Print(Duration.MaxValue().Round(unit), Duration.MinValue().Round(unit),
+      Duration.MaxValue().Round(3.Nanoseconds))
+Print(1234567.Nanoseconds.Round(1.Milliseconds), 1234567.Nanoseconds.Truncate(1.Microseconds))
+
+// Go's String cases.
+Print(0.Seconds, 1.Nanoseconds, 1100.Nanoseconds, 2200.Microseconds, 3300.Milliseconds)
+Print(4.Minutes + 5.Seconds, 4.Minutes + 5001.Milliseconds, 5.Hours + 6.Minutes + 7001.Milliseconds)
+Print(8.Minutes + 1.Nanoseconds, Duration.MaxValue(), Duration.MinValue(), (-1).Nanoseconds)
+
+// Go's ParseDuration cases, and what it rejects.
+For text In ["0", "5s", "30s", "1478s", "-5s", "+5s", "-0", "+0", "5.0s", "5.6s", "5.s", ".5s",
+             "1.0s", "1.00s", "1.004s", "1.0040s", "100.00100s", "10ns", "11us", "12µs", "12μs",
+             "13ms", "14s", "15m", "16h", "3h30m", "10.5s4m", "-2m3.4s", "1h2m3s4ms5us6ns",
+             "39h9m14.425s", "52763797000ns", "0.3333333333333333333h", "9007199254740993ns",
+             "9223372036854775807ns", "9223372036854775.807us", "9223372036s854ms775us807ns",
+             "-9223372036854775808ns", "-9223372036854775.808us", "-9223372036s854ms775us808ns",
+             "-2562047h47m16.854775808s", "0.100000000000000000000h", "0.830103483285477580700h",
+             "1.00000000000000000000000000000000000000001s"]
+    Local parsed = Duration.Parse(text)
+    Print("{text} -> {parsed == Null ? "Null" : "{parsed} ({parsed.Nanoseconds})"}")
+End For
+
+For text In ["", "3", "-", "s", ".", "-.", ".s", "+.s", "1d", "1.5", "5s5", "hello",
+             "9223372036854775808ns", "9223372036854775.808us", "-9223372036854775809ns",
+             "3000000h", "1h 2m"]
+    Print("[{text}] -> {Duration.Parse(text) == Null ? "Null" : "parsed"}")
+End For

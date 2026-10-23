@@ -1,0 +1,6 @@
+// Dividing by 0 panics, by a whole number as by a Double.
+Import std.core
+Import std.time
+
+Print(1.Hours / 4)
+Print(1.Hours / 0)

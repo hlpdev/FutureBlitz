@@ -1,0 +1,6 @@
+// By a Double of 0.
+Import std.core
+Import std.time
+
+Print(1.Hours / 0.5)
+Print(1.Hours / 0.0)

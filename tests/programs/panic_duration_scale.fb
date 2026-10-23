@@ -1,0 +1,6 @@
+// And scaling one past the longest, by a whole number.
+Import std.core
+Import std.time
+
+Print(1.Hours * 3)
+Print(1.Hours * 3000000)

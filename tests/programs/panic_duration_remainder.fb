@@ -1,0 +1,6 @@
+// % by a Duration of 0 panics too.
+Import std.core
+Import std.time
+
+Print(7.Seconds % 2.Seconds)
+Print(7.Seconds % Duration.Zero())

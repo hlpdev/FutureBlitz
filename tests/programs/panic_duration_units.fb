@@ -1,0 +1,6 @@
+// A number's Days past the longest Duration panics where it's written.
+Import std.core
+Import std.time
+
+Print(106751.Days)
+Print(106752.Days)

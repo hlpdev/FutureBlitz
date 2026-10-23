@@ -1,0 +1,6 @@
+// And by a Duration of 0.
+Import std.core
+Import std.time
+
+Print(1.Hours / 1.Minutes)
+Print(1.Hours / Duration.Zero())

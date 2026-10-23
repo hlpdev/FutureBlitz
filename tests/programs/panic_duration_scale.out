@@ -1,0 +1,2 @@
+3h0m0s
+panic: integer overflow in '*' at panic_duration_scale.fb:6:7

@@ -150,16 +150,25 @@ Public Struct Duration Implements Comparable, Hashable, Printable, Defaultable
             End While
 
             Local fraction: UInt64 = 0
-            Local scale = 1.0
+            Local scale: Double = 1.0
             Local fractionDigits = 0
+            Local full = False
             If at < chars.Count && chars[at] == '.'
                 at += 1
                 While at < chars.Count && IsDigit(chars[at])
-                    // Digits past what a UInt64 holds are too small to count.
-                    If fraction < 922337203685477580
-                        fraction = fraction * 10 + ((chars[at] - '0') As UInt64)
-                        scale *= 10.0
+                    // Digits past what an Int64 holds are too small to count, as Go has it.
+                    If !full && fraction <= 922337203685477580
+                        Local next = fraction * 10 + ((chars[at] - '0') As UInt64)
+                        If next <= 9223372036854775808
+                            fraction = next
+                            scale *= 10.0
+                        Else
+                            full = True
+                        End If
+                    Else
+                        full = True
                     End If
+
                     fractionDigits += 1
                     at += 1
                 End While
@@ -200,15 +209,23 @@ Public Struct Duration Implements Comparable, Hashable, Printable, Defaultable
 
     Operator <(a: Duration, b: Duration): Bool => a.Count < b.Count
 
+    // Sums and differences, which panic past the longest Durations, as an Int64's overflow does.
+    @PanicsAtCaller
     Operator +(a: Duration, b: Duration): Duration => Duration(a.Count + b.Count)
+    @PanicsAtCaller
     Operator -(a: Duration, b: Duration): Duration => Duration(a.Count - b.Count)
+    @PanicsAtCaller
     Operator -(a: Duration): Duration => Duration(-a.Count)
 
     // Scaled by a whole number, exactly, or by a Double, rounded to the nearest nanosecond. One
     // longer than a Duration holds panics, as an Int64's overflow does.
+    @PanicsAtCaller
     Operator *(a: Duration, b: Int32): Duration => Duration(a.Count * b)
+    @PanicsAtCaller
     Operator *(a: Duration, b: Int64): Duration => Duration(a.Count * b)
+    @PanicsAtCaller
     Operator *(a: Int32, b: Duration): Duration => Duration(a * b.Count)
+    @PanicsAtCaller
     Operator *(a: Int64, b: Duration): Duration => Duration(a * b.Count)
     @PanicsAtCaller
     Operator *(a: Duration, b: Double): Duration => Rounded((a.Count As Double) * b)
@@ -218,7 +235,9 @@ Public Struct Duration Implements Comparable, Hashable, Printable, Defaultable
     // Divided by a whole number, rounded toward 0, or by a Double, to the nearest nanosecond; or
     // by another Duration, as how many of it fit, with a fraction. Dividing by 0 panics, as an
     // Int's / does.
+    @PanicsAtCaller
     Operator /(a: Duration, b: Int32): Duration => Duration(a.Count / b)
+    @PanicsAtCaller
     Operator /(a: Duration, b: Int64): Duration => Duration(a.Count / b)
     @PanicsAtCaller
     Operator /(a: Duration, b: Double): Duration
@@ -232,7 +251,8 @@ Public Struct Duration Implements Comparable, Hashable, Printable, Defaultable
         Return (a.Count As Double) / (b.Count As Double)
     End Operator
 
-    // What's left of a over b, with a's sign, as an Int's % has.
+    // What's left of a over b, with a's sign, as an Int's % has, which panics for a b of 0.
+    @PanicsAtCaller
     Operator %(a: Duration, b: Duration): Duration => Duration(a.Count % b.Count)
 End Struct
 

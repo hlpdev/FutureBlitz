@@ -1,0 +1,6 @@
+// MinValue's Duration has no Abs that fits, as an Int64's -MinValue doesn't.
+Import std.core
+Import std.time
+
+Print((-5).Seconds.Abs())
+Print(Duration.MinValue().Abs())

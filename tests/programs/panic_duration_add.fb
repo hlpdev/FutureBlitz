@@ -1,0 +1,6 @@
+// A sum past the longest Duration panics where it's added, as an Int64's does.
+Import std.core
+Import std.time
+
+Print(Duration.MaxValue() - 1.Seconds + 1.Seconds)
+Print(Duration.MaxValue() + 1.Nanoseconds)

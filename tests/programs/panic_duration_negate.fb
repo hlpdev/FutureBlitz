@@ -1,0 +1,6 @@
+// So does negating the shortest.
+Import std.core
+Import std.time
+
+Print(-Duration.MaxValue())
+Print(-Duration.MinValue())
