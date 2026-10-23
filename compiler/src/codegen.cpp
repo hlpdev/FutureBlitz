@@ -1094,8 +1094,8 @@ private:
     }
 
     /// An Extern Function's declaration under its symbol, which the runtime or C code defines,
-    /// or the one the runtime's functions have already. C's convention extends small integers
-    /// and Bools, as clang does.
+    /// or the one the runtime's functions have already. Both conventions extend small integers
+    /// and Bools as clang does, since the runtime is C code built for the target too.
     function_ref_t declare_extern(const mir_function_t& function, const mir_extern_t& external) {
         const bool structs =
             external.c_abi &&
@@ -1121,12 +1121,10 @@ private:
         }
 
         LLVMValueRef value = LLVMAddFunction(m_module.get(), external.symbol.c_str(), type);
-        if (external.c_abi) {
-            extend_for_c(value, 0, function.return_type);
-            for (std::size_t i = 0; i < function.parameter_count; ++i) {
-                if (!function.locals[i].by_ref) {
-                    extend_for_c(value, static_cast<unsigned>(i + 1), function.locals[i].type);
-                }
+        extend_for_c(value, 0, function.return_type);
+        for (std::size_t i = 0; i < function.parameter_count; ++i) {
+            if (!function.locals[i].by_ref) {
+                extend_for_c(value, static_cast<unsigned>(i + 1), function.locals[i].type);
             }
         }
 

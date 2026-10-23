@@ -325,6 +325,32 @@ TEST_CASE("C's Bools and small integers are extended where the target's C ABI ha
               .starts_with("define internal i1 @\"fb.callback.Flip(Bool, Int8)\"(i1 %0, i8 %1)"));
 }
 
+TEST_CASE("the runtime's Extern Functions extend small integers as C does", "[c_abi]") {
+    // The runtime is C code built for the target, like std.ffi's Mem.Fill's fb_mem_fill.
+    const std::vector<fb::library_file_t> files =
+        fb::standard_library().value_or(std::vector<fb::library_file_t>{});
+    const fb::compilation_t compilation = fb::compile("main.fb",
+                                                      "Import std.ffi\n"
+                                                      "Unsafe\n"
+                                                      "    Local memory = Mem.Alloc(16)\n"
+                                                      "    Mem.Fill(memory, 200, 16)\n"
+                                                      "    Mem.Free(memory)\n"
+                                                      "End Unsafe\n",
+                                                      files);
+    REQUIRE_FALSE(compilation.diagnostics.has_errors());
+    const fb::mir_module_t module = fb::lower(compilation.ast, compilation.analysis);
+    const auto ir = [&](const std::string_view triple) {
+        return fb::emit_ir(module, compilation.sources, compilation.file,
+                           { .target_triple = std::string(triple) })
+            .value_or("");
+    };
+
+    const std::string_view extended = "declare void @fb_mem_fill(ptr, i8 zeroext, i64)";
+    CHECK(ir("x86_64-unknown-linux-gnu").contains(extended));
+    CHECK(ir("arm64-apple-macosx14.0.0").contains(extended));
+    CHECK(ir("x86_64-w64-windows-gnu").contains("declare void @fb_mem_fill(ptr, i8, i64)"));
+}
+
 TEST_CASE("an Extern Function keeps its symbol, whatever codegen calls its own constants",
           "[c_abi]") {
     // A String's literal, a panic's message and place, and the Classes' list are "fb." names,

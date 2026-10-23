@@ -474,8 +474,9 @@ struct basic_block_t {
 /// An Extern Function, which C code or the runtime defines: its symbol, and how it's called.
 struct mir_extern_t {
     std::string symbol;
-    /// C's convention takes and gives its values, which extends small integers and Bools. The
-    /// runtime's take them as compiled code holds them.
+    /// C's convention takes and gives its values as C has them: Structs by the target's C ABI,
+    /// and a String it gives as a CString, which the call copies. The runtime's take and give
+    /// them as compiled code holds them. Both extend small integers and Bools as C does.
     bool c_abi = true;
 };
 
