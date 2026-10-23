@@ -288,6 +288,14 @@ TEST_CASE("function pointers become Callbacks", "[bindgen]") {
           "    // skipped: log_all, which takes a callback that takes varargs\n"
           "End Extern\n");
 
+    // An array of callbacks that give something has them in parentheses, or what they gave
+    // would be the array; one of callbacks that give nothing needs none.
+    CHECK(module_of("struct pipeline { long (*steps[3])(long value); void (*done[2])(int); };\n") ==
+          "@CLayout Public Struct pipeline\n"
+          "    Public Field steps: (Callback(CLong): CLong)[3]\n"
+          "    Public Field done: Callback(Int32)[2]\n"
+          "End Struct\n");
+
     // A parameter declared as a function is a pointer to one, as C passes it, written so or
     // through a typedef, and in a callback, and a callback's in a field.
     CHECK(

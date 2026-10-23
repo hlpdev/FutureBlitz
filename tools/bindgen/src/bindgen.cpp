@@ -1468,7 +1468,10 @@ private:
             return std::unexpected(std::format("an array of {}", element.error()));
         }
 
-        std::string text = *element + "[";
+        // A Callback that gives something goes in parentheses, as `(Callback(CLong): CLong)[3]`,
+        // since without them the array would be what it gives.
+        const bool gives = element->starts_with("Callback(") && element->contains("): ");
+        std::string text = (gives ? "(" + *element + ")" : *element) + "[";
         for (std::size_t i = 0; i < sizes.size(); ++i) {
             text += std::format("{}{}", i > 0 ? ", " : "", sizes[i]);
         }
