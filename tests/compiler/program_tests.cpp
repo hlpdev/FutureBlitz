@@ -641,3 +641,32 @@ TEST_CASE("an Event's Clear takes out all its handlers at once", "[programs]") {
     CHECK(result->exit_code == 0);
     CHECK(took < std::chrono::seconds(10));
 }
+
+TEST_CASE("a ZipWriter takes time in proportion to the zip's size", "[programs]") {
+    // A zip of 128 MiB, stored, grown 64 KiB at a time, copies what it has each time, for about
+    // 20 seconds; grown as a vector does, it takes under one.
+    const fb::compilation_t compilation =
+        fb::compile("main.fb",
+                    "Import std.core\n"
+                    "Import std.collections\n"
+                    "Import std.compress\n"
+                    "Local data: UInt8[] = []\n"
+                    "data.Resize(128 * 1024 * 1024, 7)\n"
+                    "Local writer = ZipWriter()\n"
+                    "writer.Add(\"big.bin\", data, ZipMethod.STORE)\n"
+                    "Print(writer.Finish().Count > data.Count)\n",
+                    fb::standard_library().value_or(std::vector<fb::library_file_t>{}));
+    REQUIRE_FALSE(compilation.diagnostics.has_errors());
+    std::filesystem::path program = std::filesystem::path(FB_TEST_OUTPUT) / "zip_large";
+    program += fb::executable_extension;
+    const fb::mir_module_t module = fb::lower(compilation.ast, compilation.analysis);
+    REQUIRE(fb::build_program(module, compilation, program, fb::build_mode_t::DEBUG));
+
+    const auto start = std::chrono::steady_clock::now();
+    const std::expected<fb::process_result_t, std::string> result = fb::run_process(program, {});
+    const std::chrono::steady_clock::duration took = std::chrono::steady_clock::now() - start;
+    REQUIRE(result);
+    CHECK(result->output == "True\n");
+    CHECK(result->exit_code == 0);
+    CHECK(took < std::chrono::seconds(8));
+}
