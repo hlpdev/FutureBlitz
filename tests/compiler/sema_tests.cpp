@@ -1012,6 +1012,19 @@ TEST_CASE("Structs compare with == and != only", "[sema]") {
           errors_t{ "P() == Q(): '==' can't combine P and Q" });
     CHECK(errors_of(with_point("Local p = P()\nPrint(\"{p}\")")) ==
           errors_t{ "p: P can't be shown in a string; implement Printable, with a ToString" });
+
+    // One can hold an array of itself, which compares element by element.
+    CHECK(probe("Struct Node\n"
+                "    Field children: Node[]\n"
+                "End Struct\n"
+                "Local same = Node([]) == Node([Node([])])") == "Bool");
+    CHECK(errors_of("Struct Node\n"
+                    "    Field f: Func(): Int\n"
+                    "    Field children: Node[]\n"
+                    "End Struct\n"
+                    "Local same = Node(Function() => 1, []) == Node(Function() => 1, [])") ==
+          errors_t{ "Node(Function() => 1, []) == Node(Function() => 1, []): '==' can't be used "
+                    "on Node" });
 }
 
 TEST_CASE("New", "[sema]") {

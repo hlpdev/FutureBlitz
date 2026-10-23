@@ -10366,8 +10366,21 @@ private:
         return m_analysis.types.get(type).inner;
     }
 
-    /// Whether == works on a type: not on arrays, or a Struct, tuple, or T? holding one.
+    /// Whether == works on a type: not on Interfaces, Weak<T>s, Funcs, or CStrings, or a Struct,
+    /// tuple, array, or T? holding one.
     [[nodiscard]] bool comparable(const type_id_t type) const {
+        std::vector<type_id_t> seen;
+        return comparable(type, seen);
+    }
+
+    /// The same, where a Struct can hold an array of itself: one being looked at already is
+    /// comparable unless something else in it isn't.
+    [[nodiscard]] bool comparable(const type_id_t type, std::vector<type_id_t>& seen) const {
+        if (std::ranges::contains(seen, type)) {
+            return true;
+        }
+
+        seen.push_back(type);
         // A type parameter compares with the Operator == its constraints give, if they give one.
         if (is_parameter(type)) {
             return unknown_bounds(type) || !operators_of(type, "==").empty();
@@ -10375,7 +10388,7 @@ private:
 
         // An array compares its elements.
         if (is_any_array(type)) {
-            return comparable(element_of(type));
+            return comparable(element_of(type), seen);
         }
 
         // A Weak<T> compares what it reads, a T?, but one inside a Struct would compare the
@@ -10386,7 +10399,7 @@ private:
         }
 
         if (is_nullable(type)) {
-            return comparable(non_null(type));
+            return comparable(non_null(type), seen);
         }
 
         // An instance without the Operator == a Where line makes conditional compares the
@@ -10398,8 +10411,9 @@ private:
         }
 
         return (!is_struct(type) && !is_tuple(type)) ||
-               std::ranges::all_of(m_analysis.types.get(type).fields,
-                                   [this](const field_t& field) { return comparable(field.type); });
+               std::ranges::all_of(m_analysis.types.get(type).fields, [&](const field_t& field) {
+                   return comparable(field.type, seen);
+               });
     }
 
     /// Whether a value can be shown in a string: a built-in type's or an Enum's, a tuple's or
