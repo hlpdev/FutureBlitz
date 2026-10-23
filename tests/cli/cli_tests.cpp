@@ -679,12 +679,17 @@ TEST_CASE("a program's input goes in while its output comes out, however much of
 #ifndef _WIN32
 TEST_CASE("a program that reads stdin leaves it as it was, for what else reads it", "[cli]") {
     // A pipe's read end is the shell's too, which a non-blocking one would break. That holds
-    // however the program ends: normally, with a panic, or with an error it lets out.
+    // however the program ends: normally, with a panic, with an error it lets out, or by a
+    // signal, like Ctrl+C's, which a negative code says it's sent once it has read.
+    constexpr std::string_view loops = "Local line = Input()\nLocal n = 0\nWhile True\n"
+                                       "    n = (n + 1) % 9\nEnd While\n";
     for (const auto& [name, text, code] : {
              std::tuple("ask", "Print(Input() ?? \"none\")\n", 0),
              std::tuple("ask_panic",
                         "Local line = Input()\nLocal none: Int[] = []\nPrint(none[0])\n", 101),
              std::tuple("ask_error", "Local line = Input()\nThrow Error(\"after reading\")\n", 1),
+             std::tuple("ask_interrupted", loops.data(), -SIGINT),
+             std::tuple("ask_terminated", loops.data(), -SIGTERM),
          }) {
         INFO(name);
         const std::filesystem::path source = write_source(std::format("flags/{}.fb", name),
@@ -712,25 +717,45 @@ TEST_CASE("a program that reads stdin leaves it as it was, for what else reads i
         REQUIRE(spawned == 0);
         CHECK(write(ends[1], "first\n", 6) == 6);
         close(ends[1]);
+        if (code < 0) {
+            // libuv makes the pipe non-blocking as it reads it.
+            for (int i = 0; i < 1000 && fcntl(ends[0], F_GETFL) == before; ++i) {
+                usleep(10000);
+            }
+
+            CHECK(fcntl(ends[0], F_GETFL) != before);
+            kill(pid, -code);
+        }
+
         int status = 0;
         waitpid(pid, &status, 0);
-        CHECK(WIFEXITED(status));
-        CHECK(WEXITSTATUS(status) == code);
+        if (code < 0) {
+            REQUIRE(WIFSIGNALED(status));
+            CHECK(WTERMSIG(status) == -code);
+        } else {
+            REQUIRE(WIFEXITED(status));
+            CHECK(WEXITSTATUS(status) == code);
+        }
+
         CHECK(fcntl(ends[0], F_GETFL) == before);
         close(ends[0]);
     }
 }
 #endif
 
-TEST_CASE("fb and the programs it builds give the console its code page back", "[cli]") {
+TEST_CASE("fb and the programs it builds give the console its code page and mode back", "[cli]") {
 #ifdef FB_TEST_CONSOLE_PROBE
-    // The console is the shell's too, so the UTF-8 that fb and a program print in is only theirs
-    // while they run, however they end. cmd's chcp sets the page, and the probe prints it.
+    // The console is the shell's too, so the UTF-8 that fb and a program print in, and the
+    // escape codes they color with, are only theirs while they run, however they end: normally,
+    // with a panic, or with Ctrl+Break. cmd's chcp sets the page, and the probe prints it.
     const std::filesystem::path hello =
         write_source("console/hello.fb", "Import std.core\nPrint(\"hi\")\n");
     const std::filesystem::path panics = write_source(
         "console/panics.fb", "Import std.core\nLocal none: Int[] = []\nPrint(none[0])\n");
-    for (const std::filesystem::path& source : { hello, panics }) {
+    const std::filesystem::path loops =
+        write_source("console/loops.fb",
+                     "Import std.core\nLocal n = 0\nWhile True\n    n = (n + 1) % 9\nEnd While\n");
+    for (const std::filesystem::path& source : { hello, panics, loops }) {
         const fb::process_result_t built = fb_run({ "build", fb::to_utf8(source) });
         INFO(built.output);
         REQUIRE(built.exit_code == 0);
@@ -742,11 +767,15 @@ TEST_CASE("fb and the programs it builds give the console its code page back", "
     const std::string probe =
         std::filesystem::path(FB_TEST_CONSOLE_PROBE).make_preferred().string();
     const std::filesystem::path script = hello.parent_path() / "pages.cmd";
+    // "run" and "break" run each with the console as its stdout and stderr, from a mode without
+    // escape codes, which fb and the programs turn on for their own.
     std::ofstream(script, std::ios::binary) << std::format(
         "@echo off\r\nchcp 437 >nul\r\n\"{0}\"\r\n\"{1}\" --version >nul\r\n\"{0}\"\r\n"
-        "\"{2}\" >nul\r\n\"{0}\"\r\n\"{3}\" >nul 2>nul\r\n\"{0}\"\r\n",
+        "\"{2}\" >nul\r\n\"{0}\"\r\n\"{3}\" >nul 2>nul\r\n\"{0}\"\r\n"
+        "\"{0}\" run \"{1}\" --version\r\n\"{0}\" run \"{2}\"\r\n\"{0}\" run \"{3}\"\r\n"
+        "\"{0}\" break \"{4}\"\r\n",
         probe, std::filesystem::path(FB_CLI).make_preferred().string(), windows_path(hello),
-        windows_path(panics));
+        windows_path(panics), windows_path(loops));
     const std::vector<std::string> arguments{
         "/c",
         std::filesystem::path(script).make_preferred().string(),
@@ -762,6 +791,25 @@ TEST_CASE("fb and the programs it builds give the console its code page back", "
     }
 
     CHECK(found == 4);
+
+    // Each one that ran on the console left it as it was before.
+    std::size_t runs = 0;
+    for (std::size_t at = pages->output.find("before="); at != std::string::npos;
+         at = pages->output.find("before=", at + 1)) {
+        const std::size_t end = pages->output.find('\n', at);
+        std::string line = pages->output.substr(at, end - at);
+        if (line.ends_with('\r')) {
+            line.pop_back();
+        }
+
+        const std::size_t after = line.find(" after=");
+        INFO(line);
+        REQUIRE(after != std::string::npos);
+        CHECK(line.substr(7, after - 7) == line.substr(after + 7));
+        ++runs;
+    }
+
+    CHECK(runs == 4);
 #else
     SKIP("only Windows' console has a code page that programs share");
 #endif

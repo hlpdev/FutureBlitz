@@ -45,13 +45,15 @@ void at_finish(void (*stop)());
 /// Runs what at_finish() was given, the last one first.
 void run_finish();
 
-/// Has `restore` run as the program ends however it ends, a panic or an uncaught error too,
-/// to put back what the program changed that others share, like stdin's flags. It mustn't wait
-/// for anything or stop a thread. At most one per part of the runtime.
+/// Has `restore` run as the program ends however it ends: a panic, an uncaught error, Ctrl+C or
+/// Ctrl+Break, or a signal like SIGTERM too, to put back what the program changed that others
+/// share, like stdin's flags. It mustn't wait for anything or stop a thread, and calls only what
+/// a signal handler can. At most one per part of the runtime.
 void at_end(void (*restore)());
 
 /// Runs what at_end() was given, the last one first: at a normal end once nothing more is
-/// printed, and at a panic's or an uncaught error's before the process goes.
+/// printed, at a panic's or an uncaught error's before the process goes, and as the console or
+/// a signal ends the program.
 void run_end();
 
 /// How a message that names `type` among `others` shows it: by its name, or by its full name
