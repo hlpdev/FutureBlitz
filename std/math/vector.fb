@@ -303,23 +303,44 @@ Public Function Reflect(v: Vec2, normal: Vec2): Vec2 => v - normal * (2 * Dot(v,
 // wall.
 Public Function Reflect(v: Vec3, normal: Vec3): Vec3 => v - normal * (2 * Dot(v, normal))
 
-// The part of v along onto, the zero vector when onto is.
+// The dot product in Doubles, which hold any Floats' products.
+Function DoubleDot(a: Vec2, b: Vec2): Double => (a.x As Double) * b.x + (a.y As Double) * b.y
+
+Function DoubleDot(a: Vec3, b: Vec3): Double
+    Return (a.x As Double) * b.x + (a.y As Double) * b.y + (a.z As Double) * b.z
+End Function
+
+// The part of v along onto, the zero vector when onto is, worked out in Doubles.
 Public Function Project(v: Vec2, onto: Vec2): Vec2
-    Local squared = LengthSquared(onto)
-    Return squared > 0 ? onto * (Dot(v, onto) / squared) : Vec2.Zero()
+    Local squared = DoubleDot(onto, onto)
+    If !(squared > 0) Then Return Vec2.Zero()
+    Local scale = DoubleDot(v, onto) / squared
+    Return Vec2((onto.x * scale) As Float, (onto.y * scale) As Float)
 End Function
 
-// The part of v along onto, the zero vector when onto is.
+// The part of v along onto, the zero vector when onto is, worked out in Doubles.
 Public Function Project(v: Vec3, onto: Vec3): Vec3
-    Local squared = LengthSquared(onto)
-    Return squared > 0 ? onto * (Dot(v, onto) / squared) : Vec3.Zero()
+    Local squared = DoubleDot(onto, onto)
+    If !(squared > 0) Then Return Vec3.Zero()
+    Local scale = DoubleDot(v, onto) / squared
+    Return Vec3((onto.x * scale) As Float, (onto.y * scale) As Float, (onto.z * scale) As Float)
 End Function
 
-// The angle between the two, in radians, from 0 to Pi, and 0 when either is the zero vector.
-Public Function Angle(a: Vec2, b: Vec2): Float => Atan2(Abs(Cross(a, b)), Dot(a, b))
+// The angle between the two, in radians, from 0 to Pi, and 0 when either is the zero vector,
+// worked out in Doubles.
+Public Function Angle(a: Vec2, b: Vec2): Float
+    Local cross = (a.x As Double) * b.y - (a.y As Double) * b.x
+    Return Atan2(Abs(cross), DoubleDot(a, b)) As Float
+End Function
 
-// The angle between the two, in radians, from 0 to Pi, and 0 when either is the zero vector.
-Public Function Angle(a: Vec3, b: Vec3): Float => Atan2(Length(Cross(a, b)), Dot(a, b))
+// The angle between the two, in radians, from 0 to Pi, and 0 when either is the zero vector,
+// worked out in Doubles.
+Public Function Angle(a: Vec3, b: Vec3): Float
+    Local x = (a.y As Double) * b.z - (a.z As Double) * b.y
+    Local y = (a.z As Double) * b.x - (a.x As Double) * b.z
+    Local z = (a.x As Double) * b.y - (a.y As Double) * b.x
+    Return Atan2(Magnitude(x, y, z, 0), DoubleDot(a, b)) As Float
+End Function
 
 // The vector turned counterclockwise by the angle, in radians.
 Public Function Rotate(v: Vec2, angle: Float): Vec2
@@ -331,18 +352,28 @@ End Function
 // The vector a quarter turn counterclockwise: (-y, x).
 Public Function Perpendicular(v: Vec2): Vec2 => Vec2(-v.y, v.x)
 
-// Current moved toward target by maxDistance, or to target when it's no further.
+// Current moved toward target by maxDistance, or to target when it's no further, worked out in
+// Doubles.
 Public Function MoveTowards(current: Vec2, target: Vec2, maxDistance: Float): Vec2
-    Local distance = Distance(current, target)
+    Local x = (target.x As Double) - current.x
+    Local y = (target.y As Double) - current.y
+    Local distance = Magnitude(x, y, 0, 0)
     If distance <= maxDistance || distance == 0 Then Return target
-    Return current + (target - current) * (maxDistance / distance)
+    Local ratio = maxDistance / distance
+    Return Vec2((current.x + x * ratio) As Float, (current.y + y * ratio) As Float)
 End Function
 
-// Current moved toward target by maxDistance, or to target when it's no further.
+// Current moved toward target by maxDistance, or to target when it's no further, worked out in
+// Doubles.
 Public Function MoveTowards(current: Vec3, target: Vec3, maxDistance: Float): Vec3
-    Local distance = Distance(current, target)
+    Local x = (target.x As Double) - current.x
+    Local y = (target.y As Double) - current.y
+    Local z = (target.z As Double) - current.z
+    Local distance = Magnitude(x, y, z, 0)
     If distance <= maxDistance || distance == 0 Then Return target
-    Return current + (target - current) * (maxDistance / distance)
+    Local ratio = maxDistance / distance
+    Return Vec3((current.x + x * ratio) As Float, (current.y + y * ratio) As Float,
+                (current.z + z * ratio) As Float)
 End Function
 
 // Whether each component is close to b's, as IsClose tells for Floats.

@@ -85,6 +85,17 @@ Print(Shown(Rotate(Vec2(1, 0), Pi / 2)), Shown(Rotate(Vec2(1, 0), -Pi / 2)),
 Print(MoveTowards(Vec3.Zero(), Vec3(10, 0, 0), 3), MoveTowards(Vec3.Zero(), Vec3(1, 0, 0), 3),
       MoveTowards(Vec2(1, 1), Vec2(4, 5), 2.5), MoveTowards(Vec2.One(), Vec2.One(), 1))
 Print(MoveTowards(Vec3.Zero(), Vec3(10, 0, 0), -2), MoveTowards(Vec3.Zero(), Vec3.Zero(), -2))
+// Worked out in Doubles, very short and very long vectors project, have angles, and move.
+Local tiny = Vec3(3e-30, 4e-30, 0)
+Print(Project(Vec3(5, 0, 0), tiny), Project(Vec3(5, 0, 0), long), Project(Vec2(5, 0), short),
+      Project(Vec2(5, 0), Vec2(3e20, 4e20)))
+Print(IsClose(Angle(tiny, Vec3(0, 0, 4e-30)), Pi / 2),
+      IsClose(Angle(long, Vec3(3e20, 4e20, 1e19)), 0.019997334),
+      IsClose(Angle(Vec2(3e-30, 0), Vec2(0, 4e-30)), Pi / 2),
+      IsClose(Angle(Vec2(3e20, 0), Vec2(3e20, 3e20)), Pi / 4))
+Print(MoveTowards(Vec2(-3e38, 0), Vec2(3e38, 0), 1),
+      MoveTowards(Vec3(0, 0, -3e38), Vec3(0, 0, 3e38), 1),
+      MoveTowards(Vec2.Zero(), Vec2(3e-30, 4e-30), 1e-30))
 Print(IsClose(Vec3(1, 1, 1), Vec3(1, 1.000001, 1)), IsClose(Vec3.One(), Vec3(1, 1.1, 1)),
       IsClose(Vec2(1, 2), Vec2(1.05, 2), 0.1), IsClose(Vec4.One(), Vec4(1, 1, 1, 1.2), 0.1))
 Print(IsClose(Vec2(1, 2), Vec2(1, 2.000001)), IsClose(Vec4.One(), Vec4.One()),
