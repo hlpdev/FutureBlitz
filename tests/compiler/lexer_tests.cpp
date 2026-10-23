@@ -556,6 +556,13 @@ TEST_CASE("multi-line strings can interpolate", "[lexer]") {
     CHECK(lexed.kinds == std::vector{ STRING_START, IDENTIFIER, STRING_END });
     CHECK(lexed.texts == std::vector<std::string>{ "\"\"\"\n  {", "a", "}\n  \"\"\"" });
     CHECK(lexed.errors.empty());
+
+    // An interpolation can span lines, and a line that starts inside one isn't string text, so
+    // its indentation isn't checked.
+    const lexed_t spanning = lex_text("\"\"\"\n    one {x +\n1} two\n    three\n    \"\"\"");
+    CHECK(spanning.kinds ==
+          std::vector{ STRING_START, IDENTIFIER, PLUS, NEWLINE, INTEGER, STRING_END });
+    CHECK(spanning.errors.empty());
 }
 
 TEST_CASE("raw multi-line strings may contain quotes and braces", "[lexer]") {

@@ -147,6 +147,10 @@ TEST_CASE("multi-line strings lose the closing quotes' indentation", "[parser]")
           R"((string "first\n  second\n"))");
     CHECK(expression("\"\"\"\r\n  a\r\n  b\r\n  \"\"\"") == R"((string "a\nb"))");
     CHECK(expression("\"\"\"\n  x = {x}\n  \"\"\"") == R"((string "x = " x))");
+    // A line that starts inside an interpolation isn't string text, so its indentation is
+    // neither checked nor stripped, and the text after the '}' goes on from it.
+    CHECK(expression("\"\"\"\n    one {x +\n1} two\n    three\n    \"\"\"") ==
+          R"((string "one " (+ x (int 1)) " two\nthree"))");
     CHECK(expression("\"\"\"\n\"\"\"") == "(string)");
 }
 

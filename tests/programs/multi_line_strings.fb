@@ -1,0 +1,24 @@
+// Multi-line strings: the closing quotes' indentation is stripped from every line, and an
+// interpolation can span lines.
+Import std.core
+
+Local name = "world"
+Print("""
+    Hello, {name}!
+      indented
+    last
+    """)
+
+// A line that starts inside an interpolation isn't string text, so its indentation stays out of
+// it, and the text after the '}' goes on from there.
+Local x = 41
+Print("""
+    one {x +
+1} two
+    three
+    """)
+
+// A raw one has no escapes or interpolation.
+Print(r"""
+    say "hi" {x} \n
+    """)
