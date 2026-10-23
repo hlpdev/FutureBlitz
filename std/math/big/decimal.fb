@@ -1,0 +1,262 @@
+// Decimal: a decimal number, over mpdecimal, which never changes once it's made. It holds what
+// it's made from exactly, as 0.1 is, and its arithmetic keeps 28 significant digits, rounded half
+// to even, as Python's decimal does by default, so 1 / 3 is 0.3333333333333333333333333333. A
+// result's exponent stays from -999999 to 999999: past that panics, and below it goes toward 0.
+// Trailing 0s stay, as in 1.50, and ToString shows them, but == doesn't count them, so 1.5 ==
+// 1.50. An Int64 on either side of an operator works too. A Decimal stays on its thread, so
+// ToString and Parse are how one goes to another.
+
+Import std.core
+Import std.math.big.bigint
+
+Extern "runtime"
+    Function fb_decimal_from_int(value: Int64): Ptr<Void>
+    Function fb_decimal_from_double(value: Double): Ptr<Void>
+    Function fb_decimal_parse(text: String): Ptr<Void>
+    Function fb_decimal_free(a: Ptr<Void>)
+    Function fb_decimal_to_string(a: Ptr<Void>): String
+    Function fb_decimal_to_plain_string(a: Ptr<Void>): String
+    Function fb_decimal_to_double(a: Ptr<Void>): Double
+    Function fb_decimal_hash(a: Ptr<Void>): UInt64
+    Function fb_decimal_compare(a: Ptr<Void>, b: Ptr<Void>): Int32
+    Function fb_decimal_sign(a: Ptr<Void>): Int32
+    Function fb_decimal_is_integer(a: Ptr<Void>): Int32
+    Function fb_decimal_fits_int64(a: Ptr<Void>): Int32
+    Function fb_decimal_to_int64(a: Ptr<Void>): Int64
+    Function fb_decimal_add(a: Ptr<Void>, b: Ptr<Void>): Ptr<Void>
+    Function fb_decimal_subtract(a: Ptr<Void>, b: Ptr<Void>): Ptr<Void>
+    Function fb_decimal_multiply(a: Ptr<Void>, b: Ptr<Void>): Ptr<Void>
+    Function fb_decimal_divide(a: Ptr<Void>, b: Ptr<Void>): Ptr<Void>
+    Function fb_decimal_power(a: Ptr<Void>, exponent: Ptr<Void>): Ptr<Void>
+    Function fb_decimal_sqrt(a: Ptr<Void>): Ptr<Void>
+    Function fb_decimal_exp(a: Ptr<Void>): Ptr<Void>
+    Function fb_decimal_ln(a: Ptr<Void>): Ptr<Void>
+    Function fb_decimal_log10(a: Ptr<Void>): Ptr<Void>
+    Function fb_decimal_remainder(a: Ptr<Void>, b: Ptr<Void>): Ptr<Void>
+    Function fb_decimal_negate(a: Ptr<Void>): Ptr<Void>
+    Function fb_decimal_abs(a: Ptr<Void>): Ptr<Void>
+    Function fb_decimal_round(a: Ptr<Void>, places: Int64, mode: Int32): Ptr<Void>
+    Function fb_decimal_round_whole(a: Ptr<Void>, mode: Int32): Ptr<Void>
+End Extern
+
+// How rounding treats what it drops.
+Public Enum RoundingMode
+    // To the nearest, and a half to the even one, as banks round: 2.5 to 2, and 3.5 to 4.
+    HALF_EVEN
+    // To the nearest, and a half away from 0: 2.5 to 3, and -2.5 to -3.
+    HALF_UP
+    // To the nearest, and a half toward 0: 2.5 to 2, and -2.5 to -2.
+    HALF_DOWN
+    // Away from 0: 2.1 to 3, and -2.1 to -3.
+    UP
+    // Toward 0, dropping the rest: 2.9 to 2, and -2.9 to -2.
+    DOWN
+    // Up: 2.1 to 3, and -2.9 to -2.
+    CEILING
+    // Down: 2.9 to 2, and -2.1 to -3.
+    FLOOR
+End Enum
+
+Public Class Decimal Implements Comparable, Hashable, Printable, Numeric
+    Field State: Ptr<Void>
+
+    Public New(value: Int64)
+        State = fb_decimal_from_int(value)
+    End New
+
+    Public New(value: BigInt)
+        State = fb_decimal_parse(value.ToString())
+    End New
+
+    // One the runtime made, which it owns from now on.
+    New(state: Ptr<Void>)
+        State = state
+    End New
+
+    Public Static Method Zero(): Decimal => Decimal(0)
+    Public Static Method One(): Decimal => Decimal(1)
+
+    // The shortest Decimal that reads back as the Double, the digits it prints, so 0.1 is 0.1. A
+    // NaN or an infinity panics.
+    @PanicsAtCaller
+    Public Static Method FromDouble(value: Double): Decimal
+        // Only a finite Double less itself is 0.
+        If value - value != 0.0 Then Panic("a Decimal is finite, not {value}")
+        Return Decimal(fb_decimal_from_double(value))
+    End Method
+
+    // The number the text is, exactly: a sign or none, then digits with a "." or not, then an
+    // exponent or none, an "E" or "e" and an integer, as "-1.50" and "2.5e-3" are. Other text,
+    // NaN and the infinities too, is Null.
+    Public Static Method Parse(text: String): Decimal?
+        Local state = fb_decimal_parse(text)
+        If state == Null Then Return Null
+        Return Decimal(state)
+    End Method
+
+    // What Python's str gives: its digits with a point where it goes, as in "-1.50", unless its
+    // exponent is above 0 or it's quite small, as in "1.5E+3" and "1E-7".
+    Public Method ToString(): String => fb_decimal_to_string(State)
+
+    // Its digits with no exponent, as in "1500" and "0.0000001".
+    Public Method ToPlainString(): String => fb_decimal_to_plain_string(State)
+
+    // The Double nearest it, ties to even: an infinity past the largest Double, and 0 below the
+    // smallest.
+    Public Method ToDouble(): Double => fb_decimal_to_double(State)
+
+    // It as an Int64, or Null when it isn't a whole number in an Int64's range.
+    Public Method ToInt64(): Int64?
+        If fb_decimal_fits_int64(State) == 0 Then Return Null
+        Return fb_decimal_to_int64(State)
+    End Method
+
+    // It as a BigInt, or Null when it isn't a whole number.
+    Public Method ToBigInt(): BigInt?
+        If !IsInteger Then Return Null
+        Return BigInt.Parse(Truncate().ToPlainString())
+    End Method
+
+    // -1, 0, or 1 as it's below, at, or above 0.
+    Public Property Sign: Int
+        Get => fb_decimal_sign(State)
+    End Property
+
+    // Whether it's a whole number, as 2.00 and 1E+3 are.
+    Public Property IsInteger: Bool
+        Get => fb_decimal_is_integer(State) != 0
+    End Property
+
+    Public Method Abs(): Decimal => Decimal(fb_decimal_abs(State))
+
+    // It rounded by the mode to the places after the point, or before it when negative: 2.675 is
+    // 2.68 to 2 places, and 1234 is 1.2E+3 to -2. Rounding to more digits than 28, or than it
+    // has when that's more, panics.
+    @PanicsAtCaller
+    Public Method Round(places: Int = 0, mode: RoundingMode = RoundingMode.HALF_EVEN): Decimal
+        Local state = fb_decimal_round(State, places, mode As Int32)
+        If state == Null Then Panic("{Self} rounded to {places} places has too many digits")
+        Return Decimal(state)
+    End Method
+
+    // It rounded to a whole number, toward 0, down, or up. One with an exponent above 0 keeps
+    // it, as 1.5E+3 does.
+    Public Method Truncate(): Decimal => Decimal(fb_decimal_round_whole(State, RoundingMode.DOWN As Int32))
+    Public Method Floor(): Decimal => Decimal(fb_decimal_round_whole(State, RoundingMode.FLOOR As Int32))
+    Public Method Ceiling(): Decimal => Decimal(fb_decimal_round_whole(State, RoundingMode.CEILING As Int32))
+
+    // Its square root. One below 0 panics.
+    @PanicsAtCaller
+    Public Method Sqrt(): Decimal
+        If Sign < 0 Then Panic("Sqrt takes a Decimal 0 or more, not {Self}")
+        Return Made(fb_decimal_sqrt(State))
+    End Method
+
+    // e to its power.
+    @PanicsAtCaller
+    Public Method Exp(): Decimal => Made(fb_decimal_exp(State))
+
+    // Its natural logarithm, and its logarithm in base 10. One that isn't above 0 panics.
+    @PanicsAtCaller
+    Public Method Ln(): Decimal
+        If Sign <= 0 Then Panic("Ln takes a Decimal above 0, not {Self}")
+        Return Made(fb_decimal_ln(State))
+    End Method
+
+    @PanicsAtCaller
+    Public Method Log10(): Decimal
+        If Sign <= 0 Then Panic("Log10 takes a Decimal above 0, not {Self}")
+        Return Made(fb_decimal_log10(State))
+    End Method
+
+    // It to the power, which needn't be whole: 2 to 0.5 is the square root of 2. Anything to 0
+    // is 1, 0 to a power below 0 panics, and so does a number below 0 to one that isn't whole.
+    @PanicsAtCaller
+    Public Method Pow(exponent: Decimal): Decimal
+        If exponent.Sign == 0 Then Return One()
+        If Sign == 0 && exponent.Sign < 0 Then Panic("division by zero")
+        If Sign < 0 && !exponent.IsInteger
+            Panic("{Self} to the power {exponent} isn't a number, since it's below 0 and that " +
+                  "isn't whole")
+        End If
+        Return Made(fb_decimal_power(State, exponent.State))
+    End Method
+
+    Public Method Hash(): UInt64 => fb_decimal_hash(State)
+
+    Operator ==(a: Decimal, b: Decimal): Bool => fb_decimal_compare(a.State, b.State) == 0
+    Operator ==(a: Decimal, b: Int64): Bool => a == Decimal(b)
+    Operator ==(a: Int64, b: Decimal): Bool => Decimal(a) == b
+    Operator <(a: Decimal, b: Decimal): Bool => fb_decimal_compare(a.State, b.State) < 0
+    Operator <(a: Decimal, b: Int64): Bool => a < Decimal(b)
+    Operator <(a: Int64, b: Decimal): Bool => Decimal(a) < b
+    Operator >(a: Decimal, b: Int64): Bool => a > Decimal(b)
+    Operator >(a: Int64, b: Decimal): Bool => Decimal(a) > b
+    Operator <=(a: Decimal, b: Int64): Bool => a <= Decimal(b)
+    Operator <=(a: Int64, b: Decimal): Bool => Decimal(a) <= b
+    Operator >=(a: Decimal, b: Int64): Bool => a >= Decimal(b)
+    Operator >=(a: Int64, b: Decimal): Bool => Decimal(a) >= b
+
+    @PanicsAtCaller
+    Operator +(a: Decimal, b: Decimal): Decimal => Made(fb_decimal_add(a.State, b.State))
+    @PanicsAtCaller
+    Operator +(a: Decimal, b: Int64): Decimal => a + Decimal(b)
+    @PanicsAtCaller
+    Operator +(a: Int64, b: Decimal): Decimal => Decimal(a) + b
+    @PanicsAtCaller
+    Operator -(a: Decimal, b: Decimal): Decimal => Made(fb_decimal_subtract(a.State, b.State))
+    @PanicsAtCaller
+    Operator -(a: Decimal, b: Int64): Decimal => a - Decimal(b)
+    @PanicsAtCaller
+    Operator -(a: Int64, b: Decimal): Decimal => Decimal(a) - b
+    @PanicsAtCaller
+    Operator *(a: Decimal, b: Decimal): Decimal => Made(fb_decimal_multiply(a.State, b.State))
+    @PanicsAtCaller
+    Operator *(a: Decimal, b: Int64): Decimal => a * Decimal(b)
+    @PanicsAtCaller
+    Operator *(a: Int64, b: Decimal): Decimal => Decimal(a) * b
+
+    @PanicsAtCaller
+    Operator /(a: Decimal, b: Decimal): Decimal
+        If b.Sign == 0 Then Panic("division by zero")
+        Return Made(fb_decimal_divide(a.State, b.State))
+    End Operator
+
+    @PanicsAtCaller
+    Operator /(a: Decimal, b: Int64): Decimal => a / Decimal(b)
+    @PanicsAtCaller
+    Operator /(a: Int64, b: Decimal): Decimal => Decimal(a) / b
+
+    // What's left of a / b with its quotient rounded toward 0, so it has a's sign, exactly. A
+    // quotient of more digits than 28, or than a or b has when that's more, panics.
+    @PanicsAtCaller
+    Operator %(a: Decimal, b: Decimal): Decimal
+        If b.Sign == 0 Then Panic("division by zero")
+        Local state = fb_decimal_remainder(a.State, b.State)
+        If state == Null Then Panic("{a} % {b} has a quotient of too many digits")
+        Return Decimal(state)
+    End Operator
+
+    @PanicsAtCaller
+    Operator %(a: Decimal, b: Int64): Decimal => a % Decimal(b)
+    @PanicsAtCaller
+    Operator %(a: Int64, b: Decimal): Decimal => Decimal(a) % b
+
+    // To a whole power: anything to 0 is 1, and 0 to a power below 0 panics.
+    @PanicsAtCaller
+    Operator **(a: Decimal, b: Int64): Decimal => a.Pow(Decimal(b))
+
+    Operator -(a: Decimal): Decimal => Decimal(fb_decimal_negate(a.State))
+
+    Method Destroy()
+        fb_decimal_free(State)
+    End Method
+End Class
+
+// The Decimal the runtime made, which panics when it gave none, since the result's exponent was
+// past 999999.
+@PanicsAtCaller
+Function Made(state: Ptr<Void>): Decimal
+    If state == Null Then Panic("a Decimal's exponent goes up to 999999, and this result's is past it")
+    Return Decimal(state)
+End Function

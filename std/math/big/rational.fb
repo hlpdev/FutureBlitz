@@ -1,0 +1,250 @@
+// Rational: a fraction of two BigInts, which never changes once it's made, kept in lowest terms
+// with its denominator above 0, so its arithmetic is exact: 1/3 + 1/6 is 1/2. An Int64 on either
+// side of an operator works too.
+
+Import std.core
+Import std.collections.array
+Import std.math.big.bigint
+Import std.math.big.decimal
+
+// C's libm, which every program links with the C runtime.
+Extern "C"
+    Function floor(value: Double): Double
+    Function ldexp(value: Double, exponent: Int32): Double
+End Extern
+
+Public Class Rational Implements Comparable, Hashable, Printable, Numeric
+    Public ReadOnly Field Numerator: BigInt
+    Public ReadOnly Field Denominator: BigInt
+
+    // The fraction in lowest terms, with its denominator above 0, so Rational(2, -4) is -1/2. A
+    // denominator of 0 panics.
+    @PanicsAtCaller
+    Public New(numerator: BigInt, denominator: BigInt)
+        Numerator, Denominator = Lowest(numerator, denominator)
+    End New
+
+    @PanicsAtCaller
+    Public New(numerator: Int64, denominator: Int64 = 1)
+        Numerator, Denominator = Lowest(BigInt(numerator), BigInt(denominator))
+    End New
+
+    // The BigInt, over 1.
+    Public New(value: BigInt)
+        Numerator = value
+        Denominator = BigInt(1)
+    End New
+
+    Public Static Method Zero(): Rational => Rational(0)
+    Public Static Method One(): Rational => Rational(1)
+
+    // The Double exactly, as a fraction over a power of 2, so 0.1 is
+    // 3602879701896397/36028797018963968. A NaN or an infinity panics.
+    @PanicsAtCaller
+    Public Static Method FromDouble(value: Double): Rational
+        // Only a finite Double less itself is 0.
+        If value - value != 0.0 Then Panic("a Rational is finite, not {value}")
+        // Doubling a Double is exact, and its bits run out after 1074 halves at most.
+        Local whole = value
+        Local halves = 0
+        While floor(whole) != whole
+            whole *= 2.0
+            halves += 1
+        End While
+        Return Rational(BigInt.FromDouble(whole), BigInt(1) << halves)
+    End Method
+
+    // The Decimal exactly, as 0.75 is 3/4.
+    Public Static Method FromDecimal(value: Decimal): Rational
+        Return Fraction(value.ToPlainString().Chars) ?? Rational(0)
+    End Method
+
+    // The fraction the text is: an integer, a "/", and digits, as "-3/4" is, or a Decimal's text,
+    // as "0.75" and "1e-3" are. Other text is Null, and so is a denominator of 0.
+    Public Static Method Parse(text: String): Rational?
+        Local chars = text.Chars
+        Local slash = chars.IndexOf('/')
+        If slash == Null
+            Local number = Decimal.Parse(text)
+            If number == Null Then Return Null
+            Return FromDecimal(number)
+        End If
+
+        Local start = chars.Count > 0 && (chars[0] == '-' || chars[0] == '+') ? 1 : 0
+        Local numerator = DigitsOf(chars, start, slash)
+        Local denominator = DigitsOf(chars, slash + 1, chars.Count)
+        If numerator == Null || denominator == Null || denominator.Sign == 0 Then Return Null
+        Return Rational(chars[0] == '-' ? -numerator : numerator, denominator)
+    End Method
+
+    // "3/4", or only the numerator when the denominator is 1, as in "-5".
+    Public Method ToString(): String
+        If Denominator == 1 Then Return Numerator.ToString()
+        Return "{Numerator}/{Denominator}"
+    End Method
+
+    // The Double nearest it, ties to even: an infinity past the largest Double, and 0 below the
+    // smallest.
+    Public Method ToDouble(): Double
+        If Numerator.Sign == 0 Then Return 0.0
+        // The quotient, moved up by shift bits, has the 54 or 55 bits from its top, which round
+        // to a Double's 53; or the bits down to 2 to the power -1074, a Double's smallest, when
+        // it's that small.
+        Local magnitude = Numerator.Abs()
+        Local shift = Min(54 - (magnitude.BitLength - Denominator.BitLength), 1074)
+        Local dividend = shift >= 0 ? magnitude << shift : magnitude
+        Local divisor = shift >= 0 ? Denominator : Denominator << -shift
+        Local quotient, remainder = dividend.DivRem(divisor)
+
+        // What's past 53 bits rounds off, to the nearest and a half to even, with the remainder
+        // past the dropped bits.
+        Local dropped = Max(quotient.BitLength - 53, 0)
+        Local kept = quotient >> dropped
+        Local rest = (quotient - (kept << dropped)) * divisor + remainder
+        Local half = divisor << dropped
+        If rest * 2 > half || (rest * 2 == half && (kept & 1) == 1) Then kept += 1
+        Local value = ldexp(kept.ToDouble(), Clamp(dropped - shift, -2000, 2000) As Int32)
+        Return Numerator.Sign < 0 ? -value : value
+    End Method
+
+    // It as a Decimal, in a Decimal's 28 digits.
+    @PanicsAtCaller
+    Public Method ToDecimal(): Decimal => Decimal(Numerator) / Decimal(Denominator)
+
+    // -1, 0, or 1 as it's below, at, or above 0.
+    Public Property Sign: Int
+        Get => Numerator.Sign
+    End Property
+
+    Public Method Abs(): Rational => Rational(Numerator.Abs(), Denominator)
+
+    // The whole number it rounds to: toward 0, down, up, or to the nearest, a half to the even
+    // one.
+    Public Method Truncate(): BigInt => Numerator / Denominator
+
+    Public Method Floor(): BigInt
+        Local quotient, remainder = Numerator.DivRem(Denominator)
+        Return remainder.Sign < 0 ? quotient - 1 : quotient
+    End Method
+
+    Public Method Ceiling(): BigInt => -(-Self).Floor()
+
+    Public Method Round(): BigInt
+        Local below = Floor()
+        Local twice = (Numerator - below * Denominator) * 2
+        If twice > Denominator || (twice == Denominator && (below & 1) == 1) Then Return below + 1
+        Return below
+    End Method
+
+    Public Method Hash(): UInt64 => HashCombine(Numerator.Hash(), Denominator.Hash())
+
+    Operator ==(a: Rational, b: Rational): Bool
+        Return a.Numerator == b.Numerator && a.Denominator == b.Denominator
+    End Operator
+
+    Operator ==(a: Rational, b: Int64): Bool => a.Denominator == 1 && a.Numerator == b
+    Operator ==(a: Int64, b: Rational): Bool => b == a
+    Operator <(a: Rational, b: Rational): Bool
+        Return a.Numerator * b.Denominator < b.Numerator * a.Denominator
+    End Operator
+
+    Operator <(a: Rational, b: Int64): Bool => a < Rational(b)
+    Operator <(a: Int64, b: Rational): Bool => Rational(a) < b
+    Operator >(a: Rational, b: Int64): Bool => a > Rational(b)
+    Operator >(a: Int64, b: Rational): Bool => Rational(a) > b
+    Operator <=(a: Rational, b: Int64): Bool => a <= Rational(b)
+    Operator <=(a: Int64, b: Rational): Bool => Rational(a) <= b
+    Operator >=(a: Rational, b: Int64): Bool => a >= Rational(b)
+    Operator >=(a: Int64, b: Rational): Bool => Rational(a) >= b
+
+    Operator +(a: Rational, b: Rational): Rational
+        Return Rational(a.Numerator * b.Denominator + b.Numerator * a.Denominator,
+                        a.Denominator * b.Denominator)
+    End Operator
+
+    Operator +(a: Rational, b: Int64): Rational => a + Rational(b)
+    Operator +(a: Int64, b: Rational): Rational => Rational(a) + b
+    Operator -(a: Rational, b: Rational): Rational
+        Return Rational(a.Numerator * b.Denominator - b.Numerator * a.Denominator,
+                        a.Denominator * b.Denominator)
+    End Operator
+
+    Operator -(a: Rational, b: Int64): Rational => a - Rational(b)
+    Operator -(a: Int64, b: Rational): Rational => Rational(a) - b
+    Operator *(a: Rational, b: Rational): Rational
+        Return Rational(a.Numerator * b.Numerator, a.Denominator * b.Denominator)
+    End Operator
+
+    Operator *(a: Rational, b: Int64): Rational => a * Rational(b)
+    Operator *(a: Int64, b: Rational): Rational => Rational(a) * b
+
+    @PanicsAtCaller
+    Operator /(a: Rational, b: Rational): Rational
+        If b.Sign == 0 Then Panic("division by zero")
+        Return Rational(a.Numerator * b.Denominator, a.Denominator * b.Numerator)
+    End Operator
+
+    @PanicsAtCaller
+    Operator /(a: Rational, b: Int64): Rational => a / Rational(b)
+    @PanicsAtCaller
+    Operator /(a: Int64, b: Rational): Rational => Rational(a) / b
+
+    // To a whole power, which can be below 0, as 2/3 to -2 is 9/4. Anything to 0 is 1, and 0 to
+    // a power below 0 panics.
+    @PanicsAtCaller
+    Operator **(a: Rational, b: Int64): Rational
+        If b >= 0 Then Return Rational(a.Numerator ** b, a.Denominator ** b)
+        If a.Sign == 0 Then Panic("division by zero")
+        Return Rational(a.Denominator ** -b, a.Numerator ** -b)
+    End Operator
+
+    Operator -(a: Rational): Rational => Rational(-a.Numerator, a.Denominator)
+End Class
+
+// The numerator and denominator in lowest terms, with the denominator above 0. A denominator of
+// 0 panics.
+@PanicsAtCaller
+Function Lowest(numerator: BigInt, denominator: BigInt): (BigInt, BigInt)
+    If denominator.Sign == 0 Then Panic("division by zero")
+    Local divisor = numerator.Gcd(denominator)
+    If denominator.Sign < 0 Then divisor = -divisor
+    Return (numerator / divisor, denominator / divisor)
+End Function
+
+// The number the code points from start to before finish are as decimal digits, or Null when
+// there are none or one isn't a digit. They're read 18 at a time, which an Int64 holds.
+Function DigitsOf(chars: Int[], start: Int, finish: Int): BigInt?
+    If start >= finish Then Return Null
+    Local value = BigInt(0)
+    Local chunk: Int64 = 0
+    Local scale: Int64 = 1
+    For i = start Until finish
+        If chars[i] < '0' || chars[i] > '9' Then Return Null
+        chunk = chunk * 10 + (chars[i] - '0')
+        scale *= 10
+        If scale == 1000000000000000000
+            value = value * scale + chunk
+            chunk = 0
+            scale = 1
+        End If
+    End For
+    Return value * scale + chunk
+End Function
+
+// The fraction a Decimal's plain text is, like "-12.50", as its digits over a power of 10 for
+// those after the point.
+Function Fraction(chars: Int[]): Rational?
+    Local start = chars.Count > 0 && chars[0] == '-' ? 1 : 0
+    Local point = chars.IndexOf('.') ?? chars.Count
+    Local whole = DigitsOf(chars, start, point)
+    If whole == Null Then Return Null
+    Local numerator = whole
+    Local places = 0
+    If point < chars.Count
+        Local fraction = DigitsOf(chars, point + 1, chars.Count)
+        If fraction == Null Then Return Null
+        places = chars.Count - point - 1
+        numerator = whole * (BigInt(10) ** places) + fraction
+    End If
+    Return Rational(start == 1 ? -numerator : numerator, BigInt(10) ** places)
+End Function

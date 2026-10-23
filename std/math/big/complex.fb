@@ -1,0 +1,157 @@
+// Complex: a complex number, Real + Imaginary times i, as two Doubles, and worked out as Python's
+// cmath does: Arg is from -pi to pi, and Log, Sqrt, and Pow give the principal value. Like a
+// Double's, its arithmetic never panics, and what has no value, like dividing by 0, has NaN
+// parts. A Double on either side of an operator works too.
+
+Import std.core
+
+// C's libm, which every program links with the C runtime.
+Extern "C"
+    Function fabs(value: Double): Double
+    Function sqrt(value: Double): Double
+    Function hypot(x: Double, y: Double): Double
+    Function atan2(y: Double, x: Double): Double
+    Function exp(value: Double): Double
+    Function log(value: Double): Double
+    Function log1p(value: Double): Double
+    Function pow(base: Double, exponent: Double): Double
+    Function sin(value: Double): Double
+    Function cos(value: Double): Double
+    Function copysign(magnitude: Double, sign: Double): Double
+End Extern
+
+Public Struct Complex Implements Equatable, Hashable, Printable, Numeric, Defaultable
+    Public Field Real: Double
+    Public Field Imaginary: Double = 0.0
+
+    Public Static Method Zero(): Complex => Complex(0, 0)
+    Public Static Method One(): Complex => Complex(1, 0)
+    Public Static Method DefaultValue(): Complex => Complex(0, 0)
+
+    // The number of the magnitude, at the angle in radians from the positive real axis.
+    Public Static Method FromPolar(magnitude: Double, angle: Double): Complex
+        Return Complex(magnitude * cos(angle), magnitude * sin(angle))
+    End Method
+
+    // "1+2i", "0-1.5i", or "-3+0i", the Imaginary part's sign always shown.
+    Public Method ToString(): String
+        Local sign = copysign(1.0, Imaginary) < 0.0 ? "-" : "+"
+        Return "{Real}{sign}{copysign(Imaginary, 1.0)}i"
+    End Method
+
+    // Its distance from 0, and its angle from the positive real axis, from -pi to pi.
+    Public Method Abs(): Double => hypot(Real, Imaginary)
+    Public Method Arg(): Double => atan2(Imaginary, Real)
+
+    Public Method Conjugate(): Complex => Complex(Real, -Imaginary)
+
+    // e to its power.
+    Public Method Exp(): Complex
+        Local magnitude = exp(Real)
+        Return Complex(magnitude * cos(Imaginary), magnitude * sin(Imaginary))
+    End Method
+
+    // Its natural logarithm: the log of its magnitude, and its Arg. Near a magnitude of 1, the
+    // log comes from log1p, which keeps the digits that log would lose.
+    Public Method Log(): Complex
+        Local larger = Max(fabs(Real), fabs(Imaginary))
+        Local smaller = Min(fabs(Real), fabs(Imaginary))
+        Local magnitude = hypot(larger, smaller)
+        Local real = log(magnitude)
+        If magnitude >= 0.71 && magnitude <= 1.73
+            real = log1p((larger - 1) * (larger + 1) + smaller * smaller) / 2
+        End If
+        Return Complex(real, Arg())
+    End Method
+
+    // Its square root with a Real part 0 or more, and the Imaginary part's sign.
+    Public Method Sqrt(): Complex
+        If Real == 0.0 && Imaginary == 0.0 Then Return Complex(0, Imaginary)
+        Local root = sqrt((fabs(Real) + hypot(Real, Imaginary)) / 2)
+        If Real >= 0.0 Then Return Complex(root, Imaginary / (2 * root))
+        Return Complex(fabs(Imaginary) / (2 * root), copysign(root, Imaginary))
+    End Method
+
+    // It to the power: anything to 0 is 1, and 0 to a power with a Real part above 0 and no
+    // Imaginary part is 0, but to any other power has NaN parts.
+    Public Method Pow(exponent: Complex): Complex
+        If exponent.Real == 0.0 && exponent.Imaginary == 0.0 Then Return One()
+        If Real == 0.0 && Imaginary == 0.0
+            If exponent.Imaginary == 0.0 && exponent.Real > 0.0 Then Return Zero()
+            Return Complex(NotANumber(), NotANumber())
+        End If
+
+        Local magnitude = Abs()
+        Local angle = Arg()
+        Local length = pow(magnitude, exponent.Real)
+        Local phase = angle * exponent.Real
+        If exponent.Imaginary != 0.0
+            length /= exp(angle * exponent.Imaginary)
+            phase += exponent.Imaginary * log(magnitude)
+        End If
+        Return Complex(length * cos(phase), length * sin(phase))
+    End Method
+
+    Operator ==(a: Complex, b: Complex): Bool => a.Real == b.Real && a.Imaginary == b.Imaginary
+    Operator ==(a: Complex, b: Double): Bool => a.Real == b && a.Imaginary == 0.0
+    Operator ==(a: Double, b: Complex): Bool => b == a
+
+    Public Method Hash(): UInt64 => HashCombine(Real.Hash(), Imaginary.Hash())
+
+    Operator +(a: Complex, b: Complex): Complex => Complex(a.Real + b.Real, a.Imaginary + b.Imaginary)
+    Operator +(a: Complex, b: Double): Complex => Complex(a.Real + b, a.Imaginary)
+    Operator +(a: Double, b: Complex): Complex => Complex(a + b.Real, b.Imaginary)
+    Operator -(a: Complex, b: Complex): Complex => Complex(a.Real - b.Real, a.Imaginary - b.Imaginary)
+    Operator -(a: Complex, b: Double): Complex => Complex(a.Real - b, a.Imaginary)
+    Operator -(a: Double, b: Complex): Complex => Complex(a - b.Real, -b.Imaginary)
+
+    Operator *(a: Complex, b: Complex): Complex
+        Return Complex(a.Real * b.Real - a.Imaginary * b.Imaginary,
+                       a.Real * b.Imaginary + a.Imaginary * b.Real)
+    End Operator
+
+    Operator *(a: Complex, b: Double): Complex => Complex(a.Real * b, a.Imaginary * b)
+    Operator *(a: Double, b: Complex): Complex => Complex(a * b.Real, a * b.Imaginary)
+
+    // Smith's division, which scales by the larger part of b, so no product overflows on the way.
+    Operator /(a: Complex, b: Complex): Complex
+        If fabs(b.Real) >= fabs(b.Imaginary)
+            If b.Real == 0.0 Then Return Complex(NotANumber(), NotANumber())
+            Local ratio = b.Imaginary / b.Real
+            Local scale = b.Real + b.Imaginary * ratio
+            Return Complex((a.Real + a.Imaginary * ratio) / scale, (a.Imaginary - a.Real * ratio) / scale)
+        End If
+        If fabs(b.Imaginary) >= fabs(b.Real)
+            Local ratio = b.Real / b.Imaginary
+            Local scale = b.Real * ratio + b.Imaginary
+            Return Complex((a.Real * ratio + a.Imaginary) / scale, (a.Imaginary * ratio - a.Real) / scale)
+        End If
+        // A part of b is NaN.
+        Return Complex(NotANumber(), NotANumber())
+    End Operator
+
+    Operator /(a: Complex, b: Double): Complex => a / Complex(b, 0)
+    Operator /(a: Double, b: Complex): Complex => Complex(a, 0) / b
+
+    // To a whole power, by squaring, which can be below 0.
+    Operator **(a: Complex, b: Int64): Complex
+        // -b of the lowest Int64 doesn't fit one, but its UInt64 does.
+        Local count = b >= 0 ? b As UInt64 : (-(b + 1)) As UInt64 + 1
+        Local result = Complex.One()
+        Local square = a
+        While count > 0
+            If (count & 1) == 1 Then result = result * square
+            square = square * square
+            count >>= 1
+        End While
+        Return b >= 0 ? result : Complex.One() / result
+    End Operator
+
+    Operator -(a: Complex): Complex => Complex(-a.Real, -a.Imaginary)
+End Struct
+
+// A NaN, from 0.0 / 0.0, with its sign bit clear, so it shows as "nan".
+Function NotANumber(): Double
+    Local zero = 0.0
+    Return copysign(zero / zero, 1.0)
+End Function
