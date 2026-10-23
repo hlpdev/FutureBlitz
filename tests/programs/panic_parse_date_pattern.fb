@@ -1,0 +1,6 @@
+// A Date's pattern needs its year, and its month and day or its day of the year.
+Import std.core
+Import std.time
+
+Print(Date.Parse("2026 296", "yyyy D") ?? Date.MinValue())
+Print(Date.Parse("10 23", "MM dd") == Null)

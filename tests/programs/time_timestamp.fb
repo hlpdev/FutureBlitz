@@ -1,0 +1,43 @@
+// std.time's Timestamp: a point in time in UTC, from Unix times and back, with RFC 3339's
+// ToString and Parse, RFC 2822, and arithmetic with Durations.
+
+Import std.core
+Import std.time
+
+// Unix times, rounded down before 1970 as after it.
+Local stamp = Timestamp.FromUnixSeconds(1700000000)
+Print(stamp, stamp.UnixSeconds, stamp.UnixMilliseconds, stamp.UnixNanoseconds, stamp.Nanosecond)
+Print(Timestamp.FromUnixSeconds(-1), Timestamp.FromUnixSeconds(0, -1),
+      Timestamp.FromUnixSeconds(5, 2500000000))
+Print(Timestamp.FromUnixMilliseconds(-1500), Timestamp.FromUnixMilliseconds(1700000000123))
+Print(Timestamp.FromUnixNanoseconds(-1), Timestamp.FromUnixNanoseconds(9223372036854775807))
+Print(Timestamp.FromUnixNanoseconds(-9223372036854775807 - 1),
+      Timestamp.FromUnixMilliseconds(-1500).UnixSeconds)
+Print(Timestamp.FromUnixMilliseconds(-1500).UnixMilliseconds,
+      Timestamp.FromUnixNanoseconds(-1).UnixNanoseconds)
+Print(Timestamp.UnixEpoch(), Timestamp.DefaultValue(), Timestamp.MinValue(), Timestamp.MaxValue())
+Print(Timestamp.FromUnixSeconds(253402300799), Timestamp.FromUnixSeconds(-62135596800),
+      Timestamp.FromUnixSeconds(-62135596801))
+
+// Arithmetic.
+Print(stamp + 1.5.Seconds, stamp - 1.Days, stamp + (-1).Nanoseconds, stamp - Duration.MinValue())
+Print(stamp - Timestamp.UnixEpoch(), Timestamp.UnixEpoch() - stamp, stamp - stamp)
+Print(stamp < stamp + 1.Nanoseconds, stamp > stamp + 1.Nanoseconds,
+      stamp == Timestamp.FromUnixMilliseconds(1700000000000))
+Print(stamp.Hash() == Timestamp.FromUnixSeconds(1700000000).Hash(),
+      Min(stamp, Timestamp.UnixEpoch()))
+Print(stamp.ToUtc(), stamp.ToUtc().DayOfWeek, stamp.ToRfc2822(),
+      Timestamp.FromUnixSeconds(-1).ToRfc2822())
+
+// RFC 3339: an offset, which it's read at, is needed.
+For text In ["2026-10-23T12:30:00Z", "2026-10-23t12:30:00z", "2026-10-23 14:30:00.25+02:00",
+             "2026-10-23T07:00:00-05:30", "2026-10-23T12:30Z", "2026-10-23T12:30:00+0200",
+             "2026-10-23T12:30:00+02", "2026-10-23T00:00:00+23:59", "1970-01-01T00:00:00-00:00",
+             "0001-01-01T00:00:00+00:01", "2026-10-23T12:30:00", "2026-10-23T12:30:00+24:00",
+             "2026-10-23T12:30:00+02:60", "2026-10-23T12:30:00+2:00",
+             "2026-10-23T12:30:00+02:00[Europe/Paris]", "2026-10-23T12:30:00 Z",
+             "2026-10-23T12:30:00+02:00:30", "+1000000000-01-01T00:00:00Z",
+             "-1000000000-12-31T23:59:59Z"]
+    Local parsed = Timestamp.Parse(text)
+    Print("[{text}] -> {parsed == Null ? "Null" : "{parsed}"}")
+End For

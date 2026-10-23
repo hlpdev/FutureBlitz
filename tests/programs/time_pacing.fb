@@ -1,0 +1,101 @@
+// std.time's clocks and pacing with the time given as values: Instant, Stopwatch, Deadline,
+// Timer's ticks, FixedStep, RateLimiter, and Debounce, each told when "now" is.
+
+Import std.core
+Import std.time
+
+Local start = Instant.FromNanoseconds(5000000000)
+Print(start, start + 1.5.Seconds, start - 2.Seconds, (start + 1.Minutes) - start,
+      start - (start + 1.Minutes))
+Print(start < start + 1.Nanoseconds, start == Instant.FromNanoseconds(5000000000),
+      Instant.DefaultValue(), start.Nanoseconds)
+
+// A Stopwatch adds up the time it runs.
+Local watch = Stopwatch()
+Print(watch.IsRunning, watch.ElapsedAt(start))
+watch.Start(start)
+watch.Start(start + 1.Seconds)
+Print(watch.IsRunning, watch.ElapsedAt(start + 2.Seconds))
+watch.Stop(start + 3.Seconds)
+watch.Stop(start + 9.Seconds)
+Print(watch.IsRunning, watch.ElapsedAt(start + 10.Seconds))
+watch.Start(start + 20.Seconds)
+Print(watch.ElapsedAt(start + 20.5.Seconds))
+watch.Restart(start + 30.Seconds)
+Print(watch.ElapsedAt(start + 31.Seconds), watch.IsRunning)
+watch.Reset()
+Print(watch.ElapsedAt(start + 40.Seconds), watch.IsRunning,
+      Stopwatch.StartNew(start).ElapsedAt(start + 7.Milliseconds))
+
+// Deadlines, and none.
+Local deadline = Deadline.After(2.Seconds, start)
+Print(deadline.RemainingAt(start), deadline.RemainingAt(start + 1.5.Seconds),
+      deadline.RemainingAt(start + 3.Seconds))
+Print(deadline.HasPassedAt(start + 1.Seconds), deadline.HasPassedAt(start + 2.Seconds),
+      deadline.IsNever)
+Local never = Deadline.Never()
+Print(never.IsNever, never.HasPassedAt(start + 100000.Days), never.RemainingAt(start),
+      Deadline.DefaultValue() == never)
+Print(deadline < never, never < deadline, Min(never, deadline) == deadline,
+      Deadline.At(start) < deadline)
+Print(Deadline.After(Duration.MaxValue(), start).IsNever,
+      Deadline.After((-1).Seconds, start).HasPassedAt(start))
+Print(Deadline.After(Duration.MinValue(), Instant.FromNanoseconds(-1)).HasPassedAt(start),
+      never.Hash() == Deadline.DefaultValue().Hash())
+
+// A Timer's ticks keep to its start, so one that's late doesn't move the next.
+Local timer = Timer.Every(100.Milliseconds, start)
+Print(timer.UntilNext(start), timer.UntilNext(start + 30.Milliseconds),
+      timer.UntilNext(start + 100.Milliseconds))
+Print(timer.UntilNext(start + 250.Milliseconds), timer.UntilNext(start - 1.Seconds),
+      timer.IsStopped)
+timer.Stop()
+Print(timer.IsStopped)
+
+// Fixed steps: 60 a second add up to a second exactly, and a long frame gives MaxSteps.
+Local step = FixedStep(60)
+Print(step.Step, step.StepSeconds, step.MaxSteps, step.Alpha)
+Local steps = 0
+For frame = 1 To 100
+    steps += step.Advance(10.Milliseconds)
+End For
+
+Print(steps, step.Alpha)
+Print(step.Advance(16.Milliseconds), step.Advance(1.Milliseconds), step.Alpha,
+      step.Advance(10.Seconds), step.Alpha)
+step.MaxSteps = 3
+Print(step.Advance(1.Seconds), step.Advance((-1).Seconds), step.MaxSteps)
+step.Reset()
+Print(step.Tick(start), step.Tick(start + 50.Milliseconds), step.Tick(start + 51.Milliseconds),
+      step.Alpha)
+Local fixed = FixedStep(20.Milliseconds)
+Print(fixed.Step, fixed.StepSeconds, fixed.Advance(45.Milliseconds), fixed.Alpha,
+      fixed.Advance(Duration.MaxValue()))
+
+// A RateLimiter lets a burst through, then its rate.
+Local limiter = RateLimiter(2, 1.Seconds)
+Print(limiter.TryTake(start), limiter.TryTake(start), limiter.TryTake(start),
+      limiter.UntilNext(start))
+Print(limiter.TryTake(start + 499.Milliseconds), limiter.TryTake(start + 500.Milliseconds),
+      limiter.UntilNext(start + 500.Milliseconds))
+Print(limiter.TryTake(start + 10.Seconds), limiter.TryTake(start + 10.Seconds),
+      limiter.TryTake(start + 10.Seconds))
+Local burst = RateLimiter(10, 1.Minutes, 3)
+Local taken = 0
+For i = 1 To 10
+    If burst.TryTake(start) Then taken += 1
+End For
+
+Print(taken, burst.UntilNext(start), burst.TryTake(start + 6.Seconds),
+      burst.TryTake(start + 6.Seconds))
+
+// A Debounce says to act once a burst of Signals has stopped for its delay.
+Local bounce = Debounce(100.Milliseconds)
+Print(bounce.IsPending, bounce.Ready(start))
+bounce.Signal(start)
+bounce.Signal(start + 80.Milliseconds)
+Print(bounce.IsPending, bounce.Ready(start + 100.Milliseconds),
+      bounce.Ready(start + 180.Milliseconds), bounce.Ready(start + 300.Milliseconds))
+bounce.Signal(start + 400.Milliseconds)
+bounce.Cancel()
+Print(bounce.IsPending, bounce.Ready(start + 1.Seconds), Debounce(Duration.Zero()).Ready(start))

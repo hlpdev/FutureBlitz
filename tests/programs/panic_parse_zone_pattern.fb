@@ -1,0 +1,6 @@
+// A ZonedDateTime's needs an offset or a zone.
+Import std.core
+Import std.time
+
+Print(ZonedDateTime.Parse("2026-10-23 Z", "yyyy-MM-dd X") ?? ZonedDateTime.DefaultValue())
+Print(ZonedDateTime.Parse("2026-10-23", "yyyy-MM-dd") == Null)

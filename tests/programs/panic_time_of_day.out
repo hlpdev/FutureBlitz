@@ -1,0 +1,2 @@
+23:59:59
+panic: 24:00:00 and 0 nanoseconds isn't a time of day at panic_time_of_day.fb:6:7

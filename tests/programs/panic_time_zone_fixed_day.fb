@@ -1,0 +1,6 @@
+// And a day is too long.
+Import std.core
+Import std.time
+
+Print(TimeZone.Fixed(86399.Seconds))
+Print(TimeZone.Fixed(1.Days))

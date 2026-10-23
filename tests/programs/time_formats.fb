@@ -1,0 +1,105 @@
+// std.time's formats: patterns for Format and Parse, which every type takes for the parts it
+// has, and RFC 2822, as email writes dates.
+
+Import std.core
+Import std.time
+
+Local paris = TimeZone.Find("Europe/Paris") ?? TimeZone.Utc()
+Local zoned = LocalDateTime(2026, 10, 23, 14, 5, 9, 123456789).InZone(paris)
+Local date = Date(2026, 10, 23)
+Local time = TimeOfDay(0, 7, 3, 50000000)
+
+// Each letter, and how many of it.
+For pattern In ["y", "yy", "yyy", "yyyy", "yyyyy", "M", "MM", "MMM", "MMMM", "d", "dd", "D", "DD",
+                "DDD", "E", "EE", "EEE", "EEEE", "a", "H", "HH", "h", "hh", "m", "mm", "s", "ss",
+                "S", "SSS", "SSSSSS", "SSSSSSSSS", "X", "XX", "XXX", "x", "xx", "xxx", "Z", "z",
+                "VV"]
+    Print("{pattern}: [{zoned.Format(pattern)}]")
+End For
+
+Print(zoned.Format("EEEE, d MMMM yyyy 'at' h:mm a z"),
+      zoned.Format("yyyy-MM-dd'T'HH:mm:ss.SSSXXX'['VV']'"))
+Print(zoned.Format("'quoted ''text'' and' '' 'alone'"), zoned.Format("yyyyMMddHHmmss"),
+      zoned.Format("dd/MM/yy, D"))
+Print(date.Format("EEE d MMM yyyy"), date.Format("yyyy-DDD"), time.Format("hh:mm:ss.SS a"),
+      time.Format("H:mm"))
+Print(LocalDateTime(2026, 1, 2, 12, 0).Format("h a, M/d/yyyy"),
+      LocalDateTime(-44, 3, 15).Format("y-MM-dd, yyyy"))
+Print(LocalDateTime(2026, 1, 2, 23, 59).Format("hh a"),
+      Timestamp.FromUnixSeconds(0).Format("yyyy-MM-dd HH:mm X VV z"))
+Print(zoned.WithZone(TimeZone.Fixed(-(3.Hours + 30.Minutes))).Format("HH:mm X XX XXX x Z"))
+Print(zoned.WithZone(TimeZone.Fixed(5.Hours)).Format("X|XX|XXX|x"),
+      zoned.WithZone(TimeZone.Utc()).Format("X|XX|XXX|x|xx|xxx|Z"))
+
+// Parsing by pattern, into each type.
+Print(Date.Parse("23/10/2026", "dd/MM/yyyy") ?? Date.MinValue(),
+      Date.Parse("Fri, 23 Oct 2026", "EEE, d MMM yyyy") ?? Date.MinValue())
+Print(Date.Parse("2026-296", "yyyy-DDD") ?? Date.MinValue(),
+      Date.Parse("20261023", "yyyyMMdd") ?? Date.MinValue())
+Print(Date.Parse("october 23 26", "MMMM d yy") ?? Date.MinValue(),
+      Date.Parse("2024-366", "yyyy-D") ?? Date.MinValue())
+Print(TimeOfDay.Parse("2:05 pm", "h:mm a") ?? TimeOfDay.MaxValue(),
+      TimeOfDay.Parse("12:00 AM", "hh:mm a") ?? TimeOfDay.MaxValue())
+Print(TimeOfDay.Parse("14.05.09,123", "HH.mm.ss,SSS") ?? TimeOfDay.MaxValue(),
+      TimeOfDay.Parse("140509", "HHmmss") ?? TimeOfDay.MaxValue())
+Print(LocalDateTime.Parse("2026/10/23 7:05", "yyyy/MM/dd H:mm") ?? LocalDateTime.MinValue())
+Print(LocalDateTime.Parse("23.10.2026", "dd.MM.yyyy") ?? LocalDateTime.MinValue())
+Print(ZonedDateTime.Parse("2026-10-23 14:05 +02:00",
+                          "yyyy-MM-dd HH:mm XXX") ?? ZonedDateTime.DefaultValue())
+Print(ZonedDateTime.Parse("2026-10-23 14:05 Europe/Paris",
+                          "yyyy-MM-dd HH:mm VV") ?? ZonedDateTime.DefaultValue())
+Print(ZonedDateTime.Parse("2026-10-25 02:30 Europe/Paris",
+                          "yyyy-MM-dd HH:mm VV") ?? ZonedDateTime.DefaultValue())
+Print(ZonedDateTime.Parse("2026-10-23T14:05:09.123+0200 Europe/Paris",
+                          "yyyy-MM-dd'T'HH:mm:ss.SSSZ VV") ?? ZonedDateTime.DefaultValue())
+Print(Timestamp.Parse("23 Oct 2026 12:30:00 Z", "d MMM yyyy HH:mm:ss X") ?? Timestamp.MinValue())
+Print(Timestamp.Parse("2026102314 +00", "yyyyMMddHH X") ?? Timestamp.MinValue())
+Print(zoned.Format("yyyy-MM-dd'T'HH:mm:ss.SSSSSSSSSXXX'['VV']'") == "{zoned}",
+      ZonedDateTime.Parse(zoned.Format("yyyy-MM-dd HH:mm:ss.SSSSSSSSS VV"),
+                          "yyyy-MM-dd HH:mm:ss.SSSSSSSSS VV") == zoned)
+
+// What doesn't fit is Null.
+For case In [("2026-02-30", "yyyy-MM-dd"), ("2026-10-23x", "yyyy-MM-dd"),
+             ("2026-10-2", "yyyy-MM-dd"), ("Thu 23 Oct 2026", "EEE d MMM yyyy"),
+             ("23 Okt 2026", "d MMM yyyy"), ("2026-367", "yyyy-DDD"), ("2026-365", "yyyy-DDD"),
+             ("2025-366", "yyyy-D"), ("", "yyyy-MM-dd"), ("2026 10 23", "yyyy-MM-dd"),
+             ("2026-10-23", "yyyy-MM-dd'T'"), ("-2026-10-23", "yyyy-MM-dd"),
+             ("2026-10-23", "yyyy-M-d")]
+    Local parsed = Date.Parse(case.0, case.1)
+    Print("{case.0} as {case.1}: {parsed == Null ? "Null" : "{parsed}"}")
+End For
+
+For case In [("13 PM", "h a"), ("0 AM", "h a"), ("12:60", "HH:mm"), ("12:30:60", "HH:mm:ss"),
+             ("12 XM", "hh a"), ("12:3", "HH:mm"), ("1230", "HHmm"), ("12:30.5", "HH:mm.SS")]
+    Local parsed = TimeOfDay.Parse(case.0, case.1)
+    Print("{case.0} as {case.1}: {parsed == Null ? "Null" : "{parsed}"}")
+End For
+
+Print(TimeOfDay.Parse("24:00", "HH:mm") == Null,
+      TimeOfDay.Parse("1:5", "H:m") ?? TimeOfDay.MaxValue())
+Print(TimeOfDay.Parse("13 PM", "HH a") ?? TimeOfDay.MaxValue(),
+      TimeOfDay.Parse("1 PM", "H a") == Null, TimeOfDay.Parse("13 AM", "H a") == Null)
+Print(ZonedDateTime.Parse("2026-10-23 14:05 Nowhere", "yyyy-MM-dd HH:mm VV") == Null)
+Print(ZonedDateTime.Parse("2026-10-23 14:05 +03:00 Europe/Paris",
+                          "yyyy-MM-dd HH:mm XXX VV") == Null)
+Print(Date.Parse("-0044-03-15", "yyyy-MM-dd") ?? Date.MinValue(),
+      Date.Parse("12345-01-01", "yyyy-MM-dd") ?? Date.MinValue())
+
+// RFC 2822, from email.
+Print(zoned.ToRfc2822(), Timestamp.FromUnixSeconds(1700000000).ToRfc2822(),
+      zoned.WithZone(TimeZone.Fixed(-(3.Hours + 30.Minutes))).ToRfc2822())
+For text In ["Fri, 23 Oct 2026 14:05:09 +0200", "23 Oct 2026 14:05 -0330",
+             "Fri,23 Oct 2026 14:05:09 GMT",
+             "  Fri , 23 Oct 2026 14 : 05 : 09 (a comment) +0000 (UTC) ",
+             "Fri, 23 Oct 26 14:05:09 EDT", "Thu, 23 Oct 69 14:05:09 PST",
+             "Fri, 23 Oct 126 14:05:09 cdt", "fri, 23 oct 2026 14:05:09 ut",
+             "Fri, 23 Oct 2026 14:05:09 Z", "Fri, 23 Oct 2026 14:05:09 A",
+             "Fri, 23 Oct 2026 23:59:60 +0000", "Thu, 23 Oct 2026 14:05:09 +0200",
+             "Fri, 23 Oct 2026 14:05:09 J", "Fri, 23 Oct 2026 14:05:09 +02",
+             "Fri, 23 Oct 2026 14:05:09", "Fri, 32 Oct 2026 14:05:09 +0200",
+             "Fri, 23 Oct 2026 14:05:09 +0260", "Fri, 23 Oct 2026 24:05:09 +0200",
+             "Fri 23 Oct 2026 14:05:09 +0200", "Fri, 23 October 2026 14:05:09 +0200",
+             "Fri, 23 Oct 2026 14:05:09 +0200 trailing", "Fri, 23 Oct 2026 14:05:09 XST"]
+    Local parsed = ZonedDateTime.ParseRfc2822(text)
+    Print("[{text}] -> {parsed == Null ? "Null" : "{parsed}"}")
+End For

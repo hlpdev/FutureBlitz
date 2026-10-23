@@ -1,0 +1,6 @@
+// A Debounce's delay isn't below 0.
+Import std.core
+Import std.time
+
+Print(Debounce(Duration.Zero()).IsPending)
+Print(Debounce((-1).Milliseconds).IsPending)

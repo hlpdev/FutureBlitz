@@ -1,0 +1,6 @@
+// And years.
+Import std.core
+Import std.time
+
+Print(Date(2026, 1, 1).AddYears(-2026))
+Print(Date(2026, 1, 1).AddYears(2147483647))

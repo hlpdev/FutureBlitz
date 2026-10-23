@@ -1,0 +1,6 @@
+// Adding past the last Date panics where it's added.
+Import std.core
+Import std.time
+
+Print(LocalDateTime.MaxValue() - 1.Days)
+Print(LocalDateTime.MaxValue() + 1.Nanoseconds)

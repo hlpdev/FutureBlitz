@@ -1,0 +1,6 @@
+// A Timestamp past the years one holds panics where it's made.
+Import std.core
+Import std.time
+
+Print(Timestamp.FromUnixSeconds(31556889832780799))
+Print(Timestamp.FromUnixSeconds(31556889832780800))

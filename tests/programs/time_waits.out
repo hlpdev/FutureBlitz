@@ -1,0 +1,16 @@
+top-level code waited 500ms: True
+a coroutine waited: True
+on the real clock: True
+after a Timer: True, True, True
+both: True True
+a thread waited: True
+three ticks: True
+slept: True, measured: True
+stopwatch: True, still: True, running: False
+monotonic: True, deadline: False, True
+remaining: True, True
+after 2020: True, before 2200: True
+the OS's zone has a name: True, its offset fits: True
+today: True, True, True
+now: True, True, 0s
+done

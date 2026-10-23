@@ -1,0 +1,6 @@
+// In a time longer than 0.
+Import std.core
+Import std.time
+
+Print(RateLimiter(5, 1.Nanoseconds).TryTake())
+Print(RateLimiter(5, Duration.Zero()).TryTake())

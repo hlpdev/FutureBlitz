@@ -1,0 +1,7 @@
+// So does adding past them.
+Import std.core
+Import std.time
+
+Local last = Timestamp.MaxValue().InZone(TimeZone.Utc())
+Print(last - 1.Days)
+Print(last + 1.Nanoseconds)

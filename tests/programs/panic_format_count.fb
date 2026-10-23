@@ -1,0 +1,6 @@
+// As does too many of one.
+Import std.core
+Import std.time
+
+Print(Date(2026, 10, 23).Format("MMMM"))
+Print(Date(2026, 10, 23).Format("MMMMM"))

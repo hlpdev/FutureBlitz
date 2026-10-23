@@ -1,0 +1,6 @@
+// A Date that isn't one panics where it's made.
+Import std.core
+Import std.time
+
+Print(Date(2024, 2, 29))
+Print(Date(2026, 2, 29))

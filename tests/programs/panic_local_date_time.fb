@@ -1,0 +1,6 @@
+// A LocalDateTime of a date or time that isn't one panics where it's made.
+Import std.core
+Import std.time
+
+Print(LocalDateTime(2026, 10, 23, 12))
+Print(LocalDateTime(2026, 10, 23, 12, 60))

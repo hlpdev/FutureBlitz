@@ -1,0 +1,6 @@
+// As does one past a day's nanoseconds.
+Import std.core
+Import std.time
+
+Print(TimeOfDay.FromNanosecondOfDay(0))
+Print(TimeOfDay.FromNanosecondOfDay(86400000000000))

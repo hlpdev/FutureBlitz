@@ -1,0 +1,95 @@
+// std.time's calendar types without a zone: Date, TimeOfDay, and LocalDateTime, in the proleptic
+// Gregorian calendar, with ISO 8601's ToString and Parse. Months and years clamp the day to the
+// month's last.
+
+Import std.core
+Import std.time
+
+// Dates, their parts, and the day of the week, on known days.
+For date In [Date(2026, 10, 23), Date(2000, 2, 29), Date(1970, 1, 1), Date(1969, 12, 31),
+             Date(1, 1, 1), Date(9999, 12, 31), Date(1600, 3, 1), Date(-1, 12, 31), Date(0, 1, 1),
+             Date(2024, 12, 31)]
+    Print(date, date.Year, date.Month, date.Day, date.DayOfWeek, date.DayOfYear,
+          date.DaysSinceEpoch, date.IsLeapYear, date.DaysInMonth)
+End For
+
+Print(Date.IsLeap(1900), Date.IsLeap(2000), Date.IsLeap(2024), Date.IsLeap(2026), Date.IsLeap(-4),
+      Date.IsLeap(0))
+Print(Date.DaysIn(2026, 2), Date.DaysIn(2024, 2), Date.DaysIn(2026, 4), Date.DaysIn(2026, 12),
+      Date.DaysIn(2026, 13))
+Print(Date.IsValid(2026, 2, 29), Date.IsValid(2024, 2, 29), Date.IsValid(2026, 4, 31),
+      Date.IsValid(2026, 0, 1))
+Print(Date.IsValid(2026, 12, 32), Date.IsValid(2026, 1, 0))
+Print(Date.DefaultValue(), Date.MinValue(), Date.MaxValue(), Date.MinValue().DayOfWeek,
+      Date.MaxValue().DayOfWeek)
+Print(Date.FromDays(20384), Date.FromDays(-1), Date.FromDays(-719162), Date.FromDays(2932896))
+
+// Arithmetic, with the day clamped.
+Local day = Date(2024, 1, 31)
+Print(day.AddDays(1), day.AddDays(-31), day.AddDays(366), day.AddMonths(1), day.AddMonths(2),
+      day.AddMonths(-2))
+Print(day.AddMonths(13), day.AddMonths(-13), day.AddMonths(-24301), Date(2024, 2, 29).AddYears(1))
+Print(Date(2024, 2, 29).AddYears(4), Date(2024, 2, 29).AddYears(-100),
+      Date(2026, 3, 31).AddMonths(-1))
+Print(Date(2026, 10, 23).DaysUntil(Date(2027, 1, 1)),
+      Date(2027, 1, 1).DaysUntil(Date(2026, 10, 23)))
+Local friday = Date(2026, 10, 23)
+Print(friday.StartOfWeek(), friday.EndOfWeek(), friday.StartOfMonth(), friday.EndOfMonth(),
+      friday.StartOfYear(), friday.EndOfYear())
+Print(Date(2026, 10, 19).StartOfWeek(), Date(2026, 10, 25).EndOfWeek(),
+      Date(2024, 2, 10).EndOfMonth())
+Print(friday < Date(2026, 10, 24), friday > Date(2026, 10, 24), friday == Date(2026, 10, 23),
+      friday != day)
+Print(Min(friday, day), Max(friday, day), friday.Hash() == Date(2026, 10, 23).Hash())
+
+// ISO 8601: years past 4 digits take a sign, as do those below 0.
+Print(Date(10000, 1, 1), Date(-10000, 1, 1), Date(-1, 1, 1), Date(123, 4, 5), Date.MinValue())
+For text In ["2026-10-23", "2024-02-29", "0000-01-01", "-0001-12-31", "+10000-01-01", "+2026-10-23",
+             "-2147483648-01-01", "+2147483647-12-31", "2026-02-29", "2026-13-01", "2026-00-10",
+             "2026-1-23", "26-10-23", "2026-10-23T", " 2026-10-23", "2026/10/23", "10000-01-01",
+             "+2147483648-01-01", "+99999999999-01-01", ""]
+    Local parsed = Date.Parse(text)
+    Print("[{text}] -> {parsed == Null ? "Null" : "{parsed}"}")
+End For
+
+// Times of day.
+Local time = TimeOfDay(13, 5, 9, 120000000)
+Print(time, time.Hour, time.Minute, time.Second, time.Nanosecond, time.SecondOfDay,
+      time.NanosecondOfDay)
+Print(TimeOfDay(0, 0), TimeOfDay(23, 59, 59, 999999999), TimeOfDay(7, 30, 0, 1), TimeOfDay.Noon(),
+      TimeOfDay.Midnight())
+Print(TimeOfDay.MinValue(), TimeOfDay.MaxValue(), TimeOfDay.DefaultValue(),
+      TimeOfDay.FromNanosecondOfDay(3723000000000))
+Print(TimeOfDay.IsValid(24, 0), TimeOfDay.IsValid(23, 60), TimeOfDay.IsValid(23, 59, 60),
+      TimeOfDay.IsValid(0, 0, 0, 1000000000))
+Print(time + 12.Hours, time + 11.Hours, time - 14.Hours, time + 49.Hours, time - 3.Days,
+      time + (-1).Nanoseconds)
+Print(time - TimeOfDay(12, 0), TimeOfDay(12, 0) - time, time < TimeOfDay.Noon(),
+      time > TimeOfDay.Noon())
+For text In ["13:05", "13:05:09", "13:05:09.12", "13:05:09,5", "00:00:00.000000001",
+             "23:59:59.999999999", "24:00", "12:60", "12:30:60", "1:30", "12:30:", "12:30:00.",
+             "12:30:00.1234567890", "12h30"]
+    Local parsed = TimeOfDay.Parse(text)
+    Print("[{text}] -> {parsed == Null ? "Null" : "{parsed}"}")
+End For
+
+// Dates and times together.
+Local moment = LocalDateTime(2026, 10, 23, 23, 30)
+Print(moment, moment.Date, moment.Time, moment.Year, moment.Month, moment.DayOfMonth, moment.Hour,
+      moment.Minute)
+Print(moment.Second, moment.Nanosecond, moment.DayOfWeek, moment.DayOfYear,
+      LocalDateTime.DefaultValue())
+Print(LocalDateTime(Date(2026, 1, 31), TimeOfDay(8, 15)), Date(2026, 1, 31).At(TimeOfDay.Noon()))
+Print(moment + 1.Hours, moment + 25.Hours, moment - 24.Hours, moment + (-1).Nanoseconds,
+      moment - Duration.MaxValue())
+Print(moment.AddDays(10), moment.AddMonths(4), moment.AddYears(-26), moment.StartOfDay())
+Print(moment - LocalDateTime(2026, 10, 22), LocalDateTime(2026, 10, 22) - moment, moment - moment)
+Print(LocalDateTime(2026, 10, 23) < moment, moment < LocalDateTime(2026, 10, 23, 23, 30, 0, 1),
+      moment == moment.AddDays(0))
+Print(LocalDateTime.MinValue(), LocalDateTime.MaxValue())
+For text In ["2026-10-23T23:30:00", "2026-10-23t23:30", "2026-10-23 23:30:15.5",
+             "-0001-01-01T00:00", "2026-10-23T24:00", "2026-10-23", "2026-10-23T23:30Z",
+             "2026-10-23_23:30", "2026-02-30T00:00"]
+    Local parsed = LocalDateTime.Parse(text)
+    Print("[{text}] -> {parsed == Null ? "Null" : "{parsed}"}")
+End For

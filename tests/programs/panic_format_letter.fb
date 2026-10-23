@@ -1,0 +1,6 @@
+// A pattern letter that isn't one panics where it formats.
+Import std.core
+Import std.time
+
+Print(Date(2026, 10, 23).Format("yyyy-MM-dd"))
+Print(Date(2026, 10, 23).Format("yyyy-MM-dd q"))

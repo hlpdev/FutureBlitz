@@ -1,0 +1,2 @@
+00:00:00
+panic: 86400000000000 nanoseconds after midnight isn't a time of day at panic_time_of_day_nanoseconds.fb:6:7

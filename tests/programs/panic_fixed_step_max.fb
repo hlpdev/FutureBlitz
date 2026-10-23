@@ -1,0 +1,8 @@
+// And its MaxSteps at least 1.
+Import std.core
+Import std.time
+
+Local step = FixedStep(60)
+step.MaxSteps = 1
+Print(step.MaxSteps)
+step.MaxSteps = 0

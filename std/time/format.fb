@@ -1,0 +1,875 @@
+// std.time's formats: ISO 8601, as each type's ToString and Parse write and read it; RFC 2822,
+// as email has it, like "Fri, 23 Oct 2026 14:30:00 +0200"; and patterns, for Format and the
+// Parse that takes one, whose letters stand for the parts of a date, time, or zone:
+//
+//   y      the year: yyyy at least 4 digits, yy its last 2 (read as 2000 to 2099), y as is
+//   M      the month: M 1 to 12, MM 01 to 12, MMM "Oct", MMMM "October"
+//   d, D   the day of the month (d, dd) and of the year (D, DD, DDD)
+//   E      the day of the week: E, EE, or EEE "Fri", EEEE "Friday"
+//   H, h   the hour, 0 to 23 (H, HH), or 1 to 12 (h, hh), with a's "AM" or "PM"
+//   m, s   the minute and second (m, mm, s, ss)
+//   S      a fraction of the second, as many digits as there are S's, up to 9
+//   X, x   the offset: X "+02" (with minutes when it has any), XX "+0200", XXX "+02:00", each
+//          "Z" for UTC; x, xx, and xxx the same without "Z"
+//   Z      the offset as "+0200"
+//   z      the zone's abbreviation, like "CEST", which only Format writes
+//   VV     the zone's name, like "Europe/Paris"
+//
+// Text between single quotes is as it is, and '' is a quote. Other letters panic, as do a
+// type's patterns with letters of parts it doesn't have; anything else is as it is. A number of
+// one letter reads as many digits as it can have, and of two or more, that many. Names are
+// English and read in any letter case.
+
+Import std.core
+Import std.time.calendar
+Import std.time.zone
+
+Extern "runtime"
+    Function fb_time_text(chars: Int[], start: Int64, finish: Int64): String
+End Extern
+
+// The text of the code points from start to before finish.
+Package Function TextOf(chars: Int[], start: Int, finish: Int): String
+    Return fb_time_text(chars, start, finish)
+End Function
+
+// What ISO 8601 text has: a date, a time, both, both with an offset, or both with an offset and
+// a zone's name or not.
+Package Enum IsoForm
+    DATE, TIME, DATE_TIME, TIMESTAMP, ZONED
+End Enum
+
+// What a pattern is for, which says which letters it can have.
+Package Enum PartKind
+    DATE, TIME, DATE_TIME, ZONED
+End Enum
+
+// What a format reads or writes: a date, a time as nanoseconds since midnight, an offset's
+// seconds, and a zone, with its name and abbreviation for Format.
+Package Struct Parts
+    Package Field Year: Int64 = 1970
+    Package Field Month: Int = 1
+    Package Field Day: Int = 1
+    Package Field Nanoseconds: Int64 = 0
+    Package Field HasOffset: Bool = False
+    Package Field Offset: Int = 0
+    Package Field Zone: TimeZone? = Null
+    Package Field ZoneName: String = ""
+    Package Field Abbreviation: String = ""
+    Package Field Kind: PartKind = PartKind.DATE
+End Struct
+
+Package Function PartsOf(date: Date): Parts
+    Return Parts(Year: date.Year, Month: date.Month, Day: date.Day, Kind: PartKind.DATE)
+End Function
+
+Package Function PartsOf(time: TimeOfDay): Parts
+    Return Parts(Nanoseconds: time.NanosecondOfDay, Kind: PartKind.TIME)
+End Function
+
+Package Function PartsOf(local: LocalDateTime): Parts
+    Return Parts(Year: local.Year, Month: local.Month, Day: local.DayOfMonth,
+                 Nanoseconds: local.Time.NanosecondOfDay, Kind: PartKind.DATE_TIME)
+End Function
+
+Package Function PartsAt(local: LocalDateTime, offset: Int, zoneName: String,
+                         abbreviation: String): Parts
+    Return Parts(Year: local.Year, Month: local.Month, Day: local.DayOfMonth,
+                 Nanoseconds: local.Time.NanosecondOfDay, HasOffset: True, Offset: offset,
+                 ZoneName: zoneName, Abbreviation: abbreviation, Kind: PartKind.ZONED)
+End Function
+
+// ISO 8601
+
+// The parts of ISO 8601 text of the form, or Null. A date is a year of 4 digits, or of 4 or more
+// after a sign, a month, and a day, with "-" between; a time is hours and minutes, and seconds
+// with a fraction or not, with ":" between; and "T", "t", or a space goes between the two. An
+// offset is "Z" or a sign and hours, with minutes, and seconds, or not (see ReadOffset), and a
+// zone's name goes in brackets after it.
+Package Function ParseIso(text: String, form: IsoForm): Parts?
+    Local chars = text.Chars
+    Local parts = Parts()
+    Local at = 0
+    If form != IsoForm.TIME
+        Local date = ReadIsoDate(chars)
+        If date == Null Then Return Null
+        parts.Year = date.0
+        parts.Month = date.1
+        parts.Day = date.2
+        at = date.3
+        If form == IsoForm.DATE Then Return at == chars.Count ? parts : Null
+        Local separator = at < chars.Count ? chars[at] : 0
+        If separator != 'T' && separator != 't' && separator != ' ' Then Return Null
+        at += 1
+    End If
+
+    Local time = ReadIsoTime(chars, at)
+    If time == Null Then Return Null
+    parts.Nanoseconds = time.0
+    at = time.1
+    If form == IsoForm.TIME || form == IsoForm.DATE_TIME
+        Return at == chars.Count ? parts : Null
+    End If
+
+    Local offset = ReadOffset(chars, at, True)
+    If offset == Null Then Return Null
+    parts.HasOffset = True
+    parts.Offset = offset.0
+    at = offset.1
+    If form == IsoForm.ZONED && at < chars.Count && chars[at] == '['
+        Local close = at + 1
+        While close < chars.Count && chars[close] != ']'
+            close += 1
+        End While
+
+        If close != chars.Count - 1 Then Return Null
+        Local zone = TimeZone.Find(TextOf(chars, at + 1, close))
+        If zone == Null Then Return Null
+        parts.Zone = zone
+        at = chars.Count
+    End If
+
+    Return at == chars.Count ? parts : Null
+End Function
+
+// A date's year, month, and day, and where it ends, or Null.
+Function ReadIsoDate(chars: Int[]): (Int64, Int, Int, Int)?
+    Local at = 0
+    Local negative = False
+    Local signed = chars.Count > 0 && (chars[0] == '+' || chars[0] == '-')
+    If signed
+        negative = chars[0] == '-'
+        at = 1
+    End If
+
+    Local year = ReadDigits(chars, at, 4, signed ? 10 : 4)
+    If year == Null Then Return Null
+    at = year.1
+    If at >= chars.Count || chars[at] != '-' Then Return Null
+    Local month = ReadDigits(chars, at + 1, 2, 2)
+    If month == Null || month.1 >= chars.Count || chars[month.1] != '-' Then Return Null
+    Local day = ReadDigits(chars, month.1 + 1, 2, 2)
+    If day == Null Then Return Null
+    Return (negative ? -year.0 : year.0, month.0 As Int, day.0 As Int, day.1)
+End Function
+
+// A time's nanoseconds since midnight, and where it ends, or Null.
+Function ReadIsoTime(chars: Int[], start: Int): (Int64, Int)?
+    Local hour = ReadDigits(chars, start, 2, 2)
+    If hour == Null || hour.1 >= chars.Count || chars[hour.1] != ':' Then Return Null
+    Local minute = ReadDigits(chars, hour.1 + 1, 2, 2)
+    If minute == Null Then Return Null
+    Local at = minute.1
+    Local second: Int64 = 0
+    Local fraction: Int64 = 0
+    If at < chars.Count && chars[at] == ':'
+        Local seconds = ReadDigits(chars, at + 1, 2, 2)
+        If seconds == Null Then Return Null
+        second = seconds.0
+        at = seconds.1
+        If at < chars.Count && (chars[at] == '.' || chars[at] == ',')
+            Local digits = ReadFraction(chars, at + 1, 1, 9)
+            If digits == Null Then Return Null
+            fraction = digits.0
+            at = digits.1
+        End If
+    End If
+
+    If hour.0 > 23 || minute.0 > 59 || second > 59 Then Return Null
+    Return (((hour.0 * 60 + minute.0) * 60 + second) * 1000000000 + fraction, at)
+End Function
+
+// An offset's seconds east of UTC, and where it ends, or Null: "Z" or "z" when z says it can
+// be, or a sign and two digits of hours, then minutes, and then seconds, or not, each two digits,
+// with ":" before each or neither, as "+02", "+0530", "-08:00", and "+05:30:15" are. Hours go up
+// to 23.
+Package Function ReadOffset(chars: Int[], start: Int, z: Bool): (Int, Int)?
+    If start >= chars.Count Then Return Null
+    If z && (chars[start] == 'Z' || chars[start] == 'z') Then Return (0, start + 1)
+    If chars[start] != '+' && chars[start] != '-' Then Return Null
+    Local hours = ReadDigits(chars, start + 1, 2, 2)
+    If hours == Null || hours.0 > 23 Then Return Null
+    Local seconds = hours.0 * 3600
+    Local at = hours.1
+    Local colon = at < chars.Count && chars[at] == ':'
+    For unit In [60, 1]
+        If colon
+            If at >= chars.Count || chars[at] != ':' Then Break
+            at += 1
+        End If
+
+        Local part = ReadDigits(chars, at, 2, 2)
+        If part == Null
+            If colon Then Return Null
+            Break
+        End If
+
+        If part.0 > 59 Then Return Null
+        seconds += part.0 * unit
+        at = part.1
+    End For
+
+    Return ((chars[start] == '-' ? -seconds : seconds) As Int, at)
+End Function
+
+// The value of from fewest to most digits at start, as many as there are, and where they end, or
+// Null when there are fewer.
+Package Function ReadDigits(chars: Int[], start: Int, fewest: Int, most: Int): (Int64, Int)?
+    Local value: Int64 = 0
+    Local at = start
+    While at < chars.Count && at - start < most && IsDigit(chars[at])
+        value = value * 10 + (chars[at] - '0')
+        at += 1
+    End While
+
+    Return at - start < fewest ? Null : (value, at)
+End Function
+
+// A fraction's digits as nanoseconds, and where they end, or Null.
+Function ReadFraction(chars: Int[], start: Int, fewest: Int, most: Int): (Int64, Int)?
+    Local digits = ReadDigits(chars, start, fewest, most)
+    If digits == Null Then Return Null
+    Local nanoseconds = digits.0
+    For i = digits.1 - start + 1 To 9
+        nanoseconds *= 10
+    End For
+
+    Return (nanoseconds, digits.1)
+End Function
+
+Function IsDigit(code: Int): Bool => code >= '0' && code <= '9'
+
+// An offset as ISO 8601 writes it, "+02:00", or "+05:30:15" with seconds, and as "Z" when it's
+// 0 and z says so.
+Package Function OffsetText(seconds: Int, z: Bool): String
+    If seconds == 0 && z Then Return "Z"
+    Local magnitude = seconds < 0 ? -seconds : seconds
+    Local sign = seconds < 0 ? "-" : "+"
+    Local text = "{sign}{Padded(magnitude / 3600, 2)}:{Padded(magnitude / 60 % 60, 2)}"
+    Return magnitude % 60 == 0 ? text : "{text}:{Padded(magnitude % 60, 2)}"
+End Function
+
+// RFC 2822
+
+// The date and time at an offset as RFC 2822 writes them: "Fri, 23 Oct 2026 14:30:00 +0200",
+// with the offset's seconds left out.
+Package Function Rfc2822Of(local: LocalDateTime, offset: Int): String
+    Local magnitude = offset < 0 ? -offset : offset
+    Local sign = offset < 0 ? "-" : "+"
+    Local zone = "{sign}{Padded(magnitude / 3600, 2)}{Padded(magnitude / 60 % 60, 2)}"
+    Local weekday = WeekdayName(local.DayOfWeek, False)
+    Local month = MonthName(local.Month, False)
+    Local time = "{Padded(local.Hour, 2)}:{Padded(local.Minute, 2)}:{Padded(local.Second, 2)}"
+    Return "{weekday}, {local.DayOfMonth} {month} {Padded(local.Year, 4)} {time} {zone}"
+End Function
+
+// The parts of RFC 2822 text, or Null: a day of the week and a comma, or not; the day; the
+// month's name; the year, of 4 digits or more, or of 2 or 3, the old way; hours and minutes, and
+// seconds or not; and the zone, an offset like "+0200", or "UT", "GMT", "Z", or a US zone's
+// abbreviation, like "EST". Spaces and comments in parentheses can go between them, and a
+// military zone's letter means UTC, as RFC 2822 says.
+Package Function ParseRfc2822Parts(text: String): Parts?
+    Local chars = text.Chars
+    Local at = SkipSpace(chars, 0)
+    Local weekday = 0
+    If at < chars.Count && !IsDigit(chars[at])
+        For day = 1 To 7
+            If MatchesWord(chars, at, WeekdayName(day As Weekday, False)) Then weekday = day
+        End For
+
+        If weekday == 0 Then Return Null
+        at = SkipSpace(chars, at + 3)
+        If at >= chars.Count || chars[at] != ',' Then Return Null
+        at = SkipSpace(chars, at + 1)
+    End If
+
+    Local day = ReadDigits(chars, at, 1, 2)
+    If day == Null Then Return Null
+    at = SkipSpace(chars, day.1)
+    Local month = 0
+    For i = 1 To 12
+        If MatchesWord(chars, at, MonthName(i, False)) Then month = i
+    End For
+
+    If month == 0 Then Return Null
+    at = SkipSpace(chars, at + 3)
+    Local year = ReadDigits(chars, at, 2, 10)
+    If year == Null Then Return Null
+    Local fullYear = year.0
+    If year.1 - at == 2 Then fullYear += year.0 < 50 ? 2000 : 1900
+    If year.1 - at == 3 Then fullYear += 1900
+    at = SkipSpace(chars, year.1)
+
+    Local hour = ReadDigits(chars, at, 2, 2)
+    If hour == Null Then Return Null
+    at = SkipSpace(chars, hour.1)
+    If at >= chars.Count || chars[at] != ':' Then Return Null
+    Local minute = ReadDigits(chars, SkipSpace(chars, at + 1), 2, 2)
+    If minute == Null Then Return Null
+    at = SkipSpace(chars, minute.1)
+    Local second: Int64 = 0
+    If at < chars.Count && chars[at] == ':'
+        Local seconds = ReadDigits(chars, SkipSpace(chars, at + 1), 2, 2)
+        If seconds == Null Then Return Null
+        second = seconds.0
+        at = SkipSpace(chars, seconds.1)
+    End If
+
+    Local zone = ReadRfc2822Zone(chars, at)
+    If zone == Null || SkipSpace(chars, zone.1) != chars.Count Then Return Null
+    If hour.0 > 23 || minute.0 > 59 || second > 60 Then Return Null
+    // RFC 2822 has a leap second, which this, like most, reads as the second before.
+    If second == 60 Then second = 59
+    Local date = DateOf(fullYear, month, day.0 As Int)
+    If date == Null || (weekday != 0 && (date.DayOfWeek As Int) != weekday) Then Return Null
+    Return Parts(Year: fullYear, Month: month, Day: day.0 As Int,
+                 Nanoseconds: ((hour.0 * 60 + minute.0) * 60 + second) * 1000000000,
+                 HasOffset: True, Offset: zone.0, Kind: PartKind.ZONED)
+End Function
+
+// A zone of RFC 2822's, as an offset's seconds, and where it ends, or Null.
+Function ReadRfc2822Zone(chars: Int[], at: Int): (Int, Int)?
+    If at >= chars.Count Then Return Null
+    If chars[at] == '+' || chars[at] == '-'
+        Local digits = ReadDigits(chars, at + 1, 4, 4)
+        If digits == Null || digits.0 % 100 > 59 Then Return Null
+        Local seconds = ((digits.0 / 100 * 60 + digits.0 % 100) * 60) As Int
+        Return (chars[at] == '-' ? -seconds : seconds, digits.1)
+    End If
+
+    Local finish = at
+    While finish < chars.Count && IsLetter(chars[finish])
+        finish += 1
+    End While
+
+    Local name = TextOf(chars, at, finish).Chars
+    If name.Count == 1 && Lower(name[0]) != 'j' Then Return (0, finish)
+    If MatchesWord(name, 0, "UT") && name.Count == 2 Then Return (0, finish)
+    If MatchesWord(name, 0, "GMT") && name.Count == 3 Then Return (0, finish)
+    If name.Count != 3 || Lower(name[2]) != 't' Then Return Null
+    Local hours = 0
+    Select Lower(name[0])
+        Case 'e'
+            hours = -5
+        Case 'c'
+            hours = -6
+        Case 'm'
+            hours = -7
+        Case 'p'
+            hours = -8
+        Default
+            Return Null
+    End Select
+
+    If Lower(name[1]) == 'd' Then Return ((hours + 1) * 3600, finish)
+    If Lower(name[1]) == 's' Then Return (hours * 3600, finish)
+    Return Null
+End Function
+
+// Where the spaces, tabs, line breaks, and comments in parentheses from start end.
+Function SkipSpace(chars: Int[], start: Int): Int
+    Local at = start
+    Local depth = 0
+    While at < chars.Count
+        Local c = chars[at]
+        If c == '('
+            depth += 1
+        ElseIf c == ')' && depth > 0
+            depth -= 1
+        ElseIf depth == 0 && c != ' ' && c != '\t' && c != '\r' && c != '\n'
+            Return at
+        End If
+
+        at += 1
+    End While
+
+    Return at
+End Function
+
+// Patterns
+
+// One part of a pattern: a letter that many times, or text when the letter is 0.
+Struct Piece
+    Field Letter: Int
+    Field Count: Int
+    Field Text: String
+End Struct
+
+// The pattern's pieces, which panic when a letter isn't a pattern's or the kind doesn't have
+// its part.
+@PanicsAtCaller
+Function PiecesOf(pattern: String, kind: PartKind): Piece[]
+    Local chars = pattern.Chars
+    Local pieces: Piece[] = []
+    Local at = 0
+    While at < chars.Count
+        Local c = chars[at]
+        If c == '\''
+            // Quoted text, with '' for a quote, or '' alone.
+            Local text = ""
+            Local finish = at + 1
+            If finish < chars.Count && chars[finish] == '\''
+                pieces.Add(Piece(0, 0, "'"))
+                at = finish + 1
+                Continue
+            End If
+
+            Local closed = False
+            While finish < chars.Count
+                If chars[finish] == '\''
+                    If finish + 1 < chars.Count && chars[finish + 1] == '\''
+                        text = text + "'"
+                        finish += 2
+                        Continue
+                    End If
+
+                    closed = True
+                    Break
+                End If
+
+                text = text + TextOf(chars, finish, finish + 1)
+                finish += 1
+            End While
+
+            If !closed Then Panic("the pattern \"{pattern}\" has a quote without its end")
+            pieces.Add(Piece(0, 0, text))
+            at = finish + 1
+        ElseIf IsLetter(c)
+            Local finish = at
+            While finish < chars.Count && chars[finish] == c
+                finish += 1
+            End While
+
+            Local count = finish - at
+            Local letters = TextOf(chars, at, finish)
+            If !IsPatternLetter(c, count)
+                Panic("'{letters}' isn't one of a time pattern's letters")
+            End If
+
+            If !KindHas(kind, c)
+                Local part = DateLetter(c) ? "a date's" : TimeLetter(c) ? "a time's" : "a zone's"
+                Panic("'{letters}' is {part}, which {KindName(kind)} doesn't have")
+            End If
+
+            pieces.Add(Piece(c, count, letters))
+            at = finish
+        Else
+            Local finish = at
+            While finish < chars.Count && chars[finish] != '\'' && !IsLetter(chars[finish])
+                finish += 1
+            End While
+
+            pieces.Add(Piece(0, 0, TextOf(chars, at, finish)))
+            at = finish
+        End If
+    End While
+
+    Return pieces
+End Function
+
+Function IsLetter(c: Int): Bool => (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+
+// Whether the code point can be in a zone's name, like "America/Port-au-Prince" or "Etc/GMT+5".
+Function IsZoneLetter(c: Int): Bool
+    Return IsLetter(c) || IsDigit(c) || c == '/' || c == '_' || c == '-' || c == '+'
+End Function
+Function Lower(c: Int): Int => c >= 'A' && c <= 'Z' ? c + 32 : c
+
+// Whether the letter, that many times, is one of a pattern's.
+Function IsPatternLetter(c: Int, count: Int): Bool
+    If c == 'y' Then Return count <= 10
+    If c == 'M' || c == 'E' Then Return count <= 4
+    If c == 'd' || c == 'H' || c == 'h' || c == 'm' || c == 's' Then Return count <= 2
+    If c == 'D' || c == 'X' || c == 'x' Then Return count <= 3
+    If c == 'S' Then Return count <= 9
+    If c == 'a' || c == 'Z' || c == 'z' Then Return count == 1
+    If c == 'V' Then Return count == 2
+    Return False
+End Function
+
+Function DateLetter(c: Int): Bool => c == 'y' || c == 'M' || c == 'd' || c == 'D' || c == 'E'
+Function TimeLetter(c: Int): Bool
+    Return c == 'a' || c == 'H' || c == 'h' || c == 'm' || c == 's' || c == 'S'
+End Function
+
+Function KindHas(kind: PartKind, c: Int): Bool
+    If DateLetter(c) Then Return kind != PartKind.TIME
+    If TimeLetter(c) Then Return kind != PartKind.DATE
+    Return kind == PartKind.ZONED
+End Function
+
+Function KindName(kind: PartKind): String
+    Select kind
+        Case PartKind.DATE
+            Return "a Date"
+        Case PartKind.TIME
+            Return "a TimeOfDay"
+        Case PartKind.DATE_TIME
+            Return "a LocalDateTime"
+        Case PartKind.ZONED
+            Return "a ZonedDateTime"
+    End Select
+End Function
+
+// The parts as the pattern says, which panics when the pattern doesn't fit their kind.
+@PanicsAtCaller
+Package Function FormatPattern(pattern: String, parts: Parts): String
+    Local text = ""
+    For piece In PiecesOf(pattern, parts.Kind)
+        text = text + FormatPiece(piece, parts)
+    End For
+
+    Return text
+End Function
+
+Function FormatPiece(piece: Piece, parts: Parts): String
+    Local count = piece.Count
+    Local hour = (parts.Nanoseconds / 3600000000000) As Int
+    Select piece.Letter
+        Case 0
+            Return piece.Text
+        Case 'y'
+            Return count == 2 ? Padded(FloorModulo(parts.Year, 100), 2) : Padded(parts.Year, count)
+        Case 'M'
+            If count >= 3 Then Return MonthName(parts.Month, count == 4)
+            Return Padded(parts.Month, count)
+        Case 'd'
+            Return Padded(parts.Day, count)
+        Case 'D'
+            Local days = DaysFromCivil(parts.Year, parts.Month, parts.Day)
+            Return Padded(days - DaysFromCivil(parts.Year, 1, 1) + 1, count)
+        Case 'E'
+            Local days = DaysFromCivil(parts.Year, parts.Month, parts.Day)
+            Return WeekdayName((FloorModulo(days + 3, 7) + 1) As Weekday, count == 4)
+        Case 'a'
+            Return hour < 12 ? "AM" : "PM"
+        Case 'H'
+            Return Padded(hour, count)
+        Case 'h'
+            Return Padded(hour % 12 == 0 ? 12 : hour % 12, count)
+        Case 'm'
+            Return Padded(parts.Nanoseconds / 60000000000 % 60, count)
+        Case 's'
+            Return Padded(parts.Nanoseconds / 1000000000 % 60, count)
+        Case 'S'
+            Local digits = Padded(parts.Nanoseconds % 1000000000, 9)
+            Return TextOf(digits.Chars, 0, count)
+        Case 'X', 'x', 'Z'
+            Return OffsetPattern(parts.Offset, piece.Letter, count)
+        Case 'z'
+            Return parts.Abbreviation
+        Default
+            Return parts.ZoneName
+    End Select
+End Function
+
+// An offset as X, x, or Z that many times writes it.
+Function OffsetPattern(offset: Int, letter: Int, count: Int): String
+    If offset == 0 && letter == 'X' Then Return "Z"
+    Local magnitude = offset < 0 ? -offset : offset
+    Local hours = "{offset < 0 ? "-" : "+"}{Padded(magnitude / 3600, 2)}"
+    Local minutes = Padded(magnitude / 60 % 60, 2)
+    If letter == 'Z' || count == 2 Then Return "{hours}{minutes}"
+    If count == 3 Then Return "{hours}:{minutes}"
+    Return magnitude / 60 % 60 == 0 ? hours : "{hours}{minutes}"
+End Function
+
+// The parts the text has as the pattern says, or Null when it doesn't fit. A pattern that
+// doesn't fit the kind, or can't make one, panics.
+@PanicsAtCaller
+Package Function ParsePattern(text: String, pattern: String, kind: PartKind): Parts?
+    Local pieces = PiecesOf(pattern, kind)
+    For piece In pieces
+        If piece.Letter == 'z'
+            Panic("the pattern \"{pattern}\" has 'z', which only formats: abbreviations can " +
+                  "mean several zones")
+        End If
+    End For
+
+    Local hasDate = Has(pieces, 'y') && ((Has(pieces, 'M') && Has(pieces, 'd')) || Has(pieces, 'D'))
+    If kind != PartKind.TIME && !hasDate
+        Panic("the pattern \"{pattern}\" has no date: it needs y, and M and d or D")
+    End If
+
+    If kind == PartKind.TIME && !Has(pieces, 'H') && !Has(pieces, 'h')
+        Panic("the pattern \"{pattern}\" has no hour: it needs H or h")
+    End If
+
+    Local hasZone = Has(pieces, 'X') || Has(pieces, 'x') || Has(pieces, 'Z') || Has(pieces, 'V')
+    If kind == PartKind.ZONED && !hasZone
+        Panic("the pattern \"{pattern}\" has no zone: it needs X, x, Z, or VV")
+    End If
+
+    Local chars = text.Chars
+    Local fields = Fields()
+    Local at = 0
+    For i = 0 Until pieces.Count
+        Local adjacent = i + 1 < pieces.Count && IsNumberPiece(pieces[i + 1])
+        Local next = ReadPiece(chars, at, pieces[i], adjacent, fields)
+        If next == Null Then Return Null
+        at = next
+    End For
+
+    If at != chars.Count Then Return Null
+    Return PartsFrom(fields, kind)
+End Function
+
+Function Has(pieces: Piece[], letter: Int): Bool
+    For piece In pieces
+        If piece.Letter == letter Then Return True
+    End For
+
+    Return False
+End Function
+
+Function IsNumberPiece(piece: Piece): Bool
+    Local c = piece.Letter
+    Return c == 'y' || c == 'd' || c == 'D' || c == 'H' || c == 'h' || c == 'm' || c == 's' ||
+           c == 'S' || (c == 'M' && piece.Count <= 2)
+End Function
+
+// What a pattern read, each part Null until it does.
+Class Fields
+    Field Year: Int64? = Null
+    Field Month: Int? = Null
+    Field Day: Int? = Null
+    Field DayOfYear: Int? = Null
+    Field Weekday: Int? = Null
+    Field Hour: Int? = Null
+    Field Hour12: Int? = Null
+    Field Pm: Bool? = Null
+    Field Minute: Int? = Null
+    Field Second: Int? = Null
+    Field Nanosecond: Int64? = Null
+    Field Offset: Int? = Null
+    Field Zone: TimeZone? = Null
+End Class
+
+// Reads a piece at start into the fields, and gives where it ends, or Null when the text doesn't
+// fit it. A number that a number piece follows has as many digits as the pattern says.
+Function ReadPiece(chars: Int[], start: Int, piece: Piece, adjacent: Bool, fields: Fields): Int?
+    Local c = piece.Letter
+    Local count = piece.Count
+    If c == 0
+        Local text = piece.Text.Chars
+        For i = 0 Until text.Count
+            If start + i >= chars.Count || chars[start + i] != text[i] Then Return Null
+        End For
+
+        Return start + text.Count
+    End If
+
+    If c == 'y'
+        If count == 2
+            Local digits = ReadDigits(chars, start, 2, 2)
+            If digits == Null Then Return Null
+            fields.Year = 2000 + digits.0
+            Return digits.1
+        End If
+
+        Local at = start
+        Local negative = at < chars.Count && chars[at] == '-'
+        If negative Then at += 1
+        Local digits = ReadDigits(chars, at, count, adjacent ? Max(count, 4) : 10)
+        If digits == Null Then Return Null
+        fields.Year = negative ? -digits.0 : digits.0
+        Return digits.1
+    End If
+
+    If (c == 'M' && count >= 3) || c == 'E'
+        Local most = c == 'M' ? 12 : 7
+        For value = 1 To most
+            Local long = count == 4
+            Local name = c == 'M' ? MonthName(value, long) : WeekdayName(value As Weekday, long)
+            If MatchesWord(chars, start, name)
+                If c == 'M' Then fields.Month = value Else fields.Weekday = value
+                Return start + name.Chars.Count
+            End If
+        End For
+
+        Return Null
+    End If
+
+    If c == 'a'
+        If MatchesWord(chars, start, "AM") Then fields.Pm = False
+        If MatchesWord(chars, start, "PM") Then fields.Pm = True
+        Return fields.Pm == Null ? Null : start + 2
+    End If
+
+    If c == 'X' || c == 'x' || c == 'Z'
+        Local offset = ReadOffset(chars, start, c == 'X')
+        If offset == Null Then Return Null
+        fields.Offset = offset.0
+        Return offset.1
+    End If
+
+    If c == 'V'
+        Local finish = start
+        While finish < chars.Count && IsZoneLetter(chars[finish])
+            finish += 1
+        End While
+
+        Local zone = TimeZone.Find(TextOf(chars, start, finish))
+        If zone == Null Then Return Null
+        fields.Zone = zone
+        Return finish
+    End If
+
+    If c == 'S'
+        Local fraction = ReadFraction(chars, start, count, count)
+        If fraction == Null Then Return Null
+        fields.Nanosecond = fraction.0
+        Return fraction.1
+    End If
+
+    // A number: as many digits as the pattern says, or for one letter, up to as many as it can
+    // have.
+    Local most = c == 'D' ? 3 : 2
+    Local digits = ReadDigits(chars, start, count, count > 1 || adjacent ? count : most)
+    If digits == Null Then Return Null
+    Local value = digits.0 As Int
+    Select c
+        Case 'M'
+            fields.Month = value
+        Case 'd'
+            fields.Day = value
+        Case 'D'
+            fields.DayOfYear = value
+        Case 'H'
+            fields.Hour = value
+        Case 'h'
+            fields.Hour12 = value
+        Case 'm'
+            fields.Minute = value
+        Default
+            fields.Second = value
+    End Select
+
+    Return digits.1
+End Function
+
+// The parts of what a pattern read, or Null when they aren't a date, a time, or a zone's, or
+// disagree.
+Function PartsFrom(fields: Fields, kind: PartKind): Parts?
+    Local parts = Parts(Kind: kind)
+    If kind != PartKind.TIME
+        Local year = fields.Year ?? 0
+        Local month = fields.Month ?? 0
+        Local day = fields.Day ?? 0
+        Local dayOfYear = fields.DayOfYear
+        If dayOfYear != Null
+            If dayOfYear < 1 || dayOfYear > (Date.IsLeap(year) ? 366 : 365) Then Return Null
+            Local _, inMonth, onDay = CivilFromDays(DaysFromCivil(year, 1, 1) + dayOfYear - 1)
+            If (fields.Month != Null && month != inMonth) || (fields.Day != Null && day != onDay)
+                Return Null
+            End If
+
+            month = inMonth
+            day = onDay
+        End If
+
+        Local date = DateOf(year, month, day)
+        If date == Null Then Return Null
+        Local weekday = fields.Weekday
+        If weekday != Null && (date.DayOfWeek As Int) != weekday Then Return Null
+        parts.Year = year
+        parts.Month = month
+        parts.Day = day
+    End If
+
+    // An hour of 12 takes a's "AM" or "PM"; one of 24 has to agree with it.
+    Local hour = fields.Hour ?? 0
+    Local hour12 = fields.Hour12
+    Local pm = fields.Pm
+    If hour12 != Null
+        If hour12 < 1 || hour12 > 12 Then Return Null
+        Local half = hour12 % 12 + ((pm ?? False) ? 12 : 0)
+        If fields.Hour != Null && hour != half Then Return Null
+        hour = half
+    ElseIf pm != Null && fields.Hour != Null && (hour >= 12) != pm
+        Return Null
+    End If
+
+    Local minute = fields.Minute ?? 0
+    Local second = fields.Second ?? 0
+    If hour > 23 || minute > 59 || second > 59 Then Return Null
+    Local seconds = ((hour * 60 + minute) * 60 + second) As Int64
+    parts.Nanoseconds = seconds * 1000000000 + (fields.Nanosecond ?? 0)
+    Local offset = fields.Offset
+    If offset != Null
+        parts.HasOffset = True
+        parts.Offset = offset
+    End If
+
+    parts.Zone = fields.Zone
+    Return parts
+End Function
+
+// Names
+
+// Whether the word is at start, in any letter case.
+Function MatchesWord(chars: Int[], start: Int, word: String): Bool
+    Local letters = word.Chars
+    If start + letters.Count > chars.Count Then Return False
+    For i = 0 Until letters.Count
+        If Lower(chars[start + i]) != Lower(letters[i]) Then Return False
+    End For
+
+    Return True
+End Function
+
+// A month's name, like "October", or its first 3 letters.
+Package Function MonthName(month: Int, long: Bool): String
+    Local name = ""
+    Select month
+        Case 1
+            name = "January"
+        Case 2
+            name = "February"
+        Case 3
+            name = "March"
+        Case 4
+            name = "April"
+        Case 5
+            name = "May"
+        Case 6
+            name = "June"
+        Case 7
+            name = "July"
+        Case 8
+            name = "August"
+        Case 9
+            name = "September"
+        Case 10
+            name = "October"
+        Case 11
+            name = "November"
+        Default
+            name = "December"
+    End Select
+
+    Return long ? name : TextOf(name.Chars, 0, 3)
+End Function
+
+// A day of the week's name, like "Friday", or its first 3 letters.
+Package Function WeekdayName(day: Weekday, long: Bool): String
+    Local name = ""
+    Select day
+        Case Weekday.MONDAY
+            name = "Monday"
+        Case Weekday.TUESDAY
+            name = "Tuesday"
+        Case Weekday.WEDNESDAY
+            name = "Wednesday"
+        Case Weekday.THURSDAY
+            name = "Thursday"
+        Case Weekday.FRIDAY
+            name = "Friday"
+        Case Weekday.SATURDAY
+            name = "Saturday"
+        Case Weekday.SUNDAY
+            name = "Sunday"
+    End Select
+
+    Return long ? name : TextOf(name.Chars, 0, 3)
+End Function

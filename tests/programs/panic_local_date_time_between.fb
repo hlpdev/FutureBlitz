@@ -1,0 +1,6 @@
+// From the first LocalDateTime to the last is longer than a Duration holds.
+Import std.core
+Import std.time
+
+Print(LocalDateTime(2026, 1, 1) - LocalDateTime(1900, 1, 1))
+Print(LocalDateTime.MaxValue() - LocalDateTime.MinValue())

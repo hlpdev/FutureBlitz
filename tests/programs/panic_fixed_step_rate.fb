@@ -1,0 +1,6 @@
+// A FixedStep's rate is above 0.
+Import std.core
+Import std.time
+
+Print(FixedStep(60).Step)
+Print(FixedStep(0).Step)

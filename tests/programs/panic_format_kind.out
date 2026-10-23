@@ -1,0 +1,2 @@
+12:00
+panic: 'd' is a date's, which a TimeOfDay doesn't have at panic_format_kind.fb:6:7

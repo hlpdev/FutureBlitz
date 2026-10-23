@@ -1,0 +1,6 @@
+// A TimeOfDay's needs its hour.
+Import std.core
+Import std.time
+
+Print(TimeOfDay.Parse("7", "H") ?? TimeOfDay.Noon())
+Print(TimeOfDay.Parse("30", "mm") == Null)

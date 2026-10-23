@@ -1,0 +1,6 @@
+// And a quote needs its end.
+Import std.core
+Import std.time
+
+Print(Date(2026, 10, 23).Format("'on' d"))
+Print(Date(2026, 10, 23).Format("'on d"))

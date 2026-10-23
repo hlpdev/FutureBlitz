@@ -1,0 +1,6 @@
+// And months.
+Import std.core
+Import std.time
+
+Print(Date.MinValue().AddMonths(1))
+Print(Date.MinValue().AddMonths(-1))

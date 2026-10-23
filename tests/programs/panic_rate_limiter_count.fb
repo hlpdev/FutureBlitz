@@ -1,0 +1,6 @@
+// A RateLimiter lets a number of things above 0 happen.
+Import std.core
+Import std.time
+
+Print(RateLimiter(1, 1.Seconds).TryTake())
+Print(RateLimiter(0, 1.Seconds).TryTake())

@@ -110,6 +110,13 @@ So far, std/ holds:
 | std/concurrent/concurrent_queue.fb | `ConcurrentQueue<T>`, over a Channel that grows |
 | std/concurrent/tasks.fb | `TaskSource<T>`, over the runtime's signals through `fb_signal_`, `WhenAll`, and `WhenAny` |
 | std/events/event.fb | `Event<T>` and `Subscription` |
+| std/time/duration.fb | `Duration`, and the numbers' `Nanoseconds` to `Days`, as in `2.Seconds` |
+| std/time/clock.fb | `Instant`, `Stopwatch`, `Measure`, and `Sleep`, on the monotonic clock |
+| std/time/timestamp.fb | `Timestamp`, a point in time in UTC |
+| std/time/calendar.fb | `Date`, `TimeOfDay`, `LocalDateTime`, and `Weekday` |
+| std/time/zone.fb | `TimeZone`, over the embedded IANA tz database through `fb_tz_`, `ZonedDateTime`, and `Disambiguation` |
+| std/time/format.fb | ISO 8601, RFC 2822, and the patterns `Format` and `Parse` take |
+| std/time/timers.fb | `Timer`, on the I/O thread's loop, `Deadline`, `FixedStep`, `RateLimiter`, and `Debounce` |
 
 What the language itself uses, `Error` for Throw and Catch, the Interfaces, `Iterator<T>`, and
 `Map<K, V>` for `{key: value}`, is always std's, whatever a program calls by those names.
@@ -158,8 +165,10 @@ Each is fetched with FetchContent in third_party/ and built by the C compiler th
 runtime, for the build's target, as a separate archive, beside an archive of the runtime's
 functions over it (the `fb_io_` ones over libuv), so a program that calls none of those links
 none of the library. After a build that links any, `fb` prints which ones and their licenses;
-shipping the notices is the programmer's job. IANA's time-zone data is embedded in the runtime
-(only programs that use time zones link it), so every OS has the same zones.
+shipping the notices is the programmer's job. IANA's time-zone data, the tz database (2026e, in
+the public domain), is compiled by its own zic as the runtime builds and embedded in an archive
+beside the runtime's `fb_tz_` functions (only programs that call them link it), so every OS has
+the same zones.
 
 The runtime's I/O thread runs libuv's loop. It starts with a program's first I/O request and
 stops as the program ends, before the leak report, answering what still waits with nothing. A
@@ -491,12 +500,14 @@ generator, noise, easing, stats, and fixed point, and step 11 std.math.big; the 
 #### std.time
 
 - `Duration`, written `2.Seconds`, `1.5.Minutes`, `500.Milliseconds`; the timing built-ins take
-  one too: `Await Wait(500.Milliseconds)`.
+  one too: `Await Wait(500.Milliseconds)`, and `RealWait`.
 - A type for each meaning: `Timestamp` (a point in time, UTC), `Date`, `TimeOfDay`,
   `LocalDateTime` (no zone), and `ZonedDateTime`, with `TimeZone` (embedded IANA data, and the
-  OS's local zone); arithmetic that clamps (Jan 31 plus a month is Feb 28 or 29), `StartOfDay`
-  and the like, `Format` and `Parse` patterns, ISO 8601 and RFC 2822.
-- `Stopwatch` and `Measure(f)` on the monotonic clock; `Sleep`.
+  OS's local zone, `TimeZone.System()`); arithmetic that clamps (Jan 31 plus a month is Feb 28 or
+  29), `StartOfDay` and the like, a `Disambiguation` for times the clocks show twice or skip,
+  `Format` and `Parse` patterns, ISO 8601 and RFC 2822.
+- `Instant`, `Stopwatch`, and `Measure(f)` on the monotonic clock; `Sleep`. What reads a clock
+  also takes an `Instant`, so tests give the time as a value.
 - Timers on libuv's loop (`Timer.After`, `Timer.Every`), `Deadline` for blocking calls,
   `FixedStep(rate)` for fixed-step game loops, `RateLimiter`, `Debounce`.
 

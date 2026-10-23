@@ -1,0 +1,6 @@
+// A TimeOfDay that isn't one panics where it's made.
+Import std.core
+Import std.time
+
+Print(TimeOfDay(23, 59, 59))
+Print(TimeOfDay(24, 0))

@@ -1,0 +1,427 @@
+// TimeZone, a zone's rules for its clocks: one of the IANA tz database's, which the runtime
+// embeds, like "Europe/Paris", with every offset and daylight saving change it has had and will
+// have; a fixed offset from UTC; or the OS's own. ZonedDateTime is a moment where a zone is, its
+// Timestamp and the date and time the zone's clocks show then.
+//
+// Adding a Duration to a ZonedDateTime is exact, so an hour after 01:30 on the night the clocks
+// go back is the second 01:30; adding days, months, or years goes by the calendar, to the same
+// time on the clocks when the zone has it. A date and time that the clocks show twice, or skip,
+// becomes a moment as a Disambiguation says.
+
+Import std.core
+Import std.time.calendar
+Import std.time.duration
+Import std.time.format
+Import std.time.timestamp
+
+Extern "runtime"
+    Function fb_tz_find(name: String): Int
+    Function fb_tz_count(): Int
+    Function fb_tz_name(zone: Int): String
+    Function fb_tz_version(): String
+    Function fb_tz_offset(zone: Int, seconds: Int64): Int
+    Function fb_tz_daylight(zone: Int, seconds: Int64): Int
+    Function fb_tz_abbreviation(zone: Int, seconds: Int64): String
+    Function fb_tz_local_offsets(zone: Int, local: Int64, output: Int[]): Int
+    Function fb_tz_local_name(): String
+    Function fb_tz_system_offset(seconds: Int64): Int
+End Extern
+
+// Which moment a date and time is where a zone's clocks show it twice, as they're turned back,
+// or never, as they skip it. EARLIER and LATER are the earlier and later of two; for a skipped
+// time, EARLIER reads it with the offset from after the skip, and LATER with the one from before,
+// so 02:30, on a night the clocks go from 02:00 to 03:00, is 01:30 and 03:30. COMPATIBLE, as most
+// libraries go, is EARLIER for a time shown twice and LATER for a skipped one.
+Public Enum Disambiguation
+    COMPATIBLE, EARLIER, LATER
+End Enum
+
+// The longest offset from UTC a fixed TimeZone has, a second under a day.
+Const MAX_OFFSET = 86399
+
+Public Struct TimeZone Implements Hashable, Printable, Defaultable
+    // The database's zone, from 1, or 0 for a fixed offset, and that offset's seconds east of
+    // UTC.
+    Field Zone: Int
+    Field FixedOffset: Int
+
+    Package New(zone: Int, fixedOffset: Int)
+        Self.Zone = zone
+        Self.FixedOffset = fixedOffset
+    End New
+
+    // UTC, which is also every TimeZone's zero.
+    Public Static Method Utc(): TimeZone => TimeZone(0, 0)
+    Public Static Method DefaultValue(): TimeZone => TimeZone(0, 0)
+
+    // The zone of that offset from UTC, always, which panics when it isn't whole seconds under a
+    // day.
+    @PanicsAtCaller
+    Public Static Method Fixed(offset: Duration): TimeZone
+        Local nanoseconds = offset.Nanoseconds
+        If nanoseconds % 1000000000 != 0 || nanoseconds / 1000000000 < -MAX_OFFSET ||
+           nanoseconds / 1000000000 > MAX_OFFSET
+            Panic("a TimeZone's fixed offset is whole seconds under a day, not {offset}")
+        End If
+
+        Return TimeZone(0, (nanoseconds / 1000000000) As Int)
+    End Method
+
+    // The zone the tz database names, like "America/New_York", or one of its old names, like
+    // "US/Eastern", in any letter case; "UTC" or "Z"; or a fixed offset as ISO 8601 writes it,
+    // like "+05:30", "+0530", or "-08". Any other name is Null.
+    Public Static Method Find(name: String): TimeZone?
+        Local chars = name.Chars
+        If chars.Count == 1 && (chars[0] == 'Z' || chars[0] == 'z') Then Return Utc()
+        If chars.Count > 0 && (chars[0] == '+' || chars[0] == '-')
+            Local offset = ReadOffset(chars, 0, False)
+            If offset == Null || offset.1 != chars.Count Then Return Null
+            Return TimeZone(0, offset.0)
+        End If
+
+        Local zone = fb_tz_find(name)
+        Return zone == 0 ? Null : TimeZone(zone, 0)
+    End Method
+
+    // The OS's zone: the tz database's of the name the OS gives, or else a fixed offset, the
+    // OS's now.
+    Public Static Method System(): TimeZone
+        Local zone = fb_tz_find(fb_tz_local_name())
+        If zone != 0 Then Return TimeZone(zone, 0)
+        Local offset = fb_tz_system_offset(Timestamp.Now().UnixSeconds)
+        Return TimeZone(0, Clamp(offset, -MAX_OFFSET, MAX_OFFSET))
+    End Method
+
+    // The tz database's names, of its zones and their old names, sorted.
+    Public Static Method Names(): String[]
+        Local names: String[] = []
+        For zone = 1 To fb_tz_count()
+            names.Add(fb_tz_name(zone))
+        End For
+
+        Return names
+    End Method
+
+    // The tz database's version, like "2026e".
+    Public Static Method Version(): String => fb_tz_version()
+
+    // The database's name for it, like "Europe/Paris"; "UTC"; or a fixed offset's, like
+    // "+05:30".
+    Public Property Name: String
+        Get
+            If Zone != 0 Then Return fb_tz_name(Zone)
+            Return FixedOffset == 0 ? "UTC" : OffsetText(FixedOffset, False)
+        End Get
+    End Property
+
+    // Whether its offset never changes, as a fixed offset's doesn't. A database zone's can.
+    Public Property IsFixed: Bool
+        Get => Zone == 0
+    End Property
+
+    // Its offset from UTC at that moment, east of it above 0.
+    Public Method OffsetAt(time: Timestamp): Duration => OffsetOf(OffsetSecondsAt(time))
+
+    // The abbreviation its clocks go by then, like "CEST", or an offset, like "+0530", where the
+    // database has none. A fixed offset's is its Name.
+    Public Method AbbreviationAt(time: Timestamp): String
+        Return Zone != 0 ? fb_tz_abbreviation(Zone, time.UnixSeconds) : Name
+    End Method
+
+    // Whether its clocks are on daylight saving time then.
+    Public Method IsDaylightSavingAt(time: Timestamp): Bool
+        Return Zone != 0 && fb_tz_daylight(Zone, time.UnixSeconds) != 0
+    End Method
+
+    // The offsets its clocks have when they show the date and time: one most of the time, two,
+    // the earlier moment's first, when they're turned back past it, and none when they skip it.
+    Public Method OffsetsAt(local: LocalDateTime): Duration[]
+        Local offsets: Duration[] = []
+        Local found, before, after = OffsetsOf(local)
+        If found >= 1 Then offsets.Add(OffsetOf(before))
+        If found == 2 Then offsets.Add(OffsetOf(after))
+        Return offsets
+    End Method
+
+    Public Method ToString(): String => Name
+
+    // Its offset's seconds at that moment.
+    Package Method OffsetSecondsAt(time: Timestamp): Int
+        Return Zone != 0 ? fb_tz_offset(Zone, time.UnixSeconds) : FixedOffset
+    End Method
+
+    // How many offsets its clocks have at the date and time, as OffsetsAt says, and the offsets
+    // before and after a change there, the same one twice when there's none.
+    Package Method OffsetsOf(local: LocalDateTime): (Int, Int, Int)
+        If Zone == 0 Then Return (1, FixedOffset, FixedOffset)
+        Local offsets: Int[] = []
+        Local found = fb_tz_local_offsets(Zone, local.LocalSeconds, offsets)
+        Return (found, offsets[0], offsets[1])
+    End Method
+
+    // The offset a date and time has where it is, as the disambiguation picks.
+    Package Method Resolve(local: LocalDateTime, disambiguation: Disambiguation): Int
+        Local found, before, after = OffsetsOf(local)
+        If found == 1 Then Return before
+        If found == 2 Then Return disambiguation == Disambiguation.LATER ? after : before
+        Return disambiguation == Disambiguation.EARLIER ? after : before
+    End Method
+End Struct
+
+// A moment where a zone is: its Timestamp, and the date and time the zone's clocks show then,
+// from the year -999999999 to 999999999. Its zero is 1970-01-01T00:00:00Z in UTC.
+Public Struct ZonedDateTime Implements Comparable, Hashable, Printable, Defaultable
+    Field Moment: Timestamp
+    Field Place: TimeZone
+    // The zone's offset's seconds then.
+    Field Shift: Int
+
+    // The moment where the zone is.
+    Public New(time: Timestamp, zone: TimeZone)
+        Moment = time
+        Place = zone
+        Shift = zone.OffsetSecondsAt(time)
+    End New
+
+    // The date and time where the zone is, as the disambiguation picks when the zone's clocks
+    // show it twice or skip it. One past the years a Timestamp holds panics.
+    @PanicsAtCaller
+    Public New(local: LocalDateTime, zone: TimeZone,
+               disambiguation: Disambiguation = Disambiguation.COMPATIBLE)
+        Local offset = zone.Resolve(local, disambiguation)
+        Local found = MomentAt(local, offset)
+        If found == Null Then Panic("{local} is past the years a Timestamp holds")
+        Moment = found
+        Place = zone
+        Shift = zone.OffsetSecondsAt(found)
+    End New
+
+    Package New(time: Timestamp, zone: TimeZone, shift: Int)
+        Moment = time
+        Place = zone
+        Shift = shift
+    End New
+
+    Public Static Method DefaultValue(): ZonedDateTime
+        Return ZonedDateTime(MomentOfSeconds(0), TimeZone.Utc(), 0)
+    End Method
+
+    // Now, where the zone is, or the OS's zone.
+    Public Static Method Now(zone: TimeZone): ZonedDateTime => ZonedDateTime(NowMoment(), zone)
+    Public Static Method Now(): ZonedDateTime => ZonedDateTime(NowMoment(), TimeZone.System())
+
+    // The moment ISO 8601 writes, with its offset, and the zone's name after it or not, like
+    // "2026-10-23T14:30:00+02:00[Europe/Paris]" or "2026-10-23T12:30:00Z", or Null. Without a
+    // name, the zone is the offset's; with one, the offset has to be the zone's then.
+    Public Static Method Parse(text: String): ZonedDateTime?
+        Local parts = ParseIso(text, IsoForm.ZONED)
+        If parts == Null Then Return Null
+        Return ZonedOf(parts)
+    End Method
+
+    // The moment the text writes as the pattern says (see format.fb), or Null. A pattern without
+    // the date, or without an offset or a zone, panics. With a zone and no offset, the zone's
+    // clocks' date and time are a moment as COMPATIBLE says.
+    @PanicsAtCaller
+    Public Static Method Parse(text: String, pattern: String): ZonedDateTime?
+        Local parts = ParsePattern(text, pattern, PartKind.ZONED)
+        If parts == Null Then Return Null
+        Return ZonedOf(parts)
+    End Method
+
+    // The moment RFC 2822 writes, like "Fri, 23 Oct 2026 14:30:00 +0200", in the zone of its
+    // offset, or Null.
+    Public Static Method ParseRfc2822(text: String): ZonedDateTime?
+        Local parts = ParseRfc2822Parts(text)
+        If parts == Null Then Return Null
+        Return ZonedOf(parts)
+    End Method
+
+    Public Property Timestamp: Timestamp
+        Get => Moment
+    End Property
+
+    Public Property Zone: TimeZone
+        Get => Place
+    End Property
+
+    // The zone's offset from UTC then, and the abbreviation its clocks go by.
+    Public Property Offset: Duration
+        Get => OffsetOf(Shift)
+    End Property
+
+    Public Property Abbreviation: String
+        Get => Place.AbbreviationAt(Moment)
+    End Property
+
+    Public Property IsDaylightSaving: Bool
+        Get => Place.IsDaylightSavingAt(Moment)
+    End Property
+
+    // The date and time the zone's clocks show.
+    Public Property DateTime: LocalDateTime
+        Get => LocalAt(Moment, Shift)
+    End Property
+
+    Public Property Date: Date
+        Get => LocalAt(Moment, Shift).Date
+    End Property
+
+    Public Property Time: TimeOfDay
+        Get => LocalAt(Moment, Shift).Time
+    End Property
+
+    Public Property Year: Int
+        Get => LocalAt(Moment, Shift).Year
+    End Property
+
+    Public Property Month: Int
+        Get => LocalAt(Moment, Shift).Month
+    End Property
+
+    Public Property Day: Int
+        Get => LocalAt(Moment, Shift).DayOfMonth
+    End Property
+
+    Public Property Hour: Int
+        Get => LocalAt(Moment, Shift).Hour
+    End Property
+
+    Public Property Minute: Int
+        Get => LocalAt(Moment, Shift).Minute
+    End Property
+
+    Public Property Second: Int
+        Get => LocalAt(Moment, Shift).Second
+    End Property
+
+    Public Property Nanosecond: Int
+        Get => Moment.Nanosecond
+    End Property
+
+    Public Property DayOfWeek: Weekday
+        Get => LocalAt(Moment, Shift).DayOfWeek
+    End Property
+
+    Public Property DayOfYear: Int
+        Get => LocalAt(Moment, Shift).DayOfYear
+    End Property
+
+    // The same moment where another zone is.
+    Public Method WithZone(zone: TimeZone): ZonedDateTime => ZonedDateTime(Moment, zone)
+
+    // The same time on the zone's clocks that many days, months, or years later, or earlier,
+    // as Date's AddDays, AddMonths, and AddYears go. Where the clocks show it twice, it keeps its
+    // offset; where they skip it, it's the moment COMPATIBLE gives.
+    @PanicsAtCaller
+    Public Method AddDays(count: Int64): ZonedDateTime
+        Return Settled(LocalAt(Moment, Shift).AddDays(count))
+    End Method
+
+    @PanicsAtCaller
+    Public Method AddMonths(count: Int64): ZonedDateTime
+        Return Settled(LocalAt(Moment, Shift).AddMonths(count))
+    End Method
+
+    @PanicsAtCaller
+    Public Method AddYears(count: Int64): ZonedDateTime
+        Return Settled(LocalAt(Moment, Shift).AddYears(count))
+    End Method
+
+    // The first moment of its day on the zone's clocks: midnight, or when they reach the day,
+    // where they skip midnight.
+    @PanicsAtCaller
+    Public Method StartOfDay(): ZonedDateTime
+        Return ZonedDateTime(LocalAt(Moment, Shift).StartOfDay(), Place)
+    End Method
+
+    // That much later, or earlier, exactly, whatever the zone's clocks do.
+    @PanicsAtCaller
+    Operator +(a: ZonedDateTime, b: Duration): ZonedDateTime => ZonedDateTime(a.Moment + b, a.Place)
+
+    @PanicsAtCaller
+    Operator -(a: ZonedDateTime, b: Duration): ZonedDateTime => ZonedDateTime(a.Moment - b, a.Place)
+
+    // How long it is from b to a, which panics past the longest Duration.
+    @PanicsAtCaller
+    Operator -(a: ZonedDateTime, b: ZonedDateTime): Duration => a.Moment - b.Moment
+
+    // In order of their moments, and of their zones for one moment, so it agrees with ==.
+    Operator <(a: ZonedDateTime, b: ZonedDateTime): Bool
+        If a.Moment != b.Moment Then Return a.Moment < b.Moment
+        If a.Place.Zone != b.Place.Zone Then Return a.Place.Zone < b.Place.Zone
+        Return a.Place.FixedOffset < b.Place.FixedOffset
+    End Operator
+
+    // As ISO 8601 writes it, with its offset, and its zone's name after that unless the zone is
+    // a fixed offset, like "2026-10-23T14:30:00+02:00[Europe/Paris]", "2026-10-23T12:30:00Z",
+    // and "2026-10-23T18:00:00+05:30".
+    Public Method ToString(): String
+        Local text = "{LocalAt(Moment, Shift)}{OffsetText(Shift, True)}"
+        Return Place.IsFixed ? text : "{text}[{Place.Name}]"
+    End Method
+
+    // As RFC 2822 writes it: "Fri, 23 Oct 2026 14:30:00 +0200".
+    Public Method ToRfc2822(): String => Rfc2822Of(LocalAt(Moment, Shift), Shift)
+
+    // As the pattern says (see format.fb): Format("yyyy-MM-dd HH:mm z") is
+    // "2026-10-23 14:30 CEST".
+    @PanicsAtCaller
+    Public Method Format(pattern: String): String
+        Local local = LocalAt(Moment, Shift)
+        Local abbreviation = Place.AbbreviationAt(Moment)
+        Return FormatPattern(pattern, PartsAt(local, Shift, Place.Name, abbreviation))
+    End Method
+
+    // The local date and time where its zone is, keeping its offset when the zone has it then.
+    @PanicsAtCaller
+    Method Settled(local: LocalDateTime): ZonedDateTime
+        Local found, before, after = Place.OffsetsOf(local)
+        If found == 2 && (Shift == before || Shift == after)
+            Local kept = MomentAt(local, Shift)
+            If kept != Null Then Return ZonedDateTime(kept, Place, Shift)
+        End If
+
+        Return ZonedDateTime(local, Place)
+    End Method
+End Struct
+
+// The Duration of an offset's seconds.
+Function OffsetOf(seconds: Int): Duration
+    Return Duration.FromNanoseconds((seconds As Int64) * 1000000000)
+End Function
+
+// Timestamps by their seconds, and now, for code where Timestamp names a Property.
+Function MomentOfSeconds(seconds: Int64): Timestamp
+    Return Timestamp.FromUnixNanoseconds(seconds * 1000000000)
+End Function
+Function NowMoment(): Timestamp => Timestamp.Now()
+
+// The ZonedDateTime of parts that ISO 8601, RFC 2822, or a pattern read, or Null when they
+// don't make one, as when the offset isn't the zone's.
+Package Function ZonedOf(parts: Parts): ZonedDateTime?
+    Local date = DateOf(parts.Year, parts.Month, parts.Day)
+    If date == Null Then Return Null
+    Local local = LocalDateTime(date, ClockOf(parts.Nanoseconds))
+    Local zone = parts.Zone
+    If !parts.HasOffset
+        If zone == Null Then Return Null
+        Local offset = zone.Resolve(local, Disambiguation.COMPATIBLE)
+        Local moment = MomentAt(local, offset)
+        If moment == Null Then Return Null
+        Return ZonedDateTime(moment, zone)
+    End If
+
+    Local moment = MomentAt(local, parts.Offset)
+    If moment == Null Then Return Null
+    If zone == Null Then Return ZonedDateTime(moment, TimeZone(0, parts.Offset), parts.Offset)
+    If zone.OffsetSecondsAt(moment) != parts.Offset Then Return Null
+    Return ZonedDateTime(moment, zone, parts.Offset)
+End Function
+
+// The Timestamp of parts, or Null.
+Package Function MomentOf(parts: Parts): Timestamp?
+    Local zoned = ZonedOf(parts)
+    If zoned == Null Then Return Null
+    Return zoned.Timestamp
+End Function

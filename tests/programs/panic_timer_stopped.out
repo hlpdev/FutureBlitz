@@ -1,0 +1,2 @@
+True
+panic: a stopped Timer has no next tick at panic_timer_stopped.fb:8:7

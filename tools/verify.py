@@ -40,6 +40,7 @@ RELEASE_DIFFERS = {
     "panic_duration_add": "release builds wrap on overflow",
     "panic_duration_negate": "release builds wrap on overflow",
     "panic_duration_scale": "release builds wrap on overflow",
+    "panic_instant_add": "release builds wrap on overflow",
 }
 
 # A program is concurrent when it says one of these, and runs many times over.

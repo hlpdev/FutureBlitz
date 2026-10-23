@@ -1,0 +1,7 @@
+// From the first ZonedDateTime to the last is longer than a Duration holds.
+Import std.core
+Import std.time
+
+Local utc = TimeZone.Utc()
+Print(Timestamp.UnixEpoch().InZone(utc) - Timestamp.UnixEpoch().InZone(utc))
+Print(Timestamp.MaxValue().InZone(utc) - Timestamp.MinValue().InZone(utc))

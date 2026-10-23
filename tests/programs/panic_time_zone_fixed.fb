@@ -1,0 +1,6 @@
+// A fixed offset is whole seconds under a day.
+Import std.core
+Import std.time
+
+Print(TimeZone.Fixed(-(23.Hours + 59.Minutes)))
+Print(TimeZone.Fixed(1.5.Seconds))

@@ -1,0 +1,6 @@
+// So is its step.
+Import std.core
+Import std.time
+
+Print(FixedStep(1.Milliseconds).Step)
+Print(FixedStep((-1).Milliseconds).Step)

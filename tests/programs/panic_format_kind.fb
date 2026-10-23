@@ -1,0 +1,6 @@
+// And one of a part the type doesn't have.
+Import std.core
+Import std.time
+
+Print(TimeOfDay.Noon().Format("HH:mm"))
+Print(TimeOfDay.Noon().Format("HH:mm, d MMM"))

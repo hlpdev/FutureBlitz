@@ -1,0 +1,6 @@
+// As do days past them.
+Import std.core
+Import std.time
+
+Print(Date.MaxValue().AddDays(-1))
+Print(Date.MaxValue().AddDays(1))

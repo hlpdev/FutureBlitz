@@ -1,0 +1,6 @@
+// An abbreviation can mean several zones, so z only formats.
+Import std.core
+Import std.time
+
+Print(Timestamp.UnixEpoch().Format("z"))
+Print(Timestamp.Parse("1970-01-01 UTC", "yyyy-MM-dd z") == Null)

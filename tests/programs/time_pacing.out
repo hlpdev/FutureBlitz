@@ -1,0 +1,30 @@
+5s 6.5s 3s 1m0s -1m0s
+True True 0s 5000000000
+False 0s
+True 2s
+False 3s
+3.5s
+1s True
+0s False 7ms
+2s 500ms 0s
+False True False
+True False 2562047h47m16.854775807s True
+True False True True
+True True
+True True
+100ms 70ms 100ms
+50ms 1s False
+True
+16.666667ms 0.016666666666666666 8 0
+60 0
+0 1 0.02 8 0
+3 0 3
+0 3 0 0.06
+20ms 0.02 2 0.25 8
+True True False 500ms
+False True 500ms
+True True False
+3 6s True False
+False False
+True False True False
+False False False

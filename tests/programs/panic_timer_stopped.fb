@@ -1,0 +1,8 @@
+// A stopped Timer has no next tick.
+Import std.core
+Import std.time
+
+Local timer = Timer.Every(1.Seconds)
+timer.Stop()
+Print(timer.IsStopped)
+Await timer.Next()

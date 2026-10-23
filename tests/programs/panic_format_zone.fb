@@ -1,0 +1,6 @@
+// A LocalDateTime has no zone to format.
+Import std.core
+Import std.time
+
+Print(LocalDateTime(2026, 10, 23).Format("yyyy"))
+Print(LocalDateTime(2026, 10, 23).Format("yyyy XXX"))

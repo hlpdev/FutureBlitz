@@ -1,0 +1,2 @@
+07:00:00
+panic: the pattern "mm" has no hour: it needs H or h at panic_parse_time_pattern.fb:6:7

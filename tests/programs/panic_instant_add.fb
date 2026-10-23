@@ -1,0 +1,6 @@
+// An Instant past what an Int64 of nanoseconds holds panics where it's added to.
+Import std.core
+Import std.time
+
+Print(Instant.FromNanoseconds(0) + 1.Seconds)
+Print(Instant.FromNanoseconds(9223372036854775807) + 1.Nanoseconds)

@@ -1,0 +1,6 @@
+// From the first Timestamp to the last is longer than a Duration holds.
+Import std.core
+Import std.time
+
+Print(Timestamp.UnixEpoch() - Timestamp.FromUnixSeconds(-1000))
+Print(Timestamp.MaxValue() - Timestamp.MinValue())

@@ -1,0 +1,6 @@
+// Nanoseconds since 1970 past an Int64's, from after 2262, panic.
+Import std.core
+Import std.time
+
+Print(Timestamp.FromUnixSeconds(9223372036).UnixNanoseconds)
+Print(Timestamp.FromUnixSeconds(9223372037).UnixNanoseconds)

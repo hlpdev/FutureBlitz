@@ -1,0 +1,6 @@
+// A Timer ticks every so long above 0.
+Import std.core
+Import std.time
+
+Print(Timer.Every(1.Seconds, Instant.FromNanoseconds(0)).IsStopped)
+Print(Timer.Every(Duration.Zero()).IsStopped)

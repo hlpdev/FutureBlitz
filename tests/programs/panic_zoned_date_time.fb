@@ -1,0 +1,6 @@
+// A date and time past a Timestamp's years panics where it's put in a zone.
+Import std.core
+Import std.time
+
+Print(LocalDateTime(2026, 1, 1).InZone(TimeZone.Utc()))
+Print(LocalDateTime(1000000000, 1, 1).InZone(TimeZone.Utc()))

@@ -1,0 +1,7 @@
+// And adding days past them.
+Import std.core
+Import std.time
+
+Local last = Timestamp.MaxValue().InZone(TimeZone.Utc())
+Print(last.AddDays(-1))
+Print(last.AddDays(1))

@@ -1,0 +1,6 @@
+// And where it's added to.
+Import std.core
+Import std.time
+
+Print(Timestamp.MinValue() + 1.Seconds)
+Print(Timestamp.MinValue() - 1.Nanoseconds)

@@ -1,0 +1,6 @@
+// One past the years an Int holds panics too.
+Import std.core
+Import std.time
+
+Print(Date.FromDays(784351576776))
+Print(Date.FromDays(784351576777))

@@ -1,0 +1,156 @@
+// std.time's TimeZone over the embedded IANA tz database, and ZonedDateTime: offsets around
+// daylight saving changes in several zones, north and south, of an hour and of half of one, and
+// a day skipped; dates and times the clocks show twice or skip; arithmetic across the changes;
+// and the rules past the data's last change. The values are the tz database's, as Python's
+// zoneinfo reads the same data.
+
+Import std.core
+Import std.time
+
+Function Zone(name: String): TimeZone => TimeZone.Find(name) ?? TimeZone.Utc()
+Function At(text: String): Timestamp => Timestamp.Parse(text) ?? Timestamp.UnixEpoch()
+Function Wall(text: String): LocalDateTime
+    Return LocalDateTime.Parse(text) ?? LocalDateTime.DefaultValue()
+End Function
+
+// What the zone's clocks show a second before a change and at it.
+Function Show(name: String, change: String)
+    Local zone = Zone(name)
+    For time In [At(change) - 1.Seconds, At(change)]
+        Local zoned = time.InZone(zone)
+        Print("{time}: {zoned} {zoned.Abbreviation} {zoned.Offset} {zoned.IsDaylightSaving}")
+    End For
+End Function
+
+// The offsets the zone's clocks have at a date and time, and the moment each Disambiguation
+// makes it.
+Function Resolve(name: String, text: String)
+    Local zone = Zone(name)
+    Local local = Wall(text)
+    Print("{local} in {zone}: {zone.OffsetsAt(local)}")
+    Local earlier = local.InZone(zone, Disambiguation.EARLIER)
+    Print("    {local.InZone(zone)} {earlier} {local.InZone(zone, Disambiguation.LATER)}")
+End Function
+
+// Names.
+Print(TimeZone.Version(), TimeZone.Names().Count > 590, TimeZone.Names()[0],
+      TimeZone.Names().Contains("Europe/Kyiv"))
+For name In ["America/New_York", "america/NEW_york", "US/Eastern", "UTC", "Etc/GMT+5", "Z", "z",
+             "+05:30", "-0800", "+14", "-00:00", "+05:30:15", "Nowhere/Land", "", "+24:00", "+05:3",
+             "05:30", "America/New_York "]
+    Local zone = TimeZone.Find(name)
+    Print("[{name}] -> {zone == Null ? "Null" : "{zone} {zone.IsFixed}"}")
+End For
+
+Print(TimeZone.Utc(), TimeZone.DefaultValue(), TimeZone.Fixed(5.5.Hours),
+      TimeZone.Fixed(-(8.Hours)), TimeZone.Fixed(0.Seconds))
+Print(TimeZone.Fixed(-(4.Hours + 56.Minutes + 2.Seconds)),
+      TimeZone.Utc() == TimeZone.Fixed(Duration.Zero()))
+Print(Zone("UTC") == TimeZone.Utc(), Zone("US/Eastern") == Zone("America/New_York"),
+      Zone("Europe/Paris") == Zone("europe/paris"))
+
+// Changes: spring forward and fall back in New York, Paris, London, and Dublin, whose winter time
+// the tz database counts as its daylight saving time turned back; Sydney's and Lord Howe's in
+// the south, Lord Howe's of half an hour; Santiago's and Sao Paulo's at midnight; Havana's at
+// midnight too; Casablanca's around Ramadan; Gaza's; and Apia's, which skipped 2011-12-30.
+Local changes = [("America/New_York", "2026-03-08T07:00:00Z"),
+                 ("America/New_York", "2026-11-01T06:00:00Z"),
+                 ("Europe/Paris", "2026-03-29T01:00:00Z"), ("Europe/Paris", "2026-10-25T01:00:00Z"),
+                 ("Europe/London", "2026-03-29T01:00:00Z"),
+                 ("Europe/London", "2026-10-25T01:00:00Z"),
+                 ("Europe/Dublin", "2026-03-29T01:00:00Z"),
+                 ("Europe/Dublin", "2026-10-25T01:00:00Z"),
+                 ("Australia/Sydney", "2026-04-04T16:00:00Z"),
+                 ("Australia/Sydney", "2026-10-03T16:00:00Z"),
+                 ("Australia/Lord_Howe", "2026-04-04T15:00:00Z"),
+                 ("Australia/Lord_Howe", "2026-10-03T15:30:00Z"),
+                 ("America/Santiago", "2026-04-05T03:00:00Z"),
+                 ("America/Santiago", "2026-09-06T04:00:00Z"),
+                 ("America/Sao_Paulo", "2018-11-04T03:00:00Z"),
+                 ("America/Havana", "2026-03-08T05:00:00Z"),
+                 ("Africa/Casablanca", "2026-02-15T02:00:00Z"),
+                 ("Africa/Casablanca", "2026-03-22T02:00:00Z"),
+                 ("Asia/Gaza", "2026-10-23T23:00:00Z"), ("Pacific/Apia", "2011-12-30T10:00:00Z")]
+For change In changes
+    Print(change.0)
+    Show(change.0, change.1)
+End For
+
+// Dates and times shown once, twice, and never.
+Local walls = [("America/New_York", "2026-03-08T02:30"), ("America/New_York", "2026-11-01T01:30"),
+               ("America/New_York", "2026-07-04T12:00"), ("Europe/Paris", "2026-03-29T02:00"),
+               ("Europe/Paris", "2026-10-25T02:59:59.999999999"),
+               ("Europe/Paris", "2026-10-25T03:00"), ("Australia/Sydney", "2026-04-05T02:30"),
+               ("Australia/Sydney", "2026-10-04T02:30"),
+               ("Australia/Lord_Howe", "2026-04-05T01:45"),
+               ("Australia/Lord_Howe", "2026-10-04T02:15"),
+               ("America/Santiago", "2026-09-06T00:00"), ("America/Santiago", "2026-04-04T23:30"),
+               ("Pacific/Apia", "2011-12-30T12:00"), ("Asia/Kolkata", "2026-10-23T18:00"),
+               ("UTC", "2026-03-29T02:30"), ("+05:45", "2026-03-29T02:30")]
+For wall In walls
+    Resolve(wall.0, wall.1)
+End For
+
+// Arithmetic: a Duration is exact, and days go by the calendar, keeping the offset where the
+// clocks show the time twice.
+Local york = Zone("America/New_York")
+Local before = Wall("2026-03-07T02:30").InZone(york)
+Print(before + 24.Hours, before.AddDays(1), before.AddDays(1) - before, before.AddDays(2) - before)
+Local night = Wall("2026-11-01T00:30").InZone(york)
+Print(night + 1.Hours, night + 2.Hours, night + 3.Hours, (night + 2.Hours) - (night + 1.Hours))
+Local paris = Zone("Europe/Paris")
+Local first = Wall("2026-10-25T02:30").InZone(paris)
+Local second = Wall("2026-10-25T02:30").InZone(paris, Disambiguation.LATER)
+Print(first, second, second - first, first < second, first == second)
+Print(Wall("2026-10-24T02:30").InZone(paris).AddDays(1),
+      Wall("2026-10-26T02:30").InZone(paris).AddDays(-1))
+Print(second.AddDays(-1), second.AddMonths(1), first.AddYears(-1), first.AddMonths(5))
+Print(Wall("2026-03-28T02:30").InZone(paris).AddDays(1),
+      Wall("2026-01-31T09:00").InZone(paris).AddMonths(1))
+For day In ["2026-03-08", "2026-11-01", "2026-07-04"]
+    Local date = Date.Parse(day) ?? Date.DefaultValue()
+    Print(date, date.StartOfDay(york), date.AddDays(1).StartOfDay(york) - date.StartOfDay(york))
+End For
+
+Print(Date(2026, 9, 6).StartOfDay(Zone("America/Santiago")),
+      Date(2018, 11, 4).StartOfDay(Zone("America/Sao_Paulo")))
+Print(Wall("2026-09-06T12:00").InZone(Zone("America/Santiago")).StartOfDay(),
+      Date(2026, 3, 8).StartOfDay(Zone("America/Havana")))
+Print(Date(2011, 12, 30).StartOfDay(Zone("Pacific/Apia")),
+      Date(2011, 12, 29).StartOfDay(Zone("Pacific/Apia")))
+
+// The same moment where other zones are.
+Local moment = At("2026-10-23T12:30:00Z")
+For name In ["UTC", "Europe/Paris", "Asia/Kolkata", "Asia/Kathmandu", "Australia/Lord_Howe",
+             "America/St_Johns", "Pacific/Kiritimati", "Pacific/Niue", "America/Caracas",
+             "Asia/Tehran", "+05:45"]
+    Local zoned = moment.InZone(Zone(name))
+    Print(zoned, zoned.Abbreviation, zoned.Offset, zoned.DayOfWeek, zoned.Hour,
+          zoned.WithZone(TimeZone.Utc()))
+End For
+
+// Before the data's first change, the zone's local mean time, and after its last, its rule.
+For text In ["1800-01-01T00:00:00Z", "1883-11-18T16:59:59Z", "1883-11-18T17:00:00Z",
+             "2100-03-14T06:59:59Z", "2100-03-14T07:00:00Z", "2400-11-07T05:59:59Z",
+             "2400-11-07T06:00:00Z", "+999999999-12-31T23:59:59Z", "-999999999-01-01T00:00:00Z"]
+    Local zoned = At(text).InZone(york)
+    Print(zoned, zoned.Abbreviation, zoned.IsDaylightSaving)
+End For
+
+For text In ["2100-01-01T00:00:00Z", "2100-04-04T15:59:59Z", "2100-04-04T16:00:00Z",
+             "2100-10-02T15:59:59Z", "2100-10-02T16:00:00Z", "2100-12-31T23:59:59Z"]
+    Local zoned = At(text).InZone(Zone("Australia/Sydney"))
+    Print(zoned, zoned.Abbreviation, zoned.IsDaylightSaving)
+End For
+
+// ISO 8601 with the zone's name, or only an offset, and the offset has to be the zone's then.
+For text In ["2026-10-25T02:30:00+02:00[Europe/Paris]", "2026-10-25T02:30:00+01:00[Europe/Paris]",
+             "2026-10-25T02:30:00+03:00[Europe/Paris]", "2026-10-23T14:30:00.5+02:00",
+             "2026-10-23T12:30:00Z", "2026-10-23T12:30:00Z[UTC]",
+             "2026-10-23T12:30:00Z[Europe/London]", "2026-10-23T13:30:00+01:00[europe/london]",
+             "2026-10-23T12:30:00+02:00[Nowhere/Land]", "2026-10-23T12:30:00[Europe/Paris]",
+             "2026-10-23T14:30:00+02:00[Europe/Paris", "2026-10-23T14:30:00+02:00[Europe/Paris]x",
+             "1800-01-01T00:00:00-04:56:02[America/New_York]"]
+    Local parsed = ZonedDateTime.Parse(text)
+    Print("[{text}] -> {parsed == Null ? "Null" : "{parsed} {parsed.Timestamp}"}")
+End For

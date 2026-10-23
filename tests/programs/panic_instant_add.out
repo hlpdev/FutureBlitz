@@ -1,0 +1,2 @@
+1s
+panic: integer overflow in '+' at panic_instant_add.fb:6:7

@@ -1,0 +1,134 @@
+// The monotonic clock, which never goes back or jumps as the OS's clock can, for how long things
+// take: Instant, a reading of it; Stopwatch and Measure over it; and Sleep. The real clock's
+// time is Timestamp's (in timestamp.fb). What reads the clock here, and in timers.fb, also
+// takes an Instant, so code, and its tests, can give the time as a value.
+
+Import std.core
+Import std.time.duration
+
+Extern "runtime"
+    Function fb_time_monotonic(): Int64
+    Function fb_time_sleep(nanoseconds: Int64)
+End Extern
+
+// A reading of the monotonic clock: nanoseconds since a moment of its own, which only means
+// something beside the program's other Instants.
+Public Struct Instant Implements Comparable, Hashable, Printable, Defaultable
+    Field Count: Int64
+
+    Package New(count: Int64)
+        Self.Count = count
+    End New
+
+    Public Static Method Now(): Instant => Instant(fb_time_monotonic())
+
+    // The Instant that many nanoseconds after the clock's start, for code that gives the time.
+    Public Static Method FromNanoseconds(count: Int64): Instant => Instant(count)
+    Public Static Method DefaultValue(): Instant => Instant(0)
+
+    Public Property Nanoseconds: Int64
+        Get => Count
+    End Property
+
+    // How long it's been since it, now.
+    Public Property Elapsed: Duration
+        Get => Now() - Self
+    End Property
+
+    // That much later or earlier, and how long it is from b to a. Past what an Int64 of
+    // nanoseconds holds, about 292 years, they panic.
+    @PanicsAtCaller
+    Operator +(a: Instant, b: Duration): Instant => Instant(a.Count + b.Nanoseconds)
+    @PanicsAtCaller
+    Operator -(a: Instant, b: Duration): Instant => Instant(a.Count - b.Nanoseconds)
+    @PanicsAtCaller
+    Operator -(a: Instant, b: Instant): Duration => Duration.FromNanoseconds(a.Count - b.Count)
+    Operator <(a: Instant, b: Instant): Bool => a.Count < b.Count
+
+    // How long after the clock's start it is, like "1h2m3.5s".
+    Public Method ToString(): String => "{Duration.FromNanoseconds(Count)}"
+End Struct
+
+// Measures how long goes by while it runs, over as many starts and stops as it has.
+Public Class Stopwatch
+    // What it measured up to its latest stop, and when it started, while it runs.
+    Field Total: Duration
+    Field Started: Instant?
+
+    // A Stopwatch at 0 that isn't running.
+    Public New()
+        Total = Duration.Zero()
+        Started = Null
+    End New
+
+    // A Stopwatch running from now, or from the Instant.
+    Public Static Method StartNew(): Stopwatch => StartNew(Instant.Now())
+
+    Public Static Method StartNew(now: Instant): Stopwatch
+        Local stopwatch = Stopwatch()
+        stopwatch.Start(now)
+        Return stopwatch
+    End Method
+
+    Public Property IsRunning: Bool
+        Get => Started != Null
+    End Property
+
+    // What it's measured, now or at the Instant.
+    Public Property Elapsed: Duration
+        Get => ElapsedAt(Instant.Now())
+    End Property
+
+    Public Method ElapsedAt(now: Instant): Duration
+        Local started = Started
+        Return started == Null ? Total : Total + (now - started)
+    End Method
+
+    // Starts it, now or at the Instant, unless it's running.
+    Public Method Start()
+        Start(Instant.Now())
+    End Method
+
+    Public Method Start(now: Instant)
+        If Started == Null Then Started = now
+    End Method
+
+    // Stops it, now or at the Instant, keeping what it measured, unless it's stopped.
+    Public Method Stop()
+        Stop(Instant.Now())
+    End Method
+
+    Public Method Stop(now: Instant)
+        Total = ElapsedAt(now)
+        Started = Null
+    End Method
+
+    // Stops it at 0.
+    Public Method Reset()
+        Total = Duration.Zero()
+        Started = Null
+    End Method
+
+    // Starts it again from 0, now or at the Instant.
+    Public Method Restart()
+        Restart(Instant.Now())
+    End Method
+
+    Public Method Restart(now: Instant)
+        Total = Duration.Zero()
+        Started = now
+    End Method
+End Class
+
+// How long the work takes, on the monotonic clock.
+Public Function Measure(work: Func()): Duration
+    Local start = fb_time_monotonic()
+    work()
+    Return Duration.FromNanoseconds(fb_time_monotonic() - start)
+End Function
+
+// Blocks the thread for that long, and returns at once for a Duration that isn't above 0. In
+// Async code, Await Wait or Timer.After waits without blocking.
+Public Function Sleep(time: Duration)
+    fb_time_sleep(time.Nanoseconds)
+End Function

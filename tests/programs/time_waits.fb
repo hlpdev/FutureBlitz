@@ -1,0 +1,88 @@
+// std.time on the real clocks: Await Wait(500.Milliseconds) resumes a coroutine once that long
+// has gone by, on the main thread, as coroutine code always does (the runtime panics where one
+// would go on elsewhere); RealWait does too; Timer.After's Tasks, which coroutines Await and
+// other threads Wait() for; a Timer's ticks; Sleep, Measure, and Stopwatch; and the clocks
+// themselves, of which the output shows only what they promise.
+
+Import std.core
+Import std.time
+
+Async Function Pause(time: Duration): Bool
+    Local start = Instant.Now()
+    Await Wait(time)
+    Return start.Elapsed >= time
+End Function
+
+Async Function RealPause(time: Duration): Bool
+    Local start = Instant.Now()
+    Await RealWait(time)
+    Return start.Elapsed >= time
+End Function
+
+Async Function After(time: Duration): Bool
+    Local start = Instant.Now()
+    Await Timer.After(time)
+    Return start.Elapsed >= time
+End Function
+
+Local start = Instant.Now()
+Await Wait(500.Milliseconds)
+Print("top-level code waited 500ms: {start.Elapsed >= 500.Milliseconds}")
+Print("a coroutine waited: {Await Pause(500.Milliseconds)}")
+Print("on the real clock: {Await RealPause(50.Milliseconds)}")
+Print("after a Timer: {Await After(30.Milliseconds)}, {Await After(Duration.Zero())}, " +
+      "{Await After((-1).Seconds)}")
+
+// Coroutines wait at once, each for its own time.
+Local both = [Pause(200.Milliseconds), Pause(100.Milliseconds)]
+Print("both: {Await both[0]} {Await both[1]}")
+
+// Another thread waits for a Timer's Task with Wait().
+Local fromThread = Spawn(Function(): Bool
+    Local begun = Instant.Now()
+    Timer.After(40.Milliseconds).Wait()
+    Return begun.Elapsed >= 40.Milliseconds
+End Function)
+Print("a thread waited: {fromThread.Wait()}")
+
+// A Timer's ticks keep to its start.
+Local ticker = Timer.Every(20.Milliseconds)
+start = Instant.Now()
+For tick = 1 To 3
+    Await ticker.Next()
+End For
+
+Print("three ticks: {start.Elapsed >= 40.Milliseconds}")
+ticker.Stop()
+
+// Blocking, and measuring.
+start = Instant.Now()
+Sleep(20.Milliseconds)
+Sleep(Duration.Zero())
+Sleep((-5).Seconds)
+Local measured = Measure(Function() => Sleep(15.Milliseconds))
+Print("slept: {start.Elapsed >= 20.Milliseconds}, measured: {measured >= 15.Milliseconds}")
+Local watch = Stopwatch.StartNew()
+Sleep(10.Milliseconds)
+watch.Stop()
+Local stopped = watch.Elapsed
+Sleep(10.Milliseconds)
+Print("stopwatch: {stopped >= 10.Milliseconds}, still: {watch.Elapsed == stopped}, " +
+      "running: {watch.IsRunning}")
+Print("monotonic: {Instant.Now() >= start}, deadline: {Deadline.After(1.Hours).HasPassed}, " +
+      "{Deadline.After(Duration.Zero()).HasPassed}")
+Print("remaining: {Deadline.After(1.Hours).Remaining > 59.Minutes}, " +
+      "{Deadline.Never().Remaining == Duration.MaxValue()}")
+
+// The real clock, and the OS's zone, which is the tz database's or else a fixed offset.
+Local now = Timestamp.Now()
+Print("after 2020: {now > Timestamp.FromUnixSeconds(1577836800)}, " +
+      "before 2200: {now < Timestamp.FromUnixSeconds(7258118400)}")
+Local system = TimeZone.System()
+Print("the OS's zone has a name: {system.Name != ""}, " +
+      "its offset fits: {system.OffsetAt(now).Abs() < 1.Days}")
+Print("today: {Date.Today().Year > 2019}, {Date.Today(TimeZone.Utc()).Year > 2019}, " +
+      "{TimeOfDay.Now(TimeZone.Utc()) <= TimeOfDay.MaxValue()}")
+Print("now: {LocalDateTime.Now().Year > 2019}, {ZonedDateTime.Now().Zone == system}, " +
+      "{ZonedDateTime.Now(TimeZone.Utc()).Offset}")
+Print("done")

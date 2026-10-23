@@ -1,0 +1,6 @@
+// In a burst too.
+Import std.core
+Import std.time
+
+Print(RateLimiter(5, 1.Seconds, 1).TryTake())
+Print(RateLimiter(5, 1.Seconds, 0).TryTake())
