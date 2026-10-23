@@ -474,6 +474,17 @@ TEST_CASE("a single-line string can't continue past a line break inside an inter
     CHECK(lexed.errors ==
           std::vector<std::string>{ "0-1: unterminated string: a '{' in it isn't closed on its "
                                     "line, and a string ends with its line" });
+
+    // Nor through a multi-line string in its interpolation, which spans lines.
+    CHECK(lex_text("\"a{\"\"\"\n    x\n    \"\"\"}b\"").errors ==
+          std::vector<std::string>{ "3-6: a multi-line string can't go in an interpolation of a "
+                                    "single-line string, which ends with its line" });
+    CHECK(lex_text("\"\"\"\n  {\"a{r\"\"\"\n    x\n    \"\"\"}\"}\n  \"\"\"").errors ==
+          std::vector<std::string>{ "10-14: a multi-line string can't go in an interpolation of a "
+                                    "single-line string, which ends with its line" });
+
+    // In a multi-line string's interpolation, one is fine.
+    CHECK(lex_text("\"\"\"\n  {\"\"\"\n    x\n    \"\"\"}\n  \"\"\"").errors.empty());
 }
 
 TEST_CASE("a string still open at end of file is reported", "[lexer]") {

@@ -433,6 +433,15 @@ private:
         state.multi_line = m_text.substr(m_pos).starts_with(R"(""")");
         m_pos += state.multi_line ? 3U : 1U;
         state.open_end = m_pos;
+        // It spans lines, which a single-line string waiting for an interpolation can't.
+        if (state.multi_line && std::ranges::any_of(m_strings, [](const string_state_t& waiting) {
+                return !waiting.multi_line;
+            })) {
+            report().error(span(begin, m_pos),
+                           "a multi-line string can't go in an interpolation of a single-line "
+                           "string, which ends with its line");
+        }
+
         if (state.multi_line) {
             start_multi_line(state);
         }
