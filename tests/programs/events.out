@@ -1,0 +1,32 @@
+0
+first: ada
+second: ada
+2 True True
+second: grace
+1 False True
+closed 1
+added during 2
+1
+outer 0
+outer 1
+inner 1
+inner 0
+outer 0
+outer 1
+inner 1
+self 1
+inner 0
+2
+second: knock
+grace hears knock
+cancelling
+grace goes
+cancelled
+second: knock again
+linus hears hi
+dropping the event
+linus goes
+dropped False
+0 False
+False
+done
