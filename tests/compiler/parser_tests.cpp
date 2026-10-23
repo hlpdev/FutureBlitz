@@ -492,6 +492,26 @@ TEST_CASE("block statements can't go in a single-line If", "[parser]") {
           std::vector<std::string>{ "10-11: a label must be followed by a loop" });
 }
 
+TEST_CASE("Blitz's New in an expression says how an object is made", "[parser]") {
+    const parsed_t parsed = parse_text("Local f = New Foo()");
+    CHECK(parsed.errors == std::vector<std::string>{ "10-13: an object is made by calling its "
+                                                     "type, like Foo(); New only declares a "
+                                                     "constructor" });
+    // What comes after it is parsed, as the call it should be.
+    CHECK(parsed.dump == "(local f = (call Foo))");
+    CHECK(parse_text("Local f = New").errors ==
+          std::vector<std::string>{ "10-13: an object is made by calling its type, like "
+                                    "Point(); New only declares a constructor" });
+
+    // Many of them are one error, and no deeper to parse.
+    std::string news = "Local f = ";
+    for (std::size_t i = 0; i < 50000; ++i) {
+        news += "New ";
+    }
+
+    CHECK(parse_text(news + "Foo()").errors.size() == 1);
+}
+
 TEST_CASE("broken input always finishes with at least one error", "[parser]") {
     // Each of these once could have looped forever or crashed in a careless parser.
     constexpr auto inputs = std::to_array<std::string_view>({

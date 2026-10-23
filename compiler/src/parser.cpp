@@ -3220,9 +3220,19 @@ private:
 
             report_expected("an expression");
             return missing_expr();
-        case token_kind_t::KW_NEW:
-            error(token.span, "{} isn't supported yet", describe(token.kind));
-            return missing_expr();
+        case token_kind_t::KW_NEW: {
+            // Blitz's "New Foo" is "Foo()" here, which is what's parsed after the error, once
+            // the News are skipped.
+            while (accept(token_kind_t::KW_NEW)) {}
+
+            const std::string_view type =
+                at(token_kind_t::IDENTIFIER) ? text(peek()) : std::string_view("Point");
+            error(token.span,
+                  "an object is made by calling its type, like {}(); New only declares a "
+                  "constructor",
+                  type);
+            return parse_primary();
+        }
         default:
             report_expected("an expression");
             return missing_expr();
