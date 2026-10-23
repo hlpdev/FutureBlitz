@@ -109,12 +109,13 @@ std::string operator_name(const std::string_view name) {
     return letter || name.empty() ? std::string(name) : std::format("Operator {}", name);
 }
 
-/// What leaving a scope does: releases a variable, or runs a Defer's statement or a Finally.
 /// The Mutex that a Lock block holds, which leaving the block lets go of.
 struct unlock_t {
     place_t mutex;
 };
 
+/// What leaving a scope does: releases a variable, runs a Defer's statement or a Finally, or
+/// unlocks a Lock's Mutex.
 struct cleanup_t {
     std::variant<local_id_t, stmt_id_t, const block_t*, unlock_t> action;
 
@@ -191,9 +192,9 @@ struct reflected_t {
 };
 
 /// Turns the analyzed AST into MIR: one function per Function, Method, and New, plus "main" for
-/// the top-level code. Each variable holding a String, or a Struct with Strings in it, owns a
-/// reference to each one, so lowering adds the retains and releases. Parameters borrow the
-/// caller's.
+/// the top-level code. Each variable holding a reference, to a String, an object, an array, or a
+/// Weak's object, or a Struct or tuple with references in it, owns each one, so lowering adds the
+/// retains and releases. Parameters borrow the caller's.
 class lowerer_t {
 public:
     lowerer_t(const ast_t& ast, const analysis_t& analysis) : m_ast(ast), m_analysis(analysis) {
@@ -434,7 +435,7 @@ private:
     };
 
     std::vector<table_thunk_t> m_table_thunks;
-    /// Each Struct's symbol, by its type.
+    /// Each declared type's symbol, a Struct's, Class's, Interface's, or Enum's, by its type.
     std::unordered_map<type_id_t, symbol_id_t> m_declared_types;
     /// The Methods that implement an Interface's Method that throws.
     std::unordered_set<symbol_id_t> m_takes_error;
@@ -1806,7 +1807,6 @@ private:
         push_scope();
     }
 
-    /// Ends the block that runs off the end of the function, if code reaches there.
     /// An Async Function is done: what waits for its Task goes on, and it lets go of what it
     /// kept.
     void finish_async(const local_id_t task) {
@@ -1820,6 +1820,7 @@ private:
         }
     }
 
+    /// Ends the block that runs off the end of the function, if code reaches there.
     void finish_function() {
         if (m_returns_self) {
             return_self();
@@ -2651,7 +2652,8 @@ private:
         return later;
     }
 
-    /// A new temporary holding `value`. An owned String in it is released after the statement.
+    /// A new temporary holding `value`. An owned one, which holds references of its own, is
+    /// released after the statement.
     operand_t temporary(rvalue_t value, const type_id_t type, const bool owned = false) {
         const local_id_t local = add_local(type);
         emit(assign_t{ .target = local, .value = std::move(value) });
@@ -2881,7 +2883,7 @@ private:
         }
     }
 
-    /// Releases the Strings made for the statement that just finished.
+    /// Releases the temporaries made for the statement that just finished.
     void finish_statement() {
         release_temporaries_from(0);
     }
@@ -2962,7 +2964,7 @@ private:
         }
     }
 
-    /// A block with a scope of its own, whose Strings are released where it ends.
+    /// A block with a scope of its own, whose variables are released where it ends.
     void lower_block(const block_t& block) {
         push_scope();
         lower_statements(block);
@@ -2976,7 +2978,8 @@ private:
                    stmt.node);
     }
 
-    /// Statements past M1 never pass analysis, and functions are only at the top level.
+    /// Declarations, like a Function's or a type's, are lowered on their own, and never come here
+    /// as statements.
     template <typename Node>
     void lower_stmt(stmt_id_t /*id*/, span_t /*span*/, const Node& /*node*/) {
         assert(false);
@@ -4035,7 +4038,8 @@ private:
         return compare(binary_op_t::OR, a, b, span);
     }
 
-    /// A temporary for a runtime call's result. `owned` when it returns a new String.
+    /// A temporary for a runtime call's result. `owned` when it gives a new reference, like a
+    /// String it makes or a Weak's object.
     operand_t runtime_call(const runtime_function_t function, std::vector<operand_t> arguments,
                            const type_id_t type, const bool owned = false) {
         return temporary(runtime_call_t{ .function = function, .arguments = std::move(arguments) },
@@ -4805,7 +4809,8 @@ private:
         return convert(value, converted_type(id), span_of(id));
     }
 
-    /// Literals always have a value, and expressions past M1 never pass analysis.
+    /// The expressions without a lowering of their own always have a value analysis knew, like a
+    /// literal's, or an overload that lowers them, so none comes here.
     template <typename Node>
     operand_t lower_expr(expr_id_t /*id*/, const Node& /*node*/) {
         assert(false);
@@ -6891,8 +6896,6 @@ private:
         }
     }
 
-    /// A call's result, or nullopt when it returns nothing. A result with references is released
-    /// after the statement unless something takes it. "a?.M()" only calls when a holds a value.
     /// "Atomic<Int>(0)" or "Mutex(value)": what a Global or Field starts with. A Mutex starts
     /// with no thread holding it.
     operand_t make_in_place(const expr_id_t id) {
@@ -7230,6 +7233,8 @@ private:
         return std::nullopt;
     }
 
+    /// A call's result, or nullopt when it returns nothing. A result with references is released
+    /// after the statement unless something takes it. "a?.M()" only calls when a holds a value.
     std::optional<operand_t> lower_call(const expr_id_t id) {
         const scoped_value_t<std::optional<span_t>> at(m_span, span_of(id));
         const auto& node = std::get<call_expr_t>(m_ast.get(id).node);
