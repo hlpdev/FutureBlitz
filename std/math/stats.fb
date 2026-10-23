@@ -30,7 +30,8 @@ Function CheckCount(what: String, count: Int, least: Int)
     End If
 End Function
 
-// The mean, the sum over the count. No values panics.
+// The mean, the sum over the count, or the sum of each value's share where the sum overflows and
+// the values don't. No values panics.
 @PanicsAtCaller
 Public Function Mean<T: Bounded>(values: T[]): Double
     CheckCount("Mean", values.Count, 1)
@@ -38,7 +39,15 @@ Public Function Mean<T: Bounded>(values: T[]): Double
     For value In values
         sum += T.DoubleValue(value)
     End For
-    Return sum / values.Count
+    If IsFinite(sum) Then Return sum / values.Count
+
+    Local shares: Double = 0
+    For value In values
+        Local x = T.DoubleValue(value)
+        If !IsFinite(x) Then Return sum / values.Count
+        shares += x / values.Count
+    End For
+    Return shares
 End Function
 
 // The middle value, or the mean of the two middle ones for an even count. No values, or a NaN,

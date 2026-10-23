@@ -14,6 +14,12 @@ Local bytes: UInt8[] = [250, 251, 252]
 Local longs: Long[] = [9007199254740993, 9007199254740995]
 Print(Mean(bytes), Median(bytes), Variance(bytes), Mean(longs))
 Print(Mean([7]), Median([7]), PopulationVariance([7]), PopulationStdDev([7]), Median([3, 1]))
+// The mean of values a Double holds is one, though their sum isn't.
+Local tops: Double[] = [1e308, 1e308]
+Local mixed: Double[] = [1e308, 1e308, -1e308]
+Local endlessly: Double[] = [1e308, 1e308, Inf]
+Local least: Double[] = [5e-324, 5e-324]
+Print(Mean(tops), Median(tops), Mean(mixed), Mean(endlessly), Mean(least), Median(least))
 
 // Welford's way stays exact where a sum of squares wouldn't: around a billion.
 Local large: Double[] = [1000000000, 1000000001, 1000000002]
