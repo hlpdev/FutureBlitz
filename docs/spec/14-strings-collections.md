@@ -228,7 +228,9 @@ collection.
   SortedSet, BitSet, Counter, MultiMap, Trie, LinkedList, IntervalTree, and the immutable ones.
 - A SortedMap holds 15 to 31 keys in a node but the root, so finding, adding, and removing a key
   looks at about log₁₆(Count) nodes, each a binary search, and giving a key a new value or
-  removing one that isn't there leaves the tree as it is. Its order is the keys' `<`.
+  removing one that isn't there leaves the tree as it is. Its order is the keys' `<`, which has
+  no place for a key that isn't equal to itself, like NaN: one panics where it's added to a
+  SortedMap or SortedSet, and finds nothing where it's looked up.
 - A RingBuffer, a Grid, and a Grid3 have a fixed size, set when they're made, and a size that
   isn't 1 or more for a RingBuffer, or is negative or has more cells than an Int counts for a
   Grid, panics there; a Grid3 without cells along an axis has none. Giving a value a new value
@@ -243,8 +245,8 @@ collection.
   no `List`, `Next`, or `Previous`. Its `First`, `Last`, `Find`, and `Remove` mean what they do
   on an array; what gives or takes a node says so in its name.
 - An IntervalTree is a balanced tree of the intervals, each node with the highest high under
-  it, so `Overlapping` skips what ends too soon. A high below low panics where it's added, and
-  finds nothing where it's searched for.
+  it, so `Overlapping` skips what ends too soon. A high below low, or an end that isn't equal to
+  itself, like NaN, panics where it's added, and finds nothing where it's searched for.
 - A spatial structure's coordinates are Floats, and its distances and boxes are worked out in
   Doubles, so none overflows; a NaN coordinate panics where it's given, a negative or NaN radius
   finds nothing, and an infinite one finds every point. A SpatialHash covers any space, a point

@@ -1,0 +1,9 @@
+// Adding NaN to a SortedSet panics, where it's added, since NaN has no place in its order.
+Import std.core
+Import std.collections
+
+Local zero: Float = 0
+Local set = SortedSet<Float>()
+set.Add(2)
+Print(set.Contains(zero / zero), set.Floor(zero / zero) ?? -1, set.Ceiling(zero / zero) ?? -1)
+set.Add(zero / zero)

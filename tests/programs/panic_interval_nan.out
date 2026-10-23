@@ -1,0 +1,2 @@
+[] [] [] False False 2
+panic: an interval's ends can't be NaN, or anything else that isn't equal to itself at panic_interval_nan.fb:13:1

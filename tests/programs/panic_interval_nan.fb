@@ -1,0 +1,13 @@
+// An interval with a NaN end has no place in an IntervalTree's order: looking one up finds
+// nothing, and adding one panics, where it's added.
+Import std.core
+Import std.collections
+
+Local zero: Double = 0
+Local nan = zero / zero
+Local tree = IntervalTree<Double, String>()
+tree.Add(0, 5, "low")
+tree.Add(3, 9, "high")
+Print(tree.Overlapping(nan, 4), tree.Overlapping(4, nan), tree.Containing(nan),
+      tree.Contains(nan, 5, "low"), tree.Remove(nan, 9, "high"), tree.Count)
+tree.Add(nan, 1, "nan")

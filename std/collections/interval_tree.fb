@@ -39,9 +39,13 @@ Public Class IntervalTree<K, V> Implements Iterable<(K, K, V)>, Cloneable, Defau
     End Property
 
     // Adds a value over the interval from low to high, after any others over it. A high below
-    // low panics.
+    // low panics, and so does an end that isn't equal to itself, like NaN.
     @PanicsAtCaller
     Public Method Add(low: K, high: K, value: V)
+        If low != low || high != high
+            Panic("an interval's ends can't be NaN, or anything else that isn't equal to itself")
+        End If
+
         If high < low Then Panic("an interval's high is below its low")
         Root = Insert(Root, low, high, value)
         Size += 1
@@ -49,9 +53,10 @@ Public Class IntervalTree<K, V> Implements Iterable<(K, K, V)>, Cloneable, Defau
     End Method
 
     // Removes the first value over the interval from low to high that's equal to value, and
-    // tells whether there was one.
+    // tells whether there was one. An end that isn't equal to itself has none.
     Public Method Remove(low: K, high: K, value: V): Bool
         Where V: Equatable
+        If low != low || high != high Then Return False
         Local node = Root
         While node != Null
             Local order = Compare(low, high, node)
@@ -68,9 +73,11 @@ Public Class IntervalTree<K, V> Implements Iterable<(K, K, V)>, Cloneable, Defau
         Return False
     End Method
 
-    // Whether a value equal to value is over the interval from low to high.
+    // Whether a value equal to value is over the interval from low to high, which an end that
+    // isn't equal to itself never has.
     Public Method Contains(low: K, high: K, value: V): Bool
         Where V: Equatable
+        If low != low || high != high Then Return False
         Local node = Root
         While node != Null
             Local order = Compare(low, high, node)
@@ -87,10 +94,11 @@ Public Class IntervalTree<K, V> Implements Iterable<(K, K, V)>, Cloneable, Defau
     End Method
 
     // The intervals that overlap the one from low to high, with their values, by low and then by
-    // high, in a new array. A high below low overlaps nothing.
+    // high, in a new array. A high below low overlaps nothing, and so does an end that isn't
+    // equal to itself.
     Public Method Overlapping(low: K, high: K): (K, K, V)[]
         Local found: (K, K, V)[] = []
-        If !(high < low) Then Gather(Root, low, high, found)
+        If low == low && high == high && !(high < low) Then Gather(Root, low, high, found)
         Return found
     End Method
 

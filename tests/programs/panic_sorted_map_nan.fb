@@ -1,0 +1,15 @@
+// A NaN key has no place in a SortedMap's order: looking one up finds nothing, so the keys there
+// stay found, and adding one panics, where it's added.
+Import std.core
+Import std.collections
+
+Local zero: Double = 0
+Local nan = zero / zero
+Local map = SortedMap<Double, String>()
+map.Add(1, "one")
+map.Add(2, "two")
+map.Add(3, "three")
+Print(map.Contains(nan), map.Get(nan) ?? "-", map.Floor(nan) == Null, map.Ceiling(nan) == Null,
+      map.Range(nan, 3).Count, map.Range(1, nan).Count, map.Remove(nan), map.Count)
+Print(map.Contains(1), map.Keys())
+map[nan] = "nan"
