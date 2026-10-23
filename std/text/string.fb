@@ -250,33 +250,41 @@ Extend String
     @PanicsAtCaller
     Public Method Repeated(count: Int): String
         If count < 0 Then Panic("Repeated takes a count that isn't negative, not {count}")
+        If count > 0 && Length > 2147483647 / count
+            Panic("a String holds at most 2147483647 bytes")
+        End If
+
         Return fb_text_repeat(Self, count)
     End Method
 
     // A copy with fill before it, as many as it takes to make width characters, or the String
-    // itself when it has as many already.
+    // itself when it has as many already. Panics past the most a String holds.
+    @PanicsAtCaller
     Public Method PadLeft(width: Int, fill: Char = ' '): String
-        Local missing = width - CharCount
-        If missing <= 0 Then Return Self
-        Return fb_text_repeat("{fill}", missing) + Self
+        Local count = CharCount
+        If width <= count Then Return Self
+        Return "{fill}".Repeated(width - count) + Self
     End Method
 
     // A copy with fill after it, as many as it takes to make width characters, or the String
-    // itself when it has as many already.
+    // itself when it has as many already. Panics past the most a String holds.
+    @PanicsAtCaller
     Public Method PadRight(width: Int, fill: Char = ' '): String
-        Local missing = width - CharCount
-        If missing <= 0 Then Return Self
-        Return Self + fb_text_repeat("{fill}", missing)
+        Local count = CharCount
+        If width <= count Then Return Self
+        Return Self + "{fill}".Repeated(width - count)
     End Method
 
     // A copy with fill on both sides, as many as it takes to make width characters, one more
     // after it than before when they don't split evenly, or the String itself when it has as many
-    // already.
+    // already. Panics past the most a String holds.
+    @PanicsAtCaller
     Public Method Center(width: Int, fill: Char = ' '): String
-        Local missing = width - CharCount
-        If missing <= 0 Then Return Self
+        Local count = CharCount
+        If width <= count Then Return Self
+        Local missing = width - count
         Local before = missing / 2
-        Return fb_text_repeat("{fill}", before) + Self + fb_text_repeat("{fill}", missing - before)
+        Return "{fill}".Repeated(before) + Self + "{fill}".Repeated(missing - before)
     End Method
 
     // -1 when it comes before other, 0 when they're equal, and 1 when it comes after, by their code
