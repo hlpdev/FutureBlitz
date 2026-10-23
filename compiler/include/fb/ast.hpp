@@ -63,7 +63,7 @@ enum class binary_op_t : std::uint8_t {
     AND,
     /// `||`, which only evaluates its right side when the left is False.
     OR,
-    /// `??`, null-coalescing. Not supported in M1.
+    /// `??`, null-coalescing.
     COALESCE,
 };
 
@@ -107,7 +107,7 @@ struct decimal_expr_t {
 
 /// A character literal like 'a', which analysis treats as an integer: its code point.
 struct character_expr_t {
-    /// U+FFFD when the literal is empty or invalid.
+    /// Its first character, or U+FFFD when it's empty or that character is invalid.
     char32_t value;
 };
 
@@ -125,7 +125,7 @@ struct bool_expr_t {
     bool value;
 };
 
-/// `Null`. Not supported in M1.
+/// `Null`.
 struct null_expr_t {};
 
 /// A name used as a value or a callee, like `x` in "x + 1" or `Print` in "Print(x)".
@@ -207,14 +207,14 @@ struct range_expr_t {
 };
 
 /// "value As Type", or "value As? Type" when `checked`: a downcast that gives Null when it
-/// fails, which isn't supported in M1.
+/// fails.
 struct cast_expr_t {
     expr_id_t value;
     type_expr_id_t type;
     bool checked;
 };
 
-/// "value Is Type", a type test. Not supported in M1.
+/// "value Is Type", a type test.
 struct is_expr_t {
     expr_id_t value;
     type_expr_id_t type;
@@ -311,7 +311,7 @@ struct named_type_t {
     std::optional<name_t> qualifier;
 };
 
-/// "Type?". Not supported in M1.
+/// "Type?", a type that can be Null.
 struct nullable_type_t {
     type_expr_id_t inner;
 };
@@ -323,7 +323,7 @@ struct array_type_t {
     std::vector<expr_id_t> sizes;
 };
 
-/// "Weak<T>", a reference that doesn't keep its object. M2 has no other generic types.
+/// "Weak<T>", a reference that doesn't keep its object.
 struct weak_type_t {
     type_expr_id_t inner;
 };
@@ -357,7 +357,7 @@ struct type_expr_t {
 
 // Statements
 
-/// A statement that failed to parse, or a construct after M1 that was reported and skipped.
+/// A statement that failed to parse, which was reported.
 struct error_stmt_t {};
 
 /// An expression on its own line. Only calls do anything; other expressions are reported.
