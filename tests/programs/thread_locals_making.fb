@@ -1,0 +1,50 @@
+// While a pool worker makes its ThreadLocal Global, its waits run only the jobs the initializer
+// starts, not its older ones, which use the Global too: each of those reads the worker's own once
+// it's made, never one that's only being made. The other workers are kept busy meanwhile, so
+// none takes those older jobs first.
+Import std.core
+
+Global done = Atomic<Bool>(False)
+
+// Loads a setting on a thread of its own, as blocking work does, and waits for it.
+Function Load(): Int
+    Local loader = Thread.Start(Function()
+        Local total = 0
+        For i = 1 To 100000
+            total += i % 3
+        End For
+    End Function)
+    loader.Join()
+    Return 5
+End Function
+
+ThreadLocal Global setting = Load()
+
+// A job that starts jobs of its own, which each read their thread's setting, then reads its own.
+Local outer = Spawn(Function(): Int
+    Local inner: Task<Int>[] = []
+    For i = 1 To 200
+        inner.Add(Spawn(Function(): Int => setting))
+    End For
+    Local sum = setting
+    For task In inner
+        sum += task.Wait()
+    End For
+    Return sum
+End Function)
+
+// The other workers wait meanwhile, more of them than any machine's.
+Local busy: Task<Int>[] = []
+For i = 1 To 64
+    busy.Add(Spawn(Function(): Int
+        While !done.Load()
+        End While
+        Return 0
+    End Function))
+End For
+
+Print(outer.Wait())
+done.Store(True)
+For task In busy
+    task.Wait()
+End For

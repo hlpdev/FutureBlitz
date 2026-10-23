@@ -111,7 +111,9 @@ CPU's own thread-local storage.
   another thread ([10](10-concurrency.md#main-thread-rules)): it can't use what only the main
   thread can, a mutable Global's value among them. One that reaches its own Global, through what
   it calls, panics there: "'depth' is used before its initializer has run, since its initializer
-  reaches it". An error it lets out ends the program, as top-level code's does.
+  reaches it". An error it lets out ends the program, as top-level code's does. While it runs on
+  a pool worker, that worker's waits run only the jobs it starts, not older ones queued there,
+  which another worker runs, with its own.
 - A thread lets go of its ThreadLocal Globals as it ends, the last made first: a thread of its own
   after its work, before Join returns; a pool worker's when the pool stops, as the program ends;
   and the main thread's once the top-level code and the jobs are done, before the Globals are

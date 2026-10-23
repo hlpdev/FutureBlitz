@@ -358,6 +358,11 @@ using fb_release_t = void (*)();
 /// thread ends: a pool worker's as the pool stops, a thread of its own's after its job, the main
 /// thread's in fb_thread_locals_release, and any other thread's as it exits.
 void fb_thread_local_added(fb_release_t release);
+/// The calling thread begins running a ThreadLocal Global's initializer, or is done with it.
+/// Meanwhile a pool worker's waits run only the jobs it starts after this, since an older one
+/// could use the Global it's making.
+void fb_thread_local_making();
+void fb_thread_local_made();
 /// Releases the calling thread's ThreadLocal Globals, the last made first, and any that a
 /// Destroy makes meanwhile. main calls it after fb_pool_finish, before releasing the Globals,
 /// which their Destroys can use, and fb_finish again, for ones the Globals' Destroys made.

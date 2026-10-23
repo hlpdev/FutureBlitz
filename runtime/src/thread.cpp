@@ -39,16 +39,27 @@ void release(fb_job_t* job) {
     }
 }
 
+/// A queued job, and how many its queue had taken before it.
+struct queued_t {
+    fb_job_t* job = nullptr;
+    std::uint64_t number = 0;
+};
+
 /// One worker's jobs: it takes the newest from the back, and other threads steal the oldest from
 /// the front.
 struct queue_t {
     std::mutex mutex;
-    std::deque<fb_job_t*> jobs;
+    std::deque<queued_t> jobs;
+    std::uint64_t taken = 0;
 };
 
 /// The thread's own queue in the pool, or none for a thread that isn't a worker.
 constexpr std::size_t no_queue = std::numeric_limits<std::size_t>::max();
 thread_local std::size_t t_queue = no_queue;
+/// For each ThreadLocal Global this thread is making, innermost last, how many jobs its queue had
+/// taken when the making began. Its waits run only its jobs from then on, which the initializer
+/// started, since an older one could use the Global it's making.
+thread_local std::vector<std::uint64_t> t_making;
 
 class pool_t {
 public:
@@ -88,7 +99,7 @@ public:
         queue_t& queue = *m_queues[t_queue == no_queue ? m_size : t_queue];
         {
             const std::scoped_lock lock(queue.mutex);
-            queue.jobs.push_back(job);
+            queue.jobs.push_back({ .job = job, .number = queue.taken++ });
         }
 
         signal();
@@ -227,6 +238,22 @@ public:
         m_stopping = false;
     }
 
+    /// The calling thread begins making a ThreadLocal Global, or is done with it.
+    void begin_making() {
+        if (t_queue == no_queue) {
+            t_making.push_back(0);
+            return;
+        }
+
+        queue_t& own = *m_queues[t_queue];
+        const std::scoped_lock lock(own.mutex);
+        t_making.push_back(own.taken);
+    }
+
+    static void end_making() {
+        t_making.pop_back();
+    }
+
 private:
     void work(const std::size_t index) {
         t_queue = index;
@@ -255,7 +282,8 @@ private:
         return run(take());
     }
 
-    /// Runs the newest job this worker started that's still queued, if there is one.
+    /// Runs the newest job this worker started that's still queued, if there is one, and, while
+    /// it's making a ThreadLocal Global, only one started since.
     bool run_own() {
         if (t_queue == no_queue) {
             return false;
@@ -265,8 +293,9 @@ private:
         {
             queue_t& own = *m_queues[t_queue];
             const std::scoped_lock lock(own.mutex);
-            if (!own.jobs.empty()) {
-                job = own.jobs.back();
+            if (!own.jobs.empty() &&
+                (t_making.empty() || own.jobs.back().number >= t_making.back())) {
+                job = own.jobs.back().job;
                 own.jobs.pop_back();
             }
         }
@@ -292,7 +321,7 @@ private:
             queue_t& own = *m_queues[t_queue];
             const std::scoped_lock lock(own.mutex);
             if (!own.jobs.empty()) {
-                fb_job_t* job = own.jobs.back();
+                fb_job_t* job = own.jobs.back().job;
                 own.jobs.pop_back();
                 return job;
             }
@@ -311,7 +340,7 @@ private:
             queue_t& other = *m_queues[index];
             const std::scoped_lock lock(other.mutex);
             if (!other.jobs.empty()) {
-                fb_job_t* job = other.jobs.front();
+                fb_job_t* job = other.jobs.front().job;
                 other.jobs.pop_front();
                 return job;
             }
@@ -830,6 +859,14 @@ std::int64_t fb_pool_size() {
 
 void fb_pool_finish() {
     pool().finish();
+}
+
+void fb_thread_local_making() {
+    pool().begin_making();
+}
+
+void fb_thread_local_made() {
+    pool_t::end_making();
 }
 
 void fb_mutex_lock(fb_mutex_t* mutex, const fb_location_t* location) {

@@ -288,6 +288,8 @@ private:
     function_ref_t m_coroutine_free;
     function_ref_t m_scheduler_finish;
     function_ref_t m_thread_local_added;
+    function_ref_t m_thread_local_making;
+    function_ref_t m_thread_local_made;
     function_ref_t m_thread_locals_release;
     /// In an Async Function's code: its coroutine's id and handle, and its last two blocks.
     LLVMValueRef m_coroutine_id = nullptr;
@@ -775,6 +777,8 @@ private:
         m_coroutine_free = declare("fb_coroutine_free", m_void, { m_ptr });
         m_scheduler_finish = declare("fb_scheduler_finish", m_void, {});
         m_thread_local_added = declare("fb_thread_local_added", m_void, { m_ptr });
+        m_thread_local_making = declare("fb_thread_local_making", m_void, {});
+        m_thread_local_made = declare("fb_thread_local_made", m_void, {});
         m_thread_locals_release = declare("fb_thread_locals_release", m_void, {});
         m_array_new = declare("fb_array_new", m_ptr, { m_ptr, m_i64, m_i64 });
         m_array_push = declare("fb_array_push", m_ptr, { m_ptr, m_i64 });
@@ -1120,8 +1124,11 @@ private:
             LLVMPositionBuilderAtEnd(
                 builder(), LLVMAppendBasicBlockInContext(context(), maker->value, "entry"));
             LLVMBuildStore(builder(), LLVMConstInt(m_i32, making, 0), state);
+            // The runtime keeps a worker's waits from running its older jobs meanwhile.
             if (global.initializer) {
+                call(m_thread_local_making, {});
                 call(m_functions[index(*global.initializer)], {});
+                call(m_thread_local_made, {});
             }
 
             LLVMBuildStore(builder(), LLVMConstInt(m_i32, ready, 0), state);
