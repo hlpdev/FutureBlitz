@@ -2938,6 +2938,8 @@ private:
             case token_kind_t::MINUS:
             case token_kind_t::PLUS:
             case token_kind_t::STAR:
+            case token_kind_t::SLASH:
+            case token_kind_t::PERCENT:
             case token_kind_t::KW_FUNC:
             case token_kind_t::KW_CALLBACK:
             case token_kind_t::KW_THROWS:
@@ -2975,13 +2977,20 @@ private:
         return arguments;
     }
 
-    /// A type, or a Const type parameter's argument. One that goes on with + or *, like
-    /// "N * 2", is a value computed from Const type parameters, which takes no comparisons, so
-    /// the '>' still ends the list.
+    /// A type, or a Const type parameter's argument. One that goes on with +, -, *, /, or %,
+    /// like "N * 2", or starts with a value in parentheses, like "(N - 1) * 2", is a value
+    /// computed from Const type parameters, which takes no comparisons, so the '>' still ends
+    /// the list.
     type_expr_id_t parse_type_argument() {
+        if (at(token_kind_t::LEFT_PAREN) && parenthesized_value_follows()) {
+            const expr_id_t value = parse_value_sum();
+            return add_type(span_of(value), value_type_t{ .value = value });
+        }
+
         const std::size_t start = m_pos;
         const type_expr_id_t type = parse_type();
-        if (!at(token_kind_t::PLUS) && !at(token_kind_t::STAR)) {
+        if (!at(token_kind_t::PLUS) && !at(token_kind_t::MINUS) && !at(token_kind_t::STAR) &&
+            !at(token_kind_t::SLASH) && !at(token_kind_t::PERCENT)) {
             return type;
         }
 
@@ -2990,16 +2999,68 @@ private:
         return add_type(span_of(value), value_type_t{ .value = value });
     }
 
+    /// Whether the '(' here holds a value, like "(N - 1)", rather than a tuple type: a number or
+    /// an arithmetic operator before its ')', outside any type arguments or sizes in it.
+    [[nodiscard]] bool parenthesized_value_follows() const {
+        std::uint32_t parentheses = 0;
+        std::uint32_t angles = 0;
+        std::uint32_t brackets = 0;
+        for (std::size_t index = m_pos; m_tokens[index].kind != token_kind_t::END_OF_FILE;
+             ++index) {
+            switch (m_tokens[index].kind) {
+            case token_kind_t::LEFT_PAREN:
+                ++parentheses;
+                break;
+            case token_kind_t::RIGHT_PAREN:
+                if (--parentheses == 0) {
+                    return false;
+                }
+
+                break;
+            case token_kind_t::LESS:
+                ++angles;
+                break;
+            case token_kind_t::GREATER:
+                angles = angles > 0 ? angles - 1 : 0;
+                break;
+            case token_kind_t::LEFT_BRACKET:
+                ++brackets;
+                break;
+            case token_kind_t::RIGHT_BRACKET:
+                brackets = brackets > 0 ? brackets - 1 : 0;
+                break;
+            case token_kind_t::INTEGER:
+            case token_kind_t::PLUS:
+            case token_kind_t::MINUS:
+            case token_kind_t::STAR:
+            case token_kind_t::SLASH:
+            case token_kind_t::PERCENT:
+                if (angles == 0 && brackets == 0) {
+                    return true;
+                }
+
+                break;
+            case token_kind_t::NEWLINE:
+                return false;
+            default:
+                break;
+            }
+        }
+
+        return false;
+    }
+
     /// Products added together, each of unary operands.
     expr_id_t parse_value_sum() {
         const std::uint32_t outer = m_nesting;
         expr_id_t left = parse_value_product();
         // Each operator around `left` puts it a level deeper.
-        while (at(token_kind_t::PLUS) && enter()) {
-            advance();
+        while ((at(token_kind_t::PLUS) || at(token_kind_t::MINUS)) && enter()) {
+            const binary_op_t op =
+                advance().kind == token_kind_t::PLUS ? binary_op_t::ADD : binary_op_t::SUBTRACT;
             const expr_id_t right = parse_value_product();
             left = add_expr(span_from(begin_of(left)),
-                            binary_expr_t{ .op = binary_op_t::ADD, .left = left, .right = right });
+                            binary_expr_t{ .op = op, .left = left, .right = right });
         }
 
         m_nesting = outer;
@@ -3009,12 +3070,15 @@ private:
     expr_id_t parse_value_product() {
         const std::uint32_t outer = m_nesting;
         expr_id_t left = parse_unary();
-        while (at(token_kind_t::STAR) && enter()) {
-            advance();
+        while ((at(token_kind_t::STAR) || at(token_kind_t::SLASH) || at(token_kind_t::PERCENT)) &&
+               enter()) {
+            const token_kind_t kind = advance().kind;
+            const binary_op_t op = kind == token_kind_t::STAR    ? binary_op_t::MULTIPLY
+                                   : kind == token_kind_t::SLASH ? binary_op_t::DIVIDE
+                                                                 : binary_op_t::REMAINDER;
             const expr_id_t right = parse_unary();
-            left = add_expr(
-                span_from(begin_of(left)),
-                binary_expr_t{ .op = binary_op_t::MULTIPLY, .left = left, .right = right });
+            left = add_expr(span_from(begin_of(left)),
+                            binary_expr_t{ .op = op, .left = left, .right = right });
         }
 
         m_nesting = outer;
@@ -3566,12 +3630,11 @@ private:
         const bool result = std::exchange(m_function_result, false);
         const bool parameter = std::exchange(m_list_parameter, false);
         type_expr_id_t type{};
-        // A number is a Const type parameter's argument: the 64 in "Grid<Float, 64, 64>".
+        // A number is a Const type parameter's argument: the 64 in "Grid<Float, 64, 64>", and
+        // so is what a '-' starts, like the -1 or -N in "Quantity<1, -N>".
         const bool number =
             token.kind == token_kind_t::INTEGER || token.kind == token_kind_t::DECIMAL;
-        const token_kind_t after = peek(1).kind;
-        if (number || (token.kind == token_kind_t::MINUS &&
-                       (after == token_kind_t::INTEGER || after == token_kind_t::DECIMAL))) {
+        if (number || token.kind == token_kind_t::MINUS) {
             const expr_id_t value = parse_unary();
             return add_type(span_of(value), value_type_t{ .value = value });
         }

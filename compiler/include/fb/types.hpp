@@ -14,8 +14,7 @@
 
 namespace fb {
 
-/// The most elements a fixed array's dimension holds, and the largest Const type argument, a size
-/// or a count.
+/// The most elements a fixed array's dimension holds.
 constexpr std::int64_t max_count = 2'147'483'647;
 
 /// A type: one of the built-ins named here, or from BUILTIN_COUNT on, a type that a type_table_t
@@ -176,11 +175,14 @@ struct enum_value_t {
 };
 
 /// How a VALUE type is computed from two others, like the N * 2 of "Grid<N * 2>". NONE for a
-/// value that's known.
+/// value that's known. DIVIDE and REMAINDER round toward 0, as an Int's / and % do.
 enum class value_op_t : std::uint8_t {
     NONE,
     ADD,
+    SUBTRACT,
     MULTIPLY,
+    DIVIDE,
+    REMAINDER,
 };
 
 /// One entry in a type table.
@@ -234,7 +236,8 @@ struct type_t {
     std::vector<type_id_t> arguments;
     /// VALUE: the value. One computed from others has 0, and `parameters` has the two it's
     /// computed from, a Const type parameter or another VALUE each, which each instance works out
-    /// with `operation`.
+    /// with `operation`. Two known ones that can't be worked out, since they divide by 0 or pass
+    /// what an Int64 holds, stay that way, for lowering to report where the instance is made.
     std::int64_t number = 0;
     /// TASK: the Classes that its Async Function's errors extend, which Wait and Await re-throw.
     /// Its last field, "error", holds the error, or Null. A type parameter among them stands for
@@ -319,7 +322,7 @@ public:
                                         const std::vector<type_id_t>& dimensions = {});
 
     /// "N * 2": a value of `type` computed from two others, each a VALUE or a Const type
-    /// parameter. Two known values give the value they compute.
+    /// parameter. Two known values give the value they compute, where there is one.
     [[nodiscard]] type_id_t value_expression(type_id_t type, value_op_t op, type_id_t left,
                                              type_id_t right);
 

@@ -6391,14 +6391,17 @@ TEST_CASE("Const type parameter mistakes", "[sema]") {
     CHECK(errors_of("Function F<Const N: Int>()\n    Local a: Int[N] = [1, 2]\nEnd Function") ==
           errors_t{ "[1, 2]: Int32[N] can't come from an array literal, since its size is a Const "
                     "type parameter" });
+    // A Const type argument is any value of its type; one that's a size is checked where the
+    // instance is made.
     CHECK(errors_of("Interface I<Const N: Int>\n    Method Size(): Int => N\nEnd Interface\n"
-                    "Struct Row Implements I<0>\nEnd Struct") ==
-          errors_t{ "0: N is a size, from 1 to 2147483647, not 0" });
+                    "Struct Row Implements I<0>\nEnd Struct")
+              .empty());
+    CHECK(errors_of("Struct Small<Const N: Int8>\nEnd Struct\nLocal s = Small<300>()") ==
+          errors_t{ "300: 300 doesn't fit in Int8" });
     CHECK(errors_of(std::format("{}Local a = Grid<Int, 2>()", grid)) ==
           errors_t{ "Int: W is Const, so it takes an integer known at compile time, like 64, not "
                     "Int" });
-    CHECK(errors_of(std::format("{}Local a = Grid<-1, 2>()", grid)) ==
-          errors_t{ "-1: W is a size, from 1 to 2147483647, not -1" });
+    CHECK(errors_of(std::format("{}Local a = Grid<-1, 2>()", grid)).empty());
     CHECK(errors_of("Struct Box<T>\n    Field Item: T?\nEnd Struct\nLocal b = Box<4>()") ==
           errors_t{ "4: T is a type, so it takes one, not a value" });
     CHECK(errors_of("Local f: 5 = 1") == errors_t{ "5: 5 is a value, not a type" });
@@ -8441,9 +8444,29 @@ TEST_CASE("a Const type argument or size can be computed from Const type paramet
     CHECK(probe("Struct Grid<Const W: Int>\n    Field Cells: Int[W * 2]\nEnd Struct\n"
                 "Function Doubled<Const W: Int>(g: Grid<W>): Grid<W * 2> => Grid<W * 2>()\n"
                 "Local x = Doubled(Grid<3>())") == "Grid<6>");
-    CHECK(errors_of("Function F<Const N: Int>(a: Int[N - 1])\nEnd Function") ==
-          errors_t{ "N - 1: a value computed from Const type parameters uses integers known at "
-                    "compile time, with + and *, like N * 2" });
+    // -, /, and % too, rounding toward 0 as an Int's do, and -N, which is 0 - N.
+    const std::string_view q = "Struct Q<Const A: Int>\nEnd Struct\n";
+    CHECK(probe(std::format("{}Function Over<Const A: Int, Const B: Int>(x: Q<A>, y: Q<B>): "
+                            "Q<A - B> => Q<A - B>()\nLocal x = Over(Q<1>(), Q<3>())",
+                            q)) == "Q<-2>");
+    CHECK(probe(std::format("{}Function Flip<Const A: Int>(x: Q<A>): Q<-A> => Q<-A>()\n"
+                            "Local x = Flip(Q<5>())",
+                            q)) == "Q<-5>");
+    CHECK(probe("Function Halves<Const N: Int>(a: Int[N]): Int[N / 2, N % 3 + 1, N - 1]\n"
+                "    Local halves: Int[N / 2, N % 3 + 1, N - 1]\n"
+                "    Return halves\n"
+                "End Function\n"
+                "Local a: Int[7]\n"
+                "Local x = Halves(a)") == "Int32[3, 2, 6]");
+    CHECK(probe(std::format("{}Function Mixed<Const A: Int>(x: Q<A>): Q<-7 / A + -7 % A> => "
+                            "Q<-7 / A + -7 % A>()\nLocal x = Mixed(Q<2>())",
+                            q)) == "Q<-4>");
+    CHECK(probe(std::format("{}Function Paren<Const A: Int>(x: Q<A>): Q<(A - 3) * 2> => "
+                            "Q<(A - 3) * 2>()\nLocal x = Paren(Q<2>())",
+                            q)) == "Q<-2>");
+    CHECK(errors_of("Function F<Const N: Int>(a: Int[N ** 2])\nEnd Function") ==
+          errors_t{ "N ** 2: a value computed from Const type parameters uses integers known at "
+                    "compile time, with +, -, *, /, and %, like N * 2" });
 }
 
 TEST_CASE("a loop can go over a type's own type parameter, or Self", "[sema]") {

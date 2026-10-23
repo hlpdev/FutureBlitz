@@ -2829,19 +2829,43 @@ TEST_CASE("lowering stops where code needs a larger instance each time, which an
                   "Local a = A<1>().Spawned()")
               .ends_with("needs a larger instance each time it runs here, without end"));
 
-    // A Const type argument an instance works out has to be a size or a count too.
+    // A Const type argument an instance works out has to fit its type, and a size has to be
+    // from 1 to 2147483647.
     CHECK(stopped("Function Show<Const M: Int>(): Int => M\n"
                   "Function Twice<Const N: Int>(): Int => Show<N * 2>()\n"
                   "Local t = Twice<1073741824>()") ==
-          "Show<N * 2>(): a Const type argument comes out as 2147483648 here, but it's a size or "
-          "a count, from 1 to 2147483647");
+          "Show<N * 2>(): a Const type argument comes out as 2147483648 here, which doesn't fit in "
+          "Int32");
     CHECK(stopped("Function Count<Const N: Int>(): Int\n"
                   "    Local a: Int[N * 4]\n"
                   "    Return a.Count\n"
                   "End Function\n"
                   "Local c = Count<1073741824>()") ==
-          "Local a: Int[N * 4]: a Const type argument comes out as 4294967296 here, but it's a "
-          "size or a count, from 1 to 2147483647");
+          "Local a: Int[N * 4]: Int32[4294967296] comes out here, but a fixed array's sizes are "
+          "from 1 to 2147483647");
+    CHECK(stopped("Function Count<Const N: Int>(): Int\n"
+                  "    Local a: Int[N - 1]\n"
+                  "    Return a.Count\n"
+                  "End Function\n"
+                  "Local c = Count<1>()") ==
+          "Local a: Int[N - 1]: Int32[0] comes out here, but a fixed array's sizes are from 1 to "
+          "2147483647");
+    CHECK(stopped("Struct Grid<Const W: Int, Const H: Int>\n"
+                  "    Field Cells: Float[W, H]\n"
+                  "End Struct\n"
+                  "Local g = Grid<-1, 2>()") ==
+          "Grid<-1, 2>(): Float32[-1, 2] comes out here, but a fixed array's sizes are from 1 to "
+          "2147483647");
+    // One that divides by 0, or past what an Int64 holds, is an error there too.
+    CHECK(stopped("Function Show<Const M: Int>(): Int => M\n"
+                  "Function Split<Const N: Int>(): Int => Show<10 / N>()\n"
+                  "Local s = Split<0>()") ==
+          "Show<10 / N>(): a Const type argument comes out as 10 / 0 here, which divides by 0");
+    CHECK(stopped("Function Show<Const M: Int>(): Int => M\n"
+                  "Function Left<Const N: Int>(): Int => Show<10 % (N - 3)>()\n"
+                  "Local s = Left<3>()") ==
+          "Show<10 % (N - 3)>(): a Const type argument comes out as 10 % 0 here, which divides "
+          "by 0");
     CHECK(stopped("Function Show<Const M: UInt8>(): Int => M\n"
                   "Function Twice<Const N: UInt8>(): Int => Show<N * 2>()\n"
                   "Local t = Twice<200>()") ==
@@ -2850,14 +2874,14 @@ TEST_CASE("lowering stops where code needs a larger instance each time, which an
         stopped("Function Show<Const M: Int>(): Int => M\n"
                 "Function Wrap<Const N: Int>(): Int => Show<N * 65536 * 65536 * 65536 * 65536>()\n"
                 "Local w = Wrap<1>()")
-            .contains("a Const type argument comes out as 9223372036854775807 here"));
+            .ends_with("which passes what an Int64 holds"));
     // So does a size in an instance's Field, which code that isn't generic can use.
     CHECK(stopped("Struct Pair<Const N: Int>\n"
                   "    Field c: Int8[N * 2]\n"
                   "End Struct\n"
                   "Local p = Pair<2000000000>()") ==
-          "Pair<2000000000>(): a Const type argument comes out as 4000000000 here, but it's a "
-          "size or a count, from 1 to 2147483647");
+          "Pair<2000000000>(): Int8[4000000000] comes out here, but a fixed array's sizes are "
+          "from 1 to 2147483647");
 
     // A fixed array's sizes can each fit and still hold more elements than one can.
     const std::string_view grid = "Struct Grid<Const W: Int, Const H: Int>\n"

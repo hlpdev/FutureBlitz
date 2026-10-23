@@ -1202,6 +1202,12 @@ TEST_CASE("Const type parameters take values as their type arguments", "[parser]
           "(function Sum<Const N: Int> (v: Int[N]) -> Int (block (return N)))");
     CHECK(parse_text("Local g: Grid<Float, 64, -1>").dump == "(local g: Grid<Float, 64, (- 1)>)");
     CHECK(expression("Make<3>()") == "(call Make<3>)");
+
+    // One computed with +, -, *, /, and %, and -N, which a '(' can start, unlike a tuple type.
+    CHECK(parse_text("Local q: Q<A - B, -N, M / 2 % 3, (A - 1) * 2>").dump ==
+          "(local q: Q<(- A B), (- N), (% (/ M 2) 3), (* (- A 1) 2)>)");
+    CHECK(expression("Show<10 / N>()") == "(call Show<(/ 10 N)>)");
+    CHECK(parse_text("Local t: (Int[4], Q<-1>)").dump == "(local t: (Int[4], Q<(- 1)>))");
 }
 
 TEST_CASE("Import and From name another module", "[parser]") {

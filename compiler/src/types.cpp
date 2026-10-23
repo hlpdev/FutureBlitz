@@ -6,6 +6,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <format>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <span>
@@ -16,6 +17,57 @@
 
 namespace fb {
 namespace {
+
+/// What two known values give, or nullopt where they divide by 0 or pass what an Int64 holds. / and
+/// % round toward 0, as an Int's do.
+std::optional<std::int64_t> worked_out(const value_op_t op, const std::int64_t a,
+                                       const std::int64_t b) {
+    std::int64_t number = 0;
+    switch (op) {
+    case value_op_t::ADD:
+        return __builtin_add_overflow(a, b, &number) ? std::nullopt : std::optional(number);
+    case value_op_t::SUBTRACT:
+        return __builtin_sub_overflow(a, b, &number) ? std::nullopt : std::optional(number);
+    case value_op_t::MULTIPLY:
+        return __builtin_mul_overflow(a, b, &number) ? std::nullopt : std::optional(number);
+    case value_op_t::DIVIDE:
+        if (b == 0 || (a == std::numeric_limits<std::int64_t>::min() && b == -1)) {
+            return std::nullopt;
+        }
+
+        return a / b;
+    case value_op_t::REMAINDER:
+        if (b == 0) {
+            return std::nullopt;
+        }
+
+        // x % -1 is 0, and Int64's minimum % -1 is undefined behavior in C++.
+        return b == -1 ? 0 : a % b;
+    case value_op_t::NONE:
+        break;
+    }
+
+    std::unreachable();
+}
+
+/// How tightly an operation binds: + and - least, then *, /, and %, then a value or parameter.
+int binding(const value_op_t op) {
+    switch (op) {
+    case value_op_t::ADD:
+    case value_op_t::SUBTRACT:
+        return 1;
+    case value_op_t::MULTIPLY:
+    case value_op_t::DIVIDE:
+    case value_op_t::REMAINDER:
+        return 2;
+    case value_op_t::NONE:
+        break;
+    }
+
+    return 3;
+}
+
+constexpr auto value_symbols = std::to_array<std::string_view>({ "", "+", "-", "*", "/", "%" });
 
 struct named_type_t {
     std::string_view name;
@@ -547,12 +599,9 @@ type_id_t type_table_t::value_expression(const type_id_t type, const value_op_t 
     const type_t& b = get(right);
     if (a.kind == type_kind_t::VALUE && a.operation == value_op_t::NONE &&
         b.kind == type_kind_t::VALUE && b.operation == value_op_t::NONE) {
-        // One past what an Int64 holds is past every limit too, which lowering reports.
-        std::int64_t number = 0;
-        const bool overflows = op == value_op_t::ADD
-                                   ? __builtin_add_overflow(a.number, b.number, &number)
-                                   : __builtin_mul_overflow(a.number, b.number, &number);
-        return value(type, overflows ? INT64_MAX : number);
+        if (const std::optional<std::int64_t> number = worked_out(op, a.number, b.number)) {
+            return value(type, *number);
+        }
     }
 
     for (const type_id_t made : m_values) {
@@ -562,15 +611,23 @@ type_id_t type_table_t::value_expression(const type_id_t type, const value_op_t 
         }
     }
 
-    // "(N + 1) * 2" keeps the sum together.
-    const auto part = [this, op](const type_id_t side) {
-        const bool sum = get(side).operation == value_op_t::ADD;
-        return sum && op == value_op_t::MULTIPLY ? std::format("({})", name(side))
-                                                 : std::string(name(side));
+    // "(N + 1) * 2" and "N - (M - 1)" keep a side together where the order would change it,
+    // and "N - (-1)" a negative value.
+    const auto part = [this, op](const type_id_t side, const bool after) {
+        const type_t& info = get(side);
+        const int own = binding(info.operation);
+        const bool grouped =
+            own < binding(op) ||
+            (after && own == binding(op) &&
+             (info.operation != op || (op != value_op_t::ADD && op != value_op_t::MULTIPLY)));
+        const bool negative = info.kind == type_kind_t::VALUE &&
+                              info.operation == value_op_t::NONE && info.number < 0 && after;
+        return grouped || negative ? std::format("({})", name(side)) : std::string(name(side));
     };
     const type_id_t id = add({
         .kind = type_kind_t::VALUE,
-        .name = std::format("{} {} {}", part(left), op == value_op_t::ADD ? "+" : "*", part(right)),
+        .name = std::format("{} {} {}", part(left, false),
+                            value_symbols[static_cast<std::size_t>(op)], part(right, true)),
         .inner = type,
         .operation = op,
         .parameters = { left, right },

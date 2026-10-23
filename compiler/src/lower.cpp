@@ -909,31 +909,36 @@ private:
     }
 
     /// Reports, once, a Const type argument or fixed array size that an instance worked out
-    /// outside what one can be, a size or a count from 1 to max_count that fits its type, as
-    /// N * 2 can be.
+    /// outside what one can be, as N * 2 or N - 1 can be: a value that doesn't fit its type,
+    /// that divides by 0 or passes what an Int64 holds, or a size outside 1 to max_count.
     void check_values(const type_id_t type) {
         if (m_module.error || !m_checked_values.insert(type).second) {
             return;
         }
 
         const type_t& info = types().get(type);
-        if (info.kind == type_kind_t::VALUE && info.operation == value_op_t::NONE) {
-            std::string why;
-            if (info.number < 1 || info.number > max_count) {
-                why = std::format("but it's a size or a count, from 1 to {}", max_count);
-            } else if (!fits(info.number, info.inner)) {
-                why = std::format("which doesn't fit in {}", types().name(info.inner));
+        if (info.kind == type_kind_t::VALUE) {
+            check_value(info);
+            if (info.operation == value_op_t::NONE || m_module.error) {
+                return;
             }
+        }
 
-            if (!why.empty()) {
-                m_module.error = mir_error_t{
-                    .message = std::format("a Const type argument comes out as {} here, {}",
-                                           info.number, why),
-                    .span = m_span.value_or(span_t{}),
-                };
+        // A size worked out outside 1 to max_count stays a value among the dimensions.
+        if (info.kind == type_kind_t::FIXED_ARRAY) {
+            for (const type_id_t dimension : info.parameters) {
+                const type_t& size = types().get(dimension);
+                if (dimension != type_id_t::INVALID && size.kind == type_kind_t::VALUE &&
+                    size.operation == value_op_t::NONE) {
+                    m_module.error = mir_error_t{
+                        .message = std::format("{} comes out here, but a fixed array's sizes are "
+                                               "from 1 to {}",
+                                               types().name(type), max_count),
+                        .span = m_span.value_or(span_t{}),
+                    };
+                    return;
+                }
             }
-
-            return;
         }
 
         std::ranges::for_each(info.arguments, [this](const type_id_t part) { check_values(part); });
@@ -977,6 +982,40 @@ private:
                 count *= size != 0 ? size : 1;
             }
         }
+    }
+
+    /// Reports a known value that doesn't fit its type, or one of two known values that couldn't
+    /// be worked out, since it divides by 0 or passes what an Int64 holds.
+    void check_value(const type_t& info) {
+        if (info.operation == value_op_t::NONE) {
+            if (!fits(info.number, info.inner)) {
+                m_module.error = mir_error_t{
+                    .message = std::format(
+                        "a Const type argument comes out as {} here, which doesn't fit in {}",
+                        info.number, types().name(info.inner)),
+                    .span = m_span.value_or(span_t{}),
+                };
+            }
+
+            return;
+        }
+
+        const type_t& left = types().get(info.parameters[0]);
+        const type_t& right = types().get(info.parameters[1]);
+        if (left.kind != type_kind_t::VALUE || left.operation != value_op_t::NONE ||
+            right.kind != type_kind_t::VALUE || right.operation != value_op_t::NONE) {
+            return;
+        }
+
+        const bool divides =
+            (info.operation == value_op_t::DIVIDE || info.operation == value_op_t::REMAINDER) &&
+            right.number == 0;
+        m_module.error = mir_error_t{
+            .message =
+                std::format("a Const type argument comes out as {} here, which {}", info.name,
+                            divides ? "divides by 0" : "passes what an Int64 holds"),
+            .span = m_span.value_or(span_t{}),
+        };
     }
 
     /// How many instances of one generic function or Class a chain of code that needs them, one

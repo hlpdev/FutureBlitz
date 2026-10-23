@@ -1,0 +1,36 @@
+// Const type arguments computed with +, -, *, /, and %, / and % rounding toward 0 as an Int's do,
+// and of any value of their type, 0 and below among them, wherever they aren't sizes.
+Import std.core
+
+Struct Q<Const A: Int>
+    Method Get(): Int => A
+End Struct
+
+Function Over<Const A: Int, Const B: Int>(x: Q<A>, y: Q<B>): Q<A - B> => Q<A - B>()
+
+Function Show<Const M: Int>(): Int => M
+
+Function Parts<Const N: Int>(): String
+    Return "{Show<N / 3>()} {Show<N % 3>()} {Show<-N>()} {Show<(N - 10) * 2>()} {Show<N - -1>()}"
+End Function
+
+Print(Over(Q<1>(), Q<3>()).Get(), Q<0>().Get(), Q<-5>().Get(), Over(Q<-2>(), Q<-2>()).Get())
+Print(Parts<7>(), "|", Parts<-7>(), "|", Parts<0>())
+
+// A size computed from them is checked in each instance: one less, a half, a remainder past 1.
+Function Trimmed<Const N: Int>(a: Int[N]): Int[N - 1]
+    Local trimmed: Int[N - 1]
+    For i = 0 Until N - 1
+        trimmed[i] = a[i + 1]
+    End For
+    Return trimmed
+End Function
+
+Function Halves<Const N: Int>(a: Int[N]): Int
+    Local halves: Int[N / 2, N % 3 + 1]
+    Return halves.Count
+End Function
+
+Local a: Int[4] = [10, 20, 30, 40]
+Local trimmed = Trimmed(a)
+Print(trimmed.Count, trimmed[0], trimmed[2], Trimmed(trimmed).Count, Halves(a))

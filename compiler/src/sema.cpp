@@ -12620,7 +12620,8 @@ private:
     }
 
     /// "N * 2" as a value of `type` that each instance works out: Const type parameters,
-    /// integers, and Consts, with + and *, which keep a size positive.
+    /// integers, and Consts, with +, -, *, /, and %, and -N as 0 - N. An instance where it divides
+    /// by 0, or that makes a size of it below 1, is an error where it's made.
     type_id_t computed_value(const expr_id_t id, const type_id_t type) {
         const expr_node_t& node = m_ast.get(id).node;
         if (const auto* name = std::get_if<name_expr_t>(&node)) {
@@ -12631,12 +12632,20 @@ private:
             }
         }
 
-        if (const auto* binary = std::get_if<binary_expr_t>(&node);
-            binary != nullptr &&
-            (binary->op == binary_op_t::ADD || binary->op == binary_op_t::MULTIPLY)) {
-            return m_analysis.types.value_expression(
-                type, binary->op == binary_op_t::ADD ? value_op_t::ADD : value_op_t::MULTIPLY,
-                computed_value(binary->left, type), computed_value(binary->right, type));
+        if (const auto* binary = std::get_if<binary_expr_t>(&node)) {
+            if (const std::optional<value_op_t> op = value_op_of(binary->op)) {
+                return m_analysis.types.value_expression(type, *op,
+                                                         computed_value(binary->left, type),
+                                                         computed_value(binary->right, type));
+            }
+        }
+
+        if (const auto* unary = std::get_if<unary_expr_t>(&node);
+            unary != nullptr && unary->op == unary_op_t::NEGATE &&
+            mentions_value_parameter(unary->operand)) {
+            return m_analysis.types.value_expression(type, value_op_t::SUBTRACT,
+                                                     m_analysis.types.value(type, 0),
+                                                     computed_value(unary->operand, type));
         }
 
         if (!mentions_value_parameter(id)) {
@@ -12649,8 +12658,26 @@ private:
 
         error(span_of(id),
               "a value computed from Const type parameters uses integers known at compile time, "
-              "with + and *, like N * 2");
+              "with +, -, *, /, and %, like N * 2");
         return type_id_t::INVALID;
+    }
+
+    /// The operation a Const type parameter's value can be computed with, for an infix one.
+    [[nodiscard]] static std::optional<value_op_t> value_op_of(const binary_op_t op) {
+        switch (op) {
+        case binary_op_t::ADD:
+            return value_op_t::ADD;
+        case binary_op_t::SUBTRACT:
+            return value_op_t::SUBTRACT;
+        case binary_op_t::MULTIPLY:
+            return value_op_t::MULTIPLY;
+        case binary_op_t::DIVIDE:
+            return value_op_t::DIVIDE;
+        case binary_op_t::REMAINDER:
+            return value_op_t::REMAINDER;
+        default:
+            return std::nullopt;
+        }
     }
 
     /// A Const type parameter's argument, from a value of its type.
@@ -12664,17 +12691,20 @@ private:
             return type_id_t::INVALID;
         }
 
-        // It's a size or a count, so it's at least 1, and fits in a fixed array.
+        // Any value of its type, which a type's value holds as an Int64. One that's a fixed
+        // array's size has to be from 1 to max_count, where the instance is made.
         const auto* number = std::get_if<std::int64_t>(&converted->data);
         const std::uint64_t value = number != nullptr ? static_cast<std::uint64_t>(*number)
                                                       : std::get<std::uint64_t>(converted->data);
-        if ((number != nullptr && *number < 1) || value < 1 || value > max_count) {
-            error(span, "{} is a size, from 1 to {}, not {}", shown_name(parameter), max_count,
+        constexpr std::int64_t most = std::numeric_limits<std::int64_t>::max();
+        if (number == nullptr && value > static_cast<std::uint64_t>(most)) {
+            error(span, "{} takes a value up to {}, not {}", shown_name(parameter), most,
                   to_text(*converted));
             return type_id_t::INVALID;
         }
 
-        return m_analysis.types.value(type, static_cast<std::int64_t>(value));
+        return m_analysis.types.value(type, number != nullptr ? *number
+                                                              : static_cast<std::int64_t>(value));
     }
 
     /// "T[N]" or "T[W, H]". Each size is a positive integer known at compile time, and the
