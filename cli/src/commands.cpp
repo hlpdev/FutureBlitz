@@ -282,10 +282,16 @@ int build(const console_t& console, const options_t& options, const compilation_
         output = std::filesystem::path(options.input).replace_extension(executable_extension);
     }
 
+    // Without -o, the path can still be a folder's, as game/ beside game.fb is on Linux and
+    // macOS, where its executable is game.
     std::error_code error;
     if (std::filesystem::is_directory(output, error)) {
-        console.error(std::format("'-o' names a folder, {}; give the executable's file name",
-                                  to_utf8(output)));
+        console.error(options.output
+                          ? std::format("'-o' names a folder, {}; give the executable's file name",
+                                        to_utf8(output))
+                          : std::format("the executable would be {}, which is a folder; give its "
+                                        "path with -o",
+                                        to_utf8(output)));
         return usage_exit_code;
     }
 
@@ -293,8 +299,13 @@ int build(const console_t& console, const options_t& options, const compilation_
     for (std::size_t i = 0; i < compilation.sources.size(); ++i) {
         const std::string& path = compilation.sources.get(static_cast<file_id_t>(i)).path();
         if (std::filesystem::equivalent(output, path_from_utf8(path), error)) {
-            console.error(
-                std::format("'-o' names {}, a file of the program; give another path", path));
+            console.error(options.output
+                              ? std::format("'-o' names {}, a file of the program; give another "
+                                            "path",
+                                            path)
+                              : std::format("the executable would be {}, a file of the program; "
+                                            "give its path with -o",
+                                            path));
             return usage_exit_code;
         }
     }

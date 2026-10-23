@@ -542,6 +542,18 @@ TEST_CASE("fb build's -o names a new file, not a folder or the program's own", "
     CHECK(std::string(std::istreambuf_iterator<char>(kept), {}) ==
           "Import std.core\nPrint(\"hi\")\n");
 
+    // Without -o, the executable's path can be a folder's too, as game/ is beside game.fb on
+    // Linux and macOS, and that's said without blaming a -o nobody gave.
+    const std::filesystem::path game =
+        write_source("output/game.fb", "Import std.core\nPrint(\"game\")\n");
+    std::filesystem::path beside = game;
+    beside.replace_extension(fb::executable_extension);
+    std::filesystem::create_directories(beside);
+    check_usage_error({ "build", fb::to_utf8(game) },
+                      std::format("the executable would be {}, which is a folder; give its path "
+                                  "with -o",
+                                  fb::to_utf8(beside)));
+
     // A path that isn't ASCII, without an extension, gets the one the target's executables have.
     const std::filesystem::path wide = source.parent_path() / fb::path_from_utf8("日本") / "out";
     std::filesystem::path written = wide;
