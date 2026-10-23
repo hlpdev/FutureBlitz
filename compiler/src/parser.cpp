@@ -127,7 +127,28 @@ class parser_t {
 public:
     parser_t(const source_file_t& file, const std::span<const token_t> tokens,
              diagnostic_bag_t& diagnostics, ast_t& ast)
-        : m_file(file), m_tokens(tokens), m_diagnostics(diagnostics), m_ast(ast) {
+        : m_file(file), m_diagnostics(diagnostics), m_ast(ast) {
+        // ">=" comes as '>' then '=', as ">>" comes as two '>', so "Stack<Int>= s" closes its
+        // type arguments before the '='. Touching, they make the operator again.
+        m_split.reserve(tokens.size());
+        for (const token_t& token : tokens) {
+            if (token.kind != token_kind_t::GREATER_EQUAL) {
+                m_split.push_back(token);
+                continue;
+            }
+
+            const std::uint32_t middle = token.span.begin + 1;
+            m_split.push_back({
+                .kind = token_kind_t::GREATER,
+                .span = { .file = token.span.file, .begin = token.span.begin, .end = middle },
+            });
+            m_split.push_back({
+                .kind = token_kind_t::EQUAL,
+                .span = { .file = token.span.file, .begin = middle, .end = token.span.end },
+            });
+        }
+
+        m_tokens = m_split;
         assert(!m_tokens.empty() && m_tokens.back().kind == token_kind_t::END_OF_FILE);
     }
 
@@ -147,6 +168,8 @@ public:
 
 private:
     const source_file_t& m_file;
+    /// The tokens, with each ">=" as '>' then '='.
+    std::vector<token_t> m_split;
     std::span<const token_t> m_tokens;
     diagnostic_bag_t& m_diagnostics;
     ast_t& m_ast;
@@ -1878,12 +1901,12 @@ private:
         case token_kind_t::BANG_EQUAL:
         case token_kind_t::LESS:
         case token_kind_t::LESS_EQUAL:
-        case token_kind_t::GREATER_EQUAL:
             advance();
             return { .text = text(token), .span = token.span };
         case token_kind_t::GREATER: {
+            // ">=" and ">>" are a '>' and what touches it.
             advance();
-            if (at(token_kind_t::GREATER) && touches(token, peek())) {
+            if ((at(token_kind_t::EQUAL) || at(token_kind_t::GREATER)) && touches(token, peek())) {
                 const token_t& second = advance();
                 const span_t span{
                     .file = token.span.file,
@@ -2561,8 +2584,10 @@ private:
         case token_kind_t::LESS_LESS_EQUAL:
             return assignment_t{ .op = binary_op_t::SHIFT_LEFT };
         case token_kind_t::GREATER:
-            if (peek(1).kind == token_kind_t::GREATER_EQUAL && touches(token, peek(1))) {
-                return assignment_t{ .op = binary_op_t::SHIFT_RIGHT, .tokens = 2 };
+            // ">>=" is three touching tokens.
+            if (peek(1).kind == token_kind_t::GREATER && touches(token, peek(1)) &&
+                peek(2).kind == token_kind_t::EQUAL && touches(peek(1), peek(2))) {
+                return assignment_t{ .op = binary_op_t::SHIFT_RIGHT, .tokens = 3 };
             }
 
             return std::nullopt;
@@ -2641,21 +2666,27 @@ private:
             return binary_t{ .op = LESS, .precedence = precedence::comparison };
         case token_kind_t::LESS_EQUAL:
             return binary_t{ .op = LESS_EQUAL, .precedence = precedence::comparison };
-        case token_kind_t::GREATER_EQUAL:
-            return binary_t{ .op = GREATER_EQUAL, .precedence = precedence::comparison };
         case token_kind_t::GREATER:
-            // The lexer never joins '>' tokens, so "List<List<Int>>" can close two generics.
-            // Touching ones make a shift here.
+            // The lexer never joins '>' tokens, and ">=" comes as '>' then '=', so
+            // "List<List<Int>>" can close two generics. Touching ones make ">=" and a shift here.
+            if (touches(token, peek(1)) && peek(1).kind == token_kind_t::EQUAL) {
+                return binary_t{
+                    .op = GREATER_EQUAL,
+                    .precedence = precedence::comparison,
+                    .tokens = 2,
+                };
+            }
+
             if (touches(token, peek(1)) && peek(1).kind == token_kind_t::GREATER) {
+                if (touches(peek(1), peek(2)) && peek(2).kind == token_kind_t::EQUAL) {
+                    return std::nullopt; // ">>=" is an assignment
+                }
+
                 return binary_t{
                     .op = SHIFT_RIGHT,
                     .precedence = precedence::shift,
                     .tokens = 2,
                 };
-            }
-
-            if (touches(token, peek(1)) && peek(1).kind == token_kind_t::GREATER_EQUAL) {
-                return std::nullopt; // ">>=" is an assignment
             }
 
             return binary_t{ .op = GREATER, .precedence = precedence::comparison };

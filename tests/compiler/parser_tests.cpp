@@ -492,6 +492,28 @@ TEST_CASE("block statements can't go in a single-line If", "[parser]") {
           std::vector<std::string>{ "10-11: a label must be followed by a loop" });
 }
 
+TEST_CASE("a '>' that closes type arguments can touch the '=' after it", "[parser]") {
+    for (const auto& [touching, spaced] :
+         std::to_array<std::pair<std::string_view, std::string_view>>({
+             { "Local t: Stack<Int>= Stack<Int>()", "Local t: Stack<Int> = Stack<Int>()" },
+             { "Local s: Stack<Stack<Int>>= x", "Local s: Stack<Stack<Int>> = x" },
+             { "Local w: Weak<Node>= n", "Local w: Weak<Node> = n" },
+             { "Function F(m: Map<K, V>= x)\nEnd Function",
+               "Function F(m: Map<K, V> = x)\nEnd Function" },
+         })) {
+        INFO(touching);
+        const parsed_t parsed = parse_text(touching);
+        CHECK(parsed.errors.empty());
+        CHECK(parsed.dump == parse_text(spaced).dump);
+    }
+
+    // Elsewhere ">=", ">>", and ">>=" are what they always were.
+    CHECK(expression("a >= b") == "(>= a b)");
+    CHECK(expression("a >= b >> c") == "(>= a (>> b c))");
+    CHECK(parse_text("x >>= 3").dump == "(>>= x (int 3))");
+    CHECK(parse_text("Struct S\nOperator >=(other: S): Bool => True\nEnd Struct").errors.empty());
+}
+
 TEST_CASE("Blitz's New in an expression says how an object is made", "[parser]") {
     const parsed_t parsed = parse_text("Local f = New Foo()");
     CHECK(parsed.errors == std::vector<std::string>{ "10-13: an object is made by calling its "
