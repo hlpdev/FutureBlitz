@@ -14,6 +14,7 @@
 #include <iterator>
 #include <string>
 #include <string_view>
+#include <tuple>
 #include <vector>
 
 #ifndef _WIN32
@@ -207,35 +208,47 @@ TEST_CASE("a program's input goes in while its output comes out, however much of
 
 #ifndef _WIN32
 TEST_CASE("a program that reads stdin leaves it as it was, for what else reads it", "[cli]") {
-    // A pipe's read end is the shell's too, which a non-blocking one would break.
-    const std::filesystem::path source =
-        write_source("flags/ask.fb", "Import std.core\nPrint(Input() ?? \"none\")\n");
-    std::filesystem::path executable = source;
-    executable.replace_extension(fb::executable_extension);
-    const fb::process_result_t built = fb_run({ "build", fb::to_utf8(source) });
-    INFO(built.output);
-    REQUIRE(built.exit_code == 0);
+    // A pipe's read end is the shell's too, which a non-blocking one would break. That holds
+    // however the program ends: normally, with a panic, or with an error it lets out.
+    for (const auto& [name, text, code] : {
+             std::tuple("ask", "Print(Input() ?? \"none\")\n", 0),
+             std::tuple("ask_panic",
+                        "Local line = Input()\nLocal none: Int[] = []\nPrint(none[0])\n", 101),
+             std::tuple("ask_error", "Local line = Input()\nThrow Error(\"after reading\")\n", 1),
+         }) {
+        INFO(name);
+        const std::filesystem::path source = write_source(std::format("flags/{}.fb", name),
+                                                          std::format("Import std.core\n{}", text));
+        std::filesystem::path executable = source;
+        executable.replace_extension(fb::executable_extension);
+        const fb::process_result_t built = fb_run({ "build", fb::to_utf8(source) });
+        INFO(built.output);
+        REQUIRE(built.exit_code == 0);
 
-    std::array<int, 2> ends{};
-    REQUIRE(pipe(ends.data()) == 0);
-    const int before = fcntl(ends[0], F_GETFL);
-    posix_spawn_file_actions_t actions;
-    posix_spawn_file_actions_init(&actions);
-    posix_spawn_file_actions_adddup2(&actions, ends[0], STDIN_FILENO);
-    posix_spawn_file_actions_addopen(&actions, STDOUT_FILENO, "/dev/null", O_WRONLY, 0);
-    const std::string path = executable.string();
-    std::array<char*, 2> argv{ const_cast<char*>(path.c_str()), nullptr };
-    pid_t pid = 0;
-    const int spawned = posix_spawn(&pid, path.c_str(), &actions, nullptr, argv.data(), environ);
-    posix_spawn_file_actions_destroy(&actions);
-    REQUIRE(spawned == 0);
-    CHECK(write(ends[1], "first\n", 6) == 6);
-    close(ends[1]);
-    int status = 0;
-    waitpid(pid, &status, 0);
-    CHECK(WIFEXITED(status));
-    CHECK(fcntl(ends[0], F_GETFL) == before);
-    close(ends[0]);
+        std::array<int, 2> ends{};
+        REQUIRE(pipe(ends.data()) == 0);
+        const int before = fcntl(ends[0], F_GETFL);
+        posix_spawn_file_actions_t actions;
+        posix_spawn_file_actions_init(&actions);
+        posix_spawn_file_actions_adddup2(&actions, ends[0], STDIN_FILENO);
+        posix_spawn_file_actions_addopen(&actions, STDOUT_FILENO, "/dev/null", O_WRONLY, 0);
+        posix_spawn_file_actions_addopen(&actions, STDERR_FILENO, "/dev/null", O_WRONLY, 0);
+        const std::string path = executable.string();
+        std::array<char*, 2> argv{ const_cast<char*>(path.c_str()), nullptr };
+        pid_t pid = 0;
+        const int spawned =
+            posix_spawn(&pid, path.c_str(), &actions, nullptr, argv.data(), environ);
+        posix_spawn_file_actions_destroy(&actions);
+        REQUIRE(spawned == 0);
+        CHECK(write(ends[1], "first\n", 6) == 6);
+        close(ends[1]);
+        int status = 0;
+        waitpid(pid, &status, 0);
+        CHECK(WIFEXITED(status));
+        CHECK(WEXITSTATUS(status) == code);
+        CHECK(fcntl(ends[0], F_GETFL) == before);
+        close(ends[0]);
+    }
 }
 #endif
 

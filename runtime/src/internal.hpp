@@ -27,6 +27,11 @@ void at_finish(void (*stop)());
 /// Runs what at_finish() was given, the last one first.
 void run_finish();
 
+/// Has `restore` run as the program ends however it ends, a panic or an uncaught error too,
+/// to put back what the program changed that others share, like stdin's flags. It mustn't wait
+/// for anything or stop a thread. At most one per part of the runtime.
+void at_end(void (*restore)());
+
 /// Writes a String's bytes, NULs too.
 void write_string(const fb_string_t* string, std::FILE* stream);
 

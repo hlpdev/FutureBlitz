@@ -6,6 +6,7 @@
 #include "internal.hpp"
 
 #include <array>
+#include <atomic>
 #include <condition_variable>
 #include <cstddef>
 #include <cstdint>
@@ -69,10 +70,7 @@ public:
         }
 
 #ifndef _WIN32
-        // libuv made a pipe's stdin non-blocking, which the shell and what else reads it share.
-        if (m_flags != -1) {
-            fcntl(STDIN_FILENO, F_SETFL, m_flags);
-        }
+        restore_stdin();
 #endif
 
         // A file's read finishes soon, so the loop just waits for one under way.
@@ -96,8 +94,19 @@ private:
 #ifdef _WIN32
     bool m_console = false;
 #else
-    /// What stdin's flags were before libuv read it, which it gets back.
-    int m_flags = -1;
+    /// What stdin's flags were before libuv read a pipe's, which it gets back however the
+    /// program ends, -1 before then.
+    static std::atomic<int>& stdin_flags() {
+        static std::atomic<int> flags = -1;
+        return flags;
+    }
+
+    /// libuv made a pipe's stdin non-blocking, which the shell and what else reads it share.
+    static void restore_stdin() {
+        if (const int flags = stdin_flags().load(std::memory_order_acquire); flags != -1) {
+            fcntl(STDIN_FILENO, F_SETFL, flags);
+        }
+    }
 #endif
     uv_fs_t m_read{};
     std::array<char, 65536> m_chunk{};
@@ -127,7 +136,8 @@ private:
         }
         case UV_NAMED_PIPE:
 #ifndef _WIN32
-            m_flags = fcntl(STDIN_FILENO, F_GETFL);
+            stdin_flags().store(fcntl(STDIN_FILENO, F_GETFL), std::memory_order_release);
+            fb::runtime::at_end(restore_stdin);
 #endif
             if (uv_pipe_init(loop, &m_pipe, 0) == 0) {
                 if (uv_pipe_open(&m_pipe, 0) == 0) {

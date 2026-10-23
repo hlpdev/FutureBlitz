@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <bit>
 #include <cstddef>
 #include <cstdint>
@@ -122,11 +123,28 @@ std::mutex& ending() {
     return instance;
 }
 
-/// Ends the program with `code` at once, with what it printed flushed. Exiting normally would
-/// destroy what other threads may still be using, like the pool.
+/// What at_end() was given. Any thread may end the program while another gives one.
+std::array<std::atomic<void (*)()>, 8>& restorers() {
+    static std::array<std::atomic<void (*)()>, 8> instance{};
+    return instance;
+}
+
+/// Runs what at_end() was given, the last one first.
+void run_end() {
+    for (const std::atomic<void (*)()>& slot : std::views::reverse(restorers())) {
+        if (void (*const restore)() = slot.load(std::memory_order_acquire); restore != nullptr) {
+            restore();
+        }
+    }
+}
+
+/// Ends the program with `code` at once, with what it printed flushed, and what it changed that
+/// others share put back. Exiting normally would destroy what other threads may still be using,
+/// like the pool.
 [[noreturn]] void end_program(const int code) {
     std::fflush(stdout);
     std::fflush(stderr);
+    run_end();
     std::_Exit(code);
 }
 
@@ -203,6 +221,16 @@ void run_finish() {
     for (void (*const stop)() : std::views::reverse(finishers())) {
         if (stop != nullptr) {
             stop();
+        }
+    }
+}
+
+void at_end(void (*restore)()) {
+    for (std::atomic<void (*)()>& slot : restorers()) {
+        void (*expected)() = nullptr;
+        if (slot.compare_exchange_strong(expected, restore, std::memory_order_acq_rel) ||
+            expected == restore) {
+            return;
         }
     }
 }
