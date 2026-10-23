@@ -1,0 +1,4 @@
+0 5
+0 0
+0 0
+panic: stopped after three comparisons at panic_sort_unstable_big.fb:13:30

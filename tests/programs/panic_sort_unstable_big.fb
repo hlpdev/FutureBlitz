@@ -1,0 +1,21 @@
+// SortUnstable works out a child's index only for an element that has one, so an array of more
+// than 2^30 elements, whose last elements' children would be past what an Int holds, sorts
+// without an overflow. Its before function stops the program once the sort has gone down to the
+// last element and on to the next start.
+Import std.core
+Import std.collections
+
+Global comparisons: Int
+
+Function Before(a: Byte, b: Byte): Bool
+    comparisons += 1
+    Print("{a} {b}")
+    If comparisons == 3 Then Panic("stopped after three comparisons")
+    Return a < b
+End Function
+
+Local values: Byte[] = []
+values.Reserve(1073741826)
+values.Resize(1073741826, 0)
+values[1073741825] = 5
+values.SortUnstable(Before)

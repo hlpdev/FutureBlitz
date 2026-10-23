@@ -309,15 +309,16 @@ Extend T[]
     End Method
 
     // Moves the element at index down the heap in the first count elements, where each comes
-    // after its two children, at 2i + 1 and 2i + 2, by before.
+    // after its two children, at 2i + 1 and 2i + 2, by before. Only an element before count / 2
+    // has a child, so working one out never overflows.
     @PanicsAtCaller
     Method SiftDown(index: Int, count: Int, before: Func(T, T): Bool)
         Local at = index
-        While True
+        While at < count / 2
             Local largest = at
             Local left = 2 * at + 1
             Local right = left + 1
-            If left < count && before(Self[largest], Self[left]) Then largest = left
+            If before(Self[largest], Self[left]) Then largest = left
             If right < count && before(Self[largest], Self[right]) Then largest = right
             If largest == at Then Return
             Swap(at, largest)

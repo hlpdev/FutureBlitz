@@ -114,17 +114,17 @@ Public Class PriorityQueue<T> Implements Iterable<T>, Cloneable
     // while going over them panics.
     Public Method Iterate(): PriorityQueueIterator<T> => PriorityQueueIterator<T>(Self, 0, Changes)
 
-    // Moves the value at at down the heap while a child comes before it.
+    // Moves the value at at down the heap while a child comes before it. Only a value before
+    // Count / 2 has a child, so working one out never overflows.
     Method SiftDown(at: Int)
         Local parent = at
-        Loop
+        While parent < Items.Count / 2
             Local child = parent * 2 + 1
-            If child >= Items.Count Then Break
             If child + 1 < Items.Count && Before(Items[child + 1], Items[child]) Then child += 1
             If !Before(Items[child], Items[parent]) Then Break
             Swap(parent, child)
             parent = child
-        End Loop
+        End While
     End Method
 
     Method Swap(a: Int, b: Int)
