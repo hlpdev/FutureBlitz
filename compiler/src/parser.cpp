@@ -2096,7 +2096,16 @@ private:
             return nested_statement([&] { return parse_statement(); });
         }
 
-        switch (peek().kind) {
+        // A labeled loop's keyword comes after its label, and Unsafe alone on its line opens a
+        // block.
+        const bool labeled = at(token_kind_t::IDENTIFIER) && peek(1).kind == token_kind_t::COLON;
+        const token_t& token = labeled ? peek(2) : peek();
+        if (token.kind == token_kind_t::KW_UNSAFE && line_ends(1)) {
+            error(token.span, "a single-line If can't contain an Unsafe block");
+            return add_stmt(point(peek().span.begin), error_stmt_t{});
+        }
+
+        switch (token.kind) {
         case token_kind_t::KW_IF:
         case token_kind_t::KW_WHILE:
         case token_kind_t::KW_REPEAT:
@@ -2108,10 +2117,11 @@ private:
         case token_kind_t::KW_CLASS:
         case token_kind_t::KW_INTERFACE:
         case token_kind_t::KW_EXTEND:
+        case token_kind_t::KW_EXTERN:
         case token_kind_t::KW_TRY:
         case token_kind_t::KW_LOCK:
         case token_kind_t::KW_PARALLEL:
-            error(peek().span, "a single-line If can't contain {}", describe(peek().kind));
+            error(token.span, "a single-line If can't contain {}", describe(token.kind));
             return add_stmt(point(peek().span.begin), error_stmt_t{});
         default:
             return nested_statement([&] { return parse_statement(); });

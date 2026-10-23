@@ -410,6 +410,20 @@ TEST_CASE("a label must be followed by a loop", "[parser]") {
 TEST_CASE("block statements can't go in a single-line If", "[parser]") {
     CHECK(parse_text("If a Then While b").errors ==
           std::vector<std::string>{ "10-15: a single-line If can't contain 'While'" });
+
+    // A labeled loop, an Unsafe block, and an Extern block are blocks too.
+    CHECK(parse_text("If a Then L: While b").errors ==
+          std::vector<std::string>{ "13-18: a single-line If can't contain 'While'" });
+    CHECK(parse_text("If a Then F() Else M: For i = 0 To 1").errors ==
+          std::vector<std::string>{ "22-25: a single-line If can't contain 'For'" });
+    CHECK(parse_text("If a Then Unsafe\nF()").errors ==
+          std::vector<std::string>{ "10-16: a single-line If can't contain an Unsafe block" });
+    CHECK(parse_text("If a Then Extern \"C\"").errors ==
+          std::vector<std::string>{ "10-16: a single-line If can't contain 'Extern'" });
+
+    // A label before anything else is reported as it is anywhere.
+    CHECK(parse_text("If a Then L: x = 1").errors ==
+          std::vector<std::string>{ "10-11: a label must be followed by a loop" });
 }
 
 TEST_CASE("broken input always finishes with at least one error", "[parser]") {
