@@ -242,8 +242,10 @@ collection.
 - A LinkedList's node is the same object while it's in the list, holds the next node, and holds
   the one before weakly, so the list makes no cycles. A node removed, or of another list, panics
   where it's given to the list, and a removed node, or one of a list that's cleared or gone, has
-  no `List`, `Next`, or `Previous`. Its `First`, `Last`, `Find`, and `Remove` mean what they do
-  on an array; what gives or takes a node says so in its name.
+  no `List`, `Next`, or `Previous`. Its `First`, `Last`, `Find`, and `Remove` give or take
+  values, not nodes, and what gives or takes a node says so in its name. Unlike an array's,
+  `First` and `Last` panic when the list is empty, as a Deque's do, and their Try twins give a
+  `T?`.
 - An IntervalTree is a balanced tree of the intervals, each node with the highest high under
   it, so `Overlapping` skips what ends too soon. A high below low, or an end that isn't equal to
   itself, like NaN, panics where it's added, and finds nothing where it's searched for.
