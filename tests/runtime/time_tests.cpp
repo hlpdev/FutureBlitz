@@ -90,6 +90,13 @@ TEST_CASE("the real clock is past 2020, the monotonic one never goes back, and s
     fb_time_sleep(0);
     fb_time_sleep(-1);
     CHECK(fb_time_monotonic() - start >= 10000000);
+
+    // Never a little early, as the OS can wake a thread.
+    for (std::int64_t milliseconds = 1; milliseconds <= 20; ++milliseconds) {
+        const std::int64_t before = fb_time_monotonic();
+        fb_time_sleep(milliseconds * 1000000);
+        CHECK(fb_time_monotonic() - before >= milliseconds * 1000000);
+    }
 }
 
 TEST_CASE("zones are found by name, in any letter case, and links are names of their own",

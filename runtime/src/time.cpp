@@ -24,8 +24,16 @@ std::int64_t fb_time_monotonic() {
 }
 
 void fb_time_sleep(const std::int64_t nanoseconds) {
-    if (nanoseconds > 0) {
-        std::this_thread::sleep_for(std::chrono::nanoseconds(nanoseconds));
+    // The OS can wake a thread a little before its time, as Windows does by a part of a
+    // millisecond, so it sleeps again until the monotonic clock says the time has gone by.
+    if (nanoseconds <= 0) {
+        return;
+    }
+
+    const auto end = std::chrono::steady_clock::now() + std::chrono::nanoseconds(nanoseconds);
+    for (auto now = std::chrono::steady_clock::now(); now < end;
+         now = std::chrono::steady_clock::now()) {
+        std::this_thread::sleep_for(end - now);
     }
 }
 
