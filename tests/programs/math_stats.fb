@@ -1,6 +1,7 @@
 // Statistics, matching Python's statistics module: the sample variance and deviation over n - 1,
 // the population's over n, the median of an even count the mean of the middle two; and NumPy's
 // percentiles, between the two nearest values.
+Import std.collections
 Import std.core
 Import std.math
 
@@ -44,6 +45,18 @@ Print(Histogram(data, 3), Histogram([4, 4, 4], 3), Histogram(floats, 5))
 Local wide: Double[] = [-1e308, 0, 1e308]
 Local holed: Double[] = [0.5, NaN, 1.5]
 Print(Histogram(wide, 2), Histogram(wide, 4, -1e308, 1e308), Histogram(holed, 2, 0, 2))
+
+// A value on an edge is in the range above it, as NumPy has it, where the edge is a Double: 50 of
+// 22 ranges from 0 to 100, 9 of 14 from 0 to 18, 72 of 35 from 0 to 360, and 127.5 of 26 from 0 to
+// 255; and the smallest Doubles' range is binned, not divided into nothing.
+Print(Histogram([50], 22, 0, 100))
+Print(Histogram([9], 14, 0, 18), Histogram([0, 9, 18], 14))
+Local top: Double[] = [1e308]
+Local thirds: Double[] = [0.1, 0.2, 0.3]
+Print(Histogram([72], 35, 0, 360).IndexOf(1) ?? -1, Histogram([127.5], 26, 0, 255).IndexOf(1) ?? -1,
+      Histogram(top, 2, -1e308, 1.5e308), Histogram(thirds, 3, 0.1, 0.4))
+Local tiny: Double[] = [0, 5e-324, 1e-323]
+Print(Histogram(tiny, 2, 0, 1e-323), Histogram(tiny, 2))
 
 // Fixed-point values are Bounded too.
 Print(Mean([Fixed32.FromDouble(1.5), Fixed32.FromInt(3)]),

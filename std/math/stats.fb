@@ -146,17 +146,52 @@ Public Function Histogram<T: Bounded>(values: T[], bins: Int, low: Double, high:
         Panic("Histogram takes a finite low below a finite high, not {low} and {high}")
     End If
 
-    // In halves, which halving leaves the bins of, so no difference overflows.
     Local counts: Int[] = []
     counts.Resize(bins, 0)
-    Local width = (high / 2 - low / 2) / bins
+    Local edges = Edges(bins, low, high)
     For value In values
         Local x = T.DoubleValue(value)
         If !(x >= low && x <= high) Then Continue
-        Local bin = Min(Floor((x / 2 - low / 2) / width) As Int, bins - 1)
-        counts[bin]++
+        counts[BinOf(edges, x)]++
     End For
     Return counts
+End Function
+
+// The edges of bins equal ranges from low to high, from low to high itself: low + (high - low) i
+// / bins, multiplied before it's divided, so an edge a Double holds is that edge exactly, and in
+// halves where that overflows, which halving leaves the edges of, so a Double's whole range
+// doesn't. Each is kept from below the one before.
+Function Edges(bins: Int, low: Double, high: Double): Double[]
+    Local edges: Double[] = [low]
+    edges.Reserve(bins + 1)
+    Local span = high - low
+    Local half = high / 2 - low / 2
+    For i = 1 Until bins
+        Local edge = low + span * i / bins
+        If !IsFinite(span * i)
+            Local share = half * i
+            edge = 2 * (low / 2 + (IsFinite(share) ? share / bins : half / bins * i))
+        End If
+        edges.Add(Max(edge, edges[i - 1]))
+    End For
+    edges.Add(high)
+    Return edges
+End Function
+
+// The bin x, from low to high, falls in: the last whose lower edge isn't above it, the last bin
+// holding high too.
+Function BinOf(edges: Double[], x: Double): Int
+    Local low = 0
+    Local high = edges.Count - 2
+    While low < high
+        Local middle = (low + high + 1) / 2
+        If edges[middle] <= x
+            low = middle
+        Else
+            high = middle - 1
+        End If
+    End While
+    Return low
 End Function
 
 // How many values fall in each of bins equal ranges from the least value to the largest, which
