@@ -113,12 +113,15 @@ public:
             job->work(job->context);
             job->done.store(true, std::memory_order_release);
             release(job);
-            m_pending.fetch_sub(1, std::memory_order_acq_rel);
-            // The thread uses nothing of the pool's after this, but to wake the others.
+            // The thread uses nothing of the pool's after this, but to wake the others. Its id
+            // goes in before the count goes down, under the lock, so a finish() that sees the
+            // count at 0 never clears m_finished before it, which would leave the id for a new
+            // thread the system gives it to.
             {
                 const std::scoped_lock done(m_mutex);
-                m_generation.fetch_add(1, std::memory_order_acq_rel);
                 m_finished.push_back(std::this_thread::get_id());
+                m_pending.fetch_sub(1, std::memory_order_acq_rel);
+                m_generation.fetch_add(1, std::memory_order_acq_rel);
             }
 
             m_wake.notify_all();

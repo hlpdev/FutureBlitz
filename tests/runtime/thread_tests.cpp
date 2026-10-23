@@ -5,6 +5,8 @@
 #include <catch2/catch_test_macros.hpp>
 #include <chrono>
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
 #include <limits>
 #include <set>
 #include <thread>
@@ -276,6 +278,41 @@ TEST_CASE("threads of their own that are done don't keep their handles", "[runti
     fb_pool_finish();
 }
 #endif
+
+TEST_CASE("a thread of its own that ends as the pool finishes leaves no id behind",
+          "[runtime][threads]") {
+    // Each round, a thread ends as finish() runs, then two more start. A finished thread's id
+    // left behind would make the second join the first while it runs, if the system gave the
+    // first that id, as Linux does, and they'd wait for each other. The watchdog ends that.
+    std::atomic<bool> done = false;
+    std::thread watchdog([&] {
+        for (int i = 0; i < 1200 && !done.load(); ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        }
+
+        if (!done.load()) {
+            std::fputs("threads of their own deadlocked\n", stderr);
+            std::abort();
+        }
+    });
+    std::atomic<std::int64_t> count = 0;
+    for (int i = 0; i < 2000; ++i) {
+        fb_job_release(fb_job_start_thread(count_one, &count));
+        fb_pool_finish();
+        fb_job_release(fb_job_start_thread(
+            [](void* context) {
+                std::this_thread::sleep_for(std::chrono::microseconds(200));
+                count_one(context);
+            },
+            &count));
+        fb_job_release(fb_job_start_thread(count_one, &count));
+        fb_pool_finish();
+    }
+
+    done.store(true);
+    watchdog.join();
+    CHECK(count.load() == 6000);
+}
 
 TEST_CASE("jobs started on workers run on more than one thread", "[runtime][threads]") {
     struct ids_t {
