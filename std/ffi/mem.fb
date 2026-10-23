@@ -73,9 +73,9 @@ Public Struct Mem
         fb_mem_free_aligned(memory)
     End Method
 
-    // What Alloc or Resize gave, in `bytes` of memory, which may have moved: it keeps what fits,
-    // and what it adds isn't 0. Null is new memory. Panics when `bytes` is negative, or there
-    // isn't that much.
+    // What Alloc, AllocUninitialized, or Resize gave, in `bytes` of memory, which may have moved:
+    // it keeps what fits, and what it adds isn't 0. Null is new memory. Panics when `bytes` is
+    // negative, or there isn't that much.
     @PanicsAtCaller
     Public Unsafe Static Method Resize(memory: Ptr<Void>, bytes: Int64): Ptr<Void>
         If bytes < 0 Then Panic("Mem.Resize takes a size that isn't negative, not {bytes}")
@@ -84,7 +84,7 @@ Public Struct Mem
         Return moved
     End Method
 
-    // Gives back what Alloc or Resize gave. Null is nothing to give back.
+    // Gives back what Alloc, AllocUninitialized, or Resize gave. Null is nothing to give back.
     Public Unsafe Static Method Free(memory: Ptr<Void>)
         fb_mem_free(memory)
     End Method

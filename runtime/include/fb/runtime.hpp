@@ -146,11 +146,12 @@ std::uint64_t fb_cstring_length(const char* text);
 void* fb_mem_alloc(std::uint64_t bytes);
 /// As fb_mem_alloc, but the memory isn't set to 0.
 void* fb_mem_alloc_uninitialized(std::uint64_t bytes);
-/// What fb_mem_alloc or fb_mem_resize gave, or null for new memory, in `bytes` of memory, which
-/// keeps what fits, or null when there isn't that much, which leaves `memory` as it was. It's
-/// always 1 byte or more, since realloc may give memory back for none.
+/// What fb_mem_alloc, fb_mem_alloc_uninitialized, or fb_mem_resize gave, or null for new memory,
+/// in `bytes` of memory, which keeps what fits, or null when there isn't that much, which leaves
+/// `memory` as it was. It's always 1 byte or more, since realloc may give memory back for none.
 void* fb_mem_resize(void* memory, std::uint64_t bytes);
-/// Gives back what fb_mem_alloc or fb_mem_resize gave. Null is nothing to give back.
+/// Gives back what fb_mem_alloc, fb_mem_alloc_uninitialized, or fb_mem_resize gave. Null is
+/// nothing to give back.
 void fb_mem_free(void* memory);
 /// `bytes` of new memory, all 0, at an address that's a multiple of `alignment`, a power of two,
 /// or null when there isn't that much. Only fb_mem_free_aligned gives it back, since Windows'

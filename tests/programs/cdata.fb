@@ -31,6 +31,9 @@ Unsafe Function Sum<T: CData & Numeric>(items: Ptr<T>, count: Int64): T
     Return total
 End Function
 
+// The one std/ffi/cdata.fb's comment gives.
+Unsafe Function First<T: CData>(p: Ptr<T>): T => p.Value
+
 // A generic Struct can hold a Ptr at its T.
 Struct Run<T: CData>
     Field first: Ptr<T>
@@ -44,13 +47,13 @@ Unsafe
     Local ints = Fill(4, 5)
     Defer Mem.Free(ints)
     Local run = Run<Int32>(ints, 4)
-    Print("{Sum(ints, 4)} {run.Last()} {run.Bytes()} {(ints + 3) - ints}")
+    Print("{Sum(ints, 4)} {run.Last()} {run.Bytes()} {(ints + 3) - ints} {First(ints)}")
 
     Local points = Fill(3, Point(1, 2))
     Defer Mem.Free(points)
     points[2].y = 9
     Local path = Run<Point>(points, 3)
-    Print("{path.Last().y} {path.Bytes()} {(points + 2) - points}")
+    Print("{path.Last().y} {path.Bytes()} {(points + 2) - points} {First(points).x}")
 
     Local doubles = Fill(2, 1.25 As Double)
     Defer Mem.Free(doubles)

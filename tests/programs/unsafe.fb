@@ -153,7 +153,10 @@ Unsafe
     Local scratch = Mem.AllocUninitialized(SizeOf<Int32>() * 2) As Ptr<Int32>
     scratch[0] = 3
     scratch[1] = 4
-    Print("{scratch[0] * scratch[1]}")
+    // Resize and Free take it as they take Alloc's.
+    scratch = Mem.Resize(scratch, SizeOf<Int32>() * 4) As Ptr<Int32>
+    scratch[3] = 5
+    Print("{scratch[0] * scratch[1]} {scratch[3]}")
     Mem.Free(scratch)
 
     Local text = CString.From("héllo")
