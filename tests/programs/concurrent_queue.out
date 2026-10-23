@@ -1,0 +1,9 @@
+taken 8000, sum 1207996000, out of order 0, 0 left
+0 True True []
+40 v1 v1 v1
+42 v2 v40 last most 42
+v2 42
+v12 31
+0 True
+[again] 0
+True True 2 True

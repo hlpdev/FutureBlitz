@@ -1,0 +1,157 @@
+// ConcurrentQueue<T>: first in, first out, for any number of threads at once, with no limit but
+// memory and what an Int counts. The values are in a Channel, which is a ring, behind a Mutex,
+// and a Channel twice the size takes its place once it's full, so Enqueue never waits for room,
+// and TryDequeue never waits for a value: a Channel is what waits.
+
+Import std.core
+
+// How many values a ConcurrentQueue's first ring holds, and the most it holds, which an Int
+// counts.
+Const FIRST_RING = 16
+Const MOST_VALUES = 2147483647
+
+// A ConcurrentQueue's values: the front one, once TryPeek has taken it out of the ring, then the
+// ring's.
+Struct QueueValues<T: Sendable>
+    Field Ring: Channel<T>?
+    Field Capacity: Int
+    Field Front: T?
+    Field HasFront: Bool
+    Field Count: Int
+End Struct
+
+Public Shared Class ConcurrentQueue<T: Sendable> Implements Defaultable
+    Field Values: Mutex<QueueValues<T>>
+    Field Size: Atomic<Int>
+
+    Public New()
+    End New
+
+    // How many values there are, which other threads may change at any time.
+    Public Property Count: Int
+        Get => Size.Load()
+    End Property
+
+    // Puts value at the back. Panics when the ConcurrentQueue has as many values as an Int counts.
+    @PanicsAtCaller
+    Public Method Enqueue(value: T)
+        Lock Values As values
+            CheckQueueRoom(values.Count)
+            If InRing(values) == values.Capacity Then Grow(ByRef values)
+            values.Ring.Expect("a ConcurrentQueue with room has a ring").Send(value)
+            values.Count += 1
+        End Lock
+
+        Size.Add(1)
+    End Method
+
+    // The same as Enqueue.
+    @PanicsAtCaller
+    Public Method Add(value: T)
+        Enqueue(value)
+    End Method
+
+    // Enqueues each of the values, in order, all read first. Other threads' may come between them.
+    @PanicsAtCaller
+    Public Method AddAll(values: Iterable<T>)
+        For value In values.Iterate().ToArray()
+            Enqueue(value)
+        End For
+    End Method
+
+    // Takes the front value off and gives it, or Null when the ConcurrentQueue is empty.
+    Public Method TryDequeue(): T?
+        Lock Values As values
+            If values.Count == 0 Then Return Null
+            values.Count -= 1
+            Size.Subtract(1)
+            If !values.HasFront Then Return Received(values)
+            Local front = values.Front
+            values.Front = Null
+            values.HasFront = False
+            Return front
+        End Lock
+    End Method
+
+    // The front value, which stays, or Null when the ConcurrentQueue is empty.
+    Public Method TryPeek(): T?
+        Lock Values As values
+            If values.Count == 0 Then Return Null
+            If !values.HasFront
+                values.Front = Received(values)
+                values.HasFront = True
+            End If
+
+            Return values.Front
+        End Lock
+    End Method
+
+    // The values from the front, the order TryDequeue gives them, in a new array.
+    Public Method ToArray(): T[]
+        Local taken: T[] = []
+        Lock Values As values
+            taken.Reserve(values.Count)
+            If values.HasFront
+                taken.Add(values.Front.Expect("a ConcurrentQueue's front holds a value"))
+            End If
+
+            // The ring's values go back in, in order, once they're all out.
+            Local inRing = InRing(values)
+            For i = 0 Until inRing
+                taken.Add(Received(values))
+            End For
+
+            For i = taken.Count - inRing Until taken.Count
+                values.Ring.Expect("a ConcurrentQueue with values has a ring").Send(taken[i])
+            End For
+        End Lock
+
+        Return taken
+    End Method
+
+    // Removes every value.
+    Public Method Clear()
+        Lock Values As values
+            Size.Subtract(values.Count)
+            values = QueueValues<T>()
+        End Lock
+    End Method
+
+    // A new, empty ConcurrentQueue.
+    Public Static Method DefaultValue(): ConcurrentQueue<T> => ConcurrentQueue<T>()
+
+    // Gives the values a larger ring, or their first, with the old ring's values in order.
+    Method Grow(ByRef values: QueueValues<T>)
+        Local capacity = GrownRing(values.Capacity)
+        Local grown = Channel<T>(capacity)
+        For i = 0 Until InRing(values)
+            grown.Send(Received(values))
+        End For
+
+        values.Ring = grown
+        values.Capacity = capacity
+    End Method
+
+    // How many of the values are in the ring.
+    Method InRing(values: QueueValues<T>): Int => values.Count - (values.HasFront ? 1 : 0)
+
+    // Takes the ring's front value, which it has, off and gives it.
+    Method Received(values: QueueValues<T>): T
+        Local ring = values.Ring.Expect("a ConcurrentQueue with values has a ring")
+        Return ring.Receive().Expect("a ConcurrentQueue's ring holds its values")
+    End Method
+End Class
+
+// Panics when a ConcurrentQueue of `count` values can't count one more in an Int.
+@PanicsAtCaller
+Package Function CheckQueueRoom(count: Int)
+    If count == MOST_VALUES Then Panic("a ConcurrentQueue holds no more values than an Int counts")
+End Function
+
+// The capacity of the ring that takes the place of a full one: twice the size, but no more than
+// an Int counts, or the first ring's for none.
+Package Function GrownRing(capacity: Int): Int
+    If capacity == 0 Then Return FIRST_RING
+    If capacity > MOST_VALUES / 2 Then Return MOST_VALUES
+    Return capacity * 2
+End Function
