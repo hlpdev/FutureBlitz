@@ -1,0 +1,7 @@
+// Delaunay takes points with finite coordinates, which panics where it's called.
+Import std.core
+Import std.math
+Import std.algo
+
+Print(Delaunay([Vec2(0, 0), Vec2(1, 0), Vec2(0, 1)]))
+Print(Delaunay([Vec2(0, 0), Vec2(NaN, 0), Vec2(0, 1)]))

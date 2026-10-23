@@ -1,0 +1,152 @@
+// Delaunay triangulation, Voronoi cells, and Lloyd relaxation. The triangulations and cells match
+// references worked out apart from this program, with exact rational arithmetic: every triangle
+// whose circumcircle holds no point, and each cell cut by every other point's bisector. Each
+// triangle prints from its least corner, sorted, and each cell from its corner lowest down.
+Import std.core
+Import std.collections
+Import std.math
+Import std.algo
+
+// The triangles, each turned to start at its least corner, keeping its order, sorted.
+Function Sorted(triangles: (Int, Int, Int)[]): (Int, Int, Int)[]
+    Local turned: (Int, Int, Int)[] = []
+    For t In triangles
+        Local a, b, c = t
+        If b < a && b < c
+            turned.Add((b, c, a))
+        ElseIf c < a && c < b
+            turned.Add((c, a, b))
+        Else
+            turned.Add((a, b, c))
+        End If
+    End For
+    turned.SortBy(Function(t: (Int, Int, Int)) => t.0).ThenBy(Function(t) => t.1)
+    Return turned
+End Function
+
+// The value to four places, with -0 as 0.
+Function Shown(value: Float): Float => Round(value * 10000) / 10000 + 0
+
+// The polygon from its corner lowest down, the leftmost of those, rounded to four places.
+Function Shown(polygon: Vec2[]): Vec2[]
+    Local first = 0
+    For i = 0 Until polygon.Count
+        Local p = polygon[i]
+        Local q = polygon[first]
+        If p.y < q.y || (p.y == q.y && p.x < q.x) Then first = i
+    End For
+    Local shown: Vec2[] = []
+    For i = 0 Until polygon.Count
+        Local p = polygon[(first + i) % polygon.Count]
+        shown.Add(Vec2(Shown(p.x), Shown(p.y)))
+    End For
+    Return shown
+End Function
+
+// Whether each triangle goes counterclockwise with no point inside its circumcircle.
+Function Valid(points: Vec2[], triangles: (Int, Int, Int)[]): Bool
+    For t In triangles
+        Local a = points[t.0]
+        Local b = points[t.1]
+        Local c = points[t.2]
+        If Cross(b - a, c - a) <= 0 Then Return False
+        For p In points
+            Local ax: Double = a.x - p.x
+            Local ay: Double = a.y - p.y
+            Local bx: Double = b.x - p.x
+            Local by: Double = b.y - p.y
+            Local cx: Double = c.x - p.x
+            Local cy: Double = c.y - p.y
+            Local inside = (ax * ax + ay * ay) * (bx * cy - cx * by) +
+                           (bx * bx + by * by) * (cx * ay - ax * cy) +
+                           (cx * cx + cy * cy) * (ax * by - bx * ay)
+            If inside > 0 Then Return False
+        End For
+    End For
+    Return True
+End Function
+
+// A polygon's area, by the shoelace formula, in Doubles.
+Function Area(polygon: Vec2[]): Double
+    Local twice: Double = 0
+    For i = 0 Until polygon.Count
+        Local p = polygon[i]
+        Local q = polygon[(i + 1) % polygon.Count]
+        twice += (p.x As Double) * q.y - (q.x As Double) * p.y
+    End For
+    Return twice / 2
+End Function
+
+// Six points, and a reference triangulation of them.
+Local six = [Vec2(0, 0), Vec2(4, 0), Vec2(0, 3), Vec2(5, 4), Vec2(2, 1.5), Vec2(1, 3.7)]
+Print(Sorted(Delaunay(six)), Valid(six, Delaunay(six)))
+
+// Forty points from a fixed sequence, with no four on a circle, so the triangulation is the one
+// the reference has.
+Local seed: Int64 = 2024
+Local forty: Vec2[] = []
+For i = 0 Until 40
+    seed = (seed * 1103515245 + 12345) % 2147483648
+    Local x = seed % 1000
+    seed = (seed * 1103515245 + 12345) % 2147483648
+    forty.Add(Vec2(x As Float, (seed % 1000) As Float))
+End For
+Local fortyTriangles = Delaunay(forty)
+Print(fortyTriangles.Count, Valid(forty, fortyTriangles))
+Print(Sorted(fortyTriangles))
+
+// A grid's points have four to a circle, which any of the ways of cutting each square suits: the
+// triangles are 2n - 2 - h, for n points of which h are on the hull, and each is Delaunay.
+Local grid: Vec2[] = []
+For y = 0 Until 5
+    For x = 0 Until 6
+        grid.Add(Vec2(x As Float, y As Float))
+    End For
+End For
+Local gridTriangles = Delaunay(grid)
+Print(gridTriangles.Count, 2 * 30 - 2 - 18, Valid(grid, gridTriangles))
+
+// Fewer than three points, or all on a line, have no triangles; repeats aren't corners.
+Print(Delaunay([Vec2.Zero(), Vec2.One()]),
+      Delaunay([Vec2(0, 0), Vec2(1, 1), Vec2(3, 3), Vec2(2, 2)]))
+Local nothing: Vec2[] = []
+Print(Delaunay(nothing), Delaunay([Vec2(0, 0), Vec2(1, 0), Vec2(0, 1)]))
+Print(Sorted(Delaunay([Vec2(0, 0), Vec2(1, 0), Vec2(0, 0), Vec2(0, 1), Vec2(1, 0), Vec2(1, 1)])))
+// A point on the hull's edge, between two corners, splits it.
+Print(Sorted(Delaunay([Vec2(0, 0), Vec2(2, 0), Vec2(1, 2), Vec2(1, 0)])))
+
+// Voronoi cells in bounds, each counterclockwise, and covering the bounds between them.
+Local bounds = Rect(-1, -1, 7, 6)
+For cell In Voronoi(six, bounds)
+    Print(Shown(cell))
+End For
+Local covered: Double = 0
+For cell In Voronoi(forty, Rect(0, 0, 1000, 1000))
+    covered += Area(cell)
+End For
+Print(IsClose(covered, 1000000.0, 0.01))
+
+// One point has the whole bounds; two split it; a point whose cell is outside bounds has none;
+// equal points share a cell; and points on a line make strips.
+Local square = Rect(0, 0, 4, 4)
+Local shown = Function(cell: Vec2[]) => Shown(cell)
+Print(Shown(Voronoi([Vec2(1, 1)], square)[0]), Voronoi(nothing, square))
+Print(Voronoi([Vec2(1, 1), Vec2(3, 1)], square).Map(shown))
+Print(Voronoi([Vec2(0, 0), Vec2(10, 10)], square).Map(shown))
+Print(Voronoi([Vec2(1, 1), Vec2(3, 3), Vec2(1, 1)], square).Map(shown))
+Print(Voronoi([Vec2(0, 2), Vec2(1, 2), Vec2(3, 2)], square).Map(shown))
+
+// Lloyd relaxation moves each point to its cell's centroid, which spreads them out.
+Local relaxed = LloydRelax(six, bounds, 3)
+Print(LloydRelax(six, bounds, 0) == six,
+      relaxed.Map(Function(p: Vec2) => Vec2(Shown(p.x), Shown(p.y))))
+Local spread = LloydRelax(forty, Rect(0, 0, 1000, 1000), 10)
+Local nearest: Double = 1e9
+Local before: Double = 1e9
+For i = 0 Until 40
+    For j = i + 1 Until 40
+        nearest = Min(nearest, Distance(spread[i], spread[j]) As Double)
+        before = Min(before, Distance(forty[i], forty[j]) As Double)
+    End For
+End For
+Print(nearest > before * 3, nearest > 60)

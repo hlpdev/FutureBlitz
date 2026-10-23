@@ -1,0 +1,8 @@
+// Voronoi takes points with finite coordinates, which panics where it's called.
+Import std.core
+Import std.math
+Import std.algo
+
+Local bounds = Rect(0, 0, 2, 2)
+Print(Voronoi([Vec2(1, 1)], bounds))
+Print(Voronoi([Vec2(1, 1), Vec2(0, Inf)], bounds))

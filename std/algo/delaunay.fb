@@ -1,0 +1,412 @@
+// Delaunay triangulation and Voronoi diagrams of points in 2D, and Lloyd relaxation, which moves
+// points apart until they're evenly spread, for maps, meshes, and placing things. The Delaunay
+// triangles are those whose circumcircles hold none of the points, which keeps them as near
+// equilateral as the points allow; a point's Voronoi cell is where's nearer it than any other.
+// The math is in Doubles. The triangulation is Bowyer and Watson's, a point at a time in order of
+// x then y, with a point at infinity whose triangles are the hull's outside, so the hull comes out
+// whole; points on one circle are triangulated by the order they come in.
+
+Import std.core
+Import std.collections
+Import std.math
+
+// Twice the area of the triangle a, b, c: above 0 when they go counterclockwise.
+Function Orient(ax: Double, ay: Double, bx: Double, by: Double, cx: Double, cy: Double): Double
+    Return (bx - ax) * (cy - ay) - (by - ay) * (cx - ax)
+End Function
+
+// Above 0 when d is inside the circle through a, b, and c, counterclockwise.
+Function InCircle(ax: Double, ay: Double, bx: Double, by: Double, cx: Double, cy: Double,
+                  dx: Double, dy: Double): Double
+    Local adx = ax - dx
+    Local ady = ay - dy
+    Local bdx = bx - dx
+    Local bdy = by - dy
+    Local cdx = cx - dx
+    Local cdy = cy - dy
+    Return (adx * adx + ady * ady) * (bdx * cdy - cdx * bdy) +
+           (bdx * bdx + bdy * bdy) * (cdx * ady - adx * cdy) +
+           (cdx * cdx + cdy * cdy) * (adx * bdy - bdx * ady)
+End Function
+
+// A triangulation as it's built: three corners to a triangle, counterclockwise, -1 for the point at
+// infinity, and across each edge, from corner k to the next, the triangle there.
+Class Mesh
+    Field X: Double[] = []
+    Field Y: Double[] = []
+    Field Corners: Int[] = []
+    Field Across: Int[] = []
+    Field Alive: Bool[] = []
+    // When each triangle was last found in a cavity, so no marks need clearing.
+    Field Marks: Int[] = []
+    Field Mark: Int
+    // Each corner's new triangle as a point goes in, by corner, the point at infinity last.
+    Field Starts: Int[] = []
+    // A triangle made last, where a search for the next point starts.
+    Field Last: Int
+
+    New(points: Vec2[])
+        For point In points
+            X.Add(point.x)
+            Y.Add(point.y)
+        End For
+        Starts.Resize(points.Count + 1, -1)
+    End New
+
+    // Adds a triangle with no neighbors yet, and gives it.
+    Method AddTriangle(a: Int, b: Int, c: Int): Int
+        Local triangle = Alive.Count
+        Corners.Add(a)
+        Corners.Add(b)
+        Corners.Add(c)
+        Across.AddAll([-1, -1, -1])
+        Alive.Add(True)
+        Marks.Add(0)
+        Return triangle
+    End Method
+
+    // Sets which triangles are across each other's edges: a's edge i and b's edge j.
+    Method Link(a: Int, i: Int, b: Int, j: Int)
+        Across[a * 3 + i] = b
+        Across[b * 3 + j] = a
+    End Method
+
+    // The triangle's first real corner past the point at infinity, or -1 for a real triangle.
+    Method InfiniteAt(triangle: Int): Int
+        For k = 0 Until 3
+            If Corners[triangle * 3 + k] < 0 Then Return k
+        End For
+        Return -1
+    End Method
+
+    // Whether a point going in breaks the triangle: it's inside the triangle's circumcircle, or for
+    // one with the point at infinity, outside the hull's edge, or on it between its ends.
+    Method Conflicts(triangle: Int, point: Int): Bool
+        Local px = X[point]
+        Local py = Y[point]
+        Local infinite = InfiniteAt(triangle)
+        If infinite < 0
+            Local a = Corners[triangle * 3]
+            Local b = Corners[triangle * 3 + 1]
+            Local c = Corners[triangle * 3 + 2]
+            Return InCircle(X[a], Y[a], X[b], Y[b], X[c], Y[c], px, py) > 0
+        End If
+
+        Local u = Corners[triangle * 3 + (infinite + 1) % 3]
+        Local v = Corners[triangle * 3 + (infinite + 2) % 3]
+        Local side = Orient(X[u], Y[u], X[v], Y[v], px, py)
+        If side != 0 Then Return side > 0
+        Local towardV = (px - X[u]) * (X[v] - X[u]) + (py - Y[u]) * (Y[v] - Y[u])
+        Local towardU = (px - X[v]) * (X[u] - X[v]) + (py - Y[v]) * (Y[u] - Y[v])
+        Return towardV > 0 && towardU > 0
+    End Method
+
+    // A triangle the point breaks: found by walking from the last triangle made toward the point,
+    // or, should the walk go round, by looking at every triangle.
+    Method Locate(point: Int): Int
+        Local px = X[point]
+        Local py = Y[point]
+        Local triangle = Last
+        Local steps = 0
+        While steps <= Alive.Count
+            steps++
+            Local infinite = InfiniteAt(triangle)
+            If infinite >= 0
+                If Conflicts(triangle, point) Then Return triangle
+                triangle = Across[triangle * 3 + (infinite + 1) % 3]
+                Continue
+            End If
+
+            Local moved = False
+            For k = 0 Until 3
+                Local a = Corners[triangle * 3 + k]
+                Local b = Corners[triangle * 3 + (k + 1) % 3]
+                If Orient(X[a], Y[a], X[b], Y[b], px, py) < 0
+                    triangle = Across[triangle * 3 + k]
+                    moved = True
+                    Break
+                End If
+            End For
+            If !moved Then Return triangle
+        End While
+
+        For t = 0 Until Alive.Count
+            If Alive[t] && Conflicts(t, point) Then Return t
+        End For
+        Return -1
+    End Method
+
+    // Puts the point in: the triangles it breaks go, and new ones join it to the cavity's edges.
+    Method Insert(point: Int)
+        Local first = Locate(point)
+        If first < 0 Then Return
+        Mark++
+        Marks[first] = Mark
+        Local cavity = [first]
+        // The cavity's edges: each from corner a to b, with the triangle across and its edge.
+        Local edgeA: Int[] = []
+        Local edgeB: Int[] = []
+        Local outside: Int[] = []
+        Local outsideEdge: Int[] = []
+        Local next = 0
+        While next < cavity.Count
+            Local triangle = cavity[next]
+            next++
+            For k = 0 Until 3
+                Local neighbor = Across[triangle * 3 + k]
+                If Marks[neighbor] == Mark Then Continue
+                If Conflicts(neighbor, point)
+                    Marks[neighbor] = Mark
+                    cavity.Add(neighbor)
+                    Continue
+                End If
+
+                edgeA.Add(Corners[triangle * 3 + k])
+                edgeB.Add(Corners[triangle * 3 + (k + 1) % 3])
+                outside.Add(neighbor)
+                For j = 0 Until 3
+                    If Across[neighbor * 3 + j] == triangle
+                        outsideEdge.Add(j)
+                        Break
+                    End If
+                End For
+            End For
+        End While
+
+        For triangle In cavity
+            Alive[triangle] = False
+        End For
+
+        // A triangle on each edge, then each linked to the ones beside it, by where they start.
+        Local made: Int[] = []
+        For i = 0 Until edgeA.Count
+            Local triangle = AddTriangle(edgeA[i], edgeB[i], point)
+            Link(triangle, 0, outside[i], outsideEdge[i])
+            Starts[StartOf(edgeA[i])] = triangle
+            made.Add(triangle)
+        End For
+        For i = 0 Until made.Count
+            Link(made[i], 1, Starts[StartOf(edgeB[i])], 2)
+        End For
+
+        Last = made[0]
+        For triangle In made
+            If InfiniteAt(triangle) < 0 Then Last = triangle
+        End For
+    End Method
+
+    // Where a corner's new triangle is in Starts: the point at infinity's is last.
+    Method StartOf(corner: Int): Int => corner < 0 ? Starts.Count - 1 : corner
+End Class
+
+// The points' indices by x, then y, without repeats: what Delaunay puts in, and, for each point,
+// the first index of a point equal to it. A coordinate that's infinite or NaN panics.
+@PanicsAtCaller
+Function Ordered(points: Vec2[]): (Int[], Int[])
+    Local order: Int[] = []
+    For i = 0 Until points.Count
+        Local point = points[i]
+        If !IsFinite(point.x) || !IsFinite(point.y)
+            Panic("a point's coordinates are finite, not {point}")
+        End If
+        order.Add(i)
+    End For
+    order.Sort(Function(a: Int, b: Int): Bool
+        Local p = points[a]
+        Local q = points[b]
+        If p.x != q.x Then Return p.x < q.x
+        If p.y != q.y Then Return p.y < q.y
+        Return a < b
+    End Function)
+
+    Local same: Int[] = []
+    same.Resize(points.Count, -1)
+    Local distinct: Int[] = []
+    For i In order
+        If distinct.Count > 0 && points[distinct[distinct.Count - 1]] == points[i]
+            same[i] = distinct[distinct.Count - 1]
+        Else
+            same[i] = i
+            distinct.Add(i)
+        End If
+    End For
+    Return (distinct, same)
+End Function
+
+// The triangulation of points that sees each repeat once, its triangles' corners as indices into
+// points, counterclockwise.
+Function Triangulate(points: Vec2[], order: Int[]): (Int, Int, Int)[]
+    Local none: (Int, Int, Int)[] = []
+    If order.Count < 3 Then Return none
+    Local mesh = Mesh(points)
+    // The first triangle: the first two points, and the first after them not on their line.
+    Local a = order[0]
+    Local b = order[1]
+    Local third = -1
+    For i = 2 Until order.Count
+        Local c = order[i]
+        If Orient(mesh.X[a], mesh.Y[a], mesh.X[b], mesh.Y[b], mesh.X[c], mesh.Y[c]) != 0
+            third = i
+            Break
+        End If
+    End For
+    If third < 0 Then Return none
+
+    Local c = order[third]
+    If Orient(mesh.X[a], mesh.Y[a], mesh.X[b], mesh.Y[b], mesh.X[c], mesh.Y[c]) < 0
+        Swap(ByRef a, ByRef b)
+    End If
+    Local inner = mesh.AddTriangle(a, b, c)
+    // Outside each of its edges, a triangle with the point at infinity, each beside the next.
+    Local outerAB = mesh.AddTriangle(b, a, -1)
+    Local outerBC = mesh.AddTriangle(c, b, -1)
+    Local outerCA = mesh.AddTriangle(a, c, -1)
+    mesh.Link(inner, 0, outerAB, 0)
+    mesh.Link(inner, 1, outerBC, 0)
+    mesh.Link(inner, 2, outerCA, 0)
+    mesh.Link(outerAB, 1, outerCA, 2)
+    mesh.Link(outerBC, 1, outerAB, 2)
+    mesh.Link(outerCA, 1, outerBC, 2)
+    mesh.Last = inner
+
+    For i = 2 Until order.Count
+        If i != third Then mesh.Insert(order[i])
+    End For
+
+    Local triangles: (Int, Int, Int)[] = []
+    For t = 0 Until mesh.Alive.Count
+        If mesh.Alive[t] && mesh.InfiniteAt(t) < 0
+            triangles.Add((mesh.Corners[t * 3], mesh.Corners[t * 3 + 1], mesh.Corners[t * 3 + 2]))
+        End If
+    End For
+    Return triangles
+End Function
+
+// The Delaunay triangulation of the points: triangles whose circumcircles hold none of the points,
+// each as the indices of its corners in points, counterclockwise. Fewer than three points, or
+// points all on a line, have none, and of points that are equal, only the first is a corner. A
+// coordinate that's infinite or NaN panics.
+@PanicsAtCaller
+Public Function Delaunay(points: Vec2[]): (Int, Int, Int)[]
+    Local order, _ = Ordered(points)
+    Return Triangulate(points, order)
+End Function
+
+// The polygon, counterclockwise, cut down to the side of the line from a to b's middle, at right
+// angles to it, that a is on: Sutherland and Hodgman's clipping, by one edge.
+Function KeepNearer(polygon: (Double, Double)[], ax: Double, ay: Double, bx: Double,
+                    by: Double): (Double, Double)[]
+    // A point is on a's side where (p - middle) . (b - a) is below 0.
+    Local nx = bx - ax
+    Local ny = by - ay
+    Local mx = (ax + bx) / 2
+    Local my = (ay + by) / 2
+    Local kept: (Double, Double)[] = []
+    For i = 0 Until polygon.Count
+        Local p = polygon[i]
+        Local q = polygon[(i + 1) % polygon.Count]
+        Local sideP = (p.0 - mx) * nx + (p.1 - my) * ny
+        Local sideQ = (q.0 - mx) * nx + (q.1 - my) * ny
+        If sideP <= 0 Then kept.Add(p)
+        If (sideP < 0 && sideQ > 0) || (sideP > 0 && sideQ < 0)
+            Local t = sideP / (sideP - sideQ)
+            kept.Add((p.0 + (q.0 - p.0) * t, p.1 + (q.1 - p.1) * t))
+        End If
+    End For
+    Return kept
+End Function
+
+// Each point's Voronoi cell inside bounds: the polygon, counterclockwise, of where in bounds is no
+// nearer another point, empty for a point whose cell is outside bounds. Points that are equal share
+// a cell, and fewer than two points have bounds' whole rectangle for theirs. A coordinate that's
+// infinite or NaN panics.
+@PanicsAtCaller
+Public Function Voronoi(points: Vec2[], bounds: Rect): Vec2[][]
+    Local order, same = Ordered(points)
+    // Each point's neighbors: those it shares a Delaunay edge with, which are the only ones whose
+    // cells can touch its own, or every other point when there are no triangles.
+    Local neighbors: Int[][] = []
+    For i = 0 Until points.Count
+        neighbors.Add([])
+    End For
+    Local triangles = Triangulate(points, order)
+    If triangles.Count == 0
+        For i In order
+            For j In order
+                If i != j Then neighbors[i].Add(j)
+            End For
+        End For
+    End If
+
+    For triangle In triangles
+        Local a, b, c = triangle
+        neighbors[a].AddAll([b, c])
+        neighbors[b].AddAll([c, a])
+        neighbors[c].AddAll([a, b])
+    End For
+
+    Local left: Double = bounds.X
+    Local bottom: Double = bounds.Y
+    Local right: Double = left + bounds.Width
+    Local top: Double = bottom + bounds.Height
+    Local cells: Vec2[][] = []
+    For i = 0 Until points.Count
+        Local site = same[i]
+        If site != i
+            cells.Add(cells[site].Clone())
+            Continue
+        End If
+
+        Local polygon: (Double, Double)[] = [(left, bottom), (right, bottom), (right, top),
+                                             (left, top)]
+        Local x: Double = points[i].x
+        Local y: Double = points[i].y
+        For j In neighbors[i]
+            If polygon.Count == 0 Then Break
+            polygon = KeepNearer(polygon, x, y, points[j].x, points[j].y)
+        End For
+
+        Local cell: Vec2[] = []
+        For corner In polygon
+            cell.Add(Vec2(corner.0 As Float, corner.1 As Float))
+        End For
+        cells.Add(cell)
+    End For
+    Return cells
+End Function
+
+// The points moved, iterations times, each to the middle of its Voronoi cell in bounds, which
+// spreads them evenly: Lloyd's relaxation. A point whose cell is empty stays. A negative number of
+// iterations, or a coordinate that's infinite or NaN, panics.
+@PanicsAtCaller
+Public Function LloydRelax(points: Vec2[], bounds: Rect, iterations: Int = 1): Vec2[]
+    If iterations < 0
+        Panic("LloydRelax takes a count of iterations that isn't negative, not {iterations}")
+    End If
+    Local moved = points.Clone()
+    For pass = 1 To iterations
+        Local cells = Voronoi(moved, bounds)
+        For i = 0 Until moved.Count
+            Local centroid = Centroid(cells[i])
+            If centroid != Null Then moved[i] = centroid
+        End For
+    End For
+    Return moved
+End Function
+
+// The polygon's centroid, the middle of its area, or Null for one with none.
+Function Centroid(polygon: Vec2[]): Vec2?
+    Local area: Double = 0
+    Local x: Double = 0
+    Local y: Double = 0
+    For i = 0 Until polygon.Count
+        Local p = polygon[i]
+        Local q = polygon[(i + 1) % polygon.Count]
+        Local cross: Double = (p.x As Double) * q.y - (q.x As Double) * p.y
+        area += cross
+        x += ((p.x As Double) + q.x) * cross
+        y += ((p.y As Double) + q.y) * cross
+    End For
+    If area == 0 Then Return Null
+    Return Vec2((x / (3 * area)) As Float, (y / (3 * area)) As Float)
+End Function

@@ -1,0 +1,2 @@
+[(1, 1)]
+panic: LloydRelax takes a count of iterations that isn't negative, not -1 at panic_algo_lloyd_iterations.fb:8:7

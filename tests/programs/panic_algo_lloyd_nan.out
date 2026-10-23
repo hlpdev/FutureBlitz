@@ -1,0 +1,1 @@
+panic: a point's coordinates are finite, not (-inf, 1) at panic_algo_lloyd_nan.fb:7:7
