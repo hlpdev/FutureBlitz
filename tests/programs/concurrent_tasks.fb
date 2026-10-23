@@ -1,0 +1,87 @@
+// WhenAll gives every task's result in order, WhenAny the first task done, and a TaskSource's Task
+// finishes once a thread gives it its result, one thread of many that try at once.
+
+Import std.core
+Import std.concurrent
+
+Shared Class Tally
+    Field Won: Atomic<Int>
+End Class
+
+Async Function Later(frames: Int, value: Int): Int
+    For i = 1 To frames
+        Await NextFrame()
+    End For
+
+    Return value
+End Function
+
+Async Function Pause(frames: Int)
+    For i = 1 To frames
+        Await NextFrame()
+    End For
+End Function
+
+// Eight threads try at once to finish each of 50 TaskSources; one does, and its Task gives what
+// that one gave.
+Function Race(): String
+    Local wins = 0
+    Local right = 0
+    For attempt = 1 To 50
+        Const source = TaskSource<Int>()
+        Const tally = Tally()
+        Local waiting = source.Task
+        Local threads: Thread[] = []
+        For t = 1 To 8
+            threads.Add(Thread.Start(Function()
+                If source.TryFinish(t) Then tally.Won.Add(t)
+            End Function))
+        End For
+
+        Local result = waiting.Wait()
+        For thread In threads
+            thread.Join()
+        End For
+
+        wins += tally.Won.Load() != 0 ? 1 : 0
+        If result == tally.Won.Load() Then right += 1
+    End For
+
+    Return "50 sources, {wins} finished, {right} gave the winner's result"
+End Function
+
+Async Function Run()
+    Local spawned: Task<Int>[] = []
+    For i = 1 To 6
+        spawned.Add(Spawn(Function() => i * i))
+    End For
+
+    Print(Await WhenAll(spawned))
+    Print(Await WhenAll([Later(3, 1), Later(1, 2), Later(2, 3)]))
+    Local none: Task<Int>[] = []
+    Print(Await WhenAll(none))
+    Await WhenAll([Pause(2), Pause(1)])
+    Print("paused")
+
+    Print(Await WhenAny([Later(3, 1), Later(1, 2), Later(2, 3)]))
+    Print(Await WhenAny([Pause(2), Pause(1), Pause(3)]))
+    // Of tasks done by the same tick, the first given wins.
+    Print(Await WhenAny([Later(2, 1), Later(1, 2), Later(1, 3)]))
+
+    Const first = TaskSource<String>()
+    Const second = TaskSource<String>()
+    Local race = WhenAny([first.Task, second.Task])
+    Local finisher = Thread.Start(Function() => second.Finish("second"))
+    Local winner = Await race
+    finisher.Join()
+    Print(winner, Await second.Task)
+End Function
+
+Print(Race())
+Run().Wait()
+
+Const source = TaskSource<String?>()
+Print(source.IsDone, source.Task.IsDone())
+source.Finish(Null)
+Local given = source.Task.Wait()
+Print(source.IsDone, given == Null, source.TryFinish("again"))

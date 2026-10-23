@@ -1,0 +1,8 @@
+// WhenAny waits for the first of its tasks, so it panics where it's called with none.
+Import std.core
+Import std.concurrent
+
+Local tasks: Task<Int>[] = [Spawn(Function() => 1)]
+Print(WhenAny(tasks).Wait())
+tasks.Clear()
+WhenAny(tasks)

@@ -1,0 +1,134 @@
+// Tasks made of other Tasks, and a Task finished by hand: WhenAll waits for each of its tasks,
+// WhenAny for the first, and a TaskSource's Task is done once a thread gives it its result. They
+// give Tasks of Async Functions, so they're the main thread's, as Async code is.
+
+Import std.core
+
+// A signal finishes the Tasks with no result that it makes, once it's given, from any thread.
+Extern "runtime"
+    Function fb_signal_new(): UInt64
+    Function fb_signal_task(signal: UInt64): Task
+    Function fb_signal_give(signal: UInt64): Int32
+    Function fb_signal_free(signal: UInt64)
+End Extern
+
+// A Task finished by hand: Finish, on any thread, gives its Task the result, which a Wait or an
+// Await on the Task then gives. A TaskSource no thread finishes leaves its Task never done, like a
+// Task that waits for a Scheduler that nothing ticks.
+Public Shared Class TaskSource<T: Sendable>
+    ReadOnly Field Signal: UInt64
+    // The result, once there is one.
+    Field Result: Mutex<T?>
+
+    Public New()
+        Signal = fb_signal_new()
+    End New
+
+    // A Task of the result, which is done once Finish gives it. Each one it gives is a new Task
+    // of the same result. Only the main thread has one, as its code is Async code.
+    Public Property Task: Task<T>
+        Get => Finished(Self, fb_signal_task(Signal))
+    End Property
+
+    // Whether Finish has given the result.
+    Public Property IsDone: Bool
+        Get
+            Lock Result As result
+                Return result != Null
+            End Lock
+        End Get
+    End Property
+
+    // Gives the Task its result, which wakes what waits for it. Panics when it has one already.
+    @PanicsAtCaller
+    Public Method Finish(value: T)
+        If !TryFinish(value) Then Panic("the TaskSource has its result already")
+    End Method
+
+    // Gives the Task its result unless it has one already, and tells whether it didn't, so of
+    // threads that finish it at once, one does.
+    Public Method TryFinish(value: T): Bool
+        Lock Result As result
+            If result != Null Then Return False
+            result = value
+        End Lock
+
+        fb_signal_give(Signal)
+        Return True
+    End Method
+
+    Method Destroy()
+        fb_signal_free(Signal)
+    End Method
+
+    // The result, which there is once the signal is given.
+    Method Given(): T
+        Lock Result As result
+            Return result.Expect("a TaskSource has its result once its signal is given")
+        End Lock
+    End Method
+End Class
+
+// A TaskSource's Task: its result, once its signal is given.
+Async Function Finished<T: Sendable>(source: TaskSource<T>, given: Task): T
+    Await given
+    Return source.Given()
+End Function
+
+// A Task of each task's result, in their order, done once they all are.
+Public Function WhenAll<T>(tasks: Task<T>[]): Task<T[]> => AllOf(tasks.Clone())
+
+// A Task that's done once each of the tasks is.
+Public Function WhenAll(tasks: Task[]): Task => AllOf(tasks.Clone())
+
+Async Function AllOf<T>(tasks: Task<T>[]): T[]
+    Local results: T[] = []
+    results.Reserve(tasks.Count)
+    For task In tasks
+        results.Add(Await task)
+    End For
+    Return results
+End Function
+
+Async Function AllOf(tasks: Task[])
+    For task In tasks
+        Await task
+    End For
+End Function
+
+// A Task of the index of the first of the tasks to be done, whose result a Wait or an Await
+// then gives at once. Of tasks done by the same tick of the scheduler, it's the first of them in
+// the array. Panics when there are none, since none would be done.
+@PanicsAtCaller
+Public Function WhenAny<T>(tasks: Task<T>[]): Task<Int>
+    If tasks.Count == 0 Then Panic("WhenAny waits for the first of its tasks, so it needs one")
+    Const first = TaskSource<Int>()
+    For i = 0 Until tasks.Count
+        FirstOf(tasks[i], i, first)
+    End For
+
+    Return first.Task
+End Function
+
+// A Task of the index of the first of the tasks to be done, as for tasks with results.
+@PanicsAtCaller
+Public Function WhenAny(tasks: Task[]): Task<Int>
+    If tasks.Count == 0 Then Panic("WhenAny waits for the first of its tasks, so it needs one")
+    Const first = TaskSource<Int>()
+    For i = 0 Until tasks.Count
+        FirstOf(tasks[i], i, first)
+    End For
+
+    Return first.Task
+End Function
+
+// Gives `first` the index once the task is done, unless another task's came before.
+Async Function FirstOf<T>(task: Task<T>, index: Int, first: TaskSource<Int>)
+    Await task
+    first.TryFinish(index)
+End Function
+
+Async Function FirstOf(task: Task, index: Int, first: TaskSource<Int>)
+    Await task
+    first.TryFinish(index)
+End Function
