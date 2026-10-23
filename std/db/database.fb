@@ -952,14 +952,19 @@ Public Class Statement
         Owner.Connection()
         Defer fb_db_reset(Handle)
         Local names: String[] = []
-        For column = 0 Until fb_db_column_count(Handle)
-            names.Add(fb_db_column_name(Handle, column))
-        End For
         Local rows: Row[] = []
         Loop
             Local code = fb_db_step(Handle)
             If code == DONE Then Return rows
             If code != ROW Then Throw Failure(Owner.Handle, code)
+            // SQLite prepares it again on its first step after the database's tables change, so
+            // its columns are read then.
+            If rows.Count == 0
+                For column = 0 Until fb_db_column_count(Handle)
+                    names.Add(fb_db_column_name(Handle, column))
+                End For
+            End If
+
             Local cells: Cell[] = []
             For column = 0 Until names.Count
                 cells.Add(Read(column))

@@ -73,6 +73,27 @@ Function Run() Throws DatabaseError
         Print(e.Kind, e.Message)
     End Try
     Print((Try divide.Rows(-3))[0].Integer(0) ?? 0)
+
+    // A Statement kept while its table changes reads the columns the table has then.
+    Try db.Execute("CREATE TABLE t (a INTEGER, b TEXT); INSERT INTO t VALUES (1, 'x')")
+    Local all = Try db.Prepare("SELECT * FROM t")
+    Print(Columns((Try all.Rows())[0]))
+    Try db.Execute("ALTER TABLE t ADD COLUMN c TEXT DEFAULT 'see'")
+    Print(Columns((Try all.Rows())[0]))
+    Try db.Execute("ALTER TABLE t RENAME COLUMN a TO renamed; ALTER TABLE t DROP COLUMN b")
+    Print(Columns((Try all.Rows())[0]))
+    Try db.Execute("ALTER TABLE t DROP COLUMN c")
+    Local row = (Try all.Rows())[0]
+    Print(Columns(row), row.Integer("renamed") ?? -1)
+End Function
+
+// A row's columns' names and types.
+Function Columns(row: Row): String
+    Local columns: String[] = []
+    For column = 0 Until row.Count
+        columns.Add("{row.Name(column)} {row.Type(column)}")
+    End For
+    Return columns.Join(", ")
 End Function
 
 Try

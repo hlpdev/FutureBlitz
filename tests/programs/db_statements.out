@@ -9,3 +9,7 @@ ada:1.5 bob:2 cy:2 di:2 ed:5 fay:5 NULL:0.25
 16
 QUERY integer overflow
 3
+a INTEGER, b TEXT
+a INTEGER, b TEXT, c TEXT
+renamed INTEGER, c TEXT
+renamed INTEGER 1
