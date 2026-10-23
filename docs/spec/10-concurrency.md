@@ -335,20 +335,22 @@ Spawn(Function() => ComputePath(target))
 
 - Engine APIs (rendering, audio, entities) are marked `@MainThread`. Calling them from a
   worker is a compile error.
-- Mutable `Global`s are main-thread-only unless they are `Atomic` or `Mutex`.
+- Mutable `Global`s are main-thread-only unless they are `Atomic`, `Mutex`, or `ThreadLocal`, each
+  thread's own (see [02](02-types.md#threadlocal-globals)).
 
 ```vb
 Spawn(Function() => PositionEntity(cam, 0, 0, 0))   // ✗ compile error: @MainThread
 ```
 
 - Work on another thread is a Spawn's or Thread.Start's, or a Callback's code, which C can call
-  on any thread (see [12](12-ffi.md#callbacks)), with everything it can run: what it
-  calls, its lambdas, what overrides the Methods it calls, and what implements the Interface
-  Methods it calls, with each New's Class's Destroy(). A Shared Class's Destroy() is too, since
-  whichever thread lets go last runs it.
-- That code can't use a Global or Static Field unless it's an Atomic or a Mutex, or a top-level
-  Const that isn't Sendable, or call a `@MainThread` Function or Method. Async code, the timers,
-  and Schedulers are the main thread's too. A top-level Const that's
+  on any thread (see [12](12-ffi.md#callbacks)), or a ThreadLocal Global's initializer, which
+  runs on each thread that uses it (see [02](02-types.md#threadlocal-globals)), with everything
+  it can run: what it calls, its lambdas, what overrides the Methods it calls, and what
+  implements the Interface Methods it calls, with each New's Class's Destroy(). A Shared
+  Class's Destroy() is too, since whichever thread lets go last runs it.
+- That code can't use a Global or Static Field unless it's an Atomic, a Mutex, or a ThreadLocal
+  Global, or a top-level Const that isn't Sendable, or call a `@MainThread` Function or Method.
+  Async code, the timers, and Schedulers are the main thread's too. A top-level Const that's
   Sendable is fine, and so is all of it in top-level code, which runs on the main thread.
 - The error says how the work gets there: "this work runs on another thread, but it calls
   'Bump', which uses the Global 'score', which only the main thread can, unless it's an Atomic or

@@ -93,6 +93,36 @@ released".
 
 A `Global` without an initializer starts at `0`, `0.0`, `False`, or `""`, like a field.
 
+### ThreadLocal Globals
+
+```vb
+ThreadLocal Global rolls = Random(42)
+ThreadLocal Global seen: Int
+```
+
+`ThreadLocal Global` gives each thread a Global of its own, which is as fast as a Global, in the
+CPU's own thread-local storage.
+
+- A thread's starts at its zero, or at its initializer's value when that's known at compile
+  time. The first time the thread uses it, reading, assigning, or passing it ByRef, its
+  initializer runs on that thread, before the use. An assignment first still runs it, and lets
+  go of what it made.
+- The initializer runs on whichever thread uses the Global first, so it's checked as work on
+  another thread ([10](10-concurrency.md#main-thread-rules)): it can't use what only the main
+  thread can, a mutable Global's value among them. One that reaches its own Global, through what
+  it calls, panics there: "'depth' is used before its initializer has run, since its initializer
+  reaches it". An error it lets out ends the program, as top-level code's does.
+- A thread lets go of its ThreadLocal Globals as it ends, the last made first: a thread of its own
+  after its work, before Join returns; a pool worker's when the pool stops, as the program ends;
+  and the main thread's once the top-level code and the jobs are done, before the Globals are
+  released, so a ThreadLocal's Destroy can use them. A use of one already let go of panics:
+  "'later' is used after it's released, since a thread releases its ThreadLocal Globals as it
+  ends". A thread C started lets go of its own as it exits.
+- Code on any thread can use a ThreadLocal Global, which is its own, and its type needn't be
+  Sendable, since its value stays on its thread. It can't be an Atomic or a Mutex, which are for
+  what threads share. Only a top-level Global is ThreadLocal: not a Local, a Const, or a Static
+  Field.
+
 ### Definite assignment
 
 Reading a `Local` before it has been assigned on every path is a compile error. (`Global`s
