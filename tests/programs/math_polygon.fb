@@ -149,3 +149,16 @@ Print(shrunkFrame, PolygonArea(shrunkFrame))
 Local grownFrame = Offset(framedSquare, 0.5, False)
 Print(grownFrame, PolygonArea(grownFrame), Offset(framedSquare, -0.5, False).Count)
 Print(Shown(PolygonArea(Offset([ell], 0.5))))
+
+// A small shape beside a far one keeps its edges: each is looked at to its sides, and its corners
+// snapped, by its own size and place, not the farthest corner's.
+Local speck = [Vec2(0, 0), Vec2(0.001, 0), Vec2(0.001, 0.001), Vec2(0, 0.001)]
+Local distant = [Vec2(1000000, 0), Vec2(1000001, 0), Vec2(1000001, 1), Vec2(1000000, 1)]
+Local remote = [Vec2(1000000000, 0), Vec2(1000000064, 0), Vec2(1000000064, 64),
+                Vec2(1000000000, 64)]
+Print(Union([speck], [speck]).Count, Union([speck], [distant]).Count,
+      Intersection([speck, distant], [speck]).Count, Offset([speck, distant], 0).Count,
+      Union([speck], [remote]).Count)
+Local kept = Union([speck], [remote])
+Print(kept[0].Count, kept[1].Count, IsClose(PolygonArea(kept[0]) + PolygonArea(kept[1]),
+      4096.000001, 0.0001))
