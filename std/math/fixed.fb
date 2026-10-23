@@ -1,9 +1,9 @@
 // Fixed32 and Fixed64: fixed-point numbers, 16.16 in an Int32 and 32.32 in an Int64, whose math is
 // all integer math, so the same program gives the same bits on every OS and CPU, in debug builds
-// and release, for lockstep multiplayer and replays. * and / round to the nearest, halves up;
-// Sqrt rounds to the nearest; Sin and Cos reduce their angle by Pi / 2 to 94 bits and sum their
-// series in 62, then round. Overflow traps in debug builds and wraps in release, as an Int's
-// does, and dividing by 0 panics.
+// and release, for lockstep multiplayer and replays. * rounds to the nearest, halves up, and / to
+// the nearest, halves away from 0; Sqrt rounds to the nearest; Sin and Cos reduce their angle by
+// Pi / 2 to 94 bits and sum their series in 62, then round. Overflow traps in debug builds and
+// wraps in release, as an Int's does, and dividing by 0 panics.
 
 Import std.core
 Import std.math.bits

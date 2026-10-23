@@ -17,7 +17,7 @@ Print(Fixed32.FromDouble(-2.7).ToInt(), Fixed32.FromDouble(2.7).ToInt(),
 Print(MinValue<Fixed32>(), MaxValue<Fixed32>(), Fixed32.FromInt(-32768), Fixed32.FromInt(32767),
       Fixed32.Tau.Raw)
 
-// * and / round to the nearest, halves up; / by an Int too.
+// * rounds to the nearest, halves up, and / to the nearest, halves away from 0, by an Int too.
 Print(half + three, half - three, -half, half * three, three / half, three * 2, 2 * three,
       three / 2)
 Local tiny = Fixed32.FromRaw(1)
