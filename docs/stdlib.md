@@ -127,6 +127,9 @@ So far, std/ holds:
 | std/compress/zip.fb | `Zip`, `ZipReader`, `ZipWriter`, and `ZipMethod`, over minizip-ng through `fb_zip_` |
 | std/compress/tar.fb | `Tar`, `TarReader`, and `TarWriter`, through `fb_tar_` |
 | std/compress/seven_zip.fb | `SevenZip` and `SevenZipReader`, over liblzma through `fb_xz_7z_` |
+| std/net/address.fb | `IpFamily`, `IpAddress`, and `SocketAddress` |
+| std/net/url.fb | `Url` and `QueryParams`, as the WHATWG URL Standard has them |
+| std/net/dns.fb | `Dns`, over libuv's getaddrinfo through the runtime's `fb_io_` functions |
 
 What the language itself uses, `Error` for Throw and Catch, the Interfaces, `Iterator<T>`, and
 `Map<K, V>` for `{key: value}`, is always std's, whatever a program calls by those names.
@@ -735,12 +738,43 @@ streams. `Import std.compress` brings in all of std/compress/.
 
 #### std.net
 
-- `IpAddress`, `SocketAddress`, `Dns.Resolve`.
-- `TcpListener` and `TcpStream` (Reader and Writer), `UdpSocket`, with timeouts and Async twins.
-- `IpcListener.Listen(name)` and `IpcStream.Connect(name)`: one IPC type, named pipes on Windows
-  and Unix sockets elsewhere, chosen by libuv, never by the program.
-- LAN discovery: UDP broadcast and mDNS/DNS-SD.
-- `Url` and `QueryParams`.
+Step 28's half without streams is built: the addresses, `Url` and `QueryParams`, and `Dns`.
+`Import std.net` brings in std/net/.
+
+- `IpAddress`, IPv4 or IPv6, by its `Family`, an `IpFamily`: `V4(a, b, c, d)`, `V6` of eight
+  groups, `FromBytes` of 4 or 16, and `Parse(text)`, which takes IPv4's dotted decimals without
+  leading zeros and IPv6's groups with one `::` and IPv4's text at the end, as RFC 4291 has
+  them, and gives Null for anything else, a zone too. `ToString()` writes IPv6 as RFC 5952 does,
+  an IPv4-mapped address's end as IPv4's. `Bytes`, `IsV4`, `IsV6`, `IsLoopback`,
+  `IsUnspecified`, `IsPrivate` (RFC 1918's blocks and fc00::/7), `IsLinkLocal`, `IsMulticast`,
+  `IsBroadcast`, `IsDocumentation` (RFC 5737's, 3849's, and 9637's blocks), `ToV4()` of an
+  IPv4-mapped one, and `ToV6()`; `Loopback`, `LoopbackV6`, `Any`, `AnyV6`, and `Broadcast`.
+  Addresses compare IPv4 first, then by bytes.
+- `SocketAddress`: an `Address`, a `Port`, and an IPv6 one's `ScopeId`, which `Parse` reads and
+  `ToString` writes as `127.0.0.1:80`, `[::1]:80`, and `[fe80::1%3]:80`, a scope by its number.
+- `Url`, as the WHATWG URL Standard parses and serializes one: `Url.Parse(text)` and
+  `Parse(text, base)`, with a Url or a String as the base, give Null for what isn't one, and
+  `url.Resolve(text)` resolves against it. Its `Scheme`, `Username`, `Password`, `Host` (Null
+  for none, "" for an empty one), `Port` (Null for none or the scheme's own), `PortOrDefault`,
+  `Path`, `HasOpaquePath`, `Query` and `Fragment` (without their ? and #, Null for none), its
+  `Origin`, `Params`, and `ToString()`, which reads back as the same Url. Each part
+  percent-encodes what the standard says; `Url.Encode` and `Url.Decode` encode and decode a
+  component. It passes web-platform-tests' urltestdata.json, in tests/data, but for the case
+  that needs UTS #46's mapping of a host that isn't ASCII, which waits for std.text.unicode:
+  until then, such a host's ASCII letters, fullwidth ASCII, and the ideographic full stops map,
+  and its labels become Punycode.
+- `QueryParams`, a query's pairs as a form sends them (`a=1&b=two+words`): `QueryParams(query)`,
+  `Get`, `GetAll`, `Contains`, `Add`, `Set`, `Remove`, `Sort` (by UTF-16 code units), `Count`,
+  `For ... In` over its (name, value) pairs, and `ToString()`.
+- `Dns.Resolve(host)` and `Dns.ResolveAsync(host)`: a host's addresses, each once, in the OS's
+  order, through libuv's getaddrinfo on the I/O thread, where "localhost" is the loopback
+  addresses and an address's text is itself; a NetError of `HOST_NOT_FOUND` for a name with
+  none, and of `OTHER` for a lookup that fails another way.
+- Waiting for step 13's streams and step 18's Cancellation: `TcpListener` and `TcpStream`
+  (Reader and Writer), `UdpSocket`, with timeouts and Async twins, which take a SocketAddress
+  or a host and port; `IpcListener.Listen(name)` and `IpcStream.Connect(name)`, one IPC type,
+  named pipes on Windows and Unix sockets elsewhere, chosen by libuv, never by the program; and
+  LAN discovery, UDP broadcast and mDNS/DNS-SD.
 - `TlsStream` over any stream (mbedTLS, the OS's roots by default), and a TLS listener.
 - std.net.http: `Method`, `StatusCode`, `Headers`, `Body`; `HttpClient`, `Http.Get` and the rest
   (libcurl: redirects, proxies, cookies, gzip, HTTP/2), `Download(url, path, progress)`;
