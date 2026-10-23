@@ -101,6 +101,11 @@ So far, std/ holds:
 | std/crypto/pem.fb | `KeyKind`, `Key`, and `Certificate` |
 | std/db/database.fb | `Database`, `Statement`, `Transaction`, `Row`, `ColumnType`, `SqlValue`, and `Nullable`, over SQLite through the runtime's `fb_db_` functions |
 | std/uuid/uuid.fb | `Uuid` |
+| std/concurrent/locks.fb | `Semaphore`, `Barrier`, `WaitGroup`, `Once`, and `RwLock<T>`, Shared Classes over the runtime's locks through `fb_semaphore_` and the like |
+| std/concurrent/concurrent_map.fb | `ConcurrentMap<K, V>` and its `ConcurrentMapIterator<K, V>`, in 16 parts of ImmutableMaps |
+| std/concurrent/concurrent_queue.fb | `ConcurrentQueue<T>`, over a Channel that grows |
+| std/concurrent/tasks.fb | `TaskSource<T>`, over the runtime's signals through `fb_signal_`, `WhenAll`, and `WhenAny` |
+| std/events/event.fb | `Event<T>` and `Subscription` |
 
 What the language itself uses, `Error` for Throw and Catch, the Interfaces, `Iterator<T>`, and
 `Map<K, V>` for `{key: value}`, is always std's, whatever a program calls by those names.
@@ -483,12 +488,46 @@ generator, noise, easing, stats, and fixed point; the rest is planned.
 
 #### std.concurrent (beside the built-ins, which stay built in)
 
-- `RwLock<T>`, `Semaphore`, `Barrier`, `WaitGroup`, `Once`, `Lazy<T>` (made once, on first use,
-  from any thread), `ConcurrentMap`, `ConcurrentQueue`.
-- `WhenAll`, `WhenAny`, `TaskSource` (a Task finished by hand), and `Cancellation`, a token
-  blocking calls and Tasks take.
-- `Select` over several Channels and a timeout.
-- `ParallelSort`, `ParallelMap`, `ParallelReduce`, and `ParallelForEach` on the job pool.
+Step 18 built the locks, `ConcurrentMap`, `ConcurrentQueue`, `TaskSource`, `WhenAll`, and `WhenAny`;
+the rest is planned. `Import std.concurrent` brings in all of std/concurrent/.
+
+- The locks are Shared Classes over the runtime's, so a Const or a parameter shares one with the
+  work Spawn and Thread.Start run. What waits blocks its thread and runs nothing else meanwhile, as
+  a Channel's Send does, so work on the pool that waits holds its worker: work that waits for other
+  work belongs on a Thread. `Semaphore(count)`: `Acquire`, `TryAcquire`, `Release(count)`, and
+  `Available`. `Barrier(count)`: `Wait()`, which returns once the round's threads have all come and
+  gives True to the last of them, and `Count`. `WaitGroup()`: `Add(count)` and `Done()`, which panic
+  where the count would go below 0, `Wait()`, and `Count`. `Once()`: `Do(work)`, which runs the work
+  the first time, and the other times returns once it has run, and `IsDone`. `RwLock<T>(value)`, of
+  a Sendable T: `Read(reader)` gives what reader makes of the value, other readers reading at once,
+  `Write(writer)` gives the value what writer makes of it, with no reader or writer meanwhile, and
+  `Value` reads or replaces it; a writer waiting goes before the readers that come after it. Counts
+  stay within what an Int holds, and a thread that takes a lock it holds already, as a Once's work
+  calling its Do or a Read inside a Write, panics, since it could wait for itself forever.
+- `ConcurrentMap<K, V>`, of Sendable keys and values, which any number of threads change at once:
+  `Count`, `Add`, `TryAdd`, `Get` (and `Get(key, fallback)`), `GetOrAdd`, `Update`, `[]` and `[]=`,
+  `Contains`, `Remove`, `Clear`, `Keys`, `Values`, `ToMap`, and `AddOrUpdate(key, value, change)`,
+  which adds value or gives the key's value what change makes of it. Its entries are in 16 parts, by
+  the top bits of their hashes, each an ImmutableMap behind a Mutex of its own, so a read copies its
+  part, holding the lock only for that, and looks in the copy. GetOrAdd's make, and Update's and
+  AddOrUpdate's change, run outside the lock, so they may run again, when another thread changed the
+  key meanwhile, and no change is lost. A For ... In goes over a copy of each part, as it comes to
+  it, by hash.
+- `ConcurrentQueue<T>`, of Sendable values: `Enqueue` (and `Add` and `AddAll`), `TryDequeue`,
+  `TryPeek`, `ToArray`, `Clear`, and `Count`, with no limit but memory and what an Int counts. It
+  never waits, for room or for a value; waiting is a Channel's.
+- `TaskSource<T>`, of a Sendable T, a Task finished by hand: its `Task` is done once
+  `Finish(value)`, on any thread, gives the result, `TryFinish` tells whether it did, so of threads
+  that try at once one does, and `IsDone`. Each read of `Task` gives a new Task of the same result,
+  so code keeps the one it reads. `WhenAll(tasks)` gives a Task of the tasks' results in their
+  order, or a Task for tasks with none, and `WhenAny(tasks)` a Task of the index of the first done,
+  of those done by the same tick the first given. Their Tasks are Async Functions', so they're the
+  main thread's.
+- Planned: a TaskSource whose Task throws, and WhenAll over tasks that throw, once `Task<T> Throws
+  E` can be written as a type; `Cancellation`, a token blocking calls and Tasks take; `Select` over
+  several Channels and a timeout; `Lazy<T>` (made once, on first use, from any thread) and
+  `ParallelSort`, `ParallelMap`, `ParallelReduce`, and `ParallelForEach` on the job pool, which need
+  a function value that another thread can call.
 
 #### std.log
 
@@ -498,9 +537,18 @@ generator, noise, easing, stats, and fixed point; the rest is planned.
 
 #### std.events
 
-- `Event<T>`, held as a Field: `Emit(value)` calls its handlers in order. `Subscribe(handler)`
-  gives a `Subscription` to Cancel, and `Subscribe(owner, handler)` ties a handler to an owner
-  held weakly, passed to the handler so it captures nothing, and dropped when the owner goes.
+Step 18 built `Event<T>` and `Subscription`, in std/events/event.fb; `Import std.events`.
+
+- `Event<T>`, held as a Field: `Emit(value)` calls its handlers in the order they were added, each
+  Emit going over the ones it started with, so one added meanwhile waits for the next, and one a
+  handler before it cancels isn't called. `Subscribe(handler)` gives a `Subscription`, whose
+  `Cancel()` takes the handler off and lets go of it, and whose `IsActive` says whether it's on; it
+  holds neither the Event nor the handler, so keeping one keeps neither. `Count` and `Clear()`. An
+  Event holds its handlers until they're cancelled, and stays on the thread that made it, as a
+  Class's objects do.
+- Planned: `Subscribe(owner, handler)`, which ties a handler to an owner held weakly, passed to the
+  handler so it captures nothing, and dropped when the owner goes, once a Weak can hold a type
+  parameter's objects.
 
 #### std.data
 
