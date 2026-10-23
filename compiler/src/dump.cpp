@@ -306,7 +306,10 @@ private:
             result = ": " + type_text(*node.result);
         }
 
-        return std::format("{}({}){}", node.callback ? "Callback" : "Func", parameters, result);
+        const std::string_view kind = node.callback   ? "Callback"
+                                      : node.sendable ? "Sendable Func"
+                                                      : "Func";
+        return std::format("{}({}){}", kind, parameters, result);
     }
 
     /// "(Int, String)"

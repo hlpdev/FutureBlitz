@@ -678,8 +678,8 @@ private:
     /// The Locals a lambda assigns. Once the lambda exists, any call can run it, so no null check
     /// on them holds.
     std::vector<symbol_id_t> m_unnarrowable;
-    /// The closure Class for each Function used by name as a value.
-    std::unordered_map<symbol_id_t, type_id_t> m_function_classes;
+    /// The closure Class for each Function used by name as a value, and as a Sendable Func.
+    std::map<std::pair<symbol_id_t, bool>, type_id_t> m_function_classes;
     /// The generic Class "Cell<T>", whose instances hold captured Locals.
     type_id_t m_cell = type_id_t::INVALID;
     /// Map<K, V>, from std/collections/map.fb, which a Map literal makes.
@@ -9018,7 +9018,12 @@ private:
                                : "a Task stays on the thread that spawned it");
         }
 
-        return because("a function value stays on the thread that made it");
+        if (is_sendable_func(type)) {
+            return std::nullopt;
+        }
+
+        return because("a function value stays on the thread that made it, unless it's a Sendable "
+                       "Func");
     }
 
     /// The types an unsendable_t's reason shows, after `others`, the ones its error shows
@@ -9716,6 +9721,17 @@ private:
     /// A Func type: a function value's.
     [[nodiscard]] bool is_func(const type_id_t type) const {
         return m_analysis.types.get(type).kind == type_kind_t::FUNCTION;
+    }
+
+    /// "Sendable Func(A): R", a function value that other threads can call.
+    [[nodiscard]] bool is_sendable_func(const type_id_t type) const {
+        return is_func(type) && m_analysis.types.get(type).sendable;
+    }
+
+    /// A Func of the same parameters and result as `func`, Sendable or not.
+    type_id_t func_like(const type_id_t func, const bool sendable) {
+        const type_t& info = m_analysis.types.get(func);
+        return m_analysis.types.function(info.parameters, info.inner, sendable);
     }
 
     /// A generic type's type parameter, like T.
@@ -11607,6 +11623,12 @@ private:
                    (is_interface(from) && m_analysis.types.extends(from, to));
         }
 
+        // A Sendable Func is a Func too, which stays on the thread that has it.
+        if (is_sendable_func(from) && is_func(to) && !is_sendable_func(to)) {
+            return m_analysis.types.get(from).parameters == m_analysis.types.get(to).parameters &&
+                   m_analysis.types.get(from).inner == m_analysis.types.get(to).inner;
+        }
+
         return converts_losslessly(from, to) ||
                (is_class(from) && is_class(to) && m_analysis.types.extends(from, to));
     }
@@ -11744,7 +11766,7 @@ private:
                 return callback_of(*function, parameters, result);
             }
 
-            return m_analysis.types.function(parameters, result);
+            return m_analysis.types.function(parameters, result, function->sendable);
         }
 
         // A Weak<T> belongs in a field, which a check can't narrow.
@@ -16389,6 +16411,13 @@ private:
                   name_of(found.type, { expected, wanted }),
                   name_of(wanted, { expected, found.type }),
                   name_of(wanted, { expected, found.type }));
+        } else if (is_sendable_func(wanted) && is_func(non_null(found.type)) &&
+                   converts(func_like(non_null(found.type), true), expected)) {
+            // Only a lambda or a Function's name is checked as code that runs on any thread.
+            error(span_of(id),
+                  "expected {}, found {}, which other threads can't call; a Sendable Func is a "
+                  "lambda or a Function's name, written where it's expected",
+                  name_of(expected, found.type), name_of(found.type, expected));
         } else if (is_callback(wanted) &&
                    m_analysis.types.get(non_null(found.type)).kind == type_kind_t::FUNCTION) {
             // A Func value is a closure, an object C can't call.
@@ -16833,13 +16862,16 @@ private:
                                    const type_id_t hint,
                                    const std::vector<dropped_t>& dropped = {}) {
         const type_id_t expected = non_null(hint);
+        // Where a Sendable Func is expected, the Function's code runs on any thread.
+        const bool sendable = is_sendable_func(expected);
+        const type_id_t wanted = sendable ? func_like(expected, false) : expected;
         // A Func that only an overload the code can't use fits says why it can't.
         if (expected != type_id_t::INVALID && is_func(expected) &&
             std::ranges::none_of(overloads, [&](const symbol_id_t overload) {
-                return func_of(overload) == expected;
+                return func_of(overload) == wanted;
             })) {
             for (const dropped_t& unusable : dropped) {
-                if (symbol(unusable.id).name == name && func_of(unusable.id) == expected) {
+                if (symbol(unusable.id).name == name && func_of(unusable.id) == wanted) {
                     report_unusable(unusable.id, span_of(id), unusable.through);
                     return type_id_t::INVALID;
                 }
@@ -16851,7 +16883,7 @@ private:
             fitting = overloads;
         } else {
             for (const symbol_id_t overload : overloads) {
-                if (func_of(overload) == expected) {
+                if (func_of(overload) == wanted) {
                     fitting.push_back(overload);
                 }
             }
@@ -16929,12 +16961,16 @@ private:
             }
         }
 
-        const type_id_t func = m_analysis.types.substitute(func_of(*chosen), parameters, arguments);
+        type_id_t func = m_analysis.types.substitute(func_of(*chosen), parameters, arguments);
         if (func == type_id_t::INVALID) {
             return type_id_t::INVALID;
         }
 
         report_bounds(call_bounds(*chosen), parameters, arguments, std::format("'{}'", name), span);
+        if (sendable) {
+            func = func_like(func, true);
+            m_workers.push_back({ .work = *chosen, .span = span, .where = sendable_where });
+        }
 
         info(id).symbol = chosen;
         note_use(*chosen, span);
@@ -16942,7 +16978,8 @@ private:
         info(id).closure = m_analysis.closures.size();
         m_analysis.closures.push_back({
             .function = *chosen,
-            .type = m_analysis.types.substitute(function_class(*chosen), parameters, arguments),
+            .type = m_analysis.types.substitute(function_class(*chosen, sendable), parameters,
+                                                arguments),
             .func = func,
         });
         return func;
@@ -16961,10 +16998,11 @@ private:
     /// The Class of the function values a Function makes when it's used by name, which hold
     /// nothing, like "Twice(Int32) as a value". It's in the Function's module, and its parameter
     /// types have theirs, so two modules' Functions of one name, or overloads whose types have
-    /// one name, make different Classes.
-    type_id_t function_class(const symbol_id_t function) {
-        if (const auto found = m_function_classes.find(function);
-            found != m_function_classes.end()) {
+    /// one name, make different Classes. A Sendable Func's, "as a Sendable value", counts its
+    /// owners atomically.
+    type_id_t function_class(const symbol_id_t function, const bool sendable) {
+        const auto key = std::pair(function, sendable);
+        if (const auto found = m_function_classes.find(key); found != m_function_classes.end()) {
             return found->second;
         }
 
@@ -16975,14 +17013,18 @@ private:
                 m_analysis.types.qualified_name(symbol(symbol(function).parameters[i]).type));
         }
 
-        name += ") as a value";
+        name += sendable ? ") as a Sendable value" : ") as a value";
         const type_id_t type =
             m_analysis.types.add_class(std::move(name), qualifier_of(symbol(function).span));
+        if (sendable) {
+            m_analysis.types.set_shared(type);
+        }
+
         if (!symbol(function).type_parameters.empty()) {
             m_analysis.types.set_parameters(type, symbol(function).type_parameters);
         }
 
-        return m_function_classes[function] = type;
+        return m_function_classes[key] = type;
     }
 
     /// The variable, Const, or field a name refers to. Locals come first, so one can hide a field
@@ -19316,11 +19358,14 @@ private:
 
         const std::optional<std::size_t> closure = info(work).closure;
         const expr_node_t& written = m_ast.get(work).node;
-        if (!closure || (!std::holds_alternative<lambda_expr_t>(written) &&
-                         !std::holds_alternative<name_expr_t>(written) && !info(work).qualified)) {
+        // A Sendable Func's code was checked as code on any thread where it was made.
+        const bool made_here =
+            closure && (std::holds_alternative<lambda_expr_t>(written) ||
+                        std::holds_alternative<name_expr_t>(written) || info(work).qualified);
+        if (!made_here && !is_sendable_func(func)) {
             error(span_of(work),
-                  "{} takes a lambda or a Function's name, since a function value it was given "
-                  "would stay on this thread too",
+                  "{} takes a lambda, a Function's name, or a Sendable Func, since a function "
+                  "value it was given would stay on this thread too",
                   what);
             return type_id_t::INVALID;
         }
@@ -19340,33 +19385,19 @@ private:
             return type_id_t::INVALID;
         }
 
-        bool shareable = true;
-        for (const capture_t& capture : m_analysis.closures[*closure].captures) {
-            const symbol_t& variable = symbol(capture.variable);
-            const type_id_t type = symbol(capture.inside).type;
-            if (capture.kind == capture_kind_t::CELL) {
-                error(span_of(work),
-                      "'{}' is a Local, which another thread can't share; make it a "
-                      "Const",
-                      variable.name);
-                shareable = false;
-            } else if (const std::optional<unsendable_t> why = unsendable(type)) {
-                const std::vector<type_id_t> shown = types_in(*why, { type });
-                error(span_of(work), "'{}' is {}, which another thread can't have: {}",
-                      variable.name, name_among(type, shown), reason_text(*why, shown));
-                shareable = false;
-            }
-        }
-
-        if (!shareable) {
+        if (!made_here) {
+            // The Task holds it as the Func it is.
+            convert(work, func_like(func, false));
+        } else if (!check_sendable_captures(m_analysis.closures[*closure], span_of(work), "")) {
             return type_id_t::INVALID;
+        } else {
+            m_workers.push_back({
+                .work = m_analysis.closures[*closure].function,
+                .span = span_of(node.callee),
+                .where = "this work runs on another thread",
+            });
         }
 
-        m_workers.push_back({
-            .work = m_analysis.closures[*closure].function,
-            .span = span_of(node.callee),
-            .where = "this work runs on another thread",
-        });
         info(id).arguments = { work };
         return thread ? m_analysis.types.thread()
                       : m_analysis.types.task(m_analysis.types.get(func).inner);
@@ -22206,6 +22237,8 @@ private:
         const std::size_t count = node.parameters.size();
         const bool fits =
             is_func(expected) && m_analysis.types.get(expected).parameters.size() == count;
+        // Where a Sendable Func is expected, the lambda is one.
+        const bool sendable = fits && is_sendable_func(expected);
         // While a call's type arguments are inferred, the unknown ones say nothing.
         const auto known = [&](const type_id_t type) { return !mentions(type, m_inferring); };
         const std::vector<weak_capture_t> weak = weak_captures(node);
@@ -22296,10 +22329,15 @@ private:
         }
 
         m_analysis.types.set_fields(closure, std::move(fields));
+        if (sendable) {
+            m_analysis.types.set_shared(closure);
+        }
+
         // An Async lambda's call gives its Task.
         const type_id_t func = m_analysis.types.function(
             types,
-            node.is_async ? m_analysis.types.task(symbol(function).type) : symbol(function).type);
+            node.is_async ? m_analysis.types.task(symbol(function).type) : symbol(function).type,
+            sendable);
         info(id).symbol = function;
         info(id).closure = m_analysis.closures.size();
         m_analysis.closures.push_back({
@@ -22309,7 +22347,44 @@ private:
             .captures = std::move(lambda.captures),
             .lambda = id,
         });
+        if (sendable && node.is_async) {
+            error(node.keyword,
+                  "an Async lambda's code runs on the main thread, so it can't be a Sendable Func");
+        } else if (sendable) {
+            check_sendable_captures(m_analysis.closures.back(), span,
+                                    "a Sendable Func can run on any thread, but ");
+            m_workers.push_back(
+                { .work = function, .span = node.keyword, .where = sendable_where });
+        }
+
         return func;
+    }
+
+    /// How an error about a Sendable Func's code says where it runs.
+    static constexpr std::string_view sendable_where = "a Sendable Func can run on any thread";
+
+    /// Whether what a closure captures can go to other threads with it: values that can't
+    /// change, which are Sendable, and not a Local, whose cell the code around it shares. `lead`
+    /// starts each error.
+    bool check_sendable_captures(const closure_t& closure, const span_t span,
+                                 const std::string_view lead) {
+        bool shareable = true;
+        for (const capture_t& capture : closure.captures) {
+            const symbol_t& variable = symbol(capture.variable);
+            const type_id_t type = symbol(capture.inside).type;
+            if (capture.kind == capture_kind_t::CELL) {
+                error(span, "{}'{}' is a Local, which another thread can't share; make it a Const",
+                      lead, variable.name);
+                shareable = false;
+            } else if (const std::optional<unsendable_t> why = unsendable(type)) {
+                const std::vector<type_id_t> shown = types_in(*why, { type });
+                error(span, "{}'{}' is {}, which another thread can't have: {}", lead,
+                      variable.name, name_among(type, shown), reason_text(*why, shown));
+                shareable = false;
+            }
+        }
+
+        return shareable;
     }
 
     /// "Function at main.fb:3:12", which names a lambda's Class and its code.
@@ -23434,6 +23509,8 @@ private:
             return true;
         case type_kind_t::CLASS:
             return info.shared;
+        case type_kind_t::FUNCTION:
+            return info.sendable;
         // A Shared Class's objects count their Weak references atomically too.
         case type_kind_t::WEAK:
             return m_types.get(info.inner).shared;

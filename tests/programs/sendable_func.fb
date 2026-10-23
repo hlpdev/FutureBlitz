@@ -1,0 +1,78 @@
+// A Sendable Func is a function value that other threads can call: a Shared Class holds one, a
+// Channel carries them to a Thread, Spawn runs one, many tasks call one at once, and each is a
+// Func too. Its closure counts its owners atomically, so whichever thread lets go last frees it.
+Import std.core
+
+Shared Class Job
+    ReadOnly Field Name: String
+    ReadOnly Field Work: Sendable Func(Int): Int
+
+    New(name: String, work: Sendable Func(Int): Int)
+        Name = name
+        Work = work
+    End New
+End Class
+
+Struct Point
+    Field X: Int
+    Field Y: Float
+End Struct
+
+Function Triple(x: Int): Int => x * 3
+
+Function Offset(by: Int): Sendable Func(Int): Int => Function(x) => x + by
+
+// One for each of a value's fields, which each copy of the loop's body makes.
+Function Labels<T>(value: T): (Sendable Func(): String)[]
+    Local made: (Sendable Func(): String)[] = []
+    For Field f: F In T
+        Where F: Printable
+        Const text = "{f.Name}={f.Get(value)}"
+        made.Add(Function() => text)
+    End For
+
+    Return made
+End Function
+
+Const jobs = Channel<Job>(4)
+Const results = Channel<String>(16)
+Const shift = Offset(100)
+
+Local worker = Thread.Start(Function()
+    For job In jobs
+        results.Send("{job.Name}: {job.Work(10)}")
+    End For
+
+    results.Close()
+End Function)
+jobs.Send(Job("triple", Triple))
+jobs.Send(Job("offset", Offset(5)))
+jobs.Send(Job("square", Function(x) => x * x))
+jobs.Close()
+For result In results
+    Print(result)
+End For
+
+worker.Join()
+
+Local f: Sendable Func(): Int = Function() => Triple(14)
+Print(Spawn(f).Wait())
+
+Local tasks: Task<Int>[] = []
+For i = 1 To 16
+    tasks.Add(Spawn(Function() => shift(i)))
+End For
+
+Local total = 0
+For task In tasks
+    total += task.Wait()
+End For
+
+Print(total)
+
+Local plain: Func(Int): Int = shift
+Print(plain(1))
+
+For label In Labels(Point(1, 2.5))
+    Print(Spawn(label).Wait())
+End For

@@ -909,6 +909,12 @@ TEST_CASE("Func types", "[parser]") {
 
     // The return type takes the suffix after it.
     CHECK(parse_text("Local f: Func(): Int[]").dump == "(local f: Func(): Int[])");
+
+    // Before Func, Sendable says other threads can call it; elsewhere it's a name.
+    CHECK(parse_text("Local f: Sendable Func(Int): Int").dump ==
+          "(local f: Sendable Func(Int): Int)");
+    CHECK(parse_text("Local f: (Sendable Func())?").dump == "(local f: Sendable Func()?)");
+    CHECK(parse_text("Local f: Sendable").dump == "(local f: Sendable)");
 }
 
 TEST_CASE("lambda mistakes are reported", "[parser]") {

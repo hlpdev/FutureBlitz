@@ -8504,7 +8504,8 @@ TEST_CASE("Sendable is what the compiler says can go to another thread", "[sema]
                     "stays on the thread that made it" });
     CHECK(errors_of(std::format("{}Local x = Send(Function() => 1)", send)) ==
           errors_t{ "Send: Func(): Int32 isn't Sendable, which 'Send' needs for "
-                    "T: a function value stays on the thread that made it" });
+                    "T: a function value stays on the thread that made it, unless it's a "
+                    "Sendable Func" });
     CHECK(errors_of(std::format("{}Local x = Send(Holder(Null))", send)) ==
           errors_t{ "Send: Holder isn't Sendable, which 'Send' needs for T: its field 'Target' is "
                     "Enemy?, and a Class's objects stay on the thread that made them, unless it's "
@@ -8840,10 +8841,12 @@ TEST_CASE("Spawn runs work on another thread, and gives its Task", "[sema]") {
                     "End Function")
               .empty());
 
-    // It takes a lambda or a Function's name, of no arguments.
+    // It takes a lambda, a Function's name, or a Sendable Func, of no arguments.
     CHECK(errors_of("Local f = Function() => 1\nLocal t = Spawn(f)") ==
-          errors_t{ "f: Spawn takes a lambda or a Function's name, since a function value it "
-                    "was given would stay on this thread too" });
+          errors_t{ "f: Spawn takes a lambda, a Function's name, or a Sendable Func, since a "
+                    "function value it was given would stay on this thread too" });
+    CHECK(probe("Local f: Sendable Func(): Int = Function() => 1\nLocal t = Spawn(f)") ==
+          "Task<Int32>");
     CHECK(errors_of("Local t = Spawn(Function(x: Int) => x)") ==
           errors_t{ "Function(x: Int) => x: the work Spawn runs takes no arguments; a lambda can "
                     "pass them" });
@@ -9131,6 +9134,94 @@ TEST_CASE("what a call can run on another thread includes overrides and lambdas"
           errors_t{ "Destroy: a Shared Class's Destroy() runs on whichever thread lets go last, "
                     "but it uses the Global 'score', which only the main thread can, unless it's "
                     "an Atomic or a Mutex" });
+}
+
+TEST_CASE("a Sendable Func is a lambda or a Function's name that other threads can call",
+          "[sema]") {
+    constexpr std::string_view twice = "Import std.core\n"
+                                       "Function Twice(x: Int): Int => x * 2\n"
+                                       "Function Twice(x: String): String => x + x\n"
+                                       "Function Send<T: Sendable>(value: T): T => value\n";
+    const auto with_twice = [&](const std::string_view text) {
+        return errors_of(std::format("{}{}", twice, text));
+    };
+
+    // Where one is expected, a lambda or a Function's name is one, and it converts to a Func.
+    CHECK(probe(std::format("{}Local f: Sendable Func(Int): Int = Function(x) => x * 2\n"
+                            "Local g = f",
+                            twice)) == "Sendable Func(Int32): Int32");
+    CHECK(probe(std::format("{}Local f: Sendable Func(String): String = Twice\n"
+                            "Local g: Func(String): String = f",
+                            twice)) == "Func(String): String (from Sendable Func(String): String)");
+    CHECK(probe(std::format("{}Local f: (Sendable Func(Int): Int)? = Twice\n"
+                            "Local g = Send(f)",
+                            twice)) == "Sendable Func(Int32): Int32");
+    CHECK(with_twice("Local f: Func(Int): Int = Twice\n"
+                     "Local g: Sendable Func(Int): Int = f") ==
+          errors_t{ "f: expected Sendable Func(Int32): Int32, found Func(Int32): Int32, which "
+                    "other threads can't call; a Sendable Func is a lambda or a Function's name, "
+                    "written where it's expected" });
+
+    // It's Sendable: a Shared Class holds one, and Spawn's work and a Parallel For call one.
+    CHECK(with_twice("Shared Class Maker<T: Sendable>\n"
+                     "    ReadOnly Field Make: Sendable Func(): T\n"
+                     "    New(make: Sendable Func(): T)\n"
+                     "        Make = make\n"
+                     "    End New\n"
+                     "End Class\n"
+                     "Function Each(f: Sendable Func(Int): Int, values: Int[])\n"
+                     "    Parallel For i = 0 Until values.Count\n"
+                     "        values[i] = f(values[i])\n"
+                     "    End For\n"
+                     "    Local t = Spawn(Function() => f(1)).Wait()\n"
+                     "End Function\n"
+                     "Local m = Maker<Int>(Function() => 5)")
+              .empty());
+
+    // What it captures can't change, and is Sendable: a Const, a parameter, a loop variable, or
+    // a Shared Class's Self.
+    CHECK(with_twice("Shared Class Hub\n"
+                     "    ReadOnly Field Hits: Int\n"
+                     "    Method Later(): Sendable Func(): Int => Function() => Hits\n"
+                     "End Class\n"
+                     "Function Add(by: Int): Sendable Func(Int): Int\n"
+                     "    Const name = \"add\"\n"
+                     "    Return Function(x: Int): Int => x + by + name.Bytes.Count\n"
+                     "End Function\n"
+                     "For i = 1 To 3\n"
+                     "    Local f: Sendable Func(): Int = Function() => i\n"
+                     "End For")
+              .empty());
+    CHECK(with_twice("Class Enemy\n"
+                     "    Field HP: Int\n"
+                     "    Method Later(): Sendable Func(): Int => Function() => HP\n"
+                     "End Class\n"
+                     "Function Count(): Sendable Func(): Int\n"
+                     "    Local n = 1\n"
+                     "    Return Function() => n\n"
+                     "End Function") ==
+          errors_t{
+              "Function() => HP: a Sendable Func can run on any thread, but 'Self' is Enemy, "
+              "which another thread can't have: a Class's objects stay on the thread that made "
+              "them, unless it's a Shared Class",
+              "Function() => n: a Sendable Func can run on any thread, but 'n' is a Local, which "
+              "another thread can't share; make it a Const",
+          });
+
+    // Its code runs on another thread, and an Async lambda's can't.
+    CHECK(with_twice("Global score = 0\n"
+                     "@MainThread Function Render()\n"
+                     "End Function\n"
+                     "Function Bump(): Sendable Func() => Function() => Print(\"{score}\")\n"
+                     "Function Draw(): Sendable Func() => Render\n"
+                     "Function Wait(): Sendable Func(): Task<Int> => Async Function() => 1") ==
+          errors_t{
+              "Function: a Sendable Func can run on any thread, but it uses the Global 'score', "
+              "which only the main thread can, unless it's an Atomic or a Mutex",
+              "Render: a Sendable Func can run on any thread, but 'Render' is @MainThread",
+              "Function: an Async lambda's code runs on the main thread, so it can't be a "
+              "Sendable Func",
+          });
 }
 
 TEST_CASE("a Parallel For's passes share only copies and their own elements", "[sema]") {

@@ -1,0 +1,55 @@
+// ParallelMap as std.concurrent can write it: a Sendable Func comes in as a parameter, and a
+// Parallel For's body calls it on every core, with a lambda, a Function's name, and a lambda
+// that captures a parameter or a Shared Class's Self.
+Import std.core
+Import std.collections
+
+Function ParallelMap<T: Sendable, R: Sendable>(items: T[], f: Sendable Func(T): R): R[]
+    Local results: R[] = []
+    If items.Count == 0 Then Return results
+    // The first result fills the array, which each pass then changes at its own index.
+    results.Resize(items.Count, f(items[0]))
+    Parallel For i = 1 Until items.Count
+        results[i] = f(items[i])
+    End For
+
+    Return results
+End Function
+
+Function Square(x: Int): Int => x * x
+
+Function Shift(items: Int[], by: Int): Int[] => ParallelMap(items, Function(x) => x + by)
+
+Shared Class Scaler
+    ReadOnly Field Factor: Int
+
+    New(factor: Int)
+        Factor = factor
+    End New
+
+    Method Scale(items: Int[]): Int[] => ParallelMap(items, Function(x) => x * Factor)
+End Class
+
+Function Sum(values: Int[]): Int64
+    Local total: Int64 = 0
+    For value In values
+        total += value
+    End For
+
+    Return total
+End Function
+
+Local numbers: Int[] = []
+For i = 1 To 10000
+    numbers.Add(i % 100)
+End For
+
+Print(Sum(ParallelMap(numbers, Square)))
+Print(Sum(Shift(numbers, 3)))
+Print(Sum(Scaler(7).Scale(numbers)))
+Local words = ParallelMap(["fire", "ice", "storm"], Function(word) => "{word}!")
+Print(words.Join(" "))
+Local lengths = ParallelMap(words, Function(word: String): Int => word.Bytes.Count)
+Print(Sum(lengths))
+Local empty: Int[] = []
+Print(ParallelMap(empty, Square).Count)

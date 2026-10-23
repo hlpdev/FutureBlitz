@@ -58,9 +58,10 @@ End For
   gives; work that gives nothing gives a `Task`. `t.Wait()` returns once it's done, with its
   result, and `t.IsDone()` says whether it is. `Thread.Start(work)` gives a `Thread`, with
   `Join()` and `IsDone()`, and runs the work on a thread of its own.
-- The work is a lambda or a Function's name, which takes no arguments, since nothing else here
-  can hold the closure that goes to the other thread. A `Task<T>` expected says what the lambda
-  gives, as in `Local t: Task<Int64> = Spawn(Function() => 5)`, so neither takes type arguments.
+- The work is a lambda or a Function's name, which takes no arguments, or a Sendable Func (see
+  [05](05-functions.md#sendable-func)), since no other function value can go to the other
+  thread. A `Task<T>` expected says what the lambda gives, as in `Local t: Task<Int64> =
+  Spawn(Function() => 5)`, so neither takes type arguments.
 - What the work makes is its own: it reaches only Sendable values from outside it, so its result
   moves safely to the thread that waits for it, even an object or an array.
 - A Task or Thread stays on the thread that started it, so it isn't Sendable, and only that
@@ -297,14 +298,15 @@ End Class
 The compiler checks every `Spawn` capture, `Parallel For` body, and channel send.
 
 - `Sendable` is an Interface in std/core/interfaces.fb that the compiler decides from a type's
-  parts: numbers, Bools, Strings, Enums, Callbacks, Channels, Mutexes, Atomics, and a Shared
-  Class's objects are Sendable, and so is a `Weak<T>` of a Shared Class, whose objects count
-  Weak references atomically too, or of a type parameter that's `Class & Sendable`, which stands
-  for one, and so are the Structs, tuples, and fixed arrays whose fields and elements all are,
-  and a `T?` of any of them. A Ptr or CString isn't, since nothing keeps
+  parts: numbers, Bools, Strings, Enums, Callbacks, Sendable Funcs, Channels, Mutexes, Atomics,
+  and a Shared Class's objects are Sendable, and so is a `Weak<T>` of a Shared Class, whose
+  objects count Weak references atomically too, or of a type parameter that's `Class &
+  Sendable`, which stands for one, and so are the Structs, tuples, and fixed arrays whose fields
+  and elements all are, and a `T?` of any of them. A Ptr or CString isn't, since nothing keeps
   what it points at for another thread.
-- Classes, arrays, function values, and other `Weak<T>`s aren't, since an object's refcount
-  isn't atomic: an object stays on the thread that made it. Neither is a Struct that holds one.
+- Classes, arrays, other function values, and other `Weak<T>`s aren't, since an object's
+  refcount isn't atomic: an object stays on the thread that made it. Neither is a Struct that
+  holds one.
 - Generic code says a type parameter is Sendable with a constraint, `<T: Sendable>`, and an
   instance like `Box<Int>` is Sendable when its fields are.
 - No type has to list it. One that does, `Struct Packet Implements Sendable`, or that lists an
@@ -317,8 +319,9 @@ The compiler checks every `Spawn` capture, `Parallel For` body, and channel send
 
 **Captures across threads.** Closures capture by reference ([05](05-functions.md#closures)), so
 sharing a mutable `Local` with another thread would be a data race. A closure passed to `Spawn`
-or `Thread.Start`, or the body of a `Parallel For`, can only capture what can't change, holding
-a `Sendable` value: a `Const`, a parameter, a loop variable, or a Self that's Sendable.
+or `Thread.Start`, the body of a `Parallel For`, or a lambda that's a Sendable Func, can only
+capture what can't change, holding a `Sendable` value: a `Const`, a parameter, a loop variable,
+or a Self that's Sendable.
 
 ```vb
 Const enemy = Enemy("grunt")
@@ -345,12 +348,13 @@ Spawn(Function() => ComputePath(target))
 Spawn(Function() => PositionEntity(cam, 0, 0, 0))   // ✗ compile error: @MainThread
 ```
 
-- Work on another thread is a Spawn's or Thread.Start's, or a Callback's code, which C can call
-  on any thread (see [12](12-ffi.md#callbacks)), or a ThreadLocal Global's initializer, which
-  runs on each thread that uses it (see [02](02-types.md#threadlocal-globals)), with everything
-  it can run: what it calls, its lambdas, what overrides the Methods it calls, and what
-  implements the Interface Methods it calls, with each New's Class's Destroy(). A Shared
-  Class's Destroy() is too, since whichever thread lets go last runs it.
+- Work on another thread is a Spawn's or Thread.Start's, a Sendable Func's, or a Callback's
+  code, which C can call on any thread (see [12](12-ffi.md#callbacks)), or a ThreadLocal
+  Global's initializer, which runs on each thread that uses it (see
+  [02](02-types.md#threadlocal-globals)), with everything it can run: what it calls, its lambdas,
+  what overrides the Methods it calls, and what implements the Interface Methods it calls, with
+  each New's Class's Destroy(). A Shared Class's Destroy() is too, since whichever thread lets go
+  last runs it.
 - That code can't use a Global or Static Field unless it's an Atomic, a Mutex, or a ThreadLocal
   Global, or a top-level Const that isn't Sendable, or call a `@MainThread` Function or Method.
   Async code, the timers, and Schedulers are the main thread's too. A top-level Const that's

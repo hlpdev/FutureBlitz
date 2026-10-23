@@ -5694,6 +5694,11 @@ private:
 
         const type_id_t made = types().add_class(std::move(name), types().get(type).module);
         types().set_fields(made, types().get(type).fields);
+        // A Sendable Func's copy counts its owners atomically too.
+        if (types().get(type).shared) {
+            types().set_shared(made);
+        }
+
         m_closure_copies[key] = made;
         return made;
     }

@@ -446,18 +446,20 @@ type_id_t type_table_t::tuple(const std::vector<type_id_t>& elements) {
     return id;
 }
 
-type_id_t type_table_t::function(const std::vector<type_id_t>& parameters, const type_id_t result) {
+type_id_t type_table_t::function(const std::vector<type_id_t>& parameters, const type_id_t result,
+                                 const bool sendable) {
     if (result == type_id_t::INVALID || std::ranges::contains(parameters, type_id_t::INVALID)) {
         return type_id_t::INVALID;
     }
 
     for (const type_id_t made : m_functions) {
-        if (get(made).parameters == parameters && get(made).inner == result) {
+        if (get(made).parameters == parameters && get(made).inner == result &&
+            get(made).sendable == sendable) {
             return made;
         }
     }
 
-    std::string text = "Func(";
+    std::string text = sendable ? "Sendable Func(" : "Func(";
     for (std::size_t i = 0; i < parameters.size(); ++i) {
         text += std::format("{}{}", i == 0 ? "" : ", ", name(parameters[i]));
     }
@@ -472,6 +474,7 @@ type_id_t type_table_t::function(const std::vector<type_id_t>& parameters, const
         .name = std::move(text),
         .inner = result,
         .parameters = parameters,
+        .sendable = sendable,
     });
     m_functions.push_back(id);
     return id;
@@ -798,7 +801,8 @@ type_id_t type_table_t::substitute(const type_id_t type, const std::vector<type_
         return tuple(elements);
     }
     case type_kind_t::FUNCTION:
-        return function(each(info.parameters), substitute(info.inner, parameters, arguments));
+        return function(each(info.parameters), substitute(info.inner, parameters, arguments),
+                        info.sendable);
     case type_kind_t::CALLBACK:
         return callback(each(info.parameters), substitute(info.inner, parameters, arguments));
     case type_kind_t::STRUCT:
@@ -986,9 +990,13 @@ bool type_table_t::has_zero(const type_id_t type) const {
 std::string type_table_t::suffixed(const type_id_t type, const bool qualified,
                                    const std::string_view main) const {
     std::string text = qualified ? qualified_name(type, main) : std::string(name(type));
-    if (type != type_id_t::INVALID &&
-        (get(type).kind == type_kind_t::FUNCTION || get(type).kind == type_kind_t::CALLBACK) &&
-        get(type).inner != type_id_t::NONE) {
+    if (type == type_id_t::INVALID) {
+        return text;
+    }
+
+    const type_t& info = get(type);
+    if ((info.kind == type_kind_t::FUNCTION || info.kind == type_kind_t::CALLBACK) &&
+        info.inner != type_id_t::NONE) {
         return std::format("({})", text);
     }
 
@@ -1074,10 +1082,13 @@ std::string type_table_t::qualified_name(const type_id_t id, const std::string_v
 
         return std::format("({})", list(elements));
     }
-    case type_kind_t::FUNCTION:
-        return type.inner == type_id_t::NONE ? std::format("Func({})", list(type.parameters))
-                                             : std::format("Func({}): {}", list(type.parameters),
-                                                           qualified_name(type.inner, main));
+    case type_kind_t::FUNCTION: {
+        const std::string_view func = type.sendable ? "Sendable Func" : "Func";
+        return type.inner == type_id_t::NONE
+                   ? std::format("{}({})", func, list(type.parameters))
+                   : std::format("{}({}): {}", func, list(type.parameters),
+                                 qualified_name(type.inner, main));
+    }
     case type_kind_t::CALLBACK:
         return type.inner == type_id_t::NONE
                    ? std::format("Callback({})", list(type.parameters))

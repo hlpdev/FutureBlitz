@@ -177,7 +177,8 @@ public:
             out += '\n';
         }
 
-        // "class Boss Extends Enemy, Destroy: Boss.Destroy()", then its Method table.
+        // "class Boss Extends Enemy, Destroy: Boss.Destroy()", then its Method table. One whose
+        // objects count their owners atomically, as a Shared Class's do, ends in ", Shared".
         for (const mir_class_t& info : m_module.classes) {
             out += std::format("{} {}", keyword("class"), type(info.type));
             if (const type_id_t base = m_module.types->get(info.type).base;
@@ -187,6 +188,10 @@ public:
 
             if (info.destroy) {
                 out += std::format(", Destroy: {}", function_name(*info.destroy));
+            }
+
+            if (m_module.types->get(info.type).shared) {
+                out += std::format(", {}", keyword("Shared"));
             }
 
             out += '\n';

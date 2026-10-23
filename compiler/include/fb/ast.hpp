@@ -341,6 +341,8 @@ struct function_type_t {
     std::optional<type_expr_id_t> result;
     /// "Callback(A, B): R": a C function pointer, rather than a function value.
     bool callback = false;
+    /// "Sendable Func(A, B): R": a function value that other threads can call.
+    bool sendable = false;
 };
 
 /// A value where a type argument goes, for a Const type parameter: the 64 in

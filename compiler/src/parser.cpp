@@ -3565,6 +3565,11 @@ private:
 
         if (token.kind == token_kind_t::LEFT_PAREN) {
             type = parse_tuple_type();
+        } else if (token.kind == token_kind_t::IDENTIFIER && text(token) == "Sendable" &&
+                   peek(1).kind == token_kind_t::KW_FUNC) {
+            // "Sendable" is a contextual keyword before Func, and a name everywhere else.
+            advance();
+            type = parse_function_type(&token);
         } else if (token.kind == token_kind_t::IDENTIFIER) {
             type = parse_named_type();
         } else if (token.kind == token_kind_t::KW_SELF) {
@@ -3668,8 +3673,8 @@ private:
 
     /// "Func(A, B): R", or "Func(A)" for a function that returns nothing, and "Callback(A, B):
     /// R" alike. The return type takes any "?" after it, so a Func that can be Null is written
-    /// "(Func(): Int)?".
-    type_expr_id_t parse_function_type() {
+    /// "(Func(): Int)?". After `sendable`, the "Sendable" before it, it's a Sendable Func.
+    type_expr_id_t parse_function_type(const token_t* const sendable = nullptr) {
         if (!enter()) {
             return add_type(point(peek().span.begin), error_type_t{});
         }
@@ -3705,11 +3710,13 @@ private:
         }
 
         --m_nesting;
-        return add_type(span_from(keyword.span.begin), function_type_t{
-                                                           .parameters = std::move(parameters),
-                                                           .result = result,
-                                                           .callback = callback,
-                                                       });
+        const std::uint32_t begin = sendable != nullptr ? sendable->span.begin : keyword.span.begin;
+        return add_type(span_from(begin), function_type_t{
+                                              .parameters = std::move(parameters),
+                                              .result = result,
+                                              .callback = callback,
+                                              .sendable = sendable != nullptr,
+                                          });
     }
 
     /// "(A, B)", a tuple type. Parentheses around one type only group it, as in an expression.

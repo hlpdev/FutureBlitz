@@ -1,0 +1,64 @@
+// Lazy<T> as std.concurrent can write it: a Shared Class holds the Sendable Func that makes its
+// value, which the first thread to ask runs, once, however many threads ask at once.
+Import std.core
+
+Shared Class Lazy<T: Sendable>
+    ReadOnly Field Maker: Sendable Func(): T
+    Field Value: Mutex<T?>
+
+    New(maker: Sendable Func(): T)
+        Maker = maker
+    End New
+
+    Method Get(): T
+        Lock Value As value
+            Local made = value
+            If made == Null
+                made = Maker()
+                value = made
+            End If
+
+            Return made
+        End Lock
+    End Method
+End Class
+
+Global makes = Atomic<Int>(0)
+
+Function Answer(): Int
+    makes.Add(1)
+    Return 42
+End Function
+
+// What 8 tasks on the pool get from one Lazy, added up.
+Function Race(lazy: Lazy<Int>): Int
+    Local tasks: Task<Int>[] = []
+    For i = 1 To 8
+        tasks.Add(Spawn(Function() => lazy.Get()))
+    End For
+
+    Local total = 0
+    For task In tasks
+        total += task.Wait()
+    End For
+
+    Return total
+End Function
+
+Function Shout(word: String): Lazy<String>
+    Return Lazy<String>(Function(): String
+        makes.Add(1)
+        Return "{word}!"
+    End Function)
+End Function
+
+For round = 1 To 50
+    makes.Store(0)
+    Local total = Race(Lazy<Int>(Answer))
+    If total != 336 || makes.Load() != 1 Then Print("round {round}: {total}, made {makes.Load()}")
+End For
+
+makes.Store(0)
+Const shout = Shout("hey")
+Local heard = Spawn(Function() => shout.Get())
+Print(heard.Wait(), shout.Get(), makes.Load())

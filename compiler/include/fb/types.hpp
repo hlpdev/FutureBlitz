@@ -239,6 +239,9 @@ struct type_t {
     /// TASK: the Classes that its Async Function's errors extend, which Wait and Await re-throw.
     /// Its last field, "error", holds the error, or Null.
     std::vector<type_id_t> throws;
+    /// FUNCTION: a Sendable Func, which other threads can call: its closure captures only
+    /// Sendable values and counts its owners atomically.
+    bool sendable = false;
 };
 
 /// Every type one program uses. The built-ins are always there, with their fixed ids. A type
@@ -322,9 +325,10 @@ public:
     /// "(A, B)", of two or more elements. With an INVALID element, it's INVALID.
     [[nodiscard]] type_id_t tuple(const std::vector<type_id_t>& elements);
 
-    /// "Func(A, B): R", with a `result` of NONE for one that returns nothing. With an INVALID
-    /// part, it's INVALID.
-    [[nodiscard]] type_id_t function(const std::vector<type_id_t>& parameters, type_id_t result);
+    /// "Func(A, B): R", with a `result` of NONE for one that returns nothing, or "Sendable Func(A,
+    /// B): R". With an INVALID part, it's INVALID.
+    [[nodiscard]] type_id_t function(const std::vector<type_id_t>& parameters, type_id_t result,
+                                     bool sendable = false);
 
     /// "Callback(A, B): R", or "Callback(A)" for one that gives nothing.
     [[nodiscard]] type_id_t callback(const std::vector<type_id_t>& parameters, type_id_t result);

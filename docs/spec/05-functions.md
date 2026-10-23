@@ -163,6 +163,30 @@ Lambdas are always written with `Function`: `Function(x) => expr`, or a block en
 - A function value is called like a function, `f(1)`, with its arguments in order. It has no
   `==`, but a `Func?` compares with `Null`.
 
+### Sendable Func
+
+`Sendable Func(A): R` is a function value that other threads can call, as Swift's `@Sendable`
+closures are (see [10](10-concurrency.md#safety-data-races-are-compile-errors)):
+
+```vb
+Function ParallelMap<T: Sendable, R: Sendable>(items: T[], f: Sendable Func(T): R): R[]
+```
+
+- A lambda or a Function's name written where one is expected is one. What the lambda captures
+  can't change and is Sendable, as for Spawn's work: a Const, a parameter, or a loop variable
+  holding a Sendable value, or a Self that's Sendable. Its code is checked as work on another
+  thread, so it can't use a Global or call a `@MainThread` Function, and an Async lambda, whose
+  code runs on the main thread, isn't one.
+- Its parameters and result can be of any type, since each call runs on the thread that makes it.
+- It's Sendable itself, so a Shared Class's ReadOnly Field, a Channel, or a Mutex can hold one,
+  and Spawn's work and a Parallel For's body can call one. Spawn and Thread.Start take one as
+  their work too.
+- It converts to the Func of its parameters and result, but a Func doesn't convert to it, since a
+  Func's closure stays on the thread that made it: "expected Sendable Func(Int32): Int32, found
+  Func(Int32): Int32, which other threads can't call".
+- Its closure counts its owners atomically, as a Shared Class's objects do, so whichever thread
+  lets go last frees it.
+
 ## Closures
 
 A closure is a function that captures variables from the scope where it was created.
