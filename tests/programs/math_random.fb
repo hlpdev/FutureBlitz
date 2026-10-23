@@ -1,6 +1,6 @@
 // Random: PCG32, whose seed 42 on stream 54 gives the numbers pcg32-demo's reference does, and a
 // seed's numbers are the same in every build and on every OS, Floats and Normal's included, since
-// none of them goes through C's libm.
+// of C's libm they use only sqrt, which IEEE 754 has round correctly.
 Import std.core
 Import std.math
 Import std.collections

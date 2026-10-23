@@ -1,7 +1,8 @@
 // Random: a seeded generator of random numbers, PCG32, Melissa O'Neill's permuted congruential
 // generator, so a seed gives the same numbers in every build, on every OS and CPU, which replays,
-// tests, and level seeds need. Nothing it makes uses C's libm: its floats come from its integers,
-// and Normal's logarithm is its own. It isn't for secrets; std.crypto's SecureRandom is.
+// tests, and level seeds need. Its floats come from its integers, and Normal's logarithm is its
+// own; of C's libm, only Normal, UnitVector3, and Normalize use sqrt, which IEEE 754 has every OS
+// round correctly. It isn't for secrets; std.crypto's SecureRandom is.
 
 Import std.core
 Import std.math.bits
