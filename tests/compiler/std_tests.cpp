@@ -228,3 +228,26 @@ TEST_CASE("Html.Unescape takes time that grows with its text alone", "[programs]
     CHECK(result->output == "1600001\n");
     CHECK(took < std::chrono::seconds(10));
 }
+
+TEST_CASE("Repeated makes an empty String without counting to its count", "[programs]") {
+    // "" 2147483647 times used to append nothing that many times, which took most of a minute.
+    const fb::compilation_t compilation =
+        fb::compile("repeat.fb",
+                    "Import std.core\n"
+                    "Import std.text\n"
+                    "Local empty = \"\"\n"
+                    "Print(\"[{empty.Repeated(2147483647)}]\")\n",
+                    fb::standard_library().value_or(std::vector<fb::library_file_t>{}));
+    REQUIRE_FALSE(compilation.diagnostics.has_errors());
+    std::filesystem::path program = std::filesystem::path(FB_TEST_OUTPUT) / "std_repeat";
+    program += fb::executable_extension;
+    const fb::mir_module_t module = fb::lower(compilation.ast, compilation.analysis);
+    REQUIRE(fb::build_program(module, compilation, program, fb::build_mode_t::DEBUG));
+
+    const auto start = std::chrono::steady_clock::now();
+    const std::expected<fb::process_result_t, std::string> result = fb::run_process(program, {});
+    const std::chrono::steady_clock::duration took = std::chrono::steady_clock::now() - start;
+    REQUIRE(result);
+    CHECK(result->output == "[]\n");
+    CHECK(took < std::chrono::seconds(10));
+}

@@ -124,9 +124,14 @@ fb_string_t* fb_text_join(const fb_array_t* parts, const fb_string_t* separator)
 }
 
 fb_string_t* fb_text_repeat(const fb_string_t* text, const std::int64_t count) {
-    // A String past the most one holds panics before its bytes are asked for.
+    // Nothing repeated is "", however many times.
     const std::string_view once = text_of(text);
-    if (!once.empty() && static_cast<std::uint64_t>(count) > INT32_MAX / once.size()) {
+    if (once.empty() || count <= 0) {
+        return new_string({});
+    }
+
+    // A String past the most one holds panics before its bytes are asked for.
+    if (static_cast<std::uint64_t>(count) > INT32_MAX / once.size()) {
         fb_panic("a String holds at most 2147483647 bytes", nullptr);
     }
 
