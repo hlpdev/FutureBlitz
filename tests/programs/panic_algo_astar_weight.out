@@ -1,1 +1,1 @@
-panic: a step's weight can't be negative or NaN, not -2 at panic_algo_astar_weight.fb:7:7
+panic: a step's weight can't be negative or NaN at panic_algo_astar_weight.fb:7:7

@@ -120,6 +120,23 @@ Local noNames: String[] = []
 Print(reopened?.Nodes ?? noNames, reopened?.Cost ?? -1, direct?.Nodes ?? noNames,
       direct?.Cost ?? -1)
 
+// Weights of a type of the program's own, Numeric and Comparable, though not Printable.
+Struct Cents Implements Numeric, Comparable
+    Field Units: Int
+
+    Static Method Zero(): Cents => Cents(0)
+    Static Method One(): Cents => Cents(100)
+    Operator +(a: Cents, b: Cents): Cents => Cents(a.Units + b.Units)
+    Operator -(a: Cents, b: Cents): Cents => Cents(a.Units - b.Units)
+    Operator *(a: Cents, b: Cents): Cents => Cents(a.Units * b.Units / 100)
+    Operator /(a: Cents, b: Cents): Cents => Cents(a.Units * 100 / b.Units)
+    Operator <(a: Cents, b: Cents): Bool => a.Units < b.Units
+End Struct
+
+Local priced = Function(n: Int): (Int, Cents)[] => n < 3 ? [(n + 1, Cents(150))] : []
+Print(Dijkstra(0, priced, Function(n) => n == 3)?.Cost?.Units ?? -1, DijkstraAll(0, priced).Nodes,
+      AStar(0, priced, Function(n) => Cents(0), Function(n) => n == 2)?.Cost?.Units ?? -1)
+
 // Any Hashable nodes: a Struct of its own.
 Struct Room Implements Hashable, Printable
     Field Name: String

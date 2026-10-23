@@ -1,2 +1,2 @@
 3
-panic: a step's weight can't be negative or NaN, not -1 at panic_algo_dijkstra_weight.fb:9:7
+panic: a step's weight can't be negative or NaN at panic_algo_dijkstra_weight.fb:9:7

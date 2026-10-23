@@ -3,7 +3,8 @@
 // states are graphs alike, and a node is Hashable, so a search knows where it's been. A search
 // takes its start, its successors, and a Function that says which nodes are the goal, and goes
 // over a node's successors in the order successors gives them, so a run finds what the last did.
-// A weighted step's cost is of any Numeric type, Ints for exact sums, and isn't negative or NaN.
+// A weighted step's cost is of any Numeric and Comparable type, Ints for exact sums, and isn't
+// negative or NaN.
 
 Import std.core
 Import std.collections
@@ -201,7 +202,7 @@ End Function
 // parent and cost, and where the goal is, or -1 for none, or for every node when goal is Null.
 Class Search<N, C>
     Where N: Hashable
-    Where C: Numeric & Comparable & Printable
+    Where C: Numeric & Comparable
 
     Field Index: Map<N, Int>
     Field Nodes: N[] = []
@@ -248,7 +249,7 @@ Class Search<N, C>
             For step In successors(node)
                 Local successor, weight = step
                 If !(weight >= C.Zero())
-                    Panic("a step's weight can't be negative or NaN, not {weight}")
+                    Panic("a step's weight can't be negative or NaN")
                 End If
                 Local cost = Costs[at] + weight
                 Local found = Index.Get(successor)
@@ -293,7 +294,7 @@ End Class
 Public Function Dijkstra<N, C>(start: N, successors: Func(N): (N, C)[],
                                goal: Func(N): Bool): Path<N, C>?
     Where N: Hashable
-    Where C: Numeric & Comparable & Printable
+    Where C: Numeric & Comparable
     Return Search<N, C>(start, successors, Function(node: N) => C.Zero(), goal).ToPath()
 End Function
 
@@ -302,7 +303,7 @@ End Function
 @PanicsAtCaller
 Public Function DijkstraAll<N, C>(start: N, successors: Func(N): (N, C)[]): ShortestPaths<N, C>
     Where N: Hashable
-    Where C: Numeric & Comparable & Printable
+    Where C: Numeric & Comparable
     Local search = Search<N, C>(start, successors, Function(node: N) => C.Zero(), Null)
     // Reached in the order the nodes were settled, the cheapest first.
     Local index = Map<N, Int>()
@@ -331,6 +332,6 @@ End Function
 Public Function AStar<N, C>(start: N, successors: Func(N): (N, C)[], heuristic: Func(N): C,
                             goal: Func(N): Bool): Path<N, C>?
     Where N: Hashable
-    Where C: Numeric & Comparable & Printable
+    Where C: Numeric & Comparable
     Return Search<N, C>(start, successors, heuristic, goal).ToPath()
 End Function
