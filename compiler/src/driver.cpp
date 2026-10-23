@@ -410,19 +410,26 @@ private:
         };
     }
 
-    /// What tells two paths apart: in memory, the path itself, and on disk, where the file is,
-    /// so a file reached by two paths loads once.
+    /// What tells two paths apart: in memory, the path itself, and on disk, where the file
+    /// really is, with links and junctions followed and in the disk's letter case, so a file
+    /// reached by two paths loads once. One that isn't there is where its path leads.
     [[nodiscard]] std::string key_of(const std::string_view path) const {
         if (!m_files.root) {
             return std::string(path);
         }
 
+        const std::filesystem::path where = disk_path(m_files, path);
+        if (const std::optional<std::filesystem::path> real = real_path(where)) {
+            return to_utf8(*real);
+        }
+
         std::error_code ignored;
-        return to_utf8(std::filesystem::weakly_canonical(disk_path(m_files, path), ignored));
+        return to_utf8(std::filesystem::weakly_canonical(where, ignored));
     }
 
-    /// A loaded file that's the file at `path` on disk, though their keys differ: on a disk
-    /// that ignores letter case, as Windows' and macOS's usually do, "UI/Hud.fb" is "ui/hud.fb".
+    /// A loaded file that's the file at `path` on disk, though their keys differ: where the
+    /// system gives a real path in the letter case it was asked for, on a disk that ignores
+    /// letter case, "UI/Hud.fb" is "ui/hud.fb".
     [[nodiscard]] std::optional<std::size_t> same_file(const std::string_view path) const {
         if (!m_files.root) {
             return std::nullopt;
@@ -469,8 +476,10 @@ private:
         return index;
     }
 
-    /// The name in `folder` on disk that `name` spells, in its own letter cases, if any. One
-    /// spelled the same way comes first.
+    /// The name in `folder` on disk that `name` spells, in its own letter cases, if any: one
+    /// spelled the same way, or else one whose ASCII letters differ only in case, or else the
+    /// one the disk finds by `name`, as it does for other letters in other cases, which isn't a
+    /// link to it.
     [[nodiscard]] static std::optional<std::string> on_disk(const std::filesystem::path& folder,
                                                             const std::string_view name) {
         std::optional<std::string> found;
@@ -487,7 +496,21 @@ private:
             }
         }
 
-        return found;
+        const std::filesystem::path written = folder / path_from_utf8(name);
+        if (found || !std::filesystem::exists(written, error)) {
+            return found;
+        }
+
+        for (auto entry = std::filesystem::directory_iterator(folder, error);
+             !error && entry != std::filesystem::directory_iterator(); entry.increment(error)) {
+            std::error_code ignored;
+            if (!is_link(entry->path()) &&
+                std::filesystem::equivalent(entry->path(), written, ignored)) {
+                return to_utf8(entry->path().filename());
+            }
+        }
+
+        return std::nullopt;
     }
 
     /// Warns where an Import spells a folder or file in other letter cases than the disk has

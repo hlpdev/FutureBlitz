@@ -974,6 +974,41 @@ constexpr std::string_view app_toml = "[project]\n"
 
 } // namespace
 
+TEST_CASE("a file reached through a link in the program's folder loads once", "[driver]") {
+    const packages_t files;
+    files.write("ui/hud.fb", "Public Struct Box\n    Public Field v: Int32\nEnd Struct\n");
+    files.write("b.fb", "Import \"./alias/hud\"\nPublic Function Make(): Box => Box(1)\n");
+    files.write("main.fb", "Import \"./ui/hud\"\nImport \"./b\"\nLocal a: Box = Make()\n");
+    if (make_link(files / "ui", files / "alias")) {
+        const std::expected<fb::compilation_t, std::string> compiled =
+            fb::compile_file(files / "main.fb");
+        REQUIRE(compiled);
+        CHECK(files.messages(*compiled).empty());
+    }
+
+    files.remove();
+}
+
+TEST_CASE("a folder reached by a name whose other letters differ in case loads once", "[driver]") {
+    const packages_t files;
+    files.write("été/x.fb", "Public Struct Box\n    Public Field v: Int32\nEnd Struct\n");
+    files.write("b.fb", "Import \"./été/x\"\nPublic Function Make(): Box => Box(1)\n");
+    files.write("main.fb", "Import \"./ÉTÉ/x\"\nImport \"./b\"\nLocal a: Box = Make()\n");
+    // Only a disk that ignores letter case, as Windows' and macOS's usually do, has ÉTÉ/x.fb.
+    if (std::filesystem::exists(files / "ÉTÉ/x.fb")) {
+        const std::expected<fb::compilation_t, std::string> compiled =
+            fb::compile_file(files / "main.fb");
+        REQUIRE(compiled);
+        // The Import that spells it otherwise gets a warning, as one in ASCII does.
+        CHECK(files.messages(*compiled) ==
+              std::vector<std::string>{
+                  "main.fb: \"./ÉTÉ/x\": the disk spells it \"./été/x\", in other letter cases, "
+                  "which only a disk that ignores them finds" });
+    }
+
+    files.remove();
+}
+
 TEST_CASE("a package imports its dependencies by their names, whose Package names stay theirs",
           "[driver]") {
     const packages_t packages;
