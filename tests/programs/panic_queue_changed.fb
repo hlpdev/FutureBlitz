@@ -1,0 +1,13 @@
+// Taking from a Queue while going over it panics.
+Import std.core
+Import std.collections
+
+Local queue = Queue<Int>()
+For i = 1 To 4
+    queue.Enqueue(i)
+End For
+
+For value In queue
+    Print("{value}")
+    queue.Dequeue()
+End For

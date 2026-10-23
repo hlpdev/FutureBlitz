@@ -1,0 +1,13 @@
+// Removing a key from a Map while going over it panics.
+Import std.core
+Import std.collections
+
+Local map = Map<String, Int>()
+map.Add("a", 1)
+map.Add("b", 2)
+map.Add("c", 3)
+
+For key, value In map
+    Print("{key} {value}")
+    map.Remove("b")
+End For
