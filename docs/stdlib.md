@@ -586,19 +586,21 @@ Built in step 23, but for `Query<T>`. `Import std.db` brings in std/db/.
 - SQLite: `Database.Open(path)` opens a file, made when there's none, `":memory:"`, or a URI
   file name, like `"file:data.db?mode=ro"` or `"file:name?mode=memory&cache=shared"`. Foreign
   keys are checked, and a Database waits up to 5 seconds for another connection that holds the
-  database. `Close()` closes it early, rolling back an open Transaction, and `IsClosed` says so;
-  using it after that panics.
-- `Execute(sql)` runs each statement in turn, stopping at the first that fails.
-  `Execute(sql, values...)` and `Rows(sql, values...)` run one statement with its parameters
-  (`?`, `?NNN`, `:name`, `@name`, `$name`) bound to up to eight values, in order, one each. A
-  value is a `SqlValue`: an integer, a Bool (1 or 0), a Float32 or Float64, a String, a
-  `UInt8[]` as a blob, or `Nullable(value)`, which is NULL when its value is Null; a type of the
-  program's is one too when its `BindTo` binds one of these. `Changes` and `LastId` are SQLite's
-  changes and last rowid.
+  database. `Close()` closes it early, finalizing its Statements and rolling back an open
+  Transaction, so its file and locks go then, and `IsClosed` says so; using it or its
+  Statements after that panics, but for a Statement's `Parameters`.
+- `Execute(sql)` runs each statement in turn, stopping at the first that fails, and panics at
+  one that takes parameters, which would be NULL. `Execute(sql, values...)` and
+  `Rows(sql, values...)` run one statement with its parameters (`?`, `?NNN`, `:name`, `@name`,
+  `$name`) bound to up to eight values, in order, one each, and `Rows(sql)` one that takes none.
+  A value is a `SqlValue`: an integer, a Bool (1 or 0), a Float32 or Float64 (a NaN, which
+  SQLite keeps as NULL, throws), a String, a `UInt8[]` as a blob, or `Nullable(value)`, which
+  is NULL when its value is Null; a type of the program's is one too when its `BindTo` binds
+  one of these. `Changes` and `LastId` are SQLite's changes and last rowid.
 - `Rows` reads every row when it's called, as a `Row[]`: `Count`, `Name(column)`,
   `Type(column)`, a `ColumnType`, `IsNull`, and `Integer`, `Real`, `Text`, and `Blob`, by the
-  column's index or name, each a `T?` that's Null for NULL. A value of another type panics, but
-  `Real` reads an integer too.
+  column's index or name, each a `T?` that's Null for NULL, with the columns the statement has
+  as it runs. A value of another type panics, but `Real` reads an integer too.
 - `Prepare(sql)` gives a `Statement` to run many times: `Bind(index, value)` and
   `Bind(name, value)`, `Clear()`, `Parameters`, and `Execute` and `Rows`, with values, or as
   they're bound.
@@ -608,11 +610,13 @@ Built in step 23, but for `Query<T>`. `Import std.db` brings in std/db/.
   a SAVEPOINT, a part of it, which the outer one's Rollback undoes.
 - `Migrate(migrations...)`: each migration's number is its place, from 1, the database's
   `PRAGMA user_version` is the last that ran, and each runs once, in order, in a Transaction of
-  its own with the version it makes; a database past the program's last throws.
+  its own with the version it makes; a database past the program's last throws, as when another
+  connection migrates it further while this one waits to begin.
 - A failure throws a DatabaseError of `CONSTRAINT` (SQLite's 19), `BUSY` (5 and 6), `QUERY` (1,
   20, and 25, SQL that isn't one statement where one is taken, and SQL with a NUL), `CORRUPT` (11
   and 26), or `OTHER`, with SQLite's message. A wrong number of values, a column or parameter
-  that isn't there, a wrong type read, and a Transaction ended twice panic at the caller.
+  that isn't there, a wrong type read, a Transaction ended twice, and a Commit while a
+  Transaction begun inside it is open panic at the caller.
 - Left for later: `Query<T>`, reading rows into Structs by reflection, with step 17's
   Field-by-Field fill. No query builder and no server databases.
 
