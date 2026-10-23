@@ -106,6 +106,9 @@ So far, std/ holds:
 | std/concurrent/concurrent_queue.fb | `ConcurrentQueue<T>`, over a Channel that grows |
 | std/concurrent/tasks.fb | `TaskSource<T>`, over the runtime's signals through `fb_signal_`, `WhenAll`, and `WhenAny` |
 | std/events/event.fb | `Event<T>` and `Subscription` |
+| std/net/http/headers.fb | `Headers`, a request's or response's header fields, whose names ASCII's letter cases don't change, with `HeadersIterator` |
+| std/net/http/status.fb | `StatusCode`, the named statuses, with `Reason`, `IsSuccess`, and `IsRedirect` |
+| std/net/http/client.fb | `HttpMethod`, `Body`, `HttpResponse`, `HttpClient`, and `Http`'s one-call requests, over libcurl through the runtime's `fb_http_` functions |
 
 What the language itself uses, `Error` for Throw and Catch, the Interfaces, `Iterator<T>`, and
 `Map<K, V>` for `{key: value}`, is always std's, whatever a program calls by those names.
@@ -131,8 +134,8 @@ and the rest) aren't std's.
 | Library | License | Backs |
 |---|---|---|
 | libuv | MIT, with parts under BSD-2-Clause and ISC | std.io, std.os, std.net's sockets, IPC, and DNS, std.time's timers, Async I/O |
-| libcurl | curl (MIT-style) | std.net.http's client |
-| mbedTLS | Apache-2.0 | std.net.tls, std.crypto's hashes, HMAC, HKDF, PBKDF2, ciphers, signatures, key exchange, PEM keys and certificates, and secure random |
+| libcurl | curl (MIT-style) | std.net.http's client, over mbedTLS's TLS |
+| mbedTLS | Apache-2.0 | std.net.tls, std.net.http's TLS, std.crypto's hashes, HMAC, HKDF, PBKDF2, ciphers, signatures, key exchange, PEM keys and certificates, and secure random |
 | PCRE2 | BSD | std.text.regex, and the compiler's check of regex literals |
 | utf8proc | MIT | std.text.unicode: categories, case, normalization, graphemes, display width |
 | zlib-ng (zlib API) and minizip-ng | zlib | std.compress's Deflate, Zlib, Gzip, and Zip, and curl's gzip |
@@ -620,9 +623,35 @@ Step 18 built `Event<T>` and `Subscription`, in std/events/event.fb; `Import std
 - LAN discovery: UDP broadcast and mDNS/DNS-SD.
 - `Url` and `QueryParams`.
 - `TlsStream` over any stream (mbedTLS, the OS's roots by default), and a TLS listener.
-- std.net.http: `Method`, `StatusCode`, `Headers`, `Body`; `HttpClient`, `Http.Get` and the rest
-  (libcurl: redirects, proxies, cookies, gzip, HTTP/2), `Download(url, path, progress)`;
-  `HttpServer`, whose handlers are Async code on its own loop (no data races, and Globals work),
+- std.net.http's client (step 29), over libcurl, whose TLS is mbedTLS's, trusting the OS's roots:
+  Windows' ROOT store and macOS's system anchors, each that's valid now and for servers, or the
+  first of the bundle files Linux distributions and the BSDs keep, or the one `SSL_CERT_FILE`
+  names. `HttpMethod` (GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS); `StatusCode`, its named
+  statuses as Ints, `StatusCode.NOT_FOUND`, with `Reason`, `IsSuccess`, and `IsRedirect`;
+  `Headers` (`Add`, `Set`, `Get`, `GetAll`, `Contains`, `Remove`, `Clear`, `Count`, and
+  `For name, value In`), whose names keep their letter cases but match in any, and which panic
+  for a name that isn't RFC 9110's token, or a value with a control character but a tab; `Body`
+  (bytes with a Content-Type, `Text`, `Json`, and `Form`, a Map's fields as
+  application/x-www-form-urlencoded); `HttpResponse` (`Status`, `Headers`, `Bytes`, `Text` as
+  UTF-8, `Url` after the redirects, `IsSuccess`, `EnsureSuccess`). `HttpClient`: `Get`, `Head`,
+  `Post`, `Put`, `Patch`, `Delete`, `Send(method, url, body, headers)`, and `Download(url,
+  progress)`, the body's bytes, which tells `progress` of how many came and how many the response
+  said, each with an Async twin that the I/O thread runs, telling progress on the main thread;
+  `DefaultHeaders`, which the request's own replace by name; `UserAgent`; `FollowRedirects` and
+  `MaxRedirects` (10), followed as the fetch standard says, a 301 or 302 changing a POST to a
+  GET and a 303 any method but HEAD, without the body and its headers, and a redirect to
+  another origin sending no Authorization or Cookie of the request's own; `Decompress`, which
+  asks for what libcurl decodes and decodes it; cookies, kept for each client's requests
+  (`ClearCookies`); connections, which its requests reuse; `Proxy`, or else the environment's
+  (http_proxy, https_proxy, no_proxy); and `TrustOnly(roots)` and `TrustOsRoots()`. A failure is
+  a NetError of its Kind (a URL that isn't HTTP's or HTTPS's is OTHER's), or a TimeoutError;
+  `EnsureSuccess`, and what gives only a body, `Download`, `Http.GetText`, and `Http.GetBytes`,
+  throw a NetError of `HTTP_STATUS` for a status that isn't success. `Http.Get`, `GetText`,
+  `GetBytes`, `Head`, `Post`, `Put`, `Patch`, `Delete`, and `Download`, and `GetAsync`,
+  `GetTextAsync`, `GetBytesAsync`, `PostAsync`, and `DownloadAsync`, send one request each
+  through a client of their own. HTTP/1.1 only, for now; a program that only makes Headers or a
+  Body links no libcurl.
+- std.net.http's server: `HttpServer`, whose handlers are Async code on its own loop (no data races, and Globals work),
   with `Workers = n` to spread them over threads once they're Sendable-safe; routes as
   `server.Get(path, handler)` and router groups, or as a Class whose Methods carry `@Get`,
   `@Post`, and the rest, registered with `server.Routes<T>(instance)`, binding path parameters
