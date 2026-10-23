@@ -9590,10 +9590,13 @@ private:
             }
         }
 
-        const bool holds = info.kind == type_kind_t::NULLABLE || info.kind == type_kind_t::ARRAY ||
-                           info.kind == type_kind_t::FIXED_ARRAY ||
-                           info.kind == type_kind_t::WEAK || info.kind == type_kind_t::FUNCTION;
-        if (holds && info.inner != type_id_t::INVALID) {
+        constexpr std::array holders{
+            type_kind_t::NULLABLE, type_kind_t::ARRAY,    type_kind_t::FIXED_ARRAY,
+            type_kind_t::WEAK,     type_kind_t::ATOMIC,   type_kind_t::MUTEX,
+            type_kind_t::TASK,     type_kind_t::CHANNEL,  type_kind_t::PTR,
+            type_kind_t::FUNCTION, type_kind_t::CALLBACK,
+        };
+        if (std::ranges::contains(holders, info.kind) && info.inner != type_id_t::INVALID) {
             parameters_in(info.inner, found);
         }
 
@@ -9607,8 +9610,8 @@ private:
             }
         }
 
-        if (info.kind == type_kind_t::FUNCTION || info.kind == type_kind_t::FIXED_ARRAY ||
-            info.kind == type_kind_t::VALUE) {
+        if (info.kind == type_kind_t::FUNCTION || info.kind == type_kind_t::CALLBACK ||
+            info.kind == type_kind_t::FIXED_ARRAY || info.kind == type_kind_t::VALUE) {
             for (const type_id_t part : info.parameters) {
                 if (part != type_id_t::INVALID) {
                     parameters_in(part, found);

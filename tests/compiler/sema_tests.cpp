@@ -3445,6 +3445,16 @@ TEST_CASE("generic code that would need instances without end is an error", "[se
                     "End Class") ==
           errors_t{ "Node<Node<T>>(): Node<T> gets Node<T> for T here, which leads back to this "
                     "code, so it would need a larger instance each time, without end" });
+    // Through any type that holds T, like a Channel.
+    CHECK(errors_of("Import std.core\n"
+                    "Function Deep<T: Sendable>(x: T, n: Int): Int\n"
+                    "    If n == 0 Then Return 0\n"
+                    "    Return Deep(Channel<T>(1), n - 1)\n"
+                    "End Function\n"
+                    "Local d = Deep(1, 3)") ==
+          errors_t{ "Deep(Channel<T>(1), n - 1): 'Deep' gets Channel<T> for T here, which leads "
+                    "back to this code, so it would need a larger instance each time, without "
+                    "end" });
 
     // A call with the same T, or a larger one that doesn't lead back, has an end.
     CHECK(errors_of("Function Same<T>(x: T, n: Int): Int\n"
