@@ -72,14 +72,15 @@ Public Struct Quat Implements Equatable, Printable
                     fourWSquared * scale)
     End Method
 
-    // The shortest rotation that turns the direction from to the direction to. Opposite ones
-    // turn half a turn about an axis at right angles to them, and a zero one gives no rotation.
+    // The shortest rotation that turns the direction from to the direction to, however small.
+    // Opposite ones turn half a turn about an axis at right angles to them, and a zero one gives
+    // no rotation.
     Public Static Method FromTo(from: Vec3, to: Vec3): Quat
         Local start = Normalize(from)
         Local finish = Normalize(to)
         If start == Vec3.Zero() || finish == Vec3.Zero() Then Return Identity
         Local cosine = Dot(start, finish)
-        If cosine > 1 - 2 * Epsilon Then Return Identity
+        // Nearly opposite, the cross product is too small to give an axis.
         If cosine < -1 + 2 * Epsilon
             Local axis = Cross(Vec3.Right, start)
             If LengthSquared(axis) < 0.000001 Then axis = Cross(Vec3.Up, start)
