@@ -38,7 +38,7 @@ Public Class Queue<T> Implements Iterable<T>, Cloneable, Defaultable
         Local front = Peek()
         Items[Head] = Null
         Head += 1
-        If Head * 2 >= Items.Count
+        If Head >= Items.Count - Head
             Items = Items[Head..]
             Head = 0
         End If
