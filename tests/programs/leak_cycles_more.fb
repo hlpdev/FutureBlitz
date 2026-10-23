@@ -1,0 +1,13 @@
+// Past five cycles, the report counts the rest: one more is "1 more cycle".
+Import std.core
+
+Class Node
+    Field next: Node?
+End Class
+
+For i = 1 To 6
+    Local n = Node()
+    n.next = n
+End For
+
+Print("end")

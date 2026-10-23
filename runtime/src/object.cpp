@@ -489,8 +489,8 @@ void report_cycles(const std::span<const fb_class_t* const> leaked) {
     }
 
     if (cycles > most) {
-        std::fprintf(stderr, "leak: and %llu more cycles\n",
-                     static_cast<unsigned long long>(cycles - most));
+        std::fprintf(stderr, "leak: and %llu more cycle%s\n",
+                     static_cast<unsigned long long>(cycles - most), cycles - most == 1 ? "" : "s");
     }
 }
 
