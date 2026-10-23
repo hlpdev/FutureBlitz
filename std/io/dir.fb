@@ -1,0 +1,345 @@
+// std.io's folders: making and removing them, what's in one, and in the folders in it, the paths
+// in one that a glob pattern matches, and the current and temporary folders. Each call has an
+// Async twin, which libuv's thread pool does while the main thread goes on.
+
+Import std.core
+Import std.io.file
+Import std.io.path
+Import std.io.request
+
+Extern "runtime"
+    Function fb_io_request_count(request: Ptr<Void>): Int64
+    Function fb_io_request_entry_path(request: Ptr<Void>, index: Int64): String
+    Function fb_io_request_entry_kind(request: Ptr<Void>, index: Int64): Int32
+    Function fb_io_file_stat(request: Ptr<Void>, path: String, follow: Int32): Int64
+    Function fb_io_file_stat_async(request: Ptr<Void>, path: String, follow: Int32): Task<Int64>
+    Function fb_io_dir_create(request: Ptr<Void>, path: String, all: Int32): Int64
+    Function fb_io_dir_create_async(request: Ptr<Void>, path: String, all: Int32): Task<Int64>
+    Function fb_io_dir_remove(request: Ptr<Void>, path: String, all: Int32): Int64
+    Function fb_io_dir_remove_async(request: Ptr<Void>, path: String, all: Int32): Task<Int64>
+    Function fb_io_dir_entries(request: Ptr<Void>, path: String, depth: Int64): Int64
+    Function fb_io_dir_entries_async(request: Ptr<Void>, path: String, depth: Int64): Task<Int64>
+    Function fb_io_dir_current(): String?
+    Function fb_io_dir_temp(): String?
+    Function fb_io_dir_set_current(request: Ptr<Void>, path: String): Int64
+End Extern
+
+// Something in a folder: where it is, where it is from the folder that was listed, which for
+// Entries is its name, and what it is.
+Public Struct DirEntry
+    Public ReadOnly Field Path: Path
+    Public ReadOnly Field Relative: Path
+    Public ReadOnly Field Kind: FileKind
+
+    Package New(path: Path, relative: Path, kind: FileKind)
+        Path = path
+        Relative = relative
+        Kind = kind
+    End New
+
+    // Its own name, the last in its path.
+    Public Method Name(): String => Relative.FileName()
+    Public Method IsFile(): Bool => Kind == FileKind.FILE
+    Public Method IsDirectory(): Bool => Kind == FileKind.DIRECTORY
+End Struct
+
+// A folder's Static Methods.
+Public Struct Dir
+    // Dir isn't made: it's only its Static Methods.
+    New()
+    End New
+
+    // Makes the folder, in one that's there. One that's there already throws an IOError of
+    // ALREADY_EXISTS.
+    Public Static Method Create(path: Path) Throws IOError
+        Local request = Request()
+        Try Checked(fb_io_dir_create(request.Native, path.Text, 0), "make", path)
+    End Method
+
+    Public Static Async Method CreateAsync(path: Path) Throws IOError
+        Local request = Request()
+        Try Checked(Await fb_io_dir_create_async(request.Native, path.Text, 0), "make", path)
+    End Method
+
+    // Makes the folder, and each folder it's in that isn't there yet. One that's there already is
+    // fine, and a file where a folder should be throws an IOError of NOT_A_DIRECTORY.
+    Public Static Method CreateAll(path: Path) Throws IOError
+        Local request = Request()
+        Try Checked(fb_io_dir_create(request.Native, path.Text, 1), "make", path)
+    End Method
+
+    Public Static Async Method CreateAllAsync(path: Path) Throws IOError
+        Local request = Request()
+        Try Checked(Await fb_io_dir_create_async(request.Native, path.Text, 1), "make", path)
+    End Method
+
+    // Removes the folder, which has to be empty, and gives whether there was one. One with
+    // something in it throws an IOError of NOT_EMPTY, and a file one of NOT_A_DIRECTORY.
+    Public Static Method Remove(path: Path): Bool Throws IOError
+        Local request = Request()
+        Return (Try Checked(fb_io_dir_remove(request.Native, path.Text, 0), "remove", path)) == 1
+    End Method
+
+    Public Static Async Method RemoveAsync(path: Path): Bool Throws IOError
+        Local request = Request()
+        Return (Try Checked(Await fb_io_dir_remove_async(request.Native, path.Text, 0), "remove",
+                            path)) == 1
+    End Method
+
+    // Removes the folder and everything in it, and gives whether there was one. A link in it is
+    // removed, not what it links to.
+    Public Static Method RemoveAll(path: Path): Bool Throws IOError
+        Local request = Request()
+        Return (Try Checked(fb_io_dir_remove(request.Native, path.Text, 1), "remove", path)) == 1
+    End Method
+
+    Public Static Async Method RemoveAllAsync(path: Path): Bool Throws IOError
+        Local request = Request()
+        Return (Try Checked(Await fb_io_dir_remove_async(request.Native, path.Text, 1), "remove",
+                            path)) == 1
+    End Method
+
+    // Whether there's a folder at the path, or a link to one. One the program can't look at
+    // isn't there, as far as it can tell.
+    Public Static Method Exists(path: Path): Bool
+        Local request = Request()
+        Return fb_io_file_stat(request.Native, path.Text, 1) >= 0 && StatOf(request).IsDirectory()
+    End Method
+
+    Public Static Async Method ExistsAsync(path: Path): Bool
+        Local request = Request()
+        Return (Await fb_io_file_stat_async(request.Native, path.Text, 1)) >= 0 &&
+               StatOf(request).IsDirectory()
+    End Method
+
+    // What's in the folder, in the order of their names' bytes, the same on every OS.
+    Public Static Method Entries(path: Path): DirEntry[] Throws IOError
+        Local request = Request()
+        Try Checked(fb_io_dir_entries(request.Native, path.Text, 1), "list", path)
+        Return EntriesOf(request, path)
+    End Method
+
+    Public Static Async Method EntriesAsync(path: Path): DirEntry[] Throws IOError
+        Local request = Request()
+        Try Checked(Await fb_io_dir_entries_async(request.Native, path.Text, 1), "list", path)
+        Return EntriesOf(request, path)
+    End Method
+
+    // What's in the folder and in each folder in it, all the way down, each folder before what's
+    // in it, and each folder's entries in the order of their names' bytes. It doesn't go into
+    // links, so a link to a folder above can't make it go round forever.
+    Public Static Method Walk(path: Path): DirEntry[] Throws IOError
+        Local request = Request()
+        Try Checked(fb_io_dir_entries(request.Native, path.Text, 0), "list", path)
+        Return EntriesOf(request, path)
+    End Method
+
+    Public Static Async Method WalkAsync(path: Path): DirEntry[] Throws IOError
+        Local request = Request()
+        Try Checked(Await fb_io_dir_entries_async(request.Native, path.Text, 0), "list", path)
+        Return EntriesOf(request, path)
+    End Method
+
+    // What's in the folder, and in the folders in it, whose path from it matches `pattern`, in
+    // Walk's order. The pattern's names go between '/'s, each name matching one in the path:
+    // '*' matches any run of characters in a name, '?' any one character, and "[abc]", "[a-z]",
+    // and "[!abc]" one character of or not of those; a name that's just "**" matches any number
+    // of folders, none too. So "*.png" matches the folder's PNGs, and "**/*.png" every PNG in it.
+    // A '[' with no ']' after it is just itself. Names match exactly, in the same case, on every
+    // OS.
+    Public Static Method Glob(path: Path, pattern: String): DirEntry[] Throws IOError
+        Local names = PatternNames(pattern, path.Style == PathStyle.WINDOWS)
+        Local request = Request()
+        Try Checked(fb_io_dir_entries(request.Native, path.Text, DepthOf(names)), "list", path)
+        Return Matching(EntriesOf(request, path), names)
+    End Method
+
+    Public Static Async Method GlobAsync(path: Path, pattern: String): DirEntry[] Throws IOError
+        Local names = PatternNames(pattern, path.Style == PathStyle.WINDOWS)
+        Local request = Request()
+        Try Checked(Await fb_io_dir_entries_async(request.Native, path.Text, DepthOf(names)), "list",
+                    path)
+        Return Matching(EntriesOf(request, path), names)
+    End Method
+
+    // The program's current folder, which relative paths are from.
+    Public Static Method Current(): Path Throws IOError
+        Local current = fb_io_dir_current()
+        If current == Null Then Throw IOError(IOErrorKind.OTHER, "the OS doesn't say what the current folder is")
+        Return Path(current)
+    End Method
+
+    // Makes the folder the program's current one, for every thread.
+    Public Static Method SetCurrent(path: Path) Throws IOError
+        Local request = Request()
+        Try Checked(fb_io_dir_set_current(request.Native, path.Text), "go to", path)
+    End Method
+
+    // The OS's folder for temporary files, which TempFile and TempDir make theirs in.
+    Public Static Method Temp(): Path Throws IOError
+        Local temporary = fb_io_dir_temp()
+        If temporary == Null Then Throw IOError(IOErrorKind.OTHER, "the OS doesn't say where its temporary folder is")
+        Return Path(temporary)
+    End Method
+End Struct
+
+// The entries a listing of the folder at `path` found.
+Function EntriesOf(request: Request, path: Path): DirEntry[]
+    Local entries: DirEntry[] = []
+    Local count = fb_io_request_count(request.Native)
+    entries.Reserve(count As Int)
+    For i = 0 Until count
+        Local relative = Path(fb_io_request_entry_path(request.Native, i), path.Style)
+        entries.Add(DirEntry(path / relative, relative, EntryKind(fb_io_request_entry_kind(request.Native, i))))
+    End For
+
+    Return entries
+End Function
+
+Function EntryKind(number: Int32): FileKind
+    Select number
+        Case 0
+            Return FileKind.FILE
+        Case 1
+            Return FileKind.DIRECTORY
+        Case 2
+            Return FileKind.LINK
+        Default
+            Return FileKind.OTHER
+    End Select
+End Function
+
+// A glob pattern's names, each as its characters, without empty ones or ".".
+Function PatternNames(pattern: String, windows: Bool): Char[][]
+    Local names: Char[][] = []
+    Local name: Char[] = []
+    Local chars = pattern.Chars
+    chars.Add('/')
+    For c In chars
+        If c == '/' || (windows && c == '\\')
+            If name.Count > 0 && !(name.Count == 1 && name[0] == '.') Then names.Add(name)
+            name = []
+        Else
+            name.Add(c)
+        End If
+    End For
+
+    Return names
+End Function
+
+// How deep a listing has to go for a pattern's names: one folder for each, or all the way for
+// one with "**", which the runtime takes as 0.
+Function DepthOf(names: Char[][]): Int64
+    For name In names
+        If IsAnyFolders(name) Then Return 0
+    End For
+
+    Return names.Count
+End Function
+
+Function IsAnyFolders(name: Char[]): Bool => name.Count == 2 && name[0] == '*' && name[1] == '*'
+
+// The entries whose paths from the folder match the pattern's names.
+Function Matching(entries: DirEntry[], names: Char[][]): DirEntry[]
+    Local matched: DirEntry[] = []
+    For entry In entries
+        Local parts: Char[][] = []
+        Local part: Char[] = []
+        Local chars = entry.Relative.Text.Chars
+        chars.Add('/')
+        For c In chars
+            If c == '/'
+                parts.Add(part)
+                part = []
+            Else
+                part.Add(c)
+            End If
+        End For
+
+        If Matches(names, 0, parts, 0) Then matched.Add(entry)
+    End For
+
+    Return matched
+End Function
+
+// Whether the path's names from `at` match the pattern's from `from`, with "**" matching any
+// number of them.
+Function Matches(names: Char[][], from: Int, parts: Char[][], at: Int): Bool
+    If from == names.Count Then Return at == parts.Count
+    If IsAnyFolders(names[from])
+        For skipped = at To parts.Count
+            If Matches(names, from + 1, parts, skipped) Then Return True
+        End For
+
+        Return False
+    End If
+
+    Return at < parts.Count && NameMatches(names[from], 0, parts[at], 0) &&
+           Matches(names, from + 1, parts, at + 1)
+End Function
+
+// Whether a name's characters from `at` match a pattern name's from `from`.
+Function NameMatches(pattern: Char[], from: Int, name: Char[], at: Int): Bool
+    Local p = from
+    Local n = at
+    While p < pattern.Count
+        Local c = pattern[p]
+        If c == '*'
+            // '*': the rest matches after some run of the name, the shortest first.
+            For skipped = n To name.Count
+                If NameMatches(pattern, p + 1, name, skipped) Then Return True
+            End For
+
+            Return False
+        End If
+
+        If n == name.Count Then Return False
+        If c == '?'
+            p += 1
+        ElseIf c == '[' && SetEnd(pattern, p) > 0
+            Local close = SetEnd(pattern, p)
+            If !InSet(pattern, p + 1, close, name[n]) Then Return False
+            p = close + 1
+        Else
+            If c != name[n] Then Return False
+            p += 1
+        End If
+
+        n += 1
+    End While
+
+    Return n == name.Count
+End Function
+
+// Where the set a pattern name's '[' at `open` starts ends, at its ']', or 0 when none does, so
+// the '[' is just itself. A ']' first in a set, after its '!' if any, is one of its characters.
+Function SetEnd(pattern: Char[], open: Int): Int
+    Local close = open + 1
+    If close < pattern.Count && pattern[close] == '!' Then close += 1
+    If close < pattern.Count && pattern[close] == ']' Then close += 1
+    While close < pattern.Count && pattern[close] != ']'
+        close += 1
+    End While
+
+    Return close < pattern.Count ? close : 0
+End Function
+
+// Whether `c` is in the set of a pattern's characters from `start` to `finish`, its ']', which
+// starts with '!' for those not in it, and can hold ranges like "a-z".
+Function InSet(pattern: Char[], start: Int, finish: Int, c: Char): Bool
+    Local at = start
+    Local negated = at < finish && pattern[at] == '!'
+    If negated Then at += 1
+    Local found = False
+    While at < finish
+        If at + 2 < finish && pattern[at + 1] == '-'
+            If c >= pattern[at] && c <= pattern[at + 2] Then found = True
+            at += 3
+        Else
+            If c == pattern[at] Then found = True
+            at += 1
+        End If
+    End While
+
+    Return found != negated
+End Function
