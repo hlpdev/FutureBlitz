@@ -1,0 +1,7 @@
+// AABB.FromPoints takes at least one point, which panics where it's called.
+Import std.core
+Import std.math
+
+Print(AABB.FromPoints([Vec3.Zero()]))
+Local none: Vec3[] = []
+Print(AABB.FromPoints(none))

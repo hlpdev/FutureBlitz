@@ -1,0 +1,2 @@
+Plane((0, 1, 0), 0)
+panic: FromPointNormal takes a normal that isn't zero at panic_math_plane_normal.fb:6:7

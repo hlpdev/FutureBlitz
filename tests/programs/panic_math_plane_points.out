@@ -1,0 +1,2 @@
+Plane((0, 0, 1), 0)
+panic: FromPoints takes three points that aren't on a line at panic_math_plane_points.fb:6:7

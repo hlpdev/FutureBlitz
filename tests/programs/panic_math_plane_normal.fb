@@ -1,0 +1,6 @@
+// Plane.FromPointNormal takes a normal that isn't zero, which panics where it's called.
+Import std.core
+Import std.math
+
+Print(Plane.FromPointNormal(Vec3.Zero(), Vec3.Up))
+Print(Plane.FromPointNormal(Vec3.One(), Vec3.Zero()))

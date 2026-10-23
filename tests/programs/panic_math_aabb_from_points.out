@@ -1,0 +1,2 @@
+AABB((0, 0, 0), (0, 0, 0))
+panic: FromPoints takes at least one point at panic_math_aabb_from_points.fb:7:7

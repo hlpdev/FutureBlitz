@@ -1,0 +1,6 @@
+// Plane.FromPoints takes three points that aren't on a line, which panics where it's called.
+Import std.core
+Import std.math
+
+Print(Plane.FromPoints(Vec3.Zero(), Vec3.Right, Vec3.Up))
+Print(Plane.FromPoints(Vec3.Zero(), Vec3.Right, Vec3(2, 0, 0)))

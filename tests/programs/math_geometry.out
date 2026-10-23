@@ -1,0 +1,39 @@
+Rect(0, 0, 10, 5) (0, 0) (10, 5) (5, 2.5) (10, 5) 50 Rect(0, 0, 0, 0) True
+True True True False False False
+True True False False
+True False True False False
+Rect(5, 2, 5, 3) True Rect(10, 5, 0, 0) Rect(2, 1, 1, 1)
+Rect(-5, -5, 15, 10) Rect(0, 0, 10, 5) Rect(-1, -1, 12, 7) Rect(1, 1, 8, 3) False
+Rect(1, 0, 2, 4) Rect(1, 0, 2, 4) Rect(-1, -2, 2, 4) Rect(5, 5, 0, 0)
+AABB((-1, -1, -1), (1, 1, 1)) (0, 0, 0) (2, 2, 2) (1, 1, 1) AABB((0, 0, 0), (2, 4, 6))
+AABB((-1, 0, 0), (1, 5, 4)) AABB((1, 1, 1), (1, 1, 1))
+True True True False
+True False True
+True False True True
+False True
+(1, 0.5, -1) (0.5, 0.25, 0) (-1, 1, -1)
+AABB((-1, -1, -1), (3, 1, 1)) AABB((-1, -1, -1), (2, 2, 1)) AABB((-2, -2, -2), (2, 2, 2)) AABB((-0.5, -0.5, -0.5), (0.5, 0.5, 0.5))
+AABB((9, -1, -1), (11, 1, 1)) AABB((-2, -3, -1), (2, 3, 1))
+(8.5858, -1.4142, -1) (11.4142, 1.4142, 1)
+4 -1 0 -1
+2 2 2 -1
+0 8
+Sphere((0, 0, 0), 2) True False True
+True False True
+False True True
+8 -1 10 -1
+0 2 -1 4
+Ray((1, 2, 3), (0, 1, 0)) (1, 2, 3) (1, 4.5, 3) (1, 1, 3) (6, 0, 0)
+Plane((0, 1, 0), 2) 3 0 -2
+(3, 2, 1) (3, 2, 1) (1, 0, 3)
+8 12 -1 -1
+-1 2
+Plane((0, 0, 1), 0) Plane((0, 0, -1), 0)
+(0, 1, 0) 3
+1.4142 Plane((0, 0, 1), 4)
+(0, 0, -1) -4 (0, 0, 1) -95.0005
+(0.7071, 0, -0.7071) (-0.7071, 0, -0.7071) (0, 0.7071, -0.7071) (0, -0.7071, -0.7071)
+True False False True False True
+False True False True
+False True True True
+True False False

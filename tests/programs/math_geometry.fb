@@ -1,0 +1,129 @@
+// Rect, AABB, Sphere, Ray, Plane, and Frustum: Contains, Intersects, and Raycast, which hold the
+// points on a shape's edges, and give how far along a ray it first meets the shape, 0 from
+// inside, or Null for a miss.
+Import std.core
+Import std.math
+
+// The value to four places, with -0 as 0, where libm's sines are in it.
+Function Shown(value: Float): Float => Round(value * 10000) / 10000 + 0
+
+Function Shown(v: Vec3): Vec3 => Vec3(Shown(v.x), Shown(v.y), Shown(v.z))
+
+// How far along the ray it meets the shape, or -1 for a miss.
+Function Hit(distance: Float?): Float => distance ?? -1
+
+// A Rect, from its corner with the smallest X and Y.
+Local r = Rect(0, 0, 10, 5)
+Print(r, r.Min, r.Max, r.Center, r.Size, r.Area, Rect(), Rect(1, 2, 3, 4) == Rect(1, 2, 3, 4))
+Print(r.Contains(Vec2(0, 0)), r.Contains(Vec2(10, 5)), r.Contains(Vec2(5, 2)),
+      r.Contains(Vec2(10.5, 0)), r.Contains(Vec2(-1, 1)), r.Contains(Vec2(1, 6)))
+Print(r.Contains(Rect(1, 1, 2, 2)), r.Contains(r), r.Contains(Rect(8, 1, 3, 1)),
+      Rect(1, 1, 2, 2).Contains(r))
+Print(r.Intersects(Rect(10, 5, 1, 1)), r.Intersects(Rect(10.5, 0, 1, 1)),
+      r.Intersects(Rect(-5, -5, 20, 20)), r.Intersects(Rect(3, -2, 1, 1)),
+      Rect(3, -2, 1, 1).Intersects(r))
+Print(r.Intersection(Rect(5, 2, 10, 10)) ?? r, r.Intersection(Rect(20, 0, 1, 1)) == Null,
+      r.Intersection(Rect(10, 5, 3, 3)) ?? r, r.Intersection(Rect(2, 1, 1, 1)) ?? r)
+Print(r.Union(Rect(-5, -5, 1, 1)), r.Union(Rect(2, 2, 1, 1)), r.Grow(1), r.Grow(-1),
+      r.Grow(-10).Contains(Vec2(5, 2)))
+Print(Rect.FromCorners(Vec2(3, 4), Vec2(1, 0)), Rect.FromCorners(Vec2(1, 0), Vec2(3, 4)),
+      Rect.FromCenter(Vec2.Zero(), Vec2(2, 4)), Rect.FromCenter(Vec2(5, 5), Vec2.Zero()))
+
+// An AABB, from its smallest corner to its largest.
+Local box = AABB(Vec3(-1, -1, -1), Vec3(1, 1, 1))
+Print(box, box.Center, box.Size, box.Extents, AABB.FromCenter(Vec3(1, 2, 3), Vec3(2, 4, 6)))
+Print(AABB.FromPoints([Vec3(1, 2, 3), Vec3(-1, 5, 0), Vec3(0, 0, 4)]),
+      AABB.FromPoints([Vec3.One()]))
+Print(box.Contains(Vec3.One()), box.Contains(-Vec3.One()), box.Contains(Vec3.Zero()),
+      box.Contains(Vec3(1.01, 0, 0)))
+Print(box.Contains(AABB(Vec3.Zero(), Vec3.One())), box.Contains(AABB(Vec3.Zero(), Vec3(2, 1, 1))),
+      box.Contains(box))
+Print(box.Intersects(AABB(Vec3.One(), Vec3(3, 3, 3))),
+      box.Intersects(AABB(Vec3(1.1, 0, 0), Vec3(3, 3, 3))),
+      box.Intersects(AABB(Vec3(-5, -0.5, -0.5), Vec3(5, 0.5, 0.5))),
+      box.Intersects(Sphere(Vec3(2, 0, 0), 1)))
+Print(box.Intersects(Sphere(Vec3(2, 2, 0), 1)), box.Intersects(Sphere(Vec3(2, 2, 0), 1.5)))
+Print(box.ClosestPoint(Vec3(5, 0.5, -3)), box.ClosestPoint(Vec3(0.5, 0.25, 0)),
+      box.ClosestPoint(Vec3(-9, 9, -9)))
+Print(box.Union(Vec3(3, 0, 0)), box.Union(AABB(Vec3(0, 0, 0), Vec3(2, 2, 0.5))), box.Grow(1),
+      box.Grow(-0.5))
+Print(box.Transform(Mat4.Translation(Vec3(10, 0, 0))), box.Transform(Mat4.Scale(Vec3(2, 3, -1))))
+Local turned = box.Transform(Mat4.Translation(Vec3(10, 0, 0)) * Mat4.RotationZ(Pi / 4))
+Print(Shown(turned.Min), Shown(turned.Max))
+
+// A ray meets a box at its first face, or at 0 from inside, in lengths of its Direction.
+Print(Hit(box.Raycast(Ray(Vec3(-5, 0, 0), Vec3.Right))),
+      Hit(box.Raycast(Ray(Vec3(-5, 3, 0), Vec3.Right))),
+      Hit(box.Raycast(Ray(Vec3.Zero(), Vec3.Up))),
+      Hit(box.Raycast(Ray(Vec3(5, 0, 0), Vec3.Right))))
+Print(Hit(box.Raycast(Ray(Vec3(-5, 0, 0), Vec3(2, 0, 0)))),
+      Hit(box.Raycast(Ray(Vec3(-3, -3, 0), Vec3(1, 1, 0)))),
+      Hit(box.Raycast(Ray(Vec3(-3, 1, 0), Vec3.Right))),
+      Hit(box.Raycast(Ray(Vec3(5, 5, 5), Vec3.Zero()))))
+Print(Hit(box.Raycast(Ray(Vec3(0.5, 0.5, 0.5), Vec3.Zero()))),
+      Hit(box.Raycast(Ray(Vec3(0, 0, 9), Vec3.Forward))))
+
+// A Sphere.
+Local ball = Sphere(Vec3.Zero(), 2)
+Print(ball, ball.Contains(Vec3(2, 0, 0)), ball.Contains(Vec3(1.5, 1.5, 0)),
+      ball.Contains(Vec3(1, 1, 1)))
+Print(ball.Intersects(Sphere(Vec3(5, 0, 0), 3)), ball.Intersects(Sphere(Vec3(5, 0, 0), 2.9)),
+      ball.Intersects(ball))
+Print(ball.Intersects(AABB(Vec3(1.5, 1.5, -1), Vec3(3, 3, 1))),
+      ball.Intersects(AABB(Vec3(1, 1, -1), Vec3(3, 3, 1))),
+      ball.Intersects(AABB(Vec3(-9, -9, -9), Vec3(9, 9, 9))))
+Print(Hit(ball.Raycast(Ray(Vec3(0, 0, 10), Vec3.Forward))),
+      Hit(ball.Raycast(Ray(Vec3(0, 0, 10), Vec3.Back))),
+      Hit(ball.Raycast(Ray(Vec3(0, 2, 10), Vec3.Forward))),
+      Hit(ball.Raycast(Ray(Vec3(0, 2.1, 10), Vec3.Forward))))
+Print(Hit(ball.Raycast(Ray(Vec3(1, 0, 0), Vec3.Up))),
+      Hit(ball.Raycast(Ray(Vec3(10, 0, 0), Vec3(-4, 0, 0)))),
+      Hit(ball.Raycast(Ray(Vec3(5, 5, 5), Vec3.Zero()))),
+      Hit(Sphere(Vec3(0, 0, -5), 1).Raycast(Ray(Vec3.Zero(), Vec3.Forward))))
+
+// A Ray.
+Local ray = Ray(Vec3(1, 2, 3), Vec3.Up)
+Print(ray, ray.At(0), ray.At(2.5), ray.At(-1), Ray(Vec3.Zero(), Vec3(2, 0, 0)).At(3))
+
+// A Plane, of the points p where Dot(Normal, p) is Distance, in front where its Normal points.
+Local floor = Plane.FromPointNormal(Vec3(0, 2, 0), Vec3(0, 5, 0))
+Print(floor, floor.SignedDistance(Vec3(0, 5, 0)), floor.SignedDistance(Vec3(3, 2, 9)),
+      floor.SignedDistance(Vec3.Zero()))
+Print(floor.ClosestPoint(Vec3(3, 7, 1)), floor.ClosestPoint(Vec3(3, -7, 1)),
+      Plane(Vec3.Up, 0).ClosestPoint(Vec3(1, 2, 3)))
+Print(Hit(floor.Raycast(Ray(Vec3(0, 10, 0), Vec3.Down))),
+      Hit(floor.Raycast(Ray(Vec3(0, -10, 0), Vec3.Up))),
+      Hit(floor.Raycast(Ray(Vec3(0, 10, 0), Vec3.Up))),
+      Hit(floor.Raycast(Ray(Vec3(0, 10, 0), Vec3.Right))))
+Print(Hit(floor.Raycast(Ray(Vec3(0, 2, 0), Vec3.Right))),
+      Hit(floor.Raycast(Ray(Vec3(0, 6, 0), Vec3(0, -2, 0)))))
+// FromPoints faces the side the points go counterclockwise around.
+Print(Plane.FromPoints(Vec3.Zero(), Vec3.Right, Vec3.Up),
+      Plane.FromPoints(Vec3.Zero(), Vec3.Up, Vec3.Right))
+Local level = Plane.FromPoints(Vec3(0, 3, 0), Vec3(1, 3, 0), Vec3(0, 3, -1))
+Print(Shown(level.Normal), level.Distance)
+Print(Shown(Plane.FromPointNormal(Vec3(1, 1, 0), Vec3(1, 1, 0)).Distance),
+      Plane.FromPointNormal(Vec3(4, 4, 4), Vec3.Back))
+
+// A Frustum, from a camera at z 5 looking at the origin, with near 1 and far 100, its planes
+// facing in.
+Local view = Mat4.LookAt(Vec3(0, 0, 5), Vec3.Zero(), Vec3.Up)
+Local frustum = Frustum.FromMatrix(Mat4.Perspective(Pi / 2, 1, 1, 100) * view)
+Print(Shown(frustum.Near.Normal), Shown(frustum.Near.Distance), Shown(frustum.Far.Normal),
+      Shown(frustum.Far.Distance))
+Print(Shown(frustum.Left.Normal), Shown(frustum.Right.Normal), Shown(frustum.Bottom.Normal),
+      Shown(frustum.Top.Normal))
+Print(frustum.Contains(Vec3.Zero()), frustum.Contains(Vec3(0, 0, 10)),
+      frustum.Contains(Vec3(100, 0, 0)), frustum.Contains(Vec3(4.9, 0, 0)),
+      frustum.Contains(Vec3(0, 0, -96)), frustum.Contains(Vec3(0, 0, -94)))
+Print(frustum.Intersects(Sphere(Vec3(0, 0, 6), 1.5)),
+      frustum.Intersects(Sphere(Vec3(0, 0, 6), 2.5)),
+      frustum.Intersects(Sphere(Vec3(8, 0, 0), 2)), frustum.Intersects(Sphere(Vec3(8, 0, 0), 2.2)))
+Print(frustum.Intersects(AABB(Vec3(50, 50, 50), Vec3(60, 60, 60))),
+      frustum.Intersects(AABB(Vec3(-1, -1, -1), Vec3.One())),
+      frustum.Intersects(AABB(Vec3(4, -1, -1), Vec3(6, 1, 1))),
+      frustum.Intersects(AABB(Vec3(6, -1, -1), Vec3(8, 1, 1))))
+// Culling is conservative: a box past the corner of the far plane and a side, behind neither
+// all the way, counts, though no point of it is inside.
+Local beyond = AABB(Vec3(101, -1, -105), Vec3(120, 1, -85))
+Print(frustum.Intersects(beyond), frustum.Contains(beyond.Min), frustum.Contains(Vec3(101, 0, -95)))
