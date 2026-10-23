@@ -5481,6 +5481,16 @@ TEST_CASE("what a Const Function can't do", "[sema]") {
 TEST_CASE("a Const Function that fails at compile time is an error at its call", "[sema]") {
     CHECK(errors_of("Const Function Div(a: Int, b: Int): Int => a / b\nConst X = Div(1, 0)") ==
           errors_t{ "Div(1, 0): 'Div' can't run at compile time: division by zero" });
+    // A call whose arguments don't fit is reported as any call's is, and doesn't run.
+    CHECK(errors_of("Const Function Twice(a: Int): Int => a * 2\n"
+                    "Function F()\n"
+                    "    Local x = Twice(1.5)\n"
+                    "    Local y = Twice(\"no\")\n"
+                    "    Local z = Twice(True)\n"
+                    "End Function\n"
+                    "Const W = Twice(2.5)") ==
+          errors_t{ "1.5: 1.5 doesn't fit in Int32", "\"no\": expected Int32, found String",
+                    "True: expected Int32, found Bool", "2.5: 2.5 doesn't fit in Int32" });
     CHECK(
         errors_of("Const Function Check(n: Int): Int\n"
                   "    Assert(n > 0, \"n must be positive\")\n"
@@ -8334,6 +8344,20 @@ TEST_CASE("a Method can be Async, and its overrides are too", "[sema]") {
                 "    End Method\n"
                 "End Class\n"
                 "Local x = C().M()") == "Task<Int32>");
+
+    // "c?.M()" gives a Task<T>?, Null when c is.
+    const std::string_view maybe = "Class C\n"
+                                   "    Async Method M(): Int\n"
+                                   "        Return 1\n"
+                                   "    End Method\n"
+                                   "    Async Method N()\n"
+                                   "    End Method\n"
+                                   "End Class\n"
+                                   "Function Pick(): C? => Null\n";
+    CHECK(probe(std::format("{}Local x = Pick()?.M()", maybe)) == "Task<Int32>?");
+    CHECK(probe(std::format("{}Local x = Pick()?.N()", maybe)) == "Task?");
+    CHECK(errors_of(std::format("{}Local x = Pick()?.M()\nLocal y = x.Wait()", maybe)) ==
+          errors_t{ "x: 'x' may be Null; check that it isn't, or use '?.'" });
     CHECK(errors_of("Class A\n"
                     "    Async Method M(): Int\n"
                     "        Return 1\n"

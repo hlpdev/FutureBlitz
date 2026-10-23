@@ -40,6 +40,8 @@ Struct Counter
     End Method
 End Struct
 
+Function Pick(door: Door, give: Bool): Door? => give ? door : Null
+
 Async Function Main()
     Local door: Door = LoudDoor()
     door.name = "front"
@@ -48,6 +50,11 @@ Async Function Main()
     Local counter = Counter(2)
     Print("count {Await counter.Count(3)}")
     Print("zero {Await Counter.Zero()}")
+
+    // "a?.M()" gives a Task<T>?, which is Null when a is.
+    Local none = Pick(door, False)?.Knock(1)
+    Local some = Pick(door, True)?.Knock(2)
+    Print("{none == Null} {some == Null} {Await (some ?? door.Knock(5))}")
 End Function
 
 Main()

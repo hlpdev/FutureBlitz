@@ -17227,7 +17227,8 @@ private:
             return methods;
         }
 
-        if (is_nullable(type) && has_members(non_null(type))) {
+        // A Task<T>? that "a?.M()" gives too.
+        if (is_nullable(type) && (has_members(non_null(type)) || runs_elsewhere(non_null(type)))) {
             report_maybe_null(object);
             return {};
         }
@@ -18476,15 +18477,20 @@ private:
                       span_of(node.callee));
         const substitution_t outer =
             std::exchange(m_substitution, { .parameters = parameters, .arguments = *arguments });
+        const std::size_t errors = m_diagnostics->error_count();
         const type_id_t type = check_call(id, node, *function);
         m_substitution = outer;
-        if (symbol(*function).modifiers.is_const) {
+        // A call that was reported has arguments that may not fit, so it can't run.
+        if (symbol(*function).modifiers.is_const && m_diagnostics->error_count() == errors) {
             run_at_compile_time(id, *function);
         }
 
-        // Calling an Async Function starts it, and gives its Task, which holds its error.
+        // Calling an Async Function starts it, and gives its Task, which holds its error, or Null
+        // for "a?.M()" when a is Null.
         if (symbol(*function).modifiers.is_async) {
-            return m_analysis.types.task(type, symbol(*function).throws, m_analysis.nullable_error);
+            const type_id_t task =
+                m_analysis.types.task(type, symbol(*function).throws, m_analysis.nullable_error);
+            return method != nullptr && method->null_safe ? nullable_of(task) : task;
         }
 
         return type;
@@ -19019,9 +19025,11 @@ private:
         check_class_call(id, symbol(function), on_super);
         check_throwing_call(id, function);
         fold_integer_call(id, node, symbol(function));
-        // "a?.M()" gives Null when a is Null.
+        // "a?.M()" gives Null when a is Null. An Async Method's gives a Task<T>?, which
+        // check_expr() makes.
         const type_id_t type = substituted(symbol(function).type);
-        if (member != nullptr && member->null_safe && type != type_id_t::NONE) {
+        if (member != nullptr && member->null_safe && type != type_id_t::NONE &&
+            !symbol(function).modifiers.is_async) {
             return nullable_of(read_type(type));
         }
 

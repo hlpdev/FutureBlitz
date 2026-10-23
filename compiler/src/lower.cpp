@@ -7843,9 +7843,9 @@ private:
         }
 
         // An Async Function's call makes its Task and starts its coroutine, which runs until it
-        // first Awaits. The Task comes first, after a Method's object.
+        // first Awaits. The Task comes first, after a Method's object. "a?.M()" gives a Task<T>?.
         if (function.modifiers.is_async) {
-            const type_id_t type = concrete(expr_type(id));
+            const type_id_t type = concrete(non_null(expr_type(id)));
             generated(generated_kind_t::RUN, type);
             operand_t task = temporary(new_t{ .type = type }, type, true);
             runtime_call_t begin{
