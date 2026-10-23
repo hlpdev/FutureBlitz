@@ -1,0 +1,4 @@
+zeros.bin 2147483648
+hello.txt 6
+True
+OTHER the 7z data comes to more than 2147483647 bytes
