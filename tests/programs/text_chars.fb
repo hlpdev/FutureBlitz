@@ -6,7 +6,7 @@ Import std.text
 Local samples = ['a', 'Z', 'é', 'ж', '中', '7', '٣', 'Ⅻ', '½', '\u{301}', ',', '¿', '+', '€', '😀',
                  ' ', '\u{3000}', '\t', '\u{200B}', 'ǅ']
 For c In samples
-    Print("U+{c.Code} {c.Utf8Length} letter={c.IsLetter()} digit={c.IsDigit()}",
+    Print("{Named(c.Code)} {c.Utf8Length} letter={c.IsLetter()} digit={c.IsDigit()}",
           "number={c.IsNumber()} alnum={c.IsLetterOrDigit()} upper={c.IsUpper()}",
           "lower={c.IsLower()} punct={c.IsPunctuation()} symbol={c.IsSymbol()}",
           "control={c.IsControl()} space={c.IsWhitespace()} ascii={c.IsAscii()}")
@@ -19,3 +19,16 @@ Print('A'.ToLower(), 'É'.ToLower(), 'Ж'.ToLower(), 'ẞ'.ToLower(), 'ǅ'.ToLow
 // From gives the Char of a code point, or Null for one that isn't a Unicode scalar value.
 Print(Char.From(0x1F600) ?? '?', Char.From(0xE9) ?? '?', Char.From(0) == '\0', Char.From(-1) ?? '?',
       Char.From(0xD800) ?? '?', Char.From(0xDFFF) ?? '?', Char.From(0x110000) ?? '?')
+
+// code as Unicode writes it: U+ and its hex digits, at least 4.
+Function Named(code: Int): String
+    Local digits = "0123456789ABCDEF"
+    Local hex = ""
+    Local rest = code
+    While rest > 0 || hex.Length < 4
+        hex = digits.Slice(rest % 16, rest % 16 + 1) + hex
+        rest /= 16
+    End While
+
+    Return "U+" + hex
+End Function

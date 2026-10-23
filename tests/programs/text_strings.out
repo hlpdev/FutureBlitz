@@ -47,12 +47,12 @@ é ǆ ω
 True True False
 True True False
 [e10, é, é1, é9, é09, é10, 😀2] 1 0
-2 3 U+101 U+769
-1 4 U+128512
-5 18 U+128104 U+8205 U+128105 U+8205 U+128103
-2 8 U+127467 U+127479
-1 1 U+120
-2 2 U+13 U+10
+2 3 U+0065 U+0301
+1 4 U+1F600
+5 18 U+1F468 U+200D U+1F469 U+200D U+1F467
+2 8 U+1F1EB U+1F1F7
+1 1 U+0078
+2 2 U+000D U+000A
 é😀 - 
 not UTF-8 �
 overlong cut short past U+10FFFF stray
