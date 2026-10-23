@@ -1,0 +1,7 @@
+// RandFloat takes a low that isn't above its high, which panics where it's called.
+Import std.core
+Import std.math
+
+SeedRandom(1)
+Print(RandFloat(1, 1))
+Print(RandFloat(2, 1))

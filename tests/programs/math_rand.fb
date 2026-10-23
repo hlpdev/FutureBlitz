@@ -1,0 +1,94 @@
+// The default generator: after SeedRandom, each thread's gives the numbers Random(seed) does, from
+// that thread's next draw, the same on every run, in debug and release.
+Import std.core
+Import std.math
+
+// Three draws of each kind, from the default generator.
+Function Draws(): String
+    Local text = "{Rand()} {Rand()} {Rand()}"
+    text += " | {RandInt(1, 6)} {RandInt(1, 6)} {RandInt(1, 6)}"
+    text += " | {RandInt(100)} {RandInt(100)} {RandInt(100)}"
+    text += " | {RandFloat(-2, 2)} {RandFloat(-2, 2)} {RandFloat(10, 20)}"
+    Return text
+End Function
+
+// The same three of each kind, from the generator.
+Function DrawsOf(random: Random): String
+    Local text = "{random.Float()} {random.Float()} {random.Float()}"
+    text += " | {random.Int(1, 6)} {random.Int(1, 6)} {random.Int(1, 6)}"
+    text += " | {random.Int(100)} {random.Int(100)} {random.Int(100)}"
+    text += " | {random.Float(-2, 2)} {random.Float(-2, 2)} {random.Float(10, 20)}"
+    Return text
+End Function
+
+// What a thread of its own draws.
+Global drawn = Mutex<String>("")
+
+SeedRandom(42)
+Local main = Draws()
+Print(main)
+Print(main == DrawsOf(Random(42)))
+// Drawing on goes on from there, as Random's does.
+Local random = Random(42)
+DrawsOf(random)
+Print(Draws() == DrawsOf(random))
+
+// A thread of its own starts from the seed too, whatever the main thread has drawn.
+Local thread = Thread.Start(Function()
+    Lock drawn As text
+        text = Draws()
+    End Lock
+End Function)
+thread.Join()
+Lock drawn As text
+    Print(text == main)
+End Lock
+
+// So does a pool's worker, after each SeedRandom, whether or not it's drawn before.
+For i = 1 To 3
+    SeedRandom(42)
+    Local task = Spawn(Function(): String => Draws())
+    Print(task.Wait() == main)
+End For
+
+// SeedRandom on another thread starts the main thread's again too.
+Local seeder = Thread.Start(Function()
+    SeedRandom(7)
+End Function)
+seeder.Join()
+Local seven = Draws()
+Print(seven == DrawsOf(Random(7)), seven == main)
+
+// A seed of 0, or a negative one, is a seed like any other.
+SeedRandom(0)
+Print(Draws() == DrawsOf(Random(0)))
+SeedRandom(-5)
+Print(Draws() == DrawsOf(Random(-5)))
+
+// An array's Shuffle() and Sample() draw from the default generator, and Shuffle(random) and
+// Sample(count, random) from the one given.
+SeedRandom(3)
+Local cards = [1, 2, 3, 4, 5, 6, 7, 8]
+cards.Shuffle()
+Local same = [1, 2, 3, 4, 5, 6, 7, 8]
+Random(3).Shuffle(same)
+Print(cards, cards == same)
+SeedRandom(3)
+Local hand = cards.Sample(3)
+Print(hand, hand == Random(3).Sample(cards, 3), cards.Sample(0).Count)
+
+Local mine = Random(11)
+Local names = ["ann", "bo", "cy", "di"]
+names.Shuffle(mine)
+Local others = ["ann", "bo", "cy", "di"]
+Random(11).Shuffle(others)
+Print(names, names == others)
+Print(names.Sample(2, Random(5)) == Random(5).Sample(names, 2))
+Local empty: Int[] = []
+empty.Shuffle()
+Print(empty.Sample(0).Count)
+
+// Ranges at their edges.
+Print(RandInt(5, 5), RandInt(1), RandFloat(2.5, 2.5))
+Local lowest = RandInt(MinValue<Int>(), MaxValue<Int>())
+Print(lowest >= MinValue<Int>() && lowest <= MaxValue<Int>())

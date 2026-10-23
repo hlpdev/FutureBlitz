@@ -1,0 +1,34 @@
+// Until SeedRandom, each thread's default generator starts from a seed of its own, new each run,
+// so this prints only what doesn't hang on the numbers.
+Import std.collections
+Import std.core
+Import std.math
+
+Function Draws(): String
+    Return "{RandInt(MinValue<Int>(), MaxValue<Int>())} {RandInt(MinValue<Int>(), MaxValue<Int>())}"
+End Function
+
+Local roll = RandInt(1, 6)
+Local fraction = Rand()
+Local between = RandFloat(-1, 1)
+Print(roll >= 1 && roll <= 6, fraction >= 0 && fraction < 1, between >= -1 && between < 1)
+
+// Two threads' numbers differ, but for a chance of one in 2^64.
+Global drawn = Mutex<String>("")
+Local main = Draws()
+Local first = Spawn(Function(): String => Draws())
+Local second = Thread.Start(Function()
+    Lock drawn As text
+        text = Draws()
+    End Lock
+End Function)
+second.Join()
+Lock drawn As text
+    Print(text != main, first.Wait() != main, first.Wait() != text)
+End Lock
+
+// Shuffle() keeps the elements.
+Local cards = [1, 2, 3, 4, 5]
+cards.Shuffle()
+cards.Sort()
+Print(cards)

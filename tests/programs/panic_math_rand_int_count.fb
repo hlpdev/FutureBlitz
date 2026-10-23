@@ -1,0 +1,7 @@
+// RandInt takes a count above 0, which panics where it's called.
+Import std.core
+Import std.math
+
+SeedRandom(1)
+Print(RandInt(1))
+Print(RandInt(0))

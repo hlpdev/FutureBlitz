@@ -1,0 +1,2 @@
+3
+panic: RandInt takes a low that isn't above its high, not 4 and 3 at panic_math_rand_int_range.fb:7:7

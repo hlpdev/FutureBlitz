@@ -260,3 +260,101 @@ Function Ln(value: Double): Double
     End For
     Return (exponent As Double) * 0.6931471805599453 + 2 * s * sum
 End Function
+
+// The default generator, behind Rand, RandInt, RandFloat, and an array's Shuffle() and Sample():
+// each thread's own Random, seeded randomly each run, until SeedRandom starts every thread's again
+// from its seed.
+
+Extern "runtime"
+    Function fb_random_seed(): UInt64
+End Extern
+
+// The seed SeedRandom last gave, and how many times it's run.
+Struct Seeding
+    Field Seed: Int64
+    Field Count: Int64
+End Struct
+
+Global seeding = Mutex(Seeding(0, 0))
+// Seeding's count, which a thread checks without the lock each time it draws.
+Global seedings = Atomic<Int64>(0)
+
+// This thread's generator, and the count of SeedRandoms it last started again from.
+ThreadLocal Global generator = Random(fb_random_seed() As Int64)
+ThreadLocal Global seeded: Int64
+
+// This thread's generator, started again from SeedRandom's seed when it's run since this thread's
+// last draw.
+Function Generator(): Random
+    If seedings.Load() != seeded
+        Lock seeding As latest
+            generator = Random(latest.Seed)
+            seeded = latest.Count
+        End Lock
+    End If
+    Return generator
+End Function
+
+// Starts the default generator on every thread again from the seed, so it gives the numbers
+// Random(seed) does, on each thread, from that thread's next draw: the same numbers on each run.
+Public Function SeedRandom(seed: Int64)
+    Lock seeding As latest
+        latest.Seed = seed
+        latest.Count += 1
+        seedings.Store(latest.Count)
+    End Lock
+End Function
+
+// A Float from 0 up to 1, 1 left out, from this thread's default generator.
+Public Function Rand(): Float => Generator().Float()
+
+// An Int from 0 to count - 1, each as likely, from this thread's default generator. A count that
+// isn't above 0 panics.
+@PanicsAtCaller
+Public Function RandInt(count: Int): Int
+    If count <= 0 Then Panic("RandInt takes a count above 0, not {count}")
+    Return Generator().Int(count)
+End Function
+
+// An Int from low to high, both included, each as likely, from this thread's default generator:
+// RandInt(1, 6) rolls a die. A low above high panics.
+@PanicsAtCaller
+Public Function RandInt(low: Int, high: Int): Int
+    If low > high
+        Panic("RandInt takes a low that isn't above its high, not {low} and {high}")
+    End If
+    Return Generator().Int(low, high)
+End Function
+
+// A Float from low up to high, high left out, from this thread's default generator: low itself
+// when they're equal. A low above high, or a NaN or infinite end, panics.
+@PanicsAtCaller
+Public Function RandFloat(low: Float, high: Float): Float
+    If !(low <= high) || !IsFinite(low) || !IsFinite(high)
+        Panic("RandFloat takes a finite low that isn't above its high, not {low} and {high}")
+    End If
+    Return Generator().Float(low, high)
+End Function
+
+Extend T[]
+    // Puts the elements in a random order, in place, each order as likely, from this thread's
+    // default generator.
+    Public Method Shuffle()
+        Generator().Shuffle(Self)
+    End Method
+
+    // Puts the elements in a random order, in place, each order as likely, from the generator.
+    Public Method Shuffle(random: Random)
+        random.Shuffle(Self)
+    End Method
+
+    // count of the elements, none twice, in a random order, as a new array, from this thread's
+    // default generator. A count below 0 or above the elements' panics.
+    @PanicsAtCaller
+    Public Method Sample(count: Int): T[] => Generator().Sample(Self, count)
+
+    // count of the elements, none twice, in a random order, as a new array, from the generator. A
+    // count below 0 or above the elements' panics.
+    @PanicsAtCaller
+    Public Method Sample(count: Int, random: Random): T[] => random.Sample(Self, count)
+End Extend

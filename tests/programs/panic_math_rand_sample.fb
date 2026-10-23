@@ -1,0 +1,8 @@
+// An array's Sample takes a count no more than its elements', which panics where it's called.
+Import std.core
+Import std.math
+
+SeedRandom(1)
+Local items = [1, 2, 3]
+Print(items.Sample(3).Count)
+Print(items.Sample(4))

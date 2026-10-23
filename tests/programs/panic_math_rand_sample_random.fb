@@ -1,0 +1,7 @@
+// An array's Sample with a generator takes a count from 0, which panics where it's called.
+Import std.core
+Import std.math
+
+Local items = [1, 2, 3]
+Print(items.Sample(0, Random(1)).Count)
+Print(items.Sample(-1, Random(1)))

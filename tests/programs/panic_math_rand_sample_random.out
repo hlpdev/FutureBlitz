@@ -1,0 +1,2 @@
+0
+panic: Sample takes a count from 0 to the items' 3, not -1 at panic_math_rand_sample_random.fb:7:7
