@@ -209,10 +209,12 @@ Public Class BigInt Implements Comparable, Hashable, Printable, Numeric
     @PanicsAtCaller
     Operator %(a: Int64, b: BigInt): BigInt => BigInt(a) % b
 
-    // To the power, which is 0 or more, as an Int's: a negative one panics.
+    // To the power, which is 0 or more, as an Int's: a negative one panics, and so does one past
+    // 2147483647, unless it's of 0, 1, or -1, since the result would be too large to hold.
     @PanicsAtCaller
     Operator **(a: BigInt, b: Int64): BigInt
         If b < 0 Then Panic("an integer power needs an exponent of 0 or more")
+        If b > 2147483647 && a.BitLength > 1 Then Panic("{a} to the power {b} is too large for a BigInt")
         Return BigInt(fb_bigint_power(a.State, b))
     End Operator
 
@@ -227,10 +229,12 @@ Public Class BigInt Implements Comparable, Hashable, Printable, Numeric
     Operator ^(a: Int64, b: BigInt): BigInt => BigInt(a) ^ b
 
     // Shifted by a count of bits, 0 or more, which a negative one panics, as an Int's does when
-    // it's outside its bits.
+    // it's outside its bits. Shifting left by more than 2147483647 bits panics too, unless it's 0,
+    // since the result would be too large to hold.
     @PanicsAtCaller
     Operator <<(a: BigInt, b: Int64): BigInt
         If b < 0 Then Panic("the shift amount must be 0 or more")
+        If b > 2147483647 && a.Sign != 0 Then Panic("a BigInt shifted by {b} bits is too large")
         Return BigInt(fb_bigint_shift_left(a.State, b))
     End Operator
 

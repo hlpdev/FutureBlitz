@@ -1,0 +1,6 @@
+// A shift past what a BigInt holds panics where it's shifted, and 0 shifts any way.
+Import std.core
+Import std.math.big
+
+Print((BigInt(1) << 64).BitLength, BigInt(0) << 3000000000)
+Print(BigInt(1) << 3000000000)

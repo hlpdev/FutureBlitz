@@ -1,0 +1,2 @@
+65 0
+panic: a BigInt shifted by 3000000000 bits is too large at panic_bigint_too_large.fb:6:7

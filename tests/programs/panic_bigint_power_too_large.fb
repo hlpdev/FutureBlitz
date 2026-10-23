@@ -1,0 +1,6 @@
+// So does a power past what a BigInt holds, though 1 and -1 go to any power.
+Import std.core
+Import std.math.big
+
+Print(BigInt(-1) ** 3000000001, BigInt(1) ** 3000000000)
+Print(BigInt(2) ** 3000000000)
