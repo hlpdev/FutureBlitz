@@ -104,7 +104,6 @@ c_layout_t c_layout(const type_table_t& types, const type_id_t type, const c_int
         return scalar(2, c_scalar_t::INTEGER);
     case type_id_t::INT32:
     case type_id_t::UINT32:
-    case type_id_t::CHAR:
         return scalar(4, c_scalar_t::INTEGER);
     case type_id_t::FLOAT32:
         return scalar(4, c_scalar_t::FLOAT);

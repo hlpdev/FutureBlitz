@@ -6027,14 +6027,24 @@ TEST_CASE("a Char is a Unicode scalar value, which a character literal makes", "
                 "@Mark('x') Struct S\nEnd Struct\n"
                 "Local x = S.Attribute(Mark)?.Sign") == "Char?");
 
-    // C code takes one as a char32_t.
+    // C code has no Chars: its char32_t is a UInt32, which 'As' checks on the way in, since C
+    // can hold any number there.
     CHECK(errors_of("@CLayout Struct Cell\n"
                     "    Field c: Char\n"
                     "End Struct\n"
                     "Extern\n"
-                    "    Function put(c: Char, at: Ptr<Char>, cell: Cell)\n"
-                    "End Extern")
-              .empty());
+                    "    Function put(c: Char, at: Ptr<Char>, code: UInt32)\n"
+                    "End Extern") ==
+          errors_t{
+              std::string("c: a @CLayout Struct's Field holds what C can: a number, Bool, Enum, "
+                          "CString, Ptr, Callback, or a fixed array or @CLayout Struct of these; "
+                          "Char isn't one"),
+              std::string("Char: Char can't go to C: an Extern Function takes numbers, Bool, "
+                          "Enums, Ptrs, Callbacks, CString, and @CLayout Structs"),
+              std::string("Char: a Ptr points at a value C code has: a number, Bool, Enum, "
+                          "CString, Ptr, Callback, or a fixed array or Struct of these; Char "
+                          "isn't one"),
+          });
 }
 
 TEST_CASE("a String's Chars and Bytes are arrays of its code points and bytes", "[sema]") {
