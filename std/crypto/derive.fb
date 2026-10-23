@@ -1,5 +1,6 @@
 // Hmac, Hkdf, and Pbkdf2, over mbedTLS: a MAC, which a key makes and checks, a key from other key
-// material, and a key from a password, each by SHA-1, SHA-256, or SHA-512.
+// material, and a key from a password: HMAC and PBKDF2 by SHA-1, SHA-256, or SHA-512, and HKDF by
+// SHA-256 or SHA-512.
 
 Import std.core
 

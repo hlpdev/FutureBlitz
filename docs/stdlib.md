@@ -69,7 +69,7 @@ So far, std/ holds:
 | std/ffi/mem.fb | `Mem`, raw memory for Unsafe code, over the runtime's `fb_mem_*` |
 | std/ffi/cstring.fb | `CString.From`, `Length`, and `Free`, over the runtime's copies |
 | std/crypto/hashes.fb | `Hasher`, and `Md5`, `Sha1`, `Sha256`, and `Sha512`, over mbedTLS through the runtime's `fb_crypto_` functions |
-| std/crypto/derive.fb | `Hmac`, `Hkdf`, and `Pbkdf2`, each by SHA-1, SHA-256, or SHA-512 |
+| std/crypto/derive.fb | `Hmac` and `Pbkdf2`, each by SHA-1, SHA-256, or SHA-512, and `Hkdf`, by SHA-256 or SHA-512 |
 | std/crypto/random.fb | `SecureRandom` and `ConstantTimeEquals` |
 | std/crypto/blake3.fb | `Blake3`, over BLAKE3 through `fb_blake3_` |
 | std/crypto/checksums.fb | `Crc32`, in FutureBlitz, and `XxHash`, over xxHash through `fb_xxhash_` |
