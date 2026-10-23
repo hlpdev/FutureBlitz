@@ -1487,13 +1487,14 @@ TEST_CASE("a package links its [native] libraries and its dependencies', in orde
 
     // An archive project.toml names has to be there, and be an archive.
     std::filesystem::create_directories(packages / "c/libs/folder.a");
+    std::filesystem::create_directories(packages / "c/libs/plain");
     packages.write("c/junk.a", "not an archive");
     packages.write(
         "c/project.toml",
         toml("c", "",
              std::format("x = \"libs/c\"\ny = \"c.lib\"\njunk = \"junk\"\n"
                          "dynamic = \"libs/x.so\"\nfolder = \"libs/folder.a\"\n"
-                         "far = \"{}\"\n",
+                         "plain = \"libs/plain\"\nslash = \"libs/\"\nfar = \"{}\"\n",
                          fb::to_utf8(std::filesystem::weakly_canonical(packages / "c") / "far"))));
     std::string far = fb::to_utf8(std::filesystem::weakly_canonical(packages / "c") / "far");
     std::ranges::replace(far, '\\', '/');
@@ -1501,8 +1502,8 @@ TEST_CASE("a package links its [native] libraries and its dependencies', in orde
         fb::compile_file(packages / "app");
     REQUIRE(missing);
     std::vector<std::string> messages = packages.messages(*missing);
-    CHECK(messages.size() == 6);
-    messages.resize(5);
+    CHECK(messages.size() == 8);
+    messages.resize(7);
     const std::string none = "c/project.toml: \"libs/c\": \"libs/c\" names no static library: "
                              "there's no libs/c, libs/libc.a, libs/c.a, or libs/c.lib, from the "
                              "package's folder";
@@ -1515,7 +1516,12 @@ TEST_CASE("a package links its [native] libraries and its dependencies', in orde
                                 "like \"libs/x\"";
     const std::string folder =
         R"(c/project.toml: "libs/folder.a": "libs/folder.a" is a folder, not a static library)";
-    CHECK(messages == std::vector<std::string>{ none, full, junk, dynamic, folder });
+    // A folder is one whatever its name, and a path that ends in '/' names one.
+    const std::string plain =
+        R"(c/project.toml: "libs/plain": "libs/plain" is a folder, not a static library)";
+    const std::string slash =
+        R"(c/project.toml: "libs/": "libs/" is a folder, not a static library)";
+    CHECK(messages == std::vector<std::string>{ none, full, junk, dynamic, folder, plain, slash });
     // A path from elsewhere is shown as it's written.
     CHECK(fb::compile_file(packages / "app")
               .transform([&](const fb::compilation_t& compiled) {

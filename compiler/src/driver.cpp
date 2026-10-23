@@ -1159,6 +1159,9 @@ private:
             if (native.kind == native_kind_t::SYSTEM) {
                 package.linked.system.push_back(native.path);
                 package.system_spans.push_back(native.path_span);
+            } else if (native.path.ends_with('/') || native.path.ends_with('\\')) {
+                // A folder's path, whose archives would have names like "lib.a".
+                fail(native.path_span, "\"{}\" is a folder, not a static library", native.path);
             } else if (const std::optional<std::filesystem::path> archive =
                            find_archive(root, native.path)) {
                 if (is_archive(*archive)) {
@@ -1258,8 +1261,7 @@ private:
             return;
         }
 
-        if (std::filesystem::is_directory(root / written, ignored) &&
-            archive_names(written).size() == 1) {
+        if (std::filesystem::is_directory(root / written, ignored)) {
             fail(native.path_span, "\"{}\" is a folder, not a static library", native.path);
             return;
         }
