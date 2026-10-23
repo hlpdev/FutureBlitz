@@ -125,14 +125,18 @@ Public Struct Date Implements Comparable, Hashable, Printable, Defaultable
 
     // That many days later, or earlier for a count below 0.
     @PanicsAtCaller
-    Public Method AddDays(count: Int64): Date => FromDays(Days + count)
+    Public Method AddDays(count: Int64): Date
+        Local days = Days.CheckedAdd(count)
+        If days == Null Then Panic("{count} days from {Self} is past the years a Date holds")
+        Return FromDays(days)
+    End Method
 
     // That many months later, or earlier, on the same day, or the month's last when it's
     // shorter: Jan 31 plus a month is Feb 28, or 29 in a leap year.
     @PanicsAtCaller
     Public Method AddMonths(count: Int64): Date
         Local year, month, day = CivilFromDays(Days)
-        Local months = year * 12 + (month - 1) + count
+        Local months = (year * 12 + (month - 1)).CheckedAdd(count) ?? 9223372036854775807
         Local newYear = FloorDivide(months, 12)
         Local newMonth = (FloorModulo(months, 12) + 1) As Int
         If newYear < -2147483648 || newYear > 2147483647
@@ -147,7 +151,7 @@ Public Struct Date Implements Comparable, Hashable, Printable, Defaultable
     @PanicsAtCaller
     Public Method AddYears(count: Int64): Date
         Local year, month, day = CivilFromDays(Days)
-        Local newYear = year + count
+        Local newYear = year.CheckedAdd(count) ?? 9223372036854775807
         If newYear < -2147483648 || newYear > 2147483647
             Panic("{count} years from {Self} is past the years a Date holds")
         End If
@@ -159,8 +163,11 @@ Public Struct Date Implements Comparable, Hashable, Printable, Defaultable
     Public Method DaysUntil(other: Date): Int64 => other.Days - Days
 
     // The first and last days of its week, from Monday to Sunday, of its month, and of its year.
-    Public Method StartOfWeek(): Date => Date(Days - FloorModulo(Days + 3, 7))
-    Public Method EndOfWeek(): Date => Date(Days - FloorModulo(Days + 3, 7) + 6)
+    // The first Date's week starts before it, and the last's ends after it, so theirs panic.
+    @PanicsAtCaller
+    Public Method StartOfWeek(): Date => FromDays(Days - FloorModulo(Days + 3, 7))
+    @PanicsAtCaller
+    Public Method EndOfWeek(): Date => FromDays(Days - FloorModulo(Days + 3, 7) + 6)
 
     Public Method StartOfMonth(): Date
         Local year, month, _ = CivilFromDays(Days)
@@ -343,6 +350,7 @@ Public Struct LocalDateTime Implements Comparable, Hashable, Printable, Defaulta
     End New
 
     Public Static Method DefaultValue(): LocalDateTime => LocalDateTime(DayOf(0), ClockOf(0))
+
     Public Static Method MinValue(): LocalDateTime
         Return LocalDateTime(DayOf(-784353015833), ClockOf(0))
     End Method

@@ -1,0 +1,6 @@
+// And the last Date's week ends after it.
+Import std.core
+Import std.time
+
+Print(Date.MinValue().EndOfWeek(), Date.MaxValue().AddDays(-2).EndOfWeek())
+Print(Date.MaxValue().EndOfWeek())

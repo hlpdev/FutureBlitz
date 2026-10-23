@@ -1,0 +1,6 @@
+// So do months past what an Int64 counts.
+Import std.core
+Import std.time
+
+Print(Date(2026, 1, 1).AddMonths(-24300))
+Print(Date(2026, 1, 1).AddMonths(9223372036854775807))

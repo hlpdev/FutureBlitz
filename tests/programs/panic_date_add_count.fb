@@ -1,0 +1,6 @@
+// Days past what an Int64 counts panic as past a Date's years, in release builds too.
+Import std.core
+Import std.time
+
+Print(Date(2026, 1, 1).AddDays(365))
+Print(Date(2026, 1, 1).AddDays(9223372036854775807))

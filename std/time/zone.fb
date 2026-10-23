@@ -128,7 +128,8 @@ Public Struct TimeZone Implements Hashable, Printable, Defaultable
         Return Zone != 0 ? fb_tz_abbreviation(Zone, time.UnixSeconds) : Name
     End Method
 
-    // Whether its clocks are on daylight saving time then.
+    // Whether its clocks are on daylight saving time then, as the tz database says, which counts
+    // Europe/Dublin's winter time as its summer time turned back.
     Public Method IsDaylightSavingAt(time: Timestamp): Bool
         Return Zone != 0 && fb_tz_daylight(Zone, time.UnixSeconds) != 0
     End Method

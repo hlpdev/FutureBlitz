@@ -36,7 +36,7 @@ Public Struct Instant Implements Comparable, Hashable, Printable, Defaultable
     End Property
 
     // That much later or earlier, and how long it is from b to a. Past what an Int64 of
-    // nanoseconds holds, about 292 years, they panic.
+    // nanoseconds holds, about 292 years, they overflow as an Int64 does.
     @PanicsAtCaller
     Operator +(a: Instant, b: Duration): Instant => Instant(a.Count + b.Nanoseconds)
     @PanicsAtCaller

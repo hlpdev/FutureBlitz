@@ -1,0 +1,6 @@
+// The first Date's week starts before it, so its StartOfWeek panics where it's asked for.
+Import std.core
+Import std.time
+
+Print(Date.MinValue().AddDays(6).StartOfWeek(), Date.MaxValue().AddDays(-1).StartOfWeek())
+Print(Date.MinValue().StartOfWeek())

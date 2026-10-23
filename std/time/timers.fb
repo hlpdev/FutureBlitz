@@ -12,8 +12,8 @@ Extern "runtime"
     Function fb_io_after(nanoseconds: Int64): Task
 End Extern
 
-// Ticks of the real clock, every so often, on the I/O thread's loop, which counts milliseconds,
-// so a part of one waits for all of it.
+// Ticks of the real clock, every so often, on the I/O thread's loop, which counts whole
+// milliseconds, so a timer waits up to two more than its time, and never less.
 Public Class Timer
     Field Interval: Duration
     Field Start: Instant
