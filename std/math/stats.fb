@@ -7,12 +7,16 @@ Import std.collections
 Import std.math.numbers
 Import std.math.scalar
 
-// The values as Doubles, sorted, which Median and Percentile go by.
-Function SortedDoubles<T: Bounded>(values: T[]): Double[]
+// The values as Doubles, sorted, which Median, Percentile, and Histogram go by. NaN, which no
+// order places, panics, naming what.
+@PanicsAtCaller
+Function SortedDoubles<T: Bounded>(values: T[], what: String): Double[]
     Local sorted: Double[] = []
     sorted.Reserve(values.Count)
     For value In values
-        sorted.Add(T.DoubleValue(value))
+        Local x = T.DoubleValue(value)
+        If x != x Then Panic("{what} takes values that aren't NaN, which no order places")
+        sorted.Add(x)
     End For
     sorted.Sort()
     Return sorted
@@ -37,11 +41,12 @@ Public Function Mean<T: Bounded>(values: T[]): Double
     Return sum / values.Count
 End Function
 
-// The middle value, or the mean of the two middle ones for an even count. No values panics.
+// The middle value, or the mean of the two middle ones for an even count. No values, or a NaN,
+// panics.
 @PanicsAtCaller
 Public Function Median<T: Bounded>(values: T[]): Double
     CheckCount("Median", values.Count, 1)
-    Local sorted = SortedDoubles(values)
+    Local sorted = SortedDoubles(values, "Median")
     Local middle = sorted.Count / 2
     If sorted.Count % 2 == 1 Then Return sorted[middle]
     Return (sorted[middle - 1] + sorted[middle]) / 2
@@ -97,7 +102,7 @@ End Function
 
 // The value below which percent of them lie, from 0 for the least to 100 for the largest, between
 // the two nearest when it falls between them, as NumPy's percentile does: 50 is the Median. No
-// values, or a percent outside 0 to 100, panics.
+// values, a NaN, or a percent outside 0 to 100, panics.
 @PanicsAtCaller
 Public Function Percentile<T: Bounded>(values: T[], percent: Double): Double
     CheckCount("Percentile", values.Count, 1)
@@ -105,7 +110,7 @@ Public Function Percentile<T: Bounded>(values: T[], percent: Double): Double
         Panic("Percentile takes a percent from 0 to 100, not {percent}")
     End If
 
-    Local sorted = SortedDoubles(values)
+    Local sorted = SortedDoubles(values, "Percentile")
     Local rank = percent / 100 * (sorted.Count - 1)
     Local below = Floor(rank) As Int
     If below >= sorted.Count - 1 Then Return sorted[sorted.Count - 1]
@@ -113,34 +118,35 @@ Public Function Percentile<T: Bounded>(values: T[], percent: Double): Double
 End Function
 
 // How many values fall in each of bins equal ranges from low to high, the last range holding high
-// too; those outside are left out. A count of bins that isn't above 0, or a low that isn't below
-// a finite high, panics.
+// too; those outside, and NaN, are left out. A count of bins that isn't above 0, or a low that
+// isn't below high, or isn't finite, panics.
 @PanicsAtCaller
 Public Function Histogram<T: Bounded>(values: T[], bins: Int, low: Double, high: Double): Int[]
     If bins <= 0 Then Panic("Histogram takes a count of bins above 0, not {bins}")
-    If !(low < high) || !IsFinite(high - low)
-        Panic("Histogram takes a low below a finite high, not {low} and {high}")
+    If !(low < high) || !IsFinite(low) || !IsFinite(high)
+        Panic("Histogram takes a finite low below a finite high, not {low} and {high}")
     End If
 
+    // In halves, which halving leaves the bins of, so no difference overflows.
     Local counts: Int[] = []
     counts.Resize(bins, 0)
-    Local width = (high - low) / bins
+    Local width = (high / 2 - low / 2) / bins
     For value In values
         Local x = T.DoubleValue(value)
         If !(x >= low && x <= high) Then Continue
-        Local bin = Min(Floor((x - low) / width) As Int, bins - 1)
+        Local bin = Min(Floor((x / 2 - low / 2) / width) As Int, bins - 1)
         counts[bin]++
     End For
     Return counts
 End Function
 
 // How many values fall in each of bins equal ranges from the least value to the largest, which
-// all do. No values, or a count of bins that isn't above 0, panics.
+// all do. No values, a NaN, or a count of bins that isn't above 0, panics.
 @PanicsAtCaller
 Public Function Histogram<T: Bounded>(values: T[], bins: Int): Int[]
     CheckCount("Histogram", values.Count, 1)
     If bins <= 0 Then Panic("Histogram takes a count of bins above 0, not {bins}")
-    Local sorted = SortedDoubles(values)
+    Local sorted = SortedDoubles(values, "Histogram")
     Local low = sorted[0]
     Local high = sorted[sorted.Count - 1]
     If low == high

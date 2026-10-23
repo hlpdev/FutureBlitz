@@ -28,6 +28,12 @@ Print(Percentile([5], 33), Percentile([1, 2], 50), Percentile(floats, 75))
 Print(Histogram(data, 4, 0, 10), Histogram(data, 7, 2, 9), Histogram([0.5, 1.5, -1, 11], 2, 0, 2))
 Print(Histogram(data, 3), Histogram([4, 4, 4], 3), Histogram(floats, 5))
 
+// Values a Double's range apart are binned in halves, which can't overflow, and a NaN is left out
+// of a range given.
+Local wide: Double[] = [-1e308, 0, 1e308]
+Local holed: Double[] = [0.5, NaN, 1.5]
+Print(Histogram(wide, 2), Histogram(wide, 4, -1e308, 1e308), Histogram(holed, 2, 0, 2))
+
 // Fixed-point values are Bounded too.
 Print(Mean([Fixed32.FromDouble(1.5), Fixed32.FromInt(3)]),
       Median([Fixed64.FromInt(2), Fixed64.FromInt(9)]))

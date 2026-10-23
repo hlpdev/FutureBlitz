@@ -1,0 +1,8 @@
+// Percentile orders its values, which no order can place NaN in, so one panics where it's called.
+Import std.core
+Import std.math
+
+Local fine: Double[] = [1, 3, 2]
+Print(Percentile(fine, 50))
+Local odd: Double[] = [1, NaN, 2]
+Print(Percentile(odd, 50))
