@@ -6079,10 +6079,11 @@ private:
         }
     }
 
-    /// Whether a value of `type` holds a `target` inside, counting `type` itself. A T? holds its
-    /// T, but a Class only refers to its object, so it holds nothing inside.
+    /// Whether a value of `type` holds a `target` inside, counting `type` itself, or for a generic
+    /// Struct, any instance of it, whose size is as endless. A T? holds its T, but a Class only
+    /// refers to its object, so it holds nothing inside.
     bool contains(const type_id_t type, const type_id_t target, std::vector<type_id_t>& seen) {
-        if (type == target) {
+        if (type == target || (is_struct(type) && m_analysis.types.get(type).generic == target)) {
             return true;
         }
 

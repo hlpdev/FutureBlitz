@@ -1004,6 +1004,14 @@ TEST_CASE("a Struct can't contain itself", "[sema]") {
           errors_t{ "next: 'N' can't contain itself; a Struct is stored inline" });
     CHECK(errors_of("Struct A\n    Field b: B\nEnd Struct\nStruct B\n    Field a: A\nEnd Struct") ==
           errors_t{ "b: 'A' can't contain itself; a Struct is stored inline" });
+
+    // A generic one can't contain an instance of itself either, whatever its type arguments.
+    CHECK(errors_of("Struct Wrap<T>\n    Field v: T\n    Field w: Wrap<Int>\nEnd Struct\n"
+                    "Function Use(w: Wrap<String>): String => w.v") ==
+          errors_t{ "w: 'Wrap<T>' can't contain itself; a Struct is stored inline" });
+    CHECK(errors_of("Struct Wrap<T>\n    Field v: T\n    Field w: Wrap<T[]>\nEnd Struct\n"
+                    "Function Use(w: Wrap<String>): String => w.v") ==
+          errors_t{ "w: 'Wrap<T>' can't contain itself; a Struct is stored inline" });
 }
 
 TEST_CASE("Structs compare with == and != only", "[sema]") {
