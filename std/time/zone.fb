@@ -396,6 +396,7 @@ End Function
 Function MomentOfSeconds(seconds: Int64): Timestamp
     Return Timestamp.FromUnixNanoseconds(seconds * 1000000000)
 End Function
+
 Function NowMoment(): Timestamp => Timestamp.Now()
 
 // The ZonedDateTime of parts that ISO 8601, RFC 2822, or a pattern read, or Null when they

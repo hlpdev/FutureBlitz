@@ -473,6 +473,7 @@ Function IsLetter(c: Int): Bool => (c >= 'a' && c <= 'z') || (c >= 'A' && c <= '
 Function IsZoneLetter(c: Int): Bool
     Return IsLetter(c) || IsDigit(c) || c == '/' || c == '_' || c == '-' || c == '+'
 End Function
+
 Function Lower(c: Int): Int => c >= 'A' && c <= 'Z' ? c + 32 : c
 
 // Whether the letter, that many times, is one of a pattern's.
@@ -488,6 +489,7 @@ Function IsPatternLetter(c: Int, count: Int): Bool
 End Function
 
 Function DateLetter(c: Int): Bool => c == 'y' || c == 'M' || c == 'd' || c == 'D' || c == 'E'
+
 Function TimeLetter(c: Int): Bool
     Return c == 'a' || c == 'H' || c == 'h' || c == 'm' || c == 's' || c == 'S'
 End Function
