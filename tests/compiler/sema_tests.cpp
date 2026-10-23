@@ -1676,6 +1676,27 @@ TEST_CASE("a Class extends one other Class and inherits its members", "[sema]") 
     CHECK(errors_of(with_base("Class B Extends A\n    Field hp: Int\nEnd Class")) ==
           errors_t{ "hp: 'hp' is already declared in A" });
 
+    // A Static member can't hide one the Class's objects inherit, but a Static Method with
+    // other parameters, or beside a Static one, is another.
+    CHECK(errors_of(with_base("Class B Extends A\n"
+                              "    Static Field hp: Int = 5\n"
+                              "    Static Method Hit(n: Int)\n"
+                              "    End Method\n"
+                              "End Class")) ==
+          errors_t{ "hp: 'hp' is already declared in A", "Hit: 'Hit' is already declared in A" });
+    CHECK(errors_of(with_base("Class B Extends A\n"
+                              "    Static Method Hit()\n"
+                              "    End Method\n"
+                              "End Class"))
+              .empty());
+    CHECK(errors_of("Class A\n"
+                    "    Static Method Make(): Int => 1\n"
+                    "End Class\n"
+                    "Class B Extends A\n"
+                    "    Static Method Make(): Int => 2\n"
+                    "End Class")
+              .empty());
+
     CHECK(errors_of("Struct S\nEnd Struct\nStruct T Extends S\nEnd Struct") ==
           errors_t{ "S: only a Class can extend another; a Struct is a value" });
     CHECK(errors_of("Class B Extends Nope\nEnd Class") == errors_t{ "Nope: 'Nope' isn't a Class" });
@@ -1714,6 +1735,14 @@ TEST_CASE("overriding a Method takes Override", "[sema]") {
           errors_t{ "F: 'F' overrides A's; write 'Override Method F'" });
     CHECK(with_base("Class B Extends A\n    Override Method F(x: Int): Int => 2\nEnd Class") ==
           errors_t{ "F: 'F' has Override, but A has no Method like it" });
+    CHECK(errors_of("Class C\n"
+                    "    Override Method M(): Int => 1\n"
+                    "    Override Property P: Int\n"
+                    "        Get => 2\n"
+                    "    End Property\n"
+                    "End Class") ==
+          errors_t{ "M: 'M' has Override, but C extends no Class",
+                    "P: 'P' has Override, but C extends no Class" });
     CHECK(with_base("Class B Extends A\n    Override Method F(): Long => 2\nEnd Class") ==
           errors_t{ "F: 'F' must return Int32, like A's" });
     CHECK(with_base("Class B Extends A\n    Override Method G()\n    End Method\nEnd Class") ==

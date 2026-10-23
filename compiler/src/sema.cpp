@@ -3753,11 +3753,47 @@ private:
                 }
 
                 m_analysis.types.set_fields(type, std::move(fields));
+            } else {
+                report_baseless_overrides(type);
             }
 
             conform(type);
             check_abstract(type);
         });
+    }
+
+    /// A Static member overrides nothing, but it can't hide what the Class inherits from the
+    /// Class's own code and objects: a Static Field or Property takes no inherited member's name,
+    /// and a Static Method no inherited Method's name and parameters.
+    void check_inherited_static(const symbol_id_t id, const type_id_t base) {
+        const symbol_t& member = symbol(id);
+        std::vector<symbol_id_t> inherited = members_of(base, member.name, member.span);
+        std::erase_if(inherited, [&](const symbol_id_t other) {
+            return never_has(base, symbol(other), member.owner) ||
+                   !can_use(symbol(other), member.span, member.owner);
+        });
+        const auto clash = std::ranges::find_if(inherited, [&](const symbol_id_t other) {
+            const symbol_t& found = symbol(other);
+            return member.kind != symbol_kind_t::METHOD ||
+                   (found.kind == symbol_kind_t::METHOD && !found.modifiers.is_static &&
+                    same_parameters(member, found, base));
+        });
+        if (clash != inherited.end()) {
+            error(member.span, "'{}' is already declared in {}", member.name,
+                  shown_name(symbol(*clash).owner))
+                .with_label(symbol(*clash).span, "first declared here");
+        }
+    }
+
+    /// A Class that extends nothing has nothing to override.
+    void report_baseless_overrides(const type_id_t type) {
+        for (const symbol_id_t member : symbol(m_declared_types.at(type)).members) {
+            const symbol_t& declared = symbol(member);
+            if (declared.modifiers.is_override && !declared.modifiers.is_static) {
+                error(declared.span, "'{}' has Override, but {} extends no Class", declared.name,
+                      shown_name(type));
+            }
+        }
     }
 
     /// Each built-in type, Enum, T[], and instance implements what Extends give it.
@@ -5307,8 +5343,12 @@ private:
         symbol_t& member = symbol(id);
         // Every Class's Destroy runs, so none overrides another. A Static member isn't called
         // through an object, so it doesn't either.
-        if (member.kind == symbol_kind_t::CONSTRUCTOR || member.name == "Destroy" ||
-            member.modifiers.is_static) {
+        if (member.kind == symbol_kind_t::CONSTRUCTOR || member.name == "Destroy") {
+            return;
+        }
+
+        if (member.modifiers.is_static) {
+            check_inherited_static(id, base);
             return;
         }
 
