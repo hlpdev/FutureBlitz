@@ -996,6 +996,10 @@ private:
             return named(declared->name.text, declared->modifiers);
         }
 
+        if (const auto* alias = std::get_if<alias_stmt_t>(&node)) {
+            return named(alias->name.text, alias->modifiers);
+        }
+
         if (const auto* function = std::get_if<function_stmt_t>(&node)) {
             return named(function->name.text, function->modifiers);
         }

@@ -8333,6 +8333,60 @@ TEST_CASE("an Operator an Extend of one instance adds beats the generic type's",
               .empty());
 }
 
+TEST_CASE("an Alias is the type it names, everywhere", "[sema]") {
+    // A type, which converts to and from what it names, and its News and Statics.
+    const std::string_view q = "Struct Q<Const A: Int>\n"
+                               "    Field V: Double\n"
+                               "    Static Method Zero(): Q<A> => Q<A>(0)\n"
+                               "End Struct\n"
+                               "Alias Meters = Q<1>\n";
+    CHECK(probe(std::format("{}Local x: Meters = Q<1>(2)", q)) == "Q<1>");
+    CHECK(probe(std::format("{}Local x = Meters(2)", q)) == "Q<1>");
+    CHECK(probe(std::format("{}Local x = Meters.Zero()", q)) == "Q<1>");
+    CHECK(probe("Alias Score = Int\nAlias Scores = Score[]\nLocal x: Scores = [1, 2]") ==
+          "Int32[]");
+    // One declared later, or naming another declared later, is the same.
+    CHECK(errors_of("Local x: Later = 1.5\nAlias Later = Sooner\nAlias Sooner = Double").empty());
+    CHECK(probe("Alias Later = Sooner\nAlias Sooner = Double\nLocal x: Later = 1.5") ==
+          "Float64 1.5");
+    CHECK(errors_of(std::format("{}Local x: Meters = Q<2>(2)", q)) ==
+          errors_t{ "Q<2>(2): expected Q<1>, found Q<2>" });
+
+    // One that names itself, through others or not, once each.
+    CHECK(errors_of("Alias A = B[]\nAlias B = A\nAlias C = C?") ==
+          errors_t{ "A: 'A' names itself through 'B', so it's no type",
+                    "C: 'C' names itself, so it's no type" });
+    CHECK(errors_of("Alias D = Int\nLocal x: D<Int> = 1") ==
+          errors_t{ "D<Int>: 'D' is an Alias, so it takes no type arguments" });
+    CHECK(errors_of("Alias D = Int\nLocal y = D") == errors_t{ "D: 'D' is a type, not a value" });
+    CHECK(errors_of("Alias D = Int[]\nLocal y = D()") ==
+          errors_t{ "D: 'D' names Int32[], which isn't made with a call" });
+    CHECK(errors_of("Function F()\n    Alias E = Int\nEnd Function") ==
+          errors_t{ "E: Aliases can only be declared at the top level" });
+    CHECK(errors_of("Alias Int = Double") == errors_t{ "Int: 'Int' is a built-in type" });
+
+    // It takes the usual visibility, and a Public one can't name what other modules can't see.
+    const std::vector<fb::library_file_t> names{ {
+        .path = "lib/names.fb",
+        .text = "Struct Secret\nEnd Struct\n"
+                "Public Struct Shown\nEnd Struct\n"
+                "Public Alias Seen = Shown\n"
+                "Alias Hidden = Shown\n",
+    } };
+    CHECK(errors_with(
+              "Import \"./lib/names\"\nLocal a: Seen = Seen()\nLocal c: names.Seen = Seen()", names)
+              .empty());
+    CHECK(errors_with("Import \"./lib/names\"\nLocal b: Hidden = Shown()", names) ==
+          errors_t{ "Hidden: 'Hidden' is private to lib/names.fb" });
+    const std::vector<fb::library_file_t> open{ {
+        .path = "lib/open.fb",
+        .text = "Struct Secret\nEnd Struct\nPublic Alias Open = Secret\n",
+    } };
+    CHECK(errors_with("Import \"./lib/open\"", open) ==
+          errors_t{ "lib/open.fb: Open: 'Open' is Public, but it names Secret, which is private to "
+                    "lib/open.fb" });
+}
+
 TEST_CASE("an Operator takes type parameters of its own from its operands", "[sema]") {
     // Const ones and types, as a Function call infers them, with their constraints.
     const std::string_view q = "Struct Q<Const A: Int>\n"

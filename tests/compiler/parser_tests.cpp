@@ -1210,6 +1210,17 @@ TEST_CASE("Const type parameters take values as their type arguments", "[parser]
     CHECK(parse_text("Local t: (Int[4], Q<-1>)").dump == "(local t: (Int[4], Q<(- 1)>))");
 }
 
+TEST_CASE("an Alias names a type, after its visibility", "[parser]") {
+    CHECK(parse_text("Alias MetersPerSecond = Quantity<1, 0, -1>").dump ==
+          "(alias MetersPerSecond Quantity<1, 0, (- 1)>)");
+    CHECK(parse_text("Public Alias Row = Int[]?\nAlias Pair = (Int, String)").dump ==
+          "(alias Public Row Int[]?)\n(alias Pair (Int, String))");
+    CHECK(parse_text("Alias X Int").errors ==
+          std::vector<std::string>{ "8-11: expected '=', found identifier" });
+    CHECK(parse_text("Static Alias X = Int").errors ==
+          std::vector<std::string>{ "7-12: 'Alias' doesn't take modifiers like Static or Final" });
+}
+
 TEST_CASE("Import and From name another module", "[parser]") {
     CHECK(parse_text("Import std.collections").dump == "(import std.collections)");
     CHECK(parse_text("Import \"./ui/hud\"").dump == "(import \"./ui/hud\")");

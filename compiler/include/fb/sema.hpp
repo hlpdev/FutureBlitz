@@ -53,6 +53,9 @@ enum class symbol_kind_t : std::uint8_t {
     /// The qualifier an Import gives, like "collections" or an As name: it stands for its
     /// `modules` before a '.', as in "collections.Stack<Int>()". It isn't a value.
     MODULE,
+    /// An Alias, another name for a type. Its `type` is that type, once alias_type() has worked
+    /// it out.
+    ALIAS,
 };
 
 /// A constraint, as analysis keeps it: a type parameter, and an Interface that its type argument

@@ -1081,6 +1081,15 @@ private:
         return out;
     }
 
+    /// "(alias MetersPerSecond Quantity<1, 0, (- 1)>)".
+    [[nodiscard]] node_t build(const alias_stmt_t& node) const {
+        node_t out = list("alias");
+        add_modifiers(out, node.modifiers);
+        out.items.push_back(atom(std::string(node.name.text), tone_t::NAME));
+        out.items.push_back(type(node.type));
+        return out;
+    }
+
     /// "(enum State: UInt8 Idle (= Attack 10))", with "@Flags" before the name.
     [[nodiscard]] node_t build(const enum_stmt_t& node) const {
         node_t out = list("enum");

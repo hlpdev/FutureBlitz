@@ -377,6 +377,7 @@ public:
         each_item([this](const stmt_id_t id) { declare_global_item(id); });
         each_item([this](const stmt_id_t id) { resolve_global_type(id); });
         each_item([this](const stmt_id_t id) { declare_item(id); });
+        each_item([this](const stmt_id_t id) { resolve_alias(id); });
         check_extern_symbols();
         check_from_names();
         check_overloads();
@@ -493,6 +494,11 @@ private:
     std::optional<symbol_id_t> m_function;          // the function being checked
     /// Each declared Struct's, Class's, Interface's, and Enum's symbol, by its type.
     std::unordered_map<type_id_t, symbol_id_t> m_declared_types;
+    /// The Aliases whose types are being worked out, innermost last, and those that are done.
+    std::vector<symbol_id_t> m_aliasing;
+    std::unordered_set<symbol_id_t> m_aliased;
+    /// Each call of an Alias of a Struct or Class, as "Meters(5)": the type it makes.
+    std::unordered_map<expr_id_t, type_id_t> m_alias_calls;
     /// Where each Class is declared, whose code can use the Protected members of the Classes it
     /// extends.
     std::vector<std::pair<span_t, type_id_t>> m_class_spans;
@@ -1347,6 +1353,11 @@ private:
             return;
         }
 
+        if (const auto* alias = std::get_if<alias_stmt_t>(&m_ast.get(id).node)) {
+            declare_alias(id, *alias);
+            return;
+        }
+
         const auto* node = std::get_if<type_stmt_t>(&m_ast.get(id).node);
         if (node == nullptr) {
             return;
@@ -1438,6 +1449,69 @@ private:
         m_analysis.stmts[index(id)].symbol = declared;
         m_declared_types[type] = declared;
         declare_in_module(declared);
+    }
+
+    /// An Alias's name, whose type alias_type() works out where it's first used, or once
+    /// everything is declared, so it can name any type.
+    void declare_alias(const stmt_id_t id, const alias_stmt_t& node) {
+        if (builtin_type(node.name.text)) {
+            error(node.name.span, "'{}' is a built-in type", node.name.text);
+        }
+
+        check_not_protected(node.modifiers);
+        const symbol_id_t declared = add_symbol({
+            .kind = symbol_kind_t::ALIAS,
+            .name = node.name.text,
+            .span = node.name.span,
+            .declaration = id,
+            .modifiers = node.modifiers,
+        });
+        m_analysis.stmts[index(id)].symbol = declared;
+        declare_in_module(declared);
+    }
+
+    /// The type an Alias names, worked out the first time it's needed, outside any type
+    /// parameters. One that names itself, directly or through other Aliases, is an error, once.
+    type_id_t alias_type(const symbol_id_t alias) {
+        if (m_aliased.contains(alias)) {
+            return symbol(alias).type;
+        }
+
+        if (const auto running = std::ranges::find(m_aliasing, alias);
+            running != m_aliasing.end()) {
+            std::string through;
+            for (auto other = running + 1; other != m_aliasing.end(); ++other) {
+                through += std::format("{}'{}'", through.empty() ? " through " : ", ",
+                                       symbol(*other).name);
+            }
+
+            error(symbol(alias).span, "'{}' names itself{}, so it's no type", symbol(alias).name,
+                  through);
+            m_aliased.insert(alias);
+            return type_id_t::INVALID;
+        }
+
+        const auto& node =
+            std::get<alias_stmt_t>(m_ast.get(symbol(alias).declaration.value_or(stmt_id_t{})).node);
+        m_aliasing.push_back(alias);
+        const std::vector<type_id_t> outer_scope = std::exchange(m_type_scope, {});
+        const type_id_t type = resolve_type(node.type);
+        m_type_scope = outer_scope;
+        m_aliasing.pop_back();
+        if (m_aliased.insert(alias).second) {
+            symbol(alias).type = type;
+        }
+
+        return symbol(alias).type;
+    }
+
+    /// Each Alias's type, which those that nothing uses need too.
+    void resolve_alias(const stmt_id_t id) {
+        if (std::holds_alternative<alias_stmt_t>(m_ast.get(id).node)) {
+            if (const std::optional<symbol_id_t> alias = m_analysis.stmts[index(id)].symbol) {
+                alias_type(*alias);
+            }
+        }
     }
 
     /// Reports Protected on a declaration that isn't a Class's member: a top-level one, or a
@@ -6746,6 +6820,9 @@ private:
         case symbol_kind_t::PROPERTY:
             show("holds", declared.type);
             break;
+        case symbol_kind_t::ALIAS:
+            show("names", declared.type);
+            break;
         case symbol_kind_t::TYPE: {
             const type_t& info = m_analysis.types.get(declared.type);
             if (info.base != type_id_t::INVALID) {
@@ -6859,6 +6936,8 @@ private:
             modifiers = &property->modifiers;
         } else if (const auto* enumeration = std::get_if<enum_stmt_t>(&node)) {
             modifiers = &enumeration->modifiers;
+        } else if (const auto* alias = std::get_if<alias_stmt_t>(&node)) {
+            modifiers = &alias->modifiers;
         }
 
         const std::optional<symbol_id_t> declared = m_analysis.stmts[index(id)].symbol;
@@ -7837,6 +7916,7 @@ private:
         case symbol_kind_t::GLOBAL:
         case symbol_kind_t::CONSTANT:
         case symbol_kind_t::TYPE:
+        case symbol_kind_t::ALIAS:
         case symbol_kind_t::FIELD:
         case symbol_kind_t::METHOD:
         case symbol_kind_t::PROPERTY:
@@ -12497,6 +12577,14 @@ private:
             return instance_of(declared.type, named, span);
         }
 
+        if (declared.kind == symbol_kind_t::ALIAS) {
+            if (!named.arguments.empty()) {
+                error(span, "'{}' is an Alias, so it takes no type arguments", named.name);
+            }
+
+            return alias_type(found.front());
+        }
+
         if (declared.kind == symbol_kind_t::MODULE) {
             error(span,
                   "'{}' is an imported module, not a type; use one of its types, like {}.Name",
@@ -13547,6 +13635,7 @@ private:
             if (!initialized_already && !std::holds_alternative<function_stmt_t>(node) &&
                 !std::holds_alternative<type_stmt_t>(node) &&
                 !std::holds_alternative<enum_stmt_t>(node) &&
+                !std::holds_alternative<alias_stmt_t>(node) &&
                 !std::holds_alternative<extend_stmt_t>(node) &&
                 !std::holds_alternative<import_stmt_t>(node) &&
                 !std::holds_alternative<extern_stmt_t>(node)) {
@@ -14219,6 +14308,10 @@ private:
 
     void check_stmt(stmt_id_t /*id*/, span_t /*span*/, const enum_stmt_t& node) {
         error(node.name.span, "Enums can only be declared at the top level");
+    }
+
+    void check_stmt(stmt_id_t /*id*/, span_t /*span*/, const alias_stmt_t& node) {
+        error(node.name.span, "Aliases can only be declared at the top level");
     }
 
     void check_stmt(stmt_id_t /*id*/, const span_t span, const extend_stmt_t& /*node*/) {
@@ -16489,6 +16582,7 @@ private:
             error(span, "'{}' is a function and can't be {}", target.name, action);
             return false;
         case symbol_kind_t::TYPE:
+        case symbol_kind_t::ALIAS:
             error(span, "'{}' is a type and can't be {}", target.name, action);
             return false;
         case symbol_kind_t::MODULE:
@@ -17127,7 +17221,8 @@ private:
             return check_function_value(id, node.member.text, found, node.type_arguments, hint);
         }
 
-        if (symbol(found.front()).kind == symbol_kind_t::TYPE) {
+        if (symbol(found.front()).kind == symbol_kind_t::TYPE ||
+            symbol(found.front()).kind == symbol_kind_t::ALIAS) {
             error(span_of(id), "'{}' is a type, not a value", text(id));
             return type_id_t::INVALID;
         }
@@ -17428,7 +17523,8 @@ private:
             return std::nullopt;
         }
 
-        if (symbol(first).kind == symbol_kind_t::TYPE) {
+        if (symbol(first).kind == symbol_kind_t::TYPE ||
+            symbol(first).kind == symbol_kind_t::ALIAS) {
             error(span, "'{}' is a type, not a value", name);
             return std::nullopt;
         }
@@ -17738,6 +17834,21 @@ private:
         }
 
         const symbol_t& declared = symbol(found.front());
+        if (declared.kind == symbol_kind_t::ALIAS && !name->arguments->empty()) {
+            error(span_of(id), "'{}' is an Alias, so it takes no type arguments", name->name);
+        }
+
+        if (declared.kind == symbol_kind_t::ALIAS) {
+            const type_id_t type = alias_type(found.front());
+            if (type == type_id_t::INVALID) {
+                return std::nullopt;
+            }
+
+            info(id).type = type;
+            info(id).converted = type;
+            return type;
+        }
+
         if (declared.kind != symbol_kind_t::TYPE ||
             (!has_members(declared.type) && !is_enum(declared.type))) {
             return std::nullopt;
@@ -20942,6 +21053,10 @@ private:
                 std::holds_alternative<super_expr_t>(m_ast.get(member->object).node)) {
                 // Super.New sets up the instance that Self's Class extends.
                 from = owner_arguments(symbol(*m_function).owner, definition_of(declared.owner));
+            } else if (const auto aliased = m_alias_calls.find(node.callee);
+                       declared.kind == symbol_kind_t::CONSTRUCTOR &&
+                       aliased != m_alias_calls.end()) {
+                from = m_analysis.types.get(aliased->second).arguments;
             } else if (declared.kind == symbol_kind_t::CONSTRUCTOR) {
                 from = resolve_arguments(written, owner_parameters, span_of(node.callee));
             } else if (member != nullptr && is_interface(declared.owner)) {
@@ -21591,6 +21706,10 @@ private:
             return {};
         }
 
+        if (first.kind == symbol_kind_t::ALIAS) {
+            return alias_constructors(callee, found.front(), name);
+        }
+
         if (first.kind == symbol_kind_t::TYPE) {
             reach_type(first.type);
             std::vector<symbol_id_t> constructors;
@@ -21630,6 +21749,34 @@ private:
     /// Of a type's News, the ones code at `span` can use to make a `made`. When it can use none
     /// of them, that's reported, and they're all kept, so the call is still checked. A message
     /// about one it can't names `shown`, the instance the code makes, or else `made`.
+    /// The News of the Struct or Class an Alias names, which make the instance it names, with
+    /// its type arguments, which the call doesn't infer again: "Meters(5)".
+    std::vector<symbol_id_t> alias_constructors(const expr_id_t callee, const symbol_id_t alias,
+                                                const std::string_view name) {
+        const span_t span = span_of(callee);
+        const type_id_t type = alias_type(alias);
+        if (type == type_id_t::INVALID) {
+            return {};
+        }
+
+        const auto declared = m_declared_types.find(definition_of(type));
+        if (declared == m_declared_types.end() || (!is_struct(type) && !is_class(type))) {
+            error(span, "'{}' names {}, which isn't made with a call", name, shown_name(type));
+            return {};
+        }
+
+        reach_type(definition_of(type));
+        m_alias_calls[callee] = type;
+        std::vector<symbol_id_t> constructors;
+        for (const symbol_id_t member : symbol(declared->second).members) {
+            if (symbol(member).kind == symbol_kind_t::CONSTRUCTOR) {
+                constructors.push_back(member);
+            }
+        }
+
+        return usable_constructors(std::move(constructors), span, definition_of(type), type);
+    }
+
     std::vector<symbol_id_t> usable_constructors(std::vector<symbol_id_t> constructors,
                                                  const span_t span, const type_id_t made,
                                                  const type_id_t shown = type_id_t::INVALID) {

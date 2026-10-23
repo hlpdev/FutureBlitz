@@ -617,6 +617,8 @@ private:
             return parse_property({});
         case token_kind_t::KW_ENUM:
             return parse_enum(false, peek().span.begin);
+        case token_kind_t::KW_ALIAS:
+            return parse_alias({});
         case token_kind_t::KW_DEFER: {
             // Analysis checks which statements can be deferred.
             const token_t& keyword = advance();
@@ -718,6 +720,18 @@ private:
     /// "@Flags Enum ...". On anything else, @Flags is an error, and the statement still parses.
     /// "Enum Name: Type", its members, then "End Enum". Members are separated by commas, which
     /// can end a line, or by lines.
+    /// "Alias MetersPerSecond = Quantity<1, 0, -1>", after its visibility, if it has one.
+    stmt_id_t parse_alias(const modifiers_t& modifiers) {
+        const std::size_t start = m_pos;
+        const std::uint32_t begin = advance().span.begin;
+        const name_t name = expect_name();
+        expect(token_kind_t::EQUAL);
+        const type_expr_id_t type = parse_type();
+        finish_line(start);
+        return add_stmt(span_from(begin),
+                        alias_stmt_t{ .name = name, .type = type, .modifiers = modifiers });
+    }
+
     stmt_id_t parse_enum(const bool flags, const std::uint32_t begin, modifiers_t modifiers = {}) {
         const std::size_t start = m_pos;
         const token_t& keyword = advance();
@@ -991,10 +1005,14 @@ private:
     }
 
     /// The rest of a statement after its visibility, which isn't one parse_modified() takes: an
-    /// Enum or an Attribute declaration. Anything else is reported, then parsed.
+    /// Enum, an Alias, or an Attribute declaration. Anything else is reported, then parsed.
     stmt_id_t parse_visible(const modifiers_t& modifiers) {
         if (at(token_kind_t::KW_ENUM)) {
             return parse_enum(false, peek().span.begin, modifiers);
+        }
+
+        if (at(token_kind_t::KW_ALIAS)) {
+            return parse_alias(modifiers);
         }
 
         if (at(token_kind_t::IDENTIFIER) && text(peek()) == "Attribute" &&

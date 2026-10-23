@@ -2155,6 +2155,7 @@ private:
             if (!global && !std::holds_alternative<function_stmt_t>(node) &&
                 !std::holds_alternative<type_stmt_t>(node) &&
                 !std::holds_alternative<enum_stmt_t>(node) &&
+                !std::holds_alternative<alias_stmt_t>(node) &&
                 !std::holds_alternative<extend_stmt_t>(node) &&
                 !std::holds_alternative<import_stmt_t>(node) &&
                 !std::holds_alternative<extern_stmt_t>(node)) {

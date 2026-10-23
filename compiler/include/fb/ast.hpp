@@ -832,13 +832,22 @@ struct extern_stmt_t {
     modifiers_t modifiers;
 };
 
+/// "Alias MetersPerSecond = Quantity<1, 0, -1>": another name for a type, which is that type
+/// everywhere.
+struct alias_stmt_t {
+    name_t name;
+    type_expr_id_t type;
+    /// Its visibility, the only modifier it takes.
+    modifiers_t modifiers;
+};
+
 using stmt_node_t =
     std::variant<error_stmt_t, expression_stmt_t, assign_stmt_t, increment_stmt_t, variable_stmt_t,
                  function_stmt_t, if_stmt_t, while_stmt_t, repeat_stmt_t, loop_stmt_t, for_stmt_t,
                  for_in_stmt_t, select_stmt_t, break_stmt_t, continue_stmt_t, return_stmt_t,
                  type_stmt_t, enum_stmt_t, defer_stmt_t, throw_stmt_t, try_stmt_t, property_stmt_t,
                  destructure_stmt_t, extend_stmt_t, for_member_stmt_t, lock_stmt_t, import_stmt_t,
-                 extern_stmt_t, unsafe_stmt_t>;
+                 extern_stmt_t, unsafe_stmt_t, alias_stmt_t>;
 
 struct stmt_t {
     span_t span;
