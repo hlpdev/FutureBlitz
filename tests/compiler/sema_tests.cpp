@@ -8366,22 +8366,26 @@ TEST_CASE("an Alias is the type it names, everywhere", "[sema]") {
     CHECK(errors_of("Alias Int = Double") == errors_t{ "Int: 'Int' is a built-in type" });
 
     // It takes the usual visibility, and a Public one can't name what other modules can't see.
-    const std::vector<fb::library_file_t> names{ {
-        .path = "lib/names.fb",
-        .text = "Struct Secret\nEnd Struct\n"
-                "Public Struct Shown\nEnd Struct\n"
-                "Public Alias Seen = Shown\n"
-                "Alias Hidden = Shown\n",
-    } };
+    const std::vector<fb::library_file_t> names{
+        {
+            .path = "lib/names.fb",
+            .text = "Struct Secret\nEnd Struct\n"
+                    "Public Struct Shown\nEnd Struct\n"
+                    "Public Alias Seen = Shown\n"
+                    "Alias Hidden = Shown\n",
+        },
+    };
     CHECK(errors_with(
               "Import \"./lib/names\"\nLocal a: Seen = Seen()\nLocal c: names.Seen = Seen()", names)
               .empty());
     CHECK(errors_with("Import \"./lib/names\"\nLocal b: Hidden = Shown()", names) ==
           errors_t{ "Hidden: 'Hidden' is private to lib/names.fb" });
-    const std::vector<fb::library_file_t> open{ {
-        .path = "lib/open.fb",
-        .text = "Struct Secret\nEnd Struct\nPublic Alias Open = Secret\n",
-    } };
+    const std::vector<fb::library_file_t> open{
+        {
+            .path = "lib/open.fb",
+            .text = "Struct Secret\nEnd Struct\nPublic Alias Open = Secret\n",
+        },
+    };
     CHECK(errors_with("Import \"./lib/open\"", open) ==
           errors_t{ "lib/open.fb: Open: 'Open' is Public, but it names Secret, which is private to "
                     "lib/open.fb" });
