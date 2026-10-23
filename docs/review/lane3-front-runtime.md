@@ -771,3 +771,11 @@ Code path: fb_start → SetConsoleOutputCP(CP_UTF8) (line 217) and SetConsoleMod
 Suggested fix: Save GetConsoleOutputCP() and the original mode in fb_start, and put them back at the end, in fb_finish and in end_program before _Exit. Or write to the console with WriteConsoleW and leave the code page alone.
 
 Skeptic: confirmed=True, low. Reproduced. From PowerShell: `cmd /c "chcp 437 >nul & cpq.exe & hi.exe & cpq.exe"`, where cpq.exe is a probe that prints GetConsoleOutputCP(). Before hi.exe it gives out_cp=437; after a FutureBlitz hello-world it gives out_cp=65001 in the same console. fb_start (runtime.cpp:217, 226) calls SetConsoleOutputCP(CP_UTF8) and SetConsoleMode(stderr, mode | VT). Nothing saves or restores either value, not in fb_finish nor in end_program. Neither docs/decisions.md nor the Deferred work table covers it.
+
+## A-new-4 (low): The Ctrl+C CLI test fails now and then under load, when fb run's folder outlives its one remove_all
+
+Status: fixed in 8af8834 (fb run tries removing its folder again while the program's files are let go, and the ctrl+c test's program is named for its process, so copies of it can run at once), with a driver test: remove_temporary() removes a folder once another holder lets go of a file in it
+
+Where: cli/src/commands.cpp, run(), and tests/cli/cli_tests.cpp, "Ctrl+C during fb run ends the program, and fb cleans up and gives its exit code"
+
+Found by lane 5, once under load: the test found the run's temp folder still there. On Windows, remove_all fails while anything still holds one of the folder's files, as Windows or a scanner can hold the program's executable for a moment after it ends, and fb run tried once. It now removes the folder through the driver's remove_temporary(), which tries again for up to two seconds. The test's program is named for its process too, so copies of the test run at once don't count each other's folders; ten copies at once passed, twice.
