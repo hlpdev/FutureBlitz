@@ -245,7 +245,8 @@ Public Struct Complex Implements Equatable, Hashable, Printable, Numeric, Defaul
     Operator -(a: Complex): Complex => Complex(-a.Real, -a.Imaginary)
 End Struct
 
-// A NaN, from 0.0 / 0.0, with its sign bit clear, so it shows as "nan", and an infinity.
+// A NaN, from 0.0 / 0.0, with its sign bit clear, so an Imaginary part of one shows as "+NaNi",
+// and an infinity.
 Function NotANumber(): Double
     Local zero = 0.0
     Return copysign(zero / zero, 1.0)

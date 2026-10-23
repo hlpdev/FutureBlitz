@@ -1,2 +1,2 @@
 [[(0, 0), (2, 0), (2, 2), (0, 2)]]
-panic: a point's coordinates are finite, not (0, inf) at panic_algo_voronoi_infinite.fb:8:7
+panic: a point's coordinates are finite, not (0, Inf) at panic_algo_voronoi_infinite.fb:8:7

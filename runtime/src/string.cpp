@@ -1,4 +1,5 @@
 #include "fb/runtime.hpp"
+#include "fb/text_format.hpp"
 
 #include <array>
 #include <atomic>
@@ -127,8 +128,8 @@ decoded_t decode(const std::string_view text, const std::size_t at) {
     return { .point = point, .length = length };
 }
 
-/// `value` as std::to_chars writes it by default: the same text as std::format("{}"), which the
-/// compiler uses when it folds constants. Floats get the shortest text that reads back the same.
+/// An integer as std::to_chars writes it by default: the same text as std::format("{}"), which
+/// the compiler uses when it folds constants.
 template <typename Number>
 fb_string_t* from_number(const Number value) {
     std::array<char, 64> buffer{};
@@ -333,11 +334,13 @@ fb_string_t* fb_string_from_uint(const std::uint64_t value) {
 }
 
 fb_string_t* fb_string_from_float32(const float value) {
-    return from_number(value);
+    const std::string text = fb::shortest_text(value, true);
+    return make(text);
 }
 
 fb_string_t* fb_string_from_float64(const double value) {
-    return from_number(value);
+    const std::string text = fb::shortest_text(value, false);
+    return make(text);
 }
 
 fb_string_t* fb_string_from_bool(const std::int32_t value) {

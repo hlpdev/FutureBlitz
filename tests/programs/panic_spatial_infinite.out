@@ -1,2 +1,2 @@
 0
-panic: a SpatialHash's cells are a finite size above 0, not inf at panic_spatial_infinite.fb:7:14
+panic: a SpatialHash's cells are a finite size above 0, not Inf at panic_spatial_infinite.fb:7:14

@@ -16,7 +16,7 @@ QUERY: SQL can't hold a NUL, where SQLite stops reading it
 OTHER: SQLite's integers go up to 9223372036854775807, not 18446744073709551615
 OTHER: SQLite can't hold a NaN, which it keeps as NULL
 OTHER: SQLite can't hold a NaN, which it keeps as NULL
-inf real
+Inf real
 0
 QUERY: no such table: gone
 1 1

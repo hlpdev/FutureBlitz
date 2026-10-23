@@ -15,7 +15,7 @@ false BOOL False True False False False False False False 0
 0.5 DOUBLE False False False True False False False False 0
 1.0 DOUBLE False False False True False False False False 0
 -0.0 DOUBLE False False False True False False False False 0
-1e+300 DOUBLE False False False True False False False False 0
+1e300 DOUBLE False False False True False False False False 0
 "text" STRING False False False False True False False False 0
 "" STRING False False False False True False False False 0
 <01abff> BYTES False False False False False True False False 3
@@ -26,7 +26,7 @@ false BOOL False True False False False False False False 0
 true True - - - - -
 42 - 42 42 42 42 -
 -5 - -5 -5 - -5 -
-3000000 - 3000000 3000000 3000000 3e+06 -
+3000000 - 3000000 3000000 3000000 3e6 -
 18446744073709551615 - - - 18446744073709551615 18446744073709551616 -
 2.5 - - - - 2.5 -
 "x" - - - - - x

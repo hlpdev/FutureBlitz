@@ -1,2 +1,2 @@
 1/2
-panic: a Rational is finite, not -inf at panic_rational_double.fb:7:7
+panic: a Rational is finite, not -Inf at panic_rational_double.fb:7:7

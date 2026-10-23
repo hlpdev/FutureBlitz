@@ -1,2 +1,2 @@
 [(0, 0), (1, 0)]
-panic: a polygon's corners are finite, not (nan, 0) at panic_math_polygon_hull.fb:7:7
+panic: a polygon's corners are finite, not (NaN, 0) at panic_math_polygon_hull.fb:7:7

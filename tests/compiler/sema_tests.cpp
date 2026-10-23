@@ -246,7 +246,7 @@ TEST_CASE("As converts between numbers", "[sema]") {
     CHECK(probe("Local x = 7 As Float") == "Float32 7");
     CHECK(probe("Local i = 1\nLocal x = i As Float") == "Float32");
     CHECK(errors_of("Local x = 1.0e10 As Int") ==
-          errors_t{ "1.0e10 As Int: 1e+10 doesn't fit in Int32" });
+          errors_t{ "1.0e10 As Int: 1e10 doesn't fit in Int32" });
     CHECK(errors_of("Local x = \"1\" As Int") ==
           errors_t{ "\"1\" As Int: 'As' can't convert String to Int32" });
 }

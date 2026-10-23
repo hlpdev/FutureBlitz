@@ -1,2 +1,2 @@
 [(2, 0, 1)]
-panic: a point's coordinates are finite, not (nan, 0) at panic_algo_delaunay_nan.fb:7:7
+panic: a point's coordinates are finite, not (NaN, 0) at panic_algo_delaunay_nan.fb:7:7
