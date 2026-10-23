@@ -302,7 +302,13 @@ End Struct
 - `!=` is always the opposite of `==`, so it's never defined on its own.
 - An Operator is Static, has no Self, and takes a value of its own type as one of its
   parameters. A comparison gives a `Bool`. Its parameters aren't `ByRef` and have no defaults,
-  it has no type parameters of its own, and it doesn't throw.
+  and it doesn't throw.
+- An Operator can have type parameters of its own, which only its operands' types give, as a
+  call's arguments give a Function's, so each is in one of their types, and none is written
+  where it's used. Their constraints hold as a Function's do. A quantity's `*` adds its
+  operands' exponents: `Operator *<Const L2: Int>(a: Quantity<L>, b: Quantity<L2>):
+  Quantity<L + L2>`. Where the operands fit none, the error names their types: "no Operator +
+  takes (Meters, Seconds)".
 - `a + b` calls the Operator `+` that `a`'s or `b`'s type defines, or inherits from a Class it
   extends, chosen among them like among a function's overloads; a literal takes the type of the
   parameter it's passed for. Comparing with `Null` is never an Operator.
@@ -310,7 +316,8 @@ End Struct
 - A type with an `Operator ==` uses it for every `==` on its values: in a Struct's or tuple's
   field-wise `==`, a `T[]`'s `Contains`, and between `T?` values. `RefEquals` still compares
   objects themselves.
-- A generic type's Operators take its type arguments from their operands.
+- A generic type's Operators take its type arguments from their operands, and theirs too. One
+  that isn't generic still beats a generic one that takes the same types.
 
 ### Indexing
 
