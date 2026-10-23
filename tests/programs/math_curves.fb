@@ -1,0 +1,87 @@
+// Curves and splines: Bezier, Hermite, Catmull-Rom, and B-spline points; and Curve2 and Curve3,
+// which join points into a curve and go along it by length. libm's sines are in some of them, so
+// those print rounded to four places.
+Import std.core
+Import std.math
+
+// The value or vector to four places, with -0 as 0.
+Function Shown(value: Float): Float => Round(value * 10000) / 10000 + 0
+
+Function Shown(v: Vec2): Vec2 => Vec2(Shown(v.x), Shown(v.y))
+
+Function Shown(v: Vec3): Vec3 => Vec3(Shown(v.x), Shown(v.y), Shown(v.z))
+
+// The one-segment curves at their ends and middle.
+Local a = Vec2(0, 0)
+Local b = Vec2(1, 2)
+Local c = Vec2(3, 2)
+Local d = Vec2(4, 0)
+Print(QuadraticBezier(a, b, c, 0), QuadraticBezier(a, b, c, 0.5), QuadraticBezier(a, b, c, 1))
+Print(CubicBezier(a, b, c, d, 0), CubicBezier(a, b, c, d, 0.5), CubicBezier(a, b, c, d, 0.25),
+      CubicBezier(a, b, c, d, 1))
+Print(Hermite(a, Vec2(1, 0), d, Vec2(1, 0), 0), Hermite(a, Vec2(1, 0), d, Vec2(1, 0), 0.5),
+      Hermite(a, Vec2(0, 4), d, Vec2(0, -4), 0.5), Hermite(a, b, d, c, 1))
+Print(CatmullRom(a, b, c, d, 0), CatmullRom(a, b, c, d, 0.5), CatmullRom(a, b, c, d, 1))
+Print(BSpline(a, b, c, d, 0), BSpline(a, b, c, d, 0.5), BSpline(a, b, c, d, 1),
+      Shown(BSpline(b, b, b, b, 0.3)))
+Print(QuadraticBezier(Vec3.Zero(), Vec3(1, 2, 3), Vec3(2, 0, 0), 0.5),
+      CubicBezier(Vec3.Zero(), Vec3.Up, Vec3(1, 1, 0), Vec3.Right, 0.5))
+Print(Hermite(Vec3.Zero(), Vec3.Right, Vec3.One(), Vec3.Up, 0.5),
+      CatmullRom(Vec3.Zero(), Vec3.Right, Vec3(2, 0, 0), Vec3(3, 0, 0), 0.25),
+      BSpline(Vec3.Zero(), Vec3.Zero(), Vec3(6, 0, 0), Vec3(6, 0, 0), 0.5))
+
+// A Curve2 from a Function: a straight line's length is exact, and a quarter circle's is near
+// Pi / 2 with enough samples.
+Local line = Curve2(Function(t: Float) => Vec2(t * 3, t * 4))
+Print(line.Length, line.PointAt(0.5), line.PointAt(-1), line.PointAt(2), line.PointAtDistance(2.5),
+      line.PointAtDistance(9))
+Print(line.Sample(3), line.Sample(6))
+Local quarter = Curve2(Function(t: Float) => Vec2(Cos(t * Pi / 2), Sin(t * Pi / 2)), 1000)
+Print(IsClose(quarter.Length, Pi / 2, 0.0001), Shown(quarter.PointAtDistance(Pi / 4)),
+      Shown(quarter.PointAt(0.5)))
+
+// Splines through points, or near them, open or closed.
+Local points = [Vec2(0, 0), Vec2(2, 2), Vec2(4, 0), Vec2(6, 2)]
+Local through = Curve2.CatmullRom(points)
+Print(through.PointAt(0), Shown(through.PointAt(1.0 / 3)), Shown(through.PointAt(2.0 / 3)),
+      through.PointAt(1), Shown(through.PointAt(1.0 / 6)))
+Local loop = Curve2.CatmullRom(points, True)
+Print(loop.PointAt(0), Shown(loop.PointAt(0.25)), Shown(loop.PointAt(0.5)), loop.PointAt(1),
+      Shown(loop.PointAt(0.125)))
+Local near = Curve2.BSpline(points)
+Print(near.PointAt(0), near.PointAt(1), Shown(near.PointAt(0.5)), Shown(near.PointAt(0.2)))
+Local round = Curve2.BSpline([Vec2(0, 0), Vec2(2, 0), Vec2(2, 2), Vec2(0, 2)], True)
+Print(Shown(round.PointAt(0)), Shown(round.PointAt(0.25)), Shown(round.PointAt(1)),
+      Shown(round.PointAt(0.125)))
+Local path = Curve2.Bezier([Vec2(0, 0), Vec2(0, 1), Vec2(1, 1), Vec2(1, 0), Vec2(1, -1),
+                            Vec2(2, -1), Vec2(2, 0)])
+Print(path.PointAt(0), path.PointAt(0.5), path.PointAt(1), Shown(path.PointAt(0.25)),
+      Shown(path.PointAt(0.75)))
+
+// Even steps by length: on a circle, equal steps along it make equal chords, which the samples'
+// are, within a tenth of a percent, and a spline's run from end to end.
+Local ends = Curve2.CatmullRom(points).Sample(21)
+Print(ends.Count, ends[0], ends[20])
+Local samples = quarter.Sample(11)
+Local shortest: Float = 1000
+Local longest: Float = 0
+For i = 1 Until samples.Count
+    Local gap = Distance(samples[i - 1], samples[i])
+    shortest = Min(shortest, gap)
+    longest = Max(longest, gap)
+End For
+Print(samples.Count, Shown(samples[0]), Shown(samples[10]), longest - shortest < longest * 0.001)
+
+// Curve3, the same in 3D.
+Local helix = Curve3(Function(t: Float) => Vec3(Cos(t * Tau), Sin(t * Tau), t * 2), 2000)
+Print(IsClose(helix.Length, Sqrt(Tau * Tau + 4), 0.001), Shown(helix.PointAt(0.5)),
+      Shown(helix.PointAtDistance(0)))
+Local spline3 = Curve3.CatmullRom([Vec3.Zero(), Vec3(1, 1, 1), Vec3(2, 0, 2)])
+Print(spline3.PointAt(0), Shown(spline3.PointAt(0.5)), spline3.PointAt(1),
+      Shown(spline3.PointAt(0.25)))
+Print(Shown(Curve3.CatmullRom([Vec3.Zero(), Vec3.Right, Vec3.Up], True).PointAt(1.0 / 3)),
+      Shown(Curve3.BSpline([Vec3.Zero(), Vec3(3, 0, 0)]).PointAt(0.5)))
+Print(Shown(Curve3.BSpline([Vec3.Zero(), Vec3.Right, Vec3.Up], True).PointAt(0)),
+      Curve3.Bezier([Vec3.Zero(), Vec3.Up, Vec3.Up, Vec3.Zero()]).PointAt(0.5))
+Print(Curve3(Function(t: Float) => Vec3(t, 0, 0)).Sample(3),
+      Shown(Curve3.BSpline([Vec3.Zero(), Vec3(3, 0, 0)]).PointAtDistance(1)))
