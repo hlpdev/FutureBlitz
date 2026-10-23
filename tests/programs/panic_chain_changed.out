@@ -1,1 +1,1 @@
-panic: the Stack changed while a For ... In went over it at std/collections/stack.fb:99:42
+panic: the Stack changed while a For ... In went over it at std/collections/stack.fb:100:42

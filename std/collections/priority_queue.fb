@@ -6,6 +6,7 @@
 Import std.core
 Import std.collections.array
 
+@DebugElements
 Public Class PriorityQueue<T> Implements Iterable<T>, Cloneable
     Field Items: T[] = []
     Field Before: Func(T, T): Bool

@@ -31,6 +31,12 @@ std::string_view runtime_name(const runtime_function_t function) {
         return "format_float";
     case runtime_function_t::FORMAT_TEXT:
         return "format_text";
+    case runtime_function_t::DEBUG_STRING:
+        return "debug_string";
+    case runtime_function_t::DEBUG_OBJECT:
+        return "debug_object";
+    case runtime_function_t::DEBUG_INDENT:
+        return "debug_indent";
     case runtime_function_t::TO_TEXT:
         return "to_text";
     case runtime_function_t::CSTRING_NEW:
@@ -185,7 +191,8 @@ public:
             out += '\n';
         }
 
-        // "class Boss Extends Enemy, Destroy: Boss.Destroy()", then its Method table.
+        // "class Boss Extends Enemy, Destroy: Boss.Destroy()", and its debug form's function once
+        // the program shows one, then its Method table.
         for (const mir_class_t& info : m_module.classes) {
             out += std::format("{} {}", keyword("class"), type(info.type));
             if (const type_id_t base = m_module.types->get(info.type).base;
@@ -195,6 +202,10 @@ public:
 
             if (info.destroy) {
                 out += std::format(", Destroy: {}", function_name(*info.destroy));
+            }
+
+            if (info.debug) {
+                out += std::format(", debug: {}", function_name(*info.debug));
             }
 
             out += '\n';
@@ -213,7 +224,12 @@ public:
 
         // An array type's tables, like "array Int32[]" and "Iterable<Int32> 0: ...".
         for (const mir_class_t& info : m_module.array_classes) {
-            out += std::format("{} {}\n", keyword("array"), type(info.type));
+            out += std::format("{} {}", keyword("array"), type(info.type));
+            if (info.debug) {
+                out += std::format(", debug: {}", function_name(*info.debug));
+            }
+
+            out += '\n';
             for (const mir_implementation_t& implementation : info.interfaces) {
                 for (std::size_t i = 0; i < implementation.methods.size(); ++i) {
                     out += std::format("    {} {}: {}\n", type(implementation.interface), i,

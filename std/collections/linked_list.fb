@@ -36,6 +36,7 @@ Public Class LinkedListNode<T>
     End Property
 End Class
 
+@DebugElements
 Public Class LinkedList<T> Implements Iterable<T>, Cloneable, Defaultable
     Field Head: LinkedListNode<T>?
     Field Tail: LinkedListNode<T>?

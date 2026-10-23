@@ -259,6 +259,49 @@ TEST_CASE("an interpolation's format spec fits its value, or is an error at the 
                     "?'" });
 }
 
+TEST_CASE("every value has a debug form, and DebugElements goes on an Iterable", "[sema]") {
+    const std::string_view point = "Import std.core\nStruct P\n    Field x: Int\nEnd Struct\n";
+    CHECK(errors_of(std::format("{}Local p = P(1)\nLocal x = \"{{p:?}} {{p:>#9?}}\"", point))
+              .empty());
+    CHECK(errors_of(std::format("{}Local p = P(1)\nLocal x = \"{{p:+?}} {{p:.2?}}\"", point)) ==
+          errors_t{
+              "+?: the debug form '?' takes only a fill, an alignment, a width, and '#'",
+              ".2?: the debug form '?' takes only a fill, an alignment, a width, and '#'",
+          });
+
+    // Std's DebugElements shows an Iterable's elements, and DebugEntries its (key, value) ones.
+    const auto bag = [](const std::string_view attributes, const std::string_view element) {
+        return std::format("Import std.core\nImport std.collections\n{}\n"
+                           "Class Bag Implements Iterable<{}>\n"
+                           "    Field Items: {}[] = []\n"
+                           "    Method Iterate(): ArrayIterator<{}> => Items.Iterate()\n"
+                           "End Class",
+                           attributes, element, element, element);
+    };
+    CHECK(errors_of(bag("@DebugElements", "Int")).empty());
+    CHECK(errors_of(bag("@DebugEntries", "(String, Int)")).empty());
+    CHECK(
+        errors_of(bag("@DebugEntries", "Int")) ==
+        errors_t{ "Bag: @DebugEntries goes on an Iterable of (key, value) tuples, but 'Bag' is an "
+                  "Iterable<Int32>" });
+    CHECK(
+        errors_of(bag("@DebugEntries", "(Int, Int, Int)")) ==
+        errors_t{ "Bag: @DebugEntries goes on an Iterable of (key, value) tuples, but 'Bag' is an "
+                  "Iterable<(Int32, Int32, Int32)>" });
+    CHECK(errors_of(bag("@DebugElements @DebugEntries", "(String, Int)")) ==
+          errors_t{ "Bag: 'Bag' has @DebugElements and @DebugEntries, but its debug form shows "
+                    "one" });
+    CHECK(errors_of(std::format("{}@DebugElements\nStruct Q\nEnd Struct", point)) ==
+          errors_t{ "Q: @DebugElements goes on a Struct or Class that implements Iterable<T>, "
+                    "which 'Q' isn't" });
+    CHECK(errors_of("Import std.core\n"
+                    "@DebugElements\n"
+                    "Interface Many Extends Iterable<Int>\n"
+                    "End Interface") ==
+          errors_t{ "Many: @DebugElements goes on a Struct or Class that implements Iterable<T>, "
+                    "which 'Many' isn't" });
+}
+
 TEST_CASE("operators check their operand types", "[sema]") {
     CHECK(errors_of("Local x = !1") == errors_t{ "!1: '!' can't be used on Int32" });
     CHECK(errors_of("Local u: UInt32 = 1\nLocal x = -u") ==

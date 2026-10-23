@@ -349,6 +349,8 @@ struct builtin_interfaces_t {
     type_id_t defaultable = type_id_t::INVALID;
     /// Iterator<T>, from std/core/iterator.fb, which 'For ... In' goes over.
     type_id_t iterator = type_id_t::INVALID;
+    /// Iterable<T>, what gives an Iterator<T>, as std's collections do.
+    type_id_t iterable = type_id_t::INVALID;
     /// What can go to another thread, which the compiler decides from a type's fields.
     type_id_t sendable = type_id_t::INVALID;
 };
@@ -381,6 +383,12 @@ struct analysis_t { // NOLINT(bugprone-exception-escape)
     /// std's Formatted<T>, from std/core/format.fb: the Class a value that isn't an object goes
     /// in for a "values: Formattable..." parameter. INVALID without the standard library.
     type_id_t formatted_box = type_id_t::INVALID;
+    /// std's DebugElements and DebugEntries, from std/core/format.fb: the Attributes that make
+    /// an Iterable type's debug form show its elements, or its (key, value) entries as a Map's,
+    /// which ElementsOf<C, T> gives, in place of its Fields. INVALID without the standard library.
+    type_id_t debug_elements = type_id_t::INVALID;
+    type_id_t debug_entries = type_id_t::INVALID;
+    std::optional<symbol_id_t> elements_of;
     /// A CString's ToString, which copies its text into a String in Unsafe code, once a program
     /// uses it.
     std::optional<symbol_id_t> cstring_text;

@@ -1,0 +1,38 @@
+42 -1.5 0.1 1e300 True Spades
+"say \"hi\"\n\tand {{go}}\\\x01é"
+Null 7
+(1, "a", 2.5)
+[1, 2, 3] [] [["a"], [], ["b", "c"]]
+Point { X: 1, Y: -2 } Empty {}
+Save { Name: "Ann", Scores: [10, 20], Items: Map<String, Int32> {"sword": 1, "shield": 2}, Best: 99, Rival: Null, Spot: Point { X: 1, Y: -2 } }
+Save {
+    Name: "Ann",
+    Scores: [
+        10,
+        20,
+    ],
+    Items: Map<String, Int32> {
+        "sword": 1,
+        "shield": 2,
+    },
+    Best: 99,
+    Rival: Null,
+    Spot: Point {
+        X: 1,
+        Y: -2,
+    },
+}
+True
+[]
+Empty {}
+Boss { Health: 10, Title: "King" } Pet { Kind: "cat" } Null
+Node { Value: 1, Next: Node { Value: 2, Next: Node { … } } }
+Stack<Int32> [6, 5] Set<String> ["x"] Map<Int32, String> {} Bag [3, 1]
+Map<String, Int32> {
+    "sword": 1,
+    "shield": 2,
+}
+[   Point { X: 1, Y: -2 }] ["ab"****] [    7    ]
+3 "x" Point { X: 1, Y: -2 } [Null, 7]
+Boss { Health: 10, Title: "King" } Watcher { Target: Boss { Health: 10, Title: "King" } } Func(Int32): Int32
+Null Watcher { Target: Null }

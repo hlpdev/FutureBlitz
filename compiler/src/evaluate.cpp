@@ -573,6 +573,13 @@ private:
         case runtime_function_t::FORMAT_FLOAT:
         case runtime_function_t::FORMAT_TEXT:
             return format_value(call.function, arguments);
+        case runtime_function_t::DEBUG_STRING:
+            return value_t{ make_string(debug_text(text(0))) };
+        case runtime_function_t::DEBUG_INDENT: {
+            const auto levels = std::get<std::int64_t>(arguments[0].data);
+            const auto spaces = static_cast<std::size_t>(std::max<std::int64_t>(levels, 0)) * 4;
+            return value_t{ make_string("\n" + std::string(spaces, ' ')) };
+        }
         case runtime_function_t::EQUAL:
             return value_t{ make_bool(text(0) == text(1)) };
         case runtime_function_t::COMPARE: {

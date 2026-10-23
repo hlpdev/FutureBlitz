@@ -61,6 +61,11 @@ struct fb_class_t {
     /// Calls `visitor` with `context` and each object the fields refer to strongly, for the
     /// cycle detector. A Weak<T> doesn't keep its object, so it isn't one.
     void (*visit)(const fb_object_t* object, fb_visitor_t visitor, void* context);
+    /// The object's debug form, "{x:?}"'s, all on one line when `indent` is below 0, or else
+    /// with each part on a line of its own, `indent` levels in. The caller owns the result. Null
+    /// for a Class whose objects show only their Class's name, and in a program that shows no
+    /// debug form.
+    fb_string_t* (*debug)(const fb_object_t* object, std::int32_t indent);
     /// How many objects of the Class exist, for the leak report.
     std::int64_t live;
     /// The Interfaces its objects implement, its own and the ones it inherits, each with the
@@ -226,6 +231,12 @@ fb_string_t* fb_format_float(double value, std::int32_t float32, const fb_string
 fb_string_t* fb_format_text(const fb_string_t* text, const fb_string_t* spec, std::int32_t string);
 /// A String's debug form: in quotes, with source code's escapes. The caller owns the result.
 fb_string_t* fb_string_debug(const fb_string_t* text);
+/// An object's debug form, by its own Class's debug, or its Class's name when that has none. An
+/// object already being shown on this thread, in a cycle, shows as its name and "{ … }". The
+/// caller owns the result.
+fb_string_t* fb_debug_object(const fb_object_t* object, std::int32_t indent);
+/// A line break, then four spaces for each of `indent` levels, for an indented debug form.
+fb_string_t* fb_debug_indent(std::int32_t indent);
 
 /// 1, with the integer `text` writes in `base` (2 to 36) in `value`, or 0 when it isn't one or
 /// doesn't fit: a sign, then digits, which the base's "0x", "0o", or "0b" can start.

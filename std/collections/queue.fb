@@ -5,6 +5,7 @@
 
 Import std.core
 
+@DebugElements
 Public Class Queue<T> Implements Iterable<T>, Cloneable, Defaultable
     Field Items: T?[] = []
     Field Head: Int

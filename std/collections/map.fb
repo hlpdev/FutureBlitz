@@ -17,6 +17,7 @@ Struct MapEntry<K, V>
     Field After: Int
 End Struct
 
+@DebugEntries
 Public Class Map<K, V> Implements Iterable<(K, V)>, Cloneable, Defaultable
     Where K: Hashable
 
