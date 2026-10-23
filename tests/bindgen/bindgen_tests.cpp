@@ -287,6 +287,24 @@ TEST_CASE("function pointers become Callbacks", "[bindgen]") {
           "    // skipped: move, which takes a callback that takes a struct by value\n"
           "    // skipped: log_all, which takes a callback that takes varargs\n"
           "End Extern\n");
+
+    // A parameter declared as a function is a pointer to one, as C passes it, written so or
+    // through a typedef, and in a callback, and a callback's in a field.
+    CHECK(
+        module_of("typedef long handler_t(long);\n"
+                  "struct ops { int (*apply)(int value, int transform(int)); int count; };\n"
+                  "void sort_ints(int* values, int count, int compare(int a, int b));\n"
+                  "void set_handler(handler_t h);\n") ==
+        "@CLayout Public Struct ops\n"
+        "    Public Field apply: Callback(Int32, Callback(Int32): Int32): Int32\n"
+        "    Public Field count: Int32\n"
+        "End Struct\n"
+        "\n"
+        "Public Extern \"C\"\n"
+        "    Function sort_ints(values: Ptr<Int32>, count: Int32, compare: Callback(Int32, Int32): "
+        "Int32)\n"
+        "    Function set_handler(h: Callback(CLong): CLong)\n"
+        "End Extern\n");
 }
 
 TEST_CASE("what can't map is a skipped comment and a warning", "[bindgen]") {

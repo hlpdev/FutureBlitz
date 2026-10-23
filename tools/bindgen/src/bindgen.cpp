@@ -1259,6 +1259,11 @@ private:
             return map_pointee(clang_getArrayElementType(written_as(declared, type.kind)));
         }
 
+        // A function goes as a pointer to it too, as in `int compare(int a, int b)`.
+        if (type.kind == CXType_FunctionProto || type.kind == CXType_FunctionNoProto) {
+            return map_pointee(declared);
+        }
+
         return map_type(declared);
     }
 
@@ -1447,7 +1452,8 @@ private:
                 return;
             }
 
-            if (const mapped_t mapped = map_type(type); !mapped) {
+            // The type as written, as emit_struct() writes it.
+            if (const mapped_t mapped = map_type(clang_getCursorType(field)); !mapped) {
                 problem = std::format("its field {} is {}", name, mapped.error());
                 return;
             }
