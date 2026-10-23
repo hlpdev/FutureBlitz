@@ -1,0 +1,10 @@
+Import std.core
+
+// Each thread's own count, which another module reads and sets.
+Public ThreadLocal Global count: Int
+Public ThreadLocal Global label = "counter " + "zero"
+
+Public Function Count(): Int
+    count += 1
+    Return count
+End Function

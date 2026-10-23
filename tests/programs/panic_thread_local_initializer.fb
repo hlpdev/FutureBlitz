@@ -1,0 +1,12 @@
+// A ThreadLocal Global's initializer that reaches it, through what it calls, panics there, as
+// the thread makes its own.
+Import std.core
+
+ThreadLocal Global depth = Deeper()
+
+Function Deeper(): Int
+    Return depth + 1
+End Function
+
+Print("before")
+Print(depth)

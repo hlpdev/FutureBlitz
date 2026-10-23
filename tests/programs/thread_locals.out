@@ -1,0 +1,7 @@
+1 2 2 hello 1
+12 [main] a thread
+1 2 3 3 hello, worker [worker]
+2 1 12 hello [main] 2
+another 0 4
+4 3
+True True 2

@@ -1,0 +1,69 @@
+// ThreadLocal Globals: each thread has its own, made the first time the thread uses it and
+// released as the thread ends, so a thread of its own has let go of its values once it's joined.
+Import std.core
+
+Global made = Atomic<Int>(0)
+Global freed = Atomic<Int>(0)
+
+Class Tally
+    Field Owner: String
+    Field Count: Int
+
+    New(owner: String)
+        Owner = owner
+        made.Add(1)
+    End New
+
+    Method Destroy()
+        freed.Add(1)
+    End Method
+End Class
+
+ThreadLocal Global hits: Int
+ThreadLocal Global greeting = "hello"
+ThreadLocal Global tally = Tally("a thread")
+ThreadLocal Global names: String[] = []
+
+Function Bump(): Int
+    hits += 1
+    tally.Count += 1
+    Return tally.Count
+End Function
+
+Function Add(ByRef count: Int)
+    count += 10
+End Function
+
+// The main thread's own, which top-level code and the functions it calls share.
+Print(Bump(), Bump(), hits, greeting, made.Load())
+Add(ByRef hits)
+names.Add("main")
+Print(hits, names, tally.Owner)
+
+// A thread of its own starts with a new value of each, and releases them as it ends.
+Local thread = Thread.Start(Function()
+    greeting = greeting + ", worker"
+    names.Add("worker")
+    Print(Bump(), Bump(), Bump(), hits, greeting, names)
+End Function)
+thread.Join()
+Print(made.Load(), freed.Load(), hits, greeting, names, tally.Count)
+
+// Assigned first, a thread's own is still made first, and the old one released.
+Local other = Thread.Start(Function()
+    tally = Tally("another")
+    Print(tally.Owner, tally.Count, made.Load())
+End Function)
+other.Join()
+Print(made.Load(), freed.Load())
+
+// A pool's worker has its own too, which it keeps from one job to the next.
+Local tasks: Task<Int>[] = []
+For i = 1 To 4
+    tasks.Add(Spawn(Function(): Int => Bump()))
+End For
+Local counts = 0
+For task In tasks
+    counts += task.Wait()
+End For
+Print(counts >= 4, counts <= 10, tally.Count)

@@ -1,0 +1,13 @@
+// An error a ThreadLocal Global's initializer lets out ends the program, as top-level code's
+// does, on whichever thread makes it.
+Import std.core
+
+Function Load(): Int Throws Error
+    Throw Error("the settings didn't load")
+End Function
+
+ThreadLocal Global setting = Try Load()
+
+Print("before")
+Print(setting)
+Print("never")

@@ -1,0 +1,16 @@
+// A Public ThreadLocal Global, which another module uses and sets as its own thread's.
+Import std.core
+Import "./thread_local_modules/counter"
+
+Print(Count(), Count(), count, label)
+count = 10
+label = "main's"
+Print(Count(), counter.count, label)
+
+Local thread = Thread.Start(Function()
+    Print(Count(), label)
+    label = "the thread's"
+    Print(label)
+End Function)
+thread.Join()
+Print(count, label)

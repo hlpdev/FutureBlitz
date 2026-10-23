@@ -1,0 +1,2 @@
+before
+panic: 'depth' is used before its initializer has run, since its initializer reaches it at panic_thread_local_initializer.fb:8:12

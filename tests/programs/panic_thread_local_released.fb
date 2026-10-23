@@ -1,0 +1,23 @@
+// A thread releases its ThreadLocal Globals as it ends, the last made first, so a Destroy that
+// uses one made after its own panics.
+Import std.core
+
+Class First
+    Method Destroy()
+        Print("first goes, after {later.Name}")
+    End Method
+End Class
+
+Class Second
+    Field Name = "second"
+
+    Method Destroy()
+        Print("second goes")
+    End Method
+End Class
+
+ThreadLocal Global earlier = First()
+ThreadLocal Global later = Second()
+
+Local first = earlier
+Print(later.Name)
