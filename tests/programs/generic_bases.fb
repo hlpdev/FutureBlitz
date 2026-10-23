@@ -173,6 +173,7 @@ Class Boxed<T> Extends Animal
 
     New(v: T)
         V = v
+        Super.New()
     End New
 End Class
 
