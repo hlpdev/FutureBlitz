@@ -40,9 +40,8 @@ Public Shared Class ConcurrentQueue<T: Sendable> Implements Defaultable
             If InRing(values) == values.Capacity Then Grow(ByRef values)
             values.Ring.Expect("a ConcurrentQueue with room has a ring").Send(value)
             values.Count += 1
+            Size.Add(1)
         End Lock
-
-        Size.Add(1)
     End Method
 
     // The same as Enqueue.
