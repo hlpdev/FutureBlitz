@@ -10473,8 +10473,38 @@ TEST_CASE("a Method can be Async, and its overrides are too", "[sema]") {
     CHECK(errors_of("Interface I\n    Method M()\nEnd Interface\n"
                     "Class C Implements I\n    Async Method M()\n    End Method\nEnd Class") ==
           errors_t{ "I: 'M' is Async, so it can't implement I's, which isn't" });
-    CHECK(errors_of("Interface Loader\n    Async Method Load(): Int\nEnd Interface") ==
-          errors_t{ "Load: an Interface's Method can't be Async yet" });
+    // An Interface's Method can be Async, required or a default, and its call gives a Task,
+    // through the Interface's value or generic code. What implements one is Async too.
+    const std::string_view loader = "Interface Loader\n"
+                                    "    Async Method Load(): Int\n"
+                                    "    Method Size(): Int\n"
+                                    "    Async Method Twice(): Int => 2 * Await Load()\n"
+                                    "End Interface\n";
+    CHECK(probe(std::format("{}Function Get(l: Loader): Task<Int> => l.Load()\n"
+                            "Function Pick<L: Loader>(l: L): Task<Int> => l.Twice()\n"
+                            "Local x = Function(l: Loader) => l.Twice()",
+                            loader)) == "Func(Loader): Task<Int32>");
+    CHECK(errors_of(std::format("{}Class C Implements Loader\n"
+                                "    Method Load(): Int => 1\n"
+                                "    Async Method Size(): Int => 2\n"
+                                "End Class",
+                                loader)) ==
+          errors_t{
+              "Loader: 'Load' implements Loader's, which is Async, so it has to be Async too, as "
+              "a call through the Interface gets a Task",
+              "Loader: 'Size' is Async, so it can't implement Loader's, which isn't",
+          });
+    // Its Task is the caller's, so it gives just what the Interface's gives, not a Struct that
+    // goes in a box.
+    CHECK(errors_of("Import std.core\n"
+                    "Struct Once Implements Iterator<Int>\n"
+                    "    Public ByRef Method Next(): Int? => Null\n"
+                    "End Struct\n"
+                    "Interface Lister\n    Async Method Items(): Iterator<Int>\nEnd Interface\n"
+                    "Class C Implements Lister\n    Async Method Items(): Once => Once()\n"
+                    "End Class") ==
+          errors_t{ "Lister: C's 'Items' doesn't match Lister's, which takes () and returns "
+                    "Iterator<Int32>" });
     CHECK(errors_of("Struct S\n    Field x: Int\n    Async ByRef Method M()\n    End Method\n"
                     "End Struct") ==
           errors_t{ "M: a ByRef Method can't be Async, since it can go on after its caller's "

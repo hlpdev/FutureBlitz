@@ -1,0 +1,106 @@
+// An Interface's Async Methods: required, and defaults, Final ones too, which a call through the
+// Interface's value, or generic code, starts as any Async Method; their errors go in the Task, an
+// Override goes through the table, and a?.M() gives a Task?.
+
+Import std.core
+
+Class Empty Extends Error
+    Public New()
+        Super.New("empty")
+    End New
+End Class
+
+Interface Source<T>
+    Async Method NextAsync(): T Throws Empty
+    Final Async Method PairAsync(): (T, T) Throws Empty
+        Local a = Try Await NextAsync()
+        Local b = Try Await NextAsync()
+        Return (a, b)
+    End Method
+    Async Method LabelAsync(): String => "source"
+End Interface
+
+// Counts down, a frame at a time.
+Class Numbers Implements Source<Int32>
+    Field left: Int32
+
+    Public New(left: Int32)
+        Self.left = left
+    End New
+
+    Async Method NextAsync(): Int32 Throws Empty
+        Await NextFrame()
+        If left == 0 Then Throw Empty()
+        left -= 1
+        Return left
+    End Method
+End Class
+
+Class Loud Extends Numbers
+    Public New(left: Int32)
+        Super.New(left)
+    End New
+
+    Override Async Method NextAsync(): Int32 Throws Empty
+        Return (Try Await Super.NextAsync()) * 10
+    End Method
+
+    Override Async Method LabelAsync(): String => "loud"
+End Class
+
+Struct Steady Implements Source<String>
+    Field text: String
+
+    Async Method NextAsync(): String Throws Empty => text
+End Struct
+
+Async Function Drain<S: Source<String>>(source: S): String Throws Empty
+    Local pair = Try Await source.PairAsync()
+    Return pair.0 + pair.1
+End Function
+
+// A Static one, which generic code calls on its type.
+Interface Maker
+    Static Async Method MakeAsync(): Int
+    Static Async Method TwiceAsync(): Int => 2 * Await MakeAsync()
+End Interface
+
+Struct Seven Implements Maker
+    Field unused: Int
+
+    Static Async Method MakeAsync(): Int
+        Await NextFrame()
+        Return 7
+    End Method
+End Struct
+
+Async Function Made<M: Maker>(): Int => Await M.MakeAsync() + Await M.TwiceAsync()
+
+Async Function Run(source: Source<Int32>): String
+    Local text = Await source.LabelAsync()
+    Try
+        Local pair = Try Await source.PairAsync()
+        text += " {pair.0} {pair.1}"
+        Local more = Try Await source.NextAsync()
+        text += " {more}"
+    Catch e As Empty
+        text += " " + e.Message
+    End Try
+
+    Return text
+End Function
+
+// Each waits a frame at a time on the main thread, so the two take turns.
+Local first = Run(Numbers(2))
+Local second = Run(Loud(5))
+Print("started")
+Print(Await first)
+Print(Await second)
+Print(Try? Await Drain(Steady("ab")) ?? "none")
+Print("{Await Made<Seven>()}")
+
+Function Pick(numbers: Bool): Source<Int32>? => numbers ? Numbers(1) : Null
+
+Print("{Pick(False)?.LabelAsync() == Null}")
+Local task = Pick(True)?.LabelAsync()
+Print(Await task.Expect("a Task"))
