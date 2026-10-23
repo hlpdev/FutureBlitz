@@ -4,7 +4,7 @@
 
 ## S21-hash-1 (medium): Hmac panics with an internal PSA error for a key of 8192 bytes or more
 
-Status: open
+Status: fixed in 955872f
 
 Where: runtime/src/crypto.cpp:235
 
@@ -41,7 +41,7 @@ Skeptic: Ran C:/Users/Hunter/Projects/FutureBlitz/.claude/worktrees/rev-scratch/
 
 ## S21-keys-1 (medium): Certificate can't read a certificate of an Ed25519 key, though KeyKind has ED25519
 
-Status: open
+Status: fixed in c8be79b: std.crypto reads a certificate's DER itself, so any of its keys reads; crypto_certificates.fb has Ed25519 ones, self-signed and RSA-signed
 
 Where: runtime/src/crypto_pem.cpp:283
 
@@ -100,7 +100,7 @@ Skeptic: I ran the finding's program in debug and release, and both printed 'Par
 
 ## S21-keys-2 (medium): Rsa.Verify gives False for valid signatures by RSA keys over 4096 bits or of an odd bit length; Key.FromPem calls such a key encrypted or unknown
 
-Status: open
+Status: fixed in c8be79b: RSA goes through mbedTLS's RSA module rather than PSA, so odd sizes verify and read, and third_party/ raises PSA's cap to 8192 bits, the most mbedTLS's bignums hold; crypto_rsa_keys.fb has keys of 2047, 4104, and 8192 bits
 
 Where: runtime/src/crypto.cpp:403
 
@@ -175,7 +175,7 @@ Skeptic: I generated my own keys with openssl genrsa at 2047, 2048, 4096, 4104, 
 
 ## S21-keys-3 (medium): Key.FromPem doesn't give the first key in the PEM
 
-Status: open
+Status: fixed in c8be79b
 
 Where: runtime/src/crypto_pem.cpp:216
 
@@ -227,7 +227,7 @@ Skeptic: I ran refute-keys/k3.fb, the finding's two cases plus each key alone as
 
 ## S21-keys-4 (medium): Certificate names: non-ASCII becomes hex escapes, T61/BMP strings become #DER hex, and a long value makes the whole Subject empty
 
-Status: open
+Status: fixed in c8be79b: names are written from the DER, as UTF-8 with RFC 4514's escapes, in a std::string
 
 Where: runtime/src/crypto_pem.cpp:192
 
@@ -301,7 +301,7 @@ Skeptic: I ran refute-keys/k4.fb, the finding's three certificates, in debug and
 
 ## S21-seal-1 (medium): mbedTLS is built at -O0 -g3 in a Debug build, though third_party says every bundled library is optimized
 
-Status: open
+Status: fixed in 7ba4cbb: driver_tests.cpp checks compile_commands.json
 
 Where: third_party/CMakeLists.txt:97
 
@@ -327,7 +327,7 @@ Skeptic: build-rev2 is a Debug build (CMakeCache CMAKE_BUILD_TYPE=Debug), and it
 
 ## S21-hash-2 (low): crypto_macs.fb says it checks RFC 7914's PBKDF2-HMAC-SHA256 vectors but has none; Pbkdf2.Sha256, Pbkdf2.Sha512, and Hkdf.Sha512 meet no vector
 
-Status: open
+Status: fixed in 7b408c5, the vectors; the code was right, so they pass before it too
 
 Where: tests/programs/crypto_macs.fb:95
 
@@ -364,7 +364,7 @@ Skeptic: tests/programs/crypto_macs.fb lines 1-2 and 95 say it checks RFC 7914's
 
 ## S21-hash-3 (low): stdlib.md's module table and derive.fb's header say Hkdf is by SHA-1 too, but it has only Sha256 and Sha512
 
-Status: open
+Status: fixed in 85d55f7, which is docs, so no test can fail without it
 
 Where: docs/stdlib.md:72
 
@@ -391,7 +391,7 @@ Skeptic: hkdf_sha1.fb fails with `Hkdf has no member named 'Sha1'`. docs/stdlib.
 
 ## S21-keys-5 (low): Key.FromPem changes an X25519 private key's bytes (clamps them), so ToPem doesn't give back the PEM it read
 
-Status: open
+Status: fixed in c8be79b
 
 Where: runtime/src/crypto_pem.cpp:154
 
@@ -436,7 +436,7 @@ Skeptic: I ran refute-keys/k5.fb on RFC 7748's Alice key as PKCS #8. Key.Bytes i
 
 ## S21-keys-6 (low): pem.fb says ToPem writes a public RSA key in PKCS #1, but it writes SubjectPublicKeyInfo
 
-Status: open
+Status: fixed in c8be79b, the comment, and 5d71f31, a check of the label, which passes before it too, since the code was right
 
 Where: std/crypto/pem.fb:59
 
@@ -484,7 +484,7 @@ Skeptic: I ran refute-keys/k6.fb, which reads an 'RSA PUBLIC KEY' PEM. It gives 
 
 ## S21-keys-7 (low): A damaged PEM key is reported as encrypted or of an unknown kind (WRONG_TYPE)
 
-Status: open
+Status: fixed in c8be79b
 
 Where: runtime/src/crypto_pem.cpp:223
 
@@ -520,7 +520,7 @@ Skeptic: I ran refute-keys/k7.fb. RFC 8410's Ed25519 private key cut short, and 
 
 ## S21-keys-8 (low): crypto_signatures.fb says it checks RFC 7748's 5.2 X25519 vectors but checks only 6.1's
 
-Status: open
+Status: fixed in d012bab, the vectors; the code was right, so they pass before it too
 
 Where: tests/programs/crypto_signatures.fb:841
 
@@ -582,7 +582,7 @@ Skeptic: crypto_signatures.fb:841 says "RFC 7748's X25519 vectors (5.2), and its
 
 ## S21-seal-2 (low): Bcrypt.Verify accepts crypt_blowfish's $2x$ hashes, where wrong non-ASCII passwords verify
 
-Status: open
+Status: fixed in 7e2fbdd
 
 Where: runtime/src/bcrypt.cpp:54
 
