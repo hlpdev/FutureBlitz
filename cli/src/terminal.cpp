@@ -107,11 +107,19 @@ void prepare_terminal() {
     console_before_t& before = console_before();
     before.code_page = GetConsoleOutputCP();
     SetConsoleOutputCP(CP_UTF8);
-    for (const stream_t stream : { stream_t::STANDARD_OUTPUT, stream_t::STANDARD_ERROR }) {
+    // Both modes are read before either changes: stdout and stderr can be one screen buffer,
+    // whose first change the second would read, and put back at the end.
+    constexpr std::array streams{ stream_t::STANDARD_OUTPUT, stream_t::STANDARD_ERROR };
+    for (const stream_t stream : streams) {
         DWORD mode = 0;
         if (GetConsoleMode(handle(stream), &mode) != 0) {
             before.modes.at(std::to_underlying(stream)) = mode;
-            SetConsoleMode(handle(stream), mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
+        }
+    }
+
+    for (const stream_t stream : streams) {
+        if (const std::optional<DWORD> mode = before.modes.at(std::to_underlying(stream))) {
+            SetConsoleMode(handle(stream), *mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
         }
     }
 

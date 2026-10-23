@@ -31,6 +31,8 @@
 #include <malloc.h>
 #include <windows.h>
 #else
+#include <csignal>
+#include <signal.h>
 #include <unistd.h>
 #endif
 
@@ -136,6 +138,27 @@ void restore_console() {
     if (before.error_mode) {
         SetConsoleMode(GetStdHandle(STD_ERROR_HANDLE), *before.error_mode);
     }
+}
+
+/// The console ends a program on Ctrl+C or Ctrl+Break, or when its window closes, without its
+/// end or a panic's: what it changed that others share is put back first, and FALSE lets the
+/// default handler end it, as it would have.
+BOOL WINAPI console_ended(const DWORD event) {
+    if (event == CTRL_C_EVENT || event == CTRL_BREAK_EVENT || event == CTRL_CLOSE_EVENT) {
+        fb::runtime::run_end();
+    }
+
+    return FALSE;
+}
+#else
+/// A signal that ends a program at its default, like Ctrl+C's SIGINT, ends it without its end or
+/// a panic's: what it changed that others share is put back first, and the signal, at its
+/// default again, ends it as it would have. What at_end() runs only calls what a signal handler
+/// can, like fcntl.
+void signal_ended(const int number) {
+    fb::runtime::run_end();
+    std::signal(number, SIG_DFL);
+    std::raise(number);
 }
 #endif
 
@@ -286,6 +309,18 @@ void fb_start() {
     }
 
     fb::runtime::at_end(restore_console);
+    SetConsoleCtrlHandler(console_ended, TRUE);
+#else
+    // Only a signal at its default: one the program was started ignoring stays ignored.
+    for (const int number : { SIGINT, SIGTERM, SIGHUP }) {
+        struct sigaction current{};
+        if (sigaction(number, nullptr, &current) == 0 && current.sa_handler == SIG_DFL) {
+            struct sigaction ended{};
+            ended.sa_handler = signal_ended;
+            sigemptyset(&ended.sa_mask);
+            sigaction(number, &ended, nullptr);
+        }
+    }
 #endif
 }
 
