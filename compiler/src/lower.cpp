@@ -3990,7 +3990,7 @@ private:
             std::optional<symbol_id_t> variable;
             if (branch.match) {
                 variable = m_analysis.stmt(id).matches[matches++];
-                const type_id_t match = m_analysis.symbol(*variable).type;
+                const type_id_t match = concrete(m_analysis.symbol(*variable).type);
                 use_class(match);
                 const operand_t matched =
                     temporary(is_t{ .value = subject, .type = match }, type_id_t::BOOL);

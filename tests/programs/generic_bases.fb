@@ -163,3 +163,26 @@ Local labels = Map<Spot<Int>, String>()
 labels.Add(Spot(4, 4), "four")
 Print("{spots.Count} {spots.Contains(Spot(1, 3))} {labels.Get(Spot(4, 4)) ?? "-"} " +
       "{Spot(1, 2).Hash() == Spot(1, 2).Hash()}")
+
+// A type match in generic code tests for its own instance of a generic Class.
+Class Animal
+End Class
+
+Class Boxed<T> Extends Animal
+    Field V: T
+
+    New(v: T)
+        V = v
+    End New
+End Class
+
+Function Peek<T>(a: Animal, fallback: T): T
+    Select a
+        Case b As Boxed<T>
+            Return b.V
+        Default
+            Return fallback
+    End Select
+End Function
+
+Print("{Peek(Boxed<Int>(5), 0)} {Peek(Boxed<String>("in"), 0)} {Peek(Boxed<String>("in"), "out")}")
