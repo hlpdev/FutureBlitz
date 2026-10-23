@@ -692,6 +692,9 @@ private:
     /// argument doesn't take its types from them.
     std::vector<type_id_t> m_inferring;
     bool m_initializing = false; // checking Global and Const initializers
+    /// The ThreadLocal Global whose initializer is being checked. It stands for that code in the
+    /// thread checks, since the initializer runs on whichever thread uses the Global first.
+    std::optional<symbol_id_t> m_thread_initializer;
 
     /// The constraints that hold in the code being checked: its function's and its Struct's or
     /// Class's, or in an Interface, Self's.
@@ -9533,10 +9536,14 @@ private:
         return info.generic != type_id_t::INVALID ? info.arguments : info.parameters;
     }
 
-    /// The function or lambda whose code is being checked, or nullopt for top-level code, which
-    /// runs on the main thread.
+    /// The function or lambda whose code is being checked, a ThreadLocal Global for its
+    /// initializer, or nullopt for top-level code, which runs on the main thread.
     [[nodiscard]] std::optional<symbol_id_t> current_code() const {
-        return m_lambdas.empty() ? m_function : std::optional(m_lambdas.back().function);
+        if (!m_lambdas.empty()) {
+            return m_lambdas.back().function;
+        }
+
+        return m_function ? m_function : m_thread_initializer;
     }
 
     /// Names the generic type's Static Field that note_thread_use() just found code uses by the
@@ -9590,7 +9597,8 @@ private:
 
         switch (used.kind) {
         case symbol_kind_t::GLOBAL:
-            if (!in_place(used.type)) {
+            // Each thread has its own ThreadLocal Global.
+            if (!in_place(used.type) && !used.modifiers.is_thread_local) {
                 names(used.owner != type_id_t::INVALID ? "uses the Static Field"
                                                        : "uses the Global",
                       "which only the main thread can, unless it's an Atomic or a Mutex");
@@ -12560,10 +12568,18 @@ private:
 
         symbol_t declared = symbol(*global);
         const std::optional<file_id_t> outer_file = std::exchange(m_file, m_ast.get(id).span.file);
+        // A Const that the initializer needs early is checked inside it, as top-level code.
+        const bool thread_local_global = declared.modifiers.is_thread_local;
+        const std::optional<symbol_id_t> outer_initializer =
+            std::exchange(m_thread_initializer, thread_local_global ? global : std::nullopt);
         check_initializer(*node, declared);
+        m_thread_initializer = outer_initializer;
         m_file = outer_file;
         symbol(*global) = std::move(declared);
         mark_assigned(*global);
+        if (thread_local_global) {
+            check_thread_local(*global, *node);
+        }
         const type_id_t owner = symbol(*global).owner;
         if (owner != type_id_t::INVALID && !m_analysis.types.get(owner).parameters.empty() &&
             node->value && !info(*node->value).value &&
@@ -12574,6 +12590,28 @@ private:
         }
         if (const auto done = m_initialization.find(*global); done != m_initialization.end()) {
             done->second = initialization_t::DONE;
+        }
+    }
+
+    /// A ThreadLocal Global: each thread makes its own the first time it uses it, so its
+    /// initializer is work that can run on any thread, and an Atomic or a Mutex, which are for
+    /// what threads share, has no place in one.
+    void check_thread_local(const symbol_id_t global, const variable_stmt_t& node) {
+        const symbol_t& declared = symbol(global);
+        if (in_place(declared.type)) {
+            error(node.name.span,
+                  "'{}' is ThreadLocal, so each thread has its own, but {} is for what threads "
+                  "share; make it a Global",
+                  declared.name, shown_name(declared.type));
+            return;
+        }
+
+        if (node.value) {
+            m_workers.push_back({
+                .work = global,
+                .span = span_of(*node.value),
+                .where = "a ThreadLocal Global's initializer runs on each thread that uses it",
+            });
         }
     }
 

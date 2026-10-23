@@ -8346,6 +8346,50 @@ TEST_CASE("Spawn runs work on another thread, and gives its Task", "[sema]") {
           errors_t{ "Join: Task<Int32> has no member named 'Join'; it has Wait and IsDone" });
 }
 
+TEST_CASE("a ThreadLocal Global is each thread's own and made on any thread", "[sema]") {
+    // Work on another thread uses its own, and top-level code the main thread's.
+    CHECK(errors_of("ThreadLocal Global hits = 0\n"
+                    "Function Bump(): Int\n    hits += 1\n    Return hits\nEnd Function\n"
+                    "Local t = Spawn(Bump)\n"
+                    "hits = t.Wait()")
+              .empty());
+    CHECK(errors_of("Import std.core\nThreadLocal Global names: String[] = []\n"
+                    "Local t = Thread.Start(Function()\n    names.Add(\"worker\")\nEnd Function)")
+              .empty());
+
+    // Its initializer runs on whichever thread uses it first, so it's work on another thread.
+    CHECK(errors_of("Global score = 3\nThreadLocal Global copy = score") ==
+          errors_t{ "score: a ThreadLocal Global's initializer runs on each thread that uses it, "
+                    "but it uses the Global 'score', which only the main thread can, unless it's "
+                    "an Atomic or a Mutex" });
+    CHECK(errors_of("Global score = 3\nFunction Get(): Int => score\n"
+                    "ThreadLocal Global copy = Get()") ==
+          errors_t{ "Get(): a ThreadLocal Global's initializer runs on each thread that uses it, "
+                    "but it calls 'Get', which uses the Global 'score', which only the main "
+                    "thread can, unless it's an Atomic or a Mutex" });
+    CHECK(errors_of("Global hits = Atomic<Int>(0)\nThreadLocal Global copy = hits.Load()").empty());
+    // A lambda it runs, and what it uses after a Const it needs early, are its too.
+    CHECK(errors_of("Global score = 3\nFunction Run(f: Func(): Int): Int => f()\n"
+                    "ThreadLocal Global copy = Run(Function(): Int => score)") ==
+          errors_t{ "Run(Function(): Int => score): a ThreadLocal Global's initializer runs on "
+                    "each thread that uses it, but it uses the Global 'score', which only the "
+                    "main thread can, unless it's an Atomic or a Mutex" });
+    CHECK(errors_of("Global score = 3\nThreadLocal Global copy = Size + score\n"
+                    "Const Size = 4") ==
+          errors_t{ "Size + score: a ThreadLocal Global's initializer runs on each thread that "
+                    "uses it, but it uses the Global 'score', which only the main thread can, "
+                    "unless it's an Atomic or a Mutex" });
+
+    // What threads share isn't each one's own, and it's only a Global at the top level.
+    CHECK(errors_of("ThreadLocal Global count = Atomic<Int>(0)") ==
+          errors_t{ "count: 'count' is ThreadLocal, so each thread has its own, but Atomic<Int32> "
+                    "is for what threads share; make it a Global" });
+    CHECK(errors_of("Function F()\n    ThreadLocal Global x = 1\nEnd Function") ==
+          errors_t{ "Global x = 1: Globals can only be declared at the top level" });
+    CHECK(errors_of("Static ThreadLocal Global x = 1") ==
+          errors_t{ "x: Static only goes before a Field or Method of a Struct or Class" });
+}
+
 TEST_CASE("work on another thread reaches nothing only the main thread may", "[sema]") {
     const std::string_view globals = "Global score = 0\n"
                                      "Global hits = Atomic<Int>(0)\n"
