@@ -53,11 +53,11 @@ std::vector<std::uint8_t> exported(mbedtls_svc_key_id_t id);
 std::vector<std::uint8_t> exported_public(mbedtls_svc_key_id_t id);
 
 /// A key in PSA's store, made for one use, which goes when this does.
-class key_t {
+class stored_key_t {
 public:
     /// The key of `data`, for `usage` with `algorithm`.
-    key_t(const psa_key_type_t type, const psa_key_usage_t usage, const psa_algorithm_t algorithm,
-          const std::span<const std::uint8_t> data) {
+    stored_key_t(const psa_key_type_t type, const psa_key_usage_t usage,
+                 const psa_algorithm_t algorithm, const std::span<const std::uint8_t> data) {
         start();
         psa_key_attributes_t attributes = PSA_KEY_ATTRIBUTES_INIT;
         psa_set_key_type(&attributes, type);
@@ -68,7 +68,7 @@ public:
     }
 
     /// A new random key of `type` and `bits`, which can be exported.
-    key_t(const psa_key_type_t type, const std::size_t bits) {
+    stored_key_t(const psa_key_type_t type, const std::size_t bits) {
         start();
         psa_key_attributes_t attributes = PSA_KEY_ATTRIBUTES_INIT;
         psa_set_key_type(&attributes, type);
@@ -78,12 +78,12 @@ public:
         psa_reset_key_attributes(&attributes);
     }
 
-    key_t(const key_t&) = delete;
-    key_t& operator=(const key_t&) = delete;
-    key_t(key_t&&) = delete;
-    key_t& operator=(key_t&&) = delete;
+    stored_key_t(const stored_key_t&) = delete;
+    stored_key_t& operator=(const stored_key_t&) = delete;
+    stored_key_t(stored_key_t&&) = delete;
+    stored_key_t& operator=(stored_key_t&&) = delete;
 
-    ~key_t() {
+    ~stored_key_t() {
         psa_destroy_key(m_id);
     }
 

@@ -28,12 +28,12 @@ using fb::crypto::check;
 using fb::crypto::curve_key_size;
 using fb::crypto::exported;
 using fb::crypto::exported_public;
-using fb::crypto::key_t;
 using fb::crypto::p256_pair;
 using fb::crypto::p256_public;
 using fb::crypto::resized;
 using fb::crypto::set;
 using fb::crypto::start;
+using fb::crypto::stored_key_t;
 using fb::crypto::x25519_pair;
 
 namespace fb::crypto {
@@ -235,7 +235,8 @@ void fb_crypto_hasher_free(void* hasher) {
 void fb_crypto_hmac(const std::int32_t algorithm, const fb_array_t* key, const fb_array_t* data,
                     fb_array_t* output) {
     const psa_algorithm_t hmac = PSA_ALG_HMAC(hash_algorithm(algorithm));
-    const key_t made(PSA_KEY_TYPE_HMAC, PSA_KEY_USAGE_SIGN_MESSAGE, hmac, hmac_key(bytes_of(key)));
+    const stored_key_t made(PSA_KEY_TYPE_HMAC, PSA_KEY_USAGE_SIGN_MESSAGE, hmac,
+                            hmac_key(bytes_of(key)));
     check(made.made() ? PSA_SUCCESS : PSA_ERROR_INVALID_ARGUMENT, "HMAC");
     const std::span<const std::uint8_t> input = bytes_of(data);
     const std::size_t length = PSA_HASH_LENGTH(hash_algorithm(algorithm));
@@ -309,7 +310,7 @@ void fb_crypto_seal(const std::int32_t cipher, const fb_array_t* key, const fb_a
                     const fb_array_t* associated, fb_array_t* output) {
     const psa_algorithm_t algorithm = cipher == 1 ? PSA_ALG_GCM : PSA_ALG_CHACHA20_POLY1305;
     const psa_key_type_t type = cipher == 1 ? PSA_KEY_TYPE_AES : PSA_KEY_TYPE_CHACHA20;
-    const key_t made(type, PSA_KEY_USAGE_ENCRYPT, algorithm, bytes_of(key));
+    const stored_key_t made(type, PSA_KEY_USAGE_ENCRYPT, algorithm, bytes_of(key));
     check(made.made() ? PSA_SUCCESS : PSA_ERROR_INVALID_ARGUMENT, "Seal");
     const std::span<const std::uint8_t> plain = bytes_of(message);
     const std::span<const std::uint8_t> extra = bytes_of(associated);
@@ -333,7 +334,7 @@ std::int32_t fb_crypto_open(const std::int32_t cipher, const fb_array_t* key,
 
     const psa_algorithm_t algorithm = cipher == 1 ? PSA_ALG_GCM : PSA_ALG_CHACHA20_POLY1305;
     const psa_key_type_t type = cipher == 1 ? PSA_KEY_TYPE_AES : PSA_KEY_TYPE_CHACHA20;
-    const key_t made(type, PSA_KEY_USAGE_DECRYPT, algorithm, bytes_of(key));
+    const stored_key_t made(type, PSA_KEY_USAGE_DECRYPT, algorithm, bytes_of(key));
     check(made.made() ? PSA_SUCCESS : PSA_ERROR_INVALID_ARGUMENT, "Open");
     const std::span<const std::uint8_t> extra = bytes_of(associated);
     // Into a buffer of its own first, so a message that doesn't authenticate leaves no bytes.
@@ -353,15 +354,15 @@ std::int32_t fb_crypto_open(const std::int32_t cipher, const fb_array_t* key,
 
 void fb_crypto_key_new(const std::int32_t kind, fb_array_t* output) {
     const bool p256 = kind == fb::crypto::KEY_ECDSA_P256;
-    const key_t made(p256 ? p256_pair : x25519_pair, p256 ? 256 : 255);
+    const stored_key_t made(p256 ? p256_pair : x25519_pair, p256 ? 256 : 255);
     check(made.made() ? PSA_SUCCESS : PSA_ERROR_GENERIC_ERROR, "new key");
     set(output, exported(made.id()));
 }
 
 std::int32_t fb_crypto_public_key(const std::int32_t kind, const fb_array_t* private_key,
                                   fb_array_t* output) {
-    const key_t made(kind == fb::crypto::KEY_ECDSA_P256 ? p256_pair : x25519_pair, 0, PSA_ALG_NONE,
-                     bytes_of(private_key));
+    const stored_key_t made(kind == fb::crypto::KEY_ECDSA_P256 ? p256_pair : x25519_pair, 0,
+                            PSA_ALG_NONE, bytes_of(private_key));
     if (!made.made()) {
         return 0;
     }
@@ -373,7 +374,8 @@ std::int32_t fb_crypto_public_key(const std::int32_t kind, const fb_array_t* pri
 std::int32_t fb_crypto_sign(const fb_array_t* private_key, const fb_array_t* message,
                             fb_array_t* output) {
     const psa_algorithm_t algorithm = PSA_ALG_DETERMINISTIC_ECDSA(PSA_ALG_SHA_256);
-    const key_t made(p256_pair, PSA_KEY_USAGE_SIGN_MESSAGE, algorithm, bytes_of(private_key));
+    const stored_key_t made(p256_pair, PSA_KEY_USAGE_SIGN_MESSAGE, algorithm,
+                            bytes_of(private_key));
     if (!made.made()) {
         return 0;
     }
@@ -400,7 +402,7 @@ std::int32_t fb_crypto_verify(const std::int32_t scheme, const fb_array_t* publi
         type = PSA_KEY_TYPE_RSA_PUBLIC_KEY;
     }
 
-    const key_t made(type, PSA_KEY_USAGE_VERIFY_MESSAGE, algorithm, bytes_of(public_key));
+    const stored_key_t made(type, PSA_KEY_USAGE_VERIFY_MESSAGE, algorithm, bytes_of(public_key));
     if (!made.made()) {
         return 0;
     }
@@ -425,7 +427,7 @@ void fb_crypto_rsa_key(const fb_array_t* modulus, const fb_array_t* exponent, fb
 
 std::int32_t fb_crypto_shared_secret(const fb_array_t* private_key, const fb_array_t* public_key,
                                      fb_array_t* output) {
-    const key_t made(x25519_pair, PSA_KEY_USAGE_DERIVE, PSA_ALG_ECDH, bytes_of(private_key));
+    const stored_key_t made(x25519_pair, PSA_KEY_USAGE_DERIVE, PSA_ALG_ECDH, bytes_of(private_key));
     if (!made.made()) {
         return 0;
     }

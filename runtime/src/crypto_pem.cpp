@@ -29,12 +29,12 @@ using fb::crypto::exported_public;
 using fb::crypto::KEY_ECDSA_P256;
 using fb::crypto::KEY_ED25519;
 using fb::crypto::KEY_RSA;
-using fb::crypto::key_t;
 using fb::crypto::KEY_X25519;
 using fb::crypto::p256_pair;
 using fb::crypto::p256_public;
 using fb::crypto::set;
 using fb::crypto::start;
+using fb::crypto::stored_key_t;
 using fb::crypto::string_of;
 
 namespace {
@@ -249,7 +249,7 @@ fb_string_t* fb_crypto_key_to_pem(const std::int32_t kind, const std::int32_t is
         type = is_private != 0 ? p256_pair : p256_public;
     }
 
-    const key_t made(type, PSA_KEY_USAGE_EXPORT, PSA_ALG_NONE, bytes);
+    const stored_key_t made(type, PSA_KEY_USAGE_EXPORT, PSA_ALG_NONE, bytes);
     if (!made.made()) {
         return nullptr;
     }
