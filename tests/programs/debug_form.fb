@@ -138,3 +138,37 @@ Local twice = Function(x: Int) => x * 2
 Print("{held:?} {watcher:?} {twice:?}")
 enemy = Enemy()
 Print("{held:?} {watcher:?}")
+
+// A cycle through arrays, as a graph of Structs makes, is cut where an array comes back, as one
+// through objects is, and an array that holds itself shows once.
+Struct Vertex
+    Field Name: String
+    Field Edges: Vertex[]
+End Struct
+
+Local a = Vertex(Name: "a", Edges: [])
+Local b = Vertex(Name: "b", Edges: [a])
+a.Edges.Add(b)
+Print("{a:?}")
+a.Edges.Clear()
+Local holding: Printable[] = []
+holding.Add(holding)
+Print("{holding:?}")
+holding.Clear()
+
+// A fixed array is read where it is, however large, a Class's Field too, which every debug form
+// in the program brings in.
+Class TileMap
+    Field Tiles: UInt8[256, 256]
+End Class
+
+Struct Tiles
+    Field Cells: UInt8[2, 2]
+End Struct
+
+Local map = TileMap()
+map.Tiles[3, 4] = 7
+Local tile = map.Tiles[3, 4]
+Local tiles = Tiles()
+tiles.Cells[1, 1] = 4
+Print("{tile:?} {tiles:?}")

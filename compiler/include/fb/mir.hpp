@@ -12,6 +12,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <variant>
 #include <vector>
 
@@ -575,6 +576,9 @@ struct mir_module_t {
     /// The array types whose objects go where an Interface is expected, with a table for each
     /// Interface they implement. They have no Destroy or Method table.
     std::vector<mir_class_t> array_classes;
+    /// The T[] types whose debug form the program shows, with the function that makes it, which
+    /// their fb_class_t has, as a Class's has its own.
+    std::vector<std::pair<type_id_t, function_id_t>> array_debugs;
     /// The main module's functions that aren't generic, then the entry, then the other modules'
     /// functions and the instances of generic ones, as the program uses them.
     std::vector<mir_function_t> functions;

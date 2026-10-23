@@ -6229,7 +6229,16 @@ private:
             return parts.front();
         }
 
-        if (is_class(type) || is_interface(type)) {
+        // A T[] is an object too, which can be in a cycle, as a graph of Structs can be through
+        // their arrays. The runtime cuts one where it comes back.
+        if (is_class(type) || is_interface(type) || is_array(type)) {
+            if (is_array(type) &&
+                !std::ranges::contains(m_module.array_debugs, type,
+                                       &std::pair<type_id_t, function_id_t>::first)) {
+                const function_id_t debug = generated(generated_kind_t::DEBUG, type);
+                m_module.array_debugs.emplace_back(type, debug);
+            }
+
             return runtime_call(runtime_function_t::DEBUG_OBJECT, { value, indent },
                                 type_id_t::STRING, true);
         }
@@ -6247,11 +6256,37 @@ private:
             return make_string(std::string(types().name(type)));
         }
 
+        // A value that holds a fixed array is read where it is, not copied in, however large.
+        const bool in_place = holds_fixed_array(type);
+        operand_t shown = value;
+        if (in_place && std::holds_alternative<const_value_t>(value)) {
+            shown = temporary(use_t{ .value = value }, type);
+        }
+
         call_t call{
             .function = generated(generated_kind_t::DEBUG, type),
-            .arguments = { { .value = value }, { .value = indent } },
+            .arguments = { { .value = shown, .by_ref = in_place }, { .value = indent } },
         };
         return temporary(std::move(call), type_id_t::STRING, true);
+    }
+
+    /// Whether a value of a type holds a fixed array: a fixed array, or a Struct, tuple, or T? of
+    /// what holds one.
+    [[nodiscard]] bool holds_fixed_array(const type_id_t type) const {
+        const type_t& info = types().get(type);
+        switch (info.kind) {
+        case type_kind_t::FIXED_ARRAY:
+            return true;
+        case type_kind_t::NULLABLE:
+            return holds_fixed_array(info.inner);
+        case type_kind_t::STRUCT:
+        case type_kind_t::TUPLE:
+            return std::ranges::any_of(info.fields, [this](const field_t& field) {
+                return holds_fixed_array(field.type);
+            });
+        default:
+            return false;
+        }
     }
 
     /// How a debug form lays out its parts, in String locals: on one line, as "(1, 2)", or each
@@ -6757,8 +6792,12 @@ private:
         begin_function(generated.function);
         const type_id_t type = generated.type;
         const type_id_t element = types().get(type).inner;
+        // A debug form reads a fixed array, or what holds one, through the caller's place.
+        const bool by_ref = (generated.kind == generated_kind_t::DEBUG ||
+                             generated.kind == generated_kind_t::DEBUG_ENTRIES) &&
+                            holds_fixed_array(type);
         const local_id_t array =
-            add_local(type, generated.kind == generated_kind_t::EQUAL ? "a" : "Self");
+            add_local(type, generated.kind == generated_kind_t::EQUAL ? "a" : "Self", by_ref);
         const local_id_t other =
             generated.kind == generated_kind_t::EQUAL ? add_local(type, "b") : array;
         const bool debug = generated.kind == generated_kind_t::DEBUG ||

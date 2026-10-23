@@ -1,5 +1,6 @@
 #include "fb/mir.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -240,6 +241,14 @@ public:
                     out += std::format("    {} {}: {}\n", type(implementation.interface), i,
                                        function_name(implementation.methods[i]));
                 }
+            }
+        }
+
+        // And the debug forms of the other array types the program shows.
+        for (const auto& [array, debug] : m_module.array_debugs) {
+            if (!std::ranges::contains(m_module.array_classes, array, &mir_class_t::type)) {
+                out += std::format("{} {}, debug: {}\n", keyword("array"), type(array),
+                                   function_name(debug));
             }
         }
 

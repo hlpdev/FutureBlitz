@@ -150,10 +150,12 @@ fb_string_t* fb_debug_object(const fb_object_t* object, const std::int32_t inden
         return make(type->name);
     }
 
-    // The objects this thread is showing, which a cycle comes back to.
+    // The objects this thread is showing, which a cycle comes back to: an array, whose Class is
+    // named like "Node[]", shows as one, and anything else as its Class.
     thread_local std::vector<const fb_object_t*> showing;
     if (std::ranges::contains(showing, object)) {
-        return make(std::string(type->name) + " { … }");
+        const std::string_view name = type->name;
+        return make(name.ends_with("[]") ? "[ … ]" : std::string(name) + " { … }");
     }
 
     showing.push_back(object);
