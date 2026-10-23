@@ -684,7 +684,7 @@ private:
             out.items.push_back(
                 atom(modifiers.deprecated->empty()
                          ? std::string("@Deprecated")
-                         : std::format("@Deprecated(\"{}\")", *modifiers.deprecated),
+                         : std::format("@Deprecated({})", quote(*modifiers.deprecated)),
                      tone_t::KEYWORD));
         }
     }

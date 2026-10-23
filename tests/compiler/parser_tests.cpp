@@ -1017,6 +1017,11 @@ TEST_CASE("Interfaces", "[parser]") {
                      "End Interface")
               .dump == "(interface Old (block (method Kept) (method @Deprecated Gone) "
                        "(property ReadOnly @Deprecated(\"use Kept\") Count: Int)))");
+    // Its message is written as source writes it, so no control character reaches the terminal.
+    CHECK(parse_text(R"(@Deprecated("use \x1B[2JG, {{soon}} \"now\"\n") Function F())"
+                     "\n"
+                     "End Function")
+              .dump == R"((function @Deprecated("use \x1B[2JG, {{soon}} \"now\"\n") F (block)))");
 
     // An Abstract Property is its first line too.
     CHECK(parse_text("Abstract Property Area: Float").dump == "(property Abstract Area: Float)");
