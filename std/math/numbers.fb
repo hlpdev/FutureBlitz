@@ -1,0 +1,296 @@
+// What the built-in number types share, for std.math's generic Functions: Bounded, the types with
+// a lowest and a highest value, which every number type is; Integer, the eight integer types; and
+// FloatingPoint, Float32 and Float64, over C's libm. A Function that takes a T of one of them gets
+// its type from its arguments, so Lerp(0, 10, t) works in t's type, and its literals follow. Their
+// Static Methods are for generic code, through a type parameter, as in T.MinValue(); for the types
+// themselves, std.math's Functions are the way, as MinValue<Int>() and Floor(x).
+
+Import std.core
+
+// C's libm, which every program links with the C runtime.
+Extern "C"
+    Function floorf(value: Float32): Float32
+    Function ceilf(value: Float32): Float32
+    Function roundf(value: Float32): Float32
+    Function truncf(value: Float32): Float32
+    Function sqrtf(value: Float32): Float32
+    Function cbrtf(value: Float32): Float32
+    Function expf(value: Float32): Float32
+    Function exp2f(value: Float32): Float32
+    Function logf(value: Float32): Float32
+    Function log2f(value: Float32): Float32
+    Function log10f(value: Float32): Float32
+    Function sinf(value: Float32): Float32
+    Function cosf(value: Float32): Float32
+    Function tanf(value: Float32): Float32
+    Function asinf(value: Float32): Float32
+    Function acosf(value: Float32): Float32
+    Function atanf(value: Float32): Float32
+    Function atan2f(y: Float32, x: Float32): Float32
+    Function sinhf(value: Float32): Float32
+    Function coshf(value: Float32): Float32
+    Function tanhf(value: Float32): Float32
+    Function asinhf(value: Float32): Float32
+    Function acoshf(value: Float32): Float32
+    Function atanhf(value: Float32): Float32
+    Function fmodf(a: Float32, b: Float32): Float32
+    Function copysignf(magnitude: Float32, sign: Float32): Float32
+    Function fmaf(a: Float32, b: Float32, c: Float32): Float32
+    Function floor(value: Float64): Float64
+    Function ceil(value: Float64): Float64
+    Function round(value: Float64): Float64
+    Function trunc(value: Float64): Float64
+    Function sqrt(value: Float64): Float64
+    Function cbrt(value: Float64): Float64
+    Function exp(value: Float64): Float64
+    Function exp2(value: Float64): Float64
+    Function log(value: Float64): Float64
+    Function log2(value: Float64): Float64
+    Function log10(value: Float64): Float64
+    Function sin(value: Float64): Float64
+    Function cos(value: Float64): Float64
+    Function tan(value: Float64): Float64
+    Function asin(value: Float64): Float64
+    Function acos(value: Float64): Float64
+    Function atan(value: Float64): Float64
+    Function atan2(y: Float64, x: Float64): Float64
+    Function sinh(value: Float64): Float64
+    Function cosh(value: Float64): Float64
+    Function tanh(value: Float64): Float64
+    Function asinh(value: Float64): Float64
+    Function acosh(value: Float64): Float64
+    Function atanh(value: Float64): Float64
+    Function fmod(a: Float64, b: Float64): Float64
+    Function copysign(magnitude: Float64, sign: Float64): Float64
+    Function fma(a: Float64, b: Float64, c: Float64): Float64
+End Extern
+
+// The types with a lowest and a highest value: every number type. A float's are its lowest and
+// highest finite values, not the infinities.
+Public Interface Bounded
+    Static Method MinValue(): Self
+    Static Method MaxValue(): Self
+End Interface
+
+// The eight integer types, whose bits generic code works on through a UInt64.
+Public Interface Integer Extends Bounded
+    // How many bits the type has: 8, 16, 32, or 64.
+    Static Method BitWidth(): Int
+    // The value's bits, BitWidth of them, in a UInt64's low bits, the rest 0.
+    Static Method LowBits(value: Self): UInt64
+    // The value whose bits are the UInt64's low BitWidth bits.
+    Static Method FromLowBits(bits: UInt64): Self
+End Interface
+
+// Float32 and Float64, with what C's libm works out for each. Rounding is half away from 0, and
+// Rem is C's fmod, which is exact.
+Public Interface FloatingPoint Extends Bounded
+    // The gap between 1 and the next value above it.
+    Static Method Epsilon(): Self
+    // The Double as this type, rounded to the nearest value it holds.
+    Static Method FromDouble(value: Float64): Self
+    Static Method ToDouble(value: Self): Float64
+    Static Method Floor(value: Self): Self
+    Static Method Ceil(value: Self): Self
+    Static Method Round(value: Self): Self
+    Static Method Trunc(value: Self): Self
+    Static Method Sqrt(value: Self): Self
+    Static Method Cbrt(value: Self): Self
+    Static Method Exp(value: Self): Self
+    Static Method Exp2(value: Self): Self
+    Static Method Log(value: Self): Self
+    Static Method Log2(value: Self): Self
+    Static Method Log10(value: Self): Self
+    Static Method Sin(value: Self): Self
+    Static Method Cos(value: Self): Self
+    Static Method Tan(value: Self): Self
+    Static Method Asin(value: Self): Self
+    Static Method Acos(value: Self): Self
+    Static Method Atan(value: Self): Self
+    Static Method Atan2(y: Self, x: Self): Self
+    Static Method Sinh(value: Self): Self
+    Static Method Cosh(value: Self): Self
+    Static Method Tanh(value: Self): Self
+    Static Method Asinh(value: Self): Self
+    Static Method Acosh(value: Self): Self
+    Static Method Atanh(value: Self): Self
+    Static Method Rem(a: Self, b: Self): Self
+    Static Method CopySign(magnitude: Self, sign: Self): Self
+    Static Method Fma(a: Self, b: Self, c: Self): Self
+End Interface
+
+Extend Int8 Implements Integer
+    Static Method MinValue(): Int8 => -128
+    Static Method MaxValue(): Int8 => 127
+    Static Method BitWidth(): Int => 8
+    Static Method LowBits(value: Int8): UInt64 => (value As UInt8) As UInt64
+    Static Method FromLowBits(bits: UInt64): Int8 => bits As Int8
+End Extend
+
+Extend Int16 Implements Integer
+    Static Method MinValue(): Int16 => -32768
+    Static Method MaxValue(): Int16 => 32767
+    Static Method BitWidth(): Int => 16
+    Static Method LowBits(value: Int16): UInt64 => (value As UInt16) As UInt64
+    Static Method FromLowBits(bits: UInt64): Int16 => bits As Int16
+End Extend
+
+Extend Int32 Implements Integer
+    Static Method MinValue(): Int32 => -2147483648
+    Static Method MaxValue(): Int32 => 2147483647
+    Static Method BitWidth(): Int => 32
+    Static Method LowBits(value: Int32): UInt64 => (value As UInt32) As UInt64
+    Static Method FromLowBits(bits: UInt64): Int32 => bits As Int32
+End Extend
+
+Extend Int64 Implements Integer
+    Static Method MinValue(): Int64 => -9223372036854775808
+    Static Method MaxValue(): Int64 => 9223372036854775807
+    Static Method BitWidth(): Int => 64
+    Static Method LowBits(value: Int64): UInt64 => value As UInt64
+    Static Method FromLowBits(bits: UInt64): Int64 => bits As Int64
+End Extend
+
+Extend UInt8 Implements Integer
+    Static Method MinValue(): UInt8 => 0
+    Static Method MaxValue(): UInt8 => 255
+    Static Method BitWidth(): Int => 8
+    Static Method LowBits(value: UInt8): UInt64 => value
+    Static Method FromLowBits(bits: UInt64): UInt8 => bits As UInt8
+End Extend
+
+Extend UInt16 Implements Integer
+    Static Method MinValue(): UInt16 => 0
+    Static Method MaxValue(): UInt16 => 65535
+    Static Method BitWidth(): Int => 16
+    Static Method LowBits(value: UInt16): UInt64 => value
+    Static Method FromLowBits(bits: UInt64): UInt16 => bits As UInt16
+End Extend
+
+Extend UInt32 Implements Integer
+    Static Method MinValue(): UInt32 => 0
+    Static Method MaxValue(): UInt32 => 4294967295
+    Static Method BitWidth(): Int => 32
+    Static Method LowBits(value: UInt32): UInt64 => value
+    Static Method FromLowBits(bits: UInt64): UInt32 => bits As UInt32
+End Extend
+
+Extend UInt64 Implements Integer
+    Static Method MinValue(): UInt64 => 0
+    Static Method MaxValue(): UInt64 => 18446744073709551615
+    Static Method BitWidth(): Int => 64
+    Static Method LowBits(value: UInt64): UInt64 => value
+    Static Method FromLowBits(bits: UInt64): UInt64 => bits
+End Extend
+
+Extend Float32 Implements FloatingPoint
+    Static Method MinValue(): Float32 => -3.4028235e38
+    Static Method MaxValue(): Float32 => 3.4028235e38
+    Static Method Epsilon(): Float32 => 1.1920929e-7
+    Static Method FromDouble(value: Float64): Float32 => value As Float32
+    Static Method ToDouble(value: Float32): Float64 => value
+    Static Method Floor(value: Float32): Float32 => floorf(value)
+    Static Method Ceil(value: Float32): Float32 => ceilf(value)
+    Static Method Round(value: Float32): Float32 => roundf(value)
+    Static Method Trunc(value: Float32): Float32 => truncf(value)
+    Static Method Sqrt(value: Float32): Float32 => sqrtf(value)
+    Static Method Cbrt(value: Float32): Float32 => cbrtf(value)
+    Static Method Exp(value: Float32): Float32 => expf(value)
+    Static Method Exp2(value: Float32): Float32 => exp2f(value)
+    Static Method Log(value: Float32): Float32 => logf(value)
+    Static Method Log2(value: Float32): Float32 => log2f(value)
+    Static Method Log10(value: Float32): Float32 => log10f(value)
+    Static Method Sin(value: Float32): Float32 => sinf(value)
+    Static Method Cos(value: Float32): Float32 => cosf(value)
+    Static Method Tan(value: Float32): Float32 => tanf(value)
+    Static Method Asin(value: Float32): Float32 => asinf(value)
+    Static Method Acos(value: Float32): Float32 => acosf(value)
+    Static Method Atan(value: Float32): Float32 => atanf(value)
+    Static Method Atan2(y: Float32, x: Float32): Float32 => atan2f(y, x)
+    Static Method Sinh(value: Float32): Float32 => sinhf(value)
+    Static Method Cosh(value: Float32): Float32 => coshf(value)
+    Static Method Tanh(value: Float32): Float32 => tanhf(value)
+    Static Method Asinh(value: Float32): Float32 => asinhf(value)
+    Static Method Acosh(value: Float32): Float32 => acoshf(value)
+    Static Method Atanh(value: Float32): Float32 => atanhf(value)
+    Static Method Rem(a: Float32, b: Float32): Float32 => fmodf(a, b)
+    Static Method CopySign(magnitude: Float32, sign: Float32): Float32 => copysignf(magnitude, sign)
+    Static Method Fma(a: Float32, b: Float32, c: Float32): Float32 => fmaf(a, b, c)
+End Extend
+
+Extend Float64 Implements FloatingPoint
+    Static Method MinValue(): Float64 => -1.7976931348623157e308
+    Static Method MaxValue(): Float64 => 1.7976931348623157e308
+    Static Method Epsilon(): Float64 => 2.220446049250313e-16
+    Static Method FromDouble(value: Float64): Float64 => value
+    Static Method ToDouble(value: Float64): Float64 => value
+    Static Method Floor(value: Float64): Float64 => floor(value)
+    Static Method Ceil(value: Float64): Float64 => ceil(value)
+    Static Method Round(value: Float64): Float64 => round(value)
+    Static Method Trunc(value: Float64): Float64 => trunc(value)
+    Static Method Sqrt(value: Float64): Float64 => sqrt(value)
+    Static Method Cbrt(value: Float64): Float64 => cbrt(value)
+    Static Method Exp(value: Float64): Float64 => exp(value)
+    Static Method Exp2(value: Float64): Float64 => exp2(value)
+    Static Method Log(value: Float64): Float64 => log(value)
+    Static Method Log2(value: Float64): Float64 => log2(value)
+    Static Method Log10(value: Float64): Float64 => log10(value)
+    Static Method Sin(value: Float64): Float64 => sin(value)
+    Static Method Cos(value: Float64): Float64 => cos(value)
+    Static Method Tan(value: Float64): Float64 => tan(value)
+    Static Method Asin(value: Float64): Float64 => asin(value)
+    Static Method Acos(value: Float64): Float64 => acos(value)
+    Static Method Atan(value: Float64): Float64 => atan(value)
+    Static Method Atan2(y: Float64, x: Float64): Float64 => atan2(y, x)
+    Static Method Sinh(value: Float64): Float64 => sinh(value)
+    Static Method Cosh(value: Float64): Float64 => cosh(value)
+    Static Method Tanh(value: Float64): Float64 => tanh(value)
+    Static Method Asinh(value: Float64): Float64 => asinh(value)
+    Static Method Acosh(value: Float64): Float64 => acosh(value)
+    Static Method Atanh(value: Float64): Float64 => atanh(value)
+    Static Method Rem(a: Float64, b: Float64): Float64 => fmod(a, b)
+    Static Method CopySign(magnitude: Float64, sign: Float64): Float64 => copysign(magnitude, sign)
+    Static Method Fma(a: Float64, b: Float64, c: Float64): Float64 => fma(a, b, c)
+End Extend
+
+Extend Float32
+    // The Float's bits, as IEEE 754 lays them out.
+    Public Method ToBits(): UInt32
+        Unsafe
+            Local copy = Self
+            Return (AddressOf(copy) As Ptr<UInt32>).Value
+        End Unsafe
+    End Method
+
+    // The Float whose IEEE 754 bits these are.
+    Public Static Method FromBits(bits: UInt32): Float32
+        Unsafe
+            Local copy = bits
+            Return (AddressOf(copy) As Ptr<Float32>).Value
+        End Unsafe
+    End Method
+End Extend
+
+Extend Float64
+    // The Double's bits, as IEEE 754 lays them out.
+    Public Method ToBits(): UInt64
+        Unsafe
+            Local copy = Self
+            Return (AddressOf(copy) As Ptr<UInt64>).Value
+        End Unsafe
+    End Method
+
+    // The Double whose IEEE 754 bits these are.
+    Public Static Method FromBits(bits: UInt64): Float64
+        Unsafe
+            Local copy = bits
+            Return (AddressOf(copy) As Ptr<Float64>).Value
+        End Unsafe
+    End Method
+End Extend
+
+// The lowest value a T holds: for a float, its lowest finite one.
+Public Function MinValue<T: Bounded>(): T => T.MinValue()
+
+// The highest value a T holds: for a float, its highest finite one.
+Public Function MaxValue<T: Bounded>(): T => T.MaxValue()

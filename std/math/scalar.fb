@@ -1,0 +1,330 @@
+// The scalar Functions: signs, whole parts, remainders, divisors, the steps between two values,
+// powers and logs, trig and its hyperbolic twins, and IEEE's checks, each in its arguments' type,
+// for the number types it makes sense for. Powers are the ** operator. Angles are radians, so
+// Deg(90) is 90 degrees, in radians.
+
+Import std.core
+Import std.math.constants
+Import std.math.numbers
+
+// The value without its sign: 0 for -0, and NaN for NaN.
+Public Function Abs<T>(value: T): T
+    Where T: Numeric & Comparable
+    Return value <= T.Zero() ? T.Zero() - value : value
+End Function
+
+// 1 for a value above 0, -1 for one below, and the value itself for 0 or NaN.
+Public Function Sign<T>(value: T): T
+    Where T: Numeric & Comparable
+    If value > T.Zero() Then Return T.One()
+    If value < T.Zero() Then Return T.Zero() - T.One()
+    Return value
+End Function
+
+// The largest whole number that isn't above the value.
+Public Function Floor<T: FloatingPoint>(value: T): T => T.Floor(value)
+
+// The smallest whole number that isn't below the value.
+Public Function Ceil<T: FloatingPoint>(value: T): T => T.Ceil(value)
+
+// The nearest whole number, with a value halfway between two going away from 0: 2.5 is 3, and
+// -2.5 is -3.
+Public Function Round<T: FloatingPoint>(value: T): T => T.Round(value)
+
+// The whole part, toward 0: Trunc(-2.7) is -2.
+Public Function Trunc<T: FloatingPoint>(value: T): T => T.Trunc(value)
+
+// What Floor takes away, from 0 to 1: Fract(-0.25) is 0.75. A negative value too close to a whole
+// number for the type to hold the difference gives 1.
+Public Function Fract<T>(value: T): T
+    Where T: FloatingPoint & Numeric
+    Return value - T.Floor(value)
+End Function
+
+// a - a / b * b, without overflowing where b is -1.
+Function IntegerRem<T>(a: T, b: T): T
+    Where T: Integer & Numeric & Comparable
+    If b < T.Zero() && b + T.One() == T.Zero() Then Return T.Zero()
+    Return a - a / b * b
+End Function
+
+// The remainder of a divided by b with the sign of b, as dividing and rounding down leaves it:
+// Mod(-1, 3) is 2, and Mod(1, -3) is -2. A b of 0 panics.
+Public Function Mod<T>(a: T, b: T): T
+    Where T: Integer & Numeric & Comparable
+    Local rest = IntegerRem(a, b)
+    Return rest != T.Zero() && (rest < T.Zero()) != (b < T.Zero()) ? rest + b : rest
+End Function
+
+// The remainder of a divided by b with the sign of b, as dividing and rounding down leaves it:
+// Mod(-1.5, 4.0) is 2.5. A b of 0 gives NaN.
+Public Function Mod<T>(a: T, b: T): T
+    Where T: FloatingPoint & Numeric & Comparable
+    Local rest = T.Rem(a, b)
+    Return rest != T.Zero() && (rest < T.Zero()) != (b < T.Zero()) ? rest + b : rest
+End Function
+
+// The remainder of a divided by b with the sign of a, as % gives it: Rem(-1, 3) is -1. A b of 0
+// panics.
+Public Function Rem<T>(a: T, b: T): T
+    Where T: Integer & Numeric & Comparable
+    Return IntegerRem(a, b)
+End Function
+
+// The remainder of a divided by b with the sign of a, exactly, as C's fmod gives it: Rem(-1.5,
+// 4.0) is -1.5. A b of 0 gives NaN.
+Public Function Rem<T: FloatingPoint>(a: T, b: T): T => T.Rem(a, b)
+
+// The greatest common divisor of the two, which isn't negative: Gcd(12, -18) is 6, and Gcd(0, 0)
+// is 0. One too large for T overflows.
+Public Function Gcd<T>(a: T, b: T): T
+    Where T: Integer & Numeric & Comparable
+    Local x = a
+    Local y = b
+    While y != T.Zero()
+        Local rest = IntegerRem(x, y)
+        x = y
+        y = rest
+    End While
+    Return Abs(x)
+End Function
+
+// The least common multiple of the two, which isn't negative: Lcm(4, 6) is 12, and 0 when either
+// is 0. One too large for T overflows.
+Public Function Lcm<T>(a: T, b: T): T
+    Where T: Integer & Numeric & Comparable
+    If a == T.Zero() || b == T.Zero() Then Return T.Zero()
+    Return Abs(a / Gcd(a, b) * b)
+End Function
+
+// The largest integer whose square isn't above the value: IntSqrt(10) is 3. A negative value
+// panics.
+@PanicsAtCaller
+Public Function IntSqrt<T>(value: T): T
+    Where T: Integer & Numeric & Comparable & Printable
+    If value < T.Zero() Then Panic("IntSqrt takes a value that isn't negative, not {value}")
+    // A digit at a time, two bits each, from the highest pair the value reaches.
+    Local rest = T.LowBits(value)
+    Local root: UInt64 = 0
+    Local bit: UInt64 = 0x4000000000000000
+    While bit > rest
+        bit >>= 2
+    End While
+    While bit != 0
+        If rest >= root + bit
+            rest -= root + bit
+            root = (root >> 1) + bit
+        Else
+            root >>= 1
+        End If
+        bit >>= 2
+    End While
+    Return T.FromLowBits(root)
+End Function
+
+// The value t of the way from a to b: a at 0, b at 1, and past them outside 0 to 1.
+Public Function Lerp<T>(a: T, b: T, t: T): T
+    Where T: FloatingPoint & Numeric
+    Return a + (b - a) * t
+End Function
+
+// How far of the way from a to b the value is, as Lerp's t: 0 at a, 1 at b. With a equal to b,
+// it's 0.
+Public Function InverseLerp<T>(a: T, b: T, value: T): T
+    Where T: FloatingPoint & Numeric & Comparable
+    If a == b Then Return T.Zero()
+    Return (value - a) / (b - a)
+End Function
+
+// The value moved from one range to another, as far through toLow to toHigh as it is through
+// fromLow to fromHigh: Remap(5, 0, 10, 100, 200) is 150.
+Public Function Remap<T>(value: T, fromLow: T, fromHigh: T, toLow: T, toHigh: T): T
+    Where T: FloatingPoint & Numeric & Comparable
+    Return Lerp(toLow, toHigh, InverseLerp(fromLow, fromHigh, value))
+End Function
+
+// 0 below low and 1 above high, and a smooth curve between, as GLSL's smoothstep: with low equal
+// to high, 0 below it and 1 from it up.
+Public Function SmoothStep<T>(low: T, high: T, value: T): T
+    Where T: FloatingPoint & Numeric & Comparable
+    If low == high Then Return value < low ? T.Zero() : T.One()
+    Local t = Clamp((value - low) / (high - low), T.Zero(), T.One())
+    Return t * t * (T.FromDouble(3) - T.FromDouble(2) * t)
+End Function
+
+// The value wrapped into the range from low to high, high left out, as an angle wraps into a
+// turn: Wrap(370, 0, 360) is 10. With low equal to high, it's low.
+Public Function Wrap<T>(value: T, low: T, high: T): T
+    Where T: Integer & Numeric & Comparable
+    If low == high Then Return low
+    Return low + Mod(value - low, high - low)
+End Function
+
+// The value wrapped into the range from low to high, high left out, as an angle wraps into a
+// turn: Wrap(370.0, 0.0, 360.0) is 10. With low equal to high, it's low.
+Public Function Wrap<T>(value: T, low: T, high: T): T
+    Where T: FloatingPoint & Numeric & Comparable
+    If low == high Then Return low
+    Return low + Mod(value - low, high - low)
+End Function
+
+// The value going from 0 up to length and back down, over and over: PingPong(3, 2) is 1. A
+// negative length panics.
+@PanicsAtCaller
+Public Function PingPong<T>(value: T, length: T): T
+    Where T: Integer & Numeric & Comparable & Printable
+    If length < T.Zero() Then Panic("PingPong takes a length that isn't negative, not {length}")
+    If length == T.Zero() Then Return T.Zero()
+    Return length - Abs(Mod(value, length + length) - length)
+End Function
+
+// The value going from 0 up to length and back down, over and over: PingPong(3.0, 2.0) is 1. A
+// negative or NaN length panics.
+@PanicsAtCaller
+Public Function PingPong<T>(value: T, length: T): T
+    Where T: FloatingPoint & Numeric & Comparable & Printable
+    If !(length >= T.Zero())
+        Panic("PingPong takes a length that isn't negative, not {length}")
+    End If
+    If length == T.Zero() Then Return T.Zero()
+    Return length - Abs(Mod(value, length + length) - length)
+End Function
+
+// Current moved toward target by maxDelta, or to target when it's no further: a negative
+// maxDelta moves it away.
+Public Function MoveTowards<T>(current: T, target: T, maxDelta: T): T
+    Where T: FloatingPoint & Numeric & Comparable
+    If Abs(target - current) <= maxDelta Then Return target
+    Return current + Sign(target - current) * maxDelta
+End Function
+
+// Whether a and b are no further apart than tolerance.
+Public Function IsClose<T>(a: T, b: T, tolerance: T): Bool
+    Where T: FloatingPoint & Numeric & Comparable
+    Return Abs(a - b) <= tolerance
+End Function
+
+// Whether a and b are equal but for rounding: no further apart than 0.00001 of the larger one's
+// size, or of 1 near 0. An infinity is close only to itself, and NaN to nothing.
+Public Function IsClose<T>(a: T, b: T): Bool
+    Where T: FloatingPoint & Numeric & Comparable
+    If a == b Then Return True
+    If !IsFinite(a) || !IsFinite(b) Then Return False
+    Local size = Max(Max(Abs(a), Abs(b)), T.One())
+    Return Abs(a - b) <= size * T.FromDouble(0.00001)
+End Function
+
+// The square root. A negative value's is NaN.
+Public Function Sqrt<T: FloatingPoint>(value: T): T => T.Sqrt(value)
+
+// The cube root, negative for a negative value.
+Public Function Cbrt<T: FloatingPoint>(value: T): T => T.Cbrt(value)
+
+// E to the power of the value.
+Public Function Exp<T: FloatingPoint>(value: T): T => T.Exp(value)
+
+// 2 to the power of the value.
+Public Function Exp2<T: FloatingPoint>(value: T): T => T.Exp2(value)
+
+// The natural logarithm, of base E. 0's is -Inf, and a negative value's NaN.
+Public Function Log<T: FloatingPoint>(value: T): T => T.Log(value)
+
+// The logarithm of the base: Log(8.0, 2.0) is 3.
+Public Function Log<T>(value: T, base: T): T
+    Where T: FloatingPoint & Numeric
+    Return T.Log(value) / T.Log(base)
+End Function
+
+// The logarithm of base 2.
+Public Function Log2<T: FloatingPoint>(value: T): T => T.Log2(value)
+
+// The logarithm of base 10.
+Public Function Log10<T: FloatingPoint>(value: T): T => T.Log10(value)
+
+// The sine of an angle in radians.
+Public Function Sin<T: FloatingPoint>(angle: T): T => T.Sin(angle)
+
+// The cosine of an angle in radians.
+Public Function Cos<T: FloatingPoint>(angle: T): T => T.Cos(angle)
+
+// The tangent of an angle in radians.
+Public Function Tan<T: FloatingPoint>(angle: T): T => T.Tan(angle)
+
+// The angle whose sine is the value, from -Pi / 2 to Pi / 2. Outside -1 to 1, it's NaN.
+Public Function Asin<T: FloatingPoint>(value: T): T => T.Asin(value)
+
+// The angle whose cosine is the value, from 0 to Pi. Outside -1 to 1, it's NaN.
+Public Function Acos<T: FloatingPoint>(value: T): T => T.Acos(value)
+
+// The angle whose tangent is the value, from -Pi / 2 to Pi / 2.
+Public Function Atan<T: FloatingPoint>(value: T): T => T.Atan(value)
+
+// The angle from the X axis to the point (x, y), from -Pi to Pi.
+Public Function Atan2<T: FloatingPoint>(y: T, x: T): T => T.Atan2(y, x)
+
+// The hyperbolic sine.
+Public Function Sinh<T: FloatingPoint>(value: T): T => T.Sinh(value)
+
+// The hyperbolic cosine.
+Public Function Cosh<T: FloatingPoint>(value: T): T => T.Cosh(value)
+
+// The hyperbolic tangent.
+Public Function Tanh<T: FloatingPoint>(value: T): T => T.Tanh(value)
+
+// The value whose hyperbolic sine this is.
+Public Function Asinh<T: FloatingPoint>(value: T): T => T.Asinh(value)
+
+// The value, not negative, whose hyperbolic cosine this is. Below 1, it's NaN.
+Public Function Acosh<T: FloatingPoint>(value: T): T => T.Acosh(value)
+
+// The value whose hyperbolic tangent this is. Outside -1 to 1, it's NaN.
+Public Function Atanh<T: FloatingPoint>(value: T): T => T.Atanh(value)
+
+// Whether the value is NaN, the one value that isn't equal to itself.
+Public Function IsNaN<T>(value: T): Bool
+    Where T: FloatingPoint & Comparable
+    Return value != value
+End Function
+
+// Whether the value is a number, neither infinite nor NaN.
+Public Function IsFinite<T>(value: T): Bool
+    Where T: FloatingPoint & Numeric & Comparable
+    Return value - value == T.Zero()
+End Function
+
+// The magnitude with the sign of sign, -0 and NaN's included: CopySign(2.0, -0.0) is -2.
+Public Function CopySign<T: FloatingPoint>(magnitude: T, sign: T): T
+    Return T.CopySign(magnitude, sign)
+End Function
+
+// a * b + c, rounded once, at the end.
+Public Function Fma<T: FloatingPoint>(a: T, b: T, c: T): T => T.Fma(a, b, c)
+
+// The angle of so many degrees, in radians, the unit of every angle in std.math: Deg(90) is
+// Pi / 2.
+Public Function Deg(degrees: Int): Float => (degrees * (Pi64 / 180)) As Float
+
+// The angle of so many degrees, in radians, the unit of every angle in std.math: Deg(22.5) is
+// Pi / 8.
+Public Function Deg<T: FloatingPoint>(degrees: T): T
+    Return T.FromDouble(T.ToDouble(degrees) * (Pi64 / 180))
+End Function
+
+// The angle of so many radians, which is the number itself, for code that says its units, as
+// Deg does.
+Public Function Rad(radians: Int): Float => radians As Float
+
+// The angle of so many radians, which is the number itself, for code that says its units, as
+// Deg does.
+Public Function Rad<T: FloatingPoint>(radians: T): T => radians
+
+// The angle of so many degrees, in radians, as Deg gives it.
+Public Function ToRadians(degrees: Int): Float => Deg(degrees)
+
+// The angle of so many degrees, in radians, as Deg gives it.
+Public Function ToRadians<T: FloatingPoint>(degrees: T): T => Deg(degrees)
+
+// The angle in radians, in degrees: ToDegrees(Pi) is 180.
+Public Function ToDegrees<T: FloatingPoint>(radians: T): T
+    Return T.FromDouble(T.ToDouble(radians) * (180 / Pi64))
+End Function

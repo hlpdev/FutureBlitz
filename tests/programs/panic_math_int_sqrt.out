@@ -1,0 +1,2 @@
+0
+panic: IntSqrt takes a value that isn't negative, not -4 at panic_math_int_sqrt.fb:6:7

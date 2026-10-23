@@ -1,0 +1,6 @@
+// IntSqrt takes a value that isn't negative, which panics where it's called.
+Import std.core
+Import std.math
+
+Print(IntSqrt(0))
+Print(IntSqrt(-4))

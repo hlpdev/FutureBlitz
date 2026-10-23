@@ -1,0 +1,6 @@
+// PingPong takes a Float length that isn't negative or NaN, which panics where it's called.
+Import std.core
+Import std.math
+
+Print(PingPong(3.0, 0.0))
+Print(PingPong(3.0, NaN))
