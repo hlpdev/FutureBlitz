@@ -53,6 +53,17 @@ set(FB_MBEDTLS_SYSTEM "")
 if(WIN32)
   set(FB_MBEDTLS_SYSTEM "bcrypt")
 endif()
+# libcurl's sockets and random on Windows, and the OS's roots from its store (crypt32); on macOS,
+# the frameworks libcurl calls, and Security for the system's anchors. Its archives are mbedTLS's
+# TLS and X.509 libraries beside its own; mbedTLS's crypto comes with mbedTLS.
+set(FB_CURL_SYSTEM "")
+if(WIN32)
+  set(FB_CURL_SYSTEM "ws2_32 iphlpapi bcrypt advapi32 crypt32")
+elseif(APPLE)
+  string(JOIN " " FB_CURL_SYSTEM SystemConfiguration.framework CoreFoundation.framework
+         CoreServices.framework Security.framework)
+endif()
+set(FB_CURL_ARCHIVES "$<TARGET_FILE:libcurl_static>;$<TARGET_FILE:mbedtls>;$<TARGET_FILE:mbedx509>")
 
 file(GENERATE OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/generated/fb/build_config.hpp CONTENT
 "#pragma once
@@ -88,8 +99,12 @@ struct bundled_library_t {
     std::string_view archives;
     /// A file of the licenses' texts.
     std::string_view notice;
-    /// The system libraries it needs, separated by spaces.
+    /// The system libraries it needs, separated by spaces: names for -l, or on macOS, frameworks
+    /// as \"Security.framework\".
     std::string_view system;
+    /// The other bundled libraries it's built on, by name, separated by semicolons, which a
+    /// program that links it links too.
+    std::string_view needs;
 };
 
 inline constexpr auto bundled_libraries = std::to_array<bundled_library_t>({
@@ -312,6 +327,17 @@ inline constexpr auto bundled_libraries = std::to_array<bundled_library_t>({
         .archives = \"$<TARGET_FILE:nanosvg>\",
         .notice = \"${FB_NANOSVG_NOTICE}\",
         .system = \"\",
+    },
+    {
+        .name = \"libcurl\",
+        .version = \"${FB_CURL_VERSION}\",
+        .license = \"${FB_CURL_LICENSES}\",
+        .prefix = \"fb_http_\",
+        .runtime = \"$<TARGET_FILE:fb_runtime_http>\",
+        .archives = \"${FB_CURL_ARCHIVES}\",
+        .notice = \"${FB_CURL_NOTICE}\",
+        .system = \"${FB_CURL_SYSTEM}\",
+        .needs = \"libuv;mbedTLS\",
     },
 });
 
