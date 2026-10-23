@@ -307,7 +307,7 @@ Skeptic: confirmed=True, high. a4.fb, Spawn(Async Function() ... Await Spawn(...
 
 ## A1-3 (medium): Overriding a Property of a generic base instance is refused: 'must be T'
 
-Status: fixed in 9da5611, with tests
+Status: fixed in 328d8df, with tests
 
 Where: compiler/src/sema.cpp:5452
 
@@ -340,7 +340,7 @@ Suggested fix: Compare member.type with member_type(base, original), and show th
 
 ## A1-4 (medium): An Extend of one instance can redeclare the generic type's members without an error, and calls then dispatch inconsistently
 
-Status: fixed in c9a034e, with tests
+Status: fixed in 13b3a53, with tests
 
 Where: compiler/src/sema.cpp:2432
 
@@ -374,7 +374,7 @@ Suggested fix: When declaring an Extend of one instance, compare each member aga
 
 ## A1-5 (medium): An Interface default can clash with the type's own Field or Static Method and nothing is reported
 
-Status: fixed in a14af01, with tests
+Status: fixed in b5e98fe, with tests
 
 Where: compiler/src/sema.cpp:4856
 
@@ -407,7 +407,7 @@ Suggested fix: In take_default(), for a copy that isn't `extended` (the declarat
 
 ## A1-6 (medium): @MainThread on a Property, Interface or Enum is accepted silently and does nothing
 
-Status: fixed in 8bfafa0, with tests: refused on a Property, Interface, or Enum
+Status: fixed in 1877ac3, with tests: refused on a Property, Interface, or Enum
 
 Where: compiler/src/sema.cpp:3261
 
@@ -442,7 +442,7 @@ Suggested fix: Either refuse @MainThread on a Property in check_property_modifie
 
 ## A1-7 (medium): Override on a Method or Property of a Class with no base isn't reported
 
-Status: fixed in fdcb495, with tests
+Status: fixed in c8f9e06, with tests
 
 Where: compiler/src/sema.cpp:3522
 
@@ -472,7 +472,7 @@ Suggested fix: In link_class(), when base_of(type) is INVALID, report each membe
 
 ## A1-8 (medium): A Static Field or Method can take an inherited instance member's name, hiding it from the Class's objects
 
-Status: fixed in fdcb495, with tests
+Status: fixed in c8f9e06, with tests
 
 Where: compiler/src/sema.cpp:5094
 
@@ -501,7 +501,7 @@ Suggested fix: In check_inherited(), compare a Static member too. Report a Stati
 
 ## A1-9 (medium): An Extend of a built-in type or Enum can't list an Interface that extends a built-in Interface
 
-Status: fixed in 9569165, with tests, among them lane 5's `Interface Real Extends Numeric` on Float32, in tests/programs/extend_refined_builtins
+Status: fixed in 6ac26af, with tests, among them lane 5's `Interface Real Extends Numeric` on Float32, in tests/programs/extend_refined_builtins
 
 Where: compiler/src/sema.cpp:2442
 
@@ -539,7 +539,7 @@ Suggested fix: In conform(), for a target that isn't a Struct or Class (or for a
 
 ## A1-10 (medium): A call is ambiguous between an unconditional Extend's default and the conditional default of an Interface refining it
 
-Status: fixed in 2edc43b, with tests
+Status: fixed in 4e25bfe, with tests
 
 Where: compiler/src/sema.cpp:16461
 
@@ -573,7 +573,7 @@ Suggested fix: In hide_in_place(), let a member every instance has (unconditiona
 
 ## A1-11 (medium): A ByRef default that an array type gets stays ByRef
 
-Status: fixed in be35790, with tests
+Status: fixed in fdc5342, with tests
 
 Where: compiler/src/sema.cpp:4810
 
@@ -602,7 +602,7 @@ Suggested fix: Use `method.by_ref && !is_class(type) && !is_array(type)` (and th
 
 ## A1-12 (medium): body_t and swap_body() don't swap m_locks, so a Const checked early inside a Lock gets a false Await error
 
-Status: fixed in cb980dd, with tests
+Status: fixed in 9fdadca, with tests
 
 Where: compiler/src/sema.cpp:740
 
@@ -631,7 +631,7 @@ Suggested fix: Add `std::size_t locks = 0;` to body_t and swap m_locks in swap_b
 
 ## A1-13 (medium): A type parameter can share a declared type's name, against the spec
 
-Status: fixed in 1252d4a, with tests; Extend T[]'s T too, and spec 06 says so
+Status: fixed in 2ea3568, with tests; Extend T[]'s T too, and spec 06 says so
 
 Where: compiler/src/sema.cpp:1343
 
@@ -970,7 +970,7 @@ Skeptic: confirmed=True, medium. `Local g = Async Function() => Await NextFrame(
 
 ## A1-14 (low): Static and ReadOnly before a Struct or Class are accepted silently
 
-Status: fixed in 36ab57e, with tests
+Status: fixed in 57f5d25, with tests
 
 Where: compiler/src/sema.cpp:1194
 
@@ -986,7 +986,7 @@ Suggested fix: In declare_type(), report modifiers.is_static ("Static only goes 
 
 ## A1-15 (low): Extend of Task, Channel, Scheduler or Thread says "'Task' isn't a type"
 
-Status: fixed in e067177, with tests
+Status: fixed in 274a48f, with tests
 
 Where: compiler/src/sema.cpp:2484
 
@@ -1002,7 +1002,7 @@ Suggested fix: Extend the Atomic/Mutex/Ptr branch to cover Task, Thread, Channel
 
 ## A1-16 (low): ReadOnly on a Const says "a Local that never changes is a Const"
 
-Status: fixed in 36ab57e, with tests
+Status: fixed in 57f5d25, with tests
 
 Where: compiler/src/sema.cpp:3190
 
@@ -1018,7 +1018,7 @@ Suggested fix: For a CONSTANT, say it's a Const already, for example "a Const ne
 
 ## A1-17 (low): extension_member_fits()'s comment lists rules the code no longer has
 
-Status: fixed in b044ab4 (a comment)
+Status: fixed in 4d3c67a (a comment)
 
 Where: compiler/src/sema.cpp:2670
 
@@ -1034,7 +1034,7 @@ Suggested fix: Reword the comment to what the function checks: an Operator only 
 
 ## A1-18 (low): Misplaced and stale comments on members and in sema.hpp
 
-Status: fixed in b044ab4 (comments)
+Status: fixed in 4d3c67a (comments)
 
 Where: compiler/src/sema.cpp:716
 
@@ -1408,7 +1408,7 @@ Found by lane 5: `noise.Fbm(x, y, 3)` between `Fbm(x: Double, y: Double, octaves
 
 ## A-new-3 (low): The Ctrl+C CLI test fails for good once any run leaves an interrupted-* folder in the temp folder
 
-Status: fixed in 401a85f, with its own check: a stale folder planted there no longer fails it
+Status: fixed in bfe0081, with its own check: a stale folder planted there no longer fails it
 
 Where: tests/cli/cli_tests.cpp, "Ctrl+C during fb run ends the program, and fb cleans up and gives its exit code"
 
