@@ -7864,6 +7864,20 @@ TEST_CASE("Const Functions can be generic, and give the sizes in declarations' t
     CHECK(probe(std::format("{}Local x = g.cells", grid)) == "Int32[2]");
     CHECK(probe(std::format("{}Local x = g.more", grid)) == "Int32[6]");
     CHECK(probe(std::format("{}Local x = g.most", grid)) == "Int32[6]");
+    // One whose type argument doesn't meet its constraint doesn't run, inferred or written.
+    CHECK(errors_of("Import std.core\n"
+                    "Const Function Largest<T: Comparable>(a: T, b: T): T => a < b ? b : a\n"
+                    "Const Function Twice<T: Numeric>(a: T): T => a + a\n"
+                    "Function Main()\n"
+                    "    Local x = Largest(True, False)\n"
+                    "    Local y = Largest<Bool>(True, False)\n"
+                    "    Local z = Twice<Bool>(True)\n"
+                    "End Function") ==
+          errors_t{
+              "Largest: Bool doesn't implement Comparable, which 'Largest' needs for T",
+              "Largest<Bool>: Bool doesn't implement Comparable, which 'Largest' needs for T",
+              "Twice<Bool>: Bool doesn't implement Numeric, which 'Twice' needs for T",
+          });
 }
 
 TEST_CASE("a Const type argument or size can be computed from Const type parameters", "[sema]") {

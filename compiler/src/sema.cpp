@@ -18931,6 +18931,7 @@ private:
         // where the object's type was written, as for a Set<Rock>, so they aren't again.
         const symbol_t& called = symbol(*function);
         const bool on_object = called.kind == symbol_kind_t::METHOD && !called.modifiers.is_static;
+        const std::size_t errors = m_diagnostics->error_count();
         report_bounds(on_object ? called.constraints : call_bounds(*function), parameters,
                       *arguments,
                       called.kind == symbol_kind_t::CONSTRUCTOR ? shown_name(called.owner)
@@ -18938,10 +18939,10 @@ private:
                       span_of(node.callee));
         const substitution_t outer =
             std::exchange(m_substitution, { .parameters = parameters, .arguments = *arguments });
-        const std::size_t errors = m_diagnostics->error_count();
         const type_id_t type = check_call(id, node, *function);
         m_substitution = outer;
-        // A call that was reported has arguments that may not fit, so it can't run.
+        // A call that was reported, its type arguments' constraints too, has arguments that may
+        // not fit, so it can't run.
         if (symbol(*function).modifiers.is_const && m_diagnostics->error_count() == errors) {
             run_at_compile_time(id, *function);
         }
