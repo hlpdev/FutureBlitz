@@ -17,8 +17,9 @@ Extern "runtime"
     Function fb_io_watcher_free(watcher: Ptr<Void>)
 End Extern
 
-// What happened at a path: something came there, it changed, or it went. A rename is the old
-// name's REMOVED and the new one's CREATED, since OSes don't all pair them.
+// What happened at a path: something came there, it changed, or it went, which a watcher tells
+// by the names it knows are there, since OSes call these differently. A rename is the old name's
+// REMOVED and the new one's CREATED, and a file renamed over another is the other's CHANGED.
 Public Enum FileEventKind
     CREATED
     CHANGED

@@ -195,6 +195,14 @@ So far, std/ holds:
 | std/image/svg.fb | `Svg`, over nanosvg through `fb_svg_` |
 | std/image/canvas.fb | `Canvas`, `LineCap`, and `LineJoin`, drawing through the runtime's `fb_image_` functions |
 | std/image/font.fb | `Font`, TrueType and OpenType fonts the runtime reads itself, through `fb_font_` |
+| std/io/path.fb | `Path` and `PathStyle` |
+| std/io/file.fb | `File`'s one-call Static Methods and their Async twins, `Metadata`, `FileKind`, and `LineEnding`, over libuv through the runtime's `fb_io_file_` functions |
+| std/io/dir.fb | `Dir`'s Static Methods and their Async twins, and `DirEntry` |
+| std/io/temp.fb | `TempFile` and `TempDir` |
+| std/io/lock.fb | `FileLock` |
+| std/io/mapped.fb | `MappedFile` |
+| std/io/watcher.fb | `FileWatcher`, `FileEvent`, and `FileEventKind` |
+| std/io/request.fb | the runtime's requests, std's own |
 
 What the language itself uses, `Error` for Throw and Catch, the Interfaces, `Iterator<T>`, and
 `Map<K, V>` for `{key: value}`, is always std's, whatever a program calls by those names.
@@ -292,7 +300,8 @@ file or URL in the default app.
   chain, then exits with code 1. Each area has one Error with a `Kind` and its details:
   `ArgumentError` (`MISSING`, `UNKNOWN`, `INVALID`, `OTHER`, and `Name: String?`), `IOError`
   (`NOT_FOUND`, `PERMISSION_DENIED`, `ALREADY_EXISTS`, `UNEXPECTED_END`, `INVALID_DATA`,
-  `INTERRUPTED`, `OTHER`, and `Path: String?`), `ParseError` (`SYNTAX`, `UNEXPECTED_END`,
+  `INTERRUPTED`, `NOT_A_DIRECTORY`, `IS_A_DIRECTORY`, `NOT_EMPTY`, `BUSY`, `NO_SPACE`,
+  `INVALID_PATH`, `OTHER`, and `Path: String?`), `ParseError` (`SYNTAX`, `UNEXPECTED_END`,
   `WRONG_TYPE`, `OUT_OF_RANGE`, `OTHER`, and `Line`, `Column`), `FormatError` (`BAD_TEMPLATE`,
   `MISSING_VALUE`, `BAD_VALUE`, `OTHER`), `TimeoutError` and `CancelledError` (one kind each),
   `NetError` (`REFUSED`, `RESET`, `UNREACHABLE`, `HOST_NOT_FOUND`, `CLOSED`, `TLS`, `OTHER`, and
@@ -674,18 +683,55 @@ the rest is planned.
   on the main thread, and the buffered streams' go through the stream they wrap. Errors are
   IOErrors, an early end UNEXPECTED_END. Seeking is cheap where it isn't plain memory too, so
   Seeker has no Async twin.
-- `Path` is a value: `Join` and `/`, `Parent`, `FileName`, `Stem`, `Extension`, `Normalize`,
-  `RelativeTo`, `Absolute`; `/` works on every OS, and a String converts to a Path wherever one
-  is expected.
-- `File`: `ReadText`, `ReadBytes`, `ReadLines`, `WriteText`, `WriteBytes`, `AppendText`,
-  `Exists`, `Copy`, `Move`, `Delete`, `Size`; `WriteTextAtomic` and `WriteBytesAtomic`, which
-  write a temporary file and rename it; `File.Open` with options; `Seek`, `Flush`, `Sync`,
-  `Metadata`; `FileLock`; each with an Async twin. Reading splits lines on `\n` and `\r\n`, and
-  writing uses `\n` on every OS, unless asked for `\r\n`.
-- `MappedFile` maps a file as a `Buffer<UInt8>`, read-only or writable.
-- `Dir`: `Create`, `CreateAll`, `Remove`, `RemoveAll`, `Entries`, `Walk`, `Glob`, the current
-  folder, and temporary files and folders that go away when closed. `FileWatcher` (libuv):
-  created, changed, removed, renamed.
+- `Path` is a value, a Struct of its `Text` and its `Style` (`PathStyle.POSIX` or `WINDOWS`, the
+  target's unless asked for): `Join` and `/`, `Parent`, `FileName`, `Stem`, `Extension` (with its
+  dot), `WithExtension`, `Normalize`, `RelativeTo` (a `Path?`), `IsAbsolute`, `Absolute`, and
+  `NativeStyle`. They work on the text alone, but for Absolute, which asks for the current
+  folder. Its own separator is `/` on every OS, which it writes wherever it joins or rebuilds a
+  path, so a program's paths read the same everywhere; by Windows' rules `\` is one too, and a
+  path can start with a drive (`C:`, `C:/`) or a share (`//server/share`). Paths are equal and
+  hashed by their texts and styles, and sort by their texts' bytes; on Windows, RelativeTo takes
+  names that differ in their ASCII letters' case as the same. A String converts to a Path
+  wherever one is expected (spec 02), so `File.ReadText("save.dat")` and `saves / "one.dat"`
+  read naturally.
+- `File`: `ReadBytes`, `ReadText`, `ReadLines`, `WriteBytes`, `WriteText`, `WriteLines`,
+  `AppendBytes`, `AppendText`, `AppendLines`, `WriteBytesAtomic` and `WriteTextAtomic` (a new
+  temporary file in the same folder, synced to the disk, then renamed over the file, keeping its
+  POSIX permissions), `Exists` (a file, not a folder), `Size`, `Metadata` (its `Kind`, `Size`,
+  `Modified`, `Accessed`, and `Created` times in nanoseconds since 1970 in UTC until std.time's
+  Timestamp, and `IsReadOnly`; through links unless asked), `Copy` and `Move` (which replace a
+  file there, and copy a file to another disk), `Delete` (gives whether there was one), and
+  `SetReadOnly`; each with an Async twin, which libuv's thread pool does from the I/O thread's
+  loop, whose Await resumes on the main thread. Text reads as UTF-8, with U+FFFD for a byte that
+  doesn't start well-formed UTF-8, and stays as it was, its line breaks and a byte order mark
+  too. Reading lines splits them on `\n` and `\r\n`, and writing them puts `\n` after each on
+  every OS, unless asked for `LineEnding.CRLF`. `File.Open` with options, `Seek`, `Flush`, and
+  `Sync` come with step 13's streams.
+- `FileLock.Acquire`, `AcquireShared`, `TryAcquire`, `TryAcquireShared` (a `FileLock?`), and
+  `AcquireAsync` and `AcquireSharedAsync`: a lock on a file, made when it isn't there, which other
+  FileLocks, in this program or another, wait for or are refused, until `Close` or its last
+  reference. It's on one byte far past where files end, so it never keeps anyone from reading
+  or writing the file, on Windows too.
+- `MappedFile(path, writable)` maps a file into memory whole: `Count`, `[]` and `[]=`,
+  `ReadBytes`, `WriteBytes`, `Flush`, `IsOpen`, and `Close`, which unmaps it; misuse panics at the
+  caller. Once step 12's Buffer lands, it gives its bytes as a `Buffer<UInt8>` that keeps it
+  mapped.
+- `Dir`: `Create`, `CreateAll`, `Remove` and `RemoveAll` (which give whether there was one, and
+  don't follow links), `Exists`, `Entries`, `Walk`, and `Glob`, which give `DirEntry`s (`Path`,
+  `Relative` from the folder listed, `Kind`, `Name`) in the order of their names' bytes, each
+  folder before what's in it, without going into links; each with an Async twin. Glob's
+  patterns match names between `/`s: `*`, `?`, `[abc]`, `[a-z]`, `[!abc]`, and a name of `**` for
+  any number of folders, exactly, in the same case, on every OS. `Current`, `SetCurrent`, and
+  `Temp`, the OS's temporary folder.
+- `TempFile(prefix)` and `TempDir(prefix)`: a new, empty file or folder in the OS's temporary
+  folder, with a name no other has, which `Close`, or its last reference, removes with what's in
+  it.
+- `FileWatcher(path)` watches a file, or what's in a folder, not the folders in it, over libuv's
+  file events: `Next` (waits), `TryNext`, and `NextAsync` give a `FileEvent?` (`Kind`: `CREATED`,
+  `CHANGED`, or `REMOVED`, and `Path`), Null once it's closed. It tells what came and went by the
+  names it knows are there, since OSes call those differently, so a rename is the old name's
+  REMOVED and the new name's CREATED, and a file renamed over another is the other's CHANGED.
+  `Close` drops what it hasn't given.
 - A virtual file system: mount folders, zips, and embedded folders under one tree, read through
   the same API as files; the engine's pak files build on it.
 - `Embed("path")`, `EmbedText("path")`, and `EmbedFolder("path")`: built-ins, checked at compile
