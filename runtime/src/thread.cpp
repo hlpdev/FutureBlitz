@@ -5,6 +5,7 @@
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <condition_variable>
 #include <cstddef>
 #include <cstdint>
@@ -430,15 +431,34 @@ void run_task(void* context) {
 /// The thread that runs main, and the coroutines.
 const std::thread::id main_thread = std::this_thread::get_id();
 
-/// Seconds on the real clock since the program started.
-double real_seconds() {
+/// Nanoseconds on the real clock since the program started.
+std::int64_t real_nanoseconds() {
     static const auto started = std::chrono::steady_clock::now();
-    return std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count();
+    return std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() -
+                                                                started)
+        .count();
+}
+
+/// `time` and then `later` nanoseconds, or the most or least an Int64 holds past that.
+std::int64_t later_by(const std::int64_t time, const std::int64_t later) {
+    constexpr std::int64_t most = std::numeric_limits<std::int64_t>::max();
+    constexpr std::int64_t least = std::numeric_limits<std::int64_t>::min();
+    if (later > 0 && time > most - later) {
+        return most;
+    }
+
+    if (later < 0 && time < least - later) {
+        return least;
+    }
+
+    return time + later;
 }
 
 /// Coroutines of Async Functions, each waiting for a Task, which the main thread resumes when it
-/// ticks the scheduler, and the Tasks that NextFrame and Seconds gave, which it finishes then. The
-/// main scheduler's time is the real clock's, and a Scheduler's moves on as it's ticked.
+/// ticks the scheduler, and the Tasks that NextFrame, Wait, and RealWait gave, which it finishes
+/// then. The main scheduler's time is the real clock's, and a Scheduler's moves on as it's
+/// ticked: a sum of seconds, which timers read to the nearest nanosecond, so ticks that add up to
+/// a Wait's Duration reach it, though a Double's sum of them is a little short.
 class scheduler_t {
 public:
     explicit scheduler_t(const bool main) : m_main(main) {}
@@ -466,9 +486,10 @@ public:
             { .coroutine = coroutine, .own = own, .task = task, .since = m_frames });
     }
 
-    /// A Task that this scheduler finishes at its next tick, or once its time reaches `due`, or
-    /// the real clock's does.
-    void add_timer(fb_task_t* task, const bool next_frame, const double due, const bool real) {
+    /// A Task that this scheduler finishes at its next tick, or once its time reaches `due`, in
+    /// nanoseconds, or the real clock's does.
+    void add_timer(fb_task_t* task, const bool next_frame, const std::int64_t due,
+                   const bool real) {
         fb_object_retain(&task->header);
         m_timers.push_back({
             .task = task,
@@ -478,8 +499,15 @@ public:
         });
     }
 
-    [[nodiscard]] double time() const {
-        return m_main ? real_seconds() : m_time;
+    /// Its time in nanoseconds: the real clock's, or the nearest to a Scheduler's seconds.
+    [[nodiscard]] std::int64_t time() const {
+        if (m_main) {
+            return real_nanoseconds();
+        }
+
+        const double nanoseconds = std::nearbyint(m_time * 1e9);
+        return nanoseconds < 9.2e18 ? static_cast<std::int64_t>(nanoseconds)
+                                    : std::numeric_limits<std::int64_t>::max();
     }
 
     /// Moves `task`'s coroutine here from `from`, with what it waits for there: another Async
@@ -511,7 +539,8 @@ public:
                 if (timer.frame != 0) {
                     timer.frame = m_frames + 1;
                 } else if (!timer.real) {
-                    timer.due = time() + std::max(0.0, timer.due - from.time());
+                    timer.due =
+                        later_by(time(), std::max<std::int64_t>(0, timer.due - from.time()));
                 }
 
                 m_timers.push_back(timer);
@@ -630,9 +659,10 @@ private:
 
     struct timer_t {
         fb_task_t* task;
-        /// For NextFrame: the tick it's done at. 0 for Seconds.
+        /// For NextFrame: the tick it's done at. 0 for Wait and RealWait.
         std::uint64_t frame;
-        double due;
+        /// For Wait and RealWait: the time it's done at, in nanoseconds.
+        std::int64_t due;
         bool real;
     };
 
@@ -703,7 +733,7 @@ bool scheduler_t::tick(const double seconds) {
     m_time += seconds;
     ++m_frames;
     std::erase_if(m_timers, [&](const timer_t& timer) {
-        const double now = timer.real ? real_seconds() : time();
+        const std::int64_t now = timer.real ? real_nanoseconds() : time();
         if (timer.frame != 0 ? m_frames < timer.frame : now < timer.due) {
             return false;
         }
@@ -1068,13 +1098,13 @@ void fb_await(void* coroutine, fb_task_t* own, fb_task_t* task) {
 }
 
 void fb_wait_frame(fb_task_t* task) {
-    current_scheduler()->add_timer(task, true, 0.0, false);
+    current_scheduler()->add_timer(task, true, 0, false);
 }
 
 void fb_wait_time(fb_task_t* task, const std::int64_t nanoseconds, const std::int32_t real) {
     scheduler_t& scheduler = *current_scheduler();
-    const double now = real != 0 ? real_seconds() : scheduler.time();
-    scheduler.add_timer(task, false, now + (static_cast<double>(nanoseconds) / 1e9), real != 0);
+    const std::int64_t now = real != 0 ? real_nanoseconds() : scheduler.time();
+    scheduler.add_timer(task, false, later_by(now, nanoseconds), real != 0);
 }
 
 fb_scheduler_t* fb_scheduler_new(fb_class_t* type) {

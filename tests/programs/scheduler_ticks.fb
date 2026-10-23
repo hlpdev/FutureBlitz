@@ -1,0 +1,39 @@
+// A Scheduler's time is the sum of its ticks' seconds, which a Wait reads to the nearest
+// nanosecond, so the ticks that add up to its Duration reach it, though a Double's sum of them
+// can be a little short.
+Import std.core
+Import std.time
+
+Global done = False
+
+Async Function Door(time: Duration)
+    Await NextFrame()
+    Await Wait(time)
+    done = True
+End Function
+
+Local lengths: Double[] = [0.1, 1.0 / 30.0, 1.0 / 60.0, 1.0 / 144.0, 0.25]
+For tick In lengths
+    Local s = Scheduler()
+    done = False
+    s.Run(Door(1.Seconds))
+    // The NextFrame's tick, in which the Wait starts.
+    s.Tick(tick)
+    Local ticks = 0
+    While !done
+        s.Tick(tick)
+        ticks += 1
+    End While
+
+    Print(ticks)
+End For
+
+// A Wait longer than a Scheduler's time counts is never done.
+Local s = Scheduler()
+done = False
+s.Run(Door(Duration.MaxValue()))
+For i = 1 To 3
+    s.Tick(1.0e9)
+End For
+
+Print(done, s.IsIdle())
