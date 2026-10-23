@@ -1,0 +1,8 @@
+end
+leak: 7 Node objects were never released
+leak: a cycle of 1 object: Node.next -> the first Node
+leak: a cycle of 1 object: Node.next -> the first Node
+leak: a cycle of 1 object: Node.next -> the first Node
+leak: a cycle of 1 object: Node.next -> the first Node
+leak: a cycle of 1 object: Node.next -> the first Node
+leak: and 2 more cycles
