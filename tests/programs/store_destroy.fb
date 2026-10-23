@@ -1,0 +1,35 @@
+// A new value goes in before the old one is let go of, so a Destroy() that letting it go runs
+// finds the new value in the Field, not the object that's going, and setting the Field again
+// doesn't let go of that object a second time.
+Import std.core
+
+Class Thing
+    Field Name: String
+
+    New(name: String)
+        Name = name
+    End New
+
+    Method Destroy()
+        Print("{Name} goes; the holder has {holder.Item?.Name ?? "nothing"}")
+        holder.Item = Null
+        Print("{Name} gone")
+    End Method
+End Class
+
+Class Holder
+    Field Item: Thing?
+End Class
+
+Global holder = Holder()
+holder.Item = Thing("a")
+holder.Item = Null
+
+// The same through an array's element, and a Thing in the Field going for another.
+holder.Item = Thing("b")
+holder.Item = Thing("c")
+Local things: Thing?[] = [Thing("d")]
+things[0] = Null
+holder.Item = Null
+
+Print("done")

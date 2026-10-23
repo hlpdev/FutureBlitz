@@ -3015,8 +3015,17 @@ private:
         }
 
         take(kept);
-        emit(release_t{ .target = target });
-        emit(assign_t{ .target = target, .value = use_t{ .value = kept } });
+        replace(target, kept);
+    }
+
+    /// Puts a value whose references are taken already in a variable, then releases the old one,
+    /// so a Destroy() that releasing it runs finds the new value there, not the object that's
+    /// going, which setting the variable again would release once more.
+    void replace(const place_t& target, const operand_t& value) {
+        const local_id_t old = add_local(type_of(target));
+        emit(assign_t{ .target = old, .value = use_t{ .value = target } });
+        emit(assign_t{ .target = target, .value = use_t{ .value = value } });
+        emit(release_t{ .target = old });
     }
 
     /// Releases the temporaries made since `mark`, newest first. Code that nothing reaches just
@@ -7821,10 +7830,10 @@ private:
                 temporary(run(runtime_function_t::CHANNEL_TRY_RECEIVE, slot), type_id_t::BOOL);
             when(got, [&] {
                 if (has_references(element)) {
-                    emit(release_t{ .target = target });
+                    replace(target, place_t{ slot });
+                } else {
+                    emit(assign_t{ .target = target, .value = use_t{ .value = place_t{ slot } } });
                 }
-
-                emit(assign_t{ .target = target, .value = use_t{ .value = place_t{ slot } } });
             });
             return got;
         }

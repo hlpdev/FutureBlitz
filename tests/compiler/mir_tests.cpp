@@ -62,7 +62,7 @@ TEST_CASE("a widening conversion is a cast", "[mir]") {
 
 TEST_CASE("a String temporary moves into the variable that takes it", "[mir]") {
     // The call's result _0 and the concat's _2 hand their references to s without a retain. s's
-    // old value is released before it's replaced, and s itself when main ends.
+    // old value is released once it's replaced, and s itself when main ends.
     CHECK(lower_text("Import std.core\n"
                      "Function Shout(text: String): String => text + \"!\"\n"
                      "Local s = Shout(\"hi\")\n"
@@ -78,17 +78,19 @@ TEST_CASE("a String temporary moves into the variable that takes it", "[mir]") {
                                                "    _0: String\n"
                                                "    _1 s: String\n"
                                                "    _2: String\n"
-                                               "    _3: String[]\n"
+                                               "    _3: String\n"
+                                               "    _4: String[]\n"
                                                "bb0:\n"
                                                "    _0 = call Shout(String)(\"hi\")\n"
                                                "    _1 = _0\n"
                                                "    _2 = concat(_1, _1)\n"
-                                               "    release _1\n"
+                                               "    _3 = _1\n"
                                                "    _1 = _2\n"
-                                               "    retain _1\n"
-                                               "    _3 = String[] [_1]\n"
-                                               "    call std.core.print.Print(String[])(_3)\n"
                                                "    release _3\n"
+                                               "    retain _1\n"
+                                               "    _4 = String[] [_1]\n"
+                                               "    call std.core.print.Print(String[])(_4)\n"
+                                               "    release _4\n"
                                                "    release _1\n"
                                                "    return\n"));
 }
@@ -422,7 +424,7 @@ TEST_CASE("a generic Async Function's Task has its instance's errors", "[mir]") 
 
 TEST_CASE("a Struct is built from its fields, and copies count its Strings", "[mir]") {
     // _0 holds the new Tag and hands it to t. Copying t into u retains its Strings, and changing
-    // u.name releases the old one first.
+    // u.name releases the old one once the new one is in.
     CHECK(lower_text("Struct Tag\n"
                      "    Field name: String\n"
                      "    Field id: Int = 7\n"
@@ -433,13 +435,15 @@ TEST_CASE("a Struct is built from its fields, and copies count its Strings", "[m
                                           "    _0: Tag\n"
                                           "    _1 t: Tag\n"
                                           "    _2 u: Tag\n"
+                                          "    _3: String\n"
                                           "bb0:\n"
                                           "    _0 = Tag { name: \"a\", id: 7 }\n"
                                           "    _1 = _0\n"
                                           "    retain _1\n"
                                           "    _2 = _1\n"
-                                          "    release _2.name\n"
+                                          "    _3 = _2.name\n"
                                           "    _2.name = \"b\"\n"
+                                          "    release _3\n"
                                           "    release _2\n"
                                           "    release _1\n"
                                           "    return\n");
@@ -504,13 +508,15 @@ TEST_CASE("a new object gets its field defaults, and a Class lists its Destroy",
                                                      "function main\n"
                                                      "    _0: Tag\n"
                                                      "    _1 t: Tag\n"
+                                                     "    _2: String\n"
                                                      "bb0:\n"
                                                      "    _0 = new Tag\n"
                                                      "    _0.name = \"\"\n"
                                                      "    _0.id = 7\n"
                                                      "    _1 = _0\n"
-                                                     "    release _1.name\n"
+                                                     "    _2 = _1.name\n"
                                                      "    _1.name = \"a\"\n"
+                                                     "    release _2\n"
                                                      "    release _1\n"
                                                      "    return\n"));
 }
@@ -1103,13 +1109,17 @@ TEST_CASE("a function that throws puts its error in its caller's variable", "[mi
           "    _0 Self: std.core.error.Error\n"
           "    _1 message: String\n"
           "    _2 cause: std.core.error.Error?\n"
+          "    _3: String\n"
+          "    _4: std.core.error.Error?\n"
           "bb0:\n"
           "    retain _1\n"
-          "    release _0.Message\n"
+          "    _3 = _0.Message\n"
           "    _0.Message = _1\n"
+          "    release _3\n"
           "    retain _2\n"
-          "    release _0.Cause\n"
+          "    _4 = _0.Cause\n"
           "    _0.Cause = _2\n"
+          "    release _4\n"
           "    return\n");
 }
 
@@ -1177,6 +1187,7 @@ TEST_CASE("a Try's Catches test the error's Class, and its Finally runs on every
                                               "    release _7\n"
                                               "    return\n"));
 }
+
 TEST_CASE("a Weak<T> counts a weak reference, and reading it makes a strong one", "[mir]") {
     // Storing retains and releases weak references. Reading gives a new reference, which
     // Return hands to the caller.
@@ -1193,11 +1204,13 @@ TEST_CASE("a Weak<T> counts a weak reference, and reading it makes a strong one"
           "    _0 child: Node\n"
           "    _1 parent: Node\n"
           "    _2: Weak<Node>\n"
+          "    _3: Weak<Node>\n"
           "bb0:\n"
           "    _2 = _1 As Weak<Node>\n"
           "    retain _2\n"
-          "    release _0.parent\n"
+          "    _3 = _0.parent\n"
           "    _0.parent = _2\n"
+          "    release _3\n"
           "    return\n"
           "\n"
           "function Parent(Node) -> Node?\n"
@@ -1435,6 +1448,8 @@ TEST_CASE("assigning a tuple's elements makes the whole tuple first", "[mir]") {
           "    _2: (String, String)\n"
           "    _3: String\n"
           "    _4: String\n"
+          "    _5: String\n"
+          "    _6: String\n"
           "bb0:\n"
           "    _0 = \"x\"\n"
           "    _1 = \"y\"\n"
@@ -1443,12 +1458,14 @@ TEST_CASE("assigning a tuple's elements makes the whole tuple first", "[mir]") {
           "    _2 = (_1, _0)\n"
           "    _3 = _2.0\n"
           "    retain _3\n"
-          "    release _0\n"
+          "    _4 = _0\n"
           "    _0 = _3\n"
-          "    _4 = _2.1\n"
-          "    retain _4\n"
-          "    release _1\n"
-          "    _1 = _4\n"
+          "    release _4\n"
+          "    _5 = _2.1\n"
+          "    retain _5\n"
+          "    _6 = _1\n"
+          "    _1 = _5\n"
+          "    release _6\n"
           "    release _2\n"
           "    release _1\n"
           "    release _0\n"
@@ -1659,10 +1676,12 @@ TEST_CASE("an instance of a generic Class has its own Class and Methods", "[mir]
                                              "function Box<String>.New(String)\n"
                                              "    _0 Self: Box<String>\n"
                                              "    _1 value: String\n"
+                                             "    _2: String\n"
                                              "bb0:\n"
                                              "    retain _1\n"
-                                             "    release _0.Value\n"
+                                             "    _2 = _0.Value\n"
                                              "    _0.Value = _1\n"
+                                             "    release _2\n"
                                              "    return\n"
                                              "\n"
                                              "function Box<String>.Get() -> String\n"
@@ -3096,14 +3115,16 @@ TEST_CASE("a debug form is a function made for its type, and an object shows its
                        "    _2 text: String\n"
                        "    _3: Bool\n"
                        "    _4: String\n"
+                       "    _5: String\n"
                        "bb0:\n"
                        "    _2 = \"Null\"\n"
                        "    _3 = _0 != Null\n"
                        "    branch _3, bb1, bb2\n"
                        "bb1:\n"
                        "    _4 = debug_object(_0.value, _1)\n"
-                       "    release _2\n"
+                       "    _5 = _2\n"
                        "    _2 = _4\n"
+                       "    release _5\n"
                        "    goto bb2\n"
                        "bb2:\n"
                        "    retain _2\n"
@@ -3121,16 +3142,19 @@ TEST_CASE("a debug form is a function made for its type, and an object shows its
                        "bb1:\n"
                        "    _3 = wrapping(_3 + 1)\n"
                        "    _8 = debug_indent(_3)\n"
-                       "    release _4\n"
+                       "    _9 = _4\n"
                        "    _4 = _8\n"
-                       "    _9 = join(\",\", _4)\n"
-                       "    release _5\n"
-                       "    _5 = _9\n"
-                       "    _10 = debug_indent(_1)\n"
-                       "    _11 = join(\",\", _10)\n"
-                       "    release _6\n"
-                       "    _6 = _11\n"
-                       "    release _10\n"
+                       "    release _9\n"
+                       "    _10 = join(\",\", _4)\n"
+                       "    _11 = _5\n"
+                       "    _5 = _10\n"
+                       "    release _11\n"
+                       "    _12 = debug_indent(_1)\n"
+                       "    _13 = join(\",\", _12)\n"
+                       "    _14 = _6\n"
+                       "    _6 = _13\n"
+                       "    release _14\n"
+                       "    release _12\n"
                        "    goto bb2\n"));
 }
 
@@ -3148,18 +3172,38 @@ TEST_CASE("an assignment copies a value read through a reference before it lets 
                                        "    first = node.Next\n"
                                        "End Function");
     INFO(mir);
+    // The old value is let go of once the new one is in, so a Destroy() that it runs finds the
+    // new one there.
     CHECK(mir.contains("    _2 = _0.Items[_1] As Node?\n"
                        "    retain _2\n"
-                       "    release _0.Next\n"
-                       "    _0.Next = _2\n"));
-    CHECK(mir.contains("    _4 = _0.Items[_3].Items\n"
-                       "    retain _4\n"
-                       "    release _0.Items\n"
-                       "    _0.Items = _4\n"));
-    CHECK(mir.contains("    _5 = _0.Next\n"
+                       "    _3 = _0.Next\n"
+                       "    _0.Next = _2\n"
+                       "    release _3\n"));
+    CHECK(mir.contains("    _5 = _0.Items[_4].Items\n"
                        "    retain _5\n"
-                       "    release @first\n"
-                       "    @first = _5\n"));
+                       "    _6 = _0.Items\n"
+                       "    _0.Items = _5\n"
+                       "    release _6\n"));
+    CHECK(mir.contains("    _7 = _0.Next\n"
+                       "    retain _7\n"
+                       "    _8 = @first\n"
+                       "    @first = _7\n"
+                       "    release _8\n"));
+}
+
+TEST_CASE("TryReceive puts what it takes in its variable before it lets go of the old value",
+          "[mir]") {
+    const std::string mir = lower_text("Import std.core\n"
+                                       "Const words = Channel<String>(8)\n"
+                                       "Local word = \"none\"\n"
+                                       "Local got = words.TryReceive(ByRef word)");
+    INFO(mir);
+    CHECK(mir.contains("    _5 = try_receive(@words, _4)\n"
+                       "    branch _5, bb1, bb2\n"
+                       "bb1:\n"
+                       "    _6 = _3\n"
+                       "    _3 = _4\n"
+                       "    release _6\n"));
 }
 
 TEST_CASE("SortUnstable sorts in place, making no array", "[mir]") {
