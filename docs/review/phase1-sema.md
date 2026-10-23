@@ -4,7 +4,7 @@ The review of phase 1's fixes (ecaa974..36ab52a), on 2026-10-23: six reviewers b
 
 ## P1-sema-checks-1 (medium): A Const Function's default checked on demand resolves its names in the caller's scope
 
-Status: open
+Status: fixed in d709ff7 (check_defaults() swaps in an empty body and the kept bag, as check_const_body() does)
 
 Where: compiler/src/sema.cpp:19185
 
@@ -35,7 +35,7 @@ Skeptic: semachk/f1.fb (the finding's program) prints 6 then 6, in debug and rel
 
 ## P1-sema-checks-2 (medium): A bad default checked on demand inside a quiet overload try is never reported, and the call silently uses 0
 
-Status: open
+Status: fixed in d709ff7 (with checks-1: the defaults' errors go to m_bag)
 
 Where: compiler/src/sema.cpp:12723
 
@@ -60,7 +60,7 @@ Skeptic: semachk/f2.fb builds with no diagnostic and prints 1, in debug and rele
 
 ## P1-sema-checks-3 (medium): Compiler crash: a generic Const Function whose type argument misses its constraint still runs
 
-Status: open
+Status: fixed in 4a338f2 (the error count is taken before report_bounds())
 
 Where: compiler/src/sema.cpp:18896
 
@@ -86,7 +86,7 @@ Skeptic: semachk/f3.fb (Largest(True, False)) and f3b.fb (Largest<Bool>(True, Fa
 
 ## P1-sema-checks-4 (medium): Main-thread rules still miss the Operator == run by an array's built-in Contains and by generic == on a Struct that compares its fields
 
-Status: open
+Status: fixed in 11ea2c6 (Contains calls note_compared(), and check_threads() links Equatable's == to the fields' Operator == of a Struct that compares its fields; generic Hash reached the fields' Hash already)
 
 Where: compiler/src/sema.cpp:19549
 
@@ -131,7 +131,7 @@ Skeptic: semachk/f4.fb builds and prints '2 2' in debug and release. Each shape 
 
 ## P1-sema-checks-5 (medium): Compiler assertion crash: an early-run Const Function that converts an integer to an Enum declared later
 
-Status: open
+Status: fixed in d4d193d (a cast to or from an Enum declares it early while types are declared, and to_enum() takes an Enum with no values)
 
 Where: compiler/src/lower.cpp:8190
 
@@ -159,7 +159,7 @@ Skeptic: semachk/f5.fb makes fb abort with stl_vector.h:1346 front() Assertion '
 
 ## P1-sema-checks-6 (medium): `2 As Extra` in a declaration's type is refused when the Enum is declared later
 
-Status: open
+Status: fixed in d4d193d (with checks-5)
 
 Where: compiler/src/sema.cpp:22510
 
@@ -186,7 +186,7 @@ Skeptic: semachk/f6.fb reports '2 isn't one of Extra's values' and 'a fixed arra
 
 ## P1-sema-checks-7 (medium): A non-generic Struct's Field of an oversized instance escapes the fixed array limit, and the program overflows its stack
 
-Status: open
+Status: fixed in df1b209 (check_values() walks every Struct's and Class's Fields and base, a parameter's type is checked at the parameter, and a Global's or instance Static Field's type is checked too, the skeptic's side note)
 
 Where: compiler/src/lower.cpp:891
 
@@ -215,7 +215,7 @@ Skeptic: semachk/f7.fb in debug warns 'stack frame size (4294967304) exceeds lim
 
 ## P1-sema-checks-9 (medium): Tuples in an array literal still get their type from the order they're in
 
-Status: open
+Status: fixed in e4a8377 (with nothing typed to meet, the tuples that type alone meet quietly first, a later one's type winning when the ones before take it, so [(1, 2), (3, 4.5)] works too)
 
 Where: compiler/src/sema.cpp:22290
 
@@ -239,7 +239,7 @@ Skeptic: semachk/f9.fb reports 'an empty array needs a type from where it's used
 
 ## P1-sema-types-1 (medium): A Static Method can still take an inherited Field's or Property's name and hide it (A1-8 fixed only half)
 
-Status: open
+Status: fixed in c403662 (a Static Method clashes with any inherited member that isn't a Method)
 
 Where: compiler/src/sema.cpp:3820
 
@@ -276,7 +276,7 @@ Skeptic: I ran sema-types/f1.fb (the finding's program). It builds and prints 5,
 
 ## P1-sema-types-2 (medium): A type's own type parameter can take the name of a type declared further down (A1-13 depends on order)
 
-Status: open
+Status: fixed in 3fe432d (check_type_parameter_names() checks a type's type parameters once every type is declared; a type's own name, Struct Node<Node>, is refused too)
 
 Where: compiler/src/sema.cpp:1435
 
