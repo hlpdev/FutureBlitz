@@ -1,0 +1,2 @@
+64
+panic: an EcdsaP256 private key is 32 bytes, a number from 1 up to the curve's order at panic_crypto_p256_key.fb:11:1

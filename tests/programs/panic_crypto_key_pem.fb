@@ -1,0 +1,7 @@
+// A Key whose Bytes aren't a key of its Kind panics where it's written as PEM.
+Import std.core
+Import std.crypto
+
+Print(Key(KeyKind.X25519, True, X25519.NewPrivateKey()).ToPem().Bytes.Count > 0)
+Local bytes: UInt8[] = [1, 2, 3]
+Key(KeyKind.ECDSA_P256, False, bytes).ToPem()

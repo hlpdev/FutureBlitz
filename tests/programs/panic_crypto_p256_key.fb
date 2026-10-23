@@ -1,0 +1,11 @@
+// An EcdsaP256 private key that isn't one, like 0, panics where it signs.
+Import std.core
+Import std.crypto
+
+Local key = EcdsaP256.NewPrivateKey()
+Print(EcdsaP256.Sign(key, "x").Count)
+Local zero: UInt8[] = []
+For i = 1 To 32
+    zero.Add(0)
+End For
+EcdsaP256.Sign(zero, "x")

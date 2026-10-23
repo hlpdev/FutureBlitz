@@ -1,0 +1,7 @@
+// An X25519 key that isn't 32 bytes panics, where it's given.
+Import std.core
+Import std.crypto
+
+Local key = X25519.NewPrivateKey()
+Print(X25519.PublicKeyOf(key).Count)
+X25519.SharedSecret(key, key[..31])

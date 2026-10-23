@@ -1,0 +1,128 @@
+// Key and Certificate, which read keys and X.509 certificates from PEM, the text between
+// "-----BEGIN ...-----" and "-----END ...-----" lines that keys and certificates are kept in,
+// over mbedTLS. A Key's Bytes are what its kind's Methods take, so a key read from PEM signs,
+// verifies, or exchanges.
+
+Import std.core
+
+Extern "runtime"
+    Function fb_crypto_key_from_pem(pem: String, output: UInt8[]): Int32
+    Function fb_crypto_key_to_pem(kind: Int32, isPrivate: Int32, key: UInt8[]): String?
+    Function fb_crypto_certificates_new(pem: String): Ptr<Void>
+    Function fb_crypto_certificates_count(certificates: Ptr<Void>): Int64
+    Function fb_crypto_certificate_subject(certificates: Ptr<Void>, index: Int64): String
+    Function fb_crypto_certificate_issuer(certificates: Ptr<Void>, index: Int64): String
+    Function fb_crypto_certificate_serial(certificates: Ptr<Void>, index: Int64): String
+    Function fb_crypto_certificate_not_before(certificates: Ptr<Void>, index: Int64): String
+    Function fb_crypto_certificate_not_after(certificates: Ptr<Void>, index: Int64): String
+    Function fb_crypto_certificate_der(certificates: Ptr<Void>, index: Int64, output: UInt8[])
+    Function fb_crypto_certificate_key(certificates: Ptr<Void>, index: Int64,
+                                       output: UInt8[]): Int32
+    Function fb_crypto_certificates_free(certificates: Ptr<Void>)
+End Extern
+
+// What a Key is for, which says what its Bytes are.
+Public Enum KeyKind
+    ECDSA_P256, RSA, X25519, ED25519
+End Enum
+
+// A private or public key, as its kind's Methods take it: an ECDSA P-256 private key's 32 bytes
+// or public key's 65; an RSA key's PKCS #1 DER, whose public one Rsa verifies with; and an X25519
+// or Ed25519 key's 32 bytes.
+Public Struct Key
+    Public ReadOnly Field Kind: KeyKind
+    Public ReadOnly Field IsPrivate: Bool
+    Public ReadOnly Field Bytes: UInt8[]
+
+    Public New(kind: KeyKind, isPrivate: Bool, bytes: UInt8[])
+        Kind = kind
+        IsPrivate = isPrivate
+        Bytes = bytes
+    End New
+
+    // The first key in pem: a private one in PKCS #8 ("PRIVATE KEY"), SEC 1 ("EC PRIVATE KEY"),
+    // or PKCS #1 ("RSA PRIVATE KEY"), or a public one ("PUBLIC KEY", or "RSA PUBLIC KEY"). Throws
+    // a ParseError when pem has no key, or one that's encrypted, or of a kind there's no KeyKind
+    // for, like another curve's.
+    Public Static Method FromPem(pem: String): Key Throws ParseError
+        Local bytes: UInt8[] = []
+        Local found = fb_crypto_key_from_pem(pem, bytes)
+        If found == -1 Then Throw ParseError(ParseErrorKind.SYNTAX, "there's no key in the PEM")
+        If found < 0
+            Throw ParseError(ParseErrorKind.WRONG_TYPE,
+                             "the PEM's key is encrypted, or of a kind std.crypto doesn't take")
+        End If
+
+        Return Key((found / 2) As KeyKind, found % 2 == 1, bytes)
+    End Method
+
+    // The key as PEM: a private one in PKCS #8, but an RSA one in PKCS #1 and a P-256 one in
+    // SEC 1, and a public one in SubjectPublicKeyInfo, but an RSA one in PKCS #1. Panics when
+    // Bytes isn't a key of its Kind.
+    @PanicsAtCaller
+    Public Method ToPem(): String
+        Local pem = fb_crypto_key_to_pem(Kind As Int32, IsPrivate ? 1 : 0, Bytes)
+        If pem == Null Then Panic("the Key's Bytes aren't a key of its Kind, {Kind}")
+        Return pem
+    End Method
+End Struct
+
+// An X.509 certificate, read from PEM: who it's for and who signed it, as "C=NL, O=Example,
+// CN=example.com", its serial number as hex bytes with colons between them, the UTC times it's
+// valid from and to, as "2026-10-23T12:00:00Z", its public key, and its DER. Checking that one
+// certificate signed another, or that one is trusted, is TLS's.
+Public Struct Certificate
+    Public ReadOnly Field Subject: String
+    Public ReadOnly Field Issuer: String
+    Public ReadOnly Field SerialNumber: String
+    Public ReadOnly Field NotBefore: String
+    Public ReadOnly Field NotAfter: String
+    // Its public key, or Null when it's of a kind there's no KeyKind for.
+    Public ReadOnly Field PublicKey: Key?
+    Public ReadOnly Field Der: UInt8[]
+
+    New(subject: String, issuer: String, serialNumber: String, notBefore: String,
+        notAfter: String, publicKey: Key?, der: UInt8[])
+        Subject = subject
+        Issuer = issuer
+        SerialNumber = serialNumber
+        NotBefore = notBefore
+        NotAfter = notAfter
+        PublicKey = publicKey
+        Der = der
+    End New
+
+    // The first certificate in pem. Throws a ParseError when pem has none, or one that doesn't
+    // read.
+    Public Static Method FromPem(pem: String): Certificate Throws ParseError
+        Return (Try AllFromPem(pem))[0]
+    End Method
+
+    // Each certificate in pem, in order, as a chain or a bundle of trusted ones has them. Throws a
+    // ParseError when pem has none, or one that doesn't read.
+    Public Static Method AllFromPem(pem: String): Certificate[] Throws ParseError
+        Local chain = fb_crypto_certificates_new(pem)
+        If chain == Null
+            Throw ParseError(ParseErrorKind.SYNTAX, "the PEM has no certificate, or one that " +
+                             "doesn't read")
+        End If
+
+        Defer fb_crypto_certificates_free(chain)
+        Local certificates: Certificate[] = []
+        For i = 0 Until fb_crypto_certificates_count(chain)
+            Local der: UInt8[] = []
+            fb_crypto_certificate_der(chain, i, der)
+            Local bytes: UInt8[] = []
+            Local found = fb_crypto_certificate_key(chain, i, bytes)
+            Local publicKey: Key? = Null
+            If found >= 0 Then publicKey = Key((found / 2) As KeyKind, False, bytes)
+            certificates.Add(Certificate(fb_crypto_certificate_subject(chain, i),
+                                         fb_crypto_certificate_issuer(chain, i),
+                                         fb_crypto_certificate_serial(chain, i),
+                                         fb_crypto_certificate_not_before(chain, i),
+                                         fb_crypto_certificate_not_after(chain, i), publicKey,
+                                         der))
+        End For
+        Return certificates
+    End Method
+End Struct

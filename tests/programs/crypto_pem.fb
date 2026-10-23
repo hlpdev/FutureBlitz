@@ -1,0 +1,262 @@
+// std.crypto's Key reads RFC 8410's Ed25519 PEM keys and writes them back as they were,
+// Certificate reads ISRG's root certificates as Python's ssl does, and keys of each kind go
+// to PEM and back.
+Import std.core
+Import std.collections
+Import std.crypto
+
+Global checked = 0
+
+// The bytes of hex digits, which spaces may split.
+Function Unhex(text: String): UInt8[]
+    Local bytes: UInt8[] = []
+    Local high = -1
+    For c In text.Bytes
+        Local code = c As Int
+        Local digit = -1
+        If code >= 48 && code <= 57
+            digit = code - 48
+        ElseIf code >= 97 && code <= 102
+            digit = code - 87
+        ElseIf code >= 65 && code <= 70
+            digit = code - 55
+        End If
+
+        If digit < 0 Then Continue
+        If high < 0
+            high = digit
+        Else
+            bytes.Add((high * 16 + digit) As UInt8)
+            high = -1
+        End If
+    End For
+    Return bytes
+End Function
+
+Function Hex(bytes: UInt8[]): String
+    Local digits = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "a", "b", "c", "d", "e", "f"]
+    Local parts: String[] = []
+    For b In bytes
+        parts.Add(digits[(b >> 4) As Int] + digits[(b & 15) As Int])
+    End For
+    Return parts.Join("")
+End Function
+
+// Counts a check, and says which one failed.
+Function Expect(name: String, passed: Bool)
+    checked += 1
+    If !passed Then Print("{name} failed")
+End Function
+
+// Counts a check of bytes against hex, and says what each was when they differ.
+Function Check(name: String, actual: UInt8[], expected: String)
+    checked += 1
+    Local want = Unhex(expected)
+    If actual != want Then Print("{name}: {Hex(actual)}, not {Hex(want)}")
+End Function
+
+// Prints how many checks a section made, and starts the count again.
+Function Done(section: String)
+    Print("{section}: {checked} check{checked == 1 ? "" : "s"}")
+    checked = 0
+End Function
+
+// RFC 8410's Ed25519 keys (10.1, 10.3), the second private one of PKCS #8's second
+// version, with an attribute and the public key after it; each reads to its 32 bytes, and
+// writes back as it was.
+Local edPublic = "-----BEGIN PUBLIC KEY-----\n" +
+    "MCowBQYDK2VwAyEAGb9ECWmEzf6FQbrBZ9w7lshQhqowtrbLDFw4rXAxZuE=\n" +
+    "-----END PUBLIC KEY-----\n"
+Local edPrivate = "-----BEGIN PRIVATE KEY-----\n" +
+    "MC4CAQAwBQYDK2VwBCIEINTuctv5E1hK1bbY8fdp+K06/nwoy/HU++CXqI9EdVhC\n" +
+    "-----END PRIVATE KEY-----\n"
+Local edPrivateV2 = "-----BEGIN PRIVATE KEY-----\n" +
+    "MHICAQEwBQYDK2VwBCIEINTuctv5E1hK1bbY8fdp+K06/nwoy/HU++CXqI9EdVhC\n" +
+    "oB8wHQYKKoZIhvcNAQkJFDEPDA1DdXJkbGUgQ2hhaXJzgSEAGb9ECWmEzf6FQbrB\n" +
+    "Z9w7lshQhqowtrbLDFw4rXAxZuE=\n" +
+    "-----END PRIVATE KEY-----\n"
+Local key = Try? Key.FromPem(edPublic)
+Expect("Ed25519 public kind", key?.Kind == KeyKind.ED25519 && key?.IsPrivate == False)
+Check("Ed25519 public bytes", key?.Bytes ?? [], "19bf44096984cdfe8541bac167dc3b96c85086aa30b6b6cb0c5c38ad703166e1")
+Expect("Ed25519 public PEM", key?.ToPem() == edPublic)
+key = Try? Key.FromPem(edPrivate)
+Expect("Ed25519 private kind", key?.Kind == KeyKind.ED25519 && key?.IsPrivate == True)
+Check("Ed25519 private bytes", key?.Bytes ?? [], "d4ee72dbf913584ad5b6d8f1f769f8ad3afe7c28cbf1d4fbe097a88f44755842")
+Expect("Ed25519 private PEM", key?.ToPem() == edPrivate)
+key = Try? Key.FromPem(edPrivateV2)
+Check("Ed25519 private bytes, version 2", key?.Bytes ?? [], "d4ee72dbf913584ad5b6d8f1f769f8ad3afe7c28cbf1d4fbe097a88f44755842")
+Done("RFC 8410")
+
+// ISRG Root X1, Let's Encrypt's root, as Python's ssl reads it: its names, serial number,
+// validity, and the SHA-256 of its DER, the fingerprint ISRG publishes.
+Local x1Pem = "-----BEGIN CERTIFICATE-----\n" +
+    "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\n" +
+    "-----END CERTIFICATE-----\n"
+Try
+    Local x1 = Certificate.FromPem(x1Pem)
+    Expect("ISRG Root X1 subject", x1.Subject == "C=US, O=Internet Security Research Group, CN=ISRG Root X1")
+    Expect("ISRG Root X1 issuer", x1.Issuer == "C=US, O=Internet Security Research Group, CN=ISRG Root X1")
+    Expect("ISRG Root X1 serial", x1.SerialNumber == "82:10:CF:B0:D2:40:E3:59:44:63:E0:BB:63:82:8B:00")
+    Expect("ISRG Root X1 not before", x1.NotBefore == "2015-06-04T11:04:38Z")
+    Expect("ISRG Root X1 not after", x1.NotAfter == "2035-06-04T11:04:38Z")
+    Check("ISRG Root X1 fingerprint", Sha256.Hash(x1.Der), "96bcec06264976f37460779acf28c5a7cfe8a3c0aae11a8ffcee05c0bddf08c6")
+    Expect("ISRG Root X1 key", x1.PublicKey?.Kind == KeyKind.RSA)
+    // Its key, as PEM, reads back as the same RSA key.
+    Local x1Key = x1.PublicKey?.ToPem() ?? ""
+    Expect("ISRG Root X1 key PEM", (Try? Key.FromPem(x1Key))?.Bytes == x1.PublicKey?.Bytes)
+Catch e As ParseError
+    Expect("ISRG Root X1 read", False)
+End Try
+Done("ISRG Root X1")
+
+// ISRG Root X2, Let's Encrypt's root, as Python's ssl reads it: its names, serial number,
+// validity, and the SHA-256 of its DER, the fingerprint ISRG publishes.
+Local x2Pem = "-----BEGIN CERTIFICATE-----\n" +
+    "MIICGzCCAaGgAwIBAgIQQdKd0XLq7qeAwSxs6S+HUjAKBggqhkjOPQQDAzBPMQsw\n" +
+    "CQYDVQQGEwJVUzEpMCcGA1UEChMgSW50ZXJuZXQgU2VjdXJpdHkgUmVzZWFyY2gg\n" +
+    "R3JvdXAxFTATBgNVBAMTDElTUkcgUm9vdCBYMjAeFw0yMDA5MDQwMDAwMDBaFw00\n" +
+    "MDA5MTcxNjAwMDBaME8xCzAJBgNVBAYTAlVTMSkwJwYDVQQKEyBJbnRlcm5ldCBT\n" +
+    "ZWN1cml0eSBSZXNlYXJjaCBHcm91cDEVMBMGA1UEAxMMSVNSRyBSb290IFgyMHYw\n" +
+    "EAYHKoZIzj0CAQYFK4EEACIDYgAEzZvVn4CDCuwJSvMWSj5cz3es3mcFDR0HttwW\n" +
+    "+1qLFNvicWDEukWVEYmO6gbf9yoWHKS5xcUy4APgHoIYOIvXRdgKam7mAHf7AlF9\n" +
+    "ItgKbppbd9/w+kHsOdx1ymgHDB/qo0IwQDAOBgNVHQ8BAf8EBAMCAQYwDwYDVR0T\n" +
+    "AQH/BAUwAwEB/zAdBgNVHQ4EFgQUfEKWrt5LSDv6kviejM9ti6lyN5UwCgYIKoZI\n" +
+    "zj0EAwMDaAAwZQIwe3lORlCEwkSHRhtFcP9Ymd70/aTSVaYgLXTWNLxBo1BfASdW\n" +
+    "tL4ndQavEi51mI38AjEAi/V3bNTIZargCyzuFJ0nN6T5U6VR5CmD1/iQMVtCnwr1\n" +
+    "/q4AaOeMSQ+2b1tbFfLn\n" +
+    "-----END CERTIFICATE-----\n"
+Try
+    Local x2 = Certificate.FromPem(x2Pem)
+    Expect("ISRG Root X2 subject", x2.Subject == "C=US, O=Internet Security Research Group, CN=ISRG Root X2")
+    Expect("ISRG Root X2 issuer", x2.Issuer == "C=US, O=Internet Security Research Group, CN=ISRG Root X2")
+    Expect("ISRG Root X2 serial", x2.SerialNumber == "41:D2:9D:D1:72:EA:EE:A7:80:C1:2C:6C:E9:2F:87:52")
+    Expect("ISRG Root X2 not before", x2.NotBefore == "2020-09-04T00:00:00Z")
+    Expect("ISRG Root X2 not after", x2.NotAfter == "2040-09-17T16:00:00Z")
+    Check("ISRG Root X2 fingerprint", Sha256.Hash(x2.Der), "69729b8e15a86efc177a57afb7171dfc64add28c2fca8cf1507e34453ccb1470")
+    Expect("ISRG Root X2 key", x2.PublicKey == Null)
+Catch e As ParseError
+    Expect("ISRG Root X2 read", False)
+End Try
+
+// That key, on P-384, which there's no KeyKind for, as PEM of its own.
+Local p384 = "-----BEGIN PUBLIC KEY-----\n" +
+    "MHYwEAYHKoZIzj0CAQYFK4EEACIDYgAEzZvVn4CDCuwJSvMWSj5cz3es3mcFDR0H\n" +
+    "ttwW+1qLFNvicWDEukWVEYmO6gbf9yoWHKS5xcUy4APgHoIYOIvXRdgKam7mAHf7\n" +
+    "AlF9ItgKbppbd9/w+kHsOdx1ymgHDB/q\n" +
+    "-----END PUBLIC KEY-----\n"
+Try
+    Key.FromPem(p384)
+    Expect("P-384 key read", False)
+Catch e As ParseError
+    Expect("P-384 key refused", e.Kind == ParseErrorKind.WRONG_TYPE)
+End Try
+Done("ISRG Root X2")
+
+// A bundle of both roots reads as both, in order.
+Local bundle = "-----BEGIN CERTIFICATE-----\n" +
+    "MIIFazCCA1OgAwIBAgIRAIIQz7DSQONZRGPgu2OCiwAwDQYJKoZIhvcNAQELBQAw\n" +
+    "TzELMAkGA1UEBhMCVVMxKTAnBgNVBAoTIEludGVybmV0IFNlY3VyaXR5IFJlc2Vh\n" +
+    "cmNoIEdyb3VwMRUwEwYDVQQDEwxJU1JHIFJvb3QgWDEwHhcNMTUwNjA0MTEwNDM4\n" +
+    "WhcNMzUwNjA0MTEwNDM4WjBPMQswCQYDVQQGEwJVUzEpMCcGA1UEChMgSW50ZXJu\n" +
+    "ZXQgU2VjdXJpdHkgUmVzZWFyY2ggR3JvdXAxFTATBgNVBAMTDElTUkcgUm9vdCBY\n" +
+    "MTCCAiIwDQYJKoZIhvcNAQEBBQADggIPADCCAgoCggIBAK3oJHP0FDfzm54rVygc\n" +
+    "h77ct984kIxuPOZXoHj3dcKi/vVqbvYATyjb3miGbESTtrFj/RQSa78f0uoxmyF+\n" +
+    "0TM8ukj13Xnfs7j/EvEhmkvBioZxaUpmZmyPfjxwv60pIgbz5MDmgK7iS4+3mX6U\n" +
+    "A5/TR5d8mUgjU+g4rk8Kb4Mu0UlXjIB0ttov0DiNewNwIRt18jA8+o+u3dpjq+sW\n" +
+    "T8KOEUt+zwvo/7V3LvSye0rgTBIlDHCNAymg4VMk7BPZ7hm/ELNKjD+Jo2FR3qyH\n" +
+    "B5T0Y3HsLuJvW5iB4YlcNHlsdu87kGJ55tukmi8mxdAQ4Q7e2RCOFvu396j3x+UC\n" +
+    "B5iPNgiV5+I3lg02dZ77DnKxHZu8A/lJBdiB3QW0KtZB6awBdpUKD9jf1b0SHzUv\n" +
+    "KBds0pjBqAlkd25HN7rOrFleaJ1/ctaJxQZBKT5ZPt0m9STJEadao0xAH0ahmbWn\n" +
+    "OlFuhjuefXKnEgV4We0+UXgVCwOPjdAvBbI+e0ocS3MFEvzG6uBQE3xDk3SzynTn\n" +
+    "jh8BCNAw1FtxNrQHusEwMFxIt4I7mKZ9YIqioymCzLq9gwQbooMDQaHWBfEbwrbw\n" +
+    "qHyGO0aoSCqI3Haadr8faqU9GY/rOPNk3sgrDQoo//fb4hVC1CLQJ13hef4Y53CI\n" +
+    "rU7m2Ys6xt0nUW7/vGT1M0NPAgMBAAGjQjBAMA4GA1UdDwEB/wQEAwIBBjAPBgNV\n" +
+    "HRMBAf8EBTADAQH/MB0GA1UdDgQWBBR5tFnme7bl5AFzgAiIyBpY9umbbjANBgkq\n" +
+    "hkiG9w0BAQsFAAOCAgEAVR9YqbyyqFDQDLHYGmkgJykIrGF1XIpu+ILlaS/V9lZL\n" +
+    "ubhzEFnTIZd+50xx+7LSYK05qAvqFyFWhfFQDlnrzuBZ6brJFe+GnY+EgPbk6ZGQ\n" +
+    "3BebYhtF8GaV0nxvwuo77x/Py9auJ/GpsMiu/X1+mvoiBOv/2X/qkSsisRcOj/KK\n" +
+    "NFtY2PwByVS5uCbMiogziUwthDyC3+6WVwW6LLv3xLfHTjuCvjHIInNzktHCgKQ5\n" +
+    "ORAzI4JMPJ+GslWYHb4phowim57iaztXOoJwTdwJx4nLCgdNbOhdjsnvzqvHu7Ur\n" +
+    "TkXWStAmzOVyyghqpZXjFaH3pO3JLF+l+/+sKAIuvtd7u+Nxe5AW0wdeRlN8NwdC\n" +
+    "jNPElpzVmbUq4JUagEiuTDkHzsxHpFKVK7q4+63SM1N95R1NbdWhscdCb+ZAJzVc\n" +
+    "oyi3B43njTOQ5yOf+1CceWxG1bQVs5ZufpsMljq4Ui0/1lvh+wjChP4kqKOJ2qxq\n" +
+    "4RgqsahDYVvTH9w7jXbyLeiNdd8XM2w9U/t7y0Ff/9yi0GE44Za4rF2LN9d11TPA\n" +
+    "mRGunUHBcnWEvgJBQl9nJEiU0Zsnvgc/ubhPgXRR4Xq37Z0j4r7g1SgEEzwxA57d\n" +
+    "emyPxgcYxn/eR44/KJ4EBs+lVDR3veyJm+kXQ99b21/+jh5Xos1AnX5iItreGCc=\n" +
+    "-----END CERTIFICATE-----\n" +
+    "-----BEGIN CERTIFICATE-----\n" +
+    "MIICGzCCAaGgAwIBAgIQQdKd0XLq7qeAwSxs6S+HUjAKBggqhkjOPQQDAzBPMQsw\n" +
+    "CQYDVQQGEwJVUzEpMCcGA1UEChMgSW50ZXJuZXQgU2VjdXJpdHkgUmVzZWFyY2gg\n" +
+    "R3JvdXAxFTATBgNVBAMTDElTUkcgUm9vdCBYMjAeFw0yMDA5MDQwMDAwMDBaFw00\n" +
+    "MDA5MTcxNjAwMDBaME8xCzAJBgNVBAYTAlVTMSkwJwYDVQQKEyBJbnRlcm5ldCBT\n" +
+    "ZWN1cml0eSBSZXNlYXJjaCBHcm91cDEVMBMGA1UEAxMMSVNSRyBSb290IFgyMHYw\n" +
+    "EAYHKoZIzj0CAQYFK4EEACIDYgAEzZvVn4CDCuwJSvMWSj5cz3es3mcFDR0HttwW\n" +
+    "+1qLFNvicWDEukWVEYmO6gbf9yoWHKS5xcUy4APgHoIYOIvXRdgKam7mAHf7AlF9\n" +
+    "ItgKbppbd9/w+kHsOdx1ymgHDB/qo0IwQDAOBgNVHQ8BAf8EBAMCAQYwDwYDVR0T\n" +
+    "AQH/BAUwAwEB/zAdBgNVHQ4EFgQUfEKWrt5LSDv6kviejM9ti6lyN5UwCgYIKoZI\n" +
+    "zj0EAwMDaAAwZQIwe3lORlCEwkSHRhtFcP9Ymd70/aTSVaYgLXTWNLxBo1BfASdW\n" +
+    "tL4ndQavEi51mI38AjEAi/V3bNTIZargCyzuFJ0nN6T5U6VR5CmD1/iQMVtCnwr1\n" +
+    "/q4AaOeMSQ+2b1tbFfLn\n" +
+    "-----END CERTIFICATE-----\n"
+Try
+    Local roots = Certificate.AllFromPem(bundle)
+    Expect("bundle", roots.Count == 2 && roots[0].SerialNumber == "82:10:CF:B0:D2:40:E3:59:44:63:E0:BB:63:82:8B:00" && roots[1].SerialNumber == "41:D2:9D:D1:72:EA:EE:A7:80:C1:2C:6C:E9:2F:87:52")
+Catch e As ParseError
+    Expect("bundle read", False)
+End Try
+Done("Bundle")
+
+// Keys of each kind go to PEM and back: RFC 6979's P-256 key, and new ones.
+Local p256 = Unhex("c9afa9d845ba75166b5c215767b1d6934e50c3db36e89b127b8a622b120f6721")
+For pair In [(KeyKind.ECDSA_P256, p256), (KeyKind.ECDSA_P256, EcdsaP256.PublicKeyOf(p256)),
+             (KeyKind.X25519, X25519.NewPrivateKey())]
+    Local kind, bytes = pair
+    Local isPrivate = bytes.Count == 32
+    Local pem = Key(kind, isPrivate, bytes).ToPem()
+    Local back = Try? Key.FromPem(pem)
+    Expect("{kind} {isPrivate} PEM", back?.Kind == kind && back?.IsPrivate == isPrivate && back?.Bytes == bytes)
+End For
+Local x25519Public = Key(KeyKind.X25519, False, X25519.PublicKeyOf(X25519.NewPrivateKey()))
+Expect("X25519 public PEM", (Try? Key.FromPem(x25519Public.ToPem()))?.Bytes == x25519Public.Bytes)
+Done("Keys there and back")
+
+// Text without a key is a ParseError of SYNTAX.
+For text In ["", "hello", "-----BEGIN CERTIFICATE-----\nAAAA\n-----END CERTIFICATE-----\n"]
+    Try
+        Key.FromPem(text)
+        Expect("no key", False)
+    Catch e As ParseError
+        Expect("no key: {e.Kind}", e.Kind == ParseErrorKind.SYNTAX)
+    End Try
+End For
+Expect("no certificate", Try? Certificate.FromPem("hello") == Null)
+Expect("a key isn't a certificate", Try? Certificate.AllFromPem(edPublic) == Null)
+Done("Not PEM")
