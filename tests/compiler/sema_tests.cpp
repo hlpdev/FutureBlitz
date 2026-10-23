@@ -1740,9 +1740,8 @@ TEST_CASE("overriding a Method takes Override", "[sema]") {
                     "    Override Property P: Int\n"
                     "        Get => 2\n"
                     "    End Property\n"
-                    "End Class") ==
-          errors_t{ "M: 'M' has Override, but C extends no Class",
-                    "P: 'P' has Override, but C extends no Class" });
+                    "End Class") == errors_t{ "M: 'M' has Override, but C extends no Class",
+                                              "P: 'P' has Override, but C extends no Class" });
     CHECK(with_base("Class B Extends A\n    Override Method F(): Long => 2\nEnd Class") ==
           errors_t{ "F: 'F' must return Int32, like A's" });
     CHECK(with_base("Class B Extends A\n    Override Method G()\n    End Method\nEnd Class") ==
@@ -3077,7 +3076,8 @@ TEST_CASE("a Property overrides the one a Class inherits, with Override", "[sema
                                 "        End Set\n"
                                 "    End Property\n"
                                 "End Class",
-                                holder)) == errors_t{ "Value: 'Value' must be Int32, like Holder<T>'s" });
+                                holder)) ==
+          errors_t{ "Value: 'Value' must be Int32, like Holder<T>'s" });
     CHECK(errors_of("Property P: Int\n    Get => 1\nEnd Property") ==
           errors_t{ "P: Properties can only be declared in a Struct or Class" });
 }

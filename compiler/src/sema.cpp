@@ -1464,9 +1464,8 @@ private:
     [[nodiscard]] bool names_type(const name_t& name) {
         const std::vector<symbol_id_t> found =
             quietly([&] { return top_level(name.text, name.span); });
-        return std::ranges::any_of(found, [this](const symbol_id_t id) {
-            return symbol(id).kind == symbol_kind_t::TYPE;
-        });
+        return std::ranges::any_of(
+            found, [this](const symbol_id_t id) { return symbol(id).kind == symbol_kind_t::TYPE; });
     }
 
     /// Whether a type parameter is Const: one that stands for a value.
@@ -3947,10 +3946,9 @@ private:
                     const bool callable = is_callable_member(added) && is_callable_member(found);
                     return found.name == added.name && found.kind != symbol_kind_t::CONSTRUCTOR &&
                            instance_has(instance, found) &&
-                           (!callable ||
-                            (same_parameters(added, found, instance) &&
-                             std::ranges::equal(added.parameters, found.parameters, {}, by_ref,
-                                                by_ref)));
+                           (!callable || (same_parameters(added, found, instance) &&
+                                          std::ranges::equal(added.parameters, found.parameters, {},
+                                                             by_ref, by_ref)));
                 });
                 if (same == own.end()) {
                     return false;
@@ -5418,8 +5416,8 @@ private:
             const bool named = own.kind == symbol_kind_t::FIELD ||
                                own.kind == symbol_kind_t::PROPERTY ||
                                own.kind == symbol_kind_t::GLOBAL;
-            const bool same_static = own.kind == symbol_kind_t::METHOD &&
-                                     own.modifiers.is_static && same_parameters(taken, own);
+            const bool same_static = own.kind == symbol_kind_t::METHOD && own.modifiers.is_static &&
+                                     same_parameters(taken, own);
             if (named || same_static) {
                 error(listing, "{} takes {}'s default '{}', but '{}' is already declared in {}",
                       shown_name(type), shown_name(interface), taken.name, taken.name,
