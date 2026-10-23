@@ -62,6 +62,9 @@ using fold_result_t = std::expected<const_value_t, std::string>;
 /// The value as string interpolation shows it, like "True" or "1.5". A String is its own text,
 /// unquoted, and Null is "Null".
 [[nodiscard]] std::string to_text(const const_value_t& value);
+/// A Char as the dumps write it: 'x' for visible ASCII, and U+ and its code's hex digits, at least
+/// 4, for the rest, a space and control characters too.
+[[nodiscard]] std::string char_literal(char32_t code);
 
 /// The value's text by a format spec that fits it, as "{x:spec}" shows it, the debug form '?'
 /// included: a String's is in quotes. nullopt for Null, whose text only the running program

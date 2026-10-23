@@ -125,8 +125,12 @@ std::string_view runtime_name(const runtime_function_t function) {
     std::unreachable();
 }
 
-/// Constants print as they would in source code.
+/// Constants print as they would in source code, a Char as the dumps write one.
 std::string constant(const const_value_t& value) {
+    if (value.type == type_id_t::CHAR) {
+        return char_literal(static_cast<char32_t>(std::get<std::uint64_t>(value.data)));
+    }
+
     const auto* text = std::get_if<std::string>(&value.data);
     if (text == nullptr) {
         return to_text(value);
