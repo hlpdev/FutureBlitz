@@ -58,7 +58,7 @@ template <std::size_t N>
 fb_array_t* numbers(fb_class_t& type, const std::array<std::int32_t, N>& values) {
     fb_array_t* array = fb_array_new(&type, sizeof(std::int32_t), 0);
     for (const std::int32_t value : values) {
-        *static_cast<std::int32_t*>(fb_array_push(array, sizeof(std::int32_t))) = value;
+        *static_cast<std::int32_t*>(fb_array_push(array, sizeof(std::int32_t), nullptr)) = value;
     }
     return array;
 }

@@ -812,7 +812,7 @@ private:
         m_thread_local_made = declare("fb_thread_local_made", m_void, {});
         m_thread_locals_release = declare("fb_thread_locals_release", m_void, {});
         m_array_new = declare("fb_array_new", m_ptr, { m_ptr, m_i64, m_i64 });
-        m_array_push = declare("fb_array_push", m_ptr, { m_ptr, m_i64 });
+        m_array_push = declare("fb_array_push", m_ptr, { m_ptr, m_i64, m_ptr });
         m_array_insert = declare("fb_array_insert", m_ptr, { m_ptr, m_i64, m_i64, m_ptr });
         m_array_remove = declare("fb_array_remove", m_void, { m_ptr, m_i64, m_i64 });
         m_array_clear = declare("fb_array_clear", m_void, { m_ptr });
@@ -3757,7 +3757,8 @@ private:
             return LLVMBuildTrunc(builder(), count_of(array), m_i32, "");
         case runtime_function_t::ARRAY_ADD: {
             LLVMValueRef value = value_of(node.arguments[1]);
-            return LLVMBuildStore(builder(), value, call(m_array_push, { array, size }));
+            LLVMValueRef where = location(node.span.value_or(span_t{}));
+            return LLVMBuildStore(builder(), value, call(m_array_push, { array, size, where }));
         }
         case runtime_function_t::ARRAY_INSERT: {
             LLVMValueRef position = to_int64(node.arguments[1]);

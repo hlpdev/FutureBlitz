@@ -104,7 +104,7 @@ TEST_CASE("a Value's bytes are two hex digits each", "[runtime]") {
     fb_array_t* bytes = fb_array_new(&numbers, 1, 0);
     CHECK(take(fb_value_hex(bytes)).empty());
     for (const std::uint8_t byte : std::array<std::uint8_t, 5>{ 0x00, 0x0f, 0x10, 0xab, 0xff }) {
-        *static_cast<std::uint8_t*>(fb_array_push(bytes, 1)) = byte;
+        *static_cast<std::uint8_t*>(fb_array_push(bytes, 1, nullptr)) = byte;
     }
 
     CHECK(take(fb_value_hex(bytes)) == "000f10abff");

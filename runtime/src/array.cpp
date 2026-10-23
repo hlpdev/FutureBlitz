@@ -67,14 +67,15 @@ void resize_buffer(fb_array_t* array, const std::int64_t element_size, const std
 constexpr std::int64_t max_count = INT32_MAX;
 
 /// Makes room for one more element, doubling the capacity when the buffer is full, up to the
-/// most an array holds, past which it panics.
-void reserve_one(fb_array_t* array, const std::int64_t element_size) {
+/// most an array holds, past which it panics at `location`.
+void reserve_one(fb_array_t* array, const std::int64_t element_size,
+                 const fb_location_t* location) {
     if (array->count < array->capacity) {
         return;
     }
 
     if (array->count >= max_count) {
-        fb_panic("an array holds at most 2147483647 elements", nullptr);
+        fb_panic("an array holds at most 2147483647 elements", location);
     }
 
     resize_buffer(array, element_size,
@@ -99,8 +100,9 @@ fb_array_t* fb_array_new(fb_class_t* type, const std::int64_t element_size,
     return array;
 }
 
-void* fb_array_push(fb_array_t* array, const std::int64_t element_size) {
-    reserve_one(array, element_size);
+void* fb_array_push(fb_array_t* array, const std::int64_t element_size,
+                    const fb_location_t* location) {
+    reserve_one(array, element_size, location);
     return element(array, element_size, array->count++);
 }
 
@@ -111,7 +113,7 @@ void* fb_array_insert(fb_array_t* array, const std::int64_t element_size, const 
         fb_index_out_of_range(index, array->count, location);
     }
 
-    reserve_one(array, element_size);
+    reserve_one(array, element_size, location);
     std::memmove(element(array, element_size, index + 1), element(array, element_size, index),
                  bytes(array->count - index, element_size));
     ++array->count;
