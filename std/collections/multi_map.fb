@@ -6,6 +6,7 @@ Import std.core
 Import std.collections.array
 Import std.collections.map
 
+@DebugEntries
 Public Class MultiMap<K, V> Implements Iterable<(K, V)>, Cloneable, Defaultable
     Where K: Hashable
 

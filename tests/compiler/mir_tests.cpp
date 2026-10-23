@@ -3071,6 +3071,69 @@ TEST_CASE("For Field's f.Set changes only what the code could assign by name", "
           "'First' is ReadOnly, so f.Set can't change it");
 }
 
+TEST_CASE("a debug form is a function made for its type, and an object shows its own Class's",
+          "[mir]") {
+    const std::string_view classes = "Import std.core\n"
+                                     "Class A\n"
+                                     "    Field n: Int\n"
+                                     "End Class\n"
+                                     "Local a = A()\n"
+                                     "Local shown: Printable = [1]\n";
+    // A Class has a debug form once the program shows one, and so does an array type that goes
+    // where an Interface is expected.
+    CHECK(!lower_text(classes).contains("debug"));
+    const std::string mir = lower_text(
+        std::format("{}Local p: (Int, A?) = (1, a)\nLocal x = \"{{p:?}} {{shown:#?}}\"", classes));
+    INFO(mir);
+    CHECK(mir.starts_with("class A, debug: A.Debug(Int32)\n"
+                          "array Int32[], debug: Int32[].Debug(Int32)\n"));
+    // One line is an indent below 0, and '#' starts from 0. An object's form is its Class's.
+    CHECK(mir.contains("    _8 = call (Int32, A?).Debug(Int32)(_7, -1)\n"
+                       "    _9 = debug_object(_4, 0)\n"));
+    CHECK(mir.contains("function A?.Debug(Int32) -> String\n"
+                       "    _0 Self: A?\n"
+                       "    _1 indent: Int32\n"
+                       "    _2 text: String\n"
+                       "    _3: Bool\n"
+                       "    _4: String\n"
+                       "bb0:\n"
+                       "    _2 = \"Null\"\n"
+                       "    _3 = _0 != Null\n"
+                       "    branch _3, bb1, bb2\n"
+                       "bb1:\n"
+                       "    _4 = debug_object(_0.value, _1)\n"
+                       "    release _2\n"
+                       "    _2 = _4\n"
+                       "    goto bb2\n"
+                       "bb2:\n"
+                       "    retain _2\n"
+                       "    release _2\n"
+                       "    return _2\n"));
+    // The parts go on one line, or each on its own, one level in, with a comma after it.
+    CHECK(mir.contains("bb0:\n"
+                       "    _2 = \"[\"\n"
+                       "    _3 = _1\n"
+                       "    _4 = \"\"\n"
+                       "    _5 = \", \"\n"
+                       "    _6 = \"\"\n"
+                       "    _7 = _1 >= 0\n"
+                       "    branch _7, bb1, bb2\n"
+                       "bb1:\n"
+                       "    _3 = wrapping(_3 + 1)\n"
+                       "    _8 = debug_indent(_3)\n"
+                       "    release _4\n"
+                       "    _4 = _8\n"
+                       "    _9 = join(\",\", _4)\n"
+                       "    release _5\n"
+                       "    _5 = _9\n"
+                       "    _10 = debug_indent(_1)\n"
+                       "    _11 = join(\",\", _10)\n"
+                       "    release _6\n"
+                       "    _6 = _11\n"
+                       "    release _10\n"
+                       "    goto bb2\n"));
+}
+
 TEST_CASE("an assignment copies a value read through a reference before it lets go of the old one",
           "[mir]") {
     const std::string mir = lower_text("Import std.core\n"

@@ -37,6 +37,7 @@ End Extend
 // Part of an array, whose elements it reads and sets in place, counting from its own start. Its
 // Count is the part's own, which stays as the array changes, and an element the array no longer
 // has panics.
+@DebugElements
 Public Class ArrayView<T> Implements Iterable<T>
     Field Items: T[]
     Field Start: Int
@@ -117,6 +118,7 @@ Public Struct ArrayViewIterator<T> Implements Iterator<T>
 End Struct
 
 // An array to read but not change, which AsReadOnly gives.
+@DebugElements
 Public Class ReadOnlyArray<T> Implements Iterable<T>
     Field Items: T[]
 
@@ -143,6 +145,7 @@ Public Class ReadOnlyArray<T> Implements Iterable<T>
 End Class
 
 // A Map to read but not change, which AsReadOnly gives.
+@DebugEntries
 Public Class ReadOnlyMap<K, V> Implements Iterable<(K, V)>
     Where K: Hashable
 
@@ -177,6 +180,7 @@ Public Class ReadOnlyMap<K, V> Implements Iterable<(K, V)>
 End Class
 
 // A Set to read but not change, which AsReadOnly gives.
+@DebugElements
 Public Class ReadOnlySet<T> Implements Iterable<T>
     Where T: Hashable
 

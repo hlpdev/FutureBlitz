@@ -27,6 +27,7 @@ Shared Class ArrayNode<T>
     End New
 End Class
 
+@DebugElements
 Public Struct ImmutableArray<T> Implements Iterable<T>, Defaultable, Sendable
     Where T: Sendable
 
@@ -339,6 +340,7 @@ Shared Class HashNode<K, V>
     End New
 End Class
 
+@DebugEntries
 Public Struct ImmutableMap<K, V> Implements Iterable<(K, V)>, Defaultable, Sendable
     Where K: Hashable
     Where K: Sendable
@@ -694,6 +696,7 @@ Extend ImmutableMap<K, V> Implements Printable
     End Method
 End Extend
 
+@DebugElements
 Public Struct ImmutableSet<T> Implements Iterable<T>, Defaultable, Sendable, Hashable
     Where T: Hashable
     Where T: Sendable

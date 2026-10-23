@@ -1,0 +1,140 @@
+// The debug form, "{x:?}", of every kind of value, on one line, on many with '#', padded, through
+// Dump, and in generic code: numbers, Bools, Strings with escapes, Enums, T?s, tuples, arrays,
+// Structs, objects by their own Class, through an Interface too, cycles, std's collections, a
+// type of the program's own that shows its elements, and what shows only its type's name.
+Import std.core
+Import std.collections
+
+Enum Suit
+    Hearts
+    Spades
+End Enum
+
+Struct Point
+    Field X: Int
+    Field Y: Int
+End Struct
+
+Struct Empty
+End Struct
+
+// A Struct holding arrays, Maps, and T?s.
+Struct Save
+    Field Name: String
+    Field Scores: Int[]
+    Field Items: Map<String, Int>
+    Field Best: Int?
+    Field Rival: String?
+    Field Spot: Point
+End Struct
+
+Class Enemy
+    Field Health: Int = 10
+End Class
+
+Class Boss Extends Enemy
+    Field Title: String = "King"
+End Class
+
+Interface Named
+    Method Name(): String
+End Interface
+
+Class Pet Implements Named
+    Field Kind: String = "cat"
+
+    Method Name(): String => Kind
+End Class
+
+Class Node
+    Field Value: Int
+    Field Next: Node?
+
+    New(value: Int)
+        Value = value
+    End New
+End Class
+
+Class Watcher
+    Field Target: Weak<Enemy>
+
+    New(target: Enemy)
+        Target = target
+    End New
+End Class
+
+// A type of the program's own that shows its elements in place of its Fields.
+@DebugElements
+Class Bag Implements Iterable<Int>
+    Field Items: Int[]
+
+    New()
+        Items = [3, 1]
+    End New
+
+    Method Iterate(): ArrayIterator<Int> => Items.Iterate()
+End Class
+
+Function Shown<T>(value: T): String => "{value:?}"
+
+Print("{42:?} {-1.5:?} {0.1:?} {1e300 As Float64:?} {True:?} {Suit.Spades:?}")
+Local quoted = "say \"hi\"\n\tand {{go}}\\\x01é"
+Print("{quoted:?}")
+Local none: Int? = Null
+Local some: Int? = 7
+Print("{none:?} {some:?}")
+Print("{(1, "a", 2.5):?}")
+Local scores: Int[] = [1, 2, 3]
+Local nothing: Int[] = []
+Local nested: String[][] = [["a"], [], ["b", "c"]]
+Print("{scores:?} {nothing:?} {nested:?}")
+Local point = Point(X: 1, Y: -2)
+Print("{point:?} {Empty():?}")
+
+Local items = Map<String, Int>()
+items["sword"] = 1
+items["shield"] = 2
+Local save = Save(Name: "Ann", Scores: [10, 20], Items: items, Best: 99, Rival: Null,
+                  Spot: point)
+Print("{save:?}")
+Print(Dump(save))
+Print(Dump(save) == "{save:#?}")
+Print(Dump(nothing))
+Print(Dump(Empty()))
+
+// An object shows its own Class's Fields, through a base Class's or an Interface's type too.
+Local enemy: Enemy = Boss()
+Local pet: Named = Pet()
+Local maybe: Enemy? = Null
+Print("{enemy:?} {pet:?} {maybe:?}")
+
+// An object already being shown, in a cycle, shows its Class's name.
+Local first = Node(1)
+Local second = Node(2)
+first.Next = second
+second.Next = first
+Print("{first:?}")
+second.Next = Null
+
+// std's collections show their elements, and a Map its entries.
+Local stack = Stack<Int>()
+stack.Push(5)
+stack.Push(6)
+Local set = Set<String>()
+set.Add("x")
+Print("{stack:?} {set:?} {Map<Int, String>():?} {Bag():?}")
+Print(Dump(items))
+
+// A width pads the debug form, as it does text.
+Print("[{point:>24?}] [{"ab":*<8?}] [{some:^9?}]")
+
+// Generic code shows each instance's values.
+Print(Shown(3), Shown("x"), Shown(point), Shown([none, some]))
+
+// A Weak shows what reading it gives, and a function value its type's name.
+Local held: Weak<Enemy> = enemy
+Local watcher = Watcher(enemy)
+Local twice = Function(x: Int) => x * 2
+Print("{held:?} {watcher:?} {twice:?}")
+enemy = Enemy()
+Print("{held:?} {watcher:?}")

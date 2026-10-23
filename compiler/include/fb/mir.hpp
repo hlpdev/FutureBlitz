@@ -179,6 +179,13 @@ enum class runtime_function_t : std::uint8_t {
     /// (String, Bool, String) to a new String: text padded and cut by a format spec that fits
     /// it, a String's when the Bool is, which its debug form puts in quotes.
     FORMAT_TEXT,
+    /// (String) to a new String: its debug form, in quotes with source code's escapes.
+    DEBUG_STRING,
+    /// (an object, Int32) to a new String: its debug form, by its own Class, at that indent, or
+    /// on one line below 0.
+    DEBUG_OBJECT,
+    /// (Int32) to a new String: a line break and the indent, for a debug form on many lines.
+    DEBUG_INDENT,
     /// (String) to a new CString: a copy of its text with a NUL after it, for C code to read
     /// during a call.
     CSTRING_NEW,
@@ -546,6 +553,8 @@ struct mir_class_t {
     std::vector<function_id_t> methods;
     /// The Interfaces its objects implement that can be types, with its table for each.
     std::vector<mir_implementation_t> interfaces;
+    /// Its objects' debug form, (object, Int32 indent) to a String, once the program shows one.
+    std::optional<function_id_t> debug;
 };
 
 /// Why lowering stopped: code that would need a larger instance of generic code each time it

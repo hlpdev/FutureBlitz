@@ -4,6 +4,7 @@ Import std.core
 Import std.collections.array
 Import std.collections.map
 
+@DebugElements
 Public Class Set<T> Implements Iterable<T>, Cloneable, Defaultable, Hashable
     Where T: Hashable
 

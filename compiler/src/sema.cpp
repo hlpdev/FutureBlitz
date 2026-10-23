@@ -389,6 +389,7 @@ public:
         // An Extend adds to a type once the type's own members are declared.
         each_item([this](const stmt_id_t id) { declare_extension(id); });
         list_object_interfaces();
+        find_debug_forms();
 
         // Const Functions were declared first, but the functions stay in source order.
         std::ranges::stable_sort(m_analysis.functions, {}, [this](const symbol_id_t id) {
@@ -423,6 +424,7 @@ public:
         // Every type is known now, the ones defaults give too.
         each_item([this](const stmt_id_t id) { check_signatures(id); });
         each_item([this](const stmt_id_t id) { check_attributes(id); });
+        each_item([this](const stmt_id_t id) { check_debug_attributes(id); });
         check_top_level();
         each_item([this](const stmt_id_t id) { check_function(id); });
         check_threads();
@@ -1245,6 +1247,41 @@ private:
         return type_id_t::INVALID;
     }
 
+    /// A Function from a std module, or nullopt without the standard library.
+    [[nodiscard]] std::optional<symbol_id_t> std_function(const std::string_view module,
+                                                          const std::string_view name) const {
+        const std::vector<module_t>& modules = m_ast.modules().modules();
+        for (std::size_t i = 0; i < modules.size(); ++i) {
+            const std::string_view named = modules[i].name;
+            const bool inside = named == module || (named.starts_with(module) &&
+                                                    named.substr(module.size()).starts_with('.'));
+            const auto found = m_modules[i].names.find(name);
+            if (modules[i].is_main || !inside || found == m_modules[i].names.end()) {
+                continue;
+            }
+
+            const symbol_id_t id = found->second.front();
+            return m_analysis.symbol(id).kind == symbol_kind_t::FUNCTION ? std::optional(id)
+                                                                         : std::nullopt;
+        }
+
+        return std::nullopt;
+    }
+
+    /// std's Attributes that make a debug form show a collection's elements or entries, and the
+    /// Function that gives them, from std/core/format.fb.
+    void find_debug_forms() {
+        const auto attribute = [this](const std::string_view name) {
+            const type_id_t found = std_type("std.core", name);
+            return found != type_id_t::INVALID && is_attribute_type(found) ? found
+                                                                           : type_id_t::INVALID;
+        };
+
+        m_analysis.debug_elements = attribute("DebugElements");
+        m_analysis.debug_entries = attribute("DebugEntries");
+        m_analysis.elements_of = std_function("std.core", "ElementsOf");
+    }
+
     /// The Error Class, from std.core, which every error extends. Without the standard library
     /// there's none, and nothing can be thrown.
     void find_error_class() {
@@ -1290,6 +1327,7 @@ private:
                                 m_analysis.types.get(iterator).parameters.size() == 1
                             ? iterator
                             : type_id_t::INVALID,
+            .iterable = find("Iterable"),
             .sendable = find("Sendable"),
             .any_class = any_class,
             .any_error = declare_any_error(any_class),
@@ -12175,6 +12213,49 @@ private:
         return m_analysis.types.pointer(pointee);
     }
 
+    /// std's @DebugElements goes on a Struct or Class that implements Iterable<T>, and
+    /// @DebugEntries on one whose T is a (key, value) tuple, since their debug forms show those.
+    void check_debug_attributes(const stmt_id_t id) {
+        const auto* node = std::get_if<type_stmt_t>(&m_ast.get(id).node);
+        const std::optional<symbol_id_t> declared = m_analysis.stmt(id).symbol;
+        if (node == nullptr || !declared) {
+            return;
+        }
+
+        const symbol_t& owner = symbol(*declared);
+        const auto has = [&](const type_id_t attribute) {
+            return attribute != type_id_t::INVALID &&
+                   std::ranges::contains(owner.attributes, attribute, &attribute_value_t::type);
+        };
+        const bool elements = has(m_analysis.debug_elements);
+        const bool entries = has(m_analysis.debug_entries);
+        if (!elements && !entries) {
+            return;
+        }
+
+        const type_id_t iterable = m_analysis.interfaces.iterable;
+        const type_id_t instance =
+            iterable == type_id_t::INVALID || node->is_interface || node->is_attribute
+                ? type_id_t::INVALID
+                : instance_for(owner.type, iterable);
+        if (elements && entries) {
+            error(node->name.span,
+                  "'{}' has @DebugElements and @DebugEntries, but its debug form shows one",
+                  owner.name);
+        } else if (instance == type_id_t::INVALID) {
+            error(node->name.span,
+                  "@{} goes on a Struct or Class that implements Iterable<T>, which '{}' isn't",
+                  elements ? "DebugElements" : "DebugEntries", owner.name);
+        } else if (const type_id_t element = arguments_of(instance).front();
+                   entries &&
+                   (!is_tuple(element) || m_analysis.types.get(element).fields.size() != 2)) {
+            error(node->name.span,
+                  "@DebugEntries goes on an Iterable of (key, value) tuples, but '{}' is an "
+                  "Iterable<{}>",
+                  owner.name, m_analysis.types.name(element));
+        }
+    }
+
     /// A @CLayout Struct holds what C can: numbers, Bools, Enums, CStrings, Ptrs, other @CLayout
     /// Structs, and fixed arrays of these, one Field at least.
     void check_c_layout(const stmt_id_t id) {
@@ -16919,7 +17000,7 @@ private:
             return std::nullopt;
         }
 
-        if (subject == format_subject_t::DEBUG) {
+        if (subject == format_subject_t::DEBUG && (!spec || spec->kind != '?')) {
             report_unshowable(inner, type);
             return std::nullopt;
         }
