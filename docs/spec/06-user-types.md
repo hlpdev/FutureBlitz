@@ -69,8 +69,9 @@ End Class
   even a read-only parameter or a `Const`. A Method can always change them, so `ByRef Method` is
   only for Structs, and `Self` can't be replaced.
 - `Destroy()` takes no parameters and returns nothing. It runs when the last reference goes
-  away, before the fields are released. It can't be called, and it may not keep a reference to
-  its object: storing `Self` somewhere panics.
+  away, before the fields are released, on every object, so it isn't generic and has no Where
+  line. It can't be called, and it may not keep a reference to its object: storing `Self`
+  somewhere panics.
 - `Class` replaces Blitz's `Type` keyword.
 - Blitz's implicit per-type global lists (`Each`, `First`, `Last`, `After`, `Before`,
   `Insert`, `Delete`) **do not exist**. Store objects in collections (or a `Pool<T>`).

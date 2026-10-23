@@ -97,7 +97,7 @@ End Function
 
 - Calling an `Async Function` starts it and gives its `Task<T>`, where T is its return type, or
   a `Task` when it returns nothing. It runs on the main thread until it first Awaits, then the
-  call returns.
+  call returns. `a?.M()` on an Async Method gives a `Task<T>?`, which is `Null` when `a` is.
 - `Await t` in an Async Function waits for a Task, a Spawn's or another Async Function's, and
   gives its result. Meanwhile the main thread goes on; the Function's Locals and parameters wait
   with it.
@@ -105,8 +105,9 @@ End Function
   and whenever it waits for a Task with `Wait()`, or with an Await in top-level code, which
   waits as `Wait()` does. A wait, and the result it gives, are the Task's that the expression gave
   when the wait began, even if what runs meanwhile changes the variable it came from. Their code
-  only ever goes on on the main thread: the runtime panics where it would go on anywhere else. Their code never runs on another thread, so work
-  on another thread can't call one.
+  only ever goes on on the main thread: the runtime panics where it would go on anywhere else.
+  Their code never runs on another thread, so work on another thread can't call one, and an
+  Async lambda isn't work for `Spawn` or `Thread.Start`.
 - Await goes only in the code of an Async Function, Method, or lambda, or in top-level code,
   not in a lambda inside one, and not in a Lock block, which would hold its Mutex while
   it waits.
