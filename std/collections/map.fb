@@ -19,8 +19,8 @@ Public Class Map<K, V> Implements Iterable<(K, V)>, Cloneable, Defaultable
     Where K: Hashable
 
     Field Entries: MapEntry<K, V>[] = []
-    // The first entry in each bucket, or -1. There are none until the first Add or Reserve, then
-    // always a power of two, whose bits a mixed hash's top Shift bits leave.
+    // The first entry in each bucket, or -1. There are none until the first Add, or a Reserve of
+    // 1 or more, and then 2^(64 - Shift) of them, so a mixed hash's top 64 - Shift bits pick one.
     Field Buckets: Int[] = []
     Field Shift: Int
     // The first and last entries in the order they were added, or -1.
