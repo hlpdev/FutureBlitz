@@ -575,8 +575,9 @@ Built in step 27. `Import std.algo` brings in all of std/algo/.
   (halving paths), `Union` (by size), `Connected`, `SizeOf`, `Add`, `Groups`, `Count`, and
   `SetCount`.
 - `TopologicalSort(nodes, successors)` (topological.fb), Kahn's algorithm, taking the earliest
-  ready node first, so nodes with no order between them keep the one they were given in; Null
-  for a cycle, which `FindCycle(nodes, successors)` gives.
+  given of the nodes that could come next, which gives the least order by where they're given,
+  and keeps nodes that nothing leads to in their order; Null for a cycle, which
+  `FindCycle(nodes, successors)` gives.
 - `Permutations(items)`, `Permutations(items, count)`, and `Combinations(items, count)`
   (combinatorics.fb), Iterators of new arrays in itertools' order, made as they're asked for;
   `Factorial(n)` and `Binomial(n, k)` as Longs, which panic past what a Long holds.

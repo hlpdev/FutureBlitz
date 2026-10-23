@@ -20,6 +20,10 @@ Print(TopologicalSort(["shirt", "watch", "undershorts", "socks"], next) ?? none)
 Print(TopologicalSort(["socks", "undershorts", "shirt", "watch"], next) ?? none)
 Print(TopologicalSort(wears.Keys(), next) ?? none)
 Print(FindCycle(wears.Keys(), next) == Null, TopologicalSort(none, next) ?? ["?"])
+// The least order by where the nodes are given, which can't keep every pair that nothing orders as
+// it was given: c has to come before a, so b, given after a, comes first.
+Local cFirst = Function(n: String): String[] => n == "c" ? ["a"] : []
+Print(TopologicalSort(["a", "b", "c"], cFirst) ?? none)
 
 // Nodes only reached through others come after them, in the order they were reached, and a node
 // given twice is in the order once.

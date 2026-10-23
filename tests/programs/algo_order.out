@@ -2,6 +2,7 @@
 [socks, undershorts, shirt, watch, pants, shoes, belt, tie, jacket]
 [undershorts, pants, shirt, belt, tie, jacket, socks, shoes, watch]
 True []
+[b, c, a]
 [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15] [1, 3, 6, 7, 2, 12, 13, 14, 15, 4, 5, 8, 9, 10, 11]
 [5, 4, 3, 2, 1]
 [1, 2, 3]

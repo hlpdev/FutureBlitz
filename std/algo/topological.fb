@@ -35,8 +35,9 @@ End Function
 
 // The nodes, and every node their successors reach, in an order where each comes before its
 // successors, or Null where they make a cycle, which FindCycle gives. Of the nodes that could come
-// next, the earliest in the nodes given goes first, so nodes with no order between them keep the
-// one they were given in, and those only reached after them, in the order they were reached.
+// next, the earliest goes first, by where it is in the nodes given, or past them, in the order the
+// rest were reached, which gives the least such order by those places; nodes that nothing leads to
+// keep the order they were given in.
 Public Function TopologicalSort<N: Hashable>(nodes: N[], successors: Func(N): N[]): N[]?
     Local all, edges = Gather(nodes, successors)
     Local waiting: Int[] = []
