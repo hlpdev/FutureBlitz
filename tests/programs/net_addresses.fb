@@ -1,0 +1,74 @@
+// std.net's IpAddress reads IPv4's and IPv6's text, writes IPv6's as RFC 5952 does, and knows
+// each special block; SocketAddress adds a port, and a scope for IPv6.
+Import std.core
+Import std.collections
+Import std.net
+
+Function Show(text: String)
+    Local address = IpAddress.Parse(text)
+    If address == Null
+        Print("{text}: not one")
+        Return
+    End If
+
+    Local kinds: String[] = []
+    If address.IsLoopback Then kinds.Add("loopback")
+    If address.IsUnspecified Then kinds.Add("unspecified")
+    If address.IsPrivate Then kinds.Add("private")
+    If address.IsLinkLocal Then kinds.Add("link-local")
+    If address.IsMulticast Then kinds.Add("multicast")
+    If address.IsBroadcast Then kinds.Add("broadcast")
+    If address.IsDocumentation Then kinds.Add("documentation")
+    Print("{text}: {address} {address.Family} [{kinds.Join(", ")}]")
+End Function
+
+For text In ["127.0.0.1", "127.255.0.9", "0.0.0.0", "10.1.2.3", "172.16.0.1", "172.31.255.255",
+             "172.32.0.1", "192.168.0.1", "169.254.9.9", "224.0.0.251", "255.255.255.255",
+             "192.0.2.1", "198.51.100.7", "203.0.113.200", "8.8.8.8"]
+    Show(text)
+End For
+For text In ["::", "::1", "1::", "::2:3", "fe80::1", "FD12:3456::1", "ff02::fb", "2001:DB8::",
+             "1:0:0:2:0:0:0:3", "1:0:0:0:2:0:0:3", "0:0:1:0:0:1:0:0", "1:2:3:4:5:6:7:8",
+             "1:2:3:4:5:6:7::", "::ffff:192.168.1.1", "::ffff:0:0", "::1.2.3.4", "64:ff9b::8.8.8.8",
+             "3fff::1", "3fff:fff:ffff::", "3fff:1000::", "2001:db9::"]
+    Show(text)
+End For
+
+// What isn't an address.
+For text In ["", "1.2.3", "1.2.3.4.5", "01.2.3.4", "1.2.3.256", "1.2..3", " 1.2.3.4", "1.2.3.4 ",
+             "0x7f.0.0.1", ":", ":::", "1:2", "1::2::3", "12345::", "::g", "1:2:3:4:5:6:7:8:9",
+             "1:2:3:4:5:6:7:8::", "::ffff:1.2.3", "::1.2.3.04", "1.2.3.4::", "fe80::1%eth0",
+             "[::1]"]
+    Show(text)
+End For
+
+// Its bytes, the other way, and the ends of each family.
+Local v6 = IpAddress.V6(0x2001, 0xdb8, 0, 0, 0, 0xff00, 0x42, 0x8329)
+Print(v6, v6.Bytes, IpAddress.FromBytes(v6.Bytes) == v6)
+Print(IpAddress.V4(192, 168, 1, 20).Bytes, IpAddress.FromBytes([10 As UInt8, 0, 0, 1]))
+Print(IpAddress.Loopback, IpAddress.LoopbackV6, IpAddress.Any, IpAddress.AnyV6, IpAddress.Broadcast)
+Print(IpAddress.Loopback.ToV6(), IpAddress.Loopback.ToV6().ToV4() ?? IpAddress.Any,
+      IpAddress.LoopbackV6.ToV4() == Null, IpAddress.LoopbackV6.ToV6() == IpAddress.LoopbackV6)
+
+// They compare by family, then bytes, and are Set members.
+Local sorted = [IpAddress.LoopbackV6, IpAddress.V4(10, 0, 0, 2), IpAddress.AnyV6,
+                IpAddress.V4(9, 255, 255, 255)]
+sorted.Sort()
+Print(sorted)
+Local seen = Set<IpAddress>()
+seen.Add(IpAddress.Loopback)
+seen.Add(IpAddress.Parse("127.0.0.1") ?? IpAddress.Any)
+seen.Add(IpAddress.Loopback.ToV6())
+Print(seen.Count, IpAddress.Loopback != IpAddress.Loopback.ToV6())
+
+// Socket addresses.
+For text In ["127.0.0.1:80", "0.0.0.0:0", "255.255.255.255:65535", "[::1]:8080",
+             "[fe80::1%3]:443", "[::ffff:1.2.3.4]:1", "1.2.3.4", "1.2.3.4:", "1.2.3.4:65536",
+             "1.2.3.4:080", "1.2.3.4:-1", "[::1]", "[::1]:", "::1:80", "[1.2.3.4]:80",
+             "[fe80::1%eth0]:80", "[fe80::1%]:80", "[::1]80"]
+    Print("{text}: {SocketAddress.Parse(text)?.ToString() ?? "not one"}")
+End For
+Local socket = SocketAddress(IpAddress.Parse("fe80::2") ?? IpAddress.AnyV6, 9000, 7)
+Print(socket, socket.Address, socket.Port, socket.ScopeId, socket.Family)
+Print(SocketAddress(IpAddress.Loopback, 80) == SocketAddress.Parse("127.0.0.1:80"),
+      SocketAddress(IpAddress.Loopback, 80) < SocketAddress(IpAddress.Loopback, 81))

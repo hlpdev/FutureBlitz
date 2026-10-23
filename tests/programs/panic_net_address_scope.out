@@ -1,0 +1,2 @@
+[::1%2]:80
+panic: an IPv4 address has no scope, so its ScopeId is 0, not 2 at panic_net_address_scope.fb:6:7
