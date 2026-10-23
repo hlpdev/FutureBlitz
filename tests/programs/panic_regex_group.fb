@@ -1,0 +1,6 @@
+// A group the pattern doesn't have panics, by number.
+Import std.core
+Import std.text.regex
+
+Local m = Try Regex(r"(\d)").Find("a1")
+If m != Null Then Print(m[1] ?? "-", m[2] ?? "-")
