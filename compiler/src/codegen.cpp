@@ -127,6 +127,7 @@ public:
         declare_runtime();
         declare_globals();
         declare_functions();
+        declare_thread_local_functions();
         declare_classes();
         for (std::size_t i = 0; i < m_mir.functions.size(); ++i) {
             if (!m_mir.functions[i].external) {
@@ -141,6 +142,7 @@ public:
         generate_array_functions();
         generate_channel_functions();
         generate_scheduler_functions();
+        generate_thread_local_functions();
         generate_main();
         if (!m_unsupported.empty()) {
             return std::unexpected(m_unsupported);
@@ -285,6 +287,8 @@ private:
     function_ref_t m_coroutine_alloc;
     function_ref_t m_coroutine_free;
     function_ref_t m_scheduler_finish;
+    function_ref_t m_thread_local_added;
+    function_ref_t m_thread_locals_release;
     /// In an Async Function's code: its coroutine's id and handle, and its last two blocks.
     LLVMValueRef m_coroutine_id = nullptr;
     LLVMValueRef m_coroutine = nullptr;
@@ -312,6 +316,15 @@ private:
     std::vector<LLVMValueRef> m_ready;
     static constexpr unsigned ready = 1;
     static constexpr unsigned released = 2;
+    /// For each ThreadLocal Global, its thread's state, an Int32 of its own on each thread: 0
+    /// until the thread first uses it, `making` while its initializer runs, `ready` once it has,
+    /// and `released` once the thread has let go of it. Null for the rest.
+    std::vector<LLVMValueRef> m_thread_states;
+    static constexpr unsigned making = 3;
+    /// For each ThreadLocal Global, what makes the thread's own, and, for one that holds
+    /// references, what releases it.
+    std::vector<std::optional<function_ref_t>> m_thread_makers;
+    std::vector<std::optional<function_ref_t>> m_thread_releasers;
     /// Each MIR function's declaration, by function_id_t.
     std::vector<function_ref_t> m_functions;
     std::unordered_map<std::string, LLVMValueRef> m_strings;   // static Strings, by text
@@ -761,6 +774,8 @@ private:
         m_coroutine_alloc = declare("fb_coroutine_alloc", m_ptr, { m_i64 });
         m_coroutine_free = declare("fb_coroutine_free", m_void, { m_ptr });
         m_scheduler_finish = declare("fb_scheduler_finish", m_void, {});
+        m_thread_local_added = declare("fb_thread_local_added", m_void, { m_ptr });
+        m_thread_locals_release = declare("fb_thread_locals_release", m_void, {});
         m_array_new = declare("fb_array_new", m_ptr, { m_ptr, m_i64, m_i64 });
         m_array_push = declare("fb_array_push", m_ptr, { m_ptr, m_i64 });
         m_array_insert = declare("fb_array_insert", m_ptr, { m_ptr, m_i64, m_i64, m_ptr });
@@ -1036,6 +1051,8 @@ private:
                                                      : zero_constant(global.type));
             LLVMSetLinkage(value, LLVMInternalLinkage);
             m_globals.push_back(value);
+            m_thread_states.push_back(global.is_thread_local ? declare_thread_local(global, value)
+                                                             : nullptr);
 
             // Release builds check only a Global whose zero holds a null object, whose use would
             // crash; any other zero is a value of its type, which they read, as they let
@@ -1049,6 +1066,77 @@ private:
             }
 
             m_ready.push_back(flag);
+        }
+    }
+
+    /// A ThreadLocal Global's LLVM global, which each thread has its own of, and its state, which
+    /// it gives.
+    LLVMValueRef declare_thread_local(const global_t& global, LLVMValueRef value) {
+        LLVMSetThreadLocal(value, 1);
+        const std::string state_name = std::format("fb.state.{}", global.name);
+        LLVMValueRef state = LLVMAddGlobal(m_module.get(), m_i32, state_name.c_str());
+        LLVMSetInitializer(state, LLVMConstInt(m_i32, 0, 0));
+        LLVMSetLinkage(state, LLVMInternalLinkage);
+        LLVMSetThreadLocal(state, 1);
+        return state;
+    }
+
+    /// Each ThreadLocal Global's functions, declared once the MIR functions are, which the
+    /// one that makes the thread's own calls for its initializer.
+    void declare_thread_local_functions() {
+        for (std::size_t i = 0; i < m_mir.globals.size(); ++i) {
+            const global_t& global = m_mir.globals[i];
+            std::optional<function_ref_t> maker;
+            std::optional<function_ref_t> releaser;
+            if (global.is_thread_local) {
+                const std::string make = std::format("fb.make.{}", global.name);
+                maker = declare(make.c_str(), m_void, {});
+                LLVMSetLinkage(maker->value, LLVMInternalLinkage);
+                if (m_mir.types->has_references(global.type)) {
+                    const std::string release = std::format("fb.release.{}", global.name);
+                    releaser = declare(release.c_str(), m_void, {});
+                    LLVMSetLinkage(releaser->value, LLVMInternalLinkage);
+                }
+            }
+
+            m_thread_makers.push_back(maker);
+            m_thread_releasers.push_back(releaser);
+        }
+    }
+
+    /// What makes a thread's own ThreadLocal Global: its initializer runs, while its state says
+    /// so, and one that holds references is handed to the runtime, which runs what releases it
+    /// as the thread ends, the last made first. What releases it says so first, so a Destroy
+    /// that then uses it panics.
+    void generate_thread_local_functions() {
+        for (std::size_t i = 0; i < m_mir.globals.size(); ++i) {
+            const global_t& global = m_mir.globals[i];
+            if (!global.is_thread_local) {
+                continue;
+            }
+
+            LLVMValueRef state = m_thread_states[i];
+            const function_ref_t& maker = *m_thread_makers[i];
+            LLVMPositionBuilderAtEnd(
+                builder(), LLVMAppendBasicBlockInContext(context(), maker.value, "entry"));
+            LLVMBuildStore(builder(), LLVMConstInt(m_i32, making, 0), state);
+            if (global.initializer) {
+                call(m_functions[index(*global.initializer)], {});
+            }
+
+            LLVMBuildStore(builder(), LLVMConstInt(m_i32, ready, 0), state);
+            if (const std::optional<function_ref_t>& releaser = m_thread_releasers[i]) {
+                call(m_thread_local_added, { releaser->value });
+            }
+
+            LLVMBuildRetVoid(builder());
+            if (const std::optional<function_ref_t>& releaser = m_thread_releasers[i]) {
+                LLVMPositionBuilderAtEnd(
+                    builder(), LLVMAppendBasicBlockInContext(context(), releaser->value, "entry"));
+                LLVMBuildStore(builder(), LLVMConstInt(m_i32, released, 0), state);
+                let_go(m_globals[i], global.type);
+                LLVMBuildRetVoid(builder());
+            }
         }
     }
 
@@ -1987,11 +2075,18 @@ private:
         call(m_functions[index(m_mir.entry)], {});
         // The coroutines run to their ends, and a job may still use a Global.
         call(m_scheduler_finish, {});
+        // The pool's threads release their ThreadLocals as they end, and then the main thread
+        // does its own, before the Globals, which their Destroys can use.
         call(m_pool_finish, {});
+        call(m_thread_locals_release, {});
         // Then the Globals let go of what they hold, the last first, so a Destroy that runs can
         // use the ones above its object's. One that uses a Global already let go of panics where
         // the Global has a ready flag, and reads its zero otherwise.
         for (std::size_t i = m_mir.globals.size(); i-- > 0;) {
+            if (m_mir.globals[i].is_thread_local) {
+                continue;
+            }
+
             if (m_ready[i] != nullptr) {
                 LLVMBuildStore(builder(), LLVMConstInt(m_i32, released, 0), m_ready[i]);
             }
@@ -2408,6 +2503,11 @@ private:
     /// Global with a ready flag has either: in debug builds, each one main sets, and in release
     /// builds, one whose zero holds a null object.
     void generate(const ready_t& node) {
+        if (m_mir.globals[index(node.global)].is_thread_local) {
+            make_thread_local(node);
+            return;
+        }
+
         LLVMValueRef flag = m_ready[index(node.global)];
         if (flag == nullptr) {
             return;
@@ -2437,6 +2537,35 @@ private:
                           "initialize in source order",
                           name),
               node.span);
+        LLVMPositionBuilderAtEnd(builder(), ok);
+    }
+
+    /// Before a use of a ThreadLocal Global: the thread makes its own the first time, and panics
+    /// where its initializer reaches it, or where it's used after the thread released it.
+    void make_thread_local(const ready_t& node) {
+        const std::size_t global = index(node.global);
+        const std::string& name = m_mir.globals[global].name;
+        LLVMValueRef state = LLVMBuildLoad2(builder(), m_i32, m_thread_states[global], "");
+        LLVMBasicBlockRef unmade =
+            LLVMAppendBasicBlockInContext(context(), m_llvm_function, "unmade");
+        LLVMBasicBlockRef ok = LLVMAppendBasicBlockInContext(context(), m_llvm_function, "ok");
+        LLVMBuildCondBr(
+            builder(),
+            LLVMBuildICmp(builder(), LLVMIntEQ, state, LLVMConstInt(m_i32, ready, 0), ""), ok,
+            unmade);
+        LLVMPositionBuilderAtEnd(builder(), unmade);
+        panic_if(LLVMBuildICmp(builder(), LLVMIntEQ, state, LLVMConstInt(m_i32, released, 0), ""),
+                 std::format("'{}' is used after it's released, since a thread releases its "
+                             "ThreadLocal Globals as it ends",
+                             name),
+                 node.span);
+        panic_if(LLVMBuildICmp(builder(), LLVMIntEQ, state, LLVMConstInt(m_i32, making, 0), ""),
+                 std::format("'{}' is used before its initializer has run, since its "
+                             "initializer reaches it",
+                             name),
+                 node.span);
+        call(*m_thread_makers[global], {});
+        LLVMBuildBr(builder(), ok);
         LLVMPositionBuilderAtEnd(builder(), ok);
     }
 

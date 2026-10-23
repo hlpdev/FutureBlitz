@@ -51,6 +51,14 @@ struct global_t {
     /// calls could use it before that, which debug builds check (ready_t), and release builds
     /// too where its zero holds a null object.
     bool set_in_main = false;
+    /// "ThreadLocal Global": each thread has its own, which starts at `initial` and which
+    /// `initializer`, when it has one, sets the first time the thread uses it (ready_t). The
+    /// runtime releases it as the thread ends.
+    bool is_thread_local = false;
+    /// A ThreadLocal's initializer, which sets the calling thread's value. Lowering makes it the
+    /// first time code uses the Global; nullopt for one whose value is known at compile time, or
+    /// that has no initializer.
+    std::optional<function_id_t> initializer;
 };
 
 /// One step inward from a place: into a field, or into an element of an array. From a Ptr,
@@ -419,6 +427,9 @@ struct release_t {
 /// For a Global main sets: once its initializer has run, `mark` says so; before a function uses
 /// it, a check that it has, since a function that an earlier Global's initializer calls could
 /// get there first. Debug builds panic at `span` when it hasn't, and release builds do neither.
+/// Before each use of a ThreadLocal Global, in every build, the thread makes its own the first
+/// time, and panics at `span` where its initializer reaches it, or where it's used after the
+/// thread has released it.
 struct ready_t {
     global_id_t global;
     bool mark = false;

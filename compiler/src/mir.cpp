@@ -167,8 +167,14 @@ public:
         for (const global_t& global : m_module.globals) {
             const std::string initial =
                 global.initial ? paint(literal(*global.initial), tone_t::LITERAL) : keyword("zero");
-            out += std::format("{} {}: {} = {}\n", keyword("global"),
-                               paint(global.name, tone_t::NAME), type(global.type), initial);
+            out += std::format(
+                "{}{} {}: {} = {}", global.is_thread_local ? keyword("ThreadLocal") + " " : "",
+                keyword("global"), paint(global.name, tone_t::NAME), type(global.type), initial);
+            if (global.initializer) {
+                out += std::format(", initializer: {}", function_name(*global.initializer));
+            }
+
+            out += "\n";
         }
 
         // "class Boss Extends Enemy, Destroy: Boss.Destroy()", then its Method table.

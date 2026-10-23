@@ -322,6 +322,14 @@ private:
     mir_module_t m_module;
     std::unordered_map<symbol_id_t, function_id_t> m_functions;
     std::unordered_map<symbol_id_t, global_id_t> m_globals;
+    /// Each ThreadLocal Global whose initializer runs, by its declaration.
+    std::unordered_map<global_id_t, stmt_id_t> m_thread_local_declarations;
+    /// The ThreadLocal Globals whose initializers' functions code has needed, in that order,
+    /// which lower_library() lowers.
+    std::vector<global_id_t> m_thread_initializers;
+    /// The functions besides main whose uncaught errors end the program: the ThreadLocals'
+    /// initializers.
+    std::unordered_set<function_id_t> m_ending_functions;
     /// Each instance's Static Fields of a generic type, by the field and the type arguments.
     std::map<std::pair<symbol_id_t, std::vector<type_id_t>>, global_id_t> m_instance_globals;
     /// Each Class's Method table, by its type, made when it's first needed.
@@ -542,13 +550,48 @@ private:
 
         const auto global = static_cast<global_id_t>(m_module.globals.size());
         m_globals[id] = global;
+        const bool thread_local_global = symbol.modifiers.is_thread_local;
+        const bool runs = node.value && !m_analysis.expr(*node.value).value;
         m_module.globals.push_back({
             .name = std::move(name),
             .type = symbol.type,
             .initial = std::move(initial),
-            .set_in_main = node.value && !m_analysis.expr(*node.value).value,
+            .set_in_main = runs && !thread_local_global,
+            .is_thread_local = thread_local_global,
         });
+        if (runs && thread_local_global) {
+            m_thread_local_declarations[global] = expect(symbol.declaration);
+        }
+
         return global;
+    }
+
+    /// A ThreadLocal Global's initializer, as a function of its own that sets the calling
+    /// thread's value, made the first time code uses the Global and lowered with the library's
+    /// code, so one the program never uses costs nothing.
+    void use_thread_local(const global_id_t global) {
+        if (!m_thread_local_declarations.contains(global) ||
+            m_module.globals[index(global)].initializer) {
+            return;
+        }
+
+        const auto function = static_cast<function_id_t>(m_module.functions.size());
+        m_module.functions.push_back(
+            { .name = std::format("{}.Initializer", m_module.globals[index(global)].name) });
+        m_module.globals[index(global)].initializer = function;
+        m_thread_initializers.push_back(global);
+        m_ending_functions.insert(function);
+    }
+
+    /// The calling thread's value of a ThreadLocal Global, from its initializer. An error it lets
+    /// out ends the program, as top-level code's does.
+    void lower_thread_initializer(const global_id_t global) {
+        const stmt_id_t declaration = m_thread_local_declarations.at(global);
+        const auto& node = std::get<variable_stmt_t>(m_ast.get(declaration).node);
+        begin_function(expect(m_module.globals[index(global)].initializer));
+        store(global, lower_value(expect(node.value)));
+        finish_statement();
+        finish_function();
     }
 
     /// A generic type's Static Field for one instance, which starts with its value known at
@@ -1129,10 +1172,21 @@ private:
         std::size_t instances = 0;
         std::size_t generated = 0;
         std::size_t thunks = 0;
+        std::size_t initializers = 0;
         while (!m_module.error &&
                (classes < m_used_classes.size() || functions < m_library_functions.size() ||
                 closures < m_closures.size() || instances < m_pending_instances.size() ||
-                generated < m_generated.size() || thunks < m_table_thunks.size())) {
+                generated < m_generated.size() || thunks < m_table_thunks.size() ||
+                initializers < m_thread_initializers.size())) {
+            if (initializers < m_thread_initializers.size()) {
+                const global_id_t global = m_thread_initializers[initializers++];
+                m_parameters.clear();
+                m_arguments.clear();
+                const scoped_value_t<std::optional<std::size_t>> from(m_origin, std::nullopt);
+                lower_thread_initializer(global);
+                continue;
+            }
+
             if (classes < m_used_classes.size()) {
                 const type_id_t type = m_used_classes[classes++];
                 const scoped_value_t<std::optional<std::size_t>> from(
@@ -2056,7 +2110,9 @@ private:
         }
 
         const symbol_id_t symbol = expect(m_analysis.stmt(id).symbol);
-        if (const auto found = m_globals.find(symbol); found != m_globals.end()) {
+        // A ThreadLocal's initializer is a function of its own, which each thread runs.
+        if (const auto found = m_globals.find(symbol);
+            found != m_globals.end() && !m_module.globals[index(found->second)].is_thread_local) {
             store(found->second, lower_value(*node->value));
             finish_statement();
             emit(ready_t{ .global = found->second, .mark = true });
@@ -2067,7 +2123,10 @@ private:
     /// an earlier Global's initializer could call the function first. Main's own code uses only
     /// the Globals above, which analysis checks.
     global_id_t ready(const global_id_t global, const expr_id_t use) {
-        if (m_function != m_module.entry && m_module.globals[index(global)].set_in_main) {
+        if (m_module.globals[index(global)].is_thread_local) {
+            use_thread_local(global);
+            emit(ready_t{ .global = global, .span = m_ast.get(use).span });
+        } else if (m_function != m_module.entry && m_module.globals[index(global)].set_in_main) {
             emit(ready_t{ .global = global, .span = m_ast.get(use).span });
         }
 
@@ -4618,8 +4677,9 @@ private:
             }
         } else {
             // Analysis checked that functions let errors out only through their Throws. One that
-            // top-level code lets out ends the program, after its Defers and Finallys.
-            if (m_function == m_module.entry) {
+            // top-level code, or a ThreadLocal's initializer, lets out ends the program, after its
+            // Defers and Finallys.
+            if (m_function == m_module.entry || m_ending_functions.contains(m_function)) {
                 release_scopes(0);
                 runtime_call_t uncaught{
                     .function = runtime_function_t::ERROR_UNCAUGHT,
