@@ -1,0 +1,90 @@
+// std.io's file locks: a FileLock holds a lock on a file, which another FileLock, in this program
+// or another, waits for, or is refused, until it's closed. Locks only keep other locks out: on
+// every OS, anyone can still read and write the file.
+
+Import std.core
+Import std.io.path
+Import std.io.request
+
+Extern "runtime"
+    Function fb_io_request_lock(request: Ptr<Void>): Ptr<Void>
+    Function fb_io_lock_acquire(request: Ptr<Void>, path: String, shared: Int32, wait: Int32): Int64
+    Function fb_io_lock_acquire_async(request: Ptr<Void>, path: String, shared: Int32,
+                                      wait: Int32): Task<Int64>
+    Function fb_io_lock_release(lock: Ptr<Void>)
+End Extern
+
+// A lock on a file, held for this FileLock alone, or shared with other shared ones, until Close,
+// or until its last reference goes. The file is made, empty, when it isn't there, and stays when
+// the lock goes. A FileLock waiting for one that this program holds waits forever.
+Public Class FileLock
+    Public ReadOnly Field Path: Path
+    Public ReadOnly Field IsShared: Bool
+    Field Native: Ptr<Void>
+
+    New(path: Path, shared: Bool, native: Ptr<Void>)
+        Path = path
+        IsShared = shared
+        Native = native
+    End New
+
+    // A lock on the file for this one alone, once no other holds one.
+    Public Static Method Acquire(path: Path): FileLock Throws IOError
+        Return (Try Acquired(path, False, True)).Expect("a lock that waits is held")
+    End Method
+
+    Public Static Async Method AcquireAsync(path: Path): FileLock Throws IOError
+        Return (Try Await AcquiredAsync(path, False)).Expect("a lock that waits is held")
+    End Method
+
+    // A lock on the file that other shared ones can hold too, once no lock for one alone holds
+    // it.
+    Public Static Method AcquireShared(path: Path): FileLock Throws IOError
+        Return (Try Acquired(path, True, True)).Expect("a lock that waits is held")
+    End Method
+
+    Public Static Async Method AcquireSharedAsync(path: Path): FileLock Throws IOError
+        Return (Try Await AcquiredAsync(path, True)).Expect("a lock that waits is held")
+    End Method
+
+    // A lock for this one alone, or Null when another holds one now.
+    Public Static Method TryAcquire(path: Path): FileLock? Throws IOError
+        Return Try Acquired(path, False, False)
+    End Method
+
+    // A shared lock, or Null when a lock for one alone holds the file now.
+    Public Static Method TryAcquireShared(path: Path): FileLock? Throws IOError
+        Return Try Acquired(path, True, False)
+    End Method
+
+    // Whether it still holds its lock.
+    Public Method IsHeld(): Bool => Native != Null
+
+    // Lets go of the lock, which a second Close leaves alone.
+    Public Method Close()
+        If Native == Null Then Return
+        fb_io_lock_release(Native)
+        Native = Null
+    End Method
+
+    Method Destroy()
+        Close()
+    End Method
+End Class
+
+// The lock on the file, or Null when it didn't wait for one another held.
+Function Acquired(path: Path, shared: Bool, wait: Bool): FileLock? Throws IOError
+    Local request = Request()
+    Local result = Try Checked(fb_io_lock_acquire(request.Native, path.Text, shared ? 1 : 0, wait ? 1 : 0),
+                               "lock", path)
+    If result == 0 Then Return Null
+    Return FileLock(path, shared, fb_io_request_lock(request.Native))
+End Function
+
+Async Function AcquiredAsync(path: Path, shared: Bool): FileLock? Throws IOError
+    Local request = Request()
+    Local result = Try Checked(Await fb_io_lock_acquire_async(request.Native, path.Text, shared ? 1 : 0, 1),
+                               "lock", path)
+    If result == 0 Then Return Null
+    Return FileLock(path, shared, fb_io_request_lock(request.Native))
+End Function
