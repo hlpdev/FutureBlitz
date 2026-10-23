@@ -19,6 +19,9 @@ Local random = Random(7)
 Print(random.Int(), random.Int(), random.Int(6), random.Int(1, 6), random.Int(-3, 3),
       random.Int(5, 5))
 Print(random.Float(), random.Float(), random.Float(2, 3), random.Float(-1, 1), random.Float(4, 4))
+// Ends a Float's whole range apart, whose span a Float can't hold.
+Local everywhere = Random(77).Float(MinValue<Float>(), MaxValue<Float>())
+Print(everywhere >= MinValue<Float>() && everywhere < MaxValue<Float>())
 Print(random.Double(), random.Double(), random.Bool(), random.Bool(), random.Chance(0.5),
       random.Chance(0))
 Print(random.Chance(1), random.Chance(-1), random.Chance(2))

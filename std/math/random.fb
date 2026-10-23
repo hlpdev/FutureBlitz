@@ -102,17 +102,19 @@ Public Class Random
     Public Method Float(): Float => ((Step() >> 8) As Float) * (1.0 / 16777216)
 
     // A Float from low up to high, high left out: low itself when they're equal. A low above high,
-    // or a NaN or infinite end, panics.
+    // or a NaN or infinite end, panics. The span is worked out in Doubles, so ends a Float's whole
+    // range apart are fine.
     @PanicsAtCaller
     Public Method Float(low: Float, high: Float): Float
-        If !(low <= high) || !IsFinite(high - low)
+        If !(low <= high) || !IsFinite(low) || !IsFinite(high)
             Panic("Float takes a finite low that isn't above its high, not {low} and {high}")
         End If
 
         If low == high Then Return low
         // Rounding can carry low + (high - low) * t up to high itself, which is drawn again.
+        Local span = (high As Double) - low
         Loop
-            Local value = low + (high - low) * Float()
+            Local value = ((low As Double) + span * Float()) As Float
             If value < high Then Return value
         End Loop
     End Method
