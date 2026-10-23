@@ -13,16 +13,16 @@ using fb::token_kind_t;
 TEST_CASE("every reserved keyword from the spec is a keyword", "[token]") {
     // The reserved list in docs/spec/01-lexical.md.
     constexpr auto reserved = std::to_array<std::string_view>({
-        "Abstract", "As",      "Async",      "Await",   "Break",    "ByRef",     "Callback",
-        "Case",     "Catch",   "Class",      "Const",   "Continue", "Default",   "Defer",
-        "Else",     "ElseIf",  "End",        "Enum",    "Extend",   "Extends",   "Extern",
-        "False",    "Field",   "Final",      "Finally", "For",      "Func",      "Function",
-        "Global",   "If",      "Implements", "Import",  "In",       "Interface", "Is",
-        "Local",    "Lock",    "Loop",       "Method",  "New",      "Null",      "Operator",
-        "Override", "Package", "Parallel",   "Private", "Property", "Protected", "Public",
-        "ReadOnly", "Repeat",  "Return",     "Select",  "Self",     "Shared",    "Static",
-        "Struct",   "Super",   "Then",       "Throw",   "Throws",   "To",        "True",
-        "Try",      "Unsafe",  "Until",      "Where",   "While",
+        "Abstract", "As",      "Async",      "Await",       "Break",    "ByRef",     "Callback",
+        "Case",     "Catch",   "Class",      "Const",       "Continue", "Default",   "Defer",
+        "Else",     "ElseIf",  "End",        "Enum",        "Extend",   "Extends",   "Extern",
+        "False",    "Field",   "Final",      "Finally",     "For",      "Func",      "Function",
+        "Global",   "If",      "Implements", "Import",      "In",       "Interface", "Is",
+        "Local",    "Lock",    "Loop",       "Method",      "New",      "Null",      "Operator",
+        "Override", "Package", "Parallel",   "Private",     "Property", "Protected", "Public",
+        "ReadOnly", "Repeat",  "Return",     "Select",      "Self",     "Shared",    "Static",
+        "Struct",   "Super",   "Then",       "ThreadLocal", "Throw",    "Throws",    "To",
+        "True",     "Try",     "Unsafe",     "Until",       "Where",    "While",
     });
 
     for (const std::string_view spelling : reserved) {

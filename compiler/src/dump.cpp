@@ -624,6 +624,10 @@ private:
             out.items.push_back(atom("Shared", tone_t::KEYWORD));
         }
 
+        if (modifiers.is_thread_local) {
+            out.items.push_back(atom("ThreadLocal", tone_t::KEYWORD));
+        }
+
         if (modifiers.is_async) {
             out.items.push_back(atom("Async", tone_t::KEYWORD));
         }

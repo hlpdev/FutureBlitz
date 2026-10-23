@@ -413,6 +413,8 @@ struct modifiers_t {
     bool is_read_only = false;
     /// "Shared Class": a Class whose objects threads share.
     bool is_shared = false;
+    /// "ThreadLocal Global": a Global each thread has its own of.
+    bool is_thread_local = false;
     /// "Const Function": the compiler runs a call whose arguments are known at compile time.
     bool is_const = false;
     /// "@Inline": every call to it is inlined.

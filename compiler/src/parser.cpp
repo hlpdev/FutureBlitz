@@ -600,6 +600,7 @@ private:
         case token_kind_t::KW_STATIC:
         case token_kind_t::KW_READONLY:
         case token_kind_t::KW_SHARED:
+        case token_kind_t::KW_THREADLOCAL:
         case token_kind_t::KW_ASYNC:
         case token_kind_t::KW_PRIVATE:
         case token_kind_t::KW_PROTECTED:
@@ -833,6 +834,8 @@ private:
             return &modifiers.is_read_only;
         case token_kind_t::KW_SHARED:
             return &modifiers.is_shared;
+        case token_kind_t::KW_THREADLOCAL:
+            return &modifiers.is_thread_local;
         case token_kind_t::KW_ASYNC:
             return &modifiers.is_async;
         case token_kind_t::KW_UNSAFE:
@@ -842,12 +845,13 @@ private:
         }
     }
 
-    /// Abstract, Final, Override, Static, ReadOnly, Shared, and a visibility like Public, in any
-    /// order, then the declaration they're on, which may be a "Const Function", or with only a
-    /// visibility, an Enum or an Attribute. Analysis checks which ones it can have, but Shared
-    /// only goes before a type.
+    /// Abstract, Final, Override, Static, ReadOnly, Shared, ThreadLocal, and a visibility like
+    /// Public, in any order, then the declaration they're on, which may be a "Const Function", or
+    /// with only a visibility, an Enum or an Attribute. Analysis checks which ones it can have,
+    /// but Shared only goes before a type, and ThreadLocal before a Global.
     stmt_id_t parse_modified(modifiers_t modifiers = {}) {
         std::optional<span_t> shared;
+        std::optional<span_t> thread_local_span;
         std::optional<span_t> async;
         std::optional<span_t> unsafe;
         const token_t* unsafe_keyword = nullptr;
@@ -887,6 +891,8 @@ private:
 
             if (token.kind == token_kind_t::KW_SHARED) {
                 shared = token.span;
+            } else if (token.kind == token_kind_t::KW_THREADLOCAL) {
+                thread_local_span = token.span;
             } else if (token.kind == token_kind_t::KW_ASYNC) {
                 async = token.span;
             } else if (token.kind == token_kind_t::KW_UNSAFE) {
@@ -900,6 +906,11 @@ private:
         if (shared && !at(token_kind_t::KW_CLASS) && !at(token_kind_t::KW_STRUCT) &&
             !at(token_kind_t::KW_INTERFACE)) {
             error(*shared, "Shared only goes before a Class, whose objects threads share");
+        }
+
+        if (thread_local_span && !at(token_kind_t::KW_GLOBAL)) {
+            error(*thread_local_span,
+                  "ThreadLocal only goes before a Global, which each thread then has its own of");
         }
 
         if (async && !at(token_kind_t::KW_FUNCTION) && !at(token_kind_t::KW_METHOD) &&

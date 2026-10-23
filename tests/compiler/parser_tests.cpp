@@ -714,6 +714,22 @@ TEST_CASE("Static and ReadOnly go before Fields and Methods", "[parser]") {
           std::vector<std::string>{ "7-13: 'Static' is written twice" });
 }
 
+TEST_CASE("ThreadLocal goes before a Global", "[parser]") {
+    CHECK(parse_text("ThreadLocal Global hits = 0").dump == "(global ThreadLocal hits = (int 0))");
+    CHECK(parse_text("Public ThreadLocal Global hits: Int").dump ==
+          "(global Public ThreadLocal hits: Int)");
+    CHECK(
+        parse_text("ThreadLocal Local x = 1").errors ==
+        std::vector<std::string>{
+            "0-11: ThreadLocal only goes before a Global, which each thread then has its own of" });
+    CHECK(
+        parse_text("ThreadLocal Static Field x: Int").errors ==
+        std::vector<std::string>{
+            "0-11: ThreadLocal only goes before a Global, which each thread then has its own of" });
+    CHECK(parse_text("ThreadLocal ThreadLocal Global x = 1").errors ==
+          std::vector<std::string>{ "12-23: 'ThreadLocal' is written twice" });
+}
+
 TEST_CASE("a visibility goes before a declaration, among its modifiers", "[parser]") {
     CHECK(parse_text("Public Function F()\nEnd Function").dump == "(function Public F (block))");
     CHECK(parse_text("Static Public Method M()\nEnd Method").dump ==

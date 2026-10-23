@@ -149,7 +149,7 @@ Default  Defer  Else  ElseIf  End  Enum  Extend  Extends  Extern  False  Field  
 Finally  For  Func  Function  Global  If  Implements  Import  In  Interface  Is  Local
 Lock  Loop  Method  New  Null  Operator  Override  Package  Parallel  Private  Property
 Protected  Public  ReadOnly  Repeat  Return  Select  Self  Shared  Static  Struct  Super
-Then  Throw  Throws  To  True  Try  Unsafe  Until  Where  While
+Then  ThreadLocal  Throw  Throws  To  True  Try  Unsafe  Until  Where  While
 ```
 
 ### Contextual
