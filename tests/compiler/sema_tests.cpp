@@ -901,6 +901,31 @@ TEST_CASE("member access", "[sema]") {
     CHECK(with_point("Local z = p.z") == errors_t{ "z: P has no member named 'z'" });
     CHECK(with_point("Local m = p.M") == errors_t{ "M: 'M' is a method; call it with ()" });
     CHECK(with_point("p.x()") == errors_t{ "x: 'x' is a field, not a method" });
+    constexpr std::string_view box = "Class Box\n"
+                                     "    Property Size: Int\n"
+                                     "        Get\n"
+                                     "            Return 3\n"
+                                     "        End Get\n"
+                                     "    End Property\n"
+                                     "    Static Property Made: Int\n"
+                                     "        Get\n"
+                                     "            Return 1\n"
+                                     "        End Get\n"
+                                     "    End Property\n"
+                                     "    Static Field Count: Int\n"
+                                     "End Class\n";
+    CHECK(errors_of(std::format("{}Local n = Box().Size()", box)) ==
+          errors_t{ "Size: 'Size' is a Property, not a method" });
+    CHECK(errors_of(std::format("{}Local n = Box.Made()", box)) ==
+          errors_t{ "Made: 'Made' is a Property, not a method" });
+    CHECK(errors_of(std::format("{}Local n = Box.Count()", box)) ==
+          errors_t{ "Count: 'Count' is a field, not a method" });
+    CHECK(errors_of("Class Tally\n"
+                    "    Static Field Count: Int\n"
+                    "    Method Bump()\n"
+                    "        Count()\n"
+                    "    End Method\n"
+                    "End Class") == errors_t{ "Count: 'Count' is a field, not a method" });
     CHECK(errors_of("Local a = 1\nLocal b = a.x") ==
           errors_t{ "x: Int32 has no member named 'x'" });
     CHECK(errors_of("Struct P\nEnd Struct\nLocal p = P") ==

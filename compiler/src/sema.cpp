@@ -16670,7 +16670,8 @@ private:
         }
 
         if (call && first.kind != symbol_kind_t::METHOD) {
-            error(member.span, "'{}' is a field, not a method", member.text);
+            error(member.span, "'{}' is a {}, not a method", member.text,
+                  first.kind == symbol_kind_t::PROPERTY ? "Property" : "field");
             return {};
         }
 
@@ -20049,10 +20050,13 @@ private:
     void report_not_callable(const expr_id_t callee) {
         const std::optional<symbol_id_t> found = info(callee).symbol;
         const auto* member = std::get_if<member_expr_t>(&m_ast.get(callee).node);
-        if (found && (symbol(*found).kind == symbol_kind_t::FIELD ||
-                      symbol(*found).kind == symbol_kind_t::PROPERTY)) {
+        // A Static Field is a Global that its type owns.
+        const bool field = found && (symbol(*found).kind == symbol_kind_t::FIELD ||
+                                     (symbol(*found).kind == symbol_kind_t::GLOBAL &&
+                                      symbol(*found).owner != type_id_t::INVALID));
+        if (found && (field || symbol(*found).kind == symbol_kind_t::PROPERTY)) {
             error(member != nullptr ? member->member.span : span_of(callee),
-                  "'{}' is a field, not a method", symbol(*found).name);
+                  "'{}' is a {}, not a method", symbol(*found).name, field ? "field" : "Property");
         } else if (std::holds_alternative<name_expr_t>(m_ast.get(callee).node)) {
             error(span_of(callee), "'{}' isn't a function", text(callee));
         } else {
