@@ -215,6 +215,14 @@ End For
 Print((Try (Try SevenZip.Read(Chain7z())).ReadAt(0)) == code,
       (Try (Try SevenZip.Read(Delta7z())).ReadAt(0)) == samples)
 
+// BCJ before LZMA without its end marker, as 7-Zip writes LZMA:BCJ: LZMA ends at its size.
+Local text = ""
+For i = 1 To 20
+    text = text + "plain text, no branch opcodes, "
+End For
+Local bcj = Try (Try SevenZip.Read(Bcj7z())).ReadAt(0)
+Print("7z, LZMA:BCJ:", SevenZipOutcome(Bcj7z()), bcj == text.Bytes)
+
 // Broken archives, and what isn't supported.
 Local notArchive = "this isn't an archive of any kind, though it's long enough to be one".Bytes
 Local tiny = ZipWriter()

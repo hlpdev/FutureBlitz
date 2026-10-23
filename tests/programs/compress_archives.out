@@ -35,6 +35,7 @@ tar: 0 bytes past its last block
 7z: partial/one.txt (11), partial/
 True True True
 True True
+7z, LZMA:BCJ: 1 entries True
 zip, not one: INVALID_DATA: the zip data isn't valid: it has no central directory
 zip, none: INVALID_DATA: the zip data isn't valid: it has no central directory
 zip, cut: INVALID_DATA: the zip data isn't valid: it has no central directory
