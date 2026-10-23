@@ -23,8 +23,8 @@ void fb_time_sleep(std::int64_t nanoseconds);
 /// std.time's formats take apart, with U+FFFD for any that isn't one.
 fb_string_t* fb_time_text(const fb_array_t* chars, std::int64_t start, std::int64_t finish);
 
-/// Finishes `task`, a new Task, once `nanoseconds` have passed on the real clock, from the I/O
-/// thread's timer, so an Await of it resumes where it started.
+/// Finishes `task`, a new Task, once `nanoseconds` have passed on the monotonic clock, from the
+/// I/O thread's timer, so an Await of it resumes where it started.
 void fb_io_after(fb_task_t* task, std::int64_t nanoseconds);
 
 /// The zone named `name`, as the tz database spells it or in any case, or 0.

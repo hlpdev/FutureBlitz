@@ -12,8 +12,10 @@ Extern "runtime"
     Function fb_io_after(nanoseconds: Int64): Task
 End Extern
 
-// Ticks of the real clock, every so often, on the I/O thread's loop, which counts whole
-// milliseconds, so a timer waits up to two more than its time, and never less.
+// Ticks of the monotonic clock, every so often, on the I/O thread's loop. A tick is never early,
+// and comes as soon after its time as the OS's timer lets it: within a couple of milliseconds on
+// Linux and macOS, and within about 16 on Windows, whose timer ticks every 15.6 or so by
+// default.
 Public Class Timer
     Field Interval: Duration
     Field Start: Instant
