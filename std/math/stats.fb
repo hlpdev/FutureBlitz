@@ -49,7 +49,7 @@ Public Function Median<T: Bounded>(values: T[]): Double
     Local sorted = SortedDoubles(values, "Median")
     Local middle = sorted.Count / 2
     If sorted.Count % 2 == 1 Then Return sorted[middle]
-    Return (sorted[middle - 1] + sorted[middle]) / 2
+    Return Midpoint(sorted[middle - 1], sorted[middle])
 End Function
 
 // The mean and the sum of squared differences from it, by Welford's way, which stays exact where
@@ -114,7 +114,26 @@ Public Function Percentile<T: Bounded>(values: T[], percent: Double): Double
     Local rank = percent / 100 * (sorted.Count - 1)
     Local below = Floor(rank) As Int
     If below >= sorted.Count - 1 Then Return sorted[sorted.Count - 1]
-    Return Lerp(sorted[below], sorted[below + 1], rank - below)
+    Return Between(sorted[below], sorted[below + 1], rank - below)
+End Function
+
+// The value t of the way from a to b, as NumPy's percentile works it out from their difference:
+// a itself at t = 0 or where b is a, and their Midpoint at a half, as Median has it. Where the
+// difference overflows, or an end is infinite, it's from each one's share, which can't overflow
+// between finite ends and keeps an infinite one.
+Function Between(a: Double, b: Double, t: Double): Double
+    If t == 0 || a == b Then Return a
+    If t == 0.5 Then Return Midpoint(a, b)
+    Local difference = b - a
+    If !IsFinite(difference) Then Return a * (1 - t) + b * t
+    Return t < 0.5 ? a + difference * t : b - difference * (1 - t)
+End Function
+
+// The mean of two values, from their halves where their sum overflows.
+Function Midpoint(a: Double, b: Double): Double
+    Local sum = a + b
+    If IsFinite(sum) || !IsFinite(a) || !IsFinite(b) Then Return sum / 2
+    Return a / 2 + b / 2
 End Function
 
 // How many values fall in each of bins equal ranges from low to high, the last range holding high

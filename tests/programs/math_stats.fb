@@ -23,6 +23,17 @@ Local ranked = [15, 20, 35, 40, 50]
 Print(Percentile(ranked, 0), Percentile(ranked, 25), Percentile(ranked, 40), Percentile(ranked, 50),
       Percentile(ranked, 90), Percentile(ranked, 100))
 Print(Percentile([5], 33), Percentile([1, 2], 50), Percentile(floats, 75))
+// At its ends, and next to an infinite value or one a Double's range away, Percentile gives the
+// values' own, and 50 is the Median, to the bit.
+Local far: Double[] = [-1e308, 1e308]
+Local endless: Double[] = [1, Inf, Inf]
+Local sunk: Double[] = [-Inf, 0]
+Print(Percentile(far, 0), Percentile(far, 25), Percentile(far, 100), Percentile(endless, 50),
+      Median(endless), Percentile(sunk, 0), Percentile(sunk, 50))
+Local tenths: Double[] = [0.1, 0.7, 0.3, 1e308, 1.7e308, 0.9]
+Local huge: Double[] = [1e308, 1.7e308]
+Print(Median(huge), Percentile(huge, 50) == Median(huge), Percentile(huge, 75),
+      Percentile([0.1, 0.7], 50) == Median([0.1, 0.7]), Percentile(tenths, 50) == Median(tenths))
 
 // Histograms of equal ranges, the last holding its high end, and those outside left out.
 Print(Histogram(data, 4, 0, 10), Histogram(data, 7, 2, 9), Histogram([0.5, 1.5, -1, 11], 2, 0, 2))
