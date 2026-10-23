@@ -207,7 +207,7 @@ private:
                          "\"src/game.fb\", not \"{}\"",
                          *text);
                 } else if (text) {
-                    manifest.main = *text;
+                    manifest.main = with_slashes(*text);
                 }
             } else {
                 m_diagnostics.warning(span_of(field.source()), "[project] doesn't use '{}'", name);
@@ -221,6 +221,13 @@ private:
         if (!versioned) {
             fail(span_of(key.source()), "[project] needs a version, like version = \"0.1.0\"");
         }
+    }
+
+    /// A path as project.toml writes it, with each '\\' as '/', which an Import's path takes as
+    /// one too, so a project.toml written on Windows means the same everywhere.
+    static std::string with_slashes(std::string path) {
+        std::ranges::replace(path, '\\', '/');
+        return path;
     }
 
     /// Whether a path is a .fb file in the package's folder: relative, without "..".
@@ -312,7 +319,7 @@ private:
             manifest.dependencies.push_back({
                 .name = std::string(name),
                 .name_span = name_span,
-                .path = std::move(*path),
+                .path = with_slashes(std::move(*path)),
                 .path_span = path_span,
             });
         }
@@ -359,6 +366,10 @@ private:
                      "-lm, not \"{}\"",
                      native.path);
                 continue;
+            }
+
+            if (native.kind == native_kind_t::STATIC) {
+                native.path = with_slashes(std::move(native.path));
             }
 
             manifest.natives.push_back(std::move(native));

@@ -152,6 +152,8 @@ physics = { path = "../physics" }
   archive; `m = { system = "m" }` is one the system's linker finds by its name, as `-lm`.
   `dynamic` waits for M7. A name is letters, digits, and `_`, `-`, `.`, or `+`, not starting
   with `-`.
+- A path in project.toml, `main`, a dependency's `path`, or a static library's, takes `\` as a
+  `/`, as an Import's path does, so a project.toml written on Windows means the same everywhere.
 - A program links every `[native]` library of its packages, statically: its own code, then each
   package's archives in its project.toml's order, a package's before those of the packages it
   depends on, then the runtime, and then the system libraries, each once. On MinGW, programs

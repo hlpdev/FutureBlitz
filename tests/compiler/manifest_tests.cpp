@@ -175,6 +175,30 @@ TEST_CASE("[native] names static archives and system libraries", "[manifest]") {
           diagnostics_t{ "error: native: 'native' is a table, [native], of C libraries by name" });
 }
 
+TEST_CASE("a project.toml's paths take '\\' as '/', as an Import's path does", "[manifest]") {
+    // So a project.toml written on Windows means the same on Linux and macOS.
+    const read_t game = read("[project]\n"
+                             "name = \"game\"\n"
+                             "version = \"0.1.0\"\n"
+                             "main = 'src\\main.fb'\n"
+                             "\n"
+                             "[dependencies]\n"
+                             "physics = { path = '..\\physics' }\n"
+                             "\n"
+                             "[native]\n"
+                             "joltc = 'libs\\joltc'\n"
+                             "sdl = { static = 'vendor\\SDL3' }\n");
+    CHECK(game.diagnostics.empty());
+    REQUIRE(game.manifest);
+    const fb::manifest_t manifest = game.manifest.value_or(fb::manifest_t{});
+    CHECK(manifest.main == "src/main.fb");
+    REQUIRE(manifest.dependencies.size() == 1);
+    CHECK(manifest.dependencies[0].path == "../physics");
+    REQUIRE(manifest.natives.size() == 2);
+    CHECK(manifest.natives[0].path == "libs/joltc");
+    CHECK(manifest.natives[1].path == "vendor/SDL3");
+}
+
 TEST_CASE("text in a project.toml that isn't UTF-8 is reported at its first bad byte",
           "[manifest]") {
     CHECK(read("[project]\nname = \"ab\xff\xfe\"\n").diagnostics ==
