@@ -20137,14 +20137,16 @@ private:
     }
 
     /// "Try x" lets the errors of the calls in x go on to the code around it, and "Try? x" gives
-    /// a T?, which is Null when one of them throws. Either one warns when nothing in x throws.
+    /// a T?, which is Null when one of them throws. Either one warns when nothing in x throws,
+    /// unless x has an error, like a call whose function wasn't found.
     type_id_t check_expr(const expr_id_t id, const try_expr_t& node, const type_id_t hint) {
         m_handlers.push_back(
             { .kind = node.optional ? handler_kind_t::TRY_OPTIONAL : handler_kind_t::TRY });
+        const std::size_t errors = m_diagnostics->error_count();
         const type_id_t type = check_any(node.operand, node.optional ? non_null(hint) : hint);
         const bool throws = !m_handlers.back().reached.empty();
         m_handlers.pop_back();
-        if (!throws) {
+        if (!throws && m_diagnostics->error_count() == errors) {
             warning(span_of(id), "'{}' doesn't throw, so it doesn't need {}", text(node.operand),
                     node.optional ? "Try?" : "Try");
         }

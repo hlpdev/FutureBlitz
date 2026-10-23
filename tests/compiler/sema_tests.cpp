@@ -13421,3 +13421,9 @@ TEST_CASE("a lambda without its parameters' types takes them from the overload w
                     "Function G(f: Func(String): String)\nEnd Function\n"
                     "G(Function(x) => x)") == errors_t{ "G: the call to 'G' is ambiguous" });
 }
+
+TEST_CASE("a call with an error doesn't also warn that its Try isn't needed", "[sema]") {
+    CHECK(errors_of("Function F(x: Int)\nEnd Function\nTry F(\"a\")") ==
+          errors_t{ "\"a\": expected Int32, found String" });
+    CHECK(errors_of("Local n = Try? Nope()") == errors_t{ "Nope: 'Nope' isn't declared" });
+}
