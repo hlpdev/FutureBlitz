@@ -500,8 +500,10 @@ TEST_CASE("a '>' that closes type arguments can touch the '=' after it", "[parse
              { "Local t: Stack<Int>= Stack<Int>()", "Local t: Stack<Int> = Stack<Int>()" },
              { "Local s: Stack<Stack<Int>>= x", "Local s: Stack<Stack<Int>> = x" },
              { "Local w: Weak<Node>= n", "Local w: Weak<Node> = n" },
-             { "Function F(m: Map<K, V>= x)\nEnd Function",
-               "Function F(m: Map<K, V> = x)\nEnd Function" },
+             {
+                 "Function F(m: Map<K, V>= x)\nEnd Function",
+                 "Function F(m: Map<K, V> = x)\nEnd Function",
+             },
          })) {
         INFO(touching);
         const parsed_t parsed = parse_text(touching);
