@@ -4187,6 +4187,13 @@ private:
                     continue;
                 }
 
+                // A built-in type, an Enum, or an array comes with the built-in Interfaces that fit
+                // it, which one an Extend lists for it can extend.
+                if (!is_struct(type) && !is_class(type) && is_builtin_interface(implemented) &&
+                    builtin_implements(type, implemented)) {
+                    continue;
+                }
+
                 const auto other = std::ranges::find_if(seen, [&](const type_id_t found) {
                     return is_other_instance(found, implemented);
                 });

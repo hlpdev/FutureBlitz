@@ -5167,6 +5167,28 @@ TEST_CASE("an Extend can make a type implement an Interface", "[sema]") {
                     "Extend CString Implements Printable\nEnd Extend") ==
           errors_t{ "Printable: CString doesn't fit Printable, a built-in Interface, which only "
                     "the built-in types it fits implement; an Extend can give it others" });
+    // One that extends those it comes with keeps them as they are.
+    CHECK(errors_of("Import std.core\n"
+                    "Interface Ranked Extends Comparable\n"
+                    "    Method Rank(): Int\n"
+                    "End Interface\n"
+                    "Extend Int Implements Ranked\n"
+                    "    Method Rank(): Int => Self\n"
+                    "End Extend\n"
+                    "Interface Real Extends Numeric\n"
+                    "    Method Half(): Self\n"
+                    "End Interface\n"
+                    "Extend Float Implements Real\n"
+                    "    Method Half(): Float => Self / 2\n"
+                    "End Extend\n"
+                    "Enum Mode\n"
+                    "    A\n"
+                    "End Enum\n"
+                    "Interface Tagged Extends Printable, Hashable\n"
+                    "End Interface\n"
+                    "Extend Mode Implements Tagged\n"
+                    "End Extend")
+              .empty());
 
     // A second listing labels the first, which can be another module's.
     const fb::compilation_t twice =

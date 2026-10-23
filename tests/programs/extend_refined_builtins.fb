@@ -1,0 +1,47 @@
+// An Extend can give a built-in type or an Enum an Interface that extends the built-in ones it
+// comes with, like Comparable, Printable, Hashable, and Numeric, which it keeps as they are.
+
+Import std.core
+
+Interface Ranked Extends Comparable
+    Method Rank(): Int32
+End Interface
+
+Extend Int32 Implements Ranked
+    Method Rank(): Int32 => Self
+End Extend
+
+Interface Shown Extends Printable, Hashable
+    Method Tag(): String => "t"
+End Interface
+
+Extend String Implements Shown
+End Extend
+
+Enum Mode
+    A, B
+End Enum
+
+Extend Mode Implements Shown
+End Extend
+
+Interface Real Extends Numeric
+    Method Half(): Self
+End Interface
+
+Extend Float32 Implements Real
+    Method Half(): Float32 => Self / 2
+End Extend
+
+Function Best<T: Ranked>(a: T, b: T): T
+    Return a < b ? b : a
+End Function
+
+Function Tagged<T: Shown>(x: T): String => "{x} {x.Tag()} {x.Hash() != 0}"
+
+Function Sum<T: Real>(a: T, b: T): T => (a + b).Half()
+
+Print(Best(3, 7))
+Print(Tagged("s"))
+Print(Tagged(Mode.B))
+Print(Sum(3.0, 5.0))
