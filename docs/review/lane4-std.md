@@ -11,7 +11,7 @@ dropped, with why (it doesn't reproduce, or the spec says otherwise).
 
 ## A11-1 (medium): Queue keeps dequeued values alive until it compacts
 
-Status: fixed in ac2f295 (queue_releases.fb): Items is a T?[], and Dequeue empties the slot it takes.
+Status: fixed in 09ab3fa (queue_releases.fb): Items is a T?[], and Dequeue empties the slot it takes.
 
 Where: std/collections/queue.fb:37
 
@@ -29,7 +29,7 @@ Skeptic: confirmed=True, medium. Reproduced with exp-all/skeptic11/q1.fb (Thing 
 
 ## A11-2 (medium): Map.Reserve above 2^30 overflows inside Grow; a Map can't grow past 2^30 buckets
 
-Status: fixed in f01419c and 83cd068, without a test: Grow stops at 2^30 buckets, and returns when that leaves the count as it is, so past 2^30 entries the chains get longer. (83cd068 moves the cap from a Const into Grow, since map.fb is in every program and its Consts showed in every MIR dump.) A test would need 2^30 entries reserved: 34 GB for a Map<Bool, Bool>'s entries and 4 GB of buckets. The capped arithmetic was checked by hand at 0, 8, 9, 2^30 - 1, 2^30, 2^30 + 1, and 2^31 - 1.
+Status: fixed in 6b0ed20, 20ff951, and a231ba5 (std_tests.cpp, "std's counts and indexes don't overflow near the most an Int holds"): BucketsFor, a Package Function in map.fb, gives the buckets and Shift for a count, stopping at 2^30 buckets, so past 2^30 entries the chains get longer, and Grow returns when that leaves the buckets as they are. The test calls BucketsFor from a module in std/extra/ with counts up to 2^31 - 1; the old loop panics there with an overflow. (20ff951 took the cap out of a file-level Const, since map.fb is in every program and its Consts showed in every MIR dump.)
 
 Where: std/collections/map.fb:364
 
@@ -47,7 +47,7 @@ Skeptic: confirmed=True, medium. Reproduced with exp-all/skeptic11/big.fb: `Loca
 
 ## A11-3 (medium): SortUnstable (and PriorityQueue's SiftDown) overflow working out a child index on arrays over 2^30 elements
 
-Status: fixed in 6daf613 (panic_sort_unstable_big.fb, a 1 GB Byte[] whose before function panics after three comparisons; 5 s each way): both SiftDowns stop at count / 2, before a child's index could overflow. PriorityQueue's has no test of its own, since one of 2^30 values takes about 40 s and 2 GB to build. Queue's compaction check, Head * 2, overflowed the same way at 2^31 - 1 slots; 651103a compares Head with Count - Head instead (no test: 4 GB).
+Status: fixed in 51a2464, 1e7a107, and a231ba5 (panic_sort_unstable_big.fb, a 1 GB Byte[] whose before function panics after three comparisons; and std_tests.cpp's HeapChild and HalfEmptied checks near 2^31): HeapChild, a Package Function in array.fb, gives a heap value's first child, or Null before it could overflow, and T[]'s and PriorityQueue's SiftDowns go through it. Queue's compaction check, Head * 2, overflowed the same way at 2^31 - 1 slots; HalfEmptied compares Head with Count - Head instead. Each old formula panics with an overflow in the test.
 
 Where: std/collections/array.fb:318
 
@@ -65,7 +65,7 @@ Skeptic: confirmed=True, medium. Reproduced with exp-all/skeptic11/bigsort.fb: a
 
 ## A11-4 (medium): Spec says T[]'s FindLast gives an Int?; it gives the element, a T?
 
-Status: fixed in abf320b: spec 14 gives FindLast a T?, beside Find. array_methods.fb already prints the element.
+Status: fixed in c5cc5bf: spec 14 gives FindLast a T?, beside Find. array_methods.fb already prints the element.
 
 Where: docs/spec/14-strings-collections.md:142
 
@@ -83,7 +83,7 @@ Skeptic: confirmed=True, medium. Spec 14 line 142 lists 'FindLast, FindIndex, In
 
 ## A11-5 (medium): Remove, IndexOf, LastIndexOf, and every collection's Contains refuse plain Class elements that == and T[].Contains accept
 
-Status: fixed in c383943 (equatable_objects.fb): spec 07 says a Class implements Equatable only by listing it, and spec 06 that Equatable is what gives generic code ==, so spec 14 now says what compares values needs them Equatable, and that listing it is all a Class needs. Making every Class Equatable would be a language change.
+Status: fixed in b4ce024 (equatable_objects.fb): spec 07 says a Class implements Equatable only by listing it, and spec 06 that Equatable is what gives generic code ==, so spec 14 now says what compares values needs them Equatable, and that listing it is all a Class needs. Making every Class Equatable would be a language change, which the coordinator is taking to the user.
 
 Where: std/collections/array.fb:14
 
@@ -101,7 +101,7 @@ Skeptic: confirmed=True, medium. Reproduced with exp-all/skeptic11/c1.fb (plain 
 
 ## A11-6 (medium): An unmet conditional Printable on a std collection gives the advice 'implement Printable, with a ToString'
 
-Status: fixed in 80dddbf (sema_tests.cpp, "an Extend's Where makes what it adds conditional"): a value whose Printable an Extend's Where keeps from it says which type argument isn't Printable, as "Map<String, Int32?> can't be shown by 'Print', since Int32? isn't Printable, which its ToString needs for V". The 'implement Printable' advice stays for a type with no such Extend. A small change in sema.cpp (lane 1's), in report_unshowable and a helper beside it.
+Status: fixed in bbdf0c5 (sema_tests.cpp, "an Extend's Where makes what it adds conditional"): a value whose Printable an Extend's Where keeps from it says which type argument isn't Printable, as "Map<String, Int32?> can't be shown by 'Print', since Int32? isn't Printable, which its ToString needs for V". The 'implement Printable' advice stays for a type with no such Extend. A small change in sema.cpp (lane 1's), in report_unshowable and a helper beside it.
 
 Where: compiler/src/sema.cpp:10404
 
@@ -119,7 +119,7 @@ Skeptic: confirmed=False, low. Refuted. The messages do show as described (d1.fb
 
 ## A11-7 (medium): No test that Map, Queue, or PriorityQueue panics when changed during a For ... In
 
-Status: fixed in 2725140 (panic_map_changed.fb, panic_queue_changed.fb, panic_priority_changed.fb).
+Status: fixed in 3e60285 (panic_map_changed.fb, panic_queue_changed.fb, panic_priority_changed.fb).
 
 Where: tests/programs/panic_set_changed.fb:1
 
@@ -137,7 +137,7 @@ Skeptic: confirmed=True, medium. Searching tests/ for 'the Map changed', 'the Qu
 
 ## A12-1 (medium): Near works out each point's offset in Float, not Double, so points at the radius's edge come out wrong
 
-Status: fixed in 9c8656e (spatial.fb's Edge cases, for a SpatialHash, a QuadTree, and an Octree): Within takes Doubles, so each placed Float coordinate is taken from a Double. The test's reference Near widens first too.
+Status: fixed in 461d84e (spatial.fb's Edge cases, for a SpatialHash, a QuadTree, and an Octree): Within takes Doubles, so each placed Float coordinate is taken from a Double. The test's reference Near widens first too.
 
 Where: std/collections/spatial.fb:92
 
@@ -155,7 +155,7 @@ Skeptic: confirmed=True, medium. Reproduced (exp-all/skeptic-a12/a1.fb). Within(
 
 ## A12-2 (medium): An infinite radius misses a point at the same infinity as the center, though the docs say it finds every point
 
-Status: fixed in 9c8656e (spatial.out's line 11 now has east): Within takes every placed value for an infinite radius.
+Status: fixed in 461d84e (spatial.out's line 11 now has east): Within takes every placed value for an infinite radius.
 
 Where: std/collections/spatial.fb:95
 
@@ -173,7 +173,7 @@ Skeptic: confirmed=True, medium. Reproduced (a2.fb). With a SpatialHash holding 
 
 ## A12-3 (medium): A NaN key quietly corrupts a SortedMap, SortedSet, or IntervalTree, so keys already in it can't be found and get duplicated
 
-Status: fixed in f5d2ac1 (panic_sorted_map_nan.fb, panic_sorted_set_nan.fb, panic_interval_nan.fb): a key that isn't equal to itself panics at the caller of SortedMap.Add and []=, SortedSet.Add, and IntervalTree.Add, and Floor, Ceiling, Range, Overlapping, Containing, Contains, and Remove find nothing for one. Ceiling(NaN) gave the smallest key, Range(NaN, x) started at the front, and IntervalTree.Contains(NaN, high, value) matched any node with that high. Spec 14 says so.
+Status: fixed in 0ab8ff1 (panic_sorted_map_nan.fb, panic_sorted_set_nan.fb, panic_interval_nan.fb): a key that isn't equal to itself panics at the caller of SortedMap.Add and []=, SortedSet.Add, and IntervalTree.Add, and Floor, Ceiling, Range, Overlapping, Containing, Contains, and Remove find nothing for one. Ceiling(NaN) gave the smallest key, Range(NaN, x) started at the front, and IntervalTree.Contains(NaN, high, value) matched any node with that high. Spec 14 says so.
 
 Where: std/collections/sorted.fb:232
 
@@ -191,7 +191,7 @@ Skeptic: confirmed=True, medium. Reproduced (a3.fb): a SortedMap<Double, Int> wi
 
 ## A12-4 (medium): Grid3's panics, and a few other promised panics, have no test
 
-Status: fixed in 4c48757: Grid3's panics were already tested (panic_grid3_*.fb). New tests cover every spatial NaN check that had none (SpatialHash's Remove and Contains, the trees' Add, Remove, Contains, and Move, and QuadTree's and Octree's Near and Query), SpatialHash's and Octree's change-while-iterating panics, and an empty LinkedList's Last.
+Status: fixed in b45a1a8: Grid3's panics were already tested (panic_grid3_*.fb). New tests cover every spatial NaN check that had none (SpatialHash's Remove and Contains, the trees' Add, Remove, Contains, and Move, and QuadTree's and Octree's Near and Query), SpatialHash's and Octree's change-while-iterating panics, and an empty LinkedList's Last.
 
 Where: std/collections/grid.fb:149
 
@@ -209,7 +209,7 @@ Skeptic: confirmed=True, low. The main claim is wrong. Grid3's panics are tested
 
 ## A11-8 (low): stdlib.md says three things std doesn't do
 
-Status: open
+Status: fixed in da70104: stdlib.md says a collection's Filter and Map give its own kind of collection, SortUnstable makes no array, and MergeSort is Package, beside JoinedText and IterateAs.
 
 Where: docs/stdlib.md:183
 
@@ -263,7 +263,7 @@ Skeptic: confirmed=True, low. map.fb:22-23 says the buckets are 'a power of two,
 
 ## A11-11 (low): Defaultable's comment breaks mid-sentence; Sendable's leaves out Channel
 
-Status: open
+Status: fixed in 472e909: Defaultable's comment is one wrapped paragraph, and Sendable's lists Channels, Mutexes, and Atomics, as spec 10's bullet now does too.
 
 Where: std/core/interfaces.fb:50
 
@@ -335,7 +335,7 @@ Skeptic: confirmed=True, low. Reproduced (a6.fb): Add a, Add b, Remove a, Add a,
 
 ## A12-7 (low): The spec says LinkedList's First and Last mean what they do on an array, but they don't
 
-Status: open
+Status: fixed in 29b2b76 (panic_linked_list_last_empty.fb, from A12-4): spec 14 says a LinkedList's First, Last, Find, and Remove give or take values, not nodes, and that First and Last panic on an empty list, with Try twins that give a T?.
 
 Where: docs/spec/14-strings-collections.md:237
 
@@ -371,7 +371,7 @@ Skeptic: confirmed=False, low. Spec 14:217's member list is a union across the t
 
 ## A12-9 (low): Slot arithmetic overflows Int for capacities above 2^30
 
-Status: open
+Status: fixed in 92a3674 (std_tests.cpp's SlotFrom checks near 2^31): SlotFrom, a Package Function in ring_buffer.fb, goes round from Head without adding past the capacity, and Add, RemoveLast, Last, and [] go through it. Its old formula, (head + index) % capacity, panics with an overflow in the test.
 
 Where: std/collections/ring_buffer.fb:42
 
