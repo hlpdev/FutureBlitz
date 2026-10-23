@@ -9722,9 +9722,78 @@ private:
             }
         }
 
+        link_compared_fields(also);
         for (const std::vector<worker_t>* list : { &m_workers, &m_kept_workers }) {
             for (const worker_t& worker : *list) {
                 in_file(worker.span.file, [&] { check_worker(worker, also); });
+            }
+        }
+    }
+
+    /// A Struct that implements Equatable without an Operator == of its own compares its
+    /// fields, which runs their own when generic code's == reaches Equatable's, so that reaches
+    /// them too.
+    void link_compared_fields(std::unordered_map<symbol_id_t, std::vector<symbol_id_t>>& also) {
+        const type_id_t equatable = m_analysis.interfaces.equatable;
+        const auto declared = m_declared_types.find(equatable);
+        if (equatable == type_id_t::INVALID || declared == m_declared_types.end()) {
+            return;
+        }
+
+        const std::vector<symbol_id_t>& required = symbol(declared->second).members;
+        const auto wanted = std::ranges::find_if(
+            required, [&](const symbol_id_t id) { return symbol(id).name == "=="; });
+        if (wanted == required.end()) {
+            return;
+        }
+
+        for (std::size_t i = 0; i < m_analysis.types.size(); ++i) {
+            const auto type = static_cast<type_id_t>(i);
+            const type_t& info = m_analysis.types.get(type);
+            const bool generic = info.generic == type_id_t::INVALID && !info.parameters.empty();
+            if (!is_struct(type) || generic || !own_equals(type).empty() ||
+                !implements(type, equatable)) {
+                continue;
+            }
+
+            std::vector<type_id_t> seen{ type };
+            for (const field_t& field : info.fields) {
+                compared_by(field.type, seen, also[*wanted]);
+            }
+        }
+    }
+
+    /// The Operator ==s of `type` itself, for an instance the ones it has.
+    [[nodiscard]] std::vector<symbol_id_t> own_equals(const type_id_t type) const {
+        std::vector<symbol_id_t> own;
+        for (const symbol_id_t id : operators_of(type, "==")) {
+            if (instance_has(type, m_analysis.symbols[index(id)])) {
+                own.push_back(id);
+            }
+        }
+
+        return own;
+    }
+
+    /// The Operator ==s that comparing a `type` runs, as note_compared() finds them, into
+    /// `found`.
+    void compared_by(const type_id_t type, std::vector<type_id_t>& seen,
+                     std::vector<symbol_id_t>& found) const {
+        if (std::ranges::contains(seen, type)) {
+            return;
+        }
+
+        seen.push_back(type);
+        if (is_any_array(type) || is_nullable(type)) {
+            compared_by(is_nullable(type) ? non_null(type) : element_of(type), seen, found);
+            return;
+        }
+
+        if (const std::vector<symbol_id_t> own = own_equals(type); !own.empty()) {
+            found.insert(found.end(), own.begin(), own.end());
+        } else if (is_struct(type) || is_tuple(type)) {
+            for (const field_t& field : m_analysis.types.get(type).fields) {
+                compared_by(field.type, seen, found);
             }
         }
     }
@@ -19592,10 +19661,16 @@ private:
             }
         }
 
+        // A T[]'s Contains runs its elements' Operator ==, as == on them would.
         if (function.kind == symbol_kind_t::METHOD && function.name == "Contains" &&
-            is_array(function.owner) && !comparable(element_of(function.owner))) {
-            error(span_of(node.callee), "Contains compares with ==, which {} doesn't have",
-                  shown_name(element_of(function.owner)));
+            is_array(function.owner)) {
+            if (!comparable(element_of(function.owner))) {
+                error(span_of(node.callee), "Contains compares with ==, which {} doesn't have",
+                      shown_name(element_of(function.owner)));
+            } else {
+                std::vector<type_id_t> seen;
+                note_compared(element_of(function.owner), span_of(node.callee), seen);
+            }
         }
 
         if (function.kind == symbol_kind_t::METHOD && function.name == "Destroy" &&

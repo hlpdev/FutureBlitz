@@ -8589,6 +8589,34 @@ TEST_CASE("what a call can run on another thread includes overrides and lambdas"
     CHECK(errors_of(std::format("{}{}Local t = Spawn(Function() => Pair(Eq(1)) == Pair(Eq(2)))",
                                 parts, score)) ==
           errors_t{ std::vformat(reached, std::make_format_args("Eq.==")) });
+    // So do a T[]'s Contains and generic code's == on a Struct that compares its fields, as
+    // generic code's Hash does on one that combines its fields'.
+    CHECK(errors_of(std::format("{}{}Local t = Spawn(Function() => [Eq(1)].Contains(Eq(2)))",
+                                parts, score)) ==
+          errors_t{ std::vformat(reached, std::make_format_args("Eq.==")) });
+    CHECK(errors_of(std::format("{}{}Struct Listed Implements Equatable\n"
+                                "    Field e: Eq\n"
+                                "End Struct\n"
+                                "Function Same<T: Equatable>(a: T, b: T): Bool => a == b\n"
+                                "Local t = Spawn(Function() => Same(Listed(Eq(1)), Listed(Eq(2))))",
+                                parts, score)) ==
+          errors_t{ "Spawn: this work runs on another thread, but it calls 'Same', which calls "
+                    "'==', which calls 'Eq.==', which uses the Global 'score', which only the "
+                    "main thread can, unless it's an Atomic or a Mutex" });
+    CHECK(errors_of(std::format("{}{}Struct Key Implements Hashable\n"
+                                "    Field n: Int\n"
+                                "    Operator ==(a: Key, b: Key): Bool => a.n == b.n\n"
+                                "    Method Hash(): UInt64 => score As UInt64\n"
+                                "End Struct\n"
+                                "Struct Keys Implements Hashable\n"
+                                "    Field k: Key\n"
+                                "End Struct\n"
+                                "Function HashOf<T: Hashable>(a: T): UInt64 => a.Hash()\n"
+                                "Local t = Spawn(Function() => HashOf(Keys(Key(1))))",
+                                parts, score)) ==
+          errors_t{ "Spawn: this work runs on another thread, but it calls 'HashOf', which calls "
+                    "'Hash', which calls 'Key.Hash', which uses the Global 'score', which only the "
+                    "main thread can, unless it's an Atomic or a Mutex" });
     CHECK(errors_of(std::format("{}Struct Node\n"
                                 "    Field children: Node[]\n"
                                 "End Struct\n"
