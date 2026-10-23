@@ -11665,6 +11665,71 @@ private:
         }
     }
 
+    /// What showing a value of `type` by a format spec runs, which work on another thread can't
+    /// reach main-thread state through: the ToString whose text it pads, a program's own Format,
+    /// or for the debug form, the Iterate of each type in it that std's DebugElements or
+    /// DebugEntries shows by its elements.
+    void note_formatted(const type_id_t type, const format_t& format, const span_t span) {
+        const std::expected<format_spec_t, format_spec_error_t> spec =
+            parse_format_spec(format.text);
+        if (type == type_id_t::INVALID || !spec) {
+            return;
+        }
+
+        if (spec->kind == '?') {
+            std::vector<type_id_t> seen;
+            note_debugged(type, span, seen);
+            return;
+        }
+
+        note_shown(type, span);
+        if (!has_members(type) && !is_parameter(type)) {
+            return;
+        }
+
+        for (const symbol_id_t method : members_of(type, "Format")) {
+            if (symbol(method).kind == symbol_kind_t::METHOD &&
+                symbol(method).parameters.size() == 1) {
+                note_thread_use(method, span);
+            }
+        }
+    }
+
+    /// The Iterates that a value of `type`'s debug form runs, of it and each type in it, once.
+    void note_debugged(const type_id_t type, const span_t span, std::vector<type_id_t>& seen) {
+        if (type == type_id_t::INVALID || std::ranges::contains(seen, type)) {
+            return;
+        }
+
+        seen.push_back(type);
+        const type_t& info = m_analysis.types.get(type);
+        if (info.kind == type_kind_t::NULLABLE || is_any_array(type)) {
+            note_debugged(info.inner, span, seen);
+            return;
+        }
+
+        if (const auto declared = m_declared_types.find(definition_of(type));
+            declared != m_declared_types.end()) {
+            const std::vector<attribute_value_t>& attributes = symbol(declared->second).attributes;
+            const auto has = [&](const type_id_t attribute) {
+                return attribute != type_id_t::INVALID &&
+                       std::ranges::contains(attributes, attribute, &attribute_value_t::type);
+            };
+            if (has(m_analysis.debug_elements) || has(m_analysis.debug_entries)) {
+                for (const symbol_id_t method : members_of(type, "Iterate")) {
+                    if (symbol(method).kind == symbol_kind_t::METHOD &&
+                        symbol(method).parameters.empty()) {
+                        note_thread_use(method, span);
+                    }
+                }
+            }
+        }
+
+        for (const field_t& field : info.fields) {
+            note_debugged(field.type, span, seen);
+        }
+    }
+
     /// == on arrays, tuples, T?s, and Structs without an Operator == of their own compares
     /// their parts, which runs the Operator == of each part that has one. A Struct can hold an
     /// array of itself, so each type is `seen` once.
@@ -17197,6 +17262,7 @@ private:
             std::optional<format_spec_t> spec;
             if (interpolation.format) {
                 spec = check_format(*interpolation.format, inner, type);
+                note_formatted(type, *interpolation.format, span_of(inner));
             } else if (type != type_id_t::INVALID && !showable(type)) {
                 report_unshowable(inner, type);
             } else {
