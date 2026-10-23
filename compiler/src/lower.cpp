@@ -2124,8 +2124,13 @@ private:
     /// the Globals above, which analysis checks.
     global_id_t ready(const global_id_t global, const expr_id_t use) {
         if (m_module.globals[index(global)].is_thread_local) {
+            // One with no initializer to run or references to release is each thread's from the
+            // start, so its uses check nothing.
             use_thread_local(global);
-            emit(ready_t{ .global = global, .span = m_ast.get(use).span });
+            if (m_thread_local_declarations.contains(global) ||
+                has_references(m_module.globals[index(global)].type)) {
+                emit(ready_t{ .global = global, .span = m_ast.get(use).span });
+            }
         } else if (m_function != m_module.entry && m_module.globals[index(global)].set_in_main) {
             emit(ready_t{ .global = global, .span = m_ast.get(use).span });
         }

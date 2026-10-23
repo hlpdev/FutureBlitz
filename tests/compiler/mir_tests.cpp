@@ -287,6 +287,52 @@ TEST_CASE("Globals known at compile time are static; the rest are set first in m
                                            "    return\n");
 }
 
+TEST_CASE("a ThreadLocal Global's initializer is a function of its own, which its uses check for",
+          "[mir]") {
+    // hits has nothing to make or release, so its uses check nothing; name holds a reference,
+    // which each thread releases, and start's initializer runs on each thread's first use.
+    CHECK(lower_text("ThreadLocal Global hits = 0\n"
+                     "ThreadLocal Global name = \"fb\"\n"
+                     "ThreadLocal Global start = Make()\n"
+                     "Function Make(): Int => 3\n"
+                     "Function Bump(): Int\n    hits += start\n    Return hits\nEnd Function\n"
+                     "Local n = Bump()\n"
+                     "Local s = name") == "ThreadLocal global hits: Int32 = 0\n"
+                                          "ThreadLocal global name: String = \"fb\"\n"
+                                          "ThreadLocal global start: Int32 = 0, initializer: "
+                                          "start.Initializer\n"
+                                          "\n"
+                                          "function Make() -> Int32\n"
+                                          "bb0:\n"
+                                          "    return 3\n"
+                                          "\n"
+                                          "function Bump() -> Int32\n"
+                                          "bb0:\n"
+                                          "    check ready @start\n"
+                                          "    @hits = @hits + @start\n"
+                                          "    return @hits\n"
+                                          "\n"
+                                          "function main\n"
+                                          "    _0: Int32\n"
+                                          "    _1 n: Int32\n"
+                                          "    _2 s: String\n"
+                                          "bb0:\n"
+                                          "    _0 = call Bump()()\n"
+                                          "    _1 = _0\n"
+                                          "    check ready @name\n"
+                                          "    retain @name\n"
+                                          "    _2 = @name\n"
+                                          "    release _2\n"
+                                          "    return\n"
+                                          "\n"
+                                          "function start.Initializer\n"
+                                          "    _0: Int32\n"
+                                          "bb0:\n"
+                                          "    _0 = call Make()()\n"
+                                          "    @start = _0\n"
+                                          "    return\n");
+}
+
 TEST_CASE("a Const known at compile time is no global, used or not", "[mir]") {
     // Each use reads its value, so a Const in a module every program loads adds nothing to them.
     std::vector<fb::library_file_t> files =
