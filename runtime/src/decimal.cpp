@@ -10,6 +10,7 @@
 #include <charconv>
 #include <cstddef>
 #include <cstdint>
+#include <fast_float/fast_float.h>
 #include <limits>
 #include <mpdecimal.h>
 #include <string>
@@ -168,7 +169,8 @@ fb_string_t* fb_decimal_to_plain_string(const void* a) {
 
 double fb_decimal_to_double(const void* a) {
     // The text reads as the Double nearest it, unless that's past the largest Double or below the
-    // smallest above 0.
+    // smallest above 0. fast_float reads it, as std::from_chars would where the C++ library has it
+    // for floats; Apple's libc++ doesn't.
     char* text = mpd_to_sci(from(a), 1);
     if (text == nullptr) {
         fb_panic("out of memory", nullptr);
@@ -176,7 +178,7 @@ double fb_decimal_to_double(const void* a) {
 
     const std::string_view view(text);
     double value = 0;
-    if (std::from_chars(view.data(), view.data() + view.size(), value).ec ==
+    if (fast_float::from_chars(view.data(), view.data() + view.size(), value).ec ==
         std::errc::result_out_of_range) {
         value = mpd_adjexp(from(a)) > 0 ? std::numeric_limits<double>::infinity() : 0.0;
         value = mpd_isnegative(from(a)) != 0 ? -value : value;

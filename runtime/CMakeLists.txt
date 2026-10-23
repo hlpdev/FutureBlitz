@@ -57,7 +57,8 @@ foreach(part bigint decimal)
   fb_set_warnings(fb_runtime_${part})
 endforeach()
 target_link_libraries(fb_runtime_bigint PRIVATE tommath)
-target_link_libraries(fb_runtime_decimal PRIVATE mpdecimal)
+# fast_float, which the compiler's CMake fetches, reads the Doubles Decimals become.
+target_link_libraries(fb_runtime_decimal PRIVATE mpdecimal FastFloat::fast_float)
 
 # What a program can link: each part and its library, which fb and the tests that build programs
 # depend on.
