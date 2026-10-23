@@ -57,5 +57,6 @@ Public Function CaseFold(text: String): String => fb_unicode_case_fold(text)
 Public Function DisplayWidth(c: Char): Int => fb_unicode_char_width(c As UInt32)
 
 // The columns text takes in a terminal, each grapheme cluster as many as its widest character,
-// so "e" with its accent is 1, and an emoji made of several is 2.
+// so "e" with its accent is 1, and an emoji made of several is 2. A flag is 2, and so is a
+// character that U+FE0F asks to be drawn as emoji, like "\u{2764}\u{FE0F}", though it's 1 alone.
 Public Function DisplayWidth(text: String): Int => fb_unicode_display_width(text) As Int

@@ -111,6 +111,38 @@ bool is_final_sigma(const std::span<const std::int32_t> points, const std::size_
     return after == points.size() || !is_cased(points[after]);
 }
 
+/// The columns a grapheme cluster takes: its widest character's, so a letter with its marks, or
+/// emoji joined into one, is one character. A flag, two regional indicators, takes 2, and so
+/// does an emoji presentation sequence, a pictograph or a keycap's 0 to 9, #, or * with U+FE0F
+/// after it, which terminals draw as emoji though the character alone is 1 wide.
+int cluster_width(const std::span<const std::int32_t> cluster) {
+    constexpr std::int32_t first_indicator = 0x1F1E6;
+    constexpr std::int32_t last_indicator = 0x1F1FF;
+    constexpr std::int32_t emoji_selector = 0xFE0F;
+    constexpr std::int32_t keycap = 0x20E3;
+    int widest = 0;
+    int indicators = 0;
+    bool emoji = false;
+    bool capped = false;
+    for (const std::int32_t point : cluster) {
+        widest = std::max(widest, utf8proc_charwidth(point));
+        indicators += point >= first_indicator && point <= last_indicator ? 1 : 0;
+        emoji = emoji || point == emoji_selector;
+        capped = capped || point == keycap;
+    }
+
+    const std::int32_t base = cluster.front();
+    const auto bound = static_cast<utf8proc_boundclass_t>(utf8proc_get_property(base)->boundclass);
+    const bool pictograph =
+        bound == UTF8PROC_BOUNDCLASS_EXTENDED_PICTOGRAPHIC || bound == UTF8PROC_BOUNDCLASS_E_ZWG;
+    const bool keycap_base = (base >= '0' && base <= '9') || base == '#' || base == '*';
+    if (indicators >= 2 || (emoji && (pictograph || (keycap_base && capped)))) {
+        return std::max(widest, 2);
+    }
+
+    return widest;
+}
+
 } // namespace
 
 extern "C" {
@@ -256,25 +288,18 @@ std::int32_t fb_unicode_char_width(const std::uint32_t point) {
 }
 
 std::int64_t fb_unicode_display_width(const fb_string_t* text) {
-    // A grapheme cluster takes the columns of its widest character, so an emoji that joins
-    // others, or a letter with its marks, is one wide character; a flag, two regional
-    // indicators, is two columns too.
-    constexpr std::int32_t first_indicator = 0x1F1E6;
-    constexpr std::int32_t last_indicator = 0x1F1FF;
     const std::vector<std::int32_t> points = points_of(text);
     std::int64_t width = 0;
-    int cluster = 0;
+    std::size_t start = 0;
     std::int32_t state = 0;
-    for (std::size_t i = 0; i < points.size(); ++i) {
-        if (i > 0 && utf8proc_grapheme_break_stateful(points[i - 1], points[i], &state)) {
-            width += cluster;
-            cluster = 0;
+    for (std::size_t i = 1; i <= points.size(); ++i) {
+        if (i == points.size() ||
+            utf8proc_grapheme_break_stateful(points[i - 1], points[i], &state)) {
+            width += cluster_width(std::span(points).subspan(start, i - start));
+            start = i;
         }
-
-        const bool indicator = points[i] >= first_indicator && points[i] <= last_indicator;
-        cluster = std::max(cluster, indicator ? 2 : utf8proc_charwidth(points[i]));
     }
 
-    return width + cluster;
+    return width;
 }
 }
