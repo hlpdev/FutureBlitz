@@ -1,0 +1,105 @@
+// std.io's file watcher: what happens to a file, or to what's in a folder, as the OS tells libuv,
+// which a FileWatcher queues for the program to take in turn, waiting for it, awaiting it, or
+// not.
+
+Import std.core
+Import std.io.path
+Import std.io.request
+
+Extern "runtime"
+    Function fb_io_watcher_new(path: String): Ptr<Void>
+    Function fb_io_watcher_error(watcher: Ptr<Void>): Int64
+    Function fb_io_watcher_next(watcher: Ptr<Void>, wait: Int32): Int32
+    Function fb_io_watcher_wait_async(watcher: Ptr<Void>): Task<Int64>
+    Function fb_io_watcher_kind(watcher: Ptr<Void>): Int32
+    Function fb_io_watcher_path(watcher: Ptr<Void>): String
+    Function fb_io_watcher_close(watcher: Ptr<Void>)
+    Function fb_io_watcher_free(watcher: Ptr<Void>)
+End Extern
+
+// What happened at a path: something came there, it changed, or it went. A rename is the old
+// name's REMOVED and the new one's CREATED, since OSes don't all pair them.
+Public Enum FileEventKind
+    CREATED
+    CHANGED
+    REMOVED
+End Enum
+
+// What happened, and where.
+Public Struct FileEvent
+    Public ReadOnly Field Kind: FileEventKind
+    Public ReadOnly Field Path: Path
+
+    Package New(kind: FileEventKind, path: Path)
+        Kind = kind
+        Path = path
+    End New
+End Struct
+
+// Watches a file, or what's in a folder, but not the folders in it, from when it's made until
+// it's closed or its last reference goes. An OS can tell of one change more than once, as when a
+// write comes in parts, and of a change it makes itself, as of a folder's times.
+Public Class FileWatcher
+    Public ReadOnly Field Path: Path
+    Field Native: Ptr<Void>
+
+    // Starts watching what's at the path, which has to be there.
+    Public New(path: Path) Throws IOError
+        Path = path
+        Native = fb_io_watcher_new(path.Text)
+        Local error = fb_io_watcher_error(Native)
+        If error != 0
+            fb_io_watcher_free(Native)
+            Native = Null
+            Throw ErrorOf(error, "watch", path)
+        End If
+    End New
+
+    // The next event, waiting for it, or Null once it's closed. Nothing else runs on this thread
+    // meanwhile, so one that nothing comes to waits forever.
+    Public Method Next(): FileEvent? => Taken(1)
+
+    // The next event if one's come, or Null.
+    Public Method TryNext(): FileEvent? => Taken(0)
+
+    // Next's Async twin, which waits on the main thread instead of blocking it.
+    Public Async Method NextAsync(): FileEvent?
+        Loop
+            Local taken = Taken(0)
+            If taken != Null || Native == Null Then Return taken
+            If (Await fb_io_watcher_wait_async(Native)) == 0 Then Return Taken(0)
+        End Loop
+    End Method
+
+    // Stops watching, dropping the events not taken yet, so what waits for one, and each later
+    // Next, gets Null. A second Close does nothing.
+    Public Method Close()
+        If Native != Null Then fb_io_watcher_close(Native)
+    End Method
+
+    Method Destroy()
+        If Native != Null Then fb_io_watcher_free(Native)
+    End Method
+
+    // The next event, waiting for one unless `wait` is 0.
+    Method Taken(wait: Int32): FileEvent?
+        If Native == Null || fb_io_watcher_next(Native, wait) == 0 Then Return Null
+        Return EventOf(Native, Path.Style)
+    End Method
+End Class
+
+// The event a watcher took last, with a path of `style`.
+Function EventOf(watcher: Ptr<Void>, style: PathStyle): FileEvent
+    Return FileEvent(KindOf(fb_io_watcher_kind(watcher)), Path(fb_io_watcher_path(watcher), style))
+End Function
+
+Function KindOf(number: Int32): FileEventKind
+    Select number
+        Case 0
+            Return FileEventKind.CREATED
+        Case 1
+            Return FileEventKind.CHANGED
+        Default
+            Return FileEventKind.REMOVED
+    End Select
+End Function
