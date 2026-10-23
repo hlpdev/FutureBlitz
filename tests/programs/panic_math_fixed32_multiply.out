@@ -1,0 +1,2 @@
+32761
+panic: a Fixed32's * overflows at panic_math_fixed32_multiply.fb:8:7

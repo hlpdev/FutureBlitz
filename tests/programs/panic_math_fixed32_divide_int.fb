@@ -1,0 +1,8 @@
+// A Fixed32 divided by an Int 0 panics where it's divided, as an Int does.
+Import std.core
+Import std.math
+
+Local three = Fixed32.FromInt(3)
+Local none = 0
+Print(three / 2)
+Print(three / none)

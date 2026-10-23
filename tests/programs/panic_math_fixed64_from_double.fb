@@ -1,0 +1,6 @@
+// A Fixed64 holds values below 2^31, and FromDouble panics where it's called past them.
+Import std.core
+Import std.math
+
+Print(Fixed64.FromDouble(-2147483648.0))
+Print(Fixed64.FromDouble(3e9))

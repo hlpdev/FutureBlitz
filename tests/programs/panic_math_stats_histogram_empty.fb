@@ -1,0 +1,7 @@
+// Histogram without a range takes at least one value, which panics where it's called.
+Import std.core
+Import std.math
+
+Local none: Int[] = []
+Print(Histogram([1, 2], 2))
+Print(Histogram(none, 2))

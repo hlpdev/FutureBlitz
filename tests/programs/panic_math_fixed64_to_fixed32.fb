@@ -1,0 +1,7 @@
+// A Fixed64 too large for a Fixed32 panics where it's converted, in debug builds, as an Int's
+// narrowing does.
+Import std.core
+Import std.math
+
+Print(Fixed64.FromInt(32767).ToFixed32())
+Print(Fixed64.FromInt(32768).ToFixed32())

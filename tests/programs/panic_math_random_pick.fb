@@ -1,0 +1,8 @@
+// Random's Pick takes at least one item, which panics where it's called.
+Import std.core
+Import std.math
+
+Local random = Random(1)
+Print(random.Pick([7]))
+Local none: Int[] = []
+Print(random.Pick(none))

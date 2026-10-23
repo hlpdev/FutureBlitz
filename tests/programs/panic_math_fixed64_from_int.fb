@@ -1,0 +1,6 @@
+// A Fixed64 holds whole numbers an Int does, and FromInt panics where it's called past them.
+Import std.core
+Import std.math
+
+Print(Fixed64.FromInt(-2147483648))
+Print(Fixed64.FromInt(2147483648))

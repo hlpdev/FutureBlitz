@@ -1,0 +1,6 @@
+// Random's Float takes finite ends, so a NaN one panics where it's called.
+Import std.core
+Import std.math
+
+Local random = Random(1)
+Print(random.Float(0, NaN))

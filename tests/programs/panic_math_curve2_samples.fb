@@ -1,0 +1,7 @@
+// A Curve2 takes at least one sample, which panics where it's made.
+Import std.core
+Import std.math
+
+Local line = Function(t: Float) => Vec2(t, 0)
+Print(Curve2(line, 1).Length)
+Print(Curve2(line, 0).Length)

@@ -1,0 +1,6 @@
+// A Fixed64's Sqrt takes a value that isn't negative, which panics where it's called.
+Import std.core
+Import std.math
+
+Print(Sqrt(Fixed64.FromInt(9)))
+Print(Sqrt(Fixed64.FromRaw(-1)))

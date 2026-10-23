@@ -1,0 +1,8 @@
+// A Fixed64 product past what it holds panics where it's multiplied, in debug builds, as an Int's
+// does.
+Import std.core
+Import std.math
+
+Local big = Fixed64.FromInt(46341)
+Print(big * Fixed64.FromInt(46340))
+Print(big * big)

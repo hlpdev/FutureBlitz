@@ -1,0 +1,7 @@
+// Median takes at least one value, which panics where it's called.
+Import std.core
+Import std.math
+
+Local none: Int[] = []
+Print(Median([1, 2]))
+Print(Median(none))

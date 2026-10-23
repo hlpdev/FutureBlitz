@@ -1,0 +1,2 @@
+[(0, 0, 0), (1, 0, 0)]
+panic: Sample takes at least two points, not 0 at panic_math_curve3_sample.fb:7:7

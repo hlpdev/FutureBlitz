@@ -1,0 +1,2 @@
+32767.5
+panic: a Fixed32 holds values from -32768 to 32767.99998, not 40000 at panic_math_fixed32_from_double.fb:6:7

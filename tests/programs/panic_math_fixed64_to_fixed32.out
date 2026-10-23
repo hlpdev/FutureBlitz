@@ -1,0 +1,2 @@
+32767
+panic: a Fixed32's conversion overflows at panic_math_fixed64_to_fixed32.fb:7:7

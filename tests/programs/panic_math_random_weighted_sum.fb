@@ -1,0 +1,6 @@
+// WeightedPick takes weights whose sum is above 0, which panics where it's called.
+Import std.core
+Import std.math
+
+Local random = Random(1)
+Print(random.WeightedPick([1, 2], [0.0, 0.0]))

@@ -1,0 +1,6 @@
+// Histogram without a range takes a count of bins above 0, which panics where it's called.
+Import std.core
+Import std.math
+
+Print(Histogram([1, 2], 2))
+Print(Histogram([1, 2], -1))

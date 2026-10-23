@@ -1,0 +1,2 @@
+[1, 1]
+panic: Histogram takes at least 1 value, not 0 at panic_math_stats_histogram_empty.fb:7:7

@@ -1,0 +1,6 @@
+// Histogram takes a low below its high, which panics where it's called.
+Import std.core
+Import std.math
+
+Print(Histogram([1, 2], 2, 0, 3))
+Print(Histogram([1, 2], 2, 3, 3))

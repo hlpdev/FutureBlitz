@@ -1,0 +1,2 @@
+1.5
+panic: division by zero at panic_math_fixed64_divide.fb:7:7

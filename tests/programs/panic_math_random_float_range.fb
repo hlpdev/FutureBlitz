@@ -1,0 +1,7 @@
+// Random's Float takes a low that isn't above its high, which panics where it's called.
+Import std.core
+Import std.math
+
+Local random = Random(1)
+Print(random.Float(2, 2))
+Print(random.Float(2, 1))

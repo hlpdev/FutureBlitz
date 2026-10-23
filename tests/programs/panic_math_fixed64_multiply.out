@@ -1,0 +1,2 @@
+2147441940
+panic: a Fixed64's * overflows at panic_math_fixed64_multiply.fb:8:7

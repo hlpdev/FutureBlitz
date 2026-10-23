@@ -1,0 +1,6 @@
+// Variance, the sample's, takes at least two values, which panics where it's called.
+Import std.core
+Import std.math
+
+Print(Variance([1, 2]))
+Print(Variance([7]))

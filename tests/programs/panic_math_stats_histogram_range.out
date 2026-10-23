@@ -1,0 +1,2 @@
+[1, 1]
+panic: Histogram takes a low below a finite high, not 3 and 3 at panic_math_stats_histogram_range.fb:6:7

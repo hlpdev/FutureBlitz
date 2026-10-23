@@ -1,0 +1,7 @@
+// Random's Int takes a count above 0, which panics where it's called.
+Import std.core
+Import std.math
+
+Local random = Random(1)
+Print(random.Int(1))
+Print(random.Int(0))

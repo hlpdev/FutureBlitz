@@ -1,0 +1,5 @@
+// A Fixed32 isn't NaN, and FromDouble panics where it's called on it.
+Import std.core
+Import std.math
+
+Print(Fixed32.FromDouble(NaN))

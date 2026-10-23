@@ -1,0 +1,7 @@
+// A Fixed32 holds whole numbers from -32768 to 32767, and FromInt panics where it's called past
+// them.
+Import std.core
+Import std.math
+
+Print(Fixed32.FromInt(32767))
+Print(Fixed32.FromInt(32768))

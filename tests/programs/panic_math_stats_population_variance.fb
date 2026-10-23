@@ -1,0 +1,7 @@
+// PopulationVariance takes at least one value, which panics where it's called.
+Import std.core
+Import std.math
+
+Local none: Int[] = []
+Print(PopulationVariance([7]))
+Print(PopulationVariance(none))

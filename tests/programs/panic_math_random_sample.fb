@@ -1,0 +1,7 @@
+// Sample takes a count no more than the items', which panics where it's called.
+Import std.core
+Import std.math
+
+Local random = Random(1)
+Print(random.Sample([1, 2, 3], 3).Count)
+Print(random.Sample([1, 2, 3], 4))

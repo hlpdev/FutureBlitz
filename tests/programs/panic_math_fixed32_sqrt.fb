@@ -1,0 +1,6 @@
+// A Fixed32's Sqrt takes a value that isn't negative, which panics where it's called.
+Import std.core
+Import std.math
+
+Print(Sqrt(Fixed32.FromInt(4)))
+Print(Sqrt(Fixed32.FromInt(-4)))

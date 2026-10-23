@@ -1,0 +1,6 @@
+// A Curve3's B-spline takes at least two points, which panics where it's made.
+Import std.core
+Import std.math
+
+Print(Curve3.BSpline([Vec3.Zero(), Vec3.One()]).Length > 0)
+Print(Curve3.BSpline([Vec3.Zero()]).Length)

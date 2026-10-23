@@ -1,0 +1,2 @@
+3
+panic: Sqrt takes a value that isn't negative, not -2.3283064365386963e-10 at panic_math_fixed64_sqrt.fb:6:7

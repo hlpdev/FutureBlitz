@@ -1,0 +1,6 @@
+// A Curve3's Bezier path takes 3n + 1 points, which panics where it's made.
+Import std.core
+Import std.math
+
+Print(Curve3.Bezier([Vec3.Zero(), Vec3.Up, Vec3.One(), Vec3.Right]).Length > 0)
+Print(Curve3.Bezier([Vec3.Zero(), Vec3.Up]).Length)

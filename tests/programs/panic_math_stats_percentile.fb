@@ -1,0 +1,7 @@
+// Percentile takes at least one value, which panics where it's called.
+Import std.core
+Import std.math
+
+Local none: Int[] = []
+Print(Percentile([7], 50))
+Print(Percentile(none, 50))

@@ -1,0 +1,2 @@
+3
+panic: a Bezier path takes 3n + 1 points, from 4 up, not 5 at panic_math_curve2_bezier.fb:6:7

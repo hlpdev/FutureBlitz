@@ -1,0 +1,2 @@
+32767
+panic: a Fixed32 holds whole numbers from -32768 to 32767, not 32768 at panic_math_fixed32_from_int.fb:7:7

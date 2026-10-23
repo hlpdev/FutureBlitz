@@ -1,0 +1,6 @@
+// A Curve2's Catmull-Rom spline takes at least two points, which panics where it's made.
+Import std.core
+Import std.math
+
+Print(Curve2.CatmullRom([Vec2.Zero(), Vec2.One()]).Length > 0)
+Print(Curve2.CatmullRom([Vec2.Zero()]).Length)

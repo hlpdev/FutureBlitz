@@ -1,0 +1,6 @@
+// A Fixed32 holds values below 32768, and FromDouble panics where it's called past them.
+Import std.core
+Import std.math
+
+Print(Fixed32.FromDouble(32767.5))
+Print(Fixed32.FromDouble(40000))

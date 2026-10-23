@@ -1,0 +1,7 @@
+// A Fixed64 divided by 0 panics where it's divided, as an Int does.
+Import std.core
+Import std.math
+
+Local three = Fixed64.FromInt(3)
+Print(three / Fixed64.FromInt(2))
+Print(three / Fixed64.Zero())

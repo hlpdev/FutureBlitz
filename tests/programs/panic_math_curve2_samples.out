@@ -1,0 +1,2 @@
+1
+panic: a curve takes at least one sample, not 0 at panic_math_curve2_samples.fb:7:7

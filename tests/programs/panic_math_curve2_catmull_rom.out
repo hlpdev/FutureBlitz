@@ -1,0 +1,2 @@
+True
+panic: a spline takes at least two points, not 1 at panic_math_curve2_catmull_rom.fb:6:7

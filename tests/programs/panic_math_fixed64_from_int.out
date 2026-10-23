@@ -1,0 +1,2 @@
+-2147483648
+panic: a Fixed64 holds whole numbers from -2147483648 to 2147483647, not 2147483648 at panic_math_fixed64_from_int.fb:6:7

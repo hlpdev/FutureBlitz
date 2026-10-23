@@ -1,0 +1,2 @@
+[1, 1]
+panic: Histogram takes a count of bins above 0, not -1 at panic_math_stats_histogram_count.fb:6:7

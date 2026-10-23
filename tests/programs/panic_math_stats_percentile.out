@@ -1,0 +1,2 @@
+7
+panic: Percentile takes at least 1 value, not 0 at panic_math_stats_percentile.fb:7:7

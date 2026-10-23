@@ -1,0 +1,7 @@
+// WeightedPick takes a weight for each item, which panics where it's called.
+Import std.core
+Import std.math
+
+Local random = Random(1)
+Print(random.WeightedPick([1, 2], [0.0, 1.0]))
+Print(random.WeightedPick([1, 2], [1.0]))

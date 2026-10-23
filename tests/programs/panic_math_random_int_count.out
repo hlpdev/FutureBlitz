@@ -1,0 +1,2 @@
+0
+panic: Int takes a count above 0, not 0 at panic_math_random_int_count.fb:7:7

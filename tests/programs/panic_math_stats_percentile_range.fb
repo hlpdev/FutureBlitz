@@ -1,0 +1,6 @@
+// Percentile takes a percent from 0 to 100, which panics where it's called.
+Import std.core
+Import std.math
+
+Print(Percentile([1, 2], 100))
+Print(Percentile([1, 2], 101))

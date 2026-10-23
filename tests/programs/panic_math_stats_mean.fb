@@ -1,0 +1,7 @@
+// Mean takes at least one value, which panics where it's called.
+Import std.core
+Import std.math
+
+Local none: Int[] = []
+Print(Mean([1, 2]))
+Print(Mean(none))
