@@ -83,6 +83,7 @@ So far, std/ holds:
 | std/math/easing.fb | `EaseIn`, `EaseOut`, and `EaseInOut` of `Sine`, `Quad`, `Cubic`, `Quart`, `Quint`, `Expo`, `Circ`, `Back`, `Elastic`, and `Bounce`, as `EaseInSine` |
 | std/math/stats.fb | `Mean`, `Median`, `Variance`, `StdDev`, `PopulationVariance`, `PopulationStdDev`, `Percentile`, and `Histogram` |
 | std/math/fixed.fb | `Fixed32` and `Fixed64`, with `Sqrt`, `Sin`, and `Cos` |
+| std/math/units.fb | `Quantity<L, M, T>`, the base and derived units as its Aliases, from `Meters` to `KilogramsPerCubicMeter`, and `Kilometers` to `KilometersPerHour`, which make them from other units, with `Abs` |
 | std/math/big/bigint.fb | `BigInt`, an integer of any size, over libtommath |
 | std/math/big/decimal.fb | `Decimal`, over mpdecimal, and `RoundingMode` |
 | std/math/big/rational.fb | `Rational`, a fraction of two BigInts |
@@ -344,7 +345,8 @@ file or URL in the default app.
 
 Step 9 built the constants, the scalars, the angles, std.math.bits, the vectors, `Quat`, the
 matrices, the colors, and the shapes, step 10 the polygons, curves, `Random` and the default
-generator, noise, easing, stats, and fixed point, and step 11 std.math.big; the rest is planned.
+generator, noise, easing, stats, and fixed point, and step 11 the typed units and std.math.big;
+the rest is planned.
 `Import std.math` brings in all of std/math/, std.math.bits too.
 
 - The math is Functions, as for Floats, beside the scalar ones of their names: `Lerp(a, b, t)`,
@@ -475,8 +477,19 @@ generator, noise, easing, stats, and fixed point, and step 11 std.math.big; the 
   that lands too near halfway to tell), all in integers, so they give the same bits on every OS
   and CPU, for lockstep multiplayer and replays. Overflow traps in debug builds and wraps in
   release, as an Int's does.
-- Units: typed quantities like `Meters`, `Seconds`, and `MetersPerSecond`, which the compiler
-  keeps apart and combines (`Meters / Seconds` is `MetersPerSecond`).
+- Units (units.fb): `Quantity<L, M, T>`, a Double `Value` in meters, kilograms, and seconds, to
+  the powers its Const type arguments give, so the compiler keeps the units apart and combines
+  them: `Meters / Seconds` is `MetersPerSecond`, and `Meters + Seconds` is an error, "no Operator
+  + takes (Quantity<1, 0, 0>, Quantity<0, 0, 1>)". Each unit is a Public `Alias` of its Quantity,
+  which makes one, `Meters(5)`, and has its Statics, `Meters.Zero()`: `Meters`, `Kilograms`,
+  `Seconds`, `SquareMeters`, `CubicMeters`, `MetersPerSecond`, `MetersPerSecondSquared`, `Hertz`,
+  `Newtons`, `NewtonSeconds`, `Joules`, `Watts`, `Pascals`, and `KilogramsPerCubicMeter`.
+  `Kilometers`, `Centimeters`, `Millimeters`, `Grams`, `Tonnes`, `Milliseconds`, `Minutes`,
+  `Hours`, and `KilometersPerHour` make them from other units. `+` and `-` take the same units,
+  `*` and `/` any two (an Operator's own type parameters, from the operands), and a Double
+  scales; a ratio of the same units is `Quantity<0, 0, 0>`, whose `Value` is the number. A
+  Quantity is Comparable, Hashable, Defaultable, and Printable, as "9.8 m/s^2" or
+  "4 kg/(m s^2)", and `Abs` keeps its units.
 - std.math.big, whose numbers never change once made, with Operators, an Int64 (or a Double,
   for Complex) on either side of one too, and `ToString`, and `Parse` for all but Complex. Their
   math is Methods, like `x.Sqrt()`, since std.math's Functions are the built-in types'. A
