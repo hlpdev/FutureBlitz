@@ -188,6 +188,8 @@ private:
     /// with it, like "(1 To 3).Sum()", starts there, though its own span leaves them out.
     std::unordered_map<expr_id_t, std::uint32_t> m_grouped;
     bool m_line_failed = false; // the current line already has an error
+    /// Whether the current line is missing an expression, as "1 + *" is.
+    bool m_line_missing = false;
     /// How many expressions and blocks the one being parsed is inside, which is how deep the
     /// compiler's passes go into it. Past max_nesting it's an error, not a crash, and the rest of
     /// the file's errors would be its fallout.
@@ -311,9 +313,11 @@ private:
     }
 
     /// After an operator, '=', ',', or "=>" the statement goes on past a line break, unless its
-    /// line already has an error: then parsing picks up on the next line, as its own.
+    /// line is missing an expression, as "1 + *" is: its operators may be what the line is
+    /// missing, so parsing picks up on the next line, as its own. After an error the parser got
+    /// past, like a decimal that's out of range before a "+", the statement goes on.
     void skip_continuation_newlines() {
-        while (!m_line_failed && m_tokens[m_pos].kind == token_kind_t::NEWLINE) {
+        while (!m_line_missing && m_tokens[m_pos].kind == token_kind_t::NEWLINE) {
             ++m_pos;
         }
     }
@@ -344,6 +348,7 @@ private:
 
         accept(token_kind_t::NEWLINE);
         m_line_failed = false;
+        m_line_missing = false;
     }
 
     // Errors
@@ -429,6 +434,7 @@ private:
 
     /// Stands in for an expression that's missing or not supported yet.
     expr_id_t missing_expr() {
+        m_line_missing = true;
         return add_expr(point(peek().span.begin), error_expr_t{});
     }
 
@@ -3479,6 +3485,7 @@ private:
 
         accept(token_kind_t::NEWLINE);
         m_line_failed = false;
+        m_line_missing = false;
         lambda.body = parse_body(keyword);
         m_bracket_depth = depth;
         m_counting = counting;
