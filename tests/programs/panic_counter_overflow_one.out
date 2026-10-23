@@ -1,0 +1,2 @@
+2147483647
+panic: a Counter's count can't be more than an Int holds, but this one would be 2147483648 at panic_counter_overflow_one.fb:8:1

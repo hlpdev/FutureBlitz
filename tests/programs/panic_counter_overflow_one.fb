@@ -1,0 +1,8 @@
+// A Counter's one-argument Add panics where it's called, past what an Int holds.
+Import std.core
+Import std.collections
+
+Local counts = Counter<String>()
+counts["a"] = 2147483647
+Print(counts["a"])
+counts.Add("a")

@@ -1,0 +1,9 @@
+// And so does AddAll.
+Import std.core
+Import std.collections
+
+Local counts = Counter<String>()
+counts["a"] = 2147483646
+counts.AddAll(["b", "a"])
+Print(counts["a"], counts["b"])
+counts.AddAll(["a"])

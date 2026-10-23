@@ -27,6 +27,7 @@ Public Class Counter<T> Implements Iterable<(T, Int)>, Cloneable, Defaultable, H
     End Property
 
     // Counts the value once more.
+    @PanicsAtCaller
     Public Method Add(value: T)
         Add(value, 1)
     End Method
@@ -48,6 +49,7 @@ Public Class Counter<T> Implements Iterable<(T, Int)>, Cloneable, Defaultable, H
     End Method
 
     // Counts each of the values once more, all read first.
+    @PanicsAtCaller
     Public Method AddAll(values: Iterable<T>)
         For value In values.Iterate().ToArray()
             Add(value)
