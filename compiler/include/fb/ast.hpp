@@ -270,6 +270,8 @@ struct lambda_expr_t {
     block_t body;
     /// "Async Function() ...": its code can Await, and a call gives its Task.
     bool is_async = false;
+    /// The Function keyword, where errors about the whole lambda point.
+    span_t keyword;
 };
 
 /// "Try operand" lets the errors of the calls in `operand` go on to the code around it. "Try?

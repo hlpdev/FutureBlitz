@@ -3295,6 +3295,10 @@ TEST_CASE("lambda mistakes", "[sema]") {
     CHECK(errors_of("Local f: Func(Int): Int = Function(x)\n    If x > 0 Then Return 1\n"
                     "End Function") ==
           errors_t{ "Function: this lambda doesn't return a value on every path" });
+    // An Async one's errors point at its Function too.
+    CHECK(errors_of("Local c = True\n"
+                    "Local f = Async  Function(): Int\n    If c Then Return 1\nEnd Function") ==
+          errors_t{ "Function: this lambda doesn't return a value on every path" });
     CHECK(errors_of("Function F(ByRef n: Int)\n    Local c = Function() => n\nEnd Function") ==
           errors_t{ "n: 'n' is ByRef, so a lambda can't capture it; copy it into a Local first" });
     CHECK(errors_of("Import std.core\n"

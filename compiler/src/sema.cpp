@@ -21384,7 +21384,6 @@ private:
             result = type_id_t::NONE;
         }
 
-        // The keyword is where errors about the whole lambda point.
         const span_t span = span_of(id);
         // In generic code, the closure's Class is generic too, with the type parameters here.
         const type_id_t closure = m_analysis.types.add_class(lambda_name(span));
@@ -21395,7 +21394,7 @@ private:
         const symbol_id_t function = add_symbol({
             .kind = symbol_kind_t::FUNCTION,
             .name = name_of(closure),
-            .span = { .file = span.file, .begin = span.begin, .end = span.begin + 8 },
+            .span = node.keyword,
             .type = result.value_or(type_id_t::NONE),
             .parameters = parameters,
             .modifiers = { .is_async = node.is_async },

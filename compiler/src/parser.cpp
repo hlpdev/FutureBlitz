@@ -3317,6 +3317,7 @@ private:
             .parameters = std::move(parameters),
             .return_type = return_type,
             .is_async = async.has_value(),
+            .keyword = keyword.span,
         };
         if (accept(token_kind_t::ARROW)) {
             skip_continuation_newlines();
