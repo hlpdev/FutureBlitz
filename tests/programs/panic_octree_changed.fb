@@ -1,0 +1,11 @@
+// Removing from an Octree while a For ... In goes over it panics.
+Import std.core
+Import std.collections
+
+Local tree = Octree<Int>(0, 0, 0, 10, 10, 10)
+tree.Add(1, 1, 1, 1)
+tree.Add(2, 2, 2, 2)
+For value In tree
+    Print(value)
+    tree.Remove(1, 1, 1, 1)
+End For

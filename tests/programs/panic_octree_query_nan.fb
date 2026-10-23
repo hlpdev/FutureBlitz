@@ -1,0 +1,9 @@
+// An Octree panics at a box with a NaN corner, where it's queried.
+Import std.core
+Import std.collections
+
+Local zero: Float = 0
+Local tree = Octree<Int>(0, 0, 0, 10, 10, 10)
+tree.Add(1, 1, 1, 1)
+Print(tree.Query(0, 0, 0, 5, 5, 5))
+Print(tree.Query(0, 0, 0, 5, 5, zero / zero))

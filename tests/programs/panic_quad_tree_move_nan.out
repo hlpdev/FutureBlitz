@@ -1,0 +1,2 @@
+True
+panic: a point's coordinates can't be NaN at panic_quad_tree_move_nan.fb:9:1

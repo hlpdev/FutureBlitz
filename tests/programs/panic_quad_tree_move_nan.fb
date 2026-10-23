@@ -1,0 +1,9 @@
+// A QuadTree panics at a NaN place to move to, where Move is called.
+Import std.core
+Import std.collections
+
+Local zero: Float = 0
+Local tree = QuadTree<Int>(0, 0, 10, 10)
+tree.Add(1, 1, 1)
+Print(tree.Move(1, 1, 1, 2, 2))
+tree.Move(1, 2, 2, zero / zero, 2)

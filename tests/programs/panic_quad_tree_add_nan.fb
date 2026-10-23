@@ -1,0 +1,9 @@
+// A QuadTree panics at a NaN coordinate, where it's added.
+Import std.core
+Import std.collections
+
+Local zero: Float = 0
+Local tree = QuadTree<Int>(0, 0, 10, 10)
+tree.Add(1, 1, 1)
+Print(tree.Count)
+tree.Add(2, 1, zero / zero)

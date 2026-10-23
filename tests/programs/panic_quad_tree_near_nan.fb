@@ -1,0 +1,9 @@
+// A QuadTree panics at a NaN center, where Near is called.
+Import std.core
+Import std.collections
+
+Local zero: Float = 0
+Local tree = QuadTree<Int>(0, 0, 10, 10)
+tree.Add(1, 1, 1)
+Print(tree.Near(1, 1, 1))
+Print(tree.Near(zero / zero, 1, 1))

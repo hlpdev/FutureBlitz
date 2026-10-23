@@ -1,0 +1,2 @@
+True
+panic: a point's coordinates can't be NaN at panic_octree_remove_nan.fb:9:1

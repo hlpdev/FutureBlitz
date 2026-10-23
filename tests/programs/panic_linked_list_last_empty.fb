@@ -1,0 +1,9 @@
+// Last on an empty LinkedList panics where it's called.
+Import std.core
+Import std.collections
+
+Local list = LinkedList<Int>()
+list.Add(1)
+Print(list.Last())
+list.RemoveLast()
+Print(list.Last())

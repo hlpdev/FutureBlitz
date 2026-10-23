@@ -1,0 +1,9 @@
+// A SpatialHash panics at a NaN point to remove from, where Remove is called.
+Import std.core
+Import std.collections
+
+Local zero: Float = 0
+Local hash = SpatialHash<Int>(1)
+hash.Add(1, 0, 0)
+Print(hash.Remove(1, 0, 0))
+hash.Remove(1, zero / zero, 0)

@@ -1,0 +1,11 @@
+// Removing from a SpatialHash while a For ... In goes over it panics.
+Import std.core
+Import std.collections
+
+Local hash = SpatialHash<Int>(1)
+hash.Add(1, 0, 0)
+hash.Add(2, 5, 5)
+For value In hash
+    Print(value)
+    hash.Remove(value, 0, 0)
+End For

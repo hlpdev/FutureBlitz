@@ -1,0 +1,9 @@
+// A SpatialHash panics at a NaN point to look at, where Contains is called.
+Import std.core
+Import std.collections
+
+Local zero: Float = 0
+Local hash = SpatialHash<Int>(1)
+hash.Add(1, 0, 0)
+Print(hash.Contains(1, 0, 0))
+Print(hash.Contains(1, 0, zero / zero))
