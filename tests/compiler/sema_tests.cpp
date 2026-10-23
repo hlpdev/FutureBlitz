@@ -3833,6 +3833,10 @@ TEST_CASE("an operator on a Struct or Class calls the Operator it defines", "[se
     // A literal takes the type of the Operator's parameter, one too large for an Int too.
     CHECK(probe_money("Local x = m * 3") == "Money");
     CHECK(probe_money("Local x = m * 5_000_000_000") == "Money");
+    // So does a literal expression whose value only an Int64 holds.
+    CHECK(probe_money("Local x = m * (1 << 40)") == "Money");
+    CHECK(probe_money("Local x = m * (2_000_000_000 + 2_000_000_000)") == "Money");
+    CHECK(with_money("Local x = m * (1 << 40)").empty());
     CHECK(probe_money("Local x = m == m") == "Bool");
     // != is the opposite of ==.
     CHECK(probe_money("Local x = m != m") == "Bool");

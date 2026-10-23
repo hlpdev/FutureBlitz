@@ -1939,4 +1939,7 @@ CheckBig("0**big", BigInt(0) ** 9000000000, "0")
 CheckBig("0<<big", BigInt(0) << 9000000000, "0")
 CheckBig("-5>>big", BigInt(-5) >> 9000000000, "-1")
 CheckBig("5>>big", BigInt(5) >> 9000000000, "0")
+// A literal expression that only an Int64 holds, beside a BigInt.
+CheckBig("10*(1<<40)", BigInt(10) * (1 << 40), "10995116277760")
+CheckBig("10*(2e9+2e9)", BigInt(10) * (2_000_000_000 + 2_000_000_000), "40000000000")
 Done("known results")

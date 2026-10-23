@@ -18268,11 +18268,15 @@ private:
     /// What literals beside an operand that isn't a number, like a Struct's, are checked as
     /// before an Operator takes them as its parameter's type: `hint`, or else the first of
     /// Int64, UInt64, and Float64 that holds them, when their default type doesn't, so
-    /// `big * 5_000_000_000` can call an Operator that takes an Int64.
+    /// `big * 5_000_000_000` can call an Operator that takes an Int64. A type holds them only
+    /// when their value works out in it too, so `big * (1 << 40)` does as well.
     type_id_t beside(const expr_id_t literals, const type_id_t hint) {
         for (const type_id_t type :
              { hint, type_id_t::INT64, type_id_t::UINT64, type_id_t::FLOAT64 }) {
-            if (quietly([&] { return check(literals, type); }) != type_id_t::INVALID) {
+            const bool holds = quietly([&] {
+                return check(literals, type) != type_id_t::INVALID && !m_diagnostics->has_errors();
+            });
+            if (holds) {
                 return type;
             }
         }
