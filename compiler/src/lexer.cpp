@@ -116,6 +116,10 @@ private:
     std::vector<string_state_t> m_strings;
     /// The #Ifs around the current line, innermost last.
     std::vector<condition_t> m_conditions;
+    /// How many '!' and '(' the part of an #If's condition being read is inside. It nests no
+    /// deeper than code does, so reading it can't run out of stack.
+    std::uint32_t m_condition_depth = 0;
+    static constexpr std::uint32_t max_condition_depth = 1000;
     std::uint32_t m_pos = 0;
 
     [[nodiscard]] bool at_end() const {
@@ -708,15 +712,26 @@ private:
     /// A symbol, "!" before one, or a condition in parentheses. A symbol holds when it's defined.
     std::optional<bool> parse_one() {
         skip_spaces();
+        if ((peek() == '!' || peek() == '(') && m_condition_depth == max_condition_depth) {
+            m_diagnostics.error(span(m_pos, m_pos + 1),
+                                "this is nested more than {} deep, deeper than the compiler goes",
+                                max_condition_depth);
+            return std::nullopt;
+        }
+
         if (peek() == '!') {
             ++m_pos;
+            ++m_condition_depth;
             const std::optional<bool> value = parse_one();
+            --m_condition_depth;
             return value ? std::optional(!*value) : std::nullopt;
         }
 
         if (peek() == '(') {
             const std::uint32_t open = m_pos++;
+            ++m_condition_depth;
             const std::optional<bool> value = parse_any();
+            --m_condition_depth;
             if (value && skip_spaces() && peek() != ')') {
                 m_diagnostics.error(span(open, open + 1), "this '(' needs a ')'");
                 return std::nullopt;

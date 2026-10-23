@@ -230,6 +230,22 @@ TEST_CASE("#If mistakes", "[lexer]") {
           std::vector<std::string>{ "4-8: 'DEBG' is never defined; #If can test DEBUG, RELEASE, "
                                     "PLATFORM_WINDOWS, PLATFORM_LINUX, and PLATFORM_MACOS" });
 
+    // A condition nests up to 1000 deep, as code does, so reading it can't run out of stack.
+    const auto parenthesized = [](const std::size_t depth) {
+        return std::format("#If {}DEBUG{}\n#End If", std::string(depth, '('),
+                           std::string(depth, ')'));
+    };
+    const std::string too_deep =
+        ": this is nested more than 1000 deep, deeper than the compiler goes";
+    CHECK(lex_text(parenthesized(1000)).errors.empty());
+    CHECK(lex_text(parenthesized(1001)).errors ==
+          std::vector<std::string>{ "1004-1005" + too_deep });
+    CHECK(lex_text(parenthesized(300000)).errors ==
+          std::vector<std::string>{ "1004-1005" + too_deep });
+    CHECK(lex_text("#If " + std::string(1000, '!') + "DEBUG\n#End If").errors.empty());
+    CHECK(lex_text("#If " + std::string(300000, '!') + "DEBUG\n#End If").errors ==
+          std::vector<std::string>{ "1004-1005" + too_deep });
+
     // Anywhere but the start of a line, '#' is unexpected.
     const lexed_t lexed = lex_text("y #");
     CHECK(lexed.kinds == std::vector{ IDENTIFIER, INVALID });

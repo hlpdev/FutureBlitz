@@ -1120,7 +1120,59 @@ TEST_CASE("code nested deeper than the compiler goes is one error, not a crash",
     CHECK(only_error("_ = " + repeated("- ", 3000) + "1") == message);
     CHECK(only_error(repeated("If x\n", 3000) + repeated("End If\n", 3000)) == message);
 
-    // Up to the limit is fine.
-    CHECK(parse_text("_ = " + repeated("(", 990) + "1" + repeated(")", 990)).errors.empty());
-    CHECK(parse_text("_ = 1" + repeated(" + 1", 990)).errors.empty());
+    // Up to the limit is fine: 1000 levels, and not one more.
+    CHECK(parse_text("_ = " + repeated("(", 1000) + "1" + repeated(")", 1000)).errors.empty());
+    CHECK(only_error("_ = " + repeated("(", 1001) + "1" + repeated(")", 1001)) == message);
+    CHECK(parse_text("_ = 1" + repeated(" + 1", 1000)).errors.empty());
+    CHECK(only_error("_ = 1" + repeated(" + 1", 1001)) == message);
+    CHECK(parse_text("_ = f" + repeated("()", 1000)).errors.empty());
+    CHECK(only_error("_ = f" + repeated("()", 1001)) == message);
+    CHECK(parse_text("_ = " + repeated("- ", 1000) + "1").errors.empty());
+    CHECK(only_error("_ = " + repeated("- ", 1001) + "1") == message);
+    CHECK(parse_text(repeated("If x\n", 1000) + repeated("End If\n", 1000)).errors.empty());
+    CHECK(only_error(repeated("If x\n", 1001) + repeated("End If\n", 1001)) == message);
+
+    // Types nest like expressions: each pair of parentheses, type argument list, and suffix.
+    CHECK(
+        parse_text("Local x: " + repeated("(", 1000) + "Int" + repeated(")", 1000)).errors.empty());
+    CHECK(only_error("Local x: " + repeated("(", 1001) + "Int" + repeated(")", 1001)) == message);
+    CHECK(parse_text("Local x: Int" + repeated("[]", 1000)).errors.empty());
+    CHECK(only_error("Local x: Int" + repeated("[]", 1001)) == message);
+    CHECK(only_error("Local x: " + repeated("(", 50000) + "Int" + repeated(")", 50000)) == message);
+    CHECK(only_error("Local x: Stack" + repeated("<Stack", 50000) + repeated(">", 50000)) ==
+          message);
+    CHECK(only_error("Local x: " + repeated("Weak<", 50000) + "Int" + repeated(">", 50000)) ==
+          message);
+    CHECK(only_error("Local x: " + repeated("Func(", 50000) + repeated(")", 50000)) == message);
+    CHECK(only_error("Local x: Int" + repeated("[]", 50000)) == message);
+    CHECK(only_error("Local x: Int" + repeated("[1]", 50000)) == message);
+    CHECK(only_error("Local x: Int" + repeated("?", 50000)) == message);
+    CHECK(only_error("Local x: Stack<" + repeated("N + ", 50000) + "1>") == message);
+
+    // So do statements after Defer, a single-line If's, and an Extern block's: the Function's
+    // block, 998 Defers, and the call make 1000.
+    CHECK(parse_text("Function G()\n" + repeated("Defer ", 998) + "F()\nEnd Function")
+              .errors.empty());
+    CHECK(only_error("Function G()\n" + repeated("Defer ", 999) + "F()\nEnd Function") == message);
+    CHECK(only_error("Function G()\n" + repeated("Defer ", 50000) + "F()\nEnd Function") ==
+          message);
+    CHECK(only_error("If x Then " + repeated("Defer ", 50000) + "F()") == message);
+    // Each Extern inside another is an error of its own, until the one 1001 deep.
+    const parsed_t externs = parse_text(repeated("Extern \"C\"\n", 50000));
+    CHECK(externs.errors.size() == 1001);
+    CHECK(externs.errors.back().ends_with(message));
+
+    // A mistake that leads to another statement on its line is reported, and the statement
+    // 1000 deep is cut off, so later passes don't go deeper.
+    for (const std::string& chain : {
+             repeated("a: ", 50000) + "F()",
+             repeated("Parallel ", 50000) + "F()",
+             repeated("Static @A ", 50000) + "Function F()\nEnd Function",
+             repeated("@A Public ", 50000) + "Function F()\nEnd Function",
+         }) {
+        const parsed_t parsed = parse_text(chain);
+        INFO(chain.substr(0, 20));
+        CHECK(parsed.errors.size() == 1);
+        CHECK(parsed.dump.starts_with("(error)"));
+    }
 }

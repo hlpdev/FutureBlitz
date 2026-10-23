@@ -398,12 +398,10 @@ private:
     /// Statements up to the next block-ending keyword.
     block_t parse_block() {
         block_t block;
-        if (m_nesting >= max_nesting) {
-            report_too_deep();
+        if (!enter()) {
             return block;
         }
 
-        ++m_nesting;
         while (!is_block_end(peek().kind)) {
             const std::size_t start = m_pos;
             block.push_back(parse_statement());
@@ -421,6 +419,34 @@ private:
         expect_end(opening);
         m_blocks.pop_back();
         return body;
+    }
+
+    /// Goes a level deeper, as a block, an operator, a call, a member, an index, a pair of
+    /// brackets, a part of a type, or a statement after Defer does, unless that's past
+    /// max_nesting, which it reports. The caller comes back up.
+    [[nodiscard]] bool enter() {
+        if (m_nesting >= max_nesting) {
+            report_too_deep();
+            return false;
+        }
+
+        ++m_nesting;
+        return true;
+    }
+
+    /// A statement a level deeper: after Defer, or after something that was reported and leads
+    /// to another statement on its line, so a long chain of them is an error, not a crash.
+    template <typename Parse>
+    stmt_id_t nested_statement(Parse parse) {
+        if (!enter()) {
+            const std::uint32_t begin = peek().span.begin;
+            skip_rest_of_line();
+            return add_stmt(span_from(begin), error_stmt_t{});
+        }
+
+        const stmt_id_t statement = parse();
+        --m_nesting;
+        return statement;
     }
 
     /// Code nested past max_nesting, which the compiler's passes would follow until they ran out
@@ -550,7 +576,7 @@ private:
         case token_kind_t::KW_DEFER: {
             // Analysis checks which statements can be deferred.
             const token_t& keyword = advance();
-            const stmt_id_t statement = parse_statement();
+            const stmt_id_t statement = nested_statement([&] { return parse_statement(); });
             return add_stmt(span_from(keyword.span.begin), defer_stmt_t{ .statement = statement });
         }
         case token_kind_t::KW_THROW: {
@@ -896,15 +922,15 @@ private:
             return parse_visible(modifiers);
         }
 
-        // Lows 71, 78, 96, 120, 123: attributes come first, then the modifiers.
+        // Attributes come first, then the modifiers.
         if (at(token_kind_t::AT)) {
             error(peek().span,
                   "attributes go before a declaration's modifiers, as in @Inline Static Function");
-            return parse_attributed();
+            return nested_statement([&] { return parse_attributed(); });
         }
 
         error(peek().span, "{} doesn't take modifiers like Static or Final", describe_current());
-        return parse_statement();
+        return nested_statement([&] { return parse_statement(); });
     }
 
     /// The rest of a statement after its visibility, which isn't one parse_modified() takes: an
@@ -923,7 +949,7 @@ private:
         if (at(token_kind_t::AT)) {
             error(written, "{0} goes after a declaration's attributes, as in @Inline {0} Function",
                   spelling(modifiers.visibility));
-            return parse_attributed();
+            return nested_statement([&] { return parse_attributed(); });
         }
 
         if (at(token_kind_t::KW_EXTEND)) {
@@ -934,7 +960,7 @@ private:
                   spelling(modifiers.visibility));
         }
 
-        return parse_statement();
+        return nested_statement([&] { return parse_statement(); });
     }
 
     /// "Property Name: Type", then "Get => value" or a Get block, and maybe "Set(value)" and its
@@ -1218,12 +1244,12 @@ private:
         if (at(token_kind_t::KW_EXTERN)) {
             error(peek().span,
                   "an Extern block takes no attributes; put them before its Functions");
-            return parse_statement();
+            return nested_statement([&] { return parse_statement(); });
         }
 
         if (!starts_declaration(peek().kind)) {
             error(peek().span, "attributes go before a declaration, like a Function or a Struct");
-            return parse_statement();
+            return nested_statement([&] { return parse_statement(); });
         }
 
         return parse_modified(std::move(modifiers));
@@ -1434,7 +1460,7 @@ private:
             return parse_parallel(label);
         default:
             error(label.span, "a label must be followed by a loop");
-            return parse_statement();
+            return nested_statement([&] { return parse_statement(); });
         }
     }
 
@@ -1444,7 +1470,7 @@ private:
         if (!at(token_kind_t::KW_FOR)) {
             error(keyword.span,
                   "Parallel only goes before a For, like 'Parallel For i = 0 Until n'");
-            return parse_statement();
+            return nested_statement([&] { return parse_statement(); });
         }
 
         return parse_for(label, keyword.span);
@@ -1757,18 +1783,24 @@ private:
                 .visibility =
                     modifiers.visibility_span ? std::optional(modifiers.visibility) : std::nullopt,
             });
-        while (!is_block_end(peek().kind)) {
+        // Its Functions are a block's statements.
+        const bool entered = enter();
+        while (entered && !is_block_end(peek().kind)) {
             const std::size_t line = m_pos;
             const stmt_id_t id = parse_statement();
             const stmt_node_t& parsed = m_ast.get(id).node;
             const auto* function = std::get_if<function_stmt_t>(&parsed);
             if (function != nullptr && function->kind == function_kind_t::FUNCTION) {
                 node.functions.push_back(id);
-            } else if (!std::holds_alternative<error_stmt_t>(parsed)) {
+            } else if (!std::holds_alternative<error_stmt_t>(parsed) && !m_too_deep) {
                 m_diagnostics.error(m_ast.get(id).span, "an Extern block holds only Functions");
             }
 
             finish_line(line);
+        }
+
+        if (entered) {
+            --m_nesting;
         }
 
         m_extern = outer;
@@ -2057,11 +2089,11 @@ private:
                         });
     }
 
-    /// The statement after Then or Else. Block statements need lines of their own, though "Try
-    /// F()" is a call.
+    /// The statement after Then or Else, a level deeper, as a block's are. Block statements need
+    /// lines of their own, though "Try F()" is a call.
     stmt_id_t parse_single_line_body() {
         if (at(token_kind_t::KW_TRY) && !opens_try_block()) {
-            return parse_statement();
+            return nested_statement([&] { return parse_statement(); });
         }
 
         switch (peek().kind) {
@@ -2082,7 +2114,7 @@ private:
             error(peek().span, "a single-line If can't contain {}", describe(peek().kind));
             return add_stmt(point(peek().span.begin), error_stmt_t{});
         default:
-            return parse_statement();
+            return nested_statement([&] { return parse_statement(); });
         }
     }
 
@@ -2507,40 +2539,36 @@ private:
     /// `min_precedence`. An operator's right side only takes operators that bind tighter than it,
     /// so "a - b - c" is "(a - b) - c".
     expr_id_t parse_expression(const std::uint32_t min_precedence = precedence::ternary) {
-        if (m_nesting >= max_nesting) {
-            report_too_deep();
-            return missing_expr();
-        }
-
-        // Each operator around `left` puts it a level deeper, as each call in here does.
-        const std::uint32_t outer = m_nesting++;
+        const std::uint32_t outer = m_nesting;
         expr_id_t left = parse_unary();
-        while (m_nesting < max_nesting) {
+        while (true) {
             const token_kind_t kind = peek().kind;
             // The ternary and Is/As aren't plain binary operators: one takes two more operands,
             // the other a type.
-            if (kind == token_kind_t::QUESTION && min_precedence <= precedence::ternary) {
-                left = parse_ternary(left);
-            } else if ((kind == token_kind_t::KW_TO || kind == token_kind_t::KW_UNTIL) &&
-                       min_precedence <= precedence::range && m_counting != m_bracket_depth) {
-                left = parse_range(left);
-            } else if ((kind == token_kind_t::KW_AS || kind == token_kind_t::KW_IS) &&
-                       min_precedence <= precedence::type_test) {
-                left = parse_type_test(left);
-            } else if (const std::optional<binary_t> binary = binary_at_current();
-                       binary && binary->precedence >= min_precedence) {
-                left = parse_binary(left, *binary);
-            } else {
+            const bool ternary =
+                kind == token_kind_t::QUESTION && min_precedence <= precedence::ternary;
+            const bool range = (kind == token_kind_t::KW_TO || kind == token_kind_t::KW_UNTIL) &&
+                               min_precedence <= precedence::range && m_counting != m_bracket_depth;
+            const bool type_test = (kind == token_kind_t::KW_AS || kind == token_kind_t::KW_IS) &&
+                                   min_precedence <= precedence::type_test;
+            const std::optional<binary_t> binary = binary_at_current();
+            const bool binds = binary && binary->precedence >= min_precedence;
+            // Each operator around `left` puts it a level deeper.
+            if ((!ternary && !range && !type_test && !binds) || !enter()) {
                 m_nesting = outer;
                 return left;
             }
 
-            ++m_nesting;
+            if (ternary) {
+                left = parse_ternary(left);
+            } else if (range) {
+                left = parse_range(left);
+            } else if (type_test) {
+                left = parse_type_test(left);
+            } else {
+                left = parse_binary(left, *binary);
+            }
         }
-
-        report_too_deep();
-        m_nesting = outer;
-        return left;
     }
 
     [[nodiscard]] std::optional<binary_t> binary_at_current() const {
@@ -2659,11 +2687,6 @@ private:
     /// Prefix operators bind tighter than any binary operator, even '**': "-a ** b" is
     /// "(-a) ** b".
     expr_id_t parse_unary() {
-        if (m_nesting >= max_nesting) {
-            report_too_deep();
-            return missing_expr();
-        }
-
         const token_t& token = peek();
         if (token.kind == token_kind_t::KW_TRY) {
             return parse_try_expression();
@@ -2698,7 +2721,10 @@ private:
 
     /// The operand of a prefix operator, Try, or Await, a level deeper.
     expr_id_t nested_unary() {
-        ++m_nesting;
+        if (!enter()) {
+            return missing_expr();
+        }
+
         const expr_id_t operand = parse_unary();
         --m_nesting;
         return operand;
@@ -2723,29 +2749,24 @@ private:
     /// what's before it a level deeper.
     expr_id_t parse_postfix(expr_id_t expr) {
         const std::uint32_t outer = m_nesting;
-        while (m_nesting < max_nesting) {
-            switch (peek().kind) {
-            case token_kind_t::DOT:
-            case token_kind_t::QUESTION_DOT:
-                expr = parse_member(expr);
-                break;
-            case token_kind_t::LEFT_PAREN:
-                expr = parse_call(expr);
-                break;
-            case token_kind_t::LEFT_BRACKET:
-                expr = parse_index(expr);
-                break;
-            default:
+        while (true) {
+            const token_kind_t kind = peek().kind;
+            const bool postfix = kind == token_kind_t::DOT || kind == token_kind_t::QUESTION_DOT ||
+                                 kind == token_kind_t::LEFT_PAREN ||
+                                 kind == token_kind_t::LEFT_BRACKET;
+            if (!postfix || !enter()) {
                 m_nesting = outer;
                 return expr;
             }
 
-            ++m_nesting;
+            if (kind == token_kind_t::LEFT_PAREN) {
+                expr = parse_call(expr);
+            } else if (kind == token_kind_t::LEFT_BRACKET) {
+                expr = parse_index(expr);
+            } else {
+                expr = parse_member(expr);
+            }
         }
-
-        report_too_deep();
-        m_nesting = outer;
-        return expr;
     }
 
     /// "object.name". The name can be New, for "Super.New()", or a tuple element's number.
@@ -2829,9 +2850,13 @@ private:
 
     /// "<Int, String>", after a generic name.
     std::vector<type_expr_id_t> parse_type_arguments() {
+        std::vector<type_expr_id_t> arguments;
+        if (!enter()) {
+            return arguments;
+        }
+
         const token_t& open = advance();
         ++m_bracket_depth;
-        std::vector<type_expr_id_t> arguments;
         while (!at(token_kind_t::GREATER) && !at(token_kind_t::END_OF_FILE)) {
             arguments.push_back(parse_type_argument());
             if (!accept(token_kind_t::COMMA)) {
@@ -2841,6 +2866,7 @@ private:
 
         expect_closing(token_kind_t::GREATER, open.span);
         --m_bracket_depth;
+        --m_nesting;
         return arguments;
     }
 
@@ -2861,25 +2887,32 @@ private:
 
     /// Products added together, each of unary operands.
     expr_id_t parse_value_sum() {
+        const std::uint32_t outer = m_nesting;
         expr_id_t left = parse_value_product();
-        while (accept(token_kind_t::PLUS)) {
+        // Each operator around `left` puts it a level deeper.
+        while (at(token_kind_t::PLUS) && enter()) {
+            advance();
             const expr_id_t right = parse_value_product();
             left = add_expr(span_from(begin_of(left)),
                             binary_expr_t{ .op = binary_op_t::ADD, .left = left, .right = right });
         }
 
+        m_nesting = outer;
         return left;
     }
 
     expr_id_t parse_value_product() {
+        const std::uint32_t outer = m_nesting;
         expr_id_t left = parse_unary();
-        while (accept(token_kind_t::STAR)) {
+        while (at(token_kind_t::STAR) && enter()) {
+            advance();
             const expr_id_t right = parse_unary();
             left = add_expr(
                 span_from(begin_of(left)),
                 binary_expr_t{ .op = binary_op_t::MULTIPLY, .left = left, .right = right });
         }
 
+        m_nesting = outer;
         return left;
     }
 
@@ -3162,6 +3195,11 @@ private:
     /// it, then "End Function". Wherever it is, even in a call's brackets, its body ends
     /// statements at line breaks. After "Async", which starts at `async`, it's an Async lambda.
     expr_id_t parse_lambda(const std::optional<std::uint32_t> async = std::nullopt) {
+        // What's in it is a level deeper, as what's in brackets is.
+        if (!enter()) {
+            return missing_expr();
+        }
+
         const token_t& keyword = advance();
         const std::uint32_t begin = async.value_or(keyword.span.begin);
         std::vector<name_t> weak;
@@ -3200,6 +3238,7 @@ private:
         if (accept(token_kind_t::ARROW)) {
             skip_continuation_newlines();
             lambda.value = parse_expression();
+            --m_nesting;
             return add_expr(span_from(begin), std::move(lambda));
         }
 
@@ -3215,6 +3254,7 @@ private:
         lambda.body = parse_body(keyword);
         m_bracket_depth = depth;
         m_counting = counting;
+        --m_nesting;
         return add_expr(span_from(begin), std::move(lambda));
     }
 
@@ -3270,6 +3310,10 @@ private:
 
     /// "[a, b, c]". The elements can go over several lines, with a comma after the last one.
     expr_id_t parse_array() {
+        if (!enter()) {
+            return missing_expr();
+        }
+
         const token_t& open = advance();
         ++m_bracket_depth;
         std::vector<expr_id_t> elements;
@@ -3282,6 +3326,7 @@ private:
 
         expect_closing(token_kind_t::RIGHT_BRACKET, open.span);
         --m_bracket_depth;
+        --m_nesting;
         return add_expr(span_from(open.span.begin),
                         array_expr_t{ .elements = std::move(elements) });
     }
@@ -3289,6 +3334,10 @@ private:
     /// "{key: value, ...}", a new Map of the entries. A comma can end the last one, as in an
     /// array.
     expr_id_t parse_map() {
+        if (!enter()) {
+            return missing_expr();
+        }
+
         const token_t& open = advance();
         ++m_bracket_depth;
         std::vector<map_entry_t> entries;
@@ -3303,6 +3352,7 @@ private:
 
         expect_closing(token_kind_t::RIGHT_BRACE, open.span);
         --m_bracket_depth;
+        --m_nesting;
         return add_expr(span_from(open.span.begin), map_expr_t{ .entries = std::move(entries) });
     }
 
@@ -3310,6 +3360,10 @@ private:
     /// With commas inside, they make a tuple, "(a, b)", whose span has them. A comma can end the
     /// last value, as in an array.
     expr_id_t parse_parenthesized() {
+        if (!enter()) {
+            return missing_expr();
+        }
+
         const token_t& open = advance();
         ++m_bracket_depth;
         std::vector<expr_id_t> elements{ parse_expression() };
@@ -3325,6 +3379,7 @@ private:
 
         expect_closing(token_kind_t::RIGHT_PAREN, open.span);
         --m_bracket_depth;
+        --m_nesting;
         if (elements.size() == 1) {
             if (comma) {
                 error(span_from(open.span.begin), "a tuple has at least two values");
@@ -3347,7 +3402,8 @@ private:
 
         const token_t& first = advance();
         pieces.push_back(text(first));
-        if (first.kind == token_kind_t::STRING_START) {
+        // Its interpolations are a level deeper, as what's in parentheses is.
+        if (first.kind == token_kind_t::STRING_START && enter()) {
             ++m_bracket_depth;
             while (true) {
                 values.push_back(parse_expression());
@@ -3363,6 +3419,7 @@ private:
             }
 
             --m_bracket_depth;
+            --m_nesting;
         }
 
         // Decoded together: a multi-line string's indentation comes from its last piece.
@@ -3413,12 +3470,23 @@ private:
             return add_type(point(token.span.begin), error_type_t{});
         }
 
+        // Each suffix puts the type before it a level deeper.
+        const std::uint32_t outer = m_nesting;
         while (true) {
             // "T?" only when the '?' touches the type, so "x Is T ? a : b" stays a ternary.
-            if (at(token_kind_t::QUESTION) && m_previous_end == peek().span.begin) {
+            const bool touching = m_previous_end == peek().span.begin;
+            const bool nullable = at(token_kind_t::QUESTION) && touching;
+            const bool twice = at(token_kind_t::QUESTION_QUESTION) && touching;
+            if ((!nullable && !twice && !at(token_kind_t::LEFT_BRACKET)) || !enter() ||
+                (twice && !enter())) {
+                m_nesting = outer;
+                return type;
+            }
+
+            if (nullable) {
                 advance();
                 type = add_type(span_from(token.span.begin), nullable_type_t{ .inner = type });
-            } else if (at(token_kind_t::QUESTION_QUESTION) && m_previous_end == peek().span.begin) {
+            } else if (twice) {
                 const token_t& marks = advance();
                 const span_t first{
                     .file = m_file.id(),
@@ -3427,12 +3495,11 @@ private:
                 };
                 type = add_type(first, nullable_type_t{ .inner = type });
                 type = add_type(span_from(token.span.begin), nullable_type_t{ .inner = type });
-            } else if (at(token_kind_t::LEFT_BRACKET) &&
-                       peek(1).kind == token_kind_t::RIGHT_BRACKET) {
+            } else if (peek(1).kind == token_kind_t::RIGHT_BRACKET) {
                 advance();
                 advance();
                 type = add_type(span_from(token.span.begin), array_type_t{ .element = type });
-            } else if (at(token_kind_t::LEFT_BRACKET)) {
+            } else {
                 const token_t& open = advance();
                 ++m_bracket_depth;
                 std::vector<expr_id_t> sizes;
@@ -3447,8 +3514,6 @@ private:
                 --m_bracket_depth;
                 type = add_type(span_from(token.span.begin),
                                 array_type_t{ .element = type, .sizes = std::move(sizes) });
-            } else {
-                return type;
             }
         }
     }
@@ -3475,9 +3540,14 @@ private:
         type_expr_id_t type = add_type(token.span, named_type_t{ .name = text(token) });
         // "Weak" is a contextual keyword, a name everywhere but before '<'.
         if (at(token_kind_t::LESS) && text(token) == "Weak") {
+            if (!enter()) {
+                return type;
+            }
+
             advance();
             const type_expr_id_t inner = parse_type();
             expect(token_kind_t::GREATER);
+            --m_nesting;
             type = add_type(span_from(token.span.begin), weak_type_t{ .inner = inner });
         } else if (at(token_kind_t::LESS)) {
             std::vector<type_expr_id_t> arguments = parse_type_arguments();
@@ -3492,6 +3562,10 @@ private:
     /// R" alike. The return type takes any "?" after it, so a Func that can be Null is written
     /// "(Func(): Int)?".
     type_expr_id_t parse_function_type() {
+        if (!enter()) {
+            return add_type(point(peek().span.begin), error_type_t{});
+        }
+
         const token_t& keyword = advance();
         const bool callback = keyword.kind == token_kind_t::KW_CALLBACK;
         std::vector<type_expr_id_t> parameters;
@@ -3522,6 +3596,7 @@ private:
             result = parse_type();
         }
 
+        --m_nesting;
         return add_type(span_from(keyword.span.begin), function_type_t{
                                                            .parameters = std::move(parameters),
                                                            .result = result,
@@ -3531,6 +3606,10 @@ private:
 
     /// "(A, B)", a tuple type. Parentheses around one type only group it, as in an expression.
     type_expr_id_t parse_tuple_type() {
+        if (!enter()) {
+            return add_type(point(peek().span.begin), error_type_t{});
+        }
+
         const token_t& open = advance();
         ++m_bracket_depth;
         std::vector<type_expr_id_t> elements{ parse_type() };
@@ -3546,6 +3625,7 @@ private:
 
         expect_closing(token_kind_t::RIGHT_PAREN, open.span);
         --m_bracket_depth;
+        --m_nesting;
         if (elements.size() == 1) {
             if (comma) {
                 error(span_from(open.span.begin), "a tuple has at least two types");
