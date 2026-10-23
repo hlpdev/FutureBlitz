@@ -89,8 +89,9 @@ std::int32_t decompress_all(decoder_t& decoder, const std::span<const std::uint8
     std::array<std::uint8_t, chunk_size> chunk{};
     std::size_t at = 0;
     decoder.begun = decoder.begun || !data.empty();
+    // A chunk it filled may have more after it, unless the frame ended there.
     bool full = false;
-    while (at < data.size() || full) {
+    while (at < data.size() || (full && !decoder.ended)) {
         std::size_t made = chunk.size();
         std::size_t taken = data.size() - at;
         const std::size_t hint = LZ4F_decompress(decoder.context, chunk.data(), &made,

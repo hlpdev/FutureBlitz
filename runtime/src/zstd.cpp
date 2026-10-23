@@ -52,6 +52,12 @@ void compress_all(encoder_t& encoder, const std::span<const std::uint8_t> data,
                   const ZSTD_EndDirective directive, fb_array_t* output_array) {
     output_t output(output_array, most_bytes);
     std::array<std::uint8_t, chunk_size> chunk{};
+    // Nothing to go on with leaves the frame unbegun, so finishing it can still say its size.
+    if (data.empty() && directive == ZSTD_e_continue) {
+        output_array->count = 0;
+        return;
+    }
+
     ZSTD_inBuffer in{ .src = data.data(), .size = data.size(), .pos = 0 };
     encoder.begun = encoder.begun || !data.empty();
     while (true) {
@@ -78,8 +84,9 @@ std::int32_t decompress_all(decoder_t& decoder, const std::span<const std::uint8
     std::array<std::uint8_t, chunk_size> chunk{};
     ZSTD_inBuffer in{ .src = data.data(), .size = data.size(), .pos = 0 };
     decoder.begun = decoder.begun || !data.empty();
+    // A chunk it filled may have more after it, unless the frame ended there.
     bool full = false;
-    while (in.pos < in.size || full) {
+    while (in.pos < in.size || (full && !decoder.ended)) {
         ZSTD_outBuffer out{ .dst = chunk.data(), .size = chunk.size(), .pos = 0 };
         const std::size_t hint = ZSTD_decompressStream(decoder.context, &out, &in);
         if (ZSTD_isError(hint) != 0) {
