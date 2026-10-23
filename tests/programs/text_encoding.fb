@@ -22,6 +22,18 @@ For encoding In [TextEncoding.UTF8, TextEncoding.UTF16_LE, TextEncoding.UTF16_BE
           (Decode(marked, encoding) ?? "").CharCount)
 End For
 
+// The characters at each edge of UTF-8's and UTF-16's ranges, and the surrogates', round-trip.
+Local edges = ""
+For code In [0, 0x7F, 0x80, 0x7FF, 0x800, 0xD7FF, 0xE000, 0xFFFD, 0xFFFF, 0x10000, 0x10FFFF]
+    edges += "{code As Char}"
+End For
+
+For encoding In [TextEncoding.UTF8, TextEncoding.UTF16_LE, TextEncoding.UTF16_BE,
+                 TextEncoding.UTF32_LE, TextEncoding.UTF32_BE]
+    Local bytes = Encode(edges, encoding) ?? []
+    Print(encoding, bytes.Count, Decode(bytes, encoding) == edges)
+End For
+
 // One-byte encodings hold what they have, and every byte decodes and encodes back, but ASCII's
 // past 0x7F.
 For encoding In [TextEncoding.ASCII, TextEncoding.LATIN1, TextEncoding.WINDOWS_1252]
