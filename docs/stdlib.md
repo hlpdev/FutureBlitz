@@ -401,7 +401,8 @@ stats, and fixed point, all but `Rand`, `RandInt`, `RandFloat`, `SeedRandom`, an
   of a sample (over n - 1, as Python's statistics module), `PopulationVariance` and
   `PopulationStdDev` (over n), `Percentile` (NumPy's, between the two nearest), and
   `Histogram(values, bins, low, high)` and `Histogram(values, bins)`, equal ranges, the last
-  holding its high end. Too few values panic.
+  holding its high end. Too few values panic, as a NaN does where they're put in order, for a
+  median, a percentile, or a histogram's own range.
 - Fixed point (fixed.fb): `Fixed32` (16.16, in an Int32) and `Fixed64` (32.32, in an Int64),
   `Numeric`, `Comparable`, `Hashable`, `Bounded`, and `Printable`, from `FromInt`, `FromDouble`,
   `FromFloat`, or `FromRaw`, with `Raw`, `ToDouble`, `ToFloat`, `ToInt`, `ToFixed64` and
