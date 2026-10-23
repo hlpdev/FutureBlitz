@@ -105,7 +105,7 @@ public:
           m_triple(normalize(options.target_triple.empty()
                                  ? std::string(build_config::target_triple)
                                  : options.target_triple)),
-          m_context(LLVMContextCreate()),
+          m_integers(c_integers_of(m_triple)), m_context(LLVMContextCreate()),
           m_module(LLVMModuleCreateWithNameInContext(main.path().c_str(), m_context.get())),
           m_builder(LLVMCreateBuilderInContext(m_context.get())) {}
 
@@ -186,6 +186,8 @@ private:
     const codegen_options_t& m_options;
     /// The options' target, or else the one this compiler was built for, normalized.
     std::string m_triple;
+    /// What C's integers are on it, which CLong, CULong, and CWChar are.
+    c_integers_t m_integers;
     /// Why the module can't be made for its target, found while making it.
     std::string m_unsupported;
     /// The C ABI of each Extern Function that takes or gives a Struct by value, by its index.
@@ -487,6 +489,10 @@ private:
         case type_id_t::INT64:
         case type_id_t::UINT64:
             return LLVMIntTypeInContext(context(), bit_width(type));
+        case type_id_t::CLONG:
+        case type_id_t::CULONG:
+        case type_id_t::CWCHAR:
+            return llvm_type(on_target(type, m_integers));
         case type_id_t::FLOAT32:
             return LLVMFloatTypeInContext(context());
         case type_id_t::FLOAT64:
@@ -1247,8 +1253,8 @@ private:
         }
 
         c_struct_abi_t abi{
-            .passing =
-                classify(c_layout(*m_mir.types, type), c_abi_of(m_triple), result, registers),
+            .passing = classify(c_layout(*m_mir.types, type, m_integers), c_abi_of(m_triple),
+                                result, registers),
         };
         for (std::size_t i = 0; i < abi.passing.pieces.size(); ++i) {
             abi.offsets.push_back(8 * i);
@@ -1360,7 +1366,7 @@ private:
         unsigned index = 1;
         if (signature.result && signature.result->passing.pass == c_pass_t::MEMORY) {
             add_type_attribute(value, index, "sret", llvm_type(function.return_type));
-            add_align(value, index, c_layout(*m_mir.types, function.return_type).align);
+            add_align(value, index, c_layout(*m_mir.types, function.return_type, m_integers).align);
             ++index;
         } else if (!signature.result) {
             extend_for_c(value, 0, function.return_type);
@@ -1380,9 +1386,10 @@ private:
                 // A SysV argument in memory takes eightbytes of the stack, as clang has it.
                 if (abi->passing.pass == c_pass_t::MEMORY) {
                     add_type_attribute(value, index, "byval", llvm_type(function.locals[i].type));
-                    add_align(value, index,
-                              std::max<std::uint64_t>(
-                                  c_layout(*m_mir.types, function.locals[i].type).align, 8));
+                    add_align(
+                        value, index,
+                        std::max<std::uint64_t>(
+                            c_layout(*m_mir.types, function.locals[i].type, m_integers).align, 8));
                 }
 
                 ++index;
@@ -1396,7 +1403,8 @@ private:
     /// at least 16 bytes, since AArch64 reads a Struct of 12 bytes as two i64s, and one of 4 as an
     /// i64.
     LLVMValueRef entry_alloca(const type_id_t type) {
-        const std::uint64_t size = std::max<std::uint64_t>(c_layout(*m_mir.types, type).size, 16);
+        const std::uint64_t size =
+            std::max<std::uint64_t>(c_layout(*m_mir.types, type, m_integers).size, 16);
         LLVMBasicBlockRef current = LLVMGetInsertBlock(builder());
         LLVMPositionBuilderAtEnd(builder(), m_entry); // it has no terminator until the end
         LLVMValueRef slot = LLVMBuildAlloca(
@@ -1522,7 +1530,8 @@ private:
 
     /// "zeroext" or "signext" for a value C passes extended, or empty for one it doesn't.
     [[nodiscard]] std::string_view c_extension(const type_id_t type) const {
-        const type_id_t integer = is_enum(type) ? m_mir.types->get(type).inner : type;
+        const type_id_t integer =
+            on_target(is_enum(type) ? m_mir.types->get(type).inner : type, m_integers);
         const bool apple = m_triple.contains("apple");
         if (integer == type_id_t::BOOL) {
             return c_abi_of(m_triple) == c_abi_t::AAPCS64 && !apple ? "" : "zeroext";
@@ -2322,7 +2331,8 @@ private:
         LLVMBuildCondBr(builder(), LLVMBuildICmp(builder(), LLVMIntUGE, position, count, ""), fail,
                         ok);
         LLVMPositionBuilderAtEnd(builder(), fail);
-        call(index == type_id_t::UINT64 ? m_unsigned_index_out_of_range : m_index_out_of_range,
+        call(on_target(index, m_integers) == type_id_t::UINT64 ? m_unsigned_index_out_of_range
+                                                               : m_index_out_of_range,
              { position, count, location(span) });
         LLVMBuildUnreachable(builder());
         LLVMPositionBuilderAtEnd(builder(), ok);
@@ -2340,7 +2350,7 @@ private:
     }
 
     LLVMValueRef to_int64(const operand_t& operand) {
-        const type_id_t type = type_of(operand);
+        const type_id_t type = on_target(type_of(operand), m_integers);
         return LLVMBuildIntCast2(builder(), value_of(operand), m_i64, is_signed(type) ? 1 : 0, "");
     }
 
@@ -2719,7 +2729,7 @@ private:
     }
 
     LLVMValueRef value(const binary_t& node) {
-        const type_id_t type = type_of(node.left);
+        const type_id_t type = on_target(type_of(node.left), m_integers);
         if (is_nullable(type)) {
             return compare_nullable(node, type);
         }
@@ -3046,13 +3056,15 @@ private:
             return LLVMBuildZExt(builder(), value, target, "");
         }
 
+        // C's integers are the target's.
+        const bool from_signed = is_signed(on_target(from, m_integers));
         if (is_integer(from) && is_integer(to)) {
-            return LLVMBuildIntCast2(builder(), value, target, is_signed(from) ? 1 : 0, "");
+            return LLVMBuildIntCast2(builder(), value, target, from_signed ? 1 : 0, "");
         }
 
         if (is_integer(from)) {
-            return is_signed(from) ? LLVMBuildSIToFP(builder(), value, target, "")
-                                   : LLVMBuildUIToFP(builder(), value, target, "");
+            return from_signed ? LLVMBuildSIToFP(builder(), value, target, "")
+                               : LLVMBuildUIToFP(builder(), value, target, "");
         }
 
         if (is_float(to)) {
@@ -3062,8 +3074,10 @@ private:
         // Float to integer drops the fraction, and the rest has to fit. NaN never does.
         LLVMTypeRef source = LLVMTypeOf(value);
         LLVMValueRef whole = call_intrinsic("llvm.trunc", source, { value });
-        const bool to_signed = is_signed(to);
-        const double limit = std::ldexp(1.0, static_cast<int>(bit_width(to)) - (to_signed ? 1 : 0));
+        const type_id_t integer = on_target(to, m_integers);
+        const bool to_signed = is_signed(integer);
+        const double limit =
+            std::ldexp(1.0, static_cast<int>(bit_width(integer)) - (to_signed ? 1 : 0));
         LLVMValueRef above_low =
             to_signed
                 ? LLVMBuildFCmp(builder(), LLVMRealOGE, whole, LLVMConstReal(source, -limit), "")
@@ -3643,7 +3657,7 @@ private:
             return call(m_hash_float, { wide });
         }
 
-        const type_id_t integer = is_enum(type) ? inner_of(type) : type;
+        const type_id_t integer = on_target(is_enum(type) ? inner_of(type) : type, m_integers);
         LLVMValueRef bits = is_signed(integer) ? LLVMBuildSExt(builder(), value, m_i64, "")
                                                : LLVMBuildZExt(builder(), value, m_i64, "");
         return call(m_hash_integer, { bits });
@@ -3721,7 +3735,7 @@ private:
     }
 
     LLVMValueRef to_text(const operand_t& operand) {
-        const type_id_t type = type_of(operand);
+        const type_id_t type = on_target(type_of(operand), m_integers);
         LLVMValueRef value = value_of(operand);
         switch (type) {
         case type_id_t::BOOL:

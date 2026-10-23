@@ -260,7 +260,8 @@ std::optional<bool> implements_alone(const type_table_t& types, const builtin_in
 bool supports(const unary_op_t op, const type_id_t type) {
     switch (op) {
     case unary_op_t::NEGATE:
-        return is_signed(type);
+        // A CWChar is unsigned on Windows.
+        return is_signed(type) && type != type_id_t::CWCHAR;
     case unary_op_t::NOT:
         return type == type_id_t::BOOL;
     case unary_op_t::BIT_NOT:
@@ -1811,6 +1812,10 @@ private:
             if (written != type_id_t::INVALID && !is_integer(written)) {
                 error(m_ast.get(*node.type).span, "an Enum's type must be an integer, not {}",
                       shown_name(written));
+            } else if (is_c_integer(written)) {
+                error(m_ast.get(*node.type).span,
+                      "an Enum's type is an integer of one size on every target, which {} isn't",
+                      shown_name(written));
             } else if (written != type_id_t::INVALID) {
                 integer = written;
             }
@@ -2277,7 +2282,7 @@ private:
                   "C code sees {} here, so it has to be @CLayout, which lays it out as C does",
                   shown_name(plain));
         } else if (by_value && is_struct(type) &&
-                   fb::c_layout(m_analysis.types, type).size > UINT32_MAX) {
+                   fb::c_layout(m_analysis.types, type, build_c_integers()).size > UINT32_MAX) {
             error(span,
                   "{} takes 4 GiB or more, so it goes to and from C through a Ptr, not by "
                   "value",
@@ -16188,7 +16193,8 @@ private:
         const expr_info_t& found = info(id);
         if (found.value && is_numeric(found.type) && is_numeric(non_null(expected)) &&
             is_flexible(id)) {
-            error(span_of(id), "{} doesn't fit in {}", text(id), shown_name(expected));
+            error(span_of(id), "{} doesn't fit in {}{}", text(id), shown_name(expected),
+                  on_windows(non_null(expected)));
         } else if (is_nullable(found.type) && converts(non_null(found.type), expected)) {
             error(span_of(id),
                   "expected {}, found {}, which may be Null; check it first, or give a value for "
@@ -16283,13 +16289,29 @@ private:
         }
 
         if (!value) {
-            error(span_of(id), "{} doesn't fit in {}", text(id),
-                  shown_name(is_numeric(hint) ? hint : type_id_t::INT32));
+            const type_id_t type = is_numeric(hint) ? hint : type_id_t::INT32;
+            error(span_of(id), "{} doesn't fit in {}{}", text(id), shown_name(type),
+                  on_windows(type));
             return type_id_t::INVALID;
         }
 
         info(id).value = value;
         return value->type;
+    }
+
+    /// What one of C's integers is on Windows, which a literal of one has to fit, after its
+    /// name in an error, or nothing for any other type.
+    [[nodiscard]] static std::string_view on_windows(const type_id_t type) {
+        switch (type) {
+        case type_id_t::CLONG:
+            return ", which is an Int32 on Windows";
+        case type_id_t::CULONG:
+            return ", which is a UInt32 on Windows";
+        case type_id_t::CWCHAR:
+            return ", which is a UInt16 on Windows";
+        default:
+            return {};
+        }
     }
 
     /// A decimal literal takes Float64 when it's expected, and is Float otherwise.
@@ -18166,7 +18188,9 @@ private:
         }
 
         if (!flags && (!supports(node.op, type) || is_enum(type))) {
-            error(span_of(id), "'{}' can't be used on {}", spelling(node.op), shown_name(type));
+            // Only a CWChar of C's integers can't be negated.
+            error(span_of(id), "'{}' can't be used on {}{}", spelling(node.op), shown_name(type),
+                  node.op == unary_op_t::NEGATE ? on_windows(type) : "");
             return type_id_t::INVALID;
         }
 
@@ -18806,14 +18830,15 @@ private:
             return type_id_t::INVALID;
         }
 
-        if (fb::c_layout(m_analysis.types, element_of(left)).size >
+        if (fb::c_layout(m_analysis.types, element_of(left), build_c_integers()).size >
             static_cast<std::uint64_t>(INT64_MAX)) {
             error(span, "{} takes more bytes than an Int64 counts, so a Ptr at it doesn't step",
                   shown_name(element_of(left)));
             return type_id_t::INVALID;
         }
 
-        if (counts && fb::c_layout(m_analysis.types, element_of(left)).size == 0) {
+        if (counts &&
+            fb::c_layout(m_analysis.types, element_of(left), build_c_integers()).size == 0) {
             error(span, "'-' counts the values between two Ptrs, and {} takes no bytes",
                   shown_name(element_of(left)));
             return type_id_t::INVALID;
@@ -19544,14 +19569,16 @@ private:
             return type_id_t::INVALID;
         }
 
-        if (fb::c_layout(m_analysis.types, type).size > static_cast<std::uint64_t>(INT64_MAX)) {
+        if (fb::c_layout(m_analysis.types, type, build_c_integers()).size >
+            static_cast<std::uint64_t>(INT64_MAX)) {
             error(span_of(id), "{} takes more bytes than an Int64 counts", shown_name(type));
             return type_id_t::INVALID;
         }
 
         info(id).value = const_value_t{
             .type = type_id_t::INT64,
-            .data = static_cast<std::int64_t>(fb::c_layout(m_analysis.types, type).size),
+            .data = static_cast<std::int64_t>(
+                fb::c_layout(m_analysis.types, type, build_c_integers()).size),
         };
         return type_id_t::INT64;
     }

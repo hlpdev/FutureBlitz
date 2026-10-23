@@ -74,6 +74,7 @@ End Struct
 | FutureBlitz | C |
 |---|---|
 | `Int8`–`Int64`, `UInt8`–`UInt64` | `int8_t`–`int64_t`, `uint8_t`–`uint64_t` |
+| `CLong`, `CULong`, `CWChar` | `long`, `unsigned long`, `wchar_t`, the target's sizes (see [02](02-types.md#built-in-types)) |
 | `Float32`, `Float64` | `float`, `double` |
 | `Bool` | `bool` |
 | `Ptr<T>` | `T*` |
@@ -211,7 +212,12 @@ fb bindgen vecmath.h [-o vecmath.fb] [--lib vecmath] [--target <triple>] [--std 
   functions are one `Public Extern "C" Lib` block, after the rest, each where it's first declared,
   with the parameters of its last declaration that says what it takes, named by it, or by another
   declaration where it names none.
-- Integers map by their size and sign, `float` and `double` to `Float32` and `Float64`, and
+- Integers map by their size and sign, but for what's written as `long`, `unsigned long`, or
+  `wchar_t`, which are `CLong`, `CULong`, and `CWChar` on every target, through a typedef too,
+  though not one whose name says its size, like `int64_t`, `size_t`, or `intptr_t`, which are a
+  `long` on some targets; a number macro of one of these is one where every target's holds its
+  value, as `1L` is, and is of its size where it isn't, as Linux's `~0UL` is. An Enum keeps its
+  integer type's size. `float` and `double` map to `Float32` and `Float64`, and
   `bool` to `Bool`. `const char*` is a `CString`, a function pointer a Callback, `void*` and a
   pointer to a struct that isn't one of the header's Structs, like an opaque handle, `Ptr<Void>`,
   and any other pointer a `Ptr<T>`, or a `Ptr<Void>` when `T` doesn't map; an array field

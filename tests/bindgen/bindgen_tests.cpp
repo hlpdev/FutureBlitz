@@ -414,29 +414,42 @@ TEST_CASE("fb-bindgen keeps its lines within 100 columns", "[bindgen]") {
           "End Extern\n");
 }
 
-TEST_CASE("the target decides how big C's types are", "[bindgen]") {
-    const std::string_view header = "long size(long x);\n"
-                                    "enum kind { SMALL, LARGE };\n"
-                                    "enum kind classify(unsigned long bits);\n";
-    CHECK(module_of(header, "x86_64-w64-mingw32") == "Public Enum kind: UInt32\n"
-                                                     "    SMALL = 0\n"
-                                                     "    LARGE = 1\n"
-                                                     "End Enum\n"
-                                                     "\n"
-                                                     "Public Extern \"C\"\n"
-                                                     "    Function size(x: Int32): Int32\n"
-                                                     "    Function classify(bits: UInt32): kind\n"
-                                                     "End Extern\n");
-    CHECK(module_of(header, "x86_64-unknown-linux-gnu") ==
-          "Public Enum kind: UInt32\n"
-          "    SMALL = 0\n"
-          "    LARGE = 1\n"
-          "End Enum\n"
-          "\n"
-          "Public Extern \"C\"\n"
-          "    Function size(x: Int64): Int64\n"
-          "    Function classify(bits: UInt64): kind\n"
-          "End Extern\n");
+TEST_CASE("C's long, unsigned long, and wchar_t are CLong, CULong, and CWChar on every target",
+          "[bindgen]") {
+    // Through a typedef too, but not one whose name says its size, like int64_t and size_t,
+    // which are longs on Linux.
+    const std::string_view header =
+        "#include <stddef.h>\n"
+        "#include <stdint.h>\n"
+        "typedef long count;\n"
+        "struct sizes { long a; unsigned long b[2]; wchar_t c; count d; };\n"
+        "enum kind { SMALL, LARGE };\n"
+        "long size(long x, count y, const wchar_t* text, long values[4]);\n"
+        "unsigned long ticks(int64_t a, size_t b, uint64_t c, intptr_t d, enum kind e);\n"
+        "void each(unsigned long (*hash)(const wchar_t* text, long seed));\n";
+    for (const std::string_view target :
+         { "x86_64-w64-mingw32", "x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu" }) {
+        INFO(target);
+        CHECK(module_of(header, target) ==
+              "@CLayout Public Struct sizes\n"
+              "    Public Field a: CLong\n"
+              "    Public Field b: CULong[2]\n"
+              "    Public Field c: CWChar\n"
+              "    Public Field d: CLong\n"
+              "End Struct\n"
+              "\n"
+              "Public Enum kind: UInt32\n"
+              "    SMALL = 0\n"
+              "    LARGE = 1\n"
+              "End Enum\n"
+              "\n"
+              "Public Extern \"C\"\n"
+              "    Function size(x: CLong, y: CLong, text: Ptr<CWChar>, values: Ptr<CLong>): "
+              "CLong\n"
+              "    Function ticks(a: Int64, b: UInt64, c: UInt64, d: Int64, e: kind): CULong\n"
+              "    Function each(hash: Callback(Ptr<CWChar>, CLong): CULong)\n"
+              "End Extern\n");
+    }
 }
 
 TEST_CASE("fb-bindgen binds only the header's own declarations", "[bindgen]") {
@@ -564,7 +577,8 @@ TEST_CASE("a macro is what C sees after the header", "[bindgen]") {
 }
 
 TEST_CASE("number macros have C's types and values for the target", "[bindgen]") {
-    // A `long` is 32 bits on Windows and 64 on Linux, and C's conversions and wrapping hold.
+    // A `long` is 32 bits on Windows and 64 on Linux, and C's conversions and wrapping hold. One
+    // that every target's long or unsigned long holds is a CLong or CULong.
     const std::string_view header = "#define NOT_UL (~0UL)\n"
                                     "#define WRAP_UL (0xFFFFFFFFUL + 1)\n"
                                     "#define ONE_L 1L\n"
@@ -578,9 +592,9 @@ TEST_CASE("number macros have C's types and values for the target", "[bindgen]")
                                     "#define LONG_SIZE sizeof(long)\n"
                                     "enum { ANON_BIG = 0x80000000 };\n"
                                     "#define FROM_ANON (ANON_BIG >> 31)\n";
-    CHECK(module_of(header, "x86_64-w64-mingw32") == "Public Const NOT_UL: UInt32 = 4294967295\n"
-                                                     "Public Const WRAP_UL: UInt32 = 0\n"
-                                                     "Public Const ONE_L: Int32 = 1\n"
+    CHECK(module_of(header, "x86_64-w64-mingw32") == "Public Const NOT_UL: CULong = 4294967295\n"
+                                                     "Public Const WRAP_UL: CULong = 0\n"
+                                                     "Public Const ONE_L: CLong = 1\n"
                                                      "Public Const DIV_U: UInt32 = 2147483644\n"
                                                      "Public Const SAME: Int32 = 1\n"
                                                      "Public Const LESS_LL: Int32 = 1\n"
@@ -594,7 +608,7 @@ TEST_CASE("number macros have C's types and values for the target", "[bindgen]")
     CHECK(module_of(header, "x86_64-unknown-linux-gnu") ==
           "Public Const NOT_UL: UInt64 = 0xFFFFFFFFFFFFFFFF\n"
           "Public Const WRAP_UL: UInt64 = 4294967296\n"
-          "Public Const ONE_L: Int64 = 1\n"
+          "Public Const ONE_L: CLong = 1\n"
           "Public Const DIV_U: UInt32 = 2147483644\n"
           "Public Const SAME: Int32 = 1\n"
           "Public Const LESS_LL: Int32 = 1\n"

@@ -1,0 +1,44 @@
+// C's long, unsigned long, and wchar_t: CLong, CULong, and CWChar are the target's, so a binding
+// that uses them is right on every target, and each widens to an Int64 or a UInt64.
+
+Import std.core
+Import std.ffi
+
+Extern "C"
+    Function labs(n: CLong): CLong
+    Function strtol(text: CString, finish: Ptr<Void>, base: Int32): CLong
+    Function strtoul(text: CString, finish: Ptr<Void>, base: Int32): CULong
+    Function wcslen(text: Ptr<CWChar>): UInt64
+End Extern
+
+Local n = labs(-7)
+Local wide: Int64 = n
+Print("{n} {wide} {n * 6} {-n} {n As Int16} {labs(-2147483647)}")
+Print("{strtol("-2147483648", Null, 10)} {strtoul("4294967295", Null, 10)}")
+
+// An Int32 widens to a CLong, and a CLong to an Int64.
+Local small: Int32 = 40
+Local total: CLong = small
+total += 2
+Local longer: Int64 = total + n
+Print("{total} {longer} {total > n} {total == 42}")
+
+// They're Hashable and Comparable like any integer.
+Local names = { labs(-1): "one", labs(-2): "two" }
+Print(names[2 As CLong])
+Local sum: CLong = 0
+For i = 1 To labs(-4)
+    sum += i
+End For
+Print("{sum} {Max(sum, n)}")
+
+// A CWChar is as big as the target's wchar_t, so C reads what a Ptr at them has.
+Unsafe
+    Local text: Ptr<CWChar> = Mem.Alloc(4 * SizeOf<CWChar>())
+    Defer Mem.Free(text)
+    text[0] = 'h'
+    text[1] = 'i'
+    text[2] = '!'
+    Local letter: Int64 = text[1]
+    Print("{wcslen(text)} {letter} {text[0] + 1} {SizeOf<CLong>() == SizeOf<CULong>()}")
+End Unsafe

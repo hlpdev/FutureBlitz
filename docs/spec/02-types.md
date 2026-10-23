@@ -7,6 +7,7 @@
 | `Bool` | `True` / `False`. Never implicitly converted to or from integers; `b As Int` is `1` or `0` |
 | `Int8` `Int16` `Int32` `Int64` | signed integers |
 | `UInt8` `UInt16` `UInt32` `UInt64` | unsigned integers |
+| `CLong` `CULong` `CWChar` | C's `long`, `unsigned long`, and `wchar_t`, the target's sizes, for `Extern` Functions (see below) |
 | `Float32` `Float64` | IEEE floats |
 | `String` | immutable UTF-8, refcounted |
 | `CString` | C's `const char*`, for `Extern` Functions; `Null`, C's NULL, is its zero (see [12-ffi.md](12-ffi.md)) |
@@ -25,6 +26,19 @@ Aliases:
 | `Long` | `Int64` |
 | `Float` | `Float32` |
 | `Double` | `Float64` |
+
+C's integers are as big as the target's C has them: on Windows, a `CLong` is an `Int32`, a
+`CULong` a `UInt32`, and a `CWChar` a `UInt16`; elsewhere they're an `Int64`, a `UInt64`, and an
+`Int32`, or a `UInt32` on AArch64 outside Apple's targets. Each is a type of its own, which
+converts without `As` only where it would on every target, so code that compiles on one
+compiles on all: an `Int32` or a `UInt16` widens to a `CLong`, a `UInt32` to a `CULong`, a
+`UInt8` or `UInt16` to a `CWChar`, and a `CLong` or `CWChar` to an `Int64`, a `CULong` to a
+`UInt64`, and a `CWChar` to a `CLong` or a `Float64`; anything else, an `Int64` to a `CLong`
+or a `CLong` to an `Int32`, needs `As`. A literal of one fits every target's, so a `CLong`'s is
+an `Int32`'s and a `CWChar`'s from 0 to 65535, and a `CWChar` isn't negated, since it's
+unsigned on Windows. Otherwise they're integers like any: arithmetic, comparisons, `As`, Hash,
+and strings work on them as on the target's, and a Const of one is worked out as the target
+programs are built for has it, as is `SizeOf`. An Enum's integer type is one of the others.
 
 Composite and special types:
 

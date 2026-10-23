@@ -33,8 +33,17 @@ struct c_layout_t {
 };
 
 /// The layout of `type`, which is C data: a number, Bool, Enum, CString, Ptr, Callback, or a
-/// fixed array or Struct of these.
-[[nodiscard]] c_layout_t c_layout(const type_table_t& types, type_id_t type);
+/// fixed array or Struct of these, on a target whose C integers are `integers`.
+[[nodiscard]] c_layout_t c_layout(const type_table_t& types, type_id_t type,
+                                  const c_integers_t& integers);
+
+/// What C's `long`, `unsigned long`, and `wchar_t` are on a target, by its triple, like
+/// "x86_64-w64-windows-gnu".
+[[nodiscard]] c_integers_t c_integers_of(std::string_view triple);
+
+/// C's integers on the target that programs are built for, which compile-time code computes
+/// with, and SizeOf measures by.
+[[nodiscard]] const c_integers_t& build_c_integers();
 
 /// The C ABI a target passes Structs by.
 enum class c_abi_t : std::uint8_t {

@@ -78,6 +78,31 @@ TEST_CASE("lossless conversions between numbers", "[types]") {
     CHECK_FALSE(fb::converts_losslessly(type_id_t::FLOAT64, type_id_t::FLOAT32));
 }
 
+TEST_CASE("C's integers convert losslessly where every target's would", "[types]") {
+    using fb::type_id_t;
+    // A CLong is an Int32 or an Int64, a CULong a UInt32 or a UInt64, and a CWChar a UInt16, an
+    // Int32, or a UInt32.
+    CHECK(fb::converts_losslessly(type_id_t::INT32, type_id_t::CLONG));
+    CHECK(fb::converts_losslessly(type_id_t::UINT16, type_id_t::CLONG));
+    CHECK(fb::converts_losslessly(type_id_t::CLONG, type_id_t::INT64));
+    CHECK_FALSE(fb::converts_losslessly(type_id_t::INT64, type_id_t::CLONG));
+    CHECK_FALSE(fb::converts_losslessly(type_id_t::UINT32, type_id_t::CLONG));
+    CHECK_FALSE(fb::converts_losslessly(type_id_t::CLONG, type_id_t::INT32));
+    CHECK_FALSE(fb::converts_losslessly(type_id_t::CLONG, type_id_t::FLOAT64));
+    CHECK(fb::converts_losslessly(type_id_t::UINT32, type_id_t::CULONG));
+    CHECK(fb::converts_losslessly(type_id_t::CULONG, type_id_t::UINT64));
+    CHECK_FALSE(fb::converts_losslessly(type_id_t::CULONG, type_id_t::INT64));
+    CHECK_FALSE(fb::converts_losslessly(type_id_t::CLONG, type_id_t::CULONG));
+    CHECK(fb::converts_losslessly(type_id_t::UINT16, type_id_t::CWCHAR));
+    CHECK_FALSE(fb::converts_losslessly(type_id_t::INT16, type_id_t::CWCHAR));
+    CHECK(fb::converts_losslessly(type_id_t::CWCHAR, type_id_t::INT64));
+    CHECK(fb::converts_losslessly(type_id_t::CWCHAR, type_id_t::FLOAT64));
+    CHECK_FALSE(fb::converts_losslessly(type_id_t::CWCHAR, type_id_t::INT32));
+    CHECK_FALSE(fb::converts_losslessly(type_id_t::CWCHAR, type_id_t::UINT32));
+    // Each target's wchar_t fits in its long.
+    CHECK(fb::converts_losslessly(type_id_t::CWCHAR, type_id_t::CLONG));
+}
+
 TEST_CASE("a T? has its T inside, and Null for a zero", "[types]") {
     fb::type_table_t types;
     const fb::type_id_t enemy = types.add_class("Enemy");

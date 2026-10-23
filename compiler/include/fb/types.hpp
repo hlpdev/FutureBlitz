@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -34,6 +35,12 @@ enum class type_id_t : std::uint32_t { // NOLINT(performance-enum-size)
     UINT16,
     UINT32,
     UINT64,
+    /// C's `long`, `unsigned long`, and `wchar_t`, integers whose sizes follow the target, as
+    /// on_target() has them. At compile time a CLong's or CWChar's value is held as an Int64's,
+    /// and a CULong's as a UInt64's.
+    CLONG,
+    CULONG,
+    CWCHAR,
     FLOAT32,
     FLOAT64,
     STRING,
@@ -52,20 +59,42 @@ enum class type_id_t : std::uint32_t { // NOLINT(performance-enum-size)
 /// Float is Float32, and Double is Float64. nullopt for anything else.
 [[nodiscard]] std::optional<type_id_t> builtin_type(std::string_view name);
 
+/// The fixed-size integers, and C's, whose sizes follow the target.
 [[nodiscard]] bool is_integer(type_id_t type);
 
-/// Signed integers and floats.
+/// Signed integers and floats. CWChar is one, since its value at compile time is held as an
+/// Int64's; at run time it's signed or not as the target's wchar_t is.
 [[nodiscard]] bool is_signed(type_id_t type);
 
 [[nodiscard]] bool is_float(type_id_t type);
 
 [[nodiscard]] bool is_numeric(type_id_t type);
 
-/// 0 for types that aren't numbers.
+/// CLong, CULong, and CWChar.
+[[nodiscard]] bool is_c_integer(type_id_t type);
+
+/// 0 for types that aren't numbers, and for C's integers, whose width is the target's.
 [[nodiscard]] std::uint32_t bit_width(type_id_t type);
 
+/// What C's `long`, `unsigned long`, and `wchar_t` are on a target.
+struct c_integers_t {
+    type_id_t c_long = type_id_t::INT64;
+    type_id_t c_ulong = type_id_t::UINT64;
+    type_id_t c_wchar = type_id_t::INT32;
+};
+
+/// C's integers on each kind of target FutureBlitz has: Windows, where they're 32, 32, and 16
+/// bits, wchar_t unsigned; elsewhere, where they're 64, 64, and 32 bits, wchar_t unsigned on
+/// AArch64 but Apple's; and Cygwin, where they're 64, 64, and an unsigned 16.
+[[nodiscard]] std::span<const c_integers_t> every_c_integers();
+
+/// The integer `type` is on a target whose C integers are `integers`: CLong's, CULong's, or
+/// CWChar's, and any other type itself.
+[[nodiscard]] type_id_t on_target(type_id_t type, const c_integers_t& integers);
+
 /// Whether every value of `from` is exactly a value of `to`, so it converts without an 'As'.
-/// Float32 holds integers of up to 16 bits, and Float64 up to 32.
+/// Float32 holds integers of up to 16 bits, and Float64 up to 32. With one of C's integers, it
+/// has to on every target.
 [[nodiscard]] bool converts_losslessly(type_id_t from, type_id_t to);
 
 /// What a type in the table is.

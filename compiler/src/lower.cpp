@@ -1,5 +1,7 @@
 #include "fb/lower.hpp"
 
+#include "fb/c_abi.hpp"
+
 #include <algorithm>
 #include <array>
 #include <bit>

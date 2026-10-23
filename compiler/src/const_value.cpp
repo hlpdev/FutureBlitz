@@ -1,5 +1,8 @@
 #include "fb/const_value.hpp"
 
+#include "fb/c_abi.hpp"
+
+#include <algorithm>
 #include <array>
 #include <bit>
 #include <cmath>
@@ -333,6 +336,40 @@ fold_result_t fold_shift(const binary_op_t op, const const_value_t& left,
     return wrap((raw >> amount) | fill, left.type);
 }
 
+/// A value of one of C's integers as the integer it is on the target programs are built for,
+/// which compile-time code computes with. Any other value is itself.
+const_value_t on_build_target(const const_value_t& value) {
+    const type_id_t type = on_target(value.type, build_c_integers());
+    return type == value.type ? value : wrap(raw_bits(value), type);
+}
+
+/// What folding a value of C's integer `type` as the target's integer gave, as a value of
+/// `type`, held as an Int64 for CLong and CWChar and a UInt64 for CULong, which every target's
+/// holds. An error names `type` where it named the target's integer.
+fold_result_t as_c_integer(fold_result_t folded, const type_id_t type) {
+    const std::string_view target = builtin_name(on_target(type, build_c_integers()));
+    if (!folded) {
+        std::string message = std::move(folded.error());
+        if (message.ends_with(target)) {
+            message.replace(message.size() - target.size(), target.size(),
+                            std::format("{} ({} on this target)", builtin_name(type), target));
+        }
+
+        return std::unexpected(std::move(message));
+    }
+
+    if (folded->type == type_id_t::BOOL) {
+        return folded;
+    }
+
+    if (const auto* number = std::get_if<std::uint64_t>(&folded->data);
+        number != nullptr && is_signed(type)) {
+        return const_value_t{ .type = type, .data = static_cast<std::int64_t>(*number) };
+    }
+
+    return const_value_t{ .type = type, .data = folded->data };
+}
+
 /// Orders two numbers of the same type: floats as doubles, integers with compare().
 std::partial_ordering order(const const_value_t& left, const const_value_t& right) {
     // Strings compare by their UTF-8 bytes, which orders them by code point.
@@ -368,6 +405,20 @@ std::optional<const_value_t> make_number(const std::uint64_t magnitude, const bo
 
     if (!is_integer(type)) {
         return std::nullopt;
+    }
+
+    // A literal of one of C's integers is one that every target's holds.
+    if (is_c_integer(type)) {
+        const bool fits = std::ranges::all_of(every_c_integers(), [&](const c_integers_t& c) {
+            return make_number(magnitude, negative, on_target(type, c)).has_value();
+        });
+        const type_id_t held = is_signed(type) ? type_id_t::INT64 : type_id_t::UINT64;
+        const std::optional<const_value_t> value = make_number(magnitude, negative, held);
+        if (!fits || !value) {
+            return std::nullopt;
+        }
+
+        return const_value_t{ .type = type, .data = value->data };
     }
 
     const std::uint32_t bits = bit_width(type);
@@ -409,6 +460,10 @@ const_value_t make_string(std::string value) {
 }
 
 fold_result_t fold_unary(const unary_op_t op, const const_value_t& operand) {
+    if (is_c_integer(operand.type)) {
+        return as_c_integer(fold_unary(op, on_build_target(operand)), operand.type);
+    }
+
     switch (op) {
     case unary_op_t::NOT:
         return make_bool(!std::get<bool>(operand.data));
@@ -434,6 +489,12 @@ fold_result_t fold_unary(const unary_op_t op, const const_value_t& operand) {
 
 fold_result_t fold_binary(const binary_op_t op, const const_value_t& left,
                           const const_value_t& right) {
+    // C's integers compute as the target's, though a shift's amount alone can be one.
+    if (is_c_integer(left.type) || is_c_integer(right.type)) {
+        fold_result_t folded = fold_binary(op, on_build_target(left), on_build_target(right));
+        return is_c_integer(left.type) ? as_c_integer(std::move(folded), left.type) : folded;
+    }
+
     // Sema converts both sides to one type first, so their data compares directly. Only a
     // shift's amount can have a different integer type.
     switch (op) {
@@ -490,6 +551,11 @@ fold_result_t fold_binary(const binary_op_t op, const const_value_t& left,
 fold_result_t fold_cast(const const_value_t& value, const type_id_t type) {
     if (value.type == type) {
         return value;
+    }
+
+    if (is_c_integer(value.type) || is_c_integer(type)) {
+        fold_result_t cast = fold_cast(on_build_target(value), on_target(type, build_c_integers()));
+        return is_c_integer(type) ? as_c_integer(std::move(cast), type) : cast;
     }
 
     if (const auto* flag = std::get_if<bool>(&value.data)) {

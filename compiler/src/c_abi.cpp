@@ -1,10 +1,13 @@
 #include "fb/c_abi.hpp"
 
+#include "fb/build_config.hpp"
+
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <iterator>
 #include <optional>
+#include <span>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -78,9 +81,19 @@ homogeneous_floats(const c_layout_t& layout) {
                                                      : c_piece_t{ .part = c_part_t::FLOAT };
 }
 
+/// Whether a triple is Windows', MSVC's, MinGW's, or Cygwin's.
+[[nodiscard]] bool windows(const std::string_view triple) {
+    return triple.contains("windows") || triple.contains("mingw") || triple.contains("win32") ||
+           triple.contains("cygwin");
+}
+
 } // namespace
 
-c_layout_t c_layout(const type_table_t& types, const type_id_t type) {
+c_layout_t c_layout(const type_table_t& types, const type_id_t type, const c_integers_t& integers) {
+    if (is_c_integer(type)) {
+        return c_layout(types, on_target(type, integers), integers);
+    }
+
     switch (type) {
     case type_id_t::BOOL:
     case type_id_t::INT8:
@@ -107,13 +120,13 @@ c_layout_t c_layout(const type_table_t& types, const type_id_t type) {
     const type_t& info = types.get(type);
     switch (info.kind) {
     case type_kind_t::ENUM:
-        return c_layout(types, info.inner);
+        return c_layout(types, info.inner, integers);
     case type_kind_t::PTR:
     case type_kind_t::CALLBACK:
         return scalar(8, c_scalar_t::INTEGER);
     case type_kind_t::FIXED_ARRAY: {
         // Its elements one after another.
-        const c_layout_t element = c_layout(types, info.inner);
+        const c_layout_t element = c_layout(types, info.inner, integers);
         c_layout_t layout{ .align = element.align };
         const std::uint64_t count = types.element_count(type);
         // Past what a std::uint64_t counts, it's as big as one: more than any machine has.
@@ -140,7 +153,7 @@ c_layout_t c_layout(const type_table_t& types, const type_id_t type) {
     // its largest field's.
     c_layout_t layout;
     for (const field_t& part : info.fields) {
-        const c_layout_t inner = c_layout(types, part.type);
+        const c_layout_t inner = c_layout(types, part.type, integers);
         if (layout.size > UINT64_MAX / 4 || inner.size > UINT64_MAX / 4) {
             return { .size = UINT64_MAX, .align = std::max(layout.align, inner.align) };
         }
@@ -168,9 +181,29 @@ c_abi_t c_abi_of(const std::string_view triple) {
         return c_abi_t::OTHER;
     }
 
-    const bool windows = triple.contains("windows") || triple.contains("mingw") ||
-                         triple.contains("win32") || triple.contains("cygwin");
-    return windows ? c_abi_t::WIN64 : c_abi_t::SYSV;
+    return windows(triple) ? c_abi_t::WIN64 : c_abi_t::SYSV;
+}
+
+c_integers_t c_integers_of(const std::string_view triple) {
+    const std::span<const c_integers_t> every = every_c_integers();
+    // LLVM's normal form of Cygwin's triples says "cygnus".
+    if (triple.contains("cygwin") || triple.contains("cygnus")) {
+        return every[3];
+    }
+
+    if (windows(triple)) {
+        return every[0];
+    }
+
+    // AArch64's wchar_t is unsigned, but Apple's.
+    const bool unsigned_wchar =
+        (triple.starts_with("aarch64") || triple.starts_with("arm64")) && !triple.contains("apple");
+    return every[unsigned_wchar ? 2 : 1];
+}
+
+const c_integers_t& build_c_integers() {
+    static const c_integers_t integers = c_integers_of(build_config::target_triple);
+    return integers;
 }
 
 c_passing_t classify(const c_layout_t& layout, const c_abi_t abi, const bool result,

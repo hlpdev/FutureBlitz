@@ -1,3 +1,4 @@
+#include "fb/c_abi.hpp"
 #include "fb/const_value.hpp"
 #include "fb/driver.hpp"
 #include "fb/sema.hpp"
@@ -146,6 +147,47 @@ TEST_CASE("mixed numeric operands widen losslessly", "[sema]") {
           errors_t{ "u + i: '+' can't combine UInt32 and Int32; convert one side with 'As'" });
     CHECK(errors_of("Local l: Long = 0\nLocal i: Int = l") ==
           errors_t{ "l: expected Int32, found Int64" });
+}
+
+TEST_CASE("C's integers widen and take literals as every target's would", "[sema]") {
+    CHECK(probe("Local i = 1\nLocal x: CLong = i") == "CLong (from Int32)");
+    CHECK(probe("Local c: CLong = 1\nLocal x: Long = c") == "Int64 (from CLong)");
+    CHECK(probe("Local c: CLong = 1\nLocal i = 2\nLocal x = c + i") == "CLong");
+    CHECK(probe("Local u: CULong = 1\nLocal x: UInt64 = u") == "UInt64 (from CULong)");
+    CHECK(probe("Local w: CWChar = 'A'\nLocal x: Long = w") == "Int64 (from CWChar)");
+    CHECK(probe("Local x: CLong = -2147483648") == "CLong -2147483648");
+    CHECK(probe("Local x: CWChar = 65535") == "CWChar 65535");
+    CHECK(probe("Const x: CLong = 1000 * 1000") == "CLong 1000000");
+    const bool windows = fb::build_c_integers().c_long == fb::type_id_t::INT32;
+    CHECK(probe("Const big: Long = 5_000_000_000\nConst x = big As CULong") ==
+          (windows ? "CULong 705032704" : "CULong 5000000000"));
+    CHECK(probe("Local x = SizeOf<CLong>()") ==
+          std::format("Int64 {}", fb::bit_width(fb::build_c_integers().c_long) / 8));
+
+    // Windows' are the smaller ones, and its wchar_t is unsigned.
+    CHECK(errors_of("Local l: Long = 0\nLocal c: CLong = l") ==
+          errors_t{ "l: expected CLong, found Int64" });
+    CHECK(errors_of("Local c: CLong = 1\nLocal i: Int = c") ==
+          errors_t{ "c: expected Int32, found CLong" });
+    CHECK(errors_of("Local u: UInt32 = 1\nLocal c: CLong = u") ==
+          errors_t{ "u: expected CLong, found UInt32" });
+    CHECK(errors_of("Local x: CLong = 3000000000") ==
+          errors_t{ "3000000000: 3000000000 doesn't fit in CLong, which is an Int32 on Windows" });
+    CHECK(errors_of("Local x: CULong = 5000000000") ==
+          errors_t{ "5000000000: 5000000000 doesn't fit in CULong, which is a UInt32 on Windows" });
+    CHECK(errors_of("Local x: CWChar = -1") ==
+          errors_t{ "-1: -1 doesn't fit in CWChar, which is a UInt16 on Windows" });
+    CHECK(errors_of("Local w: CWChar = 1\nLocal x = -w") ==
+          errors_t{ "-w: '-' can't be used on CWChar, which is a UInt16 on Windows" });
+    CHECK(errors_of("Enum Kind: CLong\n    A\nEnd Enum") ==
+          errors_t{ "CLong: an Enum's type is an integer of one size on every target, which "
+                    "CLong isn't" });
+
+    // A Const computes as the target programs are built for has them.
+    CHECK(errors_of("Const a: CLong = 2000000000\nConst b = a * a * a") ==
+          errors_t{ std::format("{}: the result of '*' overflows CLong ({} on this target)",
+                                windows ? "a * a" : "a * a * a",
+                                fb::builtin_name(fb::build_c_integers().c_long)) });
 }
 
 TEST_CASE("a literal operand takes the other side's type", "[sema]") {

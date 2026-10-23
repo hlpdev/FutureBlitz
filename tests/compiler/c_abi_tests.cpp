@@ -76,6 +76,44 @@ TEST_CASE("a target's triple says its C ABI", "[c_abi]") {
     CHECK(fb::c_abi_of("riscv64-unknown-linux-gnu") == fb::c_abi_t::OTHER);
 }
 
+TEST_CASE("a target's triple says what C's long, unsigned long, and wchar_t are", "[c_abi]") {
+    using fb::type_id_t;
+    // As clang has them: 32 bits on Windows, and wchar_t unsigned on AArch64 but Apple's.
+    const auto integers = [](const std::string_view triple) {
+        const fb::c_integers_t found = fb::c_integers_of(triple);
+        return std::vector{ found.c_long, found.c_ulong, found.c_wchar };
+    };
+    const std::vector windows{ type_id_t::INT32, type_id_t::UINT32, type_id_t::UINT16 };
+    CHECK(integers("x86_64-w64-windows-gnu") == windows);
+    CHECK(integers("x86_64-pc-windows-msvc") == windows);
+    CHECK(integers("aarch64-pc-windows-msvc") == windows);
+    const std::vector signed_wchar{ type_id_t::INT64, type_id_t::UINT64, type_id_t::INT32 };
+    CHECK(integers("x86_64-unknown-linux-gnu") == signed_wchar);
+    CHECK(integers("x86_64-apple-macosx14.0.0") == signed_wchar);
+    CHECK(integers("arm64-apple-macosx14.0.0") == signed_wchar);
+    CHECK(integers("riscv64-unknown-linux-gnu") == signed_wchar);
+    const std::vector unsigned_wchar{ type_id_t::INT64, type_id_t::UINT64, type_id_t::UINT32 };
+    CHECK(integers("aarch64-unknown-linux-gnu") == unsigned_wchar);
+    CHECK(integers("aarch64-linux-android") == unsigned_wchar);
+    const std::vector cygwin{ type_id_t::INT64, type_id_t::UINT64, type_id_t::UINT16 };
+    CHECK(integers("x86_64-pc-cygwin") == cygwin);
+    CHECK(integers("x86_64-pc-windows-cygnus") == cygwin);
+
+    // A Struct of them is laid out as C does on each.
+    fb::type_table_t types;
+    const type_id_t pair = types.add_struct("Pair");
+    const std::vector<fb::field_t> fields{
+        { .name = "a", .type = type_id_t::CWCHAR },
+        { .name = "b", .type = type_id_t::CLONG },
+    };
+    types.set_fields(pair, fields);
+    CHECK(fb::c_layout(types, pair, fb::c_integers_of("x86_64-w64-windows-gnu")).size == 8);
+    CHECK(fb::c_layout(types, pair, fb::c_integers_of("x86_64-unknown-linux-gnu")).size == 16);
+    CHECK(
+        fb::c_layout(types, type_id_t::CULONG, fb::c_integers_of("aarch64-pc-windows-msvc")).size ==
+        4);
+}
+
 TEST_CASE("Win64 passes a Struct of 1, 2, 4, or 8 bytes as an integer, and others through a "
           "pointer",
           "[c_abi]") {
@@ -178,13 +216,13 @@ TEST_CASE("AAPCS64 passes up to four floats or doubles in their own registers, a
                          { .name = "xy", .type = types.fixed_array(fb::type_id_t::FLOAT32, { 2 }) },
                          { .name = "z", .type = fb::type_id_t::FLOAT32 },
                      });
-    CHECK(argument(fb::c_layout(types, held), aapcs64) == three);
+    CHECK(argument(fb::c_layout(types, held, fb::c_integers_t()), aapcs64) == three);
     const fb::type_id_t quad = types.add_struct("Quad");
     types.set_fields(quad,
                      {
                          { .name = "v", .type = types.fixed_array(fb::type_id_t::FLOAT64, { 4 }) },
                      });
-    CHECK(result(fb::c_layout(types, quad), aapcs64) ==
+    CHECK(result(fb::c_layout(types, quad, fb::c_integers_t()), aapcs64) ==
           together(std::vector<fb::c_piece_t>(4, { .part = c_part_t::DOUBLE })));
 }
 
@@ -196,7 +234,7 @@ TEST_CASE("a Callback in a Struct takes 8 bytes, as C's function pointer does", 
                                  { .name = "f", .type = callback },
                                  { .name = "value", .type = fb::type_id_t::INT32 },
                              });
-    const c_layout_t found = fb::c_layout(types, holder);
+    const c_layout_t found = fb::c_layout(types, holder, fb::c_integers_t());
     CHECK(found.size == 16);
     CHECK(argument(found, win64).pass == c_pass_t::INDIRECT);
     CHECK(argument(found, sysv) == direct({
@@ -323,6 +361,54 @@ TEST_CASE("C's Bools and small integers are extended where the target's C ABI ha
                            "zeroext %0, i8 signext %1)"));
     CHECK(line("aarch64-unknown-linux-gnu", thunk)
               .starts_with("define internal i1 @\"fb.callback.Flip(Bool, Int8)\"(i1 %0, i8 %1)"));
+}
+
+TEST_CASE("a binding using CLong, CULong, and CWChar is right on every target", "[c_abi]") {
+    const std::vector<fb::library_file_t> files =
+        fb::standard_library().value_or(std::vector<fb::library_file_t>{});
+    const fb::compilation_t compilation =
+        fb::compile("main.fb",
+                    "@CLayout Struct Pair\n    Field a: CLong\n    Field b: CWChar\nEnd Struct\n"
+                    "Extern \"C\"\n"
+                    "    Function labs(n: CLong): CLong\n"
+                    "    Function widen(c: CWChar, u: CULong): CWChar\n"
+                    "    Function swapped(p: Pair): Pair\n"
+                    "    Function each(f: Callback(CLong): CULong)\n"
+                    "End Extern\n"
+                    "Function Hash(n: CLong): CULong => n As CULong\n"
+                    "Local n: Int64 = labs(-5)\n"
+                    "Local c = widen(65, 3)\n"
+                    "Local p = swapped(Pair(1, 2))\n"
+                    "each(Hash)\n",
+                    files);
+    REQUIRE_FALSE(compilation.diagnostics.has_errors());
+    const fb::mir_module_t module = fb::lower(compilation.ast, compilation.analysis);
+    const auto ir = [&](const std::string_view triple) {
+        return fb::emit_ir(module, compilation.sources, compilation.file,
+                           { .target_triple = std::string(triple) })
+            .value_or("");
+    };
+
+    // Windows' are 32, 32, and 16 bits, and a Pair of 8 bytes goes as an integer.
+    const std::string windows = ir("x86_64-w64-windows-gnu");
+    CHECK(windows.contains("declare i32 @labs(i32)"));
+    CHECK(windows.contains("declare i16 @widen(i16, i32)"));
+    CHECK(windows.contains("declare i64 @swapped(i64)"));
+    CHECK(windows.contains("%fb.Pair = type { i32, i16 }"));
+    CHECK(windows.contains("define internal i32 @\"fb.callback.Hash(CLong)\"(i32 %0)"));
+    // Elsewhere they're 64, 64, and 32, and a Pair of 16 bytes goes in two registers.
+    const std::string linux = ir("x86_64-unknown-linux-gnu");
+    CHECK(linux.contains("declare i64 @labs(i64)"));
+    CHECK(linux.contains("declare i32 @widen(i32, i64)"));
+    CHECK(linux.contains("declare { i64, i32 } @swapped(i64, i32)"));
+    CHECK(linux.contains("%fb.Pair = type { i64, i32 }"));
+    CHECK(linux.contains("define internal i64 @\"fb.callback.Hash(CLong)\"(i64 %0)"));
+    const std::string arm = ir("aarch64-unknown-linux-gnu");
+    CHECK(arm.contains("declare i64 @labs(i64)"));
+    CHECK(arm.contains("declare i32 @widen(i32, i64)"));
+    CHECK(arm.contains("declare [2 x i64] @swapped([2 x i64])"));
+    // Windows' 16-bit wchar_t is extended on x86-64 only outside Windows, so nowhere.
+    CHECK(ir("arm64-apple-macosx14.0.0").contains("declare i32 @widen(i32, i64)"));
 }
 
 TEST_CASE("the runtime's Extern Functions extend small integers as C does", "[c_abi]") {

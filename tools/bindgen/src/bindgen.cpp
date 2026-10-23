@@ -21,6 +21,7 @@
 #include <format>
 #include <functional>
 #include <iterator>
+#include <limits>
 #include <llvm-c/Core.h>
 #include <llvm-c/TargetMachine.h>
 #include <map>
@@ -709,6 +710,21 @@ private:
         }
     }
 
+    /// Whether every target's CLong, CULong, or CWChar holds a value of the target's, by its
+    /// bits: an Int32's, a UInt32's, or a UInt16's.
+    static bool fits_everywhere(const std::string_view type, const std::uint64_t bits) {
+        const auto value = static_cast<std::int64_t>(bits);
+        if (type == "CLong") {
+            return value >= INT32_MIN && value <= INT32_MAX;
+        }
+
+        if (type == "CULong") {
+            return bits <= std::numeric_limits<std::uint32_t>::max();
+        }
+
+        return bits <= std::numeric_limits<std::uint16_t>::max();
+    }
+
     /// The Const for a macro that clang worked out as `variable`, or why it has none.
     static std::expected<constant_t, std::string> constant_of(const CXCursor variable,
                                                               const std::string& name) {
@@ -757,6 +773,19 @@ private:
                 is_unsigned
                     ? clang_EvalResult_getAsUnsigned(result.get())
                     : static_cast<std::uint64_t>(clang_EvalResult_getAsLongLong(result.get()));
+            // One of C's own integers, where every target's holds the value. The variable's
+            // __typeof__ hides the names its type was written with, which its value keeps.
+            CXType written = clang_getCursorType(variable);
+            each_child(variable, [&](const CXCursor child) {
+                if (clang_isExpression(clang_getCursorKind(child)) != 0) {
+                    written = clang_getCursorType(child);
+                }
+            });
+            if (const std::optional<std::string> integer = c_integer(written);
+                integer && fits_everywhere(*integer, bits)) {
+                return constant_t{ .type = *integer, .value = integer_literal(*integer, bits) };
+            }
+
             return constant_t{ .type = fb_type, .value = integer_literal(fb_type, bits) };
         }
         case CXEval_Float: {
@@ -1014,6 +1043,107 @@ private:
         }
     }
 
+    /// `type` with the name or attribute it was written with taken off, one at a time: a
+    /// typedef's type, or what an elaborated or attributed type names. nullopt for one without.
+    static std::optional<CXType> peeled(const CXType type) {
+        switch (type.kind) {
+        case CXType_Elaborated:
+            return clang_Type_getNamedType(type);
+        case CXType_Typedef:
+            return clang_getTypedefDeclUnderlyingType(clang_getTypeDeclaration(type));
+        case CXType_Attributed:
+            return clang_Type_getModifiedType(type);
+        default:
+            return std::nullopt;
+        }
+    }
+
+    /// `type` as a type of `kind`, as written, through its names, or else its canonical type.
+    static CXType written_as(CXType type, const CXTypeKind kind) {
+        while (type.kind != kind) {
+            const std::optional<CXType> inner = peeled(type);
+            if (!inner) {
+                return clang_getCanonicalType(type);
+            }
+
+            type = *inner;
+        }
+
+        return type;
+    }
+
+    /// Whether a typedef's name says how big its integer is, as stdint.h's and stddef.h's do,
+    /// like `int64_t` and `size_t`, which are a `long` on some targets.
+    static bool sized_by_name(std::string_view name) {
+        constexpr auto sized = std::to_array<std::string_view>({
+            "size_t",
+            "ssize_t",
+            "ptrdiff_t",
+            "intptr_t",
+            "uintptr_t",
+            "intmax_t",
+            "uintmax_t",
+            "char16_t",
+            "char32_t",
+        });
+        if (std::ranges::contains(sized, name)) {
+            return true;
+        }
+
+        // intN_t, int_leastN_t, int_fastN_t, and their unsigned ones.
+        if (name.starts_with('u')) {
+            name.remove_prefix(1);
+        }
+
+        if (!name.starts_with("int") || !name.ends_with("_t")) {
+            return false;
+        }
+
+        name = name.substr(3, name.size() - 5);
+        if (name.starts_with("_least")) {
+            name.remove_prefix(6);
+        } else if (name.starts_with("_fast")) {
+            name.remove_prefix(5);
+        }
+
+        return name == "8" || name == "16" || name == "32" || name == "64";
+    }
+
+    /// CLong, CULong, or CWChar for a type written as C's `long`, `unsigned long`, or `wchar_t`,
+    /// through typedefs, but not through one whose name gives its integer's size.
+    static std::optional<std::string> c_integer(CXType type) {
+        while (true) {
+            if (type.kind == CXType_Typedef) {
+                const std::string name = text_of(clang_getTypedefName(type));
+                if (name == "wchar_t") {
+                    return "CWChar";
+                }
+
+                if (sized_by_name(name)) {
+                    return std::nullopt;
+                }
+            }
+
+            const std::optional<CXType> inner = peeled(type);
+            if (!inner) {
+                break;
+            }
+
+            type = *inner;
+        }
+
+        switch (type.kind) {
+        case CXType_Long:
+            return "CLong";
+        case CXType_ULong:
+            return "CULong";
+        case CXType_WChar:
+            return "CWChar";
+        default:
+            return std::nullopt;
+        }
+    }
+
     record_t* record_of(const CXType type) {
         const auto found = m_records.find(usr_of(clang_getTypeDeclaration(type)));
         return found != m_records.end() ? &found->second : nullptr;
@@ -1040,7 +1170,13 @@ private:
         m_deciding = false;
     }
 
+    /// What `written` maps to, by its canonical type, but for C's own integers, which only its
+    /// names say.
     mapped_t map_type(const CXType written) {
+        if (std::optional<std::string> integer = c_integer(written)) {
+            return std::move(*integer);
+        }
+
         const CXType type = clang_getCanonicalType(written);
         switch (type.kind) {
         case CXType_Bool:
@@ -1055,13 +1191,13 @@ private:
         case CXType_UInt128:
             return std::unexpected("a 128-bit integer");
         case CXType_Pointer:
-            return map_pointer(type);
+            return map_pointee(clang_getPointeeType(written_as(written, CXType_Pointer)));
         case CXType_Record:
             return map_record(type);
         case CXType_Enum:
             return map_enum(type);
         case CXType_ConstantArray:
-            return map_array(type);
+            return map_array(written);
         case CXType_IncompleteArray:
             return std::unexpected("an array without a size");
         case CXType_Void:
@@ -1077,17 +1213,21 @@ private:
         }
     }
 
-    /// `const char*` is a CString, a function pointer a Callback, and `void*`, a pointer to a
-    /// struct that isn't a @CLayout Struct here, like an opaque handle's, or to what has no type
-    /// is a Ptr<Void>.
-    mapped_t map_pointer(const CXType type) {
-        const CXType pointee = clang_getCanonicalType(clang_getPointeeType(type));
+    /// A pointer at `written`: `const char*` is a CString, a function pointer a Callback, and
+    /// `void*`, a pointer to a struct that isn't a @CLayout Struct here, like an opaque
+    /// handle's, or to what has no type is a Ptr<Void>.
+    mapped_t map_pointee(const CXType written) {
+        const CXType pointee = clang_getCanonicalType(written);
         if ((pointee.kind == CXType_Char_S || pointee.kind == CXType_Char_U) &&
             clang_isConstQualifiedType(pointee) != 0) {
             return "CString";
         }
 
-        if (pointee.kind == CXType_FunctionProto || pointee.kind == CXType_FunctionNoProto) {
+        if (pointee.kind == CXType_FunctionProto) {
+            return map_callback(written_as(written, CXType_FunctionProto));
+        }
+
+        if (pointee.kind == CXType_FunctionNoProto) {
             return map_callback(pointee);
         }
 
@@ -1101,8 +1241,25 @@ private:
                                                         : std::string("Ptr<Void>");
         }
 
-        const mapped_t inner = map_type(pointee);
+        const mapped_t inner = map_type(written);
         return inner ? std::format("Ptr<{}>", *inner) : std::string("Ptr<Void>");
+    }
+
+    /// A parameter as C passes it, an array as a pointer at its element, from its type as it's
+    /// declared, whose names say which integers are C's own. The canonical type stands in for
+    /// one libclang doesn't give.
+    mapped_t map_parameter(const CXType declared, const CXType canonical) {
+        if (declared.kind == CXType_Invalid) {
+            return map_type(canonical);
+        }
+
+        const CXType type = clang_getCanonicalType(declared);
+        if (type.kind == CXType_ConstantArray || type.kind == CXType_IncompleteArray ||
+            type.kind == CXType_VariableArray) {
+            return map_pointee(clang_getArrayElementType(written_as(declared, type.kind)));
+        }
+
+        return map_type(declared);
     }
 
     /// The calling convention a function type is declared with, like "vectorcall", when it
@@ -1155,13 +1312,13 @@ private:
         std::vector<std::string> parameters;
         const int count = std::max(clang_getNumArgTypes(function), 0);
         for (int i = 0; i < count; ++i) {
-            const CXType parameter =
-                clang_getCanonicalType(clang_getArgType(function, static_cast<unsigned>(i)));
+            const CXType written = clang_getArgType(function, static_cast<unsigned>(i));
+            const CXType parameter = clang_getCanonicalType(written);
             if (parameter.kind == CXType_Record) {
                 return std::unexpected("a callback that takes a struct by value");
             }
 
-            const mapped_t mapped = map_type(parameter);
+            const mapped_t mapped = map_parameter(written, parameter);
             if (!mapped) {
                 return std::unexpected(std::format("a callback that takes {}", mapped.error()));
             }
@@ -1175,13 +1332,14 @@ private:
         }
 
         text += ')';
-        const CXType result = clang_getCanonicalType(clang_getResultType(function));
+        const CXType written = clang_getResultType(function);
+        const CXType result = clang_getCanonicalType(written);
         if (result.kind == CXType_Record) {
             return std::unexpected("a callback that gives a struct by value");
         }
 
         if (result.kind != CXType_Void) {
-            const mapped_t mapped = map_type(result);
+            const mapped_t mapped = map_type(written);
             if (!mapped) {
                 return std::unexpected(std::format("a callback that gives {}", mapped.error()));
             }
@@ -1229,9 +1387,10 @@ private:
     /// C's `int16_t m[2][3]` is an Int16[2, 3], laid out the same way.
     mapped_t map_array(CXType type) {
         std::vector<long long> sizes;
-        while (type.kind == CXType_ConstantArray) {
+        while (clang_getCanonicalType(type).kind == CXType_ConstantArray) {
+            type = written_as(type, CXType_ConstantArray);
             sizes.push_back(clang_getArraySize(type));
-            type = clang_getCanonicalType(clang_getArrayElementType(type));
+            type = clang_getArrayElementType(type);
         }
 
         if (std::ranges::contains(sizes, 0)) {
@@ -1526,8 +1685,9 @@ private:
 
         const CXCursor declaration = function.declaration;
         // The canonical type's parameters are as C passes them, an array as a pointer, where
-        // the declared type's are as written.
+        // the declared type's are as written, with the names that say which integers are C's.
         const CXType type = clang_getCanonicalType(clang_getCursorType(declaration));
+        const CXType declared = written_as(clang_getCursorType(declaration), CXType_FunctionProto);
         if (clang_Cursor_getStorageClass(item) == CX_SC_Static ||
             clang_Cursor_getStorageClass(declaration) == CX_SC_Static) {
             skip(item, std::format("{}, a static function, which no library has", c_name), true);
@@ -1576,7 +1736,9 @@ private:
         std::vector<std::string> c_names;
         const int count = std::max(clang_getNumArgTypes(type), 0);
         for (int i = 0; i < count; ++i) {
-            const mapped_t mapped = map_type(clang_getArgType(type, static_cast<unsigned>(i)));
+            const mapped_t mapped =
+                map_parameter(clang_getArgType(declared, static_cast<unsigned>(i)),
+                              clang_getArgType(type, static_cast<unsigned>(i)));
             if (!mapped) {
                 skip(item, std::format("{}, which takes {}", c_name, mapped.error()), true);
                 return;
@@ -1593,9 +1755,10 @@ private:
         }
 
         line += ')';
-        const CXType result = clang_getCanonicalType(clang_getResultType(type));
+        const CXType written = clang_getResultType(declared);
+        const CXType result = clang_getCanonicalType(written);
         if (result.kind != CXType_Void) {
-            const mapped_t mapped = map_type(result);
+            const mapped_t mapped = map_type(written);
             if (!mapped) {
                 skip(item, std::format("{}, which gives {}", c_name, mapped.error()), true);
                 return;

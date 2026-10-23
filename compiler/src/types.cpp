@@ -8,6 +8,7 @@
 #include <format>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -33,6 +34,9 @@ constexpr auto type_names = std::to_array<named_type_t>({
     { .name = "UInt16", .type = type_id_t::UINT16 },
     { .name = "UInt32", .type = type_id_t::UINT32 },
     { .name = "UInt64", .type = type_id_t::UINT64 },
+    { .name = "CLong", .type = type_id_t::CLONG },
+    { .name = "CULong", .type = type_id_t::CULONG },
+    { .name = "CWChar", .type = type_id_t::CWCHAR },
     { .name = "Float32", .type = type_id_t::FLOAT32 },
     { .name = "Float64", .type = type_id_t::FLOAT64 },
     { .name = "String", .type = type_id_t::STRING },
@@ -74,13 +78,18 @@ std::optional<type_id_t> builtin_type(const std::string_view name) {
     return std::nullopt;
 }
 
-// These ranges rely on type_id_t listing the signed integers, then the unsigned ones.
+// These ranges rely on type_id_t listing the signed integers, then the unsigned ones, then C's.
 bool is_integer(const type_id_t type) {
-    return type >= type_id_t::INT8 && type <= type_id_t::UINT64;
+    return type >= type_id_t::INT8 && type <= type_id_t::CWCHAR;
 }
 
 bool is_signed(const type_id_t type) {
-    return (type >= type_id_t::INT8 && type <= type_id_t::INT64) || is_float(type);
+    return (type >= type_id_t::INT8 && type <= type_id_t::INT64) || type == type_id_t::CLONG ||
+           type == type_id_t::CWCHAR || is_float(type);
+}
+
+bool is_c_integer(const type_id_t type) {
+    return type >= type_id_t::CLONG && type <= type_id_t::CWCHAR;
 }
 
 bool is_float(const type_id_t type) {
@@ -112,10 +121,40 @@ std::uint32_t bit_width(const type_id_t type) {
     }
 }
 
+std::span<const c_integers_t> every_c_integers() {
+    static constexpr auto every = std::to_array<c_integers_t>({
+        { .c_long = type_id_t::INT32, .c_ulong = type_id_t::UINT32, .c_wchar = type_id_t::UINT16 },
+        { .c_long = type_id_t::INT64, .c_ulong = type_id_t::UINT64, .c_wchar = type_id_t::INT32 },
+        { .c_long = type_id_t::INT64, .c_ulong = type_id_t::UINT64, .c_wchar = type_id_t::UINT32 },
+        { .c_long = type_id_t::INT64, .c_ulong = type_id_t::UINT64, .c_wchar = type_id_t::UINT16 },
+    });
+    return every;
+}
+
+type_id_t on_target(const type_id_t type, const c_integers_t& integers) {
+    switch (type) {
+    case type_id_t::CLONG:
+        return integers.c_long;
+    case type_id_t::CULONG:
+        return integers.c_ulong;
+    case type_id_t::CWCHAR:
+        return integers.c_wchar;
+    default:
+        return type;
+    }
+}
+
 bool converts_losslessly(const type_id_t from, const type_id_t to) {
     // INVALID was already reported. Accepting it avoids a second error.
     if (from == to || from == type_id_t::INVALID || to == type_id_t::INVALID) {
         return true;
+    }
+
+    // C's integers convert where the target's would on every target.
+    if (is_c_integer(from) || is_c_integer(to)) {
+        return std::ranges::all_of(every_c_integers(), [&](const c_integers_t& integers) {
+            return converts_losslessly(on_target(from, integers), on_target(to, integers));
+        });
     }
 
     if (is_integer(from) && is_integer(to)) {
