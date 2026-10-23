@@ -7457,6 +7457,50 @@ private:
         return call_on(id, std::nullopt);
     }
 
+    /// Why "f.Set" at `span` can't change `field`, which the code there couldn't assign by name
+    /// either, as analysis has visibility: one that's Private outside its file, Package outside
+    /// its package, or Protected outside its file and the Classes extending its own. nullopt
+    /// when it can.
+    [[nodiscard]] std::optional<std::string> unsettable(const symbol_t& field, const span_t span) {
+        if (field.kind != symbol_kind_t::FIELD || field.span.file == span.file) {
+            return std::nullopt;
+        }
+
+        const module_table_t& modules = m_ast.modules();
+        const auto package = [&](const file_id_t file) -> std::optional<package_id_t> {
+            const std::optional<module_id_t> module = modules.of(file);
+            return module ? std::optional(modules.get(*module).package) : std::nullopt;
+        };
+        switch (field.modifiers.visibility) {
+        case visibility_t::PUBLIC:
+            return std::nullopt;
+        case visibility_t::PACKAGE:
+            if (package(field.span.file) == package(span.file)) {
+                return std::nullopt;
+            }
+
+            return std::format("'{}' is Package, so f.Set outside its package can't change it",
+                               field.name);
+        case visibility_t::PROTECTED:
+            // In the code of a Class extending its own.
+            for (type_id_t code = m_self ? type_of(place_t{ *m_self }) : type_id_t::INVALID;
+                 code != type_id_t::INVALID && is_class(code); code = types().get(code).base) {
+                if (definition_of(code) == definition_of(field.owner)) {
+                    return std::nullopt;
+                }
+            }
+
+            return std::format("'{}' is Protected, so f.Set outside its file and the Classes "
+                               "extending {} can't change it",
+                               field.name, types().name(field.owner));
+        case visibility_t::PRIVATE:
+            break;
+        }
+
+        return std::format("'{}' is Private, so f.Set outside its file can't change it",
+                           field.name);
+    }
+
     /// "f.Get(value)", "f.Set(ByRef value, x)", "f.Has(A)", "f.Attribute(A)", or
     /// "m.Call(value)", for the field or Method of this copy of the loop's body. An attribute's
     /// values are constants.
@@ -7489,6 +7533,18 @@ private:
             }
 
             return std::nullopt;
+        }
+
+        // Nor one that visibility hides from the code, which couldn't assign it by name: what a
+        // type keeps to itself stays as its own code has it.
+        if (name == "Set" && declared != nullptr) {
+            if (const std::optional<std::string> why = unsettable(*declared, span_of(id))) {
+                if (!m_module.error) {
+                    m_module.error = mir_error_t{ .message = *why, .span = span_of(id) };
+                }
+
+                return std::nullopt;
+            }
         }
 
         if (name == "Get" || name == "Set") {

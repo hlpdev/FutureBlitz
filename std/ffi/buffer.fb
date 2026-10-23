@@ -14,13 +14,15 @@ End Extern
 // once nothing has the Buffer; part of another Buffer's, which a view from Slice keeps alive; or
 // memory C owns, which a view from View promises is there while it is.
 Public Class Buffer<T: CData> Implements Iterable<T>
-    Field First: Ptr<T>
-    Field Length: Int64
+    // Each is set once, in a New, since the memory's owner and its bounds are what keep safe
+    // code's reads and writes in it.
+    ReadOnly Field First: Ptr<T>
+    ReadOnly Field Length: Int64
     // The Buffer whose memory a view is part of, which it keeps alive, or Null for one whose
     // memory is its own or C's.
-    Field Viewed: Buffer<T>?
+    ReadOnly Field Viewed: Buffer<T>?
     // Whether its memory is its own, which it gives back.
-    Field Owned: Bool
+    ReadOnly Field Owned: Bool
 
     // `count` T's, all 0. Panics when count is negative, or there isn't that much memory.
     @PanicsAtCaller

@@ -2891,6 +2891,81 @@ TEST_CASE("For Field's f.Set can't change a ReadOnly Field", "[mir]") {
           "f.Set(ByRef target, f.Get(source)): 'Name' is ReadOnly, so f.Set can't change it");
 }
 
+TEST_CASE("For Field's f.Set changes only what the code could assign by name", "[mir]") {
+    // A Field in another package's file, as std's are, which the code can read but not assign.
+    std::vector<fb::library_file_t> files =
+        fb::standard_library().value_or(std::vector<fb::library_file_t>{});
+    files.push_back({
+        .path = "std/hidden/hubs.fb",
+        .text = "Public Class Hidden\n    Field Secret: Int\n    Public New()\n    End New\n"
+                "End Class\n"
+                "Public Class Common\n    Package Field Count: Int\n    Public New()\n    End New\n"
+                "End Class\n"
+                "Public Class Kept\n    Protected Field Count: Int\n    Public New()\n    End New\n"
+                "End Class\n"
+                "Public Class Open\n    Public Field Count: Int\n    Public New()\n    End New\n"
+                "End Class\n",
+    });
+    // Each copy of the loop's body is checked, as a ReadOnly Field's is.
+    const std::string_view zero = "Import std.core\n"
+                                  "Import std.hidden\n"
+                                  "Function Zero<T>(ByRef target: T)\n"
+                                  "    For Field f: F In T\n"
+                                  "        Where F: Numeric\n"
+                                  "        f.Set(ByRef target, F.Zero())\n"
+                                  "    End For\n"
+                                  "End Function\n";
+    const auto error_of = [&](const std::string& program) {
+        const fb::compilation_t compilation = fb::compile("test.fb", program, files);
+        for (const fb::diagnostic_t& diagnostic : compilation.diagnostics.diagnostics()) {
+            UNSCOPED_INFO(diagnostic.message);
+        }
+
+        REQUIRE(compilation.diagnostics.diagnostics().empty());
+        const fb::mir_module_t module = fb::lower(compilation.ast, compilation.analysis);
+        const fb::mir_error_t error = module.error.value_or(fb::mir_error_t{});
+        return module.error ? error.message : std::string();
+    };
+    CHECK(error_of(std::format("{}Local x = Hidden()\nZero(ByRef x)", zero)) ==
+          "'Secret' is Private, so f.Set outside its file can't change it");
+    CHECK(error_of(std::format("{}Local x = Common()\nZero(ByRef x)", zero)) ==
+          "'Count' is Package, so f.Set outside its package can't change it");
+    CHECK(error_of(std::format("{}Local x = Kept()\nZero(ByRef x)", zero)) ==
+          "'Count' is Protected, so f.Set outside its file and the Classes extending Kept can't "
+          "change it");
+    CHECK(error_of(std::format("{}Local x = Open()\nZero(ByRef x)", zero)).empty());
+
+    // The code of a Class extending Kept can change its Protected Field, as it could by name.
+    CHECK(error_of("Import std.core\n"
+                   "Import std.hidden\n"
+                   "Class Mine Extends Kept\n"
+                   "    New()\n"
+                   "        Super.New()\n"
+                   "    End New\n"
+                   "    Method Clear()\n"
+                   "        Local me = Self\n"
+                   "        For Field f: F In Mine\n"
+                   "            Where F: Numeric\n"
+                   "            f.Set(ByRef me, F.Zero())\n"
+                   "        End For\n"
+                   "    End Method\n"
+                   "End Class\n"
+                   "Mine().Clear()")
+              .empty());
+
+    // So a Buffer can't be made to own another's memory, which both would then free.
+    CHECK(error_of("Import std.core\n"
+                   "Import std.ffi\n"
+                   "Function Assign<T>(ByRef into: T, from: T)\n"
+                   "    For Field f In T\n"
+                   "        f.Set(ByRef into, f.Get(from))\n"
+                   "    End For\n"
+                   "End Function\n"
+                   "Local a = Buffer<Int32>(4)\n"
+                   "Assign(ByRef a, Buffer<Int32>(4))") ==
+          "'First' is ReadOnly, so f.Set can't change it");
+}
+
 TEST_CASE("an assignment copies a value read through a reference before it lets go of the old one",
           "[mir]") {
     const std::string mir = lower_text("Import std.core\n"
