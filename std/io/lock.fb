@@ -11,7 +11,9 @@ Extern "runtime"
     Function fb_io_lock_acquire(request: Ptr<Void>, path: String, shared: Int32, wait: Int32): Int64
     Function fb_io_lock_acquire_async(request: Ptr<Void>, path: String, shared: Int32,
                                       wait: Int32): Task<Int64>
+    Function fb_io_lock_held(lock: Ptr<Void>): Int32
     Function fb_io_lock_release(lock: Ptr<Void>)
+    Function fb_io_lock_free(lock: Ptr<Void>)
 End Extern
 
 // A lock on a file, held for this FileLock alone, or shared with other shared ones, until Close,
@@ -20,7 +22,8 @@ End Extern
 Public Class FileLock
     Public ReadOnly Field Path: Path
     Public ReadOnly Field IsShared: Bool
-    Field Native: Ptr<Void>
+    // The runtime's lock, which keeps whether it's held, so no Field of this one changes.
+    ReadOnly Field Native: Ptr<Void>
 
     New(path: Path, shared: Bool, native: Ptr<Void>)
         Path = path
@@ -58,17 +61,15 @@ Public Class FileLock
     End Method
 
     // Whether it still holds its lock.
-    Public Method IsHeld(): Bool => Native != Null
+    Public Method IsHeld(): Bool => fb_io_lock_held(Native) != 0
 
     // Lets go of the lock, which a second Close leaves alone.
     Public Method Close()
-        If Native == Null Then Return
         fb_io_lock_release(Native)
-        Native = Null
     End Method
 
     Method Destroy()
-        Close()
+        fb_io_lock_free(Native)
     End Method
 End Class
 
