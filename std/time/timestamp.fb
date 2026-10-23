@@ -89,7 +89,7 @@ Public Struct Timestamp Implements Comparable, Hashable, Printable, Defaultable
     @PanicsAtCaller
     Public Property UnixMilliseconds: Int64
         Get
-            Local total = Seconds.CheckedMultiply(1000)?.CheckedAdd(Nanos / 1000000)
+            Local total = Combined(Seconds, 1000, Nanos / 1000000)
             If total == Null Then Panic("{Self} is past the milliseconds an Int64 holds")
             Return total
         End Get
@@ -98,7 +98,7 @@ Public Struct Timestamp Implements Comparable, Hashable, Printable, Defaultable
     @PanicsAtCaller
     Public Property UnixNanoseconds: Int64
         Get
-            Local total = Seconds.CheckedMultiply(1000000000)?.CheckedAdd(Nanos)
+            Local total = Combined(Seconds, 1000000000, Nanos)
             If total == Null Then Panic("{Self} is past the nanoseconds an Int64 holds")
             Return total
         End Get
@@ -129,8 +129,7 @@ Public Struct Timestamp Implements Comparable, Hashable, Printable, Defaultable
     // Duration, about 292 years.
     @PanicsAtCaller
     Operator -(a: Timestamp, b: Timestamp): Duration
-        Local seconds = (a.Seconds - b.Seconds).CheckedMultiply(1000000000)
-        Local total = seconds?.CheckedAdd(a.Nanos - b.Nanos)
+        Local total = Combined(a.Seconds - b.Seconds, 1000000000, a.Nanos - b.Nanos)
         If total == Null Then Panic("from {b} to {a} is longer than a Duration holds")
         Return Duration.FromNanoseconds(total)
     End Operator

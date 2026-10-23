@@ -15,6 +15,11 @@ Print(Timestamp.FromUnixNanoseconds(-9223372036854775807 - 1),
       Timestamp.FromUnixMilliseconds(-1500).UnixSeconds)
 Print(Timestamp.FromUnixMilliseconds(-1500).UnixMilliseconds,
       Timestamp.FromUnixNanoseconds(-1).UnixNanoseconds)
+// Every Int64 of nanoseconds or milliseconds comes back, its least too, whose second is
+// rounded down past it.
+Print(Timestamp.FromUnixNanoseconds(-9223372036854775807 - 1).UnixNanoseconds,
+      Timestamp.FromUnixNanoseconds(-9223372036500000000).UnixNanoseconds,
+      Timestamp.FromUnixMilliseconds(-9223372036854775807 - 1).UnixMilliseconds)
 Print(Timestamp.UnixEpoch(), Timestamp.DefaultValue(), Timestamp.MinValue(), Timestamp.MaxValue())
 Print(Timestamp.FromUnixSeconds(253402300799), Timestamp.FromUnixSeconds(-62135596800),
       Timestamp.FromUnixSeconds(-62135596801))
@@ -22,6 +27,13 @@ Print(Timestamp.FromUnixSeconds(253402300799), Timestamp.FromUnixSeconds(-621355
 // Arithmetic.
 Print(stamp + 1.5.Seconds, stamp - 1.Days, stamp + (-1).Nanoseconds, stamp - Duration.MinValue())
 Print(stamp - Timestamp.UnixEpoch(), Timestamp.UnixEpoch() - stamp, stamp - stamp)
+// Differences a Duration holds, within a second of the longest.
+Local far = Timestamp.FromUnixSeconds(9223372037)
+Local near = Timestamp.FromUnixSeconds(0, 999999999)
+Print(far - near, near - far, far - Timestamp.FromUnixSeconds(1))
+Local after = LocalDateTime(Date.FromDays(106752), TimeOfDay.Midnight())
+Local before = LocalDateTime(1970, 1, 1, 23, 59, 59)
+Print(after - before, before - after)
 Print(stamp < stamp + 1.Nanoseconds, stamp > stamp + 1.Nanoseconds,
       stamp == Timestamp.FromUnixMilliseconds(1700000000000))
 Print(stamp.Hash() == Timestamp.FromUnixSeconds(1700000000).Hash(),

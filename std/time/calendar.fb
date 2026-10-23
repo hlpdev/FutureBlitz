@@ -519,9 +519,18 @@ End Function
 // The Duration of that many days and nanoseconds, which panics past the longest Duration.
 @PanicsAtCaller
 Package Function Between(days: Int64, nanoseconds: Int64): Duration
-    Local total = days.CheckedMultiply(86400000000000)?.CheckedAdd(nanoseconds)
+    Local total = Combined(days, 86400000000000, nanoseconds)
     If total == Null Then Panic("{days} days is longer than a Duration holds")
     Return Duration.FromNanoseconds(total)
+End Function
+
+// whole * unit + rest, for a rest under a unit either way, or Null when that's past what an Int64
+// holds. A rest of the other sign takes one unit from the whole first, so the product isn't past
+// what the sum is.
+Package Function Combined(whole: Int64, unit: Int64, rest: Int64): Int64?
+    If whole > 0 && rest < 0 Then Return (whole - 1).CheckedMultiply(unit)?.CheckedAdd(rest + unit)
+    If whole < 0 && rest > 0 Then Return (whole + 1).CheckedMultiply(unit)?.CheckedAdd(rest - unit)
+    Return whole.CheckedMultiply(unit)?.CheckedAdd(rest)
 End Function
 
 // The date, or Null when it isn't one or its year isn't an Int.
