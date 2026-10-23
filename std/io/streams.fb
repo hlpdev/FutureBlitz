@@ -1,0 +1,171 @@
+// std.io's streams: Reader, what bytes come from, Writer, where they go, and Seeker, what moves
+// around in them, each with Async twins that wait on the main thread instead of blocking it, as a
+// file or a socket does; and Copy, ReadAll, and ReadExact over them. Bytes go through Buffers,
+// whose memory C code reads and fills too.
+
+Import std.core
+Import std.ffi
+
+Extern "runtime"
+    Function fb_string_from_bytes(text: Ptr<UInt8>, length: Int64): String
+End Extern
+
+// Where Seek counts from: a stream's start, where it is, or its end.
+Public Enum SeekOrigin
+    START
+    CURRENT
+    END
+End Enum
+
+// What bytes come from: a file, a socket, memory, or another Reader they go through.
+Public Interface Reader
+    // Reads up to into.Count bytes into the start of `into`, and gives how many it read: one at
+    // least, or 0 once the stream has ended, or for an empty Buffer.
+    Method Read(into: Buffer<UInt8>): Int64 Throws IOError
+
+    // Read's Async twin, which waits on the main thread instead of blocking it. One that can only
+    // block reads with Read.
+    Async Method ReadAsync(into: Buffer<UInt8>): Int64 Throws IOError => Try Read(into)
+End Interface
+
+// Where bytes go: a file, a socket, memory, or another Writer they go through.
+Public Interface Writer
+    // Writes all of from's bytes, in order.
+    Method Write(from: Buffer<UInt8>) Throws IOError
+
+    // Sends on what it holds on to, to what it writes to. One that holds nothing does nothing.
+    Method Flush() Throws IOError
+    End Method
+
+    // Write's Async twin, which waits on the main thread instead of blocking it.
+    Async Method WriteAsync(from: Buffer<UInt8>) Throws IOError
+        Try Write(from)
+    End Method
+
+    // Flush's Async twin.
+    Async Method FlushAsync() Throws IOError
+        Try Flush()
+    End Method
+
+    // Writes the bytes.
+    Final Method WriteBytes(bytes: UInt8[]) Throws IOError
+        Try Write(Buffer<UInt8>.From(bytes))
+    End Method
+
+    // Writes a String's UTF-8 bytes.
+    Final Method WriteText(text: String) Throws IOError
+        Try Write(Buffer<UInt8>.From(text.Bytes))
+    End Method
+End Interface
+
+// What moves around in its bytes, as a file or memory does.
+Public Interface Seeker
+    // Moves to `offset` bytes from `origin`, and gives where that is from the start. A place
+    // before the start throws an IOError, and one past the end is the end for a Reader, and
+    // where a Writer writes next.
+    Method Seek(offset: Int64, origin: SeekOrigin): Int64 Throws IOError
+
+    // Where it is, in bytes from the start.
+    Final Method Position(): Int64 Throws IOError => Try Seek(0, SeekOrigin.CURRENT)
+End Interface
+
+// How many bytes Copy and ReadAll read at a time.
+Package Const ChunkSize: Int64 = 65536
+
+// Copies what's left of `from` to `to`, and gives how many bytes that was.
+Public Function Copy(from: Reader, to: Writer): Int64 Throws IOError
+    Local chunk = Buffer<UInt8>(ChunkSize)
+    Local total: Int64 = 0
+    Loop
+        Local count = Try from.Read(chunk)
+        If count == 0 Then Return total
+        Try to.Write(chunk.Slice(0, count))
+        total += count
+    End Loop
+End Function
+
+// Copy's Async twin, through ReadAsync and WriteAsync.
+Public Async Function CopyAsync(from: Reader, to: Writer): Int64 Throws IOError
+    Local chunk = Buffer<UInt8>(ChunkSize)
+    Local total: Int64 = 0
+    Loop
+        Local count = Try Await from.ReadAsync(chunk)
+        If count == 0 Then Return total
+        Try Await to.WriteAsync(chunk.Slice(0, count))
+        total += count
+    End Loop
+End Function
+
+// What's left of `from`, to its end.
+Public Function ReadAll(from: Reader): UInt8[] Throws IOError
+    Local chunk = Buffer<UInt8>(ChunkSize)
+    Local all: UInt8[] = []
+    Loop
+        Local count = Try from.Read(chunk)
+        If count == 0 Then Return all
+        Try Add(all, chunk, count)
+    End Loop
+End Function
+
+// ReadAll's Async twin, through ReadAsync.
+Public Async Function ReadAllAsync(from: Reader): UInt8[] Throws IOError
+    Local chunk = Buffer<UInt8>(ChunkSize)
+    Local all: UInt8[] = []
+    Loop
+        Local count = Try Await from.ReadAsync(chunk)
+        If count == 0 Then Return all
+        Try Add(all, chunk, count)
+    End Loop
+End Function
+
+// What's left of `from` as text, its UTF-8 bytes, with U+FFFD for each byte that doesn't start
+// well-formed UTF-8.
+Public Function ReadAllText(from: Reader): String Throws IOError
+    Return TextOf(Buffer<UInt8>.From(Try ReadAll(from)))
+End Function
+
+// Fills all of `into` from `from`, reading as many times as that takes. Throws an IOError of
+// UNEXPECTED_END when the stream ends first, after what it had.
+Public Function ReadExact(from: Reader, into: Buffer<UInt8>) Throws IOError
+    Local filled: Int64 = 0
+    While filled < into.Count
+        Local count = Try from.Read(into.Slice(filled, into.Count))
+        If count == 0 Then Throw EndedAt(filled, into.Count)
+        filled += count
+    End While
+End Function
+
+// ReadExact's Async twin, through ReadAsync.
+Public Async Function ReadExactAsync(from: Reader, into: Buffer<UInt8>) Throws IOError
+    Local filled: Int64 = 0
+    While filled < into.Count
+        Local count = Try Await from.ReadAsync(into.Slice(filled, into.Count))
+        If count == 0 Then Throw EndedAt(filled, into.Count)
+        filled += count
+    End While
+End Function
+
+// The error for a stream that ended after `read` of the `wanted` bytes.
+Package Function EndedAt(read: Int64, wanted: Int64): IOError
+    Return IOError(IOErrorKind.UNEXPECTED_END,
+                   "the stream ended after {read} of {wanted} byte{wanted == 1 ? "" : "s"}")
+End Function
+
+// The bytes as text, U+FFFD for each one that doesn't start well-formed UTF-8.
+Package Function TextOf(bytes: Buffer<UInt8>): String
+    Unsafe
+        Return fb_string_from_bytes(bytes.Pointer(), bytes.Count)
+    End Unsafe
+End Function
+
+// Adds the first `count` bytes of `chunk` to `all`.
+Function Add(all: UInt8[], chunk: Buffer<UInt8>, count: Int64) Throws IOError
+    If all.Count + count > 2147483647
+        Throw IOError(IOErrorKind.OTHER, "the stream has more bytes than an array holds")
+    End If
+
+    all.Reserve((all.Count + count) As Int)
+    For i = 0 Until count
+        all.Add(chunk[i])
+    End For
+End Function
