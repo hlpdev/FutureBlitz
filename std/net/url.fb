@@ -1,0 +1,1240 @@
+// std.net's Url and QueryParams, as the WHATWG URL Standard has them: a URL read from its text,
+// against a base or not, its parts and its origin, and the text it writes back, with what isn't
+// in a part's set of code points percent-encoded; and a query's name and value pairs, as an HTML
+// form sends them. A host that isn't ASCII becomes its Punycode; UTS #46's mapping of one, which
+// the standard's domain to ASCII has, waits for std.text.unicode, so only ASCII's case maps, and
+// fullwidth ASCII and the ideographic full stops.
+
+Import std.core
+Import std.collections
+Import std.net.address
+
+Extern "runtime"
+    Function fb_string_from_array(bytes: UInt8[]): String
+End Extern
+
+// What isn't EOF: every code point is 0 or more.
+Const EOF = -1
+
+// A URL. Parse reads one, and ToString gives its text, which reads back as the same URL.
+Public Struct Url Implements Hashable, Printable
+    // Its scheme, in lowercase, like "https".
+    Public ReadOnly Field Scheme: String
+    // Who it's for, percent-encoded, or "".
+    Public ReadOnly Field Username: String
+    Public ReadOnly Field Password: String
+    // Its host as its text has it, without the port: a domain in lowercase ASCII, an IPv4
+    // address, an IPv6 one in brackets, or an opaque host; "" for an empty one, as file:/// has,
+    // and Null for none, as mailto:a@b.com has.
+    Public ReadOnly Field Host: String?
+    // Its port, or Null for none, or the scheme's own, like 443 for https.
+    Public ReadOnly Field Port: Int?
+    // Its path's segments, or its opaque path, a URL like mailto:'s, which has no segments.
+    Field Segments: String[]
+    Field Opaque: String?
+    // Its query, after its ?, and its fragment, after its #, or Null for none.
+    Public ReadOnly Field Query: String?
+    Public ReadOnly Field Fragment: String?
+
+    New(scheme: String, username: String, password: String, host: String?, port: Int?,
+        segments: String[], opaque: String?, query: String?, fragment: String?)
+        Scheme = scheme
+        Username = username
+        Password = password
+        Host = host
+        Port = port
+        Segments = segments
+        Opaque = opaque
+        Query = query
+        Fragment = fragment
+    End New
+
+    // The URL text writes, or Null when it isn't one. Space and controls around it, and tabs and
+    // line breaks in it, are left out.
+    Public Static Method Parse(text: String): Url?
+        Return Parser(Trimmed(text.Chars), Null).Run()
+    End Method
+
+    // The URL text writes, relative to base: a whole URL, or a path, query, or fragment to
+    // resolve against base, as a link in a page is.
+    Public Static Method Parse(text: String, base: Url): Url?
+        Return Parser(Trimmed(text.Chars), base).Run()
+    End Method
+
+    Public Static Method Parse(text: String, base: String): Url?
+        Local parsed = Parse(base)
+        If parsed == Null Then Return Null
+        Return Parse(text, parsed)
+    End Method
+
+    // What text resolves to, relative to this URL.
+    Public Method Resolve(text: String): Url? => Parse(text, Self)
+
+    // Its path as its text has it: each segment after a /, or its opaque path.
+    Public Property Path: String
+        Get
+            Local opaque = Opaque
+            If opaque != Null Then Return opaque
+            Local path = ""
+            For segment In Segments
+                path += "/" + segment
+            End For
+            Return path
+        End Get
+    End Property
+
+    // Whether its path is opaque, as mailto:a@b.com's and data:text/plain,hi's are, so it's no
+    // base for a relative path.
+    Public Property HasOpaquePath: Bool
+        Get => Opaque != Null
+    End Property
+
+    // Its port, or its scheme's own when it has none, or Null for a scheme without one.
+    Public Property PortOrDefault: Int?
+        Get => Port ?? DefaultPort(Scheme)
+    End Property
+
+    // Its query's names and values, a new QueryParams each time. A ? the query starts with is
+    // part of its first name.
+    Public Property Params: QueryParams
+        Get
+            Local params = QueryParams()
+            params.Pairs = FormParsed((Query ?? "").Bytes, 0)
+            Return params
+        End Get
+    End Property
+
+    // Where it's from, as a browser compares sites: its scheme, host, and port, like
+    // "https://example.com:8080", for http, https, ws, wss, and ftp, the origin of the URL a
+    // blob: URL's path is, and "null" for the rest.
+    Public Property Origin: String
+        Get
+            If Scheme == "blob"
+                Local inner = Parse(Path)
+                If inner != Null && (inner.Scheme == "http" || inner.Scheme == "https")
+                    Return inner.Origin
+                End If
+
+                Return "null"
+            End If
+
+            If !IsSpecial(Scheme) || Scheme == "file" Then Return "null"
+            Local port = Port
+            Local origin = "{Scheme}://{Host ?? ""}"
+            Return port != Null ? "{origin}:{port}" : origin
+        End Get
+    End Property
+
+    // Its text, as the WHATWG URL serializer writes it.
+    Public Method ToString(): String
+        Local text = Scheme + ":"
+        Local host = Host
+        If host != Null
+            text += "//"
+            If Username != "" || Password != ""
+                text += Username
+                If Password != "" Then text += ":" + Password
+                text += "@"
+            End If
+
+            text += host
+            Local port = Port
+            If port != Null Then text += ":{port}"
+        ElseIf Opaque == Null && Segments.Count > 1 && Segments[0] == ""
+            // Without a host, a path starting // would read as one.
+            text += "/."
+        End If
+
+        text += Path
+        Local query = Query
+        If query != Null Then text += "?" + query
+        Local fragment = Fragment
+        If fragment != Null Then text += "#" + fragment
+        Return text
+    End Method
+
+    // text with what isn't a letter, a digit, or one of !'()*-._~ percent-encoded as its UTF-8
+    // bytes, as a query's name or value, or a path's segment, takes any text.
+    Public Static Method Encode(text: String): String
+        Local bytes: UInt8[] = []
+        For c In text.Chars
+            PercentEncode(bytes, c, PercentSet.COMPONENT)
+        End For
+        Return fb_string_from_array(bytes)
+    End Method
+
+    // text with each % and two hex digits as the byte they stand for, read as UTF-8, with U+FFFD
+    // for what isn't.
+    Public Static Method Decode(text: String): String
+        Return fb_string_from_array(PercentDecoded(text.Bytes))
+    End Method
+End Struct
+
+// A query's names and values, in order, as an HTML form sends them: "a=1&b=two%20words", where
+// a + is a space. One name can have many values.
+Public Class QueryParams Implements Printable, Iterable<(String, String)>
+    Field Pairs: (String, String)[] = []
+
+    Public New()
+    End New
+
+    // The names and values query has, after its ?, if it starts with one.
+    Public New(query: String)
+        Local bytes = query.Bytes
+        Pairs = FormParsed(bytes, bytes.Count > 0 && bytes[0] == 63 ? 1 : 0)
+    End New
+
+    // How many pairs it has.
+    Public Property Count: Int
+        Get => Pairs.Count
+    End Property
+
+    // The first value of name, or Null when it has none.
+    Public Method Get(name: String): String?
+        For pair In Pairs
+            If pair.0 == name Then Return pair.1
+        End For
+        Return Null
+    End Method
+
+    // Each value of name, in order.
+    Public Method GetAll(name: String): String[]
+        Local values: String[] = []
+        For pair In Pairs
+            If pair.0 == name Then values.Add(pair.1)
+        End For
+        Return values
+    End Method
+
+    // Whether it has name, or name with value.
+    Public Method Contains(name: String): Bool => Get(name) != Null
+
+    Public Method Contains(name: String, value: String): Bool
+        For pair In Pairs
+            If pair.0 == name && pair.1 == value Then Return True
+        End For
+        Return False
+    End Method
+
+    // Adds name and value at the end, after any values name has.
+    Public Method Add(name: String, value: String)
+        Pairs.Add((name, value))
+    End Method
+
+    // Gives name value: its first pair's, taking the others out, or a new one at the end.
+    Public Method Set(name: String, value: String)
+        Local found = False
+        Local kept: (String, String)[] = []
+        For pair In Pairs
+            If pair.0 != name
+                kept.Add(pair)
+            ElseIf !found
+                kept.Add((name, value))
+                found = True
+            End If
+        End For
+        If !found Then kept.Add((name, value))
+        Pairs = kept
+    End Method
+
+    // Takes out each pair of name, or of name and value, and gives whether there was one.
+    Public Method Remove(name: String): Bool
+        Local count = Pairs.Count
+        Pairs = Pairs.Filter(Function(pair: (String, String)) => pair.0 != name)
+        Return Pairs.Count != count
+    End Method
+
+    Public Method Remove(name: String, value: String): Bool
+        Local count = Pairs.Count
+        Pairs = Pairs.Filter(Function(pair: (String, String)) => pair.0 != name || pair.1 != value)
+        Return Pairs.Count != count
+    End Method
+
+    // Puts the pairs in the order of their names, by UTF-16 code units, as the standard says,
+    // keeping the order of one name's values.
+    Public Method Sort()
+        For i = 1 Until Pairs.Count
+            Local pair = Pairs[i]
+            Local j = i
+            While j > 0 && Utf16Before(pair.0, Pairs[j - 1].0)
+                Pairs[j] = Pairs[j - 1]
+                j -= 1
+            End While
+            Pairs[j] = pair
+        End For
+    End Method
+
+    // Each name and value, in order.
+    Public Method Iterate(): ArrayIterator<(String, String)> => Pairs.Clone().Iterate()
+
+    // The query's text, without a ?: each name, =, and value, with & between pairs, a space as a
+    // +, and what isn't a letter, a digit, or one of *-._ percent-encoded.
+    Public Method ToString(): String
+        Local bytes: UInt8[] = []
+        For i = 0 Until Pairs.Count
+            If i > 0 Then bytes.Add(38)
+            FormEncode(bytes, Pairs[i].0)
+            bytes.Add(61)
+            FormEncode(bytes, Pairs[i].1)
+        End For
+        Return fb_string_from_array(bytes)
+    End Method
+End Class
+
+// The sets of code points that each part of a URL percent-encodes: past ~ and the C0 controls,
+// then each set has the one before it, but SPECIAL_QUERY, which is QUERY's.
+Enum PercentSet
+    C0, FRAGMENT, QUERY, SPECIAL_QUERY, PATH, USERINFO, COMPONENT, FORM
+End Enum
+
+// Whether a set percent-encodes c.
+Function InSet(c: Int, set: PercentSet): Bool
+    If c < 0x20 || c > 0x7E Then Return True
+    Select set
+        Case PercentSet.C0
+            Return False
+        Case PercentSet.FRAGMENT
+            Return c == 0x20 || c == 0x22 || c == 0x3C || c == 0x3E || c == 0x60
+        Case PercentSet.QUERY
+            Return c == 0x20 || c == 0x22 || c == 0x23 || c == 0x3C || c == 0x3E
+        Case PercentSet.SPECIAL_QUERY
+            Return c == 0x27 || InSet(c, PercentSet.QUERY)
+        Case PercentSet.PATH
+            Return c == 0x3F || c == 0x5E || c == 0x60 || c == 0x7B || c == 0x7D ||
+                   InSet(c, PercentSet.QUERY)
+        Case PercentSet.USERINFO
+            Return c == 0x2F || c == 0x3A || c == 0x3B || c == 0x3D || c == 0x40 ||
+                   (c >= 0x5B && c <= 0x5D) || c == 0x7C || InSet(c, PercentSet.PATH)
+        Case PercentSet.COMPONENT
+            Return (c >= 0x24 && c <= 0x26) || c == 0x2B || c == 0x2C ||
+                   InSet(c, PercentSet.USERINFO)
+        Case PercentSet.FORM
+            Return c == 0x21 || (c >= 0x27 && c <= 0x29) || c == 0x7E ||
+                   InSet(c, PercentSet.COMPONENT)
+    End Select
+End Function
+
+// Adds c's UTF-8 bytes.
+Function AddUtf8(bytes: UInt8[], c: Int)
+    If c < 0x80
+        bytes.Add(c As UInt8)
+    ElseIf c < 0x800
+        bytes.Add((0xC0 | c >> 6) As UInt8)
+        bytes.Add((0x80 | (c & 0x3F)) As UInt8)
+    ElseIf c < 0x10000
+        bytes.Add((0xE0 | c >> 12) As UInt8)
+        bytes.Add((0x80 | (c >> 6 & 0x3F)) As UInt8)
+        bytes.Add((0x80 | (c & 0x3F)) As UInt8)
+    Else
+        bytes.Add((0xF0 | c >> 18) As UInt8)
+        bytes.Add((0x80 | (c >> 12 & 0x3F)) As UInt8)
+        bytes.Add((0x80 | (c >> 6 & 0x3F)) As UInt8)
+        bytes.Add((0x80 | (c & 0x3F)) As UInt8)
+    End If
+End Function
+
+// The text of code points.
+Function Text(points: Int[]): String
+    Local bytes: UInt8[] = []
+    For c In points
+        AddUtf8(bytes, c)
+    End For
+    Return fb_string_from_array(bytes)
+End Function
+
+// An uppercase hex digit's code point.
+Function HexOf(digit: Int): UInt8 => (digit < 10 ? 48 + digit : 55 + digit) As UInt8
+
+// Adds byte as %XX.
+Function AddPercent(bytes: UInt8[], byte: UInt8)
+    bytes.Add(37)
+    bytes.Add(HexOf((byte >> 4) As Int))
+    bytes.Add(HexOf((byte & 15) As Int))
+End Function
+
+// Adds c, or its UTF-8 bytes percent-encoded when set has it.
+Function PercentEncode(bytes: UInt8[], c: Int, set: PercentSet)
+    If !InSet(c, set)
+        bytes.Add(c As UInt8)
+        Return
+    End If
+
+    Local utf8: UInt8[] = []
+    AddUtf8(utf8, c)
+    For byte In utf8
+        AddPercent(bytes, byte)
+    End For
+End Function
+
+// The same, as code points.
+Function EncodePoints(points: Int[], c: Int, set: PercentSet)
+    Local bytes: UInt8[] = []
+    PercentEncode(bytes, c, set)
+    For byte In bytes
+        points.Add(byte As Int)
+    End For
+End Function
+
+// The value of a hex digit's code point, or -1.
+Function HexValue(c: Int): Int
+    If c >= 48 && c <= 57 Then Return c - 48
+    If c >= 97 && c <= 102 Then Return c - 87
+    If c >= 65 && c <= 70 Then Return c - 55
+    Return -1
+End Function
+
+// bytes with each % and two hex digits as the byte they stand for.
+Function PercentDecoded(bytes: UInt8[]): UInt8[]
+    Local decoded: UInt8[] = []
+    Local i = 0
+    While i < bytes.Count
+        If bytes[i] == 37 && i + 2 < bytes.Count && HexValue(bytes[i + 1]) >= 0 &&
+           HexValue(bytes[i + 2]) >= 0
+            decoded.Add((HexValue(bytes[i + 1]) * 16 + HexValue(bytes[i + 2])) As UInt8)
+            i += 3
+        Else
+            decoded.Add(bytes[i])
+            i += 1
+        End If
+    End While
+    Return decoded
+End Function
+
+// The names and values in a form's bytes from start on: name=value pairs with & between them,
+// where a pair without an = has an empty value.
+Function FormParsed(bytes: UInt8[], from: Int): (String, String)[]
+    Local pairs: (String, String)[] = []
+    Local start = from
+    While start <= bytes.Count
+        Local finish = start
+        While finish < bytes.Count && bytes[finish] != 38
+            finish += 1
+        End While
+        If finish > start
+            Local equals = start
+            While equals < finish && bytes[equals] != 61
+                equals += 1
+            End While
+            Local value = equals < finish ? FormDecoded(bytes, equals + 1, finish) : ""
+            pairs.Add((FormDecoded(bytes, start, equals), value))
+        End If
+
+        start = finish + 1
+    End While
+    Return pairs
+End Function
+
+// A form's name or value, from start until finish in bytes: a + as a space, then decoded.
+Function FormDecoded(bytes: UInt8[], start: Int, finish: Int): String
+    Local spaced: UInt8[] = []
+    For i = start Until finish
+        spaced.Add(bytes[i] == 43 ? 32 : bytes[i])
+    End For
+    Return fb_string_from_array(PercentDecoded(spaced))
+End Function
+
+// Adds a form's name or value: a space as a +, and the rest as FORM encodes it.
+Function FormEncode(bytes: UInt8[], text: String)
+    For byte In text.Bytes
+        If byte == 32
+            bytes.Add(43)
+        ElseIf InSet(byte As Int, PercentSet.FORM)
+            AddPercent(bytes, byte)
+        Else
+            bytes.Add(byte)
+        End If
+    End For
+End Function
+
+// Whether a comes before b by their UTF-16 code units.
+Function Utf16Before(a: String, b: String): Bool
+    Local left = Utf16(a)
+    Local right = Utf16(b)
+    For i = 0 Until Min(left.Count, right.Count)
+        If left[i] != right[i] Then Return left[i] < right[i]
+    End For
+    Return left.Count < right.Count
+End Function
+
+Function Utf16(text: String): Int[]
+    Local units: Int[] = []
+    For c In text.Chars
+        If c < 0x10000
+            units.Add(c)
+        Else
+            units.Add(0xD800 + ((c - 0x10000) >> 10))
+            units.Add(0xDC00 + ((c - 0x10000) & 0x3FF))
+        End If
+    End For
+    Return units
+End Function
+
+// text's code points without the C0 controls and spaces it starts and ends with, or the tabs
+// and line breaks in it.
+Function Trimmed(text: Int[]): Int[]
+    Local start = 0
+    Local finish = text.Count
+    While start < finish && text[start] <= 0x20
+        start += 1
+    End While
+    While finish > start && text[finish - 1] <= 0x20
+        finish -= 1
+    End While
+    Local kept: Int[] = []
+    For i = start Until finish
+        Local c = text[i]
+        If c != 0x09 && c != 0x0A && c != 0x0D Then kept.Add(c)
+    End For
+    Return kept
+End Function
+
+Function IsAlpha(c: Int): Bool => (c >= 65 && c <= 90) || (c >= 97 && c <= 122)
+
+Function IsDigit(c: Int): Bool => c >= 48 && c <= 57
+
+Function Lower(c: Int): Int => c >= 65 && c <= 90 ? c + 32 : c
+
+// Whether a scheme is one of the special ones, whose URLs have hosts and paths of their own
+// kind, and the default port of one: ftp's 21, http's and ws's 80, https's and wss's 443.
+Function IsSpecial(scheme: String): Bool
+    Return scheme == "http" || scheme == "https" || scheme == "ws" || scheme == "wss" ||
+           scheme == "ftp" || scheme == "file"
+End Function
+
+Function DefaultPort(scheme: String): Int?
+    Select scheme
+        Case "http", "ws"
+            Return 80
+        Case "https", "wss"
+            Return 443
+        Case "ftp"
+            Return 21
+        Default
+            Return Null
+    End Select
+End Function
+
+// Whether points are a Windows drive letter, a letter and a : or |, or a normalized one, with a
+// : only, as file URLs keep them.
+Function IsDrive(points: Int[]): Bool
+    Return points.Count == 2 && IsAlpha(points[0]) && (points[1] == 58 || points[1] == 124)
+End Function
+
+Function IsNormalizedDrive(points: Int[]): Bool
+    Return points.Count == 2 && IsAlpha(points[0]) && points[1] == 58
+End Function
+
+// How many code points at i are a dot, as . or %2e: 1, 3, or 0 for none.
+Function DotAt(points: Int[], i: Int): Int
+    If i < points.Count && points[i] == 46 Then Return 1
+    If i + 2 < points.Count && points[i] == 37 && points[i + 1] == 50 &&
+       (points[i + 2] == 101 || points[i + 2] == 69)
+        Return 3
+    End If
+
+    Return 0
+End Function
+
+Function IsSingleDot(points: Int[]): Bool
+    Local dot = DotAt(points, 0)
+    Return dot > 0 && dot == points.Count
+End Function
+
+Function IsDoubleDot(points: Int[]): Bool
+    Local first = DotAt(points, 0)
+    If first == 0 Then Return False
+    Local second = DotAt(points, first)
+    Return second > 0 && first + second == points.Count
+End Function
+
+// The states of the WHATWG basic URL parser.
+Enum State
+    SCHEME_START, SCHEME, NO_SCHEME, SPECIAL_RELATIVE_OR_AUTHORITY, PATH_OR_AUTHORITY, RELATIVE,
+    RELATIVE_SLASH, SPECIAL_AUTHORITY_SLASHES, SPECIAL_AUTHORITY_IGNORE_SLASHES, AUTHORITY, HOST,
+    PORT, FILE, FILE_SLASH, FILE_HOST, PATH_START, PATH, OPAQUE_PATH, QUERY, FRAGMENT
+End Enum
+
+// One run of the basic URL parser over Input's code points, against Base, and the URL record it
+// fills, its parts as their bytes until it's done.
+Class Parser
+    Field Input: Int[]
+    Field Base: Url?
+    Field Pointer: Int
+    Field Scheme: String = ""
+    Field Username: UInt8[] = []
+    Field Password: UInt8[] = []
+    Field Host: String? = Null
+    Field Port: Int? = Null
+    Field Segments: String[] = []
+    Field HasOpaque: Bool
+    Field Opaque: UInt8[] = []
+    Field HasQuery: Bool
+    Field Query: UInt8[] = []
+    Field HasFragment: Bool
+    Field Fragment: UInt8[] = []
+
+    New(input: Int[], base: Url?)
+        Input = input
+        Base = base
+    End New
+
+    Property Special: Bool
+        Get => IsSpecial(Scheme)
+    End Property
+
+    // The code point at i, or EOF past the end.
+    Method At(i: Int): Int => i >= 0 && i < Input.Count ? Input[i] : EOF
+
+    // Whether the code points from at start with a Windows drive letter, and nothing but a /,
+    // \, ?, or # after it.
+    Method StartsWithDrive(at: Int): Bool
+        If at + 1 >= Input.Count || !IsAlpha(Input[at]) ||
+           (Input[at + 1] != 58 && Input[at + 1] != 124)
+            Return False
+        End If
+
+        Local next = At(at + 2)
+        Return next == EOF || next == 47 || next == 92 || next == 63 || next == 35
+    End Method
+
+    // Takes the last segment off the path, but not a file URL's drive letter.
+    Method Shorten()
+        If Scheme == "file" && Segments.Count == 1 && IsNormalizedDrive(Segments[0].Chars)
+            Return
+        End If
+
+        If Segments.Count > 0 Then Segments.RemoveAt(Segments.Count - 1)
+    End Method
+
+    // Takes the base's credentials, host, and port.
+    Method Inherit(base: Url)
+        Username = base.Username.Bytes
+        Password = base.Password.Bytes
+        Host = base.Host
+        Port = base.Port
+    End Method
+
+    Method StartQuery(ByRef state: State)
+        HasQuery = True
+        Query = []
+        state = State.QUERY
+    End Method
+
+    Method StartFragment(ByRef state: State)
+        HasFragment = True
+        Fragment = []
+        state = State.FRAGMENT
+    End Method
+
+    // The URL, or Null when the input isn't one.
+    Method Run(): Url?
+        // A base that's Null is never read: what needs one checks hasBase first.
+        Local hasBase = Base != Null
+        Local base = Base ?? Url("", "", "", Null, Null, [], Null, Null, Null)
+        Local state = State.SCHEME_START
+        Local buffer: Int[] = []
+        Local atSign = False
+        Local brackets = False
+        Local passwordSeen = False
+        Pointer = 0
+        Loop
+            Local c = At(Pointer)
+            Local ends = c == EOF || c == 47 || c == 63 || c == 35 || (Special && c == 92)
+            Select state
+                Case State.SCHEME_START
+                    If IsAlpha(c)
+                        buffer.Add(Lower(c))
+                        state = State.SCHEME
+                    Else
+                        state = State.NO_SCHEME
+                        Pointer -= 1
+                    End If
+                Case State.SCHEME
+                    If IsAlpha(c) || IsDigit(c) || c == 43 || c == 45 || c == 46
+                        buffer.Add(Lower(c))
+                    ElseIf c == 58
+                        Scheme = Text(buffer)
+                        buffer.Clear()
+                        If Scheme == "file"
+                            state = State.FILE
+                        ElseIf Special && hasBase && base.Scheme == Scheme
+                            state = State.SPECIAL_RELATIVE_OR_AUTHORITY
+                        ElseIf Special
+                            state = State.SPECIAL_AUTHORITY_SLASHES
+                        ElseIf At(Pointer + 1) == 47
+                            state = State.PATH_OR_AUTHORITY
+                            Pointer += 1
+                        Else
+                            HasOpaque = True
+                            state = State.OPAQUE_PATH
+                        End If
+                    Else
+                        // It had no scheme: start again from the first code point.
+                        buffer.Clear()
+                        state = State.NO_SCHEME
+                        Pointer = -1
+                    End If
+                Case State.NO_SCHEME
+                    If !hasBase || (base.Opaque != Null && c != 35) Then Return Null
+                    If base.Opaque != Null
+                        Scheme = base.Scheme
+                        HasOpaque = True
+                        Opaque = (base.Opaque ?? "").Bytes
+                        HasQuery = base.Query != Null
+                        Query = (base.Query ?? "").Bytes
+                        StartFragment(ByRef state)
+                    Else
+                        state = base.Scheme != "file" ? State.RELATIVE : State.FILE
+                        Pointer -= 1
+                    End If
+                Case State.SPECIAL_RELATIVE_OR_AUTHORITY
+                    If c == 47 && At(Pointer + 1) == 47
+                        state = State.SPECIAL_AUTHORITY_IGNORE_SLASHES
+                        Pointer += 1
+                    Else
+                        state = State.RELATIVE
+                        Pointer -= 1
+                    End If
+                Case State.PATH_OR_AUTHORITY
+                    If c == 47
+                        state = State.AUTHORITY
+                    Else
+                        state = State.PATH
+                        Pointer -= 1
+                    End If
+                Case State.RELATIVE
+                    Scheme = base.Scheme
+                    If c == 47 || (Special && c == 92)
+                        state = State.RELATIVE_SLASH
+                    Else
+                        Inherit(base)
+                        Segments = base.Segments.Clone()
+                        HasQuery = base.Query != Null
+                        Query = (base.Query ?? "").Bytes
+                        If c == 63
+                            StartQuery(ByRef state)
+                        ElseIf c == 35
+                            StartFragment(ByRef state)
+                        ElseIf c != EOF
+                            HasQuery = False
+                            Query = []
+                            Shorten()
+                            state = State.PATH
+                            Pointer -= 1
+                        End If
+                    End If
+                Case State.RELATIVE_SLASH
+                    If Special && (c == 47 || c == 92)
+                        state = State.SPECIAL_AUTHORITY_IGNORE_SLASHES
+                    ElseIf c == 47
+                        state = State.AUTHORITY
+                    Else
+                        Inherit(base)
+                        state = State.PATH
+                        Pointer -= 1
+                    End If
+                Case State.SPECIAL_AUTHORITY_SLASHES
+                    state = State.SPECIAL_AUTHORITY_IGNORE_SLASHES
+                    If c == 47 && At(Pointer + 1) == 47
+                        Pointer += 1
+                    Else
+                        Pointer -= 1
+                    End If
+                Case State.SPECIAL_AUTHORITY_IGNORE_SLASHES
+                    If c != 47 && c != 92
+                        state = State.AUTHORITY
+                        Pointer -= 1
+                    End If
+                Case State.AUTHORITY
+                    If c == 64
+                        // An @ before this one was part of the credentials.
+                        If atSign Then buffer.InsertAll(0, [37, 52, 48])
+                        atSign = True
+                        For point In buffer
+                            If point == 58 && !passwordSeen
+                                passwordSeen = True
+                                Continue
+                            End If
+
+                            Local part = passwordSeen ? Password : Username
+                            PercentEncode(part, point, PercentSet.USERINFO)
+                        End For
+                        buffer.Clear()
+                    ElseIf ends
+                        If atSign && buffer.Count == 0 Then Return Null
+                        Pointer -= buffer.Count + 1
+                        buffer.Clear()
+                        state = State.HOST
+                    Else
+                        buffer.Add(c)
+                    End If
+                Case State.HOST
+                    If (c == 58 && !brackets) || ends
+                        If buffer.Count == 0 && (c == 58 || Special) Then Return Null
+                        Local host = ParseHost(buffer, !Special)
+                        If host == Null Then Return Null
+                        Host = host
+                        buffer.Clear()
+                        If c == 58
+                            state = State.PORT
+                        Else
+                            state = State.PATH_START
+                            Pointer -= 1
+                        End If
+                    Else
+                        If c == 91 Then brackets = True
+                        If c == 93 Then brackets = False
+                        buffer.Add(c)
+                    End If
+                Case State.PORT
+                    If IsDigit(c)
+                        buffer.Add(c)
+                    ElseIf ends
+                        If buffer.Count > 0
+                            Local port = 0
+                            For digit In buffer
+                                port = port * 10 + (digit - 48)
+                                If port > 65535 Then Return Null
+                            End For
+                            Port = port == (DefaultPort(Scheme) ?? -1) ? Null : port
+                            buffer.Clear()
+                        End If
+
+                        state = State.PATH_START
+                        Pointer -= 1
+                    Else
+                        Return Null
+                    End If
+                Case State.FILE
+                    Scheme = "file"
+                    Host = ""
+                    If c == 47 || c == 92
+                        state = State.FILE_SLASH
+                    ElseIf hasBase && base.Scheme == "file"
+                        Host = base.Host
+                        Segments = base.Segments.Clone()
+                        HasQuery = base.Query != Null
+                        Query = (base.Query ?? "").Bytes
+                        If c == 63
+                            StartQuery(ByRef state)
+                        ElseIf c == 35
+                            StartFragment(ByRef state)
+                        ElseIf c != EOF
+                            HasQuery = False
+                            Query = []
+                            If !StartsWithDrive(Pointer)
+                                Shorten()
+                            Else
+                                Segments = []
+                            End If
+
+                            state = State.PATH
+                            Pointer -= 1
+                        End If
+                    Else
+                        state = State.PATH
+                        Pointer -= 1
+                    End If
+                Case State.FILE_SLASH
+                    If c == 47 || c == 92
+                        state = State.FILE_HOST
+                    Else
+                        If hasBase && base.Scheme == "file"
+                            Host = base.Host
+                            If !StartsWithDrive(Pointer) && base.Segments.Count > 0 &&
+                               IsNormalizedDrive(base.Segments[0].Chars)
+                                Segments.Add(base.Segments[0])
+                            End If
+                        End If
+
+                        state = State.PATH
+                        Pointer -= 1
+                    End If
+                Case State.FILE_HOST
+                    If c == EOF || c == 47 || c == 92 || c == 63 || c == 35
+                        Pointer -= 1
+                        If IsDrive(buffer)
+                            // The drive letter goes on in the path's buffer.
+                            state = State.PATH
+                        ElseIf buffer.Count == 0
+                            Host = ""
+                            state = State.PATH_START
+                        Else
+                            Local host = ParseHost(buffer, False)
+                            If host == Null Then Return Null
+                            Host = host == "localhost" ? "" : host
+                            buffer.Clear()
+                            state = State.PATH_START
+                        End If
+                    Else
+                        buffer.Add(c)
+                    End If
+                Case State.PATH_START
+                    If Special
+                        state = State.PATH
+                        If c != 47 && c != 92 Then Pointer -= 1
+                    ElseIf c == 63
+                        StartQuery(ByRef state)
+                    ElseIf c == 35
+                        StartFragment(ByRef state)
+                    ElseIf c != EOF
+                        state = State.PATH
+                        If c != 47 Then Pointer -= 1
+                    End If
+                Case State.PATH
+                    Local slash = c == 47 || (Special && c == 92)
+                    If c == EOF || slash || c == 63 || c == 35
+                        If IsDoubleDot(buffer)
+                            Shorten()
+                            If !slash Then Segments.Add("")
+                        ElseIf IsSingleDot(buffer)
+                            If !slash Then Segments.Add("")
+                        Else
+                            If Scheme == "file" && Segments.Count == 0 && IsDrive(buffer)
+                                buffer[1] = 58
+                            End If
+
+                            Segments.Add(Text(buffer))
+                        End If
+
+                        buffer.Clear()
+                        If c == 63
+                            StartQuery(ByRef state)
+                        ElseIf c == 35
+                            StartFragment(ByRef state)
+                        End If
+                    Else
+                        EncodePoints(buffer, c, PercentSet.PATH)
+                    End If
+                Case State.OPAQUE_PATH
+                    If c == 63
+                        StartQuery(ByRef state)
+                    ElseIf c == 35
+                        StartFragment(ByRef state)
+                    ElseIf c == 32
+                        // A space before the query or fragment would be trimmed away.
+                        Local next = At(Pointer + 1)
+                        If next == 63 || next == 35
+                            PercentEncode(Opaque, 32, PercentSet.FRAGMENT)
+                        Else
+                            Opaque.Add(32)
+                        End If
+                    ElseIf c != EOF
+                        PercentEncode(Opaque, c, PercentSet.C0)
+                    End If
+                Case State.QUERY
+                    If c == 35
+                        StartFragment(ByRef state)
+                    ElseIf c != EOF
+                        Local set = Special ? PercentSet.SPECIAL_QUERY : PercentSet.QUERY
+                        PercentEncode(Query, c, set)
+                    End If
+                Case State.FRAGMENT
+                    If c != EOF Then PercentEncode(Fragment, c, PercentSet.FRAGMENT)
+            End Select
+
+            If Pointer >= Input.Count Then Break
+            Pointer += 1
+        End Loop
+
+        Return Url(Scheme, fb_string_from_array(Username), fb_string_from_array(Password), Host,
+                   Port, Segments, HasOpaque ? fb_string_from_array(Opaque) : Null,
+                   HasQuery ? fb_string_from_array(Query) : Null,
+                   HasFragment ? fb_string_from_array(Fragment) : Null)
+    End Method
+End Class
+
+// A host as its URL writes it, from its code points: an IPv6 address in brackets, an opaque host
+// for a URL that isn't special, percent-encoded, or else a domain, as ASCII, or the IPv4 address
+// one that ends in a number is. Null when it isn't one.
+Function ParseHost(input: Int[], opaque: Bool): String?
+    If input.Count > 0 && input[0] == 91
+        If input[input.Count - 1] != 93 Then Return Null
+        Local bytes: UInt8[] = []
+        For i = 1 Until input.Count - 1
+            AddUtf8(bytes, input[i])
+        End For
+        Local address = ParseV6(bytes)
+        If address == Null Then Return Null
+        Return "[" + address.Text(False) + "]"
+    End If
+
+    If opaque
+        Local bytes: UInt8[] = []
+        For c In input
+            If IsForbiddenHost(c) Then Return Null
+            PercentEncode(bytes, c, PercentSet.C0)
+        End For
+        Return fb_string_from_array(bytes)
+    End If
+
+    Local utf8: UInt8[] = []
+    For c In input
+        AddUtf8(utf8, c)
+    End For
+    Local ascii = DomainToAscii(fb_string_from_array(PercentDecoded(utf8)).Chars)
+    If ascii == Null Then Return Null
+    For c In ascii.Chars
+        If IsForbiddenHost(c) || c <= 0x1F || c == 0x25 || c == 0x7F Then Return Null
+    End For
+    If !EndsInNumber(ascii) Then Return ascii
+    Local v4 = ParseIpv4(ascii)
+    If v4 == Null Then Return Null
+    Return "{v4 >> 24}.{v4 >> 16 & 255}.{v4 >> 8 & 255}.{v4 & 255}"
+End Function
+
+// The code points no host can have.
+Function IsForbiddenHost(c: Int): Bool
+    Return c == 0x00 || c == 0x09 || c == 0x0A || c == 0x0D || c == 0x20 || c == 0x23 ||
+           c == 0x2F || c == 0x3A || c == 0x3C || c == 0x3E || c == 0x3F || c == 0x40 ||
+           c == 0x5B || c == 0x5C || c == 0x5D || c == 0x5E || c == 0x7C
+End Function
+
+// A domain's labels, split on its dots.
+Function Labels(points: Int[]): Int[][]
+    Local labels: Int[][] = [[]]
+    For c In points
+        If c == 46
+            labels.Add([])
+        Else
+            labels[labels.Count - 1].Add(c)
+        End If
+    End For
+    Return labels
+End Function
+
+// A domain as ASCII, as UTS #46's ToASCII has it for URLs, without its mapping of what isn't
+// ASCII but for what the start of this file says: each label in lowercase, and one with code
+// points past ASCII as xn-- and its Punycode, where an xn-- label has to decode. Null when it
+// can't be, or comes out empty.
+Function DomainToAscii(domain: Int[]): String?
+    Local mapped: Int[] = []
+    For c In domain
+        If c == 0x3002 || c == 0xFF0E || c == 0xFF61
+            mapped.Add(46)
+        ElseIf c >= 0xFF01 && c <= 0xFF5E
+            mapped.Add(Lower(c - 0xFEE0))
+        ElseIf c == 0xA0 || c == 0x1680 || (c >= 0x2000 && c <= 0x200A) || c == 0x202F ||
+               c == 0x205F || c == 0x3000
+            // Spaces map to a space, which no host has.
+            mapped.Add(0x20)
+        ElseIf c == 0xAD || c == 0x200B || c == 0x2060 || c == 0xFEFF
+            // Ignored, as soft hyphens and zero widths are.
+            Continue
+        ElseIf c == 0xFFFD || (c >= 0x80 && c <= 0x9F) || (c >= 0xFDD0 && c <= 0xFDEF) ||
+               (c & 0xFFFE) == 0xFFFE
+            // Disallowed, as the replacement character, C1 controls, and noncharacters are.
+            Return Null
+        Else
+            mapped.Add(Lower(c))
+        End If
+    End For
+
+    Local ascii: UInt8[] = []
+    Local labels = Labels(mapped)
+    For i = 0 Until labels.Count
+        If i > 0 Then ascii.Add(46)
+        Local label = labels[i]
+        If label.All(Function(c: Int) => c < 0x80)
+            If label.Count >= 4 && label[0] == 120 && label[1] == 110 && label[2] == 45 &&
+               label[3] == 45
+                // It has to decode to what isn't all ASCII, nor maps to something else.
+                Local decoded = PunycodeDecode(label[4..label.Count])
+                If decoded == Null Then Return Null
+                If decoded.Count > 0 && decoded.All(Function(c: Int) => c < 0x80) Then Return Null
+                If decoded.Any(Function(c: Int) => Lower(c) != c || (c >= 0x80 && c <= 0x9F))
+                    Return Null
+                End If
+            End If
+
+            For c In label
+                ascii.Add(c As UInt8)
+            End For
+        Else
+            For c In "xn--".Bytes
+                ascii.Add(c)
+            End For
+            Local encoded = PunycodeEncode(label)
+            If encoded == Null Then Return Null
+            For c In encoded
+                ascii.Add(c As UInt8)
+            End For
+        End If
+    End For
+
+    If ascii.Count == 0 Then Return Null
+    Return fb_string_from_array(ascii)
+End Function
+
+// RFC 3492's Punycode, for an IDN's labels.
+Const BASE = 36
+Const TMIN = 1
+Const TMAX = 26
+
+Function Adapt(delta: Int64, points: Int64, first: Bool): Int64
+    Local d = first ? delta / 700 : delta / 2
+    d += d / points
+    Local k: Int64 = 0
+    While d > ((BASE - TMIN) * TMAX) / 2
+        d /= BASE - TMIN
+        k += BASE
+    End While
+    Return k + (BASE - TMIN + 1) * d / (d + 38)
+End Function
+
+Function Threshold(k: Int64, bias: Int64): Int64
+    If k <= bias Then Return TMIN
+    If k >= bias + TMAX Then Return TMAX
+    Return k - bias
+End Function
+
+Function DigitOf(d: Int64): Int => (d < 26 ? 97 + d : 22 + d) As Int
+
+// A label's code points as Punycode's ASCII, or Null when they're too many to count.
+Function PunycodeEncode(label: Int[]): Int[]?
+    Local output: Int[] = []
+    For c In label
+        If c < 0x80 Then output.Add(c)
+    End For
+    Local basic = output.Count
+    If basic > 0 Then output.Add(45)
+    Local n: Int64 = 0x80
+    Local delta: Int64 = 0
+    Local bias: Int64 = 72
+    Local handled = basic
+    While handled < label.Count
+        Local m: Int64 = 0x7FFFFFFF
+        For c In label
+            If c >= n && c < m Then m = c
+        End For
+        delta += (m - n) * (handled + 1)
+        If delta > 0x7FFFFFFF Then Return Null
+        n = m
+        For c In label
+            If c < n Then delta += 1
+            If c == n
+                Local q = delta
+                Local k: Int64 = BASE
+                Loop
+                    Local t = Threshold(k, bias)
+                    If q < t Then Break
+                    output.Add(DigitOf(t + (q - t) % (BASE - t)))
+                    q = (q - t) / (BASE - t)
+                    k += BASE
+                End Loop
+                output.Add(DigitOf(q))
+                bias = Adapt(delta, handled + 1, handled == basic)
+                delta = 0
+                handled += 1
+            End If
+        End For
+        delta += 1
+        n += 1
+    End While
+    Return output
+End Function
+
+// The code points Punycode's ASCII stands for, or Null when it isn't Punycode.
+Function PunycodeDecode(input: Int[]): Int[]?
+    Local output: Int[] = []
+    Local last = -1
+    For j = 0 Until input.Count
+        If input[j] == 45 Then last = j
+    End For
+    For j = 0 Until Max(last, 0)
+        output.Add(input[j])
+    End For
+    Local n: Int64 = 0x80
+    Local i: Int64 = 0
+    Local bias: Int64 = 72
+    Local at = last + 1
+    While at < input.Count
+        Local old = i
+        Local w: Int64 = 1
+        Local k: Int64 = BASE
+        Loop
+            If at >= input.Count Then Return Null
+            Local c = input[at]
+            at += 1
+            Local digit = c >= 48 && c <= 57 ? c - 22 : Lower(c) - 97
+            If digit < 0 || digit >= BASE Then Return Null
+            i += digit * w
+            If i > 0x7FFFFFFF Then Return Null
+            Local t = Threshold(k, bias)
+            If digit < t Then Break
+            w *= BASE - t
+            If w > 0x7FFFFFFF Then Return Null
+            k += BASE
+        End Loop
+        Local count = output.Count + 1
+        bias = Adapt(i - old, count, old == 0)
+        n += i / count
+        i %= count
+        If n > 0x10FFFF || n < 0x80 Then Return Null
+        output.Insert(i As Int, n As Int)
+        i += 1
+    End While
+    Return output
+End Function
+
+// Whether a domain's last label, before a dot it ends with, is a number, decimal, or hex after
+// a 0x, so the domain is an IPv4 address's.
+Function EndsInNumber(domain: String): Bool
+    Local labels = Labels(domain.Chars)
+    If labels[labels.Count - 1].Count == 0
+        If labels.Count == 1 Then Return False
+        labels.RemoveAt(labels.Count - 1)
+    End If
+
+    Local last = labels[labels.Count - 1]
+    If last.Count > 0 && last.All(IsDigit) Then Return True
+    Return last.Count >= 2 && last[0] == 48 && (last[1] == 120 || last[1] == 88) &&
+           last[2..last.Count].All(Function(c: Int) => HexValue(c) >= 0)
+End Function
+
+// The IPv4 address a domain that ends in a number stands for, as 32 bits: up to four parts, in
+// decimal, octal after a 0, or hex after a 0x, where the last part fills what the others leave.
+// Null when it isn't one.
+Function ParseIpv4(domain: String): Int64?
+    Local parts = Labels(domain.Chars)
+    If parts[parts.Count - 1].Count == 0 && parts.Count > 1 Then parts.RemoveAt(parts.Count - 1)
+    If parts.Count > 4 Then Return Null
+    Local numbers: Int64[] = []
+    For part In parts
+        Local number = Ipv4Number(part)
+        If number == Null Then Return Null
+        numbers.Add(number)
+    End For
+    For i = 0 Until numbers.Count - 1
+        If numbers[i] > 255 Then Return Null
+    End For
+    Local last = numbers[numbers.Count - 1]
+    If last >= (1 As Int64) << (8 * (5 - numbers.Count)) Then Return Null
+    Local address = last
+    For i = 0 Until numbers.Count - 1
+        address += numbers[i] << (8 * (3 - i))
+    End For
+    Return address
+End Function
+
+// An IPv4 address's part, or Null. One past 32 bits stays just past, which the checks refuse.
+Function Ipv4Number(part: Int[]): Int64?
+    If part.Count == 0 Then Return Null
+    Local radix = 10
+    Local start = 0
+    If part.Count >= 2 && part[0] == 48 && (part[1] == 120 || part[1] == 88)
+        radix = 16
+        start = 2
+    ElseIf part.Count >= 2 && part[0] == 48
+        radix = 8
+        start = 1
+    End If
+
+    Local value: Int64 = 0
+    For i = start Until part.Count
+        Local digit = HexValue(part[i])
+        If digit < 0 || digit >= radix Then Return Null
+        value = Min(value * radix + digit, 0x100000000)
+    End For
+    Return value
+End Function

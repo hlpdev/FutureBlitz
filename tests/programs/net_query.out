@@ -1,0 +1,13 @@
+8: (a, 1)(b, two words)(a, 3)(c, &=)(empty, )(noequals, )(, nameless)(€, euro) -> a=1&b=two+words&a=3&c=%26%3D&empty=&noequals=&=nameless&%E2%82%AC=euro
+3: (a, %zz)(b, 😀)(c, �) -> a=%25zz&b=%F0%9F%98%80&c=%EF%BF%BD
+0:  -> 
+1: (?x, 1) -> %3Fx=1
+4: (q, a b+c&d=e)(lang, fr)(q, second)(emoji, 😀 ~!'()*) -> q=a+b%2Bc%26d%3De&lang=fr&q=second&emoji=%F0%9F%98%80+%7E%21%27%28%29*
+a b+c&d=e [a b+c&d=e, second] Null True True False
+3: (q, only)(lang, fr)(emoji, 😀 ~!'()*) -> q=only&lang=fr&emoji=%F0%9F%98%80+%7E%21%27%28%29*
+True False False True
+2: (emoji, 😀 ~!'()*)(new, 1) -> emoji=%F0%9F%98%80+%7E%21%27%28%29*&new=1
+7: (B, 7)(a, 2)(a, 6)(z, 1)(z, 3)(😀, 5)(�, 4) -> B=7&a=2&a=6&z=1&z=3&%F0%9F%98%80=5&%EF%BF%BD=4
+3: (q, one two)(page, 2)(q, three) -> q=one+two&page=2&q=three
+2 [one two, three]
+2: (?a, b)(c, d) -> %3Fa=b&c=d

@@ -1,0 +1,47 @@
+// std.net's QueryParams reads and writes a query's names and values as an HTML form sends
+// them, and a Url's Params gives its own.
+Import std.core
+Import std.net
+
+Function Show(params: QueryParams)
+    Local pairs = ""
+    For pair In params
+        pairs += "({pair.0}, {pair.1})"
+    End For
+    Print("{params.Count}: {pairs} -> {params}")
+End Function
+
+Show(QueryParams("?a=1&b=two+words&a=3&c=%26%3D&empty=&noequals&&=nameless&%E2%82%AC=euro"))
+Show(QueryParams("a=%zz&b=%f0%9f%98%80&c=%FF"))
+Show(QueryParams(""))
+Show(QueryParams("??x=1"))
+
+Local params = QueryParams()
+params.Add("q", "a b+c&d=e")
+params.Add("lang", "fr")
+params.Add("q", "second")
+params.Add("emoji", "😀 ~!'()*")
+Show(params)
+Print(params.Get("q") ?? "Null", params.GetAll("q"), params.Get("none") ?? "Null",
+      params.Contains("lang"), params.Contains("q", "second"), params.Contains("q", "third"))
+params.Set("q", "only")
+Show(params)
+params.Set("new", "1")
+Print(params.Remove("lang"), params.Remove("lang"), params.Remove("q", "x"),
+      params.Remove("q", "only"))
+Show(params)
+
+// Sort orders by names, keeping each name's values in order, by UTF-16 code units, so an
+// astral name comes before U+FFFD.
+Local mixed = QueryParams("z=1&a=2&z=3&\u{FFFD}=4&\u{1F600}=5&a=6&B=7")
+mixed.Sort()
+Show(mixed)
+
+// A Url's Params are its query's, a leading ? and all.
+Local url = Url.Parse("https://example.com/search?q=one+two&page=2&q=three")
+If url != Null
+    Show(url.Params)
+    Print(url.Params.Get("page") ?? "Null", url.Params.GetAll("q"))
+End If
+
+Show((Url.Parse("http://h/??a=b&c=d") ?? Url.Parse("x:"))?.Params ?? QueryParams())
