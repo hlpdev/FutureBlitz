@@ -29,9 +29,10 @@ it uses, as set.fb imports std.collections.map and std.collections.array. A prog
 the library code it uses. What a program uses is Public: Error, its Message, and its New, the
 Interfaces, Iterator, each collection with its Methods and Properties, the iterator Structs
 their `Iterate()`s give, with their `Next`, `Handle<T>`'s ReadOnly Index, and std.ffi's `Mem`
-and CString Methods. Their Fields and helpers, like `MergeSort`, a Map's `Grow`, or a Handle's
-Generation, are private to their files, and what std's files share, like map.fb's `JoinedText`
-and `IterateAs`, which set.fb uses, is Package, std's own.
+and CString Methods. Their Fields and helpers, like a Map's `Grow` or a Handle's Generation, are
+private to their files, and what std's files share, like map.fb's `JoinedText` and `IterateAs`,
+which set.fb uses, or iterator.fb's `MergeSort`, which array.fb's Sort uses, is Package, std's
+own.
 
 Adding or removing a value while a `For ... In` goes over a collection panics at its next value,
 but for a Pool, whose slots stay put. What gives a `T?` for "none", like `Get`, `Find`, and
@@ -180,7 +181,8 @@ file or URL in the default app.
   `OrderBy`, `OrderByDescending`; consuming: `ToArray`, `Count`, `Any`, `All`, `Find`, `First`,
   `Last`, `Fold`, `Reduce`, `ForEach`, `Sum` and `Product` where Numeric, `Min` and `Max` where
   Comparable, `MinBy`, `MaxBy`. Sources: `Repeated(value, count)`, `Empty<T>()`. A collection's
-  own `Filter` and `Map` stay eager and give arrays.
+  own `Filter` and `Map` stay eager and give a new collection: a `T[]`'s an array, and a Set's or
+  a Map's Filter a Set or a Map.
 - Interfaces: `Iterable<T>`, `Cloneable`, and `Defaultable` (`Static Method DefaultValue():
   Self`), since `Default` is Select's keyword.
 - Small things: `Min`, `Max`, `Clamp`, `Swap`; `HashCombine`; and the built-in `TypeName<T>()`,
@@ -194,7 +196,7 @@ file or URL in the default app.
 - `T[]`: `IndexOf`, `LastIndexOf`, `FindIndex`, `FindLast`, `Any`, `All`, `BinarySearch`;
   `First`, `Last`, `RemoveLast`, `TryRemoveLast`; `AddAll`, `InsertAll`, `RemoveRange`,
   `RemoveAll(test)`, `Resize(count, fill)`, `Fill`; `Reverse`, `Swap`, `Shuffle(random)`,
-  `SortUnstable` (in place, no allocation); `Distinct`, `Join(separator)`, `Fold`, `Reduce`;
+  `SortUnstable` (in place, making no array); `Distinct`, `Join(separator)`, `Fold`, `Reduce`;
   `Capacity`, `Reserve`, `TrimExcess`.
 - Sorting: `Sort()`, `Sort(before)`, `SortBy(key)`, `SortByDescending(key)`, and `ThenBy` and
   `ThenByDescending` for ties, stable and in place.
