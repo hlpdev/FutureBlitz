@@ -11,6 +11,9 @@ and notes/<a folder with a long name>/deep.txt ("deep" and a line break), each l
 
     gzip -9 -c poem.txt > poem.txt.gz                              (GNU gzip 1.14)
     xz -c poem.txt > poem.txt.xz                                   (xz 5.8.3)
+    lz4 -c poem.txt > poem.txt.lz4             (lz4 1.10.0, built from LZ4's own source)
+    git hash-object -w poem.txt, its loose object as poem.txt.git: a Zlib stream of "blob 1542",
+        a NUL, and the file                                       (Git 2.55.0)
     tar --owner=root:0 --group=root:0 -b1 --format=gnu -cf sample.tar sample   (GNU tar 1.35)
     tar --owner=root:0 --group=root:0 -b1 --format=pax \\
         --pax-option=delete=atime,delete=ctime -cf sample-pax.tar sample
@@ -29,6 +32,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 FILES = [
     ("PoemGz", "poem.txt.gz"), ("PoemXz", "poem.txt.xz"), ("PoemZst", "poem.txt.zst"),
+    ("PoemLz4", "poem.txt.lz4"), ("PoemGit", "poem.txt.git"),
     ("SampleZip", "sample.zip"), ("SampleTar", "sample.tar"), ("SamplePaxTar", "sample-pax.tar"),
     ("SampleTarGz", "sample.tar.gz"), ("SampleTarZst", "sample.tar.zst"),
     ("SampleTarXz", "sample.tar.xz"), ("Sample7z", "sample.7z"),

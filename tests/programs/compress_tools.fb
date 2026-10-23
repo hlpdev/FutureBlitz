@@ -1,6 +1,6 @@
-// std.compress reads what common tools wrote: GNU gzip's and xz's files, bsdtar's zstd frame, zip,
-// and 7z archives, and GNU tar's and bsdtar's tars, compressed and not. compress_tools/data.fb says
-// how each was made.
+// std.compress reads what common tools wrote: GNU gzip's and xz's files, lz4's frame, Git's Zlib,
+// bsdtar's zstd frame, zip, and 7z archives, and GNU tar's and bsdtar's tars, compressed and not.
+// compress_tools/make_data.py says how each was made.
 
 Import std.core
 Import std.collections
@@ -71,6 +71,21 @@ End Function
 Print("poem.txt.gz", Matched("sample/poem.txt", Try Gzip.Decompress(PoemGz())))
 Print("poem.txt.xz", Matched("sample/poem.txt", Try XZ.Decompress(PoemXz())))
 Print("poem.txt.zst", Matched("sample/poem.txt", Try Zstd.Decompress(PoemZst())))
+Print("poem.txt.lz4", Matched("sample/poem.txt", Try Lz4.Decompress(PoemLz4())))
+// Git's object is the file after a header, and gzip's member Deflate's stream after its header,
+// whose name ends with a NUL, and before its CRC-32 and size.
+Local blob = Try Zlib.Decompress(PoemGit())
+Local header = "blob {Expected()["sample/poem.txt"].Count}".Bytes
+header.Add(0)
+Print("poem.txt.git", blob[0..header.Count] == header,
+      Matched("sample/poem.txt", blob[header.Count..blob.Count]))
+Local gz = PoemGz()
+Local start = 10
+While gz[start] != 0
+    start += 1
+End While
+Local deflated = Try Deflate.Decompress(gz[start + 1..gz.Count - 8])
+Print("poem.txt.gz's Deflate", Matched("sample/poem.txt", deflated))
 Try ShowZip("sample.zip", SampleZip())
 Try ShowTar("sample.tar", SampleTar())
 Try ShowTar("sample-pax.tar", SamplePaxTar())

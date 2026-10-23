@@ -1,6 +1,9 @@
 poem.txt.gz right
 poem.txt.xz right
 poem.txt.zst right
+poem.txt.lz4 right
+poem.txt.git True right
+poem.txt.gz's Deflate right
 sample.zip: 8 entries
   sample: FOLDER
   sample/hello.txt: 14 bytes, right
