@@ -570,6 +570,15 @@ TEST_CASE("overloads: an exact match beats a conversion", "[sema]") {
     CHECK(errors_of(call("Show(5_000_000_000)")) ==
           errors_t{ "Show: the call to 'Show' is ambiguous" });
     CHECK(errors_of(call("Show(True)")) == errors_t{ "Show: no overload of 'Show' takes (Bool)" });
+    // A literal too big for an Int, or a generic Function's name, has no type of its own, so it
+    // shows as written.
+    constexpr std::string_view neither = "Function F(a: String)\nEnd Function\n"
+                                         "Function F(a: Bool)\nEnd Function\n"
+                                         "Function Same<T>(a: T, b: T): Bool => True\n";
+    CHECK(errors_of(std::format("{}F(5_000_000_000)", neither)) ==
+          errors_t{ "F: no overload of 'F' takes (5_000_000_000)" });
+    CHECK(errors_of(std::format("{}F(Same, 1.5)", neither)) ==
+          errors_t{ "F: no overload of 'F' takes (Same, Float32)" });
     CHECK(errors_of("Function F(a: Int)\nEnd Function\nFunction F(b: Int)\nEnd Function") ==
           errors_t{ "F: 'F' is already declared with the same parameter types" });
 

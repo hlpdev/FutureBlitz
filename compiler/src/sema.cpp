@@ -20553,7 +20553,16 @@ private:
             std::string list;
             for (std::size_t i = 0; i < types.size(); ++i) {
                 list += i == 0 ? "" : ", ";
-                list += is_null(node.arguments[i].value) ? "Null" : name_among(types[i], types);
+                // A literal too big for its default type, or a generic Function's name, has
+                // no type of its own, so it shows as written.
+                const expr_id_t value = node.arguments[i].value;
+                if (is_null(value)) {
+                    list += "Null";
+                } else if (types[i] == type_id_t::INVALID) {
+                    list += text(value);
+                } else {
+                    list += name_among(types[i], types);
+                }
             }
 
             error(span, "no overload of '{}' takes ({})", name, list);
