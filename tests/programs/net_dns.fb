@@ -1,0 +1,42 @@
+// std.net's Dns looks up a host's addresses through the OS, blocking and Async, on any thread:
+// "localhost" is the loopback addresses, and an address's text is itself. Nothing here asks the
+// network.
+Import std.core
+Import std.net
+
+Function Loopbacks(addresses: IpAddress[]): String
+    Local loopback = addresses.Count > 0
+    For address In addresses
+        loopback = loopback && address.IsLoopback
+    End For
+    Return "{addresses.Count > 0} {loopback}"
+End Function
+
+Try
+    Print(Loopbacks(Dns.Resolve("localhost")))
+    Print(Dns.Resolve("127.0.0.1"), Dns.Resolve("::1"), Dns.Resolve("10.20.30.40"))
+    Print(Loopbacks(Await Dns.ResolveAsync("localhost")))
+    Local task = Dns.ResolveAsync("192.0.2.7")
+    Print(task.Wait())
+Catch e As NetError
+    Print("failed: {e.Kind} {e.Message}")
+End Try
+
+// Names with no address.
+For host In ["", "a\0b"]
+    Try
+        Print(Dns.Resolve(host))
+    Catch e As NetError
+        Print(e.Kind, e.Message.Bytes.Count, e.Address != Null)
+    End Try
+End For
+Try
+    Print(Await Dns.ResolveAsync(""))
+Catch e As NetError
+    Print(e.Kind, e.Message)
+End Try
+
+// Workers look up too, at once.
+Local tasks = [Spawn(Function() => (Try? Dns.Resolve("127.0.0.2"))?.Count ?? -1),
+               Spawn(Function() => (Try? Dns.Resolve("localhost"))?.Count ?? -1)]
+Print(tasks[0].Wait(), tasks[1].Wait() > 0)

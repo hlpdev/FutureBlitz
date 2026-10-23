@@ -645,6 +645,12 @@ TEST_CASE("a program links the bundled C libraries of the runtime functions it c
           std::vector<std::string_view>{ "libuv" });
     CHECK(bundled("Import std.core\nLocal line = Await InputAsync()") ==
           std::vector<std::string_view>{ "libuv" });
+    // A lookup goes through it too; a Url or an address is std.net's own.
+    CHECK(bundled("Import std.net\nLocal found = Try? Dns.Resolve(\"localhost\")") ==
+          std::vector<std::string_view>{ "libuv" });
+    CHECK(bundled("Import std.net\nLocal url = Url.Parse(\"https://example.com/\")\n"
+                  "Local address = IpAddress.Parse(\"::1\")")
+              .empty());
     // std.db is over SQLite, and a random Uuid comes from SecureRandom, over mbedTLS.
     CHECK(bundled("Import std.db\nLocal db = Try? Database.Open(\":memory:\")") ==
           std::vector<std::string_view>{ "SQLite" });

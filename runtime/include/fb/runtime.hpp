@@ -547,6 +547,16 @@ fb_string_t* fb_io_input(const fb_string_t* prompt);
 /// would give, once the I/O thread has it. A Task's result is right after its fb_task_t.
 void fb_io_input_async(fb_task_t* task, const fb_string_t* prompt);
 
+/// Looks up `host`'s addresses, as getaddrinfo finds them, into `output`, a UInt8[], each as 17
+/// bytes: 4 or 6 for its family, then its 16 bytes, an IPv4 address's 4 first. Gives 0, or
+/// libuv's error, which fb_io_error_text says in English. It blocks, as fb_io_input does.
+std::int32_t fb_io_resolve(const fb_string_t* host, fb_array_t* output);
+/// The same, finishing `task`, a new Task<Int32>, with what fb_io_resolve would give, once the
+/// I/O thread has it. The caller holds `output` until then.
+void fb_io_resolve_async(fb_task_t* task, const fb_string_t* host, fb_array_t* output);
+/// What libuv's error `code` means.
+fb_string_t* fb_io_error_text(std::int32_t code);
+
 /// Prints "panic: <message> at <file>:<line>:<column>" to stderr and exits with code 101.
 /// Compiled code calls it when a run-time check fails. `location` can be null, which leaves out
 /// the " at ..." part. On any thread, it ends the whole program, at once: a second thread that

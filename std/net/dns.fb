@@ -1,0 +1,72 @@
+// std.net's Dns: the addresses a host's name has, as the OS's resolver finds them, through
+// libuv's getaddrinfo on the runtime's I/O thread, blocking or Async.
+
+Import std.core
+Import std.net.address
+
+Extern "runtime"
+    Function fb_io_resolve(host: String, output: UInt8[]): Int32
+    Function fb_io_resolve_async(host: String, output: UInt8[]): Task<Int32>
+    Function fb_io_error_text(code: Int32): String
+End Extern
+
+// libuv's errors for a name with no address, which every OS gives as these.
+Const NO_DATA = -3007
+Const NO_NAME = -3008
+
+// Dns's Static Methods.
+Public Struct Dns
+    // Dns isn't made: it's only its Static Methods.
+    New()
+    End New
+
+    // The addresses host has, IPv4 and IPv6, each once, in the order the OS prefers them, from
+    // its hosts file and the DNS servers it asks, as getaddrinfo looks them up: "localhost" is
+    // the loopback addresses, and an IP address's text is that address. Throws a NetError of
+    // HOST_NOT_FOUND for a name with no address, an empty one, or one with a NUL, and of OTHER
+    // when the lookup fails another way.
+    Public Static Method Resolve(host: String): IpAddress[] Throws NetError
+        Try Named(host)
+        Local output: UInt8[] = []
+        Try Check(host, fb_io_resolve(host, output))
+        Return Addresses(output)
+    End Method
+
+    // Resolve's Async twin: a Task of host's addresses, which the I/O thread finishes while the
+    // main thread goes on.
+    Public Static Async Method ResolveAsync(host: String): IpAddress[] Throws NetError
+        Try Named(host)
+        Local output: UInt8[] = []
+        Try Check(host, Await fb_io_resolve_async(host, output))
+        Return Addresses(output)
+    End Method
+End Struct
+
+// Throws for a name getaddrinfo would read another way, or not at all.
+Function Named(host: String) Throws NetError
+    If host == "" Then Throw NetError(NetErrorKind.HOST_NOT_FOUND, "an empty name has no address")
+    If host.Bytes.Contains(0)
+        Throw NetError(NetErrorKind.HOST_NOT_FOUND, "a host's name can't hold a NUL", host)
+    End If
+End Function
+
+// Throws what a lookup's code says went wrong, unless it's 0.
+Function Check(host: String, code: Int32) Throws NetError
+    If code == 0 Then Return
+    If code == NO_DATA || code == NO_NAME
+        Throw NetError(NetErrorKind.HOST_NOT_FOUND,
+                       "{host} has no address: {fb_io_error_text(code)}", host)
+    End If
+
+    Throw NetError(NetErrorKind.OTHER, "looking up {host} failed: {fb_io_error_text(code)}", host)
+End Function
+
+// The addresses a lookup put in output, 17 bytes each.
+Function Addresses(output: UInt8[]): IpAddress[]
+    Local addresses: IpAddress[] = []
+    For at = 0 Until output.Count Step 17
+        Local size = output[at] == 4 ? 4 : 16
+        addresses.Add(IpAddress.FromBytes(output[at + 1..at + 1 + size]))
+    End For
+    Return addresses
+End Function

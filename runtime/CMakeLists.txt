@@ -1,6 +1,6 @@
 file(GLOB_RECURSE FB_RUNTIME_SOURCES CONFIGURE_DEPENDS src/*.cpp)
 # The parts over bundled C libraries are archives of their own.
-set(FB_RUNTIME_PARTS io crypto crypto_pem xxhash blake3 argon2 bcrypt ed25519 db bigint
+set(FB_RUNTIME_PARTS io dns crypto crypto_pem xxhash blake3 argon2 bcrypt ed25519 db bigint
     decimal tz zlib zstd lz4 xz seven_zip zip)
 foreach(part ${FB_RUNTIME_PARTS})
   list(REMOVE_ITEM FB_RUNTIME_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/src/${part}.cpp)
@@ -10,10 +10,10 @@ add_library(fb_runtime STATIC ${FB_RUNTIME_SOURCES})
 target_include_directories(fb_runtime PUBLIC include)
 fb_set_warnings(fb_runtime)
 
-# The runtime's part over libuv, the I/O thread, is an archive of its own, which a program links
-# with libuv only when it calls the fb_io_ functions. In one archive with the rest, it could be
-# linked for a template it shares with them.
-add_library(fb_runtime_io STATIC src/io.cpp)
+# The runtime's part over libuv, the I/O thread and std.net's Dns, is an archive of its own,
+# which a program links with libuv only when it calls the fb_io_ functions. In one archive with
+# the rest, it could be linked for a template it shares with them.
+add_library(fb_runtime_io STATIC src/io.cpp src/dns.cpp)
 target_include_directories(fb_runtime_io PUBLIC include)
 target_include_directories(fb_runtime_io SYSTEM PRIVATE
   $<TARGET_PROPERTY:uv_a,INTERFACE_INCLUDE_DIRECTORIES>)

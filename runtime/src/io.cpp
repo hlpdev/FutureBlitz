@@ -5,6 +5,7 @@
 #include "fb/runtime.hpp"
 #include "fb/time.hpp"
 #include "internal.hpp"
+#include "io_internal.hpp"
 
 #include <algorithm>
 #include <array>
@@ -13,6 +14,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <deque>
+#include <functional>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -317,6 +319,22 @@ public:
         finish_timer(request.task);
     }
 
+    /// Runs `job` on the thread, starting it the first time, or now with no loop once the
+    /// program is ending.
+    void run(std::function<void(uv_loop_t*)> job) {
+        std::call_once(m_started, [this] { start(); });
+        {
+            const std::scoped_lock lock(m_mutex);
+            if (!m_stopped) {
+                m_jobs.push_back(std::move(job));
+                uv_async_send(&m_wake);
+                return;
+            }
+        }
+
+        job(nullptr);
+    }
+
     /// Waits for a blocking caller's line.
     void wait_for(const line_waiter_t& waiter) {
         std::unique_lock lock(m_mutex);
@@ -354,6 +372,8 @@ private:
     std::vector<timer_request_t> m_timers_incoming;
     /// The timers under way, which only the I/O thread touches.
     std::vector<running_timer_t*> m_timers;
+    /// What other parts of the runtime gave the thread to run.
+    std::vector<std::function<void(uv_loop_t*)>> m_jobs;
     bool m_stopped = false;
     uv_loop_t m_loop{};
     uv_async_t m_wake{};
@@ -375,11 +395,13 @@ private:
         auto& self = *static_cast<io_t*>(handle->data);
         std::vector<line_request_t> incoming;
         std::vector<timer_request_t> timers;
+        std::vector<std::function<void(uv_loop_t*)>> jobs;
         bool stopped = false;
         {
             const std::scoped_lock lock(self.m_mutex);
             incoming.swap(self.m_incoming);
             timers.swap(self.m_timers_incoming);
+            jobs.swap(self.m_jobs);
             stopped = self.m_stopped;
         }
 
@@ -404,6 +426,10 @@ private:
                     : (nanoseconds / 1000000) + (nanoseconds % 1000000 != 0 ? 1 : 0) + 1;
             uv_timer_start(&timer->handle, on_timer, static_cast<std::uint64_t>(milliseconds), 0);
             self.m_timers.push_back(timer);
+        }
+
+        for (const std::function<void(uv_loop_t*)>& job : jobs) {
+            job(&self.m_loop);
         }
 
         if (stopped) {
@@ -461,6 +487,14 @@ void answer(const line_request_t& request, std::optional<std::string> line) {
 }
 
 } // namespace
+
+namespace fb::runtime {
+
+void on_io_thread(std::function<void(uv_loop_t*)> job) {
+    io().run(std::move(job));
+}
+
+} // namespace fb::runtime
 
 extern "C" {
 
