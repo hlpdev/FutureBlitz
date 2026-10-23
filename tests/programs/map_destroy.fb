@@ -1,0 +1,66 @@
+// A key's or value's Destroy, which a change to a Map runs, can use the Map: what the change
+// takes out or replaces goes once the Map is whole again. Here a Node removes its child's key.
+Import std.core
+Import std.collections
+
+Class Node
+    ReadOnly Field Registry: Weak<Map<Int, Node>>
+    ReadOnly Field Name: String
+    ReadOnly Field Child: Int
+
+    New(registry: Map<Int, Node>, name: String, child: Int)
+        Registry = registry
+        Name = name
+        Child = child
+    End New
+
+    Method Destroy()
+        Local registry = Registry
+        If Child >= 0 && registry != Null
+            Print("{Name} removed child {Child}: {registry.Remove(Child)}, {registry.Count} left")
+        End If
+    End Method
+End Class
+
+Local registry = Map<Int, Node>()
+For i = 0 Until 8
+    registry.Add(i * 2, Node(registry, "leaf {i * 2}", -1))
+    registry.Add(i * 2 + 1, Node(registry, "parent {i * 2 + 1}", i * 2))
+End For
+
+registry.Remove(1)
+registry.Remove(15)
+Print(registry.Keys())
+registry[3] = Node(registry, "new 3", -1)
+registry.Add(5, Node(registry, "new 5", -1))
+registry.Update(7, Function(node: Node) => Node(registry, "updated 7", -1))
+Print(registry.Keys())
+registry.Clear()
+Print(registry.Count)
+
+// The same through a Set, whose values' Destroys remove from it.
+Class Member
+    ReadOnly Field Group: Weak<Set<Member>>
+    ReadOnly Field Partner: Member?
+
+    New(group: Set<Member>, partner: Member?)
+        Group = group
+        Partner = partner
+    End New
+
+    Method Destroy()
+        Local group = Group
+        Local partner = Partner
+        If group != Null && partner != Null Then Print("partner removed: {group.Remove(partner)}")
+    End Method
+End Class
+
+Local group = Set<Member>()
+Local single = Member(group, Null)
+group.Add(single)
+group.Add(Member(group, single))
+single = Member(group, Null)
+For member In group.ToArray()
+    If member.Partner != Null Then group.Remove(member)
+End For
+Print(group.Count)

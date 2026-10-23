@@ -1,6 +1,8 @@
 // Map<K, V>: a hash map from keys to values, in the order they were added. Its entries are in an
 // array, each bucket starts a chain of the entries whose hashes land in it, and each entry links
-// to the ones added before and after it, so removing one leaves the others in order.
+// to the ones added before and after it, so removing one leaves the others in order. What a
+// change takes out or replaces is let go of once the Map is whole again, so a key's or value's
+// Destroy that it runs can use the Map.
 
 Import std.core
 
@@ -50,6 +52,8 @@ Public Class Map<K, V> Implements Iterable<(K, V)>, Cloneable, Defaultable
         Local hash = key.Hash()
         Local found = IndexOf(key, hash)
         If found >= 0
+            // The old value goes as this returns.
+            Local old = Entries[found].Value
             Entries[found].Value = value
             Return
         End If
@@ -112,9 +116,12 @@ Public Class Map<K, V> Implements Iterable<(K, V)>, Cloneable, Defaultable
         If found < 0 Then Return False
         Local changes = Changes
         Local value = change(Entries[found].Value)
-        // What change did may have moved the entry, or removed it.
+        // What change did may have moved the entry, or removed it. The old value goes as this
+        // returns.
         If Changes != changes Then found = IndexOf(key, hash)
-        If found >= 0 Then Entries[found].Value = value
+        If found < 0 Then Return True
+        Local old = Entries[found].Value
+        Entries[found].Value = value
         Return True
     End Method
 
@@ -157,7 +164,9 @@ Public Class Map<K, V> Implements Iterable<(K, V)>, Cloneable, Defaultable
     End Method
 
     Public Method Clear()
-        Entries.Clear()
+        // The entries go as this returns, once the Map is empty.
+        Local cleared = Entries
+        Entries = []
         For i = 0 Until Buckets.Count
             Buckets[i] = -1
         End For
@@ -288,8 +297,9 @@ Public Class Map<K, V> Implements Iterable<(K, V)>, Cloneable, Defaultable
     End Method
 
     // Takes the entry at index out of its bucket's chain and the order, and moves the last
-    // entry into its place.
+    // entry into its place. The entry goes as this returns.
     Method Take(index: Int)
+        Local taken = Entries[index]
         Unlink(index)
         Local before = Entries[index].Before
         Local after = Entries[index].After

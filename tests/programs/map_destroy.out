@@ -1,0 +1,13 @@
+parent 1 removed child 0: True, 14 left
+parent 15 removed child 14: True, 12 left
+[2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
+parent 3 removed child 2: True, 11 left
+parent 5 removed child 4: True, 10 left
+parent 7 removed child 6: True, 9 left
+[3, 5, 7, 8, 9, 10, 11, 12, 13]
+parent 13 removed child 12: False, 0 left
+parent 11 removed child 10: False, 0 left
+parent 9 removed child 8: False, 0 left
+0
+partner removed: True
+0
