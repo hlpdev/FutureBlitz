@@ -1,0 +1,7 @@
+// A header's value with a line break would make another header, so Set panics where it's
+// called.
+Import std.core
+Import std.net.http
+
+Local headers = Headers()
+headers.Set("X-Note", "one" + "\r\n" + "Injected: yes")

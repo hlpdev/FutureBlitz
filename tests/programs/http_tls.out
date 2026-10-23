@@ -1,0 +1,17 @@
+NetError TLS
+CN=FutureBlitz Test CA
+200 hello
+200 redirected
+200 set
+200 secret=1
+POST
+/echo
+text/plain; charset=utf-8
+over TLS
+bytes 100000 True
+Bearer secret
+(none)
+secret=1
+secret=1; mine=1
+NetError TLS
+NetError TLS

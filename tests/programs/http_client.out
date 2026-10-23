@@ -1,0 +1,135 @@
+== get
+200 hello
+200 chunkchunkchunkchunkchunkchunkchunkchunkchunkchunk
+200 héllo ☃ �!
+404 no such path
+[one, two]
+text/plain; charset=utf-8
+none
+True
+bytes 1000 True
+head 200 0 5
+== methods
+200 GET
+/echo
+(none)
+
+200 POST
+/echo
+text/plain; charset=utf-8
+posted
+200 PUT
+/echo
+application/json
+{"a": 1}
+200 PATCH
+/echo
+application/octet-stream
+hi!
+200 DELETE
+/echo
+(none)
+
+200 OPTIONS
+/echo
+(none)
+
+200 POST
+/echo
+(none)
+
+200 POST
+/echo
+application/x-www-form-urlencoded
+name=Ada%20L&sum=1%2B1%3D2%26x
+200 POST
+/echo
+(none)
+hi
+== headers
+200 FutureBlitz
+200 tester/1
+200 client
+request
+own
+POST
+/echo
+text/csv
+a,b
+== statuses
+200 [OK] True
+success
+204 [No Content] True
+success
+404 [Not Found] False
+NetError HTTP_STATUS
+418 [] False
+NetError HTTP_STATUS
+500 [Internal Server Error] False
+NetError HTTP_STATUS
+503 [Service Unavailable] False
+NetError HTTP_STATUS
+== redirects
+200 redirected
+True
+301: 200 GET
+/echo
+(none)
+
+301: 200 PUT
+/echo
+text/plain; charset=utf-8
+kept
+302: 200 GET
+/echo
+(none)
+
+302: 200 PUT
+/echo
+text/plain; charset=utf-8
+kept
+303: 200 GET
+/echo
+(none)
+
+303: 200 GET
+/echo
+(none)
+
+307: 200 POST
+/echo
+text/plain; charset=utf-8
+kept
+307: 200 PUT
+/echo
+text/plain; charset=utf-8
+kept
+308: 200 POST
+/echo
+text/plain; charset=utf-8
+kept
+308: 200 PUT
+/echo
+text/plain; charset=utf-8
+kept
+200 redirected
+NetError OTHER
+302 /redirect/0
+== cookies
+200 (none)
+200 set
+200 set
+200 flavor=oat; size=2
+200 (none)
+200 (none)
+== proxy
+200 proxied /hello?x=1
+== failures
+NetError REFUSED
+NetError CLOSED
+NetError RESET
+NetError CLOSED
+NetError OTHER
+NetError OTHER
+NetError TLS
+200 hello

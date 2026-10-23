@@ -1,0 +1,158 @@
+// HttpClient's blocking requests against the test server: each method, bodies, headers, statuses,
+// redirects, cookies, and what failing gives.
+Import std.core
+Import std.collections
+Import std.net.http
+
+Global base = Input() ?? ""
+Global secure = Input() ?? ""
+Global refused = Input() ?? ""
+
+// What a GET of path gives: its status and text, or what failed.
+Function Fetched(client: HttpClient, url: String): String
+    Try
+        Local response = client.Get(url)
+        Return "{response.Status} {response.Text}"
+    Catch e As NetError
+        Return "NetError {e.Kind}"
+    Catch e As TimeoutError
+        Return "TimeoutError"
+    End Try
+End Function
+
+// What a request of method gives, with body.
+Function Sent(client: HttpClient, method: HttpMethod, path: String, body: Body? = Null): String
+    Try
+        Local response = client.Send(method, "{base}{path}", body)
+        Return "{response.Status} {response.Text}"
+    Catch e As NetError
+        Return "NetError {e.Kind}"
+    Catch e As TimeoutError
+        Return "TimeoutError"
+    End Try
+End Function
+
+Local client = HttpClient()
+
+Print("== get")
+Print(Fetched(client, "{base}/hello"))
+Print(Fetched(client, "{base}/chunked"))
+Print(Fetched(client, "{base}/utf8"))
+Print(Fetched(client, "{base}/nowhere"))
+Try
+    Local multi = client.Get("{base}/multi")
+    Print(multi.Headers.GetAll("x-multi"))
+    Print(multi.Headers.Get("CONTENT-TYPE") ?? "none")
+    Print(multi.Headers.Get("X-None") ?? "none")
+    Print(multi.IsSuccess)
+    Local bytes = client.Get("{base}/bytes/1000").Bytes
+    Local right = bytes.Count == 1000
+    For i, byte In bytes
+        If byte != (i % 251) As UInt8 Then right = False
+    End For
+    Print("bytes {bytes.Count} {right}")
+    Local head = client.Head("{base}/hello")
+    Print("head {head.Status} {head.Bytes.Count} {head.Headers.Get("Content-Length") ?? "none"}")
+Catch e As NetError
+    Print("NetError {e.Kind}")
+Catch e As TimeoutError
+    Print("TimeoutError")
+End Try
+
+Print("== methods")
+Print(Sent(client, HttpMethod.GET, "/echo"))
+Print(Sent(client, HttpMethod.POST, "/echo", Body.Text("posted")))
+Print(Sent(client, HttpMethod.PUT, "/echo", Body.Json("{{\"a\": 1}}")))
+Print(Sent(client, HttpMethod.PATCH, "/echo", Body([104, 105, 33] As UInt8[])))
+Print(Sent(client, HttpMethod.DELETE, "/echo"))
+Print(Sent(client, HttpMethod.OPTIONS, "/echo"))
+Print(Sent(client, HttpMethod.POST, "/echo"))
+Print(Sent(client, HttpMethod.POST, "/echo", Body.Form({"name": "Ada L", "sum": "1+1=2&x"})))
+Print(Sent(client, HttpMethod.POST, "/echo", Body([104, 105] As UInt8[], Null)))
+
+Print("== headers")
+Print(Fetched(client, "{base}/header/user-agent"))
+client.UserAgent = "tester/1"
+Print(Fetched(client, "{base}/header/user-agent"))
+client.DefaultHeaders.Add("X-Default", "client")
+Print(Fetched(client, "{base}/header/x-default"))
+Local own = Headers()
+own.Add("x-default", "request")
+own.Add("User-Agent", "own")
+Try
+    Print(client.Send(HttpMethod.GET, "{base}/header/x-default", Null, own).Text)
+    Print(client.Send(HttpMethod.GET, "{base}/header/user-agent", Null, own).Text)
+    own.Add("Content-Type", "text/csv")
+    Print(client.Send(HttpMethod.POST, "{base}/echo", Body.Text("a,b"), own).Text)
+Catch e As NetError
+    Print("NetError {e.Kind}")
+Catch e As TimeoutError
+    Print("TimeoutError")
+End Try
+
+Print("== statuses")
+For status In [200, 204, 404, 418, 500, 503]
+    Try
+        Local response = client.Get("{base}/status/{status}")
+        Print("{response.Status} [{StatusCode.Reason(response.Status)}] {response.IsSuccess}")
+        response.EnsureSuccess()
+        Print("success")
+    Catch e As NetError
+        Print("NetError {e.Kind}")
+    Catch e As TimeoutError
+        Print("TimeoutError")
+    End Try
+End For
+
+Print("== redirects")
+Print(Fetched(client, "{base}/redirect/3"))
+Try
+    Print(client.Get("{base}/redirect/2").Url == "{base}/redirect/0")
+Catch e As NetError
+    Print("NetError {e.Kind}")
+Catch e As TimeoutError
+    Print("TimeoutError")
+End Try
+
+For status In [301, 302, 303, 307, 308]
+    Print("{status}: {Sent(client, HttpMethod.POST, "/moved/{status}", Body.Text("kept"))}")
+    Print("{status}: {Sent(client, HttpMethod.PUT, "/moved/{status}", Body.Text("kept"))}")
+End For
+
+client.MaxRedirects = 2
+Print(Fetched(client, "{base}/redirect/2"))
+Print(Fetched(client, "{base}/redirect/3"))
+client.FollowRedirects = False
+Try
+    Local moved = client.Get("{base}/redirect/1")
+    Print("{moved.Status} {moved.Headers.Get("Location") ?? "none"}")
+Catch e As NetError
+    Print("NetError {e.Kind}")
+Catch e As TimeoutError
+    Print("TimeoutError")
+End Try
+
+Print("== cookies")
+Local jar = HttpClient()
+Print(Fetched(jar, "{base}/cookies"))
+Print(Fetched(jar, "{base}/cookies/set?name=flavor&value=oat"))
+Print(Fetched(jar, "{base}/cookies/set?name=size&value=2"))
+Print(Fetched(jar, "{base}/cookies"))
+Print(Fetched(HttpClient(), "{base}/cookies"))
+jar.ClearCookies()
+Print(Fetched(jar, "{base}/cookies"))
+
+Print("== proxy")
+Local proxied = HttpClient()
+proxied.Proxy = base
+Print(Fetched(proxied, "http://example.invalid/hello?x=1"))
+
+Print("== failures")
+Print(Fetched(client, "{refused}/hello"))
+Print(Fetched(client, "{base}/close"))
+Print(Fetched(client, "{base}/reset"))
+Print(Fetched(client, "{base}/truncated"))
+Print(Fetched(client, "ftp://127.0.0.1/file"))
+Print(Fetched(client, "http://[::1/"))
+Print(Fetched(client, "{secure}/hello"))
+Print(Fetched(client, "{base}/hello"))

@@ -1,0 +1,1 @@
+panic: the value for X-Note has a control character, which a header can't have at panic_http_header_value.fb:7:1

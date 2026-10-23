@@ -657,6 +657,13 @@ TEST_CASE("a program links the bundled C libraries of the runtime functions it c
     CHECK(bundled("Import std.uuid\nLocal id = Uuid.Parse(\"\")").empty());
     CHECK(bundled("Import std.uuid\nLocal id = Uuid.V4()") ==
           std::vector<std::string_view>{ "mbedTLS" });
+    // std.net.http's client links libcurl, and libuv and mbedTLS, which libcurl's part of the
+    // runtime is built on, in the table's order; its Headers and Bodies need none of them.
+    CHECK(bundled("Import std.core\nImport std.net.http\nLocal h = Headers()\nh.Add(\"A\", \"b\")\n"
+                  "Print(Body.Form({\"a\": \"b c\"}).Bytes.Count)")
+              .empty());
+    CHECK(bundled("Import std.net.http\nLocal client = HttpClient()") ==
+          std::vector<std::string_view>{ "libuv", "mbedTLS", "libcurl" });
 }
 
 TEST_CASE("std.compress's formats link the C libraries they're over, with their notices",
