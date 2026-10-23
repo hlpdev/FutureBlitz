@@ -27,6 +27,27 @@ Local d = 2.Seconds + 500.Milliseconds
 Print(d, d - 3.Seconds, -d, d * 3, 3 * d, d * 1.5, 0.5 * d, d / 2, d / 0.5)
 Print(1.Hours / 1.Minutes, 90.Seconds / 1.Minutes, 7.Seconds % 2.Seconds, (-7).Seconds % 2.Seconds)
 Print(d * (4 As Int64), (4 As Int64) * d, d / (5 As Int64))
+// Every integer type an Int64 holds scales one, exactly.
+Local frames: UInt8 = 3
+Local parts: Int16 = 4
+Local tiny: Int8 = -2
+Local wide: UInt16 = 5
+Local many: UInt32 = 6
+Print(d * frames, frames * d, d / parts, parts * d, d * tiny, d / tiny, d * wide, d / wide,
+      many * d, d / many)
+// A Double scales or divides one to the nearest nanosecond, ties to even, past a Double's 53
+// bits too, and nothing finite is any part of an infinity.
+Local zero: Double = 0.0
+Local year = 365.Days + 1.Nanoseconds
+Print(year.Nanoseconds, (year * 1.0).Nanoseconds, (year * 2.0).Nanoseconds,
+      (year * 2).Nanoseconds)
+Print((year / 1.0).Nanoseconds, (year * 0.5).Nanoseconds, (year / 0.5).Nanoseconds,
+      (-year * 3.0).Nanoseconds)
+Print(Duration.MaxValue() * 1.0, Duration.MinValue() * 1.0, Duration.MaxValue() / 1.0,
+      Duration.MinValue() * 0.5, Duration.MaxValue() * -1.0)
+Print((3.Nanoseconds * 0.5).Nanoseconds, (5.Nanoseconds * 0.5).Nanoseconds,
+      ((-3).Nanoseconds * 0.5).Nanoseconds, (7.Nanoseconds / 2.0).Nanoseconds,
+      (1.Seconds / 3.0).Nanoseconds, 1.Seconds * 1.0e-10, 1.Hours / (1.0 / zero))
 Print(d < 3.Seconds, d > 3.Seconds, d == 2500.Milliseconds, d != 2500.Milliseconds, d <= d)
 Print(Min(1.Hours, 59.Minutes), Max(1.Hours, 59.Minutes), Clamp(5.Hours, 1.Hours, 2.Hours))
 

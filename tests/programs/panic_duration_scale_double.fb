@@ -1,4 +1,4 @@
-// Or by a Double, or by one that isn't a number.
+// Or by a Double, past the longest, as by an infinity.
 Import std.core
 Import std.time
 

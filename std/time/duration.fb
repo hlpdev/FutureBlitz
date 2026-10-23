@@ -12,6 +12,9 @@ Import std.core
 // C's libm, which every program links with the C runtime.
 Extern "C"
     Function nearbyint(value: Float64): Float64
+    Function trunc(value: Float64): Float64
+    Function floor(value: Float64): Float64
+    Function fma(a: Float64, b: Float64, c: Float64): Float64
 End Extern
 
 Public Struct Duration Implements Comparable, Hashable, Printable, Defaultable
@@ -218,32 +221,76 @@ Public Struct Duration Implements Comparable, Hashable, Printable, Defaultable
     @PanicsAtCaller
     Operator -(a: Duration): Duration => Duration(-a.Count)
 
-    // Scaled by a whole number, exactly, or by a Double, rounded to the nearest nanosecond. One
-    // longer than a Duration holds panics, as an Int64's overflow does.
+    // Scaled by a whole number of any type an Int64 holds, exactly, or by a Double, to the
+    // nearest nanosecond, ties to even. One longer than a Duration holds panics, as an Int64's
+    // overflow does, and so does a Double that isn't a number.
+    @PanicsAtCaller
+    Operator *(a: Duration, b: Int8): Duration => Duration(a.Count * (b As Int64))
+    @PanicsAtCaller
+    Operator *(a: Duration, b: Int16): Duration => Duration(a.Count * (b As Int64))
     @PanicsAtCaller
     Operator *(a: Duration, b: Int32): Duration => Duration(a.Count * b)
     @PanicsAtCaller
     Operator *(a: Duration, b: Int64): Duration => Duration(a.Count * b)
     @PanicsAtCaller
+    Operator *(a: Duration, b: UInt8): Duration => Duration(a.Count * (b As Int64))
+    @PanicsAtCaller
+    Operator *(a: Duration, b: UInt16): Duration => Duration(a.Count * (b As Int64))
+    @PanicsAtCaller
+    Operator *(a: Duration, b: UInt32): Duration => Duration(a.Count * (b As Int64))
+    @PanicsAtCaller
+    Operator *(a: Int8, b: Duration): Duration => Duration((a As Int64) * b.Count)
+    @PanicsAtCaller
+    Operator *(a: Int16, b: Duration): Duration => Duration((a As Int64) * b.Count)
+    @PanicsAtCaller
     Operator *(a: Int32, b: Duration): Duration => Duration(a * b.Count)
     @PanicsAtCaller
     Operator *(a: Int64, b: Duration): Duration => Duration(a * b.Count)
     @PanicsAtCaller
-    Operator *(a: Duration, b: Double): Duration => Rounded((a.Count As Double) * b)
+    Operator *(a: UInt8, b: Duration): Duration => Duration((a As Int64) * b.Count)
     @PanicsAtCaller
-    Operator *(a: Double, b: Duration): Duration => Rounded(a * (b.Count As Double))
+    Operator *(a: UInt16, b: Duration): Duration => Duration((a As Int64) * b.Count)
+    @PanicsAtCaller
+    Operator *(a: UInt32, b: Duration): Duration => Duration((a As Int64) * b.Count)
+    @PanicsAtCaller
+    Operator *(a: Duration, b: Double): Duration => Scaled(a, b)
+    @PanicsAtCaller
+    Operator *(a: Double, b: Duration): Duration => Scaled(b, a)
 
-    // Divided by a whole number, rounded toward 0, or by a Double, to the nearest nanosecond; or
-    // by another Duration, as how many of it fit, with a fraction. Dividing by 0 panics, as an
-    // Int's / does.
+    // Divided by a whole number, rounded toward 0, or by a Double, to the nearest nanosecond,
+    // ties to even; or by another Duration, as how many of it fit, with a fraction. Dividing by
+    // 0 panics, as an Int's / does, and so does dividing by a Double that isn't a number.
+    @PanicsAtCaller
+    Operator /(a: Duration, b: Int8): Duration => Duration(a.Count / (b As Int64))
+    @PanicsAtCaller
+    Operator /(a: Duration, b: Int16): Duration => Duration(a.Count / (b As Int64))
     @PanicsAtCaller
     Operator /(a: Duration, b: Int32): Duration => Duration(a.Count / b)
     @PanicsAtCaller
     Operator /(a: Duration, b: Int64): Duration => Duration(a.Count / b)
     @PanicsAtCaller
+    Operator /(a: Duration, b: UInt8): Duration => Duration(a.Count / (b As Int64))
+    @PanicsAtCaller
+    Operator /(a: Duration, b: UInt16): Duration => Duration(a.Count / (b As Int64))
+    @PanicsAtCaller
+    Operator /(a: Duration, b: UInt32): Duration => Duration(a.Count / (b As Int64))
+    @PanicsAtCaller
     Operator /(a: Duration, b: Double): Duration
         If b == 0.0 Then Panic("division by zero")
-        Return Rounded((a.Count As Double) / b)
+        If b != b Then Panic("a Duration can't be divided by NaN")
+        // Nothing finite is any part of an infinity.
+        If b - b != 0.0 Then Return Duration(0)
+        // The count as a part a Double holds and what's left, each over b, with the first's
+        // remainder, which fma gives exactly.
+        Local low = a.Count % 2048
+        Local high = (a.Count - low) As Double
+        Local quotient = high / b
+        Local remainder = fma(-quotient, b, high)
+        Local whole: Int64? = 0
+        Local fraction: Double = 0.0
+        AddPart(ByRef whole, ByRef fraction, (remainder + (low As Double)) / b)
+        AddPart(ByRef whole, ByRef fraction, quotient)
+        Return Nearest(whole, fraction, "{a} / {b}")
     End Operator
 
     @PanicsAtCaller
@@ -290,16 +337,58 @@ Function UnitOf(chars: Int[], start: Int, finish: Int): UInt64
     Return 0
 End Function
 
-// The Duration of a Double of nanoseconds, to the nearest, ties to even. One that isn't a number
-// or is longer than a Duration holds panics.
+// a scaled by b, to the nearest nanosecond, ties to even. Its count is a part a Double holds and
+// what's left, and each product's rounding error, which fma gives exactly, counts too, so a
+// count past a Double's 53 bits stays exact.
 @PanicsAtCaller
-Function Rounded(nanoseconds: Double): Duration
-    Local rounded = nearbyint(nanoseconds)
-    If !(rounded >= -9.223372036854775808e18 && rounded < 9.223372036854775808e18)
-        Panic("{nanoseconds} nanoseconds is longer than a Duration holds")
+Function Scaled(a: Duration, b: Double): Duration
+    If b != b Then Panic("a Duration can't be scaled by NaN")
+    Local low = a.Count % 2048
+    Local high = (a.Count - low) As Double
+    Local highPart = high * b
+    Local lowPart = (low As Double) * b
+    Local whole: Int64? = 0
+    Local fraction: Double = 0.0
+    AddPart(ByRef whole, ByRef fraction, fma(high, b, -highPart))
+    AddPart(ByRef whole, ByRef fraction, fma(low As Double, b, -lowPart))
+    AddPart(ByRef whole, ByRef fraction, lowPart)
+    AddPart(ByRef whole, ByRef fraction, highPart)
+    Return Nearest(whole, fraction, "{a} * {b}")
+End Function
+
+// Adds the whole part of part to whole, which is Null once that's past what an Int64 holds, and
+// the rest to fraction. A whole part as large as 2^63 counts in two halves, so a sum that comes
+// back under it after the smaller parts stays.
+Function AddPart(ByRef whole: Int64?, ByRef fraction: Double, part: Double)
+    Local sum = whole
+    If sum == Null Then Return
+    If !(part > -1.8446744073709552e19 && part < 1.8446744073709552e19)
+        whole = Null
+        Return
     End If
 
-    Return Duration(rounded As Int64)
+    Local integral = trunc(part)
+    fraction += part - integral
+    If integral > -4.611686018427387904e18 && integral < 4.611686018427387904e18
+        whole = sum.CheckedAdd(integral As Int64)
+        Return
+    End If
+
+    Local half = (integral * 0.5) As Int64
+    whole = sum.CheckedAdd(half)?.CheckedAdd(half)
+End Function
+
+// The Duration of whole and fraction's nanoseconds, to the nearest, ties to even, or a panic that
+// says what was worked out is longer than a Duration holds.
+@PanicsAtCaller
+Function Nearest(whole: Int64?, fraction: Double, what: String): Duration
+    Local below = floor(fraction)
+    Local over = fraction - below
+    Local base = whole?.CheckedAdd(below As Int64)
+    Local up = over > 0.5 || (over == 0.5 && base != Null && base % 2 != 0)
+    Local count = up ? base?.CheckedAdd(1) : base
+    If count == Null Then Panic("{what} is longer than a Duration holds")
+    Return Duration(count)
 End Function
 
 // count of a unit of nanoseconds, which panics when it's longer than a Duration holds.

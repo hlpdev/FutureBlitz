@@ -1,0 +1,7 @@
+// Dividing by one that isn't a number says so too.
+Import std.core
+Import std.time
+
+Local zero: Double = 0.0
+Print(1.Hours / 0.25)
+Print(1.Hours / (zero / zero))
