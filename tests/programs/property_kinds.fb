@@ -107,3 +107,36 @@ Tally(5).Add()
 Print("{Tally.Total}")
 Tally.Reset()
 Print("{Tally.Total}")
+
+// op= and ++ on a Property run its Get and its Set on one object, even when the Get changes
+// the variable the object came from.
+Class Holder
+    Field name: String
+    Field hp: Int
+
+    New(name: String, hp: Int)
+        Self.name = name
+        Self.hp = hp
+    End New
+
+    Property Health: Int
+        Get
+            aimed = villain
+            Return hp
+        End Get
+        Set(value)
+            Print("set {name} to {value}")
+            hp = value
+        End Set
+    End Property
+End Class
+
+Global hero = Holder("hero", 1)
+Global villain = Holder("villain", 50)
+Global aimed = hero
+
+aimed.Health++
+Print("{hero.hp} {villain.hp}")
+aimed = hero
+aimed.Health += 10
+Print("{hero.hp} {villain.hp}")

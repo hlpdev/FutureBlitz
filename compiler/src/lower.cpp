@@ -2994,7 +2994,9 @@ private:
         };
 
         if (const std::optional<symbol_id_t> property = property_of(node.target)) {
-            set_property(node.target, *property, may_change(node.value), [&](const auto& read) {
+            // For op=, the Get runs between the receiver and the Set, and can change it too.
+            const bool changes = node.op.has_value() || may_change(node.value);
+            set_property(node.target, *property, changes, [&](const auto& read) {
                 if (!node.op) {
                     return lower_value(node.value);
                 }
@@ -3136,7 +3138,8 @@ private:
 
         const binary_op_t change = node.decrement ? binary_op_t::SUBTRACT : binary_op_t::ADD;
         if (const std::optional<symbol_id_t> property = property_of(node.target)) {
-            set_property(node.target, *property, false, [&](const auto& read) {
+            // The Get runs between the receiver and the Set, and can change it.
+            set_property(node.target, *property, true, [&](const auto& read) {
                 const operand_t current = read();
                 return combine(change, current, one(type_of(current)), span);
             });
