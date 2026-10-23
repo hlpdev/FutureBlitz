@@ -1,0 +1,2 @@
+30
+panic: index 1 is out of range for 1 element at panic_image_animation_index.fb:8:16

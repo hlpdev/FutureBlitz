@@ -1,0 +1,331 @@
+// std.image's formats round-trip: what each Encode writes, its Decode reads back, pixel for pixel
+// where the format keeps every pixel, and within a little where it's lossy; animations keep
+// their frames, delays, and plays; and what isn't an image, or is too large, is an IOError.
+
+Import std.core
+Import std.collections
+Import std.math.color
+Import std.image
+
+// A pattern of `width` by `height`, no two neighbors alike, its alpha falling to the bottom right
+// unless it's opaque.
+Function Pattern(width: Int, height: Int, opaque: Bool = False): Image
+    Local image = Image(width, height)
+    For y = 0 Until height
+        For x = 0 Until width
+            Local alpha = opaque ? 255 : 255 - (x + y) * 255 / (width + height)
+            image[x, y] = Color32((x * 37 % 256) As UInt8, (y * 53 % 256) As UInt8,
+                                  ((x * y + 90) % 256) As UInt8, alpha As UInt8)
+        End For
+    End For
+    Return image
+End Function
+
+// Smooth colors, which lossy formats keep well.
+Function Smooth(width: Int, height: Int): Image
+    Local image = Image(width, height)
+    For y = 0 Until height
+        For x = 0 Until width
+            image[x, y] = Color32((x * 255 / width) As UInt8, (y * 255 / height) As UInt8, 128)
+        End For
+    End For
+    Return image
+End Function
+
+// Stripes of 5 colors, and a transparent black corner, which a GIF keeps as it is.
+Function Stripes(width: Int, height: Int, shift: Int = 0): Image
+    Local colors = [Color32(255, 0, 0), Color32(0, 140, 0), Color32(0, 0, 255),
+                    Color32(240, 200, 0), Color32(30, 30, 30)]
+    Local image = Image(width, height)
+    For y = 0 Until height
+        For x = 0 Until width
+            image[x, y] = x + y < 3 ? Color32.Transparent : colors[(x + y + shift) / 2 % 5]
+        End For
+    End For
+    Return image
+End Function
+
+// The most two images' bytes differ by, or 256 when their sizes differ.
+Function Farthest(a: Image, b: Image): Int
+    If a.Width != b.Width || a.Height != b.Height Then Return 256
+    Local first = a.ToBytes()
+    Local second = b.ToBytes()
+    Local most = 0
+    For i = 0 Until first.Count
+        Local difference = (first[i] As Int) - (second[i] As Int)
+        most = Max(most, difference < 0 ? -difference : difference)
+    End For
+    Return most
+End Function
+
+// The image with every alpha 255.
+Function Opaque(image: Image): Image
+    Local copy = image.Clone()
+    For y = 0 Until image.Height
+        For x = 0 Until image.Width
+            Local color = image[x, y]
+            copy[x, y] = Color32(color.r, color.g, color.b)
+        End For
+    End For
+    Return copy
+End Function
+
+Function Same(a: Image, b: Image): Bool => a.Width == b.Width && a.ToBytes() == b.ToBytes()
+
+Function Delays(animation: Animation): Int[]
+    Local delays: Int[] = []
+    For frame In animation.Frames
+        delays.Add(frame.Delay)
+    End For
+    Return delays
+End Function
+
+// An Image's pixels, which start transparent black, and its bytes, copied both ways.
+Local blank = Image(3, 2)
+Print(blank.Width, blank.Height, blank[2, 1], blank.ToBytes().Count)
+blank[2, 1] = Color32(1, 2, 3, 4)
+Local bytes = blank.ToBytes()
+bytes[0] = 9
+Print(blank[2, 1], blank[0, 0], bytes[20], bytes[23])
+Local fromBytes = Image.FromBytes(3, 2, bytes)
+bytes[0] = 10
+Local clone = fromBytes.Clone()
+clone[0, 0] = Color32.White
+Print(fromBytes[0, 0], fromBytes[2, 1], clone[0, 0], Image(0, 5).Width, Image(0, 5).ToBytes().Count)
+
+// The formats that keep every pixel, alpha too.
+Local pattern = Pattern(13, 9)
+Local one = Pattern(1, 1)
+Local wide = Pattern(301, 7)
+For level In [0, 1, 6, 9]
+    Local png = Png.Encode(pattern, level)
+    Local format = Image.FormatOf(png) ?? ImageFormat.HDR
+    Print("PNG at {level}: {Same(Try Png.Decode(png), pattern)}, {format}")
+End For
+Local opaque = Opaque(pattern)
+Print("PNG, opaque, 1 by 1, and wide:", Same(Try Png.Decode(Png.Encode(opaque)), opaque),
+      Same(Try Png.Decode(Png.Encode(one)), one), Same(Try Png.Decode(Png.Encode(wide)), wide))
+// An opaque image is written as RGB, which takes fewer bytes.
+Print("RGB is smaller:", Png.Encode(Opaque(wide)).Count < Png.Encode(wide).Count)
+For image In [pattern, one, wide]
+    Print("QOI, BMP, TGA, lossless WebP:", Same(Try Qoi.Decode(Qoi.Encode(image)), image),
+          Same(Try Bmp.Decode(Bmp.Encode(image)), image),
+          Same(Try Tga.Decode(Tga.Encode(image)), image),
+          Same(Try WebP.Decode(WebP.EncodeLossless(image)), image))
+End For
+
+// A lossless WebP keeps a transparent pixel's color, and each effort gives the same pixels.
+Local hidden = Image(4, 4)
+hidden[1, 1] = Color32(200, 100, 50, 0)
+For effort In [0, 5, 9]
+    Local lossless = Try WebP.Decode(WebP.EncodeLossless(hidden, effort))
+    Print("lossless WebP at {effort}:", Same(lossless, hidden))
+End For
+
+// Image.Decode reads each by how it starts, and FormatOf tells which.
+For data In [Png.Encode(pattern), Bmp.Encode(pattern), Tga.Encode(pattern), Qoi.Encode(pattern),
+             WebP.EncodeLossless(pattern)]
+    Print(Image.FormatOf(data) ?? ImageFormat.HDR, Same(Try Image.Decode(data), pattern))
+End For
+
+// The lossy formats keep smooth colors within a little, and a JPEG has no alpha.
+Local smooth = Smooth(48, 32)
+For quality In [50, 90, 100]
+    Local jpeg = Try Jpeg.Decode(Jpeg.Encode(smooth, quality))
+    Print("JPEG at {quality}: within 12 {Farthest(jpeg, smooth) <= 12}")
+End For
+Local fromAlpha = Try Jpeg.Decode(Jpeg.Encode(pattern))
+Print("JPEG of alpha:", fromAlpha[0, 0].a, fromAlpha[12, 8].a,
+      Image.FormatOf(Jpeg.Encode(pattern)) ?? ImageFormat.HDR)
+For quality In [10, 75, 100]
+    Local webp = Try WebP.Decode(WebP.Encode(smooth, quality))
+    Print("WebP at {quality}: within 40 {Farthest(webp, smooth) <= 40}")
+End For
+// A lossy WebP's alpha is lossless.
+Local lossyAlpha = Try WebP.Decode(WebP.Encode(pattern, 90))
+Local alphaKept = True
+For y = 0 Until 9
+    For x = 0 Until 13
+        If lossyAlpha[x, y].a != pattern[x, y].a Then alphaKept = False
+    End For
+End For
+Print("lossy WebP's alpha:", alphaKept)
+
+// A GIF keeps 256 colors or fewer, and transparent pixels, as they are, and more colors near.
+Local stripes = Stripes(13, 9)
+Print("GIF of few colors:", Same(Try Gif.Decode(Gif.Encode(stripes)), stripes))
+Local many = Try Gif.Decode(Gif.Encode(Opaque(Pattern(64, 64))))
+Local total = 0
+Local source = Opaque(Pattern(64, 64)).ToBytes()
+Local decoded = many.ToBytes()
+For i = 0 Until source.Count
+    Local difference = (source[i] As Int) - (decoded[i] As Int)
+    total += difference < 0 ? -difference : difference
+End For
+Print("GIF of 4096 colors: opaque {many[5, 5].a == 255}, near {total / source.Count <= 12}")
+Local seeThrough = Try Gif.Decode(Gif.Encode(pattern))
+Print("GIF of alpha:", seeThrough[0, 0].a, seeThrough[12, 8], seeThrough[12, 8].a == 0)
+
+// Animations keep their frames, delays, and plays.
+Local animation = Animation(13, 9, 3)
+For shift = 0 Until 3
+    animation.Add(Stripes(13, 9, shift), 100 + shift * 45)
+End For
+animation.Add(Image(13, 9), 0)
+Local gif = Try Gif.DecodeAnimation(Gif.EncodeAnimation(animation))
+Local framesSame = True
+For i = 0 Until 4
+    If !Same(gif[i].Image, animation[i].Image) Then framesSame = False
+End For
+// A GIF keeps delays in hundredths of a second.
+Print("GIF animation:", gif.Count, gif.Plays, Delays(gif), framesSame)
+Local apng = Try Png.DecodeAnimation(Png.EncodeAnimation(animation))
+framesSame = True
+For i = 0 Until 4
+    If !Same(apng[i].Image, animation[i].Image) Then framesSame = False
+End For
+Print("APNG animation:", apng.Count, apng.Plays, Delays(apng), framesSame)
+Print("its first frame:", Same(Try Png.Decode(Png.EncodeAnimation(animation)), animation[0].Image))
+For plays In [0, 1, 2, 65536]
+    animation.Plays = plays
+    Print("plays {plays}:", (Try Gif.DecodeAnimation(Gif.EncodeAnimation(animation))).Plays,
+          (Try Png.DecodeAnimation(Png.EncodeAnimation(animation, 1))).Plays)
+End For
+// Long delays: an APNG keeps hundredths past a minute, and a GIF 655.35 seconds at most.
+Local slow = Animation(2, 2)
+slow.Add(Image(2, 2), 65535)
+slow.Add(Image(2, 2), 65536)
+slow.Add(Image(2, 2), 655350)
+Print("long delays:", Delays(Try Png.DecodeAnimation(Png.EncodeAnimation(slow))),
+      Delays(Try Gif.DecodeAnimation(Gif.EncodeAnimation(slow))))
+// A still image is an animation of one frame, played once.
+Local still = Try Png.DecodeAnimation(Png.Encode(pattern))
+Local stillGif = Try Gif.DecodeAnimation(Gif.Encode(stripes))
+Print("still:", still.Count, still.Plays, Same(still[0].Image, pattern), stillGif.Count,
+      stillGif.Plays)
+
+// HDR keeps light past 1, as RGBE's 8-bit mantissas do, and no alpha.
+Local hdr = HdrImage(9, 3)
+For x = 0 Until 9
+    hdr[x, 1] = Color((x As Float) * 0.75, 1.0 / ((x + 1) As Float), 0.5, 0.25)
+End For
+hdr[0, 0] = Color(2.5, 0.25, 1, 1)
+For width In [9, 7]
+    Local cropped = HdrImage(width, 3)
+    For y = 0 Until 3
+        For x = 0 Until width
+            cropped[x, y] = hdr[x, y]
+        End For
+    End For
+
+    Local back = Try Hdr.Decode(Hdr.Encode(cropped))
+    Local near = True
+    For y = 0 Until 3
+        For x = 0 Until width
+            Local was = cropped[x, y]
+            Local now = back[x, y]
+            Local scale = Max(Max(was.r, was.g), was.b)
+            For pair In [(was.r, now.r), (was.g, now.g), (was.b, now.b)]
+                Local difference = pair.0 - pair.1
+                If (difference < 0 ? -difference : difference) > scale / 64 Then near = False
+            End For
+            If now.a != 1 Then near = False
+        End For
+    End For
+    Print("HDR {width} wide: near {near}, {back[0, 0]}, {back[0, 2]}")
+End For
+Local hdrCopy = HdrImage.FromFloats(1, 1, [0.5, 1.5, 2.5, 1])
+Print(hdrCopy[0, 0], hdrCopy.Clone().ToFloats(), HdrImage(2, 1).ToFloats())
+
+// SVG: shapes drawn at a scale, or fit to a size, inside solid and outside transparent.
+Local svg = Try Svg.Parse("<svg xmlns='http://www.w3.org/2000/svg' width='20' height='10'>" +
+                          "<rect x='2' y='2' width='6' height='6' fill='#ff8000'/>" +
+                          "<circle cx='15' cy='5' r='4' fill='blue' fill-opacity='0.5'/></svg>")
+Print("SVG:", svg.Width, svg.Height)
+Local drawn = svg.Rasterize()
+Print(drawn.Width, drawn.Height, drawn[4, 4], drawn[15, 5], drawn[0, 0], drawn[19, 9])
+Local twice = svg.Rasterize(2)
+Print(twice.Width, twice.Height, twice[8, 8], twice[30, 10], twice[2, 2])
+// Fit to 40 by 40: twice the size, 10 pixels down to be in the middle.
+Local fitted = svg.Rasterize(40, 40)
+Print(fitted.Width, fitted.Height, fitted[8, 18], fitted[8, 8], fitted[30, 20])
+// A pixel the circle's edge goes through is partly covered.
+Local edge = drawn[18, 7].a
+Print("an edge:", edge > 0 && edge < 127)
+Local sized = Try Svg.Parse("<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 3.5 2'/>")
+Print("viewBox:", sized.Width, sized.Height, sized.Rasterize().Width, sized.Rasterize().Height)
+
+// What isn't an image, or is broken, too short, or too large, is an IOError.
+Function Failure(format: String, data: UInt8[], limit: Int = 536870911): String
+    Try
+        Select format
+            Case "PNG"
+                Png.Decode(data, limit)
+            Case "APNG"
+                Png.DecodeAnimation(data, limit)
+            Case "JPEG"
+                Jpeg.Decode(data, limit)
+            Case "BMP"
+                Bmp.Decode(data, limit)
+            Case "TGA"
+                Tga.Decode(data, limit)
+            Case "QOI"
+                Qoi.Decode(data, limit)
+            Case "GIF"
+                Gif.Decode(data, limit)
+            Case "GIF animation"
+                Gif.DecodeAnimation(data, limit)
+            Case "WebP"
+                WebP.Decode(data, limit)
+            Case "HDR"
+                Hdr.Decode(data, limit)
+            Default
+                Image.Decode(data, limit)
+        End Select
+        Return "no error"
+    Catch e As IOError
+        Return "{e.Kind} {e.Message}"
+    End Try
+End Function
+
+// The first `count` of the bytes.
+Function Start(bytes: UInt8[], count: Int): UInt8[]
+    Local part: UInt8[] = []
+    For i = 0 Until count
+        part.Add(bytes[i])
+    End For
+    Return part
+End Function
+
+Local png = Png.Encode(pattern)
+Local qoi = Qoi.Encode(pattern)
+Print(Failure("PNG", [1, 2, 3]))
+Print(Failure("PNG", qoi))
+Print(Failure("PNG", Start(png, png.Count - 20)))
+Print(Failure("PNG", png, 116))
+Print(Failure("PNG", png, 117))
+Print(Failure("JPEG", png))
+Print(Failure("BMP", [0x42, 0x4d, 1, 2]))
+Print(Failure("TGA", [0, 0, 2, 0]))
+Print(Failure("QOI", [0x71, 0x6f, 0x69, 0x66, 0, 0, 0, 1]))
+Print(Failure("QOI", Start(qoi, 40)))
+Print(Failure("QOI", qoi, 116))
+Print(Failure("GIF", [0x47, 0x49, 0x46, 0x38, 0x39, 0x61]))
+Print(Failure("GIF", Gif.Encode(stripes), 116))
+Print(Failure("GIF animation", Gif.EncodeAnimation(animation), 350))
+Print(Failure("APNG", Png.EncodeAnimation(animation), 350))
+Print(Failure("WebP", [0x52, 0x49, 0x46, 0x46, 1, 0, 0, 0]))
+Print(Failure("WebP", WebP.EncodeLossless(pattern), 50))
+Print(Failure("HDR", png))
+Print(Failure("HDR", Hdr.Encode(hdr), 26))
+Print(Failure("any", [1, 2, 3, 4, 5]))
+Print(Failure("any", Hdr.Encode(hdr)))
+Print(Failure("any", qoi, 116))
+For text In ["not an SVG", "<svg xmlns='http://www.w3.org/2000/svg'/>"]
+    Try
+        Svg.Parse(text)
+        Print("no error")
+    Catch e As IOError
+        Print(e.Kind, e.Message)
+    End Try
+End For

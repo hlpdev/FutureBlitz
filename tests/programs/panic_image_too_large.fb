@@ -1,0 +1,6 @@
+// An Image holds 536870911 pixels at most, and panics where it's made with more.
+Import std.core
+Import std.image
+
+Print(Image(1, 536870911).Width)
+Local image = Image(65536, 8193)

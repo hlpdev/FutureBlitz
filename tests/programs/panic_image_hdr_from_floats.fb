@@ -1,0 +1,6 @@
+// FromFloats takes 4 Floats for each pixel, and panics where it's given another count.
+Import std.core
+Import std.image
+
+Print(HdrImage.FromFloats(1, 1, [1, 2, 3, 4])[0, 0])
+HdrImage.FromFloats(1, 2, [1, 2, 3, 4])

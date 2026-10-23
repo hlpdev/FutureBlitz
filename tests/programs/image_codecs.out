@@ -1,0 +1,73 @@
+3 2 (0, 0, 0, 0) 24
+(1, 2, 3, 4) (0, 0, 0, 0) 1 4
+(9, 0, 0, 0) (1, 2, 3, 4) (255, 255, 255, 255) 0 0
+PNG at 0: True, PNG
+PNG at 1: True, PNG
+PNG at 6: True, PNG
+PNG at 9: True, PNG
+PNG, opaque, 1 by 1, and wide: True True True
+RGB is smaller: True
+QOI, BMP, TGA, lossless WebP: True True True True
+QOI, BMP, TGA, lossless WebP: True True True True
+QOI, BMP, TGA, lossless WebP: True True True True
+lossless WebP at 0: True
+lossless WebP at 5: True
+lossless WebP at 9: True
+PNG True
+BMP True
+TGA True
+QOI True
+WEBP True
+JPEG at 50: within 12 True
+JPEG at 90: within 12 True
+JPEG at 100: within 12 True
+JPEG of alpha: 255 255 JPEG
+WebP at 10: within 40 True
+WebP at 75: within 40 True
+WebP at 100: within 40 True
+lossy WebP's alpha: True
+GIF of few colors: True
+GIF of 4096 colors: opaque True, near True
+GIF of alpha: 255 (0, 0, 0, 0) True
+GIF animation: 4 3 [100, 150, 190, 0] True
+APNG animation: 4 3 [100, 145, 190, 0] True
+its first frame: True
+plays 0: 0 0
+plays 1: 1 1
+plays 2: 2 2
+plays 65536: 65536 65536
+long delays: [65535, 65540, 655350] [65540, 65540, 655350]
+still: 1 1 True 1 1
+HDR 9 wide: near True, (2.5, 0.25, 1, 1), (0, 0, 0, 1)
+HDR 7 wide: near True, (2.5, 0.25, 1, 1), (0, 0, 0, 1)
+(0.5, 1.5, 2.5, 1) [0.5, 1.5, 2.5, 1] [0, 0, 0, 0, 0, 0, 0, 0]
+SVG: 20 10
+20 10 (255, 128, 0, 255) (0, 0, 255, 127) (0, 0, 0, 0) (0, 0, 0, 0)
+40 20 (255, 128, 0, 255) (0, 0, 255, 127) (0, 0, 0, 0)
+40 40 (255, 128, 0, 255) (0, 0, 0, 0) (0, 0, 255, 127)
+an edge: True
+viewBox: 3.5 2 4 2
+INVALID_DATA the PNG data isn't valid: it isn't a PNG
+INVALID_DATA the PNG data isn't valid: it isn't a PNG
+INVALID_DATA the PNG data isn't valid: Corrupt PNG
+OTHER the PNG image is too large: its 117 pixels are more than 116
+no error
+INVALID_DATA the JPEG data isn't valid: it isn't a JPEG
+INVALID_DATA the BMP data isn't valid: Image not of any known type, or corrupt
+INVALID_DATA the TGA data isn't valid: it isn't a TGA
+UNEXPECTED_END the QOI data ends too soon
+UNEXPECTED_END the QOI data ends too soon
+OTHER the QOI image is too large: its 117 pixels are more than 116
+UNEXPECTED_END the GIF data ends too soon
+OTHER the GIF image is too large: its 117 pixels are more than 116
+OTHER the GIF image is too large: its 351 pixels are more than 350
+OTHER the APNG image is too large: its 468 pixels are more than 350
+UNEXPECTED_END the WebP data ends too soon
+OTHER the WebP image is too large: its 117 pixels are more than 50
+INVALID_DATA the HDR data isn't valid: it isn't an HDR image
+OTHER the HDR image is too large: its 27 pixels are more than 26
+INVALID_DATA the data isn't an image std.image reads
+OTHER the data is an HDR image, which Hdr.Decode reads
+OTHER the QOI image is too large: its 117 pixels are more than 116
+INVALID_DATA the text isn't an SVG with a width and height
+INVALID_DATA the text isn't an SVG with a width and height

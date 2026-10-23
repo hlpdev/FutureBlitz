@@ -1,0 +1,6 @@
+// FromBytes takes 4 bytes for each pixel, and panics where it's given another count.
+Import std.core
+Import std.image
+
+Print(Image.FromBytes(1, 1, [1, 2, 3, 4])[0, 0])
+Local image = Image.FromBytes(2, 1, [1, 2, 3, 4])

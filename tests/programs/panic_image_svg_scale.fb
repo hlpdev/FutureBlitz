@@ -1,0 +1,7 @@
+// An SVG is drawn at a scale above 0, and Rasterize panics where it's called with another.
+Import std.core
+Import std.image
+
+Local svg = Try Svg.Parse("<svg xmlns='http://www.w3.org/2000/svg' width='4' height='2'/>")
+Print(svg.Rasterize(0.5).Width)
+svg.Rasterize(0)

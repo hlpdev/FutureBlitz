@@ -1,0 +1,2 @@
+True
+panic: a GIF plays at most 65536 times, or forever, not 65537 at panic_image_gif_plays.fb:10:1

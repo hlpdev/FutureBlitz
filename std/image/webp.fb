@@ -1,0 +1,47 @@
+// WebP, over libwebp: WebP.Decode reads a still WebP, lossy or lossless, with or without alpha,
+// and Encode writes a lossy one at a quality, and EncodeLossless a lossless one at an effort,
+// which keeps every pixel as it is, the colors of transparent ones too. An animated WebP isn't
+// read.
+
+Import std.core
+Import std.image.codec
+Import std.image.image
+
+Public Struct WebP
+    // WebP isn't made: it's only its Static Methods.
+    New()
+    End New
+
+    // The image in data, a still WebP. Throws an IOError of INVALID_DATA when the data isn't a
+    // WebP or is broken, UNEXPECTED_END when it ends too soon, and OTHER when it's animated or
+    // the image has more pixels than `limit`. Panics when the limit is negative.
+    @PanicsAtCaller
+    Public Static Method Decode(data: UInt8[], limit: Int = MOST_PIXELS): Image Throws IOError
+        CheckLimit(limit)
+        Return Try Decoded(fb_webp_decode(data, Min(limit, MOST_PIXELS)), "WebP")
+    End Method
+
+    // The lossy WebP of the image at `quality`, from 0 to 100, its alpha kept losslessly. Panics
+    // when the quality is another, or the image has no pixels or a side longer than 16383.
+    @PanicsAtCaller
+    Public Static Method Encode(image: Image, quality: Int = 75): UInt8[]
+        CheckRange(quality, 0, 100, "a WebP's quality")
+        Return Encoded(image, quality, 0)
+    End Method
+
+    // The lossless WebP of the image, at `effort`, from 0, the fastest, to 9, the smallest.
+    // Panics when the effort is another, or the image has no pixels or a side longer than 16383.
+    @PanicsAtCaller
+    Public Static Method EncodeLossless(image: Image, effort: Int = 6): UInt8[]
+        CheckRange(effort, 0, 9, "a lossless WebP's effort")
+        Return Encoded(image, effort, 1)
+    End Method
+End Struct
+
+@PanicsAtCaller
+Function Encoded(image: Image, quality: Int, lossless: Int32): UInt8[]
+    CheckEncodable(image.Width, image.Height, 16383, "a WebP")
+    Local output: UInt8[] = []
+    fb_webp_encode(image.Pixels, image.Width, image.Height, quality, lossless, output)
+    Return output
+End Function

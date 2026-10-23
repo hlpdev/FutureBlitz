@@ -1,0 +1,99 @@
+// Animation: frames of one size, each an Image shown for its delay, played a number of times or
+// forever, which Gif's and Png's DecodeAnimation give and their EncodeAnimation take.
+
+Import std.core
+Import std.collections.view
+Import std.image.codec
+Import std.image.image
+
+// One of an Animation's frames: its image, and how long it's shown, in milliseconds.
+Public Struct Frame
+    Public Field Image: Image
+    Public Field Delay: Int
+End Struct
+
+Public Class Animation
+    Field Columns: Int
+    Field Rows: Int
+    Field Times: Int
+    Field List: Frame[]
+
+    // An animation of frames of width by height pixels, with none yet, played `plays` times, or
+    // forever for 0. Panics when the size is one an Image can't be, or plays is negative.
+    @PanicsAtCaller
+    Public New(width: Int, height: Int, plays: Int = 0)
+        CheckSize(width, height)
+        CheckPlays(plays)
+        Columns = width
+        Rows = height
+        Times = plays
+        List = []
+    End New
+
+    Public Property Width: Int
+        Get => Columns
+    End Property
+
+    Public Property Height: Int
+        Get => Rows
+    End Property
+
+    // How many times its frames play, or 0 for forever. Panics when it's given a negative one.
+    @PanicsAtCaller
+    Public Property Plays: Int
+        Get => Times
+        Set(value)
+            CheckPlays(value)
+            Times = value
+        End Set
+    End Property
+
+    Public Property Count: Int
+        Get => List.Count
+    End Property
+
+    // Its frames, in the order they play.
+    Public Property Frames: ReadOnlyArray<Frame>
+        Get => List.AsReadOnly()
+    End Property
+
+    // The frame at index. Panics when it's out of range.
+    @PanicsAtCaller
+    Operator [](index: Int): Frame => List[index]
+
+    // Adds a frame of `image`, which it keeps rather than copies, shown for `delay` milliseconds.
+    // Panics when the image isn't the animation's size, or the delay is negative or longer than
+    // 655350, the most GIF keeps.
+    @PanicsAtCaller
+    Public Method Add(image: Image, delay: Int)
+        If image.Width != Columns || image.Height != Rows
+            Panic("an animation of {Columns} by {Rows} can't have a frame of {image.Width} by " +
+                  "{image.Height}")
+        End If
+
+        If delay < 0 || delay > LONGEST_DELAY
+            Panic("a frame's delay is from 0 to {LONGEST_DELAY} milliseconds, not {delay}")
+        End If
+
+        List.Add(Frame(image, delay))
+    End Method
+End Class
+
+@PanicsAtCaller
+Function CheckPlays(plays: Int)
+    If plays < 0 Then Panic("an animation plays 0 times, for forever, or more, not {plays}")
+End Function
+
+// The Animation the runtime decoded, or the IOError its result means, for data in `format`.
+Package Function DecodedAnimation(image: Ptr<Void>, format: String): Animation Throws IOError
+    Try CheckDecoded(image, format)
+    Local width = fb_image_width(image) As Int
+    Local height = fb_image_height(image) As Int
+    Local animation = Animation(width, height, fb_image_plays(image))
+    For i = 0 Until fb_image_frames(image) As Int
+        animation.Add(Image.Of(width, height, PixelsOf(image, i)), fb_image_delay(image, i))
+    End For
+
+    fb_image_free(image)
+    Return animation
+End Function

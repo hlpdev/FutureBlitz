@@ -1,0 +1,7 @@
+// An image's width and height can't be negative, and Image panics where it's made with
+// one that is.
+Import std.core
+Import std.image
+
+Print(Image(0, 3).Height)
+Local image = Image(4, -1)

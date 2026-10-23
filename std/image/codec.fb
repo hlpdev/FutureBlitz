@@ -1,0 +1,110 @@
+// What std.image's formats share: the most pixels an Image holds, which a Decode's limit is
+// unless it's given a smaller one, the images the runtime's decoders give, the IOErrors their
+// results mean, and the checks of what the encoders take.
+
+Import std.core
+
+// The runtime's functions for std.image, which its formats share.
+Package Extern "runtime"
+    Function fb_image_result(image: Ptr<Void>): Int32
+    Function fb_image_message(image: Ptr<Void>): String
+    Function fb_image_width(image: Ptr<Void>): Int64
+    Function fb_image_height(image: Ptr<Void>): Int64
+    Function fb_image_frames(image: Ptr<Void>): Int64
+    Function fb_image_delay(image: Ptr<Void>, frame: Int64): Int32
+    Function fb_image_plays(image: Ptr<Void>): Int32
+    Function fb_image_pixels(image: Ptr<Void>, frame: Int64, output: UInt8[])
+    Function fb_image_hdr_pixels(image: Ptr<Void>, output: Float32[])
+    Function fb_image_free(image: Ptr<Void>)
+    Function fb_image_blank(output: UInt8[], count: Int64)
+    Function fb_image_blank_hdr(output: Float32[], count: Int64)
+    Function fb_image_format(data: UInt8[]): Int32
+    Function fb_image_qoi_decode(data: UInt8[], limit: Int64): Ptr<Void>
+    Function fb_image_qoi_encode(pixels: UInt8[], width: Int64, height: Int64, output: UInt8[])
+    Function fb_image_gif_decode(data: UInt8[], firstOnly: Int32, limit: Int64): Ptr<Void>
+    Function fb_image_gif_encoder_new(width: Int64, height: Int64, plays: Int32): Ptr<Void>
+    Function fb_image_gif_encoder_add(encoder: Ptr<Void>, pixels: UInt8[], delay: Int32)
+    Function fb_image_gif_encoder_finish(encoder: Ptr<Void>, output: UInt8[])
+    Function fb_image_gif_encoder_free(encoder: Ptr<Void>)
+    Function fb_stb_decode(data: UInt8[], format: Int32, limit: Int64): Ptr<Void>
+    Function fb_stb_decode_apng(data: UInt8[], limit: Int64): Ptr<Void>
+    Function fb_stb_encode(pixels: UInt8[], width: Int64, height: Int64, format: Int32,
+                           quality: Int32, output: UInt8[])
+    Function fb_stb_encode_hdr(pixels: Float32[], width: Int64, height: Int64, output: UInt8[])
+    Function fb_zlib_png_encode(pixels: UInt8[], width: Int64, height: Int64, level: Int32,
+                                output: UInt8[])
+    Function fb_zlib_apng_encoder_new(width: Int64, height: Int64, plays: Int32,
+                                      level: Int32): Ptr<Void>
+    Function fb_zlib_apng_encoder_add(encoder: Ptr<Void>, pixels: UInt8[], delay: Int32)
+    Function fb_zlib_apng_encoder_finish(encoder: Ptr<Void>, output: UInt8[])
+    Function fb_zlib_apng_encoder_free(encoder: Ptr<Void>)
+    Function fb_webp_decode(data: UInt8[], limit: Int64): Ptr<Void>
+    Function fb_webp_encode(pixels: UInt8[], width: Int64, height: Int64, quality: Int32,
+                            lossless: Int32, output: UInt8[])
+    Function fb_svg_parse(text: String): Ptr<Void>
+    Function fb_svg_width(svg: Ptr<Void>): Float64
+    Function fb_svg_height(svg: Ptr<Void>): Float64
+    Function fb_svg_rasterize(svg: Ptr<Void>, width: Int64, height: Int64, scale: Float64,
+                              x: Float64, y: Float64): Ptr<Void>
+    Function fb_svg_free(svg: Ptr<Void>)
+End Extern
+
+// The most pixels an Image holds, four bytes each in a UInt8[], which an Int counts.
+Package Const MOST_PIXELS = 536870911
+
+// The longest delay a frame has, in milliseconds: GIF's, 65535 hundredths of a second.
+Package Const LONGEST_DELAY = 655350
+
+// Panics when a limit is negative, for a format's Decode.
+@PanicsAtCaller
+Package Function CheckLimit(limit: Int)
+    If limit < 0 Then Panic("a limit of pixels can't be negative, like {limit}")
+End Function
+
+// Panics when a quality or a level isn't from `least` to `most`, for a format's Encode.
+@PanicsAtCaller
+Package Function CheckRange(value: Int, least: Int, most: Int, what: String)
+    If value < least || value > most
+        Panic("{what} is from {least} to {most}, not {value}")
+    End If
+End Function
+
+// Panics when an image of width by height pixels can't be in `format`, whose sides are at most
+// `most` pixels long, or has no pixels, which no format has.
+@PanicsAtCaller
+Package Function CheckEncodable(width: Int, height: Int, most: Int, format: String)
+    If width == 0 || height == 0
+        Panic("{format} has at least one pixel, and the image is {width} by {height}")
+    End If
+
+    If width > most || height > most
+        Panic("{format}'s sides are at most {most} pixels long, and the image is {width} by " +
+              "{height}")
+    End If
+End Function
+
+// Throws the IOError of the runtime's image when its result isn't 0, from a decoder of data in
+// `format`: INVALID_DATA for bytes that aren't the format or are broken, UNEXPECTED_END for ones
+// that end too soon, and OTHER for ones whose pixels are more than the limit, or that use what
+// std.image doesn't support. It frees the image when it throws.
+Package Function CheckDecoded(image: Ptr<Void>, format: String) Throws IOError
+    Local result = fb_image_result(image)
+    If result == 0 Then Return
+    Local message = fb_image_message(image)
+    fb_image_free(image)
+    Local detail = message == "" ? "" : ": {message}"
+    If result == 2 Then Throw IOError(IOErrorKind.UNEXPECTED_END, "the {format} data ends too soon")
+    If result == 3 Then Throw IOError(IOErrorKind.OTHER, "the {format} image is too large{detail}")
+    If result == 4
+        Throw IOError(IOErrorKind.OTHER, "the {format} data uses what isn't supported{detail}")
+    End If
+
+    Throw IOError(IOErrorKind.INVALID_DATA, "the {format} data isn't valid{detail}")
+End Function
+
+// The pixels of the runtime's image's frame, which it decoded without an error.
+Package Function PixelsOf(image: Ptr<Void>, frame: Int): UInt8[]
+    Local pixels: UInt8[] = []
+    fb_image_pixels(image, frame, pixels)
+    Return pixels
+End Function

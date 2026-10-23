@@ -1,0 +1,7 @@
+// An Image's [] takes a pixel inside it, and panics where it's given one outside.
+Import std.core
+Import std.image
+
+Local image = Image(3, 2)
+Print(image[2, 1])
+Print(image[3, 0])

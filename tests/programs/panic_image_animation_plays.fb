@@ -1,0 +1,8 @@
+// An Animation plays 0 times, for forever, or more, and Plays panics where it's set to a
+// negative count.
+Import std.core
+Import std.image
+
+Local animation = Animation(1, 1, 5)
+Print(animation.Plays)
+animation.Plays = -1

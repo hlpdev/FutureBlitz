@@ -1,0 +1,32 @@
+rgba.png: 13 by 9, True, any True, PNG
+interlaced.png: 13 by 9, True, any True, PNG
+palette.png: 13 by 9, True, any True, PNG
+gray16.png: 13 by 9, True, any True, PNG
+rgb24.bmp: 13 by 9, True, any True, BMP
+palette8.bmp: 13 by 9, True, any True, BMP
+mono.bmp: 13 by 9, True, any True, BMP
+rgba32.bmp: 13 by 9, True, any True, BMP
+raw.tga: 13 by 9, True, any True, TGA
+rle.tga: 13 by 9, True, any True, TGA
+palette.tga: 13 by 9, True, any True, TGA
+still.gif: 13 by 9, True, any True, GIF
+interlaced.gif: 13 by 9, True, any True, GIF
+rgba.qoi: 13 by 9, True, any True, QOI
+rgb.qoi: 13 by 9, True, any True, QOI
+lossless.webp: 13 by 9, True, any True, WEBP
+lossy.webp: 13 by 9, True, any True, WEBP
+opaque.webp: 13 by 9, True, any True, WEBP
+jpeg: 16 by 16, within 3 True
+jpeg: 16 by 16, within 3 True
+jpeg: 16 by 16, within 3 True
+animated.png: 4 3 [100, 50, 200, 70] True
+its first frame: True
+default.png: 2 0 True True
+animated.gif: 4 0 [100, 50, 200, 70] True
+twice.gif: 2 2 [40, 40] True
+still.gif: 1 1 [0]
+wide.hdr: 13 9 True
+narrow.hdr: 6 9 True
+HDR
+OTHER the BMP data uses what isn't supported: it's run-length encoded, which stb_image doesn't read
+OTHER the WebP data uses what isn't supported: it's animated, which std.image doesn't read

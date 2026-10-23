@@ -1,0 +1,2 @@
+8
+panic: an image's width and height can't be negative, like -1 by 8 at panic_image_svg_size.fb:8:1
