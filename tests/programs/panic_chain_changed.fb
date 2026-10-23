@@ -1,5 +1,6 @@
 // A collection that changes while a chain of adapters goes over it panics at its next value,
-// where the chain's consumer runs.
+// where its iterator's Next panics, since the adapter calls that through an Iterator<T> value,
+// which has no place to give.
 Import std.core
 Import std.collections
 
