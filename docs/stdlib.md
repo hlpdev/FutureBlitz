@@ -167,7 +167,7 @@ and the rest) aren't std's.
 | libcurl | curl (MIT-style) | std.net.http's client |
 | mbedTLS | Apache-2.0 | std.net.tls, std.crypto's hashes, HMAC, HKDF, PBKDF2, ciphers, signatures, key exchange, PEM keys and certificates, and secure random |
 | PCRE2 | BSD | std.text.regex, and the compiler's check of regex literals |
-| utf8proc | MIT | std.text.unicode: categories, case, normalization, graphemes, display width; and the String and Char Methods that need them, like `ToUpper` and `GraphemeCount` |
+| utf8proc | MIT, with Unicode's data under the Unicode license | std.text.unicode: categories, case, normalization, graphemes, display width; and the String and Char Methods that need them, like `ToUpper` and `GraphemeCount` |
 | zlib-ng (zlib API) and minizip-ng | zlib | std.compress's Deflate, Zlib, Gzip, and Zip, and curl's gzip |
 | zstd, lz4 | BSD | std.compress's Zstd and Lz4 |
 | liblzma (xz-utils) | 0BSD | std.compress's XZ/LZMA and 7z reading |
@@ -336,7 +336,7 @@ file or URL in the default app.
   `CaseFold`, `DisplayWidth`.
 - std.text.encoding: UTF-8, UTF-16 (LE and BE), UTF-32, ASCII, Latin-1, and Windows-1252, with
   BOM detection; Base64 (standard and URL-safe), Hex, Base32, percent-encoding, HTML escaping,
-  and C-style `Escape` and `Unescape`.
+  and `Escape` and `Unescape` by FutureBlitz's own string escapes.
 - std.text.regex (PCRE2, with match limits that throw instead of hanging): `Regex(pattern,
   flags)` with `IsMatch`, `Find`, `FindAll`, captures by number and by name (`m["year"]`),
   `Replace` (with `$1` or a Function), `Split`, and `Escape`; the String shortcuts
