@@ -1,0 +1,8 @@
+// A zip's file can't have a name that ends with '/', which is a folder's, and Add panics
+// where it's called with one.
+Import std.core
+Import std.compress
+
+Local zip = ZipWriter()
+zip.AddFolder("folder/")
+zip.Add("folder/", [])

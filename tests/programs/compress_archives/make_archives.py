@@ -1,8 +1,9 @@
 """Makes the archives in this folder that compress_archives.fb reads, for what common tools don't
 write by default. 7z's, by 7z's format, with coders through Python's lzma module: a header that
 isn't encoded, a stored solid folder with substreams and CRCs, chains of a branch or Delta filter
-before LZMA2 or LZMA, a coder that isn't supported, an anti-item, a Unix link, and attributes for
-only some files. Tars, header by header: an old one without ustar's magic, a size in GNU's
+before LZMA2 or LZMA, a coder that isn't supported, an anti-item, a Unix link, attributes for
+only some files, a folder that says it's larger than its data, and a coder whose dictionary takes 4
+GiB, as does an .xz stream's here. Tars, header by header: an old one without ustar's magic, a size in GNU's
 base-256, links, a device, a FIFO, a global pax header, a GNU long link name, a pax size, and a
 GNU sparse file. Zips, through Python's zipfile: a name in code page 437, a Unix link, an entry
 that says it's encrypted, and one compressed by BZip2.
@@ -190,6 +191,23 @@ def tars():
     return made
 
 
+def greedy_xz(data):
+    """An .xz stream of data whose block's LZMA2 dictionary says 4 GiB, its header's CRC32 made
+    again: the stream header's 12 bytes, then the block header, whose first byte is its size in
+    4-byte units, less 1, and whose filter's one property byte comes just before its padding."""
+    stream = bytearray(lzma.compress(data, format=lzma.FORMAT_XZ, check=lzma.CHECK_CRC64))
+    start = 12
+    size = (stream[start] + 1) * 4
+    header = stream[start:start + size - 4]
+    # Its flags say one filter and no sizes, so the filter is ID 0x21, a property size of 1, and
+    # the property.
+    assert header[1] == 0x00 and header[2:4] == b"\x21\x01"
+    header[4] = 40
+    stream[start:start + size - 4] = header
+    stream[start + size - 4:start + size] = zlib.crc32(header).to_bytes(4, "little")
+    return bytes(stream)
+
+
 def zips():
     made = {}
     date = (2026, 1, 1, 0, 0, 0)
@@ -288,8 +306,18 @@ def main():
         [([coder(COPY)], [], one, [len(one)], [one])],
         [("partial/one.txt", True, True, False, None), ("partial", False, True, False, 0x10)])
 
+    # A folder that says it's far larger than what its coder gives, and a coder whose dictionary
+    # takes 4 GiB, more than an array holds.
+    made["liar.7z"] = archive(
+        [([coder(LZMA2, properties(lzma2))], [], raw(one, [lzma2]), [2_000_000_000], [one])],
+        [("liar.txt", True, True, False, None)], folder_crcs=False)
+    made["greedy.7z"] = archive(
+        [([coder(LZMA2, b"\x28")], [], raw(one, [lzma2]), [len(one)], [one])],
+        [("greedy.txt", True, True, False, None)])
+
     made.update(tars())
     made.update(zips())
+    made["greedy.xz"] = greedy_xz(one)
     for name, data in made.items():
         (HERE / name).write_bytes(data)
 

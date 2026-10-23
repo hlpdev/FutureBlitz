@@ -58,3 +58,7 @@ code page 437: café.txt (5): 5 bytes
 zip link: link -> target.txt: 0 bytes, target.txt (2): 2 bytes
 encrypted: secret.txt (18): OTHER: the zip data uses what isn't supported: 'secret.txt' is encrypted
 BZip2: bzip2.txt (200): OTHER: the zip data uses what isn't supported: 'bzip2.txt' is compressed by method 12
+7z, a folder larger than its data: INVALID_DATA: the 7z data isn't valid: a folder is smaller than its size says
+7z, a 4 GiB dictionary: OTHER: the 7z data uses what isn't supported: its coders need more memory than an array holds
+xz, a 4 GiB dictionary: OTHER the XZ data uses what isn't supported: it needs more memory than an array holds to decompress
+ends ends

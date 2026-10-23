@@ -495,7 +495,7 @@ void fb_tar_writer_add(void* writer, const fb_string_t* name, const fb_array_t* 
                        const std::int32_t folder) {
     auto& state = *static_cast<writer_t*>(writer);
     std::string path(fb::compress::text_of(name));
-    if (folder != 0) {
+    if (folder != 0 && !path.ends_with('/')) {
         path += '/';
     }
 

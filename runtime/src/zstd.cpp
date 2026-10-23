@@ -19,6 +19,7 @@ using fb::compress::RESULT_DONE;
 using fb::compress::RESULT_ENDS_TOO_SOON;
 using fb::compress::RESULT_INVALID;
 using fb::compress::RESULT_TOO_LARGE;
+using fb::compress::RESULT_UNSUPPORTED;
 
 namespace {
 
@@ -82,11 +83,16 @@ std::int32_t decompress_all(decoder_t& decoder, const std::span<const std::uint8
         ZSTD_outBuffer out{ .dst = chunk.data(), .size = chunk.size(), .pos = 0 };
         const std::size_t hint = ZSTD_decompressStream(decoder.context, &out, &in);
         if (ZSTD_isError(hint) != 0) {
-            if (ZSTD_getErrorCode(hint) == ZSTD_error_memory_allocation) {
+            const ZSTD_ErrorCode error = ZSTD_getErrorCode(hint);
+            if (error == ZSTD_error_memory_allocation) {
                 fb_panic("out of memory", nullptr);
             }
 
-            return decoder.failure.fail(RESULT_INVALID, ZSTD_getErrorName(hint));
+            // A frame whose window is past zstd's default of 128 MiB, as from zstd's --long,
+            // takes that much memory, which zstd doesn't ask for unless told.
+            const bool large = error == ZSTD_error_frameParameter_windowTooLarge;
+            return decoder.failure.fail(large ? RESULT_UNSUPPORTED : RESULT_INVALID,
+                                        ZSTD_getErrorName(hint));
         }
 
         if (!output.add(std::span(chunk).first(out.pos))) {

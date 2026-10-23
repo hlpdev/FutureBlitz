@@ -1,0 +1,8 @@
+// A tar's file can't have a name that ends with '/', which is a folder's, and Add panics
+// where it's called with one.
+Import std.core
+Import std.compress
+
+Local tar = TarWriter()
+tar.AddFolder("folder/")
+tar.Add("folder/", [])
