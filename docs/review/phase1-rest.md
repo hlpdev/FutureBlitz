@@ -32,7 +32,7 @@ Skeptic: I put the programs in C:/Users/Hunter/Projects/FutureBlitz/.claude/work
 
 ## P1-front-1 (medium): fb bindgen -o still overwrites a header that the named header includes
 
-Status: open
+Status: fixed in 8779ed4f (fb bindgen writes no module over a header the header reads), with a CLI test: bindgen keeps the files libclang read for the header, and an -o, or the module path it would pick, that names one of them is a usage error
 
 Where: tools/bindgen/src/main.cpp:174
 
@@ -183,7 +183,7 @@ Skeptic: Ran deque_big.fb (the finding's program) under rev-scratch/p1/std-a11a1
 
 ## P1-front-2 (low): After a recoverable error, a valid line continuation is refused, so one mistake gives extra errors
 
-Status: open
+Status: fixed in 17307bae (a line break after an operator still continues the line after an error the parser gets past; only a missing expression stops it), with parser tests: a line whose error the parser got past still continues after an operator, so `x = 1e999 +` then `    2.0` gives one error, and so does an Implements line after a modifier in the wrong order
 
 Where: compiler/src/parser.cpp:310
 
@@ -220,7 +220,7 @@ Skeptic: cont3.fb (`Local x = 1e999 +` / `    2.0` / `Print(x)`) gives 'decimal 
 
 ## P1-front-3 (low): New recovery: Blitz's 'New Foo' without parentheses gets a second, fallout error, and a qualified type is suggested by its module name
 
-Status: open
+Status: fixed in 7eda22b2 (blitz's new foo, without its parentheses, is the call it means, and new's error names the type as it's written), with parser and sema tests: `New P` without parentheses gets one error, and `New m.P` suggests `New m.P()`
 
 Where: compiler/src/parser.cpp:3258
 
@@ -250,7 +250,7 @@ Skeptic: new1.fb (`Local f = New Foo` with no parentheses) gives 'an object is m
 
 ## P1-front-4 (low): --show ast and --show types print an @Deprecated message raw: control characters, quotes, and braces unescaped
 
-Status: open
+Status: fixed in 421ac70d (the dump writes a @deprecated message as source writes it), with a parser test
 
 Where: compiler/src/dump.cpp:672
 
@@ -277,7 +277,7 @@ Skeptic: dep.fb holds `@Deprecated("use \x1B[2J\x1B[31mG instead, {{soon}} \"now
 
 ## P1-front-5 (low): A program fb builds that's stopped with Ctrl+C or Ctrl+Break leaves the console's code page at UTF-8
 
-Status: open
+Status: fixed in 2b7f59f7 (a program ended by ctrl+c, ctrl+break, or a signal gives the console and stdin back as it found them, and fb reads both streams' modes before it changes either), with P1-runtime-1's test
 
 Where: runtime/src/runtime.cpp:287
 
@@ -395,7 +395,7 @@ Skeptic: program_tests.cpp:235-238 builds a program in release mode only when it
 
 ## P1-runtime-1 (low): Ctrl+C or Ctrl+Break on a program run directly leaves the console at code page 65001 with VT processing on, despite 'however the program ends'
 
-Status: open
+Status: fixed in 2b7f59f7 (a program ended by ctrl+c, ctrl+break, or a signal gives the console and stdin back as it found them, and fb reads both streams' modes before it changes either), with CLI tests: tests/native/console_probe sets code page 437, runs fb and the programs it builds (one that ends, one that panics, and one stopped with Ctrl+Break), and checks the code page and both modes are what they were; on Linux and macOS, a program reading a pipe that SIGINT or SIGTERM ends gives the pipe's flags back, which CI runs. The runtime's console handler and signal handlers run the program's end before it stops
 
 Where: runtime/src/runtime.cpp:271
 
@@ -421,7 +421,7 @@ Skeptic: I built loop.fb (Print, then While True) with `fb build`. My probe, rt-
 
 ## P1-runtime-2 (low): fb leaves ENABLE_VIRTUAL_TERMINAL_PROCESSING on: stdout's and stderr's modes are one screen buffer, and the restore runs in save order
 
-Status: open
+Status: fixed in 2b7f59f7 (a program ended by ctrl+c, ctrl+break, or a signal gives the console and stdin back as it found them, and fb reads both streams' modes before it changes either), with P1-runtime-1's test: prepare_terminal() reads both streams' modes before it sets either
 
 Where: cli/src/terminal.cpp:110
 
@@ -442,7 +442,7 @@ Skeptic: Ran my probe (rt-verify/probe.c) on `fb.exe --version`, first with stdo
 
 ## P1-runtime-3 (low): The leak report's overflow line still has no singular: 'leak: and 1 more cycles'
 
-Status: open
+Status: fixed in d99ed895 (the leak report's last line counts one more cycle in the singular), with tests/programs/leak_cycles_more.fb ("and 1 more cycle") and leak_cycles_many.fb
 
 Where: runtime/src/object.cpp:492
 
@@ -478,7 +478,7 @@ Skeptic: Ran rt-verify/cycles6.fb (six Nodes, each pointing at itself) with `fb 
 
 ## P1-runtime-4 (low): The new 'an array holds at most 2147483647 elements' panic gives no location, even from Insert, which has one
 
-Status: open
+Status: fixed in bae75d51 (a full array's panic says where, from add and from insert), with release_panic_array_full.out's place, and release_panic_array_full_insert.fb: fb_array_push takes a location, which codegen gives from the Add
 
 Where: runtime/src/array.cpp:77
 
@@ -517,7 +517,7 @@ Skeptic: Ran rt-verify/full_insert.fb with `fb run --release`: Reserve(214748364
 
 ## P1-runtime-5 (low): A7-2's Status line names a3143b3, a commit no branch contains; master's fix is f8cffbc
 
-Status: open
+Status: fixed in fa0065dc (the reviews' status lines name master's commits, not their copies from before a rebase), A7-2's line names f8cffbc, and each Status line in docs/review/ that named a commit master doesn't have (17 in lane1-sema.md, 21 in lane2-lowering.md, and 25 in step9.md) names master's commit with the same subject and patch id; a git merge-base --is-ancestor check of every sha a Status line names finds none missing now
 
 Where: docs/review/lane2-lowering.md:339
 
