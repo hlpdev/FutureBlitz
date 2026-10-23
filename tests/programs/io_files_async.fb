@@ -1,0 +1,88 @@
+// The Async twins of std.io's files and folders, which libuv's thread pool does while the main
+// thread goes on: each Await resumes on the main thread, in an Async Function and in top-level
+// code, with what the blocking call gives, and re-throws its IOError. Several can be under way
+// at once. Everything is in a temporary folder, which goes at the end.
+Import std.core
+Import std.io
+
+Local temp = Try TempDir("fb-async-")
+Local root = temp.Path
+
+// Writes, then reads back, each of a few files at once.
+Async Function Copies(folder: Path, count: Int): String[] Throws IOError
+    // A throwing Task's type isn't written yet, so the array takes the first one's.
+    Local writes = [File.WriteTextAsync(folder / "köpie 0.txt", "copy 0")]
+    For i = 1 Until count
+        writes.Add(File.WriteTextAsync(folder / "köpie {i}.txt", "copy {i}"))
+    End For
+
+    For write In writes
+        Try Await write
+    End For
+
+    Local texts: String[] = []
+    For i = 0 Until count
+        texts.Add(Try Await File.ReadTextAsync(folder / "köpie {i}.txt"))
+    End For
+
+    Return texts
+End Function
+
+// What awaiting a read of something that isn't there throws.
+Async Function Missing(path: Path): String
+    Try
+        Await File.ReadBytesAsync(path)
+    Catch e As IOError
+        Return "{e.Kind}"
+    End Try
+
+    Return "fine"
+End Function
+
+Try Await Dir.CreateAllAsync(root / "ä" / "ö")
+Print("{Try Await Copies(root / "ä", 5)}")
+Try Await File.WriteBytesAsync(root / "bytes.bin", [1, 2, 3])
+Try Await File.AppendBytesAsync(root / "bytes.bin", [4])
+Print("{Try Await File.ReadBytesAsync(root / "bytes.bin")} {Try Await File.SizeAsync(root / "bytes.bin")}")
+Try Await File.WriteLinesAsync(root / "lines.txt", ["one", "two"], LineEnding.CRLF)
+Try Await File.AppendLinesAsync(root / "lines.txt", ["three"])
+Try Await File.AppendTextAsync(root / "lines.txt", "four")
+Print("{Try Await File.ReadLinesAsync(root / "lines.txt")} {Try Await File.SizeAsync(root / "lines.txt")}")
+Try Await File.WriteTextAtomicAsync(root / "atomic.txt", "whole")
+Try Await File.WriteBytesAtomicAsync(root / "atomic.bin", [9])
+Print("[{Try Await File.ReadTextAsync(root / "atomic.txt")}] {Try Await File.ReadBytesAsync(root / "atomic.bin")}")
+
+Try Await File.CopyAsync(root / "atomic.txt", root / "copy.txt")
+Try Await File.MoveAsync(root / "copy.txt", root / "moved.txt")
+Print("{Await File.ExistsAsync(root / "copy.txt")} {Await File.ExistsAsync(root / "moved.txt")} {Await Dir.ExistsAsync(root / "ä")} {Await Dir.ExistsAsync(root / "moved.txt")}")
+Local found = Try Await File.MetadataAsync(root / "moved.txt")
+Print("{found.Kind} {found.Size} {found.IsReadOnly}")
+Try Await File.SetReadOnlyAsync(root / "moved.txt", True)
+Print("{(Try Await File.MetadataAsync(root / "moved.txt")).IsReadOnly}")
+Try Await File.SetReadOnlyAsync(root / "moved.txt", False)
+Print("{Try Await File.DeleteAsync(root / "moved.txt")} {Try Await File.DeleteAsync(root / "moved.txt")}")
+
+Try Await Dir.CreateAsync(root / "empty")
+For entry In Try Await Dir.EntriesAsync(root)
+    Print("  {entry.Relative} {entry.Kind}")
+End For
+
+Print("{(Try Await Dir.WalkAsync(root)).Count}")
+For entry In Try Await Dir.GlobAsync(root, "**/*.txt")
+    Print("  {entry.Relative}")
+End For
+
+Print("{Try Await Dir.RemoveAsync(root / "empty")} {Try Await Dir.RemoveAsync(root / "empty")}")
+Print(Await Missing(root / "missing.bin"))
+Print(Missing(root / "ä").Wait())
+
+Local held = Try Await FileLock.AcquireAsync(root / "lock")
+Print("{held.IsHeld()} {(Try FileLock.TryAcquire(root / "lock")) == Null}")
+held.Close()
+Local shared = Try Await FileLock.AcquireSharedAsync(root / "lock")
+Print("{shared.IsShared} {(Try FileLock.TryAcquireShared(root / "lock")) != Null}")
+shared.Close()
+
+Print("{Try Await Dir.RemoveAllAsync(root / "ä")} {Await Dir.ExistsAsync(root / "ä")}")
+Try temp.Close()
+Print("left {Dir.Exists(root)}")
