@@ -1,6 +1,6 @@
-// Counter<T>: how many times each value was added, in the order the values were first added. A
-// value's count is never 0: one whose count goes down to 0 goes, and counter[value] of one that
-// isn't there is 0.
+// Counter<T>: how many times each value was added, in the order the values were added. A value's
+// count is never 0: one whose count goes down to 0 goes, so it comes back last, and counter[value]
+// of one that isn't there is 0.
 
 Import std.core
 Import std.collections.array
@@ -31,11 +31,20 @@ Public Class Counter<T> Implements Iterable<(T, Int)>, Cloneable, Defaultable, H
         Add(value, 1)
     End Method
 
-    // Counts the value times more times. A negative times panics.
+    // Counts the value times more times. A negative times panics, and so does a count past what
+    // an Int holds, which only Total can be.
     @PanicsAtCaller
     Public Method Add(value: T, times: Int)
         If times < 0 Then Panic("Add takes a count that isn't negative, not {times}")
-        If times > 0 Then Self[value] = Self[value] + times
+        If times == 0 Then Return
+        Local had = Self[value]
+        Local count = had.CheckedAdd(times)
+        If count == Null
+            Panic("a Counter's count can't be more than an Int holds, but this one would be " +
+                  "{(had As Int64) + times}")
+        End If
+
+        Self[value] = count
     End Method
 
     // Counts each of the values once more, all read first.
@@ -84,7 +93,7 @@ Public Class Counter<T> Implements Iterable<(T, Int)>, Cloneable, Defaultable, H
     End Method
 
     // The count most counted values and their counts, most first, and values counted the same
-    // number of times in the order they were first added. A negative count panics.
+    // number of times in the Counter's order. A negative count panics.
     @PanicsAtCaller
     Public Method MostCommon(count: Int): (T, Int)[]
         If count < 0 Then Panic("MostCommon takes a count that isn't negative, not {count}")
@@ -99,7 +108,7 @@ Public Class Counter<T> Implements Iterable<(T, Int)>, Cloneable, Defaultable, H
         Return entries
     End Method
 
-    // The values, each once, in the order they were first added.
+    // The values, each once, in the order they were added, one that came back last.
     Public Method Values(): T[] => Counts.Keys()
 
     // A new, empty Counter.
@@ -124,7 +133,8 @@ Public Class Counter<T> Implements Iterable<(T, Int)>, Cloneable, Defaultable, H
     Public Method Iterate(): MapIterator<T, Int> => Counts.IterateAs("Counter")
 End Class
 
-// "{a: 2, b: 1}", in the order the values were first added, when they can be shown.
+// "{a: 2, b: 1}", in the order the values were added, one that came back last, when they can be
+// shown.
 Extend Counter<T> Implements Printable
     Where T: Printable
 

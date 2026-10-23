@@ -1,0 +1,11 @@
+// A Counter's Add panics at a count past what an Int holds, in every build, where it's added.
+Import std.core
+Import std.collections
+
+Local counts = Counter<String>()
+counts.Add("a", 2000000000)
+counts.Add("b", 2000000000)
+Print(counts["a"], counts.Total)
+counts.Add("a", 147483647)
+Print(counts["a"])
+counts.Add("a", 1)
