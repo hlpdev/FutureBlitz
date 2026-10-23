@@ -1151,6 +1151,23 @@ TEST_CASE("Destroy", "[sema]") {
                     "c.Destroy()") ==
           errors_t{ "c.Destroy: Destroy runs by itself when an object's last reference goes away; "
                     "it can't be called" });
+
+    // It runs on every object, so it has no type arguments and no Where line to meet.
+    CHECK(errors_of("Class C\n"
+                    "    Method Destroy<T>()\n"
+                    "        Local x: T\n"
+                    "    End Method\n"
+                    "End Class\n"
+                    "Local c = C()") ==
+          errors_t{ "Destroy: Destroy can't be generic, since it runs by itself" });
+    CHECK(errors_of("Import std.core\n"
+                    "Class Box<T>\n"
+                    "    Method Destroy()\n"
+                    "        Where T: Printable\n"
+                    "    End Method\n"
+                    "End Class\n"
+                    "Local b = Box<Int>()") ==
+          errors_t{ "Destroy: Destroy can't have a Where line, since every object's runs" });
 }
 
 TEST_CASE("Class references", "[sema]") {

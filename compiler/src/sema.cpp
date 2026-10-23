@@ -3122,6 +3122,10 @@ private:
                   "goes away");
         } else if (!node.parameters.empty() || node.return_type) {
             error(node.name.span, "Destroy takes no parameters and returns nothing");
+        } else if (!node.type_parameters.empty()) {
+            error(node.name.span, "Destroy can't be generic, since it runs by itself");
+        } else if (!node.constraints.empty()) {
+            error(node.name.span, "Destroy can't have a Where line, since every object's runs");
         } else if (node.modifiers.visibility_span) {
             error(*node.modifiers.visibility_span,
                   "Destroy runs by itself, so nothing calls it, and it takes no {}",
