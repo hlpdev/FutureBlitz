@@ -1,0 +1,13 @@
+// Database.Rows(sql) binds no values, so it panics where it's called with SQL that takes some,
+// which would otherwise be NULL.
+Import std.core
+Import std.db
+
+Try
+    Local db = Database.Open(":memory:")
+    db.Execute("CREATE TABLE t (name TEXT); INSERT INTO t VALUES ('a')")
+    Print(db.Rows("SELECT * FROM t").Count)
+    Print(db.Rows("SELECT * FROM t WHERE name = ?").Count)
+Catch e As DatabaseError
+    Print(e.Message)
+End Try

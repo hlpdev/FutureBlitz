@@ -430,10 +430,13 @@ Public Class Database
         Try Prepare(sql).Execute(a, b, c, d, e, f, g, h)
     End Method
 
-    // The rows sql's one query reads, with its parameters bound to values as Execute's are.
+    // The rows sql's one query reads, with its parameters bound to values as Execute's are, so
+    // Rows(sql) panics when it takes any.
     @PanicsAtCaller
     Public Method Rows(sql: String): Row[] Throws DatabaseError
-        Return Try Prepare(sql).Rows()
+        Local statement = Try Prepare(sql)
+        statement.Expect(0)
+        Return Try statement.Rows()
     End Method
 
     @PanicsAtCaller

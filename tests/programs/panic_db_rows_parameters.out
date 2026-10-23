@@ -1,0 +1,2 @@
+1
+panic: a value is given for each of the statement's parameters, 1, not 0 at panic_db_rows_parameters.fb:10:11
