@@ -12294,6 +12294,35 @@ private:
     /// The most elements an array can hold: as many as an Int counts.
     static constexpr auto max_count = static_cast<std::uint64_t>(fb::max_count);
 
+    /// The first fixed array C data holds, as itself, an element, or a Struct's Field, that an
+    /// instance works out to more elements than one can hold, or INVALID.
+    [[nodiscard]] type_id_t oversized_array(const type_id_t type) const {
+        const type_t& info = m_analysis.types.get(type);
+        if (info.kind == type_kind_t::FIXED_ARRAY) {
+            std::uint64_t count = 1;
+            for (const std::uint32_t size : info.sizes) {
+                if (size != 0 && count > max_count / size) {
+                    return type;
+                }
+
+                count *= size != 0 ? size : 1;
+            }
+
+            return oversized_array(info.inner);
+        }
+
+        if (info.kind == type_kind_t::STRUCT) {
+            for (const field_t& field : info.fields) {
+                if (const type_id_t found = oversized_array(field.type);
+                    found != type_id_t::INVALID) {
+                    return found;
+                }
+            }
+        }
+
+        return type_id_t::INVALID;
+    }
+
     /// A checked integer's value, when it's known and fits an Int64.
     [[nodiscard]] std::optional<std::int64_t> integer_value(const expr_id_t id) {
         const std::optional<const_value_t>& value = info(id).value;
@@ -19366,6 +19395,14 @@ private:
         if (std::vector<type_id_t> path; !m_declared && !declare_held(type, path)) {
             error(m_ast.get(argument).span, "SizeOf can't measure {}, whose size depends on itself",
                   shown_name(type));
+            return type_id_t::INVALID;
+        }
+
+        // A fixed array an instance works out is held to what a written one holds.
+        if (const type_id_t oversized = oversized_array(type); oversized != type_id_t::INVALID) {
+            error(span_of(id),
+                  "{} holds {}, with more elements than a fixed array can hold, at most {}",
+                  shown_name(type), shown_name(oversized), max_count);
             return type_id_t::INVALID;
         }
 

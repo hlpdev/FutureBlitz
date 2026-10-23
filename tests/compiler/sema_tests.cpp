@@ -6857,6 +6857,19 @@ TEST_CASE("SizeOf measures types declared after it, and refuses one that holds i
               "R: SizeOf can't measure R, whose size depends on itself",
               "V: SizeOf can't measure V, whose size depends on itself",
           });
+    // Nor one holding a fixed array that an instance works out past what one holds.
+    CHECK(errors_of("Struct G<Const W: Int, Const H: Int>\n"
+                    "    Field c: Int8[W, H]\n"
+                    "End Struct\n"
+                    "Local size = SizeOf<G<65536, 65536>>()\n"
+                    "Local more = SizeOf<G<65536, 65536>[2]>()\n"
+                    "Local fits = SizeOf<G<46340, 46340>>()") ==
+          errors_t{
+              "SizeOf<G<65536, 65536>>(): G<65536, 65536> holds Int8[65536, 65536], with more "
+              "elements than a fixed array can hold, at most 2147483647",
+              "SizeOf<G<65536, 65536>[2]>(): G<65536, 65536>[2] holds Int8[65536, 65536], with "
+              "more elements than a fixed array can hold, at most 2147483647",
+          });
 
     // A Const Function waits for the cycle to be reported, rather than running into it.
     CHECK(errors_of("Struct R\n"
