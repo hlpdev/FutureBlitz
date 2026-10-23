@@ -165,12 +165,18 @@ void end(fb_object_t* object, const bool discard) {
 
 /// Ends an object whose last owner let go, then each object that lost its last owner as its
 /// fields were released, and theirs, one at a time. While another object's fields are being
-/// released, the object waits for its turn. What an object let go of goes in the order it let go
-/// of it, and before what was waiting already, so Destroy()s run in the order calls of their own
-/// would run them.
+/// released, the object waits for its turn, holding a Weak reference to itself so its memory
+/// stays even if the last real one goes first. What an object let go of goes in the order it let
+/// go of it, and before what was waiting already, so Destroy()s run in the order calls of their
+/// own would run them.
 void let_go(fb_object_t* object, const bool discard) {
     letting_go_t& state = t_letting_go;
     if (state.releasing) {
+        // A Shared Class's object holds one already.
+        if (!is_shared(object)) {
+            ++object->weak_count;
+        }
+
         state.waiting.push_back(object);
         return;
     }
@@ -183,6 +189,11 @@ void let_go(fb_object_t* object, const bool discard) {
     while (state.waiting.size() > start) {
         fb_object_t* next = state.waiting.back();
         state.waiting.pop_back();
+        // Its turn: finishing it keeps its memory from here on.
+        if (!is_shared(next)) {
+            --next->weak_count;
+        }
+
         const std::size_t before = state.waiting.size();
         end(next, false);
         std::reverse(std::next(state.waiting.begin(), static_cast<std::ptrdiff_t>(before)),

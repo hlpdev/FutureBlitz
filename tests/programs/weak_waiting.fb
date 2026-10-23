@@ -1,0 +1,56 @@
+// An object whose last owner lets go while another object's Fields go waits for its turn, and
+// its memory stays while it waits, even when its last Weak reference goes first.
+Import std.core
+
+Class Child
+    Field name: String
+
+    New(name: String)
+        Self.name = name
+    End New
+
+    Method Destroy()
+        Print("{name} freed")
+    End Method
+End Class
+
+// The strong Field goes first, so the child waits while the Weak one goes.
+Class Holder
+    Field strong: Child
+    Field weak: Weak<Child>
+
+    New(child: Child)
+        strong = child
+        weak = child
+    End New
+End Class
+
+For i = 1 To 3
+    Local holder: Holder? = Holder(Child("child {i}"))
+    holder = Null
+End For
+
+// A Destroy that runs first lets go of the last Weak to an object waiting after it.
+Global watch: Weak<Child>
+
+Class Clearer
+    Method Destroy()
+        watch = Null
+        Print("cleared")
+    End Method
+End Class
+
+Class Pair
+    Field clearer: Clearer
+    Field child: Child
+
+    New(child: Child)
+        clearer = Clearer()
+        Self.child = child
+        watch = child
+    End New
+End Class
+
+Local pair: Pair? = Pair(Child("watched"))
+pair = Null
+Print("end")
