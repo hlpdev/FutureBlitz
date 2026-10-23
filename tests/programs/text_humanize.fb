@@ -1,0 +1,37 @@
+// std.text.humanize: English plurals, by rule, by exception, and kept in case; counts; how long
+// ago or from now, at each unit's edges and Int64's; ordinals; numbers in words, to Int64's ends;
+// and names in each case style, from each, with acronyms, digits, and letters beyond ASCII.
+Import std.core
+Import std.text.humanize
+
+For word In ["enemy", "day", "box", "church", "dish", "bus", "quiz", "child", "Person", "SHEEP",
+             "leaf", "potato", "photo", "fish", "enemy ship", "Mouse", "BOX", "", "café", "jóy"]
+    Print(word, Humanize.Plural(word))
+End For
+Print(Humanize.Plural(3, "enemy"), Humanize.Plural(1, "enemy"), Humanize.Plural(0, "enemy"),
+      Humanize.Plural(-1, "life"), Humanize.Plural(-2, "life"))
+
+Local seconds: Int64[] = [0, 44, -44, 45, -89, 90, -150, 2699, 2700, 5399, 5400, -79199, 79200,
+                          129599, 129600, 2246399, 2246400, 3887999, 3888000, 27647999, 27648000,
+                          47347199, 47347200, -315576000, 9223372036854775807,
+                          -9223372036854775807 - 1]
+For each In seconds
+    Print(each, Humanize.Relative(each))
+End For
+
+For n In [0, 1, 2, 3, 4, 11, 12, 13, 21, 22, 23, 101, 111, 112, 113, -1, -12]
+    Print(Humanize.Ordinal(n))
+End For
+
+Local numbers: Int64[] = [0, 7, 13, 20, 42, 100, 101, 999, 1000, 1001, 1234, 1000000, 2000016,
+                          -7, 9223372036854775807, -9223372036854775807 - 1]
+For n In numbers
+    Print(n, Humanize.Words(n))
+End For
+
+For text In ["Hello World", "helloWorld", "HelloWorld", "HTTPServer2", "hello_world",
+             "hello-world", "  many   spaces  ", "XMLHttpRequest", "vec3Length", "3DModel",
+             "Straße Größe", "a", ""]
+    Print(text, "|", Humanize.SnakeCase(text), Humanize.KebabCase(text), Humanize.CamelCase(text),
+          Humanize.PascalCase(text))
+End For
