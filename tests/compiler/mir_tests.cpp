@@ -3,6 +3,7 @@
 #include "fb/mir.hpp"
 
 #include <catch2/catch_test_macros.hpp>
+#include <cstddef>
 #include <format>
 #include <string>
 #include <string_view>
@@ -296,28 +297,39 @@ TEST_CASE("a Const known at compile time is no global, used or not", "[mir]") {
                 "Public Const NAME = \"limits\"\n"
                 "Public Function Most(): Int => MOST\n",
     });
-    const fb::compilation_t compilation =
-        fb::compile("test.fb",
-                    "Import \"./lib/limits\"\n"
-                    "Const LIMIT = 10\n"
-                    "Const UNUSED = \"never read\"\n"
-                    "Global g = LIMIT + 1\n"
-                    "Local n = NAME\n",
-                    files);
+    const fb::compilation_t compilation = fb::compile("test.fb",
+                                                      "Import \"./lib/limits\"\n"
+                                                      "Const LIMIT = 10\n"
+                                                      "Const UNUSED = \"never read\"\n"
+                                                      "Global g = LIMIT + 1\n"
+                                                      "Local n = NAME\n",
+                                                      files);
     REQUIRE(compilation.diagnostics.diagnostics().empty());
-    CHECK(fb::dump(fb::lower(compilation.ast, compilation.analysis)) ==
-          "global g: Int32 = 11\n"
-          "\n"
-          "function main\n"
-          "    _0 n: String\n"
-          "bb0:\n"
-          "    _0 = \"limits\"\n"
-          "    release _0\n"
-          "    return\n");
+    CHECK(fb::dump(fb::lower(compilation.ast, compilation.analysis)) == "global g: Int32 = 11\n"
+                                                                        "\n"
+                                                                        "function main\n"
+                                                                        "    _0 n: String\n"
+                                                                        "bb0:\n"
+                                                                        "    _0 = \"limits\"\n"
+                                                                        "    release _0\n"
+                                                                        "    return\n");
 }
 
-TEST_CASE("constants print as source code writes them, and a coroutine says it's async",
-          "[mir]") {
+TEST_CASE("a Map literal runs Map's New, then its Add for each entry, in order", "[mir]") {
+    const std::string dumped = lower_text("Import std.collections\n"
+                                          "Local m = { 1: \"one\", 2: \"two\" }\n");
+    const std::size_t made =
+        dumped.find("    call std.collections.map.Map<Int32, String>.New()(_0)\n");
+    const std::size_t first = dumped.find("    call virtual std.collections.map.Map<Int32, "
+                                          "String>.Add(Int32, String)(_0, 1, \"one\")\n");
+    const std::size_t second = dumped.find("    call virtual std.collections.map.Map<Int32, "
+                                           "String>.Add(Int32, String)(_0, 2, \"two\")\n");
+    CHECK(made < first);
+    CHECK(first < second);
+    CHECK(second != std::string::npos);
+}
+
+TEST_CASE("constants print as source code writes them, and a coroutine says it's async", "[mir]") {
     // A T? of an Enum prints its member, and a String escapes what source code would, braces
     // too, which start interpolation.
     const std::string dumped = lower_text("Enum State\n"

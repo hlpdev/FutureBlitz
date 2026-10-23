@@ -5166,11 +5166,20 @@ private:
         return array_of(node.elements, expr_type(id));
     }
 
-    /// "{key: value}": a new Map, which its fields' defaults set up, since std's Map has no New,
-    /// with each entry passed to its Add, in order.
+    /// "{key: value}": a new Map, which its New() sets up, as Map() would, with each entry passed
+    /// to its Add, in order.
     operand_t lower_expr(const expr_id_t id, const map_expr_t& node) {
         const type_id_t type = expr_type(id);
         const operand_t map = new_object(type);
+        const symbol_id_t declared = m_declared_types.at(definition_of(type));
+        for (const symbol_id_t member : m_analysis.symbol(declared).members) {
+            const symbol_t& found = m_analysis.symbol(member);
+            if (found.kind == symbol_kind_t::CONSTRUCTOR && found.parameters.empty()) {
+                set_up(member, as_place(map), {}, span_of(id));
+                break;
+            }
+        }
+
         const symbol_id_t add = expect(m_analysis.expr(id).symbol);
         const function_id_t function = function_of(add, implementation_arguments(type, add));
         for (const map_entry_t& entry : node.entries) {
