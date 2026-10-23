@@ -1,0 +1,680 @@
+// Duration: a span of time to the nanosecond, as an Int64 of them, from about 292 years before
+// to 292 years after. A number's Nanoseconds, Microseconds, Milliseconds, Seconds, Minutes, Hours,
+// and Days make one, as 2.Seconds, 1.5.Minutes, and 500.Milliseconds do, rounded to the nearest
+// nanosecond, ties to even; one longer than a Duration holds panics. Its operators add and
+// subtract Durations, scale one by a number, and divide one by a number or another Duration.
+// Wait and RealWait take one, and ToString and Parse write and read one as Go does, like
+// "1h30m0s" and "1.5ms".
+
+Import std.core
+
+// C's libm, which every program links with the C runtime.
+Extern "C"
+    Function nearbyint(value: Float64): Float64
+End Extern
+
+Public Struct Duration Implements Comparable, Hashable, Printable, Defaultable
+    // Its nanoseconds. Wait and RealWait read it, so it's the only Field.
+    Field Count: Int64
+
+    Public Static Method Zero(): Duration => Duration(0)
+    Public Static Method DefaultValue(): Duration => Duration(0)
+
+    // The longest Durations, about 292 years either way.
+    Public Static Method MaxValue(): Duration => Duration(9223372036854775807)
+    Public Static Method MinValue(): Duration => Duration(-9223372036854775807 - 1)
+
+    // The Duration of that many nanoseconds.
+    Public Static Method FromNanoseconds(count: Int64): Duration => Duration(count)
+
+    // Its nanoseconds, all of them.
+    Public Property Nanoseconds: Int64
+        Get => Count
+    End Property
+
+    // It in a unit, with a fraction for what's left: 90 seconds' TotalMinutes is 1.5.
+    Public Property TotalMicroseconds: Double
+        Get => (Count As Double) / 1.0e3
+    End Property
+
+    Public Property TotalMilliseconds: Double
+        Get => (Count As Double) / 1.0e6
+    End Property
+
+    Public Property TotalSeconds: Double
+        Get => (Count As Double) / 1.0e9
+    End Property
+
+    Public Property TotalMinutes: Double
+        Get => (Count As Double) / 6.0e10
+    End Property
+
+    Public Property TotalHours: Double
+        Get => (Count As Double) / 3.6e12
+    End Property
+
+    Public Property TotalDays: Double
+        Get => (Count As Double) / 8.64e13
+    End Property
+
+    Public Property IsZero: Bool
+        Get => Count == 0
+    End Property
+
+    Public Property IsNegative: Bool
+        Get => Count < 0
+    End Property
+
+    // It without its sign. MinValue's has none that fits, so it panics.
+    @PanicsAtCaller
+    Public Method Abs(): Duration
+        If Count == -9223372036854775807 - 1 Then Panic("MinValue's Duration has no Abs that fits")
+        Return Duration(Count < 0 ? -Count : Count)
+    End Method
+
+    // It rounded toward 0 to a multiple of unit, as 1h15m truncated to an hour is 1h. A unit
+    // that isn't above 0 leaves it as it is.
+    Public Method Truncate(unit: Duration): Duration
+        If unit.Count <= 0 Then Return Self
+        Return Duration(Count - Count % unit.Count)
+    End Method
+
+    // It rounded to the nearest multiple of unit, a half away from 0, as 1h30m rounded to an
+    // hour is 2h; past the longest Duration, it's the longest. A unit that isn't above 0 leaves
+    // it as it is.
+    Public Method Round(unit: Duration): Duration
+        If unit.Count <= 0 Then Return Self
+        Local rest = Count % unit.Count
+        Local magnitude = rest < 0 ? -rest : rest
+        // Less than half the unit, compared without doubling past an Int64.
+        If magnitude < unit.Count - magnitude
+            Return Duration(Count - rest)
+        End If
+
+        If Count < 0
+            Local rounded = (Count - rest).CheckedSubtract(unit.Count)
+            Return rounded == Null ? MinValue() : Duration(rounded)
+        End If
+
+        Local rounded = (Count - rest).CheckedAdd(unit.Count)
+        Return rounded == Null ? MaxValue() : Duration(rounded)
+    End Method
+
+    // As Go writes it: hours, minutes, and seconds with a fraction, like "1h2m3.5s" and "2m0s",
+    // or below a second, one unit with a fraction, like "1.5ms", "250µs", and "80ns"; and "0s".
+    Public Method ToString(): String
+        If Count == -9223372036854775807 - 1 Then Return "-2562047h47m16.854775808s"
+        Local magnitude = Count < 0 ? -Count : Count
+        Local sign = Count < 0 ? "-" : ""
+        If magnitude == 0 Then Return "0s"
+        If magnitude < 1000 Then Return "{sign}{magnitude}ns"
+        If magnitude < 1000000 Then Return "{sign}{Decimals(magnitude, 3)}µs"
+        If magnitude < 1000000000 Then Return "{sign}{Decimals(magnitude, 6)}ms"
+
+        Local seconds = magnitude / 1000000000
+        Local text = "{Decimals(magnitude % 1000000000 + (seconds % 60) * 1000000000, 9)}s"
+        Local minutes = seconds / 60
+        If minutes == 0 Then Return "{sign}{text}"
+        text = "{minutes % 60}m{text}"
+        Local hours = minutes / 60
+        If hours == 0 Then Return "{sign}{text}"
+        Return "{sign}{hours}h{text}"
+    End Method
+
+    // The Duration the text is, as Go's ParseDuration reads it: a sign or none, then one or more
+    // numbers, each with a fraction or not and a unit, "ns", "us" (or "µs" or "μs"), "ms", "s",
+    // "m", or "h", as in "1h30m" and "-1.5s"; or "0". Other text, or a Duration longer than one
+    // holds, is Null.
+    Public Static Method Parse(text: String): Duration?
+        Local chars = text.Chars
+        Local at = 0
+        Local negative = False
+        If chars.Count > 0 && (chars[0] == '-' || chars[0] == '+')
+            negative = chars[0] == '-'
+            at = 1
+        End If
+
+        If chars.Count == at + 1 && chars[at] == '0' Then Return Duration(0)
+        If at == chars.Count Then Return Null
+        Local total: UInt64 = 0
+        While at < chars.Count
+            // A number: digits, then a "." and digits, with a digit somewhere.
+            Local whole: UInt64 = 0
+            Local wholeDigits = 0
+            Local overflowed = False
+            While at < chars.Count && IsDigit(chars[at])
+                Local next = whole.CheckedMultiply(10)?.CheckedAdd((chars[at] - '0') As UInt64)
+                If next == Null Then overflowed = True Else whole = next
+                wholeDigits += 1
+                at += 1
+            End While
+
+            Local fraction: UInt64 = 0
+            Local scale = 1.0
+            Local fractionDigits = 0
+            If at < chars.Count && chars[at] == '.'
+                at += 1
+                While at < chars.Count && IsDigit(chars[at])
+                    // Digits past what a UInt64 holds are too small to count.
+                    If fraction < 922337203685477580
+                        fraction = fraction * 10 + ((chars[at] - '0') As UInt64)
+                        scale *= 10.0
+                    End If
+                    fractionDigits += 1
+                    at += 1
+                End While
+            End If
+
+            If overflowed || wholeDigits + fractionDigits == 0 Then Return Null
+            Local start = at
+            While at < chars.Count && !IsDigit(chars[at]) && chars[at] != '.'
+                at += 1
+            End While
+
+            Local unit = UnitOf(chars, start, at)
+            If unit == 0 Then Return Null
+            Local amount = whole.CheckedMultiply(unit)
+            If amount == Null Then Return Null
+            Local value: UInt64 = amount
+            If fraction > 0
+                // A Double is exact enough for a fraction of an hour to the nanosecond.
+                Local part = ((fraction As Double) * ((unit As Double) / scale)) As UInt64
+                Local sum = value.CheckedAdd(part)
+                If sum == Null Then Return Null
+                value = sum
+            End If
+
+            Local sum = total.CheckedAdd(value)
+            If sum == Null || sum > 9223372036854775808 Then Return Null
+            total = sum
+        End While
+
+        If negative
+            If total == 9223372036854775808 Then Return MinValue()
+            Return Duration(-(total As Int64))
+        End If
+
+        If total > 9223372036854775807 Then Return Null
+        Return Duration(total As Int64)
+    End Method
+
+    Operator <(a: Duration, b: Duration): Bool => a.Count < b.Count
+
+    Operator +(a: Duration, b: Duration): Duration => Duration(a.Count + b.Count)
+    Operator -(a: Duration, b: Duration): Duration => Duration(a.Count - b.Count)
+    Operator -(a: Duration): Duration => Duration(-a.Count)
+
+    // Scaled by a whole number, exactly, or by a Double, rounded to the nearest nanosecond. One
+    // longer than a Duration holds panics, as an Int64's overflow does.
+    Operator *(a: Duration, b: Int32): Duration => Duration(a.Count * b)
+    Operator *(a: Duration, b: Int64): Duration => Duration(a.Count * b)
+    Operator *(a: Int32, b: Duration): Duration => Duration(a * b.Count)
+    Operator *(a: Int64, b: Duration): Duration => Duration(a * b.Count)
+    @PanicsAtCaller
+    Operator *(a: Duration, b: Double): Duration => Rounded((a.Count As Double) * b)
+    @PanicsAtCaller
+    Operator *(a: Double, b: Duration): Duration => Rounded(a * (b.Count As Double))
+
+    // Divided by a whole number, rounded toward 0, or by a Double, to the nearest nanosecond; or
+    // by another Duration, as how many of it fit, with a fraction. Dividing by 0 panics, as an
+    // Int's / does.
+    Operator /(a: Duration, b: Int32): Duration => Duration(a.Count / b)
+    Operator /(a: Duration, b: Int64): Duration => Duration(a.Count / b)
+    @PanicsAtCaller
+    Operator /(a: Duration, b: Double): Duration
+        If b == 0.0 Then Panic("division by zero")
+        Return Rounded((a.Count As Double) / b)
+    End Operator
+
+    @PanicsAtCaller
+    Operator /(a: Duration, b: Duration): Double
+        If b.Count == 0 Then Panic("division by zero")
+        Return (a.Count As Double) / (b.Count As Double)
+    End Operator
+
+    // What's left of a over b, with a's sign, as an Int's % has.
+    Operator %(a: Duration, b: Duration): Duration => Duration(a.Count % b.Count)
+End Struct
+
+// The digits of count over 10 to the power places, with a "." and those of the fraction there
+// is, and no 0s at its end, as "1.5" is of 1500 and 3.
+Function Decimals(count: Int64, places: Int): String
+    Local whole = count
+    Local fraction = ""
+    For i = 1 To places
+        Local digit = whole % 10
+        If digit != 0 || fraction != "" Then fraction = "{digit}{fraction}"
+        whole /= 10
+    End For
+
+    Return fraction == "" ? "{whole}" : "{whole}.{fraction}"
+End Function
+
+Function IsDigit(code: Int): Bool => code >= '0' && code <= '9'
+
+// The nanoseconds of the unit the code points from start to before finish name, or 0 when it's
+// none of Go's: ns, us, µs and μs (two Unicode code points for micro), ms, s, m, and h.
+Function UnitOf(chars: Int[], start: Int, finish: Int): UInt64
+    Local length = finish - start
+    If length == 1
+        If chars[start] == 's' Then Return 1000000000
+        If chars[start] == 'm' Then Return 60000000000
+        If chars[start] == 'h' Then Return 3600000000000
+    ElseIf length == 2 && chars[start + 1] == 's'
+        If chars[start] == 'n' Then Return 1
+        If chars[start] == 'u' || chars[start] == 0xb5 || chars[start] == 0x3bc Then Return 1000
+        If chars[start] == 'm' Then Return 1000000
+    End If
+
+    Return 0
+End Function
+
+// The Duration of a Double of nanoseconds, to the nearest, ties to even. One that isn't a number
+// or is longer than a Duration holds panics.
+@PanicsAtCaller
+Function Rounded(nanoseconds: Double): Duration
+    Local rounded = nearbyint(nanoseconds)
+    If !(rounded >= -9.223372036854775808e18 && rounded < 9.223372036854775808e18)
+        Panic("{nanoseconds} nanoseconds is longer than a Duration holds")
+    End If
+
+    Return Duration(rounded As Int64)
+End Function
+
+// count of a unit of nanoseconds, which panics when it's longer than a Duration holds.
+@PanicsAtCaller
+Function Whole(count: Int64, unit: Int64, name: String): Duration
+    Local nanoseconds = count.CheckedMultiply(unit)
+    If nanoseconds == Null Then Panic("{count} {name} is longer than a Duration holds")
+    Return Duration(nanoseconds)
+End Function
+
+@PanicsAtCaller
+Function Fraction(count: Double, unit: Int64, name: String): Duration
+    If !(count - count == 0.0) Then Panic("a Duration is a number of {name}, not {count}")
+    Local nanoseconds = nearbyint(count * (unit As Double))
+    If !(nanoseconds >= -9.223372036854775808e18 && nanoseconds < 9.223372036854775808e18)
+        Panic("{count} {name} is longer than a Duration holds")
+    End If
+
+    Return Duration(nanoseconds As Int64)
+End Function
+
+// Each number type's Durations: 2.Seconds is 2 seconds' Duration, and 1.5.Minutes 90 seconds'.
+
+Extend Int8
+    @PanicsAtCaller
+    Public Property Nanoseconds: Duration
+        Get => Whole(Self, 1, "nanoseconds")
+    End Property
+
+    @PanicsAtCaller
+    Public Property Microseconds: Duration
+        Get => Whole(Self, 1000, "microseconds")
+    End Property
+
+    @PanicsAtCaller
+    Public Property Milliseconds: Duration
+        Get => Whole(Self, 1000000, "milliseconds")
+    End Property
+
+    @PanicsAtCaller
+    Public Property Seconds: Duration
+        Get => Whole(Self, 1000000000, "seconds")
+    End Property
+
+    @PanicsAtCaller
+    Public Property Minutes: Duration
+        Get => Whole(Self, 60000000000, "minutes")
+    End Property
+
+    @PanicsAtCaller
+    Public Property Hours: Duration
+        Get => Whole(Self, 3600000000000, "hours")
+    End Property
+
+    @PanicsAtCaller
+    Public Property Days: Duration
+        Get => Whole(Self, 86400000000000, "days")
+    End Property
+End Extend
+
+Extend Int16
+    @PanicsAtCaller
+    Public Property Nanoseconds: Duration
+        Get => Whole(Self, 1, "nanoseconds")
+    End Property
+
+    @PanicsAtCaller
+    Public Property Microseconds: Duration
+        Get => Whole(Self, 1000, "microseconds")
+    End Property
+
+    @PanicsAtCaller
+    Public Property Milliseconds: Duration
+        Get => Whole(Self, 1000000, "milliseconds")
+    End Property
+
+    @PanicsAtCaller
+    Public Property Seconds: Duration
+        Get => Whole(Self, 1000000000, "seconds")
+    End Property
+
+    @PanicsAtCaller
+    Public Property Minutes: Duration
+        Get => Whole(Self, 60000000000, "minutes")
+    End Property
+
+    @PanicsAtCaller
+    Public Property Hours: Duration
+        Get => Whole(Self, 3600000000000, "hours")
+    End Property
+
+    @PanicsAtCaller
+    Public Property Days: Duration
+        Get => Whole(Self, 86400000000000, "days")
+    End Property
+End Extend
+
+Extend Int32
+    @PanicsAtCaller
+    Public Property Nanoseconds: Duration
+        Get => Whole(Self, 1, "nanoseconds")
+    End Property
+
+    @PanicsAtCaller
+    Public Property Microseconds: Duration
+        Get => Whole(Self, 1000, "microseconds")
+    End Property
+
+    @PanicsAtCaller
+    Public Property Milliseconds: Duration
+        Get => Whole(Self, 1000000, "milliseconds")
+    End Property
+
+    @PanicsAtCaller
+    Public Property Seconds: Duration
+        Get => Whole(Self, 1000000000, "seconds")
+    End Property
+
+    @PanicsAtCaller
+    Public Property Minutes: Duration
+        Get => Whole(Self, 60000000000, "minutes")
+    End Property
+
+    @PanicsAtCaller
+    Public Property Hours: Duration
+        Get => Whole(Self, 3600000000000, "hours")
+    End Property
+
+    @PanicsAtCaller
+    Public Property Days: Duration
+        Get => Whole(Self, 86400000000000, "days")
+    End Property
+End Extend
+
+Extend Int64
+    @PanicsAtCaller
+    Public Property Nanoseconds: Duration
+        Get => Whole(Self, 1, "nanoseconds")
+    End Property
+
+    @PanicsAtCaller
+    Public Property Microseconds: Duration
+        Get => Whole(Self, 1000, "microseconds")
+    End Property
+
+    @PanicsAtCaller
+    Public Property Milliseconds: Duration
+        Get => Whole(Self, 1000000, "milliseconds")
+    End Property
+
+    @PanicsAtCaller
+    Public Property Seconds: Duration
+        Get => Whole(Self, 1000000000, "seconds")
+    End Property
+
+    @PanicsAtCaller
+    Public Property Minutes: Duration
+        Get => Whole(Self, 60000000000, "minutes")
+    End Property
+
+    @PanicsAtCaller
+    Public Property Hours: Duration
+        Get => Whole(Self, 3600000000000, "hours")
+    End Property
+
+    @PanicsAtCaller
+    Public Property Days: Duration
+        Get => Whole(Self, 86400000000000, "days")
+    End Property
+End Extend
+
+Extend UInt8
+    @PanicsAtCaller
+    Public Property Nanoseconds: Duration
+        Get => Whole(Self, 1, "nanoseconds")
+    End Property
+
+    @PanicsAtCaller
+    Public Property Microseconds: Duration
+        Get => Whole(Self, 1000, "microseconds")
+    End Property
+
+    @PanicsAtCaller
+    Public Property Milliseconds: Duration
+        Get => Whole(Self, 1000000, "milliseconds")
+    End Property
+
+    @PanicsAtCaller
+    Public Property Seconds: Duration
+        Get => Whole(Self, 1000000000, "seconds")
+    End Property
+
+    @PanicsAtCaller
+    Public Property Minutes: Duration
+        Get => Whole(Self, 60000000000, "minutes")
+    End Property
+
+    @PanicsAtCaller
+    Public Property Hours: Duration
+        Get => Whole(Self, 3600000000000, "hours")
+    End Property
+
+    @PanicsAtCaller
+    Public Property Days: Duration
+        Get => Whole(Self, 86400000000000, "days")
+    End Property
+End Extend
+
+Extend UInt16
+    @PanicsAtCaller
+    Public Property Nanoseconds: Duration
+        Get => Whole(Self, 1, "nanoseconds")
+    End Property
+
+    @PanicsAtCaller
+    Public Property Microseconds: Duration
+        Get => Whole(Self, 1000, "microseconds")
+    End Property
+
+    @PanicsAtCaller
+    Public Property Milliseconds: Duration
+        Get => Whole(Self, 1000000, "milliseconds")
+    End Property
+
+    @PanicsAtCaller
+    Public Property Seconds: Duration
+        Get => Whole(Self, 1000000000, "seconds")
+    End Property
+
+    @PanicsAtCaller
+    Public Property Minutes: Duration
+        Get => Whole(Self, 60000000000, "minutes")
+    End Property
+
+    @PanicsAtCaller
+    Public Property Hours: Duration
+        Get => Whole(Self, 3600000000000, "hours")
+    End Property
+
+    @PanicsAtCaller
+    Public Property Days: Duration
+        Get => Whole(Self, 86400000000000, "days")
+    End Property
+End Extend
+
+Extend UInt32
+    @PanicsAtCaller
+    Public Property Nanoseconds: Duration
+        Get => Whole(Self, 1, "nanoseconds")
+    End Property
+
+    @PanicsAtCaller
+    Public Property Microseconds: Duration
+        Get => Whole(Self, 1000, "microseconds")
+    End Property
+
+    @PanicsAtCaller
+    Public Property Milliseconds: Duration
+        Get => Whole(Self, 1000000, "milliseconds")
+    End Property
+
+    @PanicsAtCaller
+    Public Property Seconds: Duration
+        Get => Whole(Self, 1000000000, "seconds")
+    End Property
+
+    @PanicsAtCaller
+    Public Property Minutes: Duration
+        Get => Whole(Self, 60000000000, "minutes")
+    End Property
+
+    @PanicsAtCaller
+    Public Property Hours: Duration
+        Get => Whole(Self, 3600000000000, "hours")
+    End Property
+
+    @PanicsAtCaller
+    Public Property Days: Duration
+        Get => Whole(Self, 86400000000000, "days")
+    End Property
+End Extend
+
+Extend UInt64
+    @PanicsAtCaller
+    Public Property Nanoseconds: Duration
+        Get => Whole(Small(Self, "nanoseconds"), 1, "nanoseconds")
+    End Property
+
+    @PanicsAtCaller
+    Public Property Microseconds: Duration
+        Get => Whole(Small(Self, "microseconds"), 1000, "microseconds")
+    End Property
+
+    @PanicsAtCaller
+    Public Property Milliseconds: Duration
+        Get => Whole(Small(Self, "milliseconds"), 1000000, "milliseconds")
+    End Property
+
+    @PanicsAtCaller
+    Public Property Seconds: Duration
+        Get => Whole(Small(Self, "seconds"), 1000000000, "seconds")
+    End Property
+
+    @PanicsAtCaller
+    Public Property Minutes: Duration
+        Get => Whole(Small(Self, "minutes"), 60000000000, "minutes")
+    End Property
+
+    @PanicsAtCaller
+    Public Property Hours: Duration
+        Get => Whole(Small(Self, "hours"), 3600000000000, "hours")
+    End Property
+
+    @PanicsAtCaller
+    Public Property Days: Duration
+        Get => Whole(Small(Self, "days"), 86400000000000, "days")
+    End Property
+End Extend
+
+// A UInt64 count, which fits an Int64 or panics, since no Duration is that long.
+@PanicsAtCaller
+Function Small(count: UInt64, name: String): Int64
+    If count > 9223372036854775807 Then Panic("{count} {name} is longer than a Duration holds")
+    Return count As Int64
+End Function
+
+Extend Float32
+    @PanicsAtCaller
+    Public Property Nanoseconds: Duration
+        Get => Fraction(Self, 1, "nanoseconds")
+    End Property
+
+    @PanicsAtCaller
+    Public Property Microseconds: Duration
+        Get => Fraction(Self, 1000, "microseconds")
+    End Property
+
+    @PanicsAtCaller
+    Public Property Milliseconds: Duration
+        Get => Fraction(Self, 1000000, "milliseconds")
+    End Property
+
+    @PanicsAtCaller
+    Public Property Seconds: Duration
+        Get => Fraction(Self, 1000000000, "seconds")
+    End Property
+
+    @PanicsAtCaller
+    Public Property Minutes: Duration
+        Get => Fraction(Self, 60000000000, "minutes")
+    End Property
+
+    @PanicsAtCaller
+    Public Property Hours: Duration
+        Get => Fraction(Self, 3600000000000, "hours")
+    End Property
+
+    @PanicsAtCaller
+    Public Property Days: Duration
+        Get => Fraction(Self, 86400000000000, "days")
+    End Property
+End Extend
+
+Extend Float64
+    @PanicsAtCaller
+    Public Property Nanoseconds: Duration
+        Get => Fraction(Self, 1, "nanoseconds")
+    End Property
+
+    @PanicsAtCaller
+    Public Property Microseconds: Duration
+        Get => Fraction(Self, 1000, "microseconds")
+    End Property
+
+    @PanicsAtCaller
+    Public Property Milliseconds: Duration
+        Get => Fraction(Self, 1000000, "milliseconds")
+    End Property
+
+    @PanicsAtCaller
+    Public Property Seconds: Duration
+        Get => Fraction(Self, 1000000000, "seconds")
+    End Property
+
+    @PanicsAtCaller
+    Public Property Minutes: Duration
+        Get => Fraction(Self, 60000000000, "minutes")
+    End Property
+
+    @PanicsAtCaller
+    Public Property Hours: Duration
+        Get => Fraction(Self, 3600000000000, "hours")
+    End Property
+
+    @PanicsAtCaller
+    Public Property Days: Duration
+        Get => Fraction(Self, 86400000000000, "days")
+    End Property
+End Extend
