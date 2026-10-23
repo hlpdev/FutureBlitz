@@ -41,8 +41,9 @@ End Class
 
 Public Class Event<T>
     Field Handlers: EventHandler<T>[] = []
-    // How many Emits are calling handlers now. The ones dropped meanwhile are taken out once the
-    // last is done, so the Emits go over the handlers as they were.
+    // How many Emits are calling handlers now, and Clears dropping them. The ones dropped
+    // meanwhile are taken out once the last is done, so the Emits go over the handlers as they
+    // were, and a Clear takes them all out at once.
     Field Emitting: Int
     // How many dropped handlers are still in Handlers.
     Field Stale: Int
@@ -77,11 +78,16 @@ Public Class Event<T>
         If Emitting == 0 && Stale > 0 Then TakeOutDropped()
     End Method
 
-    // Takes every handler off, as their Subscriptions' Cancel would.
+    // Takes every handler off, as their Subscriptions' Cancel would, and out at once at the end, as
+    // an Emit does.
     Public Method Clear()
+        Emitting += 1
         For handler In Handlers.Clone()
             handler.Drop()
         End For
+
+        Emitting -= 1
+        If Emitting == 0 && Stale > 0 Then TakeOutDropped()
     End Method
 
     // A handler was dropped, which goes now, or once the Emits calling handlers are done.
