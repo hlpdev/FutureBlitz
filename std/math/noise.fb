@@ -132,7 +132,8 @@ Public Class Noise
         Local skew = (x + y) * Skew2
         Local i = Cell(x + skew)
         Local j = Cell(y + skew)
-        Local unskew = ((i + j) As Double) * Unskew2
+        // Added as Doubles, since two cells nearer 0 than 2^63 can add up past it.
+        Local unskew = ((i As Double) + (j As Double)) * Unskew2
         Local x0 = x - ((i As Double) - unskew)
         Local y0 = y - ((j As Double) - unskew)
         Local i1 = x0 > y0 ? 1 : 0
@@ -156,7 +157,7 @@ Public Class Noise
         Local i = Cell(x + skew)
         Local j = Cell(y + skew)
         Local k = Cell(z + skew)
-        Local unskew = ((i + j + k) As Double) * Unskew3
+        Local unskew = ((i As Double) + (j As Double) + (k As Double)) * Unskew3
         Local x0 = x - ((i As Double) - unskew)
         Local y0 = y - ((j As Double) - unskew)
         Local z0 = z - ((k As Double) - unskew)

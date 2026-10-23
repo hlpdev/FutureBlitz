@@ -51,3 +51,8 @@ For i = 0 Until 2000
     worleyLow = worleyLow && noise.Worley(x, y) >= 0 && noise.Worley(x, y) < 1.5
 End For
 Print(inRange, smooth, worleyLow)
+
+// Places nearer 0 than 2^63 whose skewed cells add up past it: Simplex adds them as Doubles, in
+// debug builds and release alike.
+Print(noise.Simplex(4e18, 4e18), noise.Simplex(6e18, 0), noise.Simplex(3e18, 3e18, 3e18),
+      noise.Simplex(-4e18, -4e18), noise.Perlin(4e18, 4e18))
