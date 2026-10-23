@@ -272,8 +272,8 @@ Public Struct Percent
         Local text: UInt8[] = []
         For byte In bytes
             Local c = byte As Char
-            If (c.IsAscii() && c.IsLetterOrDigit()) || c == '-' || c == '.' || c == '_' ||
-               c == '~' || (byte < 0x80 && kept.Contains(byte))
+            If (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
+               c == '-' || c == '.' || c == '_' || c == '~' || (byte < 0x80 && kept.Contains(byte))
                 text.Add(byte)
             Else
                 text.Add(37)
