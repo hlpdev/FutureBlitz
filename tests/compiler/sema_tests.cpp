@@ -6673,6 +6673,12 @@ TEST_CASE("integer Method mistakes", "[sema]") {
           errors_t{ "CheckedAdd: Float32 has no member named 'CheckedAdd'" });
     CHECK(errors_of("Extend Int\n    Method CheckedAdd(x: Int): Int? => x\nEnd Extend") ==
           errors_t{ "CheckedAdd: Int32 already has a member named 'CheckedAdd'" });
+
+    // A known argument of another type is reported, and isn't folded.
+    CHECK(errors_of("Const a: Int = 5\nLocal x = a.WrappingAdd(1.5)") ==
+          errors_t{ "1.5: 1.5 doesn't fit in Int32" });
+    CHECK(errors_of("Const a: Int = 5\nLocal x = a.CheckedAdd(\"x\")") ==
+          errors_t{ "\"x\": expected Int32, found String" });
 }
 
 TEST_CASE("an Interface's type parameters can have constraints and be Const", "[sema]") {

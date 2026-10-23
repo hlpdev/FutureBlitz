@@ -17276,7 +17276,8 @@ private:
             other = argument ? info(*argument).value : std::nullopt;
         }
 
-        if (!self || !other) {
+        // An argument of another type was reported, and has no value of the owner's to fold.
+        if (!self || !other || other->type != method.owner) {
             return;
         }
 
