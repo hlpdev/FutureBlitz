@@ -7982,6 +7982,68 @@ TEST_CASE("what a call can run on another thread includes overrides and lambdas"
           errors_t{ "Spawn: this work runs on another thread, but it calls 'Total', which calls "
                     "'Points', which calls 'Coin.Points', which uses the Global 'score', which "
                     "only the main thread can, unless it's an Atomic or a Mutex" });
+
+    // An Interface's Property, through its value or a type parameter, runs the Get or Set of
+    // what implements it.
+    const std::string_view valued = "Interface Valued\n"
+                                    "    Property Value: Int\n"
+                                    "End Interface\n"
+                                    "Class Thing Implements Valued\n"
+                                    "    Property Value: Int\n"
+                                    "        Get => score\n"
+                                    "        Set(value)\n"
+                                    "            score = value\n"
+                                    "        End Set\n"
+                                    "    End Property\n"
+                                    "End Class\n";
+    CHECK(errors_of(std::format("{}{}Function Give(v: Valued)\n"
+                                "    v.Value = 2\n"
+                                "End Function\n"
+                                "Function Take<T: Valued>(v: T): Int => v.Value\n"
+                                "Local t = Spawn(Function() => Give(Thing()))\n"
+                                "Local u = Spawn(Function() => Take(Thing()))",
+                                score, valued)) ==
+          errors_t{ "Spawn: this work runs on another thread, but it calls 'Give', which calls "
+                    "'Value', which calls 'Thing.Value', which uses the Global 'score', which "
+                    "only the main thread can, unless it's an Atomic or a Mutex",
+                    "Spawn: this work runs on another thread, but it calls 'Take', which calls "
+                    "'Value', which calls 'Thing.Value', which uses the Global 'score', which "
+                    "only the main thread can, unless it's an Atomic or a Mutex" });
+
+    // Showing a value runs its ToString, and == on what holds values their Operator ==.
+    const std::string_view parts = "Import std.core\n"
+                                   "Struct Shown Implements Printable\n"
+                                   "    Field n: Int\n"
+                                   "    Method ToString(): String => \"{score}\"\n"
+                                   "End Struct\n"
+                                   "Struct Eq\n"
+                                   "    Field n: Int\n"
+                                   "    Operator ==(a: Eq, b: Eq): Bool => a.n == score\n"
+                                   "End Struct\n"
+                                   "Struct Pair\n"
+                                   "    Field e: Eq\n"
+                                   "End Struct\n";
+    const std::string reached = "Spawn: this work runs on another thread, but it calls "
+                                "'{}', which uses the Global 'score', which only the main thread "
+                                "can, unless it's an Atomic or a Mutex";
+    CHECK(errors_of(std::format("{}{}Local t = Spawn(Function() => \"{{(Shown(1), 2)}}\")", parts,
+                                score)) ==
+          errors_t{ std::vformat(reached, std::make_format_args("Shown.ToString")) });
+    CHECK(errors_of(std::format("{}{}Local t = Spawn(Function() => Print(Shown(1)))", parts,
+                                score)) ==
+          errors_t{ std::vformat(reached, std::make_format_args("Shown.ToString")) });
+    CHECK(errors_of(std::format("{}{}Local t = Spawn(Function() => [Eq(1)] == [Eq(2)])", parts,
+                                score)) ==
+          errors_t{ std::vformat(reached, std::make_format_args("Eq.==")) });
+    CHECK(errors_of(std::format("{}{}Local t = Spawn(Function() => Pair(Eq(1)) == Pair(Eq(2)))",
+                                parts, score)) ==
+          errors_t{ std::vformat(reached, std::make_format_args("Eq.==")) });
+    CHECK(errors_of(std::format("{}Struct Node\n"
+                                "    Field children: Node[]\n"
+                                "End Struct\n"
+                                "Local t = Spawn(Function() => Node([]) == Node([]))",
+                                score))
+              .empty());
     CHECK(errors_of(std::format("{}Function Apply(f: Func(): Int): Int => f()\n"
                                 "Local t = Spawn(Function() => Apply(Function() => score))",
                                 score)) ==

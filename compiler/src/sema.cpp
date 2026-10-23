@@ -3412,6 +3412,16 @@ private:
         return m_analysis.symbols[index(method)].self.value_or(method);
     }
 
+    /// The Get that reading a Property calls: its own, or else the one it overrides.
+    [[nodiscard]] std::optional<symbol_id_t> getter_of(const symbol_id_t property) const {
+        const symbol_t& declared = m_analysis.symbols[index(property)];
+        if (declared.getter || !declared.overrides) {
+            return declared.getter;
+        }
+
+        return getter_of(*declared.overrides);
+    }
+
     /// The Set that assigning a Property calls: its own, or else the one it overrides.
     [[nodiscard]] std::optional<symbol_id_t> setter_of(const symbol_id_t property) const {
         const symbol_t& declared = m_analysis.symbols[index(property)];
@@ -9339,6 +9349,23 @@ private:
             const std::vector<symbol_id_t>& required = symbol(declared->second).members;
             for (std::size_t i = 0; i < required.size() && i < conformance.members.size(); ++i) {
                 also[required[i]].push_back(conformance.members[i]);
+                // Code uses a Property through its Get and Set.
+                const symbol_t& wanted = symbol(required[i]);
+                const symbol_id_t member = conformance.members[i];
+                if (wanted.kind != symbol_kind_t::PROPERTY ||
+                    symbol(member).kind != symbol_kind_t::PROPERTY) {
+                    continue;
+                }
+
+                if (const std::optional<symbol_id_t> getter = getter_of(member);
+                    wanted.getter && getter) {
+                    also[*wanted.getter].push_back(*getter);
+                }
+
+                if (const std::optional<symbol_id_t> setter = setter_of(member);
+                    wanted.setter && setter) {
+                    also[*wanted.setter].push_back(*setter);
+                }
             }
         }
 
@@ -10437,6 +10464,71 @@ private:
 
         return !is_nullable(type) && !is_func(type) && !is_weak(type) && !is_c_pointer(type) &&
                !runs_elsewhere(type);
+    }
+
+    /// Showing a value runs the ToString of each part of it that has one, which counts as a use
+    /// where it's shown, as a call would.
+    void note_shown(const type_id_t type, const span_t span) {
+        if (type == type_id_t::INVALID) {
+            return;
+        }
+
+        if (is_tuple(type)) {
+            for (const field_t& field : m_analysis.types.get(type).fields) {
+                note_shown(field.type, span);
+            }
+
+            return;
+        }
+
+        if (is_any_array(type)) {
+            note_shown(element_of(type), span);
+            return;
+        }
+
+        if (!has_members(type) && !is_parameter(type)) {
+            return;
+        }
+
+        for (const symbol_id_t method : members_of(type, "ToString")) {
+            if (symbol(method).kind == symbol_kind_t::METHOD && symbol(method).parameters.empty()) {
+                note_thread_use(method, span);
+            }
+        }
+    }
+
+    /// == on arrays, tuples, T?s, and Structs without an Operator == of their own compares
+    /// their parts, which runs the Operator == of each part that has one. A Struct can hold an
+    /// array of itself, so each type is `seen` once.
+    void note_compared(const type_id_t type, const span_t span, std::vector<type_id_t>& seen) {
+        if (std::ranges::contains(seen, type)) {
+            return;
+        }
+
+        seen.push_back(type);
+        if (is_any_array(type)) {
+            note_compared(element_of(type), span, seen);
+            return;
+        }
+
+        if (is_nullable(type)) {
+            note_compared(non_null(type), span, seen);
+            return;
+        }
+
+        bool own = false;
+        for (const symbol_id_t id : operators_of(type, "==")) {
+            if (is_parameter(type) || instance_has(type, m_analysis.symbols[index(id)])) {
+                note_thread_use(id, span);
+                own = true;
+            }
+        }
+
+        if (!own && (is_struct(type) || is_tuple(type))) {
+            for (const field_t& field : m_analysis.types.get(type).fields) {
+                note_compared(field.type, span, seen);
+            }
+        }
     }
 
     /// A Task, Thread, Channel, Scheduler, Atomic, or Mutex: what work and the threads it runs
@@ -15516,6 +15608,8 @@ private:
             if (const type_id_t type = check(inner, type_id_t::NONE);
                 type != type_id_t::INVALID && !showable(type)) {
                 report_unshowable(inner, type);
+            } else {
+                note_shown(type, span_of(inner));
             }
 
             // An Enum's text is its member's name, which lowering looks up.
@@ -17877,6 +17971,11 @@ private:
 
             error(span, "'{}' can't be used on {}{}", spelling(op), shown_name(*common), same);
             return type_id_t::INVALID;
+        }
+
+        if (op == binary_op_t::EQUAL || op == binary_op_t::NOT_EQUAL) {
+            std::vector<type_id_t> seen;
+            note_compared(*common, span, seen);
         }
 
         // Enums compare with == and !=, and only @Flags combine.
@@ -20457,6 +20556,8 @@ private:
                         type != type_id_t::INVALID && !showable(type)) {
                         report_unshowable(argument.value, type,
                                           std::format("by '{}'", symbol(function).name));
+                    } else {
+                        note_shown(type, span_of(argument.value));
                     }
                 } else {
                     check(argument.value, element);
