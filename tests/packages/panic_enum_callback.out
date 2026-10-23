@@ -1,2 +1,2 @@
 Green
-panic: C passed 'color' a value that isn't one of Color's at vmath/vmath.fb:148:10
+panic: C passed 'color' a value that isn't one of Color's at vmath/vmath.fb:162:10

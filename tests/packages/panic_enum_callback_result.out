@@ -1,2 +1,2 @@
 Green
-panic: a Callback gave a value that isn't one of Color's at vmath/vmath.fb:161:18
+panic: a Callback gave a value that isn't one of Color's at vmath/vmath.fb:175:18

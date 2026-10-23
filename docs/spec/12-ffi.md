@@ -94,6 +94,40 @@ End Function
   it, or an Interface that extends it, is checked for it, as for Sendable.
 - A Ptr at a CData T steps and counts by T's size, which is a byte at least.
 
+## Buffers
+
+std.ffi's `Buffer<T: CData>` is native memory of T's at an address that doesn't move, which C
+code reads and fills through its Pointer and safe code reads and sets with `[]`, so they share it
+without copying:
+
+```vb
+Import std.ffi
+
+Extern "C" Lib "vecmath"
+    Function vm_fill(values: Ptr<Int32>, count: Int32, value: Int32)
+End Extern
+
+Local values = Buffer<Int32>(4)
+Unsafe
+    vm_fill(values.Pointer(), 4, 7)
+End Unsafe
+
+Print("{values[0]} {values.Slice(1, 3).ToArray()}")
+```
+
+- `Buffer<T>(count)` is a Class with memory of its own for `count` T's, all 0, which it gives
+  back once nothing has it. Its `[]` and `[]=` check each index, an Int64, against its `Count`,
+  in every build, and `For ... In` goes over its T's. It isn't Sendable, as a Ptr isn't.
+- `Slice(start, finish)` is a view of its T's from start up to finish, without the one at finish:
+  a Buffer of the same memory, which sees and makes changes in it, and keeps the Buffer it's part
+  of alive, so the memory stays after that Buffer's last variable goes, until its last view goes
+  too. A view of a view is part of the first Buffer.
+- `CopyTo(destination)` copies its T's to the start of another Buffer, which can share memory
+  with it, and `ToArray()` gives them in a new array.
+- Only Unsafe code gets its `Pointer()`, which is good while the Buffer, or a view that keeps it
+  alive, is, and makes `Buffer<T>.View(pointer, count)`, a view of memory C owns, on the promise
+  that C keeps it there while the view is; nothing gives that memory back.
+
 ## Type mapping
 
 | FutureBlitz | C |

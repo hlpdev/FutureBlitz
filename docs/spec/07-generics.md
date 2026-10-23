@@ -165,7 +165,9 @@ End Function
 are in std/core/interfaces.fb, and `Iterator<T>`, which `For ... In` goes over, is in
 std/core/iterator.fb (see
 [04-control-flow.md](04-control-flow.md)). `Sendable`, also in std/core/interfaces.fb, says what
-can go to another thread, which the compiler decides (see [10-concurrency.md](10-concurrency.md)).
+can go to another thread, which the compiler decides (see [10-concurrency.md](10-concurrency.md)),
+and std.ffi's `CData` says what C code has, which it decides too (see
+[12-ffi.md](12-ffi.md#cdata)).
 
 ```vb
 Interface Equatable

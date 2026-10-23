@@ -17,6 +17,7 @@ Print("{Counter()} {Counter()} {Counter()}")
 // IEEE requires sqrt to be exact, whatever the C library.
 Print("{sqrt(9.0)}")
 Print("{Sum([1, 2, 3, 4])} {Filled(9)} {Shout("abc")} {Numbers()}")
+Print(Buffered(6))
 Print(PairTotal(1, 5000000000, -3))
 Print(Structs())
 Print(Shades(2, 3))

@@ -1,0 +1,9 @@
+// A Buffer checks each index against its Count, in every build.
+Import std.core
+Import std.ffi
+
+Local values = Buffer<Int32>(3)
+values[2] = 5
+Print("{values[2]}")
+Local at: Int64 = 3
+Print("{values[at]}")

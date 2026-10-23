@@ -1,0 +1,94 @@
+// Buffer<T>: native memory that C fills through its Pointer and safe code reads back, each index
+// checked; a view from Slice keeps its Buffer alive after the Buffer's last variable goes, and the
+// memory goes with the last of them; and a view of memory C owns.
+
+Import std.core
+Import std.ffi
+
+Extern "C"
+    Function strncpy(destination: Ptr<UInt8>, source: CString, count: UInt64): Ptr<Void>
+    Function mbstowcs(destination: Ptr<CWChar>, source: CString, count: UInt64): UInt64
+    Function qsort(base: Ptr<Void>, count: UInt64, size: UInt64,
+                   compare: Callback(Ptr<Void>, Ptr<Void>): Int32)
+End Extern
+
+@CLayout Struct Point
+    Field x: Int32
+    Field y: Int32
+End Struct
+
+Function Descending(a: Ptr<Void>, b: Ptr<Void>): Int32
+    Unsafe
+        Return (b As Ptr<Int32>).Value - (a As Ptr<Int32>).Value
+    End Unsafe
+End Function
+
+// A view keeps the Buffer it's part of alive, though nothing else has it.
+Global watched: Weak<Buffer<Int32>>
+
+Function Middle(): Buffer<Int32>
+    Local whole = Buffer<Int32>(8)
+    For i = 0 Until whole.Count
+        whole[i] = (i * 10) As Int32
+    End For
+
+    watched = whole
+    Return whole.Slice(2, 5)
+End Function
+
+Local view = Middle()
+Print("{watched?.Count ?? 0} {view.Count} {view[0]} {view[2]}")
+// A view of a view is part of the first Buffer, which it keeps alive itself.
+Local inner = view.Slice(1, 3)
+inner[0] = 99
+Print("{view[1]} {inner.Count} {inner.ToArray()}")
+view = Buffer<Int32>(0)
+Print("{watched?.Count ?? 0} {inner[1]}")
+inner = Buffer<Int32>(0)
+Print("{watched?.Count ?? 0} {inner.Count}")
+
+// C fills a Buffer through its Pointer, and safe code reads it back.
+Local bytes = Buffer<UInt8>(8)
+Local wide = Buffer<CWChar>(6)
+Local numbers = Buffer<Int32>(5)
+For i = 0 Until numbers.Count
+    numbers[i] = ((i * 7) % 5) As Int32
+End For
+
+Unsafe
+    strncpy(bytes.Pointer(), "hello", 8)
+    Print("{mbstowcs(wide.Pointer(), "hi!", 6)}")
+    qsort(numbers.Pointer(), numbers.Count As UInt64, SizeOf<Int32>() As UInt64, Descending)
+End Unsafe
+
+Local text = ""
+For b In bytes
+    If b != 0 Then text += "{b} "
+End For
+
+Print("{text}{bytes[7]}")
+Print("{wide.ToArray()} {numbers.ToArray()}")
+
+// A Buffer of a @CLayout Struct, and copies between views that share memory.
+Local points = Buffer<Point>(3)
+points[1] = Point(4, 5)
+points[2] = Point(6, 0)
+Print("{points[1].x + points[1].y} {points[2].x} {points[0].y}")
+Local row = Buffer<Int64>(6)
+For i = 0 Until row.Count
+    row[i] = i + 1
+End For
+
+row.Slice(0, 4).CopyTo(row.Slice(2, 6))
+Print("{row.ToArray()}")
+
+// A view of memory C owns, which it gives back once the view is done with it.
+Unsafe
+    Local memory: Ptr<Int16> = Mem.Alloc(3 * SizeOf<Int16>())
+    memory[1] = 12
+    Local borrowed = Buffer<Int16>.View(memory, 3)
+    borrowed[2] = 30
+    Print("{borrowed.ToArray()} {memory[2]} {Buffer<Int16>.View(Null, 0).Count}")
+    borrowed = Buffer<Int16>(0)
+    Mem.Free(memory)
+End Unsafe

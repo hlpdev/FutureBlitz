@@ -92,8 +92,10 @@ So far, std/ holds:
 | std/algo/topological.fb | `TopologicalSort` and `FindCycle` |
 | std/algo/combinatorics.fb | `Permutations`, `Combinations`, their `PermutationIterator<T>` and `CombinationIterator<T>`, `Factorial`, and `Binomial` |
 | std/algo/delaunay.fb | `Delaunay`, `Voronoi`, and `LloydRelax` |
-| std/ffi/mem.fb | `Mem`, raw memory for Unsafe code, over the runtime's `fb_mem_*` |
+| std/ffi/mem.fb | `Mem`, raw memory for Unsafe code, over the runtime's `fb_mem_*`: `Alloc`, `AllocUninitialized`, `AllocAligned`, `Resize`, `Free`, `FreeAligned`, `Copy`, `Fill`, and `Compare` |
 | std/ffi/cstring.fb | `CString.From`, `Length`, and `Free`, over the runtime's copies |
+| std/ffi/cdata.fb | `CData`, what C code has, which the compiler decides, so a Ptr's T can be a type parameter |
+| std/ffi/buffer.fb | `Buffer<T>`, native memory that C fills through its `Pointer()` and safe code reads with `[]`, with `Slice` views that keep it alive, `CopyTo`, `ToArray`, and `Buffer<T>.View` of C's memory; `BufferIterator<T>` |
 | std/crypto/hashes.fb | `Hasher`, and `Md5`, `Sha1`, `Sha256`, and `Sha512`, over mbedTLS through the runtime's `fb_crypto_` functions |
 | std/crypto/derive.fb | `Hmac` and `Pbkdf2`, each by SHA-1, SHA-256, or SHA-512, and `Hkdf`, by SHA-256 or SHA-512 |
 | std/crypto/random.fb | `SecureRandom` and `ConstantTimeEquals` |
@@ -788,14 +790,20 @@ Built in step 23, but for `V7`. `Import std.uuid` brings in std/uuid/.
 
 #### std.ffi (after M5's reorganization)
 
-- `Mem.AllocAligned`, `Mem.FreeAligned`, `Mem.AllocUninitialized` (no zeroing).
+Built in step 12, as spec 12 has it.
+
+- `Mem.AllocAligned` and `Mem.FreeAligned`, of memory at a multiple of a power of two, and
+  `Mem.AllocUninitialized` (no zeroing).
 - `CLong`, `CULong`, and `CWChar`: built-in integers the target sizes, for C's `long`,
-  `unsigned long`, and `wchar_t`, which widen to `Int64` or `UInt64` without `As`.
-- `Buffer<T>(count)`: native memory it owns, zeroed, at a stable address, freed when its last
-  reference goes; bounds-checked `[]`, `Count`, `Slice(start, finish)` views that keep it alive,
-  `CopyTo`, `ToArray`, and `Pointer` for C in Unsafe code. `Buffer<T>.View(pointer, count)`, in
-  Unsafe code only, wraps memory C owns, on the promise that it outlives the view. std.io reads
-  into and writes from Buffers without copying.
+  `unsigned long`, and `wchar_t`, which widen to `Int64` or `UInt64` without `As`, and convert
+  as they would on every target; fb-bindgen writes them.
+- `CData`, a constraint the compiler decides, so a `Ptr<T>` and SizeOf can take a type parameter
+  that has it.
+- `Buffer<T: CData>(count)`: native memory it owns, zeroed, at a stable address, freed when its
+  last reference goes; bounds-checked `[]`, `Count`, `Slice(start, finish)` views that keep it
+  alive, `CopyTo`, `ToArray`, `Iterate`, and `Pointer()` for C in Unsafe code.
+  `Buffer<T>.View(pointer, count)`, in Unsafe code only, wraps memory C owns, on the promise
+  that it outlives the view. std.io reads into and writes from Buffers without copying.
 - Loading a library at run time (`Library.Open`) waits for the engine's dynamic `[native]`
   libraries.
 

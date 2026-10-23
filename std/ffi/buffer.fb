@@ -1,0 +1,168 @@
+// Buffer<T>: native memory of C's values at an address that doesn't move, which C code reads and
+// fills through its Pointer and safe code reads and sets with [], each index checked against its
+// Count, so std.io and C libraries share memory with safe code without copying it.
+
+Import std.core
+Import std.ffi.cdata
+Import std.ffi.mem
+
+Extern "runtime"
+    Function fb_mem_alloc(bytes: UInt64): Ptr<Void>
+End Extern
+
+// Count T's of native memory at an address that doesn't move: its own, all 0 at first, given back
+// once nothing has the Buffer; part of another Buffer's, which a view from Slice keeps alive; or
+// memory C owns, which a view from View promises is there while it is.
+Public Class Buffer<T: CData> Implements Iterable<T>
+    Field First: Ptr<T>
+    Field Length: Int64
+    // The Buffer whose memory a view is part of, which it keeps alive, or Null for one whose
+    // memory is its own or C's.
+    Field Viewed: Buffer<T>?
+    // Whether its memory is its own, which it gives back.
+    Field Owned: Bool
+
+    // `count` T's, all 0. Panics when count is negative, or there isn't that much memory.
+    @PanicsAtCaller
+    Public New(count: Int64)
+        If count < 0 Then Panic("a Buffer holds a count of values that isn't negative, not {count}")
+        Local size = SizeOf<T>()
+        If count > 9223372036854775807 / size
+            Panic("a Buffer of {count} {TypeName<T>()}s takes more bytes than an Int64 counts")
+        End If
+
+        First = fb_mem_alloc((count * size) As UInt64)
+        If First == Null
+            Panic("out of memory: a Buffer couldn't have {count} {TypeName<T>()}s, " +
+                  "{count * size} bytes")
+        End If
+
+        Length = count
+        Owned = True
+    End New
+
+    // A view of `count` T's from `first`, in what `viewed` has, or in C's memory.
+    New(first: Ptr<T>, count: Int64, viewed: Buffer<T>?)
+        First = first
+        Length = count
+        Viewed = viewed
+    End New
+
+    // A view of `count` T's of memory C owns, from `pointer`, which C keeps there while the view
+    // is, since nothing else does, and doesn't give back. Panics when count is negative, or isn't
+    // 0 and pointer is Null.
+    @PanicsAtCaller
+    Public Unsafe Static Method View(pointer: Ptr<T>, count: Int64): Buffer<T>
+        If count < 0 Then Panic("a view holds a count of values that isn't negative, not {count}")
+        If pointer == Null && count > 0
+            Panic("a view of {count} {TypeName<T>()}s can't start at a Null Ptr")
+        End If
+
+        Return Buffer<T>(pointer, count, Null)
+    End Method
+
+    // How many T's it has.
+    Public Property Count: Int64
+        Get => Length
+    End Property
+
+    // The T at index, from 0 to Count minus 1.
+    @PanicsAtCaller
+    Operator [](index: Int64): T
+        Check(index)
+        Unsafe
+            Return First[index]
+        End Unsafe
+    End Operator
+
+    // Gives the T at index, from 0 to Count minus 1, a new value, in the memory.
+    @PanicsAtCaller
+    Operator []=(index: Int64, value: T)
+        Check(index)
+        Unsafe
+            First[index] = value
+        End Unsafe
+    End Operator
+
+    // Where its T's start, for C code, which can read and write Count of them there while the
+    // Buffer, or a view that keeps it alive, is.
+    Public Unsafe Method Pointer(): Ptr<T> => First
+
+    // The T's from start up to finish, without the one at finish, as a view of its memory, which
+    // keeps this Buffer alive and sees what changes in it.
+    @PanicsAtCaller
+    Public Method Slice(start: Int64, finish: Int64): Buffer<T>
+        If start < 0 || finish < start || finish > Length
+            Panic("slice {start}..{finish} is out of range for a Buffer of {Length} " +
+                  "value{Length == 1 ? "" : "s"}")
+        End If
+
+        Unsafe
+            Return Buffer<T>(First + start, finish - start, Viewed ?? Self)
+        End Unsafe
+    End Method
+
+    // Copies its T's to the start of destination, which has room for them. The two can share
+    // memory, as two views of one Buffer do.
+    @PanicsAtCaller
+    Public Method CopyTo(destination: Buffer<T>)
+        If destination.Length < Length
+            Panic("a Buffer of {Length} value{Length == 1 ? "" : "s"} doesn't fit in one of " +
+                  "{destination.Length}")
+        End If
+
+        Unsafe
+            Mem.Copy(destination.First, First, Length * SizeOf<T>())
+        End Unsafe
+    End Method
+
+    // Its T's, in a new array. Panics when there are more than an array holds.
+    @PanicsAtCaller
+    Public Method ToArray(): T[]
+        If Length > 2147483647
+            Panic("a Buffer of {Length} values has more than an array holds")
+        End If
+
+        Local copy: T[] = []
+        copy.Reserve(Length As Int)
+        Unsafe
+            For i = 0 Until Length
+                copy.Add(First[i])
+            End For
+        End Unsafe
+
+        Return copy
+    End Method
+
+    // Its T's, in order.
+    Public Method Iterate(): BufferIterator<T> => BufferIterator<T>(Self, 0)
+
+    // Gives back the memory that's its own.
+    Method Destroy()
+        If Owned
+            Unsafe
+                Mem.Free(First)
+            End Unsafe
+        End If
+    End Method
+
+    @PanicsAtCaller
+    Method Check(index: Int64)
+        If index < 0 || index >= Length
+            Panic("index {index} is out of range for a Buffer of {Length} " +
+                  "value{Length == 1 ? "" : "s"}")
+        End If
+    End Method
+End Class
+
+Public Struct BufferIterator<T: CData> Implements Iterator<T>
+    Field Values: Buffer<T>
+    Field Index: Int64
+
+    @PanicsAtCaller
+    Public ByRef Method Next(): T?
+        If Index >= Values.Count Then Return Null
+        Index += 1
+        Return Values[Index - 1]
+    End Method
+End Struct
