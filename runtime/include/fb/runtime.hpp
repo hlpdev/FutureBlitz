@@ -411,7 +411,8 @@ std::int64_t fb_unicode_next_grapheme(const fb_string_t* text, std::int64_t at);
 std::int64_t fb_unicode_grapheme_count(const fb_string_t* text);
 /// The terminal columns `point` takes: 0, 1, or 2.
 std::int32_t fb_unicode_char_width(std::uint32_t point);
-/// The terminal columns `text` takes, each grapheme cluster its widest character's.
+/// The terminal columns `text` takes, each grapheme cluster its widest character's, or 2 for a
+/// flag or an emoji presentation sequence, a character with U+FE0F after it that's drawn as emoji.
 std::int64_t fb_unicode_display_width(const fb_string_t* text);
 
 /// Panics at `location`: "index 5 is out of range for 3 elements".

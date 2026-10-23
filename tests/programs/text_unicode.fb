@@ -37,3 +37,13 @@ End For
 For text In ["héllo", "e\u{301}", "中文", "😀", "👨‍👩‍👧", "🇫🇷", "a\tb", ""]
     Print(DisplayWidth(text), text.CharCount)
 End For
+
+// Emoji presentation sequences, a character and U+FE0F, which terminals draw as emoji, 2 wide: a
+// heart, a warning sign, a keycap, and a ZWJ sequence of them. Without U+FE0F, or after a letter,
+// it's the character's own width. A lone regional indicator is 1, as a Char and as a String.
+For text In ["\u{2764}\u{FE0F}", "\u{26A0}\u{FE0F}", "1\u{FE0F}\u{20E3}",
+             "\u{1F441}\u{FE0F}\u{200D}\u{1F5E8}\u{FE0F}", "\u{2764}", "a\u{FE0F}", "1\u{FE0F}",
+             "\u{1F1EB}", "\u{1F1EB}x"]
+    Print(DisplayWidth(text), text.GraphemeCount)
+End For
+Print(DisplayWidth('\u{1F1EB}'), DisplayWidth("\u{1F1EB}"))
