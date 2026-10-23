@@ -1,0 +1,51 @@
+// Easing: each curve's In, Out, and InOut at t from 0 to 1, as easings.net's formulas give them,
+// 0 at the start and 1 at the end. libm's powers and sines are in them, so they print rounded to
+// four places.
+Import std.core
+Import std.math
+
+// The value to four places, with -0 as 0.
+Function Shown(value: Float): Float => Round(value * 10000) / 10000 + 0
+
+Function Row(name: String, ease: Func(Float): Float)
+    Local values: Float[] = []
+    For step = 0 To 4
+        values.Add(Shown(ease((step As Float) / 4)))
+    End For
+    Print(name, values)
+End Function
+
+Row("InSine", EaseInSine)
+Row("OutSine", EaseOutSine)
+Row("InOutSine", EaseInOutSine)
+Row("InQuad", EaseInQuad)
+Row("OutQuad", EaseOutQuad)
+Row("InOutQuad", EaseInOutQuad)
+Row("InCubic", EaseInCubic)
+Row("OutCubic", EaseOutCubic)
+Row("InOutCubic", EaseInOutCubic)
+Row("InQuart", EaseInQuart)
+Row("OutQuart", EaseOutQuart)
+Row("InOutQuart", EaseInOutQuart)
+Row("InQuint", EaseInQuint)
+Row("OutQuint", EaseOutQuint)
+Row("InOutQuint", EaseInOutQuint)
+Row("InExpo", EaseInExpo)
+Row("OutExpo", EaseOutExpo)
+Row("InOutExpo", EaseInOutExpo)
+Row("InCirc", EaseInCirc)
+Row("OutCirc", EaseOutCirc)
+Row("InOutCirc", EaseInOutCirc)
+Row("InBack", EaseInBack)
+Row("OutBack", EaseOutBack)
+Row("InOutBack", EaseInOutBack)
+Row("InElastic", EaseInElastic)
+Row("OutElastic", EaseOutElastic)
+Row("InOutElastic", EaseInOutElastic)
+Row("InBounce", EaseInBounce)
+Row("OutBounce", EaseOutBounce)
+Row("InOutBounce", EaseInOutBounce)
+
+// Out is In turned around, and InOut is half of each.
+Print(Shown(EaseOutCubic(0.3)) == Shown(1 - EaseInCubic(0.7)),
+      Shown(EaseInOutQuad(0.2)) == Shown(EaseInQuad(0.4) / 2))
