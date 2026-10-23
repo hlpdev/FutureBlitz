@@ -2723,11 +2723,27 @@ private:
         return place;
     }
 
-    /// A call of a @PanicsAtCaller function gives it the place of the code being lowered.
+    /// A call is where the code being lowered is, and a call of a @PanicsAtCaller function gives
+    /// it that place. So is a runtime call, unless it says where it panics already.
     void give_place(rvalue_t& value) {
+        if (auto* runtime = std::get_if<runtime_call_t>(&value); runtime != nullptr) {
+            if (!runtime->span) {
+                runtime->span = m_span;
+            }
+
+            return;
+        }
+
         auto* call = std::get_if<call_t>(&value);
-        if (call != nullptr && !call->place &&
-            m_module.functions[index(call->function)].panics_at_caller) {
+        if (call == nullptr) {
+            return;
+        }
+
+        if (!call->span) {
+            call->span = m_span;
+        }
+
+        if (!call->place && m_module.functions[index(call->function)].panics_at_caller) {
             call->place = m_span;
         }
     }

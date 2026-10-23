@@ -80,6 +80,16 @@ private:
     build_mode_t m_mode;
     std::vector<frame_t> m_frames;
     std::uint64_t m_steps = 0;
+    /// Where in the code the run is, as near as MIR says: the last call or operation it reached
+    /// that has a place, which a limit's error points at.
+    std::optional<span_t> m_at;
+
+    void reach(const span_t span) {
+        if (!span.empty()) {
+            m_at = span;
+        }
+    }
+
     /// How many T?s a type is inside: 2 for an Int32??.
     [[nodiscard]] std::size_t depth(type_id_t type) const {
         std::size_t count = 0;
@@ -115,8 +125,8 @@ private:
         return bytes <= max_held - std::min(m_held, max_held);
     }
 
-    [[nodiscard]] static std::unexpected<evaluation_error_t> too_much() {
-        return failure(std::format("it holds more than {} MiB", max_held / mebibyte));
+    [[nodiscard]] std::unexpected<evaluation_error_t> too_much() const {
+        return failure(std::format("it holds more than {} MiB", max_held / mebibyte), m_at);
     }
 
     /// A variable takes a value, which it holds from now on.
@@ -138,7 +148,7 @@ private:
     result_t run() {
         while (true) {
             if (++m_steps > max_steps) {
-                return failure(std::format("it runs more than {} steps", max_steps));
+                return failure(std::format("it runs more than {} steps", max_steps), m_at);
             }
 
             frame_t& frame = m_frames.back();
@@ -206,12 +216,16 @@ private:
     /// A new frame for a call, with its arguments.
     done_t start_call(frame_t& frame, const call_t& call, const place_t* result) {
         const mir_function_t& function = m_module.functions[index(call.function)];
+        if (call.span) {
+            reach(*call.span);
+        }
+
         if (call.slot || call.interface != type_id_t::INVALID || function.blocks.empty()) {
             return failure("it calls a Method through a table, which only the running program has");
         }
 
         if (m_frames.size() >= max_depth) {
-            return failure(std::format("its calls go more than {} deep", max_depth));
+            return failure(std::format("its calls go more than {} deep", max_depth), m_at);
         }
 
         frame_t callee = frame_of(call.function);
@@ -311,6 +325,7 @@ private:
             }
 
             // ~ on a @Flags Enum flips its integer's bits, which stay the Enum.
+            reach(unary->span);
             const const_value_t original = scalar(*operand);
             const const_value_t integer = as_integer(original);
             result_t result = folded(fold_unary(unary->op, integer), unary->span);
@@ -331,6 +346,7 @@ private:
                 return operand;
             }
 
+            reach(cast->span);
             return convert(*operand, cast->type, cast->span);
         }
 
@@ -394,6 +410,7 @@ private:
     }
 
     result_t compute_binary(frame_t& frame, const binary_t& node) {
+        reach(node.span);
         const result_t left_value = read(frame, node.left);
         if (!left_value) {
             return left_value;
@@ -505,6 +522,10 @@ private:
 
     /// The runtime's String functions, which the compiler can do itself.
     result_t run_runtime(frame_t& frame, const runtime_call_t& call) {
+        if (call.span) {
+            reach(*call.span);
+        }
+
         std::vector<const_value_t> arguments;
         for (const operand_t& operand : call.arguments) {
             const result_t argument = read(frame, operand);

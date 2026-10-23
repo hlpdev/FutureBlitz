@@ -9,7 +9,8 @@
 #include <string_view>
 #include <vector>
 
-// Const Functions running in the compiler, and the build mode their DebugAsserts follow.
+// Const Functions running in the compiler: their limits, the place in the code that each limit's
+// error points at, and the build mode their DebugAsserts follow.
 
 namespace {
 
@@ -37,6 +38,46 @@ errors_t errors_of(const std::string_view text,
 }
 
 } // namespace
+
+TEST_CASE("a Const Function past a limit points at where it got to", "[evaluate]") {
+    CHECK(errors_of("Const Function Forever(): Int\n"
+                    "    Local x = 0\n"
+                    "    While True\n"
+                    "        x += 1\n"
+                    "        If x == -5 Then Break\n"
+                    "    End While\n"
+                    "    Return x\n"
+                    "End Function\n"
+                    "Const X = Forever()") ==
+          errors_t{
+              "Forever(): 'Forever' can't run at compile time: it runs more than 10000000 steps",
+              "here: x += 1",
+          });
+    CHECK(errors_of("Const Function Deep(n: Int): Int => n == 0 ? 0 : 1 + Deep(n - 1)\n"
+                    "Const X = Deep(20000)") ==
+          errors_t{
+              "Deep(20000): 'Deep' can't run at compile time: its calls go more than 10000 deep",
+              "here: Deep(n - 1)",
+          });
+    CHECK(errors_of("Const Function Big(n: Int): String\n"
+                    "    Local s = \"x\"\n"
+                    "    For i = 1 To n\n"
+                    "        s = s + s\n"
+                    "    End For\n"
+                    "    Return s\n"
+                    "End Function\n"
+                    "Const X = Big(40)") ==
+          errors_t{
+              "Big(40): 'Big' can't run at compile time: it holds more than 256 MiB",
+              "here: s + s",
+          });
+}
+
+TEST_CASE("calls just short of the depth limit run", "[evaluate]") {
+    CHECK(errors_of("Const Function Deep(n: Int): Int => n == 0 ? 0 : 1 + Deep(n - 1)\n"
+                    "Const X = Deep(9000)")
+              .empty());
+}
 
 TEST_CASE("a Const Function's DebugAssert runs in debug builds only", "[evaluate]") {
     const std::string_view half = "Const Function Half(n: Int): Int\n"

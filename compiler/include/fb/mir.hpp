@@ -144,6 +144,8 @@ struct call_t {
     /// For a @PanicsAtCaller function: where the call is, which its panics report. nullopt where
     /// no code calls it, as in a function value's code, so its panics report where they are.
     std::optional<span_t> place;
+    /// Where the call is in the code, which compile-time evaluation's errors point at.
+    std::optional<span_t> span;
 };
 
 /// The runtime library functions MIR calls; see runtime/include/fb/runtime.hpp. A String they
@@ -254,7 +256,8 @@ enum class runtime_function_t : std::uint8_t {
 struct runtime_call_t {
     runtime_function_t function;
     std::vector<operand_t> arguments;
-    /// For Insert and RemoveAt: where an index out of range panics.
+    /// Where the call is: where one that can panic, like Insert's or a Channel's Send, says it
+    /// does, and what compile-time evaluation's errors point at.
     std::optional<span_t> span;
 };
 
