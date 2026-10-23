@@ -3,8 +3,10 @@
 
 #include <array>
 #include <catch2/catch_test_macros.hpp>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <string>
 #include <string_view>
 
@@ -97,6 +99,23 @@ TEST_CASE("the real clock is past 2020, the monotonic one never goes back, and s
         fb_time_sleep(milliseconds * 1000000);
         CHECK(fb_time_monotonic() - before >= milliseconds * 1000000);
     }
+}
+
+TEST_CASE("a Sleep longer than the monotonic clock counts ends at its latest time",
+          "[runtime][time]") {
+    // As long as Duration.MaxValue(), a never-passing Deadline's Remaining, the sum would wrap
+    // into the past, and Sleep would return at once.
+    using std::chrono::steady_clock;
+    const steady_clock::time_point now = steady_clock::now();
+    const std::int64_t longest = std::numeric_limits<std::int64_t>::max();
+    CHECK(fb::time::sleep_end(now, longest) == steady_clock::time_point::max());
+    CHECK(fb::time::sleep_end(now, longest - 1000) == steady_clock::time_point::max());
+    const std::int64_t left =
+        std::chrono::duration_cast<std::chrono::nanoseconds>(steady_clock::time_point::max() - now)
+            .count();
+    CHECK(fb::time::sleep_end(now, left) == steady_clock::time_point::max());
+    CHECK(fb::time::sleep_end(now, left - 1) == now + std::chrono::nanoseconds(left - 1));
+    CHECK(fb::time::sleep_end(now, 5) == now + std::chrono::nanoseconds(5));
 }
 
 TEST_CASE("zones are found by name, in any letter case, and links are names of their own",

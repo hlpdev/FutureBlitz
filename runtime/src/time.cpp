@@ -9,6 +9,18 @@
 #include <string>
 #include <thread>
 
+std::chrono::steady_clock::time_point
+fb::time::sleep_end(const std::chrono::steady_clock::time_point now,
+                    const std::int64_t nanoseconds) {
+    const auto wanted = std::chrono::ceil<std::chrono::steady_clock::duration>(
+        std::chrono::nanoseconds(nanoseconds));
+    if (wanted >= std::chrono::steady_clock::time_point::max() - now) {
+        return std::chrono::steady_clock::time_point::max();
+    }
+
+    return now + wanted;
+}
+
 extern "C" {
 
 std::int64_t fb_time_now() {
@@ -25,15 +37,17 @@ std::int64_t fb_time_monotonic() {
 
 void fb_time_sleep(const std::int64_t nanoseconds) {
     // The OS can wake a thread a little before its time, as Windows does by a part of a
-    // millisecond, so it sleeps again until the monotonic clock says the time has gone by.
+    // millisecond, so it sleeps again until the monotonic clock says the time has gone by. It
+    // sleeps a day at most at a time, which any OS takes.
     if (nanoseconds <= 0) {
         return;
     }
 
-    const auto end = std::chrono::steady_clock::now() + std::chrono::nanoseconds(nanoseconds);
+    const auto end = fb::time::sleep_end(std::chrono::steady_clock::now(), nanoseconds);
     for (auto now = std::chrono::steady_clock::now(); now < end;
          now = std::chrono::steady_clock::now()) {
-        std::this_thread::sleep_for(end - now);
+        std::this_thread::sleep_for(
+            std::min<std::chrono::steady_clock::duration>(end - now, std::chrono::hours(24)));
     }
 }
 

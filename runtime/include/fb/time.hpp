@@ -2,6 +2,7 @@
 
 #include "fb/runtime.hpp"
 
+#include <chrono>
 #include <cstdint>
 
 // std.time's functions in the runtime: the clocks and Sleep, which every program has; the
@@ -50,3 +51,12 @@ fb_string_t* fb_tz_local_name();
 /// one the database has.
 std::int32_t fb_tz_system_offset(std::int64_t seconds);
 }
+
+namespace fb::time {
+
+/// When a Sleep of `nanoseconds` from `now` ends, or the monotonic clock's latest time for one
+/// longer than it counts, past which a sum would wrap.
+[[nodiscard]] std::chrono::steady_clock::time_point
+sleep_end(std::chrono::steady_clock::time_point now, std::int64_t nanoseconds);
+
+} // namespace fb::time
