@@ -23,7 +23,7 @@
 namespace {
 
 /// What happened to a path, as std.io numbers FileEventKind's.
-enum event_kind_t : std::int32_t {
+enum event_kind_t : std::uint8_t {
     EVENT_CREATED = 0,
     EVENT_CHANGED = 1,
     EVENT_REMOVED = 2,
@@ -37,27 +37,32 @@ struct event_t {
 /// A watched file or folder. The program holds it, and so does the I/O thread while its handle
 /// is open.
 struct watcher_t {
-    std::atomic<std::int32_t> owners = 1;
-    std::string path;
-    /// Whether it's a folder, whose events name what's in it, or a file, whose events are its own.
-    bool folder = false;
-    /// The I/O thread's handle, whether it's watching yet, and the names it knows are there, a
-    /// folder's entries' and "" for itself, which only that thread touches.
-    uv_fs_event_t handle{};
-    bool open = false;
-    std::set<std::string, std::less<>> known;
-
-    std::mutex mutex;
-    std::condition_variable changed;
     /// Set once the I/O thread has tried to start: 0, or libuv's error.
-    bool started = false;
     std::int64_t error = 0;
-    std::deque<event_t> events;
+    /// The names the I/O thread knows are there, a folder's entries' and "" for itself, which only
+    /// that thread touches.
+    std::set<std::string, std::less<>> known;
     /// The Tasks of the Awaits for the next event.
     std::vector<fb_task_t*> waiting;
-    bool closed = false;
+    std::string path;
+    std::deque<event_t> events;
     /// The event the program took last.
     event_t taken;
+    std::condition_variable changed;
+    std::mutex mutex;
+    /// The I/O thread's handle, which only that thread touches.
+    uv_fs_event_t handle{};
+    std::atomic<std::int32_t> owners = 1;
+    /// Whether it's a folder, whose events name what's in it, or a file, whose events are its own.
+    bool folder = false;
+    /// Whether the handle's watching, which only the I/O thread touches.
+    bool open = false;
+    bool started = false;
+    bool closed = false;
+
+    /// libuv's callbacks for the handle: what happened to a name, and the handle's gone.
+    static void on_event(uv_fs_event_t* handle, const char* name, int events, int status);
+    static void on_closed(uv_handle_t* handle);
 };
 
 void release(watcher_t* watcher) {
@@ -101,7 +106,7 @@ void mark_closed(watcher_t& watcher) {
     }
 }
 
-void on_closed(uv_handle_t* handle) {
+void watcher_t::on_closed(uv_handle_t* handle) {
     release(static_cast<watcher_t*>(handle->data));
 }
 
@@ -114,7 +119,7 @@ void close_handle(watcher_t& watcher) {
     watcher.open = false;
     std::erase(open_watchers(), &watcher);
     uv_fs_event_stop(&watcher.handle);
-    uv_close(reinterpret_cast<uv_handle_t*>(&watcher.handle), on_closed);
+    uv_close(reinterpret_cast<uv_handle_t*>(&watcher.handle), watcher_t::on_closed);
 }
 
 /// As the I/O thread stops, every watcher is closed, so its handle doesn't keep the loop going.
@@ -150,7 +155,8 @@ std::set<std::string, std::less<>> names_in(const std::string& path) {
 /// What happened to a name libuv tells of, which OSes tell apart differently, as macOS calls a
 /// new file that's written a change: one that's there now and wasn't came, one that was and isn't
 /// went, and one that was and is changed. One that came and went before this is nothing.
-void on_event(uv_fs_event_t* handle, const char* name, const int /*events*/, const int status) {
+void watcher_t::on_event(uv_fs_event_t* handle, const char* name, const int /*events*/,
+                         const int status) {
     auto& watcher = *static_cast<watcher_t*>(handle->data);
     if (status < 0) {
         return;
@@ -159,7 +165,7 @@ void on_event(uv_fs_event_t* handle, const char* name, const int /*events*/, con
     const std::string_view key = watcher.folder && name != nullptr ? name : "";
     event_t event{ .path = watcher.path };
     if (!key.empty()) {
-        event.path += "/";
+        event.path += '/';
         event.path += key;
     }
 
@@ -201,18 +207,17 @@ void start_watching(uv_loop_t* loop, void* context) {
         watcher.known.emplace("");
     }
 
-    std::int64_t error = uv_fs_event_init(loop, &watcher.handle);
+    const std::int64_t made = uv_fs_event_init(loop, &watcher.handle);
     watcher.handle.data = &watcher;
-    if (error == 0) {
-        error = uv_fs_event_start(&watcher.handle, on_event, watcher.path.c_str(), 0);
+    std::int64_t error = made;
+    if (made == 0) {
+        error = uv_fs_event_start(&watcher.handle, watcher_t::on_event, watcher.path.c_str(), 0);
         if (error == 0) {
             watcher.open = true;
             open_watchers().push_back(&watcher);
         } else {
-            uv_close(reinterpret_cast<uv_handle_t*>(&watcher.handle), on_closed);
+            uv_close(reinterpret_cast<uv_handle_t*>(&watcher.handle), watcher_t::on_closed);
         }
-    } else {
-        release(&watcher);
     }
 
     {
@@ -222,12 +227,17 @@ void start_watching(uv_loop_t* loop, void* context) {
     }
 
     watcher.changed.notify_all();
+    // A handle that was never made has nothing to close, so the I/O thread lets go of it here,
+    // last, since the program may let go of its own meanwhile.
+    if (made != 0) {
+        release(&watcher);
+    }
 }
 
+/// Closes a watcher's handle, which is still open, since only this or the I/O thread's stopping
+/// closes it, and that runs after the work given before it. The handle holds the watcher.
 void stop_watching(uv_loop_t* /*loop*/, void* context) {
-    auto* watcher = static_cast<watcher_t*>(context);
-    close_handle(*watcher);
-    release(watcher);
+    close_handle(*static_cast<watcher_t*>(context));
 }
 
 watcher_t& watcher_of(void* watcher) {
@@ -242,7 +252,7 @@ void* fb_io_watcher_new(const fb_string_t* path) {
     auto* watcher = new watcher_t;
     watcher->path = std::string(reinterpret_cast<const char*>(path + 1),
                                 static_cast<std::size_t>(path->length));
-    if (watcher->path.find('\0') != std::string::npos) {
+    if (watcher->path.contains('\0')) {
         watcher->error = UV_EINVAL;
         return watcher;
     }
@@ -338,12 +348,9 @@ void fb_io_watcher_close(void* watcher) {
 
     mark_closed(self);
     // The handle goes on the I/O thread, unless it's stopping, which closes it anyway.
-    self.owners.fetch_add(1, std::memory_order_relaxed);
     fb::runtime::on_io_thread([watcher = &self](uv_loop_t* loop) {
         if (loop != nullptr) {
             stop_watching(loop, watcher);
-        } else {
-            release(watcher);
         }
     });
 }
