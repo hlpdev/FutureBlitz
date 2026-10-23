@@ -1,0 +1,6 @@
+// A Decompressor's limit can't be negative, and one that is panics where it's made.
+Import std.core
+Import std.compress
+
+Local fine = ZstdDecompressor(0)
+Local below = ZstdDecompressor(-5)

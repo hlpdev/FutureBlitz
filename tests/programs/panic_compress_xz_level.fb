@@ -1,0 +1,6 @@
+// XZ's levels are from 0 to 9, and Compress panics where it's called for another.
+Import std.core
+Import std.compress
+
+Print(XZ.Compress("fine".Bytes, 0).Count > 0)
+XZ.Compress("too far".Bytes, 10)
