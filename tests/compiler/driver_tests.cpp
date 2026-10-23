@@ -879,8 +879,10 @@ TEST_CASE("a build defines DEBUG or RELEASE, and the platform it's built on", "[
     }
 
     std::ofstream(path, std::ios::binary) << text;
-    for (const auto& [mode, symbol] : { std::pair(fb::build_mode_t::DEBUG, "DEBUG"),
-                                        std::pair(fb::build_mode_t::RELEASE, "RELEASE") }) {
+    for (const auto& [mode, symbol] : {
+             std::pair(fb::build_mode_t::DEBUG, "DEBUG"),
+             std::pair(fb::build_mode_t::RELEASE, "RELEASE"),
+         }) {
         const std::expected<fb::compilation_t, std::string> compiled = fb::compile_file(path, mode);
         REQUIRE(compiled);
         std::vector<std::string> taken;

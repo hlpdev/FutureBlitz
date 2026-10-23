@@ -160,7 +160,7 @@ run_with_open_stdin(const std::filesystem::path& program, const std::chrono::sec
     HANDLE write_end = nullptr;
     REQUIRE(CreatePipe(&read_end, &write_end, &security, 0) != 0);
     SetHandleInformation(write_end, HANDLE_FLAG_INHERIT, 0);
-    const HANDLE before = GetStdHandle(STD_INPUT_HANDLE);
+    HANDLE before = GetStdHandle(STD_INPUT_HANDLE);
     SetStdHandle(STD_INPUT_HANDLE, read_end);
     const auto close_input = [&] { CloseHandle(write_end); };
 #else
