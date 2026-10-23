@@ -100,6 +100,10 @@ struct symbol_t {
     /// each of its last arguments, of any type a string can show, as "{x}" does, so it's a
     /// String[] of their texts.
     bool shows = false;
+    /// A variadic parameter written "values: Formattable...", with std's Formattable: a call
+    /// takes values of any Formattable types, and one that isn't an object goes in std's
+    /// Formatted<T>, so it's a Formattable[].
+    bool formats = false;
     /// A parameter that calls can leave out. ByRef parameters never have a default. A field is
     /// a parameter of the constructor a Struct gets, so it has one, its own or zero, unless its
     /// type has no zero.
@@ -374,6 +378,9 @@ struct analysis_t { // NOLINT(bugprone-exception-escape)
     /// Iterator<T> goes in where a Method of the Interface it implements gives an Iterator<T>,
     /// as a collection's Iterate() does for Iterable<T>'s. INVALID without the standard library.
     type_id_t boxed_iterator = type_id_t::INVALID;
+    /// std's Formatted<T>, from std/core/format.fb: the Class a value that isn't an object goes
+    /// in for a "values: Formattable..." parameter. INVALID without the standard library.
+    type_id_t formatted_box = type_id_t::INVALID;
     /// A CString's ToString, which copies its text into a String in Unsafe code, once a program
     /// uses it.
     std::optional<symbol_id_t> cstring_text;

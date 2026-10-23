@@ -1,0 +1,13 @@
+Ann costs 3.14 at 19.99
+   mid|42    |  mid  |******42
+1,234,567 0xff +1.2e4 True  Spades {literal} 250 cents
+100C 212.0F 100C next
+no fields 
+BAD_TEMPLATE: a '{' in the template isn't closed
+BAD_TEMPLATE: a '}' in the template must be written '}}'
+BAD_TEMPLATE: a field in the template is a value's number, like {0}, or {} for the next one
+BAD_TEMPLATE: a format spec can't hold a brace
+MISSING_VALUE: the template's field 2 is value 1, but there is 1 value
+MISSING_VALUE: the template's field 1 is value 3, but there are 2 values
+BAD_VALUE: value 0, 5, doesn't take the format spec '.2'
+BAD_VALUE: value 0, 0C, doesn't take the format spec 'K'

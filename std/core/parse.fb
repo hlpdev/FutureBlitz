@@ -1,0 +1,130 @@
+// Text to numbers and Bools: Parse, a Static Method on each, which gives Null for text that isn't
+// one, or a number that doesn't fit. It reads what Format writes, invariantly: '.' for decimals,
+// no thousands, and NaN, Inf, and -Inf for the floats that aren't numbers.
+
+Extern "runtime"
+    Function fb_parse_int(text: String, base: Int32, ByRef value: Int64): Int32
+    Function fb_parse_uint(text: String, base: Int32, ByRef value: UInt64): Int32
+    Function fb_parse_float(text: String, float32: Int32, ByRef value: Float64): Int32
+End Extern
+
+// The integer `text` writes in `base`, from `least` to `most`: a sign, then digits, which the
+// base's "0x", "0o", or "0b" can start. A base that isn't from 2 to 36 panics.
+@PanicsAtCaller
+Package Function SignedIn(text: String, base: Int, least: Int64, most: Int64): Int64?
+    If base < 2 || base > 36 Then Panic("Parse takes a base from 2 to 36, not {base}")
+    Local value: Int64 = 0
+    If fb_parse_int(text, base, ByRef value) == 0 || value < least || value > most Then Return Null
+    Return value
+End Function
+
+// The same for an unsigned integer, up to `most`.
+@PanicsAtCaller
+Package Function UnsignedIn(text: String, base: Int, most: UInt64): UInt64?
+    If base < 2 || base > 36 Then Panic("Parse takes a base from 2 to 36, not {base}")
+    Local value: UInt64 = 0
+    If fb_parse_uint(text, base, ByRef value) == 0 || value > most Then Return Null
+    Return value
+End Function
+
+Extend Int8
+    // The Int8 `text` writes in `base`, or Null.
+    @PanicsAtCaller
+    Public Static Method Parse(text: String, base: Int = 10): Int8?
+        Local value = SignedIn(text, base, -128, 127)
+        If value == Null Then Return Null
+        Return value As Int8
+    End Method
+End Extend
+
+Extend Int16
+    // The Int16 `text` writes in `base`, or Null.
+    @PanicsAtCaller
+    Public Static Method Parse(text: String, base: Int = 10): Int16?
+        Local value = SignedIn(text, base, -32768, 32767)
+        If value == Null Then Return Null
+        Return value As Int16
+    End Method
+End Extend
+
+Extend Int32
+    // The Int32 `text` writes in `base`, or Null: Int.Parse("42"), Int.Parse("ff", 16).
+    @PanicsAtCaller
+    Public Static Method Parse(text: String, base: Int = 10): Int32?
+        Local value = SignedIn(text, base, -2147483648, 2147483647)
+        If value == Null Then Return Null
+        Return value As Int32
+    End Method
+End Extend
+
+Extend Int64
+    // The Int64 `text` writes in `base`, or Null.
+    @PanicsAtCaller
+    Public Static Method Parse(text: String, base: Int = 10): Int64? =>
+        SignedIn(text, base, -9223372036854775808, 9223372036854775807)
+End Extend
+
+Extend UInt8
+    // The UInt8 `text` writes in `base`, or Null.
+    @PanicsAtCaller
+    Public Static Method Parse(text: String, base: Int = 10): UInt8?
+        Local value = UnsignedIn(text, base, 255)
+        If value == Null Then Return Null
+        Return value As UInt8
+    End Method
+End Extend
+
+Extend UInt16
+    // The UInt16 `text` writes in `base`, or Null.
+    @PanicsAtCaller
+    Public Static Method Parse(text: String, base: Int = 10): UInt16?
+        Local value = UnsignedIn(text, base, 65535)
+        If value == Null Then Return Null
+        Return value As UInt16
+    End Method
+End Extend
+
+Extend UInt32
+    // The UInt32 `text` writes in `base`, or Null.
+    @PanicsAtCaller
+    Public Static Method Parse(text: String, base: Int = 10): UInt32?
+        Local value = UnsignedIn(text, base, 4294967295)
+        If value == Null Then Return Null
+        Return value As UInt32
+    End Method
+End Extend
+
+Extend UInt64
+    // The UInt64 `text` writes in `base`, or Null.
+    @PanicsAtCaller
+    Public Static Method Parse(text: String, base: Int = 10): UInt64? =>
+        UnsignedIn(text, base, 18446744073709551615)
+End Extend
+
+Extend Float32
+    // The Float32 `text` writes, or Null for text that isn't a float or one too big for a
+    // Float32: Float.Parse("2.5").
+    Public Static Method Parse(text: String): Float32?
+        Local value: Float64 = 0
+        If fb_parse_float(text, 1, ByRef value) == 0 Then Return Null
+        Return value As Float32
+    End Method
+End Extend
+
+Extend Float64
+    // The Float64 `text` writes, or Null, which reads back every Float64 that Format writes.
+    Public Static Method Parse(text: String): Float64?
+        Local value: Float64 = 0
+        If fb_parse_float(text, 0, ByRef value) == 0 Then Return Null
+        Return value
+    End Method
+End Extend
+
+Extend Bool
+    // True for "True", False for "False", and Null for any other text.
+    Public Static Method Parse(text: String): Bool?
+        If text == "True" Then Return True
+        If text == "False" Then Return False
+        Return Null
+    End Method
+End Extend

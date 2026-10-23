@@ -5348,6 +5348,37 @@ private:
         return temporary(std::move(value), type, true);
     }
 
+    /// A new Formattable[], `type`, for a parameter written "values: Formattable...": an object
+    /// as it is, and any other value in std's Formatted<T>, which holds it.
+    operand_t formatted_of(const std::vector<expr_id_t>& elements, const type_id_t type) {
+        array_t value{ .type = type };
+        const type_id_t formattable = types().get(type).inner;
+        const std::vector<bool> later = changes_after(elements);
+        for (std::size_t i = 0; i < elements.size(); ++i) {
+            const operand_t item = settled(lower_value(elements[i]), later[i]);
+            const type_id_t given = converted_type(elements[i]);
+            const span_t span = span_of(elements[i]);
+            if (is_object(given)) {
+                value.elements.push_back(convert(item, formattable, span));
+                continue;
+            }
+
+            const operand_t object =
+                new_object(types().instance(m_analysis.formatted_box, { given }));
+            place_t held = std::get<place_t>(object);
+            held.steps.push_back({ .field = 0 });
+            take(item);
+            emit(assign_t{ .target = held, .value = use_t{ .value = item } });
+            value.elements.push_back(convert(object, formattable, span));
+        }
+
+        for (const operand_t& element : value.elements) {
+            take(element);
+        }
+
+        return temporary(std::move(value), type, true);
+    }
+
     /// "(a, b)": a tuple, whose elements take their own references.
     operand_t lower_expr(const expr_id_t id, const tuple_expr_t& node) {
         const type_id_t type = expr_type(id);
@@ -7830,6 +7861,8 @@ private:
             operand_t value;
             if (parameter.shows) {
                 value = texts_of(info.packed, type);
+            } else if (parameter.formats) {
+                value = formatted_of(info.packed, type);
             } else if (parameter.variadic) {
                 value = array_of(info.packed, type);
             } else {

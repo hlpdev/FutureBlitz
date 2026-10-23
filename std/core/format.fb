@@ -1,0 +1,75 @@
+// Formatting by a template that the program has only when it runs: Format, whose fields take
+// interpolation's specs. The runtime splits a template.
+
+Import std.core.error
+Import std.core.interfaces
+
+Extern "runtime"
+    Function fb_format_split(template: String, texts: String[], indexes: Int32[],
+                             specs: String[]): Int32
+End Extern
+
+// A value that isn't an object, in one, for what takes Formattable values, like Format's.
+Package Final Class Formatted<T: Formattable> Implements Formattable
+    ReadOnly Field Value: T
+
+    New(value: T)
+        Value = value
+    End New
+
+    Method ToString(): String => "{Value}"
+
+    Method Format(spec: String): String? => Value.Format(spec)
+End Class
+
+// `template` with its fields filled: "{}" is the next value, "{0}" the first, and either can
+// take a format spec after a ':', as "{0:>8}" or "{:.2}" does, or else shows its value as "{x}"
+// does; "{{" and "}}" are braces. In source, a template is a raw string, r"{} of {}", whose
+// braces aren't interpolations. Throws a FormatError for a template that isn't one, a field
+// whose value isn't given, or a spec that its value doesn't take.
+Public Function Format(template: String, values: Formattable...): String Throws FormatError
+    Local texts: String[] = []
+    Local indexes: Int32[] = []
+    Local specs: String[] = []
+    Select fb_format_split(template, texts, indexes, specs)
+        Case 1
+            Throw FormatError(FormatErrorKind.BAD_TEMPLATE, "a '{{' in the template isn't closed")
+        Case 2
+            Throw FormatError(FormatErrorKind.BAD_TEMPLATE,
+                              "a '}}' in the template must be written '}}}}'")
+        Case 3
+            Throw FormatError(FormatErrorKind.BAD_TEMPLATE,
+                              "a field in the template is a value's number, like {{0}}, or " +
+                              "{{}} for the next one")
+        Case 4
+            Throw FormatError(FormatErrorKind.BAD_TEMPLATE, "a format spec can't hold a brace")
+    End Select
+
+    Local text = texts[0]
+    Local next = 0
+    For i, index In indexes
+        Local at = index
+        If at < 0
+            at = next
+            next += 1
+        End If
+
+        If at >= values.Count
+            Throw FormatError(FormatErrorKind.MISSING_VALUE,
+                              "the template's field {i + 1} is value {at}, but there " +
+                              (values.Count == 1 ? "is 1 value" : "are {values.Count} values"))
+        End If
+
+        // A field without a spec shows its value as "{x}" does.
+        Local value = values[at]
+        Local shown: String? = specs[i] == "" ? "{value}" : value.Format(specs[i])
+        If shown == Null
+            Throw FormatError(FormatErrorKind.BAD_VALUE,
+                              "value {at}, {value}, doesn't take the format spec '{specs[i]}'")
+        End If
+
+        text += shown + texts[i + 1]
+    End For
+
+    Return text
+End Function
