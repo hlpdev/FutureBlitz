@@ -98,9 +98,10 @@ Async Function AllOf(tasks: Task[])
     End For
 End Function
 
-// A Task of the index of the first of the tasks to be done, whose result a Wait or an Await
-// then gives at once. Of tasks done by the same tick of the scheduler, it's the first of them in
-// the array. Panics when there are none, since none would be done.
+// A Task of the index of the first of the tasks found done, whose result a Wait or an Await then
+// gives at once. At a tick of the scheduler it looks at them in their order, so of tasks done
+// before it looks, it's the first in the array, and one done later in the tick doesn't count.
+// Panics when there are none, since none would be done.
 @PanicsAtCaller
 Public Function WhenAny<T>(tasks: Task<T>[]): Task<Int>
     If tasks.Count == 0 Then Panic("WhenAny waits for the first of its tasks, so it needs one")
@@ -124,7 +125,8 @@ Public Function WhenAny(tasks: Task[]): Task<Int>
     Return first.Task
 End Function
 
-// Gives `first` the index once the task is done, unless another task's came before.
+// Gives `first` the index once the task is done, unless another task's came before. WhenAny's
+// waiters are in the scheduler's order as they were made, so it looks at them in that order.
 Async Function FirstOf<T>(task: Task<T>, index: Int, first: TaskSource<Int>)
     Await task
     first.TryFinish(index)
