@@ -122,7 +122,9 @@ Print(Hit(floor.Raycast(Ray(Vec3(0, 10, 0), Vec3.Down))),
       Hit(floor.Raycast(Ray(Vec3(0, 10, 0), Vec3.Up))),
       Hit(floor.Raycast(Ray(Vec3(0, 10, 0), Vec3.Right))))
 Print(Hit(floor.Raycast(Ray(Vec3(0, 2, 0), Vec3.Right))),
-      Hit(floor.Raycast(Ray(Vec3(0, 6, 0), Vec3(0, -2, 0)))))
+      Hit(floor.Raycast(Ray(Vec3(0, 6, 0), Vec3(0, -2, 0)))),
+      Hit(floor.Raycast(Ray(Vec3(0, 2, 0), Vec3.Up))),
+      Hit(floor.Raycast(Ray(Vec3(0, 2, 0), Vec3.Down))))
 // FromPoints faces the side the points go counterclockwise around.
 Print(Plane.FromPoints(Vec3.Zero(), Vec3.Right, Vec3.Up),
       Plane.FromPoints(Vec3.Zero(), Vec3.Up, Vec3.Right))

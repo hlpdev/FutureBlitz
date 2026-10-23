@@ -311,13 +311,15 @@ Public Struct Plane Implements Equatable, Printable
     // The point on the plane nearest the one given.
     Public Method ClosestPoint(point: Vec3): Vec3 => point - Normal * SignedDistance(point)
 
-    // How far along the ray it meets the plane, from either side. A ray along it misses.
+    // How far along the ray it meets the plane, from either side, 0 for a ray that starts on it,
+    // whichever way it goes. A ray along it misses.
     Public Method Raycast(ray: Ray): Float?
         Local facing = Dot(Normal, ray.Direction)
         If facing == 0 Then Return Null
         Local along = (Distance - Dot(Normal, ray.Origin)) / facing
         If !(along >= 0) Then Return Null
-        Return along
+        // A ray from the plane to its back gives 0 over a negative, -0, which is 0 too.
+        Return along + 0
     End Method
 
     Public Method ToString(): String => "Plane({Normal}, {Distance})"
