@@ -484,17 +484,17 @@ Public Function Voronoi(points: Vec2[], bounds: Rect): Vec2[][]
     CheckBounds(bounds)
     Local order, same = Ordered(points)
     // Each point's neighbors: those it shares a Delaunay edge with, which are the only ones whose
-    // cells can touch its own, or every other point when there are no triangles.
+    // cells can touch its own, or with no triangles, where the points are on a line, in order of x
+    // then y, as they're in order, the ones before and after it.
     Local neighbors: Int[][] = []
     For i = 0 Until points.Count
         neighbors.Add([])
     End For
     Local triangles = Triangulate(points, order)
     If triangles.Count == 0
-        For i In order
-            For j In order
-                If i != j Then neighbors[i].Add(j)
-            End For
+        For k = 1 Until order.Count
+            neighbors[order[k]].Add(order[k - 1])
+            neighbors[order[k - 1]].Add(order[k])
         End For
     End If
 

@@ -163,6 +163,14 @@ Print(Voronoi([Vec2(1, 1), Vec2(3, 1)], square).Map(shown))
 Print(Voronoi([Vec2(0, 0), Vec2(10, 10)], square).Map(shown))
 Print(Voronoi([Vec2(1, 1), Vec2(3, 3), Vec2(1, 1)], square).Map(shown))
 Print(Voronoi([Vec2(0, 2), Vec2(1, 2), Vec2(3, 2)], square).Map(shown))
+// Points on a line, many of them, cut by the ones beside them only, so it's quick.
+Local row: Vec2[] = []
+For i = 0 Until 20000
+    row.Add(Vec2(i As Float, 0))
+End For
+Local strips = Voronoi(row, Rect(-1, -1, 20001, 2))
+Print(strips.Count, strips[10], strips[0], strips[19999])
+Print(Voronoi([Vec2(0, 0), Vec2(2, 2), Vec2(1, 1)], square).Map(shown))
 // A cell that only touches bounds, at a corner or along an edge, is empty, and a corner where two
 // bisectors meet on the bounds' edge is there once.
 Print(Voronoi([Vec2(0, 0), Vec2(8, 8)], square)[1], Voronoi([Vec2(2, 2), Vec2(2, -2)], square)[1])
