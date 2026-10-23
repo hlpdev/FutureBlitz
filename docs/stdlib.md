@@ -394,10 +394,12 @@ generator, noise, easing, stats, and fixed point; the rest is planned.
   and sets it back.
 - The default generator (random.fb): `Rand()` from 0 up to 1, `RandInt(count)`,
   `RandInt(low, high)` (both included), and `RandFloat(low, high)`, over each thread's own
-  `Random`, a `ThreadLocal Global` seeded from the runtime's `fb_random_seed` (the OS's
+  PCG32, a `ThreadLocal Global` Struct seeded from the runtime's `fb_random_seed` (the OS's
   randomness, the clock, and a count) each run, until `SeedRandom(n)` starts every thread's
-  again at `Random(n)`, from its next draw. An array's `Shuffle()` and `Sample(count)` draw
-  from it, and `Shuffle(random)` and `Sample(count, random)` from the generator given.
+  again at `Random(n)`'s numbers, from its next draw. It holds no object, so no thread lets go
+  of it, and a Destroy can draw as a thread or the program ends. An array's `Shuffle()` and
+  `Sample(count)` draw from it, and `Shuffle(random)` and `Sample(count, random)` from the
+  generator given.
 - Noise (noise.fb): `Noise()`, from Ken Perlin's permutation, or `Noise(seed)`, with `Perlin`
   (his improved noise), `Simplex` (Gustavson's), `Value`, and `Worley` in 2D and 3D, of Double
   coordinates, giving Floats, and `Fbm`, octaves of Perlin noise, by its `Octaves`, `Lacunarity`,

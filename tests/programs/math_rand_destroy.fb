@@ -1,0 +1,30 @@
+// The default generator holds no object, so a Destroy draws from it as a thread or the program
+// ends: a Global's after the main thread drew, and a ThreadLocal's made before the thread drew.
+Import std.core
+Import std.math
+
+Class Loot
+    Method Destroy()
+        Print("loot drops", RandInt(1, 6), Rand() < 1)
+    End Method
+End Class
+
+Class Emitter
+    Method Destroy()
+        Local sparks = [1, 2, 3]
+        sparks.Shuffle()
+        Print("emitter sparks", RandFloat(0, 1) < 1, sparks.Sample(2).Count)
+    End Method
+End Class
+
+Global loot = Loot()
+ThreadLocal Global emitter = Emitter()
+
+SeedRandom(1)
+Print(RandInt(1, 6))
+Local thread = Thread.Start(Function()
+    Local held = emitter
+    Print("the thread draws", RandInt(1, 6) >= 1)
+End Function)
+thread.Join()
+Print("end")
