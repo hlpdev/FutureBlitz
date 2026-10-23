@@ -163,6 +163,10 @@ fb_string_t* fb_string_debug(const fb_string_t* text) {
     return make(fb::debug_text(view(text)));
 }
 
+fb_string_t* fb_char_debug(const std::uint32_t point) {
+    return make(fb::debug_char(static_cast<char32_t>(point)));
+}
+
 fb_string_t* fb_debug_object(const fb_object_t* object, const std::int32_t indent) {
     const fb_class_t* type = object->type;
     if (type->debug == nullptr) {

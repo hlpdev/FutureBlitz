@@ -575,6 +575,10 @@ private:
             return format_value(call.function, arguments);
         case runtime_function_t::DEBUG_STRING:
             return value_t{ make_string(debug_text(text(0))) };
+        case runtime_function_t::DEBUG_CHAR: {
+            const auto point = static_cast<char32_t>(std::get<std::uint64_t>(arguments[0].data));
+            return value_t{ make_string(debug_char(point)) };
+        }
         case runtime_function_t::DEBUG_INDENT: {
             const auto levels = std::get<std::int64_t>(arguments[0].data);
             const auto spaces = static_cast<std::size_t>(std::max<std::int64_t>(levels, 0)) * 4;
