@@ -1,0 +1,2 @@
+0
+panic: Add(-1) would take the WaitGroup's count below 0 at panic_concurrent_wait_group_below.fb:10:1

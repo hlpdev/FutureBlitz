@@ -1,0 +1,10 @@
+// A Once's work that calls its own Do would wait for itself forever, so that Do panics where it's
+// called.
+Import std.core
+Import std.concurrent
+
+Const once = Once()
+once.Do(Function()
+    Print("running")
+    once.Do(Function() => Print("never"))
+End Function)

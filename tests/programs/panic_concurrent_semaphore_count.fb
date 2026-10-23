@@ -1,0 +1,7 @@
+// A Semaphore can't start with fewer than 0 permits, and one that would panics where it's made.
+Import std.core
+Import std.concurrent
+
+Const none = Semaphore(0)
+Print(none.Available)
+Const below = Semaphore(-1)

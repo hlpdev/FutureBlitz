@@ -1,0 +1,10 @@
+// A WaitGroup's count stays within what an Int holds, and an Add past that panics where it's
+// called.
+Import std.core
+Import std.concurrent
+
+Const group = WaitGroup()
+group.Add(2147483646)
+group.Add()
+Print(group.Count)
+group.Add()

@@ -1,0 +1,7 @@
+// A Barrier is for 1 thread or more, and one for none panics where it's made.
+Import std.core
+Import std.concurrent
+
+Const alone = Barrier(1)
+Print(alone.Count)
+Const nobody = Barrier(0)

@@ -1,0 +1,9 @@
+// Done takes 1 from what Add counted, and a Done once more than that panics where it's called.
+Import std.core
+Import std.concurrent
+
+Const group = WaitGroup()
+group.Add()
+group.Done()
+Print(group.Count)
+group.Done()
