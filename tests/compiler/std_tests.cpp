@@ -3,6 +3,7 @@
 #include "fb/process.hpp"
 
 #include <catch2/catch_test_macros.hpp>
+#include <chrono>
 #include <expected>
 #include <filesystem>
 #include <format>
@@ -13,6 +14,7 @@
 // std's arithmetic at counts no test program could hold in memory, through its Package helpers,
 // which only std's own modules can call: a module in std/extra/ calls them, and a debug program,
 // in which an overflow panics, prints what they give.
+// And how long std's work takes as its input grows, which no test program can see.
 
 namespace {
 
@@ -201,4 +203,28 @@ TEST_CASE("an archive writer's Finish panics at its caller for an archive past i
     CHECK(zip->output.starts_with("panic: the zip's bytes are more than a UInt8[] holds at "));
     CHECK(zip->output.contains("checks.fb:11:"));
     CHECK(zip->exit_code == 101);
+}
+
+TEST_CASE("Html.Unescape takes time that grows with its text alone", "[programs]") {
+    // 1.6 MB of bare "&" and an entity at the end: each "&" used to look all the way to the ";",
+    // which took over 30 seconds.
+    const fb::compilation_t compilation =
+        fb::compile("unescape.fb",
+                    "Import std.core\n"
+                    "Import std.text\n"
+                    "Import std.text.encoding\n"
+                    "Print(Html.Unescape(\"&b=2\".Repeated(400000) + \"&amp;\").Length)\n",
+                    fb::standard_library().value_or(std::vector<fb::library_file_t>{}));
+    REQUIRE_FALSE(compilation.diagnostics.has_errors());
+    std::filesystem::path program = std::filesystem::path(FB_TEST_OUTPUT) / "std_unescape";
+    program += fb::executable_extension;
+    const fb::mir_module_t module = fb::lower(compilation.ast, compilation.analysis);
+    REQUIRE(fb::build_program(module, compilation, program, fb::build_mode_t::RELEASE));
+
+    const auto start = std::chrono::steady_clock::now();
+    const std::expected<fb::process_result_t, std::string> result = fb::run_process(program, {});
+    const std::chrono::steady_clock::duration took = std::chrono::steady_clock::now() - start;
+    REQUIRE(result);
+    CHECK(result->output == "1600001\n");
+    CHECK(took < std::chrono::seconds(10));
 }
