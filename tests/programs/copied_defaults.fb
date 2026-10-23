@@ -1,0 +1,59 @@
+// What a type gets from an Interface's default Methods, and a Class from the News of the one it
+// extends, keeps their parameters' default values, through the type or the Interface alike.
+Import std.core
+
+Interface Shape
+    Method Area(): Int
+    Method Scaled(by: Int = 5): Int => Area() * by
+    Final Method Named(prefix: String = "shape"): String => "{prefix}:{Area()}"
+    Method Sides(): Int[] => []
+    Method Corners(sides: Int[] = []): Int => sides.Count
+End Interface
+
+Class Square Implements Shape
+    Method Area(): Int => 3
+End Class
+
+Struct Dot
+    Field X: Int
+End Struct
+
+Extend Dot Implements Shape
+    Method Area(): Int => 4
+End Extend
+
+Local through: Shape = Square()
+Print("{through.Scaled()} {through.Named()} {through.Corners()}")
+Print("{Square().Scaled()} {Square().Named()} {Square().Corners()}")
+Print("{Dot(1).Scaled()} {Dot(1).Named()} {Dot(1).Corners()}")
+
+Class Base
+    Field N: Int
+    Field S: String
+
+    New(n: Int = 5, s: String = "base")
+        N = n
+        S = s
+    End New
+End Class
+
+Class Derived Extends Base
+End Class
+
+// A New two Classes down, taken from one that took it.
+Class Further Extends Derived
+End Class
+
+Class Holder<T>
+    Field Count: Int
+
+    New(count: Int = 9)
+        Count = count
+    End New
+End Class
+
+Class IntHolder Extends Holder<Int>
+End Class
+
+Print("{Base().N}|{Base().S}|{Derived().N}|{Derived().S}|{Derived(7).S}|{Further().S}|" +
+      "{IntHolder().Count}")

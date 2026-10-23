@@ -422,6 +422,7 @@ public:
         link_constructors();
         initialize_globals();
         each_item([this](const stmt_id_t id) { check_defaults(id); });
+        copy_defaults();
         // Every type is known now, the ones defaults give too.
         each_item([this](const stmt_id_t id) { check_signatures(id); });
         each_item([this](const stmt_id_t id) { check_attributes(id); });
@@ -631,6 +632,9 @@ private:
     /// The functions whose parameters' defaults are checked: all of them before any code, and a
     /// Const Function's earlier, when a Const or a type runs it without an argument.
     std::unordered_set<symbol_id_t> m_defaults_checked;
+    /// The parameters copied from another function's, which a default Method an Interface gives
+    /// and an inherited New have, each with the one it's a copy of, in the order they're made.
+    std::vector<std::pair<symbol_id_t, symbol_id_t>> m_copied_parameters;
     /// How many Lock blocks the code being checked is in, where it can't Await.
     std::size_t m_locks = 0;
     /// How deep the code being checked is in Unsafe code: an Unsafe block, Function, or Method,
@@ -5565,7 +5569,9 @@ private:
         for (const symbol_id_t parameter_id : method.parameters) {
             symbol_t parameter = symbol(parameter_id);
             parameter.type = as_implemented(parameter.type, interface, type);
-            parameters.push_back(add_symbol(std::move(parameter)));
+            const symbol_id_t copy = add_symbol(std::move(parameter));
+            m_copied_parameters.emplace_back(copy, parameter_id);
+            parameters.push_back(copy);
         }
 
         // A Class's and an array's Methods can always change it, so they're never ByRef.
@@ -6476,7 +6482,9 @@ private:
             for (const symbol_id_t parameter : symbol(constructor).parameters) {
                 symbol_t taken = symbol(parameter);
                 taken.type = member_type(base, symbol(constructor), taken.type);
-                copy.parameters.push_back(add_symbol(std::move(taken)));
+                const symbol_id_t copied = add_symbol(std::move(taken));
+                m_copied_parameters.emplace_back(copied, parameter);
+                copy.parameters.push_back(copied);
             }
 
             copy.base_new = constructor;
@@ -13749,6 +13757,15 @@ private:
               symbol(field).name);
         std::erase(m_untyped_fields, field); // reported once is enough
         return false;
+    }
+
+    /// A parameter copied from another function's takes the default value check_defaults() found
+    /// for the one it's a copy of, in the order they were made, so a copy of a copy has it too.
+    void copy_defaults() {
+        for (const auto& [copy, original] : m_copied_parameters) {
+            symbol(copy).value = symbol(original).value;
+            symbol(copy).empty_default = symbol(original).empty_default;
+        }
     }
 
     /// Default values are checked before any code, since every call needs them, each function's
