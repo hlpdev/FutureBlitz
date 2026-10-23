@@ -11,7 +11,7 @@ dropped, with why (it doesn't reproduce, or the spec says otherwise).
 
 ## A1-1 (high): Generic Class inheritance cycles through instances aren't caught, and the compiler hangs
 
-Status: fixed in 221373f, with tests
+Status: fixed in f8db645, with tests
 
 Where: compiler/src/sema.cpp:2989
 
@@ -34,7 +34,7 @@ Suggested fix: In declare_base(), walk the chain of `extended` with base_of() an
 
 ## A1-2 (high): A generic or conditional Destroy is accepted, then crashes lowering or codegen
 
-Status: fixed in 3b34b44, with tests; spec 06 in 52c67d4
+Status: fixed in ce186d7, with tests; spec 06 in 59e2b00
 
 Where: compiler/src/sema.cpp:3104
 
@@ -76,7 +76,7 @@ Suggested fix: In check_member_function(), when the name is Destroy, report non-
 
 ## A2-1 (high): common_type() drops a level of nesting for nested optionals, so code gets miscompiled and the compiler crashes
 
-Status: fixed in 740f82e, with tests
+Status: fixed in 9a63ca6, with tests
 
 Where: compiler/src/sema.cpp:10740
 
@@ -94,7 +94,7 @@ Skeptic: confirmed=True, medium. Reproduced in exp-all/skA2. t6.fb (Dog? ? Cat??
 
 ## A2-2 (high): The Sendable check on Mutex<T> and Channel<T> passes for a Struct declared later, so a data race is accepted
 
-Status: fixed in 1e89eea, with tests
+Status: fixed in 99ba25d, with tests
 
 Where: compiler/src/sema.cpp:10241
 
@@ -112,7 +112,7 @@ Skeptic: confirmed=True, high. t32.fb (`Global shared: Mutex<S>` written before 
 
 ## A2-3 (high): Main-thread rules don't follow an Interface Property to the Property that implements it
 
-Status: fixed in 90fa2d3, with tests
+Status: fixed in 7028f0b, with tests
 
 Where: compiler/src/sema.cpp:9308
 
@@ -235,7 +235,7 @@ Skeptic: confirmed=True, high. t20.fb prints 0 and 0: f.Set zeroes a Class's and
 
 ## A4-1 (high): `a?.M()` on an Async Method gives a Task of the wrong layout, which isn't nullable: wrong results and segfaults
 
-Status: fixed in 670fa14, with tests: a Task<T>?, which needed lower.cpp's Async call to make its Task from the T?'s T (one line); spec 10 in 52c67d4
+Status: fixed in 2386f2e, with tests: a Task<T>?, which needed lower.cpp's Async call to make its Task from the T?'s T (one line); spec 10 in 59e2b00
 
 Where: compiler/src/sema.cpp:18131
 
@@ -253,7 +253,7 @@ Skeptic: confirmed=True, high. Reproduced in exp-all/skeptic-a4/a1.fb: Pick(True
 
 ## A4-2 (high): fb::implements() leaves out Defaultable and Cloneable, so lowering disagrees with sema and crashes
 
-Status: fixed in 518ec87, with tests
+Status: fixed in 5669678, with tests
 
 Where: compiler/src/sema.cpp:21829
 
@@ -271,7 +271,7 @@ Skeptic: confirmed=True, high. a2c.fb (Bin<Int> with `Extend Bin<T> Implements S
 
 ## A4-3 (high): Compiler crash: a Const Function called with a known argument of the wrong type
 
-Status: fixed in 670fa14, with tests
+Status: fixed in 2386f2e, with tests
 
 Where: compiler/src/sema.cpp:18405
 
@@ -289,7 +289,7 @@ Skeptic: confirmed=True, medium. `Const Function Twice(a: Int): Int`, called as 
 
 ## A4-4 (high): An Async lambda is accepted as Spawn or Thread.Start work, so a coroutine runs and awaits on a worker thread
 
-Status: fixed in d96d85c, with tests; spec 10 in 52c67d4
+Status: fixed in 3c4f2f9, with tests; spec 10 in 59e2b00
 
 Where: compiler/src/sema.cpp:17936
 
@@ -307,7 +307,7 @@ Skeptic: confirmed=True, high. a4.fb, Spawn(Async Function() ... Await Spawn(...
 
 ## A1-3 (medium): Overriding a Property of a generic base instance is refused: 'must be T'
 
-Status: open
+Status: fixed in 9da5611, with tests
 
 Where: compiler/src/sema.cpp:5452
 
@@ -340,7 +340,7 @@ Suggested fix: Compare member.type with member_type(base, original), and show th
 
 ## A1-4 (medium): An Extend of one instance can redeclare the generic type's members without an error, and calls then dispatch inconsistently
 
-Status: open
+Status: fixed in c9a034e, with tests
 
 Where: compiler/src/sema.cpp:2432
 
@@ -374,7 +374,7 @@ Suggested fix: When declaring an Extend of one instance, compare each member aga
 
 ## A1-5 (medium): An Interface default can clash with the type's own Field or Static Method and nothing is reported
 
-Status: open
+Status: fixed in a14af01, with tests
 
 Where: compiler/src/sema.cpp:4856
 
@@ -407,7 +407,7 @@ Suggested fix: In take_default(), for a copy that isn't `extended` (the declarat
 
 ## A1-6 (medium): @MainThread on a Property, Interface or Enum is accepted silently and does nothing
 
-Status: open
+Status: fixed in 8bfafa0, with tests: refused on a Property, Interface, or Enum
 
 Where: compiler/src/sema.cpp:3261
 
@@ -442,7 +442,7 @@ Suggested fix: Either refuse @MainThread on a Property in check_property_modifie
 
 ## A1-7 (medium): Override on a Method or Property of a Class with no base isn't reported
 
-Status: open
+Status: fixed in fdcb495, with tests
 
 Where: compiler/src/sema.cpp:3522
 
@@ -472,7 +472,7 @@ Suggested fix: In link_class(), when base_of(type) is INVALID, report each membe
 
 ## A1-8 (medium): A Static Field or Method can take an inherited instance member's name, hiding it from the Class's objects
 
-Status: open
+Status: fixed in fdcb495, with tests
 
 Where: compiler/src/sema.cpp:5094
 
@@ -501,7 +501,7 @@ Suggested fix: In check_inherited(), compare a Static member too. Report a Stati
 
 ## A1-9 (medium): An Extend of a built-in type or Enum can't list an Interface that extends a built-in Interface
 
-Status: open
+Status: fixed in 9569165, with tests, among them lane 5's `Interface Real Extends Numeric` on Float32, in tests/programs/extend_refined_builtins
 
 Where: compiler/src/sema.cpp:2442
 
@@ -539,7 +539,7 @@ Suggested fix: In conform(), for a target that isn't a Struct or Class (or for a
 
 ## A1-10 (medium): A call is ambiguous between an unconditional Extend's default and the conditional default of an Interface refining it
 
-Status: open
+Status: fixed in 2edc43b, with tests
 
 Where: compiler/src/sema.cpp:16461
 
@@ -573,7 +573,7 @@ Suggested fix: In hide_in_place(), let a member every instance has (unconditiona
 
 ## A1-11 (medium): A ByRef default that an array type gets stays ByRef
 
-Status: open
+Status: fixed in be35790, with tests
 
 Where: compiler/src/sema.cpp:4810
 
@@ -602,7 +602,7 @@ Suggested fix: Use `method.by_ref && !is_class(type) && !is_array(type)` (and th
 
 ## A1-12 (medium): body_t and swap_body() don't swap m_locks, so a Const checked early inside a Lock gets a false Await error
 
-Status: open
+Status: fixed in cb980dd, with tests
 
 Where: compiler/src/sema.cpp:740
 
@@ -631,7 +631,7 @@ Suggested fix: Add `std::size_t locks = 0;` to body_t and swap m_locks in swap_b
 
 ## A1-13 (medium): A type parameter can share a declared type's name, against the spec
 
-Status: open
+Status: fixed in 1252d4a, with tests; Extend T[]'s T too, and spec 06 says so
 
 Where: compiler/src/sema.cpp:1343
 
@@ -660,7 +660,7 @@ Suggested fix: In add_type_parameters(), also report a name that a type the decl
 
 ## A2-4 (medium): Main-thread rules miss the ToString and Operator == that strings and element-wise == run implicitly
 
-Status: fixed in 90fa2d3, with tests
+Status: fixed in 7028f0b, with tests
 
 Where: compiler/src/sema.cpp:9184
 
@@ -970,7 +970,7 @@ Skeptic: confirmed=True, medium. `Local g = Async Function() => Await NextFrame(
 
 ## A1-14 (low): Static and ReadOnly before a Struct or Class are accepted silently
 
-Status: open
+Status: fixed in 36ab57e, with tests
 
 Where: compiler/src/sema.cpp:1194
 
@@ -986,7 +986,7 @@ Suggested fix: In declare_type(), report modifiers.is_static ("Static only goes 
 
 ## A1-15 (low): Extend of Task, Channel, Scheduler or Thread says "'Task' isn't a type"
 
-Status: open
+Status: fixed in e067177, with tests
 
 Where: compiler/src/sema.cpp:2484
 
@@ -1002,7 +1002,7 @@ Suggested fix: Extend the Atomic/Mutex/Ptr branch to cover Task, Thread, Channel
 
 ## A1-16 (low): ReadOnly on a Const says "a Local that never changes is a Const"
 
-Status: open
+Status: fixed in 36ab57e, with tests
 
 Where: compiler/src/sema.cpp:3190
 
@@ -1018,7 +1018,7 @@ Suggested fix: For a CONSTANT, say it's a Const already, for example "a Const ne
 
 ## A1-17 (low): extension_member_fits()'s comment lists rules the code no longer has
 
-Status: open
+Status: fixed in b044ab4 (a comment)
 
 Where: compiler/src/sema.cpp:2670
 
@@ -1034,7 +1034,7 @@ Suggested fix: Reword the comment to what the function checks: an Operator only 
 
 ## A1-18 (low): Misplaced and stale comments on members and in sema.hpp
 
-Status: open
+Status: fixed in b044ab4 (comments)
 
 Where: compiler/src/sema.cpp:716
 
@@ -1068,7 +1068,7 @@ Skeptic: confirmed=True, low. t24.fb (Deep<T: Sendable> recursing with Channel<T
 
 ## A2-7 (low): comparable()'s comment says == doesn't work on arrays, but the code and the spec say it does
 
-Status: fixed in cce8b20 (a comment)
+Status: fixed in e2d38b0 (a comment)
 
 Where: compiler/src/sema.cpp:10310
 
@@ -1378,13 +1378,13 @@ Skeptic: confirmed=True, low. `AddressOf(x)` for an ordinary parameter reports '
 
 ## A-new-1 (language change): Every Class is Equatable and Hashable without listing them
 
-Status: fixed in 3ac7674, with tests
+Status: fixed in 2185793, with tests
 
 From the user, through the coordinator (2026-10-23). Equatable: a Class's own Operator == if it has one (written, inherited, from an Interface's default or an Extend), else identity. Hashable: identity, unless the Class has an Operator == of its own without a Hash of its own; that Class is Equatable but not Hashable, so a Map key or Set of it is an error that says why, and listing Hashable on it stays the existing error. Structs don't change, Interfaces' values still have no ==, generic Classes and their instances get the same, a T? of a Class is Equatable and Hashable as a T? of a listed one is, and Comparable is unchanged. Specs 06, 07, and 14 change to say so, and tests/programs/equatable_objects.fb no longer lists Equatable.
 
 ## A-new-2 (medium): == on a Struct that holds an array of itself overflows the compiler's stack
 
-Status: fixed in cce8b20, with tests
+Status: fixed in e2d38b0, with tests
 
 Where: compiler/src/sema.cpp, comparable()
 
@@ -1405,3 +1405,11 @@ Status: not a bug, as spec 05 and decisions.md (rows 90 and 157) have it: resolu
 Where: compiler/src/sema.cpp, choose_overload() and rank()
 
 Found by lane 5: `noise.Fbm(x, y, 3)` between `Fbm(x: Double, y: Double, octaves: Int = 5, ...)` and `Fbm(x: Double, y: Double, z: Double, octaves: Int = 5, ...)` was ambiguous. Lane 3 found that with Double x and y the first is an exact match and wins; lane 5's x and y came from a tuple of decimal literals, which are Float32s, so both overloads needed a conversion. Lane 5's std/math/noise.fb now takes the octaves, lacunarity, and gain as a Noise's Fields, which avoids the clash.
+
+## A-new-3 (low): The Ctrl+C CLI test fails for good once any run leaves an interrupted-* folder in the temp folder
+
+Status: fixed in 401a85f, with its own check: a stale folder planted there no longer fails it
+
+Where: tests/cli/cli_tests.cpp, "Ctrl+C during fb run ends the program, and fb cleans up and gives its exit code"
+
+Found while verifying lane 1's third batch. left_behind() looks for any interrupted-* entry in the temp folder (%TEMP%/futureblitz), which every run on the machine shares. One run whose fb was stopped before cleaning up left an empty interrupted-77d925f5 there, and after that every run failed, on master and on commits that had passed it, until the folder was removed. The test now counts only folders that weren't there before its run.
