@@ -132,12 +132,33 @@ bool checksum_matches(const std::span<const std::uint8_t> header) {
 }
 
 /// The values of a pax extended header's records, "<length> <key>=<value>\n", that the reader
-/// uses: a name, a link's target, and a size.
+/// uses: a name, a link's target, and a size, and whether it's one of GNU's sparse files, with the
+/// name and the size they really have, which GNU's GNU.sparse records give.
 struct pax_t {
     std::optional<std::string> path;
     std::optional<std::string> link;
     std::optional<std::int64_t> size;
+    bool sparse = false;
+    std::optional<std::string> sparse_name;
+    std::optional<std::int64_t> sparse_size;
 };
+
+/// A record's number, or nothing when it isn't one an Int64 holds.
+std::optional<std::int64_t> number_in(const std::string_view value) {
+    if (value.empty()) {
+        return std::nullopt;
+    }
+
+    std::int64_t number = 0;
+    for (const char digit : value) {
+        if (digit < '0' || digit > '9' || number > (INT64_MAX - 9) / 10) {
+            return std::nullopt;
+        }
+
+        number = (number * 10) + (digit - '0');
+    }
+    return number;
+}
 
 /// Reads pax records into `pax`, or gives false when they aren't well-formed.
 bool read_pax(std::string_view records, pax_t& pax) {
@@ -174,16 +195,18 @@ bool read_pax(std::string_view records, pax_t& pax) {
         } else if (key == "linkpath") {
             pax.link = std::string(value);
         } else if (key == "size") {
-            std::int64_t size = 0;
-            for (const char digit : value) {
-                if (digit < '0' || digit > '9' || size > (INT64_MAX - 9) / 10) {
-                    return false;
-                }
-
-                size = (size * 10) + (digit - '0');
+            pax.size = number_in(value);
+            if (!pax.size) {
+                return false;
             }
-
-            pax.size = size;
+        } else if (key.starts_with("GNU.sparse.")) {
+            // GNU tar's sparse formats 0.0, 0.1, and 1.0, which say the file's real name and size.
+            pax.sparse = true;
+            if (key == "GNU.sparse.name") {
+                pax.sparse_name = std::string(value);
+            } else if (key == "GNU.sparse.realsize" || key == "GNU.sparse.size") {
+                pax.sparse_size = number_in(value);
+            }
         }
     }
 
@@ -257,15 +280,32 @@ std::int32_t open(reader_t& reader) {
         }
 
         const char type = static_cast<char>(header[type_at]);
-        // Links, folders, devices, and FIFOs have no bytes, whatever their size says, but pax's.
-        const bool has_bytes = type == '0' || type == '\0' || type == '7' || type == 'x' ||
-                               type == 'g' || type == 'L' || type == 'K' || type == 'S';
+        // Links, devices, FIFOs, and folders have no bytes, whatever their size says. Every other
+        // type has, as POSIX says a type it doesn't define is a file's, like GNU's 'D', a folder
+        // whose bytes list what it held, for an incremental tar.
+        const bool has_bytes =
+            type != '1' && type != '2' && type != '3' && type != '4' && type != '5' && type != '6';
+        const bool extended = type == 'x' || type == 'g' || type == 'L' || type == 'K';
         std::int64_t size = has_bytes ? *stored_size : 0;
-        if ((type == '0' || type == '\0' || type == '7' || type == 'S') && pax.size) {
+        if (has_bytes && !extended && pax.size) {
             size = *pax.size;
         }
 
-        const std::size_t data = at + block;
+        // An old GNU sparse file's map can go on in blocks after its header, before its bytes,
+        // each saying whether another follows.
+        std::size_t data = at + block;
+        if (type == 'S') {
+            bool more = header[482] != 0;
+            while (more) {
+                if (bytes.size() - data < block) {
+                    return fail(reader, RESULT_ENDS_TOO_SOON, "");
+                }
+
+                more = bytes[data + 504] != 0;
+                data += block;
+            }
+        }
+
         const std::uint64_t blocks = (static_cast<std::uint64_t>(size) + block - 1) / block;
         if (static_cast<std::uint64_t>(bytes.size() - data) / block < blocks) {
             return fail(reader, RESULT_ENDS_TOO_SOON, "");
@@ -293,7 +333,9 @@ std::int32_t open(reader_t& reader) {
         }
 
         std::string name;
-        if (pax.path) {
+        if (pax.sparse_name) {
+            name = *pax.sparse_name;
+        } else if (pax.path) {
             name = *pax.path;
         } else if (long_name) {
             name = *long_name;
@@ -311,26 +353,39 @@ std::int32_t open(reader_t& reader) {
             target = *long_link;
         }
 
+        // A sparse file's size is its whole size, which GNU's header or its pax records say.
+        const bool sparse = type == 'S' || pax.sparse;
+        std::int64_t whole = size;
+        if (pax.sparse_size) {
+            whole = *pax.sparse_size;
+        } else if (type == 'S') {
+            // A real size less than the bytes it has isn't one, as a header without it gives.
+            whole = std::max(size, number_of(header, { .at = 483, .size = 12 }).value_or(0));
+        }
+
         pax = {};
         long_name.reset();
         long_link.reset();
+        // An old tar's folder is a file's entry whose name ends with '/', as tars wrote them
+        // before ustar's type for one.
+        const bool regular = type == '0' || type == '\0' || type == '7';
         std::int32_t kind = KIND_FILE;
-        if (type == '5') {
+        if (type == '5' || type == 'D' || (regular && !sparse && name.ends_with('/'))) {
             kind = KIND_FOLDER;
         } else if (type == '1' || type == '2') {
             kind = KIND_LINK;
-        } else if (type != '0' && type != '\0' && type != '7' && type != 'S') {
-            // Devices, FIFOs, and the rest aren't entries a program reads.
+        } else if (type == '3' || type == '4' || type == '6' || type == 'V') {
+            // Devices, FIFOs, and a volume's label aren't entries a program reads.
             continue;
         }
 
         reader.entries.push_back({
             .name = without_slash(fb::compress::utf8_or_replaced(name)),
-            .size = size,
+            .size = kind == KIND_FOLDER ? 0 : whole,
             .kind = kind,
             .target = kind == KIND_LINK ? fb::compress::utf8_or_replaced(target) : "",
             .data = data,
-            .sparse = type == 'S',
+            .sparse = sparse,
         });
     }
 

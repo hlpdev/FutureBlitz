@@ -274,6 +274,47 @@ def tars():
 
     # GNU's sparse file, which the reader lists but doesn't read.
     made["sparse.tar"] = tar_header("sparse.bin", 4, b"S") + padded(b"spar") + end
+
+    # An old GNU sparse file of more than 4 regions, as GNU tar writes it: its header's map is
+    # full, its isextended byte says a block of more map follows, before its bytes, and its real
+    # size, at 483, counts the holes. A file after it reads.
+    sparse = bytearray(tar_header("many_holes.bin", 8, b"S"))
+    # GNU's own magic, without which the map's bytes would be ustar's prefix.
+    sparse[257:265] = b"ustar  " + bytes(1)
+    for i in range(4):
+        sparse[386 + i * 24:386 + i * 24 + 24] = b"%011o\0" % (i * 1024) + b"%011o\0" % 1
+    sparse[482] = 1
+    sparse[483:495] = b"%011o\0" % 65536
+    sparse[148:156] = b" " * 8
+    sparse[148:156] = b"%06o\0 " % sum(sparse)
+    # The map ends with an empty region at the file's end.
+    extension = bytearray(512)
+    for i in range(4):
+        extension[i * 24:i * 24 + 24] = b"%011o\0" % ((i + 4) * 1024) + b"%011o\0" % 1
+    extension[96:120] = b"%011o\0" % 65536 + b"%011o\0" % 0
+    made["extended.tar"] = (bytes(sparse) + bytes(extension) + padded(b"datadata") +
+                            tar_header("after.txt", 3) + padded(b"abc") + end)
+
+    # GNU's sparse file in pax's format 1.0, as `tar -S --format=pax` writes it: GNU.sparse's
+    # records, an entry named for its process, and the map in its bytes, before them.
+    records = (pax("GNU.sparse.major", "1") + pax("GNU.sparse.minor", "0") +
+               pax("GNU.sparse.name", "holes.bin") + pax("GNU.sparse.realsize", "5"))
+    made["paxsparse.tar"] = (
+        tar_header("./PaxHeaders/holes.bin", len(records), b"x") + padded(records) +
+        tar_header("./GNUSparseFile.0/holes.bin", 1024, b"0") + padded(b"1\n0\n5\n") +
+        padded(b"start") + end)
+
+    # GNU's incremental tar, which `tar --listed-incremental` writes: a 'D' folder, whose bytes
+    # list what it held, then its file. POSIX takes a type it doesn't define as a file's.
+    listing = b"Ya.txt\0\0"
+    made["incremental.tar"] = (
+        tar_header("inc/", len(listing), b"D") + padded(listing) +
+        tar_header("inc/a.txt", 6) + padded(b"hello\n") +
+        tar_header("vendor.bin", 4, b"Z") + padded(b"zzzz") + end)
+
+    # An old tar's folder, a file's entry with '/' after its name.
+    made["v7folder.tar"] = (tar_header("dir/", 0, b"\0", magic=False) +
+                            tar_header("dir/a.txt", 3, b"\0", magic=False) + padded(b"abc") + end)
     return made
 
 

@@ -57,6 +57,10 @@ old tar: old.txt (5): 5 bytes
 base-256 size: big.txt (5): 5 bytes
 links: target.txt (2): 2 bytes, link -> target.txt: 0 bytes, hard -> target.txt: 0 bytes, long-link -> a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/target.txt: 0 bytes, sized.txt (3): 3 bytes
 sparse: sparse.bin (4): OTHER: the tar data uses what isn't supported: 'sparse.bin' is a GNU sparse file
+sparse with a map's block: many_holes.bin (65536): OTHER: the tar data uses what isn't supported: 'many_holes.bin' is a GNU sparse file, after.txt (3): 3 bytes
+pax sparse: holes.bin (5): OTHER: the tar data uses what isn't supported: 'holes.bin' is a GNU sparse file
+incremental: inc/: 0 bytes, inc/a.txt (6): 6 bytes, vendor.bin (4): 4 bytes
+old tar's folder: dir/: 0 bytes, dir/a.txt (3): 3 bytes
 code page 437: café.txt (5): 5 bytes
 zip link: link -> target.txt: 0 bytes, target.txt (2): 2 bytes
 encrypted: secret.txt (18): OTHER: the zip data uses what isn't supported: 'secret.txt' is encrypted
