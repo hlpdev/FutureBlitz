@@ -66,10 +66,12 @@ Extern "C"
 End Extern
 
 // The types with a lowest and a highest value: every number type. A float's are its lowest and
-// highest finite values, not the infinities.
+// highest finite values, not the infinities. Each is a Double too, for math like a Mean.
 Public Interface Bounded
     Static Method MinValue(): Self
     Static Method MaxValue(): Self
+    // The value as a Double, rounded to the nearest one where a Long's is too large to hold.
+    Static Method DoubleValue(value: Self): Float64
 End Interface
 
 // The eight integer types, whose bits generic code works on through a UInt64.
@@ -89,7 +91,6 @@ Public Interface FloatingPoint Extends Bounded
     Static Method Epsilon(): Self
     // The Double as this type, rounded to the nearest value it holds.
     Static Method FromDouble(value: Float64): Self
-    Static Method ToDouble(value: Self): Float64
     Static Method Floor(value: Self): Self
     Static Method Ceil(value: Self): Self
     Static Method Round(value: Self): Self
@@ -122,6 +123,7 @@ End Interface
 Extend Int8 Implements Integer
     Static Method MinValue(): Int8 => -128
     Static Method MaxValue(): Int8 => 127
+    Static Method DoubleValue(value: Int8): Float64 => value As Float64
     Static Method BitWidth(): Int => 8
     Static Method LowBits(value: Int8): UInt64 => (value As UInt8) As UInt64
     Static Method FromLowBits(bits: UInt64): Int8 => bits As Int8
@@ -130,6 +132,7 @@ End Extend
 Extend Int16 Implements Integer
     Static Method MinValue(): Int16 => -32768
     Static Method MaxValue(): Int16 => 32767
+    Static Method DoubleValue(value: Int16): Float64 => value As Float64
     Static Method BitWidth(): Int => 16
     Static Method LowBits(value: Int16): UInt64 => (value As UInt16) As UInt64
     Static Method FromLowBits(bits: UInt64): Int16 => bits As Int16
@@ -138,6 +141,7 @@ End Extend
 Extend Int32 Implements Integer
     Static Method MinValue(): Int32 => -2147483648
     Static Method MaxValue(): Int32 => 2147483647
+    Static Method DoubleValue(value: Int32): Float64 => value As Float64
     Static Method BitWidth(): Int => 32
     Static Method LowBits(value: Int32): UInt64 => (value As UInt32) As UInt64
     Static Method FromLowBits(bits: UInt64): Int32 => bits As Int32
@@ -146,6 +150,7 @@ End Extend
 Extend Int64 Implements Integer
     Static Method MinValue(): Int64 => -9223372036854775808
     Static Method MaxValue(): Int64 => 9223372036854775807
+    Static Method DoubleValue(value: Int64): Float64 => value As Float64
     Static Method BitWidth(): Int => 64
     Static Method LowBits(value: Int64): UInt64 => value As UInt64
     Static Method FromLowBits(bits: UInt64): Int64 => bits As Int64
@@ -154,6 +159,7 @@ End Extend
 Extend UInt8 Implements Integer
     Static Method MinValue(): UInt8 => 0
     Static Method MaxValue(): UInt8 => 255
+    Static Method DoubleValue(value: UInt8): Float64 => value As Float64
     Static Method BitWidth(): Int => 8
     Static Method LowBits(value: UInt8): UInt64 => value
     Static Method FromLowBits(bits: UInt64): UInt8 => bits As UInt8
@@ -162,6 +168,7 @@ End Extend
 Extend UInt16 Implements Integer
     Static Method MinValue(): UInt16 => 0
     Static Method MaxValue(): UInt16 => 65535
+    Static Method DoubleValue(value: UInt16): Float64 => value As Float64
     Static Method BitWidth(): Int => 16
     Static Method LowBits(value: UInt16): UInt64 => value
     Static Method FromLowBits(bits: UInt64): UInt16 => bits As UInt16
@@ -170,6 +177,7 @@ End Extend
 Extend UInt32 Implements Integer
     Static Method MinValue(): UInt32 => 0
     Static Method MaxValue(): UInt32 => 4294967295
+    Static Method DoubleValue(value: UInt32): Float64 => value As Float64
     Static Method BitWidth(): Int => 32
     Static Method LowBits(value: UInt32): UInt64 => value
     Static Method FromLowBits(bits: UInt64): UInt32 => bits As UInt32
@@ -178,6 +186,7 @@ End Extend
 Extend UInt64 Implements Integer
     Static Method MinValue(): UInt64 => 0
     Static Method MaxValue(): UInt64 => 18446744073709551615
+    Static Method DoubleValue(value: UInt64): Float64 => value As Float64
     Static Method BitWidth(): Int => 64
     Static Method LowBits(value: UInt64): UInt64 => value
     Static Method FromLowBits(bits: UInt64): UInt64 => bits
@@ -188,7 +197,7 @@ Extend Float32 Implements FloatingPoint
     Static Method MaxValue(): Float32 => 3.4028235e38
     Static Method Epsilon(): Float32 => 1.1920929e-7
     Static Method FromDouble(value: Float64): Float32 => value As Float32
-    Static Method ToDouble(value: Float32): Float64 => value
+    Static Method DoubleValue(value: Float32): Float64 => value
     Static Method Floor(value: Float32): Float32 => floorf(value)
     Static Method Ceil(value: Float32): Float32 => ceilf(value)
     Static Method Round(value: Float32): Float32 => roundf(value)
@@ -223,7 +232,7 @@ Extend Float64 Implements FloatingPoint
     Static Method MaxValue(): Float64 => 1.7976931348623157e308
     Static Method Epsilon(): Float64 => 2.220446049250313e-16
     Static Method FromDouble(value: Float64): Float64 => value
-    Static Method ToDouble(value: Float64): Float64 => value
+    Static Method DoubleValue(value: Float64): Float64 => value
     Static Method Floor(value: Float64): Float64 => floor(value)
     Static Method Ceil(value: Float64): Float64 => ceil(value)
     Static Method Round(value: Float64): Float64 => round(value)

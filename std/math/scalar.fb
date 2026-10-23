@@ -348,7 +348,7 @@ Public Function Deg(degrees: Int): Float => (degrees * (Pi64 / 180)) As Float
 // The angle of so many degrees, in radians, the unit of every angle in std.math: Deg(22.5) is
 // Pi / 8.
 Public Function Deg<T: FloatingPoint>(degrees: T): T
-    Return T.FromDouble(T.ToDouble(degrees) * (Pi64 / 180))
+    Return T.FromDouble(T.DoubleValue(degrees) * (Pi64 / 180))
 End Function
 
 // The angle of so many radians, which is the number itself, for code that says its units, as
@@ -370,5 +370,5 @@ Public Function ToDegrees(radians: Int): Float => (radians * (180 / Pi64)) As Fl
 
 // The angle in radians, in degrees: ToDegrees(Pi) is 180.
 Public Function ToDegrees<T: FloatingPoint>(radians: T): T
-    Return T.FromDouble(T.ToDouble(radians) * (180 / Pi64))
+    Return T.FromDouble(T.DoubleValue(radians) * (180 / Pi64))
 End Function
