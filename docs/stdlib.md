@@ -66,7 +66,7 @@ So far, std/ holds:
 | std/collections/interval_tree.fb | `IntervalTree<K, V>` |
 | std/collections/spatial.fb | `SpatialHash<T>`, `QuadTree<T>`, and `Octree<T>` |
 | std/collections/immutable.fb | `ImmutableArray<T>`, `ImmutableMap<K, V>`, and `ImmutableSet<T>`, over Shared nodes |
-| std/math/numbers.fb | `Bounded`, `Integer`, and `FloatingPoint`, the Interfaces the number types implement for std.math's generic Functions, over C's libm; `MinValue<T>` and `MaxValue<T>`; a Float's and a Double's `ToBits` and `FromBits` |
+| std/math/numbers.fb | `Bounded`, `Integer`, and `FloatingPoint`, the Interfaces the number types implement for std.math's generic Functions, over C's libm, with `Bounded`'s `DoubleValue`; `MinValue<T>` and `MaxValue<T>`; a Float's and a Double's `ToBits` and `FromBits` |
 | std/math/constants.fb | `Pi`, `Tau`, `E`, and `Epsilon` as Floats, `Pi64`, `Tau64`, `E64`, and `Epsilon64` as Doubles, and `Inf` and `NaN` |
 | std/math/scalar.fb | `Abs`, `Sign`, `Floor`, `Ceil`, `Round`, `Trunc`, `Fract`, `Mod`, `Rem`, `Gcd`, `Lcm`, `IntSqrt`, `Lerp`, `InverseLerp`, `Remap`, `SmoothStep`, `Wrap`, `PingPong`, `MoveTowards`, `IsClose`, `Sqrt`, `Cbrt`, `Exp`, `Exp2`, `Log`, `Log2`, `Log10`, the trig and hyperbolic Functions, `Atan2`, `IsNaN`, `IsFinite`, `CopySign`, `Fma`, `Deg`, `Rad`, `ToRadians`, and `ToDegrees` |
 | std/math/bits.fb | std.math.bits: `PopCount`, `LeadingZeros`, `TrailingZeros`, `RotateLeft`, `RotateRight`, `ByteSwap`, `IsPowerOfTwo`, `NextPowerOfTwo`, `AlignDown`, `AlignUp`, and the integers' `SaturatingAdd`, `SaturatingSubtract`, and `SaturatingMultiply` |
@@ -75,6 +75,13 @@ So far, std/ holds:
 | std/math/matrix.fb | `Mat3` and `Mat4`, with `Transpose`, `Determinant`, `Inverse`, `TryInverse`, and `IsClose` |
 | std/math/color.fb | `Color` and `Color32`, with `Lerp` and `IsClose` |
 | std/math/geometry.fb | `Rect`, `AABB`, `Sphere`, `Ray`, `Plane`, and `Frustum` |
+| std/math/polygon.fb | `PolygonArea`, `PointInPolygon`, `ConvexHull`, `Triangulate`, `Union`, `Intersection`, `Difference`, and `Offset` |
+| std/math/curves.fb | `QuadraticBezier`, `CubicBezier`, `Hermite`, `CatmullRom`, and `BSpline`, in 2D and 3D, and `Curve2` and `Curve3` |
+| std/math/random.fb | `Random` |
+| std/math/noise.fb | `Noise` |
+| std/math/easing.fb | `EaseIn`, `EaseOut`, and `EaseInOut` of `Sine`, `Quad`, `Cubic`, `Quart`, `Quint`, `Expo`, `Circ`, `Back`, `Elastic`, and `Bounce`, as `EaseInSine` |
+| std/math/stats.fb | `Mean`, `Median`, `Variance`, `StdDev`, `PopulationVariance`, `PopulationStdDev`, `Percentile`, and `Histogram` |
+| std/math/fixed.fb | `Fixed32` and `Fixed64`, with `Sqrt`, `Sin`, and `Cos` |
 | std/algo/search.fb | `Bfs`, `BfsOrder`, `Dfs`, `DfsOrder`, `Dijkstra`, `DijkstraAll`, `AStar`, `Path<N, C>`, and `ShortestPaths<N, C>` |
 | std/algo/grid.fb | `GridNeighbors`, `GridPath`, and `FlowField` |
 | std/algo/union_find.fb | `UnionFind` |
@@ -284,8 +291,10 @@ file or URL in the default app.
 #### std.math
 
 Step 9 built the constants, the scalars, the angles, std.math.bits, the vectors, `Quat`, the
-matrices, the colors, and the shapes; the rest is planned. `Import std.math` brings in all of
-std/math/, std.math.bits too.
+matrices, the colors, and the shapes, and step 10 the polygons, curves, `Random`, noise, easing,
+stats, and fixed point, all but `Rand`, `RandInt`, `RandFloat`, `SeedRandom`, and an array's
+`Shuffle()` and `Sample()`, which wait on `ThreadLocal Global`; the rest is planned.
+`Import std.math` brings in all of std/math/, std.math.bits too.
 
 - The math is Functions, as for Floats, beside the scalar ones of their names: `Lerp(a, b, t)`,
   `Dot(a, b)`, `Length(v)`, `Normalize(v)`, `Inverse(m)`. Making a value is a Static Method of
@@ -294,10 +303,11 @@ std/math/, std.math.bits too.
 - The scalar Functions are generic over the Interfaces the number types implement, so each works
   in its arguments' type and its literals follow: `Lerp(0, 10, t)` is a Float with `t: Float`, and
   a Double with `t: Double`. `Bounded` is every number type, with `MinValue` and `MaxValue`, for
-  `MinValue<T>()`; `Integer` is the eight integer types, with their bits through a UInt64; and
-  `FloatingPoint` is Float32 and Float64, with what C's libm works out for each. Generic code of a
-  program's own takes them as constraints, as in `Where T: FloatingPoint & Numeric`. Their Static
-  Methods are for generic code; on the types themselves, the Functions are the way.
+  `MinValue<T>()`, and `DoubleValue`, a value as a Double, for math like a mean; `Integer` is the
+  eight integer types, with their bits through a UInt64; and `FloatingPoint` is Float32 and
+  Float64, with what C's libm works out for each. Generic code of a program's own takes them as
+  constraints, as in `Where T: FloatingPoint & Numeric`. Their Static Methods are for generic
+  code; on the types themselves, the Functions are the way.
 - Constants: `Pi`, `Tau`, `E`, and `Epsilon` (the gap between 1 and the next value) are Floats,
   and `Pi64`, `Tau64`, `E64`, and `Epsilon64` Doubles, since a Float widened isn't a Double's
   precision. `Inf` and `NaN` are Floats, which a Double holds the same. `MinValue<T>()` and
@@ -359,18 +369,46 @@ std/math/, std.math.bits too.
 - Geometry: `Rect` (X, Y, Width, Height), `AABB` (Min, Max), `Sphere`, `Ray`, `Plane` (Normal,
   Distance), and `Frustum` (six Planes facing in, from a view-projection matrix), with `Contains`,
   `Intersects`, and `Raycast`, which gives how far along the ray, in lengths of its Direction, 0
-  from inside, or Null for a miss. A shape holds the points on its edges. Polygons: triangulation
-  with holes, convex hull, point-in-polygon, offsetting, and union, intersection, and difference.
-- Curves: Bezier (quadratic and cubic), Catmull-Rom, Hermite, and B-splines in 2D and 3D, with
-  arc-length sampling.
-- Random: `Random(seed)` (PCG), with `Int`, `Float`, `Bool`, `Chance`, `Pick`, `WeightedPick`,
-  `Shuffle`, `Sample`, `Normal`, `InsideUnitCircle`, `UnitVector3`, `Fork`, `State`; and `Rand`,
-  `RandInt`, and `RandFloat` over a default generator per thread (a `ThreadLocal Global`),
-  seeded randomly each run until `SeedRandom(n)`.
-- Noise (Perlin, Simplex, Value, Worley, Fbm), easing (In, Out, and InOut of each curve), and
-  stats (`Mean`, `Median`, `Variance`, `StdDev`, `Percentile`, `Histogram`).
-- Fixed point: `Fixed32` (16.16) and `Fixed64` (32.32), with Operators, and `Sqrt`, `Sin`, and
-  `Cos` that give the same bits on every CPU, for lockstep multiplayer and replays.
+  from inside, or Null for a miss. A shape holds the points on its edges.
+- Polygons (polygon.fb): a ring is a `Vec2[]`, closed from its last corner to its first, and a
+  region a `Vec2[][]` of rings, filled by the nonzero rule, as SVG's, so outer rings go
+  counterclockwise and holes clockwise. `PolygonArea` (signed), `PointInPolygon` (edges count),
+  `ConvexHull` (Andrew's monotone chain), `Triangulate(outer, holes)` (Mapbox's earcut, its
+  triangles as indices into the rings one after another, counterclockwise), `Union`,
+  `Intersection`, and `Difference` of regions, and `Offset(region, distance, rounded)`, which
+  grows or shrinks one with rounded or mitered corners; the results are counterclockwise outer
+  rings and clockwise holes. The math is in Doubles.
+- Curves (curves.fb): `QuadraticBezier`, `CubicBezier`, `Hermite`, `CatmullRom`, and `BSpline`
+  points in 2D and 3D, and `Curve2` and `Curve3`, from a Function of t from 0 to 1 or as
+  `CatmullRom(points, closed)`, `BSpline(points, closed)`, and `Bezier(points)` (3n + 1 of them),
+  with `Length`, `PointAt(t)`, `PointAtDistance(d)`, and `Sample(count)`, points evenly apart
+  along the curve, from a table of lengths.
+- Random (random.fb): `Random(seed)` and `Random(seed, stream)`, PCG32, the same numbers in every
+  build and on every CPU, with `Int()`, `Int(count)`, `Int(low, high)` (both included), `Float()`
+  and `Double()` from 0 up to 1, `Float(low, high)`, `Bool`, `Chance`, `Pick`, `WeightedPick`,
+  `Shuffle` (Fisher and Yates'), `Sample` (none twice), `Normal(mean, deviation)`,
+  `InsideUnitCircle`, `UnitVector3`, `Fork`, and `State`, which saves and sets it back. Not
+  yet: `Rand`, `RandInt`, and `RandFloat` over a default generator per thread (a
+  `ThreadLocal Global`), seeded randomly each run until `SeedRandom(n)`, and an array's
+  `Shuffle()` and `Sample()` over it.
+- Noise (noise.fb): `Noise()`, from Ken Perlin's permutation, or `Noise(seed)`, with `Perlin`
+  (his improved noise), `Simplex` (Gustavson's), `Value`, and `Worley` in 2D and 3D, of Double
+  coordinates, giving Floats, and `Fbm`, octaves of Perlin noise, by its `Octaves`, `Lacunarity`,
+  and `Gain` Fields.
+- Easing (easing.fb): `EaseIn`, `EaseOut`, and `EaseInOut` of Sine, Quad, Cubic, Quart, Quint,
+  Expo, Circ, Back, Elastic, and Bounce, as easings.net has them, each from 0 at 0 to 1 at 1.
+- Stats (stats.fb), over any Bounded type, in Doubles: `Mean`, `Median`, `Variance` and `StdDev`
+  of a sample (over n - 1, as Python's statistics module), `PopulationVariance` and
+  `PopulationStdDev` (over n), `Percentile` (NumPy's, between the two nearest), and
+  `Histogram(values, bins, low, high)` and `Histogram(values, bins)`, equal ranges, the last
+  holding its high end. Too few values panic.
+- Fixed point (fixed.fb): `Fixed32` (16.16, in an Int32) and `Fixed64` (32.32, in an Int64),
+  `Numeric`, `Comparable`, `Hashable`, `Bounded`, and `Printable`, from `FromInt`, `FromDouble`,
+  `FromFloat`, or `FromRaw`, with `Raw`, `ToDouble`, `ToFloat`, `ToInt`, `ToFixed64` and
+  `ToFixed32`, `Pi`, and `Tau`; `*` and `/` round to the nearest, and `Sqrt`, `Sin`, and `Cos`
+  are correctly rounded, all in integers, so they give the same bits on every OS and CPU, for
+  lockstep multiplayer and replays. Overflow traps in debug builds and wraps in release, as an
+  Int's does.
 - Units: typed quantities like `Meters`, `Seconds`, and `MetersPerSecond`, which the compiler
   keeps apart and combines (`Meters / Seconds` is `MetersPerSecond`).
 - std.math.big: `BigInt` (libtommath), `Decimal` (mpdecimal), `Rational`, `Complex`.
