@@ -30,8 +30,10 @@ target_compile_definitions(fb_compiler_tests PRIVATE
   FB_TEST_DATA="${CMAKE_CURRENT_SOURCE_DIR}/data"
   FB_TEST_VECMATH="$<TARGET_FILE:fb_vecmath>"
   FB_TEST_OUTPUT="${CMAKE_CURRENT_BINARY_DIR}/programs"
-  FB_TEST_COMPILE_COMMANDS="${CMAKE_BINARY_DIR}/compile_commands.json")
-add_dependencies(fb_compiler_tests ${FB_RUNTIME_ARCHIVES} fb_vecmath) # programs link them
+  FB_TEST_COMPILE_COMMANDS="${CMAKE_BINARY_DIR}/compile_commands.json"
+  FB_TEST_HTTP_SERVER="$<TARGET_FILE:fb_http_test_server>")
+# Programs link the archives; http_ programs run under the HTTP test server.
+add_dependencies(fb_compiler_tests ${FB_RUNTIME_ARCHIVES} fb_vecmath fb_http_test_server)
 fb_set_warnings(fb_compiler_tests)
 fb_set_stack(fb_compiler_tests)
 fb_copy_llvm(fb_compiler_tests)
