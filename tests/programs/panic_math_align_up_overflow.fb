@@ -1,0 +1,7 @@
+// AlignUp panics where it's called for a multiple too large for the type.
+Import std.core
+Import std.math
+
+Local big: UInt8 = 250
+Print(AlignUp(big, 2))
+Print(AlignUp(big, 8))

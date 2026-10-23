@@ -1,0 +1,80 @@
+// std.math.bits on every integer type: a signed one's bits are its two's complement, so they count
+// and move as its unsigned twin's do.
+Import std.core
+Import std.math
+
+Local minusOne: Int8 = -1
+Local high: UInt8 = 0x81
+Local pair: UInt16 = 0x1122
+Local signedPair: Int16 = -2
+Local word: UInt32 = 0x80000001
+Local long: Int64 = 0x0102030405060708
+Local mask: UInt64 = 0xF000000000000001
+
+// Counting bits.
+Print(PopCount(0), PopCount(255), PopCount(minusOne), PopCount(high), PopCount(signedPair))
+Print(PopCount(word), PopCount(-1), PopCount(mask), PopCount(MaxValue<UInt64>()),
+      PopCount(MinValue<Long>()))
+Print(LeadingZeros(0), LeadingZeros(1), LeadingZeros(-1), LeadingZeros(minusOne),
+      LeadingZeros(high))
+Print(LeadingZeros(pair), LeadingZeros(word), LeadingZeros(long), LeadingZeros(mask),
+      LeadingZeros(0 As UInt8))
+Print(TrailingZeros(0), TrailingZeros(8), TrailingZeros(-8), TrailingZeros(minusOne),
+      TrailingZeros(high))
+Print(TrailingZeros(0 As UInt16), TrailingZeros(MinValue<Long>()), TrailingZeros(mask),
+      TrailingZeros(0 As UInt64))
+
+// Rotating: what goes past one end comes in at the other, and a count goes around the width.
+Print(RotateLeft(word, 1), RotateLeft(word, 4), RotateLeft(word, 32), RotateLeft(word, 33),
+      RotateLeft(word, -1))
+Print(RotateRight(word, 1), RotateRight(word, -1), RotateRight(word, 0), RotateLeft(high, 1),
+      RotateRight(high, 1))
+Print(RotateLeft(minusOne, 3), RotateLeft(signedPair, 1), RotateRight(1, 1), RotateLeft(mask, 4),
+      RotateRight(mask, 4))
+Print(RotateLeft(long, 8), RotateRight(long, 8), RotateLeft(pair, 8),
+      RotateLeft(MinValue<Int>(), 1))
+
+// Swapping bytes, as from little-endian to big-endian and back.
+Print(ByteSwap(pair), ByteSwap(word), ByteSwap(0x11223344), ByteSwap(long),
+      ByteSwap(ByteSwap(long)))
+Print(ByteSwap(high), ByteSwap(minusOne), ByteSwap(signedPair), ByteSwap(mask),
+      ByteSwap(1 As UInt64))
+
+// Powers of two, and aligning to them.
+Print(IsPowerOfTwo(1), IsPowerOfTwo(64), IsPowerOfTwo(0), IsPowerOfTwo(6), IsPowerOfTwo(-8))
+Print(IsPowerOfTwo(MinValue<Int>()), IsPowerOfTwo(high), IsPowerOfTwo(0x80 As UInt8),
+      IsPowerOfTwo(MinValue<Long>()))
+Print(NextPowerOfTwo(0), NextPowerOfTwo(1), NextPowerOfTwo(2), NextPowerOfTwo(5),
+      NextPowerOfTwo(64), NextPowerOfTwo(65))
+Print(NextPowerOfTwo(-5), NextPowerOfTwo(0x40000000), NextPowerOfTwo(0x81 As UInt8 - 2),
+      NextPowerOfTwo(word - 2))
+Print(NextPowerOfTwo(0x8000000000000000 As UInt64), NextPowerOfTwo(1000 As Int64))
+Print(AlignDown(13, 8), AlignDown(16, 8), AlignDown(0, 8), AlignDown(-5, 4), AlignDown(-8, 4),
+      AlignDown(7, 1))
+Print(AlignUp(13, 8), AlignUp(16, 8), AlignUp(0, 8), AlignUp(-5, 4), AlignUp(1, 4096),
+      AlignUp(100 As Int64, 64))
+Print(AlignUp(high, 2), AlignDown(high, 0x40 As UInt8), AlignUp(word, 1),
+      AlignDown(MaxValue<UInt64>(), 0x1000))
+
+// Saturating arithmetic: the lowest or highest value in place of an overflow.
+Local a: Int8 = 100
+Local b: Int8 = -100
+Print(a.SaturatingAdd(100), a.SaturatingAdd(-100), b.SaturatingAdd(-100), a.SaturatingAdd(27))
+Print(a.SaturatingSubtract(-100), b.SaturatingSubtract(100), a.SaturatingSubtract(100))
+Print(a.SaturatingMultiply(2), a.SaturatingMultiply(-2), b.SaturatingMultiply(-2),
+      b.SaturatingMultiply(1))
+Local c: Int16 = 30000
+Local d: Int32 = 2000000000
+Local e: Int64 = MaxValue<Long>()
+Print(c.SaturatingAdd(c), c.SaturatingMultiply(-2), d.SaturatingAdd(d), d.SaturatingSubtract(-d),
+      e.SaturatingAdd(1))
+Print(e.SaturatingMultiply(e), (-e).SaturatingSubtract(2), MinValue<Long>().SaturatingMultiply(-1))
+Local f: UInt8 = 200
+Local g: UInt16 = 60000
+Local h: UInt32 = 4000000000
+Local i: UInt64 = MaxValue<UInt64>()
+Print(f.SaturatingAdd(100), f.SaturatingAdd(55), f.SaturatingSubtract(201),
+      f.SaturatingSubtract(200), f.SaturatingMultiply(2))
+Print(g.SaturatingAdd(g), g.SaturatingSubtract(60001), h.SaturatingMultiply(2), h.SaturatingAdd(1),
+      i.SaturatingAdd(1))
+Print(i.SaturatingMultiply(2), i.SaturatingSubtract(i), (0 As UInt64).SaturatingSubtract(1))

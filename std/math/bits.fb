@@ -1,0 +1,241 @@
+// std.math.bits: an integer's bits, counted, rotated, swapped, and aligned, for any integer type,
+// and saturating arithmetic beside the Checked and Wrapping Methods the integers have. A signed
+// integer's bits are its two's complement: PopCount of an Int8 -1 is 8.
+
+Import std.core
+Import std.math.numbers
+Import std.math.scalar
+
+// How many of the bits are 1, by adding them up in pairs, then fours, then bytes.
+Function PopCount64(bits: UInt64): Int
+    Local x = bits - ((bits >> 1) & 0x5555555555555555)
+    x = (x & 0x3333333333333333) + ((x >> 2) & 0x3333333333333333)
+    x = (x + (x >> 4)) & 0x0F0F0F0F0F0F0F0F
+    Return (x.WrappingMultiply(0x0101010101010101) >> 56) As Int
+End Function
+
+// How many 0 bits are above the highest 1, which is every bit below it set, then counted.
+Function LeadingZeros64(bits: UInt64): Int
+    Local x = bits
+    x |= x >> 1
+    x |= x >> 2
+    x |= x >> 4
+    x |= x >> 8
+    x |= x >> 16
+    x |= x >> 32
+    Return 64 - PopCount64(x)
+End Function
+
+// The bytes in the other order.
+Function ByteSwap64(bits: UInt64): UInt64
+    Local x = ((bits & 0x00FF00FF00FF00FF) << 8) | ((bits >> 8) & 0x00FF00FF00FF00FF)
+    x = ((x & 0x0000FFFF0000FFFF) << 16) | ((x >> 16) & 0x0000FFFF0000FFFF)
+    Return (x << 32) | (x >> 32)
+End Function
+
+// How many of the value's bits are 1.
+Public Function PopCount<T: Integer>(value: T): Int => PopCount64(T.LowBits(value))
+
+// How many 0 bits are above the highest 1: all of them for 0.
+Public Function LeadingZeros<T: Integer>(value: T): Int
+    Return LeadingZeros64(T.LowBits(value)) - (64 - T.BitWidth())
+End Function
+
+// How many 0 bits are below the lowest 1: all of them for 0.
+Public Function TrailingZeros<T: Integer>(value: T): Int
+    Local bits = T.LowBits(value)
+    If bits == 0 Then Return T.BitWidth()
+    // The lowest 1 alone, less 1, is a 1 for each 0 below it.
+    Return PopCount64((bits & bits.WrappingNegate()) - 1)
+End Function
+
+// The bits moved count places up, those that go past the top coming in at the bottom. A
+// negative count rotates down, and one past the type's width goes around.
+Public Function RotateLeft<T: Integer>(value: T, count: Int): T
+    Local width = T.BitWidth()
+    Local shift = Mod(count, width)
+    If shift == 0 Then Return value
+    Local bits = T.LowBits(value)
+    Return T.FromLowBits((bits << shift) | (bits >> (width - shift)))
+End Function
+
+// The bits moved count places down, those that go past the bottom coming in at the top. A
+// negative count rotates up, and one past the type's width goes around.
+Public Function RotateRight<T: Integer>(value: T, count: Int): T
+    Return RotateLeft(value, -Mod(count, T.BitWidth()))
+End Function
+
+// The value's bytes in the other order, as from little-endian to big-endian.
+Public Function ByteSwap<T: Integer>(value: T): T
+    Return T.FromLowBits(ByteSwap64(T.LowBits(value)) >> (64 - T.BitWidth()))
+End Function
+
+// Whether the value is a power of two: 1, 2, 4, and so on.
+Public Function IsPowerOfTwo<T>(value: T): Bool
+    Where T: Integer & Numeric & Comparable
+    Return value > T.Zero() && PopCount64(T.LowBits(value)) == 1
+End Function
+
+// The smallest power of two that isn't below the value: 1 for 1 and below. One too large for the
+// type panics.
+@PanicsAtCaller
+Public Function NextPowerOfTwo<T>(value: T): T
+    Where T: Integer & Numeric & Comparable & Printable
+    If value <= T.One() Then Return T.One()
+    Local shift = 64 - LeadingZeros64(T.LowBits(value - T.One()))
+    If shift == 64 || ((1 As UInt64) << shift) > T.LowBits(T.MaxValue())
+        Panic("the next power of two from {value} is too large for its type")
+    End If
+    Return T.FromLowBits((1 As UInt64) << shift)
+End Function
+
+// The value rounded down to a multiple of alignment, a power of two: AlignDown(13, 8) is 8, and
+// AlignDown(-5, 4) is -8. Any other alignment panics.
+@PanicsAtCaller
+Public Function AlignDown<T>(value: T, alignment: T): T
+    Where T: Integer & Numeric & Comparable & Printable
+    If !IsPowerOfTwo(alignment)
+        Panic("AlignDown takes an alignment that's a power of two, not {alignment}")
+    End If
+    Return T.FromLowBits(T.LowBits(value) & ~(T.LowBits(alignment) - 1))
+End Function
+
+// The value rounded up to a multiple of alignment, a power of two: AlignUp(13, 8) is 16. Any
+// other alignment panics, and so does a multiple too large for the type.
+@PanicsAtCaller
+Public Function AlignUp<T>(value: T, alignment: T): T
+    Where T: Integer & Numeric & Comparable & Printable
+    If !IsPowerOfTwo(alignment)
+        Panic("AlignUp takes an alignment that's a power of two, not {alignment}")
+    End If
+    Local step = alignment - T.One()
+    If value > T.MaxValue() - step
+        Panic("AlignUp of {value} to {alignment} is too large for its type")
+    End If
+    Return T.FromLowBits(T.LowBits(value + step) & ~T.LowBits(step))
+End Function
+
+// What a Checked Method gave, or the type's lowest or highest value in place of an overflow.
+Function Saturated<T: Bounded>(result: T?, low: Bool): T
+    Return result ?? (low ? T.MinValue() : T.MaxValue())
+End Function
+
+Extend Int8
+    // The sum, or the lowest or highest Int8 in place of an overflow.
+    Public Method SaturatingAdd(other: Int8): Int8 => Saturated(CheckedAdd(other), other < 0)
+
+    // The difference, or the lowest or highest Int8 in place of an overflow.
+    Public Method SaturatingSubtract(other: Int8): Int8
+        Return Saturated(CheckedSubtract(other), other > 0)
+    End Method
+
+    // The product, or the lowest or highest Int8 in place of an overflow.
+    Public Method SaturatingMultiply(other: Int8): Int8
+        Return Saturated(CheckedMultiply(other), (Self < 0) != (other < 0))
+    End Method
+End Extend
+
+Extend Int16
+    // The sum, or the lowest or highest Int16 in place of an overflow.
+    Public Method SaturatingAdd(other: Int16): Int16 => Saturated(CheckedAdd(other), other < 0)
+
+    // The difference, or the lowest or highest Int16 in place of an overflow.
+    Public Method SaturatingSubtract(other: Int16): Int16
+        Return Saturated(CheckedSubtract(other), other > 0)
+    End Method
+
+    // The product, or the lowest or highest Int16 in place of an overflow.
+    Public Method SaturatingMultiply(other: Int16): Int16
+        Return Saturated(CheckedMultiply(other), (Self < 0) != (other < 0))
+    End Method
+End Extend
+
+Extend Int32
+    // The sum, or the lowest or highest Int32 in place of an overflow.
+    Public Method SaturatingAdd(other: Int32): Int32 => Saturated(CheckedAdd(other), other < 0)
+
+    // The difference, or the lowest or highest Int32 in place of an overflow.
+    Public Method SaturatingSubtract(other: Int32): Int32
+        Return Saturated(CheckedSubtract(other), other > 0)
+    End Method
+
+    // The product, or the lowest or highest Int32 in place of an overflow.
+    Public Method SaturatingMultiply(other: Int32): Int32
+        Return Saturated(CheckedMultiply(other), (Self < 0) != (other < 0))
+    End Method
+End Extend
+
+Extend Int64
+    // The sum, or the lowest or highest Int64 in place of an overflow.
+    Public Method SaturatingAdd(other: Int64): Int64 => Saturated(CheckedAdd(other), other < 0)
+
+    // The difference, or the lowest or highest Int64 in place of an overflow.
+    Public Method SaturatingSubtract(other: Int64): Int64
+        Return Saturated(CheckedSubtract(other), other > 0)
+    End Method
+
+    // The product, or the lowest or highest Int64 in place of an overflow.
+    Public Method SaturatingMultiply(other: Int64): Int64
+        Return Saturated(CheckedMultiply(other), (Self < 0) != (other < 0))
+    End Method
+End Extend
+
+Extend UInt8
+    // The sum, or the lowest or highest UInt8 in place of an overflow.
+    Public Method SaturatingAdd(other: UInt8): UInt8 => Saturated(CheckedAdd(other), other < 0)
+
+    // The difference, or the lowest or highest UInt8 in place of an overflow.
+    Public Method SaturatingSubtract(other: UInt8): UInt8
+        Return Saturated(CheckedSubtract(other), other > 0)
+    End Method
+
+    // The product, or the lowest or highest UInt8 in place of an overflow.
+    Public Method SaturatingMultiply(other: UInt8): UInt8
+        Return Saturated(CheckedMultiply(other), (Self < 0) != (other < 0))
+    End Method
+End Extend
+
+Extend UInt16
+    // The sum, or the lowest or highest UInt16 in place of an overflow.
+    Public Method SaturatingAdd(other: UInt16): UInt16 => Saturated(CheckedAdd(other), other < 0)
+
+    // The difference, or the lowest or highest UInt16 in place of an overflow.
+    Public Method SaturatingSubtract(other: UInt16): UInt16
+        Return Saturated(CheckedSubtract(other), other > 0)
+    End Method
+
+    // The product, or the lowest or highest UInt16 in place of an overflow.
+    Public Method SaturatingMultiply(other: UInt16): UInt16
+        Return Saturated(CheckedMultiply(other), (Self < 0) != (other < 0))
+    End Method
+End Extend
+
+Extend UInt32
+    // The sum, or the lowest or highest UInt32 in place of an overflow.
+    Public Method SaturatingAdd(other: UInt32): UInt32 => Saturated(CheckedAdd(other), other < 0)
+
+    // The difference, or the lowest or highest UInt32 in place of an overflow.
+    Public Method SaturatingSubtract(other: UInt32): UInt32
+        Return Saturated(CheckedSubtract(other), other > 0)
+    End Method
+
+    // The product, or the lowest or highest UInt32 in place of an overflow.
+    Public Method SaturatingMultiply(other: UInt32): UInt32
+        Return Saturated(CheckedMultiply(other), (Self < 0) != (other < 0))
+    End Method
+End Extend
+
+Extend UInt64
+    // The sum, or the lowest or highest UInt64 in place of an overflow.
+    Public Method SaturatingAdd(other: UInt64): UInt64 => Saturated(CheckedAdd(other), other < 0)
+
+    // The difference, or the lowest or highest UInt64 in place of an overflow.
+    Public Method SaturatingSubtract(other: UInt64): UInt64
+        Return Saturated(CheckedSubtract(other), other > 0)
+    End Method
+
+    // The product, or the lowest or highest UInt64 in place of an overflow.
+    Public Method SaturatingMultiply(other: UInt64): UInt64
+        Return Saturated(CheckedMultiply(other), (Self < 0) != (other < 0))
+    End Method
+End Extend

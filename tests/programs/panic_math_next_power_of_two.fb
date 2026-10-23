@@ -1,0 +1,7 @@
+// NextPowerOfTwo panics where it's called for a value whose next power of two is too large for its
+// type.
+Import std.core
+Import std.math
+
+Print(NextPowerOfTwo(0x40000000))
+Print(NextPowerOfTwo(0x40000001))

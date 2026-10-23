@@ -1,0 +1,6 @@
+// AlignUp takes an alignment that's a power of two, which panics where it's called.
+Import std.core
+Import std.math
+
+Print(AlignUp(13, 1))
+Print(AlignUp(13, 0))

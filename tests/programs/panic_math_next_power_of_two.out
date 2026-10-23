@@ -1,0 +1,2 @@
+1073741824
+panic: the next power of two from 1073741825 is too large for its type at panic_math_next_power_of_two.fb:7:7

@@ -1,0 +1,6 @@
+// AlignDown takes an alignment that's a power of two, which panics where it's called.
+Import std.core
+Import std.math
+
+Print(AlignDown(13, 1))
+Print(AlignDown(13, 6))
