@@ -3,6 +3,7 @@
 #include "fb/process.hpp"
 
 #include <algorithm>
+#include <array>
 #include <catch2/catch_test_macros.hpp>
 #include <chrono>
 #include <condition_variable>
@@ -30,7 +31,6 @@
 #endif
 #include <windows.h>
 #else
-#include <array>
 #include <fcntl.h>
 #include <unistd.h>
 #endif
@@ -39,7 +39,8 @@
 // must match <name>.out. The modules it imports by path are in tests/programs/<name>/. A name
 // starting with "panic_" must exit with a panic (code 101), one starting with "uncaught_" must
 // let an error out of its top-level code (code 1), and one starting with "release_" is built in
-// release mode.
+// release mode. One starting with "http_", after any "release_", runs under tests/native's HTTP
+// test server, whose URLs and test CA are the first lines of its input.
 
 namespace {
 
@@ -115,7 +116,17 @@ std::expected<fb::process_result_t, std::string> build_and_run(const std::filesy
     const std::optional<std::string> input =
         std::filesystem::exists(input_file) ? std::optional(read_file(input_file)) : std::nullopt;
     const fb::mir_module_t module = fb::lower(compilation.ast, compilation.analysis);
+    const std::string name = source.stem().string();
+    const std::string_view release = "release_";
+    const bool http = std::string_view(name)
+                          .substr(name.starts_with(release) ? release.size() : 0)
+                          .starts_with("http_");
     return fb::build_program(module, compilation, program, mode).and_then([&] {
+        if (http) {
+            const std::array arguments{ program.string() };
+            return fb::run_process(FB_TEST_HTTP_SERVER, arguments, input.value_or(""));
+        }
+
         return fb::run_process(program, {}, input);
     });
 }
