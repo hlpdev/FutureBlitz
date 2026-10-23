@@ -1,0 +1,2 @@
+1.4142135623730951
+panic: StdDev takes at least 2 values, not 1 at panic_math_stats_std_dev.fb:6:7

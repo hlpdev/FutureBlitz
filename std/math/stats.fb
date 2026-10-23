@@ -74,7 +74,10 @@ End Function
 // The standard deviation of a sample: the square root of its Variance. Fewer than two values
 // panics.
 @PanicsAtCaller
-Public Function StdDev<T: Bounded>(values: T[]): Double => Sqrt(Variance(values))
+Public Function StdDev<T: Bounded>(values: T[]): Double
+    CheckCount("StdDev", values.Count, 2)
+    Return Sqrt(Variance(values))
+End Function
 
 // The variance of the values as the whole population: the squared differences from the mean over
 // the count. No values panics.
@@ -88,6 +91,7 @@ End Function
 // PopulationVariance. No values panics.
 @PanicsAtCaller
 Public Function PopulationStdDev<T: Bounded>(values: T[]): Double
+    CheckCount("PopulationStdDev", values.Count, 1)
     Return Sqrt(PopulationVariance(values))
 End Function
 

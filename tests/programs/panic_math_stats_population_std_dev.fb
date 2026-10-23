@@ -1,0 +1,7 @@
+// PopulationStdDev takes at least one value, which panics where it's called.
+Import std.core
+Import std.math
+
+Local none: Int[] = []
+Print(PopulationStdDev([7]))
+Print(PopulationStdDev(none))
