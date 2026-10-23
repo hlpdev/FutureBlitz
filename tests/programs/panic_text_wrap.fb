@@ -1,0 +1,6 @@
+// WordWrap panics at a width below 1, where it's called.
+Import std.core
+Import std.text.layout
+
+Print("one two".WordWrap(3))
+Print("one two".WordWrap(0))
