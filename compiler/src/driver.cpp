@@ -1297,7 +1297,7 @@ private:
         if (extension_is(written, ".so") || extension_is(written, ".dylib") ||
             extension_is(written, ".dll")) {
             fail(native.path_span,
-                 "\"{}\" is a dynamic library, and [native] links those in M8; link a static "
+                 "\"{}\" is a dynamic library, and [native] links those in M7; link a static "
                  "archive, like \"libs/{}\"",
                  native.path, to_utf8(written.stem()));
             return;

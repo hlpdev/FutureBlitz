@@ -100,7 +100,7 @@ TEST_CASE("a dependency is a local package's folder for now", "[manifest]") {
     const std::string_view project = "[project]\nname = \"game\"\nversion = \"0.1.0\"\n";
     CHECK(read(std::format("{}[dependencies]\nphysics = \"1.2\"\n", project)).diagnostics ==
           diagnostics_t{ "error: \"1.2\": versioned dependencies come with the package manager "
-                         "in M7; give the package's folder, like physics = { path = "
+                         "in M8; give the package's folder, like physics = { path = "
                          "\"../physics\" }" });
     CHECK(read(std::format("{}[dependencies]\nphysics = {{ version = \"1.2\" }}\n", project))
               .diagnostics ==
@@ -149,7 +149,7 @@ TEST_CASE("[native] names static archives and system libraries", "[manifest]") {
         return read(std::format("{}[native]\n{}", project, natives_text)).diagnostics;
     };
     CHECK(errors("sdl = { dynamic = \"SDL3\" }\n") ==
-          diagnostics_t{ "error: dynamic: dynamic libraries come in M8; link it statically, like "
+          diagnostics_t{ "error: dynamic: dynamic libraries come in M7; link it statically, like "
                          "sdl = \"libs/sdl\"" });
     CHECK(errors("x = { static = \"libs/x\", system = \"x\" }\n") ==
           diagnostics_t{ "error: system: a native library is static or system, not both" });

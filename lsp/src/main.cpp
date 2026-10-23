@@ -1,2 +1,2 @@
-// Placeholder: the language server arrives in M7.
+// Placeholder: the language server arrives in M8.
 int main() {}

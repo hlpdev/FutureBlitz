@@ -1512,7 +1512,7 @@ TEST_CASE("a package links its [native] libraries and its dependencies', in orde
     const std::string junk = "c/project.toml: \"junk\": \"junk\" names junk.a, which isn't a "
                              "static library: it doesn't start as an archive does";
     const std::string dynamic = "c/project.toml: \"libs/x.so\": \"libs/x.so\" is a dynamic "
-                                "library, and [native] links those in M8; link a static archive, "
+                                "library, and [native] links those in M7; link a static archive, "
                                 "like \"libs/x\"";
     const std::string folder =
         R"(c/project.toml: "libs/folder.a": "libs/folder.a" is a folder, not a static library)";

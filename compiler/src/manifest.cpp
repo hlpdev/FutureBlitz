@@ -276,7 +276,7 @@ private:
 
             if (value.is_string()) {
                 fail(span_of(value.source()),
-                     "versioned dependencies come with the package manager in M7; give the "
+                     "versioned dependencies come with the package manager in M8; give the "
                      "package's folder, like {} = {{ path = \"../{}\" }}",
                      name, name);
                 continue;
@@ -408,7 +408,7 @@ private:
             kind = written;
             if (written == "dynamic") {
                 fail(span_of(detail->source()),
-                     "dynamic libraries come in M8; link it statically, like {} = \"libs/{}\"",
+                     "dynamic libraries come in M7; link it statically, like {} = \"libs/{}\"",
                      name, name);
                 failed = true;
                 continue;
