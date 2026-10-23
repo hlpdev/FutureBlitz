@@ -80,9 +80,14 @@ Public Struct Rect Implements Equatable, Printable
         Return FromCorners(vector.Min(Min, other.Min), vector.Max(Max, other.Max))
     End Method
 
-    // The rectangle with each edge moved out by amount, or in by a negative one.
+    // The rectangle with each edge moved out by amount, or in by a negative one. Shrunk past
+    // nothing, a side is 0 long, at the center.
     Public Method Grow(amount: Float): Rect
-        Return Rect(X - amount, Y - amount, Width + amount * 2, Height + amount * 2)
+        Local width = Width + amount * 2
+        Local height = Height + amount * 2
+        Return Rect(width < 0 ? X + Width / 2 : X - amount,
+                    height < 0 ? Y + Height / 2 : Y - amount, width < 0 ? 0 : width,
+                    height < 0 ? 0 : height)
     End Method
 
     Public Method ToString(): String => "Rect({X}, {Y}, {Width}, {Height})"
@@ -174,10 +179,17 @@ Public Struct AABB Implements Equatable, Printable
     // The smallest box that holds this one and the point.
     Public Method Union(point: Vec3): AABB => AABB(vector.Min(Min, point), vector.Max(Max, point))
 
-    // The box with each face moved out by amount, or in by a negative one.
+    // The box with each face moved out by amount, or in by a negative one. Shrunk past nothing, an
+    // axis is 0 long, at the center.
     Public Method Grow(amount: Float): AABB
         Local step = Vec3(amount, amount, amount)
-        Return AABB(Min - step, Max + step)
+        Local low = Min - step
+        Local high = Max + step
+        Local center = Center
+        Return AABB(Vec3(low.x > high.x ? center.x : low.x, low.y > high.y ? center.y : low.y,
+                         low.z > high.z ? center.z : low.z),
+                    Vec3(low.x > high.x ? center.x : high.x, low.y > high.y ? center.y : high.y,
+                         low.z > high.z ? center.z : high.z))
     End Method
 
     // The smallest box that holds this one transformed by the matrix, as an object's box is
