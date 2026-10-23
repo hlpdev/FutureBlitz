@@ -1,0 +1,261 @@
+// BigInt: an integer of any size, over libtommath, which never changes once it's made. Its
+// operators are an Int's, without overflow: / rounds toward 0, % takes the sign of what's
+// divided, >> rounds down, and &, |, ^, and ~ work on two's complement, as wide as the numbers
+// need. An Int64 on either side of one works too, so n + 1 and 2 * n do. A BigInt stays on its
+// thread, so ToString and Parse are how one goes to another.
+
+Import std.core
+
+Extern "runtime"
+    Function fb_bigint_from_int(value: Int64): Ptr<Void>
+    Function fb_bigint_from_double(value: Double): Ptr<Void>
+    Function fb_bigint_parse(text: String, radix: Int32): Ptr<Void>
+    Function fb_bigint_from_bytes(bytes: UInt8[]): Ptr<Void>
+    Function fb_bigint_free(a: Ptr<Void>)
+    Function fb_bigint_to_string(a: Ptr<Void>, radix: Int32): String
+    Function fb_bigint_to_bytes(a: Ptr<Void>, output: UInt8[])
+    Function fb_bigint_fits_int64(a: Ptr<Void>): Int32
+    Function fb_bigint_to_int64(a: Ptr<Void>): Int64
+    Function fb_bigint_to_double(a: Ptr<Void>): Double
+    Function fb_bigint_hash(a: Ptr<Void>): UInt64
+    Function fb_bigint_compare(a: Ptr<Void>, b: Ptr<Void>): Int32
+    Function fb_bigint_sign(a: Ptr<Void>): Int32
+    Function fb_bigint_bit_length(a: Ptr<Void>): Int64
+    Function fb_bigint_add(a: Ptr<Void>, b: Ptr<Void>): Ptr<Void>
+    Function fb_bigint_subtract(a: Ptr<Void>, b: Ptr<Void>): Ptr<Void>
+    Function fb_bigint_multiply(a: Ptr<Void>, b: Ptr<Void>): Ptr<Void>
+    Function fb_bigint_divide(a: Ptr<Void>, b: Ptr<Void>): Ptr<Void>
+    Function fb_bigint_remainder(a: Ptr<Void>, b: Ptr<Void>): Ptr<Void>
+    Function fb_bigint_negate(a: Ptr<Void>): Ptr<Void>
+    Function fb_bigint_abs(a: Ptr<Void>): Ptr<Void>
+    Function fb_bigint_and(a: Ptr<Void>, b: Ptr<Void>): Ptr<Void>
+    Function fb_bigint_or(a: Ptr<Void>, b: Ptr<Void>): Ptr<Void>
+    Function fb_bigint_xor(a: Ptr<Void>, b: Ptr<Void>): Ptr<Void>
+    Function fb_bigint_not(a: Ptr<Void>): Ptr<Void>
+    Function fb_bigint_shift_left(a: Ptr<Void>, count: Int64): Ptr<Void>
+    Function fb_bigint_shift_right(a: Ptr<Void>, count: Int64): Ptr<Void>
+    Function fb_bigint_power(a: Ptr<Void>, exponent: Int64): Ptr<Void>
+    Function fb_bigint_mod_power(base: Ptr<Void>, exponent: Ptr<Void>, modulus: Ptr<Void>): Ptr<Void>
+    Function fb_bigint_mod_inverse(a: Ptr<Void>, modulus: Ptr<Void>): Ptr<Void>
+    Function fb_bigint_gcd(a: Ptr<Void>, b: Ptr<Void>): Ptr<Void>
+    Function fb_bigint_lcm(a: Ptr<Void>, b: Ptr<Void>): Ptr<Void>
+    Function fb_bigint_sqrt(a: Ptr<Void>): Ptr<Void>
+    Function fb_bigint_is_probable_prime(a: Ptr<Void>): Int32
+End Extern
+
+Public Class BigInt Implements Comparable, Hashable, Printable, Numeric
+    Field State: Ptr<Void>
+
+    Public New(value: Int64)
+        State = fb_bigint_from_int(value)
+    End New
+
+    // One the runtime made, which it owns from now on.
+    New(state: Ptr<Void>)
+        State = state
+    End New
+
+    Public Static Method Zero(): BigInt => BigInt(0)
+    Public Static Method One(): BigInt => BigInt(1)
+
+    // The Double's whole part, as it is without what's after the point. A NaN or an infinity
+    // panics.
+    @PanicsAtCaller
+    Public Static Method FromDouble(value: Double): BigInt
+        // Only a finite Double less itself is 0.
+        If value - value != 0.0 Then Panic("a BigInt is a whole number, not {value}")
+        Return BigInt(fb_bigint_from_double(value))
+    End Method
+
+    // The integer the bytes are, big-endian, which is 0 or more.
+    Public Static Method FromBytes(bytes: UInt8[]): BigInt => BigInt(fb_bigint_from_bytes(bytes))
+
+    // The integer the text is in the radix: a sign or none, then one or more digits, those past 9
+    // letters of either case, as "-ff" is -255 in 16. Other text is Null, and a radix outside 2
+    // to 36 panics.
+    @PanicsAtCaller
+    Public Static Method Parse(text: String, radix: Int = 10): BigInt?
+        CheckRadix(radix)
+        Local state = fb_bigint_parse(text, radix)
+        If state == Null Then Return Null
+        Return BigInt(state)
+    End Method
+
+    // Its digits in base 10, after a "-" below 0.
+    Public Method ToString(): String => fb_bigint_to_string(State, 10)
+
+    // Its digits in the radix, those past 9 lowercase letters, after a "-" below 0. A radix
+    // outside 2 to 36 panics.
+    @PanicsAtCaller
+    Public Method ToString(radix: Int): String
+        CheckRadix(radix)
+        Return fb_bigint_to_string(State, radix)
+    End Method
+
+    // Its bytes, big-endian, as few as hold it, so 0 has none. One below 0 panics.
+    @PanicsAtCaller
+    Public Method ToBytes(): UInt8[]
+        If Sign < 0 Then Panic("ToBytes gives the bytes of a BigInt 0 or more, not {Self}")
+        Local bytes: UInt8[] = []
+        fb_bigint_to_bytes(State, bytes)
+        Return bytes
+    End Method
+
+    // It as an Int64, or Null outside an Int64's range.
+    Public Method ToInt64(): Int64?
+        If fb_bigint_fits_int64(State) == 0 Then Return Null
+        Return fb_bigint_to_int64(State)
+    End Method
+
+    // The Double nearest it, ties to even, or an infinity past the largest Double.
+    Public Method ToDouble(): Double => fb_bigint_to_double(State)
+
+    // -1, 0, or 1 as it's below, at, or above 0.
+    Public Property Sign: Int
+        Get => fb_bigint_sign(State)
+    End Property
+
+    // How many bits its magnitude takes: 0 for 0, and 8 for 255 and for -255.
+    Public Property BitLength: Int64
+        Get => fb_bigint_bit_length(State)
+    End Property
+
+    Public Method Abs(): BigInt => BigInt(fb_bigint_abs(State))
+
+    // It to the power, modulo the modulus: from 0 to below the modulus. An exponent below 0, or a
+    // modulus that isn't above 0, panics.
+    @PanicsAtCaller
+    Public Method ModPow(exponent: BigInt, modulus: BigInt): BigInt
+        If exponent.Sign < 0 Then Panic("ModPow takes an exponent of 0 or more, not {exponent}")
+        CheckModulus(modulus)
+        Return BigInt(fb_bigint_mod_power(State, exponent.State, modulus.State))
+    End Method
+
+    // The number from 0 to below the modulus that times it is 1 modulo the modulus, or Null when
+    // there's none, since they share a factor. A modulus that isn't above 0 panics.
+    @PanicsAtCaller
+    Public Method ModInverse(modulus: BigInt): BigInt?
+        CheckModulus(modulus)
+        Local state = fb_bigint_mod_inverse(State, modulus.State)
+        If state == Null Then Return Null
+        Return BigInt(state)
+    End Method
+
+    // The greatest number that divides both, which is 0 or more, and 0 only for two 0s.
+    Public Method Gcd(other: BigInt): BigInt => BigInt(fb_bigint_gcd(State, other.State))
+
+    // The least number, 0 or more, that both divide, and 0 when either is 0.
+    Public Method Lcm(other: BigInt): BigInt => BigInt(fb_bigint_lcm(State, other.State))
+
+    // Its square root, rounded down. One below 0 panics.
+    @PanicsAtCaller
+    Public Method Sqrt(): BigInt
+        If Sign < 0 Then Panic("Sqrt takes a BigInt 0 or more, not {Self}")
+        Return BigInt(fb_bigint_sqrt(State))
+    End Method
+
+    // Its quotient and remainder by the divisor, as / and % give them. A divisor of 0 panics.
+    @PanicsAtCaller
+    Public Method DivRem(divisor: BigInt): (BigInt, BigInt) => (Self / divisor, Self % divisor)
+
+    // Whether it's prime by the Baillie-PSW test, which no composite number is known to pass,
+    // though some must.
+    Public Method IsProbablePrime(): Bool => fb_bigint_is_probable_prime(State) != 0
+
+    Public Method Hash(): UInt64 => fb_bigint_hash(State)
+
+    Operator ==(a: BigInt, b: BigInt): Bool => fb_bigint_compare(a.State, b.State) == 0
+    Operator ==(a: BigInt, b: Int64): Bool => a == BigInt(b)
+    Operator ==(a: Int64, b: BigInt): Bool => BigInt(a) == b
+    Operator <(a: BigInt, b: BigInt): Bool => fb_bigint_compare(a.State, b.State) < 0
+    Operator <(a: BigInt, b: Int64): Bool => a < BigInt(b)
+    Operator <(a: Int64, b: BigInt): Bool => BigInt(a) < b
+    Operator >(a: BigInt, b: Int64): Bool => a > BigInt(b)
+    Operator >(a: Int64, b: BigInt): Bool => BigInt(a) > b
+    Operator <=(a: BigInt, b: Int64): Bool => a <= BigInt(b)
+    Operator <=(a: Int64, b: BigInt): Bool => BigInt(a) <= b
+    Operator >=(a: BigInt, b: Int64): Bool => a >= BigInt(b)
+    Operator >=(a: Int64, b: BigInt): Bool => BigInt(a) >= b
+
+    Operator +(a: BigInt, b: BigInt): BigInt => BigInt(fb_bigint_add(a.State, b.State))
+    Operator +(a: BigInt, b: Int64): BigInt => a + BigInt(b)
+    Operator +(a: Int64, b: BigInt): BigInt => BigInt(a) + b
+    Operator -(a: BigInt, b: BigInt): BigInt => BigInt(fb_bigint_subtract(a.State, b.State))
+    Operator -(a: BigInt, b: Int64): BigInt => a - BigInt(b)
+    Operator -(a: Int64, b: BigInt): BigInt => BigInt(a) - b
+    Operator *(a: BigInt, b: BigInt): BigInt => BigInt(fb_bigint_multiply(a.State, b.State))
+    Operator *(a: BigInt, b: Int64): BigInt => a * BigInt(b)
+    Operator *(a: Int64, b: BigInt): BigInt => BigInt(a) * b
+
+    @PanicsAtCaller
+    Operator /(a: BigInt, b: BigInt): BigInt
+        If b.Sign == 0 Then Panic("division by zero")
+        Return BigInt(fb_bigint_divide(a.State, b.State))
+    End Operator
+
+    @PanicsAtCaller
+    Operator /(a: BigInt, b: Int64): BigInt => a / BigInt(b)
+    @PanicsAtCaller
+    Operator /(a: Int64, b: BigInt): BigInt => BigInt(a) / b
+
+    @PanicsAtCaller
+    Operator %(a: BigInt, b: BigInt): BigInt
+        If b.Sign == 0 Then Panic("division by zero")
+        Return BigInt(fb_bigint_remainder(a.State, b.State))
+    End Operator
+
+    @PanicsAtCaller
+    Operator %(a: BigInt, b: Int64): BigInt => a % BigInt(b)
+    @PanicsAtCaller
+    Operator %(a: Int64, b: BigInt): BigInt => BigInt(a) % b
+
+    // To the power, which is 0 or more, as an Int's: a negative one panics.
+    @PanicsAtCaller
+    Operator **(a: BigInt, b: Int64): BigInt
+        If b < 0 Then Panic("an integer power needs an exponent of 0 or more")
+        Return BigInt(fb_bigint_power(a.State, b))
+    End Operator
+
+    Operator &(a: BigInt, b: BigInt): BigInt => BigInt(fb_bigint_and(a.State, b.State))
+    Operator &(a: BigInt, b: Int64): BigInt => a & BigInt(b)
+    Operator &(a: Int64, b: BigInt): BigInt => BigInt(a) & b
+    Operator |(a: BigInt, b: BigInt): BigInt => BigInt(fb_bigint_or(a.State, b.State))
+    Operator |(a: BigInt, b: Int64): BigInt => a | BigInt(b)
+    Operator |(a: Int64, b: BigInt): BigInt => BigInt(a) | b
+    Operator ^(a: BigInt, b: BigInt): BigInt => BigInt(fb_bigint_xor(a.State, b.State))
+    Operator ^(a: BigInt, b: Int64): BigInt => a ^ BigInt(b)
+    Operator ^(a: Int64, b: BigInt): BigInt => BigInt(a) ^ b
+
+    // Shifted by a count of bits, 0 or more, which a negative one panics, as an Int's does when
+    // it's outside its bits.
+    @PanicsAtCaller
+    Operator <<(a: BigInt, b: Int64): BigInt
+        If b < 0 Then Panic("the shift amount must be 0 or more")
+        Return BigInt(fb_bigint_shift_left(a.State, b))
+    End Operator
+
+    @PanicsAtCaller
+    Operator >>(a: BigInt, b: Int64): BigInt
+        If b < 0 Then Panic("the shift amount must be 0 or more")
+        Return BigInt(fb_bigint_shift_right(a.State, b))
+    End Operator
+
+    Operator -(a: BigInt): BigInt => BigInt(fb_bigint_negate(a.State))
+    Operator ~(a: BigInt): BigInt => BigInt(fb_bigint_not(a.State))
+
+    Method Destroy()
+        fb_bigint_free(State)
+    End Method
+End Class
+
+// Panics unless the radix is from 2 to 36.
+@PanicsAtCaller
+Function CheckRadix(radix: Int)
+    If radix < 2 || radix > 36 Then Panic("a radix is from 2 to 36, not {radix}")
+End Function
+
+// Panics unless the modulus is above 0.
+@PanicsAtCaller
+Function CheckModulus(modulus: BigInt)
+    If modulus.Sign <= 0 Then Panic("a modulus is above 0, not {modulus}")
+End Function

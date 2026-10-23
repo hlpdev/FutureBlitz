@@ -1,0 +1,6 @@
+radixes: 174 checks
+parsing: 26 checks
+bytes: 16 checks
+Int64s: 8 checks
+Doubles: 33 checks
+the rest: 6 checks

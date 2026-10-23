@@ -1,0 +1,149 @@
+// std.math.big's BigInt's Gcd, Lcm, Sqrt, ModPow, ModInverse, and IsProbablePrime match
+// Python's math.gcd, math.lcm, math.isqrt, and pow, and known primes and composites: Mersenne
+// numbers, strong pseudoprimes to base 2, Carmichael numbers, strong Lucas pseudoprimes, and the
+// 1229 primes below 10000.
+Import std.core
+Import std.math.big
+
+Global checked = 0
+Global zero = 0.0
+
+// An infinity, which a Double divided by 0 is.
+Function Infinity(): Double => 1.0 / zero
+
+// Counts a check, and says which one failed.
+Function Expect(name: String, passed: Bool)
+    checked += 1
+    If !passed Then Print("{name} failed")
+End Function
+
+// Counts a check of what a value shows as, and says what it was when it's another.
+Function Check(name: String, actual: String, expected: String)
+    checked += 1
+    If actual != expected Then Print("{name}: {actual}, not {expected}")
+End Function
+
+// Says how many checks a section made, and starts counting again.
+Function Done(section: String)
+    Print("{section}: {checked} check{checked == 1 ? "" : "s"}")
+    checked = 0
+End Function
+
+Function B(text: String): BigInt => BigInt.Parse(text) ?? BigInt(-424242)
+
+Function CheckBig(name: String, actual: BigInt, expected: String)
+    Check(name, actual.ToString(), expected)
+End Function
+
+CheckBig("gcd 0 0", B("0").Gcd(B("0")), "0")
+CheckBig("lcm 0 0", B("0").Lcm(B("0")), "0")
+CheckBig("gcd 0 5", B("0").Gcd(B("5")), "5")
+CheckBig("lcm 0 5", B("0").Lcm(B("5")), "0")
+CheckBig("gcd 988 18", B("-12").Gcd(B("18")), "6")
+CheckBig("lcm 988 18", B("-12").Lcm(B("18")), "36")
+CheckBig("gcd 12 982", B("12").Gcd(B("-18")), "6")
+CheckBig("lcm 12 982", B("12").Lcm(B("-18")), "36")
+CheckBig("gcd 17 5", B("17").Gcd(B("5")), "1")
+CheckBig("lcm 17 5", B("17").Lcm(B("5")), "85")
+CheckBig("gcd 624 880", B("910043815000214977332758527534256632492715260325658624").Gcd(B("852059890012822411210214983412922850743702759750374522880")), "827680028123918398098574950867493164417024")
+CheckBig("lcm 624 880", B("910043815000214977332758527534256632492715260325658624").Lcm(B("852059890012822411210214983412922850743702759750374522880")), "936849756630637894861756706531247643575114913554637747077428155514880")
+CheckBig("gcd 956 144", B("1534713210367877065475165004460077533008550563223986428420716306430364061705923447052421956").Gcd(B("-1219502501762231587750363216118284613319704804503938213819856")), "4")
+CheckBig("lcm 956 144", B("1534713210367877065475165004460077533008550563223986428420716306430364061705923447052421956").Lcm(B("-1219502501762231587750363216118284613319704804503938213819856")), "467896649882793024621917151528909093295474734113414916759696849540835461121336999879645174082094202626913698283375310344334829691161458858803770789584")
+CheckBig("gcd 927 546", B("11735869962097237927").Gcd(B("14650022052046928546")), "1")
+CheckBig("lcm 927 546", B("11735869962097237927").Lcm(B("14650022052046928546")), "171930753744679687112207064690530164142")
+CheckBig("gcd 951 951", B("2305843009213693951").Gcd(B("2305843009213693951")), "2305843009213693951")
+CheckBig("lcm 951 951", B("2305843009213693951").Lcm(B("2305843009213693951")), "2305843009213693951")
+Done("Gcd and Lcm")
+
+CheckBig("sqrt 0", B("0").Sqrt(), "0")
+CheckBig("sqrt 1", B("1").Sqrt(), "1")
+CheckBig("sqrt 2", B("2").Sqrt(), "1")
+CheckBig("sqrt 3", B("3").Sqrt(), "1")
+CheckBig("sqrt 4", B("4").Sqrt(), "2")
+CheckBig("sqrt 15", B("15").Sqrt(), "3")
+CheckBig("sqrt 16", B("16").Sqrt(), "4")
+CheckBig("sqrt 17", B("17").Sqrt(), "4")
+CheckBig("sqrt 455", B("340282366920938463463374607431768211455").Sqrt(), "18446744073709551615")
+CheckBig("sqrt 456", B("340282366920938463463374607431768211456").Sqrt(), "18446744073709551616")
+CheckBig("sqrt 48", B("10000000000000000000000000000000000000000000000001400000000000000000000000000000000000000000000000048").Sqrt(), "100000000000000000000000000000000000000000000000006")
+CheckBig("sqrt 49", B("10000000000000000000000000000000000000000000000001400000000000000000000000000000000000000000000000049").Sqrt(), "100000000000000000000000000000000000000000000000007")
+CheckBig("sqrt 359", B("21424665102277844789093787603347243812938239420034597815148791170489068918987590231216392824396715428686102078859506848490824406927472976016396996654343327099892900109371985942759468174140471922430876452452323766170031195066492559227303154949025789705685404398952962310449009975013527066715953442956359").Sqrt(), "4628678548168779973470011307847544449096718987587421290794958359955551862568208580803114226633728018731928971465844910083204062375292538613720751052011")
+Done("Sqrt")
+
+CheckBig("modpow 2 100 7", B("2").ModPow(B("100"), B("1000000007")), "976371285")
+CheckBig("modpow 997 7 10", B("-3").ModPow(B("7"), B("10")), "3")
+CheckBig("modpow 5 0 1", B("5").ModPow(B("0"), B("1")), "0")
+CheckBig("modpow 5 0 7", B("5").ModPow(B("0"), B("7")), "1")
+CheckBig("modpow 0 0 7", B("0").ModPow(B("0"), B("7")), "1")
+CheckBig("modpow 0 5 7", B("0").ModPow(B("5"), B("7")), "0")
+CheckBig("modpow 97 908 383", B("2695208695047793165622701205515243149610403161162677976732809329124942666141030875467748107042347128407303624812333348752070564486288882098768310337097").ModPow(B("3261513676874963090152349512592868473904650464304499931311954611546849122923562624612218063629721800801594123206131153314974904339280322773589872474908"), B("8161619535113640579949008650569560530886329871583708519395780595234317626359165870609755213594505974520164667210064762249929417186407314321250169875679383")), "5081727193229887242549354896936594239932304714905827883402429163634423319899750744529615735689275020535620291889537829965881358552104451156662603782067025")
+CheckBig("modpow 359 324 376", B("-1731014767983174365391423096566962627396360438248622509868300142967894723591467733990180641").ModPow(B("1206291120342706235227310297324"), B("1267650600228229401496703205376")), "240495083889689029871146981761")
+CheckBig("modpow 120 581 1", B("994943228040478166609985288646847825881354889388957337429120").ModPow(B("1351580212569194147336907261591006041130825186799934387027581"), B("1")), "0")
+CheckBig("modpow 3 726 727", B("3").ModPow(B("170141183460469231731687303715884105726"), B("170141183460469231731687303715884105727")), "1")
+Local inverse46 = B("3").ModInverse(B("7"))
+Check("inverse 3 7", inverse46 == Null ? "Null" : "{inverse46}", "5")
+Local inverse48 = B("-3").ModInverse(B("7"))
+Check("inverse 997 7", inverse48 == Null ? "Null" : "{inverse48}", "2")
+Local inverse50 = B("6").ModInverse(B("9"))
+Check("inverse 6 9", inverse50 == Null ? "Null" : "{inverse50}", "Null")
+Local inverse52 = B("0").ModInverse(B("7"))
+Check("inverse 0 7", inverse52 == Null ? "Null" : "{inverse52}", "Null")
+Local inverse54 = B("5").ModInverse(B("1"))
+Check("inverse 5 1", inverse54 == Null ? "Null" : "{inverse54}", "0")
+Local inverse56 = B("10").ModInverse(B("10"))
+Check("inverse 10 10", inverse56 == Null ? "Null" : "{inverse56}", "Null")
+Local inverse58 = B("1852056759723225929674758683953847116011939301314282109541081211603261033181934168921645461").ModInverse(B("170141183460469231731687303715884105727"))
+Check("inverse 461 727", inverse58 == Null ? "Null" : "{inverse58}", "162756355307860992138786088920752692479")
+Local inverse60 = B("-1252224288740382024506353910456613057028043422366966951748739").ModInverse(B("8161619535113640579949008650569560530886329871583708519395780595234317626359165870609755213594505974520164667210064762249929417186407314321250169875679383"))
+Check("inverse 261 383", inverse60 == Null ? "Null" : "{inverse60}", "Null")
+Done("ModPow and ModInverse")
+
+Local primes = 0
+For i = 0 Until 10000
+    If BigInt(i).IsProbablePrime() Then primes += 1
+End For
+Check("primes below 10000", "{primes}", "1229")
+Expect("9213693951 prime", B("2305843009213693951").IsProbablePrime() == True)
+Expect("137449562111 prime", B("618970019642690137449562111").IsProbablePrime() == True)
+Expect("578010288127 prime", B("162259276829213363391578010288127").IsProbablePrime() == True)
+Expect("715884105727 prime", B("170141183460469231731687303715884105727").IsProbablePrime() == True)
+Expect("291115057151 prime", B("6864797660130609714981900799081393217269435300143305409394463459185543183397656052122559640661454554977296311391480858037121987999716643812574028291115057151").IsProbablePrime() == True)
+Expect("219031728127 prime", B("531137992816767098689588206552468627329593117727031923199444138200403559860852242739162502265229285668889329486246501015346579337652707239409519978766587351943831270835393219031728127").IsProbablePrime() == True)
+Expect("956564819949 prime", B("57896044618658097711785492504343953926634992332820282019728792003956564819949").IsProbablePrime() == True)
+Expect("1000000007 prime", B("1000000007").IsProbablePrime() == True)
+Expect("73709551557 prime", B("18446744073709551557").IsProbablePrime() == True)
+Expect("431768211297 prime", B("340282366920938463463374607431768211297").IsProbablePrime() == True)
+Expect("101 prime", B("101").IsProbablePrime() == True)
+Expect("589676412927 prime", B("147573952589676412927").IsProbablePrime() == False)
+Expect("826259279871 prime", B("231584178474632390847141970017375815706539969331281128078915168015826259279871").IsProbablePrime() == False)
+Expect("2047 prime", B("2047").IsProbablePrime() == False)
+Expect("3277 prime", B("3277").IsProbablePrime() == False)
+Expect("4033 prime", B("4033").IsProbablePrime() == False)
+Expect("4681 prime", B("4681").IsProbablePrime() == False)
+Expect("8321 prime", B("8321").IsProbablePrime() == False)
+Expect("561 prime", B("561").IsProbablePrime() == False)
+Expect("1105 prime", B("1105").IsProbablePrime() == False)
+Expect("1729 prime", B("1729").IsProbablePrime() == False)
+Expect("41041 prime", B("41041").IsProbablePrime() == False)
+Expect("825265 prime", B("825265").IsProbablePrime() == False)
+Expect("3215031751 prime", B("3215031751").IsProbablePrime() == False)
+Expect("5459 prime", B("5459").IsProbablePrime() == False)
+Expect("5777 prime", B("5777").IsProbablePrime() == False)
+Expect("10877 prime", B("10877").IsProbablePrime() == False)
+Expect("16109 prime", B("16109").IsProbablePrime() == False)
+Expect("18971 prime", B("18971").IsProbablePrime() == False)
+Expect("989719490561 prime", B("1427247692705959880439315947500961989719490561").IsProbablePrime() == False)
+Expect("14000000049 prime", B("1000000014000000049").IsProbablePrime() == False)
+Expect("6000009 prime", B("1000006000009").IsProbablePrime() == False)
+Expect("9409 prime", B("9409").IsProbablePrime() == False)
+Expect("10403 prime", B("10403").IsProbablePrime() == False)
+Expect("73709551615 prime", B("18446744073709551615").IsProbablePrime() == False)
+Expect("0 prime", B("0").IsProbablePrime() == False)
+Expect("1 prime", B("1").IsProbablePrime() == False)
+Expect("999999999993 prime", B("-7").IsProbablePrime() == False)
+Expect("999999999998 prime", B("-2").IsProbablePrime() == False)
+Expect("2 prime", B("2").IsProbablePrime() == True)
+Expect("3 prime", B("3").IsProbablePrime() == True)
+Expect("4 prime", B("4").IsProbablePrime() == False)
+Expect("97 prime", B("97").IsProbablePrime() == True)
+Done("primes")
