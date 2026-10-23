@@ -27,6 +27,7 @@ target_link_libraries(fb_compiler_tests PRIVATE fb_compiler Catch2::Catch2WithMa
 target_compile_definitions(fb_compiler_tests PRIVATE
   FB_TEST_PROGRAMS="${CMAKE_CURRENT_SOURCE_DIR}/programs"
   FB_TEST_PACKAGES="${CMAKE_CURRENT_SOURCE_DIR}/packages"
+  FB_TEST_DATA="${CMAKE_CURRENT_SOURCE_DIR}/data"
   FB_TEST_VECMATH="$<TARGET_FILE:fb_vecmath>"
   FB_TEST_OUTPUT="${CMAKE_CURRENT_BINARY_DIR}/programs"
   FB_TEST_COMPILE_COMMANDS="${CMAKE_BINARY_DIR}/compile_commands.json")

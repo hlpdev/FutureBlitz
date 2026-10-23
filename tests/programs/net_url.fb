@@ -1,0 +1,58 @@
+// std.net's Url reads a URL's parts as the WHATWG URL Standard does, against a base or not,
+// writes its text back, and gives its origin; tests/compiler/url_tests.cpp runs the standard's
+// own tests through it.
+Import std.core
+Import std.net
+
+Function Show(url: Url?)
+    If url == Null
+        Print("  not a URL")
+        Return
+    End If
+
+    Print("  {url}")
+    Print("  scheme={url.Scheme} user={url.Username} password={url.Password} " +
+          "host={url.Host ?? "Null"} port={url.Port ?? -1} path={url.Path}")
+    Print("  query={url.Query ?? "Null"} fragment={url.Fragment ?? "Null"}")
+    Print("  origin={url.Origin} default port={url.PortOrDefault ?? -1} opaque={url.HasOpaquePath}")
+End Function
+
+For text In ["https://user:pa%20ss@EXAMPLE.com:8443/a/./b/../c%2Fd?q=1 2&r#Frag ment",
+             "HTTP://example.com:80/", "http://example.com:/", "ws://h:080",
+             "http://[2001:DB8::1]:8080/x", "http://[::ffff:1.2.3.4]/", "http://0x7f.0.0.1/",
+             "http://3232235777/", "http://1.2.3.4.5/", "http://999.1.1.1/",
+             "http://ex%41mple.com/",
+             "http://münchen.example/", "http://xn--mnchen-3ya.example/",
+             "  https://example.com/\tpath\n  ", "https://example.com/a b\"<>`{{}}",
+             "file:///C:/Windows/../System32", "file://localhost/etc/hosts", "file:c:\\dir\\x",
+             "mailto:someone@example.com?subject=hi", "data:text/plain,hello world",
+             "javascript:alert(1)", "urn:isbn:0451450523", "foo://host/p?q#f", "foo:/p", "foo:",
+             "blob:https://example.com:443/uuid", "blob:abc", "http://a b/", "http://a@/",
+             "https://:443", "http://example.com:65536/", "http://[1::2::3]/", "//no-scheme", ""]
+    Print(text)
+    Show(Url.Parse(text))
+End For
+
+// Resolving against a base, as a page's links do, each with its own case.
+Local base = Url.Parse("http://a/b/c/d;p?q") ?? Url.Parse("x:")
+If base != Null
+    For relative In ["g:h", "g", "./g", "g/", "/g", "//g", "?y", "g?y", "#s", "g#s", "g?y#s",
+                     ";x", "g;x", "", ".", "./", "..", "../", "../g", "../..", "../../",
+                     "../../g", "../../../g", "/./g", "/../g", "g.", ".g", "g..", "..g", "./../g",
+                     "./g/.", "g/./h", "g/../h", "g;x=1/./y", "g;x=1/../y", "\\g", "%2e%2E/g"]
+        Print("{relative}: {base.Resolve(relative)?.ToString() ?? "not a URL"}")
+    End For
+End If
+
+Print(Url.Parse("g", "mailto:a@b.com") == Null, Url.Parse("#f", "mailto:a@b.com")?.ToString() ?? "")
+Print(Url.Parse("x", "not a base") == Null)
+
+// Two URLs that read the same are equal, and a URL's text reads back as it.
+Local one = Url.Parse("HTTP://Example.COM:80/a/../b")
+Local two = Url.Parse("http://example.com/b")
+Print(one == two, one?.ToString() == two?.ToString(),
+      Url.Parse((one ?? Url.Parse("x:"))?.ToString() ?? "") == one)
+
+// Percent-encoding a component, and decoding.
+Print(Url.Encode("a b&c=d/e?f#g+h~é"), Url.Encode(""))
+Print(Url.Decode("a%20b%26c%3Dd%2Fe%3Ff%23g%2Bh~%C3%A9"), Url.Decode("%zz%4"), Url.Decode("%FF"))

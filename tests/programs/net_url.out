@@ -1,0 +1,186 @@
+https://user:pa%20ss@EXAMPLE.com:8443/a/./b/../c%2Fd?q=1 2&r#Frag ment
+  https://user:pa%20ss@example.com:8443/a/c%2Fd?q=1%202&r#Frag%20ment
+  scheme=https user=user password=pa%20ss host=example.com port=8443 path=/a/c%2Fd
+  query=q=1%202&r fragment=Frag%20ment
+  origin=https://example.com:8443 default port=8443 opaque=False
+HTTP://example.com:80/
+  http://example.com/
+  scheme=http user= password= host=example.com port=-1 path=/
+  query=Null fragment=Null
+  origin=http://example.com default port=80 opaque=False
+http://example.com:/
+  http://example.com/
+  scheme=http user= password= host=example.com port=-1 path=/
+  query=Null fragment=Null
+  origin=http://example.com default port=80 opaque=False
+ws://h:080
+  ws://h/
+  scheme=ws user= password= host=h port=-1 path=/
+  query=Null fragment=Null
+  origin=ws://h default port=80 opaque=False
+http://[2001:DB8::1]:8080/x
+  http://[2001:db8::1]:8080/x
+  scheme=http user= password= host=[2001:db8::1] port=8080 path=/x
+  query=Null fragment=Null
+  origin=http://[2001:db8::1]:8080 default port=8080 opaque=False
+http://[::ffff:1.2.3.4]/
+  http://[::ffff:102:304]/
+  scheme=http user= password= host=[::ffff:102:304] port=-1 path=/
+  query=Null fragment=Null
+  origin=http://[::ffff:102:304] default port=80 opaque=False
+http://0x7f.0.0.1/
+  http://127.0.0.1/
+  scheme=http user= password= host=127.0.0.1 port=-1 path=/
+  query=Null fragment=Null
+  origin=http://127.0.0.1 default port=80 opaque=False
+http://3232235777/
+  http://192.168.1.1/
+  scheme=http user= password= host=192.168.1.1 port=-1 path=/
+  query=Null fragment=Null
+  origin=http://192.168.1.1 default port=80 opaque=False
+http://1.2.3.4.5/
+  not a URL
+http://999.1.1.1/
+  not a URL
+http://ex%41mple.com/
+  http://example.com/
+  scheme=http user= password= host=example.com port=-1 path=/
+  query=Null fragment=Null
+  origin=http://example.com default port=80 opaque=False
+http://münchen.example/
+  http://xn--mnchen-3ya.example/
+  scheme=http user= password= host=xn--mnchen-3ya.example port=-1 path=/
+  query=Null fragment=Null
+  origin=http://xn--mnchen-3ya.example default port=80 opaque=False
+http://xn--mnchen-3ya.example/
+  http://xn--mnchen-3ya.example/
+  scheme=http user= password= host=xn--mnchen-3ya.example port=-1 path=/
+  query=Null fragment=Null
+  origin=http://xn--mnchen-3ya.example default port=80 opaque=False
+  https://example.com/	path
+  
+  https://example.com/path
+  scheme=https user= password= host=example.com port=-1 path=/path
+  query=Null fragment=Null
+  origin=https://example.com default port=443 opaque=False
+https://example.com/a b"<>`{}
+  https://example.com/a%20b%22%3C%3E%60%7B%7D
+  scheme=https user= password= host=example.com port=-1 path=/a%20b%22%3C%3E%60%7B%7D
+  query=Null fragment=Null
+  origin=https://example.com default port=443 opaque=False
+file:///C:/Windows/../System32
+  file:///C:/System32
+  scheme=file user= password= host= port=-1 path=/C:/System32
+  query=Null fragment=Null
+  origin=null default port=-1 opaque=False
+file://localhost/etc/hosts
+  file:///etc/hosts
+  scheme=file user= password= host= port=-1 path=/etc/hosts
+  query=Null fragment=Null
+  origin=null default port=-1 opaque=False
+file:c:\dir\x
+  file:///c:/dir/x
+  scheme=file user= password= host= port=-1 path=/c:/dir/x
+  query=Null fragment=Null
+  origin=null default port=-1 opaque=False
+mailto:someone@example.com?subject=hi
+  mailto:someone@example.com?subject=hi
+  scheme=mailto user= password= host=Null port=-1 path=someone@example.com
+  query=subject=hi fragment=Null
+  origin=null default port=-1 opaque=True
+data:text/plain,hello world
+  data:text/plain,hello world
+  scheme=data user= password= host=Null port=-1 path=text/plain,hello world
+  query=Null fragment=Null
+  origin=null default port=-1 opaque=True
+javascript:alert(1)
+  javascript:alert(1)
+  scheme=javascript user= password= host=Null port=-1 path=alert(1)
+  query=Null fragment=Null
+  origin=null default port=-1 opaque=True
+urn:isbn:0451450523
+  urn:isbn:0451450523
+  scheme=urn user= password= host=Null port=-1 path=isbn:0451450523
+  query=Null fragment=Null
+  origin=null default port=-1 opaque=True
+foo://host/p?q#f
+  foo://host/p?q#f
+  scheme=foo user= password= host=host port=-1 path=/p
+  query=q fragment=f
+  origin=null default port=-1 opaque=False
+foo:/p
+  foo:/p
+  scheme=foo user= password= host=Null port=-1 path=/p
+  query=Null fragment=Null
+  origin=null default port=-1 opaque=False
+foo:
+  foo:
+  scheme=foo user= password= host=Null port=-1 path=
+  query=Null fragment=Null
+  origin=null default port=-1 opaque=True
+blob:https://example.com:443/uuid
+  blob:https://example.com:443/uuid
+  scheme=blob user= password= host=Null port=-1 path=https://example.com:443/uuid
+  query=Null fragment=Null
+  origin=https://example.com default port=-1 opaque=True
+blob:abc
+  blob:abc
+  scheme=blob user= password= host=Null port=-1 path=abc
+  query=Null fragment=Null
+  origin=null default port=-1 opaque=True
+http://a b/
+  not a URL
+http://a@/
+  not a URL
+https://:443
+  not a URL
+http://example.com:65536/
+  not a URL
+http://[1::2::3]/
+  not a URL
+//no-scheme
+  not a URL
+
+  not a URL
+g:h: g:h
+g: http://a/b/c/g
+./g: http://a/b/c/g
+g/: http://a/b/c/g/
+/g: http://a/g
+//g: http://g/
+?y: http://a/b/c/d;p?y
+g?y: http://a/b/c/g?y
+#s: http://a/b/c/d;p?q#s
+g#s: http://a/b/c/g#s
+g?y#s: http://a/b/c/g?y#s
+;x: http://a/b/c/;x
+g;x: http://a/b/c/g;x
+: http://a/b/c/d;p?q
+.: http://a/b/c/
+./: http://a/b/c/
+..: http://a/b/
+../: http://a/b/
+../g: http://a/b/g
+../..: http://a/
+../../: http://a/
+../../g: http://a/g
+../../../g: http://a/g
+/./g: http://a/g
+/../g: http://a/g
+g.: http://a/b/c/g.
+.g: http://a/b/c/.g
+g..: http://a/b/c/g..
+..g: http://a/b/c/..g
+./../g: http://a/b/g
+./g/.: http://a/b/c/g/
+g/./h: http://a/b/c/g/h
+g/../h: http://a/b/c/h
+g;x=1/./y: http://a/b/c/g;x=1/y
+g;x=1/../y: http://a/b/c/y
+\g: http://a/g
+%2e%2E/g: http://a/b/g
+True mailto:a@b.com#f
+True
+True True True
+a%20b%26c%3Dd%2Fe%3Ff%23g%2Bh~%C3%A9 
+a b&c=d/e?f#g+h~é %zz%4 �
