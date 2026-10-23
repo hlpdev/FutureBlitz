@@ -10030,9 +10030,11 @@ private:
 
     void check_worker(const worker_t& worker,
                       const std::unordered_map<symbol_id_t, std::vector<symbol_id_t>>& also) {
-        if (symbol(worker.work).modifiers.is_main_thread) {
-            error(worker.span, "{}, but {} is @MainThread", worker.where,
-                  code_name(symbol(worker.work)));
+        // A ThreadLocal Global's initializer is the work, and @MainThread on the Global itself is
+        // reported where it's written.
+        const symbol_t& work = symbol(worker.work);
+        if (work.modifiers.is_main_thread && work.kind != symbol_kind_t::GLOBAL) {
+            error(worker.span, "{}, but {} is @MainThread", worker.where, code_name(work));
             return;
         }
 

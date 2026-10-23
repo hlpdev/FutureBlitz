@@ -8346,6 +8346,19 @@ TEST_CASE("Spawn runs work on another thread, and gives its Task", "[sema]") {
           errors_t{ "Join: Task<Int32> has no member named 'Join'; it has Wait and IsDone" });
 }
 
+TEST_CASE("@MainThread on a ThreadLocal Global is reported once, where it's written", "[sema]") {
+    CHECK(errors_of("@MainThread ThreadLocal Global x = 1\n@MainThread Global y = 2") ==
+          errors_t{ "x: @MainThread only goes before a Function or Method",
+                    "y: @MainThread only goes before a Function or Method" });
+    // And its initializer is still checked as work on another thread.
+    CHECK(
+        errors_of("@MainThread Function OnMain(): Int => 1\n"
+                  "@MainThread ThreadLocal Global x = OnMain()") ==
+        errors_t{ "x: @MainThread only goes before a Function or Method",
+                  "OnMain(): a ThreadLocal Global's initializer runs on each thread that uses it, "
+                  "but it calls 'OnMain', which is @MainThread" });
+}
+
 TEST_CASE("a ThreadLocal Global is each thread's own and made on any thread", "[sema]") {
     // Work on another thread uses its own, and top-level code the main thread's.
     CHECK(errors_of("ThreadLocal Global hits = 0\n"
