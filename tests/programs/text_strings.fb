@@ -1,0 +1,104 @@
+// std.text's String Methods, by byte position, each over text beyond ASCII: accented letters,
+// combining marks ("e\u{301}" is an "e" and its accent), and emoji, one code point or several.
+Import std.core
+Import std.text
+
+Local word = "héllo"
+Local accent = "e\u{301}"
+Local face = "😀"
+Local family = "👨‍👩‍👧"
+
+// Length counts bytes, CharCount code points, and GraphemeCount what people see.
+For text In [word, accent, face, family, ""]
+    Print(text.Length, text.CharCount, text.GraphemeCount, text.IsEmpty())
+End For
+
+Print(" \t\u{3000}\n".IsBlank(), "".IsBlank(), " é ".IsBlank(), "\u{301}".IsBlank())
+
+// Positions are byte offsets, which Find gives and Slice takes.
+Local line = "café ☕ e\u{301}clair 😀 café"
+Print(line.Find("é") ?? -1, line.Find("é", 5) ?? -1, line.Find("☕") ?? -1, line.Find("x") ?? -1)
+Print(line.FindLast("café") ?? -1, line.FindLast("é", 19) ?? -1, line.FindLast("x") ?? -1)
+Print(line.FindAll("é"), line.Count("é"), line.Count("\u{301}"), "😀😀😀".FindAll("😀😀"))
+Print(line.Contains("☕"), line.Contains('😀'), line.Contains("ez"), line.Contains(""))
+Print(line.StartsWith("café"), line.EndsWith("café"), face.StartsWith("😀"), word.EndsWith("o"))
+Local cup = line.Find("☕") ?? 0
+Print("[{line.Slice(0, 5)}] [{line.Slice(cup, cup + 3)}] [{line.Slice(cup, cup)}]")
+
+// Parts around what's found.
+Print(line.Before("☕") ?? "-", "|", line.After("😀") ?? "-", "|", line.Before("x") ?? "-")
+Print(family.SplitOnce("\u{200D}") ?? ("-", "-"), "a=é".SplitOnce("=") ?? ("-", "-"))
+
+// Splitting and joining.
+Print("é,,😀,e\u{301}".Split(","), "😀".Split("😀"), "".Split(",").Count)
+Print("ü-ö-ä-ß".SplitN("-", 2), "ü-ö".SplitN("-", 5), "ü-ö".SplitN("-", 1))
+Print("é\n😀\r\ne\u{301}\rlast".SplitLines(), "one\n\ntwo\n".SplitLines(), "".SplitLines())
+Print(" \u{3000}héllo\twörld 😀\u{2003} ".SplitWhitespace(), "   ".SplitWhitespace())
+Print(" · ".Join(["é", "😀", accent]), "".Join(["a", "b"]), "+".Join([]))
+For text In "α\nβ\r\nγ".Lines()
+    Print(text, text.Length)
+End For
+
+// Replacing.
+Print("é-é-é".Replace("é", "😀"), "😀😀".Replace("😀", ""), accent.Replace("\u{301}", "\u{300}"))
+Print("é-é".ReplaceFirst("é", "e"), "abc".ReplaceFirst("x", "y"), "aaa".Replace("aa", "b"))
+
+// Trimming whitespace, Unicode's too, and a prefix or suffix.
+Print("[{" \u{3000}héllo 😀\u{2003} ".Trim()}] [{"\u{A0}é ".TrimStart()}] [{" é\u{A0}".TrimEnd()}]")
+Print("[{"   ".Trim()}] [{"e\u{301} ".Trim()}]")
+Print("😀héllo".TrimPrefix("😀"), "héllo😀".TrimSuffix("😀"), word.TrimPrefix("x"),
+      word.TrimSuffix("é"))
+
+// Case, by Unicode's full mapping.
+Print("straße".ToUpper(), "ﬁnancé".ToUpper(), "ǅungla".ToUpper(), "ᾳ".ToUpper(), face.ToUpper())
+Print("ΣΑΣ ΟΔΟΣ".ToLower(), "ΣΑ".ToLower(), "İSTANBUL".ToLower(), "ÉCOLE 😀".ToLower())
+Print("E\u{301}".ToLower(), "ǅ".ToLower(), "Ω".ToLower())
+
+// Repeating and padding, which count characters.
+Print("é😀".Repeated(3), "x".Repeated(0), face.Repeated(2).CharCount)
+Print("[{"é".PadLeft(3)}] [{"😀".PadRight(3, '·')}] [{accent.PadLeft(3, '*')}] [{word.PadLeft(2)}]")
+Print("[{"é".Center(4, '-')}] [{"😀".Center(3, '😀')}] [{word.Center(5)}]")
+
+// Comparing.
+Print("é".Compare("e"), "e".Compare("é"), "😀".Compare("😀"), "😀".Compare("é"))
+Print("STRASSE".EqualsIgnoreCase("straße"), "ΣΑΣ".EqualsIgnoreCase("σας"),
+      "é".EqualsIgnoreCase(accent))
+Print("Ünïcödé".EqualsIgnoreCase("ÜNÏCÖDÉ"), "😀".EqualsIgnoreCase("😀"), "a".EqualsIgnoreCase("b"))
+Local files = ["é10", "é9", "é1", "😀2", "é09", "é", "e10"]
+Local sorted: String[] = []
+For name In files
+    Local at = 0
+    While at < sorted.Count && sorted[at].NaturalCompare(name) <= 0
+        at++
+    End While
+
+    sorted.Insert(at, name)
+End For
+
+Print(sorted, "x2y10".NaturalCompare("x2y9"), "x".NaturalCompare("x"))
+
+// Grapheme clusters, one at a time.
+For cluster In "e\u{301}😀👨‍👩‍👧🇫🇷x\r\n".Graphemes()
+    Print(cluster.CharCount, cluster.Length, cluster.Escaped())
+End For
+
+// UTF-8 in bytes.
+Print(String.FromUtf8("é😀".Bytes) ?? "-", String.FromUtf8([0xC3]) ?? "-",
+      String.FromUtf8([]) ?? "-")
+Print(String.FromUtf8([0xED, 0xA0, 0x80]) ?? "not UTF-8",
+      String.FromUtf8([0xEF, 0xBF, 0xBD]) ?? "-")
+Print(String.FromUtf8([0xC0, 0x80]) ?? "overlong", String.FromUtf8([0xE2, 0x82]) ?? "cut short",
+      String.FromUtf8([0xF4, 0x90, 0x80, 0x80]) ?? "past U+10FFFF",
+      String.FromUtf8([0x80]) ?? "stray")
+
+Extend String
+    // The code points, as "U+..." each, so control characters and marks show.
+    Method Escaped(): String
+        Local codes: String[] = []
+        For c In Self.Chars
+            codes.Add("U+{c As Int}")
+        End For
+
+        Return " ".Join(codes)
+    End Method
+End Extend

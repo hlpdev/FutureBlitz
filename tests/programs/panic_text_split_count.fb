@@ -1,0 +1,6 @@
+// SplitN takes a count of at least 1.
+Import std.core
+Import std.text
+
+Local word = "é,😀"
+Print(word.SplitN(",", 1), word.SplitN(",", 0))

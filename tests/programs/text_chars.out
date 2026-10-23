@@ -1,0 +1,23 @@
+U+97 1 letter=True digit=False number=False alnum=True upper=False lower=True punct=False symbol=False control=False space=False ascii=True
+U+90 1 letter=True digit=False number=False alnum=True upper=True lower=False punct=False symbol=False control=False space=False ascii=True
+U+233 2 letter=True digit=False number=False alnum=True upper=False lower=True punct=False symbol=False control=False space=False ascii=False
+U+1078 2 letter=True digit=False number=False alnum=True upper=False lower=True punct=False symbol=False control=False space=False ascii=False
+U+20013 3 letter=True digit=False number=False alnum=True upper=False lower=False punct=False symbol=False control=False space=False ascii=False
+U+55 1 letter=False digit=True number=True alnum=True upper=False lower=False punct=False symbol=False control=False space=False ascii=True
+U+1635 2 letter=False digit=True number=True alnum=True upper=False lower=False punct=False symbol=False control=False space=False ascii=False
+U+8555 3 letter=False digit=False number=True alnum=False upper=False lower=False punct=False symbol=False control=False space=False ascii=False
+U+189 2 letter=False digit=False number=True alnum=False upper=False lower=False punct=False symbol=False control=False space=False ascii=False
+U+769 2 letter=False digit=False number=False alnum=False upper=False lower=False punct=False symbol=False control=False space=False ascii=False
+U+44 1 letter=False digit=False number=False alnum=False upper=False lower=False punct=True symbol=False control=False space=False ascii=True
+U+191 2 letter=False digit=False number=False alnum=False upper=False lower=False punct=True symbol=False control=False space=False ascii=False
+U+43 1 letter=False digit=False number=False alnum=False upper=False lower=False punct=False symbol=True control=False space=False ascii=True
+U+8364 3 letter=False digit=False number=False alnum=False upper=False lower=False punct=False symbol=True control=False space=False ascii=False
+U+128512 4 letter=False digit=False number=False alnum=False upper=False lower=False punct=False symbol=True control=False space=False ascii=False
+U+32 1 letter=False digit=False number=False alnum=False upper=False lower=False punct=False symbol=False control=False space=True ascii=True
+U+12288 3 letter=False digit=False number=False alnum=False upper=False lower=False punct=False symbol=False control=False space=True ascii=False
+U+9 1 letter=False digit=False number=False alnum=False upper=False lower=False punct=False symbol=False control=True space=True ascii=True
+U+8203 3 letter=False digit=False number=False alnum=False upper=False lower=False punct=False symbol=False control=False space=False ascii=False
+U+453 2 letter=True digit=False number=False alnum=True upper=False lower=False punct=False symbol=False control=False space=False ascii=False
+A É Ж ß Ǆ 😀
+a é ж ß ǆ 7
+😀 é True ? ? ? ?
