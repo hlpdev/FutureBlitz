@@ -136,7 +136,6 @@ Print("{values[0]} {values.Slice(1, 3).ToArray()}")
 | `CLong`, `CULong`, `CWChar` | `long`, `unsigned long`, `wchar_t`, the target's sizes (see [02](02-types.md#built-in-types)) |
 | `Float32`, `Float64` | `float`, `double` |
 | `Bool` | `bool` |
-| `Char` | `char32_t` |
 | `Ptr<T>` | `T*` |
 | `Ptr<Void>` | `void*` |
 | `CString` | `const char*` |
@@ -151,6 +150,8 @@ Print("{values[0]} {values.Slice(1, 3).ToArray()}")
   x86-64 outside Windows and on Apple's targets, an integer narrower than 32 bits extended to 32
   bits. A Bool that C gives is its `bool`, 0 or 1: a byte of another value is undefined, as it
   is in C, so what reads it can see either.
+- A `Char` isn't C's: C's `char32_t` is a `UInt32`, which `As Char` checks on the way in, since C
+  can hold any number there.
 - A `ByRef` parameter of one of these passes the variable's address, so an out-parameter like
   `frexp`'s `int*` needs no Unsafe: `Function frexp(x: Float64, ByRef exponent: Int32): Float64`.
 - A `CString` is stored and passed in safe code, and its zero is `Null`, C's NULL, which

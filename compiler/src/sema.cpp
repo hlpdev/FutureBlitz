@@ -2270,12 +2270,11 @@ private:
         return module && modules.is_standard(modules.get(*module).package);
     }
 
-    /// Whether C code takes or gives a value of `type` as it is: a number, Bool, Char (a
-    /// char32_t), Enum, CString, or Ptr.
+    /// Whether C code takes or gives a value of `type` as it is: a number, Bool, Enum, CString,
+    /// or Ptr. A Char isn't one: C's char32_t is a UInt32, which 'As Char' checks.
     [[nodiscard]] bool is_c_scalar(const type_id_t type) const {
-        return is_numeric(type) || type == type_id_t::BOOL || type == type_id_t::CHAR ||
-               type == type_id_t::CSTRING || is_enum(type) || is_pointer(type) ||
-               is_callback(type) || type == type_id_t::INVALID;
+        return is_numeric(type) || type == type_id_t::BOOL || type == type_id_t::CSTRING ||
+               is_enum(type) || is_pointer(type) || is_callback(type) || type == type_id_t::INVALID;
     }
 
     /// A String argument for a CString is a copy, which goes right after the call, so it can't
@@ -11073,9 +11072,8 @@ private:
 
         seen.push_back(type);
         const type_t& info = m_analysis.types.get(type);
-        if (is_numeric(type) || type == type_id_t::BOOL || type == type_id_t::CHAR ||
-            type == type_id_t::CSTRING || is_enum(type) || is_pointer(type) || is_callback(type) ||
-            type == type_id_t::INVALID) {
+        if (is_numeric(type) || type == type_id_t::BOOL || type == type_id_t::CSTRING ||
+            is_enum(type) || is_pointer(type) || is_callback(type) || type == type_id_t::INVALID) {
             return std::nullopt;
         }
 
