@@ -2237,3 +2237,142 @@ TEST_CASE("a folder Import whose files are links leaving the package is one erro
     std::filesystem::remove(packages / "app/shared/a.fb", ignored);
     packages.remove();
 }
+
+TEST_CASE("Embed, EmbedText, and EmbedFolder read the program's files when it's built",
+          "[driver]") {
+    std::vector<fb::library_file_t> files{
+        { .path = "data/hello.txt", .text = "hi" },
+        {
+            .path = "data/raw.bin",
+            .text = std::string{ static_cast<char>(0xFF), static_cast<char>(0x00) },
+        },
+        { .path = "data/levels/a.txt", .text = "a" },
+        { .path = "data/levels/.hidden", .text = "h" },
+        { .path = "data/big.bin", .text = std::string((std::size_t{ 64 } * 1024 * 1024) + 1, 'x') },
+        // Each is under the limit, but not the two together.
+        { .path = "data/heavy/a.bin", .text = std::string(std::size_t{ 33 } * 1024 * 1024, 'a') },
+        { .path = "data/heavy/b.bin", .text = std::string(std::size_t{ 33 } * 1024 * 1024, 'b') },
+        {
+            .path = "lib/reader.fb",
+            .text = "Public Function Read(): String => EmbedText(\"../data/hello.txt\")\n",
+        },
+    };
+    const std::vector<fb::library_file_t> library = with_std(std::move(files));
+
+    // A path goes from the call's file's folder, and the compilation lists each file it embeds
+    // once.
+    const fb::compilation_t good = fb::compile("main.fb",
+                                               "Import std.core\n"
+                                               "Import \"./lib/reader\"\n"
+                                               "Const Text = EmbedText(\"data/hello.txt\")\n"
+                                               "Local raw = Embed(\"data/raw.bin\")\n"
+                                               "Local levels = EmbedFolder(\"data/levels\")\n"
+                                               "Print(Read(), raw, levels.Count)\n",
+                                               library);
+    CHECK(errors_of(good).empty());
+    std::vector<std::string> embedded = good.embedded;
+    std::ranges::sort(embedded);
+    CHECK(embedded ==
+          std::vector<std::string>{ "data/hello.txt", "data/levels/a.txt", "data/raw.bin" });
+
+    // A folder of the program's own code isn't data, and the main file's folder would bring the
+    // last build's executable along.
+    const fb::compilation_t bad = fb::compile("main.fb",
+                                              "Import \"./lib/reader\"\n"
+                                              "Local a = Embed(\"data/missing.png\")\n"
+                                              "Local b = Embed(\"../outside.txt\")\n"
+                                              "Local c = Embed(\"/etc/passwd\")\n"
+                                              "Local d = Embed(\"data/levels\")\n"
+                                              "Local e = EmbedFolder(\"data/hello.txt\")\n"
+                                              "Local f = EmbedText(\"data/raw.bin\")\n"
+                                              "Local g = Embed(\"data/big.bin\")\n"
+                                              "Local h = Embed(\"std/core/error.fb\")\n"
+                                              "Local name = \"data/hello.txt\"\n"
+                                              "Local i = Embed(name)\n"
+                                              "Local j = Embed()\n"
+                                              "Local k = EmbedFolder(\"data/..\")\n"
+                                              "Local l = EmbedFolder(\"lib\")\n"
+                                              "Local m = EmbedFolder(\"data/heavy\")\n",
+                                              library);
+    const std::vector<std::string> errors = errors_of(bad);
+    REQUIRE(errors.size() == 13);
+    CHECK(errors[0] ==
+          "main.fb: \"data/missing.png\": \"data/missing.png\" isn't a file: there's nothing "
+          "at data/missing.png");
+    CHECK(errors[1] ==
+          "main.fb: \"../outside.txt\": \"../outside.txt\" leaves the main file's folder, "
+          "which a program's embedded files are in");
+    CHECK(errors[2] ==
+          "main.fb: \"/etc/passwd\": \"/etc/passwd\" isn't a path from this file's folder, "
+          "like \"data/logo.png\" or \"../art/logo.png\"");
+    CHECK(errors[3] == "main.fb: \"data/levels\": \"data/levels\" is a folder; EmbedFolder puts a "
+                       "folder's files in the program");
+    CHECK(errors[4] ==
+          "main.fb: \"data/hello.txt\": \"data/hello.txt\" is a file; Embed puts a file's "
+          "bytes in the program");
+    CHECK(errors[5] ==
+          "main.fb: \"data/raw.bin\": \"data/raw.bin\" isn't UTF-8 text, at byte 0, so it "
+          "can't be a String; Embed gives its bytes");
+    CHECK(errors[6] ==
+          "main.fb: \"data/big.bin\": \"data/big.bin\" is a file more than 64 MiB, the most "
+          "one embed puts in the program; read one that large when the program runs");
+    CHECK(errors[7] ==
+          "main.fb: \"std/core/error.fb\": \"std/core/error.fb\" is in a folder called std, "
+          "which is the standard library's name");
+    CHECK(errors[8] == "main.fb: name: Embed's path is a String known at compile time, like "
+                       "\"data/logo.png\"");
+    CHECK(errors[9] ==
+          "main.fb: Embed(): Embed takes one argument, the path of a file from this file's "
+          "folder, like Embed(\"data/logo.png\")");
+    CHECK(errors[10] == "main.fb: \"data/..\": \"data/..\" holds the program's own code, main.fb; "
+                        "EmbedFolder puts a folder of data in the program");
+    CHECK(errors[11] == "main.fb: \"lib\": \"lib\" holds the program's own code, lib/reader.fb; "
+                        "EmbedFolder puts a folder of data in the program");
+    CHECK(errors[12] ==
+          "main.fb: \"data/heavy\": \"data/heavy\" is a folder whose files are more than 64 MiB, "
+          "the most one embed puts in the program; read one that large when the program runs");
+}
+
+TEST_CASE("an embed doesn't reach outside its package through a link, nor into another package",
+          "[driver]") {
+    const packages_t packages;
+    packages.write("outside/secret.txt", "s");
+    packages.write("app/project.toml", "[project]\nname = \"app\"\nversion = \"1.0.0\"\n");
+    packages.write("app/data/kept.txt", "k");
+    packages.write("app/inner/project.toml", "[project]\nname = \"inner\"\nversion = \"1.0.0\"\n");
+    packages.write("app/inner/notes.txt", "n");
+    packages.write("app/main.fb", "Local a = Embed(\"shared/secret.txt\")\n"
+                                  "Local b = EmbedFolder(\"shared\")\n"
+                                  "Local c = EmbedFolder(\"data\")\n"
+                                  "Local d = Embed(\"inner/notes.txt\")\n"
+                                  "Local e = EmbedFolder(\"inner\")\n");
+    if (!make_link(packages / "outside", packages / "app/shared") ||
+        !make_file_link(packages / "outside/secret.txt", packages / "app/data/secret.txt")) {
+        std::error_code ignored;
+        std::filesystem::remove(packages / "app/shared", ignored);
+        packages.remove();
+        SKIP("this system makes no links here");
+    }
+
+    const std::expected<fb::compilation_t, std::string> app = fb::compile_file(packages / "app");
+    REQUIRE(app);
+    const std::vector<std::string> messages = packages.messages(*app);
+    REQUIRE(messages.size() == 5);
+    CHECK(messages[0] == "app/main.fb: \"shared/secret.txt\": \"shared/secret.txt\" is a link to "
+                         "'outside/secret.txt', outside the package's folder");
+    CHECK(
+        messages[1] ==
+        "app/main.fb: \"shared\": \"shared\" is a link to 'outside', outside the package's folder");
+    CHECK(messages[2] == "app/main.fb: \"data\": \"secret.txt\" in \"data\" is a link to "
+                         "'outside/secret.txt', outside the package's folder");
+    CHECK(messages[3] == "app/main.fb: \"inner/notes.txt\": \"inner/notes.txt\" is in the package "
+                         "in 'app/inner', whose files only its own code embeds");
+    CHECK(messages[4] == "app/main.fb: \"inner\": \"inner\" is in the package in 'app/inner', "
+                         "whose files only its own code embeds");
+    CHECK(app->embedded.empty());
+    // Only the links go, not what they lead to.
+    std::error_code ignored;
+    std::filesystem::remove(packages / "app/shared", ignored);
+    std::filesystem::remove(packages / "app/data/secret.txt", ignored);
+    packages.remove();
+}

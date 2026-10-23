@@ -58,6 +58,10 @@ struct compilation_t {
     native_libraries_t natives;
     /// Where a project.toml names each of `natives`' system libraries, in their order.
     std::vector<span_t> system_spans;
+    /// The files Embed, EmbedText, and EmbedFolder put in the program, each once, as messages
+    /// name them: on disk, where they are. Each build reads them again, as it does `sources`,
+    /// and a tool that rebuilds when the program's files change watches them too.
+    std::vector<std::string> embedded;
 
     [[nodiscard]] const source_file_t& source() const {
         return sources.get(file);

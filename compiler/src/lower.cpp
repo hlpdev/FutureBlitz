@@ -5502,9 +5502,20 @@ private:
         return array_of(node.elements, expr_type(id));
     }
 
-    /// "{key: value}": a new Map, which its New() sets up, as Map() would, with each entry passed
-    /// to its Add, in order.
+    /// "{key: value}": a new Map, with each entry passed to its Add, in order.
     operand_t lower_expr(const expr_id_t id, const map_expr_t& node) {
+        const operand_t map = new_map(id);
+        for (const map_entry_t& entry : node.entries) {
+            add_to_map(id, map, settled(lower_value(entry.key), may_change(entry.value)),
+                       lower_value(entry.value));
+        }
+
+        return map;
+    }
+
+    /// A new Map of the type of `id`, a Map literal or an EmbedFolder, which its New() sets up,
+    /// as Map() would.
+    operand_t new_map(const expr_id_t id) {
         const type_id_t type = expr_type(id);
         const operand_t map = new_object(type);
         const symbol_id_t declared = m_declared_types.at(definition_of(type));
@@ -5516,25 +5527,40 @@ private:
             }
         }
 
-        const symbol_id_t add = expect(m_analysis.expr(id).symbol);
-        const function_id_t function = function_of(add, implementation_arguments(type, add));
-        for (const map_entry_t& entry : node.entries) {
-            call_t call{
-                .function = function,
-                .arguments = {
-                    { .value = map },
-                    { .value = settled(lower_value(entry.key), may_change(entry.value)) },
-                    { .value = lower_value(entry.value) },
-                },
-            };
-            if (is_virtual(m_analysis.symbol(add))) {
-                call.slot = slot_of(add);
-            }
+        return map;
+    }
 
-            // Add can get an error variable, from an Override that throws, though std's never
-            // sets it.
-            give_error_variable(call, add);
-            emit(evaluate_t{ .value = std::move(call) });
+    /// Passes a key and a value to a new Map's Add, which analysis chose for `id`.
+    void add_to_map(const expr_id_t id, const operand_t& map, const operand_t& key,
+                    const operand_t& value) {
+        const symbol_id_t add = expect(m_analysis.expr(id).symbol);
+        call_t call{
+            .function = function_of(add, implementation_arguments(expr_type(id), add)),
+            .arguments = { { .value = map }, { .value = key }, { .value = value } },
+        };
+        if (is_virtual(m_analysis.symbol(add))) {
+            call.slot = slot_of(add);
+        }
+
+        // Add can get an error variable, from an Override that throws, though std's never sets
+        // it.
+        give_error_variable(call, add);
+        emit(evaluate_t{ .value = std::move(call) });
+    }
+
+    /// What Embed or EmbedFolder puts in the program: a new UInt8[] of a file's bytes, which a
+    /// String constant holds in the program, or a new Map of each of a folder's files' bytes, by
+    /// its path in the folder.
+    operand_t lower_embed(const expr_id_t id, const std::vector<embedded_file_t>& files) {
+        const type_id_t bytes = types().array(type_id_t::UINT8);
+        if (is_array(expr_type(id))) {
+            return string_parts(make_string(files.front().bytes), "Bytes", bytes);
+        }
+
+        const operand_t map = new_map(id);
+        for (const embedded_file_t& file : files) {
+            add_to_map(id, map, make_string(file.path),
+                       string_parts(make_string(file.bytes), "Bytes", bytes));
         }
 
         return map;
@@ -9142,6 +9168,10 @@ private:
     std::optional<operand_t> lower_call(const expr_id_t id) {
         const scoped_value_t<std::optional<span_t>> at(m_span, span_of(id));
         const auto& node = std::get<call_expr_t>(m_ast.get(id).node);
+        if (const std::optional<std::size_t> embedded = m_analysis.expr(id).embedded) {
+            return lower_embed(id, m_analysis.embeds[*embedded]);
+        }
+
         // AddressOf(x) is x's place's address.
         if (m_analysis.expr(id).address_of) {
             return temporary(address_of_t{ .place = lower_place(node.arguments.front().value) },

@@ -1360,6 +1360,15 @@ TEST_CASE("fb build's -o names a new file, not a folder or the program's own", "
     CHECK(std::string(std::istreambuf_iterator<char>(kept), {}) ==
           "Import std.core\nPrint(\"hi\")\n");
 
+    // A file the program embeds is one of its own too.
+    const std::filesystem::path data = write_source("output/data.txt", "data");
+    const std::filesystem::path embeds =
+        write_source("output/embeds.fb", "Import std.core\nPrint(EmbedText(\"data.txt\"))\n");
+    check_usage_error({ "build", fb::to_utf8(embeds), "-o", fb::to_utf8(data) },
+                      "a file of the program; give another path");
+    std::ifstream data_kept(data, std::ios::binary);
+    CHECK(std::string(std::istreambuf_iterator<char>(data_kept), {}) == "data");
+
     // Without -o, the executable's path can be a folder's too, as game/ is beside game.fb on
     // Linux and macOS, and that's said without blaming a -o nobody gave.
     const std::filesystem::path game =

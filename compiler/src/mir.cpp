@@ -1,5 +1,7 @@
 #include "fb/mir.hpp"
 
+#include "fb/utf8.hpp"
+
 #include <algorithm>
 #include <array>
 #include <cstddef>
@@ -141,7 +143,8 @@ std::string constant(const const_value_t& value) {
     }
 
     std::string out = "\"";
-    for (const char c : *text) {
+    for (std::size_t at = 0; at < text->size(); ++at) {
+        const char c = (*text)[at];
         switch (c) {
         case '"':
             out += "\\\"";
@@ -168,12 +171,17 @@ std::string constant(const const_value_t& value) {
         case '}':
             out += "}}";
             break;
-        default:
-            if (static_cast<unsigned char>(c) < 0x20 || c == 0x7F) {
+        default: {
+            // A byte that isn't part of UTF-8 text, as an embedded file's can be, is written by
+            // its value too.
+            const decoded_t decoded = decode_utf8(*text, at);
+            if (static_cast<unsigned char>(c) < 0x20 || c == 0x7F || !decoded.valid()) {
                 out += std::format("\\x{:02X}", static_cast<unsigned char>(c));
             } else {
-                out += c;
+                out += text->substr(at, decoded.length);
+                at += decoded.length - 1;
             }
+        }
         }
     }
 

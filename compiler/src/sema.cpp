@@ -299,10 +299,15 @@ bool overlaps(const case_range_t& a, const case_range_t& b) {
     return compare(a.low, b.high) <= 0 && compare(b.low, a.high) <= 0;
 }
 
+/// Whether a name is one of the built-ins that put a file in the program.
+bool is_embed(const std::string_view name) {
+    return name == "Embed" || name == "EmbedText" || name == "EmbedFolder";
+}
+
 /// Whether a name is a built-in that looks like a call but only gives a value: SizeOf<T>(),
-/// TypeName<T>(), or AddressOf(x).
+/// TypeName<T>(), AddressOf(x), or Embed(path), EmbedText(path), and EmbedFolder(path).
 bool is_value_builtin(const std::string_view name) {
-    return name == "SizeOf" || name == "TypeName" || name == "AddressOf";
+    return name == "SizeOf" || name == "TypeName" || name == "AddressOf" || is_embed(name);
 }
 
 /// Whether a name is Load<T>(value) or Save(x), which make a T from a std.core Value and a Value
@@ -340,9 +345,9 @@ bool is_later_name(const std::string_view name) {
 class checker_t {
 public:
     checker_t(const source_manager_t& sources, const ast_t& ast, diagnostic_bag_t& diagnostics,
-              const build_mode_t mode)
-        : m_sources(sources), m_ast(ast), m_mode(mode), m_diagnostics(&diagnostics),
-          m_bag(&diagnostics), m_reported(&diagnostics) {
+              const build_mode_t mode, const embed_reader_t& embeds)
+        : m_sources(sources), m_ast(ast), m_mode(mode), m_embeds(&embeds),
+          m_diagnostics(&diagnostics), m_bag(&diagnostics), m_reported(&diagnostics) {
         m_analysis.exprs.resize(ast.expr_count());
         m_analysis.stmts.resize(ast.stmt_count());
         const std::vector<module_t>& modules = ast.modules().modules();
@@ -451,6 +456,8 @@ private:
     const ast_t& m_ast;
     /// The build's mode, which Const Functions run as.
     build_mode_t m_mode;
+    /// What reads the files Embed, EmbedText, and EmbedFolder name.
+    const embed_reader_t* m_embeds;
     diagnostic_bag_t* m_diagnostics; // swapped out while trying overloads
     /// The diagnostics that are kept, for work done on demand inside quietly().
     diagnostic_bag_t* m_bag;
@@ -18385,8 +18392,15 @@ private:
         } else if (is_later_name(name)) {
             error(span, "'{}' isn't supported yet", name);
         } else if (is_value_builtin(name)) {
-            error(span, "'{}' is called, as in {}", name,
-                  name == "AddressOf" ? "AddressOf(x)" : std::format("{}<T>()", name));
+            std::string example = std::format("{}<T>()", name);
+            if (name == "AddressOf") {
+                example = "AddressOf(x)";
+            } else if (is_embed(name)) {
+                example = std::format(R"({}("{}"))", name,
+                                      name == "EmbedFolder" ? "levels" : "data/logo.png");
+            }
+
+            error(span, "'{}' is called, as in {}", name, example);
         } else if (is_data_builtin(name)) {
             error(span, "'{}' is called, as in {}", name,
                   name == "Load" ? "Load<T>(value)" : "Save(x)");
@@ -20748,6 +20762,10 @@ private:
                 return check_address_of(id, node);
             }
 
+            if (is_embed(name->name)) {
+                return check_embed(id, node, *name);
+            }
+
             return name->name == "SizeOf" ? check_size_of(id, node, *name)
                                           : check_type_name(id, node, *name);
         }
@@ -21079,6 +21097,114 @@ private:
             info.fields, [&](const field_t& field) { return holds_itself(field.type, path); });
         path.pop_back();
         return holds;
+    }
+
+    /// "Embed(path)", "EmbedText(path)", or "EmbedFolder(path)": a file's bytes as a new UInt8[],
+    /// its text as a String known at compile time, or a folder's files as a new Map<String,
+    /// UInt8[]> by their paths in it, read when the program is built. The path is a String known
+    /// at compile time, from the call's file's folder, which the driver keeps in its package's.
+    type_id_t check_embed(const expr_id_t id, const call_expr_t& node, const name_expr_t& name) {
+        const bool text = name.name == "EmbedText";
+        const bool folder = name.name == "EmbedFolder";
+        const type_id_t bytes = m_analysis.types.array(type_id_t::UINT8);
+        type_id_t result = text ? type_id_t::STRING : bytes;
+        if (folder && m_map == type_id_t::INVALID) {
+            error(span_of(id), "EmbedFolder needs std's Map, from std/collections/map.fb");
+            check_alone(node.arguments);
+            return type_id_t::INVALID;
+        }
+
+        if (folder) {
+            result = m_analysis.types.instance(m_map, { type_id_t::STRING, bytes });
+        }
+
+        const std::string_view example = folder ? "levels" : "data/logo.png";
+        if (!name.type_arguments.empty() || node.arguments.size() != 1 ||
+            node.arguments.front().name || node.arguments.front().by_ref) {
+            error(
+                span_of(id),
+                R"({} takes one argument, the path of a {} from this file's folder, like {}("{}"))",
+                name.name, folder ? "folder" : "file", name.name, example);
+            check_alone(node.arguments);
+            return result;
+        }
+
+        const expr_id_t argument = node.arguments.front().value;
+        check(argument, type_id_t::STRING);
+        if (!expect_type(argument, type_id_t::STRING)) {
+            return result;
+        }
+
+        const std::optional<const_value_t>& path = info(argument).value;
+        if (!path) {
+            error(span_of(argument), R"({}'s path is a String known at compile time, like "{}")",
+                  name.name, example);
+            return result;
+        }
+
+        const auto& written = std::get<std::string>(path->data);
+        const file_id_t from = span_of(id).file;
+        if (folder) {
+            std::expected<std::vector<embedded_file_t>, std::string> files =
+                m_embeds->folder ? m_embeds->folder(from, written)
+                                 : std::unexpected("nothing reads files for this compilation");
+            if (!files) {
+                error(span_of(argument), "{}", files.error());
+                return result;
+            }
+
+            const std::optional<symbol_id_t> add = map_add(result);
+            if (!add) {
+                error(span_of(id), "EmbedFolder needs std's Map to have Add(key, value)");
+                return result;
+            }
+
+            info(id).symbol = *add;
+            info(id).embedded = m_analysis.embeds.size();
+            m_analysis.embeds.push_back(std::move(*files));
+            return result;
+        }
+
+        std::expected<std::string, std::string> read =
+            m_embeds->file ? m_embeds->file(from, written)
+                           : std::unexpected("nothing reads files for this compilation");
+        if (!read) {
+            error(span_of(argument), "{}", read.error());
+            return result;
+        }
+
+        if (!text) {
+            info(id).embedded = m_analysis.embeds.size();
+            m_analysis.embeds.push_back({ { .bytes = std::move(*read) } });
+            return result;
+        }
+
+        // A String is UTF-8, always.
+        for (std::size_t at = 0; at < read->size();) {
+            const decoded_t decoded = decode_utf8(*read, at);
+            if (!decoded.valid()) {
+                error(span_of(argument),
+                      "\"{}\" isn't UTF-8 text, at byte {}, so it can't be a String; Embed gives "
+                      "its bytes",
+                      written, at);
+                return result;
+            }
+
+            at += decoded.length;
+        }
+
+        info(id).value = make_string(std::move(*read));
+        return result;
+    }
+
+    /// A Map type's Add(key, value), which a Map literal and EmbedFolder call for each entry.
+    [[nodiscard]] std::optional<symbol_id_t> map_add(const type_id_t type) {
+        const std::vector<symbol_id_t> adds = members_of(type, "Add");
+        const auto add = std::ranges::find_if(adds, [this](const symbol_id_t member) {
+            return symbol(member).kind == symbol_kind_t::METHOD &&
+                   symbol(member).parameters.size() == 2;
+        });
+        return add != adds.end() ? std::optional(*add) : std::nullopt;
     }
 
     /// "TypeName<T>()": T's name, like "Map<String, Int32>", known at compile time, or for a T
@@ -25159,12 +25285,8 @@ private:
         }
 
         const type_id_t type = m_analysis.types.instance(m_map, arguments);
-        const std::vector<symbol_id_t> adds = members_of(type, "Add");
-        const auto add = std::ranges::find_if(adds, [this](const symbol_id_t member) {
-            return symbol(member).kind == symbol_kind_t::METHOD &&
-                   symbol(member).parameters.size() == 2;
-        });
-        if (add == adds.end()) {
+        const std::optional<symbol_id_t> add = map_add(type);
+        if (!add) {
             error(span_of(id), "a Map literal needs std's Map to have Add(key, value)");
             return type_id_t::INVALID;
         }
@@ -25737,8 +25859,8 @@ bool implements(const analysis_t& analysis, type_table_t& types, const type_id_t
 }
 
 analysis_t analyze(const source_manager_t& sources, const ast_t& ast, diagnostic_bag_t& diagnostics,
-                   const build_mode_t mode) {
-    return checker_t(sources, ast, diagnostics, mode).run();
+                   const build_mode_t mode, const embed_reader_t& embeds) {
+    return checker_t(sources, ast, diagnostics, mode, embeds).run();
 }
 
 } // namespace fb

@@ -7,3 +7,6 @@
 
 # The format suites' cases are their exact bytes, as their spec tests them.
 tests/programs/data_*_suite/** -text
+
+# A file a test program embeds is its exact bytes.
+tests/programs/embed/** -text
