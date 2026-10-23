@@ -2792,7 +2792,7 @@ TEST_CASE("For Field's f.Set can't change a ReadOnly Field", "[mir]") {
     REQUIRE(compilation.diagnostics.diagnostics().empty());
     const fb::mir_module_t module = fb::lower(compilation.ast, compilation.analysis);
     REQUIRE(module.error);
-    const fb::mir_error_t& error = module.error.value();
+    const fb::mir_error_t error = module.error.value_or(fb::mir_error_t{});
     CHECK(std::string(compilation.sources.get(error.span.file).slice(error.span)) + ": " +
               error.message ==
           "f.Set(ByRef target, f.Get(source)): 'Name' is ReadOnly, so f.Set can't change it");
