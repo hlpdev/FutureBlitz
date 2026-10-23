@@ -68,6 +68,15 @@ So far, std/ holds:
 | std/collections/immutable.fb | `ImmutableArray<T>`, `ImmutableMap<K, V>`, and `ImmutableSet<T>`, over Shared nodes |
 | std/ffi/mem.fb | `Mem`, raw memory for Unsafe code, over the runtime's `fb_mem_*` |
 | std/ffi/cstring.fb | `CString.From`, `Length`, and `Free`, over the runtime's copies |
+| std/crypto/hashes.fb | `Hasher`, and `Md5`, `Sha1`, `Sha256`, and `Sha512`, over mbedTLS through the runtime's `fb_crypto_` functions |
+| std/crypto/derive.fb | `Hmac`, `Hkdf`, and `Pbkdf2`, each by SHA-1, SHA-256, or SHA-512 |
+| std/crypto/random.fb | `SecureRandom` and `ConstantTimeEquals` |
+| std/crypto/blake3.fb | `Blake3`, over BLAKE3 through `fb_blake3_` |
+| std/crypto/checksums.fb | `Crc32`, in FutureBlitz, and `XxHash`, over xxHash through `fb_xxhash_` |
+| std/crypto/passwords.fb | `Argon2id` and `Bcrypt`, over Argon2 through `fb_argon2_` and crypt_blowfish through `fb_bcrypt_` |
+| std/crypto/ciphers.fb | `Aes256Gcm` and `ChaCha20Poly1305` |
+| std/crypto/signatures.fb | `EcdsaP256`, `Rsa`, and `X25519` |
+| std/crypto/pem.fb | `KeyKind`, `Key`, and `Certificate` |
 
 What the language itself uses, `Error` for Throw and Catch, the Interfaces, `Iterator<T>`, and
 `Map<K, V>` for `{key: value}`, is always std's, whatever a program calls by those names.
@@ -94,7 +103,7 @@ and the rest) aren't std's.
 |---|---|---|
 | libuv | MIT, with parts under BSD-2-Clause and ISC | std.io, std.os, std.net's sockets, IPC, and DNS, std.time's timers, Async I/O |
 | libcurl | curl (MIT-style) | std.net.http's client |
-| mbedTLS | Apache-2.0 | std.net.tls, std.crypto's hashes, HMAC, HKDF, PBKDF2, ciphers, signatures, and secure random |
+| mbedTLS | Apache-2.0 | std.net.tls, std.crypto's hashes, HMAC, HKDF, PBKDF2, ciphers, signatures, key exchange, PEM keys and certificates, and secure random |
 | PCRE2 | BSD | std.text.regex, and the compiler's check of regex literals |
 | utf8proc | MIT | std.text.unicode: categories, case, normalization, graphemes, display width |
 | zlib-ng (zlib API) and minizip-ng | zlib | std.compress's Deflate, Zlib, Gzip, and Zip, and curl's gzip |
@@ -102,6 +111,7 @@ and the rest) aren't std's.
 | liblzma (xz-utils) | 0BSD | std.compress's XZ/LZMA and 7z reading |
 | xxHash | BSD | std.crypto's fast non-cryptographic hashes |
 | BLAKE3, Argon2 | CC0 / Apache-2.0 | std.crypto's BLAKE3 and Argon2id |
+| crypt_blowfish | public domain, or else a permissive license | std.crypto's Bcrypt |
 | libtommath | Unlicense | std.math.big's BigInt |
 | mpdecimal | BSD | std.math.big's Decimal |
 | SQLite | public domain | std.db |
@@ -384,14 +394,35 @@ file or URL in the default app.
 
 #### std.crypto
 
-- Hashes (mbedTLS): `Sha1`, `Sha256`, `Sha512`, `Md5` (only for checksums, and said so), and
-  `Blake3`; `Hmac`, `Hkdf`, `Pbkdf2`; `SecureRandom`; `ConstantTimeEquals`; non-cryptographic
-  `Crc32` and `XxHash`.
-- Passwords: `Argon2id` and `Bcrypt`, whose `Hash` and `Verify` pick salts and parameters.
-- Authenticated encryption: AES-256-GCM and ChaCha20-Poly1305, through `Seal` and `Open`, which
-  won't reuse a nonce.
-- Keys and signatures: Ed25519 and ECDSA P-256 sign and verify, RSA verify, X25519 key
-  exchange, and PEM keys and certificates.
+- Bytes go in as `UInt8[]`, or a String's bytes, and come out as `UInt8[]`; keys are bytes too.
+  A size that can't be right, like a 16-byte key for AES-256, panics at the caller.
+- Hashes: `Sha1`, `Sha256`, `Sha512`, and `Md5` (only for checksums, and said so) over
+  mbedTLS, and `Blake3` over BLAKE3. Each one's `Hash(data)` hashes at once, and an object of it
+  is a `Hasher`, with `Add(data)` and `Finish()`, which gives the hash and starts again. Blake3
+  gives any length, and is keyed (`Keyed`, `KeyedHash`) or derives a key for a context
+  (`DerivingKey`, `DeriveKey`) too.
+- `Hmac.Sha1`, `Sha256`, and `Sha512(key, data)`; `Hkdf.Sha256` and `Sha512(material, salt, info,
+  length)`; `Pbkdf2.Sha1`, `Sha256`, and `Sha512(password, salt, iterations, length)`.
+- `SecureRandom.Bytes(count)` and `Below(limit)`, from the OS's randomness through mbedTLS's
+  generator; `ConstantTimeEquals(a, b)`, for comparing a MAC without telling where it differs.
+- Non-cryptographic `Crc32` (zlib's CRC-32) and `XxHash` (XXH3, 64 bits, with a seed), each
+  with `Hash`, and `Add` and `Finish`.
+- Passwords: `Argon2id` and `Bcrypt`, whose `Hash(password)` picks a new 16-byte salt and the
+  parameters (19 MiB, 2 passes, and 1 lane, as OWASP says, and a cost of 12) and gives the
+  string to keep, and whose `Verify(password, hash)` checks a password against it.
+  `Argon2id.Derive` gives a key's bytes. bcrypt reads only 72 bytes of a password, and none
+  past a NUL, so `Bcrypt.Hash` throws an `ArgumentError` for a longer one, or one with a NUL.
+- Authenticated encryption: `Aes256Gcm` and `ChaCha20Poly1305`, through `Seal(key, message,
+  associated)` and `Open(key, sealed, associated)`, which gives Null for what Seal didn't make
+  with that key and associated data. Seal takes a new random 12-byte nonce each time and puts
+  it first, so no nonce is ever given, or reused but by a chance of about 1 in 2^33 after 2^32
+  messages under one key, as many as a key should seal.
+- Keys and signatures: `EcdsaP256` (ES256: signatures r then s, deterministic as RFC 6979 makes
+  them), `Rsa.Verify` (RS256) and `VerifyPss` (PS256), and `X25519` key exchange, whose secret
+  is Null for a public key that makes it 0. `Key.FromPem` reads a private or public key of a
+  `KeyKind` (ECDSA P-256, RSA, X25519, or Ed25519), and `ToPem` writes one;
+  `Certificate.FromPem` and `AllFromPem` read X.509 certificates: subject, issuer, serial
+  number, validity, public key, and DER. Checking a chain of them is std.net.tls's.
 
 #### std.compress
 
