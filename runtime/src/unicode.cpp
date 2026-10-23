@@ -67,16 +67,40 @@ std::vector<std::int32_t> folded(const std::int32_t point) {
     return { sequence.begin(), sequence.begin() + count };
 }
 
-/// Whether a letter has case: an uppercase, lowercase, or titlecase one, for the final sigma.
+/// The characters Unicode counts as cased beyond Lu, Ll, and Lt, which utf8proc doesn't say:
+/// Other_Lowercase, like U+00AA and the modifier letters, and Other_Uppercase, like the Roman
+/// numerals and circled letters, from Unicode's PropList.txt: each range's first and last
+/// characters, in turn.
+constexpr std::u32string_view other_cased =
+    U"\u00AA\u00AA\u00BA\u00BA\u02B0\u02B8\u02C0\u02C1\u02E0\u02E4\u0345\u0345\u037A\u037A"
+    U"\u10FC\u10FC\u1D2C\u1D6A\u1D78\u1D78\u1D9B\u1DBF\u2071\u2071\u207F\u207F\u2090\u209C"
+    U"\u2160\u217F\u24B6\u24E9\u2C7C\u2C7D\uA69C\uA69D\uA770\uA770\uA7F2\uA7F4\uA7F8\uA7F9"
+    U"\uAB5C\uAB5F\uAB69\uAB69\U00010780\U00010780\U00010783\U00010785\U00010787\U000107B0"
+    U"\U000107B2\U000107BA\U0001E030\U0001E06D\U0001F130\U0001F149\U0001F150\U0001F169"
+    U"\U0001F170\U0001F189";
+
+/// Whether a character has case, as Unicode's Cased has it: an uppercase, lowercase, or
+/// titlecase letter, or one of the others it counts, for the final sigma.
 bool is_cased(const std::int32_t point) {
     const utf8proc_category_t category = category_of(point);
-    return category == UTF8PROC_CATEGORY_LU || category == UTF8PROC_CATEGORY_LL ||
-           category == UTF8PROC_CATEGORY_LT;
+    if (category == UTF8PROC_CATEGORY_LU || category == UTF8PROC_CATEGORY_LL ||
+        category == UTF8PROC_CATEGORY_LT) {
+        return true;
+    }
+
+    for (std::size_t i = 0; i < other_cased.size(); i += 2) {
+        if (static_cast<char32_t>(point) >= other_cased[i] &&
+            static_cast<char32_t>(point) <= other_cased[i + 1]) {
+            return true;
+        }
+    }
+
+    return false;
 }
 
-/// Whether case mapping looks past a character to the letter before or after it: a mark, a
-/// format character, a modifier, or an apostrophe or period inside a word, as Unicode's
-/// Case_Ignorable has them.
+/// Whether case mapping looks past a character to the letter before or after it, as Unicode's
+/// Case_Ignorable has them: a mark, a format character, a modifier, or what Word_Break counts as
+/// inside a word, an apostrophe, a period, or a colon, in each script's own forms.
 bool is_case_ignorable(const std::int32_t point) {
     switch (category_of(point)) {
     case UTF8PROC_CATEGORY_MN:
@@ -86,13 +110,18 @@ bool is_case_ignorable(const std::int32_t point) {
     case UTF8PROC_CATEGORY_SK:
         return true;
     default:
-        return point == '\'' || point == '.' || point == ':' || point == 0x00B7 ||
-               point == 0x2018 || point == 0x2019 || point == 0x2024 || point == 0x2027;
+        break;
     }
+
+    constexpr std::u32string_view inside_words =
+        U"'.:\u00B7\u0387\u055F\u05F4\u2018\u2019\u2024\u2027\uFE13\uFE52\uFE55\uFF07\uFF0E\uFF1A";
+    return inside_words.contains(static_cast<char32_t>(point));
 }
 
-/// Whether the capital sigma at `at` ends a word, so it lowers to final sigma, U+03C2: a cased
-/// letter comes before it, and none after it, past what case mapping looks past.
+/// Whether the capital sigma at `at` ends a word, so it lowers to final sigma, U+03C2, as
+/// Unicode's Final_Sigma says: a cased character comes before it, and none after it, past what
+/// case mapping looks past. A character that's both, like U+02B0, is looked past, as ICU and
+/// Python do.
 bool is_final_sigma(const std::span<const std::int32_t> points, const std::size_t at) {
     std::size_t before = at;
     while (before > 0 && is_case_ignorable(points[before - 1])) {
