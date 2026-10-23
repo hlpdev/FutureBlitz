@@ -1,7 +1,7 @@
 file(GLOB_RECURSE FB_RUNTIME_SOURCES CONFIGURE_DEPENDS src/*.cpp)
 # The parts over bundled C libraries are archives of their own.
 set(FB_RUNTIME_PARTS io crypto crypto_pem xxhash blake3 argon2 bcrypt ed25519 db bigint
-    decimal tz)
+    decimal tz zlib zstd lz4 xz seven_zip zip)
 foreach(part ${FB_RUNTIME_PARTS})
   list(REMOVE_ITEM FB_RUNTIME_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/src/${part}.cpp)
 endforeach()
@@ -66,17 +66,34 @@ add_library(fb_runtime_tz STATIC src/tz.cpp)
 target_include_directories(fb_runtime_tz PUBLIC include)
 fb_set_warnings(fb_runtime_tz)
 
+# And its parts over std.compress's: the fb_zlib_, fb_zstd_, fb_lz4_, fb_xz_, and fb_zip_
+# functions over zlib-ng, zstd, LZ4, liblzma, and minizip-ng. 7z's archives, read over liblzma, are
+# an object file of their own in liblzma's part, so only a program that reads them links that code.
+foreach(part zlib zstd lz4 xz zip)
+  add_library(fb_runtime_${part} STATIC src/${part}.cpp)
+  target_include_directories(fb_runtime_${part} PUBLIC include)
+  fb_set_warnings(fb_runtime_${part})
+endforeach()
+target_link_libraries(fb_runtime_zlib PRIVATE zlib-ng)
+target_link_libraries(fb_runtime_zstd PRIVATE zstd)
+target_link_libraries(fb_runtime_lz4 PRIVATE lz4)
+target_sources(fb_runtime_xz PRIVATE src/seven_zip.cpp)
+target_link_libraries(fb_runtime_xz PRIVATE liblzma)
+target_link_libraries(fb_runtime_zip PRIVATE minizip_ng)
+
 # What a program can link: each part and its library, which fb and the tests that build programs
 # depend on.
 set(FB_RUNTIME_ARCHIVES fb_runtime fb_runtime_io uv_a fb_runtime_crypto tfpsacrypto
     fb_runtime_xxhash xxhash fb_runtime_blake3 blake3 fb_runtime_argon2 argon2 fb_runtime_bcrypt
     crypt_blowfish fb_runtime_ed25519 monocypher fb_runtime_db sqlite fb_runtime_bigint tommath
-    fb_runtime_decimal mpdecimal fb_runtime_tz fb_tzdata PARENT_SCOPE)
+    fb_runtime_decimal mpdecimal fb_runtime_tz fb_tzdata fb_runtime_zlib zlib-ng fb_runtime_zstd
+    zstd fb_runtime_lz4 lz4 fb_runtime_xz liblzma fb_runtime_zip minizip_ng PARENT_SCOPE)
 
 # Nothing in the runtime throws: exceptions can't cross into compiled programs.
 foreach(part fb_runtime fb_runtime_io fb_runtime_crypto fb_runtime_xxhash fb_runtime_blake3
              fb_runtime_argon2 fb_runtime_bcrypt fb_runtime_ed25519 fb_runtime_db
-             fb_runtime_bigint fb_runtime_decimal fb_runtime_tz)
+             fb_runtime_bigint fb_runtime_decimal fb_runtime_tz fb_runtime_zlib fb_runtime_zstd
+             fb_runtime_lz4 fb_runtime_xz fb_runtime_zip)
   if(MSVC)
     target_compile_options(${part} PRIVATE /EHs-c-)
   else()
