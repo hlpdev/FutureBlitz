@@ -82,6 +82,10 @@ End For
 row.Slice(0, 4).CopyTo(row.Slice(2, 6))
 Print("{row.ToArray()}")
 
+// From copies an array into a new Buffer.
+Local made = Buffer<Int16>.From([3, -4, 5])
+Print("{made.Count} {made[1]} {Buffer<Point>.From([Point(1, 2)])[0].y} {Buffer<Int32>.From([]).Count}")
+
 // A view of memory C owns, which it gives back once the view is done with it.
 Unsafe
     Local memory: Ptr<Int16> = Mem.Alloc(3 * SizeOf<Int16>())
