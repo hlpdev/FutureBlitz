@@ -2,6 +2,7 @@
 2 2 2
 a Box<String> is Doubled: 101
 a Box<Rock> is Doubled: False
+2 2 101 2
 2 2 2 201
 201 201
 open

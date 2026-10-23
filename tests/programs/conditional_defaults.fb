@@ -46,6 +46,22 @@ End If
 sized = Box<Rock>()
 Print("a Box<Rock> is Doubled: {sized Is Doubled}")
 
+// The same where an Extend lists Sized for every instance: a call on one that's Doubled too
+// reaches the Twice every instance has.
+Class Tray<T>
+    Method Size(): Int => 1
+End Class
+
+Extend Tray<T> Implements Sized
+End Extend
+
+Extend Tray<T> Implements Doubled
+    Where T: Hashable
+End Extend
+
+Print("{Tray<Int>().Twice()} {AsSized(Tray<Int>())} {AsDoubled(Tray<Int>())} " +
+      "{Tray<Rock>().Twice()}")
+
 // A Class extending one that's Doubled for some instances gets Sized's for every one, unless its
 // own Where says they're all Doubled.
 Interface Tripled

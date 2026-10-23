@@ -4807,6 +4807,22 @@ TEST_CASE("an Extend's Where makes the defaults it gives conditional too", "[sem
 
     // Only the instances that meet it have its default, as they have what it adds.
     CHECK(probe(box + "Local n = Box<Int>().Twice()") == "Int32");
+    // Beside the default every instance has from an Extend without one, a call takes that.
+    CHECK(probe("Import std.core\n"
+                "Interface Sized\n"
+                "    Method Size(): Int => 1\n"
+                "End Interface\n"
+                "Interface Doubled Extends Sized\n"
+                "    Method Size(): Int => 10\n"
+                "End Interface\n"
+                "Class Tray<T>\n"
+                "End Class\n"
+                "Extend Tray<T> Implements Sized\n"
+                "End Extend\n"
+                "Extend Tray<T> Implements Doubled\n"
+                "    Where T: Numeric\n"
+                "End Extend\n"
+                "Local n = Tray<Int>().Size()") == "Int32");
     CHECK(errors_of(box + "Local n = Box<Rock>().Twice()") ==
           errors_t{
               "Box<Rock>().Twice: Rock doesn't implement Hashable, which 'Twice' needs for T" });

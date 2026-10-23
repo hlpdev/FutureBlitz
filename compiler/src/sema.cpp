@@ -17198,6 +17198,16 @@ private:
                         same_here(near, far));
             }
 
+            // A default every instance has, from an Extend without Where lines, takes the place of
+            // one an Extend's Where lines give, as the type's own Method does.
+            const bool everywhere = near.default_method && near.constraints.empty();
+            if (near_depth == far_depth && everywhere && conditional_default(far) &&
+                !far.constraints.empty() && near.kind == symbol_kind_t::METHOD &&
+                far.kind == symbol_kind_t::METHOD && same_here(near, far) &&
+                std::ranges::equal(near.parameters, far.parameters, {}, by_ref, by_ref)) {
+                return true;
+            }
+
             // One that a call tells apart by ByRef is no other's place.
             const bool added = far.extended && (!far.default_method || conditional_default(far));
             return near_depth == far_depth && !near.extended && added &&
