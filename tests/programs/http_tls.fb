@@ -1,0 +1,81 @@
+// HTTPS against the test server, whose certificate the test CA signed for 127.0.0.1: the OS's
+// roots don't trust it, the test CA does, and trusting the OS's roots again doesn't.
+Import std.core
+Import std.crypto
+Import std.net.http
+
+Global base = Input() ?? ""
+Global secure = Input() ?? ""
+Local refused = Input() ?? ""
+Local pem = ""
+Loop
+    Local line = Input() ?? ""
+    pem = pem + line + "\n"
+    If line == "-----END CERTIFICATE-----" Then Break
+End Loop
+
+// What a GET of path over HTTPS gives: its status and text, or what failed.
+Function Fetched(client: HttpClient, path: String): String
+    Try
+        Local response = client.Get("{secure}{path}")
+        Return "{response.Status} {response.Text}"
+    Catch e As NetError
+        Return "NetError {e.Kind}"
+    Catch e As TimeoutError
+        Return "TimeoutError"
+    End Try
+End Function
+
+Local client = HttpClient()
+Print(Fetched(client, "/hello"))
+
+Local roots: Certificate[] = []
+Try
+    roots = Certificate.AllFromPem(pem)
+Catch e As ParseError
+    Print("the test CA doesn't read: {e.Message}")
+End Try
+
+Print(roots[0].Subject)
+client.TrustOnly(roots)
+Print(Fetched(client, "/hello"))
+Print(Fetched(client, "/redirect/2"))
+Print(Fetched(client, "/cookies/set?name=secret&value=1"))
+Print(Fetched(client, "/cookies"))
+Try
+    Print(client.Post("{secure}/echo", Body.Text("over TLS")).Text)
+    Local bytes = client.Download("{secure}/bytes/100000")
+    Local right = bytes.Count == 100000
+    For i, byte In bytes
+        If byte != (i % 251) As UInt8 Then right = False
+    End For
+    Print("bytes {bytes.Count} {right}")
+Catch e As NetError
+    Print("NetError {e.Kind}")
+Catch e As TimeoutError
+    Print("TimeoutError")
+End Try
+
+// A redirect to another origin sends no Authorization or Cookie of the request's own; one to the
+// same origin does.
+Local own = Headers()
+own.Add("Authorization", "Bearer secret")
+own.Add("Cookie", "mine=1")
+Try
+    Local same = "{secure}/redirect-to?url=/header/authorization"
+    Print(client.Send(HttpMethod.GET, same, Null, own).Text)
+    Local other = "{base}/redirect-to?url={secure}/header/authorization"
+    Print(client.Send(HttpMethod.GET, other, Null, own).Text)
+    Local cookie = "{base}/redirect-to?url={secure}/header/cookie"
+    Print(client.Send(HttpMethod.GET, cookie, Null, own).Text)
+    Print(client.Send(HttpMethod.GET, "{secure}/header/cookie", Null, own).Text)
+Catch e As NetError
+    Print("NetError {e.Kind}")
+Catch e As TimeoutError
+    Print("TimeoutError")
+End Try
+
+client.TrustOsRoots()
+Print(Fetched(client, "/hello"))
+client.TrustOnly([])
+Print(Fetched(client, "/hello"))

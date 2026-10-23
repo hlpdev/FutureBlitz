@@ -1,0 +1,66 @@
+// std.net.http's parts that need no server: Headers, whose names ASCII's letter cases don't
+// change, Body's kinds, StatusCode, and a program that only uses them linking no libcurl.
+Import std.core
+Import std.collections
+Import std.net.http
+
+Print("== headers")
+Local headers = Headers()
+Print(headers.Count)
+headers.Add("Accept", "text/html")
+headers.Add("X-Tag", "a")
+headers.Add("x-tag", "b")
+headers.Add("Empty", "")
+headers.Add("Tab", "a\tb")
+Print(headers.Count)
+Print(headers.Get("accept") ?? "none")
+Print(headers.Get("X-TAG") ?? "none")
+Print(headers.GetAll("x-Tag"))
+Print(headers.Get("missing") ?? "none")
+Print(headers.Contains("EMPTY"))
+Print(headers.Contains("missing"))
+For name, value In headers
+    Print("{name} = [{value}]")
+End For
+
+headers.Set("X-Tag", "c")
+Print(headers.GetAll("x-tag"))
+headers.Set("New", "1")
+Print(headers)
+Local copy = headers.Clone()
+Print(headers.Remove("x-TAG"))
+Print(headers.Remove("x-tag"))
+Print(headers.Count)
+Print(copy.Count)
+headers.Clear()
+Print(headers.Count)
+Print("[{headers}]")
+
+Print("== bodies")
+Local text = Body.Text("héllo")
+Print("{text.ContentType ?? "none"} {text.Bytes}")
+Local csv = Body.Text("a,b", "text/csv")
+Print(csv.ContentType ?? "none")
+Local json = Body.Json("{{\"n\": 1}}")
+Print("{json.ContentType ?? "none"} {json.Bytes.Count}")
+Local bytes = Body([0, 255])
+Print("{bytes.ContentType ?? "none"} {bytes.Bytes}")
+Print(Body([1], Null).ContentType ?? "none")
+Local form = Body.Form({"q": "a b&c=d", "name": "Zoë", "safe": "-._~", "": "empty"})
+Print(form.ContentType ?? "none")
+// A response's Text reads the bytes back as text.
+Print(HttpResponse(200, Headers(), form.Bytes, "").Text)
+
+Print("== statuses")
+Print(StatusCode.OK)
+Print(StatusCode.NOT_FOUND)
+For status In [100, 200, 201, 204, 301, 304, 307, 400, 404, 418, 429, 500, 503, 599]
+    Local reason = StatusCode.Reason(status)
+    Print("{status} [{reason}] {StatusCode.IsSuccess(status)} {StatusCode.IsRedirect(status)}")
+End For
+
+Print("== methods")
+For method In [HttpMethod.GET, HttpMethod.HEAD, HttpMethod.POST, HttpMethod.PUT,
+               HttpMethod.PATCH, HttpMethod.DELETE, HttpMethod.OPTIONS]
+    Print(method)
+End For
