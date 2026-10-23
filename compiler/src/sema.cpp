@@ -18906,6 +18906,27 @@ private:
         return type_id_t::INVALID;
     }
 
+    /// Whether every instance of `type`, which a Ptr can point at, takes no bytes: a Struct or
+    /// tuple whose fields all take none, or a fixed array of one. A type parameter there is
+    /// C data, which takes a byte at least.
+    [[nodiscard]] bool takes_no_bytes(const type_id_t type) const {
+        if (is_parameter(type)) {
+            return false;
+        }
+
+        if (is_fixed_array(type)) {
+            return takes_no_bytes(element_of(type));
+        }
+
+        if (is_struct(type) || is_tuple(type)) {
+            return std::ranges::all_of(
+                m_analysis.types.get(type).fields,
+                [&](const field_t& field) { return takes_no_bytes(field.type); });
+        }
+
+        return fb::c_layout(m_analysis.types, type, build_c_integers()).size == 0;
+    }
+
     /// "p + n" and "p - n", a Ptr n T's on, and "p - q", how many T's there are from q to p, in
     /// Unsafe code. nullopt for an operation that isn't one of these.
     std::optional<type_id_t> check_pointer_arithmetic(const binary_op_t op, const type_id_t left,
@@ -18933,11 +18954,17 @@ private:
             return type_id_t::INVALID;
         }
 
-        // A CData T with type parameters in it takes a byte at least, as every C type does.
+        // A T with type parameters in it is measured for each instance, as lowering makes it; in
+        // the generic code, it takes no bytes only where nothing in it can.
         std::vector<type_id_t> inside;
         parameters_in(element_of(left), inside);
-        if (!inside.empty() && m_analysis.interfaces.c_data != type_id_t::INVALID &&
-            !why_not_c_data(element_of(left))) {
+        if (!inside.empty()) {
+            if (counts && takes_no_bytes(element_of(left))) {
+                error(span, "'-' counts the values between two Ptrs, and {} takes no bytes",
+                      shown_name(element_of(left)));
+                return type_id_t::INVALID;
+            }
+
             (void)require_unsafe(span, std::format("'{}' on a Ptr", spelling(op)));
             return counts ? type_id_t::INT64 : left;
         }

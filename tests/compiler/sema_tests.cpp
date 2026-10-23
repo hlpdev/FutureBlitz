@@ -7136,6 +7136,16 @@ TEST_CASE("a type parameter that's CData can be a Ptr's T, and SizeOf's", "[sema
           errors_t{ "CData: CData can only be a constraint, like <T: CData>, since it says what C "
                     "code has" });
 
+    // A Struct of a CData T takes a byte at least, so its Ptrs count, in the generic code too.
+    CHECK(errors_of("Import std.ffi\n"
+                    "Struct Wrap<T: CData>\n    Field v: T\nEnd Struct\n"
+                    "Struct Four<T: CData>\n    Field items: T[4]\nEnd Struct\n"
+                    "Unsafe Function Count<T: CData>(a: Ptr<Wrap<T>>, b: Ptr<Wrap<T>>): Int64 => "
+                    "a - b\n"
+                    "Unsafe Function Count4<T: CData>(a: Ptr<Four<T>>, b: Ptr<Four<T>>): Int64 => "
+                    "a - b\n")
+              .empty());
+
     // A T's size is known for each instance, but not in the generic code, where an empty
     // Struct's Ptrs don't count either.
     CHECK(errors_of("Import std.ffi\n"
