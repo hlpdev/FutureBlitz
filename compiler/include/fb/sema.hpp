@@ -341,6 +341,8 @@ struct builtin_interfaces_t {
     type_id_t comparable = type_id_t::INVALID;
     type_id_t hashable = type_id_t::INVALID;
     type_id_t printable = type_id_t::INVALID;
+    /// What takes a format spec, which the numbers, Bool, String, and Enums are.
+    type_id_t formattable = type_id_t::INVALID;
     type_id_t numeric = type_id_t::INVALID;
     /// What makes a copy of itself, which arrays are with their own Clone.
     type_id_t cloneable = type_id_t::INVALID;

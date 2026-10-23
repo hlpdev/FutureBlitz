@@ -410,9 +410,20 @@ private:
         for (const string_part_t& part : node.parts) {
             if (const auto* text = std::get_if<std::string>(&part)) {
                 out.items.push_back(atom(quote(*text), tone_t::LITERAL));
-            } else {
-                out.items.push_back(expr(std::get<expr_id_t>(part)));
+                continue;
             }
+
+            // A value with a format spec is "(format value ".2")".
+            const auto& interpolation = std::get<interpolation_t>(part);
+            if (!interpolation.format) {
+                out.items.push_back(expr(interpolation.value));
+                continue;
+            }
+
+            node_t formatted = list("format");
+            formatted.items.push_back(expr(interpolation.value));
+            formatted.items.push_back(atom(quote(interpolation.format->text), tone_t::LITERAL));
+            out.items.push_back(std::move(formatted));
         }
 
         return out;

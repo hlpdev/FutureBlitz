@@ -142,6 +142,20 @@ TEST_CASE("string values", "[parser]") {
     CHECK(expression(R"("\u{1F600}")") == "(string \"😀\")");
 }
 
+TEST_CASE("an interpolation's value can have a format spec", "[parser]") {
+    CHECK(expression(R"("{price:.2} {n}")") == R"((string (format price ".2") " " n))");
+    CHECK(expression(R"("{a ? b : c:>4}")") == R"((string (format (? a b c) ">4")))");
+    CHECK(expression(R"("{x:}")") == R"((string (format x "")))");
+
+    // A ':' with no space after it starts a spec, and one with a space can't.
+    CHECK(parse_text(R"(_ = "{a ? b :c}")").errors ==
+          std::vector<std::string>{ "12-14: in an interpolation, a ':' with no space after it "
+                                    "starts a format spec, so a ternary's needs one" });
+    CHECK(
+        parse_text(R"(_ = "{n: >5}")").errors ==
+        std::vector<std::string>{ "7-8: a format spec comes right after its ':', with no space" });
+}
+
 TEST_CASE("multi-line strings lose the closing quotes' indentation", "[parser]") {
     // The line breaks after the opening quotes and before the closing ones are dropped, and a
     // CRLF becomes a plain line break.

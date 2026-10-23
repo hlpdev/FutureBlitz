@@ -29,6 +29,13 @@ Public Interface Printable
     Method ToString(): String
 End Interface
 
+// A value that takes a format spec, the part after the ':' in "{price:.2}" or Format's
+// "{0:>8}": Format gives its text for the spec, or Null when it doesn't take that spec. The
+// numbers, Bool, String, and Enums are Formattable, by the specs the compiler checks.
+Public Interface Formattable Extends Printable
+    Method Format(spec: String): String?
+End Interface
+
 // What arithmetic needs, so generic code like a Sum works on any number.
 Public Interface Numeric
     Static Method Zero(): Self

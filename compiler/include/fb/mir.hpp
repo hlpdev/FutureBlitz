@@ -169,6 +169,16 @@ enum class runtime_function_t : std::uint8_t {
     EQUAL,
     /// (a number or Bool) to a new String, as interpolation shows it.
     TO_TEXT,
+    /// (Int64, String) to a new String: the integer's text by a format spec that fits it, the
+    /// part after an interpolation's ':'.
+    FORMAT_INT,
+    /// (UInt64, String) to a new String, the same for an unsigned integer.
+    FORMAT_UINT,
+    /// (Float64, Bool, String) to a new String, the same for a float, a Float32 when the Bool is.
+    FORMAT_FLOAT,
+    /// (String, Bool, String) to a new String: text padded and cut by a format spec that fits
+    /// it, a String's when the Bool is, which its debug form puts in quotes.
+    FORMAT_TEXT,
     /// (String) to a new CString: a copy of its text with a NUL after it, for C code to read
     /// during a call.
     CSTRING_NEW,

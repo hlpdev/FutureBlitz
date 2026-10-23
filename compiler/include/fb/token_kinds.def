@@ -31,6 +31,9 @@ FB_TOKEN(STRING, "string literal")
 FB_TOKEN(STRING_START, "start of an interpolated string")
 FB_TOKEN(STRING_MIDDLE, "middle of an interpolated string")
 FB_TOKEN(STRING_END, "end of an interpolated string")
+// An interpolation's format spec: from its ':' up to the '}' that ends the interpolation, as in
+// "{price:.2}".
+FB_TOKEN(FORMAT_SPEC, "format spec")
 
 FB_PUNCTUATION(LEFT_PAREN, "(")
 FB_PUNCTUATION(RIGHT_PAREN, ")")

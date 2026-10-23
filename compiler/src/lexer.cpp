@@ -29,6 +29,10 @@ struct string_state_t {
     /// "{" tokens opened and not yet closed inside the current interpolation. A "}" at 0 ends
     /// the interpolation instead.
     std::uint32_t brace_depth = 0;
+    /// Brackets of every kind opened and not yet closed inside the current interpolation. A ':'
+    /// outside them with no space after it starts the interpolation's format spec, as a
+    /// ternary's ':' and a function type's, with a space after them, don't.
+    std::uint32_t nesting = 0;
     /// Multi-line strings only: where each line after the opening quotes starts. Once the
     /// closing quotes are found, the last one is their line.
     std::vector<std::uint32_t> line_starts;
@@ -236,6 +240,9 @@ private:
         } else if (c == '}' && !m_strings.empty() && m_strings.back().brace_depth == 0) {
             // A "}" that closes no "{" of its own ends an interpolation, and its string goes on.
             continue_string();
+        } else if (c == ':' && !m_strings.empty() && m_strings.back().nesting == 0 &&
+                   peek(1) != ' ' && peek(1) != '\t') {
+            lex_format_spec();
         } else if (lex_punctuation()) {
             track_brace_depth();
         } else {
@@ -514,6 +521,7 @@ private:
                 // m_strings until the "}" that ends it.
                 ++m_pos;
                 add(first ? token_kind_t::STRING_START : token_kind_t::STRING_MIDDLE, begin);
+                state.nesting = 0;
                 m_strings.push_back(std::move(state));
                 return;
             } else {
@@ -563,17 +571,50 @@ private:
     }
 
     /// Counts the braces an interpolation opens and closes itself, so only the "}" that ends it
-    /// picks the string back up.
+    /// picks the string back up, and the brackets that a ':' can be inside.
     void track_brace_depth() {
         if (m_strings.empty()) {
             return;
         }
 
-        if (m_tokens.back().kind == token_kind_t::LEFT_BRACE) {
-            ++m_strings.back().brace_depth;
-        } else if (m_tokens.back().kind == token_kind_t::RIGHT_BRACE) {
-            --m_strings.back().brace_depth;
+        string_state_t& state = m_strings.back();
+        switch (m_tokens.back().kind) {
+        case token_kind_t::LEFT_BRACE:
+            ++state.brace_depth;
+            ++state.nesting;
+            break;
+        case token_kind_t::RIGHT_BRACE:
+            --state.brace_depth;
+            state.nesting -= state.nesting > 0 ? 1 : 0;
+            break;
+        case token_kind_t::LEFT_PAREN:
+        case token_kind_t::LEFT_BRACKET:
+            ++state.nesting;
+            break;
+        case token_kind_t::RIGHT_PAREN:
+        case token_kind_t::RIGHT_BRACKET:
+            state.nesting -= state.nesting > 0 ? 1 : 0;
+            break;
+        default:
+            break;
         }
+    }
+
+    /// An interpolation's format spec, from its ':' up to the '}' that ends the interpolation,
+    /// which continue_string() takes. A line break ends it too, and a brace can't be in it.
+    void lex_format_spec() {
+        const std::uint32_t begin = m_pos;
+        ++m_pos;
+        while (!at_end() && peek() != '}' && peek() != '\n' && peek() != '\r') {
+            if (peek() == '{') {
+                m_diagnostics.error(span(m_pos, m_pos + 1), "{}",
+                                    "a format spec can't hold a brace");
+            }
+
+            skip_character();
+        }
+
+        add(token_kind_t::FORMAT_SPEC, begin);
     }
 
     /// Takes the longest match, so "<<=" wins over "<<" and "<".

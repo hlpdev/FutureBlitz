@@ -484,6 +484,45 @@ TEST_CASE("strings nest inside interpolations", "[lexer]") {
     CHECK(lexed.errors.empty());
 }
 
+TEST_CASE("a ':' in an interpolation starts its format spec, outside brackets, with no space after "
+          "it",
+          "[lexer]") {
+    using enum token_kind_t;
+    const lexed_t lexed = lex_text(R"("{price:.2} and {x:>8,}")");
+    CHECK(lexed.kinds == std::vector{ STRING_START, IDENTIFIER, FORMAT_SPEC, STRING_MIDDLE,
+                                      IDENTIFIER, FORMAT_SPEC, STRING_END });
+    CHECK(lexed.texts ==
+          std::vector<std::string>{ R"("{)", "price", ":.2", "} and {", "x", ":>8,", R"(}")" });
+    CHECK(lexed.errors.empty());
+
+    // A ternary's ':' and a function type's have a space after them, and a ':' after the
+    // ternary starts the spec.
+    CHECK(lex_text(R"("{a ? b : c}")").kinds == std::vector{ STRING_START, IDENTIFIER, QUESTION,
+                                                             IDENTIFIER, COLON, IDENTIFIER,
+                                                             STRING_END });
+    CHECK(lex_text(R"("{a ? b : c:>4}")").kinds == std::vector{ STRING_START, IDENTIFIER, QUESTION,
+                                                                IDENTIFIER, COLON, IDENTIFIER,
+                                                                FORMAT_SPEC, STRING_END });
+    CHECK(lex_text(R"("{f Is Func(Int): Int}")").kinds ==
+          std::vector{ STRING_START, IDENTIFIER, KW_IS, KW_FUNC, LEFT_PAREN, IDENTIFIER,
+                       RIGHT_PAREN, COLON, IDENTIFIER, STRING_END });
+    CHECK(lex_text(R"("{a ? b :c}")").kinds ==
+          std::vector{ STRING_START, IDENTIFIER, QUESTION, IDENTIFIER, FORMAT_SPEC, STRING_END });
+
+    // One in brackets is the expression's.
+    CHECK(lex_text(R"("{f(x:1):?}")").kinds == std::vector{ STRING_START, IDENTIFIER, LEFT_PAREN,
+                                                            IDENTIFIER, COLON, INTEGER, RIGHT_PAREN,
+                                                            FORMAT_SPEC, STRING_END });
+    CHECK(lex_text(R"("{x As Int?:?}")").kinds == std::vector{ STRING_START, IDENTIFIER, KW_AS,
+                                                               IDENTIFIER, QUESTION, FORMAT_SPEC,
+                                                               STRING_END });
+
+    // A spec is raw text, without braces.
+    CHECK(lex_text(R"("{x:'*>#,e}")").errors.empty());
+    CHECK(lex_text(R"("{x:a{b}")").errors ==
+          std::vector<std::string>{ "5-6: a format spec can't hold a brace" });
+}
+
 TEST_CASE("a single-line string can't continue past a line break inside an interpolation",
           "[lexer]") {
     using enum token_kind_t;
