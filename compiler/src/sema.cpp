@@ -9350,8 +9350,6 @@ private:
         return info.generic != type_id_t::INVALID ? info.arguments : info.parameters;
     }
 
-    /// A warning at a use of something @Deprecated, or of a New of a @Deprecated type. Its own
-    /// code, and its type's, can use it.
     /// The function or lambda whose code is being checked, or nullopt for top-level code, which
     /// runs on the main thread.
     [[nodiscard]] std::optional<symbol_id_t> current_code() const {
@@ -9905,6 +9903,8 @@ private:
         }
     }
 
+    /// A use of `id` at `span`, for the main-thread rules, and a warning at a use of something
+    /// @Deprecated, or of a New of a @Deprecated type. Its own code, and its type's, can use it.
     void note_use(const symbol_id_t id, const span_t span) {
         note_thread_use(id, span);
         const symbol_t* used = &symbol(id);
