@@ -12897,6 +12897,15 @@ private:
                 return type_id_t::INVALID;
             }
 
+            // A Char or an Enum value folds to a number, but isn't one.
+            if (!is_integer(type)) {
+                error(span_of(expression),
+                      "a fixed array's size must be an integer known at compile time, like 64 or "
+                      "8 * 8, not {}",
+                      shown_name(type));
+                return type_id_t::INVALID;
+            }
+
             const std::optional<std::int64_t> size = integer_value(expression);
             if (!size) {
                 error(span_of(expression),
