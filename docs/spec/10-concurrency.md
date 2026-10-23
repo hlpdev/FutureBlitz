@@ -294,9 +294,10 @@ End Class
 The compiler checks every `Spawn` capture, `Parallel For` body, and channel send.
 
 - `Sendable` is an Interface in std/core/interfaces.fb that the compiler decides from a type's
-  parts: numbers, Bools, Strings, Enums, and Callbacks are Sendable, and so are the Structs,
-  tuples, and fixed arrays whose fields and elements all are, and a `T?` of any of them. A Ptr
-  or CString isn't, since nothing keeps what it points at for another thread.
+  parts: numbers, Bools, Strings, Enums, Callbacks, Channels, Mutexes, Atomics, and a Shared
+  Class's objects are Sendable, and so are the Structs, tuples, and fixed arrays whose fields
+  and elements all are, and a `T?` of any of them. A Ptr or CString isn't, since nothing keeps
+  what it points at for another thread.
 - Classes, arrays, function values, and `Weak<T>`s aren't, since an object's refcount isn't
   atomic: an object stays on the thread that made it. Neither is a Struct that holds one.
 - Generic code says a type parameter is Sendable with a constraint, `<T: Sendable>`, and an
