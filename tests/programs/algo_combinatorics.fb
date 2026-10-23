@@ -15,6 +15,8 @@ Print(Combinations([1, 2, 3, 4], 2).ToArray())
 Print(Combinations(["a", "b", "c", "d", "e"], 3).ToArray())
 Print(Combinations([1, 2, 3], 3).ToArray(), Combinations([1, 2, 3], 0).ToArray(),
       Combinations([1, 2], 5).ToArray())
+// A count far above the length gives none at once, keeping nothing for it.
+Print(Permutations([1, 2, 3], 2147483647).Count(), Combinations([1, 2, 3], 2147483647).Count())
 
 // Equal elements still make orders of their own, by position.
 Print(Permutations([1, 1, 2]).ToArray())

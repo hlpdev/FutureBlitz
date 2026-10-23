@@ -21,7 +21,9 @@ Public Class PermutationIterator<T> Implements Iterator<T[]>
     New(items: T[], count: Int)
         Items = items
         Size = count
+        // More than there are gives none, which needs nothing kept.
         Done = count > items.Count
+        If Done Then Return
         For i = 0 Until items.Count
             Indices.Add(i)
         End For
@@ -88,7 +90,9 @@ Public Class CombinationIterator<T> Implements Iterator<T[]>
     New(items: T[], count: Int)
         Items = items
         Size = count
+        // More than there are gives none, which needs nothing kept.
         Done = count > items.Count
+        If Done Then Return
         For i = 0 Until count
             Indices.Add(i)
         End For
