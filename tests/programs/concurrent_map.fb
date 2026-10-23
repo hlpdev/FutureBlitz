@@ -1,0 +1,141 @@
+// A ConcurrentMap's changes from many threads at once all land: counts add up, one thread wins
+// each race to add or remove a key, and going over it while others change it never stops.
+
+Import std.core
+Import std.collections
+Import std.concurrent
+
+Shared Class Tally
+    Field Added: Atomic<Int>
+    Field Removed: Atomic<Int>
+    Field Made: Atomic<Int>
+    Field Wrong: Atomic<Int>
+End Class
+
+// Eight threads count 64 words 50 times each, through AddOrUpdate and Update.
+Function Count(): String
+    Const counts = ConcurrentMap<String, Int>()
+    Local threads: Thread[] = []
+    For t = 1 To 8
+        threads.Add(Thread.Start(Function()
+            For i = 0 Until 64 * 50
+                counts.AddOrUpdate("w{i % 64}", 1, Function(n: Int) => n + 1)
+                counts.TryAdd("thread {t}", 0)
+                counts.Update("thread {t}", Function(n: Int) => n + 1)
+            End For
+        End Function))
+    End For
+
+    For thread In threads
+        thread.Join()
+    End For
+
+    Local total = 0
+    For key, value In counts
+        total += value
+    End For
+
+    Local even = True
+    For i = 0 Until 64
+        If counts["w{i}"] != 400 Then even = False
+    End For
+
+    Return "{counts.Count} keys, total {total}, each word 400 times {even}"
+End Function
+
+// Eight threads race to add, and then to remove, the same 1000 keys: each one is added once and
+// removed once, and GetOrAdd gives every thread the value that was kept.
+Function Race(): String
+    Const map = ConcurrentMap<Int, Int>()
+    Const tally = Tally()
+    Local threads: Thread[] = []
+    For t = 1 To 8
+        threads.Add(Thread.Start(Function()
+            For key = 0 Until 1000
+                If map.TryAdd(key, t) Then tally.Added.Add(1)
+                Local kept = map.GetOrAdd(key + 1000, Function()
+                    tally.Made.Add(1)
+                    Return t
+                End Function)
+                If map[key + 1000] != kept Then tally.Wrong.Add(1)
+            End For
+
+            For key = 0 Until 1000
+                If map.Remove(key) Then tally.Removed.Add(1)
+            End For
+        End Function))
+    End For
+
+    For thread In threads
+        thread.Join()
+    End For
+
+    Return "added {tally.Added.Load()}, removed {tally.Removed.Load()}, " +
+           "made at least once each {tally.Made.Load() >= 1000}, wrong {tally.Wrong.Load()}, " +
+           "{map.Count} left"
+End Function
+
+// Threads go over the map and copy it while others add and remove keys.
+Function Walk(): String
+    Const map = ConcurrentMap<Int, String>()
+    Const tally = Tally()
+    Local threads: Thread[] = []
+    For t = 1 To 4
+        threads.Add(Thread.Start(Function()
+            For i = 0 Until 500
+                map.Add(t * 1000 + i, "{i}")
+                If i % 2 == 0 Then map.Remove(t * 1000 + i)
+            End For
+        End Function))
+        threads.Add(Thread.Start(Function()
+            For pass = 1 To 20
+                For key, value In map
+                    If value != "{key % 1000}" Then tally.Wrong.Add(1)
+                End For
+
+                map.ToMap()
+                map.Keys()
+            End For
+        End Function))
+    End For
+
+    For thread In threads
+        thread.Join()
+    End For
+
+    Return "{map.Count} left, wrong {tally.Wrong.Load()}"
+End Function
+
+Print(Count())
+Print(Race())
+Print(Walk())
+
+Const ages = ConcurrentMap<String, Int>()
+Print(ages.Count, ages.Get("ada") == Null, ages.Get("ada", -1), ages.Contains("ada"))
+ages.Add("ada", 36)
+ages["grace"] = 85
+ages.Add("ada", 37)
+Print(ages.Count, ages["ada"], ages.Get("grace") ?? -1, ages.Contains("grace"))
+Print(ages.TryAdd("ada", 1), ages.TryAdd("alan", 41), ages["alan"])
+Print(ages.Update("ada", Function(age: Int) => age + 1), ages.Update("linus", Function(age: Int) => 0),
+      ages["ada"], ages.Contains("linus"))
+Print(ages.GetOrAdd("alan", Function() => 0), ages.GetOrAdd("linus", Function() => 54))
+Print(ages.AddOrUpdate("linus", 0, Function(age: Int) => age + 1), ages.AddOrUpdate("ken", 80,
+      Function(age: Int) => 0))
+Local keys = ages.Keys()
+keys.Sort()
+Local values = ages.Values()
+values.Sort()
+Print(keys, values)
+Local copy = ages.ToMap()
+Print(copy.Count, copy["ken"])
+Print(ages.Remove("ada"), ages.Remove("ada"), ages.Count)
+ages.Clear()
+Print(ages.Count, ages.Keys(), ages.Contains("grace"))
+
+// A value that can be Null is apart from a key that isn't there.
+Const maybe = ConcurrentMap<Int, String?>()
+maybe.Add(1, Null)
+Local held = maybe.Get(1)
+Print(maybe.Count, held != Null, maybe.Get(2) == Null)
+Print(ConcurrentMap<Int, Int>.DefaultValue().Count)

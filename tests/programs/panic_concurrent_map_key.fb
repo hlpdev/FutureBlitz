@@ -1,0 +1,9 @@
+// A ConcurrentMap's [] gives the value of a key that's there, and panics where it's used for one
+// that isn't.
+Import std.core
+Import std.concurrent
+
+Const ages = ConcurrentMap<String, Int>()
+ages["ada"] = 36
+Print(ages["ada"])
+Print(ages["grace"])
