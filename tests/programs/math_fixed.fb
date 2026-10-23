@@ -1,0 +1,87 @@
+// Fixed32 and Fixed64: integer math, so the same bits on every CPU. Their raw bits print here, and
+// each Sqrt, Sin, and Cos is the correctly rounded value, which a reference worked out apart from
+// this program with 60-digit decimals gives too.
+Import std.core
+Import std.math
+Import std.collections
+
+// Conversions, and the bits under them.
+Local half = Fixed32.FromDouble(0.5)
+Local three = Fixed32.FromInt(3)
+Print(half, three, half.Raw, three.Raw, Fixed32.FromRaw(1), Fixed32.FromRaw(1).Raw, Fixed32.Pi,
+      Fixed32.Pi.Raw)
+Print(Fixed32.FromDouble(1.0 / 3).Raw, Fixed32.FromDouble(-1.0 / 3).Raw, Fixed32.FromFloat(2.75),
+      Fixed32.FromDouble(0.00001).Raw)
+Print(Fixed32.FromDouble(-2.7).ToInt(), Fixed32.FromDouble(2.7).ToInt(),
+      Fixed32.FromDouble(2.7).ToFloat(), three.ToDouble())
+Print(MinValue<Fixed32>(), MaxValue<Fixed32>(), Fixed32.FromInt(-32768), Fixed32.FromInt(32767),
+      Fixed32.Tau.Raw)
+
+// * and / round to the nearest, halves up; / by an Int too.
+Print(half + three, half - three, -half, half * three, three / half, three * 2, 2 * three,
+      three / 2)
+Local tiny = Fixed32.FromRaw(1)
+Print((tiny * half).Raw, (Fixed32.FromRaw(3) * half).Raw, (Fixed32.FromRaw(-3) * half).Raw,
+      (Fixed32.FromRaw(-1) * half).Raw)
+Print((Fixed32.FromInt(1) / three).Raw, (Fixed32.FromInt(2) / three).Raw,
+      (Fixed32.FromInt(-2) / three).Raw, (Fixed32.FromInt(1) / Fixed32.FromInt(-3)).Raw)
+Print((Fixed32.FromRaw(5) / 2).Raw, (Fixed32.FromRaw(-5) / 2).Raw, (Fixed32.FromRaw(7) / 3).Raw)
+Print(half < three, three < half, half == Fixed32.FromRaw(32768), Max(half, three), Abs(-three),
+      Sign(-half))
+
+// Generic code takes them as Numeric and Comparable, and a Set as Hashable.
+Print([half, three, three].Iterate().Sum(), [three, half].Iterate().Min() ?? Fixed32.Zero(),
+      Fixed32.One(), Fixed32.DefaultValue())
+Local held = Set<Fixed32>()
+held.Add(half)
+held.Add(Fixed32.FromRaw(32768))
+Print(held.Count, held.Contains(three))
+
+// Fixed64's.
+Local quarter = Fixed64.FromDouble(0.25)
+Local seven = Fixed64.FromInt(7)
+Print(quarter, seven, quarter.Raw, seven.Raw, Fixed64.Pi.Raw, Fixed64.Tau.Raw,
+      Fixed64.FromDouble(1.0 / 3).Raw)
+Print(quarter + seven, quarter - seven, -quarter, quarter * seven, seven / quarter, seven * 3,
+      3 * seven, seven / 2)
+Print((Fixed64.FromRaw(3) * Fixed64.FromDouble(0.5)).Raw,
+      (Fixed64.FromRaw(-3) * Fixed64.FromDouble(0.5)).Raw)
+Print((Fixed64.FromInt(1) / Fixed64.FromInt(3)).Raw, (Fixed64.FromInt(-2) / Fixed64.FromInt(3)).Raw,
+      (Fixed64.FromInt(100000) / Fixed64.FromInt(7)).Raw)
+Print((Fixed64.FromInt(2000000000) * Fixed64.FromDouble(0.5)).Raw,
+      (Fixed64.FromInt(-2147483648) / Fixed64.FromInt(-2)).Raw)
+Print(Fixed64.FromDouble(-2.5).ToInt(), seven.ToFloat(), Fixed64.FromInt(2147483647),
+      MinValue<Fixed64>().Raw)
+Print(half.ToFixed64().Raw, Fixed64.FromRaw(98304).ToFixed32().Raw,
+      Fixed64.FromRaw(-98304).ToFixed32().Raw, Fixed64.FromRaw(32767).ToFixed32().Raw)
+
+// Square roots, rounded to the nearest.
+Local roots: Int32[] = []
+For raw In [0, 1, 2, 65536, 131072, 262144, 655360, 2147483647, 4]
+    roots.Add(Sqrt(Fixed32.FromRaw(raw)).Raw)
+End For
+Print(roots)
+Local roots64: Int64[] = []
+Local raws: Int64[] = [0, 1, 2, 4294967296, 8589934592, 17179869184, 9223372036854775807, 3]
+For raw In raws
+    roots64.Add(Sqrt(Fixed64.FromRaw(raw)).Raw)
+End For
+Print(roots64)
+
+// Sines and cosines over whole turns and back, the reference's bits each.
+Local angles32 = [0, 1, -1, 32768, 102944, 205887, -205887, 411775, 1000000, -2000000,
+                 2147483647, -2147483648]
+For raw In angles32
+    Local angle = Fixed32.FromRaw(raw)
+    Print("32", raw, Sin(angle).Raw, Cos(angle).Raw)
+End For
+Local angles64: Int64[] = [0, 1, -1, 2147483648, 6746518852, 13493037705, -13493037705, 26986075409,
+                           4294967296000000, -9223372036854775808, 9223372036854775807,
+                           123456789012345, 1073741824]
+For raw In angles64
+    Local angle = Fixed64.FromRaw(raw)
+    Print("64", raw, Sin(angle).Raw, Cos(angle).Raw)
+End For
+// Known values: sin 0 is 0, cos 0 is 1, and sin of a quarter turn is 1 to the last bit.
+Print(Sin(Fixed32.Zero()), Cos(Fixed32.Zero()), Sin(Fixed32.Pi / 2), Cos(Fixed64.Zero()),
+      Sin(Fixed64.Pi / 2).Raw)

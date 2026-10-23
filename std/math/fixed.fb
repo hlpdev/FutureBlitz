@@ -1,0 +1,446 @@
+// Fixed32 and Fixed64: fixed-point numbers, 16.16 in an Int32 and 32.32 in an Int64, whose math is
+// all integer math, so the same program gives the same bits on every OS and CPU, in debug builds
+// and release, for lockstep multiplayer and replays. * and / round to the nearest, halves up;
+// Sqrt rounds to the nearest; Sin and Cos reduce their angle by Pi / 2 to 94 bits and sum their
+// series in 62, then round. Overflow traps in debug builds and wraps in release, as an Int's
+// does, and dividing by 0 panics.
+
+Import std.core
+Import std.math.bits
+Import std.math.numbers
+Import std.math.scalar
+
+// A 128-bit two's complement integer, as its high and low halves.
+Struct Wide
+    Field High: UInt64
+    Field Low: UInt64
+End Struct
+
+// The 128-bit product of two UInt64s, by their 32-bit halves.
+Function MultiplyWide(a: UInt64, b: UInt64): Wide
+    Local aLow = a & 0xFFFFFFFF
+    Local aHigh = a >> 32
+    Local bLow = b & 0xFFFFFFFF
+    Local bHigh = b >> 32
+    Local lowLow = aLow * bLow
+    Local lowHigh = aLow * bHigh
+    Local highLow = aHigh * bLow
+    Local middle = (lowLow >> 32) + (lowHigh & 0xFFFFFFFF) + (highLow & 0xFFFFFFFF)
+    Return Wide(aHigh * bHigh + (lowHigh >> 32) + (highLow >> 32) + (middle >> 32),
+                (middle << 32) | (lowLow & 0xFFFFFFFF))
+End Function
+
+// The Int64 as a Wide.
+Function WideOf(value: Int64): Wide => Wide(value < 0 ? 0xFFFFFFFFFFFFFFFF : 0, value As UInt64)
+
+Function Negate(w: Wide): Wide
+    Local low = (~w.Low).WrappingAdd(1)
+    Return Wide((~w.High).WrappingAdd(low == 0 ? 1 : 0), low)
+End Function
+
+Function Add(a: Wide, b: Wide): Wide
+    Local low = a.Low.WrappingAdd(b.Low)
+    Return Wide(a.High.WrappingAdd(b.High).WrappingAdd(low < a.Low ? 1 : 0), low)
+End Function
+
+// The 128-bit product of two Int64s.
+Function MultiplySigned(a: Int64, b: Int64): Wide
+    Local product = MultiplyWide(Magnitude(a), Magnitude(b))
+    Return (a < 0) != (b < 0) ? Negate(product) : product
+End Function
+
+// The Int64 without its sign, as a UInt64, which holds even the lowest Int64's.
+Function Magnitude(value: Int64): UInt64
+    Return value < 0 ? (value As UInt64).WrappingNegate() : value As UInt64
+End Function
+
+// The Wide shifted right by 1 to 63 bits, rounded to the nearest, halves up.
+Function ShiftRounded(w: Wide, shift: Int): Wide
+    Local rounded = Add(w, Wide(0, (1 As UInt64) << (shift - 1)))
+    Local high = ((rounded.High As Int64) >> shift) As UInt64
+    Return Wide(high, (rounded.Low >> shift) | (rounded.High << (64 - shift)))
+End Function
+
+// Whether the Wide is an Int64, its high half only its low half's sign.
+Function FitsInt64(w: Wide): Bool => w.High == ((w.Low As Int64) < 0 ? 0xFFFFFFFFFFFFFFFF : 0)
+
+// The 64-bit quotient of the 128-bit (high, low) by divisor, whose high half is below it, and the
+// remainder: Hacker's Delight's divlu, by 32-bit digits, each guessed from the divisor's top half
+// and then put right.
+Function DivideWide(high: UInt64, low: UInt64, divisor: UInt64): (UInt64, UInt64)
+    Local digit: UInt64 = 0x100000000
+    Local shift = LeadingZeros(divisor)
+    Local v = divisor << shift
+    Local vHigh = v >> 32
+    Local vLow = v & 0xFFFFFFFF
+    Local top = shift == 0 ? high : (high << shift) | (low >> (64 - shift))
+    Local bottom = low << shift
+    Local bottomHigh = bottom >> 32
+    Local bottomLow = bottom & 0xFFFFFFFF
+
+    Local q1 = top / vHigh
+    Local rest = top - q1 * vHigh
+    While q1 >= digit || q1 * vLow > digit * rest + bottomHigh
+        q1 -= 1
+        rest += vHigh
+        If rest >= digit Then Break
+    End While
+
+    Local middle = top.WrappingMultiply(digit).WrappingAdd(bottomHigh)
+    middle = middle.WrappingSubtract(q1.WrappingMultiply(v))
+    Local q0 = middle / vHigh
+    rest = middle - q0 * vHigh
+    While q0 >= digit || q0 * vLow > digit * rest + bottomLow
+        q0 -= 1
+        rest += vHigh
+        If rest >= digit Then Break
+    End While
+
+    Local remainder = middle.WrappingMultiply(digit).WrappingAdd(bottomLow)
+    remainder = remainder.WrappingSubtract(q0.WrappingMultiply(v))
+    Return (q1 * digit + q0, remainder >> shift)
+End Function
+
+// π / 2 to 2^-32, for the nearest quarter turn, and to 2^-94, as its high and low halves, for
+// what's left of an angle after it.
+Const QuarterTurn32: Int64 = 6746518852
+Const QuarterTurnHigh: Int64 = 1686629713
+Const QuarterTurnLow: Int64 = 1203693766362476870
+
+// 1 / n! to 2^-62, for the sine's odd n and the cosine's even ones.
+Function SineTerms(): Int64[]
+    Return [768614336404564651, 38430716820228233, 915017067148291, 12708570377060, 115532457973,
+            740592679, 3526632]
+End Function
+
+Function CosineTerms(): Int64[]
+    Return [2305843009213693952, 192153584101141163, 6405119470038039, 114377133393536,
+            1270857037706, 9627704831, 52899477]
+End Function
+
+// The product of two numbers with 62 bits after the point, rounded.
+Function MultiplyQ62(a: Int64, b: Int64): Int64
+    Return ShiftRounded(MultiplySigned(a, b), 62).Low As Int64
+End Function
+
+// The sine, or the cosine, of an angle in radians with 32 bits after the point, with 62.
+Function SineQ62(angle: Int64, cosine: Bool): Int64
+    // The nearest quarter turn, which can be one off near halfway, and what's left, from 94 bits.
+    Local half = QuarterTurn32 / 2
+    Local quarters = angle / QuarterTurn32
+    Local rest = angle - quarters * QuarterTurn32
+    If rest > half Then quarters++
+    If rest < -half Then quarters--
+    Local angle94 = Wide(((angle >> 2) As UInt64), (angle As UInt64) << 62)
+    Local turned = Add(MultiplySigned(quarters, QuarterTurnLow),
+                       Wide((quarters * QuarterTurnHigh) As UInt64, 0))
+    Local left = ShiftRounded(Add(angle94, Negate(turned)), 32).Low As Int64
+    Local squared = MultiplyQ62(left, left)
+
+    Local which = Mod(quarters + (cosine ? 1 : 0), 4)
+    Local value: Int64 = 0
+    If which == 0 || which == 2
+        Local terms = SineTerms()
+        Local sum = terms[terms.Count - 1]
+        For i = terms.Count - 2 To 0 Step -1
+            sum = terms[i] - MultiplyQ62(squared, sum)
+        End For
+        value = left - MultiplyQ62(left, MultiplyQ62(squared, sum))
+    Else
+        Local terms = CosineTerms()
+        Local sum = terms[terms.Count - 1]
+        For i = terms.Count - 2 To 0 Step -1
+            sum = terms[i] - MultiplyQ62(squared, sum)
+        End For
+        value = 0x4000000000000000 - MultiplyQ62(squared, sum)
+    End If
+    Return which >= 2 ? -value : value
+End Function
+
+// A number with 16 bits for its whole part, its sign among them, and 16 after the point: from
+// -32768 to 32767.99998, in steps of 1 / 65536.
+Public Struct Fixed32 Implements Numeric, Comparable, Hashable, Bounded, Printable, Defaultable
+    Field Bits: Int32
+
+    // The Fixed32 these bits are, as Raw gives them.
+    Public Static Method FromRaw(bits: Int32): Fixed32 => Fixed32(bits)
+
+    // The whole number. One outside -32768 to 32767 panics.
+    @PanicsAtCaller
+    Public Static Method FromInt(value: Int): Fixed32
+        If value < -32768 || value > 32767
+            Panic("a Fixed32 holds whole numbers from -32768 to 32767, not {value}")
+        End If
+        Return Fixed32(value * 65536)
+    End Method
+
+    // The Double, rounded to the nearest Fixed32, halves away from 0. One outside a Fixed32's
+    // range, or NaN, panics.
+    @PanicsAtCaller
+    Public Static Method FromDouble(value: Double): Fixed32
+        Local bits = Round(value * 65536)
+        If !(bits >= -2147483648 && bits <= 2147483647)
+            Panic("a Fixed32 holds values from -32768 to 32767.99998, not {value}")
+        End If
+        Return Fixed32(bits As Int32)
+    End Method
+
+    // The Float, rounded to the nearest Fixed32, halves away from 0. One outside a Fixed32's
+    // range, or NaN, panics.
+    @PanicsAtCaller
+    Public Static Method FromFloat(value: Float): Fixed32 => FromDouble(value)
+
+    Public Static Method Zero(): Fixed32 => Fixed32(0)
+    Public Static Method One(): Fixed32 => Fixed32(65536)
+    Public Static Method DefaultValue(): Fixed32 => Fixed32(0)
+    Public Static Method MinValue(): Fixed32 => Fixed32(-2147483648)
+    Public Static Method MaxValue(): Fixed32 => Fixed32(2147483647)
+    Public Static Method DoubleValue(value: Fixed32): Double => value.ToDouble()
+
+    // Pi, and a turn, 2 Pi, rounded to a Fixed32's steps.
+    Public Static Property Pi: Fixed32
+        Get => Fixed32(205887)
+    End Property
+
+    Public Static Property Tau: Fixed32
+        Get => Fixed32(411775)
+    End Property
+
+    // The value's bits, the value times 65536.
+    Public Property Raw: Int32
+        Get => Bits
+    End Property
+
+    // The value as a Double, which holds it exactly.
+    Public Method ToDouble(): Double => (Bits As Double) / 65536
+
+    // The value as a Float, rounded to the nearest.
+    Public Method ToFloat(): Float => ToDouble() As Float
+
+    // The whole part, toward 0, as As takes a Float's.
+    Public Method ToInt(): Int => Bits / 65536
+
+    // The value as a Fixed64, which holds it exactly.
+    Public Method ToFixed64(): Fixed64 => Fixed64.FromRaw((Bits As Int64) << 16)
+
+    Public Method ToString(): String => "{ToDouble()}"
+
+    Operator +(a: Fixed32, b: Fixed32): Fixed32 => Fixed32(a.Bits + b.Bits)
+    Operator -(a: Fixed32, b: Fixed32): Fixed32 => Fixed32(a.Bits - b.Bits)
+    Operator -(a: Fixed32): Fixed32 => Fixed32(-a.Bits)
+    Operator <(a: Fixed32, b: Fixed32): Bool => a.Bits < b.Bits
+
+    @PanicsAtCaller
+    Operator *(a: Fixed32, b: Fixed32): Fixed32
+        Return Narrowed(((a.Bits As Int64) * b.Bits + 32768) >> 16, "*")
+    End Operator
+
+    @PanicsAtCaller
+    Operator *(a: Fixed32, b: Int): Fixed32 => Narrowed((a.Bits As Int64) * b, "*")
+
+    @PanicsAtCaller
+    Operator *(a: Int, b: Fixed32): Fixed32 => Narrowed((b.Bits As Int64) * a, "*")
+
+    @PanicsAtCaller
+    Operator /(a: Fixed32, b: Fixed32): Fixed32
+        Return Narrowed(Quotient((a.Bits As Int64) << 16, b.Bits), "/")
+    End Operator
+
+    @PanicsAtCaller
+    Operator /(a: Fixed32, b: Int): Fixed32 => Narrowed(Quotient(a.Bits, b), "/")
+End Struct
+
+// The Int64 as a Fixed32's bits: in a debug build, one too large for an Int32 panics; in a release
+// build, it wraps, as an Int does.
+@PanicsAtCaller
+Function Narrowed(bits: Int64, operation: String): Fixed32
+    DebugAssert(bits >= -2147483648 && bits <= 2147483647, "a Fixed32's {operation} overflows")
+    Return Fixed32.FromRaw(bits As Int32)
+End Function
+
+// a / b, rounded to the nearest, halves away from 0. A b of 0 panics.
+@PanicsAtCaller
+Function Quotient(a: Int64, b: Int64): Int64
+    Local quotient = a / b
+    Local rest = a - quotient * b
+    If Magnitude(rest) >= Magnitude(b) - Magnitude(rest)
+        quotient += (a < 0) != (b < 0) ? -1 : 1
+    End If
+    Return quotient
+End Function
+
+// A number with 32 bits for its whole part, its sign among them, and 32 after the point: from
+// -2147483648 to 2147483647.9999999998, in steps of 1 / 4294967296.
+Public Struct Fixed64 Implements Numeric, Comparable, Hashable, Bounded, Printable, Defaultable
+    Field Bits: Int64
+
+    // The Fixed64 these bits are, as Raw gives them.
+    Public Static Method FromRaw(bits: Int64): Fixed64 => Fixed64(bits)
+
+    // The whole number. One outside an Int's range panics.
+    @PanicsAtCaller
+    Public Static Method FromInt(value: Int64): Fixed64
+        If value < -2147483648 || value > 2147483647
+            Panic("a Fixed64 holds whole numbers from -2147483648 to 2147483647, not {value}")
+        End If
+        Return Fixed64(value * 4294967296)
+    End Method
+
+    // The Double, rounded to the nearest Fixed64, halves away from 0. One outside a Fixed64's
+    // range, or NaN, panics.
+    @PanicsAtCaller
+    Public Static Method FromDouble(value: Double): Fixed64
+        Local bits = Round(value * 4294967296)
+        If !(bits >= -9223372036854775808.0 && bits < 9223372036854775808.0)
+            Panic("a Fixed64 holds values from -2147483648 to 2147483647.9999999998, not {value}")
+        End If
+        Return Fixed64(bits As Int64)
+    End Method
+
+    // The Float, rounded to the nearest Fixed64. One outside a Fixed64's range, or NaN, panics.
+    @PanicsAtCaller
+    Public Static Method FromFloat(value: Float): Fixed64 => FromDouble(value)
+
+    Public Static Method Zero(): Fixed64 => Fixed64(0)
+    Public Static Method One(): Fixed64 => Fixed64(4294967296)
+    Public Static Method DefaultValue(): Fixed64 => Fixed64(0)
+    Public Static Method MinValue(): Fixed64 => Fixed64(-9223372036854775808)
+    Public Static Method MaxValue(): Fixed64 => Fixed64(9223372036854775807)
+    Public Static Method DoubleValue(value: Fixed64): Double => value.ToDouble()
+
+    // Pi, and a turn, 2 Pi, rounded to a Fixed64's steps.
+    Public Static Property Pi: Fixed64
+        Get => Fixed64(13493037705)
+    End Property
+
+    Public Static Property Tau: Fixed64
+        Get => Fixed64(26986075409)
+    End Property
+
+    // The value's bits, the value times 4294967296.
+    Public Property Raw: Int64
+        Get => Bits
+    End Property
+
+    // The value as a Double, rounded to the nearest, which holds it exactly up to 2^21.
+    Public Method ToDouble(): Double => (Bits As Double) / 4294967296
+
+    // The value as a Float, rounded to the nearest.
+    Public Method ToFloat(): Float => ToDouble() As Float
+
+    // The whole part, toward 0, as As takes a Float's.
+    Public Method ToInt(): Int => (Bits / 4294967296) As Int
+
+    // The value as a Fixed32, rounded to the nearest, halves up. One outside a Fixed32's range
+    // overflows, as Narrowed says.
+    @PanicsAtCaller
+    Public Method ToFixed32(): Fixed32 => Narrowed((Bits + 32768) >> 16, "conversion")
+
+    Public Method ToString(): String => "{ToDouble()}"
+
+    Operator +(a: Fixed64, b: Fixed64): Fixed64 => Fixed64(a.Bits + b.Bits)
+    Operator -(a: Fixed64, b: Fixed64): Fixed64 => Fixed64(a.Bits - b.Bits)
+    Operator -(a: Fixed64): Fixed64 => Fixed64(-a.Bits)
+    Operator <(a: Fixed64, b: Fixed64): Bool => a.Bits < b.Bits
+
+    @PanicsAtCaller
+    Operator *(a: Fixed64, b: Fixed64): Fixed64
+        Return Narrowed64(ShiftRounded(MultiplySigned(a.Bits, b.Bits), 32), "*")
+    End Operator
+
+    @PanicsAtCaller
+    Operator *(a: Fixed64, b: Int64): Fixed64 => Narrowed64(MultiplySigned(a.Bits, b), "*")
+
+    @PanicsAtCaller
+    Operator *(a: Int64, b: Fixed64): Fixed64 => Narrowed64(MultiplySigned(b.Bits, a), "*")
+
+    @PanicsAtCaller
+    Operator /(a: Fixed64, b: Fixed64): Fixed64 => Divided(a.Bits, b.Bits)
+
+    @PanicsAtCaller
+    Operator /(a: Fixed64, b: Int64): Fixed64 => Fixed64(Quotient(a.Bits, b))
+End Struct
+
+// The Wide as a Fixed64's bits: in a debug build, one too large for an Int64 panics; in a release
+// build, it wraps, as an Int does.
+@PanicsAtCaller
+Function Narrowed64(bits: Wide, operation: String): Fixed64
+    DebugAssert(FitsInt64(bits), "a Fixed64's {operation} overflows")
+    Return Fixed64.FromRaw(bits.Low As Int64)
+End Function
+
+// a times 2^32 over b, as Fixed64's bits, rounded to the nearest, halves away from 0. A b of 0
+// panics.
+@PanicsAtCaller
+Function Divided(a: Int64, b: Int64): Fixed64
+    If b == 0 Then Panic("division by zero")
+    Local dividend = Magnitude(a)
+    Local divisor = Magnitude(b)
+    // The 96-bit dividend over the divisor, a 32-bit digit and then a 64-bit one.
+    Local high = dividend >> 32
+    Local low = dividend << 32
+    Local quotientHigh = high / divisor
+    Local quotientLow, rest = DivideWide(high % divisor, low, divisor)
+    Local quotient = Wide(quotientHigh, quotientLow)
+    If rest >= divisor - rest Then quotient = Add(quotient, Wide(0, 1))
+    Return Narrowed64((a < 0) != (b < 0) ? Negate(quotient) : quotient, "/")
+End Function
+
+// The square root, rounded to the nearest. A negative value panics.
+@PanicsAtCaller
+Public Function Sqrt(value: Fixed32): Fixed32
+    If value.Raw < 0 Then Panic("Sqrt takes a value that isn't negative, not {value}")
+    Local scaled = (value.Raw As Int64) << 16
+    Local root = IntSqrt(scaled)
+    If scaled - root * root > root Then root++
+    Return Fixed32.FromRaw(root As Int32)
+End Function
+
+// The square root, rounded to the nearest. A negative value panics.
+@PanicsAtCaller
+Public Function Sqrt(value: Fixed64): Fixed64
+    If value.Raw < 0 Then Panic("Sqrt takes a value that isn't negative, not {value}")
+    Local bits = value.Raw As UInt64
+    Local scaled = Wide(bits >> 32, bits << 32)
+    // A Double's square root is near, and then whole steps put it right.
+    Local guess = Sqrt((scaled.High As Double) * 18446744073709551616.0 + (scaled.Low As Double))
+    Local root = guess As UInt64
+    While Above(MultiplyWide(root, root), scaled)
+        root--
+    End While
+    While !Above(MultiplyWide(root + 1, root + 1), scaled)
+        root++
+    End While
+    // What's left past the root's square, below 2 roots' worth, is in the low half.
+    Local square = MultiplyWide(root, root)
+    If scaled.Low.WrappingSubtract(square.Low) > root Then root++
+    Return Fixed64.FromRaw(root As Int64)
+End Function
+
+// Whether the unsigned Wide a is above b.
+Function Above(a: Wide, b: Wide): Bool => a.High > b.High || (a.High == b.High && a.Low > b.Low)
+
+// A Fixed32's sine or cosine, from 62 bits after the point to 16, rounded.
+Function SineQ62To16(angle: Fixed32, cosine: Bool): Int32
+    Return ((SineQ62((angle.Raw As Int64) << 16, cosine) + 35184372088832) >> 46) As Int32
+End Function
+
+// The sine of an angle in radians, the same bits everywhere.
+Public Function Sin(angle: Fixed32): Fixed32
+    Return Fixed32.FromRaw(SineQ62To16(angle, False))
+End Function
+
+// The cosine of an angle in radians, the same bits everywhere.
+Public Function Cos(angle: Fixed32): Fixed32
+    Return Fixed32.FromRaw(SineQ62To16(angle, True))
+End Function
+
+// The sine of an angle in radians, the same bits everywhere.
+Public Function Sin(angle: Fixed64): Fixed64
+    Return Fixed64.FromRaw((SineQ62(angle.Raw, False) + (1 << 29)) >> 30)
+End Function
+
+// The cosine of an angle in radians, the same bits everywhere.
+Public Function Cos(angle: Fixed64): Fixed64
+    Return Fixed64.FromRaw((SineQ62(angle.Raw, True) + (1 << 29)) >> 30)
+End Function
