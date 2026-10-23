@@ -81,6 +81,10 @@ endif()
 # Runtime unit tests.
 file(GLOB_RECURSE FB_RUNTIME_TEST_SOURCES CONFIGURE_DEPENDS runtime/*.cpp)
 add_executable(fb_runtime_tests ${FB_RUNTIME_TEST_SOURCES})
-target_link_libraries(fb_runtime_tests PRIVATE fb_runtime fb_runtime_tz fb_tzdata Catch2::Catch2WithMain)
+target_link_libraries(fb_runtime_tests PRIVATE fb_runtime_markdown md4c fb_runtime fb_runtime_tz
+                      fb_tzdata Catch2::Catch2WithMain)
+# CommonMark's spec examples, which std.text.markdown's HTML passes.
+target_compile_definitions(fb_runtime_tests PRIVATE
+  FB_TEST_COMMONMARK_SPEC="${CMAKE_CURRENT_SOURCE_DIR}/runtime/data/commonmark/spec.json")
 fb_set_warnings(fb_runtime_tests)
 catch_discover_tests(fb_runtime_tests DISCOVERY_MODE PRE_TEST DL_PATHS ${FB_TEST_DLL_PATHS})
