@@ -888,9 +888,33 @@ private:
             check_values(info.inner);
         }
 
-        if (info.kind == type_kind_t::TUPLE) {
+        // An instance's Fields and base were worked out from its type arguments too.
+        if (info.kind == type_kind_t::TUPLE || info.generic != type_id_t::INVALID) {
             for (const field_t& field : info.fields) {
                 check_values(field.type);
+            }
+        }
+
+        if (info.generic != type_id_t::INVALID && info.base != type_id_t::INVALID) {
+            check_values(info.base);
+        }
+
+        // Sizes that each fit can still make more elements than a fixed array holds, as a
+        // written one's can.
+        if (info.kind == type_kind_t::FIXED_ARRAY && !m_module.error) {
+            std::int64_t count = 1;
+            for (const std::uint32_t size : info.sizes) {
+                if (size != 0 && count > max_count / size) {
+                    m_module.error = mir_error_t{
+                        .message = std::format("{} comes out here with more elements than a "
+                                               "fixed array can hold, at most {}",
+                                               types().name(type), max_count),
+                        .span = m_span.value_or(span_t{}),
+                    };
+                    return;
+                }
+
+                count *= size != 0 ? size : 1;
             }
         }
     }
@@ -995,12 +1019,10 @@ private:
     }
 
     /// A type from the analysis, with the type arguments of the instance being lowered in it.
+    /// Code that isn't generic can use an instance whose Fields work out a size, too.
     type_id_t concrete(const type_id_t type) {
         const type_id_t made = types().substitute(type, m_parameters, m_arguments);
-        if (made != type) {
-            check_values(made);
-        }
-
+        check_values(made);
         return made;
     }
 

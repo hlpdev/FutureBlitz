@@ -2725,6 +2725,41 @@ TEST_CASE("lowering stops where code needs a larger instance each time, which an
                 "Function Wrap<Const N: Int>(): Int => Show<N * 65536 * 65536 * 65536 * 65536>()\n"
                 "Local w = Wrap<1>()")
             .contains("a Const type argument comes out as 9223372036854775807 here"));
+    // So does a size in an instance's Field, which code that isn't generic can use.
+    CHECK(stopped("Struct Pair<Const N: Int>\n"
+                  "    Field c: Int8[N * 2]\n"
+                  "End Struct\n"
+                  "Local p = Pair<2000000000>()") ==
+          "Pair<2000000000>(): a Const type argument comes out as 4000000000 here, but it's a "
+          "size or a count, from 1 to 2147483647");
+
+    // A fixed array's sizes can each fit and still hold more elements than one can.
+    const std::string_view grid = "Struct Grid<Const W: Int, Const H: Int>\n"
+                                  "    Field c: Int8[W, H]\n"
+                                  "End Struct\n";
+    CHECK(stopped(std::format("{}Local g = Grid<65536, 65536>()", grid)) ==
+          "Grid<65536, 65536>(): Int8[65536, 65536] comes out here with more elements than a "
+          "fixed array can hold, at most 2147483647");
+    CHECK(stopped(std::format("{}Class Wide<Const N: Int> Extends Base<N>\n"
+                              "End Class\n"
+                              "Class Base<Const N: Int>\n"
+                              "    Field g: Grid<N, N>?\n"
+                              "End Class\n"
+                              "Local w = Wide<65536>()",
+                              grid)) ==
+          "Wide<65536>(): Int8[65536, 65536] comes out here with more elements than a fixed array "
+          "can hold, at most 2147483647");
+    CHECK(stopped("Function Cells<Const N: Int>(): Int\n"
+                  "    Local c: Int8[N, N * 2]\n"
+                  "    Return c.Count\n"
+                  "End Function\n"
+                  "Local c = Cells<40000>()") ==
+          "Local c: Int8[N, N * 2]: Int8[40000, 80000] comes out here with more elements than a "
+          "fixed array can hold, at most 2147483647");
+    const fb::compilation_t fits = fb::compile(
+        "test.fb", std::format("{}Local g = Grid<46340, 46340>()\nLocal n = g.c.Count", grid));
+    REQUIRE(fits.diagnostics.diagnostics().empty());
+    CHECK(!fb::lower(fits.ast, fits.analysis).error);
 }
 
 TEST_CASE("lowering makes as many instances as a program uses, one from another or not", "[mir]") {
