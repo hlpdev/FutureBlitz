@@ -1,0 +1,2 @@
+((0, 0, 0), (0, 0, 0, 1), (1, 1, 1))
+panic: Decompose takes a matrix that has an inverse at panic_math_decompose.fb:6:15

@@ -1,0 +1,6 @@
+// Orthographic takes a box whose facing sides are apart, which panics where it's called.
+Import std.core
+Import std.math
+
+Print(Mat4.Orthographic(0, 800, 600, 0, -1, 1).w)
+Print(Mat4.Orthographic(-1, 1, 2, 2, 0, 1))

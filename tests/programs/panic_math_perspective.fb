@@ -1,0 +1,6 @@
+// Perspective takes a field of view between 0 and Pi, which panics where it's called.
+Import std.core
+Import std.math
+
+Print(Mat4.Perspective(Pi / 2, 1, 1, 10).z.w)
+Print(Mat4.Perspective(Pi, 1, 1, 10))

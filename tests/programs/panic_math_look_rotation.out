@@ -1,0 +1,2 @@
+True
+panic: LookRotation takes a forward that isn't zero, and an up that isn't along it at panic_math_look_rotation.fb:6:7

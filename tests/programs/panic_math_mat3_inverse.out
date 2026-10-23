@@ -1,0 +1,2 @@
+True
+panic: Inverse takes a matrix whose determinant isn't 0 at panic_math_mat3_inverse.fb:8:7

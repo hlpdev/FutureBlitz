@@ -1,0 +1,228 @@
+// Quat: a rotation, as a unit quaternion of Floats, x, y, z, and w. Angles are radians, and the
+// rotations turn counterclockwise about an axis that points at the viewer, by the right-hand rule.
+// Euler angles go in Y, X, Z order, as a camera's yaw, pitch, and roll: Z first, then X, then Y.
+
+Import std.core
+Import std.math.constants
+Import std.math.matrix
+Import std.math.scalar
+Import std.math.vector
+
+// A rotation: x, y, and z are its axis times the sine of half its angle, and w the cosine of half
+// of it. q * v turns v, and a * b turns by b, then by a. q and -q are the same rotation.
+Public Struct Quat Implements Equatable, Printable
+    Public Field x: Float
+    Public Field y: Float
+    Public Field z: Float
+    Public Field w: Float
+
+    // No rotation.
+    Public Static Property Identity: Quat
+        Get => Quat(0, 0, 0, 1)
+    End Property
+
+    // The rotation by the angle, in radians, about the axis. A zero axis gives no rotation.
+    Public Static Method FromAxisAngle(axis: Vec3, angle: Float): Quat
+        Local unit = Normalize(axis)
+        If unit == Vec3.Zero() Then Return Identity
+        Local sine = Sin(angle / 2)
+        Return Quat(unit.x * sine, unit.y * sine, unit.z * sine, Cos(angle / 2))
+    End Method
+
+    // The rotation by Euler angles in radians: z about Z, then x about X, then y about Y, as a
+    // camera's roll, pitch, and yaw.
+    Public Static Method FromEuler(x: Float, y: Float, z: Float): Quat
+        Local yaw = Quat(0, Sin(y / 2), 0, Cos(y / 2))
+        Local pitch = Quat(Sin(x / 2), 0, 0, Cos(x / 2))
+        Local roll = Quat(0, 0, Sin(z / 2), Cos(z / 2))
+        Return yaw * pitch * roll
+    End Method
+
+    // The rotation a rotation matrix makes, whose columns are the turned axes.
+    Public Static Method FromMat3(m: Mat3): Quat
+        // From the largest of x, y, z, and w, which the diagonal tells, as DirectXMath does.
+        If m.z.z <= 0
+            Local difference = m.y.y - m.x.x
+            Local rest = 1 - m.z.z
+            If difference <= 0
+                Local fourXSquared = rest - difference
+                Local scale = 0.5 / Sqrt(fourXSquared)
+                Return Quat(fourXSquared * scale, (m.x.y + m.y.x) * scale,
+                            (m.x.z + m.z.x) * scale, (m.y.z - m.z.y) * scale)
+            End If
+
+            Local fourYSquared = rest + difference
+            Local scale = 0.5 / Sqrt(fourYSquared)
+            Return Quat((m.x.y + m.y.x) * scale, fourYSquared * scale, (m.y.z + m.z.y) * scale,
+                        (m.z.x - m.x.z) * scale)
+        End If
+
+        Local sum = m.y.y + m.x.x
+        Local rest = 1 + m.z.z
+        If sum <= 0
+            Local fourZSquared = rest - sum
+            Local scale = 0.5 / Sqrt(fourZSquared)
+            Return Quat((m.x.z + m.z.x) * scale, (m.y.z + m.z.y) * scale, fourZSquared * scale,
+                        (m.x.y - m.y.x) * scale)
+        End If
+
+        Local fourWSquared = rest + sum
+        Local scale = 0.5 / Sqrt(fourWSquared)
+        Return Quat((m.y.z - m.z.y) * scale, (m.z.x - m.x.z) * scale, (m.x.y - m.y.x) * scale,
+                    fourWSquared * scale)
+    End Method
+
+    // The shortest rotation that turns the direction from to the direction to. Opposite ones
+    // turn half a turn about an axis at right angles to them, and a zero one gives no rotation.
+    Public Static Method FromTo(from: Vec3, to: Vec3): Quat
+        Local start = Normalize(from)
+        Local finish = Normalize(to)
+        If start == Vec3.Zero() || finish == Vec3.Zero() Then Return Identity
+        Local cosine = Dot(start, finish)
+        If cosine > 1 - 2 * Epsilon Then Return Identity
+        If cosine < -1 + 2 * Epsilon
+            Local axis = Cross(Vec3.Right, start)
+            If LengthSquared(axis) < 0.000001 Then axis = Cross(Vec3.Up, start)
+            Return FromAxisAngle(axis, Pi)
+        End If
+
+        Local axis = Cross(start, finish)
+        Return Normalize(Quat(axis.x, axis.y, axis.z, 1 + cosine))
+    End Method
+
+    // The rotation that turns Forward, -Z, to forward, with Up turned as near to up as it goes:
+    // how an object or camera at a place faces forward. A zero forward, or an up along it, panics.
+    @PanicsAtCaller
+    Public Static Method LookRotation(forward: Vec3, up: Vec3): Quat
+        Local back = Normalize(-forward)
+        Local right = Normalize(Cross(up, back))
+        If back == Vec3.Zero() || right == Vec3.Zero()
+            Panic("LookRotation takes a forward that isn't zero, and an up that isn't along it")
+        End If
+        Return FromMat3(Mat3(right, Cross(back, right), back))
+    End Method
+
+    // The rotation as a matrix, whose columns are the turned axes.
+    Public Method ToMat3(): Mat3
+        Local x2 = x + x
+        Local y2 = y + y
+        Local z2 = z + z
+        Local xx = x * x2
+        Local xy = x * y2
+        Local xz = x * z2
+        Local yy = y * y2
+        Local yz = y * z2
+        Local zz = z * z2
+        Local wx = w * x2
+        Local wy = w * y2
+        Local wz = w * z2
+        Return Mat3(Vec3(1 - (yy + zz), xy + wz, xz - wy), Vec3(xy - wz, 1 - (xx + zz), yz + wx),
+                    Vec3(xz + wy, yz - wx, 1 - (xx + yy)))
+    End Method
+
+    // The rotation as a Mat4 that moves nothing.
+    Public Method ToMat4(): Mat4 => ToMat3().ToMat4()
+
+    // The axis, of length 1, and the angle in radians, from 0 to Tau, it turns about it. No
+    // rotation gives the X axis and 0.
+    Public Method ToAxisAngle(): (Vec3, Float)
+        Local axis = Vec3(x, y, z)
+        Local length = Length(axis)
+        If length < 0.00000001 Then Return (Vec3.Right, 0)
+        Return (axis / length, 2 * Atan2(length, w))
+    End Method
+
+    // The Euler angles in radians, as FromEuler takes them: x from -Pi / 2 to Pi / 2, and y and z
+    // from -Pi to Pi. Where x is a quarter turn, y and z turn about one axis, and z is 0.
+    Public Method ToEuler(): Vec3
+        Local m = ToMat3()
+        Local sine = -m.z.y
+        If Abs(sine) < 0.99999
+            Return Vec3(Asin(sine), Atan2(m.z.x, m.z.z), Atan2(m.x.y, m.y.y))
+        End If
+        Return Vec3(sine > 0 ? Pi / 2 : -Pi / 2, Atan2(-m.x.z, m.x.x), 0)
+    End Method
+
+    // The Euler angles in degrees, for editors, as ToEuler gives them in radians.
+    Public Method ToEulerDegrees(): Vec3
+        Local angles = ToEuler()
+        Return Vec3(ToDegrees(angles.x), ToDegrees(angles.y), ToDegrees(angles.z))
+    End Method
+
+    Public Method ToString(): String => "({x}, {y}, {z}, {w})"
+
+    // The rotation by b, then by a.
+    Operator *(a: Quat, b: Quat): Quat
+        Return Quat(a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y,
+                    a.w * b.y - a.x * b.z + a.y * b.w + a.z * b.x,
+                    a.w * b.z + a.x * b.y - a.y * b.x + a.z * b.w,
+                    a.w * b.w - a.x * b.x - a.y * b.y - a.z * b.z)
+    End Operator
+
+    // The vector turned by the rotation.
+    Operator *(q: Quat, v: Vec3): Vec3
+        Local axis = Vec3(q.x, q.y, q.z)
+        Return v * (q.w * q.w - Dot(axis, axis)) + axis * (2 * Dot(v, axis)) +
+               Cross(axis, v) * (2 * q.w)
+    End Operator
+
+    // The same rotation, with every component's sign turned.
+    Operator -(q: Quat): Quat => Quat(-q.x, -q.y, -q.z, -q.w)
+End Struct
+
+// The sum of the products of the components: the cosine of half the angle between two rotations.
+Public Function Dot(a: Quat, b: Quat): Float => a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w
+
+// The quaternion's length, which a rotation's is 1.
+Public Function Length(q: Quat): Float => Sqrt(Dot(q, q))
+
+// The quaternion scaled to length 1, as rounding over many rotations wears it. A zero one gives no
+// rotation.
+Public Function Normalize(q: Quat): Quat
+    Local length = Length(q)
+    If !(length > 0) Then Return Quat.Identity
+    Return Quat(q.x / length, q.y / length, q.z / length, q.w / length)
+End Function
+
+// The opposite rotation, which undoes it: for a unit quaternion, as a rotation is, its conjugate.
+Public Function Inverse(q: Quat): Quat => Quat(-q.x, -q.y, -q.z, q.w)
+
+// The rotation t of the way from a to b, the short way around, as a straight line between them
+// scaled to length 1: quicker than Slerp, and nearly as smooth for angles that aren't large.
+Public Function Lerp(a: Quat, b: Quat, t: Float): Quat
+    Local sign: Float = Dot(a, b) >= 0 ? 1 : -1
+    Return Normalize(Quat(a.x + (b.x * sign - a.x) * t, a.y + (b.y * sign - a.y) * t,
+                          a.z + (b.z * sign - a.z) * t, a.w + (b.w * sign - a.w) * t))
+End Function
+
+// The rotation t of the way from a to b, the short way around, at an even speed.
+Public Function Slerp(a: Quat, b: Quat, t: Float): Quat
+    Local cosine = Dot(a, b)
+    Local end = b
+    If cosine < 0
+        cosine = -cosine
+        end = -b
+    End If
+
+    // So close that the arc is a line.
+    If cosine > 1 - Epsilon Then Return Lerp(a, end, t)
+    Local angle = Acos(cosine)
+    Local scaleA = Sin(angle * (1 - t)) / Sin(angle)
+    Local scaleB = Sin(angle * t) / Sin(angle)
+    Return Quat(a.x * scaleA + end.x * scaleB, a.y * scaleA + end.y * scaleB,
+                a.z * scaleA + end.z * scaleB, a.w * scaleA + end.w * scaleB)
+End Function
+
+// The angle in radians, from 0 to Pi, of the rotation from a to b, from its half angle's sine and
+// cosine, which keep small angles exact.
+Public Function Angle(a: Quat, b: Quat): Float
+    Local between = Inverse(a) * b
+    Return 2 * Atan2(Length(Vec3(between.x, between.y, between.z)), Abs(between.w))
+End Function
+
+// Whether the two are close as rotations, as IsClose tells for each component, with q and -q the
+// same rotation.
+Public Function IsClose(a: Quat, b: Quat): Bool
+    Return (IsClose(a.x, b.x) && IsClose(a.y, b.y) && IsClose(a.z, b.z) && IsClose(a.w, b.w)) ||
+           (IsClose(a.x, -b.x) && IsClose(a.y, -b.y) && IsClose(a.z, -b.z) && IsClose(a.w, -b.w))
+End Function

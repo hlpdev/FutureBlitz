@@ -1,0 +1,99 @@
+// Mat3 and Mat4: column-major, a * b transforms by b then a, and a matrix times its inverse is the
+// identity within a tolerance. LookAt, Perspective, and Orthographic match glm's right-handed
+// matrices with depth from 0 to 1, worked out apart from this program; where libm's sine and
+// tangent are in them, they print rounded to four places.
+Import std.core
+Import std.math
+
+// The value to four places, with -0 as 0.
+Function Shown(value: Float): Float => Round(value * 10000) / 10000 + 0
+
+Function Shown(v: Vec3): Vec3 => Vec3(Shown(v.x), Shown(v.y), Shown(v.z))
+
+Function Shown(v: Vec4): Vec4 => Vec4(Shown(v.x), Shown(v.y), Shown(v.z), Shown(v.w))
+
+Function Shown(m: Mat3): Mat3 => Mat3(Shown(m.x), Shown(m.y), Shown(m.z))
+
+Function Shown(m: Mat4): Mat4 => Mat4(Shown(m.x), Shown(m.y), Shown(m.z), Shown(m.w))
+
+// A Mat3's columns are its Fields, and m[column, row] an element.
+Local m3 = Mat3(Vec3(1, 2, 3), Vec3(4, 5, 6), Vec3(7, 8, 10))
+Print(m3, Mat3.Identity, m3[0, 0], m3[0, 2], m3[2, 0], m3[2, 2], m3.y)
+Print(m3 * Vec3(1, 0, 0), m3 * Vec3(1, 1, 1), Mat3.Identity * m3 == m3, m3 * Mat3.Identity == m3)
+Print(m3 * m3, m3 * 2, m3 + Mat3.Identity, m3 - m3)
+Print(Transpose(m3), Determinant(m3), Determinant(Mat3.Identity),
+      Determinant(Mat3.Scale(Vec3(2, 3, 4))))
+Print(Inverse(Mat3.Scale(Vec3(2, 4, 8))), Inverse(Mat3.Identity) == Mat3.Identity)
+Print(IsClose(m3 * Inverse(m3), Mat3.Identity), IsClose(Inverse(m3) * m3, Mat3.Identity))
+Print(TryInverse(Mat3(Vec3(1, 2, 3), Vec3(2, 4, 6), Vec3(0, 0, 1))) == Null, TryInverse(m3) != Null)
+
+// The rotations turn counterclockwise, looking down their axes from the positive side.
+Print(Shown(Mat3.RotationX(Pi / 2) * Vec3.Up), Shown(Mat3.RotationY(Pi / 2) * Vec3.Right))
+Print(Shown(Mat3.RotationZ(Pi / 2) * Vec3.Right), Shown(Mat3.RotationZ(Pi / 2)))
+Print(Mat3.Scale(Vec3(2, 3, 4)) * Vec3.One(), Mat3.Rotation(Quat.Identity) == Mat3.Identity)
+Print(Mat3.Identity.ToMat4() == Mat4.Identity, m3.ToMat4())
+
+// A Mat4 moves points by its last column, and directions not at all.
+Local move = Mat4.Translation(Vec3(1, 2, 3))
+Print(move, move[3, 0], move[3, 1], move[3, 2], move[3, 3], move[0, 3], move.w)
+Print(move.TransformPoint(Vec3.One()), move.TransformVector(Vec3.One()), move * Vec4(1, 1, 1, 1))
+Print(move * move, Mat4.Scale(Vec3(2, 3, 4)).TransformPoint(Vec3.One()), move * 2)
+Print(move + Mat4.Identity, move - move, move.ToMat3() == Mat3.Identity, Transpose(move))
+Print(Shown(Mat4.RotationX(Pi / 2).TransformPoint(Vec3.Up)),
+      Shown(Mat4.RotationY(Pi / 2).TransformVector(Vec3.Forward)))
+Print(Shown(Mat4.RotationZ(Pi / 2).TransformPoint(Vec3(1, 0, 5))), Shown(Mat4.RotationZ(Pi / 2)))
+
+// a * b transforms by b, then a: moved after it's scaled, or scaled after it's moved.
+Local scale = Mat4.Scale(Vec3(2, 2, 2))
+Print((move * scale).TransformPoint(Vec3.One()), (scale * move).TransformPoint(Vec3.One()))
+
+// The determinant, and a matrix times its inverse within a tolerance, for moves, turns, scales,
+// a mirror, projections, and a matrix of no particular kind.
+Print(Determinant(Mat4.Identity), Determinant(move), Determinant(scale),
+      Determinant(Mat4.Scale(Vec3(-1, 1, 1))))
+Local turn = Quat.FromEuler(0.3, -1.2, 2.5)
+Local object = Mat4.Compose(Vec3(10, -20, 30), turn, Vec3(0.5, 2, 3))
+Local eye = Mat4.LookAt(Vec3(4, 5, 6), Vec3.Zero(), Vec3.Up)
+Local camera = Mat4.Perspective(Deg(70), 1.5, 0.1, 500) * eye
+Local odd = Mat4(Vec4(2, -1, 0, 3), Vec4(1, 4, -2, 0), Vec4(0, 5, 3, -1), Vec4(-3, 0, 1, 2))
+Print(Shown(Determinant(object)), Determinant(odd), Shown(Determinant(Mat4.RotationY(1))))
+Local undone: Bool[] = []
+For m In [move, scale, Mat4.RotationX(1), object, camera, odd, Mat4.Scale(Vec3(-1, 1, 1))]
+    undone.Add(IsClose(m * Inverse(m), Mat4.Identity, 0.00001))
+    undone.Add(IsClose(Inverse(m) * m, Mat4.Identity, 0.00001))
+End For
+Print(undone)
+Print(Shown(Inverse(move)), Shown(Inverse(scale)), Inverse(Mat4.Identity) == Mat4.Identity)
+Print(TryInverse(Mat4.Scale(Vec3(1, 0, 1))) == Null, TryInverse(odd) != Null, Shown(Inverse(odd)))
+Print(Transpose(Transpose(odd)) == odd, Determinant(Transpose(odd)), Determinant(odd * odd))
+
+// Compose scales, then turns, then moves, and Decompose takes the three back.
+Local placed, turned, sized = object.Decompose()
+Print(Shown(placed), IsClose(turned, turn), Shown(sized),
+      IsClose(Mat4.Compose(placed, turned, sized), object))
+Local flipped = Mat4.Compose(Vec3.Zero(), turn, Vec3(-2, 1, 1))
+Local _, flippedTurn, flippedSize = flipped.Decompose()
+Print(Shown(flippedSize), IsClose(flippedTurn, turn),
+      Mat4.Compose(Vec3.One(), Quat.Identity, Vec3.One()) == Mat4.Translation(Vec3.One()))
+Print(Shown(Mat4.Rotation(turn).TransformPoint(Vec3.Right)), Shown(turn * Vec3.Right))
+
+// LookAt: the world moved to where the camera, at the origin, looks down -Z.
+Local view = Mat4.LookAt(Vec3(1, 2, 3), Vec3.Zero(), Vec3.Up)
+Print(Shown(view))
+Print(Shown(view.TransformPoint(Vec3(1, 2, 3))), Shown(view.TransformPoint(Vec3.Zero())))
+Print(Mat4.LookAt(Vec3(0, 0, 5), Vec3.Zero(), Vec3.Up).TransformPoint(Vec3.Zero()))
+
+// Perspective: depth goes from 0 at near to 1 at far, and the view's middle is x and y 0.
+Local projection = Mat4.Perspective(Deg(60), 16.0 / 9, 0.1, 100)
+Print(Shown(projection))
+Print(Shown(projection.ProjectPoint(Vec3(0, 0, -0.1))),
+      Shown(projection.ProjectPoint(Vec3(0, 0, -100))))
+Print(Shown(projection * Vec4(0, 0, -100, 1)),
+      Shown(projection.ProjectPoint(Vec3(0, Tan(Deg(30)), -1))))
+
+// Orthographic: a box to -1 to 1 across and up, and depth from 0 to 1.
+Local box = Mat4.Orthographic(-2, 2, -1, 1, 0.5, 50)
+Print(Shown(box))
+Print(Shown(box.TransformPoint(Vec3(2, 1, -0.5))), Shown(box.TransformPoint(Vec3(-2, -1, -50))),
+      Shown(box.TransformPoint(Vec3(0, 0, -25.25))))
+Print(Mat4.Orthographic(0, 800, 600, 0, -1, 1).TransformPoint(Vec3(0, 0, 0)))

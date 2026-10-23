@@ -1,0 +1,6 @@
+// LookRotation takes a forward that isn't zero, which panics where it's called.
+Import std.core
+Import std.math
+
+Print(Quat.LookRotation(Vec3.Forward, Vec3.Up) == Quat.Identity)
+Print(Quat.LookRotation(Vec3.Zero(), Vec3.Up))

@@ -1,0 +1,6 @@
+// Decompose takes a matrix with an inverse, which panics where it's called.
+Import std.core
+Import std.math
+
+Print(Mat4.Identity.Decompose())
+Local parts = Mat4.Scale(Vec3(1, 1, 0)).Decompose()

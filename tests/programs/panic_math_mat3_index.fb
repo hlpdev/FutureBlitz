@@ -1,0 +1,7 @@
+// A Mat3's columns and rows are at 0 to 2, and any other panics where it's used.
+Import std.core
+Import std.math
+
+Local m = Mat3.Identity
+Print(m[0, 0], m[2, 1])
+Print(m[1, 3])

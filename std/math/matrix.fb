@@ -1,0 +1,366 @@
+// Mat3 and Mat4: matrices of Floats, column-major, as the GPU takes them. Each column is a Field,
+// x, y, z, and w, a vector of where the matrix takes that axis, and the last of a Mat4 is where it
+// takes the origin. m * v transforms v, and a * b transforms by b, then by a. The projections are
+// right-handed, looking down -Z, with depth from 0 at near to 1 at far, as Vulkan's.
+
+Import std.core
+Import std.math.constants
+Import std.math.quat
+Import std.math.scalar
+Import std.math.vector
+
+// A 3 by 3 matrix: a rotation, a scale, or both, of 3D vectors.
+Public Struct Mat3 Implements Equatable, Printable
+    Public Field x: Vec3
+    Public Field y: Vec3
+    Public Field z: Vec3
+
+    // The matrix that changes nothing.
+    Public Static Property Identity: Mat3
+        Get => Mat3(Vec3(1, 0, 0), Vec3(0, 1, 0), Vec3(0, 0, 1))
+    End Property
+
+    // The matrix that scales each axis by the vector's component.
+    Public Static Method Scale(scale: Vec3): Mat3
+        Return Mat3(Vec3(scale.x, 0, 0), Vec3(0, scale.y, 0), Vec3(0, 0, scale.z))
+    End Method
+
+    // The rotation's matrix.
+    Public Static Method Rotation(rotation: Quat): Mat3 => rotation.ToMat3()
+
+    // The rotation by the angle, in radians, about the X axis.
+    Public Static Method RotationX(angle: Float): Mat3
+        Local cosine = Cos(angle)
+        Local sine = Sin(angle)
+        Return Mat3(Vec3(1, 0, 0), Vec3(0, cosine, sine), Vec3(0, -sine, cosine))
+    End Method
+
+    // The rotation by the angle, in radians, about the Y axis.
+    Public Static Method RotationY(angle: Float): Mat3
+        Local cosine = Cos(angle)
+        Local sine = Sin(angle)
+        Return Mat3(Vec3(cosine, 0, -sine), Vec3(0, 1, 0), Vec3(sine, 0, cosine))
+    End Method
+
+    // The rotation by the angle, in radians, about the Z axis.
+    Public Static Method RotationZ(angle: Float): Mat3
+        Local cosine = Cos(angle)
+        Local sine = Sin(angle)
+        Return Mat3(Vec3(cosine, sine, 0), Vec3(-sine, cosine, 0), Vec3(0, 0, 1))
+    End Method
+
+    // The matrix as a Mat4 that moves nothing.
+    Public Method ToMat4(): Mat4
+        Return Mat4(Vec4(x.x, x.y, x.z, 0), Vec4(y.x, y.y, y.z, 0), Vec4(z.x, z.y, z.z, 0),
+                    Vec4(0, 0, 0, 1))
+    End Method
+
+    Public Method ToString(): String => "({x}, {y}, {z})"
+
+    // The element in a column and a row, each from 0 to 2. Any other panics.
+    @PanicsAtCaller
+    Operator [](column: Int, row: Int): Float
+        If column < 0 || column > 2 || row < 0 || row > 2
+            Panic("a Mat3's columns and rows are at 0 to 2, not ({column}, {row})")
+        End If
+
+        If column == 0 Then Return x[row]
+        If column == 1 Then Return y[row]
+        Return z[row]
+    End Operator
+
+    // The transform by b, then by a.
+    Operator *(a: Mat3, b: Mat3): Mat3 => Mat3(a * b.x, a * b.y, a * b.z)
+    // The vector transformed.
+    Operator *(m: Mat3, v: Vec3): Vec3 => m.x * v.x + m.y * v.y + m.z * v.z
+    Operator *(m: Mat3, scale: Float): Mat3 => Mat3(m.x * scale, m.y * scale, m.z * scale)
+    Operator +(a: Mat3, b: Mat3): Mat3 => Mat3(a.x + b.x, a.y + b.y, a.z + b.z)
+    Operator -(a: Mat3, b: Mat3): Mat3 => Mat3(a.x - b.x, a.y - b.y, a.z - b.z)
+End Struct
+
+// A 4 by 4 matrix: an affine transform of 3D points, moving, turning, and scaling them, or a
+// camera's projection.
+Public Struct Mat4 Implements Equatable, Printable
+    Public Field x: Vec4
+    Public Field y: Vec4
+    Public Field z: Vec4
+    Public Field w: Vec4
+
+    // The matrix that changes nothing.
+    Public Static Property Identity: Mat4
+        Get => Mat4(Vec4(1, 0, 0, 0), Vec4(0, 1, 0, 0), Vec4(0, 0, 1, 0), Vec4(0, 0, 0, 1))
+    End Property
+
+    // The matrix that moves points by the vector.
+    Public Static Method Translation(offset: Vec3): Mat4
+        Return Mat4(Vec4(1, 0, 0, 0), Vec4(0, 1, 0, 0), Vec4(0, 0, 1, 0),
+                    Vec4(offset.x, offset.y, offset.z, 1))
+    End Method
+
+    // The matrix that scales each axis by the vector's component.
+    Public Static Method Scale(scale: Vec3): Mat4 => Mat3.Scale(scale).ToMat4()
+
+    // The rotation's matrix.
+    Public Static Method Rotation(rotation: Quat): Mat4 => rotation.ToMat4()
+
+    // The rotation by the angle, in radians, about the X axis.
+    Public Static Method RotationX(angle: Float): Mat4 => Mat3.RotationX(angle).ToMat4()
+
+    // The rotation by the angle, in radians, about the Y axis.
+    Public Static Method RotationY(angle: Float): Mat4 => Mat3.RotationY(angle).ToMat4()
+
+    // The rotation by the angle, in radians, about the Z axis.
+    Public Static Method RotationZ(angle: Float): Mat4 => Mat3.RotationZ(angle).ToMat4()
+
+    // The matrix that scales, then rotates, then moves, as an object's transform does: what
+    // Decompose takes apart.
+    Public Static Method Compose(translation: Vec3, rotation: Quat, scale: Vec3): Mat4
+        Local turned = rotation.ToMat3()
+        Local axisX = turned.x * scale.x
+        Local axisY = turned.y * scale.y
+        Local axisZ = turned.z * scale.z
+        Return Mat4(Vec4(axisX.x, axisX.y, axisX.z, 0), Vec4(axisY.x, axisY.y, axisY.z, 0),
+                    Vec4(axisZ.x, axisZ.y, axisZ.z, 0),
+                    Vec4(translation.x, translation.y, translation.z, 1))
+    End Method
+
+    // The view matrix of a camera at eye looking at target, with up toward the top of the view:
+    // it takes the world to where the camera, at the origin, looks down -Z. A target at the eye,
+    // or an up along the view, panics.
+    @PanicsAtCaller
+    Public Static Method LookAt(eye: Vec3, target: Vec3, up: Vec3): Mat4
+        Local forward = Normalize(target - eye)
+        Local right = Normalize(Cross(forward, up))
+        If forward == Vec3.Zero() || right == Vec3.Zero()
+            Panic("LookAt takes a target apart from the eye, and an up that isn't along the view")
+        End If
+
+        Local top = Cross(right, forward)
+        Return Mat4(Vec4(right.x, top.x, -forward.x, 0), Vec4(right.y, top.y, -forward.y, 0),
+                    Vec4(right.z, top.z, -forward.z, 0),
+                    Vec4(-Dot(right, eye), -Dot(top, eye), Dot(forward, eye), 1))
+    End Method
+
+    // A perspective projection, with the field of view from the bottom of the view to its top, in
+    // radians, and the aspect, its width over its height: depth goes from 0 at near to 1 at far.
+    // A field of view outside 0 to Pi, an aspect that isn't above 0, or a near and far that aren't
+    // finite with 0 < near < far, panics.
+    @PanicsAtCaller
+    Public Static Method Perspective(fieldOfView: Float, aspect: Float, near: Float,
+                                     far: Float): Mat4
+        If !(fieldOfView > 0 && fieldOfView < Pi && aspect > 0 && IsFinite(aspect) && near > 0 &&
+             near < far && IsFinite(far))
+            Panic("Perspective takes a field of view between 0 and Pi, an aspect above 0, and " +
+                  "0 < near < far, not {fieldOfView}, {aspect}, {near}, and {far}")
+        End If
+
+        Local tangent = Tan(fieldOfView / 2)
+        Local depth = far / (near - far)
+        Return Mat4(Vec4(1 / (aspect * tangent), 0, 0, 0), Vec4(0, 1 / tangent, 0, 0),
+                    Vec4(0, 0, depth, -1), Vec4(0, 0, near * depth, 0))
+    End Method
+
+    // An orthographic projection of the box from left to right, bottom to top, and near to far
+    // in front of the camera, to -1 to 1 across and up, and depth from 0 at near to 1 at far. A
+    // box whose sides aren't finite, or where two that face each other are at one place, panics.
+    @PanicsAtCaller
+    Public Static Method Orthographic(left: Float, right: Float, bottom: Float, top: Float,
+                                      near: Float, far: Float): Mat4
+        If !(IsFinite(right - left) && IsFinite(top - bottom) && IsFinite(far - near) &&
+             left != right && bottom != top && near != far)
+            Panic("Orthographic takes a box whose facing sides are apart, not {left} to {right}, " +
+                  "{bottom} to {top}, and {near} to {far}")
+        End If
+
+        Local width = right - left
+        Local height = top - bottom
+        Local depth = far - near
+        Return Mat4(Vec4(2 / width, 0, 0, 0), Vec4(0, 2 / height, 0, 0), Vec4(0, 0, -1 / depth, 0),
+                    Vec4(-(right + left) / width, -(top + bottom) / height, -near / depth, 1))
+    End Method
+
+    // The point transformed, with its w taken as 1, for a matrix that moves, turns, and scales.
+    Public Method TransformPoint(point: Vec3): Vec3
+        Return (x * point.x + y * point.y + z * point.z + w).xyz
+    End Method
+
+    // The direction transformed, with its w taken as 0, so the matrix turns and scales it but
+    // doesn't move it.
+    Public Method TransformVector(direction: Vec3): Vec3
+        Return (x * direction.x + y * direction.y + z * direction.z).xyz
+    End Method
+
+    // The point transformed by a projection, divided by the w it gives, as the GPU does.
+    Public Method ProjectPoint(point: Vec3): Vec3
+        Local projected = x * point.x + y * point.y + z * point.z + w
+        Return projected.xyz / projected.w
+    End Method
+
+    // The translation, rotation, and scale that Compose makes the matrix of: a transform that
+    // flips gives a negative X scale. A matrix with no inverse, as one that scales to 0 has
+    // none, panics.
+    @PanicsAtCaller
+    Public Method Decompose(): (Vec3, Quat, Vec3)
+        Local determinant = Determinant(Self)
+        If determinant == 0 Then Panic("Decompose takes a matrix that has an inverse")
+        Local scale = Vec3(Length(x.xyz) * Sign(determinant), Length(y.xyz), Length(z.xyz))
+        Local rotation = Quat.FromMat3(Mat3(x.xyz / scale.x, y.xyz / scale.y, z.xyz / scale.z))
+        Return (w.xyz, rotation, scale)
+    End Method
+
+    // The upper left 3 by 3, which turns and scales.
+    Public Method ToMat3(): Mat3 => Mat3(x.xyz, y.xyz, z.xyz)
+
+    Public Method ToString(): String => "({x}, {y}, {z}, {w})"
+
+    // The element in a column and a row, each from 0 to 3. Any other panics.
+    @PanicsAtCaller
+    Operator [](column: Int, row: Int): Float
+        If column < 0 || column > 3 || row < 0 || row > 3
+            Panic("a Mat4's columns and rows are at 0 to 3, not ({column}, {row})")
+        End If
+
+        If column == 0 Then Return x[row]
+        If column == 1 Then Return y[row]
+        If column == 2 Then Return z[row]
+        Return w[row]
+    End Operator
+
+    // The transform by b, then by a.
+    Operator *(a: Mat4, b: Mat4): Mat4 => Mat4(a * b.x, a * b.y, a * b.z, a * b.w)
+    // The vector transformed.
+    Operator *(m: Mat4, v: Vec4): Vec4 => m.x * v.x + m.y * v.y + m.z * v.z + m.w * v.w
+
+    Operator *(m: Mat4, scale: Float): Mat4
+        Return Mat4(m.x * scale, m.y * scale, m.z * scale, m.w * scale)
+    End Operator
+
+    Operator +(a: Mat4, b: Mat4): Mat4 => Mat4(a.x + b.x, a.y + b.y, a.z + b.z, a.w + b.w)
+    Operator -(a: Mat4, b: Mat4): Mat4 => Mat4(a.x - b.x, a.y - b.y, a.z - b.z, a.w - b.w)
+End Struct
+
+// The matrix with its rows for columns.
+Public Function Transpose(m: Mat3): Mat3
+    Return Mat3(Vec3(m.x.x, m.y.x, m.z.x), Vec3(m.x.y, m.y.y, m.z.y), Vec3(m.x.z, m.y.z, m.z.z))
+End Function
+
+// The matrix with its rows for columns.
+Public Function Transpose(m: Mat4): Mat4
+    Return Mat4(Vec4(m.x.x, m.y.x, m.z.x, m.w.x), Vec4(m.x.y, m.y.y, m.z.y, m.w.y),
+                Vec4(m.x.z, m.y.z, m.z.z, m.w.z), Vec4(m.x.w, m.y.w, m.z.w, m.w.w))
+End Function
+
+// How the matrix scales volume, negative where it flips: 0 for one with no inverse.
+Public Function Determinant(m: Mat3): Float => Dot(m.x, Cross(m.y, m.z))
+
+// How the matrix scales volume, negative where it flips: 0 for one with no inverse.
+Public Function Determinant(m: Mat4): Float
+    // By the first column's cofactors, from the 2 by 2 determinants of the last two columns.
+    Local a2323 = m.z.z * m.w.w - m.z.w * m.w.z
+    Local a1323 = m.z.y * m.w.w - m.z.w * m.w.y
+    Local a1223 = m.z.y * m.w.z - m.z.z * m.w.y
+    Local a0323 = m.z.x * m.w.w - m.z.w * m.w.x
+    Local a0223 = m.z.x * m.w.z - m.z.z * m.w.x
+    Local a0123 = m.z.x * m.w.y - m.z.y * m.w.x
+    Return m.x.x * (m.y.y * a2323 - m.y.z * a1323 + m.y.w * a1223) -
+           m.x.y * (m.y.x * a2323 - m.y.z * a0323 + m.y.w * a0223) +
+           m.x.z * (m.y.x * a1323 - m.y.y * a0323 + m.y.w * a0123) -
+           m.x.w * (m.y.x * a1223 - m.y.y * a0223 + m.y.z * a0123)
+End Function
+
+// The matrix that undoes this one, or Null for one with no inverse, whose determinant is 0.
+Public Function TryInverse(m: Mat3): Mat3?
+    // The inverse's rows are the cross products of the other two columns, over the determinant.
+    Local first = Cross(m.y, m.z)
+    Local second = Cross(m.z, m.x)
+    Local third = Cross(m.x, m.y)
+    Local determinant = Dot(m.x, first)
+    If determinant == 0 Then Return Null
+    Return Transpose(Mat3(first, second, third)) * (1 / determinant)
+End Function
+
+// The matrix that undoes this one, or Null for one with no inverse, whose determinant is 0.
+Public Function TryInverse(m: Mat4): Mat4?
+    // The cofactors, column by column, from the 2 by 2 determinants of pairs of columns, as glm
+    // works them out, four at a time.
+    Local coefficient00 = m.z.z * m.w.w - m.w.z * m.z.w
+    Local coefficient02 = m.y.z * m.w.w - m.w.z * m.y.w
+    Local coefficient03 = m.y.z * m.z.w - m.z.z * m.y.w
+    Local coefficient04 = m.z.y * m.w.w - m.w.y * m.z.w
+    Local coefficient06 = m.y.y * m.w.w - m.w.y * m.y.w
+    Local coefficient07 = m.y.y * m.z.w - m.z.y * m.y.w
+    Local coefficient08 = m.z.y * m.w.z - m.w.y * m.z.z
+    Local coefficient10 = m.y.y * m.w.z - m.w.y * m.y.z
+    Local coefficient11 = m.y.y * m.z.z - m.z.y * m.y.z
+    Local coefficient12 = m.z.x * m.w.w - m.w.x * m.z.w
+    Local coefficient14 = m.y.x * m.w.w - m.w.x * m.y.w
+    Local coefficient15 = m.y.x * m.z.w - m.z.x * m.y.w
+    Local coefficient16 = m.z.x * m.w.z - m.w.x * m.z.z
+    Local coefficient18 = m.y.x * m.w.z - m.w.x * m.y.z
+    Local coefficient19 = m.y.x * m.z.z - m.z.x * m.y.z
+    Local coefficient20 = m.z.x * m.w.y - m.w.x * m.z.y
+    Local coefficient22 = m.y.x * m.w.y - m.w.x * m.y.y
+    Local coefficient23 = m.y.x * m.z.y - m.z.x * m.y.y
+
+    Local factor0 = Vec4(coefficient00, coefficient00, coefficient02, coefficient03)
+    Local factor1 = Vec4(coefficient04, coefficient04, coefficient06, coefficient07)
+    Local factor2 = Vec4(coefficient08, coefficient08, coefficient10, coefficient11)
+    Local factor3 = Vec4(coefficient12, coefficient12, coefficient14, coefficient15)
+    Local factor4 = Vec4(coefficient16, coefficient16, coefficient18, coefficient19)
+    Local factor5 = Vec4(coefficient20, coefficient20, coefficient22, coefficient23)
+
+    Local vector0 = Vec4(m.y.x, m.x.x, m.x.x, m.x.x)
+    Local vector1 = Vec4(m.y.y, m.x.y, m.x.y, m.x.y)
+    Local vector2 = Vec4(m.y.z, m.x.z, m.x.z, m.x.z)
+    Local vector3 = Vec4(m.y.w, m.x.w, m.x.w, m.x.w)
+
+    Local signA = Vec4(1, -1, 1, -1)
+    Local signB = Vec4(-1, 1, -1, 1)
+    Local inverse = Mat4((vector1 * factor0 - vector2 * factor1 + vector3 * factor2) * signA,
+                         (vector0 * factor0 - vector2 * factor3 + vector3 * factor4) * signB,
+                         (vector0 * factor1 - vector1 * factor3 + vector3 * factor5) * signA,
+                         (vector0 * factor2 - vector1 * factor4 + vector2 * factor5) * signB)
+
+    // The first row of the inverse, by the first column, is the determinant.
+    Local determinant = Dot(m.x, Vec4(inverse.x.x, inverse.y.x, inverse.z.x, inverse.w.x))
+    If determinant == 0 Then Return Null
+    Return inverse * (1 / determinant)
+End Function
+
+// The matrix that undoes this one. One with no inverse, whose determinant is 0, panics.
+@PanicsAtCaller
+Public Function Inverse(m: Mat3): Mat3
+    Local inverse = TryInverse(m)
+    If inverse == Null Then Panic("Inverse takes a matrix whose determinant isn't 0")
+    Return inverse
+End Function
+
+// The matrix that undoes this one. One with no inverse, whose determinant is 0, panics.
+@PanicsAtCaller
+Public Function Inverse(m: Mat4): Mat4
+    Local inverse = TryInverse(m)
+    If inverse == Null Then Panic("Inverse takes a matrix whose determinant isn't 0")
+    Return inverse
+End Function
+
+// Whether each element is close to b's, as IsClose tells for Floats.
+Public Function IsClose(a: Mat3, b: Mat3): Bool
+    Return IsClose(a.x, b.x) && IsClose(a.y, b.y) && IsClose(a.z, b.z)
+End Function
+
+// Whether each element is close to b's, as IsClose tells for Floats.
+Public Function IsClose(a: Mat4, b: Mat4): Bool
+    Return IsClose(a.x, b.x) && IsClose(a.y, b.y) && IsClose(a.z, b.z) && IsClose(a.w, b.w)
+End Function
+
+// Whether each element is no further from b's than tolerance.
+Public Function IsClose(a: Mat3, b: Mat3, tolerance: Float): Bool
+    Return IsClose(a.x, b.x, tolerance) && IsClose(a.y, b.y, tolerance) &&
+           IsClose(a.z, b.z, tolerance)
+End Function
+
+// Whether each element is no further from b's than tolerance.
+Public Function IsClose(a: Mat4, b: Mat4, tolerance: Float): Bool
+    Return IsClose(a.x, b.x, tolerance) && IsClose(a.y, b.y, tolerance) &&
+           IsClose(a.z, b.z, tolerance) && IsClose(a.w, b.w, tolerance)
+End Function

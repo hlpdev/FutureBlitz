@@ -1,0 +1,2 @@
+3 0
+panic: a Mat4's columns and rows are at 0 to 3, not (-1, 0) at panic_math_mat4_index.fb:7:8

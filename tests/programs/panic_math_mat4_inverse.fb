@@ -1,0 +1,8 @@
+// Inverse takes a Mat4 whose determinant isn't 0, which panics where it's called; TryInverse gives
+// Null.
+Import std.core
+Import std.math
+
+Local flat = Mat4.Scale(Vec3(0, 1, 1))
+Print(TryInverse(flat) == Null)
+Print(Inverse(flat))

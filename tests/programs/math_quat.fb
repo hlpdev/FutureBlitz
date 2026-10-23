@@ -1,0 +1,83 @@
+// Quat: rotations by the right-hand rule, Euler angles in Y, X, Z order, and the matrices they
+// match. libm's sines are in every one, so they print rounded to four places.
+Import std.core
+Import std.math
+
+// The value to four places, with -0 as 0.
+Function Shown(value: Float): Float => Round(value * 10000) / 10000 + 0
+
+Function Shown(v: Vec3): Vec3 => Vec3(Shown(v.x), Shown(v.y), Shown(v.z))
+
+Function Shown(q: Quat): Quat => Quat(Shown(q.x), Shown(q.y), Shown(q.z), Shown(q.w))
+
+// A quarter turn about Y takes X to -Z, and about X takes Y to Z.
+Local yaw = Quat.FromAxisAngle(Vec3.Up, Pi / 2)
+Local pitch = Quat.FromAxisAngle(Vec3.Right, Pi / 2)
+Print(Quat.Identity, Shown(yaw), Shown(yaw * Vec3.Right), Shown(pitch * Vec3.Up),
+      Shown(pitch * Vec3.Back))
+Print(Quat.Identity * Vec3(1, 2, 3), Shown(Quat.FromAxisAngle(Vec3(0, 5, 0), Pi / 2)),
+      Quat.FromAxisAngle(Vec3.Zero(), 1))
+
+// a * b turns by b, then by a.
+Print(Shown((yaw * pitch) * Vec3.Up), Shown(yaw * (pitch * Vec3.Up)),
+      Shown((pitch * yaw) * Vec3.Up))
+Print(Shown(yaw * yaw * Vec3.Right), Shown(yaw * Inverse(yaw)), Shown(Inverse(yaw) * Vec3.Right),
+      -yaw == yaw)
+
+// The axis and angle back, and the matrix, whose columns are the turned axes.
+Local axis, angle = Quat.FromAxisAngle(Normalize(Vec3(1, 1, 0)), 1.25).ToAxisAngle()
+Print(Shown(axis), Shown(angle), Quat.Identity.ToAxisAngle(), Shown(yaw.ToAxisAngle().1))
+Print(Shown(yaw.ToMat3().x), Shown(yaw.ToMat3().z), Quat.Identity.ToMat4() == Mat4.Identity)
+Local odd = Normalize(Quat(0.1, -0.7, 0.3, 0.6))
+Local matches: Bool[] = []
+For q In [Quat.Identity, yaw, pitch, odd, -odd, Quat.FromAxisAngle(Vec3.Back, 3)]
+    matches.Add(IsClose(Quat.FromMat3(q.ToMat3()), q))
+    matches.Add(IsClose(q.ToMat3() * Vec3(1, 2, 3), q * Vec3(1, 2, 3)))
+End For
+Print(matches)
+// FromMat3 from each of its four cases, where x, y, z, or w is the largest.
+Print(Shown(Quat.FromMat3(Mat3.RotationX(3))), Shown(Quat.FromMat3(Mat3.RotationY(3))))
+Print(Shown(Quat.FromMat3(Mat3.RotationZ(3))), Shown(Quat.FromMat3(Mat3.RotationZ(0.5))))
+
+// Euler angles: z about Z, then x about X, then y about Y, and back, in radians and degrees.
+Local euler = Quat.FromEuler(0.3, -1.2, 2.5)
+Print(Shown(euler.ToEuler()), Shown(euler.ToEulerDegrees()), Shown(Quat.FromEuler(0, Pi / 2, 0)))
+Local turns = Quat.FromAxisAngle(Vec3.Up, -1.2) * Quat.FromAxisAngle(Vec3.Right, 0.3) *
+              Quat.FromAxisAngle(Vec3.Back, 2.5)
+Print(IsClose(euler, turns))
+Print(Shown(Quat.FromEuler(Deg(30), Deg(45), Deg(60)).ToEulerDegrees()),
+      Shown(Quat.Identity.ToEuler()))
+// A quarter turn up or down meets the gimbal: y and z turn about one axis, and z goes to 0.
+Print(Shown(Quat.FromEuler(Pi / 2, 0.5, 0).ToEuler()),
+      Shown(Quat.FromEuler(-Pi / 2, 0.5, 0).ToEuler()))
+Print(IsClose(Quat.FromEuler(Pi / 2, 0.3, 0.2), Quat.FromEuler(Pi / 2, 0.1, 0)))
+
+// FromTo, the shortest turn from one direction to another, half a turn for opposite ones.
+Print(Shown(Quat.FromTo(Vec3.Right, Vec3.Up) * Vec3.Right),
+      Shown(Quat.FromTo(Vec3(0, 0, 5), Vec3(3, 0, 0)) * Vec3.Back))
+Print(Shown(Quat.FromTo(Vec3.Right, Vec3.Left) * Vec3.Right),
+      Shown(Quat.FromTo(Vec3.Up, Vec3.Down) * Vec3.Up))
+Print(Quat.FromTo(Vec3.Up, Vec3.Up), Quat.FromTo(Vec3.Zero(), Vec3.Up),
+      Shown(Quat.FromTo(Vec3.Up, Vec3(1, 1, 0)) * Vec3.Up))
+
+// LookRotation turns Forward toward where it looks, and Up as near to up as it goes.
+Local facing = Quat.LookRotation(Vec3(1, 0, -1), Vec3.Up)
+Print(Shown(facing * Vec3.Forward), Shown(facing * Vec3.Up),
+      Shown(Quat.LookRotation(Vec3.Forward, Vec3.Up)))
+Print(Shown(Quat.LookRotation(Vec3.Down, Vec3.Forward) * Vec3.Forward),
+      Shown(Quat.LookRotation(Vec3.Down, Vec3.Forward) * Vec3.Up))
+
+// Interpolation, the short way around: Slerp at an even speed, Lerp along a line.
+Print(Shown(Slerp(Quat.Identity, yaw, 0.5)), Shown(Lerp(Quat.Identity, yaw, 0.5)),
+      IsClose(Slerp(yaw, yaw, 0.3), yaw))
+Print(Shown(Slerp(Quat.Identity, yaw, 0) * Vec3.Right),
+      Shown(Slerp(Quat.Identity, yaw, 1) * Vec3.Right))
+Print(Shown(Slerp(Quat.Identity, -yaw, 0.5)), Shown(Lerp(Quat.Identity, -yaw, 0.5)),
+      Shown(Slerp(Quat.Identity, Quat.FromAxisAngle(Vec3.Up, 3), 1.0 / 3)))
+Print(Shown(Angle(Quat.Identity, yaw)), Angle(yaw, -yaw), Shown(Angle(odd, odd)),
+      Shown(Angle(pitch, yaw)))
+
+// Dot, Length, and Normalize, which leaves a zero quaternion no rotation.
+Print(Dot(Quat.Identity, Quat.Identity), Shown(Dot(yaw, pitch)), Length(Quat(0, 3, 0, 4)),
+      Normalize(Quat(0, 3, 0, 4)))
+Print(Normalize(Quat(0, 0, 0, 0)), Shown(Length(odd)), IsClose(yaw, -yaw), IsClose(yaw, pitch))

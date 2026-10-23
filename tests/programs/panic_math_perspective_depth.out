@@ -1,0 +1,2 @@
+-1
+panic: Perspective takes a field of view between 0 and Pi, an aspect above 0, and 0 < near < far, not 1.5707964, 1, 10, and 10 at panic_math_perspective_depth.fb:6:7

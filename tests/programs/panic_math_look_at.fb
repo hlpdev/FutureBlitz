@@ -1,0 +1,6 @@
+// LookAt takes a target apart from the eye, which panics where it's called.
+Import std.core
+Import std.math
+
+Print(Mat4.LookAt(Vec3.One(), Vec3.Zero(), Vec3.Up) != Mat4.Identity)
+Print(Mat4.LookAt(Vec3.One(), Vec3.One(), Vec3.Up))
