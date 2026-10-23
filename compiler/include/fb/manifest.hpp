@@ -57,12 +57,12 @@ struct manifest_t {
     std::vector<native_t> natives;
 };
 
-/// Reads `file`, a project.toml: errors for what it can't use, at their lines, and warnings for
-/// the keys it doesn't know. nullopt after an error.
 /// Whether text is a name a native library can have, or a system library's name for the
 /// linker: ASCII letters, digits, '_', '-', '.', and '+', not starting with '-'.
 [[nodiscard]] bool is_library_name(std::string_view text);
 
+/// Reads `file`, a project.toml: errors for what it can't use, at their lines, and warnings for
+/// the keys it doesn't know. nullopt after an error.
 [[nodiscard]] std::optional<manifest_t> read_manifest(const source_file_t& file,
                                                       diagnostic_bag_t& diagnostics);
 

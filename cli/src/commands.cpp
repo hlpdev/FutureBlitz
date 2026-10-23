@@ -397,7 +397,7 @@ int compile_command(const options_t& options) {
         return usage_exit_code;
     }
 
-    // A package is named as cargo names a crate: "game v0.1.0 (C:\games\game)".
+    // A package is named as cargo names a crate: "game v0.1.0 (C:/games/game)".
     const std::optional<package_info_t>& package = compiled->package;
     const std::string name = package ? std::format("{} v{} ({})", package->name, package->version,
                                                    to_utf8(package->root))

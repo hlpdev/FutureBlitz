@@ -33,10 +33,12 @@ struct module_import_t {
 /// One file of a program, which has its own top-level names.
 struct module_t {
     /// Its path from its root, without ".fb" and with dots for folders: "std.core.error" for
-    /// std/core/error.fb. The main module is named by its file's stem.
+    /// std/core/error.fb. Without a project.toml, the main module is named by its file's stem,
+    /// and in a package by its path, like "game.main".
     std::string name;
     /// Its path in the program: "std/core/error.fb", one from the main file's folder, like
-    /// "ui/hud.fb", or a package's, like "game/ui/hud.fb". The main file's is its name.
+    /// "ui/hud.fb", or a package's, like "game/ui/hud.fb". Without a project.toml, the main
+    /// file's is its name, and in a package its path, like "game/main.fb".
     std::string path;
     file_id_t file{};
     /// The program's main module, whose top-level code runs.
@@ -125,14 +127,14 @@ public:
     /// Whether `package`'s project.toml names `on` as a dependency.
     [[nodiscard]] bool depends_on(package_id_t package, package_id_t on) const;
 
-    /// The module that declares `name` among the standard library's that the program doesn't
-    /// load, or among their Methods of T[] for `array_method`. nullopt when none does.
     /// The module that declares the member `name` an Extend adds to the built-in type named
     /// `type`, among the standard library's that the program doesn't load. nullopt when none
     /// does.
     [[nodiscard]] std::optional<std::string_view> std_member_home(std::string_view type,
                                                                   std::string_view name) const;
 
+    /// The module that declares `name` among the standard library's that the program doesn't
+    /// load, or among their Methods of T[] for `array_method`. nullopt when none does.
     [[nodiscard]] std::optional<std::string_view> std_home(std::string_view name,
                                                            bool array_method) const;
 

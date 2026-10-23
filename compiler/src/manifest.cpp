@@ -117,7 +117,6 @@ private:
         m_failed = true;
     }
 
-    /// Where a part of the file is. toml++ counts lines and columns from 1, in code points.
     /// Where toml++ found the file wrong, but for text that isn't UTF-8, which it places at the
     /// character before, the first byte that isn't.
     [[nodiscard]] span_t error_span(const toml::parse_error& error) const {
@@ -139,6 +138,7 @@ private:
         return span_of(error.source());
     }
 
+    /// Where a part of the file is. toml++ counts lines and columns from 1, in code points.
     [[nodiscard]] span_t span_of(const toml::source_region& region) const {
         const auto offset = [&](const toml::source_position position) {
             const location_t location{
