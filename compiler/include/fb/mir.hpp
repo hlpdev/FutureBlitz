@@ -313,6 +313,9 @@ struct array_t {
 /// holds.
 struct zero_t {
     type_id_t type;
+    /// The Local it starts, whose declaration a Const Function's limit points at, where there's
+    /// one.
+    span_t span;
 };
 
 /// A new object of a Class, with one owner and every field zeroed. Lowering sets the fields
@@ -539,6 +542,9 @@ struct mir_function_t {
     bool is_async = false;
     /// An Extern Function: only its parameters, with no blocks, since other code defines it.
     std::optional<mir_extern_t> external;
+    /// Its name where it's declared, which a Const Function's limit points at when the run
+    /// reached nothing else with a place. Empty for what the compiler makes.
+    span_t span;
 };
 
 /// An Interface that a Class's objects implement, and the Class's table for it: for each of the
