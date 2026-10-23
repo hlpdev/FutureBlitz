@@ -84,5 +84,8 @@ endif()
 file(GLOB_RECURSE FB_RUNTIME_TEST_SOURCES CONFIGURE_DEPENDS runtime/*.cpp)
 add_executable(fb_runtime_tests ${FB_RUNTIME_TEST_SOURCES})
 target_link_libraries(fb_runtime_tests PRIVATE fb_runtime fb_runtime_tz fb_tzdata Catch2::Catch2WithMain)
+# The OS's roots for TLS, inside the runtime's HTTP part, and mbedTLS's X.509, which reads them.
+target_link_libraries(fb_runtime_tests PRIVATE fb_runtime_http mbedx509)
+target_include_directories(fb_runtime_tests PRIVATE ${PROJECT_SOURCE_DIR}/runtime/src)
 fb_set_warnings(fb_runtime_tests)
 catch_discover_tests(fb_runtime_tests DISCOVERY_MODE PRE_TEST DL_PATHS ${FB_TEST_DLL_PATHS})
