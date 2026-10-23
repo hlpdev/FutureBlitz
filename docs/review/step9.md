@@ -4,7 +4,7 @@
 
 ## S9-color-geo-1 (high): Sphere.Raycast loses the hit to Float cancellation from a few thousand units away
 
-Status: open
+Status: fixed in fccb4d5 (math_geometry.fb): Raycast works in Doubles from where the ray comes nearest the center, as Ray Tracing Gems' chapter 7 has it, and takes the nearer root as the outside over the other root's numerator, so rays from 3000 and 10000 away, a sphere of radius 0.1, and a Direction of 1e-25 hit or miss as AABB's do.
 
 Where: std/math/geometry.fb:222
 
@@ -44,7 +44,7 @@ Skeptic: Ran the finding's program (colorgeo/f1.fb) in debug and release; both p
 
 ## S9-scalar-1 (high): PingPong and Wrap subtract below 0 on unsigned types: a panic in debug builds, wrong results in release
 
-Status: open
+Status: fixed in 1da3da0 (math_scalars.fb): integer Wrap and PingPong work their distances out as UInt64s through LowBits (Above in scalar.fb), PingPong by whole lengths and their parity, so UInt8 PingPong(1, 2) is 1 and Wrap(3, 5, 10) is 8.
 
 Where: std/math/scalar.fb:178
 
@@ -75,7 +75,7 @@ Skeptic: I ran f_unsigned.fb (UInt8 PingPong(1, 2) and Wrap(3, 5, 10)). Debug: '
 
 ## S9-color-geo-2 (medium): Frustum.FromMatrix gives a NaN far plane for a large far/near ratio, so everything is culled
 
-Status: open
+Status: fixed in 32e0192 (math_geometry.fb): PlaneOf gives a row of no x, y, or z a plane with no normal at 0, which holds every point, where its w isn't below 0, and at Inf, which holds none, where it is. Perspective(Pi / 2, 1, 0.01, 1000000)'s frustum holds what's in front of the camera.
 
 Where: std/math/geometry.fb:351
 
@@ -106,7 +106,7 @@ Skeptic: Ran f2.fb. With Perspective(Pi/2, 1, 0.01, 1000000) * LookAt, the progr
 
 ## S9-color-geo-3 (medium): Grow by a negative amount past half the size makes an inverted Rect or AABB that still has area and overlaps
 
-Status: open
+Status: fixed in c3ed663 (math_geometry.fb): Rect.Grow and AABB.Grow make an axis shrunk past nothing 0 long, at the center, so it has no area and meets only what holds that point.
 
 Where: std/math/geometry.fb:84
 
@@ -136,7 +136,7 @@ Skeptic: Ran f3.fb: `Rect(10, 10, -10, -15) 150 True Rect(0, -5, 10, 15)` and `A
 
 ## S9-linear-1 (medium): Release builds don't vectorize Vec4's Operators or Mat4's *, despite stdlib.md and the milestone row
 
-Status: open
+Status: fixed in c220e41: it reproduces (the release IR of the finding's program has 84 `fmul float` and no `<4 x float>`), and stdlib.md now says Vec4's Operators and Mat4's `*` are scalar code until codegen runs LLVM's SLP vectorizer. Real SIMD needs the compiler: optimize() at codegen.cpp:415 would set LLVMPassBuilderOptionsSetSLPVectorization (and SetLoopVectorization) for release builds, the compiler lane's item 13. milestones.md's "with SIMD" is the coordinator's. No test, since it's the docs.
 
 Where: compiler/src/codegen.cpp:415
 
@@ -172,7 +172,7 @@ Skeptic: I ran the finding's program (refute-linear/../linear/f1.fb) with `fb bu
 
 ## S9-linear-2 (medium): ToEuler snaps any pitch within about 0.26 degrees of a quarter turn to exactly 90, giving another rotation
 
-Status: open
+Status: fixed in 51162da (math_quat.fb): ToEuler works the pitch out as Atan2(sine, cosine), with the cosine from m.x.y and m.y.y, and folds y and z into one only where that cosine is below 0.00035, about 0.02 degrees from the turn, where a Float can't tell y from z; pitches of 89.8 to 89.99 degrees round-trip within 0.02 degrees.
 
 Where: std/math/quat.fb:140
 
@@ -202,7 +202,7 @@ Skeptic: Ran f2.fb in debug and release with the same output. FromEuler(Deg(89.8
 
 ## S9-linear-5 (medium): Vec2i and Vec3i division by zero and overflow panic inside std/math/int_vector.fb, not at the caller
 
-Status: open
+Status: fixed in 0d1af08 (panic_math_vec2i_divide.fb, panic_math_vec3i_divide.fb, panic_math_vec2i_overflow.fb, panic_math_vec3i_distance.fb): Vec2i's and Vec3i's Operators, Dot, LengthSquared, ManhattanDistance, ChebyshevDistance, and Abs are @PanicsAtCaller. The two overflow programs are in verify.py's RELEASE_DIFFERS.
 
 Where: std/math/int_vector.fb:34
 
@@ -227,7 +227,7 @@ Skeptic: Debug runs gave these panics. Vec2i(4, 4) / Vec2i(0, 1) panics with "di
 
 ## S9-scalar-2 (medium): Integer Wrap and PingPong overflow when the range is wider than half the type
 
-Status: open
+Status: fixed in 1da3da0 with S9-scalar-1 (math_scalars.fb): Int8 Wrap(120, -100, 100) is -80 and PingPong(10, 100) is 10, and Int's and Long's whole ranges and UInt64 lengths past 2^63 work.
 
 Where: std/math/scalar.fb:160
 
@@ -259,7 +259,7 @@ Skeptic: f_wide.fb (Int8 Wrap(120, -100, 100) and PingPong(10, 100)) panicked in
 
 ## S9-scalar-3 (medium): Float Wrap gives high itself, and float Mod gives b, for a small negative value
 
-Status: open
+Status: fixed in b629641 (math_scalars.fb): float Mod gives 0 with b's sign where the sum would round to b, and for a 0 remainder, and float Wrap gives low where its sum reaches high, so Wrap(-0.00001, 0.0, 360.0) is 0. Their comments say so.
 
 Where: std/math/scalar.fb:168
 
@@ -289,7 +289,7 @@ Skeptic: f_float_wrap.fb printed the same in debug and release: '360 False', '6.
 
 ## S9-scalar-4 (medium): Lerp, and Remap through it, doesn't give b at t = 1 as its comment says
 
-Status: open
+Status: fixed in 5e1d9f1 (math_scalars.fb): Lerp is `t == 1 ? b : a + (b - a) * t`, which keeps Lerp(a, a, t) exact too; Remap goes through it.
 
 Where: std/math/scalar.fb:128
 
@@ -320,7 +320,7 @@ Skeptic: f_lerp.fb printed '0.100000024 False' and '0 0' in debug and release, w
 
 ## S9-scalar-5 (medium): Mod and Rem by 0 panic inside std/math/scalar.fb, not at the caller's line; Abs, Gcd, and Lcm overflows do too
 
-Status: open
+Status: fixed in eead6df (panic_math_mod.fb, panic_math_rem.fb, panic_math_abs.fb, panic_math_gcd.fb, panic_math_lcm.fb): Abs, Mod, Rem, Gcd, Lcm, and IntegerRem are @PanicsAtCaller. The abs, gcd, and lcm programs are in verify.py's RELEASE_DIFFERS.
 
 Where: std/math/scalar.fb:48
 
@@ -346,7 +346,7 @@ Skeptic: Mod(7, zero) and Rem(7, zero) both panicked with 'division by zero at s
 
 ## S9-color-geo-4 (low): Sphere.Contains and Sphere.Intersects overflow Floats for huge values
 
-Status: open
+Status: fixed in a2a5578 (math_geometry.fb).
 
 Where: std/math/geometry.fb:208
 
@@ -375,7 +375,7 @@ Skeptic: Ran f4.fb: "True True", and Distance gives 4e+19 while DistanceSquared 
 
 ## S9-color-geo-5 (low): Plane.Raycast gives -0 for a ray that starts on the plane and goes to its back
 
-Status: open
+Status: fixed in a5509cf (math_geometry.fb): Raycast gives along + 0.
 
 Where: std/math/geometry.fb:282
 
@@ -400,7 +400,7 @@ Skeptic: Ran f5.fb in debug and release: "0 -0", and the downward hit's ToBits i
 
 ## S9-color-geo-6 (low): Color32.Green and Color.Green are CSS's lime, not CSS's green, though the docs say the named colors are CSS's values
 
-Status: open
+Status: fixed in 52926af (math_color.fb): Green is CSS's #008000, and the new Lime is #00ff00, so every named color is CSS's, as the docs say, and stdlib.md names both.
 
 Where: std/math/color.fb:37
 
@@ -424,7 +424,7 @@ Skeptic: Ran f6.fb: `#00ff00 #00ff00 (0, 128, 0, 255)`. color.fb:37-39 makes Gre
 
 ## S9-color-geo-7 (low): Color.Gray and Color.Orange don't equal their own Color32 or hex converted, because ToLinear rounds its input to a Float first
 
-Status: open
+Status: fixed in a366b8e (math_color.fb): ToLinear takes a Double, so each byte's linear value is rounded once, and Orange's constant is 0.37626213; each named Color equals its Color32's ToColor and its Hex.
 
 Where: std/math/color.fb:291
 
@@ -457,7 +457,7 @@ Skeptic: Ran f7.fb in debug and release: "False False" for Gray and for Orange. 
 
 ## S9-linear-10 (low): Spec 06's `Extend Vec3 Implements Printable` example no longer compiles
 
-Status: open
+Status: fixed in ebac864: spec 06's first Extend example makes a program's own Point Printable, and a second adds Flattened to std.math's Vec3; both compile. No test, since it's the spec.
 
 Where: docs/spec/06-user-types.md:339
 
@@ -484,7 +484,7 @@ Skeptic: spec 02-types.md:13 says Vec3 comes from std.math. spec 06-user-types.m
 
 ## S9-linear-11 (low): Perspective's panic for a non-finite far or aspect says 0 < near < far was broken when it wasn't
 
-Status: open
+Status: fixed in 3699695 (panic_math_perspective_far.fb, panic_math_perspective_aspect.fb): the message says a finite aspect above 0 and 0 < near < far with a finite far.
 
 Where: std/math/matrix.fb:153
 
@@ -508,7 +508,7 @@ Skeptic: Perspective(Deg(60), 1.5, 0.1, Inf) panics with "...an aspect above 0, 
 
 ## S9-linear-3 (low): Quat.FromTo returns Identity for turns under about 0.04 degrees
 
-Status: open
+Status: fixed in 2339731 (math_quat.fb): FromTo has no near-parallel shortcut; the general formula gives Identity for equal directions.
 
 Where: std/math/quat.fb:82
 
@@ -541,7 +541,7 @@ Skeptic: Ran f3.fb in debug and release. FromTo(Right, Normalize(Vec3(1, 0.0005,
 
 ## S9-linear-4 (low): The vectors' Lerp doesn't give b at t = 1, as its comment and stdlib.md say
 
-Status: open
+Status: fixed in fa59123 (math_vectors.fb): as the scalar Lerp does, for S9-scalar-4.
 
 Where: std/math/vector.fb:232
 
@@ -570,7 +570,7 @@ Skeptic: Ran f4.fb in debug and release. Lerp(Vec2(3.3, 1), Vec2(0.2, 5), 1) giv
 
 ## S9-linear-6 (low): Inverse and Decompose break when the Float determinant over- or underflows
 
-Status: open
+Status: fixed in b8720ce (math_matrices.fb): TryInverse, Determinant, and Decompose work in Doubles, which hold any four Floats' products, the Mat4's by Geometric Tools' 2 by 2 minors, each cofactor divided by the determinant, so each element is within about an ulp of the correctly rounded inverse. The camera matrix's round trip is held to 0.0001: its condition, about 500, leaves even the correctly rounded inverse's product 3e-5 off, which the old Float inverse's errors happened to cancel.
 
 Where: std/math/matrix.fb:327
 
@@ -599,7 +599,7 @@ Skeptic: Ran f6.fb. Determinant(Mat4.Scale(1e-13 each)) is 1e-39. Inverse of tha
 
 ## S9-linear-7 (low): Project, Angle, and MoveTowards overflow or underflow in Floats where Length and Distance don't
 
-Status: open
+Status: fixed in 1610821 (math_vectors.fb).
 
 Where: std/math/vector.fb:309
 
@@ -633,7 +633,7 @@ Skeptic: Ran f7.fb and got the finding's exact output. Length and Normalize are 
 
 ## S9-linear-8 (low): Normalize(Quat) works in Floats and gives a zero quaternion for a long one
 
-Status: open
+Status: fixed in 26e056d (math_quat.fb): they go through Vec4's.
 
 Where: std/math/quat.fb:177
 
@@ -662,7 +662,7 @@ Skeptic: Ran f8.fb. Normalize(Quat(0, 0, 0, 1e20)) is (0, 0, 0, 0), which isn't 
 
 ## S9-linear-9 (low): Mat3, Mat4, and Quat don't scale from the left, though stdlib.md says a scalar scales from either side
 
-Status: open
+Status: fixed in 821a193 (math_matrices.fb): Mat3 and Mat4 have scale * m and m / scale, and stdlib.md says the vectors' Operators work component by component, as the matrices' + and - do, and a scalar scales and divides a vector or a matrix, which leaves Quat out.
 
 Where: std/math/matrix.fb:76
 
@@ -687,7 +687,7 @@ Skeptic: Mat3.Identity * 2 compiles, but 2 * Mat3.Identity is "no Operator * tak
 
 ## S9-scalar-6 (low): ToDegrees has no Int overload, though stdlib.md says each angle Function takes an Int
 
-Status: open
+Status: fixed in 66e2f03 (math_scalars.fb).
 
 Where: std/math/scalar.fb:328
 
@@ -713,7 +713,7 @@ Skeptic: ToDegrees(1) and ToDegrees(r) with r: Int each fail with 'error: Int32 
 
 ## S9-scalar-7 (low): The math types are still in the Deferred work, and spec 06's Extend Vec3 example no longer compiles
 
-Status: open
+Status: fixed in ebac864 for the spec: spec 02's table drops the math types, with a line saying they're std.math's Structs, which a program imports, and spec 06's example is S9-linear-10's. milestones.md's Deferred work row is the coordinator's to drop. No test, since it's the docs.
 
 Where: docs/milestones.md:270
 
