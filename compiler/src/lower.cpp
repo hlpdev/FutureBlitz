@@ -6684,11 +6684,12 @@ private:
         const auto operand = [&] -> std::optional<operand_t> {
             const expr_node_t& inner = m_ast.get(node.operand).node;
             if (!std::holds_alternative<call_expr_t>(inner) &&
-                !std::holds_alternative<try_expr_t>(inner)) {
+                !std::holds_alternative<try_expr_t>(inner) &&
+                !std::holds_alternative<await_expr_t>(inner)) {
                 return lower_value(node.operand);
             }
 
-            // A call that gives nothing, like Super.New, is lowered for its effects.
+            // A call or an Await that gives nothing, like Super.New, is lowered for its effects.
             const std::optional<operand_t> value = lower_effect(node.operand);
             if (!value) {
                 return std::nullopt;

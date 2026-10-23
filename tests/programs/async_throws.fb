@@ -59,3 +59,34 @@ Try
 Catch e
     Print("caught {e.Message}")
 End Try
+
+// Try and Try? Await a Task that gives nothing, in an Async Function, an Async lambda, and the
+// top level.
+Async Function Work(fail: Bool) Throws LoadError
+    Await NextFrame()
+    If fail Then Throw LoadError("work failed")
+    Print("worked")
+End Function
+
+Async Function Both() Throws LoadError
+    Try? Await Work(True)
+    Print("dropped it")
+    Try Await Work(False)
+    Try Await Work(True)
+    Print("never: the error went on")
+End Function
+
+Try
+    Both().Wait()
+Catch e
+    Print("both: {e.Message}")
+End Try
+
+Local later = Async Function() => Try? Await Work(True)
+later().Wait()
+Try? Await Work(True)
+Try
+    Try Await Work(True)
+Catch e
+    Print("top level: {e.Message}")
+End Try
