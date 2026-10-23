@@ -3007,15 +3007,17 @@ private:
     }
 
     /// A value that reads a part of something, like Make()[1]'s element or a Local object's
-    /// field, copied into a local of its own, so a Return can still give it once the statement's
-    /// temporaries and the scopes' variables, and the objects they alone held, are gone.
-    /// Anything else, or anything when nothing goes, as it is.
+    /// field, or reads a variable through a reference, like a Global or a ByRef parameter, copied
+    /// into a local of its own, so a Return can still give it once the statement's temporaries
+    /// and the scopes' variables, and the objects they alone held, are gone, and a Destroy() that
+    /// letting them go runs can't change it. Anything else, or anything when nothing goes, as it
+    /// is.
     operand_t outliving(const operand_t& value) {
         const auto* place = std::get_if<place_t>(&value);
         const bool releases =
             !m_temporaries.empty() ||
             std::ranges::any_of(m_scopes, [](const auto& scope) { return !scope.empty(); });
-        if (place == nullptr || place->steps.empty() || !releases) {
+        if (place == nullptr || !releases || (place->steps.empty() && !through_reference(*place))) {
             return value;
         }
 
