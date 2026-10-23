@@ -441,6 +441,45 @@ TEST_CASE("fb build names each bundled C library a program links, with its notic
     CHECK_FALSE(blessing.contains("This header file defines the interface"));
 }
 
+TEST_CASE("std.text links utf8proc only where a program needs Unicode's data", "[cli]") {
+    // Byte positions, whitespace, StringBuilder, and the encodings need none of it.
+    const std::filesystem::path plain =
+        write_source("bundled/plain_text.fb",
+                     "Import std.core\nImport std.text\nImport std.text.encoding\n"
+                     "Local words = \" é 😀 \".Trim().Split(\" \")\n"
+                     "Print(StringBuilder().Append(words[0]), Percent.Encode(words[1]), "
+                     "Base64.Encode(words[1].Bytes), words[0].IsBlank(), 'é'.IsWhitespace())\n");
+    const fb::process_result_t built = fb_run({ "build", fb::to_utf8(plain) });
+    INFO(built.output);
+    REQUIRE(built.exit_code == 0);
+    CHECK_FALSE(built.output.contains("Bundled"));
+
+    // Case does.
+    const std::filesystem::path cased = write_source(
+        "bundled/cased_text.fb", "Import std.core\nImport std.text\nPrint(\"straße\".ToUpper())\n");
+    const fb::process_result_t linked = fb_run({ "build", fb::to_utf8(cased) });
+    INFO(linked.output);
+    REQUIRE(linked.exit_code == 0);
+    const auto utf8proc = std::ranges::find(fb::build_config::bundled_libraries, "utf8proc",
+                                            &fb::build_config::bundled_library_t::name);
+    REQUIRE(utf8proc != fb::build_config::bundled_libraries.end());
+    CHECK(linked.output.contains(std::format("     Bundled utf8proc {}, under the MIT license and "
+                                             "the Unicode license; ship its notices with the "
+                                             "program: {}\n",
+                                             utf8proc->version, utf8proc->notice)));
+    std::ifstream file(fb::path_from_utf8(utf8proc->notice), std::ios::binary);
+    const std::string notices{ std::istreambuf_iterator<char>(file), {} };
+    CHECK(notices.contains("Steven G. Johnson"));
+    CHECK(notices.contains("Unicode data license"));
+
+    std::filesystem::path executable = cased;
+    executable.replace_extension(fb::executable_extension);
+    const std::expected<fb::process_result_t, std::string> ran =
+        fb::run_process(executable, {}, "");
+    REQUIRE(ran);
+    CHECK(ran->output == "STRASSE\n");
+}
+
 TEST_CASE("a program fb builds loads only the system's own libraries", "[cli]") {
     // What std and the language bundle, like libuv for input, and SQLite and mbedTLS for a
     // database and a random Uuid, is linked in, so the program runs wherever it's copied, with
