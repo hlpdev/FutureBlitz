@@ -1,0 +1,45 @@
+// A Barrier lets no thread past it in a round before all of them have come, round after round,
+// and gives one of them True each round.
+
+Import std.core
+Import std.concurrent
+
+Shared Class Rounds
+    Field Sum: Atomic<Int>
+    Field Leaders: Atomic<Int>
+    Field Wrong: Atomic<Int>
+End Class
+
+// Six threads add a round's number each, meet, check that every thread's is in, and meet again
+// before the next round, for 100 rounds.
+Function Meet(): String
+    Const threads = 6
+    Const rounds = 100
+    Const barrier = Barrier(threads)
+    Const seen = Rounds()
+    Local started: Thread[] = []
+    For t = 1 To threads
+        started.Add(Thread.Start(Function()
+            Local expected = 0
+            For round = 1 To rounds
+                seen.Sum.Add(round)
+                expected += round * threads
+                If barrier.Wait() Then seen.Leaders.Add(1)
+                If seen.Sum.Load() != expected Then seen.Wrong.Add(1)
+                If barrier.Wait() Then seen.Leaders.Add(1)
+            End For
+        End Function))
+    End For
+
+    For thread In started
+        thread.Join()
+    End For
+
+    Return "sum {seen.Sum.Load()}, leaders {seen.Leaders.Load()}, wrong {seen.Wrong.Load()}"
+End Function
+
+Print(Meet())
+
+// A Barrier for one thread is a round each Wait, which that thread leads.
+Const alone = Barrier(1)
+Print(alone.Count, alone.Wait(), alone.Wait())

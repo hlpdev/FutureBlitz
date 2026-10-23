@@ -1,0 +1,54 @@
+// A Once runs its work one time, however many threads ask at once, and every Do returns only
+// once the work is done.
+
+Import std.core
+Import std.concurrent
+
+Shared Class Setup
+    Field Runs: Atomic<Int>
+    Field Ready: Atomic<Bool>
+    Field Early: Atomic<Int>
+End Class
+
+// Eight threads each ask a fresh Once to set up, 50 times over; it runs once each time, and no Do
+// returns before it has.
+Function Race(): String
+    Local runs = 0
+    Local early = 0
+    For attempt = 1 To 50
+        Const once = Once()
+        Const setup = Setup()
+        Local threads: Thread[] = []
+        For t = 1 To 8
+            threads.Add(Thread.Start(Function()
+                once.Do(Function()
+                    setup.Runs.Add(1)
+                    setup.Ready.Store(True)
+                End Function)
+                If !setup.Ready.Load() Then setup.Early.Add(1)
+            End Function))
+        End For
+
+        For thread In threads
+            thread.Join()
+        End For
+
+        runs += setup.Runs.Load()
+        early += setup.Early.Load()
+    End For
+
+    Return "ran {runs} times in 50 attempts, early {early}"
+End Function
+
+Print(Race())
+
+Const once = Once()
+Print(once.IsDone)
+Local count = 0
+once.Do(Function()
+    count += 1
+End Function)
+once.Do(Function()
+    count += 10
+End Function)
+Print(once.IsDone, count)

@@ -1,0 +1,2 @@
+2
+panic: this thread holds the RwLock already, so a Write would wait for itself forever at panic_concurrent_rwlock_write.fb:9:5

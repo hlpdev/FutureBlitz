@@ -1,0 +1,10 @@
+// A thread that writes an RwLock can't read it too, and a Read in the writer panics where it's
+// called.
+Import std.core
+Import std.concurrent
+
+Const count = RwLock<Int>(1)
+count.Write(Function(n: Int)
+    Print("writing {n}")
+    Return count.Read(Function(m: Int) => m + 1)
+End Function)

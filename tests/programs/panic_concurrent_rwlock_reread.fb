@@ -1,0 +1,9 @@
+// A reader that reads the RwLock again could wait forever for a writer that waits for it, so the
+// second Read panics where it's called.
+Import std.core
+Import std.concurrent
+
+Const count = RwLock<Int>(1)
+count.Read(Function(n: Int): Int
+    Return count.Read(Function(m: Int) => m + n)
+End Function)

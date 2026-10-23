@@ -1,0 +1,9 @@
+// A Semaphore's permits stay within what an Int holds, and a Release past that panics where it's
+// called.
+Import std.core
+Import std.concurrent
+
+Const permits = Semaphore(2147483646)
+permits.Release()
+Print(permits.Available)
+permits.Release()

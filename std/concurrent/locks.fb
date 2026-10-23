@@ -1,0 +1,252 @@
+// The locks any thread can use at once, over the runtime's: a Semaphore of permits, a Barrier
+// that threads meet at, a WaitGroup that waits for work under way, a Once that runs its work one
+// time, and an RwLock<T>, whose value many threads read at once, or one writes alone. Each is a
+// Shared Class, so a Const or a parameter shares one with the work that Spawn and Thread.Start
+// run. What waits blocks its thread and runs nothing else meanwhile, as a Channel's Send and
+// Receive do, so work that waits on the pool holds its worker: work that waits for other work
+// belongs on a Thread, or the pool can be left with no worker for what it waits for.
+
+Import std.core
+
+// Each lock is a handle, the address of the runtime's, which a ReadOnly Field holds as a UInt64,
+// since a Ptr isn't Sendable.
+Extern "runtime"
+    Function fb_semaphore_new(count: Int64): UInt64
+    Function fb_semaphore_acquire(semaphore: UInt64)
+    Function fb_semaphore_try_acquire(semaphore: UInt64): Int32
+    Function fb_semaphore_release(semaphore: UInt64, count: Int64): Int32
+    Function fb_semaphore_count(semaphore: UInt64): Int64
+    Function fb_semaphore_free(semaphore: UInt64)
+    Function fb_barrier_new(count: Int64): UInt64
+    Function fb_barrier_wait(barrier: UInt64): Int32
+    Function fb_barrier_free(barrier: UInt64)
+    Function fb_wait_group_new(): UInt64
+    Function fb_wait_group_add(group: UInt64, count: Int64): Int32
+    Function fb_wait_group_wait(group: UInt64)
+    Function fb_wait_group_count(group: UInt64): Int64
+    Function fb_wait_group_free(group: UInt64)
+    Function fb_once_new(): UInt64
+    Function fb_once_begin(once: UInt64): Int32
+    Function fb_once_end(once: UInt64)
+    Function fb_once_done(once: UInt64): Int32
+    Function fb_once_free(once: UInt64)
+    Function fb_rwlock_new(): UInt64
+    Function fb_rwlock_read(lock: UInt64): Int32
+    Function fb_rwlock_write(lock: UInt64): Int32
+    Function fb_rwlock_release(lock: UInt64)
+    Function fb_rwlock_free(lock: UInt64)
+End Extern
+
+// Permits that threads take and give back: Acquire takes one, waiting while there's none, and
+// Release gives them back, so no more threads than there are permits go on at once.
+Public Shared Class Semaphore
+    ReadOnly Field Handle: UInt64
+
+    // A Semaphore with `count` permits. Panics when that's negative.
+    @PanicsAtCaller
+    Public New(count: Int)
+        If count < 0 Then Panic("a Semaphore has 0 permits or more, not {count}")
+        Handle = fb_semaphore_new(count)
+    End New
+
+    // Takes a permit, waiting while there's none.
+    Public Method Acquire()
+        fb_semaphore_acquire(Handle)
+    End Method
+
+    // Takes a permit unless there's none, and tells whether it did.
+    Public Method TryAcquire(): Bool => fb_semaphore_try_acquire(Handle) != 0
+
+    // Gives back `count` permits, which needn't be ones Acquire took, waking as many threads
+    // waiting for one. Panics when count isn't 1 or more, or when it would take the permits past
+    // what an Int holds.
+    @PanicsAtCaller
+    Public Method Release(count: Int = 1)
+        If count < 1 Then Panic("Release gives back 1 permit or more, not {count}")
+        If fb_semaphore_release(Handle, count) == 0
+            Panic("Release would take the Semaphore past the most permits an Int holds")
+        End If
+    End Method
+
+    // How many permits there are now, which other threads may change at any time.
+    Public Property Available: Int
+        Get => fb_semaphore_count(Handle) As Int
+    End Property
+
+    Method Destroy()
+        fb_semaphore_free(Handle)
+    End Method
+End Class
+
+// Where a number of threads meet, round after round: each one's Wait returns once they've all
+// come, which starts the next round.
+Public Shared Class Barrier
+    ReadOnly Field Handle: UInt64
+    ReadOnly Field Size: Int
+
+    // A Barrier that `count` threads meet at each round. Panics unless that's 1 or more.
+    @PanicsAtCaller
+    Public New(count: Int)
+        If count < 1 Then Panic("a Barrier is for 1 thread or more, not {count}")
+        Handle = fb_barrier_new(count)
+        Size = count
+    End New
+
+    // Waits until the round's last thread comes, and then they all go on. Gives True to that last
+    // one, and False to the others, so one of them can do what's done once a round.
+    Public Method Wait(): Bool => fb_barrier_wait(Handle) != 0
+
+    // How many threads meet at it each round.
+    Public Property Count: Int
+        Get => Size
+    End Property
+
+    Method Destroy()
+        fb_barrier_free(Handle)
+    End Method
+End Class
+
+// A count of the work under way, which Wait waits to see at 0: Add counts work before it starts,
+// and Done says that some is done.
+Public Shared Class WaitGroup
+    ReadOnly Field Handle: UInt64
+
+    // A WaitGroup counting 0.
+    Public New()
+        Handle = fb_wait_group_new()
+    End New
+
+    // Adds `count` to the count, which can be negative, and wakes the threads waiting once it's 0.
+    // Panics when it would take the count below 0, or past what an Int holds.
+    @PanicsAtCaller
+    Public Method Add(count: Int = 1)
+        Local result = fb_wait_group_add(Handle, count)
+        If result == 1 Then Panic("Add({count}) would take the WaitGroup's count below 0")
+        If result == 2
+            Panic("Add({count}) would take the WaitGroup's count past what an Int holds")
+        End If
+    End Method
+
+    // Takes 1 from the count. Panics when it's 0, since Done would be once more than Add counted.
+    @PanicsAtCaller
+    Public Method Done()
+        If fb_wait_group_add(Handle, -1) != 0
+            Panic("Done would take the WaitGroup's count below 0, once more than Add counted")
+        End If
+    End Method
+
+    // Waits until the count is 0, which it may be already.
+    Public Method Wait()
+        fb_wait_group_wait(Handle)
+    End Method
+
+    // The count now, which other threads may change at any time.
+    Public Property Count: Int
+        Get => fb_wait_group_count(Handle) As Int
+    End Property
+
+    Method Destroy()
+        fb_wait_group_free(Handle)
+    End Method
+End Class
+
+// Work that runs one time: the first Do runs it, and every other, at once or later, on any
+// thread, returns once it has run.
+Public Shared Class Once
+    ReadOnly Field Handle: UInt64
+
+    Public New()
+        Handle = fb_once_new()
+    End New
+
+    // Runs work, unless a Do has, waiting while another thread's Do runs it. Panics in a Do that
+    // the work itself calls, which would wait for itself forever.
+    @PanicsAtCaller
+    Public Method Do(work: Func())
+        Local begun = fb_once_begin(Handle)
+        If begun == 2
+            Panic("the Once's work calls its own Do, which would wait for itself forever")
+        End If
+
+        If begun == 0 Then Return
+        work()
+        fb_once_end(Handle)
+    End Method
+
+    // Whether the work has run.
+    Public Property IsDone: Bool
+        Get => fb_once_done(Handle) != 0
+    End Property
+
+    Method Destroy()
+        fb_once_free(Handle)
+    End Method
+End Class
+
+// A value that many threads can read at once, or one can write while no other reads it. A
+// Read gives what its Function makes of the value, and a Write gives the value what its
+// Function makes of it, which no Read sees half done. A writer that waits goes before the
+// readers that come after it, so it isn't kept waiting forever.
+Public Shared Class RwLock<T: Sendable>
+    ReadOnly Field Handle: UInt64
+    // The value, which a Read or Write copies out while it holds the lock, and a Write puts back.
+    // It's a T? only since a T may have no zero for the Mutex to start with.
+    Field Stored: Mutex<T?>
+
+    Public New(value: T)
+        Handle = fb_rwlock_new()
+        Lock Stored As stored
+            stored = value
+        End Lock
+    End New
+
+    // What reader gives for the value, which no thread writes meanwhile, though others may
+    // read it. Panics when this thread reads or writes it already, in a reader or a writer,
+    // which a writer waiting between could keep waiting forever.
+    @PanicsAtCaller
+    Public Method Read<R>(reader: Func(T): R): R
+        If fb_rwlock_read(Handle) != 0
+            Panic("this thread holds the RwLock already, so a Read could wait for itself forever")
+        End If
+
+        Local result = reader(Held())
+        fb_rwlock_release(Handle)
+        Return result
+    End Method
+
+    // Gives the value what writer gives for it, while no other thread reads or writes it. Panics
+    // when this thread reads or writes it already, which would wait for itself forever.
+    @PanicsAtCaller
+    Public Method Write(writer: Func(T): T)
+        If fb_rwlock_write(Handle) != 0
+            Panic("this thread holds the RwLock already, so a Write would wait for itself forever")
+        End If
+
+        Local written = writer(Held())
+        Lock Stored As stored
+            stored = written
+        End Lock
+
+        fb_rwlock_release(Handle)
+    End Method
+
+    // A copy of the value, as a Read gives it, or a new value, as a Write gives it.
+    @PanicsAtCaller
+    Public Property Value: T
+        Get => Read(Function(value: T) => value)
+        Set(value)
+            Write(Function(old: T) => value)
+        End Set
+    End Property
+
+    Method Destroy()
+        fb_rwlock_free(Handle)
+    End Method
+
+    // The value, which only the thread holding the lock reads.
+    Method Held(): T
+        Lock Stored As stored
+            Return stored.Expect("an RwLock holds its value")
+        End Lock
+    End Method
+End Class

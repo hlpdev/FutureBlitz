@@ -1,0 +1,77 @@
+// A WaitGroup's Wait returns once all the work it counted is done, and not before.
+
+Import std.core
+Import std.concurrent
+
+Shared Class Work
+    Field Done: Atomic<Int>
+    Field Early: Atomic<Int>
+End Class
+
+// Eight threads each do 500 pieces of work, counted before they start; Wait sees them all done.
+Function Gather(): String
+    Const group = WaitGroup()
+    Const work = Work()
+    group.Add(8 * 500)
+    Local threads: Thread[] = []
+    For t = 1 To 8
+        threads.Add(Thread.Start(Function()
+            For i = 1 To 500
+                work.Done.Add(1)
+                group.Done()
+            End For
+        End Function))
+    End For
+
+    group.Wait()
+    Local seen = work.Done.Load()
+    For thread In threads
+        thread.Join()
+    End For
+
+    Return "done {seen} of 4000, count {group.Count}"
+End Function
+
+// Threads that wait for the group go on only once the last piece is done.
+Function Waiters(): String
+    Const group = WaitGroup()
+    Const work = Work()
+    group.Add(3)
+    Local waiters: Thread[] = []
+    For t = 1 To 4
+        waiters.Add(Thread.Start(Function()
+            group.Wait()
+            If work.Done.Load() != 3 Then work.Early.Add(1)
+        End Function))
+    End For
+
+    For piece = 1 To 3
+        work.Done.Add(1)
+        group.Done()
+    End For
+
+    For waiter In waiters
+        waiter.Join()
+    End For
+
+    Return "waiters woke early {work.Early.Load()} times"
+End Function
+
+Print(Gather())
+Print(Waiters())
+
+Const counted = WaitGroup()
+counted.Wait()
+counted.Add()
+counted.Add(4)
+counted.Add(-2)
+Print(counted.Count)
+counted.Done()
+counted.Done()
+counted.Done()
+counted.Wait()
+Print(counted.Count)
+counted.Add(2147483647)
+Print(counted.Count)
+counted.Add(-2147483647)
+Print(counted.Count)

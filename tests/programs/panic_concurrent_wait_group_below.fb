@@ -1,0 +1,10 @@
+// A WaitGroup's count can't go below 0, and an Add that would take it there panics where it's
+// called.
+Import std.core
+Import std.concurrent
+
+Const group = WaitGroup()
+group.Add(2)
+group.Add(-2)
+Print(group.Count)
+group.Add(-1)

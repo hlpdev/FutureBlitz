@@ -1,0 +1,67 @@
+// A Semaphore lets no more threads in at once than it has permits, and gives each one back.
+
+Import std.core
+Import std.concurrent
+
+Shared Class Inside
+    Field Now: Atomic<Int>
+    Field Most: Atomic<Int>
+    Field Entered: Atomic<Int>
+End Class
+
+// Eight threads go in 300 times each through a Semaphore of 3 permits.
+Function Crowd(): String
+    Const permits = Semaphore(3)
+    Const inside = Inside()
+    Local threads: Thread[] = []
+    For t = 1 To 8
+        threads.Add(Thread.Start(Function()
+            For i = 1 To 300
+                permits.Acquire()
+                Local now = inside.Now.Add(1) + 1
+                Local most = inside.Most.Load()
+                While now > most && !inside.Most.CompareExchange(most, now)
+                    most = inside.Most.Load()
+                End While
+
+                inside.Entered.Add(1)
+                inside.Now.Subtract(1)
+                permits.Release()
+            End For
+        End Function))
+    End For
+
+    For thread In threads
+        thread.Join()
+    End For
+
+    Return "entered {inside.Entered.Load()}, at most 3 at once {inside.Most.Load() <= 3}, " +
+           "{permits.Available} permits back"
+End Function
+
+// A thread that waits for a permit goes on once another gives one back.
+Function Handoff(): String
+    Const permits = Semaphore(0)
+    Const done = Semaphore(0)
+    Local waiter = Thread.Start(Function()
+        permits.Acquire()
+        done.Release()
+    End Function)
+    permits.Release()
+    done.Acquire()
+    waiter.Join()
+    Return "handed off, {permits.Available} left"
+End Function
+
+Print(Crowd())
+Print(Handoff())
+
+Const counted = Semaphore(2)
+Print(counted.Available, counted.TryAcquire(), counted.TryAcquire(), counted.TryAcquire())
+counted.Release(5)
+Print(counted.Available)
+Const none = Semaphore(0)
+Print(none.TryAcquire(), none.Available)
+Const full = Semaphore(2147483646)
+full.Release()
+Print(full.Available)

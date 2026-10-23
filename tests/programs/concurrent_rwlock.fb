@@ -1,0 +1,76 @@
+// An RwLock's readers never see a write half done, and a writer has the value alone, while
+// threads read and write it at once.
+
+Import std.core
+Import std.concurrent
+
+Struct Pair
+    Field A: Int
+    Field B: Int
+End Struct
+
+Shared Class Watch
+    Field Readers: Atomic<Int>
+    Field Writers: Atomic<Int>
+    Field Wrong: Atomic<Int>
+    Field Reads: Atomic<Int>
+End Class
+
+// Four writers move both halves of a Pair on, 300 times each, while four readers check that the
+// halves match, and that no writer is in while they read, nor anyone else while a writer writes.
+Function Contend(): String
+    Const pair = RwLock<Pair>(Pair())
+    Const watch = Watch()
+    Local threads: Thread[] = []
+    For t = 1 To 4
+        threads.Add(Thread.Start(Function()
+            For i = 1 To 300
+                pair.Write(Function(old: Pair)
+                    If watch.Writers.Add(1) != 0 || watch.Readers.Load() != 0
+                        watch.Wrong.Add(1)
+                    End If
+
+                    Local next = old
+                    next.A += 1
+                    next.B += 1
+                    watch.Writers.Subtract(1)
+                    Return next
+                End Function)
+            End For
+        End Function))
+        threads.Add(Thread.Start(Function()
+            For i = 1 To 300
+                Local same = pair.Read(Function(seen: Pair): Bool
+                    watch.Readers.Add(1)
+                    If watch.Writers.Load() != 0 Then watch.Wrong.Add(1)
+                    watch.Readers.Subtract(1)
+                    Return seen.A == seen.B
+                End Function)
+                If !same Then watch.Wrong.Add(1)
+                watch.Reads.Add(1)
+            End For
+        End Function))
+    End For
+
+    For thread In threads
+        thread.Join()
+    End For
+
+    Local last = pair.Value
+    Return "a {last.A}, b {last.B}, reads {watch.Reads.Load()}, wrong {watch.Wrong.Load()}"
+End Function
+
+Print(Contend())
+
+Const name = RwLock<String>("ada")
+Print(name.Read(Function(text: String) => text + "!"), name.Value)
+name.Write(Function(text: String) => text + " lovelace")
+Print(name.Value)
+name.Value = "grace"
+Print(name.Value)
+
+// A value that can be Null stays one, apart from the RwLock's own.
+Const maybe = RwLock<Int?>(Null)
+Print(maybe.Value == Null)
+maybe.Value = 5
+Print(maybe.Value ?? -1)

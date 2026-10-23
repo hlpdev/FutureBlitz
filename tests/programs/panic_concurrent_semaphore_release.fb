@@ -1,0 +1,8 @@
+// Release gives back 1 permit or more, and giving back none panics where it's called.
+Import std.core
+Import std.concurrent
+
+Const permits = Semaphore(1)
+permits.Release(1)
+Print(permits.Available)
+permits.Release(0)

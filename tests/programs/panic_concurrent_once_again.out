@@ -1,0 +1,2 @@
+running
+panic: the Once's work calls its own Do, which would wait for itself forever at panic_concurrent_once_again.fb:9:5
