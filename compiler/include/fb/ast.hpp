@@ -111,8 +111,21 @@ struct character_expr_t {
     char32_t value;
 };
 
-/// Decoded text, or the expression in a "{...}".
-using string_part_t = std::variant<std::string, expr_id_t>;
+/// An interpolation's format spec, the ".2" in "{price:.2}": its text, which views the source,
+/// and where it is.
+struct format_t {
+    std::string_view text;
+    span_t span;
+};
+
+/// The expression in a "{...}", and its format spec, if it has one.
+struct interpolation_t {
+    expr_id_t value;
+    std::optional<format_t> format;
+};
+
+/// Decoded text, or an interpolation.
+using string_part_t = std::variant<std::string, interpolation_t>;
 
 /// A string literal, with escapes and indentation already decoded.
 struct string_expr_t {

@@ -1,5 +1,7 @@
 #include "fb/lower.hpp"
 
+#include "fb/text_format.hpp"
+
 #include <algorithm>
 #include <array>
 #include <bit>
@@ -7,6 +9,7 @@
 #include <cctype>
 #include <cstddef>
 #include <cstdint>
+#include <expected>
 #include <format>
 #include <iterator>
 #include <map>
@@ -2593,9 +2596,9 @@ private:
         // A value's text, and ==, can run a type's own ToString or Operator ==.
         if (const auto* text = std::get_if<string_expr_t>(&node)) {
             return std::ranges::any_of(text->parts, [this](const string_part_t& part) {
-                const auto* inner = std::get_if<expr_id_t>(&part);
+                const auto* inner = std::get_if<interpolation_t>(&part);
                 return inner != nullptr &&
-                       (may_change(*inner) || runs_code(m_analysis.expr(*inner).type));
+                       (may_change(inner->value) || runs_code(m_analysis.expr(inner->value).type));
             });
         }
 
@@ -5967,8 +5970,8 @@ private:
     operand_t lower_expr(expr_id_t /*id*/, const string_expr_t& node) {
         std::vector<expr_id_t> inners;
         for (const string_part_t& part : node.parts) {
-            if (const auto* inner = std::get_if<expr_id_t>(&part)) {
-                inners.push_back(*inner);
+            if (const auto* inner = std::get_if<interpolation_t>(&part)) {
+                inners.push_back(inner->value);
             }
         }
 
@@ -5981,11 +5984,126 @@ private:
                 continue;
             }
 
-            const expr_id_t inner = std::get<expr_id_t>(part);
-            add_text(parts, settled(lower_value(inner), later[next++]), converted_type(inner));
+            const auto& interpolation = std::get<interpolation_t>(part);
+            const operand_t value = settled(lower_value(interpolation.value), later[next++]);
+            const type_id_t type = converted_type(interpolation.value);
+            if (interpolation.format) {
+                add_formatted(parts, value, type, *interpolation.format);
+            } else {
+                add_text(parts, value, type);
+            }
         }
 
         return runtime_call(runtime_function_t::JOIN, std::move(parts), type_id_t::STRING, true);
+    }
+
+    /// Adds a value's text by an interpolation's format spec to a string's parts. A spec that
+    /// doesn't fit the value, which only an instance of generic code can have, since analysis
+    /// checks the rest, panics there.
+    void add_formatted(std::vector<operand_t>& parts, const operand_t& value, const type_id_t type,
+                       const format_t& format) {
+        const operand_t spec_text = make_string(std::string(format.text));
+        const std::expected<format_spec_t, format_spec_error_t> spec =
+            parse_format_spec(format.text);
+        // A Formattable type of the program's own reads its own spec.
+        const type_id_t formattable = m_analysis.interfaces.formattable;
+        if ((is_struct(type) || is_class(type) || is_interface(type)) &&
+            fb::implements(m_analysis, types(), type, formattable)) {
+            parts.push_back(own_format(value, type, spec_text, format.span));
+            return;
+        }
+
+        format_subject_t subject = format_subject_t::TEXT;
+        if (is_integer(type)) {
+            subject = format_subject_t::INTEGER;
+        } else if (is_float(type)) {
+            subject = format_subject_t::FLOAT;
+        } else if (type == type_id_t::STRING) {
+            subject = format_subject_t::STRING;
+        }
+
+        const std::string name(types().name(type));
+        if (!spec || format_spec_misfit(*spec, subject, name)) {
+            terminate(panic_t{
+                .message = std::format("{} doesn't take the format spec '{}'", name, format.text),
+                .span = format.span,
+            });
+            parts.emplace_back(make_string(""));
+            return;
+        }
+
+        if (subject == format_subject_t::INTEGER) {
+            const bool is_signed_type = is_signed(type);
+            parts.push_back(runtime_call(
+                is_signed_type ? runtime_function_t::FORMAT_INT : runtime_function_t::FORMAT_UINT,
+                {
+                    cast(value, is_signed_type ? type_id_t::INT64 : type_id_t::UINT64, format.span),
+                    spec_text,
+                },
+                type_id_t::STRING, true));
+        } else if (subject == format_subject_t::FLOAT) {
+            parts.push_back(runtime_call(runtime_function_t::FORMAT_FLOAT,
+                                         {
+                                             cast(value, type_id_t::FLOAT64, format.span),
+                                             make_bool(type == type_id_t::FLOAT32),
+                                             spec_text,
+                                         },
+                                         type_id_t::STRING, true));
+        } else {
+            // Any other value's text, as "{x}" shows it, padded.
+            std::vector<operand_t> texts;
+            add_text(texts, value, type);
+            const operand_t text = texts.size() == 1 && subject == format_subject_t::STRING
+                                       ? texts.front()
+                                       : runtime_call(runtime_function_t::JOIN, std::move(texts),
+                                                      type_id_t::STRING, true);
+            parts.push_back(
+                runtime_call(runtime_function_t::FORMAT_TEXT,
+                             { text, make_bool(subject == format_subject_t::STRING), spec_text },
+                             type_id_t::STRING, true));
+        }
+    }
+
+    /// A Formattable value's own text for a spec, from its Format, through the Interface for an
+    /// Interface's object. Format giving Null, for a spec it doesn't take, panics at the spec.
+    operand_t own_format(const operand_t& value, const type_id_t type, const operand_t& spec,
+                         const span_t span) {
+        const type_id_t formattable = m_analysis.interfaces.formattable;
+        const symbol_id_t method = builtin_member(formattable, "Format");
+        call_t call{ .arguments = { { .value = value }, { .value = spec } } };
+        if (is_interface(type)) {
+            call.function = function_of(method, { formattable });
+            call.slot = interface_slot(method);
+            call.interface = formattable;
+        } else {
+            const symbol_id_t found = expect(implementation(type, method));
+            call.function = function_of(found, implementation_arguments(type, found));
+            if (is_virtual(m_analysis.symbol(found))) {
+                call.slot = slot_of(found);
+            }
+
+            give_error_variable(call, found);
+        }
+
+        const operand_t text =
+            temporary(std::move(call), types().nullable(type_id_t::STRING), true);
+        const block_id_t fail = new_block();
+        const block_id_t ok = new_block();
+        terminate(branch_t{ .condition = has_value(text, span), .if_true = ok, .if_false = fail });
+        start(fail);
+        const std::vector<operand_t> message{
+            make_string(std::format("{} doesn't take the format spec '", types().name(type))),
+            spec,
+            make_string("'"),
+        };
+        const std::size_t mark = m_temporaries.size();
+        terminate(panic_t{
+            .span = span,
+            .text = runtime_call(runtime_function_t::JOIN, message, type_id_t::STRING, true),
+        });
+        release_temporaries_from(mark); // the program stops, so they're only dropped
+        start(ok);
+        return unwrap(text);
     }
 
     /// Adds the text of a value of `type` to a string's parts. A tuple's is its elements' texts,
@@ -6148,6 +6266,45 @@ private:
         std::vector<operand_t> parts;
         add_text(parts, expect(receiver), type);
         return runtime_call(runtime_function_t::JOIN, std::move(parts), type_id_t::STRING, true);
+    }
+
+    /// A number's, Bool's, String's, or Enum's Format: its text by a spec read when the program
+    /// runs, a String?, which is Null for a spec that doesn't fit it.
+    operand_t builtin_format(const operand_t& value, const type_id_t type, const operand_t& spec) {
+        const type_id_t text = types().nullable(type_id_t::STRING);
+        const span_t nowhere;
+        if (is_integer(type)) {
+            const bool is_signed_type = is_signed(type);
+            return runtime_call(
+                is_signed_type ? runtime_function_t::FORMAT_INT : runtime_function_t::FORMAT_UINT,
+                {
+                    cast(value, is_signed_type ? type_id_t::INT64 : type_id_t::UINT64, nowhere),
+                    spec,
+                },
+                text, true);
+        }
+
+        if (is_float(type)) {
+            return runtime_call(runtime_function_t::FORMAT_FLOAT,
+                                {
+                                    cast(value, type_id_t::FLOAT64, nowhere),
+                                    make_bool(type == type_id_t::FLOAT32),
+                                    spec,
+                                },
+                                text, true);
+        }
+
+        if (type == type_id_t::STRING) {
+            return runtime_call(runtime_function_t::FORMAT_TEXT, { value, make_bool(true), spec },
+                                text, true);
+        }
+
+        std::vector<operand_t> parts;
+        add_text(parts, value, type);
+        const operand_t shown =
+            runtime_call(runtime_function_t::JOIN, std::move(parts), type_id_t::STRING, true);
+        return runtime_call(runtime_function_t::FORMAT_TEXT, { shown, make_bool(false), spec },
+                            text, true);
     }
 
     /// The function that compares, hashes, or gives the text of arrays of `type`, declared the
@@ -8033,6 +8190,13 @@ private:
                 object = place_t{ expect(m_self) };
             } else if (!object && !function.modifiers.is_static) {
                 object = lower_value(member->object);
+            }
+
+            // Format takes its spec, which comes after the object.
+            if (required == builtin_member(m_analysis.interfaces.formattable, "Format")) {
+                const expr_id_t spec = node.arguments.front().value;
+                const operand_t value = settled(expect(object), may_change(spec));
+                return builtin_format(value, self, lower_value(spec));
             }
 
             return builtin_method(function, self, object);

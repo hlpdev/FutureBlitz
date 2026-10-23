@@ -1,0 +1,2 @@
+3.14
+panic: Int32 doesn't take the format spec '.2' at panic_format_generic.fb:5:63

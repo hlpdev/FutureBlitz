@@ -1,0 +1,16 @@
+// A Formattable type's Format giving Null, for a spec it doesn't take, panics at the spec.
+Import std.core
+
+Struct Money Implements Formattable
+    Field Cents: Int64
+
+    Method ToString(): String => "{Cents} cents"
+
+    Method Format(spec: String): String?
+        Return spec == "cents" ? ToString() : Null
+    End Method
+End Struct
+
+Local wallet = Money(1250)
+Print("{wallet:cents}")
+Print("{wallet:euros}")

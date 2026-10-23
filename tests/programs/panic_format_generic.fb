@@ -1,0 +1,8 @@
+// An instance of generic code whose type doesn't take a format spec in it panics at the spec,
+// since only the instance knows the type the spec formats.
+Import std.core
+
+Function Rounded<T: Formattable>(value: T): String => "{value:.2}"
+
+Print(Rounded(3.14159))
+Print(Rounded(3))

@@ -2741,6 +2741,15 @@ private:
         advance(); // '?'
         // Both branches take a whole expression, so "a ? b : c ? d : e" groups to the right.
         const expr_id_t if_true = parse_expression();
+        // In an interpolation, a ':' with no space after it starts a format spec.
+        if (at(token_kind_t::FORMAT_SPEC)) {
+            m_diagnostics.error(peek().span, "{}",
+                                "in an interpolation, a ':' with no space after it starts a "
+                                "format spec, so a ternary's needs one");
+            advance();
+            return add_expr(span_from(begin_of(condition)), error_expr_t{});
+        }
+
         expect(token_kind_t::COLON);
         const expr_id_t if_false = parse_expression();
         return add_expr(
@@ -3491,11 +3500,12 @@ private:
     }
 
     /// A string literal. An interpolated one comes as STRING_START, then expressions separated by
-    /// STRING_MIDDLE pieces, then STRING_END. Text that decodes to nothing gets no part.
+    /// STRING_MIDDLE pieces, each with its FORMAT_SPEC if it has one, then STRING_END. Text that
+    /// decodes to nothing gets no part.
     expr_id_t parse_string() {
         const std::uint32_t begin = peek().span.begin;
         std::vector<std::string_view> pieces;
-        std::vector<expr_id_t> values;
+        std::vector<interpolation_t> values;
 
         const token_t& first = advance();
         pieces.push_back(text(first));
@@ -3503,7 +3513,22 @@ private:
         if (first.kind == token_kind_t::STRING_START && enter()) {
             ++m_bracket_depth;
             while (true) {
-                values.push_back(parse_expression());
+                interpolation_t& value = values.emplace_back(parse_expression());
+                // The spec is what follows its ':', right after it.
+                if (at(token_kind_t::COLON)) {
+                    m_diagnostics.error(peek().span, "{}",
+                                        "a format spec comes right after its ':', with no space");
+                    while (!at(token_kind_t::STRING_MIDDLE) && !at(token_kind_t::STRING_END) &&
+                           !at(token_kind_t::NEWLINE) && !at(token_kind_t::END_OF_FILE)) {
+                        advance();
+                    }
+                } else if (at(token_kind_t::FORMAT_SPEC)) {
+                    const token_t& spec = advance();
+                    span_t span = spec.span;
+                    ++span.begin;
+                    value.format = format_t{ .text = text(spec).substr(1), .span = span };
+                }
+
                 if (at(token_kind_t::STRING_MIDDLE)) {
                     pieces.push_back(text(advance()));
                 } else if (at(token_kind_t::STRING_END)) {

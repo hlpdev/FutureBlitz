@@ -23,6 +23,14 @@ std::string_view runtime_name(const runtime_function_t function) {
         return "join";
     case runtime_function_t::EQUAL:
         return "equal";
+    case runtime_function_t::FORMAT_INT:
+        return "format_int";
+    case runtime_function_t::FORMAT_UINT:
+        return "format_uint";
+    case runtime_function_t::FORMAT_FLOAT:
+        return "format_float";
+    case runtime_function_t::FORMAT_TEXT:
+        return "format_text";
     case runtime_function_t::TO_TEXT:
         return "to_text";
     case runtime_function_t::CSTRING_NEW:
