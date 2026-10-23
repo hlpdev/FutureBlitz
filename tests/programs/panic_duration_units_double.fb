@@ -2,6 +2,6 @@
 Import std.core
 Import std.time
 
-Local zero = 0.0
+Local zero: Double = 0.0
 Print(0.5.Days)
 Print((1.0 / zero).Seconds)

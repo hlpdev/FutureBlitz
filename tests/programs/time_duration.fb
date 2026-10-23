@@ -5,13 +5,19 @@
 Import std.core
 Import std.time
 
-// The units, on literals of every kind and on variables.
+// The units, an Int64's and a Double's, which literals of every kind take, as 0.1.Seconds reads
+// 0.1 as a Double. A variable of another number type converts first, a Float with its own
+// precision.
 Print(2.Seconds, 1.5.Minutes, 500.Milliseconds, 3.Hours, 2.Days, 7.Microseconds, 9.Nanoseconds)
 Print(5_000_000_000.Nanoseconds, (-3).Seconds, -3.Seconds, 0.25.Hours, 1e3.Milliseconds)
+Print(0.1.Seconds.Nanoseconds, 0.1.Seconds == 100.Milliseconds)
 Local small: UInt8 = 250
 Local big: Int64 = 100000
 Local half: Float = 0.5
-Print(small.Milliseconds, big.Hours, half.Seconds, (40 As Int16).Minutes, (7 As UInt64).Days)
+Local tenth: Float = 0.1
+Print((small As Int64).Milliseconds, big.Hours, (half As Double).Seconds,
+      (40 As Int16 As Int64).Minutes)
+Print((tenth As Double).Seconds.Nanoseconds, (7 As UInt64 As Int64).Days)
 // A fraction rounds to the nearest nanosecond, ties to even.
 Print(1.5.Nanoseconds.Nanoseconds, 2.5.Nanoseconds.Nanoseconds, 0.1.Microseconds,
       1.0000000004.Seconds.Nanoseconds)
