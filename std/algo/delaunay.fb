@@ -474,10 +474,11 @@ Function CheckBounds(bounds: Rect)
     End If
 End Function
 
-// Each point's Voronoi cell inside bounds: the polygon, counterclockwise, of where in bounds is no
-// nearer another point, empty for a point whose cell is outside bounds. Points that are equal share
-// a cell, and fewer than two points have bounds' whole rectangle for theirs. A coordinate that's
-// infinite or NaN, or bounds that aren't finite or have a negative size, panic.
+// Each point's Voronoi cell inside bounds: the polygon, counterclockwise, with no corner twice in
+// a row, of where in bounds is no nearer another point, and empty for a point whose cell is outside
+// bounds or only touches them, at a corner or along an edge. Points that are equal share a cell,
+// and fewer than two points have bounds' whole rectangle for theirs. A coordinate that's infinite
+// or NaN, or bounds that aren't finite or have a negative size, panic.
 @PanicsAtCaller
 Public Function Voronoi(points: Vec2[], bounds: Rect): Vec2[][]
     CheckBounds(bounds)
@@ -533,10 +534,17 @@ Public Function Voronoi(points: Vec2[], bounds: Rect): Vec2[][]
             polygon = KeepNearer(polygon, x, y, points[j].x, points[j].y)
         End For
 
+        // A corner that rounds to the one before it, or around to the first, goes, and a cell
+        // left with no area, which only touches bounds at a point or along an edge, is empty.
         Local cell: Vec2[] = []
         For corner In polygon
-            cell.Add(Vec2(corner.0 As Float, corner.1 As Float))
+            Local point = Vec2(corner.0 As Float, corner.1 As Float)
+            If cell.Count == 0 || cell[cell.Count - 1] != point Then cell.Add(point)
         End For
+        While cell.Count > 1 && cell[cell.Count - 1] == cell[0]
+            cell.RemoveLast()
+        End While
+        If cell.Count < 3 || Centroid(cell) == Null Then cell.Clear()
         cells.Add(cell)
     End For
     Return cells

@@ -163,6 +163,10 @@ Print(Voronoi([Vec2(1, 1), Vec2(3, 1)], square).Map(shown))
 Print(Voronoi([Vec2(0, 0), Vec2(10, 10)], square).Map(shown))
 Print(Voronoi([Vec2(1, 1), Vec2(3, 3), Vec2(1, 1)], square).Map(shown))
 Print(Voronoi([Vec2(0, 2), Vec2(1, 2), Vec2(3, 2)], square).Map(shown))
+// A cell that only touches bounds, at a corner or along an edge, is empty, and a corner where two
+// bisectors meet on the bounds' edge is there once.
+Print(Voronoi([Vec2(0, 0), Vec2(8, 8)], square)[1], Voronoi([Vec2(2, 2), Vec2(2, -2)], square)[1])
+Print(Voronoi([Vec2(3, 2), Vec2(6, 1), Vec2(1, 2), Vec2(6, 3)], Rect(0, 2, 11, 10))[0])
 
 // Lloyd relaxation moves each point to its cell's centroid, which spreads them out.
 Local relaxed = LloydRelax(six, bounds, 3)
