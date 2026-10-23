@@ -11,3 +11,5 @@ True True False True
 5 True True
 3
 101 101 101 101 101 2 7 7
+True False True False 
+bin of Int32, jar of String[]

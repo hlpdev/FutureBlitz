@@ -205,6 +205,59 @@ bool supports(const binary_op_t op, const type_id_t type) {
     }
 }
 
+/// Whether a type that isn't a Struct or Class implements a built-in Interface, as far as that's
+/// settled without its parts: a T[] copies with its own Clone, and numbers, Strings, Bools, and
+/// Enums start from their zero. Numbers implement the rest, Strings all but Numeric, Bools and
+/// Enums the ones without an order, and Ptrs and Callbacks Equatable. A tuple or array implements
+/// what its parts do, without an order, and a T? Equatable and Hashable as its T does, which is
+/// nullopt here.
+std::optional<bool> implements_alone(const type_table_t& types,
+                                     const builtin_interfaces_t& builtin, const type_id_t type,
+                                     const type_id_t interface) {
+    const type_kind_t kind = types.get(type).kind;
+    if (interface == builtin.cloneable) {
+        return kind == type_kind_t::ARRAY;
+    }
+
+    if (interface == builtin.defaultable) {
+        return is_numeric(type) || type == type_id_t::STRING || type == type_id_t::BOOL ||
+               kind == type_kind_t::ENUM;
+    }
+
+    const bool equality = interface == builtin.equatable || interface == builtin.hashable;
+    const bool ordered = interface == builtin.comparable || interface == builtin.numeric;
+    if (!equality && !ordered && interface != builtin.printable) {
+        return false;
+    }
+
+    if (is_numeric(type)) {
+        return true;
+    }
+
+    if (type == type_id_t::STRING) {
+        return interface != builtin.numeric;
+    }
+
+    if (type == type_id_t::BOOL || kind == type_kind_t::ENUM) {
+        return !ordered;
+    }
+
+    if (kind == type_kind_t::PTR || kind == type_kind_t::CALLBACK) {
+        return interface == builtin.equatable;
+    }
+
+    if (ordered || (kind == type_kind_t::NULLABLE && !equality)) {
+        return false;
+    }
+
+    if (kind == type_kind_t::NULLABLE || kind == type_kind_t::ARRAY ||
+        kind == type_kind_t::FIXED_ARRAY || kind == type_kind_t::TUPLE) {
+        return std::nullopt;
+    }
+
+    return false;
+}
+
 bool supports(const unary_op_t op, const type_id_t type) {
     switch (op) {
     case unary_op_t::NEGATE:
@@ -8656,64 +8709,29 @@ private:
         return m_types->substitute(type, parameters, arguments);
     }
 
-    /// Whether a type that isn't a Struct or Class implements one of the built-in Interfaces.
-    /// Numbers implement all of them, Strings all but Numeric, and Bools and Enums Equatable,
-    /// Hashable, and Printable. A T?, tuple, or array implements what its elements do, but only
-    /// Equatable and Hashable for a T?, and neither Comparable nor Numeric for the others.
+    /// Whether a type that isn't a Struct or Class implements one of the built-in Interfaces:
+    /// implements_alone(), and for a T?, tuple, or array, what its parts implement.
     [[nodiscard]] bool builtin_implements(const type_id_t type, const type_id_t interface) const {
-        const builtin_interfaces_t& builtin = m_analysis.interfaces;
         if (interface == type_id_t::INVALID) {
             return false;
         }
 
-        // An array copies with its own Clone, and the rest start from their zero.
-        if (interface == builtin.cloneable) {
-            return is_array(type);
-        }
-
-        if (interface == builtin.defaultable) {
-            return is_numeric(type) || type == type_id_t::STRING || type == type_id_t::BOOL ||
-                   is_enum(type);
-        }
-
-        const bool equality = interface == builtin.equatable || interface == builtin.hashable;
-        const bool ordered = interface == builtin.comparable || interface == builtin.numeric;
-        if (!equality && !ordered && interface != builtin.printable) {
-            return false;
-        }
-
-        if (is_numeric(type)) {
-            return true;
-        }
-
-        if (type == type_id_t::STRING) {
-            return interface != builtin.numeric;
-        }
-
-        if (type == type_id_t::BOOL || is_enum(type)) {
-            return !ordered;
-        }
-
-        if (is_pointer(type) || is_callback(type)) {
-            return interface == builtin.equatable;
-        }
-
-        if (ordered) {
-            return false;
+        if (const std::optional<bool> settled =
+                implements_alone(m_analysis.types, m_analysis.interfaces, type, interface)) {
+            return *settled;
         }
 
         if (is_nullable(type)) {
-            return equality && implements(non_null(type), interface);
+            return implements(non_null(type), interface);
         }
 
         if (is_any_array(type)) {
             return implements(element_of(type), interface);
         }
 
-        return is_tuple(type) &&
-               std::ranges::all_of(m_analysis.types.get(type).fields, [&](const field_t& field) {
-                   return implements(field.type, interface);
-               });
+        return std::ranges::all_of(m_analysis.types.get(type).fields, [&](const field_t& field) {
+            return implements(field.type, interface);
+        });
     }
 
     /// The built-in Interfaces' Methods named `name` that a type has without its own: ToString
@@ -22201,50 +22219,22 @@ private:
         }
     }
 
-    /// As sema's builtin_implements(): numbers implement every built-in Interface, Strings all
-    /// but Numeric, Bools and Enums the ones without an order, and a T?, tuple, or array what its
-    /// elements do, without an order.
+    /// As sema's builtin_implements(): implements_alone(), and for a T?, tuple, or array, what
+    /// its parts implement.
     [[nodiscard]] bool builtin(const type_id_t type, const type_id_t interface) const {
-        const builtin_interfaces_t& builtin = m_analysis.interfaces;
-        const bool equality = interface == builtin.equatable || interface == builtin.hashable;
-        const bool ordered = interface == builtin.comparable || interface == builtin.numeric;
-        if (!equality && !ordered && interface != builtin.printable) {
-            return false;
+        if (const std::optional<bool> settled =
+                implements_alone(m_types, m_analysis.interfaces, type, interface)) {
+            return *settled;
         }
 
         const type_t& info = m_types.get(type);
-        if (is_numeric(type)) {
-            return true;
-        }
-
-        if (type == type_id_t::STRING) {
-            return interface != builtin.numeric;
-        }
-
-        if (type == type_id_t::BOOL || info.kind == type_kind_t::ENUM) {
-            return !ordered;
-        }
-
-        if (info.kind == type_kind_t::PTR || info.kind == type_kind_t::CALLBACK) {
-            return interface == builtin.equatable;
-        }
-
-        if (ordered) {
-            return false;
-        }
-
-        if (info.kind == type_kind_t::NULLABLE) {
-            return equality && implements(info.inner, interface);
-        }
-
-        if (info.kind == type_kind_t::ARRAY || info.kind == type_kind_t::FIXED_ARRAY) {
+        if (info.kind != type_kind_t::TUPLE) {
             return implements(info.inner, interface);
         }
 
-        return info.kind == type_kind_t::TUPLE &&
-               std::ranges::all_of(info.fields, [&](const field_t& field) {
-                   return implements(field.type, interface);
-               });
+        return std::ranges::all_of(info.fields, [&](const field_t& field) {
+            return implements(field.type, interface);
+        });
     }
 
     const analysis_t& m_analysis;

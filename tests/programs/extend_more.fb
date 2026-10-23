@@ -223,3 +223,34 @@ Function ViaPlain(p: Plain): Int => p.Twice()
 Local refined = Refined()
 Print("{refined.Twice()} {ViaSized(refined)} {ViaDoubling(refined)} {ViaBound(refined)} " +
       "{ViaPlain(refined)} {Plain().Twice()} {ViaSized(Own())} {ViaPlain(Own())}")
+
+// A Where line can need a built-in Interface that a type has without listing it: numbers are
+// Defaultable and arrays Cloneable, so those instances are values of what the Extend gives.
+Class Thing
+End Class
+
+Class Bin<T> Extends Thing
+    Method Show(): String => "bin of {TypeName<T>()}"
+End Class
+
+Extend Bin<T> Implements Shown
+    Where T: Defaultable
+End Extend
+
+Class Jar<T> Extends Thing
+    Method Show(): String => "jar of {TypeName<T>()}"
+End Class
+
+Extend Jar<T> Implements Shown
+    Where T: Cloneable
+End Extend
+
+Local things: Thing[] = [Bin<Int>(), Bin<Int[]>(), Jar<Int[]>(), Jar<Int>()]
+Local answers = ""
+For thing In things
+    answers += "{thing Is Shown} "
+End For
+Print(answers)
+Local fromBin: Shown = Bin<Int>()
+Local fromJar: Shown = Jar<String[]>()
+Print("{fromBin.Show()}, {fromJar.Show()}")
