@@ -43,6 +43,9 @@ RELEASE_DIFFERS = {
 CONCURRENT = re.compile(r"\b(Spawn|Parallel For|Channel|Async|Await|Thread\.Start|Mutex|Atomic)\b")
 REPEATS = 10
 
+# The HTTP test server an http_ program runs under, in the build folder.
+http_server: Path | None = None
+
 failures: list[str] = []
 
 
@@ -93,11 +96,16 @@ def build_program(fb: Path, name: str, release: bool, folder: Path) -> Path | No
 
 
 def check_run(program: Path, name: str, expected: bytes, label: str) -> bool:
-    # A program with a .in file reads it as its input, as the program tests give it.
+    # A program with a .in file reads it as its input, as the program tests give it. An http_
+    # one runs under the HTTP test server, which gives it the server's URLs first.
     given = PROGRAMS / f"{name}.in"
-    ran = subprocess.run([str(program)], cwd=PROGRAMS, stdout=subprocess.PIPE,
-                         stderr=subprocess.STDOUT,
-                         input=given.read_bytes() if given.exists() else None)
+    command = [str(program)]
+    stdin = given.read_bytes() if given.exists() else None
+    if name.removeprefix("release_").startswith("http_"):
+        command.insert(0, str(http_server))
+        stdin = stdin or b""
+    ran = subprocess.run(command, cwd=PROGRAMS, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                         input=stdin)
     if ran.stdout == expected and ran.returncode == expected_code(name):
         return True
     fail(f"{name} ({label}) printed:\n{ran.stdout.decode(errors='replace')}"
@@ -210,6 +218,8 @@ def main() -> int:
     options = parser.parse_args()
     build = options.build.resolve()
     fb = executable(build / "cli" / "fb")
+    global http_server
+    http_server = executable(build / "tests" / "native" / "fb_http_test_server")
 
     if not options.no_build:
         step("build")
