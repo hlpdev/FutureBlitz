@@ -1,9 +1,10 @@
-// EcdsaP256, Rsa, and X25519, over mbedTLS: signatures, which a private key makes and its public
-// key checks, and key exchange, which gives two sides one secret from their own private keys and
-// each other's public ones. Keys are bytes, as each one's Methods say; Key reads and writes them as
-// PEM. A key or signature that isn't one verifies nothing.
+// Ed25519, over Monocypher, and EcdsaP256, Rsa, and X25519, over mbedTLS: signatures, which a
+// private key makes and its public key checks, and key exchange, which gives two sides one secret
+// from their own private keys and each other's public ones. Keys are bytes, as each one's Methods
+// say; Key reads and writes them as PEM. A key or signature that isn't one verifies nothing.
 
 Import std.core
+Import std.crypto.random
 
 Extern "runtime"
     Function fb_crypto_key_new(kind: Int32, output: UInt8[])
@@ -14,6 +15,9 @@ Extern "runtime"
     Function fb_crypto_rsa_key(modulus: UInt8[], exponent: UInt8[], output: UInt8[])
     Function fb_crypto_shared_secret(privateKey: UInt8[], publicKey: UInt8[],
                                      output: UInt8[]): Int32
+    Function fb_ed25519_public_key(privateKey: UInt8[], output: UInt8[])
+    Function fb_ed25519_sign(privateKey: UInt8[], message: UInt8[], output: UInt8[])
+    Function fb_ed25519_verify(publicKey: UInt8[], message: UInt8[], signature: UInt8[]): Int32
 End Extern
 
 // The runtime's numbers for the keys and the signatures.
@@ -22,6 +26,49 @@ Const X25519_KEY = 2
 Const ECDSA_SHA256 = 1
 Const RSA_PKCS1_SHA256 = 2
 Const RSA_PSS_SHA256 = 3
+
+// Ed25519 (RFC 8032), EdDSA on Curve25519 with SHA-512: a private key is a 32-byte seed, a public
+// key 32 bytes, and a signature 64 bytes, deterministic, so signing needs no random number.
+Public Struct Ed25519
+    // Ed25519 isn't made: it's only its Static Methods.
+    New()
+    End New
+
+    // A new random private key.
+    Public Static Method NewPrivateKey(): UInt8[] => SecureRandom.Bytes(32)
+
+    // privateKey's public key. Panics unless privateKey is 32 bytes.
+    @PanicsAtCaller
+    Public Static Method PublicKeyOf(privateKey: UInt8[]): UInt8[]
+        CheckSeed(privateKey)
+        Local key: UInt8[] = []
+        fb_ed25519_public_key(privateKey, key)
+        Return key
+    End Method
+
+    // message's signature with privateKey. Panics unless privateKey is 32 bytes.
+    @PanicsAtCaller
+    Public Static Method Sign(privateKey: UInt8[], message: UInt8[]): UInt8[]
+        CheckSeed(privateKey)
+        Local signature: UInt8[] = []
+        fb_ed25519_sign(privateKey, message, signature)
+        Return signature
+    End Method
+
+    @PanicsAtCaller
+    Public Static Method Sign(privateKey: UInt8[], text: String): UInt8[]
+        Return Sign(privateKey, text.Bytes)
+    End Method
+
+    // Whether signature is publicKey's of message.
+    Public Static Method Verify(publicKey: UInt8[], message: UInt8[], signature: UInt8[]): Bool
+        Return fb_ed25519_verify(publicKey, message, signature) != 0
+    End Method
+
+    Public Static Method Verify(publicKey: UInt8[], text: String, signature: UInt8[]): Bool
+        Return Verify(publicKey, text.Bytes, signature)
+    End Method
+End Struct
 
 // ECDSA on NIST's P-256 with SHA-256 (ES256): a private key is 32 bytes, a public key its point,
 // uncompressed, 65 bytes, and a signature r then s, 64 bytes.
@@ -143,6 +190,11 @@ Public Struct X25519
         Return secret
     End Method
 End Struct
+
+@PanicsAtCaller
+Function CheckSeed(key: UInt8[])
+    If key.Count != 32 Then Panic("an Ed25519 private key is 32 bytes, not {key.Count}")
+End Function
 
 @PanicsAtCaller
 Function CheckKey(key: UInt8[], which: String)

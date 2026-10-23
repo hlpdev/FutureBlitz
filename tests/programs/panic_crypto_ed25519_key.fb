@@ -1,0 +1,7 @@
+// An Ed25519 private key that isn't 32 bytes panics, where it signs.
+Import std.core
+Import std.crypto
+
+Local key = Ed25519.NewPrivateKey()
+Print(Ed25519.Sign(key, "x").Count)
+Ed25519.Sign(key[..31], "x")

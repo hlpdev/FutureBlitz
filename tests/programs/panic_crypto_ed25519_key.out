@@ -1,0 +1,2 @@
+64
+panic: an Ed25519 private key is 32 bytes, not 31 at panic_crypto_ed25519_key.fb:7:1
