@@ -25,6 +25,11 @@ void finish_request(const fb_task_t* task);
 /// thread the runtime started ends.
 void release_thread_locals();
 
+/// Sets up the calling thread's state for letting go of objects, if it isn't yet, so that it
+/// outlives what's set up after it: a thread destroys its thread_locals the last made first,
+/// and its ThreadLocal Globals' Destroys, which a thread C started runs as it exits, let go.
+void ready_letting_go();
+
 /// Has `stop` run as the program ends, before the leak report, as the I/O thread does to stop.
 /// At most one per part of the runtime.
 void at_finish(void (*stop)());

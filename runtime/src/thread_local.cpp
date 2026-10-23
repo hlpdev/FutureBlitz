@@ -52,6 +52,7 @@ void fb::runtime::release_thread_locals() {
 extern "C" {
 
 void fb_thread_local_added(const fb_release_t release) {
+    fb::runtime::ready_letting_go();
     t_locals.add(release);
 }
 

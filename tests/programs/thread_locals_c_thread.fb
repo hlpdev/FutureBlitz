@@ -1,0 +1,81 @@
+// A thread C starts makes a ThreadLocal Global, lets go of an object with objects in it, and lets
+// go of its ThreadLocal as it exits, whose Destroys then run, after the others'.
+Import std.core
+
+#If PLATFORM_WINDOWS
+Extern "C"
+    Function CreateThread(attributes: Ptr<Void>, stack: UInt64, start: Callback(Ptr<Void>): UInt32,
+                          parameter: Ptr<Void>, flags: UInt32, id: Ptr<Void>): Ptr<Void>
+    Function WaitForSingleObject(handle: Ptr<Void>, milliseconds: UInt32): UInt32
+    Function CloseHandle(handle: Ptr<Void>): Int32
+End Extern
+#Else
+Extern "C"
+    Function pthread_create(ByRef thread: UInt64, attributes: Ptr<Void>,
+                            start: Callback(Ptr<Void>): Ptr<Void>, argument: Ptr<Void>): Int32
+    Function pthread_join(thread: UInt64, result: Ptr<Void>): Int32
+End Extern
+#End If
+
+Global freed = Atomic<Int>(0)
+
+Class Leaf
+    Method Destroy()
+        freed.Add(1)
+    End Method
+End Class
+
+Class Pair
+    Field A: Leaf
+    Field B: Leaf
+
+    New()
+        A = Leaf()
+        B = Leaf()
+    End New
+End Class
+
+Class Triple
+    Field A: Leaf
+    Field B: Leaf
+    Field C: Leaf
+
+    New()
+        A = Leaf()
+        B = Leaf()
+        C = Leaf()
+    End New
+End Class
+
+ThreadLocal Global cache = Triple()
+
+// The thread's ThreadLocal first, then an object that dies before the thread exits.
+Function Work()
+    Local held = cache
+    Local pair = Pair()
+End Function
+
+#If PLATFORM_WINDOWS
+Function Run(parameter: Ptr<Void>): UInt32
+    Work()
+    Return 0
+End Function
+
+Unsafe
+    Local handle = CreateThread(Null, 0, Run, Null, 0, Null)
+    WaitForSingleObject(handle, 4294967295)
+    CloseHandle(handle)
+End Unsafe
+#Else
+Function Run(argument: Ptr<Void>): Ptr<Void>
+    Work()
+    Return Null
+End Function
+
+Unsafe
+    Local thread: UInt64 = 0
+    pthread_create(ByRef thread, Null, Run, Null)
+    pthread_join(thread, Null)
+End Unsafe
+#End If
+Print("joined", freed.Load())

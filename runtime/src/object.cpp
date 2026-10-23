@@ -513,6 +513,10 @@ void* const* find_implementation(const fb_object_t* object, const fb_interface_t
 
 } // namespace
 
+void fb::runtime::ready_letting_go() {
+    static_cast<void>(t_letting_go.releasing);
+}
+
 const char* fb::runtime::shown_class_name(const fb_class_t* type,
                                           const std::span<const fb_class_t* const> others) {
     return shown_name(type, others);
