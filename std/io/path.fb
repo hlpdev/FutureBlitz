@@ -1,5 +1,6 @@
 // std.io's paths: a Path is where a file or folder is, as text, read by Windows' rules or POSIX's,
-// the target's unless it's made with the other's. Its own separator is '/' on every OS, which it
+// the target's unless it's made with the other's. A String converts to one wherever a Path is
+// expected. Its own separator is '/' on every OS, which it
 // writes wherever it joins or rebuilds a path, and Windows takes it, so a program's paths read the
 // same everywhere; on Windows '\' is one too, and a path can start with a drive, like "C:", or a
 // server's share, like "//server/share". What a Path does to its text is only text: nothing here
@@ -47,9 +48,8 @@ Public Struct Path Implements Comparable, Hashable, Printable
         Return fb_path_windows() != 0 ? PathStyle.WINDOWS : PathStyle.POSIX
     End Method
 
-    // `b` after `a`, as Join puts it.
+    // `b` after `a`, as Join puts it: `saves / "one.dat"`, since a String converts to a Path.
     Operator /(a: Path, b: Path): Path => a.Join(b)
-    Operator /(a: Path, b: String): Path => a.Join(Path(b, a.Style))
 
     Operator <(a: Path, b: Path): Bool
         If a.Style != b.Style Then Return (a.Style As Int) < (b.Style As Int)

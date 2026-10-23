@@ -881,6 +881,45 @@ TEST_CASE("assignments convert losslessly", "[sema]") {
           errors_t{ "F(): only a variable can be assigned to" });
 }
 
+TEST_CASE("a String converts to std.io's Path where one is expected", "[sema]") {
+    constexpr std::string_view io = "Import std.io\n"
+                                    "Function Show(p: Path): Bool => True\n"
+                                    "Function Pick(p: Path): Bool => True\n"
+                                    "Function Pick(s: String): Int => 1\n"
+                                    "Function Maybe(p: Path?): Bool => True\n"
+                                    "Function Text(): String? => Null\n"
+                                    "Local name = \"saves\"\n";
+    const auto with_io = [&](const std::string_view text) { return std::format("{}{}", io, text); };
+
+    // A literal, and any other String, in a call and an assignment, made as the program runs.
+    CHECK(probe(with_io("Local x: Path = \"a/b\"")) == "Path (from String)");
+    CHECK(probe(with_io("Local x: Path = name + \".bak\"")) == "Path (from String)");
+    CHECK(probe(with_io("Local x = Show(\"{name}/one.dat\")")) == "Bool");
+    CHECK(errors_of(with_io("Local p = Path(\"x\")\np = name")).empty());
+    CHECK(probe(with_io("Local x = \"q\" As Path")) == "Path");
+    // An overload that takes a String exactly wins.
+    CHECK(probe(with_io("Local x = Pick(\"a\")")) == "Int32");
+    CHECK(probe(with_io("Local x = Pick(Path(\"a\"))")) == "Bool");
+    // A String converts to a Path?, but a String? doesn't, since its Null isn't a path.
+    CHECK(probe(with_io("Local x = Maybe(\"a\")")) == "Bool");
+    CHECK(errors_of(with_io("Show(Text())")) ==
+          errors_t{ "Text(): expected Path, found String?, which may be Null; check it first, or "
+                    "give a value for Null with '??'" });
+    CHECK(errors_of(with_io("Maybe(Text())")) ==
+          errors_t{ "Text(): expected Path?, found String?, which may be Null; check it first, or "
+                    "give a value for Null with '??'" });
+    // An array's elements don't convert, though a literal's do.
+    CHECK(probe(with_io("Local x: Path[] = [\"a\", name]")) == "Path[]");
+    CHECK(errors_of(with_io("Local names = [\"a\"]\nLocal paths: Path[] = names")) ==
+          errors_t{ "names: expected Path[], found String[]" });
+    // A Path a default needs is made as the program runs, so it can't be one.
+    CHECK(errors_of(with_io("Function F(p: Path = \"a\")\nEnd Function")) ==
+          errors_t{ "\"a\": a default value must be known at compile time" });
+    // Only std.io's Path is one: a program's own isn't.
+    CHECK(errors_of("Struct Path\n    Field Text: String\nEnd Struct\nLocal p: Path = \"a\"") ==
+          errors_t{ "\"a\": expected Path, found String" });
+}
+
 TEST_CASE("conditions must be Bool", "[sema]") {
     CHECK(errors_of("If 1\nEnd If") == errors_t{ "1: expected Bool, found Int32" });
     CHECK(errors_of("Local n = 1\nWhile n\nEnd While") ==

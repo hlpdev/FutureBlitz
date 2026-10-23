@@ -69,6 +69,12 @@ a/save.bak/ C:\x\größe.bin
 Compare
 True False False True
 2
+From Strings
+save.dat in games
+one.dat in saves
+two.dat in saves
+saves/three.dat True a/b\c
+[x.txt, saves]
 Absolute
 True x True
 /a/b C:/b
