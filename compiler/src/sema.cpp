@@ -2608,10 +2608,11 @@ private:
                 const symbol_id_t declared = declare_field(member_id, *field, owner, fields.size());
                 // An attribute's values are known at compile time.
                 if (node.is_attribute && !is_compile_time(symbol(declared).type)) {
-                    error(field->name.span,
-                          "an Attribute's parameters are numbers, Bools, Strings, and Enums, not "
-                          "{}",
-                          shown_name(symbol(declared).type));
+                    error(
+                        field->name.span,
+                        "an Attribute's parameters are numbers, Bools, Strings, Chars, and Enums, "
+                        "not {}",
+                        shown_name(symbol(declared).type));
                 }
 
                 fields.push_back(
