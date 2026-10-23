@@ -10,7 +10,7 @@ Public Class RingBuffer<T> Implements Iterable<T>, Cloneable
     // The oldest value's slot.
     Field Head: Int
     Field Size: Int
-    // How many times the values changed, so a For ... In over them can tell.
+    // How many times values were added or removed, so a For ... In over them can tell.
     Field Changes: Int64
 
     // An empty RingBuffer that holds up to capacity values, which must be 1 or more.

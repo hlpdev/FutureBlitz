@@ -5,7 +5,7 @@ Import std.collections.array
 
 Public Class Stack<T> Implements Iterable<T>, Cloneable, Defaultable
     Field Items: T[] = []
-    // How many times the values changed, so a For ... In over them can tell.
+    // How many times values were added or removed, so a For ... In over them can tell.
     Field Changes: Int64
 
     Public Property Count: Int

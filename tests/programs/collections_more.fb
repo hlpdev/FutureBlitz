@@ -1,6 +1,7 @@
-// std's collections at their edges: readers that change nothing during a loop, a Pool of a T?
-// holding Null, Handles as keys, a PriorityQueue's For ... In, Strings that show as nothing,
-// hashes that differ only in their high bits, and Mem and CString at zero sizes and NULs.
+// std's collections at their edges: readers that change nothing during a loop, a Deque's setter
+// during one, a Pool of a T? holding Null, Handles as keys, a PriorityQueue's For ... In, Strings
+// that show as nothing, hashes that differ only in their high bits, and Mem and CString at zero
+// sizes and NULs.
 Import std.core
 Import std.collections
 Import std.ffi
@@ -17,6 +18,15 @@ End For
 Print(seen)
 deque.AddFirst(0)
 Print("{deque.RemoveLast()} {deque.RemoveFirst()} {deque.First()} {deque.Last()} {deque.Count}")
+
+// Giving a value a new value while going over a Deque is fine, on either side of its middle.
+deque.AddFirst(-1)
+Local at = 0
+For value In deque
+    deque[at] = value * 10
+    at += 1
+End For
+Print(deque.ToArray())
 
 // A Pool of a T? keeps a Null as a value, which Clear removes like any other.
 Local maybe = Pool<String?>()
