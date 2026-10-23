@@ -1,0 +1,2 @@
+0E+999999
+panic: 123 rounded to -1000000 places is past a Decimal's digits or exponents at panic_decimal_round_exponent_places.fb:6:7

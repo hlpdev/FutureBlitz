@@ -1,0 +1,2 @@
+8E+999999
+panic: 9.5E+999999 rounded to -999999 places is past a Decimal's digits or exponents at panic_decimal_round_exponent.fb:6:7

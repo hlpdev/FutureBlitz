@@ -131,11 +131,15 @@ Public Class Decimal Implements Comparable, Hashable, Printable, Numeric
 
     // It rounded by the mode to the places after the point, or before it when negative: 2.675 is
     // 2.68 to 2 places, and 1234 is 1.2E+3 to -2. Rounding to more digits than 28, or than it
-    // has when that's more, panics.
+    // has when that's more, panics, and so does a result whose exponent is past 999999 either
+    // way, as with Python's quantize.
     @PanicsAtCaller
     Public Method Round(places: Int = 0, mode: RoundingMode = RoundingMode.HALF_EVEN): Decimal
         Local state = fb_decimal_round(State, places, mode As Int32)
-        If state == Null Then Panic("{Self} rounded to {places} places has too many digits")
+        If state == Null
+            Panic("{Self} rounded to {places} places is past a Decimal's digits or exponents")
+        End If
+
         Return Decimal(state)
     End Method
 

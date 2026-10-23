@@ -1,0 +1,7 @@
+// So does rounding to past the places the digits kept can have, though 0 has no digits to
+// pad.
+Import std.core
+Import std.math.big
+
+Print(Decimal(0).Round(1000026))
+Print(Decimal(0).Round(1000027))

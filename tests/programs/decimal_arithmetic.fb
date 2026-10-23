@@ -2750,4 +2750,8 @@ total *= d[6]
 total -= 1
 total /= 3
 CheckDecimal("op=", total, "246.5786666666666666666666667")
+// A quotient of more than 28 digits, which the dividend's or the divisor's own allow.
+CheckDecimal("35 digits % 7", D("12345678901234567890123456789012345") % 7, "4")
+CheckDecimal("1E+64 % 35 digits", D("1E+64") % D("12345678901234567890123456789012345"),
+             "11179482311122842421156826871521020")
 Done("with an Int64")

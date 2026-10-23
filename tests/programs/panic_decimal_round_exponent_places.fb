@@ -1,0 +1,6 @@
+// And rounding to an exponent past 999999, for 0 too.
+Import std.core
+Import std.math.big
+
+Print(Decimal(123).Round(-999999))
+Print(Decimal(123).Round(-1000000))

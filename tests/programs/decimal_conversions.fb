@@ -1,6 +1,7 @@
 // std.math.big's Decimal reads text exactly and writes it as Python's str and format(d, "f")
 // do, rounds by each RoundingMode as Python's quantize does, and converts to and from Doubles,
-// Int64s, and BigInts: a Double to the shortest Decimal that reads back as it, as it prints.
+// Int64s, and BigInts: a Double to the shortest digits that read back as it, at the places it
+// prints with, so a whole Double past 2^53 isn't its exact value.
 Import std.core
 Import std.math.big
 
@@ -136,6 +137,15 @@ CheckDecimal("from 1.5e-7", Decimal.FromDouble(1.5e-7), "1.5E-7")
 CheckDecimal("from 0.30000000000000004", Decimal.FromDouble(0.30000000000000004), "0.30000000000000004")
 CheckDecimal("from 1e16", Decimal.FromDouble(1e16), "1E+16")
 CheckDecimal("from 12345678901234567.0", Decimal.FromDouble(12345678901234567.0), "12345678901234568")
+CheckDecimal("from 5.83386073903097e16", Decimal.FromDouble(5.83386073903097e16), "58338607390309700")
+Expect("5.83386073903097e16's shortest digits",
+       Decimal.FromDouble(5.83386073903097e16) == D("5.83386073903097e16"))
+CheckDecimal("from 1.2345678901234568e20", Decimal.FromDouble(1.2345678901234568e20),
+             "123456789012345680000")
+Expect("1.2345678901234568e20's shortest digits",
+       Decimal.FromDouble(1.2345678901234568e20) == D("1.2345678901234568e20"))
+CheckDecimal("from 2^60", Decimal.FromDouble(1152921504606846976.0), "1152921504606847000")
+CheckDecimal("from 2^53 + 2", Decimal.FromDouble(9007199254740994.0), "9007199254740994")
 Done("text and Doubles")
 
 Local int0 = D("5").ToInt64()
@@ -531,4 +541,12 @@ CheckDecimal("-1E+5 truncated", D("-1E+5").Truncate(), "-1E+5")
 CheckDecimal("-1E+5 floor", D("-1E+5").Floor(), "-1E+5")
 CheckDecimal("-1E+5 ceiling", D("-1E+5").Ceiling(), "-1E+5")
 CheckDecimal("1.5E+3 floor", D("1.5E+3").Floor(), "1.5E+3")
+// Up to the value's own digits, past 28, and to exponents up to 999999.
+CheckDecimal("31 digits to 0", D("123456789012345678901234567890.5").Round(0),
+             "123456789012345678901234567890")
+CheckDecimal("31 digits up to 0", D("123456789012345678901234567891.5").Round(0),
+             "123456789012345678901234567892")
+CheckDecimal("8.5E+999999 to -999999", D("8.5E+999999").Round(-999999), "8E+999999")
+CheckDecimal("0 to 1000026", Decimal(0).Round(1000026), "0E-1000026")
+CheckDecimal("123 to -999999", D("123").Round(-999999), "0E+999999")
 Done("rounding")

@@ -1,2 +1,2 @@
 1.000000000000000000000000000
-panic: 1 rounded to 28 places has too many digits at panic_decimal_round.fb:6:7
+panic: 1 rounded to 28 places is past a Decimal's digits or exponents at panic_decimal_round.fb:6:7

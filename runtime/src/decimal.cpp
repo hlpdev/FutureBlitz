@@ -134,9 +134,29 @@ void* fb_decimal_from_int(const std::int64_t value) {
 }
 
 void* fb_decimal_from_double(const double value) {
-    std::array<char, 64> text{};
-    std::to_chars(text.data(), text.data() + text.size() - 1, value);
-    return parse(text.data());
+    // The shortest digits that read back as the Double are to_chars's scientific form's: its
+    // plain form gives a whole number's exact value instead, where that's no longer. The Decimal
+    // keeps the plain form's places, when it has no exponent, so 100.0 is 100, not 1E+2.
+    std::array<char, 64> digits{};
+    std::to_chars(digits.data(), digits.data() + digits.size() - 1, value,
+                  std::chars_format::scientific);
+    std::array<char, 64> plain{};
+    std::to_chars(plain.data(), plain.data() + plain.size() - 1, value);
+    auto* shortest = static_cast<mpd_t*>(parse(digits.data()));
+    const std::string_view shown(plain.data());
+    if (shortest == nullptr || shown.contains('e')) {
+        return shortest;
+    }
+
+    const std::size_t point = shown.find('.');
+    const auto places =
+        point == std::string_view::npos ? 0 : static_cast<mpd_ssize_t>(shown.size() - point - 1);
+    mpd_t* result = make();
+    const mpd_context_t context = exact();
+    std::uint32_t status = 0;
+    mpd_qrescale(result, shortest, -places, &context, &status);
+    mpd_del(shortest);
+    return finish(result, status);
 }
 
 void* fb_decimal_parse(const fb_string_t* text) {
@@ -284,14 +304,17 @@ void* fb_decimal_abs(const void* a) {
 }
 
 void* fb_decimal_round(const void* a, const std::int64_t places, const std::int32_t mode) {
-    if (places > MPD_MAX_EMAX || places < -MPD_MAX_EMAX) {
+    // As Python's quantize has it, the exponent rounded to goes from the least a number of the
+    // digits kept can have, Etiny, to 999999, and the result's adjusted exponent goes up to
+    // 999999.
+    mpd_context_t context = fitting(from(a));
+    if (places < -999999 || places > 999999 + context.prec - 1) {
         return nullptr;
     }
 
     // Going to more places pads the coefficient with 0s, which may not take it past the digits
     // kept, as Python's quantize says. mpdecimal's rescale doesn't check that, and would make
     // them all.
-    mpd_context_t context = fitting(from(a));
     const mpd_t* number = from(a);
     if (mpd_iszero(number) == 0 && number->exp + places > 0 &&
         number->digits + number->exp + places > context.prec) {
@@ -302,7 +325,12 @@ void* fb_decimal_round(const void* a, const std::int64_t places, const std::int3
     mpd_t* result = make();
     std::uint32_t status = 0;
     mpd_qrescale(result, from(a), -places, &context, &status);
-    return finish(result, status);
+    auto* rounded = static_cast<mpd_t*>(finish(result, status));
+    if (rounded != nullptr && mpd_iszero(rounded) == 0 && mpd_adjexp(rounded) > 999999) {
+        mpd_del(rounded);
+        return nullptr;
+    }
+    return rounded;
 }
 
 void* fb_decimal_round_whole(const void* a, const std::int32_t mode) {

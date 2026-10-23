@@ -1,0 +1,6 @@
+// Rounding up past exponent 999999 panics where it's rounded, as Python's quantize raises.
+Import std.core
+Import std.math.big
+
+Print((Decimal.Parse("8.5E+999999") ?? Decimal(0)).Round(-999999))
+Print((Decimal.Parse("9.5E+999999") ?? Decimal(0)).Round(-999999))
