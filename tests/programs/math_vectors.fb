@@ -56,6 +56,10 @@ Print(Normalize(Vec4(0, 0, 1e-40, 0)), Distance(Vec3(-3e38, 0, 0), Vec3(0, 3e38,
 // The component-wise Functions, beside the scalar ones of their names.
 Print(Lerp(a, b, 0.5), Lerp(Vec2(0, 10), Vec2(10, 0), 0.25),
       Lerp(Vec4.Zero(), Vec4(4, 8, 12, 16), 0.75), Lerp(a, b, 2))
+// At 1, b itself, though b - a rounds, so something moving there arrives.
+Print(Lerp(Vec2(3.3, 1), Vec2(0.2, 5), 1) == Vec2(0.2, 5),
+      Lerp(Vec3(3.3, 0, 0), Vec3(0.2, 0, 0), 1) == Vec3(0.2, 0, 0),
+      Lerp(Vec4(3.3, 0, 0, 1e8), Vec4(0.2, 0, 0, 3), 1) == Vec4(0.2, 0, 0, 3))
 Print(Min(a, Vec3(2, 0, 9)), Max(a, Vec3(2, 0, 9)), Min(Vec2(1, 5), Vec2(3, 2)),
       Max(Vec4(1, 5, 0, 0), Vec4(3, 2, 0, -1)))
 Print(Clamp(Vec3(-1, 5, 2), Vec3.Zero(), Vec3(3, 3, 3)), Clamp(Vec2(5, -5), Vec2(0, 0), Vec2(1, 1)),

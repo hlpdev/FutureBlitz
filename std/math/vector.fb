@@ -228,14 +228,14 @@ Public Function Normalize(v: Vec4): Vec4
                 (v.w / length) As Float)
 End Function
 
-// The point t of the way from a to b: a at 0, b at 1.
-Public Function Lerp(a: Vec2, b: Vec2, t: Float): Vec2 => a + (b - a) * t
+// The point t of the way from a to b: a at 0, and b itself at 1, though b - a rounds.
+Public Function Lerp(a: Vec2, b: Vec2, t: Float): Vec2 => t == 1 ? b : a + (b - a) * t
 
-// The point t of the way from a to b: a at 0, b at 1.
-Public Function Lerp(a: Vec3, b: Vec3, t: Float): Vec3 => a + (b - a) * t
+// The point t of the way from a to b: a at 0, and b itself at 1, though b - a rounds.
+Public Function Lerp(a: Vec3, b: Vec3, t: Float): Vec3 => t == 1 ? b : a + (b - a) * t
 
-// The point t of the way from a to b: a at 0, b at 1.
-Public Function Lerp(a: Vec4, b: Vec4, t: Float): Vec4 => a + (b - a) * t
+// The point t of the way from a to b: a at 0, and b itself at 1, though b - a rounds.
+Public Function Lerp(a: Vec4, b: Vec4, t: Float): Vec4 => t == 1 ? b : a + (b - a) * t
 
 // The smaller of each component.
 Public Function Min(a: Vec2, b: Vec2): Vec2 => Vec2(Min(a.x, b.x), Min(a.y, b.y))
