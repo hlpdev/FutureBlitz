@@ -512,7 +512,8 @@ the rest is planned. `Import std.concurrent` brings in all of std/concurrent/.
   part, holding the lock only for that, and looks in the copy. GetOrAdd's make, and Update's and
   AddOrUpdate's change, run outside the lock, so they may run again, when another thread changed the
   key meanwhile, and no change is lost. A For ... In goes over a copy of each part, as it comes to
-  it, by hash.
+  it, by hash. What a change replaces or takes out goes once it holds no lock, so a value's Destroy
+  can use the map, as it can a ConcurrentQueue in its Clear, and an RwLock in its Write.
 - `ConcurrentQueue<T>`, of Sendable values: `Enqueue` (and `Add` and `AddAll`), `TryDequeue`,
   `TryPeek`, `ToArray`, `Clear`, and `Count`, with no limit but memory and what an Int counts. It
   never waits, for room or for a value; waiting is a Channel's.

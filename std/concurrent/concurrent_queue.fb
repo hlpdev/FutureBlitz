@@ -108,10 +108,13 @@ Public Shared Class ConcurrentQueue<T: Sendable> Implements Defaultable
         Return taken
     End Method
 
-    // Removes every value.
+    // Removes every value. They go once it holds no lock, so a Destroy that their going runs can
+    // use the ConcurrentQueue.
     Public Method Clear()
+        Local old = QueueValues<T>()
         Lock Values As values
             Size.Subtract(values.Count)
+            old = values
             values = QueueValues<T>()
         End Lock
     End Method

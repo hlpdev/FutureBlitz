@@ -214,8 +214,9 @@ Public Shared Class RwLock<T: Sendable>
         Return result
     End Method
 
-    // Gives the value what writer gives for it, while no other thread reads or writes it. Panics
-    // when this thread reads or writes it already, which would wait for itself forever.
+    // Gives the value what writer gives for it, while no other thread reads or writes it. The old
+    // value goes once the Write holds no lock, so a Destroy that its going runs can use the RwLock.
+    // Panics when this thread reads or writes it already, which would wait for itself forever.
     @PanicsAtCaller
     Public Method Write(writer: Func(T): T)
         If fb_rwlock_write(Handle) != 0
@@ -223,7 +224,9 @@ Public Shared Class RwLock<T: Sendable>
         End If
 
         Local written = writer(Held())
+        Local old: T? = Null
         Lock Stored As stored
+            old = stored
             stored = written
         End Lock
 
