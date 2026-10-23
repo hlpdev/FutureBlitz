@@ -1,0 +1,1 @@
+panic: Remove(2, 0) ends before it starts at panic_text_builder_remove.fb:6:26

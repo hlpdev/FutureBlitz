@@ -1,0 +1,6 @@
+// A StringBuilder's [] takes a position before its end.
+Import std.core
+Import std.text
+
+Local text = StringBuilder("é😀")
+Print(text[2], text[6])
