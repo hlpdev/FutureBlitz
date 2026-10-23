@@ -1,0 +1,6 @@
+// IpAddress.FromBytes takes 4 bytes or 16, and panics where it's called with another number.
+Import std.core
+Import std.net
+
+Print(IpAddress.FromBytes([1 As UInt8, 2, 3, 4]))
+Print(IpAddress.FromBytes([1 As UInt8, 2, 3]))

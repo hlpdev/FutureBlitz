@@ -311,6 +311,9 @@ void fb_array_trim(fb_array_t* array, std::int64_t element_size);
 /// A new array of the same Class, with a copy of each element's bytes. Compiled code retains
 /// the references in them.
 fb_array_t* fb_array_clone(const fb_array_t* array, std::int64_t element_size);
+/// A new String of a UInt8[]'s bytes, as fb_string_from_bytes() makes one, for std's code that
+/// makes text a byte at a time.
+fb_string_t* fb_string_from_array(const fb_array_t* bytes);
 /// Frees the buffer, for an array's destroy once it released the elements. The runtime frees
 /// the object itself.
 void fb_array_free(const fb_array_t* array);

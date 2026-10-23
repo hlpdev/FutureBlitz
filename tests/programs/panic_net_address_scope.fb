@@ -1,0 +1,6 @@
+// A SocketAddress's scope is IPv6's, so one for an IPv4 address panics where it's made.
+Import std.core
+Import std.net
+
+Print(SocketAddress(IpAddress.LoopbackV6, 80, 2))
+Print(SocketAddress(IpAddress.Loopback, 80, 2))

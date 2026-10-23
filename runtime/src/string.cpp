@@ -219,6 +219,10 @@ fb_string_t* fb_string_from_bytes(const char* text, const std::int64_t length) {
     return make(valid);
 }
 
+fb_string_t* fb_string_from_array(const fb_array_t* bytes) {
+    return fb_string_from_bytes(static_cast<const char*>(bytes->data), bytes->count);
+}
+
 void fb_string_retain(fb_string_t* string) {
     if (string == nullptr) {
         return;
