@@ -1,2 +1,2 @@
 0.1
-panic: a Decimal is finite, not inf at panic_decimal_double.fb:7:7
+panic: a Decimal is finite, not Inf at panic_decimal_double.fb:7:7

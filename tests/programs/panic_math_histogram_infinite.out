@@ -1,2 +1,2 @@
 [1, 2]
-panic: Histogram takes values that are finite, not inf at panic_math_histogram_infinite.fb:8:7
+panic: Histogram takes values that are finite, not Inf at panic_math_histogram_infinite.fb:8:7

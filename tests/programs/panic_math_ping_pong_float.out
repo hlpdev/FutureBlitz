@@ -1,2 +1,2 @@
 0
-panic: PingPong takes a length that isn't negative, not nan at panic_math_ping_pong_float.fb:6:7
+panic: PingPong takes a length that isn't negative, not NaN at panic_math_ping_pong_float.fb:6:7

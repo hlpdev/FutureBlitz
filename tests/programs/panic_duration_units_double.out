@@ -1,2 +1,2 @@
 12h0m0s
-panic: a Duration is a number of seconds, not inf at panic_duration_units_double.fb:7:7
+panic: a Duration is a number of seconds, not Inf at panic_duration_units_double.fb:7:7

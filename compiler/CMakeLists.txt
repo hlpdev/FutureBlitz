@@ -20,7 +20,10 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(tomlplusplus fast_float)
 
 add_library(fb_compiler STATIC ${FB_COMPILER_SOURCES})
-target_include_directories(fb_compiler PUBLIC include ${CMAKE_CURRENT_BINARY_DIR}/generated)
+# fb/text_format.hpp is the runtime's, which the compiler folds constants with, so both format
+# alike.
+target_include_directories(fb_compiler PUBLIC include ${CMAKE_CURRENT_BINARY_DIR}/generated
+  ${PROJECT_SOURCE_DIR}/runtime/include)
 target_link_libraries(fb_compiler PUBLIC fb_llvm PRIVATE tomlplusplus::tomlplusplus FastFloat::fast_float)
 target_compile_definitions(fb_compiler PRIVATE TOML_EXCEPTIONS=0)
 fb_set_warnings(fb_compiler)
