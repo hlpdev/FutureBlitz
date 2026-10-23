@@ -136,6 +136,15 @@ struct loop_t {
     std::vector<block_id_t> continues;
 };
 
+/// A way out of scopes that is running a deferred statement or a Finally: its scope, its place
+/// there, and how many scopes there were. The way out has already let go of what comes after it
+/// in its scope, and of the scopes after that one.
+struct leaving_t {
+    std::size_t scope = 0;
+    std::size_t position = 0;
+    std::size_t scopes = 0;
+};
+
 /// Where a raised error goes: to the Catches of the innermost Try block, or past the innermost
 /// Try?, which gives Null instead.
 struct handler_t {
@@ -454,6 +463,7 @@ private:
     std::vector<std::vector<cleanup_t>> m_scopes; // what leaving each does, innermost last
     std::vector<local_id_t> m_temporaries;        // owned values to release after the statement
     std::vector<loop_t> m_loops;                  // innermost last
+    std::vector<leaving_t> m_leaving;             // innermost last
     /// A Method's or New's Self.
     std::optional<local_id_t> m_self;
     /// Lowering a New, whose Returns give back Self.
@@ -1777,6 +1787,7 @@ private:
         m_scopes.clear();
         m_temporaries.clear();
         m_loops.clear();
+        m_leaving.clear();
         m_self.reset();
         m_returns_self = false;
         m_handlers.clear();
@@ -2868,17 +2879,37 @@ private:
 
         // A copy, since a deferred statement's own blocks add scopes.
         const std::vector<cleanup_t> scope = m_scopes[depth];
-        for (const cleanup_t& cleanup : std::views::reverse(scope)) {
+        for (std::size_t i = scope.size(); i-- > 0;) {
+            const cleanup_t& cleanup = scope[i];
             if (const auto* local = std::get_if<local_id_t>(&cleanup.action)) {
                 emit(release_t{ .target = *local });
-            } else if (const auto* deferred = std::get_if<stmt_id_t>(&cleanup.action)) {
-                lower_stmt(*deferred);
-            } else if (const auto* unlock = std::get_if<unlock_t>(&cleanup.action)) {
+                continue;
+            }
+
+            if (const auto* unlock = std::get_if<unlock_t>(&cleanup.action)) {
                 emit(evaluate_t{ lock_t{ .target = unlock->mutex, .unlock = true } });
+                continue;
+            }
+
+            // An Await in it that never comes back lets go of only what's still held.
+            m_leaving.push_back({ .scope = depth, .position = i, .scopes = m_scopes.size() });
+            if (const auto* deferred = std::get_if<stmt_id_t>(&cleanup.action)) {
+                lower_stmt(*deferred);
             } else {
                 lower_block(*std::get<const block_t*>(cleanup.action));
             }
+
+            m_leaving.pop_back();
         }
+    }
+
+    /// Whether a way out that's running a deferred statement or a Finally has let go of what's at
+    /// `position` in the scope at `depth`.
+    [[nodiscard]] bool left(const std::size_t depth, const std::size_t position) const {
+        return std::ranges::any_of(m_leaving, [&](const leaving_t& leaving) {
+            return (depth > leaving.scope && depth < leaving.scopes) ||
+                   (depth == leaving.scope && position >= leaving.position);
+        });
     }
 
     /// Leaves every scope from `depth` inward, for a jump out of them.
@@ -6594,15 +6625,17 @@ private:
         const block_id_t cancel = new_block();
         terminate(suspend_t{ .resume = resume, .cancel = cancel });
         // Destroyed here, the coroutine lets go of what it holds, without running its Defers or
-        // Finally blocks, and its Task is never done.
+        // Finally blocks, and its Task is never done. In a deferred statement or a Finally on a
+        // way out, what the way out has let go of already is gone.
         start(cancel);
         for (const local_id_t temporary : std::views::reverse(m_temporaries)) {
             emit(release_t{ .target = temporary });
         }
 
-        for (const std::vector<cleanup_t>& scope : std::views::reverse(m_scopes)) {
-            for (const cleanup_t& cleanup : std::views::reverse(scope)) {
-                if (const auto* local = std::get_if<local_id_t>(&cleanup.action)) {
+        for (std::size_t depth = m_scopes.size(); depth-- > 0;) {
+            for (std::size_t position = m_scopes[depth].size(); position-- > 0;) {
+                const auto* local = std::get_if<local_id_t>(&m_scopes[depth][position].action);
+                if (local != nullptr && !left(depth, position)) {
                     emit(release_t{ .target = *local });
                 }
             }

@@ -1,0 +1,98 @@
+// A coroutine destroyed while a Defer's statement or a Finally awaits, on its way out of a
+// function, a block, or a loop, lets go of only what it still holds: what the way out let go of
+// before the Await stays gone, once.
+Import std.core
+
+Class Light
+    Field name: String
+
+    New(name: String)
+        Self.name = name
+    End New
+
+    Method Destroy()
+        Print("{name} goes")
+    End Method
+End Class
+
+Async Function Never(): String
+    Await Seconds(100)
+    Return "never"
+End Function
+
+Global watched: Weak<Light>[] = []
+
+Function Watch(light: Light)
+    Local weak: Weak<Light> = light
+    watched.Add(weak)
+End Function
+
+// The Return lets go of the lamp declared after the Defer, then the Defer awaits.
+Async Function Returning(): String
+    Local kept = Light("kept by Returning")
+    Defer Print("deferred {Await Never()}")
+    Local lamp = Light("Returning's lamp")
+    Watch(lamp)
+    Watch(kept)
+    Return "a"
+End Function
+
+// The Try's block lets go of its lamp, then the Finally awaits.
+Async Function Finishing(): Int
+    Local kept = Light("kept by Finishing")
+    Watch(kept)
+    Try
+        Local lamp = Light("Finishing's lamp")
+        Watch(lamp)
+        Return 1
+    Finally
+        Print("finally {Await Never()}")
+    End Try
+End Function
+
+// A Break leaves the loop's scopes, then the Finally awaits.
+Async Function Breaking()
+    For i = 1 To 3
+        Local outer = Light("Breaking's outer {i}")
+        Watch(outer)
+        Try
+            Local inner = Light("Breaking's inner {i}")
+            Watch(inner)
+            If i == 2 Then Break
+        Finally
+            If i == 2 Then Print("finally {Await Never()}")
+        End Try
+    End For
+End Function
+
+// The end of a block runs its Defer, which awaits after its lamp is gone.
+Async Function Ending()
+    If True
+        Defer Print("deferred {Await Never()}")
+        Local lamp = Light("Ending's lamp")
+        Watch(lamp)
+    End If
+End Function
+
+Function Gone(): String
+    Local names = ""
+    For weak In watched
+        Local light: Light? = weak
+        names += "{light?.name ?? "gone"}; "
+    End For
+
+    Return names
+End Function
+
+Function Drop()
+    Local paused = Scheduler()
+    paused.Run(Returning())
+    paused.Run(Finishing())
+    paused.Run(Breaking())
+    paused.Run(Ending())
+    paused.Tick(1.0)
+    Print("before dropping: {Gone()}")
+End Function
+
+Drop()
+Print("after dropping: {Gone()}")
