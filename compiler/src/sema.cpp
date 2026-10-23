@@ -7087,10 +7087,9 @@ private:
         }
     }
 
-    /// A Global or top-level Const. Without an annotation, its type comes from the initializer
-    /// later, in initialize_globals().
-    /// A top-level Global or Const, before anything else, so that types can use it. Its type
-    /// comes next, from resolve_global_type().
+    /// A top-level Global or Const, or a Const Function, before anything else, so that types can
+    /// use it. A variable's written type comes next, from resolve_global_type(), and an
+    /// initializer gives the rest, in initialize_globals().
     void declare_global_item(const stmt_id_t id) {
         // A Const Function only takes the types of values the compiler holds, which are all
         // declared already, so a declaration's type can call it.
