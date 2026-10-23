@@ -1,0 +1,68 @@
+// std.text.diff's runs of lines and of characters, the fewest edits Myers' algorithm finds, its
+// unified diffs' context and names, and merges' names and conflict counts. text_diff_git.fb has
+// what git gives for the same.
+Import std.core
+Import std.text.diff
+Import std.text.string
+
+Function Shown(runs: DiffRun[]): String
+    Local shown = ""
+    For run In runs
+        Local mark = "="
+        If run.Kind == DiffKind.DELETED Then mark = "-"
+        If run.Kind == DiffKind.INSERTED Then mark = "+"
+        shown += "{mark}[{run.Text.Replace("\n", "|")}] "
+    End For
+
+    Return shown
+End Function
+
+// Myers' own example, from his paper: ABCABBA to CBABAC takes 5 edits, his deleting A and B,
+// keeping C, inserting B, keeping A and B, deleting B, keeping A, and inserting C.
+Print(Shown(Diff.Lines("A\nB\nC\nA\nB\nB\nA\n", "C\nB\nA\nB\nA\nC\n")))
+Print(Shown(Diff.Chars("ABCABBA", "CBABAC")))
+
+// Characters are code points: an accent, a combining mark, and an emoji are one each.
+Print(Shown(Diff.Chars("café 😀!", "cafe 😀?")))
+Print(Shown(Diff.Chars("e\u{301}", "e")))
+Print(Shown(Diff.Chars("", "new")), Shown(Diff.Chars("old", "")), Shown(Diff.Chars("", "")))
+
+// Replaced lines are deleted, then inserted, and a last line without a line break is a line.
+Print(Shown(Diff.Lines("a\nb\nc", "a\nx\ny\nc")))
+Print(Shown(Diff.Lines("same", "same")), Shown(Diff.Lines("", "")))
+
+// A unified diff's context, and its names.
+Local before = "1\n2\n3\n4\n5\n6\n7\n8\n9\n"
+Local after = "1\n2\nthree\n4\n5\n6\n7\neight\n9\n"
+Write(Diff.Unified(before, after, "old.txt", "new.txt", 0))
+Write(Diff.Unified(before, after, context: 1))
+Write(Diff.Unified(before, after, context: 2))
+Print(Diff.Unified(before, before) == "")
+
+// Two texts of 3000 lines, a third of them changed: Myers' rounds keep only the diagonals each
+// reads, so a thousand changes take a few megabytes.
+Local many = ""
+Local changed = ""
+For i = 0 Until 3000
+    many += "line {i}\n"
+    changed += i % 3 == 0 ? "changed {i}\n" : "line {i}\n"
+End For
+
+Local runs = Diff.Lines(many, changed)
+Local deleted = 0
+Local inserted = 0
+For run In runs
+    If run.Kind == DiffKind.DELETED Then deleted += run.Text.Count("\n")
+    If run.Kind == DiffKind.INSERTED Then inserted += run.Text.Count("\n")
+End For
+Print(runs.Count, deleted, inserted)
+
+// A merge's names in its markers, and how many conflicts it has.
+Local merged = Diff.Merge("a\nb\nc\n", "a\nB\nc\n", "a\nβ\nc\n", "mine", "yours")
+Write(merged.Text)
+Print(merged.Conflicts)
+Local clean = Diff.Merge("a\nb\nc\n", "A\nb\nc\n", "a\nb\nC\n")
+Write(clean.Text)
+Print(clean.Conflicts)
+// A side that ends without a line break still has its markers on their own lines.
+Write(Diff.Merge("a\nb", "a\nB", "a\nc").Text)
