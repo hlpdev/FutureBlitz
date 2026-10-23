@@ -20,6 +20,7 @@ using fb::compress::RESULT_DONE;
 using fb::compress::RESULT_ENDS_TOO_SOON;
 using fb::compress::RESULT_INVALID;
 using fb::compress::RESULT_TOO_LARGE;
+using fb::compress::RESULT_UNSUPPORTED;
 
 namespace {
 
@@ -164,6 +165,9 @@ std::int32_t inflate_all(decoder_t& decoder, const std::span<const std::uint8_t>
             break;
         } else if (status == Z_MEM_ERROR) {
             check(status);
+        } else if (status == Z_NEED_DICT) {
+            // RFC 1950's preset dictionary, which a Zlib stream may say it was made with.
+            return decoder.failure.fail(RESULT_UNSUPPORTED, "it needs a preset dictionary");
         } else if (status != Z_OK) {
             const char* message = decoder.stream.msg != nullptr ? decoder.stream.msg : "";
             return decoder.failure.fail(RESULT_INVALID, message);

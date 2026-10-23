@@ -96,9 +96,11 @@ std::int32_t decompress_all(decoder_t& decoder, const std::span<const std::uint8
             }
 
             // A frame whose window is past zstd's default of 128 MiB, as from zstd's --long,
-            // takes that much memory, which zstd doesn't ask for unless told.
-            const bool large = error == ZSTD_error_frameParameter_windowTooLarge;
-            return decoder.failure.fail(large ? RESULT_UNSUPPORTED : RESULT_INVALID,
+            // takes that much memory, which zstd doesn't ask for unless told, and one made with
+            // a dictionary needs it.
+            const bool unsupported = error == ZSTD_error_frameParameter_windowTooLarge ||
+                                     error == ZSTD_error_dictionary_wrong;
+            return decoder.failure.fail(unsupported ? RESULT_UNSUPPORTED : RESULT_INVALID,
                                         ZSTD_getErrorName(hint));
         }
 

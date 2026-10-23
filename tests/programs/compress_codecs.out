@@ -79,3 +79,5 @@ Gzip in whole chunks: True of empty parts: 0 0
 Zstd in whole chunks: True of empty parts: 0 0
 Lz4 in whole chunks: True of empty parts: 0 0
 XZ in whole chunks: True of empty parts: 0 0
+Zlib with a dictionary: OTHER: the Zlib data uses what isn't supported: it needs a preset dictionary
+Zstd with a dictionary: OTHER: the Zstd data uses what isn't supported: Dictionary mismatch

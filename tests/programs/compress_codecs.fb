@@ -349,3 +349,16 @@ For format In FORMATS
     Local second = Try Decompressed(format, empty[1], 10)
     Print(format, "in whole chunks:", whole, "of empty parts:", first.Count, second.Count)
 End For
+
+// Data made with a preset dictionary, which std.compress doesn't take: a Zlib stream that says
+// it needs one, as Python's zlib.compressobj(zdict=...) makes one, and a Zstd frame whose header
+// names dictionary 7, after its descriptor, which says a 1-byte dictionary ID.
+Local withDictionary: UInt8[] = [120, 187, 141, 125, 9, 238, 51, 54, 80, 72, 194, 45, 11, 0,
+                                 156, 106, 10, 113]
+Print("Zlib with a dictionary:", Outcome("Zlib", withDictionary))
+Local small = Zstd.Compress("hello, hello, hello".Bytes)
+Local withId: UInt8[] = small[0..4]
+withId.Add(small[4] | 1)
+withId.Add(7)
+withId.AddAll(small[5..small.Count])
+Print("Zstd with a dictionary:", Outcome("Zstd", withId))
