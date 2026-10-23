@@ -21975,20 +21975,37 @@ private:
     }
 
     /// The type that literal values share, like an array literal's elements, which are converted
-    /// to it. Typed values first, then Null and literals, which take the type they meet at.
+    /// to it. Typed values first, then the literals that take the type they meet at, numbers,
+    /// tuples, and empty arrays and Maps, and Null last, which takes that type's T?, wherever
+    /// each is among them.
     type_id_t common_type_of(const std::vector<expr_id_t>& values, const std::string_view what) {
+        const auto pass_of = [&](const expr_id_t value) {
+            const expr_node_t& node = m_ast.get(value).node;
+            const auto* array = std::get_if<array_expr_t>(&node);
+            const auto* map = std::get_if<map_expr_t>(&node);
+            if (is_null(value)) {
+                return 2;
+            }
+
+            return is_flexible(value) || std::holds_alternative<tuple_expr_t>(node) ||
+                           (array != nullptr && array->elements.empty()) ||
+                           (map != nullptr && map->entries.empty())
+                       ? 1
+                       : 0;
+        };
+
         // NONE until the first one.
         type_id_t common = type_id_t::NONE;
-        for (const bool flexible : { false, true }) {
+        for (const int pass : { 0, 1, 2 }) {
             for (const expr_id_t value : values) {
-                if ((is_flexible(value) || is_null(value)) != flexible) {
+                if (pass_of(value) != pass) {
                     continue;
                 }
 
                 type_id_t value_hint = type_id_t::NONE;
                 if (is_null(value) && common != type_id_t::NONE) {
                     value_hint = nullable_of(common);
-                } else if (is_numeric(common)) {
+                } else if (is_numeric(common) || (pass == 1 && !is_flexible(value))) {
                     value_hint = common;
                 } else if (is_flexible(value)) {
                     value_hint = has_decimal_among(values) ? type_id_t::FLOAT32 : type_id_t::INT32;

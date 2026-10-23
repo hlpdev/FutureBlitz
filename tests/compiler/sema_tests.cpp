@@ -1976,6 +1976,13 @@ TEST_CASE("an array literal takes the expected type, or its elements' common one
     CHECK(probe("Local a = [[1], [2, 3]]") == "Int32[][]");
     CHECK(probe("Local a: String[]? = []") == "String[]? (from String[])");
 
+    // Null and empty arrays take the type the others meet at, wherever they are among them.
+    CHECK(probe("Local a = [1, Null]") == "Int32?[]");
+    CHECK(probe("Local a = [Null, 1]") == "Int32?[]");
+    CHECK(probe("Local m = {\"x\": Null, \"y\": 2}") == "Map<String, Int32?>");
+    CHECK(probe("Local i: Int[] = [1]\nLocal a = [i, []]") == "Int32[][]");
+    CHECK(probe("Local i: Int[] = [1]\nLocal a = [[], i]") == "Int32[][]");
+
     CHECK(errors_of("Local a = []") ==
           errors_t{ "[]: an empty array needs a type from where it's used, like 'Local a: Int[] = "
                     "[]'" });
