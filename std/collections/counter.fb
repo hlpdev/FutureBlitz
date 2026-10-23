@@ -6,6 +6,7 @@ Import std.core
 Import std.collections.array
 Import std.collections.map
 
+@DebugEntries
 Public Class Counter<T> Implements Iterable<(T, Int)>, Cloneable, Defaultable, Hashable
     Where T: Hashable
 

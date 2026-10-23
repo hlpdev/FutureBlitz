@@ -241,6 +241,9 @@ private:
     function_ref_t m_format_uint;
     function_ref_t m_format_float;
     function_ref_t m_format_text;
+    function_ref_t m_string_debug;
+    function_ref_t m_debug_object;
+    function_ref_t m_debug_indent;
     function_ref_t m_power_int;
     function_ref_t m_power_uint;
     function_ref_t m_cstring_new;
@@ -745,6 +748,9 @@ private:
         m_format_uint = declare("fb_format_uint", m_ptr, { m_i64, m_ptr });
         m_format_float = declare("fb_format_float", m_ptr, { f64, m_i32, m_ptr });
         m_format_text = declare("fb_format_text", m_ptr, { m_ptr, m_ptr, m_i32 });
+        m_string_debug = declare("fb_string_debug", m_ptr, { m_ptr });
+        m_debug_object = declare("fb_debug_object", m_ptr, { m_ptr, m_i32 });
+        m_debug_indent = declare("fb_debug_indent", m_ptr, { m_i32 });
         m_power_int = declare("fb_power_int", m_i64, { m_i64, m_i64, m_i32, m_i32, m_ptr });
         m_power_uint = declare("fb_power_uint", m_i64, { m_i64, m_i64, m_i32, m_i32, m_ptr });
         m_cstring_new = declare("fb_cstring_new", m_ptr, { m_ptr });
@@ -819,18 +825,18 @@ private:
     /// size, its destroy, release, and visit, its count of objects, its Interfaces and their
     /// count, and the Class it extends.
     LLVMTypeRef class_type(LLVMTypeRef table) {
-        std::array<LLVMTypeRef, 12> fields{
-            m_ptr, m_ptr, m_i64, // name, full_name, size
-            m_ptr, m_ptr, m_ptr, // destroy, release, visit
-            m_i64, m_ptr, m_i64, // live, interfaces, interface_count
-            m_i64, m_ptr, table, // shared, base, methods
+        std::array<LLVMTypeRef, 13> fields{
+            m_ptr, m_ptr, m_i64,        // name, full_name, size
+            m_ptr, m_ptr, m_ptr, m_ptr, // destroy, release, visit, debug
+            m_i64, m_ptr, m_i64,        // live, interfaces, interface_count
+            m_i64, m_ptr, table,        // shared, base, methods
         };
         return LLVMStructTypeInContext(context(), fields.data(),
                                        static_cast<unsigned>(fields.size()), 0);
     }
 
     /// Where the Method table is in an fb_class_t.
-    static constexpr unsigned methods_field = 11;
+    static constexpr unsigned methods_field = 12;
 
     /// How the runtime's messages show a type when another they show has the same name: with
     /// each module first, the main module's too.
@@ -1008,8 +1014,8 @@ private:
             LLVMSetInitializer(
                 m_classes.at(info.type),
                 class_value(info.type, LLVMSizeOf(object_type(info.type)), functions.destroy,
-                            functions.release, functions.visit, implementations(info), extended,
-                            std::move(methods),
+                            functions.release, functions.visit, info.debug, implementations(info),
+                            extended, std::move(methods),
                             m_mir.types->get(info.type).shared || is_task(info.type)));
             m_class_functions.push_back(functions);
         }
@@ -1022,16 +1028,18 @@ private:
     LLVMValueRef class_value(const type_id_t type, LLVMValueRef size,
                              const std::optional<function_ref_t>& destroy,
                              const function_ref_t& release, const function_ref_t& visit,
+                             const std::optional<function_id_t> debug,
                              const std::pair<LLVMValueRef, LLVMValueRef>& interfaces,
                              LLVMValueRef base, std::vector<LLVMValueRef> methods,
                              const bool shared = false) {
-        std::array<LLVMValueRef, 12> values{
+        std::array<LLVMValueRef, 13> values{
             c_string(std::string(m_mir.types->name(type))),
             c_string(full_name(type)),
             size,
             destroy ? destroy->value : LLVMConstNull(m_ptr),
             release.value,
             visit.value,
+            debug ? m_functions[index(*debug)].value : LLVMConstNull(m_ptr),
             LLVMConstInt(m_i64, 0, 0),
             interfaces.first,
             interfaces.second,
@@ -2044,12 +2052,13 @@ private:
         };
         // Its tables, when its objects go where an Interface is expected.
         const auto tables = std::ranges::find(m_mir.array_classes, type, &mir_class_t::type);
-        LLVMValueRef info = class_value(
-            type, LLVMSizeOf(m_array_type), std::nullopt, functions.release, functions.visit,
-            tables != m_mir.array_classes.end()
-                ? implementations(*tables)
-                : std::pair{ LLVMConstNull(m_ptr), LLVMConstInt(m_i64, 0, 0) },
-            LLVMConstNull(m_ptr), {});
+        const bool tabled = tables != m_mir.array_classes.end();
+        LLVMValueRef info =
+            class_value(type, LLVMSizeOf(m_array_type), std::nullopt, functions.release,
+                        functions.visit, tabled ? tables->debug : std::nullopt,
+                        tabled ? implementations(*tables)
+                               : std::pair{ LLVMConstNull(m_ptr), LLVMConstInt(m_i64, 0, 0) },
+                        LLVMConstNull(m_ptr), {});
         const std::string global_name = std::format("fb.{}.class", name);
         LLVMValueRef global = LLVMAddGlobal(m_module.get(), LLVMTypeOf(info), global_name.c_str());
         LLVMSetInitializer(global, info);
@@ -3261,9 +3270,10 @@ private:
             .visit =
                 declare_internal(std::format("fb.{}.visit", name), m_void, { m_ptr, m_ptr, m_ptr }),
         };
-        LLVMValueRef info = class_value(
-            type, LLVMSizeOf(m_channel_type), std::nullopt, functions.release, functions.visit,
-            { LLVMConstNull(m_ptr), LLVMConstInt(m_i64, 0, 0) }, LLVMConstNull(m_ptr), {}, true);
+        LLVMValueRef info = class_value(type, LLVMSizeOf(m_channel_type), std::nullopt,
+                                        functions.release, functions.visit, std::nullopt,
+                                        { LLVMConstNull(m_ptr), LLVMConstInt(m_i64, 0, 0) },
+                                        LLVMConstNull(m_ptr), {}, true);
         const std::string global_name = std::format("fb.{}.class", name);
         LLVMValueRef global = LLVMAddGlobal(m_module.get(), LLVMTypeOf(info), global_name.c_str());
         LLVMSetInitializer(global, info);
@@ -3288,9 +3298,10 @@ private:
         std::array fields{ m_object_header, m_ptr };
         LLVMTypeRef object = LLVMStructTypeInContext(context(), fields.data(),
                                                      static_cast<unsigned>(fields.size()), 0);
-        LLVMValueRef info = class_value(
-            type, LLVMSizeOf(object), std::nullopt, functions.release, functions.visit,
-            { LLVMConstNull(m_ptr), LLVMConstInt(m_i64, 0, 0) }, LLVMConstNull(m_ptr), {}, false);
+        LLVMValueRef info =
+            class_value(type, LLVMSizeOf(object), std::nullopt, functions.release, functions.visit,
+                        std::nullopt, { LLVMConstNull(m_ptr), LLVMConstInt(m_i64, 0, 0) },
+                        LLVMConstNull(m_ptr), {}, false);
         LLVMValueRef global = LLVMAddGlobal(m_module.get(), LLVMTypeOf(info), "fb.Scheduler.class");
         LLVMSetInitializer(global, info);
         LLVMSetLinkage(global, LLVMInternalLinkage);
@@ -3549,6 +3560,13 @@ private:
                             LLVMBuildZExt(builder(), value_of(node.arguments[1]), m_i32, ""),
                             value_of(node.arguments[2]),
                         });
+        case runtime_function_t::DEBUG_STRING:
+            return call(m_string_debug, { value_of(node.arguments[0]) });
+        case runtime_function_t::DEBUG_OBJECT:
+            return call(m_debug_object,
+                        { value_of(node.arguments[0]), value_of(node.arguments[1]) });
+        case runtime_function_t::DEBUG_INDENT:
+            return call(m_debug_indent, { value_of(node.arguments[0]) });
         case runtime_function_t::FORMAT_TEXT:
             return call(m_format_text,
                         {

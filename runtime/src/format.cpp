@@ -12,6 +12,7 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <vector>
 
 // Text by a format spec, which the compiler checked, or which a Formattable's Format reads at run
 // time: through the formatter the compiler folds constants with, so both give the same text.
@@ -141,6 +142,28 @@ fb_string_t* fb_format_text(const fb_string_t* text, const fb_string_t* spec,
 
 fb_string_t* fb_string_debug(const fb_string_t* text) {
     return make(fb::debug_text(view(text)));
+}
+
+fb_string_t* fb_debug_object(const fb_object_t* object, const std::int32_t indent) {
+    const fb_class_t* type = object->type;
+    if (type->debug == nullptr) {
+        return make(type->name);
+    }
+
+    // The objects this thread is showing, which a cycle comes back to.
+    thread_local std::vector<const fb_object_t*> showing;
+    if (std::ranges::contains(showing, object)) {
+        return make(std::string(type->name) + " { … }");
+    }
+
+    showing.push_back(object);
+    fb_string_t* text = type->debug(object, indent);
+    showing.pop_back();
+    return text;
+}
+
+fb_string_t* fb_debug_indent(const std::int32_t indent) {
+    return make("\n" + std::string(static_cast<std::size_t>(std::max(indent, 0)) * 4, ' '));
 }
 
 std::int32_t fb_parse_int(const fb_string_t* text, const std::int32_t base, std::int64_t* value) {

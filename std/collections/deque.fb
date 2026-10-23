@@ -5,6 +5,7 @@
 Import std.core
 Import std.collections.array
 
+@DebugElements
 Public Class Deque<T> Implements Iterable<T>, Cloneable, Defaultable
     Field Front: T[] = []
     Field Back: T[] = []

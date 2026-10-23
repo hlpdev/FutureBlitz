@@ -39,6 +39,7 @@ Class SortedNode<K, V>
     End Method
 End Class
 
+@DebugEntries
 Public Class SortedMap<K, V> Implements Iterable<(K, V)>, Cloneable, Defaultable
     Where K: Comparable
 
@@ -530,6 +531,7 @@ Extend SortedMap<K, V> Implements Printable
 End Extend
 
 // Values without repeats, in order, which a SortedMap holds as its keys.
+@DebugElements
 Public Class SortedSet<T> Implements Iterable<T>, Cloneable, Defaultable, Equatable
     Where T: Comparable
 

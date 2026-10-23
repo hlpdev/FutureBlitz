@@ -5,6 +5,7 @@
 Import std.core
 Import std.collections.array
 
+@DebugElements
 Public Class RingBuffer<T> Implements Iterable<T>, Cloneable
     Field Slots: T?[] = []
     // The oldest value's slot.

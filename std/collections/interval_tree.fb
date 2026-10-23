@@ -25,6 +25,7 @@ Class IntervalNode<K, V>
     End New
 End Class
 
+@DebugElements
 Public Class IntervalTree<K, V> Implements Iterable<(K, K, V)>, Cloneable, Defaultable
     Where K: Comparable
 

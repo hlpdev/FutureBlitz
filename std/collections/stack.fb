@@ -3,6 +3,7 @@
 Import std.core
 Import std.collections.array
 
+@DebugElements
 Public Class Stack<T> Implements Iterable<T>, Cloneable, Defaultable
     Field Items: T[] = []
     // How many times values were added or removed, so a For ... In over them can tell.

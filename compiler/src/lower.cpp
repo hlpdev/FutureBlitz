@@ -416,6 +416,11 @@ private:
         TEXT,
         /// A Task's or Thread's: runs its closure and keeps the result.
         RUN,
+        /// A value's debug form, (value, indent) to a String: a T?'s, tuple's, array's, Struct's,
+        /// or a Class's own objects', which its fb_class_t has.
+        DEBUG,
+        /// The debug form of an array of (key, value) tuples, as a Map's: {"a": 1}.
+        DEBUG_ENTRIES,
     };
 
     struct generated_t {
@@ -427,6 +432,9 @@ private:
     /// The array functions the program uses, and each Task's and Thread's work, whose bodies are
     /// lowered with the code used from outside the main module.
     std::vector<generated_t> m_generated;
+    /// Whether the program shows a debug form, so each Class's objects have one, and each array
+    /// type's that goes where an Interface is expected.
+    bool m_debug_used = false;
 
     /// What an Interface's table runs for a Method that isn't called the way the Interface's
     /// is: one that gives a Struct where the Interface's gives an Iterator<T>, as a collection's
@@ -1223,11 +1231,17 @@ private:
         std::size_t generated = 0;
         std::size_t thunks = 0;
         std::size_t initializers = 0;
+        std::size_t debugged = 0;
+        std::size_t debugged_arrays = 0;
+        const auto undebugged = [&] {
+            return m_debug_used && (debugged < m_module.classes.size() ||
+                                    debugged_arrays < m_module.array_classes.size());
+        };
         while (!m_module.error &&
                (classes < m_used_classes.size() || functions < m_library_functions.size() ||
                 closures < m_closures.size() || instances < m_pending_instances.size() ||
                 generated < m_generated.size() || thunks < m_table_thunks.size() ||
-                initializers < m_thread_initializers.size())) {
+                initializers < m_thread_initializers.size() || undebugged())) {
             if (initializers < m_thread_initializers.size()) {
                 const global_id_t global = m_thread_initializers[initializers++];
                 m_parameters.clear();
@@ -1252,6 +1266,26 @@ private:
                 m_parameters.clear();
                 m_arguments.clear();
                 lower_generated(function);
+                continue;
+            }
+
+            // Once the program shows a debug form, each object shows its own Class's. The
+            // Classes the compiler makes for cells, closures, and Tasks show their type's name.
+            if (undebugged()) {
+                if (debugged < m_module.classes.size()) {
+                    const std::size_t at = debugged++;
+                    const type_id_t type = m_module.classes[at].type;
+                    if (m_declared_types.contains(definition_of(type))) {
+                        const function_id_t debug = this->generated(generated_kind_t::DEBUG, type);
+                        m_module.classes[at].debug = debug;
+                    }
+                } else {
+                    const std::size_t at = debugged_arrays++;
+                    const function_id_t debug =
+                        this->generated(generated_kind_t::DEBUG, m_module.array_classes[at].type);
+                    m_module.array_classes[at].debug = debug;
+                }
+
                 continue;
             }
 
@@ -6129,6 +6163,24 @@ private:
         const operand_t spec_text = make_string(std::string(format.text));
         const std::expected<format_spec_t, format_spec_error_t> spec =
             parse_format_spec(format.text);
+        // The debug form, every value's, is on one line, or with '#' indented, then padded.
+        if (spec && spec->kind == '?') {
+            const operand_t indent{
+                const_value_t{
+                    .type = type_id_t::INT32,
+                    .data = std::int64_t{ spec->alternate ? 0 : -1 },
+                },
+            };
+            operand_t text = debug_of(value, type, indent);
+            if (spec->width > 0) {
+                text = runtime_call(runtime_function_t::FORMAT_TEXT,
+                                    { text, make_bool(false), spec_text }, type_id_t::STRING, true);
+            }
+
+            parts.push_back(text);
+            return;
+        }
+
         // A Formattable type of the program's own reads its own spec.
         const type_id_t formattable = m_analysis.interfaces.formattable;
         if ((is_struct(type) || is_class(type) || is_interface(type)) &&
@@ -6186,6 +6238,265 @@ private:
                              { text, make_bool(subject == format_subject_t::STRING), spec_text },
                              type_id_t::STRING, true));
         }
+    }
+
+    /// A value's debug form, "{x:?}"'s: all on one line where `indent` is below 0, or else that
+    /// many levels in, with each part on a line of its own. A number or Bool is its text, a String
+    /// is in quotes, an Enum is its member, an object shows its own Class's form, a Weak<T> what
+    /// reading it gives, and what has no parts of its own to show, like a Task or a function
+    /// value, its type's name.
+    operand_t debug_of(const operand_t& value, const type_id_t type, const operand_t& indent) {
+        m_debug_used = true;
+        if (is_numeric(type) || type == type_id_t::BOOL) {
+            return runtime_call(runtime_function_t::TO_TEXT, { value }, type_id_t::STRING, true);
+        }
+
+        if (type == type_id_t::STRING) {
+            return runtime_call(runtime_function_t::DEBUG_STRING, { value }, type_id_t::STRING,
+                                true);
+        }
+
+        if (is_enum(type)) {
+            std::vector<operand_t> parts;
+            add_text(parts, value, type);
+            return parts.front();
+        }
+
+        if (is_class(type) || is_interface(type)) {
+            return runtime_call(runtime_function_t::DEBUG_OBJECT, { value, indent },
+                                type_id_t::STRING, true);
+        }
+
+        if (is_weak(type)) {
+            const type_id_t read = types().nullable(types().get(type).inner);
+            return debug_of(runtime_call(runtime_function_t::WEAK_LOAD, { value }, read, true),
+                            read, indent);
+        }
+
+        const type_kind_t kind = types().get(type).kind;
+        const bool has_parts = is_nullable(type) || is_tuple(type) || is_any_array(type) ||
+                               kind == type_kind_t::STRUCT;
+        if (!has_parts) {
+            return make_string(std::string(types().name(type)));
+        }
+
+        call_t call{
+            .function = generated(generated_kind_t::DEBUG, type),
+            .arguments = { { .value = value }, { .value = indent } },
+        };
+        return temporary(std::move(call), type_id_t::STRING, true);
+    }
+
+    /// How a debug form lays out its parts, in String locals: on one line, as "(1, 2)", or each
+    /// on a line of its own one level in, with a comma after it, where its indent is 0 or more.
+    /// `spaced` puts a space inside the braces on one line, as a Struct's "Point { x: 1 }" has.
+    struct debug_layout_t {
+        /// The parts' indent, below 0 on one line.
+        local_id_t child;
+        /// What goes before the first part, between two, and after the last.
+        local_id_t first;
+        local_id_t next;
+        local_id_t last;
+    };
+
+    debug_layout_t debug_layout(const local_id_t indent, const bool spaced) {
+        const span_t nowhere;
+        const debug_layout_t layout{
+            .child = add_local(type_id_t::INT32, "child"),
+            .first = add_local(type_id_t::STRING, "first"),
+            .next = add_local(type_id_t::STRING, "next"),
+            .last = add_local(type_id_t::STRING, "last"),
+        };
+        const std::string edge = spaced ? " " : "";
+        emit(assign_t{ .target = layout.child, .value = use_t{ .value = place_t{ indent } } });
+        initialize(layout.first, make_string(edge));
+        initialize(layout.next, make_string(", "));
+        initialize(layout.last, make_string(edge));
+        for (const local_id_t text : { layout.first, layout.next, layout.last }) {
+            m_scopes.back().emplace_back(text);
+        }
+
+        const operand_t lines =
+            compare(binary_op_t::GREATER_EQUAL, place_t{ indent }, zero(type_id_t::INT32), nowhere);
+        const block_id_t many = new_block();
+        const block_id_t done = new_block();
+        terminate(branch_t{ .condition = lines, .if_true = many, .if_false = done });
+        start(many);
+        count_up(layout.child, nowhere);
+        store(layout.first, runtime_call(runtime_function_t::DEBUG_INDENT,
+                                         { place_t{ layout.child } }, type_id_t::STRING, true));
+        finish_statement();
+        store(layout.next,
+              runtime_call(runtime_function_t::JOIN, { make_string(","), place_t{ layout.first } },
+                           type_id_t::STRING, true));
+        finish_statement();
+        const operand_t end = runtime_call(runtime_function_t::DEBUG_INDENT, { place_t{ indent } },
+                                           type_id_t::STRING, true);
+        store(layout.last, runtime_call(runtime_function_t::JOIN, { make_string(","), end },
+                                        type_id_t::STRING, true));
+        finish_statement();
+        jump(done);
+        start(done);
+        return layout;
+    }
+
+    /// A debug function's body: the debug form of the value in `value`, at the indent in
+    /// `indent`, which debug_of() describes, in the String local it gives. With `entries`, the
+    /// value is an array of (key, value) tuples, shown as a Map's are, {"a": 1}. A type with
+    /// std's DebugElements shows its elements in place of its Fields, as "Stack<Int32> [1, 2]",
+    /// and one with DebugEntries its entries, as "Map<String, Int32> {"a": 1}".
+    local_id_t debug_body(const local_id_t value, const type_id_t type, const local_id_t indent,
+                          const bool entries) {
+        const span_t nowhere;
+        const local_id_t text = add_local(type_id_t::STRING, "text");
+        const auto begin = [&](const operand_t& first) {
+            initialize(text, first);
+            m_scopes.back().emplace_back(text);
+            finish_statement();
+        };
+        // Adds `parts` to the text, after `before`.
+        const auto add = [&](const local_id_t before, std::vector<operand_t> parts) {
+            parts.insert(parts.begin(), { place_t{ text }, place_t{ before } });
+            store(text, runtime_call(runtime_function_t::JOIN, std::move(parts), type_id_t::STRING,
+                                     true));
+            finish_statement();
+        };
+        const auto close = [&](const std::string_view end) {
+            store(text, runtime_call(runtime_function_t::CONCAT,
+                                     { place_t{ text }, make_string(std::string(end)) },
+                                     type_id_t::STRING, true));
+            finish_statement();
+        };
+
+        if (is_nullable(type)) {
+            begin(make_string("Null"));
+            const block_id_t holds = new_block();
+            const block_id_t done = new_block();
+            terminate(branch_t{
+                .condition = has_value(place_t{ value }, nowhere),
+                .if_true = holds,
+                .if_false = done,
+            });
+            start(holds);
+            store(text,
+                  debug_of(unwrap(place_t{ value }), types().get(type).inner, place_t{ indent }));
+            finish_statement();
+            jump(done);
+            start(done);
+            return text;
+        }
+
+        const std::string name(types().name(type));
+        if (const std::optional<type_id_t> shown = debug_elements(type)) {
+            call_t call{
+                .function = function_of(expect(m_analysis.elements_of), { type, *shown }),
+                .arguments = { { .value = place_t{ value } } },
+            };
+            const type_id_t array = types().array(*shown);
+            const operand_t elements = temporary(std::move(call), array, true);
+            operand_t form;
+            if (has_attribute(type, m_analysis.debug_entries)) {
+                call_t debug{
+                    .function = generated(generated_kind_t::DEBUG_ENTRIES, array),
+                    .arguments = { { .value = elements }, { .value = place_t{ indent } } },
+                };
+                form = temporary(std::move(debug), type_id_t::STRING, true);
+            } else {
+                form = debug_of(elements, array, place_t{ indent });
+            }
+
+            begin(runtime_call(runtime_function_t::JOIN, { make_string(name + " "), form },
+                               type_id_t::STRING, true));
+            return text;
+        }
+
+        if (is_any_array(type)) {
+            const type_id_t element = types().get(type).inner;
+            begin(make_string(entries ? "{" : "["));
+            const debug_layout_t layout = debug_layout(indent, false);
+            const local_id_t before = add_local(type_id_t::STRING, "before");
+            initialize(before, place_t{ layout.first });
+            m_scopes.back().emplace_back(before);
+            each_element(value, type, [&](const place_t& item, local_id_t /*counter*/) {
+                const operand_t child = place_t{ layout.child };
+                if (entries) {
+                    const std::vector<field_t>& pair = types().get(element).fields;
+                    add(before, {
+                                    debug_of(element_of(item, 0), pair[0].type, child),
+                                    make_string(": "),
+                                    debug_of(element_of(item, 1), pair[1].type, child),
+                                });
+                } else {
+                    add(before, { debug_of(item, element, child) });
+                }
+
+                store(before, place_t{ layout.next });
+                finish_statement();
+            });
+
+            // The last part's comma and line break, when there's a part.
+            const operand_t any = compare(binary_op_t::GREATER, element_count_of(value, type),
+                                          zero(type_id_t::INT32), nowhere);
+            const block_id_t some = new_block();
+            const block_id_t done = new_block();
+            terminate(branch_t{ .condition = any, .if_true = some, .if_false = done });
+            start(some);
+            add(layout.last, {});
+            jump(done);
+            start(done);
+            close(entries ? "}" : "]");
+            return text;
+        }
+
+        // A tuple's elements, or a Struct's or object's Fields, by name.
+        const std::vector<field_t>& fields = types().get(type).fields;
+        const bool tuple = is_tuple(type);
+        if (fields.empty()) {
+            begin(make_string(name + " {}"));
+            return text;
+        }
+
+        begin(make_string(tuple ? "(" : name + " {"));
+        const debug_layout_t layout = debug_layout(indent, !tuple);
+        for (std::uint32_t i = 0; i < fields.size(); ++i) {
+            std::vector<operand_t> parts;
+            if (!tuple) {
+                parts.emplace_back(make_string(fields[i].name + ": "));
+            }
+
+            parts.push_back(
+                debug_of(element_of(place_t{ value }, i), fields[i].type, place_t{ layout.child }));
+            add(i == 0 ? layout.first : layout.next, std::move(parts));
+        }
+
+        add(layout.last, {});
+        close(tuple ? ")" : "}");
+        return text;
+    }
+
+    /// Whether a Struct's or Class's declaration has the Attribute `attribute`.
+    [[nodiscard]] bool has_attribute(const type_id_t type, const type_id_t attribute) const {
+        const auto declared = m_declared_types.find(definition_of(type));
+        return attribute != type_id_t::INVALID && declared != m_declared_types.end() &&
+               std::ranges::contains(m_analysis.symbol(declared->second).attributes, attribute,
+                                     &attribute_value_t::type);
+    }
+
+    /// The T of the Iterable<T> that a type with std's DebugElements or DebugEntries implements,
+    /// whose debug form shows its elements, or nullopt for one that shows its Fields.
+    [[nodiscard]] std::optional<type_id_t> debug_elements(const type_id_t type) const {
+        if (!m_analysis.elements_of || (!has_attribute(type, m_analysis.debug_elements) &&
+                                        !has_attribute(type, m_analysis.debug_entries))) {
+            return std::nullopt;
+        }
+
+        for (const type_id_t interface : implemented(type)) {
+            if (definition_of(interface) == m_analysis.interfaces.iterable) {
+                return types().get(interface).arguments.front();
+            }
+        }
+
+        return std::nullopt;
     }
 
     /// A Formattable value's own text for a spec, from its Format, through the Interface for an
@@ -6452,6 +6763,10 @@ private:
         } else if (kind == generated_kind_t::RUN) {
             full = std::format("{}.Run()", name);
             result = type_id_t::NONE;
+        } else if (kind == generated_kind_t::DEBUG || kind == generated_kind_t::DEBUG_ENTRIES) {
+            full = std::format("{}.{}(Int32)", name,
+                               kind == generated_kind_t::DEBUG ? "Debug" : "DebugEntries");
+            result = type_id_t::STRING;
         } else {
             full = std::format("{}.ToString()", name);
             result = type_id_t::STRING;
@@ -6479,9 +6794,21 @@ private:
             add_local(type, generated.kind == generated_kind_t::EQUAL ? "a" : "Self");
         const local_id_t other =
             generated.kind == generated_kind_t::EQUAL ? add_local(type, "b") : array;
+        const bool debug = generated.kind == generated_kind_t::DEBUG ||
+                           generated.kind == generated_kind_t::DEBUG_ENTRIES;
+        const local_id_t indent = debug ? add_local(type_id_t::INT32, "indent") : array;
         current().parameter_count = current().locals.size();
         const span_t nowhere;
         switch (generated.kind) {
+        case generated_kind_t::DEBUG:
+        case generated_kind_t::DEBUG_ENTRIES: {
+            const local_id_t text =
+                debug_body(array, type, indent, generated.kind == generated_kind_t::DEBUG_ENTRIES);
+            take(place_t{ text });
+            release_scopes(0);
+            terminate(return_t{ .value = place_t{ text } });
+            break;
+        }
         case generated_kind_t::EQUAL: {
             if (is_array(type)) {
                 const operand_t count = count_of(place_t{ array });

@@ -5,6 +5,7 @@
 Import std.core
 Import std.collections.array
 
+@DebugElements
 Public Class BitSet Implements Iterable<Int>, Cloneable, Defaultable, Hashable
     // Bit b of word w is w * 64 + b. The last word is never 0, so equal BitSets have equal words.
     Field Words: UInt64[] = []
