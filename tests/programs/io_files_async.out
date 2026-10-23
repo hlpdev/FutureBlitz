@@ -1,0 +1,29 @@
+[copy 0, copy 1, copy 2, copy 3, copy 4]
+[1, 2, 3, 4] 4
+[one, two, three, four] 20
+[whole] [9]
+False True True False
+FILE 5 False
+True
+True False
+  atomic.bin FILE
+  atomic.txt FILE
+  bytes.bin FILE
+  empty DIRECTORY
+  lines.txt FILE
+  ä DIRECTORY
+12
+  atomic.txt
+  lines.txt
+  ä/köpie 0.txt
+  ä/köpie 1.txt
+  ä/köpie 2.txt
+  ä/köpie 3.txt
+  ä/köpie 4.txt
+True False
+NOT_FOUND
+IS_A_DIRECTORY
+True True
+True True
+True False
+left False
