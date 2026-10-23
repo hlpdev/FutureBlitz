@@ -1,0 +1,10 @@
+// A zip's names have '/' between folders, not '\', which minizip-ng would write as '/' on
+// Windows alone, and Add panics where it's called with one.
+Import std.core
+Import std.compress
+
+Local zip = ZipWriter()
+zip.Add("a/b.txt", "one".Bytes)
+zip.AddFolder("c/d")
+Print(zip.Finish().Count > 0)
+zip.Add("a\\b.txt", "two".Bytes)

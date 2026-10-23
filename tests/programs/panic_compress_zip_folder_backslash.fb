@@ -1,0 +1,9 @@
+// A zip's folder's name has '/' between folders, not '\', and AddFolder panics where it's called
+// with one.
+Import std.core
+Import std.compress
+
+Local zip = ZipWriter()
+zip.AddFolder("c/d/")
+Print(zip.Finish().Count > 0)
+zip.AddFolder("c\\")

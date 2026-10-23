@@ -335,6 +335,59 @@ def zips():
         archive.writestr(info, b"compressed by BZip2\n" * 10, compress_type=zipfile.ZIP_BZIP2)
 
     made["bzip2.zip"] = zip_of(bzip2)
+
+    # An LZMA entry whose dictionary says 4 GiB, after the LZMA SDK's version's 2 bytes, its
+    # properties' size's 2, and its lc, lp, and pb's 1.
+    one = b"first file\n"
+
+    def lzma_entry(archive):
+        archive.writestr(zipfile.ZipInfo("lzma.txt", date), one, compress_type=zipfile.ZIP_LZMA)
+
+    greedy = bytearray(zip_of(lzma_entry))
+    data = 30 + int.from_bytes(greedy[26:28], "little") + int.from_bytes(greedy[28:30], "little")
+    greedy[data + 5:data + 9] = b"\xff\xff\xff\xff"
+    made["biglzma.zip"] = bytes(greedy)
+
+    # An XZ entry, method 95, which Python's zipfile doesn't write, of an .xz stream whose
+    # dictionary says 4 GiB: a stored entry of the stream, its methods and sizes made XZ's.
+    xz = greedy_xz(one)
+
+    def xz_entry(archive):
+        archive.writestr(zipfile.ZipInfo("xz.txt", date), xz)
+
+    stored = bytearray(zip_of(xz_entry))
+    central = stored.index(b"PK\x01\x02")
+    for at, size_at in [(8, 22), (central + 10, central + 24)]:
+        stored[at:at + 2] = (95).to_bytes(2, "little")
+        stored[at + 6:at + 10] = zlib.crc32(one).to_bytes(4, "little")
+        stored[size_at:size_at + 4] = len(one).to_bytes(4, "little")
+    made["bigxz.zip"] = bytes(stored)
+
+    # A file made by MS-DOS whose attributes have Windows' reparse point bit, as a OneDrive file
+    # has: there are no links in MS-DOS's attributes.
+    def reparse(archive):
+        info = zipfile.ZipInfo("report.txt", date)
+        info.create_system = 0
+        info.external_attr = 0x420
+        archive.writestr(info, b"the file's own bytes\n")
+
+    made["reparse.zip"] = zip_of(reparse)
+
+    # A Deflate entry whose stream is swapped for a shorter one of other bytes, as many, with NULs
+    # after it, so it ends before its compressed size: its CRC-32 says the first bytes.
+    good = b"A" * 64 + bytes(range(64))
+
+    def deflated(archive):
+        archive.writestr(zipfile.ZipInfo("crc.txt", date), good, compress_type=zipfile.ZIP_DEFLATED)
+
+    swapped = bytearray(zip_of(deflated))
+    data = 30 + int.from_bytes(swapped[26:28], "little") + int.from_bytes(swapped[28:30], "little")
+    finish = swapped.index(b"PK\x01\x02")
+    packer = zlib.compressobj(9, zlib.DEFLATED, -15)
+    other = packer.compress(b"B" * 128) + packer.flush()
+    assert len(other) < finish - data
+    swapped[data:finish] = other + bytes(finish - data - len(other))
+    made["badcrc.zip"] = bytes(swapped)
     return made
 
 
