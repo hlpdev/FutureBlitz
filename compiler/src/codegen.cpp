@@ -631,6 +631,24 @@ private:
         return m_mir.types->get(type).kind == type_kind_t::STRUCT;
     }
 
+    /// Whether a value of a type holds a fixed array, which a copy moves as bytes, since LLVM
+    /// handles a large aggregate loaded and stored whole badly, or not at all.
+    [[nodiscard]] bool holds_fixed_array(const type_id_t type) const {
+        const type_t& info = m_mir.types->get(type);
+        switch (info.kind) {
+        case type_kind_t::FIXED_ARRAY:
+            return true;
+        case type_kind_t::NULLABLE:
+            return holds_fixed_array(info.inner);
+        case type_kind_t::STRUCT:
+        case type_kind_t::TUPLE:
+            return std::ranges::any_of(
+                info.fields, [&](const field_t& field) { return holds_fixed_array(field.type); });
+        default:
+            return false;
+        }
+    }
+
     [[nodiscard]] bool is_enum(const type_id_t type) const {
         return m_mir.types->get(type).kind == type_kind_t::ENUM;
     }
@@ -2531,9 +2549,84 @@ private:
     // Statements
 
     void generate(const assign_t& node) {
+        // A value that holds a fixed array goes in a part at a time, since LLVM handles a large
+        // aggregate loaded, built, or stored whole badly, or not at all.
+        const type_id_t type = type_of(node.target);
+        if (holds_fixed_array(type)) {
+            const auto* use = std::get_if<use_t>(&node.value);
+            if (const auto* place = use != nullptr ? std::get_if<place_t>(&use->value) : nullptr) {
+                LLVMValueRef source = address_of(*place);
+                copy_bytes(address_of(node.target), source, type);
+                return;
+            }
+
+            if (std::holds_alternative<zero_t>(node.value)) {
+                put_zero(address_of(node.target), type);
+                return;
+            }
+
+            if (const auto* aggregate = std::get_if<aggregate_t>(&node.value)) {
+                LLVMValueRef address = address_of(node.target);
+                for (std::size_t i = 0; i < aggregate->fields.size(); ++i) {
+                    put(LLVMBuildStructGEP2(builder(), llvm_type(type), address,
+                                            static_cast<unsigned>(i), ""),
+                        m_mir.types->get(type).fields[i].type, aggregate->fields[i]);
+                }
+
+                return;
+            }
+        }
+
         LLVMValueRef value =
             std::visit([this](const auto& rvalue) { return this->value(rvalue); }, node.value);
         LLVMBuildStore(builder(), value, address_of(node.target));
+    }
+
+    /// Puts an operand at `address`, as bytes when its type holds a fixed array.
+    void put(LLVMValueRef address, const type_id_t type, const operand_t& operand) {
+        const auto* place = std::get_if<place_t>(&operand);
+        if (place != nullptr && holds_fixed_array(type)) {
+            copy_bytes(address, address_of(*place), type);
+        } else {
+            LLVMBuildStore(builder(), value_of(operand), address);
+        }
+    }
+
+    /// Copies a value of `type` from one address to another as bytes. They may be the same.
+    void copy_bytes(LLVMValueRef target, LLVMValueRef source, const type_id_t type) {
+        LLVMTypeRef llvm = llvm_type(type);
+        const unsigned alignment =
+            LLVMABIAlignmentOfType(LLVMGetModuleDataLayout(m_module.get()), llvm);
+        LLVMBuildMemMove(builder(), target, alignment, source, alignment, LLVMSizeOf(llvm));
+    }
+
+    /// Puts the zero of a type that holds a fixed array at `address`: zero bytes where that's
+    /// what it is, or else each element's and field's zero.
+    void put_zero(LLVMValueRef address, const type_id_t type) {
+        const type_t& info = m_mir.types->get(type);
+        if (zero_is_null(type)) {
+            LLVMTypeRef llvm = llvm_type(type);
+            const unsigned alignment =
+                LLVMABIAlignmentOfType(LLVMGetModuleDataLayout(m_module.get()), llvm);
+            LLVMBuildMemSet(builder(), address,
+                            LLVMConstInt(LLVMInt8TypeInContext(context()), 0, 0), LLVMSizeOf(llvm),
+                            alignment);
+        } else if (!holds_fixed_array(type)) {
+            LLVMBuildStore(builder(), zero_constant(type), address);
+        } else if (info.kind == type_kind_t::FIXED_ARRAY) {
+            LLVMValueRef count = LLVMConstInt(m_i64, m_mir.types->element_count(type), 0);
+            for_each_element(address, llvm_type(info.inner), count,
+                             [&](LLVMValueRef item) { put_zero(item, info.inner); });
+        } else if (info.kind == type_kind_t::NULLABLE) {
+            LLVMBuildStore(builder(), LLVMConstInt(m_bool, 0, 0),
+                           LLVMBuildStructGEP2(builder(), llvm_type(type), address, 0, ""));
+            put_zero(LLVMBuildStructGEP2(builder(), llvm_type(type), address, 1, ""), info.inner);
+        } else {
+            for (std::uint32_t i = 0; i < info.fields.size(); ++i) {
+                put_zero(LLVMBuildStructGEP2(builder(), llvm_type(type), address, i, ""),
+                         info.fields[i].type);
+            }
+        }
     }
 
     void generate(const evaluate_t& node) {
