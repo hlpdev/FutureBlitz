@@ -7689,6 +7689,35 @@ TEST_CASE("an Atomic and a Mutex stay where they're made", "[sema]") {
     CHECK(errors_of(std::format("{}Global enemies: Mutex<Enemy[]>", shared)) ==
           errors_t{ "Mutex<Enemy[]>: a Mutex holds a Sendable value, which Enemy[] isn't: an array "
                     "stays on the thread that made it" });
+
+    // A Struct declared further down is checked once it has its fields, and a type parameter
+    // with the constraints where it's written.
+    CHECK(errors_of("Global m: Mutex<S>\n"
+                    "Function Feed(ch: Channel<S>)\n"
+                    "End Function\n"
+                    "Struct S\n"
+                    "    Field t: Thing?\n"
+                    "End Struct\n"
+                    "Class Thing\n"
+                    "End Class") ==
+          errors_t{
+              "Mutex<S>: a Mutex holds a Sendable value, which S isn't: its field 't' is Thing?, "
+              "and a Class's objects stay on the thread that made them, unless it's a Shared Class",
+              "Channel<S>: a Channel carries Sendable values to other threads, which S isn't: its "
+              "field 't' is Thing?, and a Class's objects stay on the thread that made them, "
+              "unless it's a Shared Class",
+          });
+    CHECK(errors_of("Import std.core\n"
+                    "Global shared: Mutex<P>\n"
+                    "Function Feed<T: Sendable>(ch: Channel<T>)\n"
+                    "End Function\n"
+                    "Function Bad<T>(ch: Channel<T>)\n"
+                    "End Function\n"
+                    "Struct P\n"
+                    "    Field n: Int\n"
+                    "End Struct") ==
+          errors_t{ "Channel<T>: a Channel carries Sendable values to other threads, which T "
+                    "isn't: nothing says T is Sendable" });
     CHECK(errors_of("Global m = Mutex((1, \"one\"))\n"
                     "Lock m As pair\n"
                     "    Local text: String = pair.1\n"

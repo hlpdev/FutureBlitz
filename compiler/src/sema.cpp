@@ -339,6 +339,7 @@ public:
         settle_string_parameters();
         check_pending_bounds();
         check_pending_pointers();
+        check_pending_sendables();
         check_refinements();
         link_classes();
         check_instance_extensions();
@@ -560,6 +561,16 @@ private:
     std::size_t m_unsafe = 0;
     /// The Ptrs written while types are declared, whose T is checked once they all are.
     std::vector<std::pair<type_id_t, span_t>> m_pending_pointers;
+    /// A Mutex or Channel written while types are declared, whose T is checked for Sendable again
+    /// once they all are, with the constraints where it was written: a Struct declared further
+    /// down had no fields the first time.
+    struct pending_sendable_t {
+        type_kind_t kind;
+        type_id_t inner;
+        span_t span;
+        std::vector<bound_t> bounds;
+    };
+    std::vector<pending_sendable_t> m_pending_sendables;
     std::vector<worker_t> m_workers;
     /// The workers of the Global and Const initializers checked on demand, which a quiet try
     /// that asked for one doesn't take back.
@@ -10219,14 +10230,46 @@ private:
             return type_id_t::INVALID;
         }
 
-        if (const std::optional<unsendable_t> why = unsendable(element)) {
-            const std::vector<type_id_t> shown = types_in(*why, { element });
-            error(span, "a Channel carries Sendable values to other threads, which {} isn't: {}",
-                  name_among(element, shown), reason_text(*why, shown));
+        if (!check_carried(type_kind_t::CHANNEL, element, span)) {
             return type_id_t::INVALID;
         }
 
+        // A Struct declared further down has no fields yet, so it's checked again once it does.
+        if (!m_declared) {
+            m_pending_sendables.push_back(
+                { .kind = type_kind_t::CHANNEL, .inner = element, .span = span, .bounds = m_bounds });
+        }
+
         return m_analysis.types.channel(element);
+    }
+
+    /// A Channel carries, and a Mutex holds, values that other threads get, so they're Sendable.
+    bool check_carried(const type_kind_t kind, const type_id_t inner, const span_t span) {
+        const std::optional<unsendable_t> why = unsendable(inner);
+        if (!why) {
+            return true;
+        }
+
+        const std::vector<type_id_t> shown = types_in(*why, { inner });
+        if (kind == type_kind_t::CHANNEL) {
+            error(span, "a Channel carries Sendable values to other threads, which {} isn't: {}",
+                  name_among(inner, shown), reason_text(*why, shown));
+        } else {
+            error(span, "a Mutex holds a Sendable value, which {} isn't: {}",
+                  name_among(inner, shown), reason_text(*why, shown));
+        }
+
+        return false;
+    }
+
+    void check_pending_sendables() {
+        const std::vector<bound_t> outer = m_bounds;
+        for (const pending_sendable_t& pending : std::exchange(m_pending_sendables, {})) {
+            m_bounds = pending.bounds;
+            (void)check_carried(pending.kind, pending.inner, pending.span);
+        }
+
+        m_bounds = outer;
     }
 
     /// "Atomic<T>" of an integer or Bool, or "Mutex<T>" of a Sendable T, or INVALID, which is
@@ -10252,11 +10295,13 @@ private:
             return type_id_t::INVALID;
         }
 
-        if (const std::optional<unsendable_t> why = unsendable(inner)) {
-            const std::vector<type_id_t> shown = types_in(*why, { inner });
-            error(span, "a Mutex holds a Sendable value, which {} isn't: {}",
-                  name_among(inner, shown), reason_text(*why, shown));
+        if (!check_carried(type_kind_t::MUTEX, inner, span)) {
             return type_id_t::INVALID;
+        }
+
+        if (!m_declared) {
+            m_pending_sendables.push_back(
+                { .kind = type_kind_t::MUTEX, .inner = inner, .span = span, .bounds = m_bounds });
         }
 
         return m_analysis.types.mutex(inner);
