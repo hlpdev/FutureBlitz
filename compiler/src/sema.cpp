@@ -2712,18 +2712,18 @@ private:
         }
 
         // The built-in types that work and threads share, and Ptrs, have only their own
-        // operations.
-        static constexpr std::array<std::pair<std::string_view, std::string_view>, 7> own_only{ {
-            { "Atomic", "an Atomic" },
-            { "Mutex", "a Mutex" },
-            { "Ptr", "a Ptr" },
-            { "Task", "a Task" },
-            { "Thread", "a Thread" },
-            { "Channel", "a Channel" },
-            { "Scheduler", "a Scheduler" },
-        } };
-        if (const auto kind = std::ranges::find(
-                own_only, named->name, &std::pair<std::string_view, std::string_view>::first);
+        // operations. Each is its name, then what it is.
+        using kind_t = std::pair<std::string_view, std::string_view>;
+        static constexpr std::array own_only{
+            kind_t{ "Atomic", "an Atomic" },
+            kind_t{ "Mutex", "a Mutex" },
+            kind_t{ "Ptr", "a Ptr" },
+            kind_t{ "Task", "a Task" },
+            kind_t{ "Thread", "a Thread" },
+            kind_t{ "Channel", "a Channel" },
+            kind_t{ "Scheduler", "a Scheduler" },
+        };
+        if (const auto kind = std::ranges::find(own_only, named->name, &kind_t::first);
             found.empty() && kind != own_only.end()) {
             error(written.span, "{} can't be extended; it has only its own operations",
                   kind->second);
