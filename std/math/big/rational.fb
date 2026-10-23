@@ -54,9 +54,31 @@ Public Class Rational Implements Comparable, Hashable, Printable, Numeric
         Return Rational(BigInt.FromDouble(whole), BigInt(1) << halves)
     End Method
 
-    // The Decimal exactly, as 0.75 is 3/4.
+    // The Decimal exactly, as 0.75 is 3/4: its digits times or over a power of 10, from its
+    // text, as "-1.25E-7" and "0.75" are, so 1E+999999 doesn't go through a million digits.
     Public Static Method FromDecimal(value: Decimal): Rational
-        Return Fraction(value.ToPlainString().Chars) ?? Rational(0)
+        Local chars = value.ToString().Chars
+        Local start = chars[0] == '-' ? 1 : 0
+        Local finish = chars.IndexOf('E') ?? chars.Count
+        Local point = chars.IndexOf('.') ?? finish
+        Local digits = DigitsOf(chars, start, point) ?? BigInt(0)
+        Local exponent: Int64 = 0
+        If point < finish
+            Local places = finish - point - 1
+            Local fraction = DigitsOf(chars, point + 1, finish) ?? BigInt(0)
+            digits = digits * (BigInt(10) ** places) + fraction
+            exponent = -places
+        End If
+
+        // The exponent always has its sign, as in "1E+3".
+        If finish < chars.Count
+            Local power = (DigitsOf(chars, finish + 2, chars.Count) ?? BigInt(0)).ToInt64() ?? 0
+            exponent += chars[finish + 1] == '-' ? -power : power
+        End If
+
+        Local numerator = start == 1 ? -digits : digits
+        If exponent >= 0 Then Return Rational(numerator * (BigInt(10) ** exponent), BigInt(1))
+        Return Rational(numerator, BigInt(10) ** -exponent)
     End Method
 
     // The fraction the text is: an integer, a "/", and digits, as "-3/4" is, or a Decimal's text,
@@ -195,7 +217,9 @@ Public Class Rational Implements Comparable, Hashable, Printable, Numeric
     Operator **(a: Rational, b: Int64): Rational
         If b >= 0 Then Return Rational(a.Numerator ** b, a.Denominator ** b)
         If a.Sign == 0 Then Panic("division by zero")
-        Return Rational(a.Denominator ** -b, a.Numerator ** -b)
+        // -b of the lowest Int64 doesn't fit one, so it's -(b + 1) and one more.
+        Local count = -(b + 1)
+        Return Rational(a.Denominator ** count * a.Denominator, a.Numerator ** count * a.Numerator)
     End Operator
 
     Operator -(a: Rational): Rational => Rational(-a.Numerator, a.Denominator)
@@ -229,22 +253,4 @@ Function DigitsOf(chars: Int[], start: Int, finish: Int): BigInt?
         End If
     End For
     Return value * scale + chunk
-End Function
-
-// The fraction a Decimal's plain text is, like "-12.50", as its digits over a power of 10 for
-// those after the point.
-Function Fraction(chars: Int[]): Rational?
-    Local start = chars.Count > 0 && chars[0] == '-' ? 1 : 0
-    Local point = chars.IndexOf('.') ?? chars.Count
-    Local whole = DigitsOf(chars, start, point)
-    If whole == Null Then Return Null
-    Local numerator = whole
-    Local places = 0
-    If point < chars.Count
-        Local fraction = DigitsOf(chars, point + 1, chars.Count)
-        If fraction == Null Then Return Null
-        places = chars.Count - point - 1
-        numerator = whole * (BigInt(10) ** places) + fraction
-    End If
-    Return Rational(start == 1 ? -numerator : numerator, BigInt(10) ** places)
 End Function

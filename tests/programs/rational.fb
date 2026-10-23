@@ -1520,4 +1520,18 @@ total *= q[6]
 total -= 1
 total /= 3
 CheckShown("op=", total, "3679/678")
+// To the lowest Int64's power, whose -1 times doesn't fit an Int64.
+Local lowest: Int64 = -9223372036854775807 - 1
+CheckShown("1**lowest", Rational(1) ** lowest, "1")
+CheckShown("-1**lowest", Rational(-1) ** lowest, "1")
+CheckShown("-1**(lowest+1)", Rational(-1) ** (lowest + 1), "-1")
+// A Decimal's text, from its digits and exponent, so a large exponent is quick.
+Local large = Rational.Parse("1e999999") ?? Rational(0)
+Expect("1e999999", large.Numerator.BitLength == 3321925 && large.Denominator == 1)
+Local tiny = Rational.Parse("-1e-999999") ?? Rational(0)
+Expect("-1e-999999", tiny.Numerator == -1 && tiny.Denominator.BitLength == 3321925)
+CheckShown("1.25E-7", Rational.Parse("1.25E-7") ?? Rational(0), "1/8000000")
+CheckShown("-12.50", Rational.Parse("-12.50") ?? Rational(0), "-25/2")
+CheckShown("1.5E+3", Rational.Parse("1.5E+3") ?? Rational(0), "1500")
+CheckShown("0.75", Rational.FromDecimal(Decimal.Parse("0.75") ?? Decimal(0)), "3/4")
 Done("the rest")
