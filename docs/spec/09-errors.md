@@ -27,7 +27,7 @@ End Function
   as `file:line:column`. A Place whose Line is 0 is nowhere yet.
 - Each area of std has one Error, whose `Kind` Enum says what went wrong, with its details:
   `IOError` (`IOErrorKind`: `NOT_FOUND`, `PERMISSION_DENIED`, `ALREADY_EXISTS`,
-  `UNEXPECTED_END`, `INTERRUPTED`, `OTHER`, and `Path`), `ArgumentError` (`Name`),
+  `UNEXPECTED_END`, `INVALID_DATA`, `INTERRUPTED`, `OTHER`, and `Path`), `ArgumentError` (`Name`),
   `ParseError` (`Line`, `Column`), `FormatError`, `NetError` (`Address`), and `DatabaseError`,
   and `TimeoutError`, which has one kind. Each takes its Kind first, then its message, its
   details, and a Cause: `IOError(IOErrorKind.NOT_FOUND, "{path} doesn't exist", path)`.
