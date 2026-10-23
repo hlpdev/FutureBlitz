@@ -113,6 +113,16 @@ So far, std/ holds:
 | std/compress/zip.fb | `Zip`, `ZipReader`, `ZipWriter`, and `ZipMethod`, over minizip-ng through `fb_zip_` |
 | std/compress/tar.fb | `Tar`, `TarReader`, and `TarWriter`, through `fb_tar_` |
 | std/compress/seven_zip.fb | `SevenZip` and `SevenZipReader`, over liblzma through `fb_xz_7z_` |
+| std/image/codec.fb | What the formats share: a Decode's limit, the runtime's images, and the IOErrors their results mean |
+| std/image/image.fb | `Image` and `ImageFormat`, with `Image.Decode` of any format and `FormatOf` |
+| std/image/animation.fb | `Animation` and `Frame` |
+| std/image/png.fb | `Png`, PNG and APNG, over stb_image through `fb_stb_` and the runtime's encoders over zlib-ng through `fb_zlib_png_` and `fb_zlib_apng_` |
+| std/image/jpeg.fb | `Jpeg`, over stb_image and stb_image_write through `fb_stb_` |
+| std/image/bitmap.fb | `Bmp` and `Tga`, over them too, and `Qoi`, through `fb_image_qoi_` |
+| std/image/gif.fb | `Gif`, through `fb_image_gif_` |
+| std/image/hdr.fb | `HdrImage` and `Hdr`, over stb_image and stb_image_write |
+| std/image/webp.fb | `WebP`, over libwebp through `fb_webp_` |
+| std/image/svg.fb | `Svg`, over nanosvg through `fb_svg_` |
 
 What the language itself uses, `Error` for Throw and Catch, the Interfaces, `Iterator<T>`, and
 `Map<K, V>` for `{key: value}`, is always std's, whatever a program calls by those names.
@@ -152,7 +162,7 @@ and the rest) aren't std's.
 | libtommath | Unlicense | std.math.big's BigInt |
 | mpdecimal | BSD | std.math.big's Decimal |
 | SQLite | public domain | std.db |
-| stb_image, stb_image_write, stb_truetype | public domain / MIT | std.image's codecs and font drawing |
+| stb_image, stb_image_write, stb_truetype | public domain / MIT | std.image's PNG decoding, JPEG, BMP, TGA, and HDR, and its fonts |
 | libwebp | BSD | std.image's WebP |
 | nanosvg | zlib | std.image's SVG |
 | md4c | MIT | std.text.markdown |
@@ -733,11 +743,62 @@ Built in step 23, but for `Query<T>`. `Import std.db` brings in std/db/.
 
 #### std.image
 
-- Decode and encode PNG, JPEG, BMP, TGA, GIF, HDR, QOI, and WebP, rasterize SVG, and read and
-  write animated GIF and APNG frames, into an `Image` over a pixel `Buffer`.
-- Resize with good filters, crop, rotate, flip, convert, and blit; software drawing of lines,
-  shapes, and fills, and text with TrueType fonts. The engine's 2D (M10) shares the image and
-  font code.
+Step 24 built the codecs over bytes, into an `Image` whose pixels are a UInt8[] until step 12's
+`Buffer`; the rest is planned. `Import std.image` brings in all of std/image/.
+
+- `Image(width, height)`: pixels in rows from the top, each RGBA, 8 bits a channel, its alpha
+  straight, all transparent black at first: `Width`, `Height`, `[x, y]` and `[x, y] = color` as
+  `Color32`s, which panic outside it, `ToBytes()` and `Image.FromBytes(width, height, bytes)`,
+  copies of its bytes, 4 a pixel, and `Clone()`. It holds 536870911 pixels at most, as a UInt8[]
+  holds their bytes. An `HdrImage` is the same of `Color`s, linear light that can be past 1, with
+  `ToFloats()` and `HdrImage.FromFloats`.
+- The formats are each a Struct of Static Methods. `Png`, `Jpeg`, `Bmp`, `Tga`, `Gif`, `Qoi`, and
+  `WebP` each `Decode(data, limit)` into an Image, and `Hdr.Decode` into an HdrImage; and they
+  encode: `Png.Encode(image, level)`, 0 to 9 and 6 by default, deflated by zlib-ng, RGB when every
+  pixel is opaque and RGBA when one isn't; `Jpeg.Encode(image, quality)`, 1 to 100 and 90, baseline,
+  without alpha; `Bmp.Encode`, 32 bits a pixel, and `Tga.Encode`, run-length encoded, with alpha;
+  `Qoi.Encode`; `Gif.Encode`; `WebP.Encode(image, quality)`, 0 to 100 and 75, lossy, its alpha
+  lossless, and `WebP.EncodeLossless(image, effort)`, 0 to 9 and 6, which keeps the colors of
+  transparent pixels too; and `Hdr.Encode`, Radiance's RGBE, run-length encoded, without alpha. A
+  level or quality out of range, or an image a format can't hold, with no pixels or a side longer
+  than 65535 for JPEG, TGA, or GIF, or 16383 for WebP, panics at the caller. `Image.Decode(data,
+  limit)` reads any of them but HDR by how its bytes start, and `Image.FormatOf(data)` gives the
+  `ImageFormat` they start as, or Null; a TGA has no signature, so it's what starts as a TGA's
+  header does once no other format matches.
+- stb_image reads PNG, of every color type and bit depth, interlaced or not, 16 bits a channel
+  kept to their top 8, JPEG, baseline and progressive, but not 12-bit or arithmetic, BMP, of 1 to
+  32 bits a pixel, but not run-length encoded, TGA, and HDR; libwebp reads still WebPs, lossy and
+  lossless; and the runtime itself reads QOI, GIF, and an APNG's frames. Data that's bad throws an
+  IOError: `INVALID_DATA` for bytes that aren't the format or are broken, `UNEXPECTED_END` for
+  ones that end too soon, where the decoder can tell, and `OTHER` for an image whose pixels, all
+  its frames' counted, are more than the limit, or that uses what isn't supported, like a BMP's
+  run-length encoding or an animated WebP. The limit is the most an Image holds unless it's given
+  a smaller one, which guards against data made to decode huge; a negative one panics.
+- `Animation(width, height, plays)`: frames of one size, each a `Frame` of an `Image` and its
+  `Delay` in milliseconds, from 0 to 655350, with `Add(image, delay)`, `Count`, `Frames`,
+  `[index]`, and `Plays`, how many times they play, 0 for forever, as by default.
+  `Gif.DecodeAnimation` and `Png.DecodeAnimation` give each frame as it's shown, the frames
+  before it drawn and disposed of, on a canvas that starts transparent, as browsers draw them; a
+  still image is an animation of one frame that plays once. `Gif.EncodeAnimation` and
+  `Png.EncodeAnimation(animation, level)` write each frame as the whole image: a GIF's delays in
+  hundredths of a second, and its plays up to 65536, by NETSCAPE2.0's count of the times after
+  the first; an APNG's delays in milliseconds up to a minute and in hundredths after, and its first
+  frame the image a decoder without animation shows.
+- A GIF's frame has a palette of its own: its colors when there are 256 or fewer, counting one
+  for the pixels whose alpha is below 128, which are transparent, or else 255 that median cut
+  picks, with Floyd-Steinberg dithering.
+- `Svg.Parse(text)` reads an SVG at 96 dots an inch, over nanosvg, and throws an IOError of
+  INVALID_DATA for one without a size: `Width` and `Height`, in pixels, and `Rasterize(scale)`, its
+  size times the scale, each side rounded up, or `Rasterize(width, height)`, as large as it fits,
+  in the middle, its edges antialiased. nanosvg leaves out SVG's text, images, filters, masks, and
+  clipping, and style sheets but for style attributes.
+- Every target gives the same pixels: the libraries are built without fused multiply-adds, and
+  their SIMD code gives what their plain C gives. An SVG's curves go through the C library's math
+  functions, which can differ by a little from one OS to another.
+- Planned: an Image over a Buffer, and the transforms: resizing with good filters, crop, rotate,
+  flip, convert, and blit; reading and writing image files, on step 14's; and in step 25 software
+  drawing of lines, shapes, and fills, and text with TrueType fonts. The engine's 2D (M10) shares
+  the image and font code.
 
 #### std.term
 
