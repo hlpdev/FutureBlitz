@@ -308,7 +308,15 @@ private:
                 return operand;
             }
 
-            return folded(fold_unary(unary->op, scalar(*operand)), unary->span);
+            // ~ on a @Flags Enum flips its integer's bits, which stay the Enum.
+            const const_value_t original = scalar(*operand);
+            const const_value_t integer = as_integer(original);
+            result_t result = folded(fold_unary(unary->op, integer), unary->span);
+            if (result && original.type != integer.type && scalar(*result).type == integer.type) {
+                std::get<const_value_t>(result->data).type = original.type;
+            }
+
+            return result;
         }
 
         if (const auto* binary = std::get_if<binary_t>(&value)) {

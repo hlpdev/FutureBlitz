@@ -79,3 +79,21 @@ This branch isn't lexed, so anything can go here: @@@ "
 #If PLATFORM_WINDOWS || PLATFORM_LINUX || PLATFORM_MACOS
 Print("a known platform")
 #End If
+
+// ~ on a @Flags Enum flips its integer's bits, as it does in the running program.
+@Flags Enum Layer
+    World = 1
+    Player = 2
+    Enemy = 4
+End Enum
+
+Const Function Without(all: Layer, l: Layer): Layer => all & ~l
+Const Function Flipped(l: Layer): Layer => ~l
+
+Function WithoutNow(all: Layer, l: Layer): Layer => all & ~l
+
+Const ALL = Layer.World | Layer.Player | Layer.Enemy
+Const WITHOUT = Without(ALL, Layer.Player)
+Const FLIPPED = Flipped(Layer.World)
+Local player = Layer.Player
+Print("{WITHOUT} {WithoutNow(ALL, player)} {FLIPPED As Int} {~player As Int}")
