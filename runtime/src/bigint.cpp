@@ -27,6 +27,11 @@ void check(const mp_err result) {
     }
 }
 
+/// The most digits a BigInt has, so that its count of bits, which libtommath gives as an int,
+/// can't overflow one: 2147483640 bits.
+constexpr int most_digits = INT_MAX / MP_DIGIT_BIT;
+constexpr std::int64_t most_bits = static_cast<std::int64_t>(most_digits) * MP_DIGIT_BIT;
+
 /// An mp_int for working something out, cleared when it goes.
 struct number_t {
     mp_int value{};
@@ -54,18 +59,28 @@ const mp_int* from(const void* a) {
     return static_cast<const mp_int*>(a);
 }
 
+/// The result, or null when it has more digits than a BigInt holds, which frees it.
+void* fitting(mp_int* result) {
+    if (result->used > most_digits) {
+        mp_clear(result);
+        delete result;
+        return nullptr;
+    }
+    return result;
+}
+
 /// A new mp_int that `function` sets from `a`, or from `a` and `b`, as libtommath's do.
 void* apply(mp_err (*function)(const mp_int*, mp_int*), const void* a) {
     mp_int* result = make();
     check(function(from(a), result));
-    return result;
+    return fitting(result);
 }
 
 void* apply(mp_err (*function)(const mp_int*, const mp_int*, mp_int*), const void* a,
             const void* b) {
     mp_int* result = make();
     check(function(from(a), from(b), result));
-    return result;
+    return fitting(result);
 }
 
 /// The value of `digit` as a digit in a radix up to 36, or 36 when it isn't one.
@@ -138,14 +153,14 @@ void* fb_bigint_parse(const fb_string_t* text, const std::int32_t radix) {
     const std::string copy(view.front() == '-' ? view : digits);
     mp_int* result = make();
     check(mp_read_radix(result, copy.c_str(), radix));
-    return result;
+    return fitting(result);
 }
 
 void* fb_bigint_from_bytes(const fb_array_t* bytes) {
     mp_int* result = make();
     check(mp_from_ubin(result, static_cast<const std::uint8_t*>(bytes->data),
                        static_cast<std::size_t>(bytes->count)));
-    return result;
+    return fitting(result);
 }
 
 void fb_bigint_free(void* a) {
@@ -241,6 +256,11 @@ void* fb_bigint_subtract(const void* a, const void* b) {
 }
 
 void* fb_bigint_multiply(const void* a, const void* b) {
+    // A product of nonzero numbers has at least one digit fewer than theirs together.
+    if (mp_iszero(from(a)) == MP_NO && mp_iszero(from(b)) == MP_NO &&
+        from(a)->used + from(b)->used - 1 > most_digits) {
+        return nullptr;
+    }
     return apply(mp_mul, a, b);
 }
 
@@ -281,16 +301,16 @@ void* fb_bigint_not(const void* a) {
 }
 
 void* fb_bigint_shift_left(const void* a, const std::int64_t count) {
-    if (count > INT_MAX) {
-        if (mp_iszero(from(a)) == MP_YES) {
-            return make();
-        }
-        fb_panic("a BigInt got too large", nullptr);
+    if (mp_iszero(from(a)) == MP_YES) {
+        return make();
+    }
+    if (count > most_bits - mp_count_bits(from(a))) {
+        return nullptr;
     }
 
     mp_int* result = make();
     check(mp_mul_2d(from(a), static_cast<int>(count), result));
-    return result;
+    return fitting(result);
 }
 
 void* fb_bigint_shift_right(const void* a, const std::int64_t count) {
@@ -305,20 +325,22 @@ void* fb_bigint_shift_right(const void* a, const std::int64_t count) {
 }
 
 void* fb_bigint_power(const void* a, const std::int64_t exponent) {
-    // Past an int's exponents, only 0, 1, and -1 aren't too large, and -1 to an even power is 1.
-    if (exponent > INT_MAX) {
-        if (mp_iszero(from(a)) == MP_YES) {
-            return make();
-        }
-        if (mp_count_bits(from(a)) != 1) {
-            fb_panic("a BigInt got too large", nullptr);
+    // 0, 1, and -1 go to any power, and -1 to an even one is 1. A number of n bits to the power
+    // e has at least (n - 1) * e + 1, so past the most bits there's no working it out.
+    const int bits = mp_count_bits(from(a));
+    if (bits <= 1) {
+        if (bits == 0) {
+            return exponent == 0 ? fb_bigint_from_int(1) : make();
         }
         return fb_bigint_from_int(mp_isneg(from(a)) == MP_YES && exponent % 2 == 1 ? -1 : 1);
+    }
+    if (exponent > (most_bits - 1) / (bits - 1)) {
+        return nullptr;
     }
 
     mp_int* result = make();
     check(mp_expt_n(from(a), static_cast<int>(exponent), result));
-    return result;
+    return fitting(result);
 }
 
 void* fb_bigint_mod_power(const void* base, const void* exponent, const void* modulus) {

@@ -1,0 +1,6 @@
+// So does a power past them, though 1 and -1 go to any power.
+Import std.core
+Import std.math.big
+
+Print(BigInt(2) ** 100, BigInt(-1) ** 4000000001, BigInt(0) ** 4000000000, BigInt(0) ** 0)
+Print(BigInt(2) ** 2147483640)

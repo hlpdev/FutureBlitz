@@ -1,0 +1,7 @@
+// A BigInt holds up to 2147483640 bits, as many as libtommath counts, so a shift past them
+// panics where it's shifted, before a number of 256 MB is made.
+Import std.core
+Import std.math.big
+
+Print((BigInt(1) << 100).BitLength, (BigInt(-3) << 1000).BitLength)
+Print((BigInt(1) << 2147483640).BitLength)

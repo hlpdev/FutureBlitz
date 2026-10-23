@@ -1,0 +1,2 @@
+1073741821 1073741822
+panic: the result is past the 2147483640 bits a BigInt holds at panic_bigint_product_bits.fb:7:8

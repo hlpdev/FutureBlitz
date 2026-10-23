@@ -1,2 +1,2 @@
 -1 1
-panic: 2 to the power 3000000000 is too large for a BigInt at panic_bigint_power_too_large.fb:6:7
+panic: a BigInt of 2 bits to the power 3000000000 is too large at panic_bigint_power_too_large.fb:6:7

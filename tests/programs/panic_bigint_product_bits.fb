@@ -1,0 +1,7 @@
+// And a product, where the numbers' bits together are past them.
+Import std.core
+Import std.math.big
+
+Local half = BigInt(1) << 1073741820
+Print(half.BitLength, (half * 2).BitLength)
+Print((half * half).BitLength)

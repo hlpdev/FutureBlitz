@@ -1,8 +1,9 @@
 // BigInt: an integer of any size, over libtommath, which never changes once it's made. Its
 // operators are an Int's, without overflow: / rounds toward 0, % takes the sign of what's
 // divided, >> rounds down, and &, |, ^, and ~ work on two's complement, as wide as the numbers
-// need. An Int64 on either side of one works too, so n + 1 and 2 * n do. A BigInt stays on its
-// thread, so ToString and Parse are how one goes to another.
+// need. An Int64 on either side of one works too, so n + 1 and 2 * n do. A BigInt holds up to
+// 2147483640 bits, about 646 million digits, as many as libtommath counts, and a result past that
+// panics. A BigInt stays on its thread, so ToString and Parse are how one goes to another.
 
 Import std.core
 
@@ -67,12 +68,14 @@ Public Class BigInt Implements Comparable, Hashable, Printable, Numeric
         Return BigInt(fb_bigint_from_double(value))
     End Method
 
-    // The integer the bytes are, big-endian, which is 0 or more.
-    Public Static Method FromBytes(bytes: UInt8[]): BigInt => BigInt(fb_bigint_from_bytes(bytes))
+    // The integer the bytes are, big-endian, which is 0 or more. Past the most bits a BigInt
+    // holds, it panics.
+    @PanicsAtCaller
+    Public Static Method FromBytes(bytes: UInt8[]): BigInt => Made(fb_bigint_from_bytes(bytes))
 
     // The integer the text is in the radix: a sign or none, then one or more digits, those past 9
-    // letters of either case, as "-ff" is -255 in 16. Other text is Null, and a radix outside 2
-    // to 36 panics.
+    // letters of either case, as "-ff" is -255 in 16. Other text, or a number past the most bits
+    // a BigInt holds, is Null, and a radix outside 2 to 36 panics.
     @PanicsAtCaller
     Public Static Method Parse(text: String, radix: Int = 10): BigInt?
         CheckRadix(radix)
@@ -177,14 +180,24 @@ Public Class BigInt Implements Comparable, Hashable, Printable, Numeric
     Operator >=(a: BigInt, b: Int64): Bool => a >= BigInt(b)
     Operator >=(a: Int64, b: BigInt): Bool => BigInt(a) >= b
 
-    Operator +(a: BigInt, b: BigInt): BigInt => BigInt(fb_bigint_add(a.State, b.State))
+    // Sums, differences, and products, which panic past the most bits a BigInt holds.
+    @PanicsAtCaller
+    Operator +(a: BigInt, b: BigInt): BigInt => Made(fb_bigint_add(a.State, b.State))
+    @PanicsAtCaller
     Operator +(a: BigInt, b: Int64): BigInt => a + BigInt(b)
+    @PanicsAtCaller
     Operator +(a: Int64, b: BigInt): BigInt => BigInt(a) + b
-    Operator -(a: BigInt, b: BigInt): BigInt => BigInt(fb_bigint_subtract(a.State, b.State))
+    @PanicsAtCaller
+    Operator -(a: BigInt, b: BigInt): BigInt => Made(fb_bigint_subtract(a.State, b.State))
+    @PanicsAtCaller
     Operator -(a: BigInt, b: Int64): BigInt => a - BigInt(b)
+    @PanicsAtCaller
     Operator -(a: Int64, b: BigInt): BigInt => BigInt(a) - b
-    Operator *(a: BigInt, b: BigInt): BigInt => BigInt(fb_bigint_multiply(a.State, b.State))
+    @PanicsAtCaller
+    Operator *(a: BigInt, b: BigInt): BigInt => Made(fb_bigint_multiply(a.State, b.State))
+    @PanicsAtCaller
     Operator *(a: BigInt, b: Int64): BigInt => a * BigInt(b)
+    @PanicsAtCaller
     Operator *(a: Int64, b: BigInt): BigInt => BigInt(a) * b
 
     @PanicsAtCaller
@@ -209,33 +222,46 @@ Public Class BigInt Implements Comparable, Hashable, Printable, Numeric
     @PanicsAtCaller
     Operator %(a: Int64, b: BigInt): BigInt => BigInt(a) % b
 
-    // To the power, which is 0 or more, as an Int's: a negative one panics, and so does one past
-    // 2147483647, unless it's of 0, 1, or -1, since the result would be too large to hold.
+    // To the power, which is 0 or more, as an Int's: a negative one panics, and so does a result
+    // past the most bits a BigInt holds, though 0, 1, and -1 go to any power.
     @PanicsAtCaller
     Operator **(a: BigInt, b: Int64): BigInt
         If b < 0 Then Panic("an integer power needs an exponent of 0 or more")
-        If b > 2147483647 && a.BitLength > 1 Then Panic("{a} to the power {b} is too large for a BigInt")
-        Return BigInt(fb_bigint_power(a.State, b))
+        Local state = fb_bigint_power(a.State, b)
+        If state == Null Then Panic("a BigInt of {a.BitLength} bits to the power {b} is too large")
+        Return BigInt(state)
     End Operator
 
-    Operator &(a: BigInt, b: BigInt): BigInt => BigInt(fb_bigint_and(a.State, b.State))
+    // Two's complement's &, |, and ^, which can take a negative number's magnitude a bit past
+    // either's, so they panic past the most bits a BigInt holds too.
+    @PanicsAtCaller
+    Operator &(a: BigInt, b: BigInt): BigInt => Made(fb_bigint_and(a.State, b.State))
+    @PanicsAtCaller
     Operator &(a: BigInt, b: Int64): BigInt => a & BigInt(b)
+    @PanicsAtCaller
     Operator &(a: Int64, b: BigInt): BigInt => BigInt(a) & b
-    Operator |(a: BigInt, b: BigInt): BigInt => BigInt(fb_bigint_or(a.State, b.State))
+    @PanicsAtCaller
+    Operator |(a: BigInt, b: BigInt): BigInt => Made(fb_bigint_or(a.State, b.State))
+    @PanicsAtCaller
     Operator |(a: BigInt, b: Int64): BigInt => a | BigInt(b)
+    @PanicsAtCaller
     Operator |(a: Int64, b: BigInt): BigInt => BigInt(a) | b
-    Operator ^(a: BigInt, b: BigInt): BigInt => BigInt(fb_bigint_xor(a.State, b.State))
+    @PanicsAtCaller
+    Operator ^(a: BigInt, b: BigInt): BigInt => Made(fb_bigint_xor(a.State, b.State))
+    @PanicsAtCaller
     Operator ^(a: BigInt, b: Int64): BigInt => a ^ BigInt(b)
+    @PanicsAtCaller
     Operator ^(a: Int64, b: BigInt): BigInt => BigInt(a) ^ b
 
     // Shifted by a count of bits, 0 or more, which a negative one panics, as an Int's does when
-    // it's outside its bits. Shifting left by more than 2147483647 bits panics too, unless it's 0,
-    // since the result would be too large to hold.
+    // it's outside its bits. Shifting left past the most bits a BigInt holds panics too, unless
+    // it's 0.
     @PanicsAtCaller
     Operator <<(a: BigInt, b: Int64): BigInt
         If b < 0 Then Panic("the shift amount must be 0 or more")
-        If b > 2147483647 && a.Sign != 0 Then Panic("a BigInt shifted by {b} bits is too large")
-        Return BigInt(fb_bigint_shift_left(a.State, b))
+        Local state = fb_bigint_shift_left(a.State, b)
+        If state == Null Then Panic("a BigInt shifted by {b} bits is too large")
+        Return BigInt(state)
     End Operator
 
     @PanicsAtCaller
@@ -245,12 +271,21 @@ Public Class BigInt Implements Comparable, Hashable, Printable, Numeric
     End Operator
 
     Operator -(a: BigInt): BigInt => BigInt(fb_bigint_negate(a.State))
-    Operator ~(a: BigInt): BigInt => BigInt(fb_bigint_not(a.State))
+    @PanicsAtCaller
+    Operator ~(a: BigInt): BigInt => Made(fb_bigint_not(a.State))
 
     Method Destroy()
         fb_bigint_free(State)
     End Method
 End Class
+
+// The BigInt the runtime made, which panics where it's null, for a result past the most bits a
+// BigInt holds.
+@PanicsAtCaller
+Function Made(state: Ptr<Void>): BigInt
+    If state == Null Then Panic("the result is past the 2147483640 bits a BigInt holds")
+    Return BigInt(state)
+End Function
 
 // Panics unless the radix is from 2 to 36.
 @PanicsAtCaller

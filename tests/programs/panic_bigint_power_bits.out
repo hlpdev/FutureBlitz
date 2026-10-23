@@ -1,0 +1,2 @@
+1267650600228229401496703205376 -1 0 1
+panic: a BigInt of 2 bits to the power 2147483640 is too large at panic_bigint_power_bits.fb:6:7
