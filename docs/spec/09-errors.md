@@ -28,9 +28,10 @@ End Function
 - Each area of std has one Error, whose `Kind` Enum says what went wrong, with its details:
   `IOError` (`IOErrorKind`: `NOT_FOUND`, `PERMISSION_DENIED`, `ALREADY_EXISTS`,
   `UNEXPECTED_END`, `INTERRUPTED`, `OTHER`, and `Path`), `ArgumentError` (`Name`),
-  `ParseError` (`Line`, `Column`), `FormatError`, `NetError` (`Address`), and `DatabaseError`,
-  and `TimeoutError`, which has one kind. Each takes its Kind first, then its message, its
-  details, and a Cause: `IOError(IOErrorKind.NOT_FOUND, "{path} doesn't exist", path)`.
+  `ParseError` (`Line`, `Column`), `FormatError`, `RegexError` (`Offset`), `NetError`
+  (`Address`), and `DatabaseError`, and `TimeoutError`, which has one kind. Each takes its Kind
+  first, then its message, its details, and a Cause:
+  `IOError(IOErrorKind.NOT_FOUND, "{path} doesn't exist", path)`.
 - `Throws`, after the return type, lists the Classes a function's errors extend:
   `Throws FileError, ParseError`. Each extends `Error`, and none is covered by another. A function
   that can throw **must** declare it (checked; no surprise exceptions).

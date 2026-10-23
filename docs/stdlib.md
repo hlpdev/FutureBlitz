@@ -309,17 +309,46 @@ file or URL in the default app.
   `Replace` (with `$1` or a Function), `Split`, and `Escape`; the String shortcuts
   `s.Matches(pattern)`, `s.ReplaceAll(pattern, with)`, and `s.SplitBy(pattern)` cache recent
   patterns. The compiler checks a literal pattern and reports PCRE2's error at it.
+  - A pattern is UTF-8 with Unicode's `\w`, `\d`, `\s`, and `\b`, and `\C`, which could split a
+    character, is an error; `RegexFlags` has `IGNORE_CASE`, `MULTILINE`, `DOT_ALL`, and
+    `EXTENDED`, and a line ends at `\n`, `\r\n`, or `\r`. A raw string, `r"\d{4}"`, needs no
+    escapes, and leaves `${name}` in a replacement alone.
+  - A pattern that isn't valid is a bug, so `Regex(pattern)` panics at its caller; one from
+    elsewhere goes through `Regex.Parse`, which throws a `RegexError` of `PATTERN` with the byte
+    PCRE2 stopped at. The compiler checks any pattern it knows, a Const's too, with the flags
+    when it knows them, and points at the character PCRE2 stopped at.
+  - Each match takes at most `MatchLimit` steps (10 million) and `MemoryLimit` bytes (64 MiB),
+    past which it throws a `RegexError` of `MATCH_LIMIT` or `MEMORY_LIMIT`, so `IsMatch`, `Find`,
+    `FindAll`, `Replace`, `ReplaceFirst`, `Split`, and the shortcuts are `Throws RegexError`.
+  - A `Match` has `Value`, `Start`, `Finish`, `GroupCount`, `[]` by number or name, giving a
+    `String?` for a group that took no part, and `StartOf` and `FinishOf`. `FindAll` finds an
+    empty match once at each place, as Python and Rust do. A replacement's `$1`, `${1}`,
+    `${name}`, and `$$` panic on a group the pattern doesn't have.
+  - Each thread keeps the last 16 patterns it compiled, which a Regex of one shares, so the
+    shortcuts compile a pattern once.
 - std.text.template: Mustache-style `{{name}}`, `{{#each items}}`, `{{#if x}}`/`{{else}}`,
   partials, and format specs inside (`{{price:.2}}`), with HTML escaping on for `.html`; values
   from a Map, a Struct (by reflection), or a JSON Value.
 - std.text.markdown (md4c): CommonMark with tables and task lists, to HTML, and a document tree
   to walk.
 - std.text.diff: line and character diffs (Myers), unified-diff text, and a three-way merge.
+  `Diff.Lines` and `Diff.Chars` give `DiffRun`s, `Diff.Unified` what `diff -u` and `git diff`
+  write, and `Diff.Merge` what `git merge-file` makes: a conflict holds only the lines that
+  differ, and two with at most 3 lines between them, or lines without a letter or digit, are one.
 - Fuzzy matching (scores and matched positions, like fzf), and `Humanize`: plurals ("3
   enemies"), relative time ("3 minutes ago"), ordinals, number words, and case styles
   (snake_case, camelCase, PascalCase, kebab-case).
+  - std.text.fuzzy's `Fuzzy.Match` gives a `FuzzyMatch?` with fzf's own score and the byte
+    positions; `Score` and `Rank` too. A pattern without capitals ignores case.
+  - std.text.humanize's `Humanize.Plural(word)`, `Plural(count, word)`, `Relative(seconds)`
+    (negative is past) until std.time's `Duration`, `Ordinal`, `Words`, and `SnakeCase`,
+    `CamelCase`, `PascalCase`, and `KebabCase`.
 - `Glob.Match`, `WordWrap`, `Dedent`, `Indent`, `Levenshtein`; `FormatBytes` ("1.2 MB") and
   `FormatDuration`.
+  - std.text.glob's `Glob.Match(pattern, text)`, or `Glob(pattern).Matches(text)`: `*` stops
+    at `/` and `**` doesn't, `?`, `[a-z]` and `[!a-z]`, `{a,b}`, and `\`.
+  - std.text.layout's String Methods `WordWrap(width)`, in a terminal's columns, `Dedent()`,
+    and `Indent(prefix)`, and the Function `Levenshtein(a, b)`, by code point.
 
 #### std.math
 
