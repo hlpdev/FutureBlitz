@@ -219,7 +219,8 @@ Class Mesh
         Across[b * 3 + j] = a
     End Method
 
-    // The triangle's first real corner past the point at infinity, or -1 for a real triangle.
+    // Where the point at infinity is among the triangle's corners, from 0 to 2, or -1 for a real
+    // triangle; the corners after it are the hull edge's.
     Method InfiniteAt(triangle: Int): Int
         For k = 0 Until 3
             If Corners[triangle * 3 + k] < 0 Then Return k
