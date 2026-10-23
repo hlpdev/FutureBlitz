@@ -1,0 +1,222 @@
+// std.io's one-call files and folders, in a temporary folder of the program's own, with names
+// beyond ASCII: writing, reading, adding to, renaming, copying, and deleting files, atomic
+// writes, lines with either ending, what's at a path, folders and what's in them, and locks.
+// Failures come as IOErrors with their Kinds, and nothing's left behind.
+Import std.core
+Import std.io
+
+Local temp = Try TempDir("fb-files-")
+Local root = temp.Path
+Print("made {Dir.Exists(root)} {(Try Dir.Entries(root)).Count}")
+
+// Prints what's in the folder, all the way down, from it.
+Function Tree(folder: Path) Throws IOError
+    For entry In Try Dir.Walk(folder)
+        Print("  {entry.Relative} {entry.Kind}")
+    End For
+End Function
+
+// What doing `what` to a and b throws: its IOError's Kind, or "fine".
+Function Failure(what: String, a: Path, b: Path? = Null): String
+    Try
+        Select what
+            Case "read"
+                File.ReadText(a)
+            Case "write"
+                File.WriteText(a, "x")
+            Case "size"
+                File.Size(a)
+            Case "delete"
+                File.Delete(a)
+            Case "metadata"
+                File.Metadata(a)
+            Case "copy"
+                File.Copy(a, b ?? a)
+            Case "move"
+                File.Move(a, b ?? a)
+            Case "create"
+                Dir.Create(a)
+            Case "create all"
+                Dir.CreateAll(a)
+            Case "remove"
+                Dir.Remove(a)
+            Case "entries"
+                Dir.Entries(a)
+            Default
+                Panic("no {what}")
+        End Select
+    Catch e As IOError
+        Return "{what} {e.Kind}"
+    End Try
+
+    Return "{what} fine"
+End Function
+
+Print("files")
+Local save = root / "größe.txt"
+Try File.WriteText(save, "first\r\nsecond\nthird")
+// The text stays as written, "\r\n" too.
+Print("{(Try File.ReadText(save)).Bytes}")
+Print("{Try File.ReadLines(save)} {Try File.Size(save)} {File.Exists(save)} {Dir.Exists(save)}")
+Try File.AppendText(save, "\n")
+Try File.AppendLines(save, ["fourth", "fifth"], LineEnding.CRLF)
+Print("{Try File.ReadLines(save)} {Try File.Size(save)}")
+Try File.WriteLines(root / "lines.txt", ["a", "", "b"])
+Print("{Try File.ReadBytes(root / "lines.txt")} {Try File.ReadLines(root / "lines.txt")}")
+Try File.WriteBytes(root / "empty.bin", [])
+Print("{Try File.ReadBytes(root / "empty.bin")} {Try File.ReadLines(root / "empty.bin")} [{Try File.ReadText(root / "empty.bin")}]")
+Try File.WriteBytes(root / "bytes.bin", [0, 255, 128, 10, 13])
+Try File.AppendBytes(root / "bytes.bin", [1, 2])
+Print("{Try File.ReadBytes(root / "bytes.bin")}")
+
+// A byte that doesn't start UTF-8 reads as U+FFFD, and a NUL stays.
+Try File.WriteBytes(root / "odd.txt", [104, 255, 0, 105])
+Local points: Int[] = []
+For c In (Try File.ReadText(root / "odd.txt")).Chars
+    points.Add(c As Int)
+End For
+
+Print("{points}")
+
+Print("atomic")
+Try File.WriteTextAtomic(save, "replaced whole")
+Print("[{Try File.ReadText(save)}]")
+Try File.WriteBytesAtomic(root / "new.bin", [7, 8, 9])
+Print("{Try File.ReadBytes(root / "new.bin")}")
+Try Tree(root)
+
+Print("rename, copy, delete")
+Local renamed = root / "セーブ.dat"
+Try File.Move(save, renamed)
+Print("{File.Exists(save)} {File.Exists(renamed)} [{Try File.ReadText(renamed)}]")
+Try File.Copy(renamed, save)
+Print("{File.Exists(save)} [{Try File.ReadText(save)}]")
+Try File.WriteText(save, "over")
+Try File.Move(save, renamed)
+Print("[{Try File.ReadText(renamed)}] {File.Exists(save)}")
+Try File.Copy(renamed, root / "copy.dat")
+Try File.Copy(root / "new.bin", root / "copy.dat")
+Print("{Try File.ReadBytes(root / "copy.dat")}")
+Print("{Try File.Delete(root / "copy.dat")} {Try File.Delete(root / "copy.dat")} {File.Exists(root / "copy.dat")}")
+
+Print("metadata")
+Local found = Try File.Metadata(renamed)
+Print("{found.Kind} {found.Size} {found.IsFile()} {found.IsDirectory()} {found.IsReadOnly} {found.Modified > 0}")
+Local folderFound = Try File.Metadata(root)
+Print("{folderFound.Kind} {folderFound.IsDirectory()}")
+Try File.SetReadOnly(renamed, True)
+Print("{(Try File.Metadata(renamed)).IsReadOnly} {Failure("write", renamed)}")
+Try File.SetReadOnly(renamed, False)
+Print("{(Try File.Metadata(renamed)).IsReadOnly} [{Try File.ReadText(renamed)}]")
+Try File.WriteText(renamed, "yes")
+Print("[{Try File.ReadText(renamed)}]")
+
+Print("folders")
+Local nested = root / "ä" / "b" / "ç"
+Try Dir.CreateAll(nested)
+Try Dir.CreateAll(nested)
+Print("{Dir.Exists(nested)} {File.Exists(nested)}")
+Try Dir.Create(root / "plain")
+Try File.WriteText(nested / "deep.txt", "deep")
+Try File.WriteText(root / "ä" / "top.png", "")
+Try File.WriteText(root / "ä" / "b" / "mid.png", "")
+Try File.WriteText(root / "ä" / ".hidden.png", "")
+Try Tree(root)
+For entry In Try Dir.Entries(root / "ä")
+    Print("  entry {entry.Name()} {entry.Relative} {entry.IsDirectory()} {entry.Path == root / "ä" / entry.Name()}")
+End For
+
+Print("glob")
+For pattern In ["*.png", "**/*.png", "ä/*.png", "ä/**/*.png", "**", "ä/b/*", "*", "?/b", "[äb]/[!x]",
+                "ä/[a-c]/ç/*.txt", "**/ç", "[", "ä/b/**", "nothing/*", "*.dat", "**/*.PNG"]
+    Local matched: String[] = []
+    For entry In Try Dir.Glob(root, pattern)
+        matched.Add(entry.Relative.Text)
+    End For
+
+    Print("  {pattern}: {matched}")
+End For
+
+Print("errors")
+Print(Failure("read", root / "missing.txt"))
+Print(Failure("read", root / "ä"))
+Print(Failure("write", root / "ä"))
+Print(Failure("size", root / "ä"))
+Print(Failure("delete", root / "ä"))
+Print(Failure("create", root / "plain"))
+Print(Failure("create", root / "missing" / "x"))
+Print(Failure("create all", renamed / "x"))
+Print(Failure("remove", root / "ä"))
+Print(Failure("remove", renamed))
+Print(Failure("entries", renamed))
+Print(Failure("entries", root / "missing"))
+Print(Failure("copy", root / "missing", root / "x"))
+Print(Failure("copy", root / "ä", root / "x"))
+Print(Failure("move", root / "missing", root / "x"))
+Print(Failure("write", root / "missing" / "x.txt"))
+Print(Failure("write", "a\u{0}b"))
+Print(Failure("metadata", root / "missing"))
+
+// From the folder itself, paths and messages don't depend on where it is.
+Local before = Try Dir.Current()
+Try Dir.SetCurrent(root)
+// macOS's temporary folder is a link, so the current folder's path can differ from root's.
+Local here = Try Dir.Current()
+Print("{here.FileName() == root.FileName()} {(Try Path("x").Absolute()) == here / "x"} {(Try Path("a/../x").Absolute()) == here / "x"}")
+Try
+    File.ReadText("missing.txt")
+Catch e As IOError
+    Print("{e.Message} [{e.Path ?? ""}]")
+End Try
+
+Try
+    File.Copy("missing.txt", "other.txt")
+Catch e As IOError
+    Print("{e.Message} [{e.Path ?? ""}]")
+End Try
+
+Print("[{Try File.ReadText("セーブ.dat")}] {(Try Dir.Entries(".")).Count}")
+Try Dir.SetCurrent(before)
+
+Print("locks")
+Local lockPath = root / "lock.lck"
+Local held = Try FileLock.Acquire(lockPath)
+Print("{held.IsHeld()} {held.IsShared} {File.Exists(lockPath)}")
+Print("{(Try FileLock.TryAcquire(lockPath)) == Null} {(Try FileLock.TryAcquireShared(lockPath)) == Null}")
+// A lock leaves the file to read and write.
+Try File.WriteText(lockPath, "locked")
+Print("[{Try File.ReadText(lockPath)}]")
+held.Close()
+held.Close()
+Print("{held.IsHeld()}")
+Local shared = Try FileLock.AcquireShared(lockPath)
+Local other = Try FileLock.TryAcquireShared(lockPath)
+Print("{shared.IsShared} {other != Null} {(Try FileLock.TryAcquire(lockPath)) == Null}")
+shared.Close()
+other?.Close()
+Local again = Try FileLock.TryAcquire(lockPath)
+Print("{again != Null}")
+again = Null
+Print("{(Try FileLock.TryAcquire(lockPath)) != Null}")
+
+Print("removing")
+Print("{Try Dir.RemoveAll(root / "ä")} {Try Dir.RemoveAll(root / "ä")} {Dir.Exists(root / "ä")}")
+Print("{Try Dir.Remove(root / "plain")} {Try Dir.Remove(root / "plain")}")
+Try Tree(root)
+
+Print("temporary files")
+Local scratch = Try TempFile("fb-scratch-")
+Print("{File.Exists(scratch.Path)} {Try File.Size(scratch.Path)} {scratch.Path.FileName().Bytes.Count}")
+Try File.WriteText(scratch.Path, "scratch")
+Local scratchPath = scratch.Path
+Try scratch.Close()
+Try scratch.Close()
+Print("{File.Exists(scratchPath)}")
+Local dropped = Try TempFile()
+Local droppedPath = dropped.Path
+dropped = Try TempFile()
+Print("{File.Exists(droppedPath)} {File.Exists(dropped.Path)}")
+Try dropped.Close()
+
+Try temp.Close()
+Print("left {Dir.Exists(root)}")

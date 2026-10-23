@@ -1,0 +1,112 @@
+made True 0
+files
+[102, 105, 114, 115, 116, 13, 10, 115, 101, 99, 111, 110, 100, 10, 116, 104, 105, 114, 100]
+[first, second, third] 19 True False
+[first, second, third, fourth, fifth] 35
+[97, 10, 10, 98, 10] [a, , b]
+[] [] []
+[0, 255, 128, 10, 13, 1, 2]
+[104, 65533, 0, 105]
+atomic
+[replaced whole]
+[7, 8, 9]
+  bytes.bin FILE
+  empty.bin FILE
+  größe.txt FILE
+  lines.txt FILE
+  new.bin FILE
+  odd.txt FILE
+rename, copy, delete
+False True [replaced whole]
+True [replaced whole]
+[over] False
+[7, 8, 9]
+True False False
+metadata
+FILE 4 True False False True
+DIRECTORY True
+True write PERMISSION_DENIED
+False [over]
+[yes]
+folders
+True False
+  bytes.bin FILE
+  empty.bin FILE
+  lines.txt FILE
+  new.bin FILE
+  odd.txt FILE
+  plain DIRECTORY
+  ä DIRECTORY
+  ä/.hidden.png FILE
+  ä/b DIRECTORY
+  ä/b/mid.png FILE
+  ä/b/ç DIRECTORY
+  ä/b/ç/deep.txt FILE
+  ä/top.png FILE
+  セーブ.dat FILE
+  entry .hidden.png .hidden.png False True
+  entry b b True True
+  entry top.png top.png False True
+glob
+  *.png: []
+  **/*.png: [ä/.hidden.png, ä/b/mid.png, ä/top.png]
+  ä/*.png: [ä/.hidden.png, ä/top.png]
+  ä/**/*.png: [ä/.hidden.png, ä/b/mid.png, ä/top.png]
+  **: [bytes.bin, empty.bin, lines.txt, new.bin, odd.txt, plain, ä, ä/.hidden.png, ä/b, ä/b/mid.png, ä/b/ç, ä/b/ç/deep.txt, ä/top.png, セーブ.dat]
+  ä/b/*: [ä/b/mid.png, ä/b/ç]
+  *: [bytes.bin, empty.bin, lines.txt, new.bin, odd.txt, plain, ä, セーブ.dat]
+  ?/b: [ä/b]
+  [äb]/[!x]: [ä/b]
+  ä/[a-c]/ç/*.txt: [ä/b/ç/deep.txt]
+  **/ç: [ä/b/ç]
+  [: []
+  ä/b/**: [ä/b, ä/b/mid.png, ä/b/ç, ä/b/ç/deep.txt]
+  nothing/*: []
+  *.dat: [セーブ.dat]
+  **/*.PNG: []
+errors
+read NOT_FOUND
+read IS_A_DIRECTORY
+write IS_A_DIRECTORY
+size IS_A_DIRECTORY
+delete IS_A_DIRECTORY
+create ALREADY_EXISTS
+create NOT_FOUND
+create all NOT_A_DIRECTORY
+remove NOT_EMPTY
+remove NOT_A_DIRECTORY
+entries NOT_A_DIRECTORY
+entries NOT_FOUND
+copy NOT_FOUND
+copy IS_A_DIRECTORY
+move NOT_FOUND
+write NOT_FOUND
+write INVALID_PATH
+metadata NOT_FOUND
+True True True
+can't read missing.txt: no such file or directory [missing.txt]
+can't copy missing.txt to other.txt: no such file or directory [missing.txt]
+[yes] 8
+locks
+True False True
+True True
+[locked]
+False
+True True True
+True
+True
+removing
+True False False
+True False
+  bytes.bin FILE
+  empty.bin FILE
+  lines.txt FILE
+  lock.lck FILE
+  new.bin FILE
+  odd.txt FILE
+  セーブ.dat FILE
+temporary files
+True 0 17
+False
+False True
+left False
