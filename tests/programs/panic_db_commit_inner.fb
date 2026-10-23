@@ -1,0 +1,13 @@
+// A Transaction's Commit panics where it's called while one begun inside it is open.
+Import std.core
+Import std.db
+
+Try
+    Local db = Database.Open(":memory:")
+    Local outer = db.Begin()
+    Local inner = db.Begin()
+    Print(outer.IsOpen, inner.IsOpen)
+    outer.Commit()
+Catch e As DatabaseError
+    Print(e.Message)
+End Try

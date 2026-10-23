@@ -1,0 +1,2 @@
+1
+panic: the Database is closed at panic_db_closed.fb:10:5

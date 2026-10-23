@@ -18,6 +18,7 @@
 #include <string>
 #include <string_view>
 #include <tuple>
+#include <utility>
 #include <vector>
 
 #ifdef _WIN32
@@ -418,25 +419,64 @@ TEST_CASE("fb build names each bundled C library a program links, with its notic
         fb::run_process(executable, {}, "typed\n");
     REQUIRE(ran);
     CHECK(ran->output == "[typed]\n");
+
+    // SQLite's notice is its dedication to the public domain, and its blessing.
+    const std::filesystem::path stores = write_source(
+        "bundled/stores.fb", "Import std.db\nLocal db = Try? Database.Open(\":memory:\")\n");
+    const fb::process_result_t stored = fb_run({ "build", fb::to_utf8(stores) });
+    INFO(stored.output);
+    REQUIRE(stored.exit_code == 0);
+    const auto sqlite = std::ranges::find(fb::build_config::bundled_libraries, "SQLite",
+                                          &fb::build_config::bundled_library_t::name);
+    REQUIRE(sqlite != fb::build_config::bundled_libraries.end());
+    CHECK(stored.output.contains(std::format("     Bundled SQLite {}, under a public-domain "
+                                             "dedication; ship its notices with the program: "
+                                             "{}\n",
+                                             sqlite->version, sqlite->notice)));
+    std::ifstream dedication(fb::path_from_utf8(sqlite->notice), std::ios::binary);
+    const std::string blessing{ std::istreambuf_iterator<char>(dedication), {} };
+    CHECK(blessing.contains("The author disclaims copyright to this source code."));
+    CHECK(blessing.contains("May you share freely, never taking more than you give."));
+    CHECK_FALSE(blessing.contains("This header file defines the interface"));
 }
 
 TEST_CASE("a program fb builds loads only the system's own libraries", "[cli]") {
-    // What std and the language bundle, like libuv for input, is linked in, so the program runs
-    // wherever it's copied, with nothing beside it.
-    const std::filesystem::path source = write_source(
-        "own_libraries/reads.fb", "Import std.core\nPrint(\"[{Input() ?? \"none\"}]\")\n");
-    std::filesystem::path executable = source;
-    executable.replace_extension(fb::executable_extension);
-    const fb::process_result_t built = fb_run({ "build", fb::to_utf8(source) });
-    INFO(built.output);
-    REQUIRE(built.exit_code == 0);
+    // What std and the language bundle, like libuv for input, and SQLite and mbedTLS for a
+    // database and a random Uuid, is linked in, so the program runs wherever it's copied, with
+    // nothing beside it.
+    const auto sources = std::to_array<std::pair<std::string_view, std::string_view>>({
+        { "own_libraries/reads.fb", "Import std.core\nPrint(\"[{Input() ?? \"none\"}]\")\n" },
+        {
+            "own_libraries/database.fb",
+            "Import std.core\nImport std.db\nImport std.uuid\nTry\n"
+            "    Local db = Database.Open(\":memory:\")\n"
+            "    Local text = db.Rows(\"SELECT ?\", Uuid.V4().ToString())[0].Text(0) ?? \"\"\n"
+            "    Print(text.Bytes.Count)\n"
+            "Catch e As DatabaseError\n    Print(e.Message)\nEnd Try\n",
+        },
+    });
+    for (const auto& [name, text] : sources) {
+        INFO(name);
+        const std::filesystem::path source = write_source(name, text);
+        std::filesystem::path executable = source;
+        executable.replace_extension(fb::executable_extension);
+        const fb::process_result_t built = fb_run({ "build", fb::to_utf8(source) });
+        INFO(built.output);
+        REQUIRE(built.exit_code == 0);
 
-    // Every program loads the system's C library at least, so an empty list read nothing.
-    const std::vector<std::string> libraries = loaded_libraries(executable);
-    CHECK_FALSE(libraries.empty());
-    for (const std::string& library : libraries) {
-        INFO(library);
-        CHECK(is_system_library(library));
+        // Every program loads the system's C library at least, so an empty list read nothing.
+        const std::vector<std::string> libraries = loaded_libraries(executable);
+        CHECK_FALSE(libraries.empty());
+        for (const std::string& library : libraries) {
+            INFO(library);
+            CHECK(is_system_library(library));
+        }
+
+        const std::expected<fb::process_result_t, std::string> ran =
+            fb::run_process(executable, {}, "");
+        REQUIRE(ran);
+        CHECK(ran->exit_code == 0);
+        CHECK(ran->output == (name.ends_with("reads.fb") ? "[none]\n" : "36\n"));
     }
 }
 

@@ -1,0 +1,12 @@
+// Database.Execute(sql) binds no parameters, so it panics where it's called with SQL that takes
+// some, which would otherwise be NULL.
+Import std.core
+Import std.db
+
+Try
+    Local db = Database.Open(":memory:")
+    db.Execute("CREATE TABLE t (a INTEGER)")
+    db.Execute("INSERT INTO t VALUES (1); INSERT INTO t VALUES (?)")
+Catch e As DatabaseError
+    Print(e.Message)
+End Try

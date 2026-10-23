@@ -644,6 +644,12 @@ TEST_CASE("a program links the bundled C libraries of the runtime functions it c
           std::vector<std::string_view>{ "libuv" });
     CHECK(bundled("Import std.core\nLocal line = Await InputAsync()") ==
           std::vector<std::string_view>{ "libuv" });
+    // std.db is over SQLite, and a random Uuid comes from SecureRandom, over mbedTLS.
+    CHECK(bundled("Import std.db\nLocal db = Try? Database.Open(\":memory:\")") ==
+          std::vector<std::string_view>{ "SQLite" });
+    CHECK(bundled("Import std.uuid\nLocal id = Uuid.Parse(\"\")").empty());
+    CHECK(bundled("Import std.uuid\nLocal id = Uuid.V4()") ==
+          std::vector<std::string_view>{ "mbedTLS" });
 }
 
 TEST_CASE("the bundled C libraries are optimized in every build", "[driver]") {

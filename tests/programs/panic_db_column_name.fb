@@ -1,0 +1,12 @@
+// A Row's IsNull panics where it's called for a name no column has.
+Import std.core
+Import std.db
+
+Try
+    Local db = Database.Open(":memory:")
+    Local row = db.Rows("SELECT NULL AS gone")[0]
+    Print(row.IsNull("gone"))
+    Print(row.IsNull("Gone"))
+Catch e As DatabaseError
+    Print(e.Message)
+End Try

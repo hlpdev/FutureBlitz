@@ -1,0 +1,33 @@
+0 0
+19 1
+id=1, value=-5, type='integer'
+id=2, value=-300, type='integer'
+id=3, value=-70000, type='integer'
+id=4, value=-9223372036854775808, type='integer'
+id=5, value=255, type='integer'
+id=6, value=65535, type='integer'
+id=7, value=4294967295, type='integer'
+id=8, value=9223372036854775807, type='integer'
+id=9, value=1, type='integer'
+id=10, value=0, type='integer'
+id=11, value=1.5, type='real'
+id=12, value=0.10000000149011612, type='real'
+id=13, value=0.1, type='real'
+id=14, value='héllo, ☃', type='text'
+id=15, value='', type='text'
+id=16, value=blob of 3, type='blob'
+id=17, value=blob of 0, type='blob'
+id=18, value=NULL, type='null'
+id=19, value='some', type='text'
+[0, 1, 255] 0 False
+3
+bob 3 3
+cy 2 2
+2
+names='ADA+BOB+cy', count(*)=3, avg(length(name))=2.6666666666666665, max(rowid)=3
+0
+0
+?=1, ?=2, ?=3, ?=4, ?=5, ?=6, ?=7, ?=8
+?1 + ?2=42, ?2 || ?1='240'
+:a='x', @b=2.5, $c=NULL
+?='919108f7-52d1-4320-9bac-f847db4148a8', typeof(?1)='text' True

@@ -1,0 +1,145 @@
+// std.db throws a DatabaseError of the kind of what failed, with SQLite's message: a constraint a
+// change breaks, foreign keys' too, SQL that isn't right or fails as it runs, a value SQLite can't
+// hold, a database that doesn't open, and one another connection holds. What the statements
+// before a failed one did stays.
+Import std.core
+Import std.db
+
+Function Report(e: DatabaseError)
+    Print("{e.Kind}: {e.Message}")
+End Function
+
+Function Run() Throws DatabaseError
+    Local db = Try Database.Open(":memory:")
+    Try db.Execute("CREATE TABLE teams (id INTEGER PRIMARY KEY);" +
+                   "CREATE TABLE users (name TEXT NOT NULL UNIQUE, age INTEGER CHECK (age >= 0)," +
+                   "                    team INTEGER REFERENCES teams (id));" +
+                   "CREATE TABLE strict (n INTEGER) STRICT;" +
+                   "INSERT INTO teams (id) VALUES (1);" +
+                   "INSERT INTO users (name, age, team) VALUES ('ada', 36, 1)")
+
+    Local none: String? = Null
+    Try
+        db.Execute("INSERT INTO users (name) VALUES (?)", "ada")
+    Catch e As DatabaseError
+        Report(e)
+    End Try
+    Try
+        db.Execute("INSERT INTO users (name) VALUES (?)", Nullable(none))
+    Catch e As DatabaseError
+        Report(e)
+    End Try
+    Try
+        db.Execute("INSERT INTO users (name, age) VALUES (?, ?)", "bob", -1)
+    Catch e As DatabaseError
+        Report(e)
+    End Try
+    Try
+        db.Execute("INSERT INTO users (name, team) VALUES (?, ?)", "cy", 2)
+    Catch e As DatabaseError
+        Report(e)
+    End Try
+    Try
+        db.Execute("DELETE FROM teams")
+    Catch e As DatabaseError
+        Report(e)
+    End Try
+    Try
+        db.Execute("INSERT INTO strict (n) VALUES (?)", "ten")
+    Catch e As DatabaseError
+        Report(e)
+    End Try
+    Print((Try db.Rows("SELECT * FROM users")).Count)
+
+    // SQL that doesn't prepare, that fails as it runs, or that isn't one statement.
+    Try
+        db.Execute("SELEC 1")
+    Catch e As DatabaseError
+        Report(e)
+    End Try
+    Try
+        db.Rows("SELECT * FROM missing")
+    Catch e As DatabaseError
+        Report(e)
+    End Try
+    Try
+        db.Rows("SELECT abs(?)", (-9223372036854775807 - 1) As Int64)
+    Catch e As DatabaseError
+        Report(e)
+    End Try
+    Try
+        db.Execute("INSERT INTO teams (id) VALUES (?)", "two")
+    Catch e As DatabaseError
+        Report(e)
+    End Try
+    Try
+        db.Prepare("SELECT 1; SELECT 2")
+    Catch e As DatabaseError
+        Report(e)
+    End Try
+    Try
+        db.Prepare("SELECT 1; SELEC 2")
+    Catch e As DatabaseError
+        Report(e)
+    End Try
+    Try
+        db.Prepare(" -- nothing\n;")
+    Catch e As DatabaseError
+        Report(e)
+    End Try
+    Try
+        db.Execute("SELECT 1;\0 DROP TABLE users")
+    Catch e As DatabaseError
+        Report(e)
+    End Try
+    Try
+        db.Rows("SELECT ?", 18446744073709551615 As UInt64)
+    Catch e As DatabaseError
+        Report(e)
+    End Try
+    // A semicolon and comments after the one statement are nothing.
+    Print((Try db.Prepare("SELECT 1; -- one\n /* statement */ ;")).Parameters)
+
+    // What the statement before a failed one did stays.
+    Try
+        db.Execute("CREATE TABLE kept (n INTEGER); INSERT INTO kept VALUES (1); INSERT INTO gone " +
+                   "VALUES (2); INSERT INTO kept VALUES (3)")
+    Catch e As DatabaseError
+        Report(e)
+    End Try
+    Print((Try db.Rows("SELECT n FROM kept"))[0].Integer(0) ?? 0,
+          (Try db.Rows("SELECT count(*) FROM kept"))[0].Integer(0) ?? 0)
+
+    // A database another connection holds is BUSY, as one a shared cache has locked is.
+    Local first = Try Database.Open("file:busy?mode=memory&cache=shared")
+    Local second = Try Database.Open("file:busy?mode=memory&cache=shared")
+    Try first.Execute("CREATE TABLE t (n INTEGER)")
+    Local transaction = Try first.Begin()
+    Try first.Execute("INSERT INTO t VALUES (1)")
+    Try
+        second.Execute("INSERT INTO t VALUES (2)")
+    Catch e As DatabaseError
+        Report(e)
+    End Try
+    Try transaction.Commit()
+    Try second.Execute("INSERT INTO t VALUES (2)")
+    Print((Try first.Rows("SELECT count(*) FROM t"))[0].Integer(0) ?? 0)
+End Function
+
+Try
+    Run()
+Catch e As DatabaseError
+    Print("failed: {e.Message}")
+End Try
+
+// A path that doesn't open, or holds a NUL.
+Try
+    Database.Open("no such folder/data.db")
+Catch e As DatabaseError
+    Report(e)
+End Try
+Try
+    Database.Open("data\0.db")
+Catch e As DatabaseError
+    Report(e)
+End Try

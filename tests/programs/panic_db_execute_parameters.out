@@ -1,0 +1,1 @@
+panic: Execute(sql) binds no parameters, and a statement in its SQL takes some at panic_db_execute_parameters.fb:9:5

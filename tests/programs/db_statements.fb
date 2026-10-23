@@ -1,0 +1,82 @@
+// std.db's Statements are prepared once and run many times: their parameters bind to new values
+// each time, by number, by name, or all in order, keep them until they're bound again or Cleared,
+// and a Statement keeps its Database open.
+Import std.core
+Import std.collections
+Import std.db
+
+Function Names(db: Database): String Throws DatabaseError
+    Local names: String[] = []
+    For row In Try db.Rows("SELECT name, score FROM players ORDER BY rowid")
+        names.Add("{row.Text(0) ?? "NULL"}:{row.Real(1) ?? -1.0}")
+    End For
+    Return names.Join(" ")
+End Function
+
+// A Statement of a Database that only it holds.
+Function Prepared(): Statement Throws DatabaseError
+    Local db = Try Database.Open(":memory:")
+    Try db.Execute("CREATE TABLE kept (n INTEGER); INSERT INTO kept VALUES (7), (8)")
+    Return Try db.Prepare("SELECT sum(n) + ? FROM kept")
+End Function
+
+Function Run() Throws DatabaseError
+    Local db = Try Database.Open(":memory:")
+    Try db.Execute("CREATE TABLE players (name TEXT, score REAL)")
+
+    Local insert = Try db.Prepare("INSERT INTO players (name, score) VALUES (?, ?)")
+    Print(insert.Parameters)
+    Try insert.Execute("ada", 1.5)
+    Try insert.Execute("bob", 2)
+    For name In ["cy", "di"]
+        Try insert.Execute(name, name.Bytes.Count)
+    End For
+    Print(Try Names(db))
+
+    // Bound values stay until they're bound again, and Clear makes each NULL.
+    Try insert.Bind(1, "ed")
+    Try insert.Bind(2, 5)
+    Try insert.Execute()
+    Try insert.Bind(1, "fay")
+    Try insert.Execute()
+    insert.Clear()
+    Try insert.Bind(2, 0.25 As Float64)
+    Try insert.Execute()
+    Print(Try Names(db))
+
+    // A name binds the parameter of that name, wherever it is.
+    Local named = Try db.Prepare("UPDATE players SET score = :score * 10 WHERE name = :name")
+    Print(named.Parameters)
+    Try named.Bind(":name", "ada")
+    Try named.Bind(":score", 3)
+    Try named.Execute()
+    Try named.Execute(7, "bob")
+    Print(db.Changes, Try Names(db))
+
+    // A query runs again from its start each time.
+    Local query = Try db.Prepare("SELECT name FROM players WHERE score > ? ORDER BY name")
+    Print((Try query.Rows(4)).Count, (Try query.Rows(4)).Count, (Try query.Rows(100)).Count)
+    Try query.Bind(1, 0)
+    Local rows = Try query.Rows()
+    Print(rows.Count, rows[0].IsNull("name"), rows[rows.Count - 1].Text(0) ?? "")
+    Print(Try query.Rows().Count)
+
+    // A Statement holds its Database open.
+    Local statement = Try Prepared()
+    Print((Try statement.Rows(1))[0].Integer(0) ?? 0)
+
+    // A statement that fails as it runs can run again.
+    Local divide = Try db.Prepare("SELECT abs(?)")
+    Try
+        divide.Rows((-9223372036854775807 - 1) As Int64)
+    Catch e As DatabaseError
+        Print(e.Kind, e.Message)
+    End Try
+    Print((Try divide.Rows(-3))[0].Integer(0) ?? 0)
+End Function
+
+Try
+    Run()
+Catch e As DatabaseError
+    Print("failed: {e.Message}")
+End Try

@@ -1,0 +1,2 @@
+1 1
+panic: column 1, 'name', holds text, not an integer at panic_db_column_type.fb:9:11

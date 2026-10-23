@@ -1,0 +1,77 @@
+// std.db's Migrate runs each migration once, in order, each in a Transaction of its own with the
+// version it makes, so a database opened again runs only those it hasn't had, and one that fails
+// leaves it at the version before, with nothing of what it did.
+Import std.core
+Import std.collections
+Import std.db
+
+Global first = "CREATE TABLE log (step TEXT); INSERT INTO log VALUES ('one')"
+Global second = "CREATE TABLE users (name TEXT); INSERT INTO log VALUES ('two')"
+Global third = "ALTER TABLE users ADD COLUMN age INTEGER; INSERT INTO log VALUES ('three')"
+
+// The database's version, and what its migrations logged.
+Function State(db: Database): String Throws DatabaseError
+    Local version = (Try db.Rows("PRAGMA user_version"))[0].Integer(0) ?? -1
+    Local steps: String[] = []
+    If (Try db.Rows("SELECT * FROM sqlite_schema WHERE name = 'log'")).Count > 0
+        For row In Try db.Rows("SELECT step FROM log ORDER BY rowid")
+            steps.Add(row.Text(0) ?? "")
+        End For
+    End If
+
+    Return "{version} [{steps.Join(", ")}]"
+End Function
+
+Function Run() Throws DatabaseError
+    // A shared database in memory lasts while a connection to it is open.
+    Local path = "file:migrate?mode=memory&cache=shared"
+    Local keep = Try Database.Open(path)
+    Local db = Try Database.Open(path)
+    Print(Try State(db))
+    Try db.Migrate(first, second)
+    Print(Try State(db))
+    Try db.Migrate(first, second)
+    Print(Try State(db))
+
+    // Opened again, by a program with one more.
+    db = Try Database.Open(path)
+    Try db.Migrate(first, second, third)
+    Print(Try State(db))
+    Print((Try db.Rows("SELECT name, age FROM users")).Count)
+
+    // One that fails leaves the version before, and what's after it waits.
+    Local fourth = "INSERT INTO log VALUES ('four'); INSERT INTO missing VALUES (1)"
+    Try
+        db.Migrate(first, second, third, fourth, "INSERT INTO log VALUES ('five')")
+    Catch e As DatabaseError
+        Print(e.Kind, e.Message)
+    End Try
+    Print(Try State(db))
+    Local migrations = [first, second, third, "INSERT INTO log VALUES ('four')",
+                        "INSERT INTO log VALUES ('five')"]
+    Try db.Migrate(migrations)
+    Print(Try State(keep))
+
+    // An older program has fewer than the database's version.
+    Try
+        db.Migrate(first, second)
+    Catch e As DatabaseError
+        Print(e.Kind, e.Message)
+    End Try
+
+    // None leave a new database at version 0, and in a Transaction, a migration is a part of it.
+    Local fresh = Try Database.Open(":memory:")
+    Try fresh.Migrate()
+    Print(Try State(fresh))
+    Local outer = Try fresh.Begin()
+    Try fresh.Migrate(first)
+    Print(Try State(fresh))
+    Try outer.Rollback()
+    Print(Try State(fresh))
+End Function
+
+Try
+    Run()
+Catch e As DatabaseError
+    Print("failed: {e.Message}")
+End Try

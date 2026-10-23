@@ -1,0 +1,17 @@
+[1, 2]
+cannot store TEXT value in INTEGER column t.n
+[1, 2]
+True
+[]
+False [1, 2]
+True []
+[1, 2]
+True False
+False [1, 2, 3, 5]
+False False False [1, 2, 3, 5]
+OTHER the transaction was rolled back, by SQLite or with the one it's a part of
+False
+OTHER the transaction was rolled back, by SQLite or with the one it's a part of
+[1, 2, 3, 5, 9]
+BUSY database table is locked: t
+[1]

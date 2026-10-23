@@ -1,0 +1,12 @@
+// A Row's Text panics where it's called for a column the row hasn't got.
+Import std.core
+Import std.db
+
+Try
+    Local db = Database.Open(":memory:")
+    Local row = db.Rows("SELECT 'a', 'b'")[0]
+    Print(row.Text(1) ?? "")
+    Print(row.Text(2) ?? "")
+Catch e As DatabaseError
+    Print(e.Message)
+End Try

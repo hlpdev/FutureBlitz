@@ -1,0 +1,14 @@
+// Database.Execute takes a value for each of its statement's parameters, and panics where it's
+// called with another number of them.
+Import std.core
+Import std.db
+
+Try
+    Local db = Database.Open(":memory:")
+    db.Execute("CREATE TABLE t (a INTEGER, b INTEGER)")
+    db.Execute("INSERT INTO t VALUES (?, ?)", 1, 2)
+    Print("two")
+    db.Execute("INSERT INTO t VALUES (?, ?)", 1)
+Catch e As DatabaseError
+    Print(e.Message)
+End Try

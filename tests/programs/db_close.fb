@@ -1,0 +1,29 @@
+// std.db's Database.Close closes it before its last reference goes, rolling back what an open
+// Transaction did, which then isn't open; a second Close does nothing.
+Import std.core
+Import std.db
+
+Function Run() Throws DatabaseError
+    Local path = "file:closing?mode=memory&cache=shared"
+    Local keep = Try Database.Open(path)
+    Try keep.Execute("CREATE TABLE t (n INTEGER)")
+
+    Local db = Try Database.Open(path)
+    Local statement = Try db.Prepare("SELECT count(*) FROM t")
+    Local transaction = Try db.Begin()
+    Try db.Execute("INSERT INTO t VALUES (1)")
+    Print(db.IsClosed, transaction.IsOpen, (Try statement.Rows())[0].Integer(0) ?? -1)
+    db.Close()
+    Print(db.IsClosed, transaction.IsOpen, statement.Parameters)
+    Try transaction.Rollback()
+    db.Close()
+    Print((Try keep.Rows("SELECT count(*) FROM t"))[0].Integer(0) ?? -1)
+    Try keep.Execute("INSERT INTO t VALUES (2)")
+    Print((Try keep.Rows("SELECT count(*) FROM t"))[0].Integer(0) ?? -1)
+End Function
+
+Try
+    Run()
+Catch e As DatabaseError
+    Print("failed: {e.Message}")
+End Try

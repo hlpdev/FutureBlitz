@@ -1,0 +1,12 @@
+// A Statement's Bind panics where it's called with a name none of its parameters has.
+Import std.core
+Import std.db
+
+Try
+    Local db = Database.Open(":memory:")
+    Local statement = db.Prepare("SELECT :one")
+    statement.Bind(":one", 1)
+    statement.Bind("one", 1)
+Catch e As DatabaseError
+    Print(e.Message)
+End Try

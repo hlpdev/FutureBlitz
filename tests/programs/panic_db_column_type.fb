@@ -1,0 +1,12 @@
+// A Row's Integer panics where it's called for a column that holds text.
+Import std.core
+Import std.db
+
+Try
+    Local db = Database.Open(":memory:")
+    Local row = db.Rows("SELECT 1 AS n, 'one' AS name")[0]
+    Print(row.Integer("n") ?? 0, row.Real(0) ?? 0.0)
+    Print(row.Integer("name") ?? 0)
+Catch e As DatabaseError
+    Print(e.Message)
+End Try

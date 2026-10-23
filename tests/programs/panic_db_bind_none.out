@@ -1,0 +1,2 @@
+0
+panic: the statement takes no parameters, so 1 isn't one at panic_db_bind_none.fb:9:5

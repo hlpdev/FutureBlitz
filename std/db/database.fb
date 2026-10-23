@@ -1,0 +1,1076 @@
+// std.db: SQLite databases, through the runtime's fb_db_ functions. A Database runs SQL with its
+// parameters bound to values, and gives the Rows a query reads; Prepare makes a Statement to run
+// many times, Begin a Transaction, which keeps all of what it does or none of it, and Migrate
+// brings a database up to date, a numbered migration at a time. What SQLite can't do throws a
+// DatabaseError of its kind, with SQLite's message.
+
+Import std.core
+Import std.collections
+
+Extern "runtime"
+    Function fb_db_open(path: String, ByRef database: Ptr<Void>): Int32
+    Function fb_db_message(database: Ptr<Void>): String
+    Function fb_db_close(database: Ptr<Void>)
+    Function fb_db_run(database: Ptr<Void>, sql: String): Int32
+    Function fb_db_prepare(database: Ptr<Void>, sql: String, ByRef statement: Ptr<Void>): Int32
+    Function fb_db_finalize(statement: Ptr<Void>)
+    Function fb_db_parameter_count(statement: Ptr<Void>): Int32
+    Function fb_db_parameter_index(statement: Ptr<Void>, name: String): Int32
+    Function fb_db_bind_null(statement: Ptr<Void>, index: Int32): Int32
+    Function fb_db_bind_int(statement: Ptr<Void>, index: Int32, value: Int64): Int32
+    Function fb_db_bind_real(statement: Ptr<Void>, index: Int32, value: Float64): Int32
+    Function fb_db_bind_text(statement: Ptr<Void>, index: Int32, value: String): Int32
+    Function fb_db_bind_blob(statement: Ptr<Void>, index: Int32, value: UInt8[]): Int32
+    Function fb_db_clear(statement: Ptr<Void>)
+    Function fb_db_step(statement: Ptr<Void>): Int32
+    Function fb_db_reset(statement: Ptr<Void>)
+    Function fb_db_column_count(statement: Ptr<Void>): Int32
+    Function fb_db_column_name(statement: Ptr<Void>, index: Int32): String
+    Function fb_db_column_type(statement: Ptr<Void>, index: Int32): Int32
+    Function fb_db_column_int(statement: Ptr<Void>, index: Int32): Int64
+    Function fb_db_column_real(statement: Ptr<Void>, index: Int32): Float64
+    Function fb_db_column_text(statement: Ptr<Void>, index: Int32): String
+    Function fb_db_column_blob(statement: Ptr<Void>, index: Int32, output: UInt8[])
+    Function fb_db_changes(database: Ptr<Void>): Int64
+    Function fb_db_last_id(database: Ptr<Void>): Int64
+    Function fb_db_in_transaction(database: Ptr<Void>): Int32
+End Extern
+
+// What fb_db_step gives for a row, and when the statement's done; and what the runtime gives for
+// SQL that isn't one statement, for SQL or a path that holds a NUL, and for SQL that takes
+// parameters fb_db_run can't bind.
+Const ROW = 100
+Const DONE = 101
+Const NOT_ONE_STATEMENT = -1
+Const HOLDS_NUL = -2
+Const TAKES_PARAMETERS = -3
+
+// SQLite's types of values: which one a Row's column holds.
+Public Enum ColumnType
+    INTEGER, REAL, TEXT, BLOB, NULL
+End Enum
+
+// What a statement's parameter takes: an integer, a Bool as 1 or 0, a Float32 or Float64 as a
+// real, a String as text, a UInt8[] as a blob, or a Nullable, NULL when its value is Null. A type
+// of the program's is one too when its BindTo binds one of these, with statement.Bind(index,
+// value).
+Public Interface SqlValue
+    // Binds statement's parameter at index, from 1, to the value.
+    Method BindTo(statement: Statement, index: Int) Throws DatabaseError
+End Interface
+
+Extend Int8 Implements SqlValue
+    Method BindTo(statement: Statement, index: Int) Throws DatabaseError
+        Try statement.Check(fb_db_bind_int(statement.Handle, index, Self))
+    End Method
+End Extend
+
+Extend Int16 Implements SqlValue
+    Method BindTo(statement: Statement, index: Int) Throws DatabaseError
+        Try statement.Check(fb_db_bind_int(statement.Handle, index, Self))
+    End Method
+End Extend
+
+Extend Int32 Implements SqlValue
+    Method BindTo(statement: Statement, index: Int) Throws DatabaseError
+        Try statement.Check(fb_db_bind_int(statement.Handle, index, Self))
+    End Method
+End Extend
+
+Extend Int64 Implements SqlValue
+    Method BindTo(statement: Statement, index: Int) Throws DatabaseError
+        Try statement.Check(fb_db_bind_int(statement.Handle, index, Self))
+    End Method
+End Extend
+
+Extend UInt8 Implements SqlValue
+    Method BindTo(statement: Statement, index: Int) Throws DatabaseError
+        Try statement.Check(fb_db_bind_int(statement.Handle, index, Self))
+    End Method
+End Extend
+
+Extend UInt16 Implements SqlValue
+    Method BindTo(statement: Statement, index: Int) Throws DatabaseError
+        Try statement.Check(fb_db_bind_int(statement.Handle, index, Self))
+    End Method
+End Extend
+
+Extend UInt32 Implements SqlValue
+    Method BindTo(statement: Statement, index: Int) Throws DatabaseError
+        Try statement.Check(fb_db_bind_int(statement.Handle, index, Self))
+    End Method
+End Extend
+
+// SQLite's integers are 64-bit and signed, so one past an Int64's largest throws a DatabaseError.
+Extend UInt64 Implements SqlValue
+    Method BindTo(statement: Statement, index: Int) Throws DatabaseError
+        If Self > 9223372036854775807
+            Throw DatabaseError(DatabaseErrorKind.OTHER,
+                                "SQLite's integers go up to 9223372036854775807, not {Self}")
+        End If
+
+        Try statement.Check(fb_db_bind_int(statement.Handle, index, Self As Int64))
+    End Method
+End Extend
+
+Extend Bool Implements SqlValue
+    Method BindTo(statement: Statement, index: Int) Throws DatabaseError
+        Try statement.Check(fb_db_bind_int(statement.Handle, index, Self ? 1 : 0))
+    End Method
+End Extend
+
+Extend Float32 Implements SqlValue
+    Method BindTo(statement: Statement, index: Int) Throws DatabaseError
+        Try statement.Check(fb_db_bind_real(statement.Handle, index, Self))
+    End Method
+End Extend
+
+Extend Float64 Implements SqlValue
+    Method BindTo(statement: Statement, index: Int) Throws DatabaseError
+        Try statement.Check(fb_db_bind_real(statement.Handle, index, Self))
+    End Method
+End Extend
+
+Extend String Implements SqlValue
+    Method BindTo(statement: Statement, index: Int) Throws DatabaseError
+        Try statement.Check(fb_db_bind_text(statement.Handle, index, Self))
+    End Method
+End Extend
+
+Extend UInt8[] Implements SqlValue
+    Method BindTo(statement: Statement, index: Int) Throws DatabaseError
+        Try statement.Check(fb_db_bind_blob(statement.Handle, index, Self))
+    End Method
+End Extend
+
+// A value that may be Null, for a parameter that's NULL when it is: Nullable(name) for a String?
+// name.
+Public Struct Nullable<T: SqlValue> Implements SqlValue
+    Public ReadOnly Field Value: T?
+
+    Public New(value: T?)
+        Value = value
+    End New
+
+    Method BindTo(statement: Statement, index: Int) Throws DatabaseError
+        Local value = Value
+        If value == Null
+            Try statement.Check(fb_db_bind_null(statement.Handle, index))
+        Else
+            Try value.BindTo(statement, index)
+        End If
+    End Method
+End Struct
+
+// A column's value in a Row: its type, as fb_db_column_type gives it, and what that type keeps.
+Struct Cell
+    Field Type: Int32
+    Field Integer: Int64
+    Field Real: Float64
+    Field Text: String
+    Field Blob: UInt8[]?
+End Struct
+
+// A row a query read: its columns' names and values, which Integer, Real, Text, and Blob give by
+// the column's index, from 0, or its name, as the SQL gives it, like "id" or "count(*)". Each
+// gives Null for NULL, and panics for a value of another type, but Real takes an integer too, so
+// a column of either reads as one. Type says which a column holds. A name that two columns have
+// is the first's.
+Public Struct Row
+    Field Names: String[]
+    Field Cells: Cell[]
+
+    // How many columns it has.
+    Public Property Count: Int
+        Get => Cells.Count
+    End Property
+
+    // The name of the column at index. Panics when there's none there.
+    @PanicsAtCaller
+    Public Method Name(column: Int): String => Names[At(column)]
+
+    @PanicsAtCaller
+    Public Method Type(column: Int): ColumnType => (Cells[At(column)].Type - 1) As ColumnType
+
+    @PanicsAtCaller
+    Public Method Type(name: String): ColumnType => Type(Find(name))
+
+    @PanicsAtCaller
+    Public Method IsNull(column: Int): Bool => Type(column) == ColumnType.NULL
+
+    @PanicsAtCaller
+    Public Method IsNull(name: String): Bool => IsNull(Find(name))
+
+    @PanicsAtCaller
+    Public Method Integer(column: Int): Int64?
+        Local cell = Cells[At(column)]
+        If cell.Type == 5 Then Return Null
+        If cell.Type != 1 Then Panic(Mismatch(column, "an integer"))
+        Return cell.Integer
+    End Method
+
+    @PanicsAtCaller
+    Public Method Integer(name: String): Int64? => Integer(Find(name))
+
+    @PanicsAtCaller
+    Public Method Real(column: Int): Float64?
+        Local cell = Cells[At(column)]
+        If cell.Type == 5 Then Return Null
+        If cell.Type == 1 Then Return cell.Integer As Float64
+        If cell.Type != 2 Then Panic(Mismatch(column, "a real"))
+        Return cell.Real
+    End Method
+
+    @PanicsAtCaller
+    Public Method Real(name: String): Float64? => Real(Find(name))
+
+    @PanicsAtCaller
+    Public Method Text(column: Int): String?
+        Local cell = Cells[At(column)]
+        If cell.Type == 5 Then Return Null
+        If cell.Type != 3 Then Panic(Mismatch(column, "text"))
+        Return cell.Text
+    End Method
+
+    @PanicsAtCaller
+    Public Method Text(name: String): String? => Text(Find(name))
+
+    @PanicsAtCaller
+    Public Method Blob(column: Int): UInt8[]?
+        Local cell = Cells[At(column)]
+        If cell.Type == 5 Then Return Null
+        If cell.Type != 4 Then Panic(Mismatch(column, "a blob"))
+        Return cell.Blob
+    End Method
+
+    @PanicsAtCaller
+    Public Method Blob(name: String): UInt8[]? => Blob(Find(name))
+
+    // column, when the row has a column there.
+    @PanicsAtCaller
+    Method At(column: Int): Int
+        If column < 0 || column >= Cells.Count
+            Panic("the row's columns are 0 to {Cells.Count - 1}, so {column} isn't one")
+        End If
+
+        Return column
+    End Method
+
+    // Where the first column of name is.
+    @PanicsAtCaller
+    Method Find(name: String): Int
+        For column = 0 Until Names.Count
+            If Names[column] == name Then Return column
+        End For
+        Panic("the row has no column named '{name}'")
+    End Method
+
+    // What a read of the column at index as what it takes says when the column holds another
+    // type.
+    Method Mismatch(column: Int, takes: String): String
+        Local holds = ["an integer", "a real", "text", "a blob"][Cells[column].Type - 1]
+        Return "column {column}, '{Names[column]}', holds {holds}, not {takes}"
+    End Method
+End Struct
+
+// A connection to an SQLite database, which closes when Close is called, or when its last
+// reference goes, and those of its Statements and Transactions. One thread uses it at a time.
+Public Class Database
+    // SQLite's connection, or Null once it's closed.
+    Field Handle: Ptr<Void>
+    // The numbers of the Transactions that are open, the outermost first, and how many have
+    // begun.
+    Field Transactions: Int64[] = []
+    Field Begun: Int64
+
+    New(handle: Ptr<Void>)
+        Handle = handle
+    End New
+
+    Method Destroy()
+        Close()
+    End Method
+
+    // The database at path, made when there's none: a file, ":memory:" for a new one in memory
+    // that only this Database reaches, or a URI file name, like "file:data.db?mode=ro" to only
+    // read one, or "file:name?mode=memory&cache=shared" for one in memory that each Database of
+    // that name shares while one is open. Its foreign keys are checked, and it waits up to 5
+    // seconds for another connection that holds the database before it throws a DatabaseError of
+    // BUSY.
+    Public Static Method Open(path: String): Database Throws DatabaseError
+        Local handle: Ptr<Void> = Null
+        Local code = fb_db_open(path, ByRef handle)
+        If code == HOLDS_NUL
+            Throw DatabaseError(DatabaseErrorKind.OTHER, "a database's path can't hold a NUL")
+        End If
+
+        Local database = Database(handle)
+        Try database.Check(code)
+        Return database
+    End Method
+
+    // Closes it now, and rolls back what an open Transaction did, as its last reference going
+    // would. Using it after that panics, but for Close, which does nothing then.
+    Public Method Close()
+        If Handle == Null Then Return
+        If fb_db_in_transaction(Handle) != 0 Then fb_db_run(Handle, "ROLLBACK")
+        Transactions.Clear()
+        fb_db_close(Handle)
+        Handle = Null
+    End Method
+
+    // Whether Close has closed it.
+    Public Property IsClosed: Bool
+        Get => Handle == Null
+    End Property
+
+    // How many rows the last INSERT, UPDATE, or DELETE changed.
+    @PanicsAtCaller
+    Public Property Changes: Int64
+        Get => fb_db_changes(Connection())
+    End Property
+
+    // The rowid of the last row an INSERT added, or 0 before one has.
+    @PanicsAtCaller
+    Public Property LastId: Int64
+        Get => fb_db_last_id(Connection())
+    End Property
+
+    // Runs each statement in sql, in turn, and throws what the first that fails fails with,
+    // leaving what the ones before it did, but for what a Transaction undoes. Panics when one
+    // takes parameters, which Execute(sql, values) binds.
+    @PanicsAtCaller
+    Public Method Execute(sql: String) Throws DatabaseError
+        Local code = fb_db_run(Connection(), sql)
+        If code == TAKES_PARAMETERS
+            Panic("Execute(sql) binds no parameters, and a statement in its SQL takes some")
+        End If
+
+        Try Check(code)
+    End Method
+
+    // Runs sql's one statement with its parameters bound to values, in order, a value for each, as
+    // a Statement's Execute does. Throws a DatabaseError of QUERY when sql isn't one statement.
+    @PanicsAtCaller
+    Public Method Execute<A: SqlValue>(sql: String, a: A) Throws DatabaseError
+        Try Prepare(sql).Execute(a)
+    End Method
+
+    @PanicsAtCaller
+    Public Method Execute<A, B>(sql: String, a: A, b: B) Throws DatabaseError
+        Where A: SqlValue
+        Where B: SqlValue
+        Try Prepare(sql).Execute(a, b)
+    End Method
+
+    @PanicsAtCaller
+    Public Method Execute<A, B, C>(sql: String, a: A, b: B, c: C) Throws DatabaseError
+        Where A: SqlValue
+        Where B: SqlValue
+        Where C: SqlValue
+        Try Prepare(sql).Execute(a, b, c)
+    End Method
+
+    @PanicsAtCaller
+    Public Method Execute<A, B, C, D>(sql: String, a: A, b: B, c: C, d: D) Throws DatabaseError
+        Where A: SqlValue
+        Where B: SqlValue
+        Where C: SqlValue
+        Where D: SqlValue
+        Try Prepare(sql).Execute(a, b, c, d)
+    End Method
+
+    @PanicsAtCaller
+    Public Method Execute<A, B, C, D, E>(sql: String, a: A, b: B, c: C, d: D,
+                                         e: E) Throws DatabaseError
+        Where A: SqlValue
+        Where B: SqlValue
+        Where C: SqlValue
+        Where D: SqlValue
+        Where E: SqlValue
+        Try Prepare(sql).Execute(a, b, c, d, e)
+    End Method
+
+    @PanicsAtCaller
+    Public Method Execute<A, B, C, D, E, F>(sql: String, a: A, b: B, c: C, d: D, e: E,
+                                            f: F) Throws DatabaseError
+        Where A: SqlValue
+        Where B: SqlValue
+        Where C: SqlValue
+        Where D: SqlValue
+        Where E: SqlValue
+        Where F: SqlValue
+        Try Prepare(sql).Execute(a, b, c, d, e, f)
+    End Method
+
+    @PanicsAtCaller
+    Public Method Execute<A, B, C, D, E, F, G>(sql: String, a: A, b: B, c: C, d: D, e: E, f: F,
+                                               g: G) Throws DatabaseError
+        Where A: SqlValue
+        Where B: SqlValue
+        Where C: SqlValue
+        Where D: SqlValue
+        Where E: SqlValue
+        Where F: SqlValue
+        Where G: SqlValue
+        Try Prepare(sql).Execute(a, b, c, d, e, f, g)
+    End Method
+
+    @PanicsAtCaller
+    Public Method Execute<A, B, C, D, E, F, G, H>(sql: String, a: A, b: B, c: C, d: D, e: E, f: F,
+                                                  g: G, h: H) Throws DatabaseError
+        Where A: SqlValue
+        Where B: SqlValue
+        Where C: SqlValue
+        Where D: SqlValue
+        Where E: SqlValue
+        Where F: SqlValue
+        Where G: SqlValue
+        Where H: SqlValue
+        Try Prepare(sql).Execute(a, b, c, d, e, f, g, h)
+    End Method
+
+    // The rows sql's one query reads, with its parameters bound to values as Execute's are.
+    @PanicsAtCaller
+    Public Method Rows(sql: String): Row[] Throws DatabaseError
+        Return Try Prepare(sql).Rows()
+    End Method
+
+    @PanicsAtCaller
+    Public Method Rows<A: SqlValue>(sql: String, a: A): Row[] Throws DatabaseError
+        Return Try Prepare(sql).Rows(a)
+    End Method
+
+    @PanicsAtCaller
+    Public Method Rows<A, B>(sql: String, a: A, b: B): Row[] Throws DatabaseError
+        Where A: SqlValue
+        Where B: SqlValue
+        Return Try Prepare(sql).Rows(a, b)
+    End Method
+
+    @PanicsAtCaller
+    Public Method Rows<A, B, C>(sql: String, a: A, b: B, c: C): Row[] Throws DatabaseError
+        Where A: SqlValue
+        Where B: SqlValue
+        Where C: SqlValue
+        Return Try Prepare(sql).Rows(a, b, c)
+    End Method
+
+    @PanicsAtCaller
+    Public Method Rows<A, B, C, D>(sql: String, a: A, b: B, c: C, d: D): Row[] Throws DatabaseError
+        Where A: SqlValue
+        Where B: SqlValue
+        Where C: SqlValue
+        Where D: SqlValue
+        Return Try Prepare(sql).Rows(a, b, c, d)
+    End Method
+
+    @PanicsAtCaller
+    Public Method Rows<A, B, C, D, E>(sql: String, a: A, b: B, c: C, d: D,
+                                      e: E): Row[] Throws DatabaseError
+        Where A: SqlValue
+        Where B: SqlValue
+        Where C: SqlValue
+        Where D: SqlValue
+        Where E: SqlValue
+        Return Try Prepare(sql).Rows(a, b, c, d, e)
+    End Method
+
+    @PanicsAtCaller
+    Public Method Rows<A, B, C, D, E, F>(sql: String, a: A, b: B, c: C, d: D, e: E,
+                                         f: F): Row[] Throws DatabaseError
+        Where A: SqlValue
+        Where B: SqlValue
+        Where C: SqlValue
+        Where D: SqlValue
+        Where E: SqlValue
+        Where F: SqlValue
+        Return Try Prepare(sql).Rows(a, b, c, d, e, f)
+    End Method
+
+    @PanicsAtCaller
+    Public Method Rows<A, B, C, D, E, F, G>(sql: String, a: A, b: B, c: C, d: D, e: E, f: F,
+                                            g: G): Row[] Throws DatabaseError
+        Where A: SqlValue
+        Where B: SqlValue
+        Where C: SqlValue
+        Where D: SqlValue
+        Where E: SqlValue
+        Where F: SqlValue
+        Where G: SqlValue
+        Return Try Prepare(sql).Rows(a, b, c, d, e, f, g)
+    End Method
+
+    @PanicsAtCaller
+    Public Method Rows<A, B, C, D, E, F, G, H>(sql: String, a: A, b: B, c: C, d: D, e: E, f: F,
+                                               g: G, h: H): Row[] Throws DatabaseError
+        Where A: SqlValue
+        Where B: SqlValue
+        Where C: SqlValue
+        Where D: SqlValue
+        Where E: SqlValue
+        Where F: SqlValue
+        Where G: SqlValue
+        Where H: SqlValue
+        Return Try Prepare(sql).Rows(a, b, c, d, e, f, g, h)
+    End Method
+
+    // sql's one statement, prepared to run many times. Throws a DatabaseError of QUERY when sql
+    // holds no statement or more than one, or one that doesn't prepare, like one that names a
+    // table the database hasn't got.
+    @PanicsAtCaller
+    Public Method Prepare(sql: String): Statement Throws DatabaseError
+        Local handle: Ptr<Void> = Null
+        Local code = fb_db_prepare(Connection(), sql, ByRef handle)
+        If code == NOT_ONE_STATEMENT
+            Throw DatabaseError(DatabaseErrorKind.QUERY,
+                                "a Statement is prepared from SQL that holds one statement")
+        End If
+
+        Try Check(code)
+        Return Statement(Self, handle)
+    End Method
+
+    // A new Transaction, which keeps all of what this Database does until its Commit, or undoes
+    // it: see Transaction. One begun while another is open is a part of that one. The outermost
+    // is SQLite's IMMEDIATE, which waits for other connections to finish writing when it begins.
+    @PanicsAtCaller
+    Public Method Begin(): Transaction Throws DatabaseError
+        Local handle = Connection()
+        Settle()
+        Local level = Transactions.Count + 1
+        Try Check(fb_db_run(handle, level == 1 ? "BEGIN IMMEDIATE" : "SAVEPOINT fb_{level}"))
+        Begun += 1
+        Transactions.Add(Begun)
+        Return Transaction(Self, Begun, level)
+    End Method
+
+    // Brings the database up to date with migrations, the SQL that makes each version of it from
+    // the one before: the first makes version 1 from an empty database, the second version 2,
+    // and so on. The database keeps its version, as PRAGMA user_version, so each migration runs
+    // once, in order, in a Transaction of its own with the version it makes, and one that fails
+    // leaves the database as the one before it left it, and throws. Throws a DatabaseError too
+    // when the database's version is past the last migration's, as a newer program's would be.
+    @PanicsAtCaller
+    Public Method Migrate(migrations: String...) Throws DatabaseError
+        Local version = Try Version()
+        If version < 0 || version > migrations.Count
+            Throw DatabaseError(DatabaseErrorKind.OTHER, "the database is at version " +
+                                "{version}, and there are {migrations.Count} migrations")
+        End If
+
+        For number = version + 1 To migrations.Count
+            Local transaction = Try Begin()
+            // Another connection may have run it while this one waited to begin.
+            If (Try Version()) < number
+                Try Execute(migrations[number - 1])
+                Try Execute("PRAGMA user_version = {number}")
+            End If
+
+            Try transaction.Commit()
+        End For
+    End Method
+
+    // The database's version, which Migrate sets.
+    @PanicsAtCaller
+    Method Version(): Int Throws DatabaseError
+        Return ((Try Rows("PRAGMA user_version"))[0].Integer(0) ?? 0) As Int
+    End Method
+
+    // SQLite's connection. Panics when it's closed.
+    @PanicsAtCaller
+    Method Connection(): Ptr<Void>
+        If Handle == Null Then Panic("the Database is closed")
+        Return Handle
+    End Method
+
+    // Throws what failed when code isn't 0.
+    Method Check(code: Int32) Throws DatabaseError
+        If code != 0 Then Throw Failure(Handle, code)
+    End Method
+
+    // Forgets the open Transactions when SQLite has ended them, as it does after some errors, and
+    // as SQL that commits or rolls back does. Closing the Database ends them too.
+    Method Settle()
+        If Transactions.Count > 0 && fb_db_in_transaction(Handle) == 0 Then Transactions.Clear()
+    End Method
+
+    // Rolls back the open Transaction at level, and those begun inside it, and gives SQLite's
+    // code. The Database is open, since closing it ends its Transactions.
+    Method Undo(level: Int): Int32
+        Local code = fb_db_run(Handle, level == 1 ? "ROLLBACK" :
+                               "ROLLBACK TO fb_{level}; RELEASE fb_{level}")
+        If code == 0
+            While Transactions.Count >= level
+                Transactions.RemoveLast()
+            End While
+        End If
+
+        Settle()
+        Return code
+    End Method
+End Class
+
+// A statement prepared once, to run many times, its parameters bound to new values each time:
+// what Database.Prepare makes. Its parameters are ?, ?NNN, :name, @name, and $name, numbered
+// from 1 in order, as SQLite numbers them, and keep the values they're bound to until they're
+// bound again, or Clear sets them to NULL.
+Public Class Statement
+    Field Owner: Database
+    Field Handle: Ptr<Void>
+
+    New(owner: Database, handle: Ptr<Void>)
+        Owner = owner
+        Handle = handle
+    End New
+
+    Method Destroy()
+        fb_db_finalize(Handle)
+    End Method
+
+    // How many parameters it takes: the largest number one has.
+    Public Property Parameters: Int
+        Get => fb_db_parameter_count(Handle)
+    End Property
+
+    // Binds the parameter at index, from 1, to value. Panics when it has none there.
+    @PanicsAtCaller
+    Public Method Bind<A: SqlValue>(index: Int, value: A) Throws DatabaseError
+        Owner.Connection()
+        If Parameters == 0 Then Panic("the statement takes no parameters, so {index} isn't one")
+        If index < 1 || index > Parameters
+            Panic("the statement's parameters are 1 to {Parameters}, so {index} isn't one")
+        End If
+
+        Try value.BindTo(Self, index)
+    End Method
+
+    // Binds the parameter of name, like ":id", to value. Panics when it has none of that name.
+    @PanicsAtCaller
+    Public Method Bind<A: SqlValue>(name: String, value: A) Throws DatabaseError
+        Owner.Connection()
+        Local index = fb_db_parameter_index(Handle, name)
+        If index == 0 Then Panic("the statement has no parameter named '{name}'")
+        Try value.BindTo(Self, index)
+    End Method
+
+    // Sets each parameter to NULL.
+    Public Method Clear()
+        fb_db_clear(Handle)
+    End Method
+
+    // Runs it, with its parameters as they're bound, and throws a DatabaseError when it fails.
+    @PanicsAtCaller
+    Public Method Execute() Throws DatabaseError
+        Try Run()
+    End Method
+
+    // Binds its parameters to values, in order, then runs it. Panics when it takes another number
+    // of them.
+    @PanicsAtCaller
+    Public Method Execute<A: SqlValue>(a: A) Throws DatabaseError
+        Expect(1)
+        Try a.BindTo(Self, 1)
+        Try Run()
+    End Method
+
+    @PanicsAtCaller
+    Public Method Execute<A, B>(a: A, b: B) Throws DatabaseError
+        Where A: SqlValue
+        Where B: SqlValue
+        Expect(2)
+        Try a.BindTo(Self, 1)
+        Try b.BindTo(Self, 2)
+        Try Run()
+    End Method
+
+    @PanicsAtCaller
+    Public Method Execute<A, B, C>(a: A, b: B, c: C) Throws DatabaseError
+        Where A: SqlValue
+        Where B: SqlValue
+        Where C: SqlValue
+        Expect(3)
+        Try a.BindTo(Self, 1)
+        Try b.BindTo(Self, 2)
+        Try c.BindTo(Self, 3)
+        Try Run()
+    End Method
+
+    @PanicsAtCaller
+    Public Method Execute<A, B, C, D>(a: A, b: B, c: C, d: D) Throws DatabaseError
+        Where A: SqlValue
+        Where B: SqlValue
+        Where C: SqlValue
+        Where D: SqlValue
+        Expect(4)
+        Try a.BindTo(Self, 1)
+        Try b.BindTo(Self, 2)
+        Try c.BindTo(Self, 3)
+        Try d.BindTo(Self, 4)
+        Try Run()
+    End Method
+
+    @PanicsAtCaller
+    Public Method Execute<A, B, C, D, E>(a: A, b: B, c: C, d: D, e: E) Throws DatabaseError
+        Where A: SqlValue
+        Where B: SqlValue
+        Where C: SqlValue
+        Where D: SqlValue
+        Where E: SqlValue
+        Expect(5)
+        Try a.BindTo(Self, 1)
+        Try b.BindTo(Self, 2)
+        Try c.BindTo(Self, 3)
+        Try d.BindTo(Self, 4)
+        Try e.BindTo(Self, 5)
+        Try Run()
+    End Method
+
+    @PanicsAtCaller
+    Public Method Execute<A, B, C, D, E, F>(a: A, b: B, c: C, d: D, e: E, f: F) Throws DatabaseError
+        Where A: SqlValue
+        Where B: SqlValue
+        Where C: SqlValue
+        Where D: SqlValue
+        Where E: SqlValue
+        Where F: SqlValue
+        Expect(6)
+        Try a.BindTo(Self, 1)
+        Try b.BindTo(Self, 2)
+        Try c.BindTo(Self, 3)
+        Try d.BindTo(Self, 4)
+        Try e.BindTo(Self, 5)
+        Try f.BindTo(Self, 6)
+        Try Run()
+    End Method
+
+    @PanicsAtCaller
+    Public Method Execute<A, B, C, D, E, F, G>(a: A, b: B, c: C, d: D, e: E, f: F,
+                                               g: G) Throws DatabaseError
+        Where A: SqlValue
+        Where B: SqlValue
+        Where C: SqlValue
+        Where D: SqlValue
+        Where E: SqlValue
+        Where F: SqlValue
+        Where G: SqlValue
+        Expect(7)
+        Try a.BindTo(Self, 1)
+        Try b.BindTo(Self, 2)
+        Try c.BindTo(Self, 3)
+        Try d.BindTo(Self, 4)
+        Try e.BindTo(Self, 5)
+        Try f.BindTo(Self, 6)
+        Try g.BindTo(Self, 7)
+        Try Run()
+    End Method
+
+    @PanicsAtCaller
+    Public Method Execute<A, B, C, D, E, F, G, H>(a: A, b: B, c: C, d: D, e: E, f: F, g: G,
+                                                  h: H) Throws DatabaseError
+        Where A: SqlValue
+        Where B: SqlValue
+        Where C: SqlValue
+        Where D: SqlValue
+        Where E: SqlValue
+        Where F: SqlValue
+        Where G: SqlValue
+        Where H: SqlValue
+        Expect(8)
+        Try a.BindTo(Self, 1)
+        Try b.BindTo(Self, 2)
+        Try c.BindTo(Self, 3)
+        Try d.BindTo(Self, 4)
+        Try e.BindTo(Self, 5)
+        Try f.BindTo(Self, 6)
+        Try g.BindTo(Self, 7)
+        Try h.BindTo(Self, 8)
+        Try Run()
+    End Method
+
+    // The rows it reads, with its parameters as they're bound.
+    @PanicsAtCaller
+    Public Method Rows(): Row[] Throws DatabaseError
+        Return Try Collect()
+    End Method
+
+    // Binds its parameters to values, in order, as Execute does, then gives the rows it reads.
+    @PanicsAtCaller
+    Public Method Rows<A: SqlValue>(a: A): Row[] Throws DatabaseError
+        Expect(1)
+        Try a.BindTo(Self, 1)
+        Return Try Collect()
+    End Method
+
+    @PanicsAtCaller
+    Public Method Rows<A, B>(a: A, b: B): Row[] Throws DatabaseError
+        Where A: SqlValue
+        Where B: SqlValue
+        Expect(2)
+        Try a.BindTo(Self, 1)
+        Try b.BindTo(Self, 2)
+        Return Try Collect()
+    End Method
+
+    @PanicsAtCaller
+    Public Method Rows<A, B, C>(a: A, b: B, c: C): Row[] Throws DatabaseError
+        Where A: SqlValue
+        Where B: SqlValue
+        Where C: SqlValue
+        Expect(3)
+        Try a.BindTo(Self, 1)
+        Try b.BindTo(Self, 2)
+        Try c.BindTo(Self, 3)
+        Return Try Collect()
+    End Method
+
+    @PanicsAtCaller
+    Public Method Rows<A, B, C, D>(a: A, b: B, c: C, d: D): Row[] Throws DatabaseError
+        Where A: SqlValue
+        Where B: SqlValue
+        Where C: SqlValue
+        Where D: SqlValue
+        Expect(4)
+        Try a.BindTo(Self, 1)
+        Try b.BindTo(Self, 2)
+        Try c.BindTo(Self, 3)
+        Try d.BindTo(Self, 4)
+        Return Try Collect()
+    End Method
+
+    @PanicsAtCaller
+    Public Method Rows<A, B, C, D, E>(a: A, b: B, c: C, d: D, e: E): Row[] Throws DatabaseError
+        Where A: SqlValue
+        Where B: SqlValue
+        Where C: SqlValue
+        Where D: SqlValue
+        Where E: SqlValue
+        Expect(5)
+        Try a.BindTo(Self, 1)
+        Try b.BindTo(Self, 2)
+        Try c.BindTo(Self, 3)
+        Try d.BindTo(Self, 4)
+        Try e.BindTo(Self, 5)
+        Return Try Collect()
+    End Method
+
+    @PanicsAtCaller
+    Public Method Rows<A, B, C, D, E, F>(a: A, b: B, c: C, d: D, e: E,
+                                         f: F): Row[] Throws DatabaseError
+        Where A: SqlValue
+        Where B: SqlValue
+        Where C: SqlValue
+        Where D: SqlValue
+        Where E: SqlValue
+        Where F: SqlValue
+        Expect(6)
+        Try a.BindTo(Self, 1)
+        Try b.BindTo(Self, 2)
+        Try c.BindTo(Self, 3)
+        Try d.BindTo(Self, 4)
+        Try e.BindTo(Self, 5)
+        Try f.BindTo(Self, 6)
+        Return Try Collect()
+    End Method
+
+    @PanicsAtCaller
+    Public Method Rows<A, B, C, D, E, F, G>(a: A, b: B, c: C, d: D, e: E, f: F,
+                                            g: G): Row[] Throws DatabaseError
+        Where A: SqlValue
+        Where B: SqlValue
+        Where C: SqlValue
+        Where D: SqlValue
+        Where E: SqlValue
+        Where F: SqlValue
+        Where G: SqlValue
+        Expect(7)
+        Try a.BindTo(Self, 1)
+        Try b.BindTo(Self, 2)
+        Try c.BindTo(Self, 3)
+        Try d.BindTo(Self, 4)
+        Try e.BindTo(Self, 5)
+        Try f.BindTo(Self, 6)
+        Try g.BindTo(Self, 7)
+        Return Try Collect()
+    End Method
+
+    @PanicsAtCaller
+    Public Method Rows<A, B, C, D, E, F, G, H>(a: A, b: B, c: C, d: D, e: E, f: F, g: G,
+                                               h: H): Row[] Throws DatabaseError
+        Where A: SqlValue
+        Where B: SqlValue
+        Where C: SqlValue
+        Where D: SqlValue
+        Where E: SqlValue
+        Where F: SqlValue
+        Where G: SqlValue
+        Where H: SqlValue
+        Expect(8)
+        Try a.BindTo(Self, 1)
+        Try b.BindTo(Self, 2)
+        Try c.BindTo(Self, 3)
+        Try d.BindTo(Self, 4)
+        Try e.BindTo(Self, 5)
+        Try f.BindTo(Self, 6)
+        Try g.BindTo(Self, 7)
+        Try h.BindTo(Self, 8)
+        Return Try Collect()
+    End Method
+
+    // Throws what failed when code isn't 0.
+    Method Check(code: Int32) Throws DatabaseError
+        If code != 0 Then Throw Failure(Owner.Handle, code)
+    End Method
+
+    // Panics when it takes another number of parameters than count.
+    @PanicsAtCaller
+    Method Expect(count: Int)
+        If Parameters != count
+            Panic("a value is given for each of the statement's parameters, {Parameters}, not " +
+                  "{count}")
+        End If
+    End Method
+
+    // Runs it to its end, and gets it ready to run again. Panics when its Database is closed.
+    @PanicsAtCaller
+    Method Run() Throws DatabaseError
+        Owner.Connection()
+        Defer fb_db_reset(Handle)
+        Loop
+            Local code = fb_db_step(Handle)
+            If code == DONE Then Return
+            If code != ROW Then Throw Failure(Owner.Handle, code)
+        End Loop
+    End Method
+
+    // Runs it to its end, as Run does, and gives each row it read.
+    @PanicsAtCaller
+    Method Collect(): Row[] Throws DatabaseError
+        Owner.Connection()
+        Defer fb_db_reset(Handle)
+        Local names: String[] = []
+        For column = 0 Until fb_db_column_count(Handle)
+            names.Add(fb_db_column_name(Handle, column))
+        End For
+        Local rows: Row[] = []
+        Loop
+            Local code = fb_db_step(Handle)
+            If code == DONE Then Return rows
+            If code != ROW Then Throw Failure(Owner.Handle, code)
+            Local cells: Cell[] = []
+            For column = 0 Until names.Count
+                cells.Add(Read(column))
+            End For
+            rows.Add(Row(names, cells))
+        End Loop
+    End Method
+
+    // The value of the column at index in the row it's on.
+    Method Read(column: Int32): Cell
+        Local type = fb_db_column_type(Handle, column)
+        Select type
+            Case 1
+                Return Cell(type, fb_db_column_int(Handle, column), 0, "", Null)
+            Case 2
+                Return Cell(type, 0, fb_db_column_real(Handle, column), "", Null)
+            Case 3
+                Return Cell(type, 0, 0, fb_db_column_text(Handle, column), Null)
+            Case 4
+                Local blob: UInt8[] = []
+                fb_db_column_blob(Handle, column, blob)
+                Return Cell(type, 0, 0, "", blob)
+        End Select
+        Return Cell(type, 0, 0, "", Null)
+    End Method
+End Class
+
+// What Database.Begin gives. What the Database does from then on is kept when it commits, and
+// undone when it rolls back, or when it's let go of without a Commit, as when an error leaves the
+// code that holds it, so a transaction that fails leaves nothing. One begun while another was
+// open is a part of that one: its Commit keeps what it did only as far as that one does, and that
+// one's Rollback undoes it too.
+Public Class Transaction
+    Field Owner: Database
+    Field Number: Int64
+    Field Level: Int
+    // Whether its Commit or Rollback has run.
+    Field Ended: Bool
+
+    New(owner: Database, number: Int64, level: Int)
+        Owner = owner
+        Number = number
+        Level = level
+    End New
+
+    Method Destroy()
+        If IsOpen Then Owner.Undo(Level)
+    End Method
+
+    // Whether it's open: not committed or rolled back, by its own Methods, with the Transaction
+    // it's a part of, or by SQLite, as some errors do.
+    Public Property IsOpen: Bool
+        Get
+            Owner.Settle()
+            Return Owner.Transactions.Count >= Level && Owner.Transactions[Level - 1] == Number
+        End Get
+    End Property
+
+    // Keeps what it did. Throws a DatabaseError when SQLite can't, and it stays open, as when
+    // another connection is reading the database, or when it isn't open. Panics after its Commit
+    // or Rollback, or while a Transaction begun inside it is open.
+    @PanicsAtCaller
+    Public Method Commit() Throws DatabaseError
+        If Ended Then Panic("the Transaction has ended already")
+        Owner.Connection()
+        If !IsOpen
+            Throw DatabaseError(DatabaseErrorKind.OTHER, "the transaction was rolled back, by " +
+                                "SQLite or with the one it's a part of")
+        End If
+
+        If Owner.Transactions.Count > Level
+            Panic("a Transaction is committed while one begun inside it is open")
+        End If
+
+        Local code = fb_db_run(Owner.Handle, Level == 1 ? "COMMIT" : "RELEASE fb_{Level}")
+        If code != 0
+            Local failure = Failure(Owner.Handle, code)
+            Owner.Settle()
+            Throw failure
+        End If
+
+        Owner.Transactions.RemoveLast()
+        Ended = True
+    End Method
+
+    // Undoes what it did, and what each Transaction begun inside it did, or nothing when it isn't
+    // open. Panics after its Commit or Rollback.
+    @PanicsAtCaller
+    Public Method Rollback() Throws DatabaseError
+        If Ended Then Panic("the Transaction has ended already")
+        Ended = True
+        If !IsOpen Then Return
+        Local code = Owner.Undo(Level)
+        If code != 0 Then Throw Failure(Owner.Handle, code)
+    End Method
+End Class
+
+// The DatabaseError for SQLite's code, of its kind, with SQLite's message from database.
+Function Failure(database: Ptr<Void>, code: Int32): DatabaseError
+    If code == HOLDS_NUL
+        Return DatabaseError(DatabaseErrorKind.QUERY, "SQL can't hold a NUL, where SQLite stops " +
+                             "reading it")
+    End If
+
+    Local kind = DatabaseErrorKind.OTHER
+    Select code
+        Case 19
+            kind = DatabaseErrorKind.CONSTRAINT
+        Case 5, 6
+            kind = DatabaseErrorKind.BUSY
+        Case 1, 20, 25
+            kind = DatabaseErrorKind.QUERY
+        Case 11, 26
+            kind = DatabaseErrorKind.CORRUPT
+    End Select
+    Return DatabaseError(kind, fb_db_message(database))
+End Function

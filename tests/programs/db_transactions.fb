@@ -1,0 +1,118 @@
+// std.db's Transactions keep all of what they do or none of it: Commit keeps it, and Rollback
+// undoes it, as letting one go without a Commit does, so an error that leaves the code holding one
+// leaves nothing. One begun inside another is a part of it, and SQLite ending one ends it.
+Import std.core
+Import std.collections
+Import std.db
+
+Function Values(db: Database): String Throws DatabaseError
+    Local values: String[] = []
+    For row In Try db.Rows("SELECT n FROM t ORDER BY rowid")
+        values.Add("{row.Integer(0) ?? 0}")
+    End For
+    Return "[" + values.Join(", ") + "]"
+End Function
+
+// Adds 1 and 2 in a Transaction, or throws between them when fail says to.
+Function Add(db: Database, fail: Bool) Throws DatabaseError
+    Local transaction = Try db.Begin()
+    Try db.Execute("INSERT INTO t VALUES (?)", 1)
+    If fail Then Try db.Execute("INSERT INTO t VALUES (?)", "not a number")
+    Try db.Execute("INSERT INTO t VALUES (?)", 2)
+    Try transaction.Commit()
+End Function
+
+Function Run() Throws DatabaseError
+    Local db = Try Database.Open(":memory:")
+    Try db.Execute("CREATE TABLE t (n INTEGER) STRICT")
+
+    Try Add(db, False)
+    Print(Try Values(db))
+    Try
+        Add(db, True)
+    Catch e As DatabaseError
+        Print(e.Message)
+    End Try
+    Print(Try Values(db))
+
+    // Rollback undoes what it did, and so does letting one go.
+    Local transaction = Try db.Begin()
+    Print(transaction.IsOpen)
+    Try db.Execute("DELETE FROM t")
+    Print(Try Values(db))
+    Try transaction.Rollback()
+    Print(transaction.IsOpen, Try Values(db))
+    If transaction.IsOpen == False
+        Local dropped = Try db.Begin()
+        Try db.Execute("DELETE FROM t")
+        Print(dropped.IsOpen, Try Values(db))
+    End If
+    Print(Try Values(db))
+
+    // One inside another: its Rollback undoes only what it did, and its Commit keeps what it did
+    // as far as the outer one's does.
+    Local outer = Try db.Begin()
+    Try db.Execute("INSERT INTO t VALUES (3)")
+    Local inner = Try db.Begin()
+    Try db.Execute("INSERT INTO t VALUES (4)")
+    Try inner.Rollback()
+    inner = Try db.Begin()
+    Try db.Execute("INSERT INTO t VALUES (5)")
+    Try inner.Commit()
+    Print(outer.IsOpen, inner.IsOpen)
+    Try outer.Commit()
+    Print(outer.IsOpen, Try Values(db))
+
+    // The outer one's Rollback undoes what an inner one committed, and ends the ones still open,
+    // whose Rollback then does nothing, and whose Commit throws.
+    outer = Try db.Begin()
+    inner = Try db.Begin()
+    Try db.Execute("INSERT INTO t VALUES (6)")
+    Try inner.Commit()
+    Local open = Try db.Begin()
+    Local deeper = Try db.Begin()
+    Try db.Execute("INSERT INTO t VALUES (7)")
+    Try outer.Rollback()
+    Print(outer.IsOpen, open.IsOpen, deeper.IsOpen, Try Values(db))
+    Try deeper.Rollback()
+    Try
+        open.Commit()
+    Catch e As DatabaseError
+        Print(e.Kind, e.Message)
+    End Try
+
+    // SQL that rolls back ends the Transaction too, and the next one is outermost.
+    Local ended = Try db.Begin()
+    Try db.Execute("INSERT INTO t VALUES (8)")
+    Try db.Execute("ROLLBACK")
+    Print(ended.IsOpen)
+    Try
+        ended.Commit()
+    Catch e As DatabaseError
+        Print(e.Kind, e.Message)
+    End Try
+    Local again = Try db.Begin()
+    Try db.Execute("INSERT INTO t VALUES (9)")
+    Try again.Commit()
+    Print(Try Values(db))
+
+    // What another connection sees: nothing of an open Transaction's, all of a committed one's.
+    Local first = Try Database.Open("file:shared?mode=memory&cache=shared")
+    Local second = Try Database.Open("file:shared?mode=memory&cache=shared")
+    Try first.Execute("PRAGMA read_uncommitted = 0; CREATE TABLE t (n INTEGER)")
+    Local writing = Try first.Begin()
+    Try first.Execute("INSERT INTO t VALUES (1)")
+    Try
+        second.Rows("SELECT * FROM t")
+    Catch e As DatabaseError
+        Print(e.Kind, e.Message)
+    End Try
+    Try writing.Commit()
+    Print(Try Values(second))
+End Function
+
+Try
+    Run()
+Catch e As DatabaseError
+    Print("failed: {e.Message}")
+End Try

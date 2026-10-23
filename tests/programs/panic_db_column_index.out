@@ -1,0 +1,2 @@
+b
+panic: the row's columns are 0 to 1, so 2 isn't one at panic_db_column_index.fb:9:11

@@ -1,0 +1,23 @@
+CONSTRAINT: UNIQUE constraint failed: users.name
+CONSTRAINT: NOT NULL constraint failed: users.name
+CONSTRAINT: CHECK constraint failed: age >= 0
+CONSTRAINT: FOREIGN KEY constraint failed
+CONSTRAINT: FOREIGN KEY constraint failed
+CONSTRAINT: cannot store TEXT value in INTEGER column strict.n
+1
+QUERY: near "SELEC": syntax error
+QUERY: no such table: missing
+QUERY: integer overflow
+QUERY: datatype mismatch
+QUERY: a Statement is prepared from SQL that holds one statement
+QUERY: a Statement is prepared from SQL that holds one statement
+QUERY: a Statement is prepared from SQL that holds one statement
+QUERY: SQL can't hold a NUL, where SQLite stops reading it
+OTHER: SQLite's integers go up to 9223372036854775807, not 18446744073709551615
+0
+QUERY: no such table: gone
+1 1
+BUSY: database table is locked
+2
+OTHER: unable to open database file
+OTHER: a database's path can't hold a NUL

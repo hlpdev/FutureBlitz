@@ -99,6 +99,7 @@ So far, std/ holds:
 | std/crypto/ciphers.fb | `Aes256Gcm` and `ChaCha20Poly1305` |
 | std/crypto/signatures.fb | `Ed25519`, over Monocypher through `fb_ed25519_`, and `EcdsaP256`, `Rsa`, and `X25519` |
 | std/crypto/pem.fb | `KeyKind`, `Key`, and `Certificate` |
+| std/db/database.fb | `Database`, `Statement`, `Transaction`, `Row`, `ColumnType`, `SqlValue`, and `Nullable`, over SQLite through the runtime's `fb_db_` functions |
 | std/uuid/uuid.fb | `Uuid` |
 
 What the language itself uses, `Error` for Throw and Catch, the Interfaces, `Iterator<T>`, and
@@ -580,9 +581,40 @@ generator, noise, easing, stats, and fixed point; the rest is planned.
 
 #### std.db
 
-- SQLite: `Database.Open(path)`, `Execute` with parameters, `Query<T>` reading rows into
-  Structs by reflection, transactions, prepared statements, and numbered migrations
-  (`Migrate`) that run once each. No query builder and no server databases.
+Built in step 23, but for `Query<T>`. `Import std.db` brings in std/db/.
+
+- SQLite: `Database.Open(path)` opens a file, made when there's none, `":memory:"`, or a URI
+  file name, like `"file:data.db?mode=ro"` or `"file:name?mode=memory&cache=shared"`. Foreign
+  keys are checked, and a Database waits up to 5 seconds for another connection that holds the
+  database. `Close()` closes it early, rolling back an open Transaction, and `IsClosed` says so;
+  using it after that panics.
+- `Execute(sql)` runs each statement in turn, stopping at the first that fails.
+  `Execute(sql, values...)` and `Rows(sql, values...)` run one statement with its parameters
+  (`?`, `?NNN`, `:name`, `@name`, `$name`) bound to up to eight values, in order, one each. A
+  value is a `SqlValue`: an integer, a Bool (1 or 0), a Float32 or Float64, a String, a
+  `UInt8[]` as a blob, or `Nullable(value)`, which is NULL when its value is Null; a type of the
+  program's is one too when its `BindTo` binds one of these. `Changes` and `LastId` are SQLite's
+  changes and last rowid.
+- `Rows` reads every row when it's called, as a `Row[]`: `Count`, `Name(column)`,
+  `Type(column)`, a `ColumnType`, `IsNull`, and `Integer`, `Real`, `Text`, and `Blob`, by the
+  column's index or name, each a `T?` that's Null for NULL. A value of another type panics, but
+  `Real` reads an integer too.
+- `Prepare(sql)` gives a `Statement` to run many times: `Bind(index, value)` and
+  `Bind(name, value)`, `Clear()`, `Parameters`, and `Execute` and `Rows`, with values, or as
+  they're bound.
+- `Begin()` gives a `Transaction`, with `Commit()`, `Rollback()`, and `IsOpen`. One let go of
+  without a Commit rolls back, as when an error leaves the code holding it, so a failed
+  transaction leaves nothing. The outermost is BEGIN IMMEDIATE, and one begun inside another is
+  a SAVEPOINT, a part of it, which the outer one's Rollback undoes.
+- `Migrate(migrations...)`: each migration's number is its place, from 1, the database's
+  `PRAGMA user_version` is the last that ran, and each runs once, in order, in a Transaction of
+  its own with the version it makes; a database past the program's last throws.
+- A failure throws a DatabaseError of `CONSTRAINT` (SQLite's 19), `BUSY` (5 and 6), `QUERY` (1,
+  20, and 25, SQL that isn't one statement where one is taken, and SQL with a NUL), `CORRUPT` (11
+  and 26), or `OTHER`, with SQLite's message. A wrong number of values, a column or parameter
+  that isn't there, a wrong type read, and a Transaction ended twice panic at the caller.
+- Left for later: `Query<T>`, reading rows into Structs by reflection, with step 17's
+  Field-by-Field fill. No query builder and no server databases.
 
 #### std.image
 
@@ -652,7 +684,6 @@ Built in step 23, but for `V7`. `Import std.uuid` brings in std/uuid/.
   Null for anything else; `ToString()` writes them in lowercase. `Bytes`, `FromBytes`, and
   `Version`; `==`, `<` in the order of their bytes and texts, and Hash.
 - `Uuid.V7()` (time-ordered) waits for step 16's clock.
-
 
 #### std.debug
 

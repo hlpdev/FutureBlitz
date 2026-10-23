@@ -1,0 +1,12 @@
+0 []
+2 [one, two]
+2 [one, two]
+3 [one, two, three]
+0
+QUERY no such table: missing
+3 [one, two, three]
+5 [one, two, three, four, five]
+OTHER the database is at version 5, and there are 2 migrations
+0 []
+1 [one]
+0 []

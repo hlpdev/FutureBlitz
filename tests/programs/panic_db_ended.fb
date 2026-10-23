@@ -1,0 +1,13 @@
+// A Transaction's Rollback panics where it's called after its Commit.
+Import std.core
+Import std.db
+
+Try
+    Local db = Database.Open(":memory:")
+    Local transaction = db.Begin()
+    transaction.Commit()
+    Print(transaction.IsOpen)
+    transaction.Rollback()
+Catch e As DatabaseError
+    Print(e.Message)
+End Try

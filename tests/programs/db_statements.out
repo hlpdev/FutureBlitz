@@ -1,0 +1,11 @@
+2
+ada:1.5 bob:2 cy:2 di:2
+ada:1.5 bob:2 cy:2 di:2 ed:5 fay:5 NULL:0.25
+2
+1 ada:30 bob:70 cy:2 di:2 ed:5 fay:5 NULL:0.25
+4 4 0
+7 True fay
+7
+16
+QUERY integer overflow
+3

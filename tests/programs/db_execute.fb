@@ -1,0 +1,112 @@
+// std.db's Database runs SQL, a statement at a time, binds each type of value SqlValue takes to
+// a parameter, and a type of the program's that binds one of them, and reads rows back by a
+// column's index or name, each value as its type.
+Import std.core
+Import std.collections
+Import std.db
+Import std.uuid
+
+Extend Uuid Implements SqlValue
+    Method BindTo(statement: Statement, index: Int) Throws DatabaseError
+        Try statement.Bind(index, ToString())
+    End Method
+End Extend
+
+Function Show(row: Row): String
+    Local parts: String[] = []
+    For column = 0 Until row.Count
+        Local text = "NULL"
+        Select row.Type(column)
+            Case ColumnType.INTEGER
+                text = "{row.Integer(column) ?? 0}"
+            Case ColumnType.REAL
+                text = "{row.Real(column) ?? 0.0}"
+            Case ColumnType.TEXT
+                text = "'{row.Text(column) ?? ""}'"
+            Case ColumnType.BLOB
+                text = "blob of {(row.Blob(column) ?? []).Count}"
+            Case ColumnType.NULL
+        End Select
+        parts.Add("{row.Name(column)}={text}")
+    End For
+    Return parts.Join(", ")
+End Function
+
+Function Run() Throws DatabaseError
+    Local db = Try Database.Open(":memory:")
+    Print(db.LastId, db.Changes)
+
+    // Statements run in turn, comments and empty ones too.
+    Try db.Execute("CREATE TABLE things (id INTEGER PRIMARY KEY, value ANY); -- a comment\n" +
+                   ";; CREATE TABLE names (name TEXT NOT NULL); /* and another */ ")
+    Local insert = "INSERT INTO things (value) VALUES (?)"
+    Try db.Execute(insert, -5 As Int8)
+    Try db.Execute(insert, -300 As Int16)
+    Try db.Execute(insert, -70000)
+    Try db.Execute(insert, (-9223372036854775807 - 1) As Int64)
+    Try db.Execute(insert, 255 As UInt8)
+    Try db.Execute(insert, 65535 As UInt16)
+    Try db.Execute(insert, 4294967295 As UInt32)
+    Try db.Execute(insert, 9223372036854775807 As UInt64)
+    Try db.Execute(insert, True)
+    Try db.Execute(insert, False)
+    Try db.Execute(insert, 1.5 As Float32)
+    // A Float is a Float32, which a real holds exactly.
+    Try db.Execute(insert, 0.1)
+    Try db.Execute(insert, 0.1 As Float64)
+    Try db.Execute(insert, "héllo, ☃")
+    Try db.Execute(insert, "")
+    Local bytes: UInt8[] = [0, 1, 255]
+    Try db.Execute(insert, bytes)
+    Local empty: UInt8[] = []
+    Try db.Execute(insert, empty)
+    Local none: String? = Null
+    Local some: String? = "some"
+    Try db.Execute(insert, Nullable(none))
+    Try db.Execute(insert, Nullable(some))
+    Print(db.LastId, db.Changes)
+
+    For row In Try db.Rows("SELECT id, value, typeof(value) AS type FROM things ORDER BY id")
+        Print(Show(row))
+    End For
+
+    // A blob keeps its bytes, and an empty one isn't NULL.
+    Local blobs = Try db.Rows("SELECT value FROM things WHERE id IN (16, 17)")
+    Print(blobs[0].Blob(0) ?? [], (blobs[1].Blob("value") ?? [9]).Count, blobs[1].IsNull(0))
+
+    // Parameters bind in order, a value each, and the rows come back by name too.
+    Try db.Execute("INSERT INTO names (name) VALUES (?), (?), (?)", "ada", "bob", "cy")
+    Print(db.Changes)
+    Local rows = Try db.Rows("SELECT name, length(name) AS size FROM names WHERE name > ? " +
+                             "ORDER BY name", "b")
+    For row In rows
+        Print(row.Text("name") ?? "?", row.Integer("size") ?? 0, row.Real("size") ?? 0.0)
+    End For
+
+    Try db.Execute("UPDATE names SET name = upper(name) WHERE name != ?", "cy")
+    Print(db.Changes)
+    Local all = Try db.Rows("SELECT group_concat(name, '+') AS names, count(*), " +
+                            "avg(length(name)), max(rowid) FROM names")
+    Print(Show(all[0]))
+
+    // A query that reads nothing has no rows; one that changes nothing, none changed.
+    Print((Try db.Rows("SELECT * FROM names WHERE name = ?", "zed")).Count)
+    Try db.Execute("DELETE FROM names WHERE name = ?", "zed")
+    Print(db.Changes)
+
+    // Every count of values, up to eight, goes to its parameters in order.
+    Local eight = Try db.Rows("SELECT ?, ?, ?, ?, ?, ?, ?, ?", 1, 2, 3, 4, 5, 6, 7, 8)
+    Print(Show(eight[0]))
+    Print(Show((Try db.Rows("SELECT ?1 + ?2, ?2 || ?1", 40, 2))[0]))
+    Print(Show((Try db.Rows("SELECT :a, @b, $c", "x", 2.5, Nullable(none)))[0]))
+
+    Local id = Uuid.Parse("919108f7-52d1-4320-9bac-f847db4148a8") ?? Uuid(0, 0)
+    Local ids = Try db.Rows("SELECT ?, typeof(?1)", id)
+    Print(Show(ids[0]), Uuid.Parse(ids[0].Text(0) ?? "") == id)
+End Function
+
+Try
+    Run()
+Catch e As DatabaseError
+    Print("failed: {e.Message}")
+End Try
