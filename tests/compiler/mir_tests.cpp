@@ -2775,7 +2775,7 @@ TEST_CASE("an array type has tables only once its arrays go where an Interface i
 TEST_CASE("For Field's f.Set can't change a ReadOnly Field", "[mir]") {
     const fb::compilation_t compilation =
         fb::compile("test.fb", "Import std.core\n"
-                               "Shared Class Hub\n"
+                               "Class Hub\n"
                                "    ReadOnly Field Name: String\n"
                                "    Field Count: Int\n"
                                "    New(name: String)\n"

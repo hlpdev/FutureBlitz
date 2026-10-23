@@ -2425,8 +2425,8 @@ TEST_CASE("a Defer and a Finally can't let errors out, or leave", "[sema]") {
                     "Load(): a Defer can't throw, so ParseError has to be caught in it" });
     CHECK(with_errors("Defer Try? Load()").empty());
     CHECK(with_errors("Try\n    Print(\"x\")\nFinally\n    Load()\nEnd Try") ==
-          errors_t{ "Load(): 'Load' can throw FileError, ParseError, so calling it needs Try, "
-                    "Try?, or a Try block" });
+          errors_t{ "Load(): a Finally can't throw, so calling 'Load', which can throw "
+                    "FileError, ParseError, needs Try?, or a Try block inside it" });
     CHECK(with_errors("Try\n"
                       "    Print(\"x\")\n"
                       "Finally\n"
@@ -2650,7 +2650,10 @@ TEST_CASE("a ReadOnly Field only changes in its Class's New", "[sema]") {
                     "            id = v\n"
                     "        End Function\n"
                     "    End New\n"
-                    "End Class") == errors_t{ "id: 'id' is ReadOnly; only A's New can change it" });
+                    "End Class") ==
+          errors_t{ "Function: this lambda captures Self, so keeping it in a field of Self makes a "
+                    "cycle that's never freed; capture it with [Weak Self]",
+                    "id: 'id' is ReadOnly; only A's New can change it" });
     CHECK(errors_of("Shared Class A\n"
                     "    ReadOnly Field name: String\n"
                     "    New()\n"
