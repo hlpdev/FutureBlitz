@@ -50,5 +50,5 @@ docs/history.md; a landed step's notes go there, newest milestone first.
   project.toml and packages, native libraries, pointers and Unsafe, @CLayout and the C ABI,
   Callback, and bindgen.
 - M6 so far: step 0 (CI on Windows, Linux, and macOS), 1 (std's foundation), 2 (indexing,
-  iteration, and ranges), 3 (collections I), 4 (collections II), 9 (math I), and 21
-  (crypto), and most of the whole-codebase review's fixes.
+  iteration, and ranges), 3 (collections I), 4 (collections II), 9 (math I), 21
+  (crypto), and 27 (algo), and most of the whole-codebase review's fixes.

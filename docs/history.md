@@ -381,6 +381,33 @@ module, any size; Bcrypt.Verify refuses $2x$; crypto_macs checks RFC 7914's PBKD
 and HKDF and PBKDF2 by SHA-512, crypto_signatures RFC 7748's 5.2, and crypto_certificates and
 crypto_rsa_keys are new.
 
+Step 27, std.algo: std/algo/. search.fb: `Bfs`, `BfsOrder`, `Dfs`, `DfsOrder` (an explicit stack of
+`DepthStep`s), `Dijkstra`, `DijkstraAll`, and `AStar` over successors Functions and Hashable nodes,
+the weights of any Numeric and Comparable type, through one `Search<N, C>` (a PriorityQueue of
+`Waiting<C>`, least total, then guess, then order; stale entries skipped, so A* reopens), `Path<N,
+C>` (Nodes, Cost), and `ShortestPaths<N, C>` (Nodes, Contains, CostTo, PathTo, Parent); a negative
+or NaN weight panics. grid.fb: `GridNeighbors`, `GridPath` (A*, octile or Manhattan, diagonals of
+the square root of 2 that don't cut corners, Moves()), and `FlowField` (DijkstraAll from one start
+before every goal, each step the cost of entering the cell nearer the goals; Distance, Next,
+Direction, Reaches). union_find.fb: `UnionFind` (path halving, union by size, Add, Groups,
+SetCount). topological.fb: `TopologicalSort` (Kahn's, earliest-given ready first, Gather()) and
+`FindCycle` (depth first, by states). combinatorics.fb: `Permutations` and `Combinations`
+(`PermutationIterator<T>` and `CombinationIterator<T>`, itertools' order), `Factorial`, and
+`Binomial` (by gcds, so only a too-large answer overflows). delaunay.fb: `Delaunay` (Bowyer-Watson,
+a `Mesh` with a point at infinity, Locate() walking, Insert() by cavity, Orient and InCircle in
+Doubles), `Voronoi` (KeepNearer(), Sutherland-Hodgman by each Delaunay neighbor's bisector), and
+`LloydRelax` (Centroid()). Tests: algo_search, algo_grid, algo_union_find, algo_order,
+algo_combinatorics, and algo_delaunay, against CLRS's graph, a Python Dijkstra, and exact rational
+Delaunay and Voronoi references, and 29 panic_algo_ programs.
+
+Step 27's review (14 findings, 1 high): Delaunay's Orient and InCircle are Shewchuk's, filtered and
+then exact in expansions, so near points give a true triangulation; A* opens a settled node again;
+Voronoi and LloydRelax check bounds; Permutations and Combinations of more than there are keep
+nothing; a NaN guess panics; the searches' weights needn't be Printable; GridNeighbors checks its
+cell; a Voronoi cell is cut by each neighbor once, has no corner twice, and is empty where it only
+touches bounds; points on a line are cut by their neighbors only; TopologicalSort's docs and
+InfiniteAt's comment say what the code does.
+
 ## M5, modules, packages, FFI, and bindgen
 
 Done: M5 (modules, packages, `project.toml`, FFI, bindgen), planned 2026-10-18 and finished
