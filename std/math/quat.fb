@@ -133,12 +133,14 @@ Public Struct Quat Implements Equatable, Printable
     End Method
 
     // The Euler angles in radians, as FromEuler takes them: x from -Pi / 2 to Pi / 2, and y and z
-    // from -Pi to Pi. Where x is a quarter turn, y and z turn about one axis, and z is 0.
+    // from -Pi to Pi. Within about 0.02 degrees of x's quarter turn, where y and z turn about
+    // nearly one axis and Floats can't tell them apart, x is the quarter turn and z is 0.
     Public Method ToEuler(): Vec3
         Local m = ToMat3()
         Local sine = -m.z.y
-        If Abs(sine) < 0.99999
-            Return Vec3(Asin(sine), Atan2(m.z.x, m.z.z), Atan2(m.x.y, m.y.y))
+        Local cosine = Sqrt(m.x.y * m.x.y + m.y.y * m.y.y)
+        If cosine >= 0.00035
+            Return Vec3(Atan2(sine, cosine), Atan2(m.z.x, m.z.z), Atan2(m.x.y, m.y.y))
         End If
         Return Vec3(sine > 0 ? Pi / 2 : -Pi / 2, Atan2(-m.x.z, m.x.x), 0)
     End Method

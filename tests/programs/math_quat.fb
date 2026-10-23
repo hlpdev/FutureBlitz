@@ -50,6 +50,14 @@ Print(Shown(Quat.FromEuler(Deg(30), Deg(45), Deg(60)).ToEulerDegrees()),
 // A quarter turn up or down meets the gimbal: y and z turn about one axis, and z goes to 0.
 Print(Shown(Quat.FromEuler(Pi / 2, 0.5, 0).ToEuler()),
       Shown(Quat.FromEuler(-Pi / 2, 0.5, 0).ToEuler()))
+// Near the quarter turn, the angles still make the rotation: a camera pitched 89.8, 89.9, or 89.95
+// degrees, and, within 0.02 of the turn, where y and z fold into one, within 0.02 degrees of it.
+For degrees In [89.8, 89.9, 89.95, -89.95, 89.99, -89.99]
+    Local tilted = Quat.FromEuler(Deg(degrees), Deg(10.0), Deg(20.0))
+    Local angles = tilted.ToEuler()
+    Local back = Quat.FromEuler(angles.x, angles.y, angles.z)
+    Print(Round(tilted.ToEulerDegrees() * 100) / 100, ToDegrees(Angle(back, tilted)) < 0.02)
+End For
 Print(IsClose(Quat.FromEuler(Pi / 2, 0.3, 0.2), Quat.FromEuler(Pi / 2, 0.1, 0)))
 
 // FromTo, the shortest turn from one direction to another, half a turn for opposite ones.
