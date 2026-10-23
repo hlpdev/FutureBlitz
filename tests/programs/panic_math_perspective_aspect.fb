@@ -1,0 +1,6 @@
+// Perspective takes a finite aspect, so an infinite one panics where it's called.
+Import std.core
+Import std.math
+
+Print(Mat4.Perspective(Deg(60), 1.5, 0.1, 1000).z.w)
+Print(Mat4.Perspective(Deg(60), Inf, 0.1, 100))

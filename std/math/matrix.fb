@@ -143,15 +143,16 @@ Public Struct Mat4 Implements Equatable, Printable
 
     // A perspective projection, with the field of view from the bottom of the view to its top, in
     // radians, and the aspect, its width over its height: depth goes from 0 at near to 1 at far.
-    // A field of view outside 0 to Pi, an aspect that isn't above 0, or a near and far that aren't
-    // finite with 0 < near < far, panics.
+    // A field of view outside 0 to Pi, an aspect that isn't finite and above 0, or a near and far
+    // that aren't finite with 0 < near < far, panics.
     @PanicsAtCaller
     Public Static Method Perspective(fieldOfView: Float, aspect: Float, near: Float,
                                      far: Float): Mat4
         If !(fieldOfView > 0 && fieldOfView < Pi && aspect > 0 && IsFinite(aspect) && near > 0 &&
              near < far && IsFinite(far))
-            Panic("Perspective takes a field of view between 0 and Pi, an aspect above 0, and " +
-                  "0 < near < far, not {fieldOfView}, {aspect}, {near}, and {far}")
+            Panic("Perspective takes a field of view between 0 and Pi, a finite aspect above 0, " +
+                  "and 0 < near < far with a finite far, not {fieldOfView}, {aspect}, {near}, " +
+                  "and {far}")
         End If
 
         Local tangent = Tan(fieldOfView / 2)
