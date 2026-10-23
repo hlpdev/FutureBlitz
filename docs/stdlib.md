@@ -377,12 +377,14 @@ stats, and fixed point, all but `Rand`, `RandInt`, `RandFloat`, `SeedRandom`, an
   triangles as indices into the rings one after another, counterclockwise), `Union`,
   `Intersection`, and `Difference` of regions, and `Offset(region, distance, rounded)`, which
   grows or shrinks one with rounded or mitered corners; the results are counterclockwise outer
-  rings and clockwise holes. The math is in Doubles.
+  rings and clockwise holes. The math is in Doubles. A corner that isn't finite panics where
+  corners are put in order (the hull, triangulation, booleans, and Offset), as does an Offset
+  distance that isn't.
 - Curves (curves.fb): `QuadraticBezier`, `CubicBezier`, `Hermite`, `CatmullRom`, and `BSpline`
   points in 2D and 3D, and `Curve2` and `Curve3`, from a Function of t from 0 to 1 or as
   `CatmullRom(points, closed)`, `BSpline(points, closed)`, and `Bezier(points)` (3n + 1 of them),
   with `Length`, `PointAt(t)`, `PointAtDistance(d)`, and `Sample(count)`, points evenly apart
-  along the curve, from a table of lengths.
+  along the curve, from a table of lengths; a NaN t or distance panics.
 - Random (random.fb): `Random(seed)` and `Random(seed, stream)`, PCG32, the same numbers in every
   build and on every CPU, with `Int()`, `Int(count)`, `Int(low, high)` (both included), `Float()`
   and `Double()` from 0 up to 1, `Float(low, high)`, `Bool`, `Chance`, `Pick`, `WeightedPick`,
