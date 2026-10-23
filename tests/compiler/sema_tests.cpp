@@ -14481,3 +14481,50 @@ TEST_CASE("a call with an error doesn't also warn that its Try isn't needed", "[
           errors_t{ "\"a\": expected Int32, found String" });
     CHECK(errors_of("Local n = Try? Nope()") == errors_t{ "Nope: 'Nope' isn't declared" });
 }
+
+TEST_CASE("a pattern known at compile time that PCRE2 can't compile is an error at it", "[sema]") {
+    const std::string imports = "Import std.core\nImport std.text.regex\n";
+    // At the character PCRE2 stops at, in a raw literal or a regular one, whose escapes and
+    // "{{" are one character each.
+    CHECK(errors_of(imports + R"fb(Local a = Regex(r"(\d+"))fb") ==
+          errors_t{ "\": the pattern isn't valid: missing closing parenthesis" });
+    CHECK(errors_of(imports + R"fb(Local b = Regex("\\d{{2,1}}"))fb") ==
+          errors_t{ "}}: the pattern isn't valid: numbers out of order in {} quantifier" });
+    CHECK(errors_of(imports + R"fb(Local c = Regex("é[x"))fb") ==
+          errors_t{ "\": the pattern isn't valid: missing terminating ] for character class" });
+
+    // A Const's value is known too, and the error is at its name.
+    CHECK(errors_of(imports + "Const BROKEN = \"a)\"\nLocal d = Regex(BROKEN)") ==
+          errors_t{ "BROKEN: the pattern isn't valid: unmatched closing parenthesis" });
+
+    // Parse and String's shortcuts take a pattern too.
+    CHECK(errors_of(imports + "Local e = Try? Regex.Parse(\"x**\")\n"
+                              "Local f = Try? \"x\".Matches(\"[\")\n"
+                              "Local g = Try? \"x\".ReplaceAll(\"(?<\", \"y\")\n"
+                              "Local h = Try? \"x\".SplitBy(r\"\\C\")") ==
+          errors_t{
+              "\": the pattern isn't valid: quantifier does not follow a repeatable item",
+              "\": the pattern isn't valid: missing terminating ] for character class",
+              "\": the pattern isn't valid: subpattern name expected",
+              "\": the pattern isn't valid: using \\C is disabled by the application",
+          });
+
+    // The flags count: EXTENDED skips a comment. Flags that aren't known leave it unchecked,
+    // as does a pattern that isn't.
+    CHECK(errors_of(imports + "Local i = Regex(\"a # (\", RegexFlags.EXTENDED)\n"
+                              "Local j = Regex(\"a # (\", RegexFlags.IGNORE_CASE)") ==
+          errors_t{ "\": the pattern isn't valid: missing closing parenthesis" });
+    CHECK(errors_of(imports + "Function Flags(): RegexFlags => RegexFlags.NONE\n"
+                              "Function Text(): String => \"(\"\n"
+                              "Local k = Regex(\"(\", Flags())\n"
+                              "Local l = Regex(Text())")
+              .empty());
+
+    // A program's own Regex is its own.
+    CHECK(errors_of("Class Regex\n"
+                    "    New(pattern: String, flags: Int = 0)\n"
+                    "    End New\n"
+                    "End Class\n"
+                    "Local m = Regex(\"(\")")
+              .empty());
+}

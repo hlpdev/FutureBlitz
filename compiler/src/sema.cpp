@@ -4,6 +4,7 @@
 #include "fb/c_abi.hpp"
 #include "fb/evaluate.hpp"
 #include "fb/lower.hpp"
+#include "fb/pattern.hpp"
 #include "fb/utf8.hpp"
 
 #include <algorithm>
@@ -717,6 +718,9 @@ private:
     type_id_t m_range = type_id_t::INVALID;
     /// std.time's Duration, which Wait and RealWait take, from std/time/duration.fb.
     type_id_t m_duration = type_id_t::INVALID;
+    /// std.text.regex's Regex, whose literal patterns are checked, once it's looked for:
+    /// INVALID when the program doesn't load it.
+    std::optional<type_id_t> m_regex;
 
     /// The type parameters that names in types can refer to here: a generic Struct's or Class's,
     /// then a generic Method's or Function's.
@@ -20961,6 +20965,7 @@ private:
         check_receiver(node, function);
         check_arguments(id, node, function);
         check_special_call(node, symbol(function));
+        check_pattern_argument(id, symbol(function));
         // The constructor a Struct gets takes its fields, which may not have types yet.
         if (symbol(function).kind == symbol_kind_t::CONSTRUCTOR && !symbol(function).declaration) {
             for (const symbol_id_t field : symbol(function).parameters) {
@@ -21071,6 +21076,72 @@ private:
                   "nanoseconds",
                   function.name);
         }
+    }
+
+    /// A pattern known at compile time, like a literal, passed to std.text.regex's Regex, its
+    /// Parse, or String's Matches, ReplaceAll, or SplitBy: unless PCRE2 compiles it, with the
+    /// flags given when they're known too, it's an error at the character PCRE2 stopped at, or
+    /// at the pattern where that can't be shown.
+    void check_pattern_argument(const expr_id_t id, const symbol_t& function) {
+        if (!m_regex) {
+            m_regex = std_type("std.text.regex", "Regex");
+        }
+
+        const bool regex =
+            *m_regex != type_id_t::INVALID && function.owner == *m_regex &&
+            ((function.kind == symbol_kind_t::CONSTRUCTOR && function.parameters.size() == 2) ||
+             (function.kind == symbol_kind_t::METHOD && function.name == "Parse"));
+        const bool shortcut =
+            function.extended && function.owner == type_id_t::STRING &&
+            (function.name == "Matches" || function.name == "ReplaceAll" ||
+             function.name == "SplitBy") &&
+            m_ast.modules().modules()[module_of(function.span.file)].name == "std.text.regex";
+        const std::vector<std::optional<expr_id_t>>& arguments = info(id).arguments;
+        if ((!regex && !shortcut) || arguments.empty() || !arguments.front()) {
+            return;
+        }
+
+        const expr_id_t argument = *arguments.front();
+        const std::optional<const_value_t>& pattern = info(argument).value;
+        const auto* written = pattern ? std::get_if<std::string>(&pattern->data) : nullptr;
+        if (written == nullptr) {
+            return;
+        }
+
+        // Regex's flags, its argument or its default, which has to be known too.
+        std::int64_t flags = 0;
+        if (regex) {
+            std::optional<const_value_t> given = symbol(function.parameters[1]).value;
+            if (arguments.size() > 1) {
+                if (const std::optional<expr_id_t> written_flags = arguments[1]) {
+                    given = info(*written_flags).value;
+                }
+            }
+
+            const auto* bits = given ? std::get_if<std::int64_t>(&given->data) : nullptr;
+            if (bits == nullptr) {
+                return;
+            }
+
+            flags = *bits;
+        }
+
+        const std::optional<pattern_problem_t> problem = check_pattern(*written, flags);
+        if (!problem) {
+            return;
+        }
+
+        span_t span = span_of(argument);
+        if (std::holds_alternative<string_expr_t>(m_ast.get(argument).node)) {
+            if (const std::optional<literal_place_t> place =
+                    literal_place(text(span), problem->offset)) {
+                const auto begin = static_cast<std::uint32_t>(span.begin + place->begin);
+                const auto end = begin + static_cast<std::uint32_t>(place->length);
+                span = { .file = span.file, .begin = begin, .end = end };
+            }
+        }
+
+        error(span, "the pattern isn't valid: {}", problem->message);
     }
 
     /// RefEquals only compares Class references, a Scheduler runs a Task, and Destroy runs by
