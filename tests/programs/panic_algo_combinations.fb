@@ -1,0 +1,7 @@
+// Combinations takes a count that isn't negative, which panics where it's called.
+Import std.core
+Import std.math
+Import std.algo
+
+Print(Combinations([1, 2], 1).ToArray())
+Print(Combinations([1, 2], -2).ToArray())

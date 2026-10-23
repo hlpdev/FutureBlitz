@@ -1,0 +1,113 @@
+// TopologicalSort and FindCycle: an order of nodes where each comes before the nodes it leads to,
+// as build steps, dependencies, and a tech tree need, and the cycle that keeps there from being
+// one. The graph is the nodes given and every node their successors reach.
+
+Import std.core
+Import std.collections
+
+// The nodes given, in their order without repeats, then what their successors reach, in the order
+// breadth-first search meets them, with each one's successors, by where they are in the order.
+Function Gather<N: Hashable>(nodes: N[], successors: Func(N): N[]): (N[], Int[][])
+    Local all: N[] = []
+    Local index = Map<N, Int>()
+    For node In nodes
+        If index.TryAdd(node, all.Count) Then all.Add(node)
+    End For
+
+    Local edges: Int[][] = []
+    Local next = 0
+    While next < all.Count
+        Local out: Int[] = []
+        For successor In successors(all[next])
+            Local at = index.Get(successor)
+            If at == Null
+                at = all.Count
+                index[successor] = all.Count
+                all.Add(successor)
+            End If
+            out.Add(at)
+        End For
+        edges.Add(out)
+        next++
+    End While
+    Return (all, edges)
+End Function
+
+// The nodes, and every node their successors reach, in an order where each comes before its
+// successors, or Null where they make a cycle, which FindCycle gives. Of the nodes that could come
+// next, the earliest in the nodes given goes first, so nodes with no order between them keep the
+// one they were given in, and those only reached after them, in the order they were reached.
+Public Function TopologicalSort<N: Hashable>(nodes: N[], successors: Func(N): N[]): N[]?
+    Local all, edges = Gather(nodes, successors)
+    Local waiting: Int[] = []
+    waiting.Resize(all.Count, 0)
+    For out In edges
+        For to In out
+            waiting[to]++
+        End For
+    End For
+
+    // Kahn's algorithm, taking the earliest ready node each time.
+    Local ready = PriorityQueue<Int>()
+    For i = 0 Until all.Count
+        If waiting[i] == 0 Then ready.Add(i)
+    End For
+
+    Local order: N[] = []
+    order.Reserve(all.Count)
+    While ready.Count > 0
+        Local at = ready.Pop()
+        order.Add(all[at])
+        For to In edges[at]
+            waiting[to]--
+            If waiting[to] == 0 Then ready.Add(to)
+        End For
+    End While
+    Return order.Count == all.Count ? order : Null
+End Function
+
+// A cycle among the nodes and what their successors reach, its nodes in the order they lead to each
+// other, each once, or Null when there's none. It's the first that depth-first search meets, going
+// from the nodes given in their order: a node that's its own successor is a cycle of one.
+Public Function FindCycle<N: Hashable>(nodes: N[], successors: Func(N): N[]): N[]?
+    Local all, edges = Gather(nodes, successors)
+    // 0 for a node not met yet, 1 for one on the path now, 2 for one whose successors are done.
+    Local states: Int[] = []
+    states.Resize(all.Count, 0)
+    Local path: Int[] = []
+    Local nexts: Int[] = []
+    For root = 0 Until all.Count
+        If states[root] != 0 Then Continue
+        states[root] = 1
+        path.Add(root)
+        nexts.Add(0)
+        While path.Count > 0
+            Local top = path.Count - 1
+            Local at = path[top]
+            If nexts[top] == edges[at].Count
+                states[at] = 2
+                path.RemoveLast()
+                nexts.RemoveLast()
+                Continue
+            End If
+
+            Local to = edges[at][nexts[top]]
+            nexts[top]++
+            If states[to] == 1
+                // Back to a node on the path: the cycle is the path from it on.
+                Local cycle: N[] = []
+                For i = path.IndexOf(to) ?? 0 Until path.Count
+                    cycle.Add(all[path[i]])
+                End For
+                Return cycle
+            End If
+
+            If states[to] == 0
+                states[to] = 1
+                path.Add(to)
+                nexts.Add(0)
+            End If
+        End While
+    End For
+    Return Null
+End Function

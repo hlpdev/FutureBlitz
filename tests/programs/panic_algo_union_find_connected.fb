@@ -1,0 +1,8 @@
+// UnionFind's Connected takes values it holds, or panics where it's called.
+Import std.core
+Import std.math
+Import std.algo
+
+Local sets = UnionFind(2)
+Print(sets.Connected(0, 1))
+Print(sets.Connected(2, 0))

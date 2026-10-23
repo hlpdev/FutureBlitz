@@ -1,0 +1,2 @@
+2432902008176640000
+panic: Factorial takes an n from 0 to 20, not 21 at panic_algo_factorial.fb:7:7

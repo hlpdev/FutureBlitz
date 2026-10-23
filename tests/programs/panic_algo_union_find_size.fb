@@ -1,0 +1,8 @@
+// UnionFind's SizeOf takes a value it holds, or panics where it's called.
+Import std.core
+Import std.math
+Import std.algo
+
+Local sets = UnionFind(2)
+Print(sets.SizeOf(1))
+Print(sets.SizeOf(7))

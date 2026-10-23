@@ -1,0 +1,7 @@
+// Permutations takes a count that isn't negative, which panics where it's called.
+Import std.core
+Import std.math
+Import std.algo
+
+Print(Permutations([1, 2], 1).ToArray())
+Print(Permutations([1, 2], -1).ToArray())

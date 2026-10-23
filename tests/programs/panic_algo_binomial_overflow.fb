@@ -1,0 +1,7 @@
+// Binomial panics where it's called for a count too large for a Long.
+Import std.core
+Import std.math
+Import std.algo
+
+Print(Binomial(66, 33))
+Print(Binomial(67, 33))

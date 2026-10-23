@@ -1,0 +1,2 @@
+[[1], [2]]
+panic: Combinations takes a count that isn't negative, not -2 at panic_algo_combinations.fb:7:7

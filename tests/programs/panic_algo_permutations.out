@@ -1,0 +1,2 @@
+[[1], [2]]
+panic: Permutations takes a count that isn't negative, not -1 at panic_algo_permutations.fb:7:7

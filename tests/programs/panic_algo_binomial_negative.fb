@@ -1,0 +1,7 @@
+// Binomial takes an n that isn't negative, which panics where it's called.
+Import std.core
+Import std.math
+Import std.algo
+
+Print(Binomial(0, 0), Binomial(3, 4))
+Print(Binomial(-1, 0))

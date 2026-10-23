@@ -1,0 +1,7 @@
+// Factorial takes an n from 0 to 20, the most a Long holds, which panics where it's called.
+Import std.core
+Import std.math
+Import std.algo
+
+Print(Factorial(20))
+Print(Factorial(21))

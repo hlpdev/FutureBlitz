@@ -1,0 +1,2 @@
+1 0
+panic: Binomial takes an n that isn't negative, not -1 at panic_algo_binomial_negative.fb:7:7

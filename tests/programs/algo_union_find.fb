@@ -1,0 +1,34 @@
+// UnionFind: sets that only join, with Kruskal's minimum spanning tree as the way it's used.
+Import std.core
+Import std.collections
+Import std.algo
+
+Local sets = UnionFind(6)
+Print(sets.Count, sets.SetCount, sets.Connected(0, 1), sets.Find(4), sets.SizeOf(4), sets.Groups())
+Print(sets.Union(0, 1), sets.Union(2, 3), sets.Union(1, 0), sets.Union(0, 0), sets.SetCount)
+Print(sets.Connected(0, 1), sets.Connected(1, 2), sets.SizeOf(1), sets.Find(0) == sets.Find(1))
+Print(sets.Union(1, 3), sets.Connected(0, 2), sets.SizeOf(2), sets.SetCount, sets.Groups())
+Print(sets.Add(), sets.Count, sets.SetCount, sets.Union(6, 5), sets.Groups())
+Print(UnionFind(0).Count, UnionFind(0).SetCount, UnionFind(0).Groups())
+
+// A long chain joined one at a time stays quick to Find, and every value is in one set.
+Local chain = UnionFind(10000)
+For i = 1 Until 10000
+    chain.Union(i - 1, i)
+End For
+Print(chain.SetCount, chain.SizeOf(5000), chain.Connected(0, 9999), chain.Groups().Count)
+
+// Kruskal's minimum spanning tree: the cheapest edges first, each that joins two sets.
+Local edges = [(7, 0, 1), (5, 0, 3), (8, 1, 2), (9, 1, 3), (7, 1, 4), (5, 2, 4), (15, 3, 4),
+               (6, 3, 5), (8, 4, 5), (9, 4, 6), (11, 5, 6)]
+edges.SortBy(Function(edge: (Int, Int, Int)) => edge.0)
+Local tree = UnionFind(7)
+Local total = 0
+Local chosen: (Int, Int)[] = []
+For edge In edges
+    If tree.Union(edge.1, edge.2)
+        total += edge.0
+        chosen.Add((edge.1, edge.2))
+    End If
+End For
+Print(total, chosen, tree.SetCount)

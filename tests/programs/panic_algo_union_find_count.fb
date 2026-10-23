@@ -1,0 +1,7 @@
+// A UnionFind holds a count that isn't negative, which panics where it's made.
+Import std.core
+Import std.math
+Import std.algo
+
+Print(UnionFind(0).Count)
+Local sets = UnionFind(-3)

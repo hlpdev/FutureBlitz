@@ -1,0 +1,106 @@
+// UnionFind: the Ints from 0 to Count - 1 in sets that start one to each and only ever join, for
+// what's connected to what, as Kruskal's spanning tree and a map's regions ask. Each set has a root
+// that Find gives, and a Find halves its path to the root as it goes, while Union hangs the smaller
+// set under the larger, so either takes nearly constant time.
+
+Import std.core
+Import std.collections
+
+Public Class UnionFind
+    // Each value's parent, itself for a root.
+    Field Parents: Int[] = []
+    // The size of each root's set.
+    Field Sizes: Int[] = []
+    Field Sets: Int
+
+    // count values, each in a set of its own. A negative count panics.
+    @PanicsAtCaller
+    Public New(count: Int)
+        If count < 0 Then Panic("a UnionFind holds a count that isn't negative, not {count}")
+        Parents.Reserve(count)
+        Sizes.Reserve(count)
+        For i = 0 Until count
+            Parents.Add(i)
+            Sizes.Add(1)
+        End For
+        Sets = count
+    End New
+
+    // How many values there are, from 0 to Count - 1.
+    Public Property Count: Int
+        Get => Parents.Count
+    End Property
+
+    // How many sets the values are in.
+    Public Property SetCount: Int
+        Get => Sets
+    End Property
+
+    // Adds a value in a set of its own, and gives it: the Count before.
+    Public Method Add(): Int
+        Local value = Parents.Count
+        Parents.Add(value)
+        Sizes.Add(1)
+        Sets++
+        Return value
+    End Method
+
+    // The root of the value's set, which every value in it has. A value outside 0 to Count - 1
+    // panics.
+    @PanicsAtCaller
+    Public Method Find(value: Int): Int
+        CheckValue(value)
+        Local at = value
+        While Parents[at] != at
+            Parents[at] = Parents[Parents[at]]
+            at = Parents[at]
+        End While
+        Return at
+    End Method
+
+    // Joins the two values' sets, and tells whether they were apart. A value outside 0 to Count - 1
+    // panics.
+    @PanicsAtCaller
+    Public Method Union(a: Int, b: Int): Bool
+        Local rootA = Find(a)
+        Local rootB = Find(b)
+        If rootA == rootB Then Return False
+        If Sizes[rootA] < Sizes[rootB] Then Swap(ByRef rootA, ByRef rootB)
+        Parents[rootB] = rootA
+        Sizes[rootA] += Sizes[rootB]
+        Sets--
+        Return True
+    End Method
+
+    // Whether the two values are in one set. A value outside 0 to Count - 1 panics.
+    @PanicsAtCaller
+    Public Method Connected(a: Int, b: Int): Bool => Find(a) == Find(b)
+
+    // How many values are in the value's set, the value too. A value outside 0 to Count - 1 panics.
+    @PanicsAtCaller
+    Public Method SizeOf(value: Int): Int => Sizes[Find(value)]
+
+    // The sets, each its values from the least up, in the order of their least values.
+    Public Method Groups(): Int[][]
+        Local groups: Int[][] = []
+        Local placed: Int[] = []
+        placed.Resize(Parents.Count, -1)
+        For value = 0 Until Parents.Count
+            Local root = Find(value)
+            If placed[root] < 0
+                placed[root] = groups.Count
+                groups.Add([])
+            End If
+            groups[placed[root]].Add(value)
+        End For
+        Return groups
+    End Method
+
+    @PanicsAtCaller
+    Method CheckValue(value: Int)
+        If value < 0 || value >= Parents.Count
+            Panic("a UnionFind of {Parents.Count} holds values from 0 to {Parents.Count - 1}, " +
+                  "not {value}")
+        End If
+    End Method
+End Class

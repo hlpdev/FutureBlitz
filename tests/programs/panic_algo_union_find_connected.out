@@ -1,0 +1,2 @@
+False
+panic: a UnionFind of 2 holds values from 0 to 1, not 2 at panic_algo_union_find_connected.fb:8:7

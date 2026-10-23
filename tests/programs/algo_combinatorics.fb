@@ -1,0 +1,50 @@
+// Permutations and Combinations, in the order Python's itertools gives them, each a new array, made
+// as they're asked for; and Factorial and Binomial, which count them.
+Import std.core
+Import std.algo
+
+Print(Permutations([1, 2, 3]).ToArray())
+Print(Permutations(["a", "b", "c", "d"], 2).ToArray())
+Print(Permutations([1, 2, 3], 3).ToArray() == Permutations([1, 2, 3]).ToArray())
+Print(Permutations([7], 1).ToArray(), Permutations([1, 2], 0).ToArray(),
+      Permutations([1, 2], 3).ToArray())
+Local nothing: Int[] = []
+Print(Permutations(nothing).ToArray(), Combinations(nothing, 0).ToArray(),
+      Combinations(nothing, 1).ToArray())
+Print(Combinations([1, 2, 3, 4], 2).ToArray())
+Print(Combinations(["a", "b", "c", "d", "e"], 3).ToArray())
+Print(Combinations([1, 2, 3], 3).ToArray(), Combinations([1, 2, 3], 0).ToArray(),
+      Combinations([1, 2], 5).ToArray())
+
+// Equal elements still make orders of their own, by position.
+Print(Permutations([1, 1, 2]).ToArray())
+
+// They're made as they're asked for: the first of 10! comes at once.
+Local big: Int[] = []
+For i = 0 Until 10
+    big.Add(i)
+End For
+Print(Permutations(big).Take(3).ToArray(), Combinations(big, 4).Skip(200).First() ?? nothing)
+
+// Each is a new array, and changing the array given doesn't change them.
+Local items = [1, 2, 3]
+Local orders = Permutations(items)
+items[0] = 9
+Local first = orders.Next() ?? nothing
+first[1] = 0
+Print(first, orders.Next() ?? nothing, items)
+
+// The counts match what the iterators give.
+Print(Permutations(big, 3).Count(), Combinations(big, 3).Count(),
+      Permutations([1, 2, 3, 4, 5]).Count())
+Print(Factorial(0), Factorial(1), Factorial(5), Factorial(10), Factorial(20))
+Print(Binomial(0, 0), Binomial(5, 0), Binomial(5, 2), Binomial(5, 5), Binomial(10, 3),
+      Binomial(10, 7))
+Print(Binomial(5, -1), Binomial(5, 6), Binomial(40, 20), Binomial(66, 33), Binomial(1000, 1))
+For n = 0 To 6
+    Local row: Long[] = []
+    For k = 0 To n
+        row.Add(Binomial(n, k))
+    End For
+    Print(row)
+End For

@@ -1,0 +1,42 @@
+// TopologicalSort and FindCycle: each node before what it leads to, the earliest given first among
+// those that could come next, and the cycle that keeps there from being an order.
+Import std.core
+Import std.collections
+Import std.algo
+
+Local wears = Map<String, String[]>()
+wears["undershorts"] = ["pants", "shoes"]
+wears["pants"] = ["belt", "shoes"]
+wears["belt"] = ["jacket"]
+wears["shirt"] = ["belt", "tie"]
+wears["tie"] = ["jacket"]
+wears["jacket"] = []
+wears["socks"] = ["shoes"]
+wears["shoes"] = []
+wears["watch"] = []
+Local next = Function(item: String) => wears[item]
+Local none: String[] = []
+Print(TopologicalSort(["shirt", "watch", "undershorts", "socks"], next) ?? none)
+Print(TopologicalSort(["socks", "undershorts", "shirt", "watch"], next) ?? none)
+Print(TopologicalSort(wears.Keys(), next) ?? none)
+Print(FindCycle(wears.Keys(), next) == Null, TopologicalSort(none, next) ?? ["?"])
+
+// Nodes only reached through others come after them, in the order they were reached, and a node
+// given twice is in the order once.
+Function Twice(n: Int): Int[] => n < 8 ? [n * 2, n * 2 + 1] : []
+Print(TopologicalSort([1], Twice) ?? [0], TopologicalSort([3, 1, 3], Twice) ?? [0])
+Print(TopologicalSort([5, 4, 3, 2, 1], Function(n) => n > 1 ? [n - 1] : []) ?? [0])
+Print(TopologicalSort([1, 2, 3], Function(n) => []) ?? [0])
+
+// A cycle has no order: FindCycle gives it, its nodes in the order they lead to each other.
+Local loop = Function(n: Int): Int[]
+    If n == 1 Then Return [2, 5]
+    If n == 2 Then Return [3]
+    If n == 3 Then Return [4]
+    If n == 4 Then Return [2]
+    Return []
+End Function
+Print(TopologicalSort([1], loop) == Null, FindCycle([1], loop) ?? [0],
+      FindCycle([5, 4], loop) ?? [0])
+Print(FindCycle([7], Function(n) => [n]) ?? [0], FindCycle([1, 2], Function(n) => [3 - n]) ?? [0])
+Print(FindCycle([1], Twice) == Null, TopologicalSort([7], Function(n) => [n]) == Null)

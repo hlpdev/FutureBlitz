@@ -1,0 +1,8 @@
+// UnionFind's Find takes a value it holds, or panics where it's called.
+Import std.core
+Import std.math
+Import std.algo
+
+Local sets = UnionFind(3)
+Print(sets.Find(2))
+Print(sets.Find(3))
