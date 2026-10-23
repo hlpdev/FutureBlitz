@@ -20401,18 +20401,27 @@ private:
             }
         }
 
-        // A function that isn't generic beats generic ones that fit as well.
-        if (exact.size() > 1) {
-            std::vector<symbol_id_t> plain;
-            for (const symbol_id_t candidate : exact) {
-                if (type_parameters_of(candidate).empty()) {
-                    plain.push_back(candidate);
+        // A function that isn't generic beats generic ones that fit as well, exactly or with
+        // conversions.
+        const auto plain = [&](const std::vector<symbol_id_t>& tied) -> std::optional<symbol_id_t> {
+            std::optional<symbol_id_t> found;
+            for (const symbol_id_t candidate : tied) {
+                if (!type_parameters_of(candidate).empty()) {
+                    continue;
                 }
+
+                if (found) {
+                    return std::nullopt;
+                }
+
+                found = candidate;
             }
 
-            if (plain.size() == 1) {
-                return plain.front();
-            }
+            return found;
+        };
+        if (const std::optional<symbol_id_t> kept =
+                exact.size() > 1 ? plain(exact) : std::nullopt) {
+            return kept;
         }
 
         // One that takes the arguments as they are beats one that packs them into its variadic
@@ -20444,6 +20453,11 @@ private:
 
         if (exact.empty() && convertible.size() == 1) {
             return convertible.front();
+        }
+
+        if (const std::optional<symbol_id_t> kept =
+                exact.empty() && convertible.size() > 1 ? plain(convertible) : std::nullopt) {
+            return kept;
         }
 
         if (const std::optional<symbol_id_t> kept =

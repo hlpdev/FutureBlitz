@@ -582,6 +582,15 @@ TEST_CASE("overloads: an exact match beats a conversion", "[sema]") {
                     "Local b = Id([2], 0)")
               .empty());
 
+    // One that isn't generic beats a generic one that fits as well, exactly or with a
+    // conversion.
+    constexpr std::string_view either = "Function F(x: Int?): Bool => True\n"
+                                        "Function F<T>(x: T?): String => \"generic\"\n"
+                                        "Function G(x: Int): Bool => True\n"
+                                        "Function G<T>(x: T): String => \"generic\"\n";
+    CHECK(probe(std::format("{}Local n: Int = 5\nLocal x = F(n)", either)) == "Bool");
+    CHECK(probe(std::format("{}Local x = G(5)", either)) == "Bool");
+
     // Their constraints count too, since a call picks the overload whose constraints its type
     // arguments meet, though one that extends another asks what both do.
     constexpr std::string_view describe = "Import std.core\n"
