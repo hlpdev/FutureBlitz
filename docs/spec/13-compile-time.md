@@ -218,7 +218,9 @@ End Function
   platform it's built on; `fb check --release` checks the release build's code. A symbol that
   isn't one of these gets a warning, since it's never defined.
 - Code in an inactive branch is skipped by the compiler and does not need to parse. Directives
-  in it still count, so its `#If`s and `#End If`s pair up.
+  in it still count, so its `#If`s and `#End If`s pair up. As anywhere, a line inside a block
+  comment or a multi-line string is no directive, a block comment after a directive can go on
+  past its line, and invalid UTF-8 is an error.
 - Each `#If` needs an `#End If`, `#ElseIf` and `#Else` come after an `#If`, and nothing comes
   after `#Else` but `#End If`.
 

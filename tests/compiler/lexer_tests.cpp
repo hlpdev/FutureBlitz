@@ -191,7 +191,7 @@ TEST_CASE("#If keeps the lines of the branch whose condition holds", "[lexer]") 
     CHECK(lex_text(text, release).texts == std::vector<std::string>{ "b", "\n", "d" });
     CHECK(lex_text(text).texts == std::vector<std::string>{ "c", "\n", "d" });
 
-    // The lines of a branch that isn't taken aren't lexed at all.
+    // The lines of a branch that isn't taken give no tokens, and their mistakes aren't reported.
     const lexed_t skipped = lex_text("#If RELEASE\nx \"unterminated @@\n#End If\ny", debug);
     CHECK(skipped.texts == std::vector<std::string>{ "y" });
     CHECK(skipped.errors.empty());
@@ -205,6 +205,56 @@ TEST_CASE("#If keeps the lines of the branch whose condition holds", "[lexer]") 
           std::vector<std::string>{ "b", "\n" });
     CHECK(lex_text("#If RELEASE\n#If DEBUG\na\n#End If\n#Else\nb\n#End If", debug).texts ==
           std::vector<std::string>{ "b", "\n" });
+}
+
+TEST_CASE("a line in a comment or a string is no directive, in a branch taken or not", "[lexer]") {
+    constexpr std::array<std::string_view, 1> debug = { "DEBUG" };
+    constexpr std::array<std::string_view, 1> release = { "RELEASE" };
+    const auto both = [&](const std::string_view text, const std::vector<std::string>& in_debug,
+                          const std::vector<std::string>& in_release) {
+        INFO(text);
+        const lexed_t debug_lexed = lex_text(text, debug);
+        const lexed_t release_lexed = lex_text(text, release);
+        CHECK(debug_lexed.texts == in_debug);
+        CHECK(debug_lexed.errors.empty());
+        CHECK(release_lexed.texts == in_release);
+        CHECK(release_lexed.errors.empty());
+    };
+
+    both("#If RELEASE\na\n#Else\nb\n/*\n#End If\n*/\n#End If\nc", { "b", "\n", "c" },
+         { "a", "\n", "c" });
+    both("#If RELEASE\na\n#Else\ns = \"\"\"\n    #End If\n    \"\"\"\n#End If\nc",
+         { "s", "=", "\"\"\"\n    #End If\n    \"\"\"", "\n", "c" }, { "a", "\n", "c" });
+    // A comment in a line that isn't taken ends where it would in one that is, even in a string.
+    both("#If RELEASE\na\n#Else\ns = \"/*\"\n#End If\nc", { "s", "=", "\"/*\"", "\n", "c" },
+         { "a", "\n", "c" });
+
+    // A block comment after a directive can go on past its line.
+    both("#If DEBUG /* a\nb */\nx\n#End If", { "x", "\n" }, {});
+    both("#If DEBUG\nx\n#Else /* a\n#End If\n*/\ny\n#End If", { "x", "\n" }, { "y", "\n" });
+    both("#If RELEASE\nx\n#ElseIf DEBUG /* a\n#End If\n*/\ny\n#End If", { "y", "\n" },
+         { "x", "\n" });
+    CHECK(lex_text("#If DEBUG /* a\nb */ c\n#End If", debug).errors ==
+          std::vector<std::string>{ "20-21: expected the end of the line" });
+
+    // What runs past a branch that isn't taken is reported, since the directives after it are
+    // in it.
+    CHECK(lex_text("#If RELEASE\n/* a\n#End If", debug).errors ==
+          std::vector<std::string>{ "12-14: unterminated block comment",
+                                    "0-3: this #If needs an #End If" });
+    CHECK(
+        lex_text("#If RELEASE\ns = \"\"\"\n#End If", debug).errors ==
+        std::vector<std::string>{ "16-19: unterminated string", "0-3: this #If needs an #End If" });
+}
+
+TEST_CASE("invalid UTF-8 is an error in a branch that isn't taken too", "[lexer]") {
+    constexpr std::array<std::string_view, 1> debug = { "DEBUG" };
+    CHECK(lex_text("#If RELEASE\nx = \"\xFF\"\n#End If\ny", debug).errors ==
+          std::vector<std::string>{ "17-18: invalid UTF-8" });
+    CHECK(lex_text("#If RELEASE\n\xFE\n#End If", debug).errors ==
+          std::vector<std::string>{ "12-13: invalid UTF-8" });
+    CHECK(lex_text("#If DEBUG\n#Else\n#If RELEASE \xFE\n#End If\n#End If", debug).errors ==
+          std::vector<std::string>{ "28-29: invalid UTF-8" });
 }
 
 TEST_CASE("#If mistakes", "[lexer]") {

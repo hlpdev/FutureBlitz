@@ -93,6 +93,10 @@ public:
             lex_token();
         }
 
+        if (m_skipped_from) {
+            m_tokens.resize(*m_skipped_from);
+        }
+
         // Strings whose interpolation was still open at the end of the file.
         for (const string_state_t& state : m_strings) {
             report_unterminated(state);
@@ -116,6 +120,12 @@ private:
     std::vector<string_state_t> m_strings;
     /// The #Ifs around the current line, innermost last.
     std::vector<condition_t> m_conditions;
+    /// While the lines of a branch that isn't taken are lexed, the first of their tokens, which
+    /// are dropped once a branch that's taken starts. They're lexed only so their directives are
+    /// found as everywhere else, outside comments and strings, and what they would report goes in
+    /// m_unshown, but for invalid UTF-8 and what runs past the branch.
+    std::optional<std::size_t> m_skipped_from;
+    diagnostic_bag_t m_unshown;
     /// How many '!' and '(' the part of an #If's condition being read is inside. It nests no
     /// deeper than code does, so reading it can't run out of stack.
     std::uint32_t m_condition_depth = 0;
@@ -124,6 +134,11 @@ private:
 
     [[nodiscard]] bool at_end() const {
         return m_pos >= m_text.size();
+    }
+
+    /// Where what's wrong with a token goes: nowhere shown in a branch that isn't taken.
+    diagnostic_bag_t& report() {
+        return m_skipped_from ? m_unshown : m_diagnostics;
     }
 
     /// '\0' past the end, which matches nothing the lexer looks for.
@@ -241,9 +256,9 @@ private:
         // of the expression isn't said too.
         while (!m_strings.empty() && !m_strings.back().multi_line) {
             const string_state_t& state = m_strings.back();
-            m_diagnostics.error(span(state.begin, state.open_end),
-                                "unterminated string: a '{{' in it isn't closed on its line, and "
-                                "a string ends with its line");
+            report().error(span(state.begin, state.open_end),
+                           "unterminated string: a '{{' in it isn't closed on its line, and "
+                           "a string ends with its line");
             m_strings.pop_back();
             add(token_kind_t::INVALID, m_pos);
         }
@@ -295,8 +310,8 @@ private:
             const std::uint32_t digits = m_pos;
             valid = scan_digits(base);
             if (m_pos == digits) {
-                m_diagnostics.error(span(begin, m_pos), "expected digits after '{}'",
-                                    m_text.substr(begin, 2));
+                report().error(span(begin, m_pos), "expected digits after '{}'",
+                               m_text.substr(begin, 2));
             }
         } else {
             valid = scan_digits(10);
@@ -320,7 +335,7 @@ private:
         add(kind, begin);
         // Malformed digits were already reported. Some, like a bare "0x", would fail here too.
         if (valid && kind == token_kind_t::INTEGER && !parse_integer(text).has_value()) {
-            m_diagnostics.error(span(begin, m_pos), "integer literal doesn't fit in 64 bits");
+            report().error(span(begin, m_pos), "integer literal doesn't fit in 64 bits");
         }
 
         skip_number_suffix();
@@ -340,7 +355,7 @@ private:
         }
 
         if (digits.starts_with('_') || digits.ends_with('_') || digits.contains("__")) {
-            m_diagnostics.error(span(begin, m_pos), "'_' must be between two digits");
+            report().error(span(begin, m_pos), "'_' must be between two digits");
             return false;
         }
 
@@ -356,8 +371,8 @@ private:
         }
 
         if (m_pos > begin) {
-            m_diagnostics.error(span(begin, m_pos), "unexpected '{}' after number",
-                                m_text.substr(begin, m_pos - begin));
+            report().error(span(begin, m_pos), "unexpected '{}' after number",
+                           m_text.substr(begin, m_pos - begin));
         }
     }
 
@@ -382,7 +397,7 @@ private:
 
         if (peek() != '\'') {
             add(token_kind_t::CHARACTER, begin);
-            m_diagnostics.error(span(begin, m_pos), "unterminated character literal");
+            report().error(span(begin, m_pos), "unterminated character literal");
             return;
         }
 
@@ -390,10 +405,9 @@ private:
         add(token_kind_t::CHARACTER, begin);
         // After a bad escape, which was already reported, the count isn't worth a second error.
         if (valid && count == 0) {
-            m_diagnostics.error(span(begin, m_pos), "empty character literal");
+            report().error(span(begin, m_pos), "empty character literal");
         } else if (valid && count > 1) {
-            m_diagnostics.error(span(begin, m_pos),
-                                "character literal holds more than one character");
+            report().error(span(begin, m_pos), "character literal holds more than one character");
         }
     }
 
@@ -401,7 +415,7 @@ private:
     bool skip_escape() {
         const escape_t escape = decode_escape(m_text, m_pos);
         if (!escape.error.empty()) {
-            m_diagnostics.error(span(m_pos, m_pos + escape.length), "{}", escape.error);
+            report().error(span(m_pos, m_pos + escape.length), "{}", escape.error);
         }
 
         m_pos += escape.length;
@@ -439,8 +453,8 @@ private:
         } else if (!at_end()) {
             const std::size_t line_end =
                 std::min(m_text.find_first_of("\r\n", m_pos), m_text.size());
-            m_diagnostics.error(span(m_pos, static_cast<std::uint32_t>(line_end)),
-                                R"(a multi-line string starts on the line after its opening """)");
+            report().error(span(m_pos, static_cast<std::uint32_t>(line_end)),
+                           R"(a multi-line string starts on the line after its opening """)");
         }
     }
 
@@ -494,8 +508,8 @@ private:
                 m_strings.push_back(std::move(state));
                 return;
             } else {
-                m_diagnostics.error(span(m_pos, m_pos + 1), "{}",
-                                    "a lone '}' in a string must be written '}}'");
+                report().error(span(m_pos, m_pos + 1), "{}",
+                               "a lone '}' in a string must be written '}}'");
                 ++m_pos;
             }
         }
@@ -513,8 +527,7 @@ private:
         const std::string_view indent = m_text.substr(closing_line, m_pos - closing_line);
         if (state.line_starts.empty() ||
             indent.find_first_not_of(" \t") != std::string_view::npos) {
-            m_diagnostics.error(span(m_pos, m_pos + 3),
-                                R"(the closing """ must be on its own line)");
+            report().error(span(m_pos, m_pos + 3), R"(the closing """ must be on its own line)");
             return;
         }
 
@@ -526,15 +539,18 @@ private:
             const std::string_view line = m_text.substr(line_begin, line_end - line_begin);
             const std::size_t text_begin = line.find_first_not_of(" \t");
             if (text_begin != std::string_view::npos && !line.starts_with(indent)) {
-                m_diagnostics.error(
+                report().error(
                     span(line_begin, line_begin + static_cast<std::uint32_t>(text_begin)),
                     R"(line must start with the closing """'s indentation)");
             }
         }
     }
 
-    void report_unterminated(const string_state_t& state) const {
-        m_diagnostics.error(span(state.begin, state.open_end), "unterminated string");
+    /// A multi-line string that runs to the end of the file is reported even in a branch that
+    /// isn't taken, since the directives after it are in it.
+    void report_unterminated(const string_state_t& state) {
+        (state.multi_line ? m_diagnostics : report())
+            .error(span(state.begin, state.open_end), "unterminated string");
     }
 
     /// Counts the braces an interpolation opens and closes itself, so only the "}" that ends it
@@ -573,7 +589,9 @@ private:
     }
 
     /// "#If", "#ElseIf", "#Else", or "#End If", which give no tokens. After one, the lines of a
-    /// branch that isn't taken are skipped up to the next directive, without being lexed.
+    /// branch that isn't taken are lexed only for the directives in them: their tokens are
+    /// dropped, and only invalid UTF-8 and what runs past the branch is reported. The rest of
+    /// the line of a directive whose condition isn't read is lexed that way too.
     void lex_directive() {
         const std::uint32_t begin = m_pos;
         ++m_pos;
@@ -597,8 +615,8 @@ private:
                 bool holds = name == "Else";
                 if (!holds && condition.outer && !condition.taken) {
                     holds = condition_holds();
-                } else {
-                    finish_directive(holds);
+                } else if (holds) {
+                    finish_directive(true);
                 }
 
                 condition.active = condition.outer && !condition.taken && holds;
@@ -625,8 +643,12 @@ private:
             skip_to_line_end();
         }
 
-        if (!m_conditions.empty() && !m_conditions.back().active) {
-            skip_inactive_lines();
+        const bool skipping = !m_conditions.empty() && !m_conditions.back().active;
+        if (skipping && !m_skipped_from) {
+            m_skipped_from = m_tokens.size();
+        } else if (!skipping && m_skipped_from) {
+            m_tokens.resize(*m_skipped_from);
+            m_skipped_from.reset();
         }
     }
 
@@ -649,33 +671,15 @@ private:
         return true;
     }
 
-    /// The rest of a directive's line holds nothing but a comment. `report` is false where the
-    /// line is skipped anyway.
-    void finish_directive(const bool report) {
-        skip_spaces();
-        const bool comment = peek() == '/' && (peek(1) == '/' || peek(1) == '*');
-        if (report && !comment && !at_end() && peek() != '\n' && peek() != '\r') {
+    /// The rest of a directive's line holds nothing but comments, and a block comment can go on
+    /// past it, as anywhere. `wanted` is false after a mistake that was already reported.
+    void finish_directive(const bool wanted) {
+        skip_trivia();
+        if (wanted && !at_end() && peek() != '\n' && peek() != '\r') {
             m_diagnostics.error(span(m_pos, m_pos + 1), "expected the end of the line");
         }
 
         skip_to_line_end();
-    }
-
-    /// The lines of a branch that isn't taken, up to the next line that starts with "#". They
-    /// don't need to lex.
-    void skip_inactive_lines() {
-        skip_to_line_end();
-        while (!at_end()) {
-            skip_line_break();
-            skip_spaces();
-            if (peek() == '#') {
-                return;
-            }
-
-            while (!at_end() && peek() != '\n' && peek() != '\r') {
-                ++m_pos;
-            }
-        }
     }
 
     /// An #If's or #ElseIf's condition, then the end of its line. A mistake makes it false.
@@ -771,11 +775,11 @@ private:
         if (!decoded.valid()) {
             m_diagnostics.error(span(begin, m_pos), "invalid UTF-8");
         } else if (decoded.code_point > 0x20 && decoded.code_point < 0x7F) {
-            m_diagnostics.error(span(begin, m_pos), "unexpected character '{}'",
-                                static_cast<char>(decoded.code_point));
+            report().error(span(begin, m_pos), "unexpected character '{}'",
+                           static_cast<char>(decoded.code_point));
         } else {
-            m_diagnostics.error(span(begin, m_pos), "unexpected character U+{:04X}",
-                                static_cast<std::uint32_t>(decoded.code_point));
+            report().error(span(begin, m_pos), "unexpected character U+{:04X}",
+                           static_cast<std::uint32_t>(decoded.code_point));
         }
     }
 };
