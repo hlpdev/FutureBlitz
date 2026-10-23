@@ -8074,6 +8074,17 @@ TEST_CASE("an Atomic and a Mutex stay where they're made", "[sema]") {
                     "CompareExchange" });
     CHECK(errors_of("Extend Atomic<Int>\n    Method Twice(): Int => 2\nEnd Extend") ==
           errors_t{ "Atomic<Int>: an Atomic can't be extended; it has only its own operations" });
+    CHECK(errors_of("Class C\nEnd Class\n"
+                    "Extend Task<Int>\nEnd Extend\n"
+                    "Extend Thread\nEnd Extend\n"
+                    "Extend Channel<Int>\nEnd Extend\n"
+                    "Extend Scheduler\nEnd Extend\n"
+                    "Extend Weak<C>\nEnd Extend") ==
+          errors_t{ "Task<Int>: a Task can't be extended; it has only its own operations",
+                    "Thread: a Thread can't be extended; it has only its own operations",
+                    "Channel<Int>: a Channel can't be extended; it has only its own operations",
+                    "Scheduler: a Scheduler can't be extended; it has only its own operations",
+                    "Weak<C>: a Weak<T> can't be extended; it has only its own operations" });
     CHECK(errors_of(std::format("{}Local x = score.value", shared)) ==
           errors_t{ "value: a Mutex's value is used in a Lock block, like 'Lock m As value', where "
                     "only one thread has it at a time" });

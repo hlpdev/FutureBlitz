@@ -2662,6 +2662,11 @@ private:
             return m_analysis.types.array(m_array_element);
         }
 
+        if (std::holds_alternative<weak_type_t>(written.node)) {
+            error(written.span, "a Weak<T> can't be extended; it has only its own operations");
+            return type_id_t::INVALID;
+        }
+
         const auto* named = std::get_if<named_type_t>(&written.node);
         if (named == nullptr) {
             error(written.span,
@@ -2685,16 +2690,22 @@ private:
             return resolve_type(id);
         }
 
-        if (found.empty() &&
-            (named->name == "Atomic" || named->name == "Mutex" || named->name == "Ptr")) {
-            std::string_view what = "a Ptr";
-            if (named->name == "Atomic") {
-                what = "an Atomic";
-            } else if (named->name == "Mutex") {
-                what = "a Mutex";
-            }
-
-            error(written.span, "{} can't be extended; it has only its own operations", what);
+        // The built-in types that work and threads share, and Ptrs, have only their own
+        // operations.
+        static constexpr std::array<std::pair<std::string_view, std::string_view>, 7> own_only{ {
+            { "Atomic", "an Atomic" },
+            { "Mutex", "a Mutex" },
+            { "Ptr", "a Ptr" },
+            { "Task", "a Task" },
+            { "Thread", "a Thread" },
+            { "Channel", "a Channel" },
+            { "Scheduler", "a Scheduler" },
+        } };
+        if (const auto kind = std::ranges::find(
+                own_only, named->name, &std::pair<std::string_view, std::string_view>::first);
+            found.empty() && kind != own_only.end()) {
+            error(written.span, "{} can't be extended; it has only its own operations",
+                  kind->second);
             return type_id_t::INVALID;
         }
 
