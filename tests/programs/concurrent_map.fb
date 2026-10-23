@@ -170,3 +170,18 @@ registry.Remove(4)
 Print(registry.Count)
 registry.Clear()
 Print(registry.Count)
+
+// A consumer or a For ... In goes over a copy of an Iterator, so one partly used doesn't move.
+Const fifty = ConcurrentMap<Int, Int>()
+For i = 0 Until 50
+    fifty.Add(i, i)
+End For
+
+Local entries = fifty.Iterate()
+entries.Next()
+Print(entries.Count(), entries.Count())
+Local looped = 0
+For key, value In entries
+    looped += 1
+End For
+Print(looped, entries.Count())

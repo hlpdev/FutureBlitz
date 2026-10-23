@@ -123,7 +123,7 @@ Public Struct ImmutableArray<T> Implements Iterable<T>, Defaultable, Sendable
 
     // The values, in order.
     Public Method Iterate(): ImmutableArrayIterator<T>
-        Local iterator = ImmutableArrayIterator<T>([])
+        Local iterator = ImmutableArrayIterator<T>(Null)
         iterator.Descend(Root)
         Return iterator
     End Method
@@ -228,24 +228,39 @@ Public Struct ImmutableArray<T> Implements Iterable<T>, Defaultable, Sendable
     End Method
 End Struct
 
+// The nodes on the way down to an ImmutableArrayIterator's next value, the lowest first. A step
+// makes new ones rather than changing these, so a copy of the iterator keeps its place.
+Class ArrayPath<T>
+    Where T: Sendable
+
+    ReadOnly Field Node: ArrayNode<T>
+    ReadOnly Field Up: ArrayPath<T>?
+
+    New(node: ArrayNode<T>, up: ArrayPath<T>?)
+        Node = node
+        Up = up
+    End New
+End Class
+
 // An ImmutableArray's values in order: the nodes on the way down to the next one.
 Public Struct ImmutableArrayIterator<T> Implements Iterator<T>
     Where T: Sendable
 
-    Field Nodes: ArrayNode<T>[]
+    Field Path: ArrayPath<T>?
 
     Public ByRef Method Next(): T?
-        If Nodes.Count == 0 Then Return Null
-        Local node = Nodes.RemoveLast()
-        Descend(node.Right)
-        Return node.Value
+        Local path = Path
+        If path == Null Then Return Null
+        Path = path.Up
+        Descend(path.Node.Right)
+        Return path.Node.Value
     End Method
 
     // Keeps node and each left child down from it, which come before it.
     ByRef Method Descend(node: ArrayNode<T>?)
         Local at = node
         While at != Null
-            Nodes.Add(at)
+            Path = ArrayPath<T>(at, Path)
             at = at.Left
         End While
     End Method
@@ -431,7 +446,7 @@ Public Struct ImmutableMap<K, V> Implements Iterable<(K, V)>, Defaultable, Senda
     // Each key and its value, for 'For key, value In map', by their keys' hashes, and keys of one
     // hash in the order they were added.
     Public Method Iterate(): ImmutableMapIterator<K, V>
-        Local iterator = ImmutableMapIterator<K, V>([], Null)
+        Local iterator = ImmutableMapIterator<K, V>(Null, Null)
         iterator.Descend(Root)
         Return iterator
     End Method
@@ -589,22 +604,39 @@ Public Struct ImmutableMap<K, V> Implements Iterable<(K, V)>, Defaultable, Senda
     End Method
 End Struct
 
+// The nodes on the way down to an ImmutableMapIterator's next one, the lowest first. A step makes
+// new ones rather than changing these, so a copy of the iterator keeps its place.
+Class HashPath<K, V>
+    Where K: Hashable
+    Where K: Sendable
+    Where V: Sendable
+
+    ReadOnly Field Node: HashNode<K, V>
+    ReadOnly Field Up: HashPath<K, V>?
+
+    New(node: HashNode<K, V>, up: HashPath<K, V>?)
+        Node = node
+        Up = up
+    End New
+End Class
+
 // An ImmutableMap's entries: the nodes on the way down to the next one, and the entry it's at.
 Public Struct ImmutableMapIterator<K, V> Implements Iterator<(K, V)>
     Where K: Hashable
     Where K: Sendable
     Where V: Sendable
 
-    Field Nodes: HashNode<K, V>[]
+    Field Path: HashPath<K, V>?
     Field Entry: HashEntry<K, V>?
 
     Public ByRef Method Next(): (K, V)?
         Local entry = Entry
         If entry == Null
-            If Nodes.Count == 0 Then Return Null
-            Local node = Nodes.RemoveLast()
-            Descend(node.Right)
-            entry = node.Entries
+            Local path = Path
+            If path == Null Then Return Null
+            Path = path.Up
+            Descend(path.Node.Right)
+            entry = path.Node.Entries
         End If
 
         Entry = entry.Next
@@ -615,7 +647,7 @@ Public Struct ImmutableMapIterator<K, V> Implements Iterator<(K, V)>
     ByRef Method Descend(node: HashNode<K, V>?)
         Local at = node
         While at != Null
-            Nodes.Add(at)
+            Path = HashPath<K, V>(at, Path)
             at = at.Left
         End While
     End Method

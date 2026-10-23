@@ -209,3 +209,23 @@ Local bySet = Map<ImmutableSet<Int>, Int>()
 bySet[ImmutableSet<Int>.From([3, 2])] = 5
 Print(seenBefore.Count, seenBefore[ImmutableArray<Int>.From([1, 2])], byMap.Count,
       byMap[ImmutableMap<String, Int>.From({"x": 1, "y": 2})], bySet[ImmutableSet<Int>.From([2, 3])])
+
+// A consumer or a For ... In goes over a copy of an Iterator, so one partly used doesn't move.
+Local fifty: Int[] = []
+For i = 0 Until 50
+    fifty.Add(i)
+End For
+
+Local arrayValues = ImmutableArray<Int>.From(fifty).Iterate()
+arrayValues.Next()
+Print(arrayValues.Count(), arrayValues.Count())
+Local mapEntries = ImmutableMap<Int, Int>.From(fifty.Map(Function(i: Int) => (i, i))).Iterate()
+mapEntries.Next()
+Print(mapEntries.Count(), mapEntries.Count())
+Local setValues = ImmutableSet<Int>.From(fifty).Iterate()
+setValues.Next()
+Local looped = 0
+For value In setValues
+    looped += 1
+End For
+Print(looped, setValues.Count())
