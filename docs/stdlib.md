@@ -326,8 +326,9 @@ std/math/, std.math.bits too.
   `Distance`, `DistanceSquared`, `Normalize` (a zero vector stays zero), `Reflect`, `Project`,
   `Angle`, `Rotate` and `Perpendicular` in 2D, `ManhattanDistance` and `ChebyshevDistance` on
   grids, and the component-wise `Lerp`, `Min`, `Max`, `Clamp`, `Abs`, `Floor`, `Ceil`, `Round`,
-  `MoveTowards`, and `IsClose`. `Vec2.ToVec2i()` converts toward 0, as As does, and
-  `Vec2i.ToVec2()` back.
+  `MoveTowards`, and `IsClose`. Lengths and distances are worked out in Doubles, as the spatial
+  structures' are, so no Float overflows on the way. `Vec2.ToVec2i()` converts toward 0, as As
+  does, and `Vec2i.ToVec2()` back.
 - `Quat`: `Identity`, `FromAxisAngle`, `FromEuler` (Y, X, Z order: roll, then pitch, then yaw),
   `FromMat3`, `FromTo` (the shortest turn), and `LookRotation`; `ToMat3`, `ToMat4`, `ToAxisAngle`,
   `ToEuler`, and `ToEulerDegrees`; `q * v` turns a vector and `a * b` turns by b, then a; `Slerp`,

@@ -40,12 +40,18 @@ Print(Length(Vec3(2, 3, 6)), Length(Vec2(3, 4)), Length(Vec4(1, 1, 1, 1)), Lengt
 Print(Distance(a, b), Distance(Vec2(1, 1), Vec2(4, 5)), DistanceSquared(a, b),
       DistanceSquared(Vec2(1, 1), Vec2(4, 5)))
 
-// Normalize keeps the direction at length 1, and leaves the zero vector, and one too short to
-// have a direction, at zero.
+// Normalize keeps the direction at length 1, and leaves the zero vector at zero.
 Print(Normalize(Vec3(0, 3, 4)), Normalize(Vec2(-5, 0)), Normalize(Vec4(0, 0, 0, 2)),
       Normalize(Vec3.Zero()))
-Print(Normalize(Vec3(1e-30, 0, 0)), Normalize(Vec2.Zero()), Normalize(Vec4.Zero()),
-      Length(Normalize(b)) == 1)
+Print(Normalize(Vec2.Zero()), Normalize(Vec4.Zero()), Length(Normalize(b)) == 1)
+
+// Lengths are worked out in Doubles, so neither a long vector's square nor a short one's goes
+// past what a Float holds.
+Local long = Vec3(3e20, 4e20, 0)
+Local short = Vec2(3e-30, 4e-30)
+Print(Length(long), Length(short), Length(Vec4(2e30, 0, 0, 0)), Normalize(long), Normalize(short))
+Print(Normalize(Vec4(0, 0, 1e-40, 0)), Distance(Vec3(-3e38, 0, 0), Vec3(0, 3e38, 0)) == Inf,
+      Distance(Vec2(-1e30, 0), Vec2(2e30, 0)), Distance(long, -long), LengthSquared(long) == Inf)
 
 // The component-wise Functions, beside the scalar ones of their names.
 Print(Lerp(a, b, 0.5), Lerp(Vec2(0, 10), Vec2(10, 0), 0.25),

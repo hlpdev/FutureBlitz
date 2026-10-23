@@ -3,6 +3,7 @@
 // order with nothing between, so SIMD can work on it as it stands. Their Operators work component
 // by component, and a Float scales: v * 2, 2 * v, and v / 2. The math on them is Functions, as on
 // Floats: Dot, Cross, Length, Normalize, Lerp, and the rest, beside the scalar ones of their names.
+// Lengths and distances are worked out in Doubles, so no Float overflows on the way.
 
 Import std.core
 Import std.math.numbers
@@ -175,43 +176,56 @@ Public Function Cross(a: Vec3, b: Vec3): Vec3
     Return Vec3(a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x)
 End Function
 
-// How long the vector is.
-Public Function Length(v: Vec2): Float => Sqrt(Dot(v, v))
-Public Function Length(v: Vec3): Float => Sqrt(Dot(v, v))
-Public Function Length(v: Vec4): Float => Sqrt(Dot(v, v))
+// How long a vector of these components is, in Doubles, which a Float's square doesn't overflow.
+Function Magnitude(x: Double, y: Double, z: Double, w: Double): Double
+    Return Sqrt(x * x + y * y + z * z + w * w)
+End Function
 
-// The length times itself, which takes no square root, for comparing lengths.
+// How long the vector is.
+Public Function Length(v: Vec2): Float => Magnitude(v.x, v.y, 0, 0) As Float
+Public Function Length(v: Vec3): Float => Magnitude(v.x, v.y, v.z, 0) As Float
+Public Function Length(v: Vec4): Float => Magnitude(v.x, v.y, v.z, v.w) As Float
+
+// The length times itself, which takes no square root, for comparing lengths, in Floats.
 Public Function LengthSquared(v: Vec2): Float => Dot(v, v)
 Public Function LengthSquared(v: Vec3): Float => Dot(v, v)
 Public Function LengthSquared(v: Vec4): Float => Dot(v, v)
 
 // How far apart the two points are.
-Public Function Distance(a: Vec2, b: Vec2): Float => Length(b - a)
-Public Function Distance(a: Vec3, b: Vec3): Float => Length(b - a)
+Public Function Distance(a: Vec2, b: Vec2): Float
+    Return Magnitude((b.x As Double) - a.x, (b.y As Double) - a.y, 0, 0) As Float
+End Function
 
-// The distance times itself, which takes no square root, for comparing distances.
+// How far apart the two points are.
+Public Function Distance(a: Vec3, b: Vec3): Float
+    Local length = Magnitude((b.x As Double) - a.x, (b.y As Double) - a.y, (b.z As Double) - a.z, 0)
+    Return length As Float
+End Function
+
+// The distance times itself, which takes no square root, for comparing distances, in Floats.
 Public Function DistanceSquared(a: Vec2, b: Vec2): Float => LengthSquared(b - a)
 Public Function DistanceSquared(a: Vec3, b: Vec3): Float => LengthSquared(b - a)
 
-// The vector in the same direction, of length 1. One too short to have a direction, as the zero
-// vector is, gives the zero vector.
+// The vector in the same direction, of length 1, and the zero vector for the zero vector.
 Public Function Normalize(v: Vec2): Vec2
-    Local length = Length(v)
-    Return length > 0 ? v / length : Vec2.Zero()
+    Local length = Magnitude(v.x, v.y, 0, 0)
+    If !(length > 0) Then Return Vec2.Zero()
+    Return Vec2((v.x / length) As Float, (v.y / length) As Float)
 End Function
 
-// The vector in the same direction, of length 1. One too short to have a direction, as the zero
-// vector is, gives the zero vector.
+// The vector in the same direction, of length 1, and the zero vector for the zero vector.
 Public Function Normalize(v: Vec3): Vec3
-    Local length = Length(v)
-    Return length > 0 ? v / length : Vec3.Zero()
+    Local length = Magnitude(v.x, v.y, v.z, 0)
+    If !(length > 0) Then Return Vec3.Zero()
+    Return Vec3((v.x / length) As Float, (v.y / length) As Float, (v.z / length) As Float)
 End Function
 
-// The vector in the same direction, of length 1. One too short to have a direction, as the zero
-// vector is, gives the zero vector.
+// The vector in the same direction, of length 1, and the zero vector for the zero vector.
 Public Function Normalize(v: Vec4): Vec4
-    Local length = Length(v)
-    Return length > 0 ? v / length : Vec4.Zero()
+    Local length = Magnitude(v.x, v.y, v.z, v.w)
+    If !(length > 0) Then Return Vec4.Zero()
+    Return Vec4((v.x / length) As Float, (v.y / length) As Float, (v.z / length) As Float,
+                (v.w / length) As Float)
 End Function
 
 // The point t of the way from a to b: a at 0, b at 1.
