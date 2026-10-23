@@ -8289,6 +8289,20 @@ TEST_CASE("work on another thread reaches nothing only the main thread may", "[s
     CHECK(errors_of(std::format("{}Render()", render)).empty());
     CHECK(errors_of("@MainThread Struct S\nEnd Struct") ==
           errors_t{ "S: @MainThread only goes before a Function or Method" });
+    CHECK(errors_of("Class Engine\n"
+                    "    @MainThread Property Frame: Int\n"
+                    "        Get => 1\n"
+                    "    End Property\n"
+                    "End Class\n"
+                    "@MainThread Interface Drawn\n"
+                    "    Method Draw(): Int\n"
+                    "End Interface\n"
+                    "@MainThread Enum Mode\n"
+                    "    A\n"
+                    "End Enum") ==
+          errors_t{ "Frame: @MainThread only goes before a Function or Method",
+                    "Drawn: @MainThread only goes before a Function or Method",
+                    "Mode: @MainThread only goes before a Function or Method" });
 }
 
 TEST_CASE("what a call can run on another thread includes overrides and lambdas", "[sema]") {

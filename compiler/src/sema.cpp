@@ -1359,6 +1359,8 @@ private:
         } else if (modifiers.is_inline) {
             error(node.name.span, "@Inline only goes before a Function, Method, Operator, or "
                                   "Property");
+        } else if (modifiers.is_main_thread) {
+            error(node.name.span, "@MainThread only goes before a Function or Method");
         } else if (modifiers.panics_at_caller) {
             error(
                 node.name.span,
@@ -1695,6 +1697,8 @@ private:
         if (node.modifiers.is_inline) {
             error(node.name.span, "@Inline only goes before a Function, Method, Operator, or "
                                   "Property");
+        } else if (node.modifiers.is_main_thread) {
+            error(node.name.span, "@MainThread only goes before a Function or Method");
         } else if (node.modifiers.panics_at_caller) {
             error(
                 node.name.span,
@@ -3503,8 +3507,13 @@ private:
 
     /// What a Property can be: Static, Final, or Override, like a Method, or Abstract, and then
     /// it's only its first line. ReadOnly says one that's only its first line has no Set. In an
-    /// Interface, every Property is only its first line.
+    /// Interface, every Property is only its first line. @MainThread is for a Function or Method,
+    /// not a Property's Get and Set.
     void check_property_modifiers(const property_stmt_t& node, const type_id_t owner) {
+        if (node.modifiers.is_main_thread) {
+            error(node.name.span, "@MainThread only goes before a Function or Method");
+        }
+
         if (m_extending) {
             return;
         }
