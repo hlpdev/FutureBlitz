@@ -133,6 +133,25 @@ std::int32_t fb_io_lock_held(const void* lock);
 void fb_io_lock_release(void* lock);
 void fb_io_lock_free(void* lock);
 
+/// The file at `path` mapped into memory whole, read-only, or writable when `writable` isn't 0,
+/// which fb_io_map_free gives back. fb_io_map_error gives 0, or the error it couldn't map with.
+void* fb_io_map_new(const fb_string_t* path, std::int32_t writable);
+std::int64_t fb_io_map_error(const void* map);
+/// Whether it's mapped: 1 until fb_io_map_close unmaps it, which a second close leaves alone.
+std::int32_t fb_io_map_open(const void* map);
+/// Where its bytes are, and how many there are: null and 0 once it's closed, and null for an
+/// empty file.
+std::uint8_t* fb_io_map_data(const void* map);
+std::int64_t fb_io_map_size(const void* map);
+/// Copies `count` bytes from `start` into `output`, a UInt8[], or `bytes`, a UInt8[], to `start`,
+/// in an open one. std.io checks they're all in it, and that it's writable for a write.
+void fb_io_map_read(const void* map, std::int64_t start, std::int64_t count, fb_array_t* output);
+void fb_io_map_write(void* map, std::int64_t start, const fb_array_t* bytes);
+/// Writes what was changed in a writable one onto the disk: 0, or an error.
+std::int64_t fb_io_map_flush(void* map);
+void fb_io_map_close(void* map);
+void fb_io_map_free(void* map);
+
 /// A watcher of the file or folder at `path`, which the I/O thread has started, and which
 /// fb_io_watcher_free gives back. fb_io_watcher_error gives 0, or the error it couldn't start
 /// with. An event is 0 created, 1 changed, or 2 removed, at a path: a folder's events are about
