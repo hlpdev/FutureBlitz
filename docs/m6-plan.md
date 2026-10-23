@@ -88,7 +88,8 @@ step's library part once it lands:
 10. Step 18: `Task<T> Throws E` as a type.
 11. Step 7: checking literal regex patterns at compile time.
 12. Step 20: reading `.proto` files at compile time.
-13. Step 9's SIMD, if Vec2 to Mat4 need the compiler for it (the math lane says so first).
+13. Step 9's SIMD: codegen's optimize() turns on LLVM's SLP and loop vectorizers in release
+    builds, so Vec4's Operators and Mat4's `*` become SIMD (the math lane found they don't yet).
 
 A step is ready for a std lane when the steps it builds on have landed:
 

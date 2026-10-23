@@ -267,7 +267,6 @@ adds what it leaves out. Checked against all of docs/spec/ on 2026-10-17.
 | A `Ptr<T>` whose T is a type parameter, which a Where line would have to keep to C data | M5 step 7 | M6 step 12 (`CData`) |
 | By-value Structs to and from C on 64-bit targets that aren't x86-64 or AArch64, like RISC-V, where fb-bindgen skips functions that pass one | M5 step 8 | open question |
 | A Callback that takes or gives a Struct by value, whose thunk would need the C ABI's lowering in reverse | M5 step 9 | open question |
-| The math types, `Vec2` through `Color` | | M6 step 9 |
 | A fix-it for a miscased keyword, like `if` for `If`, and `///` doc comments | M1 | M8 |
 | Stack traces for panics, which need debug info | M1 | open question |
 | A Float range, like `0.0 To 1.0 Step 0.1`, which a For loop counts but a range doesn't | M6 step 2 | open question |

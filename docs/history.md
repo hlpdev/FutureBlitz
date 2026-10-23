@@ -274,6 +274,113 @@ m_finally_returns and finish_returns() let a Finally assign what New's Returns i
 Defer or Finally says it needs Try? or a Try block inside it, through the SEALED handler (A3-12).
 New tests: tests/programs/fields_before_super and reflect_skips.
 
+Phase 1, lane 3's findings (A8, A9, A10): let_go() keeps a Weak to an object waiting its turn
+(weak_waiting.fb). The parser's enter() counts each level once, exactly 1000 passing: blocks,
+operators, calls, members, indices, brackets and interpolations, lambdas, each part of a type
+(parse_type's suffixes, type arguments, Weak, Func, tuples, Const sums), Defer's and a single-line
+If's statement, an Extern block, and nested_statement() for what a reported mistake leads to; the
+lexer's #If condition has max_condition_depth. A single-line If refuses a labeled loop, an Unsafe
+block, and an Extern block. skip_continuation_newlines() follows every statement's ',', '=', and
+constraint '&', and stops on a line that already failed. An inactive #If branch is lexed for its
+directives (m_skipped_from drops its tokens, report() sends its errors to m_unshown, but invalid
+UTF-8 and what runs past the branch), finish_directive() skips trivia, and skip_inactive_lines() is
+gone (multi_line_strings.fb). A multi-line string in a single-line string's interpolation is an
+error. The parser takes '>=' as '>' then '=' (m_split), m_accessors closes End Get and End Set,
+describe_current() reads the very next token, New in an expression says to call the type, and an #If
+condition cut off at the end of the file stays inside it. fb::escape_controls() escapes messages,
+paths, and notes, and dump.cpp's escape_token() and quote() escape every control character, quote()
+doubling braces. key_of() keys a file by real_path(), and on_disk() falls back to the entry the disk
+finds that isn't a link; a folder Import of links is one error; a [native] folder path or one ending
+in '/' says it's a folder; a module's file ends in .fb (respelled_file()); project.toml takes '\' as
+'/' (with_slashes()). fb build words a default output that's a folder apart from -o; parse_options()
+gives a usage_error_t with its --color; fb-bindgen refuses an -o that's the header, empty, ends in
+'/', or is a folder, and _Static_asserts each integer macro, `(NAME) * 0 + 1`, with
+-Werror=gnu-folding-constant. scheduler_t::stuck() counts the I/O thread's requested_tasks() as
+coming. at_end() and run_end() put back stdin's flags (POSIX) and the console's code page and
+stderr's mode (Windows) however a program ends, and prepare_terminal() restores the console at exit
+(tests/native/console_probe). run_attached() waits out Ctrl+C (ignore_interrupt() on Windows, SIGINT
+and SIGQUIT ignored on POSIX), and spawn() starts programs with SIGINT, SIGQUIT, and SIGPIPE at
+their defaults. A thread of its own pushes its id before m_pending goes down; shown_class_name()
+names an uncaught error's chain (uncaught_alike.fb); resize_buffer() says Reserve's place and count
+(panic_reserve_huge.fb); leak counts take the singular. cli_tests reads a program's PE, ELF, or
+Mach-O imports and checks they're all the system's own. Comments: ast.hpp, manifest.hpp, module.hpp,
+manifest.cpp, process.hpp, commands.cpp, and take().
+
+Step 9, Math I: std/math/. numbers.fb: `Bounded` (MinValue, MaxValue), `Integer` (BitWidth, LowBits,
+FromLowBits), and `FloatingPoint` (Epsilon, FromDouble, ToDouble, and libm's Floor through Fma),
+Interfaces the ten number types implement through Extends with Private Static Methods over `Extern
+"C"` libm, so std.math's Functions are generic and take their type from their arguments (`Lerp(0,
+10, t)`); `MinValue<T>`, `MaxValue<T>`; Float32's and Float64's `ToBits()` and `FromBits()`, by
+Unsafe Ptr casts. constants.fb: Pi, Tau, E, Epsilon, Pi64, Tau64, E64, Epsilon64, and Inf and NaN,
+Consts worked out at run time since the compiler refuses a non-finite one. scalar.fb: Abs and Sign
+(Numeric & Comparable), Floor, Ceil, Round (half away from 0), Trunc, Fract, Mod (floored) and Rem
+for integers (IntegerRem(), safe at -1) and floats (fmod), Gcd, Lcm, IntSqrt (digit by digit in a
+UInt64), Lerp, InverseLerp, Remap, SmoothStep, Wrap, PingPong, MoveTowards, IsClose (a tolerance, or
+0.00001 of the larger), Sqrt through Atanh, Log(x, base), Atan2, IsNaN, IsFinite, CopySign, Fma,
+Deg, Rad, ToRadians (with Int overloads), and ToDegrees; no Pow or IntPow, since `**` is the power.
+bits.fb (std.math.bits): PopCount (SWAR), LeadingZeros, TrailingZeros, RotateLeft, RotateRight,
+ByteSwap, IsPowerOfTwo, NextPowerOfTwo, AlignDown, and AlignUp, generic over Integer through
+LowBits, and each integer's SaturatingAdd, SaturatingSubtract, and SaturatingMultiply over its
+Checked Methods (Saturated()). vector.fb and int_vector.fb: Vec2, Vec3, Vec4, Vec2i, and Vec3i,
+Numeric, Hashable, Printable, and Defaultable, with Operators by component and by a scalar on either
+side, `[]`, Vec3's Up through Back and xy, Vec4's xy and xyz, and ToVec2i, ToVec3i, ToVec2, and
+ToVec3; Dot, Cross, Length, LengthSquared, Distance, DistanceSquared (lengths in Doubles,
+Magnitude()), Normalize (zero stays zero), Reflect, Project, Angle, Rotate, Perpendicular,
+ManhattanDistance, ChebyshevDistance, and the component-wise Lerp, Min, Max, Clamp, Abs, Floor,
+Ceil, Round, MoveTowards, and IsClose. quat.fb: Quat, Identity, FromAxisAngle, FromEuler (Y, X, Z),
+FromMat3 (DirectXMath's four cases), FromTo, LookRotation, ToMat3, ToMat4, ToAxisAngle, ToEuler,
+ToEulerDegrees, `q * v`, `a * b`, Slerp, Lerp (normalized), Inverse (the conjugate), Normalize, Dot,
+Length, Angle (the relative rotation's Atan2), and IsClose (q and -q alike). matrix.fb: Mat3 and
+Mat4, their columns the Fields x, y, z, and w, Identity, Scale, Rotation, RotationX, RotationY,
+RotationZ, Translation, Compose, LookAt, Perspective, and Orthographic (glm's RH_ZO),
+TransformPoint, TransformVector, ProjectPoint, Decompose, ToMat3, ToMat4, `[column, row]`,
+Transpose, Determinant, TryInverse (glm's cofactors, four at a time), Inverse (panics), and IsClose.
+color.fb: Color (linear Floats) and Color32 (sRGB bytes), the named colors, Hex and TryHex (#rgb to
+#rrggbbaa), ToHex, Srgb, Hsv, Hsl, OkLab, ToHsv, ToHsl, ToOkLab, ToColor, and ToColor32 (sRGB's
+curve in Doubles; ByteOf() keeps 0 to 255, NaN as 0), Operators, Lerp, and IsClose. geometry.fb:
+Rect (X, Y, Width, Height), AABB (Min, Max), Sphere, Ray, Plane (Normal, Distance), and Frustum (six
+Planes from a matrix, Gribb and Hartmann for 0..1 depth), with Contains, Intersects, Raycast (slabs;
+0 from inside), Intersection, Union, Grow, ClosestPoint, Transform (Arvo's), SignedDistance,
+FromPoints, and FromPointNormal. sema's is_later_name() lost Vec2 through Color and Rect, so an
+Extend of one names std.math's Import. Tests: math_scalars, math_bits, math_vectors, math_quat,
+math_matrices, math_color, and math_geometry, printing libm's results rounded to four places, and 36
+panic_math_ programs.
+
+Step 9's review (25 findings, 2 high): Sphere.Raycast in Doubles from the ray's nearest point;
+integer Wrap and PingPong through UInt64 distances, for unsigned types and wide ranges; float Mod
+and Wrap never give b or high; Lerp exact at 1; PlaneOf's zero-normal rows; Grow stops at nothing;
+ToEuler's fold within 0.02 degrees; Vec2i, Vec3i, Mod, Rem, Gcd, Lcm, and Abs @PanicsAtCaller;
+Sphere tests, Project, Angle, MoveTowards, and Quat's Length in Doubles; matrix inverse and
+determinant in Doubles; FromTo without its shortcut; Green as CSS's, with Lime; colors' linear
+values rounded once; Mat3 and Mat4 scale from the left and divide; ToDegrees(Int); stdlib.md's SIMD
+claim dropped, the compiler's item 13; spec 02 and 06's math types.
+
+Step 21, std.crypto: third_party/ fetches mbedTLS 4.1.1 (TF-PSA-Crypto's PSA API, with
+`MBEDTLS_THREADING_C`), xxHash 0.8.4, BLAKE3 1.8.7, Argon2 20190702, crypt_blowfish 1.3, and
+Monocypher 4.0.3 (Ed25519 only), each built -O2 as its own archive beside a runtime archive
+(fb_runtime_crypto, with crypto_pem.cpp apart, fb_runtime_xxhash, fb_runtime_blake3,
+fb_runtime_argon2, fb_runtime_bcrypt, fb_runtime_ed25519; fb/crypto.hpp), and
+`bundled_library_t::archives` takes several. std/crypto: `Hasher`, `Md5`, `Sha1`, `Sha256`,
+`Sha512`, `Blake3` (keyed, derived, any length); `Hmac`, `Hkdf`, `Pbkdf2`; `SecureRandom` (`Bytes`,
+`Below`), `ConstantTimeEquals`; `Crc32`, `XxHash`; `Argon2id` (`Hash`, `Verify`, `Derive`) and
+`Bcrypt`; `Aes256Gcm` and `ChaCha20Poly1305` (`NewKey`, `Seal`, `Open`); `Ed25519` (RFC 8032's
+encodings only), `EcdsaP256`, `Rsa` (`Verify`, `VerifyPss`, `PublicKey`), `X25519`; `KeyKind`, `Key`
+(`FromPem`, `ToPem`), and `Certificate` (`FromPem`, `AllFromPem`). Tests from RFC 1321, 2202, 4231,
+5869, 6070, 6234, 6979, 7515, 7748, 7914, 8032, 8410, 8439, and 9106, BLAKE3's and xxHash's vectors,
+crypt_blowfish's, and Wycheproof's.
+
+Step 21's review (13 findings): crypto_internal.hpp's `stored_key_t` (glibc has a key_t); Hmac
+hashes a key longer than its block first, as RFC 2104 does; third_party/ gives mbedTLS's libraries
+-O2 after their own -O0 in debug builds (fb_options_after), which driver_tests checks through
+compile_commands.json; crypto_pem.cpp reads PKCS #8, SubjectPublicKeyInfo, and certificates with a
+DER reader of its own, so a certificate of any key reads, names come out as OpenSSL writes them
+(T61, BMP, and Universal strings decoded, RFC 4514's escapes, no length limit), Key.FromPem takes
+the first key block and throws SYNTAX for a damaged one, X25519 keys stay unclamped, and mbedx509
+isn't linked; PSA_VENDOR_RSA_MAX_KEY_BITS is raised to 8192 and RSA verifies through mbedTLS's RSA
+module, any size; Bcrypt.Verify refuses $2x$; crypto_macs checks RFC 7914's PBKDF2-SHA256 vectors
+and HKDF and PBKDF2 by SHA-512, crypto_signatures RFC 7748's 5.2, and crypto_certificates and
+crypto_rsa_keys are new.
+
 ## M5, modules, packages, FFI, and bindgen
 
 Done: M5 (modules, packages, `project.toml`, FFI, bindgen), planned 2026-10-18 and finished
