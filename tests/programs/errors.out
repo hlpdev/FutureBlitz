@@ -16,6 +16,14 @@ end of pass 1
 end of pass 2
 pass 3 failed: missing: missing
 end of pass 3
+pass 1
+finally 1 1
+finally 1 2
+finally 2 1
+finally 2 2
+finally 3 1
+finally 3 2
+after the passes
 (read failed)
 fixed text
 first try: missing: missing

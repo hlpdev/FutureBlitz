@@ -84,6 +84,28 @@ For i = 1 To 3
     End Try
 End For
 
+// A Finally with loops of its own, which Break and Continue run on their way out.
+Function Passes()
+    For i = 1 To 4
+        Try
+            If i == 2 Then Continue
+            If i == 3 Then Break
+            Print("pass {i}")
+        Finally
+            For j = 1 To 2
+                Local k = 0
+                While k < j
+                    k += 1
+                End While
+                Print("finally {i} {k}")
+            End For
+        End Try
+    End For
+    Print("after the passes")
+End Function
+
+Passes()
+
 // A Method that throws, and an override that doesn't.
 Class Source
     Method Read(): String Throws FileError

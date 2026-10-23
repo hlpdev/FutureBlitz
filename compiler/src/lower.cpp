@@ -4079,14 +4079,16 @@ private:
         lower_jump(id, false);
     }
 
-    /// Break or Continue: leaves the scopes inside the loop, releasing their Strings, and jumps
-    /// to a target the loop fills in later.
+    /// Break or Continue: leaves the scopes inside the loop, releasing their variables, and jumps
+    /// to a target the loop fills in later. The loop is found by its position, since a Finally
+    /// on the way out can have loops of its own, which move m_loops.
     void lower_jump(const stmt_id_t id, const bool is_break) {
         const stmt_id_t target = expect(m_analysis.stmt(id).loop);
-        loop_t& loop =
-            *std::ranges::find_if(m_loops, [target](const loop_t& l) { return l.stmt == target; });
-        release_scopes(loop.scope_depth);
-        leave(is_break ? loop.breaks : loop.continues);
+        const auto at = static_cast<std::size_t>(std::ranges::distance(
+            m_loops.begin(),
+            std::ranges::find_if(m_loops, [target](const loop_t& l) { return l.stmt == target; })));
+        release_scopes(m_loops[at].scope_depth);
+        leave(is_break ? m_loops[at].breaks : m_loops[at].continues);
     }
 
     void lower_stmt(stmt_id_t /*id*/, span_t /*span*/, const return_stmt_t& node) {
