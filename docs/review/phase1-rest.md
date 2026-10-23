@@ -152,7 +152,7 @@ Skeptic: return_byref.fb (the finding's program) printed 'got junk 19' then 'lea
 
 ## P1-std-1 (medium): Deque overflows at 2^31 - 1 values; the sweep for A11-3 and A12-9 missed it
 
-Status: open
+Status: fixed in f146218: Balance takes HalfUp(count), count - count / 2, and AddFirst, AddLast, Add, and AddAll panic at the caller, 'a Deque holds at most 2147483647 values', once HasRoom(front, back) says an Int can't count one more (std_tests.cpp's "std's counts and indexes don't overflow near the most an Int holds")
 
 Where: std/collections/deque.fb:164
 
@@ -551,7 +551,7 @@ Skeptic: In the review checkout, `git merge-base --is-ancestor a3143b3 36ab52a` 
 
 ## P1-std-2 (low): A NaN in a PriorityQueue quietly misorders the other values; A12-3's NaN rule stops at the sorted collections
 
-Status: open
+Status: fixed in db37ec2: in the smallest-first order, Add and AddAll panic at the caller at a value that isn't equal to itself; a PriorityQueue with a before function, and Clone, keep their order's rule (panic_priority_queue_nan, panic_priority_queue_nan_all); spec 14's row in c1e5905; decisions.md's NaN row is the coordinator's. T[].Sort() is left as it is: the finding's fix is the PriorityQueue's
 
 Where: std/collections/priority_queue.fb:27
 
@@ -585,7 +585,7 @@ Skeptic: Ran pq_nan.fb. Debug printed [10, 1, 20, -nan] and release [10, 1, 20, 
 
 ## P1-std-3 (low): Counter's overflow panic points into std for Add(value) and AddAll, not where the value is added
 
-Status: open
+Status: fixed in 4291c8d: Add(value) and AddAll are @PanicsAtCaller (panic_counter_overflow_one, panic_counter_overflow_all)
 
 Where: std/collections/counter.fb:30
 
@@ -614,7 +614,7 @@ Skeptic: Ran c1.fb and c2.fb (AddAll(["a"])) in debug and release. All four runs
 
 ## P1-std-5 (low): Sendable's comment, rewritten for A11-11, leaves out a Weak<T> of a Shared Class
 
-Status: open
+Status: fixed in c1e5905 (a comment, so no test)
 
 Where: std/core/interfaces.fb:55
 
@@ -650,7 +650,7 @@ Skeptic: Ran snd.fb: it prints 1 in both builds, so the compiler counts Weak<Hub
 
 ## P1-std-6 (low): Spec 14 says every Class is Equatable and Hashable, but std's Map, Grid, and LinkedList aren't when their Where fails
 
-Status: open
+Status: fixed in c1e5905: spec 14's Equatable sentence, its Map key sentence, and its Map == sentence give spec 07's Where-line exception (docs only, so no test)
 
 Where: docs/spec/14-strings-collections.md:156
 
