@@ -11,3 +11,7 @@ False False
 True True False
 True False True
 5 True True
+tick 1: slow False, fast False, WhenAny False
+tick 2: slow True, fast True, WhenAny True
+tick 3: slow True, fast True, WhenAny True
+1

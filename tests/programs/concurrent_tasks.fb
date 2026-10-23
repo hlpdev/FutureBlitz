@@ -65,7 +65,7 @@ Async Function Run()
 
     Print(Await WhenAny([Later(3, 1), Later(1, 2), Later(2, 3)]))
     Print(Await WhenAny([Pause(2), Pause(1), Pause(3)]))
-    // Of tasks done by the same tick, the first given wins.
+    // Of tasks done before WhenAny looks at a tick, the first given wins.
     Print(Await WhenAny([Later(2, 1), Later(1, 2), Later(1, 3)]))
 
     Const first = TaskSource<String>()
@@ -94,3 +94,30 @@ later.Finish(5)
 Local after = later.Task
 Print(later.IsDone, before.IsDone(), after.IsDone())
 Print(before.Wait(), before.IsDone(), after.IsDone())
+
+// WhenAny looks at its tasks in their order at a tick, so a task done later in the tick doesn't
+// count: slow, the first given, is done in the tick fast is found done in, but after WhenAny
+// looks, since its coroutine waits after WhenAny's.
+Global slow: Task<Int>? = Null
+Global fast: Task<Int>? = Null
+Global any: Task<Int>? = Null
+
+Async Function Tie()
+    Await NextFrame()
+    fast = Later(1, 1)
+    any = WhenAny([slow.Expect("slow is set"), fast.Expect("fast is set")])
+End Function
+
+Const ticked = Scheduler()
+Local tie = Tie()
+slow = Later(2, 0)
+ticked.Run(tie)
+ticked.Run(slow.Expect("slow is set"))
+For tick = 1 To 3
+    ticked.Tick(0)
+    Local slowDone = slow.Expect("slow is set").IsDone()
+    Local fastDone = fast?.IsDone() ?? False
+    Print("tick {tick}: slow {slowDone}, fast {fastDone}, WhenAny {any?.IsDone() ?? False}")
+End For
+
+Print(any.Expect("any is set").Wait())

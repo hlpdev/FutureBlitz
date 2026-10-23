@@ -521,11 +521,12 @@ the rest is planned. `Import std.concurrent` brings in all of std/concurrent/.
 - `TaskSource<T>`, of a Sendable T, a Task finished by hand: `Finish(value)`, on any thread, gives
   the result, `TryFinish` tells whether it did, so of threads that try at once one does, and
   `IsDone`. Each read of `Task` gives a new Task of the same result, so code keeps the one it reads:
-  done at once when read after Finish, and otherwise at the main thread's first tick after it, as
-  an Async Function's Task is once what it awaits is done. `WhenAll(tasks)` gives a Task of the tasks' results in their
-  order, or a Task for tasks with none, and `WhenAny(tasks)` a Task of the index of the first done,
-  of those done by the same tick the first given. Their Tasks are Async Functions', so they're the
-  main thread's.
+  done at once when read after Finish, and otherwise at the main thread's first tick after it, as an
+  Async Function's Task is once what it awaits is done. `WhenAll(tasks)` gives a Task of the tasks'
+  results in their order, or a Task for tasks with none, and `WhenAny(tasks)` a Task of the index of
+  the first found done: at a tick, it looks at the tasks in their order, so of those done before it
+  looks the first given wins, and one done later in the tick doesn't count. Their Tasks are Async
+  Functions', so they're the main thread's.
 - Planned: a TaskSource whose Task throws, and WhenAll over tasks that throw, once `Task<T> Throws
   E` can be written as a type; `Cancellation`, a token blocking calls and Tasks take; `Select` over
   several Channels and a timeout; `Lazy<T>` (made once, on first use, from any thread) and
