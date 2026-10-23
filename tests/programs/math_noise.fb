@@ -1,0 +1,49 @@
+// Noise: Noise()'s Perlin noise is Ken Perlin's improved noise reference's, and its Simplex noise
+// Stefan Gustavson's, value for value; a seed's Noise shuffles the permutation; and value noise,
+// Worley noise, and fBm keep their ranges and their lattices. Every value is from IEEE's exact
+// operations, so the same on every OS.
+Import std.core
+Import std.math
+
+Local noise = Noise()
+Local places: (Double, Double, Double)[] = [(3.14, 42.0, 7.0), (0.5, 0.25, 0.75),
+                                            (-1.3, 2.6, -3.9), (100.01, -55.5, 0.001),
+                                            (12345.678, 0.5, -0.5), (0.0, 0.0, 0.0)]
+For place In places
+    Local x, y, z = place
+    Print(noise.Perlin(x, y, z), noise.Perlin(x, y), noise.Simplex(x, y), noise.Simplex(x, y, z))
+End For
+
+// A whole place is on the lattice: Perlin and Simplex noise are 0 there, and value noise is the
+// lattice's value.
+Print(noise.Perlin(3, 4, 5), noise.Perlin(-7, 2), noise.Simplex(0, 0), noise.Simplex(0, 0, 0))
+
+// Value noise, Worley noise, and fBm, at the same places.
+For place In places
+    Local x, y, z = place
+    Print(noise.Value(x, y, z), noise.Value(x, y), noise.Worley(x, y), noise.Worley(x, y, z),
+          noise.Fbm(x, y), noise.Fbm(x, y, z, 3, 2.5, 0.4))
+End For
+
+// A seed's noise is the same each time, and another seed's isn't.
+Local seeded = Noise(2024)
+Print(seeded.Perlin(1.5, 2.25, 3.75), seeded.Simplex(1.5, 2.25), seeded.Worley(1.5, 2.25))
+Print(seeded.Perlin(1.5, 2.25, 3.75) == Noise(2024).Perlin(1.5, 2.25, 3.75),
+      seeded.Perlin(1.5, 2.25, 3.75) != Noise(2025).Perlin(1.5, 2.25, 3.75))
+
+// Over a grid of places, each kind keeps to its range, and changes smoothly from place to place.
+Local inRange = True
+Local smooth = True
+Local worleyLow = True
+For i = 0 Until 2000
+    Local x: Double = (i As Double) * 0.0731 - 50
+    Local y: Double = (i As Double) * 0.0377 + 3
+    Local z: Double = (i As Double) * 0.0213
+    For value In [noise.Perlin(x, y, z), noise.Simplex(x, y), noise.Simplex(x, y, z),
+                  noise.Value(x, y, z), seeded.Fbm(x, y)]
+        inRange = inRange && value >= -1.05 && value <= 1.05
+    End For
+    smooth = smooth && Abs(noise.Perlin(x, y, z) - noise.Perlin(x + 0.001, y, z)) < 0.01
+    worleyLow = worleyLow && noise.Worley(x, y) >= 0 && noise.Worley(x, y) < 1.5
+End For
+Print(inRange, smooth, worleyLow)
