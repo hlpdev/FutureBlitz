@@ -1,0 +1,144 @@
+// Streams over memory: MemoryStream, bytes to read, write, and move around in, as a file's are;
+// StringReader, which reads a String's UTF-8; and StringWriter, which collects text.
+
+Import std.core
+Import std.collections.array
+Import std.ffi
+Import std.io.streams
+
+// Bytes in memory that it reads, writes, and moves around in, as a file's are, from where it is,
+// which they grow past as they're written. Writing past the end fills what's between with 0s.
+Public Class MemoryStream Implements Reader, Writer, Seeker
+    Field Data: UInt8[]
+    Field At: Int64
+
+    // One of a copy of the bytes, from their start, or an empty one.
+    Public New(bytes: UInt8[] = [])
+        Data = bytes.Clone()
+    End New
+
+    // How many bytes it has.
+    Public Property Count: Int64
+        Get => Data.Count
+    End Property
+
+    Public Method Read(into: Buffer<UInt8>): Int64 Throws IOError
+        Local count = Min(into.Count, Max(Data.Count - At, 0))
+        If count > 0
+            Unsafe
+                Mem.Copy(into.Pointer(), AddressOf(Data[At As Int]), count)
+            End Unsafe
+        End If
+
+        At += count
+        Return count
+    End Method
+
+    Public Method Write(from: Buffer<UInt8>) Throws IOError
+        Local finish = At + from.Count
+        If finish > 2147483647
+            Throw IOError(IOErrorKind.OTHER, "a MemoryStream holds up to 2147483647 bytes, not " +
+                                             "{finish}")
+        End If
+
+        If finish > Data.Count Then Data.Resize(finish As Int, 0)
+        If from.Count > 0
+            Unsafe
+                Mem.Copy(AddressOf(Data[At As Int]), from.Pointer(), from.Count)
+            End Unsafe
+        End If
+
+        At = finish
+    End Method
+
+    Public Method Seek(offset: Int64, origin: SeekOrigin): Int64 Throws IOError
+        At = Try SeekIn(At, Data.Count, offset, origin)
+        Return At
+    End Method
+
+    // Its bytes, in a new array.
+    Public Method ToArray(): UInt8[] => Data.Clone()
+End Class
+
+// Reads a String's UTF-8 bytes, and moves around in them.
+Public Class StringReader Implements Reader, Seeker
+    Field Bytes: UInt8[]
+    Field At: Int64
+
+    Public New(text: String)
+        Bytes = text.Bytes
+    End New
+
+    // How many bytes the text has.
+    Public Property Count: Int64
+        Get => Bytes.Count
+    End Property
+
+    Public Method Read(into: Buffer<UInt8>): Int64 Throws IOError
+        Local count = Min(into.Count, Max(Bytes.Count - At, 0))
+        If count > 0
+            Unsafe
+                Mem.Copy(into.Pointer(), AddressOf(Bytes[At As Int]), count)
+            End Unsafe
+        End If
+
+        At += count
+        Return count
+    End Method
+
+    Public Method Seek(offset: Int64, origin: SeekOrigin): Int64 Throws IOError
+        At = Try SeekIn(At, Bytes.Count, offset, origin)
+        Return At
+    End Method
+End Class
+
+// Collects what's written to it, as text, which ToString gives.
+Public Class StringWriter Implements Writer
+    Field Bytes: UInt8[]
+
+    Public New()
+        Bytes = []
+    End New
+
+    // How many bytes it has.
+    Public Property Count: Int64
+        Get => Bytes.Count
+    End Property
+
+    Public Method Write(from: Buffer<UInt8>) Throws IOError
+        Local finish = Bytes.Count + from.Count
+        If finish > 2147483647
+            Throw IOError(IOErrorKind.OTHER, "a StringWriter holds up to 2147483647 bytes, not " +
+                                             "{finish}")
+        End If
+
+        Local start = Bytes.Count
+        Bytes.Resize(finish As Int, 0)
+        If from.Count > 0
+            Unsafe
+                Mem.Copy(AddressOf(Bytes[start]), from.Pointer(), from.Count)
+            End Unsafe
+        End If
+    End Method
+
+    // What it has, as text, with U+FFFD for each byte that doesn't start well-formed UTF-8.
+    Public Method ToString(): String => TextOf(Buffer<UInt8>.From(Bytes))
+End Class
+
+// Where a Seek of `offset` from `origin` goes in `count` bytes, from `at`.
+Function SeekIn(at: Int64, count: Int64, offset: Int64, origin: SeekOrigin): Int64 Throws IOError
+    Local start = at
+    If origin == SeekOrigin.START
+        start = 0
+    ElseIf origin == SeekOrigin.END
+        start = count
+    End If
+
+    Local place = start.CheckedAdd(offset)
+    If place == Null || place < 0
+        Throw IOError(IOErrorKind.OTHER,
+                      "a Seek of {offset} from {start} is before the stream's start")
+    End If
+
+    Return place
+End Function
