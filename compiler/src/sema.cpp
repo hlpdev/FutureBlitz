@@ -1276,6 +1276,15 @@ private:
             error(node->name.span, "Override only goes before a Method");
         }
 
+        if (modifiers.is_static) {
+            error(node->name.span,
+                  "Static only goes before a Field or Method of a Struct or Class");
+        }
+
+        if (modifiers.is_read_only) {
+            error(node->name.span, "ReadOnly only goes before a Field or Property");
+        }
+
         if (modifiers.is_inline) {
             error(node->name.span, "@Inline only goes before a Function, Method, Operator, or "
                                    "Property");
@@ -3396,6 +3405,8 @@ private:
             error(node.name.span, "Abstract, Final, and Override only go before a Class's Methods");
         } else if (modifiers.is_static) {
             error(node.name.span, "Static only goes before a Field or Method of a Struct or Class");
+        } else if (modifiers.is_read_only && node.kind == variable_kind_t::CONSTANT) {
+            error(node.name.span, "a Const never changes, so it takes no ReadOnly");
         } else if (modifiers.is_read_only) {
             error(node.name.span, "a {} that never changes is a Const",
                   node.kind == variable_kind_t::GLOBAL ? "Global" : "Local");

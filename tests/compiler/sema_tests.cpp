@@ -2924,6 +2924,18 @@ TEST_CASE("Static and ReadOnly only go before a type's Fields and Methods", "[se
           errors_t{ "n: 'n' is ReadOnly and Static, so it needs a value" });
     CHECK(errors_of("Final Local x = 1") ==
           errors_t{ "x: Abstract, Final, and Override only go before a Class's Methods" });
+
+    // Not before a Struct or Class itself, and a Const never changes already.
+    CHECK(errors_of("Static Class C\n    Field x: Int\nEnd Class\n"
+                    "ReadOnly Struct S\n    Field x: Int\nEnd Struct") ==
+          errors_t{ "C: Static only goes before a Field or Method of a Struct or Class",
+                    "S: ReadOnly only goes before a Field or Property" });
+    CHECK(errors_of("ReadOnly Const X = 1\n"
+                    "Function F()\n"
+                    "    ReadOnly Const Y = 2\n"
+                    "End Function") ==
+          errors_t{ "X: a Const never changes, so it takes no ReadOnly",
+                    "Y: a Const never changes, so it takes no ReadOnly" });
 }
 
 TEST_CASE("a ReadOnly Field only changes in its Class's New", "[sema]") {
