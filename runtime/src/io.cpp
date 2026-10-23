@@ -364,8 +364,8 @@ void answer(const line_request_t& request, std::optional<std::string> line) {
         line ? fb_string_from_bytes(line->data(), static_cast<std::int64_t>(line->size()))
              : nullptr;
     fb_task_finish(task);
+    fb::runtime::finish_request(task);
     fb_object_release(&task->header);
-    fb::runtime::finish_request();
 }
 
 } // namespace
@@ -386,7 +386,7 @@ void fb_io_input_async(fb_task_t* task, const fb_string_t* prompt) {
     fb::runtime::write_prompt(prompt);
     // The request holds the Task until it's done.
     fb_object_retain(&task->header);
-    fb::runtime::start_request();
+    fb::runtime::start_request(task);
     io().read_line({ .task = task });
 }
 }

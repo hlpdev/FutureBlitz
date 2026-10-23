@@ -4,6 +4,8 @@
 
 #include <algorithm>
 #include <catch2/catch_test_macros.hpp>
+#include <chrono>
+#include <condition_variable>
 #include <cstddef>
 #include <expected>
 #include <filesystem>
@@ -11,11 +13,27 @@
 #include <fstream>
 #include <ios>
 #include <iterator>
+#include <mutex>
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <thread>
 #include <utility>
 #include <vector>
+
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#else
+#include <array>
+#include <fcntl.h>
+#include <unistd.h>
+#endif
 
 // End-to-end tests: every tests/programs/<name>.fb is compiled, linked, and run, and its output
 // must match <name>.out. The modules it imports by path are in tests/programs/<name>/. A name
@@ -123,6 +141,65 @@ run_with_library(const std::string& name, std::string text,
     return fb::build_program(module, compilation, program, fb::build_mode_t::DEBUG).and_then([&] {
         return fb::run_process(program, {});
     });
+}
+
+/// Runs `program` with a stdin that stays open, as a console's does until someone types, but
+/// for no longer than `limit`, so a program that waits for it still ends. Gives what it printed,
+/// or why it couldn't run, and how long it took.
+std::pair<std::expected<fb::process_result_t, std::string>, std::chrono::steady_clock::duration>
+run_with_open_stdin(const std::filesystem::path& program, const std::chrono::seconds limit) {
+    // The program gets the pipe's read end as this process's stdin, and only this process has
+    // the write end.
+#ifdef _WIN32
+    SECURITY_ATTRIBUTES security{
+        .nLength = sizeof(SECURITY_ATTRIBUTES),
+        .lpSecurityDescriptor = nullptr,
+        .bInheritHandle = TRUE,
+    };
+    HANDLE read_end = nullptr;
+    HANDLE write_end = nullptr;
+    REQUIRE(CreatePipe(&read_end, &write_end, &security, 0) != 0);
+    SetHandleInformation(write_end, HANDLE_FLAG_INHERIT, 0);
+    const HANDLE before = GetStdHandle(STD_INPUT_HANDLE);
+    SetStdHandle(STD_INPUT_HANDLE, read_end);
+    const auto close_input = [&] { CloseHandle(write_end); };
+#else
+    std::array<int, 2> ends{};
+    REQUIRE(pipe(ends.data()) == 0);
+    fcntl(ends[0], F_SETFD, FD_CLOEXEC);
+    fcntl(ends[1], F_SETFD, FD_CLOEXEC);
+    const int before = fcntl(STDIN_FILENO, F_DUPFD_CLOEXEC, 3);
+    dup2(ends[0], STDIN_FILENO);
+    const auto close_input = [&] { close(ends[1]); };
+#endif
+
+    std::mutex mutex;
+    std::condition_variable ended;
+    bool done = false;
+    std::thread closer([&] {
+        std::unique_lock lock(mutex);
+        ended.wait_for(lock, limit, [&] { return done; });
+        close_input();
+    });
+    const auto start = std::chrono::steady_clock::now();
+    std::expected<fb::process_result_t, std::string> result = fb::run_process(program, {});
+    const std::chrono::steady_clock::duration took = std::chrono::steady_clock::now() - start;
+    {
+        const std::scoped_lock lock(mutex);
+        done = true;
+    }
+
+    ended.notify_all();
+    closer.join();
+#ifdef _WIN32
+    SetStdHandle(STD_INPUT_HANDLE, before);
+    CloseHandle(read_end);
+#else
+    dup2(before, STDIN_FILENO);
+    close(before);
+    close(ends[0]);
+#endif
+    return { std::move(result), took };
 }
 
 /// A copy of tests/packages in the build folder, so building writes nothing into the source
@@ -500,4 +577,38 @@ TEST_CASE("a leak report is one message, and shows a Class made of one alike ano
                            "leak: a cycle of 3 objects: main.Box.next -> lib.a.Pair<main.Box>.next "
                            "-> lib.a.Box<Int32>.next -> the first main.Box\n");
     CHECK(parts->exit_code == 0);
+}
+
+TEST_CASE("a request nothing waits for doesn't keep a stuck coroutine's program from ending",
+          "[programs]") {
+    // Inner waits on a Scheduler nothing ticks, so Outer never goes on, and the line InputAsync
+    // asks for is nothing either waits for. Stdin stays open, as a console's does, so the
+    // program ends only if it doesn't wait for the line.
+    const fb::compilation_t compilation =
+        fb::compile("main.fb",
+                    "Import std.core\n"
+                    "Global paused = Scheduler()\n"
+                    "Async Function Inner()\n"
+                    "    Await NextFrame()\n"
+                    "End Function\n"
+                    "Async Function Outer(t: Task)\n"
+                    "    Await t\n"
+                    "End Function\n"
+                    "Local inner = Inner()\n"
+                    "paused.Run(inner)\n"
+                    "Outer(inner)\n"
+                    "Local pending = InputAsync()\n"
+                    "Print(\"top done\")\n",
+                    fb::standard_library().value_or(std::vector<fb::library_file_t>{}));
+    REQUIRE_FALSE(compilation.diagnostics.has_errors());
+    std::filesystem::path program = std::filesystem::path(FB_TEST_OUTPUT) / "stuck_open_input";
+    program += fb::executable_extension;
+    const fb::mir_module_t module = fb::lower(compilation.ast, compilation.analysis);
+    REQUIRE(fb::build_program(module, compilation, program, fb::build_mode_t::DEBUG));
+
+    const auto [result, took] = run_with_open_stdin(program, std::chrono::seconds(20));
+    REQUIRE(result);
+    CHECK(result->output == "top done\n");
+    CHECK(result->exit_code == 0);
+    CHECK(took < std::chrono::seconds(10));
 }

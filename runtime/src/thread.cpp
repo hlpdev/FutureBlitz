@@ -508,18 +508,19 @@ public:
     }
 
     /// Whether the coroutines waiting here can never go on: the pool has no work that could
-    /// finish a Task, and none waits for one that's done, or that a timer here finishes, or that
-    /// a coroutine here finishes once it goes on in turn. What they wait for is on a Scheduler,
-    /// or waits for one, which only code here could tick.
+    /// finish a Task, and none waits for one that's done, or that a timer here or the I/O thread
+    /// finishes, or that a coroutine here finishes once it goes on in turn. What they wait for is
+    /// on a Scheduler, or waits for one, which only code here could tick.
     [[nodiscard]] bool stuck() const {
-        // The pool first: once it has nothing left, its Tasks are done, which the rest sees. A
-        // request the I/O thread hasn't finished may finish a Task too.
-        if (!pool().idle() || fb::runtime::requests_pending()) {
+        // The pool first: once it has nothing left, its Tasks are done, which the rest sees.
+        if (!pool().idle()) {
             return false;
         }
 
-        std::vector<const fb_task_t*> coming;
-        coming.reserve(m_timers.size());
+        // The I/O thread's Tasks before whether any is done: one it finishes meanwhile is done
+        // by the time it's left out.
+        std::vector<const fb_task_t*> coming = fb::runtime::requested_tasks();
+        coming.reserve(coming.size() + m_timers.size());
         for (const timer_t& timer : m_timers) {
             coming.push_back(timer.task);
         }
@@ -603,27 +604,41 @@ private:
 
 namespace {
 
-/// How many requests the I/O thread has under way.
-std::atomic<std::int64_t>& pending_requests() {
-    static std::atomic<std::int64_t> count = 0;
-    return count;
+/// The Tasks of the requests the I/O thread has under way.
+struct requests_t {
+    std::mutex mutex;
+    std::vector<const fb_task_t*> tasks;
+};
+
+requests_t& requests() {
+    static requests_t instance;
+    return instance;
 }
 
 } // namespace
 
-void fb::runtime::start_request() {
-    pending_requests().fetch_add(1, std::memory_order_acq_rel);
+void fb::runtime::start_request(const fb_task_t* task) {
+    requests_t& under_way = requests();
+    const std::scoped_lock lock(under_way.mutex);
+    under_way.tasks.push_back(task);
 }
 
-void fb::runtime::finish_request() {
-    pending_requests().fetch_sub(1, std::memory_order_acq_rel);
-    // Finishing the Task woke the threads that wait already, maybe before the count went
-    // down, so they're woken again to see it.
+void fb::runtime::finish_request(const fb_task_t* task) {
+    {
+        requests_t& under_way = requests();
+        const std::scoped_lock lock(under_way.mutex);
+        std::erase(under_way.tasks, task);
+    }
+
+    // Finishing the Task woke the threads that wait already, maybe before it was left out
+    // here, so they're woken again to see it.
     pool().signal();
 }
 
-bool fb::runtime::requests_pending() {
-    return pending_requests().load(std::memory_order_acquire) > 0;
+std::vector<const fb_task_t*> fb::runtime::requested_tasks() {
+    requests_t& under_way = requests();
+    const std::scoped_lock lock(under_way.mutex);
+    return under_way.tasks;
 }
 
 namespace {
