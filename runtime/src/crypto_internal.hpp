@@ -15,7 +15,7 @@
 namespace fb::crypto {
 
 /// A key's kind, as std.crypto numbers them.
-enum key_kind_t : std::int32_t {
+enum key_kind_t : std::uint8_t {
     KEY_ECDSA_P256 = 0,
     KEY_RSA = 1,
     KEY_X25519 = 2,

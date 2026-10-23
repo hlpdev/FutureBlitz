@@ -141,11 +141,11 @@ void put_length(std::vector<std::uint8_t>& der, const std::size_t length) {
     }
 
     std::vector<std::uint8_t> bytes;
-    for (std::size_t rest = length; rest > 0; rest >>= 8) {
-        bytes.insert(bytes.begin(), static_cast<std::uint8_t>(rest & 0xff));
+    for (std::size_t rest = length; rest > 0; rest >>= 8U) {
+        bytes.insert(bytes.begin(), static_cast<std::uint8_t>(rest & 0xffU));
     }
 
-    der.push_back(static_cast<std::uint8_t>(0x80 | bytes.size()));
+    der.push_back(static_cast<std::uint8_t>(0x80U | bytes.size()));
     der.insert(der.end(), bytes.begin(), bytes.end());
 }
 
@@ -155,7 +155,7 @@ void put_integer(std::vector<std::uint8_t>& der, std::span<const std::uint8_t> v
         value = value.subspan(1);
     }
 
-    const bool high = !value.empty() && (value.front() & 0x80) != 0;
+    const bool high = !value.empty() && (value.front() & 0x80U) != 0;
     der.push_back(0x02);
     put_length(der, value.size() + (high ? 1 : 0) + (value.empty() ? 1 : 0));
     if (high || value.empty()) {
@@ -198,8 +198,10 @@ void fb_crypto_hash_text(const std::int32_t algorithm, const fb_string_t* text,
 
 void* fb_crypto_hasher_new(const std::int32_t algorithm) {
     start();
-    auto* hasher = new hasher_t{ .algorithm = hash_algorithm(algorithm),
-                                 .operation = PSA_HASH_OPERATION_INIT };
+    auto* hasher = new hasher_t{
+        .algorithm = hash_algorithm(algorithm),
+        .operation = PSA_HASH_OPERATION_INIT,
+    };
     check(psa_hash_setup(&hasher->operation, hasher->algorithm), "hash");
     return hasher;
 }
@@ -232,13 +234,13 @@ void fb_crypto_hasher_free(void* hasher) {
 
 void fb_crypto_hmac(const std::int32_t algorithm, const fb_array_t* key, const fb_array_t* data,
                     fb_array_t* output) {
-    const psa_algorithm_t mac = PSA_ALG_HMAC(hash_algorithm(algorithm));
-    const key_t made(PSA_KEY_TYPE_HMAC, PSA_KEY_USAGE_SIGN_MESSAGE, mac, hmac_key(bytes_of(key)));
+    const psa_algorithm_t hmac = PSA_ALG_HMAC(hash_algorithm(algorithm));
+    const key_t made(PSA_KEY_TYPE_HMAC, PSA_KEY_USAGE_SIGN_MESSAGE, hmac, hmac_key(bytes_of(key)));
     check(made.made() ? PSA_SUCCESS : PSA_ERROR_INVALID_ARGUMENT, "HMAC");
     const std::span<const std::uint8_t> input = bytes_of(data);
     const std::size_t length = PSA_HASH_LENGTH(hash_algorithm(algorithm));
     std::size_t size = 0;
-    check(psa_mac_compute(made.id(), mac, input.data(), input.size(), resized(output, length),
+    check(psa_mac_compute(made.id(), hmac, input.data(), input.size(), resized(output, length),
                           length, &size),
           "HMAC");
 }

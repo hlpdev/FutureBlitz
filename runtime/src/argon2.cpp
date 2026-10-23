@@ -89,7 +89,7 @@ std::int32_t fb_argon2_verify(const fb_array_t* password, const fb_string_t* has
     const std::string encoded(reinterpret_cast<const char*>(hash + 1),
                               static_cast<std::size_t>(hash->length));
     // A hash with a NUL in it isn't one Argon2 made.
-    if (encoded.find('\0') != std::string::npos) {
+    if (encoded.contains('\0')) {
         return 0;
     }
 

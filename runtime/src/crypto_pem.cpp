@@ -107,7 +107,7 @@ std::int32_t curve_key_from_pem(const std::string& text, fb_array_t* output) {
                 der.size() == size || (second && der[1] < 0x80 && der.size() == der[1] + 2U);
             if (sized && std::equal(expected.begin(), expected.end(), der.begin())) {
                 set(output, std::span(der).subspan(expected.size(), curve_key_size));
-                return kind * 2 + (is_private ? 1 : 0);
+                return (kind * 2) + (is_private ? 1 : 0);
             }
         }
     }
@@ -158,14 +158,14 @@ std::int32_t pk_key(const mbedtls_pk_context& pk, fb_array_t* output) {
     }
 
     set(output, bytes);
-    return kind * 2 + (is_private ? 1 : 0);
+    return (kind * 2) + (is_private ? 1 : 0);
 }
 
 /// `der` as PEM, under `label`.
 fb_string_t* pem_of(const std::span<const std::uint8_t> der, const std::string& label) {
     const std::string header = "-----BEGIN " + label + "-----\n";
     const std::string footer = "-----END " + label + "-----\n";
-    std::vector<unsigned char> text(der.size() * 2 + header.size() + footer.size() + 64);
+    std::vector<unsigned char> text((der.size() * 2) + header.size() + footer.size() + 64);
     std::size_t size = 0;
     if (mbedtls_pem_write_buffer(header.c_str(), footer.c_str(), der.data(), der.size(),
                                  text.data(), text.size(), &size) != 0) {
@@ -220,8 +220,7 @@ std::int32_t fb_crypto_key_from_pem(const fb_string_t* pem, fb_array_t* output) 
         found = curve_key_from_pem(text, output);
         // A PEM key that mbedTLS can't read, of another curve or encrypted, is one std.crypto
         // doesn't take.
-        if (found == no_key && text.find("-----BEGIN ") != std::string::npos &&
-            text.find(" KEY-----") != std::string::npos) {
+        if (found == no_key && text.contains("-----BEGIN ") && text.contains(" KEY-----")) {
             found = unknown_key;
         }
     }

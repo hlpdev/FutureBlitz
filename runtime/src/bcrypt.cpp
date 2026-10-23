@@ -51,7 +51,7 @@ std::int32_t fb_bcrypt_verify(const fb_string_t* password, const fb_string_t* ha
     const std::string key = text_of(password);
     const std::string expected = text_of(hash);
     // crypt_blowfish reads C strings, which a NUL would end early, so neither can have one.
-    if (key.find('\0') != std::string::npos || expected.size() + 1 != hash_size) {
+    if (key.contains('\0') || expected.size() + 1 != hash_size) {
         return 0;
     }
 
@@ -64,7 +64,8 @@ std::int32_t fb_bcrypt_verify(const fb_string_t* password, const fb_string_t* ha
     // Compared without stopping at the first difference.
     unsigned difference = 0;
     for (std::size_t i = 0; i + 1 < hash_size; ++i) {
-        difference |= static_cast<unsigned char>(computed[i] ^ expected[i]);
+        difference |= static_cast<unsigned>(static_cast<unsigned char>(computed[i])) ^
+                      static_cast<unsigned>(static_cast<unsigned char>(expected[i]));
     }
 
     return difference == 0 ? 1 : 0;
