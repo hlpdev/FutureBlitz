@@ -1,0 +1,15 @@
+72 keys, total 51200, each word 400 times True
+added 1000, removed 1000, made at least once each True, wrong 0, 1000 left
+1000 left, wrong 0
+0 True -1 False
+2 37 85 True
+False True 41
+True False 38 False
+41 54
+55 80
+[ada, alan, grace, ken, linus] [38, 41, 55, 80, 85]
+5 80
+True False 4
+0 [] False
+1 True True
+0

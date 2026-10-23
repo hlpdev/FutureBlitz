@@ -1,0 +1,287 @@
+// ConcurrentMap<K, V>: a hash map that any number of threads change and read at once. Its entries
+// are in 16 parts, by the top bits of their keys' hashes, each part an ImmutableMap behind a Mutex
+// of its own, so threads that change different parts don't wait for each other. A read copies its
+// part's ImmutableMap, which shares its nodes, and looks in the copy, holding the lock only for
+// that, and a For ... In goes over a copy of each part. A value is in a Shared cell of its own, so
+// a change worked out from a copy can tell whether another thread changed the key meanwhile.
+
+Import std.core
+Import std.collections.immutable
+Import std.collections.map
+
+// How many parts a ConcurrentMap has, the bits of a hash past the ones that pick one, and the
+// most entries it holds, which an Int counts.
+Const PARTS = 16
+Const PART_SHIFT: UInt64 = 60
+Const MOST_ENTRIES = 2147483647
+
+// A key's value, which a change replaces with a new cell.
+Shared Class MapCell<V: Sendable>
+    ReadOnly Field Value: V
+
+    New(value: V)
+        Value = value
+    End New
+End Class
+
+// One of a ConcurrentMap's parts.
+Shared Class MapPart<K, V>
+    Where K: Hashable & Sendable
+    Where V: Sendable
+
+    Field Entries: Mutex<ImmutableMap<K, MapCell<V>>>
+End Class
+
+Public Shared Class ConcurrentMap<K, V> Implements Iterable<(K, V)>, Defaultable
+    Where K: Hashable & Sendable
+    Where V: Sendable
+
+    ReadOnly Field Parts: MapPart<K, V>?[PARTS]
+    Field Size: Atomic<Int>
+
+    Public New()
+        Local parts: MapPart<K, V>?[PARTS]
+        For i = 0 Until PARTS
+            parts[i] = MapPart<K, V>()
+        End For
+
+        Parts = parts
+    End New
+
+    // How many entries there are, which other threads may change at any time.
+    Public Property Count: Int
+        Get => Size.Load()
+    End Property
+
+    // Adds an entry, or gives an existing key its new value. Panics when the ConcurrentMap has as
+    // many entries as an Int counts.
+    @PanicsAtCaller
+    Public Method Add(key: K, value: V)
+        Local part = PartOf(key)
+        Local cell = MapCell<V>(value)
+        Lock part.Entries As entries
+            If !entries.Contains(key) Then CheckMapRoom(Size.Add(1))
+            entries = entries.Add(key, cell)
+        End Lock
+    End Method
+
+    // Adds an entry when the key isn't there, and tells whether it wasn't. Panics when the
+    // ConcurrentMap has as many entries as an Int counts.
+    @PanicsAtCaller
+    Public Method TryAdd(key: K, value: V): Bool
+        Local part = PartOf(key)
+        Local cell = MapCell<V>(value)
+        Lock part.Entries As entries
+            If entries.Contains(key) Then Return False
+            CheckMapRoom(Size.Add(1))
+            entries = entries.Add(key, cell)
+        End Lock
+
+        Return True
+    End Method
+
+    // The key's value, or Null when it isn't there.
+    Public Method Get(key: K): V?
+        Local cell = CellOf(PartOf(key), key)
+        If cell == Null Then Return Null
+        Return cell.Value
+    End Method
+
+    // The key's value, or fallback when it isn't there.
+    Public Method Get(key: K, fallback: V): V
+        Local cell = CellOf(PartOf(key), key)
+        If cell == Null Then Return fallback
+        Return cell.Value
+    End Method
+
+    // The key's value, adding what make gives for it first when it isn't there. Threads that ask
+    // for a key at once may each run make, but the map keeps the first value added, which they
+    // all get. Panics, as Add does, when there's no room for the key.
+    @PanicsAtCaller
+    Public Method GetOrAdd(key: K, make: Func(): V): V
+        Local part = PartOf(key)
+        Local found = CellOf(part, key)
+        If found != Null Then Return found.Value
+        Local cell = MapCell<V>(make())
+        Lock part.Entries As entries
+            Local added = entries.Get(key)
+            If added != Null Then Return added.Value
+            CheckMapRoom(Size.Add(1))
+            entries = entries.Add(key, cell)
+        End Lock
+
+        Return cell.Value
+    End Method
+
+    // Gives the key's value what change gives for it, and tells whether the key was there. When
+    // another thread changes the key's value meanwhile, change runs again, on the value that
+    // thread gave it, so no change is lost.
+    Public Method Update(key: K, change: Func(V): V): Bool
+        Local part = PartOf(key)
+        Loop
+            Local seen = CellOf(part, key)
+            If seen == Null Then Return False
+            Local cell = MapCell<V>(change(seen.Value))
+            Lock part.Entries As entries
+                If RefEquals(entries.Get(key), seen)
+                    entries = entries.Add(key, cell)
+                    Return True
+                End If
+            End Lock
+        End Loop
+    End Method
+
+    // Adds value for the key when it isn't there, or gives its value what change gives for it,
+    // and gives the value the key has now. When another thread changes the key meanwhile, change
+    // runs again, as in Update. Panics, as Add does, when there's no room for the key.
+    @PanicsAtCaller
+    Public Method AddOrUpdate(key: K, value: V, change: Func(V): V): V
+        Local part = PartOf(key)
+        Loop
+            Local seen = CellOf(part, key)
+            Local cell = MapCell<V>(seen == Null ? value : change(seen.Value))
+            Lock part.Entries As entries
+                Local now = entries.Get(key)
+                If RefEquals(now, seen)
+                    If now == Null Then CheckMapRoom(Size.Add(1))
+                    entries = entries.Add(key, cell)
+                    Return cell.Value
+                End If
+            End Lock
+        End Loop
+    End Method
+
+    // The key's value. Panics when the key isn't there.
+    @PanicsAtCaller
+    Operator [](key: K): V
+        Local cell = CellOf(PartOf(key), key)
+        If cell == Null Then Panic("the key isn't in the ConcurrentMap")
+        Return cell.Value
+    End Operator
+
+    // Gives the key a value, adding it when it isn't there, as Add does.
+    @PanicsAtCaller
+    Operator []=(key: K, value: V)
+        Add(key, value)
+    End Operator
+
+    Public Method Contains(key: K): Bool => CellOf(PartOf(key), key) != Null
+
+    // Removes the key's entry, and tells whether there was one.
+    Public Method Remove(key: K): Bool
+        Local part = PartOf(key)
+        Lock part.Entries As entries
+            If !entries.Contains(key) Then Return False
+            entries = entries.Remove(key)
+        End Lock
+
+        Size.Subtract(1)
+        Return True
+    End Method
+
+    // Removes every entry.
+    Public Method Clear()
+        For i = 0 Until PARTS
+            Local part = Parts[i].Expect("a ConcurrentMap has all its parts")
+            Lock part.Entries As entries
+                Size.Subtract(entries.Count)
+                entries = ImmutableMap<K, MapCell<V>>()
+            End Lock
+        End For
+    End Method
+
+    // The keys, in the order a For ... In gives them.
+    Public Method Keys(): K[]
+        Local keys: K[] = []
+        For key, value In Self
+            keys.Add(key)
+        End For
+        Return keys
+    End Method
+
+    // The values, in their keys' order.
+    Public Method Values(): V[]
+        Local values: V[] = []
+        For key, value In Self
+            values.Add(value)
+        End For
+        Return values
+    End Method
+
+    // A new Map with the entries, in the order a For ... In gives them.
+    Public Method ToMap(): Map<K, V>
+        Local map = Map<K, V>()
+        For key, value In Self
+            map.Add(key, value)
+        End For
+        Return map
+    End Method
+
+    // A new, empty ConcurrentMap.
+    Public Static Method DefaultValue(): ConcurrentMap<K, V> => ConcurrentMap<K, V>()
+
+    // Each key and its value, by their keys' hashes, and keys of one hash in the order they were
+    // added. It goes over a copy of each part, made as it comes to it, so what other threads do
+    // meanwhile never stops it.
+    Public Method Iterate(): ConcurrentMapIterator<K, V> => ConcurrentMapIterator<K, V>(Self)
+
+    // The part that holds the key.
+    Method PartOf(key: K): MapPart<K, V>
+        Local index = (key.Hash() >> PART_SHIFT) As Int
+        Return Parts[index].Expect("a ConcurrentMap has all its parts")
+    End Method
+
+    // A copy of the entries part `index` has now.
+    Method Copied(index: Int): ImmutableMap<K, MapCell<V>>
+        Local part = Parts[index].Expect("a ConcurrentMap has all its parts")
+        Lock part.Entries As entries
+            Return entries
+        End Lock
+    End Method
+
+    // The key's cell in a copy of its part, or Null when it isn't there.
+    Method CellOf(part: MapPart<K, V>, key: K): MapCell<V>?
+        Local copy = ImmutableMap<K, MapCell<V>>()
+        Lock part.Entries As entries
+            copy = entries
+        End Lock
+
+        Return copy.Get(key)
+    End Method
+End Class
+
+// Panics when a ConcurrentMap that counted `count` entries before it added one can't count that
+// one in an Int.
+@PanicsAtCaller
+Package Function CheckMapRoom(count: Int)
+    If count == MOST_ENTRIES Then Panic("a ConcurrentMap holds no more entries than an Int counts")
+End Function
+
+Public Struct ConcurrentMapIterator<K, V> Implements Iterator<(K, V)>
+    Where K: Hashable & Sendable
+    Where V: Sendable
+
+    Field Owner: ConcurrentMap<K, V>
+    // The part it goes over next, and the entries left in the part before that.
+    Field Part: Int
+    Field Entries: ImmutableMapIterator<K, MapCell<V>>?
+
+    New(owner: ConcurrentMap<K, V>)
+        Owner = owner
+    End New
+
+    Public ByRef Method Next(): (K, V)?
+        Loop
+            Local entries = Entries
+            If entries != Null
+                Local entry = entries.Next()
+                Entries = entries
+                If entry != Null Then Return (entry.0, entry.1.Value)
+            End If
+
+            If Part == PARTS Then Return Null
+            Entries = Owner.Copied(Part).Iterate()
+            Part += 1
+        End Loop
+    End Method
+End Struct
