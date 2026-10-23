@@ -678,7 +678,7 @@ Skeptic: confirmed=True, high. p5.fb: a worker does `"{Shown(1)}"`, where Shown'
 
 ## A2-5 (medium): check_struct_cycles() misses a generic Struct that holds an instance of itself, and the compiler crashes
 
-Status: fixed by lane 3 in 9693cd9 (a generic struct that holds an instance of itself inline can't contain itself either), with sema tests for Wrap<Int> and Wrap<T[]>
+Status: fixed by lane 3 in f4b47ef (a generic struct that holds an instance of itself inline can't contain itself either), with sema tests for Wrap<Int> and Wrap<T[]>
 
 Where: compiler/src/sema.cpp:5874
 
@@ -754,7 +754,7 @@ Skeptic: confirmed=True, medium. V3/v8.fb (Door with 'Async Method Open()' and '
 
 ## A4-5 (medium): Compiler assertion crash: Scheduler's Run called without an argument
 
-Status: fixed by lane 3 in fb8b538 (a scheduler's run without its task is one error, not a crash), with a sema test
+Status: fixed by lane 3 in b782ba1 (a scheduler's run without its task is one error, not a crash), with a sema test
 
 Where: compiler/src/sema.cpp:18733
 
@@ -772,7 +772,7 @@ Skeptic: confirmed=True, medium. `Local s = Scheduler()` / `s.Run()`: `fb check`
 
 ## A4-6 (medium): Compiler crash: a known integer's Wrapping or Checked Method folded with a mistyped known argument
 
-Status: fixed by lane 3 in d095e0a (an integer method's known argument of another type isn't folded), with sema tests
+Status: fixed by lane 3 in a1b154b (an integer method's known argument of another type isn't folded), with sema tests
 
 Where: compiler/src/sema.cpp:16762
 
@@ -790,7 +790,7 @@ Skeptic: confirmed=True, medium. `Const a: Int = 5` / `Print(a.WrappingAdd(1.5))
 
 ## A4-7 (medium): Compiler crash: pointer arithmetic on a known Null Ptr is folded as integer arithmetic
 
-Status: fixed by lane 3 in 065cada (pointer arithmetic on a known null ptr isn't folded), with a sema test of all three shapes
+Status: fixed by lane 3 in 6ceb2c2 (pointer arithmetic on a known null ptr isn't folded), with a sema test of all three shapes
 
 Where: compiler/src/sema.cpp:17136
 
@@ -808,7 +808,7 @@ Skeptic: confirmed=True, medium. Three cases crash `fb check` with 'std::get: wr
 
 ## A4-8 (medium): fb::implements() says Weak<Shared Class> isn't Sendable while sema says it is: crash through a conditional Extend
 
-Status: fixed by lane 3 in b75b39b (a weak of a shared class is sendable for lowering's interface tables too), with tests/programs/sendable_weak.fb: conformance_query_t::sendable() has a WEAK case, and spec 10 says a Weak<T> of a Shared Class is Sendable
+Status: fixed by lane 3 in 21b60cf (a weak of a shared class is sendable for lowering's interface tables too), with tests/programs/sendable_weak.fb: conformance_query_t::sendable() has a WEAK case, and spec 10 says a Weak<T> of a Shared Class is Sendable
 
 Where: compiler/src/sema.cpp:21829
 
@@ -826,7 +826,7 @@ Skeptic: confirmed=True, medium. a8b.fb with `Extend Bin<T> Implements Shown / W
 
 ## A4-9 (medium): A generic overload and one that isn't generic, both needing a conversion, are called ambiguous
 
-Status: fixed by lane 3 in 0a52bb6 (a function that isn't generic beats a generic one that fits as well with a conversion too), with sema tests
+Status: fixed by lane 3 in 7ce596a (a function that isn't generic beats a generic one that fits as well with a conversion too), with sema tests
 
 Where: compiler/src/sema.cpp:19859
 
@@ -844,7 +844,7 @@ Skeptic: confirmed=True, medium. With F(x: Int?) and F<T>(x: T?), `F(n)` for an 
 
 ## A4-10 (medium): Array and Map literals refuse Null before the first literal, and `[]` beside typed arrays
 
-Status: fixed by lane 3 in 468af88 (null, tuples, and empty arrays and maps in a literal take the type the others meet at), with sema tests: common_type_of() takes typed values, then literals, tuples, and empty arrays and Maps with the common type as their hint, then Null
+Status: fixed by lane 3 in 3d06e65 (null, tuples, and empty arrays and maps in a literal take the type the others meet at), with sema tests: common_type_of() takes typed values, then literals, tuples, and empty arrays and Maps with the common type as their hint, then Null
 
 Where: compiler/src/sema.cpp:21414
 
@@ -862,7 +862,7 @@ Skeptic: confirmed=True, medium. `[1, Null]` checks (Int32?[]), but `[Null, 1]` 
 
 ## A4-11 (medium): A Const Function call that uses a parameter's default doesn't run at compile time where Consts and types are declared
 
-Status: fixed by lane 3 in 89fdcb1 (a const function run where consts and types are declared checks the defaults it uses first), with sema tests: check_defaults() runs once per function, on demand from run_at_compile_time()
+Status: fixed by lane 3 in 7857407 (a const function run where consts and types are declared checks the defaults it uses first), with sema tests: check_defaults() runs once per function, on demand from run_at_compile_time()
 
 Where: compiler/src/sema.cpp:18407
 
@@ -880,7 +880,7 @@ Skeptic: confirmed=True, medium. `Const A = Add(1)`, with b defaulting to 10, gi
 
 ## A4-12 (medium): An Enum declared later has 'no member' while declaration types and early Const runs are checked
 
-Status: fixed by lane 3 in 2e1db2c (an enum declared later has its values where declarations' types use them), with sema tests: check_enum_value() declares the Enum early while types are declared
+Status: fixed by lane 3 in 9f1575c (an enum declared later has its values where declarations' types use them), with sema tests: check_enum_value() declares the Enum early while types are declared
 
 Where: compiler/src/sema.cpp:20410
 
@@ -898,7 +898,7 @@ Skeptic: confirmed=True, medium. With the Enum declared below the Struct, `Field
 
 ## A4-13 (medium): A generic Async Function infers its type argument from the expected Task<T> as if it returned the Task
 
-Status: open
+Status: fixed by lane 3 in 687c7ed (a generic async function takes its type arguments from the task expected's element), with sema tests: told_arguments() unifies an Async Function's Task of its result with the type expected
 
 Where: compiler/src/sema.cpp:18942
 
@@ -916,7 +916,7 @@ Skeptic: confirmed=True, medium. `Async Function Zero<T: Numeric>(): T` with `Lo
 
 ## A4-14 (medium): A fixed array sized by Const type arguments can exceed the element limit; the program stack-overflows
 
-Status: open
+Status: fixed by lane 3 in 1f022d7 (a fixed array an instance works out holds no more elements than a written one, and code that isn't generic checks its instances' sizes too), with MIR tests: lowering's check_values() checks every type lowering uses, and an instance's Fields and base, and reports a fixed array whose sizes make more than 2147483647 elements
 
 Where: compiler/src/types.cpp:717
 
@@ -934,7 +934,7 @@ Skeptic: confirmed=True, medium. `Struct G<Const W: Int, Const H: Int>` / `Field
 
 ## A4-15 (medium): Spawn and Thread.Start ignore type arguments written on them
 
-Status: open
+Status: fixed by lane 3 in b6aea2d (spawn and thread.start take no type arguments), with sema tests, and spec 10 says so
 
 Where: compiler/src/sema.cpp:17914
 
@@ -952,7 +952,7 @@ Skeptic: confirmed=True, medium. `Spawn<String>(Function() => 5)` compiles, and 
 
 ## A4-16 (medium): `Async Function() => Await x` is refused when a Func(): Task is expected, but accepted without one
 
-Status: open
+Status: fixed by lane 3 in 878d7a6 (an async lambda that returns nothing can await after its =>), with sema tests: is_call() takes an Await as a call
 
 Where: compiler/src/sema.cpp:20929
 
@@ -1050,7 +1050,7 @@ Suggested fix: Move the line to m_const_modules, and correct the m_declared_type
 
 ## A2-6 (low): parameters_in() skips Channel, Task, Ptr, Callback, Atomic and Mutex, so check_expansion() misses polymorphic recursion through them
 
-Status: open
+Status: fixed by lane 3 in ad7a933 (a type parameter inside a channel, task, ptr, atomic, mutex, or callback counts toward instances without end), with a sema test
 
 Where: compiler/src/sema.cpp:9377
 
@@ -1086,7 +1086,7 @@ Skeptic: confirmed=True, low. sema.cpp:10310 says "Whether == works on a type: n
 
 ## A2-8 (low): std_name()'s doc comment is fused onto std_constraint(), and std_name() has none
 
-Status: open
+Status: fixed by lane 3 in 21b5634 (std_name's doc comment is above std_name, not std_constraint)
 
 Where: compiler/src/sema.cpp:8054
 
@@ -1104,7 +1104,7 @@ Skeptic: confirmed=True, low. sema.cpp:8054-8056 describe std_name() ("`declared
 
 ## A2-9 (low): note_use()'s doc comment sits above current_code()
 
-Status: open
+Status: fixed by lane 3 in bbb7878 (note_use's doc comment is above note_use, not current_code)
 
 Where: compiler/src/sema.cpp:9154
 
@@ -1122,7 +1122,7 @@ Skeptic: confirmed=True, low. sema.cpp:9154-9155 ("A warning at a use of somethi
 
 ## A2-10 (low): declare_global_item() has two stacked doc comments, and the first is stale
 
-Status: open
+Status: fixed by lane 3 in 834fd2c (declare_global_item has one doc comment, which says it declares const functions too)
 
 Where: compiler/src/sema.cpp:6876
 
@@ -1140,7 +1140,7 @@ Skeptic: confirmed=True, low. sema.cpp:6876-6879 has two stacked doc comments on
 
 ## A2-11 (low): check_async_function()'s doc comment is broken across lines
 
-Status: open
+Status: fixed by lane 3 in 9221565 (check_async_function's doc comment is wrapped as one sentence)
 
 Where: compiler/src/sema.cpp:6751
 
@@ -1234,7 +1234,7 @@ Skeptic: confirmed=True, low. V3/v12.fb gives "'F' can throw E1, so calling it n
 
 ## A4-17 (low): Spawn ignores a nullable Task<T> hint
 
-Status: open
+Status: fixed by lane 3 in 29ee47f (spawn takes what its work gives from a nullable task expected too), with a sema test
 
 Where: compiler/src/sema.cpp:17928
 
@@ -1252,7 +1252,7 @@ Skeptic: confirmed=True, low. `Local a: Task<Int64> = Spawn(Function() => 5)` wo
 
 ## A4-18 (low): A known UInt64 index past Int64's range isn't checked at compile time, and the panic shows it as negative
 
-Status: open
+Status: fixed by lane 3 in 6b2ef09 (a fixed array's known uint64 index or bound past int64's range is checked at compile time) and 35311df (an index's panic shows a uint64 past int64's range as it is), with sema tests and tests/programs/panic_index_unsigned.fb and panic_fixed_index_unsigned.fb: the runtime has fb_unsigned_index_out_of_range()
 
 Where: compiler/src/sema.cpp:21357
 
@@ -1270,7 +1270,7 @@ Skeptic: confirmed=True, low. `Local a: Int[3]` / `Print(a[18446744073709551615 
 
 ## A4-19 (low): An overload error shows '<invalid>' for a literal too big for Int
 
-Status: open
+Status: fixed by lane 3 in 73e9e79 (an overload error shows a literal too big for its type, or a generic function's name, as written), with sema tests
 
 Where: compiler/src/sema.cpp:19940
 
@@ -1288,7 +1288,7 @@ Skeptic: confirmed=True, low. With F(a: String) and F(a: Bool), `F(5_000_000_000
 
 ## A4-20 (low): Calling a Property says it's a field
 
-Status: open
+Status: fixed by lane 3 in 103080f (calling a property says it's a property, and calling a static field says it's a field), with sema tests; a Static Field called said "only functions can be called" before
 
 Where: compiler/src/sema.cpp:19453
 
@@ -1306,7 +1306,7 @@ Skeptic: confirmed=True, low. `Class Box` with a `Property Size: Int` Get: `Box(
 
 ## A4-21 (low): A name repeated in a Weak capture list isn't reported
 
-Status: open
+Status: fixed by lane 3 in 660e719 (a name repeated in a capture list is an error), with sema tests
 
 Where: compiler/src/sema.cpp:20882
 
@@ -1324,7 +1324,7 @@ Skeptic: confirmed=True, low. `Function[Weak a, Weak a]() => a?.n ?? -1` compile
 
 ## A4-22 (low): An Async lambda's errors underline 'Async Fu'
 
-Status: open
+Status: fixed by lane 3 in fb0e8a8 (an async lambda's errors point at its function keyword), with a sema test: lambda_expr_t keeps its Function keyword's span
 
 Where: compiler/src/sema.cpp:20751
 
@@ -1342,7 +1342,7 @@ Skeptic: confirmed=True, low. An `Async Function(): Int` lambda missing a return
 
 ## A4-23 (low): Doc comments that describe the wrong function or are stacked twice
 
-Status: open
+Status: fixed by lane 3 in 428a01b (sema's and types.hpp's misplaced doc comments are above what they describe, and entry_t's lists every kind it keeps), lookup_callee() took the stray callee comment
 
 Where: compiler/src/sema.cpp:16837
 
@@ -1360,7 +1360,7 @@ Skeptic: confirmed=True, low. Every misplaced comment is as described. sema.cpp 
 
 ## A4-24 (low): The spec says AddressOf takes a parameter; the compiler takes only a ByRef one
 
-Status: open
+Status: fixed by lane 3 in c164de1 (spec 08: addressof takes a byref parameter, as the compiler does), and a sema test of AddressOf on a parameter and a ByRef one
 
 Where: docs/spec/08-memory.md:111
 
@@ -1392,8 +1392,16 @@ Found while testing A2-4. comparable() asks each of a Struct's fields whether ==
 
 ## A4-new-1 (medium): A generic Function's name passed to an overloaded call or constructor gets no type arguments
 
-Status: fixed by lane 3 in 3695311 (a generic function's name passed to an overload, or a constructor, takes its type arguments from the parameter), with sema tests; and 50fb692 lets "f = Less<Int>", which the error suggests, end a value
+Status: fixed by lane 3 in 629b610 (a generic function's name passed to an overload, or a constructor, takes its type arguments from the parameter), with sema tests; and 2dbcb51 lets "f = Less<Int>", which the error suggests, end a value
 
 Where: compiler/src/sema.cpp, choose_overload()
 
 Found by lane 5: `PriorityQueue<Box<Int>>(Less)` with a generic `Less` fails with "'Less' is generic, so it needs a Func type to say what T is", though passing it to a Function works and spec 07 says the Func expected gives its type arguments. Any overloaded call fails the same way, since choose_overload() checks each argument without a hint first and gave up on one with no type of its own. Lane 3 reproduced it with an overloaded Function and an overloaded New; one New alone worked. choose_overload() now lets a generic Function's name through, and match() checks it against each overload's parameter.
+
+## A4-new-2 (medium): An Int literal that fits one overload exactly and another by conversion is ambiguous
+
+Status: not a bug, as spec 05 and decisions.md (rows 90 and 157) have it: resolution has two tiers, and a call that two overloads fit only with conversions is ambiguous. Lane 3 pinned the rule in 28b9ed8 (a test of overloads' two tiers) with sema tests; making the exact match per argument win, as C# and C++ do, would change those rows
+
+Where: compiler/src/sema.cpp, choose_overload() and rank()
+
+Found by lane 5: `noise.Fbm(x, y, 3)` between `Fbm(x: Double, y: Double, octaves: Int = 5, ...)` and `Fbm(x: Double, y: Double, z: Double, octaves: Int = 5, ...)` was ambiguous. Lane 3 found that with Double x and y the first is an exact match and wins; lane 5's x and y came from a tuple of decimal literals, which are Float32s, so both overloads needed a conversion. Lane 5's std/math/noise.fb now takes the octaves, lacunarity, and gain as a Noise's Fields, which avoids the clash.
