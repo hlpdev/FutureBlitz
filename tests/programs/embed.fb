@@ -1,0 +1,24 @@
+// Embed, EmbedText, and EmbedFolder put files in the program when it's built, from this file's
+// folder: a file's exact bytes as a new UInt8[], its text as a String known at compile time, and
+// a folder's files by their paths in it, without its hidden ones.
+Import std.core
+
+Const Greeting = EmbedText("embed/hello.txt")
+Const Shout = Greeting + "!"
+Print(Greeting.Bytes, Shout.Bytes.Count)
+
+Local logo = Embed("embed/logo.bin")
+Print(logo)
+
+// Each one is an array of its own.
+logo[0] = 0
+Print(logo[0], Embed("embed/logo.bin")[0])
+
+Local levels = EmbedFolder("embed/levels")
+Print(levels.Count)
+For path, bytes In levels
+    Print(path, bytes)
+End For
+
+// A path can go up, while it stays in the program's folder.
+Print(Embed("embed/levels/../logo.bin").Count)

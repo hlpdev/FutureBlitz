@@ -4,3 +4,6 @@
 
 # A program's input is its exact bytes, "\r\n" too.
 *.in -text
+
+# A file a test program embeds is its exact bytes.
+tests/programs/embed/** -text

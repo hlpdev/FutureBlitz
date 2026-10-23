@@ -10,7 +10,10 @@
 #include <cstddef>
 #include <cstdint>
 #include <deque>
+#include <expected>
+#include <functional>
 #include <optional>
+#include <string>
 #include <string_view>
 #include <unordered_map>
 #include <utility>
@@ -225,6 +228,13 @@ struct closure_t {
     std::optional<stmt_id_t> body;
 };
 
+/// A file that Embed or EmbedFolder puts in the program: its path from the folder EmbedFolder
+/// names, with '/' between folders, or Embed's, which is empty, and its bytes.
+struct embedded_file_t {
+    std::string path;
+    std::string bytes;
+};
+
 /// What analysis found out about one expression.
 struct expr_info_t {
     /// The expression's own type. A literal takes the type its context expects when its value
@@ -257,6 +267,9 @@ struct expr_info_t {
     bool callback = false;
     /// For "T.Has(A)" or "T.Attribute(A)": T, whose own attributes it reads. `tested` is A.
     type_id_t reflected = type_id_t::INVALID;
+    /// For "Embed(path)" or "EmbedFolder(path)": what it puts in the program, by its index in
+    /// analysis_t::embeds.
+    std::optional<std::size_t> embedded;
 
     /// For 'Is': the Class it tests for.
     type_id_t tested = type_id_t::INVALID;
@@ -378,6 +391,9 @@ struct analysis_t { // NOLINT(bugprone-exception-escape)
     /// The function values the program makes. The expression that makes each one, a lambda or
     /// a Function's name, has its index.
     std::vector<closure_t> closures;
+    /// The files each Embed and EmbedFolder puts in the program, whose call has the index: the
+    /// one file of an Embed, and a folder's in path order.
+    std::vector<std::vector<embedded_file_t>> embeds;
     /// How each Struct and Class implements each of its Interfaces, and each type an Extend
     /// makes implement one.
     std::vector<conformance_t> conformances;
@@ -404,6 +420,18 @@ struct analysis_t { // NOLINT(bugprone-exception-escape)
     }
 };
 
+/// What the driver reads for Embed, EmbedText, and EmbedFolder: a file's bytes, or a folder's
+/// files in path order, at a path written in the file `from`, which goes from that file's
+/// folder. Each fails with why, which analysis reports at the path. Without a driver, nothing
+/// reads files, and every one fails.
+struct embed_reader_t {
+    std::function<std::expected<std::string, std::string>(file_id_t from, std::string_view path)>
+        file;
+    std::function<std::expected<std::vector<embedded_file_t>, std::string>(file_id_t from,
+                                                                           std::string_view path)>
+        folder;
+};
+
 /// Whether `type`, with no type parameters in it, implements `interface`: by listing it or
 /// one that extends it, through a Class it extends, as a built-in type, or through an Extend
 /// whose constraints its type arguments meet. Lowering asks it of the instances it makes, for
@@ -415,9 +443,11 @@ struct analysis_t { // NOLINT(bugprone-exception-escape)
 /// constants, and reports errors to `diagnostics`. Each of the modules in `ast` has its own
 /// top-level names, and sees those of the modules it imports after them, as the module table
 /// says; `sources` holds their files. It always returns a full analysis, but only one without
-/// errors can be lowered. Const Functions run as a build of `mode` would run them.
+/// errors can be lowered. Const Functions run as a build of `mode` would run them, and `embeds`
+/// reads the files the program embeds.
 [[nodiscard]] analysis_t analyze(const source_manager_t& sources, const ast_t& ast,
                                  diagnostic_bag_t& diagnostics,
-                                 build_mode_t mode = build_mode_t::DEBUG);
+                                 build_mode_t mode = build_mode_t::DEBUG,
+                                 const embed_reader_t& embeds = {});
 
 } // namespace fb

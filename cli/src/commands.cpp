@@ -295,9 +295,13 @@ int build(const console_t& console, const options_t& options, const compilation_
         return usage_exit_code;
     }
 
-    // Writing over one of the program's own files would lose it.
+    // Writing over one of the program's own files, a source or one it embeds, would lose it.
+    std::vector<std::string> files = compilation.embedded;
     for (std::size_t i = 0; i < compilation.sources.size(); ++i) {
-        const std::string& path = compilation.sources.get(static_cast<file_id_t>(i)).path();
+        files.push_back(compilation.sources.get(static_cast<file_id_t>(i)).path());
+    }
+
+    for (const std::string& path : files) {
         if (std::filesystem::equivalent(output, path_from_utf8(path), error)) {
             console.error(options.output
                               ? std::format("'-o' names {}, a file of the program; give another "

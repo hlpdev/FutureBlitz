@@ -391,6 +391,21 @@ TEST_CASE("constants print as source code writes them, and a coroutine says it's
     CHECK(dumped.contains("async function Later()\n"));
 }
 
+TEST_CASE("an embedded file is a String constant, whose bytes that aren't UTF-8 print by value",
+          "[mir]") {
+    std::vector<fb::library_file_t> library =
+        fb::standard_library().value_or(std::vector<fb::library_file_t>{});
+    library.push_back({ .path = "logo.bin", .text = "A\xFF\xC3\xA9" });
+    const fb::compilation_t compilation =
+        fb::compile("test.fb", "Local logo = Embed(\"logo.bin\")\n", library);
+    REQUIRE(compilation.diagnostics.diagnostics().empty());
+    const std::string mir = fb::dump(fb::lower(compilation.ast, compilation.analysis));
+    INFO(mir);
+    // A new UInt8[] each time, of the bytes, where é is UTF-8 and 0xFF isn't.
+    CHECK(mir.contains("    _0 = UInt8[] []\n"
+                       "    string_bytes(\"A\\xFF\xC3\xA9\", _0)\n"));
+}
+
 TEST_CASE("a Struct is built from its fields, and copies count its Strings", "[mir]") {
     // _0 holds the new Tag and hands it to t. Copying t into u retains its Strings, and changing
     // u.name releases the old one first.
