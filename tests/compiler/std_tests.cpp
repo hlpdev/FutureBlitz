@@ -42,9 +42,12 @@ run_with_std_module(const std::string& name, std::string text, std::string modul
 
 TEST_CASE("std's counts and indexes don't overflow near the most an Int holds", "[programs]") {
     // A Map's buckets stop at 2^30; a heap's last parent is before count / 2; a Queue drops its
-    // emptied slots at half; and a RingBuffer's slot goes round without adding past its capacity.
+    // emptied slots at half; a RingBuffer's slot goes round without adding past its capacity;
+    // and a Deque's balance takes the larger half of one side, with room for as many values as
+    // an Int counts.
     const std::string module = "Import std.core\n"
                                "Import std.collections.array\n"
+                               "Import std.collections.deque\n"
                                "Import std.collections.map\n"
                                "Import std.collections.queue\n"
                                "Import std.collections.ring_buffer\n"
@@ -66,6 +69,12 @@ TEST_CASE("std's counts and indexes don't overflow near the most an Int holds", 
                                "          SlotFrom(2147483646, 2147483646, 2147483647),\n"
                                "          SlotFrom(1073741824, 1073741823, 2147483647), "
                                "SlotFrom(2, 2, 3), SlotFrom(0, 2, 3))\n"
+                               "    Print(HalfUp(2147483647), HalfUp(2147483646), HalfUp(1), "
+                               "HalfUp(2), HalfUp(3))\n"
+                               "    Print(HasRoom(2147483646, 0), HasRoom(2147483647, 0), "
+                               "HasRoom(0, 2147483647),\n"
+                               "          HasRoom(1073741824, 1073741823), "
+                               "HasRoom(1073741823, 1073741823))\n"
                                "End Function\n";
     const std::expected<fb::process_result_t, std::string> result =
         run_with_std_module("std_limits", "Import std.extra.checks\nCheck()", module);
@@ -80,6 +89,8 @@ TEST_CASE("std's counts and indexes don't overflow near the most an Int holds", 
                             "2147483647 (1073741824, 34)\n"
                             "2147483645 -1 -1 -1 -1 1\n"
                             "False True False True\n"
-                            "2147483646 0 2147483645 0 1 2\n");
+                            "2147483646 0 2147483645 0 1 2\n"
+                            "1073741824 1073741823 1 1 2\n"
+                            "True False False False True\n");
     CHECK(result->exit_code == 0);
 }

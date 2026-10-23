@@ -15,22 +15,30 @@ Public Class Deque<T> Implements Iterable<T>, Cloneable, Defaultable
         Get => Front.Count + Back.Count
     End Property
 
+    // Adds the value first, or last. A Deque holds at most 2147483647 values, as many as its
+    // Int Count counts, as an array does, and one more panics.
+    @PanicsAtCaller
     Public Method AddFirst(value: T)
+        CheckRoom()
         Front.Add(value)
         Changes += 1
     End Method
 
+    @PanicsAtCaller
     Public Method AddLast(value: T)
+        CheckRoom()
         Back.Add(value)
         Changes += 1
     End Method
 
     // The same as AddLast.
+    @PanicsAtCaller
     Public Method Add(value: T)
         AddLast(value)
     End Method
 
     // Adds each of the values last, in order.
+    @PanicsAtCaller
     Public Method AddAll(values: Iterable<T>)
         For value In values.Iterate().ToArray()
             AddLast(value)
@@ -152,6 +160,11 @@ Public Class Deque<T> Implements Iterable<T>, Cloneable, Defaultable
     Public Method Iterate(): DequeIterator<T> => DequeIterator<T>(Self, Front.Count, 0, Changes)
 
     @PanicsAtCaller
+    Method CheckRoom()
+        If !HasRoom(Front.Count, Back.Count) Then Panic("a Deque holds at most 2147483647 values")
+    End Method
+
+    @PanicsAtCaller
     Method OutOfRange(index: Int)
         Panic("index {index} is out of range for {Count} element{Count == 1 ? "" : "s"}")
     End Method
@@ -161,7 +174,7 @@ Public Class Deque<T> Implements Iterable<T>, Cloneable, Defaultable
     @PanicsAtCaller
     Method Balance(from: T[], to: T[])
         If from.Count == 0 Then Panic("the Deque is empty")
-        Local moved = (from.Count + 1) / 2
+        Local moved = HalfUp(from.Count)
         For i = moved - 1 To 0 Step -1
             to.Add(from[i])
         End For
@@ -173,6 +186,13 @@ Public Class Deque<T> Implements Iterable<T>, Cloneable, Defaultable
         End For
     End Method
 End Class
+
+// Whether a Deque of front and back values has room for one more, which its Int Count counts.
+Package Function HasRoom(front: Int, back: Int): Bool => back < 2147483647 - front
+
+// The larger half of a count, the middle one of an odd count with it, without adding past what
+// an Int holds.
+Package Function HalfUp(count: Int): Int => count - count / 2
 
 // Front's values backwards from FrontLeft, then Back's from BackAt on.
 Public Struct DequeIterator<T> Implements Iterator<T>
