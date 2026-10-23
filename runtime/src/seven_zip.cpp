@@ -685,6 +685,18 @@ status_t decode(const std::span<const std::uint8_t> archive, const streams_t& st
             return broken("a coder's properties are broken");
         }
 
+        // 7-Zip writes LZMA without its end marker, since the coder's size says where it ends,
+        // which a branch filter after it needs to hear to give its last bytes. One with the
+        // marker after its last byte reads too.
+        if (*filter == LZMA_FILTER_LZMA1) {
+            auto* options = static_cast<lzma_options_lzma*>(made.options);
+            const std::uint64_t size = folder.sizes[index];
+            made.id = LZMA_FILTER_LZMA1EXT;
+            options->ext_flags = LZMA_LZMA1EXT_ALLOW_EOPM;
+            options->ext_size_low = static_cast<std::uint32_t>(size);
+            options->ext_size_high = static_cast<std::uint32_t>(size >> 32U);
+        }
+
         filters.add(made);
     }
 

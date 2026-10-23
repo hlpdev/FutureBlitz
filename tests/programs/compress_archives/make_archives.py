@@ -1,7 +1,7 @@
 """Makes the archives in this folder that compress_archives.fb reads, for what common tools don't
 write by default. 7z's, by 7z's format, with coders through Python's lzma module: a header that
 isn't encoded, a stored solid folder with substreams and CRCs, chains of a branch or Delta filter
-before LZMA2 or LZMA, a coder that isn't supported, an anti-item, a Unix link, attributes for
+before LZMA2 or LZMA, BCJ before LZMA without its end marker, a coder that isn't supported, an anti-item, a Unix link, attributes for
 only some files, a folder that says it's larger than its data, and a coder whose dictionary takes 4
 GiB, as does an .xz stream's here. Tars, header by header: an old one without ustar's magic, a size in GNU's
 base-256, links, a device, a FIFO, a global pax header, a GNU long link name, a pax size, and a
@@ -120,6 +120,61 @@ def property_(kind, data):
 
 def raw(data, filters):
     return lzma.compress(data, format=lzma.FORMAT_RAW, filters=filters)
+
+
+def lzma_literals(data):
+    """An LZMA stream of data, each byte a literal, without the end marker, as 7-Zip writes an
+    LZMA coder whose size its folder says, and its properties: lc 3, lp 0, pb 2, and a dictionary of
+    1 MiB. Python's lzma always writes the end marker. It's LZMA's range coder, as the LZMA SDK
+    has it."""
+    out = bytearray()
+    low, range_, cache, cache_size = 0, 0xFFFFFFFF, 0, 1
+
+    def shift_low():
+        nonlocal low, cache, cache_size
+        if low < 0xFF000000 or low >= 1 << 32:
+            carry = low >> 32
+            temp = cache
+            while True:
+                out.append((temp + carry) & 0xFF)
+                temp = 0xFF
+                cache_size -= 1
+                if cache_size == 0:
+                    break
+            cache = (low >> 24) & 0xFF
+        cache_size += 1
+        low = (low & 0x00FFFFFF) << 8
+
+    def bit(probabilities, index, value):
+        nonlocal low, range_
+        bound = (range_ >> 11) * probabilities[index]
+        if value == 0:
+            range_ = bound
+            probabilities[index] += (2048 - probabilities[index]) >> 5
+        else:
+            low += bound
+            range_ -= bound
+            probabilities[index] -= probabilities[index] >> 5
+        while range_ < 1 << 24:
+            range_ = (range_ << 8) & 0xFFFFFFFF
+            shift_low()
+
+    is_match = [1024] * (12 << 4)
+    literals = [1024] * (0x300 << 3)
+    previous = 0
+    for position, byte in enumerate(data):
+        # The state stays 0 after a literal, so each is a literal of state 0.
+        bit(is_match, position & 3, 0)
+        base = (previous >> 5) * 0x300
+        symbol = 1
+        for shift in range(7, -1, -1):
+            value = (byte >> shift) & 1
+            bit(literals, base + symbol, value)
+            symbol = (symbol << 1) | value
+        previous = byte
+    for _ in range(5):
+        shift_low()
+    return bytes(out), b"\x5d" + (1 << 20).to_bytes(4, "little")
 
 
 def tar_header(name, size, kind=b"0", link="", magic=True, size_field=None):
@@ -287,6 +342,17 @@ def main():
           raw(samples, [delta, lzma1]), [len(samples), len(samples)], [samples]),
          ([coder(LZMA1, properties(lzma1))], [], raw(one, [lzma1]), [len(one)], [one])],
         [("samples.bin", True, True, False, None), ("one.txt", True, True, False, None)])
+
+    # Text through BCJ, then LZMA without its end marker, as 7-Zip writes LZMA:BCJ: the branch
+    # filter holds its last bytes back until LZMA says it's ended, which its size says.
+    text = b"plain text, no branch opcodes, " * 20
+    literal, literal_properties = lzma_literals(text)
+    assert lzma.decompress(literal_properties + len(text).to_bytes(8, "little") + literal,
+                           format=lzma.FORMAT_ALONE) == text
+    made["bcj.7z"] = archive(
+        [([coder(LZMA1, literal_properties), coder(BCJ_X86)], [(1, 0)], literal,
+          [len(text), len(text)], [text])],
+        [("text.txt", True, True, False, None)])
 
     # PPMd, which liblzma doesn't have: the archive opens, and reading its file fails.
     made["ppmd.7z"] = archive(
