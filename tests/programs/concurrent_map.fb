@@ -43,11 +43,12 @@ Function Count(): String
     Return "{counts.Count} keys, total {total}, each word 400 times {even}"
 End Function
 
-// Eight threads race to add, and then to remove, the same 1000 keys: each one is added once and
-// removed once, and GetOrAdd gives every thread the value that was kept.
+// Eight threads race to add, and then, once they've all added, to remove the same 1000 keys: each
+// one is added once and removed once, and GetOrAdd gives every thread the value that was kept.
 Function Race(): String
     Const map = ConcurrentMap<Int, Int>()
     Const tally = Tally()
+    Const added = Barrier(8)
     Local threads: Thread[] = []
     For t = 1 To 8
         threads.Add(Thread.Start(Function()
@@ -60,6 +61,7 @@ Function Race(): String
                 If map[key + 1000] != kept Then tally.Wrong.Add(1)
             End For
 
+            added.Wait()
             For key = 0 Until 1000
                 If map.Remove(key) Then tally.Removed.Add(1)
             End For
