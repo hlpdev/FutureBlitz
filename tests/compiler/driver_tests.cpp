@@ -17,6 +17,7 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <utility>
 #include <vector>
 
 #ifdef _WIN32
@@ -853,6 +854,48 @@ TEST_CASE("a main file given without its folder is in the current one", "[driver
     }
 
     std::filesystem::remove_all(folder, ignored);
+}
+
+TEST_CASE("a build defines DEBUG or RELEASE, and the platform it's built on", "[driver]") {
+#ifdef _WIN32
+    constexpr std::string_view platform = "PLATFORM_WINDOWS";
+#elifdef __APPLE__
+    constexpr std::string_view platform = "PLATFORM_MACOS";
+#else
+    constexpr std::string_view platform = "PLATFORM_LINUX";
+#endif
+    CHECK(fb::defined_symbols(fb::build_mode_t::DEBUG) ==
+          std::vector<std::string_view>{ "DEBUG", platform });
+    CHECK(fb::defined_symbols(fb::build_mode_t::RELEASE) ==
+          std::vector<std::string_view>{ "RELEASE", platform });
+
+    // Each branch reads a name of its own that isn't declared, so the errors say which ones a
+    // build takes: one mode and one platform.
+    const std::filesystem::path path = fb::temporary_path("symbols", ".fb");
+    std::string text;
+    for (const std::string_view symbol :
+         { "DEBUG", "RELEASE", "PLATFORM_WINDOWS", "PLATFORM_LINUX", "PLATFORM_MACOS" }) {
+        text += std::format("#If {0}\nLocal is_{0} = taken_{0}\n#End If\n", symbol);
+    }
+
+    std::ofstream(path, std::ios::binary) << text;
+    for (const auto& [mode, symbol] : { std::pair(fb::build_mode_t::DEBUG, "DEBUG"),
+                                        std::pair(fb::build_mode_t::RELEASE, "RELEASE") }) {
+        const std::expected<fb::compilation_t, std::string> compiled = fb::compile_file(path, mode);
+        REQUIRE(compiled);
+        std::vector<std::string> taken;
+        for (const fb::diagnostic_t& diagnostic : compiled->diagnostics.diagnostics()) {
+            taken.push_back(diagnostic.message);
+        }
+
+        CHECK(taken == std::vector<std::string>{
+                           std::format("'taken_{}' isn't declared", symbol),
+                           std::format("'taken_{}' isn't declared", platform),
+                       });
+    }
+
+    std::error_code ignored;
+    std::filesystem::remove(path, ignored);
 }
 
 TEST_CASE("compile_file reports a file it can't read", "[driver]") {

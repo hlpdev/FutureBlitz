@@ -239,6 +239,23 @@ TEST_CASE("a program that reads stdin leaves it as it was, for what else reads i
 }
 #endif
 
+TEST_CASE("fb check --release checks the release build's code", "[cli]") {
+    const std::filesystem::path source = write_source(
+        "release_check/branches.fb",
+        "#If RELEASE\nLocal a = only_in_release\n#Else\nLocal b = only_in_debug\n#End If\n");
+    const fb::process_result_t debug = fb_run({ "check", fb::to_utf8(source) });
+    INFO(debug.output);
+    CHECK(debug.exit_code == 1);
+    CHECK(debug.output.contains("'only_in_debug' isn't declared"));
+    CHECK_FALSE(debug.output.contains("only_in_release"));
+
+    const fb::process_result_t release = fb_run({ "check", "--release", fb::to_utf8(source) });
+    INFO(release.output);
+    CHECK(release.exit_code == 1);
+    CHECK(release.output.contains("'only_in_release' isn't declared"));
+    CHECK_FALSE(release.output.contains("only_in_debug"));
+}
+
 TEST_CASE("fb build stops at compile errors", "[cli]") {
     const std::filesystem::path source =
         write_source("broken.fb", "Import std.core\nPrint(missing)\n");
