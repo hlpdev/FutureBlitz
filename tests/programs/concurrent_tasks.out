@@ -9,3 +9,5 @@ paused
 1 second
 False False
 True True False
+True False True
+5 True True

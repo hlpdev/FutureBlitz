@@ -517,10 +517,11 @@ the rest is planned. `Import std.concurrent` brings in all of std/concurrent/.
 - `ConcurrentQueue<T>`, of Sendable values: `Enqueue` (and `Add` and `AddAll`), `TryDequeue`,
   `TryPeek`, `ToArray`, `Clear`, and `Count`, with no limit but memory and what an Int counts. It
   never waits, for room or for a value; waiting is a Channel's.
-- `TaskSource<T>`, of a Sendable T, a Task finished by hand: its `Task` is done once
-  `Finish(value)`, on any thread, gives the result, `TryFinish` tells whether it did, so of threads
-  that try at once one does, and `IsDone`. Each read of `Task` gives a new Task of the same result,
-  so code keeps the one it reads. `WhenAll(tasks)` gives a Task of the tasks' results in their
+- `TaskSource<T>`, of a Sendable T, a Task finished by hand: `Finish(value)`, on any thread, gives
+  the result, `TryFinish` tells whether it did, so of threads that try at once one does, and
+  `IsDone`. Each read of `Task` gives a new Task of the same result, so code keeps the one it reads:
+  done at once when read after Finish, and otherwise at the main thread's first tick after it, as
+  an Async Function's Task is once what it awaits is done. `WhenAll(tasks)` gives a Task of the tasks' results in their
   order, or a Task for tasks with none, and `WhenAny(tasks)` a Task of the index of the first done,
   of those done by the same tick the first given. Their Tasks are Async Functions', so they're the
   main thread's.
