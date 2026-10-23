@@ -1,0 +1,8 @@
+// GridNeighbors takes a cell on the grid, so one at an Int's limit panics where it's called
+// rather than overflowing a step from it.
+Import std.core
+Import std.math
+Import std.algo
+
+Print(GridNeighbors(3, 3, Vec2i(2, 0)))
+Print(GridNeighbors(3, 3, Vec2i(2147483647, 0)))

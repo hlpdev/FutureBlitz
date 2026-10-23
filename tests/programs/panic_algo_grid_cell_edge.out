@@ -1,0 +1,2 @@
+[(2, 1), (1, 0)]
+panic: (2147483647, 0) is off a grid 3 by 3 at panic_algo_grid_cell_edge.fb:8:7

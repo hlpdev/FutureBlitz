@@ -1,0 +1,7 @@
+// GridNeighbors takes a cell on the grid, which panics where it's called.
+Import std.core
+Import std.math
+Import std.algo
+
+Print(GridNeighbors(4, 2, Vec2i(3, 1)))
+Print(GridNeighbors(4, 2, Vec2i(9, 9)))

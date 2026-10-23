@@ -20,8 +20,7 @@ End Function
 Print(GridNeighbors(3, 3, Vec2i(1, 1)), GridNeighbors(3, 3, Vec2i(0, 0)),
       GridNeighbors(3, 3, Vec2i(2, 1)))
 Print(GridNeighbors(3, 3, Vec2i(1, 1), True), GridNeighbors(3, 3, Vec2i(0, 2), True))
-Print(GridNeighbors(1, 1, Vec2i(0, 0), True), GridNeighbors(0, 0, Vec2i(0, 0)),
-      GridNeighbors(4, 2, Vec2i(9, 9)))
+Print(GridNeighbors(1, 1, Vec2i(0, 0), True), GridNeighbors(4, 2, Vec2i(3, 1), True))
 
 // An open grid: along the axes, or diagonally, the square root of 2 a step.
 Local open = Function(cell: Vec2i) => True

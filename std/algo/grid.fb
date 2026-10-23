@@ -40,10 +40,12 @@ Function CheckCell(width: Int, height: Int, cell: Vec2i)
 End Function
 
 // The cells next to cell on a grid of width by height, those on it only: the four along the axes,
-// right, down, left, and up, then, when diagonal, the four corners. A negative size panics.
+// right, down, left, and up, then, when diagonal, the four corners. A negative size, or a cell off
+// the grid, panics.
 @PanicsAtCaller
 Public Function GridNeighbors(width: Int, height: Int, cell: Vec2i, diagonal: Bool = False): Vec2i[]
     CheckSize(width, height)
+    CheckCell(width, height, cell)
     Local cells: Vec2i[] = []
     For step In Steps(diagonal)
         Local next = cell + step
