@@ -1,0 +1,167 @@
+// std.io's streams read back what was written: memory, string, buffered, and binary ones, at
+// their buffers' edges too, and Copy, ReadAll, and ReadExact over them.
+
+Import std.core
+Import std.ffi
+Import std.io
+
+// The bytes as text, with a '.' for each control character.
+Function Shown(bytes: Buffer<UInt8>): String Throws IOError
+    Local text = StringWriter()
+    Local shown: UInt8[] = []
+    For b In bytes
+        shown.Add(b < 32 ? 46 : b)
+    End For
+
+    Try text.WriteBytes(shown)
+    Return text.ToString()
+End Function
+
+// What a Reader gives, read `size` bytes at a time, each read in brackets.
+Function Reads(from: Reader, size: Int64): String Throws IOError
+    Local into = Buffer<UInt8>(size)
+    Local text = ""
+    Loop
+        Local count = Try from.Read(into)
+        If count == 0 Then Return text
+        text += "[" + (Try Shown(into.Slice(0, count))) + "]"
+    End Loop
+End Function
+
+// Each line a BufferedReader of `size` bytes reads from the text, in brackets.
+Function Lines(text: String, size: Int64): String Throws IOError
+    Local reader = BufferedReader(StringReader(text), size)
+    Local all = ""
+    Loop
+        Local line = Try reader.ReadLine()
+        If line == Null Then Return all
+        all += "[{line}]"
+    End Loop
+End Function
+
+// Memory: written, moved around in, and read back; writing past the end fills it with 0s.
+Local memory = MemoryStream()
+Try memory.WriteText("hello")
+Print("{memory.Count} {Try memory.Position()}")
+Try memory.Seek(-2, SeekOrigin.END)
+Try memory.WriteText("p!")
+Try memory.Seek(7, SeekOrigin.START)
+Try memory.WriteBytes([33])
+Print("{memory.ToArray()}")
+Try memory.Seek(1, SeekOrigin.START)
+Print(Try Reads(memory, 3))
+Try memory.Seek(100, SeekOrigin.CURRENT)
+Print("{Try memory.Read(Buffer<UInt8>(4))} {Try memory.Position()}")
+Try
+    Try memory.Seek(-1, SeekOrigin.START)
+Catch e As IOError
+    Print("{e.Kind}: {e.Message}")
+End Try
+
+Local copied = MemoryStream([1, 2, 3])
+Print("{Try ReadAll(copied)} {Try ReadAll(copied)} {MemoryStream().Count}")
+
+// A String's UTF-8, read and moved around in, and text collected.
+Local reader = StringReader("héllo")
+Print("{reader.Count} {Try Reads(reader, 2)}")
+Try reader.Seek(-3, SeekOrigin.END)
+Print(Try ReadAllText(reader))
+Local writer = StringWriter()
+Try writer.WriteText("a")
+Try writer.WriteText("é")
+Try writer.WriteBytes([255, 98])
+Print("{writer.ToString()} {writer.Count}")
+
+// A BufferedReader gives what it has, then reads more, a whole buffer's read going straight
+// through; and lines, split on \n and \r\n, whichever buffer each byte is in.
+Print(Try Reads(BufferedReader(StringReader("abcdefghij"), 4), 3))
+Print(Try Reads(BufferedReader(StringReader("abcdefghij"), 4), 5))
+Print(Try Reads(BufferedReader(StringReader("abcdefghij"), 1), 1))
+For size In [1, 2, 3, 4, 64]
+    Print(Try Lines("one\r\ntwo\n\nthree\r\n\r\nfour", size))
+End For
+
+// A \r alone isn't a line's end, nor one at the end.
+Print("{Try Lines("", 4)} {Try Lines("\n", 4)} {(Try Lines("a\rb\nlast\r", 2)).Bytes}")
+Local bytes = BufferedReader(StringReader("xy"), 1)
+Print("{Try bytes.ReadByte() ?? 0} {Try bytes.ReadByte() ?? 0} {Try bytes.ReadByte() == Null}")
+
+// A BufferedWriter keeps what's written until its buffer fills, or Flush, and sends what it
+// still keeps as it goes.
+Local collected = StringWriter()
+Local buffered = BufferedWriter(collected, 4)
+For part In ["ab", "cd", "e", "fghij", "k"]
+    Try buffered.WriteText(part)
+    Print("{part}: [{collected.ToString()}]")
+End For
+
+Try buffered.Flush()
+Print(collected.ToString())
+Local late = StringWriter()
+Function WriteAndGo(to: Writer) Throws IOError
+    Local held = BufferedWriter(to, 16)
+    Try held.WriteText("kept")
+End Function
+
+Try WriteAndGo(late)
+Print(late.ToString())
+
+// Binary numbers in either order, at their types' edges, and text.
+For order In [ByteOrder.LITTLE, ByteOrder.BIG]
+    Local data = MemoryStream()
+    Local out = BinaryWriter(data, order)
+    Try out.WriteUInt8(255)
+    Try out.WriteInt8(-128)
+    Try out.WriteUInt16(65534)
+    Try out.WriteInt16(-32768)
+    Try out.WriteUInt32(4294967295)
+    Try out.WriteInt32(-2147483648)
+    Try out.WriteUInt64(18446744073709551615)
+    Try out.WriteInt64(-9223372036854775807 - 1)
+    Try out.WriteFloat32(-0.5)
+    Try out.WriteFloat64(1.0e300)
+    Try out.WriteBool(True)
+    Try out.WriteBool(False)
+    Try out.WriteBytes([7, 8])
+    Try out.WriteText("bé")
+    Local written = data.ToArray()
+    Print("{order} {written.Count} {written[2]} {written[3]} {written[13]}")
+    Try data.Seek(0, SeekOrigin.START)
+    Local back = BinaryReader(data, order)
+    Print("{Try back.ReadUInt8()} {Try back.ReadInt8()} {Try back.ReadUInt16()} " +
+          "{Try back.ReadInt16()} {Try back.ReadUInt32()} {Try back.ReadInt32()} " +
+          "{Try back.ReadUInt64()} {Try back.ReadInt64()} {Try back.ReadFloat32()} " +
+          "{Try back.ReadFloat64()} {Try back.ReadBool()} {Try back.ReadBool()} " +
+          "{Try back.ReadBytes(2)} {Try back.ReadText(3)}")
+    Try
+        Try back.ReadInt16()
+    Catch e As IOError
+        Print("{e.Kind}: {e.Message}")
+    End Try
+End For
+
+// A count of bytes the stream doesn't have, as a broken file's might be, is read a chunk at a
+// time, so it ends in an IOError.
+Local broken = BinaryReader(StringReader("abc"))
+Try
+    Try broken.ReadText(1000000000)
+Catch e As IOError
+    Print("{e.Kind}: {e.Message}")
+End Try
+
+// Copy, ReadAll, and ReadExact, which throws when the stream ends first.
+Local source = StringReader("copied text")
+Local sink = StringWriter()
+Print("{Try Copy(source, sink)} {sink.ToString()} {Try Copy(source, sink)}")
+Local exact = Buffer<UInt8>(4)
+Local short = StringReader("abcdef")
+Try ReadExact(short, exact)
+Print(Try Shown(exact))
+Try
+    Try ReadExact(short, exact)
+Catch e As IOError
+    Print("{e.Kind}: {e.Message} {Try Shown(exact.Slice(0, 2))}")
+End Try
+
+Try ReadExact(short, Buffer<UInt8>(0))
+Print("{Try ReadAll(short)}")
