@@ -904,10 +904,10 @@ TEST_CASE("a String converts to std.io's Path where one is expected", "[sema]") 
     CHECK(probe(with_io("Local x = Maybe(\"a\")")) == "Bool");
     CHECK(errors_of(with_io("Show(Text())")) ==
           errors_t{ "Text(): expected Path, found String?, which may be Null; check it first, or "
-                    "give a value for Null with '??'" });
+                    "give a value for Null with '?\?'" });
     CHECK(errors_of(with_io("Maybe(Text())")) ==
           errors_t{ "Text(): expected Path?, found String?, which may be Null; check it first, or "
-                    "give a value for Null with '??'" });
+                    "give a value for Null with '?\?'" });
     // An array's elements don't convert, though a literal's do.
     CHECK(probe(with_io("Local x: Path[] = [\"a\", name]")) == "Path[]");
     CHECK(errors_of(with_io("Local names = [\"a\"]\nLocal paths: Path[] = names")) ==
