@@ -39,3 +39,5 @@ Null Watcher { Target: Null }
 Vertex { Name: "a", Edges: [Vertex { Name: "b", Edges: [Vertex { Name: "a", Edges: [ … ] }] }] }
 [[ … ]]
 7 Tiles { Cells: [0, 0, 0, 4] }
+[     5] [     5] [     5] Spades [2.5   ] [  5  ]
+5 "a" True Hearts 
