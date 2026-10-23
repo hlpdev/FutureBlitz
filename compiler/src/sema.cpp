@@ -13886,10 +13886,9 @@ private:
         }
 
         if (!is_parameter(*type) &&
-            std::ranges::any_of(members_of(*type, member.member.text, member.member.span),
-                                [&](const symbol_id_t found) {
-                                    return symbol(found).modifiers.is_static;
-                                })) {
+            std::ranges::any_of(
+                members_of(*type, member.member.text, member.member.span),
+                [&](const symbol_id_t found) { return symbol(found).modifiers.is_static; })) {
             return std::nullopt;
         }
 
@@ -18911,8 +18910,8 @@ private:
             const type_id_t owner = symbol(*m_function).owner;
             for (const symbol_id_t field : m_required) {
                 if (symbol(field).owner == owner && !is_assigned(field)) {
-                    error(span_of(id), "New must assign '{}' before Super.New, since {} has no "
-                                       "zero value",
+                    error(span_of(id),
+                          "New must assign '{}' before Super.New, since {} has no zero value",
                           symbol(field).name, shown_name(symbol(field).type));
                 }
 

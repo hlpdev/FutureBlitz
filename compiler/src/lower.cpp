@@ -7359,8 +7359,8 @@ private:
         if (name == "Set" && declared != nullptr && declared->modifiers.is_read_only) {
             if (!m_module.error) {
                 m_module.error = mir_error_t{
-                    .message = std::format("'{}' is ReadOnly, so f.Set can't change it",
-                                           declared->name),
+                    .message =
+                        std::format("'{}' is ReadOnly, so f.Set can't change it", declared->name),
                     .span = span_of(id),
                 };
             }
