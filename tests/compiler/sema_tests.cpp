@@ -4731,6 +4731,12 @@ TEST_CASE("the built-in types have the built-in Interfaces' Methods", "[sema]") 
     CHECK(probe("Import std.core\nClass Rock\nEnd Class\nLocal h = Rock().Hash()") == "UInt64");
     CHECK(errors_of("Local f = 1.5.Hash") ==
           errors_t{ "Hash: 'Hash' is a method; call it with ()" });
+
+    // A literal before a member is a Double with a decimal point, so the member sees its digits
+    // as written, or else the first of Int, Int64, and UInt64 that holds it.
+    CHECK(probe("Local s = 1.5.Hash()") == "UInt64");
+    CHECK(probe("Local s = 5_000_000_000.ToString()") == "String");
+    CHECK(probe("Local s = 18_000_000_000_000_000_000.ToString()") == "String");
 }
 
 TEST_CASE("Printable puts a value in a string", "[sema]") {
@@ -7133,7 +7139,7 @@ TEST_CASE("integer Method mistakes", "[sema]") {
     CHECK(errors_of("Local x = 1.WrappingDivide(2)") ==
           errors_t{ "WrappingDivide: Int32 has no member named 'WrappingDivide'" });
     CHECK(errors_of("Local x = (1.5).CheckedAdd(1)") ==
-          errors_t{ "CheckedAdd: Float32 has no member named 'CheckedAdd'" });
+          errors_t{ "CheckedAdd: Float64 has no member named 'CheckedAdd'" });
     CHECK(errors_of("Extend Int\n    Method CheckedAdd(x: Int): Int? => x\nEnd Extend") ==
           errors_t{ "CheckedAdd: Int32 already has a member named 'CheckedAdd'" });
 

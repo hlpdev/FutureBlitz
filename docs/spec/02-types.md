@@ -205,6 +205,9 @@ If target != Null Then target.Hurt(5)   // target is Enemy here
 - With no expected type, literals made only of integers are `Int`, and literals with a decimal
   among them are `Float`: `1 + 0.5` is a `Float`. A literal too big for `Int` needs an expected
   type or a cast.
+- Literals before a member, like `0.1.Seconds` or `5_000_000_000.ToString()`, are a `Double`
+  with a decimal among them, so the member sees the digits as written rather than a Float's
+  nearest, and otherwise the first of `Int`, `Long`, and `UInt64` that holds them.
 
 ### Casts between numbers
 

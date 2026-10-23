@@ -15980,6 +15980,27 @@ private:
         return has_decimal(id) ? type_id_t::FLOAT32 : type_id_t::INT32;
     }
 
+    /// What literals before a member, like `0.1.Seconds` or `5_000_000_000.ToString()`, are
+    /// checked as: a Double with a decimal among them, so a member sees the digits as written
+    /// rather than a Float's nearest, or else the first of Int, Int64, and UInt64 that holds
+    /// them. Anything else takes no hint.
+    type_id_t object_hint(const expr_id_t object) {
+        if (!is_flexible(object)) {
+            return type_id_t::NONE;
+        }
+        if (has_decimal(object)) {
+            return type_id_t::FLOAT64;
+        }
+
+        for (const type_id_t type : { type_id_t::INT32, type_id_t::INT64, type_id_t::UINT64 }) {
+            if (quietly([&] { return check(object, type); }) != type_id_t::INVALID) {
+                return type;
+            }
+        }
+
+        return type_id_t::NONE;
+    }
+
     /// Checks an expression whose value is used. `hint` is the type the context expects, or
     /// NONE; literals take it when their value fits.
     type_id_t check(const expr_id_t id, const type_id_t hint) {
@@ -20600,7 +20621,7 @@ private:
 
             // An Atomic's Methods work on it where it is.
             const std::optional<expr_id_t> outer = std::exchange(m_place_use, member->object);
-            type_id_t type = check(member->object, type_id_t::NONE);
+            type_id_t type = check(member->object, object_hint(member->object));
             m_place_use = outer;
             if (member->null_safe) {
                 type = check_safe_object(member->object, type);
@@ -21640,7 +21661,7 @@ private:
             m_element_use = node.object;
         }
 
-        type_id_t object = check(node.object, type_id_t::NONE);
+        type_id_t object = check(node.object, object_hint(node.object));
         m_place_use = outer;
         m_element_use = outer_element;
         m_partial.reset();
