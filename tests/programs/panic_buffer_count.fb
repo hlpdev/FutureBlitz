@@ -1,0 +1,7 @@
+// A Buffer's count isn't negative.
+Import std.core
+Import std.ffi
+
+Print("{Buffer<Int32>(0).Count}")
+Local count: Int64 = -1
+Local values = Buffer<Int32>(count)

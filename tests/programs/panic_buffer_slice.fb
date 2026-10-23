@@ -1,0 +1,7 @@
+// A Slice has to be inside its Buffer.
+Import std.core
+Import std.ffi
+
+Local values = Buffer<Int32>(4)
+Print("{values.Slice(1, 4).Count}")
+Local part = values.Slice(3, 5)

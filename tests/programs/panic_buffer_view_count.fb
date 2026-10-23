@@ -1,0 +1,8 @@
+// A view's count isn't negative.
+Import std.core
+Import std.ffi
+
+Unsafe
+    Local memory: Ptr<Int64> = Mem.Alloc(16)
+    Local values = Buffer<Int64>.View(memory, -1)
+End Unsafe

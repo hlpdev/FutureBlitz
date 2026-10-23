@@ -1,0 +1,10 @@
+// ToArray gives as many values as an array holds, at most.
+Import std.core
+Import std.ffi
+
+Unsafe
+    Local memory: Ptr<UInt8> = Mem.Alloc(16)
+    Local values = Buffer<UInt8>.View(memory, 3000000000)
+    Print("{values.Count}")
+    Local all = values.ToArray()
+End Unsafe

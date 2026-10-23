@@ -1,0 +1,7 @@
+// CopyTo copies into a Buffer that has room for all of it.
+Import std.core
+Import std.ffi
+
+Buffer<Int32>(3).CopyTo(Buffer<Int32>(3))
+Print("copied")
+Buffer<Int32>(4).CopyTo(Buffer<Int32>(3))

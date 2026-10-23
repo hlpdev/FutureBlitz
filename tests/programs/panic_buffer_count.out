@@ -1,0 +1,2 @@
+0
+panic: a Buffer holds a count of values that isn't negative, not -1 at panic_buffer_count.fb:7:16
