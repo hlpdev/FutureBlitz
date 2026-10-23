@@ -85,6 +85,17 @@ Check("HMAC-SHA256 7", Hmac.Sha256(Unhex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 Check("HMAC-SHA512 7", Hmac.Sha512(Unhex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), "This is a test using a larger than block-size key and a larger than block-size data. The key needs to be hashed before being used by the HMAC algorithm."), "e37b6a775dc87dbaa4dfa9f96e5e3ffddebd71f8867289865df5a32d20cdc944b6022cac3c4982b10d5eeb55c3e4de15134676fb6de0446065c97440fa8c6a58")
 Done("HMAC-SHA256 and HMAC-SHA512")
 
+// RFC 2104 hashes a key longer than the hash's block, so HMAC takes a key of any length: these
+// are Python's hmac's MACs of "data" with a key of 10000 bytes, more than PSA takes.
+Local longKey: UInt8[] = []
+For i = 0 Until 10000
+    longKey.Add((i % 251) As UInt8)
+End For
+Check("HMAC-SHA1 long key", Hmac.Sha1(longKey, "data"), "15a4f9a675b7bed95cecd83dc0b6f5b1fe865aa0")
+Check("HMAC-SHA256 long key", Hmac.Sha256(longKey, "data"), "75d8a72907f932a2820541dca16078156c61fee3b9586afffb28e7f5a0da7661")
+Check("HMAC-SHA512 long key", Hmac.Sha512(longKey, "data"), "ba431f92a6ef4be2ddf75998d8034faa4f8ab2017795c997580b342943552903d9e45535213c28abf399fafc0eade39643e32460d54d7a41404c4f6e1e114d25")
+Done("HMAC with a long key")
+
 // RFC 5869's HKDF test cases with SHA-256.
 Check("HKDF-SHA256 1", Hkdf.Sha256(Unhex("0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b"), Unhex("000102030405060708090a0b0c"), Unhex("f0f1f2f3f4f5f6f7f8f9"), 42), "3cb25f25faacd57a90434f64d0362f2a2d2d0a90cf1a5a4c5db02d56ecc4c5bf34007208d5b887185865")
 Check("HKDF-SHA256 2", Hkdf.Sha256(Unhex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f"), Unhex("606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeaf"), Unhex("b0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff"), 82), "b11e398dc80327a1c8e7f78c596a49344f012eda2d4efad8a050cc4c19afa97c59045a99cac7827271cb41c65e590e09da3275600c2f09b8367793a9aca3db71cc30c58179ec3e87c14c01d5c1f3434f1d87")

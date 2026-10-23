@@ -1,4 +1,5 @@
 HMAC-SHA1: 7 checks
 HMAC-SHA256 and HMAC-SHA512: 12 checks
+HMAC with a long key: 3 checks
 HKDF-SHA256: 3 checks
 PBKDF2: 5 checks

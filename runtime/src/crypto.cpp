@@ -127,10 +127,24 @@ psa_algorithm_t hash_algorithm(const std::int32_t algorithm) {
     }
 }
 
-/// An HMAC key: one of no bytes is one 0, which HMAC pads alike, since PSA takes no empty key.
-std::span<const std::uint8_t> hmac_key(const std::span<const std::uint8_t> key) {
+/// An HMAC key as PSA takes it, which gives the same MAC. One longer than the hash's block is its
+/// hash, in `hashed`, as RFC 2104 has HMAC do anyway, since PSA takes no key over 8191 bytes. One
+/// of no bytes is one 0, which HMAC pads alike, since PSA takes no empty key.
+std::span<const std::uint8_t> hmac_key(const psa_algorithm_t hash,
+                                       const std::span<const std::uint8_t> key,
+                                       std::array<std::uint8_t, PSA_HASH_MAX_SIZE>& hashed) {
     static constexpr std::array<std::uint8_t, 1> zero{};
-    return key.empty() ? std::span<const std::uint8_t>(zero) : key;
+    if (key.empty()) {
+        return zero;
+    }
+    if (key.size() <= PSA_HASH_BLOCK_LENGTH(hash)) {
+        return key;
+    }
+
+    std::size_t size = 0;
+    check(psa_hash_compute(hash, key.data(), key.size(), hashed.data(), hashed.size(), &size),
+          "HMAC");
+    return std::span<const std::uint8_t>(hashed).first(size);
 }
 
 /// A DER length.
@@ -234,9 +248,11 @@ void fb_crypto_hasher_free(void* hasher) {
 
 void fb_crypto_hmac(const std::int32_t algorithm, const fb_array_t* key, const fb_array_t* data,
                     fb_array_t* output) {
+    start();
     const psa_algorithm_t hmac = PSA_ALG_HMAC(hash_algorithm(algorithm));
+    std::array<std::uint8_t, PSA_HASH_MAX_SIZE> hashed{};
     const stored_key_t made(PSA_KEY_TYPE_HMAC, PSA_KEY_USAGE_SIGN_MESSAGE, hmac,
-                            hmac_key(bytes_of(key)));
+                            hmac_key(hash_algorithm(algorithm), bytes_of(key), hashed));
     check(made.made() ? PSA_SUCCESS : PSA_ERROR_INVALID_ARGUMENT, "HMAC");
     const std::span<const std::uint8_t> input = bytes_of(data);
     const std::size_t length = PSA_HASH_LENGTH(hash_algorithm(algorithm));
