@@ -1085,6 +1085,19 @@ TEST_CASE("Structs compare with == and != only", "[sema]") {
                     "Local same = Node(Function() => 1, []) == Node(Function() => 1, [])") ==
           errors_t{ "Node(Function() => 1, []) == Node(Function() => 1, []): '==' can't be used "
                     "on Node" });
+    // One that holds an array of a larger instance of itself has no end to compare.
+    constexpr std::string_view tree = "Struct Tree<T>\n"
+                                      "    Field v: T\n"
+                                      "    Field kids: Tree<T[]>[]\n"
+                                      "End Struct\n"
+                                      "Local a = Tree<Int>(1, [])\n";
+    CHECK(errors_of(std::format("{}Local same = a == a\nLocal found = [a].Contains(a)", tree)) ==
+          errors_t{ "a == a: '==' can't be used on Tree<Int32>; comparing one compares a larger "
+                    "instance of Tree<T> in it each time, without end",
+                    "[a].Contains: Contains compares with ==, which Tree<Int32> doesn't have; "
+                    "comparing one compares a larger instance of Tree<T> in it each time, without "
+                    "end" });
+    CHECK(errors_of(std::format("{}Local v = a.v", tree)).empty());
 }
 
 TEST_CASE("New", "[sema]") {

@@ -10896,9 +10896,27 @@ private:
         return comparable(type, seen);
     }
 
+    /// The generic Struct whose instances == on `type` would compare without end, a larger one
+    /// each time, like Tree<T> holding a Tree<T[]>[], or INVALID.
+    [[nodiscard]] type_id_t compared_growth(const type_id_t type) const {
+        std::vector<type_id_t> seen;
+        type_id_t grown = type_id_t::INVALID;
+        (void)comparable(type, seen, &grown);
+        return grown;
+    }
+
+    /// Why == on what holds an instance of `grown` has no end.
+    [[nodiscard]] std::string growth_reason(const type_id_t grown) const {
+        return std::format("; comparing one compares a larger instance of {} in it each time, "
+                           "without end",
+                           shown_name(grown));
+    }
+
     /// The same, where a Struct can hold an array of itself: one being looked at already is
-    /// comparable unless something else in it isn't.
-    [[nodiscard]] bool comparable(const type_id_t type, std::vector<type_id_t>& seen) const {
+    /// comparable unless something else in it isn't. One whose Field holds a larger instance of
+    /// it each time has no end to compare, which the type table cuts short, and `grown` says so.
+    [[nodiscard]] bool comparable(const type_id_t type, std::vector<type_id_t>& seen,
+                                  type_id_t* const grown = nullptr) const {
         if (std::ranges::contains(seen, type)) {
             return true;
         }
@@ -10911,7 +10929,7 @@ private:
 
         // An array compares its elements.
         if (is_any_array(type)) {
-            return comparable(element_of(type), seen);
+            return comparable(element_of(type), seen, grown);
         }
 
         // A Weak<T> compares what it reads, a T?, but one inside a Struct would compare the
@@ -10922,7 +10940,7 @@ private:
         }
 
         if (is_nullable(type)) {
-            return comparable(non_null(type), seen);
+            return comparable(non_null(type), seen, grown);
         }
 
         // An instance without the Operator == a Where line makes conditional compares the
@@ -10933,10 +10951,26 @@ private:
             return true;
         }
 
-        return (!is_struct(type) && !is_tuple(type)) ||
-               std::ranges::all_of(m_analysis.types.get(type).fields, [&](const field_t& field) {
-                   return comparable(field.type, seen);
-               });
+        if (!is_struct(type) && !is_tuple(type)) {
+            return true;
+        }
+
+        const std::vector<field_t>& fields = m_analysis.types.get(type).fields;
+        if (is_instance(type)) {
+            const std::vector<field_t>& written = m_analysis.types.get(definition_of(type)).fields;
+            for (std::size_t i = 0; i < fields.size() && i < written.size(); ++i) {
+                if (fields[i].type == type_id_t::INVALID && written[i].type != type_id_t::INVALID) {
+                    if (grown != nullptr) {
+                        *grown = definition_of(type);
+                    }
+
+                    return false;
+                }
+            }
+        }
+
+        return std::ranges::all_of(
+            fields, [&](const field_t& field) { return comparable(field.type, seen, grown); });
     }
 
     /// Whether a value can be shown in a string: a built-in type's or an Enum's, a tuple's or
@@ -18532,8 +18566,10 @@ private:
         // Comparing with Null only asks whether there's a value, which works for any T?.
         if ((op == binary_op_t::EQUAL || op == binary_op_t::NOT_EQUAL) && !comparable(*common) &&
             !is_null(left) && !is_null(right)) {
-            std::string_view same;
-            if (is_array(non_null(*common))) {
+            std::string same;
+            if (const type_id_t grown = compared_growth(*common); grown != type_id_t::INVALID) {
+                same = growth_reason(grown);
+            } else if (is_array(non_null(*common))) {
                 same = "; RefEquals tells whether two are the same array";
             } else if (is_interface(non_null(*common))) {
                 same = "; RefEquals tells whether two are the same object";
@@ -19727,9 +19763,11 @@ private:
         // A T[]'s Contains runs its elements' Operator ==, as == on them would.
         if (function.kind == symbol_kind_t::METHOD && function.name == "Contains" &&
             is_array(function.owner)) {
-            if (!comparable(element_of(function.owner))) {
-                error(span_of(node.callee), "Contains compares with ==, which {} doesn't have",
-                      shown_name(element_of(function.owner)));
+            if (const type_id_t element = element_of(function.owner); !comparable(element)) {
+                const type_id_t grown = compared_growth(element);
+                error(span_of(node.callee), "Contains compares with ==, which {} doesn't have{}",
+                      shown_name(element),
+                      grown != type_id_t::INVALID ? growth_reason(grown) : std::string());
             } else {
                 std::vector<type_id_t> seen;
                 note_compared(element_of(function.owner), span_of(node.callee), seen);
