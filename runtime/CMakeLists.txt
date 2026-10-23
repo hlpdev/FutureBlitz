@@ -1,7 +1,7 @@
 file(GLOB_RECURSE FB_RUNTIME_SOURCES CONFIGURE_DEPENDS src/*.cpp)
 # The parts over bundled C libraries are archives of their own.
-set(FB_RUNTIME_PARTS io crypto crypto_pem xxhash blake3 argon2 bcrypt ed25519 db zlib zstd lz4
-    xz seven_zip zip)
+set(FB_RUNTIME_PARTS io crypto crypto_pem xxhash blake3 argon2 bcrypt ed25519 db zlib png zstd
+    lz4 xz seven_zip zip stb apng webp svg)
 foreach(part ${FB_RUNTIME_PARTS})
   list(REMOVE_ITEM FB_RUNTIME_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/src/${part}.cpp)
 endforeach()
@@ -63,6 +63,21 @@ target_link_libraries(fb_runtime_lz4 PRIVATE lz4)
 target_sources(fb_runtime_xz PRIVATE src/seven_zip.cpp)
 target_link_libraries(fb_runtime_xz PRIVATE liblzma)
 target_link_libraries(fb_runtime_zip PRIVATE minizip_ng liblzma)
+# std.image's PNG and APNG encoders are an object file of their own in zlib-ng's part.
+target_sources(fb_runtime_zlib PRIVATE src/png.cpp)
+
+# And its parts over std.image's: the fb_stb_, fb_webp_, and fb_svg_ functions over stb_image and
+# stb_image_write, libwebp, and nanosvg. APNG's decoder is an object file of its own in stb's part.
+# QOI's codec, GIF's encoder, and what every decoder gives need no library, and are fb_runtime's.
+foreach(part stb webp svg)
+  add_library(fb_runtime_${part} STATIC src/${part}.cpp)
+  target_include_directories(fb_runtime_${part} PUBLIC include)
+  fb_set_warnings(fb_runtime_${part})
+endforeach()
+target_sources(fb_runtime_stb PRIVATE src/apng.cpp)
+target_link_libraries(fb_runtime_stb PRIVATE stb)
+target_link_libraries(fb_runtime_webp PRIVATE webp)
+target_link_libraries(fb_runtime_svg PRIVATE nanosvg)
 
 # What a program can link: each part and its library, which fb and the tests that build programs
 # depend on.
@@ -70,12 +85,13 @@ set(FB_RUNTIME_ARCHIVES fb_runtime fb_runtime_io uv_a fb_runtime_crypto tfpsacry
     fb_runtime_xxhash xxhash fb_runtime_blake3 blake3 fb_runtime_argon2 argon2 fb_runtime_bcrypt
     crypt_blowfish fb_runtime_ed25519 monocypher fb_runtime_db sqlite fb_runtime_zlib zlib-ng
     fb_runtime_zstd zstd fb_runtime_lz4 lz4 fb_runtime_xz liblzma fb_runtime_zip minizip_ng
-    PARENT_SCOPE)
+    fb_runtime_stb stb fb_runtime_webp webp sharpyuv fb_runtime_svg nanosvg PARENT_SCOPE)
 
 # Nothing in the runtime throws: exceptions can't cross into compiled programs.
 foreach(part fb_runtime fb_runtime_io fb_runtime_crypto fb_runtime_xxhash fb_runtime_blake3
              fb_runtime_argon2 fb_runtime_bcrypt fb_runtime_ed25519 fb_runtime_db fb_runtime_zlib
-             fb_runtime_zstd fb_runtime_lz4 fb_runtime_xz fb_runtime_zip)
+             fb_runtime_zstd fb_runtime_lz4 fb_runtime_xz fb_runtime_zip fb_runtime_stb
+             fb_runtime_webp fb_runtime_svg)
   if(MSVC)
     target_compile_options(${part} PRIVATE /EHs-c-)
   else()
