@@ -2016,6 +2016,39 @@ TEST_CASE("a Class assigns its own fields that have no zero before Super.New", "
               "f: Self can't be used before Super.New, which this lambda would read when it runs",
               "Return: New can't return before Super.New sets up what Self inherits",
           });
+    // A Static Property has no Self, its own or one it inherits, as a Static Field hasn't, there
+    // or before a field without a zero is assigned.
+    CHECK(errors_of("Class Node\n"
+                    "    Field name: String\n"
+                    "    New(name: String)\n"
+                    "        Self.name = name\n"
+                    "    End New\n"
+                    "End Class\n"
+                    "Class Base\n"
+                    "    Static Property Made: Int\n"
+                    "        Get => 0\n"
+                    "    End Property\n"
+                    "End Class\n"
+                    "Class D Extends Base\n"
+                    "    Field part: Node\n"
+                    "    Static Property Prefix: String\n"
+                    "        Get => \"part\"\n"
+                    "    End Property\n"
+                    "    New()\n"
+                    "        part = Node(\"{Prefix} {Made}\")\n"
+                    "        Super.New()\n"
+                    "    End New\n"
+                    "End Class\n"
+                    "Class Plain\n"
+                    "    Field part: Node\n"
+                    "    Static Property Prefix: String\n"
+                    "        Get => \"part\"\n"
+                    "    End Property\n"
+                    "    New()\n"
+                    "        part = Node(Prefix)\n"
+                    "    End New\n"
+                    "End Class")
+              .empty());
 }
 
 TEST_CASE("an object converts to the Classes its Class extends", "[sema]") {

@@ -16477,11 +16477,11 @@ private:
             error(span_of(id), "'{}' isn't generic", name);
         }
 
-        // A Property used by name is Self's, whose Get may read any field.
+        // A Property used by name is Self's, whose Get may read any field, unless it's Static.
         if (symbol(*found).kind == symbol_kind_t::PROPERTY) {
             info(id).symbol = found;
             info(id).type_arguments = static_arguments(symbol(*found));
-            if (m_partial != id) {
+            if (m_partial != id && !symbol(*found).modifiers.is_static) {
                 check_self_ready(span_of(id));
             }
 
