@@ -1,0 +1,53 @@
+// A Return gives the value it computed, before the function's Locals are let go of: a Destroy()
+// that letting one go runs, and that changes the Global or ByRef parameter the Return reads,
+// changes neither what's returned nor its references.
+Import std.core
+
+Function Build(word: String, n: Int): String => "{word} {n}"
+
+Global g = Build("first", 1)
+
+Class Changer
+    Method Destroy()
+        g = Build("changed", 0)
+    End Method
+End Class
+
+Function Give(ByRef s: String): String
+    Local c = Changer()
+    Return s
+End Function
+
+Function GiveGlobal(): String
+    Local c = Changer()
+    Return g
+End Function
+
+Function Junk()
+    Local junk: String[] = []
+    For i = 1 To 50
+        junk.Add(Build("junk", i))
+    End For
+End Function
+
+Local got = Give(ByRef g)
+g = Build("third", 3)
+Junk()
+Print("got {got}, and g is {g}")
+
+g = Build("fourth", 4)
+Local global = GiveGlobal()
+g = Build("fifth", 5)
+Junk()
+Print("got {global}, and g is {g}")
+
+// A lambda's result is the same.
+g = Build("sixth", 6)
+Local give = Function(): String
+    Local c = Changer()
+    Return g
+End Function
+Local given = give()
+g = Build("seventh", 7)
+Junk()
+Print("got {given}, and g is {g}")
