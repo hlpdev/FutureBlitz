@@ -408,3 +408,23 @@ file(READ "${tzdata_SOURCE_DIR}/LICENSE" notices)
 fb_notice(tzdata "${notices}")
 set(FB_TZDATA_NOTICE "${FB_TZDATA_NOTICE}" PARENT_SCOPE)
 set(FB_TZDATA_LICENSES "the public domain" PARENT_SCOPE)
+
+# utf8proc: std.text.unicode's categories, case, normalization, grapheme clusters, and display
+# width, and the String Methods that need them, like ToUpper, through its own CMake.
+set(FB_UTF8PROC_VERSION 2.12.0)
+set(UTF8PROC_INSTALL OFF CACHE BOOL "" FORCE)
+set(UTF8PROC_ENABLE_TESTING OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(
+  utf8proc
+  URL https://github.com/JuliaStrings/utf8proc/archive/refs/tags/v${FB_UTF8PROC_VERSION}.tar.gz
+  URL_HASH SHA256=f564011d38b2888d583d510b08e69ffa15aa117155db1b9b49ef1dfe1fa25111
+  SYSTEM
+  EXCLUDE_FROM_ALL
+)
+fb_make_available(utf8proc)
+set(FB_UTF8PROC_VERSION ${FB_UTF8PROC_VERSION} PARENT_SCOPE)
+# Its LICENSE.md has its MIT license and the original utf8proc's, and Unicode's data license.
+file(READ "${utf8proc_SOURCE_DIR}/LICENSE.md" notices)
+fb_notice(utf8proc "${notices}")
+set(FB_UTF8PROC_NOTICE "${FB_UTF8PROC_NOTICE}" PARENT_SCOPE)
+set(FB_UTF8PROC_LICENSES "the MIT license and the Unicode license" PARENT_SCOPE)

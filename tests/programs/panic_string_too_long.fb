@@ -1,0 +1,7 @@
+// A String holds at most 2147483647 bytes, as many as an Int counts, so one past that panics
+// before its bytes are asked for.
+Import std.core
+Import std.text
+
+Local word = "é😀"
+Print(word.Repeated(1000).Length, word.Repeated(400_000_000).Length)

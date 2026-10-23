@@ -202,6 +202,16 @@ inline constexpr auto bundled_libraries = std::to_array<bundled_library_t>({
         .notice = \"${FB_TZDATA_NOTICE}\",
         .system = \"\",
     },
+    {
+        .name = \"utf8proc\",
+        .version = \"${FB_UTF8PROC_VERSION}\",
+        .license = \"${FB_UTF8PROC_LICENSES}\",
+        .prefix = \"fb_unicode_\",
+        .runtime = \"$<TARGET_FILE:fb_runtime_unicode>\",
+        .archives = \"$<TARGET_FILE:utf8proc>\",
+        .notice = \"${FB_UTF8PROC_NOTICE}\",
+        .system = \"\",
+    },
 });
 
 } // namespace fb::build_config
