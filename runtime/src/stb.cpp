@@ -1,0 +1,154 @@
+// std.image's PNG, JPEG, BMP, TGA, and HDR decoding over stb_image, and its JPEG, BMP, TGA, and
+// HDR encoding over stb_image_write.
+
+#include "fb/image.hpp"
+#include "fb/runtime.hpp"
+#include "image_internal.hpp"
+
+#include <cstdint>
+#include <memory>
+#include <span>
+#include <stb_image.h>
+#include <stb_image_write.h>
+#include <string>
+#include <string_view>
+#include <vector>
+
+using namespace fb::image;
+
+namespace {
+
+/// Frees what stb_image gives once it goes.
+struct stb_free_t {
+    void operator()(void* pixels) const {
+        stbi_image_free(pixels);
+    }
+};
+
+/// Why stb_image failed, as an image that failed: for what its message says it doesn't support,
+/// like a BMP's run-length encoding or a JPEG's 12 bits, or what's too large, or else for data
+/// that isn't valid, which is all stb_image tells apart.
+image_t* stb_failed() {
+    const char* reason = stbi_failure_reason();
+    const std::string_view message = reason == nullptr ? "" : reason;
+    if (message.contains("not supported") || message.contains("Unsupported")) {
+        return failed(RESULT_UNSUPPORTED, std::string(message));
+    }
+
+    if (message.contains("too large") || message.contains("Very large")) {
+        return failed(RESULT_TOO_LARGE, std::string(message));
+    }
+    return failed(RESULT_INVALID, std::string(message));
+}
+
+const char* name_of(const std::int32_t format) {
+    switch (format) {
+    case FORMAT_PNG:
+        return "a PNG";
+    case FORMAT_JPEG:
+        return "a JPEG";
+    case FORMAT_BMP:
+        return "a BMP";
+    case FORMAT_TGA:
+        return "a TGA";
+    default:
+        return "an HDR image";
+    }
+}
+
+image_t* decode(const fb_array_t* data, const std::int32_t format, const std::int64_t limit) {
+    if (fb_image_format(data) != format) {
+        return failed(RESULT_INVALID, std::string("it isn't ") + name_of(format));
+    }
+
+    // stb_image reads no BMP that's run-length encoded, and says it doesn't know the format.
+    const std::span<const std::uint8_t> all = bytes_of(data);
+    if (format == FORMAT_BMP && all.size() >= 34 && (all[30] == 1 || all[30] == 2) &&
+        all[31] == 0 && all[32] == 0 && all[33] == 0) {
+        return failed(RESULT_UNSUPPORTED, "it's run-length encoded, which stb_image doesn't read");
+    }
+
+    const auto* bytes = static_cast<const stbi_uc*>(data->data);
+    const auto size = static_cast<int>(data->count);
+    int width = 0;
+    int height = 0;
+    int channels = 0;
+    if (stbi_info_from_memory(bytes, size, &width, &height, &channels) == 0) {
+        return stb_failed();
+    }
+
+    if (image_t* over = over_limit(pixels_of(width, height), limit)) {
+        return over;
+    }
+
+    auto* image = new image_t{ .width = width, .height = height, .delays = { 0 }, .plays = 1 };
+    if (format == FORMAT_HDR) {
+        const std::unique_ptr<float, stb_free_t> pixels(
+            stbi_loadf_from_memory(bytes, size, &width, &height, &channels, 4));
+        if (pixels == nullptr) {
+            delete image;
+            return stb_failed();
+        }
+
+        image->hdr.assign(pixels.get(), pixels.get() + (pixels_of(width, height) * 4));
+        return image;
+    }
+
+    const std::unique_ptr<stbi_uc, stb_free_t> pixels(
+        stbi_load_from_memory(bytes, size, &width, &height, &channels, 4));
+    if (pixels == nullptr) {
+        delete image;
+        return stb_failed();
+    }
+
+    image->frames.emplace_back(pixels.get(), pixels.get() + (pixels_of(width, height) * 4));
+    return image;
+}
+
+/// stb_image_write's writer, which appends to a vector. Its data isn't const, as stb_image_write
+/// has it.
+// NOLINTNEXTLINE(misc-const-correctness)
+void append(void* context, void* data, const int size) {
+    auto* out = static_cast<std::vector<std::uint8_t>*>(context);
+    const auto* bytes = static_cast<const std::uint8_t*>(data);
+    out->insert(out->end(), bytes, bytes + size);
+}
+
+} // namespace
+
+extern "C" {
+
+void* fb_stb_decode(const fb_array_t* data, const std::int32_t format, const std::int64_t limit) {
+    return decode(data, format, limit);
+}
+
+void fb_stb_encode(const fb_array_t* pixels, const std::int64_t width, const std::int64_t height,
+                   const std::int32_t format, const std::int32_t quality, fb_array_t* output) {
+    std::vector<std::uint8_t> out;
+    const auto w = static_cast<int>(width);
+    const auto h = static_cast<int>(height);
+    int written = 0;
+    if (format == FORMAT_JPEG) {
+        written = stbi_write_jpg_to_func(append, &out, w, h, 4, pixels->data, quality);
+    } else if (format == FORMAT_BMP) {
+        written = stbi_write_bmp_to_func(append, &out, w, h, 4, pixels->data);
+    } else {
+        written = stbi_write_tga_to_func(append, &out, w, h, 4, pixels->data);
+    }
+
+    if (written == 0) {
+        fb_panic("std.image's encoding failed", nullptr);
+    }
+    set_elements<std::uint8_t>(output, out);
+}
+
+void fb_stb_encode_hdr(const fb_array_t* pixels, const std::int64_t width,
+                       const std::int64_t height, fb_array_t* output) {
+    std::vector<std::uint8_t> out;
+    if (stbi_write_hdr_to_func(append, &out, static_cast<int>(width), static_cast<int>(height), 4,
+                               static_cast<const float*>(pixels->data)) == 0) {
+        fb_panic("std.image's HDR encoding failed", nullptr);
+    }
+    set_elements<std::uint8_t>(output, out);
+}
+}

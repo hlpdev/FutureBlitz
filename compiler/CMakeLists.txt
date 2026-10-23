@@ -283,6 +283,36 @@ inline constexpr auto bundled_libraries = std::to_array<bundled_library_t>({
         .notice = \"${FB_MD4C_NOTICE}\",
         .system = \"\",
     },
+    {
+        .name = \"stb_image\",
+        .version = \"${FB_STB_VERSION}\",
+        .license = \"${FB_STB_LICENSES}\",
+        .prefix = \"fb_stb_\",
+        .runtime = \"$<TARGET_FILE:fb_runtime_stb>\",
+        .archives = \"$<TARGET_FILE:stb>\",
+        .notice = \"${FB_STB_NOTICE}\",
+        .system = \"\",
+    },
+    {
+        .name = \"libwebp\",
+        .version = \"${FB_LIBWEBP_VERSION}\",
+        .license = \"${FB_LIBWEBP_LICENSES}\",
+        .prefix = \"fb_webp_\",
+        .runtime = \"$<TARGET_FILE:fb_runtime_webp>\",
+        .archives = \"$<TARGET_FILE:webp>;$<TARGET_FILE:sharpyuv>\",
+        .notice = \"${FB_LIBWEBP_NOTICE}\",
+        .system = \"\",
+    },
+    {
+        .name = \"nanosvg\",
+        .version = \"${FB_NANOSVG_VERSION}\",
+        .license = \"${FB_NANOSVG_LICENSES}\",
+        .prefix = \"fb_svg_\",
+        .runtime = \"$<TARGET_FILE:fb_runtime_svg>\",
+        .archives = \"$<TARGET_FILE:nanosvg>\",
+        .notice = \"${FB_NANOSVG_NOTICE}\",
+        .system = \"\",
+    },
 });
 
 } // namespace fb::build_config
