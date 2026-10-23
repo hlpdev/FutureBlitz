@@ -28,9 +28,10 @@ aMOpbGxvIGXMgSDwn5iAINC2 héllo é 😀 ж
 [0] [0] [0] [104, 105]
 h%C3%A9llo%20e%CC%81%20%F0%9F%98%80%20%D0%B6 a/b%20c%3Fd%3D%C3%A9 ~-._AZaz09
 True € A bad short not UTF-8 True
-&lt;a href=&quot;x&quot;&gt;Tom &amp; Jerry&#39;s é😀&lt;/a&gt; True
+&lt;a href=&quot;x&quot;&gt;Tom &amp; Jerry&#39;s é😀 é&lt;/a&gt; True
 <éé😀 '&amp; &bogus; & � &#; &#12a;
 ��A�A
 &b=2&c=&lt >;& amp;&am&p;
-tab\there\nquote\" apostrophe\' back\\slash nul\0 bell\x07 del\x7F c1\u{85} é😀 True
+é&😀<é😀
+tab\there\nquote\" apostrophe\' back\\slash nul\0 bell\x07 del\x7F c1\u{85} é😀 é True
 😀Aéé bad bad past 7F surrogate empty long short plain é
