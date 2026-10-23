@@ -1,0 +1,33 @@
+// Statistics, matching Python's statistics module: the sample variance and deviation over n - 1,
+// the population's over n, the median of an even count the mean of the middle two; and NumPy's
+// percentiles, between the two nearest values.
+Import std.core
+Import std.math
+
+Local data = [2, 4, 4, 4, 5, 5, 7, 9]
+Print(Mean(data), Median(data), Variance(data), StdDev(data), PopulationVariance(data),
+      PopulationStdDev(data))
+Local floats = [1.5, -2.5, 3.25, 10.0, 0.0]
+Print(Mean(floats), Median(floats), Variance(floats), PopulationVariance(floats))
+Local bytes: UInt8[] = [250, 251, 252]
+Local longs: Long[] = [9007199254740993, 9007199254740995]
+Print(Mean(bytes), Median(bytes), Variance(bytes), Mean(longs))
+Print(Mean([7]), Median([7]), PopulationVariance([7]), PopulationStdDev([7]), Median([3, 1]))
+
+// Welford's way stays exact where a sum of squares wouldn't: around a billion.
+Local large: Double[] = [1000000000, 1000000001, 1000000002]
+Print(Variance(large), PopulationVariance(large))
+
+// Percentiles, from 0 for the least to 100 for the largest.
+Local ranked = [15, 20, 35, 40, 50]
+Print(Percentile(ranked, 0), Percentile(ranked, 25), Percentile(ranked, 40), Percentile(ranked, 50),
+      Percentile(ranked, 90), Percentile(ranked, 100))
+Print(Percentile([5], 33), Percentile([1, 2], 50), Percentile(floats, 75))
+
+// Histograms of equal ranges, the last holding its high end, and those outside left out.
+Print(Histogram(data, 4, 0, 10), Histogram(data, 7, 2, 9), Histogram([0.5, 1.5, -1, 11], 2, 0, 2))
+Print(Histogram(data, 3), Histogram([4, 4, 4], 3), Histogram(floats, 5))
+
+// Fixed-point values are Bounded too.
+Print(Mean([Fixed32.FromDouble(1.5), Fixed32.FromInt(3)]),
+      Median([Fixed64.FromInt(2), Fixed64.FromInt(9)]))

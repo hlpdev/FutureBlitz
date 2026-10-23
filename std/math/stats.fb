@@ -1,0 +1,149 @@
+// Statistics of numbers of any type, worked out in Doubles: the mean, the median, the variance and
+// standard deviation of a sample and of a whole population, percentiles, and histograms. Too few
+// values for what's asked panics, as Python's statistics raises.
+
+Import std.core
+Import std.collections
+Import std.math.numbers
+Import std.math.scalar
+
+// The values as Doubles, sorted, which Median and Percentile go by.
+Function SortedDoubles<T: Bounded>(values: T[]): Double[]
+    Local sorted: Double[] = []
+    sorted.Reserve(values.Count)
+    For value In values
+        sorted.Add(T.DoubleValue(value))
+    End For
+    sorted.Sort()
+    Return sorted
+End Function
+
+// Panics when there are fewer values than what's asked needs.
+@PanicsAtCaller
+Function CheckCount(what: String, count: Int, least: Int)
+    If count < least
+        Panic("{what} takes at least {least} value{least == 1 ? "" : "s"}, not {count}")
+    End If
+End Function
+
+// The mean, the sum over the count. No values panics.
+@PanicsAtCaller
+Public Function Mean<T: Bounded>(values: T[]): Double
+    CheckCount("Mean", values.Count, 1)
+    Local sum: Double = 0
+    For value In values
+        sum += T.DoubleValue(value)
+    End For
+    Return sum / values.Count
+End Function
+
+// The middle value, or the mean of the two middle ones for an even count. No values panics.
+@PanicsAtCaller
+Public Function Median<T: Bounded>(values: T[]): Double
+    CheckCount("Median", values.Count, 1)
+    Local sorted = SortedDoubles(values)
+    Local middle = sorted.Count / 2
+    If sorted.Count % 2 == 1 Then Return sorted[middle]
+    Return (sorted[middle - 1] + sorted[middle]) / 2
+End Function
+
+// The mean and the sum of squared differences from it, by Welford's way, which stays exact where
+// a sum of squares wouldn't.
+Function Spread<T: Bounded>(values: T[]): (Double, Double)
+    Local mean: Double = 0
+    Local squares: Double = 0
+    Local count = 0
+    For value In values
+        count++
+        Local x = T.DoubleValue(value)
+        Local difference = x - mean
+        mean += difference / count
+        squares += difference * (x - mean)
+    End For
+    Return (mean, squares)
+End Function
+
+// The variance of a sample, the squared differences from the mean over the count less 1, as an
+// estimate of the variance of all it was drawn from. Fewer than two values panics.
+@PanicsAtCaller
+Public Function Variance<T: Bounded>(values: T[]): Double
+    CheckCount("Variance", values.Count, 2)
+    Return Spread(values).1 / (values.Count - 1)
+End Function
+
+// The standard deviation of a sample: the square root of its Variance. Fewer than two values
+// panics.
+@PanicsAtCaller
+Public Function StdDev<T: Bounded>(values: T[]): Double => Sqrt(Variance(values))
+
+// The variance of the values as the whole population: the squared differences from the mean over
+// the count. No values panics.
+@PanicsAtCaller
+Public Function PopulationVariance<T: Bounded>(values: T[]): Double
+    CheckCount("PopulationVariance", values.Count, 1)
+    Return Spread(values).1 / values.Count
+End Function
+
+// The standard deviation of the values as the whole population: the square root of their
+// PopulationVariance. No values panics.
+@PanicsAtCaller
+Public Function PopulationStdDev<T: Bounded>(values: T[]): Double
+    Return Sqrt(PopulationVariance(values))
+End Function
+
+// The value below which percent of them lie, from 0 for the least to 100 for the largest, between
+// the two nearest when it falls between them, as NumPy's percentile does: 50 is the Median. No
+// values, or a percent outside 0 to 100, panics.
+@PanicsAtCaller
+Public Function Percentile<T: Bounded>(values: T[], percent: Double): Double
+    CheckCount("Percentile", values.Count, 1)
+    If !(percent >= 0 && percent <= 100)
+        Panic("Percentile takes a percent from 0 to 100, not {percent}")
+    End If
+
+    Local sorted = SortedDoubles(values)
+    Local rank = percent / 100 * (sorted.Count - 1)
+    Local below = Floor(rank) As Int
+    If below >= sorted.Count - 1 Then Return sorted[sorted.Count - 1]
+    Return Lerp(sorted[below], sorted[below + 1], rank - below)
+End Function
+
+// How many values fall in each of bins equal ranges from low to high, the last range holding high
+// too; those outside are left out. A count of bins that isn't above 0, or a low that isn't below
+// a finite high, panics.
+@PanicsAtCaller
+Public Function Histogram<T: Bounded>(values: T[], bins: Int, low: Double, high: Double): Int[]
+    If bins <= 0 Then Panic("Histogram takes a count of bins above 0, not {bins}")
+    If !(low < high) || !IsFinite(high - low)
+        Panic("Histogram takes a low below a finite high, not {low} and {high}")
+    End If
+
+    Local counts: Int[] = []
+    counts.Resize(bins, 0)
+    Local width = (high - low) / bins
+    For value In values
+        Local x = T.DoubleValue(value)
+        If !(x >= low && x <= high) Then Continue
+        Local bin = Min(Floor((x - low) / width) As Int, bins - 1)
+        counts[bin]++
+    End For
+    Return counts
+End Function
+
+// How many values fall in each of bins equal ranges from the least value to the largest, which
+// all do. No values, or a count of bins that isn't above 0, panics.
+@PanicsAtCaller
+Public Function Histogram<T: Bounded>(values: T[], bins: Int): Int[]
+    CheckCount("Histogram", values.Count, 1)
+    If bins <= 0 Then Panic("Histogram takes a count of bins above 0, not {bins}")
+    Local sorted = SortedDoubles(values)
+    Local low = sorted[0]
+    Local high = sorted[sorted.Count - 1]
+    If low == high
+        Local counts: Int[] = []
+        counts.Resize(bins, 0)
+        counts[0] = values.Count
+        Return counts
+    End If
+    Return Histogram(values, bins, low, high)
+End Function
