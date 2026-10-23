@@ -12970,12 +12970,20 @@ private:
     }
 
     /// Default values are checked before any code, since every call needs them, each function's
-    /// once. A call that runs a Const Function while Consts and types are checked has its
-    /// defaults checked then, in the function's own context, not the call's, and their errors
-    /// are kept, though the call may be one quietly() tries.
+    /// once, an Extend's Methods' too. A call that runs a Const Function while Consts and types
+    /// are checked has its defaults checked then, in the function's own context, not the call's,
+    /// and their errors are kept, though the call may be one quietly() tries.
     void check_defaults(const stmt_id_t id) {
-        if (const auto* declared = std::get_if<type_stmt_t>(&m_ast.get(id).node)) {
-            for (const stmt_id_t member : declared->members) {
+        const stmt_node_t& statement = m_ast.get(id).node;
+        const block_t* members = nullptr;
+        if (const auto* declared = std::get_if<type_stmt_t>(&statement)) {
+            members = &declared->members;
+        } else if (const auto* extension = std::get_if<extend_stmt_t>(&statement)) {
+            members = &extension->members;
+        }
+
+        if (members != nullptr) {
+            for (const stmt_id_t member : *members) {
                 check_defaults(member);
             }
 
