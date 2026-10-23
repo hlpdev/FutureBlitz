@@ -693,6 +693,12 @@ std::optional<std::string> formatted(const const_value_t& value, const format_sp
         return format_text(*flag ? "True" : "False", padding);
     }
 
+    // A Char is text, never a number: its character, or its literal for the debug form.
+    if (value.type == type_id_t::CHAR) {
+        const auto point = static_cast<char32_t>(std::get<std::uint64_t>(value.data));
+        return format_text(spec.kind == '?' ? debug_char(point) : to_text(value), padding);
+    }
+
     if (const auto* number = std::get_if<std::int64_t>(&value.data)) {
         return format_signed(*number, padding);
     }

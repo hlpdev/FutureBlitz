@@ -182,6 +182,8 @@ enum class runtime_function_t : std::uint8_t {
     FORMAT_TEXT,
     /// (String) to a new String: its debug form, in quotes with source code's escapes.
     DEBUG_STRING,
+    /// (Char) to a new String: its debug form, as a character literal writes it.
+    DEBUG_CHAR,
     /// (an object, Int32) to a new String: its debug form, by its own Class, at that indent, or
     /// on one line below 0.
     DEBUG_OBJECT,

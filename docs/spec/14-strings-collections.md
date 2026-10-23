@@ -68,8 +68,8 @@ Print("{ratio:.1%} {big:e} {tiny:.3e}")   // 45.0% 6.02e23 1.500e-7
   1e23 is `100000000000000000000000`. So does a spec with `,` or `0` and no kind or precision.
   `%` is the value times 100, which moves the point two digits, exactly, then `%`, and `Inf%`
   and `NaN%` keep it.
-- A Bool, Enum, String, Printable value, tuple, or array takes a fill, an alignment, and a width,
-  and a String a precision too.
+- A Bool, Char, Enum, String, Printable value, tuple, or array takes a fill, an alignment, and a
+  width, and a String a precision too. A Char is its character, never its code.
 - An empty spec, as in `"{x:}"`, is none.
 - The compiler checks the spec against its value's type: one that doesn't fit is an error at the
   spec ("Int32 doesn't take a precision in its format spec"). In generic code, a T takes what
@@ -98,8 +98,8 @@ Print("{price} {price:cents}")   // $3.50 350 cents
 ```
 
 - `Interface Formattable Extends Printable` (std.core) has `Method Format(spec: String):
-  String?`, which gives Null for a spec it doesn't take. The numbers, Bool, String, and Enums
-  implement it, by the specs above.
+  String?`, which gives Null for a spec it doesn't take. The numbers, Bool, Char, String, and
+  Enums implement it, by the specs above.
 - `"{x:spec}"` on a Formattable type of the program's own calls its Format with the spec's text,
   and panics at the spec when that gives Null. Its debug form, `?`, is still the compiler's.
 
@@ -144,14 +144,15 @@ Print(Dump(save))   // the same, with each part on a line of its own
 ```
 
 - `"{x:?}"` shows any value as code would write it, from reflection, the same on every
-  platform: a number as its shortest text, a String in quotes with escapes, an Enum as its
-  member, a @Flags value's bits that no member has after its members' in hex, as `World | 0x8`,
-  a `T?` as its value or `Null`, a tuple as `(1, "a")`, an array as `[1, 2]`, a fixed array of
-  several dimensions as one list, and a Struct or object as `Point { X: 1, Y: 2 }`, with every
-  Field, by its object's own Class. A Weak<T> shows what reading it gives, and a function value,
-  Task, Thread, Channel, Scheduler, CString, or `Ptr<T>` its type's name, and so does an Atomic
-  or Mutex inside what holds it, which is the only place it's shown. A value in std's box for a
-  `values: Formattable...` parameter shows as itself.
+  platform: a number as its shortest text, a String in quotes with escapes, a Char as its
+  literal, like `'é'` or `'\n'`, an Enum as its member, a @Flags value's bits that no member has
+  after its members' in hex, as `World | 0x8`, a `T?` as its value or `Null`, a tuple as
+  `(1, "a")`, an array as `[1, 2]`, a fixed array of several dimensions as one list, and a Struct
+  or object as `Point { X: 1, Y: 2 }`, with every Field, by its object's own Class. A Weak<T>
+  shows what reading it gives, and a function value, Task, Thread, Channel, Scheduler, CString,
+  or `Ptr<T>` its type's name, and so does an Atomic or Mutex inside what holds it, which is the
+  only place it's shown. A value in std's box for a `values: Formattable...` parameter shows as
+  itself.
 - An object that's already being shown, in a cycle, shows as `Node { … }`, and an array as
   `[ … ]`, as a graph of Structs through their arrays can be.
 - `"{x:#?}"` writes each part on a line of its own, indented four spaces, with a comma after it,

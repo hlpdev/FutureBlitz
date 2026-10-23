@@ -246,6 +246,8 @@ fb_string_t* fb_format_text(const fb_string_t* text, const fb_string_t* spec, st
 std::int32_t fb_format_debug(const fb_string_t* spec);
 /// A String's debug form: in quotes, with source code's escapes. The caller owns the result.
 fb_string_t* fb_string_debug(const fb_string_t* text);
+/// A Char's debug form, as a character literal writes it, in single quotes.
+fb_string_t* fb_char_debug(std::uint32_t point);
 /// An object's debug form, by its own Class's debug, or its Class's name when that has none. An
 /// object already being shown on this thread, in a cycle, shows as its name and "{ … }". The
 /// caller owns the result.

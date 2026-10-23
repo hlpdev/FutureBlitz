@@ -242,6 +242,7 @@ private:
     function_ref_t m_format_float;
     function_ref_t m_format_text;
     function_ref_t m_string_debug;
+    function_ref_t m_char_debug;
     function_ref_t m_debug_object;
     function_ref_t m_debug_indent;
     function_ref_t m_from_char;
@@ -752,6 +753,7 @@ private:
         m_format_float = declare("fb_format_float", m_ptr, { f64, m_i32, m_ptr });
         m_format_text = declare("fb_format_text", m_ptr, { m_ptr, m_ptr, m_i32 });
         m_string_debug = declare("fb_string_debug", m_ptr, { m_ptr });
+        m_char_debug = declare("fb_char_debug", m_ptr, { m_i32 });
         m_debug_object = declare("fb_debug_object", m_ptr, { m_ptr, m_i32 });
         m_debug_indent = declare("fb_debug_indent", m_ptr, { m_i32 });
         m_from_char = declare("fb_string_from_char", m_ptr, { m_i32 });
@@ -3600,6 +3602,8 @@ private:
                         });
         case runtime_function_t::DEBUG_STRING:
             return call(m_string_debug, { value_of(node.arguments[0]) });
+        case runtime_function_t::DEBUG_CHAR:
+            return call(m_char_debug, { value_of(node.arguments[0]) });
         case runtime_function_t::DEBUG_OBJECT:
             return call(m_debug_object,
                         { value_of(node.arguments[0]), value_of(node.arguments[1]) });

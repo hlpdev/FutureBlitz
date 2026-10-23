@@ -207,10 +207,10 @@ bool supports(const binary_op_t op, const type_id_t type) {
 
 /// Whether a type that isn't a Struct or Class implements a built-in Interface, as far as that's
 /// settled without its parts: a T[] copies with its own Clone, and numbers, Strings, Chars, Bools,
-/// and Enums start from their zero, and all but Chars take format specs, which the compiler knows.
-/// Numbers implement the rest, Strings and Chars all but Numeric, Bools and Enums the ones without
-/// an order, and Ptrs and Callbacks Equatable. A tuple or array implements what its parts do,
-/// without an order, and a T? Equatable and Hashable as its T does, which is nullopt here.
+/// and Enums start from their zero and take format specs, which the compiler knows. Numbers
+/// implement the rest, Strings and Chars all but Numeric, Bools and Enums the ones without an
+/// order, and Ptrs and Callbacks Equatable. A tuple or array implements what its parts do, without
+/// an order, and a T? Equatable and Hashable as its T does, which is nullopt here.
 std::optional<bool> implements_alone(const type_table_t& types, const builtin_interfaces_t& builtin,
                                      const type_id_t type, const type_id_t interface) {
     const type_kind_t kind = types.get(type).kind;
@@ -219,9 +219,8 @@ std::optional<bool> implements_alone(const type_table_t& types, const builtin_in
     }
 
     if (interface == builtin.defaultable || interface == builtin.formattable) {
-        const bool character = type == type_id_t::CHAR && interface == builtin.defaultable;
-        return is_numeric(type) || type == type_id_t::STRING || type == type_id_t::BOOL ||
-               kind == type_kind_t::ENUM || character;
+        return is_numeric(type) || type == type_id_t::STRING || type == type_id_t::CHAR ||
+               type == type_id_t::BOOL || kind == type_kind_t::ENUM;
     }
 
     const bool equality = interface == builtin.equatable || interface == builtin.hashable;
