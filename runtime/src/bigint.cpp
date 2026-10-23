@@ -89,10 +89,11 @@ std::uint8_t* resize(fb_array_t* output, const std::int64_t count) {
     return static_cast<std::uint8_t*>(output->data);
 }
 
-/// The primes the Baillie-PSW test tries dividing by first.
-constexpr std::array<mp_digit, 25> small_primes = { 2,  3,  5,  7,  11, 13, 17, 19, 23,
-                                                    29, 31, 37, 41, 43, 47, 53, 59, 61,
-                                                    67, 71, 73, 79, 83, 89, 97 };
+/// The primes up to 101, which the Baillie-PSW test tries dividing by first.
+constexpr std::array<mp_digit, 26> small_primes = {
+    2,  3,  5,  7,  11, 13, 17, 19, 23, 29, 31, 37, 41,
+    43, 47, 53, 59, 61, 67, 71, 73, 79, 83, 89, 97, 101,
+};
 
 } // namespace
 
@@ -134,7 +135,7 @@ void* fb_bigint_parse(const fb_string_t* text, const std::int32_t radix) {
     }
 
     // libtommath reads a "-" but not a "+".
-    std::string copy(view.front() == '-' ? view : digits);
+    const std::string copy(view.front() == '-' ? view : digits);
     mp_int* result = make();
     check(mp_read_radix(result, copy.c_str(), radix));
     return result;
