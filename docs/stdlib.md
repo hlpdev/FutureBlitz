@@ -582,7 +582,8 @@ Built in step 27. `Import std.algo` brings in all of std/algo/.
   `Factorial(n)` and `Binomial(n, k)` as Longs, which panic past what a Long holds.
 - `Delaunay(points)` (delaunay.fb): the triangles, counterclockwise, as indices into points,
   Bowyer and Watson's, a point at a time in order of x then y, with a point at infinity so the
-  hull comes out whole, in Doubles; fewer than three points or a line of them have none, and of
+  hull comes out whole, in Doubles with Shewchuk's exact predicates, so every distinct point is a
+  corner however near the others; fewer than three points or a line of them have none, and of
   equal points only the first is a corner. `Voronoi(points, bounds)`: each point's cell in a
   Rect, counterclockwise, cut by its Delaunay neighbors' bisectors. `LloydRelax(points, bounds,
   iterations)`: each point moved to its cell's centroid, so they spread evenly. A coordinate

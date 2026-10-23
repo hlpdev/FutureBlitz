@@ -2,20 +2,131 @@
 // points apart until they're evenly spread, for maps, meshes, and placing things. The Delaunay
 // triangles are those whose circumcircles hold none of the points, which keeps them as near
 // equilateral as the points allow; a point's Voronoi cell is where's nearer it than any other.
-// The math is in Doubles. The triangulation is Bowyer and Watson's, a point at a time in order of
-// x then y, with a point at infinity whose triangles are the hull's outside, so the hull comes out
+// The math is in Doubles, with Shewchuk's exact predicates, so points however near each other
+// give a triangulation. The triangulation is Bowyer and Watson's, a point at a time in order of x
+// then y, with a point at infinity whose triangles are the hull's outside, so the hull comes out
 // whole; points on one circle are triangulated by the order they come in.
 
 Import std.core
 Import std.collections
 Import std.math
 
-// Twice the area of the triangle a, b, c: above 0 when they go counterclockwise.
-Function Orient(ax: Double, ay: Double, bx: Double, by: Double, cx: Double, cy: Double): Double
-    Return (bx - ax) * (cy - ay) - (by - ay) * (cx - ax)
+// The predicates, after Jonathan Shewchuk's robust ones: worked out in Doubles first, whose error
+// bound says when the sign is sure, and when it isn't, exactly, in expansions, sums of Doubles
+// that don't overlap, smallest first. Every product a Float's coordinates make fits a Double
+// without overflowing or underflowing, so the signs are exact for any points a Vec2 holds.
+
+// a + b as the Double nearest and what rounding left off.
+Function TwoSum(a: Double, b: Double): (Double, Double)
+    Local sum = a + b
+    Local partB = sum - a
+    Local partA = sum - partB
+    Return (sum, (a - partA) + (b - partB))
 End Function
 
-// Above 0 when d is inside the circle through a, b, and c, counterclockwise.
+// a + b, where a's magnitude isn't below b's, as TwoSum gives it.
+Function FastTwoSum(a: Double, b: Double): (Double, Double)
+    Local sum = a + b
+    Return (sum, b - (sum - a))
+End Function
+
+// The Double's high 26 bits and the rest, by Veltkamp's splitting.
+Function Halves(a: Double): (Double, Double)
+    Local scaled = 134217729.0 * a
+    Local high = scaled - (scaled - a)
+    Return (high, a - high)
+End Function
+
+// a * b as the Double nearest and what rounding left off, by Dekker's product.
+Function TwoProduct(a: Double, b: Double): (Double, Double)
+    Local product = a * b
+    Local aHigh, aLow = Halves(a)
+    Local bHigh, bLow = Halves(b)
+    Local error = product - aHigh * bHigh - aLow * bHigh - aHigh * bLow
+    Return (product, aLow * bLow - error)
+End Function
+
+// a * b, exactly, as an expansion.
+Function Exactly(a: Double, b: Double): Double[]
+    Local high, low = TwoProduct(a, b)
+    Return low == 0 ? [high] : [low, high]
+End Function
+
+// The expansion plus the Double, exactly, without zeros: Shewchuk's grow_expansion_zeroelim.
+Function Grown(e: Double[], b: Double): Double[]
+    Local grown: Double[] = []
+    Local carry = b
+    For component In e
+        Local sum, rest = TwoSum(carry, component)
+        carry = sum
+        If rest != 0 Then grown.Add(rest)
+    End For
+    If carry != 0 || grown.Count == 0 Then grown.Add(carry)
+    Return grown
+End Function
+
+// The sum of two expansions, exactly, a Double of f's at a time.
+Function Plus(e: Double[], f: Double[]): Double[]
+    Local sum = e
+    For component In f
+        sum = Grown(sum, component)
+    End For
+    Return sum
+End Function
+
+// e - f, exactly.
+Function Minus(e: Double[], f: Double[]): Double[]
+    Local negated: Double[] = []
+    For component In f
+        negated.Add(-component)
+    End For
+    Return Plus(e, negated)
+End Function
+
+// The expansion times the Double, exactly, without zeros: Shewchuk's scale_expansion_zeroelim.
+Function Scaled(e: Double[], b: Double): Double[]
+    Local scaled: Double[] = []
+    Local carry, low = TwoProduct(e[0], b)
+    If low != 0 Then scaled.Add(low)
+    For i = 1 Until e.Count
+        Local high, part = TwoProduct(e[i], b)
+        Local sum, rest = TwoSum(carry, part)
+        If rest != 0 Then scaled.Add(rest)
+        Local next, left = FastTwoSum(high, sum)
+        carry = next
+        If left != 0 Then scaled.Add(left)
+    End For
+    If carry != 0 || scaled.Count == 0 Then scaled.Add(carry)
+    Return scaled
+End Function
+
+// The expansion's sign, its largest component's.
+Function SignOf(e: Double[]): Double => e[e.Count - 1]
+
+// The 2 by 2 cross term a.x * b.y - b.x * a.y, exactly.
+Function CrossTerm(ax: Double, ay: Double, bx: Double, by: Double): Double[]
+    Return Minus(Exactly(ax, by), Exactly(bx, ay))
+End Function
+
+// Above 0 when a, b, and c go counterclockwise, below when clockwise, and 0 on a line, as twice
+// their triangle's area, whose sign is exact.
+Function Orient(ax: Double, ay: Double, bx: Double, by: Double, cx: Double, cy: Double): Double
+    Local left = (ax - cx) * (by - cy)
+    Local right = (ay - cy) * (bx - cx)
+    Local determinant = left - right
+    // Of opposite signs, or one 0, the terms can't cancel.
+    If (left > 0 && right <= 0) || (left < 0 && right >= 0) || left == 0 Then Return determinant
+    Local bound = 3.3306690738754716e-16 * (Abs(left) + Abs(right))
+    If determinant >= bound || -determinant >= bound Then Return determinant
+    // ax * by - ax * cy + bx * cy - bx * ay + cx * ay - cx * by, exactly.
+    Local terms = Plus(Plus(Minus(Exactly(ax, by), Exactly(ax, cy)),
+                          Minus(Exactly(bx, cy), Exactly(bx, ay))),
+                      Minus(Exactly(cx, ay), Exactly(cx, by)))
+    Return SignOf(terms)
+End Function
+
+// Above 0 when d is inside the circle through a, b, and c, counterclockwise, below when it's
+// outside, and 0 on it, with an exact sign.
 Function InCircle(ax: Double, ay: Double, bx: Double, by: Double, cx: Double, cy: Double,
                   dx: Double, dy: Double): Double
     Local adx = ax - dx
@@ -24,9 +135,46 @@ Function InCircle(ax: Double, ay: Double, bx: Double, by: Double, cx: Double, cy
     Local bdy = by - dy
     Local cdx = cx - dx
     Local cdy = cy - dy
-    Return (adx * adx + ady * ady) * (bdx * cdy - cdx * bdy) +
-           (bdx * bdx + bdy * bdy) * (cdx * ady - adx * cdy) +
-           (cdx * cdx + cdy * cdy) * (adx * bdy - bdx * ady)
+    Local bc = bdx * cdy
+    Local cb = cdx * bdy
+    Local ca = cdx * ady
+    Local ac = adx * cdy
+    Local ab = adx * bdy
+    Local ba = bdx * ady
+    Local liftA = adx * adx + ady * ady
+    Local liftB = bdx * bdx + bdy * bdy
+    Local liftC = cdx * cdx + cdy * cdy
+    Local determinant = liftA * (bc - cb) + liftB * (ca - ac) + liftC * (ab - ba)
+    Local permanent = (Abs(bc) + Abs(cb)) * liftA + (Abs(ca) + Abs(ac)) * liftB +
+                      (Abs(ab) + Abs(ba)) * liftC
+    Local bound = 1.1102230246251577e-15 * permanent
+    If determinant > bound || -determinant > bound Then Return determinant
+    Return ExactInCircle(ax, ay, bx, by, cx, cy, dx, dy)
+End Function
+
+// InCircle's sign, exactly: the 4 by 4 determinant of each point's x, y, x^2 + y^2, and 1,
+// expanded by the lifts, each times the other three points' orientation, from cross terms.
+Function ExactInCircle(ax: Double, ay: Double, bx: Double, by: Double, cx: Double, cy: Double,
+                       dx: Double, dy: Double): Double
+    Local ab = CrossTerm(ax, ay, bx, by)
+    Local bc = CrossTerm(bx, by, cx, cy)
+    Local cd = CrossTerm(cx, cy, dx, dy)
+    Local da = CrossTerm(dx, dy, ax, ay)
+    Local ac = CrossTerm(ax, ay, cx, cy)
+    Local bd = CrossTerm(bx, by, dx, dy)
+    Local bcd = Minus(Plus(bc, cd), bd)
+    Local cda = Plus(Plus(cd, da), ac)
+    Local dab = Plus(Plus(da, ab), bd)
+    Local abc = Minus(Plus(ab, bc), ac)
+    Local terms = Minus(Lifted(bcd, ax, ay), Lifted(cda, bx, by))
+    terms = Plus(terms, Lifted(dab, cx, cy))
+    terms = Minus(terms, Lifted(abc, dx, dy))
+    Return SignOf(terms)
+End Function
+
+// The expansion times x^2 + y^2, exactly.
+Function Lifted(e: Double[], x: Double, y: Double): Double[]
+    Return Plus(Scaled(Scaled(e, x), x), Scaled(Scaled(e, y), y))
 End Function
 
 // A triangulation as it's built: three corners to a triangle, counterclockwise, -1 for the point at
@@ -96,9 +244,10 @@ Class Mesh
         Local v = Corners[triangle * 3 + (infinite + 2) % 3]
         Local side = Orient(X[u], Y[u], X[v], Y[v], px, py)
         If side != 0 Then Return side > 0
-        Local towardV = (px - X[u]) * (X[v] - X[u]) + (py - Y[u]) * (Y[v] - Y[u])
-        Local towardU = (px - X[v]) * (X[u] - X[v]) + (py - Y[v]) * (Y[u] - Y[v])
-        Return towardV > 0 && towardU > 0
+        // On the edge's line, it's between the ends where it's between them by x, or by y for an
+        // edge straight up, which compares exactly.
+        If X[u] != X[v] Then Return (px > X[u]) == (px < X[v]) && px != X[u] && px != X[v]
+        Return (py > Y[u]) == (py < Y[v]) && py != Y[u] && py != Y[v]
     End Method
 
     // A triangle the point breaks: found by walking from the last triangle made toward the point,

@@ -115,6 +115,29 @@ Print(Sorted(Delaunay([Vec2(0, 0), Vec2(1, 0), Vec2(0, 0), Vec2(0, 1), Vec2(1, 0
 // A point on the hull's edge, between two corners, splits it.
 Print(Sorted(Delaunay([Vec2(0, 0), Vec2(2, 0), Vec2(1, 2), Vec2(1, 0)])))
 
+// Points a few millionths or a few Float steps apart, beside ones hundreds away: the predicates'
+// signs are exact, so each is a corner of the triangulation exact arithmetic gives, and each
+// triangle goes counterclockwise.
+Local clustered = [Vec2(408.96606, -216.43066), Vec2(262.08496, 219.48242),
+                   Vec2(-3.2101439e-06, -1.6921997e-06), Vec2(-2.2320555e-06, 2.8988648e-06),
+                   Vec2(1.8127442e-07, 3.326416e-06), Vec2(-2.0388793e-06, 8.404541e-07)]
+Print(Sorted(Delaunay(clustered)))
+Local widened = clustered.Clone()
+widened.AddAll([Vec2(-304.5349, -479.4922), Vec2(317.65747, -491.60767),
+                Vec2(350.09766, 460.51025)])
+Print(Sorted(Delaunay(widened)))
+Local steps = [Vec2(27.051820755004883, 103.13211822509766),
+               Vec2(27.051820755004883, 103.13212585449219),
+               Vec2(27.051815032958984, 103.13212585449219),
+               Vec2(287.8077087402344, 913.6482543945312),
+               Vec2(645.5819702148438, 841.5291137695312)]
+Print(Sorted(Delaunay(steps)))
+Local tucked = [Vec2(271.026611328125, 234.06982421875),
+                Vec2(2.930908067355631e-06, -1.3082885743642692e-06),
+                Vec2(3.992309302702779e-06, -2.3941038307384588e-06),
+                Vec2(2.241821221105056e-06, -8.782958502706606e-07)]
+Print(Sorted(Delaunay(tucked)), Voronoi(tucked, Rect(-500, -500, 1000, 1000))[1].Count)
+
 // Voronoi cells in bounds, each counterclockwise, and covering the bounds between them.
 Local bounds = Rect(-1, -1, 7, 6)
 For cell In Voronoi(six, bounds)
