@@ -340,8 +340,8 @@ std/math/, std.math.bits too.
   `Orthographic` (glm's right-handed matrices with depth from 0 to 1); `TransformPoint`,
   `TransformVector`, `ProjectPoint`, `Decompose`, `ToMat3`, and `ToMat4`; `Transpose`,
   `Determinant`, `Inverse`, which panics for a matrix with no inverse, and `TryInverse`, which
-  gives Null. Release builds vectorize them as they stand: Vec4's Operators and Mat4's `*` come
-  out as SIMD instructions.
+  gives Null. Release builds don't make SIMD instructions of them yet: Vec4's Operators and
+  Mat4's `*` come out as scalar code until codegen runs LLVM's SLP vectorizer.
 - `Color` (four Float32s, linear RGB and alpha) and `Color32` (four bytes, sRGB), converting with
   sRGB's gamma both ways, every byte coming back as it was, with named colors (CSS's sRGB values),
   `Color.Hex("#ff8800")` and `Color32.Hex`, which panic on text that isn't hex, `TryHex`, which
