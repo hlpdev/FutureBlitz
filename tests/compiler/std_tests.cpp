@@ -41,12 +41,13 @@ run_with_std_module(const std::string& name, std::string text, std::string modul
 } // namespace
 
 TEST_CASE("std's counts and indexes don't overflow near the most an Int holds", "[programs]") {
-    // A Map's buckets stop at 2^30; a heap's last parent is before count / 2; and a Queue drops
-    // its emptied slots at half.
+    // A Map's buckets stop at 2^30; a heap's last parent is before count / 2; a Queue drops its
+    // emptied slots at half; and a RingBuffer's slot goes round without adding past its capacity.
     const std::string module = "Import std.core\n"
                                "Import std.collections.array\n"
                                "Import std.collections.map\n"
                                "Import std.collections.queue\n"
+                               "Import std.collections.ring_buffer\n"
                                "Public Function Check()\n"
                                "    For count In [0, 8, 9, 1073741823, 1073741824, 1073741825, "
                                "2147483647]\n"
@@ -60,6 +61,11 @@ TEST_CASE("std's counts and indexes don't overflow near the most an Int holds", 
                                "    Print(HalfEmptied(1073741823, 2147483647), "
                                "HalfEmptied(1073741824, 2147483647),\n"
                                "          HalfEmptied(1, 3), HalfEmptied(1, 2))\n"
+                               "    Print(SlotFrom(2147483646, 0, 2147483647), "
+                               "SlotFrom(2147483646, 1, 2147483647),\n"
+                               "          SlotFrom(2147483646, 2147483646, 2147483647),\n"
+                               "          SlotFrom(1073741824, 1073741823, 2147483647), "
+                               "SlotFrom(2, 2, 3), SlotFrom(0, 2, 3))\n"
                                "End Function\n";
     const std::expected<fb::process_result_t, std::string> result =
         run_with_std_module("std_limits", "Import std.extra.checks\nCheck()", module);
@@ -73,6 +79,7 @@ TEST_CASE("std's counts and indexes don't overflow near the most an Int holds", 
                             "1073741825 (1073741824, 34)\n"
                             "2147483647 (1073741824, 34)\n"
                             "2147483645 -1 -1 -1 -1 1\n"
-                            "False True False True\n");
+                            "False True False True\n"
+                            "2147483646 0 2147483645 0 1 2\n");
     CHECK(result->exit_code == 0);
 }

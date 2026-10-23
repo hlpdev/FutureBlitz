@@ -39,7 +39,7 @@ Public Class RingBuffer<T> Implements Iterable<T>, Cloneable
             Slots[Head] = value
             Head = (Head + 1) % Slots.Count
         Else
-            Slots[(Head + Size) % Slots.Count] = value
+            Slots[SlotFrom(Head, Size, Slots.Count)] = value
             Size += 1
         End If
 
@@ -68,7 +68,7 @@ Public Class RingBuffer<T> Implements Iterable<T>, Cloneable
     @PanicsAtCaller
     Public Method RemoveLast(): T
         Local last = Last()
-        Slots[(Head + Size - 1) % Slots.Count] = Null
+        Slots[SlotFrom(Head, Size - 1, Slots.Count)] = Null
         Size -= 1
         Changes += 1
         Return last
@@ -97,7 +97,7 @@ Public Class RingBuffer<T> Implements Iterable<T>, Cloneable
     @PanicsAtCaller
     Public Method Last(): T
         If Size == 0 Then Panic("the RingBuffer is empty")
-        Local slot = Slots[(Head + Size - 1) % Slots.Count]
+        Local slot = Slots[SlotFrom(Head, Size - 1, Slots.Count)]
         Return slot.Expect("a RingBuffer's slot in use holds a value")
     End Method
 
@@ -171,9 +171,17 @@ Public Class RingBuffer<T> Implements Iterable<T>, Cloneable
             Panic("index {index} is out of range for {Size} element{Size == 1 ? "" : "s"}")
         End If
 
-        Return (Head + index) % Slots.Count
+        Return SlotFrom(Head, index, Slots.Count)
     End Method
 End Class
+
+// The slot index places on from head, round to the start, in a RingBuffer of capacity slots,
+// where head and index are below capacity, worked out so it never overflows, as head + index
+// would past 2^31 - 1.
+Package Function SlotFrom(head: Int, index: Int, capacity: Int): Int
+    If index < capacity - head Then Return head + index
+    Return index - (capacity - head)
+End Function
 
 Public Struct RingBufferIterator<T> Implements Iterator<T>
     Field Owner: RingBuffer<T>
