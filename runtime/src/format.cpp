@@ -124,6 +124,16 @@ fb_string_t* fb_format_float(const double value, const std::int32_t float32,
         fb::format_float(value, float32 != 0, read->kind == '?' ? padding_of(*read) : *read));
 }
 
+std::int32_t fb_format_debug(const fb_string_t* spec) {
+    const std::expected<fb::format_spec_t, fb::format_spec_error_t> read =
+        fb::parse_format_spec(view(spec));
+    if (!read || read->kind != '?') {
+        return 0;
+    }
+
+    return read->alternate ? 2 : 1;
+}
+
 fb_string_t* fb_format_text(const fb_string_t* text, const fb_string_t* spec,
                             const std::int32_t string) {
     const std::optional<fb::format_spec_t> read =
