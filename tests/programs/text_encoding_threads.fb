@@ -1,0 +1,21 @@
+// std.text.encoding off the main thread: Encode, Decode, and DecodeAny in work on the pool, every
+// encoding, Windows-1252's every byte too.
+Import std.core
+Import std.collections
+Import std.text
+Import std.text.encoding
+
+Local utf16 = Spawn(Function() => Decode([0x68, 0x00, 0x69, 0x00], TextEncoding.UTF16_LE) ?? "-")
+Local encoded = Spawn(Function() => Encode("é€", TextEncoding.WINDOWS_1252) ?? [])
+Local any = Spawn(Function() => DecodeAny([0xFF, 0xFE, 0x41, 0x00]) ?? "-")
+Local everyByte = Spawn(Function(): Bool
+    Local bytes: UInt8[] = []
+    For byte = 0 To 255
+        bytes.Add(byte As UInt8)
+    End For
+
+    Local text = Decode(bytes, TextEncoding.WINDOWS_1252) ?? ""
+    Local back = Encode(text, TextEncoding.WINDOWS_1252) ?? []
+    Return back == bytes && text.CharCount == 256
+End Function)
+Print(utf16.Wait(), encoded.Wait(), any.Wait(), everyByte.Wait())
