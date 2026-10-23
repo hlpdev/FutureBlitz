@@ -308,6 +308,9 @@ void fb_string_bytes(const fb_string_t* string, fb_array_t* into);
 /// Panics at `location`: "index 5 is out of range for 3 elements".
 [[noreturn]] void fb_index_out_of_range(std::int64_t index, std::int64_t count,
                                         const fb_location_t* location);
+/// Panics at `location` for a UInt64 index, which can be past an Int64's range.
+[[noreturn]] void fb_unsigned_index_out_of_range(std::uint64_t index, std::int64_t count,
+                                                 const fb_location_t* location);
 
 /// Work for another thread: a function, and what it works on.
 using fb_work_t = void (*)(void* context);

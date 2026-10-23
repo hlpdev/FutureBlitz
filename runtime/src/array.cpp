@@ -166,4 +166,13 @@ void fb_index_out_of_range(const std::int64_t index, const std::int64_t count,
                   count == 1 ? "" : "s");
     fb_panic(message.data(), location);
 }
+
+void fb_unsigned_index_out_of_range(const std::uint64_t index, const std::int64_t count,
+                                    const fb_location_t* location) {
+    std::array<char, 128> message{};
+    std::snprintf(message.data(), message.size(),
+                  "index %" PRIu64 " is out of range for %" PRId64 " element%s", index, count,
+                  count == 1 ? "" : "s");
+    fb_panic(message.data(), location);
+}
 }

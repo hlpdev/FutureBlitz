@@ -1,0 +1,8 @@
+// An index's panic shows it as it is, a UInt64 past an Int64's range too.
+Import std.core
+
+Local values: Int[] = [1, 2, 3]
+Local small: UInt64 = 1
+Local big: UInt64 = 18446744073709551615
+Print("{values[small]}")
+Print("{values[big]}")

@@ -302,6 +302,7 @@ private:
     function_ref_t m_array_trim;
     function_ref_t m_array_free;
     function_ref_t m_index_out_of_range;
+    function_ref_t m_unsigned_index_out_of_range;
 
     /// Each MIR global's LLVM global, by global_id_t.
     std::vector<LLVMValueRef> m_globals;
@@ -770,6 +771,8 @@ private:
         m_array_trim = declare("fb_array_trim", m_void, { m_ptr, m_i64 });
         m_array_free = declare("fb_array_free", m_void, { m_ptr });
         m_index_out_of_range = declare("fb_index_out_of_range", m_void, { m_i64, m_i64, m_ptr });
+        m_unsigned_index_out_of_range =
+            declare("fb_unsigned_index_out_of_range", m_void, { m_i64, m_i64, m_ptr });
     }
 
     /// An fb_class_t, with a Method table of type `table`: its name and full name, its objects'
@@ -2148,7 +2151,8 @@ private:
 
         if (is_array(type)) {
             LLVMValueRef array = LLVMBuildLoad2(builder(), m_ptr, address, "");
-            return array_element(array, inner_of(type), index_value(step.indices[0]), step.span);
+            return array_element(array, inner_of(type), index_value(step.indices[0]),
+                                 index_type(step.indices[0]), step.span);
         }
 
         // One index counts every element of a fixed array; more go one per dimension.
@@ -2156,11 +2160,13 @@ private:
         LLVMValueRef flat = nullptr;
         if (step.indices.size() == 1) {
             LLVMValueRef count = LLVMConstInt(m_i64, m_mir.types->element_count(type), 0);
-            flat = check_index(index_value(step.indices[0]), count, step.span);
+            flat = check_index(index_value(step.indices[0]), index_type(step.indices[0]), count,
+                               step.span);
         } else {
             for (std::size_t i = 0; i < sizes.size(); ++i) {
                 LLVMValueRef size = LLVMConstInt(m_i64, sizes[i], 0);
-                LLVMValueRef position = check_index(index_value(step.indices[i]), size, step.span);
+                LLVMValueRef position = check_index(index_value(step.indices[i]),
+                                                    index_type(step.indices[i]), size, step.span);
                 flat = flat == nullptr
                            ? position
                            : LLVMBuildAdd(builder(), LLVMBuildMul(builder(), flat, size, ""),
@@ -2180,11 +2186,11 @@ private:
         return address;
     }
 
-    /// The address of a T[]'s element at `position`, an Int64, which panics when it's out of
-    /// range.
+    /// The address of a T[]'s element at `position`, an index of type `index` as an Int64, which
+    /// panics when it's out of range.
     LLVMValueRef array_element(LLVMValueRef array, const type_id_t element, LLVMValueRef position,
-                               const span_t span) {
-        check_index(position, count_of(array), span);
+                               const type_id_t index, const span_t span) {
+        check_index(position, index, count_of(array), span);
         LLVMValueRef data = LLVMBuildLoad2(
             builder(), m_ptr, LLVMBuildStructGEP2(builder(), m_array_type, array, 4, ""), "");
         return LLVMBuildGEP2(builder(), llvm_type(element), data, &position, 1, "");
@@ -2196,16 +2202,19 @@ private:
                               LLVMBuildStructGEP2(builder(), m_array_type, array, 2, ""), "");
     }
 
-    /// Panics unless `position` is from 0 to `count` minus 1, then gives it back. Unsigned, so a
-    /// negative one is out of range too.
-    LLVMValueRef check_index(LLVMValueRef position, LLVMValueRef count, const span_t span) {
+    /// Panics unless `position`, an index of type `index` as an Int64, is from 0 to `count` minus
+    /// 1, then gives it back. Unsigned, so a negative one is out of range too. The panic shows a
+    /// UInt64's past an Int64's range as it is.
+    LLVMValueRef check_index(LLVMValueRef position, const type_id_t index, LLVMValueRef count,
+                             const span_t span) {
         LLVMValueRef function = LLVMGetBasicBlockParent(LLVMGetInsertBlock(builder()));
         LLVMBasicBlockRef fail = LLVMAppendBasicBlockInContext(context(), function, "out_of_range");
         LLVMBasicBlockRef ok = LLVMAppendBasicBlockInContext(context(), function, "in_range");
         LLVMBuildCondBr(builder(), LLVMBuildICmp(builder(), LLVMIntUGE, position, count, ""), fail,
                         ok);
         LLVMPositionBuilderAtEnd(builder(), fail);
-        call(m_index_out_of_range, { position, count, location(span) });
+        call(index == type_id_t::UINT64 ? m_unsigned_index_out_of_range : m_index_out_of_range,
+             { position, count, location(span) });
         LLVMBuildUnreachable(builder());
         LLVMPositionBuilderAtEnd(builder(), ok);
         return position;
@@ -2214,6 +2223,11 @@ private:
     /// An index's value as an Int64.
     LLVMValueRef index_value(const local_id_t local) {
         return to_int64(place_t{ local });
+    }
+
+    /// An index's type.
+    [[nodiscard]] type_id_t index_type(const local_id_t local) const {
+        return type_of(place_t{ local });
     }
 
     LLVMValueRef to_int64(const operand_t& operand) {
@@ -3512,8 +3526,8 @@ private:
         }
         case runtime_function_t::ARRAY_REMOVE_AT: {
             LLVMValueRef position = to_int64(node.arguments[1]);
-            LLVMValueRef address =
-                array_element(array, element, position, node.span.value_or(span_t{}));
+            LLVMValueRef address = array_element(
+                array, element, position, type_of(node.arguments[1]), node.span.value_or(span_t{}));
             if (m_mir.types->has_references(element)) {
                 for_each_reference(address, element, false);
             }

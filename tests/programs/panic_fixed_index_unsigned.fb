@@ -1,0 +1,9 @@
+// A fixed array's index panics as a T[]'s does, with a UInt64 past an Int64's range as it is.
+Import std.core
+
+Local grid: Int[2, 3]
+Local small: UInt64 = 1
+Local big: UInt64 = 18446744073709551615
+grid[small, 2] = 5
+Print("{grid[1, 2]}")
+Print("{grid[small, big]}")
