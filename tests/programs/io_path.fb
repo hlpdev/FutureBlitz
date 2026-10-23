@@ -1,0 +1,77 @@
+// Path's text alone, by POSIX's rules and Windows', whichever the target's are: joining, a
+// path's names, normalizing, and one path from another, with names beyond ASCII.
+Import std.collections
+Import std.core
+Import std.io
+
+Function Posix(text: String): Path => Path(text, PathStyle.POSIX)
+Function Windows(text: String): Path => Path(text, PathStyle.WINDOWS)
+
+Function Show(p: Path)
+    Print("[{p}] name [{p.FileName()}] stem [{p.Stem()}] ext [{p.Extension()}] parent [{p.Parent()}] absolute {p.IsAbsolute()}")
+End Function
+
+Print("POSIX")
+For text In ["", "/", "a", "a/b", "/a/b/", "a//b/./c", "games/save.dat", ".config", "archive.tar.gz",
+             "a.", "..", "a/..", "/usr/local/", "spiele/größe.txt", "🎮/セーブ.dat", "a\\b"]
+    Show(Posix(text))
+End For
+
+Print("Windows")
+For text In ["C:", "C:/", "C:\\", "c:\\games\\save.dat", "C:games", "\\games", "//server/share",
+             "\\\\server\\share\\dir\\file.txt", "a\\b/c", "spiele\\größe.txt", "D:\\"]
+    Show(Windows(text))
+End For
+
+Print("Join")
+Print("{Posix("a") / "b"} {Posix("a/") / "b"} {Posix("a") / "/b"} {Posix("") / "b"} {Posix("a") / ""}")
+Print("{Posix("a") / "b" / "c.txt"} {Posix("/") / "etc"} {Posix("a").Join(Posix("b"))}")
+Print("{Windows("C:\\games") / "save.dat"} {Windows("C:\\games\\") / "save.dat"} {Windows("C:") / "games"}")
+Print("{Windows("C:\\games") / "D:\\music"} {Windows("C:\\games") / "\\music"} {Windows("C:\\games") / "C:saves"}")
+Print("{Windows("C:\\games") / "D:saves"} {Windows("games") / "\\music"} {Windows("C:games") / "x"}")
+Print("{Windows("//server/share") / "dir"} {Windows("a") / "//server/share/b"}")
+
+Print("Normalize")
+For text In ["", ".", "a/./b", "a//b///c/", "a/../b", "../a/../..", "/../a", "/a/b/../../..",
+             "a/b/..", "./", "naïve/./../café"]
+    Print("[{text}] [{Posix(text).Normalize()}]")
+End For
+
+For text In ["C:\\a\\..\\b", "C:/../a", "C:a\\..\\..\\b", "\\\\server\\share\\..\\x", "a\\.\\b\\",
+             "\\..\\a"]
+    Print("[{text}] [{Windows(text).Normalize()}]")
+End For
+
+Print("RelativeTo")
+Function Relative(to: Path, from: Path): String
+    Local relative = to.RelativeTo(from)
+    Return relative == Null ? "none" : relative.Text
+End Function
+
+Print(Relative(Posix("games/saves/one.dat"), Posix("games")))
+Print(Relative(Posix("music"), Posix("games")))
+Print(Relative(Posix("/a/b/c"), Posix("/a/x/y")))
+Print(Relative(Posix("/a"), Posix("/a")))
+Print(Relative(Posix("/a"), Posix("a")))
+Print(Relative(Posix("a"), Posix("../other")))
+Print(Relative(Posix("../a"), Posix("..")))
+Print(Relative(Windows("C:\\Games\\save.dat"), Windows("c:/games")))
+Print(Relative(Windows("C:\\games\\save.dat"), Windows("c:/games")))
+Print(Relative(Windows("C:\\a"), Windows("D:\\a")))
+
+Print("WithExtension")
+Print("{Posix("save.dat").WithExtension(".bak")} {Posix("a/save").WithExtension("txt")} {Posix("a/b.tar.gz").WithExtension("")}")
+Print("{Posix("a/save.dat/").WithExtension(".bak")} {Windows("C:\\x\\größe.dat").WithExtension(".bin")}")
+
+Print("Compare")
+Print("{Posix("a") == Posix("a")} {Posix("a") == Posix("a/")} {Posix("a") == Windows("a")} {Posix("a") < Posix("b")}")
+Local seen = Set<Path>()
+seen.Add(Posix("a/b"))
+seen.Add(Posix("a//b").Normalize())
+seen.Add(Windows("a/b"))
+Print("{seen.Count}")
+
+Print("Absolute")
+Local here = Try Path("x").Absolute()
+Print("{here.IsAbsolute()} {here.FileName()} {(Try Path("x/../y").Absolute()) == here.Parent() / "y"}")
+Print("{Try Posix("/a/./b").Absolute()} {Try Windows("C:\\a\\..\\b").Absolute()}")
