@@ -232,6 +232,13 @@ Edge cases, panic_sorted_map_nan, panic_sorted_set_nan, panic_interval_nan, std_
 checks, and panics for a Map, Queue, PriorityQueue, SpatialHash, and Octree changed in a loop, every
 spatial NaN check, and an empty LinkedList's Last.
 
+Phase 1, lane 4's lows: Counter.Add works a count out with CheckedAdd and panics past what an Int
+holds, in every build, and its comments and spec 14 say a value whose count went to 0 comes back
+last; ImmutableMap.AddAll and ImmutableSet.AddAll, as ImmutableArray's; every collection's Changes
+comment says it counts values added or removed (a Deque's setter in a loop is tested); comments
+fixed in map.fb (Buckets and Shift), values.fb (Clamp's panic), trie.fb, and panic_chain_changed.fb.
+New test: panic_counter_overflow. Lane 4's 23 findings are all fixed.
+
 ## M5, modules, packages, FFI, and bindgen
 
 Done: M5 (modules, packages, `project.toml`, FFI, bindgen), planned 2026-10-18 and finished
