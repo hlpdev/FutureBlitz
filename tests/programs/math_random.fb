@@ -114,3 +114,13 @@ For i = 0 Until 60000
     orders["{three}"] = orders.Get("{three}", 0) + 1
 End For
 Print(orders.Count, orders.Values().All(Function(n: Int) => n > 9700 && n < 10300))
+
+// Weights whose sum overflows pick as their shares of the largest do.
+Local overflowing = Random(1)
+Local big: Double[] = [1e308, 1e308, 0]
+Local shares = [0, 0, 0]
+For i = 0 Until 1000
+    shares[overflowing.WeightedPick([0, 1, 2], big)] += 1
+End For
+Print(shares[0] > 400, shares[1] > 400, shares[2],
+      Random(3).WeightedPick(["a", "b"], [1.7e308, 1.7e308]))

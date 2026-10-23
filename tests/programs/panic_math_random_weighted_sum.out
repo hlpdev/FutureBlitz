@@ -1,1 +1,1 @@
-panic: WeightedPick takes weights whose sum is above 0 and finite, not 0 at panic_math_random_weighted_sum.fb:6:7
+panic: WeightedPick takes weights whose sum is above 0, not 0 at panic_math_random_weighted_sum.fb:6:7

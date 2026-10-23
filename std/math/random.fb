@@ -145,6 +145,7 @@ Public Class Random
 
     // One of the items, each as likely as its weight is of the weights' sum. Weights and items of
     // other counts, a weight that's negative or not finite, or weights that add up to 0, panic.
+    // Weights whose sum overflows are taken as shares of the largest.
     @PanicsAtCaller
     Public Method WeightedPick<T>(items: T[], weights: Double[]): T
         If items.Count != weights.Count
@@ -153,23 +154,32 @@ Public Class Random
         End If
 
         Local total: Double = 0
+        Local largest: Double = 0
         For weight In weights
             If !(weight >= 0) || !IsFinite(weight)
                 Panic("WeightedPick takes weights that are finite and not negative, not {weight}")
             End If
             total += weight
+            largest = Max(largest, weight)
         End For
-        If !(total > 0) || !IsFinite(total)
-            Panic("WeightedPick takes weights whose sum is above 0 and finite, not {total}")
+        If !(total > 0) Then Panic("WeightedPick takes weights whose sum is above 0, not {total}")
+        Local divisor: Double = 1
+        If !IsFinite(total)
+            divisor = largest
+            total = 0
+            For weight In weights
+                total += weight / divisor
+            End For
         End If
 
         Local target = Double() * total
         Local last = 0
         For i = 0 Until items.Count
-            If weights[i] <= 0 Then Continue
+            Local weight = weights[i] / divisor
+            If weight <= 0 Then Continue
             last = i
-            If target < weights[i] Then Return items[i]
-            target -= weights[i]
+            If target < weight Then Return items[i]
+            target -= weight
         End For
         // Rounding in the sum can leave a sliver past the last weight, which is the last item's.
         Return items[last]
