@@ -18,7 +18,9 @@ Operators follow **C syntax**. Only the type operators (`Is`, `As`) are words.
 `=` is always assignment and `==` is always comparison.
 
 `>>`, `As?`, and the `?` of a nullable type `T?` are written without spaces. So `a > > b` is not
-a shift, and in `x Is T ? a : b` the `?` is the ternary, not part of the type.
+a shift, and in `x Is T ? a : b` the `?` is the ternary, not part of the type. In an
+interpolation, a ternary's `:` has a space after it, since a `:` without one starts a format spec
+(see [14-strings-collections.md](14-strings-collections.md#format-specs)).
 
 A shift's result has the left side's type, and the amount can be any integer type. An amount
 known at compile time must be from 0 to the left side's width minus 1.

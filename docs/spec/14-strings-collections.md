@@ -24,13 +24,126 @@ Local text = """
 
 ### Interpolation
 
-`{expr}` accepts any expression, including string literals: `"{name ?? "nobody"}"`. There
-are no format specifiers in v0. Numbers print in the shortest form that reads back as the same
-value (`0.1`, not `0.100000001`), and a `Bool` prints as `True` or `False`. A tuple prints as
-`(1, a)`, and an array as `[1, 2, 3]`. A Struct, Class, or Interface's object that implements
-`Printable` prints what its `ToString` gives. A Task, Thread, Channel, Scheduler, Atomic, or
-Mutex has no text, so it can't be shown; a Task's result can, through Await or `Wait()`. In a
-single-line string, an interpolation must end on the same line.
+`{expr}` accepts any expression, including string literals: `"{name ?? "nobody"}"`. Numbers
+print in the shortest form that reads back as the same value (`0.1`, not `0.100000001`), the same
+on every platform: an exponent as `1e21` or `1.5e-7`, and `NaN`, `Inf`, and `-Inf`. A `Bool`
+prints as `True` or `False`. A tuple prints as `(1, a)`, and an array as `[1, 2, 3]`. A Struct,
+Class, or Interface's object that implements `Printable` prints what its `ToString` gives. A
+Task, Thread, Channel, Scheduler, Atomic, or Mutex has no text, so it can't be shown, though its
+debug form can; a Task's result can, through Await or `Wait()`. In a single-line string, an
+interpolation must end on the same line.
+
+### Format specs
+
+```vb
+Print("{price:.2}")                       // 3.14
+Print("{name:<10}|{hp:>5}|{title:*^9}")   // Ann       |   42|**King***
+Print("{n:+,} {mask:#010b} {color:06X}")  // +1,234 0b00001010 00FF80
+Print("{ratio:.1%} {big:e} {tiny:.3e}")   // 45.0% 6.02e23 1.500e-7
+```
+
+`{expr:spec}` writes a value by a format spec, in Python's and Rust's mini-language:
+
+    [[fill]align][sign][#][0][width][grouping][.precision][kind]
+
+| Part | Meaning |
+|---|---|
+| fill | any one character but `{` and `}`, before an align; a space without one |
+| align | `<` left, `>` right, `^` centered; numbers go right without one, the rest left |
+| sign | `+` on every number, `-` on negatives only (the default), a space before the rest |
+| `#` | `0x`, `0o`, or `0b` before `x`, `X`, `o`, or `b`'s digits; with `?`, many lines |
+| `0` | pads a number with zeros after its sign and prefix; not with an align |
+| width | the fewest characters (code points) the text takes, padded to it; at most 999 |
+| grouping | `,` between each 3 digits of a decimal; `_` each 3, or each 4 for `x`, `o`, `b` |
+| precision | `.N`: a Float's digits after the point, or a String's most characters; at most 999 |
+| kind | integers: `d` (the default), `x`, `X` (upper digits), `o`, `b`; Floats: `f`, `e`, `E`, `%`; any value: `?` |
+
+- `.2` alone is `f` with 2 decimals. `f`, `e`, `E`, and `%` without a precision write the
+  shortest digits that read back. `%` is the value times 100, then `%`.
+- A Bool, Enum, String, Printable value, tuple, or array takes a fill, an alignment, and a width,
+  and a String a precision too.
+- The compiler checks the spec against its value's type: one that doesn't fit is an error at the
+  spec ("Int32 doesn't take a precision in its format spec"). In generic code, a T takes what
+  its constraints say it does, any spec for a Formattable T, and each instance whose type doesn't
+  take the spec panics at the spec.
+- In an interpolation, a `:` outside `(`, `[`, and `{` that has no space or tab after it starts
+  the spec, which runs to the `}`; a spec can't hold a brace. A ternary's `:` and a function
+  type's `): Int` have a space after them, so `"{a ? b : c}"` is code, and `"{(a ? b : c):>8}"`
+  pads it.
+
+### Formattable
+
+```vb
+Struct Money Implements Formattable
+    Field Cents: Int64
+
+    Method ToString(): String => "${Cents / 100}.{Cents % 100:02}"
+
+    Method Format(spec: String): String?
+        If spec == "cents" Then Return "{Cents} cents"
+        Return Null
+    End Method
+End Struct
+
+Print("{price} {price:cents}")   // $3.50 350 cents
+```
+
+- `Interface Formattable Extends Printable` (std.core) has `Method Format(spec: String):
+  String?`, which gives Null for a spec it doesn't take. The numbers, Bool, String, and Enums
+  implement it, by the specs above.
+- `"{x:spec}"` on a Formattable type of the program's own calls its Format with the spec's text,
+  and panics at the spec when that gives Null. Its debug form, `?`, is still the compiler's.
+
+### Format
+
+```vb
+Local line = Try Format(r"{} scored {1:>6.1} ({0})", name, score)
+```
+
+- `Format(template: String, values: Formattable...): String Throws FormatError` (std.core) fills
+  a template the program has only when it runs. `{}` is the value after the last `{}`'s, `{0}`
+  the first value, and either can take a spec after a `:`; `{{` and `}}` are braces. A field
+  without a spec shows its value as `"{x}"` does. In source, a template is a raw string, whose
+  braces aren't interpolations.
+- It throws a FormatError: `BAD_TEMPLATE` for a template that isn't one, `MISSING_VALUE` for a
+  field whose value isn't given, and `BAD_VALUE` for a spec its value doesn't take.
+
+### Parsing
+
+```vb
+Local hp = Int.Parse("42") ?? 0
+Local mask = UInt8.Parse("0xff", 16)
+Local speed = Float.Parse("1.5e-7")
+Local on = Bool.Parse("True")
+```
+
+- Each integer type's `Parse(text, base = 10)`, each Float type's `Parse(text)`, and
+  `Bool.Parse(text)` give a `T?`: Null for text that isn't one, or a number its type can't hold.
+- An integer is a sign, then digits of the base, which `0x`, `0o`, or `0b` can start for bases
+  16, 8, and 2; a base outside 2 to 36 panics. A Float reads what interpolation writes, `NaN`,
+  `Inf`, and `-Inf` too, so every Float64's text reads back as itself. A Bool is `True` or
+  `False`. Parsing is invariant: `.` for decimals, and no grouping.
+
+### The debug form
+
+```vb
+Print("{save:?}")   // Save { Name: "Ann", Scores: [10, 20], Best: 99, Rival: Null }
+Print(Dump(save))   // the same, with each part on a line of its own
+```
+
+- `"{x:?}"` shows any value as code would write it, from reflection, the same on every
+  platform: a number as its shortest text, a String in quotes with escapes, an Enum as its
+  member, a `T?` as its value or `Null`, a tuple as `(1, "a")`, an array as `[1, 2]`, and a
+  Struct or object as `Point { X: 1, Y: 2 }`, with every Field, by its object's own Class. A
+  Weak<T> shows what reading it gives, and a function value, Task, Thread, Channel, Atomic, or
+  Mutex its type's name.
+- An object that's already being shown, in a cycle, shows as `Node { … }`.
+- `"{x:#?}"` writes each part on a line of its own, indented four spaces, with a comma after it,
+  and `Dump(x)` (std.core) gives that text. Both take a fill, an alignment, and a width.
+- std's collections show their elements, as `Stack<Int32> [1, 2]`, and a Map its entries, as
+  `Map<String, Int32> {"a": 1}`. That's std.core's `@DebugElements`, on a Struct or Class that
+  implements `Iterable<T>`, and `@DebugEntries`, on one whose T is a (key, value) tuple, which a
+  type of the program's own can have too.
 
 ### Multi-line strings
 
