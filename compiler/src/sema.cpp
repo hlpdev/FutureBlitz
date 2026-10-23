@@ -15705,7 +15705,6 @@ private:
                       [body](const element_use_t& use) { return use.body == body; });
     }
 
-    /// Whether the function being checked is a New of `type`.
     /// Whether the code is New's own, of `type`: a lambda or a Parallel For's body in it runs
     /// later, or on other threads, so it isn't.
     [[nodiscard]] bool in_new_of(const type_id_t type) const {
