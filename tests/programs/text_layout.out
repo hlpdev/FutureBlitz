@@ -1,0 +1,43 @@
+The quick brown fox
+jumps over the lazy
+dog, and then a
+very-long-word-that-
+wraps.
+
+  indented line that
+  goes on and on\r
+end
+--
+日本語
+のテキ
+ストで
+す
+中文
+😀😀😀
+😀
+--
+éé
+éé
+--
+dee
+p | a
+b
+c | True
+--
+[def f():
+    return 1
+
+x = 2
+]
+[  a
+	b
+]
+[one\r
+  two\rthree]
+[> a
+  
+> b]
+[  one\r
+  two
+]
+3 3 2 1 2 0 2

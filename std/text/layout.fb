@@ -1,0 +1,179 @@
+// std.text.layout: a String's lines laid out again. WordWrap fills lines up to a width in a
+// terminal's columns, Dedent takes away the indentation every line has, and Indent puts a prefix
+// before each line. A line ends at "\n", "\r\n", or "\r", and each keeps its line break.
+
+Import std.core
+Import std.text.string
+Import std.text.unicode
+
+Extern "runtime"
+    Function fb_text_byte(text: String, at: Int64): UInt8
+End Extern
+
+Extend String
+    // Its lines filled with words up to width columns each, as a terminal shows them, with
+    // DisplayWidth: each line breaks before the word that would go past it, at the spaces between
+    // words, which go. A line's leading whitespace starts each line it becomes, and a word wider
+    // than the rest of the width is broken between its grapheme clusters. Panics when width is
+    // below 1.
+    @PanicsAtCaller
+    Public Method WordWrap(width: Int): String
+        If width < 1 Then Panic("WordWrap takes a width of at least 1, not {width}")
+        Local wrapped = ""
+        For line In LinesOf(Self)
+            Local content = Self.Slice(line.0, line.1)
+            Local indent = content.Slice(0, content.Length - content.TrimStart().Length)
+            Local room = width - DisplayWidth(indent)
+            If room < 1
+                indent = ""
+                room = width
+            End If
+
+            Local filled = ""
+            Local used = 0
+            For word In content.SplitWhitespace()
+                For part In Pieces(word, room)
+                    Local columns = DisplayWidth(part)
+                    If used > 0 && used + 1 + columns <= room
+                        filled += " " + part
+                        used += 1 + columns
+                    Else
+                        If used > 0 Then filled += "\n"
+                        filled += indent + part
+                        used = columns
+                    End If
+                End For
+            End For
+
+            wrapped += filled + Self.Slice(line.1, line.2)
+        End For
+
+        Return wrapped
+    End Method
+
+    // A copy without the leading spaces and tabs that each line that isn't blank starts with, all
+    // alike, as when text is written indented in code. A blank line becomes empty.
+    Public Method Dedent(): String
+        Local common: String? = Null
+        Local lines = LinesOf(Self)
+        For line In lines
+            Local content = Self.Slice(line.0, line.1)
+            If content.IsBlank() Then Continue
+            Local indent = content.Slice(0, Leading(content))
+            Local shared = common
+            If shared == Null
+                common = indent
+            Else
+                Local same = 0
+                While same < shared.Length && same < indent.Length &&
+                      fb_text_byte(shared, same) == fb_text_byte(indent, same)
+                    same += 1
+                End While
+
+                common = shared.Slice(0, same)
+            End If
+        End For
+
+        Local cut = (common ?? "").Length
+        Local dedented = ""
+        For line In lines
+            Local content = Self.Slice(line.0, line.1)
+            If !content.IsBlank() Then dedented += content.Slice(cut, content.Length)
+            dedented += Self.Slice(line.1, line.2)
+        End For
+
+        Return dedented
+    End Method
+
+    // A copy with prefix before each line that isn't blank.
+    Public Method Indent(prefix: String): String
+        Local indented = ""
+        For line In LinesOf(Self)
+            Local content = Self.Slice(line.0, line.1)
+            If !content.IsBlank() Then indented += prefix
+            indented += Self.Slice(line.0, line.2)
+        End For
+
+        Return indented
+    End Method
+End Extend
+
+// Each line of text: where it starts, where its line break starts, and where that ends. Text
+// that ends in a line break has no empty line after it, and "" has no lines. A line break's
+// bytes are never inside a character, so they're looked for byte by byte.
+Function LinesOf(text: String): (Int, Int, Int)[]
+    Local lines: (Int, Int, Int)[] = []
+    Local start = 0
+    Local bytes = text.Length
+    For at = 0 Until bytes
+        If at < start Then Continue
+        Local byte = fb_text_byte(text, at)
+        If byte == 10 || byte == 13
+            Local finish = at + 1
+            If byte == 13 && finish < bytes && fb_text_byte(text, finish) == 10 Then finish += 1
+            lines.Add((start, at, finish))
+            start = finish
+        End If
+    End For
+
+    If start < bytes Then lines.Add((start, bytes, bytes))
+    Return lines
+End Function
+
+// How many bytes of spaces and tabs text starts with.
+Function Leading(text: String): Int
+    Local count = 0
+    While count < text.Length
+        Local byte = fb_text_byte(text, count)
+        If byte != 32 && byte != 9 Then Break
+        count += 1
+    End While
+
+    Return count
+End Function
+
+// word in pieces no wider than room each, broken between its grapheme clusters, each piece at
+// least one of them.
+Function Pieces(word: String, room: Int): String[]
+    If DisplayWidth(word) <= room Then Return [word]
+    Local pieces: String[] = []
+    Local piece = ""
+    Local graphemes = word.Graphemes()
+    Local grapheme = graphemes.Next()
+    While grapheme != Null
+        If piece != "" && DisplayWidth(piece + grapheme) > room
+            pieces.Add(piece)
+            piece = ""
+        End If
+
+        piece += grapheme
+        grapheme = graphemes.Next()
+    End While
+
+    If piece != "" Then pieces.Add(piece)
+    Return pieces
+End Function
+
+// How many single-character edits, inserting, deleting, or changing a character, turn a into b,
+// counting characters, code points.
+Public Function Levenshtein(a: String, b: String): Int
+    Local from = a.Chars
+    Local to = b.Chars
+    Local previous: Int[] = []
+    For j = 0 To to.Count
+        previous.Add(j)
+    End For
+
+    For i = 1 To from.Count
+        Local current: Int[] = [i]
+        For j = 1 To to.Count
+            Local change = previous[j - 1]
+            If from[i - 1] != to[j - 1] Then change += 1
+            current.Add(Min(change, Min(previous[j] + 1, current[j - 1] + 1)))
+        End For
+
+        previous = current
+    End For
+
+    Return previous[to.Count]
+End Function

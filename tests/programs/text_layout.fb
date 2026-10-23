@@ -1,0 +1,29 @@
+// std.text.layout: WordWrap's columns, with wide characters, grapheme clusters, long words, and
+// indented lines; Dedent's common indentation and blank lines; Indent's prefix; each keeping its
+// line breaks, "\r\n" and "\r" too, which show as "\r" here; and Levenshtein's edits, by code
+// point.
+Import std.core
+Import std.text
+Import std.text.layout
+
+Function Shown(text: String): String => text.Replace("\r", "\\r")
+
+Local text = "The quick brown fox jumps over the lazy dog, and then a very-long-word-that-wraps." +
+             "\n\n  indented line that goes on and on\r\nend"
+Print(Shown(text.WordWrap(20)))
+Print("--")
+Print("日本語のテキストです 中文 😀😀😀😀".WordWrap(6))
+Print("--")
+Print("e\u{301}e\u{301}e\u{301}e\u{301}".WordWrap(2))
+Print("--")
+Print("    deep".WordWrap(3), "|", "a b c".WordWrap(1), "|", "".WordWrap(5) == "")
+Print("--")
+Local code = "    def f():\n        return 1\n\n    x = 2\n"
+Print("[" + code.Dedent() + "]")
+Print("[" + "  a\n\tb\n".Dedent() + "]")
+Print("[" + Shown("\t\tone\r\n\t\t  two\r\t\tthree".Dedent()) + "]")
+Print("[" + "a\n  \nb".Indent("> ") + "]")
+Print("[" + Shown("one\r\ntwo\n".Indent("  ")) + "]")
+Print(Levenshtein("kitten", "sitting"), Levenshtein("", "abc"), Levenshtein("flaw", "lawn"),
+      Levenshtein("café", "cafe"), Levenshtein("😀a", "a😀"), Levenshtein("same", "same"),
+      Levenshtein("e\u{301}", "é"))
