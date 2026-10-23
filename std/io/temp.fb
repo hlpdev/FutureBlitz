@@ -1,0 +1,68 @@
+// std.io's temporary files and folders: each is new, in the OS's temporary folder, with a name
+// no other has, and goes away, with what's in it, when it's closed, or when its last reference
+// goes.
+
+Import std.core
+Import std.io.dir
+Import std.io.file
+Import std.io.path
+Import std.io.request
+
+Extern "runtime"
+    Function fb_io_request_path(request: Ptr<Void>): String
+    Function fb_io_temp_new(request: Ptr<Void>, prefix: String, folder: Int32): Int64
+End Extern
+
+// A new, empty folder of the program's own, which Close removes with everything in it.
+Public Class TempDir
+    Public ReadOnly Field Path: Path
+    Field Closed: Bool
+
+    // Makes one named `prefix` and six letters and digits.
+    Public New(prefix: String = "fb-") Throws IOError
+        Path = Try Made(prefix, 1)
+    End New
+
+    // Removes the folder and everything in it, which a second Close leaves alone.
+    Public Method Close() Throws IOError
+        If Closed Then Return
+        Closed = True
+        Try Dir.RemoveAll(Path)
+    End Method
+
+    // Closes it, losing an error, as when a file in it is still open on Windows.
+    Method Destroy()
+        Try? Close()
+    End Method
+End Class
+
+// A new, empty file of the program's own, which Close deletes.
+Public Class TempFile
+    Public ReadOnly Field Path: Path
+    Field Closed: Bool
+
+    // Makes one named `prefix` and six letters and digits.
+    Public New(prefix: String = "fb-") Throws IOError
+        Path = Try Made(prefix, 0)
+    End New
+
+    // Deletes the file, which a second Close leaves alone.
+    Public Method Close() Throws IOError
+        If Closed Then Return
+        Closed = True
+        Try File.Delete(Path)
+    End Method
+
+    // Closes it, losing an error.
+    Method Destroy()
+        Try? Close()
+    End Method
+End Class
+
+// A new temporary folder, or file when `folder` is 0, named `prefix` and six more characters.
+Function Made(prefix: String, folder: Int32): Path Throws IOError
+    Local request = Request()
+    Local temporary = Path(prefix)
+    Try Checked(fb_io_temp_new(request.Native, prefix, folder), "make a temporary file named", temporary)
+    Return Path(fb_io_request_path(request.Native))
+End Function
