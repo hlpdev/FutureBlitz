@@ -1206,6 +1206,18 @@ TEST_CASE("fb bindgen runs fb-bindgen, which writes a C header's module", "[cli]
     std::ifstream kept(header, std::ios::binary);
     CHECK(std::string(std::istreambuf_iterator<char>(kept), {}) ==
           "int area(int width, int height);\n");
+
+    // Nor over a header it reads, which is lost as the header would be.
+    const std::filesystem::path types =
+        write_source("bindgen/vec_types.h", "typedef struct { float x, y; } vec2;\n");
+    const std::filesystem::path vec =
+        write_source("bindgen/vec.h", "#include \"vec_types.h\"\nfloat vec_length(vec2 v);\n");
+    check_usage_error({ "bindgen", fb::to_utf8(vec), "-o", fb::to_utf8(types) },
+                      std::format("'-o' names {}, a header {} reads; give another path",
+                                  fb::to_utf8(types), fb::to_utf8(vec)));
+    std::ifstream untouched(types, std::ios::binary);
+    CHECK(std::string(std::istreambuf_iterator<char>(untouched), {}) ==
+          "typedef struct { float x, y; } vec2;\n");
 #else
     SKIP("fb-bindgen is built only where CMake finds libclang");
 #endif
