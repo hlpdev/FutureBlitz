@@ -8374,6 +8374,16 @@ TEST_CASE("an Async Function's call gives its Task, and its code can Await", "[s
                                  "End Function\n";
     CHECK(probe(std::format("{}Local x = Sum(3)", sum)) == "Task<Int32>");
     CHECK(probe("Async Function Log()\nEnd Function\nLocal x = Log()") == "Task");
+
+    // A generic one's type arguments can come from the Task expected.
+    const std::string_view zero = "Import std.core\n"
+                                  "Async Function Zero<T: Numeric>(): T\n"
+                                  "    Await NextFrame()\n"
+                                  "    Return T.Zero()\n"
+                                  "End Function\n";
+    CHECK(probe(std::format("{}Local t: Task<Int64> = Zero()", zero)) == "Task<Int64>");
+    CHECK(probe(std::format("{}Local t: Task<Float>? = Zero()", zero)) ==
+          "Task<Float32>? (from Task<Float32>)");
     CHECK(errors_of(std::format("Import std.core\n"
                                 "{}Async Function Twice(n: Int): Int\n"
                                 "    Local first: Int = Await Sum(n)\n"

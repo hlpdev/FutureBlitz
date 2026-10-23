@@ -19518,10 +19518,16 @@ private:
             }
         }
 
-        // Then from the type expected, like the Stack<Int> in "Local s: Stack<Int> = Stack()".
+        // Then from the type expected, like the Stack<Int> in "Local s: Stack<Int> = Stack()". A
+        // call to an Async Function gives a Task of its result.
         const symbol_t& declared = symbol(function);
-        const type_id_t result =
-            declared.kind == symbol_kind_t::CONSTRUCTOR ? declared.owner : declared.type;
+        type_id_t result = declared.type;
+        if (declared.kind == symbol_kind_t::CONSTRUCTOR) {
+            result = declared.owner;
+        } else if (declared.modifiers.is_async) {
+            result = m_analysis.types.task(declared.type);
+        }
+
         if (hint != type_id_t::NONE) {
             unify(result, hint, parameters, arguments);
         }
