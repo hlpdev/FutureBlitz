@@ -58,3 +58,11 @@ Print(Filled(r"{} {}", 1))
 Print(Filled(r"{3}", 1, 2))
 Print(Filled(r"{:.2}", 5))
 Print(Filled(r"{0:F} {0:K}", Temperature(0)))
+
+// A field that asks for the debug form gets the built-in types', padded as they pad, and a
+// program's own type's, a Struct's or a Class's, which its Format doesn't take, as an
+// interpolation writes it.
+Print(Filled(r"[{:4?}] [{:?}] [{:>6?}] [{:?}] [{:<5?}]", 1.5, "a", True, Suit.Hearts, 7))
+Print(Filled(r"{:?} {:?} [{0:>24?}]", Money(250), Temperature(5)))
+Print(Filled(r"{:#?}", Money(1)))
+Print(Filled(r"{:x?}", Money(1)))

@@ -229,6 +229,9 @@ fb_string_t* fb_format_float(double value, std::int32_t float32, const fb_string
 /// `text` padded and cut by a format spec, a String's (with a precision, and its debug form in
 /// quotes) when `string` isn't 0, or other text's. Null when `spec` doesn't fit it.
 fb_string_t* fb_format_text(const fb_string_t* text, const fb_string_t* spec, std::int32_t string);
+/// Which debug form a format spec asks for: 0 for none, 1 for "?", and 2 for "#?", whose parts go
+/// on lines of their own.
+std::int32_t fb_format_debug(const fb_string_t* spec);
 /// A String's debug form: in quotes, with source code's escapes. The caller owns the result.
 fb_string_t* fb_string_debug(const fb_string_t* text);
 /// An object's debug form, by its own Class's debug, or its Class's name when that has none. An
