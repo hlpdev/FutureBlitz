@@ -1,0 +1,131 @@
+// Polygons: area, point-in-polygon by the nonzero rule, the convex hull, triangulation with holes,
+// and union, intersection, difference, and offsetting, whose results are counterclockwise outer
+// rings and clockwise holes. Areas from libm's arcs print rounded to four places.
+Import std.core
+Import std.math
+Import std.collections
+
+Function Shown(value: Double): Double => Round(value * 10000) / 10000 + 0
+
+// Whether each triangle goes counterclockwise, and their areas add up to the region's.
+Function Fills(points: Vec2[], triangles: (Int, Int, Int)[], area: Double): Bool
+    Local total: Double = 0
+    For t In triangles
+        Local twice = Cross(points[t.1] - points[t.0], points[t.2] - points[t.0])
+        If twice <= 0 Then Return False
+        total += twice / 2
+    End For
+    Return IsClose(total, area, 0.0001)
+End Function
+
+// The rings' corners one after another, as Triangulate's indices count them.
+Function Joined(rings: Vec2[][]): Vec2[]
+    Local corners: Vec2[] = []
+    For ring In rings
+        corners.AddAll(ring)
+    End For
+    Return corners
+End Function
+
+Local square = [Vec2(0, 0), Vec2(4, 0), Vec2(4, 4), Vec2(0, 4)]
+Local backward = [Vec2(0, 4), Vec2(4, 4), Vec2(4, 0), Vec2(0, 0)]
+Local hole = [Vec2(1, 1), Vec2(1, 3), Vec2(3, 3), Vec2(3, 1)]
+Local ell = [Vec2(0, 0), Vec2(4, 0), Vec2(4, 1), Vec2(1, 1), Vec2(1, 4), Vec2(0, 4)]
+Local framedSquare = [square, hole]
+
+// Area, above 0 counterclockwise; a region's is its rings' added up.
+Print(PolygonArea(square), PolygonArea(backward), PolygonArea(framedSquare), PolygonArea(ell))
+Print(PolygonArea([Vec2(0, 0), Vec2(1, 0)]), PolygonArea([Vec2(0, 0), Vec2(2, 0), Vec2(1, 3)]))
+
+// Inside, on the edge, which counts, or outside; a hole, wound the other way, leaves a gap.
+Print(PointInPolygon(Vec2(2, 2), square), PointInPolygon(Vec2(4, 2), square),
+      PointInPolygon(Vec2(0, 0), square), PointInPolygon(Vec2(5, 2), square),
+      PointInPolygon(Vec2(2, 2), backward))
+Print(PointInPolygon(Vec2(2, 2), framedSquare), PointInPolygon(Vec2(0.5, 2), framedSquare),
+      PointInPolygon(Vec2(1, 2), framedSquare), PointInPolygon(Vec2(2, 2), ell),
+      PointInPolygon(Vec2(0.5, 3), ell))
+// A star drawn with crossing edges: its middle is wound twice, still filled.
+Local star = [Vec2(0, 3), Vec2(4, -2), Vec2(-4, 1), Vec2(4, 1), Vec2(-4, -2)]
+Print(PointInPolygon(Vec2(0, 0), star), PointInPolygon(Vec2(0, 2), star),
+      PointInPolygon(Vec2(3, 2), star))
+
+// The convex hull, counterclockwise from the lowest of the leftmost, without straight-edge corners.
+Print(ConvexHull([Vec2(0, 0), Vec2(2, 2), Vec2(4, 0), Vec2(2, 1), Vec2(4, 4), Vec2(0, 4),
+                  Vec2(2, 4), Vec2(0, 2), Vec2(4, 4), Vec2(1, 3)]))
+Print(ConvexHull([Vec2(3, 1), Vec2(1, 1), Vec2(2, 1)]), ConvexHull([Vec2(5, 5), Vec2(5, 5)]),
+      ConvexHull([Vec2.Zero()]))
+Print(ConvexHull(star), PolygonArea(ConvexHull(ell)))
+
+// Triangulation: ears off a convex ring, a concave one, one wound clockwise, and rings with holes,
+// two of them bridged one after the other. Points on a line after a bridge go, so the two holes
+// give 11 triangles rather than 13.
+Print(Triangulate(square), Fills(square, Triangulate(square), 16))
+Print(Triangulate(ell), Fills(ell, Triangulate(ell), PolygonArea(ell)))
+Print(Triangulate(backward), Fills(backward, Triangulate(backward), 16))
+Local frame = [Vec2(0, 0), Vec2(10, 0), Vec2(10, 10), Vec2(0, 10)]
+Local window = [Vec2(4, 4), Vec2(6, 4), Vec2(6, 6), Vec2(4, 6)]
+Local framing = Triangulate(frame, [window])
+Print(framing, Fills(Joined([frame, window]), framing, 96))
+Local wide = [Vec2(0, 0), Vec2(12, 0), Vec2(12, 6), Vec2(0, 6)]
+Local box = [Vec2(2, 2), Vec2(4, 2), Vec2(4, 4), Vec2(2, 4)]
+Local tri = [Vec2(8, 2), Vec2(10, 2), Vec2(9, 4)]
+Local twoHoles = Triangulate(wide, [box, tri])
+Print(twoHoles, Fills(Joined([wide, box, tri]), twoHoles, 72 - 4 - 2))
+// Corners on a line, a hole touching the outer ring, and a ring touching itself at a corner.
+Local edged = [Vec2(0, 0), Vec2(2, 0), Vec2(4, 0), Vec2(4, 2), Vec2(4, 4), Vec2(2, 4), Vec2(0, 4),
+               Vec2(0, 2)]
+Print(Triangulate(edged), Fills(edged, Triangulate(edged), 16))
+Local notch = [Vec2(0, 2), Vec2(2, 3), Vec2(2, 1)]
+Local notched = Triangulate(square, [notch])
+Print(notched, Fills(Joined([square, notch]), notched, 14))
+Local eight = [Vec2(0, 0), Vec2(2, 0), Vec2(2, 2), Vec2(4, 2), Vec2(4, 4), Vec2(2, 4), Vec2(2, 2),
+               Vec2(0, 2)]
+Print(Triangulate(eight), Fills(eight, Triangulate(eight), 8))
+// A last corner that repeats the first is left out, and fewer than three give nothing.
+Print(Triangulate([Vec2(0, 0), Vec2(4, 0), Vec2(4, 4), Vec2(0, 0)]))
+Local noRing: Vec2[] = []
+Print(Triangulate(noRing), Triangulate([Vec2(0, 0), Vec2(1, 1)]), Triangulate(wide, [[Vec2(1, 1)]]))
+// A ring of many corners, a circle's, cuts into two fewer triangles than it has corners.
+Local circle: Vec2[] = []
+For i = 0 Until 64
+    Local angle = (i As Float) * Tau / 64
+    circle.Add(Vec2(Cos(angle) * 10, Sin(angle) * 10))
+End For
+Local fan = Triangulate(circle)
+Print(fan.Count, Fills(circle, fan, PolygonArea(circle)))
+
+// Union, intersection, and difference of two overlapping squares.
+Local shifted = [Vec2(2, 2), Vec2(6, 2), Vec2(6, 6), Vec2(2, 6)]
+Print(Union([square], [shifted]), PolygonArea(Union([square], [shifted])))
+Print(Intersection([square], [shifted]), Difference([square], [shifted]),
+      Difference([shifted], [square]))
+// Apart, touching along an edge, one in the other, and the same.
+Local apart = [Vec2(10, 0), Vec2(12, 0), Vec2(12, 2), Vec2(10, 2)]
+Local beside = [Vec2(4, 0), Vec2(8, 0), Vec2(8, 4), Vec2(4, 4)]
+Print(Union([square], [apart]).Count, Intersection([square], [apart]).Count,
+      Difference([square], [apart]))
+Print(Union([square], [beside]), Intersection([square], [beside]).Count)
+Print(Union([square], [hole]), Intersection([square], [hole]))
+Local framedRegion = Difference([square], [hole])
+Print(framedRegion, PolygonArea(framedRegion), PointInPolygon(Vec2(2, 2), framedRegion))
+Print(Union([square], [square]), Intersection([square], [backward]),
+      Difference([square], [square]).Count)
+// A star's crossing edges give its filled outline.
+Local outline = Union([star], [[Vec2(100, 100), Vec2(101, 100), Vec2(100, 101)]])
+Print(outline.Count, Shown(PolygonArea(outline)))
+// The L and a square over its corner.
+Local corner = [Vec2(-1, -1), Vec2(2, -1), Vec2(2, 2), Vec2(-1, 2)]
+Print(Union([ell], [corner]), PolygonArea(Intersection([ell], [corner])),
+      PolygonArea(Difference([ell], [corner])))
+
+// Offsetting: grown and shrunk with miters, rounded, a hole growing with its shrinking ring and
+// shrinking with its growing one, and shrunk until nothing's left.
+Print(Offset([square], 1, False), Offset([square], -1, False), Offset([square], 0, False))
+Print(Shown(PolygonArea(Offset([square], 1))), Shown(PolygonArea(Offset([square], 2))),
+      Offset([square], -2).Count)
+Print(Offset([ell], 0.5, False), Shown(PolygonArea(Offset([ell], -0.25, False))))
+Local shrunkFrame = Offset(framedSquare, -0.25, False)
+Print(shrunkFrame, PolygonArea(shrunkFrame))
+Local grownFrame = Offset(framedSquare, 0.5, False)
+Print(grownFrame, PolygonArea(grownFrame), Offset(framedSquare, -0.5, False).Count)
+Print(Shown(PolygonArea(Offset([ell], 0.5))))

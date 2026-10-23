@@ -1,0 +1,813 @@
+// Polygons: a ring is a Vec2[] of corners, closed from the last back to the first, and a region is
+// a Vec2[][] of rings, filled where they wind around a point other than 0 times, as SVG's nonzero
+// rule fills it, so its outer rings go counterclockwise and its holes clockwise. Area,
+// point-in-polygon, the convex hull, triangulation with holes, and union, intersection,
+// difference, and offsetting, whose regions come out as counterclockwise outer rings and
+// clockwise holes. The math is in Doubles.
+
+Import std.core
+Import std.collections
+Import std.math.constants
+Import std.math.scalar
+Import std.math.vector
+
+// A point in Doubles.
+Struct Point2 Implements Hashable
+    Field X: Double
+    Field Y: Double
+End Struct
+
+// A part of a region's edge, from A to B, and which of the regions it's from.
+Struct Edge
+    Field A: Point2
+    Field B: Point2
+    Field Region: Int
+End Struct
+
+Function PointOf(v: Vec2): Point2 => Point2(v.x, v.y)
+Function VecOf(p: Point2): Vec2 => Vec2(p.X As Float, p.Y As Float)
+
+// Twice the area of a, b, c: above 0 when they go counterclockwise.
+Function Turn(a: Point2, b: Point2, c: Point2): Double
+    Return (b.X - a.X) * (c.Y - a.Y) - (b.Y - a.Y) * (c.X - a.X)
+End Function
+
+// The area of the ring, above 0 when it goes counterclockwise and below when it goes clockwise:
+// the shoelace formula, in Doubles.
+Public Function PolygonArea(ring: Vec2[]): Double
+    Local twice: Double = 0
+    For i = 0 Until ring.Count
+        Local p = ring[i]
+        Local q = ring[(i + 1) % ring.Count]
+        twice += (p.x As Double) * q.y - (q.x As Double) * p.y
+    End For
+    Return twice / 2
+End Function
+
+// The area of the region, its outer rings' less its holes', as each ring's PolygonArea adds up.
+Public Function PolygonArea(rings: Vec2[][]): Double
+    Local area: Double = 0
+    For ring In rings
+        area += PolygonArea(ring)
+    End For
+    Return area
+End Function
+
+// Whether the point is on the segment from a to b, its ends included.
+Function OnSegment(p: Point2, a: Point2, b: Point2): Bool
+    If Turn(a, b, p) != 0 Then Return False
+    Return p.X >= Min(a.X, b.X) && p.X <= Max(a.X, b.X) && p.Y >= Min(a.Y, b.Y) &&
+           p.Y <= Max(a.Y, b.Y)
+End Function
+
+// How many times the rings wind around the point, counterclockwise, as the nonzero rule counts.
+Function Winding(p: Point2, rings: Point2[][]): Int
+    Local winding = 0
+    For ring In rings
+        For i = 0 Until ring.Count
+            Local a = ring[i]
+            Local b = ring[(i + 1) % ring.Count]
+            If a.Y <= p.Y
+                If b.Y > p.Y && Turn(a, b, p) > 0 Then winding++
+            ElseIf b.Y <= p.Y && Turn(a, b, p) < 0
+                winding--
+            End If
+        End For
+    End For
+    Return winding
+End Function
+
+// The rings as Doubles.
+Function PointsOf(rings: Vec2[][]): Point2[][]
+    Local points: Point2[][] = []
+    For ring In rings
+        Local converted: Point2[] = []
+        For corner In ring
+            converted.Add(PointOf(corner))
+        End For
+        points.Add(converted)
+    End For
+    Return points
+End Function
+
+// Whether the point is in the ring or on its edge, by the nonzero rule.
+Public Function PointInPolygon(point: Vec2, ring: Vec2[]): Bool => PointInPolygon(point, [ring])
+
+// Whether the point is in the region or on one of its rings' edges, by the nonzero rule.
+Public Function PointInPolygon(point: Vec2, rings: Vec2[][]): Bool
+    Local p = PointOf(point)
+    Local points = PointsOf(rings)
+    For ring In points
+        For i = 0 Until ring.Count
+            If OnSegment(p, ring[i], ring[(i + 1) % ring.Count]) Then Return True
+        End For
+    End For
+    Return Winding(p, points) != 0
+End Function
+
+// The smallest convex polygon holding every point, counterclockwise from the lowest of the
+// leftmost, with no corner on a straight edge: Andrew's monotone chain. Fewer than three points
+// that aren't on one line give those of them that are its ends.
+Public Function ConvexHull(points: Vec2[]): Vec2[]
+    Local sorted = points.Clone()
+    sorted.Sort(Function(a: Vec2, b: Vec2): Bool
+        If a.x != b.x Then Return a.x < b.x
+        Return a.y < b.y
+    End Function)
+
+    Local unique: Point2[] = []
+    For point In sorted
+        Local p = PointOf(point)
+        If unique.Count == 0 || unique[unique.Count - 1] != p Then unique.Add(p)
+    End For
+    If unique.Count <= 2
+        Local few: Vec2[] = []
+        For p In unique
+            few.Add(VecOf(p))
+        End For
+        Return few
+    End If
+
+    // The lower chain left to right, then the upper one right to left, each turning left only.
+    Local hull: Point2[] = []
+    For pass = 0 To 1
+        Local start = hull.Count
+        For n = 0 Until unique.Count
+            Local p = unique[pass == 0 ? n : unique.Count - 1 - n]
+            While hull.Count >= start + 2
+                If Turn(hull[hull.Count - 2], hull[hull.Count - 1], p) > 0 Then Break
+                hull.RemoveLast()
+            End While
+            hull.Add(p)
+        End For
+        hull.RemoveLast()
+    End For
+
+    Local corners: Vec2[] = []
+    For p In hull
+        corners.Add(VecOf(p))
+    End For
+    Return corners
+End Function
+
+// A corner of the polygon being cut into triangles: where it is, its index in the rings given, and
+// the corners before and after it.
+Struct Node
+    Field At: Point2
+    Field Index: Int
+    Field Before: Int
+    Field After: Int
+End Struct
+
+// The triangles that fill the ring, each as indices of its corners, counterclockwise.
+Public Function Triangulate(outer: Vec2[]): (Int, Int, Int)[]
+    Local none: Vec2[][] = []
+    Return Triangulate(outer, none)
+End Function
+
+// The triangles that fill the outer ring less its holes, each as indices of its corners in the
+// rings one after another, the outer ring's first, counterclockwise: Mapbox's earcut, without its
+// z-order hash, which cuts off one convex corner with no other corner in its triangle at a time,
+// once each hole is joined to the outer ring by a bridge from its leftmost corner to a corner it
+// sees. A ring's last corner may repeat its first. An outer ring of fewer than three corners gives
+// none, and a hole of fewer than three is left out.
+Public Function Triangulate(outer: Vec2[], holes: Vec2[][]): (Int, Int, Int)[]
+    Local triangles: (Int, Int, Int)[] = []
+    If Corners(outer) < 3 Then Return triangles
+    Local nodes: Node[] = []
+    // A ring as nodes linked around, in the direction given: the outer ring counterclockwise and
+    // the holes clockwise.
+    Local link = Function(ring: Vec2[], first: Int, counterclockwise: Bool): Int
+        Local start = nodes.Count
+        Local count = Corners(ring)
+        Local reversed = (PolygonArea(ring) > 0) != counterclockwise
+        For i = 0 Until count
+            Local at = reversed ? count - 1 - i : i
+            nodes.Add(Node(PointOf(ring[at]), first + at, start + Mod(i - 1, count),
+                           start + (i + 1) % count))
+        End For
+        Return start
+    End Function
+
+    Local outerStart = link(outer, 0, True)
+    // Each hole by its leftmost corner, bridged from left to right, so the ray to the left from
+    // each meets the holes before it as edges of the polygon.
+    Local lefts: Int[] = []
+    Local first = outer.Count
+    For hole In holes
+        If Corners(hole) >= 3
+            Local start = link(hole, first, False)
+            Local leftmost = start
+            For i = start Until nodes.Count
+                Local p = nodes[i].At
+                Local q = nodes[leftmost].At
+                If p.X < q.X || (p.X == q.X && p.Y < q.Y) Then leftmost = i
+            End For
+            lefts.Add(leftmost)
+        End If
+        first += hole.Count
+    End For
+    // Holes whose leftmost corners meet go by the slope of the edge after, so each bridges to that
+    // point.
+    lefts.Sort(Function(a: Int, b: Int): Bool
+        Local p = nodes[a].At
+        Local q = nodes[b].At
+        If p.X != q.X Then Return p.X < q.X
+        If p.Y != q.Y Then Return p.Y < q.Y
+        Local pNext = nodes[nodes[a].After].At
+        Local qNext = nodes[nodes[b].After].At
+        Return (pNext.Y - p.Y) / (pNext.X - p.X) < (qNext.Y - q.Y) / (qNext.X - q.X)
+    End Function)
+    For hole In lefts
+        outerStart = Bridge(nodes, hole, outerStart)
+    End For
+
+    CutEars(nodes, outerStart, triangles, 0)
+    Return triangles
+End Function
+
+// The ring's corners, but a last one that repeats the first.
+Function Corners(ring: Vec2[]): Int
+    If ring.Count > 1 && ring[0] == ring[ring.Count - 1] Then Return ring.Count - 1
+    Return ring.Count
+End Function
+
+// earcut's signed area of p, q, r, twice the triangle's, above 0 where they turn clockwise.
+Function Area(p: Point2, q: Point2, r: Point2): Double
+    Return (q.Y - p.Y) * (r.X - q.X) - (q.X - p.X) * (r.Y - q.Y)
+End Function
+
+// Whether p is in the triangle a, b, c, which turns counterclockwise, or on its edge.
+Function InTriangle(a: Point2, b: Point2, c: Point2, p: Point2): Bool
+    Return (c.X - p.X) * (a.Y - p.Y) >= (a.X - p.X) * (c.Y - p.Y) &&
+           (a.X - p.X) * (b.Y - p.Y) >= (b.X - p.X) * (a.Y - p.Y) &&
+           (b.X - p.X) * (c.Y - p.Y) >= (c.X - p.X) * (b.Y - p.Y)
+End Function
+
+// Whether q is in the box from p to r, its edge included.
+Function InBox(q: Point2, p: Point2, r: Point2): Bool
+    Return q.X <= Max(p.X, r.X) && q.X >= Min(p.X, r.X) && q.Y <= Max(p.Y, r.Y) &&
+           q.Y >= Min(p.Y, r.Y)
+End Function
+
+// Whether the segments from p1 to q1 and from p2 to q2 cross or touch.
+Function Crosses(p1: Point2, q1: Point2, p2: Point2, q2: Point2): Bool
+    Local o1 = Sign(Area(p1, q1, p2))
+    Local o2 = Sign(Area(p1, q1, q2))
+    Local o3 = Sign(Area(p2, q2, p1))
+    Local o4 = Sign(Area(p2, q2, q1))
+    If o1 != o2 && o3 != o4 Then Return True
+    // Three on a line, the middle one on the segment of the other two.
+    Return (o1 == 0 && InBox(p2, p1, q1)) || (o2 == 0 && InBox(q2, p1, q1)) ||
+           (o3 == 0 && InBox(p1, p2, q2)) || (o4 == 0 && InBox(q1, p2, q2))
+End Function
+
+// Takes the node out of the polygon, its neighbors linked to each other.
+Function Unlink(nodes: Node[], node: Int)
+    nodes[nodes[node].After].Before = nodes[node].Before
+    nodes[nodes[node].Before].After = nodes[node].After
+End Function
+
+// Splits the polygon by a diagonal from node a to b: a goes on to b, and copies of the two go from
+// the corner before b to the one after a. Gives b's copy.
+Function Split(nodes: Node[], a: Int, b: Int): Int
+    Local na = nodes[a]
+    Local nb = nodes[b]
+    Local aCopy = nodes.Count
+    nodes.Add(Node(na.At, na.Index, -1, na.After))
+    Local bCopy = nodes.Count
+    nodes.Add(Node(nb.At, nb.Index, nb.Before, aCopy))
+    nodes[a].After = b
+    nodes[b].Before = a
+    nodes[na.After].Before = aCopy
+    nodes[aCopy].Before = bCopy
+    nodes[nb.Before].After = bCopy
+    Return bCopy
+End Function
+
+// Takes out the corners that repeat the next one or lie on a line through their neighbors, as
+// earcut's filterPoints does: from start until stop, or once one goes, all the way around. Gives
+// a node that's left.
+Function Prune(nodes: Node[], start: Int, stop: Int): Int
+    Local p = start
+    Local last = stop
+    Loop
+        Local before = nodes[p].Before
+        Local after = nodes[p].After
+        Local corner = nodes[p].At
+        If corner == nodes[after].At || Area(nodes[before].At, corner, nodes[after].At) == 0
+            Unlink(nodes, p)
+            p = before
+            last = before
+            If nodes[p].After == p Then Break
+            Continue
+        End If
+        p = after
+        If p == last Then Break
+    End Loop
+    Return last
+End Function
+
+// Whether the diagonal from node a to b starts into the polygon at a.
+Function LocallyInside(nodes: Node[], a: Int, b: Int): Bool
+    Local at = nodes[a].At
+    Local before = nodes[nodes[a].Before].At
+    Local after = nodes[nodes[a].After].At
+    Local target = nodes[b].At
+    If Area(before, at, after) < 0
+        Return Area(at, target, after) >= 0 && Area(at, before, target) >= 0
+    End If
+    Return Area(at, target, before) < 0 || Area(at, after, target) < 0
+End Function
+
+// Whether the middle of the diagonal from node a to b is in the polygon, by the even-odd rule.
+Function MiddleInside(nodes: Node[], a: Int, b: Int): Bool
+    Local middle = Point2((nodes[a].At.X + nodes[b].At.X) / 2, (nodes[a].At.Y + nodes[b].At.Y) / 2)
+    Local inside = False
+    Local p = a
+    Loop
+        Local at = nodes[p].At
+        Local next = nodes[nodes[p].After].At
+        If (at.Y > middle.Y) != (next.Y > middle.Y) && next.Y != at.Y &&
+           middle.X < (next.X - at.X) * (middle.Y - at.Y) / (next.Y - at.Y) + at.X
+            inside = !inside
+        End If
+        p = nodes[p].After
+        If p == a Then Break
+    End Loop
+    Return inside
+End Function
+
+// Whether the diagonal from node a to b crosses an edge of the polygon but those at its ends.
+Function CrossesPolygon(nodes: Node[], a: Int, b: Int): Bool
+    Local ends = (nodes[a].Index, nodes[b].Index)
+    Local p = a
+    Loop
+        Local next = nodes[p].After
+        Local i = nodes[p].Index
+        Local j = nodes[next].Index
+        If i != ends.0 && j != ends.0 && i != ends.1 && j != ends.1 &&
+           Crosses(nodes[p].At, nodes[next].At, nodes[a].At, nodes[b].At)
+            Return True
+        End If
+        p = next
+        If p == a Then Break
+    End Loop
+    Return False
+End Function
+
+// Whether the diagonal from node a to b splits the polygon in two: it crosses no edge, starts into
+// the polygon at both ends with its middle inside, and leaves no two sectors facing each other, or
+// joins two corners at one point that both turn clockwise.
+Function ValidDiagonal(nodes: Node[], a: Int, b: Int): Bool
+    Local na = nodes[a]
+    Local nb = nodes[b]
+    If nodes[na.After].Index == nb.Index || nodes[na.Before].Index == nb.Index Then Return False
+    If CrossesPolygon(nodes, a, b) Then Return False
+    Local aBefore = nodes[na.Before].At
+    Local bBefore = nodes[nb.Before].At
+    If LocallyInside(nodes, a, b) && LocallyInside(nodes, b, a) && MiddleInside(nodes, a, b) &&
+       (Area(aBefore, na.At, bBefore) != 0 || Area(na.At, bBefore, nb.At) != 0)
+        Return True
+    End If
+    Return na.At == nb.At && Area(aBefore, na.At, nodes[na.After].At) > 0 &&
+           Area(bBefore, nb.At, nodes[nb.After].At) > 0
+End Function
+
+// Whether node m's corner's sector holds node p's, which picks between two bridges to one point.
+Function HoldsSector(nodes: Node[], m: Int, p: Int): Bool
+    Local at = nodes[m].At
+    Return Area(nodes[nodes[m].Before].At, at, nodes[nodes[p].Before].At) < 0 &&
+           Area(nodes[nodes[p].After].At, at, nodes[nodes[m].After].At) < 0
+End Function
+
+// The node a hole's leftmost corner bridges to, as earcut's findHoleBridge finds it, or -1 for
+// none: of the edges going down that a ray from the corner to the left meets, the nearest one's
+// end further left, unless corners in the triangle between the three see the hole at a smaller
+// angle from the ray, when the one at the least does.
+Function FindBridge(nodes: Node[], hole: Int, outer: Int): Int
+    Local h = nodes[hole].At
+    If h == nodes[outer].At Then Return outer
+    Local m = -1
+    Local nearest = -Inf As Double
+    Local p = outer
+    Loop
+        Local next = nodes[p].After
+        Local a = nodes[p].At
+        Local b = nodes[next].At
+        If h == b Then Return next
+        If h.Y <= a.Y && h.Y >= b.Y && b.Y != a.Y
+            Local x = a.X + (h.Y - a.Y) * (b.X - a.X) / (b.Y - a.Y)
+            If x <= h.X && x > nearest
+                nearest = x
+                m = a.X < b.X ? p : next
+                // The hole touches the edge.
+                If x == h.X Then Return m
+            End If
+        End If
+        p = next
+        If p == outer Then Break
+    End Loop
+    If m < 0 Then Return -1
+
+    Local stop = m
+    Local corner = nodes[m].At
+    Local start = h.Y < corner.Y ? h : Point2(nearest, h.Y)
+    Local finish = h.Y < corner.Y ? Point2(nearest, h.Y) : h
+    Local least: Double = Inf
+    p = m
+    Loop
+        Local at = nodes[p].At
+        If h.X >= at.X && at.X >= corner.X && h.X != at.X && InTriangle(start, corner, finish, at)
+            Local tangent = Abs(h.Y - at.Y) / (h.X - at.X)
+            Local chosen = nodes[m].At
+            Local nearer = tangent < least || (tangent == least && (at.X > chosen.X ||
+                           (at.X == chosen.X && HoldsSector(nodes, m, p))))
+            If LocallyInside(nodes, p, hole) && nearer
+                m = p
+                least = tangent
+            End If
+        End If
+        p = nodes[p].After
+        If p == stop Then Break
+    End Loop
+    Return m
+End Function
+
+// Joins a hole into the polygon by a bridge from its leftmost corner and back, as earcut's
+// eliminateHole does: the two corners it joins are each in the polygon twice after. Gives a node
+// of the polygon to go on from.
+Function Bridge(nodes: Node[], hole: Int, outer: Int): Int
+    Local bridge = FindBridge(nodes, hole, outer)
+    If bridge < 0 Then Return outer
+    Local back = Split(nodes, bridge, hole)
+    Prune(nodes, back, nodes[back].After)
+    Return Prune(nodes, bridge, nodes[bridge].After)
+End Function
+
+// Whether the node's corner turns counterclockwise with no corner in its triangle that doesn't,
+// but where the corner before is, as earcut's isEar has it.
+Function IsEar(nodes: Node[], ear: Int): Bool
+    Local a = nodes[nodes[ear].Before].At
+    Local b = nodes[ear].At
+    Local c = nodes[nodes[ear].After].At
+    If Area(a, b, c) >= 0 Then Return False
+    Local low = Point2(Min(a.X, Min(b.X, c.X)), Min(a.Y, Min(b.Y, c.Y)))
+    Local high = Point2(Max(a.X, Max(b.X, c.X)), Max(a.Y, Max(b.Y, c.Y)))
+    Local p = nodes[nodes[ear].After].After
+    While p != nodes[ear].Before
+        Local at = nodes[p].At
+        If InBox(at, low, high) && at != a && InTriangle(a, b, c, at) &&
+           Area(nodes[nodes[p].Before].At, at, nodes[nodes[p].After].At) >= 0
+            Return False
+        End If
+        p = nodes[p].After
+    End While
+    Return True
+End Function
+
+// Cuts a triangle where the edges before and after a corner's next cross, as earcut's
+// cureLocalIntersections does. Gives a node that's left.
+Function CureCrossings(nodes: Node[], start: Int, triangles: (Int, Int, Int)[]): Int
+    Local first = start
+    Local p = start
+    Loop
+        Local a = nodes[p].Before
+        Local after = nodes[p].After
+        Local b = nodes[after].After
+        Local pa = nodes[a].At
+        Local pb = nodes[b].At
+        If pa != pb && Crosses(pa, nodes[p].At, nodes[after].At, pb) &&
+           LocallyInside(nodes, a, b) && LocallyInside(nodes, b, a)
+            triangles.Add((nodes[a].Index, nodes[p].Index, nodes[b].Index))
+            Unlink(nodes, p)
+            Unlink(nodes, after)
+            p = b
+            first = b
+        End If
+        p = nodes[p].After
+        If p == first Then Break
+    End Loop
+    Return Prune(nodes, p, p)
+End Function
+
+// Splits the polygon in two by a diagonal and cuts each, as earcut's splitEarcut does, when
+// nothing else would.
+Function SplitCut(nodes: Node[], start: Int, triangles: (Int, Int, Int)[])
+    Local a = start
+    Loop
+        Local b = nodes[nodes[a].After].After
+        While b != nodes[a].Before
+            If nodes[a].Index != nodes[b].Index && ValidDiagonal(nodes, a, b)
+                Local c = Split(nodes, a, b)
+                a = Prune(nodes, a, nodes[a].After)
+                c = Prune(nodes, c, nodes[c].After)
+                CutEars(nodes, a, triangles, 0)
+                CutEars(nodes, c, triangles, 0)
+                Return
+            End If
+            b = nodes[b].After
+        End While
+        a = nodes[a].After
+        If a == start Then Break
+    End Loop
+End Function
+
+// Cuts ears off the polygon of linked nodes from start until two corners are left, as earcut's
+// earcutLinked does: when a pass around finds none, it goes around again without the corners on
+// lines, then with small crossings cut away, and last splits what's left in two.
+Function CutEars(nodes: Node[], start: Int, triangles: (Int, Int, Int)[], pass: Int)
+    Local ear = start
+    Local stop = ear
+    While nodes[ear].Before != nodes[ear].After
+        Local before = nodes[ear].Before
+        Local after = nodes[ear].After
+        If IsEar(nodes, ear)
+            triangles.Add((nodes[before].Index, nodes[ear].Index, nodes[after].Index))
+            Unlink(nodes, ear)
+            // Skipping the corner after leaves fewer slivers.
+            ear = nodes[after].After
+            stop = ear
+            Continue
+        End If
+
+        ear = after
+        If ear == stop
+            If pass == 0
+                CutEars(nodes, Prune(nodes, ear, ear), triangles, 1)
+            ElseIf pass == 1
+                Local cured = CureCrossings(nodes, Prune(nodes, ear, ear), triangles)
+                CutEars(nodes, cured, triangles, 2)
+            Else
+                SplitCut(nodes, ear, triangles)
+            End If
+            Return
+        End If
+    End While
+End Function
+
+// The edges of the regions' rings, each split where it meets another, so no two cross, and those
+// that lie along each other meet end to end.
+Function SplitEdges(regions: Point2[][][]): Edge[]
+    Local edges: Edge[] = []
+    For region = 0 Until regions.Count
+        For ring In regions[region]
+            For i = 0 Until ring.Count
+                Local a = ring[i]
+                Local b = ring[(i + 1) % ring.Count]
+                If a != b Then edges.Add(Edge(a, b, region))
+            End For
+        End For
+    End For
+
+    // Where along each edge, from 0 at A to 1 at B, it's split, and at which point.
+    Local cuts: (Double, Point2)[][] = []
+    For edge In edges
+        cuts.Add([])
+    End For
+    For i = 0 Until edges.Count
+        For j = i + 1 Until edges.Count
+            Cut(edges, cuts, i, j)
+        End For
+    End For
+
+    Local parts: Edge[] = []
+    For i = 0 Until edges.Count
+        Local edge = edges[i]
+        Local along = cuts[i]
+        along.SortBy(Function(cut: (Double, Point2)) => cut.0)
+        Local from = edge.A
+        For cut In along
+            If cut.1 != from && cut.1 != edge.B
+                parts.Add(Edge(from, cut.1, edge.Region))
+                from = cut.1
+            End If
+        End For
+        parts.Add(Edge(from, edge.B, edge.Region))
+    End For
+    Return parts
+End Function
+
+// Where two edges meet, as cuts on each: a crossing, a point one's end touches the other at, or
+// the ends of where they lie along each other.
+Function Cut(edges: Edge[], cuts: (Double, Point2)[][], i: Int, j: Int)
+    Local e = edges[i]
+    Local f = edges[j]
+    // Edges whose boxes don't meet don't.
+    If Max(e.A.X, e.B.X) < Min(f.A.X, f.B.X) || Max(f.A.X, f.B.X) < Min(e.A.X, e.B.X) Then Return
+    If Max(e.A.Y, e.B.Y) < Min(f.A.Y, f.B.Y) || Max(f.A.Y, f.B.Y) < Min(e.A.Y, e.B.Y) Then Return
+    Local d1 = Turn(f.A, f.B, e.A)
+    Local d2 = Turn(f.A, f.B, e.B)
+    Local d3 = Turn(e.A, e.B, f.A)
+    Local d4 = Turn(e.A, e.B, f.B)
+    If ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0))
+        Local t = d1 / (d1 - d2)
+        Local point = Point2(e.A.X + (e.B.X - e.A.X) * t, e.A.Y + (e.B.Y - e.A.Y) * t)
+        cuts[i].Add((t, point))
+        cuts[j].Add((d3 / (d3 - d4), point))
+        Return
+    End If
+
+    // An end of one on the other cuts the other there.
+    For pair In [(e.A, j), (e.B, j), (f.A, i), (f.B, i)]
+        Local point, on = pair
+        Local other = edges[on]
+        If point != other.A && point != other.B && OnSegment(point, other.A, other.B)
+            cuts[on].Add((AlongOf(other, point), point))
+        End If
+    End For
+End Function
+
+// How far along the edge the point on it is, from 0 at A to 1 at B.
+Function AlongOf(edge: Edge, point: Point2): Double
+    Local dx = edge.B.X - edge.A.X
+    Local dy = edge.B.Y - edge.A.Y
+    Return ((point.X - edge.A.X) * dx + (point.Y - edge.A.Y) * dy) / (dx * dx + dy * dy)
+End Function
+
+// The rings that bound where filled says a point is, from how many times each region winds
+// around it: each split edge with the filled side on one hand only, the filled side on its left,
+// linked end to end, at a corner where two meet by the sharpest left turn.
+Function Boundary(regions: Point2[][][], filled: Func(Int[]): Bool): Vec2[][]
+    Local parts = SplitEdges(regions)
+    // How far to each side of an edge's middle to look, small against the regions' size.
+    Local size: Double = 1
+    For region In regions
+        For ring In region
+            For p In ring
+                size = Max(size, Max(Abs(p.X), Abs(p.Y)))
+            End For
+        End For
+    End For
+    Local step = size * 0.000000001
+
+    Local kept: Edge[] = []
+    Local seen = Set<(Point2, Point2)>()
+    For part In parts
+        Local dx = part.B.X - part.A.X
+        Local dy = part.B.Y - part.A.Y
+        Local length = Sqrt(dx * dx + dy * dy)
+        Local middle = Point2((part.A.X + part.B.X) / 2, (part.A.Y + part.B.Y) / 2)
+        Local leftSide = Point2(middle.X - dy / length * step, middle.Y + dx / length * step)
+        Local rightSide = Point2(middle.X + dy / length * step, middle.Y - dx / length * step)
+        Local onLeft = filled(Windings(leftSide, regions))
+        Local onRight = filled(Windings(rightSide, regions))
+        If onLeft == onRight Then Continue
+        Local edge = onLeft ? Edge(part.A, part.B, 0) : Edge(part.B, part.A, 0)
+        If seen.Add((edge.A, edge.B)) Then kept.Add(edge)
+    End For
+    Return Link(kept)
+End Function
+
+// How many times each region winds around the point.
+Function Windings(p: Point2, regions: Point2[][][]): Int[]
+    Local windings: Int[] = []
+    For region In regions
+        windings.Add(Winding(p, region))
+    End For
+    Return windings
+End Function
+
+// An angle's order, from the sine and cosine it's in proportion to, rising with the angle from
+// -Pi to Pi as Atan2 does, from IEEE's exact operations alone.
+Function PseudoAngle(y: Double, x: Double): Double
+    Local p = y / (Abs(x) + Abs(y))
+    If x < 0 Then Return (y >= 0 ? 2 : -2) - p
+    Return p
+End Function
+
+// How far the edge from b turns from the one into it, as PseudoAngle orders it: left above 0.
+Function Bend(into: Edge, from: Edge): Double
+    Local x1 = into.B.X - into.A.X
+    Local y1 = into.B.Y - into.A.Y
+    Local x2 = from.B.X - from.A.X
+    Local y2 = from.B.Y - from.A.Y
+    Return PseudoAngle(x1 * y2 - y1 * x2, x1 * x2 + y1 * y2)
+End Function
+
+// The edges joined end to end into rings, at each corner by the sharpest left turn, and without
+// corners on a straight line.
+Function Link(edges: Edge[]): Vec2[][]
+    Local starting = Map<Point2, Int[]>()
+    For i = 0 Until edges.Count
+        starting.GetOrAdd(edges[i].A, Function(): Int[] => []).Add(i)
+    End For
+
+    Local used: Bool[] = []
+    used.Resize(edges.Count, False)
+    Local rings: Vec2[][] = []
+    Local none: Int[] = []
+    For first = 0 Until edges.Count
+        If used[first] Then Continue
+        Local ring: Point2[] = []
+        Local at = first
+        Loop
+            used[at] = True
+            ring.Add(edges[at].A)
+            // The edge from this one's end that turns furthest left, the first edge too, which
+            // closes the ring.
+            Local next = -1
+            Local best: Double = -10
+            For candidate In starting.Get(edges[at].B) ?? none
+                If used[candidate] && candidate != first Then Continue
+                Local bend = Bend(edges[at], edges[candidate])
+                If bend > best
+                    best = bend
+                    next = candidate
+                End If
+            End For
+            If next < 0 || next == first Then Break
+            at = next
+        End Loop
+
+        Local corners: Vec2[] = []
+        For i = 0 Until ring.Count
+            Local before = ring[Mod(i - 1, ring.Count)]
+            Local after = ring[(i + 1) % ring.Count]
+            If Turn(before, ring[i], after) != 0 Then corners.Add(VecOf(ring[i]))
+        End For
+        If corners.Count >= 3 Then rings.Add(corners)
+    End For
+    Return rings
+End Function
+
+// The region filled by either a or b, or both.
+Public Function Union(a: Vec2[][], b: Vec2[][]): Vec2[][]
+    Return Boundary([PointsOf(a), PointsOf(b)], Function(w: Int[]) => w[0] != 0 || w[1] != 0)
+End Function
+
+// The region filled by both a and b.
+Public Function Intersection(a: Vec2[][], b: Vec2[][]): Vec2[][]
+    Return Boundary([PointsOf(a), PointsOf(b)], Function(w: Int[]) => w[0] != 0 && w[1] != 0)
+End Function
+
+// The region filled by a but not by b.
+Public Function Difference(a: Vec2[][], b: Vec2[][]): Vec2[][]
+    Return Boundary([PointsOf(a), PointsOf(b)], Function(w: Int[]) => w[0] != 0 && w[1] == 0)
+End Function
+
+// The region grown by distance all around, or shrunk by a negative one: each ring's edges moved
+// out along their normals, joined around its corners by arcs when rounded, else by miters up to
+// twice the distance long, beyond which they're cut off, and what overlaps then merged, so a
+// shrunk part too thin for the distance goes.
+Public Function Offset(rings: Vec2[][], distance: Float, rounded: Bool = True): Vec2[][]
+    // The region in order first, outer rings counterclockwise and holes clockwise, so each ring's
+    // outside is on its right.
+    Local clean = Boundary([PointsOf(rings)], Function(w: Int[]) => w[0] != 0)
+    If distance == 0 Then Return clean
+    Local d: Double = distance
+    Local moved: Point2[][] = []
+    For ring In PointsOf(clean)
+        Local path: Point2[] = []
+        Local count = ring.Count
+        For i = 0 Until count
+            Local before = ring[Mod(i - 1, count)]
+            Local corner = ring[i]
+            Local after = ring[(i + 1) % count]
+            Local inNormal = RightNormal(before, corner)
+            Local outNormal = RightNormal(corner, after)
+            Local inEnd = Point2(corner.X + inNormal.X * d, corner.Y + inNormal.Y * d)
+            Local outStart = Point2(corner.X + outNormal.X * d, corner.Y + outNormal.Y * d)
+            Local cross = Turn(before, corner, after)
+            Local dot = (corner.X - before.X) * (after.X - corner.X) +
+                        (corner.Y - before.Y) * (after.Y - corner.Y)
+            // A gap opens on the side the ring moves to where it turns away from it.
+            If (cross > 0) == (d > 0) && cross != 0
+                path.Add(inEnd)
+                If rounded
+                    Local turn = Atan2(cross, dot)
+                    Local steps = Max(Ceil(Abs(turn) / (Pi64 / 16)) As Int, 1)
+                    For s = 1 Until steps
+                        Local angle = Atan2(inNormal.Y, inNormal.X) + turn * s / steps
+                        path.Add(Point2(corner.X + Cos(angle) * d, corner.Y + Sin(angle) * d))
+                    End For
+                Else
+                    // The miter's tip, where the moved edges meet, unless that's too far out.
+                    Local scale = 1 + inNormal.X * outNormal.X + inNormal.Y * outNormal.Y
+                    If scale > 0.5
+                        path.Add(Point2(corner.X + (inNormal.X + outNormal.X) * d / scale,
+                                        corner.Y + (inNormal.Y + outNormal.Y) * d / scale))
+                    End If
+                End If
+                path.Add(outStart)
+            Else
+                // The moved edges overlap: through the corner, which the merge then cuts away.
+                path.Add(inEnd)
+                path.Add(corner)
+                path.Add(outStart)
+            End If
+        End For
+        moved.Add(path)
+    End For
+
+    Local merged = Boundary([moved], Function(w: Int[]) => w[0] > 0)
+    Return merged
+End Function
+
+// The normal on the right of the edge from a to b, of length 1.
+Function RightNormal(a: Point2, b: Point2): Point2
+    Local dx = b.X - a.X
+    Local dy = b.Y - a.Y
+    Local length = Sqrt(dx * dx + dy * dy)
+    Return Point2(dy / length, -dx / length)
+End Function
