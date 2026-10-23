@@ -21980,6 +21980,11 @@ private:
             return false;
         }
 
+        if (const std::optional<std::uint64_t> past = past_int64(id); past && size != 0) {
+            error(span_of(id), "{} is past the end of {}", *past, shown_name(array));
+            return false;
+        }
+
         return true;
     }
 
@@ -22007,7 +22012,25 @@ private:
             return false;
         }
 
+        if (const std::optional<std::uint64_t> past = past_int64(id); past && size != 0) {
+            error(span_of(id), "index {} is out of range for {}", *past, shown_name(array));
+            return false;
+        }
+
         return true;
+    }
+
+    /// A UInt64 known past an Int64's range, which integer_value() doesn't give, and which is
+    /// past any fixed array's end.
+    [[nodiscard]] std::optional<std::uint64_t> past_int64(const expr_id_t id) {
+        const std::optional<const_value_t>& value = info(id).value;
+        const auto* number = value ? std::get_if<std::uint64_t>(&value->data) : nullptr;
+        if (number == nullptr ||
+            *number <= static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max())) {
+            return std::nullopt;
+        }
+
+        return *number;
     }
 
     /// "[a, b, c]": a new T[], or a T[N] when one is expected. The elements take the expected

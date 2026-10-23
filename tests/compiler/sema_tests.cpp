@@ -2048,6 +2048,9 @@ TEST_CASE("indexing", "[sema]") {
           errors_t{ "-1: an index can't be negative" });
     CHECK(errors_of("Local g: Int[4]\nLocal y = g[4]") ==
           errors_t{ "4: index 4 is out of range for Int32[4]" });
+    CHECK(errors_of("Local g: Int[2, 4]\nLocal y = g[1, 18446744073709551615 As UInt64]") ==
+          errors_t{ "18446744073709551615 As UInt64: index 18446744073709551615 is out of range "
+                    "for Int32[2, 4]" });
     CHECK(errors_of("Function F(a: Int[]?): Int => a[0]") ==
           errors_t{ "a: 'a' may be Null; check that it isn't, or use '?.'" });
 
@@ -5280,6 +5283,9 @@ TEST_CASE("a slice is a new array of some of an array's elements", "[sema]") {
           errors_t{ "-1: a slice's bounds can't be negative" });
     CHECK(errors_of("Local a: Int[3] = [1, 2, 3]\nLocal s = a[..4]") ==
           errors_t{ "4: 4 is past the end of Int32[3]" });
+    CHECK(errors_of("Local a: Int[3] = [1, 2, 3]\nLocal s = a[..18446744073709551615 As UInt64]") ==
+          errors_t{ "18446744073709551615 As UInt64: 18446744073709551615 is past the end of "
+                    "Int32[3]" });
     CHECK(errors_of("Local g: Int[2, 2]\nLocal s = g[0..1]") ==
           errors_t{ "g: Int32[2, 2] can't be sliced; a slice goes over one dimension" });
     CHECK(errors_of("Local s = \"abc\"[0..1]") == errors_t{ "\"abc\": String can't be sliced" });
