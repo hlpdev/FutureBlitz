@@ -1,0 +1,8 @@
+// A FlowField's goals are on its grid, or it panics where it's made.
+Import std.core
+Import std.math
+Import std.algo
+
+Local flat = Function(c: Vec2i): Double? => 1
+Print(FlowField(3, 3, [Vec2i(2, 2)], flat).Distance(Vec2i(0, 0)) ?? -1)
+Local field = FlowField(3, 3, [Vec2i(0, 0), Vec2i(0, 3)], flat)

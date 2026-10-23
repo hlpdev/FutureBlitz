@@ -1,0 +1,7 @@
+// A FlowField's grid can't be a negative size, which panics where it's made.
+Import std.core
+Import std.math
+Import std.algo
+
+Local flat = Function(c: Vec2i): Double? => 1
+Local field = FlowField(-1, 3, [Vec2i(0, 0)], flat)

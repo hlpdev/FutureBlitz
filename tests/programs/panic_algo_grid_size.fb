@@ -1,0 +1,7 @@
+// A grid's size can't be negative, which panics where GridNeighbors is called.
+Import std.core
+Import std.math
+Import std.algo
+
+Print(GridNeighbors(2, 2, Vec2i(0, 0)))
+Print(GridNeighbors(-2, 2, Vec2i(0, 0)))

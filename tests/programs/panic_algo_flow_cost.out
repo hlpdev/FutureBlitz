@@ -1,0 +1,2 @@
+6
+panic: (1, 0) costs -5, but a cost can't be negative or NaN at panic_algo_flow_cost.fb:9:15

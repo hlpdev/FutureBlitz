@@ -1,0 +1,7 @@
+// A grid can't have more cells than an Int counts, which panics where GridNeighbors is called.
+Import std.core
+Import std.math
+Import std.algo
+
+Print(GridNeighbors(46340, 46340, Vec2i(0, 0)))
+Print(GridNeighbors(65536, 65536, Vec2i(0, 0)))

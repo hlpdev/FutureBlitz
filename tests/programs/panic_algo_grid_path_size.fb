@@ -1,0 +1,7 @@
+// A grid's size can't be negative, which panics where GridPath is called.
+Import std.core
+Import std.math
+Import std.algo
+
+Local open = Function(c: Vec2i) => True
+Print(GridPath(3, -1, Vec2i(0, 0), Vec2i(1, 1), open) == Null)

@@ -1,0 +1,2 @@
+[(1, 0), (0, 1)]
+panic: a grid 65536 by 65536 has more cells than an Int counts at panic_algo_grid_cells.fb:7:7

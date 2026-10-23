@@ -1,0 +1,93 @@
+// Searches on grids: the cells next to one, GridPath's A* through walls, with and without diagonal
+// steps that don't cut corners, and flow fields, every cell's way to its nearest goal.
+Import std.core
+Import std.math
+Import std.algo
+
+// A map's rows, where '#' is a wall and '~' is mud.
+Function At(rows: String[], cell: Vec2i): Int => rows[cell.y].Bytes[cell.x]
+
+Function Open(rows: String[], cell: Vec2i): Bool => At(rows, cell) != '#'
+
+// What entering a cell costs: 1, 5 for mud, and Null for a wall.
+Function Cost(rows: String[], cell: Vec2i): Double?
+    Local tile = At(rows, cell)
+    If tile == '#' Then Return Null
+    Return tile == '~' ? 5 : 1
+End Function
+
+// The cells next to one, those on the grid only, along the axes first.
+Print(GridNeighbors(3, 3, Vec2i(1, 1)), GridNeighbors(3, 3, Vec2i(0, 0)),
+      GridNeighbors(3, 3, Vec2i(2, 1)))
+Print(GridNeighbors(3, 3, Vec2i(1, 1), True), GridNeighbors(3, 3, Vec2i(0, 2), True))
+Print(GridNeighbors(1, 1, Vec2i(0, 0), True), GridNeighbors(0, 0, Vec2i(0, 0)),
+      GridNeighbors(4, 2, Vec2i(9, 9)))
+
+// An open grid: along the axes, or diagonally, the square root of 2 a step.
+Local open = Function(cell: Vec2i) => True
+Local straight = GridPath(5, 5, Vec2i(0, 0), Vec2i(4, 4), open)
+Local slanted = GridPath(5, 5, Vec2i(0, 0), Vec2i(4, 4), open, True)
+Print(straight?.Cost ?? -1, straight?.Nodes?.Count ?? -1, slanted?.Cost ?? -1,
+      slanted?.Nodes ?? [Vec2i.Zero()])
+Print(GridPath(5, 5, Vec2i(2, 3), Vec2i(2, 3), open)?.Nodes ?? [Vec2i.Zero()],
+      GridPath(5, 5, Vec2i(0, 4), Vec2i(3, 0), open, True)?.Cost ?? -1)
+
+// A diagonal step doesn't cut a corner a wall is on.
+Local corner = ["..", "#."]
+Local around = GridPath(2, 2, Vec2i(0, 0), Vec2i(1, 1), Function(c) => Open(corner, c), True)
+Print(around?.Nodes ?? [Vec2i.Zero()], around?.Cost ?? -1)
+Local closed = [".#", "#."]
+Print(GridPath(2, 2, Vec2i(0, 0), Vec2i(1, 1), Function(c) => Open(closed, c), True) == Null)
+
+// A maze, whose one way through is 19 steps, and a start on a wall, which can still set out.
+Local maze = ["S...#...", ".##.#.#.", ".#..#.#.", ".#.##.#.", "......#G"]
+Local through = GridPath(8, 5, Vec2i(0, 0), Vec2i(7, 4), Function(c) => Open(maze, c))
+Print(through?.Cost ?? -1, through?.Nodes ?? [Vec2i.Zero()])
+Print(GridPath(8, 5, Vec2i(1, 1), Vec2i(0, 4), Function(c) => Open(maze, c))?.Cost ?? -1)
+Print(GridPath(8, 5, Vec2i(0, 0), Vec2i(4, 0), Function(c) => Open(maze, c)) == Null)
+Local sealed = ["...#..", "...#..", "...#.."]
+Print(GridPath(6, 3, Vec2i(0, 0), Vec2i(5, 2), Function(c) => Open(sealed, c), True) == Null)
+
+// Where a step goes, as an arrow: y grows down the rows.
+Function Arrow(step: Vec2i): String
+    Local arrows = ["/", "^", "\\", ">", "*", "<", "\\", "v", "/"]
+    Return arrows[(step.y + 1) * 3 + (1 - step.x)]
+End Function
+
+// A flow field to one goal: each cell's distance, and where it steps.
+Function Show(field: FlowField)
+    For y = 0 Until field.Height
+        Local distances: String[] = []
+        Local arrows = ""
+        For x = 0 Until field.Width
+            Local cell = Vec2i(x, y)
+            Local distance = field.Distance(cell)
+            distances.Add(distance == Null ? "#" : "{Round(distance * 100) / 100}")
+            Local next = field.Next(cell)
+            If next == Null
+                arrows += field.Reaches(cell) ? "*" : "#"
+            Else
+                arrows += Arrow(next - cell)
+            End If
+        End For
+        Print(arrows, distances)
+    End For
+End Function
+
+Local rooms = ["....#...", ".##.#.#.", "......#.", ".#.###..", "........"]
+Local toGoal = FlowField(8, 5, [Vec2i(7, 0)], Function(c) => Cost(rooms, c))
+Show(toGoal)
+Print(toGoal.Width, toGoal.Height, toGoal.Distance(Vec2i(0, 0)) ?? -1,
+      toGoal.Next(Vec2i(0, 0)) ?? Vec2i.Zero())
+Print(toGoal.Direction(Vec2i(0, 0)), toGoal.Direction(Vec2i(7, 0)), toGoal.Direction(Vec2i(4, 0)),
+      toGoal.Reaches(Vec2i(4, 0)))
+
+// Diagonally, and to the nearer of two goals.
+Show(FlowField(8, 5, [Vec2i(7, 0), Vec2i(0, 4)], Function(c) => Cost(rooms, c), True))
+
+// Mud costs 5 to step into, so the way round it is cheaper, and a goal on a wall isn't one.
+Local swamp = ["......", ".~~~~.", ".~~~~.", "......"]
+Show(FlowField(6, 4, [Vec2i(5, 3), Vec2i(0, 0)], Function(c) => Cost(swamp, c)))
+Local walled = ["..#", "..#", "###"]
+Show(FlowField(3, 3, [Vec2i(2, 2)], Function(c) => Cost(walled, c)))
+Show(FlowField(3, 2, [], Function(c) => Cost(["...", "..."], c)))

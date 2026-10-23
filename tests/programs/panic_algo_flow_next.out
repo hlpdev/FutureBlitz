@@ -1,0 +1,2 @@
+(0, 0)
+panic: (-1, 0) is off a grid 3 by 3 at panic_algo_flow_next.fb:8:7
