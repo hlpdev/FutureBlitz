@@ -124,9 +124,22 @@ Extend String
     Method Escaped(): String
         Local codes: String[] = []
         For c In Self.Chars
-            codes.Add("U+{c As Int}")
+            codes.Add(Named(c As Int))
         End For
 
         Return " ".Join(codes)
     End Method
 End Extend
+
+// code as Unicode writes it: U+ and its hex digits, at least 4.
+Function Named(code: Int): String
+    Local digits = "0123456789ABCDEF"
+    Local hex = ""
+    Local rest = code
+    While rest > 0 || hex.Length < 4
+        hex = digits.Slice(rest % 16, rest % 16 + 1) + hex
+        rest /= 16
+    End While
+
+    Return "U+" + hex
+End Function
