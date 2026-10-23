@@ -4,7 +4,7 @@ The review of phase 1's fixes (ecaa974..36ab52a), on 2026-10-23: six reviewers b
 
 ## P1-sema-checks-1 (medium): A Const Function's default checked on demand resolves its names in the caller's scope
 
-Status: fixed in d709ff7 (check_defaults() swaps in an empty body and the kept bag, as check_const_body() does)
+Status: fixed in 9c95e3b (check_defaults() swaps in an empty body and the kept bag, as check_const_body() does)
 
 Where: compiler/src/sema.cpp:19185
 
@@ -35,7 +35,7 @@ Skeptic: semachk/f1.fb (the finding's program) prints 6 then 6, in debug and rel
 
 ## P1-sema-checks-2 (medium): A bad default checked on demand inside a quiet overload try is never reported, and the call silently uses 0
 
-Status: fixed in d709ff7 (with checks-1: the defaults' errors go to m_bag)
+Status: fixed in 9c95e3b (with checks-1: the defaults' errors go to m_bag)
 
 Where: compiler/src/sema.cpp:12723
 
@@ -60,7 +60,7 @@ Skeptic: semachk/f2.fb builds with no diagnostic and prints 1, in debug and rele
 
 ## P1-sema-checks-3 (medium): Compiler crash: a generic Const Function whose type argument misses its constraint still runs
 
-Status: fixed in 4a338f2 (the error count is taken before report_bounds())
+Status: fixed in 6b59f91 (the error count is taken before report_bounds())
 
 Where: compiler/src/sema.cpp:18896
 
@@ -86,7 +86,7 @@ Skeptic: semachk/f3.fb (Largest(True, False)) and f3b.fb (Largest<Bool>(True, Fa
 
 ## P1-sema-checks-4 (medium): Main-thread rules still miss the Operator == run by an array's built-in Contains and by generic == on a Struct that compares its fields
 
-Status: fixed in 11ea2c6 (Contains calls note_compared(), and check_threads() links Equatable's == to the fields' Operator == of a Struct that compares its fields; generic Hash reached the fields' Hash already)
+Status: fixed in cf09cea (Contains calls note_compared(), and check_threads() links Equatable's == to the fields' Operator == of a Struct that compares its fields; generic Hash reached the fields' Hash already)
 
 Where: compiler/src/sema.cpp:19549
 
@@ -131,7 +131,7 @@ Skeptic: semachk/f4.fb builds and prints '2 2' in debug and release. Each shape 
 
 ## P1-sema-checks-5 (medium): Compiler assertion crash: an early-run Const Function that converts an integer to an Enum declared later
 
-Status: fixed in d4d193d (a cast to or from an Enum declares it early while types are declared, and to_enum() takes an Enum with no values)
+Status: fixed in cd80dd0 (a cast to or from an Enum declares it early while types are declared, and to_enum() takes an Enum with no values)
 
 Where: compiler/src/lower.cpp:8190
 
@@ -159,7 +159,7 @@ Skeptic: semachk/f5.fb makes fb abort with stl_vector.h:1346 front() Assertion '
 
 ## P1-sema-checks-6 (medium): `2 As Extra` in a declaration's type is refused when the Enum is declared later
 
-Status: fixed in d4d193d (with checks-5)
+Status: fixed in cd80dd0 (with checks-5)
 
 Where: compiler/src/sema.cpp:22510
 
@@ -186,7 +186,7 @@ Skeptic: semachk/f6.fb reports '2 isn't one of Extra's values' and 'a fixed arra
 
 ## P1-sema-checks-7 (medium): A non-generic Struct's Field of an oversized instance escapes the fixed array limit, and the program overflows its stack
 
-Status: fixed in df1b209 (check_values() walks every Struct's and Class's Fields and base, a parameter's type is checked at the parameter, and a Global's or instance Static Field's type is checked too, the skeptic's side note)
+Status: fixed in 2e0e4fc (check_values() walks every Struct's and Class's Fields and base, a parameter's type is checked at the parameter, and a Global's or instance Static Field's type is checked too, the skeptic's side note)
 
 Where: compiler/src/lower.cpp:891
 
@@ -215,7 +215,7 @@ Skeptic: semachk/f7.fb in debug warns 'stack frame size (4294967304) exceeds lim
 
 ## P1-sema-checks-9 (medium): Tuples in an array literal still get their type from the order they're in
 
-Status: fixed in e4a8377 (with nothing typed to meet, the tuples that type alone meet quietly first, a later one's type winning when the ones before take it, so [(1, 2), (3, 4.5)] works too)
+Status: fixed in 44bfd02 (with nothing typed to meet, the tuples that type alone meet quietly first, a later one's type winning when the ones before take it, so [(1, 2), (3, 4.5)] works too)
 
 Where: compiler/src/sema.cpp:22290
 
@@ -239,7 +239,7 @@ Skeptic: semachk/f9.fb reports 'an empty array needs a type from where it's used
 
 ## P1-sema-types-1 (medium): A Static Method can still take an inherited Field's or Property's name and hide it (A1-8 fixed only half)
 
-Status: fixed in c403662 (a Static Method clashes with any inherited member that isn't a Method)
+Status: fixed in b0b1f14 (a Static Method clashes with any inherited member that isn't a Method)
 
 Where: compiler/src/sema.cpp:3820
 
@@ -276,7 +276,7 @@ Skeptic: I ran sema-types/f1.fb (the finding's program). It builds and prints 5,
 
 ## P1-sema-types-2 (medium): A type's own type parameter can take the name of a type declared further down (A1-13 depends on order)
 
-Status: fixed in 3fe432d (check_type_parameter_names() checks a type's type parameters once every type is declared; a type's own name, Struct Node<Node>, is refused too)
+Status: fixed in 79c33a7 (check_type_parameter_names() checks a type's type parameters once every type is declared; a type's own name, Struct Node<Node>, is refused too)
 
 Where: compiler/src/sema.cpp:1435
 
@@ -306,7 +306,7 @@ Skeptic: f2.fb (`Struct Late<Bar>` before `Struct Bar`) builds and prints c. f2b
 
 ## P1-sema-types-3 (medium): A Class with its own == and an unrelated Method named Hash is made Hashable implicitly, then refused
 
-Status: fixed in 775411a (has_hash() and gets_default() count only a Hash(): UInt64; spec 07 says so)
+Status: fixed in e7d443d (has_hash() and gets_default() count only a Hash(): UInt64; spec 07 says so)
 
 Where: compiler/src/sema.cpp:2598
 
@@ -339,7 +339,7 @@ Skeptic: f3.fb (Class Doc with its own Operator == and `Method Hash(): String`, 
 
 ## P1-sema-types-4 (medium): An == from an Extend of one instance makes every instance non-Hashable, even ones with no == or with their own Hash
 
-Status: fixed in 775411a (hash_instances() decides Hashable per instance: an Extend's == and Hash make the instance Hashable with that Hash, an == alone leaves it Equatable only, in analysis_t's unhashed_instances, and a Class extending it inherits its Hash; spec 07 in 3de3380)
+Status: fixed in e7d443d (hash_instances() decides Hashable per instance: an Extend's == and Hash make the instance Hashable with that Hash, an == alone leaves it Equatable only, in analysis_t's unhashed_instances, and a Class extending it inherits its Hash; spec 07 in d89b835)
 
 Where: compiler/src/sema.cpp:2501
 
@@ -382,7 +382,7 @@ Skeptic: f4.fb (the finding's program) fails as described. At 16:11: "Box<Int32>
 
 ## P1-sema-types-5 (medium): == on a generic Struct that holds an array of a growing instance of itself gives invalid LLVM IR (A-new-2's generic neighbor)
 
-Status: fixed in d94b28f (comparable() stops at an instance whose Field the type table cut short, and == and Contains say a larger instance comes each time, without end)
+Status: fixed in ac3559b (comparable() stops at an instance whose Field the type table cut short, and == and Contains say a larger instance comes each time, without end)
 
 Where: compiler/src/sema.cpp:10759
 
@@ -410,7 +410,7 @@ Skeptic: `fb check` passes f5.fb (Tree<T> with `Field kids: Tree<T[]>[]`, then `
 
 ## P1-sema-checks-8 (low): SizeOf of an instance whose fixed array passes the element limit gives a size, not an error
 
-Status: fixed in 3f9f8c1 (check_size_of() holds a fixed array in the measured type to the written limit)
+Status: fixed in 5c0847b (check_size_of() holds a fixed array in the measured type to the written limit)
 
 Where: compiler/src/sema.cpp:19129
 
@@ -434,7 +434,7 @@ Skeptic: semachk/f8.fb prints 4294967296. f8c.fb (Const S = SizeOf<G<65536, 6553
 
 ## P1-sema-types-6 (low): A Static Property used by name before Super.New, or before a no-zero field is assigned, is refused as a use of Self
 
-Status: fixed in 9ea7546 (a Static Property used by name skips check_self_ready())
+Status: fixed in 46edcf1 (a Static Property used by name skips check_self_ready())
 
 Where: compiler/src/sema.cpp:16240
 
@@ -482,7 +482,7 @@ Skeptic: f6.fb gives "Self can't be used before Super.New" at 24:23 (Prefix) and
 
 ## P1-sema-types-8 (low): A ReadOnly assignment in a lambda or Parallel For in New says only that Class's New can change it
 
-Status: fixed in 64de963 (report_read_only() says a lambda in New runs later, and a Parallel For's body on other threads)
+Status: fixed in 027aa55 (report_read_only() says a lambda in New runs later, and a Parallel For's body on other threads)
 
 Where: compiler/src/sema.cpp:15377
 
@@ -515,7 +515,7 @@ Skeptic: f8.fb (a Shared Class whose New has a Parallel For body assigning ReadO
 
 ## P1-sema-types-9 (low): in_new_of() has two stacked doc comments, the old one left above the new one
 
-Status: fixed in a7285b8 (the stale doc comment is gone; a comment has no test)
+Status: fixed in 2c0e603 (the stale doc comment is gone; a comment has no test)
 
 Where: compiler/src/sema.cpp:15450
 
