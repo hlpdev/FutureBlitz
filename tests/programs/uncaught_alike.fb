@@ -1,0 +1,15 @@
+// An uncaught error and its Cause of two Classes of one name, from two modules, are told
+// apart by their modules, as a type panic and a leak report tell them apart.
+Import std.core
+Import "./uncaught_alike/first" As First
+Import "./uncaught_alike/second" As Second
+
+Function Fail() Throws Error
+    Try
+        Throw First.Oops("inner")
+    Catch e
+        Throw Second.Oops("outer", e)
+    End Try
+End Function
+
+Try Fail()

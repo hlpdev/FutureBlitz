@@ -3,6 +3,7 @@
 #include "fb/runtime.hpp"
 
 #include <cstdio>
+#include <span>
 #include <vector>
 
 // What the runtime's files share that compiled code doesn't call. io.cpp uses it without the
@@ -35,6 +36,11 @@ void at_end(void (*restore)());
 /// Runs what at_end() was given, the last one first: at a normal end once nothing more is
 /// printed, and at a panic's or an uncaught error's before the process goes.
 void run_end();
+
+/// How a message that names `type` among `others` shows it: by its name, or by its full name
+/// when it's alike one of the others, as sema decides alike types.
+[[nodiscard]] const char* shown_class_name(const fb_class_t* type,
+                                           std::span<const fb_class_t* const> others);
 
 /// Writes a String's bytes, NULs too.
 void write_string(const fb_string_t* string, std::FILE* stream);

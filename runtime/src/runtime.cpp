@@ -17,6 +17,7 @@
 #include <ranges>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #ifdef _WIN32
 #ifndef WIN32_LEAN_AND_MEAN
@@ -364,12 +365,20 @@ void fb_error_uncaught(const fb_object_t* error, const fb_location_t* location) 
     output().lock();
     std::fflush(stdout);
     const char* label = color_panics() ? "\x1b[1;31muncaught\x1b[0m" : "uncaught";
+    // The Classes shown, so each is named apart from one alike it, as the leak report does.
+    std::vector<const fb_class_t*> types;
+    for (const fb_object_t* at = error; at != nullptr && types.size() <= max_causes;
+         at = error_fields(at).cause) {
+        types.push_back(at->type);
+    }
+
     // Then each Cause, as far as the chain goes, which a cycle can't make endless.
     std::size_t shown = 0;
     const fb_object_t* at = error;
     for (; at != nullptr && shown <= max_causes; ++shown) {
         const fb_error_fields_t& fields = error_fields(at);
-        std::fprintf(stderr, "%s %s", shown == 0 ? label : "caused by", at->type->name);
+        std::fprintf(stderr, "%s %s", shown == 0 ? label : "caused by",
+                     fb::runtime::shown_class_name(at->type, types));
         if (fields.message->length != 0) {
             std::fputs(": ", stderr);
             std::fwrite(fields.message + 1, 1, static_cast<std::size_t>(fields.message->length),

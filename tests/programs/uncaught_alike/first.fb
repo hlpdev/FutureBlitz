@@ -1,0 +1,4 @@
+Import std.core
+
+Public Class Oops Extends Error
+End Class

@@ -513,6 +513,11 @@ void* const* find_implementation(const fb_object_t* object, const fb_interface_t
 
 } // namespace
 
+const char* fb::runtime::shown_class_name(const fb_class_t* type,
+                                          const std::span<const fb_class_t* const> others) {
+    return shown_name(type, others);
+}
+
 extern "C" {
 
 void fb_track_objects() {
