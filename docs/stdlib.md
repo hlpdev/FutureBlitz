@@ -133,6 +133,7 @@ So far, std/ holds:
 | std/os/env.fb | `Env`'s `Get`, `Set`, `Unset`, and `All`, over libuv through the runtime's `fb_os_` functions |
 | std/os/system.fb | `System`'s `Platform`, `Arch`, `CpuCount`, `TotalMemory`, `Hostname`, and `UserName`, with the `Platform` and `Arch` Enums |
 | std/os/folders.fb | `Folders`' `Executable`, `Home`, `Config`, `Data`, `Cache`, `Temp`, and `Documents`, and `OpenDefault` |
+| std/os/process.fb | `Process`'s `Id` and `Exit` |
 
 What the language itself uses, `Error` for Throw and Catch, the Interfaces, `Iterator<T>`, and
 `Map<K, V>` for `{key: value}`, is always std's, whatever a program calls by those names.
