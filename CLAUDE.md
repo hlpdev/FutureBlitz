@@ -51,4 +51,4 @@ docs/history.md; a landed step's notes go there, newest milestone first.
   Callback, and bindgen.
 - M6 so far: step 0 (CI on Windows, Linux, and macOS), 1 (std's foundation), 2 (indexing,
   iteration, and ranges), 3 (collections I), 4 (collections II), 9 (math I), 21
-  (crypto), and 27 (algo), and most of the whole-codebase review's fixes.
+  (crypto), and 27 (algo), and every one of the whole-codebase review's fixes.

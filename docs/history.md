@@ -408,6 +408,97 @@ cell; a Voronoi cell is cut by each neighbor once, has no corner twice, and is e
 touches bounds; points on a line are cut by their neighbors only; TopologicalSort's docs and
 InfiniteAt's comment say what the code does.
 
+Phase 1, lane 1's second batch: reaches_class() catches an inheritance cycle through an instance of
+the Class being declared, like A Extends B<Int32> with B<T> Extends A (A1-1); Destroy can't be
+generic or have a Where line (A1-2, spec 06); common_type() wraps the inner common type with
+types.nullable(), so T?s nested to different depths meet at the deeper one (A2-1);
+m_pending_sendables checks a Mutex's or Channel's T again, through check_carried(), once types are
+declared, with the constraints where it was written (A2-2); check_threads() leads an Interface's
+Property to the Get and Set of what implements it, with getter_of() beside setter_of() (A2-3);
+note_shown() and note_compared() record the ToStrings and Operator ==s that showing a value and
+comparing values run, for the main-thread rules (A2-4); comparable() keeps a seen-list, so == on a
+Struct that holds an array of itself doesn't overflow the compiler's stack, and its comment says
+what it refuses (A-new-2, A2-7); `a?.M()` on an Async Method gives a Task<T>? (a Task? for one that
+gives nothing), which lowering's Async call makes from its T?'s T, and lookup_member() says a
+nullable Task, Channel, Thread, or Scheduler may be Null (A4-1, spec 10); implements_alone() is the
+one rule for the built-in Interfaces that sema's builtin_implements() and fb::implements() share,
+Defaultable and Cloneable among them (A4-2); a Const Function call that was reported while it was
+checked doesn't run (A4-3); an Async lambda isn't work for Spawn or Thread.Start (A4-4, spec 10);
+list_object_interfaces() lists Equatable and Hashable for every Class once every Extend is declared,
+leaving Hashable off one with an Operator == of its own (written, inherited, an Interface's default,
+or an Extend's) and no Hash, with gets_default(), extended_with(), and has_hash(), and
+unhashed_reason() saying why in the error for a Set or Map key (A-new-1, specs 06, 07, and 14).
+Tests: sema_tests cases beside each, nested_optionals, async_methods, extend_more, equatable_objects
+(no Implements Equatable any more), and conditional_defaults and several sema tests that now use a
+Struct as their type that isn't Hashable.
+
+Lane 3 fixed ten of lane 1's sema findings. A Scheduler's Run without its Task is one error, not a
+crash (A4-5). fold_integer_call() doesn't fold a known argument of another type (A4-6), and pointer
+arithmetic on a known Null Ptr isn't folded (A4-7). conformance_query_t::sendable() has a WEAK case,
+so a Weak<T> of a Shared Class is Sendable for lowering's Interface tables too, as sema and now spec
+10 say (A4-8). choose_overload() prefers the one Function that isn't generic among convertible
+candidates too, not only exact ones (A4-9). common_type_of() takes typed values first, then
+literals, tuples, and empty arrays and Maps with the common type as their hint, then Null, so
+`[Null, 1]` and `[i, []]` work wherever the Null or the empty one is (A4-10). contains() sees a
+generic Struct holding an instance of itself inline, like a Wrap<T> with a Wrap<Int> Field (A2-5). A
+generic Function's name passed to an overloaded call or a New takes its type arguments from each
+candidate's parameter: choose_overload() lets names_generic_function() through, and match() checks
+it against each overload's parameter (A4-new-1, from lane 5); the parser's type_arguments_follow()
+also takes a `>` before `]`, `}`, a line's end, or the file's end, so `f = Less<Int>` parses.
+check_defaults() runs once per Function, on demand from run_at_compile_time(), so a Const Function
+run where Consts and types are declared has its defaults (A4-11). check_enum_value() declares an
+Enum early while types are declared, so `Int[Extra.BONUS]` works above the Enum (A4-12).
+
+Phase 1, lane 1's third batch, the A1 mediums and lows: an override of an instance's Property
+compares with member_type(), as a Method's does (A1-3); a ByRef default an array type gets isn't
+ByRef (A1-11); body_t swaps m_locks, so a Const checked early isn't in the Lock blocks of the code
+that needed it (A1-12); report_baseless_overrides() refuses Override in a Class that extends
+nothing, and check_inherited_static() keeps a Static Field or Property from taking an inherited
+member's name and a Static Method an inherited instance Method's name and parameters (A1-7, A1-8);
+@MainThread before a Property, Interface, or Enum is an error (A1-6); Static and ReadOnly before a
+Struct or Class are errors, and ReadOnly on a Const says it's a Const already (A1-14, A1-16);
+extension_target()'s own_only list says Atomic, Mutex, Ptr, Task, Thread, Channel, Scheduler, and
+Weak<T> have only their own operations (A1-15); conform() skips the built-in Interfaces a built-in
+type, Enum, or array comes with, so an Extend can list one that extends them, like `Real Extends
+Numeric` for Float32 (A1-9); names_type() keeps a type parameter, and Extend T[]'s T, from taking
+the name of a type the code sees (A1-13, spec 06); check_instance_redeclared() keeps an Extend of
+one instance from redeclaring a Field, Property, or Method its generic type has, with the instance's
+types, though not an Operator, which beats the generic type's (A1-4); check_default_own() checks a
+default a type takes against its own Fields, Static Fields, Properties, and Static Methods, and
+check_default_inherited() against an inherited Static Method (A1-5); hide_in_place() lets a default
+every instance has from an Extend without Where lines take the place of a refining Interface's
+conditional default (A1-10); comments on extension_member_fits(), m_declared_types, m_const_modules,
+symbol_t::members, and conformance_t::type say what's there (A1-17, A1-18); the CLI's Ctrl+C test
+counts only the interrupted-* folders its own run leaves in the temp folder every run shares
+(A-new-3, in tests/cli/cli_tests.cpp, lane 3's file). Tests: sema_tests cases beside each,
+extend_refined_builtins, and a case in conditional_defaults.
+
+Lane 3 fixed the rest of its share of lane 1's sema findings. told_arguments() unifies an Async
+Function's Task of its result with the type expected, so `Local t: Task<Int64> = Zero()` infers T
+(A4-13). Lowering's check_values() checks every type lowering uses, and an instance's Fields and
+base, and reports a fixed array whose sizes each fit but make more than 2147483647 elements, like
+`G<65536, 65536>`'s `Int8[W, H]`; an instance used in code that isn't generic, whose Field works out
+`N * 2` past the limit, was missed the same way (A4-14). Spawn and Thread.Start refuse type
+arguments (A4-15), and Spawn takes what its work gives from a `Task<T>?` expected too (A4-17). An
+Async lambda that returns nothing can end in `=> Await ...`, since is_call() takes an Await as a
+call (A4-16). A fixed array's known UInt64 index or slice bound past Int64's range is an error at
+compile time, and the runtime's new fb_unsigned_index_out_of_range() shows such an index as it is
+when a T[]'s or fixed array's index panics (A4-18). An overload error shows a literal too big for
+its type, or a generic Function's name, as written, not `<invalid>` (A4-19). Calling a Property says
+it's a Property, and calling a Static Field says it's a field, not "only functions can be called"
+(A4-20). A name repeated in a capture list is an error (A4-21). lambda_expr_t keeps its Function
+keyword's span, where an Async lambda's errors point (A4-22). parameters_in() looks inside Tasks,
+Channels, Ptrs, Atomics, Mutexes, and Callbacks, so check_expansion() finds instances without end
+through them (A2-6). Misplaced and stale doc comments in sema.cpp and types.hpp were moved, merged,
+or fixed (A2-8 to A2-11, A4-23), and spec 08 says AddressOf takes a ByRef parameter, as the compiler
+does (A4-24). Lane 5's A4-new-2, an Int literal's exact match losing to ambiguity, is the two-tier
+rule of spec 05 and decisions.md: it wins where the call's other arguments are exact too, which a
+new test pins.
+
+That closes phase 1: every one of the whole-codebase review's 161 findings, and the ones found on
+the way (A-new-1 to A-new-3, A4-new-1 and 2, A7-new-1), is fixed with a test or dropped with its
+reason in docs/review/.
+
 ## M5, modules, packages, FFI, and bindgen
 
 Done: M5 (modules, packages, `project.toml`, FFI, bindgen), planned 2026-10-18 and finished
