@@ -446,7 +446,8 @@ generator, noise, easing, stats, and fixed point; the rest is planned.
 - A virtual file system: mount folders, zips, and embedded folders under one tree, read through
   the same API as files; the engine's pak files build on it.
 - `Embed("path")`, `EmbedText("path")`, and `EmbedFolder("path")`: built-ins, checked at compile
-  time, that put a file's bytes or text, or a read-only folder, in the program.
+  time, that put a file's bytes (a new `UInt8[]`), its text (a String known at compile time), or
+  a folder's files (a new `Map<String, UInt8[]>` by their paths in it), in the program (spec 13).
 - `Preferences("MyGame")`: a per-app key-value store in the OS's config folder, saved
   atomically.
 - Console: `ReadKey`, `ReadPassword`, `IsTerminal`, `TerminalSize`, and styled output that turns
