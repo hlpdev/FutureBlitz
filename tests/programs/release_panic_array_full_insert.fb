@@ -1,0 +1,16 @@
+// Inserting into a full array panics at the Insert, like adding to one.
+Import std.core
+
+Struct Nothing
+End Struct
+
+Local items: Nothing[] = []
+Local added: Int64 = 0
+While added < 2147483647
+    items.Add(Nothing())
+    added += 1
+End While
+
+Print("{items.Count}")
+items.Insert(0, Nothing())
+Print("never: the array is full")

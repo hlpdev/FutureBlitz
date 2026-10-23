@@ -82,7 +82,7 @@ std::optional<std::uint64_t> magnitude_of(std::string_view digits, const std::in
 
 /// Adds a new String of `text` to an array of Strings, which takes its reference.
 void add_text(fb_array_t* array, const std::string& text) {
-    *static_cast<fb_string_t**>(fb_array_push(array, sizeof(fb_string_t*))) = make(text);
+    *static_cast<fb_string_t**>(fb_array_push(array, sizeof(fb_string_t*), nullptr)) = make(text);
 }
 
 /// A spec without its kind, which the debug form of a number or a String only pads by.
@@ -302,7 +302,7 @@ std::int32_t fb_format_split(const fb_string_t* text, fb_array_t* texts, fb_arra
 
         add_text(texts, piece);
         piece.clear();
-        *static_cast<std::int32_t*>(fb_array_push(indexes, sizeof(std::int32_t))) = index;
+        *static_cast<std::int32_t*>(fb_array_push(indexes, sizeof(std::int32_t), nullptr)) = index;
         add_text(specs, std::string(colon < field.size() ? field.substr(colon + 1) : ""));
         i = close;
     }

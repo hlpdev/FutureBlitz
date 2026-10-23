@@ -104,7 +104,7 @@ fb_string_t* fb_text_from_utf8(const fb_array_t* bytes, const std::int64_t start
 
 void fb_text_append(fb_array_t* into, const fb_string_t* text) {
     for (const char byte : text_of(text)) {
-        *static_cast<char*>(fb_array_push(into, 1)) = byte;
+        *static_cast<char*>(fb_array_push(into, 1, nullptr)) = byte;
     }
 }
 

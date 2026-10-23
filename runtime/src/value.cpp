@@ -73,9 +73,9 @@ std::int32_t fb_value_path(const fb_string_t* path, fb_array_t* keys, fb_array_t
     const std::string_view text(reinterpret_cast<const char*>(path + 1),
                                 static_cast<std::size_t>(path->length));
     const auto add = [&](const std::string_view key, const std::int64_t index) {
-        *static_cast<fb_string_t**>(fb_array_push(keys, sizeof(fb_string_t*))) =
+        *static_cast<fb_string_t**>(fb_array_push(keys, sizeof(fb_string_t*), nullptr)) =
             fb_string_from_bytes(key.data(), static_cast<std::int64_t>(key.size()));
-        *static_cast<std::int64_t*>(fb_array_push(indices, sizeof(std::int64_t))) = index;
+        *static_cast<std::int64_t*>(fb_array_push(indices, sizeof(std::int64_t), nullptr)) = index;
     };
     std::size_t at = 0;
     while (at < text.size()) {
