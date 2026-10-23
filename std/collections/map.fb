@@ -355,22 +355,15 @@ Public Class Map<K, V> Implements Iterable<(K, V)>, Cloneable, Defaultable
         Entries[at].Next = Entries[index].Next
     End Method
 
-    // Buckets for count entries or more: a power of two, at least 8, with every entry chained
-    // again. They stop at 2^30, the largest power of two an Int holds, so past that many entries
-    // the chains get longer, and a Map with that many already stays as it is.
+    // Buckets for count entries or more, as many as BucketsFor gives, with every entry chained
+    // again. A Map that has that many already stays as it is.
     Method Grow(count: Int)
-        Local buckets = 8
-        Local shift = 61
-        While buckets < count && buckets < 1073741824
-            buckets *= 2
-            shift -= 1
-        End While
-        If buckets == Buckets.Count Then Return
-
-        Shift = shift
+        Local sized = BucketsFor(count)
+        If sized.0 == Buckets.Count Then Return
+        Shift = sized.1
         Buckets.Clear()
-        Buckets.Reserve(buckets)
-        For i = 0 Until buckets
+        Buckets.Reserve(sized.0)
+        For i = 0 Until sized.0
             Buckets.Add(-1)
         End For
 
@@ -442,6 +435,19 @@ Extend Map<K, V> Implements Printable
         Return "{{" + JoinedText(parts) + "}}"
     End Method
 End Extend
+
+// How many buckets a Map has for count entries or more, and the Shift that leaves a mixed hash's
+// top bits to pick one: a power of two, at least 8, that stops at 2^30, the largest an Int holds,
+// so past that many entries the chains get longer.
+Package Function BucketsFor(count: Int): (Int, Int)
+    Local buckets = 8
+    Local shift = 61
+    While buckets < count && buckets < 1073741824
+        buckets *= 2
+        shift -= 1
+    End While
+    Return (buckets, shift)
+End Function
 
 // The parts with ", " between them, joined in pairs, then pairs of those, and so on, so the time
 // grows with their length times its logarithm, not with its square, as joining one at a time

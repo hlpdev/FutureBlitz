@@ -309,21 +309,21 @@ Extend T[]
     End Method
 
     // Moves the element at index down the heap in the first count elements, where each comes
-    // after its two children, at 2i + 1 and 2i + 2, by before. Only an element before count / 2
-    // has a child, so working one out never overflows.
+    // after its two children, by before.
     @PanicsAtCaller
     Method SiftDown(index: Int, count: Int, before: Func(T, T): Bool)
         Local at = index
-        While at < count / 2
+        Loop
+            Local left = HeapChild(at, count)
+            If left == Null Then Return
             Local largest = at
-            Local left = 2 * at + 1
             Local right = left + 1
             If before(Self[largest], Self[left]) Then largest = left
             If right < count && before(Self[largest], Self[right]) Then largest = right
             If largest == at Then Return
             Swap(at, largest)
             at = largest
-        End While
+        End Loop
     End Method
 
     // The elements, each only the first time it comes, in a new array.
@@ -417,6 +417,14 @@ Public Struct Sorting<T>
         Return Sorting<T>(Items, before)
     End Method
 End Struct
+
+// The first of the two children of the value at index at in a binary heap of count values, at
+// 2 * at + 1, or Null when it has none. Only a value before count / 2 has one, so working it out
+// never overflows.
+Package Function HeapChild(at: Int, count: Int): Int?
+    If at >= count / 2 Then Return Null
+    Return 2 * at + 1
+End Function
 
 // The parts with separator between them, joined in pairs, then pairs of those, and so on, so the
 // time grows with their length times its logarithm, not with its square.

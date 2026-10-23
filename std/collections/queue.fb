@@ -38,7 +38,7 @@ Public Class Queue<T> Implements Iterable<T>, Cloneable, Defaultable
         Local front = Peek()
         Items[Head] = Null
         Head += 1
-        If Head >= Items.Count - Head
+        If HalfEmptied(Head, Items.Count)
             Items = Items[Head..]
             Head = 0
         End If
@@ -104,6 +104,10 @@ Public Class Queue<T> Implements Iterable<T>, Cloneable, Defaultable
     // over them panics.
     Public Method Iterate(): QueueIterator<T> => QueueIterator<T>(Self, Head, Changes)
 End Class
+
+// Whether a Queue drops its empty slots, the emptied ones before Head of its count: once they're
+// half or more, worked out so it never overflows, as emptied * 2 would.
+Package Function HalfEmptied(emptied: Int, count: Int): Bool => emptied >= count - emptied
 
 Public Struct QueueIterator<T> Implements Iterator<T>
     Field Owner: Queue<T>

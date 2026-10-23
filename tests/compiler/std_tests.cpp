@@ -1,0 +1,78 @@
+#include "fb/driver.hpp"
+#include "fb/lower.hpp"
+#include "fb/process.hpp"
+
+#include <catch2/catch_test_macros.hpp>
+#include <expected>
+#include <filesystem>
+#include <format>
+#include <string>
+#include <utility>
+#include <vector>
+
+// std's arithmetic at counts no test program could hold in memory, through its Package helpers,
+// which only std's own modules can call: a module in std/extra/ calls them, and a debug program,
+// in which an overflow panics, prints what they give.
+
+namespace {
+
+/// Builds main.fb's `text` as the debug program `name`, with the standard library and `module`
+/// as std/extra/checks.fb, and runs it. Fails with the first compile error.
+std::expected<fb::process_result_t, std::string>
+run_with_std_module(const std::string& name, std::string text, std::string module) {
+    std::vector<fb::library_file_t> library =
+        fb::standard_library().value_or(std::vector<fb::library_file_t>{});
+    library.push_back({ .path = "std/extra/checks.fb", .text = std::move(module) });
+    const fb::compilation_t compilation =
+        fb::compile("main.fb", std::move(text), std::move(library));
+    if (compilation.diagnostics.has_errors()) {
+        const fb::diagnostic_t& first = compilation.diagnostics.diagnostics().front();
+        return std::unexpected(std::format(
+            "{}: {}", compilation.sources.get(first.span.file).slice(first.span), first.message));
+    }
+
+    std::filesystem::path program = std::filesystem::path(FB_TEST_OUTPUT) / name;
+    program += fb::executable_extension;
+    const fb::mir_module_t module_code = fb::lower(compilation.ast, compilation.analysis);
+    return fb::build_program(module_code, compilation, program, fb::build_mode_t::DEBUG)
+        .and_then([&] { return fb::run_process(program, {}); });
+}
+
+} // namespace
+
+TEST_CASE("std's counts and indexes don't overflow near the most an Int holds", "[programs]") {
+    // A Map's buckets stop at 2^30; a heap's last parent is before count / 2; and a Queue drops
+    // its emptied slots at half.
+    const std::string module = "Import std.core\n"
+                               "Import std.collections.array\n"
+                               "Import std.collections.map\n"
+                               "Import std.collections.queue\n"
+                               "Public Function Check()\n"
+                               "    For count In [0, 8, 9, 1073741823, 1073741824, 1073741825, "
+                               "2147483647]\n"
+                               "        Print(count, BucketsFor(count))\n"
+                               "    End For\n"
+                               "    Print(HeapChild(1073741822, 2147483647) ?? -1,\n"
+                               "          HeapChild(1073741823, 2147483647) ?? -1,\n"
+                               "          HeapChild(1073741824, 2147483647) ?? -1,\n"
+                               "          HeapChild(2147483646, 2147483647) ?? -1, "
+                               "HeapChild(0, 1) ?? -1, HeapChild(0, 2) ?? -1)\n"
+                               "    Print(HalfEmptied(1073741823, 2147483647), "
+                               "HalfEmptied(1073741824, 2147483647),\n"
+                               "          HalfEmptied(1, 3), HalfEmptied(1, 2))\n"
+                               "End Function\n";
+    const std::expected<fb::process_result_t, std::string> result =
+        run_with_std_module("std_limits", "Import std.extra.checks\nCheck()", module);
+    INFO((result ? result->output : result.error()));
+    REQUIRE(result);
+    CHECK(result->output == "0 (8, 61)\n"
+                            "8 (8, 61)\n"
+                            "9 (16, 60)\n"
+                            "1073741823 (1073741824, 34)\n"
+                            "1073741824 (1073741824, 34)\n"
+                            "1073741825 (1073741824, 34)\n"
+                            "2147483647 (1073741824, 34)\n"
+                            "2147483645 -1 -1 -1 -1 1\n"
+                            "False True False True\n");
+    CHECK(result->exit_code == 0);
+}
