@@ -95,6 +95,19 @@ False
 True True True
 True
 True
+maps
+5 1 5 [2, 3, 4] []
+False True True
+False 0
+[10, 12, 3, 40, 50] 12
+[10, 12, 3, 40, 50]
+0 []
+map NOT_FOUND
+map IS_A_DIRECTORY
+map INVALID_PATH
+watching
+True
+True
 removing
 True False False
 True False
@@ -102,8 +115,10 @@ True False
   empty.bin FILE
   lines.txt FILE
   lock.lck FILE
+  mapped ü.bin FILE
   new.bin FILE
   odd.txt FILE
+  watched.txt FILE
   セーブ.dat FILE
 temporary files
 True 0 17

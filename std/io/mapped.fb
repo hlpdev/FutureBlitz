@@ -1,0 +1,137 @@
+// std.io's mapped files: a file's bytes mapped into memory, read and written in place, without
+// copying the file in, which the OS pages in as they're used.
+
+Import std.core
+Import std.io.path
+Import std.io.request
+
+Extern "runtime"
+    Function fb_io_map_new(path: String, writable: Int32): Ptr<Void>
+    Function fb_io_map_error(map: Ptr<Void>): Int64
+    Function fb_io_map_open(map: Ptr<Void>): Int32
+    Function fb_io_map_data(map: Ptr<Void>): Ptr<UInt8>
+    Function fb_io_map_size(map: Ptr<Void>): Int64
+    Function fb_io_map_read(map: Ptr<Void>, start: Int64, count: Int64, output: UInt8[])
+    Function fb_io_map_write(map: Ptr<Void>, start: Int64, bytes: UInt8[])
+    Function fb_io_map_flush(map: Ptr<Void>): Int64
+    Function fb_io_map_close(map: Ptr<Void>)
+    Function fb_io_map_free(map: Ptr<Void>)
+End Extern
+
+// A file mapped into memory whole, read-only or writable, until it's closed or its last
+// reference goes. Writing to a writable one changes the file, which Flush puts onto the disk. It
+// has the bytes the file had when it was mapped: one that grows or shrinks meanwhile isn't
+// mapped again. On Windows, a mapped file can't be deleted until it's closed.
+Public Class MappedFile
+    Public ReadOnly Field Path: Path
+    Public ReadOnly Field IsWritable: Bool
+    // The runtime's map, which keeps whether it's open, so no Field of this one changes once
+    // it's made.
+    ReadOnly Field Native: Ptr<Void>
+
+    // Maps the file, which has to be there, read-only, or writable when `writable` is True.
+    Public New(path: Path, writable: Bool = False) Throws IOError
+        Path = path
+        IsWritable = writable
+        Native = fb_io_map_new(path.Text, writable ? 1 : 0)
+        Local error = fb_io_map_error(Native)
+        If error != 0
+            fb_io_map_free(Native)
+            Throw ErrorOf(error, "map", path)
+        End If
+    End New
+
+    // How many bytes it has: the file's, or 0 once it's closed.
+    Public Method Count(): Int64 => fb_io_map_size(Native)
+
+    // Whether it's still mapped.
+    Public Method IsOpen(): Bool => fb_io_map_open(Native) != 0
+
+    // The byte at `index`, from 0. Panics when it's closed, or the index is out of range.
+    @PanicsAtCaller
+    Operator [](index: Int64): UInt8
+        CheckIndex(index)
+        Unsafe
+            Return (fb_io_map_data(Native) + index).Value
+        End Unsafe
+    End Operator
+
+    // Sets the byte at `index`. Panics when it's read-only or closed, or the index is out of
+    // range.
+    @PanicsAtCaller
+    Operator []=(index: Int64, value: UInt8)
+        CheckWritable()
+        CheckIndex(index)
+        Unsafe
+            (fb_io_map_data(Native) + index).Value = value
+        End Unsafe
+    End Operator
+
+    // A copy of `count` bytes from `start`. Panics when it's closed, or they aren't all in it.
+    @PanicsAtCaller
+    Public Method ReadBytes(start: Int64, count: Int64): UInt8[]
+        CheckRange(start, count)
+        If count > 2147483647 Then Panic("ReadBytes can't copy {count} bytes, more than an array holds")
+        Local bytes: UInt8[] = []
+        fb_io_map_read(Native, start, count, bytes)
+        Return bytes
+    End Method
+
+    // Puts the bytes at `start`, over what's there. Panics when it's read-only or closed, or they
+    // don't all fit.
+    @PanicsAtCaller
+    Public Method WriteBytes(start: Int64, bytes: UInt8[])
+        CheckWritable()
+        CheckRange(start, bytes.Count)
+        fb_io_map_write(Native, start, bytes)
+    End Method
+
+    // Puts what's been written onto the disk, as File's atomic writes do theirs. A read-only or
+    // closed one has nothing to put there.
+    Public Method Flush() Throws IOError
+        Local error = fb_io_map_flush(Native)
+        If error != 0 Then Throw ErrorOf(error, "write", Path)
+    End Method
+
+    // Unmaps it, and closes the file, which a second Close leaves alone. What was written stays
+    // in the file, for the OS to put onto the disk.
+    Public Method Close()
+        fb_io_map_close(Native)
+    End Method
+
+    Method Destroy()
+        fb_io_map_free(Native)
+    End Method
+
+    // Panics unless it's open and the byte at `index` is in it.
+    @PanicsAtCaller
+    Method CheckIndex(index: Int64)
+        CheckOpen()
+        Local size = fb_io_map_size(Native)
+        If index < 0 || index >= size
+            Panic("index {index} is out of range for a MappedFile of {BytesOf(size)}")
+        End If
+    End Method
+
+    // Panics unless it's open and the `count` bytes from `start` are in it.
+    @PanicsAtCaller
+    Method CheckRange(start: Int64, count: Int64)
+        CheckOpen()
+        Local size = fb_io_map_size(Native)
+        If start < 0 || count < 0 || start > size || count > size - start
+            Panic("{BytesOf(count)} from {start} isn't a range in a MappedFile of {BytesOf(size)}")
+        End If
+    End Method
+
+    @PanicsAtCaller
+    Method CheckOpen()
+        If fb_io_map_open(Native) == 0 Then Panic("the MappedFile of {Path.FileName()} is closed")
+    End Method
+
+    @PanicsAtCaller
+    Method CheckWritable()
+        If !IsWritable Then Panic("the MappedFile of {Path.FileName()} is read-only")
+    End Method
+End Class
+
+Function BytesOf(count: Int64): String => "{count} byte{count == 1 ? "" : "s"}"

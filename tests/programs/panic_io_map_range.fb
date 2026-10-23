@@ -1,0 +1,10 @@
+// A MappedFile's ReadBytes past its bytes panics at the program's line.
+Import std.core
+Import std.io
+
+Local temp = Try TempDir("fb-map-")
+Try File.WriteBytes(temp.Path / "empty.bin", [])
+Local map = Try MappedFile(temp.Path / "empty.bin", True)
+Try temp.Close()
+Print("{map.ReadBytes(0, 0)}")
+map.WriteBytes(0, [1])

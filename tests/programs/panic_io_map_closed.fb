@@ -1,0 +1,12 @@
+// Reading a MappedFile once it's closed panics at the program's line.
+Import std.core
+Import std.io
+
+Local temp = Try TempDir("fb-map-")
+Try File.WriteBytes(temp.Path / "five.bin", [1, 2, 3, 4, 5])
+Local map = Try MappedFile(temp.Path / "five.bin", True)
+Print("{map[4]}")
+map.Close()
+Try temp.Close()
+Print("{map.Count()} {Dir.Exists(temp.Path)}")
+Print(map.ReadBytes(0, 1))
