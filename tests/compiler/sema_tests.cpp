@@ -1397,6 +1397,29 @@ TEST_CASE("?. and ?? give Null, or a value for it", "[sema]") {
           errors_t{ "f: 'f' can't be Null here, so '?.' isn't needed" });
 }
 
+TEST_CASE("T?s nested to different depths meet at the deeper one", "[sema]") {
+    constexpr std::string_view values = "Class Animal\nEnd Class\n"
+                                        "Class Dog Extends Animal\nEnd Class\n"
+                                        "Class Cat Extends Animal\nEnd Class\n"
+                                        "Function Flag(): Bool => False\n"
+                                        "Function A(): Int32?? => 3\n"
+                                        "Function B(): Int64? => 4\n"
+                                        "Function D(): Dog? => Dog()\n"
+                                        "Function C(): Cat?? => Null\n"
+                                        "Function C3(): Cat??? => Null\n";
+    const auto with_values = [&](const std::string_view text) {
+        return std::format("{}{}", values, text);
+    };
+
+    // Each side keeps its depth, so the Null inside a Cat?? stays one.
+    CHECK(probe(with_values("Local x = Flag() ? A() : B()")) == "Int64??");
+    CHECK(probe(with_values("Local x = Flag() ? D() : C()")) == "Animal??");
+    CHECK(probe(with_values("Local x = [A(), B()]")) == "Int64??[]");
+    CHECK(probe(with_values("Local x = [D(), C()]")) == "Animal??[]");
+    CHECK(probe(with_values("Local x = C3() ?? D()")) == "Animal??");
+    CHECK(errors_of(with_values("Local x = A() == B()\nLocal y = C() == D()")).empty());
+}
+
 TEST_CASE("comparing with Null", "[sema]") {
     CHECK(probe("Local a: Int? = Null\nLocal x = a == Null") == "Bool");
     CHECK(probe("Local a: Int? = Null\nLocal x = Null != a") == "Bool");

@@ -10786,12 +10786,13 @@ private:
             return std::nullopt;
         }
 
+        // Each side is one T? more than its T, so a Cat?? and a Dog? meet at an Animal??.
         const std::optional<type_id_t> inner = common_type(non_null(a), non_null(b));
         if (!inner) {
             return std::nullopt;
         }
 
-        return nullable_of(*inner);
+        return m_analysis.types.nullable(*inner);
     }
 
     /// A known value converted without loss. A T? holds what its T would, or Null.

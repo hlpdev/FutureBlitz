@@ -5,12 +5,16 @@ True False
 inside is Null: True
 a Null
 False True 5
+False 4 False True
+4 False
 False a Null node
 root True text
+False a Null node
 1, a Null, none
 b
 3 Null 1 1 Null 3 1 Null 3 1 Null 3 1 Null 3 
 False True True True
 a Null none
 False True True
+leaf goes
 root goes

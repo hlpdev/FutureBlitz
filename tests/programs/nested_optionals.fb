@@ -46,6 +46,13 @@ Local wide: Int64?? = holdsNull
 Local widened: Int64?? = five
 Print("{wide == Null} {(wide ?? 1) == Null} {(widened ?? 0) ?? 0}")
 
+// Values nested to different depths meet at the deeper one, where each keeps its Null.
+Local four: Int64? = 4
+Local picked = False ? holdsNull : four
+Local both = [holdsNull, four]
+Print("{picked == Null} {(picked ?? 0) ?? -1} {both[0] == Null} {(both[0] ?? 0) == Null}")
+Print("{(both[1] ?? 0) ?? -1} {holdsNull == four}")
+
 // Strings and objects, which a T? holds as a reference, nest too.
 Class Node
     Field name: String
@@ -68,6 +75,14 @@ Local noText: String?? = Null
 Local text = Texted("text")
 Print("{maybeNode == Null} {(maybeNode ?? Node("fallback"))?.name ?? "a Null node"}")
 Print("{(someNode ?? noNode)?.name ?? "-"} {noText == Null} {(text ?? "x") ?? "-"}")
+
+// A Leaf? and a Node?? meet at a Node??, which keeps the Null the Node?? holds.
+Class Leaf Extends Node
+End Class
+
+Local leaf: Leaf? = Leaf("leaf")
+Local met = False ? leaf : maybeNode
+Print("{met == Null} {(met ?? leaf)?.name ?? "a Null node"}")
 
 // Generic code: Find gives a T?, which for an Int?[] is an Int??.
 Function Find<T>(items: T[], at: Int): T?
