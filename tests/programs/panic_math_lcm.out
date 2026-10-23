@@ -1,0 +1,2 @@
+2147441940
+panic: integer overflow in '*' at panic_math_lcm.fb:6:7

@@ -1,0 +1,2 @@
+1
+panic: division by zero at panic_math_mod.fb:7:7

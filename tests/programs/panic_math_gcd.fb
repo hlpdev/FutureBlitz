@@ -1,0 +1,7 @@
+// A Gcd too large for its type, 128 in an Int8, panics where it's called, in debug builds.
+Import std.core
+Import std.math
+
+Local low = MinValue<Int8>()
+Print(Gcd(low, 64 As Int8))
+Print(Gcd(low, 0 As Int8))

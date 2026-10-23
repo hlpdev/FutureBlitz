@@ -1,0 +1,7 @@
+// Abs of an integer type's lowest value, which has no positive in the type, panics where it's
+// called, in debug builds, as negating it does.
+Import std.core
+Import std.math
+
+Print(Abs(MinValue<Int8>() + 1))
+Print(Abs(MinValue<Int8>()))

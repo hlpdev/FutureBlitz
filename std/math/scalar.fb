@@ -7,7 +7,9 @@ Import std.core
 Import std.math.constants
 Import std.math.numbers
 
-// The value without its sign: 0 for -0, and NaN for NaN.
+// The value without its sign: 0 for -0, and NaN for NaN. An integer's lowest value, which has none
+// in its type, overflows.
+@PanicsAtCaller
 Public Function Abs<T>(value: T): T
     Where T: Numeric & Comparable
     Return value <= T.Zero() ? T.Zero() - value : value
@@ -41,7 +43,8 @@ Public Function Fract<T>(value: T): T
     Return value - T.Floor(value)
 End Function
 
-// a - a / b * b, without overflowing where b is -1.
+// a - a / b * b, without overflowing where b is -1. A b of 0 panics.
+@PanicsAtCaller
 Function IntegerRem<T>(a: T, b: T): T
     Where T: Integer & Numeric & Comparable
     If b < T.Zero() && b + T.One() == T.Zero() Then Return T.Zero()
@@ -50,6 +53,7 @@ End Function
 
 // The remainder of a divided by b with the sign of b, as dividing and rounding down leaves it:
 // Mod(-1, 3) is 2, and Mod(1, -3) is -2. A b of 0 panics.
+@PanicsAtCaller
 Public Function Mod<T>(a: T, b: T): T
     Where T: Integer & Numeric & Comparable
     Local rest = IntegerRem(a, b)
@@ -70,6 +74,7 @@ End Function
 
 // The remainder of a divided by b with the sign of a, as % gives it: Rem(-1, 3) is -1. A b of 0
 // panics.
+@PanicsAtCaller
 Public Function Rem<T>(a: T, b: T): T
     Where T: Integer & Numeric & Comparable
     Return IntegerRem(a, b)
@@ -81,6 +86,7 @@ Public Function Rem<T: FloatingPoint>(a: T, b: T): T => T.Rem(a, b)
 
 // The greatest common divisor of the two, which isn't negative: Gcd(12, -18) is 6, and Gcd(0, 0)
 // is 0. One too large for T overflows.
+@PanicsAtCaller
 Public Function Gcd<T>(a: T, b: T): T
     Where T: Integer & Numeric & Comparable
     Local x = a
@@ -95,6 +101,7 @@ End Function
 
 // The least common multiple of the two, which isn't negative: Lcm(4, 6) is 12, and 0 when either
 // is 0. One too large for T overflows.
+@PanicsAtCaller
 Public Function Lcm<T>(a: T, b: T): T
     Where T: Integer & Numeric & Comparable
     If a == T.Zero() || b == T.Zero() Then Return T.Zero()

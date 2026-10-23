@@ -1,0 +1,7 @@
+// Mod by 0 panics where it's called.
+Import std.core
+Import std.math
+
+Local zero = 0
+Print(Mod(7, 3))
+Print(Mod(7, zero))

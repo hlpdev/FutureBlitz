@@ -1,0 +1,7 @@
+// Rem by 0 panics where it's called.
+Import std.core
+Import std.math
+
+Local zero: Long = 0
+Print(Rem(-7 As Long, 3))
+Print(Rem(-7 As Long, zero))

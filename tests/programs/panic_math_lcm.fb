@@ -1,0 +1,6 @@
+// An Lcm too large for its type panics where it's called, in debug builds.
+Import std.core
+Import std.math
+
+Print(Lcm(46340, 46341))
+Print(Lcm(46341, 46343))
