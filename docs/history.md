@@ -239,6 +239,41 @@ comment says it counts values added or removed (a Deque's setter in a loop is te
 fixed in map.fb (Buckets and Shift), values.fb (Clamp's panic), trie.fb, and panic_chain_changed.fb.
 New test: panic_counter_overflow. Lane 4's 23 findings are all fixed.
 
+Phase 1, lane 2's second batch (A5 to A7's mediums and lows, and A7-new-1): raise() keeps the error
+on its way out in `m_raising`, which an Await's cancel block releases; Lock reaches its Mutex once
+and holds the innermost object it's in for the block (not Self's); combine() steps a Ptr with
+pointer_t; set_property() settles the receiver for op= and ++; evaluate() takes a `build_mode_t`,
+which analyze() (sema.hpp) gets from the driver, so a release build's Const Function leaves
+DebugAssert out (spec 13); `call_t::span`, runtime calls' spans filled in by give_place(), and the
+evaluator's `m_at` and reach(), so the step, depth, and size limits point at the last call or
+operation reached (spec 13); the runtime's reserve_one() stops the capacity at 2147483647 and panics
+past it (spec 14); codegen's constants are `fb.string`, `fb.text`, `fb.location`, and `fb.classes`;
+declare_extern() extends a runtime Extern's small integers as C does; declare_global(), and a Const
+known at compile time gets its global only when place_of() needs it; a slice's panic shows its
+bounds as written; the MIR dump escapes \r, \0, control characters, and braces, prints a T? of an
+Enum by member, marks `async` functions, and paints a Callback's function; a map literal runs Map's
+New(); comments fixed in lower.cpp, mir.hpp, mir.cpp, codegen.cpp, and c_abi.hpp. Tests:
+tests/compiler/evaluate_tests.cpp, release_const_debug_assert, release_panic_array_full,
+panic_slice_unsigned, a runtime test, mir_tests and c_abi_tests cases, and cases in
+scheduler_cancel_cleanups, atomic_mutex, pointers_more, and property_kinds.
+
+Phase 1, lane 1's first batch (sema), the review's A3 findings: a Class's own Fields without a zero
+are assigned before Super.New (Swift's rule, A3-1): super_new_of() takes the first of New's own
+statements that's a Super.New, check_class_call() reports an own field unassigned there and a
+Super.New that's nested or repeated, check_body() reports a New that never calls it while the Class
+has such fields, and check_inherited_ready(), `Self.f`, and Return keep New's code before Super.New
+to its own fields, which spec 06 says (the Boss example); a lambda or Parallel For body in New isn't
+New's own code (in_new_of()), so it can't change ReadOnly Fields (A3-2); lambda_context_t's
+`unready` keeps a lambda made before New's fields are assigned from capturing Self (A3-3); assigning
+a Property by name, or as Self.P, checks check_self_ready() (A3-4); lower_reflection() refuses f.Set
+on a ReadOnly Field, as spec 13 says (A3-5); a fixed array's count is checked for overflow before it
+multiplies (A3-6); only a Static member hides T.Has and T.Attribute (A3-7); For Method skips Async
+Methods (A3-8, with lane 2's A6-5); For ... In over a nullable Channel gets the right error (A3-9);
+m_finally_returns and finish_returns() let a Finally assign what New's Returns in its Try need
+(A3-10); For over literals alone takes Float32 when one has a decimal (A3-11); a throwing call in a
+Defer or Finally says it needs Try? or a Try block inside it, through the SEALED handler (A3-12).
+New tests: tests/programs/fields_before_super and reflect_skips.
+
 ## M5, modules, packages, FFI, and bindgen
 
 Done: M5 (modules, packages, `project.toml`, FFI, bindgen), planned 2026-10-18 and finished

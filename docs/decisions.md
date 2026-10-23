@@ -106,7 +106,7 @@ section.
 | Class `==` compares identity unless the Class has an Operator `==`; `RefEquals` always compares identity | identity is the equality every object has |
 | Methods are virtual unless `Final`; `Override` must match the parameter types, `ByRef`, and return type exactly | one rule for what overrides what |
 | Every Class's `Destroy` runs, the most derived first, and none overrides another | each Class cleans up its own fields |
-| A Class's `New` runs the base's first: `Super.New(...)` as its first statement, or the base's `New` that takes no arguments; `Self` waits for it | the object is set up from the base down, like the field layout |
+| A Class's `New` runs the base's New once, with `Super.New(...)` among its own statements, outside any block, or the base's `New` that takes no arguments; before it, New assigns its own Fields that have no zero, by name, and may read the ones it has assigned, but can't use Self, inherited members, lambdas that capture Self, or Return; a Throw there discards the object without its Destroy (Swift's rule, phase 1's A3-1) | the object is set up from the base down, and a base New's virtual calls never see one of the Class's Fields unassigned; reading an assigned Field reaches no override |
 | A Class without a `New` that extends another takes the parameters of each of its base's News, and passes them on | an error Class is two lines, and fields with defaults don't need a New |
 | An object's fields start with its base Class's, and its Class's info has a Method table after `fb_class_t` | inherited fields and overrides cost no lookups |
 | `As` to a subclass, and from a `T?` to a `T`, checks at run time and panics with the Class it found; `As?` gives `Null`; unrelated Classes are a compile error | casts that can't work are caught early, and ones that fail at run time say why |
@@ -689,6 +689,12 @@ Planned 2026-10-20 with the user; the design is in [stdlib.md](stdlib.md#m6s-des
 | std's Methods that compare values, like Remove, IndexOf, and Contains, keep `Where T: Equatable`, so a plain Class lists Equatable to use them, and gets identity from the built-in == (phase 1) | spec 07 makes a Class Equatable only by listing it; every Class Equatable by identity would be a language change |
 | A Map's buckets stop at 2^30, past which its chains get longer, rather than a limit on its size (phase 1) | as Java's HashMap does; a Map that large is rare, and still works |
 | A key that isn't equal to itself, like NaN, panics where it's added to a SortedMap, SortedSet, or IntervalTree, and every lookup with one finds nothing (phase 1) | an order can't place it, as the spatial structures can't place a NaN coordinate |
+| A Const Function runs as the build would run it, so a release build leaves its DebugAsserts out (phase 1, spec 13) | spec 09 has release builds leave DebugAssert out, and a Const that the release build refuses while the same call at run time passes is the build disagreeing with itself |
+| A Const Function's step, depth, and size limits point at the last call or operation the run reached (spec 13); every MIR call and runtime call records where it is in the source (phase 1) | MIR statements carry no place, so the nearest one the run got to is where the error can point |
+| A `T[]` holds at most 2147483647 elements, and adding one more panics: "an array holds at most 2147483647 elements" (spec 14); the panic has no source location, since the runtime's push takes none (phase 1) | Count and Capacity are Ints, which wrapped silently past that |
+| A Const whose value is known at compile time gets an MIR global only where code needs its place (phase 1) | every use reads its value, so an unused Const in a std file cost every program a global it couldn't use |
+| Lock holds the object nearest its Mutex for the whole block, but not Self (phase 1) | the block can't free the Mutex by changing where it came from; Self outlives the Method |
+| A Map literal runs Map's New(), then Add for each entry (phase 1) | a body New gets later runs for literals too, where field defaults alone were relied on |
 
 ## Libraries and packages (M7)
 
