@@ -36,3 +36,6 @@ Map<String, Int32> {
 3 "x" Point { X: 1, Y: -2 } [Null, 7]
 Boss { Health: 10, Title: "King" } Watcher { Target: Boss { Health: 10, Title: "King" } } Func(Int32): Int32
 Null Watcher { Target: Null }
+Vertex { Name: "a", Edges: [Vertex { Name: "b", Edges: [Vertex { Name: "a", Edges: [ … ] }] }] }
+[[ … ]]
+7 Tiles { Cells: [0, 0, 0, 4] }
