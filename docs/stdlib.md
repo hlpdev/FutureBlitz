@@ -106,6 +106,13 @@ So far, std/ holds:
 | std/concurrent/concurrent_queue.fb | `ConcurrentQueue<T>`, over a Channel that grows |
 | std/concurrent/tasks.fb | `TaskSource<T>`, over the runtime's signals through `fb_signal_`, `WhenAll`, and `WhenAny` |
 | std/events/event.fb | `Event<T>` and `Subscription` |
+| std/compress/codec.fb | What the formats share: a Decompress's limit, and the IOErrors the runtime's results mean |
+| std/compress/deflate.fb | `Deflate`, `Zlib`, and `Gzip`, with `DeflateCompressor`, `DeflateDecompressor`, `ZlibCompressor`, `ZlibDecompressor`, `GzipCompressor`, and `GzipDecompressor`, over zlib-ng through `fb_zlib_` |
+| std/compress/zstd.fb, lz4.fb, xz.fb | `Zstd`, `Lz4`, and `XZ`, with their Compressors and Decompressors, over zstd, LZ4, and liblzma through `fb_zstd_`, `fb_lz4_`, and `fb_xz_` |
+| std/compress/archive.fb | `ArchiveEntry` and `ArchiveEntryKind` |
+| std/compress/zip.fb | `Zip`, `ZipReader`, `ZipWriter`, and `ZipMethod`, over minizip-ng through `fb_zip_` |
+| std/compress/tar.fb | `Tar`, `TarReader`, and `TarWriter`, through `fb_tar_` |
+| std/compress/seven_zip.fb | `SevenZip` and `SevenZipReader`, over liblzma through `fb_xz_7z_` |
 
 What the language itself uses, `Error` for Throw and Catch, the Interfaces, `Iterator<T>`, and
 `Map<K, V>` for `{key: value}`, is always std's, whatever a program calls by those names.
@@ -199,9 +206,9 @@ file or URL in the default app.
   fills in debug and release builds. An uncaught error prints its message, place, and Cause
   chain, then exits with code 1. Each area has one Error with a `Kind` and its details:
   `ArgumentError` (`MISSING`, `UNKNOWN`, `INVALID`, `OTHER`, and `Name: String?`), `IOError`
-  (`NOT_FOUND`, `PERMISSION_DENIED`, `ALREADY_EXISTS`, `UNEXPECTED_END`, `INTERRUPTED`,
-  `OTHER`, and `Path: String?`), `ParseError` (`SYNTAX`, `UNEXPECTED_END`, `WRONG_TYPE`,
-  `OUT_OF_RANGE`, `OTHER`, and `Line`, `Column`), `FormatError` (`BAD_TEMPLATE`,
+  (`NOT_FOUND`, `PERMISSION_DENIED`, `ALREADY_EXISTS`, `UNEXPECTED_END`, `INVALID_DATA`,
+  `INTERRUPTED`, `OTHER`, and `Path: String?`), `ParseError` (`SYNTAX`, `UNEXPECTED_END`,
+  `WRONG_TYPE`, `OUT_OF_RANGE`, `OTHER`, and `Line`, `Column`), `FormatError` (`BAD_TEMPLATE`,
   `MISSING_VALUE`, `BAD_VALUE`, `OTHER`), `TimeoutError` (one kind), `NetError` (`REFUSED`,
   `RESET`, `UNREACHABLE`, `HOST_NOT_FOUND`, `CLOSED`, `TLS`, `OTHER`, and
   `Address: String?`), `DatabaseError` (`CONSTRAINT`, `BUSY`, `QUERY`, `CORRUPT`, `OTHER`).
@@ -608,8 +615,47 @@ Step 18 built `Event<T>` and `Subscription`, in std/events/event.fb; `Import std
 
 #### std.compress
 
-- `Deflate`, `Zlib`, `Gzip`, `Zstd`, `Lz4`, and `XZ` as Readers and Writers; `Zip` and `Tar`
-  (with .tar.gz, .tar.zst, and .tar.xz) to read and write; `.7z` to read.
+Step 22 built the codecs and archives over bytes; their Readers and Writers wait for step 13's
+streams. `Import std.compress` brings in all of std/compress/.
+
+- Codecs: `Deflate` (RFC 1951), `Zlib` (RFC 1950), and `Gzip` (RFC 1952) over zlib-ng's zlib API,
+  `Zstd` over zstd, `Lz4` (LZ4's frame format) over LZ4, and `XZ` over liblzma. Each one's
+  `Compress(data, level)` and `Decompress(data, limit)` work on a `UInt8[]` at once, and its
+  Compressor and Decompressor, like `GzipCompressor(level)` and `GzipDecompressor(limit)`, take
+  bytes in turn: `Add(data)` gives what came out so far, and `Finish()` the rest, and starts again,
+  which is what step 13's streams will wrap. Levels are each library's: 0 to 9 for Deflate, Zlib,
+  Gzip, and XZ, 6 by default, 1 to 22 for Zstd, 3 by default, and 1 to 12 for Lz4, 1 by default;
+  another panics at the caller. Gzip writes one member with no name, time, or OS in its header, so
+  every OS makes the same bytes; a Zstd or Lz4 frame has its content's checksum, and an XZ stream a
+  CRC64. Decompress reads Gzip's members, Zstd's and Lz4's frames, and XZ's streams one after
+  another, as the tools do; Deflate and Zlib take one stream, and bytes after it are an error.
+- Data that's bad throws an IOError: `INVALID_DATA` for bytes that aren't the format or are broken,
+  `UNEXPECTED_END` for ones that end too soon, and `OTHER` for ones that would come to more than the
+  limit, or use what isn't supported. The limit is the most a UInt8[] holds unless it's given a
+  smaller one, which guards against data made to decompress huge; a negative one panics.
+- Archives: `Zip.Read(data)` gives a `ZipReader`, `Tar.Read(data)` a `TarReader`, and
+  `SevenZip.Read(data)` a `SevenZipReader`, of a copy of the bytes, with `Entries`, `Count`,
+  `Find(name)`, `Contains(name)`, `Read(name)`, which gives the last entry of the name, or Null for
+  none, and `ReadAt(index)`, which panics out of range. Each `ArchiveEntry` has its `Name`, with '/'
+  between folders and none at its end, its `Kind` (`FILE`, `FOLDER`, or `LINK`), its `Size`, and a
+  link's `Target`; reading a folder or a link gives no bytes. A name is as the archive has it, so a
+  program that makes files of them checks them first. A `ZipWriter` adds files by a `ZipMethod`
+  (`STORE`, `DEFLATE`, `LZMA`, `XZ`, or `ZSTD`) at a level, and folders, and a `TarWriter` files and
+  folders, and each one's `Finish()` gives the archive and starts again. Names are UTF-8: a zip's
+  that don't say so, and aren't, are read as code page 437, and each byte of a tar's that isn't is
+  U+FFFD.
+- Zip, over minizip-ng: Zip64 where sizes need it, and no encryption; what a ZipWriter makes was
+  made by Unix, with modes 644 and 755, and last changed on 1980-01-01, so every program and OS
+  makes the same bytes. Tar: ustar, pax's extended headers, GNU's long names and base-256 numbers,
+  and old tars, leaving out devices and FIFOs; `Tar.Read` decompresses a .tar.gz, .tar.zst, .tar.xz,
+  or .tar.lz4 first, and a TarWriter's tar compresses to one, as `Gzip.Compress(writer.Finish())`
+  does. A TarWriter writes ustar, with a pax header for a name ustar can't hold or that isn't ASCII,
+  owned by root, at 1970's start. 7z, read over liblzma: its coders stored, LZMA, LZMA2, Delta, and
+  the branch filters for x86, PowerPC, IA-64, ARM, ARM Thumb, ARM64, SPARC, and RISC-V, in chains,
+  as 7-Zip writes them; BCJ2, PPMd, BZip2, and encryption are IOErrors, and a solid folder is
+  decoded once for the files read from it in turn. Writing 7z isn't std's.
+- Planned: the Readers and Writers over step 13's streams, and entries' times and permissions, with
+  std.time and std.io's files.
 
 #### std.net
 
