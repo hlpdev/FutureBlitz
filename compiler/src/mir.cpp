@@ -34,6 +34,8 @@ std::string_view runtime_name(const runtime_function_t function) {
         return "format_text";
     case runtime_function_t::DEBUG_STRING:
         return "debug_string";
+    case runtime_function_t::DEBUG_CHAR:
+        return "debug_char";
     case runtime_function_t::DEBUG_OBJECT:
         return "debug_object";
     case runtime_function_t::DEBUG_INDENT:

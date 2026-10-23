@@ -568,6 +568,60 @@ inline std::string debug_text(const std::string_view text) {
     return out + '"';
 }
 
+/// A Char's debug form, as a character literal writes it: in single quotes, with the escapes
+/// source code writes, \' \\ \n \t \r \0, and \xHH for the other control characters.
+inline std::string debug_char(const char32_t point) {
+    switch (point) {
+    case U'\'':
+        return "'\\''";
+    case U'\\':
+        return "'\\\\'";
+    case U'\n':
+        return "'\\n'";
+    case U'\t':
+        return "'\\t'";
+    case U'\r':
+        return "'\\r'";
+    case U'\0':
+        return "'\\0'";
+    default:
+        break;
+    }
+
+    std::string out = "'";
+    if (point < 0x20 || point == 0x7F) {
+        constexpr std::string_view hex = "0123456789ABCDEF";
+        const auto byte = static_cast<unsigned>(point);
+        out += "\\x";
+        out += hex[byte >> 4U];
+        out += hex[byte & 0xFU];
+        return out + '\'';
+    }
+
+    // Its UTF-8, 1 to 4 bytes.
+    constexpr unsigned continuation = 0x80;
+    constexpr unsigned low_six = 0x3F;
+    const auto code = static_cast<unsigned>(point);
+    const auto byte = [](const unsigned bits) { return static_cast<char>(bits); };
+    if (code < 0x80) {
+        out += byte(code);
+    } else if (code < 0x800) {
+        out += byte(0xC0U | (code >> 6U));
+        out += byte(continuation | (code & low_six));
+    } else if (code < 0x10000) {
+        out += byte(0xE0U | (code >> 12U));
+        out += byte(continuation | ((code >> 6U) & low_six));
+        out += byte(continuation | (code & low_six));
+    } else {
+        out += byte(0xF0U | (code >> 18U));
+        out += byte(continuation | ((code >> 12U) & low_six));
+        out += byte(continuation | ((code >> 6U) & low_six));
+        out += byte(continuation | (code & low_six));
+    }
+
+    return out + '\'';
+}
+
 /// Text padded to the spec's width, by its fill and alignment, and cut to its precision. Text
 /// aligns left unless the spec says otherwise.
 inline std::string format_text(std::string_view text, const format_spec_t& spec) {

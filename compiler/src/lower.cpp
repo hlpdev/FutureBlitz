@@ -6177,6 +6177,10 @@ private:
                                 true);
         }
 
+        if (type == type_id_t::CHAR) {
+            return runtime_call(runtime_function_t::DEBUG_CHAR, { value }, type_id_t::STRING, true);
+        }
+
         if (is_enum(type)) {
             std::vector<operand_t> parts;
             add_text(parts, value, type);

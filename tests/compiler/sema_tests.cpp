@@ -13383,3 +13383,18 @@ TEST_CASE("a Char or an Enum value isn't a fixed array's size", "[sema]") {
               "8, not E",
           });
 }
+
+TEST_CASE("a Char takes the format specs text does and folds to its character", "[sema]") {
+    CHECK(errors_of("Local c = 'a'\n"
+                    "Local a = \"{c:.2}\"\n"
+                    "Local b = \"{c:x}\"\n"
+                    "Local d = \"{c:+}\"\n"
+                    "Local e = \"{c:*>4} {c:?}\"") ==
+          errors_t{
+              ".2: Char doesn't take a precision in its format spec",
+              "x: Char doesn't take 'x' in its format spec",
+              "+: Char doesn't take a sign in its format spec",
+          });
+    CHECK(probe("Local s = \"[{'a':>3}] [{'\\n':?}] [{'é':-^5?}]\"") ==
+          "String [  a] ['\\n'] [-'é'-]");
+}

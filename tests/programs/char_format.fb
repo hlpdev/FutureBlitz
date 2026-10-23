@@ -1,0 +1,12 @@
+// A Char with a format spec is text, never a number: padded as its character, and its debug form
+// is a character literal, with source code's escapes, known at compile time or not.
+Import std.core
+
+Function Padded<T: Formattable>(value: T): String => "[{value:>4}]"
+
+Local accent = 'é'
+Local emoji = '😀'
+Print("[{accent}] [{accent:?}] [{accent:>3}] [{accent:-^5}] [{emoji:<3}]")
+Print("[{'a':>3}] [{'\'':?}] [{'\\':?}] [{'\n':?}] [{'\t':?}] [{'\0':?}] [{'\x01':?}]")
+Print(Dump(accent), Dump(['a', '\n', emoji, '\u{301}']))
+Print(Padded('z'), Padded(accent), Padded(7))
