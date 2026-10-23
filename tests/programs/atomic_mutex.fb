@@ -81,3 +81,31 @@ End Lock
 For Field f In Counter
     Print("field {f.Name}")
 End For
+
+// The Mutex's object is reached once, and held for the block, which can't free it.
+Global made = 0
+Global counters: Counter[] = []
+
+Function Next(): Counter
+    made += 1
+    Local made_counter = Counter()
+    counters.Add(made_counter)
+    Return made_counter
+End Function
+
+Lock Next().Log As line
+    line = "next"
+End Lock
+
+Lock counters[0].Log As line
+    Print("made {made}, {counters.Count} counters, the first logs {line}")
+End Lock
+
+Global held = Counter()
+Lock held.Log As line
+    held = Counter()
+    counters.Clear()
+    line = "kept"
+End Lock
+
+Print("held {held.Label}")

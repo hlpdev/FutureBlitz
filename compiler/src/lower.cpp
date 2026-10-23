@@ -3279,19 +3279,33 @@ private:
     /// body, whose s is the value inside it. An object holding the Mutex is kept until then, so
     /// the body can't make it go, or reach another object's Mutex through the same name.
     void lower_stmt(const stmt_id_t id, span_t /*span*/, const lock_stmt_t& node) {
+        // The Mutex is reached once, and the object it's in, if it's in one, is held for the
+        // block, so the block can't free it by changing where it came from.
         push_scope();
         place_t mutex = lower_place(node.mutex);
-        const auto* member = std::get_if<member_expr_t>(&m_ast.get(node.mutex).node);
-        if (member != nullptr &&
-            m_analysis.symbol(expect(m_analysis.expr(node.mutex).symbol)).kind ==
-                symbol_kind_t::FIELD) {
-            const operand_t object = lower_value(member->object);
-            const local_id_t holder = add_local(type_of(object));
-            initialize(holder, object);
+        for (std::size_t count = mutex.steps.size(); count-- > 0;) {
+            place_t prefix = mutex;
+            prefix.steps.erase(prefix.steps.begin() + static_cast<std::ptrdiff_t>(count),
+                               prefix.steps.end());
+            const type_id_t type = type_of(prefix);
+            if (!is_object(type)) {
+                continue;
+            }
+
+            const auto* root = std::get_if<local_id_t>(&prefix.root);
+            if (prefix.steps.empty() && root != nullptr && *root == m_self) {
+                break; // Self's object outlives the Method
+            }
+
+            const local_id_t holder = add_local(type);
+            initialize(holder, prefix);
             m_scopes.back().emplace_back(holder);
-            const std::uint32_t field = mutex.steps.back().field;
-            mutex = place_t{ holder };
-            mutex.steps.push_back({ .field = field });
+            place_t held{ holder };
+            held.steps.insert(held.steps.end(),
+                              mutex.steps.begin() + static_cast<std::ptrdiff_t>(count),
+                              mutex.steps.end());
+            mutex = std::move(held);
+            break;
         }
 
         finish_statement();
