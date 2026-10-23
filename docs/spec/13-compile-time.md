@@ -10,7 +10,9 @@ Whatever can be computed at compile time is computed at compile time.
   is; otherwise it's computed once at run time (top-level `Const`s together with the
   `Global`s).
 - Places that need a value at compile time (array sizes, const generic arguments, `Case`
-  values) need a `Const` whose value is known at compile time.
+  values) need a `Const` whose value is known at compile time. A Const type argument computed
+  from Const type parameters, like `N - 1`, is worked out in each instance, where dividing by 0
+  or a size below 1 is a compile error ([07](07-generics.md#const-generics)).
 - Overflow, division by zero, or an invalid cast during compile-time evaluation is a compile
   error, in debug and release builds alike.
 - Calls are evaluated at compile time when the function is a `Const Function` (below) and its

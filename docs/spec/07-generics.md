@@ -41,8 +41,9 @@ Max<Float>(1, 2.5)     // explicit
   `Pair<Self, Self>`, soon is. A type nested more than 1000 deep, or made of more than 65536
   types, is an error even where nothing grows. A Field's type that grows that way is left out
   past those limits, as it's never reached.
-- A Const type argument an instance works out, like `N * 2`, has to be a size or a count, from 1
-  to 2147483647, that fits its type parameter's type, or it's an error where the instance is made.
+- A Const type argument an instance works out, like `N * 2` or `N - 1`, has to fit its type
+  parameter's type, and one that's a fixed array's size has to be from 1 to 2147483647, or it's
+  an error where the instance is made, as one that divides by 0 is.
 
 ## Inference
 
@@ -309,15 +310,19 @@ Local g: Grid<Float, 64, 64>
 Sum(row)                           // N from row's Int[8]
 ```
 
-- A Const type parameter, `Const N: Int`, stands for a positive integer, a size or a count: in
-  the body it's a value of its type, and in types it's a fixed array's size. It has no
+- A Const type parameter, `Const N: Int`, stands for an integer of its type: in the body it's a
+  value of that type, and in types a fixed array's size, or an argument for another. It has no
   constraints.
 - Its argument is an integer literal, a `Const`, or a Const type parameter of the code around
-  it, from 1 to a fixed array's limit. Each value makes an instance, like `Grid<Float32, 64,
-  64>`.
-- An argument or a fixed array's size can be computed from Const type parameters with `+` and
-  `*`, which keep it positive: `Function Join<Const N: Int, Const M: Int>(a: Int[N], b:
-  Int[M]): Int[N + M]`, or `Grid<W * 2>`. Each instance works it out.
+  it, any value of its type, 0 and below among them, as a unit's exponents are. Each value makes
+  an instance, like `Grid<Float32, 64, 64>`. Where it's a fixed array's size, it has to be from
+  1 to a fixed array's limit, which each instance checks.
+- An argument or a fixed array's size can be computed from Const type parameters with `+`, `-`,
+  `*`, `/`, and `%`, which round toward 0 as an Int's do, a `-` before one, and parentheses:
+  `Function Join<Const N: Int, Const M: Int>(a: Int[N], b: Int[M]): Int[N + M]`, `Grid<W * 2>`,
+  or `Quantity<L1 - L2, (T - 1) / 2>`. Each instance works it out, in an Int64, and one that
+  divides by 0, passes what an Int64 holds, doesn't fit its parameter's type, or makes a size
+  below 1 is an error where the instance is made, as `Trimmed<1>` is for an `Int[N - 1]`.
 - A call infers it from a fixed array's size: `Sum(row)` with `row: Int[8]` gives `N = 8`.
 - A fixed array whose size is a Const type parameter can't come from an array literal, since its
   size is only known in each instance.
