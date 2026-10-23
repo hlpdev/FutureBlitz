@@ -14452,3 +14452,26 @@ TEST_CASE("a Char takes the format specs text does and folds to its character", 
     CHECK(probe("Local s = \"[{'a':>3}] [{'\\n':?}] [{'é':-^5?}]\"") ==
           "String [  a] ['\\n'] [-'é'-]");
 }
+
+TEST_CASE("a lambda without its parameters' types takes them from the overload whose Func fits",
+          "[sema]") {
+    const std::string apply = "Import std.core\n"
+                              "Function Apply(text: String, change: String): String => change\n"
+                              "Function Apply(text: String, change: Func(String): String): String\n"
+                              "    Return change(text)\n"
+                              "End Function\n";
+    CHECK(errors_of(apply + "Print(Apply(\"a\", Function(s) => s + \"!\"), Apply(\"a\", \"b\"))\n"
+                            "Print(Apply(\"a\", Function(s)\n"
+                            "    Return s == \"\" ? \"none\" : \"some\"\n"
+                            "End Function))")
+              .empty());
+    CHECK(probe(apply + "Local x = Apply(\"a\", Function(s) => s + \"!\")") == "String");
+
+    // A Func the lambda can't be is no fit, and none that fits says so, with the lambda as a
+    // lambda; two it fits as well are ambiguous.
+    CHECK(errors_of(apply + "Print(Apply(\"a\", Function(s, t) => s))") ==
+          errors_t{ "Apply: no overload of 'Apply' takes (String, a lambda)" });
+    CHECK(errors_of("Function G(f: Func(Int): Int)\nEnd Function\n"
+                    "Function G(f: Func(String): String)\nEnd Function\n"
+                    "G(Function(x) => x)") == errors_t{ "G: the call to 'G' is ambiguous" });
+}

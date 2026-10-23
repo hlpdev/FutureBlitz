@@ -157,7 +157,9 @@ Lambdas are always written with `Function`: `Function(x) => expr`, or a block en
   `R`; `Func(A)` returns nothing. A `?` or `[]` after the return type belongs to it, so a Func
   that can be Null is `(Func(): Int)?`, and an array of them is `(Func(): Int)[]`.
 - A parameter without a type, like the `x` in `Function(x) => x * 2`, takes the type that the
-  Func expected there has. With no Func expected, it needs one.
+  Func expected there has. With no Func expected, it needs one. Passed to overloads, the lambda
+  fits only those whose parameter there is a Func it can be, as `Replace(text, Function(m) =>
+  ...)` picks Regex's Replace that takes one over the one that takes a String.
 - A lambda returns what its `: Type` says, or else what the Func expected says. Without either,
   `=> value` returns the value's type, and a block returns nothing.
 - `Return` in a lambda leaves the lambda. `Break` and `Continue` can't leave it, and neither can

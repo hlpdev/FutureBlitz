@@ -22297,6 +22297,16 @@ private:
         return std::nullopt;
     }
 
+    /// A lambda with a parameter that has no type, which takes the one the Func expected for it
+    /// has, so it has no type of its own until an overload's parameter gives one.
+    [[nodiscard]] bool is_untyped_lambda(const expr_id_t id) const {
+        const auto* lambda = std::get_if<lambda_expr_t>(&m_ast.get(id).node);
+        return lambda != nullptr &&
+               std::ranges::any_of(lambda->parameters, [](const lambda_parameter_t& parameter) {
+                   return !parameter.type;
+               });
+    }
+
     /// An overload whose arguments all match exactly beats one that needs conversions. More than
     /// one at the same level is ambiguous. Candidates are tried quietly; only the outcome is
     /// reported.
@@ -22308,7 +22318,8 @@ private:
         for (const argument_t& argument : node.arguments) {
             const type_id_t type = quietly([&] { return check(argument.value, type_id_t::NONE); });
             if (type == type_id_t::INVALID && !is_flexible(argument.value) &&
-                !is_null(argument.value) && !names_generic_function(argument.value)) {
+                !is_null(argument.value) && !names_generic_function(argument.value) &&
+                !is_untyped_lambda(argument.value)) {
                 check_alone(node.arguments); // report the argument's own errors instead
                 return std::nullopt;
             }
@@ -22430,6 +22441,8 @@ private:
                 const expr_id_t value = node.arguments[i].value;
                 if (is_null(value)) {
                     list += "Null";
+                } else if (is_untyped_lambda(value)) {
+                    list += "a lambda";
                 } else if (types[i] == type_id_t::INVALID) {
                     list += text(value);
                 } else {
@@ -22556,6 +22569,22 @@ private:
 
             return made != type_id_t::INVALID && converts(made, type) ? match_t::CONVERTIBLE
                                                                       : match_t::NONE;
+        }
+
+        // A lambda whose parameters take their types from the Func expected fits only a Func it
+        // checks as, or a nullable one by conversion.
+        if (is_untyped_lambda(argument.value)) {
+            const type_id_t made =
+                argument.by_ref ? type_id_t::INVALID : check(argument.value, type);
+            if (made == type_id_t::INVALID) {
+                return match_t::NONE;
+            }
+
+            if (made == type) {
+                return match_t::EXACT;
+            }
+
+            return made == non_null(type) ? match_t::CONVERTIBLE : match_t::NONE;
         }
 
         const type_id_t natural = check(argument.value, type_id_t::NONE);
