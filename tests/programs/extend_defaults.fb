@@ -1,0 +1,46 @@
+// An Extend's Methods take their parameters' defaults, of each kind of value, like a type's own,
+// in an Extend of a built-in type, of a program's own type, and of a generic one.
+Import std.core
+
+Enum Shade
+    LIGHT, DARK
+End Enum
+
+Struct Point
+    Field X: Int
+End Struct
+
+Class Box<T>
+    Field Value: T
+
+    New(value: T)
+        Value = value
+    End New
+End Class
+
+Extend String
+    Method Defaults(n: Int = 7, s: String = "hi", b: Bool = True, c: Char = 'é', d: Double = 2.5,
+                    shade: Shade = Shade.DARK, big: Int64 = -9000000000): String
+        Return "{Self} {n} {s} {b} {c} {d} {shade} {big}"
+    End Method
+End Extend
+
+Extend Point
+    Method Moved(by: Int = 3): Point => Point(X + by)
+End Extend
+
+Extend Box<T>
+    Method Tagged(tag: String = "box"): String => "{tag}!"
+End Extend
+
+Extend T[]
+    Method FirstOr(fallback: Int = -1): Int => Count > 0 ? 0 : fallback
+End Extend
+
+Print("x".Defaults())
+Print("x".Defaults(1, "yo", False, 'a', 0.5, Shade.LIGHT, 1))
+Print("x".Defaults(s: "named"))
+Print(Point(1).Moved().X, Point(1).Moved(10).X)
+Print(Box<Int>(4).Tagged(), Box<String>("s").Tagged("named"))
+Local empty: Int[] = []
+Print(empty.FirstOr(), [5].FirstOr())

@@ -1,0 +1,6 @@
+x 7 hi True é 2.5 DARK -9000000000
+x 1 yo False a 0.5 LIGHT 1
+x 7 named True é 2.5 DARK -9000000000
+4 11
+box! named!
+-1 0

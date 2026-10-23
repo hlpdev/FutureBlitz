@@ -58,6 +58,9 @@ Print("E\u{301}".ToLower(), "ǅ".ToLower(), "Ω".ToLower())
 Print("é😀".Repeated(3), "x".Repeated(0), face.Repeated(2).CharCount)
 Print("[{"é".PadLeft(3)}] [{"😀".PadRight(3, '·')}] [{accent.PadLeft(3, '*')}] [{word.PadLeft(2)}]")
 Print("[{"é".Center(4, '-')}] [{"😀".Center(3, '😀')}] [{word.Center(5)}]")
+// Without a fill, a space, U+0020.
+Print("x".PadLeft(3).Bytes, "x".PadRight(2).Bytes, "x".Center(3).Bytes)
+Print("[{"😀".PadRight(3)}] [{accent.Center(4)}] [{accent.PadRight(3)}]")
 
 // Comparing.
 Print("é".Compare("e"), "e".Compare("é"), "😀".Compare("😀"), "😀".Compare("é"))

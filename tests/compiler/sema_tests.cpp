@@ -13351,3 +13351,18 @@ TEST_CASE("a throwing call in a Defer, Finally, or lambda says it can't throw", 
               "Try block inside it",
           });
 }
+
+TEST_CASE("an Extend's Methods' defaults are checked like a type's own", "[sema]") {
+    CHECK(errors_of("Extend String\n"
+                    "    Method Wrong(n: Int = \"not an Int\"): Int => n\n"
+                    "End Extend") == errors_t{ "\"not an Int\": expected Int32, found String" });
+    CHECK(errors_of("Function Now(): Int => 3\n"
+                    "Extend String\n"
+                    "    Method Late(n: Int = Now()): Int => n\n"
+                    "End Extend") ==
+          errors_t{ "Now(): a default value must be known at compile time" });
+    CHECK(errors_of("Struct P\nEnd Struct\n"
+                    "Extend P\n"
+                    "    Method Fill(c: Char = 65): Char => c\n"
+                    "End Extend") == errors_t{ "65: expected Char, found Int32" });
+}
