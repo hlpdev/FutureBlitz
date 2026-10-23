@@ -8360,6 +8360,9 @@ TEST_CASE("NextFrame, Seconds, and Schedulers time coroutines on the main thread
     // A Scheduler runs an Async Function's Task.
     CHECK(errors_of("Global s = Scheduler()\ns.Run(5)") ==
           errors_t{ "5: a Scheduler runs an Async Function's Task, not Int32" });
+    // A Run without its Task is one error.
+    CHECK(errors_of("Global s = Scheduler()\ns.Run()") ==
+          errors_t{ "s.Run(): missing an argument for parameter 'task'" });
     CHECK(errors_of("Global s = Scheduler()\ns.Pause()") ==
           errors_t{ "Pause: a Scheduler has no member named 'Pause'; it has Run, Tick, and "
                     "IsIdle" });

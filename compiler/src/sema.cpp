@@ -19266,10 +19266,10 @@ private:
     }
 
     /// RefEquals only compares Class references, a Scheduler runs a Task, and Destroy runs by
-    /// itself.
+    /// itself. A Run without its argument was reported already.
     void check_special_call(const call_expr_t& node, const symbol_t& function) {
         if (function.kind == symbol_kind_t::METHOD && function.owner != type_id_t::INVALID &&
-            is_scheduler(function.owner) && function.name == "Run") {
+            is_scheduler(function.owner) && function.name == "Run" && !node.arguments.empty()) {
             const expr_id_t task = node.arguments.front().value;
             if (const type_id_t type = info(task).type;
                 type != type_id_t::INVALID &&
