@@ -4,7 +4,7 @@
 
 ## S11-bigint-1 (medium): A BigInt past 2^31-1 bits is made without a panic, then BitLength, ToInt64, ToDouble, >> and ToString go wrong
 
-Status: fixed in ed7ba0d: a BigInt holds up to 2147483640 bits, as many digits as libtommath's int bit counts hold; the runtime gives null past them (checking <<, **, and * before it works them out) and bigint.fb panics at the caller (panic_bigint_shift_bits, panic_bigint_power_bits, panic_bigint_product_bits)
+Status: fixed in c7f0503c: a BigInt holds up to 2147483640 bits, as many digits as libtommath's int bit counts hold; the runtime gives null past them (checking <<, **, and * before it works them out) and bigint.fb panics at the caller (panic_bigint_shift_bits, panic_bigint_power_bits, panic_bigint_product_bits)
 
 Where: std/math/big/bigint.fb:237
 
@@ -39,7 +39,7 @@ Skeptic: I ran the finding's program (C:/Users/Hunter/Projects/FutureBlitz/.clau
 
 ## S11-decimal-1 (medium): FromDouble of a large whole Double gives its exact binary value, not the shortest Decimal
 
-Status: fixed in 346eb2a: the shortest digits from to_chars's scientific form, at the places the plain form has (decimal_conversions: 5.83386073903097e16, 1.2345678901234568e20, 2^60, 2^53 + 2)
+Status: fixed in db6f4462: the shortest digits from to_chars's scientific form, at the places the plain form has (decimal_conversions: 5.83386073903097e16, 1.2345678901234568e20, 2^60, 2^53 + 2)
 
 Where: runtime/src/decimal.cpp:137
 
@@ -71,7 +71,7 @@ Skeptic: Ran f1.fb (C:/Users/Hunter/Projects/FutureBlitz/.claude/worktrees/rev-s
 
 ## S11-rational-1 (medium): Complex.Sqrt overflows near the largest Double and breaks down on subnormals
 
-Status: fixed in 2e8110f: c_sqrt's scaling and C99's special values (complex: "the ends of the Doubles", against cmath)
+Status: fixed in 4d0111fc: c_sqrt's scaling and C99's special values (complex: "the ends of the Doubles", against cmath)
 
 Where: std/math/big/complex.fb:70
 
@@ -104,7 +104,7 @@ Skeptic: Ran f1.fb in debug and release. Both print `inf+0i`, `0+infi`, `0+infi`
 
 ## S11-rational-2 (medium): Complex.Exp gives a NaN or infinite part where the result is finite or real
 
-Status: fixed in 2e8110f: a real exponent's is real, exp(Real - 1) * e past 708.4, and C99's special values (complex: "the ends of the Doubles")
+Status: fixed in 4d0111fc: a real exponent's is real, exp(Real - 1) * e past 708.4, and C99's special values (complex: "the ends of the Doubles")
 
 Where: std/math/big/complex.fb:50
 
@@ -135,7 +135,7 @@ Skeptic: Ran f2.fb in debug and release. Both print `inf-nani`, `inf-nani`, and 
 
 ## S11-rational-3 (medium): Rational.Parse("1e999999") takes about 21 seconds, since FromDecimal expands the exponent into a million-digit string
 
-Status: fixed in b9ecc10, with 5d7426a: FromDecimal reads the Decimal's digits and exponent; the 21 s left after that were Rational's gcd of 10^999999 and 1, libtommath's binary gcd taking a step a bit, so gcd and lcm take a step of Euclid's first (rational: "1e999999" and "-1e-999999", 1.8 s in a debug build; bigint_number_theory: gcd and lcm beside a huge number)
+Status: fixed in 86dacaf5, with 5d7426a: FromDecimal reads the Decimal's digits and exponent; the 21 s left after that were Rational's gcd of 10^999999 and 1, libtommath's binary gcd taking a step a bit, so gcd and lcm take a step of Euclid's first (rational: "1e999999" and "-1e-999999", 1.8 s in a debug build; bigint_number_theory: gcd and lcm beside a huge number)
 
 Where: std/math/big/rational.fb:59
 
@@ -159,7 +159,7 @@ Skeptic: Built f3.fb (Parse("1e999999")) and f3b.fb ("1e200000") with --release.
 
 ## S11-bigint-2 (low): A literal expression that needs 64 bits beside a BigInt doesn't compile, though the same literal does
 
-Status: fixed in 6802bd1: beside() counts a type as holding the literals only when their check reports no error (sema_tests' probe_money, bigint_arithmetic)
+Status: fixed in b0c53d74: beside() counts a type as holding the literals only when their check reports no error (sema_tests' probe_money, bigint_arithmetic)
 
 Where: compiler/src/sema.cpp:17452
 
@@ -186,7 +186,7 @@ Skeptic: I ran the finding's program, f2.fb. The build failed with "f2.fb:7:14: 
 
 ## S11-bigint-3 (low): No test checks the Miller-Rabin half of Baillie-PSW: the listed strong Lucas pseudoprimes never reach it
 
-Status: fixed in 5d7426a: the strong Lucas pseudoprimes 22499, 25199, 40309, and 58519 and the base-2 strong pseudoprimes 42799, 49141, 88357, and 90751, each without a factor up to 101, and the header says which half rejects each
+Status: fixed in 6ec4759e: the strong Lucas pseudoprimes 22499, 25199, 40309, and 58519 and the base-2 strong pseudoprimes 42799, 49141, 88357, and 90751, each without a factor up to 101, and the header says which half rejects each
 
 Where: tests/programs/bigint_number_theory.fb:130
 
@@ -224,7 +224,7 @@ Skeptic: I ran the finding's program, f3.fb. The test's strong Lucas pseudoprime
 
 ## S11-bigint-4 (low): big.hpp says fb_bigint_mod_inverse takes a modulus above 1, but it handles 1 and is given 1
 
-Status: fixed in cf6eb63 (a comment, so no test)
+Status: fixed in 12585845 (a comment, so no test)
 
 Where: runtime/include/fb/big.hpp:70
 
@@ -248,7 +248,7 @@ Skeptic: runtime/include/fb/big.hpp:70-71 says "The number from 0 to below `modu
 
 ## S11-decimal-2 (low): Round can give a result past exponent 999999 without panicking
 
-Status: fixed in 346eb2a: the exponent rounded to goes from Etiny to 999999 and the result's adjusted exponent up to 999999, as quantize has it (panic_decimal_round_exponent, panic_decimal_round_places, panic_decimal_round_exponent_places)
+Status: fixed in db6f4462: the exponent rounded to goes from Etiny to 999999 and the result's adjusted exponent up to 999999, as quantize has it (panic_decimal_round_exponent, panic_decimal_round_places, panic_decimal_round_exponent_places)
 
 Where: runtime/src/decimal.cpp:302
 
@@ -275,7 +275,7 @@ Skeptic: Ran f2.fb in debug and --release. Both printed 1.0E+1000000 at line 6 a
 
 ## S11-decimal-3 (low): No test covers % or Round past 28 digits, which the intended rule allows
 
-Status: fixed in 346eb2a: % of 35 digits by 7, 1E+64 % a 35-digit number, and Round of 31 digits, checked against Python's decimal at those precisions
+Status: fixed in db6f4462: % of 35 digits by 7, 1E+64 % a 35-digit number, and Round of 31 digits, checked against Python's decimal at those precisions
 
 Where: tests/programs/decimal_arithmetic.fb:1
 
@@ -307,7 +307,7 @@ Skeptic: Ran f3.fb in debug and --release. It printed 4, 12345678901234567890123
 
 ## S11-rational-10 (low): docs say std.math.big's numbers never change once made, but Complex's fields can be assigned
 
-Status: fixed in 2e8110f: Real and Imaginary are ReadOnly (driver_tests: "std.math.big's Complex doesn't change once it's made")
+Status: fixed in 4d0111fc: Real and Imaginary are ReadOnly (driver_tests: "std.math.big's Complex doesn't change once it's made")
 
 Where: std/math/big/complex.fb:24
 
@@ -332,7 +332,7 @@ Skeptic: f10.fb compiles and prints `5+2i` in debug and release after `z.Real = 
 
 ## S11-rational-4 (low): Rational ** with the lowest Int64 panics, with a different message in debug and in release, where 1 is expected
 
-Status: fixed in b9ecc10: -(b + 1) and one more factor (rational: 1, -1, and -1 to the lowest Int64 and one above it)
+Status: fixed in 86dacaf5: -(b + 1) and one more factor (rational: 1, -1, and -1 to the lowest Int64 and one above it)
 
 Where: std/math/big/rational.fb:198
 
@@ -358,7 +358,7 @@ Skeptic: Ran f4.fb (Rational(1) ** lowest Int64) and f4b.fb (Rational(-1) ** low
 
 ## S11-rational-5 (low): Complex.Log overflows for huge inputs and loses accuracy on subnormal ones
 
-Status: fixed in 2e8110f: c_log's scaling past a quarter of the largest Double and among the subnormals; it also kept a NaN Imaginary part from Max and Min dropping it (Complex(2, NaN).Log() was finite), now in the special-value checks
+Status: fixed in 4d0111fc: c_log's scaling past a quarter of the largest Double and among the subnormals; it also kept a NaN Imaginary part from Max and Min dropping it (Complex(2, NaN).Log() was finite), now in the special-value checks
 
 Where: std/math/big/complex.fb:59
 
@@ -385,7 +385,7 @@ Skeptic: Ran f5.fb in debug and release. Both print `inf+0.7853981633974483i` an
 
 ## S11-rational-6 (low): Sqrt, FromPolar, and Exp give NaN parts for infinite inputs that have defined values
 
-Status: fixed in 2e8110f: cmath's and C99's values for Sqrt, Exp, Log, and FromPolar over every pair of -inf, -2, -0, 0, 2, inf, and NaN parts
+Status: fixed in 4d0111fc: cmath's and C99's values for Sqrt, Exp, Log, and FromPolar over every pair of -inf, -2, -0, 0, 2, inf, and NaN parts
 
 Where: std/math/big/complex.fb:71
 
@@ -420,7 +420,7 @@ Skeptic: Ran f6.fb. Debug prints `inf-nani`, `inf-nani`, `inf-nani`, `-nan-nani`
 
 ## S11-rational-9 (low): docs/stdlib.md says std.math.big's numbers have Parse, but Complex has none
 
-Status: fixed in cf6eb63: stdlib.md says Parse is for all but Complex, since Complex can't read a Double from text until step 5's parsing (docs only, so no test)
+Status: fixed in 12585845: stdlib.md says Parse is for all but Complex, since Complex can't read a Double from text until step 5's parsing (docs only, so no test)
 
 Where: docs/stdlib.md:374
 
