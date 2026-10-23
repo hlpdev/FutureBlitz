@@ -52,9 +52,10 @@ struct entry_t {
     std::int32_t kind;
 };
 
-/// A held lock: the file it's on, open.
+/// A lock: the file it's on, open while it's held.
 struct lock_t {
     uv_file file;
+    bool held = true;
 };
 
 struct request_t;
@@ -91,7 +92,7 @@ struct request_t {
 void release(request_t* request) {
     if (request->owners.fetch_sub(1, std::memory_order_acq_rel) == 1) {
         if (request->lock != nullptr) {
-            fb_io_lock_release(request->lock);
+            fb_io_lock_free(request->lock);
         }
 
         delete request;
@@ -1184,17 +1185,30 @@ void fb_io_lock_acquire_async(fb_task_t* task, void* request, const fb_string_t*
     run_async(task, request, acquire_lock);
 }
 
+std::int32_t fb_io_lock_held(const void* lock) {
+    return static_cast<const lock_t*>(lock)->held ? 1 : 0;
+}
+
 void fb_io_lock_release(void* lock) {
-    auto* held = static_cast<lock_t*>(lock);
+    auto& self = *static_cast<lock_t*>(lock);
+    if (!self.held) {
+        return;
+    }
+
+    self.held = false;
 #ifdef _WIN32
     OVERLAPPED overlapped{};
     overlapped.Offset = lock_offset_low;
     overlapped.OffsetHigh = lock_offset_high;
-    UnlockFileEx(uv_get_osfhandle(held->file), 0, 1, 0, &overlapped);
+    UnlockFileEx(uv_get_osfhandle(self.file), 0, 1, 0, &overlapped);
 #else
-    flock(held->file, LOCK_UN);
+    flock(self.file, LOCK_UN);
 #endif
-    close_file(held->file);
-    delete held;
+    close_file(self.file);
+}
+
+void fb_io_lock_free(void* lock) {
+    fb_io_lock_release(lock);
+    delete static_cast<lock_t*>(lock);
 }
 }

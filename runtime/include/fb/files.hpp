@@ -127,8 +127,11 @@ std::int64_t fb_io_lock_acquire(void* request, const fb_string_t* path, std::int
                                 std::int32_t wait);
 void fb_io_lock_acquire_async(fb_task_t* task, void* request, const fb_string_t* path,
                               std::int32_t shared, std::int32_t wait);
-/// Unlocks a lock and gives it back.
+/// Whether a lock is held: 1 until fb_io_lock_release unlocks it, and 0 after. Releasing it
+/// again does nothing, and fb_io_lock_free gives it back, unlocking it if it's held.
+std::int32_t fb_io_lock_held(const void* lock);
 void fb_io_lock_release(void* lock);
+void fb_io_lock_free(void* lock);
 
 /// A watcher of the file or folder at `path`, which the I/O thread has started, and which
 /// fb_io_watcher_free gives back. fb_io_watcher_error gives 0, or the error it couldn't start
