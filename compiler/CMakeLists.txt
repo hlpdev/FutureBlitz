@@ -42,8 +42,13 @@ else()
   set(FB_LINK_OPTIONS "\"-static-libstdc++\", \"-static-libgcc\", \"-pthread\"")
 endif()
 
-# The system libraries each bundled C library needs, separated by spaces.
+# The system libraries each bundled C library needs, separated by spaces. mbedTLS's random comes
+# from Windows' BCryptGenRandom.
 set(FB_LIBUV_SYSTEM "$<JOIN:$<TARGET_PROPERTY:uv_a,INTERFACE_LINK_LIBRARIES>, >")
+set(FB_MBEDTLS_SYSTEM "")
+if(WIN32)
+  set(FB_MBEDTLS_SYSTEM "ws2_32 bcrypt")
+endif()
 
 file(GENERATE OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/generated/fb/build_config.hpp CONTENT
 "#pragma once
@@ -75,7 +80,8 @@ struct bundled_library_t {
     std::string_view prefix;
     /// The runtime's own archive of those functions, which goes before the library's.
     std::string_view runtime;
-    std::string_view archive;
+    /// The library's archives, separated by semicolons.
+    std::string_view archives;
     /// A file of the licenses' texts.
     std::string_view notice;
     /// The system libraries it needs, separated by spaces.
@@ -89,9 +95,59 @@ inline constexpr auto bundled_libraries = std::to_array<bundled_library_t>({
         .license = \"${FB_LIBUV_LICENSES}\",
         .prefix = \"fb_io_\",
         .runtime = \"$<TARGET_FILE:fb_runtime_io>\",
-        .archive = \"$<TARGET_FILE:uv_a>\",
+        .archives = \"$<TARGET_FILE:uv_a>\",
         .notice = \"${FB_LIBUV_NOTICE}\",
         .system = \"${FB_LIBUV_SYSTEM}\",
+    },
+    {
+        .name = \"mbedTLS\",
+        .version = \"${FB_MBEDTLS_VERSION}\",
+        .license = \"${FB_MBEDTLS_LICENSES}\",
+        .prefix = \"fb_crypto_\",
+        .runtime = \"$<TARGET_FILE:fb_runtime_crypto>\",
+        .archives = \"$<TARGET_FILE:mbedx509>;$<TARGET_FILE:tfpsacrypto>\",
+        .notice = \"${FB_MBEDTLS_NOTICE}\",
+        .system = \"${FB_MBEDTLS_SYSTEM}\",
+    },
+    {
+        .name = \"xxHash\",
+        .version = \"${FB_XXHASH_VERSION}\",
+        .license = \"${FB_XXHASH_LICENSES}\",
+        .prefix = \"fb_xxhash_\",
+        .runtime = \"$<TARGET_FILE:fb_runtime_xxhash>\",
+        .archives = \"$<TARGET_FILE:xxhash>\",
+        .notice = \"${FB_XXHASH_NOTICE}\",
+        .system = \"\",
+    },
+    {
+        .name = \"BLAKE3\",
+        .version = \"${FB_BLAKE3_VERSION}\",
+        .license = \"${FB_BLAKE3_LICENSES}\",
+        .prefix = \"fb_blake3_\",
+        .runtime = \"$<TARGET_FILE:fb_runtime_blake3>\",
+        .archives = \"$<TARGET_FILE:blake3>\",
+        .notice = \"${FB_BLAKE3_NOTICE}\",
+        .system = \"\",
+    },
+    {
+        .name = \"Argon2\",
+        .version = \"${FB_ARGON2_VERSION}\",
+        .license = \"${FB_ARGON2_LICENSES}\",
+        .prefix = \"fb_argon2_\",
+        .runtime = \"$<TARGET_FILE:fb_runtime_argon2>\",
+        .archives = \"$<TARGET_FILE:argon2>\",
+        .notice = \"${FB_ARGON2_NOTICE}\",
+        .system = \"\",
+    },
+    {
+        .name = \"crypt_blowfish\",
+        .version = \"${FB_CRYPT_BLOWFISH_VERSION}\",
+        .license = \"${FB_CRYPT_BLOWFISH_LICENSES}\",
+        .prefix = \"fb_bcrypt_\",
+        .runtime = \"$<TARGET_FILE:fb_runtime_bcrypt>\",
+        .archives = \"$<TARGET_FILE:crypt_blowfish>\",
+        .notice = \"${FB_CRYPT_BLOWFISH_NOTICE}\",
+        .system = \"\",
     },
 });
 

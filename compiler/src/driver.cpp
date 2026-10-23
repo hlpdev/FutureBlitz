@@ -1756,7 +1756,10 @@ std::expected<void, std::string> build_program(const mir_module_t& module,
     native_libraries_t natives = compilation.natives;
     for (const build_config::bundled_library_t* library : bundled_libraries(module)) {
         natives.bundled.push_back(path_from_utf8(library->runtime));
-        natives.bundled.push_back(path_from_utf8(library->archive));
+        for (const auto part : std::views::split(library->archives, ';')) {
+            natives.bundled.push_back(path_from_utf8(std::string_view(part.begin(), part.end())));
+        }
+
         for (const auto part : std::views::split(library->system, ' ')) {
             const std::string name(part.begin(), part.end());
             if (!name.empty() && !std::ranges::contains(natives.system, name)) {

@@ -29,7 +29,7 @@ target_compile_definitions(fb_compiler_tests PRIVATE
   FB_TEST_PACKAGES="${CMAKE_CURRENT_SOURCE_DIR}/packages"
   FB_TEST_VECMATH="$<TARGET_FILE:fb_vecmath>"
   FB_TEST_OUTPUT="${CMAKE_CURRENT_BINARY_DIR}/programs")
-add_dependencies(fb_compiler_tests fb_runtime fb_runtime_io uv_a fb_vecmath) # programs link them
+add_dependencies(fb_compiler_tests ${FB_RUNTIME_ARCHIVES} fb_vecmath) # programs link them
 fb_set_warnings(fb_compiler_tests)
 fb_set_stack(fb_compiler_tests)
 fb_copy_llvm(fb_compiler_tests)
