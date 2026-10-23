@@ -11,6 +11,28 @@ Import std.math.bits
 Import std.math.numbers
 Import std.math.scalar
 
+// The fewest decimal digits after the point whose nearest fraction of 2^32 is this one, rounded,
+// with the zeros they start with: ten always are, being nearer together than half of 2^-32.
+Function FractionDigits(fraction: UInt64): String
+    Local power: UInt64 = 1
+    For count = 1 To 10
+        power *= 10
+        // 10^10 times a fraction can pass a UInt64, so it's a Wide.
+        Local scaled = Add(MultiplyWide(fraction, power), Wide(0, 2147483648))
+        Local digits = (scaled.High << 32) | (scaled.Low >> 32)
+        If count == 10 || ((digits << 32) + power / 2) / power == fraction
+            Local text = "{digits}"
+            Local shown: UInt64 = 10
+            For width = 1 Until count
+                If digits < shown Then text = "0" + text
+                shown *= 10
+            End For
+            Return text
+        End If
+    End For
+    Return ""
+End Function
+
 // A 128-bit two's complement integer, as its high and low halves.
 Struct Wide
     Field High: UInt64
@@ -451,7 +473,17 @@ Public Struct Fixed64 Implements Numeric, Comparable, Hashable, Bounded, Printab
     @PanicsAtCaller
     Public Method ToFixed32(): Fixed32 => Narrowed((Bits + 32768) >> 16, "conversion")
 
-    Public Method ToString(): String => "{ToDouble()}"
+    // The value in decimal, from its bits: its whole part, and the fewest digits after the point
+    // that are nearer it than any other Fixed64, so no two print alike and none prints past what
+    // it holds.
+    Public Method ToString(): String
+        Local magnitude = Magnitude(Bits)
+        Local whole = magnitude >> 32
+        Local fraction = magnitude & 0xFFFFFFFF
+        Local sign = Bits < 0 ? "-" : ""
+        If fraction == 0 Then Return "{sign}{whole}"
+        Return "{sign}{whole}.{FractionDigits(fraction)}"
+    End Method
 
     @PanicsAtCaller
     Operator +(a: Fixed64, b: Fixed64): Fixed64 => Fixed64(a.Bits + b.Bits)

@@ -96,6 +96,11 @@ Print(Cos(Fixed64.FromRaw(65536)).Raw, Cos(Fixed64.FromRaw(196608)).Raw,
 Print(Fixed64.FromRaw(4611686843061108735).ToFloat() As Double,
       Fixed64.FromRaw(-4611686843061108735).ToFloat() As Double, Fixed64.FromRaw(1).ToFloat(),
       MaxValue<Fixed64>().ToFloat() As Double)
+// A Fixed64 prints from its bits, with the fewest digits nearer it than any other Fixed64, so
+// none prints past what it holds, and 3000000 and a step past it print apart.
+Print(MaxValue<Fixed64>(), MinValue<Fixed64>(), Fixed64.FromRaw(4294967296 * 3000000 + 1),
+      Fixed64.FromRaw(1), Fixed64.FromRaw(-1), Fixed64.FromDouble(1.0 / 3), Fixed64.FromInt(-5),
+      Fixed64.FromDouble(-2.5), Fixed64.FromRaw(429496730), Fixed64.FromRaw(4294967296 * 3000000))
 // Known values: sin 0 is 0, cos 0 is 1, and sin of a quarter turn is 1 to the last bit.
 Print(Sin(Fixed32.Zero()), Cos(Fixed32.Zero()), Sin(Fixed32.Pi / 2), Cos(Fixed64.Zero()),
       Sin(Fixed64.Pi / 2).Raw)
