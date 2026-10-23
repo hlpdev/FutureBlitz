@@ -352,6 +352,15 @@ TEST_CASE("a missing expression is reported once, and the next line still parses
     const parsed_t parsed = parse_text("x = ) )\ny = 2");
     CHECK(parsed.dump == "(= x (error))\n(= y (int 2))");
     CHECK(parsed.errors == std::vector<std::string>{ "4-5: expected an expression, found ')'" });
+
+    // An operator that ends a line that already failed doesn't take the next line in.
+    const parsed_t operand = parse_text("x = 1 + *\ny = 2\n*/\nz = 3");
+    CHECK(operand.dump == "(= x (+ (int 1) (* (error) (error))))\n"
+                          "(= y (int 2))\n"
+                          "(/ (* (error) (error)) (error))\n"
+                          "(= z (int 3))");
+    CHECK(operand.errors == std::vector<std::string>{ "8-9: expected an expression, found '*'",
+                                                      "16-17: expected an expression, found '*'" });
 }
 
 TEST_CASE("a forgotten ')' is reported at the end of its line", "[parser]") {
@@ -392,6 +401,26 @@ TEST_CASE("a wrong End that closes nothing else is taken as the block's End", "[
     CHECK(parsed.dump == "(if a (block (call b)))\n(= x (int 1))");
     CHECK(parsed.errors ==
           std::vector<std::string>{ "13-16: expected 'End If', found 'End While'" });
+}
+
+TEST_CASE("an End in brackets is shown with the keyword after it on its line only", "[parser]") {
+    const parsed_t parsed = parse_text("Function F()\n    G(1, End\n    H())\nEnd Function");
+    REQUIRE_FALSE(parsed.errors.empty());
+    CHECK(parsed.errors.front() == "22-25: expected an expression, found 'End'");
+}
+
+TEST_CASE("a missing End inside a Get or Set is one error", "[parser]") {
+    // The End Get is the Get's, so its body doesn't run on to End Property.
+    const parsed_t parsed = parse_text("Class C\n"
+                                       "    Property P: Int\n"
+                                       "        Get\n"
+                                       "            If x\n"
+                                       "                Return 1\n"
+                                       "        End Get\n"
+                                       "    End Property\n"
+                                       "End Class");
+    CHECK(parsed.errors.size() == 1);
+    CHECK(parsed.errors.front().ends_with("expected 'End If', found 'End Get'"));
 }
 
 TEST_CASE("a stray End is reported and skipped", "[parser]") {

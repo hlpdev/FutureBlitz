@@ -151,6 +151,9 @@ private:
     diagnostic_bag_t& m_diagnostics;
     ast_t& m_ast;
     std::vector<token_kind_t> m_blocks; // keywords of the open blocks, innermost last
+    /// "Get" or "Set" for each open accessor's body, innermost last, whose End's second word is a
+    /// name, so it isn't in m_blocks.
+    std::vector<std::string_view> m_accessors;
     std::size_t m_pos = 0;
     std::uint32_t m_previous_end = 0; // where the last consumed token ends
     /// Open brackets and string interpolations. While it's above 0, NEWLINE tokens are skipped.
@@ -278,9 +281,10 @@ private:
         return m_pos == 0 || m_tokens[m_pos - 1].kind == token_kind_t::NEWLINE;
     }
 
-    /// After an operator, '=', ',', or "=>" the statement goes on past a line break.
+    /// After an operator, '=', ',', or "=>" the statement goes on past a line break, unless its
+    /// line already has an error: then parsing picks up on the next line, as its own.
     void skip_continuation_newlines() {
-        while (m_tokens[m_pos].kind == token_kind_t::NEWLINE) {
+        while (!m_line_failed && m_tokens[m_pos].kind == token_kind_t::NEWLINE) {
             ++m_pos;
         }
     }
@@ -351,10 +355,16 @@ private:
         return error(peek().span, "expected {}, found {}", what, describe_current());
     }
 
-    /// The current token as messages show it. "End" includes the keyword after it.
+    /// The current token as messages show it. "End" includes the keyword after it on its line.
     [[nodiscard]] std::string describe_current() const {
-        const token_t& token = peek();
-        const token_t& next = peek(1);
+        const std::size_t index = skip_newlines(m_pos);
+        const token_t& token = m_tokens[index];
+        if (token.kind == token_kind_t::END_OF_FILE) {
+            return std::string(describe(token.kind));
+        }
+
+        // The very next token, which a line break inside brackets doesn't skip here.
+        const token_t& next = m_tokens[index + 1];
         if (token.kind == token_kind_t::KW_END && next.kind != token_kind_t::NEWLINE &&
             next.kind != token_kind_t::END_OF_FILE) {
             const std::uint32_t length = next.span.end - token.span.begin;
@@ -473,7 +483,11 @@ private:
             return;
         }
 
-        const bool stray_end = at(token_kind_t::KW_END) && !closes_outer_block(peek(1).kind);
+        const token_t& after = peek(1);
+        const bool closes_accessor = after.kind == token_kind_t::IDENTIFIER &&
+                                     std::ranges::contains(m_accessors, text(after));
+        const bool stray_end =
+            at(token_kind_t::KW_END) && !closes_outer_block(after.kind) && !closes_accessor;
         if (diagnostic_t* diagnostic = error(peek().span, "expected 'End {}', found {}",
                                              text(opening), describe_current())) {
             diagnostic->with_label(opening.span, "opened here");
@@ -1130,7 +1144,9 @@ private:
 
     /// A Get's or Set's block, then "End Get" or "End Set", whose second word is a name.
     block_t parse_accessor_body(const token_t& word) {
+        m_accessors.push_back(text(word));
         block_t body = parse_block();
+        m_accessors.pop_back();
         if (at(token_kind_t::KW_END) && peek(1).kind == token_kind_t::IDENTIFIER &&
             text(peek(1)) == text(word)) {
             advance();
