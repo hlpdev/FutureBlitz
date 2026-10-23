@@ -291,3 +291,21 @@ Print("code page 437:", ZipList(Cp437Zip()))
 Print("zip link:", ZipList(LinkZip()))
 Print("encrypted:", ZipList(EncryptedZip()))
 Print("BZip2:", ZipList(Bzip2Zip()))
+
+// What a header claims takes no memory that its data doesn't give, and a dictionary larger than
+// an array's bytes isn't asked for.
+Print("7z, a folder larger than its data:", SevenZipOutcome(Liar7z()))
+Print("7z, a 4 GiB dictionary:", SevenZipOutcome(Greedy7z()))
+Try
+    XZ.Decompress(GreedyXz())
+Catch e As IOError
+    Print("xz, a 4 GiB dictionary:", e.Kind, e.Message)
+End Try
+
+// A folder's name with '/' after it already gets no other.
+Local slashed = ZipWriter()
+slashed.AddFolder("ends/")
+Local slashedTar = TarWriter()
+slashedTar.AddFolder("ends/")
+Print((Try Zip.Read(slashed.Finish())).Entries[0].Name,
+      (Try Tar.Read(slashedTar.Finish())).Entries[0].Name)

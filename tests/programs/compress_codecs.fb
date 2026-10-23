@@ -321,3 +321,12 @@ End For
 
 // Gzip's header says nothing of the time, the name, or the OS.
 Print(Gzip.Compress(Poem())[0..10], Gzip.Compress(Poem(), 9)[0..10], Zlib.Compress(Poem())[0..2])
+
+// A Zstd frame whose window is larger than zstd's default of 128 MiB takes that much memory,
+// which isn't asked for: this one's window descriptor says 2 GiB, as zstd's --long=31 makes.
+Local streamed = ZstdCompressor()
+Local frame = streamed.Add(Poem())
+frame.AddAll(streamed.Finish())
+Print(frame[4], frame[5])
+frame[5] = 0xa8
+Print(Outcome("Zstd", frame))

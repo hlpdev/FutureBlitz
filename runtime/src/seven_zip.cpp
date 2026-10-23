@@ -21,6 +21,7 @@
 #include <utility>
 #include <vector>
 
+using fb::compress::chunk_size;
 using fb::compress::KIND_FILE;
 using fb::compress::KIND_FOLDER;
 using fb::compress::KIND_LINK;
@@ -722,6 +723,12 @@ status_t decode(const std::span<const std::uint8_t> archive, const streams_t& st
         return {};
     }
 
+    // A dictionary larger than an array's bytes is one no folder here could need, and asking for
+    // it would only run out of memory.
+    if (lzma_raw_decoder_memusage(filters.chain()) > static_cast<std::uint64_t>(most_bytes)) {
+        return unsupported("its coders need more memory than an array holds");
+    }
+
     lzma_stream decoder = LZMA_STREAM_INIT;
     const lzma_ret started = lzma_raw_decoder(&decoder, filters.chain());
     if (started == LZMA_MEM_ERROR) {
@@ -732,17 +739,22 @@ status_t decode(const std::span<const std::uint8_t> archive, const streams_t& st
         return unsupported("its coders' options aren't supported");
     }
 
-    output.resize(size);
+    // The bytes come a chunk at a time, so a size the header claims takes no memory the coders
+    // don't give.
+    std::vector<std::uint8_t> chunk(chunk_size);
     decoder.next_in = packed.data();
     decoder.avail_in = packed.size();
-    decoder.next_out = output.data();
-    decoder.avail_out = output.size();
     lzma_ret result = LZMA_OK;
-    while (decoder.avail_out != 0 && result == LZMA_OK) {
+    while (output.size() < size && result == LZMA_OK) {
+        decoder.next_out = chunk.data();
+        decoder.avail_out = std::min<std::uint64_t>(chunk.size(), size - output.size());
+        const std::size_t room = decoder.avail_out;
         result = lzma_code(&decoder, decoder.avail_in != 0 ? LZMA_RUN : LZMA_FINISH);
+        output.insert(output.end(), chunk.begin(),
+                      chunk.begin() + static_cast<std::ptrdiff_t>(room - decoder.avail_out));
     }
 
-    const std::uint64_t made = output.size() - decoder.avail_out;
+    const std::uint64_t made = output.size();
     lzma_end(&decoder);
     if (result == LZMA_MEM_ERROR) {
         fb_panic("out of memory", nullptr);

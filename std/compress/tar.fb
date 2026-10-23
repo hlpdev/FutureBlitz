@@ -55,14 +55,16 @@ Public Class TarWriter
         State = fb_tar_writer_new()
     End New
 
-    // Adds a file named name of data. Panics when the name is "" or holds a NUL.
+    // Adds a file named name of data. Panics when the name is "", holds a NUL, or ends with '/',
+    // as a folder's does.
     @PanicsAtCaller
     Public Method Add(name: String, data: UInt8[])
-        CheckName(name, MOST_BYTES, "tar")
+        CheckFileName(name, MOST_BYTES, "tar")
         fb_tar_writer_add(State, name, data, 0)
     End Method
 
-    // Adds a folder named name, with '/' after it. Panics as Add does for its name.
+    // Adds a folder named name, with '/' after it unless it has one. Panics when the name is ""
+    // or holds a NUL.
     @PanicsAtCaller
     Public Method AddFolder(name: String)
         CheckName(name, MOST_BYTES, "tar")

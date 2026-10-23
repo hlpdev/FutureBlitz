@@ -49,3 +49,13 @@ Package Function CheckName(name: String, most: Int, format: String)
         If byte == 0 Then Panic("a {format}'s names can't hold a NUL")
     End For
 End Function
+
+// Panics as CheckName does, and when name ends with '/', as only a folder's does.
+@PanicsAtCaller
+Package Function CheckFileName(name: String, most: Int, format: String)
+    CheckName(name, most, format)
+    Local bytes = name.Bytes
+    If bytes[bytes.Count - 1] == 0x2f
+        Panic("a {format}'s file can't have a name that ends with '/', as a folder's does")
+    End If
+End Function

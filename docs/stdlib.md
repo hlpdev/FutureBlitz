@@ -578,7 +578,10 @@ streams. `Import std.compress` brings in all of std/compress/.
 - Data that's bad throws an IOError: `INVALID_DATA` for bytes that aren't the format or are broken,
   `UNEXPECTED_END` for ones that end too soon, and `OTHER` for ones that would come to more than the
   limit, or use what isn't supported. The limit is the most a UInt8[] holds unless it's given a
-  smaller one, which guards against data made to decompress huge; a negative one panics.
+  smaller one, which guards against data made to decompress huge; a negative one panics. Data that
+  needs more memory than that to decompress, as an XZ dictionary or a Zstd window can say, isn't
+  supported, and zstd's default window of 128 MiB is its most, so a frame from zstd's `--long`
+  past that isn't either. A header's sizes take no memory but what its data gives.
 - Archives: `Zip.Read(data)` gives a `ZipReader`, `Tar.Read(data)` a `TarReader`, and
   `SevenZip.Read(data)` a `SevenZipReader`, of a copy of the bytes, with `Entries`, `Count`,
   `Find(name)`, `Contains(name)`, `Read(name)`, which gives the last entry of the name, or Null for

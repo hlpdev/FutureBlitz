@@ -50,8 +50,11 @@ void start(encoder_t& encoder) {
     check(lzma_easy_encoder(&encoder.stream, encoder.preset, LZMA_CHECK_CRC64));
 }
 
+/// A stream that needs more memory than an array's bytes to decompress, by its dictionary, is
+/// one no data here could need, and asking for it would only run out of memory.
 void start(decoder_t& decoder) {
-    check(lzma_stream_decoder(&decoder.stream, UINT64_MAX, LZMA_CONCATENATED));
+    check(lzma_stream_decoder(&decoder.stream, static_cast<std::uint64_t>(most_bytes),
+                              LZMA_CONCATENATED));
 }
 
 /// Runs the encoder over `data` with `action`, putting what comes out in `output`, until it's all
@@ -125,6 +128,9 @@ std::int32_t decode_all(decoder_t& decoder, const std::span<const std::uint8_t> 
         case LZMA_OPTIONS_ERROR:
             return decoder.failure.fail(RESULT_UNSUPPORTED,
                                         "the .xz data uses options liblzma doesn't support");
+        case LZMA_MEMLIMIT_ERROR:
+            return decoder.failure.fail(RESULT_UNSUPPORTED,
+                                        "it needs more memory than an array holds to decompress");
         default:
             return decoder.failure.fail(RESULT_INVALID, "the .xz data is broken");
         }

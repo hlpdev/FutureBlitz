@@ -71,3 +71,5 @@ XZ
   flipped: INVALID_DATA
   twice: 3084 bytes
 [31, 139, 8, 0, 0, 0, 0, 0, 0, 255] [31, 139, 8, 0, 0, 0, 0, 0, 2, 255] [120, 156]
+4 88
+OTHER: the Zstd data uses what isn't supported: Frame requires too much memory for decoding
