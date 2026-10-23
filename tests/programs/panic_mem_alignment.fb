@@ -1,0 +1,10 @@
+// Mem.AllocAligned aligns to a power of two, and panics for any other alignment.
+Import std.core
+Import std.ffi
+
+Unsafe
+    Local memory = Mem.AllocAligned(8, 8)
+    Mem.FreeAligned(memory)
+    Print("aligned to 8")
+    Mem.AllocAligned(8, 12)
+End Unsafe

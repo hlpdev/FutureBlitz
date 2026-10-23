@@ -1,0 +1,2 @@
+aligned to 8
+panic: Mem.AllocAligned aligns to a power of two, not 12 at panic_mem_alignment.fb:9:5

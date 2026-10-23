@@ -141,6 +141,21 @@ Unsafe
     Mem.Free(block)
     Mem.Free(copy)
 
+    // AllocAligned's memory is at a multiple of its alignment, and 0, and AllocUninitialized's
+    // is what it is until it's written.
+    For alignment In [1, 16, 64, 4096]
+        Local aligned = Mem.AllocAligned(24, alignment) As Ptr<Int64>
+        Print("{(aligned As UInt64) % (alignment As UInt64)} {aligned[0] + aligned[2]}")
+        Mem.FreeAligned(aligned)
+    End For
+
+    Mem.FreeAligned(Null)
+    Local scratch = Mem.AllocUninitialized(SizeOf<Int32>() * 2) As Ptr<Int32>
+    scratch[0] = 3
+    scratch[1] = 4
+    Print("{scratch[0] * scratch[1]}")
+    Mem.Free(scratch)
+
     Local text = CString.From("héllo")
     Local raw = text As Ptr<UInt8>
     Print("{strlen(text)} {text.ToString()} {raw[0]} {raw[6]} {text != Null} {text.Length()}")

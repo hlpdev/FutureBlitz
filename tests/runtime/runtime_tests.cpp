@@ -295,6 +295,29 @@ TEST_CASE("C's text that isn't UTF-8 gets U+FFFD for each byte that doesn't star
     CHECK(take(fb_string_from_cstring("\xF4\x90\x80\x80")) == replaced(4));
 }
 
+TEST_CASE("Mem's aligned memory is at a multiple of its alignment, and all 0", "[runtime]") {
+    for (const std::uint64_t alignment : { 1U, 2U, 8U, 32U, 256U, 4096U, 65536U }) {
+        INFO(alignment);
+        auto* memory = static_cast<unsigned char*>(fb_mem_alloc_aligned(100, alignment));
+        REQUIRE(memory != nullptr);
+        CHECK(reinterpret_cast<std::uintptr_t>(memory) % alignment == 0);
+        CHECK(
+            std::all_of(memory, memory + 100, [](const unsigned char byte) { return byte == 0; }));
+        fb_mem_free_aligned(memory);
+    }
+
+    // None is a byte, as Alloc's is, and more than there is gives null.
+    void* none = fb_mem_alloc_aligned(0, 16);
+    CHECK(none != nullptr);
+    fb_mem_free_aligned(none);
+    fb_mem_free_aligned(nullptr);
+    CHECK(fb_mem_alloc_aligned(std::numeric_limits<std::uint64_t>::max() / 4, 16) == nullptr);
+
+    void* uninitialized = fb_mem_alloc_uninitialized(0);
+    CHECK(uninitialized != nullptr);
+    fb_mem_free(uninitialized);
+}
+
 TEST_CASE("an object is of its Class and the ones it extends", "[runtime]") {
     const fb_class_t base = thing_class();
     fb_class_t type = thing_class();

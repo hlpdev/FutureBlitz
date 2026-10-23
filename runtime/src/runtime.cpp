@@ -28,6 +28,7 @@
 #endif
 #include <fcntl.h>
 #include <io.h>
+#include <malloc.h>
 #include <windows.h>
 #else
 #include <unistd.h>
@@ -292,12 +293,42 @@ void* fb_mem_alloc(const std::uint64_t bytes) {
     return std::calloc(1, std::max<std::uint64_t>(bytes, 1));
 }
 
+void* fb_mem_alloc_uninitialized(const std::uint64_t bytes) {
+    return std::malloc(std::max<std::uint64_t>(bytes, 1));
+}
+
 void* fb_mem_resize(void* memory, const std::uint64_t bytes) {
     return std::realloc(memory, std::max<std::uint64_t>(bytes, 1));
 }
 
 void fb_mem_free(void* memory) {
     std::free(memory);
+}
+
+void* fb_mem_alloc_aligned(const std::uint64_t bytes, const std::uint64_t alignment) {
+    const std::uint64_t size = std::max<std::uint64_t>(bytes, 1);
+#ifdef _WIN32
+    void* memory = _aligned_malloc(size, alignment);
+#else
+    // posix_memalign takes an alignment of a pointer's at least.
+    void* memory = nullptr;
+    if (posix_memalign(&memory, std::max<std::uint64_t>(alignment, sizeof(void*)), size) != 0) {
+        return nullptr;
+    }
+#endif
+    if (memory != nullptr) {
+        std::memset(memory, 0, size);
+    }
+
+    return memory;
+}
+
+void fb_mem_free_aligned(void* memory) {
+#ifdef _WIN32
+    _aligned_free(memory);
+#else
+    std::free(memory);
+#endif
 }
 
 void fb_mem_copy(void* destination, const void* source, const std::uint64_t bytes) {

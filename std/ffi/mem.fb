@@ -5,14 +5,18 @@
 
 Extern "runtime"
     Function fb_mem_alloc(bytes: UInt64): Ptr<Void>
+    Function fb_mem_alloc_uninitialized(bytes: UInt64): Ptr<Void>
     Function fb_mem_resize(memory: Ptr<Void>, bytes: UInt64): Ptr<Void>
     Function fb_mem_free(memory: Ptr<Void>)
+    Function fb_mem_alloc_aligned(bytes: UInt64, alignment: UInt64): Ptr<Void>
+    Function fb_mem_free_aligned(memory: Ptr<Void>)
     Function fb_mem_copy(destination: Ptr<Void>, source: Ptr<Void>, bytes: UInt64)
     Function fb_mem_fill(destination: Ptr<Void>, value: UInt8, bytes: UInt64)
     Function fb_mem_compare(a: Ptr<Void>, b: Ptr<Void>, bytes: UInt64): Int32
 End Extern
 
-// Mem's Static Methods. What Alloc and Resize give, Free gives back.
+// Mem's Static Methods. What Alloc, AllocUninitialized, and Resize give, Free gives back, and what
+// AllocAligned gives, FreeAligned.
 Public Struct Mem
     // Mem isn't made: it's only its Static Methods.
     New()
@@ -25,6 +29,48 @@ Public Struct Mem
         Local memory = fb_mem_alloc(bytes As UInt64)
         If memory == Null Then Panic("out of memory: Mem.Alloc couldn't have {bytes} bytes")
         Return memory
+    End Method
+
+    // `bytes` of new memory, as Alloc gives, but not set to 0, so it holds whatever was there,
+    // which Unsafe code writes before it reads. Panics when `bytes` is negative, or there isn't
+    // that much.
+    @PanicsAtCaller
+    Public Unsafe Static Method AllocUninitialized(bytes: Int64): Ptr<Void>
+        If bytes < 0
+            Panic("Mem.AllocUninitialized takes a size that isn't negative, not {bytes}")
+        End If
+
+        Local memory = fb_mem_alloc_uninitialized(bytes As UInt64)
+        If memory == Null
+            Panic("out of memory: Mem.AllocUninitialized couldn't have {bytes} bytes")
+        End If
+
+        Return memory
+    End Method
+
+    // `bytes` of new memory, all 0, at an address that's a multiple of `alignment`, a power of
+    // two, as SIMD code and some C libraries need. Only FreeAligned gives it back, and Resize
+    // doesn't take it. Panics when `bytes` is negative, `alignment` isn't a power of two, or there
+    // isn't that much.
+    @PanicsAtCaller
+    Public Unsafe Static Method AllocAligned(bytes: Int64, alignment: Int64): Ptr<Void>
+        If bytes < 0 Then Panic("Mem.AllocAligned takes a size that isn't negative, not {bytes}")
+        If alignment < 1 || (alignment & (alignment - 1)) != 0
+            Panic("Mem.AllocAligned aligns to a power of two, not {alignment}")
+        End If
+
+        Local memory = fb_mem_alloc_aligned(bytes As UInt64, alignment As UInt64)
+        If memory == Null
+            Panic("out of memory: Mem.AllocAligned couldn't have {bytes} bytes aligned to " +
+                  "{alignment}")
+        End If
+
+        Return memory
+    End Method
+
+    // Gives back what AllocAligned gave. Null is nothing to give back.
+    Public Unsafe Static Method FreeAligned(memory: Ptr<Void>)
+        fb_mem_free_aligned(memory)
     End Method
 
     // What Alloc or Resize gave, in `bytes` of memory, which may have moved: it keeps what fits,

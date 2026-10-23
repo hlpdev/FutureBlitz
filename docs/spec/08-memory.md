@@ -135,13 +135,16 @@ End Function
   it.
 - A Const Function has no Unsafe code, since it runs in the compiler.
 - `std.ffi`'s `Mem` has Unsafe Static Methods over the C runtime: `Alloc(bytes)` gives that much
-  zeroed memory; `Resize(memory, bytes)` gives what Alloc or Resize gave, or new memory for
-  `Null`, in that much memory, keeping what fits, with what it adds not zeroed; `Free(memory)`
-  gives it back; `Copy(destination, source, bytes)`, which can overlap; `Fill(destination,
-  value, bytes)`; and `Compare(a, b, bytes)`, which gives 0 for the same bytes, or -1 or 1 as
-  the first byte that differs is lower at `a` or `b`. Sizes are Int64s, like SizeOf's, a
-  Count, and `p - q`, so one that went below 0 panics instead of wrapping around, and Alloc
-  and Resize panic when there isn't that much memory. `Mem` itself isn't made.
+  zeroed memory, and `AllocUninitialized(bytes)` as much that isn't zeroed; `Resize(memory,
+  bytes)` gives what those or Resize gave, or new memory for `Null`, in that much memory,
+  keeping what fits, with what it adds not zeroed; `Free(memory)` gives it back;
+  `AllocAligned(bytes, alignment)` gives zeroed memory at a multiple of `alignment`, a power of
+  two, which only `FreeAligned(memory)` gives back; `Copy(destination, source, bytes)`, which
+  can overlap; `Fill(destination, value, bytes)`; and `Compare(a, b, bytes)`, which gives 0 for
+  the same bytes, or -1 or 1 as the first byte that differs is lower at `a` or `b`. Sizes are
+  Int64s, like SizeOf's, a Count, and `p - q`, so one that went below 0 panics instead of
+  wrapping around, an alignment that isn't a power of two panics, and the Allocs and Resize
+  panic when there isn't that much memory. `Mem` itself isn't made.
 - `std.ffi` gives a CString more than its Unsafe `ToString()`: `CString.From(text)` makes a
   NUL-terminated copy of a String's UTF-8 that C code can keep, in safe code; `Length()` counts
   its bytes before the first NUL, panicking on `Null`; and `Free()` gives back what From made,
