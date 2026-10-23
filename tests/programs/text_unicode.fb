@@ -1,0 +1,39 @@
+// std.text.unicode: general categories, normal forms, case folding, and terminal columns, over
+// accented letters, combining marks, compatibility characters, and emoji.
+Import std.core
+Import std.text
+Import std.text.unicode
+
+For c In ['A', 'é', 'ǅ', 'ʰ', '中', '\u{301}', '\u{903}', '\u{20DD}', '٣', 'Ⅻ', '½', '_', '-', '(',
+          ')', '«', '»', '!', '+', '€', '^', '😀', ' ', '\u{2028}', '\u{2029}', '\t', '\u{200B}',
+          '\u{E000}', '\u{40000}']
+    Print(c.Code, Category(c))
+End For
+
+// Normal forms: "é" is one character composed, and "e" and its accent decomposed. NFKC and NFKD
+// write compatibility characters, like a ligature or a superscript, as their plain ones.
+Local composed = "caf\u{E9}"
+Local decomposed = "cafe\u{301}"
+Print(composed == decomposed, Normalize(decomposed) == composed,
+      Normalize(composed, NormalForm.NFD) == decomposed)
+For text In ["ﬁ²", "Å", "\u{212B}", "한", "😀e\u{301}\u{323}"]
+    Print(text.CharCount, Normalize(text, NormalForm.NFC).CharCount,
+          Normalize(text, NormalForm.NFD).CharCount, Normalize(text, NormalForm.NFKC),
+          Normalize(text, NormalForm.NFKD).CharCount)
+End For
+
+Print(IsNormalized(composed), IsNormalized(decomposed), IsNormalized(decomposed, NormalForm.NFD),
+      IsNormalized("ﬁ", NormalForm.NFKC), IsNormalized(""))
+
+// Case folding: texts that differ only by case fold to the same.
+Print(CaseFold("Straße"), CaseFold("STRASSE"), CaseFold("ΣΑΣ"), CaseFold("ﬁ😀"),
+      CaseFold("İ").CharCount)
+
+// Terminal columns: wide characters 2, marks and controls 0, and a grapheme cluster its widest.
+For c In ['a', 'é', '中', '😀', '\u{301}', '\t', '\u{200B}']
+    Print(c.Code, DisplayWidth(c))
+End For
+
+For text In ["héllo", "e\u{301}", "中文", "😀", "👨‍👩‍👧", "🇫🇷", "a\tb", ""]
+    Print(DisplayWidth(text), text.CharCount)
+End For
