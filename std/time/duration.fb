@@ -147,7 +147,7 @@ Public Struct Duration Implements Comparable, Hashable, Printable, Defaultable
             Local wholeDigits = 0
             Local overflowed = False
             While at < chars.Count && IsDigit(chars[at])
-                Local next = whole.CheckedMultiply(10)?.CheckedAdd((chars[at] - '0') As UInt64)
+                Local next = whole.CheckedMultiply(10)?.CheckedAdd(((chars[at] As Int) - ('0' As Int)) As UInt64)
                 If next == Null Then overflowed = True Else whole = next
                 wholeDigits += 1
                 at += 1
@@ -162,7 +162,7 @@ Public Struct Duration Implements Comparable, Hashable, Printable, Defaultable
                 While at < chars.Count && IsDigit(chars[at])
                     // Digits past what an Int64 holds are too small to count, as Go has it.
                     If !full && fraction <= 922337203685477580
-                        Local next = fraction * 10 + ((chars[at] - '0') As UInt64)
+                        Local next = fraction * 10 + (((chars[at] As Int) - ('0' As Int)) As UInt64)
                         If next <= 9223372036854775808
                             fraction = next
                             scale *= 10.0
@@ -318,11 +318,11 @@ Function Decimals(count: Int64, places: Int): String
     Return fraction == "" ? "{whole}" : "{whole}.{fraction}"
 End Function
 
-Function IsDigit(code: Int): Bool => code >= '0' && code <= '9'
+Function IsDigit(c: Char): Bool => c >= '0' && c <= '9'
 
-// The nanoseconds of the unit the code points from start to before finish name, or 0 when it's
-// none of Go's: ns, us, µs and μs (two Unicode code points for micro), ms, s, m, and h.
-Function UnitOf(chars: Int[], start: Int, finish: Int): UInt64
+// The nanoseconds of the unit the characters from start to before finish name, or 0 when it's
+// none of Go's: ns, us, µs and μs (two Unicode characters for micro), ms, s, m, and h.
+Function UnitOf(chars: Char[], start: Int, finish: Int): UInt64
     Local length = finish - start
     If length == 1
         If chars[start] == 's' Then Return 1000000000
@@ -330,7 +330,7 @@ Function UnitOf(chars: Int[], start: Int, finish: Int): UInt64
         If chars[start] == 'h' Then Return 3600000000000
     ElseIf length == 2 && chars[start + 1] == 's'
         If chars[start] == 'n' Then Return 1
-        If chars[start] == 'u' || chars[start] == 0xb5 || chars[start] == 0x3bc Then Return 1000
+        If chars[start] == 'u' || chars[start] == '\u{B5}' || chars[start] == '\u{3BC}' Then Return 1000
         If chars[start] == 'm' Then Return 1000000
     End If
 

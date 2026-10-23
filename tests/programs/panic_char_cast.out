@@ -1,0 +1,3 @@
+65
+1114111
+panic: the value isn't a Unicode scalar value, which a Char holds at panic_char_cast.fb:6:11

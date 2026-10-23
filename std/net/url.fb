@@ -54,13 +54,13 @@ Public Struct Url Implements Hashable, Printable
     // The URL text writes, or Null when it isn't one. Space and controls around it, and tabs and
     // line breaks in it, are left out.
     Public Static Method Parse(text: String): Url?
-        Return Parser(Trimmed(text.Chars), Null).Run()
+        Return Parser(Trimmed(PointsOf(text)), Null).Run()
     End Method
 
     // The URL text writes, relative to base: a whole URL, or a path, query, or fragment to
     // resolve against base, as a link in a page is.
     Public Static Method Parse(text: String, base: Url): Url?
-        Return Parser(Trimmed(text.Chars), base).Run()
+        Return Parser(Trimmed(PointsOf(text)), base).Run()
     End Method
 
     Public Static Method Parse(text: String, base: String): Url?
@@ -159,7 +159,7 @@ Public Struct Url Implements Hashable, Printable
     // bytes, as a query's name or value, or a path's segment, takes any text.
     Public Static Method Encode(text: String): String
         Local bytes: UInt8[] = []
-        For c In text.Chars
+        For c In PointsOf(text)
             PercentEncode(bytes, c, PercentSet.COMPONENT)
         End For
         Return fb_string_from_array(bytes)
@@ -502,12 +502,21 @@ Function FormEncode(bytes: UInt8[], text: String)
     End For
 End Function
 
+// text's code points, as the URL Standard's parsing goes over them.
+Function PointsOf(text: String): Int[]
+    Local points: Int[] = []
+    For c In text.Chars
+        points.Add(c As Int)
+    End For
+    Return points
+End Function
+
 // The text's code points, each as a number that orders them as their UTF-16 code units do:
 // those from U+E000 to U+FFFF come after the ones past U+FFFF, whose units start with a
 // surrogate, so they're moved above U+10FFFF.
 Function Utf16Order(text: String): Int[]
     Local order: Int[] = []
-    For c In text.Chars
+    For c In PointsOf(text)
         order.Add(c >= 0xE000 && c < 0x10000 ? c + 0x110000 : c)
     End For
     Return order
@@ -651,7 +660,7 @@ Class Parser
 
     // Takes the last segment off the path, but not a file URL's drive letter.
     Method Shorten()
-        If Scheme == "file" && Segments.Count == 1 && IsNormalizedDrive(Segments[0].Chars)
+        If Scheme == "file" && Segments.Count == 1 && IsNormalizedDrive(PointsOf(Segments[0]))
             Return
         End If
 
@@ -894,7 +903,7 @@ Class Parser
                         If hasBase && base.Scheme == "file"
                             Host = base.Host
                             If !StartsWithDrive(Pointer) && base.Segments.Count > 0 &&
-                               IsNormalizedDrive(base.Segments[0].Chars)
+                               IsNormalizedDrive(PointsOf(base.Segments[0]))
                                 Segments.Add(base.Segments[0])
                             End If
                         End If
@@ -1024,9 +1033,9 @@ Function ParseHost(input: Int[], opaque: Bool): String?
     For c In input
         AddUtf8(utf8, c)
     End For
-    Local ascii = DomainToAscii(fb_string_from_array(PercentDecoded(utf8)).Chars)
+    Local ascii = DomainToAscii(PointsOf(fb_string_from_array(PercentDecoded(utf8))))
     If ascii == Null Then Return Null
-    For c In ascii.Chars
+    For c In PointsOf(ascii)
         If IsForbiddenHost(c) || c <= 0x1F || c == 0x25 || c == 0x7F Then Return Null
     End For
     If !EndsInNumber(ascii) Then Return ascii
@@ -1247,7 +1256,7 @@ End Function
 // Whether a domain's last label, before a dot it ends with, is a number, decimal, or hex after
 // a 0x, so the domain is an IPv4 address's.
 Function EndsInNumber(domain: String): Bool
-    Local labels = Labels(domain.Chars)
+    Local labels = Labels(PointsOf(domain))
     If labels[labels.Count - 1].Count == 0
         If labels.Count == 1 Then Return False
         labels.RemoveAt(labels.Count - 1)
@@ -1263,7 +1272,7 @@ End Function
 // decimal, octal after a 0, or hex after a 0x, where the last part fills what the others leave.
 // Null when it isn't one.
 Function ParseIpv4(domain: String): Int64?
-    Local parts = Labels(domain.Chars)
+    Local parts = Labels(PointsOf(domain))
     If parts[parts.Count - 1].Count == 0 && parts.Count > 1 Then parts.RemoveAt(parts.Count - 1)
     If parts.Count > 4 Then Return Null
     Local numbers: Int64[] = []

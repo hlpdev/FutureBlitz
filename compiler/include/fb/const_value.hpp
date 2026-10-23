@@ -39,6 +39,13 @@ using fold_result_t = std::expected<const_value_t, std::string>;
 [[nodiscard]] const_value_t make_bool(bool value);
 [[nodiscard]] const_value_t make_string(std::string value);
 
+/// A Char of `code`, which must be a Unicode scalar value.
+[[nodiscard]] const_value_t make_char(char32_t code);
+
+/// Whether `code` is a Unicode scalar value, which a Char holds: U+0000 to U+10FFFF, but not the
+/// surrogates U+D800 to U+DFFF.
+[[nodiscard]] bool is_scalar_value(std::uint64_t code);
+
 /// `op` must work on the operand's type. Fails when negating the most negative integer.
 [[nodiscard]] fold_result_t fold_unary(unary_op_t op, const const_value_t& operand);
 

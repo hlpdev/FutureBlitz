@@ -57,13 +57,14 @@ End For
 Const known = Passes(-2000000000, 2000000000)
 Print("{passes}{steps} {known} {Passes(low, high)}")
 
-// A CWChar is as big as the target's wchar_t, so C reads what a Ptr at them has.
+// A CWChar is as big as the target's wchar_t, so C reads what a Ptr at them has; a Char is one
+// with As, as it's an integer of any kind.
 Unsafe
     Local text: Ptr<CWChar> = Mem.Alloc(4 * SizeOf<CWChar>())
     Defer Mem.Free(text)
-    text[0] = 'h'
-    text[1] = 'i'
-    text[2] = '!'
+    text[0] = 'h' As CWChar
+    text[1] = 'i' As CWChar
+    text[2] = '!' As CWChar
     Local letter: Int64 = text[1]
     Print("{wcslen(text)} {letter} {text[0] + 1} {SizeOf<CLong>() == SizeOf<CULong>()}")
 End Unsafe

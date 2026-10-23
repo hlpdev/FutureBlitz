@@ -643,6 +643,10 @@ private:
             return value_t{ make_string("") };
         }
 
+        if (type == type_id_t::CHAR) {
+            return value_t{ make_char(0) };
+        }
+
         if (is_float(type)) {
             return value_t{ const_value_t{ .type = type, .data = 0.0 } };
         }

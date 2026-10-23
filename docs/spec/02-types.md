@@ -10,6 +10,7 @@
 | `CLong` `CULong` `CWChar` | C's `long`, `unsigned long`, and `wchar_t`, the target's sizes, for `Extern` Functions (see below) |
 | `Float32` `Float64` | IEEE floats |
 | `String` | immutable UTF-8, refcounted |
+| `Char` | a Unicode scalar value: a code point from U+0000 to U+10FFFF that isn't a surrogate, 32 bits, which a literal like `'a'` makes; it compares by its code, and its zero is U+0000 |
 | `CString` | C's `const char*`, for `Extern` Functions; `Null`, C's NULL, is its zero (see [12-ffi.md](12-ffi.md)) |
 | `Void` | "no value"; only a Ptr's type, `Ptr<Void>`, which points at anything |
 
@@ -226,6 +227,10 @@ If target != Null Then target.Hurt(5)   // target is Enemy here
 - `As?` is a checked downcast that yields `Null` on failure (see [03](03-operators.md)).
 - `Bool` never converts implicitly. `As` turns it into an integer: `True As Int` is `1` and
   `False As Int` is `0`. Numbers don't convert to `Bool`; compare instead (`n != 0`).
+- A `Char` isn't a number and never converts implicitly. `As` turns it into an integer, its
+  code, which keeps its low bits as any integer's do: `'a' As Int` is `97`. `As` turns an
+  integer into a `Char` when it's a Unicode scalar value, `98 As Char` is `'b'`, and another,
+  like `0xD800` or `-1`, is an error at compile time and a panic at run time.
 
 ### Literals
 

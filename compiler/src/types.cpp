@@ -93,6 +93,7 @@ constexpr auto type_names = std::to_array<named_type_t>({
     { .name = "Float64", .type = type_id_t::FLOAT64 },
     { .name = "String", .type = type_id_t::STRING },
     { .name = "CString", .type = type_id_t::CSTRING },
+    { .name = "Char", .type = type_id_t::CHAR },
     { .name = "Byte", .type = type_id_t::UINT8 },
     { .name = "Int", .type = type_id_t::INT32 },
     { .name = "Long", .type = type_id_t::INT64 },

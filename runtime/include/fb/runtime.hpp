@@ -225,6 +225,9 @@ fb_string_t* fb_string_from_float64(double value);
 /// "True" when `value` isn't 0, and "False" otherwise, for interpolated strings. The caller owns
 /// the result.
 fb_string_t* fb_string_from_bool(std::int32_t value);
+/// `value`, a Char's code, as its character in UTF-8, for interpolated strings. The caller owns
+/// the result.
+fb_string_t* fb_string_from_char(std::uint32_t value);
 
 /// `value`'s text by a format spec, like ">8,": the part after an interpolation's ':', or what
 /// a Formattable's Format gets. Null when `spec` isn't one, or doesn't fit an integer. The
@@ -361,7 +364,7 @@ fb_string_t* fb_string_from_array(const fb_array_t* bytes);
 /// Frees the buffer, for an array's destroy once it released the elements. The runtime frees
 /// the object itself.
 void fb_array_free(const fb_array_t* array);
-/// Adds the code points of `string`'s UTF-8 to `into`, an Int32[], for "s.Chars".
+/// Adds the code points of `string`'s UTF-8 to `into`, a Char[], for "s.Chars".
 void fb_string_chars(const fb_string_t* string, fb_array_t* into);
 /// Adds `string`'s UTF-8 bytes to `into`, a UInt8[], for "s.Bytes".
 void fb_string_bytes(const fb_string_t* string, fb_array_t* into);
