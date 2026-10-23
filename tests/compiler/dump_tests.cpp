@@ -215,3 +215,10 @@ TEST_CASE("the MIR dump can be colored", "[dump]") {
     CHECK(view.contains(std::format("    {} = {}\n", ansi("36", "_0"), ansi("32", "1"))));
     CHECK(view.contains(std::format("    {}\n", ansi("35", "return"))));
 }
+
+TEST_CASE("the types view shows a folded Char as a Char literal does", "[dump]") {
+    CHECK(types("Const TAB = 9 As Char\n"
+                "Local letter = 65 As Char") ==
+          "(const TAB = (as 9: Int32 Char): Char = U+0009)\n"
+          "(local letter = (as 65: Int32 Char): Char = 'A')\n");
+}

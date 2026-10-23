@@ -388,13 +388,8 @@ private:
     }
 
     [[nodiscard]] node_t build(const character_expr_t& node) const {
-        const auto value = static_cast<std::uint32_t>(node.value);
         // Only visible ASCII shows as itself. Anything else, space included, shows its code point.
-        if (value > 0x20 && value < 0x7F) {
-            return literal("char", std::format("'{}'", static_cast<char>(value)));
-        }
-
-        return literal("char", std::format("U+{:04X}", value));
+        return literal("char", char_literal(node.value));
     }
 
     [[nodiscard]] node_t build(const string_expr_t& node) const {
@@ -1264,9 +1259,14 @@ private:
 
         // A literal already shows its value.
         if (info.value && node.tone != tone_t::LITERAL) {
-            const std::string value = info.value->type == type_id_t::STRING
-                                          ? quote(std::get<std::string>(info.value->data))
-                                          : to_text(*info.value);
+            std::string value = to_text(*info.value);
+            if (info.value->type == type_id_t::STRING) {
+                value = quote(std::get<std::string>(info.value->data));
+            } else if (info.value->type == type_id_t::CHAR) {
+                value =
+                    char_literal(static_cast<char32_t>(std::get<std::uint64_t>(info.value->data)));
+            }
+
             out += " = " + m_style.paint(value, tone_t::LITERAL);
         }
 
