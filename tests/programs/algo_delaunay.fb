@@ -143,6 +143,11 @@ Local bounds = Rect(-1, -1, 7, 6)
 For cell In Voronoi(six, bounds)
     Print(Shown(cell))
 End For
+// Scaled by 10^30 either way, a cell has the same corners: each bisector cuts it once.
+Local big = six.Map(Function(p: Vec2) => p * 1e30)
+Local small = six.Map(Function(p: Vec2) => p * 1e-30)
+Print(Voronoi(six, bounds)[4].Count, Voronoi(big, Rect(-1e30, -1e30, 7e30, 6e30))[4].Count,
+      Voronoi(small, Rect(-1e-30, -1e-30, 7e-30, 6e-30))[4].Count)
 Local covered: Double = 0
 For cell In Voronoi(forty, Rect(0, 0, 1000, 1000))
     covered += Area(cell)
