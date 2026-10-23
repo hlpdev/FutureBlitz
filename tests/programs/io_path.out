@@ -1,0 +1,74 @@
+POSIX
+[] name [] stem [] ext [] parent [.] absolute False
+[/] name [] stem [] ext [] parent [/] absolute True
+[a] name [a] stem [a] ext [] parent [.] absolute False
+[a/b] name [b] stem [b] ext [] parent [a] absolute False
+[/a/b/] name [b] stem [b] ext [] parent [/a] absolute True
+[a//b/./c] name [c] stem [c] ext [] parent [a/b] absolute False
+[games/save.dat] name [save.dat] stem [save] ext [.dat] parent [games] absolute False
+[.config] name [.config] stem [.config] ext [] parent [.] absolute False
+[archive.tar.gz] name [archive.tar.gz] stem [archive.tar] ext [.gz] parent [.] absolute False
+[a.] name [a.] stem [a.] ext [] parent [.] absolute False
+[..] name [..] stem [..] ext [] parent [.] absolute False
+[a/..] name [..] stem [..] ext [] parent [a] absolute False
+[/usr/local/] name [local] stem [local] ext [] parent [/usr] absolute True
+[spiele/größe.txt] name [größe.txt] stem [größe] ext [.txt] parent [spiele] absolute False
+[🎮/セーブ.dat] name [セーブ.dat] stem [セーブ] ext [.dat] parent [🎮] absolute False
+[a\b] name [a\b] stem [a\b] ext [] parent [.] absolute False
+Windows
+[C:] name [] stem [] ext [] parent [C:] absolute False
+[C:/] name [] stem [] ext [] parent [C:/] absolute True
+[C:\] name [] stem [] ext [] parent [C:/] absolute True
+[c:\games\save.dat] name [save.dat] stem [save] ext [.dat] parent [c:/games] absolute True
+[C:games] name [games] stem [games] ext [] parent [C:] absolute False
+[\games] name [games] stem [games] ext [] parent [/] absolute False
+[//server/share] name [] stem [] ext [] parent [//server/share] absolute True
+[\\server\share\dir\file.txt] name [file.txt] stem [file] ext [.txt] parent [//server/share/dir] absolute True
+[a\b/c] name [c] stem [c] ext [] parent [a/b] absolute False
+[spiele\größe.txt] name [größe.txt] stem [größe] ext [.txt] parent [spiele] absolute False
+[D:\] name [] stem [] ext [] parent [D:/] absolute True
+Join
+a/b a/b /b b a
+a/b/c.txt /etc a/b
+C:\games/save.dat C:\games\save.dat C:games
+D:\music C:\music C:\games/saves
+D:saves \music C:games/x
+//server/share/dir //server/share/b
+Normalize
+[] [.]
+[.] [.]
+[a/./b] [a/b]
+[a//b///c/] [a/b/c]
+[a/../b] [b]
+[../a/../..] [../..]
+[/../a] [/a]
+[/a/b/../../..] [/]
+[a/b/..] [a]
+[./] [.]
+[naïve/./../café] [café]
+[C:\a\..\b] [C:/b]
+[C:/../a] [C:/a]
+[C:a\..\..\b] [C:../b]
+[\\server\share\..\x] [//server/share/x]
+[a\.\b\] [a/b]
+[\..\a] [/a]
+RelativeTo
+saves/one.dat
+../music
+../../b/c
+.
+none
+none
+a
+save.dat
+save.dat
+none
+WithExtension
+save.bak a/save.txt a/b.tar
+a/save.bak/ C:\x\größe.bin
+Compare
+True False False True
+2
+Absolute
+True x True
+/a/b C:/b

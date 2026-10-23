@@ -1,0 +1,406 @@
+// std.io's paths: a Path is where a file or folder is, as text, read by Windows' rules or POSIX's,
+// the target's unless it's made with the other's. Its own separator is '/' on every OS, which it
+// writes wherever it joins or rebuilds a path, and Windows takes it, so a program's paths read the
+// same everywhere; on Windows '\' is one too, and a path can start with a drive, like "C:", or a
+// server's share, like "//server/share". What a Path does to its text is only text: nothing here
+// looks at the disk but Absolute, which asks for the current folder.
+
+Import std.core
+
+Extern "runtime"
+    Function fb_path_windows(): Int32
+    Function fb_string_from_bytes(text: Ptr<UInt8>, length: Int64): String
+    Function fb_io_dir_current(): String?
+End Extern
+
+// Whose rules a Path reads its text by.
+Public Enum PathStyle
+    POSIX
+    WINDOWS
+End Enum
+
+Const SLASH: UInt8 = 47
+Const BACKSLASH: UInt8 = 92
+Const COLON: UInt8 = 58
+Const DOT: UInt8 = 46
+
+// Where a file or folder is. Paths are equal when their texts and styles are, so "a/b" and
+// "a//b" aren't until Normalize makes them so, and they sort by their texts' bytes.
+Public Struct Path Implements Comparable, Hashable, Printable
+    Public ReadOnly Field Text: String
+    Public ReadOnly Field Style: PathStyle
+
+    // A path by the target's rules.
+    Public New(text: String)
+        Text = text
+        Style = NativeStyle()
+    End New
+
+    // A path by `style`'s rules, whatever the target's are.
+    Public New(text: String, style: PathStyle)
+        Text = text
+        Style = style
+    End New
+
+    // The target's style: WINDOWS on Windows, and POSIX everywhere else.
+    Public Static Method NativeStyle(): PathStyle
+        Return fb_path_windows() != 0 ? PathStyle.WINDOWS : PathStyle.POSIX
+    End Method
+
+    // `b` after `a`, as Join puts it.
+    Operator /(a: Path, b: Path): Path => a.Join(b)
+    Operator /(a: Path, b: String): Path => a.Join(Path(b, a.Style))
+
+    Operator <(a: Path, b: Path): Bool
+        If a.Style != b.Style Then Return (a.Style As Int) < (b.Style As Int)
+        Return a.Text < b.Text
+    End Operator
+
+    Public Method ToString(): String => Text
+
+    // `other` after this one, with a '/' between them unless this one ends with a separator. An
+    // `other` that's absolute is where it says, and on Windows one that starts at a root, like
+    // "/saves", is on this one's drive. An empty one adds nothing, and this one empty gives it.
+    Public Method Join(other: Path): Path
+        Local windows = Style == PathStyle.WINDOWS
+        Local bytes = Text.Bytes
+        Local added = other.Text.Bytes
+        If added.Count == 0 Then Return Self
+        If bytes.Count == 0 Then Return Path(other.Text, Style)
+        Local prefix, anchor = AnchorOf(bytes, windows)
+        Local addedPrefix, addedAnchor = AnchorOf(added, windows)
+        If addedPrefix > 0
+            // Another drive or share, or this drive's root, starts again; "C:saves" goes on from
+            // where this one is on C:.
+            If addedAnchor > addedPrefix || prefix == 0 || !SameDrive(bytes, prefix, added, addedPrefix)
+                Return Path(other.Text, Style)
+            End If
+
+            Return Joined(bytes, prefix, anchor, TextOfBytes(added[addedPrefix..added.Count]))
+        End If
+
+        If addedAnchor > 0
+            If !windows || prefix == 0 Then Return Path(other.Text, Style)
+            Return Path(TextOfBytes(bytes[0..prefix]) + other.Text, Style)
+        End If
+
+        Return Joined(bytes, prefix, anchor, other.Text)
+    End Method
+
+    // `added` after the path, with a '/' between unless the path ends with a separator or is a
+    // drive alone, like "C:", which the next name goes right after.
+    Method Joined(bytes: UInt8[], prefix: Int, anchor: Int, added: String): Path
+        Local windows = Style == PathStyle.WINDOWS
+        If IsSeparator(bytes[bytes.Count - 1], windows) || (windows && prefix == 2 && bytes.Count == 2)
+            Return Path(Text + added, Style)
+        End If
+
+        Return Path(Text + "/" + added, Style)
+    End Method
+
+    // The last name in the path, "" when it has none, as a root doesn't: "save.dat" for
+    // "games/save.dat" and for "games/save.dat/" too.
+    Public Method FileName(): String
+        Local bytes = Text.Bytes
+        Local names = NamesOf(bytes, AnchorOf(bytes, Style == PathStyle.WINDOWS).1, Style == PathStyle.WINDOWS)
+        Return names.Count == 0 ? "" : names[names.Count - 1]
+    End Method
+
+    // The file name without its extension: "save" for "save.dat", ".config" for ".config", and
+    // "archive.tar" for "archive.tar.gz".
+    Public Method Stem(): String
+        Local name = FileName()
+        Local dot = ExtensionAt(name.Bytes)
+        Return dot < 0 ? name : TextOfBytes(name.Bytes[0..dot])
+    End Method
+
+    // The file name's extension with its dot, like ".dat", or "" when it has none. A name that
+    // starts with its only dot, like ".config", or ends with one has none.
+    Public Method Extension(): String
+        Local name = FileName()
+        Local bytes = name.Bytes
+        Local dot = ExtensionAt(bytes)
+        Return dot < 0 ? "" : TextOfBytes(bytes[dot..bytes.Count])
+    End Method
+
+    // The path with its file name's extension `extension`, which a dot is put before when it
+    // has none, or without one when it's "": "save.bak" for "save.dat" and ".bak". Panics when
+    // the path has no file name to give one, as a root or ".." doesn't.
+    @PanicsAtCaller
+    Public Method WithExtension(extension: String): Path
+        Local windows = Style == PathStyle.WINDOWS
+        Local bytes = Text.Bytes
+        Local finish = bytes.Count
+        Local anchor = AnchorOf(bytes, windows).1
+        While finish > anchor && IsSeparator(bytes[finish - 1], windows)
+            finish -= 1
+        End While
+
+        Local start = finish
+        While start > anchor && !IsSeparator(bytes[start - 1], windows)
+            start -= 1
+        End While
+
+        Local name = bytes[start..finish]
+        If name.Count == 0 || IsDots(name)
+            Panic("WithExtension needs a path with a file name, not '{Text}'")
+        End If
+
+        Local dot = ExtensionAt(name)
+        Local stem = TextOfBytes(bytes[0..(dot < 0 ? finish : start + dot)])
+        Local added = extension == "" || extension.Bytes[0] == DOT ? extension : "." + extension
+        Return Path(stem + added + TextOfBytes(bytes[finish..bytes.Count]), Style)
+    End Method
+
+    // The folder the path's in: "games" for "games/save.dat", "." for "save.dat", and the root for
+    // a root, worked out from its text alone, so the parent of ".." is ".". It has '/' between
+    // its names.
+    Public Method Parent(): Path
+        Local windows = Style == PathStyle.WINDOWS
+        Local bytes = Text.Bytes
+        Local _, anchor = AnchorOf(bytes, windows)
+        Local names = NamesOf(bytes, anchor, windows)
+        Local start = AnchorText(bytes, anchor)
+        If names.Count == 0 Then Return Path(start == "" ? "." : start, Style)
+        Local text = Rebuilt(start, names, names.Count - 1)
+        Return Path(text == "" ? "." : text, Style)
+    End Method
+
+    // Whether the path says where it is without the current folder: one from a POSIX root, and
+    // on Windows one from a drive's root, like "C:/games", or a share, like "//server/share".
+    Public Method IsAbsolute(): Bool
+        Local windows = Style == PathStyle.WINDOWS
+        Local bytes = Text.Bytes
+        Local prefix, anchor = AnchorOf(bytes, windows)
+        If !windows Then Return anchor > 0
+        Return (anchor > prefix && prefix > 0) || prefix > 2
+    End Method
+
+    // The same place in the fewest names: '/' between them, no "." or empty ones, and each ".."
+    // taking out the name before it, which is only text, so a link's ".." isn't followed. One
+    // with no names left is "." or its root. On Windows, a drive or share keeps its case.
+    Public Method Normalize(): Path
+        Local windows = Style == PathStyle.WINDOWS
+        Local bytes = Text.Bytes
+        Local prefix, anchor = AnchorOf(bytes, windows)
+        Local start = AnchorText(bytes, anchor)
+        // A drive's ".." can go above the current folder on it, but a root's and a share's can't.
+        Local names = Resolved(NamesOf(bytes, anchor, windows), anchor > prefix || prefix > 2)
+        Local text = Rebuilt(start, names, names.Count)
+        Return Path(text == "" ? "." : text, Style)
+    End Method
+
+    // The path from `base` to this one, by their texts, with ".." for each of base's names they
+    // don't share: "saves/one.dat" from "games" to "games/saves/one.dat", and "../music" from
+    // "games" to "music". On Windows, names that differ only in their ASCII letters' case are the
+    // same. Null when one is absolute and the other isn't, they're on different
+    // drives, or base goes up past where this one starts, as "../other" from "a" does.
+    Public Method RelativeTo(base: Path): Path?
+        Local windows = Style == PathStyle.WINDOWS
+        Local bytes = Normalize().Text.Bytes
+        Local from = base.Normalize().Text.Bytes
+        Local anchor = AnchorOf(bytes, windows).1
+        Local fromAnchor = AnchorOf(from, windows).1
+        If anchor != fromAnchor || !SameAnchor(bytes, from, anchor, windows) Then Return Null
+        Local names = NamesOf(bytes, anchor, windows)
+        Local fromNames = NamesOf(from, fromAnchor, windows)
+        Local shared = 0
+        While shared < names.Count && shared < fromNames.Count &&
+              SameName(names[shared], fromNames[shared], windows)
+            shared += 1
+        End While
+
+        Local parts: String[] = []
+        For i = shared Until fromNames.Count
+            If fromNames[i] == ".." Then Return Null
+            parts.Add("..")
+        End For
+
+        For i = shared Until names.Count
+            parts.Add(names[i])
+        End For
+
+        Local text = Rebuilt("", parts, parts.Count)
+        Return Path(text == "" ? "." : text, Style)
+    End Method
+
+    // The path from the current folder's root, normalized: the path itself when it's absolute.
+    // On Windows, one from a root without a drive is on the current folder's drive. Throws an
+    // IOError when the OS doesn't say what the current folder is.
+    Public Method Absolute(): Path Throws IOError
+        If IsAbsolute() Then Return Normalize()
+        Local current = fb_io_dir_current()
+        If current == Null Then Throw IOError(IOErrorKind.OTHER, "the OS doesn't say what the current folder is", Text)
+        Local here = Path(current, Style)
+        Local windows = Style == PathStyle.WINDOWS
+        Local bytes = Text.Bytes
+        Local prefix, _ = AnchorOf(bytes, windows)
+        If windows && prefix > 0
+            // "D:games" is from the current folder when that's on D:, and from D:'s root if not.
+            Local hereBytes = current.Bytes
+            Local herePrefix = AnchorOf(hereBytes, True).0
+            Local rest = TextOfBytes(bytes[prefix..bytes.Count])
+            If herePrefix > 0 && SameDrive(hereBytes, herePrefix, bytes, prefix)
+                Return (here / rest).Normalize()
+            End If
+
+            Return Path(TextOfBytes(bytes[0..prefix]) + "/" + rest, Style).Normalize()
+        End If
+
+        Return here.Join(Self).Normalize()
+    End Method
+End Struct
+
+// The bytes as text, with U+FFFD for each one that doesn't start well-formed UTF-8.
+Package Function TextOfBytes(bytes: UInt8[]): String
+    If bytes.Count == 0 Then Return ""
+    Unsafe
+        Return fb_string_from_bytes(AddressOf(bytes[0]), bytes.Count)
+    End Unsafe
+End Function
+
+Function IsSeparator(byte: UInt8, windows: Bool): Bool => byte == SLASH || (windows && byte == BACKSLASH)
+
+Function IsLetter(byte: UInt8): Bool => (byte >= 65 && byte <= 90) || (byte >= 97 && byte <= 122)
+
+// Whether a name is "." or "..".
+Function IsDots(name: UInt8[]): Bool
+    Return (name.Count == 1 && name[0] == DOT) || (name.Count == 2 && name[0] == DOT && name[1] == DOT)
+End Function
+
+// How many of a path's bytes say where it starts, and how many of those are a Windows drive's or
+// share's: (prefix, anchor). A POSIX path's anchor is its root, "/", or nothing. A Windows one's
+// prefix is "C:" or "//server/share", and its anchor that and the separator after it, if any,
+// or just a separator, for a path from the current drive's root.
+Function AnchorOf(bytes: UInt8[], windows: Bool): (Int, Int)
+    Local count = bytes.Count
+    If !windows Then Return (0, count > 0 && bytes[0] == SLASH ? 1 : 0)
+    If count >= 2 && bytes[1] == COLON && IsLetter(bytes[0])
+        Return (2, count > 2 && IsSeparator(bytes[2], True) ? 3 : 2)
+    End If
+
+    If count >= 2 && IsSeparator(bytes[0], True) && IsSeparator(bytes[1], True)
+        // The server's name, a separator, and the share's.
+        Local at = 2
+        While at < count && !IsSeparator(bytes[at], True)
+            at += 1
+        End While
+
+        If at < count Then at += 1
+        While at < count && !IsSeparator(bytes[at], True)
+            at += 1
+        End While
+
+        Return (at, at < count ? at + 1 : at)
+    End If
+
+    Return (0, count > 0 && IsSeparator(bytes[0], True) ? 1 : 0)
+End Function
+
+// The anchor's text, with '/' for each separator.
+Function AnchorText(bytes: UInt8[], anchor: Int): String
+    Local start = bytes[0..anchor]
+    For i = 0 Until start.Count
+        If start[i] == BACKSLASH Then start[i] = SLASH
+    End For
+
+    Return TextOfBytes(start)
+End Function
+
+// The names after the anchor, from `start`, without empty ones or ".".
+Function NamesOf(bytes: UInt8[], start: Int, windows: Bool): String[]
+    Local names: String[] = []
+    Local at = start
+    While at < bytes.Count
+        Local finish = at
+        While finish < bytes.Count && !IsSeparator(bytes[finish], windows)
+            finish += 1
+        End While
+
+        If finish > at && !(finish == at + 1 && bytes[at] == DOT)
+            names.Add(TextOfBytes(bytes[at..finish]))
+        End If
+
+        at = finish + 1
+    End While
+
+    Return names
+End Function
+
+// The names with each ".." taking out the name before it. One with none before it stays,
+// unless the path is from a root, which has nothing above it.
+Function Resolved(names: String[], rooted: Bool): String[]
+    Local kept: String[] = []
+    For name In names
+        If name != ".."
+            kept.Add(name)
+        ElseIf kept.Count > 0 && kept[kept.Count - 1] != ".."
+            kept.RemoveAt(kept.Count - 1)
+        ElseIf !rooted
+            kept.Add(name)
+        End If
+    End For
+
+    Return kept
+End Function
+
+// The anchor's text, then the first `count` names, with '/' between them.
+Function Rebuilt(start: String, names: String[], count: Int): String
+    Local text = start
+    For i = 0 Until count
+        text = i == 0 ? text + names[i] : text + "/" + names[i]
+    End For
+
+    Return text
+End Function
+
+// Whether two Windows paths start with the same drive letter, either case, or the same share.
+Function SameDrive(a: UInt8[], aPrefix: Int, b: UInt8[], bPrefix: Int): Bool
+    If aPrefix != bPrefix Then Return False
+    For i = 0 Until aPrefix
+        If Folded(a[i]) != Folded(b[i]) Then Return False
+    End For
+
+    Return True
+End Function
+
+// Whether two names are the same, on Windows with their ASCII letters in either case.
+Function SameName(a: String, b: String, windows: Bool): Bool
+    If !windows || a == b Then Return a == b
+    Local aBytes = a.Bytes
+    Local bBytes = b.Bytes
+    If aBytes.Count != bBytes.Count Then Return False
+    For i = 0 Until aBytes.Count
+        If Folded(aBytes[i]) != Folded(bBytes[i]) Then Return False
+    End For
+
+    Return True
+End Function
+
+// Whether two normalized paths' anchors of `anchor` bytes are the same, a drive's letter in
+// either case on Windows.
+Function SameAnchor(a: UInt8[], b: UInt8[], anchor: Int, windows: Bool): Bool
+    For i = 0 Until anchor
+        If (windows ? Folded(a[i]) : a[i]) != (windows ? Folded(b[i]) : b[i]) Then Return False
+    End For
+
+    Return True
+End Function
+
+// An ASCII letter in lower case, and a separator as '/'.
+Function Folded(byte: UInt8): UInt8
+    If byte >= 65 && byte <= 90 Then Return byte + 32
+    Return byte == BACKSLASH ? SLASH : byte
+End Function
+
+// Where a file name's extension starts, at its last dot, or -1 when it has none: a name that
+// starts with its only dot, or ends with a dot, has none.
+Function ExtensionAt(name: UInt8[]): Int
+    Local at = name.Count - 1
+    While at > 0 && name[at] != DOT
+        at -= 1
+    End While
+
+    If at <= 0 || at == name.Count - 1 Then Return -1
+    Return at
+End Function
