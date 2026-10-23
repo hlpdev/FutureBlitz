@@ -750,13 +750,19 @@ private:
                 return std::nullopt;
             }
 
-            ++m_pos;
+            // After a mistake inside, which was reported, there may be no ')'.
+            if (peek() == ')') {
+                ++m_pos;
+            }
+
             return value;
         }
 
         const std::uint32_t begin = m_pos;
         if (!is_identifier_start(peek())) {
-            m_diagnostics.error(span(m_pos, m_pos + 1), "expected a symbol, like DEBUG");
+            // At the end of the file, the span is empty, as there's nothing to point at.
+            m_diagnostics.error(span(m_pos, at_end() ? m_pos : m_pos + 1),
+                                "expected a symbol, like DEBUG");
             return std::nullopt;
         }
 

@@ -280,6 +280,22 @@ TEST_CASE("#If mistakes", "[lexer]") {
           std::vector<std::string>{ "4-8: 'DEBG' is never defined; #If can test DEBUG, RELEASE, "
                                     "PLATFORM_WINDOWS, PLATFORM_LINUX, and PLATFORM_MACOS" });
 
+    // A condition cut off by the end of the file gets an empty span there, and no span goes past
+    // the end.
+    CHECK(lex_text("#If !").errors ==
+          std::vector<std::string>{ "5-5: expected a symbol, like DEBUG",
+                                    "0-3: this #If needs an #End If" });
+    for (const std::string_view text : { "#If !", "#If (", "#If DEBUG ||", "#If (!" }) {
+        INFO(text);
+        const fb::source_file_t file(fb::file_id_t{}, "test.fb", std::string(text));
+        fb::diagnostic_bag_t bag;
+        const std::vector<fb::token_t> tokens = fb::lex(file, bag);
+        CHECK(tokens.back().span.end <= text.size());
+        for (const fb::diagnostic_t& diagnostic : bag.diagnostics()) {
+            CHECK(diagnostic.span.end <= text.size());
+        }
+    }
+
     // A condition nests up to 1000 deep, as code does, so reading it can't run out of stack.
     const auto parenthesized = [](const std::size_t depth) {
         return std::format("#If {}DEBUG{}\n#End If", std::string(depth, '('),
