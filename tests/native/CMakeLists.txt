@@ -12,3 +12,10 @@ endif()
 if(MINGW)
   target_compile_options(fb_vecmath PRIVATE -mcrtdll=ucrt)
 endif()
+
+# On Windows, a program that prints the console's output code page, for the tests that check fb
+# and the programs it builds give the console back as they found it.
+if(WIN32)
+  add_executable(fb_console_probe console_probe/console_probe.c)
+  set_target_properties(fb_console_probe PROPERTIES C_STANDARD 11)
+endif()

@@ -46,6 +46,11 @@ target_compile_definitions(fb_cli_tests PRIVATE
   FB_TEST_VECMATH="$<TARGET_FILE:fb_vecmath>"
   FB_TEST_OUTPUT="${CMAKE_CURRENT_BINARY_DIR}/cli")
 add_dependencies(fb_cli_tests fb_cli fb_vecmath)
+if(TARGET fb_console_probe)
+  add_dependencies(fb_cli_tests fb_console_probe)
+  target_compile_definitions(fb_cli_tests PRIVATE
+    FB_TEST_CONSOLE_PROBE="$<TARGET_FILE:fb_console_probe>")
+endif()
 # `fb bindgen` runs fb-bindgen, which is next to fb where it's built.
 if(TARGET fb_bindgen_cli)
   add_dependencies(fb_cli_tests fb_bindgen_cli)

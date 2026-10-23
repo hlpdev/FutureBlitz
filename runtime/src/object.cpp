@@ -554,6 +554,9 @@ void fb_finish(fb_class_t* const* classes, const std::int64_t count) {
     if (!leaked.empty() && registry().tracking) {
         report_cycles(leaked);
     }
+
+    // Nothing more is printed.
+    fb::runtime::run_end();
 }
 
 fb_object_t* fb_object_new(fb_class_t* type) {

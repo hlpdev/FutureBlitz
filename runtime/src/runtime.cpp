@@ -13,6 +13,7 @@
 #include <cstring>
 #include <limits>
 #include <mutex>
+#include <optional>
 #include <ranges>
 #include <string>
 #include <string_view>
@@ -111,6 +112,31 @@ bool power_overflows(Int base, std::uint64_t exponent, Int& result) {
     return false;
 }
 
+#ifdef _WIN32
+/// What the console was before fb_start() changed it: its output code page, 0 without a
+/// console, and stderr's mode, where it's the console's.
+struct console_before_t {
+    UINT code_page = 0;
+    std::optional<DWORD> error_mode;
+};
+
+console_before_t& console_before() {
+    static console_before_t before;
+    return before;
+}
+
+void restore_console() {
+    const console_before_t& before = console_before();
+    if (before.code_page != 0) {
+        SetConsoleOutputCP(before.code_page);
+    }
+
+    if (before.error_mode) {
+        SetConsoleMode(GetStdHandle(STD_ERROR_HANDLE), *before.error_mode);
+    }
+}
+#endif
+
 /// Held while a line goes to stdout, so lines from different threads don't mix.
 std::mutex& output() {
     static std::mutex instance;
@@ -129,22 +155,13 @@ std::array<std::atomic<void (*)()>, 8>& restorers() {
     return instance;
 }
 
-/// Runs what at_end() was given, the last one first.
-void run_end() {
-    for (const std::atomic<void (*)()>& slot : std::views::reverse(restorers())) {
-        if (void (*const restore)() = slot.load(std::memory_order_acquire); restore != nullptr) {
-            restore();
-        }
-    }
-}
-
 /// Ends the program with `code` at once, with what it printed flushed, and what it changed that
 /// others share put back. Exiting normally would destroy what other threads may still be using,
 /// like the pool.
 [[noreturn]] void end_program(const int code) {
     std::fflush(stdout);
     std::fflush(stderr);
-    run_end();
+    fb::runtime::run_end();
     std::_Exit(code);
 }
 
@@ -225,6 +242,14 @@ void run_finish() {
     }
 }
 
+void run_end() {
+    for (const std::atomic<void (*)()>& slot : std::views::reverse(restorers())) {
+        if (void (*const restore)() = slot.load(std::memory_order_acquire); restore != nullptr) {
+            restore();
+        }
+    }
+}
+
 void at_end(void (*restore)()) {
     for (std::atomic<void (*)()>& slot : restorers()) {
         void (*expected)() = nullptr;
@@ -241,7 +266,10 @@ extern "C" {
 
 void fb_start() {
 #ifdef _WIN32
-    // Strings are UTF-8, and binary mode keeps "\n" from becoming "\r\n".
+    // Strings are UTF-8, and binary mode keeps "\n" from becoming "\r\n". The console is the
+    // shell's too, so it gets its code page and stderr's mode back however the program ends.
+    console_before_t& before = console_before();
+    before.code_page = GetConsoleOutputCP();
     SetConsoleOutputCP(CP_UTF8);
     _setmode(_fileno(stdin), _O_BINARY);
     _setmode(_fileno(stdout), _O_BINARY);
@@ -251,8 +279,11 @@ void fb_start() {
     HANDLE error = GetStdHandle(STD_ERROR_HANDLE);
     DWORD mode = 0;
     if (GetConsoleMode(error, &mode) != 0) {
+        before.error_mode = mode;
         SetConsoleMode(error, mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
     }
+
+    fb::runtime::at_end(restore_console);
 #endif
 }
 

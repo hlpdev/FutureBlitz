@@ -17,7 +17,8 @@ enum class stream_t : std::uint8_t {
 [[nodiscard]] std::vector<std::string> command_line(int argc, char** argv);
 
 /// Turns on ANSI colors and UTF-8 output in Windows consoles, and keeps "\n" from becoming
-/// "\r\n". Call it before printing anything. Does nothing on other platforms.
+/// "\r\n". Call it before printing anything. The console, which the shell shares, gets its code
+/// page and modes back as the process exits. Does nothing on other platforms.
 void prepare_terminal();
 
 /// False when the stream goes to a pipe or a file.

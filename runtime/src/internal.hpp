@@ -32,6 +32,10 @@ void run_finish();
 /// for anything or stop a thread. At most one per part of the runtime.
 void at_end(void (*restore)());
 
+/// Runs what at_end() was given, the last one first: at a normal end once nothing more is
+/// printed, and at a panic's or an uncaught error's before the process goes.
+void run_end();
+
 /// Writes a String's bytes, NULs too.
 void write_string(const fb_string_t* string, std::FILE* stream);
 

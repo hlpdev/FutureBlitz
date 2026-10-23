@@ -499,6 +499,51 @@ TEST_CASE("a program that reads stdin leaves it as it was, for what else reads i
 }
 #endif
 
+TEST_CASE("fb and the programs it builds give the console its code page back", "[cli]") {
+#ifdef FB_TEST_CONSOLE_PROBE
+    // The console is the shell's too, so the UTF-8 that fb and a program print in is only theirs
+    // while they run, however they end. cmd's chcp sets the page, and the probe prints it.
+    const std::filesystem::path hello =
+        write_source("console/hello.fb", "Import std.core\nPrint(\"hi\")\n");
+    const std::filesystem::path panics = write_source(
+        "console/panics.fb", "Import std.core\nLocal none: Int[] = []\nPrint(none[0])\n");
+    for (const std::filesystem::path& source : { hello, panics }) {
+        const fb::process_result_t built = fb_run({ "build", fb::to_utf8(source) });
+        INFO(built.output);
+        REQUIRE(built.exit_code == 0);
+    }
+
+    const auto windows_path = [](std::filesystem::path path) {
+        return path.replace_extension(fb::executable_extension).make_preferred().string();
+    };
+    const std::string probe =
+        std::filesystem::path(FB_TEST_CONSOLE_PROBE).make_preferred().string();
+    const std::filesystem::path script = hello.parent_path() / "pages.cmd";
+    std::ofstream(script, std::ios::binary) << std::format(
+        "@echo off\r\nchcp 437 >nul\r\n\"{0}\"\r\n\"{1}\" --version >nul\r\n\"{0}\"\r\n"
+        "\"{2}\" >nul\r\n\"{0}\"\r\n\"{3}\" >nul 2>nul\r\n\"{0}\"\r\n",
+        probe, std::filesystem::path(FB_CLI).make_preferred().string(), windows_path(hello),
+        windows_path(panics));
+    const std::vector<std::string> arguments{
+        "/c",
+        std::filesystem::path(script).make_preferred().string(),
+    };
+    const std::expected<fb::process_result_t, std::string> pages =
+        fb::run_process("cmd.exe", arguments);
+    REQUIRE(pages);
+    INFO(pages->output);
+    std::size_t found = 0;
+    for (std::size_t at = pages->output.find("out=437"); at != std::string::npos;
+         at = pages->output.find("out=437", at + 1)) {
+        ++found;
+    }
+
+    CHECK(found == 4);
+#else
+    SKIP("only Windows' console has a code page that programs share");
+#endif
+}
+
 TEST_CASE("fb check --release checks the release build's code", "[cli]") {
     const std::filesystem::path source = write_source(
         "release_check/branches.fb",

@@ -1,7 +1,9 @@
 #include "fb/terminal.hpp"
 
+#include <array>
 #include <cstdio>
 #include <cstdlib>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -68,17 +70,52 @@ std::vector<std::string> command_line(const int /*argc*/, char** /*argv*/) {
     return out;
 }
 
+namespace {
+
+/// What the console was before prepare_terminal() changed it: its output code page, 0 without
+/// a console, and each stream's mode, where it's the console's. The console is the shell's
+/// too, so it gets them back as the process exits.
+struct console_before_t {
+    UINT code_page = 0;
+    std::array<std::optional<DWORD>, 2> modes;
+};
+
+console_before_t& console_before() {
+    static console_before_t before;
+    return before;
+}
+
+void restore_console() {
+    const console_before_t& before = console_before();
+    if (before.code_page != 0) {
+        SetConsoleOutputCP(before.code_page);
+    }
+
+    for (const stream_t stream : { stream_t::STANDARD_OUTPUT, stream_t::STANDARD_ERROR }) {
+        if (const std::optional<DWORD> mode = before.modes.at(std::to_underlying(stream))) {
+            SetConsoleMode(handle(stream), *mode);
+        }
+    }
+}
+
+} // namespace
+
 void prepare_terminal() {
     // Lines end in "\n" like the programs fb builds, not "\r\n".
     _setmode(_fileno(stdout), _O_BINARY);
     _setmode(_fileno(stderr), _O_BINARY);
+    console_before_t& before = console_before();
+    before.code_page = GetConsoleOutputCP();
     SetConsoleOutputCP(CP_UTF8);
     for (const stream_t stream : { stream_t::STANDARD_OUTPUT, stream_t::STANDARD_ERROR }) {
         DWORD mode = 0;
         if (GetConsoleMode(handle(stream), &mode) != 0) {
+            before.modes.at(std::to_underlying(stream)) = mode;
             SetConsoleMode(handle(stream), mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
         }
     }
+
+    std::atexit(restore_console);
 }
 
 bool is_terminal(const stream_t stream) {
