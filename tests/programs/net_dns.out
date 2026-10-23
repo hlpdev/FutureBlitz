@@ -1,0 +1,8 @@
+True True
+[127.0.0.1] [::1] [10.20.30.40]
+True True
+[192.0.2.7]
+HOST_NOT_FOUND 28 False
+HOST_NOT_FOUND 30 True
+HOST_NOT_FOUND an empty name has no address
+1 True
