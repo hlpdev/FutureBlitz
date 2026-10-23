@@ -503,5 +503,6 @@ End Class
 | Array | element-by-element comparison, when the elements have `==` |
 | Interface | nothing: an Interface's objects have no `==`, since their Classes' could differ |
 
-`RefEquals(a, b)` always tests reference identity. `Equatable` makes `==` work in generic code
-(see [07-generics.md](07-generics.md)).
+`RefEquals(a, b)` always tests reference identity. `Equatable` makes `==` work in generic code,
+and every Class is `Equatable` and `Hashable` without listing them (see
+[07-generics.md](07-generics.md)).

@@ -4198,7 +4198,7 @@ TEST_CASE("a Struct or Class that lists Equatable or Hashable can have the built
           errors_t{ "Hashable: Money has an Operator == of its own, so it needs a Hash that agrees "
                     "with it" });
     CHECK(errors_of("Import std.core\n"
-                    "Class Rock\nEnd Class\n"
+                    "Struct Rock\nEnd Struct\n"
                     "Struct Bag Implements Hashable\n    Field Owner: Rock\nEnd Struct") ==
           errors_t{ "Hashable: 'Owner' isn't Hashable, so Bag needs a Hash of its own to implement "
                     "Hashable" });
@@ -4284,13 +4284,96 @@ TEST_CASE("a Struct or Class that lists Equatable or Hashable can have the built
                 "Local x = M(1) >= M(2)") == "Bool");
 }
 
+TEST_CASE("every Class is Equatable and Hashable without listing them", "[sema]") {
+    // With its own == and Hash, or else comparing and hashing its object, generic or not, and a
+    // T? of one too.
+    const std::string_view classes = "Import std.core\n"
+                                     "Import std.collections\n"
+                                     "Class Enemy\n"
+                                     "    Field Name: String\n"
+                                     "End Class\n"
+                                     "Class Box<T>\n"
+                                     "    Field Item: T?\n"
+                                     "End Class\n"
+                                     "Class Coin\n"
+                                     "    Field Cents: Int\n"
+                                     "    Operator ==(a: Coin, b: Coin): Bool => a.Cents == b.Cents\n"
+                                     "End Class\n"
+                                     "Class Gold Extends Coin\n"
+                                     "End Class\n"
+                                     "Class Hashed Extends Coin\n"
+                                     "    Method Hash(): UInt64 => Cents As UInt64\n"
+                                     "End Class\n"
+                                     "Local e = Enemy()\n";
+    const auto with_classes = [&](const std::string_view text) {
+        return errors_of(std::format("{}{}", classes, text));
+    };
+    CHECK(with_classes("Local enemies = [e, Enemy()]\n"
+                       "Local removed = enemies.Remove(e)\n"
+                       "Local at = enemies.IndexOf(e)\n"
+                       "Local seen = Set<Enemy>()\n"
+                       "Local counts: Map<Enemy, Int> = {e: 1}\n"
+                       "Local boxes = Set<Box<Int>>()\n"
+                       "Local maybe = Set<Enemy?>()\n"
+                       "Local hashed = Set<Hashed>()\n"
+                       "Local coins = [Coin()].Contains(Coin())\n"
+                       "Local golds = [Gold()].Contains(Gold())")
+              .empty());
+
+    // An Operator == of its own, or one it inherits, without a Hash, leaves it Equatable only.
+    CHECK(with_classes("Local coins = Set<Coin>()\nLocal golds: Map<Gold, Int> = {}") ==
+          errors_t{ "Set<Coin>: Coin doesn't implement Hashable, which Set<T> needs for T; Coin "
+                    "has an Operator == of its own, so it's Hashable only with a Hash of its own "
+                    "that agrees with it",
+                    "Map<Gold, Int>: Gold doesn't implement Hashable, which Map<K, V> needs for "
+                    "K; Gold has an Operator == of its own, so it's Hashable only with a Hash of "
+                    "its own that agrees with it" });
+    CHECK(errors_of("Import std.core\n"
+                    "Import std.collections\n"
+                    "Interface Keyed\n"
+                    "    Method Key(): Int\n"
+                    "    Operator ==(a: Self, b: Self): Bool => a.Key() == b.Key()\n"
+                    "End Interface\n"
+                    "Class Door Implements Keyed\n"
+                    "    Method Key(): Int => 1\n"
+                    "End Class\n"
+                    "Local doors = [Door()].Contains(Door())\n"
+                    "Local keyed = Set<Door>()") ==
+          errors_t{ "Set<Door>: Door doesn't implement Hashable, which Set<T> needs for T; Door has "
+                    "an Operator == of its own, so it's Hashable only with a Hash of its own that "
+                    "agrees with it" });
+
+    // Listing Hashable says it has one, and Comparable and the Structs are as they were.
+    CHECK(errors_of("Import std.core\n"
+                    "Class Coin Implements Hashable\n"
+                    "    Field Cents: Int\n"
+                    "    Operator ==(a: Coin, b: Coin): Bool => a.Cents == b.Cents\n"
+                    "End Class") ==
+          errors_t{ "Hashable: Coin has an Operator == of its own, so it needs a Hash that agrees "
+                    "with it" });
+    CHECK(errors_of("Import std.core\n"
+                    "Class Enemy\n"
+                    "End Class\n"
+                    "Function Least<T: Comparable>(a: T, b: T): T => a < b ? a : b\n"
+                    "Local e = Least(Enemy(), Enemy())") ==
+          errors_t{ "Least: Enemy doesn't implement Comparable, which 'Least' needs for T" });
+    CHECK(errors_of("Import std.core\n"
+                    "Import std.collections\n"
+                    "Struct Point\n"
+                    "    Field X: Int\n"
+                    "End Struct\n"
+                    "Local seen = Set<Point>()") ==
+          errors_t{ "Set<Point>: Point doesn't implement Hashable, which Set<T> needs for T" });
+}
+
 TEST_CASE("the built-in types have the built-in Interfaces' Methods", "[sema]") {
     CHECK(probe("Local s = 5.ToString()") == "String");
     CHECK(probe("Local h = \"a\".Hash()") == "UInt64");
     CHECK(probe("Local h = [1, 2].Hash()") == "UInt64");
     CHECK(probe("Local h = (1, \"a\").ToString()") == "String");
-    CHECK(errors_of("Class Rock\nEnd Class\nLocal h = Rock().Hash()") ==
+    CHECK(errors_of("Struct Rock\nEnd Struct\nLocal h = Rock().Hash()") ==
           errors_t{ "Hash: Rock has no member named 'Hash'" });
+    CHECK(probe("Import std.core\nClass Rock\nEnd Class\nLocal h = Rock().Hash()") == "UInt64");
     CHECK(errors_of("Local f = 1.5.Hash") ==
           errors_t{ "Hash: 'Hash' is a method; call it with ()" });
 }
@@ -4504,8 +4587,8 @@ TEST_CASE("an Extend's Where makes the defaults it gives conditional too", "[sem
                                 "    Method Size(): Int\n"
                                 "    Method Twice(): Int => Size() + 100\n"
                                 "End Interface\n"
-                                "Class Rock\n"
-                                "End Class\n";
+                                "Struct Rock\n"
+                                "End Struct\n";
     const std::string box = "Import std.core\n" + doubled +
                             "Class Box<T>\n"
                             "    Method Size(): Int => 1\n"
@@ -4754,8 +4837,8 @@ TEST_CASE("a Class declares what the instance it extends doesn't have", "[sema]"
                              "    Method Size(): Int\n"
                              "    Method Twice(): Int => Size() + 100\n"
                              "End Interface\n"
-                             "Class Rock\n"
-                             "End Class\n"
+                             "Struct Rock\n"
+                             "End Struct\n"
                              "Class Base<T>\n"
                              "    Method Size(): Int => 1\n"
                              "End Class\n"
@@ -10564,7 +10647,7 @@ TEST_CASE("a conditional Method isn't in the Method table, so it can't be overri
                                 base)) == errors_t{ std::format("Seal: {}", message) });
 
     // An instance that never has it, like Base<Rock>, leaves its name free.
-    CHECK(errors_of(std::format("{}Class Rock\nEnd Class\n"
+    CHECK(errors_of(std::format("{}Struct Rock\nEnd Struct\n"
                                 "Class RockSub Extends Base<Rock>\n"
                                 "    Method Seal(): Int => 7\n"
                                 "End Class",

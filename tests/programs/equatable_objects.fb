@@ -1,10 +1,11 @@
-// A Class that lists Equatable, without an == of its own, compares its objects themselves, which
-// is what std's Remove, IndexOf, LastIndexOf, and Contains need: two Enemies alike in every Field
-// are still two.
+// Every Class is Equatable and Hashable without listing them. One without an == of its own
+// compares its objects themselves, which is what std's Remove, IndexOf, LastIndexOf, and Contains
+// need, and hashes them, which is what a Set and a Map's keys need: two Enemies alike in every
+// Field are still two.
 Import std.core
 Import std.collections
 
-Class Enemy Implements Equatable
+Class Enemy
     Field Name: String
 
     New(name: String)
@@ -34,3 +35,11 @@ Local list = LinkedList<Enemy>()
 list.Add(second)
 list.Add(first)
 Print(list.Remove(first), list.Contains(first), list.Contains(second), list.Count)
+
+Local set = Set<Enemy>()
+set.Add(first)
+set.Add(second)
+set.Add(first)
+Local kills: Map<Enemy, Int> = {first: 1, boss: 3}
+kills[first] = kills[first] + 1
+Print(set.Count, set.Contains(Enemy("grunt")), kills[first], kills.Contains(Enemy("boss")))

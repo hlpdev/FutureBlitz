@@ -379,6 +379,7 @@ public:
         check_overloads();
         // An Extend adds to a type once the type's own members are declared.
         each_item([this](const stmt_id_t id) { declare_extension(id); });
+        list_object_interfaces();
 
         // Const Functions were declared first, but the functions stay in source order.
         std::ranges::stable_sort(m_analysis.functions, {}, [this](const symbol_id_t id) {
@@ -2460,6 +2461,126 @@ private:
         }
 
         m_analysis.types.set_interfaces(type, std::move(listed));
+    }
+
+    /// Every Class is Equatable, with its own Operator == or else comparing its objects, and
+    /// Hashable, with its own Hash or else its object's, unless it has an Operator == without a
+    /// Hash, which the built-in Hash wouldn't agree with. One that lists them, or that an Extend
+    /// gives them, has what's listed, and one with an == that a Where line makes conditional is
+    /// Equatable where it holds, as a Struct is. They're listed once every Extend is declared.
+    void list_object_interfaces() {
+        const builtin_interfaces_t& builtin = m_analysis.interfaces;
+        if (builtin.equatable == type_id_t::INVALID || builtin.hashable == type_id_t::INVALID) {
+            return;
+        }
+
+        for (const stmt_id_t id : m_ast.items()) {
+            const auto* declared = std::get_if<type_stmt_t>(&m_ast.get(id).node);
+            const std::optional<symbol_id_t> owner = m_analysis.stmts[index(id)].symbol;
+            if (declared == nullptr || !declared->is_class || !owner) {
+                continue;
+            }
+
+            const type_id_t type = symbol(*owner).type;
+            const std::vector<symbol_id_t> equal = operators_of(type, "==");
+            if (std::ranges::any_of(equal, [this](const symbol_id_t found) {
+                    return !symbol(found).constraints.empty();
+                })) {
+                continue;
+            }
+
+            std::vector<type_id_t> listed = m_analysis.types.get(type).interfaces;
+            // Listed at the Class's name, as if it said so.
+            const auto add = [&](const type_id_t interface) {
+                m_implements[type].push_back({ .interface = interface, .span = symbol(*owner).span });
+                listed.push_back(interface);
+            };
+            if (!lists(type, builtin.equatable)) {
+                add(builtin.equatable);
+            }
+
+            const bool equality = !equal.empty() || gets_default(type, "==") ||
+                                  extended_with(type, "==");
+            if (!lists(type, builtin.hashable) &&
+                (!equality || has_hash(type) || gets_default(type, "Hash"))) {
+                add(builtin.hashable);
+            }
+
+            m_analysis.types.set_interfaces(type, std::move(listed));
+        }
+    }
+
+    /// Whether a Struct or Class lists an Interface, or one that extends it, itself or through
+    /// an Extend, with a Where line or without.
+    [[nodiscard]] bool lists(const type_id_t type, const type_id_t interface) const {
+        const auto found = m_implements.find(type);
+        return found != m_implements.end() &&
+               std::ranges::any_of(found->second, [&](const listed_t& listed) {
+                   return std::ranges::contains(with_extended(listed.interface), interface);
+               });
+    }
+
+    /// Whether an Interface a Class or one it extends lists has a default named `name`, which
+    /// the Class gets once it's linked.
+    [[nodiscard]] bool gets_default(const type_id_t type, const std::string_view name) const {
+        for (type_id_t current = type; current != type_id_t::INVALID; current = base_of(current)) {
+            const auto found = m_implements.find(definition_of(current));
+            if (found == m_implements.end()) {
+                continue;
+            }
+
+            for (const listed_t& listed : found->second) {
+                for (const type_id_t interface : with_extended(listed.interface)) {
+                    const symbol_t& declared =
+                        m_analysis.symbols[index(m_declared_types.at(definition_of(interface)))];
+                    if (std::ranges::any_of(declared.members, [&](const symbol_id_t member) {
+                            const symbol_t& candidate = m_analysis.symbols[index(member)];
+                            return candidate.name == name && !candidate.modifiers.is_abstract;
+                        })) {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /// Whether an Extend of one instance of a Class, or of one it extends, adds a member named
+    /// `name`, like Box<String>'s Operator ==.
+    [[nodiscard]] bool extended_with(const type_id_t type, const std::string_view name) const {
+        for (type_id_t current = type; current != type_id_t::INVALID; current = base_of(current)) {
+            for (const auto& [instance, members] : m_analysis.instance_members) {
+                if (definition_of(instance) == definition_of(current) &&
+                    std::ranges::any_of(members, [&](const symbol_id_t member) {
+                        return m_analysis.symbols[index(member)].name == name;
+                    })) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /// Whether a Class, or one it extends, has a Hash of its own.
+    [[nodiscard]] bool has_hash(const type_id_t type) const {
+        for (type_id_t current = type; current != type_id_t::INVALID; current = base_of(current)) {
+            const auto declared = m_declared_types.find(definition_of(current));
+            if (declared != m_declared_types.end() &&
+                std::ranges::any_of(m_analysis.symbols[index(declared->second)].members,
+                                    [this](const symbol_id_t member) {
+                                        const symbol_t& candidate = m_analysis.symbols[index(member)];
+                                        return candidate.kind == symbol_kind_t::METHOD &&
+                                               candidate.name == "Hash" &&
+                                               candidate.parameters.empty() &&
+                                               !candidate.modifiers.is_static;
+                                    })) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /// An Extend's members and Interfaces, added to its type.
@@ -8912,16 +9033,36 @@ private:
                           reason_text(*why, shown));
                 }
             } else if (!implements(argument, interface) && is_parameter(bound.parameter)) {
-                error(span, "{} doesn't implement {}, which {} needs for {}",
+                error(span, "{} doesn't implement {}, which {} needs for {}{}",
                       name_of(argument, { interface, bound.parameter }),
                       name_of(interface, { argument, bound.parameter }), what,
-                      name_of(bound.parameter, { argument, interface }));
+                      name_of(bound.parameter, { argument, interface }),
+                      unhashed_reason(argument, interface));
             } else if (!implements(argument, interface)) {
                 // A copy's bound is on a type, like Flatten's in Pairs<Int32>.
-                error(span, "{} doesn't implement {}, which {} needs", name_of(argument, interface),
-                      name_of(interface, argument), what);
+                error(span, "{} doesn't implement {}, which {} needs{}",
+                      name_of(argument, interface), name_of(interface, argument), what,
+                      unhashed_reason(argument, interface));
             }
         }
+    }
+
+    /// Why a Class, or a T? of one, isn't Hashable, though Classes are, for an error about a
+    /// constraint that needs it: an Operator == of its own, which the built-in Hash doesn't agree
+    /// with. Empty for other types and Interfaces.
+    [[nodiscard]] std::string unhashed_reason(const type_id_t type,
+                                              const type_id_t interface) const {
+        const type_id_t object = non_null(type);
+        const type_id_t hashable = m_analysis.interfaces.hashable;
+        if (!is_class(object) || hashable == type_id_t::INVALID ||
+            !std::ranges::contains(with_extended(interface), hashable) ||
+            implements(object, hashable) || operators_of(object, "==").empty()) {
+            return {};
+        }
+
+        return std::format("; {} has an Operator == of its own, so it's Hashable only with a "
+                           "Hash of its own that agrees with it",
+                           shown_name(object));
     }
 
     /// Why a constraint on the fields of `type` doesn't hold: which field's type doesn't

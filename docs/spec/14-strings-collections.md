@@ -152,16 +152,17 @@ collection.
 
 - What finds a value by comparing it, like an array's `Remove(value)`, `IndexOf`, and
   `LastIndexOf`, and the collections' `Contains(value)`, needs the values to be `Equatable`,
-  as `==` in any generic code does (07-generics.md). A Class or Struct is when it lists
-  `Equatable`, and a Class that does without an `==` of its own compares its objects
-  themselves, so `Class Enemy Implements Equatable` is all `enemies.Remove(e)` needs. Only a
-  `T[]`'s built-in `Contains` takes any element that has `==`.
+  as `==` in any generic code does (07-generics.md). A Struct is when it lists `Equatable`, and
+  every Class is, comparing its objects themselves without an `==` of its own, so
+  `enemies.Remove(e)` needs nothing more. Only a `T[]`'s built-in `Contains` takes any element
+  that has `==`.
 - What gives a `T?` for "none", like `Get`, `Find`, and an Iterator's `Next`, gives a `T??` for
   a collection of a `T?`, so a stored `Null` isn't "none": a For ... In over a `Stack<Int?>` goes
   over its Nulls, and `Get` of a `Map<String, Int?>` tells a missing key from a `Null` value.
-- A Map or Set needs its keys to be `Hashable`. Its entries are in the order they were added,
-  and removing one leaves the rest in order. A Map or Set whose keys and values are `Printable`
-  is too: `{a: 1, b: 2}`, `{1, 2}`.
+- A Map or Set needs its keys to be `Hashable`, as every Class is unless it has an `==` of its
+  own without a `Hash`. Its entries are in the order they were added, and removing one leaves
+  the rest in order. A Map or Set whose keys and values are `Printable` is too: `{a: 1, b: 2}`,
+  `{1, 2}`.
 - Two Maps are `==` when they have the same keys, each with an equal value, in any order, and two
   Sets when they have the same values; a Map of values that aren't Equatable compares as the
   same object, like any Class. A Map whose values are `Hashable` is too, and so is a Set, with

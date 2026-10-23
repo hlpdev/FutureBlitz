@@ -17,8 +17,9 @@ Interface Doubled Extends Sized
     Method Twice(): Int => Size() + 100
 End Interface
 
-Class Rock
-End Class
+// A Struct that doesn't list Hashable isn't, as a Class is.
+Struct Rock
+End Struct
 
 // Every Box is Sized, with Sized's Twice, and a Box of something Hashable is Doubled too.
 Class Box<T> Implements Sized

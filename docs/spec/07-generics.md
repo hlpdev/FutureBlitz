@@ -205,13 +205,17 @@ End Interface
   is 0, False, "", or an Enum's zero, its first value, or no flags for a @Flags Enum. std's
   collection Classes are both.
 - A built-in type has the Methods of the ones it implements: `5.ToString()`, `name.Hash()`.
-- A Struct or Class implements one by listing it. One that lists `Equatable` without an
-  Operator `==` of its own gets the built-in one, which compares a Struct's fields or a Class's
-  objects themselves, and one that lists `Hashable` without a `Hash` gets the built-in one,
-  which combines a Struct's fields' hashes or comes from a Class's object. The built-in `Hash`
-  goes with the built-in `==`, so a type with an Operator `==` of its own needs a `Hash` of its
-  own, however it gets that `==`: written, from an Interface's default, from another file's
-  Extend, or, for one instance, from an Extend of it.
+- A Struct or Class implements one by listing it, and every Class is `Equatable` and `Hashable`
+  without listing them, so `enemies.Remove(e)` and `Set<Enemy>` work on any Class. One that
+  lists `Equatable` without an Operator `==` of its own gets the built-in one, which compares a
+  Struct's fields or a Class's objects themselves, and one that lists `Hashable` without a
+  `Hash` gets the built-in one, which combines a Struct's fields' hashes or comes from a Class's
+  object. The built-in `Hash` goes with the built-in `==`, so a type with an Operator `==` of
+  its own needs a `Hash` of its own, however it gets that `==`: written, inherited, from an
+  Interface's default, from another file's Extend, or, for one instance, from an Extend of it.
+  A Class with such an `==` and no `Hash` is `Equatable` but not `Hashable`, unless it lists
+  `Hashable`, which is then that error. One whose `==` has a Where line, its own or an
+  Extend's, implements them as it lists them, as a Struct does.
 - Values that are equal have equal hashes. A `T?` that holds a value hashes like it, and Null's
   hash is 0.
 - What implements `Printable` goes in a string through its `ToString`: `"{enemy}"`. An
