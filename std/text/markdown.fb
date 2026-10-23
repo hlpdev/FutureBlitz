@@ -1,0 +1,188 @@
+// std.text.markdown: CommonMark, with GitHub's tables, task lists, strikethrough, and autolinks as
+// asked, over md4c: Markdown as HTML, and as a tree of its blocks, spans, and text to walk.
+
+Import std.core
+Import std.collections
+
+Extern "runtime"
+    Function fb_markdown_html(text: String, extensions: Int32): String
+    Function fb_markdown_parse(text: String, extensions: Int32): Ptr<Void>
+    Function fb_markdown_free(events: Ptr<Void>)
+    Function fb_markdown_count(events: Ptr<Void>): Int64
+    Function fb_markdown_step(events: Ptr<Void>, index: Int64): Int32
+    Function fb_markdown_kind(events: Ptr<Void>, index: Int64): Int32
+    Function fb_markdown_number(events: Ptr<Void>, index: Int64): Int64
+    Function fb_markdown_flag(events: Ptr<Void>, index: Int64): Int32
+    Function fb_markdown_text(events: Ptr<Void>, index: Int64, which: Int32): String
+End Extern
+
+// What a document can have past CommonMark: GitHub's tables, task lists ("- [x] done"),
+// ~~strikethrough~~, and links from bare URLs, www. addresses, and e-mail addresses.
+@Flags
+Public Enum MarkdownExtensions
+    // CommonMark alone.
+    None = 0
+    Tables
+    TaskLists
+    Strikethrough
+    Autolinks
+    // All four, as GitHub's Markdown has them.
+    GitHub = Tables | TaskLists | Strikethrough | Autolinks
+End Enum
+
+// What a node of a document is: a block, a span inside one, or text.
+Public Enum MarkdownKind
+    Document
+    Quote
+    BulletList
+    OrderedList
+    ListItem
+    ThematicBreak
+    Heading
+    CodeBlock
+    HtmlBlock
+    Paragraph
+    Table
+    TableHead
+    TableBody
+    TableRow
+    TableHeaderCell
+    TableCell
+    Emphasis
+    Strong
+    Link
+    Image
+    Code
+    Strikethrough
+    Text
+    SoftBreak
+    HardBreak
+    Html
+End Enum
+
+// How a table's column lines up its cells: as HTML does unless it says.
+Public Enum MarkdownAlignment
+    None
+    Left
+    Center
+    Right
+End Enum
+
+// A node of a document: a block, like a paragraph or a list, with the blocks, spans, and text in
+// it; a span, like a link, with what's in it; or text.
+Public Class MarkdownNode
+    Public Field Kind: MarkdownKind
+    // What's in it, in order.
+    Public Field Children: MarkdownNode[] = []
+    // A Text's or an Html's text, and a CodeBlock's, a Code's, or an HtmlBlock's, which have no
+    // children.
+    Public Field Text = ""
+    // A Heading's level, from 1 to 6.
+    Public Field Level: Int
+    // An OrderedList's first number.
+    Public Field Start: Int
+    // Whether a list is tight, with no blank lines between its items, which HTML shows without
+    // paragraphs.
+    Public Field Tight: Bool
+    // Whether a ListItem is a task, "- [ ] to do", and whether it's done, "- [x] done".
+    Public Field Task: Bool
+    Public Field Done: Bool
+    // A Link's URL or an Image's source, and its title.
+    Public Field Url = ""
+    Public Field Title = ""
+    // Whether a Link is an autolink: <https://example.com>, or a bare URL with Autolinks.
+    Public Field Autolink: Bool
+    // A CodeBlock's info string, like "rust ignore", and its language, the first word of it.
+    Public Field Info = ""
+    Public Field Language = ""
+    // A TableHeaderCell's or TableCell's alignment.
+    Public Field Alignment: MarkdownAlignment
+
+    Public New(kind: MarkdownKind)
+        Kind = kind
+    End New
+
+    // The text in it, without the markup: a heading's words, a link's, or an image's
+    // description, with a newline for each break. Raw HTML has none.
+    Public Method PlainText(): String
+        If Kind == MarkdownKind.Text || Kind == MarkdownKind.Code ||
+           Kind == MarkdownKind.CodeBlock
+            Return Text
+        End If
+
+        If Kind == MarkdownKind.SoftBreak || Kind == MarkdownKind.HardBreak Then Return "\n"
+        Local parts: String[] = []
+        For child In Children
+            parts.Add(child.PlainText())
+        End For
+        Return parts.Join("")
+    End Method
+End Class
+
+// The extensions MarkdownToHtml and ParseMarkdown take unless they're given others.
+Const Usual = MarkdownExtensions.Tables | MarkdownExtensions.TaskLists
+
+// The Markdown as HTML: CommonMark, and the extensions, tables and task lists unless they say
+// others; with None, it's CommonMark alone.
+Public Function MarkdownToHtml(text: String, extensions: MarkdownExtensions = Usual): String
+    Return fb_markdown_html(text, extensions As Int32)
+End Function
+
+// The Markdown as a tree, from its Document down, with the extensions, tables and task lists
+// unless they say others.
+Public Function ParseMarkdown(text: String, extensions: MarkdownExtensions = Usual): MarkdownNode
+    Local events = fb_markdown_parse(text, extensions As Int32)
+    Defer fb_markdown_free(events)
+    // The blocks and spans entered and not left yet, the innermost last.
+    Local open: MarkdownNode[] = []
+    Local document = MarkdownNode(MarkdownKind.Document)
+    Local count = fb_markdown_count(events) As Int
+    For i = 0 Until count
+        Local step = fb_markdown_step(events, i)
+        If step == 1
+            open.RemoveLast()
+            Continue
+        End If
+
+        Local node = NodeOf(events, i)
+        If open.Count == 0
+            document = node
+        Else
+            open[open.Count - 1].Children.Add(node)
+        End If
+        If step == 0 Then open.Add(node)
+    End For
+    Return document
+End Function
+
+// The node an event enters, or the text it is.
+Function NodeOf(events: Ptr<Void>, index: Int64): MarkdownNode
+    Local node = MarkdownNode(fb_markdown_kind(events, index) As MarkdownKind)
+    Local number = fb_markdown_number(events, index) As Int
+    Local flag = fb_markdown_flag(events, index) != 0
+    node.Text = fb_markdown_text(events, index, 0)
+    Select node.Kind
+    Case MarkdownKind.BulletList
+        node.Tight = flag
+    Case MarkdownKind.OrderedList
+        node.Start = number
+        node.Tight = flag
+    Case MarkdownKind.ListItem
+        node.Task = number != 0
+        node.Done = number == 2
+    Case MarkdownKind.Heading
+        node.Level = number
+    Case MarkdownKind.CodeBlock
+        node.Info = fb_markdown_text(events, index, 3)
+        node.Language = fb_markdown_text(events, index, 4)
+    Case MarkdownKind.TableHeaderCell, MarkdownKind.TableCell
+        node.Alignment = number As MarkdownAlignment
+    Case MarkdownKind.Link, MarkdownKind.Image
+        node.Url = fb_markdown_text(events, index, 1)
+        node.Title = fb_markdown_text(events, index, 2)
+        node.Autolink = flag
+    Default
+        // The rest have only their text.
+    End Select
+    Return node
+End Function

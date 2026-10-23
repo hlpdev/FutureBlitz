@@ -1,0 +1,93 @@
+<h1>Hello</h1>
+<p>Some <em>em</em> and <strong>strong</strong> text, <code>code</code>, and a <a href="https://example.com" title="Example">link</a>.</p>
+
+<ul>
+<li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" disabled checked>done</li>
+<li class="task-list-item"><input type="checkbox" class="task-list-item-checkbox" disabled>to do</li>
+</ul>
+<table>
+<thead>
+<tr>
+<th align="left">a</th>
+<th align="right">b</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td align="left">1</td>
+<td align="right">2</td>
+</tr>
+</tbody>
+</table>
+
+<p>| a |
+|---|
+| 1 |</p>
+<ul>
+<li>[x] done</li>
+</ul>
+
+<p><del>gone</del> at <a href="http://www.example.com">www.example.com</a></p>
+
+<p>~~gone~~ at www.example.com</p>
+
+<p>© ☺ &amp;bogus; <b>raw</b></p>
+<pre><code>indented
+</code></pre>
+
+Document
+  Heading level 2
+    Text "A "
+    Emphasis
+      Text "title"
+  OrderedList from 3 tight
+    ListItem
+      Text "three"
+    ListItem
+      Text "four"
+  BulletList loose
+    ListItem done
+      Paragraph
+        Text "done"
+      BulletList tight
+        ListItem to do
+          Text "nested"
+  Quote
+    Paragraph
+      Text "quoted & "
+      Link -> https://example.com autolink
+        Text "https://example.com"
+  CodeBlock "fmt.Println(1)
+" info "go run" in go
+  Paragraph
+    Image -> cat.png (A cat)
+      Text "alt "
+      Emphasis
+        Text "text"
+    HardBreak
+    Text "end"
+  Table
+    TableHead
+      TableRow
+        TableHeaderCell Left
+          Text "l"
+        TableHeaderCell Center
+          Text "c"
+        TableHeaderCell Right
+          Text "r"
+    TableBody
+      TableRow
+        TableCell Left
+          Text "1"
+        TableCell Center
+          Text "2"
+        TableCell Right
+          Text "3"
+  HtmlBlock "<div>
+hi
+</div>
+"
+  ThematicBreak
+A title | alt text
+end
+0 Strikethrough

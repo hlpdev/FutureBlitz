@@ -1,0 +1,53 @@
+// Markdown as HTML, CommonMark with tables and task lists unless asked otherwise, and as a tree of
+// its blocks, spans, and text.
+Import std.core
+Import std.collections
+Import std.text.markdown
+
+Print(MarkdownToHtml("# Hello\n\nSome *em* and **strong** text, `code`, and a " +
+                     "[link](https://example.com \"Example\")."))
+Print(MarkdownToHtml("- [x] done\n- [ ] to do\n\n| a | b |\n|:--|--:|\n| 1 | 2 |"))
+// CommonMark alone has neither, and GitHub's Markdown strikethrough and bare links too.
+Print(MarkdownToHtml("| a |\n|---|\n| 1 |\n\n- [x] done", MarkdownExtensions.None))
+Print(MarkdownToHtml("~~gone~~ at www.example.com", MarkdownExtensions.GitHub))
+Print(MarkdownToHtml("~~gone~~ at www.example.com"))
+Print(MarkdownToHtml("&copy; &#x263A; &bogus; <b>raw</b>\n\n    indented\n"))
+
+// The tree: each node's kind, and what it has.
+Function Shown(node: MarkdownNode, depth: Int): String
+    Local text = ""
+    For i = 1 To depth
+        text += "  "
+    End For
+    text += "{node.Kind}"
+    If node.Text != "" Then text += " \"{node.Text}\""
+    If node.Kind == MarkdownKind.Heading Then text += " level {node.Level}"
+    If node.Kind == MarkdownKind.OrderedList Then text += " from {node.Start}"
+    If node.Kind == MarkdownKind.BulletList || node.Kind == MarkdownKind.OrderedList
+        text += node.Tight ? " tight" : " loose"
+    End If
+    If node.Task Then text += node.Done ? " done" : " to do"
+    If node.Url != "" Then text += " -> {node.Url}"
+    If node.Title != "" Then text += " ({node.Title})"
+    If node.Autolink Then text += " autolink"
+    If node.Info != "" Then text += " info \"{node.Info}\" in {node.Language}"
+    If node.Kind == MarkdownKind.TableCell || node.Kind == MarkdownKind.TableHeaderCell
+        text += " {node.Alignment}"
+    End If
+    For child In node.Children
+        text += "\n" + Shown(child, depth + 1)
+    End For
+    Return text
+End Function
+
+Local document = ParseMarkdown("## A *title*\n\n3. three\n4. four\n\n" +
+                               "- [x] done\n\n  - [ ] nested\n" +
+                               "> quoted &amp; <https://example.com>\n\n" +
+                               "```go run\nfmt.Println(1)\n```\n\n" +
+                               "![alt *text*](cat.png \"A cat\")  \nend\n\n" +
+                               "| l | c | r |\n|:--|:-:|--:|\n| 1 | 2 | 3 |\n\n" +
+                               "<div>\nhi\n</div>\n\n---\n")
+Print(Shown(document, 0))
+Print(document.Children[0].PlainText(), "|", document.Children[5].PlainText())
+Local struck = ParseMarkdown("~~x~~", MarkdownExtensions.GitHub)
+Print(ParseMarkdown("").Children.Count, struck.Children[0].Children[0].Kind)
