@@ -286,6 +286,36 @@ TEST_CASE("Globals known at compile time are static; the rest are set first in m
                                            "    return\n");
 }
 
+TEST_CASE("a Const known at compile time is no global, used or not", "[mir]") {
+    // Each use reads its value, so a Const in a module every program loads adds nothing to them.
+    std::vector<fb::library_file_t> files =
+        fb::standard_library().value_or(std::vector<fb::library_file_t>{});
+    files.push_back({
+        .path = "lib/limits.fb",
+        .text = "Const MOST = 1 << 20\n"
+                "Public Const NAME = \"limits\"\n"
+                "Public Function Most(): Int => MOST\n",
+    });
+    const fb::compilation_t compilation =
+        fb::compile("test.fb",
+                    "Import \"./lib/limits\"\n"
+                    "Const LIMIT = 10\n"
+                    "Const UNUSED = \"never read\"\n"
+                    "Global g = LIMIT + 1\n"
+                    "Local n = NAME\n",
+                    files);
+    REQUIRE(compilation.diagnostics.diagnostics().empty());
+    CHECK(fb::dump(fb::lower(compilation.ast, compilation.analysis)) ==
+          "global g: Int32 = 11\n"
+          "\n"
+          "function main\n"
+          "    _0 n: String\n"
+          "bb0:\n"
+          "    _0 = \"limits\"\n"
+          "    release _0\n"
+          "    return\n");
+}
+
 TEST_CASE("a Struct is built from its fields, and copies count its Strings", "[mir]") {
     // _0 holds the new Tag and hands it to t. Copying t into u retains its Strings, and changing
     // u.name releases the old one first.

@@ -578,3 +578,15 @@ Reading c_abi.hpp lines 13 and 35-36 against c_abi.cpp lines 111-113, and codege
 Suggested fix: Add Callback to both c_abi.hpp comments, and add "an Enum whose first value isn't 0" to zero_is_null()'s comment.
 
 Skeptic: confirmed=True, low. In c_abi.hpp, line 13 (`c_scalar_t::INTEGER`: "An integer, a Bool, an Enum, a CString, or a Ptr.") and lines 35-36 (c_layout's C data: "a number, Bool, Enum, CString, Ptr, or a fixed array or Struct of these") leave out Callback. c_abi.cpp maps `type_kind_t::CALLBACK` to `scalar(8, c_scalar_t::INTEGER)`, spec 12:142-143 makes a Callback C data allowed as a @CLayout Field, and c_abi_tests.cpp:190 tests it. codegen.cpp:595's zero_is_null() comment says every type's zero is all zero bytes but a String's and what holds one. The function also returns `enum_zero(type) == 0` for an Enum, so an Enum whose first value isn't 0, and what holds one, give false. The comments are incomplete.
+
+## A7-new-1 (medium): Every top-level Const known at compile time becomes an MIR global, used or not
+
+Status: open
+
+Where: compiler/src/lower.cpp:497
+
+Found by lane 4 (2026-10-22): a file-level Const in a std file every program loads (std/collections/map.fb, for Map literals) put `global std.collections.map.MostBuckets` in every program's MIR, so 50 mir_tests broke until the Const moved inside Grow. declare_globals() gave each symbol in analysis.globals a global, but every use of a Const whose value is known reads that value, so its global is never read, and one in a library file costs every program a global it can't use.
+
+Reproduced: a main file importing lib/consts.fb (`Const MOST_BUCKETS = 1 << 20`, `Public Const NAME = "lib"`), with `Const LOCAL_LIMIT = 10` and `Const USED = 3`, `Global g = USED + 1`: `fb check --show mir` lists `global lib.consts.MOST_BUCKETS`, `global lib.consts.NAME`, `global LOCAL_LIMIT`, and `global USED` beside `global g`.
+
+Fix: such a Const gets its global only when code asks for its place (place_of()).

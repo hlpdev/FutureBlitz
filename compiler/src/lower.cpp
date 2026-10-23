@@ -493,54 +493,61 @@ private:
         }
     }
 
-    /// Globals and top-level Consts. One whose value is known at compile time starts with it.
-    /// The rest start at zero, and main sets the ones with an initializer first.
+    /// Globals, Static Fields, and top-level Consts. A generic type's Static Fields are each
+    /// instance's, made as it's used, and a Const known at compile time has none until code needs
+    /// its place, since its uses read its value.
     void declare_globals() {
         for (const symbol_id_t id : m_analysis.globals) {
             const symbol_t& symbol = m_analysis.symbol(id);
-            // A generic type's Static Fields are each instance's, made as it's used.
-            if (symbol.owner != type_id_t::INVALID &&
-                !types().get(symbol.owner).parameters.empty()) {
-                continue;
+            const bool generic =
+                symbol.owner != type_id_t::INVALID && !types().get(symbol.owner).parameters.empty();
+            const bool known = symbol.kind == symbol_kind_t::CONSTANT && symbol.value.has_value();
+            if (!generic && !known) {
+                declare_global(id);
             }
-
-            const auto& node =
-                std::get<variable_stmt_t>(m_ast.get(expect(symbol.declaration)).node);
-            // Only a built-in type's zero is a constant, and a T?'s, which is Null. A Struct or
-            // Class starts all zero.
-            std::optional<const_value_t> initial;
-            if (types().get(symbol.type).kind == type_kind_t::BUILTIN) {
-                initial = zero(symbol.type);
-            } else if (is_nullable(symbol.type)) {
-                initial = null_of(symbol.type);
-            } else if (is_enum(symbol.type)) {
-                initial = enum_constant(symbol.type, types().enum_zero(symbol.type));
-            }
-
-            if (node.value) {
-                if (const std::optional<const_value_t>& value =
-                        m_analysis.expr(*node.value).value) {
-                    initial = *value;
-                }
-            }
-
-            // A Static Field is named after its type, and one outside the main module after its
-            // module.
-            std::string name(symbol.name);
-            if (symbol.owner != type_id_t::INVALID) {
-                name = std::format("{}.{}", types().qualified_name(symbol.owner), symbol.name);
-            } else if (const std::string_view module = qualifier_of(symbol); !module.empty()) {
-                name = std::format("{}.{}", module, symbol.name);
-            }
-
-            m_globals[id] = static_cast<global_id_t>(m_module.globals.size());
-            m_module.globals.push_back({
-                .name = std::move(name),
-                .type = symbol.type,
-                .initial = std::move(initial),
-                .set_in_main = node.value && !m_analysis.expr(*node.value).value,
-            });
         }
+    }
+
+    /// A Global's, Static Field's, or Const's global. One whose value is known at compile time
+    /// starts with it. The rest start at zero, and main sets the ones with an initializer first.
+    global_id_t declare_global(const symbol_id_t id) {
+        const symbol_t& symbol = m_analysis.symbol(id);
+        const auto& node = std::get<variable_stmt_t>(m_ast.get(expect(symbol.declaration)).node);
+        // Only a built-in type's zero is a constant, and a T?'s, which is Null. A Struct or
+        // Class starts all zero.
+        std::optional<const_value_t> initial;
+        if (types().get(symbol.type).kind == type_kind_t::BUILTIN) {
+            initial = zero(symbol.type);
+        } else if (is_nullable(symbol.type)) {
+            initial = null_of(symbol.type);
+        } else if (is_enum(symbol.type)) {
+            initial = enum_constant(symbol.type, types().enum_zero(symbol.type));
+        }
+
+        if (node.value) {
+            if (const std::optional<const_value_t>& value = m_analysis.expr(*node.value).value) {
+                initial = *value;
+            }
+        }
+
+        // A Static Field is named after its type, and one outside the main module after its
+        // module.
+        std::string name(symbol.name);
+        if (symbol.owner != type_id_t::INVALID) {
+            name = std::format("{}.{}", types().qualified_name(symbol.owner), symbol.name);
+        } else if (const std::string_view module = qualifier_of(symbol); !module.empty()) {
+            name = std::format("{}.{}", module, symbol.name);
+        }
+
+        const auto global = static_cast<global_id_t>(m_module.globals.size());
+        m_globals[id] = global;
+        m_module.globals.push_back({
+            .name = std::move(name),
+            .type = symbol.type,
+            .initial = std::move(initial),
+            .set_in_main = node.value && !m_analysis.expr(*node.value).value,
+        });
+        return global;
     }
 
     /// A generic type's Static Field for one instance, which starts with its value known at
@@ -4641,7 +4648,11 @@ private:
             return place;
         }
 
-        return m_globals.at(symbol);
+        if (const auto found = m_globals.find(symbol); found != m_globals.end()) {
+            return found->second;
+        }
+
+        return declare_global(symbol); // a Const known at compile time, whose place code needs
     }
 
     /// A variable's place. When analysis narrowed its T? to a T, it's the T inside. A Property
