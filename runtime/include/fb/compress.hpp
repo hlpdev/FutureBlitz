@@ -95,7 +95,7 @@ void fb_zip_reader_free(void* reader);
 void* fb_zip_writer_new();
 void fb_zip_writer_add(void* writer, const fb_string_t* name, const fb_array_t* data,
                        std::int32_t method, std::int32_t level, std::int32_t folder);
-void fb_zip_writer_finish(void* writer, fb_array_t* output);
+std::int32_t fb_zip_writer_finish(void* writer, fb_array_t* output, std::int64_t limit);
 void fb_zip_writer_free(void* writer);
 
 /// A tar: POSIX's ustar, with pax's extended headers and GNU's long names read, of names that
@@ -115,7 +115,7 @@ void fb_tar_reader_free(void* reader);
 void* fb_tar_writer_new();
 void fb_tar_writer_add(void* writer, const fb_string_t* name, const fb_array_t* data,
                        std::int32_t folder);
-void fb_tar_writer_finish(void* writer, fb_array_t* output);
+std::int32_t fb_tar_writer_finish(void* writer, fb_array_t* output, std::int64_t limit);
 void fb_tar_writer_free(void* writer);
 
 /// A 7z, read over liblzma: its folders' coders can be stored, LZMA, LZMA2, Delta, and the branch

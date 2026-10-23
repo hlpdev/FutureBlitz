@@ -12,6 +12,7 @@ zip: 12 entries
   folder/a-long-folder-name-to-go-past-what-a-ustar-header-holds-in-its-name-or-prefix-fields-which-are-a-hundred-and-a-hundred-and-fifty-five-bytes-long-so-pax-has-it/and-a-file-name.txt (1542) poem True
   folder/stored.txt (31) True
 True True True True FOLDER True
+skippable frames first: 1 entries 1 entries
 zip's local header: 20 5 5 0
 1 again.txt (1542) 0 entries
 tar: 0 bytes past its last block

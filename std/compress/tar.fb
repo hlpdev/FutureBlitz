@@ -29,7 +29,7 @@ Extern "runtime"
     Function fb_tar_reader_free(reader: Ptr<Void>)
     Function fb_tar_writer_new(): Ptr<Void>
     Function fb_tar_writer_add(writer: Ptr<Void>, name: String, data: UInt8[], folder: Int32)
-    Function fb_tar_writer_finish(writer: Ptr<Void>, output: UInt8[])
+    Function fb_tar_writer_finish(writer: Ptr<Void>, output: UInt8[], limit: Int64): Int32
     Function fb_tar_writer_free(writer: Ptr<Void>)
 End Extern
 
@@ -71,10 +71,18 @@ Public Class TarWriter
         fb_tar_writer_add(State, name, [], 1)
     End Method
 
-    // The tar, of the entries added since it started, and then it starts again, empty.
-    Public Method Finish(): UInt8[]
+    // The tar, of the entries added since it started, and then it starts again, empty. Panics
+    // when it's more bytes than a UInt8[] holds.
+    @PanicsAtCaller
+    Public Method Finish(): UInt8[] => FinishedWithin(MOST_BYTES)
+
+    // The tar, as Finish gives it, but panicking when it's more than `limit` bytes.
+    @PanicsAtCaller
+    Package Method FinishedWithin(limit: Int): UInt8[]
         Local output: UInt8[] = []
-        fb_tar_writer_finish(State, output)
+        If fb_tar_writer_finish(State, output, limit) != 0
+            Panic("the tar's bytes are more than a UInt8[] holds")
+        End If
         Return output
     End Method
 
@@ -85,17 +93,29 @@ End Class
 
 // The data, decompressed when it starts as a compressed format's does.
 Function Unwrapped(data: UInt8[]): UInt8[] Throws IOError
-    If StartsWith(data, [0x1f, 0x8b]) Then Return Try Gzip.Decompress(data)
-    If StartsWith(data, [0x28, 0xb5, 0x2f, 0xfd]) Then Return Try Zstd.Decompress(data)
-    If StartsWith(data, [0xfd, 0x37, 0x7a, 0x58, 0x5a, 0x00]) Then Return Try XZ.Decompress(data)
-    If StartsWith(data, [0x04, 0x22, 0x4d, 0x18]) Then Return Try Lz4.Decompress(data)
+    If MagicAt(data, 0, [0x1f, 0x8b]) Then Return Try Gzip.Decompress(data)
+    If MagicAt(data, 0, [0xfd, 0x37, 0x7a, 0x58, 0x5a, 0x00]) Then Return Try XZ.Decompress(data)
+    // Zstd and LZ4 each skip skippable frames, as pzstd writes one before each frame, so what
+    // they are is by the first frame after them.
+    Local at: Int64 = 0
+    While data.Count - at >= 8 && (data[at] & 0xf0) == 0x50 && MagicAt(data, at + 1, [0x2a, 0x4d, 0x18])
+        Local size: Int64 = 0
+        For i = 7 To 4 Step -1
+            size = size * 256 + (data[at + i] As Int64)
+        End For
+        at += 8 + size
+    End While
+
+    If MagicAt(data, at, [0x28, 0xb5, 0x2f, 0xfd]) Then Return Try Zstd.Decompress(data)
+    If MagicAt(data, at, [0x04, 0x22, 0x4d, 0x18]) Then Return Try Lz4.Decompress(data)
     Return data
 End Function
 
-Function StartsWith(data: UInt8[], magic: UInt8[]): Bool
-    If data.Count < magic.Count Then Return False
+// Whether the data has `magic` at `at`.
+Function MagicAt(data: UInt8[], at: Int64, magic: UInt8[]): Bool
+    If at < 0 || data.Count - at < magic.Count Then Return False
     For i = 0 Until magic.Count
-        If data[i] != magic[i] Then Return False
+        If data[at + i] != magic[i] Then Return False
     End For
     Return True
 End Function

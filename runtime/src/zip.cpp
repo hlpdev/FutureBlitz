@@ -627,16 +627,17 @@ void fb_zip_writer_add(void* writer, const fb_string_t* name, const fb_array_t* 
     }
 }
 
-void fb_zip_writer_finish(void* writer, fb_array_t* output) {
+std::int32_t fb_zip_writer_finish(void* writer, fb_array_t* output, const std::int64_t limit) {
     auto& state = *static_cast<writer_t*>(writer);
     if (mz_zip_close(state.zip) != MZ_OK) {
         fb_panic("std.compress's Zip couldn't finish a zip", nullptr);
     }
 
-    output_t out(output, most_bytes);
-    out.add_all(state.bytes);
+    output_t out(output, limit);
+    const bool fits = out.add(state.bytes);
     stop(state);
     start(state);
+    return fits ? RESULT_DONE : RESULT_TOO_LARGE;
 }
 
 void fb_zip_writer_free(void* writer) {

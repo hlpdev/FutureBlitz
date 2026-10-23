@@ -678,8 +678,10 @@ TEST_CASE("a 7z's links in one solid folder take one decoding of it", "[programs
     const std::filesystem::path programs = FB_TEST_PROGRAMS;
     std::vector<fb::library_file_t> library =
         fb::standard_library().value_or(std::vector<fb::library_file_t>{});
-    library.push_back({ .path = "compress_archives/data.fb",
-                        .text = read_file(programs / "compress_archives" / "data.fb") });
+    library.push_back({
+        .path = "compress_archives/data.fb",
+        .text = read_file(programs / "compress_archives" / "data.fb"),
+    });
     const fb::compilation_t compilation =
         fb::compile("main.fb",
                     "Import std.core\n"

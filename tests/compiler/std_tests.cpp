@@ -162,3 +162,43 @@ TEST_CASE("a ConcurrentMap's keys spread over its parts", "[programs]") {
     CHECK(result->output == "16 16 16\n");
     CHECK(result->exit_code == 0);
 }
+
+TEST_CASE("an archive writer's Finish panics at its caller for an archive past its limit",
+          "[programs]") {
+    // Finish's limit is the most a UInt8[] holds, which a test can't fill, so a smaller one
+    // stands for it.
+    const std::string module = "Import std.core\n"
+                               "Import std.compress\n"
+                               "Public Function Tar(limit: Int)\n"
+                               "    Local writer = TarWriter()\n"
+                               "    writer.Add(\"a.txt\", \"hello\".Bytes)\n"
+                               "    Print(writer.FinishedWithin(limit).Count)\n"
+                               "End Function\n"
+                               "Public Function Zip(limit: Int)\n"
+                               "    Local writer = ZipWriter()\n"
+                               "    writer.Add(\"a.txt\", \"hello\".Bytes)\n"
+                               "    Print(writer.FinishedWithin(limit).Count)\n"
+                               "End Function\n";
+    const std::expected<fb::process_result_t, std::string> fits =
+        run_with_std_module("archive_fits", "Import std.extra.checks\nTar(2048)\nZip(200)", module);
+    INFO((fits ? fits->output : fits.error()));
+    REQUIRE(fits);
+    CHECK(fits->output.starts_with("2048\n"));
+    CHECK(fits->exit_code == 0);
+
+    const std::expected<fb::process_result_t, std::string> tar =
+        run_with_std_module("archive_tar_past", "Import std.extra.checks\nTar(2047)", module);
+    INFO((tar ? tar->output : tar.error()));
+    REQUIRE(tar);
+    CHECK(tar->output.starts_with("panic: the tar's bytes are more than a UInt8[] holds at "));
+    CHECK(tar->output.contains("checks.fb:6:"));
+    CHECK(tar->exit_code == 101);
+
+    const std::expected<fb::process_result_t, std::string> zip =
+        run_with_std_module("archive_zip_past", "Import std.extra.checks\nZip(20)", module);
+    INFO((zip ? zip->output : zip.error()));
+    REQUIRE(zip);
+    CHECK(zip->output.starts_with("panic: the zip's bytes are more than a UInt8[] holds at "));
+    CHECK(zip->output.contains("checks.fb:11:"));
+    CHECK(zip->exit_code == 101);
+}

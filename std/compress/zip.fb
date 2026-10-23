@@ -24,7 +24,7 @@ Extern "runtime"
     Function fb_zip_writer_new(): Ptr<Void>
     Function fb_zip_writer_add(writer: Ptr<Void>, name: String, data: UInt8[], method: Int32,
                                level: Int32, folder: Int32)
-    Function fb_zip_writer_finish(writer: Ptr<Void>, output: UInt8[])
+    Function fb_zip_writer_finish(writer: Ptr<Void>, output: UInt8[], limit: Int64): Int32
     Function fb_zip_writer_free(writer: Ptr<Void>)
 End Extern
 
@@ -83,10 +83,18 @@ Public Class ZipWriter
         fb_zip_writer_add(State, name, [], 0, 0, 1)
     End Method
 
-    // The zip, of the entries added since it started, and then it starts again, empty.
-    Public Method Finish(): UInt8[]
+    // The zip, of the entries added since it started, and then it starts again, empty. Panics
+    // when it's more bytes than a UInt8[] holds.
+    @PanicsAtCaller
+    Public Method Finish(): UInt8[] => FinishedWithin(MOST_BYTES)
+
+    // The zip, as Finish gives it, but panicking when it's more than `limit` bytes.
+    @PanicsAtCaller
+    Package Method FinishedWithin(limit: Int): UInt8[]
         Local output: UInt8[] = []
-        fb_zip_writer_finish(State, output)
+        If fb_zip_writer_finish(State, output, limit) != 0
+            Panic("the zip's bytes are more than a UInt8[] holds")
+        End If
         Return output
     End Method
 
