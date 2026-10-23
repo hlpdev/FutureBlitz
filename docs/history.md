@@ -499,6 +499,12 @@ That closes phase 1: every one of the whole-codebase review's 161 findings, and 
 the way (A-new-1 to A-new-3, A4-new-1 and 2, A7-new-1), is fixed with a test or dropped with its
 reason in docs/review/.
 
+Phase 1's review, lane 4's std findings: a Deque holds as many values as an Int counts and balances
+without overflowing; a PriorityQueue in its smallest-first order panics at a NaN where it's added; a
+Counter's one-value Add and AddAll panic at the caller; Sendable's comment and spec 14 match the
+compiler and spec 07; a Map lets go of what a change takes out once it's whole again, so a key's or
+value's Destroy can use it (A-new-5).
+
 ## M5, modules, packages, FFI, and bindgen
 
 Done: M5 (modules, packages, `project.toml`, FFI, bindgen), planned 2026-10-18 and finished
