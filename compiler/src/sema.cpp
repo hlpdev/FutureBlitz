@@ -5020,8 +5020,8 @@ private:
             parameters.push_back(add_symbol(std::move(parameter)));
         }
 
-        // A Class's Methods can always change its fields, so they're never ByRef.
-        const bool by_ref = method.by_ref && !is_class(type);
+        // A Class's and an array's Methods can always change it, so they're never ByRef.
+        const bool by_ref = method.by_ref && !is_class(type) && !is_array(type);
         std::optional<symbol_id_t> self;
         if (method.self) {
             self = add_symbol({

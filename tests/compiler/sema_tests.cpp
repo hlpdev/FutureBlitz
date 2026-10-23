@@ -4629,6 +4629,19 @@ TEST_CASE("an Extend adds Methods, Properties, and Operators to a type", "[sema]
           errors_t{ "Point(1): 'Grow' is a ByRef Method, so it needs a variable to change, not a "
                     "value" });
 
+    // An array's Methods can always change it, so a ByRef default an Interface gives it isn't.
+    CHECK(errors_of("Import std.core\n"
+                    "Interface Grows\n"
+                    "    ByRef Method Grow()\n"
+                    "        Print(\"grow\")\n"
+                    "    End Method\n"
+                    "End Interface\n"
+                    "Extend Int[] Implements Grows\n"
+                    "End Extend\n"
+                    "Function Make(): Int[] => [1, 2]\n"
+                    "Make().Grow()")
+              .empty());
+
     // Built-in types, Enums, and every array.
     CHECK(probe("Extend Int\n    Method Doubled(): Int => Self * 2\nEnd Extend\n"
                 "Local x = 5.Doubled()") == "Int32");
