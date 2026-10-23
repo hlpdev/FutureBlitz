@@ -406,7 +406,7 @@ Suggested fix: Treat `End Get`/`End Set` as closing an outer block in expect_end
 
 ## A8-14 (low): Control characters from the source reach the terminal raw through diagnostic messages and --show dumps, and the AST dump doesn't re-escape braces
 
-Status: open
+Status: fixed in 0cafa77 (messages, paths, and dumps escape every control character, and a dumped string doubles its braces), with render, dump, and parser tests: fb::escape_controls() in utf8.cpp, which header() uses for the path and message, and render_pretty() for notes; dump.cpp's escape_token() and quote() escape every control character, \xHH or \u{HH} past ASCII, and quote() writes '{' and '}' doubled
 
 Where: compiler/src/diagnostic_render.cpp:55
 
@@ -422,7 +422,7 @@ Suggested fix: Escape control characters (and invalid bytes) in header() message
 
 ## A8-15 (low): '>=' or '>>=' right after type arguments isn't split, so `Stack<Int>= ...` is refused
 
-Status: open
+Status: fixed in b3222cd (the parser takes '>=' as '>' then '=', so type arguments can close right before an '='), with parser tests; touching, '>' '=' is the operator again, as touching '>' '>' is a shift
 
 Where: compiler/src/parser.cpp:2842
 
@@ -438,7 +438,7 @@ Suggested fix: When closing type arguments at a GREATER_EQUAL token, consume its
 
 ## A8-16 (low): Stale and misleading comments in ast.hpp and parser.cpp
 
-Status: open
+Status: fixed in 991f694 (ast.hpp's comments say what the nodes are now), comments only; parser.cpp's 'Lows 71, 78, 96, 120, 123' comment became a plain sentence in aba60f7
 
 Where: compiler/include/fb/ast.hpp:66
 
@@ -454,7 +454,7 @@ Suggested fix: Remove the 'Not supported in M1/M2' remarks. Reword error_stmt_t 
 
 ## A8-17 (low): `New Foo()` gets ''New' isn't supported yet', promising a form nothing plans
 
-Status: open
+Status: fixed in f74a84a (new in an expression says an object is made by calling its type), with a parser test: 'an object is made by calling its type, like Foo(); New only declares a constructor', and what follows is parsed as the call
 
 Where: compiler/src/parser.cpp:3153
 
@@ -470,7 +470,7 @@ Suggested fix: Say how to make one, for example 'objects are made by calling the
 
 ## A8-18 (low): An #If condition missing its last symbol at end of file gets a diagnostic span past the end of the file
 
-Status: open
+Status: fixed in 9ce3b68 (an #if condition cut off at the end of the file stays inside it), with a lexer test: an empty span at the end, and a '(' with a mistake inside no longer steps past the end, which put END_OF_FILE's span past it too
 
 Where: compiler/src/lexer.cpp:731
 
