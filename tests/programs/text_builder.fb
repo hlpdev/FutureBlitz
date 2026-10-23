@@ -22,6 +22,11 @@ text.Clear().Append("e\u{301}")
 text.Reserve(100)
 Print(text, text.Length, text[0], text[1])
 
+// A combining mark is a character of its own, with a position before it.
+Local marks = StringBuilder("e\u{301}😀")
+marks.Insert(1, "\u{323}").Remove(5, 9).Append("x\u{301}")
+Print(marks, marks.Length, marks[1], marks[3], marks.ToString().GraphemeCount)
+
 // Building many pieces.
 Local many = StringBuilder()
 For i = 1 To 1000
