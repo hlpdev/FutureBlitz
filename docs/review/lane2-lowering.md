@@ -11,7 +11,7 @@ dropped, with why (it doesn't reproduce, or the spec says otherwise).
 
 ## A5-1 (high): A plain ++/-- never finishes its statement, so its temporaries leak or get released on paths that never set them
 
-Status: open
+Status: fixed in 080d511 (++ and -- let go of their temporaries where they end), with tests/programs/increment_temporaries.fb
 
 Where: compiler/src/lower.cpp:3113
 
@@ -29,7 +29,7 @@ Skeptic: confirmed=True, high. skA5/inc_b.fb (`If flag` / `Make().N++` / `End If
 
 ## A5-2 (high): For ... In over a fixed array doesn't hold it: a temporary's array is read after it's freed
 
-Status: open
+Status: fixed in 52b9667 (for in holds a fixed array as it does a t[]), with tests/programs/for_in_fixed.fb
 
 Where: compiler/src/lower.cpp:3451
 
@@ -47,7 +47,7 @@ Skeptic: confirmed=True, high. In for_in_stmt_t lowering (lower.cpp ~3449), only
 
 ## A5-3 (high): A Select's type match in generic code tests and uses the unsubstituted type, so the compiler crashes
 
-Status: open
+Status: fixed in 3323788 (a select's type match in generic code tests its own instance), with a case in tests/programs/generic_bases.fb
 
 Where: compiler/src/lower.cpp:3982
 
@@ -65,7 +65,7 @@ Skeptic: confirmed=True, high. skA5/sel_a.fb (`Select a` / `Case b As Box<T>` in
 
 ## A5-4 (high): Break/Continue keep a reference into m_loops across release_scopes(), so a Finally with a loop loses the jump
 
-Status: open
+Status: fixed in 58c0bd7 (break and continue find their loop again after a finally's loops), with a case in tests/programs/errors.fb
 
 Where: compiler/src/lower.cpp:4075
 
@@ -83,7 +83,7 @@ Skeptic: confirmed=True, high. lower_jump() (lower.cpp ~4073) holds `loop_t& loo
 
 ## A5-7 (high): A ByRef parameter, or a Struct's ByRef Self, passed on by value isn't pinned, though the callee can free it
 
-Status: open
+Status: fixed in 5a38a39 (what a byref parameter holds is pinned and copied like a global's): through_reference() counts a ByRef root, and store() copies from one; with cases in tests/programs/borrowed.fb
 
 Where: compiler/src/lower.cpp:2647
 
@@ -101,7 +101,7 @@ Skeptic: confirmed=True, high. through_reference() (lower.cpp ~2646) returns fal
 
 ## A6-1 (high): Compile-time '~' on a @Flags Enum gives 0
 
-Status: open
+Status: fixed in ff43b91 (a const function's ~ on a flags enum flips its bits), with a case in tests/programs/compile_time.fb
 
 Where: compiler/src/evaluate.cpp:305
 
@@ -117,7 +117,7 @@ Suggested fix: In compute(), fold the unary on as_integer(operand) and give the 
 
 ## A6-2 (high): A cancelled Await in a Defer or Finally releases locals a second time
 
-Status: open
+Status: fixed in 9f428a7 (a cancelled await in a defer or finally lets go of only what's still held), with tests/programs/scheduler_cancel_cleanups.fb
 
 Where: compiler/src/lower.cpp:6589
 
@@ -133,7 +133,7 @@ Suggested fix: Have the cancel path release only the cleanups that haven't run y
 
 ## A6-4 (high): `Try Await` / `Try? Await` of a Task that gives nothing crashes the compiler
 
-Status: open
+Status: fixed in fa05eff (try and try? await a task that gives nothing), with cases in tests/programs/async_throws.fb
 
 Where: compiler/src/lower.cpp:6639
 
@@ -149,7 +149,7 @@ Suggested fix: In lower_try()'s operand lambda, send await_expr_t through lower_
 
 ## A6-5 (high): For Method over a type with an Async Method emits invalid LLVM IR
 
-Status: open
+Status: fixed in 178a50c (for method leaves out async methods and ones with a byref parameter): Async Methods are left out, and spec 13 says so; with a case in tests/programs/reflection_more.fb
 
 Where: compiler/src/lower.cpp:7248
 
@@ -165,7 +165,7 @@ Suggested fix: Either leave Async Methods out in reflected_methods() (and say so
 
 ## A7-1 (high): Globals are released in declaration order and left dangling, so a Destroy that reads an earlier Global uses freed memory
 
-Status: open
+Status: fixed in 6bc4fb7 (globals are released last to first, each reference zeroed before it goes): a use after the release panics where the Global has a ready flag, and spec 02 says so; with tests/programs/globals_released.fb and panic_global_released.fb
 
 Where: compiler/src/codegen.cpp:1986
 
@@ -204,7 +204,7 @@ Skeptic: confirmed=True, high. Reproduced with the reviewer's program, saved as 
 
 ## A5-5 (medium): For Method picks Async Methods and Methods with ByRef parameters, whose m.Call makes invalid IR
 
-Status: open
+Status: fixed in 178a50c (for method leaves out async methods and ones with a byref parameter), with A6-5's case in tests/programs/reflection_more.fb
 
 Where: compiler/src/lower.cpp:3689
 
