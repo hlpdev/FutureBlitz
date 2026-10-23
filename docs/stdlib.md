@@ -386,11 +386,12 @@ generator, noise, easing, stats, and fixed point; the rest is planned.
   `samples` places along each segment, 64 unless they say, with `Length`, `PointAt(t)`,
   `PointAtDistance(d)`, and `Sample(count)`, points evenly apart along the curve, from a table of
   lengths; a NaN t or distance panics.
-- Random (random.fb): `Random(seed)` and `Random(seed, stream)`, PCG32, the same numbers in every
-  build and on every CPU, with `Int()`, `Int(count)`, `Int(low, high)` (both included), `Float()`
-  and `Double()` from 0 up to 1, `Float(low, high)`, `Bool`, `Chance`, `Pick`, `WeightedPick`,
-  `Shuffle` (Fisher and Yates'), `Sample` (none twice), `Normal(mean, deviation)`,
-  `InsideUnitCircle`, `UnitVector3`, `Fork`, and `State`, which saves and sets it back.
+- Random (random.fb): `Random(seed)` and `Random(seed, stream)` (a stream from 0 up), PCG32, the
+  same numbers in every build and on every CPU, with `Int()`, `Int(count)`, `Int(low, high)`
+  (both included), `Float()` and `Double()` from 0 up to 1, `Float(low, high)`, `Bool`, `Chance`,
+  `Pick`, `WeightedPick`, `Shuffle` (Fisher and Yates'), `Sample` (none twice),
+  `Normal(mean, deviation)`, `InsideUnitCircle`, `UnitVector3`, `Fork`, and `State`, which saves
+  and sets it back.
 - The default generator (random.fb): `Rand()` from 0 up to 1, `RandInt(count)`,
   `RandInt(low, high)` (both included), and `RandFloat(low, high)`, over each thread's own
   `Random`, a `ThreadLocal Global` seeded from the runtime's `fb_random_seed` (the OS's

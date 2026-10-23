@@ -1,0 +1,2 @@
+-499568559 -1048575
+panic: Random takes a stream from 0 up, not -1 at panic_math_random_stream.fb:7:7

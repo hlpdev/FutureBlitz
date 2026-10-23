@@ -1,0 +1,7 @@
+// Random takes a stream from 0 up, since PCG keeps a stream's low 63 bits, so a negative one
+// would give a stream from 0 up's numbers; it panics where it's called.
+Import std.core
+Import std.math
+
+Print(Random(1, 0).Int(), Random(1, 9223372036854775807).Int())
+Print(Random(1, -1).Int())

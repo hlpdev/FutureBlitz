@@ -25,9 +25,12 @@ Public Class Random
         Start(seed As UInt64, DefaultStream)
     End New
 
-    // A generator from the seed, on one of 2^63 streams, which give numbers apart from each other
-    // for the same seed.
+    // A generator from the seed, on one of 2^63 streams, from 0 up, which give numbers apart from
+    // each other for the same seed. A negative stream panics, since PCG takes the stream's low 63
+    // bits, so it would give a stream from 0 up's numbers.
+    @PanicsAtCaller
     Public New(seed: Int64, stream: Int64)
+        If stream < 0 Then Panic("Random takes a stream from 0 up, not {stream}")
         Start(seed As UInt64, stream As UInt64)
     End New
 
