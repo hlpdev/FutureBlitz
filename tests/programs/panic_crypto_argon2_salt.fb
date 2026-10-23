@@ -1,0 +1,7 @@
+// Argon2id's Derive takes a salt of 8 bytes or more, and a shorter one panics.
+Import std.core
+Import std.crypto
+
+Local salt = "12345678".Bytes
+Print(Argon2id.Derive("pw".Bytes, salt, 8, 1, 1, 16).Count)
+Argon2id.Derive("pw".Bytes, salt[..7], 8, 1, 1, 16)

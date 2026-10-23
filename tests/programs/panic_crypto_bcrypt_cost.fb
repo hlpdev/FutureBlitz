@@ -1,0 +1,6 @@
+// Bcrypt takes a cost from 4 to 31, and another panics, which no Try? stops.
+Import std.core
+Import std.crypto
+
+Print(Bcrypt.Verify("pw", Try? Bcrypt.Hash("pw", 4) ?? ""))
+Try? Bcrypt.Hash("pw", 3)

@@ -1,0 +1,6 @@
+// Argon2id takes at least 8 KiB of memory for each lane, and less panics.
+Import std.core
+Import std.crypto
+
+Print(Argon2id.Verify("pw", Argon2id.Hash("pw", 16, 1, 2)))
+Argon2id.Hash("pw", 15, 1, 2)

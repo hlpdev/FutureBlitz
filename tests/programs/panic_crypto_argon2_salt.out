@@ -1,0 +1,2 @@
+16
+panic: Argon2id takes a salt of 8 bytes or more, not 7 at panic_crypto_argon2_salt.fb:7:1
