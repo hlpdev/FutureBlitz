@@ -1,0 +1,115 @@
+// Event<T>: the handlers that an Emit calls, in the order they were added, held as a Field of
+// what emits it, which holds them until they're cancelled. Subscribe gives a Subscription, whose
+// Cancel takes its handler off. An Event and its Subscriptions stay on the thread that made them,
+// as a Class's objects do.
+
+Import std.core
+Import std.collections.array
+
+// What a Subscription cancels: a handler's place on its Event.
+Abstract Class Subscribed
+    // Takes the handler off its Event, unless it's off already.
+    Abstract Method Drop()
+
+    // Whether the handler is still on its Event.
+    Abstract ReadOnly Property IsActive: Bool
+End Class
+
+// A handler on an Event, which an Emit calls until it's dropped.
+Class EventHandler<T> Extends Subscribed
+    Field Handler: (Func(T))?
+    Field Owner: Weak<Event<T>>
+
+    New(handler: Func(T), owner: Event<T>)
+        Handler = handler
+        Owner = owner
+    End New
+
+    Override Method Drop()
+        If Handler == Null Then Return
+        Handler = Null
+        Owner?.Dropped()
+    End Method
+
+    Override Property IsActive: Bool
+        Get => Handler != Null
+    End Property
+End Class
+
+Public Class Event<T>
+    Field Handlers: EventHandler<T>[] = []
+    // How many Emits are calling handlers now. The ones dropped meanwhile are taken out once the
+    // last is done, so the Emits go over the handlers as they were.
+    Field Emitting: Int
+    // How many dropped handlers are still in Handlers.
+    Field Stale: Int
+
+    Public New()
+    End New
+
+    // How many handlers it has.
+    Public Property Count: Int
+        Get => Handlers.Count - Stale
+    End Property
+
+    // Adds handler, which each Emit after this calls, after the handlers added before it, until
+    // the Subscription it gives is cancelled. An Emit that's calling handlers meanwhile doesn't.
+    Public Method Subscribe(handler: Func(T)): Subscription
+        Local added = EventHandler<T>(handler, Self)
+        Handlers.Add(added)
+        Return Subscription(added)
+    End Method
+
+    // Calls each handler with value, in the order they were added. A handler added meanwhile
+    // waits for the next Emit, and one cancelled meanwhile, by a handler before it, isn't called.
+    Public Method Emit(value: T)
+        Local count = Handlers.Count
+        Emitting += 1
+        For i = 0 Until count
+            Local handler = Handlers[i].Handler
+            If handler != Null Then handler(value)
+        End For
+
+        Emitting -= 1
+        If Emitting == 0 && Stale > 0 Then TakeOutDropped()
+    End Method
+
+    // Takes every handler off, as their Subscriptions' Cancel would.
+    Public Method Clear()
+        For handler In Handlers.Clone()
+            handler.Drop()
+        End For
+    End Method
+
+    // A handler was dropped, which goes now, or once the Emits calling handlers are done.
+    Method Dropped()
+        Stale += 1
+        If Emitting == 0 Then TakeOutDropped()
+    End Method
+
+    Method TakeOutDropped()
+        Handlers.RemoveAll(Function(handler: EventHandler<T>) => !handler.IsActive)
+        Stale = 0
+    End Method
+End Class
+
+// A handler's place on an Event, which Cancel takes it off. It holds neither the Event nor the
+// handler, so keeping one keeps neither.
+Public Class Subscription
+    Field Entry: Weak<Subscribed>
+
+    New(entry: Subscribed)
+        Entry = entry
+    End New
+
+    // Takes the handler off its Event, so no Emit after calls it, and lets go of it. Cancelling
+    // it again, or once the Event has gone, does nothing.
+    Public Method Cancel()
+        Entry?.Drop()
+    End Method
+
+    // Whether the handler is still on its Event.
+    Public Property IsActive: Bool
+        Get => Entry?.IsActive ?? False
+    End Property
+End Class

@@ -1,0 +1,109 @@
+// An Event calls its handlers in the order they were added, each Emit going over the handlers it
+// started with; a cancelled handler isn't called again, and goes, with what it holds.
+
+Import std.core
+Import std.events
+
+Class Door
+    Field Opened: Event<String>
+    Field Closed: Event<Int>
+
+    New()
+        Opened = Event<String>()
+        Closed = Event<Int>()
+    End New
+End Class
+
+// What a handler holds, which says when it goes.
+Class Listener
+    Field Name: String
+
+    New(name: String)
+        Name = name
+    End New
+
+    Method Hear(what: String)
+        Print("{Name} hears {what}")
+    End Method
+
+    Method Destroy()
+        Print("{Name} goes")
+    End Method
+End Class
+
+// Subscribes a new Listener to `event`, which only its handler holds.
+Function Listen(event: Event<String>, name: String): Subscription
+    Const listener = Listener(name)
+    Return event.Subscribe(Function(who: String) => listener.Hear(who))
+End Function
+
+Const door = Door()
+Print(door.Opened.Count)
+Local first = door.Opened.Subscribe(Function(who: String) => Print("first: {who}"))
+Local second = door.Opened.Subscribe(Function(who: String) => Print("second: {who}"))
+door.Opened.Emit("ada")
+Print(door.Opened.Count, first.IsActive, second.IsActive)
+
+// Cancelling takes a handler off, once; cancelling it again does nothing.
+first.Cancel()
+first.Cancel()
+door.Opened.Emit("grace")
+Print(door.Opened.Count, first.IsActive, second.IsActive)
+
+// A handler cancelled by one before it isn't called, and one added meanwhile waits for the next
+// Emit.
+Local third: Subscription? = Null
+Local canceller = door.Closed.Subscribe(Function(times: Int)
+    Print("closed {times}")
+    third?.Cancel()
+    door.Closed.Subscribe(Function(n: Int) => Print("added during {n}"))
+End Function)
+third = door.Closed.Subscribe(Function(times: Int) => Print("third {times}"))
+door.Closed.Emit(1)
+canceller.Cancel()
+door.Closed.Emit(2)
+Print(door.Closed.Count)
+
+// An Emit inside a handler goes over the handlers too, and the outer one goes on after it.
+Const nested = Event<Int>()
+nested.Subscribe(Function(depth: Int)
+    Print("outer {depth}")
+    If depth == 0 Then nested.Emit(1)
+End Function)
+Local inner = nested.Subscribe(Function(depth: Int) => Print("inner {depth}"))
+nested.Emit(0)
+
+// A handler that cancels itself while an Emit inside it goes over the handlers is called by
+// neither again.
+Local self: Subscription? = Null
+self = nested.Subscribe(Function(depth: Int)
+    Print("self {depth}")
+    self?.Cancel()
+End Function)
+nested.Emit(0)
+Print(nested.Count)
+
+// A cancelled handler lets go of what it holds at once, and an Event's handlers go with it.
+Local heard = Listen(door.Opened, "grace")
+door.Opened.Emit("knock")
+Print("cancelling")
+heard.Cancel()
+Print("cancelled")
+door.Opened.Emit("knock again")
+Local short = Event<String>()
+Local linus = Listen(short, "linus")
+short.Emit("hi")
+Print("dropping the event")
+short = Event<String>()
+Print("dropped", linus.IsActive)
+
+// Clear takes every handler off, and a Subscription outlives its Event.
+Local orphan = Event<Int>()
+Local subscription = orphan.Subscribe(Function(n: Int) => Print("orphan {n}"))
+orphan.Clear()
+orphan.Emit(1)
+Print(orphan.Count, subscription.IsActive)
+Local gone = Event<Int>().Subscribe(Function(n: Int) => Print("never"))
+Print(gone.IsActive)
+gone.Cancel()
+Print("done")
