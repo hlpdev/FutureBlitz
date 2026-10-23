@@ -302,8 +302,8 @@ file or URL in the default app.
 #### std.math
 
 Step 9 built the constants, the scalars, the angles, std.math.bits, the vectors, `Quat`, the
-matrices, the colors, and the shapes, and step 10 the polygons, curves, `Random` and the default
-generator, noise, easing, stats, and fixed point; the rest is planned.
+matrices, the colors, and the shapes, step 10 the polygons, curves, `Random` and the default
+generator, noise, easing, stats, and fixed point, and step 11 std.math.big; the rest is planned.
 `Import std.math` brings in all of std/math/, std.math.bits too.
 
 - The math is Functions, as for Floats, beside the scalar ones of their names: `Lerp(a, b, t)`,
