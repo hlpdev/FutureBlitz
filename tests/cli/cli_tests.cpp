@@ -20,9 +20,19 @@
 #include <tuple>
 #include <vector>
 
-#ifndef _WIN32
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#else
 #include <array>
+#include <csignal>
 #include <fcntl.h>
+#include <signal.h>
 #include <spawn.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -541,6 +551,150 @@ TEST_CASE("fb and the programs it builds give the console its code page back", "
     CHECK(found == 4);
 #else
     SKIP("only Windows' console has a code page that programs share");
+#endif
+}
+
+TEST_CASE("Ctrl+C during fb run ends the program, and fb cleans up and gives its exit code",
+          "[cli]") {
+    // The terminal sends Ctrl+C to fb and the program alike. fb waits for the program to end,
+    // deletes the folder it built it in, and ends with its exit code, as a shell does.
+    const std::filesystem::path source = write_source(
+        "interrupt/interrupted.fb", "Import std.core\nPrintError(\"started\")\nLocal n = 0\n"
+                                    "While True\n    n = (n + 1) % 1000\nEnd While\n");
+    const std::filesystem::path temporary = fb::temporary_path("probe", ".none").parent_path();
+    const auto left_behind = [&] {
+        std::error_code ignored;
+        return std::ranges::any_of(
+            std::filesystem::directory_iterator(temporary, ignored),
+            [](const std::filesystem::directory_entry& entry) {
+                return fb::to_utf8(entry.path().filename()).starts_with("interrupted-");
+            });
+    };
+    std::string output;
+#ifdef _WIN32
+    // Ctrl+Break, the Ctrl+C that a process group can be sent, goes through the console they
+    // share.
+    if (GetConsoleCP() == 0) {
+        SKIP("this process has no console to send Ctrl+Break through");
+    }
+
+    SECURITY_ATTRIBUTES security{
+        .nLength = sizeof(SECURITY_ATTRIBUTES),
+        .lpSecurityDescriptor = nullptr,
+        .bInheritHandle = TRUE,
+    };
+    HANDLE read_end = nullptr;
+    HANDLE write_end = nullptr;
+    REQUIRE(CreatePipe(&read_end, &write_end, &security, 0) != 0);
+    SetHandleInformation(read_end, HANDLE_FLAG_INHERIT, 0);
+    STARTUPINFOW startup{};
+    startup.cb = sizeof(startup);
+    startup.dwFlags = STARTF_USESTDHANDLES;
+    startup.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
+    startup.hStdOutput = write_end;
+    startup.hStdError = write_end;
+    std::wstring command = std::format(L"\"{}\" run \"{}\"",
+                                       std::filesystem::path(FB_CLI).wstring(), source.wstring());
+    PROCESS_INFORMATION process{};
+    REQUIRE(CreateProcessW(nullptr, command.data(), nullptr, nullptr, TRUE,
+                           CREATE_NEW_PROCESS_GROUP, nullptr, nullptr, &startup, &process) != 0);
+    CloseHandle(write_end);
+    std::array<char, 4096> buffer{};
+    DWORD count = 0;
+    while (!output.contains("started") &&
+           ReadFile(read_end, buffer.data(), static_cast<DWORD>(buffer.size()), &count, nullptr) !=
+               0 &&
+           count > 0) {
+        output.append(buffer.data(), count);
+    }
+
+    const bool sent = GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, process.dwProcessId) != 0;
+    if (!sent) {
+        TerminateProcess(process.hProcess, 1);
+    }
+
+    while (ReadFile(read_end, buffer.data(), static_cast<DWORD>(buffer.size()), &count, nullptr) !=
+               0 &&
+           count > 0) {
+        output.append(buffer.data(), count);
+    }
+
+    WaitForSingleObject(process.hProcess, INFINITE);
+    DWORD exit_code = 0;
+    GetExitCodeProcess(process.hProcess, &exit_code);
+    CloseHandle(process.hProcess);
+    CloseHandle(process.hThread);
+    CloseHandle(read_end);
+    INFO(output);
+    REQUIRE(sent);
+    // The program ends as Windows ends one on Ctrl+C or Ctrl+Break.
+    CHECK(exit_code == 0xC000013A);
+    CHECK(output.contains("interrupted.exe exited with code 0xC000013A"));
+#else
+    // SIGINT, which Ctrl+C sends to the terminal's process group: fb's own here.
+    std::array<int, 2> ends{};
+    REQUIRE(pipe(ends.data()) == 0);
+    posix_spawn_file_actions_t actions;
+    posix_spawn_file_actions_init(&actions);
+    posix_spawn_file_actions_adddup2(&actions, ends[1], STDOUT_FILENO);
+    posix_spawn_file_actions_adddup2(&actions, ends[1], STDERR_FILENO);
+    posix_spawn_file_actions_addclose(&actions, ends[0]);
+    posix_spawn_file_actions_addclose(&actions, ends[1]);
+    posix_spawnattr_t attributes;
+    posix_spawnattr_init(&attributes);
+    posix_spawnattr_setpgroup(&attributes, 0);
+    posix_spawnattr_setflags(&attributes, static_cast<short>(POSIX_SPAWN_SETPGROUP));
+    std::string fb_path = FB_CLI;
+    std::string run_word = "run";
+    std::string source_path = source.string();
+    std::array<char*, 4> argv{ fb_path.data(), run_word.data(), source_path.data(), nullptr };
+    pid_t pid = 0;
+    const int spawned =
+        posix_spawn(&pid, fb_path.c_str(), &actions, &attributes, argv.data(), environ);
+    posix_spawn_file_actions_destroy(&actions);
+    posix_spawnattr_destroy(&attributes);
+    close(ends[1]);
+    REQUIRE(spawned == 0);
+    std::array<char, 4096> buffer{};
+    ssize_t count = 0;
+    while (!output.contains("started") &&
+           (count = read(ends[0], buffer.data(), buffer.size())) > 0) {
+        output.append(buffer.data(), static_cast<std::size_t>(count));
+    }
+
+    kill(-pid, SIGINT);
+    while ((count = read(ends[0], buffer.data(), buffer.size())) > 0) {
+        output.append(buffer.data(), static_cast<std::size_t>(count));
+    }
+
+    close(ends[0]);
+    int status = 0;
+    waitpid(pid, &status, 0);
+    INFO(output);
+    REQUIRE(WIFEXITED(status));
+    // The program ends by SIGINT, which a shell reports as 128 plus its number.
+    CHECK(WEXITSTATUS(status) == 128 + SIGINT);
+    CHECK(output.contains(std::format("interrupted exited with code {}", 128 + SIGINT)));
+#endif
+    CHECK_FALSE(left_behind());
+}
+
+TEST_CASE("a program fb starts gets SIGPIPE at its default, though fb ignores it", "[cli]") {
+#ifdef _WIN32
+    SKIP("Windows has no SIGPIPE");
+#else
+    // Writing a program's input has this process ignore SIGPIPE, which the programs it starts
+    // after don't inherit, so a shell killed by one ends as one does.
+    const std::vector<std::string> reads{ "-c", "cat > /dev/null" };
+    const std::expected<fb::process_result_t, std::string> fed =
+        fb::run_process("/bin/sh", reads, "input\n");
+    REQUIRE(fed);
+    const std::vector<std::string> arguments{ "-c", "kill -PIPE $$; echo survived" };
+    const std::expected<fb::process_result_t, std::string> piped =
+        fb::run_process("/bin/sh", arguments);
+    REQUIRE(piped);
+    CHECK(piped->exit_code == 128 + SIGPIPE);
+    CHECK_FALSE(piped->output.contains("survived"));
 #endif
 }
 

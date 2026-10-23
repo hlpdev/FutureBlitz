@@ -27,6 +27,7 @@
 #include <csignal>
 #include <cstddef>
 #include <cstring>
+#include <signal.h>
 #include <spawn.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -95,6 +96,12 @@ std::wstring command_line(const std::filesystem::path& program,
 
 std::string last_error() {
     return std::format("Windows error {}", GetLastError());
+}
+
+/// Swallows Ctrl+C and Ctrl+Break, which the program run in this terminal gets too. A handler,
+/// unlike ignoring them outright, isn't something the program inherits.
+BOOL WINAPI ignore_interrupt(const DWORD event) {
+    return event == CTRL_C_EVENT || event == CTRL_BREAK_EVENT ? TRUE : FALSE;
 }
 
 } // namespace
@@ -220,15 +227,19 @@ std::expected<int, std::string> run_attached(const std::filesystem::path& progra
         SetHandleInformation(handle, HANDLE_FLAG_INHERIT, HANDLE_FLAG_INHERIT);
     }
 
-    // What this process printed so far comes before the child's output.
+    // What this process printed so far comes before the child's output. Ctrl+C ends the
+    // program, and this process waits for that and gives its exit code, as a shell does.
     std::fflush(nullptr);
+    SetConsoleCtrlHandler(ignore_interrupt, TRUE);
     PROCESS_INFORMATION process{};
     if (CreateProcessW(nullptr, command.data(), nullptr, nullptr, TRUE, 0, nullptr, nullptr,
                        &startup, &process) == 0) {
+        SetConsoleCtrlHandler(ignore_interrupt, FALSE);
         return std::unexpected(std::format("couldn't run {}: {}", program.string(), last_error()));
     }
 
     WaitForSingleObject(process.hProcess, INFINITE);
+    SetConsoleCtrlHandler(ignore_interrupt, FALSE);
     DWORD exit_code = 0;
     GetExitCodeProcess(process.hProcess, &exit_code);
     CloseHandle(process.hProcess);
@@ -240,7 +251,10 @@ std::expected<int, std::string> run_attached(const std::filesystem::path& progra
 
 namespace {
 
-/// Starts a program, which isn't looked up on PATH; `actions` can be null.
+/// Starts a program, which isn't looked up on PATH; `actions` can be null. It starts with SIGINT,
+/// SIGQUIT, and SIGPIPE at their defaults, as one a shell starts has them, though this process
+/// ignores the first two while it waits for a program in its terminal, and SIGPIPE once it has
+/// written a program's input.
 std::expected<pid_t, std::string> spawn(const std::filesystem::path& program,
                                         const std::span<const std::string> arguments,
                                         const posix_spawn_file_actions_t* actions) {
@@ -253,8 +267,19 @@ std::expected<pid_t, std::string> spawn(const std::filesystem::path& program,
     }
 
     argv.push_back(nullptr);
+    sigset_t defaults;
+    sigemptyset(&defaults);
+    for (const int signal_number : { SIGINT, SIGQUIT, SIGPIPE }) {
+        sigaddset(&defaults, signal_number);
+    }
+
+    posix_spawnattr_t attributes;
+    posix_spawnattr_init(&attributes);
+    posix_spawnattr_setsigdefault(&attributes, &defaults);
+    posix_spawnattr_setflags(&attributes, static_cast<short>(POSIX_SPAWN_SETSIGDEF));
     pid_t pid = 0;
-    const int error = posix_spawn(&pid, path.c_str(), actions, nullptr, argv.data(), environ);
+    const int error = posix_spawn(&pid, path.c_str(), actions, &attributes, argv.data(), environ);
+    posix_spawnattr_destroy(&attributes);
     if (error != 0) {
         return std::unexpected(std::format("couldn't run {}: {}", path, std::strerror(error)));
     }
@@ -373,9 +398,20 @@ std::filesystem::path current_executable() {
 
 std::expected<int, std::string> run_attached(const std::filesystem::path& program,
                                              std::span<const std::string> arguments) {
-    // What this process printed so far comes before the child's output.
+    // What this process printed so far comes before the child's output. Ctrl+C ends the
+    // program, and this process waits for that and gives its exit code, as a shell does.
     std::fflush(nullptr);
-    return spawn(program, arguments, nullptr).transform(wait_for);
+    struct sigaction ignore{};
+    ignore.sa_handler = SIG_IGN;
+    sigemptyset(&ignore.sa_mask);
+    struct sigaction interrupt{};
+    struct sigaction quit{};
+    sigaction(SIGINT, &ignore, &interrupt);
+    sigaction(SIGQUIT, &ignore, &quit);
+    std::expected<int, std::string> result = spawn(program, arguments, nullptr).transform(wait_for);
+    sigaction(SIGINT, &interrupt, nullptr);
+    sigaction(SIGQUIT, &quit, nullptr);
+    return result;
 }
 
 #endif
