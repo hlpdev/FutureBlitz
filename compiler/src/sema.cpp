@@ -355,6 +355,7 @@ public:
         declare_builtins();
         declare_imports();
         each_item([this](const stmt_id_t id) { declare_type(id); });
+        each_item([this](const stmt_id_t id) { check_type_parameter_names(id); });
         find_error_class();
         find_builtin_interfaces();
         find_map_class();
@@ -1311,7 +1312,7 @@ private:
 
         check_not_protected(modifiers);
         const std::vector<type_id_t> parameters =
-            add_type_parameters(node->type_parameters, node->value_types);
+            add_type_parameters(node->type_parameters, node->value_types, false);
         std::string name = generic_name(node->name.text, parameters);
         std::string module = qualifier_of(node->name.span);
         const type_id_t type =
@@ -1382,7 +1383,7 @@ private:
 
         check_not_protected(modifiers);
         const std::vector<type_id_t> parameters =
-            add_type_parameters(node.type_parameters, node.value_types);
+            add_type_parameters(node.type_parameters, node.value_types, false);
         const type_id_t type = m_analysis.types.add_interface(
             generic_name(node.name.text, parameters), qualifier_of(node.name.span));
         if (!parameters.empty()) {
@@ -1418,10 +1419,13 @@ private:
     }
 
     /// The type parameters a generic type or function declares, like "<K, V>". Each is a new
-    /// type, which can't share a name with another type or type parameter it could hide.
+    /// type, which can't share a name with another type or type parameter it could hide. A
+    /// type's are added while types are declared, so check_type_parameter_names() checks them
+    /// against the types' names once all are.
     std::vector<type_id_t>
     add_type_parameters(const std::vector<name_t>& names,
-                        const std::vector<std::optional<type_expr_id_t>>& value_types = {}) {
+                        const std::vector<std::optional<type_expr_id_t>>& value_types = {},
+                        const bool types_declared = true) {
         std::vector<type_id_t> parameters;
         parameters.reserve(names.size());
         for (std::size_t i = 0; i < names.size(); ++i) {
@@ -1434,7 +1438,7 @@ private:
                 error(name.span, "'{}' is a built-in type", name.text);
             } else if (repeated || hides) {
                 error(name.span, "'{}' is already a type parameter here", name.text);
-            } else if (names_type(name)) {
+            } else if (types_declared && names_type(name)) {
                 error(name.span, "'{}' is a type here, so a type parameter can't take its name",
                       name.text);
             }
@@ -1460,6 +1464,27 @@ private:
         }
 
         return parameters;
+    }
+
+    /// A Struct's, Class's, or Interface's type parameters can't take the name of a type its code
+    /// sees, declared above it or below. add_type_parameters() reports the rest.
+    void check_type_parameter_names(const stmt_id_t id) {
+        const auto* node = std::get_if<type_stmt_t>(&m_ast.get(id).node);
+        if (node == nullptr) {
+            return;
+        }
+
+        const std::vector<name_t>& names = node->type_parameters;
+        for (std::size_t i = 0; i < names.size(); ++i) {
+            const bool repeated = std::ranges::any_of(
+                names.begin(), names.begin() + static_cast<std::ptrdiff_t>(i),
+                [&](const name_t& other) { return other.text == names[i].text; });
+            if (!repeated && !builtin_type(names[i].text) && names_type(names[i])) {
+                error(names[i].span,
+                      "'{}' is a type here, so a type parameter can't take its name",
+                      names[i].text);
+            }
+        }
     }
 
     /// Whether a name is a Struct's, Class's, Interface's, or Enum's that the code there sees,

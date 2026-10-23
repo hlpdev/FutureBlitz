@@ -3713,6 +3713,33 @@ TEST_CASE("generic mistakes", "[sema]") {
                     "End Struct") ==
           errors_t{ "Foo: 'Foo' is a type here, so a type parameter can't take its name",
                     "Foo: 'Foo' is a type here, so a type parameter can't take its name" });
+    // One declared below, or the type's own name.
+    CHECK(errors_of("Struct Late<Bar>\n"
+                    "    Field v: Bar\n"
+                    "End Struct\n"
+                    "Class Later<Mode>\n"
+                    "    Field v: Mode?\n"
+                    "End Class\n"
+                    "Interface Shows<Baz>\n"
+                    "    Method Show(b: Baz)\n"
+                    "End Interface\n"
+                    "Struct Node<Node>\n"
+                    "    Field v: Int\n"
+                    "End Struct\n"
+                    "Struct Bar\n"
+                    "    Field n: Int\n"
+                    "End Struct\n"
+                    "Enum Mode\n"
+                    "    A\n"
+                    "End Enum\n"
+                    "Class Baz\n"
+                    "End Class") ==
+          errors_t{
+              "Bar: 'Bar' is a type here, so a type parameter can't take its name",
+              "Mode: 'Mode' is a type here, so a type parameter can't take its name",
+              "Baz: 'Baz' is a type here, so a type parameter can't take its name",
+              "Node: 'Node' is a type here, so a type parameter can't take its name",
+          });
     CHECK(errors_of("Struct T\n"
                     "    Field n: Int\n"
                     "End Struct\n"
