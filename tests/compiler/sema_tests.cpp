@@ -13366,3 +13366,20 @@ TEST_CASE("an Extend's Methods' defaults are checked like a type's own", "[sema]
                     "    Method Fill(c: Char = 65): Char => c\n"
                     "End Extend") == errors_t{ "65: expected Char, found Int32" });
 }
+
+TEST_CASE("a Char or an Enum value isn't a fixed array's size", "[sema]") {
+    CHECK(errors_of("Enum E\n    A, B = 5\nEnd Enum\n"
+                    "Const NEWLINE = '\\n'\n"
+                    "Local lines: Int[NEWLINE]\n"
+                    "Local grid: UInt8['a', 2]\n"
+                    "Local shades: Int[E.B]\n"
+                    "Local fine: Int[2 * 3]") ==
+          errors_t{
+              "NEWLINE: a fixed array's size must be an integer known at compile time, like 64 or "
+              "8 * 8, not Char",
+              "'a': a fixed array's size must be an integer known at compile time, like 64 or 8 * "
+              "8, not Char",
+              "E.B: a fixed array's size must be an integer known at compile time, like 64 or 8 * "
+              "8, not E",
+          });
+}
