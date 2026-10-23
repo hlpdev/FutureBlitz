@@ -1,0 +1,2 @@
+True
+panic: noise takes coordinates that aren't NaN, nearer 0 than 2^63 at panic_math_noise_edge.fb:8:7

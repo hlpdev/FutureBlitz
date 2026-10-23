@@ -1,0 +1,8 @@
+// Noise takes a coordinate whose cell and the cell below an Int64 holds, so -2^63 panics where it's
+// called.
+Import std.core
+Import std.math
+
+Local noise = Noise()
+Print(noise.Worley(-4611686018427387904.0, 0) >= 0)
+Print(noise.Worley(-9223372036854775808.0, 0))

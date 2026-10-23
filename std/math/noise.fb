@@ -45,14 +45,14 @@ Const Unskew3: Double = 1.0 / 6
 // Perlin's fade curve, 6t^5 - 15t^4 + 10t^3, flat at both ends.
 Function Fade(t: Double): Double => t * t * t * (t * (t * 6 - 15) + 10)
 
-// The cell a coordinate is in, its whole part rounded down. One whose cell an Int64 doesn't hold,
-// or NaN, panics.
+// The cell a coordinate is in, its whole part rounded down. One whose cell, or the cell a step
+// below it, an Int64 doesn't hold, or NaN, panics.
 @PanicsAtCaller
 Function Cell(coordinate: Double): Int64
     Local cell = Floor(coordinate)
-    If !(cell >= -9223372036854775808.0 && cell < 9223372036854775808.0)
+    If !(cell > -9223372036854775808.0 && cell < 9223372036854775808.0)
         // Simplex noise skews its coordinates first, so the one here isn't the one given.
-        Panic("noise takes coordinates that aren't NaN, whose cells an Int64 holds")
+        Panic("noise takes coordinates that aren't NaN, nearer 0 than 2^63")
     End If
     Return cell As Int64
 End Function
