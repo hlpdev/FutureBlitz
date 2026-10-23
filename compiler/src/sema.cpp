@@ -17379,8 +17379,6 @@ private:
         return type_id_t::INT32;
     }
 
-    /// The members named after a '.' on `object`: a field, or a Method's overloads. Reports a
-    /// value that has no members, or no member with that name, or may be Null.
     /// "; the Local 'a' here hides the imported module a", for a member that a variable
     /// doesn't have, named like one of the code's Imports' qualifiers, which it hides.
     [[nodiscard]] std::string hides_qualifier(const expr_id_t object) {
@@ -17407,6 +17405,8 @@ private:
                            name->name);
     }
 
+    /// The members named after a '.' on `object`: a field, or a Method's overloads. Reports a
+    /// value that has no members, or no member with that name, or may be Null.
     std::vector<symbol_id_t> lookup_member(const expr_id_t object, const type_id_t type,
                                            const name_t& member) {
         if (type == type_id_t::INVALID || member.text.empty()) {
@@ -19447,9 +19447,6 @@ private:
         }
     }
 
-    /// What a callee names: a function's overloads, a Struct's constructors, or Methods. A Method
-    /// is called after a '.' or '?.' on a Struct value, or by name in another of its Struct's
-    /// Methods.
     /// The type arguments that a call of a generic function gives, one for each of
     /// type_parameters_of(): the ones the Struct or Class gets from the object, or that are
     /// written after its name, and the ones written after the function's name, or else inferred
@@ -20065,8 +20062,10 @@ private:
         }
     }
 
-    /// The functions a call's callee names. A callee that's a value, like a variable holding a
-    /// function value, is checked as one, and `value` is set.
+    /// The functions a call's callee names: a function's overloads, a Struct's constructors, or
+    /// Methods. A Method is called after a '.' or '?.' on a Struct value, or by name in another of
+    /// its Struct's Methods. A callee that's a value, like a variable holding a function value, is
+    /// checked as one, and `value` is set.
     std::vector<symbol_id_t> lookup_callee(const call_expr_t& call, bool& value) {
         const expr_id_t callee = call.callee;
         if (const auto* member = std::get_if<member_expr_t>(&m_ast.get(callee).node);
@@ -20307,9 +20306,8 @@ private:
     }
 
     /// Of a type's News, the ones code at `span` can use to make a `made`. When it can use none
-    /// of them, that's reported, and they're all kept, so the call is still checked.
-    /// The News of type `made` that code at `span` can use. A message about one it can't names
-    /// `shown`, the instance the code makes, or else `made`.
+    /// of them, that's reported, and they're all kept, so the call is still checked. A message
+    /// about one it can't names `shown`, the instance the code makes, or else `made`.
     std::vector<symbol_id_t> usable_constructors(std::vector<symbol_id_t> constructors,
                                                  const span_t span, const type_id_t made,
                                                  const type_id_t shown = type_id_t::INVALID) {
@@ -21663,8 +21661,6 @@ private:
         return type_id_t::INVALID;
     }
 
-    /// "a[i]", or "grid[x, y]" with an index for each dimension. Indices are integers of any
-    /// type. A T[]'s are checked when the program runs, and a fixed array's known ones here too.
     /// "Await t": an Async Function or lambda waits for a Task, a Spawn's or another Async
     /// Function's, without blocking the main thread, and gets its result. Top-level code waits
     /// as Wait does, while the main thread runs what else can go on.
@@ -21709,6 +21705,8 @@ private:
         return element_of(task);
     }
 
+    /// "a[i]", or "grid[x, y]" with an index for each dimension. Indices are integers of any
+    /// type. A T[]'s are checked when the program runs, and a fixed array's known ones here too.
     type_id_t check_expr(const expr_id_t id, const index_expr_t& node, type_id_t /*hint*/) {
         // "Super[i]" calls the Operator [] of the Class this one extends, like "Super.M()".
         if (std::holds_alternative<super_expr_t>(m_ast.get(node.object).node)) {

@@ -146,7 +146,6 @@ struct enum_value_t {
     std::uint64_t bits = 0;
 };
 
-/// One entry in a type table.
 /// How a VALUE type is computed from two others, like the N * 2 of "Grid<N * 2>". NONE for a
 /// value that's known.
 enum class value_op_t : std::uint8_t {
@@ -155,6 +154,7 @@ enum class value_op_t : std::uint8_t {
     MULTIPLY,
 };
 
+/// One entry in a type table.
 struct type_t {
     type_kind_t kind = type_kind_t::BUILTIN;
     /// As errors and dumps show it, like "Int32", "String[]", or "Int32[]?".
@@ -384,8 +384,8 @@ private:
     struct entry_t {
         /// On the heap, so the type and its name never move.
         std::unique_ptr<type_t> type;
-        /// This type's "T?", "T[]", "Weak<T>", "Atomic<T>", and "Mutex<T>", once they've been
-        /// made. INVALID until then.
+        /// This type's "T?", "T[]", "Weak<T>", "Atomic<T>", "Mutex<T>", "Task<T>", "Channel<T>",
+        /// and "Ptr<T>", once they've been made. INVALID until then.
         type_id_t nullable = type_id_t::INVALID;
         type_id_t array = type_id_t::INVALID;
         type_id_t weak = type_id_t::INVALID;
