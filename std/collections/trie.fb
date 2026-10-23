@@ -211,7 +211,6 @@ Public Class Trie<V> Implements Iterable<(String, V)>, Cloneable, Defaultable
         End For
         Return node
     End Method
-
 End Class
 
 // The keys in order: a stack of the nodes on the way down, each with the next of its children to
