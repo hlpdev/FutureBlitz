@@ -65,6 +65,17 @@ std::int64_t fb_text_find_last(const fb_string_t* text, const fb_string_t* part,
     return found == std::string_view::npos ? -1 : static_cast<std::int64_t>(found);
 }
 
+std::int32_t fb_text_matches_at(const fb_string_t* text, const fb_string_t* part,
+                                const std::int64_t at) {
+    const std::string_view whole = text_of(text);
+    const std::string_view wanted = text_of(part);
+    const auto start = static_cast<std::size_t>(at);
+    return start <= whole.size() && wanted.size() <= whole.size() - start &&
+                   whole.substr(start, wanted.size()) == wanted
+               ? 1
+               : 0;
+}
+
 std::int64_t fb_text_char_count(const fb_string_t* text, const std::int64_t start,
                                 const std::int64_t finish) {
     // A character's bytes after its first are 10xxxxxx, so the rest start one each.

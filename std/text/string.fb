@@ -14,6 +14,7 @@ Extern "runtime"
     Function fb_text_slice(text: String, start: Int64, finish: Int64): String
     Function fb_text_find(text: String, part: String, from: Int64): Int64
     Function fb_text_find_last(text: String, part: String, before: Int64): Int64
+    Function fb_text_matches_at(text: String, part: String, at: Int64): Int32
     Function fb_text_char_count(text: String, start: Int64, finish: Int64): Int64
     Function fb_text_from_utf8(bytes: UInt8[], start: Int64, count: Int64): String?
     Function fb_text_join(parts: String[], separator: String): String
@@ -60,15 +61,12 @@ Extend String
     Public Method Contains(c: Char): Bool => fb_text_find(Self, "{c}", 0) >= 0
 
     // Whether it starts with prefix.
-    Public Method StartsWith(prefix: String): Bool
-        Local size = prefix.Length
-        Return size <= Length && fb_text_find(Self, prefix, 0) == 0
-    End Method
+    Public Method StartsWith(prefix: String): Bool => fb_text_matches_at(Self, prefix, 0) != 0
 
     // Whether it ends with suffix.
     Public Method EndsWith(suffix: String): Bool
-        Local size = suffix.Length
-        Return size <= Length && fb_text_find_last(Self, suffix, Length) == Length - size
+        Local start = Length - suffix.Length
+        Return start >= 0 && fb_text_matches_at(Self, suffix, start) != 0
     End Method
 
     // Where part first starts, at from or after, or Null when it isn't there. Panics when from
