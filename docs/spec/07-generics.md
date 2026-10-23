@@ -242,9 +242,9 @@ End Interface
   and `Printable` (see [stdlib.md](../stdlib.md#stdmath)).
 - `Cloneable` (`Method Clone(): Self`) is what makes a copy of itself, which arrays are with
   their own `Clone`, and `Defaultable` (`Static Method DefaultValue(): Self`) what has a value to
-  start from, which the numbers, Bools, Strings, and Enums are with their zero: `T.DefaultValue()`
-  is 0, False, "", or an Enum's zero, its first value, or no flags for a @Flags Enum. std's
-  collection Classes are both.
+  start from, which the numbers, Bools, Strings, Chars, and Enums are with their zero:
+  `T.DefaultValue()` is 0, False, "", U+0000, or an Enum's zero, its first value, or no flags for
+  a @Flags Enum. std's collection Classes are both.
 - A built-in type has the Methods of the ones it implements: `5.ToString()`, `name.Hash()`.
 - A Struct or Class implements one by listing it, and every Class is `Equatable` and `Hashable`
   without listing them, so `enemies.Remove(e)` and `Set<Enemy>` work on any Class. One that
