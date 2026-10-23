@@ -110,3 +110,49 @@ End For
 For name In names
     Print(name())
 End For
+
+// An Async Method gives a Task, and a Func type has no ByRef, so the loops leave such Methods out.
+Class Door
+    Field Opened: Int
+
+    Method Knock()
+        Print("knock")
+    End Method
+
+    Async Method Open()
+        Opened += 1
+    End Method
+
+    Async Method Later(): Int
+        Await NextFrame()
+        Return Opened
+    End Method
+
+    Method Size(): Int => 3
+
+    Method Pull(by: Int)
+        Print("pull {by}")
+    End Method
+
+    Method Push(ByRef by: Int)
+        by += 1
+    End Method
+End Class
+
+Function CallAll<T>(value: T)
+    For Method m In T
+        m.Call(value)
+    End For
+    For Method m: M In T
+        Where M: Func(Int)
+        m.Call(value, 5)
+    End For
+    For Method m: M In T
+        Where M: Func(): Int
+        Print("{m.Name}: {m.Call(value)}")
+    End For
+End Function
+
+Local door = Door()
+CallAll(door)
+Print("opened {door.Opened}")

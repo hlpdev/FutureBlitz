@@ -3720,17 +3720,22 @@ private:
 
     /// The Methods a For Method loop goes over: a Struct's or Class's own and inherited ones
     /// that take no arguments, give nothing, and throw nothing, the base Class's first, each in
-    /// the place of what it overrides. Destroy and Unsafe Methods aren't among them, nor what
+    /// the place of what it overrides. Destroy and Unsafe Methods aren't among them, nor Async
+    /// ones, which give a Task, nor ones with a ByRef parameter, which no Func type has, nor what
     /// the instance's type arguments don't meet the Where lines of, nor what an Extend the loop's
     /// file doesn't see adds.
     [[nodiscard]] std::vector<symbol_id_t>
     reflected_methods(const type_id_t type, const type_id_t signature, const file_id_t file) {
+        const auto by_ref = [&](const symbol_id_t parameter) {
+            return m_analysis.symbol(parameter).by_ref;
+        };
         std::vector<symbol_id_t> methods;
         for (const std::vector<symbol_id_t>& level : member_chain(type, false, file)) {
             for (const symbol_id_t member : level) {
                 const symbol_t& method = m_analysis.symbol(member);
                 if (method.kind != symbol_kind_t::METHOD || method.modifiers.is_static ||
-                    method.modifiers.is_unsafe || method.by_ref ||
+                    method.modifiers.is_unsafe || method.modifiers.is_async || method.by_ref ||
+                    std::ranges::any_of(method.parameters, by_ref) ||
                     !method.type_parameters.empty() || !method.throws.empty() ||
                     method.name == "Destroy" || method.name == "[]" || method.name == "[]=" ||
                     !has_member(type, method) || method_type(type, member) != signature) {

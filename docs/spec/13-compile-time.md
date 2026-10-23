@@ -164,11 +164,12 @@ End Function
   of its own.
 - `For Method m In T` goes over the Methods of a Struct or Class that take nothing, give nothing,
   and throw nothing (the inherited ones first, each in the place of what it overrides), but not
-  Destroy or Unsafe Methods. `m.Call(value)` calls it, through the Method table for a Class. `m`
-  has `m.Name`, `m.Has(A)`, and `m.Attribute(A)` too.
+  Destroy, Unsafe, or Async Methods, which give a Task. `m.Call(value)` calls it, through the
+  Method table for a Class. `m` has `m.Name`, `m.Has(A)`, and `m.Attribute(A)` too.
 - `For Method m: M In T` with `Where M: Func(Int): String` goes over the Methods of that Func
   type instead, and `m.Call(value, 5)` passes their arguments. Its Where line picks the Methods;
-  it isn't a constraint to meet.
+  it isn't a constraint to meet. A Func type has no ByRef, so a Method with a ByRef parameter is
+  never among them.
 - `For Property p: P In T` goes over a Struct's or Class's Properties (inherited ones first),
   with `p.Name`, `p.Get(value)`, `p.Has(A)`, and `p.Attribute(A)`, and `For Static Field s: S In
   T` over its own Static Fields, with `s.Get()`. They read; a Property without a Set and a
