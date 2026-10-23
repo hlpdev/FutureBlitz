@@ -1,0 +1,6 @@
+// Color32.Hex takes text that's a hex color, which panics where it's called; TryHex gives Null.
+Import std.core
+Import std.math
+
+Print(Color32.Hex("fff"), Color32.TryHex("#xyz") == Null)
+Print(Color32.Hex("#xyz"))

@@ -1,0 +1,105 @@
+// Color and Color32: sRGB's gamma both ways, so every byte comes back as it was; hex as CSS
+// writes it; and HSV, HSL, and OKLab, matching Python's colorsys and CSS Color 4's values. libm's
+// powers are in the linear values, so they print rounded to four places.
+Import std.core
+Import std.math
+
+// The value to four places, with -0 as 0.
+Function Shown(value: Float): Float => Round(value * 10000) / 10000 + 0
+
+Function Shown(c: Color): Color => Color(Shown(c.r), Shown(c.g), Shown(c.b), Shown(c.a))
+
+Function Shown(values: (Float, Float, Float)): (Float, Float, Float)
+    Return (Shown(values.0), Shown(values.1), Shown(values.2))
+End Function
+
+// Every byte, through linear light and back, is the byte it was, alpha too.
+Local kept = 0
+Local rising = 0
+Local last: Float = -1
+For i = 0 To 255
+    Local byte = i As UInt8
+    Local c = Color32(byte, byte, byte, byte)
+    Local linear = c.ToColor()
+    If linear.ToColor32() == c Then kept++
+    If linear.r > last Then rising++
+    last = linear.r
+End For
+Print(kept, rising)
+
+// Known values: sRGB's half gray is a fifth of the light, and half the light is sRGB's 188.
+Print(Shown(Color32(128, 128, 128).ToColor()), Shown(Color32(255, 0, 64, 128).ToColor()))
+Print(Color(0.5, 0.5, 0.5).ToColor32(), Color(0.2, 0.001, 1, 0.5).ToColor32())
+// What's outside 0 to 1 is kept to it, and NaN is 0.
+Print(Color(2, -1, 0.5, 3).ToColor32(), Color(NaN, 1, 0, NaN).ToColor32())
+
+// Hex, as CSS writes it, with or without the "#", in either case.
+Print(Color32.Hex("#ff8800"), Color32.Hex("FF8800"), Color32.Hex("#f80"), Color32.Hex("#f808"))
+Print(Color32.Hex("#FF880080"), Color32.Hex("aAbBcC"), Color32.Hex("#000"),
+      Color32.Hex("#ffffffff"))
+Print(Color32.TryHex("#ff880") == Null, Color32.TryHex("#ggg") == Null, Color32.TryHex("") == Null)
+Print(Color32.TryHex("#") == Null, Color32.TryHex("ff 880") == Null,
+      Color32.TryHex("##ff8800") == Null)
+Print(Color32.TryHex("#12") == Null, Color32.TryHex("#1234567") == Null,
+      Color32.TryHex("#abc") ?? Color32.Black)
+Print(Shown(Color.Hex("#ff8800")), Color.Hex("#ff8800").ToColor32(), Color.TryHex("nope") == Null)
+Print((Color.TryHex("#80808080") ?? Color.Black).ToColor32())
+Print(Color32(255, 136, 0).ToHex(), Color32(1, 2, 3, 4).ToHex(), Color32.Gray.ToHex(),
+      Color.Red.ToHex())
+Print(Color(0, 0, 1, 0.5).ToHex(), Color.Hex("#c0ffee").ToHex(), Color32.Hex("#C0FFEE").ToHex())
+
+// The named colors, the same in both: CSS's sRGB values.
+Print(Color32.Transparent, Color32.Black, Color32.White, Color32.Gray, Color32.Red, Color32.Green)
+Print(Color32.Blue, Color32.Yellow, Color32.Cyan, Color32.Magenta, Color32.Orange)
+Print(Color.Transparent.ToColor32() == Color32.Transparent,
+      Color.Black.ToColor32() == Color32.Black, Color.White.ToColor32() == Color32.White,
+      Color.Gray.ToColor32() == Color32.Gray)
+Print(Color.Red.ToColor32() == Color32.Red, Color.Green.ToColor32() == Color32.Green,
+      Color.Blue.ToColor32() == Color32.Blue, Color.Yellow.ToColor32() == Color32.Yellow)
+Print(Color.Cyan.ToColor32() == Color32.Cyan, Color.Magenta.ToColor32() == Color32.Magenta,
+      Color.Orange.ToColor32() == Color32.Orange)
+Print(Color.Gray, Color.Orange, Color.Transparent, Color(1, 0, 0), Color32(1, 2, 3))
+
+// sRGB Floats, as a screen shows them.
+Print(Color.Srgb(1, 136.0 / 255, 0).ToColor32(), Color.Srgb(0.4, 0.4, 0.4).ToColor32(),
+      Shown(Color.Srgb(0.5, 0, 1, 0.25)))
+
+// HSV and HSL, in sRGB, with a hue from 0 to 1 that goes around.
+Print(Color.Hsv(0, 1, 1).ToColor32(), Color.Hsv(1.0 / 3, 1, 1).ToColor32(),
+      Color.Hsv(2.0 / 3, 1, 1).ToColor32())
+Print(Color.Hsv(0.5, 0.6, 1).ToColor32(), Color.Hsv(0.75, 0.5, 0.8).ToColor32(),
+      Color.Hsv(1.75, 0.5, 0.8).ToColor32())
+Print(Color.Hsv(-0.25, 0.5, 0.8).ToColor32(), Color.Hsv(0.3, 0, 0.6).ToColor32(),
+      Color.Hsv(0.9, 1, 0).ToColor32())
+Print(Color.Hsv(0.5, 1, 1, 0.5).ToColor32(), Color.Hsl(0, 1, 0.5).ToColor32(),
+      Color.Hsl(2.0 / 3, 1, 0.3).ToColor32())
+Print(Color.Hsl(0.75, 0.5, 0.6).ToColor32(), Color.Hsl(0.1, 1, 0.5).ToColor32(),
+      Color.Hsl(0, 0, 0.4).ToColor32())
+Print(Color.Hsl(0.5, 1, 1).ToColor32(), Color.Hsl(0.5, 1, 0).ToColor32(),
+      Color.Hsl(1.5, 1, 0.5).ToColor32())
+Print(Shown(Color.Hex("#ff8800").ToHsv()), Shown(Color.Hex("#ff8800").ToHsl()))
+Print(Shown(Color.Hex("#336699").ToHsv()), Shown(Color.Hex("#336699").ToHsl()))
+Print(Shown(Color.Gray.ToHsv()), Shown(Color.Gray.ToHsl()), Shown(Color.Black.ToHsv()),
+      Shown(Color.White.ToHsl()))
+Print(Shown(Color.Hex("#ff0080").ToHsv()), Shown(Color.Blue.ToHsl()), Shown(Color.Green.ToHsv()))
+Local h, s, v = Color.Hex("#4080c0").ToHsv()
+Local hue, saturation, lightness = Color.Hex("#4080c0").ToHsl()
+Print(Color.Hsv(h, s, v).ToColor32(), Color.Hsl(hue, saturation, lightness).ToColor32())
+
+// OKLab, from linear light.
+Print(Shown(Color.Red.ToOkLab()), Shown(Color.Green.ToOkLab()), Shown(Color.Blue.ToOkLab()))
+Print(Shown(Color.White.ToOkLab()), Shown(Color.Black.ToOkLab()), Shown(Color.Gray.ToOkLab()))
+Local l, a, b = Color.Hex("#ff8800").ToOkLab()
+Print(Color.OkLab(l, a, b).ToColor32(), Color.OkLab(1, 0, 0).ToColor32(),
+      Color.OkLab(0.5, 0, 0, 0.5).ToColor32())
+Print(Color.OkLab(0.62796, 0.22486, 0.12585).ToColor32(),
+      Color.OkLab(0.45201, -0.03246, -0.31153).ToColor32())
+
+// Math on Colors is in linear light, alpha too.
+Print(Color.Red + Color.Blue, Color.White - Color.Red,
+      Color(1, 0.5, 0.25) * Color(0.5, 0.5, 2, 0.5))
+Print(Color.Red * 0.5, 2 * Color(0.25, 0.5, 0, 0.5), Lerp(Color.Black, Color.White, 0.25),
+      Lerp(Color.Red, Color.Transparent, 0.5))
+Print(IsClose(Color(0.1, 0.2, 0.3), Color(0.1, 0.2, 0.3000001)), IsClose(Color.Red, Color.Orange))
+Print(Color32(1, 2, 3) == Color32(1, 2, 3, 255), Color.Red == Color(1, 0, 0, 1),
+      Color32(1, 2, 3).Hash() == Color32(1, 2, 3).Hash())

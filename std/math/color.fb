@@ -1,0 +1,365 @@
+// Color and Color32. A Color is four Floats, linear RGB and alpha, for lighting and blending,
+// where math on light is right; a Color32 is four bytes, sRGB and alpha, as images and screens
+// keep them. They convert with sRGB's gamma both ways, so a Color32 made a Color and back is the
+// bytes it was. Hex, HSV, and HSL colors are sRGB's, as CSS's are, with a hue from 0 to 1 around,
+// and OKLab's are from linear RGB. Alpha is linear in both, and 1 or 255 unless it's given.
+
+Import std.core
+Import std.math.scalar
+
+// Four bytes: sRGB red, green, and blue, and alpha, from 0 to 255.
+Public Struct Color32 Implements Hashable, Printable
+    Public Field r: UInt8
+    Public Field g: UInt8
+    Public Field b: UInt8
+    Public Field a: UInt8 = 255
+
+    Public Static Property Transparent: Color32
+        Get => Color32(0, 0, 0, 0)
+    End Property
+
+    Public Static Property Black: Color32
+        Get => Color32(0, 0, 0)
+    End Property
+
+    Public Static Property White: Color32
+        Get => Color32(255, 255, 255)
+    End Property
+
+    Public Static Property Gray: Color32
+        Get => Color32(128, 128, 128)
+    End Property
+
+    Public Static Property Red: Color32
+        Get => Color32(255, 0, 0)
+    End Property
+
+    Public Static Property Green: Color32
+        Get => Color32(0, 255, 0)
+    End Property
+
+    Public Static Property Blue: Color32
+        Get => Color32(0, 0, 255)
+    End Property
+
+    Public Static Property Yellow: Color32
+        Get => Color32(255, 255, 0)
+    End Property
+
+    Public Static Property Cyan: Color32
+        Get => Color32(0, 255, 255)
+    End Property
+
+    Public Static Property Magenta: Color32
+        Get => Color32(255, 0, 255)
+    End Property
+
+    Public Static Property Orange: Color32
+        Get => Color32(255, 165, 0)
+    End Property
+
+    // The color hex text gives, as CSS writes one: "#rgb", "#rgba", "#rrggbb", or "#rrggbbaa",
+    // with or without the "#", in either case. Any other text panics; TryHex takes text from
+    // outside the program.
+    @PanicsAtCaller
+    Public Static Method Hex(text: String): Color32
+        Local color = TryHex(text)
+        If color == Null Then Panic("'{text}' isn't a hex color, like #ff8800")
+        Return color
+    End Method
+
+    // The color hex text gives, as Hex takes it, or Null for text that isn't one.
+    Public Static Method TryHex(text: String): Color32?
+        Local bytes = text.Bytes
+        Local start = bytes.Count > 0 && bytes[0] == '#' ? 1 : 0
+        Local count = bytes.Count - start
+        If count != 3 && count != 4 && count != 6 && count != 8 Then Return Null
+        Local values: Int[] = []
+        For i = start Until bytes.Count
+            Local value = HexValue(bytes[i])
+            If value < 0 Then Return Null
+            values.Add(value)
+        End For
+
+        // "#rgb" doubles each digit, as "#rrggbb".
+        Local channels: Int[] = []
+        If count <= 4
+            For value In values
+                channels.Add(value * 17)
+            End For
+        Else
+            For i = 0 Until values.Count Step 2
+                channels.Add(values[i] * 16 + values[i + 1])
+            End For
+        End If
+
+        Local alpha: UInt8 = channels.Count == 4 ? channels[3] As UInt8 : 255
+        Return Color32(channels[0] As UInt8, channels[1] As UInt8, channels[2] As UInt8, alpha)
+    End Method
+
+    // The color in linear Floats, through sRGB's gamma.
+    Public Method ToColor(): Color
+        Return Color(ToLinear(r / 255.0), ToLinear(g / 255.0), ToLinear(b / 255.0), a / 255.0)
+    End Method
+
+    // The color as "#rrggbb", lowercase, or "#rrggbbaa" when it isn't opaque.
+    Public Method ToHex(): String
+        Local text = "#{HexByte(r)}{HexByte(g)}{HexByte(b)}"
+        Return a == 255 ? text : text + HexByte(a)
+    End Method
+
+    Public Method ToString(): String => "({r}, {g}, {b}, {a})"
+End Struct
+
+// Four Floats: linear red, green, and blue, from 0 to 1 for what a screen shows and above for
+// light brighter than white, and alpha, from 0 to 1.
+Public Struct Color Implements Hashable, Printable
+    Public Field r: Float
+    Public Field g: Float
+    Public Field b: Float
+    Public Field a: Float = 1
+
+    Public Static Property Transparent: Color
+        Get => Color(0, 0, 0, 0)
+    End Property
+
+    Public Static Property Black: Color
+        Get => Color(0, 0, 0)
+    End Property
+
+    Public Static Property White: Color
+        Get => Color(1, 1, 1)
+    End Property
+
+    // sRGB's #808080, half gray as a screen shows it, which is less than half the light.
+    Public Static Property Gray: Color
+        Get => Color(0.2158605, 0.2158605, 0.2158605)
+    End Property
+
+    Public Static Property Red: Color
+        Get => Color(1, 0, 0)
+    End Property
+
+    Public Static Property Green: Color
+        Get => Color(0, 1, 0)
+    End Property
+
+    Public Static Property Blue: Color
+        Get => Color(0, 0, 1)
+    End Property
+
+    Public Static Property Yellow: Color
+        Get => Color(1, 1, 0)
+    End Property
+
+    Public Static Property Cyan: Color
+        Get => Color(0, 1, 1)
+    End Property
+
+    Public Static Property Magenta: Color
+        Get => Color(1, 0, 1)
+    End Property
+
+    // sRGB's #ffa500, as CSS's orange.
+    Public Static Property Orange: Color
+        Get => Color(1, 0.3762621, 0)
+    End Property
+
+    // The color hex text gives, as CSS writes one: "#rgb", "#rgba", "#rrggbb", or "#rrggbbaa",
+    // with or without the "#", in either case, in sRGB. Any other text panics; TryHex takes text
+    // from outside the program.
+    @PanicsAtCaller
+    Public Static Method Hex(text: String): Color => Color32.Hex(text).ToColor()
+
+    // The color hex text gives, as Hex takes it, or Null for text that isn't one.
+    Public Static Method TryHex(text: String): Color?
+        Local color = Color32.TryHex(text)
+        If color == Null Then Return Null
+        Return color.ToColor()
+    End Method
+
+    // The color whose sRGB red, green, and blue, from 0 to 1, these are, as a screen shows them.
+    Public Static Method Srgb(r: Float, g: Float, b: Float, a: Float = 1): Color
+        Return Color(ToLinear(r), ToLinear(g), ToLinear(b), a)
+    End Method
+
+    // The color of an sRGB hue, saturation, and value, each from 0 to 1, as a color picker gives
+    // them: a hue outside 0 to 1 goes around.
+    Public Static Method Hsv(hue: Float, saturation: Float, value: Float, a: Float = 1): Color
+        Local red, green, blue = FromHue(hue, value * saturation, value * (1 - saturation))
+        Return Color(ToLinear(red), ToLinear(green), ToLinear(blue), a)
+    End Method
+
+    // The color of an sRGB hue, saturation, and lightness, each from 0 to 1, as CSS's hsl(): a
+    // hue outside 0 to 1 goes around.
+    Public Static Method Hsl(hue: Float, saturation: Float, lightness: Float, a: Float = 1): Color
+        Local chroma = (1 - Abs(2 * lightness - 1)) * saturation
+        Local red, green, blue = FromHue(hue, chroma, lightness - chroma / 2)
+        Return Color(ToLinear(red), ToLinear(green), ToLinear(blue), a)
+    End Method
+
+    // The color of an OKLab lightness and a and b, its green to red and blue to yellow, as
+    // Björn Ottosson defined it: a space where equal steps look equal, for blending and ramps.
+    Public Static Method OkLab(lightness: Float, a: Float, b: Float, alpha: Float = 1): Color
+        Local light: Double = lightness
+        Local greenRed: Double = a
+        Local blueYellow: Double = b
+        Local l = light + 0.3963377774 * greenRed + 0.2158037573 * blueYellow
+        Local m = light - 0.1055613458 * greenRed - 0.0638541728 * blueYellow
+        Local s = light - 0.0894841775 * greenRed - 1.2914855480 * blueYellow
+        l = l * l * l
+        m = m * m * m
+        s = s * s * s
+        Return Color((4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s) As Float,
+                     (-1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s) As Float,
+                     (-0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s) As Float, alpha)
+    End Method
+
+    // The color in sRGB bytes, through sRGB's gamma, each kept from 0 to 255 and NaN taken as 0.
+    Public Method ToColor32(): Color32
+        Return Color32(ByteOf(ToSrgb(r)), ByteOf(ToSrgb(g)), ByteOf(ToSrgb(b)), ByteOf(a))
+    End Method
+
+    // The color as "#rrggbb", or "#rrggbbaa" when it isn't opaque, in sRGB, as ToColor32 gives it.
+    Public Method ToHex(): String => ToColor32().ToHex()
+
+    // The color's sRGB hue, saturation, and value, each from 0 to 1, as Hsv takes them.
+    Public Method ToHsv(): (Float, Float, Float)
+        Local red = ToSrgb(r)
+        Local green = ToSrgb(g)
+        Local blue = ToSrgb(b)
+        Local high = Max(Max(red, green), blue)
+        Local chroma = high - Min(Min(red, green), blue)
+        Local saturation: Double = high > 0 ? chroma / high : 0
+        Return (HueOf(red, green, blue, high, chroma), saturation As Float, high As Float)
+    End Method
+
+    // The color's sRGB hue, saturation, and lightness, each from 0 to 1, as Hsl takes them.
+    Public Method ToHsl(): (Float, Float, Float)
+        Local red = ToSrgb(r)
+        Local green = ToSrgb(g)
+        Local blue = ToSrgb(b)
+        Local high = Max(Max(red, green), blue)
+        Local low = Min(Min(red, green), blue)
+        Local chroma = high - low
+        Local lightness = (high + low) / 2
+        Local spread = 1 - Abs(2 * lightness - 1)
+        Local saturation: Double = spread > 0 ? chroma / spread : 0
+        Return (HueOf(red, green, blue, high, chroma), saturation As Float, lightness As Float)
+    End Method
+
+    // The color's OKLab lightness, a, and b, as OkLab takes them.
+    Public Method ToOkLab(): (Float, Float, Float)
+        Local red: Double = r
+        Local green: Double = g
+        Local blue: Double = b
+        Local l = Cbrt(0.4122214708 * red + 0.5363325363 * green + 0.0514459929 * blue)
+        Local m = Cbrt(0.2119034982 * red + 0.6806995451 * green + 0.1073969566 * blue)
+        Local s = Cbrt(0.0883024619 * red + 0.2817188376 * green + 0.6299787005 * blue)
+        Return ((0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s) As Float,
+                (1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s) As Float,
+                (0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s) As Float)
+    End Method
+
+    Public Method ToString(): String => "({r}, {g}, {b}, {a})"
+
+    Operator +(c: Color, d: Color): Color => Color(c.r + d.r, c.g + d.g, c.b + d.b, c.a + d.a)
+    Operator -(c: Color, d: Color): Color => Color(c.r - d.r, c.g - d.g, c.b - d.b, c.a - d.a)
+    // Each channel times the other's, as light through a filter.
+    Operator *(c: Color, d: Color): Color => Color(c.r * d.r, c.g * d.g, c.b * d.b, c.a * d.a)
+
+    Operator *(c: Color, scale: Float): Color
+        Return Color(c.r * scale, c.g * scale, c.b * scale, c.a * scale)
+    End Operator
+
+    Operator *(scale: Float, c: Color): Color
+        Return Color(scale * c.r, scale * c.g, scale * c.b, scale * c.a)
+    End Operator
+End Struct
+
+// The color t of the way from a to b, each channel in linear light, alpha too.
+Public Function Lerp(a: Color, b: Color, t: Float): Color
+    Return Color(Lerp(a.r, b.r, t), Lerp(a.g, b.g, t), Lerp(a.b, b.b, t), Lerp(a.a, b.a, t))
+End Function
+
+// Whether each channel is close to b's, as IsClose tells for Floats.
+Public Function IsClose(a: Color, b: Color): Bool
+    Return IsClose(a.r, b.r) && IsClose(a.g, b.g) && IsClose(a.b, b.b) && IsClose(a.a, b.a)
+End Function
+
+// An sRGB channel, from 0 to 1, in linear light, worked out in Doubles.
+Function ToLinear(channel: Float): Float
+    Local value: Double = channel
+    If value <= 0.04045 Then Return (value / 12.92) As Float
+    Return (((value + 0.055) / 1.055) ** 2.4) As Float
+End Function
+
+// A linear channel in sRGB, from 0 to 1, worked out in Doubles.
+Function ToSrgb(channel: Float): Double
+    Local value: Double = channel
+    If value <= 0.0031308 Then Return value * 12.92
+    Return 1.055 * value ** (1 / 2.4) - 0.055
+End Function
+
+// A channel from 0 to 1 as the nearest byte, with what's outside 0 to 1 kept to it and NaN as 0.
+Function ByteOf(channel: Double): UInt8
+    If !(channel > 0) Then Return 0
+    If channel >= 1 Then Return 255
+    Return Floor(channel * 255 + 0.5) As UInt8
+End Function
+
+// The value of a hex digit, or -1 for a byte that isn't one.
+Function HexValue(digit: UInt8): Int
+    Local code = digit As Int
+    If code >= '0' && code <= '9' Then Return code - '0'
+    If code >= 'a' && code <= 'f' Then Return code - 'a' + 10
+    If code >= 'A' && code <= 'F' Then Return code - 'A' + 10
+    Return -1
+End Function
+
+// A byte as two lowercase hex digits.
+Function HexByte(value: UInt8): String => HexDigit(value / 16) + HexDigit(value % 16)
+
+Function HexDigit(value: UInt8): String
+    If value < 10 Then Return "{value}"
+    Return ["a", "b", "c", "d", "e", "f"][(value - 10) As Int]
+End Function
+
+// The red, green, and blue of a hue from 0 to 1 around, with the chroma, the most a channel is
+// above the least, and the least.
+Function FromHue(hue: Float, chroma: Float, low: Float): (Float, Float, Float)
+    Local sixths = Fract(hue) * 6
+    Local rising = chroma * (1 - Abs(Mod(sixths, 2.0) - 1))
+    Local red: Float = 0
+    Local green: Float = 0
+    Local blue: Float = 0
+    If sixths < 1
+        red, green = (chroma, rising)
+    ElseIf sixths < 2
+        red, green = (rising, chroma)
+    ElseIf sixths < 3
+        green, blue = (chroma, rising)
+    ElseIf sixths < 4
+        green, blue = (rising, chroma)
+    ElseIf sixths < 5
+        red, blue = (rising, chroma)
+    Else
+        red, blue = (chroma, rising)
+    End If
+    Return (red + low, green + low, blue + low)
+End Function
+
+// The hue, from 0 to 1, of sRGB channels whose largest is high, and chroma above the least: 0 for
+// a gray.
+Function HueOf(red: Double, green: Double, blue: Double, high: Double, chroma: Double): Float
+    If chroma == 0 Then Return 0
+    Local sixths: Double = 0
+    If high == red
+        sixths = Mod((green - blue) / chroma, 6.0)
+    ElseIf high == green
+        sixths = (blue - red) / chroma + 2
+    Else
+        sixths = (red - green) / chroma + 4
+    End If
+    Return (sixths / 6) As Float
+End Function

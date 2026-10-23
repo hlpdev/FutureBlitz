@@ -1,0 +1,2 @@
+(1, 1, 1, 1) True
+panic: '#fffff' isn't a hex color, like #ff8800 at panic_math_color_hex.fb:6:7

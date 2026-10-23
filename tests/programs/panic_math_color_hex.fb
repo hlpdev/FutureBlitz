@@ -1,0 +1,6 @@
+// Color.Hex takes text that's a hex color, which panics where it's called; TryHex gives Null.
+Import std.core
+Import std.math
+
+Print(Color.Hex("#ffffff"), Color.TryHex("#fffff") == Null)
+Print(Color.Hex("#fffff"))
