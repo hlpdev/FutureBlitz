@@ -5543,6 +5543,17 @@ TEST_CASE("a call of a Const Function runs at compile time when its arguments ar
     CHECK(probe(std::format("{}Local x = Fib(10) + 1", fib)) == "Int32 56");
     CHECK(probe(std::format("{}Local n = 3\nLocal x = Fib(n)", fib)) == "Int32");
     CHECK(probe(std::format("{}Local t: Int[Fib(5)]\nLocal x = t.Count", fib)) == "Int32 5");
+
+    // A parameter's default counts as known where Consts and types run it too.
+    const std::string_view add = "Const Function Add(a: Int, b: Int = 10): Int\n"
+                                 "    Return a + b\n"
+                                 "End Function\n";
+    CHECK(probe(std::format("{}Const A = Add(1)", add)) == "Int32 11");
+    CHECK(probe(std::format("{}Const A = Add(1)\nLocal t: Int[A]\nLocal x = t.Count", add)) ==
+          "Int32 11");
+    CHECK(probe(std::format("Struct S\n    Field cells: Int[Add(1)]\nEnd Struct\n{}"
+                            "Local x = S().cells.Count",
+                            add)) == "Int32 11");
     CHECK(probe("Const Function Shout(s: String): String => s + \"!\"\nLocal x = Shout(\"hi\")") ==
           "String hi!");
     CHECK(probe("Struct P\n    Field X: Int\nEnd Struct\n"

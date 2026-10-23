@@ -607,6 +607,9 @@ private:
     std::unordered_map<symbol_id_t, std::vector<symbol_id_t>> m_reaches;
     /// The lambdas' symbols, which an error's path leaves out, as part of the code around them.
     std::unordered_set<symbol_id_t> m_lambda_code;
+    /// The functions whose parameters' defaults are checked: all of them before any code, and a
+    /// Const Function's earlier, when a Const or a type runs it without an argument.
+    std::unordered_set<symbol_id_t> m_defaults_checked;
     /// How many Lock blocks the code being checked is in, where it can't Await.
     std::size_t m_locks = 0;
     /// How deep the code being checked is in Unsafe code: an Unsafe block, Function, or Method,
@@ -12518,7 +12521,8 @@ private:
         return false;
     }
 
-    /// Default values are checked before any code, since every call needs them.
+    /// Default values are checked before any code, since every call needs them, each function's
+    /// once.
     void check_defaults(const stmt_id_t id) {
         if (const auto* declared = std::get_if<type_stmt_t>(&m_ast.get(id).node)) {
             for (const stmt_id_t member : declared->members) {
@@ -12530,7 +12534,7 @@ private:
 
         const auto* node = std::get_if<function_stmt_t>(&m_ast.get(id).node);
         const std::optional<symbol_id_t> function = m_analysis.stmts[index(id)].symbol;
-        if (node == nullptr || !function) {
+        if (node == nullptr || !function || !m_defaults_checked.insert(*function).second) {
             return;
         }
 
@@ -18959,6 +18963,14 @@ private:
         const std::vector<std::optional<expr_id_t>>& given = info(id).arguments;
         if (given.size() != declared.parameters.size()) {
             return;
+        }
+
+        // While Consts and types are checked, the defaults it uses may not be yet.
+        if (declared.declaration &&
+            std::ranges::any_of(given, [](const std::optional<expr_id_t> argument) {
+                return !argument.has_value();
+            })) {
+            check_defaults(*declared.declaration);
         }
 
         std::vector<const_value_t> arguments;
