@@ -189,6 +189,16 @@ inline constexpr auto bundled_libraries = std::to_array<bundled_library_t>({
         .notice = \"${FB_MPDECIMAL_NOTICE}\",
         .system = \"\",
     },
+    {
+        .name = \"tzdata\",
+        .version = \"${FB_TZDATA_VERSION}\",
+        .license = \"${FB_TZDATA_LICENSES}\",
+        .prefix = \"fb_tz_\",
+        .runtime = \"$<TARGET_FILE:fb_runtime_tz>\",
+        .archives = \"$<TARGET_FILE:fb_tzdata>\",
+        .notice = \"${FB_TZDATA_NOTICE}\",
+        .system = \"\",
+    },
 });
 
 } // namespace fb::build_config

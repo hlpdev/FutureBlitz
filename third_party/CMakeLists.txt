@@ -340,3 +340,71 @@ file(READ "${mpdecimal_SOURCE_DIR}/COPYRIGHT.txt" notices)
 fb_notice(mpdecimal "${notices}")
 set(FB_MPDECIMAL_NOTICE "${FB_MPDECIMAL_NOTICE}" PARENT_SCOPE)
 set(FB_MPDECIMAL_LICENSES "the BSD-2-Clause license" PARENT_SCOPE)
+
+# The IANA tz database: std.time's TimeZone. Its zic, built for the machine that builds fb,
+# compiles its zones to TZif, slim, for the runtime to read, and embed_tz.cmake writes them into
+# fb_tzdata, with every zone's and link's name. Its code and data are in the public domain.
+set(FB_TZDATA_VERSION 2026e)
+FetchContent_Declare(
+  tzcode
+  URL https://data.iana.org/time-zones/releases/tzcode${FB_TZDATA_VERSION}.tar.gz
+  URL_HASH SHA256=cc3d27ca2a0d8399504551b920970d80af83bfb9c216e8082a15491921935d54
+)
+FetchContent_Declare(
+  tzdata
+  URL https://data.iana.org/time-zones/releases/tzdata${FB_TZDATA_VERSION}.tar.gz
+  URL_HASH SHA256=b26882805f26aac59d5b222978e6580484b834ccdc98be89df2f05a6dc53a652
+)
+FetchContent_MakeAvailable(tzcode tzdata)
+set(tz "${CMAKE_CURRENT_BINARY_DIR}/tz")
+# The headers its Makefile would make.
+file(WRITE "${tz}/version.h" "static char const PKGVERSION[] = \"(tzcode) \";
+static char const TZVERSION[] = \"${FB_TZDATA_VERSION}\";
+static char const REPORT_BUGS_TO[] = \"tz@iana.org\";
+")
+file(WRITE "${tz}/tzdir.h" "#define TZDEFAULT \"/etc/localtime\"
+#define TZDIR \"/usr/share/zoneinfo\"
+")
+add_executable(fb_zic EXCLUDE_FROM_ALL "${tzcode_SOURCE_DIR}/zic.c")
+target_include_directories(fb_zic PRIVATE "${tz}")
+target_compile_definitions(fb_zic PRIVATE HAVE_GETTEXT=0)
+if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+  target_compile_options(fb_zic PRIVATE -w -O2)
+endif()
+# Windows has no POSIX owners, and its mkdir takes no mode; zic only needs neither.
+if(WIN32)
+  file(WRITE "${tz}/windows.h.in" "#include <direct.h>
+#include <io.h>
+#include <sys/types.h>
+typedef int uid_t;
+typedef int gid_t;
+#define fchmod(fd, mode) 0
+#define fchown(fd, uid, gid) 0
+#define mkdir(path, mode) _mkdir(path)
+")
+  configure_file("${tz}/windows.h.in" "${tz}/posix.h" COPYONLY)
+  target_compile_definitions(fb_zic PRIVATE HAVE_LINK=0 HAVE_SYMLINK=0 HAVE_MEMPCPY=1)
+  target_compile_options(fb_zic PRIVATE -include "${tz}/posix.h")
+endif()
+
+set(FB_TZ_ZONES africa antarctica asia australasia europe northamerica southamerica etcetera
+    backward)
+list(TRANSFORM FB_TZ_ZONES PREPEND "${tzdata_SOURCE_DIR}/")
+add_custom_command(
+  OUTPUT "${tz}/tz_data.cpp"
+  COMMAND "${CMAKE_COMMAND}" -E rm -rf "${tz}/zoneinfo"
+  COMMAND fb_zic -b slim -d "${tz}/zoneinfo" ${FB_TZ_ZONES}
+  COMMAND "${CMAKE_COMMAND}" "-DDATA=${tzdata_SOURCE_DIR}" "-DZONEINFO=${tz}/zoneinfo"
+          "-DOUTPUT=${tz}/tz_data.cpp" "-DVERSION=${FB_TZDATA_VERSION}"
+          -P "${CMAKE_CURRENT_SOURCE_DIR}/embed_tz.cmake"
+  DEPENDS fb_zic "${CMAKE_CURRENT_SOURCE_DIR}/embed_tz.cmake" ${FB_TZ_ZONES}
+  VERBATIM
+)
+add_library(fb_tzdata STATIC EXCLUDE_FROM_ALL "${tz}/tz_data.cpp")
+target_include_directories(fb_tzdata PRIVATE "${PROJECT_SOURCE_DIR}/runtime/src")
+fb_bundled_library(fb_tzdata)
+set(FB_TZDATA_VERSION ${FB_TZDATA_VERSION} PARENT_SCOPE)
+file(READ "${tzdata_SOURCE_DIR}/LICENSE" notices)
+fb_notice(tzdata "${notices}")
+set(FB_TZDATA_NOTICE "${FB_TZDATA_NOTICE}" PARENT_SCOPE)
+set(FB_TZDATA_LICENSES "the public domain" PARENT_SCOPE)
