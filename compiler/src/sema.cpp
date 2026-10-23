@@ -8265,9 +8265,6 @@ private:
         return error != type_id_t::INVALID ? std_name(error, beside, span) : "Error";
     }
 
-    /// `declared`, a type std declares that isn't generic, as an error at `span` that also shows
-    /// `beside` names it: with its module when `beside` is alike it, or when its name means
-    /// something else in the code there, as with a program's own Error or Printable.
     /// A constraint on `parameter` that code at `span` can write for std's Interface
     /// `declared`: its name, or where the code's own declaration of the name hides it, the name
     /// after a qualifier the file has for its module, or after one an Import would give.
@@ -8313,6 +8310,9 @@ private:
         return home ? std::format(", after Import {}", home->module) : std::string();
     }
 
+    /// `declared`, a type std declares that isn't generic, as an error at `span` that also shows
+    /// `beside` names it: with its module when `beside` is alike it, or when its name means
+    /// something else in the code there, as with a program's own Error or Printable.
     [[nodiscard]] std::string std_name(const type_id_t declared, const type_id_t beside,
                                        const span_t span) const {
         return std_hidden(declared, span) ? qualified(declared) : name_of(declared, beside);
