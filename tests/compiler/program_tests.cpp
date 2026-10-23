@@ -612,3 +612,32 @@ TEST_CASE("a request nothing waits for doesn't keep a stuck coroutine's program 
     CHECK(result->exit_code == 0);
     CHECK(took < std::chrono::seconds(10));
 }
+
+TEST_CASE("an Event's Clear takes out all its handlers at once", "[programs]") {
+    // Taking each of 100000 handlers out on its own goes over the rest each time, for minutes;
+    // taking them all out at the end, as an Emit does, takes well under a second.
+    const fb::compilation_t compilation =
+        fb::compile("main.fb",
+                    "Import std.core\n"
+                    "Import std.events\n"
+                    "Const event = Event<Int>()\n"
+                    "For i = 1 To 100000\n"
+                    "    event.Subscribe(Function(n: Int) => Print(n))\n"
+                    "End For\n"
+                    "event.Clear()\n"
+                    "Print(event.Count)\n",
+                    fb::standard_library().value_or(std::vector<fb::library_file_t>{}));
+    REQUIRE_FALSE(compilation.diagnostics.has_errors());
+    std::filesystem::path program = std::filesystem::path(FB_TEST_OUTPUT) / "event_clear";
+    program += fb::executable_extension;
+    const fb::mir_module_t module = fb::lower(compilation.ast, compilation.analysis);
+    REQUIRE(fb::build_program(module, compilation, program, fb::build_mode_t::DEBUG));
+
+    const auto start = std::chrono::steady_clock::now();
+    const std::expected<fb::process_result_t, std::string> result = fb::run_process(program, {});
+    const std::chrono::steady_clock::duration took = std::chrono::steady_clock::now() - start;
+    REQUIRE(result);
+    CHECK(result->output == "0\n");
+    CHECK(result->exit_code == 0);
+    CHECK(took < std::chrono::seconds(10));
+}
