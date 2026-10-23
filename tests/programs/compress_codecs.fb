@@ -330,3 +330,22 @@ frame.AddAll(streamed.Finish())
 Print(frame[4], frame[5])
 frame[5] = 0xa8
 Print(Outcome("Zstd", frame))
+
+// Data that fills the runtime's chunks of 64 KiB exactly comes back, at once and through a
+// Decompressor, and a Compressor given only empty parts makes empty streams, one after another.
+Local nothing: UInt8[] = []
+For format In FORMATS
+    Local whole = True
+    For size In [65536, 131072]
+        Local data: UInt8[] = []
+        data.Resize(size, 65)
+        Local packed = Compressed(format, data, DefaultLevel(format))
+        whole = whole && (Try Decompressed(format, packed, 2147483647)) == data
+        whole = whole && (Try DecompressedInParts(format, [packed], 1, 2147483647)) == data
+    End For
+
+    Local empty = StreamsInParts(format, [nothing, nothing], DefaultLevel(format), 2)
+    Local first = Try Decompressed(format, empty[0], 10)
+    Local second = Try Decompressed(format, empty[1], 10)
+    Print(format, "in whole chunks:", whole, "of empty parts:", first.Count, second.Count)
+End For

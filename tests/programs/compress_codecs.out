@@ -73,3 +73,9 @@ XZ
 [31, 139, 8, 0, 0, 0, 0, 0, 0, 255] [31, 139, 8, 0, 0, 0, 0, 0, 2, 255] [120, 156]
 4 88
 OTHER: the Zstd data uses what isn't supported: Frame requires too much memory for decoding
+Deflate in whole chunks: True of empty parts: 0 0
+Zlib in whole chunks: True of empty parts: 0 0
+Gzip in whole chunks: True of empty parts: 0 0
+Zstd in whole chunks: True of empty parts: 0 0
+Lz4 in whole chunks: True of empty parts: 0 0
+XZ in whole chunks: True of empty parts: 0 0
