@@ -66,6 +66,7 @@ auto not_empty(const std::string_view option, const std::string_view what) {
 std::expected<std::optional<request_t>, std::string> parse(const std::vector<std::string>& args) {
     request_t request;
     std::optional<std::string> library;
+    bool named_output = false;
     for (std::size_t i = 0; i < args.size(); ++i) {
         const std::string& arg = args[i];
         if (arg == "-h" || arg == "--help") {
@@ -95,8 +96,19 @@ std::expected<std::optional<request_t>, std::string> parse(const std::vector<std
 
         std::expected<std::string, std::string> taken;
         if (is("-o") || is("--output")) {
-            taken = value(is("-o") ? "-o" : "--output");
+            // A name the module can have, not a folder's, as fb's -o takes.
+            const std::string_view name = is("-o") ? "-o" : "--output";
+            taken = value(name).and_then(
+                [name](std::string path) -> std::expected<std::string, std::string> {
+                    if (path.empty() || path.ends_with('/') || path.ends_with('\\')) {
+                        return std::unexpected(std::format(
+                            "'{}' takes the module's file name, like 'out/vecmath.fb'", name));
+                    }
+
+                    return path;
+                });
             request.output = fb::path_from_utf8(taken.value_or(""));
+            named_output = taken.has_value();
         } else if (is("--lib")) {
             taken = value("--lib");
             library = taken.value_or("");
@@ -142,19 +154,29 @@ std::expected<std::optional<request_t>, std::string> parse(const std::vector<std
             library ? std::format("'{}'", request.options.library)
                     : std::format("the header's name, '{}',", request.options.library)));
     }
-    const bool named = !request.output.empty();
-    if (!named) {
+    if (!named_output) {
         request.output = request.options.header.stem();
         request.output += ".fb";
     }
 
-    // Writing over the header would lose it, as fb build won't write over a program's files.
+    // Writing over the header would lose it, as fb build won't write over a program's files,
+    // and a folder can't be written as a file.
     std::error_code error;
+    if (std::filesystem::is_directory(request.output, error)) {
+        const std::string path = fb::to_utf8(request.output);
+        return std::unexpected(
+            named_output
+                ? std::format("'-o' names a folder, {}; give the module's file name", path)
+                : std::format("the module would be {}, which is a folder; give its path with -o",
+                              path));
+    }
+
     if (std::filesystem::equivalent(request.output, request.options.header, error)) {
         const std::string path = fb::to_utf8(request.output);
         return std::unexpected(
-            named ? std::format("'-o' names the header, {}; give another path", path)
-                  : std::format("the module would be {}, the header; give its path with -o", path));
+            named_output
+                ? std::format("'-o' names the header, {}; give another path", path)
+                : std::format("the module would be {}, the header; give its path with -o", path));
     }
 
     return request;

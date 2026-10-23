@@ -734,6 +734,19 @@ TEST_CASE("fb bindgen runs fb-bindgen, which writes a C header's module", "[cli]
     check_usage_error({ "bindgen", fb::to_utf8(unnamed) },
                       "isn't a name a [native] library can have");
 
+    // -o takes the module's file name: not nothing, nor a folder's, which nothing is made for.
+    check_usage_error({ "bindgen", fb::to_utf8(header), "-o", "" },
+                      "'-o' takes the module's file name, like 'out/vecmath.fb'");
+    const std::filesystem::path unmade = header.parent_path() / "unmade";
+    std::filesystem::remove_all(unmade);
+    check_usage_error({ "bindgen", fb::to_utf8(header), "-o", fb::to_utf8(unmade) + "/" },
+                      "'-o' takes the module's file name, like 'out/vecmath.fb'");
+    CHECK_FALSE(std::filesystem::exists(unmade));
+    std::filesystem::create_directories(unmade);
+    check_usage_error(
+        { "bindgen", fb::to_utf8(header), "--output", fb::to_utf8(unmade) },
+        std::format("'-o' names a folder, {}; give the module's file name", fb::to_utf8(unmade)));
+
     // The module never goes over the header, whichever path it's given by.
     check_usage_error(
         { "bindgen", fb::to_utf8(header), "-o", fb::to_utf8(header) },
