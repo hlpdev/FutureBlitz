@@ -2064,6 +2064,19 @@ std::string unreadable(CXIndex index, const std::string& path, const std::string
     return std::format("libclang couldn't read {}", path);
 }
 
+/// Each file clang read for `unit`: the header and what it #includes, directly or not.
+std::vector<std::filesystem::path> files_read(CXTranslationUnit unit) {
+    std::vector<std::filesystem::path> files;
+    clang_getInclusions(
+        unit,
+        [](CXFile file, CXSourceLocation* /*stack*/, unsigned /*depth*/, CXClientData data) {
+            static_cast<std::vector<std::filesystem::path>*>(data)->push_back(
+                path_from_utf8(text_of(clang_getFileName(file))));
+        },
+        &files);
+    return files;
+}
+
 /// The errors clang found reading the header, a line each: "test.h:2:10: 'nowhere.h' file not
 /// found".
 std::string errors_of(CXTranslationUnit unit) {
@@ -2161,7 +2174,13 @@ std::expected<bindings_t, std::string> generate_bindings(const bindgen_options_t
         return std::unexpected(std::move(errors));
     }
 
-    return generator_t(options, index.get(), arguments, unit.get()).run();
+    std::expected<bindings_t, std::string> bindings =
+        generator_t(options, index.get(), arguments, unit.get()).run();
+    if (bindings) {
+        bindings->files = files_read(unit.get());
+    }
+
+    return bindings;
 }
 
 } // namespace fb
