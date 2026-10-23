@@ -2,8 +2,13 @@
 
 ## Strings
 
-- UTF-8, **immutable**, refcounted. A string is always valid UTF-8.
+- UTF-8, **immutable**, refcounted. A string is always valid UTF-8, of at most 2147483647
+  bytes, as many as an `Int` counts; one past that panics.
 - `+` only joins `String` to `String`. Everything else uses interpolation.
+- A String's Methods are std.text's (see [stdlib.md](../stdlib.md)), by byte position: its
+  `Length` is its UTF-8's bytes, and a position is a byte offset, which `Find` gives and
+  `Slice` takes. A position inside a character panics. `CharCount` and `GraphemeCount` count
+  code points and what people see as one character.
 
 ```vb
 Print("HP: {hp}/{MAX_HP}")              // interpolation; {{ for a literal brace
@@ -178,7 +183,7 @@ For b In s.Bytes ... End For    // raw bytes
 ```
 
 - `s.Chars` is a new `Char[]` of the String's code points, and `s.Bytes` a new `Byte[]` of its
-  UTF-8 bytes.
+  UTF-8 bytes. A `Char`'s Methods, like `IsLetter()` and `ToUpper()`, are std.text's too.
 
 ## Arrays
 
