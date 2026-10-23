@@ -144,6 +144,52 @@ TEST_CASE("a float's text is fixed, exponent, or percent, by its precision", "[t
     CHECK(fb::format_float(0.1, true, spec(".9")) == "0.100000001");
 }
 
+TEST_CASE("a float's longest fixed text, at the largest precision, is all there", "[text_format]") {
+    // 309 digits before the point, and for '%' two more, then 999 after.
+    const double largest = 1.7976931348623157e308;
+    const std::string fixed = number(largest, ".999");
+    CHECK(fixed.size() == 309 + 1 + 999);
+    CHECK(fixed.starts_with("17976931348623157"));
+    CHECK(fixed.ends_with("." + std::string(999, '0')));
+    const std::string percent = number(largest, ".999%");
+    CHECK(percent.size() == 311 + 1 + 999 + 1);
+    CHECK(percent.starts_with("17976931348623157"));
+    CHECK(percent.ends_with("." + std::string(999, '0') + "%"));
+    // The double nearest 1e200 has 200 digits.
+    CHECK(number(1e200, ".999").size() == 200 + 1 + 999);
+}
+
+TEST_CASE("'%' moves the point two digits, which multiplying the float doesn't", "[text_format]") {
+    CHECK(number(0.57, "%") == "57%");
+    CHECK(number(0.07, "%") == "7%");
+    CHECK(number(0.29, "%") == "29%");
+    CHECK(number(0.0005, "%") == "0.05%");
+    CHECK(number(0.123456, ".2%") == "12.35%");
+    CHECK(number(0.5, ".0%") == "50%");
+    CHECK(number(0, "%") == "0%");
+    CHECK(number(1e307, "%") == "1" + std::string(309, '0') + "%");
+    CHECK(fb::format_float(1e37, true, spec("%")) == "1" + std::string(39, '0') + "%");
+
+    // Inf and NaN keep their '%'.
+    const double infinity = std::numeric_limits<double>::infinity();
+    CHECK(number(infinity, "%") == "Inf%");
+    CHECK(number(-infinity, ".1%") == "-Inf%");
+    CHECK(number(std::numeric_limits<double>::quiet_NaN(), "%") == "NaN%");
+}
+
+TEST_CASE("grouping and zeros write a round float's digits, not its exponent", "[text_format]") {
+    CHECK(number(2000000, ",") == "2,000,000");
+    CHECK(number(2000001, ",") == "2,000,001");
+    CHECK(number(2000000, "012") == "000002000000");
+    CHECK(fb::format_float(300000, true, spec(",")) == "300,000");
+    // Alone, its shortest text has the exponent.
+    CHECK(number(2000000, "") == "2e6");
+    // 'f' without a precision is the shortest digits too, not every digit of a large one.
+    CHECK(number(1e23, "f") == "1" + std::string(23, '0'));
+    CHECK(number(1.5e-7, "f") == "0.00000015");
+    CHECK(number(123.25, "f") == "123.25");
+}
+
 TEST_CASE("a float's shortest text reads back, in one form everywhere", "[text_format]") {
     CHECK(fb::shortest_text(0.1, false) == "0.1");
     CHECK(fb::shortest_text(0.1F, true) == "0.1");

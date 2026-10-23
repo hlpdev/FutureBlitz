@@ -238,10 +238,12 @@ inline std::string_view sign_of(const bool negative, const format_spec_t& spec) 
     return spec.sign == format_sign_t::SPACE ? " " : "";
 }
 
+/// A float's digits, as to_chars writes them. The longest is a Float64's 309 digits before the
+/// point and 1001 after, which '%' asks for with a precision of 999.
 template <typename Float>
 std::string float_chars(const Float value, const std::optional<std::chars_format> format,
                         const std::optional<std::uint32_t> precision) {
-    std::array<char, 1100> buffer{};
+    std::array<char, 1400> buffer{};
     std::to_chars_result result{};
     if (!format) {
         result = std::to_chars(buffer.data(), buffer.data() + buffer.size(), value);
@@ -252,7 +254,45 @@ std::string float_chars(const Float value, const std::optional<std::chars_format
                                static_cast<int>(*precision));
     }
 
-    return { buffer.data(), result.ptr };
+    return result.ec == std::errc{} ? std::string(buffer.data(), result.ptr) : std::string();
+}
+
+/// A float's shortest digits that read back, in fixed form: "1" and 307 zeros for 1e307, whose
+/// fixed text to_chars writes with every digit of the float's exact value.
+template <typename Float>
+std::string shortest_fixed(const Float value) {
+    // Its digits and exponent, from "1.5e+07" or "7e-03".
+    const std::string scientific = float_chars(value, std::chars_format::scientific, std::nullopt);
+    const std::size_t e = scientific.find('e');
+    std::string digits = scientific.substr(0, e);
+    std::erase(digits, '.');
+    int exponent = 0;
+    const std::string_view written = std::string_view(scientific).substr(e + 1);
+    std::from_chars(written.data() + (written.front() == '+' ? 1 : 0),
+                    written.data() + written.size(), exponent);
+    const auto count = static_cast<int>(digits.size());
+    if (exponent >= count - 1) {
+        return digits + std::string(static_cast<std::size_t>(exponent) + 1 - digits.size(), '0');
+    }
+
+    if (exponent >= 0) {
+        const std::size_t whole = static_cast<std::size_t>(exponent) + 1;
+        return digits.substr(0, whole) + "." + digits.substr(whole);
+    }
+
+    return "0." + std::string(static_cast<std::size_t>(-exponent) - 1, '0') + digits;
+}
+
+/// A number's fixed text, "12.345" or "7", times 100: its point moved two digits on, which is
+/// exact, as multiplying the float isn't.
+inline std::string hundred_times(const std::string_view fixed) {
+    const std::size_t point = std::min(fixed.find('.'), fixed.size());
+    std::string fraction(point < fixed.size() ? fixed.substr(point + 1) : std::string_view());
+    std::string whole(fixed.substr(0, point));
+    fraction.resize(std::max<std::size_t>(fraction.size(), 2), '0');
+    whole += fraction.substr(0, 2);
+    whole.erase(0, std::min(whole.find_first_not_of('0'), whole.size() - 1));
+    return fraction.size() > 2 ? whole + "." + fraction.substr(2) : whole;
 }
 
 } // namespace format_detail
@@ -598,38 +638,55 @@ inline std::string format_float(double value, const bool float32, const format_s
     const bool negative = std::signbit(value) && !std::isnan(value);
     const std::string_view sign = format_detail::sign_of(negative, spec);
     if (!std::isfinite(value)) {
-        return format_detail::pad_number(sign, "", std::isnan(value) ? "NaN" : "Inf", spec, false);
+        const std::string text =
+            std::string(std::isnan(value) ? "NaN" : "Inf") + (spec.kind == '%' ? "%" : "");
+        return format_detail::pad_number(sign, "", text, spec, false);
     }
 
     const double magnitude = std::fabs(value);
     std::string body;
     std::string suffix;
-    const auto chars = [&](const double number, const std::optional<std::chars_format> format) {
+    const auto chars = [&](const std::chars_format format,
+                           const std::optional<std::uint32_t> precision) {
         return float32
-                   ? format_detail::float_chars(static_cast<float>(number), format, spec.precision)
-                   : format_detail::float_chars(number, format, spec.precision);
+                   ? format_detail::float_chars(static_cast<float>(magnitude), format, precision)
+                   : format_detail::float_chars(magnitude, format, precision);
+    };
+    // Without a precision, fixed text is the shortest digits that read back.
+    const auto fixed = [&] {
+        return float32 ? format_detail::shortest_fixed(static_cast<float>(magnitude))
+                       : format_detail::shortest_fixed(magnitude);
     };
 
     switch (spec.kind) {
     case 'e':
     case 'E':
-        body = format_detail::tidy_exponent(chars(magnitude, std::chars_format::scientific));
+        body = format_detail::tidy_exponent(chars(std::chars_format::scientific, spec.precision));
         if (spec.kind == 'E') {
             std::ranges::replace(body, 'e', 'E');
         }
 
         break;
     case 'f':
-        body = chars(magnitude, std::chars_format::fixed);
+        body = spec.precision ? chars(std::chars_format::fixed, spec.precision) : fixed();
         break;
-    case '%':
-        body = chars(magnitude * 100, std::chars_format::fixed);
+    case '%': {
+        // The point moves two digits in the value's own text, rounded to two more decimals than
+        // the precision, which is the product's, exactly.
+        body = format_detail::hundred_times(
+            spec.precision ? chars(std::chars_format::fixed, *spec.precision + 2) : fixed());
         suffix = "%";
         break;
+    }
     default:
-        // ".2" alone is fixed, and no precision the shortest text.
-        body = spec.precision ? chars(magnitude, std::chars_format::fixed)
-                              : shortest_text(magnitude, float32);
+        // ".2" alone is fixed, and no precision the shortest text, but in fixed form, without
+        // an exponent, where its digits are grouped or padded with zeros.
+        if (spec.precision) {
+            body = chars(std::chars_format::fixed, spec.precision);
+        } else {
+            body = spec.grouping != 0 || spec.zero ? fixed() : shortest_text(magnitude, float32);
+        }
+
         break;
     }
 
