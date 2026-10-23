@@ -213,9 +213,12 @@ End Interface
   object. The built-in `Hash` goes with the built-in `==`, so a type with an Operator `==` of
   its own needs a `Hash` of its own, however it gets that `==`: written, inherited, from an
   Interface's default, from another file's Extend, or, for one instance, from an Extend of it.
-  A Class with such an `==` and no `Hash` is `Equatable` but not `Hashable`, unless it lists
-  `Hashable`, which is then that error. One whose `==` has a Where line, its own or an
-  Extend's, implements them as it lists them, as a Struct does.
+  That `Hash` is `Hash(): UInt64`; one that gives another type is a Method like any other. A
+  Class with such an `==` and no `Hash` is `Equatable` but not `Hashable`, unless it lists
+  `Hashable`, which is then that error. An instance whose Extend gives it an `==` decides for
+  itself: `Box<String>`, given an `==` and a `Hash`, hashes with them, and given only an `==`
+  isn't `Hashable`, while `Box<Int32>` hashes its objects. One whose `==` has a Where line, its
+  own or an Extend's, implements them as it lists them, as a Struct does.
 - Values that are equal have equal hashes. A `T?` that holds a value hashes like it, and Null's
   hash is 0.
 - What implements `Printable` goes in a string through its `ToString`: `"{enemy}"`. An
