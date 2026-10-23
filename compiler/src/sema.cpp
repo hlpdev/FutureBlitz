@@ -21011,9 +21011,14 @@ private:
         return declared.type;
     }
 
-    /// "State.Walk": one of an Enum's values, known at compile time.
+    /// "State.Walk": one of an Enum's values, known at compile time. While types are declared, as
+    /// a Field's size uses one, its values are declared first if they aren't yet.
     type_id_t check_enum_value(const expr_id_t id, const member_expr_t& node,
                                const type_id_t type) {
+        if (!m_declared) {
+            declare_early(type);
+        }
+
         note_use(m_declared_types.at(type), span_of(node.object));
         const std::vector<enum_value_t>& values = m_analysis.types.get(type).values;
         const auto found = std::ranges::find(values, node.member.text, &enum_value_t::name);

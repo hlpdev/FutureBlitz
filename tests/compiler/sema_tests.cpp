@@ -7585,6 +7585,22 @@ TEST_CASE("Const Functions can be generic, and give the sizes in declarations' t
                 "Const Function Cells(): Int => 4 * 4\n"
                 "Local b = Board()\n"
                 "Local x = b.Cells") == "Int32[16]");
+
+    // An Enum declared later has its values there too, used directly, through a Const, or in a
+    // Const Function.
+    constexpr std::string_view grid =
+        "Struct Grid\n"
+        "    Field cells: Int[Extra.BONUS As Int]\n"
+        "    Field more: Int[SIZE]\n"
+        "    Field most: Int[Size(4)]\n"
+        "End Struct\n"
+        "Const SIZE = (Extra.BONUS As Int) * 3\n"
+        "Const Function Size(n: Int): Int => n + (Extra.BONUS As Int)\n"
+        "Enum Extra\n    BONUS = 2\nEnd Enum\n"
+        "Local g = Grid()\n";
+    CHECK(probe(std::format("{}Local x = g.cells", grid)) == "Int32[2]");
+    CHECK(probe(std::format("{}Local x = g.more", grid)) == "Int32[6]");
+    CHECK(probe(std::format("{}Local x = g.most", grid)) == "Int32[6]");
 }
 
 TEST_CASE("a Const type argument or size can be computed from Const type parameters", "[sema]") {
