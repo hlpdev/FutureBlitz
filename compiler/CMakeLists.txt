@@ -70,14 +70,15 @@ inline constexpr std::string_view std_directory = \"${PROJECT_SOURCE_DIR}/std\";
 inline constexpr auto link_options = std::to_array<std::string_view>({ ${FB_LINK_OPTIONS} });
 
 /// A C library std is built on, which a program links when it calls the runtime's functions
-/// whose names start with `prefix`.
+/// whose names start with one of its `prefixes`.
 struct bundled_library_t {
     std::string_view name;
     std::string_view version;
     /// The licenses it's under, as \"the MIT license\" says it, which a program that links it
     /// ships the notices of.
     std::string_view license;
-    std::string_view prefix;
+    /// Separated by spaces.
+    std::string_view prefixes;
     /// The runtime's own archive of those functions, which goes before the library's.
     std::string_view runtime;
     /// The library's archives, separated by semicolons.
@@ -93,7 +94,7 @@ inline constexpr auto bundled_libraries = std::to_array<bundled_library_t>({
         .name = \"libuv\",
         .version = \"${FB_LIBUV_VERSION}\",
         .license = \"${FB_LIBUV_LICENSES}\",
-        .prefix = \"fb_io_\",
+        .prefixes = \"fb_io_ fb_os_\",
         .runtime = \"$<TARGET_FILE:fb_runtime_io>\",
         .archives = \"$<TARGET_FILE:uv_a>\",
         .notice = \"${FB_LIBUV_NOTICE}\",
@@ -103,7 +104,7 @@ inline constexpr auto bundled_libraries = std::to_array<bundled_library_t>({
         .name = \"mbedTLS\",
         .version = \"${FB_MBEDTLS_VERSION}\",
         .license = \"${FB_MBEDTLS_LICENSES}\",
-        .prefix = \"fb_crypto_\",
+        .prefixes = \"fb_crypto_\",
         .runtime = \"$<TARGET_FILE:fb_runtime_crypto>\",
         .archives = \"$<TARGET_FILE:tfpsacrypto>\",
         .notice = \"${FB_MBEDTLS_NOTICE}\",
@@ -113,7 +114,7 @@ inline constexpr auto bundled_libraries = std::to_array<bundled_library_t>({
         .name = \"xxHash\",
         .version = \"${FB_XXHASH_VERSION}\",
         .license = \"${FB_XXHASH_LICENSES}\",
-        .prefix = \"fb_xxhash_\",
+        .prefixes = \"fb_xxhash_\",
         .runtime = \"$<TARGET_FILE:fb_runtime_xxhash>\",
         .archives = \"$<TARGET_FILE:xxhash>\",
         .notice = \"${FB_XXHASH_NOTICE}\",
@@ -123,7 +124,7 @@ inline constexpr auto bundled_libraries = std::to_array<bundled_library_t>({
         .name = \"BLAKE3\",
         .version = \"${FB_BLAKE3_VERSION}\",
         .license = \"${FB_BLAKE3_LICENSES}\",
-        .prefix = \"fb_blake3_\",
+        .prefixes = \"fb_blake3_\",
         .runtime = \"$<TARGET_FILE:fb_runtime_blake3>\",
         .archives = \"$<TARGET_FILE:blake3>\",
         .notice = \"${FB_BLAKE3_NOTICE}\",
@@ -133,7 +134,7 @@ inline constexpr auto bundled_libraries = std::to_array<bundled_library_t>({
         .name = \"Argon2\",
         .version = \"${FB_ARGON2_VERSION}\",
         .license = \"${FB_ARGON2_LICENSES}\",
-        .prefix = \"fb_argon2_\",
+        .prefixes = \"fb_argon2_\",
         .runtime = \"$<TARGET_FILE:fb_runtime_argon2>\",
         .archives = \"$<TARGET_FILE:argon2>\",
         .notice = \"${FB_ARGON2_NOTICE}\",
@@ -143,7 +144,7 @@ inline constexpr auto bundled_libraries = std::to_array<bundled_library_t>({
         .name = \"crypt_blowfish\",
         .version = \"${FB_CRYPT_BLOWFISH_VERSION}\",
         .license = \"${FB_CRYPT_BLOWFISH_LICENSES}\",
-        .prefix = \"fb_bcrypt_\",
+        .prefixes = \"fb_bcrypt_\",
         .runtime = \"$<TARGET_FILE:fb_runtime_bcrypt>\",
         .archives = \"$<TARGET_FILE:crypt_blowfish>\",
         .notice = \"${FB_CRYPT_BLOWFISH_NOTICE}\",
@@ -153,7 +154,7 @@ inline constexpr auto bundled_libraries = std::to_array<bundled_library_t>({
         .name = \"Monocypher\",
         .version = \"${FB_MONOCYPHER_VERSION}\",
         .license = \"${FB_MONOCYPHER_LICENSES}\",
-        .prefix = \"fb_ed25519_\",
+        .prefixes = \"fb_ed25519_\",
         .runtime = \"$<TARGET_FILE:fb_runtime_ed25519>\",
         .archives = \"$<TARGET_FILE:monocypher>\",
         .notice = \"${FB_MONOCYPHER_NOTICE}\",
@@ -163,7 +164,7 @@ inline constexpr auto bundled_libraries = std::to_array<bundled_library_t>({
         .name = \"SQLite\",
         .version = \"${FB_SQLITE_VERSION}\",
         .license = \"${FB_SQLITE_LICENSES}\",
-        .prefix = \"fb_db_\",
+        .prefixes = \"fb_db_\",
         .runtime = \"$<TARGET_FILE:fb_runtime_db>\",
         .archives = \"$<TARGET_FILE:sqlite>\",
         .notice = \"${FB_SQLITE_NOTICE}\",
@@ -173,7 +174,7 @@ inline constexpr auto bundled_libraries = std::to_array<bundled_library_t>({
         .name = \"libtommath\",
         .version = \"${FB_LIBTOMMATH_VERSION}\",
         .license = \"${FB_LIBTOMMATH_LICENSES}\",
-        .prefix = \"fb_bigint_\",
+        .prefixes = \"fb_bigint_\",
         .runtime = \"$<TARGET_FILE:fb_runtime_bigint>\",
         .archives = \"$<TARGET_FILE:tommath>\",
         .notice = \"${FB_LIBTOMMATH_NOTICE}\",
@@ -183,7 +184,7 @@ inline constexpr auto bundled_libraries = std::to_array<bundled_library_t>({
         .name = \"mpdecimal\",
         .version = \"${FB_MPDECIMAL_VERSION}\",
         .license = \"${FB_MPDECIMAL_LICENSES}\",
-        .prefix = \"fb_decimal_\",
+        .prefixes = \"fb_decimal_\",
         .runtime = \"$<TARGET_FILE:fb_runtime_decimal>\",
         .archives = \"$<TARGET_FILE:mpdecimal>\",
         .notice = \"${FB_MPDECIMAL_NOTICE}\",
@@ -193,7 +194,7 @@ inline constexpr auto bundled_libraries = std::to_array<bundled_library_t>({
         .name = \"tzdata\",
         .version = \"${FB_TZDATA_VERSION}\",
         .license = \"${FB_TZDATA_LICENSES}\",
-        .prefix = \"fb_tz_\",
+        .prefixes = \"fb_tz_\",
         .runtime = \"$<TARGET_FILE:fb_runtime_tz>\",
         .archives = \"$<TARGET_FILE:fb_tzdata>\",
         .notice = \"${FB_TZDATA_NOTICE}\",
@@ -203,7 +204,7 @@ inline constexpr auto bundled_libraries = std::to_array<bundled_library_t>({
         .name = \"zlib-ng\",
         .version = \"${FB_ZLIB_NG_VERSION}\",
         .license = \"${FB_ZLIB_NG_LICENSES}\",
-        .prefix = \"fb_zlib_\",
+        .prefixes = \"fb_zlib_\",
         .runtime = \"$<TARGET_FILE:fb_runtime_zlib>\",
         .archives = \"$<TARGET_FILE:zlib-ng>\",
         .notice = \"${FB_ZLIB_NG_NOTICE}\",
@@ -213,7 +214,7 @@ inline constexpr auto bundled_libraries = std::to_array<bundled_library_t>({
         .name = \"zstd\",
         .version = \"${FB_ZSTD_VERSION}\",
         .license = \"${FB_ZSTD_LICENSES}\",
-        .prefix = \"fb_zstd_\",
+        .prefixes = \"fb_zstd_\",
         .runtime = \"$<TARGET_FILE:fb_runtime_zstd>\",
         .archives = \"$<TARGET_FILE:zstd>\",
         .notice = \"${FB_ZSTD_NOTICE}\",
@@ -223,7 +224,7 @@ inline constexpr auto bundled_libraries = std::to_array<bundled_library_t>({
         .name = \"LZ4\",
         .version = \"${FB_LZ4_VERSION}\",
         .license = \"${FB_LZ4_LICENSES}\",
-        .prefix = \"fb_lz4_\",
+        .prefixes = \"fb_lz4_\",
         .runtime = \"$<TARGET_FILE:fb_runtime_lz4>\",
         .archives = \"$<TARGET_FILE:lz4>\",
         .notice = \"${FB_LZ4_NOTICE}\",
@@ -233,7 +234,7 @@ inline constexpr auto bundled_libraries = std::to_array<bundled_library_t>({
         .name = \"liblzma\",
         .version = \"${FB_LIBLZMA_VERSION}\",
         .license = \"${FB_LIBLZMA_LICENSES}\",
-        .prefix = \"fb_xz_\",
+        .prefixes = \"fb_xz_\",
         .runtime = \"$<TARGET_FILE:fb_runtime_xz>\",
         .archives = \"$<TARGET_FILE:liblzma>\",
         .notice = \"${FB_LIBLZMA_NOTICE}\",
@@ -243,7 +244,7 @@ inline constexpr auto bundled_libraries = std::to_array<bundled_library_t>({
         .name = \"minizip-ng\",
         .version = \"${FB_MINIZIP_NG_VERSION}\",
         .license = \"${FB_MINIZIP_NG_LICENSES}\",
-        .prefix = \"fb_zip_\",
+        .prefixes = \"fb_zip_\",
         .runtime = \"$<TARGET_FILE:fb_runtime_zip>\",
         .archives = \"$<TARGET_FILE:minizip_ng>;$<TARGET_FILE:zlib-ng>;$<TARGET_FILE:zstd>;$<TARGET_FILE:liblzma>\",
         .notice = \"${FB_MINIZIP_NG_NOTICE}\",

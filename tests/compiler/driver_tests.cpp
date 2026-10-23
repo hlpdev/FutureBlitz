@@ -657,6 +657,9 @@ TEST_CASE("a program links the bundled C libraries of the runtime functions it c
     CHECK(bundled("Import std.uuid\nLocal id = Uuid.Parse(\"\")").empty());
     CHECK(bundled("Import std.uuid\nLocal id = Uuid.V4()") ==
           std::vector<std::string_view>{ "mbedTLS" });
+    // std.os is over libuv too, through a prefix of its own.
+    CHECK(bundled("Import std.core\nImport std.os\nPrint(Env.Get(\"HOME\") ?? \"none\")") ==
+          std::vector<std::string_view>{ "libuv" });
 }
 
 TEST_CASE("std.compress's formats link the C libraries they're over, with their notices",

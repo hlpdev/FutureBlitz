@@ -1731,10 +1731,16 @@ std::expected<std::vector<library_file_t>, std::string> standard_library() {
 std::vector<const build_config::bundled_library_t*> bundled_libraries(const mir_module_t& module) {
     std::vector<const build_config::bundled_library_t*> used;
     for (const build_config::bundled_library_t& library : build_config::bundled_libraries) {
+        const auto has_prefix = [&](const std::string_view symbol) {
+            return std::ranges::any_of(
+                std::views::split(library.prefixes, ' '), [&](const auto prefix) {
+                    return symbol.starts_with(std::string_view(prefix.begin(), prefix.end()));
+                });
+        };
         const bool calls =
             std::ranges::any_of(module.functions, [&](const mir_function_t& function) {
                 return function.external && !function.external->c_abi &&
-                       function.external->symbol.starts_with(library.prefix);
+                       has_prefix(function.external->symbol);
             });
         if (calls) {
             used.push_back(&library);

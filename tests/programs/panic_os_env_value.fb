@@ -1,0 +1,7 @@
+// So does a value with a NUL.
+Import std.core
+Import std.os
+
+Env.Set("FB_OS_ENV_VALUE", "fine")
+Print(Env.Get("FB_OS_ENV_VALUE") ?? "Null")
+Env.Set("FB_OS_ENV_VALUE", "a\0b")

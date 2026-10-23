@@ -1,0 +1,31 @@
+// std.os's Env: Get, Set, Unset, and All, over the environment the program starts with and passes
+// on.
+
+Import std.core
+Import std.os
+
+Print(Env.Get("FB_OS_ENV_NEVER_SET") ?? "Null", Env.Get("PATH") != Null)
+
+Env.Set("FB_OS_ENV", "a = b, µ")
+Print(Env.Get("FB_OS_ENV") ?? "Null", Env.All()["FB_OS_ENV"])
+Env.Set("FB_OS_ENV", "again")
+Print(Env.Get("FB_OS_ENV") ?? "Null")
+
+// An empty value is set.
+Env.Set("FB_OS_ENV", "")
+Print("[{Env.Get("FB_OS_ENV") ?? "Null"}]", Env.All().Contains("FB_OS_ENV"))
+
+Env.Unset("FB_OS_ENV")
+Print(Env.Get("FB_OS_ENV") ?? "Null", Env.All().Contains("FB_OS_ENV"))
+Env.Unset("FB_OS_ENV")
+
+// No variable has an empty name, or one with an '=' or a NUL.
+Print(Env.Get("") ?? "Null", Env.Get("A=B") ?? "Null", Env.Get("A\0B") ?? "Null")
+
+// Every variable All lists is one Get gives.
+Local all = Env.All()
+Local same = True
+For name In all.Keys()
+    same = same && Env.Get(name) == all[name]
+End For
+Print(all.Count > 0, same)

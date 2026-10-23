@@ -1,0 +1,2 @@
+fine
+panic: Env.Set takes a value without a NUL at panic_os_env_value.fb:7:1

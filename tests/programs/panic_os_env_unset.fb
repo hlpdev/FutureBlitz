@@ -1,0 +1,7 @@
+// And Env.Unset with a name no variable can have.
+Import std.core
+Import std.os
+
+Env.Unset("FB_OS_ENV_NEVER_SET")
+Print("unset")
+Env.Unset("")

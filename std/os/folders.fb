@@ -1,0 +1,83 @@
+// Folders, where the OS keeps the user's things and the program's, each where that OS's own apps
+// keep them; and OpenDefault, which opens a file, a folder, or a URL in the app the OS opens it
+// with.
+
+Import std.core
+
+Extern "runtime"
+    Function fb_os_folder(folder: Int32): String?
+    Function fb_os_open_default(target: String): Int32
+End Extern
+
+// The runtime's numbers for the folders.
+Const EXECUTABLE = 1
+Const HOME = 2
+Const CONFIG = 3
+Const DATA = 4
+Const CACHE = 5
+Const TEMP = 6
+Const DOCUMENTS = 7
+
+// Folders' Static Properties, each a folder's path, or Null when the OS doesn't say.
+Public Struct Folders
+    // Folders isn't made: it's only its Static Properties.
+    New()
+    End New
+
+    // The program's own file.
+    Public Static Property Executable: String?
+        Get => fb_os_folder(EXECUTABLE)
+    End Property
+
+    // The user's home folder.
+    Public Static Property Home: String?
+        Get => fb_os_folder(HOME)
+    End Property
+
+    // Where programs keep the user's settings: Windows' roaming AppData, macOS's
+    // ~/Library/Application Support, or Linux's XDG_CONFIG_HOME, ~/.config by default. A program
+    // keeps its own in a folder of its name there.
+    Public Static Property Config: String?
+        Get => fb_os_folder(CONFIG)
+    End Property
+
+    // Where programs keep the user's data: Windows' roaming AppData, macOS's
+    // ~/Library/Application Support, or Linux's XDG_DATA_HOME, ~/.local/share by default.
+    Public Static Property Data: String?
+        Get => fb_os_folder(DATA)
+    End Property
+
+    // Where programs keep what they can make again: Windows' local AppData, macOS's
+    // ~/Library/Caches, or Linux's XDG_CACHE_HOME, ~/.cache by default.
+    Public Static Property Cache: String?
+        Get => fb_os_folder(CACHE)
+    End Property
+
+    // Where programs keep files for a while: TMPDIR, TEMP, or TMP, or the OS's own.
+    Public Static Property Temp: String?
+        Get => fb_os_folder(TEMP)
+    End Property
+
+    // The user's documents: Windows' Documents, macOS's ~/Documents, or the one Linux's
+    // user-dirs.dirs names, ~/Documents by default.
+    Public Static Property Documents: String?
+        Get => fb_os_folder(DOCUMENTS)
+    End Property
+End Struct
+
+// Opens target, a file, a folder, or a URL like "https://futureblitz.dev", in the app the OS
+// opens it with, and returns once the OS has taken it. Throws an IOError when target is neither a
+// URL nor a file or folder that's there (NOT_FOUND), when the program may not open it
+// (PERMISSION_DENIED), or when no app opens it (OTHER).
+Public Function OpenDefault(target: String) Throws IOError
+    Local result = fb_os_open_default(target)
+    If result == 1
+        Throw IOError(IOErrorKind.NOT_FOUND, "there's no file or folder at {target}", target)
+    End If
+
+    If result == 2
+        Throw IOError(IOErrorKind.PERMISSION_DENIED, "the program may not open {target}", target)
+    End If
+
+    If result == 3 Then Throw IOError(IOErrorKind.OTHER, "no app opens {target}", target)
+End Function
