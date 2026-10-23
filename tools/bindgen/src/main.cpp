@@ -142,9 +142,19 @@ std::expected<std::optional<request_t>, std::string> parse(const std::vector<std
             library ? std::format("'{}'", request.options.library)
                     : std::format("the header's name, '{}',", request.options.library)));
     }
-    if (request.output.empty()) {
+    const bool named = !request.output.empty();
+    if (!named) {
         request.output = request.options.header.stem();
         request.output += ".fb";
+    }
+
+    // Writing over the header would lose it, as fb build won't write over a program's files.
+    std::error_code error;
+    if (std::filesystem::equivalent(request.output, request.options.header, error)) {
+        const std::string path = fb::to_utf8(request.output);
+        return std::unexpected(
+            named ? std::format("'-o' names the header, {}; give another path", path)
+                  : std::format("the module would be {}, the header; give its path with -o", path));
     }
 
     return request;

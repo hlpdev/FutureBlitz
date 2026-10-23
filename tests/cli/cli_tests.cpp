@@ -456,6 +456,23 @@ TEST_CASE("fb bindgen runs fb-bindgen, which writes a C header's module", "[cli]
     const std::filesystem::path unnamed = write_source("bindgen/b\xC3\xA4r.h", "int f(int);\n");
     check_usage_error({ "bindgen", fb::to_utf8(unnamed) },
                       "isn't a name a [native] library can have");
+
+    // The module never goes over the header, whichever path it's given by.
+    check_usage_error(
+        { "bindgen", fb::to_utf8(header), "-o", fb::to_utf8(header) },
+        std::format("'-o' names the header, {}; give another path", fb::to_utf8(header)));
+    // Without -o, the module goes in the current folder, named after the header.
+    const std::filesystem::path module_named = write_source("bindgen/named.fb", "int g(int);\n");
+    const std::filesystem::path before = std::filesystem::current_path();
+    std::filesystem::current_path(module_named.parent_path());
+    const fb::process_result_t over = fb_run({ "bindgen", "named.fb" });
+    std::filesystem::current_path(before);
+    INFO(over.output);
+    CHECK(over.exit_code == 2);
+    CHECK(over.output.contains("the module would be named.fb, the header; give its path with -o"));
+    std::ifstream kept(header, std::ios::binary);
+    CHECK(std::string(std::istreambuf_iterator<char>(kept), {}) ==
+          "int area(int width, int height);\n");
 #else
     SKIP("fb-bindgen is built only where CMake finds libclang");
 #endif
