@@ -412,9 +412,10 @@ generator, noise, easing, stats, and fixed point; the rest is planned.
   does where they're put in order, for a median, a percentile, or a histogram's own range, which
   an infinite value panics for too.
 - Fixed point (fixed.fb): `Fixed32` (16.16, in an Int32) and `Fixed64` (32.32, in an Int64),
-  `Numeric`, `Comparable`, `Hashable`, `Bounded`, and `Printable`, from `FromInt`, `FromDouble`,
-  `FromFloat`, or `FromRaw`, with `Raw`, `ToDouble`, `ToFloat`, `ToInt`, `ToFixed64` and
-  `ToFixed32`, `Pi`, and `Tau`; `*` and `/` round to the nearest, and `Sqrt`, `Sin`, and `Cos`
+  `Numeric`, `Comparable`, `Hashable`, `Bounded`, and `Printable` (a Fixed64 from its bits, with
+  the fewest digits nearer it than any other), from `FromInt`, `FromDouble`, `FromFloat`, or
+  `FromRaw`, with `Raw`, `ToDouble`, `ToFloat`, `ToInt`, `ToFixed64` and `ToFixed32`, `Pi`, and
+  `Tau`; `*` and `/` round to the nearest, and `Sqrt`, `Sin`, and `Cos`
   are correctly rounded (`Sin` and `Cos` from a 62-bit series, worked out again in 124 bits where
   that lands too near halfway to tell), all in integers, so they give the same bits on every OS
   and CPU, for lockstep multiplayer and replays. Overflow traps in debug builds and wraps in
