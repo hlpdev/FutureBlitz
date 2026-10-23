@@ -43,11 +43,13 @@ struct global_t {
     std::string name;
     type_id_t type = type_id_t::INVALID;
     /// Its value when the program starts: the initializer's when that's known at compile time,
-    /// else zero, False, or "" until main sets it. nullopt for a Struct, which starts with every
-    /// field at zero.
+    /// else zero, False, or "" until main sets it. nullopt for a type whose zero isn't a
+    /// constant, like a Struct's, a Class's, a T[]'s, or a fixed array's, which starts at its
+    /// zero.
     std::optional<const_value_t> initial;
     /// Main sets it with its initializer, first. A function that an earlier one's initializer
-    /// calls could use it before that, which debug builds check (ready_t).
+    /// calls could use it before that, which debug builds check (ready_t), and release builds
+    /// too where its zero holds a null object.
     bool set_in_main = false;
 };
 
@@ -305,7 +307,6 @@ struct downcast_t {
     bool or_null = false;
 };
 
-/// Something a statement computes.
 /// Calls a function value: the code in slot 0 of its object's Method table, with the object
 /// first, then the arguments.
 struct invoke_t {
@@ -387,6 +388,7 @@ struct lock_t {
     span_t span;
 };
 
+/// Something a statement computes.
 using rvalue_t = std::variant<use_t, unary_t, binary_t, cast_t, call_t, runtime_call_t, aggregate_t,
                               array_t, zero_t, new_t, is_t, downcast_t, invoke_t, atomic_t, lock_t,
                               channel_t, address_of_t, pointer_t, callback_t>;
@@ -497,8 +499,9 @@ struct mir_function_t {
     /// place as a hidden last parameter, which its panics report, and it passes that on to the
     /// @PanicsAtCaller functions it calls.
     bool panics_at_caller = false;
-    /// An Async Function's code: a coroutine, whose first parameter is its Task. Its Returns end
-    /// the coroutine, and it gives LLVM its handle.
+    /// An Async Function's code: a coroutine, whose Task is its first parameter, or the one after
+    /// a Method's Self or a lambda's closure. Its Returns end the coroutine, and it gives LLVM its
+    /// handle.
     bool is_async = false;
     /// An Extern Function: only its parameters, with no blocks, since other code defines it.
     std::optional<mir_extern_t> external;
@@ -524,11 +527,6 @@ struct mir_class_t {
     std::vector<mir_implementation_t> interfaces;
 };
 
-/// A whole program, lowered from its modules' files. Names view the source text, so the files
-/// must outlive the module. Names outside the main module start with their module, like
-/// "std.collections.map.Map<Int32, String>.Add(Int32, String)", so two modules' names stay apart,
-/// and the few that still come out alike, as module x's Class y's and module x.y's do, are
-/// numbered: "x.y.Z()#2".
 /// Why lowering stopped: code that would need a larger instance of generic code each time it
 /// runs, without end, which analysis didn't catch, at the code that makes the instance.
 struct mir_error_t {
@@ -536,13 +534,19 @@ struct mir_error_t {
     span_t span;
 };
 
+/// A whole program, lowered from its modules' files. Names view the source text, so the files
+/// must outlive the module. Names outside the main module start with their module, like
+/// "std.collections.map.Map<Int32, String>.Add(Int32, String)", so two modules' names stay apart,
+/// and the few that still come out alike, as module x's Class y's and module x.y's do, are
+/// numbered: "x.y.Z()#2".
 struct mir_module_t {
     std::vector<global_t> globals;
     std::vector<mir_class_t> classes;
     /// The array types whose objects go where an Interface is expected, with a table for each
     /// Interface they implement. They have no Destroy or Method table.
     std::vector<mir_class_t> array_classes;
-    /// The Functions in source order, then the entry.
+    /// The main module's functions that aren't generic, then the entry, then the other modules'
+    /// functions and the instances of generic ones, as the program uses them.
     std::vector<mir_function_t> functions;
     /// "main": the top-level code, which runs when the program starts. Globals whose values
     /// aren't known at compile time are set at its start.

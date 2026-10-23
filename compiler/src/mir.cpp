@@ -517,7 +517,7 @@ private:
         return std::format("{} {}({})", keyword("new"), type(node.type), operand(node.capacity));
     }
 
-    /// "lock global.score", or "unlock global.score".
+    /// "lock @score", or "unlock @score".
     [[nodiscard]] std::string dump(const lock_t& node) const {
         return std::format("{} {}", keyword(node.unlock ? "unlock" : "lock"), place(node.target));
     }
@@ -585,7 +585,7 @@ private:
         return keyword("unreachable");
     }
 
-    /// "suspend, then bb3"
+    /// "suspend, then bb3, cancel bb4"
     [[nodiscard]] std::string dump(const suspend_t& node) const {
         return std::format("{}, {} {}, {} {}", keyword("suspend"), keyword("then"),
                            label(node.resume), keyword("cancel"), label(node.cancel));
