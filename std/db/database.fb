@@ -51,9 +51,9 @@ Public Enum ColumnType
 End Enum
 
 // What a statement's parameter takes: an integer, a Bool as 1 or 0, a Float32 or Float64 as a
-// real, a String as text, a UInt8[] as a blob, or a Nullable, NULL when its value is Null. A type
-// of the program's is one too when its BindTo binds one of these, with statement.Bind(index,
-// value).
+// real, but for NaN, a String as text, a UInt8[] as a blob, or a Nullable, NULL when its value is
+// Null. A type of the program's is one too when its BindTo binds one of these, with
+// statement.Bind(index, value).
 Public Interface SqlValue
     // Binds statement's parameter at index, from 1, to the value.
     Method BindTo(statement: Statement, index: Int) Throws DatabaseError
@@ -119,14 +119,20 @@ Extend Bool Implements SqlValue
     End Method
 End Extend
 
+// SQLite keeps a NaN as NULL, so one throws a DatabaseError instead.
 Extend Float32 Implements SqlValue
     Method BindTo(statement: Statement, index: Int) Throws DatabaseError
-        Try statement.Check(fb_db_bind_real(statement.Handle, index, Self))
+        Try (Self As Float64).BindTo(statement, index)
     End Method
 End Extend
 
 Extend Float64 Implements SqlValue
     Method BindTo(statement: Statement, index: Int) Throws DatabaseError
+        If Self != Self
+            Throw DatabaseError(DatabaseErrorKind.OTHER,
+                                "SQLite can't hold a NaN, which it keeps as NULL")
+        End If
+
         Try statement.Check(fb_db_bind_real(statement.Handle, index, Self))
     End Method
 End Extend

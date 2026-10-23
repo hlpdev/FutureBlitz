@@ -97,6 +97,20 @@ Function Run() Throws DatabaseError
     Catch e As DatabaseError
         Report(e)
     End Try
+    // SQLite keeps a NaN as NULL, which it isn't; an infinity is a real.
+    Local zero = 0.0 As Float64
+    Try
+        db.Rows("SELECT ?", zero / zero)
+    Catch e As DatabaseError
+        Report(e)
+    End Try
+    Try
+        db.Rows("SELECT ?", (zero / zero) As Float32)
+    Catch e As DatabaseError
+        Report(e)
+    End Try
+    Local infinite = (Try db.Rows("SELECT ?, typeof(?1)", 1.0 / zero))[0]
+    Print(infinite.Real(0) ?? 0.0, infinite.Text(1) ?? "")
     // A semicolon and comments after the one statement are nothing.
     Print((Try db.Prepare("SELECT 1; -- one\n /* statement */ ;")).Parameters)
 
