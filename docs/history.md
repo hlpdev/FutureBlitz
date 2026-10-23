@@ -505,6 +505,118 @@ Counter's one-value Add and AddAll panic at the caller; Sendable's comment and s
 compiler and spec 07; a Map lets go of what a change takes out once it's whole again, so a key's or
 value's Destroy can use it (A-new-5).
 
+Step 10, Math II: `ThreadLocal Global`, each thread's own Global in LLVM's thread-local storage,
+made by its initializer on the thread's first use, checked as work on another thread, and released
+as each thread ends, the last made first (a pool worker's as the pool stops, the main thread's
+before the Globals); Bounded's DoubleValue; Random, PCG32, with its ints, floats, picks, shuffles,
+samples, normals, and directions, and the default generator over it, each thread's own, seeded from
+the runtime's fb_random_seed until SeedRandom starts every thread's again: Rand, RandInt, RandFloat,
+and arrays' Shuffle and Sample; Noise (Perlin, Simplex, Value, Worley, and Fbm); 30 easings; Mean,
+Median, Variance, StdDev, Percentile, and Histogram over any number type; Bezier, Hermite,
+Catmull-Rom, and B-spline points, and Curve2 and Curve3 with arc-length sampling; polygon area,
+point-in-polygon, convex hull, earcut triangulation with holes, union, intersection, difference
+(split, classified by winding, snapped), and offsetting; Fixed32 and Fixed64, whose Sqrt, Sin, and
+Cos are correctly rounded integer math (Sin and Cos by Ziv's way, in 62 bits and then 124 near
+halfway). Its review's 15 fixes: splines measured per segment; Fixed64's Sin and Cos correctly
+rounded, ToFloat rounded once, and printed from its bits; Percentile, Median, Mean, and Histogram at
+their edges, infinities, overflows, and subnormals; the booleans' probes and snapping by each part's
+own size; Worley's 5 by 5 search and Simplex's cells as Doubles; WeightedPick past overflow, a
+negative stream's panic, and the libm comments.
+
+Step 10's ThreadLocal review (8 findings, 1 high): a ThreadLocal on a thread C started sets up its
+letting_go_t first (ready_letting_go()), so it outlives the thread's locals; std's default generator
+is each thread's Pcg, a Struct of PCG32's state with ByRef draws, so no thread releases it and any
+Destroy can draw; fb_thread_locals_release marks the thread, and the pool's finish() on a marked
+thread waits while restarted workers run late jobs; queued jobs carry their numbers, and a maker's
+fb_thread_local_making() and fb_thread_local_made() keep run_own() to newer jobs meanwhile;
+check_worker() doesn't take a Global's @MainThread as its initializer's, and the ThreadLocal,
+Shared, and Async placement errors give way to the attribute-order error. Tests:
+thread_locals_c_thread, math_rand_destroy, thread_locals_late_jobs, thread_locals_making.
+
+Step 9's SIMD (m6-plan item 13): optimize() sets LLVMPassBuilderOptionsSetLoopVectorization and
+SetSLPVectorization for release builds; tests/compiler/codegen_tests.cpp's ir_of() and its test that
+a release build's IR of a Vec4 add and a Mat4 product, over arrays and on a Class's Fields, for
+x86-64 and AArch64, holds `<4 x float>` operations, and a debug build's doesn't; stdlib.md says a
+result that goes to memory is SIMD and one read a float at a time, as Print does, isn't.
+
+Step 23, std.db and std.uuid but for Query<T> and V7: SQLite 3.54.1's amalgamation in third_party/
+(without extension loading or what's deprecated, with foreign keys on, DQS=0, FTS5, and its math
+functions), its own fb_runtime_db archive of fb_db_ functions, and its notice, the dedication and
+blessing atop sqlite3.h; std/db/database.fb's Database (Open, with a 5-second busy wait, Close,
+IsClosed, Execute, Rows, Prepare, Begin, Migrate, Changes, LastId), SqlValue (Extends of the
+integers, Bool, the floats, String, and UInt8[], Nullable, and a program's own type through Bind),
+Execute and Rows by count up to eight values, Row (Integer, Real, Text, Blob, Type, IsNull, by index
+or name, read eagerly), Statement (Bind by index or name, Clear, Parameters, Execute, Rows),
+Transaction (BEGIN IMMEDIATE outermost, SAVEPOINTs inside, rolled back when let go of, Commit,
+Rollback, IsOpen, following SQLite's own rollbacks), Migrate by PRAGMA user_version, and
+DatabaseError's kinds from SQLite's codes; std/uuid/uuid.fb's Uuid (V4 over SecureRandom, Parse,
+ToString, Bytes, FromBytes, Version, and `<`). Tests: db_execute, db_errors, db_statements,
+db_transactions, db_migrate, db_close, uuid, fourteen panic_db_ ones and panic_uuid_bytes, driver
+cases for what db and uuid programs link, and CLI cases for SQLite's notice, a db program that loads
+only the system's libraries, and file databases. The review's fixes: Rows(sql) panics at SQL that
+takes parameters (S23-sqlite-1, tx-2, uuid-1); Collect reads a statement's columns after its first
+step, which re-prepares it after a schema change (sqlite-2, tx-1); fb_db_close finalizes the
+connection's statements, so Close lets go of the file and its locks at once, a Statement keeps its
+parameter count, and Clear and Expect panic on a closed Database first (sqlite-3, tx-5);
+Version(count) throws past the last migration inside each migration's Transaction too (tx-3); a NaN
+Float throws rather than binding NULL (sqlite-4, tx-4); a CLI test opens, reopens, and shares file
+databases, waits out the busy timeout, and opens one that isn't a database (sqlite-5); stdlib.md
+names every panic (uuid-2).
+
+Phase 1's review, lane 1's 17 sema findings: check_defaults() checks a Const Function's defaults in
+an empty body with the kept bag, so a run inside another function or quietly() resolves the
+function's own names and reports their errors (P1-sema-checks-1, -2); a generic Const Function's
+call counts report_bounds()'s errors before it runs (-3); a T[]'s Contains calls note_compared(),
+and link_compared_fields() leads Equatable's == to the Operator == of the fields of a Struct that
+compares them, for the main-thread rules (-4); a cast to or from an Enum declares it early while
+types are declared, and lowering's to_enum() takes an Enum with no values (-5, -6); lowering's
+check_values() walks every Struct's and Class's Fields and base, at a parameter's or a Global's
+place (-7); SizeOf holds a fixed array in what it measures to the written limit, through
+oversized_array() (-8); common_type_of() meets the tuples that type alone first, quietly, so their
+order doesn't matter (-9); check_inherited_static() keeps a Static Method from an inherited Field's
+or Property's name (types-1); check_type_parameter_names() checks a type's type parameters once
+every type is declared (types-2); is_hash() is the one test of a Hash(): UInt64, for has_hash() and
+gets_default() (types-3); hash_instances() decides Hashable for each instance an Extend gives an ==,
+with analysis_t's unhashed_instances, and has_hash() counts an instance base's Extend (types-4, spec
+07); comparable() stops at an instance whose Field the type table cut short, and compared_growth()
+says so in the == and Contains errors (types-5); a Static Property used by name skips
+check_self_ready() (types-6); report_read_only() says a lambda or a Parallel For's body in New runs
+later or on other threads (types-8); in_new_of() has one doc comment (types-9). Tests: sema_tests
+and mir_tests cases beside each, and hashable_instances.
+
+Step 18's library half (lane 6): runtime/src/concurrent.cpp and fb/concurrent.hpp, handles as
+UInt64s (std::bit_cast): fb_semaphore_, fb_barrier_, fb_wait_group_, fb_once_, fb_rwlock_
+(writer-preferring, a thread_local list of held locks, so taking one again gives 1), and fb_signal_
+(fb_signal_task, an Extern giving a plain Task the signal finishes, not an I/O request).
+std/concurrent/locks.fb: Semaphore (Acquire, TryAcquire, Release, Available), Barrier (Wait, True
+for the round's last, Count), WaitGroup (Add, Done, Wait, Count), Once (Do, IsDone), RwLock<T:
+Sendable> (Read<R>, Write, Value, over a Mutex<T?>); concurrent_map.fb: ConcurrentMap<K, V> (16
+MapParts of Mutex<ImmutableMap<K, MapCell<V>>> by the hash's top 4 bits; Add, TryAdd, Get, GetOrAdd,
+Update, AddOrUpdate, [], []=, Contains, Remove, Clear, Keys, Values, ToMap, Count, DefaultValue;
+make and change outside the lock, retried when RefEquals sees another cell; CheckMapRoom) and
+ConcurrentMapIterator over per-part copies; concurrent_queue.fb: ConcurrentQueue<T: Sendable>
+(QueueValues: a Channel ring that GrownRing doubles to an Int's most, and TryPeek's Front; Enqueue,
+Add, AddAll, TryDequeue, TryPeek, ToArray, Clear, Count; CheckQueueRoom); tasks.fb: TaskSource<T:
+Sendable> (Task, IsDone, Finish, TryFinish; Finished awaits the signal's Task), WhenAll and WhenAny
+for Task<T>[] and Task[] (AllOf, FirstOf). std/events/event.fb: Event<T> (Subscribe, Emit over the
+handlers it started with, Count, Clear; EventHandler<T>s dropped meanwhile come out after the
+outermost Emit) and Subscription (Cancel, IsActive, a Weak<Subscribed>). Tests:
+concurrent_semaphore, _barrier, _wait_group, _once, _rwlock, _map, _queue, _tasks, events, 15
+panic_concurrent_ programs, tests/runtime/concurrent_tests.cpp, and std_tests' Int-limits case.
+
+Step 18's review (lane 6): ConcurrentQueue.Enqueue counts under its Lock; ConcurrentMap's changes,
+ConcurrentQueue.Clear, and RwLock.Write keep what they replace in a Local until End Lock, so a
+Destroy can use them; ImmutableArrayIterator and ImmutableMapIterator keep their paths in ArrayPath
+and HashPath nodes that Next replaces, so a copy keeps its place; TaskSource's Finished awaits only
+a signal not given yet, and the docs say a Task read before Finish is done at the main thread's next
+tick; ConcurrentMap's PartIndex mixes the hash as Map's BucketOf does; WhenAny's docs give its tie
+rule (of tasks done before it looks at a tick, the first); EventHandler.Drop keeps the handler until
+its Event has counted it off, and Event.Clear takes its handlers out once at the end. Tests:
+concurrent_queue's Count on four threads, a Destroy that uses its map, queue, or RwLock, partly used
+iterators in immutable and concurrent_map, concurrent_tasks' Task read after Finish and WhenAny's
+tie, events' self-cancelling Widget, std_tests' parts, and program_tests' Clear of 100000 handlers;
+concurrent_map's race waits at a Barrier between its adds and removes.
+
 ## M5, modules, packages, FFI, and bindgen
 
 Done: M5 (modules, packages, `project.toml`, FFI, bindgen), planned 2026-10-18 and finished
