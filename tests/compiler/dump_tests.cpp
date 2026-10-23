@@ -56,6 +56,13 @@ TEST_CASE("the token view lines up positions, kinds, and text", "[dump]") {
                                                                        "2:1   end of file\n");
 }
 
+TEST_CASE("the token view escapes every control character in a token's text", "[dump]") {
+    const fb::compilation_t compilation = fb::compile("test.fb", "x = \"a\x1b[31mb\x7f\tc\"\n");
+    const std::string dump = fb::dump_tokens(compilation.source(), compilation.tokens);
+    CHECK(dump.contains("\"a\\x1B[31mb\\x7F\\tc\""));
+    CHECK_FALSE(dump.contains('\x1b'));
+}
+
 TEST_CASE("the token view colors each kind", "[dump]") {
     const fb::compilation_t compilation = fb::compile("test.fb", "Local x = 1");
     const std::string view = fb::dump_tokens(compilation.source(), compilation.tokens, colored);

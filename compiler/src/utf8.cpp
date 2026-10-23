@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <format>
 #include <iterator>
 #include <string>
 #include <string_view>
@@ -206,6 +207,24 @@ decoded_t decode_utf8(const std::string_view text, const std::size_t pos) {
     }
 
     return { .code_point = code_point, .length = length };
+}
+
+std::string escape_controls(const std::string_view text) {
+    std::string out;
+    for (std::size_t at = 0; at < text.size();) {
+        const decoded_t decoded = decode_utf8(text, at);
+        if (!decoded.valid()) {
+            append_utf8(out, U'\uFFFD');
+        } else if (decoded.code_point != U'\t' && is_control(decoded.code_point)) {
+            out += std::format("\\x{:02X}", static_cast<std::uint32_t>(decoded.code_point));
+        } else {
+            out += text.substr(at, decoded.length);
+        }
+
+        at += decoded.length;
+    }
+
+    return out;
 }
 
 void append_utf8(std::string& out, char32_t code_point) {

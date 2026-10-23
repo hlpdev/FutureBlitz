@@ -131,11 +131,13 @@ TEST_CASE("type tests and casts", "[parser]") {
 
 TEST_CASE("string values", "[parser]") {
     CHECK(expression(R"("HP: {hp}/{max}")") == R"((string "HP: " hp "/" max))");
-    CHECK(expression(R"("a\tb {{x}}")") == R"((string "a\tb {x}"))");
+    CHECK(expression(R"("a\tb {{x}}")") == R"((string "a\tb {{x}}"))");
     CHECK(expression(R"("")") == "(string)");
 
-    // The dump escapes the backslashes it prints.
-    CHECK(expression(R"(r"C:\raw\{x}")") == R"((string "C:\\raw\\{x}"))");
+    // The dump writes a value as source would, with its backslashes escaped and its braces
+    // doubled, and every control character escaped, so none reaches the terminal.
+    CHECK(expression(R"(r"C:\raw\{x}")") == R"((string "C:\\raw\\{{x}}"))");
+    CHECK(expression(R"("a\x1B[31mb\r\0\x7F\u{9B}")") == R"((string "a\x1B[31mb\r\0\x7F\u{9B}"))");
     CHECK(expression(R"("{name ?? "nobody"}")") == R"((string (?? name (string "nobody"))))");
     CHECK(expression(R"("\u{1F600}")") == "(string \"😀\")");
 }

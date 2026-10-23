@@ -214,3 +214,23 @@ TEST_CASE("a long line shows the part around the span", "[render]") {
                                                         "1 | " +
                                                             shown + "\n" + marker_row(43, "^"));
 }
+
+TEST_CASE("a message, label, note, or path shows control characters escaped too", "[render]") {
+    // Source text in a message, like an @Deprecated reason or an Import's path, can't change the
+    // terminal either. A tab stays.
+    fb::source_manager_t sources;
+    const fb::file_id_t file = sources.add("ma\x1b"
+                                           "in.fb",
+                                           "x\n");
+    const fb::span_t span{ .file = file, .begin = 0, .end = 1 };
+    diagnostic_t diagnostic{ .message = "use \x1b[2J\tG", .span = span };
+    diagnostic.with_label(span, "here\r")
+        .with_note("\x9b"
+                   "31m \xC2\x9B");
+    CHECK(render_short(diagnostic, sources) == "ma\\x1Bin.fb:1:1: error: use \\x1B[2J\tG\n");
+    const std::string pretty = render_pretty(diagnostic, sources);
+    CHECK_THAT(pretty, ContainsSubstring("note: here\\x0D\n"));
+    CHECK_THAT(pretty, ContainsSubstring("= note: \xEF\xBF\xBD"
+                                         "31m \\x9B\n"));
+    CHECK_THAT(pretty, !ContainsSubstring("\x1b"));
+}

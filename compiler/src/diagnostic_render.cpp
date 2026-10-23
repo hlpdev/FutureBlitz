@@ -41,6 +41,8 @@ tone_t severity_tone(const severity_t severity) {
 }
 
 /// "path:line:col: severity[code]: message", 1-based, with the column counted in code points.
+/// The path and the message can hold source text, so their control characters are escaped, as a
+/// snippet's are.
 std::string header(const source_manager_t& sources, const span_t span, const severity_t severity,
                    const std::string_view code, const std::string_view message,
                    const style_t& style) {
@@ -52,9 +54,9 @@ std::string header(const source_manager_t& sources, const span_t span, const sev
         kind += std::format("[{}]", code);
     }
 
-    return std::format("{}:{}:{}: {}: {}\n", file.path(), location.line + 1, location.column + 1,
-                       style.paint(kind, severity_tone(severity)),
-                       style.paint(message, tone_t::BOLD));
+    return std::format("{}:{}:{}: {}: {}\n", escape_controls(file.path()), location.line + 1,
+                       location.column + 1, style.paint(kind, severity_tone(severity)),
+                       style.paint(escape_controls(message), tone_t::BOLD));
 }
 
 /// One snippet row, "12 | text", with the number right-aligned to `width`.
@@ -91,7 +93,7 @@ std::vector<cell_t> cells_of(const std::string_view line, const std::uint32_t li
         } else if (!decoded.valid()) {
             append_utf8(cell.text, U'�');
             cell.width = 1;
-        } else if (c < 0x20 || (c >= 0x7F && c < 0xA0)) {
+        } else if (is_control(c)) {
             cell.text = std::format("\\x{:02X}", static_cast<std::uint32_t>(c));
             cell.width = cell.text.size();
         } else {
@@ -216,7 +218,7 @@ std::string render_pretty(const diagnostic_t& diagnostic, const source_manager_t
 
     for (const std::string& note : diagnostic.notes) {
         out += style.paint(std::format("{:>{}} =", "", width), tone_t::GUTTER);
-        out += std::format(" {}: {}\n", style.paint("note", tone_t::BOLD), note);
+        out += std::format(" {}: {}\n", style.paint("note", tone_t::BOLD), escape_controls(note));
     }
 
     return out;

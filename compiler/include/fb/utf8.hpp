@@ -28,6 +28,15 @@ struct decoded_t {
 
 void append_utf8(std::string& out, char32_t code_point);
 
+/// Whether a code point is a control character, C0's, DEL, or C1's, which a terminal may act on.
+[[nodiscard]] constexpr bool is_control(const char32_t code_point) {
+    return code_point < 0x20 || (code_point >= 0x7F && code_point < 0xA0);
+}
+
+/// `text` as a terminal can show it without being changed by it: each control character but a
+/// tab as "\xHH", like "\x1B", each byte that isn't UTF-8 as U+FFFD, and the rest as it is.
+[[nodiscard]] std::string escape_controls(std::string_view text);
+
 /// The columns a code point takes in a terminal: 2 for East Asian wide characters and emoji, 0
 /// for combining marks and invisible format characters, and 1 for the rest.
 [[nodiscard]] int display_width(char32_t code_point);

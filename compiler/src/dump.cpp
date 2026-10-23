@@ -1,5 +1,7 @@
 #include "fb/dump.hpp"
 
+#include "fb/utf8.hpp"
+
 #include <algorithm>
 #include <array>
 #include <cstddef>
@@ -57,18 +59,21 @@ bool shows_text(const token_kind_t kind) {
 }
 
 /// Escapes line breaks and tabs, so every token stays on one line.
-std::string escape_controls(const std::string_view text) {
+std::string escape_token(const std::string_view text) {
     std::string out;
-    for (const char c : text) {
-        if (c == '\n') {
+    for (std::size_t at = 0; at < text.size();) {
+        const decoded_t decoded = decode_utf8(text, at);
+        if (decoded.code_point == U'\n') {
             out += "\\n";
-        } else if (c == '\r') {
+        } else if (decoded.code_point == U'\r') {
             out += "\\r";
-        } else if (c == '\t') {
+        } else if (decoded.code_point == U'\t') {
             out += "\\t";
         } else {
-            out += c;
+            out += escape_controls(text.substr(at, decoded.length));
         }
+
+        at += decoded.length;
     }
 
     return out;
@@ -76,27 +81,35 @@ std::string escape_controls(const std::string_view text) {
 
 // Trees
 
-/// `text` the way source code writes it: in double quotes, with escapes.
+/// `text` the way source code writes it: in double quotes, with escapes, the braces doubled, and
+/// each other control character as "\xHH", or "\u{HH}" past ASCII.
 std::string quote(const std::string_view text) {
     std::string out = "\"";
-    for (const char c : text) {
-        switch (c) {
-        case '\n':
+    for (std::size_t at = 0; at < text.size();) {
+        const decoded_t decoded = decode_utf8(text, at);
+        const char32_t c = decoded.code_point;
+        if (c == U'\n') {
             out += "\\n";
-            break;
-        case '\t':
+        } else if (c == U'\t') {
             out += "\\t";
-            break;
-        case '\\':
+        } else if (c == U'\r') {
+            out += "\\r";
+        } else if (c == U'\0') {
+            out += "\\0";
+        } else if (c == U'\\') {
             out += "\\\\";
-            break;
-        case '"':
+        } else if (c == U'"') {
             out += "\\\"";
-            break;
-        default:
-            out += c;
-            break;
+        } else if (c == U'{' || c == U'}') {
+            out += std::string(2, static_cast<char>(c));
+        } else if (decoded.valid() && is_control(c)) {
+            out += c < 0x80 ? std::format("\\x{:02X}", static_cast<std::uint32_t>(c))
+                            : std::format("\\u{{{:X}}}", static_cast<std::uint32_t>(c));
+        } else {
+            out += escape_controls(text.substr(at, decoded.length));
         }
+
+        at += decoded.length;
     }
 
     return out + "\"";
@@ -1363,7 +1376,7 @@ std::string dump_tokens(const source_file_t& file, const std::span<const token_t
         out += "  " + style.paint(kind, token_tone(token.kind));
         if (shows_text(token.kind)) {
             out += std::string(kind_width - kind.size() + 2, ' ');
-            out += escape_controls(file.slice(token.span));
+            out += escape_token(file.slice(token.span));
         }
 
         out += '\n';
