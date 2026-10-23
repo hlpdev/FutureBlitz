@@ -1,0 +1,15 @@
+// A NaN panics where it's added to a PriorityQueue in its smallest-first order, which can't place
+// it, as with SortedSet; one with a before function takes it as that says.
+Import std.core
+Import std.collections
+
+Local zero: Double = 0
+Local nan = zero / zero
+Local largest = PriorityQueue<Double>(Function(a: Double, b: Double) => a > b)
+largest.AddAll([2.0, nan, 3.0])
+Print(largest.Count)
+Local queue = PriorityQueue<Double>()
+queue.AddAll([10.0, 20.0])
+queue.Add(1)
+Print(queue.Pop(), queue.Clone().Pop())
+queue.Add(nan)

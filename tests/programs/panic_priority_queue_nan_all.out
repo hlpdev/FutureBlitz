@@ -1,0 +1,2 @@
+1 1
+panic: a PriorityQueue's value can't be NaN, or anything else that isn't equal to itself at panic_priority_queue_nan_all.fb:10:1

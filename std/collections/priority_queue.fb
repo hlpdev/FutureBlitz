@@ -1,6 +1,7 @@
 // PriorityQueue<T>: Pop gives the value that comes first, the smallest unless a before function
 // says what comes first. The values are a binary heap: each one comes before its two children,
-// at 2i + 1 and 2i + 2.
+// at 2i + 1 and 2i + 2. In the smallest-first order, a value that isn't equal to itself, like
+// NaN, panics where it's added, as with SortedSet, since the order can't place it.
 
 Import std.core
 Import std.collections.array
@@ -8,12 +9,15 @@ Import std.collections.array
 Public Class PriorityQueue<T> Implements Iterable<T>, Cloneable
     Field Items: T[] = []
     Field Before: Func(T, T): Bool
+    // In the smallest-first order, what tells a value that isn't equal to itself.
+    Field Unplaced: (Func(T): Bool)? = Null
     // How many times values were added or removed, so a For ... In over them can tell.
     Field Changes: Int64
 
     Public New()
         Where T: Comparable
         Before = Function(a: T, b: T) => a < b
+        Unplaced = Function(value: T) => value != value
     End New
 
     Public New(before: Func(T, T): Bool)
@@ -24,7 +28,9 @@ Public Class PriorityQueue<T> Implements Iterable<T>, Cloneable
         Get => Items.Count
     End Property
 
+    @PanicsAtCaller
     Public Method Add(value: T)
+        CheckPlace(value)
         Items.Add(value)
         Local at = Items.Count - 1
         While at > 0
@@ -39,9 +45,14 @@ Public Class PriorityQueue<T> Implements Iterable<T>, Cloneable
 
     // Adds each of the values, putting the heap in order once, in time that grows with the
     // count.
+    @PanicsAtCaller
     Public Method AddAll(values: Iterable<T>)
         Local added = values.Iterate().ToArray()
         If added.Count == 0 Then Return
+        For value In added
+            CheckPlace(value)
+        End For
+
         Items.AddAll(added)
         For at = Items.Count / 2 - 1 To 0 Step -1
             SiftDown(at)
@@ -106,6 +117,7 @@ Public Class PriorityQueue<T> Implements Iterable<T>, Cloneable
     // A new PriorityQueue with the same values and order.
     Public Method Clone(): PriorityQueue<T>
         Local copy = PriorityQueue<T>(Before)
+        copy.Unplaced = Unplaced
         copy.Items = Items.Clone()
         Return copy
     End Method
@@ -113,6 +125,16 @@ Public Class PriorityQueue<T> Implements Iterable<T>, Cloneable
     // The values, in no particular order: Pop gives them in order. Changing the PriorityQueue
     // while going over them panics.
     Public Method Iterate(): PriorityQueueIterator<T> => PriorityQueueIterator<T>(Self, 0, Changes)
+
+    // Panics at a value the smallest-first order can't place.
+    @PanicsAtCaller
+    Method CheckPlace(value: T)
+        Local unplaced = Unplaced
+        If unplaced != Null && unplaced(value)
+            Panic("a PriorityQueue's value can't be NaN, or anything else that isn't equal to " +
+                  "itself")
+        End If
+    End Method
 
     // Moves the value at at down the heap while a child comes before it.
     Method SiftDown(at: Int)

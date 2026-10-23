@@ -1,0 +1,10 @@
+// So does one among values added at once, and in a copy.
+Import std.core
+Import std.collections
+
+Local zero: Double = 0
+Local queue = PriorityQueue<Double>.DefaultValue()
+queue.AddAll([3.0, 1.0])
+Local copy = queue.Clone()
+Print(copy.Pop(), copy.Count)
+copy.AddAll([2.0, zero / zero])
