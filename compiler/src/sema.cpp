@@ -6963,8 +6963,7 @@ private:
     }
 
     /// An Async Function or Method runs as a coroutine on the main thread, which goes on after the
-    /// call
-    /// that starts it returns, so its parameters can't be ByRef.
+    /// call that starts it returns, so its parameters can't be ByRef.
     void check_async_function(const function_stmt_t& node, const type_id_t owner,
                               const std::vector<symbol_id_t>& parameters) {
         if (owner != type_id_t::INVALID && is_interface(owner)) {
