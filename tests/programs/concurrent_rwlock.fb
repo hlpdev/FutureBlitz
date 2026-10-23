@@ -74,3 +74,24 @@ Const maybe = RwLock<Int?>(Null)
 Print(maybe.Value == Null)
 maybe.Value = 5
 Print(maybe.Value ?? -1)
+
+// A value whose Destroy reads its RwLock goes once the Write that replaces it holds no lock.
+Shared Class Setting
+    ReadOnly Field Owner: Weak<RwLock<Setting>>
+    ReadOnly Field Name: String
+
+    New(owner: RwLock<Setting>?, name: String)
+        Owner = owner
+        Name = name
+    End New
+
+    Method Destroy()
+        Local owner = Owner
+        If owner != Null Then Print("{Name} goes, for {owner.Value.Name}")
+    End Method
+End Class
+
+Const setting = RwLock<Setting>(Setting(Null, "first"))
+setting.Value = Setting(setting, "second")
+setting.Write(Function(old: Setting) => Setting(setting, "third"))
+Print(setting.Value.Name)

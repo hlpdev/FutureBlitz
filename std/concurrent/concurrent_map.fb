@@ -3,7 +3,9 @@
 // of its own, so threads that change different parts don't wait for each other. A read copies its
 // part's ImmutableMap, which shares its nodes, and looks in the copy, holding the lock only for
 // that, and a For ... In goes over a copy of each part. A value is in a Shared cell of its own, so
-// a change worked out from a copy can tell whether another thread changed the key meanwhile.
+// a change worked out from a copy can tell whether another thread changed the key meanwhile. A
+// change keeps the entries it replaces in a Local until it holds no lock, so a Destroy that the
+// letting go runs can use the map.
 
 Import std.core
 Import std.collections.immutable
@@ -59,8 +61,10 @@ Public Shared Class ConcurrentMap<K, V> Implements Iterable<(K, V)>, Defaultable
     Public Method Add(key: K, value: V)
         Local part = PartOf(key)
         Local cell = MapCell<V>(value)
+        Local old = ImmutableMap<K, MapCell<V>>()
         Lock part.Entries As entries
             If !entries.Contains(key) Then CheckMapRoom(Size.Add(1))
+            old = entries
             entries = entries.Add(key, cell)
         End Lock
     End Method
@@ -122,8 +126,10 @@ Public Shared Class ConcurrentMap<K, V> Implements Iterable<(K, V)>, Defaultable
             Local seen = CellOf(part, key)
             If seen == Null Then Return False
             Local cell = MapCell<V>(change(seen.Value))
+            Local old = ImmutableMap<K, MapCell<V>>()
             Lock part.Entries As entries
                 If RefEquals(entries.Get(key), seen)
+                    old = entries
                     entries = entries.Add(key, cell)
                     Return True
                 End If
@@ -140,10 +146,12 @@ Public Shared Class ConcurrentMap<K, V> Implements Iterable<(K, V)>, Defaultable
         Loop
             Local seen = CellOf(part, key)
             Local cell = MapCell<V>(seen == Null ? value : change(seen.Value))
+            Local old = ImmutableMap<K, MapCell<V>>()
             Lock part.Entries As entries
                 Local now = entries.Get(key)
                 If RefEquals(now, seen)
                     If now == Null Then CheckMapRoom(Size.Add(1))
+                    old = entries
                     entries = entries.Add(key, cell)
                     Return cell.Value
                 End If
@@ -170,8 +178,10 @@ Public Shared Class ConcurrentMap<K, V> Implements Iterable<(K, V)>, Defaultable
     // Removes the key's entry, and tells whether there was one.
     Public Method Remove(key: K): Bool
         Local part = PartOf(key)
+        Local old = ImmutableMap<K, MapCell<V>>()
         Lock part.Entries As entries
             If !entries.Contains(key) Then Return False
+            old = entries
             entries = entries.Remove(key)
         End Lock
 
@@ -183,8 +193,10 @@ Public Shared Class ConcurrentMap<K, V> Implements Iterable<(K, V)>, Defaultable
     Public Method Clear()
         For i = 0 Until PARTS
             Local part = Parts[i].Expect("a ConcurrentMap has all its parts")
+            Local old = ImmutableMap<K, MapCell<V>>()
             Lock part.Entries As entries
                 Size.Subtract(entries.Count)
+                old = entries
                 entries = ImmutableMap<K, MapCell<V>>()
             End Lock
         End For

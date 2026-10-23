@@ -118,3 +118,25 @@ Local front = maybe.TryPeek()
 Local first = maybe.TryDequeue()
 Local second = maybe.TryDequeue() ?? Null
 Print(front != Null, first != Null, second ?? -1, maybe.TryDequeue() == Null)
+
+// A value whose Destroy uses the ConcurrentQueue goes once Clear holds no lock.
+Shared Class Job
+    ReadOnly Field Queue: Weak<ConcurrentQueue<Job>>
+    ReadOnly Field Name: String
+
+    New(queue: ConcurrentQueue<Job>, name: String)
+        Queue = queue
+        Name = name
+    End New
+
+    Method Destroy()
+        Local queue = Queue
+        If queue != Null Then Print("{Name} goes, {queue.ToArray().Count} left")
+    End Method
+End Class
+
+Const jobs = ConcurrentQueue<Job>()
+jobs.Enqueue(Job(jobs, "first job"))
+jobs.Enqueue(Job(jobs, "second job"))
+jobs.Clear()
+Print(jobs.Count)

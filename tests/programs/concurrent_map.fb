@@ -117,8 +117,8 @@ ages["grace"] = 85
 ages.Add("ada", 37)
 Print(ages.Count, ages["ada"], ages.Get("grace") ?? -1, ages.Contains("grace"))
 Print(ages.TryAdd("ada", 1), ages.TryAdd("alan", 41), ages["alan"])
-Print(ages.Update("ada", Function(age: Int) => age + 1), ages.Update("linus", Function(age: Int) => 0),
-      ages["ada"], ages.Contains("linus"))
+Print(ages.Update("ada", Function(age: Int) => age + 1),
+      ages.Update("linus", Function(age: Int) => 0), ages["ada"], ages.Contains("linus"))
 Print(ages.GetOrAdd("alan", Function() => 0), ages.GetOrAdd("linus", Function() => 54))
 Print(ages.AddOrUpdate("linus", 0, Function(age: Int) => age + 1), ages.AddOrUpdate("ken", 80,
       Function(age: Int) => 0))
@@ -139,3 +139,34 @@ maybe.Add(1, Null)
 Local held = maybe.Get(1)
 Print(maybe.Count, held != Null, maybe.Get(2) == Null)
 Print(ConcurrentMap<Int, Int>.DefaultValue().Count)
+
+// A value whose Destroy uses the ConcurrentMap, each of its parts, goes once the change that
+// lets go of it holds no lock: when Add or Update replaces it, Remove takes it out, or Clear.
+Shared Class Node
+    ReadOnly Field Registry: Weak<ConcurrentMap<Int, Node>>
+    ReadOnly Field Name: String
+
+    New(registry: ConcurrentMap<Int, Node>, name: String)
+        Registry = registry
+        Name = name
+    End New
+
+    Method Destroy()
+        Local registry = Registry
+        If registry != Null Then Print("{Name} goes, and Keys gives {registry.Keys().Count}")
+    End Method
+End Class
+
+Const registry = ConcurrentMap<Int, Node>()
+For i = 1 To 5
+    registry.Add(i, Node(registry, "node {i}"))
+End For
+
+registry.Add(1, Node(registry, "node 1 again"))
+registry.Update(2, Function(node: Node) => Node(registry, "node 2 again"))
+registry.AddOrUpdate(3, Node(registry, "unused"),
+                     Function(node: Node) => Node(registry, "node 3 again"))
+registry.Remove(4)
+Print(registry.Count)
+registry.Clear()
+Print(registry.Count)
