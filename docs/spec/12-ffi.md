@@ -204,7 +204,9 @@ fb bindgen vecmath.h [-o vecmath.fb] [--lib vecmath] [--target <triple>] [--std 
   Const of the type and value C gives it after the header, as clang works it out: its last
   definition, which can use any macro, those an `#include` or `-D` defines too. A macro is a number
   when clang reads it as one without an error, a comma operator, what C leaves undefined, like an
-  overflow or a negative shift, or a value that depends on where it's used, like `__LINE__`'s. Its
+  overflow or a negative shift, or a value that depends on where it's used, like `__LINE__`'s, and
+  an integer is one only where C takes an integer constant expression too, as clang has them:
+  `1 << 31` is one, and `INT_MIN / -1`, `-1 << 1`, and `(int)1e10` aren't. Its
   functions are one `Public Extern "C" Lib` block, after the rest, each where it's first declared,
   with the parameters of its last declaration that says what it takes, named by it, or by another
   declaration where it names none.

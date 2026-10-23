@@ -546,7 +546,10 @@ private:
     /// type, `__typeof__((NAME)) v = (NAME);`, twice, the second after a #line, so a value that
     /// depends on where it's used, like __LINE__'s, shows. What isn't a number known at compile
     /// time is an error, which leaves the macro skipped, as is one that's a warning clang
-    /// recovers from, like a comma's unused left side.
+    /// recovers from, like a comma's unused left side. An integer is one only where C takes an
+    /// integer constant expression too, in a _Static_assert that holds whatever its value, which
+    /// what C leaves undefined isn't, like INT_MIN / -1 or (int)1e10, though clang folds them in
+    /// a variable's value.
     void evaluate(const std::vector<std::string>& defined,
                   const std::vector<std::string>& numbers) {
         if (defined.empty()) {
@@ -563,7 +566,8 @@ private:
             add(std::format("#ifndef {}\nint {}gone_{};\n#endif\n", defined[i], m_prefix, i));
         }
 
-        // The line each macro's variable starts at, so an error says which macro it's in.
+        // The line each macro's variable starts at, so an error says which macro it's in, and
+        // the line each one's _Static_assert does.
         std::map<std::size_t, std::size_t> starts;
         for (const std::string_view copy : { "value", "again" }) {
             if (copy == "again") {
@@ -575,6 +579,14 @@ private:
                 add(std::format("#ifdef {0}\n__typeof__(({0})) {1}{2}_{3} = ({0});\n#endif\n",
                                 numbers[i], m_prefix, copy, i));
             }
+        }
+
+        const std::size_t asserts = line;
+        std::map<std::size_t, std::size_t> assert_starts;
+        for (std::size_t i = 0; i < numbers.size(); ++i) {
+            assert_starts[line] = i;
+            add(std::format("#ifdef {0}\n_Static_assert(({0}) * 0 + 1, \"\");\n#endif\n",
+                            numbers[i]));
         }
 
         std::filesystem::path probe = m_options.header;
@@ -599,6 +611,7 @@ private:
                                               "-Werror=shift-negative-value",
                                               "-Werror=shift-overflow",
                                               "-Werror=division-by-zero",
+                                              "-Werror=gnu-folding-constant",
                                           });
         std::vector<const char*> argv;
         argv.reserve(arguments.size());
@@ -615,18 +628,25 @@ private:
             return;
         }
 
-        // An error in a macro's expansion is where the macro's used.
+        // An error in a macro's expansion is where the macro's used. One in its _Static_assert
+        // counts only for an integer, since a floating-point number is never one C takes there.
         CXFile file = clang_getFile(unit.get(), probe_path.c_str());
         std::set<std::size_t> failed;
+        std::set<std::size_t> not_constant;
         each_diagnostic(unit.get(), [&](CXDiagnostic diagnostic) {
             CXFile in = nullptr;
             unsigned at = 0;
             clang_getExpansionLocation(clang_getDiagnosticLocation(diagnostic), &in, &at, nullptr,
                                        nullptr);
-            const auto start = starts.upper_bound(at);
-            if (clang_getDiagnosticSeverity(diagnostic) >= CXDiagnostic_Error && in != nullptr &&
-                clang_File_isEqual(in, file) != 0 && start != starts.begin()) {
-                failed.insert(std::prev(start)->second);
+            if (clang_getDiagnosticSeverity(diagnostic) < CXDiagnostic_Error || in == nullptr ||
+                clang_File_isEqual(in, file) == 0) {
+                return;
+            }
+
+            const std::map<std::size_t, std::size_t>& lines =
+                at >= asserts ? assert_starts : starts;
+            if (const auto start = lines.upper_bound(at); start != lines.begin()) {
+                (at >= asserts ? not_constant : failed).insert(std::prev(start)->second);
             }
         });
 
@@ -673,6 +693,10 @@ private:
             }
 
             std::expected<constant_t, std::string> value = constant_of(first->second, numbers[i]);
+            if (value && !value->type.starts_with("Float") && not_constant.contains(i)) {
+                continue;
+            }
+
             const std::expected<constant_t, std::string> moved =
                 constant_of(second->second, numbers[i]);
             if (value && (!moved || value->type != moved->type || value->value != moved->value)) {

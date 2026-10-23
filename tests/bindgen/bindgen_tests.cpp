@@ -945,6 +945,28 @@ TEST_CASE("a macro is a Const only where C reads its body as one number", "[bind
                                             "// skipped: VIA, a macro that isn't a number\n"
                                             "Public Const FINE: Int32 = 6\n"
                                             "Public Const COUNT: Int32 = 3\n");
+
+    // An integer is a number only where C takes an integer constant expression, which what C
+    // leaves undefined isn't, though clang folds it in a variable's value. A floating-point
+    // number never is one, and a shift into the sign bit is, as clang has it.
+    CHECK(module_of("#define QUOTIENT (-2147483647 - 1) / -1\n"
+                    "#define REMAINDER ((-2147483647 - 1) % -1)\n"
+                    "#define TOO_BIG ((int)1e10)\n"
+                    "#define BELOW ((unsigned char)-1.5)\n"
+                    "#define WIDE ((long long)9.3e18)\n"
+                    "#define NEGATIVE_LEFT (-1 << 1)\n"
+                    "#define SIGN (1 << 31)\n"
+                    "#define CUT ((int)1.5)\n"
+                    "#define HALF (1.0 / 2)\n") ==
+          "// skipped: QUOTIENT, a macro that isn't a number\n"
+          "// skipped: REMAINDER, a macro that isn't a number\n"
+          "// skipped: TOO_BIG, a macro that isn't a number\n"
+          "// skipped: BELOW, a macro that isn't a number\n"
+          "// skipped: WIDE, a macro that isn't a number\n"
+          "// skipped: NEGATIVE_LEFT, a macro that isn't a number\n"
+          "Public Const SIGN: Int32 = -2147483648\n"
+          "Public Const CUT: Int32 = 1\n"
+          "Public Const HALF: Float64 = 0.5\n");
 }
 
 TEST_CASE("a macro whose value depends on where it's used is skipped", "[bindgen]") {
