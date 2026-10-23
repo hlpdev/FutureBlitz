@@ -151,7 +151,7 @@ Strings are always valid UTF-8. Raw bytes belong in `UInt8[]`, not `String`.
 Can never be used as identifiers.
 
 ```
-Abstract  As  Async  Await  Break  ByRef  Callback  Case  Catch  Class  Const  Continue
+Abstract  Alias  As  Async  Await  Break  ByRef  Callback  Case  Catch  Class  Const  Continue
 Default  Defer  Else  ElseIf  End  Enum  Extend  Extends  Extern  False  Field  Final
 Finally  For  Func  Function  Global  If  Implements  Import  In  Interface  Is  Local
 Lock  Loop  Method  New  Null  Operator  Override  Package  Parallel  Private  Property

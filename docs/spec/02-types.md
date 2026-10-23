@@ -27,6 +27,23 @@ Aliases:
 | `Float` | `Float32` |
 | `Double` | `Float64` |
 
+A program declares aliases of its own the same way, each another name for a type:
+
+```vb
+Public Alias MetersPerSecond = Quantity<1, 0, -1>
+Alias Scores = Int[]
+```
+
+- An alias is the type it names, everywhere: a value of one is a value of the other, and
+  messages show the type itself, as they show `Int32` for `Int`. `MetersPerSecond(3)` makes the
+  Struct or Class it names, that instance, and `MetersPerSecond.Zero()` calls its Static.
+- It's declared at the top level, takes `Public`, `Package`, or `Private` like any declaration,
+  and nothing else, and it isn't generic, so it takes no type arguments. A Public one can't name
+  a type that code outside its module can't see.
+- It can name types and aliases declared anywhere in what its module sees, later ones too, but
+  not itself: `Alias A = B[]` with `Alias B = A` is an error, "'A' names itself through 'B', so
+  it's no type".
+
 C's integers are as big as the target's C has them: on Windows, a `CLong` is an `Int32`, a
 `CULong` a `UInt32`, and a `CWChar` a `UInt16`; elsewhere they're an `Int64`, a `UInt64`, and an
 `Int32`, or a `UInt32` on AArch64 outside Apple's targets. Each is a type of its own, which
