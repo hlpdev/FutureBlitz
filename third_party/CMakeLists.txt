@@ -283,3 +283,60 @@ string(SUBSTRING "${text}" 0 ${end} notices)
 fb_notice(sqlite "${notices}\n*/\n")
 set(FB_SQLITE_NOTICE "${FB_SQLITE_NOTICE}" PARENT_SCOPE)
 set(FB_SQLITE_LICENSES "a public-domain dedication" PARENT_SCOPE)
+
+# libtommath: std.math.big's BigInt. Its CMake packages and installs it too, so it's built here
+# instead, from every C file in its top folder.
+set(FB_LIBTOMMATH_VERSION 1.3.0)
+FetchContent_Declare(
+  libtommath
+  URL https://github.com/libtom/libtommath/archive/refs/tags/v${FB_LIBTOMMATH_VERSION}.tar.gz
+  URL_HASH SHA256=6d099e93ff00fa9b18346f4bcd97dcc48c3e91286f7e16c4ac5515a7171c3149
+  SOURCE_SUBDIR none
+)
+FetchContent_MakeAvailable(libtommath)
+file(GLOB FB_LIBTOMMATH_SOURCES "${libtommath_SOURCE_DIR}/*.c")
+add_library(tommath STATIC EXCLUDE_FROM_ALL ${FB_LIBTOMMATH_SOURCES})
+target_include_directories(tommath SYSTEM PUBLIC "${libtommath_SOURCE_DIR}")
+fb_bundled_library(tommath)
+set(FB_LIBTOMMATH_VERSION ${FB_LIBTOMMATH_VERSION} PARENT_SCOPE)
+file(READ "${libtommath_SOURCE_DIR}/LICENSE" notices)
+fb_notice(libtommath "${notices}")
+set(FB_LIBTOMMATH_NOTICE "${FB_LIBTOMMATH_NOTICE}" PARENT_SCOPE)
+set(FB_LIBTOMMATH_LICENSES "the Unlicense" PARENT_SCOPE)
+
+# mpdecimal: std.math.big's Decimal. Its mpdecimal.h is made from mpdecimal.h.in as its configure
+# makes it for a 64-bit target, and it's built as configure's portable 64-bit choice, with
+# __uint128_t, which GCC and Clang have on every 64-bit target.
+set(FB_MPDECIMAL_VERSION 4.0.1)
+FetchContent_Declare(
+  mpdecimal
+  URL https://www.bytereef.org/software/mpdecimal/releases/mpdecimal-${FB_MPDECIMAL_VERSION}.tar.gz
+  URL_HASH SHA256=96d33abb4bb0070c7be0fed4246cd38416188325f820468214471938545b1ac8
+)
+FetchContent_MakeAvailable(mpdecimal)
+file(READ "${mpdecimal_SOURCE_DIR}/libmpdec/mpdecimal.h.in" header)
+string(REPLACE "@MPD_HEADER_CONFIG@" "/* ABI: 64-bit */
+#define MPD_CONFIG_64 1
+
+#ifdef MPD_CONFIG_32
+  #error \"cannot use MPD_CONFIG_32 with 64-bit header.\"
+#endif
+
+#ifdef CONFIG_32
+  #error \"cannot use CONFIG_32 with 64-bit header.\"
+#endif" header "${header}")
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/mpdecimal/mpdecimal.h" "${header}")
+add_library(mpdecimal STATIC EXCLUDE_FROM_ALL)
+foreach(part basearith constants context convolute crt difradix2 fnt fourstep io mpalloc
+             mpdecimal numbertheory sixstep transpose)
+  target_sources(mpdecimal PRIVATE "${mpdecimal_SOURCE_DIR}/libmpdec/${part}.c")
+endforeach()
+target_include_directories(mpdecimal SYSTEM PUBLIC "${CMAKE_CURRENT_BINARY_DIR}/mpdecimal")
+target_include_directories(mpdecimal PRIVATE "${mpdecimal_SOURCE_DIR}/libmpdec")
+target_compile_definitions(mpdecimal PRIVATE CONFIG_64 ANSI HAVE_UINT128_T)
+fb_bundled_library(mpdecimal)
+set(FB_MPDECIMAL_VERSION ${FB_MPDECIMAL_VERSION} PARENT_SCOPE)
+file(READ "${mpdecimal_SOURCE_DIR}/COPYRIGHT.txt" notices)
+fb_notice(mpdecimal "${notices}")
+set(FB_MPDECIMAL_NOTICE "${FB_MPDECIMAL_NOTICE}" PARENT_SCOPE)
+set(FB_MPDECIMAL_LICENSES "the BSD-2-Clause license" PARENT_SCOPE)

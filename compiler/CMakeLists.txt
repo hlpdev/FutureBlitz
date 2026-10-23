@@ -169,6 +169,26 @@ inline constexpr auto bundled_libraries = std::to_array<bundled_library_t>({
         .notice = \"${FB_SQLITE_NOTICE}\",
         .system = \"\",
     },
+    {
+        .name = \"libtommath\",
+        .version = \"${FB_LIBTOMMATH_VERSION}\",
+        .license = \"${FB_LIBTOMMATH_LICENSES}\",
+        .prefix = \"fb_bigint_\",
+        .runtime = \"$<TARGET_FILE:fb_runtime_bigint>\",
+        .archives = \"$<TARGET_FILE:tommath>\",
+        .notice = \"${FB_LIBTOMMATH_NOTICE}\",
+        .system = \"\",
+    },
+    {
+        .name = \"mpdecimal\",
+        .version = \"${FB_MPDECIMAL_VERSION}\",
+        .license = \"${FB_MPDECIMAL_LICENSES}\",
+        .prefix = \"fb_decimal_\",
+        .runtime = \"$<TARGET_FILE:fb_runtime_decimal>\",
+        .archives = \"$<TARGET_FILE:mpdecimal>\",
+        .notice = \"${FB_MPDECIMAL_NOTICE}\",
+        .system = \"\",
+    },
 });
 
 } // namespace fb::build_config
