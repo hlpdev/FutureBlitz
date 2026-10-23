@@ -413,9 +413,10 @@ generator, noise, easing, stats, and fixed point; the rest is planned.
   `Numeric`, `Comparable`, `Hashable`, `Bounded`, and `Printable`, from `FromInt`, `FromDouble`,
   `FromFloat`, or `FromRaw`, with `Raw`, `ToDouble`, `ToFloat`, `ToInt`, `ToFixed64` and
   `ToFixed32`, `Pi`, and `Tau`; `*` and `/` round to the nearest, and `Sqrt`, `Sin`, and `Cos`
-  are correctly rounded, all in integers, so they give the same bits on every OS and CPU, for
-  lockstep multiplayer and replays. Overflow traps in debug builds and wraps in release, as an
-  Int's does.
+  are correctly rounded (`Sin` and `Cos` from a 62-bit series, worked out again in 124 bits where
+  that lands too near halfway to tell), all in integers, so they give the same bits on every OS
+  and CPU, for lockstep multiplayer and replays. Overflow traps in debug builds and wraps in
+  release, as an Int's does.
 - Units: typed quantities like `Meters`, `Seconds`, and `MetersPerSecond`, which the compiler
   keeps apart and combines (`Meters / Seconds` is `MetersPerSecond`).
 - std.math.big: `BigInt` (libtommath), `Decimal` (mpdecimal), `Rational`, `Complex`.

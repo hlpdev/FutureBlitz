@@ -82,6 +82,15 @@ For raw In angles64
     Local angle = Fixed64.FromRaw(raw)
     Print("64", raw, Sin(angle).Raw, Cos(angle).Raw)
 End For
+// Angles whose sines and cosines land within a millionth of a step of halfway between two
+// Fixed64s, which only a sum to 1 / 19! and 1 / 20! rounds the right way, and some within a
+// hair of it, which 124 bits decide.
+Print(Cos(Fixed64.FromRaw(3373209229)).Raw, Sin(Fixed64.FromRaw(10119632474)).Raw,
+      Cos(Fixed64.FromRaw(3373087991)).Raw, Cos(Fixed64.FromRaw(3373032308)).Raw,
+      Sin(Fixed64.FromRaw(10119479451)).Raw)
+Print(Cos(Fixed64.FromRaw(65536)).Raw, Cos(Fixed64.FromRaw(196608)).Raw,
+      Cos(Fixed64.FromRaw(327680)).Raw, Cos(Fixed64.FromRaw(-196608)).Raw,
+      Sin(Fixed64.FromRaw(1)).Raw, Sin(Fixed64.FromRaw(-1)).Raw)
 // Known values: sin 0 is 0, cos 0 is 1, and sin of a quarter turn is 1 to the last bit.
 Print(Sin(Fixed32.Zero()), Cos(Fixed32.Zero()), Sin(Fixed32.Pi / 2), Cos(Fixed64.Zero()),
       Sin(Fixed64.Pi / 2).Raw)

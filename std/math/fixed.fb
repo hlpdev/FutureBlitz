@@ -2,8 +2,9 @@
 // all integer math, so the same program gives the same bits on every OS and CPU, in debug builds
 // and release, for lockstep multiplayer and replays. * rounds to the nearest, halves up, and / to
 // the nearest, halves away from 0; Sqrt rounds to the nearest; Sin and Cos reduce their angle by
-// Pi / 2 to 94 bits and sum their series in 62, then round. Overflow traps in debug builds and
-// wraps in release, as an Int's does, and dividing by 0 panics.
+// Pi / 2 to 94 bits and sum their series in 62, then round, and where that lands too near halfway
+// to tell which way, work it out again in 124 bits, from Pi / 2 to 160. Overflow traps in debug
+// builds and wraps in release, as an Int's does, and dividing by 0 panics.
 
 Import std.core
 Import std.math.bits
@@ -107,30 +108,68 @@ Const QuarterTurn32: Int64 = 6746518852
 Const QuarterTurnHigh: Int64 = 1686629713
 Const QuarterTurnLow: Int64 = 1203693766362476870
 
-// 1 / n! to 2^-62, for the sine's odd n and the cosine's even ones.
+// π / 2 to 2^-160, as three words from the highest, for SineQ124.
+Const HalfPiHigh: UInt64 = 0x1921FB544
+Const HalfPiMiddle: UInt64 = 0x42D18469898CC517
+Const HalfPiLow: UInt64 = 0x01B839A252049C11
+
+// 1 / n! to 2^-62, for the sine's odd n and the cosine's even ones, up to where they round to 0.
 Function SineTerms(): Int64[]
     Return [768614336404564651, 38430716820228233, 915017067148291, 12708570377060, 115532457973,
-            740592679, 3526632]
+            740592679, 3526632, 12966, 38]
 End Function
 
 Function CosineTerms(): Int64[]
     Return [2305843009213693952, 192153584101141163, 6405119470038039, 114377133393536,
-            1270857037706, 9627704831, 52899477]
+            1270857037706, 9627704831, 52899477, 220414, 720, 2]
 End Function
+
+// 1 / n! to 2^-124, from 1 / 3! and 1 / 2! to where they round to 0.
+Function SineTerms124(): Wide[]
+    Return [Wide(0x2AAAAAAAAAAAAAA, 0xAAAAAAAAAAAAAAAB), Wide(0x22222222222222, 0x2222222222222222),
+            Wide(0xD00D00D00D00, 0xD00D00D00D00D00D), Wide(0x2E3BC74AAD8, 0xE671F5583911CA00),
+            Wide(0x6B99159FD, 0x5138E3F9D1F92E0E), Wide(0xB092309, 0xD43684BE51C198E9),
+            Wide(0xD73F9, 0xF399DC0F88EC32B6), Wide(0xCA9, 0x63B81856A5359303),
+            Wide(0x9, 0x7A4DA340A0AB9265), Wide(0, 0x5C6E3BDB73D5C63), Wide(0, 0x2EC368262C703),
+            Wide(0, 0x13F3CCDD166), Wide(0, 0x746AC70B), Wide(0, 0x24B3F3), Wide(0, 0xA1A),
+            Wide(0, 0x2)]
+End Function
+
+Function CosineTerms124(): Wide[]
+    Return [Wide(0x800000000000000, 0), Wide(0xAAAAAAAAAAAAAA, 0xAAAAAAAAAAAAAAAB),
+            Wide(0x5B05B05B05B05, 0xB05B05B05B05B05B), Wide(0x1A01A01A01A0, 0x1A01A01A01A01A02),
+            Wide(0x49F93EDDE2, 0x7D71CBBC05B4FA9A), Wide(0x8F76C77F, 0xC6C4BDAA26D4C3D6),
+            Wide(0xC9CBA5, 0x4603E4E905D6F8A3), Wide(0xD73F, 0x9F399DC0F88EC32B),
+            Wide(0xB4, 0x13C31DCBECBBDD80), Wide(0, 0x7950AE900808941F),
+            Wide(0, 0x4338E5B6DFE14A), Wide(0, 0x1F2CF01972F5), Wide(0, 0xC4742FE35),
+            Wide(0, 0x428628A), Wide(0, 0x13933), Wide(0, 0x51)]
+End Function
+
+// How near halfway between two results, in 2^-62s, SineQ62 can land and still round the way the
+// true value does: it's within 2 of the true value, which a check of 80,000 angles against an
+// exact one bore out.
+Const Doubt: Int64 = 64
 
 // The product of two numbers with 62 bits after the point, rounded.
 Function MultiplyQ62(a: Int64, b: Int64): Int64
     Return ShiftRounded(MultiplySigned(a, b), 62).Low As Int64
 End Function
 
-// The sine, or the cosine, of an angle in radians with 32 bits after the point, with 62.
-Function SineQ62(angle: Int64, cosine: Bool): Int64
-    // The nearest quarter turn, which can be one off near halfway, and what's left, from 94 bits.
+// The nearest quarter turn to an angle in radians with 32 bits after the point, which can be one
+// off near halfway, leaving a little more than an eighth of a turn.
+Function NearestQuarter(angle: Int64): Int64
     Local half = QuarterTurn32 / 2
     Local quarters = angle / QuarterTurn32
     Local rest = angle - quarters * QuarterTurn32
     If rest > half Then quarters++
     If rest < -half Then quarters--
+    Return quarters
+End Function
+
+// The sine, or the cosine, of an angle in radians with 32 bits after the point, with 62.
+Function SineQ62(angle: Int64, cosine: Bool): Int64
+    // What's left past the nearest quarter turn, from 94 bits.
+    Local quarters = NearestQuarter(angle)
     Local angle94 = Wide(((angle >> 2) As UInt64), (angle As UInt64) << 62)
     Local turned = Add(MultiplySigned(quarters, QuarterTurnLow),
                        Wide((quarters * QuarterTurnHigh) As UInt64, 0))
@@ -155,6 +194,75 @@ Function SineQ62(angle: Int64, cosine: Bool): Int64
         value = 0x4000000000000000 - MultiplyQ62(squared, sum)
     End If
     Return which >= 2 ? -value : value
+End Function
+
+// The product of two numbers with 124 bits after the point, each nearer 0 than 2, rounded: the
+// 256-bit product of their magnitudes, from their halves', shifted back.
+Function MultiplyQ124(a: Wide, b: Wide): Wide
+    Local x = (a.High As Int64) < 0 ? Negate(a) : a
+    Local y = (b.High As Int64) < 0 ? Negate(b) : b
+    Local middle = Add(MultiplyWide(x.Low, y.High), MultiplyWide(x.High, y.Low))
+    Local lowest = MultiplyWide(x.Low, y.Low)
+    // The low 128 bits, with half of the result's last bit added, and their carries.
+    Local partial = Add(lowest, Wide(middle.Low, 0))
+    Local carries: UInt64 = Above(lowest, partial) ? 1 : 0
+    Local lower = Add(partial, Wide(0x0800000000000000, 0))
+    carries += Above(partial, lower) ? 1 : 0
+    Local upper = Add(Add(MultiplyWide(x.High, y.High), Wide(0, middle.High)), Wide(0, carries))
+    Local product = Wide((upper.Low >> 60) | (upper.High << 4),
+                         (lower.High >> 60) | (upper.Low << 4))
+    Return ((a.High As Int64) < 0) != ((b.High As Int64) < 0) ? Negate(product) : product
+End Function
+
+// The sine, or the cosine, of an angle in radians with 32 bits after the point, with 124: what's
+// left past the nearest quarter turn, from π / 2 to 2^-160, and the series to 1 / 33!.
+Function SineQ124(angle: Int64, cosine: Bool): Wide
+    // |angle| - |quarters| π / 2, with 160 bits after the point, in three words from the lowest:
+    // what's turned, and then it taken from the angle.
+    Local quarters = NearestQuarter(angle)
+    Local count = Magnitude(quarters)
+    Local low = MultiplyWide(count, HalfPiLow)
+    Local middle = MultiplyWide(count, HalfPiMiddle)
+    Local turned1 = low.High.WrappingAdd(middle.Low)
+    Local turned2 = middle.High.WrappingAdd(count * HalfPiHigh).WrappingAdd(
+        turned1 < low.High ? 1 : 0)
+    Local left0 = low.Low.WrappingNegate()
+    Local borrow: UInt64 = low.Low != 0 ? 1 : 0
+    Local left1 = turned1.WrappingNegate().WrappingSubtract(borrow)
+    borrow = (turned1 != 0 || borrow == 1) ? 1 : 0
+    Local left2 = Magnitude(angle).WrappingSubtract(turned2).WrappingSubtract(borrow)
+
+    // Rounded to 124 bits after the point, which hold it, and given the angle's sign.
+    Local rounded0 = left0.WrappingAdd((1 As UInt64) << 35)
+    Local carry: UInt64 = rounded0 < left0 ? 1 : 0
+    Local rounded1 = left1.WrappingAdd(carry)
+    Local rounded2 = left2.WrappingAdd(carry == 1 && rounded1 == 0 ? 1 : 0)
+    Local left = Wide((rounded1 >> 36) | (rounded2 << 28), (rounded0 >> 36) | (rounded1 << 28))
+    If angle < 0 Then left = Negate(left)
+
+    Local squared = MultiplyQ124(left, left)
+    Local which = Mod(quarters + (cosine ? 1 : 0), 4)
+    Local sine = which == 0 || which == 2
+    Local terms = sine ? SineTerms124() : CosineTerms124()
+    Local sum = terms[terms.Count - 1]
+    For i = terms.Count - 2 To 0 Step -1
+        sum = Add(terms[i], Negate(MultiplyQ124(squared, sum)))
+    End For
+    Local value = Add(Wide(0x1000000000000000, 0), Negate(MultiplyQ124(squared, sum)))
+    If sine Then value = Add(left, Negate(MultiplyQ124(left, MultiplyQ124(squared, sum))))
+    Return which >= 2 ? Negate(value) : value
+End Function
+
+// The sine, or the cosine, of an angle in radians with 32 bits after the point, rounded to the
+// nearest with 62 - drop bits after it. Where SineQ62 lands further than Doubt from halfway
+// between two results, it rounds as the true value does; nearer, SineQ124 decides.
+Function SineRounded(angle: Int64, cosine: Bool, drop: Int): Int64
+    Local value = SineQ62(angle, cosine)
+    Local half = (1 As Int64) << (drop - 1)
+    Local past = (value + half) & ((half << 1) - 1)
+    If past > Doubt && past < (half << 1) - Doubt Then Return (value + half) >> drop
+    Local precise = Add(SineQ124(angle, cosine), Wide((1 As UInt64) << (drop - 3), 0))
+    Return (precise.High As Int64) >> (drop - 2)
 End Function
 
 // A number with 16 bits for its whole part, its sign among them, and 16 after the point: from
@@ -432,9 +540,9 @@ End Function
 // Whether the unsigned Wide a is above b.
 Function Above(a: Wide, b: Wide): Bool => a.High > b.High || (a.High == b.High && a.Low > b.Low)
 
-// A Fixed32's sine or cosine, from 62 bits after the point to 16, rounded.
+// A Fixed32's sine or cosine, rounded to 16 bits after the point.
 Function SineQ62To16(angle: Fixed32, cosine: Bool): Int32
-    Return ((SineQ62((angle.Raw As Int64) << 16, cosine) + 35184372088832) >> 46) As Int32
+    Return SineRounded((angle.Raw As Int64) << 16, cosine, 46) As Int32
 End Function
 
 // The sine of an angle in radians, the same bits everywhere.
@@ -449,10 +557,10 @@ End Function
 
 // The sine of an angle in radians, the same bits everywhere.
 Public Function Sin(angle: Fixed64): Fixed64
-    Return Fixed64.FromRaw((SineQ62(angle.Raw, False) + (1 << 29)) >> 30)
+    Return Fixed64.FromRaw(SineRounded(angle.Raw, False, 30))
 End Function
 
 // The cosine of an angle in radians, the same bits everywhere.
 Public Function Cos(angle: Fixed64): Fixed64
-    Return Fixed64.FromRaw((SineQ62(angle.Raw, True) + (1 << 29)) >> 30)
+    Return Fixed64.FromRaw(SineRounded(angle.Raw, True, 30))
 End Function
