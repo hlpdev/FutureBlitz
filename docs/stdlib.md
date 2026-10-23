@@ -99,6 +99,7 @@ So far, std/ holds:
 | std/crypto/ciphers.fb | `Aes256Gcm` and `ChaCha20Poly1305` |
 | std/crypto/signatures.fb | `Ed25519`, over Monocypher through `fb_ed25519_`, and `EcdsaP256`, `Rsa`, and `X25519` |
 | std/crypto/pem.fb | `KeyKind`, `Key`, and `Certificate` |
+| std/uuid/uuid.fb | `Uuid` |
 
 What the language itself uses, `Error` for Throw and Catch, the Interfaces, `Iterator<T>`, and
 `Map<K, V>` for `{key: value}`, is always std's, whatever a program calls by those names.
@@ -643,7 +644,15 @@ Built in step 27. `Import std.algo` brings in all of std/algo/.
 
 #### std.uuid
 
-- `Uuid.V4()` (random) and `Uuid.V7()` (time-ordered), `Parse`, `ToString`.
+Built in step 23, but for `V7`. `Import std.uuid` brings in std/uuid/.
+
+- `Uuid`, RFC 9562's, a Struct of `High` and `Low`, its 16 bytes in its text's order.
+  `Uuid.V4()` is random, from SecureRandom, with RFC 9562's version and variant. `Parse(text)`
+  reads 32 hex digits, in either case, with dashes after the 8th, 12th, 16th, and 20th, and gives
+  Null for anything else; `ToString()` writes them in lowercase. `Bytes`, `FromBytes`, and
+  `Version`; `==`, `<` in the order of their bytes and texts, and Hash.
+- `Uuid.V7()` (time-ordered) waits for step 16's clock.
+
 
 #### std.debug
 

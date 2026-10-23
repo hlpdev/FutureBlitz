@@ -1,0 +1,68 @@
+// std.uuid's Uuid reads and writes RFC 9562's text, in either case, gives Null for text that isn't
+// one, and makes random version 4 ones with RFC 9562's variant, each new; Uuids compare as their
+// bytes and texts do, and are Map keys.
+Import std.core
+Import std.collections
+Import std.uuid
+
+// RFC 9562's example of version 4, and RFC 4122's of version 1.
+Local examples = ["919108f7-52d1-4320-9bac-f847db4148a8", "f81d4fae-7dec-11d0-a765-00a0c91e6bf6",
+                  "00000000-0000-0000-0000-000000000000", "ffffffff-ffff-ffff-ffff-ffffffffffff"]
+For text In examples
+    Local id = Uuid.Parse(text)
+    If id == Null
+        Print("{text} doesn't parse")
+        Continue
+    End If
+
+    Print(id, id.Version, id.ToString() == text, Uuid.FromBytes(id.Bytes) == id)
+End For
+Local upper = Uuid.Parse("919108F7-52D1-4320-9BAC-F847DB4148A8")
+Print(upper == Uuid.Parse(examples[0]), upper?.Bytes ?? [])
+Print(Uuid(0x0123456789ABCDEF, 0xFEDCBA9876543210))
+
+// What isn't 32 hex digits with dashes after the 8th, 12th, 16th, and 20th isn't one.
+Local wrong = ["", "919108f7-52d1-4320-9bac-f847db4148a", "919108f7-52d1-4320-9bac-f847db4148a8a",
+               "919108f752d143209bacf847db4148a8", "{{919108f7-52d1-4320-9bac-f847db4148a8}}",
+               "urn:uuid:919108f7-52d1-4320-9bac-f847db4148a8",
+               "919108f7-52d14-320-9bac-f847db4148a8", "919108f7_52d1_4320_9bac_f847db4148a8",
+               "919108g7-52d1-4320-9bac-f847db4148a8", " 919108f7-52d1-4320-9bac-f847db4148a",
+               "919108f7-52d1-4320-9bac-f847db4148é", "+19108f7-52d1-4320-9bac-f847db4148a8"]
+Local parsed = 0
+For text In wrong
+    If Uuid.Parse(text) != Null Then parsed += 1
+End For
+Print(parsed)
+
+// V4's have version 4 and variant 10, and 1000 of them are all different, by a chance of about
+// 1 in 10^31 that two aren't.
+Local seen = Set<Uuid>()
+Local versions = 0
+Local variants = 0
+Local texts = 0
+For i = 1 To 1000
+    Local id = Uuid.V4()
+    seen.Add(id)
+    If id.Version == 4 Then versions += 1
+    If id.Bytes[8] >> 6 == 2 Then variants += 1
+    If Uuid.Parse(id.ToString()) == id Then texts += 1
+End For
+Print(seen.Count, versions, variants, texts)
+
+// They're in the order of their texts.
+Local ids: Uuid[] = []
+Local sorted: String[] = []
+For text In ["a0000000-0000-0000-0000-000000000000", "0fffffff-ffff-ffff-ffff-ffffffffffff",
+             "a0000000-0000-0000-8000-000000000000", "a0000000-0000-0000-0000-000000000001"]
+    ids.Add(Uuid.Parse(text) ?? Uuid(0, 0))
+    sorted.Add(text)
+End For
+ids.Sort()
+sorted.Sort()
+Local inOrder = True
+For i = 0 Until ids.Count
+    If ids[i].ToString() != sorted[i] Then inOrder = False
+End For
+Print(inOrder, ids[0] < ids[1], ids[1] > ids[0], ids[2] <= ids[2])
+Local names = { Uuid(1, 2): "one", Uuid(3, 4): "two" }
+Print(names[Uuid(1, 2)], names.Contains(Uuid(2, 1)))

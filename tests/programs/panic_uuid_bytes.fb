@@ -1,0 +1,7 @@
+// Uuid.FromBytes takes 16 bytes, and panics where it's called with another number of them.
+Import std.core
+Import std.uuid
+
+Local bytes: UInt8[] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
+Print(Uuid.FromBytes(bytes))
+Print(Uuid.FromBytes(bytes[..15]))

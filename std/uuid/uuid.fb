@@ -1,0 +1,106 @@
+// Uuid, RFC 9562's 128-bit identifiers: V4 makes a random one, from SecureRandom, and Parse reads
+// the text ToString writes, the 16 bytes as 32 hex digits in groups of 8, 4, 4, 4, and 12, like
+// "f81d4fae-7dec-11d0-a765-00a0c91e6bf6".
+
+Import std.core
+Import std.crypto.random
+
+// A 128-bit identifier, its 16 bytes in the order its text has them: High's 8, the most
+// significant first, then Low's. Uuids compare as their bytes do, and so as their texts do.
+Public Struct Uuid Implements Hashable, Comparable, Printable
+    Public ReadOnly Field High: UInt64
+    Public ReadOnly Field Low: UInt64
+
+    Public New(high: UInt64, low: UInt64)
+        High = high
+        Low = low
+    End New
+
+    // A new random Uuid of version 4: 122 bits from the OS's randomness, through SecureRandom,
+    // with the version and variant RFC 9562 gives it, so two match by a chance of 1 in 2^122.
+    Public Static Method V4(): Uuid
+        Local bytes = SecureRandom.Bytes(16)
+        bytes[6] = (bytes[6] & 0x0F) | 0x40
+        bytes[8] = (bytes[8] & 0x3F) | 0x80
+        Return FromBytes(bytes)
+    End Method
+
+    // The Uuid of 16 bytes, in the order Bytes gives them. Panics unless there are 16.
+    @PanicsAtCaller
+    Public Static Method FromBytes(bytes: UInt8[]): Uuid
+        If bytes.Count != 16 Then Panic("a Uuid is 16 bytes, not {bytes.Count}")
+        Local high: UInt64 = 0
+        Local low: UInt64 = 0
+        For i = 0 Until 8
+            high = (high << 8) | (bytes[i] As UInt64)
+            low = (low << 8) | (bytes[i + 8] As UInt64)
+        End For
+        Return Uuid(high, low)
+    End Method
+
+    // The Uuid text writes, as ToString does, in either case, or Null when it isn't one.
+    Public Static Method Parse(text: String): Uuid?
+        Local chars = text.Bytes
+        If chars.Count != 36 Then Return Null
+        Local high: UInt64 = 0
+        Local low: UInt64 = 0
+        Local digits = 0
+        For i = 0 Until 36
+            Local c = chars[i] As Int
+            If i == 8 || i == 13 || i == 18 || i == 23
+                If c != 45 Then Return Null
+                Continue
+            End If
+
+            Local digit = -1
+            If c >= 48 && c <= 57
+                digit = c - 48
+            ElseIf c >= 97 && c <= 102
+                digit = c - 87
+            ElseIf c >= 65 && c <= 70
+                digit = c - 55
+            End If
+
+            If digit < 0 Then Return Null
+            If digits < 16
+                high = (high << 4) | (digit As UInt64)
+            Else
+                low = (low << 4) | (digit As UInt64)
+            End If
+
+            digits += 1
+        End For
+        Return Uuid(high, low)
+    End Method
+
+    // Its 16 bytes, as its text has them.
+    Public Property Bytes: UInt8[]
+        Get
+            Local bytes: UInt8[] = []
+            For i = 0 Until 16
+                Local half = i < 8 ? High : Low
+                bytes.Add(((half >> ((7 - i % 8) * 8)) & 0xFF) As UInt8)
+            End For
+            Return bytes
+        End Get
+    End Property
+
+    // Its version, the 13th hex digit: 4 for V4's.
+    Public Property Version: Int
+        Get => ((High >> 12) & 0x0F) As Int
+    End Property
+
+    // Its 32 hex digits, in lowercase, with a dash between each group.
+    Public Method ToString(): String
+        Local hex = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "a", "b", "c", "d", "e", "f"]
+        Local text = ""
+        For i = 0 Until 32
+            If i == 8 || i == 12 || i == 16 || i == 20 Then text += "-"
+            Local half = i < 16 ? High : Low
+            text += hex[((half >> ((15 - i % 16) * 4)) & 0x0F) As Int]
+        End For
+        Return text
+    End Method
+
+    Operator <(a: Uuid, b: Uuid): Bool => a.High < b.High || a.High == b.High && a.Low < b.Low
+End Struct
