@@ -6,7 +6,8 @@
 
 // std.crypto's functions in the runtime, each over the bundled C library its prefix names, which
 // a program links only when it calls one: fb_crypto_ over mbedTLS, fb_xxhash_ over xxHash,
-// fb_blake3_ over BLAKE3, fb_argon2_ over Argon2, and fb_bcrypt_ over crypt_blowfish. Arrays and
+// fb_blake3_ over BLAKE3, fb_argon2_ over Argon2, fb_bcrypt_ over crypt_blowfish, and
+// fb_ed25519_ over Monocypher. Arrays and
 // Strings are only borrowed. What gives bytes puts them in `output`, a UInt8[] the caller made,
 // whose old bytes they replace. std.crypto checks sizes and counts first, so a bad one here is a
 // bug, which panics.
@@ -137,4 +138,12 @@ std::int32_t fb_argon2_verify(const fb_array_t* password, const fb_string_t* has
 fb_string_t* fb_bcrypt_hash(const fb_string_t* password, const fb_array_t* salt, std::int32_t cost);
 /// Whether `password` is what `hash`, a bcrypt hash of any of its versions, was made from.
 std::int32_t fb_bcrypt_verify(const fb_string_t* password, const fb_string_t* hash);
+
+/// The Ed25519 public key, 32 bytes, of `private_key`, a 32-byte seed, into `output`.
+void fb_ed25519_public_key(const fb_array_t* private_key, fb_array_t* output);
+/// `message`'s Ed25519 signature with `private_key`, 64 bytes (RFC 8032), into `output`.
+void fb_ed25519_sign(const fb_array_t* private_key, const fb_array_t* message, fb_array_t* output);
+/// Whether `signature` is `public_key`'s Ed25519 signature of `message`.
+std::int32_t fb_ed25519_verify(const fb_array_t* public_key, const fb_array_t* message,
+                               const fb_array_t* signature);
 }

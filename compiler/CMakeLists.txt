@@ -149,6 +149,16 @@ inline constexpr auto bundled_libraries = std::to_array<bundled_library_t>({
         .notice = \"${FB_CRYPT_BLOWFISH_NOTICE}\",
         .system = \"\",
     },
+    {
+        .name = \"Monocypher\",
+        .version = \"${FB_MONOCYPHER_VERSION}\",
+        .license = \"${FB_MONOCYPHER_LICENSES}\",
+        .prefix = \"fb_ed25519_\",
+        .runtime = \"$<TARGET_FILE:fb_runtime_ed25519>\",
+        .archives = \"$<TARGET_FILE:monocypher>\",
+        .notice = \"${FB_MONOCYPHER_NOTICE}\",
+        .system = \"\",
+    },
 });
 
 } // namespace fb::build_config

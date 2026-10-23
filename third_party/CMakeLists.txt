@@ -191,3 +191,27 @@ fb_notice(crypt_blowfish "${notices}\n")
 set(FB_CRYPT_BLOWFISH_NOTICE "${FB_CRYPT_BLOWFISH_NOTICE}" PARENT_SCOPE)
 set(FB_CRYPT_BLOWFISH_LICENSES "a public-domain dedication, or else its permissive license"
     PARENT_SCOPE)
+
+# Monocypher: std.crypto's Ed25519, from its optional monocypher-ed25519.c over monocypher.c, since
+# no release of mbedTLS has EdDSA yet; mbedTLS does X25519 and the rest.
+set(FB_MONOCYPHER_VERSION 4.0.3)
+FetchContent_Declare(
+  monocypher
+  URL https://github.com/LoupVaillant/Monocypher/archive/refs/tags/${FB_MONOCYPHER_VERSION}.tar.gz
+  URL_HASH SHA256=a7cbae546fbdc489bca632c3747e1ceb8ca3d4bd39e2706a0916f28ccd280e50
+  SYSTEM
+)
+FetchContent_MakeAvailable(monocypher)
+add_library(monocypher STATIC EXCLUDE_FROM_ALL)
+target_sources(monocypher PRIVATE
+  "${monocypher_SOURCE_DIR}/src/monocypher.c"
+  "${monocypher_SOURCE_DIR}/src/optional/monocypher-ed25519.c")
+target_include_directories(monocypher SYSTEM PUBLIC "${monocypher_SOURCE_DIR}/src"
+  "${monocypher_SOURCE_DIR}/src/optional")
+fb_bundled_library(monocypher)
+set(FB_MONOCYPHER_VERSION ${FB_MONOCYPHER_VERSION} PARENT_SCOPE)
+# It's under BSD-2-Clause or CC0-1.0, as its LICENCE.md says, and std takes it under CC0-1.0.
+file(READ "${monocypher_SOURCE_DIR}/LICENCE.md" notices)
+fb_notice(monocypher "${notices}")
+set(FB_MONOCYPHER_NOTICE "${FB_MONOCYPHER_NOTICE}" PARENT_SCOPE)
+set(FB_MONOCYPHER_LICENSES "the CC0-1.0 license" PARENT_SCOPE)
