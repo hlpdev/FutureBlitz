@@ -11,7 +11,7 @@ dropped, with why (it doesn't reproduce, or the spec says otherwise).
 
 ## A10-1 (high): Freeing the last Weak to an object waiting in let_go frees its memory, then let_go uses it (heap corruption)
 
-Status: fixed in 2a26a5d (an object waiting its turn keeps its memory when its last weak goes), with tests/programs/weak_waiting.fb
+Status: fixed in 31d90d2 (an object waiting its turn keeps its memory when its last weak goes), with tests/programs/weak_waiting.fb
 
 Where: runtime/src/object.cpp:174
 
@@ -29,7 +29,7 @@ Skeptic: confirmed=True, high. Reproduced. exp-all/skA10/w1.fb: Class B (Field n
 
 ## A8-1 (medium): Type expressions don't count toward the nesting limit, so deep types crash the compiler with a stack overflow
 
-Status: fixed in c0093d0 (types, defer, and #if conditions count toward the nesting limit), with parser tests
+Status: fixed in aba60f7 (types, defer, and #if conditions count toward the nesting limit), with parser tests
 
 Where: compiler/src/parser.cpp:3388
 
@@ -45,7 +45,7 @@ Suggested fix: Count type nesting like expression nesting: check and increment m
 
 ## A8-2 (medium): Statement prefixes (Defer, labels, Parallel, modifier/attribute alternation) recurse without a nesting count and overflow the stack
 
-Status: fixed in c0093d0, with parser and lexer tests: Defer's statement, a single-line If's, an Extern block, and the statements a mistake leads to on its line go a level deeper; an #If condition nests up to 1000 deep
+Status: fixed in aba60f7, with parser and lexer tests: Defer's statement, a single-line If's, an Extern block, and the statements a mistake leads to on its line go a level deeper; an #If condition nests up to 1000 deep
 
 Where: compiler/src/parser.cpp:550
 
@@ -61,7 +61,7 @@ Suggested fix: Bump m_nesting (with the max_nesting check) for each Defer's stat
 
 ## A8-3 (medium): A single-line If accepts multi-line block statements through a label or Unsafe
 
-Status: fixed in d283cc8 (a single-line if refuses a labeled loop, an unsafe block, and an extern block), with parser tests; an Extern block there was accepted with no error too
+Status: fixed in d76ec1a (a single-line if refuses a labeled loop, an unsafe block, and an extern block), with parser tests; an Extern block there was accepted with no error too
 
 Where: compiler/src/parser.cpp:2062
 
@@ -90,7 +90,7 @@ Suggested fix: In parse_single_line_body, also refuse an IDENTIFIER followed by 
 
 ## A8-4 (medium): The continuation rule after ',', '=' and '&' is missing in several statement forms, so valid line breaks are refused
 
-Status: fixed in 99e5542 (a line break can follow every statement's comma, '=', and constraint '&'), with parser tests
+Status: fixed in bf250bf (a line break can follow every statement's comma, '=', and constraint '&'), with parser tests
 
 Where: compiler/src/parser.cpp:1952
 
@@ -116,7 +116,7 @@ Suggested fix: Call skip_continuation_newlines() after each of those ',', '=' an
 
 ## A8-5 (medium): A '#' line inside a block comment or multi-line string is a directive in an inactive branch but not in an active one, so a file can check in one build mode and fail in the other
 
-Status: fixed in e6f5395 (a branch that isn't taken is lexed for its directives), with lexer tests: the inactive branch is lexed with its tokens dropped and its errors unshown, so comments and multi-line strings hide '#' lines in every build
+Status: fixed in 0b48b1b (a branch that isn't taken is lexed for its directives), with lexer tests: the inactive branch is lexed with its tokens dropped and its errors unshown, so comments and multi-line strings hide '#' lines in every build
 
 Where: compiler/src/lexer.cpp:662
 
@@ -145,7 +145,7 @@ Suggested fix: Pick one rule and apply it in both modes. Either have skip_inacti
 
 ## A8-6 (medium): A block comment that starts on a directive's line is cut off at the line break, so its later lines are lexed as code
 
-Status: fixed in e6f5395, with lexer tests: finish_directive skips trivia, block comments across lines included
+Status: fixed in 0b48b1b, with lexer tests: finish_directive skips trivia, block comments across lines included
 
 Where: compiler/src/lexer.cpp:650
 
@@ -161,7 +161,7 @@ Suggested fix: In finish_directive, skip a '/*' comment with skip_block_comment(
 
 ## A8-7 (medium): Invalid UTF-8 in an inactive #If branch isn't reported, so the same file fails in one build mode and passes in the other
 
-Status: fixed in e6f5395, with lexer tests
+Status: fixed in 0b48b1b, with lexer tests
 
 Where: compiler/src/lexer.cpp:671
 
@@ -177,7 +177,7 @@ Suggested fix: Use skip_character() for the bytes of skipped lines, checking for
 
 ## A8-8 (medium): A single-line string's interpolation can span lines through a multi-line string nested in it
 
-Status: fixed in 3c7249b (a single-line string's interpolation can't hold a multi-line string), with lexer tests
+Status: fixed in 42290bc (a single-line string's interpolation can't hold a multi-line string), with lexer tests
 
 Where: compiler/src/lexer.cpp:427
 
@@ -200,7 +200,7 @@ Suggested fix: When a multi-line string starts while a single-line string is wai
 
 ## A8-9 (medium): No test covers a multi-line string whose interpolation spans lines (the 'line that starts inside an interpolation isn't checked' rule)
 
-Status: fixed in 5f4e44b (tests for a multi-line string whose interpolation spans lines): lexer and parser tests, and tests/programs/multi_line_strings.fb
+Status: fixed in a4e34dd (tests for a multi-line string whose interpolation spans lines): lexer and parser tests, and tests/programs/multi_line_strings.fb
 
 Where: tests/compiler/lexer_tests.cpp:476
 
@@ -216,7 +216,7 @@ Suggested fix: Add a lexer test with an interpolation that spans lines and a con
 
 ## A9-1 (medium): On Windows, one file reached by two spellings loads as two modules (links, junctions, non-ASCII letter case)
 
-Status: open
+Status: fixed in d9fc26d (a file is keyed by its real path, so a link or another letter case loads it once), with driver tests: key_of() uses real_path(), and on_disk() falls back to the entry the disk finds by the name, which isn't a link, for letters other than ASCII's
 
 Where: compiler/src/driver.cpp:415
 
@@ -234,7 +234,7 @@ Skeptic: confirmed=True, medium. Reproduced in exp-all/V9s/j. With alias a junct
 
 ## A9-2 (medium): fb build refuses a default output path that's a folder, blaming a '-o' nobody gave; on Linux/macOS game.fb beside game/ can't build
 
-Status: open
+Status: fixed in 67ace87 (fb build blames -o only when it's given), with a CLI test: without -o it says 'the executable would be X, which is a folder; give its path with -o'
 
 Where: cli/src/commands.cpp:286
 
@@ -252,7 +252,7 @@ Skeptic: confirmed=True, medium. Reproduced in exp-all/V9s/o with hello.fb next 
 
 ## A9-3 (medium): fb-bindgen binds macros whose values C leaves undefined (INT_MIN / -1, INT_MIN % -1, out-of-range float casts)
 
-Status: open
+Status: fixed in fbcae77 (a bindgen integer macro must be an integer constant expression), with bindgen tests: each integer number also goes in a _Static_assert((NAME) * 0 + 1) with -Werror=gnu-folding-constant; the shifts follow clang's constant expressions, so 1 << 31 stays bound and -1 << 1 is skipped, as before, and spec 12 says so
 
 Where: tools/bindgen/src/bindgen.cpp:588
 
@@ -270,7 +270,7 @@ Skeptic: confirmed=True, medium. Reproduced in exp-all/V9s/bg/s.h. `fb bindgen s
 
 ## A9-4 (medium): fb bindgen -o can write over the header it reads, destroying the user's C source
 
-Status: open
+Status: fixed in e4a8bae (fb-bindgen won't write its module over the header), with a CLI test, for -o and for the default path
 
 Where: tools/bindgen/src/main.cpp:195
 
@@ -288,7 +288,7 @@ Skeptic: confirmed=True, medium. Reproduced in exp-all/V9s/bg. `fb bindgen t.h -
 
 ## A9-5 (medium): No test checks that --release defines RELEASE (not DEBUG), or which platform symbol #If sees
 
-Status: open
+Status: fixed in 4afc43e (tests that a build defines one mode and its platform, and fb check --release checks release code): a driver test of defined_symbols() and compile_file() in both modes, and a CLI test
 
 Where: compiler/src/driver.cpp:1408
 
@@ -306,7 +306,7 @@ Skeptic: confirmed=True, medium. No test sends RELEASE through to #If. A grep of
 
 ## A10-2 (medium): Any pending I/O request keeps a stuck coroutine from being detected, so the program can't end until unrelated stdin input arrives
 
-Status: open
+Status: fixed in f4da315 (a stuck coroutine is found stuck beside an input request it doesn't wait for), with a program test whose stdin stays open: the I/O thread's Tasks count as coming, as timers' do, in place of requests_pending()
 
 Where: runtime/src/thread.cpp:517
 
@@ -324,7 +324,7 @@ Skeptic: confirmed=True, medium. Reproduced. s1.fb: a Global paused = Scheduler(
 
 ## A10-3 (medium): POSIX: a panic or uncaught error leaves a pipe stdin O_NONBLOCK for every process sharing it
 
-Status: open
+Status: fixed in 2fd2f9b (stdin gets its flags back however the program ends), with the POSIX CLI test extended to a panic and an uncaught error: io.cpp registers its restore with the new at_end(), which end_program() runs before _Exit
 
 Where: runtime/src/runtime.cpp:127
 
@@ -342,7 +342,7 @@ Skeptic: confirmed=True, medium. Confirmed by reading. libuv's unix uv_pipe_open
 
 ## A8-10 (low): The nesting limit is reached before 1000 levels and is reported even when nothing deeper follows
 
-Status: fixed in c0093d0, with parser tests at the exact boundary: 1000 levels pass, 1001 don't, and a level is reported only when another one follows
+Status: fixed in aba60f7, with parser tests at the exact boundary: 1000 levels pass, 1001 don't, and a level is reported only when another one follows
 
 Where: compiler/src/parser.cpp:2518
 
@@ -358,7 +358,7 @@ Suggested fix: Count so that exactly 1000 levels are accepted. Only report in pa
 
 ## A8-11 (low): After a missing operand, an operator at the line's end pulls the next line into the failed expression
 
-Status: open
+Status: fixed in ed05884 (parser recovery), with a parser test: skip_continuation_newlines() does nothing on a line that already failed
 
 Where: compiler/src/parser.cpp:3155
 
@@ -374,7 +374,7 @@ Suggested fix: Stop the binary-operator loop (or don't skip continuation newline
 
 ## A8-12 (low): describe_current() for 'End' reads the next token across a line break inside brackets, so the message holds the next line's text
 
-Status: open
+Status: fixed in ed05884, with a parser test: describe_current() joins only the very next token
 
 Where: compiler/src/parser.cpp:357
 
@@ -390,7 +390,7 @@ Suggested fix: Look at the raw next token (m_tokens[index + 1]) and only join it
 
 ## A8-13 (low): A missing End inside a Property's Get or Set takes the 'End Get'/'End Set' as its own, giving a second, wrong error
 
-Status: open
+Status: fixed in ed05884, with a parser test: m_accessors keeps the open Get or Set, whose End isn't taken as an inner block's
 
 Where: compiler/src/parser.cpp:450
 
