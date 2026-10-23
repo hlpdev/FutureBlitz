@@ -38,6 +38,12 @@ Print(Date.Parse("2026-296", "yyyy-DDD") ?? Date.MinValue(),
       Date.Parse("20261023", "yyyyMMdd") ?? Date.MinValue())
 Print(Date.Parse("october 23 26", "MMMM d yy") ?? Date.MinValue(),
       Date.Parse("2024-366", "yyyy-D") ?? Date.MinValue())
+// DD reads two or three digits, as it writes the days of the year past 99, but only two before
+// another number.
+Print(Date.Parse(date.Format("yyyy-DD"), "yyyy-DD") ?? Date.MinValue(),
+      Date.Parse("2026-05", "yyyy-DD") ?? Date.MinValue(),
+      Date.Parse("2026-1", "yyyy-DD") == Null, Date.Parse("2026-2961", "yyyy-DD") == Null,
+      LocalDateTime.Parse("20262914", "yyyyDDHH") ?? LocalDateTime.MinValue())
 Print(TimeOfDay.Parse("2:05 pm", "h:mm a") ?? TimeOfDay.MaxValue(),
       TimeOfDay.Parse("12:00 AM", "hh:mm a") ?? TimeOfDay.MaxValue())
 Print(TimeOfDay.Parse("14.05.09,123", "HH.mm.ss,SSS") ?? TimeOfDay.MaxValue(),
@@ -106,7 +112,9 @@ For text In ["Fri, 23 Oct 2026 14:05:09 +0200", "23 Oct 2026 14:05 -0330",
              "Fri, 23 Oct 2026 14:05:09", "Fri, 32 Oct 2026 14:05:09 +0200",
              "Fri, 23 Oct 2026 14:05:09 +0260", "Fri, 23 Oct 2026 24:05:09 +0200",
              "Fri 23 Oct 2026 14:05:09 +0200", "Fri, 23 October 2026 14:05:09 +0200",
-             "Fri, 23 Oct 2026 14:05:09 +0200 trailing", "Fri, 23 Oct 2026 14:05:09 XST"]
+             "Fri, 23 Oct 2026 14:05:09 +0200 trailing", "Fri, 23 Oct 2026 14:05:09 XST",
+             "Fri, 23 Oct 2026 14:05:09 +2359", "Fri, 23 Oct 2026 14:05:09 +2400",
+             "Fri, 23 Oct 2026 14:05:09 +9959"]
     Local parsed = ZonedDateTime.ParseRfc2822(text)
     Print("[{text}] -> {parsed == Null ? "Null" : "{parsed}"}")
 End For

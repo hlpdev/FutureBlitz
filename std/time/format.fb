@@ -17,8 +17,9 @@
 //
 // Text between single quotes is as it is, and '' is a quote. Other letters panic, as do a
 // type's patterns with letters of parts it doesn't have; anything else is as it is. A number of
-// one letter reads as many digits as it can have, and of two or more, that many. Names are
-// English and read in any letter case.
+// one letter reads as many digits as it can have, and of two or more, that many, but DD reads two
+// or three, as Format writes the days of the year past 99. Names are English and read in any
+// letter case.
 
 Import std.core
 Import std.time.calendar
@@ -83,7 +84,8 @@ End Function
 
 // The parts of ISO 8601 text of the form, or Null. A date is a year of 4 digits, or of 4 or more
 // after a sign, a month, and a day, with "-" between; a time is hours and minutes, and seconds
-// with a fraction or not, with ":" between; and "T", "t", or a space goes between the two. An
+// with a fraction or not, with ":" between, the fraction's digits past nanoseconds dropped, and at
+// an offset, a leap second the second before it; and "T", "t", or a space goes between the two. An
 // offset is "Z" or a sign and hours, with minutes, and seconds, or not (see ReadOffset), and a
 // zone's name goes in brackets after it.
 Package Function ParseIso(text: String, form: IsoForm): Parts?
@@ -103,7 +105,7 @@ Package Function ParseIso(text: String, form: IsoForm): Parts?
         at += 1
     End If
 
-    Local time = ReadIsoTime(chars, at)
+    Local time = ReadIsoTime(chars, at, form == IsoForm.TIMESTAMP || form == IsoForm.ZONED)
     If time == Null Then Return Null
     parts.Nanoseconds = time.0
     at = time.1
@@ -153,8 +155,10 @@ Function ReadIsoDate(chars: Int[]): (Int64, Int, Int, Int)?
     Return (negative ? -year.0 : year.0, month.0 As Int, day.0 As Int, day.1)
 End Function
 
-// A time's nanoseconds since midnight, and where it ends, or Null.
-Function ReadIsoTime(chars: Int[], start: Int): (Int64, Int)?
+// A time's nanoseconds since midnight, and where it ends, or Null. A fraction's digits past its
+// nanoseconds are dropped. With leap, a leap second, as a time at an offset can have, is the
+// second before it, as RFC 3339's "1990-12-31T23:59:60Z" is 23:59:59.
+Function ReadIsoTime(chars: Int[], start: Int, leap: Bool): (Int64, Int)?
     Local hour = ReadDigits(chars, start, 2, 2)
     If hour == Null || hour.1 >= chars.Count || chars[hour.1] != ':' Then Return Null
     Local minute = ReadDigits(chars, hour.1 + 1, 2, 2)
@@ -172,9 +176,13 @@ Function ReadIsoTime(chars: Int[], start: Int): (Int64, Int)?
             If digits == Null Then Return Null
             fraction = digits.0
             at = digits.1
+            While at < chars.Count && IsDigit(chars[at])
+                at += 1
+            End While
         End If
     End If
 
+    If leap && second == 60 Then second = 59
     If hour.0 > 23 || minute.0 > 59 || second > 59 Then Return Null
     Return (((hour.0 * 60 + minute.0) * 60 + second) * 1000000000 + fraction, at)
 End Function
@@ -332,7 +340,7 @@ Function ReadRfc2822Zone(chars: Int[], at: Int): (Int, Int)?
     If at >= chars.Count Then Return Null
     If chars[at] == '+' || chars[at] == '-'
         Local digits = ReadDigits(chars, at + 1, 4, 4)
-        If digits == Null || digits.0 % 100 > 59 Then Return Null
+        If digits == Null || digits.0 / 100 > 23 || digits.0 % 100 > 59 Then Return Null
         Local seconds = ((digits.0 / 100 * 60 + digits.0 % 100) * 60) As Int
         Return (chars[at] == '-' ? -seconds : seconds, digits.1)
     End If
@@ -733,9 +741,11 @@ Function ReadPiece(chars: Int[], start: Int, piece: Piece, adjacent: Bool, field
     End If
 
     // A number: as many digits as the pattern says, or for one letter, up to as many as it can
-    // have.
+    // have, and DD's two or three, unless another number follows it.
     Local most = c == 'D' ? 3 : 2
-    Local digits = ReadDigits(chars, start, count, count > 1 || adjacent ? count : most)
+    Local longest = count > 1 || adjacent ? count : most
+    If c == 'D' && count == 2 && !adjacent Then longest = 3
+    Local digits = ReadDigits(chars, start, count, longest)
     If digits == Null Then Return Null
     Local value = digits.0 As Int
     Select c
