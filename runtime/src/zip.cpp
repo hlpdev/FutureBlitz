@@ -9,6 +9,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <ctime>
 #include <span>
 #include <string>
@@ -111,8 +112,98 @@ struct reader_t {
     std::string message;
 };
 
+/// A stream that writes a zip into a vector, which grows as vectors do: minizip-ng's memory
+/// stream grows by the same size each time, so writing a zip through it takes time in the square
+/// of the zip's size. minizip-ng calls it through its table, with the vector_t's address.
+struct vector_t {
+    mz_stream stream;
+    std::vector<std::uint8_t>* bytes;
+    std::int64_t position;
+};
+
+vector_t& vector_of(void* stream) {
+    return *static_cast<vector_t*>(stream);
+}
+
+std::int32_t vector_open(void* /*stream*/, const char* /*path*/, const std::int32_t /*mode*/) {
+    return MZ_OK;
+}
+
+std::int32_t vector_is_open(void* /*stream*/) {
+    return MZ_OK;
+}
+
+std::int32_t vector_read(void* stream, void* buffer, const std::int32_t size) {
+    vector_t& vector = vector_of(stream);
+    const auto left = static_cast<std::int64_t>(vector.bytes->size()) - vector.position;
+    const auto count = static_cast<std::int32_t>(std::clamp<std::int64_t>(left, 0, size));
+    std::memcpy(buffer, vector.bytes->data() + vector.position, static_cast<std::size_t>(count));
+    vector.position += count;
+    return count;
+}
+
+std::int32_t vector_write(void* stream, const void* buffer, const std::int32_t size) {
+    vector_t& vector = vector_of(stream);
+    const auto end = static_cast<std::size_t>(vector.position + size);
+    if (end > vector.bytes->size()) {
+        vector.bytes->resize(end);
+    }
+
+    std::memcpy(vector.bytes->data() + vector.position, buffer, static_cast<std::size_t>(size));
+    vector.position += size;
+    return size;
+}
+
+std::int64_t vector_tell(void* stream) {
+    return vector_of(stream).position;
+}
+
+std::int32_t vector_seek(void* stream, const std::int64_t offset, const std::int32_t origin) {
+    vector_t& vector = vector_of(stream);
+    std::int64_t position = offset;
+    if (origin == MZ_SEEK_CUR) {
+        position += vector.position;
+    } else if (origin == MZ_SEEK_END) {
+        position += static_cast<std::int64_t>(vector.bytes->size());
+    }
+
+    if (position < 0) {
+        return MZ_SEEK_ERROR;
+    }
+
+    if (std::cmp_greater(position, vector.bytes->size())) {
+        vector.bytes->resize(static_cast<std::size_t>(position));
+    }
+    vector.position = position;
+    return MZ_OK;
+}
+
+std::int32_t vector_close(void* /*stream*/) {
+    return MZ_OK;
+}
+
+std::int32_t vector_error(void* /*stream*/) {
+    return MZ_OK;
+}
+
+mz_stream_vtbl vector_table{
+    .open = vector_open,
+    .is_open = vector_is_open,
+    .read = vector_read,
+    .write = vector_write,
+    .tell = vector_tell,
+    .seek = vector_seek,
+    .close = vector_close,
+    .error = vector_error,
+    .create = nullptr,
+    .destroy = nullptr,
+    .get_prop_int64 = nullptr,
+    .set_prop_int64 = nullptr,
+};
+
 struct writer_t {
-    void* stream = nullptr;
+    std::vector<std::uint8_t> bytes;
+    vector_t stream{};
     void* zip = nullptr;
 };
 
@@ -259,21 +350,23 @@ std::int32_t open(reader_t& reader) {
 }
 
 void start(writer_t& writer) {
-    writer.stream = mz_stream_mem_create();
-    mz_stream_mem_set_grow_size(writer.stream, static_cast<std::int32_t>(chunk_size));
+    writer.bytes.clear();
+    writer.stream = {
+        .stream = { .vtbl = &vector_table, .base = nullptr },
+        .bytes = &writer.bytes,
+        .position = 0,
+    };
     writer.zip = mz_zip_create();
     // Each local header has its entry's sizes and CRC, which minizip-ng goes back to write, as
     // the stream can seek, so it needs no data descriptor after the entry.
     mz_zip_set_data_descriptor(writer.zip, 0);
-    if (mz_stream_open(writer.stream, nullptr, MZ_OPEN_MODE_CREATE) != MZ_OK ||
-        mz_zip_open(writer.zip, writer.stream, MZ_OPEN_MODE_WRITE) != MZ_OK) {
+    if (mz_zip_open(writer.zip, &writer.stream, MZ_OPEN_MODE_WRITE) != MZ_OK) {
         fb_panic("std.compress's Zip couldn't start a zip", nullptr);
     }
 }
 
 void stop(writer_t& writer) {
     mz_zip_delete(&writer.zip);
-    mz_stream_mem_delete(&writer.stream);
 }
 
 reader_t& reader_of(void* reader) {
@@ -406,12 +499,8 @@ void fb_zip_writer_finish(void* writer, fb_array_t* output) {
         fb_panic("std.compress's Zip couldn't finish a zip", nullptr);
     }
 
-    const void* buffer = nullptr;
-    std::int32_t length = 0;
-    mz_stream_mem_get_buffer(state.stream, &buffer);
-    mz_stream_mem_get_buffer_length(state.stream, &length);
     output_t out(output, most_bytes);
-    out.add_all({ static_cast<const std::uint8_t*>(buffer), static_cast<std::size_t>(length) });
+    out.add_all(state.bytes);
     stop(state);
     start(state);
 }
