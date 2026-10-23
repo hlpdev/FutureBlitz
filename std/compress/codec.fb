@@ -1,0 +1,39 @@
+// What std.compress's formats share: the most bytes a UInt8[] holds, which is a Decompress's
+// limit unless it's given a smaller one, and the IOErrors the runtime's results mean.
+
+Import std.core
+
+// The most bytes a UInt8[] holds, which an Int counts.
+Package Const MOST_BYTES = 2147483647
+
+// Panics when a level isn't from `least` to `most`, for a format's Compress or Compressor.
+@PanicsAtCaller
+Package Function CheckLevel(level: Int, least: Int, most: Int, format: String)
+    If level < least || level > most
+        Panic("{format}'s levels are from {least} to {most}, not {level}")
+    End If
+End Function
+
+// Panics when a limit is negative, for a format's Decompress or Decompressor.
+@PanicsAtCaller
+Package Function CheckLimit(limit: Int)
+    If limit < 0 Then Panic("a limit of bytes can't be negative, like {limit}")
+End Function
+
+// Throws the IOError that a decoder's or an archive's `result` from the runtime means, which isn't
+// 0, for data in `format`: INVALID_DATA for bytes that aren't the format or are broken,
+// UNEXPECTED_END for ones that end too soon, and OTHER for ones that would come to more than the
+// limit, or use what std.compress doesn't support. `message` is the library's, which may be "".
+Package Function Failed(result: Int32, format: String, limit: Int, message: String) Throws IOError
+    Local detail = message == "" ? "" : ": {message}"
+    If result == 2 Then Throw IOError(IOErrorKind.UNEXPECTED_END, "the {format} data ends too soon")
+    If result == 3
+        Throw IOError(IOErrorKind.OTHER, "the {format} data comes to more than {limit} bytes")
+    End If
+
+    If result == 4
+        Throw IOError(IOErrorKind.OTHER, "the {format} data uses what isn't supported{detail}")
+    End If
+
+    Throw IOError(IOErrorKind.INVALID_DATA, "the {format} data isn't valid{detail}")
+End Function

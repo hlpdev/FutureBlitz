@@ -1,0 +1,6 @@
+// Zstd's levels are from 1 to 22, and Compress panics where it's called for another.
+Import std.core
+Import std.compress
+
+Print(Zstd.Compress("fine".Bytes, 22).Count > 0)
+Zstd.Compress("none".Bytes, 0)

@@ -1,0 +1,7 @@
+// A Decompress's limit can't be negative, and one that is panics where it's called.
+Import std.core
+Import std.compress
+
+Local packed = Gzip.Compress("fine".Bytes)
+Print((Try Gzip.Decompress(packed, 4)).Count)
+Try Gzip.Decompress(packed, -1)
