@@ -317,9 +317,10 @@ std/math/, std.math.bits too.
   one's bits being its two's complement; and the integers' `SaturatingAdd`, `SaturatingSubtract`,
   and `SaturatingMultiply` beside their Checked and Wrapping Methods.
 - Linear algebra, Float32, right-handed, Y up, -Z forward, column-major, 0..1 depth: `Vec2`,
-  `Vec3`, `Vec4` (x, y, z, w), `Vec2i`, `Vec3i`, `Quat` (x, y, z, w), `Mat3`, `Mat4`. Their
-  Operators work component by component, and a scalar scales from either side; `v[i]` is a
-  component and `m[column, row]` an element. The vectors are `Numeric`, `Hashable` (-0 as 0),
+  `Vec3`, `Vec4` (x, y, z, w), `Vec2i`, `Vec3i`, `Quat` (x, y, z, w), `Mat3`, `Mat4`. The
+  vectors' Operators work component by component, as the matrices' + and - do, and a scalar
+  scales a vector or a matrix from either side and divides it; `v[i]` is a component and
+  `m[column, row]` an element. The vectors are `Numeric`, `Hashable` (-0 as 0),
   `Printable`, and `Defaultable`, the matrices and `Quat` `Equatable` and `Printable`. Vec3 has
   the directions `Up`, `Down`, `Left`, `Right`, `Forward` (-Z), and `Back`, and swizzles `xy` and
   `xyz`. The Functions: `Dot`, `Cross` (a Vec2's gives a Float), `Length`, `LengthSquared`,

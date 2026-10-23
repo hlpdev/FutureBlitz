@@ -74,6 +74,8 @@ Public Struct Mat3 Implements Equatable, Printable
     // The vector transformed.
     Operator *(m: Mat3, v: Vec3): Vec3 => m.x * v.x + m.y * v.y + m.z * v.z
     Operator *(m: Mat3, scale: Float): Mat3 => Mat3(m.x * scale, m.y * scale, m.z * scale)
+    Operator *(scale: Float, m: Mat3): Mat3 => Mat3(scale * m.x, scale * m.y, scale * m.z)
+    Operator /(m: Mat3, scale: Float): Mat3 => Mat3(m.x / scale, m.y / scale, m.z / scale)
     Operator +(a: Mat3, b: Mat3): Mat3 => Mat3(a.x + b.x, a.y + b.y, a.z + b.z)
     Operator -(a: Mat3, b: Mat3): Mat3 => Mat3(a.x - b.x, a.y - b.y, a.z - b.z)
 End Struct
@@ -235,6 +237,14 @@ Public Struct Mat4 Implements Equatable, Printable
 
     Operator *(m: Mat4, scale: Float): Mat4
         Return Mat4(m.x * scale, m.y * scale, m.z * scale, m.w * scale)
+    End Operator
+
+    Operator *(scale: Float, m: Mat4): Mat4
+        Return Mat4(scale * m.x, scale * m.y, scale * m.z, scale * m.w)
+    End Operator
+
+    Operator /(m: Mat4, scale: Float): Mat4
+        Return Mat4(m.x / scale, m.y / scale, m.z / scale, m.w / scale)
     End Operator
 
     Operator +(a: Mat4, b: Mat4): Mat4 => Mat4(a.x + b.x, a.y + b.y, a.z + b.z, a.w + b.w)
