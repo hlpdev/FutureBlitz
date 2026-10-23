@@ -365,6 +365,12 @@ public:
             m_analysis.boxed_iterator = boxed;
         }
 
+        if (const type_id_t formatted = std_type("std.core", "Formatted");
+            formatted != type_id_t::INVALID && is_class(formatted) &&
+            m_analysis.types.get(formatted).parameters.size() == 1) {
+            m_analysis.formatted_box = formatted;
+        }
+
         if (const type_id_t range = std_type("std.core", "Range");
             range != type_id_t::INVALID && is_struct(range) &&
             m_analysis.types.get(range).parameters.size() == 1) {
@@ -7255,6 +7261,11 @@ private:
                 type = type_id_t::STRING;
             }
 
+            // "values: Formattable..." takes values of any Formattable types, in objects.
+            const bool formats = variadic && type != type_id_t::INVALID &&
+                                 type == m_analysis.interfaces.formattable &&
+                                 m_analysis.formatted_box != type_id_t::INVALID;
+
             if (parameter.variadic) {
                 type = m_analysis.types.array(type);
             }
@@ -7269,6 +7280,7 @@ private:
                 .by_ref = parameter.by_ref,
                 .variadic = variadic,
                 .shows = shows,
+                .formats = formats,
                 .has_default = parameter.default_value.has_value() && !parameter.by_ref,
             }));
         }
@@ -22199,6 +22211,12 @@ private:
                                           std::format("by '{}'", symbol(function).name));
                     } else {
                         note_shown(type, span_of(argument.value));
+                    }
+                } else if (last.formats) {
+                    if (const type_id_t type = check(argument.value, type_id_t::NONE);
+                        type != type_id_t::INVALID && !implements(type, element)) {
+                        error(span_of(argument.value), "{} isn't Formattable, which '{}' takes",
+                              shown_name(type), last.name);
                     }
                 } else {
                     check(argument.value, element);

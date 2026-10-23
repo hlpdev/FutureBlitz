@@ -6040,6 +6040,22 @@ TEST_CASE("'values: Printable...' takes values of any types a string can show", 
                     "Local n = Log(1)") == errors_t{ "1: expected Printable, found Int32" });
 }
 
+TEST_CASE("'values: Formattable...' takes values of any Formattable types", "[sema]") {
+    // The function gets a Formattable[], whatever the types, which needn't be objects.
+    const std::string_view fill =
+        "Import std.core\n"
+        "Function Fill(values: Formattable...): Formattable[] => values\n";
+    CHECK(probe(std::format("{}Local all = Fill(1, 2.5, \"a\", True)", fill)) == "Formattable[]");
+    CHECK(probe(std::format("{}Local all = Fill()", fill)) == "Formattable[]");
+    CHECK(errors_of(std::format("{}Struct P\n    Field x: Int\nEnd Struct\n"
+                                "Local all = Fill(1, P(1), [2])",
+                                fill)) ==
+          errors_t{
+              "P(1): P isn't Formattable, which 'values' takes",
+              "[2]: Int32[] isn't Formattable, which 'values' takes",
+          });
+}
+
 TEST_CASE("variadic parameter mistakes", "[sema]") {
     CHECK(errors_of("Function F(xs: Int..., y: Int)\nEnd Function") ==
           errors_t{ "xs: only the last parameter can take the rest of the arguments" });

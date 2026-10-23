@@ -1,0 +1,60 @@
+// Format fills a template that the program has only when it runs: "{}" is the next value, "{0}"
+// the first, and either takes a format spec after a ':'. In source, a template is a raw string,
+// whose braces don't interpolate. What isn't a template, a missing value, and a spec its value
+// doesn't take throw a FormatError.
+Import std.core
+
+Struct Money Implements Formattable
+    Field Cents: Int64
+
+    Method ToString(): String => "{Cents / 100}.{Cents % 100:02}"
+
+    Method Format(spec: String): String?
+        If spec == "cents" Then Return "{Cents} cents"
+        Return spec == "" ? ToString() : Null
+    End Method
+End Struct
+
+Class Temperature Implements Formattable
+    Field Celsius: Float64
+
+    New(celsius: Float64)
+        Celsius = celsius
+    End New
+
+    Method ToString(): String => "{Celsius}C"
+
+    Method Format(spec: String): String? => spec == "F" ? "{Celsius * 9 / 5 + 32:.1}F" : Null
+End Class
+
+Enum Suit
+    Hearts
+    Spades
+End Enum
+
+Function Filled(template: String, values: Formattable...): String
+    Try
+        Return Format(template, values)
+    Catch e As FormatError
+        Return "{e.Kind}: {e.Message}"
+    End Try
+End Function
+
+Local price = 3.14159
+Local name = "Ann"
+Print(Filled(r"{} costs {:.2} at {}", name, price, Money(1999)))
+Print(Filled(r"{1:>6}|{0:<6}|{1:^7}|{0:*>8}", 42, "mid"))
+Print(Filled(r"{:,} {:#x} {:+.1e} {} {:>7} {{literal}} {:cents}", 1234567, 255, 12345.678, True,
+             Suit.Spades, Money(250)))
+Print(Filled(r"{0} {0:F} {} {}", Temperature(100), "next", 7))
+Print(Try? Format("no fields") ?? "-", Try? Format("") ?? "-")
+
+// What isn't a template, or doesn't fit its values.
+Print(Filled(r"{", 1))
+Print(Filled(r"a } b", 1))
+Print(Filled(r"{x}", 1))
+Print(Filled(r"{0:{}}", 1))
+Print(Filled(r"{} {}", 1))
+Print(Filled(r"{3}", 1, 2))
+Print(Filled(r"{:.2}", 5))
+Print(Filled(r"{0:F} {0:K}", Temperature(0)))
