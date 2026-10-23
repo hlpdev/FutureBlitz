@@ -2880,6 +2880,31 @@ TEST_CASE("an array type has tables only once its arrays go where an Interface i
     CHECK(!mir.contains("array Bool[]"));
 }
 
+TEST_CASE("a Ptr at an instance's T steps only by a size an Int64 counts", "[mir]") {
+    // As analysis has it for a T without type parameters, and lowering's SizeOf<T>() for one.
+    const fb::compilation_t compilation =
+        fb::compile("test.fb", "Import std.core\n"
+                               "Import std.ffi\n"
+                               "@CLayout Struct Big\n"
+                               "    Field a: Int64[2147483647]\n"
+                               "End Struct\n"
+                               "Unsafe Function Count<T: CData>(a: Ptr<T>, b: Ptr<T>): Int64\n"
+                               "    Return (a + 1) - b\n"
+                               "End Function\n"
+                               "Unsafe\n"
+                               "    Local p: Ptr<Big[2147483647]> = Null\n"
+                               "    Print(\"{Count(p, p)}\")\n"
+                               "End Unsafe\n");
+    REQUIRE(compilation.diagnostics.diagnostics().empty());
+    const fb::mir_module_t module = fb::lower(compilation.ast, compilation.analysis);
+    REQUIRE(module.error);
+    const fb::mir_error_t error = module.error.value_or(fb::mir_error_t{});
+    CHECK(std::string(compilation.sources.get(error.span.file).slice(error.span)) + ": " +
+              error.message ==
+          "a + 1: Big[2147483647] takes more bytes than an Int64 counts here, so a Ptr at it "
+          "doesn't step");
+}
+
 TEST_CASE("For Field's f.Set can't change a ReadOnly Field", "[mir]") {
     const fb::compilation_t compilation =
         fb::compile("test.fb", "Import std.core\n"

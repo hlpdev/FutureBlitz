@@ -3153,6 +3153,7 @@ private:
         } else if (info.symbol) {
             store(target, convert(apply(current, value), type, span));
         } else if (is_pointer(type)) {
+            check_steps(type, span);
             emit(assign_t{
                 .target = target,
                 .value = pointer_t{ .op = *node.op, .left = current, .right = value },
@@ -4501,6 +4502,7 @@ private:
         }
 
         if (is_pointer(type_of(left))) {
+            check_steps(type_of(left), span);
             return temporary(pointer_t{ .op = op, .left = left, .right = right }, type_of(left));
         }
 
@@ -4917,6 +4919,24 @@ private:
             std::visit([this, id](const auto& node) { return this->lower_expr(id, node); },
                        m_ast.get(id).node);
         return convert(value, converted_type(id), span_of(id));
+    }
+
+    /// Reports, once, a step of a Ptr at a T that the instance makes more bytes than an Int64
+    /// counts, as analysis does for a T without type parameters.
+    void check_steps(const type_id_t pointer, const span_t span) {
+        const type_id_t element = types().get(pointer).inner;
+        if (m_module.error || element == type_id_t::NONE ||
+            c_layout(types(), element, build_c_integers()).size <=
+                static_cast<std::uint64_t>(INT64_MAX)) {
+            return;
+        }
+
+        m_module.error = mir_error_t{
+            .message = std::format("{} takes more bytes than an Int64 counts here, so a Ptr at it "
+                                   "doesn't step",
+                                   types().name(element)),
+            .span = span,
+        };
     }
 
     /// SizeOf<T>() of an instance's T, which CData keeps to C's, as the target programs are
@@ -6395,6 +6415,7 @@ private:
         const type_id_t type = type_of(left);
         // A Ptr steps by its T's size.
         if (is_pointer(type) && (node.op == binary_op_t::ADD || node.op == binary_op_t::SUBTRACT)) {
+            check_steps(type, span_of(id));
             return temporary(pointer_t{ .op = node.op, .left = left, .right = right },
                              expr_type(id));
         }
