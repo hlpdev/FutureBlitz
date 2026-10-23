@@ -11,7 +11,7 @@ dropped, with why (it doesn't reproduce, or the spec says otherwise).
 
 ## A1-1 (high): Generic Class inheritance cycles through instances aren't caught, and the compiler hangs
 
-Status: open
+Status: fixed in 221373f, with tests
 
 Where: compiler/src/sema.cpp:2989
 
@@ -34,7 +34,7 @@ Suggested fix: In declare_base(), walk the chain of `extended` with base_of() an
 
 ## A1-2 (high): A generic or conditional Destroy is accepted, then crashes lowering or codegen
 
-Status: open
+Status: fixed in 3b34b44, with tests; spec 06 in 52c67d4
 
 Where: compiler/src/sema.cpp:3104
 
@@ -76,7 +76,7 @@ Suggested fix: In check_member_function(), when the name is Destroy, report non-
 
 ## A2-1 (high): common_type() drops a level of nesting for nested optionals, so code gets miscompiled and the compiler crashes
 
-Status: open
+Status: fixed in 740f82e, with tests
 
 Where: compiler/src/sema.cpp:10740
 
@@ -94,7 +94,7 @@ Skeptic: confirmed=True, medium. Reproduced in exp-all/skA2. t6.fb (Dog? ? Cat??
 
 ## A2-2 (high): The Sendable check on Mutex<T> and Channel<T> passes for a Struct declared later, so a data race is accepted
 
-Status: open
+Status: fixed in 1e89eea, with tests
 
 Where: compiler/src/sema.cpp:10241
 
@@ -112,7 +112,7 @@ Skeptic: confirmed=True, high. t32.fb (`Global shared: Mutex<S>` written before 
 
 ## A2-3 (high): Main-thread rules don't follow an Interface Property to the Property that implements it
 
-Status: open
+Status: fixed in 90fa2d3, with tests
 
 Where: compiler/src/sema.cpp:9308
 
@@ -130,7 +130,7 @@ Skeptic: confirmed=True, high. Minimal p1.fb: `Interface Valued / ReadOnly Prope
 
 ## A3-1 (high): A base Class's New can call an Override that reads the derived Class's unassigned non-null Field (segfault)
 
-Status: fixed in 2f78837, with Swift's rule (docs/m6-plan.md, Decisions), with tests
+Status: fixed in e5a2900, with Swift's rule (docs/m6-plan.md, Decisions), with tests
 
 Where: compiler/src/sema.cpp:11909
 
@@ -152,7 +152,7 @@ Skeptic: confirmed=True, high. I ran exp-all/V3/t7.fb, which is Base.New calling
 
 ## A3-2 (high): A lambda or Parallel For body inside New can change ReadOnly Fields; in a Shared Class this races and corrupts memory
 
-Status: fixed in 10752ff and dff69d3, with tests
+Status: fixed in 31a832a and 5c29316, with tests
 
 Where: compiler/src/sema.cpp:14761
 
@@ -171,7 +171,7 @@ Skeptic: confirmed=True, high. (1) t5.fb, a lambda made in New that assigns the 
 
 ## A3-3 (high): A lambda in New can capture Self before New assigns its no-zero Fields, and calling it reads null (segfault)
 
-Status: fixed in 10752ff and dff69d3, with tests
+Status: fixed in 31a832a and 5c29316, with tests
 
 Where: compiler/src/sema.cpp:15949
 
@@ -192,7 +192,7 @@ Skeptic: confirmed=True, high. V3/t9.fb has a lambda in New that reads m.name. I
 
 ## A3-4 (high): Assigning a Property in New before New assigns its no-zero Fields isn't checked; the Set reads null (segfault)
 
-Status: fixed in 10752ff and dff69d3, with tests
+Status: fixed in 31a832a and 5c29316, with tests
 
 Where: compiler/src/sema.cpp:14440
 
@@ -213,7 +213,7 @@ Skeptic: confirmed=True, high. V3/v4.fb, 'P = 5' before 'm = Node()' with a Set 
 
 ## A3-5 (high): Reflection's f.Set changes ReadOnly Fields anywhere, and racing on a Shared Class's ReadOnly Field corrupts the heap
 
-Status: fixed in 10752ff and dff69d3, with tests
+Status: fixed in 31a832a and 5c29316, with tests
 
 Where: compiler/src/sema.cpp:13902
 
@@ -235,7 +235,7 @@ Skeptic: confirmed=True, high. t20.fb prints 0 and 0: f.Set zeroes a Class's and
 
 ## A4-1 (high): `a?.M()` on an Async Method gives a Task of the wrong layout, which isn't nullable: wrong results and segfaults
 
-Status: open
+Status: fixed in 670fa14, with tests: a Task<T>?, which needed lower.cpp's Async call to make its Task from the T?'s T (one line); spec 10 in 52c67d4
 
 Where: compiler/src/sema.cpp:18131
 
@@ -253,7 +253,7 @@ Skeptic: confirmed=True, high. Reproduced in exp-all/skeptic-a4/a1.fb: Pick(True
 
 ## A4-2 (high): fb::implements() leaves out Defaultable and Cloneable, so lowering disagrees with sema and crashes
 
-Status: open
+Status: fixed in 518ec87, with tests
 
 Where: compiler/src/sema.cpp:21829
 
@@ -271,7 +271,7 @@ Skeptic: confirmed=True, high. a2c.fb (Bin<Int> with `Extend Bin<T> Implements S
 
 ## A4-3 (high): Compiler crash: a Const Function called with a known argument of the wrong type
 
-Status: open
+Status: fixed in 670fa14, with tests
 
 Where: compiler/src/sema.cpp:18405
 
@@ -289,7 +289,7 @@ Skeptic: confirmed=True, medium. `Const Function Twice(a: Int): Int`, called as 
 
 ## A4-4 (high): An Async lambda is accepted as Spawn or Thread.Start work, so a coroutine runs and awaits on a worker thread
 
-Status: open
+Status: fixed in d96d85c, with tests; spec 10 in 52c67d4
 
 Where: compiler/src/sema.cpp:17936
 
@@ -660,7 +660,7 @@ Suggested fix: In add_type_parameters(), also report a name that a type the decl
 
 ## A2-4 (medium): Main-thread rules miss the ToString and Operator == that strings and element-wise == run implicitly
 
-Status: open
+Status: fixed in 90fa2d3, with tests
 
 Where: compiler/src/sema.cpp:9184
 
@@ -696,7 +696,7 @@ Skeptic: confirmed=True, medium. t34.fb (`Struct Wrap<T> / Field v: T / Field w:
 
 ## A3-6 (medium): A fixed array's element count overflows before the limit check, so Int[4, 2^62] becomes Int32[4, 0]
 
-Status: fixed in 10752ff and dff69d3, with tests
+Status: fixed in 31a832a and 5c29316, with tests
 
 Where: compiler/src/sema.cpp:11538
 
@@ -715,7 +715,7 @@ Skeptic: confirmed=True, medium. V3/v6.fb: 'Local a: Int[4, 4611686018427387904]
 
 ## A3-7 (medium): T.Has(A) and T.Attribute(A) are refused when the type has an instance member named Has, though spec and comment say only a Static one hides them
 
-Status: fixed in 10752ff and dff69d3, with tests
+Status: fixed in 31a832a and 5c29316, with tests
 
 Where: compiler/src/sema.cpp:13731
 
@@ -1068,7 +1068,7 @@ Skeptic: confirmed=True, low. t24.fb (Deep<T: Sendable> recursing with Channel<T
 
 ## A2-7 (low): comparable()'s comment says == doesn't work on arrays, but the code and the spec say it does
 
-Status: open
+Status: fixed in cce8b20 (a comment)
 
 Where: compiler/src/sema.cpp:10310
 
@@ -1158,7 +1158,7 @@ Skeptic: confirmed=True, low. sema.cpp:6751-6753 reads "/// An Async Function or
 
 ## A3-9 (low): For ... In over a nullable Channel reports the wrong error
 
-Status: fixed in 10752ff and dff69d3, with tests
+Status: fixed in 31a832a and 5c29316, with tests
 
 Where: compiler/src/sema.cpp:13445
 
@@ -1177,7 +1177,7 @@ Skeptic: confirmed=True, low. V3/v9.fb: 'For x In ch' with ch: Channel<Int>? rep
 
 ## A3-10 (low): A Return in a Try whose Finally assigns a required Field is wrongly reported in New
 
-Status: fixed in 10752ff and dff69d3, with tests
+Status: fixed in 31a832a and 5c29316, with tests
 
 Where: compiler/src/sema.cpp:14284
 
@@ -1196,7 +1196,7 @@ Skeptic: confirmed=True, low. V3/v10.fb, a Return inside a Try body whose Finall
 
 ## A3-11 (low): For f = 0 To 1.5 Step 0.5 is refused with '1.5 doesn't fit in Int32'
 
-Status: fixed in 10752ff and dff69d3, with tests
+Status: fixed in 31a832a and 5c29316, with tests
 
 Where: compiler/src/sema.cpp:13382
 
@@ -1215,7 +1215,7 @@ Skeptic: confirmed=True, low. V3/v11.fb, 'For f = 0 To 1.5 Step 0.5', gives '1.5
 
 ## A3-12 (low): A throwing call in a Defer or Finally inside a Try block says it 'needs Try, Try?, or a Try block'
 
-Status: fixed in 10752ff and dff69d3, with tests
+Status: fixed in 31a832a and 5c29316, with tests
 
 Where: compiler/src/sema.cpp:13040
 
@@ -1375,3 +1375,17 @@ Reproduced by the reviewer:
 Suggested fix: Change the spec to 'a ByRef parameter', or add read-only parameters to the 'not ...' list after 'it takes only what code could change there'.
 
 Skeptic: confirmed=True, low. `AddressOf(x)` for an ordinary parameter reports ''x' is a parameter and can't be changed; copy it into a Local, or make it ByRef'. AddressOf(y) for a ByRef y works. Spec 08 lists 'parameter' without qualification. Its exclusion list after 'takes only what code could change there' doesn't name ordinary parameters. The general rule arguably covers them, so this is a misleading doc, low.
+
+## A-new-1 (language change): Every Class is Equatable and Hashable without listing them
+
+Status: fixed in 3ac7674, with tests
+
+From the user, through the coordinator (2026-10-23). Equatable: a Class's own Operator == if it has one (written, inherited, from an Interface's default or an Extend), else identity. Hashable: identity, unless the Class has an Operator == of its own without a Hash of its own; that Class is Equatable but not Hashable, so a Map key or Set of it is an error that says why, and listing Hashable on it stays the existing error. Structs don't change, Interfaces' values still have no ==, generic Classes and their instances get the same, a T? of a Class is Equatable and Hashable as a T? of a listed one is, and Comparable is unchanged. Specs 06, 07, and 14 change to say so, and tests/programs/equatable_objects.fb no longer lists Equatable.
+
+## A-new-2 (medium): == on a Struct that holds an array of itself overflows the compiler's stack
+
+Status: fixed in cce8b20, with tests
+
+Where: compiler/src/sema.cpp, comparable()
+
+Found while testing A2-4. comparable() asks each of a Struct's fields whether == works on it, and an array's element, with nothing to stop it going round, so `Struct Node / Field children: Node[]` with `Node([]) == Node([])` recurses until `fb check` dies with 0xC00000FD and prints nothing. The same Struct without the == checks and runs. comparable()'s doc comment also says == doesn't work on arrays, which is A2-7.
