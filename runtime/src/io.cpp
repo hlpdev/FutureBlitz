@@ -3,8 +3,10 @@
 // and stops as the program ends, before the leak report, letting go of what nothing waits for.
 
 #include "fb/runtime.hpp"
+#include "fb/time.hpp"
 #include "internal.hpp"
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <condition_variable>
@@ -42,6 +44,25 @@ struct line_request_t {
 
 /// Gives a request its line, or Null at the end of the input.
 void answer(const line_request_t& request, std::optional<std::string> line);
+
+/// What waits for time to pass: a Task to finish once `nanoseconds` have, for fb_io_after.
+struct timer_request_t {
+    fb_task_t* task = nullptr;
+    std::int64_t nanoseconds = 0;
+};
+
+/// A timer under way on the I/O thread's loop, with the Task it finishes.
+struct running_timer_t {
+    uv_timer_t handle{};
+    fb_task_t* task = nullptr;
+};
+
+/// Finishes a timer's Task, which the request held.
+void finish_timer(fb_task_t* task) {
+    fb_task_finish(task);
+    fb::runtime::finish_request(task);
+    fb_object_release(&task->header);
+}
 
 /// Reads stdin on the I/O thread, as far as the lines waited for need, and gives each waiter its
 /// line in turn: a console's, a pipe's, or a file's.
@@ -280,6 +301,22 @@ public:
         answer(request, std::nullopt);
     }
 
+    /// Has the I/O thread finish a timer's Task, starting the thread the first time. Once the
+    /// program is ending, it's finished at once.
+    void start_timer(const timer_request_t& request) {
+        std::call_once(m_started, [this] { start(); });
+        {
+            const std::scoped_lock lock(m_mutex);
+            if (!m_stopped) {
+                m_timers_incoming.push_back(request);
+                uv_async_send(&m_wake);
+                return;
+            }
+        }
+
+        finish_timer(request.task);
+    }
+
     /// Waits for a blocking caller's line.
     void wait_for(const line_waiter_t& waiter) {
         std::unique_lock lock(m_mutex);
@@ -314,6 +351,9 @@ private:
     std::mutex m_mutex;
     std::condition_variable m_answered;
     std::vector<line_request_t> m_incoming;
+    std::vector<timer_request_t> m_timers_incoming;
+    /// The timers under way, which only the I/O thread touches.
+    std::vector<running_timer_t*> m_timers;
     bool m_stopped = false;
     uv_loop_t m_loop{};
     uv_async_t m_wake{};
@@ -334,10 +374,12 @@ private:
     static void on_wake(uv_async_t* handle) {
         auto& self = *static_cast<io_t*>(handle->data);
         std::vector<line_request_t> incoming;
+        std::vector<timer_request_t> timers;
         bool stopped = false;
         {
             const std::scoped_lock lock(self.m_mutex);
             incoming.swap(self.m_incoming);
+            timers.swap(self.m_timers_incoming);
             stopped = self.m_stopped;
         }
 
@@ -345,10 +387,50 @@ private:
             self.m_reader.want(&self.m_loop, request);
         }
 
+        // libuv's loop counts whole milliseconds from when its iteration began, so a timer can go
+        // off up to one early: each waits a millisecond past its time rounded up, which is never
+        // less than its time.
+        if (!timers.empty()) {
+            uv_update_time(&self.m_loop);
+        }
+        for (const timer_request_t& request : timers) {
+            auto* timer = new running_timer_t{ .task = request.task };
+            uv_timer_init(&self.m_loop, &timer->handle);
+            timer->handle.data = &self;
+            const std::int64_t nanoseconds = std::max<std::int64_t>(request.nanoseconds, 0);
+            const std::int64_t milliseconds =
+                nanoseconds == 0
+                    ? 0
+                    : (nanoseconds / 1000000) + (nanoseconds % 1000000 != 0 ? 1 : 0) + 1;
+            uv_timer_start(&timer->handle, on_timer, static_cast<std::uint64_t>(milliseconds), 0);
+            self.m_timers.push_back(timer);
+        }
+
         if (stopped) {
             self.m_reader.close();
+            // What still waits is finished at once, as the program ends.
+            for (running_timer_t* timer : self.m_timers) {
+                uv_timer_stop(&timer->handle);
+                finish_timer(timer->task);
+                uv_close(reinterpret_cast<uv_handle_t*>(&timer->handle), on_timer_closed);
+            }
+
+            self.m_timers.clear();
             uv_close(reinterpret_cast<uv_handle_t*>(&self.m_wake), nullptr);
         }
+    }
+
+    /// A timer is done: its Task finishes, and its handle goes.
+    static void on_timer(uv_timer_t* handle) {
+        auto& self = *static_cast<io_t*>(handle->data);
+        auto* timer = reinterpret_cast<running_timer_t*>(handle);
+        std::erase(self.m_timers, timer);
+        finish_timer(timer->task);
+        uv_close(reinterpret_cast<uv_handle_t*>(handle), on_timer_closed);
+    }
+
+    static void on_timer_closed(uv_handle_t* handle) {
+        delete reinterpret_cast<running_timer_t*>(handle);
     }
 };
 
@@ -390,6 +472,13 @@ fb_string_t* fb_io_input(const fb_string_t* prompt) {
     return waiter.line ? fb_string_from_bytes(waiter.line->data(),
                                               static_cast<std::int64_t>(waiter.line->size()))
                        : nullptr;
+}
+
+void fb_io_after(fb_task_t* task, const std::int64_t nanoseconds) {
+    // The request holds the Task until it's done.
+    fb_object_retain(&task->header);
+    fb::runtime::start_request(task);
+    io().start_timer({ .task = task, .nanoseconds = nanoseconds });
 }
 
 void fb_io_input_async(fb_task_t* task, const fb_string_t* prompt) {
