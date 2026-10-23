@@ -679,6 +679,9 @@ TEST_CASE("a program links the bundled C libraries of the runtime functions it c
     CHECK(bundled("Import std.net.http\nLocal client = HttpClient()") ==
           std::vector<std::string_view>{ "libuv", "mbedTLS", "zlib-ng", "zstd", "nghttp2",
                                          "libcurl" });
+    // std.os is over libuv too, through a prefix of its own.
+    CHECK(bundled("Import std.core\nImport std.os\nPrint(Env.Get(\"HOME\") ?? \"none\")") ==
+          std::vector<std::string_view>{ "libuv" });
 }
 
 TEST_CASE("a bundled C library's notices have the texts of every license it names", "[driver]") {

@@ -2307,11 +2307,17 @@ std::vector<const build_config::bundled_library_t*> bundled_libraries(const mir_
     // Each the program calls, then those they're built on, in the table's order.
     std::vector<std::string_view> wanted;
     for (const build_config::bundled_library_t& library : build_config::bundled_libraries) {
+        const auto has_prefix = [&](const std::string_view symbol) {
+            return std::ranges::any_of(
+                std::views::split(library.prefixes, ' '), [&](const auto prefix) {
+                    return symbol.starts_with(std::string_view(prefix.begin(), prefix.end()));
+                });
+        };
         const bool calls =
-            !library.prefix.empty() &&
+            !library.prefixes.empty() &&
             std::ranges::any_of(module.functions, [&](const mir_function_t& function) {
                 return function.external && !function.external->c_abi &&
-                       function.external->symbol.starts_with(library.prefix);
+                       has_prefix(function.external->symbol);
             });
         if (calls) {
             wanted.push_back(library.name);

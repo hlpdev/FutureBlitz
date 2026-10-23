@@ -1,0 +1,45 @@
+// std.os's System and Folders, checked against what each OS says elsewhere, and OpenDefault of
+// what isn't there.
+
+Import std.core
+Import std.os
+
+#If PLATFORM_WINDOWS
+Print(System.Platform == Platform.WINDOWS)
+#ElseIf PLATFORM_MACOS
+Print(System.Platform == Platform.MACOS)
+#Else
+Print(System.Platform == Platform.LINUX)
+#End If
+Print(System.Arch == Arch.X64 || System.Arch == Arch.ARM64)
+Print(System.CpuCount >= 1, System.TotalMemory > 0, System.Hostname != Null)
+
+// Home is where the OS's variable says, and the rest where its own apps keep them.
+Print(Folders.Executable != Null, Folders.Temp != Null, Folders.Documents != Null)
+Local home = Folders.Home ?? ""
+#If PLATFORM_WINDOWS
+Print(home == Env.Get("USERPROFILE"))
+Print(Folders.Config == Env.Get("APPDATA"), Folders.Data == Env.Get("APPDATA"),
+      Folders.Cache == Env.Get("LOCALAPPDATA"))
+#ElseIf PLATFORM_MACOS
+Print(home == Env.Get("HOME"))
+Print(Folders.Config == "{home}/Library/Application Support",
+      Folders.Data == "{home}/Library/Application Support",
+      Folders.Cache == "{home}/Library/Caches")
+#Else
+Print(home == Env.Get("HOME"))
+// XDG's variables count when they're absolute paths.
+Env.Set("XDG_CONFIG_HOME", "/xdg/config")
+Env.Set("XDG_DATA_HOME", "relative/data")
+Env.Unset("XDG_CACHE_HOME")
+Print(Folders.Config == "/xdg/config", Folders.Data == "{home}/.local/share",
+      Folders.Cache == "{home}/.cache")
+#End If
+
+For target In ["no/such/file.txt", "C:/no/such/file.txt"]
+    Try
+        OpenDefault(target)
+    Catch e As IOError
+        Print(e.Kind, e.Path ?? "Null", e.Message)
+    End Try
+End For

@@ -1,0 +1,69 @@
+// System, what the program knows of the machine it runs on: the platform and architecture it was
+// built for, how many threads can run at once, the memory, and the machine's and user's names.
+
+Import std.core
+
+Extern "runtime"
+    Function fb_os_platform(): Int32
+    Function fb_os_arch(): Int32
+    Function fb_os_cpu_count(): Int32
+    Function fb_os_total_memory(): Int64
+    Function fb_os_hostname(): String?
+    Function fb_os_user_name(): String?
+End Extern
+
+// The OSes a program is built for.
+Public Enum Platform
+    WINDOWS, LINUX, MACOS
+End Enum
+
+// The processors a program is built for, each 64-bit.
+Public Enum Arch
+    X64, ARM64
+End Enum
+
+// System's Static Properties.
+Public Struct System
+    // System isn't made: it's only its Static Properties.
+    New()
+    End New
+
+    // The OS the program was built for, which it runs on.
+    Public Static Property Platform: Platform
+        Get => PlatformOf(fb_os_platform())
+    End Property
+
+    // The processor the program was built for, which it runs on, or emulates.
+    Public Static Property Arch: Arch
+        Get => ArchOf(fb_os_arch())
+    End Property
+
+    // How many threads can run at once: the processors the OS lets the program use, 1 or more.
+    Public Static Property CpuCount: Int
+        Get => fb_os_cpu_count()
+    End Property
+
+    // The machine's memory, in bytes.
+    Public Static Property TotalMemory: Int64
+        Get => fb_os_total_memory()
+    End Property
+
+    // The machine's name on its network, or Null when the OS doesn't say.
+    Public Static Property Hostname: String?
+        Get => fb_os_hostname()
+    End Property
+
+    // The name of the user the program runs as, or Null when the OS doesn't say.
+    Public Static Property UserName: String?
+        Get => fb_os_user_name()
+    End Property
+End Struct
+
+// The runtime's numbers for them.
+Function PlatformOf(number: Int32): Platform
+    If number == 1 Then Return Platform.WINDOWS
+    If number == 3 Then Return Platform.MACOS
+    Return Platform.LINUX
+End Function
+
+Function ArchOf(number: Int32): Arch => number == 2 ? Arch.ARM64 : Arch.X64

@@ -1,0 +1,2 @@
+fine
+panic: Env.Set takes a name that isn't empty and has no '=' or NUL, not "A=B" at panic_os_env_name.fb:7:1

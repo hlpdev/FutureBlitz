@@ -1,0 +1,7 @@
+// Env.Set with a name no variable can have panics.
+Import std.core
+Import std.os
+
+Env.Set("FB_OS_ENV_NAME", "fine")
+Print(Env.Get("FB_OS_ENV_NAME") ?? "Null")
+Env.Set("A=B", "x")

@@ -1,0 +1,2 @@
+unset
+panic: Env.Unset takes a name that isn't empty and has no '=' or NUL, not "" at panic_os_env_unset.fb:7:1
