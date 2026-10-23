@@ -136,6 +136,7 @@ Print("{values[0]} {values.Slice(1, 3).ToArray()}")
 | `CLong`, `CULong`, `CWChar` | `long`, `unsigned long`, `wchar_t`, the target's sizes (see [02](02-types.md#built-in-types)) |
 | `Float32`, `Float64` | `float`, `double` |
 | `Bool` | `bool` |
+| `Char` | `char32_t` |
 | `Ptr<T>` | `T*` |
 | `Ptr<Void>` | `void*` |
 | `CString` | `const char*` |

@@ -100,8 +100,8 @@ TEST_CASE("literals have default types", "[sema]") {
     CHECK(probe("Local x = 42") == "Int32 42");
     CHECK(probe("Local x = 1.5") == "Float32 1.5");
 
-    // A character literal is its code point.
-    CHECK(probe("Local x = 'A'") == "Int32 65");
+    // A character literal is a Char.
+    CHECK(probe("Local x = 'A'") == "Char A");
     CHECK(probe("Local x = True") == "Bool True");
     CHECK(probe("Local x = \"hi\"") == "String hi");
 
@@ -116,7 +116,6 @@ TEST_CASE("a literal takes the expected type when its value fits", "[sema]") {
     CHECK(probe("Local x: Double = 0.1") == "Float64 0.1");
     CHECK(probe("Local x: Double = 1 + 2") == "Float64 3");
     CHECK(probe("Local x: Long = 5_000_000_000") == "Int64 5000000000");
-    CHECK(probe("Local x: Byte = 'A'") == "UInt8 65");
     CHECK(probe("Local x: Int8 = True ? 1 : 2") == "Int8 1");
 }
 
@@ -154,7 +153,7 @@ TEST_CASE("C's integers widen and take literals as every target's would", "[sema
     CHECK(probe("Local c: CLong = 1\nLocal x: Long = c") == "Int64 (from CLong)");
     CHECK(probe("Local c: CLong = 1\nLocal i = 2\nLocal x = c + i") == "CLong");
     CHECK(probe("Local u: CULong = 1\nLocal x: UInt64 = u") == "UInt64 (from CULong)");
-    CHECK(probe("Local w: CWChar = 'A'\nLocal x: Long = w") == "Int64 (from CWChar)");
+    CHECK(probe("Local w: CWChar = 65\nLocal x: Long = w") == "Int64 (from CWChar)");
     CHECK(probe("Local x: CLong = -2147483648") == "CLong -2147483648");
     CHECK(probe("Local x: CWChar = 65535") == "CWChar 65535");
     CHECK(probe("Const x: CLong = 1000 * 1000") == "CLong 1000000");
@@ -264,7 +263,7 @@ TEST_CASE("As turns a Bool into 0 or 1", "[sema]") {
 TEST_CASE("strings", "[sema]") {
     CHECK(probe("Local hp = 5\nLocal x = \"HP: {hp}\"") == "String");
     CHECK(probe("Const MAX = 100\nLocal x = \"{MAX} {0.1} {True} {'A'}\"") ==
-          "String 100 0.1 True 65");
+          "String 100 0.1 True A");
     CHECK(probe("Local x = \"a\" < \"b\"") == "Bool True");
     CHECK(probe("Local x = \"b\" <= \"a\"") == "Bool False");
     CHECK(errors_of("Local x = \"a\" + 1") ==
@@ -943,11 +942,11 @@ TEST_CASE("Select", "[sema]") {
     CHECK(select("Local s = 3\nLocal m = 1", "Case m") ==
           errors_t{ "m: a Case value must be known at compile time" });
     CHECK(select("Local s = \"a\"", "Case \"a\" To \"c\"") ==
-          errors_t{ "\"a\" To \"c\": 'To' ranges only work on integers" });
+          errors_t{ "\"a\" To \"c\": 'To' ranges only work on integers and Chars" });
     CHECK(select("Local s = 3", "Case 5 To 1") == errors_t{ "5 To 1: this range is empty" });
     CHECK(select("Local s: Byte = 1", "Case 300") == errors_t{ "300: 300 doesn't fit in UInt8" });
     CHECK(select("Local s = 1.5", "Case 1") ==
-          errors_t{ "s: Select works on integers, Bool, String, and Enums, not Float32" });
+          errors_t{ "s: Select works on integers, Bool, String, Char, and Enums, not Float32" });
 }
 
 TEST_CASE("built-in types after M2 are reported as not supported yet", "[sema]") {
@@ -2596,7 +2595,7 @@ TEST_CASE("a Select on an Enum covers every value, or has a Default", "[sema]") 
                      "Select s\n"
                      "    Case State.Idle To State.Dead\n"
                      "End Select") ==
-          errors_t{ "State.Idle To State.Dead: 'To' ranges only work on integers" });
+          errors_t{ "State.Idle To State.Dead: 'To' ranges only work on integers and Chars" });
 }
 
 TEST_CASE("an Enum's zero is its first value, or no flags", "[sema]") {
@@ -5973,10 +5972,70 @@ TEST_CASE("For ... In goes over an Iterator, or the one a value's Iterate gives"
           errors_t{ "ch: 'ch' may be Null; check that it isn't, or use '?.'" });
 }
 
+TEST_CASE("a Char is a Unicode scalar value, which a character literal makes", "[sema]") {
+    CHECK(probe("Local c = 'z'") == "Char z");
+    CHECK(probe("Local c: Char[] = ['a', '\\u{1F600}']") == "Char[]");
+
+    // Chars compare by their codes, and 'As' converts them to and from integers.
+    CHECK(probe("Local x = 'a' < 'b'") == "Bool True");
+    CHECK(probe("Local x = 'a' == 'a'") == "Bool True");
+    CHECK(probe("Local x = 'a' As Int") == "Int32 97");
+    CHECK(probe("Local x = '\\u{1F600}' As UInt8") == "UInt8 0");
+    CHECK(probe("Local x = 98 As Char") == "Char b");
+    CHECK(probe("Local n = 98\nLocal x = n As Char") == "Char");
+
+    // It isn't a number.
+    CHECK(errors_of("Local x: Int = 'a'") == errors_t{ "'a': expected Int32, found Char" });
+    CHECK(errors_of("Local x = 'a' + 1") ==
+          errors_t{ "'a' + 1: '+' can't combine Char and Int32" });
+    CHECK(errors_of("Local x = -'a'") == errors_t{ "-'a': '-' can't be used on Char" });
+    CHECK(errors_of("Local x = 1.5 As Char") ==
+          errors_t{ "1.5 As Char: 'As' can't convert Float32 to Char" });
+
+    // An integer that isn't a Unicode scalar value isn't a Char.
+    CHECK(errors_of("Local x = 0xD800 As Char") ==
+          errors_t{ "0xD800 As Char: 55296 isn't a Unicode scalar value, which a Char holds" });
+    CHECK(errors_of("Local x = 0x110000 As Char") ==
+          errors_t{ "0x110000 As Char: 1114112 isn't a Unicode scalar value, which a Char holds" });
+    CHECK(errors_of("Local x = -1 As Char") ==
+          errors_t{ "-1 As Char: -1 isn't a Unicode scalar value, which a Char holds" });
+
+    // It's Equatable, Hashable, Comparable, Printable, and Defaultable, but not Numeric.
+    CHECK(errors_of("Import std.core\n"
+                    "Function F<T: Comparable & Hashable & Printable & Defaultable>(x: T): T => x\n"
+                    "Local c = F('a')")
+              .empty());
+    CHECK(errors_of("Import std.core\nFunction F<T: Numeric>(x: T): T => x\nLocal c = F('a')") ==
+          errors_t{ "F: Char doesn't implement Numeric, which 'F' needs for T" });
+
+    // A Select goes over Chars, with ranges.
+    CHECK(errors_of("Local c = 'q'\n"
+                    "Select c\n"
+                    "    Case 'a' To 'z'\n"
+                    "    Case '0' To '9'\n"
+                    "    Case 'm'\n"
+                    "End Select") ==
+          errors_t{ "'m': this Case value is already covered by an earlier Case" });
+
+    // A Const Function takes and gives Chars.
+    CHECK(probe("Const Function Next(c: Char): Char => ((c As Int) + 1) As Char\n"
+                "Const N = Next('a')\n"
+                "Local x = N") == "Char b");
+
+    // C code takes one as a char32_t.
+    CHECK(errors_of("@CLayout Struct Cell\n"
+                    "    Field c: Char\n"
+                    "End Struct\n"
+                    "Extern\n"
+                    "    Function put(c: Char, at: Ptr<Char>, cell: Cell)\n"
+                    "End Extern")
+              .empty());
+}
+
 TEST_CASE("a String's Chars and Bytes are arrays of its code points and bytes", "[sema]") {
-    CHECK(probe("Local c = \"abc\".Chars") == "Int32[]");
+    CHECK(probe("Local c = \"abc\".Chars") == "Char[]");
     CHECK(probe("Local b = \"abc\".Bytes") == "UInt8[]");
-    CHECK(probe("Function F(s: String?): Int[]? => s?.Chars\nLocal c = F(Null)") == "Int32[]?");
+    CHECK(probe("Function F(s: String?): Char[]? => s?.Chars\nLocal c = F(Null)") == "Char[]?");
     CHECK(errors_of("Local c = \"abc\".Chars()") ==
           errors_t{ "Chars: Chars isn't a Method; leave out the ()" });
     CHECK(errors_of("Function F(s: String?)\n    Local c = s.Bytes\nEnd Function") ==

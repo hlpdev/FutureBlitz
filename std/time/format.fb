@@ -26,11 +26,11 @@ Import std.time.calendar
 Import std.time.zone
 
 Extern "runtime"
-    Function fb_time_text(chars: Int[], start: Int64, finish: Int64): String
+    Function fb_time_text(chars: Char[], start: Int64, finish: Int64): String
 End Extern
 
-// The text of the code points from start to before finish.
-Package Function TextOf(chars: Int[], start: Int, finish: Int): String
+// The text of the characters from start to before finish.
+Package Function TextOf(chars: Char[], start: Int, finish: Int): String
     Return fb_time_text(chars, start, finish)
 End Function
 
@@ -100,7 +100,8 @@ Package Function ParseIso(text: String, form: IsoForm): Parts?
         parts.Day = date.2
         at = date.3
         If form == IsoForm.DATE Then Return at == chars.Count ? parts : Null
-        Local separator = at < chars.Count ? chars[at] : 0
+        If at >= chars.Count Then Return Null
+        Local separator = chars[at]
         If separator != 'T' && separator != 't' && separator != ' ' Then Return Null
         at += 1
     End If
@@ -135,7 +136,7 @@ Package Function ParseIso(text: String, form: IsoForm): Parts?
 End Function
 
 // A date's year, month, and day, and where it ends, or Null.
-Function ReadIsoDate(chars: Int[]): (Int64, Int, Int, Int)?
+Function ReadIsoDate(chars: Char[]): (Int64, Int, Int, Int)?
     Local at = 0
     Local negative = False
     Local signed = chars.Count > 0 && (chars[0] == '+' || chars[0] == '-')
@@ -158,7 +159,7 @@ End Function
 // A time's nanoseconds since midnight, and where it ends, or Null. A fraction's digits past its
 // nanoseconds are dropped. With leap, a leap second, as a time at an offset can have, is the
 // second before it, as RFC 3339's "1990-12-31T23:59:60Z" is 23:59:59.
-Function ReadIsoTime(chars: Int[], start: Int, leap: Bool): (Int64, Int)?
+Function ReadIsoTime(chars: Char[], start: Int, leap: Bool): (Int64, Int)?
     Local hour = ReadDigits(chars, start, 2, 2)
     If hour == Null || hour.1 >= chars.Count || chars[hour.1] != ':' Then Return Null
     Local minute = ReadDigits(chars, hour.1 + 1, 2, 2)
@@ -191,7 +192,7 @@ End Function
 // be, or a sign and two digits of hours, then minutes, and then seconds, or not, each two digits,
 // with ":" before each or neither, as "+02", "+0530", "-08:00", and "+05:30:15" are. Hours go up
 // to 23.
-Package Function ReadOffset(chars: Int[], start: Int, z: Bool): (Int, Int)?
+Package Function ReadOffset(chars: Char[], start: Int, z: Bool): (Int, Int)?
     If start >= chars.Count Then Return Null
     If z && (chars[start] == 'Z' || chars[start] == 'z') Then Return (0, start + 1)
     If chars[start] != '+' && chars[start] != '-' Then Return Null
@@ -222,11 +223,11 @@ End Function
 
 // The value of from fewest to most digits at start, as many as there are, and where they end, or
 // Null when there are fewer.
-Package Function ReadDigits(chars: Int[], start: Int, fewest: Int, most: Int): (Int64, Int)?
+Package Function ReadDigits(chars: Char[], start: Int, fewest: Int, most: Int): (Int64, Int)?
     Local value: Int64 = 0
     Local at = start
     While at < chars.Count && at - start < most && IsDigit(chars[at])
-        value = value * 10 + (chars[at] - '0')
+        value = value * 10 + ((chars[at] As Int) - ('0' As Int))
         at += 1
     End While
 
@@ -234,7 +235,7 @@ Package Function ReadDigits(chars: Int[], start: Int, fewest: Int, most: Int): (
 End Function
 
 // A fraction's digits as nanoseconds, and where they end, or Null.
-Function ReadFraction(chars: Int[], start: Int, fewest: Int, most: Int): (Int64, Int)?
+Function ReadFraction(chars: Char[], start: Int, fewest: Int, most: Int): (Int64, Int)?
     Local digits = ReadDigits(chars, start, fewest, most)
     If digits == Null Then Return Null
     Local nanoseconds = digits.0
@@ -245,7 +246,7 @@ Function ReadFraction(chars: Int[], start: Int, fewest: Int, most: Int): (Int64,
     Return (nanoseconds, digits.1)
 End Function
 
-Function IsDigit(code: Int): Bool => code >= '0' && code <= '9'
+Function IsDigit(c: Char): Bool => c >= '0' && c <= '9'
 
 // An offset as ISO 8601 writes it, "+02:00", or "+05:30:15" with seconds, and as "Z" when it's
 // 0 and z says so.
@@ -336,7 +337,7 @@ Package Function ParseRfc2822Parts(text: String): Parts?
 End Function
 
 // A zone of RFC 2822's, as an offset's seconds, and where it ends, or Null.
-Function ReadRfc2822Zone(chars: Int[], at: Int): (Int, Int)?
+Function ReadRfc2822Zone(chars: Char[], at: Int): (Int, Int)?
     If at >= chars.Count Then Return Null
     If chars[at] == '+' || chars[at] == '-'
         Local digits = ReadDigits(chars, at + 1, 4, 4)
@@ -375,7 +376,7 @@ Function ReadRfc2822Zone(chars: Int[], at: Int): (Int, Int)?
 End Function
 
 // Where the spaces, tabs, line breaks, and comments in parentheses from start end.
-Function SkipSpace(chars: Int[], start: Int): Int
+Function SkipSpace(chars: Char[], start: Int): Int
     Local at = start
     Local depth = 0
     While at < chars.Count
@@ -396,9 +397,9 @@ End Function
 
 // Patterns
 
-// One part of a pattern: a letter that many times, or text when the letter is 0.
+// One part of a pattern: a letter that many times, or text when the letter is '\0'.
 Struct Piece
-    Field Letter: Int
+    Field Letter: Char
     Field Count: Int
     Field Text: String
 End Struct
@@ -417,7 +418,7 @@ Function PiecesOf(pattern: String, kind: PartKind): Piece[]
             Local text = ""
             Local finish = at + 1
             If finish < chars.Count && chars[finish] == '\''
-                pieces.Add(Piece(0, 0, "'"))
+                pieces.Add(Piece('\0', 0, "'"))
                 at = finish + 1
                 Continue
             End If
@@ -440,7 +441,7 @@ Function PiecesOf(pattern: String, kind: PartKind): Piece[]
             End While
 
             If !closed Then Panic("the pattern \"{pattern}\" has a quote without its end")
-            pieces.Add(Piece(0, 0, text))
+            pieces.Add(Piece('\0', 0, text))
             at = finish + 1
         ElseIf IsLetter(c)
             Local finish = at
@@ -467,7 +468,7 @@ Function PiecesOf(pattern: String, kind: PartKind): Piece[]
                 finish += 1
             End While
 
-            pieces.Add(Piece(0, 0, TextOf(chars, at, finish)))
+            pieces.Add(Piece('\0', 0, TextOf(chars, at, finish)))
             at = finish
         End If
     End While
@@ -475,17 +476,17 @@ Function PiecesOf(pattern: String, kind: PartKind): Piece[]
     Return pieces
 End Function
 
-Function IsLetter(c: Int): Bool => (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+Function IsLetter(c: Char): Bool => (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
 
-// Whether the code point can be in a zone's name, like "America/Port-au-Prince" or "Etc/GMT+5".
-Function IsZoneLetter(c: Int): Bool
+// Whether the character can be in a zone's name, like "America/Port-au-Prince" or "Etc/GMT+5".
+Function IsZoneLetter(c: Char): Bool
     Return IsLetter(c) || IsDigit(c) || c == '/' || c == '_' || c == '-' || c == '+'
 End Function
 
-Function Lower(c: Int): Int => c >= 'A' && c <= 'Z' ? c + 32 : c
+Function Lower(c: Char): Char => c >= 'A' && c <= 'Z' ? ((c As Int) + 32) As Char : c
 
 // Whether the letter, that many times, is one of a pattern's.
-Function IsPatternLetter(c: Int, count: Int): Bool
+Function IsPatternLetter(c: Char, count: Int): Bool
     If c == 'y' Then Return count <= 10
     If c == 'M' || c == 'E' Then Return count <= 4
     If c == 'd' || c == 'H' || c == 'h' || c == 'm' || c == 's' Then Return count <= 2
@@ -496,13 +497,13 @@ Function IsPatternLetter(c: Int, count: Int): Bool
     Return False
 End Function
 
-Function DateLetter(c: Int): Bool => c == 'y' || c == 'M' || c == 'd' || c == 'D' || c == 'E'
+Function DateLetter(c: Char): Bool => c == 'y' || c == 'M' || c == 'd' || c == 'D' || c == 'E'
 
-Function TimeLetter(c: Int): Bool
+Function TimeLetter(c: Char): Bool
     Return c == 'a' || c == 'H' || c == 'h' || c == 'm' || c == 's' || c == 'S'
 End Function
 
-Function KindHas(kind: PartKind, c: Int): Bool
+Function KindHas(kind: PartKind, c: Char): Bool
     If DateLetter(c) Then Return kind != PartKind.TIME
     If TimeLetter(c) Then Return kind != PartKind.DATE
     Return kind == PartKind.ZONED
@@ -536,7 +537,7 @@ Function FormatPiece(piece: Piece, parts: Parts): String
     Local count = piece.Count
     Local hour = (parts.Nanoseconds / 3600000000000) As Int
     Select piece.Letter
-        Case 0
+        Case ' '
             Return piece.Text
         Case 'y'
             Return count == 2 ? Padded(FloorModulo(parts.Year, 100), 2) : Padded(parts.Year, count)
@@ -574,7 +575,7 @@ Function FormatPiece(piece: Piece, parts: Parts): String
 End Function
 
 // An offset as X, x, or Z that many times writes it.
-Function OffsetPattern(offset: Int, letter: Int, count: Int): String
+Function OffsetPattern(offset: Int, letter: Char, count: Int): String
     If offset == 0 && letter == 'X' Then Return "Z"
     Local magnitude = offset < 0 ? -offset : offset
     Local hours = "{offset < 0 ? "-" : "+"}{Padded(magnitude / 3600, 2)}"
@@ -624,7 +625,7 @@ Package Function ParsePattern(text: String, pattern: String, kind: PartKind): Pa
     Return PartsFrom(fields, kind)
 End Function
 
-Function Has(pieces: Piece[], letter: Int): Bool
+Function Has(pieces: Piece[], letter: Char): Bool
     For piece In pieces
         If piece.Letter == letter Then Return True
     End For
@@ -657,10 +658,10 @@ End Class
 
 // Reads a piece at start into the fields, and gives where it ends, or Null when the text doesn't
 // fit it. A number that a number piece follows has as many digits as the pattern says.
-Function ReadPiece(chars: Int[], start: Int, piece: Piece, adjacent: Bool, fields: Fields): Int?
+Function ReadPiece(chars: Char[], start: Int, piece: Piece, adjacent: Bool, fields: Fields): Int?
     Local c = piece.Letter
     Local count = piece.Count
-    If c == 0
+    If c == ' '
         Local text = piece.Text.Chars
         For i = 0 Until text.Count
             If start + i >= chars.Count || chars[start + i] != text[i] Then Return Null
@@ -828,7 +829,7 @@ End Function
 // Names
 
 // Whether the word is at start, in any letter case.
-Function MatchesWord(chars: Int[], start: Int, word: String): Bool
+Function MatchesWord(chars: Char[], start: Int, word: String): Bool
     Local letters = word.Chars
     If start + letters.Count > chars.Count Then Return False
     For i = 0 Until letters.Count

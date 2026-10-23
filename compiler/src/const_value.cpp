@@ -2,6 +2,7 @@
 
 #include "fb/c_abi.hpp"
 #include "fb/text_format.hpp"
+#include "fb/utf8.hpp"
 
 #include <algorithm>
 #include <array>
@@ -460,6 +461,14 @@ const_value_t make_string(std::string value) {
     return { .type = type_id_t::STRING, .data = std::move(value) };
 }
 
+const_value_t make_char(const char32_t code) {
+    return { .type = type_id_t::CHAR, .data = std::uint64_t{ code } };
+}
+
+bool is_scalar_value(const std::uint64_t code) {
+    return code <= 0x10FFFF && (code < 0xD800 || code > 0xDFFF);
+}
+
 fold_result_t fold_unary(const unary_op_t op, const const_value_t& operand) {
     if (is_c_integer(operand.type)) {
         return as_c_integer(fold_unary(op, on_build_target(operand)), operand.type);
@@ -563,6 +572,22 @@ fold_result_t fold_cast(const const_value_t& value, const type_id_t type) {
         return wrap(*flag ? 1U : 0U, type);
     }
 
+    // A Char is its code as an integer, which keeps its low bits as any integer's do, and an
+    // integer is a Char only when it's a Unicode scalar value.
+    if (value.type == type_id_t::CHAR) {
+        return wrap(raw_bits(value), type);
+    }
+
+    if (type == type_id_t::CHAR) {
+        const auto* negative = std::get_if<std::int64_t>(&value.data);
+        if ((negative != nullptr && *negative < 0) || !is_scalar_value(raw_bits(value))) {
+            return std::unexpected(
+                std::format("{} isn't a Unicode scalar value, which a Char holds", to_text(value)));
+        }
+
+        return make_char(static_cast<char32_t>(raw_bits(value)));
+    }
+
     // Between integers, As keeps the low bits: 300 As UInt8 is 44 (docs/spec/02-types.md).
     if (is_integer(value.type) && is_integer(type)) {
         return wrap(raw_bits(value), type);
@@ -617,6 +642,13 @@ fold_result_t fold_cast(const const_value_t& value, const type_id_t type) {
 std::string to_text(const const_value_t& value) {
     if (const auto* flag = std::get_if<bool>(&value.data)) {
         return *flag ? "True" : "False";
+    }
+
+    // A Char is its character.
+    if (value.type == type_id_t::CHAR) {
+        std::string text;
+        append_utf8(text, static_cast<char32_t>(std::get<std::uint64_t>(value.data)));
+        return text;
     }
 
     if (const auto* number = std::get_if<std::int64_t>(&value.data)) {

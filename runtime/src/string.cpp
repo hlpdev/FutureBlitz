@@ -128,6 +128,29 @@ decoded_t decode(const std::string_view text, const std::size_t at) {
     return { .point = point, .length = length };
 }
 
+/// `point`, a Unicode scalar value, in UTF-8: 1 to 4 bytes.
+std::string encode(const std::uint32_t point) {
+    constexpr std::uint32_t continuation = 0x80;
+    constexpr std::uint32_t low_six = 0x3F;
+    const auto byte = [](const std::uint32_t bits) { return static_cast<char>(bits); };
+    if (point < 0x80) {
+        return { byte(point) };
+    }
+
+    if (point < 0x800) {
+        return { byte(0xC0U | (point >> 6U)), byte(continuation | (point & low_six)) };
+    }
+
+    if (point < 0x10000) {
+        return { byte(0xE0U | (point >> 12U)), byte(continuation | ((point >> 6U) & low_six)),
+                 byte(continuation | (point & low_six)) };
+    }
+
+    return { byte(0xF0U | (point >> 18U)), byte(continuation | ((point >> 12U) & low_six)),
+             byte(continuation | ((point >> 6U) & low_six)),
+             byte(continuation | (point & low_six)) };
+}
+
 /// An integer as std::to_chars writes it by default: the same text as std::format("{}"), which
 /// the compiler uses when it folds constants.
 template <typename Number>
@@ -313,7 +336,7 @@ void fb_string_chars(const fb_string_t* string, fb_array_t* into) {
     const std::string_view text(bytes_of(string), size_of(string));
     for (std::size_t i = 0; i < text.size();) {
         const decoded_t decoded = decode(text, i);
-        const auto value = static_cast<std::int32_t>(decoded.point);
+        const std::uint32_t value = decoded.point;
         std::memcpy(fb_array_push(into, sizeof value), &value, sizeof value);
         i += decoded.length;
     }
@@ -345,5 +368,9 @@ fb_string_t* fb_string_from_float64(const double value) {
 
 fb_string_t* fb_string_from_bool(const std::int32_t value) {
     return make(value != 0 ? "True" : "False");
+}
+
+fb_string_t* fb_string_from_char(const std::uint32_t value) {
+    return make(encode(value));
 }
 }
