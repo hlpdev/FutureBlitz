@@ -172,3 +172,20 @@ Local tile = map.Tiles[3, 4]
 Local tiles = Tiles()
 tiles.Cells[1, 1] = 4
 Print("{tile:?} {tiles:?}")
+
+// A number's debug form, padded, goes right, as folding and Format put it.
+Local five = 5
+Local half = 2.5
+Print("[{five:6?}] [{5:6?}] [{5:6?}] {Suit.Spades} [{half:<6?}] [{five:^5?}]")
+
+// A value a Formattable... parameter boxed shows as itself.
+Function DebugAll(values: Formattable...): String
+    Local text = ""
+    For v In values
+        text += "{v:?} "
+    End For
+
+    Return text
+End Function
+
+Print(DebugAll(5, "a", True, Suit.Hearts))

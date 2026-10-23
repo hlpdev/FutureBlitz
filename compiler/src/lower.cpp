@@ -6171,6 +6171,13 @@ private:
                     .data = std::int64_t{ spec->alternate ? 0 : -1 },
                 },
             };
+            // A number's is its text, padded as a number is, to the right, as folding and
+            // Format pad it.
+            if (spec->width > 0 && (is_integer(type) || is_float(type))) {
+                parts.push_back(formatted_number(value, type, spec_text, format.span));
+                return;
+            }
+
             operand_t text = debug_of(value, type, indent);
             if (spec->width > 0) {
                 text = runtime_call(runtime_function_t::FORMAT_TEXT,
@@ -6208,23 +6215,8 @@ private:
             return;
         }
 
-        if (subject == format_subject_t::INTEGER) {
-            const bool is_signed_type = is_signed(type);
-            parts.push_back(runtime_call(
-                is_signed_type ? runtime_function_t::FORMAT_INT : runtime_function_t::FORMAT_UINT,
-                {
-                    cast(value, is_signed_type ? type_id_t::INT64 : type_id_t::UINT64, format.span),
-                    spec_text,
-                },
-                type_id_t::STRING, true));
-        } else if (subject == format_subject_t::FLOAT) {
-            parts.push_back(runtime_call(runtime_function_t::FORMAT_FLOAT,
-                                         {
-                                             cast(value, type_id_t::FLOAT64, format.span),
-                                             make_bool(type == type_id_t::FLOAT32),
-                                             spec_text,
-                                         },
-                                         type_id_t::STRING, true));
+        if (subject == format_subject_t::INTEGER || subject == format_subject_t::FLOAT) {
+            parts.push_back(formatted_number(value, type, spec_text, format.span));
         } else {
             // Any other value's text, as "{x}" shows it, padded.
             std::vector<operand_t> texts;
@@ -6238,6 +6230,27 @@ private:
                              { text, make_bool(subject == format_subject_t::STRING), spec_text },
                              type_id_t::STRING, true));
         }
+    }
+
+    /// A number's text by a spec, which the runtime reads: an integer's, through an Int64 or a
+    /// UInt64, or a float's, through a Float64, as a Float32 when it is one.
+    operand_t formatted_number(const operand_t& value, const type_id_t type, const operand_t& spec,
+                               const span_t span) {
+        if (is_float(type)) {
+            return runtime_call(runtime_function_t::FORMAT_FLOAT,
+                                {
+                                    cast(value, type_id_t::FLOAT64, span),
+                                    make_bool(type == type_id_t::FLOAT32),
+                                    spec,
+                                },
+                                type_id_t::STRING, true);
+        }
+
+        const bool is_signed_type = is_signed(type);
+        return runtime_call(
+            is_signed_type ? runtime_function_t::FORMAT_INT : runtime_function_t::FORMAT_UINT,
+            { cast(value, is_signed_type ? type_id_t::INT64 : type_id_t::UINT64, span), spec },
+            type_id_t::STRING, true);
     }
 
     /// A value's debug form, "{x:?}"'s: all on one line where `indent` is below 0, or else that
@@ -6418,6 +6431,15 @@ private:
             finish_statement();
             jump(done);
             start(done);
+            return text;
+        }
+
+        // std's box for a value that isn't an object, as a Formattable... parameter takes it,
+        // shows as the value it holds.
+        if (m_analysis.formatted_box != type_id_t::INVALID &&
+            definition_of(type) == m_analysis.formatted_box) {
+            begin(debug_of(element_of(place_t{ value }, 0), types().get(type).fields[0].type,
+                           place_t{ indent }));
             return text;
         }
 
