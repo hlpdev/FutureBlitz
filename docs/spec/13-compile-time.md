@@ -282,6 +282,34 @@ Local loaded = Try Load<Settings>(saved)        // and makes a Settings from aga
   `OUT_OF_RANGE` past that, and Save goes as deep into Fields and elements, and panics past that
   where it's called, as for a Class that holds itself, whose Save would never end.
 
+## Embedding files
+
+```vb
+Const Help = EmbedText("help.txt")      // a String known at compile time
+Local logo = Embed("art/logo.png")      // a new UInt8[] of the file's bytes
+Local levels = EmbedFolder("levels")    // a new Map<String, UInt8[]>
+Local first = levels["one.txt"]
+```
+
+- `Embed(path)`, `EmbedText(path)`, and `EmbedFolder(path)` are built-ins that read files when
+  the program is built, and put them in it. Embed gives a file's bytes, as they are, in a new
+  `UInt8[]` each time. EmbedText gives its text as a String known at compile time, which a
+  Const can hold. EmbedFolder gives a new `Map<String, UInt8[]>` of a folder's files, each in a
+  new `UInt8[]`, by its path in the folder, like `"maps/one.txt"`, in path order, without hidden
+  files and folders, whose names start with `.`. A program's own Embed takes its place.
+- The path is a String known at compile time, from the folder of the file the call is in, with
+  `/` (or `\`) between folders. It stays in that file's package's folder, as an Import's path
+  does: the main file's folder without a project.toml, and std/ for std's own files. It can't go
+  through a link or a junction that leads out of it, or into another package's folder inside it,
+  and without a project.toml, it can't start with a folder called std.
+- It's an error at the path when there's no such file or folder, when it names a folder for
+  Embed or EmbedText or a file for EmbedFolder, when EmbedFolder's folder holds the program's own
+  code, which isn't data (its own folder would bring the last build's executable along), when
+  EmbedText's file isn't UTF-8, or when one call would put more than 64 MiB in the program: a
+  file that large is better read when the program runs.
+- Each build reads the files again, as it does the program's source files, and `fb build -o`
+  doesn't write over one.
+
 ## Conditional compilation
 
 ```vb

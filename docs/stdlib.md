@@ -778,7 +778,8 @@ brings in all of std/io/.
   were when it began. Zips will mount through std.compress's `Zip.Read` once it's on master. The
   engine's pak files build on it.
 - `Embed("path")`, `EmbedText("path")`, and `EmbedFolder("path")`: built-ins, checked at compile
-  time, that put a file's bytes or text, or a read-only folder, in the program.
+  time, that put a file's bytes (a new `UInt8[]`), its text (a String known at compile time), or
+  a folder's files (a new `Map<String, UInt8[]>` by their paths in it), in the program (spec 13).
 - `Preferences("MyGame")`: a program's settings, kept between runs in
   `<folder>/MyGame/preferences.txt`, where the folder is the OS's for its users' programs' settings
   (`Preferences.Folder()`: Windows' %APPDATA%, macOS's ~/Library/Application Support, and elsewhere
