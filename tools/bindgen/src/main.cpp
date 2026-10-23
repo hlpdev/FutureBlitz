@@ -45,6 +45,8 @@ Options:
 struct request_t {
     fb::bindgen_options_t options;
     std::filesystem::path output;
+    /// Whether -o named the output, rather than the header's name.
+    bool named_output = false;
 };
 
 /// How people run it: "fb bindgen" when fb runs it, which says so with "--fb" first.
@@ -66,7 +68,6 @@ auto not_empty(const std::string_view option, const std::string_view what) {
 std::expected<std::optional<request_t>, std::string> parse(const std::vector<std::string>& args) {
     request_t request;
     std::optional<std::string> library;
-    bool named_output = false;
     for (std::size_t i = 0; i < args.size(); ++i) {
         const std::string& arg = args[i];
         if (arg == "-h" || arg == "--help") {
@@ -108,7 +109,7 @@ std::expected<std::optional<request_t>, std::string> parse(const std::vector<std
                     return path;
                 });
             request.output = fb::path_from_utf8(taken.value_or(""));
-            named_output = taken.has_value();
+            request.named_output = taken.has_value();
         } else if (is("--lib")) {
             taken = value("--lib");
             library = taken.value_or("");
@@ -154,7 +155,7 @@ std::expected<std::optional<request_t>, std::string> parse(const std::vector<std
             library ? std::format("'{}'", request.options.library)
                     : std::format("the header's name, '{}',", request.options.library)));
     }
-    if (!named_output) {
+    if (!request.named_output) {
         request.output = request.options.header.stem();
         request.output += ".fb";
     }
@@ -165,7 +166,7 @@ std::expected<std::optional<request_t>, std::string> parse(const std::vector<std
     if (std::filesystem::is_directory(request.output, error)) {
         const std::string path = fb::to_utf8(request.output);
         return std::unexpected(
-            named_output
+            request.named_output
                 ? std::format("'-o' names a folder, {}; give the module's file name", path)
                 : std::format("the module would be {}, which is a folder; give its path with -o",
                               path));
@@ -174,7 +175,7 @@ std::expected<std::optional<request_t>, std::string> parse(const std::vector<std
     if (std::filesystem::equivalent(request.output, request.options.header, error)) {
         const std::string path = fb::to_utf8(request.output);
         return std::unexpected(
-            named_output
+            request.named_output
                 ? std::format("'-o' names the header, {}; give another path", path)
                 : std::format("the module would be {}, the header; give its path with -o", path));
     }
@@ -212,6 +213,29 @@ int run(std::vector<std::string> args) {
         }
 
         return failed_exit_code;
+    }
+
+    // Nor over a header the header reads, which would lose it too.
+    for (const std::filesystem::path& read : bindings->files) {
+        std::error_code different;
+        if (!std::filesystem::equivalent(request.output, read, different)) {
+            continue;
+        }
+
+        const std::string path = fb::to_utf8(request.output);
+        const std::string header = fb::to_utf8(request.options.header);
+        std::fputs(std::format(
+                       "error: {}\n\nRun '{} --help' to see the options.\n",
+                       request.named_output
+                           ? std::format("'-o' names {}, a header {} reads; give another path",
+                                         path, header)
+                           : std::format(
+                                 "the module would be {}, a header {} reads; give its path with -o",
+                                 path, header),
+                       command_name)
+                       .c_str(),
+                   stderr);
+        return usage_exit_code;
     }
 
     for (const std::string& warning : bindings->warnings) {

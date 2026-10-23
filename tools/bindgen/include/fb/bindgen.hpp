@@ -32,6 +32,9 @@ struct bindgen_options_t {
 struct bindings_t {
     std::string text;
     std::vector<std::string> warnings;
+    /// Each file clang read for the header: the header and what it #includes, directly or not,
+    /// which the module mustn't be written over.
+    std::vector<std::filesystem::path> files;
 };
 
 /// The header's own declarations, not those of what it #includes, as a module: its structs as
