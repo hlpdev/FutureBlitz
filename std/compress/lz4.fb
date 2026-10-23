@@ -1,8 +1,9 @@
 // LZ4's frame format, of .lz4 files, over LZ4. Its Compress and Decompress work at once, and its
 // Compressor and Decompressor take bytes in turn and give what came out of them so far, for data
-// that comes in parts. Levels go from 1, the fastest, which is the default, to 12, the smallest;
-// from 3 on, they're LZ4's slower high-compression mode. Each frame has its content's checksum,
-// and a Compress's says its size. A Decompress reads frames one after another.
+// that comes in parts. Levels go from 1, the fastest, which is the default, to 12, the smallest:
+// 1 is LZ4's fast mode, 2 its middle one, 3 to 9 its high-compression mode, and 10 to 12 that
+// mode's optimal parser. Each frame has its content's checksum, and a Compress's says its size. A
+// Decompress reads frames one after another.
 
 Import std.core
 Import std.compress.codec

@@ -14,10 +14,12 @@
 // Each codec has an encoder and a decoder, which take bytes in turn and give what came out of
 // them so far. Finishing one takes the last bytes, gives the rest, and starts it again. A
 // decoder's add and finish give 0, or 1 when the bytes aren't the format or are broken, 2 when
-// they end too soon, which only finishing can tell, or 3 when they'd come to more than the
-// decoder's limit, all its bytes counted until it finishes. Once it fails it gives that again
-// until it finishes, and its message says why, from its library. An archive's reader gives those
-// too, and 4 for what it doesn't support, like a method or encryption.
+// they end too soon, which only finishing can tell, 3 when they'd come to more than the
+// decoder's limit, all its bytes counted until it finishes, or 4 when they use what std.compress
+// doesn't take though the library may, like a preset dictionary, a Zstd window past 128 MiB, or
+// an XZ dictionary past an array's bytes. Once it fails it gives that again until it finishes,
+// and its message says why, from its library. An archive's reader gives those too, 4 also for a
+// method or encryption.
 //
 // zlib-ng's format is 1 Deflate (RFC 1951), 2 Zlib (RFC 1950), or 3 Gzip (RFC 1952), whose
 // decoder reads members one after another.
