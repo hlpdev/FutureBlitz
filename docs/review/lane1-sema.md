@@ -678,7 +678,7 @@ Skeptic: confirmed=True, high. p5.fb: a worker does `"{Shown(1)}"`, where Shown'
 
 ## A2-5 (medium): check_struct_cycles() misses a generic Struct that holds an instance of itself, and the compiler crashes
 
-Status: open
+Status: fixed by lane 3 in 9693cd9 (a generic struct that holds an instance of itself inline can't contain itself either), with sema tests for Wrap<Int> and Wrap<T[]>
 
 Where: compiler/src/sema.cpp:5874
 
@@ -754,7 +754,7 @@ Skeptic: confirmed=True, medium. V3/v8.fb (Door with 'Async Method Open()' and '
 
 ## A4-5 (medium): Compiler assertion crash: Scheduler's Run called without an argument
 
-Status: open
+Status: fixed by lane 3 in fb8b538 (a scheduler's run without its task is one error, not a crash), with a sema test
 
 Where: compiler/src/sema.cpp:18733
 
@@ -772,7 +772,7 @@ Skeptic: confirmed=True, medium. `Local s = Scheduler()` / `s.Run()`: `fb check`
 
 ## A4-6 (medium): Compiler crash: a known integer's Wrapping or Checked Method folded with a mistyped known argument
 
-Status: open
+Status: fixed by lane 3 in d095e0a (an integer method's known argument of another type isn't folded), with sema tests
 
 Where: compiler/src/sema.cpp:16762
 
@@ -790,7 +790,7 @@ Skeptic: confirmed=True, medium. `Const a: Int = 5` / `Print(a.WrappingAdd(1.5))
 
 ## A4-7 (medium): Compiler crash: pointer arithmetic on a known Null Ptr is folded as integer arithmetic
 
-Status: open
+Status: fixed by lane 3 in 065cada (pointer arithmetic on a known null ptr isn't folded), with a sema test of all three shapes
 
 Where: compiler/src/sema.cpp:17136
 
@@ -808,7 +808,7 @@ Skeptic: confirmed=True, medium. Three cases crash `fb check` with 'std::get: wr
 
 ## A4-8 (medium): fb::implements() says Weak<Shared Class> isn't Sendable while sema says it is: crash through a conditional Extend
 
-Status: open
+Status: fixed by lane 3 in b75b39b (a weak of a shared class is sendable for lowering's interface tables too), with tests/programs/sendable_weak.fb: conformance_query_t::sendable() has a WEAK case, and spec 10 says a Weak<T> of a Shared Class is Sendable
 
 Where: compiler/src/sema.cpp:21829
 
@@ -826,7 +826,7 @@ Skeptic: confirmed=True, medium. a8b.fb with `Extend Bin<T> Implements Shown / W
 
 ## A4-9 (medium): A generic overload and one that isn't generic, both needing a conversion, are called ambiguous
 
-Status: open
+Status: fixed by lane 3 in 0a52bb6 (a function that isn't generic beats a generic one that fits as well with a conversion too), with sema tests
 
 Where: compiler/src/sema.cpp:19859
 
@@ -844,7 +844,7 @@ Skeptic: confirmed=True, medium. With F(x: Int?) and F<T>(x: T?), `F(n)` for an 
 
 ## A4-10 (medium): Array and Map literals refuse Null before the first literal, and `[]` beside typed arrays
 
-Status: open
+Status: fixed by lane 3 in 468af88 (null, tuples, and empty arrays and maps in a literal take the type the others meet at), with sema tests: common_type_of() takes typed values, then literals, tuples, and empty arrays and Maps with the common type as their hint, then Null
 
 Where: compiler/src/sema.cpp:21414
 
@@ -862,7 +862,7 @@ Skeptic: confirmed=True, medium. `[1, Null]` checks (Int32?[]), but `[Null, 1]` 
 
 ## A4-11 (medium): A Const Function call that uses a parameter's default doesn't run at compile time where Consts and types are declared
 
-Status: open
+Status: fixed by lane 3 in 89fdcb1 (a const function run where consts and types are declared checks the defaults it uses first), with sema tests: check_defaults() runs once per function, on demand from run_at_compile_time()
 
 Where: compiler/src/sema.cpp:18407
 
@@ -880,7 +880,7 @@ Skeptic: confirmed=True, medium. `Const A = Add(1)`, with b defaulting to 10, gi
 
 ## A4-12 (medium): An Enum declared later has 'no member' while declaration types and early Const runs are checked
 
-Status: open
+Status: fixed by lane 3 in 2e1db2c (an enum declared later has its values where declarations' types use them), with sema tests: check_enum_value() declares the Enum early while types are declared
 
 Where: compiler/src/sema.cpp:20410
 
@@ -1389,3 +1389,11 @@ Status: fixed in cce8b20, with tests
 Where: compiler/src/sema.cpp, comparable()
 
 Found while testing A2-4. comparable() asks each of a Struct's fields whether == works on it, and an array's element, with nothing to stop it going round, so `Struct Node / Field children: Node[]` with `Node([]) == Node([])` recurses until `fb check` dies with 0xC00000FD and prints nothing. The same Struct without the == checks and runs. comparable()'s doc comment also says == doesn't work on arrays, which is A2-7.
+
+## A4-new-1 (medium): A generic Function's name passed to an overloaded call or constructor gets no type arguments
+
+Status: fixed by lane 3 in 3695311 (a generic function's name passed to an overload, or a constructor, takes its type arguments from the parameter), with sema tests; and 50fb692 lets "f = Less<Int>", which the error suggests, end a value
+
+Where: compiler/src/sema.cpp, choose_overload()
+
+Found by lane 5: `PriorityQueue<Box<Int>>(Less)` with a generic `Less` fails with "'Less' is generic, so it needs a Func type to say what T is", though passing it to a Function works and spec 07 says the Func expected gives its type arguments. Any overloaded call fails the same way, since choose_overload() checks each argument without a hint first and gave up on one with no type of its own. Lane 3 reproduced it with an overloaded Function and an overloaded New; one New alone worked. choose_overload() now lets a generic Function's name through, and match() checks it against each overload's parameter.
