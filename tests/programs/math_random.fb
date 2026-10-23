@@ -1,0 +1,108 @@
+// Random: PCG32, whose seed 42 on stream 54 gives the numbers pcg32-demo's reference does, and a
+// seed's numbers are the same in every build and on every OS, Floats and Normal's included, since
+// none of them goes through C's libm.
+Import std.core
+Import std.math
+Import std.collections
+
+// The reference's first six numbers, as UInt32s.
+Local reference = Random(42, 54)
+Local raw: UInt32[] = []
+For i = 0 Until 6
+    raw.Add(reference.Int() As UInt32)
+End For
+Print(raw)
+Print(raw == [0xA15C02B7 As UInt32, 0x7B47F409, 0xBA1D3330, 0x83D2F293, 0xBFA4784B, 0xCBED606E])
+
+// What one seed gives, in order, every run.
+Local random = Random(7)
+Print(random.Int(), random.Int(), random.Int(6), random.Int(1, 6), random.Int(-3, 3),
+      random.Int(5, 5))
+Print(random.Float(), random.Float(), random.Float(2, 3), random.Float(-1, 1), random.Float(4, 4))
+Print(random.Double(), random.Double(), random.Bool(), random.Bool(), random.Chance(0.5),
+      random.Chance(0))
+Print(random.Chance(1), random.Chance(-1), random.Chance(2))
+Print(random.Pick(["a", "b", "c"]), random.Pick([7]),
+      random.WeightedPick(["x", "y", "z"], [1, 0, 3]))
+Local deck = [1, 2, 3, 4, 5, 6, 7, 8]
+random.Shuffle(deck)
+Print(deck, random.Sample([10, 20, 30, 40, 50], 3), random.Sample([1, 2], 0),
+      random.Sample([1, 2], 2))
+Print(random.Normal(), random.Normal(10, 2), random.InsideUnitCircle(), random.UnitVector3())
+
+// The full range of Ints, and a single value.
+Print(Random(-5).Int(MinValue<Int>(), MaxValue<Int>()), Random(3).Int(1), Random(3).Int(0, 0))
+
+// The same seed gives the same numbers; another seed, or another stream, gives others.
+Local a = Random(123)
+Local b = Random(123)
+Local c = Random(124)
+Local d = Random(123, 1)
+Local same = 0
+Local apart = 0
+For i = 0 Until 1000
+    Local value = a.Int()
+    If value == b.Int() Then same++
+    If value != c.Int() && value != d.Int() Then apart++
+End For
+Print(same, apart)
+
+// State saves where a generator is, and setting it goes on from there; Fork starts one apart.
+Local saved = Random(9)
+saved.Int()
+Local state = saved.State
+Local next = [saved.Int(), saved.Int(), saved.Int()]
+saved.State = state
+Print(state, next == [saved.Int(), saved.Int(), saved.Int()])
+Local parent = Random(11)
+Local child = parent.Fork()
+Print(child.Int(), parent.Int(), Random(11).Fork().Int() == Random(11).Fork().Int())
+
+// Each value is as likely: a die's faces, Bool's sides, and Float's tenths come up about as often.
+Local dice = Random(2024)
+Local faces: Int[] = [0, 0, 0, 0, 0, 0]
+Local heads = 0
+Local tenths: Int[] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+Local lowest: Float = 1
+Local highest: Float = 0
+For i = 0 Until 60000
+    faces[dice.Int(1, 6) - 1]++
+    If dice.Bool() Then heads++
+    Local f = dice.Float()
+    tenths[Floor(f * 10) As Int]++
+    lowest = Min(lowest, f)
+    highest = Max(highest, f)
+End For
+Print(faces.All(Function(n: Int) => n > 9600 && n < 10400), heads > 29500 && heads < 30500)
+Print(tenths.All(Function(n: Int) => n > 5700 && n < 6300), lowest >= 0, highest < 1)
+
+// Normal's mean and deviation, InsideUnitCircle inside it, and UnitVector3 of length 1.
+Local bell = Random(5)
+Local values: Double[] = []
+Local inside = True
+Local unit = True
+For i = 0 Until 20000
+    values.Add(bell.Normal(3, 2))
+    inside = inside && Length(bell.InsideUnitCircle()) < 1
+    unit = unit && IsClose(Length(bell.UnitVector3()), 1, 0.000001)
+End For
+Print(Abs(Mean(values) - 3) < 0.05, Abs(StdDev(values) - 2) < 0.05, inside, unit)
+
+// A weight's share of the picks follows its share of the weights.
+Local weighted = Random(8)
+Local picks: Int[] = [0, 0, 0]
+For i = 0 Until 40000
+    picks[weighted.WeightedPick([0, 1, 2], [1, 2, 5])]++
+End For
+Print(picks[0] > 4700 && picks[0] < 5300, picks[1] > 9600 && picks[1] < 10400,
+      picks[2] > 24500 && picks[2] < 25500)
+
+// Shuffle gives every order of three about as often.
+Local orders = Map<String, Int>()
+Local shuffler = Random(77)
+For i = 0 Until 60000
+    Local three = [1, 2, 3]
+    shuffler.Shuffle(three)
+    orders["{three}"] = orders.Get("{three}", 0) + 1
+End For
+Print(orders.Count, orders.Values().All(Function(n: Int) => n > 9700 && n < 10300))

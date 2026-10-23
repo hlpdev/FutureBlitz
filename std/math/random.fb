@@ -1,0 +1,260 @@
+// Random: a seeded generator of random numbers, PCG32, Melissa O'Neill's permuted congruential
+// generator, so a seed gives the same numbers in every build, on every OS and CPU, which replays,
+// tests, and level seeds need. Nothing it makes uses C's libm: its floats come from its integers,
+// and Normal's logarithm is its own. It isn't for secrets; std.crypto's SecureRandom is.
+
+Import std.core
+Import std.math.bits
+Import std.math.constants
+Import std.math.numbers
+Import std.math.scalar
+Import std.math.vector
+
+// PCG's multiplier, and the stream a generator is on unless it says another.
+Const Multiplier: UInt64 = 6364136223846793005
+Const DefaultStream: UInt64 = 721347520444481703
+
+Public Class Random
+    // The state, which every number steps, and the increment, odd, which picks the stream.
+    Field Current: UInt64
+    Field Increment: UInt64
+
+    // A generator from the seed, on PCG's default stream.
+    Public New(seed: Int64)
+        Start(seed As UInt64, DefaultStream)
+    End New
+
+    // A generator from the seed, on one of 2^63 streams, which give numbers apart from each other
+    // for the same seed.
+    Public New(seed: Int64, stream: Int64)
+        Start(seed As UInt64, stream As UInt64)
+    End New
+
+    // PCG's pcg32_srandom_r: the state stepped from 0 with the stream's increment, the seed added,
+    // and stepped again.
+    Method Start(seed: UInt64, stream: UInt64)
+        Current = 0
+        Increment = (stream << 1) | 1
+        Step()
+        Current = Current.WrappingAdd(seed)
+        Step()
+    End Method
+
+    // The next 32 random bits: the state stepped, its old value shifted and rotated.
+    Method Step(): UInt32
+        Local old = Current
+        Current = old.WrappingMultiply(Multiplier).WrappingAdd(Increment)
+        Local shifted = (((old >> 18) ^ old) >> 27) As UInt32
+        Local rotation = (old >> 59) As Int
+        Return RotateRight(shifted, rotation)
+    End Method
+
+    // The generator's state and increment, to save and to set back, which then gives the numbers
+    // it would have gone on to. An even increment is made odd, as PCG needs.
+    Public Property State: (UInt64, UInt64)
+        Get => (Current, Increment)
+        Set(value)
+            Current = value.0
+            Increment = value.1 | 1
+        End Set
+    End Property
+
+    // A new generator from this one's next numbers, its own seed and stream, for a part of a
+    // program that draws apart from the rest, as each of a world's chunks can.
+    Public Method Fork(): Random
+        Local seed = ((Step() As UInt64) << 32) | Step()
+        Local stream = ((Step() As UInt64) << 32) | Step()
+        Return Random(seed As Int64, (stream >> 1) As Int64)
+    End Method
+
+    // Any Int, each as likely.
+    Public Method Int(): Int => Step() As Int
+
+    // An Int from 0 to count - 1, each as likely, as for an index. A count that isn't above 0
+    // panics.
+    @PanicsAtCaller
+    Public Method Int(count: Int): Int
+        If count <= 0 Then Panic("Int takes a count above 0, not {count}")
+        Return Below(count As UInt32) As Int
+    End Method
+
+    // An Int from low to high, both included, each as likely: Int(1, 6) rolls a die. A low above
+    // high panics.
+    @PanicsAtCaller
+    Public Method Int(low: Int, high: Int): Int
+        If low > high Then Panic("Int takes a low that isn't above its high, not {low} and {high}")
+        Local span = ((high As Int64) - low + 1) As UInt64
+        If span > 4294967295 Then Return Step() As Int
+        Return ((low As Int64) + Below(span As UInt32)) As Int
+    End Method
+
+    // A number below bound, each as likely: the raw numbers past the last whole run of bound are
+    // passed over, so none comes up more often.
+    Method Below(bound: UInt32): UInt32
+        Local threshold = bound.WrappingNegate() % bound
+        Loop
+            Local value = Step()
+            If value >= threshold Then Return value % bound
+        End Loop
+    End Method
+
+    // A Float from 0 up to 1, 1 left out, from 24 random bits, so each of its values is as likely.
+    Public Method Float(): Float => ((Step() >> 8) As Float) * (1.0 / 16777216)
+
+    // A Float from low up to high, high left out: low itself when they're equal. A low above high,
+    // or a NaN or infinite end, panics.
+    @PanicsAtCaller
+    Public Method Float(low: Float, high: Float): Float
+        If !(low <= high) || !IsFinite(high - low)
+            Panic("Float takes a finite low that isn't above its high, not {low} and {high}")
+        End If
+
+        If low == high Then Return low
+        // Rounding can carry low + (high - low) * t up to high itself, which is drawn again.
+        Loop
+            Local value = low + (high - low) * Float()
+            If value < high Then Return value
+        End Loop
+    End Method
+
+    // A Double from 0 up to 1, 1 left out, from 53 random bits.
+    Public Method Double(): Double
+        Local high = (Step() >> 5) As UInt64
+        Local low = (Step() >> 6) As UInt64
+        Return (((high << 26) | low) As Double) * (1.0 / 9007199254740992)
+    End Method
+
+    // True or False, each as likely.
+    Public Method Bool(): Bool => (Step() >> 31) == 1
+
+    // True with the probability, from 0 for never to 1 for always.
+    Public Method Chance(probability: Double): Bool => Double() < probability
+
+    // One of the items, each as likely. No items panics.
+    @PanicsAtCaller
+    Public Method Pick<T>(items: T[]): T
+        If items.Count == 0 Then Panic("Pick takes at least one item")
+        Return items[Below(items.Count As UInt32) As Int]
+    End Method
+
+    // One of the items, each as likely as its weight is of the weights' sum. Weights and items of
+    // other counts, a weight that's negative or not finite, or weights that add up to 0, panic.
+    @PanicsAtCaller
+    Public Method WeightedPick<T>(items: T[], weights: Double[]): T
+        If items.Count != weights.Count
+            Panic("WeightedPick takes a weight for each item, not {weights.Count} for " +
+                  "{items.Count}")
+        End If
+
+        Local total: Double = 0
+        For weight In weights
+            If !(weight >= 0) || !IsFinite(weight)
+                Panic("WeightedPick takes weights that are finite and not negative, not {weight}")
+            End If
+            total += weight
+        End For
+        If !(total > 0) || !IsFinite(total)
+            Panic("WeightedPick takes weights whose sum is above 0 and finite, not {total}")
+        End If
+
+        Local target = Double() * total
+        Local last = 0
+        For i = 0 Until items.Count
+            If weights[i] <= 0 Then Continue
+            last = i
+            If target < weights[i] Then Return items[i]
+            target -= weights[i]
+        End For
+        // Rounding in the sum can leave a sliver past the last weight, which is the last item's.
+        Return items[last]
+    End Method
+
+    // Puts the items in a random order, in place, each order as likely: Fisher and Yates' shuffle.
+    Public Method Shuffle<T>(items: T[])
+        Local i = items.Count - 1
+        While i > 0
+            Local j = Below((i + 1) As UInt32) As Int
+            Local held = items[i]
+            items[i] = items[j]
+            items[j] = held
+            i--
+        End While
+    End Method
+
+    // count of the items, none twice, in a random order, as a new array, each choice as likely. A
+    // count below 0 or above the items' panics.
+    @PanicsAtCaller
+    Public Method Sample<T>(items: T[], count: Int): T[]
+        If count < 0 || count > items.Count
+            Panic("Sample takes a count from 0 to the items' {items.Count}, not {count}")
+        End If
+
+        Local pool = items.Clone()
+        Local chosen: T[] = []
+        chosen.Reserve(count)
+        For i = 0 Until count
+            Local j = i + (Below((pool.Count - i) As UInt32) As Int)
+            Local held = pool[i]
+            pool[i] = pool[j]
+            pool[j] = held
+            chosen.Add(pool[i])
+        End For
+        Return chosen
+    End Method
+
+    // A number from the normal distribution, the bell curve, of the mean and standard deviation:
+    // Marsaglia's polar method, with a logarithm of its own, so it's the same everywhere.
+    Public Method Normal(mean: Double = 0, deviation: Double = 1): Double
+        Loop
+            Local u = 2 * Double() - 1
+            Local v = 2 * Double() - 1
+            Local s = u * u + v * v
+            If s > 0 && s < 1 Then Return mean + deviation * u * Sqrt(-2 * Ln(s) / s)
+        End Loop
+    End Method
+
+    // A point inside the circle of radius 1, each as likely: a point in the square, drawn again
+    // until it's in the circle.
+    Public Method InsideUnitCircle(): Vec2
+        Loop
+            Local x = 2 * Double() - 1
+            Local y = 2 * Double() - 1
+            If x * x + y * y < 1 Then Return Vec2(x As Float, y As Float)
+        End Loop
+    End Method
+
+    // A direction in 3D, of length 1, each as likely: Marsaglia's method, from a point in the
+    // circle.
+    Public Method UnitVector3(): Vec3
+        Loop
+            Local x = 2 * Double() - 1
+            Local y = 2 * Double() - 1
+            Local s = x * x + y * y
+            If s >= 1 Then Continue
+            Local scale = 2 * Sqrt(1 - s)
+            Return Normalize(Vec3((x * scale) As Float, (y * scale) As Float, (1 - 2 * s) As Float))
+        End Loop
+    End Method
+End Class
+
+// The natural logarithm of a value from 0 to 1, by IEEE's exact operations only: its exponent's
+// share, and then 2 atanh((m - 1) / (m + 1)) of its mantissa, from the square root of a half to
+// that of 2, as a series.
+Function Ln(value: Double): Double
+    Local bits = value.ToBits()
+    Local exponent = (((bits >> 52) & 0x7FF) As Int) - 1023
+    Local mantissa = Double.FromBits((bits & 0x000FFFFFFFFFFFFF) | 0x3FF0000000000000)
+    If mantissa > 1.4142135623730951
+        mantissa /= 2
+        exponent++
+    End If
+
+    Local s = (mantissa - 1) / (mantissa + 1)
+    Local squared = s * s
+    // s is below 0.172, so its powers past the 19th are below a Double's precision.
+    Local sum: Double = 1.0 / 19
+    For n = 17 To 1 Step -2
+        sum = sum * squared + 1 / (n As Double)
+    End For
+    Return (exponent As Double) * 0.6931471805599453 + 2 * s * sum
+End Function
