@@ -201,10 +201,21 @@ private:
         return "(error)";
     }
 
+    /// A Task's type with a Throws is in parentheses, apart from a function's Throws.
     [[nodiscard]] std::string type_text(const named_type_t& node) const {
         const std::string qualifier =
             node.qualifier ? std::format("{}.", node.qualifier->text) : std::string();
-        return qualifier + std::string(node.name) + arguments_text(node.arguments);
+        std::string text = qualifier + std::string(node.name) + arguments_text(node.arguments);
+        if (node.throws.empty()) {
+            return text;
+        }
+
+        for (std::size_t i = 0; i < node.throws.size(); ++i) {
+            text += i == 0 ? " Throws " : ", ";
+            text += type_text(node.throws[i]);
+        }
+
+        return std::format("({})", text);
     }
 
     /// "<Int, String>", or nothing without type arguments.

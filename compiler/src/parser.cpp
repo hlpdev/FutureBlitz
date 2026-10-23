@@ -194,6 +194,9 @@ private:
     std::uint32_t m_nesting = 0;
     static constexpr std::uint32_t max_nesting = 1000;
     bool m_too_deep = false;
+    /// Set while a function's result is parsed: a Throws after it is the function's, not a
+    /// Task's.
+    bool m_function_result = false;
     /// The Extern block whose Functions are being parsed.
     std::optional<extern_block_t> m_extern;
 
@@ -1667,6 +1670,7 @@ private:
             }
 
             advance();
+            m_function_result = true;
             return_type = parse_type();
         }
 
@@ -3552,6 +3556,8 @@ private:
     /// "Float[4, 4]", or "(Int, String)[]".
     type_expr_id_t parse_type() {
         const token_t& token = peek();
+        // Only the outermost type of a function's result leaves a Throws to the function.
+        const bool result = std::exchange(m_function_result, false);
         type_expr_id_t type{};
         // A number is a Const type parameter's argument: the 64 in "Grid<Float, 64, 64>".
         const bool number =
@@ -3571,7 +3577,7 @@ private:
             advance();
             type = parse_function_type(&token);
         } else if (token.kind == token_kind_t::IDENTIFIER) {
-            type = parse_named_type();
+            type = parse_named_type(!result);
         } else if (token.kind == token_kind_t::KW_SELF) {
             // In an Interface, Self is the type that implements it.
             advance();
@@ -3632,8 +3638,8 @@ private:
     }
 
     /// A type by name, like "Int", or "Weak<Node>", or after a module's qualifier, like
-    /// "C.Map<K, V>".
-    type_expr_id_t parse_named_type() {
+    /// "C.Map<K, V>". With `throws`, a Task's type takes a Throws after it: "Task<T> Throws E".
+    type_expr_id_t parse_named_type(const bool throws = true) {
         const token_t& token = advance();
         if (accept(token_kind_t::DOT)) {
             const name_t qualifier{ .text = text(token), .span = token.span };
@@ -3662,13 +3668,44 @@ private:
             expect(token_kind_t::GREATER);
             --m_nesting;
             type = add_type(span_from(token.span.begin), weak_type_t{ .inner = inner });
-        } else if (at(token_kind_t::LESS)) {
-            std::vector<type_expr_id_t> arguments = parse_type_arguments();
-            type = add_type(span_from(token.span.begin),
-                            named_type_t{ .name = text(token), .arguments = std::move(arguments) });
+            return type;
         }
 
-        return type;
+        std::vector<type_expr_id_t> arguments;
+        if (at(token_kind_t::LESS)) {
+            arguments = parse_type_arguments();
+        }
+
+        // What waiting for the Task can throw. After a function's result, Throws is the
+        // function's, unless the Task's type is in parentheses.
+        std::vector<type_expr_id_t> thrown;
+        if (throws && text(token) == "Task" && accept(token_kind_t::KW_THROWS)) {
+            thrown = parse_task_throws();
+        }
+
+        if (arguments.empty() && thrown.empty()) {
+            return type;
+        }
+
+        return add_type(span_from(token.span.begin), named_type_t{
+                                                         .name = text(token),
+                                                         .arguments = std::move(arguments),
+                                                         .throws = std::move(thrown),
+                                                     });
+    }
+
+    /// "FileError, ParseError" after a Task's Throws. A ',' goes on to another unless a
+    /// parameter follows it, as in "(t: Task<Int> Throws E, n: Int)", so where anything else
+    /// follows one, as in a tuple or type arguments, the Task's type goes in parentheses.
+    std::vector<type_expr_id_t> parse_task_throws() {
+        std::vector<type_expr_id_t> thrown{ parse_type() };
+        while (at(token_kind_t::COMMA) && peek(1).kind != token_kind_t::KW_BYREF &&
+               (peek(1).kind != token_kind_t::IDENTIFIER || peek(2).kind != token_kind_t::COLON)) {
+            advance();
+            thrown.push_back(parse_type());
+        }
+
+        return thrown;
     }
 
     /// "Func(A, B): R", or "Func(A)" for a function that returns nothing, and "Callback(A, B):

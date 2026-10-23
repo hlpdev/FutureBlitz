@@ -32,7 +32,9 @@ End Function
   and `TimeoutError`, which has one kind. Each takes its Kind first, then its message, its
   details, and a Cause: `IOError(IOErrorKind.NOT_FOUND, "{path} doesn't exist", path)`.
 - `Throws`, after the return type, lists the Classes a function's errors extend:
-  `Throws FileError, ParseError`. Each extends `Error`, and none is covered by another. A function
+  `Throws FileError, ParseError`. Each extends `Error`, or is a type parameter that a constraint
+  says does, `<E: Error>` (see [07](07-generics.md#class-and-error)), and none is covered by
+  another. A function
   that can throw **must** declare it (checked; no surprise exceptions).
 - `Throw error` ends the code there with an object of a Class that extends `Error`, and sets
   its Place to the Throw's, unless an earlier Throw did: an error thrown again from a Catch

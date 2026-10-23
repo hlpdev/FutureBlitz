@@ -1947,10 +1947,16 @@ private:
             m_self = add_local(type, "Self", self.by_ref && !is_object(type));
         }
 
-        // An Async Function's Task comes first.
+        // An Async Function's Task comes first. A generic one's Throws has the instance's
+        // type arguments in it.
         if (function.modifiers.is_async) {
+            std::vector<type_id_t> throws;
+            for (const type_id_t thrown : function.throws) {
+                throws.push_back(concrete(thrown));
+            }
+
             const type_id_t task =
-                types().task(concrete(function.type), function.throws, m_analysis.nullable_error);
+                types().task(concrete(function.type), throws, m_analysis.nullable_error);
             m_async_task = add_local(task, "task");
         }
 

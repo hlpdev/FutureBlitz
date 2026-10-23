@@ -406,6 +406,20 @@ TEST_CASE("constants print as source code writes them, and a coroutine says it's
     CHECK(dumped.contains("async function Later()\n"));
 }
 
+TEST_CASE("a generic Async Function's Task has its instance's errors", "[mir]") {
+    const std::string dumped = lower_text("Import std.core\n"
+                                          "Class Oops Extends Error\n"
+                                          "End Class\n"
+                                          "Async Function Pass<E: Error>(error: E): Int Throws E\n"
+                                          "    Throw error\n"
+                                          "End Function\n"
+                                          "Local t = Pass(Oops(\"a\"))\n");
+    CHECK(dumped.contains("async function Pass<Oops>(Oops)\n"
+                          "    _0 task: Task<Int32> Throws Oops\n"));
+    CHECK(dumped.contains("    _3 t: Task<Int32> Throws Oops\n"));
+    CHECK(!dumped.contains("Throws E"));
+}
+
 TEST_CASE("a Struct is built from its fields, and copies count its Strings", "[mir]") {
     // _0 holds the new Tag and hands it to t. Copying t into u retains its Strings, and changing
     // u.name releases the old one first.

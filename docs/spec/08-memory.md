@@ -37,8 +37,9 @@ A `Weak<T>` is assigned a `T`. Reading it gives a `T?`, which is `Null` once the
 so `node.parent?.name` works directly.
 
 - The `T` is a Class, or a type parameter that a constraint says is one, `Where T: Class` (see
-  [07](07-generics.md#class)). A Weak is assigned a `T`, a Class that extends it, a `T?`, or
-  `Null`, which refers to nothing. That's also its zero, so a field of one needs no `New`.
+  [07](07-generics.md#class-and-error)). A Weak is assigned a `T`, a Class that extends it, a
+  `T?`, or `Null`, which refers to nothing. That's also its zero, so a field of one needs no
+  `New`.
 - What reading it gives holds a reference of its own, so the object stays while it's used.
 - Its object can go at any time, so a null check doesn't narrow a Weak. Read it into a Local,
   and check that.

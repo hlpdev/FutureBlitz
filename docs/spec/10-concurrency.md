@@ -114,9 +114,19 @@ End Function
   it waits.
 - An Async Function's errors go in its Task, so its call doesn't throw, but `Await t` and
   `t.Wait()` re-throw them, each time, and need Try, Try?, or a Try block, as a call that throws
-  does. The Task's type says so: `Task<Level> Throws FileError`, which can be written as a type,
-  in parentheses where a function's own Throws could be confused with it, and whose error type
-  can be a type parameter: `WhenAll<T, E>(tasks: (Task<T> Throws E)[])` (M6 step 18).
+  does. The Task's type says so: `Task<Level> Throws FileError`, which can be written as a type.
+  After a function's result, Throws is the function's, so a Task's type there goes in
+  parentheses, `Function Start(): (Task<Level> Throws FileError)`. Its Throws lists Classes as a
+  function's does, so it goes in parentheses before a `?` or `[]` too, and where a `,` goes on to
+  anything but a parameter, like a tuple's next element or the next type argument.
+- Its error type can be a type parameter that a constraint says is an error, `E: Error` (see
+  [07](07-generics.md#class-and-error)), which each call or instance has its own of: `Async
+  Function WhenAll<T, E: Error>(tasks: (Task<T> Throws E)[]): T[] Throws E` passes the Tasks'
+  errors on, and a generic Class's Async Method can throw its own E.
+- A Task that throws converts to one of the same result that throws what covers its errors, as
+  an Override's Throws is covered by its Method's: a `Task<Int> Throws FileError` is a
+  `Task<Int> Throws Error`. A Task that throws and one that doesn't don't convert, either way,
+  since only one of them keeps an error.
 - A Method can be Async, but not a ByRef Method, Destroy, or an Interface's Method yet. An
   Override of an Async Method is Async, and an Async Method overrides only an Async one.
 - `Async Function(x) => ...` is an Async lambda, whose call gives a Task, through a function

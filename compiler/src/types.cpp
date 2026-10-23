@@ -775,7 +775,7 @@ type_id_t type_table_t::substitute(const type_id_t type, const std::vector<type_
         return mutex(substitute(info.inner, parameters, arguments));
     case type_kind_t::TASK:
         if (!info.throws.empty()) {
-            return task(substitute(info.inner, parameters, arguments), info.throws,
+            return task(substitute(info.inner, parameters, arguments), each(info.throws),
                         info.fields.back().type);
         }
 
@@ -995,8 +995,9 @@ std::string type_table_t::suffixed(const type_id_t type, const bool qualified,
     }
 
     const type_t& info = get(type);
-    if ((info.kind == type_kind_t::FUNCTION || info.kind == type_kind_t::CALLBACK) &&
-        info.inner != type_id_t::NONE) {
+    if (((info.kind == type_kind_t::FUNCTION || info.kind == type_kind_t::CALLBACK) &&
+         info.inner != type_id_t::NONE) ||
+        (info.kind == type_kind_t::TASK && !info.throws.empty())) {
         return std::format("({})", text);
     }
 

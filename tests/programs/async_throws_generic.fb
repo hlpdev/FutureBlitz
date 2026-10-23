@@ -1,0 +1,115 @@
+// "Task<T> Throws E" is a type: a Local, a Field, a parameter, or an array holds a Task that
+// throws, and E can be a type parameter that's an error, <E: Error>, so WhenAll waits for
+// throwing Tasks and passes their errors on, and a generic Class's Async Method throws its E.
+Import std.core
+
+Class FileError Extends Error
+    New(message: String)
+        Super.New(message)
+    End New
+End Class
+
+Class ParseError Extends Error
+    New(message: String)
+        Super.New(message)
+    End New
+End Class
+
+Async Function Load(name: String): Int Throws FileError
+    Await NextFrame()
+    If name == "missing" Then Throw FileError("no {name}")
+    Return name.Bytes.Count
+End Function
+
+Async Function WhenAll<T, E: Error>(tasks: (Task<T> Throws E)[]): T[] Throws E
+    Local results: T[] = []
+    For task In tasks
+        results.Add(Try Await task)
+    End For
+
+    Return results
+End Function
+
+Async Function Parse(text: String): Int Throws FileError, ParseError
+    Local size = Try Await Load(text)
+    If size > 3 Then Throw ParseError("{text} is too long")
+    Return size
+End Function
+
+// What a task gives, or what went wrong, caught as its own E.
+Function Attempt<E: Error>(task: Task<Int> Throws E): String
+    Try
+        Return "{task.Wait()}"
+    Catch failed As E
+        Local error: Error = failed
+        Return "failed: {error.Message}"
+    End Try
+End Function
+
+Function Rethrow<E: Error>(error: E): Int Throws E
+    Throw error
+End Function
+
+// Gives its value once it's set, or throws its E once that is.
+Class Source<T, E: Error>
+    Field Value: T?
+    Field Failure: E?
+
+    Async Method Wait(): T Throws E
+        Loop
+            Local failure = Failure
+            If failure != Null Then Throw failure
+            Local value = Value
+            If value != Null Then Return value
+            Await NextFrame()
+        End Loop
+    End Method
+End Class
+
+Local tasks: (Task<Int> Throws FileError)[] = [Load("a.txt"), Load("bb.txt")]
+Try
+    Local sizes = Await WhenAll(tasks)
+    Print("sizes {sizes[0]} {sizes[1]}")
+    Local failing = Await WhenAll([Load("c"), Load("missing")])
+    Print("not here {failing.Count}")
+Catch e As FileError
+    Print("caught: {e.Message}")
+End Try
+
+Print(Attempt(Load("four")))
+Print(Attempt(Load("missing")))
+
+Try
+    Print(Rethrow(ParseError("bad line")))
+Catch e As ParseError
+    Print("parse: {e.Message}")
+End Try
+
+// A Task that throws is one that throws what covers its errors, so tasks that throw different
+// ones go together as ones that throw Error.
+Try
+    Local mixed = Await WhenAll<Int, Error>([Parse("abc"), Load("de"), Parse("long")])
+    Print("not here {mixed.Count}")
+Catch e As ParseError
+    Print("mixed: {e.Message}")
+End Try
+
+Local general: Task<Int> Throws Error = Load("missing")
+Try
+    Print(Await general)
+Catch e
+    Print("general: {e.Message}")
+End Try
+
+Local source = Source<String, ParseError>()
+Local waiting: Task<String> Throws ParseError = source.Wait()
+Local other = Source<String, ParseError>()
+Local fine = other.Wait()
+other.Value = "ready"
+source.Failure = ParseError("no value")
+Try
+    Print(Await fine)
+    Print(Await waiting)
+Catch e As ParseError
+    Print("source: {e.Message}")
+End Try

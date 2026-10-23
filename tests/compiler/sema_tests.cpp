@@ -9520,6 +9520,122 @@ TEST_CASE("an Async Function's Task keeps its error, which Await and Wait re-thr
                     "Throws of 'F'" });
 }
 
+TEST_CASE("Task<T> Throws E is a type, whose E can be a type parameter that's an error", "[sema]") {
+    const std::string_view load = "Import std.core\n"
+                                  "Class Oops Extends Error\nEnd Class\n"
+                                  "Class Other Extends Error\nEnd Class\n"
+                                  "Async Function Load(): Int Throws Oops\n"
+                                  "    Throw Oops(\"no\")\n"
+                                  "End Function\n"
+                                  "Async Function All<T, E: Error>(tasks: (Task<T> Throws E)[]): "
+                                  "T[] Throws E\n"
+                                  "    Local results: T[] = []\n"
+                                  "    For task In tasks\n"
+                                  "        results.Add(Try Await task)\n"
+                                  "    End For\n"
+                                  "    Return results\n"
+                                  "End Function\n";
+    const auto with_load = [&](const std::string_view text) {
+        return errors_of(std::format("{}{}", load, text));
+    };
+
+    // Written out, it's the type an Async Function's call gives; after a function's result,
+    // Throws is the function's, so a Task's type there goes in parentheses.
+    CHECK(probe(std::format("{}Local t: Task<Int> Throws Oops = Load()", load)) ==
+          "Task<Int32> Throws Oops");
+    CHECK(probe(std::format("{}Local t: (Task<Int> Throws Oops)[] = [Load()]", load)) ==
+          "(Task<Int32> Throws Oops)[]");
+    CHECK(probe(std::format("{}Function Start(): (Task<Int> Throws Oops) => Load()\n"
+                            "Local t = Start()",
+                            load)) == "Task<Int32> Throws Oops");
+    CHECK(with_load("Function Start(): Task<Int> Throws Oops => Load()") ==
+          errors_t{ "Load(): expected Task<Int32>, found Task<Int32> Throws Oops" });
+
+    // E comes from the Tasks, and what waiting throws is the instance's.
+    CHECK(probe(std::format("{}Local t = All([Load(), Load()])", load)) ==
+          "Task<Int32[]> Throws Oops");
+    CHECK(with_load("Async Function F(): Int\n"
+                    "    Return (Await All([Load()]))[0]\n"
+                    "End Function") ==
+          errors_t{ "Await All([Load()]): this Await can throw Oops, as its Task's Async Function "
+                    "can, so it needs Try, Try?, or a Try block" });
+    CHECK(with_load("Function Pass<E: Error>(error: E): Int Throws E\n"
+                    "    Throw error\n"
+                    "End Function\n"
+                    "Function Name<E: Error>(task: Task<Int> Throws E): String\n"
+                    "    Try\n"
+                    "        Return \"{task.Wait()}\"\n"
+                    "    Catch failed As E\n"
+                    "        Local error: Error = failed\n"
+                    "        Return error.Message\n"
+                    "    End Try\n"
+                    "End Function\n"
+                    "Local x = Try? Pass(Oops(\"a\"))\n"
+                    "Local y = Name(Load())")
+              .empty());
+    CHECK(with_load("Function Pass<E: Error>(error: E): Int Throws E\n"
+                    "    Throw error\n"
+                    "End Function\n"
+                    "Local x = Pass(Oops(\"a\"))") ==
+          errors_t{ "Pass(Oops(\"a\")): 'Pass' can throw Oops, so calling it needs Try, Try?, or "
+                    "a Try block" });
+    CHECK(with_load("Class Box<E: Error>\n"
+                    "    Method Fail(error: E): Int Throws E\n"
+                    "        Throw error\n"
+                    "    End Method\n"
+                    "End Class\n"
+                    "Local x = Try? Box<Oops>().Fail(Oops(\"a\"))\n"
+                    "Local y = Box<Other>().Fail(Other(\"b\"))") ==
+          errors_t{ "Box<Other>().Fail(Other(\"b\")): 'Fail' can throw Other, so calling it needs "
+                    "Try, Try?, or a Try block" });
+
+    // A Task that throws converts to one that throws what covers its errors, and no further.
+    CHECK(with_load("Local t: Task<Int> Throws Error = Load()\n"
+                    "Local u: Task<Int> Throws Other, Oops = Load()")
+              .empty());
+    CHECK(with_load("Local t: Task<Int> Throws Error = Load()\n"
+                    "Local u: Task<Int> Throws Oops = t\n"
+                    "Local v: Task<Int> Throws Other = Load()\n"
+                    "Local w: Task<Int> = Load()") ==
+          errors_t{
+              "t: expected Task<Int32> Throws Oops, found Task<Int32> Throws Error",
+              "Load(): expected Task<Int32> Throws Other, found Task<Int32> Throws Oops",
+              "Load(): expected Task<Int32>, found Task<Int32> Throws Oops",
+          });
+}
+
+TEST_CASE("a Task's Throws lists errors, and a type parameter there says it's one", "[sema]") {
+    const std::string_view oops = "Import std.core\n"
+                                  "Class Oops Extends Error\nEnd Class\n";
+    const auto with_oops = [&](const std::string_view text) {
+        return errors_of(std::format("{}{}", oops, text));
+    };
+
+    CHECK(with_oops("Local a: Task<Int> Throws Int\n"
+                    "Local b: Task<Int> Throws Oops?\n"
+                    "Local c: Task<Int> Throws Oops, Error") ==
+          errors_t{
+              "Int: Throws lists Classes that extend Error, not Int32",
+              "Oops?: Throws lists Classes that extend Error, not Oops?; a Task's type with a "
+              "Throws goes in parentheses before a '?', as in (Task<T> Throws Oops)?",
+              "Oops: Oops is already covered by this Throws",
+          });
+    CHECK(with_oops("Function F<E>(task: Task<Int> Throws E)\n"
+                    "End Function\n"
+                    "Function G<E>() Throws E\n"
+                    "End Function") ==
+          errors_t{
+              "E: E is in a Throws, so it needs a constraint that says it's an error, like <E: "
+              "Error>",
+              "E: E is in a Throws, so it needs a constraint that says it's an error, like <E: "
+              "Error>",
+          });
+    CHECK(with_oops("Function F<E: Error>(task: Task<Int> Throws E)\n"
+                    "End Function\n"
+                    "Local f = F<String>") ==
+          errors_t{ "F<String>: String isn't a Class that extends Error, which 'F' needs for E" });
+}
+
 TEST_CASE("a Method can be Async, and its overrides are too", "[sema]") {
     CHECK(probe("Class C\n"
                 "    Async Method M(): Int\n"

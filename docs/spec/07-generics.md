@@ -139,7 +139,7 @@ Function Collect<S, E>(items: S): E[]
 - A call infers a type argument from a constraint on another one: `Collect(numbers)` takes `E`
   from the instance of `Iterator` that the type of `numbers` implements.
 
-### `Class`
+### `Class` and `Error`
 
 `Class` in a constraint says the type argument is a Class, as C#'s `where T : class` does, so
 generic code can refer to its objects without keeping them:
@@ -161,6 +161,16 @@ End Function
 - It's only a constraint. It gives what every Class has, which is that it's `Equatable`, and `&`
   adds the rest: `Where T: Class & Hashable`. With Sendable, `Where T: Class & Sendable`, the T is
   a Shared Class, so its `Weak<T>` is Sendable too.
+
+`Error`, std's root of errors, in a constraint says the type argument is a Class that extends
+it, as Swift's `E: Error` does, so generic code can throw and catch one, and list it after a
+function's Throws or a Task's: `Function Rethrow<E: Error>(error: E): Int Throws E` (see
+[09](09-errors.md) and [10](10-concurrency.md#async--await)).
+
+- A type parameter in a Throws needs it: "E is in a Throws, so it needs a constraint that says
+  it's an error, like <E: Error>".
+- What it gives is what `Class` gives, and it converts to an Error, whose members it has through
+  that: `Local error: Error = failed`. `Catch e As E` catches each instance's E.
 
 ## Constraints are interfaces
 

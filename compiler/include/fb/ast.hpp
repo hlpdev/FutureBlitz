@@ -311,6 +311,8 @@ struct named_type_t {
     std::vector<type_expr_id_t> arguments;
     /// The "C" in "C.Map<K, V>": an imported module's last name, or its As name.
     std::optional<name_t> qualifier;
+    /// For "Task<T> Throws E": the Classes after Throws, which waiting for the Task can throw.
+    std::vector<type_expr_id_t> throws;
 };
 
 /// "Type?", a type that can be Null.

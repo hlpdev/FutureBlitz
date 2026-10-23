@@ -640,6 +640,14 @@ private:
         std::vector<bound_t> bounds;
     };
     std::vector<pending_sendable_t> m_pending_sendables;
+    /// The types after a Task type's Throws, which can only be checked once Classes know what
+    /// they extend: those written before then wait here for check_throws().
+    struct pending_throws_t {
+        std::vector<type_id_t> types;
+        std::vector<span_t> spans;
+    };
+    std::vector<pending_throws_t> m_pending_throws;
+    bool m_throws_checked = false;
     std::vector<worker_t> m_workers;
     /// The workers of the Global and Const initializers checked on demand, which a quiet try
     /// that asked for one doesn't take back.
@@ -1259,6 +1267,7 @@ private:
         // Iterator<T> takes its element's type.
         const type_id_t iterator = find("Iterator");
         const type_id_t equatable = find("Equatable");
+        const type_id_t any_class = declare_any_class(equatable);
         m_analysis.interfaces = {
             .equatable = equatable,
             .comparable = find("Comparable"),
@@ -1272,7 +1281,8 @@ private:
                             ? iterator
                             : type_id_t::INVALID,
             .sendable = find("Sendable"),
-            .any_class = declare_any_class(equatable),
+            .any_class = any_class,
+            .any_error = declare_any_error(any_class),
         };
 
         // CData is std.ffi's.
@@ -1280,6 +1290,26 @@ private:
             c_data != type_id_t::INVALID && is_interface(c_data)) {
             m_analysis.interfaces.c_data = c_data;
         }
+    }
+
+    /// The "Error" that `Where E: Error` names, std's Error Class in a constraint: an Interface
+    /// without members that the Classes extending Error meet. INVALID without std's Error.
+    type_id_t declare_any_error(const type_id_t any_class) {
+        if (m_analysis.error_class == type_id_t::INVALID) {
+            return type_id_t::INVALID;
+        }
+
+        const type_id_t type = m_analysis.types.add_interface("Error");
+        m_analysis.types.set_interfaces(type, { any_class });
+        m_declared_types[type] = add_symbol({
+            .kind = symbol_kind_t::TYPE,
+            .name = "Error",
+            .type = type,
+            .constraint_only = true,
+        });
+        m_constraint_only[type] = "says that a type is an error";
+        m_analysis.constraint_only.push_back(type);
+        return type;
     }
 
     /// The "Class" that `Where T: Class` names: an Interface without members, which no type
@@ -1627,7 +1657,7 @@ private:
             for (const type_expr_id_t written_interface : constraint.interfaces) {
                 const bound_t bound{
                     .parameter = *found,
-                    .interface = resolve_interface(written_interface),
+                    .interface = constraint_interface(written_interface),
                 };
                 if (bound.interface == type_id_t::INVALID) {
                     m_unknown_bounds.insert(*found);
@@ -1663,12 +1693,6 @@ private:
     /// constraint can be there too. Reports anything else.
     type_id_t resolve_interface(const type_expr_id_t id) {
         const type_expr_t& written = m_ast.get(id);
-        // Only a constraint names the Class keyword, which no other name can be.
-        if (const auto* named = std::get_if<named_type_t>(&written.node);
-            named != nullptr && named->name == "Class" && !named->qualifier) {
-            return m_analysis.interfaces.any_class;
-        }
-
         if (const auto* named = std::get_if<named_type_t>(&written.node)) {
             if (const std::vector<symbol_id_t> found = type_symbols(*named, written.span);
                 !found.empty()) {
@@ -1691,6 +1715,24 @@ private:
         }
 
         return type_id_t::INVALID;
+    }
+
+    /// An Interface in a constraint, or "Class", which the Classes meet, or std's Error, which
+    /// the Classes extending it meet.
+    type_id_t constraint_interface(const type_expr_id_t id) {
+        const auto* named = std::get_if<named_type_t>(&m_ast.get(id).node);
+        // Only a constraint names the Class keyword, which no other name can be.
+        if (named != nullptr && named->name == "Class" && !named->qualifier) {
+            return m_analysis.interfaces.any_class;
+        }
+
+        if (named != nullptr && m_analysis.interfaces.any_error != type_id_t::INVALID &&
+            quietly([&] { return resolve_type(id); }) == m_analysis.error_class) {
+            (void)resolve_type(id);
+            return m_analysis.interfaces.any_error;
+        }
+
+        return resolve_interface(id);
     }
 
     /// Why an Interface can only be a constraint, if it can: it needs Statics or Operators, or
@@ -6249,16 +6291,29 @@ private:
         }
     }
 
-    /// An object of a Class that extends Error, which Throw throws and Catch catches.
+    /// An object of a Class that extends Error, which Throw throws and Catch catches, or a type
+    /// parameter that a constraint says is one, like <E: Error>.
     [[nodiscard]] bool is_error(const type_id_t type) const {
+        if (is_parameter(type)) {
+            return m_analysis.interfaces.any_error != type_id_t::INVALID &&
+                   implements(type, m_analysis.interfaces.any_error);
+        }
+
         return is_class(type) && m_analysis.types.extends(type, m_analysis.error_class);
+    }
+
+    /// Whether errors of `type` are errors of `base`: it's that Class, or one extending it, or
+    /// a type parameter that's an error, which Error takes.
+    [[nodiscard]] bool throws_as(const type_id_t type, const type_id_t base) const {
+        return m_analysis.types.extends(type, base) ||
+               (base == m_analysis.error_class && is_parameter(type) && is_error(type));
     }
 
     /// Whether one of `handlers` takes errors of `type`: it's that Class, or one it extends.
     /// An INVALID one was reported, and takes anything, so nothing is reported twice.
     [[nodiscard]] bool covers(const std::vector<type_id_t>& handlers, const type_id_t type) const {
         return std::ranges::any_of(handlers, [&](const type_id_t handler) {
-            return handler == type_id_t::INVALID || m_analysis.types.extends(type, handler);
+            return handler == type_id_t::INVALID || throws_as(type, handler);
         });
     }
 
@@ -6268,13 +6323,41 @@ private:
                                   const std::size_t position) const {
         for (std::size_t i = 0; i < throws.size(); ++i) {
             const bool other = i < position || (i > position && throws[i] != throws[position]);
-            if (other && is_error(throws[i]) &&
-                m_analysis.types.extends(throws[position], throws[i])) {
+            if (other && is_error(throws[i]) && throws_as(throws[position], throws[i])) {
                 return true;
             }
         }
 
         return false;
+    }
+
+    /// A Task type's Throws lists Classes that extend Error, or type parameters that are errors,
+    /// none covered by another. A T? or T[] of one says the Task's type goes in parentheses.
+    void check_task_throws(const pending_throws_t& written) {
+        for (std::size_t i = 0; i < written.types.size(); ++i) {
+            const type_id_t type = written.types[i];
+            const span_t span = written.spans[i];
+            // A type parameter was checked where it was written, with the constraints there.
+            if (is_parameter(type)) {
+                continue;
+            }
+
+            const type_id_t inner =
+                is_nullable(type) || is_array(type) ? element_of(type) : type_id_t::INVALID;
+            if (is_error(type) && covered_in(written.types, i)) {
+                error(span, "{} is already covered by this Throws", shown_name(type));
+            } else if (!is_error(type) && inner != type_id_t::INVALID && is_error(inner)) {
+                error(span,
+                      "Throws lists Classes that extend {}, not {}; a Task's type with a Throws "
+                      "goes in parentheses before a '{}', as in (Task<T> Throws {}){}",
+                      error_name(type, span), name_of(type, m_analysis.error_class),
+                      is_nullable(type) ? "?" : "[]", shown_name(inner),
+                      is_nullable(type) ? "?" : "[]");
+            } else if (!is_error(type)) {
+                error(span, "Throws lists Classes that extend {}, not {}", error_name(type, span),
+                      name_of(type, m_analysis.error_class));
+            }
+        }
     }
 
     /// "FileError, ParseError", each named among the others.
@@ -6291,6 +6374,12 @@ private:
     /// an override can only throw what the Method it overrides can.
     void check_throws() {
         const std::optional<file_id_t> outer_file = m_file;
+        m_throws_checked = true;
+        for (const pending_throws_t& written : std::exchange(m_pending_throws, {})) {
+            m_file = written.spans.front().file;
+            check_task_throws(written);
+        }
+
         for (const symbol_id_t id : m_analysis.functions) {
             const std::optional<stmt_id_t> declaration = symbol(id).declaration;
             if (!declaration) {
@@ -6299,6 +6388,8 @@ private:
 
             const auto& node = std::get<function_stmt_t>(m_ast.get(*declaration).node);
             m_file = symbol(id).span.file;
+            // A type parameter is an error where its constraints say so.
+            const std::vector<bound_t> outer_bounds = std::exchange(m_bounds, bounds_in(id));
             std::vector<type_id_t> throws;
             for (std::size_t i = 0; i < node.throws.size(); ++i) {
                 const type_id_t type = symbol(id).throws[i];
@@ -6307,7 +6398,12 @@ private:
                     continue;
                 }
 
-                if (!is_error(type)) {
+                if (is_parameter(type) && !is_error(type)) {
+                    error(span,
+                          "{} is in a Throws, so it needs a constraint that says it's an "
+                          "error, like <{}: Error>",
+                          shown_name(type), shown_name(type));
+                } else if (!is_error(type)) {
                     error(span, "Throws lists Classes that extend {}, not {}",
                           error_name(type, span), name_of(type, m_analysis.error_class));
                 } else if (covered_in(symbol(id).throws, i)) {
@@ -6317,6 +6413,7 @@ private:
                 }
             }
 
+            m_bounds = outer_bounds;
             const symbol_t& function = symbol(id);
             if (!throws.empty() && function.name == "Destroy" && is_class(function.owner)) {
                 error(function.span, "Destroy can't throw, since it runs by itself");
@@ -8901,6 +8998,10 @@ private:
             return is_class(type);
         }
 
+        if (interface == m_analysis.interfaces.any_error) {
+            return is_error(type);
+        }
+
         if (is_interface(type)) {
             return m_analysis.types.extends(type, interface);
         }
@@ -9427,6 +9528,15 @@ private:
                               : std::string(),
                           is_interface(argument) ? "; an Interface's value can be an array too"
                                                  : "");
+                }
+            } else if (interface == m_analysis.interfaces.any_error) {
+                if (!implements(argument, interface)) {
+                    error(span, "{} isn't a Class that extends {}, which {} needs{}",
+                          name_of(argument, { bound.parameter, m_analysis.error_class }),
+                          error_name(argument, span), what,
+                          is_parameter(bound.parameter)
+                              ? std::format(" for {}", name_of(bound.parameter, argument))
+                              : std::string());
                 }
             } else if (!implements(argument, interface) && is_parameter(bound.parameter)) {
                 error(span, "{} doesn't implement {}, which {} needs for {}{}",
@@ -11623,6 +11733,23 @@ private:
                    (is_interface(from) && m_analysis.types.extends(from, to));
         }
 
+        // A type parameter that's an error is an Error.
+        if (is_parameter(from) && to == m_analysis.error_class && is_error(from)) {
+            return true;
+        }
+
+        // A Task that throws is one that throws what covers its errors, of the same result.
+        if (m_analysis.types.get(from).kind == type_kind_t::TASK &&
+            m_analysis.types.get(to).kind == type_kind_t::TASK &&
+            !m_analysis.types.get(from).throws.empty() &&
+            !m_analysis.types.get(to).throws.empty() &&
+            m_analysis.types.get(from).inner == m_analysis.types.get(to).inner) {
+            return std::ranges::all_of(m_analysis.types.get(from).throws,
+                                       [&](const type_id_t type) {
+                                           return covers(m_analysis.types.get(to).throws, type);
+                                       });
+        }
+
         // A Sendable Func is a Func too, which stays on the thread that has it.
         if (is_sendable_func(from) && is_func(to) && !is_sendable_func(to)) {
             return m_analysis.types.get(from).parameters == m_analysis.types.get(to).parameters &&
@@ -11817,8 +11944,9 @@ private:
             // A type parameter hides a type of the same name.
             for (const type_id_t parameter : std::views::reverse(m_type_scope)) {
                 if (name_of(parameter) == named->name) {
-                    if (!named->arguments.empty()) {
-                        error(type.span, "'{}' is a type parameter, so it takes no type arguments",
+                    if (!named->arguments.empty() || !named->throws.empty()) {
+                        error(type.span,
+                              "'{}' is a type parameter, so it takes no type arguments or Throws",
                               named->name);
                     }
 
@@ -11878,7 +12006,7 @@ private:
                     }
 
                     return named->name == "Thread" ? m_analysis.types.thread()
-                                                   : m_analysis.types.task(type_id_t::NONE);
+                                                   : written_task(type_id_t::NONE, *named);
                 }
 
                 if (named->arguments.size() != 1) {
@@ -11887,8 +12015,15 @@ private:
                 }
 
                 const type_expr_id_t result = named->arguments.front();
-                return m_analysis.types.task(keep_in_place(
-                    resolve_type(result), m_ast.get(result).span, "it can't be a type argument"));
+                return written_task(keep_in_place(resolve_type(result), m_ast.get(result).span,
+                                                  "it can't be a type argument"),
+                                    *named);
+            }
+
+            if (!named->throws.empty()) {
+                error(m_ast.get(named->throws.front()).span,
+                      "only a Task's type takes a Throws, and '{}' here is a type of the code's",
+                      named->name);
             }
 
             if ((named->name == "Atomic" || named->name == "Mutex") && found.empty()) {
@@ -12169,6 +12304,44 @@ private:
         }
 
         m_bounds = outer;
+    }
+
+    /// "Task<T>", or "Task<T> Throws E", whose Wait and Await can throw what extends the Classes
+    /// after Throws. One is a type parameter that a constraint says is an error, like <E:
+    /// Error>, which each instance has its own of.
+    type_id_t written_task(const type_id_t result, const named_type_t& named) {
+        if (named.throws.empty()) {
+            return m_analysis.types.task(result);
+        }
+
+        pending_throws_t written;
+        for (const type_expr_id_t thrown : named.throws) {
+            const type_id_t type = resolve_type(thrown);
+            const span_t span = m_ast.get(thrown).span;
+            if (type == type_id_t::INVALID) {
+                return type_id_t::INVALID;
+            }
+
+            if (is_parameter(type) && !is_error(type)) {
+                error(span,
+                      "{} is in a Throws, so it needs a constraint that says it's an error, like "
+                      "<{}: Error>",
+                      shown_name(type), shown_name(type));
+                return type_id_t::INVALID;
+            }
+
+            written.types.push_back(type);
+            written.spans.push_back(span);
+        }
+
+        // A Class written before Classes know what they extend is checked once they do.
+        if (m_throws_checked) {
+            check_task_throws(written);
+        } else {
+            m_pending_throws.push_back(written);
+        }
+
+        return m_analysis.types.task(result, written.types, m_analysis.nullable_error);
     }
 
     /// "C.Map<K, V>": a type after a module's qualifier, which one of the code's Imports gives.
@@ -14066,7 +14239,7 @@ private:
         }
 
         for (const auto& [earlier, earlier_span] : seen) {
-            if (m_analysis.types.extends(type, earlier)) {
+            if (throws_as(type, earlier)) {
                 error(span, "this Catch is already covered by an earlier Catch")
                     .with_label(earlier_span, "covered here");
                 return type;
@@ -14081,9 +14254,12 @@ private:
     void check_catch_reached(const catch_t& clause, const type_id_t type,
                              const std::vector<type_id_t>& reached) {
         const span_t span = clause.type ? m_ast.get(*clause.type).span : clause.name.span;
+        // A type parameter's errors are each instance's, which may be related or not.
+        const auto may_be = [&](const type_id_t thrown) {
+            return is_parameter(thrown) || is_parameter(type) || related(thrown, type);
+        };
         if (type != type_id_t::INVALID && !std::ranges::contains(reached, type_id_t::INVALID) &&
-            std::ranges::none_of(reached,
-                                 [&](const type_id_t thrown) { return related(thrown, type); })) {
+            std::ranges::none_of(reached, may_be)) {
             error(span, "nothing in the Try block throws {}",
                   type == m_analysis.error_class ? error_name(type, span) : shown_name(type));
         }
@@ -14127,6 +14303,12 @@ private:
             return;
         }
 
+        // A generic function's Throws has the call's type arguments in it.
+        std::vector<type_id_t> throws;
+        for (const type_id_t type : function.throws) {
+            throws.push_back(substitute(type, m_substitution.parameters, m_substitution.arguments));
+        }
+
         if (untried()) {
             // A New is called by its Class's name.
             const std::string name = function.kind == symbol_kind_t::CONSTRUCTOR
@@ -14136,16 +14318,16 @@ private:
                 error(span_of(id),
                       "{} can't throw, so calling '{}', which can throw {}, needs Try?, or a Try "
                       "block inside it",
-                      m_handlers.back().what, name, names_of(function.throws));
+                      m_handlers.back().what, name, names_of(throws));
                 return;
             }
 
             error(span_of(id), "'{}' can throw {}, so calling it needs Try, Try?, or a Try block",
-                  name, names_of(function.throws));
+                  name, names_of(throws));
             return;
         }
 
-        for (const type_id_t type : function.throws) {
+        for (const type_id_t type : throws) {
             propagate(type, span_of(id));
         }
     }
@@ -19543,10 +19725,14 @@ private:
         }
 
         // Calling an Async Function starts it, and gives its Task, which holds its error, or Null
-        // for "a?.M()" when a is Null.
+        // for "a?.M()" when a is Null. A generic one's Throws has the type arguments in it.
         if (symbol(*function).modifiers.is_async) {
-            const type_id_t task =
-                m_analysis.types.task(type, symbol(*function).throws, m_analysis.nullable_error);
+            std::vector<type_id_t> throws;
+            for (const type_id_t thrown : symbol(*function).throws) {
+                throws.push_back(substitute(thrown, parameters, *arguments));
+            }
+
+            const type_id_t task = m_analysis.types.task(type, throws, m_analysis.nullable_error);
             return method != nullptr && method->null_safe ? nullable_of(task) : task;
         }
 
@@ -20743,10 +20929,17 @@ private:
         case type_kind_t::WEAK:
         case type_kind_t::ATOMIC:
         case type_kind_t::MUTEX:
-        case type_kind_t::TASK:
         case type_kind_t::CHANNEL:
         case type_kind_t::PTR:
             unify(want.inner, have.inner, parameters, arguments);
+            break;
+        // "Task<T> Throws E" takes E from what a Task throws, one Class for each.
+        case type_kind_t::TASK:
+            unify(want.inner, have.inner, parameters, arguments);
+            if (want.throws.size() == have.throws.size()) {
+                each(want.throws, have.throws);
+            }
+
             break;
         case type_kind_t::TUPLE:
             for (std::size_t i = 0; i < want.fields.size() && i < have.fields.size(); ++i) {
@@ -23431,6 +23624,10 @@ public:
 
         if (interface == m_analysis.interfaces.any_class) {
             return info.kind == type_kind_t::CLASS;
+        }
+
+        if (interface == m_analysis.interfaces.any_error) {
+            return info.kind == type_kind_t::CLASS && m_types.extends(type, m_analysis.error_class);
         }
 
         if (info.kind == type_kind_t::STRUCT || info.kind == type_kind_t::CLASS) {

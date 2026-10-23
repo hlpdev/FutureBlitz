@@ -839,6 +839,28 @@ TEST_CASE("Throws, Throw, and Try blocks", "[parser]") {
           std::vector<std::string>{ "0-3: a Try needs a Catch or a Finally" });
 }
 
+TEST_CASE("a Task's type takes a Throws, unless it's a function's result", "[parser]") {
+    CHECK(parse_text("Local t: Task<Int> Throws A, B").dump ==
+          "(local t: (Task<Int> Throws A, B))");
+    CHECK(parse_text("Local t: Task Throws A").dump == "(local t: (Task Throws A))");
+    CHECK(parse_text("Local t: (Task<Int> Throws A)[]").dump ==
+          "(local t: (Task<Int> Throws A)[])");
+    CHECK(parse_text("Local m: Map<String, Task<Int> Throws A>").dump ==
+          "(local m: Map<String, (Task<Int> Throws A)>)");
+
+    // A ',' goes on to another Class unless a parameter follows it.
+    CHECK(parse_text("Function F(t: Task<Int> Throws A, B, ByRef n: Int, m: Int)\nEnd Function")
+              .dump == "(function F (t: (Task<Int> Throws A, B)) (ByRef n: Int) (m: Int) (block))");
+
+    // After a function's result, Throws is the function's, unless the Task's in parentheses.
+    CHECK(parse_text("Function F(): Task<Int> Throws A\nEnd Function").dump ==
+          "(function F -> Task<Int> Throws A (block))");
+    CHECK(parse_text("Function F(): (Task<Int> Throws A) Throws B\nEnd Function").dump ==
+          "(function F -> (Task<Int> Throws A) Throws B (block))");
+    CHECK(parse_text("Local f: Func(): Task<Int> Throws A").dump ==
+          "(local f: Func(): (Task<Int> Throws A))");
+}
+
 TEST_CASE("Try and Try? take what comes before the next binary operator", "[parser]") {
     CHECK(parse_text("Local n = Try? F() ?? 0").dump == "(local n = (?? (try? (call F)) (int 0)))");
     CHECK(parse_text("Try a.B().C()").dump == "(try (call (. (call (. a B)) C)))");

@@ -237,7 +237,8 @@ struct type_t {
     /// with `operation`.
     std::int64_t number = 0;
     /// TASK: the Classes that its Async Function's errors extend, which Wait and Await re-throw.
-    /// Its last field, "error", holds the error, or Null.
+    /// Its last field, "error", holds the error, or Null. A type parameter among them stands for
+    /// one.
     std::vector<type_id_t> throws;
     /// FUNCTION: a Sendable Func, which other threads can call: its closure captures only
     /// Sendable values and counts its owners atomically.
@@ -459,8 +460,9 @@ private:
     type_id_t add(type_t type);
     type_id_t make(type_kind_t kind, type_id_t inner, std::string full_name);
     /// A type's name before a "?" or "[]": a Func that returns something goes in parentheses,
-    /// so "(Func(): Int32)?" can't be read as returning an Int32?. With `qualified`, it's the
-    /// qualified name, with `main` as qualified_name() takes it.
+    /// so "(Func(): Int32)?" can't be read as returning an Int32?, and so does a Task with a
+    /// Throws, as in "(Task<Int32> Throws E)[]". With `qualified`, it's the qualified name, with
+    /// `main` as qualified_name() takes it.
     [[nodiscard]] std::string suffixed(type_id_t type, bool qualified = false,
                                        std::string_view main = {}) const;
     /// Gives an instance its generic type's fields, base, and Interfaces, with its type arguments
