@@ -1,0 +1,304 @@
+// std.text.glob: a shell's wildcards, matched against all of a String, a character at a time. *
+// is any run of characters but /, and ** any run at all, so "src/**/*.fb" reaches into folders,
+// and "**/" can be no folder; ? is one character but /; [abc] and [a-z] are one of a set, and
+// [!abc] or [^abc] one that isn't, never /; {a,b} is either; and \ makes the character after it
+// itself. A [ or { without its end is itself.
+
+Import std.core
+Import std.collections.array
+Import std.text.unicode
+
+// What a piece of a pattern matches.
+Enum PieceKind
+    LITERAL, ONE, STAR, GLOBSTAR, FOLDERS, SET
+End Enum
+
+// A piece: a literal Char, one character, a star, two, two and a slash, which is any folders
+// or none, or a set, of Chars from Lows to Highs, or not, when Negated.
+Struct Piece
+    Field Kind: PieceKind
+    Field Literal: Char
+    Field Lows: Char[]
+    Field Highs: Char[]
+    Field Negated: Bool
+End Struct
+
+// A pattern, read once, which Matches tells text against.
+Public Class Glob
+    // Each of the pattern's alternatives, its braces taken apart, as its pieces.
+    ReadOnly Field Alternatives: Piece[][]
+    // The pattern, as it was given.
+    Public ReadOnly Field Pattern: String
+    // Whether letters match in either case.
+    Public ReadOnly Field IgnoreCase: Bool
+
+    // A Glob of pattern. With ignoreCase, letters match in either case, as Unicode folds them.
+    Public New(pattern: String, ignoreCase: Bool = False)
+        Pattern = pattern
+        IgnoreCase = ignoreCase
+        Local alternatives: Piece[][] = []
+        Local read = pattern
+        If ignoreCase Then read = CaseFold(pattern)
+        For alternative In Expanded(read)
+            alternatives.Add(PiecesOf(alternative))
+        End For
+
+        Alternatives = alternatives
+    End New
+
+    // Whether all of text matches the pattern.
+    Public Method Matches(text: String): Bool
+        Local read = text
+        If IgnoreCase Then read = CaseFold(text)
+        Local chars = read.Chars
+        For pieces In Alternatives
+            If Matched(pieces, chars) Then Return True
+        End For
+
+        Return False
+    End Method
+
+    // Whether all of text matches pattern, as Glob(pattern, ignoreCase).Matches(text) tells.
+    Public Static Method Match(pattern: String, text: String, ignoreCase: Bool = False): Bool
+        Return Glob(pattern, ignoreCase).Matches(text)
+    End Method
+End Class
+
+// pattern with its braces taken apart: "{a,b}c" is "ac" and "bc". A { without a } after it, or
+// without a comma inside, is itself.
+Function Expanded(pattern: String): String[]
+    Local chars = pattern.Chars
+    Local open = -1
+    Local i = 0
+    While i < chars.Count && open < 0
+        If chars[i] == '\\'
+            i += 2
+            Continue
+        End If
+
+        If chars[i] == '{' && Closing(chars, i) >= 0 Then open = i
+        i += 1
+    End While
+
+    If open < 0 Then Return [pattern]
+    Local close = Closing(chars, open)
+    Local before = Joined(chars, 0, open)
+    Local after = Joined(chars, close + 1, chars.Count)
+    Local expanded: String[] = []
+    For choice In Choices(chars, open, close)
+        For rest In Expanded(before + choice + after)
+            expanded.Add(rest)
+        End For
+    End For
+
+    Return expanded
+End Function
+
+// Where the } that closes the { at open is, when there's a comma at its own depth inside, or -1.
+Function Closing(chars: Char[], open: Int): Int
+    Local depth = 0
+    Local comma = False
+    Local i = open
+    While i < chars.Count
+        Local c = chars[i]
+        If c == '\\'
+            i += 2
+            Continue
+        End If
+
+        If c == '{' Then depth += 1
+        If c == '}'
+            depth -= 1
+            If depth == 0
+                If comma Then Return i
+                Return -1
+            End If
+        End If
+
+        If c == ',' && depth == 1 Then comma = True
+        i += 1
+    End While
+
+    Return -1
+End Function
+
+// The choices between the { at open and its } at close, split at its own commas.
+Function Choices(chars: Char[], open: Int, close: Int): String[]
+    Local choices: String[] = []
+    Local depth = 0
+    Local start = open + 1
+    Local i = open + 1
+    While i < close
+        Local c = chars[i]
+        If c == '\\'
+            i += 2
+            Continue
+        End If
+
+        If c == '{' Then depth += 1
+        If c == '}' Then depth -= 1
+        If c == ',' && depth == 0
+            choices.Add(Joined(chars, start, i))
+            start = i + 1
+        End If
+
+        i += 1
+    End While
+
+    choices.Add(Joined(chars, start, close))
+    Return choices
+End Function
+
+Function Joined(chars: Char[], start: Int, finish: Int): String
+    Local joined = ""
+    For i = start Until finish
+        joined += "{chars[i]}"
+    End For
+
+    Return joined
+End Function
+
+// An alternative's pieces.
+Function PiecesOf(pattern: String): Piece[]
+    Local chars = pattern.Chars
+    Local pieces: Piece[] = []
+    Local i = 0
+    While i < chars.Count
+        Local c = chars[i]
+        If c == '\\' && i + 1 < chars.Count
+            pieces.Add(Literal(chars[i + 1]))
+            i += 2
+        ElseIf c == '*'
+            If i + 1 < chars.Count && chars[i + 1] == '*'
+                If i + 2 < chars.Count && chars[i + 2] == '/'
+                    pieces.Add(Piece(PieceKind.FOLDERS, ' ', [], [], False))
+                    i += 3
+                Else
+                    pieces.Add(Piece(PieceKind.GLOBSTAR, ' ', [], [], False))
+                    i += 2
+                End If
+            Else
+                pieces.Add(Piece(PieceKind.STAR, ' ', [], [], False))
+                i += 1
+            End If
+        ElseIf c == '?'
+            pieces.Add(Piece(PieceKind.ONE, ' ', [], [], False))
+            i += 1
+        ElseIf c == '['
+            Local finish = SetEnd(chars, i)
+            If finish < 0
+                pieces.Add(Literal(c))
+                i += 1
+            Else
+                pieces.Add(SetOf(chars, i, finish))
+                i = finish + 1
+            End If
+        Else
+            pieces.Add(Literal(c))
+            i += 1
+        End If
+    End While
+
+    Return pieces
+End Function
+
+Function Literal(c: Char): Piece => Piece(PieceKind.LITERAL, c, [], [], False)
+
+// Where the ] that ends the set at open is, or -1. A ] first in the set, after any ! or ^, is in
+// it.
+Function SetEnd(chars: Char[], open: Int): Int
+    Local i = open + 1
+    If i < chars.Count && (chars[i] == '!' || chars[i] == '^') Then i += 1
+    If i < chars.Count && chars[i] == ']' Then i += 1
+    While i < chars.Count
+        If chars[i] == '\\'
+            i += 2
+            Continue
+        End If
+
+        If chars[i] == ']' Then Return i
+        i += 1
+    End While
+
+    Return -1
+End Function
+
+// The set from the [ at open to the ] at finish.
+Function SetOf(chars: Char[], open: Int, finish: Int): Piece
+    Local lows: Char[] = []
+    Local highs: Char[] = []
+    Local i = open + 1
+    Local negated = chars[i] == '!' || chars[i] == '^'
+    If negated Then i += 1
+    Local first = True
+    While i < finish
+        Local low = chars[i]
+        If low == '\\' && i + 1 < finish
+            i += 1
+            low = chars[i]
+        End If
+
+        Local high = low
+        If i + 2 < finish && chars[i + 1] == '-' && (chars[i + 2] != ']' || first)
+            i += 2
+            high = chars[i]
+            If high == '\\' && i + 1 < finish
+                i += 1
+                high = chars[i]
+            End If
+        End If
+
+        lows.Add(low)
+        highs.Add(high)
+        first = False
+        i += 1
+    End While
+
+    Return Piece(PieceKind.SET, ' ', lows, highs, negated)
+End Function
+
+// Whether pieces match all of text: a table, from the last piece back, of whether the pieces
+// from each on match the text from each place on.
+Function Matched(pieces: Piece[], text: Char[]): Bool
+    Local count = text.Count
+    Local after: Bool[] = []
+    after.Resize(count + 1, False)
+    after[count] = True
+    For index = pieces.Count - 1 To 0 Step -1
+        Local piece = pieces[index]
+        Local here: Bool[] = []
+        here.Resize(count + 1, False)
+        Local reachable = False
+        For at = count To 0 Step -1
+            Select piece.Kind
+            Case PieceKind.LITERAL
+                here[at] = at < count && text[at] == piece.Literal && after[at + 1]
+            Case PieceKind.ONE
+                here[at] = at < count && text[at] != '/' && after[at + 1]
+            Case PieceKind.SET
+                here[at] = at < count && text[at] != '/' && InSet(piece, text[at]) && after[at + 1]
+            Case PieceKind.STAR
+                here[at] = after[at] || (at < count && text[at] != '/' && here[at + 1])
+            Case PieceKind.GLOBSTAR
+                here[at] = after[at] || (at < count && here[at + 1])
+            Case PieceKind.FOLDERS
+                // No folder, or any run that ends with a /, after which the rest matches.
+                If at < count && text[at] == '/' && after[at + 1] Then reachable = True
+                here[at] = after[at] || reachable
+            End Select
+        End For
+
+        after = here
+    End For
+
+    Return after[0]
+End Function
+
+Function InSet(piece: Piece, c: Char): Bool
+    Local inside = False
+    For i = 0 Until piece.Lows.Count
+        If c >= piece.Lows[i] && c <= piece.Highs[i] Then inside = True
+    End For
+
+    Return inside != piece.Negated
+End Function

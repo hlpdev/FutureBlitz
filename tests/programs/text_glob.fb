@@ -1,0 +1,22 @@
+// std.text.glob: * stops at /, ** doesn't, and **/ can be no folder; ?, sets, ranges, and their
+// negation; braces, nested too; \ before a wildcard; a [ or { without its end; characters beyond
+// ASCII; and letters in either case.
+Import std.core
+Import std.text.glob
+
+For check In [("*.fb", "main.fb"), ("*.fb", "src/main.fb"), ("src/**/*.fb", "src/a/b/c.fb"),
+              ("src/**/*.fb", "src/c.fb"), ("**", "a/b"), ("a/**", "a/"), ("?.txt", "é.txt"),
+              ("?.txt", "/.txt"), ("[a-c]x", "bx"), ("[!a-c]x", "dx"), ("[!a-c]x", "bx"),
+              ("[^a-c]x", "dx"), ("[a-c]", "/"), ("[!a-c]", "/"),
+              (r"{src,lib}/*.{fb,c}", "lib/x.c"), (r"{src,lib}/*.{fb,c}", "doc/x.c"),
+              (r"a\*b", "a*b"), (r"a\*b", "axb"), ("[]]", "]"), ("[a-]", "-"), ("[", "["),
+              (r"{a", r"{a"), (r"{a}", r"{a}"), ("", ""), ("", "x"), ("*", ""),
+              ("a*b*c", "abxbxc"), ("a*b*c", "abxbx"), (r"{a,{b,c}d}", "cd"),
+              (r"{a,{b,c}d}", "bd"), (r"{a,{b,c}d}", "d"), ("😀*", "😀.png"), ("*", "a/b"),
+              ("ÉCOLE*", "école.md")]
+    Print(check.0, check.1, Glob.Match(check.0, check.1))
+End For
+
+Local pictures = Glob("**/*.{{png,jpg}}", True)
+Print(pictures.Matches("A/B/PHOTO.JPG"), pictures.Matches("photo.png"), pictures.Matches("a.gif"),
+      pictures.Pattern, pictures.IgnoreCase, Glob.Match("ÉCOLE*", "école.md", True))

@@ -1,0 +1,35 @@
+*.fb main.fb True
+*.fb src/main.fb False
+src/**/*.fb src/a/b/c.fb True
+src/**/*.fb src/c.fb True
+** a/b True
+a/** a/ True
+?.txt é.txt True
+?.txt /.txt False
+[a-c]x bx True
+[!a-c]x dx True
+[!a-c]x bx False
+[^a-c]x dx True
+[a-c] / False
+[!a-c] / False
+{src,lib}/*.{fb,c} lib/x.c True
+{src,lib}/*.{fb,c} doc/x.c False
+a\*b a*b True
+a\*b axb False
+[]] ] True
+[a-] - True
+[ [ True
+{a {a True
+{a} {a} True
+  True
+ x False
+*  True
+a*b*c abxbxc True
+a*b*c abxbx False
+{a,{b,c}d} cd True
+{a,{b,c}d} bd True
+{a,{b,c}d} d False
+😀* 😀.png True
+* a/b False
+ÉCOLE* école.md False
+True True False **/*.{png,jpg} True True
