@@ -177,11 +177,16 @@ ages = ages.Add("ann", 30).Add("bo", 25)
 Print(ages.Count, ages["ann"], ages.Add("ann", 31)["ann"], ages["ann"], ages.Get("cy", 0))
 Print(ages == ImmutableMap<String, Int>.From({"bo": 25, "ann": 30}), ages == ages.Add("ann", 1))
 Print(ages.ToMap() == {"ann": 30, "bo": 25}, ImmutableMap<Int, Int>.From({1: 2}))
+Local older = ages.AddAll({"cy": 40, "ann": 31})
+Print(older.Count, older["ann"], older["cy"], ages["ann"], ages.AddAll(ages.ToMap()) == ages,
+      ages.AddAll(Map<String, Int>()) == ages)
 
 Local colors = ImmutableSet<String>.From(["red", "red"])
 Print(colors, colors.Count, colors.Add("blue").Count, colors.Remove("red").Count,
       colors.Remove("x") == colors)
 Print(colors.Contains("red"), colors.ToArray(), ImmutableSet<String>.DefaultValue().Count)
+Print(colors.AddAll(["blue", "red", "blue"]).Count, colors.AddAll(colors.ToArray()) == colors,
+      colors.Count)
 For color In colors.Add("green")
     Print(color.Bytes.Count)
 End For

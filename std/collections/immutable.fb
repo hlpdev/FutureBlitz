@@ -380,6 +380,15 @@ Public Struct ImmutableMap<K, V> Implements Iterable<(K, V)>, Defaultable, Senda
         Return Of(put.0, put.1 ? Size + 1 : Size)
     End Method
 
+    // A copy with each of the entries added in turn, as Add adds one, all read first.
+    Public Method AddAll(entries: Iterable<(K, V)>): ImmutableMap<K, V>
+        Local added = Self
+        For entry In entries.Iterate().ToArray()
+            added = added.Add(entry.0, entry.1)
+        End For
+        Return added
+    End Method
+
     // A copy without the key's entry, or the same one when it has none.
     Public Method Remove(key: K): ImmutableMap<K, V>
         If !Contains(key) Then Return Self
@@ -684,6 +693,15 @@ Public Struct ImmutableSet<T> Implements Iterable<T>, Defaultable, Sendable, Has
         Local made = ImmutableSet<T>()
         made.Items = Items.Add(value, True)
         Return made
+    End Method
+
+    // A copy with each of the values added, all read first.
+    Public Method AddAll(values: Iterable<T>): ImmutableSet<T>
+        Local added = Self
+        For value In values.Iterate().ToArray()
+            added = added.Add(value)
+        End For
+        Return added
     End Method
 
     // A copy without the value, or the same one when it hasn't got it.
