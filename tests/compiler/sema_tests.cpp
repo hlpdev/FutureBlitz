@@ -5761,6 +5761,27 @@ TEST_CASE("a call of a Const Function runs at compile time when its arguments ar
     CHECK(probe(std::format("Struct S\n    Field cells: Int[Add(1)]\nEnd Struct\n{}"
                             "Local x = S().cells.Count",
                             add)) == "Int32 11");
+    // A default names what its own function sees, wherever the first call that runs it is, and
+    // its errors are reported though that call is tried quietly.
+    const std::string_view top = "Const N = 10\n"
+                                 "Const Function Add(a: Int, b: Int = N): Int => a + b\n";
+    CHECK(probe(std::format("{}Const Function Outer(): Int\n"
+                            "    Const N = 5\n"
+                            "    Return Add(1)\n"
+                            "End Function\n"
+                            "Const X = Outer()\n"
+                            "Local x = X + Add(1)",
+                            top)) == "Int32 22");
+    CHECK(probe(std::format("{}Struct G<Const N: Int>\n"
+                            "    Field c: Int8[Add(1)]\n"
+                            "End Struct\n"
+                            "Local x = G<3>().c.Count",
+                            top)) == "Int32 11");
+    CHECK(errors_of("Const Function Add(a: Int, b: Int = \"x\"): Int => a + b\n"
+                    "Function F(x: Int): Int => x\n"
+                    "Function F(x: String): Int => 0\n"
+                    "Global g = F(Add(1))") ==
+          errors_t{ "\"x\": expected Int32, found String" });
     CHECK(probe("Const Function Shout(s: String): String => s + \"!\"\nLocal x = Shout(\"hi\")") ==
           "String hi!");
     CHECK(probe("Struct P\n    Field X: Int\nEnd Struct\n"

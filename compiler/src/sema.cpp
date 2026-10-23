@@ -12748,7 +12748,9 @@ private:
     }
 
     /// Default values are checked before any code, since every call needs them, each function's
-    /// once.
+    /// once. A call that runs a Const Function while Consts and types are checked has its
+    /// defaults checked then, in the function's own context, not the call's, and their errors
+    /// are kept, though the call may be one quietly() tries.
     void check_defaults(const stmt_id_t id) {
         if (const auto* declared = std::get_if<type_stmt_t>(&m_ast.get(id).node)) {
             for (const stmt_id_t member : declared->members) {
@@ -12764,9 +12766,11 @@ private:
             return;
         }
 
+        body_t outer;
+        swap_body(outer);
+        diagnostic_bag_t* const outer_diagnostics = std::exchange(m_diagnostics, m_bag);
         // An Unsafe Function's defaults are part of its Unsafe code.
-        const std::size_t unsafe = node->modifiers.is_unsafe ? 1 : 0;
-        m_unsafe += unsafe;
+        m_unsafe = node->modifiers.is_unsafe ? 1 : 0;
         for (std::size_t i = 0; i < node->parameters.size(); ++i) {
             const symbol_id_t parameter = symbol(*function).parameters[i];
             const std::optional<expr_id_t> default_value = node->parameters[i].default_value;
@@ -12794,7 +12798,8 @@ private:
             }
         }
 
-        m_unsafe -= unsafe;
+        m_diagnostics = outer_diagnostics;
+        swap_body(outer);
     }
 
     /// The top-level statements, in order. Globals, top-level Consts, and functions were handled
