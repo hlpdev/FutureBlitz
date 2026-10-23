@@ -1,0 +1,9 @@
+// DijkstraAll takes weights that aren't NaN, which panics where it's called.
+Import std.core
+Import std.math
+Import std.algo
+
+Local steps = Function(n: Int): (Int, Double)[] => n < 2 ? [(n + 1, 0.5)] : []
+Print(DijkstraAll(0, steps).Nodes)
+Local odd = Function(n: Int): (Int, Double)[] => n < 2 ? [(n + 1, NaN As Double)] : []
+Print(DijkstraAll(0, odd).Nodes)

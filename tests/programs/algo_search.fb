@@ -1,0 +1,115 @@
+// std.algo's searches: breadth-first and depth-first search, Dijkstra, and A*, on graphs given by
+// successors Functions. The weighted graph is CLRS's for Dijkstra's algorithm (figure 24.6), whose
+// shortest paths from s are known: t at 8, x at 9, y at 5, and z at 7.
+Import std.core
+Import std.collections
+Import std.algo
+Import std.math
+
+Local weighted = Map<String, (String, Int)[]>()
+weighted["s"] = [("t", 10), ("y", 5)]
+weighted["t"] = [("x", 1), ("y", 2)]
+weighted["x"] = [("z", 4)]
+weighted["y"] = [("t", 3), ("x", 9), ("z", 2)]
+weighted["z"] = [("s", 7), ("x", 6)]
+Function Unweighted(edges: Map<String, (String, Int)[]>, node: String): String[]
+    Local next: String[] = []
+    For edge In edges[node]
+        next.Add(edge.0)
+    End For
+    Return next
+End Function
+
+Local none: String[] = []
+Local plain = Function(node: String) => Unweighted(weighted, node)
+
+// Breadth-first search finds the fewest steps; depth-first search follows a successor as far as
+// it goes before the next.
+Print(Bfs("s", plain, Function(n) => n == "z") ?? none,
+      Bfs("s", plain, Function(n) => n == "x") ?? none)
+Print(Bfs("s", plain, Function(n) => n == "s") ?? none,
+      Bfs("s", plain, Function(n) => n == "w") == Null)
+Print(BfsOrder("s", plain), BfsOrder("x", plain))
+Print(Dfs("s", plain, Function(n) => n == "z") ?? none,
+      Dfs("s", plain, Function(n) => n == "y") ?? none)
+Print(Dfs("x", plain, Function(n) => n == "x") ?? none,
+      Dfs("s", plain, Function(n) => n == "w") == Null)
+Print(DfsOrder("s", plain), DfsOrder("y", plain))
+
+// Dijkstra's cheapest paths, and their costs, in Ints, so the sums are exact.
+For goal In ["s", "t", "x", "y", "z"]
+    Local path = Dijkstra("s", Function(n) => weighted[n], Function(n) => n == goal)
+    Print(goal, path?.Nodes ?? none, path?.Cost ?? -1)
+End For
+Print(Dijkstra("s", Function(n) => weighted[n], Function(n) => n == "w") == Null)
+
+// DijkstraAll: every node's cheapest path from the start, the cheapest first.
+Local all = DijkstraAll("s", Function(n) => weighted[n])
+Print(all.Nodes, all.Contains("z"), all.Contains("w"), all.CostTo("w") == Null,
+      all.PathTo("w") == Null)
+For node In all.Nodes
+    Print(node, all.CostTo(node) ?? -1, all.PathTo(node) ?? none, all.Parent(node) ?? "-")
+End For
+Local fromZ = DijkstraAll("z", Function(n) => weighted[n])
+Print(fromZ.Nodes, fromZ.CostTo("y") ?? -1, fromZ.PathTo("t") ?? none)
+
+// A* with a guess of 0 is Dijkstra.
+Local guessed = AStar("s", Function(n) => weighted[n], Function(n) => 0, Function(n) => n == "x")
+Print(guessed?.Nodes ?? none, guessed?.Cost ?? -1)
+
+// Weights of any Numeric type: Doubles here, and a step to itself, and one listed twice.
+Local halves = Function(n: Int): (Int, Double)[]
+    If n >= 6 Then Return []
+    Return [(n, 0.25), (n + 1, 0.5), (n + 2, 1.5), (n + 2, 1.25)]
+End Function
+Local doubled = Dijkstra(0, halves, Function(n) => n == 6)
+Print(doubled?.Nodes ?? [-1], doubled?.Cost ?? -1)
+
+// A* on a grid of numbers, 10 wide, around a wall at x = 5 from y = 0 to 8, with the Manhattan
+// distance as its guess: the same cost as Dijkstra, which goes over more cells to find it.
+Function Steps(cell: Int): (Int, Int)[]
+    Local x = cell % 10
+    Local y = cell / 10
+    Local next: (Int, Int)[] = []
+    For step In [(1, 0), (0, 1), (-1, 0), (0, -1)]
+        Local nx = x + step.0
+        Local ny = y + step.1
+        If nx < 0 || nx >= 10 || ny < 0 || ny >= 10 Then Continue
+        If nx == 5 && ny <= 8 Then Continue
+        next.Add((ny * 10 + nx, 1))
+    End For
+    Return next
+End Function
+
+Function Manhattan(from: Int, to: Int): Int => Abs(from % 10 - to % 10) + Abs(from / 10 - to / 10)
+
+Local expanded = 0
+Local star = AStar(0, Function(cell: Int): (Int, Int)[]
+    expanded++
+    Return Steps(cell)
+End Function, Function(cell) => Manhattan(cell, 9), Function(cell) => cell == 9)
+Local starExpanded = expanded
+expanded = 0
+Local plainPath = Dijkstra(0, Function(cell: Int): (Int, Int)[]
+    expanded++
+    Return Steps(cell)
+End Function, Function(cell) => cell == 9)
+Print(star?.Cost ?? -1, plainPath?.Cost ?? -1, starExpanded < expanded, star?.Nodes?.Count ?? -1)
+Print(star?.Nodes ?? [-1])
+Print(AStar(0, Steps, Function(cell) => Manhattan(cell, 55), Function(cell) => cell == 55) == Null)
+
+// Any Hashable nodes: a Struct of its own.
+Struct Room Implements Hashable, Printable
+    Field Name: String
+    Field Floor: Int
+
+    Method ToString(): String => "{Name}{Floor}"
+End Struct
+
+Local lift = Function(room: Room): (Room, Int)[]
+    If room.Floor >= 3 Then Return []
+    Return [(Room(room.Name, room.Floor + 1), 4), (Room("stairs", room.Floor + 1), 1)]
+End Function
+Local climb = Dijkstra(Room("lift", 0), lift, Function(room) => room.Floor == 3)
+Local rooms: Room[] = []
+Print(climb?.Nodes ?? rooms, climb?.Cost ?? -1)

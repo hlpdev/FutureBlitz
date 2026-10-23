@@ -1,0 +1,7 @@
+// AStar takes weights that aren't negative, which panics where it's called.
+Import std.core
+Import std.math
+Import std.algo
+
+Local down = Function(n: Int): (Int, Int)[] => [(n + 1, -2)]
+Print(AStar(0, down, Function(n) => 0, Function(n) => n == 5) == Null)

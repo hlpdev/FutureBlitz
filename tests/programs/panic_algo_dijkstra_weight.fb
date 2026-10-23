@@ -1,0 +1,9 @@
+// Dijkstra takes weights that aren't negative, which panics where it's called.
+Import std.core
+Import std.math
+Import std.algo
+
+Local up = Function(n: Int): (Int, Int)[] => n < 3 ? [(n + 1, 1)] : []
+Print(Dijkstra(0, up, Function(n) => n == 3)?.Cost ?? -1)
+Local down = Function(n: Int): (Int, Int)[] => n < 3 ? [(n + 1, -1)] : []
+Print(Dijkstra(0, down, Function(n) => n == 3)?.Cost ?? -1)

@@ -1,0 +1,25 @@
+[s, y, z] [s, t, x]
+[s] True
+[s, t, y, x, z] [x, z, s, t, y]
+[s, t, x, z] [s, t, y]
+[x] True
+[s, t, x, z, y] [y, t, x, z, s]
+s [s] 0
+t [s, y, t] 8
+x [s, y, t, x] 9
+y [s, y] 5
+z [s, y, z] 7
+True
+[s, y, z, t, x] True False True True
+s 0 [s] -
+y 5 [s, y] s
+z 7 [s, y, z] y
+t 8 [s, y, t] y
+x 9 [s, y, t, x] t
+[z, x, s, y, t] 12 [z, s, y, t]
+[s, y, t, x] 9
+[0, 1, 2, 3, 4, 5, 6] 3
+27 27 True 28
+[0, 1, 2, 3, 4, 14, 24, 34, 44, 54, 64, 74, 84, 94, 95, 96, 97, 98, 99, 89, 79, 69, 59, 49, 39, 29, 19, 9]
+True
+[lift0, stairs1, stairs2, stairs3] 3

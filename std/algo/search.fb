@@ -1,0 +1,322 @@
+// std.algo's searches of graphs: breadth-first and depth-first search, Dijkstra, and A*. A graph is
+// any values a successors Function steps between, so a grid's cells, a level's rooms, and a game's
+// states are graphs alike, and a node is Hashable, so a search knows where it's been. A search
+// takes its start, its successors, and a Function that says which nodes are the goal, and goes
+// over a node's successors in the order successors gives them, so a run finds what the last did.
+// A weighted step's cost is of any Numeric type, Ints for exact sums, and isn't negative or NaN.
+
+Import std.core
+Import std.collections
+
+// A path a search found: its nodes from the start to the goal, both of them included, and its
+// cost, the sum of its steps' weights.
+Public Struct Path<N, C>
+    Public Field Nodes: N[]
+    Public Field Cost: C
+End Struct
+
+// The cheapest paths from a start to every node it reaches, as DijkstraAll finds them.
+Public Class ShortestPaths<N, C>
+    Where N: Hashable
+    Where C: Numeric & Comparable
+
+    // Where each node reached is in Reached, which Parents and Costs follow.
+    Field Index: Map<N, Int>
+    Field Reached: N[]
+    // The node before each on its cheapest path, or -1 for the start.
+    Field Parents: Int[]
+    Field Costs: C[]
+
+    New(index: Map<N, Int>, reached: N[], parents: Int[], costs: C[])
+        Index = index
+        Reached = reached
+        Parents = parents
+        Costs = costs
+    End New
+
+    // The nodes reached, the cheapest first, the start among them.
+    Public Property Nodes: N[]
+        Get => Reached.Clone()
+    End Property
+
+    // Whether the search reached the node.
+    Public Method Contains(node: N): Bool => Index.Contains(node)
+
+    // The cost of the cheapest path from the start to the node, or Null for one it didn't reach.
+    Public Method CostTo(node: N): C?
+        Local at = Index.Get(node)
+        If at == Null Then Return Null
+        Return Costs[at]
+    End Method
+
+    // The node before this one on its cheapest path from the start, or Null for the start or one
+    // the search didn't reach.
+    Public Method Parent(node: N): N?
+        Local at = Index.Get(node)
+        If at == Null Then Return Null
+        Local parent = Parents[at]
+        If parent < 0 Then Return Null
+        Return Reached[parent]
+    End Method
+
+    // The cheapest path from the start to the node, both included, or Null for one it didn't
+    // reach.
+    Public Method PathTo(node: N): N[]?
+        Local at = Index.Get(node)
+        If at == Null Then Return Null
+        Return Chain(Reached, Parents, at)
+    End Method
+End Class
+
+// The nodes from the start to the one at `last`, by each one's parent.
+Function Chain<N>(nodes: N[], parents: Int[], last: Int): N[]
+    Local path: N[] = []
+    Local at = last
+    While at >= 0
+        path.Add(nodes[at])
+        at = parents[at]
+    End While
+    path.Reverse()
+    Return path
+End Function
+
+// The path with the fewest steps from start to the first node that goal says is one, by
+// breadth-first search, or Null when none it reaches is.
+Public Function Bfs<N: Hashable>(start: N, successors: Func(N): N[], goal: Func(N): Bool): N[]?
+    Local nodes = [start]
+    Local parents = [-1]
+    Local seen = Map<N, Int>()
+    seen[start] = 0
+    Local next = 0
+    While next < nodes.Count
+        Local node = nodes[next]
+        If goal(node) Then Return Chain(nodes, parents, next)
+        For successor In successors(node)
+            If seen.TryAdd(successor, nodes.Count)
+                nodes.Add(successor)
+                parents.Add(next)
+            End If
+        End For
+        next++
+    End While
+    Return Null
+End Function
+
+// The nodes start reaches, itself first, in the order breadth-first search meets them: those fewer
+// steps away first.
+Public Function BfsOrder<N: Hashable>(start: N, successors: Func(N): N[]): N[]
+    Local nodes = [start]
+    Local seen = Set<N>()
+    seen.Add(start)
+    Local next = 0
+    While next < nodes.Count
+        For successor In successors(nodes[next])
+            If seen.Add(successor) Then nodes.Add(successor)
+        End For
+        next++
+    End While
+    Return nodes
+End Function
+
+// A step of a depth-first search: a node, its successors, and the next of them to go to.
+Struct DepthStep<N>
+    Field Node: Int
+    Field Successors: N[]
+    Field Next: Int
+End Struct
+
+// A path from start to the first node that goal says is one, by depth-first search, which follows
+// each successor as far as it goes before the next: not the shortest path, but found with only the
+// path in hand. Null when none it reaches is the goal.
+Public Function Dfs<N: Hashable>(start: N, successors: Func(N): N[], goal: Func(N): Bool): N[]?
+    Local nodes = [start]
+    Local parents = [-1]
+    Local seen = Set<N>()
+    seen.Add(start)
+    If goal(start) Then Return [start]
+    Local steps = [DepthStep<N>(0, successors(start), 0)]
+    While steps.Count > 0
+        Local top = steps.Count - 1
+        Local step = steps[top]
+        If step.Next == step.Successors.Count
+            steps.RemoveLast()
+            Continue
+        End If
+
+        Local successor = step.Successors[step.Next]
+        steps[top].Next = step.Next + 1
+        If seen.Add(successor)
+            nodes.Add(successor)
+            parents.Add(step.Node)
+            If goal(successor) Then Return Chain(nodes, parents, nodes.Count - 1)
+            steps.Add(DepthStep<N>(nodes.Count - 1, successors(successor), 0))
+        End If
+    End While
+    Return Null
+End Function
+
+// The nodes start reaches, itself first, in the order depth-first search meets them: a successor,
+// and all it reaches, before the next successor.
+Public Function DfsOrder<N: Hashable>(start: N, successors: Func(N): N[]): N[]
+    Local nodes = [start]
+    Local seen = Set<N>()
+    seen.Add(start)
+    Local steps = [DepthStep<N>(0, successors(start), 0)]
+    While steps.Count > 0
+        Local top = steps.Count - 1
+        Local step = steps[top]
+        If step.Next == step.Successors.Count
+            steps.RemoveLast()
+            Continue
+        End If
+
+        Local successor = step.Successors[step.Next]
+        steps[top].Next = step.Next + 1
+        If seen.Add(successor)
+            nodes.Add(successor)
+            steps.Add(DepthStep<N>(nodes.Count - 1, successors(successor), 0))
+        End If
+    End While
+    Return nodes
+End Function
+
+// A node waiting in a search's queue: its cost so far plus its guess, the guess, the order it was
+// added in, and where it is.
+Struct Waiting<C>
+    Field Total: C
+    Field Guess: C
+    Field Order: Int
+    Field Node: Int
+End Struct
+
+// Whether a comes out of the queue before b: the least total, then the least guess, so ties go
+// to what's nearer the goal, then the first added.
+Function Before<C: Comparable>(a: Waiting<C>, b: Waiting<C>): Bool
+    If a.Total != b.Total Then Return a.Total < b.Total
+    If a.Guess != b.Guess Then Return a.Guess < b.Guess
+    Return a.Order < b.Order
+End Function
+
+// A best-first search, A*'s, or Dijkstra's with a guess of 0: what it reached, with each node's
+// parent and cost, and where the goal is, or -1 for none, or for every node when goal is Null.
+Class Search<N, C>
+    Where N: Hashable
+    Where C: Numeric & Comparable & Printable
+
+    Field Index: Map<N, Int>
+    Field Nodes: N[] = []
+    Field Parents: Int[] = []
+    Field Costs: C[] = []
+    // The nodes in the order they came out of the queue, each once, at its cheapest.
+    Field Settled: Int[] = []
+    Field Goal: Int = -1
+
+    @PanicsAtCaller
+    New(start: N, successors: Func(N): (N, C)[], heuristic: Func(N): C, goal: (Func(N): Bool)?)
+        Index = Map<N, Int>()
+        Index[start] = 0
+        Nodes.Add(start)
+        Parents.Add(-1)
+        Costs.Add(C.Zero())
+        Local done = [False]
+        Local queue = PriorityQueue<Waiting<C>>(Before<C>)
+        Local added = 0
+        Local guess = heuristic(start)
+        queue.Add(Waiting<C>(guess, guess, added, 0))
+        While queue.Count > 0
+            Local waiting = queue.Pop()
+            Local at = waiting.Node
+            // A node comes out once at its cheapest; what's left of it in the queue was dearer.
+            If done[at] Then Continue
+            done[at] = True
+            Settled.Add(at)
+            Local node = Nodes[at]
+            If goal != Null
+                If goal(node)
+                    Goal = at
+                    Break
+                End If
+            End If
+
+            For step In successors(node)
+                Local successor, weight = step
+                If !(weight >= C.Zero())
+                    Panic("a step's weight can't be negative or NaN, not {weight}")
+                End If
+                Local cost = Costs[at] + weight
+                Local found = Index.Get(successor)
+                Local to = found ?? Nodes.Count
+                If found == Null
+                    Index[successor] = to
+                    Nodes.Add(successor)
+                    Parents.Add(at)
+                    Costs.Add(cost)
+                    done.Add(False)
+                ElseIf done[to] || !(cost < Costs[to])
+                    Continue
+                Else
+                    Parents[to] = at
+                    Costs[to] = cost
+                End If
+
+                added++
+                Local left = heuristic(successor)
+                queue.Add(Waiting<C>(cost + left, left, added, to))
+            End For
+        End While
+    End New
+
+    // The path to the goal, or Null when there was none.
+    Method ToPath(): Path<N, C>?
+        If Goal < 0 Then Return Null
+        Return Path<N, C>(Chain(Nodes, Parents, Goal), Costs[Goal])
+    End Method
+End Class
+
+// The cheapest path from start to the first node that goal says is one, by Dijkstra's algorithm,
+// with each step's weight from successors, or Null when none it reaches is. A negative or NaN
+// weight panics.
+@PanicsAtCaller
+Public Function Dijkstra<N, C>(start: N, successors: Func(N): (N, C)[],
+                               goal: Func(N): Bool): Path<N, C>?
+    Where N: Hashable
+    Where C: Numeric & Comparable & Printable
+    Return Search<N, C>(start, successors, Function(node: N) => C.Zero(), goal).ToPath()
+End Function
+
+// The cheapest paths from start to every node it reaches, by Dijkstra's algorithm, with each step's
+// weight from successors. A negative or NaN weight panics.
+@PanicsAtCaller
+Public Function DijkstraAll<N, C>(start: N, successors: Func(N): (N, C)[]): ShortestPaths<N, C>
+    Where N: Hashable
+    Where C: Numeric & Comparable & Printable
+    Local search = Search<N, C>(start, successors, Function(node: N) => C.Zero(), Null)
+    // Reached in the order the nodes were settled, the cheapest first.
+    Local index = Map<N, Int>()
+    Local reached: N[] = []
+    Local parents: Int[] = []
+    Local costs: C[] = []
+    Local moved: Int[] = []
+    moved.Resize(search.Nodes.Count, -1)
+    For at In search.Settled
+        moved[at] = reached.Count
+        index[search.Nodes[at]] = reached.Count
+        reached.Add(search.Nodes[at])
+        Local parent = search.Parents[at]
+        parents.Add(parent < 0 ? -1 : moved[parent])
+        costs.Add(search.Costs[at])
+    End For
+    Return ShortestPaths<N, C>(index, reached, parents, costs)
+End Function
+
+// The cheapest path from start to the first node that goal says is one, by A*, which goes on
+// first from where the cost so far, plus heuristic's guess of what's left to the goal, is least.
+// For the path to be the cheapest, the guess can't be more than what's left, as a straight line's
+// length isn't. Null when no node it reaches is the goal. A negative or NaN weight panics.
+@PanicsAtCaller
+Public Function AStar<N, C>(start: N, successors: Func(N): (N, C)[], heuristic: Func(N): C,
+                            goal: Func(N): Bool): Path<N, C>?
+    Where N: Hashable
+    Where C: Numeric & Comparable & Printable
+    Return Search<N, C>(start, successors, heuristic, goal).ToPath()
+End Function
