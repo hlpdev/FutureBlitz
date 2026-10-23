@@ -107,3 +107,37 @@ Local gone = Event<Int>().Subscribe(Function(n: Int) => Print("never"))
 Print(gone.IsActive)
 gone.Cancel()
 Print("done")
+
+// A handler's object that cancels its own Subscription as it goes, and that only the handler
+// holds, goes once the Event has counted the handler off, through Cancel and through Clear.
+Class Widget
+    Field Name: String
+    Field Ticks: Event<Int>
+    Field Mine: Subscription?
+
+    New(name: String, ticks: Event<Int>)
+        Name = name
+        Ticks = ticks
+    End New
+
+    Method Destroy()
+        Local active = Mine?.IsActive ?? False
+        Mine?.Cancel()
+        Print("{Name} goes, active {active}, {Ticks.Count} left")
+    End Method
+End Class
+
+Function Attach(ticks: Event<Int>, name: String): Subscription
+    Const widget = Widget(name, ticks)
+    Local subscription = ticks.Subscribe(Function(n: Int) => Print("{widget.Name} hears {n}"))
+    widget.Mine = subscription
+    Return subscription
+End Function
+
+Const ticks = Event<Int>()
+Attach(ticks, "cancelled").Cancel()
+Attach(ticks, "first")
+Attach(ticks, "second")
+ticks.Emit(1)
+ticks.Clear()
+Print("cleared", ticks.Count)

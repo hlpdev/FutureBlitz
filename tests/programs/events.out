@@ -30,3 +30,9 @@ dropped False
 0 False
 False
 done
+cancelled goes, active False, 0 left
+first hears 1
+second hears 1
+first goes, active False, 1 left
+second goes, active False, 0 left
+cleared 0

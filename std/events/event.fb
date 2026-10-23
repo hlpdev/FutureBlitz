@@ -25,8 +25,11 @@ Class EventHandler<T> Extends Subscribed
         Owner = owner
     End New
 
+    // The handler goes once its Event has counted it off, so what its going runs, like a Destroy
+    // that cancels it again, finds it off.
     Override Method Drop()
         If Handler == Null Then Return
+        Local going = Handler
         Handler = Null
         Owner?.Dropped()
     End Method
