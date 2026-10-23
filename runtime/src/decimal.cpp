@@ -46,10 +46,10 @@ mpd_context_t fitting(const mpd_t* a, const mpd_t* b = nullptr) {
 }
 
 /// mpdecimal's rounding for each of std.math.big's RoundingModes.
-constexpr std::array<int, 7> roundings = { MPD_ROUND_HALF_EVEN, MPD_ROUND_HALF_UP,
-                                           MPD_ROUND_HALF_DOWN, MPD_ROUND_UP,
-                                           MPD_ROUND_DOWN,      MPD_ROUND_CEILING,
-                                           MPD_ROUND_FLOOR };
+constexpr std::array<int, 7> roundings = {
+    MPD_ROUND_HALF_EVEN, MPD_ROUND_HALF_UP, MPD_ROUND_HALF_DOWN, MPD_ROUND_UP,
+    MPD_ROUND_DOWN,      MPD_ROUND_CEILING, MPD_ROUND_FLOOR,
+};
 
 mpd_t* make() {
     mpd_t* result = mpd_qnew();
@@ -73,7 +73,8 @@ void check(const std::uint32_t status) {
 /// `result`, or null when `status` says it isn't a finite number in range, after freeing it.
 void* finish(mpd_t* result, const std::uint32_t status) {
     check(status);
-    constexpr std::uint32_t failed = MPD_IEEE_Invalid_operation | MPD_Division_by_zero | MPD_Overflow;
+    constexpr std::uint32_t failed =
+        MPD_IEEE_Invalid_operation | MPD_Division_by_zero | MPD_Overflow;
     if ((status & failed) != 0 || mpd_isfinite(result) == 0) {
         mpd_del(result);
         return nullptr;
@@ -82,8 +83,7 @@ void* finish(mpd_t* result, const std::uint32_t status) {
 }
 
 using unary_t = void (*)(mpd_t*, const mpd_t*, const mpd_context_t*, std::uint32_t*);
-using binary_t = void (*)(mpd_t*, const mpd_t*, const mpd_t*, const mpd_context_t*,
-                          std::uint32_t*);
+using binary_t = void (*)(mpd_t*, const mpd_t*, const mpd_t*, const mpd_context_t*, std::uint32_t*);
 
 /// A new mpd_t that `function` sets from `a`, or from `a` and `b`, in `context`, or null when it
 /// isn't a finite number in range.
@@ -142,7 +142,7 @@ void* fb_decimal_parse(const fb_string_t* text) {
     // mpdecimal reads up to a NUL, so text with one in it isn't a number.
     const std::string_view view(reinterpret_cast<const char*>(text + 1),
                                 static_cast<std::size_t>(text->length));
-    if (view.find('\0') != std::string_view::npos) {
+    if (view.contains('\0')) {
         return nullptr;
     }
 
@@ -286,7 +286,16 @@ void* fb_decimal_round(const void* a, const std::int64_t places, const std::int3
         return nullptr;
     }
 
+    // Going to more places pads the coefficient with 0s, which may not take it past the digits
+    // kept, as Python's quantize says. mpdecimal's rescale doesn't check that, and would make
+    // them all.
     mpd_context_t context = fitting(from(a));
+    const mpd_t* number = from(a);
+    if (mpd_iszero(number) == 0 && number->exp + places > 0 &&
+        number->digits + number->exp + places > context.prec) {
+        return nullptr;
+    }
+
     context.round = roundings.at(static_cast<std::size_t>(mode));
     mpd_t* result = make();
     std::uint32_t status = 0;

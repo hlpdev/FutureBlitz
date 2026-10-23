@@ -1,0 +1,6 @@
+// Rounding to more places than 28 digits hold panics.
+Import std.core
+Import std.math.big
+
+Print(Decimal(1).Round(27))
+Print(Decimal(1).Round(28))
