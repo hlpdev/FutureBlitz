@@ -8,6 +8,7 @@
 #include <format>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -154,6 +155,30 @@ TEST_CASE("a statement continues after an operator, '=', or inside brackets", "[
     CHECK(parse_text("Local y =\n    3").dump == "(local y = (int 3))");
     CHECK(parse_text("Print(1,\n      2)").dump == "(call Print (int 1) (int 2))");
     CHECK(parse_text("x = (1\n     + 2)").dump == "(= x (+ (int 1) (int 2)))");
+
+    // Wherever a statement takes a ',', '=', or a constraint's '&', a line break can follow it.
+    for (const auto& [broken, joined] :
+         std::to_array<std::pair<std::string_view, std::string_view>>({
+             { "Enum E\nA =\n    1\nEnd Enum", "Enum E\nA = 1\nEnd Enum" },
+             { "For i =\n    0 To 5\nEnd For", "For i = 0 To 5\nEnd For" },
+             { "For i,\n    x In items\nEnd For", "For i, x In items\nEnd For" },
+             { "Class C Implements A,\n    B\nEnd Class", "Class C Implements A, B\nEnd Class" },
+             { "Interface I Extends A,\n    B\nEnd Interface",
+               "Interface I Extends A, B\nEnd Interface" },
+             { "Function F() Throws E1,\n    E2\nEnd Function",
+               "Function F() Throws E1, E2\nEnd Function" },
+             { "Function F<T>()\nWhere T: Hashable &\n    Printable\nEnd Function",
+               "Function F<T>()\nWhere T: Hashable & Printable\nEnd Function" },
+             { "Extern \"C\"\nFunction Abs(n: Int32): Int32 =\n    \"abs\"\nEnd Extern",
+               "Extern \"C\"\nFunction Abs(n: Int32): Int32 = \"abs\"\nEnd Extern" },
+             { "Local a,\n    b = (1, 2)", "Local a, b = (1, 2)" },
+             { "a,\n    b = (b, a)", "a, b = (b, a)" },
+         })) {
+        INFO(broken);
+        const parsed_t parsed = parse_text(broken);
+        CHECK(parsed.errors.empty());
+        CHECK(parsed.dump == parse_text(joined).dump);
+    }
 }
 
 // Statements

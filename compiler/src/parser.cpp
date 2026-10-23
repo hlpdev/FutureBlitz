@@ -700,6 +700,7 @@ private:
                 const name_t member = take_name();
                 std::optional<expr_id_t> value;
                 if (accept(token_kind_t::EQUAL)) {
+                    skip_continuation_newlines();
                     value = parse_expression();
                 }
 
@@ -1543,6 +1544,7 @@ private:
 
         std::vector<name_t> names{ first };
         while (accept(token_kind_t::COMMA)) {
+            skip_continuation_newlines();
             names.push_back(expect_name());
             if (accept(token_kind_t::COLON)) {
                 report_type(parse_type());
@@ -1624,6 +1626,8 @@ private:
                 if (!accept(token_kind_t::COMMA)) {
                     break;
                 }
+
+                skip_continuation_newlines();
             }
         }
 
@@ -1641,6 +1645,7 @@ private:
             }
 
             if (accept(token_kind_t::EQUAL)) {
+                skip_continuation_newlines();
                 if (at(token_kind_t::STRING)) {
                     const token_t& written = advance();
                     external->symbol = string_text(written);
@@ -1984,6 +1989,7 @@ private:
     std::vector<type_expr_id_t> parse_type_list() {
         std::vector<type_expr_id_t> types{ parse_type() };
         while (accept(token_kind_t::COMMA)) {
+            skip_continuation_newlines();
             types.push_back(parse_type());
         }
 
@@ -1994,6 +2000,7 @@ private:
     std::vector<type_expr_id_t> parse_constraint() {
         std::vector<type_expr_id_t> interfaces{ parse_type() };
         while (accept(token_kind_t::AMP)) {
+            skip_continuation_newlines();
             interfaces.push_back(parse_type());
         }
 
@@ -2223,6 +2230,7 @@ private:
             std::optional<name_t> index;
             name_t value = first;
             if (accept(token_kind_t::COMMA)) {
+                skip_continuation_newlines();
                 index = first;
                 value = expect_name();
             }
@@ -2240,7 +2248,10 @@ private:
                                                                  });
         }
 
-        expect(token_kind_t::EQUAL);
+        if (expect(token_kind_t::EQUAL)) {
+            skip_continuation_newlines();
+        }
+
         // Here To and Until end the bounds, as they do in a Case's values.
         const std::optional<std::uint32_t> outer = std::exchange(m_counting, m_bracket_depth);
         const expr_id_t from = parse_expression();
@@ -2427,6 +2438,7 @@ private:
         if (at(token_kind_t::COMMA)) {
             std::vector<expr_id_t> targets{ target };
             while (accept(token_kind_t::COMMA)) {
+                skip_continuation_newlines();
                 targets.push_back(parse_expression());
             }
 
