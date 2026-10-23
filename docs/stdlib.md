@@ -358,8 +358,9 @@ generator, noise, easing, stats, and fixed point; the rest is planned.
   `Orthographic` (glm's right-handed matrices with depth from 0 to 1); `TransformPoint`,
   `TransformVector`, `ProjectPoint`, `Decompose`, `ToMat3`, and `ToMat4`; `Transpose`,
   `Determinant`, `Inverse`, which panics for a matrix with no inverse, and `TryInverse`, which
-  gives Null. Release builds don't make SIMD instructions of them yet: Vec4's Operators and
-  Mat4's `*` come out as scalar code until codegen runs LLVM's SLP vectorizer.
+  gives Null. Release builds make SIMD instructions of Vec4's Operators and Mat4's `*` where
+  the result goes to memory, like an array's element or a Field, in a loop or not. A result
+  whose parts are only read one at a time, as Print does, stays scalar code.
 - `Color` (four Float32s, linear RGB and alpha) and `Color32` (four bytes, sRGB), converting with
   sRGB's gamma both ways, every byte coming back as it was, with named colors (CSS's sRGB values,
   so `Green` is #008000, and `Lime` #00ff00), `Color.Hex("#ff8800")` and `Color32.Hex`, which
