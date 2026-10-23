@@ -1,0 +1,8 @@
+// A TaskSource's Task gets one result, and a second Finish panics where it's called.
+Import std.core
+Import std.concurrent
+
+Const source = TaskSource<Int>()
+source.Finish(1)
+Print(source.Task.Wait())
+source.Finish(2)

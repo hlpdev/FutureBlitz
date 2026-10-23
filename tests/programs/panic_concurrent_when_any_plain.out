@@ -1,0 +1,3 @@
+ran
+0
+panic: WhenAny waits for the first of its tasks, so it needs one at panic_concurrent_when_any_plain.fb:9:1

@@ -1,0 +1,9 @@
+// WhenAny of tasks with no results waits for the first too, so it panics where it's called with
+// none.
+Import std.core
+Import std.concurrent
+
+Local tasks: Task[] = [Spawn(Function() => Print("ran"))]
+Print(WhenAny(tasks).Wait())
+tasks.Clear()
+WhenAny(tasks)
