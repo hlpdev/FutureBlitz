@@ -63,7 +63,8 @@ End Class
 - A Class without a `New` gets one without parameters, which leaves every field at its
   default.
 - A field can refer to a Class, its own included. One that can't be `Null` has no default, so
-  the Class needs a `New` that assigns it on every path before reading it or using `Self`.
+  the Class needs a `New` that assigns it on every path before reading it or using `Self`, and
+  before `Super.New` in a Class that extends another.
 - A Class is a reference: copies share one object. Its fields can change through any reference,
   even a read-only parameter or a `Const`. A Method can always change them, so `ByRef Method` is
   only for Structs, and `Self` can't be replaced.
@@ -80,6 +81,13 @@ Single inheritance plus any number of interfaces.
 
 ```vb
 Class Boss Extends Enemy
+    Field guard: Enemy
+
+    New(name: String)
+        guard = Enemy("{name}'s guard")     // before Enemy's New, which may call Hurt
+        Super.New(name)
+    End New
+
     Override Method Hurt(amount: Int)
         Super.Hurt(amount / 2)
     End Method
@@ -97,8 +105,13 @@ End Class
   Class that isn't Abstract overrides every Abstract Method it inherits.
 - `Super.Hurt(5)` calls the Method of the Class extended, on `Self`. An Abstract one can't be
   called that way.
-- A Class's `New` starts with `Super.New(...)`, or else the `New` of the Class it extends that
-  takes no arguments runs first. Until `Super.New` runs, `Self` can't be used.
+- A Class's `New` calls `Super.New(...)` once, as a statement of its own outside any block, or
+  else the `New` of the Class it extends that takes no arguments runs first. Until `Super.New`
+  runs, `Self` and what it inherits can't be used, and `New` can't return: the code before it
+  assigns the Class's own fields by name, and reads the ones it has assigned.
+- The Class's own fields that have no zero are assigned before `Super.New`, on every path, so the
+  `New` of the Class it extends, whose Method calls run their overrides, never sees one
+  unassigned. A Class with such fields calls `Super.New` in each `New`.
 - A Class without a `New` of its own takes the parameters of each `New` of the Class it extends,
   and their Throws, and passes them on: `Class FileError Extends Error` makes
   `FileError("missing")`.
@@ -437,8 +450,8 @@ End Class
 - `Protected` only goes on a Class's members. The code of a Class extending it, in any file, uses
   one through `Self`, `Super`, or an object of its own Class or one extending it, not through an
   `Enemy` that may be another Class's, and a Protected Static member through any. A Protected
-  `New` only starts its News, with `Super.New`, or is one a Class without a New takes, which is
-  Protected too. An Extend's code isn't the Class's own.
+  `New` only runs in its News, through `Super.New`, or is one a Class without a New takes, which
+  is Protected too. An Extend's code isn't the Class's own.
 - The standard library is one package. A program without a `project.toml` is another: its main
   file and the files it imports by path.
 - Enum members, Interface members, and Operators have their type's visibility, and take no modifier.

@@ -82,6 +82,7 @@ Class Pet<T> Extends Animal
     New(name: String, tag: T)
         Name = name
         Tag = tag
+        Super.New()
     End New
 
     Override Method Speak(): String => "{Name} speaks"

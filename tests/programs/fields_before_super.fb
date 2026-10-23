@@ -1,0 +1,67 @@
+// A Class's own fields that have no zero are assigned before Super.New, so the New of the Class
+// it extends can call an override that reads one.
+Import std.core
+
+Class Failed Extends Error
+End Class
+
+Class Part
+    Field name: String
+
+    New(name: String)
+        Self.name = name
+    End New
+
+    Method Destroy()
+        Print("{name} let go")
+    End Method
+End Class
+
+Class Base
+    Field label: String
+
+    New(fail: Bool) Throws Failed
+        If fail Then Throw Failed("Base's New failed")
+        label = "base"
+        Show()
+    End New
+
+    Method Show()
+        Print("Base.Show")
+    End Method
+End Class
+
+Class Derived Extends Base
+    Field part: Part
+    Field count: Int = 1
+
+    New(name: String, early: Bool, late: Bool) Throws Failed
+        Local first = Part("{name} first")
+        part = first
+        count = count + 1
+        If early Then Throw Failed("Derived's New failed before Super.New")
+        part = Part("{name} second")
+        Try Super.New(late)
+        Print("{label} set up, then {part.name}")
+    End New
+
+    Override Method Show()
+        Print("Derived.Show reads {part.name}, count {count}")
+    End Method
+End Class
+
+Local made = Try? Derived("made", False, False)
+Print("made: {made?.part?.name ?? "none"}")
+made = Null
+
+Try
+    Local early = Derived("early", True, False)
+Catch e As Failed
+    Print(e.Message)
+End Try
+
+Try
+    Local late = Derived("late", False, True)
+Catch e As Failed
+    Print(e.Message)
+End Try

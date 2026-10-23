@@ -1668,7 +1668,7 @@ TEST_CASE("Super calls the Methods and New of the Class extended", "[sema]") {
           errors_t{ "Super.G(): 'G' is Abstract in A, so Super can't call it" });
 
     // Without a New of its own, B takes A's parameters. A has no New without parameters, so a
-    // New of B's starts with Super.New, and Self waits for it.
+    // New of B's calls Super.New, once, outside any block, and Self waits for it.
     CHECK(with_base("Abstract Class B Extends A\n"
                     "End Class\n"
                     "Class C Extends B\n"
@@ -1682,10 +1682,24 @@ TEST_CASE("Super calls the Methods and New of the Class extended", "[sema]") {
                     "        Print(\"x\")\n"
                     "        Super.New(1)\n"
                     "    End New\n"
+                    "End Class")
+              .empty());
+    CHECK(with_base("Abstract Class B Extends A\n"
+                    "    New(make: Bool)\n"
+                    "        If make Then Super.New(1)\n"
+                    "    End New\n"
                     "End Class") ==
-          errors_t{ "New: New must start with Super.New(...), since A has no New without "
-                    "parameters",
-                    "Super.New(1): Super.New can only start a New" });
+          errors_t{ "New: New must call Super.New(...), since A has no New without parameters",
+                    "Super.New(1): Super.New can only be called once in a New, outside any "
+                    "block" });
+    CHECK(with_base("Abstract Class B Extends A\n"
+                    "    New()\n"
+                    "        Super.New(1)\n"
+                    "        Super.New(2)\n"
+                    "    End New\n"
+                    "End Class") ==
+          errors_t{ "Super.New(2): Super.New can only be called once in a New, outside any "
+                    "block" });
     CHECK(with_base("Abstract Class B Extends A\n"
                     "    New()\n"
                     "        Super.New(F())\n"
@@ -1703,6 +1717,121 @@ TEST_CASE("Super calls the Methods and New of the Class extended", "[sema]") {
                     "    End Method\n"
                     "End Class") ==
           errors_t{ "Super: 'Super' only comes before a call, like 'Super.Hurt(5)'" });
+}
+
+TEST_CASE("a Class assigns its own fields that have no zero before Super.New", "[sema]") {
+    // A's New calls a Method, which runs the override of the object's Class, so a field of B's
+    // that it reads is assigned before Super.New.
+    constexpr std::string_view base = "Class E\n"
+                                      "End Class\n"
+                                      "Class A\n"
+                                      "    Field hp: Int\n"
+                                      "    Field e: E\n"
+                                      "    New()\n"
+                                      "        e = E()\n"
+                                      "        Show()\n"
+                                      "    End New\n"
+                                      "    Method Show()\n"
+                                      "    End Method\n"
+                                      "End Class\n";
+    const auto with_base = [&](const std::string_view text) {
+        return errors_of(std::format("{}{}", base, text));
+    };
+
+    // The code before it can do what doesn't use Self, and read the fields it has assigned.
+    CHECK(with_base("Class B Extends A\n"
+                    "    Field f: E\n"
+                    "    Field n: Int = 2\n"
+                    "    New(twice: Bool)\n"
+                    "        Local made = E()\n"
+                    "        f = made\n"
+                    "        If twice Then n = n * 2\n"
+                    "        Local g = f\n"
+                    "        Super.New()\n"
+                    "        hp = n\n"
+                    "    End New\n"
+                    "    Override Method Show()\n"
+                    "        Local g = f\n"
+                    "    End Method\n"
+                    "End Class")
+              .empty());
+    CHECK(with_base("Class B Extends A\n"
+                    "    Field f: E\n"
+                    "    New()\n"
+                    "        Super.New()\n"
+                    "        f = E()\n"
+                    "    End New\n"
+                    "End Class") ==
+          errors_t{ "Super.New(): New must assign 'f' before Super.New, since E has no zero "
+                    "value" });
+    CHECK(with_base("Class B Extends A\n"
+                    "    Field f: E\n"
+                    "    New(make: Bool)\n"
+                    "        If make Then f = E()\n"
+                    "        Super.New()\n"
+                    "    End New\n"
+                    "End Class") ==
+          errors_t{ "Super.New(): New must assign 'f' before Super.New, since E has no zero "
+                    "value" });
+
+    // Without Super.New, A's New runs first, before B's code could assign it.
+    CHECK(with_base("Class B Extends A\n"
+                    "    Field f: E\n"
+                    "    New()\n"
+                    "        f = E()\n"
+                    "    End New\n"
+                    "End Class") ==
+          errors_t{ "New: New must call Super.New() after it assigns 'f', since E has no zero "
+                    "value" });
+    CHECK(errors_of(std::format("{}Class Box<T>\n"
+                                "    Field count: Int\n"
+                                "End Class\n"
+                                "Class Pair<T> Extends Box<T>\n"
+                                "    Field f: E\n"
+                                "    New(n: Int)\n"
+                                "        f = E()\n"
+                                "        Super.New()\n"
+                                "        count = n\n"
+                                "    End New\n"
+                                "End Class\n"
+                                "Local p = Pair<String>(1)",
+                                base))
+              .empty());
+    CHECK(errors_of(std::format("{}Class Box<T>\n"
+                                "    Field count: Int\n"
+                                "End Class\n"
+                                "Class Pair<T> Extends Box<T>\n"
+                                "    Field f: E\n"
+                                "    New(n: Int)\n"
+                                "        count = n\n"
+                                "        f = E()\n"
+                                "        Super.New()\n"
+                                "    End New\n"
+                                "End Class",
+                                base)) ==
+          errors_t{ "count: 'count' is inherited, so New can't use it before Super.New" });
+
+    // Until Super.New, Self and what it inherits wait, and New can't return.
+    CHECK(with_base("Class B Extends A\n"
+                    "    Field f: E\n"
+                    "    New(early: Bool)\n"
+                    "        Self.f = E()\n"
+                    "        hp = 1\n"
+                    "        Local x = e\n"
+                    "        Show()\n"
+                    "        Local g = Function() => f\n"
+                    "        If early Then Return\n"
+                    "        Super.New()\n"
+                    "    End New\n"
+                    "End Class") ==
+          errors_t{
+              "Self: Self can't be used before Super.New; assign the field by name",
+              "hp: 'hp' is inherited, so New can't use it before Super.New",
+              "e: 'e' is inherited, so New can't use it before Super.New",
+              "Show: Self can't be used before Super.New",
+              "f: Self can't be used before Super.New, which this lambda would read when it runs",
+              "Return: New can't return before Super.New sets up what Self inherits",
+          });
 }
 
 TEST_CASE("an object converts to the Classes its Class extends", "[sema]") {
@@ -2492,7 +2621,7 @@ TEST_CASE("a New can throw, and its callers handle it", "[sema]") {
                     "Local c = Try? C()")
               .empty());
     CHECK(with_base("Class B Extends A\n    New()\n        Print(\"x\")\n    End New\nEnd Class") ==
-          errors_t{ "New: A's New can throw, so this New has to start with 'Try Super.New()'" });
+          errors_t{ "New: A's New can throw, so this New has to call 'Try Super.New()'" });
     CHECK(with_base("Class C Extends A\nEnd Class\nLocal c = C()") ==
           errors_t{ "C(): 'C' can throw Bad, so calling it needs Try, Try?, or a Try block" });
 }

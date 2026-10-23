@@ -1897,7 +1897,7 @@ private:
             emit(assign_t{ .target = self, .value = defaults_of(type) });
         }
 
-        // A Class's New sets up what Self inherits first, unless it starts with Super.New.
+        // A Class's New sets up what Self inherits first, unless it calls Super.New.
         if (function.base_new) {
             set_up(*function.base_new, expect(m_self), {}, node.name.span);
         }

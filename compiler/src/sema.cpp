@@ -468,8 +468,8 @@ private:
     /// While checking a New: its type's fields without a zero, which it must assign. Inherited
     /// ones are assigned by the base Class's New.
     std::vector<symbol_id_t> m_required;
-    /// While checking a New that starts with Super.New: that call. Until it's checked, the
-    /// object isn't set up, so Self can't be used.
+    /// While checking a New that calls Super.New: that call. Until it's checked, what Self
+    /// inherits isn't set up, so Self can't be used.
     std::optional<expr_id_t> m_super_new;
     bool m_before_super = false;
     /// An assignment's target, or the Self in "Self.x". Neither reads the fields that New hasn't
@@ -5583,9 +5583,9 @@ private:
         return methods;
     }
 
-    /// A Class's New runs the New of the Class it extends first: the one that starts it with
-    /// Super.New, or else one that takes no arguments. A Class without a New takes the parameters
-    /// of each New of the Class it extends, and passes them on.
+    /// A Class's New runs a New of the Class it extends: the one its Super.New calls, or else,
+    /// first, one that takes no arguments. A Class without a New takes the parameters of each New
+    /// of the Class it extends, and passes them on.
     void link_constructors() {
         std::vector<type_id_t> linked;
         for (const stmt_id_t id : m_ast.items()) {
@@ -5631,13 +5631,13 @@ private:
                 report_unusable(*plain, symbol(member).span, type);
             } else if (plain && !symbol(*plain).throws.empty()) {
                 error(symbol(member).span,
-                      "{}'s New can throw, so this New has to start with 'Try Super.New()'",
+                      "{}'s New can throw, so this New has to call 'Try Super.New()'",
                       shown_name(base));
             } else if (plain) {
                 symbol(member).base_new = plain;
             } else {
                 error(symbol(member).span,
-                      "New must start with Super.New(...), since {} has no New without parameters",
+                      "New must call Super.New(...), since {} has no New without parameters",
                       shown_name(base));
             }
         }
@@ -5814,34 +5814,33 @@ private:
         return std::nullopt;
     }
 
-    /// The "Super.New(...)" call that starts a New, if it has one.
+    /// The "Super.New(...)" call that sets up what a New's Self inherits, if it has one: the first
+    /// of New's own statements that's one. The code before it assigns the Class's own fields.
     [[nodiscard]] std::optional<expr_id_t> super_new_of(const symbol_t& constructor) const {
         if (!constructor.declaration) {
             return std::nullopt;
         }
 
         const auto& node = std::get<function_stmt_t>(m_ast.get(*constructor.declaration).node);
-        if (node.body.empty()) {
-            return std::nullopt;
+        for (const stmt_id_t id : node.body) {
+            const auto* statement = std::get_if<expression_stmt_t>(&m_ast.get(id).node);
+            if (statement == nullptr) {
+                continue;
+            }
+
+            // A New that throws is called "Try Super.New(...)".
+            expr_id_t call = statement->expression;
+            if (const auto* tried = std::get_if<try_expr_t>(&m_ast.get(call).node);
+                tried != nullptr && !tried->optional) {
+                call = tried->operand;
+            }
+
+            if (is_super_call(call, "New")) {
+                return call;
+            }
         }
 
-        const auto* statement = std::get_if<expression_stmt_t>(&m_ast.get(node.body.front()).node);
-        if (statement == nullptr) {
-            return std::nullopt;
-        }
-
-        // A New that throws is called "Try Super.New(...)".
-        expr_id_t call = statement->expression;
-        if (const auto* tried = std::get_if<try_expr_t>(&m_ast.get(call).node);
-            tried != nullptr && !tried->optional) {
-            call = tried->operand;
-        }
-
-        if (!is_super_call(call, "New")) {
-            return std::nullopt;
-        }
-
-        return call;
+        return std::nullopt;
     }
 
     /// Whether an expression is a call to Super's `name`, like "Super.New()".
@@ -11986,6 +11985,19 @@ private:
         return std::nullopt;
     }
 
+    /// Before Super.New, New's code can use only the Class's own fields: Super.New sets up the
+    /// ones Self inherits.
+    bool check_inherited_ready(const symbol_id_t field, const span_t span) {
+        const symbol_t& used = symbol(field);
+        if (!m_before_super || !m_function || used.kind != symbol_kind_t::FIELD ||
+            used.modifiers.is_static || used.owner == symbol(*m_function).owner) {
+            return true;
+        }
+
+        error(span, "'{}' is inherited, so New can't use it before Super.New", used.name);
+        return false;
+    }
+
     // Top level
 
     /// Checks Global and top-level Const initializers in source order. Each one is marked
@@ -12351,7 +12363,7 @@ private:
         }
 
         // New must assign the fields that have no zero. The base Class's New assigns the ones
-        // Self inherits, first thing.
+        // Self inherits, at Super.New or else first thing, and a Class's own come before it.
         m_required.clear();
         const bool extends = function.kind == symbol_kind_t::CONSTRUCTOR &&
                              is_class(function.owner) &&
@@ -12373,6 +12385,20 @@ private:
                     if (type != function.owner && !m_super_new) {
                         mark_assigned(member);
                     }
+                }
+            }
+        }
+
+        // The base's New, which can call an override that reads one of the Class's own fields,
+        // runs before any code that could assign it.
+        if (extends && !m_super_new && function.base_new) {
+            for (const symbol_id_t field : m_required) {
+                if (symbol(field).owner == function.owner) {
+                    error(function.span,
+                          "New must call Super.New() after it assigns '{}', since {} has no zero "
+                          "value",
+                          symbol(field).name, shown_name(symbol(field).type));
+                    mark_assigned(field);
                 }
             }
         }
@@ -14416,7 +14442,9 @@ private:
             }
 
             // In a Try with a Finally, that runs first, and what it assigns is assigned.
-            if (!m_finally_returns.empty()) {
+            if (m_before_super && m_flow.reachable) {
+                error(span, "New can't return before Super.New sets up what Self inherits");
+            } else if (!m_finally_returns.empty()) {
                 if (m_flow.reachable) {
                     m_finally_returns.back().emplace_back(span, m_flow.assigned);
                 }
@@ -14612,6 +14640,8 @@ private:
                 !symbol(*found).modifiers.is_static) {
                 check_self_ready(span_of(id));
             }
+
+            (void)check_inherited_ready(*found, span_of(id));
 
             // A field used by name is part of Self, not a whole variable.
             const bool field = symbol(*found).kind == symbol_kind_t::FIELD;
@@ -15680,7 +15710,10 @@ private:
             return own_view(symbol(*found));
         }
 
-        check_read(*found, span_of(id));
+        if (check_inherited_ready(*found, span_of(id))) {
+            check_read(*found, span_of(id));
+        }
+
         const symbol_t& target = symbol(*found);
         info(id).symbol = found;
         info(id).type_arguments = static_arguments(target);
@@ -18870,14 +18903,20 @@ private:
         }
 
         if (is_new && m_super_new != id) {
-            error(span_of(id), "Super.New can only start a New");
+            error(span_of(id), "Super.New can only be called once in a New, outside any block");
         } else if (is_new && m_function) {
+            // The base's New can call an override that reads the Class's own fields, so the ones
+            // without a zero are assigned first.
             m_before_super = false;
             const type_id_t owner = symbol(*m_function).owner;
             for (const symbol_id_t field : m_required) {
-                if (symbol(field).owner != owner) {
-                    mark_assigned(field);
+                if (symbol(field).owner == owner && !is_assigned(field)) {
+                    error(span_of(id), "New must assign '{}' before Super.New, since {} has no "
+                                       "zero value",
+                          symbol(field).name, shown_name(symbol(field).type));
                 }
+
+                mark_assigned(field);
             }
         }
     }
@@ -21149,7 +21188,10 @@ private:
             return type_id_t::INVALID;
         }
 
-        if (m_partial != id) {
+        // Before Super.New, New assigns its fields by name, without Self.
+        if (m_partial == id && m_before_super) {
+            error(span_of(id), "Self can't be used before Super.New; assign the field by name");
+        } else if (m_partial != id) {
             check_self_ready(span_of(id));
         }
 
