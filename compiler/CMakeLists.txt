@@ -273,6 +273,16 @@ inline constexpr auto bundled_libraries = std::to_array<bundled_library_t>({
         .notice = \"${FB_PCRE2_NOTICE}\",
         .system = \"\",
     },
+    {
+        .name = \"md4c\",
+        .version = \"${FB_MD4C_VERSION}\",
+        .license = \"${FB_MD4C_LICENSES}\",
+        .prefix = \"fb_markdown_\",
+        .runtime = \"$<TARGET_FILE:fb_runtime_markdown>\",
+        .archives = \"$<TARGET_FILE:md4c>\",
+        .notice = \"${FB_MD4C_NOTICE}\",
+        .system = \"\",
+    },
 });
 
 } // namespace fb::build_config

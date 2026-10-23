@@ -618,3 +618,29 @@ file(READ "${pcre2_SOURCE_DIR}/LICENCE.md" notices)
 fb_notice(pcre2 "${notices}")
 set(FB_PCRE2_NOTICE "${FB_PCRE2_NOTICE}" PARENT_SCOPE)
 set(FB_PCRE2_LICENSES "the BSD-3-Clause license, with PCRE2's exception" PARENT_SCOPE)
+
+# md4c: std.text.markdown, CommonMark with GitHub's tables, task lists, strikethrough, and
+# autolinks, to HTML and to the blocks and spans it parses, from its three C files. Its own CMake,
+# which would build md2html too, isn't used: SOURCE_SUBDIR names a folder it doesn't have, so
+# FetchContent only fetches it.
+set(FB_MD4C_VERSION 0.5.2)
+FetchContent_Declare(
+  md4c
+  URL https://github.com/mity/md4c/archive/refs/tags/release-${FB_MD4C_VERSION}.tar.gz
+  URL_HASH SHA256=55d0111d48fb11883aaee91465e642b8b640775a4d6993c2d0e7a8092758ef21
+  SOURCE_SUBDIR no-cmake
+  SYSTEM
+)
+FetchContent_MakeAvailable(md4c)
+add_library(md4c STATIC EXCLUDE_FROM_ALL)
+target_sources(md4c PRIVATE
+  "${md4c_SOURCE_DIR}/src/md4c.c"
+  "${md4c_SOURCE_DIR}/src/md4c-html.c"
+  "${md4c_SOURCE_DIR}/src/entity.c")
+target_include_directories(md4c SYSTEM PUBLIC "${md4c_SOURCE_DIR}/src")
+fb_bundled_library(md4c)
+set(FB_MD4C_VERSION ${FB_MD4C_VERSION} PARENT_SCOPE)
+file(READ "${md4c_SOURCE_DIR}/LICENSE.md" notices)
+fb_notice(md4c "${notices}")
+set(FB_MD4C_NOTICE "${FB_MD4C_NOTICE}" PARENT_SCOPE)
+set(FB_MD4C_LICENSES "the MIT license" PARENT_SCOPE)
