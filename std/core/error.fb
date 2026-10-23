@@ -108,9 +108,10 @@ Public Class TimeoutError Extends Error
 End Class
 
 // What kind of NetError: a connection the other side refused or reset, a network or host that
-// can't be reached or found, one that's closed, or TLS that failed.
+// can't be reached or found, one that's closed, TLS that failed, or an HTTP response whose status
+// isn't success.
 Public Enum NetErrorKind
-    REFUSED, RESET, UNREACHABLE, HOST_NOT_FOUND, CLOSED, TLS, OTHER
+    REFUSED, RESET, UNREACHABLE, HOST_NOT_FOUND, CLOSED, TLS, HTTP_STATUS, OTHER
 End Enum
 
 // Talking over a network failed. Address is the other side's, when there is one.
