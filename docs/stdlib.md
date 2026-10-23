@@ -75,7 +75,7 @@ So far, std/ holds:
 | std/crypto/checksums.fb | `Crc32`, in FutureBlitz, and `XxHash`, over xxHash through `fb_xxhash_` |
 | std/crypto/passwords.fb | `Argon2id` and `Bcrypt`, over Argon2 through `fb_argon2_` and crypt_blowfish through `fb_bcrypt_` |
 | std/crypto/ciphers.fb | `Aes256Gcm` and `ChaCha20Poly1305` |
-| std/crypto/signatures.fb | `EcdsaP256`, `Rsa`, and `X25519` |
+| std/crypto/signatures.fb | `Ed25519`, over Monocypher through `fb_ed25519_`, and `EcdsaP256`, `Rsa`, and `X25519` |
 | std/crypto/pem.fb | `KeyKind`, `Key`, and `Certificate` |
 
 What the language itself uses, `Error` for Throw and Catch, the Interfaces, `Iterator<T>`, and
@@ -112,6 +112,7 @@ and the rest) aren't std's.
 | xxHash | BSD | std.crypto's fast non-cryptographic hashes |
 | BLAKE3, Argon2 | CC0 / Apache-2.0 | std.crypto's BLAKE3 and Argon2id |
 | crypt_blowfish | public domain, or else a permissive license | std.crypto's Bcrypt |
+| Monocypher (its Ed25519) | CC0 / BSD-2-Clause | std.crypto's Ed25519, which mbedTLS doesn't have yet |
 | libtommath | Unlicense | std.math.big's BigInt |
 | mpdecimal | BSD | std.math.big's Decimal |
 | SQLite | public domain | std.db |
@@ -417,9 +418,10 @@ file or URL in the default app.
   with that key and associated data. Seal takes a new random 12-byte nonce each time and puts
   it first, so no nonce is ever given, or reused but by a chance of about 1 in 2^33 after 2^32
   messages under one key, as many as a key should seal.
-- Keys and signatures: `EcdsaP256` (ES256: signatures r then s, deterministic as RFC 6979 makes
-  them), `Rsa.Verify` (RS256) and `VerifyPss` (PS256), and `X25519` key exchange, whose secret
-  is Null for a public key that makes it 0. `Key.FromPem` reads a private or public key of a
+- Keys and signatures: `Ed25519` (RFC 8032, over Monocypher, verifying only the point
+  encodings RFC 8032 decodes), `EcdsaP256` (ES256: signatures r then s, deterministic as RFC
+  6979 makes them), `Rsa.Verify` (RS256) and `VerifyPss` (PS256), and `X25519` key exchange,
+  whose secret is Null for a public key that makes it 0. `Key.FromPem` reads a private or public key of a
   `KeyKind` (ECDSA P-256, RSA, X25519, or Ed25519), and `ToPem` writes one;
   `Certificate.FromPem` and `AllFromPem` read X.509 certificates: subject, issuer, serial
   number, validity, public key, and DER. Checking a chain of them is std.net.tls's.
