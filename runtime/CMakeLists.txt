@@ -1,6 +1,7 @@
 file(GLOB_RECURSE FB_RUNTIME_SOURCES CONFIGURE_DEPENDS src/*.cpp)
 # The parts over bundled C libraries are archives of their own.
-set(FB_RUNTIME_PARTS io crypto crypto_pem xxhash blake3 argon2 bcrypt ed25519 db)
+set(FB_RUNTIME_PARTS io crypto crypto_pem xxhash blake3 argon2 bcrypt ed25519 db http
+    tls_roots)
 foreach(part ${FB_RUNTIME_PARTS})
   list(REMOVE_ITEM FB_RUNTIME_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/src/${part}.cpp)
 endforeach()
@@ -48,15 +49,36 @@ target_include_directories(fb_runtime_db PUBLIC include)
 target_link_libraries(fb_runtime_db PRIVATE sqlite)
 fb_set_warnings(fb_runtime_db)
 
+# The fb_http_ functions, std.net.http's client, over libcurl and its TLS over mbedTLS, with the
+# OS's roots (tls_roots.cpp); its Async transfers run on the I/O thread, so a program that calls
+# them links fb_runtime_io and libuv too.
+add_library(fb_runtime_http STATIC src/http.cpp src/tls_roots.cpp)
+target_include_directories(fb_runtime_http PUBLIC include)
+target_link_libraries(fb_runtime_http PRIVATE libcurl_static)
+target_include_directories(fb_runtime_http SYSTEM PRIVATE
+  $<TARGET_PROPERTY:uv_a,INTERFACE_INCLUDE_DIRECTORIES>)
+target_compile_definitions(fb_runtime_http PRIVATE
+  $<TARGET_PROPERTY:uv_a,INTERFACE_COMPILE_DEFINITIONS>)
+add_dependencies(fb_runtime_http uv_a)
+fb_set_warnings(fb_runtime_http)
+# What reads the OS's roots: Windows' store, and macOS's Security framework.
+if(WIN32)
+  target_link_libraries(fb_runtime_http INTERFACE crypt32)
+elseif(APPLE)
+  target_link_libraries(fb_runtime_http INTERFACE "-framework Security" "-framework CoreFoundation")
+endif()
+
 # What a program can link: each part and its library, which fb and the tests that build programs
 # depend on.
 set(FB_RUNTIME_ARCHIVES fb_runtime fb_runtime_io uv_a fb_runtime_crypto tfpsacrypto
     fb_runtime_xxhash xxhash fb_runtime_blake3 blake3 fb_runtime_argon2 argon2 fb_runtime_bcrypt
-    crypt_blowfish fb_runtime_ed25519 monocypher fb_runtime_db sqlite PARENT_SCOPE)
+    crypt_blowfish fb_runtime_ed25519 monocypher fb_runtime_db sqlite fb_runtime_http
+    libcurl_static mbedtls mbedx509 PARENT_SCOPE)
 
 # Nothing in the runtime throws: exceptions can't cross into compiled programs.
 foreach(part fb_runtime fb_runtime_io fb_runtime_crypto fb_runtime_xxhash fb_runtime_blake3
-             fb_runtime_argon2 fb_runtime_bcrypt fb_runtime_ed25519 fb_runtime_db)
+             fb_runtime_argon2 fb_runtime_bcrypt fb_runtime_ed25519 fb_runtime_db
+             fb_runtime_http)
   if(MSVC)
     target_compile_options(${part} PRIVATE /EHs-c-)
   else()

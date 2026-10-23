@@ -13,6 +13,7 @@
 #include <deque>
 #include <mutex>
 #include <optional>
+#include <ranges>
 #include <string>
 #include <sys/types.h>
 #include <thread>
@@ -42,6 +43,12 @@ struct line_request_t {
 
 /// Gives a request its line, or Null at the end of the input.
 void answer(const line_request_t& request, std::optional<std::string> line);
+
+/// Work another part of the runtime gives the I/O thread, for run_on_io_thread.
+struct io_work_t {
+    void (*run)(uv_loop_t* loop, void* data) = nullptr;
+    void* data = nullptr;
+};
 
 /// Reads stdin on the I/O thread, as far as the lines waited for need, and gives each waiter its
 /// line in turn: a console's, a pipe's, or a file's.
@@ -280,6 +287,28 @@ public:
         answer(request, std::nullopt);
     }
 
+    /// Has the I/O thread run another part's work, starting the thread the first time. Once the
+    /// program is ending, it runs here, with no loop.
+    void run(const io_work_t& work) {
+        std::call_once(m_started, [this] { start(); });
+        {
+            const std::scoped_lock lock(m_mutex);
+            if (!m_stopped) {
+                m_work.push_back(work);
+                uv_async_send(&m_wake);
+                return;
+            }
+        }
+
+        work.run(nullptr, work.data);
+    }
+
+    /// Has the I/O thread run `closing` as it stops.
+    void at_stop(void (*closing)(uv_loop_t* loop)) {
+        const std::scoped_lock lock(m_mutex);
+        m_stops.push_back(closing);
+    }
+
     /// Waits for a blocking caller's line.
     void wait_for(const line_waiter_t& waiter) {
         std::unique_lock lock(m_mutex);
@@ -314,6 +343,9 @@ private:
     std::mutex m_mutex;
     std::condition_variable m_answered;
     std::vector<line_request_t> m_incoming;
+    std::vector<io_work_t> m_work;
+    /// What other parts run as the thread stops.
+    std::vector<void (*)(uv_loop_t* loop)> m_stops;
     bool m_stopped = false;
     uv_loop_t m_loop{};
     uv_async_t m_wake{};
@@ -334,18 +366,32 @@ private:
     static void on_wake(uv_async_t* handle) {
         auto& self = *static_cast<io_t*>(handle->data);
         std::vector<line_request_t> incoming;
+        std::vector<io_work_t> work;
+        std::vector<void (*)(uv_loop_t* loop)> stops;
         bool stopped = false;
         {
             const std::scoped_lock lock(self.m_mutex);
             incoming.swap(self.m_incoming);
+            work.swap(self.m_work);
             stopped = self.m_stopped;
+            if (stopped) {
+                stops = self.m_stops;
+            }
         }
 
         for (const line_request_t& request : incoming) {
             self.m_reader.want(&self.m_loop, request);
         }
 
+        for (const io_work_t& given : work) {
+            given.run(&self.m_loop, given.data);
+        }
+
         if (stopped) {
+            for (const auto stop : std::views::reverse(stops)) {
+                stop(&self.m_loop);
+            }
+
             self.m_reader.close();
             uv_close(reinterpret_cast<uv_handle_t*>(&self.m_wake), nullptr);
         }
@@ -379,6 +425,14 @@ void answer(const line_request_t& request, std::optional<std::string> line) {
 }
 
 } // namespace
+
+void fb::runtime::run_on_io_thread(void (*work)(uv_loop_s* loop, void* data), void* data) {
+    io().run({ .run = work, .data = data });
+}
+
+void fb::runtime::at_io_stop(void (*stop)(uv_loop_s* loop)) {
+    io().at_stop(stop);
+}
 
 extern "C" {
 

@@ -6,6 +6,9 @@
 #include <span>
 #include <vector>
 
+// libuv's loop, which only the parts of the runtime over it see whole.
+struct uv_loop_s; // NOLINT(readability-identifier-naming)
+
 // What the runtime's files share that compiled code doesn't call. io.cpp uses it without the
 // rest calling io.cpp, so a program that does no I/O links none of libuv.
 namespace fb::runtime {
@@ -20,6 +23,17 @@ void finish_request(const fb_task_t* task);
 
 /// The Tasks of the requests the I/O thread has under way, which it finishes in time.
 [[nodiscard]] std::vector<const fb_task_t*> requested_tasks();
+
+/// Has the I/O thread run `work` with `data` and its libuv loop, soon, starting the thread the
+/// first time, for a part of the runtime whose requests run on the loop, like HTTP's transfers
+/// (io.cpp, which a program that calls it links). Once the program is ending, `work` runs on
+/// the calling thread instead, at once, with a null loop, and answers its request with nothing.
+void run_on_io_thread(void (*work)(uv_loop_s* loop, void* data), void* data);
+
+/// Has `stop` run on the I/O thread as the program ends, before the thread lets go of its own
+/// handles: it closes those its part opened on `loop`, and answers what still waits. At most one
+/// per part of the runtime, the last one given running first.
+void at_io_stop(void (*stop)(uv_loop_s* loop));
 
 /// Releases the calling thread's ThreadLocal Globals, as fb_thread_locals_release does, as a
 /// thread the runtime started ends.
