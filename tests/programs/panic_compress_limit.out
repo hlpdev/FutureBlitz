@@ -1,0 +1,2 @@
+4
+panic: a limit of bytes can't be negative, like -1 at panic_compress_limit.fb:7:5

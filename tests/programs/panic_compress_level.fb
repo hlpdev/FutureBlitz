@@ -1,0 +1,6 @@
+// Gzip's levels are from 0 to 9, and Compress panics where it's called for another.
+Import std.core
+Import std.compress
+
+Print(Gzip.Compress("fine".Bytes, 9).Count > 0)
+Gzip.Compress("too far".Bytes, 10)

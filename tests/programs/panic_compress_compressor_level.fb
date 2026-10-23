@@ -1,0 +1,7 @@
+// A DeflateCompressor's level is one of Deflate's, and one that isn't panics where it's
+// made.
+Import std.core
+Import std.compress
+
+Local fine = DeflateCompressor(0)
+Local below = DeflateCompressor(-1)
