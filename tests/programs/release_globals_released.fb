@@ -1,0 +1,61 @@
+// globals_released.fb in a release build: when the program ends, the Globals let go of what
+// they hold, the last first, so a Destroy that runs then can still use the Globals and Static
+// Fields above its object's, Class and String alike.
+Import std.core
+
+Class Holder
+    Field Name: String
+
+    New(name: String)
+        Name = name
+    End New
+
+    Method Destroy()
+        Print("{Name} goes")
+    End Method
+End Class
+
+Function Build(word: String, n: Int): String => "{word} {n}"
+
+Global first = Holder(Build("first", 1))
+Global title = Build("title", 2)
+Global spare: Holder? = Holder("spare")
+
+Class Watcher
+    Method Destroy()
+        Local kept = first
+        Print("the watcher keeps {kept.Name} and {title} and {spare?.Name ?? "no spare"}")
+    End Method
+End Class
+
+Global second = Watcher()
+
+// A Static Field is in that order at its Class's place, and a generic Class's is too, for each
+// instance.
+Class Settings
+    Static Field Current = Holder("settings")
+    Static Field Title = Build("title", 4)
+End Class
+
+Class Tagged<T>
+    Static Field Label = "tagged"
+End Class
+
+Class Reader
+    Method Destroy()
+        Print("the reader sees {Settings.Current.Name} and {Settings.Title} and " +
+              "[{Tagged<Int>.Label}]")
+    End Method
+End Class
+
+Global reader = Reader()
+
+// A Struct and a fixed array in a Global let go of each reference in them.
+Struct Pair
+    Field Left: Holder
+    Field Right: String
+End Struct
+
+Global pair = Pair(Holder("left"), Build("right", 3))
+Global row: Holder[2] = [Holder("row 0"), Holder("row 1")]
+Print("main done")
