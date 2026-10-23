@@ -1,11 +1,11 @@
 // ConcurrentMap<K, V>: a hash map that any number of threads change and read at once. Its entries
-// are in 16 parts, by the top bits of their keys' hashes, each part an ImmutableMap behind a Mutex
-// of its own, so threads that change different parts don't wait for each other. A read copies its
-// part's ImmutableMap, which shares its nodes, and looks in the copy, holding the lock only for
-// that, and a For ... In goes over a copy of each part. A value is in a Shared cell of its own, so
-// a change worked out from a copy can tell whether another thread changed the key meanwhile. A
-// change keeps the entries it replaces in a Local until it holds no lock, so a Destroy that the
-// letting go runs can use the map.
+// are in 16 parts, by the top bits of their keys' hashes once they're mixed, each part an
+// ImmutableMap behind a Mutex of its own, so threads that change different parts don't wait for
+// each other. A read copies its part's ImmutableMap, which shares its nodes, and looks in the copy,
+// holding the lock only for that, and a For ... In goes over a copy of each part. A value is in a
+// Shared cell of its own, so a change worked out from a copy can tell whether another thread
+// changed the key meanwhile. A change keeps the entries it replaces in a Local until it holds no
+// lock, so a Destroy that the letting go runs can use the map.
 
 Import std.core
 Import std.collections.immutable
@@ -232,15 +232,14 @@ Public Shared Class ConcurrentMap<K, V> Implements Iterable<(K, V)>, Defaultable
     // A new, empty ConcurrentMap.
     Public Static Method DefaultValue(): ConcurrentMap<K, V> => ConcurrentMap<K, V>()
 
-    // Each key and its value, by their keys' hashes, and keys of one hash in the order they were
-    // added. It goes over a copy of each part, made as it comes to it, so what other threads do
-    // meanwhile never stops it.
+    // Each key and its value, part by part, by their keys' hashes in a part, and keys of one hash
+    // in the order they were added. It goes over a copy of each part, made as it comes to it, so
+    // what other threads do meanwhile never stops it.
     Public Method Iterate(): ConcurrentMapIterator<K, V> => ConcurrentMapIterator<K, V>(Self)
 
     // The part that holds the key.
     Method PartOf(key: K): MapPart<K, V>
-        Local index = (key.Hash() >> PART_SHIFT) As Int
-        Return Parts[index].Expect("a ConcurrentMap has all its parts")
+        Return Parts[PartIndex(key.Hash())].Expect("a ConcurrentMap has all its parts")
     End Method
 
     // A copy of the entries part `index` has now.
@@ -261,6 +260,14 @@ Public Shared Class ConcurrentMap<K, V> Implements Iterable<(K, V)>, Defaultable
         Return copy.Get(key)
     End Method
 End Class
+
+// The part a key of the hash goes in: the top bits of the hash once it's mixed, as Map mixes it
+// for a bucket, so hashes that differ only in their high bits, or only in their low ones, spread
+// out alike.
+Package Function PartIndex(hash: UInt64): Int
+    Local mixed = (hash ^ (hash >> 32)).WrappingMultiply(0x9E3779B97F4A7C15)
+    Return (mixed >> PART_SHIFT) As Int
+End Function
 
 // Panics when a ConcurrentMap that counted `count` entries before it added one can't count that
 // one in an Int.

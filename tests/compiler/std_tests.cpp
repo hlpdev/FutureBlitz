@@ -135,3 +135,30 @@ TEST_CASE("std.concurrent's counts stop at the most an Int holds", "[programs]")
         "panic: a ConcurrentMap holds no more entries than an Int counts at "));
     CHECK(map->exit_code == 101);
 }
+
+TEST_CASE("a ConcurrentMap's keys spread over its parts", "[programs]") {
+    // 64 hashes that differ only in their low bits, as an Id's often do, in their middle ones, or
+    // in their high ones, go in many of the 16 parts, so threads changing them seldom wait.
+    const std::string module = "Import std.core\n"
+                               "Import std.concurrent\n"
+                               "Function Parts(shift: UInt64): Int\n"
+                               "    Local used: Bool[16]\n"
+                               "    For i = 0 Until 64\n"
+                               "        used[PartIndex((i As UInt64) << shift)] = True\n"
+                               "    End For\n"
+                               "    Local count = 0\n"
+                               "    For i = 0 Until 16\n"
+                               "        If used[i] Then count += 1\n"
+                               "    End For\n"
+                               "    Return count\n"
+                               "End Function\n"
+                               "Public Function Check()\n"
+                               "    Print(Parts(0), Parts(26), Parts(58))\n"
+                               "End Function\n";
+    const std::expected<fb::process_result_t, std::string> result =
+        run_with_std_module("concurrent_parts", "Import std.extra.checks\nCheck()", module);
+    INFO((result ? result->output : result.error()));
+    REQUIRE(result);
+    CHECK(result->output == "16 16 16\n");
+    CHECK(result->exit_code == 0);
+}
