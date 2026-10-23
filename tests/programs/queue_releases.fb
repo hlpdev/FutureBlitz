@@ -1,0 +1,50 @@
+// A Queue lets go of a value as Dequeue takes it, so the value goes when the program's last
+// variable for it does, not when the Queue gets round to dropping its old slots.
+Import std.core
+Import std.collections
+
+Class Job
+    Field Name: String
+
+    New(name: String)
+        Name = name
+    End New
+
+    Method Destroy()
+        Print("{Name} goes")
+    End Method
+End Class
+
+Local jobs = Queue<Job>()
+For name In ["a", "b", "c", "d"]
+    jobs.Enqueue(Job(name))
+End For
+
+Local taken = jobs.Dequeue()
+Print("took {taken.Name}")
+taken = Job("x")
+Print("let go of a")
+
+// TryDequeue does the same.
+Local tried = jobs.TryDequeue()
+Print("took {tried?.Name ?? "-"}")
+tried = Null
+Print("let go of b")
+
+// What's left is still in order, through each way of reading it.
+Print(jobs.Count, jobs.Peek().Name, jobs.TryPeek()?.Name ?? "-")
+For job In jobs
+    Print(job.Name)
+End For
+Print(jobs.ToArray().Count, jobs.Clone().Dequeue().Name)
+
+// A Queue of optionals keeps its Nulls apart from its empty slots.
+Local maybe = Queue<Int?>()
+maybe.Enqueue(Null)
+maybe.Enqueue(2)
+maybe.Enqueue(Null)
+Print(maybe.Dequeue() ?? -1, maybe.Peek() ?? -1, maybe.Contains(Null), maybe.Count)
+For value In maybe.ToArray()
+    Print(value ?? -1)
+End For
+Print("end")
