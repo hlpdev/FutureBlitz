@@ -225,9 +225,15 @@ Public Struct Fixed32 Implements Numeric, Comparable, Hashable, Bounded, Printab
 
     Public Method ToString(): String => "{ToDouble()}"
 
+    @PanicsAtCaller
     Operator +(a: Fixed32, b: Fixed32): Fixed32 => Fixed32(a.Bits + b.Bits)
+
+    @PanicsAtCaller
     Operator -(a: Fixed32, b: Fixed32): Fixed32 => Fixed32(a.Bits - b.Bits)
+
+    @PanicsAtCaller
     Operator -(a: Fixed32): Fixed32 => Fixed32(-a.Bits)
+
     Operator <(a: Fixed32, b: Fixed32): Bool => a.Bits < b.Bits
 
     @PanicsAtCaller
@@ -338,9 +344,15 @@ Public Struct Fixed64 Implements Numeric, Comparable, Hashable, Bounded, Printab
 
     Public Method ToString(): String => "{ToDouble()}"
 
+    @PanicsAtCaller
     Operator +(a: Fixed64, b: Fixed64): Fixed64 => Fixed64(a.Bits + b.Bits)
+
+    @PanicsAtCaller
     Operator -(a: Fixed64, b: Fixed64): Fixed64 => Fixed64(a.Bits - b.Bits)
+
+    @PanicsAtCaller
     Operator -(a: Fixed64): Fixed64 => Fixed64(-a.Bits)
+
     Operator <(a: Fixed64, b: Fixed64): Bool => a.Bits < b.Bits
 
     @PanicsAtCaller

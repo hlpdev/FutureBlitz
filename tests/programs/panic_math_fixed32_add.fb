@@ -1,0 +1,7 @@
+// A Fixed32 sum past what it holds panics where it's added, in debug builds, as an Int's does.
+Import std.core
+Import std.math
+
+Local big = Fixed32.FromInt(16384)
+Print(big + Fixed32.FromInt(16383))
+Print(big + big)
