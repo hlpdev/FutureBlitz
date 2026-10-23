@@ -1,0 +1,6 @@
+// ToVec3i converts as As does, so a component outside an Int's range panics where it's called.
+Import std.core
+Import std.math
+
+Print(Vec3(2.5, -2.5, 0).ToVec3i())
+Print(Vec3(NaN, 0, 0).ToVec3i())

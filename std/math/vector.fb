@@ -1,0 +1,362 @@
+// Vec2, Vec3, and Vec4: points and directions, as Floats, in the space std.math works in:
+// right-handed, Y up, and -Z forward. Each is a Struct of its components, x, y, z, and w, in that
+// order with nothing between, so SIMD can work on it as it stands. Their Operators work component
+// by component, and a Float scales: v * 2, 2 * v, and v / 2. The math on them is Functions, as on
+// Floats: Dot, Cross, Length, Normalize, Lerp, and the rest, beside the scalar ones of their names.
+
+Import std.core
+Import std.math.numbers
+Import std.math.scalar
+Import std.math.int_vector
+
+// A point or direction in 2D.
+Public Struct Vec2 Implements Numeric, Hashable, Printable, Defaultable
+    Public Field x: Float
+    Public Field y: Float
+
+    Public Static Method Zero(): Vec2 => Vec2(0, 0)
+    Public Static Method One(): Vec2 => Vec2(1, 1)
+    Public Static Method DefaultValue(): Vec2 => Vec2(0, 0)
+
+    // The components as Ints, toward 0, as As converts them: one outside an Int's range panics.
+    @PanicsAtCaller
+    Public Method ToVec2i(): Vec2i => Vec2i(x As Int, y As Int)
+
+    Public Method ToString(): String => "({x}, {y})"
+
+    // The component at the index: x at 0, and y at 1. Any other index panics.
+    @PanicsAtCaller
+    Operator [](index: Int): Float
+        If index == 0 Then Return x
+        If index == 1 Then Return y
+        Panic("a Vec2's components are at 0 to 1, not {index}")
+    End Operator
+
+    Operator +(a: Vec2, b: Vec2): Vec2 => Vec2(a.x + b.x, a.y + b.y)
+    Operator -(a: Vec2, b: Vec2): Vec2 => Vec2(a.x - b.x, a.y - b.y)
+    Operator *(a: Vec2, b: Vec2): Vec2 => Vec2(a.x * b.x, a.y * b.y)
+    Operator /(a: Vec2, b: Vec2): Vec2 => Vec2(a.x / b.x, a.y / b.y)
+    Operator *(a: Vec2, scale: Float): Vec2 => Vec2(a.x * scale, a.y * scale)
+    Operator *(scale: Float, a: Vec2): Vec2 => Vec2(scale * a.x, scale * a.y)
+    Operator /(a: Vec2, scale: Float): Vec2 => Vec2(a.x / scale, a.y / scale)
+    Operator -(a: Vec2): Vec2 => Vec2(-a.x, -a.y)
+End Struct
+
+// A point or direction in 3D.
+Public Struct Vec3 Implements Numeric, Hashable, Printable, Defaultable
+    Public Field x: Float
+    Public Field y: Float
+    Public Field z: Float
+
+    Public Static Method Zero(): Vec3 => Vec3(0, 0, 0)
+    Public Static Method One(): Vec3 => Vec3(1, 1, 1)
+    Public Static Method DefaultValue(): Vec3 => Vec3(0, 0, 0)
+
+    Public Static Property Up: Vec3
+        Get => Vec3(0, 1, 0)
+    End Property
+
+    Public Static Property Down: Vec3
+        Get => Vec3(0, -1, 0)
+    End Property
+
+    Public Static Property Right: Vec3
+        Get => Vec3(1, 0, 0)
+    End Property
+
+    Public Static Property Left: Vec3
+        Get => Vec3(-1, 0, 0)
+    End Property
+
+    // -Z, where a camera with no rotation looks.
+    Public Static Property Forward: Vec3
+        Get => Vec3(0, 0, -1)
+    End Property
+
+    Public Static Property Back: Vec3
+        Get => Vec3(0, 0, 1)
+    End Property
+
+    Public Property xy: Vec2
+        Get => Vec2(x, y)
+    End Property
+
+    // The components as Ints, toward 0, as As converts them: one outside an Int's range panics.
+    @PanicsAtCaller
+    Public Method ToVec3i(): Vec3i => Vec3i(x As Int, y As Int, z As Int)
+
+    Public Method ToString(): String => "({x}, {y}, {z})"
+
+    // The component at the index: x at 0, y at 1, and z at 2. Any other index panics.
+    @PanicsAtCaller
+    Operator [](index: Int): Float
+        If index == 0 Then Return x
+        If index == 1 Then Return y
+        If index == 2 Then Return z
+        Panic("a Vec3's components are at 0 to 2, not {index}")
+    End Operator
+
+    Operator +(a: Vec3, b: Vec3): Vec3 => Vec3(a.x + b.x, a.y + b.y, a.z + b.z)
+    Operator -(a: Vec3, b: Vec3): Vec3 => Vec3(a.x - b.x, a.y - b.y, a.z - b.z)
+    Operator *(a: Vec3, b: Vec3): Vec3 => Vec3(a.x * b.x, a.y * b.y, a.z * b.z)
+    Operator /(a: Vec3, b: Vec3): Vec3 => Vec3(a.x / b.x, a.y / b.y, a.z / b.z)
+    Operator *(a: Vec3, scale: Float): Vec3 => Vec3(a.x * scale, a.y * scale, a.z * scale)
+    Operator *(scale: Float, a: Vec3): Vec3 => Vec3(scale * a.x, scale * a.y, scale * a.z)
+    Operator /(a: Vec3, scale: Float): Vec3 => Vec3(a.x / scale, a.y / scale, a.z / scale)
+    Operator -(a: Vec3): Vec3 => Vec3(-a.x, -a.y, -a.z)
+End Struct
+
+// A point or direction in 4D, or a 3D one with a w, as a Mat4 transforms it.
+Public Struct Vec4 Implements Numeric, Hashable, Printable, Defaultable
+    Public Field x: Float
+    Public Field y: Float
+    Public Field z: Float
+    Public Field w: Float
+
+    Public Static Method Zero(): Vec4 => Vec4(0, 0, 0, 0)
+    Public Static Method One(): Vec4 => Vec4(1, 1, 1, 1)
+    Public Static Method DefaultValue(): Vec4 => Vec4(0, 0, 0, 0)
+
+    Public Property xy: Vec2
+        Get => Vec2(x, y)
+    End Property
+
+    Public Property xyz: Vec3
+        Get => Vec3(x, y, z)
+    End Property
+
+    Public Method ToString(): String => "({x}, {y}, {z}, {w})"
+
+    // The component at the index: x at 0, y at 1, z at 2, and w at 3. Any other index panics.
+    @PanicsAtCaller
+    Operator [](index: Int): Float
+        If index == 0 Then Return x
+        If index == 1 Then Return y
+        If index == 2 Then Return z
+        If index == 3 Then Return w
+        Panic("a Vec4's components are at 0 to 3, not {index}")
+    End Operator
+
+    Operator +(a: Vec4, b: Vec4): Vec4 => Vec4(a.x + b.x, a.y + b.y, a.z + b.z, a.w + b.w)
+    Operator -(a: Vec4, b: Vec4): Vec4 => Vec4(a.x - b.x, a.y - b.y, a.z - b.z, a.w - b.w)
+    Operator *(a: Vec4, b: Vec4): Vec4 => Vec4(a.x * b.x, a.y * b.y, a.z * b.z, a.w * b.w)
+    Operator /(a: Vec4, b: Vec4): Vec4 => Vec4(a.x / b.x, a.y / b.y, a.z / b.z, a.w / b.w)
+
+    Operator *(a: Vec4, scale: Float): Vec4
+        Return Vec4(a.x * scale, a.y * scale, a.z * scale, a.w * scale)
+    End Operator
+
+    Operator *(scale: Float, a: Vec4): Vec4
+        Return Vec4(scale * a.x, scale * a.y, scale * a.z, scale * a.w)
+    End Operator
+
+    Operator /(a: Vec4, scale: Float): Vec4
+        Return Vec4(a.x / scale, a.y / scale, a.z / scale, a.w / scale)
+    End Operator
+
+    Operator -(a: Vec4): Vec4 => Vec4(-a.x, -a.y, -a.z, -a.w)
+End Struct
+
+// The sum of the products of the components: for unit vectors, the cosine of the angle between.
+Public Function Dot(a: Vec2, b: Vec2): Float => a.x * b.x + a.y * b.y
+
+// The sum of the products of the components: for unit vectors, the cosine of the angle between.
+Public Function Dot(a: Vec3, b: Vec3): Float => a.x * b.x + a.y * b.y + a.z * b.z
+
+// The sum of the products of the components.
+Public Function Dot(a: Vec4, b: Vec4): Float => a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w
+
+// The Z of the two as 3D vectors' Cross: above 0 when b turns counterclockwise from a.
+Public Function Cross(a: Vec2, b: Vec2): Float => a.x * b.y - a.y * b.x
+
+// The vector at right angles to both, by the right-hand rule: Cross(Right, Up) is Back, and its
+// length is the area of the parallelogram the two make.
+Public Function Cross(a: Vec3, b: Vec3): Vec3
+    Return Vec3(a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x)
+End Function
+
+// How long the vector is.
+Public Function Length(v: Vec2): Float => Sqrt(Dot(v, v))
+Public Function Length(v: Vec3): Float => Sqrt(Dot(v, v))
+Public Function Length(v: Vec4): Float => Sqrt(Dot(v, v))
+
+// The length times itself, which takes no square root, for comparing lengths.
+Public Function LengthSquared(v: Vec2): Float => Dot(v, v)
+Public Function LengthSquared(v: Vec3): Float => Dot(v, v)
+Public Function LengthSquared(v: Vec4): Float => Dot(v, v)
+
+// How far apart the two points are.
+Public Function Distance(a: Vec2, b: Vec2): Float => Length(b - a)
+Public Function Distance(a: Vec3, b: Vec3): Float => Length(b - a)
+
+// The distance times itself, which takes no square root, for comparing distances.
+Public Function DistanceSquared(a: Vec2, b: Vec2): Float => LengthSquared(b - a)
+Public Function DistanceSquared(a: Vec3, b: Vec3): Float => LengthSquared(b - a)
+
+// The vector in the same direction, of length 1. One too short to have a direction, as the zero
+// vector is, gives the zero vector.
+Public Function Normalize(v: Vec2): Vec2
+    Local length = Length(v)
+    Return length > 0 ? v / length : Vec2.Zero()
+End Function
+
+// The vector in the same direction, of length 1. One too short to have a direction, as the zero
+// vector is, gives the zero vector.
+Public Function Normalize(v: Vec3): Vec3
+    Local length = Length(v)
+    Return length > 0 ? v / length : Vec3.Zero()
+End Function
+
+// The vector in the same direction, of length 1. One too short to have a direction, as the zero
+// vector is, gives the zero vector.
+Public Function Normalize(v: Vec4): Vec4
+    Local length = Length(v)
+    Return length > 0 ? v / length : Vec4.Zero()
+End Function
+
+// The point t of the way from a to b: a at 0, b at 1.
+Public Function Lerp(a: Vec2, b: Vec2, t: Float): Vec2 => a + (b - a) * t
+
+// The point t of the way from a to b: a at 0, b at 1.
+Public Function Lerp(a: Vec3, b: Vec3, t: Float): Vec3 => a + (b - a) * t
+
+// The point t of the way from a to b: a at 0, b at 1.
+Public Function Lerp(a: Vec4, b: Vec4, t: Float): Vec4 => a + (b - a) * t
+
+// The smaller of each component.
+Public Function Min(a: Vec2, b: Vec2): Vec2 => Vec2(Min(a.x, b.x), Min(a.y, b.y))
+
+// The smaller of each component.
+Public Function Min(a: Vec3, b: Vec3): Vec3 => Vec3(Min(a.x, b.x), Min(a.y, b.y), Min(a.z, b.z))
+
+// The smaller of each component.
+Public Function Min(a: Vec4, b: Vec4): Vec4
+    Return Vec4(Min(a.x, b.x), Min(a.y, b.y), Min(a.z, b.z), Min(a.w, b.w))
+End Function
+
+// The larger of each component.
+Public Function Max(a: Vec2, b: Vec2): Vec2 => Vec2(Max(a.x, b.x), Max(a.y, b.y))
+
+// The larger of each component.
+Public Function Max(a: Vec3, b: Vec3): Vec3 => Vec3(Max(a.x, b.x), Max(a.y, b.y), Max(a.z, b.z))
+
+// The larger of each component.
+Public Function Max(a: Vec4, b: Vec4): Vec4
+    Return Vec4(Max(a.x, b.x), Max(a.y, b.y), Max(a.z, b.z), Max(a.w, b.w))
+End Function
+
+// Each component kept between low's and high's, as Clamp keeps a Float. A component whose low is
+// above its high panics.
+@PanicsAtCaller
+Public Function Clamp(v: Vec2, low: Vec2, high: Vec2): Vec2
+    Return Vec2(Clamp(v.x, low.x, high.x), Clamp(v.y, low.y, high.y))
+End Function
+
+// Each component kept between low's and high's, as Clamp keeps a Float. A component whose low is
+// above its high panics.
+@PanicsAtCaller
+Public Function Clamp(v: Vec3, low: Vec3, high: Vec3): Vec3
+    Return Vec3(Clamp(v.x, low.x, high.x), Clamp(v.y, low.y, high.y), Clamp(v.z, low.z, high.z))
+End Function
+
+// Each component kept between low's and high's, as Clamp keeps a Float. A component whose low is
+// above its high panics.
+@PanicsAtCaller
+Public Function Clamp(v: Vec4, low: Vec4, high: Vec4): Vec4
+    Return Vec4(Clamp(v.x, low.x, high.x), Clamp(v.y, low.y, high.y), Clamp(v.z, low.z, high.z),
+                Clamp(v.w, low.w, high.w))
+End Function
+
+// Each component's Abs, Floor, Ceil, or Round.
+Public Function Abs(v: Vec2): Vec2 => Vec2(Abs(v.x), Abs(v.y))
+Public Function Abs(v: Vec3): Vec3 => Vec3(Abs(v.x), Abs(v.y), Abs(v.z))
+Public Function Abs(v: Vec4): Vec4 => Vec4(Abs(v.x), Abs(v.y), Abs(v.z), Abs(v.w))
+Public Function Floor(v: Vec2): Vec2 => Vec2(Floor(v.x), Floor(v.y))
+Public Function Floor(v: Vec3): Vec3 => Vec3(Floor(v.x), Floor(v.y), Floor(v.z))
+Public Function Floor(v: Vec4): Vec4 => Vec4(Floor(v.x), Floor(v.y), Floor(v.z), Floor(v.w))
+Public Function Ceil(v: Vec2): Vec2 => Vec2(Ceil(v.x), Ceil(v.y))
+Public Function Ceil(v: Vec3): Vec3 => Vec3(Ceil(v.x), Ceil(v.y), Ceil(v.z))
+Public Function Ceil(v: Vec4): Vec4 => Vec4(Ceil(v.x), Ceil(v.y), Ceil(v.z), Ceil(v.w))
+Public Function Round(v: Vec2): Vec2 => Vec2(Round(v.x), Round(v.y))
+Public Function Round(v: Vec3): Vec3 => Vec3(Round(v.x), Round(v.y), Round(v.z))
+Public Function Round(v: Vec4): Vec4 => Vec4(Round(v.x), Round(v.y), Round(v.z), Round(v.w))
+
+// The direction v bounces off a surface with this normal, of length 1, in: as a ball does off a
+// wall.
+Public Function Reflect(v: Vec2, normal: Vec2): Vec2 => v - normal * (2 * Dot(v, normal))
+
+// The direction v bounces off a surface with this normal, of length 1, in: as a ball does off a
+// wall.
+Public Function Reflect(v: Vec3, normal: Vec3): Vec3 => v - normal * (2 * Dot(v, normal))
+
+// The part of v along onto, the zero vector when onto is.
+Public Function Project(v: Vec2, onto: Vec2): Vec2
+    Local squared = LengthSquared(onto)
+    Return squared > 0 ? onto * (Dot(v, onto) / squared) : Vec2.Zero()
+End Function
+
+// The part of v along onto, the zero vector when onto is.
+Public Function Project(v: Vec3, onto: Vec3): Vec3
+    Local squared = LengthSquared(onto)
+    Return squared > 0 ? onto * (Dot(v, onto) / squared) : Vec3.Zero()
+End Function
+
+// The angle between the two, in radians, from 0 to Pi, and 0 when either is the zero vector.
+Public Function Angle(a: Vec2, b: Vec2): Float => Atan2(Abs(Cross(a, b)), Dot(a, b))
+
+// The angle between the two, in radians, from 0 to Pi, and 0 when either is the zero vector.
+Public Function Angle(a: Vec3, b: Vec3): Float => Atan2(Length(Cross(a, b)), Dot(a, b))
+
+// The vector turned counterclockwise by the angle, in radians.
+Public Function Rotate(v: Vec2, angle: Float): Vec2
+    Local cosine = Cos(angle)
+    Local sine = Sin(angle)
+    Return Vec2(v.x * cosine - v.y * sine, v.x * sine + v.y * cosine)
+End Function
+
+// The vector a quarter turn counterclockwise: (-y, x).
+Public Function Perpendicular(v: Vec2): Vec2 => Vec2(-v.y, v.x)
+
+// Current moved toward target by maxDistance, or to target when it's no further.
+Public Function MoveTowards(current: Vec2, target: Vec2, maxDistance: Float): Vec2
+    Local distance = Distance(current, target)
+    If distance <= maxDistance || distance == 0 Then Return target
+    Return current + (target - current) * (maxDistance / distance)
+End Function
+
+// Current moved toward target by maxDistance, or to target when it's no further.
+Public Function MoveTowards(current: Vec3, target: Vec3, maxDistance: Float): Vec3
+    Local distance = Distance(current, target)
+    If distance <= maxDistance || distance == 0 Then Return target
+    Return current + (target - current) * (maxDistance / distance)
+End Function
+
+// Whether each component is close to b's, as IsClose tells for Floats.
+Public Function IsClose(a: Vec2, b: Vec2): Bool => IsClose(a.x, b.x) && IsClose(a.y, b.y)
+
+// Whether each component is close to b's, as IsClose tells for Floats.
+Public Function IsClose(a: Vec3, b: Vec3): Bool
+    Return IsClose(a.x, b.x) && IsClose(a.y, b.y) && IsClose(a.z, b.z)
+End Function
+
+// Whether each component is close to b's, as IsClose tells for Floats.
+Public Function IsClose(a: Vec4, b: Vec4): Bool
+    Return IsClose(a.x, b.x) && IsClose(a.y, b.y) && IsClose(a.z, b.z) && IsClose(a.w, b.w)
+End Function
+
+// Whether each component is no further from b's than tolerance.
+Public Function IsClose(a: Vec2, b: Vec2, tolerance: Float): Bool
+    Return IsClose(a.x, b.x, tolerance) && IsClose(a.y, b.y, tolerance)
+End Function
+
+// Whether each component is no further from b's than tolerance.
+Public Function IsClose(a: Vec3, b: Vec3, tolerance: Float): Bool
+    Return IsClose(a.x, b.x, tolerance) && IsClose(a.y, b.y, tolerance) &&
+           IsClose(a.z, b.z, tolerance)
+End Function
+
+// Whether each component is no further from b's than tolerance.
+Public Function IsClose(a: Vec4, b: Vec4, tolerance: Float): Bool
+    Return IsClose(a.x, b.x, tolerance) && IsClose(a.y, b.y, tolerance) &&
+           IsClose(a.z, b.z, tolerance) && IsClose(a.w, b.w, tolerance)
+End Function

@@ -1,0 +1,2 @@
+1 4
+panic: a Vec4's components are at 0 to 3, not 4 at panic_math_vec4_index.fb:7:8

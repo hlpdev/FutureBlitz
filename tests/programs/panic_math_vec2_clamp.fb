@@ -1,0 +1,6 @@
+// A Vec2's Clamp takes a low that isn't above its high, which panics where it's called.
+Import std.core
+Import std.math
+
+Print(Clamp(Vec2(5, 5), Vec2(1, 1), Vec2(1, 2)))
+Print(Clamp(Vec2(5, 5), Vec2(0, 3), Vec2(1, 2)))

@@ -1,0 +1,7 @@
+// A Vec4's components are at 0 to 3, and any other index panics where it's used.
+Import std.core
+Import std.math
+
+Local v = Vec4(1, 2, 3, 4)
+Print(v[0], v[3])
+Print(v[4])

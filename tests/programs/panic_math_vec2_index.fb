@@ -1,0 +1,7 @@
+// A Vec2's components are at 0 and 1, and any other index panics where it's used.
+Import std.core
+Import std.math
+
+Local v = Vec2(1, 2)
+Print(v[0], v[1])
+Print(v[2])

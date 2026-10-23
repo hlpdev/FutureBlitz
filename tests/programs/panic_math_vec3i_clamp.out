@@ -1,0 +1,2 @@
+(0, 0, 0)
+panic: Clamp takes a low end that isn't above its high end at panic_math_vec3i_clamp.fb:6:7

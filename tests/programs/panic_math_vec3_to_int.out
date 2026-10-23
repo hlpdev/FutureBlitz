@@ -1,0 +1,2 @@
+(2, -2, 0)
+panic: the value doesn't fit in Int32 at panic_math_vec3_to_int.fb:6:7

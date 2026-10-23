@@ -1,0 +1,124 @@
+// Vec2, Vec3, Vec4, Vec2i, and Vec3i: their Operators, the math on them, and the Interfaces they
+// implement, as Map keys, Numeric values, and Defaultable ones.
+Import std.core
+Import std.math
+Import std.collections
+
+// The vector to four places, with -0 as 0, where libm's sine and cosine are in it.
+Function Shown(v: Vec2): Vec2
+    Return Vec2(Round(v.x * 10000) / 10000 + 0, Round(v.y * 10000) / 10000 + 0)
+End Function
+
+// The Operators work component by component, and a Float scales from either side.
+Local a = Vec3(1, 2, 3)
+Local b = Vec3(4, 5, 6)
+Print(a + b, a - b, a * b, b / a, a * 2, 2 * a, a / 2, -a)
+Print(Vec2(1, 2) + Vec2(3, 4), Vec2(1, 2) * Vec2(3, 4), Vec2(3, 4) / 2, -Vec2(1, -2),
+      0.5 * Vec2(2, 4))
+Print(Vec4(1, 2, 3, 4) + Vec4.One(), Vec4(1, 2, 3, 4) / Vec4(1, 2, 3, 4), Vec4(1, 2, 3, 4) * 2,
+      -Vec4.One())
+Local moved = a
+moved += b
+moved *= 2
+moved -= Vec3.One()
+Print(moved, a == Vec3(1, 2, 3), a == b, Vec3(0, 0, 0) == Vec3(-0.0, 0, 0))
+
+// Zero, One, DefaultValue, the generated constructor's defaults, and the directions, -Z forward.
+Print(Vec2(), Vec3(5), Vec4(1, 2), Vec3.Zero(), Vec3.One(), Vec2.DefaultValue(),
+      Vec4.DefaultValue())
+Print(Vec3.Up, Vec3.Down, Vec3.Right, Vec3.Left, Vec3.Forward, Vec3.Back)
+Print(a.xy, Vec4(1, 2, 3, 4).xy, Vec4(1, 2, 3, 4).xyz, a[0], a[1], a[2], Vec4(1, 2, 3, 4)[3],
+      Vec2(7, 8)[1])
+
+// Dot, Cross by the right-hand rule, lengths, and distances.
+Print(Dot(a, b), Dot(Vec2(1, 2), Vec2(3, 4)), Dot(Vec4.One(), Vec4(1, 2, 3, 4)),
+      Dot(Vec3.Right, Vec3.Up))
+Print(Cross(Vec3.Right, Vec3.Up), Cross(Vec3.Up, Vec3.Right), Cross(a, a),
+      Cross(Vec2(1, 0), Vec2(0, 1)), Cross(Vec2(0, 1), Vec2(1, 0)))
+Print(Length(Vec3(2, 3, 6)), Length(Vec2(3, 4)), Length(Vec4(1, 1, 1, 1)), LengthSquared(a),
+      LengthSquared(Vec2(3, 4)), LengthSquared(Vec4.One()))
+Print(Distance(a, b), Distance(Vec2(1, 1), Vec2(4, 5)), DistanceSquared(a, b),
+      DistanceSquared(Vec2(1, 1), Vec2(4, 5)))
+
+// Normalize keeps the direction at length 1, and leaves the zero vector, and one too short to
+// have a direction, at zero.
+Print(Normalize(Vec3(0, 3, 4)), Normalize(Vec2(-5, 0)), Normalize(Vec4(0, 0, 0, 2)),
+      Normalize(Vec3.Zero()))
+Print(Normalize(Vec3(1e-30, 0, 0)), Normalize(Vec2.Zero()), Normalize(Vec4.Zero()),
+      Length(Normalize(b)) == 1)
+
+// The component-wise Functions, beside the scalar ones of their names.
+Print(Lerp(a, b, 0.5), Lerp(Vec2(0, 10), Vec2(10, 0), 0.25),
+      Lerp(Vec4.Zero(), Vec4(4, 8, 12, 16), 0.75), Lerp(a, b, 2))
+Print(Min(a, Vec3(2, 0, 9)), Max(a, Vec3(2, 0, 9)), Min(Vec2(1, 5), Vec2(3, 2)),
+      Max(Vec4(1, 5, 0, 0), Vec4(3, 2, 0, -1)))
+Print(Clamp(Vec3(-1, 5, 2), Vec3.Zero(), Vec3(3, 3, 3)), Clamp(Vec2(5, -5), Vec2(0, 0), Vec2(1, 1)),
+      Clamp(Vec4(1, 2, 3, 4), Vec4(2, 2, 2, 2), Vec4(3, 3, 3, 3)))
+Print(Abs(Vec3(-1, 0, -2)), Abs(Vec2(-0.5, 0.5)), Abs(Vec4(-1, -2, 3, -4)))
+// Ceil(-0.1) is -0, as IEEE has it.
+Print(Floor(Vec3(1.5, -1.5, 0)), Ceil(Vec3(1.5, -1.5, 0)), Round(Vec3(1.5, -1.5, 0.4)))
+Print(Floor(Vec2(0.5, -0.5)), Ceil(Vec2(1.1, -1.1)), Round(Vec2(2.5, -2.5)))
+Print(Floor(Vec4(1.1, 2.2, 3.3, 4.4)), Ceil(Vec4(0.1, 0.9, -0.1, -0.9)),
+      Round(Vec4(0.5, 1.5, -0.5, -1.5)))
+
+// Reflections, projections, and angles.
+Print(Reflect(Vec3(1, -1, 0), Vec3.Up), Reflect(Vec2(1, -1), Vec2(0, 1)),
+      Reflect(Vec3(0, 0, -1), Vec3.Back))
+Print(Project(Vec3(2, 2, 0), Vec3.Right), Project(Vec3(2, 2, 0), Vec3(0, 5, 0)),
+      Project(a, Vec3.Zero()), Project(Vec2(3, 4), Vec2(2, 0)), Project(Vec2(3, 4), Vec2.Zero()))
+Print(IsClose(Angle(Vec3.Right, Vec3.Up), Pi / 2), IsClose(Angle(Vec3.Right, Vec3.Left), Pi),
+      Angle(a, a * 3), Angle(a, Vec3.Zero()))
+Print(IsClose(Angle(Vec2(1, 0), Vec2(0, -1)), Pi / 2), Angle(Vec2(1, 1), Vec2(1, 1)),
+      Angle(Vec2.Zero(), Vec2(1, 0)))
+Print(Shown(Rotate(Vec2(1, 0), Pi / 2)), Shown(Rotate(Vec2(1, 0), -Pi / 2)),
+      Shown(Rotate(Vec2(2, 0), Pi)), Perpendicular(Vec2(1, 2)))
+Print(MoveTowards(Vec3.Zero(), Vec3(10, 0, 0), 3), MoveTowards(Vec3.Zero(), Vec3(1, 0, 0), 3),
+      MoveTowards(Vec2(1, 1), Vec2(4, 5), 2.5), MoveTowards(Vec2.One(), Vec2.One(), 1))
+Print(MoveTowards(Vec3.Zero(), Vec3(10, 0, 0), -2), MoveTowards(Vec3.Zero(), Vec3.Zero(), -2))
+Print(IsClose(Vec3(1, 1, 1), Vec3(1, 1.000001, 1)), IsClose(Vec3.One(), Vec3(1, 1.1, 1)),
+      IsClose(Vec2(1, 2), Vec2(1.05, 2), 0.1), IsClose(Vec4.One(), Vec4(1, 1, 1, 1.2), 0.1))
+Print(IsClose(Vec2(1, 2), Vec2(1, 2.000001)), IsClose(Vec4.One(), Vec4.One()),
+      IsClose(Vec3.One(), Vec3(1.05, 1, 1), 0.1))
+
+// Vec2i and Vec3i: integer division, and the grid distances.
+Local cell = Vec2i(3, -4)
+Print(cell + Vec2i(1, 1), cell - Vec2i(1, 1), cell * Vec2i(2, 3), cell / Vec2i(2, 3), cell * 2,
+      2 * cell, cell / 2, -cell)
+Print(Dot(cell, cell), LengthSquared(cell), ManhattanDistance(Vec2i.Zero(), cell),
+      ChebyshevDistance(Vec2i.Zero(), cell), Abs(cell), cell[0], cell[1])
+Local voxel = Vec3i(1, -2, 3)
+Print(voxel + Vec3i.One(), voxel - Vec3i(1, 1, 1), voxel * voxel, Vec3i(7, -7, 9) / Vec3i(2, 2, 2),
+      voxel * -1, 3 * voxel, Vec3i(9, 8, -7) / 2, -voxel)
+Print(Dot(voxel, voxel), LengthSquared(voxel), ManhattanDistance(voxel, Vec3i.Zero()),
+      ChebyshevDistance(voxel, Vec3i(4, 4, 4)), Abs(voxel), voxel[2])
+Print(Min(cell, Vec2i(0, 0)), Max(cell, Vec2i(0, 0)), Min(voxel, Vec3i.Zero()),
+      Max(voxel, Vec3i.Zero()))
+Print(Clamp(cell, Vec2i(0, -1), Vec2i(2, 2)), Clamp(voxel, Vec3i(0, 0, 0), Vec3i(2, 2, 2)), Vec2i(),
+      Vec3i.DefaultValue(), Vec2i.One())
+
+// To and from Floats: toward 0, as As converts.
+Print(cell.ToVec2(), voxel.ToVec3(), Vec2(1.7, -1.7).ToVec2i(), Vec3(2.9, -0.5, 0).ToVec3i())
+
+// Map keys, by the built-in Hash and ==, which takes -0 as 0.
+Local names = Map<Vec2i, String>()
+names[Vec2i(1, 2)] = "start"
+names[Vec2i(-3, 0)] = "goal"
+Print(names[Vec2i(1, 2)], names.Get(Vec2i(-3, 0)) ?? "", names.Contains(Vec2i(2, 1)))
+Local places = Set<Vec3>()
+places.Add(Vec3(0, 1, 0))
+places.Add(Vec3(-0.0, 1, 0))
+places.Add(Vec3(0, 1, 2))
+Local cells = Set<Vec3i>()
+cells.Add(voxel)
+cells.Add(Vec3i(1, -2, 3))
+cells.Add(Vec3i.Zero())
+Print(places.Count, places.Contains(Vec3.Up), cells.Count)
+
+// Numeric, so generic code sums them.
+Print([Vec3(1, 0, 0), Vec3(0, 2, 0), Vec3(0, 0, 3)].Iterate().Sum(), [cell, cell].Iterate().Sum(),
+      [Vec2.One(), Vec2(2, 3)].Iterate().Sum())
+
+Function Midpoint<T: Numeric>(a: T, b: T): T => (a + b) / (T.One() + T.One())
+
+Print(Midpoint(Vec2(0, 0), Vec2(4, 2)), Midpoint(Vec4.Zero(), Vec4(2, 4, 6, 8)),
+      Midpoint(Vec3i.Zero(), Vec3i(4, 5, 6)))

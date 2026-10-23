@@ -1,0 +1,6 @@
+// A Vec4's Clamp takes a low that isn't above its high, which panics where it's called.
+Import std.core
+Import std.math
+
+Print(Clamp(Vec4.One(), Vec4.Zero(), Vec4.One()))
+Print(Clamp(Vec4.One(), Vec4.One(), Vec4(1, 1, 1, 0)))
