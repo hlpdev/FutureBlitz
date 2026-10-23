@@ -1,0 +1,7 @@
+// A header's name is a token: a space in one panics where Add is called.
+Import std.core
+Import std.net.http
+
+Local headers = Headers()
+headers.Add("Good-Name", "fine")
+headers.Add("Bad Name", "fine")

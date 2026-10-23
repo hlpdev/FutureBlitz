@@ -1,0 +1,59 @@
+== headers
+0
+5
+text/html
+a
+[a, b]
+none
+True
+False
+Accept = [text/html]
+X-Tag = [a]
+x-tag = [b]
+Empty = []
+Tab = [a	b]
+[c]
+Accept: text/html
+X-Tag: c
+Empty:
+Tab: a	b
+New: 1
+True
+False
+4
+5
+0
+[]
+== bodies
+text/plain; charset=utf-8 [104, 195, 169, 108, 108, 111]
+text/csv
+application/json 8
+application/octet-stream [0, 255]
+none
+application/x-www-form-urlencoded
+q=a%20b%26c%3Dd&name=Zo%C3%AB&safe=-._~&=empty
+== statuses
+200
+404
+100 [Continue] False False
+200 [OK] True False
+201 [Created] True False
+204 [No Content] True False
+301 [Moved Permanently] False True
+304 [Not Modified] False True
+307 [Temporary Redirect] False True
+400 [Bad Request] False False
+404 [Not Found] False False
+418 [] False False
+429 [Too Many Requests] False False
+500 [Internal Server Error] False False
+503 [Service Unavailable] False False
+599 [] False False
+== methods
+GET
+HEAD
+POST
+PUT
+PATCH
+DELETE
+OPTIONS

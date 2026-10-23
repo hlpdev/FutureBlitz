@@ -1,0 +1,57 @@
+== at once
+200 hello
+200 redirected
+418 status 418
+200 chunkchunkchunkchunkchunkchunkchunkchunkchunkchunk
+200 multi
+200 (none)
+== methods
+200 POST
+/echo
+text/plain; charset=utf-8
+posted
+200 PUT
+/echo
+text/plain; charset=utf-8
+kept
+200 GET
+/echo
+(none)
+
+200 DELETE
+/echo
+(none)
+
+POST
+/echo
+application/json
+[1]
+PUT
+/echo
+text/plain; charset=utf-8
+put
+PATCH
+/echo
+text/plain; charset=utf-8
+patch
+DELETE
+/echo
+(none)
+
+head 200 0
+== cookies
+200 set
+200 late=1
+200 late=1
+== downloads
+200000 True True True 200000 200000
+5
+NetError HTTP_STATUS
+== failures
+NetError REFUSED
+NetError CLOSED
+NetError RESET
+NetError TLS
+NetError OTHER
+200 hello
+the main thread ran meanwhile: True

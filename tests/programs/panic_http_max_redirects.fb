@@ -1,0 +1,7 @@
+// MaxRedirects can't be set below 0.
+Import std.core
+Import std.net.http
+
+Local client = HttpClient()
+client.MaxRedirects = 0
+client.MaxRedirects = -1
