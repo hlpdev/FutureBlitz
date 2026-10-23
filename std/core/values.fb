@@ -14,7 +14,7 @@ Public Function Min<T: Comparable>(a: T, b: T): T => b < a ? b : a
 // The larger of the two, or the first when neither is.
 Public Function Max<T: Comparable>(a: T, b: T): T => a < b ? b : a
 
-// The value, or low when it's below low, or high when it's above high.
+// The value, or low when it's below low, or high when it's above high. A high below low panics.
 @PanicsAtCaller
 Public Function Clamp<T: Comparable>(value: T, low: T, high: T): T
     If high < low Then Panic("Clamp takes a low end that isn't above its high end")
