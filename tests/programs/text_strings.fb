@@ -61,6 +61,9 @@ Print("[{"é".Center(4, '-')}] [{"😀".Center(3, '😀')}] [{word.Center(5)}]")
 // Without a fill, a space, U+0020.
 Print("x".PadLeft(3).Bytes, "x".PadRight(2).Bytes, "x".Center(3).Bytes)
 Print("[{"😀".PadRight(3)}] [{accent.Center(4)}] [{accent.PadRight(3)}]")
+// A width no more than its CharCount gives the String itself, Int's least too.
+Local least = -2147483647 - 1
+Print("[{"ab".PadLeft(least, '-')}] [{"ab".PadRight(least, '-')}] [{"ab".Center(least, '-')}]")
 
 // Comparing.
 Print("é".Compare("e"), "e".Compare("é"), "😀".Compare("😀"), "😀".Compare("é"))
