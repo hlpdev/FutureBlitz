@@ -23,6 +23,7 @@ AABB((9, -1, -1), (11, 1, 1)) AABB((-2, -3, -1), (2, 3, 1))
 Sphere((0, 0, 0), 2) True False True
 True False True
 False True True
+False False False True
 8 -1 10 -1
 0 2 -1 4
 -1 -1 9999 9999

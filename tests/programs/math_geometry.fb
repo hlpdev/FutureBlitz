@@ -80,6 +80,11 @@ Print(ball.Intersects(Sphere(Vec3(5, 0, 0), 3)), ball.Intersects(Sphere(Vec3(5, 
 Print(ball.Intersects(AABB(Vec3(1.5, 1.5, -1), Vec3(3, 3, 1))),
       ball.Intersects(AABB(Vec3(1, 1, -1), Vec3(3, 3, 1))),
       ball.Intersects(AABB(Vec3(-9, -9, -9), Vec3(9, 9, 9))))
+// Far apart, where a Float's square would overflow, a point outside is still outside.
+Print(Sphere(Vec3.Zero(), 3e19).Contains(Vec3(4e19, 0, 0)),
+      Sphere(Vec3.Zero(), 1e19).Intersects(Sphere(Vec3(1e20, 0, 0), 1e19)),
+      Sphere(Vec3.Zero(), 3e19).Intersects(AABB(Vec3(4e19, 4e19, 4e19), Vec3(5e19, 5e19, 5e19))),
+      Sphere(Vec3.Zero(), 5e19).Contains(Vec3(4e19, 0, 0)))
 Print(Hit(ball.Raycast(Ray(Vec3(0, 0, 10), Vec3.Forward))),
       Hit(ball.Raycast(Ray(Vec3(0, 0, 10), Vec3.Back))),
       Hit(ball.Raycast(Ray(Vec3(0, 2, 10), Vec3.Forward))),

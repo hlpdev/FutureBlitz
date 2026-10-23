@@ -216,15 +216,19 @@ Public Struct Sphere Implements Equatable, Printable
     Public Field Center: Vec3
     Public Field Radius: Float
 
-    // Whether the point is in the sphere or on its surface.
+    // Whether the point is in the sphere or on its surface, by squares in Doubles, which no
+    // Float's square overflows.
     Public Method Contains(point: Vec3): Bool
-        Return DistanceSquared(Center, point) <= Radius * Radius
+        Local offset = Vec3d.Of(point) - Vec3d.Of(Center)
+        Local radius: Double = Radius
+        Return offset.Dot(offset) <= radius * radius
     End Method
 
-    // Whether the two have a point in common.
+    // Whether the two have a point in common, by squares in Doubles.
     Public Method Intersects(other: Sphere): Bool
-        Local reach = Radius + other.Radius
-        Return DistanceSquared(Center, other.Center) <= reach * reach
+        Local offset = Vec3d.Of(other.Center) - Vec3d.Of(Center)
+        Local reach = (Radius As Double) + other.Radius
+        Return offset.Dot(offset) <= reach * reach
     End Method
 
     // Whether the box and the sphere have a point in common.
