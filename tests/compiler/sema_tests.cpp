@@ -8943,6 +8943,39 @@ TEST_CASE("what a call can run on another thread includes overrides and lambdas"
                                 "Local t = Spawn(Function() => Node([]) == Node([]))",
                                 score))
               .empty());
+
+    // So does showing one by a format spec, a program's own Format runs, and the debug form of
+    // what std's DebugElements shows by its elements runs its Iterate, through a Field too.
+    const std::string_view formatted = "Struct Money Implements Formattable\n"
+                                       "    Field n: Int\n"
+                                       "    Method ToString(): String => \"m\"\n"
+                                       "    Method Format(spec: String): String? => \"{score}\"\n"
+                                       "End Struct\n"
+                                       "@DebugElements\n"
+                                       "Class Bag Implements Iterable<Int>\n"
+                                       "    Field Items: Int[] = []\n"
+                                       "    Method Iterate(): ArrayIterator<Int>\n"
+                                       "        score += 1\n"
+                                       "        Return Items.Iterate()\n"
+                                       "    End Method\n"
+                                       "End Class\n"
+                                       "Struct Holds\n"
+                                       "    Field Inside: Bag?\n"
+                                       "End Struct\n";
+    CHECK(errors_of(std::format("Import std.collections\n{}{}{}"
+                                "Local a = Spawn(Function() => \"{{Shown(1):>5}}\")\n"
+                                "Local b = Spawn(Function() => \"{{Money(1):x}}\")\n"
+                                "Local c = Spawn(Function() => \"{{(Shown(1), 2):>9}}\")\n"
+                                "Local d = Spawn(Function() => \"{{Bag():?}}\")\n"
+                                "Local e = Spawn(Function() => \"{{Holds(Null):#?}}\")",
+                                parts, formatted, score)) ==
+          errors_t{
+              std::vformat(reached, std::make_format_args("Shown.ToString")),
+              std::vformat(reached, std::make_format_args("Money.Format")),
+              std::vformat(reached, std::make_format_args("Shown.ToString")),
+              std::vformat(reached, std::make_format_args("Bag.Iterate")),
+              std::vformat(reached, std::make_format_args("Bag.Iterate")),
+          });
     CHECK(errors_of(std::format("{}Function Apply(f: Func(): Int): Int => f()\n"
                                 "Local t = Spawn(Function() => Apply(Function() => score))",
                                 score)) ==
