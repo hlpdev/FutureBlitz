@@ -1,0 +1,5 @@
+// A replacement's group that the pattern doesn't have panics.
+Import std.core
+Import std.text.regex
+
+Print(Try Regex("(o)").Replace("foo", r"${1}"), Try Regex("(o)").Replace("foo", r"${2}"))

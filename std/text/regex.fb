@@ -1,0 +1,536 @@
+// std.text.regex: patterns over PCRE2, through the runtime's fb_regex_ functions. A pattern is
+// Perl's syntax as PCRE2 has it, over UTF-8: \w, \d, \s, and \b take Unicode's letters, digits,
+// and spaces, and positions are byte offsets, as a String's are. Each match has limits, its
+// Regex's MatchLimit and MemoryLimit, past which it throws a RegexError instead of running on, as
+// a pattern that backtracks without end would. A pattern that isn't valid panics where its Regex
+// is made, and the compiler reports a literal one at it; Regex.Parse throws instead, for a
+// pattern from elsewhere, like a program's user.
+
+Import std.core
+Import std.collections.map
+Import std.text.char
+Import std.text.string
+
+Extern "runtime"
+    Function fb_regex_new(pattern: String, flags: Int32, problem: Int[]): Ptr<Void>
+    Function fb_regex_message(error: Int32): String
+    Function fb_regex_free(regex: Ptr<Void>)
+    Function fb_regex_match(regex: Ptr<Void>, subject: String, start: Int64, matchLimit: Int64,
+                            memoryLimit: Int64, options: Int32, positions: Int[]): Int32
+    Function fb_regex_group_count(regex: Ptr<Void>): Int32
+    Function fb_regex_name_count(regex: Ptr<Void>): Int32
+    Function fb_regex_name(regex: Ptr<Void>, index: Int32): String
+    Function fb_regex_name_group(regex: Ptr<Void>, index: Int32): Int32
+    Function fb_text_byte(text: String, at: Int64): UInt8
+End Extern
+
+// fb_regex_match's options: only a match that starts where it looks and isn't empty, for the
+// try after an empty match.
+Const NOT_EMPTY_HERE: Int32 = 1
+
+// How a Regex reads its pattern: IGNORE_CASE matches letters in either case, MULTILINE makes ^
+// and $ match at each line's start and end too, DOT_ALL lets . match a line break, and EXTENDED
+// skips the pattern's whitespace, and its comments from # to the line's end.
+@Flags
+Public Enum RegexFlags
+    NONE = 0, IGNORE_CASE, MULTILINE, DOT_ALL, EXTENDED
+End Enum
+
+// What kind of RegexError: a pattern that isn't valid, or a match that went past its Regex's
+// MatchLimit or MemoryLimit.
+Public Enum RegexErrorKind
+    PATTERN, MATCH_LIMIT, MEMORY_LIMIT
+End Enum
+
+// A pattern that isn't valid, at the byte Offset of the pattern, or a match that went past a
+// limit, where Offset is where in the text it started looking.
+Public Class RegexError Extends Error
+    Public ReadOnly Field Kind: RegexErrorKind
+    Public ReadOnly Field Offset: Int
+
+    Public New(kind: RegexErrorKind, message: String, offset: Int, cause: Error? = Null)
+        Super.New(message, cause)
+        Kind = kind
+        Offset = offset
+    End New
+End Class
+
+// One match of a Regex in Text: where it starts and finishes, and its groups' text, group 0
+// being the whole match.
+Public Class Match Implements Printable
+    // The text the match is in.
+    Public ReadOnly Field Text: String
+    // Each group's start and finish, -1 and -1 for one that took no part.
+    ReadOnly Field Positions: Int[]
+    ReadOnly Field Names: Map<String, Int[]>
+
+    New(text: String, positions: Int[], names: Map<String, Int[]>)
+        Text = text
+        Positions = positions
+        Names = names
+    End New
+
+    // Where it starts.
+    Public Property Start: Int
+        Get => Positions[0]
+    End Property
+
+    // Where it finishes, just past its last byte.
+    Public Property Finish: Int
+        Get => Positions[1]
+    End Property
+
+    // The text it matched.
+    Public Property Value: String
+        Get => Text.Slice(Positions[0], Positions[1])
+    End Property
+
+    // How many groups the pattern has, not counting the whole match.
+    Public Property GroupCount: Int
+        Get => Positions.Count / 2 - 1
+    End Property
+
+    // Group number's text, the whole match's for 0, or Null when the group took no part. Panics
+    // unless the pattern has that group.
+    @PanicsAtCaller
+    Operator [](number: Int): String?
+        Local at = Checked(number) * 2
+        If Positions[at] < 0 Then Return Null
+        Return Text.Slice(Positions[at], Positions[at + 1])
+    End Operator
+
+    // The text of the group called name, or Null when it took no part. Panics unless the pattern
+    // has a group of that name. Where several have it, it's the first that took part.
+    @PanicsAtCaller
+    Operator [](name: String): String?
+        Local number = Named(name)
+        If number == Null Then Return Null
+        Return Text.Slice(Positions[number * 2], Positions[number * 2 + 1])
+    End Operator
+
+    // Where group number starts, or Null when it took no part. Panics unless the pattern has that
+    // group.
+    @PanicsAtCaller
+    Public Method StartOf(number: Int): Int?
+        Local at = Positions[Checked(number) * 2]
+        If at < 0 Then Return Null
+        Return at
+    End Method
+
+    // Where the group called name starts, or Null when it took no part. Panics unless the
+    // pattern has a group of that name.
+    @PanicsAtCaller
+    Public Method StartOf(name: String): Int?
+        Local number = Named(name)
+        If number == Null Then Return Null
+        Return Positions[number * 2]
+    End Method
+
+    // Where group number finishes, or Null when it took no part. Panics unless the pattern has
+    // that group.
+    @PanicsAtCaller
+    Public Method FinishOf(number: Int): Int?
+        Local at = Positions[Checked(number) * 2 + 1]
+        If at < 0 Then Return Null
+        Return at
+    End Method
+
+    // Where the group called name finishes, or Null when it took no part. Panics unless the
+    // pattern has a group of that name.
+    @PanicsAtCaller
+    Public Method FinishOf(name: String): Int?
+        Local number = Named(name)
+        If number == Null Then Return Null
+        Return Positions[number * 2 + 1]
+    End Method
+
+    Public Method ToString(): String => Value
+
+    // Panics unless the pattern has group number.
+    @PanicsAtCaller
+    Method Checked(number: Int): Int
+        If number < 0 || number > GroupCount
+            Panic("the pattern has groups 0 to {GroupCount}, not {number}")
+        End If
+
+        Return number
+    End Method
+
+    // The first group called name that took part, or Null when none did. Panics unless the
+    // pattern has a group of that name.
+    @PanicsAtCaller
+    Method Named(name: String): Int?
+        Local numbers = Names.Get(name)
+        If numbers == Null Then Panic("the pattern has no group called {name}")
+        For number In numbers
+            If Positions[number * 2] >= 0 Then Return number
+        End For
+
+        Return Null
+    End Method
+End Class
+
+// A compiled pattern, which finds its matches in text. Regex("[0-9]+") is one, and the compiler
+// checks a literal pattern there.
+Public Class Regex
+    Field Code: Ptr<Void>
+    Field Names: Map<String, Int[]>
+    Field Steps: Int = 10000000
+    Field Bytes: Int = 67108864
+    // The pattern, as it was given.
+    Public ReadOnly Field Pattern: String
+    Public ReadOnly Field Flags: RegexFlags
+
+    // A Regex of pattern, read as flags says. Panics when it isn't a valid pattern, with PCRE2's
+    // message and where in the pattern it is.
+    @PanicsAtCaller
+    Public New(pattern: String, flags: RegexFlags = RegexFlags.NONE)
+        Local problem: Int[] = []
+        Code = fb_regex_new(pattern, flags As Int32, problem)
+        If Code == Null
+            Panic("the pattern isn't valid: {fb_regex_message(problem[0])}, at its byte " +
+                  "{problem[1]}")
+        End If
+
+        Names = NamesOf(Code)
+        Pattern = pattern
+        Flags = flags
+    End New
+
+    New(pattern: String, flags: RegexFlags, code: Ptr<Void>)
+        Code = code
+        Names = NamesOf(code)
+        Pattern = pattern
+        Flags = flags
+    End New
+
+    // A Regex of pattern, read as flags says, for a pattern from elsewhere. Throws a RegexError of
+    // PATTERN when it isn't a valid pattern, whose Offset is where in the pattern it is.
+    Public Static Method Parse(pattern: String,
+                               flags: RegexFlags = RegexFlags.NONE): Regex Throws RegexError
+        Local problem: Int[] = []
+        Local code = fb_regex_new(pattern, flags As Int32, problem)
+        If code == Null
+            Throw RegexError(RegexErrorKind.PATTERN,
+                             "the pattern isn't valid: {fb_regex_message(problem[0])}, at its " +
+                             "byte {problem[1]}", problem[1])
+        End If
+
+        Return Regex(pattern, flags, code)
+    End Method
+
+    // pattern with a backslash before each character that means something in a pattern, so a
+    // Regex of it matches text itself.
+    Public Static Method Escape(text: String): String
+        Local escaped = ""
+        For c In text.Chars
+            If c.Code < 128 && !c.IsLetter() && !c.IsDigit() && c != '_' Then escaped += "\\"
+            escaped += "{c}"
+        End For
+
+        Return escaped
+    End Method
+
+    // The most steps one match takes, 10 million at first, past which it throws a RegexError of
+    // MATCH_LIMIT. A step is a turn of PCRE2's matching, and a pattern that backtracks without end
+    // takes ever more. Panics when set below 1.
+    @PanicsAtCaller
+    Public Property MatchLimit: Int
+        Get => Steps
+        Set(value)
+            If value < 1 Then Panic("MatchLimit takes a count of at least 1, not {value}")
+            Steps = value
+        End Set
+    End Property
+
+    // The most memory one match takes, in bytes, 64 MiB at first, past which it throws a
+    // RegexError of MEMORY_LIMIT. Panics when set below 1 MiB, since PCRE2 starts each match with
+    // tens of KiB.
+    @PanicsAtCaller
+    Public Property MemoryLimit: Int
+        Get => Bytes
+        Set(value)
+            If value < 1048576 Then Panic("MemoryLimit takes at least 1048576 bytes, not {value}")
+            Bytes = value
+        End Set
+    End Property
+
+    // How many groups the pattern has, not counting the whole match, which is group 0.
+    Public Property GroupCount: Int
+        Get => fb_regex_group_count(Code) As Int
+    End Property
+
+    // The names of the pattern's groups, sorted.
+    Public Property GroupNames: String[]
+        Get
+            Local names: String[] = []
+            For i = 0 Until fb_regex_name_count(Code)
+                Local name = fb_regex_name(Code, i)
+                If names.Count == 0 || names[names.Count - 1] != name Then names.Add(name)
+            End For
+
+            Return names
+        End Get
+    End Property
+
+    // Whether the pattern matches somewhere in text.
+    Public Method IsMatch(text: String): Bool Throws RegexError => Try Next(text, 0, 0) != Null
+
+    // The first match at start or after, or Null. Panics unless start is a position in text,
+    // between its characters.
+    @PanicsAtCaller
+    Public Method Find(text: String, start: Int = 0): Match? Throws RegexError
+        If start < 0 || start > text.Length
+            Panic("Find takes a position from 0 to the text's Length, {text.Length}, not {start}")
+        End If
+
+        If start < text.Length && (fb_text_byte(text, start) & 192) == 128
+            Panic("Find takes a position between characters, not {start}")
+        End If
+
+        Return Try Next(text, start, 0)
+    End Method
+
+    // Each match, from the start: after one, the next is looked for from its end, and after an
+    // empty one, from the next character unless a match that isn't empty starts where it is.
+    Public Method FindAll(text: String): Match[] Throws RegexError => Try All(text, text.Length + 1)
+
+    // A copy of text with each match replaced by replacement, in which $1 or ${1} is group 1's
+    // text, $0 the whole match's, ${name} the group called name's, and $$ a $. A group that took
+    // no part is "". Panics on a $ before anything else, or a group the pattern doesn't have.
+    @PanicsAtCaller
+    Public Method Replace(text: String, replacement: String): String Throws RegexError
+        Return Replaced(text, Try All(text, text.Length + 1), Pieces(replacement))
+    End Method
+
+    // A copy of text with each match replaced by what replacement gives for it.
+    Public Method Replace(text: String, replacement: Func(Match): String): String Throws RegexError
+        Return Replaced(text, Try All(text, text.Length + 1), replacement)
+    End Method
+
+    // A copy of text with its first match replaced by replacement, as Replace does each.
+    @PanicsAtCaller
+    Public Method ReplaceFirst(text: String, replacement: String): String Throws RegexError
+        Return Replaced(text, Try All(text, 1), Pieces(replacement))
+    End Method
+
+    // A copy of text with its first match replaced by what replacement gives for it.
+    Public Method ReplaceFirst(text: String,
+                               replacement: Func(Match): String): String Throws RegexError
+        Return Replaced(text, Try All(text, 1), replacement)
+    End Method
+
+    // The parts of text between its matches: "a1b22c" split by "[0-9]+" is "a", "b", and "c". A
+    // match at the start or the end makes an empty part there.
+    Public Method Split(text: String): String[] Throws RegexError
+        Local parts: String[] = []
+        Local from = 0
+        For found In Try All(text, text.Length + 1)
+            parts.Add(text.Slice(from, found.Start))
+            from = found.Finish
+        End For
+
+        parts.Add(text.Slice(from, text.Length))
+        Return parts
+    End Method
+
+    Method Destroy()
+        fb_regex_free(Code)
+    End Method
+
+    // The match from start on, or with NOT_EMPTY_HERE, only one that starts at start and isn't
+    // empty.
+    Method Next(text: String, start: Int, options: Int32): Match? Throws RegexError
+        Local positions: Int[] = []
+        Local found = fb_regex_match(Code, text, start, Steps, Bytes, options, positions)
+        If found == 1 Then Return Match(text, positions, Names)
+        If found == 0 Then Return Null
+        If found == -1
+            Throw RegexError(RegexErrorKind.MATCH_LIMIT,
+                             "the match took more than the Regex's MatchLimit of {Steps} steps",
+                             start)
+        End If
+
+        Throw RegexError(RegexErrorKind.MEMORY_LIMIT,
+                         "the match took more than the Regex's MemoryLimit of {Bytes} bytes", start)
+    End Method
+
+    // The first most matches, as FindAll finds them.
+    Method All(text: String, most: Int): Match[] Throws RegexError
+        Local found: Match[] = []
+        Local at = 0
+        Local options: Int32 = 0
+        While found.Count < most
+            Local next = Try Next(text, at, options)
+            If next == Null
+                // Nothing that isn't empty starts where the empty match was, so the next match is
+                // looked for from the next character, past a whole "\r\n", where a line break is.
+                If options == 0 || at >= text.Length Then Break
+                at = CharAfter(text, at)
+                options = 0
+            Else
+                found.Add(next)
+                at = next.Finish
+                options = 0
+                If next.Start == next.Finish Then options = NOT_EMPTY_HERE
+            End If
+        End While
+
+        Return found
+    End Method
+
+    // What replacement says to put in each match's place: text, and the groups between it, by
+    // number, or -1 and a name.
+    @PanicsAtCaller
+    Method Pieces(replacement: String): Piece[]
+        Local pieces: Piece[] = []
+        Local from = 0
+        Local dollar = replacement.Find("$")
+        While dollar != Null
+            pieces.Add(Piece(replacement.Slice(from, dollar), -1, Null))
+            Local at = dollar + 1
+            If at == replacement.Length Then Panic("the replacement ends in a $; $$ is a $")
+            Local after = fb_text_byte(replacement, at)
+            If after == 36
+                pieces.Add(Piece("$", -1, Null))
+                from = at + 1
+            ElseIf after == 123
+                Local close = replacement.Find("}}", at)
+                If close == Null Then Panic("the replacement's ${{ has no }}")
+                Local name = replacement.Slice(at + 1, close)
+                pieces.Add(Group(name, replacement.Slice(dollar, close + 1)))
+                from = close + 1
+            Else
+                Local finish = at
+                While finish < replacement.Length && IsDigit(fb_text_byte(replacement, finish))
+                    finish += 1
+                End While
+
+                If finish == at
+                    Panic("the replacement's $ is before neither a group nor a $; $$ is a $")
+                End If
+
+                Local digits = replacement.Slice(at, finish)
+                pieces.Add(Group(digits, replacement.Slice(dollar, finish)))
+                from = finish
+            End If
+
+            dollar = replacement.Find("$", from)
+        End While
+
+        pieces.Add(Piece(replacement.Slice(from, replacement.Length), -1, Null))
+        Return pieces
+    End Method
+
+    // The piece of a replacement for group, a number or a name, which written is as it's written.
+    @PanicsAtCaller
+    Method Group(group: String, written: String): Piece
+        If group.Length > 0 && IsDigit(fb_text_byte(group, 0))
+            // Digits past the pattern's groups stop before the number gets too big.
+            Local number = 0
+            For c In group.Chars
+                If c.Code < 48 || c.Code > 57 || number > GroupCount Then number = -1
+                If number < 0 Then Break
+                number = number * 10 + (c.Code - 48)
+            End For
+
+            If number < 0 || number > GroupCount
+                Panic("the replacement's {written} isn't one of the pattern's groups, 0 to " +
+                      "{GroupCount}")
+            End If
+
+            Return Piece("", number, Null)
+        End If
+
+        If !Names.Contains(group) Then Panic("the replacement's {written} names no group")
+        Return Piece("", -1, group)
+    End Method
+End Class
+
+// A piece of a replacement: Text, or the group Number's text, or when Number is -1 and Name
+// isn't Null, the text of the group called Name.
+Struct Piece
+    Field Text: String
+    Field Number: Int
+    Field Name: String?
+End Struct
+
+Extend String
+    // Whether pattern matches somewhere in it, as Regex(pattern).IsMatch does. Its compiled
+    // pattern is kept for a while, so calling it again with the same one doesn't compile it again.
+    @PanicsAtCaller
+    Public Method Matches(pattern: String): Bool Throws RegexError
+        Return Try Regex(pattern).IsMatch(Self)
+    End Method
+
+    // A copy with each match of pattern replaced by replacement, as Regex(pattern).Replace does.
+    @PanicsAtCaller
+    Public Method ReplaceAll(pattern: String, replacement: String): String Throws RegexError
+        Return Try Regex(pattern).Replace(Self, replacement)
+    End Method
+
+    // The parts between each match of pattern, as Regex(pattern).Split gives them.
+    @PanicsAtCaller
+    Public Method SplitBy(pattern: String): String[] Throws RegexError
+        Return Try Regex(pattern).Split(Self)
+    End Method
+End Extend
+
+// Each name's groups, by their numbers.
+Function NamesOf(code: Ptr<Void>): Map<String, Int[]>
+    Local names = Map<String, Int[]>()
+    For i = 0 Until fb_regex_name_count(code)
+        Local name = fb_regex_name(code, i)
+        If !names.Contains(name) Then names[name] = []
+        names[name].Add(fb_regex_name_group(code, i) As Int)
+    End For
+
+    Return names
+End Function
+
+// text with each match in found replaced, as pieces say.
+Function Replaced(text: String, found: Match[], pieces: Piece[]): String
+    Local replaced = ""
+    Local from = 0
+    For match In found
+        replaced += text.Slice(from, match.Start)
+        For piece In pieces
+            Local name = piece.Name
+            If piece.Number >= 0
+                replaced += match[piece.Number] ?? ""
+            ElseIf name != Null
+                replaced += match[name] ?? ""
+            Else
+                replaced += piece.Text
+            End If
+        End For
+
+        from = match.Finish
+    End For
+
+    Return replaced + text.Slice(from, text.Length)
+End Function
+
+// text with each match in found replaced by what replacement gives for it.
+Function Replaced(text: String, found: Match[], replacement: Func(Match): String): String
+    Local replaced = ""
+    Local from = 0
+    For match In found
+        replaced += text.Slice(from, match.Start) + replacement(match)
+        from = match.Finish
+    End For
+
+    Return replaced + text.Slice(from, text.Length)
+End Function
+
+// Where the character after the one at at starts, or after a whole "\r\n".
+Function CharAfter(text: String, at: Int): Int
+    Local lead = fb_text_byte(text, at)
+    If lead == 13 && at + 1 < text.Length && fb_text_byte(text, at + 1) == 10 Then Return at + 2
+    If lead < 128 Then Return at + 1
+    If lead >= 240 Then Return at + 4
+    If lead >= 224 Then Return at + 3
+    Return at + 2
+End Function
+
+Function IsDigit(byte: UInt8): Bool => byte >= 48 && byte <= 57

@@ -588,3 +588,33 @@ file(READ "${utf8proc_SOURCE_DIR}/LICENSE.md" notices)
 fb_notice(utf8proc "${notices}")
 set(FB_UTF8PROC_NOTICE "${FB_UTF8PROC_NOTICE}" PARENT_SCOPE)
 set(FB_UTF8PROC_LICENSES "the MIT license and the Unicode license" PARENT_SCOPE)
+
+# PCRE2: std.text.regex, and the compiler's check of a literal pattern, through its own CMake. Only
+# its 8-bit library is built, for UTF-8, without its JIT, so a match runs the same everywhere and
+# its limits count the same steps.
+set(FB_PCRE2_VERSION 10.49)
+set(PCRE2_BUILD_PCRE2_8 ON CACHE BOOL "" FORCE)
+set(PCRE2_BUILD_PCRE2_16 OFF CACHE BOOL "" FORCE)
+set(PCRE2_BUILD_PCRE2_32 OFF CACHE BOOL "" FORCE)
+set(PCRE2_SUPPORT_JIT OFF CACHE BOOL "" FORCE)
+set(PCRE2_SUPPORT_UNICODE ON CACHE BOOL "" FORCE)
+set(PCRE2_BUILD_PCRE2GREP OFF CACHE BOOL "" FORCE)
+set(PCRE2_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(PCRE2_SHOW_REPORT OFF CACHE BOOL "" FORCE)
+set(PCRE2_DEBUG OFF CACHE STRING "" FORCE)
+set(PCRE2_STATIC_PIC ON CACHE BOOL "" FORCE)
+FetchContent_Declare(
+  pcre2
+  URL https://github.com/PCRE2Project/pcre2/releases/download/pcre2-${FB_PCRE2_VERSION}/pcre2-${FB_PCRE2_VERSION}.tar.gz
+  URL_HASH SHA256=929f0b20e62879252a15886b06c89f1edef61a363cbd5826fb041080a5e557ae
+  SYSTEM
+  EXCLUDE_FROM_ALL
+)
+fb_make_available(pcre2)
+set(FB_PCRE2_VERSION ${FB_PCRE2_VERSION} PARENT_SCOPE)
+# Its LICENCE.md has its BSD-3-Clause license, with its exception for packages that include a
+# package that includes it.
+file(READ "${pcre2_SOURCE_DIR}/LICENCE.md" notices)
+fb_notice(pcre2 "${notices}")
+set(FB_PCRE2_NOTICE "${FB_PCRE2_NOTICE}" PARENT_SCOPE)
+set(FB_PCRE2_LICENSES "the BSD-3-Clause license, with PCRE2's exception" PARENT_SCOPE)

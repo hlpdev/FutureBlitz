@@ -1,0 +1,5 @@
+// A $ in a replacement before neither a group nor a $ panics: $$ is a $.
+Import std.core
+Import std.text.regex
+
+Print(Try Regex("o").Replace("foo", "0"), Try Regex("o").Replace("foo", "$x"))

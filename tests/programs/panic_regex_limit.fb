@@ -1,0 +1,8 @@
+// A MatchLimit below 1 panics, where it's set.
+Import std.core
+Import std.text.regex
+
+Local r = Regex("x")
+r.MatchLimit = 5
+Print(r.MatchLimit)
+r.MatchLimit = 0

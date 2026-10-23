@@ -1,0 +1,9 @@
+// A pattern the compiler can't see that isn't valid panics where its Regex is made, with PCRE2's
+// message and where in the pattern it stopped.
+Import std.core
+Import std.text.regex
+
+Function Pattern(): String => "(a|b"
+
+Local r = Regex(Pattern())
+Print("never")

@@ -1,0 +1,7 @@
+// Find panics at a position inside a character, as String's Find does.
+Import std.core
+Import std.text.regex
+
+Local r = Regex("x")
+Local m = Try r.Find("é", 1)
+Print("never")

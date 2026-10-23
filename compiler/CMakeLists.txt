@@ -262,6 +262,16 @@ inline constexpr auto bundled_libraries = std::to_array<bundled_library_t>({
         .notice = \"${FB_UTF8PROC_NOTICE}\",
         .system = \"\",
     },
+    {
+        .name = \"PCRE2\",
+        .version = \"${FB_PCRE2_VERSION}\",
+        .license = \"${FB_PCRE2_LICENSES}\",
+        .prefix = \"fb_regex_\",
+        .runtime = \"$<TARGET_FILE:fb_runtime_regex>\",
+        .archives = \"$<TARGET_FILE:pcre2-8-static>\",
+        .notice = \"${FB_PCRE2_NOTICE}\",
+        .system = \"\",
+    },
 });
 
 } // namespace fb::build_config

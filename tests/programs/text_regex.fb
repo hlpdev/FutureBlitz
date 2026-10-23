@@ -1,0 +1,118 @@
+// std.text.regex: captures by number and by name, all matches, replacing with $ and with a
+// Function, splitting, escaping, the flags, Unicode's classes over byte positions, the String
+// shortcuts and their cache, and limits that throw instead of running on.
+Import std.core
+Import std.text
+Import std.text.regex
+
+// Captures by number and by name, and where they are. Group 3 holds group 4, which takes no part
+// in a date without its day.
+Local date = Regex(r"(?<year>\d{4})-(?<month>\d\d)(-(\d\d))?")
+Local text = "due 2026-10, paid 2026-11-03"
+Local first = Try date.Find(text)
+If first != Null
+    Print(first, first.Start, first.Finish, first.GroupCount)
+    Print(first[0] ?? "-", first[1] ?? "-", first["month"] ?? "-", first[4] ?? "no day")
+    Print(first.StartOf("year") ?? -1, first.FinishOf(2) ?? -1, first.StartOf(4) ?? -1,
+          first.FinishOf("month") ?? -1)
+End If
+Print(date.GroupCount, date.GroupNames, date.Pattern)
+For found In Try date.FindAll(text)
+    Print(found, found[4] ?? "no day", found.Text == text)
+End For
+
+// From a start, which a lookbehind still sees before; none after the last.
+Local number = Regex(r"(?<=-)\d+")
+Print((Try number.Find("10-20-30", 4))?.Value ?? "none",
+      (Try number.Find("10-20-30", 8))?.Value ?? "none")
+Print(Try number.IsMatch("10-20"), Try number.IsMatch("1020"))
+
+// An empty match is found once at each place, and the next match is looked for after it.
+Local xs = Regex("x*")
+For found In Try xs.FindAll("axxb")
+    Print(found.Start, found.Finish, "[{found}]")
+End For
+Print(Try xs.Replace("axxb", "-"))
+Print(Try Regex("").Split("abc"))
+
+// Replacing: $n, ${n}, ${name}, and $$, where a group that took no part is "", or with what a
+// Function gives for each match; ReplaceFirst only the first.
+Print(Try date.Replace(text, r"$2/$4/${year} (${1}$$)"))
+Print(Try Regex(r"\d+").Replace("a1b22c333", Function(m) => "<{m.Value.Length}>"))
+Print(Try Regex(r"\d").ReplaceFirst("a1b2", "#"), Try Regex(r"\d").ReplaceFirst("ab", "#"))
+Print(Try Regex(r"(\w)(\w*)").ReplaceFirst("hello world",
+                                          Function(m) => (m[1] ?? "").ToUpper() + (m[2] ?? "")))
+
+// Splitting, with an empty part where matches touch, or at an end.
+Print(Try Regex(r",\s*").Split("a, b,c,,d"), Try Regex(",").Split(",a,"))
+
+// Escape makes a pattern of text itself.
+Local odd = "1+1=2? (yes) [a-z] $5.00 é\\"
+Print(Regex.Escape(odd))
+Print(Try Regex(Regex.Escape(odd)).IsMatch("so " + odd + " so"))
+
+// The flags, alone and together.
+Print(Try Regex("école", RegexFlags.IGNORE_CASE).IsMatch("ÉCOLE"),
+      Try Regex("école").IsMatch("ÉCOLE"))
+For line In Try Regex(r"^\w+$", RegexFlags.MULTILINE).FindAll("one\r\ntwo\nthree\rfour")
+    Print(line, line.Start)
+End For
+Print(Try Regex("a.b").IsMatch("a\nb"), Try Regex("a.b", RegexFlags.DOT_ALL).IsMatch("a\nb"))
+Print((Try Regex(r"\d+  # digits", RegexFlags.EXTENDED).Find("ab 42"))?.Value ?? "none")
+Local both = Regex(r"^B", RegexFlags.IGNORE_CASE | RegexFlags.MULTILINE)
+Print((Try both.FindAll("a\nb\nB")).Count, both.Flags)
+
+// \w, \d, and \b are Unicode's, and positions count bytes: the emoji takes 4, the combining mark 2.
+Print(Try Regex(r"\w+").FindAll("naïve café 😀 e\u{301}x"))
+For found In Try Regex(r"\d").FindAll("😀a1٣")
+    Print(found, found.Start, found.Finish)
+End For
+Print(Try Regex(r"\bcafé\b").IsMatch("un café noir"),
+      Try Regex(r"\p{Greek}+").FindAll("alpha βήτα gamma"))
+
+// String's shortcuts, many times over and with more patterns than its thread keeps, and a Regex
+// whose compiled pattern the cache let go of still works.
+Local kept = Regex(r"k+")
+Local hits = 0
+For i = 0 Until 50
+    If Try "id-{i}".Matches(r"[13579]$") Then hits += 1
+    Local other = Try "{i}".ReplaceAll("{i % 20}", "x")
+    If other != "x" && i < 20 Then Print("wrong:", other)
+End For
+Print(hits, Try "a1b22c".SplitBy(r"\d+"), Try "a-b".ReplaceAll("-", "+"))
+Print((Try kept.Find("okkk"))?.Value ?? "none")
+
+// Limits: a pattern that backtracks without end throws within its MatchLimit, and a match that
+// keeps too much to go back to throws past its MemoryLimit.
+Local evil = Regex(r"^(a+)+$")
+Try
+    Print(Try evil.IsMatch("a".Repeated(40) + "b"))
+Catch e As RegexError
+    Print(e.Kind, e.Offset, e.Message)
+End Try
+evil.MatchLimit = 1000
+Try
+    Print(Try evil.IsMatch("a".Repeated(20) + "b"))
+Catch e As RegexError
+    Print(e.Kind, e.Message)
+End Try
+Print(Try evil.IsMatch("aaaa"), evil.MatchLimit)
+Local deep = Regex(r"^(a|b)*c")
+Local long = "ab".Repeated(100000) + "dc"
+Print(Try deep.IsMatch(long), deep.MemoryLimit)
+deep.MemoryLimit = 1048576
+Try
+    Print(Try deep.IsMatch(long))
+Catch e As RegexError
+    Print(e.Kind, e.Message)
+End Try
+Print(Try deep.IsMatch("abc"))
+
+// Parse throws for a pattern from elsewhere, with where in it PCRE2 stopped.
+For pattern In ["(unclosed", r"a{2,1}", r"ok\d"]
+    Try
+        Print((Try Regex.Parse(pattern)).Pattern)
+    Catch e As RegexError
+        Print(e.Kind, e.Offset, e.Message)
+    End Try
+End For
