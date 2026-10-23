@@ -75,7 +75,6 @@ End Struct
 | `Int8`–`Int64`, `UInt8`–`UInt64` | `int8_t`–`int64_t`, `uint8_t`–`uint64_t` |
 | `Float32`, `Float64` | `float`, `double` |
 | `Bool` | `bool` |
-| `Char` | `char32_t` |
 | `Ptr<T>` | `T*` |
 | `Ptr<Void>` | `void*` |
 | `CString` | `const char*` |
@@ -90,6 +89,8 @@ End Struct
   x86-64 outside Windows and on Apple's targets, an integer narrower than 32 bits extended to 32
   bits. A Bool that C gives is its `bool`, 0 or 1: a byte of another value is undefined, as it
   is in C, so what reads it can see either.
+- A `Char` isn't C's: C's `char32_t` is a `UInt32`, which `As Char` checks on the way in, since C
+  can hold any number there.
 - A `ByRef` parameter of one of these passes the variable's address, so an out-parameter like
   `frexp`'s `int*` needs no Unsafe: `Function frexp(x: Float64, ByRef exponent: Int32): Float64`.
 - A `CString` is stored and passed in safe code, and its zero is `Null`, C's NULL, which
