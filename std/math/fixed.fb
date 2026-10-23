@@ -439,8 +439,9 @@ Public Struct Fixed64 Implements Numeric, Comparable, Hashable, Bounded, Printab
     // The value as a Double, rounded to the nearest, which holds it exactly up to 2^21.
     Public Method ToDouble(): Double => (Bits As Double) / 4294967296
 
-    // The value as a Float, rounded to the nearest.
-    Public Method ToFloat(): Float => ToDouble() As Float
+    // The value as a Float, rounded to the nearest: once, from the bits, since a Double of them
+    // can round already.
+    Public Method ToFloat(): Float => (Bits As Float) / 4294967296
 
     // The whole part, toward 0, as As takes a Float's.
     Public Method ToInt(): Int => (Bits / 4294967296) As Int

@@ -91,6 +91,11 @@ Print(Cos(Fixed64.FromRaw(3373209229)).Raw, Sin(Fixed64.FromRaw(10119632474)).Ra
 Print(Cos(Fixed64.FromRaw(65536)).Raw, Cos(Fixed64.FromRaw(196608)).Raw,
       Cos(Fixed64.FromRaw(327680)).Raw, Cos(Fixed64.FromRaw(-196608)).Raw,
       Sin(Fixed64.FromRaw(1)).Raw, Sin(Fixed64.FromRaw(-1)).Raw)
+// A Fixed64 past 2^21 is a Float rounded once, from its bits: 2^30 + 192 - 2^-32 is below the
+// halfway point between the Floats 2^30 + 128 and 2^30 + 256.
+Print(Fixed64.FromRaw(4611686843061108735).ToFloat() As Double,
+      Fixed64.FromRaw(-4611686843061108735).ToFloat() As Double, Fixed64.FromRaw(1).ToFloat(),
+      MaxValue<Fixed64>().ToFloat() As Double)
 // Known values: sin 0 is 0, cos 0 is 1, and sin of a quarter turn is 1 to the last bit.
 Print(Sin(Fixed32.Zero()), Cos(Fixed32.Zero()), Sin(Fixed32.Pi / 2), Cos(Fixed64.Zero()),
       Sin(Fixed64.Pi / 2).Raw)
