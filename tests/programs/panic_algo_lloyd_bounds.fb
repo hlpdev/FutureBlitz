@@ -1,0 +1,9 @@
+// LloydRelax takes finite bounds, so an infinite place panics where it's called, though no
+// iteration would use it.
+Import std.core
+Import std.math
+Import std.algo
+
+Local points = [Vec2(-1, 1), Vec2(-3, 1)]
+Print(LloydRelax(points, Rect(-4, 0, 4, 4), 0))
+Print(LloydRelax(points, Rect(-Inf, 0, 4, 4), 0))

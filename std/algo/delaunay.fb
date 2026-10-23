@@ -465,12 +465,22 @@ Function KeepNearer(polygon: (Double, Double)[], ax: Double, ay: Double, bx: Dou
     Return kept
 End Function
 
+// Panics unless bounds is somewhere, with a size that isn't negative.
+@PanicsAtCaller
+Function CheckBounds(bounds: Rect)
+    If !IsFinite(bounds.X) || !IsFinite(bounds.Y) || !(bounds.Width >= 0) ||
+       !(bounds.Height >= 0) || !IsFinite(bounds.Width) || !IsFinite(bounds.Height)
+        Panic("bounds are finite, with a size that isn't negative, not {bounds}")
+    End If
+End Function
+
 // Each point's Voronoi cell inside bounds: the polygon, counterclockwise, of where in bounds is no
 // nearer another point, empty for a point whose cell is outside bounds. Points that are equal share
 // a cell, and fewer than two points have bounds' whole rectangle for theirs. A coordinate that's
-// infinite or NaN panics.
+// infinite or NaN, or bounds that aren't finite or have a negative size, panic.
 @PanicsAtCaller
 Public Function Voronoi(points: Vec2[], bounds: Rect): Vec2[][]
+    CheckBounds(bounds)
     Local order, same = Ordered(points)
     // Each point's neighbors: those it shares a Delaunay edge with, which are the only ones whose
     // cells can touch its own, or every other point when there are no triangles.
@@ -526,12 +536,14 @@ End Function
 
 // The points moved, iterations times, each to the middle of its Voronoi cell in bounds, which
 // spreads them evenly: Lloyd's relaxation. A point whose cell is empty stays. A negative number of
-// iterations, or a coordinate that's infinite or NaN, panics.
+// iterations, a coordinate that's infinite or NaN, or bounds that aren't finite or have a negative
+// size, panics.
 @PanicsAtCaller
 Public Function LloydRelax(points: Vec2[], bounds: Rect, iterations: Int = 1): Vec2[]
     If iterations < 0
         Panic("LloydRelax takes a count of iterations that isn't negative, not {iterations}")
     End If
+    CheckBounds(bounds)
     Local moved = points.Clone()
     For pass = 1 To iterations
         Local cells = Voronoi(moved, bounds)

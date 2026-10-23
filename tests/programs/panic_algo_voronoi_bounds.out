@@ -1,0 +1,2 @@
+2
+panic: bounds are finite, with a size that isn't negative, not Rect(0, 0, -4, 4) at panic_algo_voronoi_bounds.fb:8:7

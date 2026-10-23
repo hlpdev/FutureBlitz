@@ -1,0 +1,8 @@
+// Voronoi takes bounds with a size that isn't negative, which panics where it's called.
+Import std.core
+Import std.math
+Import std.algo
+
+Local points = [Vec2(-1, 1), Vec2(-3, 1)]
+Print(Voronoi(points, Rect(-4, 0, 4, 4)).Count)
+Print(Voronoi(points, Rect(0, 0, -4, 4)))

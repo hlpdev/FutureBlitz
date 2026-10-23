@@ -587,7 +587,7 @@ Built in step 27. `Import std.algo` brings in all of std/algo/.
   equal points only the first is a corner. `Voronoi(points, bounds)`: each point's cell in a
   Rect, counterclockwise, cut by its Delaunay neighbors' bisectors. `LloydRelax(points, bounds,
   iterations)`: each point moved to its cell's centroid, so they spread evenly. A coordinate
-  that's infinite or NaN panics.
+  that's infinite or NaN, or bounds that aren't finite or have a negative size, panic.
 
 #### std.uuid
 
