@@ -35,12 +35,12 @@ End Function
 // The IOError for one of the runtime's errors.
 Package Function ErrorOf(error: Int64, doing: String, path: Path, other: Path? = Null): IOError
     Local what = other == Null ? path.Text : "{path} to {other.Text}"
-    Return IOError(KindOf(fb_io_error_kind(error)), "can't {doing} {what}: {fb_io_error_message(error)}",
+    Return IOError(IOKindOf(fb_io_error_kind(error)), "can't {doing} {what}: {fb_io_error_message(error)}",
                    path.Text)
 End Function
 
 // The Kind the runtime numbers an error as.
-Function KindOf(number: Int32): IOErrorKind
+Function IOKindOf(number: Int32): IOErrorKind
     Select number
         Case 1
             Return IOErrorKind.NOT_FOUND

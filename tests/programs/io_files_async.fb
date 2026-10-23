@@ -28,6 +28,11 @@ Async Function Copies(folder: Path, count: Int): String[] Throws IOError
     Return texts
 End Function
 
+// Reads a file on another thread, giving "none" for one that can't be read.
+Function ReadElsewhere(path: Path): Task<String>
+    Return Spawn(Function() => (Try? File.ReadText(path)) ?? "none")
+End Function
+
 // What awaiting a read of something that isn't there throws.
 Async Function Missing(path: Path): String
     Try
@@ -75,6 +80,9 @@ End For
 Print("{Try Await Dir.RemoveAsync(root / "empty")} {Try Await Dir.RemoveAsync(root / "empty")}")
 Print(Await Missing(root / "missing.bin"))
 Print(Missing(root / "ä").Wait())
+
+// The blocking calls work on any thread, a Spawn's too, each with its own request.
+Print("{Await ReadElsewhere(root / "atomic.txt")} {Await ReadElsewhere(root / "missing.txt")}")
 
 Local held = Try Await FileLock.AcquireAsync(root / "lock")
 Print("{held.IsHeld()} {(Try FileLock.TryAcquire(root / "lock")) == Null}")

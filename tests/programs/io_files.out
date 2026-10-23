@@ -64,10 +64,14 @@ glob
   nothing/*: []
   *.dat: [セーブ.dat]
   **/*.PNG: []
+  : []
+  ./*.dat: [セーブ.dat]
 errors
 read NOT_FOUND
 read IS_A_DIRECTORY
 write IS_A_DIRECTORY
+write atomically IS_A_DIRECTORY
+write atomically NOT_FOUND
 size IS_A_DIRECTORY
 delete IS_A_DIRECTORY
 create ALREADY_EXISTS
@@ -83,6 +87,7 @@ move NOT_FOUND
 write NOT_FOUND
 write INVALID_PATH
 metadata NOT_FOUND
+temporary folder NOT_FOUND
 True True True
 can't read missing.txt: no such file or directory [missing.txt]
 can't copy missing.txt to other.txt: no such file or directory [missing.txt]

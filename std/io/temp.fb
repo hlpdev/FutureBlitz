@@ -62,7 +62,7 @@ End Class
 // A new temporary folder, or file when `folder` is 0, named `prefix` and six more characters.
 Function Made(prefix: String, folder: Int32): Path Throws IOError
     Local request = Request()
-    Local temporary = Path(prefix)
-    Try Checked(fb_io_temp_new(request.Native, prefix, folder), "make a temporary file named", temporary)
+    Local doing = folder != 0 ? "make a temporary folder named" : "make a temporary file named"
+    Try Checked(fb_io_temp_new(request.Native, prefix, folder), doing, Path(prefix))
     Return Path(fb_io_request_path(request.Native))
 End Function
