@@ -42,9 +42,9 @@ Function Near(points: Point[], at: Point, radius: Float): Int[]
     Local found: Int[] = []
     Local most: Double = radius
     For p In points
-        Local dx: Double = p.X - at.X
-        Local dy: Double = p.Y - at.Y
-        Local dz: Double = p.Z - at.Z
+        Local dx = (p.X As Double) - at.X
+        Local dy = (p.Y As Double) - at.Y
+        Local dz = (p.Z As Double) - at.Z
         If dx * dx + dy * dy + dz * dz <= most * most Then found.Add(p.Id)
     End For
     Return Sorted(found)
@@ -184,7 +184,24 @@ Function Sorted2(values: String[]): String[]
     Return sorted
 End Function
 
-// Far points, an infinite radius, and an infinite center: distances don't overflow.
+// Points just inside and just outside the radius, which Floats would round the wrong way.
+Function Edge(cx: Float, cy: Float, px: Float, py: Float, radius: Float)
+    Local hash = SpatialHash<String>(1)
+    Local quad = QuadTree<String>(0, 0, 1, 1)
+    Local octree = Octree<String>(0, 0, 0, 1, 1, 1)
+    hash.Add("p", px, py)
+    quad.Add("p", px, py)
+    octree.Add("p", px, py, 0)
+    Print(hash.Near(cx, cy, radius), quad.Near(cx, cy, radius), octree.Near(cx, cy, 0, radius))
+End Function
+
+Edge(0.82066410779953, 0.9263164401054382, 0.2964705228805542, 0.1300487220287323,
+     0.9533211588859558)
+Edge(0.7559108138084412, 0.9752318263053894, 0.07207980751991272, 0.4743247330188751,
+     0.8476631045341492)
+
+// Far points, an infinite radius, and an infinite center: distances don't overflow, and an
+// infinite radius finds a point at the center's infinity too.
 Local zero: Float = 0
 Local infinity = 1 / zero
 Local spread = SpatialHash<String>(1.0e18)

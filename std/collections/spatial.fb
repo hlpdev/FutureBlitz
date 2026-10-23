@@ -84,15 +84,18 @@ Function ValuesOf<T>(placed: PlacedValue<T>[]): T[]
     Return values
 End Function
 
-// The values placed no more than radius from (x, y, z).
-Function Within<T>(placed: PlacedValue<T>[], x: Float, y: Float, z: Float, radius: Float): T[]
+// The values placed no more than radius from (x, y, z), each placed coordinate taken from the
+// center's in Doubles. An infinite radius takes them all, a point at the same infinity as the
+// center too, whose distance is NaN.
+Function Within<T>(placed: PlacedValue<T>[], x: Double, y: Double, z: Double,
+                   radius: Double): T[]
+    If radius > 0 && radius * 0 != 0 Then Return ValuesOf(placed)
     Local values: T[] = []
-    Local most: Double = radius
     For held In placed
-        Local dx: Double = held.X - x
-        Local dy: Double = held.Y - y
-        Local dz: Double = held.Z - z
-        If dx * dx + dy * dy + dz * dz <= most * most Then values.Add(held.Value)
+        Local dx = held.X - x
+        Local dy = held.Y - y
+        Local dz = held.Z - z
+        If dx * dx + dy * dy + dz * dz <= radius * radius Then values.Add(held.Value)
     End For
     Return values
 End Function
