@@ -88,7 +88,9 @@ bool is_negative(const const_value_t& value) {
     return false;
 }
 
-/// The unsigned type of the same width.
+/// The unsigned type of the same width, which holds the distance between two values: a CLong's
+/// is a CULong, as wide on every target, and a CWChar's a UInt32, which holds what its wrapping
+/// differences are as a UInt16, an Int32, or a UInt32.
 type_id_t unsigned_of(const type_id_t type) {
     switch (type) {
     case type_id_t::INT8:
@@ -99,6 +101,10 @@ type_id_t unsigned_of(const type_id_t type) {
         return type_id_t::UINT32;
     case type_id_t::INT64:
         return type_id_t::UINT64;
+    case type_id_t::CLONG:
+        return type_id_t::CULONG;
+    case type_id_t::CWCHAR:
+        return type_id_t::UINT32;
     default:
         return type;
     }

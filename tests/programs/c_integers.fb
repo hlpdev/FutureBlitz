@@ -32,6 +32,31 @@ For i = 1 To labs(-4)
 End For
 Print("{sum} {Max(sum, n)}")
 
+// A loop or range counts what's left past a 32-bit CLong's largest distance, at compile time too.
+Const Function Passes(first: CLong, last: CLong): Int32
+    Local count: Int32 = 0
+    For i = first To last Step 1500000000
+        count += 1
+    End For
+
+    Return count
+End Function
+
+Local low: CLong = -2000000000
+Local high: CLong = 2000000000
+Local passes = ""
+For i = high To low Step -1500000000
+    passes += "{i} "
+End For
+
+Local steps: Int64 = 0
+For x In low To high Step 1000
+    steps += 1
+End For
+
+Const known = Passes(-2000000000, 2000000000)
+Print("{passes}{steps} {known} {Passes(low, high)}")
+
 // A CWChar is as big as the target's wchar_t, so C reads what a Ptr at them has.
 Unsafe
     Local text: Ptr<CWChar> = Mem.Alloc(4 * SizeOf<CWChar>())

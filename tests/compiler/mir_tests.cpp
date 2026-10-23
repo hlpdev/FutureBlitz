@@ -186,6 +186,21 @@ TEST_CASE("a For loop checks the distance left before stepping", "[mir]") {
                                    "    goto bb2\n"
                                    "bb5:\n"
                                    "    return\n");
+
+    // A CLong's distance is a CULong, as wide on every target, and a CWChar's a UInt32, which
+    // holds it whether a CWChar is a UInt16, an Int32, or a UInt32, in a range's count too.
+    for (const auto& [type, distance] :
+         { std::pair{ "CLong", "CULong" }, std::pair{ "CWChar", "UInt32" } }) {
+        const std::string mir = lower_text(std::format("Local first: {0} = 1\n"
+                                                       "Local last: {0} = 3\n"
+                                                       "For i = first To last\n"
+                                                       "End For\n"
+                                                       "Local all = first To last",
+                                                       type));
+        INFO(mir);
+        CHECK(mir.contains(std::format("_6 = _5 As {}\n", distance)));
+        CHECK(mir.contains(std::format("1 As {}\n", distance)));
+    }
 }
 
 TEST_CASE("&& only evaluates its right side when it decides the result", "[mir]") {
