@@ -3090,10 +3090,13 @@ private:
         expr_id_t left = parse_unary();
         while ((at(token_kind_t::STAR) || at(token_kind_t::SLASH) || at(token_kind_t::PERCENT)) &&
                enter()) {
-            const token_kind_t kind = advance().kind;
-            const binary_op_t op = kind == token_kind_t::STAR    ? binary_op_t::MULTIPLY
-                                   : kind == token_kind_t::SLASH ? binary_op_t::DIVIDE
-                                                                 : binary_op_t::REMAINDER;
+            binary_op_t op = binary_op_t::REMAINDER;
+            if (const token_kind_t kind = advance().kind; kind == token_kind_t::STAR) {
+                op = binary_op_t::MULTIPLY;
+            } else if (kind == token_kind_t::SLASH) {
+                op = binary_op_t::DIVIDE;
+            }
+
             const expr_id_t right = parse_unary();
             left = add_expr(span_from(begin_of(left)),
                             binary_expr_t{ .op = op, .left = left, .right = right });
