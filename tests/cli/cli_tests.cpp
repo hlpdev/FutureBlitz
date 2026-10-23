@@ -3,8 +3,11 @@
 #include "fb/process.hpp"
 #include "fb/utf8.hpp"
 
+#include <algorithm>
+#include <array>
 #include <catch2/catch_test_macros.hpp>
 #include <cstddef>
+#include <cstdint>
 #include <cstdlib>
 #include <expected>
 #include <filesystem>
@@ -57,6 +60,230 @@ void check_usage_error(const std::vector<std::string>& arguments, const std::str
     INFO(result.output);
     CHECK(result.exit_code == 2);
     CHECK(result.output.contains(message));
+}
+
+/// A little-endian number at `at` in `bytes`, or 0 past their end.
+template <typename Number>
+Number number_at(const std::string& bytes, const std::uint64_t at) {
+    if (at > bytes.size() || bytes.size() - at < sizeof(Number)) {
+        return 0;
+    }
+
+    Number value = 0;
+    for (std::size_t i = sizeof(Number); i-- > 0;) {
+        value = static_cast<Number>(value << 8U) | static_cast<unsigned char>(bytes[at + i]);
+    }
+
+    return value;
+}
+
+/// The NUL-ended text at `at` in `bytes`.
+std::string text_at(const std::string& bytes, const std::uint64_t at) {
+    if (at >= bytes.size()) {
+        return {};
+    }
+
+    return bytes.substr(at, bytes.find('\0', at) - at);
+}
+
+/// The DLLs a PE file imports, delay-loaded ones too.
+std::vector<std::string> pe_imports(const std::string& bytes) {
+    std::vector<std::string> names;
+    const auto pe = number_at<std::uint32_t>(bytes, 0x3C);
+    if (!bytes.starts_with("MZ") || bytes.compare(pe, 4, std::string("PE\0\0", 4)) != 0) {
+        return names;
+    }
+
+    const auto sections = number_at<std::uint16_t>(bytes, pe + 6);
+    const std::uint64_t optional = pe + 24;
+    const std::uint64_t table = optional + number_at<std::uint16_t>(bytes, pe + 20);
+    // PE32+ has 64-bit addresses before the data directories, PE32 32-bit ones.
+    const bool wide = number_at<std::uint16_t>(bytes, optional) == 0x20B;
+    const std::uint64_t directories = optional + (wide ? 112 : 96);
+    const auto offset_of = [&](const std::uint32_t address) -> std::uint64_t {
+        for (std::uint64_t i = 0; i < sections; ++i) {
+            const std::uint64_t section = table + (i * 40);
+            const auto start = number_at<std::uint32_t>(bytes, section + 12);
+            const auto size = std::max(number_at<std::uint32_t>(bytes, section + 8),
+                                       number_at<std::uint32_t>(bytes, section + 16));
+            if (address >= start && address - start < size) {
+                return address - start + number_at<std::uint32_t>(bytes, section + 20);
+            }
+        }
+
+        return bytes.size();
+    };
+
+    // The import directory's entries are 20 bytes, each naming its DLL 12 bytes in, and the
+    // delay-load directory's 32, naming it 4 bytes in. A 0 name ends each.
+    for (const auto& [directory, size, name_at] :
+         { std::tuple(1U, 20U, 12U), std::tuple(13U, 32U, 4U) }) {
+        const auto address = number_at<std::uint32_t>(bytes, directories + (directory * 8ULL));
+        if (address == 0) {
+            continue;
+        }
+
+        for (std::uint64_t entry = offset_of(address);; entry += size) {
+            const auto name = number_at<std::uint32_t>(bytes, entry + name_at);
+            if (name == 0) {
+                break;
+            }
+
+            names.push_back(text_at(bytes, offset_of(name)));
+        }
+    }
+
+    return names;
+}
+
+/// The libraries a 64-bit, little-endian ELF file needs: its DT_NEEDED entries.
+std::vector<std::string> elf_needed(const std::string& bytes) {
+    std::vector<std::string> names;
+    if (!bytes.starts_with("\x7F"
+                           "ELF") ||
+        bytes.size() < 6 || bytes[4] != 2 || bytes[5] != 1) {
+        return names;
+    }
+
+    // What each loaded segment's addresses are in the file, and where the dynamic section is.
+    struct segment_t {
+        std::uint64_t address;
+        std::uint64_t offset;
+        std::uint64_t size;
+    };
+    std::vector<segment_t> loaded;
+    std::uint64_t dynamic = 0;
+    std::uint64_t dynamic_size = 0;
+    const auto headers = number_at<std::uint64_t>(bytes, 0x20);
+    const auto header_size = number_at<std::uint16_t>(bytes, 0x36);
+    for (std::uint64_t i = 0; i < number_at<std::uint16_t>(bytes, 0x38); ++i) {
+        const std::uint64_t header = headers + (i * header_size);
+        const auto type = number_at<std::uint32_t>(bytes, header);
+        if (type == 1) {
+            loaded.push_back({
+                .address = number_at<std::uint64_t>(bytes, header + 16),
+                .offset = number_at<std::uint64_t>(bytes, header + 8),
+                .size = number_at<std::uint64_t>(bytes, header + 32),
+            });
+        } else if (type == 2) {
+            dynamic = number_at<std::uint64_t>(bytes, header + 8);
+            dynamic_size = number_at<std::uint64_t>(bytes, header + 32);
+        }
+    }
+
+    // DT_NEEDED (1) is a name's place in the string table, which DT_STRTAB (5) says the
+    // address of; DT_NULL (0) ends them.
+    std::vector<std::uint64_t> needed;
+    std::uint64_t strings = 0;
+    for (std::uint64_t entry = dynamic; entry + 16 <= dynamic + dynamic_size; entry += 16) {
+        const auto tag = number_at<std::uint64_t>(bytes, entry);
+        const auto value = number_at<std::uint64_t>(bytes, entry + 8);
+        if (tag == 0) {
+            break;
+        }
+
+        if (tag == 1) {
+            needed.push_back(value);
+        } else if (tag == 5) {
+            strings = value;
+        }
+    }
+
+    for (const segment_t& segment : loaded) {
+        if (strings >= segment.address && strings - segment.address < segment.size) {
+            for (const std::uint64_t name : needed) {
+                names.push_back(text_at(bytes, strings - segment.address + segment.offset + name));
+            }
+        }
+    }
+
+    return names;
+}
+
+/// The libraries a 64-bit Mach-O file loads: its LC_LOAD_DYLIB commands, and the weak,
+/// re-exported, lazy, and upward ones.
+std::vector<std::string> mach_o_dylibs(const std::string& bytes) {
+    std::vector<std::string> names;
+    if (number_at<std::uint32_t>(bytes, 0) != 0xFEEDFACF) {
+        return names;
+    }
+
+    std::uint64_t command = 32;
+    for (std::uint32_t i = 0; i < number_at<std::uint32_t>(bytes, 16); ++i) {
+        const auto kind = number_at<std::uint32_t>(bytes, command);
+        const auto size = number_at<std::uint32_t>(bytes, command + 4);
+        if (size == 0) {
+            break;
+        }
+
+        if (kind == 0xC || kind == 0x80000018 || kind == 0x8000001F || kind == 0x20 ||
+            kind == 0x80000023) {
+            names.push_back(text_at(bytes, command + number_at<std::uint32_t>(bytes, command + 8)));
+        }
+
+        command += size;
+    }
+
+    return names;
+}
+
+/// The shared libraries an executable has the system load with it.
+std::vector<std::string> loaded_libraries(const std::filesystem::path& executable) {
+    std::ifstream file(executable, std::ios::binary);
+    const std::string bytes{ std::istreambuf_iterator<char>(file), {} };
+    std::vector<std::string> names = pe_imports(bytes);
+    std::ranges::move(elf_needed(bytes), std::back_inserter(names));
+    std::ranges::move(mach_o_dylibs(bytes), std::back_inserter(names));
+    return names;
+}
+
+/// Whether a library is the system's own, which every machine the program runs on has.
+bool is_system_library(std::string name) {
+#ifdef _WIN32
+    std::ranges::transform(name, name.begin(), [](const char c) {
+        return c >= 'A' && c <= 'Z' ? static_cast<char>(c - 'A' + 'a') : c;
+    });
+    // The Universal C Runtime is part of Windows since Windows 10, and its api-ms-win-crt-*
+    // contracts with it.
+    constexpr auto system = std::to_array<std::string_view>({
+        "kernel32.dll",
+        "ntdll.dll",
+        "advapi32.dll",
+        "ws2_32.dll",
+        "mswsock.dll",
+        "iphlpapi.dll",
+        "userenv.dll",
+        "shell32.dll",
+        "user32.dll",
+        "gdi32.dll",
+        "ole32.dll",
+        "oleaut32.dll",
+        "dbghelp.dll",
+        "bcrypt.dll",
+        "crypt32.dll",
+        "secur32.dll",
+        "ucrtbase.dll",
+        "msvcrt.dll",
+    });
+    return name.starts_with("api-ms-win-") || std::ranges::contains(system, name);
+#elifdef __APPLE__
+    // Nothing but Apple's is in /usr/lib, which the system keeps to itself.
+    return name.starts_with("/usr/lib/") || name.starts_with("/System/Library/");
+#else
+    // glibc's, which every Linux the program runs on has.
+    constexpr auto system = std::to_array<std::string_view>({
+        "libc.so.6",
+        "libm.so.6",
+        "libpthread.so.0",
+        "libdl.so.2",
+        "librt.so.1",
+        "libutil.so.1",
+        "libresolv.so.2",
+        "ld-linux-x86-64.so.2",
+        "ld-linux-aarch64.so.1",
+    });
+    return std::ranges::contains(system, name);
+#endif
 }
 
 } // namespace
@@ -181,6 +408,26 @@ TEST_CASE("fb build names each bundled C library a program links, with its notic
         fb::run_process(executable, {}, "typed\n");
     REQUIRE(ran);
     CHECK(ran->output == "[typed]\n");
+}
+
+TEST_CASE("a program fb builds loads only the system's own libraries", "[cli]") {
+    // What std and the language bundle, like libuv for input, is linked in, so the program runs
+    // wherever it's copied, with nothing beside it.
+    const std::filesystem::path source = write_source(
+        "own_libraries/reads.fb", "Import std.core\nPrint(\"[{Input() ?? \"none\"}]\")\n");
+    std::filesystem::path executable = source;
+    executable.replace_extension(fb::executable_extension);
+    const fb::process_result_t built = fb_run({ "build", fb::to_utf8(source) });
+    INFO(built.output);
+    REQUIRE(built.exit_code == 0);
+
+    // Every program loads the system's C library at least, so an empty list read nothing.
+    const std::vector<std::string> libraries = loaded_libraries(executable);
+    CHECK_FALSE(libraries.empty());
+    for (const std::string& library : libraries) {
+        INFO(library);
+        CHECK(is_system_library(library));
+    }
 }
 
 TEST_CASE("a program's input goes in while its output comes out, however much of each", "[cli]") {
