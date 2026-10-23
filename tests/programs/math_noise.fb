@@ -56,3 +56,9 @@ Print(inRange, smooth, worleyLow)
 // debug builds and release alike.
 Print(noise.Simplex(4e18, 4e18), noise.Simplex(6e18, 0), noise.Simplex(3e18, 3e18, 3e18),
       noise.Simplex(-4e18, -4e18), noise.Perlin(4e18, 4e18))
+
+// Worley's nearest point can be two cells over: at (216.96875, 193.28125), with Perlin's table,
+// it's 1.0467875 away, past the 3 by 3 cells, whose nearest is 1.0673788, so crossing x = 217
+// moves it no faster than the place.
+Print(noise.Worley(216.96875, 193.28125), noise.Worley(216.999999, 193.28125),
+      noise.Worley(217.000001, 193.28125))

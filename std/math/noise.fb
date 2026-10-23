@@ -57,6 +57,13 @@ Function Cell(coordinate: Double): Int64
     Return cell As Int64
 End Function
 
+// How far a coordinate is from a cell, from cell to cell + 1, along its axis: 0 inside it.
+Function Gap(coordinate: Double, cell: Int64): Double
+    Local start = cell As Double
+    If coordinate < start Then Return start - coordinate
+    Return Max(coordinate - (start + 1), 0)
+End Function
+
 Public Class Noise
     // The permutation twice over, so an index plus another below 256 needs no wrapping.
     Field Table: Int[] = []
@@ -222,43 +229,63 @@ Public Class Noise
     End Method
 
     // Worley noise in 2D: the distance to the nearest of a point in each whole cell, from 0 at one
-    // of them up, for cells, scales, and stone.
+    // of them up, for cells, scales, and stone. The place's own cell's point is nearer than 1.42,
+    // so the nearest is within two cells of it: those of the 5 by 5 around it that could be nearer
+    // than the nearest so far are looked in.
     @PanicsAtCaller
     Public Method Worley(x: Double, y: Double): Float
         Local cellX = Cell(x)
         Local cellY = Cell(y)
-        Local nearest: Double = 8
-        For dy = -1 To 1
-            For dx = -1 To 1
-                Local hash = Hash(cellX + dx, cellY + dy, 0)
-                Local px = ((cellX + dx) As Double) + (Table[hash] As Double) / 256
-                Local py = ((cellY + dy) As Double) + (Table[hash + 1] As Double) / 256
-                nearest = Min(nearest, (px - x) * (px - x) + (py - y) * (py - y))
+        Local nearest = Squared(cellX, cellY, x, y)
+        For dy = -2 To 2
+            For dx = -2 To 2
+                Local gapX = Gap(x, cellX + dx)
+                Local gapY = Gap(y, cellY + dy)
+                If gapX * gapX + gapY * gapY >= nearest Then Continue
+                nearest = Min(nearest, Squared(cellX + dx, cellY + dy, x, y))
             End For
         End For
         Return Sqrt(nearest) As Float
     End Method
 
-    // Worley noise in 3D: the distance to the nearest of a point in each whole cell.
+    // Worley noise in 3D: the distance to the nearest of a point in each whole cell, which the 5 by
+    // 5 by 5 cells around the place's hold, its own cell's point being nearer than 1.74.
     @PanicsAtCaller
     Public Method Worley(x: Double, y: Double, z: Double): Float
         Local cellX = Cell(x)
         Local cellY = Cell(y)
         Local cellZ = Cell(z)
-        Local nearest: Double = 12
-        For dz = -1 To 1
-            For dy = -1 To 1
-                For dx = -1 To 1
-                    Local hash = Hash(cellX + dx, cellY + dy, cellZ + dz)
-                    Local px = ((cellX + dx) As Double) + (Table[hash] As Double) / 256
-                    Local py = ((cellY + dy) As Double) + (Table[hash + 1] As Double) / 256
-                    Local pz = ((cellZ + dz) As Double) + (Table[hash + 2] As Double) / 256
-                    Local squared = (px - x) * (px - x) + (py - y) * (py - y) + (pz - z) * (pz - z)
-                    nearest = Min(nearest, squared)
+        Local nearest = Squared(cellX, cellY, cellZ, x, y, z)
+        For dz = -2 To 2
+            Local gapZ = Gap(z, cellZ + dz)
+            For dy = -2 To 2
+                Local gapY = Gap(y, cellY + dy)
+                For dx = -2 To 2
+                    Local gapX = Gap(x, cellX + dx)
+                    If gapX * gapX + gapY * gapY + gapZ * gapZ >= nearest Then Continue
+                    nearest = Min(nearest, Squared(cellX + dx, cellY + dy, cellZ + dz, x, y, z))
                 End For
             End For
         End For
         Return Sqrt(nearest) As Float
+    End Method
+
+    // The squared distance from the place to the 2D cell's point.
+    Method Squared(cellX: Int64, cellY: Int64, x: Double, y: Double): Double
+        Local hash = Hash(cellX, cellY, 0)
+        Local px = (cellX As Double) + (Table[hash] As Double) / 256 - x
+        Local py = (cellY As Double) + (Table[hash + 1] As Double) / 256 - y
+        Return px * px + py * py
+    End Method
+
+    // The squared distance from the place to the 3D cell's point.
+    Method Squared(cellX: Int64, cellY: Int64, cellZ: Int64, x: Double, y: Double,
+                   z: Double): Double
+        Local hash = Hash(cellX, cellY, cellZ)
+        Local px = (cellX As Double) + (Table[hash] As Double) / 256 - x
+        Local py = (cellY As Double) + (Table[hash + 1] As Double) / 256 - y
+        Local pz = (cellZ As Double) + (Table[hash + 2] As Double) / 256 - z
+        Return px * px + py * py + pz * pz
     End Method
 
     // Fractal Brownian motion in 2D: Octaves of Perlin noise, added up, from about -1 to 1. Fewer
