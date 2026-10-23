@@ -44,10 +44,12 @@ So far, std/ holds:
 |---|---|
 | std/core/error.fb | `Error`, the Class every error extends, with its `Cause` and `Place`; `Place`; and each area's Error and its Kind: `ArgumentError`, `IOError`, `ParseError`, `FormatError`, `TimeoutError`, `NetError`, `DatabaseError` |
 | std/core/assert.fb | `AssertEqual`, an Assert that says what it compared |
-| std/core/interfaces.fb | `Equatable`, `Comparable`, `Hashable`, `Printable`, and `Numeric`, which `==`, `<`, strings, and generic code go through; `Cloneable` and `Defaultable`; and `Sendable`, which the compiler decides |
+| std/core/interfaces.fb | `Equatable`, `Comparable`, `Hashable`, `Printable`, and `Numeric`, which `==`, `<`, strings, and generic code go through; `Formattable`, which takes format specs; `Cloneable` and `Defaultable`; and `Sendable`, which the compiler decides |
 | std/core/iterator.fb | `Iterator<T>`, which `For ... In` goes over, with its lazy adapters and its consumers as Final defaults; `Iterable<T>`, which std's collections are; `Repeated` and `Empty` |
 | std/core/range.fb | `Range<T>`, which `0 Until 10`, `1 To 10`, and `Step` make |
 | std/core/print.fb | `Print`, `Write`, `PrintError`, `WriteError`, `Flush`, `Input`, and `InputAsync`, over the runtime's `fb_write` and its I/O thread |
+| std/core/format.fb | `Format`, which fills a template by the runtime's `fb_format_split`, with `Formatted<T>`, the object a value that isn't one goes in; `Dump`; and `DebugElements`, `DebugEntries`, and `ElementsOf`, through which a collection's debug form shows its elements or entries |
+| std/core/parse.fb | `Parse` on each integer type, each Float type, and Bool, in an Extend of each, over the runtime's `fb_parse_int`, `fb_parse_uint`, and `fb_parse_float` |
 | std/core/values.fb | `Min`, `Max`, `Clamp`, `Swap`, and `HashCombine` |
 | std/core/value.fb | `Value`, data of any shape, and `ValueKind`, over the runtime's `fb_value_` functions for its text and paths |
 | std/collections/array.fb | `T[]`'s `Remove`, `Sort`, `SortUnstable`, `SortBy`, `SortByDescending` (with `Sorting<T>`'s `ThenBy` and `ThenByDescending`), `Filter`, `Map`, `Find`, `FindLast`, `FindIndex`, `IndexOf`, `LastIndexOf`, `BinarySearch`, `Any`, `All`, `First`, `Last`, `RemoveLast`, `TryRemoveLast`, `AddAll`, `InsertAll`, `RemoveRange`, `RemoveAll`, `Resize`, `Fill`, `Reverse`, `Swap`, `Distinct`, `Join`, `Fold`, and `Reduce`; `Iterate()`, which makes a `T[]` an `Iterable<T>`, through `ArrayIterator<T>` |
@@ -237,13 +239,18 @@ file or URL in the default app.
   its area's.
 - Assertions beside Panic and Assert: `AssertEqual(a, b)`, which shows both, `DebugAssert`
   (left out of release builds), `Unreachable()`, `Todo(message)`.
+- Formatting: interpolation's format specs, `"{price:.2}"`, which the compiler checks (spec
+  14); `Formattable`, for a type that takes specs of its own; and `Format(template,
+  values...)`, which fills a template the program has only when it runs, and throws a
+  FormatError.
 - Parsing: Static Methods on the number types give a `T?`: `Int.Parse("42")`,
   `Int.Parse("ff", 16)`, `Float.Parse`, `Bool.Parse`.
 - Nullables: `value.Expect(message)` panics with the message on Null; `value.OrElse(make)`.
 - Ranges are values: `0 Until 10`, `1 To 10`, and `Step`, stored, passed, and iterated, with
   every adapter.
 - A debug form for every value, from reflection: `"{x:?}"` and `Dump(x)`, which indents what's
-  nested. Printable stays the form for people.
+  nested. Printable stays the form for people. std's collections show their elements, or a
+  Map's entries, through `@DebugElements` and `@DebugEntries`.
 - Iterator adapters on `Iterator<T>`, lazy: `Map`, `Filter`, `Take`, `Skip`, `TakeWhile`,
   `SkipWhile`, `Enumerate`, `Zip`, `Chain`, `Flatten`, `StepBy`, `Chunks`, `Windows`,
   `OrderBy`, `OrderByDescending`; consuming: `ToArray`, `Count`, `Any`, `All`, `Find`, `First`,
