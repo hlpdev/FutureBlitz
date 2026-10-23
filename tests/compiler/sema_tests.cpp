@@ -5987,6 +5987,15 @@ TEST_CASE("only Unsafe code uses what a Ptr points at", "[sema]") {
                     "End Unsafe\n")
               .empty());
 
+    // A known Null Ptr isn't a number to fold.
+    CHECK(errors_of("Const p: Ptr<Int32> = Null\n"
+                    "Unsafe\n"
+                    "    Local q = p + 1\n"
+                    "    Local d = (Null As Ptr<Int32>) - (Null As Ptr<Int32>)\n"
+                    "    Local e = (Null As Ptr<Int32>) + 1\n"
+                    "End Unsafe\n")
+              .empty());
+
     // A Ptr<Void> points at nothing in particular.
     CHECK(errors_of("Local v: Ptr<Void> = Null\n"
                     "Unsafe\n"

@@ -17647,9 +17647,13 @@ private:
         }
         }
 
+        // A Ptr's value isn't a number known at compile time, even a known Null's, so its
+        // arithmetic isn't folded.
         const std::optional<const_value_t>& left = info(node.left).value;
         const std::optional<const_value_t>& right = info(node.right).value;
-        if (type != type_id_t::INVALID && left && right) {
+        const bool pointers =
+            is_pointer(info(node.left).converted) || is_pointer(info(node.right).converted);
+        if (type != type_id_t::INVALID && left && right && !pointers) {
             const type_id_t common = info(node.left).converted;
             fold(id, as_enum(common, fold_binary(node.op, as_integer(*left), as_integer(*right))));
         }
