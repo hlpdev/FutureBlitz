@@ -18265,6 +18265,21 @@ private:
         return *common;
     }
 
+    /// What literals beside an operand that isn't a number, like a Struct's, are checked as
+    /// before an Operator takes them as its parameter's type: `hint`, or else the first of
+    /// Int64, UInt64, and Float64 that holds them, when their default type doesn't, so
+    /// `big * 5_000_000_000` can call an Operator that takes an Int64.
+    type_id_t beside(const expr_id_t literals, const type_id_t hint) {
+        for (const type_id_t type :
+             { hint, type_id_t::INT64, type_id_t::UINT64, type_id_t::FLOAT64 }) {
+            if (quietly([&] { return check(literals, type); }) != type_id_t::INVALID) {
+                return type;
+            }
+        }
+
+        return hint;
+    }
+
     /// Checks both operands. A literal side takes the other side's type, so `x + 1` works for
     /// any numeric x, and Null takes the T? of the other side's T. With `flows`, each side is
     /// checked in its own flow, which is updated: a ternary's results each see their side of
@@ -18317,12 +18332,14 @@ private:
         const bool right_flexible = is_flexible(right);
         if (left_flexible && !right_flexible) {
             const type_id_t right_type = check_side(1, hint);
-            return { check_side(0, is_numeric(right_type) ? right_type : hint), right_type };
+            return { check_side(0, is_numeric(right_type) ? right_type : beside(left, hint)),
+                     right_type };
         }
 
         if (right_flexible && !left_flexible) {
             const type_id_t left_type = check_side(0, hint);
-            return { left_type, check_side(1, is_numeric(left_type) ? left_type : hint) };
+            return { left_type,
+                     check_side(1, is_numeric(left_type) ? left_type : beside(right, hint)) };
         }
 
         // Two literal sides with no numeric hint share one default type: "1 < 0.5" compares
@@ -18708,7 +18725,9 @@ private:
                           const span_t span, const binary_op_t op,
                           operator_call_t* call = nullptr) {
         const type_id_t type = check(left, hint);
-        const type_id_t amount = check(right, type_id_t::NONE);
+        const bool operator_amount = is_flexible(right) && !is_numeric(type);
+        const type_id_t amount =
+            check(right, operator_amount ? beside(right, type_id_t::NONE) : type_id_t::NONE);
         if (type == type_id_t::INVALID || amount == type_id_t::INVALID) {
             return type_id_t::INVALID;
         }

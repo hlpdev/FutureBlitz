@@ -3830,8 +3830,9 @@ errors_t with_money(const std::string_view text) {
 TEST_CASE("an operator on a Struct or Class calls the Operator it defines", "[sema]") {
     CHECK(probe_money("Local x = m + m") == "Money");
     CHECK(probe_money("Local x = -m") == "Money");
-    // A literal takes the type of the Operator's parameter.
+    // A literal takes the type of the Operator's parameter, one too large for an Int too.
     CHECK(probe_money("Local x = m * 3") == "Money");
+    CHECK(probe_money("Local x = m * 5_000_000_000") == "Money");
     CHECK(probe_money("Local x = m == m") == "Bool");
     // != is the opposite of ==.
     CHECK(probe_money("Local x = m != m") == "Bool");
@@ -3841,6 +3842,10 @@ TEST_CASE("an operator on a Struct or Class calls the Operator it defines", "[se
     CHECK(probe("Struct Box<T>\n    Field Value: T\n"
                 "    Operator <<(a: Box<T>, value: T): Box<T> => Box(value)\nEnd Struct\n"
                 "Local b = Box(1) << 2") == "Box<Int32>");
+    // A shift's amount takes the type of the Operator's parameter too.
+    CHECK(probe("Struct Bits\n    Field Value: Long\n"
+                "    Operator <<(a: Bits, count: Long): Bits => Bits(a.Value)\nEnd Struct\n"
+                "Local b = Bits(1) << 5_000_000_000") == "Bits");
 }
 
 TEST_CASE("an operator a type doesn't define stays an error", "[sema]") {
@@ -3849,6 +3854,8 @@ TEST_CASE("an operator a type doesn't define stays an error", "[sema]") {
           errors_t{ "m + \"a\": no Operator + takes (Money, String)" });
     CHECK(with_money("Local x = m * 2.5") ==
           errors_t{ "m * 2.5: no Operator * takes (Money, Float32)" });
+    CHECK(with_money("Local x = m * 1.0e300") ==
+          errors_t{ "m * 1.0e300: no Operator * takes (Money, Float64)" });
 }
 
 TEST_CASE("Operator mistakes", "[sema]") {
