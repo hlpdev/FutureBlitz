@@ -8609,6 +8609,15 @@ TEST_CASE("an Async lambda's call gives its Task, and its code can Await", "[sem
                     "End Lock")
               .empty());
 
+    // One that returns nothing can wait after its '=>', as it can make a call.
+    CHECK(errors_of("Local f: Func(): Task = Async Function() => Await NextFrame()\n"
+                    "Local g: Func(): Task = Async Function() => Await Spawn(Function() => 5)\n"
+                    "Local h = Async Function() => Await NextFrame()")
+              .empty());
+    CHECK(errors_of("Local f: Func(): Task = Async Function() => 5") ==
+          errors_t{ "5: this lambda returns nothing, so its '=>' needs a call, like "
+                    "'=> Print(x)'" });
+
     // Await goes in its own code, not in a lambda inside it.
     CHECK(errors_of("Local f = Async Function()\n"
                     "    Local g = Function() => Await NextFrame()\n"

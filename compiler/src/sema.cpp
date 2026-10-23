@@ -21575,13 +21575,14 @@ private:
         expect_type(value, *result);
     }
 
-    /// A call, with Try or Try? before it or not.
+    /// A call, with Try or Try? before it or not, or an Await, which waits for one.
     [[nodiscard]] bool is_call(const expr_id_t id) const {
         if (const auto* tried = std::get_if<try_expr_t>(&m_ast.get(id).node)) {
             return is_call(tried->operand);
         }
 
-        return std::holds_alternative<call_expr_t>(m_ast.get(id).node);
+        return std::holds_alternative<call_expr_t>(m_ast.get(id).node) ||
+               std::holds_alternative<await_expr_t>(m_ast.get(id).node);
     }
 
     /// Once a lambda exists, any call can run it, so a Local it assigns stays unnarrowed.
