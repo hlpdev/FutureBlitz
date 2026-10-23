@@ -1,0 +1,2 @@
+400
+panic: an SVG drawn at 30000 has more pixels than an Image holds, 536870911 at panic_image_svg_too_large.fb:8:1

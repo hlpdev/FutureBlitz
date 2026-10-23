@@ -1,0 +1,8 @@
+// An Animation's frames are its size, and Add panics where it's given another.
+Import std.core
+Import std.image
+
+Local animation = Animation(3, 2)
+animation.Add(Image(3, 2), 0)
+Print(animation.Count)
+animation.Add(Image(2, 3), 0)

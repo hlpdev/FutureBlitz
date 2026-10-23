@@ -1,0 +1,2 @@
+5
+panic: an animation plays 0 times, for forever, or more, not -1 at panic_image_animation_plays.fb:8:1

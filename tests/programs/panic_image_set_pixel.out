@@ -1,0 +1,2 @@
+(255, 255, 255, 255)
+panic: pixel (0, -1) is outside an image of 3 by 2 at panic_image_set_pixel.fb:9:6

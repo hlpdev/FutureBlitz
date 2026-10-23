@@ -1,0 +1,119 @@
+// std.image reads what common tools wrote: Pillow's and ImageMagick's PNGs, APNGs, JPEGs, BMPs,
+// TGAs, GIFs, HDRs, QOIs, and WebPs, each to the pixels Pillow reads, but a JPEG's, which are
+// within a little of libjpeg-turbo's, and an HDR's, which are RGBE's. image_tools/make_files.py
+// says how each was made, and image_tools/make_data.py how its pixels were found.
+
+Import std.core
+Import std.collections
+Import std.image
+Import "./image_tools/data"
+
+// The most two arrays' bytes differ by, one from the other, or 256 when their counts differ.
+Function Farthest(a: UInt8[], b: UInt8[]): Int
+    If a.Count != b.Count Then Return 256
+    Local most = 0
+    For i = 0 Until a.Count
+        Local difference = (a[i] As Int) - (b[i] As Int)
+        most = Max(most, difference < 0 ? -difference : difference)
+    End For
+    Return most
+End Function
+
+// The frames' pixels, one after another.
+Function FramePixels(animation: Animation): UInt8[]
+    Local all: UInt8[] = []
+    For frame In animation.Frames
+        all.AddAll(frame.Image.ToBytes())
+    End For
+    Return all
+End Function
+
+// The bytes from `start` to `finish`, without the one at finish.
+Function Part(bytes: UInt8[], start: Int, finish: Int): UInt8[]
+    Local part: UInt8[] = []
+    For i = start Until finish
+        part.Add(bytes[i])
+    End For
+    Return part
+End Function
+
+Function Delays(animation: Animation): Int[]
+    Local delays: Int[] = []
+    For frame In animation.Frames
+        delays.Add(frame.Delay)
+    End For
+    Return delays
+End Function
+
+// What `name` decodes to, and whether its pixels are `expected`'s, which Image.Decode gives too.
+Function Check(name: String, image: Image, data: UInt8[], expected: UInt8[])
+    Local any = Try? Image.Decode(data)
+    Local same = any != Null && any.ToBytes() == expected
+    Print("{name}: {image.Width} by {image.Height}, {image.ToBytes() == expected}, any {same}, " +
+          "{Image.FormatOf(data) ?? ImageFormat.HDR}")
+End Function
+
+Check("rgba.png", Try Png.Decode(RgbaPng()), RgbaPng(), RgbaPngPixels())
+Check("interlaced.png", Try Png.Decode(InterlacedPng()), InterlacedPng(), InterlacedPngPixels())
+Check("palette.png", Try Png.Decode(PalettePng()), PalettePng(), PalettePngPixels())
+Check("gray16.png", Try Png.Decode(Gray16Png()), Gray16Png(), Gray16PngPixels())
+Check("rgb24.bmp", Try Bmp.Decode(Rgb24Bmp()), Rgb24Bmp(), Rgb24BmpPixels())
+Check("palette8.bmp", Try Bmp.Decode(Palette8Bmp()), Palette8Bmp(), Palette8BmpPixels())
+Check("mono.bmp", Try Bmp.Decode(MonoBmp()), MonoBmp(), MonoBmpPixels())
+Check("rgba32.bmp", Try Bmp.Decode(Rgba32Bmp()), Rgba32Bmp(), Rgba32BmpPixels())
+Check("raw.tga", Try Tga.Decode(RawTga()), RawTga(), RawTgaPixels())
+Check("rle.tga", Try Tga.Decode(RleTga()), RleTga(), RleTgaPixels())
+Check("palette.tga", Try Tga.Decode(PaletteTga()), PaletteTga(), PaletteTgaPixels())
+Check("still.gif", Try Gif.Decode(StillGif()), StillGif(), StillGifPixels())
+Check("interlaced.gif", Try Gif.Decode(InterlacedGif()), InterlacedGif(), InterlacedGifPixels())
+Check("rgba.qoi", Try Qoi.Decode(RgbaQoi()), RgbaQoi(), RgbaQoiPixels())
+Check("rgb.qoi", Try Qoi.Decode(RgbQoi()), RgbQoi(), RgbQoiPixels())
+Check("lossless.webp", Try WebP.Decode(LosslessWebP()), LosslessWebP(), LosslessWebPPixels())
+Check("lossy.webp", Try WebP.Decode(LossyWebP()), LossyWebP(), LossyWebPPixels())
+Check("opaque.webp", Try WebP.Decode(OpaqueWebP()), OpaqueWebP(), OpaqueWebPPixels())
+
+// A JPEG's decoders differ a little in how they turn its blocks into pixels.
+For jpeg In [(BaselineJpeg(), BaselineJpegPixels()), (ProgressiveJpeg(), ProgressiveJpegPixels()),
+             (GrayJpeg(), GrayJpegPixels())]
+    Local image = Try Jpeg.Decode(jpeg.0)
+    Local near = Farthest(image.ToBytes(), jpeg.1) <= 3
+    Print("jpeg: {image.Width} by {image.Height}, within 3 {near}")
+End For
+
+// An animation's frames are each as it's shown, the frames before drawn and disposed of.
+Local apng = Try Png.DecodeAnimation(AnimatedPng())
+Print("animated.png:", apng.Count, apng.Plays, Delays(apng),
+      FramePixels(apng) == AnimatedPngPixels())
+Local first = Try Png.Decode(AnimatedPng())
+Print("its first frame:", first.ToBytes() == apng[0].Image.ToBytes())
+
+// An APNG whose image isn't one of its frames: a decoder without animation shows the image.
+Local withDefault = Try Png.DecodeAnimation(DefaultPng())
+Local image = Try Png.Decode(DefaultPng())
+Local expected = DefaultPngPixels()
+Local size = image.Width * image.Height * 4
+Print("default.png:", withDefault.Count, withDefault.Plays,
+      FramePixels(withDefault) == Part(expected, size, expected.Count),
+      image.ToBytes() == Part(expected, 0, size))
+
+Local gif = Try Gif.DecodeAnimation(AnimatedGif())
+Print("animated.gif:", gif.Count, gif.Plays, Delays(gif), FramePixels(gif) == AnimatedGifPixels())
+Local twice = Try Gif.DecodeAnimation(TwiceGif())
+Print("twice.gif:", twice.Count, twice.Plays, Delays(twice), FramePixels(twice) == TwiceGifPixels())
+Local still = Try Gif.DecodeAnimation(StillGif())
+Print("still.gif:", still.Count, still.Plays, Delays(still))
+
+Local wide = Try Hdr.Decode(WideHdr())
+Print("wide.hdr:", wide.Width, wide.Height, wide.ToFloats() == WideHdrPixels())
+Local narrow = Try Hdr.Decode(NarrowHdr())
+Print("narrow.hdr:", narrow.Width, narrow.Height, narrow.ToFloats() == NarrowHdrPixels())
+Print(Image.FormatOf(WideHdr()) ?? ImageFormat.PNG)
+
+// What std.image doesn't read: a BMP's run-length encoding, and an animated WebP.
+For unread In [Rle8Bmp(), AnimatedWebP()]
+    Try
+        Image.Decode(unread)
+    Catch e As IOError
+        Print(e.Kind, e.Message)
+    End Try
+End For

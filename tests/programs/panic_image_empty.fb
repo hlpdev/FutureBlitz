@@ -1,0 +1,6 @@
+// No format has an image without pixels, and Encode panics where it's called with one.
+Import std.core
+Import std.image
+
+Print(Qoi.Encode(Image(1, 1)).Count > 0)
+Png.Encode(Image(0, 3))

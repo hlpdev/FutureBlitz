@@ -1,0 +1,2 @@
+1
+panic: an image of 65536 by 8193 has more pixels than an Image holds, 536870911 at panic_image_too_large.fb:6:15

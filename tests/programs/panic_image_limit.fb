@@ -1,0 +1,7 @@
+// A Decode's limit of pixels can't be negative, and one that is panics where it's called.
+Import std.core
+Import std.image
+
+Local png = Png.Encode(Image(2, 2))
+Print((Try Png.Decode(png, 4)).Width)
+Try Png.Decode(png, -1)

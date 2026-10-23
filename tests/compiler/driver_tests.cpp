@@ -717,6 +717,60 @@ TEST_CASE("std.compress's formats link the C libraries they're over, with their 
     CHECK(minizip.contains("BSD Zero Clause License"));
 }
 
+TEST_CASE("std.image's formats link the C libraries they're over, with their notices",
+          "[driver]") {
+    const auto bundled = [](const std::string_view code) {
+        const fb::compilation_t compilation = fb::compile(
+            "test.fb", std::format("Import std.core\nImport std.image\nLocal none: UInt8[] = "
+                                   "[]\nLocal image = Image(1, 1)\n{}\n",
+                                   code));
+        CHECK(errors_of(compilation).empty());
+        std::vector<std::string_view> names;
+        for (const fb::build_config::bundled_library_t* library :
+             fb::bundled_libraries(fb::lower(compilation.ast, compilation.analysis))) {
+            names.push_back(library->name);
+        }
+
+        return names;
+    };
+    using names_t = std::vector<std::string_view>;
+
+    CHECK(bundled("Print((Try Png.Decode(none)).Width, (Try Jpeg.Decode(none)).Width)") ==
+          names_t{ "stb_image" });
+    CHECK(bundled("Print(Jpeg.Encode(image).Count, Bmp.Encode(image).Count)") ==
+          names_t{ "stb_image" });
+    CHECK(bundled("Print((Try Png.DecodeAnimation(none)).Count)") == names_t{ "stb_image" });
+    // PNG's encoders are the runtime's own, over zlib-ng.
+    CHECK(bundled("Print(Png.Encode(image).Count)") == names_t{ "zlib-ng" });
+    CHECK(bundled("Print(Png.EncodeAnimation(Animation(1, 1)).Count)") == names_t{ "zlib-ng" });
+    CHECK(bundled("Print((Try WebP.Decode(none)).Width, WebP.Encode(image).Count)") ==
+          names_t{ "libwebp" });
+    CHECK(bundled("Print((Try Svg.Parse(\"\")).Width)") == names_t{ "nanosvg" });
+    // QOI and GIF are the runtime's own, and need no library.
+    CHECK(bundled("Print(Qoi.Encode(image).Count, (Try Qoi.Decode(none)).Width)").empty());
+    CHECK(bundled("Print(Gif.Encode(image).Count, (Try Gif.DecodeAnimation(none)).Count)")
+              .empty());
+    // Image.Decode reads every format, so it links each decoder's library.
+    CHECK(bundled("Print((Try Image.Decode(none)).Width)") ==
+          names_t{ "stb_image", "libwebp" });
+
+    const auto notice = [](const std::string_view name) {
+        for (const fb::build_config::bundled_library_t& library :
+             fb::build_config::bundled_libraries) {
+            if (library.name == name) {
+                std::ifstream file(fb::path_from_utf8(library.notice), std::ios::binary);
+                return std::string{ std::istreambuf_iterator<char>(file), {} };
+            }
+        }
+
+        return std::string();
+    };
+    CHECK(notice("stb_image").contains("Copyright (c) 2017 Sean Barrett"));
+    CHECK(notice("libwebp").contains("Copyright (c) 2010, Google Inc."));
+    CHECK(notice("libwebp").contains("Additional IP Rights Grant (Patents)"));
+    CHECK(notice("nanosvg").contains("Copyright (c) 2013-14 Mikko Mononen"));
+}
+
 TEST_CASE("the bundled C libraries are optimized in every build", "[driver]") {
     // The build's compile_commands.json has each C file's command. Those of a bundled library
     // that third_party/ gives -O2 keep it to the end, and have no -g3 after it.

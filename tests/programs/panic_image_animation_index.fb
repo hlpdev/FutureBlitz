@@ -1,0 +1,8 @@
+// An Animation's [] takes a frame's index, and panics where it's given one out of range.
+Import std.core
+Import std.image
+
+Local animation = Animation(1, 1)
+animation.Add(Image(1, 1), 30)
+Print(animation[0].Delay)
+Print(animation[1].Delay)

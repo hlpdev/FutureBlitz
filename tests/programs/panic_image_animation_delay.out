@@ -1,0 +1,2 @@
+1
+panic: a frame's delay is from 0 to 655350 milliseconds, not -1 at panic_image_animation_delay.fb:8:1

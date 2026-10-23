@@ -1,0 +1,2 @@
+(1, 2, 3, 4)
+panic: an image of 2 by 1 pixels has 8 bytes, not 4 at panic_image_from_bytes.fb:6:15

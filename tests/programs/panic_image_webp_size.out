@@ -1,0 +1,2 @@
+True
+panic: a WebP's sides are at most 16383 pixels long, and the image is 1 by 16384 at panic_image_webp_size.fb:7:1

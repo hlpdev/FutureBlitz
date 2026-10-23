@@ -1,0 +1,2 @@
+1
+panic: an animation of 3 by 2 can't have a frame of 2 by 3 at panic_image_animation_size.fb:8:1

@@ -1,0 +1,6 @@
+// A PNG's levels are from 0 to 9, and Encode panics where it's called with another.
+Import std.core
+Import std.image
+
+Print(Png.Encode(Image(1, 1), 0).Count > 0)
+Png.Encode(Image(1, 1), 10)

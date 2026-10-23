@@ -1,0 +1,2 @@
+True
+panic: a JPEG's quality is from 1 to 100, not 0 at panic_image_jpeg_quality.fb:6:1

@@ -1,0 +1,10 @@
+// A GIF plays 65536 times at most, or forever, and EncodeAnimation panics where it's called
+// for an animation that plays more.
+Import std.core
+Import std.image
+
+Local animation = Animation(1, 1, 65536)
+animation.Add(Image(1, 1), 10)
+Print(Gif.EncodeAnimation(animation).Count > 0)
+animation.Plays = 65537
+Gif.EncodeAnimation(animation)

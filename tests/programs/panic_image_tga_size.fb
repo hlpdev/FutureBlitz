@@ -1,0 +1,7 @@
+// A TGA's sides are 65535 pixels long at most, and Encode panics where it's called with a
+// longer one.
+Import std.core
+Import std.image
+
+Print(Tga.Encode(Image(1, 65535)).Count > 0)
+Tga.Encode(Image(1, 65536))
