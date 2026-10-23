@@ -1,0 +1,1 @@
+panic: [] takes a character's position, before the StringBuilder's Length, 6, not 7 at panic_text_builder_past.fb:7:20

@@ -16,8 +16,15 @@ Print(text, text[0], text[3], text[7])
 text[0] = '¿'
 text[7] = '?'
 Print(text, text.Length)
-text.Replace("ö", "oe").Replace("😀", "👨‍👩‍👧")
+text.Replace("ö", "oe").Replace("?", "👨‍👩‍👧")
 Print(text, "{text}".GraphemeCount)
+
+// Replace finds an emoji, a combining mark, and a letter with one, and puts in the same.
+Local swapped = StringBuilder("e\u{301} 😀 é 😀")
+swapped.Replace("😀", "👨‍👩‍👧").Replace("\u{301}", "\u{300}")
+Print(swapped, swapped.Length)
+swapped.Replace("e\u{300}", "é").Replace("é", "e\u{301}")
+Print(swapped, swapped.Length, "{swapped}".GraphemeCount)
 text.Clear().Append("e\u{301}")
 text.Reserve(100)
 Print(text, text.Length, text[0], text[1])
@@ -52,3 +59,15 @@ Print(scanner.TakeInt() ?? 0, scanner.TakeLine() ?? "-", "[{scanner.TakeLine() ?
 Print(scanner.TakeInt() ?? 0, scanner.Next() ?? '-', scanner.TakeInt() ?? 0)
 Print(scanner.TakeRest(), scanner.AtEnd(), scanner.Next() ?? '-', scanner.TakeLine() ?? "end",
       scanner.TakeWord() ?? "end", scanner.Line, scanner.Column)
+
+// What each Take gives beyond ASCII: a line, a run, the text up to a part, and the rest, with
+// accents, combining marks, and emoji.
+Local reader = Scanner("é😀 e\u{301}clair\nnaïve😀 e\u{301}x|ñ😀")
+Print(reader.TakeLine() ?? "-", reader.TakeWhile(Function(c: Char) => c.IsLetter()),
+      reader.TakeWhile(Function(c: Char) => !c.IsWhitespace()), reader.TakeUntil("|"),
+      reader.Take("|"), reader.TakeRest(), reader.Column)
+
+// The last line has no line break, so all of it is the line, a "\r" at its end too.
+Local last = Scanner("key\r")
+Print((last.TakeLine() ?? "-").Length, (Scanner("a\rb\r").TakeLine() ?? "-") == "a\rb\r",
+      (Scanner("one\r\n").TakeLine() ?? "-").Length)

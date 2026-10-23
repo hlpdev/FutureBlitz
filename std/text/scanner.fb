@@ -95,12 +95,12 @@ Public Class Scanner
     End Method
 
     // Reads the rest of the line and its line break, "\n" or "\r\n", and gives the line without
-    // it, or Null at the end.
+    // it, or Null at the end. The last line, with no "\n" after it, is all of what's left.
     Public Method TakeLine(): String?
         If AtEnd() Then Return Null
         Local line = TakeUntil("\n")
-        Take("\n")
-        Return line.TrimSuffix("\r")
+        If Take("\n") Then Return line.TrimSuffix("\r")
+        Return line
     End Method
 
     // Reads the whitespace that comes next and the word after it, the characters up to the next
