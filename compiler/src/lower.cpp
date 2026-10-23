@@ -3431,9 +3431,10 @@ private:
             branch_t{ .condition = done, .if_true = exit, .if_false = advance };
     }
 
-    /// "For x In items": the array is evaluated once and held for the loop, and a counter goes
-    /// through its elements, checking a T[]'s Count before each pass. Each pass's x is a Local of
-    /// its own, with its own references to the element's.
+    /// "For x In items": the array is evaluated once and held for the loop, so the body can't
+    /// change or free what it goes over, and a counter goes through its elements, checking a
+    /// T[]'s Count before each pass. Each pass's x is a Local of its own, with its own references
+    /// to the element's.
     void lower_stmt(const stmt_id_t id, const span_t span, const for_in_stmt_t& node) {
         const stmt_info_t& info = m_analysis.stmt(id);
         if (info.next) {
@@ -3447,16 +3448,25 @@ private:
             return;
         }
 
+        // A fixed array is held as a copy, unless it's a whole temporary already, which the
+        // loop takes over.
         push_scope();
         const operand_t value = lower_value(node.sequence);
         place_t sequence = as_place(value);
-        if (is_array(type)) {
+        const auto* root = std::get_if<local_id_t>(&sequence.root);
+        if (!is_array(type) && root != nullptr && sequence.steps.empty() &&
+            !holds_variable(*root)) {
+            if (take_temporary(value)) {
+                m_scopes.back().emplace_back(*root);
+            }
+        } else {
             const local_id_t held = add_local(type);
             initialize(held, value);
-            m_scopes.back().emplace_back(held);
+            if (has_references(type)) {
+                m_scopes.back().emplace_back(held);
+            }
+
             sequence = held;
-        } else if (take_temporary(value)) {
-            m_scopes.back().emplace_back(std::get<local_id_t>(sequence.root));
         }
 
         finish_statement();

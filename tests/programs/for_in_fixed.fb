@@ -1,0 +1,68 @@
+// For ... In holds a fixed array for the loop, as it does a T[]: one in a temporary object or
+// Struct outlives the statement that made it, and a body that changes the variable it came
+// from doesn't change the passes left.
+Import std.core
+
+Class Holder
+    Field Grid: String[3]
+
+    New()
+        Grid = ["one {1}", "two {2}", "three {3}"]
+    End New
+End Class
+
+Struct Row
+    Field Cells: String[3]
+End Struct
+
+Function Make(): Holder
+    Return Holder()
+End Function
+
+Function MakeRow(): Row
+    Return Row(["four {4}", "five {5}", "six {6}"])
+End Function
+
+Function Pair(): String[2]
+    Return ["seven {7}", "eight {8}"]
+End Function
+
+// Each pass makes Strings, which would reuse what a freed temporary held.
+Global keep: String[] = []
+
+Function Churn()
+    For i = 1 To 20
+        keep.Add("junk {i}")
+    End For
+End Function
+
+For x In Make().Grid
+    Churn()
+    Print(x)
+End For
+
+For x In MakeRow().Cells
+    Churn()
+    Print(x)
+End For
+
+For x In Pair()
+    Churn()
+    Print(x)
+End For
+
+Local words: String[2] = ["a {1}", "b {2}"]
+For x In words
+    words = ["c {3}", "d {4}"]
+    Print(x)
+End For
+
+Print(words[0], words[1])
+
+Local numbers: Int[2] = [1, 2]
+For i, x In numbers
+    numbers[1] = 20
+    Print(i, x)
+End For
+
+Print(numbers[1], keep.Count)
