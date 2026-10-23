@@ -77,6 +77,11 @@ Print(Base64.Decode("aGk") ?? [0], Base64.Decode("aGk=") ?? [0], Base64.Decode("
       Base64.Decode("aG=k") ?? [0], Base64.Decode("aGk*") ?? [0], Base64.Decode("_-8") ?? [0],
       Base64.Decode("_-8", True) ?? [0], Hex.Decode("abc") ?? [0], Hex.Decode("zz") ?? [0],
       Base32.Decode("NBUQ") ?? [0], Base32.Decode("NBUQ====") ?? [0], Base32.Decode("N1") ?? [0])
+// Only as many "=" as fill out a last group that isn't whole.
+Print(Base64.Decode("aGk=====") ?? [0], Base64.Decode("aGkh====") ?? [0],
+      Base64.Decode("====") ?? [0], Base64.Decode("aG==") ?? [0], Base64.Decode("aG=") ?? [0])
+Print(Base32.Decode("NBUQ============") ?? [0], Base32.Decode("========") ?? [0],
+      Base32.Decode("NBUQ===") ?? [0], Base32.Decode("NBUW====") ?? [0])
 
 // Percent-encoding, for URLs.
 Print(Percent.Encode(text), Percent.Encode("a/b c?d=é", "/"), Percent.Encode("~-._AZaz09"))
