@@ -199,12 +199,13 @@ Public Struct Mat4 Implements Equatable, Printable
 
     // The translation, rotation, and scale that Compose makes the matrix of: a transform that
     // flips gives a negative X scale. A matrix with no inverse, as one that scales to 0 has
-    // none, panics.
+    // none, panics; its determinant is worked out in Doubles, so a tiny scale's isn't 0.
     @PanicsAtCaller
     Public Method Decompose(): (Vec3, Quat, Vec3)
-        Local determinant = Determinant(Self)
+        Local determinant = DeterminantOf(Self)
         If determinant == 0 Then Panic("Decompose takes a matrix that has an inverse")
-        Local scale = Vec3(Length(x.xyz) * Sign(determinant), Length(y.xyz), Length(z.xyz))
+        Local flip: Float = determinant < 0 ? -1 : 1
+        Local scale = Vec3(Length(x.xyz) * flip, Length(y.xyz), Length(z.xyz))
         Local rotation = Quat.FromMat3(Mat3(x.xyz / scale.x, y.xyz / scale.y, z.xyz / scale.z))
         Return (w.xyz, rotation, scale)
     End Method
@@ -251,81 +252,87 @@ Public Function Transpose(m: Mat4): Mat4
                 Vec4(m.x.z, m.y.z, m.z.z, m.w.z), Vec4(m.x.w, m.y.w, m.z.w, m.w.w))
 End Function
 
-// How the matrix scales volume, negative where it flips: 0 for one with no inverse.
-Public Function Determinant(m: Mat3): Float => Dot(m.x, Cross(m.y, m.z))
-
-// How the matrix scales volume, negative where it flips: 0 for one with no inverse.
-Public Function Determinant(m: Mat4): Float
-    // By the first column's cofactors, from the 2 by 2 determinants of the last two columns.
-    Local a2323 = m.z.z * m.w.w - m.z.w * m.w.z
-    Local a1323 = m.z.y * m.w.w - m.z.w * m.w.y
-    Local a1223 = m.z.y * m.w.z - m.z.z * m.w.y
-    Local a0323 = m.z.x * m.w.w - m.z.w * m.w.x
-    Local a0223 = m.z.x * m.w.z - m.z.z * m.w.x
-    Local a0123 = m.z.x * m.w.y - m.z.y * m.w.x
-    Return m.x.x * (m.y.y * a2323 - m.y.z * a1323 + m.y.w * a1223) -
-           m.x.y * (m.y.x * a2323 - m.y.z * a0323 + m.y.w * a0223) +
-           m.x.z * (m.y.x * a1323 - m.y.y * a0323 + m.y.w * a0123) -
-           m.x.w * (m.y.x * a1223 - m.y.y * a0223 + m.y.z * a0123)
+// How the matrix scales volume, negative where it flips: 0 for one with no inverse. It's worked
+// out in Doubles, which hold any three Floats' products, and rounded once.
+Public Function Determinant(m: Mat3): Float
+    Local x, y, z = Crossed(m.y, m.z)
+    Return (m.x.x * x + m.x.y * y + m.x.z * z) As Float
 End Function
 
-// The matrix that undoes this one, or Null for one with no inverse, whose determinant is 0.
+// How the matrix scales volume, negative where it flips: 0 for one with no inverse. It's worked
+// out in Doubles, which hold any four Floats' products, and rounded once.
+Public Function Determinant(m: Mat4): Float => DeterminantOf(m) As Float
+
+// The cross product of a and b, in Doubles.
+Function Crossed(a: Vec3, b: Vec3): (Double, Double, Double)
+    Local ax: Double = a.x
+    Local ay: Double = a.y
+    Local az: Double = a.z
+    Return (ay * b.z - az * b.y, az * b.x - ax * b.z, ax * b.y - ay * b.x)
+End Function
+
+// The six 2 by 2 minors of two columns, in Doubles: of rows 0 and 1, 0 and 2, 0 and 3, 1 and 2, 1
+// and 3, and 2 and 3.
+Function Minors(a: Vec4, b: Vec4): (Double, Double, Double, Double, Double, Double)
+    Local ax: Double = a.x
+    Local ay: Double = a.y
+    Local az: Double = a.z
+    Local aw: Double = a.w
+    Return (ax * b.y - ay * b.x, ax * b.z - az * b.x, ax * b.w - aw * b.x, ay * b.z - az * b.y,
+            ay * b.w - aw * b.y, az * b.w - aw * b.z)
+End Function
+
+// The determinant in Doubles, by the minors of the first two columns and the last two, as
+// Geometric Tools expands it.
+Function DeterminantOf(m: Mat4): Double
+    Local s0, s1, s2, s3, s4, s5 = Minors(m.x, m.y)
+    Local c0, c1, c2, c3, c4, c5 = Minors(m.z, m.w)
+    Return s0 * c5 - s1 * c4 + s2 * c3 + s3 * c2 - s4 * c1 + s5 * c0
+End Function
+
+// The matrix that undoes this one, or Null for one with no inverse, whose determinant is 0. The
+// inverse's rows are the cross products of the other two columns, over the determinant, worked
+// out in Doubles, so a matrix of a tiny or huge scale inverts too.
 Public Function TryInverse(m: Mat3): Mat3?
-    // The inverse's rows are the cross products of the other two columns, over the determinant.
-    Local first = Cross(m.y, m.z)
-    Local second = Cross(m.z, m.x)
-    Local third = Cross(m.x, m.y)
-    Local determinant = Dot(m.x, first)
+    Local ax, ay, az = Crossed(m.y, m.z)
+    Local bx, by, bz = Crossed(m.z, m.x)
+    Local cx, cy, cz = Crossed(m.x, m.y)
+    Local determinant = m.x.x * ax + m.x.y * ay + m.x.z * az
     If determinant == 0 Then Return Null
-    Return Transpose(Mat3(first, second, third)) * (1 / determinant)
+    Return Mat3(Vec3((ax / determinant) As Float, (bx / determinant) As Float,
+                     (cx / determinant) As Float),
+                Vec3((ay / determinant) As Float, (by / determinant) As Float,
+                     (cy / determinant) As Float),
+                Vec3((az / determinant) As Float, (bz / determinant) As Float,
+                     (cz / determinant) As Float))
 End Function
 
-// The matrix that undoes this one, or Null for one with no inverse, whose determinant is 0.
+// The matrix that undoes this one, or Null for one with no inverse, whose determinant is 0: the
+// cofactors over the determinant, by the minors of the first two columns and the last two, as
+// Geometric Tools expands them, in Doubles, so a matrix of a tiny or huge scale inverts too.
 Public Function TryInverse(m: Mat4): Mat4?
-    // The cofactors, column by column, from the 2 by 2 determinants of pairs of columns, as glm
-    // works them out, four at a time.
-    Local coefficient00 = m.z.z * m.w.w - m.w.z * m.z.w
-    Local coefficient02 = m.y.z * m.w.w - m.w.z * m.y.w
-    Local coefficient03 = m.y.z * m.z.w - m.z.z * m.y.w
-    Local coefficient04 = m.z.y * m.w.w - m.w.y * m.z.w
-    Local coefficient06 = m.y.y * m.w.w - m.w.y * m.y.w
-    Local coefficient07 = m.y.y * m.z.w - m.z.y * m.y.w
-    Local coefficient08 = m.z.y * m.w.z - m.w.y * m.z.z
-    Local coefficient10 = m.y.y * m.w.z - m.w.y * m.y.z
-    Local coefficient11 = m.y.y * m.z.z - m.z.y * m.y.z
-    Local coefficient12 = m.z.x * m.w.w - m.w.x * m.z.w
-    Local coefficient14 = m.y.x * m.w.w - m.w.x * m.y.w
-    Local coefficient15 = m.y.x * m.z.w - m.z.x * m.y.w
-    Local coefficient16 = m.z.x * m.w.z - m.w.x * m.z.z
-    Local coefficient18 = m.y.x * m.w.z - m.w.x * m.y.z
-    Local coefficient19 = m.y.x * m.z.z - m.z.x * m.y.z
-    Local coefficient20 = m.z.x * m.w.y - m.w.x * m.z.y
-    Local coefficient22 = m.y.x * m.w.y - m.w.x * m.y.y
-    Local coefficient23 = m.y.x * m.z.y - m.z.x * m.y.y
-
-    Local factor0 = Vec4(coefficient00, coefficient00, coefficient02, coefficient03)
-    Local factor1 = Vec4(coefficient04, coefficient04, coefficient06, coefficient07)
-    Local factor2 = Vec4(coefficient08, coefficient08, coefficient10, coefficient11)
-    Local factor3 = Vec4(coefficient12, coefficient12, coefficient14, coefficient15)
-    Local factor4 = Vec4(coefficient16, coefficient16, coefficient18, coefficient19)
-    Local factor5 = Vec4(coefficient20, coefficient20, coefficient22, coefficient23)
-
-    Local vector0 = Vec4(m.y.x, m.x.x, m.x.x, m.x.x)
-    Local vector1 = Vec4(m.y.y, m.x.y, m.x.y, m.x.y)
-    Local vector2 = Vec4(m.y.z, m.x.z, m.x.z, m.x.z)
-    Local vector3 = Vec4(m.y.w, m.x.w, m.x.w, m.x.w)
-
-    Local signA = Vec4(1, -1, 1, -1)
-    Local signB = Vec4(-1, 1, -1, 1)
-    Local inverse = Mat4((vector1 * factor0 - vector2 * factor1 + vector3 * factor2) * signA,
-                         (vector0 * factor0 - vector2 * factor3 + vector3 * factor4) * signB,
-                         (vector0 * factor1 - vector1 * factor3 + vector3 * factor5) * signA,
-                         (vector0 * factor2 - vector1 * factor4 + vector2 * factor5) * signB)
-
-    // The first row of the inverse, by the first column, is the determinant.
-    Local determinant = Dot(m.x, Vec4(inverse.x.x, inverse.y.x, inverse.z.x, inverse.w.x))
+    Local s0, s1, s2, s3, s4, s5 = Minors(m.x, m.y)
+    Local c0, c1, c2, c3, c4, c5 = Minors(m.z, m.w)
+    Local determinant = s0 * c5 - s1 * c4 + s2 * c3 + s3 * c2 - s4 * c1 + s5 * c0
     If determinant == 0 Then Return Null
-    Return inverse * (1 / determinant)
+    Local x = m.x
+    Local y = m.y
+    Local z = m.z
+    Local w = m.w
+    Return Mat4(Over(y.y * c5 - y.z * c4 + y.w * c3, -x.y * c5 + x.z * c4 - x.w * c3,
+                     w.y * s5 - w.z * s4 + w.w * s3, -z.y * s5 + z.z * s4 - z.w * s3, determinant),
+                Over(-y.x * c5 + y.z * c2 - y.w * c1, x.x * c5 - x.z * c2 + x.w * c1,
+                     -w.x * s5 + w.z * s2 - w.w * s1, z.x * s5 - z.z * s2 + z.w * s1, determinant),
+                Over(y.x * c4 - y.y * c2 + y.w * c0, -x.x * c4 + x.y * c2 - x.w * c0,
+                     w.x * s4 - w.y * s2 + w.w * s0, -z.x * s4 + z.y * s2 - z.w * s0, determinant),
+                Over(-y.x * c3 + y.y * c1 - y.z * c0, x.x * c3 - x.y * c1 + x.z * c0,
+                     -w.x * s3 + w.y * s1 - w.z * s0, z.x * s3 - z.y * s1 + z.z * s0, determinant))
+End Function
+
+// A column of cofactors over the determinant, each rounded once.
+Function Over(x: Double, y: Double, z: Double, w: Double, determinant: Double): Vec4
+    Return Vec4((x / determinant) As Float, (y / determinant) As Float, (z / determinant) As Float,
+                (w / determinant) As Float)
 End Function
 
 // The matrix that undoes this one. One with no inverse, whose determinant is 0, panics.

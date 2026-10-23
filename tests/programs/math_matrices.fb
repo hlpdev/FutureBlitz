@@ -58,11 +58,22 @@ Local camera = Mat4.Perspective(Deg(70), 1.5, 0.1, 500) * eye
 Local odd = Mat4(Vec4(2, -1, 0, 3), Vec4(1, 4, -2, 0), Vec4(0, 5, 3, -1), Vec4(-3, 0, 1, 2))
 Print(Shown(Determinant(object)), Determinant(odd), Shown(Determinant(Mat4.RotationY(1))))
 Local undone: Bool[] = []
-For m In [move, scale, Mat4.RotationX(1), object, camera, odd, Mat4.Scale(Vec3(-1, 1, 1))]
+For m In [move, scale, Mat4.RotationX(1), object, odd, Mat4.Scale(Vec3(-1, 1, 1))]
     undone.Add(IsClose(m * Inverse(m), Mat4.Identity, 0.00001))
     undone.Add(IsClose(Inverse(m) * m, Mat4.Identity, 0.00001))
 End For
+// A projection's inverse has elements near 60, so a Float's steps in them, even rounded to the
+// nearest, leave the product a few 0.00001 off, and it's held to 0.0001.
+undone.Add(IsClose(camera * Inverse(camera), Mat4.Identity, 0.0001))
+undone.Add(IsClose(Inverse(camera) * camera, Mat4.Identity, 0.0001))
 Print(undone)
+// The cofactors and determinant are worked out in Doubles, so tiny and huge scales, whose
+// determinants a Float can't hold, invert, and a tiny scale decomposes.
+Print(Inverse(Mat4.Scale(Vec3(1e-13, 1e-13, 1e-13))), Inverse(Mat4.Scale(Vec3(1e13, 1e13, 1e13))))
+Print(Inverse(Mat3.Scale(Vec3(1e-15, 1e-15, 1e-15))), Inverse(Mat3.Scale(Vec3(1e15, 1e15, 1e15))))
+Print(Mat4.Compose(Vec3.One(), Quat.Identity, Vec3(1e-16, 1e-16, 1e-16)).Decompose(),
+      Determinant(Mat4.Scale(Vec3(1e13, 1e13, 1e13))),
+      Determinant(Mat3.Scale(Vec3(1e-20, 1, 1e-20))))
 Print(Shown(Inverse(move)), Shown(Inverse(scale)), Inverse(Mat4.Identity) == Mat4.Identity)
 Print(TryInverse(Mat4.Scale(Vec3(1, 0, 1))) == Null, TryInverse(odd) != Null, Shown(Inverse(odd)))
 Print(Transpose(Transpose(odd)) == odd, Determinant(Transpose(odd)), Determinant(odd * odd))
