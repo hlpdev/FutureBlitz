@@ -8197,6 +8197,10 @@ private:
             call.slot = slot_of(target);
         }
 
+        if (function.modifiers.is_async) {
+            return start_async_member(id, std::move(call), !callee.modifiers.is_static);
+        }
+
         // A table's slot is called as the Interface's Method is, and a Method itself as it is.
         std::optional<local_id_t> error;
         if (takes_error(dynamic ? required : target)) {
@@ -8232,6 +8236,23 @@ private:
         }
 
         return value;
+    }
+
+    /// An Async Interface member's call, through its table or to the type's own Method, as an
+    /// Async Method's is: it makes the Task, which goes after the object when `has_self`, and
+    /// starts the coroutine, which runs until it first Awaits. The call gives the Task.
+    operand_t start_async_member(const expr_id_t id, call_t call, const bool has_self) {
+        const type_id_t type = concrete(non_null(expr_type(id)));
+        generated(generated_kind_t::RUN, type);
+        operand_t task = temporary(new_t{ .type = type }, type, true);
+        runtime_call_t begin{
+            .function = runtime_function_t::ASYNC_BEGIN,
+            .arguments = { task },
+        };
+        emit(evaluate_t{ std::move(begin) });
+        call.arguments.insert(call.arguments.begin() + (has_self ? 1 : 0), { .value = task });
+        emit(evaluate_t{ std::move(call) });
+        return task;
     }
 
     /// The Interface an Interface's member belongs to, with the type arguments after Self in
