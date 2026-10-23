@@ -71,7 +71,7 @@ std::int64_t map_bytes(map_t& map) {
 }
 
 std::int64_t open_map(map_t& map, const std::string& path) {
-    if (path.find('\0') != std::string::npos) {
+    if (path.contains('\0')) {
         return UV_EINVAL;
     }
 
@@ -92,7 +92,12 @@ std::int64_t open_map(map_t& map, const std::string& path) {
     }
 
     map.size = static_cast<std::int64_t>(stat.st_size);
-    const std::int64_t mapped = found < 0 ? found : (map.size > 0 ? map_bytes(map) : 0);
+    // An empty file has no bytes to map.
+    std::int64_t mapped = found;
+    if (mapped == 0 && map.size > 0) {
+        mapped = map_bytes(map);
+    }
+
     if (mapped < 0) {
         close_file(map.file);
         map.size = 0;

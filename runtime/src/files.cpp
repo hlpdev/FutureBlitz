@@ -39,7 +39,7 @@
 namespace {
 
 /// What a folder's entry is, as std.io numbers its kinds.
-enum kind_t : std::int32_t {
+enum kind_t : std::uint8_t {
     KIND_FILE = 0,
     KIND_DIRECTORY = 1,
     KIND_LINK = 2,
@@ -106,7 +106,7 @@ std::string_view view_of(const fb_string_t* text) {
 /// A path as the request keeps it, given or made, which libuv reads up to its NUL: so one that
 /// holds a NUL would be another path, and is refused.
 bool has_nul(const std::string& path) {
-    return path.find('\0') != std::string::npos;
+    return path.contains('\0');
 }
 
 /// libuv's request for one synchronous file call, cleaned up after it.
@@ -278,6 +278,11 @@ std::string temporary_beside(const std::string& path) {
 /// Writes `bytes` to a new temporary file beside `path`, onto the disk, and renames it over
 /// `path`. On POSIX it takes the permissions of the file it replaces.
 std::int64_t write_atomic(const std::string& path, const std::string_view bytes) {
+    // A rename over a folder fails differently on each OS.
+    if (uv_stat_t found{}; stat_path(path, true, found) == 0 && is_directory(found)) {
+        return UV_EISDIR;
+    }
+
     std::string temporary;
     std::int64_t opened = UV_EEXIST;
     for (int tries = 0; opened == UV_EEXIST && tries < 100; ++tries) {
@@ -319,7 +324,7 @@ std::int64_t write_atomic(const std::string& path, const std::string_view bytes)
 
 /// Writes the request's input to its path, as its number says: replacing, adding to the end, or
 /// atomically.
-std::int64_t write_file(request_t& request) {
+std::int64_t write_file(const request_t& request) {
     if (has_nul(request.path)) {
         return UV_EINVAL;
     }
@@ -354,7 +359,7 @@ std::int64_t copy_file(const std::string& from, const std::string& to) {
     return uv_fs_copyfile(nullptr, call.get(), from.c_str(), to.c_str(), 0, nullptr);
 }
 
-std::int64_t copy_request(request_t& request) {
+std::int64_t copy_request(const request_t& request) {
     if (has_nul(request.path) || has_nul(request.other)) {
         return UV_EINVAL;
     }
@@ -376,7 +381,7 @@ std::int64_t remove_file(const std::string& path) {
     return uv_fs_unlink(nullptr, call.get(), path.c_str(), nullptr);
 }
 
-std::int64_t move_request(request_t& request) {
+std::int64_t move_request(const request_t& request) {
     if (has_nul(request.path) || has_nul(request.other)) {
         return UV_EINVAL;
     }
@@ -400,7 +405,7 @@ std::int64_t move_request(request_t& request) {
     return result;
 }
 
-std::int64_t delete_request(request_t& request) {
+std::int64_t delete_request(const request_t& request) {
     if (has_nul(request.path)) {
         return UV_EINVAL;
     }
@@ -418,7 +423,7 @@ std::int64_t delete_request(request_t& request) {
     return removed < 0 ? removed : 1;
 }
 
-std::int64_t set_read_only(request_t& request) {
+std::int64_t set_read_only(const request_t& request) {
     if (has_nul(request.path)) {
         return UV_EINVAL;
     }
@@ -498,7 +503,7 @@ std::int64_t make_folders(const std::string& path) {
     return again < 0 ? again : 1;
 }
 
-std::int64_t create_request(request_t& request) {
+std::int64_t create_request(const request_t& request) {
     if (has_nul(request.path)) {
         return UV_EINVAL;
     }
@@ -566,8 +571,11 @@ std::int64_t walk(const std::string& folder, const std::string& prefix, const st
         const std::string name = std::move(entry.path);
         into.push_back({ .path = prefix + name, .kind = entry.kind });
         if (entry.kind == KIND_DIRECTORY && depth != 1) {
-            const std::int64_t walked =
-                walk(folder + "/" + name, prefix + name + "/", depth < 1 ? depth : depth - 1, into);
+            std::string inside = folder;
+            inside.append("/").append(name);
+            std::string from = prefix;
+            from.append(name).append("/");
+            const std::int64_t walked = walk(inside, from, depth < 1 ? depth : depth - 1, into);
             if (walked < 0) {
                 return walked;
             }
@@ -627,7 +635,7 @@ std::int64_t remove_all(const std::string& path) {
     return remove_folder(path);
 }
 
-std::int64_t remove_request(request_t& request) {
+std::int64_t remove_request(const request_t& request) {
     if (has_nul(request.path)) {
         return UV_EINVAL;
     }
@@ -704,8 +712,9 @@ std::int64_t acquire_lock(request_t& request) {
     OVERLAPPED overlapped{};
     overlapped.Offset = lock_offset_low;
     overlapped.OffsetHigh = lock_offset_high;
-    const DWORD flags =
-        (shared ? 0 : LOCKFILE_EXCLUSIVE_LOCK) | (wait ? 0 : LOCKFILE_FAIL_IMMEDIATELY);
+    constexpr DWORD exclusive = LOCKFILE_EXCLUSIVE_LOCK;
+    constexpr DWORD immediately = LOCKFILE_FAIL_IMMEDIATELY;
+    const DWORD flags = (shared ? 0U : exclusive) | (wait ? 0U : immediately);
     if (LockFileEx(uv_get_osfhandle(file), flags, 0, 1, 0, &overlapped) == 0) {
         const DWORD error = GetLastError();
         close_file(file);
@@ -728,6 +737,12 @@ std::int64_t acquire_lock(request_t& request) {
 
     request.lock = new lock_t{ .file = file };
     return 1;
+}
+
+/// The work of a call that only reads its request.
+template <std::int64_t (*Work)(const request_t&)>
+std::int64_t reading(request_t& request) {
+    return Work(request);
 }
 
 /// Runs a request's work on the calling thread.
@@ -954,7 +969,7 @@ std::int64_t fb_io_file_write(void* request, const fb_string_t* path, const fb_a
     self.path = view_of(path);
     self.number = how;
     keep_input(self, bytes_of(data), false);
-    return run(self, write_file);
+    return run(self, reading<write_file>);
 }
 
 void fb_io_file_write_async(fb_task_t* task, void* request, const fb_string_t* path,
@@ -963,7 +978,7 @@ void fb_io_file_write_async(fb_task_t* task, void* request, const fb_string_t* p
     self.path = view_of(path);
     self.number = how;
     keep_input(self, bytes_of(data), true);
-    run_async(task, request, write_file);
+    run_async(task, request, reading<write_file>);
 }
 
 std::int64_t fb_io_file_write_text(void* request, const fb_string_t* path, const fb_string_t* text,
@@ -972,7 +987,7 @@ std::int64_t fb_io_file_write_text(void* request, const fb_string_t* path, const
     self.path = view_of(path);
     self.number = how;
     keep_input(self, view_of(text), false);
-    return run(self, write_file);
+    return run(self, reading<write_file>);
 }
 
 void fb_io_file_write_text_async(fb_task_t* task, void* request, const fb_string_t* path,
@@ -981,7 +996,7 @@ void fb_io_file_write_text_async(fb_task_t* task, void* request, const fb_string
     self.path = view_of(path);
     self.number = how;
     keep_input(self, view_of(text), true);
-    run_async(task, request, write_file);
+    run_async(task, request, reading<write_file>);
 }
 
 std::int64_t fb_io_file_write_lines(void* request, const fb_string_t* path, const fb_array_t* lines,
@@ -991,7 +1006,7 @@ std::int64_t fb_io_file_write_lines(void* request, const fb_string_t* path, cons
     self.number = how;
     self.owned = joined(lines, crlf != 0);
     self.input = self.owned;
-    return run(self, write_file);
+    return run(self, reading<write_file>);
 }
 
 void fb_io_file_write_lines_async(fb_task_t* task, void* request, const fb_string_t* path,
@@ -1002,7 +1017,7 @@ void fb_io_file_write_lines_async(fb_task_t* task, void* request, const fb_strin
     self.number = how;
     self.owned = joined(lines, crlf != 0);
     self.input = self.owned;
-    run_async(task, request, write_file);
+    run_async(task, request, reading<write_file>);
 }
 
 std::int64_t fb_io_file_stat(void* request, const fb_string_t* path, const std::int32_t follow) {
@@ -1024,7 +1039,7 @@ std::int64_t fb_io_file_copy(void* request, const fb_string_t* from, const fb_st
     request_t& self = request_of(request);
     self.path = view_of(from);
     self.other = view_of(to);
-    return run(self, copy_request);
+    return run(self, reading<copy_request>);
 }
 
 void fb_io_file_copy_async(fb_task_t* task, void* request, const fb_string_t* from,
@@ -1032,14 +1047,14 @@ void fb_io_file_copy_async(fb_task_t* task, void* request, const fb_string_t* fr
     request_t& self = request_of(request);
     self.path = view_of(from);
     self.other = view_of(to);
-    run_async(task, request, copy_request);
+    run_async(task, request, reading<copy_request>);
 }
 
 std::int64_t fb_io_file_move(void* request, const fb_string_t* from, const fb_string_t* to) {
     request_t& self = request_of(request);
     self.path = view_of(from);
     self.other = view_of(to);
-    return run(self, move_request);
+    return run(self, reading<move_request>);
 }
 
 void fb_io_file_move_async(fb_task_t* task, void* request, const fb_string_t* from,
@@ -1047,17 +1062,17 @@ void fb_io_file_move_async(fb_task_t* task, void* request, const fb_string_t* fr
     request_t& self = request_of(request);
     self.path = view_of(from);
     self.other = view_of(to);
-    run_async(task, request, move_request);
+    run_async(task, request, reading<move_request>);
 }
 
 std::int64_t fb_io_file_delete(void* request, const fb_string_t* path) {
     request_of(request).path = view_of(path);
-    return run(request_of(request), delete_request);
+    return run(request_of(request), reading<delete_request>);
 }
 
 void fb_io_file_delete_async(fb_task_t* task, void* request, const fb_string_t* path) {
     request_of(request).path = view_of(path);
-    run_async(task, request, delete_request);
+    run_async(task, request, reading<delete_request>);
 }
 
 std::int64_t fb_io_file_set_read_only(void* request, const fb_string_t* path,
@@ -1065,7 +1080,7 @@ std::int64_t fb_io_file_set_read_only(void* request, const fb_string_t* path,
     request_t& self = request_of(request);
     self.path = view_of(path);
     self.flag = read_only;
-    return run(self, set_read_only);
+    return run(self, reading<set_read_only>);
 }
 
 void fb_io_file_set_read_only_async(fb_task_t* task, void* request, const fb_string_t* path,
@@ -1073,14 +1088,14 @@ void fb_io_file_set_read_only_async(fb_task_t* task, void* request, const fb_str
     request_t& self = request_of(request);
     self.path = view_of(path);
     self.flag = read_only;
-    run_async(task, request, set_read_only);
+    run_async(task, request, reading<set_read_only>);
 }
 
 std::int64_t fb_io_dir_create(void* request, const fb_string_t* path, const std::int32_t all) {
     request_t& self = request_of(request);
     self.path = view_of(path);
     self.flag = all;
-    return run(self, create_request);
+    return run(self, reading<create_request>);
 }
 
 void fb_io_dir_create_async(fb_task_t* task, void* request, const fb_string_t* path,
@@ -1088,14 +1103,14 @@ void fb_io_dir_create_async(fb_task_t* task, void* request, const fb_string_t* p
     request_t& self = request_of(request);
     self.path = view_of(path);
     self.flag = all;
-    run_async(task, request, create_request);
+    run_async(task, request, reading<create_request>);
 }
 
 std::int64_t fb_io_dir_remove(void* request, const fb_string_t* path, const std::int32_t all) {
     request_t& self = request_of(request);
     self.path = view_of(path);
     self.flag = all;
-    return run(self, remove_request);
+    return run(self, reading<remove_request>);
 }
 
 void fb_io_dir_remove_async(fb_task_t* task, void* request, const fb_string_t* path,
@@ -1103,7 +1118,7 @@ void fb_io_dir_remove_async(fb_task_t* task, void* request, const fb_string_t* p
     request_t& self = request_of(request);
     self.path = view_of(path);
     self.flag = all;
-    run_async(task, request, remove_request);
+    run_async(task, request, reading<remove_request>);
 }
 
 std::int64_t fb_io_dir_entries(void* request, const fb_string_t* path, const std::int64_t depth) {
