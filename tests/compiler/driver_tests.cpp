@@ -14,6 +14,7 @@
 #include <ios>
 #include <iterator>
 #include <optional>
+#include <ranges>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -643,6 +644,48 @@ TEST_CASE("a program links the bundled C libraries of the runtime functions it c
           std::vector<std::string_view>{ "libuv" });
     CHECK(bundled("Import std.core\nLocal line = Await InputAsync()") ==
           std::vector<std::string_view>{ "libuv" });
+}
+
+TEST_CASE("the bundled C libraries are optimized in every build", "[driver]") {
+    // The build's compile_commands.json has each C file's command. Those of a bundled library
+    // that third_party/ gives -O2 keep it to the end, and have no -g3 after it.
+    std::ifstream commands(FB_TEST_COMPILE_COMMANDS);
+    if (!commands) {
+        SKIP("this build has no compile_commands.json");
+    }
+
+    std::size_t optimized = 0;
+    std::string command;
+    for (std::string line; std::getline(commands, line);) {
+        if (line.contains("\"command\":")) {
+            command = line;
+            continue;
+        }
+        if (!line.contains("\"file\":") || !line.contains("/_deps/") || !line.contains(".c\"")) {
+            continue;
+        }
+
+        std::string_view last_optimization;
+        std::string_view last_debug;
+        bool bundled = false;
+        for (const auto part : std::views::split(std::string_view(command), ' ')) {
+            const std::string_view option(part.begin(), part.end());
+            bundled = bundled || option == "-O2";
+            if (option.starts_with("-O")) {
+                last_optimization = option;
+            } else if (option.starts_with("-g")) {
+                last_debug = option;
+            }
+        }
+        if (bundled) {
+            INFO(line);
+            CHECK(last_optimization != "-O0");
+            CHECK(last_debug != "-g3");
+            ++optimized;
+        }
+    }
+
+    CHECK(optimized > 0);
 }
 
 TEST_CASE("resolve_import() maps dotted names and relative paths", "[driver]") {

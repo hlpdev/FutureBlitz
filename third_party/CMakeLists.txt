@@ -68,6 +68,21 @@ macro(fb_make_available name)
   set(CMAKE_C_FLAGS "${fb_saved_c_flags}")
 endmacro()
 
+# Adds `options` after the own options of each library target in `folder` and the folders in it.
+function(fb_options_after folder options)
+  get_property(targets DIRECTORY "${folder}" PROPERTY BUILDSYSTEM_TARGETS)
+  foreach(target ${targets})
+    get_target_property(type ${target} TYPE)
+    if(type STREQUAL "STATIC_LIBRARY" OR type STREQUAL "OBJECT_LIBRARY")
+      target_compile_options(${target} PRIVATE ${options})
+    endif()
+  endforeach()
+  get_property(folders DIRECTORY "${folder}" PROPERTY SUBDIRECTORIES)
+  foreach(inner ${folders})
+    fb_options_after("${inner}" "${options}")
+  endforeach()
+endfunction()
+
 # The file `name`.txt in notices/, of `text`, whose path is FB_<NAME>_NOTICE.
 function(fb_notice name text)
   string(TOUPPER "${name}" upper)
@@ -95,6 +110,11 @@ FetchContent_Declare(
   EXCLUDE_FROM_ALL
 )
 fb_make_available(mbedtls)
+# Its CMake gives its libraries -O0 and -g3 of their own in a Debug build, after the options
+# above, so they get -O2 and -g2 again after those.
+if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+  fb_options_after("${mbedtls_SOURCE_DIR}" "$<$<CONFIG:Debug>:-O2>;$<$<CONFIG:Debug>:-g2>")
+endif()
 set(FB_MBEDTLS_VERSION ${FB_MBEDTLS_VERSION} PARENT_SCOPE)
 # It's under Apache-2.0 or GPL-2.0-or-later, and std takes it under Apache-2.0. Its LICENSE has
 # both texts.
