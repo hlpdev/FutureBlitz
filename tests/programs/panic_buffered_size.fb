@@ -1,0 +1,7 @@
+// A BufferedReader reads 1 byte at a time at least, and a size below that panics.
+Import std.core
+Import std.io
+
+Local reader = BufferedReader(StringReader("abc"), 1)
+Print("{Try reader.ReadByte() ?? 0}")
+Local none = BufferedReader(StringReader("abc"), 0)

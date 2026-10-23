@@ -1,0 +1,10 @@
+1 104 True
+ey True
+[one][two][three]
+6 copied 6
+copiedabcdef 8
+copiedabcdefg 9
+UNEXPECTED_END: the stream ended after 3 of 5 bytes
+3 3 []
+hi
+done

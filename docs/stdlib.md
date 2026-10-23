@@ -95,7 +95,11 @@ So far, std/ holds:
 | std/ffi/mem.fb | `Mem`, raw memory for Unsafe code, over the runtime's `fb_mem_*`: `Alloc`, `AllocUninitialized`, `AllocAligned`, `Resize`, `Free`, `FreeAligned`, `Copy`, `Fill`, and `Compare` |
 | std/ffi/cstring.fb | `CString.From`, `Length`, and `Free`, over the runtime's copies |
 | std/ffi/cdata.fb | `CData`, what C code has, which the compiler decides, so a Ptr's T can be a type parameter |
-| std/ffi/buffer.fb | `Buffer<T>`, native memory that C fills through its `Pointer()` and safe code reads with `[]`, with `Slice` views that keep it alive, `CopyTo`, `ToArray`, and `Buffer<T>.View` of C's memory; `BufferIterator<T>` |
+| std/ffi/buffer.fb | `Buffer<T>`, native memory that C fills through its `Pointer()` and safe code reads with `[]`, with `Slice` views that keep it alive, `CopyTo`, `ToArray`, `Buffer<T>.From` an array, and `Buffer<T>.View` of C's memory; `BufferIterator<T>` |
+| std/io/streams.fb | std.io's `Reader`, `Writer`, and `Seeker`, with the Async twins `ReadAsync`, `WriteAsync`, and `FlushAsync`, Writer's `WriteBytes` and `WriteText`, and Seeker's `Position`; `SeekOrigin`; `Copy`, `ReadAll`, `ReadAllText`, and `ReadExact`, and `CopyAsync`, `ReadAllAsync`, and `ReadExactAsync` |
+| std/io/memory.fb | `MemoryStream`, `StringReader`, and `StringWriter` |
+| std/io/buffered.fb | `BufferedReader`, with `ReadByte`, `ReadLine`, and `ReadLineAsync`, and `BufferedWriter` |
+| std/io/binary.fb | `BinaryReader` and `BinaryWriter`, each number's bytes in a `ByteOrder` |
 | std/crypto/hashes.fb | `Hasher`, and `Md5`, `Sha1`, `Sha256`, and `Sha512`, over mbedTLS through the runtime's `fb_crypto_` functions |
 | std/crypto/derive.fb | `Hmac` and `Pbkdf2`, each by SHA-1, SHA-256, or SHA-512, and `Hkdf`, by SHA-256 or SHA-512 |
 | std/crypto/random.fb | `SecureRandom` and `ConstantTimeEquals` |
@@ -484,7 +488,12 @@ generator, noise, easing, stats, and fixed point, and step 11 std.math.big; the 
 
 - `Reader`, `Writer`, and `Seeker` Interfaces, with Async twins, and `Copy`, `ReadAll`,
   `ReadExact`; buffered, memory, and string readers and writers; `BinaryReader` and
-  `BinaryWriter` with endianness.
+  `BinaryWriter` with endianness. Built in step 13: a Reader reads into a `Buffer<UInt8>` and
+  gives how many bytes, 0 at its end, and a Writer writes all of one; their Async twins are
+  defaults that block as the plain ones do, which a file or socket replaces with one that waits
+  on the main thread, and the buffered streams' go through the stream they wrap. Errors are
+  IOErrors, an early end UNEXPECTED_END. Seeking is cheap where it isn't plain memory too, so
+  Seeker has no Async twin.
 - `Path` is a value: `Join` and `/`, `Parent`, `FileName`, `Stem`, `Extension`, `Normalize`,
   `RelativeTo`, `Absolute`; `/` works on every OS, and a String converts to a Path wherever one
   is expected.
