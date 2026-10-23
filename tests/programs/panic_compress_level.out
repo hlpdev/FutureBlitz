@@ -1,0 +1,2 @@
+True
+panic: Gzip's levels are from 0 to 9, not 10 at panic_compress_level.fb:6:1

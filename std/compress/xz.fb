@@ -1,0 +1,123 @@
+// The .xz format, over liblzma: LZMA2, in streams with a CRC64 check. Its Compress and Decompress
+// work at once, and its Compressor and Decompressor take bytes in turn and give what came out of
+// them so far, for data that comes in parts. Levels are xz's presets, from 0, the fastest, to 9,
+// the smallest, and are 6 by default, as xz's; the higher ones take much more memory, up to 674
+// MiB to compress at 9, and 65 MiB to decompress. A Decompress reads streams one after another,
+// and the padding between them, as xz does.
+
+Import std.core
+Import std.compress.codec
+
+Extern "runtime"
+    Function fb_xz_encoder_new(level: Int32): Ptr<Void>
+    Function fb_xz_encoder_add(encoder: Ptr<Void>, data: UInt8[], output: UInt8[])
+    Function fb_xz_encoder_finish(encoder: Ptr<Void>, data: UInt8[], output: UInt8[])
+    Function fb_xz_encoder_free(encoder: Ptr<Void>)
+    Function fb_xz_decoder_new(limit: Int64): Ptr<Void>
+    Function fb_xz_decoder_add(decoder: Ptr<Void>, data: UInt8[], output: UInt8[]): Int32
+    Function fb_xz_decoder_finish(decoder: Ptr<Void>, data: UInt8[], output: UInt8[]): Int32
+    Function fb_xz_decoder_message(decoder: Ptr<Void>): String
+    Function fb_xz_decoder_free(decoder: Ptr<Void>)
+End Extern
+
+// The .xz format's streams.
+Public Struct XZ
+    // XZ isn't made: it's only its Static Methods.
+    New()
+    End New
+
+    // The data, compressed at the level. Panics when the level isn't from 0 to 9.
+    @PanicsAtCaller
+    Public Static Method Compress(data: UInt8[], level: Int = 6): UInt8[]
+        Local encoder = Encoder(level)
+        Local output: UInt8[] = []
+        fb_xz_encoder_finish(encoder, data, output)
+        fb_xz_encoder_free(encoder)
+        Return output
+    End Method
+
+    // The bytes the data is compressed from, each stream's after the last's, or an IOError when it
+    // isn't XZ's, ends too soon, or would come to more than limit bytes. Panics when the limit is
+    // negative.
+    @PanicsAtCaller
+    Public Static Method Decompress(data: UInt8[],
+                                    limit: Int = MOST_BYTES): UInt8[] Throws IOError
+        CheckLimit(limit)
+        Local decoder = fb_xz_decoder_new(limit)
+        Defer fb_xz_decoder_free(decoder)
+        Return Try Ended(decoder, data, limit)
+    End Method
+End Struct
+
+// XZ's bytes made in turn: Add gives what compressing the bytes it takes has made so far, and
+// Finish what's left, which ends a stream, and starts again.
+Public Class XZCompressor
+    Field State: Ptr<Void>
+
+    // Panics when the level isn't from 0 to 9.
+    @PanicsAtCaller
+    Public New(level: Int = 6)
+        State = Encoder(level)
+    End New
+
+    Public Method Add(data: UInt8[]): UInt8[]
+        Local output: UInt8[] = []
+        fb_xz_encoder_add(State, data, output)
+        Return output
+    End Method
+
+    Public Method Finish(): UInt8[]
+        Local output: UInt8[] = []
+        fb_xz_encoder_finish(State, [], output)
+        Return output
+    End Method
+
+    Method Destroy()
+        fb_xz_encoder_free(State)
+    End Method
+End Class
+
+// XZ's bytes taken in turn, a stream after another: Add gives what the bytes it takes decompress
+// to so far, and Finish what's left once they've all been added, and starts again. Each throws
+// an IOError when the bytes aren't XZ's or would come to more than the limit, and Finish when
+// they end too soon.
+Public Class XZDecompressor
+    Field State: Ptr<Void>
+    Field Limit: Int
+
+    // Panics when the limit is negative.
+    @PanicsAtCaller
+    Public New(limit: Int = MOST_BYTES)
+        CheckLimit(limit)
+        State = fb_xz_decoder_new(limit)
+        Limit = limit
+    End New
+
+    Public Method Add(data: UInt8[]): UInt8[] Throws IOError
+        Local output: UInt8[] = []
+        Local result = fb_xz_decoder_add(State, data, output)
+        If result != 0 Then Try Failed(result, "XZ", Limit, fb_xz_decoder_message(State))
+        Return output
+    End Method
+
+    Public Method Finish(): UInt8[] Throws IOError => Try Ended(State, [], Limit)
+
+    Method Destroy()
+        fb_xz_decoder_free(State)
+    End Method
+End Class
+
+// A new encoder at the level.
+@PanicsAtCaller
+Function Encoder(level: Int): Ptr<Void>
+    CheckLevel(level, 0, 9, "XZ")
+    Return fb_xz_encoder_new(level)
+End Function
+
+// What the decoder gives for data, the last there is, or the IOError its result means.
+Function Ended(decoder: Ptr<Void>, data: UInt8[], limit: Int): UInt8[] Throws IOError
+    Local output: UInt8[] = []
+    Local result = fb_xz_decoder_finish(decoder, data, output)
+    If result != 0 Then Try Failed(result, "XZ", limit, fb_xz_decoder_message(decoder))
+    Return output
+End Function

@@ -1,0 +1,332 @@
+// Each of std.compress's codecs gives back what it compressed, at every level, at once or in
+// parts of any size, one stream after another, and says what's wrong with bytes that aren't its.
+
+Import std.core
+Import std.collections
+Import std.compress
+
+Const FORMATS = ["Deflate", "Zlib", "Gzip", "Zstd", "Lz4", "XZ"]
+
+// What the codecs are tested on: none, one byte, text, bytes that don't repeat, and zeros.
+Function Inputs(): UInt8[][]
+    Local noise: UInt8[] = []
+    Local state: UInt32 = 12345
+    For i = 1 To 100000
+        state = state.WrappingMultiply(1664525).WrappingAdd(1013904223)
+        noise.Add((state >> 24) As UInt8)
+    End For
+
+    Local zeros: UInt8[] = []
+    zeros.Resize(200000, 0)
+    Local none: UInt8[] = []
+    Return [none, [42 As UInt8], Poem(), noise, zeros]
+End Function
+
+Function Poem(): UInt8[]
+    Local text = ""
+    For i = 30 To 1 Step -1
+        text = text + "{i} bottles of milk on the wall, {i} bottles of milk.\n"
+    End For
+    Return text.Bytes
+End Function
+
+// The parts of data, each `size` bytes but the last.
+Function Parts(data: UInt8[], size: Int): UInt8[][]
+    Local parts: UInt8[][] = []
+    For at = 0 Until data.Count Step size
+        parts.Add(data[at..Min(at + size, data.Count)])
+    End For
+    Return parts
+End Function
+
+Function Levels(format: String): Int[]
+    Select format
+        Case "Zstd"
+            Return [1, 3, 9, 19, 22]
+        Case "Lz4"
+            Return [1, 2, 3, 9, 12]
+        Default
+            Return [0, 1, 6, 9]
+    End Select
+End Function
+
+Function DefaultLevel(format: String): Int
+    Select format
+        Case "Zstd"
+            Return 3
+        Case "Lz4"
+            Return 1
+        Default
+            Return 6
+    End Select
+End Function
+
+Function Compressed(format: String, data: UInt8[], level: Int): UInt8[]
+    Select format
+        Case "Deflate"
+            Return Deflate.Compress(data, level)
+        Case "Zlib"
+            Return Zlib.Compress(data, level)
+        Case "Gzip"
+            Return Gzip.Compress(data, level)
+        Case "Zstd"
+            Return Zstd.Compress(data, level)
+        Case "Lz4"
+            Return Lz4.Compress(data, level)
+        Default
+            Return XZ.Compress(data, level)
+    End Select
+End Function
+
+Function Decompressed(format: String, data: UInt8[], limit: Int): UInt8[] Throws IOError
+    Select format
+        Case "Deflate"
+            Return Try Deflate.Decompress(data, limit)
+        Case "Zlib"
+            Return Try Zlib.Decompress(data, limit)
+        Case "Gzip"
+            Return Try Gzip.Decompress(data, limit)
+        Case "Zstd"
+            Return Try Zstd.Decompress(data, limit)
+        Case "Lz4"
+            Return Try Lz4.Decompress(data, limit)
+        Default
+            Return Try XZ.Decompress(data, limit)
+    End Select
+End Function
+
+// What a Compressor of the format gives for the parts, for each of `streams` streams of all the
+// parts, ended by a Finish, which starts it again.
+Function StreamsInParts(format: String, parts: UInt8[][], level: Int, streams: Int): UInt8[][]
+    Local made: UInt8[][] = []
+    Select format
+        Case "Deflate"
+            Local c = DeflateCompressor(level)
+            For stream = 1 To streams
+                Local all: UInt8[] = []
+                For part In parts
+                    all.AddAll(c.Add(part))
+                End For
+                all.AddAll(c.Finish())
+                made.Add(all)
+            End For
+        Case "Zlib"
+            Local c = ZlibCompressor(level)
+            For stream = 1 To streams
+                Local all: UInt8[] = []
+                For part In parts
+                    all.AddAll(c.Add(part))
+                End For
+                all.AddAll(c.Finish())
+                made.Add(all)
+            End For
+        Case "Gzip"
+            Local c = GzipCompressor(level)
+            For stream = 1 To streams
+                Local all: UInt8[] = []
+                For part In parts
+                    all.AddAll(c.Add(part))
+                End For
+                all.AddAll(c.Finish())
+                made.Add(all)
+            End For
+        Case "Zstd"
+            Local c = ZstdCompressor(level)
+            For stream = 1 To streams
+                Local all: UInt8[] = []
+                For part In parts
+                    all.AddAll(c.Add(part))
+                End For
+                all.AddAll(c.Finish())
+                made.Add(all)
+            End For
+        Case "Lz4"
+            Local c = Lz4Compressor(level)
+            For stream = 1 To streams
+                Local all: UInt8[] = []
+                For part In parts
+                    all.AddAll(c.Add(part))
+                End For
+                all.AddAll(c.Finish())
+                made.Add(all)
+            End For
+        Default
+            Local c = XZCompressor(level)
+            For stream = 1 To streams
+                Local all: UInt8[] = []
+                For part In parts
+                    all.AddAll(c.Add(part))
+                End For
+                all.AddAll(c.Finish())
+                made.Add(all)
+            End For
+    End Select
+    Return made
+End Function
+
+// What a Decompressor of the format gives for the parts, which it takes in turn, then a Finish.
+// It's the same one each time `streams` goes round, as Finish starts it again.
+Function DecompressedInParts(format: String, parts: UInt8[][], streams: Int,
+                             limit: Int): UInt8[] Throws IOError
+    Local all: UInt8[] = []
+    Select format
+        Case "Deflate"
+            Local d = DeflateDecompressor(limit)
+            For stream = 1 To streams
+                For part In parts
+                    all.AddAll(Try d.Add(part))
+                End For
+                all.AddAll(Try d.Finish())
+            End For
+        Case "Zlib"
+            Local d = ZlibDecompressor(limit)
+            For stream = 1 To streams
+                For part In parts
+                    all.AddAll(Try d.Add(part))
+                End For
+                all.AddAll(Try d.Finish())
+            End For
+        Case "Gzip"
+            Local d = GzipDecompressor(limit)
+            For stream = 1 To streams
+                For part In parts
+                    all.AddAll(Try d.Add(part))
+                End For
+                all.AddAll(Try d.Finish())
+            End For
+        Case "Zstd"
+            Local d = ZstdDecompressor(limit)
+            For stream = 1 To streams
+                For part In parts
+                    all.AddAll(Try d.Add(part))
+                End For
+                all.AddAll(Try d.Finish())
+            End For
+        Case "Lz4"
+            Local d = Lz4Decompressor(limit)
+            For stream = 1 To streams
+                For part In parts
+                    all.AddAll(Try d.Add(part))
+                End For
+                all.AddAll(Try d.Finish())
+            End For
+        Default
+            Local d = XZDecompressor(limit)
+            For stream = 1 To streams
+                For part In parts
+                    all.AddAll(Try d.Add(part))
+                End For
+                all.AddAll(Try d.Finish())
+            End For
+    End Select
+    Return all
+End Function
+
+// What decompressing data gives: its size, or the IOError's Kind and Message.
+Function Outcome(format: String, data: UInt8[], limit: Int = 2147483647): String
+    Try
+        Return "{(Decompressed(format, data, limit)).Count} bytes"
+    Catch e As IOError
+        Return "{e.Kind}: {e.Message}"
+    End Try
+End Function
+
+// What decompressing data that was `original`'s, but for a byte, gives: an IOError of
+// INVALID_DATA from a format with a checksum, and for raw Deflate's, which has none, that or
+// other bytes, as where the byte is says.
+Function Flipped(format: String, data: UInt8[], original: UInt8[]): String
+    Try
+        Local bytes = Decompressed(format, data, 2147483647)
+        If bytes == original Then Return "the same bytes"
+        Return format == "Deflate" ? "caught" : "other bytes"
+    Catch e As IOError
+        Return format == "Deflate" && e.Kind == IOErrorKind.INVALID_DATA ? "caught" : "{e.Kind}"
+    End Try
+End Function
+
+Function PartsOutcome(format: String, parts: UInt8[][], limit: Int = 2147483647): String
+    Try
+        Return "{(DecompressedInParts(format, parts, 1, limit)).Count} bytes"
+    Catch e As IOError
+        Return "{e.Kind}: {e.Message}"
+    End Try
+End Function
+
+// The data `times` over.
+Function Times(data: UInt8[], times: Int): UInt8[]
+    Local all: UInt8[] = []
+    For i = 1 To times
+        all.AddAll(data)
+    End For
+    Return all
+End Function
+
+Local inputs = Inputs()
+For format In FORMATS
+    Print(format)
+    // Every input at every level comes back, and the text, noise, and zeros at once.
+    Local back = True
+    Local smaller = True
+    For level In Levels(format)
+        For input In inputs
+            Local packed = Compressed(format, input, level)
+            back = back && (Try Decompressed(format, packed, 2147483647)) == input
+        End For
+
+        Local poem = Compressed(format, Poem(), level)
+        Local zeros = Compressed(format, inputs[4], level)
+        smaller = smaller && (level == 0 || (poem.Count < Poem().Count && zeros.Count < 2000))
+    End For
+
+    Print("  at once:", back, "smaller:", smaller)
+
+    // In parts of 1, 7, and 4096 bytes, compressed and decompressed, which give what Compress
+    // and Decompress do.
+    Local parts = True
+    For input In [inputs[0], inputs[2], inputs[3]]
+        For size In [1, 7, 4096]
+            Local packed = StreamsInParts(format, Parts(input, size), DefaultLevel(format), 1)[0]
+            parts = parts && (Try Decompressed(format, packed, 2147483647)) == input
+            Local whole = Compressed(format, input, DefaultLevel(format))
+            Local taken = Try DecompressedInParts(format, Parts(whole, size), 1, 2147483647)
+            parts = parts && taken == input
+        End For
+    End For
+
+    Print("  in parts:", parts)
+
+    // A Compressor and a Decompressor start again after Finish, for streams one after another.
+    Local again = True
+    For stream In StreamsInParts(format, Parts(Poem(), 100), DefaultLevel(format), 3)
+        again = again && (Try Decompressed(format, stream, 2147483647)) == Poem()
+    End For
+
+    Local one = Compressed(format, Poem(), DefaultLevel(format))
+    Local three = Try DecompressedInParts(format, [one], 3, 2147483647)
+    Print("  again:", again, three == Times(Poem(), 3))
+
+    // Broken, short, and too much. A byte flipped in what was compressed breaks it, but how
+    // depends on where the libraries put what.
+    Print("  none:", Outcome(format, []))
+    Print("  not it:", Outcome(format, "this isn't compressed at all".Bytes))
+    Print("  short:", Outcome(format, one[0..one.Count - 5]))
+    Print("  in parts, short:", PartsOutcome(format, Parts(one[0..one.Count - 5], 3)))
+    Print("  limit:", Outcome(format, one, Poem().Count), Outcome(format, one, Poem().Count - 1))
+    Print("  in parts, limit:", PartsOutcome(format, Parts(one, 10), Poem().Count - 1))
+    Local broken = one.Clone()
+    broken[broken.Count / 2] = broken[broken.Count / 2] ^ 0xff
+    Print("  flipped:", Flipped(format, broken, Poem()))
+    Print("  twice:", Outcome(format, Times(one, 2)))
+End For
+
+// Gzip's header says nothing of the time, the name, or the OS.
+Print(Gzip.Compress(Poem())[0..10], Gzip.Compress(Poem(), 9)[0..10], Zlib.Compress(Poem())[0..2])
+
+// A Zstd frame whose window is larger than zstd's default of 128 MiB takes that much memory,
+// which isn't asked for: this one's window descriptor says 2 GiB, as zstd's --long=31 makes.
+Local streamed = ZstdCompressor()
+Local frame = streamed.Add(Poem())
+frame.AddAll(streamed.Finish())
+Print(frame[4], frame[5])
+frame[5] = 0xa8
+Print(Outcome("Zstd", frame))

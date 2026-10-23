@@ -1,0 +1,6 @@
+// LZ4's levels are from 1 to 12, and Compress panics where it's called for another.
+Import std.core
+Import std.compress
+
+Print(Lz4.Compress("fine".Bytes, 12).Count > 0)
+Lz4.Compress("too far".Bytes, 13)

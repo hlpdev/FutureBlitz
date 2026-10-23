@@ -1,0 +1,311 @@
+// Zip's and Tar's writers make archives their readers give back, entry by entry, by every method;
+// a tar reads the same compressed; a 7z's coders and files read as 7z's format says; and broken
+// archives, and what isn't supported, are IOErrors.
+
+Import std.core
+Import std.collections
+Import std.compress
+Import "./compress_archives/data"
+
+Function Poem(): UInt8[]
+    Local text = ""
+    For i = 30 To 1 Step -1
+        text = text + "{i} bottles of milk on the wall, {i} bottles of milk.\n"
+    End For
+    Return text.Bytes
+End Function
+
+Function Noise(count: Int): UInt8[]
+    Local noise: UInt8[] = []
+    Local state: UInt32 = 7
+    For i = 1 To count
+        state = state.WrappingMultiply(1664525).WrappingAdd(1013904223)
+        noise.Add((state >> 24) As UInt8)
+    End For
+    Return noise
+End Function
+
+Function Describe(entry: ArchiveEntry): String
+    Select entry.Kind
+        Case ArchiveEntryKind.FOLDER
+            Return "{entry.Name}/"
+        Case ArchiveEntryKind.LINK
+            Return "{entry.Name} -> {entry.Target}"
+        Default
+            Return "{entry.Name} ({entry.Size})"
+    End Select
+End Function
+
+// Where `part` first is in data, or -1.
+Function Find(data: UInt8[], part: UInt8[]): Int
+    For at = 0 To data.Count - part.Count
+        Local found = True
+        For i = 0 Until part.Count
+            If data[at + i] != part[i]
+                found = False
+                Break
+            End If
+        End For
+
+        If found Then Return at
+    End For
+    Return -1
+End Function
+
+// data, with the byte at `at` flipped.
+Function Flipped(data: UInt8[], at: Int): UInt8[]
+    Local flipped = data.Clone()
+    flipped[at] = flipped[at] ^ 0xff
+    Return flipped
+End Function
+
+// What reading data as each kind of archive, and each of its entries, gives: how many entries it
+// has, or the IOError's Kind and Message.
+Function ZipOutcome(data: UInt8[]): String
+    Try
+        Local reader = Zip.Read(data)
+        For i = 0 Until reader.Count
+            reader.ReadAt(i)
+        End For
+        Return "{reader.Count} entries"
+    Catch e As IOError
+        Return "{e.Kind}: {e.Message}"
+    End Try
+End Function
+
+Function TarOutcome(data: UInt8[]): String
+    Try
+        Local reader = Tar.Read(data)
+        For i = 0 Until reader.Count
+            reader.ReadAt(i)
+        End For
+        Return "{reader.Count} entries"
+    Catch e As IOError
+        Return "{e.Kind}: {e.Message}"
+    End Try
+End Function
+
+Function SevenZipOutcome(data: UInt8[]): String
+    Try
+        Local reader = SevenZip.Read(data)
+        For i = 0 Until reader.Count
+            reader.ReadAt(i)
+        End For
+        Return "{reader.Count} entries"
+    Catch e As IOError
+        Return "{e.Kind}: {e.Message}"
+    End Try
+End Function
+
+Local poem = Poem()
+Local noise = Noise(50000)
+Local long = "folder/a-long-folder-name-to-go-past-what-a-ustar-header-holds-in-its-name-or-" +
+             "prefix-fields-which-are-a-hundred-and-a-hundred-and-fifty-five-bytes-long-so-pax-" +
+             "has-it/and-a-file-name.txt"
+Local split = "folder/a-folder-name-that-with-its-file-is-more-than-a-hundred-bytes-but-splits-" +
+              "in-two/file.txt"
+
+// A zip of every method, read back.
+Local zipped = ZipWriter()
+zipped.AddFolder("folder")
+zipped.Add("folder/stored.txt", poem, ZipMethod.STORE)
+zipped.Add("folder/deflate.txt", poem)
+zipped.Add("folder/fast.txt", poem, ZipMethod.DEFLATE, 1)
+zipped.Add("folder/lzma.txt", poem, ZipMethod.LZMA)
+zipped.Add("folder/xz.txt", poem, ZipMethod.XZ, 9)
+zipped.Add("folder/zstd.txt", poem, ZipMethod.ZSTD)
+zipped.Add("folder/noise.bin", noise, ZipMethod.ZSTD, 19)
+zipped.Add("folder/empty.txt", [])
+zipped.Add("folder/ünïcode.txt", "Grüße\n".Bytes)
+zipped.Add(long, poem)
+zipped.Add("folder/stored.txt", "a later entry of the same name\n".Bytes)
+Local zip = Try Zip.Read(zipped.Finish())
+Print("zip: {zip.Count} entries")
+For i = 0 Until zip.Count
+    Local entry = zip.Entries[i]
+    Local bytes = Try zip.ReadAt(i)
+    Local what = bytes == poem ? " poem" : bytes == noise ? " noise" : ""
+    Print("  {Describe(entry)}{what}", entry.Kind != ArchiveEntryKind.FILE || bytes.Count == entry.Size)
+End For
+
+Local later = (Try zip.Read("folder/stored.txt")) ?? []
+Print(later == "a later entry of the same name\n".Bytes,
+      ((Try zip.Read("folder/ünïcode.txt")) ?? []) == "Grüße\n".Bytes,
+      (Try zip.Read("nothing")) == Null, zip.Contains("folder"),
+      zip.Find("folder")?.Kind ?? ArchiveEntryKind.FILE, zip.Find("nothing") == Null)
+
+// A ZipWriter starts again after Finish, and a zip of nothing has no entries.
+zipped.Add("again.txt", poem)
+Local again = Try Zip.Read(zipped.Finish())
+Print(again.Count, Describe(again.Entries[0]), ZipOutcome(zipped.Finish()))
+
+// A tar of files, folders, a name pax has, one ustar splits, and one that isn't ASCII, read back
+// raw and through each compression.
+Local tarred = TarWriter()
+tarred.AddFolder("folder")
+tarred.Add("folder/poem.txt", poem)
+tarred.Add("folder/noise.bin", noise)
+tarred.Add("folder/empty.txt", [])
+tarred.Add("folder/ünïcode.txt", "Grüße\n".Bytes)
+tarred.Add(long, poem)
+tarred.Add(split, "split\n".Bytes)
+tarred.Add("folder/poem.txt", "a later entry of the same name\n".Bytes)
+Local tar = tarred.Finish()
+Print("tar: {tar.Count % 512} bytes past its last block")
+For packed In [tar, Gzip.Compress(tar), Zstd.Compress(tar), XZ.Compress(tar), Lz4.Compress(tar)]
+    Local reader = Try Tar.Read(packed)
+    Local all = True
+    For i = 0 Until reader.Count
+        Local entry = reader.Entries[i]
+        Local bytes = Try reader.ReadAt(i)
+        all = all && (entry.Kind != ArchiveEntryKind.FILE || bytes.Count == entry.Size)
+    End For
+
+    Local longRead = ((Try reader.Read(long)) ?? []) == poem
+    Local noiseRead = ((Try reader.Read("folder/noise.bin")) ?? []) == noise
+    Local laterRead = ((Try reader.Read("folder/poem.txt")) ?? []).Count
+    Print("  {packed.Count < tar.Count ? "compressed" : "raw"}: {reader.Count} entries", all,
+          longRead, noiseRead, laterRead)
+End For
+
+Local reader = Try Tar.Read(tar)
+For entry In reader.Entries
+    Print("  {Describe(entry)}")
+End For
+
+Print(TarOutcome(tarred.Finish()), TarOutcome([]))
+
+// 7z's coders and files: a header that isn't encoded, a stored solid folder of substreams, BCJ
+// before LZMA2, Delta before LZMA, two folders, a link, an anti-item, which isn't an entry, and
+// attributes for only some files, which say a folder is one.
+For archive In [Plain7z(), Chain7z(), Delta7z(), Link7z(), Partial7z()]
+    Local seven = Try SevenZip.Read(archive)
+    Local parts: String[] = []
+    For i = 0 Until seven.Count
+        Local entry = seven.Entries[i]
+        Local bytes = Try seven.ReadAt(i)
+        parts.Add("{Describe(entry)}{bytes.Count == entry.Size ? "" : ", short"}")
+    End For
+
+    Print("7z:", parts.Join(", "))
+End For
+
+Local plain = Try SevenZip.Read(Plain7z())
+Local bytes: UInt8[] = []
+For i = 1 To 4
+    For b = 0 To 255
+        bytes.Add(b As UInt8)
+    End For
+End For
+
+Print(((Try plain.Read("plain/ünïcode.txt")) ?? []) == "second file, ünïcode\n".Bytes,
+      ((Try plain.Read("plain/one.txt")) ?? []) == "first file\n".Bytes,
+      ((Try plain.Read("plain/bytes.bin")) ?? []) == bytes)
+Local code: UInt8[] = []
+Local call: UInt8[] = [0xe8, 0x10, 0x20, 0x00, 0x00, 0x90, 0x90]
+For i = 1 To 300
+    code.AddAll(call)
+End For
+
+Local samples: UInt8[] = []
+For i = 0 Until 3000
+    samples.Add(((i * 3) % 256) As UInt8)
+End For
+
+Print((Try (Try SevenZip.Read(Chain7z())).ReadAt(0)) == code,
+      (Try (Try SevenZip.Read(Delta7z())).ReadAt(0)) == samples)
+
+// Broken archives, and what isn't supported.
+Local notArchive = "this isn't an archive of any kind, though it's long enough to be one".Bytes
+Local tiny = ZipWriter()
+tiny.Add("stored.txt", "AAAAAAAAAAAAAAAA".Bytes, ZipMethod.STORE)
+tiny.Add("deflate.txt", poem)
+Local tinyZip = tiny.Finish()
+Print("zip, not one:", ZipOutcome(notArchive))
+Print("zip, none:", ZipOutcome([]))
+Print("zip, cut:", ZipOutcome(tinyZip[0..tinyZip.Count / 2]))
+Print("zip, stored byte flipped:", ZipOutcome(Flipped(tinyZip, Find(tinyZip, "AAAA".Bytes))))
+
+Local tinyTar = TarWriter()
+tinyTar.Add("poem.txt", poem)
+Local smallTar = tinyTar.Finish()
+Local garbage: UInt8[] = []
+garbage.Resize(512, 0x41)
+Print("tar, not one:", TarOutcome(garbage))
+Print("tar, cut:", TarOutcome(smallTar[0..700]))
+Print("tar, cut short of a block:", TarOutcome(smallTar[0..300]))
+Print("tar, header flipped:", TarOutcome(Flipped(smallTar, 10)))
+Print("tar.gz, cut:", TarOutcome(Gzip.Compress(smallTar)[0..30]))
+
+Local sample = Plain7z()
+Print("7z, not one:", SevenZipOutcome(notArchive))
+Print("7z, cut:", SevenZipOutcome(sample[0..sample.Count - 10]))
+Print("7z, start header flipped:", SevenZipOutcome(Flipped(sample, 20)))
+Print("7z, header flipped:", SevenZipOutcome(Flipped(sample, sample.Count - 20)))
+Print("7z, a file's byte flipped:", SevenZipOutcome(Flipped(sample, 33)))
+Print("7z, PPMd:", SevenZipOutcome(Ppmd7z()))
+
+// Each entry of a tar or a zip, and what reading it gives: its bytes, or the IOError.
+Function TarList(data: UInt8[]): String
+    Local parts: String[] = []
+    Try
+        Local reader = Tar.Read(data)
+        For i = 0 Until reader.Count
+            Local entry = Describe(reader.Entries[i])
+            Try
+                parts.Add("{entry}: {reader.ReadAt(i).Count} bytes")
+            Catch e As IOError
+                parts.Add("{entry}: {e.Kind}: {e.Message}")
+            End Try
+        End For
+    Catch e As IOError
+        parts.Add("{e.Kind}: {e.Message}")
+    End Try
+    Return parts.Join(", ")
+End Function
+
+Function ZipList(data: UInt8[]): String
+    Local parts: String[] = []
+    Try
+        Local reader = Zip.Read(data)
+        For i = 0 Until reader.Count
+            Local entry = Describe(reader.Entries[i])
+            Try
+                parts.Add("{entry}: {reader.ReadAt(i).Count} bytes")
+            Catch e As IOError
+                parts.Add("{entry}: {e.Kind}: {e.Message}")
+            End Try
+        End For
+    Catch e As IOError
+        parts.Add("{e.Kind}: {e.Message}")
+    End Try
+    Return parts.Join(", ")
+End Function
+
+// Tars and zips of what common tools write otherwise, or don't, as make_archives.py made them.
+Print("old tar:", TarList(V7Tar()))
+Print("base-256 size:", TarList(Base256Tar()))
+Print("links:", TarList(LinksTar()))
+Print("sparse:", TarList(SparseTar()))
+Print("code page 437:", ZipList(Cp437Zip()))
+Print("zip link:", ZipList(LinkZip()))
+Print("encrypted:", ZipList(EncryptedZip()))
+Print("BZip2:", ZipList(Bzip2Zip()))
+
+// What a header claims takes no memory that its data doesn't give, and a dictionary larger than
+// an array's bytes isn't asked for.
+Print("7z, a folder larger than its data:", SevenZipOutcome(Liar7z()))
+Print("7z, a 4 GiB dictionary:", SevenZipOutcome(Greedy7z()))
+Try
+    XZ.Decompress(GreedyXz())
+Catch e As IOError
+    Print("xz, a 4 GiB dictionary:", e.Kind, e.Message)
+End Try
+
+// A folder's name with '/' after it already gets no other.
+Local slashed = ZipWriter()
+slashed.AddFolder("ends/")
+Local slashedTar = TarWriter()
+slashedTar.AddFolder("ends/")
+Print((Try Zip.Read(slashed.Finish())).Entries[0].Name,
+      (Try Tar.Read(slashedTar.Finish())).Entries[0].Name)

@@ -1,0 +1,2 @@
+True
+panic: Lz4's levels are from 1 to 12, not 13 at panic_compress_lz4_level.fb:6:1

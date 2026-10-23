@@ -1,0 +1,6 @@
+// An XZCompressor's level is one of XZ's, and one that isn't panics where it's made.
+Import std.core
+Import std.compress
+
+Local fine = XZCompressor(9)
+Local past = XZCompressor(10)

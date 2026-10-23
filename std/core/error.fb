@@ -50,7 +50,7 @@ Public Class ArgumentError Extends Error
 End Class
 
 Public Enum IOErrorKind
-    NOT_FOUND, PERMISSION_DENIED, ALREADY_EXISTS, UNEXPECTED_END, INTERRUPTED, OTHER
+    NOT_FOUND, PERMISSION_DENIED, ALREADY_EXISTS, UNEXPECTED_END, INVALID_DATA, INTERRUPTED, OTHER
 End Enum
 
 // Reading or writing a file, a stream, or the console failed. Path is the file's, when there is

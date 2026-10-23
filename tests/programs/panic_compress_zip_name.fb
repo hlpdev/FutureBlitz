@@ -1,0 +1,7 @@
+// A zip's entry has a name, and Add panics where it's called with none.
+Import std.core
+Import std.compress
+
+Local zip = ZipWriter()
+zip.Add("named.txt", [])
+zip.Add("", [])

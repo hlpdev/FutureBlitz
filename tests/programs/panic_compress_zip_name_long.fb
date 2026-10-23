@@ -1,0 +1,12 @@
+// A zip's names are 65535 bytes long at most, and Add panics where it's called with a
+// longer one.
+Import std.core
+Import std.compress
+
+Local name = ""
+For i = 1 To 65535
+    name = name + "a"
+End For
+Local zip = ZipWriter()
+zip.Add(name, [])
+zip.Add(name + "a", [])

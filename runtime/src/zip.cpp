@@ -1,0 +1,425 @@
+// std.compress's Zip, over minizip-ng with memory streams: a reader of a zip's entries, and a
+// writer of new ones, stored or by Deflate, LZMA, XZ, or Zstd.
+
+#include "compress_internal.hpp"
+#include "fb/compress.hpp"
+#include "fb/runtime.hpp"
+
+#include <algorithm>
+#include <array>
+#include <cstddef>
+#include <cstdint>
+#include <ctime>
+#include <span>
+#include <string>
+#include <string_view>
+#include <utility>
+#include <vector>
+
+extern "C" {
+#include <mz.h>
+#include <mz_os.h>
+#include <mz_strm.h>
+#include <mz_strm_mem.h>
+#include <mz_zip.h>
+}
+
+using fb::compress::chunk_size;
+using fb::compress::KIND_FILE;
+using fb::compress::KIND_FOLDER;
+using fb::compress::KIND_LINK;
+using fb::compress::most_bytes;
+using fb::compress::output_t;
+using fb::compress::RESULT_DONE;
+using fb::compress::RESULT_INVALID;
+using fb::compress::RESULT_TOO_LARGE;
+using fb::compress::RESULT_UNSUPPORTED;
+
+namespace {
+
+/// What code page 437, which a zip's names are in when they don't say they're UTF-8, has from
+/// 0x80 on, as Unicode.
+constexpr std::array<char16_t, 128> cp437 = {
+    0x00c7, 0x00fc, 0x00e9, 0x00e2, 0x00e4, 0x00e0, 0x00e5, 0x00e7, 0x00ea, 0x00eb, 0x00e8, 0x00ef,
+    0x00ee, 0x00ec, 0x00c4, 0x00c5, 0x00c9, 0x00e6, 0x00c6, 0x00f4, 0x00f6, 0x00f2, 0x00fb, 0x00f9,
+    0x00ff, 0x00d6, 0x00dc, 0x00a2, 0x00a3, 0x00a5, 0x20a7, 0x0192, 0x00e1, 0x00ed, 0x00f3, 0x00fa,
+    0x00f1, 0x00d1, 0x00aa, 0x00ba, 0x00bf, 0x2310, 0x00ac, 0x00bd, 0x00bc, 0x00a1, 0x00ab, 0x00bb,
+    0x2591, 0x2592, 0x2593, 0x2502, 0x2524, 0x2561, 0x2562, 0x2556, 0x2555, 0x2563, 0x2551, 0x2557,
+    0x255d, 0x255c, 0x255b, 0x2510, 0x2514, 0x2534, 0x252c, 0x251c, 0x2500, 0x253c, 0x255e, 0x255f,
+    0x255a, 0x2554, 0x2569, 0x2566, 0x2560, 0x2550, 0x256c, 0x2567, 0x2568, 0x2564, 0x2565, 0x2559,
+    0x2558, 0x2552, 0x2553, 0x256b, 0x256a, 0x2518, 0x250c, 0x2588, 0x2584, 0x258c, 0x2590, 0x2580,
+    0x03b1, 0x00df, 0x0393, 0x03c0, 0x03a3, 0x03c3, 0x00b5, 0x03c4, 0x03a6, 0x0398, 0x03a9, 0x03b4,
+    0x221e, 0x03c6, 0x03b5, 0x2229, 0x2261, 0x00b1, 0x2265, 0x2264, 0x2320, 0x2321, 0x00f7, 0x2248,
+    0x00b0, 0x2219, 0x00b7, 0x221a, 0x207f, 0x00b2, 0x25a0, 0x00a0,
+};
+
+/// The methods as std.compress numbers them, from 0: stored, Deflate, LZMA, XZ, and Zstd.
+constexpr std::array<std::uint16_t, 5> methods = {
+    MZ_COMPRESS_METHOD_STORE, MZ_COMPRESS_METHOD_DEFLATE, MZ_COMPRESS_METHOD_LZMA,
+    MZ_COMPRESS_METHOD_XZ,    MZ_COMPRESS_METHOD_ZSTD,
+};
+
+/// Made by Unix, by version 6.3 of the format, which has every method above.
+constexpr std::uint16_t made_by = (static_cast<std::uint32_t>(MZ_HOST_SYSTEM_UNIX) << 8U) | 63U;
+
+/// A Unix file's and folder's modes, in the top half of an entry's external attributes, which
+/// MS-DOS's folder bit is in the bottom half of.
+constexpr std::uint32_t file_mode = 0100644U << 16U;
+constexpr std::uint32_t folder_mode = (040755U << 16U) | 0x10U;
+
+/// A name as UTF-8: as it is, when it says it is or is well-formed UTF-8 anyway, as many tools
+/// write without saying, or else read as code page 437.
+std::string name_of(const std::string_view name, const std::uint16_t flag) {
+    if ((flag & MZ_ZIP_FLAG_UTF8) != 0 || fb::compress::is_utf8(name)) {
+        return fb::compress::utf8_or_replaced(name);
+    }
+
+    std::string made;
+    for (const char byte : name) {
+        const auto code = static_cast<std::uint8_t>(byte);
+        fb::compress::append_utf8(made, code < 0x80 ? code : cp437[code - 0x80]);
+    }
+
+    return made;
+}
+
+/// The time minizip-ng writes as 1980-01-01 00:00, the first an entry's date can be, in local
+/// time, as it writes dates, so the bytes are the same everywhere.
+std::time_t first_date() {
+    std::tm date{};
+    date.tm_year = 80;
+    date.tm_mday = 1;
+    date.tm_isdst = -1;
+    return std::mktime(&date);
+}
+
+struct entry_t {
+    std::string name;
+    std::int64_t size;
+    std::int32_t kind;
+    std::string target;
+    /// Where its record is in the central directory.
+    std::int64_t position;
+};
+
+struct reader_t {
+    std::vector<std::uint8_t> bytes;
+    void* stream = nullptr;
+    void* zip = nullptr;
+    std::vector<entry_t> entries;
+    std::int32_t result = RESULT_DONE;
+    std::string message;
+};
+
+struct writer_t {
+    void* stream = nullptr;
+    void* zip = nullptr;
+};
+
+std::int32_t fail(reader_t& reader, const std::int32_t result, const std::string_view message) {
+    reader.message = message;
+    return result;
+}
+
+/// Reads the entry at `index`, giving its bytes to `add` a chunk at a time, which gives false when
+/// they'd go past its size: a result_t.
+template <typename Add>
+std::int32_t read_entry(reader_t& reader, const std::size_t index, const Add& add) {
+    const entry_t& entry = reader.entries[index];
+    mz_zip_file* info = nullptr;
+    if (mz_zip_goto_entry(reader.zip, entry.position) != MZ_OK ||
+        mz_zip_entry_get_info(reader.zip, &info) != MZ_OK) {
+        return fail(reader, RESULT_INVALID, "its central directory is broken");
+    }
+
+    if ((info->flag & MZ_ZIP_FLAG_ENCRYPTED) != 0) {
+        return fail(reader, RESULT_UNSUPPORTED, "'" + entry.name + "' is encrypted");
+    }
+
+    if (entry.size > most_bytes) {
+        return fail(reader, RESULT_TOO_LARGE, "");
+    }
+
+    const std::int32_t opened = mz_zip_entry_read_open(reader.zip, 0, nullptr);
+    if (opened == MZ_SUPPORT_ERROR) {
+        return fail(reader, RESULT_UNSUPPORTED,
+                    "'" + entry.name + "' is compressed by method " +
+                        std::to_string(info->compression_method));
+    }
+
+    if (opened != MZ_OK) {
+        return fail(reader, RESULT_INVALID, "'" + entry.name + "' is broken");
+    }
+
+    std::vector<std::uint8_t> chunk(chunk_size);
+    std::int64_t total = 0;
+    std::int32_t result = RESULT_DONE;
+    while (result == RESULT_DONE) {
+        const std::int32_t read =
+            mz_zip_entry_read(reader.zip, chunk.data(), static_cast<std::int32_t>(chunk.size()));
+        if (read == 0) {
+            break;
+        }
+
+        if (read < 0) {
+            result = fail(reader, RESULT_INVALID, "'" + entry.name + "' is broken");
+        } else if (!add(std::span<const std::uint8_t>(chunk).first(
+                       static_cast<std::size_t>(read)))) {
+            result = fail(reader, RESULT_INVALID,
+                          "'" + entry.name + "' has more bytes than its size says");
+        }
+
+        total += read;
+    }
+
+    const std::int32_t closed = mz_zip_entry_close(reader.zip);
+    if (result != RESULT_DONE) {
+        return result;
+    }
+
+    if (closed == MZ_CRC_ERROR) {
+        return fail(reader, RESULT_INVALID, "'" + entry.name + "' doesn't match its CRC-32");
+    }
+
+    if (closed != MZ_OK || total != entry.size) {
+        return fail(reader, RESULT_INVALID,
+                    "'" + entry.name + "' has fewer bytes than its size says");
+    }
+
+    return RESULT_DONE;
+}
+
+/// Opens the zip in the reader's bytes, and lists its entries: a result_t.
+std::int32_t open(reader_t& reader) {
+    reader.stream = mz_stream_mem_create();
+    mz_stream_mem_set_buffer(reader.stream, reader.bytes.data(),
+                             static_cast<std::int32_t>(reader.bytes.size()));
+    reader.zip = mz_zip_create();
+    if (mz_stream_open(reader.stream, nullptr, MZ_OPEN_MODE_READ) != MZ_OK ||
+        mz_zip_open(reader.zip, reader.stream, MZ_OPEN_MODE_READ) != MZ_OK) {
+        return fail(reader, RESULT_INVALID, "it has no central directory");
+    }
+
+    std::int32_t at = mz_zip_goto_first_entry(reader.zip);
+    for (; at == MZ_OK; at = mz_zip_goto_next_entry(reader.zip)) {
+        mz_zip_file* info = nullptr;
+        if (mz_zip_entry_get_info(reader.zip, &info) != MZ_OK) {
+            break;
+        }
+
+        std::int32_t kind = KIND_FILE;
+        if (mz_zip_entry_is_dir(reader.zip) == MZ_OK) {
+            kind = KIND_FOLDER;
+        } else if (mz_zip_entry_is_symlink(reader.zip) == MZ_OK) {
+            kind = KIND_LINK;
+        }
+
+        // A folder's name is given without the '/' after it, as every archive's are.
+        std::string name = name_of({ info->filename, info->filename_size }, info->flag);
+        while (kind == KIND_FOLDER && name.size() > 1 && mz_os_is_dir_separator(name.back()) != 0) {
+            name.pop_back();
+        }
+
+        reader.entries.push_back({
+            .name = std::move(name),
+            .size = kind == KIND_FOLDER ? 0 : info->uncompressed_size,
+            .kind = kind,
+            .target = info->linkname != nullptr ? info->linkname : "",
+            .position = mz_zip_get_entry(reader.zip),
+        });
+    }
+
+    if (at != MZ_END_OF_LIST) {
+        return fail(reader, RESULT_INVALID, "its central directory is broken");
+    }
+
+    // A link's target is its data, unless an extra field gave it.
+    for (std::size_t i = 0; i < reader.entries.size(); ++i) {
+        entry_t& entry = reader.entries[i];
+        if (entry.kind != KIND_LINK || !entry.target.empty()) {
+            continue;
+        }
+
+        std::string target;
+        const auto add = [&](const std::span<const std::uint8_t> bytes) {
+            if (std::cmp_greater(target.size() + bytes.size(), entry.size)) {
+                return false;
+            }
+
+            target.append(reinterpret_cast<const char*>(bytes.data()), bytes.size());
+            return true;
+        };
+        if (read_entry(reader, i, add) == RESULT_DONE) {
+            entry.target = fb::compress::utf8_or_replaced(target);
+        }
+    }
+
+    reader.message.clear();
+    return RESULT_DONE;
+}
+
+void start(writer_t& writer) {
+    writer.stream = mz_stream_mem_create();
+    mz_stream_mem_set_grow_size(writer.stream, static_cast<std::int32_t>(chunk_size));
+    writer.zip = mz_zip_create();
+    // Each local header has its entry's sizes and CRC, which minizip-ng goes back to write, as
+    // the stream can seek, so it needs no data descriptor after the entry.
+    mz_zip_set_data_descriptor(writer.zip, 0);
+    if (mz_stream_open(writer.stream, nullptr, MZ_OPEN_MODE_CREATE) != MZ_OK ||
+        mz_zip_open(writer.zip, writer.stream, MZ_OPEN_MODE_WRITE) != MZ_OK) {
+        fb_panic("std.compress's Zip couldn't start a zip", nullptr);
+    }
+}
+
+void stop(writer_t& writer) {
+    mz_zip_delete(&writer.zip);
+    mz_stream_mem_delete(&writer.stream);
+}
+
+reader_t& reader_of(void* reader) {
+    return *static_cast<reader_t*>(reader);
+}
+
+const reader_t& reader_of(const void* reader) {
+    return *static_cast<const reader_t*>(reader);
+}
+
+const entry_t& entry_of(const void* reader, const std::int64_t index) {
+    return reader_of(reader).entries[static_cast<std::size_t>(index)];
+}
+
+} // namespace
+
+extern "C" {
+
+// What minizip-ng's zip code asks of the OS layer it isn't built with, the same on every OS: zip's
+// names end a folder's with '/', or '\' as Windows' tools may write it, and its encryption, which
+// alone wants random bytes, isn't built.
+int32_t mz_os_is_dir_separator(const char c) {
+    return c == '/' || c == '\\' ? 1 : 0;
+}
+
+int32_t mz_os_rand(std::uint8_t* /*buf*/, const int32_t /*size*/) {
+    return 0;
+}
+
+void* fb_zip_reader_new(const fb_array_t* data) {
+    const std::span<const std::uint8_t> bytes = fb::compress::bytes_of(data);
+    auto* reader = new reader_t{ .bytes = { bytes.begin(), bytes.end() } };
+    reader->result = open(*reader);
+    return reader;
+}
+
+std::int32_t fb_zip_reader_result(const void* reader) {
+    return reader_of(reader).result;
+}
+
+std::int64_t fb_zip_reader_count(const void* reader) {
+    return static_cast<std::int64_t>(reader_of(reader).entries.size());
+}
+
+fb_string_t* fb_zip_reader_name(const void* reader, const std::int64_t index) {
+    return fb::compress::string_of(entry_of(reader, index).name);
+}
+
+std::int64_t fb_zip_reader_size(const void* reader, const std::int64_t index) {
+    return entry_of(reader, index).size;
+}
+
+std::int32_t fb_zip_reader_kind(const void* reader, const std::int64_t index) {
+    return entry_of(reader, index).kind;
+}
+
+fb_string_t* fb_zip_reader_target(const void* reader, const std::int64_t index) {
+    return fb::compress::string_of(entry_of(reader, index).target);
+}
+
+std::int32_t fb_zip_reader_read(void* reader, const std::int64_t index, fb_array_t* output) {
+    reader_t& state = reader_of(reader);
+    output_t out(output, entry_of(reader, index).size);
+    return read_entry(state, static_cast<std::size_t>(index),
+                      [&](const std::span<const std::uint8_t> bytes) { return out.add(bytes); });
+}
+
+fb_string_t* fb_zip_reader_message(const void* reader) {
+    return fb::compress::string_of(reader_of(reader).message);
+}
+
+void fb_zip_reader_free(void* reader) {
+    auto* state = static_cast<reader_t*>(reader);
+    if (state->zip != nullptr) {
+        mz_zip_close(state->zip);
+        mz_zip_delete(&state->zip);
+    }
+
+    if (state->stream != nullptr) {
+        mz_stream_mem_delete(&state->stream);
+    }
+
+    delete state;
+}
+
+void* fb_zip_writer_new() {
+    auto* writer = new writer_t;
+    start(*writer);
+    return writer;
+}
+
+void fb_zip_writer_add(void* writer, const fb_string_t* name, const fb_array_t* data,
+                       const std::int32_t method, const std::int32_t level,
+                       const std::int32_t folder) {
+    auto& state = *static_cast<writer_t*>(writer);
+    const std::string filename(fb::compress::text_of(name));
+    const bool ascii = std::ranges::all_of(
+        filename, [](const char byte) { return static_cast<std::uint8_t>(byte) < 0x80; });
+    mz_zip_file info{};
+    info.version_madeby = made_by;
+    info.flag = ascii ? 0 : MZ_ZIP_FLAG_UTF8;
+    info.compression_method =
+        folder != 0 ? MZ_COMPRESS_METHOD_STORE : methods[static_cast<std::size_t>(method)];
+    info.modified_date = first_date();
+    info.filename = filename.c_str();
+    info.external_fa = folder != 0 ? folder_mode : file_mode;
+    info.zip64 = MZ_ZIP64_AUTO;
+    if (mz_zip_entry_write_open(state.zip, &info, static_cast<std::int16_t>(level), 0, nullptr) !=
+        MZ_OK) {
+        fb_panic("std.compress's Zip couldn't add an entry", nullptr);
+    }
+
+    const std::span<const std::uint8_t> bytes = fb::compress::bytes_of(data);
+    for (std::size_t at = 0; at < bytes.size(); at += chunk_size) {
+        const std::size_t size = std::min(chunk_size, bytes.size() - at);
+        if (mz_zip_entry_write(state.zip, bytes.data() + at, static_cast<std::int32_t>(size)) !=
+            static_cast<std::int32_t>(size)) {
+            fb_panic("std.compress's Zip couldn't write an entry", nullptr);
+        }
+    }
+
+    if (mz_zip_entry_close(state.zip) != MZ_OK) {
+        fb_panic("std.compress's Zip couldn't finish an entry", nullptr);
+    }
+}
+
+void fb_zip_writer_finish(void* writer, fb_array_t* output) {
+    auto& state = *static_cast<writer_t*>(writer);
+    if (mz_zip_close(state.zip) != MZ_OK) {
+        fb_panic("std.compress's Zip couldn't finish a zip", nullptr);
+    }
+
+    const void* buffer = nullptr;
+    std::int32_t length = 0;
+    mz_stream_mem_get_buffer(state.stream, &buffer);
+    mz_stream_mem_get_buffer_length(state.stream, &length);
+    output_t out(output, most_bytes);
+    out.add_all({ static_cast<const std::uint8_t*>(buffer), static_cast<std::size_t>(length) });
+    stop(state);
+    start(state);
+}
+
+void fb_zip_writer_free(void* writer) {
+    auto* state = static_cast<writer_t*>(writer);
+    mz_zip_close(state->zip);
+    stop(*state);
+    delete state;
+}
+}

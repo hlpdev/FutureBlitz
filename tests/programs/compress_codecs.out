@@ -1,0 +1,75 @@
+Deflate
+  at once: True smaller: True
+  in parts: True
+  again: True True
+  none: UNEXPECTED_END: the Deflate data ends too soon
+  not it: INVALID_DATA: the Deflate data isn't valid: invalid code lengths set
+  short: UNEXPECTED_END: the Deflate data ends too soon
+  in parts, short: UNEXPECTED_END: the Deflate data ends too soon
+  limit: 1542 bytes OTHER: the Deflate data comes to more than 1541 bytes
+  in parts, limit: OTHER: the Deflate data comes to more than 1541 bytes
+  flipped: caught
+  twice: INVALID_DATA: the Deflate data isn't valid: there are more bytes after the end of the Deflate data
+Zlib
+  at once: True smaller: True
+  in parts: True
+  again: True True
+  none: UNEXPECTED_END: the Zlib data ends too soon
+  not it: INVALID_DATA: the Zlib data isn't valid: incorrect header check
+  short: UNEXPECTED_END: the Zlib data ends too soon
+  in parts, short: UNEXPECTED_END: the Zlib data ends too soon
+  limit: 1542 bytes OTHER: the Zlib data comes to more than 1541 bytes
+  in parts, limit: OTHER: the Zlib data comes to more than 1541 bytes
+  flipped: INVALID_DATA
+  twice: INVALID_DATA: the Zlib data isn't valid: there are more bytes after the end of the Zlib data
+Gzip
+  at once: True smaller: True
+  in parts: True
+  again: True True
+  none: UNEXPECTED_END: the Gzip data ends too soon
+  not it: INVALID_DATA: the Gzip data isn't valid: incorrect header check
+  short: UNEXPECTED_END: the Gzip data ends too soon
+  in parts, short: UNEXPECTED_END: the Gzip data ends too soon
+  limit: 1542 bytes OTHER: the Gzip data comes to more than 1541 bytes
+  in parts, limit: OTHER: the Gzip data comes to more than 1541 bytes
+  flipped: INVALID_DATA
+  twice: 3084 bytes
+Zstd
+  at once: True smaller: True
+  in parts: True
+  again: True True
+  none: UNEXPECTED_END: the Zstd data ends too soon
+  not it: INVALID_DATA: the Zstd data isn't valid: Unknown frame descriptor
+  short: UNEXPECTED_END: the Zstd data ends too soon
+  in parts, short: UNEXPECTED_END: the Zstd data ends too soon
+  limit: 1542 bytes OTHER: the Zstd data comes to more than 1541 bytes
+  in parts, limit: OTHER: the Zstd data comes to more than 1541 bytes
+  flipped: INVALID_DATA
+  twice: 3084 bytes
+Lz4
+  at once: True smaller: True
+  in parts: True
+  again: True True
+  none: UNEXPECTED_END: the Lz4 data ends too soon
+  not it: INVALID_DATA: the Lz4 data isn't valid: ERROR_frameType_unknown
+  short: UNEXPECTED_END: the Lz4 data ends too soon
+  in parts, short: UNEXPECTED_END: the Lz4 data ends too soon
+  limit: 1542 bytes OTHER: the Lz4 data comes to more than 1541 bytes
+  in parts, limit: OTHER: the Lz4 data comes to more than 1541 bytes
+  flipped: INVALID_DATA
+  twice: 3084 bytes
+XZ
+  at once: True smaller: True
+  in parts: True
+  again: True True
+  none: UNEXPECTED_END: the XZ data ends too soon
+  not it: INVALID_DATA: the XZ data isn't valid: the bytes aren't the .xz format
+  short: UNEXPECTED_END: the XZ data ends too soon
+  in parts, short: UNEXPECTED_END: the XZ data ends too soon
+  limit: 1542 bytes OTHER: the XZ data comes to more than 1541 bytes
+  in parts, limit: OTHER: the XZ data comes to more than 1541 bytes
+  flipped: INVALID_DATA
+  twice: 3084 bytes
+[31, 139, 8, 0, 0, 0, 0, 0, 0, 255] [31, 139, 8, 0, 0, 0, 0, 0, 2, 255] [120, 156]
+4 88
+OTHER: the Zstd data uses what isn't supported: Frame requires too much memory for decoding
