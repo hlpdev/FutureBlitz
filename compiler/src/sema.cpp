@@ -7529,9 +7529,7 @@ private:
             error(span, "Operator {} gives a Bool, not {}", name, shown_name(declared.type));
         }
 
-        if (!node.type_parameters.empty()) {
-            error(span, "an Operator can't have type parameters of its own");
-        }
+        check_operator_type_parameters(declared, name, span);
 
         if (!node.throws.empty()) {
             error(span, "an Operator can't throw");
@@ -7555,6 +7553,24 @@ private:
             error(span, "an Operator of {} needs a parameter of type Self", shown_name(owner));
         } else if (!takes_owner) {
             error(span, "an Operator of {} needs a parameter of that type", shown_name(owner));
+        }
+    }
+
+    /// An Operator's own type parameters, which only its operands' types give, as a call's
+    /// arguments give a Function's, so each is in one of them.
+    void check_operator_type_parameters(const symbol_t& declared, const std::string_view name,
+                                        const span_t span) {
+        std::vector<type_id_t> found;
+        for (const symbol_id_t parameter : declared.parameters) {
+            parameters_in(symbol(parameter).type, found);
+        }
+
+        for (const type_id_t parameter : declared.type_parameters) {
+            if (!std::ranges::contains(found, parameter)) {
+                error(span,
+                      "Operator {} takes {} from its operands' types, so one of them needs it",
+                      name, shown_name(parameter));
+            }
         }
     }
 
@@ -10361,6 +10377,10 @@ private:
             const expr_info_t& info = m_analysis.exprs[i];
             const auto id = static_cast<expr_id_t>(i);
             const span_t span = span_of(id);
+            if (info.symbol && runs_no_code(symbol(*info.symbol))) {
+                continue;
+            }
+
             // A call's own type arguments, after its Struct's or Class's.
             const auto full = m_call_arguments.find(id);
             const std::vector<type_id_t>& arguments =
@@ -10419,6 +10439,23 @@ private:
                       shown_name(edge.to.parameter));
             });
         }
+    }
+
+    /// Whether a constructor is the New a Struct without one gets, whose Fields' defaults, if it
+    /// has any, are known at compile time, so making a value with it runs none of its type's
+    /// code: a Quantity<L + L2> made in Quantity's own Operator is no step to a larger one.
+    [[nodiscard]] bool runs_no_code(const symbol_t& constructor) {
+        if (constructor.kind != symbol_kind_t::CONSTRUCTOR || constructor.declaration ||
+            is_class(constructor.owner)) {
+            return false;
+        }
+
+        return std::ranges::all_of(constructor.parameters, [this](const symbol_id_t field) {
+            const std::optional<stmt_id_t> declaration = symbol(field).declaration;
+            const auto* node =
+                declaration ? std::get_if<variable_stmt_t>(&m_ast.get(*declaration).node) : nullptr;
+            return node == nullptr || !node->value || info(*node->value).value.has_value();
+        });
     }
 
     /// Whether a type parameter's types reach another's through the instances and calls.

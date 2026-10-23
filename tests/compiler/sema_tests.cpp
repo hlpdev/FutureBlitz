@@ -8333,6 +8333,66 @@ TEST_CASE("an Operator an Extend of one instance adds beats the generic type's",
               .empty());
 }
 
+TEST_CASE("an Operator takes type parameters of its own from its operands", "[sema]") {
+    // Const ones and types, as a Function call infers them, with their constraints.
+    const std::string_view q = "Struct Q<Const A: Int>\n"
+                               "    Field V: Double\n"
+                               "    Operator *<Const B: Int>(x: Q<A>, y: Q<B>): Q<A + B> => "
+                               "Q<A + B>(x.V * y.V)\n"
+                               "    Operator /<Const B: Int>(x: Q<A>, y: Q<B>): Q<A - B> => "
+                               "Q<A - B>(x.V / y.V)\n"
+                               "    Operator +(x: Q<A>, y: Q<A>): Q<A> => Q<A>(x.V + y.V)\n"
+                               "End Struct\n";
+    CHECK(probe(std::format("{}Local x = Q<1>(2) * Q<-3>(4)", q)) == "Q<-2>");
+    CHECK(probe(std::format("{}Local x = Q<1>(2) / Q<-3>(4) * Q<1>(1)", q)) == "Q<5>");
+    const std::string_view box = "Import std.core\n"
+                                 "Struct Box<T>\n"
+                                 "    Field Item: T\n"
+                                 "    Operator &<U: Comparable>(a: Box<T>, b: Box<U>): (T, U) => "
+                                 "(a.Item, b.Item)\n"
+                                 "End Struct\n"
+                                 "Class Plain\nEnd Class\n";
+    CHECK(probe(std::format("{}Local x = Box(1) & Box(\"a\")", box)) == "(Int32, String)");
+
+    // One whose operands don't fit says which they are.
+    CHECK(errors_of(std::format("{}Local x = Q<1>(2) + Q<2>(3)", q)) ==
+          errors_t{ "Q<1>(2) + Q<2>(3): no Operator + takes (Q<1>, Q<2>)" });
+    CHECK(errors_of(std::format("{}Local x = Box(1) & Box(Plain())", box)) ==
+          errors_t{ "Box(1) & Box(Plain()): no Operator & takes (Box<Int32>, Box<Plain>)" });
+
+    // Only the operands give them, so each is in one of their types.
+    CHECK(errors_of("Struct Q<Const A: Int>\n"
+                    "    Operator *<Const B: Int>(x: Q<A>, y: Q<A>): Q<B> => Q<B>()\n"
+                    "End Struct") ==
+          errors_t{ "*: Operator * takes B from its operands' types, so one of them needs it" });
+
+    // An Extend's, found as the type's own are, and one that isn't generic still beats one that
+    // is where they take the same types.
+    CHECK(probe(std::format("{}Extend Q<A>\n"
+                            "    Operator %<Const B: Int>(x: Q<A>, y: Q<B>): Q<A % B> => "
+                            "Q<A % B>(x.V)\n"
+                            "End Extend\n"
+                            "Local x = Q<7>(1) % Q<4>(1)",
+                            q)) == "Q<3>");
+    CHECK(probe("Struct R<Const A: Int>\n"
+                "    Field V: Int\n"
+                "    Operator -<Const B: Int>(x: R<A>, y: R<B>): R<A - B> => R<A - B>(0)\n"
+                "End Struct\n"
+                "Extend R<2>\n"
+                "    Operator -(x: R<2>, y: R<2>): Int => 9\n"
+                "End Extend\n"
+                "Local x = R<2>(1) - R<2>(1)") == "Int32");
+
+    // Making a Struct whose New runs no code is no step to a larger instance, but calling a
+    // Method of one still is.
+    CHECK(errors_of("Struct S<Const A: Int>\n"
+                    "    Method Next(): Int => S<A + 1>().Next()\n"
+                    "End Struct\n"
+                    "Local x = S<1>().Next()") ==
+          errors_t{ "S<A + 1>().Next(): S<A> gets A + 1 for A here, which leads back to this code, "
+                    "so it would need a larger instance each time, without end" });
+}
+
 TEST_CASE("what an Extend of one instance adds can't override what the instance inherits",
           "[sema]") {
     const auto in_extend = [](const std::string_view base, const std::string_view member) {
