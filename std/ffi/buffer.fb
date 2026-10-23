@@ -30,13 +30,12 @@ Public Class Buffer<T: CData> Implements Iterable<T>
         If count < 0 Then Panic("a Buffer holds a count of values that isn't negative, not {count}")
         Local size = SizeOf<T>()
         If count > 9223372036854775807 / size
-            Panic("a Buffer of {count} {TypeName<T>()}s takes more bytes than an Int64 counts")
+            Panic("a Buffer of {Values(count)} takes more bytes than an Int64 counts")
         End If
 
         First = fb_mem_alloc((count * size) As UInt64)
         If First == Null
-            Panic("out of memory: a Buffer couldn't have {count} {TypeName<T>()}s, " +
-                  "{count * size} bytes")
+            Panic("out of memory: a Buffer couldn't have {Values(count)}, {count * size} bytes")
         End If
 
         Length = count
@@ -52,15 +51,24 @@ Public Class Buffer<T: CData> Implements Iterable<T>
 
     // A view of `count` T's of memory C owns, from `pointer`, which C keeps there while the view
     // is, since nothing else does, and doesn't give back. Panics when count is negative, or isn't
-    // 0 and pointer is Null.
+    // 0 and pointer is Null, or the T's take more bytes than an Int64 counts, as New does.
     @PanicsAtCaller
     Public Unsafe Static Method View(pointer: Ptr<T>, count: Int64): Buffer<T>
         If count < 0 Then Panic("a view holds a count of values that isn't negative, not {count}")
         If pointer == Null && count > 0
-            Panic("a view of {count} {TypeName<T>()}s can't start at a Null Ptr")
+            Panic("a view of {Values(count)} can't start at a Null Ptr")
+        End If
+
+        If count > 9223372036854775807 / SizeOf<T>()
+            Panic("a view of {Values(count)} takes more bytes than an Int64 counts")
         End If
 
         Return Buffer<T>(pointer, count, Null)
+    End Method
+
+    // "1 value of Int32", or "4 values of Point".
+    Static Method Values(count: Int64): String
+        Return "{count} value{count == 1 ? "" : "s"} of {TypeName<T>()}"
     End Method
 
     // How many T's it has.

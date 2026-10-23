@@ -1,0 +1,5 @@
+// A Buffer of more memory than there is panics.
+Import std.core
+Import std.ffi
+
+Local values = Buffer<UInt8>(4611686018427387904)

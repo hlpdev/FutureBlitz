@@ -1,0 +1,8 @@
+// A view of C's memory that has values can't start at Null.
+Import std.core
+Import std.ffi
+
+Unsafe
+    Print("{Buffer<Int64>.View(Null, 0).Count}")
+    Local values = Buffer<Int64>.View(Null, 1)
+End Unsafe

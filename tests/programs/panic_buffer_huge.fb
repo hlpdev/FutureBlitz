@@ -1,0 +1,5 @@
+// A Buffer's T's take no more bytes than an Int64 counts.
+Import std.core
+Import std.ffi
+
+Local values = Buffer<Int32>(4611686018427387904)

@@ -1,0 +1,8 @@
+// A view's T's take no more bytes than an Int64 counts, as a Buffer's own do.
+Import std.core
+Import std.ffi
+
+Unsafe
+    Local memory: Ptr<Int64> = Mem.Alloc(16)
+    Local values = Buffer<Int64>.View(memory, 2305843009213693952)
+End Unsafe
