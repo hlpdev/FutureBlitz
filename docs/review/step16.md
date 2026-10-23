@@ -4,7 +4,7 @@
 
 ## S16-calendar-3 (medium): VV can't parse a fixed zone's name, which Format writes, because ':' isn't a zone letter
 
-Status: fixed in 9e7261b0: VV reads a name that starts with a sign as the offset a fixed zone's name is (format.fb's ReadPiece); time_formats round-trips -08:00, +05:30, and +05:30:15
+Status: fixed in 2154fc9c: VV reads a name that starts with a sign as the offset a fixed zone's name is (format.fb's ReadPiece); time_formats round-trips -08:00, +05:30, and +05:30:15
 
 Where: std/time/format.fb:473
 
@@ -37,7 +37,7 @@ Skeptic: I ran p3.fb in debug and release. Both print '2026-10-23T04:30:00-08:00
 
 ## S16-lang-2 (medium): 2.Seconds without Import std.time doesn't say which Import is missing
 
-Status: fixed in 95269aaa: driver.cpp's declared_names records the Public Properties of std's Extends on built-in types, as it does their Methods, so 2.Seconds, 1.5.Minutes, and an Int64's Milliseconds say "'Seconds' is in std.time, which this file doesn't import" (sema test in "the built-in types have the built-in Interfaces' Methods")
+Status: fixed in 4f865786: driver.cpp's declared_names records the Public Properties of std's Extends on built-in types, as it does their Methods, so 2.Seconds, 1.5.Minutes, and an Int64's Milliseconds say "'Seconds' is in std.time, which this file doesn't import" (sema test in "the built-in types have the built-in Interfaces' Methods")
 
 Where: compiler/src/driver.cpp:1023
 
@@ -65,7 +65,7 @@ Skeptic: Ran the program (l2.fb) in debug and release. It printed exactly the er
 
 ## S16-lang-3 (medium): Sleep(Duration.MaxValue()) and Sleep(Deadline.Never().Remaining) return at once
 
-Status: fixed in adeeba29, with S16-pacing-2: fb_time_sleep's end is fb::time::sleep_end(), which gives the monotonic clock's latest time for a Sleep longer than it counts, and it sleeps a day at a time at most (runtime test "a Sleep longer than the monotonic clock counts ends at its latest time")
+Status: fixed in 6e861fb7, with S16-pacing-2: fb_time_sleep's end is fb::time::sleep_end(), which gives the monotonic clock's latest time for a Sleep longer than it counts, and it sleeps a day at a time at most (runtime test "a Sleep longer than the monotonic clock counts ends at its latest time")
 
 Where: runtime/src/time.cpp:33
 
@@ -90,7 +90,7 @@ Skeptic: Ran l3.fb (Sleep(Deadline.Never().Remaining)) and l3b.fb (Sleep(Duratio
 
 ## S16-pacing-1 (medium): FixedStep.Advance overflows Int when MaxSteps is Int's largest: a debug panic in std, and a negative step count in release
 
-Status: fixed in 59c8d411: Advance counts in Int64 from the start, so MaxSteps can be an Int's largest, which is no limit (time_pacing)
+Status: fixed in a85a511f: Advance counts in Int64 from the start, so MaxSteps can be an Int's largest, which is no limit (time_pacing)
 
 Where: std/time/timers.fb:203
 
@@ -117,7 +117,7 @@ Skeptic: I ran pacing/p1.fb (the finding's program). Debug printed 2147483647, t
 
 ## S16-pacing-2 (medium): Sleep of a Duration near the longest one returns at once, so Sleep(Deadline.Never().Remaining) doesn't block
 
-Status: fixed in adeeba29, with S16-lang-3 (the same bug)
+Status: fixed in 6e861fb7, with S16-lang-3 (the same bug)
 
 Where: runtime/src/time.cpp:33
 
@@ -142,7 +142,7 @@ Skeptic: I ran pacing/p2.fb with `timeout 10`. Debug and release both printed "r
 
 ## S16-pacing-3 (medium): RateLimiter overflows Int64 for a long per or a big burst: a debug panic inside std, a wrong answer in release
 
-Status: fixed in 59c8d411: Tolerance and TryTake's next full time saturate at what an Int64 of nanoseconds holds, and Remaining's differences are checked (time_pacing: a 200000 burst over a day, and RateLimiter(1, Duration.MaxValue()))
+Status: fixed in a85a511f: Tolerance and TryTake's next full time saturate at what an Int64 of nanoseconds holds, and Remaining's differences are checked (time_pacing: a 200000 burst over a day, and RateLimiter(1, Duration.MaxValue()))
 
 Where: std/time/timers.fb:256
 
@@ -175,7 +175,7 @@ Skeptic: I ran pacing/p3.fb. Debug gave "panic: integer overflow in '*' at p3.fb
 
 ## S16-calendar-1 (low): UnixNanoseconds and UnixMilliseconds panic for values an Int64 holds, in the last second before its minimum
 
-Status: fixed in 4c05a5fa: UnixMilliseconds and UnixNanoseconds go through calendar.fb's new Combined(whole, unit, rest), which takes a unit from the whole first when the rest has the other sign (time_timestamp round-trips Int64's least of both)
+Status: fixed in ecfe38b8: UnixMilliseconds and UnixNanoseconds go through calendar.fb's new Combined(whole, unit, rest), which takes a unit from the whole first when the rest has the other sign (time_timestamp round-trips Int64's least of both)
 
 Where: std/time/timestamp.fb:101
 
@@ -202,7 +202,7 @@ Skeptic: I ran calendar-refute/p1.fb in debug and release. Both print 1677-09-21
 
 ## S16-calendar-2 (low): Timestamp - Timestamp and LocalDateTime - LocalDateTime panic for differences a Duration holds
 
-Status: fixed in 4c05a5fa: Timestamp - Timestamp and Between (LocalDateTime - LocalDateTime) go through Combined too (time_timestamp: 9223372036.000000001 s either way, and 106751 days and 1 s)
+Status: fixed in ecfe38b8: Timestamp - Timestamp and Between (LocalDateTime - LocalDateTime) go through Combined too (time_timestamp: 9223372036.000000001 s either way, and 106751 days and 1 s)
 
 Where: std/time/timestamp.fb:132
 
@@ -230,7 +230,7 @@ Skeptic: I ran p2.fb in debug and release. Line 1 is '2562047h47m16s 2562047h47m
 
 ## S16-calendar-4 (low): ParseRfc2822 accepts zone offsets of 24 hours or more, making a TimeZone that Fixed and Find refuse
 
-Status: fixed in 52c41c09: ReadRfc2822Zone gives Null for hours past 23, as ReadOffset does (time_formats: +2359 reads, +2400 and +9959 are Null)
+Status: fixed in ae48c2dc: ReadRfc2822Zone gives Null for hours past 23, as ReadOffset does (time_formats: +2359 reads, +2400 and +9959 are Null)
 
 Where: std/time/format.fb:335
 
@@ -260,7 +260,7 @@ Skeptic: I ran p4.fb in debug and release. Both print '2026-10-23T14:05:09+99:59
 
 ## S16-calendar-5 (low): Format's DD writes 3 digits for days of the year past 99, but Parse with DD reads exactly 2
 
-Status: fixed in 52c41c09: DD reads two or three digits unless another number follows it, and the pattern table says so (time_formats: yyyy-DD round trip, 2026-05, and yyyyDDHH)
+Status: fixed in ae48c2dc: DD reads two or three digits unless another number follows it, and the pattern table says so (time_formats: yyyy-DD round trip, 2026-05, and yyyyDDHH)
 
 Where: std/time/format.fb:730
 
@@ -289,7 +289,7 @@ Skeptic: I ran p5.fb in debug and release. Both print '2026-296' and then 'Null'
 
 ## S16-calendar-7 (low): Timestamp.Parse rejects valid RFC 3339: a leap second (RFC 3339's own example) and fractions past 9 digits
 
-Status: fixed in 52c41c09: in the forms with an offset, ReadIsoTime reads a leap second as the second before it, and in every form drops a fraction's digits past nanoseconds, as ParseIso's doc now says (time_timestamp's RFC 3339 cases; time_calendar's ten-digit TimeOfDay now reads, where it was Null)
+Status: fixed in ae48c2dc: in the forms with an offset, ReadIsoTime reads a leap second as the second before it, and in every form drops a fraction's digits past nanoseconds, as ParseIso's doc now says (time_timestamp's RFC 3339 cases; time_calendar's ten-digit TimeOfDay now reads, where it was Null)
 
 Where: std/time/format.fb:178
 
@@ -323,7 +323,7 @@ Skeptic: I ran p7.fb in debug and release. Both print '[1990-12-31T23:59:60Z] ->
 
 ## S16-lang-1 (low): A Scheduler's time is a sum of Doubles, so Wait(1.Seconds) isn't done after exactly one second of ticks
 
-Status: fixed in 0c54b1c1: timers' due times are Int64 nanoseconds, a Scheduler's time is its Double sum of seconds read to the nearest nanosecond, and the real clock's is steady_clock's nanoseconds, so ticks of 0.1, 1/30, 1/60, 1/144, and 0.25 reach a one-second Wait in 10, 30, 60, 144, and 4 ticks (scheduler_ticks; before, 11, 31, 60, 145, and 4). Rounding the sum, not each tick, is what makes 1/30 and 1/144 land, which the skeptic found per-tick rounding misses
+Status: fixed in 20a7b4cd: timers' due times are Int64 nanoseconds, a Scheduler's time is its Double sum of seconds read to the nearest nanosecond, and the real clock's is steady_clock's nanoseconds, so ticks of 0.1, 1/30, 1/60, 1/144, and 0.25 reach a one-second Wait in 10, 30, 60, 144, and 4 ticks (scheduler_ticks; before, 11, 31, 60, 145, and 4). Rounding the sum, not each tick, is what makes 1/30 and 1/144 land, which the skeptic found per-tick rounding misses
 
 Where: runtime/src/thread.cpp:665
 
@@ -365,7 +365,7 @@ Skeptic: Ran the program (l1.fb) in debug and release. Both print '1s after ten 
 
 ## S16-lang-4 (low): Scaling or dividing a Duration by an Int8, Int16, UInt8, UInt16, or UInt32 is ambiguous
 
-Status: fixed in 4b0243ad: * on either side and / take Int8, Int16, UInt8, UInt16, and UInt32 exactly (time_duration)
+Status: fixed in f03124fe: * on either side and / take Int8, Int16, UInt8, UInt16, and UInt32 exactly (time_duration)
 
 Where: std/time/duration.fb:224
 
@@ -393,7 +393,7 @@ Skeptic: Ran l4.fb in debug and release. Both give 'Operator * is ambiguous for 
 
 ## S16-lang-5 (low): Scaling by a Double drops nanoseconds past 2^53 ns (about 104 days), and MaxValue() * 1.0 panics
 
-Status: fixed in 4b0243ad: Scaled() and / by a Double split the count into a part a Double holds and the rest, add each product's error from fma (and the quotient's exact remainder), and sum whole parts as Int64s and fractions as a Double, ties to even, so (365.Days + 1ns) * 1.0 is itself and MaxValue() * 1.0 is MaxValue(); one past the longest says "1h0m0s * inf is longer than a Duration holds" (time_duration, panic_duration_scale_double)
+Status: fixed in f03124fe: Scaled() and / by a Double split the count into a part a Double holds and the rest, add each product's error from fma (and the quotient's exact remainder), and sum whole parts as Int64s and fractions as a Double, ties to even, so (365.Days + 1ns) * 1.0 is itself and MaxValue() * 1.0 is MaxValue(); one past the longest says "1h0m0s * inf is longer than a Duration holds" (time_duration, panic_duration_scale_double)
 
 Where: std/time/duration.fb:232
 
@@ -424,7 +424,7 @@ Skeptic: Ran l5.fb in debug and release, with identical output: '315360000000000
 
 ## S16-lang-6 (low): Scaling or dividing by NaN panics with "nan nanoseconds is longer than a Duration holds"
 
-Status: fixed in 4b0243ad: a NaN scale panics with "a Duration can't be scaled by NaN", or "divided by NaN", the same in every build (panic_duration_scale_nan, panic_duration_divide_nan; panic_duration_scale_double's comment says it's an infinity's)
+Status: fixed in f03124fe: a NaN scale panics with "a Duration can't be scaled by NaN", or "divided by NaN", the same in every build (panic_duration_scale_nan, panic_duration_divide_nan; panic_duration_scale_double's comment says it's an infinity's)
 
 Where: std/time/duration.fb:298
 
@@ -449,7 +449,7 @@ Skeptic: Ran l6.fb (1.Hours * (zero/zero)). Debug gives 'panic: -nan nanoseconds
 
 ## S16-lang-8 (low): decisions.md and the runtime's comments still describe Seconds(n) and RealSeconds(n)
 
-Status: fixed in 0c54b1c1: thread.cpp's comments say NextFrame, Wait, and RealWait, and "0 for Wait and RealWait"; a comment, so no test. decisions.md's rows are the coordinator's
+Status: fixed in 20a7b4cd: thread.cpp's comments say NextFrame, Wait, and RealWait, and "0 for Wait and RealWait"; a comment, so no test. decisions.md's rows are the coordinator's
 
 Where: docs/decisions.md:612
 
@@ -475,7 +475,7 @@ Skeptic: Ran l8.fb. 'Seconds' isn't declared and 'RealSeconds' isn't declared, s
 
 ## S16-pacing-4 (low): FixedStep drops the leftover part-step (Alpha snaps to 0) once a frame passes MaxSteps + 1 steps, though the doc says only whole steps are dropped
 
-Status: fixed in 59c8d411: Advance keeps the part of a step left over however long the frame, dropping only whole steps past MaxSteps, as the comment says (time_pacing: 85, 95, 1005, and 100000005 ms of 10 ms steps each give 8 and 0.5; its line 20 is now 8 0.02)
+Status: fixed in a85a511f: Advance keeps the part of a step left over however long the frame, dropping only whole steps past MaxSteps, as the comment says (time_pacing: 85, 95, 1005, and 100000005 ms of 10 ms steps each give 8 and 0.5; its line 20 is now 8 0.02)
 
 Where: std/time/timers.fb:206
 
@@ -507,7 +507,7 @@ Skeptic: I ran pacing/p4.fb. Debug and release both printed "8 0.5 / 8 0 / 8 0".
 
 ## S16-pacing-5 (low): Timer's comment promises it fires at most 2 ms late, and calls its clock the real clock; on Windows it is ~10 ms late, and the clock is monotonic
 
-Status: fixed in 29a981fe: Timer's comment says a tick is never early and comes as soon after its time as the OS's timer lets it, within about 16 ms on Windows, on the monotonic clock, as fb_io_after's does; a comment, so no test
+Status: fixed in 7d3e23e5: Timer's comment says a tick is never early and comes as soon after its time as the OS's timer lets it, within about 16 ms on Windows, on the monotonic clock, as fb_io_after's does; a comment, so no test
 
 Where: std/time/timers.fb:15
 
