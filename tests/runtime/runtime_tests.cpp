@@ -457,3 +457,77 @@ TEST_CASE("a String's Chars are its code points, and its Bytes are its UTF-8", "
     fb_object_release(&bytes->header);
     CHECK(type.live == 0);
 }
+
+TEST_CASE("std.text's functions read a String by byte position", "[runtime]") {
+    // "aé€😀a" has characters of one, two, three, and four bytes, and an "a" at either end.
+    fb_string_t* text = fb_string_from_cstring("a\xC3\xA9\xE2\x82\xAC\xF0\x9F\x98\x80"
+                                               "a");
+    fb_string_t* a = fb_string_from_cstring("a");
+    fb_string_t* euro = fb_string_from_cstring("\xE2\x82\xAC");
+    fb_string_t* empty = fb_string_from_cstring("");
+    CHECK(fb_text_length(text) == 11);
+    CHECK(fb_text_byte(text, 1) == 0xC3);
+    CHECK(fb_text_char_at(text, 1) == 0xE9);
+    CHECK(fb_text_char_at(text, 6) == 0x1F600);
+    CHECK(fb_text_char_count(text, 0, 11) == 5);
+    CHECK(fb_text_char_count(text, 3, 10) == 2);
+
+    // Find looks from a position on, and FindLast for one that ends at a position or sooner.
+    CHECK(fb_text_find(text, a, 0) == 0);
+    CHECK(fb_text_find(text, a, 1) == 10);
+    CHECK(fb_text_find(text, euro, 4) == -1);
+    CHECK(fb_text_find(text, empty, 6) == 6);
+    CHECK(fb_text_find_last(text, a, 11) == 10);
+    CHECK(fb_text_find_last(text, a, 10) == 0);
+    CHECK(fb_text_find_last(text, euro, 5) == -1);
+    CHECK(fb_text_find_last(text, euro, 6) == 3);
+    CHECK(fb_text_find_last(text, text, 10) == -1);
+
+    // What's at a position can be part of a character, or run past the end.
+    CHECK(fb_text_matches_at(text, euro, 3) == 1);
+    CHECK(fb_text_matches_at(text, euro, 2) == 0);
+    CHECK(fb_text_matches_at(text, a, 10) == 1);
+    CHECK(fb_text_matches_at(text, a, 11) == 0);
+    CHECK(fb_text_matches_at(text, empty, 11) == 1);
+    CHECK(fb_text_matches_at(a, text, 0) == 0);
+
+    CHECK(take(fb_text_slice(text, 1, 6)) == "\xC3\xA9\xE2\x82\xAC");
+    CHECK(take(fb_text_slice(text, 6, 6)).empty());
+    CHECK(take(fb_text_repeat(euro, 3)) == "\xE2\x82\xAC\xE2\x82\xAC\xE2\x82\xAC");
+    CHECK(take(fb_text_repeat(euro, 0)).empty());
+    for (fb_string_t* string : { text, a, euro, empty }) {
+        fb_string_release(string);
+    }
+}
+
+TEST_CASE("std.text's bytes are a String only when they're well-formed UTF-8", "[runtime]") {
+    fb_class_t type = numbers_class();
+    fb_array_t* bytes = fb_array_new(&type, 1, 0);
+    fb_string_t* text = fb_string_from_cstring("\xC3\xA9\xF0\x9F\x98\x80");
+    fb_text_append(bytes, text);
+    fb_text_append(bytes, text);
+    CHECK(bytes->count == 12);
+    CHECK(take(fb_text_from_utf8(bytes, 0, 12)) ==
+          "\xC3\xA9\xF0\x9F\x98\x80\xC3\xA9\xF0\x9F\x98\x80");
+    CHECK(take(fb_text_from_utf8(bytes, 2, 4)) == "\xF0\x9F\x98\x80");
+    // A count that cuts a character short, or starts inside one, isn't UTF-8.
+    CHECK(fb_text_from_utf8(bytes, 0, 5) == nullptr);
+    CHECK(fb_text_from_utf8(bytes, 1, 2) == nullptr);
+    CHECK(take(fb_text_from_utf8(bytes, 0, 0)).empty());
+
+    // Join puts the separator between each two parts.
+    fb_array_t* parts = fb_array_new(&type, sizeof(fb_string_t*), 0);
+    fb_string_t* comma = fb_string_from_cstring(", ");
+    CHECK(take(fb_text_join(parts, comma)).empty());
+    for (int i = 0; i < 3; ++i) {
+        *static_cast<fb_string_t**>(fb_array_push(parts, sizeof(fb_string_t*))) = text;
+    }
+
+    CHECK(take(fb_text_join(parts, comma)) ==
+          "\xC3\xA9\xF0\x9F\x98\x80, \xC3\xA9\xF0\x9F\x98\x80, \xC3\xA9\xF0\x9F\x98\x80");
+    fb_string_release(comma);
+    fb_string_release(text);
+    fb_object_release(&parts->header);
+    fb_object_release(&bytes->header);
+    CHECK(type.live == 0);
+}
