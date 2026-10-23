@@ -429,6 +429,13 @@ private:
 
     std::expected<void, std::string> optimize(const char* passes) {
         LLVMPassBuilderOptionsRef options = LLVMCreatePassBuilderOptions();
+        // A release build turns loops over arrays and straight-line code on several values, like
+        // a Vec4's Operators, into SIMD instructions.
+        if (m_options.mode == build_mode_t::RELEASE) {
+            LLVMPassBuilderOptionsSetLoopVectorization(options, 1);
+            LLVMPassBuilderOptionsSetSLPVectorization(options, 1);
+        }
+
         LLVMErrorRef error = LLVMRunPasses(m_module.get(), passes, m_machine.get(), options);
         LLVMDisposePassBuilderOptions(options);
         if (error != nullptr) {
