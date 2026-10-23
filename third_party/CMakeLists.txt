@@ -568,3 +568,50 @@ string(APPEND minizip_ng_notice "\nliblzma:\n\n${liblzma_notice}")
 fb_notice(minizip_ng "${minizip_ng_notice}")
 set(FB_MINIZIP_NG_NOTICE "${FB_MINIZIP_NG_NOTICE}" PARENT_SCOPE)
 set(FB_MINIZIP_NG_LICENSES "the zlib, BSD-3-Clause, and 0BSD licenses" PARENT_SCOPE)
+
+# libcurl: std.net.http's client, over mbedTLS's TLS (its mbedtls and mbedx509 libraries), with
+# the OS's certificate roots, which the runtime gives it, so it has no bundle of its own. Only
+# HTTP and HTTPS are built, without the curl tool, its docs, or any library it would find on the
+# machine.
+set(FB_CURL_VERSION 8.23.0)
+foreach(option BUILD_CURL_EXE BUILD_SHARED_LIBS BUILD_LIBCURL_DOCS BUILD_MISC_DOCS
+               ENABLE_CURL_MANUAL CURL_ENABLE_EXPORT_TARGET CURL_USE_PKGCONFIG CURL_USE_CMAKECONFIG
+               PICKY_COMPILER CURL_USE_OPENSSL CURL_USE_SCHANNEL CURL_WINDOWS_SSPI USE_NGHTTP2
+               USE_LIBIDN2 USE_WIN32_IDN USE_APPLE_IDN CURL_USE_LIBPSL CURL_USE_LIBSSH2
+               CURL_USE_GSSAPI ENABLE_UNIX_SOCKETS)
+  set(${option} OFF CACHE BOOL "" FORCE)
+endforeach()
+foreach(option BUILD_STATIC_LIBS CURL_DISABLE_INSTALL CURL_USE_MBEDTLS CURL_DISABLE_ALTSVC
+               CURL_DISABLE_AWS CURL_DISABLE_DICT CURL_DISABLE_DOH CURL_DISABLE_FILE
+               CURL_DISABLE_FTP CURL_DISABLE_GOPHER CURL_DISABLE_HSTS CURL_DISABLE_IMAP
+               CURL_DISABLE_IPFS CURL_DISABLE_KERBEROS_AUTH CURL_DISABLE_LDAP CURL_DISABLE_LDAPS
+               CURL_DISABLE_LIBCURL_OPTION CURL_DISABLE_MIME CURL_DISABLE_FORM_API
+               CURL_DISABLE_MQTT CURL_DISABLE_NEGOTIATE_AUTH CURL_DISABLE_NETRC CURL_DISABLE_POP3
+               CURL_DISABLE_PROGRESS_METER CURL_DISABLE_RTSP CURL_DISABLE_SMTP CURL_DISABLE_TELNET
+               CURL_DISABLE_TFTP CURL_DISABLE_BINDLOCAL CURL_DISABLE_GETOPTIONS)
+  set(${option} ON CACHE BOOL "" FORCE)
+endforeach()
+foreach(option CURL_ZLIB CURL_ZSTD CURL_BROTLI)
+  set(${option} OFF CACHE STRING "" FORCE)
+endforeach()
+set(CURL_CA_BUNDLE none CACHE STRING "" FORCE)
+set(CURL_CA_PATH none CACHE STRING "" FORCE)
+# Its mbedTLS is the one above, whose targets stand for the libraries its search would find.
+set(MBEDTLS_INCLUDE_DIR "${mbedtls_SOURCE_DIR}/include" CACHE PATH "" FORCE)
+set(MBEDTLS_LIBRARY mbedtls CACHE STRING "" FORCE)
+set(MBEDX509_LIBRARY mbedx509 CACHE STRING "" FORCE)
+set(MBEDCRYPTO_LIBRARY tfpsacrypto CACHE STRING "" FORCE)
+string(REPLACE "." "_" tag "${FB_CURL_VERSION}")
+FetchContent_Declare(
+  curl
+  URL https://github.com/curl/curl/releases/download/curl-${tag}/curl-${FB_CURL_VERSION}.tar.xz
+  URL_HASH SHA256=8dadd7d2536a314f982ad05a651b713f426bf7d02cc2c76cffb9796f2218e6c5
+  SYSTEM
+  EXCLUDE_FROM_ALL
+)
+fb_make_available(curl)
+set(FB_CURL_VERSION ${FB_CURL_VERSION} PARENT_SCOPE)
+file(READ "${curl_SOURCE_DIR}/COPYING" notices)
+fb_notice(curl "${notices}")
+set(FB_CURL_NOTICE "${FB_CURL_NOTICE}" PARENT_SCOPE)
+set(FB_CURL_LICENSES "the curl license" PARENT_SCOPE)
