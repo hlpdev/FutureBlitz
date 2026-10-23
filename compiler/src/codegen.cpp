@@ -1084,8 +1084,7 @@ private:
     /// Each ThreadLocal Global's functions, declared once the MIR functions are, which the
     /// one that makes the thread's own calls for its initializer.
     void declare_thread_local_functions() {
-        for (std::size_t i = 0; i < m_mir.globals.size(); ++i) {
-            const global_t& global = m_mir.globals[i];
+        for (const global_t& global : m_mir.globals) {
             std::optional<function_ref_t> maker;
             std::optional<function_ref_t> releaser;
             if (global.is_thread_local) {
@@ -1110,15 +1109,16 @@ private:
     /// that then uses it panics.
     void generate_thread_local_functions() {
         for (std::size_t i = 0; i < m_mir.globals.size(); ++i) {
-            const global_t& global = m_mir.globals[i];
-            if (!global.is_thread_local) {
+            // Only a ThreadLocal Global has a maker.
+            const std::optional<function_ref_t>& maker = m_thread_makers[i];
+            if (!maker) {
                 continue;
             }
 
+            const global_t& global = m_mir.globals[i];
             LLVMValueRef state = m_thread_states[i];
-            const function_ref_t& maker = *m_thread_makers[i];
             LLVMPositionBuilderAtEnd(
-                builder(), LLVMAppendBasicBlockInContext(context(), maker.value, "entry"));
+                builder(), LLVMAppendBasicBlockInContext(context(), maker->value, "entry"));
             LLVMBuildStore(builder(), LLVMConstInt(m_i32, making, 0), state);
             if (global.initializer) {
                 call(m_functions[index(*global.initializer)], {});
@@ -2503,8 +2503,9 @@ private:
     /// Global with a ready flag has either: in debug builds, each one main sets, and in release
     /// builds, one whose zero holds a null object.
     void generate(const ready_t& node) {
-        if (m_mir.globals[index(node.global)].is_thread_local) {
-            make_thread_local(node);
+        // Only a ThreadLocal Global has a maker.
+        if (const std::optional<function_ref_t>& maker = m_thread_makers[index(node.global)]) {
+            make_thread_local(node, *maker);
             return;
         }
 
@@ -2540,9 +2541,10 @@ private:
         LLVMPositionBuilderAtEnd(builder(), ok);
     }
 
-    /// Before a use of a ThreadLocal Global: the thread makes its own the first time, and panics
-    /// where its initializer reaches it, or where it's used after the thread released it.
-    void make_thread_local(const ready_t& node) {
+    /// Before a use of a ThreadLocal Global: the thread makes its own the first time, with its
+    /// maker, and panics where its initializer reaches it, or where it's used after the thread
+    /// released it.
+    void make_thread_local(const ready_t& node, const function_ref_t& maker) {
         const std::size_t global = index(node.global);
         const std::string& name = m_mir.globals[global].name;
         LLVMValueRef state = LLVMBuildLoad2(builder(), m_i32, m_thread_states[global], "");
@@ -2564,7 +2566,7 @@ private:
                              "initializer reaches it",
                              name),
                  node.span);
-        call(*m_thread_makers[global], {});
+        call(maker, {});
         LLVMBuildBr(builder(), ok);
         LLVMPositionBuilderAtEnd(builder(), ok);
     }

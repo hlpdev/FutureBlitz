@@ -174,7 +174,7 @@ public:
                 out += std::format(", initializer: {}", function_name(*global.initializer));
             }
 
-            out += "\n";
+            out += '\n';
         }
 
         // "class Boss Extends Enemy, Destroy: Boss.Destroy()", then its Method table.
