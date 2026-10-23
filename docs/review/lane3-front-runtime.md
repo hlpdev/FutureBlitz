@@ -11,7 +11,7 @@ dropped, with why (it doesn't reproduce, or the spec says otherwise).
 
 ## A10-1 (high): Freeing the last Weak to an object waiting in let_go frees its memory, then let_go uses it (heap corruption)
 
-Status: open
+Status: fixed in 2a26a5d (an object waiting its turn keeps its memory when its last weak goes), with tests/programs/weak_waiting.fb
 
 Where: runtime/src/object.cpp:174
 
@@ -29,7 +29,7 @@ Skeptic: confirmed=True, high. Reproduced. exp-all/skA10/w1.fb: Class B (Field n
 
 ## A8-1 (medium): Type expressions don't count toward the nesting limit, so deep types crash the compiler with a stack overflow
 
-Status: open
+Status: fixed in c0093d0 (types, defer, and #if conditions count toward the nesting limit), with parser tests
 
 Where: compiler/src/parser.cpp:3388
 
@@ -45,7 +45,7 @@ Suggested fix: Count type nesting like expression nesting: check and increment m
 
 ## A8-2 (medium): Statement prefixes (Defer, labels, Parallel, modifier/attribute alternation) recurse without a nesting count and overflow the stack
 
-Status: open
+Status: fixed in c0093d0, with parser and lexer tests: Defer's statement, a single-line If's, an Extern block, and the statements a mistake leads to on its line go a level deeper; an #If condition nests up to 1000 deep
 
 Where: compiler/src/parser.cpp:550
 
@@ -61,7 +61,7 @@ Suggested fix: Bump m_nesting (with the max_nesting check) for each Defer's stat
 
 ## A8-3 (medium): A single-line If accepts multi-line block statements through a label or Unsafe
 
-Status: open
+Status: fixed in d283cc8 (a single-line if refuses a labeled loop, an unsafe block, and an extern block), with parser tests; an Extern block there was accepted with no error too
 
 Where: compiler/src/parser.cpp:2062
 
@@ -90,7 +90,7 @@ Suggested fix: In parse_single_line_body, also refuse an IDENTIFIER followed by 
 
 ## A8-4 (medium): The continuation rule after ',', '=' and '&' is missing in several statement forms, so valid line breaks are refused
 
-Status: open
+Status: fixed in 99e5542 (a line break can follow every statement's comma, '=', and constraint '&'), with parser tests
 
 Where: compiler/src/parser.cpp:1952
 
@@ -116,7 +116,7 @@ Suggested fix: Call skip_continuation_newlines() after each of those ',', '=' an
 
 ## A8-5 (medium): A '#' line inside a block comment or multi-line string is a directive in an inactive branch but not in an active one, so a file can check in one build mode and fail in the other
 
-Status: open
+Status: fixed in e6f5395 (a branch that isn't taken is lexed for its directives), with lexer tests: the inactive branch is lexed with its tokens dropped and its errors unshown, so comments and multi-line strings hide '#' lines in every build
 
 Where: compiler/src/lexer.cpp:662
 
@@ -145,7 +145,7 @@ Suggested fix: Pick one rule and apply it in both modes. Either have skip_inacti
 
 ## A8-6 (medium): A block comment that starts on a directive's line is cut off at the line break, so its later lines are lexed as code
 
-Status: open
+Status: fixed in e6f5395, with lexer tests: finish_directive skips trivia, block comments across lines included
 
 Where: compiler/src/lexer.cpp:650
 
@@ -161,7 +161,7 @@ Suggested fix: In finish_directive, skip a '/*' comment with skip_block_comment(
 
 ## A8-7 (medium): Invalid UTF-8 in an inactive #If branch isn't reported, so the same file fails in one build mode and passes in the other
 
-Status: open
+Status: fixed in e6f5395, with lexer tests
 
 Where: compiler/src/lexer.cpp:671
 
@@ -177,7 +177,7 @@ Suggested fix: Use skip_character() for the bytes of skipped lines, checking for
 
 ## A8-8 (medium): A single-line string's interpolation can span lines through a multi-line string nested in it
 
-Status: open
+Status: fixed in 3c7249b (a single-line string's interpolation can't hold a multi-line string), with lexer tests
 
 Where: compiler/src/lexer.cpp:427
 
@@ -200,7 +200,7 @@ Suggested fix: When a multi-line string starts while a single-line string is wai
 
 ## A8-9 (medium): No test covers a multi-line string whose interpolation spans lines (the 'line that starts inside an interpolation isn't checked' rule)
 
-Status: open
+Status: fixed in 5f4e44b (tests for a multi-line string whose interpolation spans lines): lexer and parser tests, and tests/programs/multi_line_strings.fb
 
 Where: tests/compiler/lexer_tests.cpp:476
 
@@ -342,7 +342,7 @@ Skeptic: confirmed=True, medium. Confirmed by reading. libuv's unix uv_pipe_open
 
 ## A8-10 (low): The nesting limit is reached before 1000 levels and is reported even when nothing deeper follows
 
-Status: open
+Status: fixed in c0093d0, with parser tests at the exact boundary: 1000 levels pass, 1001 don't, and a level is reported only when another one follows
 
 Where: compiler/src/parser.cpp:2518
 
