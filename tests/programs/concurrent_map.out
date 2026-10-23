@@ -19,10 +19,10 @@ node 3 goes, and Keys gives 5
 unused goes, and Keys gives 5
 node 4 goes, and Keys gives 4
 4
-node 3 again goes, and Keys gives 3
-node 1 again goes, and Keys gives 2
-node 5 goes, and Keys gives 1
-node 2 again goes, and Keys gives 0
+node 2 again goes, and Keys gives 3
+node 3 again goes, and Keys gives 2
+node 1 again goes, and Keys gives 1
+node 5 goes, and Keys gives 0
 0
 49 49
 49 49
