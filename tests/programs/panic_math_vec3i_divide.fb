@@ -1,0 +1,7 @@
+// A Vec3i divided by 0 panics where it's divided, as an Int does.
+Import std.core
+Import std.math
+
+Print(Vec3i(4, 6, 8) / 2)
+Local none = 0
+Print(Vec3i(4, 6, 8) / none)

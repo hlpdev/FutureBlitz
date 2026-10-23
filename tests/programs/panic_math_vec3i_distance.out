@@ -1,0 +1,2 @@
+2147483647
+panic: integer overflow in '-' at panic_math_vec3i_distance.fb:7:7

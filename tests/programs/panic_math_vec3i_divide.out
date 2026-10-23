@@ -1,0 +1,2 @@
+(2, 3, 4)
+panic: division by zero at panic_math_vec3i_divide.fb:7:7

@@ -1,6 +1,7 @@
 // Vec2i and Vec3i: points and steps on a grid, as Ints, for cells, tiles, and voxels, and as Map
 // keys. Their Operators work component by component, and an Int scales; dividing rounds toward 0,
-// as Ints do, and overflow panics in debug builds, as it does for an Int.
+// as Ints do, and dividing by 0, or overflow in debug builds, panics where it's called, as it does
+// for an Int.
 
 Import std.core
 Import std.math.scalar
@@ -28,13 +29,28 @@ Public Struct Vec2i Implements Numeric, Hashable, Printable, Defaultable
         Panic("a Vec2i's components are at 0 to 1, not {index}")
     End Operator
 
+    @PanicsAtCaller
     Operator +(a: Vec2i, b: Vec2i): Vec2i => Vec2i(a.x + b.x, a.y + b.y)
+
+    @PanicsAtCaller
     Operator -(a: Vec2i, b: Vec2i): Vec2i => Vec2i(a.x - b.x, a.y - b.y)
+
+    @PanicsAtCaller
     Operator *(a: Vec2i, b: Vec2i): Vec2i => Vec2i(a.x * b.x, a.y * b.y)
+
+    @PanicsAtCaller
     Operator /(a: Vec2i, b: Vec2i): Vec2i => Vec2i(a.x / b.x, a.y / b.y)
+
+    @PanicsAtCaller
     Operator *(a: Vec2i, scale: Int): Vec2i => Vec2i(a.x * scale, a.y * scale)
+
+    @PanicsAtCaller
     Operator *(scale: Int, a: Vec2i): Vec2i => Vec2i(scale * a.x, scale * a.y)
+
+    @PanicsAtCaller
     Operator /(a: Vec2i, scale: Int): Vec2i => Vec2i(a.x / scale, a.y / scale)
+
+    @PanicsAtCaller
     Operator -(a: Vec2i): Vec2i => Vec2i(-a.x, -a.y)
 End Struct
 
@@ -62,36 +78,61 @@ Public Struct Vec3i Implements Numeric, Hashable, Printable, Defaultable
         Panic("a Vec3i's components are at 0 to 2, not {index}")
     End Operator
 
+    @PanicsAtCaller
     Operator +(a: Vec3i, b: Vec3i): Vec3i => Vec3i(a.x + b.x, a.y + b.y, a.z + b.z)
+
+    @PanicsAtCaller
     Operator -(a: Vec3i, b: Vec3i): Vec3i => Vec3i(a.x - b.x, a.y - b.y, a.z - b.z)
+
+    @PanicsAtCaller
     Operator *(a: Vec3i, b: Vec3i): Vec3i => Vec3i(a.x * b.x, a.y * b.y, a.z * b.z)
+
+    @PanicsAtCaller
     Operator /(a: Vec3i, b: Vec3i): Vec3i => Vec3i(a.x / b.x, a.y / b.y, a.z / b.z)
+
+    @PanicsAtCaller
     Operator *(a: Vec3i, scale: Int): Vec3i => Vec3i(a.x * scale, a.y * scale, a.z * scale)
+
+    @PanicsAtCaller
     Operator *(scale: Int, a: Vec3i): Vec3i => Vec3i(scale * a.x, scale * a.y, scale * a.z)
+
+    @PanicsAtCaller
     Operator /(a: Vec3i, scale: Int): Vec3i => Vec3i(a.x / scale, a.y / scale, a.z / scale)
+
+    @PanicsAtCaller
     Operator -(a: Vec3i): Vec3i => Vec3i(-a.x, -a.y, -a.z)
 End Struct
 
 // The sum of the products of the components.
+@PanicsAtCaller
 Public Function Dot(a: Vec2i, b: Vec2i): Int => a.x * b.x + a.y * b.y
+
+@PanicsAtCaller
 Public Function Dot(a: Vec3i, b: Vec3i): Int => a.x * b.x + a.y * b.y + a.z * b.z
 
 // The length times itself, which is a whole number.
+@PanicsAtCaller
 Public Function LengthSquared(v: Vec2i): Int => Dot(v, v)
+
+@PanicsAtCaller
 Public Function LengthSquared(v: Vec3i): Int => Dot(v, v)
 
 // How many steps along the axes go from a to b: the taxicab distance.
+@PanicsAtCaller
 Public Function ManhattanDistance(a: Vec2i, b: Vec2i): Int => Abs(b.x - a.x) + Abs(b.y - a.y)
 
 // How many steps along the axes go from a to b: the taxicab distance.
+@PanicsAtCaller
 Public Function ManhattanDistance(a: Vec3i, b: Vec3i): Int
     Return Abs(b.x - a.x) + Abs(b.y - a.y) + Abs(b.z - a.z)
 End Function
 
 // How many steps go from a to b where a diagonal is one step too: the chessboard distance.
+@PanicsAtCaller
 Public Function ChebyshevDistance(a: Vec2i, b: Vec2i): Int => Max(Abs(b.x - a.x), Abs(b.y - a.y))
 
 // How many steps go from a to b where a diagonal is one step too: the chessboard distance.
+@PanicsAtCaller
 Public Function ChebyshevDistance(a: Vec3i, b: Vec3i): Int
     Return Max(Max(Abs(b.x - a.x), Abs(b.y - a.y)), Abs(b.z - a.z))
 End Function
@@ -119,5 +160,8 @@ Public Function Clamp(v: Vec3i, low: Vec3i, high: Vec3i): Vec3i
 End Function
 
 // Each component's Abs.
+@PanicsAtCaller
 Public Function Abs(v: Vec2i): Vec2i => Vec2i(Abs(v.x), Abs(v.y))
+
+@PanicsAtCaller
 Public Function Abs(v: Vec3i): Vec3i => Vec3i(Abs(v.x), Abs(v.y), Abs(v.z))

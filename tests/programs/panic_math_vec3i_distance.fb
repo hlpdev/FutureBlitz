@@ -1,0 +1,7 @@
+// A ManhattanDistance too large for an Int panics where it's called, in debug builds, as an Int's
+// sum does.
+Import std.core
+Import std.math
+
+Print(ManhattanDistance(Vec3i(-1073741824, 0, 0), Vec3i(1073741823, 0, 0)))
+Print(ManhattanDistance(Vec3i(-2147483647, 0, 0), Vec3i(2147483647, 0, 0)))

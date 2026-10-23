@@ -1,0 +1,2 @@
+(2147483647, 0)
+panic: integer overflow in '+' at panic_math_vec2i_overflow.fb:6:7

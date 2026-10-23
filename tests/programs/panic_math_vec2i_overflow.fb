@@ -1,0 +1,6 @@
+// A Vec2i's sum too large for an Int panics where it's added, in debug builds, as an Int's does.
+Import std.core
+Import std.math
+
+Print(Vec2i(MaxValue<Int>() - 1, 0) + Vec2i(1, 0))
+Print(Vec2i(MaxValue<Int>(), 0) + Vec2i(1, 0))

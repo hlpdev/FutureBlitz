@@ -28,6 +28,8 @@ RELEASE_DIFFERS = {
     "panic_null_pointer": "release builds don't check a Ptr for Null",
     "panic_null_callback": "release builds don't check a Callback for Null, so it crashes",
     "panic_debug_assert": "release builds leave DebugAssert out",
+    "panic_math_vec2i_overflow": "release builds wrap on overflow",
+    "panic_math_vec3i_distance": "release builds wrap on overflow",
 }
 
 # A program is concurrent when it says one of these, and runs many times over.

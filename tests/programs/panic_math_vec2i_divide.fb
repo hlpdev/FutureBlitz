@@ -1,0 +1,6 @@
+// A Vec2i divided by one with a 0 component panics where it's divided, as an Int does.
+Import std.core
+Import std.math
+
+Print(Vec2i(4, 4) / Vec2i(2, 1))
+Print(Vec2i(4, 4) / Vec2i(0, 1))
