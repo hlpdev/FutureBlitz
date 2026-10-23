@@ -87,6 +87,11 @@ For i = 0 Until 20000
     unit = unit && IsClose(Length(bell.UnitVector3()), 1, 0.000001)
 End For
 Print(Abs(Mean(values) - 3) < 0.05, Abs(StdDev(values) - 2) < 0.05, inside, unit)
+// From a state whose next point is inside the circle in Doubles but on its edge as Floats, the
+// point drawn is the next one inside as Floats.
+bell.State = (6772741066169979127, 1442695040888963407)
+Local edge = bell.InsideUnitCircle()
+Print(edge, (edge.x As Double) * edge.x + (edge.y As Double) * edge.y < 1)
 
 // A weight's share of the picks follows its share of the weights.
 Local weighted = Random(8)

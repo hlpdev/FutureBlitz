@@ -214,12 +214,12 @@ Public Class Random
     End Method
 
     // A point inside the circle of radius 1, each as likely: a point in the square, drawn again
-    // until it's in the circle.
+    // until it's in the circle, as Floats, which can round one just inside it to its edge.
     Public Method InsideUnitCircle(): Vec2
         Loop
-            Local x = 2 * Double() - 1
-            Local y = 2 * Double() - 1
-            If x * x + y * y < 1 Then Return Vec2(x As Float, y As Float)
+            Local x = (2 * Double() - 1) As Float
+            Local y = (2 * Double() - 1) As Float
+            If (x As Double) * x + (y As Double) * y < 1 Then Return Vec2(x, y)
         End Loop
     End Method
 
