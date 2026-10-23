@@ -10,8 +10,11 @@
 | `Float32` `Float64` | IEEE floats |
 | `String` | immutable UTF-8, refcounted |
 | `CString` | C's `const char*`, for `Extern` Functions; `Null`, C's NULL, is its zero (see [12-ffi.md](12-ffi.md)) |
-| `Vec2` `Vec3` `Vec4` `Quat` `Mat3` `Mat4` `Color` | math value types with operators, from `std.math` (M6) |
 | `Void` | "no value"; only a Ptr's type, `Ptr<Void>`, which points at anything |
+
+The math value types, `Vec2` to `Vec4`, `Vec2i`, `Vec3i`, `Quat`, `Mat3`, `Mat4`, `Color`, and
+`Color32`, aren't built in: they're std.math's Structs, which a program imports (see
+[stdlib.md](../stdlib.md)).
 
 Aliases:
 

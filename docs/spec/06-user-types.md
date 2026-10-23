@@ -349,8 +349,12 @@ grid[0, 0] += grid[1, 2]
 Adds methods or interface conformances to an existing type, including built-ins.
 
 ```vb
-Extend Vec3 Implements Printable
-    Method ToString(): String => "({x}, {y}, {z})"
+Extend Point Implements Printable   // a Struct of the program's own
+    Method ToString(): String => "({X}, {Y})"
+End Extend
+
+Extend Vec3                         // std.math's
+    Method Flattened(): Vec3 => Vec3(x, 0, z)
 End Extend
 
 Extend Int
