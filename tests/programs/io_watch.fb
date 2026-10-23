@@ -1,0 +1,97 @@
+// FileWatcher, in a temporary folder: making, changing, renaming, and removing a file in a
+// watched folder, and changing a watched file, each come as their events. OSes tell of more
+// than these, and at their own times, so each check waits, for ten seconds at most, until the
+// event it's after comes, and prints only whether it did.
+Import std.core
+Import std.io
+
+Local temp = Try TempDir("fb-watch-")
+Local root = temp.Path
+
+// Whether each of `wanted`'s kinds comes for its file's name, among what `watcher` tells of,
+// within ten seconds.
+Async Function Saw(watcher: FileWatcher, wanted: (FileEventKind, String)[]): Bool
+    Local left = wanted.Clone()
+    For tries = 1 To 1000
+        Loop
+            Local event = watcher.TryNext()
+            If event == Null Then Break
+            For i = 0 Until left.Count
+                If left[i].0 == event.Kind && left[i].1 == event.Path.FileName()
+                    left.RemoveAt(i)
+                    Break
+                End If
+            End For
+
+            If left.Count == 0 Then Return True
+        End Loop
+
+        Await RealSeconds(0.01)
+    End For
+
+    Return False
+End Function
+
+// Takes what's come, so the next check only sees what follows.
+Function Drain(watcher: FileWatcher)
+    While watcher.TryNext() != Null
+    End While
+End Function
+
+Local folder = Try FileWatcher(root)
+Print("{folder.Path == root} {folder.TryNext() == Null}")
+Local save = root / "größe.txt"
+Try File.WriteText(save, "one")
+Print("created {Await Saw(folder, [(FileEventKind.CREATED, "größe.txt")])}")
+Await RealSeconds(0.2)
+Drain(folder)
+Try File.AppendText(save, " two")
+Print("changed {Await Saw(folder, [(FileEventKind.CHANGED, "größe.txt")])}")
+Await RealSeconds(0.2)
+Drain(folder)
+Try File.Move(save, root / "セーブ.txt")
+Local renamed = [(FileEventKind.REMOVED, "größe.txt"), (FileEventKind.CREATED, "セーブ.txt")]
+Print("renamed {Await Saw(folder, renamed)}")
+Drain(folder)
+Try File.Delete(root / "セーブ.txt")
+Print("removed {Await Saw(folder, [(FileEventKind.REMOVED, "セーブ.txt")])}")
+
+// NextAsync and Next give the next event, whatever it is, and Null once the watcher's closed.
+Await RealSeconds(0.2)
+Drain(folder)
+Try File.WriteText(root / "next.txt", "next")
+Local next = Await folder.NextAsync()
+Print("next async {next != Null && next.Path.Parent().FileName() == root.FileName()}")
+Try File.WriteText(root / "next.txt", "again")
+Print("next {folder.Next() != Null}")
+folder.Close()
+folder.Close()
+Print("closed {folder.Next() == Null} {folder.TryNext() == Null} {(Await folder.NextAsync()) == Null}")
+
+// A file's own changes.
+Local watched = root / "watched.dat"
+Try File.WriteText(watched, "a")
+Local one = Try FileWatcher(watched)
+Try File.AppendText(watched, "b")
+Print("file changed {Await Saw(one, [(FileEventKind.CHANGED, "watched.dat")])}")
+one.Close()
+
+// One that's waited for when it's closed gives Null.
+Try Dir.Create(root / "quiet")
+Local quiet = Try FileWatcher(root / "quiet")
+Local waiting = quiet.NextAsync()
+quiet.Close()
+Print("waiting {(Await waiting) == Null}")
+
+Try
+    FileWatcher(root / "missing")
+Catch e As IOError
+    Print("{e.Kind}")
+End Try
+
+// A watcher the program never closes goes with its last reference, or as the program ends.
+Local dropped = Try FileWatcher(root)
+dropped = Try FileWatcher(root)
+Local kept = Try FileWatcher(root)
+Try temp.Close()
+Print("left {Dir.Exists(root)}")
