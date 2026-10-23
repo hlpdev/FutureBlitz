@@ -261,8 +261,9 @@ TEST_CASE("names must be declared", "[sema]") {
                     "calls it" });
     CHECK(errors_of("Local x: Foo") == errors_t{ "Foo: 'Foo' isn't a type" });
 
-    // Vec3 is a built-in type from the spec that comes after M1.
-    CHECK(errors_of("Local v: Vec3") == errors_t{ "Vec3: 'Vec3' isn't supported yet" });
+    // Vec3 is std.math's, which a file imports to use it.
+    CHECK(errors_of("Local v: Vec3") ==
+          errors_t{ "Vec3: 'Vec3' is in std.math, which this file doesn't import" });
 }
 
 TEST_CASE("functions and Globals are visible anywhere in the file", "[sema]") {
@@ -810,7 +811,7 @@ TEST_CASE("Select", "[sema]") {
 }
 
 TEST_CASE("built-in types after M2 are reported as not supported yet", "[sema]") {
-    CHECK(errors_of("Local x: Vec3") == errors_t{ "Vec3: 'Vec3' isn't supported yet" });
+    CHECK(errors_of("Local x: DateTime") == errors_t{ "DateTime: 'DateTime' isn't supported yet" });
 }
 
 // Structs
@@ -6464,12 +6465,22 @@ TEST_CASE("a CString is Null as C's NULL, and Unsafe code reads its text", "[sem
 TEST_CASE("a name that a later milestone declares isn't supported yet, wherever it's used",
           "[sema]") {
     CHECK(errors_of("Local t: Clock") == errors_t{ "Clock: 'Clock' isn't supported yet" });
-    CHECK(errors_of("Function F<T>()\n    Where T: Mat3\nEnd Function") ==
-          errors_t{ "Mat3: 'Mat3' isn't supported yet" });
-    CHECK(errors_of("Local v = Vec3(1, 2, 3)") == errors_t{ "Vec3: 'Vec3' isn't supported yet" });
+    CHECK(errors_of("Function F<T>()\n    Where T: DateTime\nEnd Function") ==
+          errors_t{ "DateTime: 'DateTime' isn't supported yet" });
+    CHECK(errors_of("Local d = DateTime(1, 2, 3)") ==
+          errors_t{ "DateTime: 'DateTime' isn't supported yet" });
 
     // A program can still declare one of them.
     CHECK(errors_of("Function Spawn(): Int => 1\nLocal s = Spawn()").empty());
+}
+
+TEST_CASE("std.math's types say which Import they need, wherever they're used", "[sema]") {
+    CHECK(errors_of("Local v = Vec3(1, 2, 3)") ==
+          errors_t{ "Vec3: 'Vec3' is in std.math, which this file doesn't import" });
+    CHECK(errors_of("Function F<T>()\n    Where T: Mat3\nEnd Function") ==
+          errors_t{ "Mat3: 'Mat3' is in std.math, which this file doesn't import" });
+    CHECK(errors_of("Extend Vec2\n    Method Twice(): Int => 2\nEnd Extend") ==
+          errors_t{ "Vec2: 'Vec2' is in std.math, which this file doesn't import" });
 }
 
 TEST_CASE("a generic type's field default can name its type parameters", "[sema]") {

@@ -255,18 +255,10 @@ bool is_array_size(const std::string_view name) {
     return name == "Count" || name == "Capacity";
 }
 
-/// The names that later milestones declare, like Task or Vec3.
+/// The names that later milestones declare, like Random or Flip.
 bool is_later_name(const std::string_view name) {
     constexpr auto names = std::to_array<std::string_view>({
         // The standard library, in M6
-        "Vec2",
-        "Vec3",
-        "Vec4",
-        "Quat",
-        "Mat3",
-        "Mat4",
-        "Color",
-        "Rect",
         "Random",
         "File",
         "Path",
