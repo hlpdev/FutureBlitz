@@ -4,7 +4,7 @@
 
 ## S10TL-runtime-1 (high): A thread C started that makes a ThreadLocal and then lets an object with object fields die corrupts the heap as it exits
 
-Status: open
+Status: fixed in de37cd3 (thread_locals_c_thread, CreateThread on Windows and pthread_create elsewhere): fb_thread_local_added sets up the thread's letting_go_t first, through the new fb::runtime::ready_letting_go(), so it's made before t_locals and destroyed after it, and a thread C started that made a ThreadLocal and let a Pair go prints "joined 5", its five Leafs' Destroys run. Without it, it exits with no output.
 
 Where: runtime/src/thread_local.cpp:44
 
@@ -73,7 +73,7 @@ Skeptic: I wrote the finding's program as C:/Users/Hunter/Projects/FutureBlitz/.
 
 ## S10TL-back-1 (medium): Rand, RandInt, RandFloat, Shuffle() and Sample() panic inside a Destroy that runs after the thread has released its ThreadLocals, but only if the thread drew a number earlier
 
-Status: open
+Status: fixed in 0fa3c99 (math_rand_destroy): the default generator is each thread's Pcg, a Struct of PCG32's state with the draws as ByRef Methods, which Random now wraps, so it holds no object and has no releaser; a Global's Destroy after the main thread drew, and a ThreadLocal's Destroy on a thread whose ThreadLocal was made before its first draw, draw Random(seed)'s next numbers. Every math_random and math_rand output is unchanged.
 
 Where: compiler/src/codegen.cpp:1136
 
@@ -111,7 +111,7 @@ Skeptic: I ran the finding's program as back-verify/f1.fb. In debug and in relea
 
 ## S10TL-back-2 (medium): A job that a Global's Destroy starts runs on the main thread after the main thread released its ThreadLocals, so it panics on a ThreadLocal, or not, depending on which thread runs it
 
-Status: open
+Status: fixed in e95ee51 (thread_locals_late_jobs): fb_thread_locals_release marks the thread, and pool_t::finish() on a thread that has released its ThreadLocals only waits, while the workers that the Destroy's Spawn started again run the jobs, each with its own ThreadLocals; 15 of 15 runs print "5 main's" and four "saved". Spec 02 says so.
 
 Where: compiler/src/codegen.cpp:2081
 
@@ -149,7 +149,7 @@ Skeptic: I ran the finding's program (f2.fb). With fb run, debug exited 0 and re
 
 ## S10TL-back-3 (medium): A ThreadLocal's initializer that waits on a pool worker runs that worker's older queued jobs inside it, and those jobs falsely panic with 'its initializer reaches it'
 
-Status: open
+Status: fixed in 494453b (thread_locals_making): each queued job has its number in its queue, the maker tells the runtime as the initializer begins and ends (fb_thread_local_making and fb_thread_local_made), and meanwhile run_own() takes only jobs queued since, so the initializer's own jobs still run on a lone worker. The test keeps the other workers busy, so the outer job's 200 older jobs are there when its initializer waits: 11 of 12 runs panicked without the fix, and 0 of 12 with it. Spec 02 says so.
 
 Where: compiler/src/codegen.cpp:2564
 
@@ -200,7 +200,7 @@ Skeptic: I built the finding's program (f3.fb) in both builds and ran each 20 ti
 
 ## S10TL-runtime-2 (medium): Rand, RandInt, RandFloat, Shuffle() and Sample() panic in a Global's Destroy, or a ThreadLocal's, with std's private name and std's line
 
-Status: open
+Status: fixed in 0fa3c99 (math_rand_destroy), with S10TL-back-1: the default generator is never released, so Rand, RandInt, RandFloat, Shuffle(), and Sample() don't panic in a Global's or a ThreadLocal's Destroy, and stdlib.md's bullet says a Destroy can draw.
 
 Where: std/math/random.fb:297
 
@@ -236,7 +236,7 @@ Skeptic: I wrote loot.fb, the finding's program. In debug and in release it prin
 
 ## S10TL-runtime-3 (medium): A job started after the main thread released its ThreadLocals runs on the main thread, so its ThreadLocal use panics
 
-Status: open
+Status: fixed in e95ee51 (thread_locals_late_jobs), with S10TL-back-2: a job a Global's Destroy starts without waiting runs on a worker, never on the main thread once it has released its ThreadLocals.
 
 Where: runtime/src/object.cpp:529
 
@@ -282,7 +282,7 @@ Skeptic: I wrote late_job.fb, the finding's program. Under `fb run` in debug it 
 
 ## S10TL-front-1 (low): @MainThread on a ThreadLocal Global that has an initializer is reported twice, the second time as if the initializer were @MainThread work
 
-Status: open
+Status: fixed in d884192 (a sema test): check_worker() reports @MainThread on the work only when the work isn't a Global, so `@MainThread ThreadLocal Global x = 1` gets the one error, and one whose initializer calls a @MainThread Function gets the real cause too.
 
 Where: compiler/src/sema.cpp:9848
 
@@ -308,7 +308,7 @@ Skeptic: Ran the finding's program (C:/Users/Hunter/Projects/FutureBlitz/.claude
 
 ## S10TL-front-2 (low): `ThreadLocal @Attr Global` says ThreadLocal only goes before a Global, though it does, and hides the real error (attribute order)
 
-Status: open
+Status: fixed in 9f8c552 (the parser test): the ThreadLocal, Shared, and Async placement checks give way when an attribute comes next, so `ThreadLocal @Deprecated Global x = 1` says attributes go before a declaration's modifiers, as Shared's and Async's lines do.
 
 Where: compiler/src/parser.cpp:911
 
