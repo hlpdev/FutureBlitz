@@ -7538,6 +7538,38 @@ TEST_CASE("an Extend can add to one instance, or one array type", "[sema]") {
                             "End Struct\n"
                             "{}Local x = Box(1) < Box(2)",
                             less)) == "Bool");
+
+    // Its other members can't be what the generic type has, with the instance's types: a
+    // Field's or Property's name, or a Method's, its own or a default's, and its parameters.
+    CHECK(errors_of("Import std.core\n"
+                    "Interface Named\n"
+                    "    Method Hello(): String => \"named\"\n"
+                    "End Interface\n"
+                    "Struct Box<T> Implements Named\n"
+                    "    Field Value: T\n"
+                    "    Method Take(x: T): String => \"generic\"\n"
+                    "    Property Size: Int\n"
+                    "        Get => 1\n"
+                    "    End Property\n"
+                    "End Struct\n"
+                    "Extend Box<String>\n"
+                    "    Method Take(x: String): String => \"string\"\n"
+                    "    Method Take(x: Int): String => \"an overload\"\n"
+                    "    Property Value: Int\n"
+                    "        Get => 5\n"
+                    "    End Property\n"
+                    "    Property Size: Int\n"
+                    "        Get => 2\n"
+                    "    End Property\n"
+                    "    Method Hello(): String => \"own\"\n"
+                    "End Extend\n"
+                    "Extend Box<Int>\n"
+                    "    Method Take(ByRef x: Int): String => \"another\"\n"
+                    "End Extend") ==
+          errors_t{ "Take: 'Take' is already declared in Box<T>, so Box<String> has it",
+                    "Value: 'Value' is already declared in Box<T>, so Box<String> has it",
+                    "Size: 'Size' is already declared in Box<T>, so Box<String> has it",
+                    "Hello: 'Hello' is already declared in Box<T>, so Box<String> has it" });
 }
 
 TEST_CASE("a Class can extend an instance of a generic Class", "[sema]") {

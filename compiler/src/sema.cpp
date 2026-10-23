@@ -400,6 +400,7 @@ public:
         each_item([this](const stmt_id_t id) { check_c_layout(id); });
         link_extensions();
         check_instance_defaults();
+        check_instance_redeclared();
         conform_instance_operators();
         check_equality_defaults();
         check_default_places();
@@ -3914,6 +3915,54 @@ private:
                             [&] { check_inherited(member, base_of(instance)); });
                 }
             }
+        }
+    }
+
+    /// What an Extend of one instance adds, like Box<String>'s, can't be what its generic type has
+    /// already, with the instance's types, as a type's own members can't repeat: a Field's or
+    /// Property's name, or a Method's name and parameters, its own or a default it takes. Each
+    /// is an error, and goes, so calls find the generic type's. An Operator it adds beats the
+    /// generic type's instead, and what a Class inherits, check_instance_extensions() compares.
+    void check_instance_redeclared() {
+        for (const type_id_t instance : extended_instances()) {
+            const type_id_t definition = definition_of(instance);
+            const auto declared = m_declared_types.find(definition);
+            if (declared == m_declared_types.end()) {
+                continue;
+            }
+
+            const std::vector<symbol_id_t> own = symbol(declared->second).members;
+            std::erase_if(m_analysis.instance_members.at(instance), [&](const symbol_id_t member) {
+                const symbol_t& added = symbol(member);
+                if (added.default_method || is_operator(added)) {
+                    return false;
+                }
+
+                // A call tells apart Methods whose parameters differ in ByRef alone.
+                const auto by_ref = [this](const symbol_id_t parameter) {
+                    return symbol(parameter).by_ref;
+                };
+                const auto same = std::ranges::find_if(own, [&](const symbol_id_t other) {
+                    const symbol_t& found = symbol(other);
+                    const bool callable = is_callable_member(added) && is_callable_member(found);
+                    return found.name == added.name && found.kind != symbol_kind_t::CONSTRUCTOR &&
+                           instance_has(instance, found) &&
+                           (!callable ||
+                            (same_parameters(added, found, instance) &&
+                             std::ranges::equal(added.parameters, found.parameters, {}, by_ref,
+                                                by_ref)));
+                });
+                if (same == own.end()) {
+                    return false;
+                }
+
+                in_file(added.span.file, [&] {
+                    error(added.span, "'{}' is already declared in {}, so {} has it", added.name,
+                          shown_name(definition), shown_name(instance))
+                        .with_label(symbol(*same).span, "first declared here");
+                });
+                return true;
+            });
         }
     }
 
