@@ -1,0 +1,31 @@
+// A Weak<T> of a Shared Class is Sendable, since a Shared Class's objects count their Weak
+// references atomically, so an Extend that needs Sendable applies to one, where the program
+// runs as sema checked it.
+Import std.core
+
+Interface Shown
+    Method Label(): String
+End Interface
+
+Class Thing
+End Class
+
+Shared Class Node
+    ReadOnly Field n: Int = 3
+End Class
+
+Class Bin<T> Extends Thing
+    Method Label(): String => "bin"
+End Class
+
+Extend Bin<T> Implements Shown
+    Where T: Sendable
+End Extend
+
+Function Show(shown: Shown): String => shown.Label()
+
+Local weak: Thing = Bin<Weak<Node>>()
+Local plain: Thing = Bin<Int>()
+Local held: Thing = Bin<Thing>()
+Print("{weak Is Shown} {plain Is Shown} {held Is Shown}")
+Print(Show(Bin<Weak<Node>>()))

@@ -22365,6 +22365,9 @@ private:
             return true;
         case type_kind_t::CLASS:
             return info.shared;
+        // A Shared Class's objects count their Weak references atomically too.
+        case type_kind_t::WEAK:
+            return m_types.get(info.inner).shared;
         case type_kind_t::NULLABLE:
         case type_kind_t::FIXED_ARRAY:
             return sendable(info.inner);
