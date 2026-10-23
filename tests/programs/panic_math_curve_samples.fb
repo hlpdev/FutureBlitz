@@ -1,0 +1,7 @@
+// A spline takes at least one sample a segment, which panics where it's built.
+Import std.core
+Import std.math
+
+Local points = [Vec2(0, 0), Vec2(1, 1), Vec2(2, 0)]
+Print(Curve2.CatmullRom(points, False, 1).Length > 2)
+Print(Curve3.BSpline([Vec3.Zero(), Vec3.Right], False, 0).Length)

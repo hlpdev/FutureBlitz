@@ -85,3 +85,28 @@ Print(Shown(Curve3.BSpline([Vec3.Zero(), Vec3.Right, Vec3.Up], True).PointAt(0))
       Curve3.Bezier([Vec3.Zero(), Vec3.Up, Vec3.Up, Vec3.Zero()]).PointAt(0.5))
 Print(Curve3(Function(t: Float) => Vec3(t, 0, 0)).Sample(3),
       Shown(Curve3.BSpline([Vec3.Zero(), Vec3(3, 0, 0)]).PointAtDistance(1)))
+
+// A spline is measured at samples places along each segment, so one through many points is as
+// long as finely measured, past the straight lines between its points; with one sample a
+// segment, it's those lines.
+Local zigzag: Vec2[] = []
+For i = 0 Until 300
+    zigzag.Add(Vec2(i As Float, (i % 2) As Float))
+End For
+Local winding = Curve2.CatmullRom(zigzag)
+Local fine = Curve2(Function(t: Float) => winding.PointAt(t), 29900)
+Print(winding.Length > 435.6, IsClose(winding.Length, fine.Length, 0.05), Shown(fine.Length))
+Print(Distance(winding.PointAtDistance(100), fine.PointAtDistance(100)) < 0.01,
+      Shown(fine.PointAtDistance(100)))
+Local beziers: Vec2[] = []
+For i = 0 Until 298
+    beziers.Add(zigzag[i])
+End For
+Print(Shown(Curve2.CatmullRom(zigzag, False, 1).Length), Shown(Curve2.BSpline(zigzag, True, 8).Length),
+      Shown(Curve2.Bezier(beziers, 2).Length))
+Local zigzag3: Vec3[] = []
+For i = 0 Until 300
+    zigzag3.Add(Vec3(i As Float, (i % 2) As Float, 0))
+End For
+Print(IsClose(Curve3.CatmullRom(zigzag3).Length, fine.Length, 0.05),
+      Shown(Curve3.CatmullRom(zigzag3, False, 1).Length))

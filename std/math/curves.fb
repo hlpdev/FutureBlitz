@@ -119,6 +119,12 @@ Function Padded<V>(points: V[], closed: Bool, before: Int, after: Int): V[]
     Return padded
 End Function
 
+// Panics at the spline's caller when it's given fewer than one sample a segment.
+@PanicsAtCaller
+Function CheckSamples(samples: Int)
+    If samples < 1 Then Panic("a spline takes at least one sample a segment, not {samples}")
+End Function
+
 // How far along each of a curve's samples is, from 0 at the start, which its length is the last
 // of, worked out in Doubles.
 Function Measure<V>(samples: Int, point: Func(Float): V, distance: Func(V, V): Float): Double[]
@@ -172,47 +178,53 @@ Public Class Curve2
     End New
 
     // The Catmull-Rom spline through the points, each of them on it, around to the first when
-    // closed. Fewer than two points panics.
+    // closed, measured at samples places along each segment. Fewer than two points, or than one
+    // sample, panics.
     @PanicsAtCaller
-    Public Static Method CatmullRom(points: Vec2[], closed: Bool = False): Curve2
+    Public Static Method CatmullRom(points: Vec2[], closed: Bool = False, samples: Int = 64): Curve2
         If points.Count < 2 Then Panic("a spline takes at least two points, not {points.Count}")
+        CheckSamples(samples)
         Local around = Padded(points, closed, 1, closed ? 2 : 1)
         Local count = closed ? points.Count : points.Count - 1
         Return Curve2(Function(t: Float): Vec2
             Local index, along = Segment(t, count)
             Return CatmullRomPoint(around[index], around[index + 1], around[index + 2],
                                    around[index + 3], along)
-        End Function)
+        End Function, samples * count)
     End Method
 
     // The uniform cubic B-spline the points shape, near them rather than through them: an open one
-    // starts and ends at its ends, and a closed one goes around. Fewer than two points panics.
+    // starts and ends at its ends, and a closed one goes around. It's measured at samples places
+    // along each segment. Fewer than two points, or than one sample, panics.
     @PanicsAtCaller
-    Public Static Method BSpline(points: Vec2[], closed: Bool = False): Curve2
+    Public Static Method BSpline(points: Vec2[], closed: Bool = False, samples: Int = 64): Curve2
         If points.Count < 2 Then Panic("a spline takes at least two points, not {points.Count}")
+        CheckSamples(samples)
         Local around = Padded(points, closed, closed ? 1 : 2, 2)
         Local count = closed ? points.Count : points.Count + 1
         Return Curve2(Function(t: Float): Vec2
             Local index, along = Segment(t, count)
             Return BSplinePoint(around[index], around[index + 1], around[index + 2],
                                 around[index + 3], along)
-        End Function)
+        End Function, samples * count)
     End Method
 
     // The cubic Beziers one after another, each from the last one's end: a start, then two
-    // control points and an end for each, so 3n + 1 points in all. Any other count panics.
+    // control points and an end for each, so 3n + 1 points in all, measured at samples places
+    // along each. Any other count of points, or fewer than one sample, panics.
     @PanicsAtCaller
-    Public Static Method Bezier(points: Vec2[]): Curve2
+    Public Static Method Bezier(points: Vec2[], samples: Int = 64): Curve2
         If points.Count < 4 || points.Count % 3 != 1
             Panic("a Bezier path takes 3n + 1 points, from 4 up, not {points.Count}")
         End If
+        CheckSamples(samples)
         Local ends = points.Clone()
         Local count = (points.Count - 1) / 3
         Return Curve2(Function(t: Float): Vec2
             Local index, along = Segment(t, count)
             Local at = index * 3
             Return CubicBezier(ends[at], ends[at + 1], ends[at + 2], ends[at + 3], along)
-        End Function)
+        End Function, samples * count)
     End Method
 
     // How long the curve is, as its samples measure it.
@@ -264,47 +276,53 @@ Public Class Curve3
     End New
 
     // The Catmull-Rom spline through the points, each of them on it, around to the first when
-    // closed. Fewer than two points panics.
+    // closed, measured at samples places along each segment. Fewer than two points, or than one
+    // sample, panics.
     @PanicsAtCaller
-    Public Static Method CatmullRom(points: Vec3[], closed: Bool = False): Curve3
+    Public Static Method CatmullRom(points: Vec3[], closed: Bool = False, samples: Int = 64): Curve3
         If points.Count < 2 Then Panic("a spline takes at least two points, not {points.Count}")
+        CheckSamples(samples)
         Local around = Padded(points, closed, 1, closed ? 2 : 1)
         Local count = closed ? points.Count : points.Count - 1
         Return Curve3(Function(t: Float): Vec3
             Local index, along = Segment(t, count)
             Return CatmullRomPoint(around[index], around[index + 1], around[index + 2],
                                    around[index + 3], along)
-        End Function)
+        End Function, samples * count)
     End Method
 
     // The uniform cubic B-spline the points shape, near them rather than through them: an open one
-    // starts and ends at its ends, and a closed one goes around. Fewer than two points panics.
+    // starts and ends at its ends, and a closed one goes around. It's measured at samples places
+    // along each segment. Fewer than two points, or than one sample, panics.
     @PanicsAtCaller
-    Public Static Method BSpline(points: Vec3[], closed: Bool = False): Curve3
+    Public Static Method BSpline(points: Vec3[], closed: Bool = False, samples: Int = 64): Curve3
         If points.Count < 2 Then Panic("a spline takes at least two points, not {points.Count}")
+        CheckSamples(samples)
         Local around = Padded(points, closed, closed ? 1 : 2, 2)
         Local count = closed ? points.Count : points.Count + 1
         Return Curve3(Function(t: Float): Vec3
             Local index, along = Segment(t, count)
             Return BSplinePoint(around[index], around[index + 1], around[index + 2],
                                 around[index + 3], along)
-        End Function)
+        End Function, samples * count)
     End Method
 
     // The cubic Beziers one after another, each from the last one's end: a start, then two
-    // control points and an end for each, so 3n + 1 points in all. Any other count panics.
+    // control points and an end for each, so 3n + 1 points in all, measured at samples places
+    // along each. Any other count of points, or fewer than one sample, panics.
     @PanicsAtCaller
-    Public Static Method Bezier(points: Vec3[]): Curve3
+    Public Static Method Bezier(points: Vec3[], samples: Int = 64): Curve3
         If points.Count < 4 || points.Count % 3 != 1
             Panic("a Bezier path takes 3n + 1 points, from 4 up, not {points.Count}")
         End If
+        CheckSamples(samples)
         Local ends = points.Clone()
         Local count = (points.Count - 1) / 3
         Return Curve3(Function(t: Float): Vec3
             Local index, along = Segment(t, count)
             Local at = index * 3
             Return CubicBezier(ends[at], ends[at + 1], ends[at + 2], ends[at + 3], along)
-        End Function)
+        End Function, samples * count)
     End Method
 
     // How long the curve is, as its samples measure it.

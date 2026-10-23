@@ -380,10 +380,12 @@ generator, noise, easing, stats, and fixed point; the rest is planned.
   corners are put in order (the hull, triangulation, booleans, and Offset), as does an Offset
   distance that isn't.
 - Curves (curves.fb): `QuadraticBezier`, `CubicBezier`, `Hermite`, `CatmullRom`, and `BSpline`
-  points in 2D and 3D, and `Curve2` and `Curve3`, from a Function of t from 0 to 1 or as
-  `CatmullRom(points, closed)`, `BSpline(points, closed)`, and `Bezier(points)` (3n + 1 of them),
-  with `Length`, `PointAt(t)`, `PointAtDistance(d)`, and `Sample(count)`, points evenly apart
-  along the curve, from a table of lengths; a NaN t or distance panics.
+  points in 2D and 3D, and `Curve2` and `Curve3`, from a Function of t from 0 to 1 (measured at
+  256 samples unless it says) or as `CatmullRom(points, closed, samples)`,
+  `BSpline(points, closed, samples)`, and `Bezier(points, samples)` (3n + 1 points), measured at
+  `samples` places along each segment, 64 unless they say, with `Length`, `PointAt(t)`,
+  `PointAtDistance(d)`, and `Sample(count)`, points evenly apart along the curve, from a table of
+  lengths; a NaN t or distance panics.
 - Random (random.fb): `Random(seed)` and `Random(seed, stream)`, PCG32, the same numbers in every
   build and on every CPU, with `Int()`, `Int(count)`, `Int(low, high)` (both included), `Float()`
   and `Double()` from 0 up to 1, `Float(low, high)`, `Bool`, `Chance`, `Pick`, `WeightedPick`,

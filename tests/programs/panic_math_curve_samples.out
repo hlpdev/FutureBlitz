@@ -1,0 +1,2 @@
+True
+panic: a spline takes at least one sample a segment, not 0 at panic_math_curve_samples.fb:7:7
