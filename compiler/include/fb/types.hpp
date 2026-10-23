@@ -218,6 +218,8 @@ struct type_t {
     value_op_t operation = value_op_t::NONE;
     /// CLASS: a Shared Class, whose objects count their owners atomically.
     bool shared = false;
+    /// STRUCT: a @CLayout Struct, which C code sees.
+    bool c_layout = false;
     /// Made by the compiler, not declared: the Cell<T> a captured Local lives in, and a lambda's
     /// Class. It belongs to no module, so its qualified name has none, though its parts may.
     bool made = false;
@@ -394,6 +396,9 @@ public:
 
     /// Makes a Class a Shared Class, before any of its instances are made.
     void set_shared(type_id_t type);
+
+    /// Makes a Struct without type parameters a @CLayout Struct.
+    void set_c_layout(type_id_t type);
 
     /// Whether `type` is the Class `base`, or extends it directly or through others. For an
     /// Interface, whether it's `base`, or extends that Interface.

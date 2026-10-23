@@ -905,6 +905,11 @@ void type_table_t::set_shared(const type_id_t type) {
     m_entries[std::to_underlying(type)].type->shared = true;
 }
 
+void type_table_t::set_c_layout(const type_id_t type) {
+    assert(get(type).kind == type_kind_t::STRUCT && get(type).parameters.empty());
+    m_entries[std::to_underlying(type)].type->c_layout = true;
+}
+
 void type_table_t::set_base(const type_id_t type, const type_id_t base) {
     assert(get(type).kind == type_kind_t::CLASS && get(base).kind == type_kind_t::CLASS);
     m_entries[std::to_underlying(type)].type->base = base;

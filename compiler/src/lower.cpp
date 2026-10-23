@@ -4903,10 +4903,31 @@ private:
             return make_string(std::string(types().name(concrete(*info.type_name))));
         }
 
+        if (info.size_of) {
+            return size_of(concrete(*info.size_of));
+        }
+
         const operand_t value =
             std::visit([this, id](const auto& node) { return this->lower_expr(id, node); },
                        m_ast.get(id).node);
         return convert(value, converted_type(id), span_of(id));
+    }
+
+    /// SizeOf<T>() of an instance's T, which CData keeps to C's, as the target programs are
+    /// built for lays it out, as analysis measures one without type parameters. One that takes
+    /// more bytes than an Int64 counts is reported, once.
+    const_value_t size_of(const type_id_t type) {
+        const std::uint64_t size = c_layout(types(), type, build_c_integers()).size;
+        if (size > static_cast<std::uint64_t>(INT64_MAX) && !m_module.error) {
+            m_module.error = mir_error_t{
+                .message = std::format("SizeOf measures {} here, which takes more bytes than an "
+                                       "Int64 counts",
+                                       types().name(type)),
+                .span = m_span.value_or(span_t{}),
+            };
+        }
+
+        return { .type = type_id_t::INT64, .data = static_cast<std::int64_t>(size) };
     }
 
     /// The expressions without a lowering of their own always have a value analysis knew, like a
@@ -6858,7 +6879,8 @@ private:
         }
 
         // SizeOf<T>() and TypeName<T>() only give a value.
-        if (m_analysis.expr(id).value || m_analysis.expr(id).type_name) {
+        if (m_analysis.expr(id).value || m_analysis.expr(id).type_name ||
+            m_analysis.expr(id).size_of) {
             return lower_value(id);
         }
 

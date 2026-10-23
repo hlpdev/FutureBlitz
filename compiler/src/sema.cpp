@@ -622,8 +622,14 @@ private:
     /// How deep the code being checked is in Unsafe code: an Unsafe block, Function, or Method,
     /// or a lambda in one. Above 0, it can use pointers and call Unsafe functions.
     std::size_t m_unsafe = 0;
-    /// The Ptrs written while types are declared, whose T is checked once they all are.
-    std::vector<std::pair<type_id_t, span_t>> m_pending_pointers;
+    /// The Ptrs written while types are declared, whose T is checked once they all are, with
+    /// the constraints where it was written, which say whether a type parameter is CData.
+    struct pending_pointer_t {
+        type_id_t pointee;
+        span_t span;
+        std::vector<bound_t> bounds;
+    };
+    std::vector<pending_pointer_t> m_pending_pointers;
     /// A Mutex or Channel written while types are declared, whose T is checked for Sendable again
     /// once they all are, with the constraints where it was written: a Struct declared further
     /// down had no fields the first time.
@@ -1266,6 +1272,12 @@ private:
                             : type_id_t::INVALID,
             .sendable = find("Sendable"),
         };
+
+        // CData is std.ffi's.
+        if (const type_id_t c_data = std_type("std.ffi", "CData");
+            c_data != type_id_t::INVALID && is_interface(c_data)) {
+            m_analysis.interfaces.c_data = c_data;
+        }
     }
 
     /// Gives a Struct or Class its type before anything else is declared, so types can use each
@@ -1353,6 +1365,8 @@ private:
 
         if (!parameters.empty()) {
             m_analysis.types.set_parameters(type, parameters);
+        } else if (!node->is_class && modifiers.is_c_layout) {
+            m_analysis.types.set_c_layout(type);
         }
         const symbol_id_t declared = add_symbol({
             .kind = symbol_kind_t::TYPE,
@@ -1660,9 +1674,15 @@ private:
             return found->second;
         }
 
-        // Sendable says what can go to another thread, which a value of it couldn't use.
+        // Sendable says what can go to another thread, which a value of it couldn't use, and
+        // CData what C code has.
         if (interface == m_analysis.interfaces.sendable) {
             m_constraint_only[interface] = "says what can go to another thread";
+            return m_constraint_only[interface];
+        }
+
+        if (interface == m_analysis.interfaces.c_data) {
+            m_constraint_only[interface] = "says what C code has";
             return m_constraint_only[interface];
         }
 
@@ -4364,6 +4384,7 @@ private:
                 }
 
                 seen.push_back(implemented);
+                check_listed_c_data(type, interface, implemented, span);
                 // Listing Sendable, or an Interface that extends it, has the compiler check it.
                 if (implemented == m_analysis.interfaces.sendable) {
                     if (const std::optional<unsendable_t> why = unsendable(type)) {
@@ -4425,6 +4446,24 @@ private:
 
         m_bounds = outer_bounds;
         m_file = outer_file;
+    }
+
+    /// Listing CData, or an Interface that extends it, has the compiler check it, as it does
+    /// Sendable. `implemented` is CData or one that `interface`, which `type` lists, extends.
+    void check_listed_c_data(const type_id_t type, const type_id_t interface,
+                             const type_id_t implemented, const span_t span) {
+        if (implemented != m_analysis.interfaces.c_data) {
+            return;
+        }
+
+        if (const std::optional<std::string> why = why_not_c_data(type)) {
+            if (interface == implemented) {
+                error(span, "{} isn't CData: {}", shown_name(type), *why);
+            } else {
+                error(span, "{} can't implement {}, which extends CData: {}",
+                      name_of(type, interface), name_of(interface, type), *why);
+            }
+        }
     }
 
     /// The Interfaces a Struct or Class has other than by what it lists itself: what the Class it
@@ -8808,6 +8847,10 @@ private:
             return !unsendable(type);
         }
 
+        if (interface == m_analysis.interfaces.c_data) {
+            return !why_not_c_data(type);
+        }
+
         if (is_parameter(type)) {
             return unknown_bounds(type) || std::ranges::contains(bounds_of(type), interface);
         }
@@ -9314,6 +9357,12 @@ private:
                     error(span, "{} isn't Sendable, which {} needs for {}: {}",
                           name_among(argument, shown), what, name_among(bound.parameter, shown),
                           reason_text(*why, shown));
+                }
+            } else if (interface == m_analysis.interfaces.c_data) {
+                if (const std::optional<std::string> why = why_not_c_data(argument)) {
+                    error(span, "{} isn't CData, which {} needs for {}: {}",
+                          name_of(argument, bound.parameter), what,
+                          name_of(bound.parameter, argument), *why);
                 }
             } else if (!implements(argument, interface) && is_parameter(bound.parameter)) {
                 error(span, "{} doesn't implement {}, which {} needs for {}{}",
@@ -10494,8 +10543,8 @@ private:
     }
 
     /// Why a Ptr can't point at a `type`, which is a type C code has, holding no references: a
-    /// number, Bool, Enum, CString, Ptr, Callback, or a fixed array or Struct of these. Empty
-    /// when it can.
+    /// number, Bool, Enum, CString, Ptr, Callback, or a fixed array or Struct of these, or a
+    /// type parameter whose constraints say it's CData. Empty when it can.
     [[nodiscard]] std::optional<std::string> not_c_data(const type_id_t type) const {
         std::vector<type_id_t> seen;
         return not_c_data(type, seen);
@@ -10515,8 +10564,14 @@ private:
             return std::nullopt;
         }
 
+        if (is_parameter(type) && !said_c_data(type)) {
+            return std::format("{0} is a type parameter, which could be any type unless "
+                               "'Where {0}: CData' keeps it to C's",
+                               name_of(type));
+        }
+
         if (is_parameter(type)) {
-            return std::format("{} is a type parameter, which could be any type", name_of(type));
+            return std::nullopt;
         }
 
         if (is_fixed_array(type)) {
@@ -10535,6 +10590,49 @@ private:
         }
 
         return std::nullopt;
+    }
+
+    /// Whether a type parameter's constraints say it's CData, or name nothing.
+    [[nodiscard]] bool said_c_data(const type_id_t parameter) const {
+        const type_id_t c_data = m_analysis.interfaces.c_data;
+        return unknown_bounds(parameter) || (c_data != type_id_t::INVALID &&
+                                             std::ranges::contains(bounds_of(parameter), c_data));
+    }
+
+    /// Why `type` isn't CData, what C code has, as the compiler decides: a number, Bool, Enum,
+    /// CString, Ptr, Callback, @CLayout Struct, or fixed array of these, or a type parameter
+    /// whose constraints say it's CData. Empty when it is.
+    [[nodiscard]] std::optional<std::string> why_not_c_data(const type_id_t type) const {
+        if (type == type_id_t::INVALID || m_analysis.interfaces.c_data == type_id_t::INVALID ||
+            is_numeric(type) || type == type_id_t::BOOL || type == type_id_t::CSTRING ||
+            is_enum(type) || is_pointer(type) || is_callback(type) ||
+            (is_parameter(type) && said_c_data(type))) {
+            return std::nullopt;
+        }
+
+        if (is_parameter(type)) {
+            return std::format("nothing says {} is CData", name_of(type));
+        }
+
+        if (is_fixed_array(type)) {
+            const std::optional<std::string> why = why_not_c_data(element_of(type));
+            return why ? std::optional(std::format("its elements are {}, and {}",
+                                                   shown_name(element_of(type)), *why))
+                       : std::nullopt;
+        }
+
+        if (is_struct(type) && is_instance(type)) {
+            return "it's a generic Struct's instance, which can't be @CLayout";
+        }
+
+        if (is_struct(type)) {
+            return m_analysis.types.get(type).c_layout
+                       ? std::nullopt
+                       : std::optional<std::string>("a Struct is CData only when it's @CLayout");
+        }
+
+        return "CData is a number, Bool, Enum, CString, Ptr, Callback, or a @CLayout Struct or "
+               "fixed array of these";
     }
 
     /// Whether `type` is a @CLayout Struct.
@@ -11764,7 +11862,8 @@ private:
         }
 
         if (!m_declared) {
-            m_pending_pointers.emplace_back(pointee, argument_span);
+            m_pending_pointers.push_back(
+                { .pointee = pointee, .span = argument_span, .bounds = m_bounds });
         } else if (!check_pointee_type(pointee, argument_span)) {
             return type_id_t::INVALID;
         }
@@ -11980,9 +12079,13 @@ private:
     }
 
     void check_pending_pointers() {
-        for (const auto& [pointee, span] : std::exchange(m_pending_pointers, {})) {
-            (void)check_pointee_type(pointee, span);
+        const std::vector<bound_t> outer = m_bounds;
+        for (const pending_pointer_t& pending : std::exchange(m_pending_pointers, {})) {
+            m_bounds = pending.bounds;
+            (void)check_pointee_type(pending.pointee, pending.span);
         }
+
+        m_bounds = outer;
     }
 
     /// "C.Map<K, V>": a type after a module's qualifier, which one of the code's Imports gives.
@@ -18830,6 +18933,15 @@ private:
             return type_id_t::INVALID;
         }
 
+        // A CData T with type parameters in it takes a byte at least, as every C type does.
+        std::vector<type_id_t> inside;
+        parameters_in(element_of(left), inside);
+        if (!inside.empty() && m_analysis.interfaces.c_data != type_id_t::INVALID &&
+            !why_not_c_data(element_of(left))) {
+            (void)require_unsafe(span, std::format("'{}' on a Ptr", spelling(op)));
+            return counts ? type_id_t::INT64 : left;
+        }
+
         if (fb::c_layout(m_analysis.types, element_of(left), build_c_integers()).size >
             static_cast<std::uint64_t>(INT64_MAX)) {
             error(span, "{} takes more bytes than an Int64 counts, so a Ptr at it doesn't step",
@@ -19552,6 +19664,14 @@ private:
                   "Callback, or a fixed array or Struct of these; {}",
                   *why);
             return type_id_t::INVALID;
+        }
+
+        // A T with type parameters in it is measured once its instance's type arguments are.
+        std::vector<type_id_t> inside;
+        parameters_in(type, inside);
+        if (!inside.empty()) {
+            info(id).size_of = type;
+            return type_id_t::INT64;
         }
 
         // While types are being declared, what T holds is declared first, so T is whole.
@@ -23131,6 +23251,10 @@ public:
             return sendable(type);
         }
 
+        if (interface == m_analysis.interfaces.c_data) {
+            return c_data(type);
+        }
+
         if (interface == m_analysis.interfaces.hashable &&
             std::ranges::contains(m_analysis.unhashed_instances, type)) {
             return false;
@@ -23224,6 +23348,23 @@ private:
                                        [&](const field_t& field) { return sendable(field.type); });
         default:
             return is_numeric(type) || type == type_id_t::BOOL || type == type_id_t::STRING;
+        }
+    }
+
+    /// As sema's why_not_c_data(), for types without type parameters.
+    [[nodiscard]] bool c_data(const type_id_t type) const {
+        const type_t& info = m_types.get(type);
+        switch (info.kind) {
+        case type_kind_t::ENUM:
+        case type_kind_t::PTR:
+        case type_kind_t::CALLBACK:
+            return true;
+        case type_kind_t::STRUCT:
+            return info.c_layout;
+        case type_kind_t::FIXED_ARRAY:
+            return c_data(info.inner);
+        default:
+            return is_numeric(type) || type == type_id_t::BOOL || type == type_id_t::CSTRING;
         }
     }
 

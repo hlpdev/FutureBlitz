@@ -1,0 +1,90 @@
+// CData: a type parameter that's C's can be a Ptr's T and SizeOf's, so generic code hands C
+// memory of any C type, @CLayout Structs too, each instance measured as it's made; and an
+// Extend's Where can ask for it, as `Is` then tells.
+
+Import std.core
+Import std.ffi
+
+@CLayout Struct Point
+    Field x: Int32
+    Field y: Int32
+End Struct
+
+Unsafe Function Fill<T: CData>(count: Int64, value: T): Ptr<T>
+    Local items: Ptr<T> = Mem.Alloc(count * SizeOf<T>())
+    For i = 0 Until count
+        items[i] = value
+    End For
+
+    Return items
+End Function
+
+Unsafe Function Sum<T: CData & Numeric>(items: Ptr<T>, count: Int64): T
+    Local total = T.Zero()
+    Local at = items
+    Local finish = items + count
+    While at != finish
+        total += at.Value
+        at += 1
+    End While
+
+    Return total
+End Function
+
+// A generic Struct can hold a Ptr at its T.
+Struct Run<T: CData>
+    Field first: Ptr<T>
+    Field count: Int64
+
+    Unsafe Method Last(): T => first[count - 1]
+    Method Bytes(): Int64 => count * SizeOf<T>()
+End Struct
+
+Unsafe
+    Local ints = Fill(4, 5)
+    Defer Mem.Free(ints)
+    Local run = Run<Int32>(ints, 4)
+    Print("{Sum(ints, 4)} {run.Last()} {run.Bytes()} {(ints + 3) - ints}")
+
+    Local points = Fill(3, Point(1, 2))
+    Defer Mem.Free(points)
+    points[2].y = 9
+    Local path = Run<Point>(points, 3)
+    Print("{path.Last().y} {path.Bytes()} {(points + 2) - points}")
+
+    Local doubles = Fill(2, 1.25 As Double)
+    Defer Mem.Free(doubles)
+    Print("{Sum(doubles, 2)} {Run<Double>(doubles, 2).Bytes()}")
+End Unsafe
+
+// What an Extend gives where T is CData only those instances have.
+Interface Measured
+    Method Bytes(): Int64
+End Interface
+
+Interface Thing
+End Interface
+
+Class Box<T> Implements Thing
+    Field value: T
+
+    New(value: T)
+        Self.value = value
+    End New
+End Class
+
+Extend Box<T> Implements Measured
+    Where T: CData
+    Method Bytes(): Int64 => SizeOf<T>()
+End Extend
+
+Function Describe(thing: Thing): String
+    If thing Is Measured
+        Return "{(thing As Measured).Bytes()} bytes"
+    End If
+
+    Return "not C's"
+End Function
+
+Local pair: Point[2]
+Print("{Describe(Box<Int16>(1))} {Describe(Box<Point[2]>(pair))} {Describe(Box<String>("a"))}")

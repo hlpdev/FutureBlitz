@@ -69,6 +69,31 @@ End Struct
   targets don't take Structs by value yet, and neither does any target take one of 4 GiB or more;
   a `Ptr` to one works everywhere.
 
+## CData
+
+`CData`, std.ffi's, is what C code has, which the compiler decides, as it does Sendable: numbers,
+`Bool`, Enums, `CString`, Ptrs, Callbacks, `@CLayout` Structs, and fixed arrays of these. A type
+parameter with it can be a Ptr's T, and SizeOf's, which measures each instance as it's made, so
+generic code hands C memory of any C type:
+
+```vb
+Import std.ffi
+
+Unsafe Function Fill<T: CData>(count: Int64, value: T): Ptr<T>
+    Local items: Ptr<T> = Mem.Alloc(count * SizeOf<T>())
+    For i = 0 Until count
+        items[i] = value
+    End For
+
+    Return items
+End Function
+```
+
+- It's only a constraint. A type argument that isn't C data is an error saying why: a Struct is
+  CData only when it's `@CLayout`, so a generic Struct's instance never is. A Struct that lists
+  it, or an Interface that extends it, is checked for it, as for Sendable.
+- A Ptr at a CData T steps and counts by T's size, which is a byte at least.
+
 ## Type mapping
 
 | FutureBlitz | C |

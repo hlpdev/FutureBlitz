@@ -252,6 +252,9 @@ struct expr_info_t {
     /// For "TypeName<T>()" where T has type parameters in it: the type whose name, with the
     /// instance's type arguments, the call gives.
     std::optional<type_id_t> type_name;
+    /// For "SizeOf<T>()" where T has type parameters in it, which CData keeps to C's: the type
+    /// whose size, with the instance's type arguments, the call gives.
+    std::optional<type_id_t> size_of;
     /// For a Function's name or a lambda where a Callback is expected: a C function pointer to
     /// its code, the Function `symbol` names or the lambda's `closure`.
     bool callback = false;
@@ -345,6 +348,9 @@ struct builtin_interfaces_t {
     type_id_t iterator = type_id_t::INVALID;
     /// What can go to another thread, which the compiler decides from a type's fields.
     type_id_t sendable = type_id_t::INVALID;
+    /// CData, from std/ffi/cdata.fb: what C code has, which the compiler decides, so a type
+    /// parameter with it can be a Ptr's T.
+    type_id_t c_data = type_id_t::INVALID;
 };
 
 /// Everything analysis found out about a file, for lowering and tools. `exprs` and `stmts` have

@@ -88,7 +88,8 @@ End Function
   dereferenced there.
 - A `Ptr<T>` points at a value C code has: a number, `Bool`, Enum, `CString`, `Ptr`, Callback, or a
   fixed array or Struct of these, which holds no references; `Ptr<Void>` points at anything, as C's
-  `void*`, and `Void` is a type nowhere else. A type parameter can't be the T yet.
+  `void*`, and `Void` is a type nowhere else. A type parameter is the T when its constraints say
+  it's `CData` (see [12](12-ffi.md#cdata)), as in `Function First<T: CData>(p: Ptr<T>): T`.
 - `Null` is a Ptr's zero, C's NULL; `p == Null` and `p == q` compare addresses, in safe code too,
   and `Ptr<T>?` isn't a type you write, since a Ptr can be Null already, so `??` and `?.` don't
   take a Ptr, which is compared with Null instead. A generic's `T?` of a Ptr, like what a
@@ -122,7 +123,9 @@ End Function
   compile time, for the same types a Ptr points at, whichever comes first in the code: a Struct
   or Enum declared after it is measured whole. A T of more bytes than an Int64 counts, or whose
   size depends on itself, like a Struct with a Field of `Int8[SizeOf<T>()]`, is an error, and a
-  Ptr at one doesn't step.
+  Ptr at one doesn't step. A T with type parameters in it is measured for each instance, as it's
+  made, and isn't known at compile time in the generic code. The target is the one programs are
+  built for, which decides how big `CLong`, `CULong`, and `CWChar` are.
 - An `Unsafe Function` or `Unsafe Method` (or `Unsafe Static Method`) is one that only Unsafe
   code calls. It isn't a function value, and it can't be an Operator, Destroy, a Const Function,
   or an Interface's Method, or implement one, or override a Method that isn't Unsafe, since code

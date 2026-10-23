@@ -7064,7 +7064,9 @@ TEST_CASE("a Ptr points at a value C code has, and Void is only a Ptr's", "[sema
     CHECK(errors_of("Struct S\n    Field name: String\nEnd Struct\nLocal b: Ptr<S> = Null") ==
           errors_t{ std::format("S: {}; S isn't one, since its Field name is String", c_data) });
     CHECK(errors_of("Function F<T>(p: Ptr<T>)\nEnd Function") ==
-          errors_t{ std::format("T: {}; T is a type parameter, which could be any type", c_data) });
+          errors_t{ std::format("T: {}; T is a type parameter, which could be any type unless "
+                                "'Where T: CData' keeps it to C's",
+                                c_data) });
     CHECK(errors_of("Local c: Void") ==
           errors_t{ "Void: Void is only a Ptr's type, as Ptr<Void>, which points at anything" });
     CHECK(errors_of("Local d: Ptr<Int32>? = Null") ==
@@ -7087,6 +7089,77 @@ TEST_CASE("a Ptr points at a value C code has, and Void is only a Ptr's", "[sema
                   "Const size = SizeOf<P>()\n"
                   "Local fits: Int8[size] \n")
             .empty());
+}
+
+TEST_CASE("a type parameter that's CData can be a Ptr's T, and SizeOf's", "[sema]") {
+    // Its instances are measured as they're made, and a Ptr at one steps and counts by it.
+    CHECK(errors_of("Import std.ffi\n"
+                    "@CLayout Struct Point\n    Field x: Int32\nEnd Struct\n"
+                    "Struct Run<T: CData>\n    Field first: Ptr<T>\n    Field count: Int64\n"
+                    "End Struct\n"
+                    "Unsafe Function Last<T: CData>(run: Run<T>): T\n"
+                    "    Local size = SizeOf<T>() + SizeOf<T[2]>()\n"
+                    "    Local steps = (run.first + run.count) - run.first\n"
+                    "    Return run.first[run.count - 1]\n"
+                    "End Function\n"
+                    "Function Wrap<T>(p: Ptr<T>): Run<T>\n"
+                    "    Where T: CData\n"
+                    "    Return Run<T>(p, 1)\n"
+                    "End Function\n"
+                    "Local a = Run<Point>(Null, 0)\n"
+                    "Local b = Run<Int32[4]>(Null, 0)\n"
+                    "Local c = Run<Ptr<Point>>(Null, 0)\n"
+                    "Local d = Wrap<CString>(Null)\n")
+              .empty());
+
+    // CData is what C code has: a Struct only when it's @CLayout, and it's only a constraint.
+    const std::string_view what = "CData is a number, Bool, Enum, CString, Ptr, Callback, or a "
+                                  "@CLayout Struct or fixed array of these";
+    const auto isnt = [](const std::string_view type, const std::string_view why) {
+        return std::format("Size<{0}>: {0} isn't CData, which 'Size' needs for T: {1}", type, why);
+    };
+    CHECK(errors_of("Import std.ffi\n"
+                    "Struct Plain\n    Field x: Int32\nEnd Struct\n"
+                    "Struct Box<T>\n    Field v: T\nEnd Struct\n"
+                    "Function Size<T: CData>(): Int64 => SizeOf<T>()\n"
+                    "Local a = Size<String>()\n"
+                    "Local b = Size<Plain>()\n"
+                    "Local c = Size<String[4]>()\n"
+                    "Local d = Size<Box<Int32>>()\n") ==
+          errors_t{
+              isnt("String", what),
+              isnt("Plain", "a Struct is CData only when it's @CLayout"),
+              isnt("String[4]", std::format("its elements are String, and {}", what)),
+              isnt("Box<Int32>", "it's a generic Struct's instance, which can't be @CLayout"),
+          });
+    CHECK(errors_of("Import std.ffi\nLocal e: CData\n") ==
+          errors_t{ "CData: CData can only be a constraint, like <T: CData>, since it says what C "
+                    "code has" });
+
+    // A T's size is known for each instance, but not in the generic code, where an empty
+    // Struct's Ptrs don't count either.
+    CHECK(errors_of("Import std.ffi\n"
+                    "Struct Raw<T: CData>\n    Field bytes: UInt8[SizeOf<T>()]\nEnd Struct\n"
+                    "Struct Empty<T>\nEnd Struct\n"
+                    "Unsafe Function Count<T>(a: Ptr<Empty<T>>, b: Ptr<Empty<T>>): Int64 => a - b\n"
+                    "Function Size<T: CData>(): Int64\n"
+                    "    Const size = SizeOf<T>()\n"
+                    "    Return size\n"
+                    "End Function\n") ==
+          errors_t{
+              "SizeOf<T>(): a fixed array's size must be an integer known at compile time, like "
+              "64 or 8 * 8",
+              "a - b: '-' counts the values between two Ptrs, and Empty<T> takes no bytes",
+          });
+    CHECK(errors_of("Import std.core\nImport std.ffi\n"
+                    "Struct Listed Implements CData\n    Field x: Int32\nEnd Struct\n"
+                    "Function Peek<T: Printable>(p: Ptr<T>)\nEnd Function\n") ==
+          errors_t{
+              "CData: Listed isn't CData: a Struct is CData only when it's @CLayout",
+              "T: a Ptr points at a value C code has: a number, Bool, Enum, CString, Ptr, "
+              "Callback, or a fixed array or Struct of these; T is a type parameter, which could "
+              "be any type unless 'Where T: CData' keeps it to C's",
+          });
 }
 
 TEST_CASE("only Unsafe code calls an Unsafe Function or Method", "[sema]") {

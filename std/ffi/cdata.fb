@@ -1,0 +1,6 @@
+// What C code has, which the compiler decides, as it does Sendable: numbers, Bools, Enums,
+// CStrings, Ptrs, Callbacks, @CLayout Structs, and fixed arrays of these. A type parameter with
+// it can be a Ptr's T and SizeOf's, as in `Function First<T>(p: Ptr<T>): T Where T: CData`. It's
+// only a constraint, and a Struct that lists it is checked for it.
+Public Interface CData
+End Interface
