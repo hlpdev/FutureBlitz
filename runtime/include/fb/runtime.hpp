@@ -385,6 +385,8 @@ std::int64_t fb_text_find(const fb_string_t* text, const fb_string_t* part, std:
 /// Where `part` last starts that ends at `before` or sooner, or -1.
 std::int64_t fb_text_find_last(const fb_string_t* text, const fb_string_t* part,
                                std::int64_t before);
+/// 1 when `part`'s bytes are at `at`, which can be any position, and 0 otherwise.
+std::int32_t fb_text_matches_at(const fb_string_t* text, const fb_string_t* part, std::int64_t at);
 /// How many code points the bytes from `start` up to `finish` have.
 std::int64_t fb_text_char_count(const fb_string_t* text, std::int64_t start, std::int64_t finish);
 /// A new String of `count` bytes of a UInt8[] from `start`, or null unless they're UTF-8.
