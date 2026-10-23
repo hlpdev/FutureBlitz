@@ -204,7 +204,7 @@ Function BinOf(edges: Double[], x: Double): Int
 End Function
 
 // How many values fall in each of bins equal ranges from the least value to the largest, which
-// all do. No values, a NaN, or a count of bins that isn't above 0, panics.
+// all do. No values, a NaN or an infinite one, or a count of bins that isn't above 0, panics.
 @PanicsAtCaller
 Public Function Histogram<T: Bounded>(values: T[], bins: Int): Int[]
     CheckCount("Histogram", values.Count, 1)
@@ -212,6 +212,9 @@ Public Function Histogram<T: Bounded>(values: T[], bins: Int): Int[]
     Local sorted = SortedDoubles(values, "Histogram")
     Local low = sorted[0]
     Local high = sorted[sorted.Count - 1]
+    If !IsFinite(low) || !IsFinite(high)
+        Panic("Histogram takes values that are finite, not {IsFinite(low) ? high : low}")
+    End If
     If low == high
         Local counts: Int[] = []
         counts.Resize(bins, 0)

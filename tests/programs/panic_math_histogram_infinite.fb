@@ -1,0 +1,8 @@
+// Histogram without a range takes finite values, since no equal ranges reach an infinite one.
+Import std.core
+Import std.math
+
+Local values: Double[] = [1, 2, 3]
+Print(Histogram(values, 2))
+values.Add(Inf)
+Print(Histogram(values, 2))
