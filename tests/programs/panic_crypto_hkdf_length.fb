@@ -1,0 +1,8 @@
+// HKDF with SHA-256 gives at most 255 hashes, 8160 bytes, and more panics.
+Import std.core
+Import std.crypto
+
+Local material: UInt8[] = [1, 2, 3]
+Local none: UInt8[] = []
+Print(Hkdf.Sha256(material, none, none, 8160).Count)
+Hkdf.Sha256(material, none, none, 8161)

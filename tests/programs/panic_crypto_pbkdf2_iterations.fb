@@ -1,0 +1,7 @@
+// PBKDF2 takes 1 iteration or more, and 0 panics.
+Import std.core
+Import std.crypto
+
+Local salt = "salt".Bytes
+Print(Pbkdf2.Sha256("pw", salt, 1, 8).Count)
+Pbkdf2.Sha256("pw", salt, 0, 8)

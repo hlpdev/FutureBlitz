@@ -1,0 +1,2 @@
+0
+panic: SecureRandom.Bytes takes a count that isn't negative, not -1 at panic_crypto_random_count.fb:6:1

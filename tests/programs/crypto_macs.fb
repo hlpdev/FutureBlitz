@@ -1,0 +1,101 @@
+// std.crypto's HMAC, HKDF, and PBKDF2 match RFC 2202's, RFC 4231's, RFC 5869's,
+// RFC 6070's, and RFC 7914's test vectors.
+Import std.core
+Import std.collections
+Import std.crypto
+
+Global checked = 0
+
+// The bytes of hex digits, which spaces may split.
+Function Unhex(text: String): UInt8[]
+    Local bytes: UInt8[] = []
+    Local high = -1
+    For c In text.Bytes
+        Local code = c As Int
+        Local digit = -1
+        If code >= 48 && code <= 57
+            digit = code - 48
+        ElseIf code >= 97 && code <= 102
+            digit = code - 87
+        ElseIf code >= 65 && code <= 70
+            digit = code - 55
+        End If
+
+        If digit < 0 Then Continue
+        If high < 0
+            high = digit
+        Else
+            bytes.Add((high * 16 + digit) As UInt8)
+            high = -1
+        End If
+    End For
+    Return bytes
+End Function
+
+Function Hex(bytes: UInt8[]): String
+    Local digits = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "a", "b", "c", "d", "e", "f"]
+    Local parts: String[] = []
+    For b In bytes
+        parts.Add(digits[(b >> 4) As Int] + digits[(b & 15) As Int])
+    End For
+    Return parts.Join("")
+End Function
+
+// Counts a check, and says which one failed.
+Function Expect(name: String, passed: Bool)
+    checked += 1
+    If !passed Then Print("{name} failed")
+End Function
+
+// Counts a check of bytes against hex, and says what each was when they differ.
+Function Check(name: String, actual: UInt8[], expected: String)
+    checked += 1
+    Local want = Unhex(expected)
+    If actual != want Then Print("{name}: {Hex(actual)}, not {Hex(want)}")
+End Function
+
+// Prints how many checks a section made, and starts the count again.
+Function Done(section: String)
+    Print("{section}: {checked} check{checked == 1 ? "" : "s"}")
+    checked = 0
+End Function
+
+// RFC 2202's HMAC-SHA1 test cases.
+Check("HMAC-SHA1 1", Hmac.Sha1(Unhex("0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b"), "Hi There"), "b617318655057264e28bc0b6fb378c8ef146be00")
+Check("HMAC-SHA1 2", Hmac.Sha1(Unhex("4a656665"), "what do ya want for nothing?"), "effcdf6ae5eb2fa2d27416d5f184df9c259a7c79")
+Check("HMAC-SHA1 3", Hmac.Sha1(Unhex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), Unhex("dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd")), "125d7342b9ac11cd91a39af48aa17b4f63f175d3")
+Check("HMAC-SHA1 4", Hmac.Sha1(Unhex("0102030405060708090a0b0c0d0e0f10111213141516171819"), Unhex("cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd")), "4c9007f4026250c6bc8414f9bf50c86c2d7235da")
+Check("HMAC-SHA1 5", Hmac.Sha1(Unhex("0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c"), "Test With Truncation"), "4c1a03424b55e07fe7f27be1d58bb9324a9a5a04")
+Check("HMAC-SHA1 6", Hmac.Sha1(Unhex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), "Test Using Larger Than Block-Size Key - Hash Key First"), "aa4ae5e15272d00e95705637ce8a3b55ed402112")
+Check("HMAC-SHA1 7", Hmac.Sha1(Unhex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), "Test Using Larger Than Block-Size Key and Larger Than One Block-Size Data"), "e8e99d0f45237d786d6bbaa7965c7808bbff1a91")
+Done("HMAC-SHA1")
+
+// RFC 4231's, but test case 5's, whose MAC is cut short.
+Check("HMAC-SHA256 1", Hmac.Sha256(Unhex("0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b"), "Hi There"), "b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7")
+Check("HMAC-SHA512 1", Hmac.Sha512(Unhex("0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b"), "Hi There"), "87aa7cdea5ef619d4ff0b4241a1d6cb02379f4e2ce4ec2787ad0b30545e17cdedaa833b7d6b8a702038b274eaea3f4e4be9d914eeb61f1702e696c203a126854")
+Check("HMAC-SHA256 2", Hmac.Sha256(Unhex("4a656665"), "what do ya want for nothing?"), "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843")
+Check("HMAC-SHA512 2", Hmac.Sha512(Unhex("4a656665"), "what do ya want for nothing?"), "164b7a7bfcf819e2e395fbe73b56e0a387bd64222e831fd610270cd7ea2505549758bf75c05a994a6d034f65f8f0e6fdcaeab1a34d4a6b4b636e070a38bce737")
+Check("HMAC-SHA256 3", Hmac.Sha256(Unhex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), Unhex("dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd")), "773ea91e36800e46854db8ebd09181a72959098b3ef8c122d9635514ced565fe")
+Check("HMAC-SHA512 3", Hmac.Sha512(Unhex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), Unhex("dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd")), "fa73b0089d56a284efb0f0756c890be9b1b5dbdd8ee81a3655f83e33b2279d39bf3e848279a722c806b485a47e67c807b946a337bee8942674278859e13292fb")
+Check("HMAC-SHA256 4", Hmac.Sha256(Unhex("0102030405060708090a0b0c0d0e0f10111213141516171819"), Unhex("cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd")), "82558a389a443c0ea4cc819899f2083a85f0faa3e578f8077a2e3ff46729665b")
+Check("HMAC-SHA512 4", Hmac.Sha512(Unhex("0102030405060708090a0b0c0d0e0f10111213141516171819"), Unhex("cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd")), "b0ba465637458c6990e5a8c5f61d4af7e576d97ff94b872de76f8050361ee3dba91ca5c11aa25eb4d679275cc5788063a5f19741120c4f2de2adebeb10a298dd")
+Check("HMAC-SHA256 6", Hmac.Sha256(Unhex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), "Test Using Larger Than Block-Size Key - Hash Key First"), "60e431591ee0b67f0d8a26aacbf5b77f8e0bc6213728c5140546040f0ee37f54")
+Check("HMAC-SHA512 6", Hmac.Sha512(Unhex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), "Test Using Larger Than Block-Size Key - Hash Key First"), "80b24263c7c1a3ebb71493c1dd7be8b49b46d1f41b4aeec1121b013783f8f3526b56d037e05f2598bd0fd2215d6a1e5295e64f73f63f0aec8b915a985d786598")
+Check("HMAC-SHA256 7", Hmac.Sha256(Unhex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), "This is a test using a larger than block-size key and a larger than block-size data. The key needs to be hashed before being used by the HMAC algorithm."), "9b09ffa71b942fcb27635fbcd5b0e944bfdc63644f0713938a7f51535c3a35e2")
+Check("HMAC-SHA512 7", Hmac.Sha512(Unhex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), "This is a test using a larger than block-size key and a larger than block-size data. The key needs to be hashed before being used by the HMAC algorithm."), "e37b6a775dc87dbaa4dfa9f96e5e3ffddebd71f8867289865df5a32d20cdc944b6022cac3c4982b10d5eeb55c3e4de15134676fb6de0446065c97440fa8c6a58")
+Done("HMAC-SHA256 and HMAC-SHA512")
+
+// RFC 5869's HKDF test cases with SHA-256.
+Check("HKDF-SHA256 1", Hkdf.Sha256(Unhex("0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b"), Unhex("000102030405060708090a0b0c"), Unhex("f0f1f2f3f4f5f6f7f8f9"), 42), "3cb25f25faacd57a90434f64d0362f2a2d2d0a90cf1a5a4c5db02d56ecc4c5bf34007208d5b887185865")
+Check("HKDF-SHA256 2", Hkdf.Sha256(Unhex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f"), Unhex("606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeaf"), Unhex("b0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff"), 82), "b11e398dc80327a1c8e7f78c596a49344f012eda2d4efad8a050cc4c19afa97c59045a99cac7827271cb41c65e590e09da3275600c2f09b8367793a9aca3db71cc30c58179ec3e87c14c01d5c1f3434f1d87")
+Check("HKDF-SHA256 3", Hkdf.Sha256(Unhex("0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b"), Unhex(""), Unhex(""), 42), "8da4e775a563c18f715f802a063c5a31b8a11f5c5ee1879ec3454e5f3c738d2d9d201395faa4b61a96c8")
+Done("HKDF-SHA256")
+
+// RFC 6070's PBKDF2-HMAC-SHA1 vectors, but the one of 16777216 iterations, and
+// RFC 7914's PBKDF2-HMAC-SHA256 ones.
+Check("PBKDF2-SHA1 1", Pbkdf2.Sha1("password", Unhex("73616c74"), 1, 20), "0c60c80f961f0e71f3a9b524af6012062fe037a6")
+Check("PBKDF2-SHA1 2", Pbkdf2.Sha1("password", Unhex("73616c74"), 2, 20), "ea6c014dc72d6f8ccd1ed92ace1d41f0d8de8957")
+Check("PBKDF2-SHA1 3", Pbkdf2.Sha1("password", Unhex("73616c74"), 4096, 20), "4b007901b765489abead49d926f721d065a429c1")
+Check("PBKDF2-SHA1 4", Pbkdf2.Sha1("passwordPASSWORDpassword", Unhex("73616c7453414c5473616c7453414c5473616c7453414c5473616c7453414c5473616c74"), 4096, 25), "3d2eec4fe41c849b80c8d83662c0e44a8b291a964cf2f07038")
+Check("PBKDF2-SHA1 5", Pbkdf2.Sha1(Unhex("7061737300776f7264"), Unhex("7361006c74"), 4096, 16), "56fa6aa75548099dcc37d7f03425e0c3")
+Done("PBKDF2")

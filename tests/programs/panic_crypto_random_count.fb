@@ -1,0 +1,6 @@
+// SecureRandom.Bytes of a negative count panics.
+Import std.core
+Import std.crypto
+
+Print(SecureRandom.Bytes(0).Count)
+SecureRandom.Bytes(-1)

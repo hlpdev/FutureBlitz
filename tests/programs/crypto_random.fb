@@ -1,0 +1,31 @@
+// std.crypto's SecureRandom gives as many bytes as it's asked for, and numbers below a limit,
+// every one of them in time; ConstantTimeEquals compares bytes as == does.
+Import std.core
+Import std.collections
+Import std.crypto
+
+Print(SecureRandom.Bytes(0).Count, SecureRandom.Bytes(1).Count, SecureRandom.Bytes(1000).Count)
+// Two draws of 32 bytes match by a chance of 1 in 2^256.
+Print(SecureRandom.Bytes(32) != SecureRandom.Bytes(32))
+
+// 300 draws below 3 miss one of them by a chance of about 1 in 10^52.
+Local seen = [0, 0, 0]
+Local inRange = True
+For i = 1 To 300
+    Local n = SecureRandom.Below(3)
+    If n < 0 || n >= 3
+        inRange = False
+    Else
+        seen[n As Int] += 1
+    End If
+End For
+Print(inRange, seen[0] > 0 && seen[1] > 0 && seen[2] > 0, SecureRandom.Below(1))
+Local big = SecureRandom.Below(9223372036854775807)
+Print(big >= 0)
+
+Local a: UInt8[] = [1, 2, 3]
+Local b: UInt8[] = [1, 2, 3]
+Local c: UInt8[] = [1, 2, 4]
+Local empty: UInt8[] = []
+Print(ConstantTimeEquals(a, b), ConstantTimeEquals(a, c), ConstantTimeEquals(a, a[..2]),
+      ConstantTimeEquals(empty, []))

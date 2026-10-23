@@ -1,0 +1,152 @@
+// Md5, Sha1, Sha256, and Sha512, over mbedTLS: each one's Hash gives the hash of bytes, or of a
+// String's bytes, at once, and an object of it adds them in turn. MD5 and SHA-1 are broken, since
+// two inputs with one hash can be made, so they're only for checksums and the formats that ask for
+// them; Sha256 and Sha512 are for the rest.
+
+Import std.core
+
+Extern "runtime"
+    Function fb_crypto_hash(algorithm: Int32, data: UInt8[], output: UInt8[])
+    Function fb_crypto_hash_text(algorithm: Int32, text: String, output: UInt8[])
+    Function fb_crypto_hasher_new(algorithm: Int32): Ptr<Void>
+    Function fb_crypto_hasher_add(hasher: Ptr<Void>, data: UInt8[])
+    Function fb_crypto_hasher_add_text(hasher: Ptr<Void>, text: String)
+    Function fb_crypto_hasher_finish(hasher: Ptr<Void>, output: UInt8[])
+    Function fb_crypto_hasher_free(hasher: Ptr<Void>)
+End Extern
+
+// The runtime's numbers for the hashes.
+Const MD5 = 1
+Const SHA1 = 2
+Const SHA256 = 3
+Const SHA512 = 4
+
+// What hashes bytes added to it in turn. Finish gives the hash of what was added, and starts
+// again, empty.
+Public Interface Hasher
+    Method Add(data: UInt8[])
+    Method Add(text: String)
+    Method Finish(): UInt8[]
+End Interface
+
+// MD5's 16 bytes, only for checksums.
+Public Class Md5 Implements Hasher
+    Field State: Ptr<Void>
+
+    Public New()
+        State = fb_crypto_hasher_new(MD5)
+    End New
+
+    Public Static Method Hash(data: UInt8[]): UInt8[] => HashOf(MD5, data)
+    Public Static Method Hash(text: String): UInt8[] => TextHashOf(MD5, text)
+
+    Public Method Add(data: UInt8[])
+        fb_crypto_hasher_add(State, data)
+    End Method
+
+    Public Method Add(text: String)
+        fb_crypto_hasher_add_text(State, text)
+    End Method
+
+    Public Method Finish(): UInt8[] => Finished(State)
+
+    Method Destroy()
+        fb_crypto_hasher_free(State)
+    End Method
+End Class
+
+// SHA-1's 20 bytes, only for checksums and the formats that ask for it, like Git's.
+Public Class Sha1 Implements Hasher
+    Field State: Ptr<Void>
+
+    Public New()
+        State = fb_crypto_hasher_new(SHA1)
+    End New
+
+    Public Static Method Hash(data: UInt8[]): UInt8[] => HashOf(SHA1, data)
+    Public Static Method Hash(text: String): UInt8[] => TextHashOf(SHA1, text)
+
+    Public Method Add(data: UInt8[])
+        fb_crypto_hasher_add(State, data)
+    End Method
+
+    Public Method Add(text: String)
+        fb_crypto_hasher_add_text(State, text)
+    End Method
+
+    Public Method Finish(): UInt8[] => Finished(State)
+
+    Method Destroy()
+        fb_crypto_hasher_free(State)
+    End Method
+End Class
+
+// SHA-256's 32 bytes.
+Public Class Sha256 Implements Hasher
+    Field State: Ptr<Void>
+
+    Public New()
+        State = fb_crypto_hasher_new(SHA256)
+    End New
+
+    Public Static Method Hash(data: UInt8[]): UInt8[] => HashOf(SHA256, data)
+    Public Static Method Hash(text: String): UInt8[] => TextHashOf(SHA256, text)
+
+    Public Method Add(data: UInt8[])
+        fb_crypto_hasher_add(State, data)
+    End Method
+
+    Public Method Add(text: String)
+        fb_crypto_hasher_add_text(State, text)
+    End Method
+
+    Public Method Finish(): UInt8[] => Finished(State)
+
+    Method Destroy()
+        fb_crypto_hasher_free(State)
+    End Method
+End Class
+
+// SHA-512's 64 bytes.
+Public Class Sha512 Implements Hasher
+    Field State: Ptr<Void>
+
+    Public New()
+        State = fb_crypto_hasher_new(SHA512)
+    End New
+
+    Public Static Method Hash(data: UInt8[]): UInt8[] => HashOf(SHA512, data)
+    Public Static Method Hash(text: String): UInt8[] => TextHashOf(SHA512, text)
+
+    Public Method Add(data: UInt8[])
+        fb_crypto_hasher_add(State, data)
+    End Method
+
+    Public Method Add(text: String)
+        fb_crypto_hasher_add_text(State, text)
+    End Method
+
+    Public Method Finish(): UInt8[] => Finished(State)
+
+    Method Destroy()
+        fb_crypto_hasher_free(State)
+    End Method
+End Class
+
+Function HashOf(algorithm: Int32, data: UInt8[]): UInt8[]
+    Local hash: UInt8[] = []
+    fb_crypto_hash(algorithm, data, hash)
+    Return hash
+End Function
+
+Function TextHashOf(algorithm: Int32, text: String): UInt8[]
+    Local hash: UInt8[] = []
+    fb_crypto_hash_text(algorithm, text, hash)
+    Return hash
+End Function
+
+Function Finished(state: Ptr<Void>): UInt8[]
+    Local hash: UInt8[] = []
+    fb_crypto_hasher_finish(state, hash)
+    Return hash
+End Function

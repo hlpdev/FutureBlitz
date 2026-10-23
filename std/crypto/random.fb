@@ -1,0 +1,49 @@
+// SecureRandom, bytes and numbers from the OS's randomness, through mbedTLS's generator, for keys,
+// salts, nonces, and tokens; and ConstantTimeEquals, which compares secrets without telling where
+// they differ.
+
+Import std.core
+
+Extern "runtime"
+    Function fb_crypto_random(count: Int64, output: UInt8[])
+    Function fb_crypto_equal(a: UInt8[], b: UInt8[]): Int32
+End Extern
+
+// SecureRandom's Static Methods.
+Public Struct SecureRandom
+    // SecureRandom isn't made: it's only its Static Methods.
+    New()
+    End New
+
+    // count random bytes. Panics when count is negative.
+    @PanicsAtCaller
+    Public Static Method Bytes(count: Int): UInt8[]
+        If count < 0 Then Panic("SecureRandom.Bytes takes a count that isn't negative, not {count}")
+        Local bytes: UInt8[] = []
+        fb_crypto_random(count, bytes)
+        Return bytes
+    End Method
+
+    // A random number from 0 up to limit, without limit, each as likely as another. Panics
+    // unless limit is above 0.
+    @PanicsAtCaller
+    Public Static Method Below(limit: Int64): Int64
+        If limit <= 0 Then Panic("SecureRandom.Below takes a limit above 0, not {limit}")
+        // 63 random bits at a time, taken only below the largest multiple of limit they reach,
+        // so the remainder favors no number.
+        Local bound = limit As UInt64
+        Local most = (9223372036854775808 / bound) * bound
+        Loop
+            Local value: UInt64 = 0
+            For byte In Bytes(8)
+                value = (value << 8) | (byte As UInt64)
+            End For
+            value = value >> 1
+            If value < most Then Return (value % bound) As Int64
+        End Loop
+    End Method
+End Struct
+
+// Whether a and b have the same bytes, in a time that depends only on their counts, not on where
+// they first differ, so comparing a secret, like a MAC, tells nothing about it.
+Public Function ConstantTimeEquals(a: UInt8[], b: UInt8[]): Bool => fb_crypto_equal(a, b) != 0
