@@ -670,3 +670,35 @@ TEST_CASE("a ZipWriter takes time in proportion to the zip's size", "[programs]"
     CHECK(result->exit_code == 0);
     CHECK(took < std::chrono::seconds(8));
 }
+
+TEST_CASE("a 7z's links in one solid folder take one decoding of it", "[programs]") {
+    // compress_archives' links.7z: a folder of 64 MiB of zeros and the targets of 40 links to
+    // them. Decoding the folder for each link took about 50 seconds in a debug build; once for
+    // them all, about one.
+    const std::filesystem::path programs = FB_TEST_PROGRAMS;
+    std::vector<fb::library_file_t> library =
+        fb::standard_library().value_or(std::vector<fb::library_file_t>{});
+    library.push_back({ .path = "compress_archives/data.fb",
+                        .text = read_file(programs / "compress_archives" / "data.fb") });
+    const fb::compilation_t compilation =
+        fb::compile("main.fb",
+                    "Import std.core\n"
+                    "Import std.compress\n"
+                    "Import \"./compress_archives/data\"\n"
+                    "Local reader = Try SevenZip.Read(Links7z())\n"
+                    "Print(reader.Count, reader.Entries[40].Target)\n",
+                    std::move(library));
+    REQUIRE_FALSE(compilation.diagnostics.has_errors());
+    std::filesystem::path program = std::filesystem::path(FB_TEST_OUTPUT) / "seven_zip_links";
+    program += fb::executable_extension;
+    const fb::mir_module_t module = fb::lower(compilation.ast, compilation.analysis);
+    REQUIRE(fb::build_program(module, compilation, program, fb::build_mode_t::DEBUG));
+
+    const auto start = std::chrono::steady_clock::now();
+    const std::expected<fb::process_result_t, std::string> result = fb::run_process(program, {});
+    const std::chrono::steady_clock::duration took = std::chrono::steady_clock::now() - start;
+    REQUIRE(result);
+    CHECK(result->output == "41 zeros.bin\n");
+    CHECK(result->exit_code == 0);
+    CHECK(took < std::chrono::seconds(15));
+}

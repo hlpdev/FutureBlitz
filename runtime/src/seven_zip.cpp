@@ -13,6 +13,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <limits>
 #include <lzma.h>
 #include <optional>
 #include <span>
@@ -313,6 +314,10 @@ status_t read_folder(cursor_t& cursor, folder_t& folder) {
     for (std::uint64_t i = 0; i + 1 < outputs && !cursor.broken(); ++i) {
         const std::uint64_t input = cursor.number();
         const std::uint64_t output = cursor.number();
+        if (input >= inputs || output >= outputs) {
+            return broken("a folder's coders don't fit together");
+        }
+
         folder.binds.emplace_back(input, output);
     }
 
@@ -327,7 +332,12 @@ status_t read_folder(cursor_t& cursor, folder_t& folder) {
         }
     } else {
         for (std::uint64_t i = 0; i < packed && !cursor.broken(); ++i) {
-            folder.packed.push_back(cursor.number());
+            const std::uint64_t input = cursor.number();
+            if (input >= inputs) {
+                return broken("a folder's packed streams don't fit its coders");
+            }
+
+            folder.packed.push_back(input);
         }
     }
 
@@ -634,9 +644,12 @@ private:
     std::vector<lzma_filter> m_list{ { .id = LZMA_VLI_UNKNOWN, .options = nullptr } };
 };
 
-/// Decodes a folder from the archive's bytes into `output`.
+/// Decodes a folder from the archive's bytes into `output`, or only its bytes from `from` to
+/// `until`, which decoding goes no further than, and keeps no more of. Only a whole folder is
+/// checked against its CRC-32: its files are checked against theirs.
 status_t decode(const std::span<const std::uint8_t> archive, const streams_t& streams,
-                const folder_t& folder, std::vector<std::uint8_t>& output) {
+                const folder_t& folder, std::vector<std::uint8_t>& output, std::uint64_t from = 0,
+                std::optional<std::uint64_t> until = std::nullopt) {
     output.clear();
     // A chain of coders that each take one stream and give one, from the one that gives the
     // folder's bytes to the one that takes the packed stream, which is liblzma's order.
@@ -662,7 +675,9 @@ status_t decode(const std::span<const std::uint8_t> archive, const streams_t& st
         chain.push_back(bound->second);
     }
 
-    if (chain.size() > folder.coders.size() || chain.back() != folder.packed[0]) {
+    if (chain.size() > folder.coders.size() || chain.back() != folder.packed[0] ||
+        std::ranges::any_of(
+            chain, [&](const std::uint64_t index) { return index >= folder.coders.size(); })) {
         return broken("a folder's coders don't fit together");
     }
 
@@ -717,11 +732,17 @@ status_t decode(const std::span<const std::uint8_t> archive, const streams_t& st
 
     const std::uint64_t packed_size = streams.pack_sizes[stream];
     const std::uint64_t size = folder.sizes[*last];
+    const std::uint64_t end = until.value_or(size);
+    const bool all = from == 0 && end == size;
     if (start > whole || packed_size > whole - start) {
         return { .result = RESULT_ENDS_TOO_SOON, .message = "" };
     }
 
-    if (size > static_cast<std::uint64_t>(most_bytes)) {
+    if (from > end || end > size) {
+        return broken("a file is past its folder's end");
+    }
+
+    if (end - from > static_cast<std::uint64_t>(most_bytes)) {
         return { .result = RESULT_TOO_LARGE, .message = "" };
     }
 
@@ -731,7 +752,8 @@ status_t decode(const std::span<const std::uint8_t> archive, const streams_t& st
             return broken("a stored folder's size doesn't match");
         }
 
-        output.assign(packed.begin(), packed.end());
+        output.assign(packed.begin() + static_cast<std::ptrdiff_t>(from),
+                      packed.begin() + static_cast<std::ptrdiff_t>(end));
         return {};
     }
 
@@ -752,27 +774,32 @@ status_t decode(const std::span<const std::uint8_t> archive, const streams_t& st
     }
 
     // The bytes come a chunk at a time, so a size the header claims takes no memory the coders
-    // don't give.
+    // don't give, and those before `from` are left behind.
     std::vector<std::uint8_t> chunk(chunk_size);
     decoder.next_in = packed.data();
     decoder.avail_in = packed.size();
     lzma_ret result = LZMA_OK;
-    while (output.size() < size && result == LZMA_OK) {
+    std::uint64_t made = 0;
+    while (made < end && result == LZMA_OK) {
         decoder.next_out = chunk.data();
-        decoder.avail_out = std::min<std::uint64_t>(chunk.size(), size - output.size());
+        decoder.avail_out = std::min<std::uint64_t>(chunk.size(), end - made);
         const std::size_t room = decoder.avail_out;
         result = lzma_code(&decoder, decoder.avail_in != 0 ? LZMA_RUN : LZMA_FINISH);
-        output.insert(output.end(), chunk.begin(),
-                      chunk.begin() + static_cast<std::ptrdiff_t>(room - decoder.avail_out));
+        const std::uint64_t got = room - decoder.avail_out;
+        if (made + got > from) {
+            const std::uint64_t skip = made >= from ? 0 : from - made;
+            output.insert(output.end(), chunk.begin() + static_cast<std::ptrdiff_t>(skip),
+                          chunk.begin() + static_cast<std::ptrdiff_t>(got));
+        }
+        made += got;
     }
 
-    const std::uint64_t made = output.size();
     lzma_end(&decoder);
     if (result == LZMA_MEM_ERROR) {
         fb_panic("out of memory", nullptr);
     }
 
-    if (made != size) {
+    if (made != end) {
         if (result == LZMA_BUF_ERROR) {
             return { .result = RESULT_ENDS_TOO_SOON, .message = "" };
         }
@@ -781,7 +808,7 @@ status_t decode(const std::span<const std::uint8_t> archive, const streams_t& st
                                                 : "a folder's packed stream is broken");
     }
 
-    if (folder.crc && lzma_crc32(output.data(), output.size(), 0) != *folder.crc) {
+    if (all && folder.crc && lzma_crc32(output.data(), output.size(), 0) != *folder.crc) {
         return broken("a folder doesn't match its CRC-32");
     }
 
@@ -836,6 +863,36 @@ struct reader_t {
 std::int32_t fail(reader_t& reader, const status_t& status) {
     reader.message = status.message;
     return status.result;
+}
+
+/// The bytes of a folder from `from` to `until`, in `bytes`: from the reader's folder, which it
+/// decodes the whole of and keeps unless it has it already, when an array holds the folder, or
+/// else from those bytes alone, decoded into `scratch`.
+status_t folder_part(reader_t& reader, const std::size_t folder, const std::uint64_t from,
+                     const std::uint64_t until, std::span<const std::uint8_t>& bytes,
+                     std::vector<std::uint8_t>& scratch) {
+    const folder_t& coded = reader.streams.folders[folder];
+    if (folder_size(coded) > static_cast<std::uint64_t>(most_bytes)) {
+        const status_t decoded = decode(reader.bytes, reader.streams, coded, scratch, from, until);
+        bytes = scratch;
+        return decoded;
+    }
+
+    if (reader.decoded != folder) {
+        reader.decoded.reset();
+        const status_t decoded = decode(reader.bytes, reader.streams, coded, reader.folder_bytes);
+        if (decoded.failed()) {
+            return decoded;
+        }
+        reader.decoded = folder;
+    }
+
+    if (from > until || until > reader.folder_bytes.size()) {
+        return broken("a file is past its folder's end");
+    }
+
+    bytes = std::span(reader.folder_bytes).subspan(from, until - from);
+    return {};
 }
 
 status_t read_files(cursor_t& cursor, reader_t& reader) {
@@ -1038,24 +1095,43 @@ std::int32_t open(reader_t& reader) {
         return fail(reader, read);
     }
 
-    for (std::size_t i = 0; i < reader.files.size(); ++i) {
-        file_t& file = reader.files[i];
-        if (file.kind != KIND_LINK || !file.has_stream) {
-            continue;
+    // A link's target is its bytes. Each folder that holds links is decoded once for them all,
+    // from its first link to its last, and kept for reading when an array holds it. A link whose
+    // folder doesn't decode keeps no target, and reading it gives the folder's IOError.
+    std::vector<std::size_t> folders;
+    for (const file_t& file : reader.files) {
+        if (file.kind == KIND_LINK && file.has_stream &&
+            !std::ranges::contains(folders, file.folder)) {
+            folders.push_back(file.folder);
         }
-
-        std::vector<std::uint8_t> folder_bytes;
-        if (decode(bytes, reader.streams, reader.streams.folders[file.folder], folder_bytes)
-                .failed() ||
-            file.offset + file.size > folder_bytes.size()) {
-            continue;
-        }
-
-        file.target = fb::compress::utf8_or_replaced(
-            { reinterpret_cast<const char*>(folder_bytes.data()) + file.offset,
-              static_cast<std::size_t>(file.size) });
     }
 
+    for (const std::size_t folder : folders) {
+        std::uint64_t from = std::numeric_limits<std::uint64_t>::max();
+        std::uint64_t until = 0;
+        for (const file_t& file : reader.files) {
+            if (file.kind == KIND_LINK && file.has_stream && file.folder == folder) {
+                from = std::min(from, file.offset);
+                until = std::max(until, file.offset + file.size);
+            }
+        }
+
+        std::span<const std::uint8_t> part;
+        std::vector<std::uint8_t> scratch;
+        if (folder_part(reader, folder, from, until, part, scratch).failed()) {
+            continue;
+        }
+
+        for (file_t& file : reader.files) {
+            if (file.kind == KIND_LINK && file.has_stream && file.folder == folder) {
+                file.target = fb::compress::utf8_or_replaced(
+                    { reinterpret_cast<const char*>(part.data()) + (file.offset - from),
+                      static_cast<std::size_t>(file.size) });
+            }
+        }
+    }
+
+    reader.message.clear();
     return RESULT_DONE;
 }
 
@@ -1118,23 +1194,14 @@ std::int32_t fb_xz_7z_reader_read(void* reader, const std::int64_t index, fb_arr
         return fail(state, { .result = RESULT_TOO_LARGE, .message = "" });
     }
 
-    if (state.decoded != file.folder) {
-        state.decoded.reset();
-        const status_t decoded = decode(state.bytes, state.streams,
-                                        state.streams.folders[file.folder], state.folder_bytes);
-        if (decoded.failed()) {
-            return fail(state, decoded);
-        }
-
-        state.decoded = file.folder;
+    std::span<const std::uint8_t> bytes;
+    std::vector<std::uint8_t> scratch;
+    const status_t got =
+        folder_part(state, file.folder, file.offset, file.offset + file.size, bytes, scratch);
+    if (got.failed()) {
+        return fail(state, got);
     }
 
-    if (file.offset + file.size > state.folder_bytes.size()) {
-        return fail(state, broken("a file is past its folder's end"));
-    }
-
-    const std::span<const std::uint8_t> bytes =
-        std::span(state.folder_bytes).subspan(file.offset, file.size);
     if (file.crc && lzma_crc32(bytes.data(), bytes.size(), 0) != *file.crc) {
         return fail(state, broken("'" + file.name + "' doesn't match its CRC-32"));
     }

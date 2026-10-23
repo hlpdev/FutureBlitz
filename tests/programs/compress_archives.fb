@@ -252,6 +252,12 @@ Print("7z, start header flipped:", SevenZipOutcome(Flipped(sample, 20)))
 Print("7z, header flipped:", SevenZipOutcome(Flipped(sample, sample.Count - 20)))
 Print("7z, a file's byte flipped:", SevenZipOutcome(Flipped(sample, 33)))
 Print("7z, PPMd:", SevenZipOutcome(Ppmd7z()))
+Print("7z, a bind pair past its coders:", SevenZipOutcome(Bind7z()))
+
+// Links in one solid folder each have their target, from one decoding of the folder.
+Local links = Try SevenZip.Read(Links7z())
+Print("7z, links:", links.Count, Describe(links.Entries[1]), Describe(links.Entries[40]),
+      (Try links.ReadAt(0)).Count, (Try links.ReadAt(40)).Count)
 
 // Each entry of a tar or a zip, and what reading it gives: its bytes, or the IOError.
 Function TarList(data: UInt8[]): String

@@ -1,0 +1,27 @@
+// A file in a 7z's solid folder of more bytes than an array holds reads, as only the folder's
+// bytes up to its end are decoded, and a file of more bytes than that is an IOError.
+// compress_archives/make_archives.py says how the 7z's parts were made.
+
+Import std.core
+Import std.collections
+Import std.compress
+Import "./compress_archives/data"
+
+Local archive = Solidstart7z()
+Local chunk = Solidchunk7z()
+For i = 1 To 2048
+    archive.AddAll(chunk)
+End For
+archive.AddAll(Solidend7z())
+
+Local reader = Try SevenZip.Read(archive)
+For entry In reader.Entries
+    Print(entry.Name, entry.Size)
+End For
+
+Print(((Try reader.Read("hello.txt")) ?? []) == "hello\n".Bytes)
+Try
+    reader.ReadAt(0)
+Catch e As IOError
+    Print(e.Kind, e.Message)
+End Try

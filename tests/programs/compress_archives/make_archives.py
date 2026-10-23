@@ -177,6 +177,37 @@ def lzma_literals(data):
     return bytes(out), b"\x5d" + (1 << 20).to_bytes(4, "little")
 
 
+def solid_past_2gib():
+    """A 7z of one solid LZMA2 folder, 2 GiB of zeros and then hello.txt's 6 bytes, as three
+    parts: its start; an LZMA2 chunk of 1 MiB of zeros that resets the dictionary, so it's the same
+    bytes each time, which the zeros are 2048 of; and its end, hello.txt's uncompressed chunk, the
+    LZMA2 stream's end, and the header. A program puts them together, as the 7z is 450 KiB."""
+    lzma2 = {"id": lzma.FILTER_LZMA2, "preset": 6}
+    zeros = bytes(1 << 20)
+    stream = raw(zeros, [lzma2])
+    chunk = stream[:-1]
+    assert chunk[0] & 0xE0 == 0xE0 and stream[-1] == 0
+    hello = b"hello\n"
+    tail = bytes([0x02, 0x00, len(hello) - 1]) + hello + bytes(1)
+    packed_size = len(chunk) * 2048 + len(tail)
+    big = 2048 << 20
+    zeros_crc = 0
+    for _ in range(2048):
+        zeros_crc = zlib.crc32(zeros, zeros_crc)
+    streams = bytes([PACK_INFO]) + number(0) + number(1) + bytes([SIZE]) + number(packed_size)
+    streams += bytes([END, UNPACK_INFO, FOLDER]) + number(1) + bytes(1) + number(1)
+    streams += coder(LZMA2, properties(lzma2)) + bytes([UNPACK_SIZE]) + number(big + len(hello))
+    streams += bytes([END, SUBSTREAMS, UNPACK_STREAMS]) + number(2) + bytes([SIZE]) + number(big)
+    streams += bytes([CRC, 1]) + zeros_crc.to_bytes(4, "little") + crc(hello) + bytes([END, END])
+    names = bytes(1) + "zeros.bin".encode("utf-16-le") + bytes(2)
+    names += "hello.txt".encode("utf-16-le") + bytes(2)
+    info = number(2) + property_(NAME, names) + bytes([END])
+    header = bytes([HEADER, MAIN_STREAMS]) + streams + bytes([FILES_INFO]) + info + bytes([END])
+    start = packed_size.to_bytes(8, "little") + len(header).to_bytes(8, "little") + crc(header)
+    signature = bytes([0x37, 0x7A, 0xBC, 0xAF, 0x27, 0x1C, 0x00, 0x04])
+    return signature + crc(start) + start, chunk, tail + header
+
+
 def tar_header(name, size, kind=b"0", link="", magic=True, size_field=None):
     """A tar's header, ustar's unless `magic` is False, for an old tar's, with its checksum."""
     header = bytearray(512)
@@ -353,6 +384,26 @@ def main():
         [([coder(LZMA1, literal_properties), coder(BCJ_X86)], [(1, 0)], literal,
           [len(text), len(text)], [text])],
         [("text.txt", True, True, False, None)])
+
+    # Bind pairs through a coder past the folder's last, whose chain still ends at its packed
+    # stream.
+    made["bind.7z"] = archive(
+        [([coder(COPY)] * 3, [(0, 0x10000000), (0x10000000, 1)], one, [len(one)] * 3, [one])],
+        [("one.txt", True, True, False, None)])
+
+    # A solid folder of 64 MiB of zeros, then the targets of 40 links to them, which a reader
+    # decodes once for them all.
+    zeros = bytes(64 << 20)
+    target = b"zeros.bin"
+    link_mode = (0o120777 << 16) | 0x8000
+    made["links.7z"] = archive(
+        [([coder(LZMA2, properties(lzma2))], [], raw(zeros + target * 40, [lzma2]),
+          [len(zeros) + len(target) * 40], [zeros] + [target] * 40)],
+        [("zeros.bin", True, True, False, 0x20)] +
+        [(f"link{i}", True, True, False, link_mode) for i in range(40)])
+
+    start, chunk, end = solid_past_2gib()
+    made["solidstart.7z"], made["solidchunk.7z"], made["solidend.7z"] = start, chunk, end
 
     # PPMd, which liblzma doesn't have: the archive opens, and reading its file fails.
     made["ppmd.7z"] = archive(

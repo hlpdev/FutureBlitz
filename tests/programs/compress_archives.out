@@ -51,6 +51,8 @@ tar.gz, cut: UNEXPECTED_END: the Gzip data ends too soon
 7z, header flipped: INVALID_DATA: the 7z data isn't valid: its header doesn't match its CRC-32
 7z, a file's byte flipped: INVALID_DATA: the 7z data isn't valid: 'plain/one.txt' doesn't match its CRC-32
 7z, PPMd: OTHER: the 7z data uses what isn't supported: its coder PPMd isn't supported
+7z, a bind pair past its coders: INVALID_DATA: the 7z data isn't valid: a folder's coders don't fit together
+7z, links: 41 link0 -> zeros.bin link39 -> zeros.bin 67108864 0
 old tar: old.txt (5): 5 bytes
 base-256 size: big.txt (5): 5 bytes
 links: target.txt (2): 2 bytes, link -> target.txt: 0 bytes, hard -> target.txt: 0 bytes, long-link -> a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/a/target.txt: 0 bytes, sized.txt (3): 3 bytes
