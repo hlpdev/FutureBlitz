@@ -278,7 +278,7 @@ private:
     function_ref_t m_task_finish;
     function_ref_t m_await;
     function_ref_t m_wait_frame;
-    function_ref_t m_wait_seconds;
+    function_ref_t m_wait_time;
     function_ref_t m_scheduler_new;
     function_ref_t m_scheduler_run;
     function_ref_t m_scheduler_tick;
@@ -774,7 +774,7 @@ private:
         m_task_finish = declare("fb_task_finish", m_void, { m_ptr });
         m_await = declare("fb_await", m_void, { m_ptr, m_ptr, m_ptr });
         m_wait_frame = declare("fb_wait_frame", m_void, { m_ptr });
-        m_wait_seconds = declare("fb_wait_seconds", m_void, { m_ptr, f64, m_i32 });
+        m_wait_time = declare("fb_wait_time", m_void, { m_ptr, m_i64, m_i32 });
         m_scheduler_new = declare("fb_scheduler_new", m_ptr, { m_ptr });
         m_scheduler_run = declare("fb_scheduler_run", m_void, { m_ptr, m_ptr });
         m_scheduler_tick = declare("fb_scheduler_tick", m_void, { m_ptr, f64 });
@@ -3596,8 +3596,8 @@ private:
                                  });
         case runtime_function_t::WAIT_FRAME:
             return call(m_wait_frame, { value_of(node.arguments[0]) });
-        case runtime_function_t::WAIT_SECONDS:
-            return call(m_wait_seconds,
+        case runtime_function_t::WAIT_TIME:
+            return call(m_wait_time,
                         {
                             value_of(node.arguments[0]),
                             value_of(node.arguments[1]),

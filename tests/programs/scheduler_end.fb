@@ -2,6 +2,7 @@
 // that nothing ticks any more, timers nothing awaits, and one that a Destroy starts while the
 // Globals are released. Each is destroyed, letting go of what it holds, and nothing leaks.
 Import std.core
+Import std.time
 
 Class Note
     Field text: String
@@ -14,7 +15,7 @@ End Class
 Global gameplay = Scheduler()
 
 Async Function Cutscene()
-    Await Seconds(5)
+    Await Wait(5.Seconds)
     Print("never: the cutscene's Scheduler isn't ticked once the game loop ends")
 End Function
 
@@ -45,7 +46,7 @@ door.name = "the gate"
 Local scene = Cutscene()
 gameplay.Run(scene)
 Ui(scene)
-Local timer = Seconds(100.0)
+Local timer = Wait(100.Seconds)
 Local frame = NextFrame()
 For tick = 1 To 3
     gameplay.Tick(0.5)

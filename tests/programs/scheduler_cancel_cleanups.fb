@@ -2,6 +2,7 @@
 // function, a block, or a loop, or with an error, lets go of only what it still holds: what the
 // way out let go of before the Await stays gone, once, and the error goes too.
 Import std.core
+Import std.time
 
 Class Light
     Field name: String
@@ -16,7 +17,7 @@ Class Light
 End Class
 
 Async Function Never(): String
-    Await Seconds(100)
+    Await Wait(100.Seconds)
     Return "never"
 End Function
 

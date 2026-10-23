@@ -370,6 +370,8 @@ public:
             m_range = range;
         }
 
+        find_duration();
+
         // Globals and Consts come first, so any declaration's types can use them.
         each_item([this](const stmt_id_t id) { declare_global_item(id); });
         each_item([this](const stmt_id_t id) { resolve_global_type(id); });
@@ -675,6 +677,8 @@ private:
     type_id_t m_map = type_id_t::INVALID;
     /// std's Range<T>, which "0 Until 10" makes, from std/core/range.fb.
     type_id_t m_range = type_id_t::INVALID;
+    /// std.time's Duration, which Wait and RealWait take, from std/time/duration.fb.
+    type_id_t m_duration = type_id_t::INVALID;
 
     /// The type parameters that names in types can refer to here: a generic Struct's or Class's,
     /// then a generic Method's or Function's.
@@ -1015,17 +1019,18 @@ private:
             }));
         }
 
-        // NextFrame(), Seconds(n), and RealSeconds(n) give a Task that the scheduler running the
+        // NextFrame(), Wait(time), and RealWait(time) give a Task that the scheduler running the
         // code finishes later, for an Async Function to Await, so only the main thread calls
-        // them. MainThread() gives one that's done.
+        // them. MainThread() gives one that's done. A time is std.time's Duration, which
+        // find_duration() gives the parameter once the types are declared.
         const type_id_t task = m_analysis.types.task(type_id_t::NONE);
         const auto timing = [&](const std::string_view name, const bool timed) {
             std::vector<symbol_id_t> parameters;
             if (timed) {
                 parameters.push_back(add_symbol({
                     .kind = symbol_kind_t::PARAMETER,
-                    .name = "seconds",
-                    .type = type_id_t::FLOAT64,
+                    .name = "time",
+                    .type = type_id_t::INVALID,
                 }));
             }
 
@@ -1039,9 +1044,26 @@ private:
             m_builtins[name].push_back(timer);
         };
         timing("NextFrame", false);
-        timing("Seconds", true);
-        timing("RealSeconds", true);
+        timing("Wait", true);
+        timing("RealWait", true);
         timing("MainThread", false);
+    }
+
+    /// std.time's Duration, which Wait and RealWait take: a Struct whose one Field is its
+    /// nanoseconds, an Int64, which lowering passes to the runtime. Without std.time, their
+    /// parameter has no type, and check_wait_call() says to import it.
+    void find_duration() {
+        const type_id_t duration = std_type("std.time", "Duration");
+        if (duration == type_id_t::INVALID || !is_struct(duration)) {
+            return;
+        }
+
+        m_duration = duration;
+        for (const std::string_view name : { "Wait", "RealWait" }) {
+            for (const symbol_id_t timer : m_builtins[name]) {
+                m_analysis.symbols[index(symbol(timer).parameters.front())].type = duration;
+            }
+        }
     }
 
     /// Each module's imports, as the driver resolved them: what each brings in unqualified, and
@@ -19829,6 +19851,28 @@ private:
         }
     }
 
+    /// Wait and RealWait take std.time's Duration, a Struct of one Int64 of nanoseconds, which
+    /// lowering reads.
+    void check_wait_call(const call_expr_t& node, const symbol_t& function) {
+        if (m_duration == type_id_t::INVALID) {
+            error(span_of(node.callee),
+                  "{} takes a Duration, from std.time, like {}(2.Seconds); add 'Import std.time'",
+                  function.name, function.name);
+            return;
+        }
+
+        std::vector<symbol_id_t> fields;
+        std::ranges::copy_if(
+            symbol(m_declared_types.at(m_duration)).members, std::back_inserter(fields),
+            [&](const symbol_id_t member) { return symbol(member).kind == symbol_kind_t::FIELD; });
+        if (fields.size() != 1 || symbol(fields.front()).type != type_id_t::INT64) {
+            error(span_of(node.callee),
+                  "{} needs std.time's Duration, a Struct whose one Field is an Int64 of "
+                  "nanoseconds",
+                  function.name);
+        }
+    }
+
     /// RefEquals only compares Class references, a Scheduler runs a Task, and Destroy runs by
     /// itself. A Run without its argument was reported already.
     void check_special_call(const call_expr_t& node, const symbol_t& function) {
@@ -19841,6 +19885,11 @@ private:
                 error(span_of(task), "a Scheduler runs an Async Function's Task, not {}",
                       shown_name(type));
             }
+        }
+
+        if (function.kind == symbol_kind_t::BUILTIN_FUNCTION &&
+            (function.name == "Wait" || function.name == "RealWait")) {
+            check_wait_call(node, function);
         }
 
         if (function.kind == symbol_kind_t::BUILTIN_FUNCTION && function.name == "RefEquals") {

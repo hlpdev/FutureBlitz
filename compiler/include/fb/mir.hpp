@@ -252,9 +252,9 @@ enum class runtime_function_t : std::uint8_t {
     AWAIT,
     /// (Task) to nothing: the scheduler running the code finishes it at its next tick.
     WAIT_FRAME,
-    /// (Task, Float64 seconds, Bool real) to nothing: the scheduler running the code finishes it
+    /// (Task, Int64 nanoseconds, Bool real) to nothing: the scheduler running the code finishes it
     /// once that much of its time, or the real clock's, has passed.
-    WAIT_SECONDS,
+    WAIT_TIME,
     /// (Scheduler, Task) to nothing: the Scheduler runs the Task's coroutine from then on.
     SCHEDULER_RUN,
     /// (Scheduler, Float64 seconds) to nothing: moves its time on and runs its coroutines.

@@ -337,6 +337,9 @@ TEST_CASE("a decimal point needs digits on both sides", "[lexer]") {
     using enum token_kind_t;
     CHECK(lex_text("1..3").kinds == std::vector{ INTEGER, DOT_DOT, INTEGER });
     CHECK(lex_text("5.ToString").kinds == std::vector{ INTEGER, DOT, IDENTIFIER });
+    // A Duration's number and unit, as std.time writes one.
+    CHECK(lex_text("2.Seconds").kinds == std::vector{ INTEGER, DOT, IDENTIFIER });
+    CHECK(lex_text("1.5.Minutes").kinds == std::vector{ DECIMAL, DOT, IDENTIFIER });
     CHECK(lex_text(".5").kinds == std::vector{ DOT, INTEGER });
 
     // Hex, binary, and octal literals are always integers.

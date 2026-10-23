@@ -128,7 +128,7 @@ End Function
 ```vb
 Async Function DoorSequence(door: Door)
     door.Open()
-    Await Seconds(2)
+    Await Wait(2.Seconds)
     door.Close()
 End Function
 
@@ -185,7 +185,7 @@ Rules:
   Scheduler that nothing ticks any more, or for one that waits for such a Task, is destroyed
   before the Globals are released, as when its Scheduler goes. So is one that a Destroy starts
   while the Globals are released, at its first Await, since the program has ended. A Task from
-  NextFrame, Seconds, or RealSeconds that nothing awaits is never done.
+  NextFrame, Wait, or RealWait that nothing awaits is never done.
 - `Scheduler()` makes one, only on the main thread, since its coroutines run there, and it isn't
   Sendable. `s.Tick(seconds)` moves its time on by that much and resumes what can go on, and
   `s.IsIdle()` says whether no coroutine waits on it.
@@ -193,9 +193,11 @@ Rules:
   `s`, with the coroutines and timers it waits for. A Task that's done, or a Spawn's, has nothing
   to move.
 - `Await NextFrame()` resumes at the next tick of the owning scheduler.
-- `Await Seconds(n)` uses the scheduler's time (respects pause and time scale).
-  `Await RealSeconds(n)` ignores both. NextFrame, Seconds, and RealSeconds give a Task that the
-  scheduler running the code finishes, so only the main thread calls them.
+- `Await Wait(time)` uses the scheduler's time (respects pause and time scale), and
+  `Await RealWait(time)` the real clock's, ignoring both. A time is std.time's `Duration`, like
+  `2.Seconds` or `500.Milliseconds`, so either one needs `Import std.time`. NextFrame, Wait, and
+  RealWait give a Task that the scheduler running the code finishes, so only the main thread
+  calls them.
 - An I/O await resumes on the scheduler that started it, at its next tick. Coroutine code
   never runs on a background thread. A coroutine that starts waiting during a tick waits for the
   next one, even for a Task that's done.

@@ -97,8 +97,8 @@ std::string_view runtime_name(const runtime_function_t function) {
         return "await";
     case runtime_function_t::WAIT_FRAME:
         return "wait_frame";
-    case runtime_function_t::WAIT_SECONDS:
-        return "wait_seconds";
+    case runtime_function_t::WAIT_TIME:
+        return "wait_time";
     case runtime_function_t::SCHEDULER_RUN:
         return "scheduler_run";
     case runtime_function_t::SCHEDULER_TICK:

@@ -461,10 +461,10 @@ void fb_await(void* coroutine, fb_task_t* own, fb_task_t* task);
 /// For NextFrame: the scheduler running the code finishes `task`, which fb_task_begin set up, at
 /// its next tick.
 void fb_wait_frame(fb_task_t* task);
-/// For Seconds and RealSeconds: the scheduler running the code finishes `task` once `seconds`
-/// of its time have passed, or of the real clock's when `real` isn't 0. The main scheduler's
-/// time is the real clock's.
-void fb_wait_seconds(fb_task_t* task, double seconds, std::int32_t real);
+/// For Wait and RealWait: the scheduler running the code finishes `task` once `nanoseconds` of
+/// its time have passed, or of the real clock's when `real` isn't 0. The main scheduler's time is
+/// the real clock's.
+void fb_wait_time(fb_task_t* task, std::int64_t nanoseconds, std::int32_t real);
 
 /// A Scheduler's object: what the runtime keeps for it, which runs its coroutines when it's
 /// ticked.

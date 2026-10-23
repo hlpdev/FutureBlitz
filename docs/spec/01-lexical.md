@@ -91,7 +91,8 @@ Null          // the null reference
 - `_` may only appear between two digits: `1_000` is valid; `_1`, `1_`, `1__0`, and `0x_FF`
   are errors.
 - A decimal literal needs digits on both sides of `.` (`1.0`, not `1.` or `.5`), so `1..3`
-  is a range. An exponent also makes a decimal literal (`1e5`).
+  is a range, and `2.Seconds` is `2`, then `.`, then `Seconds`: a member of the literal, as
+  `1.5.Minutes` is of `1.5`. An exponent also makes a decimal literal (`1e5`).
 - Hex, binary, and octal literals are always integers.
 - An integer literal must fit in 64 bits. Whether it fits its type is checked during type
   checking, so `-2147483648` is a valid `Int`.

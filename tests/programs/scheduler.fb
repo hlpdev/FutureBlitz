@@ -2,10 +2,11 @@
 // can pause it or scale it. The main scheduler runs the rest, by the real clock.
 
 Import std.core
+Import std.time
 
 Async Function Door(name: String)
     Print("{name} opens")
-    Await Seconds(2)
+    Await Wait(2.Seconds)
     Print("{name} closes")
 End Function
 
@@ -44,7 +45,7 @@ Async Function Stuck(light: Light): Int
     Local label = "{light.name} waits"
     Defer Print("never")
     Print(label)
-    Await Seconds(100)
+    Await Wait(100.Seconds)
     Return 1
 End Function
 
@@ -66,14 +67,14 @@ End Function
 Async Function Ui()
     Await NextFrame()
     Print("ui next frame")
-    Await RealSeconds(0.01)
+    Await RealWait(10.Milliseconds)
     Print("ui after real time")
     Await MainThread()
     Print("ui on the main thread")
 End Function
 
 // Top-level code's Wait ticks the main scheduler.
-Seconds(0.01).Wait()
+Wait(10.Milliseconds).Wait()
 Print("waited")
 
 Global gameplay = Scheduler()

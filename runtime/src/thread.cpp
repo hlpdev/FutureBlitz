@@ -1071,10 +1071,10 @@ void fb_wait_frame(fb_task_t* task) {
     current_scheduler()->add_timer(task, true, 0.0, false);
 }
 
-void fb_wait_seconds(fb_task_t* task, const double seconds, const std::int32_t real) {
+void fb_wait_time(fb_task_t* task, const std::int64_t nanoseconds, const std::int32_t real) {
     scheduler_t& scheduler = *current_scheduler();
     const double now = real != 0 ? real_seconds() : scheduler.time();
-    scheduler.add_timer(task, false, now + seconds, real != 0);
+    scheduler.add_timer(task, false, now + (static_cast<double>(nanoseconds) / 1e9), real != 0);
 }
 
 fb_scheduler_t* fb_scheduler_new(fb_class_t* type) {

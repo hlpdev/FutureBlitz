@@ -697,10 +697,10 @@ TEST_CASE("std's Print and the built-ins can be overloaded, and a module's own h
                     "Panic(\"not really\")\n"
                     "Local after = 1")
               .empty());
-    CHECK(errors_of("Struct Seconds\n"
+    CHECK(errors_of("Struct Wait\n"
                     "    Field n: Int\n"
                     "End Struct\n"
-                    "Local s = Seconds(2)\n"
+                    "Local s = Wait(2)\n"
                     "Local n: Int = s.n")
               .empty());
 }
@@ -4735,6 +4735,7 @@ TEST_CASE("the built-in types have the built-in Interfaces' Methods", "[sema]") 
     // A literal before a member is a Double with a decimal point, so the member sees its digits
     // as written, or else the first of Int, Int64, and UInt64 that holds it.
     CHECK(probe("Local s = 1.5.Hash()") == "UInt64");
+    CHECK(probe("Import std.time\nLocal d = 0.1.Seconds") == "Duration");
     CHECK(probe("Local s = 5_000_000_000.ToString()") == "String");
     CHECK(probe("Local s = 18_000_000_000_000_000_000.ToString()") == "String");
 }
@@ -9036,12 +9037,13 @@ TEST_CASE("an Async Function's call gives its Task, and its code can Await", "[s
                     "so its code runs on the main thread" });
 }
 
-TEST_CASE("NextFrame, Seconds, and Schedulers time coroutines on the main thread", "[sema]") {
-    CHECK(probe("Local x = Seconds(2)") == "Task");
+TEST_CASE("NextFrame, Wait, and Schedulers time coroutines on the main thread", "[sema]") {
+    CHECK(probe("Import std.time\nLocal x = Wait(2.Seconds)") == "Task");
     CHECK(probe("Local x = Scheduler()") == "Scheduler");
-    CHECK(errors_of("Async Function Door()\n"
-                    "    Await Seconds(1.5)\n"
-                    "    Await RealSeconds(1)\n"
+    CHECK(errors_of("Import std.time\n"
+                    "Async Function Door()\n"
+                    "    Await Wait(1.5.Seconds)\n"
+                    "    Await RealWait(1.Seconds)\n"
                     "    Await NextFrame()\n"
                     "    Await MainThread()\n"
                     "End Function\n"
@@ -9065,9 +9067,16 @@ TEST_CASE("NextFrame, Seconds, and Schedulers time coroutines on the main thread
     CHECK(errors_of("Local s: Scheduler<Int> = Scheduler()") ==
           errors_t{ "Scheduler<Int>: 'Scheduler' isn't generic" });
 
+    // Wait and RealWait take std.time's Duration, which needs its Import.
+    CHECK(errors_of("Import std.time\nLocal t = Wait(2)") ==
+          errors_t{ "2: expected Duration, found Int32" });
+    CHECK(errors_of("Local t = RealWait(2)") ==
+          errors_t{ "RealWait: RealWait takes a Duration, from std.time, like RealWait(2.Seconds); "
+                    "add 'Import std.time'" });
+
     // The timers and the Schedulers stay on the main thread, but MainThread() can go anywhere.
-    CHECK(errors_of("Local t = Spawn(Function() => Seconds(1))") ==
-          errors_t{ "Spawn: this work runs on another thread, but it calls 'Seconds', which is "
+    CHECK(errors_of("Import std.time\nLocal t = Spawn(Function() => Wait(1.Seconds))") ==
+          errors_t{ "Spawn: this work runs on another thread, but it calls 'Wait', which is "
                     "@MainThread" });
     CHECK(errors_of("Local t = Spawn(Function() => Scheduler().IsIdle())") ==
           errors_t{ "Spawn: this work runs on another thread, but it makes a Scheduler, whose "

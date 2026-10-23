@@ -7284,8 +7284,9 @@ private:
         return element_of(as_place(task), 2);
     }
 
-    /// NextFrame, Seconds, and RealSeconds make a Task for the scheduler running the code to
-    /// finish, and MainThread one that's done.
+    /// NextFrame, Wait, and RealWait make a Task for the scheduler running the code to finish,
+    /// and MainThread one that's done. A Wait's time is std.time's Duration, whose one Field is
+    /// its nanoseconds.
     operand_t timing_call(const expr_id_t id, const symbol_t& function,
                           const std::vector<call_argument_t>& arguments) {
         const type_id_t type = concrete(expr_type(id));
@@ -7299,10 +7300,10 @@ private:
         } else if (function.name != "MainThread") {
             const const_value_t real{
                 .type = type_id_t::BOOL,
-                .data = function.name == "RealSeconds",
+                .data = function.name == "RealWait",
             };
-            timer.function = runtime_function_t::WAIT_SECONDS;
-            timer.arguments = { task, arguments[0].value, real };
+            timer.function = runtime_function_t::WAIT_TIME;
+            timer.arguments = { task, element_of(as_place(arguments[0].value), 0), real };
         }
 
         emit(evaluate_t{ std::move(timer) });
