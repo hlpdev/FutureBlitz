@@ -66,6 +66,15 @@ So far, std/ holds:
 | std/collections/interval_tree.fb | `IntervalTree<K, V>` |
 | std/collections/spatial.fb | `SpatialHash<T>`, `QuadTree<T>`, and `Octree<T>` |
 | std/collections/immutable.fb | `ImmutableArray<T>`, `ImmutableMap<K, V>`, and `ImmutableSet<T>`, over Shared nodes |
+| std/math/numbers.fb | `Bounded`, `Integer`, and `FloatingPoint`, the Interfaces the number types implement for std.math's generic Functions, over C's libm; `MinValue<T>` and `MaxValue<T>`; a Float's and a Double's `ToBits` and `FromBits` |
+| std/math/constants.fb | `Pi`, `Tau`, `E`, and `Epsilon` as Floats, `Pi64`, `Tau64`, `E64`, and `Epsilon64` as Doubles, and `Inf` and `NaN` |
+| std/math/scalar.fb | `Abs`, `Sign`, `Floor`, `Ceil`, `Round`, `Trunc`, `Fract`, `Mod`, `Rem`, `Gcd`, `Lcm`, `IntSqrt`, `Lerp`, `InverseLerp`, `Remap`, `SmoothStep`, `Wrap`, `PingPong`, `MoveTowards`, `IsClose`, `Sqrt`, `Cbrt`, `Exp`, `Exp2`, `Log`, `Log2`, `Log10`, the trig and hyperbolic Functions, `Atan2`, `IsNaN`, `IsFinite`, `CopySign`, `Fma`, `Deg`, `Rad`, `ToRadians`, and `ToDegrees` |
+| std/math/bits.fb | std.math.bits: `PopCount`, `LeadingZeros`, `TrailingZeros`, `RotateLeft`, `RotateRight`, `ByteSwap`, `IsPowerOfTwo`, `NextPowerOfTwo`, `AlignDown`, `AlignUp`, and the integers' `SaturatingAdd`, `SaturatingSubtract`, and `SaturatingMultiply` |
+| std/math/vector.fb, int_vector.fb | `Vec2`, `Vec3`, `Vec4`, `Vec2i`, and `Vec3i`, with `Dot`, `Cross`, `Length`, `LengthSquared`, `Distance`, `DistanceSquared`, `Normalize`, `Reflect`, `Project`, `Angle`, `Rotate`, `Perpendicular`, `ManhattanDistance`, `ChebyshevDistance`, and the component-wise `Lerp`, `Min`, `Max`, `Clamp`, `Abs`, `Floor`, `Ceil`, `Round`, `MoveTowards`, and `IsClose` |
+| std/math/quat.fb | `Quat`, with `Slerp`, `Lerp`, `Inverse`, `Normalize`, `Dot`, `Length`, `Angle`, and `IsClose` |
+| std/math/matrix.fb | `Mat3` and `Mat4`, with `Transpose`, `Determinant`, `Inverse`, `TryInverse`, and `IsClose` |
+| std/math/color.fb | `Color` and `Color32`, with `Lerp` and `IsClose` |
+| std/math/geometry.fb | `Rect`, `AABB`, `Sphere`, `Ray`, `Plane`, and `Frustum` |
 | std/ffi/mem.fb | `Mem`, raw memory for Unsafe code, over the runtime's `fb_mem_*` |
 | std/ffi/cstring.fb | `CString.From`, `Length`, and `Free`, over the runtime's copies |
 | std/crypto/hashes.fb | `Hasher`, and `Md5`, `Sha1`, `Sha256`, and `Sha512`, over mbedTLS through the runtime's `fb_crypto_` functions |
@@ -268,27 +277,81 @@ file or URL in the default app.
 
 #### std.math
 
-- Constants (`Pi`, `Tau`, `E`, `Inf`, `NaN`, `Epsilon`, ...); `MinValue<T>`, `MaxValue<T>`.
-  `Int` stays 32 bits, and `Long` is 64; byte sizes are Int64s.
-- Scalars: `Abs`, `Sign`, `Floor`, `Ceil`, `Round`, `Trunc`, `Fract`, `Mod` (floored), `Rem`;
-  `Gcd`, `Lcm`, `IntSqrt`, `IntPow`; `Lerp`, `InverseLerp`, `Remap`, `SmoothStep`, `Wrap`,
-  `PingPong`, `MoveTowards`, `IsClose`; powers, logs, trig, and hyperbolics; `IsNaN`,
-  `IsFinite`, `CopySign`, `Fma`, `ToBits`, `FromBits`.
-- Angles are radians everywhere: trig, rotations, and `Quat`. `Deg(90)` and `Rad(x)` convert,
-  as do `ToDegrees` and `ToRadians`, and `quat.ToEulerDegrees()` gives degrees for editors.
-- std.math.bits: `PopCount`, `LeadingZeros`, `TrailingZeros`, `RotateLeft`, `RotateRight`,
-  `ByteSwap`, `IsPowerOfTwo`, `NextPowerOfTwo`, `AlignUp`, `AlignDown`; saturating arithmetic
-  beside the Checked and Wrapping Methods integers have.
-- Linear algebra, Float32, right-handed, Y up, -Z forward, column-major, 0..1 depth, with SIMD
-  where the target has it: `Vec2`, `Vec3`, `Vec4`, `Vec2i`, `Vec3i`, `Quat` (x, y, z, w),
-  `Mat3`, `Mat4`, with Operators, `Dot`, `Cross`, `Length`, `Normalize`, `Lerp`, `Slerp`,
-  `Inverse`, `LookAt`, `Perspective`, `Orthographic`, `Decompose`, and the rest.
-- `Color` (four Float32s, linear RGB and alpha) and `Color32` (four bytes, sRGB), with named
-  colors, `Color.Hex("#ff8800")`, HSV, HSL, and OKLab, converting between them with the right
-  gamma.
-- Geometry: `Rect`, `AABB`, `Sphere`, `Ray`, `Plane`, `Frustum` (`Contains`, `Intersects`,
-  `Raycast`); polygons: triangulation with holes, convex hull, point-in-polygon, offsetting, and
-  union, intersection, and difference.
+Step 9 built the constants, the scalars, the angles, std.math.bits, the vectors, `Quat`, the
+matrices, the colors, and the shapes; the rest is planned. `Import std.math` brings in all of
+std/math/, std.math.bits too.
+
+- The math is Functions, as for Floats, beside the scalar ones of their names: `Lerp(a, b, t)`,
+  `Dot(a, b)`, `Length(v)`, `Normalize(v)`, `Inverse(m)`. Making a value is a Static Method of
+  its type, like `Mat4.Perspective` and `Quat.FromAxisAngle`, and what a value converts to is a
+  Method of it, like `q.ToMat4()` and `c.ToColor32()`.
+- The scalar Functions are generic over the Interfaces the number types implement, so each works
+  in its arguments' type and its literals follow: `Lerp(0, 10, t)` is a Float with `t: Float`, and
+  a Double with `t: Double`. `Bounded` is every number type, with `MinValue` and `MaxValue`, for
+  `MinValue<T>()`; `Integer` is the eight integer types, with their bits through a UInt64; and
+  `FloatingPoint` is Float32 and Float64, with what C's libm works out for each. Generic code of a
+  program's own takes them as constraints, as in `Where T: FloatingPoint & Numeric`. Their Static
+  Methods are for generic code; on the types themselves, the Functions are the way.
+- Constants: `Pi`, `Tau`, `E`, and `Epsilon` (the gap between 1 and the next value) are Floats,
+  and `Pi64`, `Tau64`, `E64`, and `Epsilon64` Doubles, since a Float widened isn't a Double's
+  precision. `Inf` and `NaN` are Floats, which a Double holds the same. `MinValue<T>()` and
+  `MaxValue<T>()`, a float's being its lowest and highest finite values. `Int` stays 32 bits, and
+  `Long` is 64; byte sizes are Int64s.
+- Scalars: `Abs` and `Sign` for any Numeric and Comparable type; `Floor`, `Ceil`, `Round` (half
+  away from 0), `Trunc`, and `Fract`; `Mod` (floored, with the divisor's sign) and `Rem` (as `%`,
+  with the dividend's) for integers and floats; `Gcd`, `Lcm`, and `IntSqrt` for integers;
+  `Lerp`, `InverseLerp`, `Remap`, `SmoothStep` (GLSL's), `Wrap`, `PingPong`, `MoveTowards`;
+  `IsClose(a, b, tolerance)`, and `IsClose(a, b)`, within 0.00001 of the larger's size, or of 1
+  near 0; `Sqrt`, `Cbrt`, `Exp`, `Exp2`, `Log` (and `Log(x, base)`), `Log2`, `Log10`; `Sin`,
+  `Cos`, `Tan`, `Asin`, `Acos`, `Atan`, `Atan2`, and the hyperbolic six; `IsNaN`, `IsFinite`,
+  `CopySign`, and `Fma`. Powers are the `**` operator, for integers and floats, so there's no
+  `Pow` or `IntPow`. A Float's `x.ToBits()` gives its IEEE bits, and `Float.FromBits(bits)` and
+  `Double.FromBits(bits)` the value back.
+- Angles are radians everywhere: trig, rotations, and `Quat`. `Deg(90)` and `ToRadians(90)` are
+  90 degrees in radians, and `ToDegrees(x)` x radians in degrees; `Rad(x)` is x itself, for code
+  that says its units, as `Deg` does. Each takes an Int too, since degrees are often whole, and
+  gives a Float. `quat.ToEulerDegrees()` gives degrees for editors.
+- std.math.bits: `PopCount`, `LeadingZeros`, `TrailingZeros`, `RotateLeft`, `RotateRight`
+  (counts go around the width, and a negative one turns the other way), `ByteSwap`,
+  `IsPowerOfTwo`, `NextPowerOfTwo`, `AlignUp`, and `AlignDown`, for any integer type, a signed
+  one's bits being its two's complement; and the integers' `SaturatingAdd`, `SaturatingSubtract`,
+  and `SaturatingMultiply` beside their Checked and Wrapping Methods.
+- Linear algebra, Float32, right-handed, Y up, -Z forward, column-major, 0..1 depth: `Vec2`,
+  `Vec3`, `Vec4` (x, y, z, w), `Vec2i`, `Vec3i`, `Quat` (x, y, z, w), `Mat3`, `Mat4`. Their
+  Operators work component by component, and a scalar scales from either side; `v[i]` is a
+  component and `m[column, row]` an element. The vectors are `Numeric`, `Hashable` (-0 as 0),
+  `Printable`, and `Defaultable`, the matrices and `Quat` `Equatable` and `Printable`. Vec3 has
+  the directions `Up`, `Down`, `Left`, `Right`, `Forward` (-Z), and `Back`, and swizzles `xy` and
+  `xyz`. The Functions: `Dot`, `Cross` (a Vec2's gives a Float), `Length`, `LengthSquared`,
+  `Distance`, `DistanceSquared`, `Normalize` (a zero vector stays zero), `Reflect`, `Project`,
+  `Angle`, `Rotate` and `Perpendicular` in 2D, `ManhattanDistance` and `ChebyshevDistance` on
+  grids, and the component-wise `Lerp`, `Min`, `Max`, `Clamp`, `Abs`, `Floor`, `Ceil`, `Round`,
+  `MoveTowards`, and `IsClose`. `Vec2.ToVec2i()` converts toward 0, as As does, and
+  `Vec2i.ToVec2()` back.
+- `Quat`: `Identity`, `FromAxisAngle`, `FromEuler` (Y, X, Z order: roll, then pitch, then yaw),
+  `FromMat3`, `FromTo` (the shortest turn), and `LookRotation`; `ToMat3`, `ToMat4`, `ToAxisAngle`,
+  `ToEuler`, and `ToEulerDegrees`; `q * v` turns a vector and `a * b` turns by b, then a; `Slerp`,
+  `Lerp` (normalized), `Inverse`, `Normalize`, `Dot`, `Length`, `Angle`, and `IsClose`, which takes
+  q and -q as the same rotation.
+- `Mat3` and `Mat4`, whose Fields are their columns, x, y, z, and w, where they take each axis:
+  `Identity`, `Scale`, `Rotation`, `RotationX`, `RotationY`, and `RotationZ`, and a Mat4's
+  `Translation`, `Compose` (scale, then rotate, then move), `LookAt`, `Perspective`, and
+  `Orthographic` (glm's right-handed matrices with depth from 0 to 1); `TransformPoint`,
+  `TransformVector`, `ProjectPoint`, `Decompose`, `ToMat3`, and `ToMat4`; `Transpose`,
+  `Determinant`, `Inverse`, which panics for a matrix with no inverse, and `TryInverse`, which
+  gives Null. Release builds vectorize them as they stand: Vec4's Operators and Mat4's `*` come
+  out as SIMD instructions.
+- `Color` (four Float32s, linear RGB and alpha) and `Color32` (four bytes, sRGB), converting with
+  sRGB's gamma both ways, every byte coming back as it was, with named colors (CSS's sRGB values),
+  `Color.Hex("#ff8800")` and `Color32.Hex`, which panic on text that isn't hex, `TryHex`, which
+  gives Null, `ToHex`, `Color.Srgb`, HSV and HSL (`Color.Hsv`, `Color.Hsl`, `ToHsv`, and `ToHsl`,
+  in sRGB, with a hue from 0 to 1 around, as color pickers have it), and OKLab (`Color.OkLab` and
+  `ToOkLab`, from linear light). Math on a Color is in linear light, and `Lerp` blends there.
+- Geometry: `Rect` (X, Y, Width, Height), `AABB` (Min, Max), `Sphere`, `Ray`, `Plane` (Normal,
+  Distance), and `Frustum` (six Planes facing in, from a view-projection matrix), with `Contains`,
+  `Intersects`, and `Raycast`, which gives how far along the ray, in lengths of its Direction, 0
+  from inside, or Null for a miss. A shape holds the points on its edges. Polygons: triangulation
+  with holes, convex hull, point-in-polygon, offsetting, and union, intersection, and difference.
 - Curves: Bezier (quadratic and cubic), Catmull-Rom, Hermite, and B-splines in 2D and 3D, with
   arc-length sampling.
 - Random: `Random(seed)` (PCG), with `Int`, `Float`, `Bool`, `Chance`, `Pick`, `WeightedPick`,

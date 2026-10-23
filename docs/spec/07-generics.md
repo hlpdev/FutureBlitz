@@ -196,7 +196,9 @@ End Interface
   Strings all but `Numeric` and `Cloneable`; and Bools and Enums `Equatable`, `Hashable`,
   `Printable`, and `Defaultable`. A `T?`, tuple, or
   array implements what its elements do, except that a `T?` is only `Equatable` and `Hashable`,
-  and neither tuples nor arrays are `Comparable` or `Numeric`. The math types will in M6.
+  and neither tuples nor arrays are `Comparable` or `Numeric`. std.math's vectors are
+  `Numeric`, `Hashable`, `Printable`, and `Defaultable`, and its matrices and `Quat` `Equatable`
+  and `Printable` (see [stdlib.md](../stdlib.md#stdmath)).
 - `Cloneable` (`Method Clone(): Self`) is what makes a copy of itself, which arrays are with
   their own `Clone`, and `Defaultable` (`Static Method DefaultValue(): Self`) what has a value to
   start from, which the numbers, Bools, Strings, and Enums are with their zero: `T.DefaultValue()`
