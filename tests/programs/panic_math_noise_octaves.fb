@@ -1,0 +1,9 @@
+// Fbm takes at least one octave, which panics where it's called.
+Import std.core
+Import std.math
+
+Local noise = Noise()
+noise.Octaves = 1
+Print(noise.Fbm(0.5, 0.25) == noise.Perlin(0.5, 0.25))
+noise.Octaves = 0
+Print(noise.Fbm(0.5, 0.25))

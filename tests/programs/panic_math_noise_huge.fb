@@ -1,0 +1,7 @@
+// Noise takes a coordinate whose cell an Int64 holds, which panics where it's called.
+Import std.core
+Import std.math
+
+Local noise = Noise()
+Print(noise.Simplex(0, 0))
+Print(noise.Simplex(1e300, 0))

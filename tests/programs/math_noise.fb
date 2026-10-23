@@ -18,11 +18,15 @@ End For
 // lattice's value.
 Print(noise.Perlin(3, 4, 5), noise.Perlin(-7, 2), noise.Simplex(0, 0), noise.Simplex(0, 0, 0))
 
-// Value noise, Worley noise, and fBm, at the same places.
+// Value noise, Worley noise, and fBm, at the same places, the last with settings of its own.
+Local rough = Noise()
+rough.Octaves = 3
+rough.Lacunarity = 2.5
+rough.Gain = 0.4
 For place In places
     Local x, y, z = place
     Print(noise.Value(x, y, z), noise.Value(x, y), noise.Worley(x, y), noise.Worley(x, y, z),
-          noise.Fbm(x, y), noise.Fbm(x, y, z, 3, 2.5, 0.4))
+          noise.Fbm(x, y), rough.Fbm(x, y, z))
 End For
 
 // A seed's noise is the same each time, and another seed's isn't.

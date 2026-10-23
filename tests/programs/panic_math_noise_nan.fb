@@ -1,0 +1,7 @@
+// Noise takes a coordinate that isn't NaN, which panics where it's called.
+Import std.core
+Import std.math
+
+Local noise = Noise()
+Print(noise.Perlin(0, 0))
+Print(noise.Perlin(NaN, 0))

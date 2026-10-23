@@ -1,0 +1,2 @@
+0
+panic: noise takes coordinates that aren't NaN, whose cells an Int64 holds at panic_math_noise_huge.fb:7:7

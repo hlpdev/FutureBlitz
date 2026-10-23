@@ -45,15 +45,28 @@ Const Unskew3: Double = 1.0 / 6
 // Perlin's fade curve, 6t^5 - 15t^4 + 10t^3, flat at both ends.
 Function Fade(t: Double): Double => t * t * t * (t * (t * 6 - 15) + 10)
 
-// The cell a coordinate is in, its whole part rounded down. One too large for an Int64, or NaN,
-// panics.
+// The cell a coordinate is in, its whole part rounded down. One whose cell an Int64 doesn't hold,
+// or NaN, panics.
 @PanicsAtCaller
-Function Cell(coordinate: Double): Int64 => Floor(coordinate) As Int64
+Function Cell(coordinate: Double): Int64
+    Local cell = Floor(coordinate)
+    If !(cell >= -9223372036854775808.0 && cell < 9223372036854775808.0)
+        // Simplex noise skews its coordinates first, so the one here isn't the one given.
+        Panic("noise takes coordinates that aren't NaN, whose cells an Int64 holds")
+    End If
+    Return cell As Int64
+End Function
 
 Public Class Noise
     // The permutation twice over, so an index plus another below 256 needs no wrapping.
     Field Table: Int[] = []
     Field Gradient: Int[] = []
+
+    // Fbm's octaves of Perlin noise, each Lacunarity times the frequency of the last and Gain times
+    // its strength.
+    Public Field Octaves: Int = 5
+    Public Field Lacunarity: Double = 2
+    Public Field Gain: Double = 0.5
 
     // Noise from Ken Perlin's permutation, as his reference has it.
     Public New()
@@ -247,29 +260,26 @@ Public Class Noise
         Return Sqrt(nearest) As Float
     End Method
 
-    // Fractal Brownian motion in 2D: octaves of Perlin noise, each lacunarity times the frequency
-    // of the last and gain times its strength, added up, from about -1 to 1.
-    @PanicsAtCaller
-    Public Method Fbm(x: Double, y: Double, octaves: Int = 5, lacunarity: Double = 2,
-                      gain: Double = 0.5): Float
-        Return Fbm(x, y, 0, octaves, lacunarity, gain)
-    End Method
-
-    // Fractal Brownian motion in 3D: octaves of Perlin noise, added up, from about -1 to 1. Fewer
+    // Fractal Brownian motion in 2D: Octaves of Perlin noise, added up, from about -1 to 1. Fewer
     // than one octave panics.
     @PanicsAtCaller
-    Public Method Fbm(x: Double, y: Double, z: Double, octaves: Int = 5, lacunarity: Double = 2,
-                      gain: Double = 0.5): Float
-        If octaves < 1 Then Panic("Fbm takes at least one octave, not {octaves}")
+    Public Method Fbm(x: Double, y: Double): Float => Fbm(x, y, 0)
+
+    // Fractal Brownian motion in 3D: Octaves of Perlin noise, each Lacunarity times the frequency
+    // of the last and Gain times its strength, added up, from about -1 to 1. Fewer than one octave
+    // panics.
+    @PanicsAtCaller
+    Public Method Fbm(x: Double, y: Double, z: Double): Float
+        If Octaves < 1 Then Panic("Fbm takes at least one octave, not {Octaves}")
         Local sum: Double = 0
         Local strength: Double = 1
         Local total: Double = 0
         Local frequency: Double = 1
-        For octave = 1 To octaves
+        For octave = 1 To Octaves
             sum += strength * Perlin(x * frequency, y * frequency, z * frequency)
             total += strength
-            strength *= gain
-            frequency *= lacunarity
+            strength *= Gain
+            frequency *= Lacunarity
         End For
         Return (sum / total) As Float
     End Method

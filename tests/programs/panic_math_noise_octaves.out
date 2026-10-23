@@ -1,0 +1,2 @@
+True
+panic: Fbm takes at least one octave, not 0 at panic_math_noise_octaves.fb:9:7
