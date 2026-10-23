@@ -57,6 +57,13 @@ Print(Timestamp.Parse("2026102314 +00", "yyyyMMddHH X") ?? Timestamp.MinValue())
 Print(zoned.Format("yyyy-MM-dd'T'HH:mm:ss.SSSSSSSSSXXX'['VV']'") == "{zoned}",
       ZonedDateTime.Parse(zoned.Format("yyyy-MM-dd HH:mm:ss.SSSSSSSSS VV"),
                           "yyyy-MM-dd HH:mm:ss.SSSSSSSSS VV") == zoned)
+// A fixed zone's name is its offset, which VV writes and reads back.
+For offset In [-(8.Hours), 5.Hours + 30.Minutes, 5.Hours + 30.Minutes + 15.Seconds]
+    Local fixed = zoned.WithZone(TimeZone.Fixed(offset))
+    Local text = fixed.Format("yyyy-MM-dd HH:mm VV")
+    Local back = ZonedDateTime.Parse(text, "yyyy-MM-dd HH:mm VV")
+    Print(text, back == Null ? "Null" : "{back} {back.Zone == fixed.Zone}")
+End For
 
 // What doesn't fit is Null.
 For case In [("2026-02-30", "yyyy-MM-dd"), ("2026-10-23x", "yyyy-MM-dd"),

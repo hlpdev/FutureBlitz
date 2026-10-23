@@ -705,6 +705,14 @@ Function ReadPiece(chars: Int[], start: Int, piece: Piece, adjacent: Bool, field
         Return offset.1
     End If
 
+    // A fixed zone's name is its offset, like "-08:00", which a name read as one ends at.
+    If c == 'V' && start < chars.Count && (chars[start] == '+' || chars[start] == '-')
+        Local offset = ReadOffset(chars, start, False)
+        If offset == Null Then Return Null
+        fields.Zone = TimeZone(0, offset.0)
+        Return offset.1
+    End If
+
     If c == 'V'
         Local finish = start
         While finish < chars.Count && IsZoneLetter(chars[finish])
