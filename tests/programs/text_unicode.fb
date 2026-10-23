@@ -24,6 +24,8 @@ End For
 
 Print(IsNormalized(composed), IsNormalized(decomposed), IsNormalized(decomposed, NormalForm.NFD),
       IsNormalized("ﬁ", NormalForm.NFKC), IsNormalized(""))
+Print(IsNormalized("😀é"), IsNormalized("😀e\u{301}"), IsNormalized("😀e\u{301}", NormalForm.NFD),
+      Normalize("😀e\u{301}") == "😀é")
 
 // Case folding: texts that differ only by case fold to the same.
 Print(CaseFold("Straße"), CaseFold("STRASSE"), CaseFold("ΣΑΣ"), CaseFold("ﬁ😀"),
