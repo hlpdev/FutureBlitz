@@ -49,13 +49,13 @@ Public Function Filled(value: Int32): String
     Return "{values[0]} {values[3]}"
 End Function
 
-// C fills a Buffer through its Pointer, and a view's Pointer is where the view starts, which C
-// reads; safe code reads back what C wrote, in a Buffer of Pairs too.
+// C fills part of a Buffer through its Pointer, and reads a view's, where the view starts, which
+// each window's different sum tells; safe code reads back what C wrote, in Pairs too.
 Public Function Buffered(value: Int32): String
     Local values = Buffer<Int32>(5)
     Local pairs = Buffer<Pair>(2)
     Unsafe
-        vm_fill(values.Pointer(), 5, value)
+        vm_fill(values.Pointer() + 3, 2, value)
         values[2] = 1
         vm_pair_set(pairs.Pointer() + 1, 7, 8, 9)
         Local total = vm_sum(values.Slice(1, 4).Pointer(), 3)
