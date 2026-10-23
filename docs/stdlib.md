@@ -132,6 +132,11 @@ So far, std/ holds:
 | std/net/address.fb | `IpFamily`, `IpAddress`, and `SocketAddress` |
 | std/net/url.fb | `Url` and `QueryParams`, as the WHATWG URL Standard has them |
 | std/net/dns.fb | `Dns`, over libuv's getaddrinfo through the runtime's `fb_io_` functions |
+| std/text/string.fb | std.text: a String's `Length`, `CharCount`, and `GraphemeCount`, and its Methods by byte position: `IsEmpty`, `IsBlank`, `Contains`, `StartsWith`, `EndsWith`, `Find`, `FindLast`, `FindAll`, `Count`, `Slice`, `Before`, `After`, `SplitOnce`, `Split`, `SplitN`, `SplitLines`, `SplitWhitespace`, `Join`, `Replace`, `ReplaceFirst`, `Trim`, `TrimStart`, `TrimEnd`, `TrimPrefix`, `TrimSuffix`, `ToUpper`, `ToLower`, `Repeated`, `PadLeft`, `PadRight`, `Center`, `Compare`, `EqualsIgnoreCase`, `NaturalCompare`, `Lines`, and `Graphemes`, with `LineIterator` and `GraphemeIterator`; `String.FromUtf8`; over the runtime's `fb_text_` functions, and its `fb_unicode_` ones for case and grapheme clusters |
+| std/text/char.fb | A Char's `Code`, `Utf8Length`, `IsLetter`, `IsDigit`, `IsNumber`, `IsLetterOrDigit`, `IsUpper`, `IsLower`, `IsPunctuation`, `IsSymbol`, `IsControl`, `IsWhitespace`, `IsAscii`, `ToUpper`, and `ToLower`, and `Char.From` |
+| std/text/builder.fb, scanner.fb | `StringBuilder` and `Scanner` |
+| std/text/unicode.fb | std.text.unicode: `UnicodeCategory` and `Category`, `NormalForm`, `Normalize`, and `IsNormalized`, `CaseFold`, and `DisplayWidth`, over utf8proc through `fb_unicode_` |
+| std/text/encoding.fb | std.text.encoding: `TextEncoding`, `Encode`, `Decode`, `DetectBom`, and `DecodeAny`; `Base64`, `Hex`, `Base32`, `Percent`, and `Html`; and `Escape` and `Unescape` |
 
 What the language itself uses, `Error` for Throw and Catch, the Interfaces, `Iterator<T>`, and
 `Map<K, V>` for `{key: value}`, is always std's, whatever a program calls by those names.
@@ -160,7 +165,7 @@ and the rest) aren't std's.
 | libcurl | curl (MIT-style) | std.net.http's client |
 | mbedTLS | Apache-2.0 | std.net.tls, std.crypto's hashes, HMAC, HKDF, PBKDF2, ciphers, signatures, key exchange, PEM keys and certificates, and secure random |
 | PCRE2 | BSD | std.text.regex, and the compiler's check of regex literals |
-| utf8proc | MIT | std.text.unicode: categories, case, normalization, graphemes, display width |
+| utf8proc | MIT | std.text.unicode: categories, case, normalization, graphemes, display width; and the String and Char Methods that need them, like `ToUpper` and `GraphemeCount` |
 | zlib-ng (zlib API) and minizip-ng | zlib | std.compress's Deflate, Zlib, Gzip, and Zip, and curl's gzip |
 | zstd, lz4 | BSD | std.compress's Zstd and Lz4 |
 | liblzma (xz-utils) | 0BSD | std.compress's XZ/LZMA and 7z reading |
@@ -320,8 +325,8 @@ file or URL in the default app.
   `FindLast`, `FindAll`, `Count`; `Slice(start, finish)`, `Before`, `After`, `SplitOnce`;
   `Split`, `SplitN`, `SplitLines`, `SplitWhitespace`, `Join`; `Replace`, `ReplaceFirst`, `Trim`,
   `TrimStart`, `TrimEnd`, `TrimPrefix`, `TrimSuffix`, `ToUpper`, `ToLower` (full Unicode),
-  `Repeat`, `PadLeft`, `PadRight`, `Center`; `Compare`, `EqualsIgnoreCase`, `NaturalCompare`;
-  `Lines`, `Graphemes`; `String.FromUtf8(bytes)`.
+  `Repeated` (`Repeat` is a keyword), `PadLeft`, `PadRight`, `Center`; `Compare`,
+  `EqualsIgnoreCase`, `NaturalCompare`; `Lines`, `Graphemes`; `String.FromUtf8(bytes)`.
 - `StringBuilder`: `Append`, `AppendLine`, `Insert`, `Remove`, `Replace`, `Clear`, `Length`,
   `Reserve`, `ToString`, and `[]`; it's a `Writer`. A `Scanner` reads text with `Line` and
   `Column`.
