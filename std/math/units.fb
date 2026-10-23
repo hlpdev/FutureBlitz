@@ -1,0 +1,113 @@
+// Typed units: a Quantity is a value in SI's base units, meters, kilograms, and seconds, with the
+// exponents of its length, mass, and time as Const type arguments, so the compiler keeps Meters
+// apart from Seconds and works out what Meters / Seconds is. Each unit is an Alias of its
+// Quantity: Meters is Quantity<1, 0, 0>, and MetersPerSecond Quantity<1, 0, -1>. + and - take
+// quantities of the same units, * and / any two, adding or taking away their exponents, and a
+// Double scales one.
+
+Import std.core
+
+// A value of so many meters, kilograms, and seconds, to the powers L, M, and T: 5 m/s^2 is a
+// Quantity<1, 0, -2> of Value 5.
+Public Struct Quantity<Const L: Int, Const M: Int, Const T: Int> Implements Comparable, Hashable,
+                                                                    Printable, Defaultable
+    // The value in the base units, and the units they make.
+    Public Field Value: Double
+
+    Public Static Method Zero(): Quantity<L, M, T> => Quantity<L, M, T>(0)
+    Public Static Method DefaultValue(): Quantity<L, M, T> => Quantity<L, M, T>(0)
+
+    // The value and its units, as SI writes them: "9.8 m/s^2", "3 kg m/s^2", "50 1/s", or
+    // "4 kg/(m s^2)", and the value alone without any.
+    Public Method ToString(): String
+        Local above = ""
+        Local below = ""
+        Local belowCount = 0
+        For part In [("kg", M), ("m", L), ("s", T)]
+            If part.1 > 0 Then above = Joined(above, Power(part.0, part.1))
+            If part.1 < 0
+                below = Joined(below, Power(part.0, -part.1))
+                belowCount += 1
+            End If
+        End For
+
+        If above == "" && below == "" Then Return "{Value}"
+        If below == "" Then Return "{Value} {above}"
+        If belowCount > 1 Then below = "({below})"
+        Return "{Value} {above == "" ? "1" : above}/{below}"
+    End Method
+
+    Operator +(a: Quantity<L, M, T>, b: Quantity<L, M, T>): Quantity<L, M, T>
+        Return Quantity<L, M, T>(a.Value + b.Value)
+    End Operator
+
+    Operator -(a: Quantity<L, M, T>, b: Quantity<L, M, T>): Quantity<L, M, T>
+        Return Quantity<L, M, T>(a.Value - b.Value)
+    End Operator
+
+    Operator -(a: Quantity<L, M, T>): Quantity<L, M, T> => Quantity<L, M, T>(-a.Value)
+
+    Operator *(a: Quantity<L, M, T>, scale: Double): Quantity<L, M, T>
+        Return Quantity<L, M, T>(a.Value * scale)
+    End Operator
+
+    Operator *(scale: Double, a: Quantity<L, M, T>): Quantity<L, M, T>
+        Return Quantity<L, M, T>(scale * a.Value)
+    End Operator
+
+    Operator /(a: Quantity<L, M, T>, scale: Double): Quantity<L, M, T>
+        Return Quantity<L, M, T>(a.Value / scale)
+    End Operator
+
+    // A product's exponents are the sum of its operands', and a quotient's their difference.
+    Operator *<Const L2: Int, Const M2: Int, Const T2: Int>(
+        a: Quantity<L, M, T>, b: Quantity<L2, M2, T2>): Quantity<L + L2, M + M2, T + T2>
+        Return Quantity<L + L2, M + M2, T + T2>(a.Value * b.Value)
+    End Operator
+
+    Operator /<Const L2: Int, Const M2: Int, Const T2: Int>(
+        a: Quantity<L, M, T>, b: Quantity<L2, M2, T2>): Quantity<L - L2, M - M2, T - T2>
+        Return Quantity<L - L2, M - M2, T - T2>(a.Value / b.Value)
+    End Operator
+
+    Operator <(a: Quantity<L, M, T>, b: Quantity<L, M, T>): Bool => a.Value < b.Value
+End Struct
+
+// A unit to a power, as "m" or "s^2".
+Function Power(unit: String, exponent: Int): String => exponent == 1 ? unit : "{unit}^{exponent}"
+
+// Units with a space between them.
+Function Joined(units: String, unit: String): String => units == "" ? unit : "{units} {unit}"
+
+// How big a quantity is, of the same units.
+Public Function Abs<Const L: Int, Const M: Int, Const T: Int>(
+    q: Quantity<L, M, T>): Quantity<L, M, T>
+    Return Quantity<L, M, T>(q.Value < 0 ? -q.Value : q.Value)
+End Function
+
+// The base units, and those made from them.
+Public Alias Meters = Quantity<1, 0, 0>
+Public Alias Kilograms = Quantity<0, 1, 0>
+Public Alias Seconds = Quantity<0, 0, 1>
+Public Alias SquareMeters = Quantity<2, 0, 0>
+Public Alias CubicMeters = Quantity<3, 0, 0>
+Public Alias MetersPerSecond = Quantity<1, 0, -1>
+Public Alias MetersPerSecondSquared = Quantity<1, 0, -2>
+Public Alias Hertz = Quantity<0, 0, -1>
+Public Alias Newtons = Quantity<1, 1, -2>
+Public Alias NewtonSeconds = Quantity<1, 1, -1>
+Public Alias Joules = Quantity<2, 1, -2>
+Public Alias Watts = Quantity<2, 1, -3>
+Public Alias Pascals = Quantity<-1, 1, -2>
+Public Alias KilogramsPerCubicMeter = Quantity<-3, 1, 0>
+
+// Other units, as the base units' quantities.
+Public Function Kilometers(value: Double): Meters => Meters(value * 1000)
+Public Function Centimeters(value: Double): Meters => Meters(value / 100)
+Public Function Millimeters(value: Double): Meters => Meters(value / 1000)
+Public Function Grams(value: Double): Kilograms => Kilograms(value / 1000)
+Public Function Tonnes(value: Double): Kilograms => Kilograms(value * 1000)
+Public Function Milliseconds(value: Double): Seconds => Seconds(value / 1000)
+Public Function Minutes(value: Double): Seconds => Seconds(value * 60)
+Public Function Hours(value: Double): Seconds => Seconds(value * 3600)
+Public Function KilometersPerHour(value: Double): MetersPerSecond => MetersPerSecond(value / 3.6)

@@ -8387,6 +8387,21 @@ TEST_CASE("an Alias is the type it names, everywhere", "[sema]") {
                     "lib/open.fb" });
 }
 
+TEST_CASE("std.math's units are the Quantities their exponents make", "[sema]") {
+    // Meters / Seconds is MetersPerSecond, and Meters + Seconds is no Quantity at all.
+    CHECK(probe("Import std.math\nLocal v: MetersPerSecond = Meters(100) / Seconds(10)") ==
+          "Quantity<1, 0, -1>");
+    CHECK(errors_of("Import std.math\nLocal x = Meters(1) + Seconds(1)") ==
+          errors_t{ "Meters(1) + Seconds(1): no Operator + takes (Quantity<1, 0, 0>, "
+                    "Quantity<0, 0, 1>)" });
+    CHECK(errors_of("Import std.math\nLocal v: MetersPerSecond = Meters(1) * Seconds(1)") ==
+          errors_t{ "Meters(1) * Seconds(1): expected Quantity<1, 0, -1>, found "
+                    "Quantity<1, 0, 1>" });
+    CHECK(errors_of("Import std.math\nLocal x = Meters(1) < Kilograms(1)") ==
+          errors_t{ "Meters(1) < Kilograms(1): no Operator < takes (Quantity<1, 0, 0>, "
+                    "Quantity<0, 1, 0>)" });
+}
+
 TEST_CASE("an Operator takes type parameters of its own from its operands", "[sema]") {
     // Const ones and types, as a Function call infers them, with their constraints.
     const std::string_view q = "Struct Q<Const A: Int>\n"

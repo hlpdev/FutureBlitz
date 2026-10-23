@@ -1,0 +1,40 @@
+// Typed units: Meters / Seconds is MetersPerSecond, a Quantity whose exponents the compiler works
+// out, and each unit's Alias is its Quantity, which prints its value with its units.
+Import std.collections
+Import std.core
+Import std.math
+
+Local distance = Meters(100)
+Local time = Seconds(8)
+Local speed: MetersPerSecond = distance / time
+Local acceleration: MetersPerSecondSquared = speed / time
+Local force: Newtons = Kilograms(2) * acceleration
+Local work: Joules = force * distance
+Local power: Watts = work / time
+Print(speed, acceleration, force, work, power)
+
+// The units from those of their parts: area, volume, frequency, pressure, momentum, density.
+Local area: SquareMeters = distance * distance
+Local volume: CubicMeters = area * Meters(2)
+Local frequency: Hertz = distance / distance / time
+Local pressure: Pascals = force / area
+Local momentum: NewtonSeconds = Kilograms(3) * speed
+Local density: KilogramsPerCubicMeter = Tonnes(1) / volume
+Print(area, volume, frequency, pressure, momentum, density)
+
+// A ratio of the same units has none, and its value is the number.
+Local ratio = distance / Kilometers(1)
+Print(ratio, ratio.Value, (Hours(1) / Minutes(1)).Value, (Millimeters(5) / Centimeters(1)).Value)
+
+// Doubles scale, + and - take the same units, and they compare and print as numbers do.
+Local doubled = 2 * speed + speed * 2 - speed / 2
+Print(doubled, -doubled, Abs(-doubled), doubled > speed, speed == MetersPerSecond(12.5))
+Print(KilometersPerHour(90), Grams(250), Milliseconds(40), MetersPerSecond.Zero())
+Local speeds: MetersPerSecond[] = [speed, MetersPerSecond(3), doubled]
+speeds.Sort()
+Local fastest = speeds[speeds.Count - 1]
+Print(speeds, Max(speed, MetersPerSecond(20)), fastest)
+Local seen = Set<MetersPerSecond>()
+seen.Add(speed)
+seen.Add(distance / time)
+Print(seen.Count, seen.Contains(MetersPerSecond(12.5)))
