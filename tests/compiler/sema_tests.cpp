@@ -1696,6 +1696,21 @@ TEST_CASE("a Class extends one other Class and inherits its members", "[sema]") 
                     "    Static Method Make(): Int => 2\n"
                     "End Class")
               .empty());
+    // Nor a Static Method an inherited Field's or Property's name, Static or not.
+    CHECK(errors_of("Class A\n"
+                    "    Field x: Int = 1\n"
+                    "    Property P: Int\n"
+                    "        Get => 1\n"
+                    "    End Property\n"
+                    "    Static Field s: Int = 2\n"
+                    "End Class\n"
+                    "Class B Extends A\n"
+                    "    Static Method x(): Int => 5\n"
+                    "    Static Method P(): Int => 5\n"
+                    "    Static Method s(): Int => 5\n"
+                    "End Class") ==
+          errors_t{ "x: 'x' is already declared in A", "P: 'P' is already declared in A",
+                    "s: 's' is already declared in A" });
 
     CHECK(errors_of("Struct S\nEnd Struct\nStruct T Extends S\nEnd Struct") ==
           errors_t{ "S: only a Class can extend another; a Struct is a value" });

@@ -3819,7 +3819,8 @@ private:
 
     /// A Static member overrides nothing, but it can't hide what the Class inherits from the
     /// Class's own code and objects: a Static Field or Property takes no inherited member's name,
-    /// and a Static Method no inherited Method's name and parameters.
+    /// and a Static Method no inherited Field's or Property's name, Static or not, nor an
+    /// inherited instance Method's name and parameters.
     void check_inherited_static(const symbol_id_t id, const type_id_t base) {
         const symbol_t& member = symbol(id);
         std::vector<symbol_id_t> inherited = members_of(base, member.name, member.span);
@@ -3829,9 +3830,8 @@ private:
         });
         const auto clash = std::ranges::find_if(inherited, [&](const symbol_id_t other) {
             const symbol_t& found = symbol(other);
-            return member.kind != symbol_kind_t::METHOD ||
-                   (found.kind == symbol_kind_t::METHOD && !found.modifiers.is_static &&
-                    same_parameters(member, found, base));
+            return member.kind != symbol_kind_t::METHOD || found.kind != symbol_kind_t::METHOD ||
+                   (!found.modifiers.is_static && same_parameters(member, found, base));
         });
         if (clash != inherited.end()) {
             error(member.span, "'{}' is already declared in {}", member.name,
