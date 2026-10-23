@@ -10423,10 +10423,12 @@ private:
 
         // A Struct declared further down has no fields yet, so it's checked again once it does.
         if (!m_declared) {
-            m_pending_sendables.push_back({ .kind = type_kind_t::CHANNEL,
-                                            .inner = element,
-                                            .span = span,
-                                            .bounds = m_bounds });
+            m_pending_sendables.push_back({
+                .kind = type_kind_t::CHANNEL,
+                .inner = element,
+                .span = span,
+                .bounds = m_bounds,
+            });
         }
 
         return m_analysis.types.channel(element);
