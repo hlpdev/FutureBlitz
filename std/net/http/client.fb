@@ -1,0 +1,485 @@
+// HttpClient, which sends HTTP and HTTPS requests and gives their responses, over libcurl, whose
+// TLS is mbedTLS's: it follows redirects, decompresses what comes compressed, keeps cookies, and
+// trusts the OS's roots unless it's given its own. Each request has an Async twin, which the I/O
+// thread runs. Http's Static Methods send one request each, through a client of their own.
+
+Import std.core
+Import std.collections
+Import std.crypto
+Import std.net.http.headers
+Import std.net.http.status
+
+Extern "runtime"
+    Function fb_http_client_new(): Ptr<Void>
+    Function fb_http_client_free(client: Ptr<Void>)
+    Function fb_http_client_clear_cookies(client: Ptr<Void>)
+    Function fb_http_client_trust_own(client: Ptr<Void>, own: Int32)
+    Function fb_http_client_trust(client: Ptr<Void>, der: UInt8[])
+    Function fb_http_new(client: Ptr<Void>, method: String, url: String): Ptr<Void>
+    Function fb_http_header(transfer: Ptr<Void>, name: String, value: String)
+    Function fb_http_body(transfer: Ptr<Void>, body: UInt8[])
+    Function fb_http_options(transfer: Ptr<Void>, timeout: Int64, connectTimeout: Int64,
+                             redirects: Int32, decompress: Int32)
+    Function fb_http_proxy(transfer: Ptr<Void>, proxy: String)
+    Function fb_http_user_agent(transfer: Ptr<Void>, agent: String)
+    Function fb_http_perform(transfer: Ptr<Void>): Int32
+    Function fb_http_advance(transfer: Ptr<Void>): Int32
+    Function fb_http_wait_async(transfer: Ptr<Void>, progress: Int32): Task<Int32>
+    Function fb_http_received(transfer: Ptr<Void>): Int64
+    Function fb_http_expected(transfer: Ptr<Void>): Int64
+    Function fb_http_status(transfer: Ptr<Void>): Int32
+    Function fb_http_url(transfer: Ptr<Void>): String
+    Function fb_http_response_headers(transfer: Ptr<Void>, names: String[], values: String[])
+    Function fb_http_take_body(transfer: Ptr<Void>, output: UInt8[])
+    Function fb_http_message(transfer: Ptr<Void>): String
+    Function fb_http_free(transfer: Ptr<Void>)
+    Function fb_string_from_utf8(bytes: UInt8[]): String
+    Function fb_percent_encode(text: String): String
+End Extern
+
+// The runtime's outcomes of a transfer: a response, or what failed.
+Const RESPONSE = 0
+Const NO_HOST = 1
+Const REFUSED = 2
+Const UNREACHABLE = 3
+Const RESET = 4
+Const CLOSED = 5
+Const TLS = 6
+Const TIMED_OUT = 7
+Const BAD_URL = 9
+
+// The methods a request can have.
+Public Enum HttpMethod
+    GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS
+End Enum
+
+// What a request sends: its bytes, and what they are, as its Content-Type header says unless the
+// request's headers say it themselves.
+Public Struct Body
+    Public ReadOnly Field Bytes: UInt8[]
+    // Its Content-Type, or Null to send none.
+    Public ReadOnly Field ContentType: String?
+
+    Public New(bytes: UInt8[], contentType: String? = "application/octet-stream")
+        Bytes = bytes
+        ContentType = contentType
+    End New
+
+    // text's UTF-8, as plain text unless contentType says another kind.
+    Public Static Method Text(text: String,
+                              contentType: String = "text/plain; charset=utf-8"): Body
+        Return Body(text.Bytes, contentType)
+    End Method
+
+    // JSON's text, as application/json.
+    Public Static Method Json(json: String): Body => Body(json.Bytes, "application/json")
+
+    // A form's fields, in their order, as a browser sends them: each name and value with each
+    // byte but the letters, digits, '-', '.', '_', and '~' as %XX, each pair as name=value, and
+    // '&' between them, as application/x-www-form-urlencoded.
+    Public Static Method Form(fields: Map<String, String>): Body
+        Local pairs: String[] = []
+        For name, value In fields
+            pairs.Add("{fb_percent_encode(name)}={fb_percent_encode(value)}")
+        End For
+        Return Body(pairs.Join("&").Bytes, "application/x-www-form-urlencoded")
+    End Method
+End Struct
+
+// What a server answered: its status, its headers, its body's bytes, and the URL it came from,
+// after the redirects followed.
+Public Class HttpResponse
+    Public ReadOnly Field Status: Int
+    Public ReadOnly Field Headers: Headers
+    Public ReadOnly Field Bytes: UInt8[]
+    Public ReadOnly Field Url: String
+
+    Public New(status: Int, headers: Headers, bytes: UInt8[], url: String)
+        Status = status
+        Headers = headers
+        Bytes = bytes
+        Url = url
+    End New
+
+    // The body as text, its UTF-8, with U+FFFD for each byte that doesn't start well-formed
+    // UTF-8.
+    Public Property Text: String
+        Get => fb_string_from_utf8(Bytes)
+    End Property
+
+    // Whether its Status says the request worked: from 200 to 299.
+    Public Property IsSuccess: Bool
+        Get => StatusCode.IsSuccess(Status)
+    End Property
+
+    // Throws a NetError of HTTP_STATUS unless IsSuccess.
+    Public Method EnsureSuccess() Throws NetError
+        If IsSuccess Then Return
+        Local reason = StatusCode.Reason(Status)
+        Throw NetError(NetErrorKind.HTTP_STATUS, "{Url} answered {Status} {reason}", Url)
+    End Method
+End Class
+
+// Sends requests and gives their responses. A client keeps the cookies its responses set, for
+// the requests after, and the connections it made, which those reuse; its DefaultHeaders go with
+// each request, before the request's own, which replace those of their names. It follows up to
+// MaxRedirects redirects, as a browser does: a POST changes to a GET after a 301, 302, or 303, and
+// any request but a HEAD after a 303. It asks for what it decompresses, gzip and deflate, and
+// decompresses it. It goes through Proxy, or else the proxy the environment names, as
+// http_proxy, https_proxy, and no_proxy do. A failure throws: a NetError for the network's or the
+// server's, or for a URL that isn't HTTP's or HTTPS's, and a TimeoutError for a request that took
+// too long.
+Public Class HttpClient
+    Field State: Ptr<Void>
+    // The headers each request sends, before its own.
+    Public ReadOnly Field DefaultHeaders: Headers
+    // Whether a request follows redirects, or gives a redirect's response.
+    Public Field FollowRedirects: Bool = True
+    // Whether a request asks for its response compressed, which it decompresses.
+    Public Field Decompress: Bool = True
+    // The proxy each request goes through, like "http://proxy:3128", or Null for the
+    // environment's.
+    Public Field Proxy: String? = Null
+    // The User-Agent header a request sends unless its Headers have one.
+    Public Field UserAgent: String = "FutureBlitz"
+    Field Redirects: Int = 10
+    // How many milliseconds a request may take, 0 for no limit, and its connecting.
+    Package Field TimeoutMilliseconds: Int64 = 0
+    Package Field ConnectMilliseconds: Int64 = 30000
+
+    Public New()
+        DefaultHeaders = Headers()
+        State = fb_http_client_new()
+    End New
+
+    // The most redirects a request follows before it throws a NetError. Panics when it's set
+    // below 0.
+    @PanicsAtCaller
+    Public Property MaxRedirects: Int
+        Get => Redirects
+        Set(value)
+            If value < 0 Then Panic("MaxRedirects can't be below 0, as {value} is")
+            Redirects = value
+        End Set
+    End Property
+
+    // Trusts only roots for HTTPS from then on, instead of the OS's roots, as for a server whose
+    // certificate a private authority signed.
+    Public Method TrustOnly(roots: Certificate[])
+        fb_http_client_trust_own(State, 1)
+        For root In roots
+            fb_http_client_trust(State, root.Der)
+        End For
+    End Method
+
+    // Trusts the OS's roots again, from then on.
+    Public Method TrustOsRoots()
+        fb_http_client_trust_own(State, 0)
+    End Method
+
+    // Forgets the cookies it keeps.
+    Public Method ClearCookies()
+        fb_http_client_clear_cookies(State)
+    End Method
+
+    Public Method Get(url: String): HttpResponse Throws NetError, TimeoutError
+        Return Try Send(HttpMethod.GET, url)
+    End Method
+
+    Public Method Head(url: String): HttpResponse Throws NetError, TimeoutError
+        Return Try Send(HttpMethod.HEAD, url)
+    End Method
+
+    Public Method Post(url: String, body: Body): HttpResponse Throws NetError, TimeoutError
+        Return Try Send(HttpMethod.POST, url, body)
+    End Method
+
+    Public Method Put(url: String, body: Body): HttpResponse Throws NetError, TimeoutError
+        Return Try Send(HttpMethod.PUT, url, body)
+    End Method
+
+    Public Method Patch(url: String, body: Body): HttpResponse Throws NetError, TimeoutError
+        Return Try Send(HttpMethod.PATCH, url, body)
+    End Method
+
+    Public Method Delete(url: String): HttpResponse Throws NetError, TimeoutError
+        Return Try Send(HttpMethod.DELETE, url)
+    End Method
+
+    // A request of method to url, with body, if it has one, and headers, after the client's.
+    Public Method Send(method: HttpMethod, url: String, body: Body? = Null,
+                       headers: Headers? = Null): HttpResponse Throws NetError, TimeoutError
+        Local transfer = Transfer(Self, method, url, body, headers)
+        Return Try transfer.Finish(fb_http_perform(transfer.State))
+    End Method
+
+    // The body of url's response, which progress, unless it's Null, is told of as it comes: how
+    // many bytes came, and how many the response said it has, or -1 when it didn't say. Throws a
+    // NetError of HTTP_STATUS when the response's status isn't success.
+    Public Method Download(
+            url: String,
+            progress: Func(Int64, Int64)? = Null): UInt8[] Throws NetError, TimeoutError
+        Local transfer = Transfer(Self, HttpMethod.GET, url, Null, Null)
+        Local outcome: Int32 = 0
+        If progress == Null
+            outcome = fb_http_perform(transfer.State)
+            Return Try transfer.Downloaded(outcome, Null)
+        End If
+
+        Loop
+            Local step = fb_http_advance(transfer.State)
+            If step != 0
+                outcome = step - 1
+                Break
+            End If
+
+            progress(fb_http_received(transfer.State), fb_http_expected(transfer.State))
+        End Loop
+        Return Try transfer.Downloaded(outcome, progress)
+    End Method
+
+    Public Async Method GetAsync(url: String): HttpResponse Throws NetError, TimeoutError
+        Return Try Await SendAsync(HttpMethod.GET, url)
+    End Method
+
+    Public Async Method HeadAsync(url: String): HttpResponse Throws NetError, TimeoutError
+        Return Try Await SendAsync(HttpMethod.HEAD, url)
+    End Method
+
+    Public Async Method PostAsync(url: String,
+                                  body: Body): HttpResponse Throws NetError, TimeoutError
+        Return Try Await SendAsync(HttpMethod.POST, url, body)
+    End Method
+
+    Public Async Method PutAsync(url: String,
+                                 body: Body): HttpResponse Throws NetError, TimeoutError
+        Return Try Await SendAsync(HttpMethod.PUT, url, body)
+    End Method
+
+    Public Async Method PatchAsync(url: String,
+                                   body: Body): HttpResponse Throws NetError, TimeoutError
+        Return Try Await SendAsync(HttpMethod.PATCH, url, body)
+    End Method
+
+    Public Async Method DeleteAsync(url: String): HttpResponse Throws NetError, TimeoutError
+        Return Try Await SendAsync(HttpMethod.DELETE, url)
+    End Method
+
+    // Send's Async twin, whose request the I/O thread runs while the main thread goes on.
+    Public Async Method SendAsync(
+            method: HttpMethod, url: String, body: Body? = Null,
+            headers: Headers? = Null): HttpResponse Throws NetError, TimeoutError
+        Local transfer = Transfer(Self, method, url, body, headers)
+        Local outcome = Await fb_http_wait_async(transfer.State, 0)
+        Return Try transfer.Finish(outcome - 1)
+    End Method
+
+    // Download's Async twin, whose progress is told on the main thread.
+    Public Async Method DownloadAsync(
+            url: String,
+            progress: Func(Int64, Int64)? = Null): UInt8[] Throws NetError, TimeoutError
+        Local transfer = Transfer(Self, HttpMethod.GET, url, Null, Null)
+        Local outcome: Int32 = 0
+        Loop
+            Local step = Await fb_http_wait_async(transfer.State, progress != Null ? 1 : 0)
+            If step != 0
+                outcome = step - 1
+                Break
+            End If
+
+            If progress != Null
+                progress(fb_http_received(transfer.State), fb_http_expected(transfer.State))
+            End If
+        End Loop
+        Return Try transfer.Downloaded(outcome, progress)
+    End Method
+
+    Method Destroy()
+        fb_http_client_free(State)
+    End Method
+
+    Package Property Native: Ptr<Void>
+        Get => State
+    End Property
+
+    Package Property RedirectLimit: Int
+        Get => FollowRedirects ? Redirects : -1
+    End Property
+End Class
+
+// One request and its response, in the runtime, which goes when this does.
+Class Transfer
+    Field State: Ptr<Void>
+    Field Url: String
+
+    New(client: HttpClient, method: HttpMethod, url: String, body: Body?, headers: Headers?)
+        Url = url
+        State = fb_http_new(client.Native, "{method}", url)
+        // The request's headers replace the client's of their names.
+        Local sent = client.DefaultHeaders.Clone()
+        If headers != Null
+            For name, value In headers
+                sent.Remove(name)
+            End For
+
+            For name, value In headers
+                sent.Add(name, value)
+            End For
+        End If
+
+        Local given = body
+        If given != Null
+            Local contentType = given.ContentType
+            If contentType != Null && !sent.Contains("Content-Type")
+                sent.Add("Content-Type", contentType)
+            End If
+        End If
+
+        For name, value In sent
+            fb_http_header(State, name, value)
+        End For
+
+        If given != Null Then fb_http_body(State, given.Bytes)
+        fb_http_options(State, client.TimeoutMilliseconds, client.ConnectMilliseconds,
+                        client.RedirectLimit, client.Decompress ? 1 : 0)
+        Local proxy = client.Proxy
+        If proxy != Null Then fb_http_proxy(State, proxy)
+        fb_http_user_agent(State, client.UserAgent)
+    End New
+
+    Method Destroy()
+        fb_http_free(State)
+    End Method
+
+    // The response, once the transfer ended with outcome, or what failed, thrown.
+    Method Finish(outcome: Int32): HttpResponse Throws NetError, TimeoutError
+        If outcome != RESPONSE Then Try Fail(outcome)
+        Local names: String[] = []
+        Local values: String[] = []
+        fb_http_response_headers(State, names, values)
+        Local headers = Headers()
+        For i = 0 Until names.Count
+            headers.Received(names[i], values[i])
+        End For
+
+        Local bytes: UInt8[] = []
+        fb_http_take_body(State, bytes)
+        Return HttpResponse(fb_http_status(State), headers, bytes, fb_http_url(State))
+    End Method
+
+    // A download's body, once it ended with outcome, after telling progress how much came in
+    // all.
+    Method Downloaded(outcome: Int32,
+                      progress: Func(Int64, Int64)?): UInt8[] Throws NetError, TimeoutError
+        Local response = Try Finish(outcome)
+        Try response.EnsureSuccess()
+        If progress != Null
+            progress(fb_http_received(State), fb_http_expected(State))
+        End If
+
+        Return response.Bytes
+    End Method
+
+    // Throws what the outcome says failed.
+    Method Fail(outcome: Int32) Throws NetError, TimeoutError
+        Local message = fb_http_message(State)
+        Select outcome
+            Case TIMED_OUT
+                Throw TimeoutError("{Url} took longer than it was given: {message}")
+            Case BAD_URL
+                Throw NetError(NetErrorKind.OTHER, "{Url} isn't an HTTP or HTTPS URL: {message}",
+                               Url)
+            Case NO_HOST
+                Throw NetError(NetErrorKind.HOST_NOT_FOUND, message, Url)
+            Case REFUSED
+                Throw NetError(NetErrorKind.REFUSED, message, Url)
+            Case UNREACHABLE
+                Throw NetError(NetErrorKind.UNREACHABLE, message, Url)
+            Case RESET
+                Throw NetError(NetErrorKind.RESET, message, Url)
+            Case CLOSED
+                Throw NetError(NetErrorKind.CLOSED, message, Url)
+            Case TLS
+                Throw NetError(NetErrorKind.TLS, message, Url)
+            Default
+                Throw NetError(NetErrorKind.OTHER, message, Url)
+        End Select
+    End Method
+End Class
+
+// One request each, through a client of its own, with HttpClient's settings as they start.
+Public Struct Http
+    // Http isn't made: it's only its Static Methods.
+    New()
+    End New
+
+    Public Static Method Get(url: String): HttpResponse Throws NetError, TimeoutError
+        Return Try HttpClient().Get(url)
+    End Method
+
+    // The text of url's response. Throws a NetError of HTTP_STATUS when its status isn't
+    // success.
+    Public Static Method GetText(url: String): String Throws NetError, TimeoutError
+        Local response = Try HttpClient().Get(url)
+        Try response.EnsureSuccess()
+        Return response.Text
+    End Method
+
+    // The bytes of url's response. Throws a NetError of HTTP_STATUS when its status isn't
+    // success.
+    Public Static Method GetBytes(url: String): UInt8[] Throws NetError, TimeoutError
+        Return Try HttpClient().Download(url)
+    End Method
+
+    Public Static Method Head(url: String): HttpResponse Throws NetError, TimeoutError
+        Return Try HttpClient().Head(url)
+    End Method
+
+    Public Static Method Post(url: String, body: Body): HttpResponse Throws NetError, TimeoutError
+        Return Try HttpClient().Post(url, body)
+    End Method
+
+    Public Static Method Put(url: String, body: Body): HttpResponse Throws NetError, TimeoutError
+        Return Try HttpClient().Put(url, body)
+    End Method
+
+    Public Static Method Patch(url: String, body: Body): HttpResponse Throws NetError, TimeoutError
+        Return Try HttpClient().Patch(url, body)
+    End Method
+
+    Public Static Method Delete(url: String): HttpResponse Throws NetError, TimeoutError
+        Return Try HttpClient().Delete(url)
+    End Method
+
+    // url's body, as HttpClient's Download gives it.
+    Public Static Method Download(
+            url: String,
+            progress: Func(Int64, Int64)? = Null): UInt8[] Throws NetError, TimeoutError
+        Return Try HttpClient().Download(url, progress)
+    End Method
+
+    Public Static Async Method GetAsync(url: String): HttpResponse Throws NetError, TimeoutError
+        Return Try Await HttpClient().GetAsync(url)
+    End Method
+
+    Public Static Async Method GetTextAsync(url: String): String Throws NetError, TimeoutError
+        Local response = Try Await HttpClient().GetAsync(url)
+        Try response.EnsureSuccess()
+        Return response.Text
+    End Method
+
+    Public Static Async Method GetBytesAsync(url: String): UInt8[] Throws NetError, TimeoutError
+        Return Try Await HttpClient().DownloadAsync(url)
+    End Method
+
+    Public Static Async Method PostAsync(url: String,
+                                         body: Body): HttpResponse Throws NetError, TimeoutError
+        Return Try Await HttpClient().PostAsync(url, body)
+    End Method
+
+    Public Static Async Method DownloadAsync(
+            url: String,
+            progress: Func(Int64, Int64)? = Null): UInt8[] Throws NetError, TimeoutError
+        Return Try Await HttpClient().DownloadAsync(url, progress)
+    End Method
+End Struct

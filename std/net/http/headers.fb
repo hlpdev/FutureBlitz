@@ -1,0 +1,154 @@
+// Headers, an HTTP request's or response's header fields: names, which ASCII's letter cases don't
+// change, as "Content-Type" and "content-type" are one, each with its values, in the order they
+// were added.
+
+Import std.core
+Import std.collections
+
+Extern "runtime"
+    Function fb_headers_same_name(a: String, b: String): Int32
+    Function fb_headers_is_name(name: String): Int32
+    Function fb_headers_is_value(value: String): Int32
+End Extern
+
+// A request's or a response's header fields, as names and values. A name keeps the letter cases
+// it was given, and finds every value of it in any.
+Public Class Headers Implements Iterable<(String, String)>, Cloneable, Printable
+    Field Names: String[] = []
+    Field Values: String[] = []
+
+    Public Property Count: Int
+        Get => Names.Count
+    End Property
+
+    // Adds a value for name, after any it has. Panics when name isn't a header's name, a token
+    // of letters, digits, and !#$%&'*+-.^_`|~, or value has a control character other than a tab,
+    // as a line break would make it another header.
+    @PanicsAtCaller
+    Public Method Add(name: String, value: String)
+        CheckField(name, value)
+        Names.Add(name)
+        Values.Add(value)
+    End Method
+
+    // Gives name only value, where its first one was, or last when it had none. Panics as Add
+    // does.
+    @PanicsAtCaller
+    Public Method Set(name: String, value: String)
+        CheckField(name, value)
+        Local at = IndexOf(name)
+        If at == Null
+            Names.Add(name)
+            Values.Add(value)
+            Return
+        End If
+
+        Values[at] = value
+        Local i = at + 1
+        While i < Names.Count
+            If fb_headers_same_name(Names[i], name) != 0
+                Names.RemoveAt(i)
+                Values.RemoveAt(i)
+            Else
+                i += 1
+            End If
+        End While
+    End Method
+
+    // name's first value, or Null when it has none.
+    Public Method Get(name: String): String?
+        Local at = IndexOf(name)
+        If at == Null Then Return Null
+        Return Values[at]
+    End Method
+
+    // Each of name's values, in order.
+    Public Method GetAll(name: String): String[]
+        Local found: String[] = []
+        For i = 0 Until Names.Count
+            If fb_headers_same_name(Names[i], name) != 0 Then found.Add(Values[i])
+        End For
+        Return found
+    End Method
+
+    Public Method Contains(name: String): Bool => IndexOf(name) != Null
+
+    // Takes out each of name's values, and tells whether it had any.
+    Public Method Remove(name: String): Bool
+        Local removed = False
+        Local i = 0
+        While i < Names.Count
+            If fb_headers_same_name(Names[i], name) != 0
+                Names.RemoveAt(i)
+                Values.RemoveAt(i)
+                removed = True
+            Else
+                i += 1
+            End If
+        End While
+        Return removed
+    End Method
+
+    Public Method Clear()
+        Names.Clear()
+        Values.Clear()
+    End Method
+
+    // Each name and value, in order.
+    Public Method Iterate(): HeadersIterator => HeadersIterator(Self, 0)
+
+    // New Headers with the same names and values.
+    Public Method Clone(): Headers
+        Local copy = Headers()
+        copy.Names = Names.Clone()
+        copy.Values = Values.Clone()
+        Return copy
+    End Method
+
+    // Each as "Name: value", or "Name:" for an empty value, a line each.
+    Public Method ToString(): String
+        Local lines: String[] = []
+        For i = 0 Until Names.Count
+            lines.Add(Values[i] == "" ? "{Names[i]}:" : "{Names[i]}: {Values[i]}")
+        End For
+        Return lines.Join("\n")
+    End Method
+
+    // Where name's first value is, or Null.
+    Method IndexOf(name: String): Int?
+        For i = 0 Until Names.Count
+            If fb_headers_same_name(Names[i], name) != 0 Then Return i
+        End For
+        Return Null
+    End Method
+
+    // Adds a response's header as it came, which a server may send with what Add refuses.
+    Package Method Received(name: String, value: String)
+        Names.Add(name)
+        Values.Add(value)
+    End Method
+
+    // The name and value at index, for HeadersIterator.
+    Package Method At(index: Int): (String, String) => (Names[index], Values[index])
+End Class
+
+// Headers' names and values, in order, as far as their Count when each is read.
+Public Struct HeadersIterator Implements Iterator<(String, String)>
+    Field Fields: Headers
+    Field Index: Int
+
+    Public ByRef Method Next(): (String, String)?
+        If Index >= Fields.Count Then Return Null
+        Index += 1
+        Return Fields.At(Index - 1)
+    End Method
+End Struct
+
+// Panics, where Headers was called, unless name and value can be a header's.
+@PanicsAtCaller
+Package Function CheckField(name: String, value: String)
+    If fb_headers_is_name(name) == 0 Then Panic("\"{name}\" isn't a header's name")
+    If fb_headers_is_value(value) == 0
+        Panic("the value for {name} has a control character, which a header can't have")
+    End If
+End Function
