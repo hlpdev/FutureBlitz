@@ -81,7 +81,7 @@ Functions. An #If's condition nests up to 1000 deep too.
 0o755         // octal
 1.5           // Float (32-bit)
 1.5e-3        // exponent
-'A'           // character literal: an Int code point
+'A'           // character literal: a Char
 True  False   // Bool
 Null          // the null reference
 ```
@@ -114,6 +114,8 @@ Default literal types:
 - A character literal holds exactly one code point after escapes are applied; `''` and
   `'ab'` are errors.
 - It uses the same escapes as strings. Braces are literal (`'{'`).
+- It's a `Char` (see [02](02-types.md#built-in-types)), never a number, whatever type is
+  expected: `'A' As Int` is its code, 65.
 
 Strings are described in [14-strings-collections.md](14-strings-collections.md#strings).
 

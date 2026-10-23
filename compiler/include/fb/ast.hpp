@@ -105,7 +105,7 @@ struct decimal_expr_t {
     double value;
 };
 
-/// A character literal like 'a', which analysis treats as an integer: its code point.
+/// A character literal like 'a', which analysis makes a Char.
 struct character_expr_t {
     /// Its first character, or U+FFFD when it's empty or that character is invalid.
     char32_t value;

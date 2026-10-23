@@ -5,7 +5,7 @@ Import std.math
 Import std.algo
 
 // A map's rows, where '#' is a wall and '~' is mud.
-Function At(rows: String[], cell: Vec2i): Int => rows[cell.y].Bytes[cell.x]
+Function At(rows: String[], cell: Vec2i): Char => rows[cell.y].Chars[cell.x]
 
 Function Open(rows: String[], cell: Vec2i): Bool => At(rows, cell) != '#'
 

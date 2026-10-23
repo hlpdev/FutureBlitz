@@ -187,12 +187,12 @@ bool supports(const binary_op_t op, const type_id_t type) {
     case binary_op_t::REMAINDER:
     case binary_op_t::POWER:
         return is_numeric(type);
-    // Strings compare by their text, code point by code point.
+    // Strings compare by their text, code point by code point, and Chars by their codes.
     case binary_op_t::LESS:
     case binary_op_t::LESS_EQUAL:
     case binary_op_t::GREATER:
     case binary_op_t::GREATER_EQUAL:
-        return is_numeric(type) || type == type_id_t::STRING;
+        return is_numeric(type) || type == type_id_t::STRING || type == type_id_t::CHAR;
     case binary_op_t::BIT_AND:
     case binary_op_t::BIT_OR:
     case binary_op_t::BIT_XOR:
@@ -206,11 +206,11 @@ bool supports(const binary_op_t op, const type_id_t type) {
 }
 
 /// Whether a type that isn't a Struct or Class implements a built-in Interface, as far as that's
-/// settled without its parts: a T[] copies with its own Clone, and numbers, Strings, Bools, and
-/// Enums start from their zero and take format specs, which the compiler knows. Numbers implement
-/// the rest, Strings all but Numeric, Bools and Enums the ones without an order, and Ptrs and
-/// Callbacks Equatable. A tuple or array implements what its parts do, without an order, and a T?
-/// Equatable and Hashable as its T does, which is nullopt here.
+/// settled without its parts: a T[] copies with its own Clone, and numbers, Strings, Chars, Bools,
+/// and Enums start from their zero, and all but Chars take format specs, which the compiler knows.
+/// Numbers implement the rest, Strings and Chars all but Numeric, Bools and Enums the ones without
+/// an order, and Ptrs and Callbacks Equatable. A tuple or array implements what its parts do,
+/// without an order, and a T? Equatable and Hashable as its T does, which is nullopt here.
 std::optional<bool> implements_alone(const type_table_t& types, const builtin_interfaces_t& builtin,
                                      const type_id_t type, const type_id_t interface) {
     const type_kind_t kind = types.get(type).kind;
@@ -219,8 +219,9 @@ std::optional<bool> implements_alone(const type_table_t& types, const builtin_in
     }
 
     if (interface == builtin.defaultable || interface == builtin.formattable) {
+        const bool character = type == type_id_t::CHAR && interface == builtin.defaultable;
         return is_numeric(type) || type == type_id_t::STRING || type == type_id_t::BOOL ||
-               kind == type_kind_t::ENUM;
+               kind == type_kind_t::ENUM || character;
     }
 
     const bool equality = interface == builtin.equatable || interface == builtin.hashable;
@@ -233,7 +234,7 @@ std::optional<bool> implements_alone(const type_table_t& types, const builtin_in
         return true;
     }
 
-    if (type == type_id_t::STRING) {
+    if (type == type_id_t::STRING || type == type_id_t::CHAR) {
         return interface != builtin.numeric;
     }
 
@@ -286,10 +287,10 @@ bool is_zero(const const_value_t& value) {
     return false;
 }
 
-/// Integer ranges overlap when they share a value. Other Case values have no ranges, so they
-/// overlap only when equal.
+/// Integer and Char ranges overlap when they share a value. Other Case values have no ranges, so
+/// they overlap only when equal.
 bool overlaps(const case_range_t& a, const case_range_t& b) {
-    if (!is_integer(a.low.type)) {
+    if (!is_integer(a.low.type) && a.low.type != type_id_t::CHAR) {
         return a.low == b.low;
     }
 
@@ -2093,11 +2094,12 @@ private:
         return module && modules.is_standard(modules.get(*module).package);
     }
 
-    /// Whether C code takes or gives a value of `type` as it is: a number, Bool, Enum, CString,
-    /// or Ptr.
+    /// Whether C code takes or gives a value of `type` as it is: a number, Bool, Char (a
+    /// char32_t), Enum, CString, or Ptr.
     [[nodiscard]] bool is_c_scalar(const type_id_t type) const {
-        return is_numeric(type) || type == type_id_t::BOOL || type == type_id_t::CSTRING ||
-               is_enum(type) || is_pointer(type) || is_callback(type) || type == type_id_t::INVALID;
+        return is_numeric(type) || type == type_id_t::BOOL || type == type_id_t::CHAR ||
+               type == type_id_t::CSTRING || is_enum(type) || is_pointer(type) ||
+               is_callback(type) || type == type_id_t::INVALID;
     }
 
     /// A String argument for a CString is a copy, which goes right after the call, so it can't
@@ -7010,12 +7012,12 @@ private:
         }
     }
 
-    /// Whether a value of `type` can be known at compile time: a number, Bool, String, or Enum,
-    /// or a T? of one.
+    /// Whether a value of `type` can be known at compile time: a number, Bool, String, Char, or
+    /// Enum, or a T? of one.
     [[nodiscard]] bool is_compile_time(const type_id_t type) const {
         const type_id_t inner = non_null(type);
         return type == type_id_t::INVALID || is_numeric(inner) || inner == type_id_t::BOOL ||
-               inner == type_id_t::STRING || is_enum(inner);
+               inner == type_id_t::STRING || inner == type_id_t::CHAR || is_enum(inner);
     }
 
     /// "nums: Int...": only the last parameter takes the rest of the arguments, which are never
@@ -8897,8 +8899,8 @@ private:
     [[nodiscard]] std::optional<unsendable_t> unsendable(const type_id_t type) const {
         const type_id_t sendable = m_analysis.interfaces.sendable;
         if (type == type_id_t::INVALID || sendable == type_id_t::INVALID || is_numeric(type) ||
-            type == type_id_t::BOOL || type == type_id_t::STRING || is_enum(type) ||
-            in_place(type) || is_channel(type) || is_callback(type)) {
+            type == type_id_t::BOOL || type == type_id_t::STRING || type == type_id_t::CHAR ||
+            is_enum(type) || in_place(type) || is_channel(type) || is_callback(type)) {
             return std::nullopt;
         }
 
@@ -10566,8 +10568,9 @@ private:
 
         seen.push_back(type);
         const type_t& info = m_analysis.types.get(type);
-        if (is_numeric(type) || type == type_id_t::BOOL || type == type_id_t::CSTRING ||
-            is_enum(type) || is_pointer(type) || is_callback(type) || type == type_id_t::INVALID) {
+        if (is_numeric(type) || type == type_id_t::BOOL || type == type_id_t::CHAR ||
+            type == type_id_t::CSTRING || is_enum(type) || is_pointer(type) || is_callback(type) ||
+            type == type_id_t::INVALID) {
             return std::nullopt;
         }
 
@@ -15214,9 +15217,10 @@ private:
 
         type_id_t type = check(node.subject, type_id_t::NONE);
         if (type != type_id_t::INVALID && !is_integer(type) && type != type_id_t::BOOL &&
-            type != type_id_t::STRING && !is_enum(type)) {
+            type != type_id_t::STRING && type != type_id_t::CHAR && !is_enum(type)) {
             error(span_of(node.subject),
-                  "Select works on integers, Bool, String, and Enums, not {}", shown_name(type));
+                  "Select works on integers, Bool, String, Char, and Enums, not {}",
+                  shown_name(type));
             type = type_id_t::INVALID;
         }
 
@@ -15290,8 +15294,8 @@ private:
         if (value.range_end) {
             high = case_constant(*value.range_end, type);
             span = merge(span, span_of(*value.range_end));
-            if (type != type_id_t::INVALID && !is_integer(type)) {
-                error(span, "'To' ranges only work on integers");
+            if (type != type_id_t::INVALID && !is_integer(type) && type != type_id_t::CHAR) {
+                error(span, "'To' ranges only work on integers and Chars");
                 return false;
             }
         }
@@ -16143,8 +16147,7 @@ private:
     [[nodiscard]] bool is_flexible(const expr_id_t id) const {
         const expr_node_t& node = m_ast.get(id).node;
         if (std::holds_alternative<integer_expr_t>(node) ||
-            std::holds_alternative<decimal_expr_t>(node) ||
-            std::holds_alternative<character_expr_t>(node)) {
+            std::holds_alternative<decimal_expr_t>(node)) {
             return true;
         }
 
@@ -16452,8 +16455,10 @@ private:
         return check_integer(id, node.value, false, hint);
     }
 
-    type_id_t check_expr(const expr_id_t id, const character_expr_t& node, const type_id_t hint) {
-        return check_integer(id, node.value, false, hint);
+    /// A character literal is a Char, never a number, whatever's expected.
+    type_id_t check_expr(const expr_id_t id, const character_expr_t& node, type_id_t /*hint*/) {
+        info(id).value = make_char(node.value);
+        return type_id_t::CHAR;
     }
 
     /// An integer literal takes the expected type when its value fits, and is Int otherwise.
@@ -22110,7 +22115,7 @@ private:
             }
 
             const type_id_t type = m_analysis.types.array(
-                node.member.text == "Chars" ? type_id_t::INT32 : type_id_t::UINT8);
+                node.member.text == "Chars" ? type_id_t::CHAR : type_id_t::UINT8);
             return node.null_safe ? nullable_of(type) : type;
         }
 
@@ -23207,9 +23212,9 @@ private:
             return check_checked_cast(id, node, source, target);
         }
 
-        // Numbers convert to each other, a Bool to an integer as 0 or 1, and anything to what
-        // it converts to without 'As', like a T to a T?. An object converts to a related Class,
-        // which is checked at run time.
+        // Numbers convert to each other, a Bool to an integer as 0 or 1, a Char to and from an
+        // integer, its code, and anything to what it converts to without 'As', like a T to a T?. An
+        // object converts to a related Class, which is checked at run time.
         const bool classes = is_object(non_null(source)) && is_object(non_null(target)) &&
                              related(non_null(source), non_null(target));
         // An Enum converts to and from integers.
@@ -23220,7 +23225,8 @@ private:
         const bool pointers = pointer_cast(source, target);
         const bool allowed = converts(source, target) || classes || enums || pointers ||
                              (is_numeric(source) && is_numeric(target)) ||
-                             (source == type_id_t::BOOL && is_integer(target));
+                             (source == type_id_t::BOOL && is_integer(target)) ||
+                             char_cast(source, target);
         if (!allowed) {
             error(span_of(id), "'As' can't convert {} to {}", name_of(source, target),
                   name_of(target, source));
@@ -23250,6 +23256,13 @@ private:
         }
 
         return target;
+    }
+
+    /// Whether 'As' converts between a Char and an integer: a Char gives its code, and an
+    /// integer that's a Unicode scalar value gives that Char, while another panics.
+    [[nodiscard]] static bool char_cast(const type_id_t source, const type_id_t target) {
+        return (source == type_id_t::CHAR && is_integer(target)) ||
+               (is_integer(source) && target == type_id_t::CHAR);
     }
 
     /// Whether 'As' converts between `source` and `target` as pointers: two Ptrs, a Ptr and an
@@ -23477,7 +23490,8 @@ private:
             return std::ranges::all_of(info.fields,
                                        [&](const field_t& field) { return sendable(field.type); });
         default:
-            return is_numeric(type) || type == type_id_t::BOOL || type == type_id_t::STRING;
+            return is_numeric(type) || type == type_id_t::BOOL || type == type_id_t::STRING ||
+                   type == type_id_t::CHAR;
         }
     }
 

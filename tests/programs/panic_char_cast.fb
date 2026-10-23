@@ -1,0 +1,7 @@
+// An integer that isn't a Unicode scalar value panics as a Char.
+Import std.core
+
+Local codes = [0x41, 0x10FFFF, 0xD800]
+For code In codes
+    Print(code As Char As UInt32)
+End For

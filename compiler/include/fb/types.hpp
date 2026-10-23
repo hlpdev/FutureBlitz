@@ -40,6 +40,9 @@ enum class type_id_t : std::uint32_t { // NOLINT(performance-enum-size)
     /// A C string, `const char*`: what C code takes and gives for text. Its zero is null, and only
     /// Unsafe code reads it.
     CSTRING,
+    /// A Unicode scalar value: a code point from U+0000 to U+10FFFF that isn't a surrogate, which
+    /// a literal like 'a' makes. It's 32 bits, compares by its code, and isn't a number.
+    CHAR,
     /// Not a type: the first id a type table gives out.
     BUILTIN_COUNT,
 };

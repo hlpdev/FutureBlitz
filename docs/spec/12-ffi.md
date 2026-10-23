@@ -75,6 +75,7 @@ End Struct
 | `Int8`–`Int64`, `UInt8`–`UInt64` | `int8_t`–`int64_t`, `uint8_t`–`uint64_t` |
 | `Float32`, `Float64` | `float`, `double` |
 | `Bool` | `bool` |
+| `Char` | `char32_t` |
 | `Ptr<T>` | `T*` |
 | `Ptr<Void>` | `void*` |
 | `CString` | `const char*` |

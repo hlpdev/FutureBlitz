@@ -242,6 +242,7 @@ private:
     function_ref_t m_string_debug;
     function_ref_t m_debug_object;
     function_ref_t m_debug_indent;
+    function_ref_t m_from_char;
     function_ref_t m_power_int;
     function_ref_t m_power_uint;
     function_ref_t m_cstring_new;
@@ -494,6 +495,8 @@ private:
         case type_id_t::INT64:
         case type_id_t::UINT64:
             return LLVMIntTypeInContext(context(), bit_width(type));
+        case type_id_t::CHAR:
+            return m_i32;
         case type_id_t::FLOAT32:
             return LLVMFloatTypeInContext(context());
         case type_id_t::FLOAT64:
@@ -745,6 +748,7 @@ private:
         m_string_debug = declare("fb_string_debug", m_ptr, { m_ptr });
         m_debug_object = declare("fb_debug_object", m_ptr, { m_ptr, m_i32 });
         m_debug_indent = declare("fb_debug_indent", m_ptr, { m_i32 });
+        m_from_char = declare("fb_string_from_char", m_ptr, { m_i32 });
         m_power_int = declare("fb_power_int", m_i64, { m_i64, m_i64, m_i32, m_i32, m_ptr });
         m_power_uint = declare("fb_power_uint", m_i64, { m_i64, m_i64, m_i32, m_i32, m_ptr });
         m_cstring_new = declare("fb_cstring_new", m_ptr, { m_ptr });
@@ -3070,6 +3074,14 @@ private:
             return LLVMBuildZExt(builder(), value, target, "");
         }
 
+        if (from == type_id_t::CHAR) {
+            return LLVMBuildIntCast2(builder(), value, target, 0, "");
+        }
+
+        if (to == type_id_t::CHAR) {
+            return to_char(value, from, span);
+        }
+
         if (is_integer(from) && is_integer(to)) {
             return LLVMBuildIntCast2(builder(), value, target, is_signed(from) ? 1 : 0, "");
         }
@@ -3099,6 +3111,25 @@ private:
                  std::format("the value doesn't fit in {}", m_mir.types->name(to)), span);
         return to_signed ? LLVMBuildFPToSI(builder(), whole, target, "")
                          : LLVMBuildFPToUI(builder(), whole, target, "");
+    }
+
+    /// An integer of type `from` as a Char, which panics at `span` unless it's a Unicode scalar
+    /// value: from 0 to 0x10FFFF, but not a surrogate, 0xD800 to 0xDFFF. As an unsigned 64-bit
+    /// number, a negative one is past them all.
+    LLVMValueRef to_char(LLVMValueRef value, const type_id_t from, const span_t span) {
+        LLVMValueRef wide = LLVMBuildIntCast2(builder(), value, m_i64, is_signed(from) ? 1 : 0, "");
+        const auto at_most = [&](const std::uint64_t limit) {
+            return LLVMBuildICmp(builder(), LLVMIntULE, wide, LLVMConstInt(m_i64, limit, 0), "");
+        };
+        LLVMValueRef surrogate = LLVMBuildAnd(
+            builder(),
+            LLVMBuildICmp(builder(), LLVMIntUGE, wide, LLVMConstInt(m_i64, 0xD800, 0), ""),
+            at_most(0xDFFF), "");
+        LLVMValueRef fits =
+            LLVMBuildAnd(builder(), at_most(0x10FFFF), LLVMBuildNot(builder(), surrogate, ""), "");
+        panic_if(LLVMBuildNot(builder(), fits, ""),
+                 "the value isn't a Unicode scalar value, which a Char holds", span);
+        return LLVMBuildTrunc(builder(), wide, m_i32, "");
     }
 
     LLVMValueRef value(const address_of_t& node) {
@@ -3778,6 +3809,8 @@ private:
         switch (type) {
         case type_id_t::BOOL:
             return call(m_from_bool, { LLVMBuildZExt(builder(), value, m_i32, "") });
+        case type_id_t::CHAR:
+            return call(m_from_char, { value });
         case type_id_t::FLOAT32:
             return call(m_from_float32, { value });
         case type_id_t::FLOAT64:

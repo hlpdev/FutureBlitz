@@ -75,13 +75,13 @@ Public Struct Color32 Implements Hashable, Printable
 
     // The color hex text gives, as Hex takes it, or Null for text that isn't one.
     Public Static Method TryHex(text: String): Color32?
-        Local bytes = text.Bytes
-        Local start = bytes.Count > 0 && bytes[0] == '#' ? 1 : 0
-        Local count = bytes.Count - start
+        Local chars = text.Chars
+        Local start = chars.Count > 0 && chars[0] == '#' ? 1 : 0
+        Local count = chars.Count - start
         If count != 3 && count != 4 && count != 6 && count != 8 Then Return Null
         Local values: Int[] = []
-        For i = start Until bytes.Count
-            Local value = HexValue(bytes[i])
+        For i = start Until chars.Count
+            Local value = HexValue(chars[i])
             If value < 0 Then Return Null
             values.Add(value)
         End For
@@ -319,12 +319,12 @@ Function ByteOf(channel: Double): UInt8
     Return Floor(channel * 255 + 0.5) As UInt8
 End Function
 
-// The value of a hex digit, or -1 for a byte that isn't one.
-Function HexValue(digit: UInt8): Int
+// The value of a hex digit, or -1 for a Char that isn't one.
+Function HexValue(digit: Char): Int
     Local code = digit As Int
-    If code >= '0' && code <= '9' Then Return code - '0'
-    If code >= 'a' && code <= 'f' Then Return code - 'a' + 10
-    If code >= 'A' && code <= 'F' Then Return code - 'A' + 10
+    If digit >= '0' && digit <= '9' Then Return code - ('0' As Int)
+    If digit >= 'a' && digit <= 'f' Then Return code - ('a' As Int) + 10
+    If digit >= 'A' && digit <= 'F' Then Return code - ('A' As Int) + 10
     Return -1
 End Function
 

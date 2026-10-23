@@ -177,7 +177,7 @@ For c In s.Chars ... End For    // Unicode code points
 For b In s.Bytes ... End For    // raw bytes
 ```
 
-- `s.Chars` is a new `Int[]` of the String's code points, and `s.Bytes` a new `Byte[]` of its
+- `s.Chars` is a new `Char[]` of the String's code points, and `s.Bytes` a new `Byte[]` of its
   UTF-8 bytes.
 
 ## Arrays
