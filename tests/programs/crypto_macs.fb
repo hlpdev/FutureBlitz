@@ -1,5 +1,6 @@
 // std.crypto's HMAC, HKDF, and PBKDF2 match RFC 2202's, RFC 4231's, RFC 5869's,
-// RFC 6070's, and RFC 7914's test vectors.
+// RFC 6070's, and RFC 7914's test vectors, and Python's hmac and hashlib where no RFC has
+// one: HKDF and PBKDF2 by SHA-512.
 Import std.core
 Import std.collections
 Import std.crypto
@@ -102,6 +103,11 @@ Check("HKDF-SHA256 2", Hkdf.Sha256(Unhex("000102030405060708090a0b0c0d0e0f101112
 Check("HKDF-SHA256 3", Hkdf.Sha256(Unhex("0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b"), Unhex(""), Unhex(""), 42), "8da4e775a563c18f715f802a063c5a31b8a11f5c5ee1879ec3454e5f3c738d2d9d201395faa4b61a96c8")
 Done("HKDF-SHA256")
 
+// RFC 5869's first and third test cases' inputs, with SHA-512, as Python's hmac gives them.
+Check("HKDF-SHA512 1", Hkdf.Sha512(Unhex("0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b"), Unhex("000102030405060708090a0b0c"), Unhex("f0f1f2f3f4f5f6f7f8f9"), 42), "832390086cda71fb47625bb5ceb168e4c8e26a1a16ed34d9fc7fe92c1481579338da362cb8d9f925d7cb")
+Check("HKDF-SHA512 3", Hkdf.Sha512(Unhex("0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b"), Unhex(""), Unhex(""), 42), "f5fa02b18298a72a8c23898a8703472c6eb179dc204c03425c970e3b164bf90fff22d04836d0e2343bac")
+Done("HKDF-SHA512")
+
 // RFC 6070's PBKDF2-HMAC-SHA1 vectors, but the one of 16777216 iterations, and
 // RFC 7914's PBKDF2-HMAC-SHA256 ones.
 Check("PBKDF2-SHA1 1", Pbkdf2.Sha1("password", Unhex("73616c74"), 1, 20), "0c60c80f961f0e71f3a9b524af6012062fe037a6")
@@ -109,4 +115,11 @@ Check("PBKDF2-SHA1 2", Pbkdf2.Sha1("password", Unhex("73616c74"), 2, 20), "ea6c0
 Check("PBKDF2-SHA1 3", Pbkdf2.Sha1("password", Unhex("73616c74"), 4096, 20), "4b007901b765489abead49d926f721d065a429c1")
 Check("PBKDF2-SHA1 4", Pbkdf2.Sha1("passwordPASSWORDpassword", Unhex("73616c7453414c5473616c7453414c5473616c7453414c5473616c7453414c5473616c74"), 4096, 25), "3d2eec4fe41c849b80c8d83662c0e44a8b291a964cf2f07038")
 Check("PBKDF2-SHA1 5", Pbkdf2.Sha1(Unhex("7061737300776f7264"), Unhex("7361006c74"), 4096, 16), "56fa6aa75548099dcc37d7f03425e0c3")
+Check("PBKDF2-SHA256 1", Pbkdf2.Sha256("passwd", "salt".Bytes, 1, 64), "55ac046e56e3089fec1691c22544b605f94185216dde0465e68b9d57c20dacbc49ca9cccf179b645991664b39d77ef317c71b845b1e30bd509112041d3a19783")
+Check("PBKDF2-SHA256 2", Pbkdf2.Sha256("Password", "NaCl".Bytes, 80000, 64), "4ddcd8f60b98be21830cee5ef22701f9641a4418d04c0414aeff08876b34ab56a1d425a1225833549adb841b51c9b3176a272bdebba1d078478f62b397f33c8d")
 Done("PBKDF2")
+
+// PBKDF2-HMAC-SHA512, as Python's hashlib gives it.
+Check("PBKDF2-SHA512 1", Pbkdf2.Sha512("password", "salt".Bytes, 1, 64), "867f70cf1ade02cff3752599a3a53dc4af34c7a669815ae5d513554e1c8cf252c02d470a285a0501bad999bfe943c08f050235d7d68b1da55e63f73b60a57fce")
+Check("PBKDF2-SHA512 4096", Pbkdf2.Sha512("password", "salt".Bytes, 4096, 64), "d197b1b33db0143e018b12f3d1d1479e6cdebdcc97c5c0f87f6902e072f457b5143f30602641b3d55cd335988cb36b84376060ecd532e039b742a239434af2d5")
+Done("PBKDF2-SHA512")
