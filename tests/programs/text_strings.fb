@@ -91,6 +91,20 @@ Print(String.FromUtf8([0xC0, 0x80]) ?? "overlong", String.FromUtf8([0xE2, 0x82])
       String.FromUtf8([0xF4, 0x90, 0x80, 0x80]) ?? "past U+10FFFF",
       String.FromUtf8([0x80]) ?? "stray")
 
+// The rest of each Method over a combining mark and an emoji too.
+Local mixed = "😀e\u{301}😀"
+Print("😀".IsBlank(), accent.EndsWith("\u{301}"), mixed.StartsWith("😀e"), "e\u{301}".Compare("é"),
+      "e\u{301}2".NaturalCompare("e\u{301}10"), accent.Repeated(2).CharCount, accent.Center(4, '·'))
+Print("😀|e\u{301}|x".SplitN("|", 2), accent.SplitOnce("\u{301}") ?? ("-", "-"),
+      mixed.ReplaceFirst("😀", "x"), accent.TrimSuffix("\u{301}"), "e\u{301}".ToUpper(),
+      "e\u{301} 😀\u{2003}x".SplitWhitespace(), String.FromUtf8(accent.Bytes) == accent)
+For text In "😀\ne\u{301}".Lines()
+    Print(text, text.Length)
+End For
+
+Print(mixed.Slice(4, 7), mixed.Before("\u{301}") ?? "-", mixed.After("e") ?? "-",
+      mixed.FindLast("😀") ?? -1, mixed.Find("\u{301}") ?? -1, mixed.Trim().Length)
+
 Extend String
     // The code points, as "U+..." each, so control characters and marks show.
     Method Escaped(): String
