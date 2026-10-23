@@ -1,0 +1,2 @@
+False
+panic: the MappedFile of empty.bin is read-only at panic_io_map_read_only.fb:10:1

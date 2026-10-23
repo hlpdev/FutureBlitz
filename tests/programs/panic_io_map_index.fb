@@ -1,0 +1,11 @@
+// A MappedFile's index past its bytes panics at the program's line. The file is empty, so no
+// memory's mapped, and the folder it's in can go first, which leaves nothing behind.
+Import std.core
+Import std.io
+
+Local temp = Try TempDir("fb-map-")
+Try File.WriteBytes(temp.Path / "empty.bin", [])
+Local map = Try MappedFile(temp.Path / "empty.bin")
+Try temp.Close()
+Print("{map.Count()} {Dir.Exists(temp.Path)}")
+Print(map[0])

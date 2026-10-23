@@ -1,0 +1,10 @@
+// Writing to a read-only MappedFile panics at the program's line.
+Import std.core
+Import std.io
+
+Local temp = Try TempDir("fb-map-")
+Try File.WriteBytes(temp.Path / "empty.bin", [])
+Local map = Try MappedFile(temp.Path / "empty.bin")
+Try temp.Close()
+Print("{map.IsWritable}")
+map.WriteBytes(0, [])

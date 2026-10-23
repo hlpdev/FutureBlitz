@@ -1,7 +1,8 @@
 // std.io's one-call files and folders, in a temporary folder of the program's own, with names
 // beyond ASCII: writing, reading, adding to, renaming, copying, and deleting files, atomic
-// writes, lines with either ending, what's at a path, folders and what's in them, and locks.
-// Failures come as IOErrors with their Kinds, and nothing's left behind.
+// writes, lines with either ending, what's at a path, folders and what's in them, mapping,
+// watching, and locking files. Failures come as IOErrors with their Kinds, and nothing's left
+// behind.
 Import std.core
 Import std.io
 
@@ -42,6 +43,10 @@ Function Failure(what: String, a: Path, b: Path? = Null): String
                 Dir.Remove(a)
             Case "entries"
                 Dir.Entries(a)
+            Case "map"
+                MappedFile(a)
+            Case "map writable"
+                MappedFile(a, True)
             Default
                 Panic("no {what}")
         End Select
@@ -198,6 +203,41 @@ Local again = Try FileLock.TryAcquire(lockPath)
 Print("{again != Null}")
 again = Null
 Print("{(Try FileLock.TryAcquire(lockPath)) != Null}")
+
+Print("maps")
+Local mapPath = root / "mapped ü.bin"
+Try File.WriteBytes(mapPath, [1, 2, 3, 4, 5])
+Local reading = Try MappedFile(mapPath)
+Print("{reading.Count()} {reading[0]} {reading[4]} {reading.ReadBytes(1, 3)} {reading.ReadBytes(5, 0)}")
+Print("{reading.IsWritable} {reading.IsOpen()} {reading.Path == mapPath}")
+Try reading.Flush()
+reading.Close()
+reading.Close()
+Print("{reading.IsOpen()} {reading.Count()}")
+Local writing = Try MappedFile(mapPath, True)
+writing[0] = 10
+writing[1] += 10
+writing.WriteBytes(3, [40, 50])
+Try writing.Flush()
+// The file has what was written through the map, which a read sees at once.
+Print("{Try File.ReadBytes(mapPath)} {writing[1]}")
+writing.Close()
+Print("{Try File.ReadBytes(mapPath)}")
+Local empty = Try MappedFile(root / "empty.bin", True)
+Print("{empty.Count()} {empty.ReadBytes(0, 0)}")
+empty.WriteBytes(0, [])
+empty.Close()
+Print(Failure("map", root / "missing.bin"))
+Print(Failure("map", root / "ä"))
+Print(Failure("map", "a\u{0}b"))
+
+Print("watching")
+Local watcher = Try FileWatcher(root)
+Try File.WriteText(root / "watched.txt", "w")
+Local event = Await watcher.NextAsync()
+Print("{event != Null}")
+watcher.Close()
+Print("{watcher.Next() == Null}")
 
 Print("removing")
 Print("{Try Dir.RemoveAll(root / "ä")} {Try Dir.RemoveAll(root / "ä")} {Dir.Exists(root / "ä")}")
