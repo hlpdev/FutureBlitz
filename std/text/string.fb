@@ -155,7 +155,7 @@ Extend String
     @PanicsAtCaller
     Public Method Split(separator: String): String[]
         CheckPart(separator, "Split")
-        Return Parts(separator, Length + 1)
+        Return Parts(separator, 0)
     End Method
 
     // The parts between each separator, at most count of them, the last holding the rest. An
@@ -352,12 +352,13 @@ Extend String
         If part.IsEmpty() Then Panic("{what} takes a String to look for that isn't empty")
     End Method
 
-    // The parts between each separator, at most count of them, the last holding the rest.
+    // The parts between each separator, at most count of them, the last holding the rest, or all
+    // of them when count is 0.
     Method Parts(separator: String, count: Int): String[]
         Local parts: String[] = []
         Local start = 0
         Local at = fb_text_find(Self, separator, 0)
-        While at >= 0 && parts.Count < count - 1
+        While at >= 0 && (count == 0 || parts.Count < count - 1)
             parts.Add(fb_text_slice(Self, start, at))
             start = (at + separator.Length) As Int
             at = fb_text_find(Self, separator, start)
