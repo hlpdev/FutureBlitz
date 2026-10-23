@@ -94,3 +94,44 @@ TEST_CASE("std's counts and indexes don't overflow near the most an Int holds", 
                             "True False False False True\n");
     CHECK(result->exit_code == 0);
 }
+
+TEST_CASE("std.concurrent's counts stop at the most an Int holds", "[programs]") {
+    // A ConcurrentQueue's ring doubles up to that, and it and a ConcurrentMap count up to it.
+    const std::string module = "Import std.core\n"
+                               "Import std.concurrent\n"
+                               "Public Function Check()\n"
+                               "    Print(GrownRing(0), GrownRing(16), GrownRing(1073741823),\n"
+                               "          GrownRing(1073741824), GrownRing(2147483646))\n"
+                               "    CheckQueueRoom(2147483646)\n"
+                               "    CheckMapRoom(2147483646)\n"
+                               "    Print(\"room\")\n"
+                               "End Function\n"
+                               "Public Function FullQueue()\n"
+                               "    CheckQueueRoom(2147483647)\n"
+                               "End Function\n"
+                               "Public Function FullMap()\n"
+                               "    CheckMapRoom(2147483647)\n"
+                               "End Function\n";
+    const std::expected<fb::process_result_t, std::string> result =
+        run_with_std_module("concurrent_limits", "Import std.extra.checks\nCheck()", module);
+    INFO((result ? result->output : result.error()));
+    REQUIRE(result);
+    CHECK(result->output == "16 32 2147483646 2147483647 2147483647\nroom\n");
+    CHECK(result->exit_code == 0);
+
+    const std::expected<fb::process_result_t, std::string> queue = run_with_std_module(
+        "concurrent_full_queue", "Import std.extra.checks\nFullQueue()", module);
+    INFO((queue ? queue->output : queue.error()));
+    REQUIRE(queue);
+    CHECK(queue->output.starts_with(
+        "panic: a ConcurrentQueue holds no more values than an Int counts at "));
+    CHECK(queue->exit_code == 101);
+
+    const std::expected<fb::process_result_t, std::string> map =
+        run_with_std_module("concurrent_full_map", "Import std.extra.checks\nFullMap()", module);
+    INFO((map ? map->output : map.error()));
+    REQUIRE(map);
+    CHECK(map->output.starts_with(
+        "panic: a ConcurrentMap holds no more entries than an Int counts at "));
+    CHECK(map->exit_code == 101);
+}

@@ -1,0 +1,86 @@
+// A ConcurrentQueue that many threads put into and take from at once gives each value once, and
+// each thread's values in the order it put them in.
+
+Import std.core
+Import std.concurrent
+
+Shared Class Tally
+    Field Taken: Atomic<Int>
+    Field Sum: Atomic<Int64>
+    Field OutOfOrder: Atomic<Int>
+    Field Producing: Atomic<Int>
+End Class
+
+// Four threads put in 2000 values each, while four take them out until the producers are done and
+// the queue is empty. A value says which producer put it in, and its place in that producer's.
+Function Pass(): String
+    Const queue = ConcurrentQueue<Int>()
+    Const tally = Tally()
+    tally.Producing.Store(4)
+    Local threads: Thread[] = []
+    For t = 0 Until 4
+        threads.Add(Thread.Start(Function()
+            For i = 0 Until 2000
+                queue.Enqueue(t * 100000 + i)
+            End For
+
+            tally.Producing.Subtract(1)
+        End Function))
+        threads.Add(Thread.Start(Function()
+            Local last = [-1, -1, -1, -1]
+            Loop
+                Local value = queue.TryDequeue()
+                If value == Null
+                    If tally.Producing.Load() == 0 && queue.Count == 0 Then Break
+                    Continue
+                End If
+
+                Local producer = value / 100000
+                If value % 100000 <= last[producer] Then tally.OutOfOrder.Add(1)
+                last[producer] = value % 100000
+                tally.Taken.Add(1)
+                tally.Sum.Add(value)
+            End Loop
+        End Function))
+    End For
+
+    For thread In threads
+        thread.Join()
+    End For
+
+    Return "taken {tally.Taken.Load()}, sum {tally.Sum.Load()}, out of order " +
+           "{tally.OutOfOrder.Load()}, {queue.Count} left"
+End Function
+
+Print(Pass())
+
+Const queue = ConcurrentQueue<String>()
+Print(queue.Count, queue.TryDequeue() == Null, queue.TryPeek() == Null, queue.ToArray())
+For i = 1 To 40
+    queue.Enqueue("v{i}")
+End For
+
+Print(queue.Count, queue.TryPeek() ?? "", queue.TryPeek() ?? "", queue.TryDequeue() ?? "")
+queue.Add("last")
+queue.AddAll(["more", "most"])
+Local all = queue.ToArray()
+Print(all.Count, all[0], all[38], all[39], all[41], queue.Count)
+Print(queue.TryPeek() ?? "", queue.ToArray().Count)
+For i = 1 To 10
+    queue.TryDequeue()
+End For
+
+Print(queue.TryDequeue() ?? "", queue.Count)
+queue.Clear()
+Print(queue.Count, queue.TryDequeue() == Null)
+queue.Enqueue("again")
+Print(queue.ToArray(), ConcurrentQueue<Int>.DefaultValue().Count)
+
+// A value that can be Null comes out as one, apart from an empty queue's Null.
+Const maybe = ConcurrentQueue<Int?>()
+maybe.Enqueue(Null)
+maybe.Enqueue(2)
+Local front = maybe.TryPeek()
+Local first = maybe.TryDequeue()
+Local second = maybe.TryDequeue() ?? Null
+Print(front != Null, first != Null, second ?? -1, maybe.TryDequeue() == Null)
