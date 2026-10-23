@@ -1051,6 +1051,10 @@ TEST_CASE("member access", "[sema]") {
           errors_t{ "x: Int32 has no member named 'x'" });
     CHECK(errors_of("Struct P\nEnd Struct\nLocal p = P") ==
           errors_t{ "P: 'P' is a type, not a value" });
+    // Blitz's "New P" is the call it means, so the parser's error is the only one.
+    CHECK(errors_of("Struct P\nEnd Struct\nLocal p = New P") ==
+          errors_t{ "New: an object is made by calling its type, like P(); New only declares a "
+                    "constructor" });
     CHECK(errors_of("Local s = Self") ==
           errors_t{ "Self: 'Self' can only be used in a Method or New" });
 

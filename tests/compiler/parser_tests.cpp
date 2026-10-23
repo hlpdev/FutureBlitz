@@ -550,6 +550,23 @@ TEST_CASE("Blitz's New in an expression says how an object is made", "[parser]")
                                                      "constructor" });
     // What comes after it is parsed, as the call it should be.
     CHECK(parsed.dump == "(local f = (call Foo))");
+    // Blitz's own "New Foo", with no '(', is that call too, and a type is named as it's written.
+    const parsed_t bare = parse_text("Local f = New Foo\nLocal g = New Foo().x");
+    CHECK(bare.dump == "(local f = (call Foo))\n(local g = (. (call Foo) x))");
+    CHECK(bare.errors == std::vector<std::string>{
+                             "10-13: an object is made by calling its type, like Foo(); New only "
+                             "declares a constructor",
+                             "28-31: an object is made by calling its type, like Foo(); New only "
+                             "declares a constructor",
+                         });
+    const parsed_t named = parse_text("Local c = New shapes.Circle\nLocal s = New Stack<Int>()");
+    CHECK(named.dump == "(local c = (call (. shapes Circle)))\n(local s = (call Stack<Int>))");
+    CHECK(named.errors == std::vector<std::string>{
+                              "10-13: an object is made by calling its type, like "
+                              "shapes.Circle(); New only declares a constructor",
+                              "38-41: an object is made by calling its type, like Stack<Int>(); "
+                              "New only declares a constructor",
+                          });
     CHECK(parse_text("Local f = New").errors ==
           std::vector<std::string>{ "10-13: an object is made by calling its type, like "
                                     "Point(); New only declares a constructor" });
