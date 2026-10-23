@@ -1,0 +1,7 @@
+// A Blake3 key that isn't 32 bytes panics, where it's given.
+Import std.core
+Import std.crypto
+
+Local key = SecureRandom.Bytes(32)
+Print(Blake3.KeyedHash(key, "x".Bytes).Count)
+Blake3.Keyed(key[..16])

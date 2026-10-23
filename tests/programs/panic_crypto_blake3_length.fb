@@ -1,0 +1,6 @@
+// A Blake3 hash of a negative length panics.
+Import std.core
+Import std.crypto
+
+Print(Blake3.Hash("x", 0).Count)
+Blake3.Hash("x", -1)

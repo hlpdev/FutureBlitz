@@ -1,0 +1,2 @@
+32
+panic: a Blake3 key is 32 bytes, not 16 at panic_crypto_blake3_key.fb:7:1

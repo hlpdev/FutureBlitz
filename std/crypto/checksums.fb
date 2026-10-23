@@ -1,0 +1,84 @@
+// Crc32 and XxHash: fast checksums that aren't cryptographic. They catch accidents, like a file
+// that was cut short or a bit that flipped, but not an attacker, who can make data with any of
+// them; that takes a hash, like Sha256 or Blake3. Crc32 is CRC-32 as zlib, Zip, PNG, and Ethernet
+// have it; XxHash is xxHash's XXH3, 64 bits, with a seed.
+
+Import std.core
+
+Extern "runtime"
+    Function fb_xxhash_hash(data: UInt8[], seed: UInt64): UInt64
+    Function fb_xxhash_hash_text(text: String, seed: UInt64): UInt64
+    Function fb_xxhash_hasher_new(seed: UInt64): Ptr<Void>
+    Function fb_xxhash_hasher_add(hasher: Ptr<Void>, data: UInt8[])
+    Function fb_xxhash_hasher_add_text(hasher: Ptr<Void>, text: String)
+    Function fb_xxhash_hasher_finish(hasher: Ptr<Void>): UInt64
+    Function fb_xxhash_hasher_free(hasher: Ptr<Void>)
+End Extern
+
+// CRC-32 of what's added in turn, a bit at a time, with the reversed polynomial 0xEDB88320.
+Public Class Crc32
+    // The CRC so far, with its bits flipped, as the algorithm keeps it.
+    Field Value: UInt32 = 0xFFFFFFFF
+
+    Public New()
+    End New
+
+    Public Static Method Hash(data: UInt8[]): UInt32
+        Local crc = Crc32()
+        crc.Add(data)
+        Return crc.Finish()
+    End Method
+
+    Public Static Method Hash(text: String): UInt32 => Hash(text.Bytes)
+
+    Public Method Add(data: UInt8[])
+        For byte In data
+            Value = Value ^ (byte As UInt32)
+            For bit = 1 To 8
+                Value = (Value & 1) != 0 ? (Value >> 1) ^ 0xEDB88320 : Value >> 1
+            End For
+        End For
+    End Method
+
+    Public Method Add(text: String)
+        Add(text.Bytes)
+    End Method
+
+    // The CRC of what was added, after which it starts again, empty.
+    Public Method Finish(): UInt32
+        Local crc = Value ^ 0xFFFFFFFF
+        Value = 0xFFFFFFFF
+        Return crc
+    End Method
+End Class
+
+// XXH3's 64-bit hash of what's added in turn, with a seed, so the same data hashes differently
+// under different seeds.
+Public Class XxHash
+    Field State: Ptr<Void>
+
+    Public New(seed: UInt64 = 0)
+        State = fb_xxhash_hasher_new(seed)
+    End New
+
+    Public Static Method Hash(data: UInt8[], seed: UInt64 = 0): UInt64 => fb_xxhash_hash(data, seed)
+
+    Public Static Method Hash(text: String, seed: UInt64 = 0): UInt64
+        Return fb_xxhash_hash_text(text, seed)
+    End Method
+
+    Public Method Add(data: UInt8[])
+        fb_xxhash_hasher_add(State, data)
+    End Method
+
+    Public Method Add(text: String)
+        fb_xxhash_hasher_add_text(State, text)
+    End Method
+
+    // The hash of what was added, after which it starts again, empty, with its seed.
+    Public Method Finish(): UInt64 => fb_xxhash_hasher_finish(State)
+
+    Method Destroy()
+        fb_xxhash_hasher_free(State)
+    End Method
+End Class
