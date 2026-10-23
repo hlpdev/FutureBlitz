@@ -149,6 +149,7 @@ So far, std/ holds:
 | std/text/fuzzy.fb | std.text.fuzzy: `Fuzzy`'s `Match`, `Score`, and `Rank`, and `FuzzyMatch` |
 | std/text/humanize.fb | std.text.humanize: `Humanize`'s `Plural`, `Relative`, `Ordinal`, `Words`, `SnakeCase`, `KebabCase`, `CamelCase`, and `PascalCase` |
 | std/text/diff.fb | std.text.diff: `Diff`'s `Lines`, `Chars`, `Unified`, and `Merge`, and `DiffKind`, `DiffRun`, and `Merged` |
+| std/text/markdown.fb | `MarkdownToHtml` and `ParseMarkdown`, over md4c through `fb_markdown_`, with `MarkdownExtensions`, `MarkdownNode`, `MarkdownKind`, and `MarkdownAlignment` |
 
 What the language itself uses, `Error` for Throw and Catch, the Interfaces, `Iterator<T>`, and
 `Map<K, V>` for `{key: value}`, is always std's, whatever a program calls by those names.
@@ -372,8 +373,22 @@ file or URL in the default app.
 - std.text.template: Mustache-style `{{name}}`, `{{#each items}}`, `{{#if x}}`/`{{else}}`,
   partials, and format specs inside (`{{price:.2}}`), with HTML escaping on for `.html`; values
   from a Map, a Struct (by reflection), or a JSON Value.
-- std.text.markdown (md4c): CommonMark with tables and task lists, to HTML, and a document tree
-  to walk.
+- std.text.markdown (md4c): CommonMark, which it passes all 652 of 0.31.2's spec examples of, as
+  CommonMark's spec_tests.py compares them, with tables and task lists unless it's told other
+  `MarkdownExtensions`: `None` for CommonMark alone, `Tables`, `TaskLists`, `Strikethrough`,
+  `Autolinks` (bare URLs, www. addresses, and e-mail addresses), and `GitHub`, all four.
+  `MarkdownToHtml(text, extensions)` gives HTML, and `ParseMarkdown(text, extensions)` the
+  document as a tree of `MarkdownNode`s, each a `Kind` (the blocks: `Document`, `Quote`,
+  `BulletList`, `OrderedList`, `ListItem`, `ThematicBreak`, `Heading`, `CodeBlock`, `HtmlBlock`,
+  `Paragraph`, and a table's `Table`, `TableHead`, `TableBody`, `TableRow`, `TableHeaderCell`,
+  and `TableCell`; the spans: `Emphasis`, `Strong`, `Link`, `Image`, `Code`, and
+  `Strikethrough`; and `Text`, `SoftBreak`, `HardBreak`, and `Html`), its `Children`, its
+  `Text` (a code block's, a code span's, or an HTML block's too), and what its kind has: a
+  heading's `Level`, a list's `Start` and `Tight`, a task's `Task` and `Done`, a link's or
+  image's `Url` and `Title` and an autolink's `Autolink`, a code block's `Info` and
+  `Language`, and a cell's `Alignment`. `PlainText()` gives the text in a node without its
+  markup. Entities are decoded, a NUL is U+FFFD, code included, and HTML is HTML5's, `<br>` and
+  `<hr>`.
 - std.text.diff: line and character diffs (Myers, in linear space, as git's xdiff searches and
   slides its changes), unified-diff text, and a three-way merge. `Diff.Lines` and `Diff.Chars`
   give `DiffRun`s, `Diff.Unified` what `diff -u` and `git diff` write, and `Diff.Merge` what
