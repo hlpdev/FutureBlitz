@@ -5211,6 +5211,7 @@ private:
         const symbol_id_t id = add_symbol(std::move(taken));
         if (!symbol(id).extended) {
             drop_clashing_extension(type, id, interface, listing);
+            check_default_own(type, id, interface, listing);
         }
 
         extension_members_of(type).push_back(id);
@@ -5397,6 +5398,38 @@ private:
         return false;
     }
 
+    /// A default a type takes where its declaration lists the Interface is one of its own members,
+    /// checked as if it were written there: its name can't be a Field's, Static Field's, or
+    /// Property's of the type, nor its name and parameters a Static Method's.
+    void check_default_own(const type_id_t type, const symbol_id_t taken_id,
+                           const type_id_t interface, const span_t listing) {
+        const symbol_t taken = symbol(taken_id); // a copy: reporting adds nothing, but be sure
+        const auto declared = m_declared_types.find(definition_of(type));
+        if (declared == m_declared_types.end()) {
+            return;
+        }
+
+        for (const symbol_id_t other : symbol(declared->second).members) {
+            const symbol_t& own = symbol(other);
+            if (other == taken_id || own.name != taken.name || own.default_method) {
+                continue;
+            }
+
+            const bool named = own.kind == symbol_kind_t::FIELD ||
+                               own.kind == symbol_kind_t::PROPERTY ||
+                               own.kind == symbol_kind_t::GLOBAL;
+            const bool same_static = own.kind == symbol_kind_t::METHOD &&
+                                     own.modifiers.is_static && same_parameters(taken, own);
+            if (named || same_static) {
+                error(listing, "{} takes {}'s default '{}', but '{}' is already declared in {}",
+                      shown_name(type), shown_name(interface), taken.name, taken.name,
+                      shown_name(type))
+                    .with_label(own.span, "first declared here");
+                return;
+            }
+        }
+    }
+
     /// A default a Class takes is checked against what it inherits as if it were written there:
     /// a Field or Property of its name that the Class's code can use is taken, and one of the
     /// Class's own beside a Method with its parameters that the code can't use would be a second
@@ -5412,7 +5445,10 @@ private:
         for (const symbol_id_t other : members_of(base, taken.name, listing)) {
             const symbol_t& inherited = symbol(other);
             const bool usable = can_use(inherited, listing, type);
-            if (usable && inherited.kind != symbol_kind_t::METHOD) {
+            const bool same_static = inherited.kind == symbol_kind_t::METHOD &&
+                                     inherited.modifiers.is_static &&
+                                     same_parameters(taken, inherited, base);
+            if (usable && (inherited.kind != symbol_kind_t::METHOD || same_static)) {
                 error(listing, "{} takes {}'s default '{}', but '{}' is already declared in {}",
                       shown_name(type), shown_name(interface), taken.name, taken.name,
                       shown_name(inherited.owner))

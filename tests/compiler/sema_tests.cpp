@@ -11352,6 +11352,28 @@ TEST_CASE("what an Extend's listing gives is the Extend's, and a default is chec
                     "End Class") ==
           errors_t{ "Doubled: Sub takes Doubled's default 'Twice', but 'Twice' is already "
                     "declared in Base" });
+    // Or like the type's own Field or Static Method, or an inherited Static Method.
+    CHECK(errors_of("Interface Doubled\n"
+                    "    Method Twice(): Int => 200\n"
+                    "End Interface\n"
+                    "Struct Own Implements Doubled\n"
+                    "    Field Twice: Int\n"
+                    "End Struct\n"
+                    "Struct Made Implements Doubled\n"
+                    "    Static Method Twice(): Int => 2\n"
+                    "    Method Twice(n: Int): Int => n\n"
+                    "End Struct\n"
+                    "Class Base\n"
+                    "    Static Method Twice(): Int => 3\n"
+                    "End Class\n"
+                    "Class Sub Extends Base Implements Doubled\n"
+                    "End Class") ==
+          errors_t{ "Doubled: Own takes Doubled's default 'Twice', but 'Twice' is already "
+                    "declared in Own",
+                    "Doubled: Made takes Doubled's default 'Twice', but 'Twice' is already "
+                    "declared in Made",
+                    "Doubled: Sub takes Doubled's default 'Twice', but 'Twice' is already "
+                    "declared in Base" });
     CHECK(errors_with("Import \"./lib/b\"\n"
                       "Interface Doubled\n"
                       "    Method Twice(): Int => 200\n"
