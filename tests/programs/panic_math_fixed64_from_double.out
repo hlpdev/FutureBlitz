@@ -1,2 +1,2 @@
 -2147483648
-panic: a Fixed64 holds values from -2147483648 to 2147483647.9999999998, not 3e+09 at panic_math_fixed64_from_double.fb:6:7
+panic: a Fixed64 holds values from -2147483648 to 2147483647.9999999998, not 3e9 at panic_math_fixed64_from_double.fb:6:7

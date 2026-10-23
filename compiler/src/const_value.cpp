@@ -1,5 +1,7 @@
 #include "fb/const_value.hpp"
 
+#include "fb/text_format.hpp"
+
 #include <array>
 #include <bit>
 #include <cmath>
@@ -560,14 +562,10 @@ std::string to_text(const const_value_t& value) {
         return std::format("{}", *number);
     }
 
-    // std::format prints the shortest text that reads back exactly, so a Float32 is printed as a
-    // float: "0.1", not "0.10000000149011612".
+    // The shortest text that reads back exactly, as the runtime writes it, so a Float32 is
+    // printed as a float: "0.1", not "0.10000000149011612".
     if (const auto* number = std::get_if<double>(&value.data)) {
-        if (value.type == type_id_t::FLOAT32) {
-            return std::format("{}", static_cast<float>(*number));
-        }
-
-        return std::format("{}", *number);
+        return shortest_text(*number, value.type == type_id_t::FLOAT32);
     }
 
     if (std::holds_alternative<std::nullptr_t>(value.data)) {

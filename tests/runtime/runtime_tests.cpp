@@ -31,8 +31,13 @@ TEST_CASE("numbers become text the way the compiler folds them", "[runtime]") {
     CHECK(take(fb_string_from_float32(0.1F)) == "0.1");
     CHECK(take(fb_string_from_float32(0.1F)) == std::format("{}", 0.1F));
     CHECK(take(fb_string_from_float64(0.1)) == "0.1");
-    CHECK(take(fb_string_from_float64(1e100)) == std::format("{}", 1e100));
     CHECK(take(fb_string_from_float64(2.5)) == "2.5");
+    // The invariant text, the same on every machine: no '+' or zeros in an exponent, and NaN and
+    // Inf for the floats that aren't numbers.
+    CHECK(take(fb_string_from_float64(1e100)) == "1e100");
+    CHECK(take(fb_string_from_float64(1.5e-7)) == "1.5e-7");
+    CHECK(take(fb_string_from_float64(std::numeric_limits<double>::quiet_NaN())) == "NaN");
+    CHECK(take(fb_string_from_float32(-std::numeric_limits<float>::infinity())) == "-Inf");
     CHECK(take(fb_string_from_bool(1)) == "True");
     CHECK(take(fb_string_from_bool(0)) == "False");
 }

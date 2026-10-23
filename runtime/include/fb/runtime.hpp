@@ -202,15 +202,29 @@ std::uint64_t fb_random_seed();
 fb_string_t* fb_string_from_int(std::int64_t value);
 /// `value` as decimal text, for interpolated strings. The caller owns the result.
 fb_string_t* fb_string_from_uint(std::uint64_t value);
-/// The shortest text that reads back as `value`, like "0.1", for interpolated strings. It
-/// matches the compiler's constant folding. The caller owns the result.
+/// The shortest text that reads back as `value`, like "0.1", "1e21", "NaN", or "-Inf", for
+/// interpolated strings. It matches the compiler's constant folding. The caller owns the result.
 fb_string_t* fb_string_from_float32(float value);
-/// The shortest text that reads back as `value`, like "0.1", for interpolated strings. It
-/// matches the compiler's constant folding. The caller owns the result.
+/// The same, for a Float64.
 fb_string_t* fb_string_from_float64(double value);
 /// "True" when `value` isn't 0, and "False" otherwise, for interpolated strings. The caller owns
 /// the result.
 fb_string_t* fb_string_from_bool(std::int32_t value);
+
+/// `value`'s text by a format spec, like ">8,": the part after an interpolation's ':', or what
+/// a Formattable's Format gets. Null when `spec` isn't one, or doesn't fit an integer. The
+/// formatter is fb/text_format.hpp's, which the compiler folds constants with. The caller owns the
+/// result.
+fb_string_t* fb_format_int(std::int64_t value, const fb_string_t* spec);
+/// The same, for an unsigned integer.
+fb_string_t* fb_format_uint(std::uint64_t value, const fb_string_t* spec);
+/// The same, for a float, a Float32 when `float32` isn't 0.
+fb_string_t* fb_format_float(double value, std::int32_t float32, const fb_string_t* spec);
+/// `text` padded and cut by a format spec, a String's (with a precision, and its debug form in
+/// quotes) when `string` isn't 0, or other text's. Null when `spec` doesn't fit it.
+fb_string_t* fb_format_text(const fb_string_t* text, const fb_string_t* spec, std::int32_t string);
+/// A String's debug form: in quotes, with source code's escapes. The caller owns the result.
+fb_string_t* fb_string_debug(const fb_string_t* text);
 
 /// `base` to the power `exponent`, for `**` on a signed integer type that's `bits` wide (8, 16,
 /// 32, or 64). Compiled code widens the operands to 64 bits, and the result comes back

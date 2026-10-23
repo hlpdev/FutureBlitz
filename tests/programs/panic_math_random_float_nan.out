@@ -1,1 +1,1 @@
-panic: Float takes a finite low that isn't above its high, not 0 and nan at panic_math_random_float_nan.fb:6:7
+panic: Float takes a finite low that isn't above its high, not 0 and NaN at panic_math_random_float_nan.fb:6:7
