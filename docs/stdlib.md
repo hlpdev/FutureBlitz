@@ -82,6 +82,10 @@ So far, std/ holds:
 | std/math/easing.fb | `EaseIn`, `EaseOut`, and `EaseInOut` of `Sine`, `Quad`, `Cubic`, `Quart`, `Quint`, `Expo`, `Circ`, `Back`, `Elastic`, and `Bounce`, as `EaseInSine` |
 | std/math/stats.fb | `Mean`, `Median`, `Variance`, `StdDev`, `PopulationVariance`, `PopulationStdDev`, `Percentile`, and `Histogram` |
 | std/math/fixed.fb | `Fixed32` and `Fixed64`, with `Sqrt`, `Sin`, and `Cos` |
+| std/math/big/bigint.fb | `BigInt`, an integer of any size, over libtommath |
+| std/math/big/decimal.fb | `Decimal`, over mpdecimal, and `RoundingMode` |
+| std/math/big/rational.fb | `Rational`, a fraction of two BigInts |
+| std/math/big/complex.fb | `Complex`, of two Doubles |
 | std/algo/search.fb | `Bfs`, `BfsOrder`, `Dfs`, `DfsOrder`, `Dijkstra`, `DijkstraAll`, `AStar`, `Path<N, C>`, and `ShortestPaths<N, C>` |
 | std/algo/grid.fb | `GridNeighbors`, `GridPath`, and `FlowField` |
 | std/algo/union_find.fb | `UnionFind` |
@@ -143,7 +147,7 @@ and the rest) aren't std's.
 | crypt_blowfish | public domain, or else a permissive license | std.crypto's Bcrypt |
 | Monocypher (its Ed25519) | CC0 / BSD-2-Clause | std.crypto's Ed25519, which mbedTLS doesn't have yet |
 | libtommath | Unlicense | std.math.big's BigInt |
-| mpdecimal | BSD | std.math.big's Decimal |
+| mpdecimal | BSD-2-Clause | std.math.big's Decimal |
 | SQLite | public domain | std.db |
 | stb_image, stb_image_write, stb_truetype | public domain / MIT | std.image's codecs and font drawing |
 | libwebp | BSD | std.image's WebP |
@@ -432,7 +436,31 @@ generator, noise, easing, stats, and fixed point; the rest is planned.
   release, as an Int's does.
 - Units: typed quantities like `Meters`, `Seconds`, and `MetersPerSecond`, which the compiler
   keeps apart and combines (`Meters / Seconds` is `MetersPerSecond`).
-- std.math.big: `BigInt` (libtommath), `Decimal` (mpdecimal), `Rational`, `Complex`.
+- std.math.big, whose numbers never change once made, with Operators, an Int64 (or a Double,
+  for Complex) on either side of one too, and `Parse` and `ToString`. Their math is Methods,
+  like `x.Sqrt()`, since std.math's Functions are the built-in types'. A BigInt, Decimal, or
+  Rational stays on its thread, since it holds the library's number, and text takes it to
+  another.
+  - `BigInt` (libtommath): an integer of any size, whose operators are an Int's without
+    overflow: `/` rounds toward 0, `%` takes the sign of what's divided, `>>` rounds down, and
+    `&`, `|`, `^`, and `~` work on two's complement, as wide as needed. `Parse(text, radix)` and
+    `ToString(radix)` from 2 to 36, `FromBytes` and `ToBytes` (big-endian), `FromDouble`,
+    `ToInt64` (Null outside its range), and `ToDouble` (the nearest, an infinity past the
+    largest); `Abs`, `Sign`, `BitLength`, `ModPow`, `ModInverse`, `Gcd`, `Lcm`, `Sqrt`, `DivRem`,
+    and `IsProbablePrime` (Baillie-PSW).
+  - `Decimal` (mpdecimal): a decimal number that holds what it's made from exactly, from text,
+    an Int64, a BigInt, or a Double (as the shortest digits that read back as it, so 0.1 is
+    0.1), and whose arithmetic keeps 28 significant digits, rounded half to even, with
+    exponents up to 999999, as Python's decimal does by default; a result past that panics.
+    `==` doesn't count trailing 0s, which `ToString` shows, as Python's str does, beside
+    `ToPlainString`. `Round(places, RoundingMode)`, `Truncate`, `Floor`, `Ceiling`, `Sqrt`,
+    `Exp`, `Ln`, `Log10`, `Pow`, and `ToDouble`, `ToInt64`, and `ToBigInt`.
+  - `Rational`: a fraction of BigInts in lowest terms, exact; `Floor`, `Ceiling`, `Truncate`,
+    and `Round` (half to even) give BigInts; `Parse` takes "3/4" or a Decimal's text,
+    `FromDouble` and `FromDecimal` are exact, and `ToDouble` and `ToDecimal` round.
+  - `Complex`: two Doubles, as Python's cmath works them out: `Abs`, `Arg`, `Conjugate`, `Exp`,
+    `Log`, `Sqrt`, `Pow`, and `FromPolar`. Like a Double, it never panics, and what has no value,
+    like dividing by 0, has NaN parts.
 
 #### std.io
 
