@@ -2,8 +2,6 @@
 
 #include "fb/options.hpp"
 
-#include <string_view>
-
 namespace fb {
 
 /// fb's exit code for compile errors, a failed build, or an unexpected failure in fb itself.
@@ -16,6 +14,6 @@ inline constexpr int usage_exit_code = 2;
 [[nodiscard]] int run_command(const options_t& options);
 
 /// Prints "error: ..." for bad arguments to stderr, then a pointer to the help.
-void report_usage_error(std::string_view message);
+void report_usage_error(const usage_error_t& error);
 
 } // namespace fb

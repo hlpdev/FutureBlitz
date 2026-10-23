@@ -541,9 +541,9 @@ int run_command(const options_t& options) {
     std::unreachable();
 }
 
-void report_usage_error(const std::string_view message) {
-    // The options didn't parse, so there's no `--color` to follow.
-    console_t(color_t::AUTO).error(message);
+void report_usage_error(const usage_error_t& error) {
+    // A --color before the mistake still says how it's shown.
+    console_t(error.color).error(error.message);
     console_t::print_error("\nRun 'fb help' to see the commands and options.\n");
 }
 

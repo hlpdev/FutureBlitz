@@ -593,6 +593,16 @@ TEST_CASE("fb --color turns ANSI colors on and off", "[cli]") {
 
     // A pipe isn't a terminal, so the default is no color here.
     CHECK_FALSE(fb_run(check_hello).output.contains('\x1b'));
+
+    // A usage error follows a --color given before the mistake.
+    const fb::process_result_t unknown = fb_run({ "--color", "always", "nosuchcmd" });
+    CHECK(unknown.exit_code == 2);
+    CHECK(unknown.output.contains("\x1b[1;31merror\x1b[0m"));
+    const fb::process_result_t option =
+        fb_run({ "check", program("hello.fb"), "--color=always", "--nope" });
+    CHECK(option.exit_code == 2);
+    CHECK(option.output.contains("\x1b[1;31merror\x1b[0m"));
+    CHECK_FALSE(fb_run({ "nosuchcmd" }).output.contains('\x1b'));
 }
 
 TEST_CASE("fb runs and builds a package from its folder", "[cli]") {

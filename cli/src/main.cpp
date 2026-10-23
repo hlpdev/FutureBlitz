@@ -14,7 +14,7 @@ int main(const int argc, char** argv) {
         fb::prepare_terminal();
         const std::vector<std::string> arguments = fb::command_line(argc, argv);
         const std::vector<std::string_view> views(arguments.begin(), arguments.end());
-        const std::expected<fb::options_t, std::string> options = fb::parse_options(views);
+        const std::expected<fb::options_t, fb::usage_error_t> options = fb::parse_options(views);
         if (!options) {
             fb::report_usage_error(options.error());
             return fb::usage_exit_code;

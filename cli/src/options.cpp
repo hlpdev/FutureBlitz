@@ -108,10 +108,11 @@ std::string_view stage_name(const stage_t stage) {
     return stage_names[std::to_underlying(stage)];
 }
 
-std::expected<options_t, std::string> parse_options(const std::span<const std::string_view> all) {
-    // A new options_t is HELP without help_for: the help for fb as a whole.
-    options_t options;
+namespace {
 
+/// Reads `all` into `options`, which keeps what it read before a mistake, like a --color.
+std::expected<void, std::string> parse_into(const std::span<const std::string_view> all,
+                                            options_t& options) {
     // fb's --color can come before the command too: "fb --color never check x.fb".
     std::size_t start = 0;
     while (start < all.size() && (all[start] == "--color" || all[start].starts_with("--color="))) {
@@ -151,7 +152,7 @@ std::expected<options_t, std::string> parse_options(const std::span<const std::s
             options.help_for = *command;
         }
 
-        return options;
+        return {};
     }
 
     if (arguments[0] == "--version") {
@@ -161,7 +162,7 @@ std::expected<options_t, std::string> parse_options(const std::span<const std::s
         }
 
         options.command = command_t::VERSION;
-        return options;
+        return {};
     }
 
     const std::expected<command_t, std::string> command = find_command(arguments[0]);
@@ -177,7 +178,7 @@ std::expected<options_t, std::string> parse_options(const std::span<const std::s
             if (argument == "-h" || argument == "--help") {
                 options.help_for = command_t::BINDGEN;
                 options.command = command_t::HELP;
-                return options;
+                return {};
             }
 
             if (argument == "--color" || argument.starts_with("--color=")) {
@@ -202,7 +203,7 @@ std::expected<options_t, std::string> parse_options(const std::span<const std::s
             options.passed.emplace_back(argument);
         }
 
-        return options;
+        return {};
     }
 
     for (std::size_t i = 1; i < arguments.size(); ++i) {
@@ -229,7 +230,7 @@ std::expected<options_t, std::string> parse_options(const std::span<const std::s
         if (argument == "-h" || argument == "--help") {
             options.help_for = options.command;
             options.command = command_t::HELP;
-            return options;
+            return {};
         }
 
         // What comes after "--" goes to the program `fb run` runs.
@@ -290,6 +291,19 @@ std::expected<options_t, std::string> parse_options(const std::span<const std::s
     std::ranges::sort(options.show);
     const auto repeats = std::ranges::unique(options.show);
     options.show.erase(repeats.begin(), repeats.end());
+    return {};
+}
+
+} // namespace
+
+std::expected<options_t, usage_error_t> parse_options(const std::span<const std::string_view> all) {
+    // A new options_t is HELP without help_for: the help for fb as a whole.
+    options_t options;
+    if (std::expected<void, std::string> parsed = parse_into(all, options); !parsed) {
+        return std::unexpected(
+            usage_error_t{ .message = std::move(parsed.error()), .color = options.color });
+    }
+
     return options;
 }
 

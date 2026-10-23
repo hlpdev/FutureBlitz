@@ -65,9 +65,15 @@ struct options_t {
 /// The name `--show` takes, like "mir".
 [[nodiscard]] std::string_view stage_name(stage_t stage);
 
-/// The arguments after the program's name, `all`, as UTF-8. No arguments mean HELP. Errors are
-/// messages for people.
-[[nodiscard]] std::expected<options_t, std::string>
+/// Bad usage, as a message for people, and the --color given before the mistake, which the
+/// message follows.
+struct usage_error_t {
+    std::string message;
+    color_t color = color_t::AUTO;
+};
+
+/// The arguments after the program's name, `all`, as UTF-8. No arguments mean HELP.
+[[nodiscard]] std::expected<options_t, usage_error_t>
 parse_options(std::span<const std::string_view> all);
 
 } // namespace fb
