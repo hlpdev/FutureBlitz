@@ -113,6 +113,19 @@ Print(Union([square], [square]), Intersection([square], [backward]),
 // A star's crossing edges give its filled outline.
 Local outline = Union([star], [[Vec2(100, 100), Vec2(101, 100), Vec2(100, 101)]])
 Print(outline.Count, Shown(PolygonArea(outline)))
+// A ring that crosses itself, unioned with itself, fills what it fills alone, 4.4525641 by exact
+// arithmetic: copies of an edge are cut at the same points.
+Local crossed = [[Vec2(2, 4), Vec2(5, 2), Vec2(4, 0), Vec2(4, -1), Vec2(3, 4), Vec2(2, 3),
+                  Vec2(3, 1), Vec2(4, 0)]]
+Print(Shown(PolygonArea(Union(crossed, crossed))),
+      Shown(PolygonArea(Intersection(crossed, crossed))), Difference(crossed, crossed).Count)
+// Three edges through (1.6, 1.6), whose crossings round apart, meet at one point: by exact
+// arithmetic, the union is 11.5166667, the overlap 1.6, and the first less the second 4.5666667.
+Local folded = [[Vec2(2, 1), Vec2(0, 4), Vec2(3, 6), Vec2(2, 6), Vec2(2, 2), Vec2(5, 2)]]
+Local hooked = [[Vec2(1, 1), Vec2(5, 1), Vec2(2, 0), Vec2(1, 4), Vec2(4, 1), Vec2(5, 2),
+                  Vec2(4, 4)]]
+Print(Shown(PolygonArea(Union(folded, hooked))), Shown(PolygonArea(Intersection(folded, hooked))),
+      Shown(PolygonArea(Difference(folded, hooked))))
 // The L and a square over its corner.
 Local corner = [Vec2(-1, -1), Vec2(2, -1), Vec2(2, 2), Vec2(-1, 2)]
 Print(Union([ell], [corner]), PolygonArea(Intersection([ell], [corner])),

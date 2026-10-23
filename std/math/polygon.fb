@@ -571,22 +571,90 @@ Function SplitEdges(regions: Point2[][][]): Edge[]
         End For
     End For
 
+    // Where three or more edges meet at a point, the crossings worked out for each pair of them
+    // come out a few bits apart; points as near each other as rounding leaves them are one, the
+    // first of them, corners before crossings.
+    Local snapped = Snapper(SizeOf(regions) * 0.00000000001)
+    For edge In edges
+        snapped.Add(edge.A)
+        snapped.Add(edge.B)
+    End For
+    For along In cuts
+        For cut In along
+            snapped.Add(cut.1)
+        End For
+    End For
+
     Local parts: Edge[] = []
     For i = 0 Until edges.Count
         Local edge = edges[i]
         Local along = cuts[i]
         along.SortBy(Function(cut: (Double, Point2)) => cut.0)
-        Local from = edge.A
+        Local from = snapped.Add(edge.A)
+        Local to = snapped.Add(edge.B)
         For cut In along
-            If cut.1 != from && cut.1 != edge.B
-                parts.Add(Edge(from, cut.1, edge.Region))
-                from = cut.1
+            Local point = snapped.Add(cut.1)
+            If point != from && point != to
+                parts.Add(Edge(from, point, edge.Region))
+                from = point
             End If
         End For
-        parts.Add(Edge(from, edge.B, edge.Region))
+        If from != to Then parts.Add(Edge(from, to, edge.Region))
     End For
     Return parts
 End Function
+
+// How far from the origin the regions reach, in x or y.
+Function SizeOf(regions: Point2[][][]): Double
+    Local size: Double = 0
+    For region In regions
+        For ring In region
+            For p In ring
+                size = Max(size, Max(Abs(p.X), Abs(p.Y)))
+            End For
+        End For
+    End For
+    Return size
+End Function
+
+// Points as the first added within Tolerance of each in x and y, by a grid of cells that size,
+// so a point looks only in the cells around its own.
+Class Snapper
+    Field Tolerance: Double
+    Field Cells: Map<(Int64, Int64), Point2[]>
+    Field Snapped: Map<Point2, Point2>
+
+    New(tolerance: Double)
+        Tolerance = tolerance
+        Cells = Map<(Int64, Int64), Point2[]>()
+        Snapped = Map<Point2, Point2>()
+    End New
+
+    // The first point added near this one, or this one, which then is.
+    Method Add(p: Point2): Point2
+        Local known = Snapped.Get(p)
+        If known != Null Then Return known
+        If !(Tolerance > 0)
+            Snapped[p] = p
+            Return p
+        End If
+        Local x = Floor(p.X / Tolerance) As Int64
+        Local y = Floor(p.Y / Tolerance) As Int64
+        For dx = -1 To 1
+            For dy = -1 To 1
+                For q In Cells.Get((x + dx, y + dy)) ?? []
+                    If Abs(q.X - p.X) <= Tolerance && Abs(q.Y - p.Y) <= Tolerance
+                        Snapped[p] = q
+                        Return q
+                    End If
+                End For
+            End For
+        End For
+        Cells.GetOrAdd((x, y), Function(): Point2[] => []).Add(p)
+        Snapped[p] = p
+        Return p
+    End Method
+End Class
 
 // Where two edges meet, as cuts on each: a crossing, a point one's end touches the other at, or
 // the ends of where they lie along each other.
@@ -596,26 +664,53 @@ Function Cut(edges: Edge[], cuts: (Double, Point2)[][], i: Int, j: Int)
     // Edges whose boxes don't meet don't.
     If Max(e.A.X, e.B.X) < Min(f.A.X, f.B.X) || Max(f.A.X, f.B.X) < Min(e.A.X, e.B.X) Then Return
     If Max(e.A.Y, e.B.Y) < Min(f.A.Y, f.B.Y) || Max(f.A.Y, f.B.Y) < Min(e.A.Y, e.B.Y) Then Return
-    Local d1 = Turn(f.A, f.B, e.A)
-    Local d2 = Turn(f.A, f.B, e.B)
-    Local d3 = Turn(e.A, e.B, f.A)
-    Local d4 = Turn(e.A, e.B, f.B)
+    // Each edge's ends in order, and the edges in order, so copies of an edge, either way around,
+    // cross another at the same bits.
+    Local e1, e2 = Ends(e)
+    Local f1, f2 = Ends(f)
+    Local first = i
+    Local second = j
+    If Earlier(f1, e1) || (f1 == e1 && Earlier(f2, e2))
+        Swap(ByRef e1, ByRef f1)
+        Swap(ByRef e2, ByRef f2)
+        first = j
+        second = i
+    End If
+    Local d1 = Turn(f1, f2, e1)
+    Local d2 = Turn(f1, f2, e2)
+    Local d3 = Turn(e1, e2, f1)
+    Local d4 = Turn(e1, e2, f2)
     If ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0))
         Local t = d1 / (d1 - d2)
-        Local point = Point2(e.A.X + (e.B.X - e.A.X) * t, e.A.Y + (e.B.Y - e.A.Y) * t)
-        cuts[i].Add((t, point))
-        cuts[j].Add((d3 / (d3 - d4), point))
+        Local point = Point2(e1.X + (e2.X - e1.X) * t, e1.Y + (e2.Y - e1.Y) * t)
+        cuts[i].Add((AlongOf(e, point), point))
+        cuts[j].Add((AlongOf(f, point), point))
         Return
     End If
 
-    // An end of one on the other cuts the other there.
-    For pair In [(e.A, j), (e.B, j), (f.A, i), (f.B, i)]
-        Local point, on = pair
-        Local other = edges[on]
-        If point != other.A && point != other.B && OnSegment(point, other.A, other.B)
-            cuts[on].Add((AlongOf(other, point), point))
-        End If
-    End For
+    // An end of one on the other's line, between its ends, cuts the other there, by the same signs
+    // the crossing goes by.
+    If d1 == 0 Then CutAt(edges, cuts, second, e1)
+    If d2 == 0 Then CutAt(edges, cuts, second, e2)
+    If d3 == 0 Then CutAt(edges, cuts, first, f1)
+    If d4 == 0 Then CutAt(edges, cuts, first, f2)
+End Function
+
+// Cuts the edge at a point on its line, where it's between the edge's ends.
+Function CutAt(edges: Edge[], cuts: (Double, Point2)[][], on: Int, point: Point2)
+    Local edge = edges[on]
+    If point == edge.A || point == edge.B Then Return
+    If point.X < Min(edge.A.X, edge.B.X) || point.X > Max(edge.A.X, edge.B.X) Then Return
+    If point.Y < Min(edge.A.Y, edge.B.Y) || point.Y > Max(edge.A.Y, edge.B.Y) Then Return
+    cuts[on].Add((AlongOf(edge, point), point))
+End Function
+
+// Whether p comes before q, by x, then y.
+Function Earlier(p: Point2, q: Point2): Bool => p.X < q.X || (p.X == q.X && p.Y < q.Y)
+
+// The edge's ends, the earlier first.
+Function Ends(edge: Edge): (Point2, Point2)
+    Return Earlier(edge.B, edge.A) ? (edge.B, edge.A) : (edge.A, edge.B)
 End Function
 
 // How far along the edge the point on it is, from 0 at A to 1 at B.
@@ -631,15 +726,7 @@ End Function
 Function Boundary(regions: Point2[][][], filled: Func(Int[]): Bool): Vec2[][]
     Local parts = SplitEdges(regions)
     // How far to each side of an edge's middle to look, small against the regions' size.
-    Local size: Double = 1
-    For region In regions
-        For ring In region
-            For p In ring
-                size = Max(size, Max(Abs(p.X), Abs(p.Y)))
-            End For
-        End For
-    End For
-    Local step = size * 0.000000001
+    Local step = SizeOf(regions) * 0.000000001
 
     Local kept: Edge[] = []
     Local seen = Set<(Point2, Point2)>()
