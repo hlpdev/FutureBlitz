@@ -1729,7 +1729,8 @@ std::expected<std::vector<library_file_t>, std::string> standard_library() {
 }
 
 std::vector<const build_config::bundled_library_t*> bundled_libraries(const mir_module_t& module) {
-    std::vector<const build_config::bundled_library_t*> used;
+    // Each the program calls, then those they're built on, in the table's order.
+    std::vector<std::string_view> wanted;
     for (const build_config::bundled_library_t& library : build_config::bundled_libraries) {
         const bool calls =
             std::ranges::any_of(module.functions, [&](const mir_function_t& function) {
@@ -1737,6 +1738,27 @@ std::vector<const build_config::bundled_library_t*> bundled_libraries(const mir_
                        function.external->symbol.starts_with(library.prefix);
             });
         if (calls) {
+            wanted.push_back(library.name);
+        }
+    }
+
+    std::vector<std::string_view> unseen = wanted;
+    while (!unseen.empty()) {
+        const auto library = std::ranges::find(build_config::bundled_libraries, unseen.back(),
+                                               &build_config::bundled_library_t::name);
+        unseen.pop_back();
+        for (const auto part : std::views::split(library->needs, ';')) {
+            const std::string_view name(part.begin(), part.end());
+            if (!name.empty() && !std::ranges::contains(wanted, name)) {
+                wanted.push_back(name);
+                unseen.push_back(name);
+            }
+        }
+    }
+
+    std::vector<const build_config::bundled_library_t*> used;
+    for (const build_config::bundled_library_t& library : build_config::bundled_libraries) {
+        if (std::ranges::contains(wanted, library.name)) {
             used.push_back(&library);
         }
     }

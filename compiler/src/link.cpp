@@ -262,8 +262,15 @@ std::expected<void, std::string> link_program(const std::span<const std::filesys
         arguments.push_back(linker_path(archive, folder));
     }
 
+    // A framework of macOS's, like "Security.framework", links by its name.
     for (const std::string& library : natives.system) {
-        arguments.push_back(std::format("-l{}", library));
+        if (const std::string_view name = library; name.ends_with(".framework")) {
+            arguments.emplace_back("-framework");
+            arguments.emplace_back(
+                name.substr(0, name.size() - std::string_view(".framework").size()));
+        } else {
+            arguments.push_back(std::format("-l{}", library));
+        }
     }
 
     // An executable whose path the linker can't read is written in the folder, then moved.
