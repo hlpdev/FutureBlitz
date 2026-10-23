@@ -50,8 +50,12 @@ fb_string_t* fb_bcrypt_hash(const fb_string_t* password, const fb_array_t* salt,
 std::int32_t fb_bcrypt_verify(const fb_string_t* password, const fb_string_t* hash) {
     const std::string key = text_of(password);
     const std::string expected = text_of(hash);
-    // crypt_blowfish reads C strings, which a NUL would end early, so neither can have one.
-    if (key.contains('\0') || expected.size() + 1 != hash_size) {
+    // crypt_blowfish reads C strings, which a NUL would end early, so neither can have one. Only
+    // bcrypt's own versions are a hash: crypt_blowfish's $2x$ keeps an old bug for bytes from
+    // 0x80, which gives many passwords one hash.
+    const bool bcrypt = expected.starts_with("$2a$") || expected.starts_with("$2b$") ||
+                        expected.starts_with("$2y$");
+    if (key.contains('\0') || expected.size() + 1 != hash_size || !bcrypt) {
         return 0;
     }
 
