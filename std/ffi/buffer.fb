@@ -49,6 +49,19 @@ Public Class Buffer<T: CData> Implements Iterable<T>
         Viewed = viewed
     End New
 
+    // A new Buffer of the items, in order. Panics when there isn't that much memory.
+    @PanicsAtCaller
+    Public Static Method From(items: T[]): Buffer<T>
+        Local made = Buffer<T>(items.Count)
+        If items.Count > 0
+            Unsafe
+                Mem.Copy(made.First, AddressOf(items[0]), items.Count * SizeOf<T>())
+            End Unsafe
+        End If
+
+        Return made
+    End Method
+
     // A view of `count` T's of memory C owns, from `pointer`, which C keeps there while the view
     // is, since nothing else does, and doesn't give back. Panics when count is negative, or isn't
     // 0 and pointer is Null, or the T's take more bytes than an Int64 counts, as New does.

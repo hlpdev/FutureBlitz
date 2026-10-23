@@ -123,7 +123,8 @@ Print("{values[0]} {values.Slice(1, 3).ToArray()}")
   of alive, so the memory stays after that Buffer's last variable goes, until its last view goes
   too. A view of a view is part of the first Buffer.
 - `CopyTo(destination)` copies its T's to the start of another Buffer, which can share memory
-  with it, and `ToArray()` gives them in a new array.
+  with it, `ToArray()` gives them in a new array, and `Buffer<T>.From(items)` makes a new one of
+  an array's. std.io's streams read into Buffers and write from them.
 - Only Unsafe code gets its `Pointer()`, which is good while the Buffer, or a view that keeps it
   alive, is, and makes `Buffer<T>.View(pointer, count)`, a view of memory C owns, on the promise
   that C keeps it there while the view is; nothing gives that memory back.
