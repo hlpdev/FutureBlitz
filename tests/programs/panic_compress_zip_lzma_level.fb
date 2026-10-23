@@ -1,5 +1,5 @@
-// A zip's LZMA entry takes LZMA's levels, from 0 to 9, and Add panics where it's called
-// for another.
+// A zip's LZMA entry takes LZMA's levels from 1 to 9, as minizip-ng stores an entry at 0, and Add
+// panics where it's called for another.
 Import std.core
 Import std.compress
 
