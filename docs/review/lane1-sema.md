@@ -130,7 +130,7 @@ Skeptic: confirmed=True, high. Minimal p1.fb: `Interface Valued / ReadOnly Prope
 
 ## A3-1 (high): A base Class's New can call an Override that reads the derived Class's unassigned non-null Field (segfault)
 
-Status: open: use Swift's rule (docs/m6-plan.md, Decisions)
+Status: fixed in 2f78837, with Swift's rule (docs/m6-plan.md, Decisions), with tests
 
 Where: compiler/src/sema.cpp:11909
 
@@ -152,7 +152,7 @@ Skeptic: confirmed=True, high. I ran exp-all/V3/t7.fb, which is Base.New calling
 
 ## A3-2 (high): A lambda or Parallel For body inside New can change ReadOnly Fields; in a Shared Class this races and corrupts memory
 
-Status: fixed on branch m6-review (wip commits 227c8e9, 7d18183), with tests
+Status: fixed in 10752ff and dff69d3, with tests
 
 Where: compiler/src/sema.cpp:14761
 
@@ -171,7 +171,7 @@ Skeptic: confirmed=True, high. (1) t5.fb, a lambda made in New that assigns the 
 
 ## A3-3 (high): A lambda in New can capture Self before New assigns its no-zero Fields, and calling it reads null (segfault)
 
-Status: fixed on branch m6-review (wip commits 227c8e9, 7d18183), with tests
+Status: fixed in 10752ff and dff69d3, with tests
 
 Where: compiler/src/sema.cpp:15949
 
@@ -192,7 +192,7 @@ Skeptic: confirmed=True, high. V3/t9.fb has a lambda in New that reads m.name. I
 
 ## A3-4 (high): Assigning a Property in New before New assigns its no-zero Fields isn't checked; the Set reads null (segfault)
 
-Status: fixed on branch m6-review (wip commits 227c8e9, 7d18183), with tests
+Status: fixed in 10752ff and dff69d3, with tests
 
 Where: compiler/src/sema.cpp:14440
 
@@ -213,7 +213,7 @@ Skeptic: confirmed=True, high. V3/v4.fb, 'P = 5' before 'm = Node()' with a Set 
 
 ## A3-5 (high): Reflection's f.Set changes ReadOnly Fields anywhere, and racing on a Shared Class's ReadOnly Field corrupts the heap
 
-Status: fixed on branch m6-review (wip commits 227c8e9, 7d18183), with tests
+Status: fixed in 10752ff and dff69d3, with tests
 
 Where: compiler/src/sema.cpp:13902
 
@@ -696,7 +696,7 @@ Skeptic: confirmed=True, medium. t34.fb (`Struct Wrap<T> / Field v: T / Field w:
 
 ## A3-6 (medium): A fixed array's element count overflows before the limit check, so Int[4, 2^62] becomes Int32[4, 0]
 
-Status: fixed on branch m6-review (wip commits 227c8e9, 7d18183), with tests
+Status: fixed in 10752ff and dff69d3, with tests
 
 Where: compiler/src/sema.cpp:11538
 
@@ -715,7 +715,7 @@ Skeptic: confirmed=True, medium. V3/v6.fb: 'Local a: Int[4, 4611686018427387904]
 
 ## A3-7 (medium): T.Has(A) and T.Attribute(A) are refused when the type has an instance member named Has, though spec and comment say only a Static one hides them
 
-Status: fixed on branch m6-review (wip commits 227c8e9, 7d18183), with tests
+Status: fixed in 10752ff and dff69d3, with tests
 
 Where: compiler/src/sema.cpp:13731
 
@@ -734,7 +734,7 @@ Skeptic: confirmed=True, medium. V3/v7.fb, a Class with an instance 'Method Has(
 
 ## A3-8 (medium): For Method over a type with an Async Method produces invalid LLVM IR
 
-Status: fixed on branch m6-review (wip commits 227c8e9, 7d18183), with tests
+Status: fixed in 178a50c, lane 2's batch 1 (A6-5 and A5-5), which leaves out Async Methods and ones with a ByRef parameter, with its test tests/programs/reflection_more; lane 1's copy of the fix and its test were folded into it
 
 Where: compiler/src/lower.cpp:3689
 
@@ -1158,7 +1158,7 @@ Skeptic: confirmed=True, low. sema.cpp:6751-6753 reads "/// An Async Function or
 
 ## A3-9 (low): For ... In over a nullable Channel reports the wrong error
 
-Status: fixed on branch m6-review (wip commits 227c8e9, 7d18183), with tests
+Status: fixed in 10752ff and dff69d3, with tests
 
 Where: compiler/src/sema.cpp:13445
 
@@ -1177,7 +1177,7 @@ Skeptic: confirmed=True, low. V3/v9.fb: 'For x In ch' with ch: Channel<Int>? rep
 
 ## A3-10 (low): A Return in a Try whose Finally assigns a required Field is wrongly reported in New
 
-Status: fixed on branch m6-review (wip commits 227c8e9, 7d18183), with tests
+Status: fixed in 10752ff and dff69d3, with tests
 
 Where: compiler/src/sema.cpp:14284
 
@@ -1196,7 +1196,7 @@ Skeptic: confirmed=True, low. V3/v10.fb, a Return inside a Try body whose Finall
 
 ## A3-11 (low): For f = 0 To 1.5 Step 0.5 is refused with '1.5 doesn't fit in Int32'
 
-Status: fixed on branch m6-review (wip commits 227c8e9, 7d18183), with tests
+Status: fixed in 10752ff and dff69d3, with tests
 
 Where: compiler/src/sema.cpp:13382
 
@@ -1215,7 +1215,7 @@ Skeptic: confirmed=True, low. V3/v11.fb, 'For f = 0 To 1.5 Step 0.5', gives '1.5
 
 ## A3-12 (low): A throwing call in a Defer or Finally inside a Try block says it 'needs Try, Try?, or a Try block'
 
-Status: fixed on branch m6-review (wip commits 227c8e9, 7d18183), with tests
+Status: fixed in 10752ff and dff69d3, with tests
 
 Where: compiler/src/sema.cpp:13040
 
