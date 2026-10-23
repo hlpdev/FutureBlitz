@@ -903,17 +903,19 @@ private:
             *flag = true;
         }
 
-        if (shared && !at(token_kind_t::KW_CLASS) && !at(token_kind_t::KW_STRUCT) &&
+        // An attribute after them is the mistake, which the error below says.
+        const bool attribute = at(token_kind_t::AT);
+        if (shared && !attribute && !at(token_kind_t::KW_CLASS) && !at(token_kind_t::KW_STRUCT) &&
             !at(token_kind_t::KW_INTERFACE)) {
             error(*shared, "Shared only goes before a Class, whose objects threads share");
         }
 
-        if (thread_local_span && !at(token_kind_t::KW_GLOBAL)) {
+        if (thread_local_span && !attribute && !at(token_kind_t::KW_GLOBAL)) {
             error(*thread_local_span,
                   "ThreadLocal only goes before a Global, which each thread then has its own of");
         }
 
-        if (async && !at(token_kind_t::KW_FUNCTION) && !at(token_kind_t::KW_METHOD) &&
+        if (async && !attribute && !at(token_kind_t::KW_FUNCTION) && !at(token_kind_t::KW_METHOD) &&
             !at(token_kind_t::KW_BYREF)) {
             error(*async, "Async only goes before a Function or Method, whose code can Await");
         }

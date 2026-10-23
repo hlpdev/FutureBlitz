@@ -728,6 +728,16 @@ TEST_CASE("ThreadLocal goes before a Global", "[parser]") {
             "0-11: ThreadLocal only goes before a Global, which each thread then has its own of" });
     CHECK(parse_text("ThreadLocal ThreadLocal Global x = 1").errors ==
           std::vector<std::string>{ "12-23: 'ThreadLocal' is written twice" });
+
+    // An attribute after it, or after Shared or Async, is out of place, which is what's said.
+    const std::string_view order =
+        "attributes go before a declaration's modifiers, as in @Inline Static Function";
+    CHECK(parse_text("ThreadLocal @Deprecated Global x = 1").errors ==
+          std::vector<std::string>{ std::format("12-13: {}", order) });
+    CHECK(parse_text("Shared @Deprecated Class C\nEnd Class").errors ==
+          std::vector<std::string>{ std::format("7-8: {}", order) });
+    CHECK(parse_text("Async @Deprecated Function F()\nEnd Function").errors ==
+          std::vector<std::string>{ std::format("6-7: {}", order) });
 }
 
 TEST_CASE("a visibility goes before a declaration, among its modifiers", "[parser]") {
