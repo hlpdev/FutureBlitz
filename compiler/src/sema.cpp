@@ -18468,6 +18468,20 @@ private:
                           const type_id_t hint) {
         const bool thread = kind == type_kind_t::THREAD;
         const std::string_view what = thread ? "Thread.Start" : "Spawn";
+        const expr_node_t& callee = m_ast.get(node.callee).node;
+        const auto* name = std::get_if<name_expr_t>(&callee);
+        const auto* member = std::get_if<member_expr_t>(&callee);
+        const auto* object =
+            member != nullptr ? std::get_if<name_expr_t>(&m_ast.get(member->object).node) : nullptr;
+        if ((name != nullptr && !name->type_arguments.empty()) ||
+            (member != nullptr && !member->type_arguments.empty()) ||
+            (object != nullptr && !object->type_arguments.empty())) {
+            error(span_of(node.callee), "{}",
+                  thread ? "Thread.Start takes no type arguments, since a Thread gives nothing"
+                         : "Spawn takes no type arguments; a Task<T> expected says what the "
+                           "work gives");
+        }
+
         if (node.arguments.size() != 1 || node.arguments.front().name ||
             node.arguments.front().by_ref) {
             check_alone(node.arguments);

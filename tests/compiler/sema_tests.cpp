@@ -8068,6 +8068,19 @@ TEST_CASE("Spawn runs work on another thread, and gives its Task", "[sema]") {
     CHECK(errors_of("Local t = Spawn()") ==
           errors_t{ "Spawn(): Spawn takes the work to run, like Spawn(Function() => Work())" });
 
+    // What the work gives says the Task's type, so neither takes type arguments.
+    CHECK(errors_of("Local t = Spawn<String>(Function() => 5)") ==
+          errors_t{ "Spawn<String>: Spawn takes no type arguments; a Task<T> expected says what "
+                    "the work gives" });
+    CHECK(errors_of("Import std.core\n"
+                    "Local t = Thread.Start<Int, Bool>(Function() => Print(\"hi\"))") ==
+          errors_t{ "Thread.Start<Int, Bool>: Thread.Start takes no type arguments, since a "
+                    "Thread gives nothing" });
+    CHECK(errors_of("Import std.core\n"
+                    "Local t = Thread<Int>.Start(Function() => Print(\"hi\"))") ==
+          errors_t{ "Thread<Int>.Start: Thread.Start takes no type arguments, since a Thread "
+                    "gives nothing" });
+
     // A Task stays on the thread that spawned it.
     CHECK(errors_of("Import std.core\n"
                     "Function Hand<T: Sendable>(value: T): T => value\n"

@@ -60,7 +60,7 @@ End For
   `Join()` and `IsDone()`, and runs the work on a thread of its own.
 - The work is a lambda or a Function's name, which takes no arguments, since nothing else here
   can hold the closure that goes to the other thread. A `Task<T>` expected says what the lambda
-  gives, as in `Local t: Task<Int64> = Spawn(Function() => 5)`.
+  gives, as in `Local t: Task<Int64> = Spawn(Function() => 5)`, so neither takes type arguments.
 - What the work makes is its own: it reaches only Sendable values from outside it, so its result
   moves safely to the thread that waits for it, even an object or an array.
 - A Task or Thread stays on the thread that started it, so it isn't Sendable, and only that
