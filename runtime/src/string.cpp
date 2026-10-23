@@ -1,5 +1,6 @@
 #include "fb/runtime.hpp"
 #include "fb/text_format.hpp"
+#include "internal.hpp"
 
 #include <array>
 #include <atomic>
@@ -46,8 +47,16 @@ std::size_t size_of(const fb_string_t* string) {
     return static_cast<std::size_t>(string->length);
 }
 
-/// A new String with room for `length` bytes, which the caller fills, and one owner.
+/// The most bytes a String holds, so its Length and positions are Ints.
+constexpr std::size_t max_length = INT32_MAX;
+
+/// A new String with room for `length` bytes, which the caller fills, and one owner. Panics past
+/// the most a String holds.
 fb_string_t* allocate(const std::size_t length) {
+    if (length > max_length) {
+        fb_panic("a String holds at most 2147483647 bytes", nullptr);
+    }
+
     auto* string = static_cast<fb_string_t*>(std::malloc(sizeof(fb_string_t) + length));
     if (string == nullptr) {
         fb_panic("out of memory", nullptr);
@@ -66,11 +75,7 @@ fb_string_t* make(const std::string_view text) {
     return string;
 }
 
-/// A code point in UTF-8, and how many bytes it takes.
-struct decoded_t {
-    std::uint32_t point;
-    std::size_t length;
-};
+using fb::runtime::decoded_t;
 
 /// U+FFFD, which stands for what isn't well-formed UTF-8.
 constexpr std::uint32_t replacement = 0xFFFD;
@@ -142,13 +147,19 @@ std::string encode(const std::uint32_t point) {
     }
 
     if (point < 0x10000) {
-        return { byte(0xE0U | (point >> 12U)), byte(continuation | ((point >> 6U) & low_six)),
-                 byte(continuation | (point & low_six)) };
+        return {
+            byte(0xE0U | (point >> 12U)),
+            byte(continuation | ((point >> 6U) & low_six)),
+            byte(continuation | (point & low_six)),
+        };
     }
 
-    return { byte(0xF0U | (point >> 18U)), byte(continuation | ((point >> 12U) & low_six)),
-             byte(continuation | ((point >> 6U) & low_six)),
-             byte(continuation | (point & low_six)) };
+    return {
+        byte(0xF0U | (point >> 18U)),
+        byte(continuation | ((point >> 12U) & low_six)),
+        byte(continuation | ((point >> 6U) & low_six)),
+        byte(continuation | (point & low_six)),
+    };
 }
 
 /// An integer as std::to_chars writes it by default: the same text as std::format("{}"), which
@@ -162,6 +173,26 @@ fb_string_t* from_number(const Number value) {
 }
 
 } // namespace
+
+namespace fb::runtime {
+
+std::string_view text_of(const fb_string_t* string) {
+    return { bytes_of(string), size_of(string) };
+}
+
+fb_string_t* new_string(const std::string_view text) {
+    return make(text);
+}
+
+decoded_t decode_utf8(const std::string_view text, const std::size_t at) {
+    return decode(text, at);
+}
+
+std::string encode_utf8(const std::uint32_t point) {
+    return encode(point);
+}
+
+} // namespace fb::runtime
 
 extern "C" {
 

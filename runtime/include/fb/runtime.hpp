@@ -368,6 +368,61 @@ void fb_array_free(const fb_array_t* array);
 void fb_string_chars(const fb_string_t* string, fb_array_t* into);
 /// Adds `string`'s UTF-8 bytes to `into`, a UInt8[], for "s.Bytes".
 void fb_string_bytes(const fb_string_t* string, fb_array_t* into);
+
+// std.text's String Methods, StringBuilder, and encodings, by byte position. std checks each
+// position first: inside the String, and between its characters.
+
+/// How many bytes `text` has.
+std::int64_t fb_text_length(const fb_string_t* text);
+/// The byte at `at`.
+std::uint8_t fb_text_byte(const fb_string_t* text, std::int64_t at);
+/// The code point whose first byte is at `at`.
+std::uint32_t fb_text_char_at(const fb_string_t* text, std::int64_t at);
+/// A new String of the bytes from `start` up to `finish`.
+fb_string_t* fb_text_slice(const fb_string_t* text, std::int64_t start, std::int64_t finish);
+/// Where `part` first starts at `from` or after, or -1.
+std::int64_t fb_text_find(const fb_string_t* text, const fb_string_t* part, std::int64_t from);
+/// Where `part` last starts that ends at `before` or sooner, or -1.
+std::int64_t fb_text_find_last(const fb_string_t* text, const fb_string_t* part,
+                               std::int64_t before);
+/// How many code points the bytes from `start` up to `finish` have.
+std::int64_t fb_text_char_count(const fb_string_t* text, std::int64_t start, std::int64_t finish);
+/// A new String of `count` bytes of a UInt8[] from `start`, or null unless they're UTF-8.
+fb_string_t* fb_text_from_utf8(const fb_array_t* bytes, std::int64_t start, std::int64_t count);
+/// Adds `text`'s bytes to `into`, a UInt8[].
+void fb_text_append(fb_array_t* into, const fb_string_t* text);
+/// A new String of `parts`, a String[], with `separator` between each two.
+fb_string_t* fb_text_join(const fb_array_t* parts, const fb_string_t* separator);
+/// A new String of `text` `count` times. Panics past the most a String holds.
+fb_string_t* fb_text_repeat(const fb_string_t* text, std::int64_t count);
+
+// What std.text needs of Unicode's data, over utf8proc, which a program links only when it calls
+// these.
+
+/// `point`'s general category, as utf8proc_category_t numbers them: 0 for unassigned, 1 for Lu,
+/// and on to 29 for Co.
+std::int32_t fb_unicode_category(std::uint32_t point);
+/// `point`'s own uppercase and lowercase, one code point each.
+std::uint32_t fb_unicode_upper(std::uint32_t point);
+std::uint32_t fb_unicode_lower(std::uint32_t point);
+/// `text` in uppercase or lowercase, a character's case taking more than one code point where
+/// Unicode's SpecialCasing says, as U+00DF's "SS" does, and a word's last capital sigma lowering
+/// to the final one.
+fb_string_t* fb_unicode_to_upper(const fb_string_t* text);
+fb_string_t* fb_unicode_to_lower(const fb_string_t* text);
+/// `text` case-folded, for comparing it without case.
+fb_string_t* fb_unicode_case_fold(const fb_string_t* text);
+/// `text` in normal form `form`: 0 for NFC, 1 for NFD, 2 for NFKC, and 3 for NFKD.
+fb_string_t* fb_unicode_normalize(const fb_string_t* text, std::int32_t form);
+/// Where the grapheme cluster that starts at `at` ends.
+std::int64_t fb_unicode_next_grapheme(const fb_string_t* text, std::int64_t at);
+/// How many grapheme clusters `text` has.
+std::int64_t fb_unicode_grapheme_count(const fb_string_t* text);
+/// The terminal columns `point` takes: 0, 1, or 2.
+std::int32_t fb_unicode_char_width(std::uint32_t point);
+/// The terminal columns `text` takes, each grapheme cluster its widest character's.
+std::int64_t fb_unicode_display_width(const fb_string_t* text);
+
 /// Panics at `location`: "index 5 is out of range for 3 elements".
 [[noreturn]] void fb_index_out_of_range(std::int64_t index, std::int64_t count,
                                         const fb_location_t* location);
