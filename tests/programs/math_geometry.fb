@@ -80,6 +80,19 @@ Print(Hit(ball.Raycast(Ray(Vec3(1, 0, 0), Vec3.Up))),
       Hit(ball.Raycast(Ray(Vec3(10, 0, 0), Vec3(-4, 0, 0)))),
       Hit(ball.Raycast(Ray(Vec3(5, 5, 5), Vec3.Zero()))),
       Hit(Sphere(Vec3(0, 0, -5), 1).Raycast(Ray(Vec3.Zero(), Vec3.Forward))))
+// Far off, small, or with a short Direction, nothing rounds away: rays passing just outside miss,
+// and one head on stops at the surface, as the box of the same size's does.
+Local unit = Sphere(Vec3.Zero(), 1)
+Local cube = AABB(-Vec3.One(), Vec3.One())
+Print(Hit(unit.Raycast(Ray(Vec3(1.2, 0, 3000), Vec3.Forward))),
+      Hit(unit.Raycast(Ray(Vec3(1.5, 0, 10000), Vec3.Forward))),
+      Hit(unit.Raycast(Ray(Vec3(0, 0, 10000), Vec3.Forward))),
+      Hit(cube.Raycast(Ray(Vec3(0, 0, 10000), Vec3.Forward))))
+Local bead = Sphere(Vec3.Zero(), 0.1)
+Print(Hit(bead.Raycast(Ray(Vec3(0.12, 0, 1000), Vec3.Forward))),
+      Hit(bead.Raycast(Ray(Vec3(0, 0, 1000), Vec3.Forward))),
+      Hit(unit.Raycast(Ray(Vec3(0, 0, 10), Vec3(0, 0, -1e-25)))),
+      Hit(cube.Raycast(Ray(Vec3(0, 0, 10), Vec3(0, 0, -1e-25)))))
 
 // A Ray.
 Local ray = Ray(Vec3(1, 2, 3), Vec3.Up)

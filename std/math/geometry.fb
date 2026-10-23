@@ -218,21 +218,41 @@ Public Struct Sphere Implements Equatable, Printable
     // Whether the box and the sphere have a point in common.
     Public Method Intersects(box: AABB): Bool => Contains(box.ClosestPoint(Center))
 
-    // How far along the ray it first meets the sphere.
+    // How far along the ray it first meets the sphere, worked out in Doubles from where the ray
+    // comes nearest the center, as Ray Tracing Gems' chapter 7 has it, so a sphere far off or
+    // small, or a short Direction, loses nothing to rounding.
     Public Method Raycast(ray: Ray): Float?
-        Local offset = ray.Origin - Center
-        Local outside = Dot(offset, offset) - Radius * Radius
+        Local offset = Vec3d.Of(ray.Origin) - Vec3d.Of(Center)
+        Local direction = Vec3d.Of(ray.Direction)
+        Local radius: Double = Radius
+        Local outside = offset.Dot(offset) - radius * radius
         If outside <= 0 Then Return 0
-        Local along = Dot(offset, ray.Direction)
-        Local speed = Dot(ray.Direction, ray.Direction)
+        Local along = offset.Dot(direction)
+        Local speed = direction.Dot(direction)
         // A ray that starts outside and goes away, or nowhere, misses.
         If along >= 0 || speed == 0 Then Return Null
-        Local discriminant = along * along - speed * outside
+        Local nearest = offset - direction * (along / speed)
+        Local discriminant = speed * (radius * radius - nearest.Dot(nearest))
         If discriminant < 0 Then Return Null
-        Return (-along - Sqrt(discriminant)) / speed
+        // The nearer root, as the outside over the other's numerator, which doesn't cancel.
+        Return (outside / (Sqrt(discriminant) - along)) As Float
     End Method
 
     Public Method ToString(): String => "Sphere({Center}, {Radius})"
+End Struct
+
+// A Vec3 in Doubles, for the math a Float's squares would round away or overflow.
+Struct Vec3d
+    Field x: Double
+    Field y: Double
+    Field z: Double
+
+    Static Method Of(v: Vec3): Vec3d => Vec3d(v.x, v.y, v.z)
+
+    Method Dot(other: Vec3d): Double => x * other.x + y * other.y + z * other.z
+
+    Operator -(a: Vec3d, b: Vec3d): Vec3d => Vec3d(a.x - b.x, a.y - b.y, a.z - b.z)
+    Operator *(a: Vec3d, scale: Double): Vec3d => Vec3d(a.x * scale, a.y * scale, a.z * scale)
 End Struct
 
 // A half-line, from its Origin along its Direction.
