@@ -389,6 +389,17 @@ TEST_CASE("an array grows, and its elements move to make room", "[runtime]") {
     CHECK(type.live == 0);
 }
 
+TEST_CASE("an array's capacity stops at the most an Int counts", "[runtime]") {
+    // Elements that take no bytes, like an empty Struct's, need no memory however many there are.
+    fb_class_t type = numbers_class();
+    fb_array_t* array = fb_array_new(&type, 0, INT32_MAX - 1);
+    fb_array_push(array, 0);
+    CHECK(array->count == INT32_MAX);
+    CHECK(array->capacity == INT32_MAX);
+    fb_object_release(&array->header);
+    CHECK(type.live == 0);
+}
+
 TEST_CASE("Strings order by their bytes, and equal values hash the same", "[runtime]") {
     fb_string_t* apple = fb_string_from_bool(0);
     fb_string_t* same = fb_string_from_bool(0);

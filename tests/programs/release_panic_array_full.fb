@@ -1,0 +1,17 @@
+// An array holds at most 2147483647 elements, as many as its Count, an Int, can count, and adding
+// one more panics. Elements of an empty Struct take no memory, so the array can get there.
+Import std.core
+
+Struct Nothing
+End Struct
+
+Local items: Nothing[] = []
+Local added: Int64 = 0
+While added < 2147483647
+    items.Add(Nothing())
+    added += 1
+End While
+
+Print("{items.Count} {items.Capacity}")
+items.Add(Nothing())
+Print("never: the array is full")

@@ -80,6 +80,8 @@ Out-of-bounds access panics.
 - A `T[]` has `Count` (an `Int`) and the Methods `Add(value)`, `Insert(index, value)`,
   `RemoveAt(index)`, `Clear()`, `Contains(value)`, and `Clone()`. `Clone` copies the elements,
   not what they refer to. `Contains` compares with `==`. A fixed array has `Count` only.
+- A `T[]` holds at most 2147483647 elements, as many as its `Count` counts, and adding one more
+  panics: "an array holds at most 2147483647 elements".
 - A `T[]`'s `Capacity` is how many elements it has room for before it needs more memory;
   `Reserve(capacity)` makes room for that many in all, and `TrimExcess()` gives back what's
   beyond its Count. Neither changes the elements. A negative capacity panics.

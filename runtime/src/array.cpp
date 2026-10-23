@@ -63,13 +63,22 @@ void resize_buffer(fb_array_t* array, const std::int64_t element_size, const std
     array->capacity = capacity;
 }
 
-/// Makes room for one more element, doubling the capacity when the buffer is full.
+/// The most elements an array holds, since its Count and Capacity are Ints.
+constexpr std::int64_t max_count = INT32_MAX;
+
+/// Makes room for one more element, doubling the capacity when the buffer is full, up to the
+/// most an array holds, past which it panics.
 void reserve_one(fb_array_t* array, const std::int64_t element_size) {
     if (array->count < array->capacity) {
         return;
     }
 
-    resize_buffer(array, element_size, std::max<std::int64_t>(4, array->capacity * 2));
+    if (array->count >= max_count) {
+        fb_panic("an array holds at most 2147483647 elements", nullptr);
+    }
+
+    resize_buffer(array, element_size,
+                  std::min(max_count, std::max<std::int64_t>(4, array->capacity * 2)));
 }
 
 /// Where the element at `index` is.
