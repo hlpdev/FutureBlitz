@@ -1,0 +1,2 @@
+2
+panic: Log10 takes a Decimal above 0, not -1 at panic_decimal_log10.fb:6:7

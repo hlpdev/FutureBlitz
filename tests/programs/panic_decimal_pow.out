@@ -1,0 +1,2 @@
+-512
+panic: -8 to the power 0.5 isn't a number, since it's below 0 and that isn't whole at panic_decimal_pow.fb:6:7

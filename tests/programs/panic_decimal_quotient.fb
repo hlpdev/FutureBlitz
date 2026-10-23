@@ -1,0 +1,6 @@
+// % whose quotient has more than 28 digits panics.
+Import std.core
+Import std.math.big
+
+Print((Decimal.Parse("1E+27") ?? Decimal(0)) % 7)
+Print((Decimal.Parse("1E+40") ?? Decimal(0)) % 7)

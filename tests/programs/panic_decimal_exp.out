@@ -1,0 +1,2 @@
+2.718281828459045235360287471
+panic: a Decimal's exponent goes up to 999999, and this result's is past it at panic_decimal_exp.fb:6:7

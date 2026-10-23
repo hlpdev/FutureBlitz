@@ -1,0 +1,2 @@
+0
+panic: Ln takes a Decimal above 0, not 0 at panic_decimal_ln.fb:6:7

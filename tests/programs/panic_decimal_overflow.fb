@@ -1,0 +1,7 @@
+// A result whose exponent is past 999999 panics, where it's worked out.
+Import std.core
+Import std.math.big
+
+Local large = Decimal.Parse("9E+999999") ?? Decimal(0)
+Print(large)
+Print(large * 10)

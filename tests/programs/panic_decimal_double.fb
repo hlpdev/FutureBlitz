@@ -1,0 +1,7 @@
+// A Decimal is finite, and an infinity panics.
+Import std.core
+Import std.math.big
+
+Local zero = 0.0
+Print(Decimal.FromDouble(0.1))
+Print(Decimal.FromDouble(1.0 / zero))

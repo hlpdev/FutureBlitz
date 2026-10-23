@@ -1,0 +1,2 @@
+1
+panic: division by zero at panic_decimal_remainder.fb:6:7

@@ -1,0 +1,2 @@
+9E+999999
+panic: a Decimal's exponent goes up to 999999, and this result's is past it at panic_decimal_overflow.fb:7:7

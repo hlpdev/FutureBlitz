@@ -1,0 +1,6 @@
+// Ln of a Decimal that isn't above 0 panics.
+Import std.core
+Import std.math.big
+
+Print(Decimal(1).Ln())
+Print(Decimal(0).Ln())

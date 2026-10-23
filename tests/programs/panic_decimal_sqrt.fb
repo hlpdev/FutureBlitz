@@ -1,0 +1,6 @@
+// The square root of a Decimal below 0 panics.
+Import std.core
+Import std.math.big
+
+Print(Decimal(2).Sqrt())
+Print(Decimal(-1).Sqrt())

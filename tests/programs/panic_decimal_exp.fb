@@ -1,0 +1,6 @@
+// e to a power too large for a Decimal panics too.
+Import std.core
+Import std.math.big
+
+Print(Decimal(1).Exp())
+Print((Decimal.Parse("1E+7") ?? Decimal(0)).Exp())

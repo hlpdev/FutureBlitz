@@ -1,0 +1,6 @@
+// A Decimal below 0 to a power that isn't whole panics.
+Import std.core
+Import std.math.big
+
+Print(Decimal(-8).Pow(Decimal(3)))
+Print(Decimal(-8).Pow(Decimal.Parse("0.5") ?? Decimal(0)))

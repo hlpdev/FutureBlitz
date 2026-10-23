@@ -1,0 +1,6 @@
+// So does Log10.
+Import std.core
+Import std.math.big
+
+Print(Decimal(100).Log10())
+Print(Decimal(-1).Log10())

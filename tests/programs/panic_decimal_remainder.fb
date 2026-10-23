@@ -1,0 +1,6 @@
+// % by 0 panics too.
+Import std.core
+Import std.math.big
+
+Print(Decimal(7) % 2)
+Print(Decimal(7) % Decimal(0))
