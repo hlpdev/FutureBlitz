@@ -1,7 +1,7 @@
 file(GLOB_RECURSE FB_RUNTIME_SOURCES CONFIGURE_DEPENDS src/*.cpp)
 # The parts over bundled C libraries are archives of their own.
 set(FB_RUNTIME_PARTS io dns crypto crypto_pem xxhash blake3 argon2 bcrypt ed25519 db bigint
-    decimal tz zlib zstd lz4 xz seven_zip zip unicode regex)
+    decimal tz zlib zstd lz4 xz seven_zip zip unicode regex markdown)
 foreach(part ${FB_RUNTIME_PARTS})
   list(REMOVE_ITEM FB_RUNTIME_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/src/${part}.cpp)
 endforeach()
@@ -24,12 +24,12 @@ target_compile_definitions(fb_runtime_io PRIVATE
 add_dependencies(fb_runtime_io uv_a)
 fb_set_warnings(fb_runtime_io)
 
-# So are its parts over std.crypto's libraries, each linked with its library only when a program
-# calls its functions: the fb_crypto_ ones over mbedTLS, and the fb_xxhash_, fb_blake3_,
-# fb_argon2_, fb_bcrypt_, and fb_ed25519_ ones over xxHash, BLAKE3, Argon2, crypt_blowfish, and
-# Monocypher. Linking each to its library here only gives it the library's headers and
-# settings.
-foreach(part crypto xxhash blake3 argon2 bcrypt ed25519)
+# So are its parts over std.crypto's and std.text's libraries, each linked with its library only
+# when a program calls its functions: the fb_crypto_ ones over mbedTLS, the fb_xxhash_,
+# fb_blake3_, fb_argon2_, fb_bcrypt_, and fb_ed25519_ ones over xxHash, BLAKE3, Argon2,
+# crypt_blowfish, and Monocypher, and the fb_markdown_ ones over md4c. Linking each to its
+# library here only gives it the library's headers and settings.
+foreach(part crypto xxhash blake3 argon2 bcrypt ed25519 markdown)
   add_library(fb_runtime_${part} STATIC src/${part}.cpp)
   target_include_directories(fb_runtime_${part} PUBLIC include)
   fb_set_warnings(fb_runtime_${part})
@@ -44,6 +44,7 @@ target_link_libraries(fb_runtime_blake3 PRIVATE blake3)
 target_link_libraries(fb_runtime_argon2 PRIVATE argon2)
 target_link_libraries(fb_runtime_bcrypt PRIVATE crypt_blowfish)
 target_link_libraries(fb_runtime_ed25519 PRIVATE monocypher)
+target_link_libraries(fb_runtime_markdown PRIVATE md4c)
 
 # std.db's fb_db_ functions over SQLite are one more.
 add_library(fb_runtime_db STATIC src/db.cpp)
@@ -103,13 +104,15 @@ set(FB_RUNTIME_ARCHIVES fb_runtime fb_runtime_io uv_a fb_runtime_crypto tfpsacry
     crypt_blowfish fb_runtime_ed25519 monocypher fb_runtime_db sqlite fb_runtime_bigint tommath
     fb_runtime_decimal mpdecimal fb_runtime_tz fb_tzdata fb_runtime_zlib zlib-ng fb_runtime_zstd
     zstd fb_runtime_lz4 lz4 fb_runtime_xz liblzma fb_runtime_zip minizip_ng fb_runtime_unicode
-    utf8proc fb_runtime_regex pcre2-8-static PARENT_SCOPE)
+    utf8proc fb_runtime_regex pcre2-8-static fb_runtime_markdown md4c
+    PARENT_SCOPE)
 
 # Nothing in the runtime throws: exceptions can't cross into compiled programs.
 foreach(part fb_runtime fb_runtime_io fb_runtime_crypto fb_runtime_xxhash fb_runtime_blake3
              fb_runtime_argon2 fb_runtime_bcrypt fb_runtime_ed25519 fb_runtime_db
              fb_runtime_bigint fb_runtime_decimal fb_runtime_tz fb_runtime_zlib fb_runtime_zstd
-             fb_runtime_lz4 fb_runtime_xz fb_runtime_zip fb_runtime_unicode fb_runtime_regex)
+             fb_runtime_lz4 fb_runtime_xz fb_runtime_zip fb_runtime_unicode fb_runtime_regex
+             fb_runtime_markdown)
   if(MSVC)
     target_compile_options(${part} PRIVATE /EHs-c-)
   else()
