@@ -4,6 +4,10 @@
 
 Import std.core
 
+// The most buckets a Map has, the largest power of two an Int holds: past that many entries, its
+// chains get longer.
+Const MostBuckets = 1073741824
+
 Struct MapEntry<K, V>
     Field Key: K
     Field Value: V
@@ -171,7 +175,7 @@ Public Class Map<K, V> Implements Iterable<(K, V)>, Cloneable, Defaultable
     Public Method Reserve(count: Int)
         If count < 0 Then Panic("Reserve takes a count that isn't negative, not {count}")
         Entries.Reserve(count)
-        If count > Buckets.Count Then Grow(count)
+        If count > Buckets.Count && Buckets.Count < MostBuckets Then Grow(count)
     End Method
 
     Public Method Keys(): K[]
@@ -272,7 +276,10 @@ Public Class Map<K, V> Implements Iterable<(K, V)>, Cloneable, Defaultable
 
     // Adds an entry for a key that isn't there, last in the order.
     Method Append(key: K, value: V, hash: UInt64)
-        If Entries.Count >= Buckets.Count Then Grow(Buckets.Count + 1)
+        If Entries.Count >= Buckets.Count && Buckets.Count < MostBuckets
+            Grow(Buckets.Count + 1)
+        End If
+
         Local bucket = BucketOf(hash)
         Local added = Entries.Count
         Entries.Add(MapEntry<K, V>(key, value, hash, Buckets[bucket], Last, -1))
@@ -355,12 +362,12 @@ Public Class Map<K, V> Implements Iterable<(K, V)>, Cloneable, Defaultable
         Entries[at].Next = Entries[index].Next
     End Method
 
-    // Buckets for count entries or more: a power of two, at least 8, with every entry chained
-    // again.
+    // Buckets for count entries or more, up to MostBuckets: a power of two, at least 8, with every
+    // entry chained again.
     Method Grow(count: Int)
         Local buckets = 8
         Local shift = 61
-        While buckets < count
+        While buckets < count && buckets < MostBuckets
             buckets *= 2
             shift -= 1
         End While
