@@ -99,7 +99,8 @@ Public Struct Color32 Implements Hashable, Printable
 
     // The color in linear Floats, through sRGB's gamma.
     Public Method ToColor(): Color
-        Return Color(ToLinear(r / 255.0), ToLinear(g / 255.0), ToLinear(b / 255.0), a / 255.0)
+        Return Color(ToLinear((r As Double) / 255), ToLinear((g As Double) / 255),
+                     ToLinear((b As Double) / 255), a / 255.0)
     End Method
 
     // The color as "#rrggbb", lowercase, or "#rrggbbaa" when it isn't opaque.
@@ -162,7 +163,7 @@ Public Struct Color Implements Hashable, Printable
 
     // sRGB's #ffa500, as CSS's orange.
     Public Static Property Orange: Color
-        Get => Color(1, 0.3762621, 0)
+        Get => Color(1, 0.37626213, 0)
     End Property
 
     // The color hex text gives, as CSS writes one: "#rgb", "#rgba", "#rrggbb", or "#rrggbbaa",
@@ -287,9 +288,9 @@ Public Function IsClose(a: Color, b: Color): Bool
     Return IsClose(a.r, b.r) && IsClose(a.g, b.g) && IsClose(a.b, b.b) && IsClose(a.a, b.a)
 End Function
 
-// An sRGB channel, from 0 to 1, in linear light, worked out in Doubles.
-Function ToLinear(channel: Float): Float
-    Local value: Double = channel
+// An sRGB channel, from 0 to 1, in linear light, worked out in Doubles and rounded once, so a
+// byte's is the nearest Float.
+Function ToLinear(value: Double): Float
     If value <= 0.04045 Then Return (value / 12.92) As Float
     Return (((value + 0.055) / 1.055) ** 2.4) As Float
 End Function

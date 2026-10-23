@@ -58,6 +58,12 @@ Print(Color.Red.ToColor32() == Color32.Red, Color.Green.ToColor32() == Color32.G
       Color.Blue.ToColor32() == Color32.Blue, Color.Yellow.ToColor32() == Color32.Yellow)
 Print(Color.Cyan.ToColor32() == Color32.Cyan, Color.Magenta.ToColor32() == Color32.Magenta,
       Color.Orange.ToColor32() == Color32.Orange)
+// And each named Color is its Color32's, a byte's linear value rounded once.
+Print(Color.Gray == Color32.Gray.ToColor(), Color.Gray == Color.Hex("#808080"),
+      Color.Orange == Color32.Orange.ToColor(), Color.Orange == Color.Hex("#ffa500"),
+      Color.Red == Color32.Red.ToColor(), Color.White == Color32.White.ToColor())
+Print(Color.Gray.r.ToBits(), Color32.Gray.ToColor().r.ToBits(), Color.Orange.g.ToBits(),
+      Color32.Orange.ToColor().g.ToBits())
 Print(Color.Gray, Color.Orange, Color.Transparent, Color(1, 0, 0), Color32(1, 2, 3))
 
 // sRGB Floats, as a screen shows them.
