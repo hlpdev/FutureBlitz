@@ -126,6 +126,13 @@ Local hooked = [[Vec2(1, 1), Vec2(5, 1), Vec2(2, 0), Vec2(1, 4), Vec2(4, 1), Vec
                   Vec2(4, 4)]]
 Print(Shown(PolygonArea(Union(folded, hooked))), Shown(PolygonArea(Intersection(folded, hooked))),
       Shown(PolygonArea(Difference(folded, hooked))))
+// Squares 10^-30 across, and 10^30: the sides they're looked at by scale with them.
+Local tiny = square.Map(Function(p: Vec2) => p * 1e-30)
+Local shiftedTiny = shifted.Map(Function(p: Vec2) => p * 1e-30)
+Local huge = square.Map(Function(p: Vec2) => p * 1e30)
+Print(Shown(PolygonArea(Union([tiny], [shiftedTiny])) * 1e60),
+      Shown(PolygonArea(Intersection([tiny], [shiftedTiny])) * 1e60),
+      Shown(PolygonArea(Union([huge], [huge])) / 1e60), Offset([tiny], 1e-30, False).Count)
 // The L and a square over its corner.
 Local corner = [Vec2(-1, -1), Vec2(2, -1), Vec2(2, 2), Vec2(-1, 2)]
 Print(Union([ell], [corner]), PolygonArea(Intersection([ell], [corner])),
