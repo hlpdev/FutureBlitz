@@ -1,0 +1,22 @@
+fooBarbaz1 obz 49 [2, 3, 8] True
+foo bar baz fbb 78 [0, 4, 8] True
+/AutomatorDocument.icns rdoc 79 [9, 10, 11, 12] True
+/man1/zshcompctl.1 zshc 109 [6, 7, 8, 9] True
+/.oh-my-zsh/cache zshc 102 [8, 9, 10, 12] True
+ab0123 456 12356 88 [3, 4, 5, 8, 9] True
+abc123 456 12356 108 [3, 4, 5, 8, 9] True
+foo/bar/baz fbb 76 [0, 4, 8] True
+fooBarBaz fbb 74 [0, 3, 6] True
+foo barbaz fbb 69 [0, 4, 7] True
+fooBar Baz foob 114 [0, 1, 2, 3] True
+xFoo-Bar Baz foo-b 124 [1, 2, 3, 4, 5] True
+é café 16 [3]
+ca 😀cat 56 [4, 5]
+FB foo_bar none
+FB Foo_Bar 55 [0, 4]
+fb FOO_BAR 55 [0, 4]
+zz abc none
+ba ab none
+ x 0 []
+[mf, m_f, my_file.txt, main.fb, MakeFile]
+-1 78
