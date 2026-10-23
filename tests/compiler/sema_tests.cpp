@@ -2952,6 +2952,140 @@ TEST_CASE("a Weak<T> is assigned a T, and reading it gives a T?", "[sema]") {
           errors_t{ "S() == S(): '==' can't be used on S" });
 }
 
+TEST_CASE("Where T: Class says a type parameter is a Class, which a Weak<T> refers to", "[sema]") {
+    constexpr std::string_view node = "Import std.core\n"
+                                      "Class Node\n"
+                                      "    Field name: String\n"
+                                      "End Class\n"
+                                      "Class Leaf Extends Node\n"
+                                      "End Class\n"
+                                      "Struct Point\n"
+                                      "    Field x: Int\n"
+                                      "End Struct\n"
+                                      "Interface Shape\n"
+                                      "    Method Area(): Float\n"
+                                      "End Interface\n"
+                                      "Class Holder<T>\n"
+                                      "    Where T: Class\n"
+                                      "    Field Item: Weak<T>\n"
+                                      "    Method Get(): T? => Item\n"
+                                      "End Class\n";
+    const auto with_node = [&](const std::string_view text) {
+        return errors_of(std::format("{}{}", node, text));
+    };
+
+    // A Weak<T> is assigned its T, and [Weak x], RefEquals, 'Is', and 'Case ... As' take one.
+    CHECK(probe(std::format("{}Local h = Holder<Node>()\nh.Item = Leaf()\nLocal n = h.Get()",
+                            node)) == "Node?");
+    CHECK(with_node("Function Keep<O: Class>(owner: O): Weak<O>\n"
+                    "    Local kept: Weak<O> = owner\n"
+                    "    Return kept\n"
+                    "End Function\n"
+                    "Function Later<O: Class>(owner: O): Func(): Bool\n"
+                    "    Return Function[Weak owner]() => owner != Null\n"
+                    "End Function\n"
+                    "Function Same<T: Class>(a: T, b: T?): Bool => RefEquals(a, b) && a Is Leaf\n"
+                    "Function Find<T: Class>(x: Node): Bool => x Is T\n"
+                    "Function Name<T: Class>(x: T): String\n"
+                    "    Select x\n"
+                    "        Case leaf As Leaf\n"
+                    "            Return leaf.name\n"
+                    "        Case found As T\n"
+                    "            Return \"T\"\n"
+                    "    End Select\n"
+                    "    Return \"\"\n"
+                    "End Function\n"
+                    "Local a = Same(Leaf(), Null) || Find<Leaf>(Node())\n"
+                    "Local b = Name(Leaf()) + Name(Node())\n"
+                    "Local c = Keep(Node())\n"
+                    "Local d = Later(Leaf())")
+              .empty());
+    CHECK(with_node("Function Same<T: Class>(a: T, b: T): Bool => a Is T") ==
+          errors_t{ "a Is T: this is always True: 'a' is T already" });
+
+    // A Class, an instance of a generic one, and a Shared Class meet it; nothing else does.
+    CHECK(with_node("Shared Class Hub\nEnd Class\n"
+                    "Local a = Holder<Leaf>()\n"
+                    "Local b = Holder<Holder<Node>>()\n"
+                    "Local c = Holder<Hub>()")
+              .empty());
+    CHECK(with_node("Local a = Holder<Point>()\n"
+                    "Local b = Holder<Shape>()\n"
+                    "Local c = Holder<Int>()") ==
+          errors_t{
+              "Holder<Point>: Point isn't a Class, which Holder<T> needs for T",
+              "Holder<Shape>: Shape isn't a Class, which Holder<T> needs for T; an Interface's "
+              "value can be an array too",
+              "Holder<Int>: Int32 isn't a Class, which Holder<T> needs for T",
+          });
+    CHECK(with_node("Local d = Holder<String>()\n"
+                    "Local e = Holder<Node[]>()\n"
+                    "Local f = Holder<Func()>()\n"
+                    "Local g = Holder<Node?>()") ==
+          errors_t{
+              "Holder<String>: String isn't a Class, which Holder<T> needs for T",
+              "Holder<Node[]>: Node[] isn't a Class, which Holder<T> needs for T",
+              "Holder<Func()>: Func() isn't a Class, which Holder<T> needs for T",
+              "Holder<Node?>: Node? isn't a Class, which Holder<T> needs for T",
+          });
+
+    // Without it, a type parameter may be anything, so none of these take it.
+    CHECK(with_node("Function A<T>(x: T): Weak<T> => x\n"
+                    "Function B<T>(x: T): Bool => RefEquals(x, x)") ==
+          errors_t{
+              "Weak<T>: Weak<T> refers to an object of a Class, not T; a constraint like <T: "
+              "Class> says it's one",
+              "x: RefEquals compares Class references, not T; a constraint like <T: Class> says "
+              "it's one",
+              "x: RefEquals compares Class references, not T; a constraint like <T: Class> says "
+              "it's one",
+          });
+    CHECK(with_node("Function C<T>(x: T): Func(): Bool => Function[Weak x]() => True\n"
+                    "Function D<T>(x: T): Bool => x Is Node\n"
+                    "Function E<T>(x: Node): Bool => x Is T") ==
+          errors_t{
+              "x: [Weak x] needs a reference to an object, not T; a constraint like <T: Class> "
+              "says it's one",
+              "x: 'Is' tests objects of Classes, not T; a constraint like <T: Class> says it's "
+              "one",
+              "T: 'Is' tests for a Class or Interface, not T; a constraint like <T: Class> says "
+              "it's one",
+          });
+
+    // It's only a constraint, and gives only what every Class has: it's Equatable.
+    CHECK(with_node("Function Same<T: Class>(a: T, b: T): Bool => a == b && a != b").empty());
+    CHECK(with_node("Function F<T: Class>(x: T): String => x.name\n"
+                    "Function G<T: Class>(x: T): UInt64 => x.Hash()") ==
+          errors_t{
+              "name: T's constraints have no member named 'name'",
+              "Hash: T's constraints have no member named 'Hash'",
+          });
+}
+
+TEST_CASE("a Weak<T> of a Class that's Sendable is Sendable, a type parameter's too", "[sema]") {
+    constexpr std::string_view hub = "Import std.core\n"
+                                     "Shared Class Hub\n"
+                                     "End Class\n";
+    CHECK(errors_of(std::format("{}Shared Class Registry<T>\n"
+                                "    Where T: Class & Sendable\n"
+                                "    ReadOnly Field First: Weak<T>\n"
+                                "    New(first: T)\n"
+                                "        First = first\n"
+                                "    End New\n"
+                                "End Class\n"
+                                "Local r = Registry<Hub>(Hub())",
+                                hub))
+              .empty());
+    CHECK(errors_of(std::format("{}Shared Class Registry<T>\n"
+                                "    Where T: Class\n"
+                                "    ReadOnly Field First: Weak<T>\n"
+                                "End Class",
+                                hub)) ==
+          errors_t{ "First: 'First' is ReadOnly, but threads share Registry<T>'s objects, so it "
+                    "must be Sendable too: a Weak<T> stays on the thread that made it, unless T "
+                    "is a Shared Class" });
+}
+
 // Class extras
 
 /// A Class with a Static Field, a Static Method, a ReadOnly Field, and a Property.

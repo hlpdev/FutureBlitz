@@ -351,6 +351,10 @@ struct builtin_interfaces_t {
     /// CData, from std/ffi/cdata.fb: what C code has, which the compiler decides, so a type
     /// parameter with it can be a Ptr's T.
     type_id_t c_data = type_id_t::INVALID;
+    /// The "Class" of a constraint, like `Where T: Class`, which the Classes meet: an Interface
+    /// without members that's only a constraint. Analysis makes it, so it's there without the
+    /// standard library too.
+    type_id_t any_class = type_id_t::INVALID;
 };
 
 /// Everything analysis found out about a file, for lowering and tools. `exprs` and `stmts` have

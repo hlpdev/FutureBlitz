@@ -1,0 +1,85 @@
+// Subscribe<O: Class>(owner, handler) as std.events can write it: each handler holds its owner
+// as a Weak<O>, so an owner's handlers go when it does, and Emit drops them, with no leak.
+Import std.core
+
+// One handler, and the owner it runs for, which it doesn't keep.
+Class OwnedHandler<T, O>
+    Where O: Class
+    Field Owner: Weak<O>
+    ReadOnly Field Handler: Func(O, T)
+
+    New(owner: O, handler: Func(O, T))
+        Owner = owner
+        Handler = handler
+    End New
+
+    // Runs the handler, unless its owner is gone, and says whether it was there.
+    Method Handle(value: T): Bool
+        Local owner = Owner
+        If owner == Null Then Return False
+        Handler(owner, value)
+        Return True
+    End Method
+End Class
+
+Class Event<T>
+    Field Handlers: (Func(T): Bool)[] = []
+
+    Method Subscribe<O: Class>(owner: O, handler: Func(O, T))
+        Const entry = OwnedHandler<T, O>(owner, handler)
+        Handlers.Add(Function(value: T) => entry.Handle(value))
+    End Method
+
+    // Each handler whose owner is gone comes out.
+    Method Emit(value: T)
+        Local kept: (Func(T): Bool)[] = []
+        For handler In Handlers
+            If handler(value) Then kept.Add(handler)
+        End For
+
+        Handlers = kept
+    End Method
+
+    Property Count: Int
+        Get => Handlers.Count
+    End Property
+End Class
+
+Class Widget
+    Field Name: String
+    Field Heard: Int
+
+    New(name: String)
+        Name = name
+    End New
+
+    Method Destroy()
+        Print("{Name} goes, having heard {Heard}")
+    End Method
+End Class
+
+Class Label
+    Field Text: String = "label"
+End Class
+
+Const clicks = Event<Int>()
+Local a = Widget("a")
+Local b = Widget("b")
+Local label = Label()
+clicks.Subscribe(a, Function(widget: Widget, n: Int)
+    widget.Heard += n
+    Print("{widget.Name} hears {n}")
+End Function)
+clicks.Subscribe(b, Function(widget, n) => Print("{widget.Name} hears {n}"))
+clicks.Subscribe(label, Function(owner: Label, n: Int) => Print("{owner.Text} hears {n}"))
+clicks.Emit(1)
+Print("handlers: {clicks.Count}")
+
+b = Widget("c")
+clicks.Emit(2)
+Print("handlers: {clicks.Count}")
+
+a = b
+label = Label()
+clicks.Emit(3)
+Print("handlers: {clicks.Count}")

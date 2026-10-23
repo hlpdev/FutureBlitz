@@ -139,6 +139,29 @@ Function Collect<S, E>(items: S): E[]
 - A call infers a type argument from a constraint on another one: `Collect(numbers)` takes `E`
   from the instance of `Iterator` that the type of `numbers` implements.
 
+### `Class`
+
+`Class` in a constraint says the type argument is a Class, as C#'s `where T : class` does, so
+generic code can refer to its objects without keeping them:
+
+```vb
+Function Subscribe<O: Class>(owner: O, handler: Func(O, T)): Subscription
+    Local kept: Weak<O> = owner
+    ...
+End Function
+```
+
+- Under it, `Weak<T>` and `[Weak x]` take a T, as they take a Class (see
+  [08](08-memory.md#cycles)), and so do RefEquals, `x Is C`, and `Case c As C`, either way round:
+  `x Is T` tests for each instance's Class.
+- A Class meets it, an instance of a generic Class, and a Shared Class. Nothing else does: not a
+  Struct, tuple, fixed array, or built-in type, which are values; not a String, a T[], or a
+  function value, which refer to something that isn't a Class's object; not an Interface, whose
+  value can be an array too; and not a `T?`, which can be Null.
+- It's only a constraint. It gives what every Class has, which is that it's `Equatable`, and `&`
+  adds the rest: `Where T: Class & Hashable`. With Sendable, `Where T: Class & Sendable`, the T is
+  a Shared Class, so its `Weak<T>` is Sendable too.
+
 ## Constraints are interfaces
 
 Interfaces used as constraints may require statics, operators, and `Self`:

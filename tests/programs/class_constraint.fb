@@ -1,0 +1,117 @@
+// Where T: Class says a type parameter is a Class, so generic code holds a Weak<T> of one,
+// captures one [Weak x], and takes one to RefEquals, 'Is', and 'Case ... As', and compares two
+// with ==, as every Class is Equatable. With Sendable too, its objects are a Shared Class's,
+// whose Weak<T> other threads read.
+Import std.core
+
+Class Widget
+    Field Name: String
+
+    New(name: String)
+        Name = name
+    End New
+
+    Method Destroy()
+        Print("{Name} goes")
+    End Method
+End Class
+
+Class Gadget Extends Widget
+    New(name: String)
+        Super.New(name)
+    End New
+End Class
+
+Class Tag
+    Field Text: String
+
+    New(text: String)
+        Text = text
+    End New
+
+    Operator ==(a: Tag, b: Tag): Bool => a.Text == b.Text
+End Class
+
+Class Holder<T>
+    Where T: Class
+    Field Item: Weak<T>
+
+    Method Get(): T? => Item
+End Class
+
+Function Same<T: Class>(a: T, b: T): Bool => RefEquals(a, b)
+
+Function Equal<T: Class>(a: T, b: T): Bool => a == b
+
+Function Count<T: Class>(things: Widget[]): Int
+    Local found = 0
+    For thing In things
+        If thing Is T Then found++
+    End For
+
+    Return found
+End Function
+
+Function Kind<T: Class>(x: T): String
+    Select x
+        Case gadget As Gadget
+            Return "a gadget, {gadget.Name}"
+        Case widget As Widget
+            Return "a widget, {widget.Name}"
+    End Select
+
+    Return "something else"
+End Function
+
+Function Watch<O: Class>(owner: O): Func(): String
+    Return Function[Weak owner]() => owner != Null ? "here" : "gone"
+End Function
+
+Shared Class Counter
+    Field Count: Atomic<Int>
+End Class
+
+Shared Class Registry<T>
+    Where T: Class & Sendable
+    ReadOnly Field First: Weak<T>
+
+    New(first: T)
+        First = first
+    End New
+End Class
+
+// How many of 8 tasks on the pool still find the registry's first object.
+Function Seen(registry: Registry<Counter>): Int
+    Local tasks: Task<Bool>[] = []
+    For i = 1 To 8
+        tasks.Add(Spawn(Function() => registry.First != Null))
+    End For
+
+    Local seen = 0
+    For task In tasks
+        If task.Wait() Then seen++
+    End For
+
+    Return seen
+End Function
+
+Local a = Widget("a")
+Local holder = Holder<Widget>()
+holder.Item = a
+Print(holder.Get()?.Name ?? "gone")
+Print(Same(a, a), Same(a, Gadget("b")))
+Print(Equal(Tag("x"), Tag("x")), Same(Tag("x"), Tag("x")), Equal(a, Widget("g")))
+Print(Count<Gadget>([a, Gadget("c"), Gadget("d")]), Count<Widget>([a]))
+Print(Kind(a))
+Print(Kind(Gadget("e")))
+
+Local watch = Watch(a)
+Print(watch())
+a = Widget("f")
+Print(watch(), holder.Get()?.Name ?? "gone")
+
+Local counter = Counter()
+Local registry = Registry<Counter>(counter)
+Print(Seen(registry))
+counter = Counter()
+Print(Seen(registry))

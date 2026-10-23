@@ -1025,6 +1025,14 @@ TEST_CASE("constraints go in the type parameters, or on Where lines", "[parser]"
     CHECK(parse_text("Method Sum(): T\n    Where T: Numeric\n    Return x\nEnd Method").dump ==
           "(method Sum -> T (where T: Numeric) (block (return x)))");
 
+    // "Class" says a type parameter is a Class, inline or on a Where line.
+    CHECK(parse_text("Function Watch<O: Class>(owner: O)\nEnd Function").dump ==
+          "(function Watch<O: Class> (owner: O) (block))");
+    CHECK(parse_text("Class Registry<T>\n    Where T: Class & Sendable\nEnd Class").dump ==
+          "(class Registry<T> (where T: Class & Sendable) (block))");
+    CHECK(parse_text("Local x: Class").errors ==
+          std::vector<std::string>{ "9-14: expected a type, found 'Class'" });
+
     // Where lines come first. This one is at 35-40.
     CHECK(parse_text("Function F<T>()\n    Print(\"a\")\n    Where T: I\nEnd Function").errors ==
           std::vector<std::string>{ "35-40: a Where line goes at the top of a generic Function, "

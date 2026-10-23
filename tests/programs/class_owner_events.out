@@ -1,0 +1,11 @@
+a hears 1
+b hears 1
+label hears 1
+handlers: 3
+b goes, having heard 0
+a hears 2
+label hears 2
+handlers: 2
+a goes, having heard 3
+handlers: 0
+c goes, having heard 0

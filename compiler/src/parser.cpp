@@ -2050,13 +2050,24 @@ private:
 
     /// "Hashable & Equatable": the Interfaces a type parameter implements.
     std::vector<type_expr_id_t> parse_constraint() {
-        std::vector<type_expr_id_t> interfaces{ parse_type() };
+        std::vector<type_expr_id_t> interfaces{ parse_constraint_part() };
         while (accept(token_kind_t::AMP)) {
             skip_continuation_newlines();
-            interfaces.push_back(parse_type());
+            interfaces.push_back(parse_constraint_part());
         }
 
         return interfaces;
+    }
+
+    /// An Interface in a constraint, or "Class", which says the type argument is a Class. Only a
+    /// constraint names the keyword, as a type named "Class".
+    type_expr_id_t parse_constraint_part() {
+        if (at(token_kind_t::KW_CLASS)) {
+            const token_t& keyword = advance();
+            return add_type(keyword.span, named_type_t{ .name = text(keyword) });
+        }
+
+        return parse_type();
     }
 
     /// "Where T: Hashable & Equatable" lines at the top of a body, each for one type parameter.
