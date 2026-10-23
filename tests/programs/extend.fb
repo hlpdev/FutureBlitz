@@ -31,7 +31,7 @@ End Extend
 Extend Int Implements Shown
     Method Doubled(): Int => Self * 2
     Method Text(): String => "int {Self}"
-    Static Method Parse(text: String): Int => text == "seven" ? 7 : 0
+    Static Method FromWord(text: String): Int => text == "seven" ? 7 : 0
 End Extend
 
 Extend String
@@ -121,7 +121,7 @@ Function Show<T: Shown>(value: T): String => value.Loud()
 Local p = Point(1, 2)
 p.Move(10)
 Print("{p} {p.Sum} {(p + p).Text()} {Show(p)}")
-Print("{5.Doubled()} {Show(7)} {Int.Parse("seven")} {"ab".Twice()}")
+Print("{5.Doubled()} {Show(7)} {Int.FromWord("seven")} {"ab".Twice()}")
 Print("{[1, 2, 3].Last()} {[1, 2, 3].Sum()} {[1.5, 2.5].Sum()} {["a", "b"].Last()}")
 Print("{Show([1, 2, 3])} {Show(Mood.Angry)} {Mood.Calm.Loud()}")
 Local box = Box(5)
@@ -136,3 +136,15 @@ Print(word.Doubled, word.Size, Maybe(word)?.Doubled ?? "none", Maybe("")?.Size ?
 word.Size = 5
 word.Size += 1
 Print(word, sizes)
+
+// An Extend's Methods take defaults, as a type's own do, Static Methods too.
+Extend Int
+    Method Times(by: Int = 10): Int => Self * by
+    Static Method Made(n: Int = 7): Int => n
+End Extend
+
+Extend Point
+    Method Scaled(by: Int = 3): Int => X * by
+End Extend
+
+Print("{5.Times()} {5.Times(2)} {Int.Made()} {Point(2, 1).Scaled()}")
