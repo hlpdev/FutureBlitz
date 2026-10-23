@@ -1,0 +1,1 @@
+panic: a zip's names can't hold a NUL at panic_compress_zip_name_nul.fb:7:1

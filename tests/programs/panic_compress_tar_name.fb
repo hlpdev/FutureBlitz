@@ -1,0 +1,7 @@
+// A tar's entry has a name, and AddFolder panics where it's called with none.
+Import std.core
+Import std.compress
+
+Local tar = TarWriter()
+tar.AddFolder("named")
+tar.AddFolder("")

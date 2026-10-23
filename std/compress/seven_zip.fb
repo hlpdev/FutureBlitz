@@ -1,0 +1,112 @@
+// 7z's archives, read over liblzma: SevenZip.Read gives a SevenZipReader of a 7z's entries. Its
+// folders' coders can be stored, LZMA, LZMA2, Delta, and the branch filters for x86, PowerPC,
+// IA-64, ARM, ARM Thumb, ARM64, SPARC, and RISC-V, in a chain, as 7-Zip writes them by default.
+// Others, like BCJ2, PPMd, BZip2, and AES's encryption, read as an IOError. A solid folder is
+// decoded whole, once for the files read from it in turn. Writing 7z isn't std's.
+
+Import std.core
+Import std.collections.view
+Import std.compress.archive
+Import std.compress.codec
+
+Extern "runtime"
+    Function fb_xz_7z_reader_new(data: UInt8[]): Ptr<Void>
+    Function fb_xz_7z_reader_result(reader: Ptr<Void>): Int32
+    Function fb_xz_7z_reader_count(reader: Ptr<Void>): Int64
+    Function fb_xz_7z_reader_name(reader: Ptr<Void>, index: Int64): String
+    Function fb_xz_7z_reader_size(reader: Ptr<Void>, index: Int64): Int64
+    Function fb_xz_7z_reader_kind(reader: Ptr<Void>, index: Int64): Int32
+    Function fb_xz_7z_reader_target(reader: Ptr<Void>, index: Int64): String
+    Function fb_xz_7z_reader_read(reader: Ptr<Void>, index: Int64, output: UInt8[]): Int32
+    Function fb_xz_7z_reader_message(reader: Ptr<Void>): String
+    Function fb_xz_7z_reader_free(reader: Ptr<Void>)
+End Extern
+
+Public Struct SevenZip
+    // SevenZip isn't made: it's only its Static Methods.
+    New()
+    End New
+
+    // A reader of the 7z in data, which it copies, or an IOError when the data isn't a 7z, ends
+    // too soon, or its header uses what isn't supported.
+    Public Static Method Read(data: UInt8[]): SevenZipReader Throws IOError => Try Opened(data)
+End Struct
+
+// A 7z's entries, which Read gives the bytes of, from a copy of the 7z's bytes.
+Public Class SevenZipReader
+    Field State: Ptr<Void>
+    Field List: ArchiveEntry[]
+
+    New(state: Ptr<Void>)
+        State = state
+        List = []
+        Local count = fb_xz_7z_reader_count(state) As Int
+        List.Reserve(count)
+        For i = 0 Until count
+            List.Add(ArchiveEntry(fb_xz_7z_reader_name(state, i), fb_xz_7z_reader_kind(state, i),
+                                  fb_xz_7z_reader_size(state, i), fb_xz_7z_reader_target(state, i)))
+        End For
+    End New
+
+    // Its entries, in the order the 7z has them.
+    Public Property Entries: ReadOnlyArray<ArchiveEntry>
+        Get => List.AsReadOnly()
+    End Property
+
+    Public Property Count: Int
+        Get => List.Count
+    End Property
+
+    // The entry named name, the last of them when there are several, or Null when there's none.
+    Public Method Find(name: String): ArchiveEntry?
+        Local index = LastNamed(List, name)
+        If index < 0 Then Return Null
+        Return List[index]
+    End Method
+
+    Public Method Contains(name: String): Bool => LastNamed(List, name) >= 0
+
+    // The bytes of the entry named name, the last of them when there are several, or Null when
+    // there's none, as ReadAt gives them.
+    Public Method Read(name: String): UInt8[]? Throws IOError
+        Local index = LastNamed(List, name)
+        If index < 0 Then Return Null
+        Return Try ReadAt(index)
+    End Method
+
+    // The bytes of the entry at index, which are none for a folder or a link, or an IOError when
+    // they're broken, or use a coder that isn't supported. Panics when the index is out of range.
+    @PanicsAtCaller
+    Public Method ReadAt(index: Int): UInt8[] Throws IOError
+        If index < 0 || index >= List.Count
+            Panic("index {index} is out of range for {List.Count} " +
+                  (List.Count == 1 ? "entry" : "entries"))
+        End If
+
+        Local output: UInt8[] = []
+        If List[index].Kind != ArchiveEntryKind.FILE Then Return output
+        Local result = fb_xz_7z_reader_read(State, index, output)
+        If result != 0
+            Try Failed(result, "7z", MOST_BYTES, fb_xz_7z_reader_message(State))
+        End If
+
+        Return output
+    End Method
+
+    Method Destroy()
+        fb_xz_7z_reader_free(State)
+    End Method
+End Class
+
+// A reader of the 7z in data, or an IOError when the data isn't a 7z, or ends too soon.
+Function Opened(data: UInt8[]): SevenZipReader Throws IOError
+    Local state = fb_xz_7z_reader_new(data)
+    Local result = fb_xz_7z_reader_result(state)
+    If result != 0
+        Local message = fb_xz_7z_reader_message(state)
+        fb_xz_7z_reader_free(state)
+        Try Failed(result, "7z", MOST_BYTES, message)
+    End If
+
+    Return SevenZipReader(state)
+End Function

@@ -1,0 +1,179 @@
+// Tar's archives: Tar.Read gives a TarReader of a tar's entries, and a TarWriter makes a new tar.
+// A .tar.gz, .tar.zst, .tar.xz, or .tar.lz4 reads as its tar, which Tar.Read decompresses first,
+// and a TarWriter's tar compresses to one, as Gzip.Compress(writer.Finish()) does. It reads
+// POSIX's ustar, with pax's extended headers, GNU's long names and large numbers, and old tars
+// without a magic, and leaves out devices and FIFOs. Names are UTF-8, with U+FFFD for each byte of
+// one that isn't. A TarWriter writes ustar, with a pax header for a name ustar can't hold or that
+// isn't ASCII, owned by root, with times and permissions left for later: a file's mode is 644 and
+// a folder's 755, at 1970's start, so every program and OS makes the same bytes.
+
+Import std.core
+Import std.collections.view
+Import std.compress.archive
+Import std.compress.codec
+Import std.compress.deflate
+Import std.compress.lz4
+Import std.compress.xz
+Import std.compress.zstd
+
+Extern "runtime"
+    Function fb_tar_reader_new(data: UInt8[]): Ptr<Void>
+    Function fb_tar_reader_result(reader: Ptr<Void>): Int32
+    Function fb_tar_reader_count(reader: Ptr<Void>): Int64
+    Function fb_tar_reader_name(reader: Ptr<Void>, index: Int64): String
+    Function fb_tar_reader_size(reader: Ptr<Void>, index: Int64): Int64
+    Function fb_tar_reader_kind(reader: Ptr<Void>, index: Int64): Int32
+    Function fb_tar_reader_target(reader: Ptr<Void>, index: Int64): String
+    Function fb_tar_reader_read(reader: Ptr<Void>, index: Int64, output: UInt8[]): Int32
+    Function fb_tar_reader_message(reader: Ptr<Void>): String
+    Function fb_tar_reader_free(reader: Ptr<Void>)
+    Function fb_tar_writer_new(): Ptr<Void>
+    Function fb_tar_writer_add(writer: Ptr<Void>, name: String, data: UInt8[], folder: Int32)
+    Function fb_tar_writer_finish(writer: Ptr<Void>, output: UInt8[])
+    Function fb_tar_writer_free(writer: Ptr<Void>)
+End Extern
+
+Public Struct Tar
+    // Tar isn't made: it's only its Static Methods.
+    New()
+    End New
+
+    // A reader of the tar in data, or in the data decompressed when it starts as Gzip's, Zstd's,
+    // XZ's, or LZ4's does, which it copies, or an IOError when it isn't a tar, or its compression
+    // is broken. A decompressed tar holds no more bytes than an array does.
+    Public Static Method Read(data: UInt8[]): TarReader Throws IOError
+        Return Try Opened(Try Unwrapped(data))
+    End Method
+End Struct
+
+// A new tar, an entry at a time: Add puts in a file, AddFolder a folder, and Finish gives the tar
+// and starts again, empty.
+Public Class TarWriter
+    Field State: Ptr<Void>
+
+    Public New()
+        State = fb_tar_writer_new()
+    End New
+
+    // Adds a file named name of data. Panics when the name is "" or holds a NUL.
+    @PanicsAtCaller
+    Public Method Add(name: String, data: UInt8[])
+        CheckName(name, MOST_BYTES, "tar")
+        fb_tar_writer_add(State, name, data, 0)
+    End Method
+
+    // Adds a folder named name, with '/' after it. Panics as Add does for its name.
+    @PanicsAtCaller
+    Public Method AddFolder(name: String)
+        CheckName(name, MOST_BYTES, "tar")
+        fb_tar_writer_add(State, name, [], 1)
+    End Method
+
+    // The tar, of the entries added since it started, and then it starts again, empty.
+    Public Method Finish(): UInt8[]
+        Local output: UInt8[] = []
+        fb_tar_writer_finish(State, output)
+        Return output
+    End Method
+
+    Method Destroy()
+        fb_tar_writer_free(State)
+    End Method
+End Class
+
+// The data, decompressed when it starts as a compressed format's does.
+Function Unwrapped(data: UInt8[]): UInt8[] Throws IOError
+    If StartsWith(data, [0x1f, 0x8b]) Then Return Try Gzip.Decompress(data)
+    If StartsWith(data, [0x28, 0xb5, 0x2f, 0xfd]) Then Return Try Zstd.Decompress(data)
+    If StartsWith(data, [0xfd, 0x37, 0x7a, 0x58, 0x5a, 0x00]) Then Return Try XZ.Decompress(data)
+    If StartsWith(data, [0x04, 0x22, 0x4d, 0x18]) Then Return Try Lz4.Decompress(data)
+    Return data
+End Function
+
+Function StartsWith(data: UInt8[], magic: UInt8[]): Bool
+    If data.Count < magic.Count Then Return False
+    For i = 0 Until magic.Count
+        If data[i] != magic[i] Then Return False
+    End For
+    Return True
+End Function
+
+// A tar's entries, which Read gives the bytes of, from a copy of the tar's bytes.
+Public Class TarReader
+    Field State: Ptr<Void>
+    Field List: ArchiveEntry[]
+
+    New(state: Ptr<Void>)
+        State = state
+        List = []
+        Local count = fb_tar_reader_count(state) As Int
+        List.Reserve(count)
+        For i = 0 Until count
+            List.Add(ArchiveEntry(fb_tar_reader_name(state, i), fb_tar_reader_kind(state, i),
+                                  fb_tar_reader_size(state, i), fb_tar_reader_target(state, i)))
+        End For
+    End New
+
+    // Its entries, in the order the tar has them.
+    Public Property Entries: ReadOnlyArray<ArchiveEntry>
+        Get => List.AsReadOnly()
+    End Property
+
+    Public Property Count: Int
+        Get => List.Count
+    End Property
+
+    // The entry named name, the last of them when there are several, or Null when there's none.
+    Public Method Find(name: String): ArchiveEntry?
+        Local index = LastNamed(List, name)
+        If index < 0 Then Return Null
+        Return List[index]
+    End Method
+
+    Public Method Contains(name: String): Bool => LastNamed(List, name) >= 0
+
+    // The bytes of the entry named name, the last of them when there are several, or Null when
+    // there's none, as ReadAt gives them.
+    Public Method Read(name: String): UInt8[]? Throws IOError
+        Local index = LastNamed(List, name)
+        If index < 0 Then Return Null
+        Return Try ReadAt(index)
+    End Method
+
+    // The bytes of the entry at index, which are none for a folder or a link, or an IOError when
+    // they're broken, or are a GNU sparse file's, which isn't supported. Panics when the index is
+    // out of range.
+    @PanicsAtCaller
+    Public Method ReadAt(index: Int): UInt8[] Throws IOError
+        If index < 0 || index >= List.Count
+            Panic("index {index} is out of range for {List.Count} " +
+                  (List.Count == 1 ? "entry" : "entries"))
+        End If
+
+        Local output: UInt8[] = []
+        If List[index].Kind != ArchiveEntryKind.FILE Then Return output
+        Local result = fb_tar_reader_read(State, index, output)
+        If result != 0
+            Try Failed(result, "tar", MOST_BYTES, fb_tar_reader_message(State))
+        End If
+
+        Return output
+    End Method
+
+    Method Destroy()
+        fb_tar_reader_free(State)
+    End Method
+End Class
+
+// A reader of the tar in data, or an IOError when the data isn't a tar, or ends too soon.
+Function Opened(data: UInt8[]): TarReader Throws IOError
+    Local state = fb_tar_reader_new(data)
+    Local result = fb_tar_reader_result(state)
+    If result != 0
+        Local message = fb_tar_reader_message(state)
+        fb_tar_reader_free(state)
+        Try Failed(result, "tar", MOST_BYTES, message)
+    End If
+
+    Return TarReader(state)
+End Function

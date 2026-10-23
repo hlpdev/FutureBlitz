@@ -1,0 +1,76 @@
+poem.txt.gz right
+poem.txt.xz right
+poem.txt.zst right
+sample.zip: 8 entries
+  sample: FOLDER
+  sample/hello.txt: 14 bytes, right
+  sample/notes: FOLDER
+  sample/poem.txt: 1542 bytes, right
+  sample/notes/a-folder-with-a-rather-long-name-so-that-paths-go-past-what-ustar-holds-in-its-name-field: FOLDER
+  sample/notes/empty.txt: 0 bytes, right
+  sample/notes/ünïcode.txt: 18 bytes, right
+  sample/notes/a-folder-with-a-rather-long-name-so-that-paths-go-past-what-ustar-holds-in-its-name-field/deep.txt: 5 bytes, right
+sample.tar: 8 entries
+  sample: FOLDER
+  sample/hello.txt: 14 bytes, right
+  sample/notes: FOLDER
+  sample/notes/a-folder-with-a-rather-long-name-so-that-paths-go-past-what-ustar-holds-in-its-name-field: FOLDER
+  sample/notes/a-folder-with-a-rather-long-name-so-that-paths-go-past-what-ustar-holds-in-its-name-field/deep.txt: 5 bytes, right
+  sample/notes/empty.txt: 0 bytes, right
+  sample/notes/ünïcode.txt: 18 bytes, right
+  sample/poem.txt: 1542 bytes, right
+sample-pax.tar: 8 entries
+  sample: FOLDER
+  sample/hello.txt: 14 bytes, right
+  sample/notes: FOLDER
+  sample/notes/a-folder-with-a-rather-long-name-so-that-paths-go-past-what-ustar-holds-in-its-name-field: FOLDER
+  sample/notes/a-folder-with-a-rather-long-name-so-that-paths-go-past-what-ustar-holds-in-its-name-field/deep.txt: 5 bytes, right
+  sample/notes/empty.txt: 0 bytes, right
+  sample/notes/ünïcode.txt: 18 bytes, right
+  sample/poem.txt: 1542 bytes, right
+sample.tar.gz: 8 entries
+  sample: FOLDER
+  sample/hello.txt: 14 bytes, right
+  sample/notes: FOLDER
+  sample/notes/a-folder-with-a-rather-long-name-so-that-paths-go-past-what-ustar-holds-in-its-name-field: FOLDER
+  sample/notes/a-folder-with-a-rather-long-name-so-that-paths-go-past-what-ustar-holds-in-its-name-field/deep.txt: 5 bytes, right
+  sample/notes/empty.txt: 0 bytes, right
+  sample/notes/ünïcode.txt: 18 bytes, right
+  sample/poem.txt: 1542 bytes, right
+sample.tar.zst: 8 entries
+  sample: FOLDER
+  sample/hello.txt: 14 bytes, right
+  sample/notes: FOLDER
+  sample/poem.txt: 1542 bytes, right
+  sample/notes/a-folder-with-a-rather-long-name-so-that-paths-go-past-what-ustar-holds-in-its-name-field: FOLDER
+  sample/notes/empty.txt: 0 bytes, right
+  sample/notes/ünïcode.txt: 18 bytes, right
+  sample/notes/a-folder-with-a-rather-long-name-so-that-paths-go-past-what-ustar-holds-in-its-name-field/deep.txt: 5 bytes, right
+sample.tar.xz: 8 entries
+  sample: FOLDER
+  sample/hello.txt: 14 bytes, right
+  sample/notes: FOLDER
+  sample/poem.txt: 1542 bytes, right
+  sample/notes/a-folder-with-a-rather-long-name-so-that-paths-go-past-what-ustar-holds-in-its-name-field: FOLDER
+  sample/notes/empty.txt: 0 bytes, right
+  sample/notes/ünïcode.txt: 18 bytes, right
+  sample/notes/a-folder-with-a-rather-long-name-so-that-paths-go-past-what-ustar-holds-in-its-name-field/deep.txt: 5 bytes, right
+sample.7z: 8 entries
+  sample/hello.txt: 14 bytes, right
+  sample/poem.txt: 1542 bytes, right
+  sample/notes/ünïcode.txt: 18 bytes, right
+  sample/notes/a-folder-with-a-rather-long-name-so-that-paths-go-past-what-ustar-holds-in-its-name-field/deep.txt: 5 bytes, right
+  sample/notes/empty.txt: 0 bytes, right
+  sample/notes/a-folder-with-a-rather-long-name-so-that-paths-go-past-what-ustar-holds-in-its-name-field: FOLDER
+  sample/notes: FOLDER
+  sample: FOLDER
+sample-lzma2.7z: 8 entries
+  sample/hello.txt: 14 bytes, right
+  sample/poem.txt: 1542 bytes, right
+  sample/notes/ünïcode.txt: 18 bytes, right
+  sample/notes/a-folder-with-a-rather-long-name-so-that-paths-go-past-what-ustar-holds-in-its-name-field/deep.txt: 5 bytes, right
+  sample/notes/empty.txt: 0 bytes, right
+  sample/notes/a-folder-with-a-rather-long-name-so-that-paths-go-past-what-ustar-holds-in-its-name-field: FOLDER
+  sample/notes: FOLDER
+  sample: FOLDER
+right True True FOLDER

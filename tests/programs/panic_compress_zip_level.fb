@@ -1,0 +1,7 @@
+// A zip's Zstd entry takes Zstd's levels, and Add panics where it's called for another.
+Import std.core
+Import std.compress
+
+Local zip = ZipWriter()
+zip.Add("fine.txt", "fine".Bytes, ZipMethod.ZSTD, 22)
+zip.Add("none.txt", "none".Bytes, ZipMethod.ZSTD, 0)
