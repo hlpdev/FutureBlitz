@@ -4732,12 +4732,42 @@ TEST_CASE("the built-in types have the built-in Interfaces' Methods", "[sema]") 
     CHECK(errors_of("Local f = 1.5.Hash") ==
           errors_t{ "Hash: 'Hash' is a method; call it with ()" });
 
-    // A literal before a member is a Double with a decimal point, so the member sees its digits
-    // as written, or else the first of Int, Int64, and UInt64 that holds it.
+    // A literal before a member takes the first type, from its default up, that holds it and
+    // has the member: a decimal Float, then Double; an integer Int, Int64, then UInt64 when only
+    // it holds the value.
     CHECK(probe("Local s = 1.5.Hash()") == "UInt64");
     CHECK(probe("Import std.time\nLocal d = 0.1.Seconds") == "Duration");
     CHECK(probe("Local s = 5_000_000_000.ToString()") == "String");
     CHECK(probe("Local s = 18_000_000_000_000_000_000.ToString()") == "String");
+    const std::string sizes = "Extend Float\n"
+                              "    Property Narrow: Float\n        Get => Self\n    End Property\n"
+                              "End Extend\n"
+                              "Extend Double\n"
+                              "    Property Wide: Double\n        Get => Self\n    End Property\n"
+                              "    Method Doubled(): Double => Self * 2\n"
+                              "End Extend\n"
+                              "Extend Int\n"
+                              "    Property Small: Int\n        Get => Self\n    End Property\n"
+                              "End Extend\n"
+                              "Extend Long\n"
+                              "    Property Large: Long\n        Get => Self\n    End Property\n"
+                              "    Property Small: Long\n        Get => Self\n    End Property\n"
+                              "End Extend\n";
+    CHECK(probe(sizes + "Local x = 1.5.Narrow") == "Float32");
+    CHECK(probe(sizes + "Local x = 1.5.Wide") == "Float64");
+    CHECK(probe(sizes + "Local x = 0.1.Doubled()") == "Float64");
+    CHECK(probe(sizes + "Local x = 2.Small") == "Int32");
+    CHECK(probe(sizes + "Local x = 2.Large") == "Int64");
+    CHECK(probe(sizes + "Local x = (-2).Large") == "Int64");
+    CHECK(probe(sizes + "Local x = 5_000_000_000.Small") == "Int64");
+    CHECK(errors_of(sizes + "Local x = 2.Missing") ==
+          errors_t{ "Missing: neither Int32 nor Int64 has a member named 'Missing'" });
+    CHECK(errors_of(sizes + "Local x = 2.5.Missing()") ==
+          errors_t{ "Missing: neither Float32 nor Float64 has a member named 'Missing'" });
+    CHECK(errors_of("Local x = 5_000_000_000.Missing") ==
+          errors_t{ "Missing: Int64 has no member named 'Missing'" });
+    CHECK(errors_of("Local x = 1.0e300.Missing") ==
+          errors_t{ "Missing: Float64 has no member named 'Missing'" });
 }
 
 TEST_CASE("Printable puts a value in a string", "[sema]") {
@@ -7137,10 +7167,13 @@ TEST_CASE("an integer's Wrapping and Checked Methods say what overflow does", "[
 }
 
 TEST_CASE("integer Method mistakes", "[sema]") {
-    CHECK(errors_of("Local x = 1.WrappingDivide(2)") ==
+    CHECK(
+        errors_of("Local x = 1.WrappingDivide(2)") ==
+        errors_t{ "WrappingDivide: neither Int32 nor Int64 has a member named 'WrappingDivide'" });
+    CHECK(errors_of("Local a = 1\nLocal x = a.WrappingDivide(2)") ==
           errors_t{ "WrappingDivide: Int32 has no member named 'WrappingDivide'" });
     CHECK(errors_of("Local x = (1.5).CheckedAdd(1)") ==
-          errors_t{ "CheckedAdd: Float64 has no member named 'CheckedAdd'" });
+          errors_t{ "CheckedAdd: neither Float32 nor Float64 has a member named 'CheckedAdd'" });
     CHECK(errors_of("Extend Int\n    Method CheckedAdd(x: Int): Int? => x\nEnd Extend") ==
           errors_t{ "CheckedAdd: Int32 already has a member named 'CheckedAdd'" });
 
@@ -11572,8 +11605,10 @@ TEST_CASE("an Extend's members have visibility across modules", "[sema]") {
             .text = "Import \"./b\"\n",
         },
     };
-    CHECK(errors_with("Import \"./lib/c\"\nLocal a = 5.Twice()", hinted) ==
+    CHECK(errors_with("Import \"./lib/c\"\nLocal n = 5\nLocal a = n.Twice()", hinted) ==
           errors_t{ "Twice: Int32 has no member named 'Twice'" });
+    CHECK(errors_with("Import \"./lib/c\"\nLocal a = 5.Twice()", hinted) ==
+          errors_t{ "Twice: neither Int32 nor Int64 has a member named 'Twice'" });
 }
 
 TEST_CASE("a Const type argument that the code can't use says so", "[sema]") {

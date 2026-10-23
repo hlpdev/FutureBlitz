@@ -102,6 +102,12 @@ Default literal types:
 - An integer literal is `Int` (32-bit) unless context gives it another numeric type that holds
   its value (see [02](02-types.md#literals)).
 - A decimal literal is `Float` (32-bit) unless context requires `Double`.
+- A literal before a member, like `1.0.ToBits()`, `0.1.Seconds`, or `5_000_000_000.ToString()`,
+  takes the first type, from its default up, that holds it and has the member, as a literal
+  passed for a parameter takes the parameter's type: a decimal literal tries `Float`, then
+  `Double`, and an integer literal `Int`, then `Long`, then `UInt64` when only it holds the
+  value. So `1.0.ToBits()` is a Float's, and `0.1.Seconds`, which only a Double has, reads 0.1
+  as a Double. When neither has the member, the error names both.
 
 ### Characters
 

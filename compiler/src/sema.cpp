@@ -534,6 +534,8 @@ private:
     /// An expression that may be an array from outside a Parallel For's body, which uses one
     /// only through its elements and Count: an index's object, or Count's.
     std::optional<expr_id_t> m_element_use;
+    /// While object_hint() tries a type for a literal before a member: the literal and the type.
+    std::optional<std::pair<expr_id_t, type_id_t>> m_receiver;
     /// The blocks being checked, innermost last, with the position of the statement in each.
     std::vector<std::pair<const block_t*, std::size_t>> m_positions;
     /// What takes the errors of the code being checked, innermost last.
@@ -16002,25 +16004,79 @@ private:
         return has_decimal(id) ? type_id_t::FLOAT32 : type_id_t::INT32;
     }
 
-    /// What literals before a member, like `0.1.Seconds` or `5_000_000_000.ToString()`, are
-    /// checked as: a Double with a decimal among them, so a member sees the digits as written
-    /// rather than a Float's nearest, or else the first of Int, Int64, and UInt64 that holds
-    /// them. Anything else takes no hint.
-    type_id_t object_hint(const expr_id_t object) {
+    /// What literals before a member, like `1.0.ToBits()`, `0.1.Seconds`, or
+    /// `5_000_000_000.ToString()`, are checked as: the first type, from their default up, that
+    /// holds them and has the member, as literals passed for a parameter take its type. A
+    /// decimal tries Float and then Double, and an integer Int, Int64, and then UInt64 when only
+    /// it holds the value. `trial` looks the member up, reporting at its name what a type lacks.
+    /// When two types hold them and neither has the member, that's reported here, and the hint
+    /// is nullopt. Anything else takes no hint.
+    template <typename Trial>
+    std::optional<type_id_t> object_hint(const expr_id_t object, const name_t& member,
+                                         Trial&& trial) {
         if (!is_flexible(object)) {
             return type_id_t::NONE;
         }
-        if (has_decimal(object)) {
-            return type_id_t::FLOAT64;
+        if (m_receiver && m_receiver->first == object) {
+            return m_receiver->second;
         }
 
-        for (const type_id_t type : { type_id_t::INT32, type_id_t::INT64, type_id_t::UINT64 }) {
-            if (quietly([&] { return check(object, type); }) != type_id_t::INVALID) {
+        const std::vector<type_id_t> types =
+            has_decimal(object)
+                ? std::vector{ type_id_t::FLOAT32, type_id_t::FLOAT64 }
+                : std::vector{ type_id_t::INT32, type_id_t::INT64, type_id_t::UINT64 };
+        std::vector<type_id_t> held;
+        for (const type_id_t type : types) {
+            if (type == type_id_t::UINT64 && !held.empty()) {
+                break;
+            }
+            if (!holds(object, type)) {
+                continue;
+            }
+
+            held.push_back(type);
+            if (has_member_as(object, type, member.span, trial)) {
                 return type;
             }
         }
 
-        return type_id_t::NONE;
+        if (held.size() < 2) {
+            return held.empty() ? type_id_t::NONE : held.front();
+        }
+
+        error(member.span, "neither {} nor {} has a member named '{}'", shown_name(held[0]),
+              shown_name(held[1]), member.text);
+        check(object, held.front());
+        return std::nullopt;
+    }
+
+    /// Whether literals hold a value of the type: they check as it without an error.
+    bool holds(const expr_id_t literals, const type_id_t type) {
+        return quietly([&] {
+            return check(literals, type) != type_id_t::INVALID && !m_diagnostics->has_errors();
+        });
+    }
+
+    /// Whether `trial`, with the literal `object` checked as `type`, finds the member, reporting
+    /// nothing at its name, `member`, that says the type has no member. What the trial changes
+    /// is put back.
+    template <typename Trial>
+    bool has_member_as(const expr_id_t object, const type_id_t type, const span_t member,
+                       Trial& trial) {
+        return quietly([&] {
+            const auto receiver = std::exchange(m_receiver, std::pair{ object, type });
+            const std::optional<expr_id_t> partial = m_partial;
+            const std::optional<expr_id_t> place = m_place_use;
+            const std::optional<expr_id_t> element = m_element_use;
+            trial();
+            m_receiver = receiver;
+            m_partial = partial;
+            m_place_use = place;
+            m_element_use = element;
+            return std::ranges::none_of(m_diagnostics->diagnostics(), [&](const auto& found) {
+                return found.span == member && found.message.contains("has no member");
+            });
+        });
     }
 
     /// Checks an expression whose value is used. `hint` is the type the context expects, or
@@ -20668,9 +20724,18 @@ private:
                 return static_members(*named, member->member, true);
             }
 
+            // A literal before it takes the first type that has the Method.
+            const std::optional<type_id_t> hint = object_hint(member->object, member->member, [&] {
+                bool ignored = false;
+                lookup_callee(call, ignored);
+            });
+            if (!hint) {
+                return {};
+            }
+
             // An Atomic's Methods work on it where it is.
             const std::optional<expr_id_t> outer = std::exchange(m_place_use, member->object);
-            type_id_t type = check(member->object, object_hint(member->object));
+            type_id_t type = check(member->object, *hint);
             m_place_use = outer;
             if (member->null_safe) {
                 type = check_safe_object(member->object, type);
@@ -21697,6 +21762,13 @@ private:
             return member_type(*named, symbol(found.front()));
         }
 
+        // A literal before it takes the first type that has the member.
+        const std::optional<type_id_t> object_type =
+            object_hint(node.object, node.member, [&] { check(id, type_id_t::NONE); });
+        if (!object_type) {
+            return type_id_t::INVALID;
+        }
+
         const bool target = m_partial == id;
         // New can assign Self's fields before Self is whole. In a lambda with [Weak Self], Self
         // is the Weak<T> it captured, read as a T? like any other.
@@ -21710,7 +21782,7 @@ private:
             m_element_use = node.object;
         }
 
-        type_id_t object = check(node.object, object_hint(node.object));
+        type_id_t object = check(node.object, *object_type);
         m_place_use = outer;
         m_element_use = outer_element;
         m_partial.reset();
