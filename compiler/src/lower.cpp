@@ -5075,10 +5075,15 @@ private:
             return type_of(value) == type_id_t::INT64 ? value : cast(value, type_id_t::INT64, span);
         };
 
-        const operand_t from =
-            node.from ? wide(settled(lower_value(*node.from), to_changes)) : zero(type_id_t::INT64);
+        // A panic shows the bounds as they are, which a UInt64's past an Int64's range isn't once
+        // it's one.
+        const std::optional<operand_t> from_written =
+            node.from ? std::optional(settled(lower_value(*node.from), to_changes)) : std::nullopt;
+        const operand_t from = from_written ? wide(*from_written) : zero(type_id_t::INT64);
+        const std::optional<operand_t> to_written =
+            node.to ? std::optional(lower_value(*node.to)) : std::nullopt;
         const std::optional<operand_t> written =
-            node.to ? std::optional(wide(lower_value(*node.to))) : std::nullopt;
+            to_written ? std::optional(wide(*to_written)) : std::nullopt;
         const type_id_t source_type = type_of(object);
         const auto fixed = static_cast<std::int64_t>(
             is_array(source_type) ? 0 : types().element_count(source_type));
@@ -5102,11 +5107,13 @@ private:
         const auto text = [&](const operand_t& number) {
             return runtime_call(runtime_function_t::TO_TEXT, { number }, type_id_t::STRING, true);
         };
+        const operand_t first = text(from_written.value_or(from));
+        const operand_t last = text(to_written.value_or(to));
         std::vector<operand_t> parts{
             make_string("slice "),
-            text(from),
+            first,
             make_string(".."),
-            text(to),
+            last,
             make_string(" is out of range for "),
             text(count),
             make_string(" elements"),
