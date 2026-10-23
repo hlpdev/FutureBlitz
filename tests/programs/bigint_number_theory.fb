@@ -1,7 +1,10 @@
 // std.math.big's BigInt's Gcd, Lcm, Sqrt, ModPow, ModInverse, and IsProbablePrime match
 // Python's math.gcd, math.lcm, math.isqrt, and pow, and known primes and composites: Mersenne
 // numbers, strong pseudoprimes to base 2, Carmichael numbers, strong Lucas pseudoprimes, and the
-// 1229 primes below 10000.
+// 1229 primes below 10000. Baillie-PSW divides by the primes up to 101 first, so each half of it
+// gets composites without such a factor: the strong pseudoprimes to base 2 from 42799 on pass
+// Miller-Rabin and the Lucas test rejects them, and the strong Lucas pseudoprimes from 22499 on
+// pass that and Miller-Rabin rejects them.
 Import std.core
 Import std.math.big
 
@@ -53,6 +56,14 @@ CheckBig("gcd 927 546", B("11735869962097237927").Gcd(B("14650022052046928546"))
 CheckBig("lcm 927 546", B("11735869962097237927").Lcm(B("14650022052046928546")), "171930753744679687112207064690530164142")
 CheckBig("gcd 951 951", B("2305843009213693951").Gcd(B("2305843009213693951")), "2305843009213693951")
 CheckBig("lcm 951 951", B("2305843009213693951").Lcm(B("2305843009213693951")), "2305843009213693951")
+// A number of millions of bits beside a small one, which a step of Euclid's cuts down first.
+Local huge = BigInt(10) ** 999999
+CheckBig("gcd huge 15", huge.Gcd(B("15")), "5")
+CheckBig("gcd 15 huge", B("15").Gcd(huge), "5")
+CheckBig("gcd -12 1e50", B("-12").Gcd(BigInt(10) ** 50), "4")
+CheckBig("lcm -4 6", B("-4").Lcm(B("6")), "12")
+Expect("lcm 2^100 -3", (BigInt(2) ** 100).Lcm(B("-3")) == 3 * BigInt(2) ** 100)
+Expect("lcm huge 2", huge.Lcm(B("2")) == huge)
 Done("Gcd and Lcm")
 
 CheckBig("sqrt 0", B("0").Sqrt(), "0")
@@ -132,6 +143,14 @@ Expect("5777 prime", B("5777").IsProbablePrime() == False)
 Expect("10877 prime", B("10877").IsProbablePrime() == False)
 Expect("16109 prime", B("16109").IsProbablePrime() == False)
 Expect("18971 prime", B("18971").IsProbablePrime() == False)
+Expect("42799 prime", B("42799").IsProbablePrime() == False)
+Expect("49141 prime", B("49141").IsProbablePrime() == False)
+Expect("88357 prime", B("88357").IsProbablePrime() == False)
+Expect("90751 prime", B("90751").IsProbablePrime() == False)
+Expect("22499 prime", B("22499").IsProbablePrime() == False)
+Expect("25199 prime", B("25199").IsProbablePrime() == False)
+Expect("40309 prime", B("40309").IsProbablePrime() == False)
+Expect("58519 prime", B("58519").IsProbablePrime() == False)
 Expect("989719490561 prime", B("1427247692705959880439315947500961989719490561").IsProbablePrime() == False)
 Expect("14000000049 prime", B("1000000014000000049").IsProbablePrime() == False)
 Expect("6000009 prime", B("1000006000009").IsProbablePrime() == False)

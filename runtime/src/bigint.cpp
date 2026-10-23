@@ -377,15 +377,37 @@ void* fb_bigint_mod_inverse(const void* a, const void* modulus) {
 }
 
 void* fb_bigint_gcd(const void* a, const void* b) {
-    return apply(mp_gcd, a, b);
+    // One step of Euclid's first cuts the larger down to the smaller's size, since libtommath's
+    // binary gcd takes a step for each bit the larger has past the smaller: 10^999999 and 1
+    // would take seconds.
+    const bool a_larger = mp_cmp_mag(from(a), from(b)) != MP_LT;
+    const mp_int* larger = a_larger ? from(a) : from(b);
+    const mp_int* smaller = a_larger ? from(b) : from(a);
+    if (mp_iszero(smaller) == MP_YES) {
+        return apply(mp_abs, larger);
+    }
+
+    number_t rest;
+    check(mp_div(larger, smaller, nullptr, &rest.value));
+    mp_int* result = make();
+    check(mp_gcd(smaller, &rest.value, result));
+    return result;
 }
 
 void* fb_bigint_lcm(const void* a, const void* b) {
-    // libtommath divides by the gcd, which is 0 for two 0s.
+    // The magnitude of a over their gcd, times b, which is 0 when either is.
     if (mp_iszero(from(a)) == MP_YES || mp_iszero(from(b)) == MP_YES) {
         return make();
     }
-    return apply(mp_lcm, a, b);
+
+    auto* divisor = static_cast<mp_int*>(fb_bigint_gcd(a, b));
+    number_t quotient;
+    check(mp_div(from(a), divisor, &quotient.value, nullptr));
+    fb_bigint_free(divisor);
+    mp_int* result = make();
+    check(mp_mul(&quotient.value, from(b), result));
+    check(mp_abs(result, result));
+    return fitting(result);
 }
 
 void* fb_bigint_sqrt(const void* a) {
