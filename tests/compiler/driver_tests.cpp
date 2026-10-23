@@ -1008,6 +1008,26 @@ bool make_link(const std::filesystem::path& target, const std::filesystem::path&
 #endif
 }
 
+/// Makes `link` a link to the file `target`, as cmd's mklink does where a program needs
+/// privileges for it, as on Windows. False when the system makes none.
+bool make_file_link(const std::filesystem::path& target, const std::filesystem::path& link) {
+    std::error_code error;
+    std::filesystem::create_symlink(target, link, error);
+    if (!error) {
+        return true;
+    }
+
+#ifdef _WIN32
+    const std::string command = std::format(
+        R"(mklink "{}" "{}" > NUL)", std::filesystem::path(link).make_preferred().string(),
+        std::filesystem::path(target).make_preferred().string());
+    return std::system(command.c_str()) == 0 && // NOLINT(bugprone-command-processor)
+           std::filesystem::exists(link, error);
+#else
+    return false;
+#endif
+}
+
 constexpr std::string_view lib_toml = "[project]\nname = \"lib\"\nversion = \"0.1.0\"\n";
 
 constexpr std::string_view app_toml = "[project]\n"
@@ -1846,5 +1866,29 @@ TEST_CASE("an Import doesn't reach outside its package through a link", "[driver
     // Only the link goes, not what it leads to.
     std::error_code ignored;
     std::filesystem::remove(packages / "app/shared", ignored);
+    packages.remove();
+}
+
+TEST_CASE("a folder Import whose files are links leaving the package is one error", "[driver]") {
+    // The folder is there, with a file in it, so it isn't reported missing too.
+    const packages_t packages;
+    packages.write("outside/a.fb", "Public Function Twice(): Int => 2\n");
+    packages.write("app/project.toml", "[project]\nname = \"app\"\nversion = \"1.0.0\"\n");
+    packages.write("app/main.fb", "Import app.shared\n");
+    std::filesystem::create_directories(packages / "app/shared");
+    if (!make_file_link(packages / "outside/a.fb", packages / "app/shared/a.fb")) {
+        packages.remove();
+        SKIP("this system makes no file links here");
+    }
+
+    const std::expected<fb::compilation_t, std::string> app = fb::compile_file(packages / "app");
+    REQUIRE(app);
+    CHECK(packages.messages(*app) ==
+          std::vector<std::string>{
+              "app/main.fb: app.shared: app/shared/a.fb is a link to 'outside/a.fb', outside the "
+              "package's folder; an Import stays in its package's files",
+          });
+    std::error_code ignored;
+    std::filesystem::remove(packages / "app/shared/a.fb", ignored);
     packages.remove();
 }

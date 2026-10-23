@@ -633,6 +633,8 @@ private:
                 continue;
             }
 
+            // A folder whose files are all links away was reported for them, not as missing.
+            bool linked = false;
             if (const std::optional<std::size_t> file =
                     paths->file.empty() ? std::nullopt : load(paths->file, node.target_span)) {
                 targets.push_back(*file);
@@ -655,6 +657,7 @@ private:
                             "files",
                             shown_path(m_files, path), to_utf8(shown_disk_path(*away)),
                             folder_of(path));
+                        linked = true;
                         continue;
                     }
 
@@ -665,7 +668,7 @@ private:
                 }
             }
 
-            if (targets.empty()) {
+            if (targets.empty() && !linked) {
                 report_missing(node, *paths);
             }
 
