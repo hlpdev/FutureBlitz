@@ -54,12 +54,12 @@ Public Class ZipWriter
 
     // Adds a file named name of data, compressed by method, at level, or its default when level
     // is Null: 6 for DEFLATE, LZMA, and XZ, which go from 0 to 9, and 3 for ZSTD, from 1 to 22.
-    // Panics when the level isn't one of method's, or when the name is "", holds a NUL, or is
-    // longer than 65535 bytes.
+    // Panics when the level isn't one of method's, or when the name is "", holds a NUL, ends
+    // with '/', as a folder's does, or is longer than 65535 bytes.
     @PanicsAtCaller
     Public Method Add(name: String, data: UInt8[], method: ZipMethod = ZipMethod.DEFLATE,
                       level: Int? = Null)
-        CheckName(name, 65535, "zip")
+        CheckFileName(name, 65535, "zip")
         Local used = level ?? (method == ZipMethod.ZSTD ? 3 : 6)
         If method == ZipMethod.ZSTD
             CheckLevel(used, 1, 22, "Zstd")
@@ -70,8 +70,8 @@ Public Class ZipWriter
         fb_zip_writer_add(State, name, data, MethodNumber(method), used, 0)
     End Method
 
-    // Adds a folder named name, with '/' after it, which takes 1 of a name's 65535 bytes. Panics
-    // as Add does for its name.
+    // Adds a folder named name, with '/' after it unless it has one, which takes 1 of a name's
+    // 65535 bytes. Panics when the name is "", holds a NUL, or is longer than that.
     @PanicsAtCaller
     Public Method AddFolder(name: String)
         CheckName(name, 65534, "zip")
