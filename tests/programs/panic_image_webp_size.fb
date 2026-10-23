@@ -1,0 +1,7 @@
+// A WebP's sides are 16383 pixels long at most, and Encode panics where it's called with a
+// longer one.
+Import std.core
+Import std.image
+
+Print(WebP.Encode(Image(16383, 1)).Count > 0)
+WebP.EncodeLossless(Image(1, 16384))

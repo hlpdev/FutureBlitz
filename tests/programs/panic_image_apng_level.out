@@ -1,0 +1,2 @@
+True
+panic: a PNG's level is from 0 to 9, not -1 at panic_image_apng_level.fb:8:1

@@ -1,0 +1,2 @@
+2
+panic: an SVG is drawn at a scale above 0, not 0 at panic_image_svg_scale.fb:7:1

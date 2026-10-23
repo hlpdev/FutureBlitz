@@ -1,0 +1,2 @@
+(0, 0, 0, 0)
+panic: pixel (0, 2) is outside an image of 2 by 2 at panic_image_hdr_pixel.fb:7:12

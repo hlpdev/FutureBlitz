@@ -1,0 +1,2 @@
+True
+panic: a lossless WebP's effort is from 0 to 9, not 10 at panic_image_webp_effort.fb:7:1

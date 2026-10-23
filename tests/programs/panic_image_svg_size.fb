@@ -1,0 +1,8 @@
+// An SVG is fit to a size an Image can be, and Rasterize panics where it's called with
+// another.
+Import std.core
+Import std.image
+
+Local svg = Try Svg.Parse("<svg xmlns='http://www.w3.org/2000/svg' width='4' height='2'/>")
+Print(svg.Rasterize(8, 8).Height)
+svg.Rasterize(-1, 8)

@@ -1,0 +1,80 @@
+// The formats of plain bitmaps: BMP and TGA, as stb_image reads and stb_image_write writes them,
+// and QOI, the Quite OK Image format, which the runtime reads and writes itself. Each one keeps
+// every pixel as it is, alpha too.
+
+Import std.core
+Import std.image.codec
+Import std.image.image
+
+Public Struct Bmp
+    // Bmp isn't made: it's only its Static Methods.
+    New()
+    End New
+
+    // The image in data, a BMP of 1, 4, 8, 16, 24, or 32 bits a pixel, or run-length encoded.
+    // Throws an IOError of INVALID_DATA when the data isn't a BMP or is broken, and OTHER when the
+    // image has more pixels than `limit`. Panics when the limit is negative.
+    @PanicsAtCaller
+    Public Static Method Decode(data: UInt8[], limit: Int = MOST_PIXELS): Image Throws IOError
+        CheckLimit(limit)
+        Return Try Decoded(fb_stb_decode(data, 3, Min(limit, MOST_PIXELS)), "BMP")
+    End Method
+
+    // The BMP of the image, 32 bits a pixel, with its alpha. Panics when it has no pixels.
+    @PanicsAtCaller
+    Public Static Method Encode(image: Image): UInt8[]
+        CheckEncodable(image.Width, image.Height, 2147483647, "a BMP")
+        Local output: UInt8[] = []
+        fb_stb_encode(image.Pixels, image.Width, image.Height, 3, 0, output)
+        Return output
+    End Method
+End Struct
+
+Public Struct Tga
+    // Tga isn't made: it's only its Static Methods.
+    New()
+    End New
+
+    // The image in data, a TGA of a palette, gray, or colors, run-length encoded or not. Throws an
+    // IOError of INVALID_DATA when the data isn't a TGA or is broken, and OTHER when the image has
+    // more pixels than `limit`. Panics when the limit is negative.
+    @PanicsAtCaller
+    Public Static Method Decode(data: UInt8[], limit: Int = MOST_PIXELS): Image Throws IOError
+        CheckLimit(limit)
+        Return Try Decoded(fb_stb_decode(data, 4, Min(limit, MOST_PIXELS)), "TGA")
+    End Method
+
+    // The TGA of the image, 32 bits a pixel, with its alpha, run-length encoded. Panics when it
+    // has no pixels or a side longer than 65535.
+    @PanicsAtCaller
+    Public Static Method Encode(image: Image): UInt8[]
+        CheckEncodable(image.Width, image.Height, 65535, "a TGA")
+        Local output: UInt8[] = []
+        fb_stb_encode(image.Pixels, image.Width, image.Height, 4, 0, output)
+        Return output
+    End Method
+End Struct
+
+Public Struct Qoi
+    // Qoi isn't made: it's only its Static Methods.
+    New()
+    End New
+
+    // The image in data, a QOI of 3 or 4 channels. Throws an IOError of INVALID_DATA when the data
+    // isn't a QOI or is broken, UNEXPECTED_END when it ends before its pixels do, and OTHER when
+    // the image has more pixels than `limit`. Panics when the limit is negative.
+    @PanicsAtCaller
+    Public Static Method Decode(data: UInt8[], limit: Int = MOST_PIXELS): Image Throws IOError
+        CheckLimit(limit)
+        Return Try Decoded(fb_image_qoi_decode(data, Min(limit, MOST_PIXELS)), "QOI")
+    End Method
+
+    // The QOI of the image, 4 channels, in sRGB. Panics when it has no pixels.
+    @PanicsAtCaller
+    Public Static Method Encode(image: Image): UInt8[]
+        CheckEncodable(image.Width, image.Height, 2147483647, "a QOI")
+        Local output: UInt8[] = []
+        fb_image_qoi_encode(image.Pixels, image.Width, image.Height, output)
+        Return output
+    End Method
+End Struct

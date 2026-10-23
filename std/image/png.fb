@@ -1,0 +1,65 @@
+// PNG, and APNG, its animation: Png.Decode reads any PNG, of every color type and bit depth,
+// interlaced or not, as stb_image reads them, and Encode writes one, 8 bits a channel, RGB when
+// every pixel is opaque and RGBA when one isn't, deflated by zlib-ng at a level. DecodeAnimation
+// reads an APNG's frames, each as it's shown, or a PNG's one, and EncodeAnimation writes one.
+
+Import std.core
+Import std.image.animation
+Import std.image.codec
+Import std.image.image
+
+Public Struct Png
+    // Png isn't made: it's only its Static Methods.
+    New()
+    End New
+
+    // The image in data, which is a PNG, or an APNG's image for decoders without animation.
+    // Throws an IOError of INVALID_DATA when the data isn't a PNG or is broken, and OTHER when
+    // the image has more pixels than `limit`. Panics when the limit is negative.
+    @PanicsAtCaller
+    Public Static Method Decode(data: UInt8[], limit: Int = MOST_PIXELS): Image Throws IOError
+        CheckLimit(limit)
+        Return Try Decoded(fb_stb_decode(data, 1, Min(limit, MOST_PIXELS)), "PNG")
+    End Method
+
+    // The PNG of the image, deflated at `level`, from 0 to 9. Panics when the level is another,
+    // or the image has no pixels.
+    @PanicsAtCaller
+    Public Static Method Encode(image: Image, level: Int = 6): UInt8[]
+        CheckRange(level, 0, 9, "a PNG's level")
+        CheckEncodable(image.Width, image.Height, 2147483647, "a PNG")
+        Local output: UInt8[] = []
+        fb_zlib_png_encode(image.Pixels, image.Width, image.Height, level, output)
+        Return output
+    End Method
+
+    // An APNG's frames, each as it's shown once the frames before it are, or a PNG's one, which
+    // plays once. Throws an IOError as Decode does, of OTHER when the frames, all their pixels
+    // counted, have more than `limit`. Panics when the limit is negative.
+    @PanicsAtCaller
+    Public Static Method DecodeAnimation(data: UInt8[],
+                                         limit: Int = MOST_PIXELS): Animation Throws IOError
+        CheckLimit(limit)
+        Return Try DecodedAnimation(fb_stb_decode_apng(data, Min(limit, MOST_PIXELS)), "APNG")
+    End Method
+
+    // The APNG of the animation's frames, each deflated at `level`, from 0 to 9, whose first
+    // frame is the image a decoder without animation shows. Panics when the level is another, or
+    // the animation has no frames, or no pixels.
+    @PanicsAtCaller
+    Public Static Method EncodeAnimation(animation: Animation, level: Int = 6): UInt8[]
+        CheckRange(level, 0, 9, "a PNG's level")
+        CheckEncodable(animation.Width, animation.Height, 2147483647, "an APNG")
+        If animation.Count == 0 Then Panic("an APNG has at least one frame, and the animation none")
+        Local encoder = fb_zlib_apng_encoder_new(animation.Width, animation.Height, animation.Plays,
+                                                 level)
+        For frame In animation.Frames
+            fb_zlib_apng_encoder_add(encoder, frame.Image.Pixels, frame.Delay)
+        End For
+
+        Local output: UInt8[] = []
+        fb_zlib_apng_encoder_finish(encoder, output)
+        fb_zlib_apng_encoder_free(encoder)
+        Return output
+    End Method
+End Struct

@@ -1,0 +1,8 @@
+// An SVG drawn at a scale has no more pixels than an Image holds, and Rasterize panics where
+// it's called for more.
+Import std.core
+Import std.image
+
+Local svg = Try Svg.Parse("<svg xmlns='http://www.w3.org/2000/svg' width='4' height='2'/>")
+Print(svg.Rasterize(100).Width)
+svg.Rasterize(30000)

@@ -1,0 +1,2 @@
+0
+panic: an APNG has at least one frame, and the animation none at panic_image_apng_empty.fb:8:1

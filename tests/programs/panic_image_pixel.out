@@ -1,0 +1,2 @@
+(0, 0, 0, 0)
+panic: pixel (3, 0) is outside an image of 3 by 2 at panic_image_pixel.fb:7:12

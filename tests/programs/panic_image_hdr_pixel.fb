@@ -1,0 +1,7 @@
+// An HdrImage's [] takes a pixel inside it, and panics where it's given one outside.
+Import std.core
+Import std.image
+
+Local image = HdrImage(2, 2)
+Print(image[1, 1])
+Print(image[0, 2])

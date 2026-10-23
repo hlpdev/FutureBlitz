@@ -1,0 +1,2 @@
+2
+panic: a limit of pixels can't be negative, like -1 at panic_image_limit.fb:7:5

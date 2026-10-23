@@ -1,0 +1,8 @@
+// An APNG's levels are a PNG's, and EncodeAnimation panics where it's called with another.
+Import std.core
+Import std.image
+
+Local animation = Animation(1, 1)
+animation.Add(Image(1, 1), 10)
+Print(Png.EncodeAnimation(animation, 9).Count > 0)
+Png.EncodeAnimation(animation, -1)

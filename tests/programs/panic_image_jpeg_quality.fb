@@ -1,0 +1,6 @@
+// A JPEG's qualities are from 1 to 100, and Encode panics where it's called with another.
+Import std.core
+Import std.image
+
+Print(Jpeg.Encode(Image(1, 1), 1).Count > 0)
+Jpeg.Encode(Image(1, 1), 0)

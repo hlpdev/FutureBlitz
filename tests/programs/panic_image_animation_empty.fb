@@ -1,0 +1,8 @@
+// An animation's GIF has a frame at least, and EncodeAnimation panics where it's called for
+// one without.
+Import std.core
+Import std.image
+
+Local animation = Animation(1, 1)
+Print(animation.Count)
+Gif.EncodeAnimation(animation)

@@ -1,0 +1,7 @@
+// A lossless WebP's efforts are from 0 to 9, and EncodeLossless panics where it's called
+// with another.
+Import std.core
+Import std.image
+
+Print(WebP.EncodeLossless(Image(1, 1), 0).Count > 0)
+WebP.EncodeLossless(Image(1, 1), 10)

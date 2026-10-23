@@ -1,0 +1,2 @@
+True
+panic: a PNG's level is from 0 to 9, not 10 at panic_image_png_level.fb:6:1

@@ -1,0 +1,7 @@
+// A GIF's sides are 65535 pixels long at most, and Encode panics where it's called with a
+// longer one.
+Import std.core
+Import std.image
+
+Print(Gif.Encode(Image(65535, 1)).Count > 0)
+Gif.Encode(Image(65536, 1))
