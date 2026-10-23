@@ -152,12 +152,27 @@ Public Function SmoothStep<T>(low: T, high: T, value: T): T
     Return t * t * (T.FromDouble(3) - T.FromDouble(2) * t)
 End Function
 
+// How far a is above b, which it isn't below, as a UInt64, which holds it for every T.
+Function Above<T: Integer>(a: T, b: T): UInt64
+    Local difference = T.LowBits(a).WrappingSubtract(T.LowBits(b))
+    Local bits = T.BitWidth()
+    Return bits == 64 ? difference : difference & (((1 As UInt64) << bits) - 1)
+End Function
+
 // The value wrapped into the range from low to high, high left out, as an angle wraps into a
-// turn: Wrap(370, 0, 360) is 10. With low equal to high, it's low.
+// turn: Wrap(370, 0, 360) is 10. With low equal to high, it's low. The distances are worked out in
+// a UInt64, so a range of any width, in any of the eight types, can't overflow.
 Public Function Wrap<T>(value: T, low: T, high: T): T
     Where T: Integer & Numeric & Comparable
     If low == high Then Return low
-    Return low + Mod(value - low, high - low)
+    Local up = low < high
+    Local span = up ? Above(high, low) : Above(low, high)
+    Local past = value >= low
+    Local rest = (past ? Above(value, low) : Above(low, value)) % span
+    // Ahead of low, the way the range goes, the rest is how far in it is; behind, what's left.
+    Local offset = past == up || rest == 0 ? rest : span - rest
+    Local start = T.LowBits(low)
+    Return T.FromLowBits(up ? start.WrappingAdd(offset) : start.WrappingSubtract(offset))
 End Function
 
 // The value wrapped into the range from low to high, high left out, as an angle wraps into a
@@ -169,13 +184,24 @@ Public Function Wrap<T>(value: T, low: T, high: T): T
 End Function
 
 // The value going from 0 up to length and back down, over and over: PingPong(3, 2) is 1. A
-// negative length panics.
+// negative length panics. It's worked out in a UInt64, by whole lengths, so no length of any of
+// the eight types overflows.
 @PanicsAtCaller
 Public Function PingPong<T>(value: T, length: T): T
     Where T: Integer & Numeric & Comparable & Printable
     If length < T.Zero() Then Panic("PingPong takes a length that isn't negative, not {length}")
     If length == T.Zero() Then Return T.Zero()
-    Return length - Abs(Mod(value, length + length) - length)
+    Local whole = T.LowBits(length)
+    Local past = value >= T.Zero()
+    Local distance = past ? Above(value, T.Zero()) : Above(T.Zero(), value)
+    Local lengths = distance / whole
+    Local rest = distance % whole
+    // Below 0, the value is so many lengths down and the rest back up.
+    If !past && rest != 0
+        lengths++
+        rest = whole - rest
+    End If
+    Return T.FromLowBits(lengths % 2 == 0 ? rest : whole - rest)
 End Function
 
 // The value going from 0 up to length and back down, over and over: PingPong(3.0, 2.0) is 1. A

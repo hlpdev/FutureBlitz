@@ -71,6 +71,28 @@ Print(Wrap(370.0, 0.0, 360.0), Wrap(-1.0, 0.0, 360.0), Wrap(7.5, 2.0, 2.0), Wrap
 Print(PingPong(0, 2), PingPong(1, 2), PingPong(2, 2), PingPong(3, 2), PingPong(4, 2),
       PingPong(-1, 2))
 Print(PingPong(3.5, 2.0), PingPong(0.5, 2.0), PingPong(5.0, 0.0), PingPong(7, 0))
+Print(PingPong(-2, 2), PingPong(-3, 2), PingPong(-4, 2), PingPong(-5, 3), PingPong(8, 3))
+// Unsigned types, and ranges wider than half the type, whose distances don't fit in it.
+Local one: UInt8 = 1
+Local two: UInt8 = 2
+Local three: UInt8 = 3
+Local five: UInt8 = 5
+Local ten: UInt8 = 10
+Local big: UInt8 = 250
+Print(PingPong(one, two), PingPong(three, two), Wrap(three, five, ten), Wrap(big, five, ten),
+      Wrap(three, ten, five), Wrap(big, ten, five))
+Local wideLow: Int8 = -100
+Local wideHigh: Int8 = 100
+Local past: Int8 = 120
+Print(Wrap(past, wideLow, wideHigh), Wrap(wideLow, wideLow, wideHigh),
+      Wrap(wideHigh, wideLow, wideHigh), Wrap(MinValue<Int8>(), wideLow, wideHigh),
+      PingPong(MaxValue<Int8>(), wideHigh), PingPong(MinValue<Int8>(), wideHigh),
+      PingPong(MinValue<Int8>(), MaxValue<Int8>()))
+Print(Wrap(5, MinValue<Int>(), MaxValue<Int>()),
+      Wrap(MaxValue<Int>(), MinValue<Int>(), MaxValue<Int>()),
+      Wrap(MinValue<Long>(), MaxValue<Long>(), MinValue<Long>()),
+      PingPong(MaxValue<UInt64>(), MaxValue<UInt64>() - 1),
+      PingPong(MaxValue<UInt64>(), 1 As UInt64))
 Print(MoveTowards(0, 10, t), MoveTowards(9.9, 10.0, 1.0), MoveTowards(5.0, 0.0, 2.0),
       MoveTowards(3.0, 3.0, 1.0))
 Print(MoveTowards(5.0, 10.0, -1.0))
