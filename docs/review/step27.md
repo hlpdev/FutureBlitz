@@ -4,7 +4,7 @@
 
 ## S27-delaunay-1 (high): Delaunay panics inside std on points that nearly coincide
 
-Status: open
+Status: fixed in 005f77b (algo_delaunay.fb, the finding's six points and its nine): Orient and InCircle are Shewchuk's, worked out in Doubles first, whose error bound says when the sign is sure, and exactly in expansions when it isn't (TwoProduct by Veltkamp's split, so no Fma). Every product a Float's coordinates make fits a Double, so each sign is exact, and the cavity is the star-shaped one. Conflicts decides a point on a hull edge's line by comparing coordinates, not by dot products. A scan of 3000 sets of clustered and a few Float steps apart points, each checked in Fractions (counterclockwise, no point in a circumcircle, the hull's area, every distinct point a corner), finds 0 wrong, where the old code had 64.
 
 Where: std/algo/delaunay.fb:184
 
@@ -32,7 +32,7 @@ Skeptic: Ran the program at C:/Users/Hunter/Projects/FutureBlitz/.claude/worktre
 
 ## S27-delaunay-2 (medium): Delaunay gives a clockwise triangle, and drops another, for points a few Float steps apart
 
-Status: open
+Status: fixed in 005f77b with S27-delaunay-1 (algo_delaunay.fb, the finding's five points).
 
 Where: std/algo/delaunay.fb:158
 
@@ -74,7 +74,7 @@ Skeptic: d2.fb prints (2, 1, 3) True, (3, 1, 4) True, (2, 0, 4) True, (1, 2, 4) 
 
 ## S27-delaunay-3 (medium): Delaunay silently drops a distinct point, and Voronoi then gives that point the whole bounds
 
-Status: open
+Status: fixed in 005f77b with S27-delaunay-1 (algo_delaunay.fb, the finding's four points, whose cell 1 now has three corners): with exact signs a distinct point is always in a triangle's circumcircle or past a hull edge, so Locate finds one, and stdlib.md says every distinct point is a corner.
 
 Where: std/algo/delaunay.fb:142
 
@@ -108,7 +108,7 @@ Skeptic: d3.fb prints [(3, 2, 0)] and then [(-500, -500), (500, -500), (500, 500
 
 ## S27-delaunay-4 (medium): Voronoi and LloydRelax don't check bounds: a negative or NaN size gives clockwise or degenerate cells instead of a panic
 
-Status: open
+Status: fixed in e27d8f8 (panic_algo_voronoi_bounds.fb, panic_algo_voronoi_nan_bounds.fb, panic_algo_lloyd_bounds.fb): CheckBounds, in both, even with no iterations.
 
 Where: std/algo/delaunay.fb:348
 
@@ -147,7 +147,7 @@ Voronoi (lines 348-351) uses bounds unchecked. Its own doc says 'A coordinate th
 
 ## S27-order-1 (medium): Permutations and Combinations with a count above the array's length fill an array of count Ints before giving nothing
 
-Status: open
+Status: fixed in 82c0c25 (algo_combinatorics.fb, a count of 2147483647, which takes no time): both News return once Done is set.
 
 Where: std/algo/combinatorics.fb:24
 
@@ -172,7 +172,7 @@ Skeptic: I built the finding's program (Permutations([1, 2, 3], 500000000).Count
 
 ## S27-search-1 (medium): AStar can give a dearer path when the guess is admissible but not consistent, though its doc says admissible is enough
 
-Status: open
+Status: fixed in dd6cbff (algo_search.fb, the finding's graph): a node found cheaper after it's settled opens again; Settled lists each node once, the first time, which with Dijkstra's guess of 0 is at its cheapest, so DijkstraAll is as it was.
 
 Where: std/algo/search.fb:255
 
@@ -216,7 +216,7 @@ Skeptic: Ran the reporter's program unchanged (rev-scratch/s27/search-v/astar_in
 
 ## S27-delaunay-5 (low): Voronoi clips by each Delaunay neighbor twice, which leaves stray corners partway along edges
 
-Status: open
+Status: fixed in da591f3 (algo_delaunay.fb, the six points scaled by 10^30 and 10^-30).
 
 Where: std/algo/delaunay.fb:343
 
@@ -247,7 +247,7 @@ Skeptic: d5.fb prints '5 6' in debug and --release. Scaled by 1e30, cell 4 has t
 
 ## S27-delaunay-6 (low): Voronoi cells can be degenerate: one or two corners, or a corner twice in a row
 
-Status: open
+Status: fixed in 8c213cd (algo_delaunay.fb, the finding's three cells): a corner that rounds to the one before, or around to the first, goes, and a cell with fewer than three corners or no area is empty, as Voronoi's comment now says.
 
 Where: std/algo/delaunay.fb:369
 
@@ -281,7 +281,7 @@ Skeptic: d6.fb prints [(4, 4)], then [(0, 0), (4, 0)], then [(2, 2), (4.6666665,
 
 ## S27-delaunay-7 (low): Voronoi of collinear points is quadratic: 20000 points on a line take about a minute
 
-Status: open
+Status: fixed in 479a631 (algo_delaunay.fb, 20000 points on a line, in about a second in a debug build): with no triangles, the points are on a line, in order, so each point's neighbors are the ones before and after it.
 
 Where: std/algo/delaunay.fb:333
 
@@ -310,7 +310,7 @@ Skeptic: I built d7.fb and d7b.fb in release and timed them. 20000 points on a l
 
 ## S27-delaunay-9 (low): Mesh.InfiniteAt's comment says it gives the first real corner past the point at infinity, but it gives the point at infinity's own position
 
-Status: open
+Status: fixed in 246641c: a comment, so no test.
 
 Where: std/algo/delaunay.fb:74
 
@@ -348,7 +348,7 @@ Skeptic: d9.fb, a word-for-word copy of InfiniteAt, prints '2 -1'. The method re
 
 ## S27-order-2 (low): TopologicalSort's docs say unordered nodes keep their given order, which the code doesn't do and no order always can
 
-Status: open
+Status: fixed in e669c31 (algo_order.fb, the finding's [a, b, c] with c before a, giving [b, c, a]): topological.fb's comment and stdlib.md say the earliest given of the nodes that could come next goes first, the least order by those places, and that nodes nothing leads to keep their order.
 
 Where: std/algo/topological.fb:37
 
@@ -374,7 +374,7 @@ Skeptic: I ran the finding's program (C:/Users/Hunter/Projects/FutureBlitz/.clau
 
 ## S27-search-2 (low): A NaN guess from AStar's heuristic isn't checked and silently gives a dearer path
 
-Status: open
+Status: fixed in 38ea240 (panic_algo_astar_guess.fb): the start's guess and each successor's are checked, and AStar's comment and stdlib.md say so.
 
 Where: std/algo/search.fb:263
 
@@ -408,7 +408,7 @@ Skeptic: Ran the reporter's program (astar_nan.fb). Debug and release both print
 
 ## S27-search-3 (low): GridNeighbors doesn't panic for a cell off the grid, as stdlib.md says; at the Int edge, debug panics inside std/math while release gives []
 
-Status: open
+Status: fixed in f899f1a (panic_algo_grid_cell.fb, panic_algo_grid_cell_edge.fb): GridNeighbors calls CheckCell, so a cell at an Int's limit panics at the caller, in both builds; algo_grid.fb's off-grid cases moved to them.
 
 Where: std/algo/grid.fb:45
 
@@ -434,7 +434,7 @@ Skeptic: Ran grid_off.fb. Debug prints "[(0, 0)]" and then "panic: integer overf
 
 ## S27-search-4 (low): Dijkstra, DijkstraAll, and AStar also need the weight type to be Printable, which the docs don't say
 
-Status: open
+Status: fixed in 2dc0935 (algo_search.fb, a weight type of the program's own): Search, Dijkstra, DijkstraAll, and AStar drop Printable, and the weight's panic no longer shows it; search.fb's header says Numeric and Comparable, as stdlib.md does.
 
 Where: std/algo/search.fb:204
 
