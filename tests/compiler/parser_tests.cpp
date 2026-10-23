@@ -910,7 +910,11 @@ TEST_CASE("generic functions and types, and their type arguments", "[parser]") {
     CHECK(expression("Box<Box<Int>>(b)") == "(call Box<Box<Int>> b)");
     CHECK(expression("s.Map<String>(f)") == "(call (. s Map<String>) f)");
 
-    // Without '(', '.', ')', or ',' after the '>', a '<' compares.
+    // So does a function value's, at the end of a value, as the Func it gives.
+    CHECK(expression("Less<Int>") == "Less<Int>");
+    CHECK(expression("[Less<Int>]") == "(array Less<Int>)");
+
+    // Without one of those after the '>', a '<' compares.
     CHECK(expression("a < b") == "(< a b)");
     CHECK(expression("F(a < b, c > d)") == "(call F (< a b) (> c d))");
 }

@@ -2866,8 +2866,8 @@ private:
     }
 
     /// Whether a '<' here starts type arguments, as in "Max<Float>(1, 2.5)": what follows it, up
-    /// to the '>' that closes it, could be types, and that '>' is followed by '(', '.', ')', or
-    /// ','. Otherwise the '<' compares.
+    /// to the '>' that closes it, could be types, and that '>' is followed by '(', '.', ')', ',',
+    /// ']', '}', or the end of the line. Otherwise the '<' compares.
     [[nodiscard]] bool type_arguments_follow() const {
         std::size_t index = skip_newlines(m_pos);
         if (m_tokens[index].kind != token_kind_t::LESS) {
@@ -2887,9 +2887,13 @@ private:
                     break;
                 }
 
+                // Or the end of a value, as "f = Less<Int>" is: a Bool has no order, so
+                // "(a < b) > c" never means anything.
                 const token_kind_t next = m_tokens[skip_newlines(index + 1)].kind;
                 return next == token_kind_t::LEFT_PAREN || next == token_kind_t::DOT ||
-                       next == token_kind_t::RIGHT_PAREN || next == token_kind_t::COMMA;
+                       next == token_kind_t::RIGHT_PAREN || next == token_kind_t::COMMA ||
+                       next == token_kind_t::RIGHT_BRACKET || next == token_kind_t::RIGHT_BRACE ||
+                       next == token_kind_t::NEWLINE || next == token_kind_t::END_OF_FILE;
             }
             case token_kind_t::IDENTIFIER:
             case token_kind_t::KW_SELF:
