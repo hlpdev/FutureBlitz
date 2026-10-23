@@ -3109,12 +3109,13 @@ private:
         }
 
         const place_t target = lower_place(node.target);
-        const binary_op_t op = node.decrement ? binary_op_t::SUBTRACT : binary_op_t::ADD;
         emit(assign_t{
             .target = target,
             .value =
-                binary_t{ .op = op, .left = target, .right = one(type_of(target)), .span = span },
+                binary_t{
+                    .op = change, .left = target, .right = one(type_of(target)), .span = span },
         });
+        finish_statement();
     }
 
     void lower_stmt(const stmt_id_t id, span_t /*span*/, const variable_stmt_t& node) {

@@ -1,0 +1,92 @@
+// ++ and -- let go of what they made on the way to their target, like a call's object, right
+// where they end: not in a block that a path which never made it also reaches, and not never.
+Import std.core
+
+Class Bag
+    Field N: Int
+    Field Values: Int[] = []
+
+    New()
+        Values = [1, 2, 3]
+    End New
+End Class
+
+Class World
+    Field Hero: Bag
+
+    New()
+        Hero = Bag()
+    End New
+
+    Property Current: Bag
+        Get => Hero
+    End Property
+End Class
+
+Global made = 0
+
+Function Make(): Bag
+    made += 1
+    Return Bag()
+End Function
+
+Function Numbers(): Int[]
+    Return [1, 2, 3]
+End Function
+
+// Inside an If, which a False condition goes around.
+Function Maybe(flag: Bool)
+    If flag
+        Make().N++
+    End If
+    Print("maybe {flag}")
+End Function
+
+Function Tick(w: World, hit: Bool)
+    If hit
+        w.Current.N++
+    End If
+    Print("score {w.Current.N}")
+End Function
+
+// As a function's last statement.
+Function Last()
+    Make().Values[0]++
+End Function
+
+Function LastField()
+    Make().N--
+End Function
+
+Function LastElement()
+    Numbers()[1]--
+End Function
+
+Maybe(False)
+Maybe(True)
+Maybe(False)
+
+Local w = World()
+Tick(w, True)
+Tick(w, False)
+Tick(w, True)
+
+Last()
+LastField()
+LastElement()
+
+// Inside a loop, each pass lets go of its own.
+For i = 1 To 3
+    Make().N++
+    w.Current.N--
+End For
+Print("score {w.Current.N}")
+
+// A deferred one.
+Function Deferred()
+    Defer Make().N++
+    Print("deferring")
+End Function
+
+Deferred()
+Print("made {made}")
