@@ -561,14 +561,26 @@ TEST_CASE("Ctrl+C during fb run ends the program, and fb cleans up and gives its
     const std::filesystem::path source = write_source(
         "interrupt/interrupted.fb", "Import std.core\nPrintError(\"started\")\nLocal n = 0\n"
                                     "While True\n    n = (n + 1) % 1000\nEnd While\n");
+    // The temp folder is every run's, so a folder an earlier run that was stopped left there
+    // isn't this one's.
     const std::filesystem::path temporary = fb::temporary_path("probe", ".none").parent_path();
-    const auto left_behind = [&] {
+    const auto folders = [&] {
+        std::vector<std::filesystem::path> found;
         std::error_code ignored;
-        return std::ranges::any_of(
-            std::filesystem::directory_iterator(temporary, ignored),
-            [](const std::filesystem::directory_entry& entry) {
-                return fb::to_utf8(entry.path().filename()).starts_with("interrupted-");
-            });
+        for (const std::filesystem::directory_entry& entry :
+             std::filesystem::directory_iterator(temporary, ignored)) {
+            if (fb::to_utf8(entry.path().filename()).starts_with("interrupted-")) {
+                found.push_back(entry.path());
+            }
+        }
+
+        return found;
+    };
+    const std::vector<std::filesystem::path> before = folders();
+    const auto left_behind = [&] {
+        return std::ranges::any_of(folders(), [&](const std::filesystem::path& folder) {
+            return !std::ranges::contains(before, folder);
+        });
     };
     std::string output;
 #ifdef _WIN32
