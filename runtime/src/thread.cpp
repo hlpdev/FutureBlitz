@@ -286,7 +286,9 @@ private:
             }
         }
 
-        // The other threads' queue first, then each other worker's, starting after this one's.
+        // Every other queue, from the one after this one's and around, with the other threads'
+        // queue after the last worker's: a worker looks at the workers after it first, and a
+        // thread without a queue at the other threads' first.
         const std::size_t start = t_queue == no_queue ? 0 : t_queue + 1;
         for (std::size_t i = 0; i <= m_size; ++i) {
             const std::size_t index = (m_size + start + i) % (m_size + 1);
