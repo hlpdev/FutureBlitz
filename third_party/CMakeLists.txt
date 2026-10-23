@@ -443,3 +443,88 @@ string(APPEND minizip_ng_notice "\nliblzma:\n\n${liblzma_notice}")
 fb_notice(minizip_ng "${minizip_ng_notice}")
 set(FB_MINIZIP_NG_NOTICE "${FB_MINIZIP_NG_NOTICE}" PARENT_SCOPE)
 set(FB_MINIZIP_NG_LICENSES "the zlib, BSD-3-Clause, and 0BSD licenses" PARENT_SCOPE)
+
+# std.image's libraries compute in floats, so they're built without fused multiply-adds, which some
+# targets would make of their sums, and give the same pixels on every target.
+set(FB_SAME_FLOATS "")
+if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+  set(FB_SAME_FLOATS -ffp-contract=off)
+endif()
+
+# stb_image and stb_image_write: std.image's PNG, JPEG, BMP, TGA, GIF, and HDR decoding, and its
+# JPEG, BMP, TGA, and HDR encoding, from memory only, built from stb.c here. PNG's encoding is the
+# runtime's own, over zlib-ng.
+set(FB_STB_IMAGE_VERSION 2.30)
+set(FB_STB_IMAGE_WRITE_VERSION 1.16)
+FetchContent_Declare(
+  stb
+  URL https://github.com/nothings/stb/archive/2c980bb59875b0d32144a71867fbdebb2f77cd20.tar.gz
+  URL_HASH SHA256=9a955b1b49a4410088a2e0ee2a9c057c3c907d0c1d75454144cb980aca0ba515
+  SOURCE_SUBDIR none
+  SYSTEM
+)
+FetchContent_MakeAvailable(stb)
+add_library(stb STATIC EXCLUDE_FROM_ALL "${CMAKE_CURRENT_SOURCE_DIR}/stb.c")
+target_include_directories(stb SYSTEM PUBLIC "${stb_SOURCE_DIR}")
+fb_bundled_library(stb)
+target_compile_options(stb PRIVATE ${FB_SAME_FLOATS})
+# GCC 15's jump threading, at -O2, breaks stb_image's loop over an HDR's plain rows, which a goto
+# enters from the run-length one: an image narrower than 8 pixels keeps only its first row.
+if(CMAKE_C_COMPILER_ID STREQUAL "GNU")
+  target_compile_options(stb PRIVATE -fno-thread-jumps)
+endif()
+set(FB_STB_VERSION "${FB_STB_IMAGE_VERSION}, with stb_image_write ${FB_STB_IMAGE_WRITE_VERSION}"
+    PARENT_SCOPE)
+# It's under the MIT license or in the public domain, as LICENSE says, and std takes it under the
+# MIT license, whose notice works everywhere.
+file(READ "${stb_SOURCE_DIR}/LICENSE" stb_notice)
+fb_notice(stb "${stb_notice}")
+set(FB_STB_NOTICE "${FB_STB_NOTICE}" PARENT_SCOPE)
+set(FB_STB_LICENSES "the MIT license" PARENT_SCOPE)
+
+# libwebp: std.image's WebP, lossy and lossless, through its own CMake, with sharpyuv, which its
+# encoder uses, and without threads of its own or its tools. Its SIMD code is picked at run time,
+# and gives what its plain C gives.
+set(FB_LIBWEBP_VERSION 1.6.0)
+foreach(option WEBP_BUILD_ANIM_UTILS WEBP_BUILD_CWEBP WEBP_BUILD_DWEBP WEBP_BUILD_GIF2WEBP
+               WEBP_BUILD_IMG2WEBP WEBP_BUILD_VWEBP WEBP_BUILD_WEBPINFO WEBP_BUILD_LIBWEBPMUX
+               WEBP_BUILD_WEBPMUX WEBP_BUILD_EXTRAS WEBP_USE_THREAD)
+  set(${option} OFF CACHE BOOL "" FORCE)
+endforeach()
+FetchContent_Declare(
+  libwebp
+  URL https://github.com/webmproject/libwebp/archive/refs/tags/v${FB_LIBWEBP_VERSION}.tar.gz
+  URL_HASH SHA256=93a852c2b3efafee3723efd4636de855b46f9fe1efddd607e1f42f60fc8f2136
+  SYSTEM
+  EXCLUDE_FROM_ALL
+)
+fb_make_available(libwebp)
+fb_options_after("${libwebp_SOURCE_DIR}" "${FB_SAME_FLOATS}")
+set(FB_LIBWEBP_VERSION ${FB_LIBWEBP_VERSION} PARENT_SCOPE)
+# Its COPYING has BSD-3-Clause's terms, and PATENTS Google's grant of the patents it uses.
+file(READ "${libwebp_SOURCE_DIR}/COPYING" libwebp_notice)
+file(READ "${libwebp_SOURCE_DIR}/PATENTS" libwebp_patents)
+string(APPEND libwebp_notice "\nPATENTS:\n\n${libwebp_patents}")
+fb_notice(libwebp "${libwebp_notice}")
+set(FB_LIBWEBP_NOTICE "${FB_LIBWEBP_NOTICE}" PARENT_SCOPE)
+set(FB_LIBWEBP_LICENSES "the BSD-3-Clause license, with Google's patent grant" PARENT_SCOPE)
+
+# nanosvg: std.image's SVG, parsed and rasterized, built from nanosvg.c here.
+FetchContent_Declare(
+  nanosvg
+  URL https://github.com/memononen/nanosvg/archive/239e102ec2c691f2902e20ace2ed36ee4a35cfe6.tar.gz
+  URL_HASH SHA256=2bc68bdb518d7800252042e5cad50a0ab321596f0cbf49ef2a752926329063d2
+  SOURCE_SUBDIR none
+  SYSTEM
+)
+FetchContent_MakeAvailable(nanosvg)
+add_library(nanosvg STATIC EXCLUDE_FROM_ALL "${CMAKE_CURRENT_SOURCE_DIR}/nanosvg.c")
+target_include_directories(nanosvg SYSTEM PUBLIC "${nanosvg_SOURCE_DIR}/src")
+fb_bundled_library(nanosvg)
+target_compile_options(nanosvg PRIVATE ${FB_SAME_FLOATS})
+# It has no releases, so its version is the day of the commit it's at.
+set(FB_NANOSVG_VERSION 2026-07-09 PARENT_SCOPE)
+file(READ "${nanosvg_SOURCE_DIR}/LICENSE.txt" nanosvg_notice)
+fb_notice(nanosvg "${nanosvg_notice}")
+set(FB_NANOSVG_NOTICE "${FB_NANOSVG_NOTICE}" PARENT_SCOPE)
+set(FB_NANOSVG_LICENSES "the zlib license" PARENT_SCOPE)
