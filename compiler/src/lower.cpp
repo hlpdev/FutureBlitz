@@ -463,6 +463,9 @@ private:
     std::vector<table_thunk_t> m_table_thunks;
     /// Each declared type's symbol, a Struct's, Class's, Interface's, or Enum's, by its type.
     std::unordered_map<type_id_t, symbol_id_t> m_declared_types;
+    /// Each top-level declaration's place in the order main goes through them, a type's members
+    /// at the type's place.
+    std::unordered_map<stmt_id_t, std::uint32_t> m_item_order;
     /// The Methods that implement an Interface's Method that throws.
     std::unordered_set<symbol_id_t> m_takes_error;
     /// While lowering a copy of a For Field's or For Method's body: the member each loop's
@@ -524,6 +527,16 @@ private:
     /// instance's, made as it's used, and a Const known at compile time has none until code needs
     /// its place, since its uses read its value.
     void declare_globals() {
+        for (const stmt_id_t id : m_ast.items()) {
+            if (const auto* declared = std::get_if<type_stmt_t>(&m_ast.get(id).node)) {
+                for (const stmt_id_t member : declared->members) {
+                    m_item_order.emplace(member, static_cast<std::uint32_t>(m_item_order.size()));
+                }
+            } else {
+                m_item_order.emplace(id, static_cast<std::uint32_t>(m_item_order.size()));
+            }
+        }
+
         for (const symbol_id_t id : m_analysis.globals) {
             const symbol_t& symbol = m_analysis.symbol(id);
             const bool generic =
@@ -582,6 +595,7 @@ private:
             .initial = std::move(initial),
             .set_in_main = runs && !thread_local_global,
             .is_thread_local = thread_local_global,
+            .order = m_item_order.at(expect(symbol.declaration)),
         });
         if (runs && thread_local_global) {
             m_thread_local_declarations[global] = expect(symbol.declaration);
@@ -650,6 +664,7 @@ private:
             .name = std::format("{}.{}", types().qualified_name(owner), symbol.name),
             .type = type,
             .initial = std::move(initial),
+            .order = m_item_order.at(expect(symbol.declaration)),
         });
         m_instance_globals[key] = global;
         return global;

@@ -1,5 +1,6 @@
 // When the program ends, the Globals let go of what they hold, the last first, so a Destroy that
-// runs then can still use the Globals above its object's, Class and String alike.
+// runs then can still use the Globals and Static Fields above its object's, Class and String
+// alike.
 Import std.core
 
 Class Holder
@@ -28,6 +29,26 @@ Class Watcher
 End Class
 
 Global second = Watcher()
+
+// A Static Field is in that order at its Class's place, and a generic Class's is too, for each
+// instance.
+Class Settings
+    Static Field Current = Holder("settings")
+    Static Field Title = Build("title", 4)
+End Class
+
+Class Tagged<T>
+    Static Field Label = "tagged"
+End Class
+
+Class Reader
+    Method Destroy()
+        Print("the reader sees {Settings.Current.Name} and {Settings.Title} and " +
+              "[{Tagged<Int>.Label}]")
+    End Method
+End Class
+
+Global reader = Reader()
 
 // A Struct and a fixed array in a Global let go of each reference in them.
 Struct Pair
