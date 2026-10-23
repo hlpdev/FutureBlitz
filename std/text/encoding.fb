@@ -13,6 +13,7 @@ Import std.text.string
 Extern "runtime"
     Function fb_text_append(into: UInt8[], text: String)
     Function fb_text_from_utf8(bytes: UInt8[], start: Int64, count: Int64): String?
+    Function fb_text_byte(text: String, at: Int64): UInt8
 End Extern
 
 // The encodings Encode and Decode take, beside UTF-8.
@@ -393,10 +394,19 @@ Public Struct Html
         Local found = text.Find("&")
         While found != Null
             result.Append(text.Slice(at, found))
-            Local finish = text.Find(";", found)
+            // An entity's name is letters, digits, and "#", so its ";" is looked for only past
+            // them, which keeps each "&" to its own name.
+            Local finish = found + 1
+            While finish < text.Length && IsNameByte(fb_text_byte(text, finish))
+                finish += 1
+            End While
+
             Local entity: String? = Null
-            If finish != Null Then entity = EntityValue(text.Slice(found + 1, finish))
-            If finish != Null && entity != Null
+            If finish < text.Length && fb_text_byte(text, finish) == 59
+                entity = EntityValue(text.Slice(found + 1, finish))
+            End If
+
+            If entity != Null
                 result.Append(entity)
                 at = finish + 1
             Else
@@ -526,15 +536,22 @@ Function EntityValue(name: String): String?
     If !name.StartsWith("#") Then Return Null
     Local hex = name.StartsWith("#x") || name.StartsWith("#X")
     Local digits = name.Slice(hex ? 2 : 1, name.Length)
-    If digits.IsEmpty() || digits.Length > 8 Then Return Null
+    If digits.IsEmpty() Then Return Null
     Local code = 0
     For c In digits.Chars
         Local digit = HexValue(c)
         If digit < 0 || (!hex && digit > 9) Then Return Null
-        code = code * (hex ? 16 : 10) + digit
+        // Past the most a Char holds, the number stands for U+FFFD however it goes on.
+        If code <= 0x10FFFF Then code = code * (hex ? 16 : 10) + digit
     End For
 
     Return "{Char.From(code) ?? '\u{FFFD}'}"
+End Function
+
+// Whether byte can be in an entity's name: an ASCII letter or digit, or "#".
+Function IsNameByte(byte: UInt8): Bool
+    Local letter = (byte >= 65 && byte <= 90) || (byte >= 97 && byte <= 122)
+    Return letter || (byte >= 48 && byte <= 57) || byte == 35
 End Function
 
 // The BOM that starts text in encoding, or nothing for one that has none.
