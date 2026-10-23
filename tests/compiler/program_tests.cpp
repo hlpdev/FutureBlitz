@@ -376,9 +376,9 @@ TEST_CASE("two modules' Classes of one name stay apart, in the program and its l
     INFO((result ? result->output : result.error()));
     REQUIRE(result);
     CHECK(result->output == "a b 1 2\n"
-                            "leak: 1 lib.a.Node objects were never released\n"
-                            "leak: 1 lib.b.Node objects were never released\n"
-                            "leak: 1 main.Node objects were never released\n"
+                            "leak: 1 lib.a.Node object was never released\n"
+                            "leak: 1 lib.b.Node object was never released\n"
+                            "leak: 1 main.Node object was never released\n"
                             "leak: a cycle of 3 objects: lib.a.Node.next -> lib.b.Node.next -> "
                             "main.Node.next -> the first lib.a.Node\n");
     CHECK(result->exit_code == 0);
@@ -407,8 +407,8 @@ TEST_CASE("the compiler's own Classes have no module in a leak report", "[progra
         "made_names", "Import \"./lib/a\" As A\n" + timer + "Leak()\nA.Leak()\n", library);
     INFO((result ? result->output : result.error()));
     REQUIRE(result);
-    CHECK(result->output.contains("leak: 1 Cell<lib.a.Timer> objects were never released\n"));
-    CHECK(result->output.contains("leak: 1 Cell<main.Timer> objects were never released\n"));
+    CHECK(result->output.contains("leak: 1 Cell<lib.a.Timer> object was never released\n"));
+    CHECK(result->output.contains("leak: 1 Cell<main.Timer> object was never released\n"));
     CHECK_FALSE(result->output.contains("main.Cell"));
 }
 
@@ -503,8 +503,8 @@ TEST_CASE("panics and leak reports tell a generic Class from another of its name
         "generic_leak", own + "Local mine = Box()\nmine.next = MakeBox(mine)", library);
     INFO((leak ? leak->output : leak.error()));
     REQUIRE(leak);
-    CHECK(leak->output == "leak: 1 main.Box objects were never released\n"
-                          "leak: 1 lib.a.Box<Int32> objects were never released\n"
+    CHECK(leak->output == "leak: 1 main.Box object was never released\n"
+                          "leak: 1 lib.a.Box<Int32> object was never released\n"
                           "leak: a cycle of 2 objects: main.Box.next -> lib.a.Box<Int32>.next -> "
                           "the first main.Box\n");
     CHECK(leak->exit_code == 0);
@@ -551,8 +551,8 @@ TEST_CASE("a leak report is one message, and shows a Class made of one alike ano
                          library);
     INFO((cycles ? cycles->output : cycles.error()));
     REQUIRE(cycles);
-    CHECK(cycles->output == "leak: 1 lib.a.Node objects were never released\n"
-                            "leak: 1 main.Node objects were never released\n"
+    CHECK(cycles->output == "leak: 1 lib.a.Node object was never released\n"
+                            "leak: 1 main.Node object was never released\n"
                             "leak: a cycle of 1 object: main.Node.next -> the first main.Node\n"
                             "leak: a cycle of 1 object: lib.a.Node.next -> the first lib.a.Node\n");
     CHECK(cycles->exit_code == 0);
@@ -571,9 +571,9 @@ TEST_CASE("a leak report is one message, and shows a Class made of one alike ano
                          library);
     INFO((parts ? parts->output : parts.error()));
     REQUIRE(parts);
-    CHECK(parts->output == "leak: 1 main.Box objects were never released\n"
-                           "leak: 1 lib.a.Pair<main.Box> objects were never released\n"
-                           "leak: 1 lib.a.Box<Int32> objects were never released\n"
+    CHECK(parts->output == "leak: 1 main.Box object was never released\n"
+                           "leak: 1 lib.a.Pair<main.Box> object was never released\n"
+                           "leak: 1 lib.a.Box<Int32> object was never released\n"
                            "leak: a cycle of 3 objects: main.Box.next -> lib.a.Pair<main.Box>.next "
                            "-> lib.a.Box<Int32>.next -> the first main.Box\n");
     CHECK(parts->exit_code == 0);

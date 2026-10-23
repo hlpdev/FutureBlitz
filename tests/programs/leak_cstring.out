@@ -1,2 +1,2 @@
 kept 4
-leak: 1 CString copies of Strings were never freed
+leak: 1 CString copy of a String was never freed

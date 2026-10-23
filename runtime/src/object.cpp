@@ -527,13 +527,13 @@ void fb_finish(fb_class_t* const* classes, const std::int64_t count) {
     // Whatever the program printed shows up before the report.
     std::fflush(stdout);
     if (const std::int64_t strings = fb_string_live_count(); strings != 0) {
-        std::fprintf(stderr, "leak: %lld Strings were never released\n",
-                     static_cast<long long>(strings));
+        std::fprintf(stderr, "leak: %lld %s never released\n", static_cast<long long>(strings),
+                     strings == 1 ? "String was" : "Strings were");
     }
 
     if (const std::int64_t copies = fb_cstring_live_count(); copies != 0) {
-        std::fprintf(stderr, "leak: %lld CString copies of Strings were never freed\n",
-                     static_cast<long long>(copies));
+        std::fprintf(stderr, "leak: %lld CString %s never freed\n", static_cast<long long>(copies),
+                     copies == 1 ? "copy of a String was" : "copies of Strings were");
     }
 
     // The report shows the leaked Classes by their names, or by their full names where two are
@@ -546,9 +546,10 @@ void fb_finish(fb_class_t* const* classes, const std::int64_t count) {
     }
 
     for (const fb_class_t* type : leaked) {
-        std::fprintf(stderr, "leak: %lld %s objects were never released\n",
+        std::fprintf(stderr, "leak: %lld %s %s never released\n",
                      static_cast<long long>(type->live),
-                     shown_name(type, std::span<const fb_class_t* const>(leaked)));
+                     shown_name(type, std::span<const fb_class_t* const>(leaked)),
+                     type->live == 1 ? "object was" : "objects were");
     }
 
     if (!leaked.empty() && registry().tracking) {

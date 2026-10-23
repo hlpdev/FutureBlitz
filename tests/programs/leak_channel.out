@@ -1,4 +1,4 @@
 end
-leak: 1 Hub objects were never released
-leak: 1 Channel<Hub> objects were never released
+leak: 1 Hub object was never released
+leak: 1 Channel<Hub> object was never released
 leak: a cycle of 2 objects: Hub.Inbox -> Channel<Hub> element -> the first Hub
