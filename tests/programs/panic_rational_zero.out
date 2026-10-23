@@ -1,0 +1,2 @@
+-1/2
+panic: division by zero at panic_rational_zero.fb:6:7

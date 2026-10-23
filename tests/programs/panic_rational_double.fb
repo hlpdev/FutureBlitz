@@ -1,0 +1,7 @@
+// A Rational is finite, and an infinity below 0 panics.
+Import std.core
+Import std.math.big
+
+Local zero = 0.0
+Print(Rational.FromDouble(0.5))
+Print(Rational.FromDouble(-1.0 / zero))

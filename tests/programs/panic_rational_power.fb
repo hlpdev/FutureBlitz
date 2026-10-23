@@ -1,0 +1,6 @@
+// 0 to a power below 0 panics.
+Import std.core
+Import std.math.big
+
+Print(Rational(2, 3) ** -2)
+Print(Rational(0) ** -2)

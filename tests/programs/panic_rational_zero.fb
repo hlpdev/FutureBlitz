@@ -1,0 +1,6 @@
+// A Rational's denominator of 0 panics where it's made.
+Import std.core
+Import std.math.big
+
+Print(Rational(2, -4))
+Print(Rational(1, 0))
