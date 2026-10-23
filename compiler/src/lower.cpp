@@ -464,6 +464,8 @@ private:
     std::vector<local_id_t> m_temporaries;        // owned values to release after the statement
     std::vector<loop_t> m_loops;                  // innermost last
     std::vector<leaving_t> m_leaving;             // innermost last
+    /// Errors on their way out while the Defers and Finallys they pass run, innermost last.
+    std::vector<local_id_t> m_raising;
     /// A Method's or New's Self.
     std::optional<local_id_t> m_self;
     /// Lowering a New, whose Returns give back Self.
@@ -1788,6 +1790,7 @@ private:
         m_temporaries.clear();
         m_loops.clear();
         m_leaving.clear();
+        m_raising.clear();
         m_self.reset();
         m_returns_self = false;
         m_handlers.clear();
@@ -4509,6 +4512,9 @@ private:
             emit(release_t{ .target = temporary });
         }
 
+        // The error is held while the Defers and Finallys on its way run, so one that Awaits and
+        // is never resumed lets go of it too.
+        m_raising.push_back(error);
         if (!m_handlers.empty()) {
             release_scopes(m_handlers.back().scope_depth);
             emit(assign_t{
@@ -4555,6 +4561,7 @@ private:
             terminate(unreachable_t{});
         }
 
+        m_raising.pop_back();
         m_temporaries = temporaries;
     }
 
@@ -6632,10 +6639,15 @@ private:
         terminate(suspend_t{ .resume = resume, .cancel = cancel });
         // Destroyed here, the coroutine lets go of what it holds, without running its Defers or
         // Finally blocks, and its Task is never done. In a deferred statement or a Finally on a
-        // way out, what the way out has let go of already is gone.
+        // way out, what the way out has let go of already is gone, and an error on its way out
+        // is let go of too.
         start(cancel);
         for (const local_id_t temporary : std::views::reverse(m_temporaries)) {
             emit(release_t{ .target = temporary });
+        }
+
+        for (const local_id_t error : std::views::reverse(m_raising)) {
+            emit(release_t{ .target = error });
         }
 
         for (std::size_t depth = m_scopes.size(); depth-- > 0;) {

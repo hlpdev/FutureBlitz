@@ -1,6 +1,6 @@
 // A coroutine destroyed while a Defer's statement or a Finally awaits, on its way out of a
-// function, a block, or a loop, lets go of only what it still holds: what the way out let go of
-// before the Await stays gone, once.
+// function, a block, or a loop, or with an error, lets go of only what it still holds: what the
+// way out let go of before the Await stays gone, once, and the error goes too.
 Import std.core
 
 Class Light
@@ -65,6 +65,38 @@ Async Function Breaking()
     End For
 End Function
 
+// An error on its way out, through a Finally or a Defer that awaits, is let go of too.
+Class Boom Extends Error
+    Method Destroy()
+        Print("{Message} goes")
+    End Method
+End Class
+
+Async Function Throwing() Throws Boom
+    Try
+        Throw Boom("Throwing's error")
+    Finally
+        Print("finally {Await Never()}")
+    End Try
+End Function
+
+Async Function Deferring() Throws Boom
+    Defer Print("deferred {Await Never()}")
+    Throw Boom("Deferring's error")
+End Function
+
+Async Function Caught()
+    Try
+        Try
+            Throw Boom("Caught's error")
+        Finally
+            Print("finally {Await Never()}")
+        End Try
+    Catch e
+        Print("never: {e.Message}")
+    End Try
+End Function
+
 // The end of a block runs its Defer, which awaits after its lamp is gone.
 Async Function Ending()
     If True
@@ -90,6 +122,9 @@ Function Drop()
     paused.Run(Finishing())
     paused.Run(Breaking())
     paused.Run(Ending())
+    paused.Run(Throwing())
+    paused.Run(Deferring())
+    paused.Run(Caught())
     paused.Tick(1.0)
     Print("before dropping: {Gone()}")
 End Function
