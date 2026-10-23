@@ -335,8 +335,7 @@ int run(const console_t& console, const options_t& options, const compilation_t&
     const std::expected<void, std::string> built =
         build_program(module, compilation, program, options.mode);
     if (!built) {
-        std::error_code ignored;
-        std::filesystem::remove_all(folder, ignored);
+        remove_temporary(folder);
         report_build_error(console, compilation, shown, built.error());
         return compile_errors_exit_code;
     }
@@ -347,8 +346,7 @@ int run(const console_t& console, const options_t& options, const compilation_t&
         run_attached(program, options.program_arguments);
 
     // Cleaning up is best effort. A folder left in temp isn't worth an error.
-    std::error_code ignored;
-    std::filesystem::remove_all(folder, ignored);
+    remove_temporary(folder);
     if (!exit_code) {
         console.error(exit_code.error());
         return compile_errors_exit_code;
