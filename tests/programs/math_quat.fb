@@ -63,6 +63,9 @@ Print(IsClose(Quat.FromEuler(Pi / 2, 0.3, 0.2), Quat.FromEuler(Pi / 2, 0.1, 0)))
 // FromTo, the shortest turn from one direction to another, half a turn for opposite ones.
 Print(Shown(Quat.FromTo(Vec3.Right, Vec3.Up) * Vec3.Right),
       Shown(Quat.FromTo(Vec3(0, 0, 5), Vec3(3, 0, 0)) * Vec3.Back))
+// Length and Normalize work in Doubles, so a very long or short quaternion still has its direction.
+Print(Normalize(Quat(0, 0, 0, 1e20)), Normalize(Quat(0, 0, 1e-25, 1e-25)),
+      Length(Quat(0, 0, 0, 1e20)), Normalize(Quat(0, 0, 0, 0)))
 // A turn of 0.0005 radians, as aiming 0.5 off at 1000 away, and none for the same direction.
 Local target = Normalize(Vec3(1, 0.0005, 0))
 Local slight = Quat.FromTo(Vec3.Right, target)

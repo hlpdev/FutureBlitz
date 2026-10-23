@@ -176,15 +176,15 @@ End Struct
 // The sum of the products of the components: the cosine of half the angle between two rotations.
 Public Function Dot(a: Quat, b: Quat): Float => a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w
 
-// The quaternion's length, which a rotation's is 1.
-Public Function Length(q: Quat): Float => Sqrt(Dot(q, q))
+// The quaternion's length, which a rotation's is 1, worked out in Doubles, as a Vec4's is.
+Public Function Length(q: Quat): Float => Length(Vec4(q.x, q.y, q.z, q.w))
 
-// The quaternion scaled to length 1, as rounding over many rotations wears it. A zero one gives no
-// rotation.
+// The quaternion scaled to length 1, as rounding over many rotations wears it, worked out in
+// Doubles, as a Vec4's is. A zero one gives no rotation.
 Public Function Normalize(q: Quat): Quat
-    Local length = Length(q)
-    If !(length > 0) Then Return Quat.Identity
-    Return Quat(q.x / length, q.y / length, q.z / length, q.w / length)
+    Local unit = Normalize(Vec4(q.x, q.y, q.z, q.w))
+    If unit == Vec4.Zero() Then Return Quat.Identity
+    Return Quat(unit.x, unit.y, unit.z, unit.w)
 End Function
 
 // The opposite rotation, which undoes it: for a unit quaternion, as a rotation is, its conjugate.
