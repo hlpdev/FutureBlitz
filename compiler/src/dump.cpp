@@ -317,9 +317,13 @@ private:
             result = ": " + type_text(*node.result);
         }
 
-        const std::string_view kind = node.callback   ? "Callback"
-                                      : node.sendable ? "Sendable Func"
-                                                      : "Func";
+        std::string_view kind = "Func";
+        if (node.callback) {
+            kind = "Callback";
+        } else if (node.sendable) {
+            kind = "Sendable Func";
+        }
+
         return std::format("{}({}){}", kind, parameters, result);
     }
 

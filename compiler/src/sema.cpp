@@ -14305,6 +14305,7 @@ private:
 
         // A generic function's Throws has the call's type arguments in it.
         std::vector<type_id_t> throws;
+        throws.reserve(function.throws.size());
         for (const type_id_t type : function.throws) {
             throws.push_back(substitute(type, m_substitution.parameters, m_substitution.arguments));
         }
@@ -19728,6 +19729,7 @@ private:
         // for "a?.M()" when a is Null. A generic one's Throws has the type arguments in it.
         if (symbol(*function).modifiers.is_async) {
             std::vector<type_id_t> throws;
+            throws.reserve(symbol(*function).throws.size());
             for (const type_id_t thrown : symbol(*function).throws) {
                 throws.push_back(substitute(thrown, parameters, *arguments));
             }

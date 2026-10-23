@@ -1951,6 +1951,7 @@ private:
         // type arguments in it.
         if (function.modifiers.is_async) {
             std::vector<type_id_t> throws;
+            throws.reserve(function.throws.size());
             for (const type_id_t thrown : function.throws) {
                 throws.push_back(concrete(thrown));
             }
