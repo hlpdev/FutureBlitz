@@ -1,7 +1,7 @@
 file(GLOB_RECURSE FB_RUNTIME_SOURCES CONFIGURE_DEPENDS src/*.cpp)
 # The parts over bundled C libraries are archives of their own.
 set(FB_RUNTIME_PARTS io dns crypto crypto_pem xxhash blake3 argon2 bcrypt ed25519 db bigint
-    decimal tz zlib zstd lz4 xz seven_zip zip)
+    decimal tz zlib zstd lz4 xz seven_zip zip unicode)
 foreach(part ${FB_RUNTIME_PARTS})
   list(REMOVE_ITEM FB_RUNTIME_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/src/${part}.cpp)
 endforeach()
@@ -83,19 +83,27 @@ target_sources(fb_runtime_xz PRIVATE src/seven_zip.cpp)
 target_link_libraries(fb_runtime_xz PRIVATE liblzma)
 target_link_libraries(fb_runtime_zip PRIVATE minizip_ng liblzma)
 
+# Its part over utf8proc, the fb_unicode_ functions, which std.text's case, categories,
+# normalization, and grapheme clusters call.
+add_library(fb_runtime_unicode STATIC src/unicode.cpp)
+target_include_directories(fb_runtime_unicode PUBLIC include)
+target_link_libraries(fb_runtime_unicode PRIVATE utf8proc)
+fb_set_warnings(fb_runtime_unicode)
+
 # What a program can link: each part and its library, which fb and the tests that build programs
 # depend on.
 set(FB_RUNTIME_ARCHIVES fb_runtime fb_runtime_io uv_a fb_runtime_crypto tfpsacrypto
     fb_runtime_xxhash xxhash fb_runtime_blake3 blake3 fb_runtime_argon2 argon2 fb_runtime_bcrypt
     crypt_blowfish fb_runtime_ed25519 monocypher fb_runtime_db sqlite fb_runtime_bigint tommath
     fb_runtime_decimal mpdecimal fb_runtime_tz fb_tzdata fb_runtime_zlib zlib-ng fb_runtime_zstd
-    zstd fb_runtime_lz4 lz4 fb_runtime_xz liblzma fb_runtime_zip minizip_ng PARENT_SCOPE)
+    zstd fb_runtime_lz4 lz4 fb_runtime_xz liblzma fb_runtime_zip minizip_ng fb_runtime_unicode
+    utf8proc PARENT_SCOPE)
 
 # Nothing in the runtime throws: exceptions can't cross into compiled programs.
 foreach(part fb_runtime fb_runtime_io fb_runtime_crypto fb_runtime_xxhash fb_runtime_blake3
              fb_runtime_argon2 fb_runtime_bcrypt fb_runtime_ed25519 fb_runtime_db
              fb_runtime_bigint fb_runtime_decimal fb_runtime_tz fb_runtime_zlib fb_runtime_zstd
-             fb_runtime_lz4 fb_runtime_xz fb_runtime_zip)
+             fb_runtime_lz4 fb_runtime_xz fb_runtime_zip fb_runtime_unicode)
   if(MSVC)
     target_compile_options(${part} PRIVATE /EHs-c-)
   else()

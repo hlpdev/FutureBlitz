@@ -2,8 +2,12 @@
 
 #include "fb/runtime.hpp"
 
+#include <cstddef>
+#include <cstdint>
 #include <cstdio>
 #include <span>
+#include <string>
+#include <string_view>
 #include <vector>
 
 // What the runtime's files share that compiled code doesn't call. io.cpp uses it without the
@@ -60,5 +64,25 @@ void write_string(const fb_string_t* string, std::FILE* stream);
 
 /// Writes `prompt` to stdout, flushed, under the lock that keeps writes from mixing.
 void write_prompt(const fb_string_t* prompt);
+
+/// A String's bytes.
+[[nodiscard]] std::string_view text_of(const fb_string_t* string);
+
+/// A new String of a copy of `text`, which is UTF-8, with one owner. Panics past the most a
+/// String holds, 2147483647 bytes.
+[[nodiscard]] fb_string_t* new_string(std::string_view text);
+
+/// A code point in UTF-8, and how many bytes it takes.
+struct decoded_t {
+    std::uint32_t point;
+    std::size_t length;
+};
+
+/// The code point that starts at `at` in `text`, or U+FFFD and 1 for a byte that doesn't start a
+/// well-formed one.
+[[nodiscard]] decoded_t decode_utf8(std::string_view text, std::size_t at);
+
+/// `point`, a Unicode scalar value, in UTF-8.
+[[nodiscard]] std::string encode_utf8(std::uint32_t point);
 
 } // namespace fb::runtime
