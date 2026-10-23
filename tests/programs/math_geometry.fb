@@ -140,3 +140,14 @@ Print(frustum.Intersects(AABB(Vec3(50, 50, 50), Vec3(60, 60, 60))),
 // all the way, counts, though no point of it is inside.
 Local beyond = AABB(Vec3(101, -1, -105), Vec3(120, 1, -85))
 Print(frustum.Intersects(beyond), frustum.Contains(beyond.Min), frustum.Contains(Vec3(101, 0, -95)))
+// A far plane a hundred million nears off rounds away to a row of no x, y, or z, which holds
+// everything in front of the near plane; a row of them that holds nothing culls everything.
+Local endless = Frustum.FromMatrix(Mat4.Perspective(Pi / 2, 1, 0.01, 1000000) * view)
+Print(endless.Far, endless.Contains(Vec3(0, 0, -10)),
+      endless.Intersects(Sphere(Vec3(0, 0, -10), 1)),
+      endless.Intersects(AABB(Vec3(-1, -1, -11), Vec3(1, 1, -9))), endless.Contains(Vec3(0, 0, 6)))
+Local nowhere = Frustum(frustum.Left, frustum.Right, frustum.Bottom, frustum.Top, frustum.Near,
+                        Frustum.FromMatrix(Mat4(Vec4.Zero(), Vec4.Zero(), Vec4.Zero(),
+                                                Vec4(0, 0, 1, -1))).Far)
+Print(nowhere.Far, nowhere.Contains(Vec3.Zero()), nowhere.Intersects(Sphere(Vec3.Zero(), 9)),
+      nowhere.Intersects(AABB(-Vec3.One(), Vec3.One())))

@@ -367,8 +367,11 @@ Function Reaches(plane: Plane, box: AABB): Bool
 End Function
 
 // The plane where a * x + b * y + c * z + d is 0, facing where it's above 0, with its normal
-// scaled to length 1.
+// scaled to length 1. A row of no x, y, or z, as a far plane so far off that Floats round it away
+// gives, holds every point where d isn't below 0, and none where it is: a plane with no normal,
+// at 0 or at Inf.
 Function PlaneOf(row: Vec4): Plane
     Local length = Length(row.xyz)
+    If length == 0 Then Return Plane(Vec3.Zero(), row.w >= 0 ? 0 : Inf)
     Return Plane(row.xyz / length, -row.w / length)
 End Function
