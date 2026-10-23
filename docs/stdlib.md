@@ -560,8 +560,8 @@ Built in step 27. `Import std.algo` brings in all of std/algo/.
   `ShortestPaths<N, C>` to every node reached, with `Nodes` (the cheapest first), `Contains`,
   `CostTo`, `PathTo`, and `Parent`. A search goes over successors in the order they're given,
   and its queue breaks ties by the least total, then the least guess, then the first added, so a
-  run finds what the last did; a weight that's negative or NaN panics, and what isn't reached is
-  Null. Block lambdas give their result type, like `Function(n: Int): (Int, Int)[]`, so the
+  run finds what the last did; a weight that's negative or NaN, or a guess that's NaN, panics,
+  and what isn't reached is Null. Block lambdas give their result type, like `Function(n: Int): (Int, Int)[]`, so the
   weight's type can come from them.
 - Grids (grid.fb), of cells as `Vec2i` from (0, 0): `GridNeighbors(width, height, cell,
   diagonal)`; `GridPath(width, height, start, goal, passable, diagonal)`, A* with the octile or

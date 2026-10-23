@@ -1,0 +1,2 @@
+[S, A, X, G] 3
+panic: heuristic's guess can't be NaN at panic_algo_astar_guess.fb:17:14

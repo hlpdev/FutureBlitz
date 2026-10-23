@@ -224,6 +224,8 @@ Class Search<N, C>
         Local queue = PriorityQueue<Waiting<C>>(Before<C>)
         Local added = 0
         Local guess = heuristic(start)
+        // NaN, which no order places, would settle a node before its cheapest way.
+        If guess != guess Then Panic("heuristic's guess can't be NaN")
         queue.Add(Waiting<C>(guess, guess, added, 0))
         While queue.Count > 0
             Local waiting = queue.Pop()
@@ -271,6 +273,7 @@ Class Search<N, C>
 
                 added++
                 Local left = heuristic(successor)
+                If left != left Then Panic("heuristic's guess can't be NaN")
                 queue.Add(Waiting<C>(cost + left, left, added, to))
             End For
         End While
@@ -322,7 +325,8 @@ End Function
 // The cheapest path from start to the first node that goal says is one, by A*, which goes on
 // first from where the cost so far, plus heuristic's guess of what's left to the goal, is least.
 // For the path to be the cheapest, the guess can't be more than what's left, as a straight line's
-// length isn't. Null when no node it reaches is the goal. A negative or NaN weight panics.
+// length isn't. Null when no node it reaches is the goal. A negative or NaN weight, or a NaN
+// guess, panics.
 @PanicsAtCaller
 Public Function AStar<N, C>(start: N, successors: Func(N): (N, C)[], heuristic: Func(N): C,
                             goal: Func(N): Bool): Path<N, C>?

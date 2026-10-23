@@ -1,0 +1,17 @@
+// AStar takes guesses that aren't NaN, which no order places, and one panics where it's called.
+Import std.core
+Import std.collections
+Import std.math
+Import std.algo
+
+Local edges = Map<String, (String, Double)[]>()
+edges["S"] = [("X", 5), ("A", 1)]
+edges["A"] = [("X", 1)]
+edges["X"] = [("G", 1)]
+edges["G"] = []
+Local none: String[] = []
+Local zero = Function(n: String): Double => 0
+Local fine = AStar("S", Function(n) => edges[n], zero, Function(n) => n == "G")
+Print(fine?.Nodes ?? none, fine?.Cost ?? -1)
+Local guess = Function(n: String): Double => n == "X" ? NaN : 0
+Local star = AStar("S", Function(n) => edges[n], guess, Function(n) => n == "G")
