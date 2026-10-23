@@ -126,10 +126,11 @@ Public Function IntSqrt<T>(value: T): T
     Return T.FromLowBits(root)
 End Function
 
-// The value t of the way from a to b: a at 0, b at 1, and past them outside 0 to 1.
+// The value t of the way from a to b: a at 0, b itself at 1, though b - a rounds, and past them
+// outside 0 to 1.
 Public Function Lerp<T>(a: T, b: T, t: T): T
-    Where T: FloatingPoint & Numeric
-    Return a + (b - a) * t
+    Where T: FloatingPoint & Numeric & Comparable
+    Return t == T.One() ? b : a + (b - a) * t
 End Function
 
 // How far of the way from a to b the value is, as Lerp's t: 0 at a, 1 at b. With a equal to b,

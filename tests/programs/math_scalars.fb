@@ -63,6 +63,12 @@ Local half: Double = 0.5
 Print(Lerp(0, 10, t), Lerp(0, 10, half), Lerp(10.0, 20.0, 1.5), Lerp(10.0, 20.0, -1.0))
 Print(InverseLerp(0, 10, 2.5), InverseLerp(10.0, 20.0, 5.0), InverseLerp(3.0, 3.0, 7.0))
 Print(Remap(5.0, 0, 10, 100, 200), Remap(15.0, 10, 20, 0, -1))
+// At 1, b itself, though b - a rounds, so an animation ends where it should; Remap goes through it.
+Local done: Float = 1.0
+Local finish: Float = 0.1
+Local far: Float = 100000000.0
+Print(Lerp(1.0, finish, done) == finish, Lerp(far, 3.0, done), Remap(10.0, 0.0, 10.0, far, 3.0),
+      Lerp(3.3, 0.2, 1.0) == 0.2, Lerp(far, 3.0, 0.0))
 Print(SmoothStep(0, 1, t), SmoothStep(0.0, 1.0, -1.0), SmoothStep(0.0, 1.0, 2.0),
       SmoothStep(0.0, 1.0, 0.5))
 Print(SmoothStep(2.0, 2.0, 1.0), SmoothStep(2.0, 2.0, 2.0), SmoothStep(1.0, 0.0, t))
