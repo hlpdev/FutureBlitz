@@ -1875,6 +1875,34 @@ TEST_CASE("an Import doesn't reach outside its package through a link", "[driver
     packages.remove();
 }
 
+TEST_CASE("a module's file ends in .fb, in its letter case", "[driver]") {
+    // A disk that ignores letter cases finds Up.FB for "./Up", which gets a warning, as the other
+    // letter cases do; a disk that doesn't finds nothing.
+    const packages_t packages;
+    packages.write("quoted/Up.FB", "Public Function F(): Int => 7\n");
+    packages.write("quoted/main.fb", "Import \"./Up\"\nLocal n = F()\n");
+    if (std::filesystem::exists(packages / "quoted/Up.fb")) {
+        const std::expected<fb::compilation_t, std::string> quoted =
+            fb::compile_file(packages / "quoted/main.fb");
+        REQUIRE(quoted);
+        CHECK(packages.messages(*quoted) ==
+              std::vector<std::string>{ "quoted/main.fb: \"./Up\": the disk spells its file Up.FB, "
+                                        "in other letter cases, which only a disk that ignores "
+                                        "them finds; a module's file ends in .fb" });
+    }
+
+    // A folder's Import finds no module in a folder of .FB files, on any disk, and says why.
+    packages.write("app/project.toml", "[project]\nname = \"app\"\nversion = \"1.0.0\"\n");
+    packages.write("app/sub/Down.FB", "Public Function G(): Int => 8\n");
+    packages.write("app/main.fb", "Import app.sub\n");
+    const std::expected<fb::compilation_t, std::string> folder = fb::compile_file(packages / "app");
+    REQUIRE(folder);
+    CHECK(packages.messages(*folder) ==
+          std::vector<std::string>{ "app/main.fb: app.sub: there's no module app.sub: app/sub/ has "
+                                    "Down.FB, but a module's file ends in .fb" });
+    packages.remove();
+}
+
 TEST_CASE("a folder Import whose files are links leaving the package is one error", "[driver]") {
     // The folder is there, with a file in it, so it isn't reported missing too.
     const packages_t packages;

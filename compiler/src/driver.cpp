@@ -556,6 +556,17 @@ private:
             std::optional<std::string> found = last && !paths.file.empty()
                                                    ? on_disk(real, std::format("{}.fb", part))
                                                    : std::nullopt;
+            if (found && !found->ends_with(".fb")) {
+                // A module's file ends in .fb, which only a disk that ignores letter cases finds
+                // as another spelling of it.
+                m_compilation.diagnostics.warning(
+                    node.target_span,
+                    "the disk spells its file {}, in other letter cases, which only a disk that "
+                    "ignores them finds; a module's file ends in .fb",
+                    *found);
+                return;
+            }
+
             if (found) {
                 found = found->substr(0, found->size() - 3);
             } else {
@@ -769,6 +780,17 @@ private:
             return;
         }
 
+        // A folder whose files end in .FB, or .Fb, has none a module's file ends in, .fb.
+        if (!node.quoted && paths.folder) {
+            if (const std::optional<std::string> other = respelled_file(*paths.folder)) {
+                m_compilation.diagnostics.error(
+                    node.target_span,
+                    "there's no module {}: {}/ has {}, but a module's file ends in .fb",
+                    node.target, shown_path(m_files, *paths.folder), *other);
+                return;
+            }
+        }
+
         if (!node.quoted) {
             m_compilation.diagnostics.error(
                 node.target_span, "there's no module {}: no {}, and no folder {}/ of modules",
@@ -786,6 +808,26 @@ private:
 
         m_compilation.diagnostics.error(node.target_span, "there's no module \"{}\": no {}",
                                         node.target, shown_path(m_files, paths.file));
+    }
+
+    /// The first file in `folder` on disk, by name, whose extension is .fb in other letter cases.
+    [[nodiscard]] std::optional<std::string> respelled_file(const std::string& folder) const {
+        if (!m_files.root) {
+            return std::nullopt;
+        }
+
+        std::optional<std::string> first;
+        std::error_code error;
+        for (auto entry = std::filesystem::directory_iterator(disk_path(m_files, folder), error);
+             !error && entry != std::filesystem::directory_iterator(); entry.increment(error)) {
+            const std::string name = to_utf8(entry->path().filename());
+            if (folded(to_utf8(entry->path().extension())) == ".fb" && !name.ends_with(".fb") &&
+                (!first || name < *first)) {
+                first = name;
+            }
+        }
+
+        return first;
     }
 
     /// The loaded files in the order their Globals initialize, by index.
