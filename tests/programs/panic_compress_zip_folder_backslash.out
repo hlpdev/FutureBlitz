@@ -1,0 +1,2 @@
+True
+panic: a zip's names have '/' between folders, not '\' at panic_compress_zip_folder_backslash.fb:9:1

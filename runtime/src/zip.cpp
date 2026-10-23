@@ -9,6 +9,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <ctime>
 #include <span>
@@ -18,7 +19,9 @@
 #include <vector>
 
 extern "C" {
+#include <lzma.h>
 #include <mz.h>
+#include <mz_crypt.h>
 #include <mz_os.h>
 #include <mz_strm.h>
 #include <mz_strm_mem.h>
@@ -67,6 +70,9 @@ constexpr std::uint16_t made_by = (static_cast<std::uint32_t>(MZ_HOST_SYSTEM_UNI
 /// MS-DOS's folder bit is in the bottom half of.
 constexpr std::uint32_t file_mode = 0100644U << 16U;
 constexpr std::uint32_t folder_mode = (040755U << 16U) | 0x10U;
+/// A Unix mode's bits that say what kind of file it is, and a link's.
+constexpr std::uint32_t mode_kind = 0170000U;
+constexpr std::uint32_t mode_link = 0120000U;
 
 /// A name as UTF-8: as it is, when it says it is or is well-formed UTF-8 anyway, as many tools
 /// write without saying, or else read as code page 437.
@@ -212,8 +218,108 @@ std::int32_t fail(reader_t& reader, const std::int32_t result, const std::string
     return result;
 }
 
+/// Frees the options lzma_properties_decode gives once they go.
+struct options_t {
+    void* options = nullptr;
+
+    options_t() = default;
+    options_t(const options_t&) = delete;
+    options_t& operator=(const options_t&) = delete;
+    options_t(options_t&&) = delete;
+    options_t& operator=(options_t&&) = delete;
+
+    ~options_t() {
+        std::free(options);
+    }
+};
+
+/// Decodes an LZMA or XZ entry's raw bytes with liblzma, giving what comes out to `give`: a
+/// result_t. Its dictionary takes no more memory than an array holds, which minizip-ng doesn't
+/// ask, as XZ.Decompress does. A zip's LZMA has 2 bytes of the LZMA SDK's version and 2 of its
+/// properties' size before its 5 properties, and may end with LZMA's end marker or at its size.
+template <typename Give>
+std::int32_t decode_lzma(reader_t& reader, const std::string& name, const std::uint16_t method,
+                         const std::int64_t size, const std::span<const std::uint8_t> raw,
+                         const Give& give) {
+    lzma_stream stream = LZMA_STREAM_INIT;
+    std::span<const std::uint8_t> data = raw;
+    options_t options;
+    lzma_ret started = LZMA_OK;
+    if (method == MZ_COMPRESS_METHOD_LZMA) {
+        lzma_filter lzma1{ .id = LZMA_FILTER_LZMA1, .options = nullptr };
+        if (raw.size() < 9 || raw[2] != 5 || raw[3] != 0 ||
+            lzma_properties_decode(&lzma1, nullptr, raw.data() + 4, 5) != LZMA_OK) {
+            return fail(reader, RESULT_INVALID, "'" + name + "' is broken");
+        }
+
+        options.options = lzma1.options;
+        auto* lzma = static_cast<lzma_options_lzma*>(lzma1.options);
+        lzma->ext_flags = LZMA_LZMA1EXT_ALLOW_EOPM;
+        lzma->ext_size_low = static_cast<std::uint32_t>(size);
+        lzma->ext_size_high = static_cast<std::uint32_t>(static_cast<std::uint64_t>(size) >> 32U);
+        const std::array<lzma_filter, 2> filters{
+            lzma_filter{ .id = LZMA_FILTER_LZMA1EXT, .options = lzma },
+            lzma_filter{ .id = LZMA_VLI_UNKNOWN, .options = nullptr },
+        };
+        if (lzma_raw_decoder_memusage(filters.data()) > static_cast<std::uint64_t>(most_bytes)) {
+            return fail(reader, RESULT_UNSUPPORTED,
+                        "'" + name + "' needs more memory than an array holds to decompress");
+        }
+
+        started = lzma_raw_decoder(&stream, filters.data());
+        data = raw.subspan(9);
+    } else {
+        started = lzma_stream_decoder(&stream, static_cast<std::uint64_t>(most_bytes), 0);
+    }
+
+    if (started == LZMA_MEM_ERROR) {
+        fb_panic("out of memory", nullptr);
+    }
+
+    if (started != LZMA_OK) {
+        return fail(reader, RESULT_UNSUPPORTED, "'" + name + "' has options liblzma lacks");
+    }
+
+    std::vector<std::uint8_t> chunk(chunk_size);
+    stream.next_in = data.data();
+    stream.avail_in = data.size();
+    lzma_ret status = LZMA_OK;
+    std::int32_t result = RESULT_DONE;
+    while (status == LZMA_OK && result == RESULT_DONE) {
+        stream.next_out = chunk.data();
+        stream.avail_out = chunk.size();
+        status = lzma_code(&stream, LZMA_FINISH);
+        const std::size_t made = chunk.size() - stream.avail_out;
+        if (!give(std::span<const std::uint8_t>(chunk).first(made))) {
+            result =
+                fail(reader, RESULT_INVALID, "'" + name + "' has more bytes than its size says");
+        }
+    }
+
+    lzma_end(&stream);
+    if (result != RESULT_DONE) {
+        return result;
+    }
+
+    if (status == LZMA_MEM_ERROR) {
+        fb_panic("out of memory", nullptr);
+    }
+
+    if (status == LZMA_MEMLIMIT_ERROR) {
+        return fail(reader, RESULT_UNSUPPORTED,
+                    "'" + name + "' needs more memory than an array holds to decompress");
+    }
+
+    if (status != LZMA_STREAM_END) {
+        return fail(reader, RESULT_INVALID, "'" + name + "' is broken");
+    }
+
+    return RESULT_DONE;
+}
+
 /// Reads the entry at `index`, giving its bytes to `add` a chunk at a time, which gives false when
-/// they'd go past its size: a result_t.
+/// they'd go past its size: a result_t. Every entry is checked against its CRC-32, which
+/// minizip-ng checks only of a stream that took all its compressed bytes.
 template <typename Add>
 std::int32_t read_entry(reader_t& reader, const std::size_t index, const Add& add) {
     const entry_t& entry = reader.entries[index];
@@ -231,19 +337,30 @@ std::int32_t read_entry(reader_t& reader, const std::size_t index, const Add& ad
         return fail(reader, RESULT_TOO_LARGE, "");
     }
 
-    const std::int32_t opened = mz_zip_entry_read_open(reader.zip, 0, nullptr);
+    const std::uint16_t method = info->compression_method;
+    const std::uint32_t crc = info->crc;
+    // An LZMA or XZ entry is read raw, and decoded here.
+    const bool lzma = method == MZ_COMPRESS_METHOD_LZMA || method == MZ_COMPRESS_METHOD_XZ;
+    const std::int32_t opened = mz_zip_entry_read_open(reader.zip, lzma ? 1 : 0, nullptr);
     if (opened == MZ_SUPPORT_ERROR) {
         return fail(reader, RESULT_UNSUPPORTED,
-                    "'" + entry.name + "' is compressed by method " +
-                        std::to_string(info->compression_method));
+                    "'" + entry.name + "' is compressed by method " + std::to_string(method));
     }
 
     if (opened != MZ_OK) {
         return fail(reader, RESULT_INVALID, "'" + entry.name + "' is broken");
     }
 
-    std::vector<std::uint8_t> chunk(chunk_size);
+    std::uint32_t made_crc = 0;
     std::int64_t total = 0;
+    const auto give = [&](const std::span<const std::uint8_t> bytes) {
+        made_crc =
+            mz_crypt_crc32_update(made_crc, bytes.data(), static_cast<std::int32_t>(bytes.size()));
+        total += static_cast<std::int64_t>(bytes.size());
+        return add(bytes);
+    };
+    std::vector<std::uint8_t> chunk(chunk_size);
+    std::vector<std::uint8_t> raw;
     std::int32_t result = RESULT_DONE;
     while (result == RESULT_DONE) {
         const std::int32_t read =
@@ -254,21 +371,29 @@ std::int32_t read_entry(reader_t& reader, const std::size_t index, const Add& ad
 
         if (read < 0) {
             result = fail(reader, RESULT_INVALID, "'" + entry.name + "' is broken");
-        } else if (!add(std::span<const std::uint8_t>(chunk).first(
-                       static_cast<std::size_t>(read)))) {
+            break;
+        }
+
+        const auto bytes =
+            std::span<const std::uint8_t>(chunk).first(static_cast<std::size_t>(read));
+        if (lzma) {
+            raw.insert(raw.end(), bytes.begin(), bytes.end());
+        } else if (!give(bytes)) {
             result = fail(reader, RESULT_INVALID,
                           "'" + entry.name + "' has more bytes than its size says");
         }
-
-        total += read;
     }
 
     const std::int32_t closed = mz_zip_entry_close(reader.zip);
+    if (result == RESULT_DONE && lzma) {
+        result = decode_lzma(reader, entry.name, method, entry.size, raw, give);
+    }
+
     if (result != RESULT_DONE) {
         return result;
     }
 
-    if (closed == MZ_CRC_ERROR) {
+    if (closed == MZ_CRC_ERROR || (closed == MZ_OK && total == entry.size && made_crc != crc)) {
         return fail(reader, RESULT_INVALID, "'" + entry.name + "' doesn't match its CRC-32");
     }
 
@@ -298,10 +423,17 @@ std::int32_t open(reader_t& reader) {
             break;
         }
 
+        // A link is Unix's, macOS's, or RISC OS's, by its mode, or one an extra field names the
+        // target of: MS-DOS's and Windows' attributes have none, though minizip-ng takes Windows'
+        // reparse points, as OneDrive's files are, for links.
         std::int32_t kind = KIND_FILE;
+        const std::uint8_t host = MZ_HOST_SYSTEM(info->version_madeby);
+        const bool unix_like = host == MZ_HOST_SYSTEM_UNIX || host == MZ_HOST_SYSTEM_OSX_DARWIN ||
+                               host == MZ_HOST_SYSTEM_RISCOS;
         if (mz_zip_entry_is_dir(reader.zip) == MZ_OK) {
             kind = KIND_FOLDER;
-        } else if (mz_zip_entry_is_symlink(reader.zip) == MZ_OK) {
+        } else if ((unix_like && ((info->external_fa >> 16U) & mode_kind) == mode_link) ||
+                   (info->linkname != nullptr && info->linkname[0] != 0)) {
             kind = KIND_LINK;
         }
 

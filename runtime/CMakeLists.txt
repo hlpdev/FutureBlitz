@@ -62,7 +62,7 @@ target_link_libraries(fb_runtime_zstd PRIVATE zstd)
 target_link_libraries(fb_runtime_lz4 PRIVATE lz4)
 target_sources(fb_runtime_xz PRIVATE src/seven_zip.cpp)
 target_link_libraries(fb_runtime_xz PRIVATE liblzma)
-target_link_libraries(fb_runtime_zip PRIVATE minizip_ng)
+target_link_libraries(fb_runtime_zip PRIVATE minizip_ng liblzma)
 
 # What a program can link: each part and its library, which fb and the tests that build programs
 # depend on.

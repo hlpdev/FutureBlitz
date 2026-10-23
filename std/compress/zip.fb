@@ -54,12 +54,13 @@ Public Class ZipWriter
 
     // Adds a file named name of data, compressed by method, at level, or its default when level
     // is Null: 6 for DEFLATE, LZMA, and XZ, which go from 0 to 9, and 3 for ZSTD, from 1 to 22.
-    // Panics when the level isn't one of method's, or when the name is "", holds a NUL, ends
-    // with '/', as a folder's does, or is longer than 65535 bytes.
+    // Panics when the level isn't one of method's, or when the name is "", holds a NUL or a '\',
+    // ends with '/', as a folder's does, or is longer than 65535 bytes.
     @PanicsAtCaller
     Public Method Add(name: String, data: UInt8[], method: ZipMethod = ZipMethod.DEFLATE,
                       level: Int? = Null)
         CheckFileName(name, 65535, "zip")
+        CheckSlashes(name)
         Local used = level ?? (method == ZipMethod.ZSTD ? 3 : 6)
         If method == ZipMethod.ZSTD
             CheckLevel(used, 1, 22, "Zstd")
@@ -71,10 +72,11 @@ Public Class ZipWriter
     End Method
 
     // Adds a folder named name, with '/' after it unless it has one, which takes 1 of a name's
-    // 65535 bytes. Panics when the name is "", holds a NUL, or is longer than that.
+    // 65535 bytes. Panics when the name is "", holds a NUL or a '\', or is longer than that.
     @PanicsAtCaller
     Public Method AddFolder(name: String)
         CheckName(name, 65534, "zip")
+        CheckSlashes(name)
         fb_zip_writer_add(State, name, [], 0, 0, 1)
     End Method
 
@@ -89,6 +91,15 @@ Public Class ZipWriter
         fb_zip_writer_free(State)
     End Method
 End Class
+
+// Panics when a zip's name holds a '\': zip's names have '/' between folders, readers take a
+// '\' for one, and minizip-ng writes one as '/' on Windows alone.
+@PanicsAtCaller
+Function CheckSlashes(name: String)
+    For byte In name.Bytes
+        If byte == 0x5c Then Panic("a zip's names have '/' between folders, not '\\'")
+    End For
+End Function
 
 // The runtime's number for a method.
 Function MethodNumber(method: ZipMethod): Int32

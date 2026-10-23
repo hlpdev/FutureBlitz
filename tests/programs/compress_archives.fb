@@ -305,6 +305,10 @@ Print("code page 437:", ZipList(Cp437Zip()))
 Print("zip link:", ZipList(LinkZip()))
 Print("encrypted:", ZipList(EncryptedZip()))
 Print("BZip2:", ZipList(Bzip2Zip()))
+Print("4 GiB LZMA dictionary:", ZipList(BiglzmaZip()))
+Print("4 GiB XZ dictionary:", ZipList(BigxzZip()))
+Print("MS-DOS reparse point:", ZipList(ReparseZip()))
+Print("a Deflate stream that ends early:", ZipList(BadcrcZip()))
 
 // What a header claims takes no memory that its data doesn't give, and a dictionary larger than
 // an array's bytes isn't asked for.
