@@ -33,6 +33,7 @@ M6 (the full standard library), planned 2026-10-20 and 2026-10-21 in 32 steps (d
 design in docs/stdlib.md). Step 5, formatting, parsing, and the debug form, is next.
 docs/milestones.md's Deferred work lists everything left for later, and where it's planned.
 The whole-codebase review's fixes and the rest of M6 run as docs/m6-plan.md describes.
+M7, libraries and native packages, is planned in docs/libraries.md; tooling is M8.
 
 ## History
 Each milestone's steps, in detail (what each added, by name, and each review's fixes), are in

@@ -75,7 +75,7 @@ What the language itself uses, `Error` for Throw and Catch, the Interfaces, `Ite
 
 Planned with the user on 2026-10-20 and, module by module, on 2026-10-21. std is batteries
 included: it covers what Python's standard library and its most common packages do together, so
-a program needs FFI only for a C library of its own choosing. Packages (M7's registry) are for
+a program needs FFI only for a C library of its own choosing. Packages (M8's registry) are for
 niche domains, like PDF or cloud SDKs.
 
 std is as cross-platform as it can be: its `.fb` files have no platform code, and there are no
@@ -428,7 +428,7 @@ file or URL in the default app.
 - Decode and encode PNG, JPEG, BMP, TGA, GIF, HDR, QOI, and WebP, rasterize SVG, and read and
   write animated GIF and APNG frames, into an `Image` over a pixel `Buffer`.
 - Resize with good filters, crop, rotate, flip, convert, and blit; software drawing of lines,
-  shapes, and fills, and text with TrueType fonts. The engine's 2D (M9) shares the image and
+  shapes, and fills, and text with TrueType fonts. The engine's 2D (M10) shares the image and
   font code.
 
 #### std.term

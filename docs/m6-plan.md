@@ -24,12 +24,16 @@ Settled with the user on 2026-10-22, before the lanes start:
   FetchContent, pinned to a release, with their licenses in the bundled notices as libuv's are.
   Any other library goes to the user first.
 - **Models**: every lane and reviewer runs on the coordinator's model and effort.
+- **Static linking** (2026-10-22): every third-party library std uses links statically; a
+  program that uses only std is one executable that needs only the OS's own libraries. The
+  toolchain may use DLLs.
+- **Bcrypt** (2026-10-22) goes over Solar Designer's crypt_blowfish, bundled like the others.
 
 ## Roles
 
 - **The coordinator** (the session that started the lanes) hands out work, answers the lanes'
   questions, runs each step's review, lands every branch on master, and alone edits CLAUDE.md,
-  docs/milestones.md, docs/decisions.md, docs/history.md, and this file. It keeps four lanes
+  docs/milestones.md, docs/decisions.md, docs/history.md, and this file. It keeps every lane
   busy, moving unstarted work from a busy lane to a free one.
 - **A lane** owns one unit of work at a time, a lane's findings or one M6 step, in a worktree and
   branch of its own: code, tests, the spec and docs/stdlib.md for what it changes, verify.py, and
@@ -57,6 +61,9 @@ lane, each finding with a Status line the lane keeps current.
   so master moves forward all night and lanes rebase often.
 - When phase 1's lanes are done, one review of what they changed runs (as in "Review"), and its
   findings are fixed the same way.
+- A fifth lane, added on 2026-10-22, builds the std steps that need no compiler change and no
+  other step while phase 1 runs: 9 (Math I), then 27 (algo), then 21 (crypto), each reviewed
+  and landed as phase 2's steps are.
 
 ## Phase 2: M6's steps
 
@@ -88,7 +95,8 @@ A step is ready for a std lane when the steps it builds on have landed:
 | Step | Needs |
 |---|---|
 | 9 Math I, 21 crypto, 27 algo (all but Delaunay and Voronoi) | nothing more |
-| 23 uuid and db, 24 image I | nothing more (Uuid.V4 uses step 21's SecureRandom if it's in) |
+| 23 uuid and db | 21 (Uuid.V4's SecureRandom), 16 (V7's clock), and the compiler lane's step 17 (Query<T> fills a Struct Field by Field) |
+| 24 image I | 12 (an Image is over a Buffer), and 14 to load files |
 | 27's Delaunay and Voronoi | 9 |
 | 6 Text I | the compiler lane's step 6 |
 | 7 Text II | 6, and the compiler lane's step 7 |

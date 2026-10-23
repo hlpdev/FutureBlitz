@@ -101,8 +101,8 @@ joltc = { static = "libs/joltc" }
 
 - Dependencies are versioned.
 - `[native]` declares C libraries for FFI and how to link them. Static linking is the
-  default so games ship as a single binary (M5 step 6; dynamic libraries in M8).
-- The package manager is part of the `cli` tool (Milestone M7).
+  default so games ship as a single binary (M5 step 6; dynamic libraries in M7).
+- The package manager is part of the `cli` tool (Milestone M8).
 
 Until then (M5), a dependency is a local package, by its folder from the project.toml's:
 
@@ -150,7 +150,7 @@ physics = { path = "../physics" }
   archive from the package's folder: the file itself, or without its `lib` prefix and its
   extension, libs/libjoltc.a, libs/joltc.a, or libs/joltc.lib, which has to be there and be an
   archive; `m = { system = "m" }` is one the system's linker finds by its name, as `-lm`.
-  `dynamic` waits for M8. A name is letters, digits, and `_`, `-`, `.`, or `+`, not starting
+  `dynamic` waits for M7. A name is letters, digits, and `_`, `-`, `.`, or `+`, not starting
   with `-`.
 - A program links every `[native]` library of its packages, statically: its own code, then each
   package's archives in its project.toml's order, a package's before those of the packages it

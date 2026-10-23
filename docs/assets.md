@@ -1,6 +1,6 @@
 # Asset System
 
-Direction is **Locked**; detailed design happens at milestone M12.
+Direction is **Locked**; detailed design happens at milestone M13.
 
 Blitz3D's asset handling is a mess. FutureBlitz standardizes and modernizes it.
 

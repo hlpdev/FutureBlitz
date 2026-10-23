@@ -17,20 +17,21 @@ Timeline: honors project begins **fall 2027**, so there is plenty of runway.
 | **M4** | Concurrency: Sendable checks, tasks, `Parallel For`, async/coroutines, channels, Mutex/Atomic | a parallel job and an async chain run correctly |
 | **M5** | Modules, packages, `project.toml`, FFI, bindgen | calls a C library through generated bindings |
 | **M6** | Full standard library | `std.*` complete, with tests |
-| **M7** | Tooling: LSP, VS Code extension, formatter, test runner, package manager | daily-driving FutureBlitz in an editor feels good |
+| **M7** | Libraries and native packages: static and dynamic libraries for C and FutureBlitz callers, one shared runtime, interface files, prebuilt native code in packages | a C program and an FB program each call one FB static and one FB dynamic library; a package wraps a prebuilt C++ DLL; a program that uses only std is still one executable |
+| **M8** | Tooling: LSP, VS Code extension, formatter, test runner, package manager | daily-driving FutureBlitz in an editor feels good |
 
 ## Phase 2: Engine
 
 | | Goal |
 |---|---|
-| **M8** | Engine bootstrap: window, input, frame loop, main scheduler |
-| **M9** | 2D: images, drawing, fonts |
-| **M10** | 3D scene: entities, cameras, lights, hierarchy |
-| **M11** | Vulkan renderer and materials |
-| **M12** | Asset pipeline: VFS, cooker, pak files, typed references, hot reload |
-| **M13** | Audio and physics (miniaudio, Jolt) |
-| **M14** | The IDE |
-| **M15** | Migrator, plus porting a real Blitz3D game as the final proof |
+| **M9** | Engine bootstrap: window, input, frame loop, main scheduler |
+| **M10** | 2D: images, drawing, fonts |
+| **M11** | 3D scene: entities, cameras, lights, hierarchy |
+| **M12** | Vulkan renderer and materials |
+| **M13** | Asset pipeline: VFS, cooker, pak files, typed references, hot reload |
+| **M14** | Audio and physics (miniaudio, Jolt) |
+| **M15** | The IDE |
+| **M16** | Migrator, plus porting a real Blitz3D game as the final proof |
 
 ## M1 build order
 
@@ -117,7 +118,7 @@ time, in debug and release builds.
 | 11 | Loose ends: the rows of the Deferred work below planned for it, and programs that run a parallel job and an async chain together, many times over, with no leaks | M4's "done when" |
 
 **Not in M4:** lock-free collections, actors, and GPU compute stay out of v1 (spec 10). I/O awaits,
-like `File.ReadAsync`, come with `std.io` in M6, and `Flip()` with the engine in M8.
+like `File.ReadAsync`, come with `std.io` in M6, and `Flip()` with the engine in M9.
 
 ## M5 build order
 
@@ -140,9 +141,9 @@ prints the same output.
 | 11 | Loose ends: the rows of the Deferred work below planned for it, and a package that calls the C test library through bindings fb-bindgen generates: numbers, strings, pointers, structs, enums, constants, callbacks, and an opaque handle | M5's "done when" |
 
 **Not in M5:** the package manager (versioned dependencies, resolving and fetching them, lock
-files, a registry, `fb new` and `fb add`) comes in M7, where spec 11 puts it, with `fb test`, the
+files, a registry, `fb new` and `fb add`) comes in M8, where spec 11 puts it, with `fb test`, the
 formatter, the LSP's use of modules, and running bindgen from the manifest at build time. Dynamic
-`[native]` libraries wait for M8, when SDL3 or Vulkan first needs one. The rest of std.ffi, the
+`[native]` libraries wait for M7, with FB's own libraries. The rest of std.ffi, the
 std modules that will use `Extern "runtime"` (std.text, std.io, std.os), and std.concurrent as a
 module of its own are M6; M4's built-ins stay built in. Separate compilation or caching of
 modules stays an open question, and so do C varargs functions like printf, unions, bit fields, C
@@ -150,7 +151,7 @@ globals, `long double`, macros other than number constants, typed opaque handles
 `@MainThread` callbacks, and building FutureBlitz code as a C library. Callbacks that capture
 stay out, as spec 12 says. CI on Linux and macOS (M0) waited for M6 step 0, which ran the SysV
 struct ABI's C calls on Linux and added AArch64's for macOS. The self-contained toolchain stays
-open for M7: M5 still links through the C++ compiler that built the runtime.
+open for M8: M5 still links through the C++ compiler that built the runtime.
 
 ## M6 build order
 
@@ -189,7 +190,7 @@ except where it's about those.
 | 22 | std.compress: Deflate, Zlib, Gzip, Zstd, Lz4, and XZ streams; Zip and Tar to read and write; 7z to read | each format round-trips, and reads what common tools wrote | archives for the VFS, packages, and HTTP |
 | 23 | std.uuid and std.db: `Uuid.V4`, `V7`, `Parse`; SQLite with `Execute`, `Query<T>`, transactions, prepared statements, and `Migrate` | Query<T> reads rows into Structs; a failed transaction leaves nothing; migrations run once each, in order | the first of the extra modules, on data and io |
 | 24 | std.image I: the codecs (PNG, JPEG, BMP, TGA, GIF, HDR, QOI, WebP, SVG, animated GIF and APNG) into an `Image`, and the transforms | each format round-trips where it can be written, and decodes reference files to known pixels; resizing matches reference output within a tolerance | images, which the engine's 2D will share |
-| 25 | std.image II: drawing lines, shapes, fills, and TrueType text | drawn images match reference images pixel for pixel | the drawing M9 builds on |
+| 25 | std.image II: drawing lines, shapes, fills, and TrueType text | drawn images match reference images pixel for pixel | the drawing M10 builds on |
 | 26 | std.term: line widgets and full-screen terminal apps | widgets render to a fake terminal as expected, with and without color; a full-screen app redraws only what changed | console tools, on io and text |
 | 27 | std.algo: BFS, DFS, Dijkstra, A*, flow fields, union-find, topological sort, combinatorics, Delaunay, Voronoi | paths match known shortest paths on grids and graphs; triangulations match reference results | the algorithms games and tools reach for |
 | 28 | std.net I: `IpAddress`, `SocketAddress`, `Dns`, `TcpListener`, `TcpStream`, `UdpSocket`, `IpcListener`, `IpcStream`, `Url`, `QueryParams`, LAN discovery | a program talks to itself over TCP, UDP, and IPC, blocking and Async; a refused connection is a NetError Kind; URLs parse per the WHATWG tests that apply | the bottom of the network stack |
@@ -221,12 +222,31 @@ except where it's about those.
 - Step 29: curl uses mbedTLS, given the OS's roots: Windows' and macOS' certificate stores, and
   the distribution's bundle file on Linux.
 
-**Not in M6:** `std.test` comes with M7's `fb test`. Stack traces for panics wait for debug info
+**Not in M6:** `std.test` comes with M8's `fb test`. Stack traces for panics wait for debug info
 (open question). An HTTP/2 server, QUIC and HTTP/3, FTP, and SMTP stay out until something
-needs them. Loading a library at run time waits for the engine's dynamic `[native]` libraries.
+needs them. Loading a library at run time comes in M7.
 A `Locale` for formatting comes later, and only ever explicit. Platform-only APIs stay out of
 std. Navigation meshes, game AI, and procedural generation wait for the engine phase. CI on
 Linux and macOS can't be checked from this machine, so steps there are checked by CI alone.
+
+## M7 build order
+
+Planned 2026-10-22, with the design in [libraries.md](libraries.md). Every step ends with tests on
+all three CI runners, and a program that uses only std stays one executable.
+
+| Step | What | Done when |
+|---|---|---|
+| 0 | The spec and docs: spec 11's project types, natives, and package archives, spec 12's `@Export` | the spec says what M7 builds |
+| 1 | `type` in project.toml; a static library for C callers: `@Export` Functions, the C header, and the runtime's archive beside it | a C program built by CMake links an FB static library and calls it |
+| 2 | A dynamic library for C callers: only its exports visible, the shared runtime DLL, set up on the first call | a C host loads an FB DLL and calls it from two threads, with no leaks |
+| 3 | Classes as handles for C | C makes, calls, and releases an FB object through its handle |
+| 4 | `[native]` dynamic libraries and `{target}` paths; DLLs copied beside the executable, rpaths | a program calls a C DLL from its package's native/<target>/ and runs from its build folder |
+| 5 | The interface file: fb writes a library's .fbi, and the loader reads it in place of source | a package checks against a library's .fbi as it does against its source |
+| 6 | FB callers of a static library: its archive and .fbi, generic instances, and the ABI hash | an FB program uses a prebuilt FB static library's Classes, generics, and errors; a mismatched build is an error naming both |
+| 7 | FB callers of a dynamic library: export tables and import libraries, the shared runtime, one type per instance across binaries, Globals' accessors, extending a library's Class | an FB program and an FB DLL share objects, Tasks, and `Is` checks, with one runtime and no leaks |
+| 8 | Loading at run time: `DynamicLibrary`, and plugins | a host loads an FB plugin and a C library at run time |
+| 9 | A package with prebuilt natives: a stand-in C++ engine DLL with a C API (tests/native), wrapped by an FB package through fb-bindgen | the package builds and runs on Windows, Linux, and macOS |
+| 10 | Loose ends, and the milestone's review | M7's "done when" |
 
 ## Deferred work
 
@@ -248,13 +268,13 @@ adds what it leaves out. Checked against all of docs/spec/ on 2026-10-17.
 | By-value Structs to and from C on 64-bit targets that aren't x86-64 or AArch64, like RISC-V, where fb-bindgen skips functions that pass one | M5 step 8 | open question |
 | A Callback that takes or gives a Struct by value, whose thunk would need the C ABI's lowering in reverse | M5 step 9 | open question |
 | The math types, `Vec2` through `Color` | | M6 step 9 |
-| A fix-it for a miscased keyword, like `if` for `If`, and `///` doc comments | M1 | M7 |
+| A fix-it for a miscased keyword, like `if` for `If`, and `///` doc comments | M1 | M8 |
 | Stack traces for panics, which need debug info | M1 | open question |
 | A Float range, like `0.0 To 1.0 Step 0.1`, which a For loop counts but a range doesn't | M6 step 2 | open question |
 | A `For i In 0 Until n` that counts without making a Range, as a For loop does | M6 step 2 | M6 step 32 |
 
 ## Process
 
-- **Proposed:** track milestones M0–M15 as GitHub milestones, with issues per task.
+- **Proposed:** track milestones M0–M16 as GitHub milestones, with issues per task.
 - Every feature lands with tests: Catch2 unit tests, plus golden tests once they're decided
   (see [open-questions.md](open-questions.md)).

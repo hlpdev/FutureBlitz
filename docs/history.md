@@ -199,6 +199,20 @@ tests/programs/long_chains.fb shows with a million of each kind of object, and l
 copies a value read through a reference, or a Global's, before it releases the old one, as in
 `Root = Root.Children[0]` (assign_through.fb).
 
+Phase 1, lane 2's first batch (A5 to A7's highs, and A5-5): `++`/`--` finish their statement; For
+... In holds a fixed array in a local of its own unless it's a whole temporary; a Select's type
+match goes through concrete(); lower_jump() finds its loop by position again after release_scopes();
+through_reference() counts a ByRef parameter's or ByRef Self's root, and store() copies from one;
+evaluate's unary folds a @Flags Enum's integer and keeps the Enum; `leaving_t`, `m_leaving`, and
+left(), so the cancel block of an Await in a Defer or Finally on a way out releases only what that
+way out still holds; lower_try() sends an Await through lower_effect(); reflected_methods() leaves
+out Async Methods and Methods with a ByRef parameter (spec 13); generate_main() releases the Globals
+last to first through let_go(), which zeroes each reference before releasing it, and the ready flag
+is an Int32 (0, `ready`, `released`) whose check panics "used after it's released" (spec 02). Tests:
+increment_temporaries, for_in_fixed, scheduler_cancel_cleanups, globals_released,
+panic_global_released, and cases in generic_bases, errors, borrowed, compile_time, async_throws, and
+reflection_more.
+
 ## M5, modules, packages, FFI, and bindgen
 
 Done: M5 (modules, packages, `project.toml`, FFI, bindgen), planned 2026-10-18 and finished
