@@ -1,1 +1,1 @@
-panic: LZMA's levels are from 0 to 9, not 10 at panic_compress_zip_lzma_level.fb:8:1
+panic: a zip's LZMA's levels are from 1 to 9, not 10 at panic_compress_zip_lzma_level.fb:8:1

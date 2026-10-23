@@ -134,6 +134,16 @@ Print(later == "a later entry of the same name\n".Bytes,
       (Try zip.Read("nothing")) == Null, zip.Contains("folder"),
       zip.Find("folder")?.Kind ?? ArchiveEntryKind.FILE, zip.Find("nothing") == Null)
 
+// A zip's entry takes Zip64 only where its sizes need it, which a UInt8[]'s never do: its local
+// header says version 2.0 is needed, its sizes, and no extra field, as its central record does.
+Function UInt16At(data: UInt8[], at: Int): Int => (data[at] As Int) + (data[at + 1] As Int) * 256
+
+Local plainZip = ZipWriter()
+plainZip.Add("a.txt", "hello".Bytes, ZipMethod.STORE)
+Local plain64 = plainZip.Finish()
+Print("zip's local header:", UInt16At(plain64, 4), UInt16At(plain64, 18), UInt16At(plain64, 22),
+      UInt16At(plain64, 28))
+
 // A ZipWriter starts again after Finish, and a zip of nothing has no entries.
 zipped.Add("again.txt", poem)
 Local again = Try Zip.Read(zipped.Finish())

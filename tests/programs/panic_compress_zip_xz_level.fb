@@ -1,0 +1,10 @@
+// A zip's XZ entry takes XZ's levels from 1 to 9, as minizip-ng would store an entry at 0, and Add
+// panics where it's called for 0.
+Import std.core
+Import std.compress
+
+Local zip = ZipWriter()
+zip.Add("fine.txt", "fine".Bytes, ZipMethod.XZ, 1)
+zip.Add("deflate.txt", "stored".Bytes, ZipMethod.DEFLATE, 0)
+Print(zip.Finish().Count > 0)
+zip.Add("stored.txt", "stored".Bytes, ZipMethod.XZ, 0)

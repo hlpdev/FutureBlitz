@@ -53,9 +53,10 @@ Public Class ZipWriter
     End New
 
     // Adds a file named name of data, compressed by method, at level, or its default when level
-    // is Null: 6 for DEFLATE, LZMA, and XZ, which go from 0 to 9, and 3 for ZSTD, from 1 to 22.
-    // Panics when the level isn't one of method's, or when the name is "", holds a NUL or a '\',
-    // ends with '/', as a folder's does, or is longer than 65535 bytes.
+    // is Null: 6 for DEFLATE, from 0 to 9, and for LZMA and XZ, which a zip has from 1 to 9, as
+    // minizip-ng stores an entry at 0, and 3 for ZSTD, from 1 to 22. Panics when the level isn't
+    // one of method's, or when the name is "", holds a NUL or a '\', ends with '/', as a folder's
+    // does, or is longer than 65535 bytes.
     @PanicsAtCaller
     Public Method Add(name: String, data: UInt8[], method: ZipMethod = ZipMethod.DEFLATE,
                       level: Int? = Null)
@@ -64,8 +65,10 @@ Public Class ZipWriter
         Local used = level ?? (method == ZipMethod.ZSTD ? 3 : 6)
         If method == ZipMethod.ZSTD
             CheckLevel(used, 1, 22, "Zstd")
-        ElseIf method != ZipMethod.STORE
+        ElseIf method == ZipMethod.DEFLATE
             CheckLevel(used, 0, 9, "{method}")
+        ElseIf method != ZipMethod.STORE
+            CheckLevel(used, 1, 9, "a zip's {method}")
         End If
 
         fb_zip_writer_add(State, name, data, MethodNumber(method), used, 0)

@@ -605,6 +605,8 @@ void fb_zip_writer_add(void* writer, const fb_string_t* name, const fb_array_t* 
     info.modified_date = first_date();
     info.filename = filename.c_str();
     info.external_fa = folder != 0 ? folder_mode : file_mode;
+    // Its size, known first, lets minizip-ng leave Zip64 out, which no UInt8[]'s sizes need.
+    info.uncompressed_size = data->count;
     info.zip64 = MZ_ZIP64_AUTO;
     if (mz_zip_entry_write_open(state.zip, &info, static_cast<std::int16_t>(level), 0, nullptr) !=
         MZ_OK) {
