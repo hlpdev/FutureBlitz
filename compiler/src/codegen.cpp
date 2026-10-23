@@ -1621,7 +1621,7 @@ private:
         };
         LLVMValueRef value = LLVMConstStructInContext(context(), fields.data(),
                                                       static_cast<unsigned>(fields.size()), 0);
-        LLVMValueRef global = LLVMAddGlobal(m_module.get(), LLVMTypeOf(value), "string");
+        LLVMValueRef global = LLVMAddGlobal(m_module.get(), LLVMTypeOf(value), "fb.string");
         LLVMSetInitializer(global, value);
         LLVMSetGlobalConstant(global, 1);
         LLVMSetLinkage(global, LLVMPrivateLinkage);
@@ -1639,7 +1639,7 @@ private:
         }
 
         LLVMValueRef value = LLVMConstStringInContext2(context(), text.data(), text.size(), 0);
-        LLVMValueRef global = LLVMAddGlobal(m_module.get(), LLVMTypeOf(value), "text");
+        LLVMValueRef global = LLVMAddGlobal(m_module.get(), LLVMTypeOf(value), "fb.text");
         LLVMSetInitializer(global, value);
         LLVMSetGlobalConstant(global, 1);
         LLVMSetLinkage(global, LLVMPrivateLinkage);
@@ -1687,7 +1687,7 @@ private:
         };
         LLVMValueRef value = LLVMConstStructInContext(context(), fields.data(),
                                                       static_cast<unsigned>(fields.size()), 0);
-        LLVMValueRef global = LLVMAddGlobal(m_module.get(), LLVMTypeOf(value), "location");
+        LLVMValueRef global = LLVMAddGlobal(m_module.get(), LLVMTypeOf(value), "fb.location");
         LLVMSetInitializer(global, value);
         LLVMSetGlobalConstant(global, 1);
         LLVMSetLinkage(global, LLVMPrivateLinkage);
@@ -2021,7 +2021,7 @@ private:
         if (!classes.empty()) {
             LLVMValueRef array =
                 LLVMConstArray2(m_ptr, classes.data(), static_cast<std::uint64_t>(classes.size()));
-            list = LLVMAddGlobal(m_module.get(), LLVMTypeOf(array), "classes");
+            list = LLVMAddGlobal(m_module.get(), LLVMTypeOf(array), "fb.classes");
             LLVMSetInitializer(list, array);
             LLVMSetGlobalConstant(list, 1);
             LLVMSetLinkage(list, LLVMPrivateLinkage);

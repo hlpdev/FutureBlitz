@@ -7,6 +7,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <cstdint>
 #include <expected>
+#include <format>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -322,4 +323,37 @@ TEST_CASE("C's Bools and small integers are extended where the target's C ABI ha
                            "zeroext %0, i8 signext %1)"));
     CHECK(line("aarch64-unknown-linux-gnu", thunk)
               .starts_with("define internal i1 @\"fb.callback.Flip(Bool, Int8)\"(i1 %0, i8 %1)"));
+}
+
+TEST_CASE("an Extern Function keeps its symbol, whatever codegen calls its own constants",
+          "[c_abi]") {
+    // A String's literal, a panic's message and place, and the Classes' list are "fb." names,
+    // which an Extern's symbol can't be.
+    const std::vector<fb::library_file_t> files =
+        fb::standard_library().value_or(std::vector<fb::library_file_t>{});
+    const fb::compilation_t compilation =
+        fb::compile("main.fb",
+                    "Import std.core\n"
+                    "Extern \"C\"\n"
+                    "    Function string(): Int32\n"
+                    "    Function text(): Int32\n"
+                    "    Function location(): Int32\n"
+                    "    Function classes(): Int32\n"
+                    "End Extern\n"
+                    "Class Box\n"
+                    "End Class\n"
+                    "Global greeting = \"hello\"\n"
+                    "Local box = Box()\n"
+                    "Print(greeting)\n"
+                    "Print(\"{string() + text() + location() + classes()}\")\n",
+                    files);
+    REQUIRE_FALSE(compilation.diagnostics.has_errors());
+    const fb::mir_module_t module = fb::lower(compilation.ast, compilation.analysis);
+    const std::string ir =
+        fb::emit_ir(module, compilation.sources, compilation.file, {}).value_or("");
+    REQUIRE_FALSE(ir.empty());
+    for (const std::string_view name : { "string", "text", "location", "classes" }) {
+        CHECK(ir.contains(std::format("declare i32 @{}()", name)));
+        CHECK_FALSE(ir.contains(std::format("@{}.1", name)));
+    }
 }
