@@ -10,7 +10,7 @@ namespace fb {
 
 /// What one scalar in C's memory is, for how the C ABI passes what holds it.
 enum class c_scalar_t : std::uint8_t {
-    /// An integer, a Bool, an Enum, a CString, or a Ptr.
+    /// An integer, a Bool, an Enum, a CString, a Ptr, or a Callback.
     INTEGER,
     FLOAT,
     DOUBLE,
@@ -32,8 +32,8 @@ struct c_layout_t {
     std::vector<c_field_t> fields;
 };
 
-/// The layout of `type`, which is C data: a number, Bool, Enum, CString, Ptr, or a fixed array
-/// or Struct of these.
+/// The layout of `type`, which is C data: a number, Bool, Enum, CString, Ptr, Callback, or a
+/// fixed array or Struct of these.
 [[nodiscard]] c_layout_t c_layout(const type_table_t& types, type_id_t type);
 
 /// The C ABI a target passes Structs by.

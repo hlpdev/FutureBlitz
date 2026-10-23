@@ -595,7 +595,8 @@ private:
         return m_mir.types->get(type).kind == type_kind_t::ENUM;
     }
 
-    /// Whether a type's zero is all zero bytes: everything's but a String's, and what holds one.
+    /// Whether a type's zero is all zero bytes: everything's but a String's, an Enum's whose first
+    /// value isn't 0, and what holds one.
     [[nodiscard]] bool zero_is_null(const type_id_t type) const {
         if (type == type_id_t::STRING) {
             return false;
@@ -2388,8 +2389,10 @@ private:
         for_each_reference(address_of(node.target), type_of(node.target), false);
     }
 
-    /// Debug builds mark a Global main has set, and panic where a function uses one it hasn't
-    /// yet, which an earlier Global's initializer reached.
+    /// Marks a Global main has set, or panics where a function uses one it hasn't yet, which an
+    /// earlier Global's initializer reached, or one the program has released at its end. Only a
+    /// Global with a ready flag has either: in debug builds, each one main sets, and in release
+    /// builds, one whose zero holds a null object.
     void generate(const ready_t& node) {
         LLVMValueRef flag = m_ready[index(node.global)];
         if (flag == nullptr) {
@@ -3135,8 +3138,8 @@ private:
     }
 
     /// Each Channel type's functions: its release releases the elements left, then frees the
-    /// ring and the lock, and the runtime frees the object. Its elements are Sendable, which
-    /// can't keep it, so its visit visits nothing.
+    /// ring and the lock, and the runtime frees the object. Its visit goes over the elements left
+    /// in the ring, for the leak report, once no thread uses the Channel.
     void generate_channel_functions() {
         for (const array_class_t& functions : m_channel_classes) {
             const type_id_t element = inner_of(functions.type);
