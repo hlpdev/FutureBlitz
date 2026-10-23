@@ -1,7 +1,8 @@
 // Complex: a complex number, Real + Imaginary times i, as two Doubles, and worked out as Python's
-// cmath does: Arg is from -pi to pi, and Log, Sqrt, and Pow give the principal value. Like a
-// Double's, its arithmetic never panics, and what has no value, like dividing by 0, has NaN
-// parts. A Double on either side of an operator works too.
+// cmath does: Arg is from -pi to pi, and Log, Sqrt, and Pow give the principal value, scaled
+// near the largest Doubles and among the subnormals as cmath scales them, with C99's values at
+// infinities. Like a Double's, its arithmetic never panics, and what has no value, like dividing
+// by 0, has NaN parts. A Double on either side of an operator works too.
 
 Import std.core
 
@@ -18,19 +19,44 @@ Extern "C"
     Function sin(value: Double): Double
     Function cos(value: Double): Double
     Function copysign(magnitude: Double, sign: Double): Double
+    Function ldexp(value: Double, exponent: Int32): Double
 End Extern
 
+// The least normal Double, a quarter of the largest, ln 2, and e.
+Const LEAST_NORMAL: Double = 2.2250738585072014e-308
+Const LARGE: Double = 4.4942328371557893e307
+Const LN_2: Double = 0.6931471805599453
+Const E: Double = 2.718281828459045
+
 Public Struct Complex Implements Equatable, Hashable, Printable, Numeric, Defaultable
-    Public Field Real: Double
-    Public Field Imaginary: Double = 0.0
+    Public ReadOnly Field Real: Double
+    Public ReadOnly Field Imaginary: Double = 0.0
 
     Public Static Method Zero(): Complex => Complex(0, 0)
     Public Static Method One(): Complex => Complex(1, 0)
     Public Static Method DefaultValue(): Complex => Complex(0, 0)
 
-    // The number of the magnitude, at the angle in radians from the positive real axis.
+    // The number of the magnitude, at the angle in radians from the positive real axis, as
+    // cmath.rect gives it: an angle of 0 has a Real part of the magnitude, even an infinite one.
     Public Static Method FromPolar(magnitude: Double, angle: Double): Complex
-        Return Complex(magnitude * cos(angle), magnitude * sin(angle))
+        If angle == 0.0 && !IsNaN(magnitude)
+            Return Complex(magnitude, copysign(0.0, angle) * copysign(1.0, magnitude))
+        End If
+
+        If IsFinite(magnitude) && IsFinite(angle)
+            Return Complex(magnitude * cos(angle), magnitude * sin(angle))
+        End If
+
+        If IsInfinite(magnitude) && IsFinite(angle)
+            Local sign = copysign(1.0, magnitude)
+            Local real = copysign(Infinity(), cos(angle))
+            Return Complex(sign * real, sign * copysign(Infinity(), sin(angle)))
+        End If
+
+        If magnitude == 0.0 Then Return Complex(0.0, 0.0)
+        If IsNaN(magnitude) Then Return Complex(NotANumber(), angle == 0.0 ? 0.0 : NotANumber())
+        If IsInfinite(magnitude) Then Return Complex(Infinity(), NotANumber())
+        Return Complex(NotANumber(), NotANumber())
     End Method
 
     // "1+2i", "0-1.5i", or "-3+0i", the Imaginary part's sign always shown.
@@ -45,31 +71,92 @@ Public Struct Complex Implements Equatable, Hashable, Printable, Numeric, Defaul
 
     Public Method Conjugate(): Complex => Complex(Real, -Imaginary)
 
-    // e to its power.
+    // e to its power. A real number's is real, and one that a Double holds isn't infinite on
+    // the way, as e to past 709 would be.
     Public Method Exp(): Complex
+        If !IsFinite(Real) || !IsFinite(Imaginary) Then Return ExpOfInfinite()
+        If Imaginary == 0.0 Then Return Complex(exp(Real), Imaginary)
+        If Real > 708.3964185322641
+            Local scaled = exp(Real - 1.0)
+            Return Complex(scaled * cos(Imaginary) * E, scaled * sin(Imaginary) * E)
+        End If
+
         Local magnitude = exp(Real)
         Return Complex(magnitude * cos(Imaginary), magnitude * sin(Imaginary))
     End Method
 
     // Its natural logarithm: the log of its magnitude, and its Arg. Near a magnitude of 1, the
-    // log comes from log1p, which keeps the digits that log would lose.
+    // log comes from log1p, which keeps the digits that log would lose; past a quarter of the
+    // largest Double, from half of it; and among the subnormals, from it scaled up by 2^53.
     Public Method Log(): Complex
-        Local larger = Max(fabs(Real), fabs(Imaginary))
-        Local smaller = Min(fabs(Real), fabs(Imaginary))
-        Local magnitude = hypot(larger, smaller)
-        Local real = log(magnitude)
-        If magnitude >= 0.71 && magnitude <= 1.73
-            real = log1p((larger - 1) * (larger + 1) + smaller * smaller) / 2
+        Local x = fabs(Real)
+        Local y = fabs(Imaginary)
+        Local real: Double = 0.0
+        If x > LARGE || y > LARGE
+            real = log(hypot(x / 2, y / 2)) + LN_2
+        ElseIf x < LEAST_NORMAL && y < LEAST_NORMAL && (x > 0.0 || y > 0.0)
+            real = log(hypot(ldexp(x, 53), ldexp(y, 53))) - 53 * LN_2
+        Else
+            Local magnitude = hypot(x, y)
+            real = log(magnitude)
+            If magnitude >= 0.71 && magnitude <= 1.73
+                Local larger = x > y ? x : y
+                Local smaller = x > y ? y : x
+                real = log1p((larger - 1) * (larger + 1) + smaller * smaller) / 2
+            End If
         End If
+
         Return Complex(real, Arg())
     End Method
 
-    // Its square root with a Real part 0 or more, and the Imaginary part's sign.
+    // Its square root with a Real part 0 or more, and the Imaginary part's sign, scaled as
+    // cmath scales it, so the largest and the subnormal numbers keep their digits.
     Public Method Sqrt(): Complex
+        If IsInfinite(Imaginary) Then Return Complex(Infinity(), Imaginary)
+        If IsInfinite(Real)
+            If IsNaN(Imaginary)
+                If Real > 0.0 Then Return Complex(Real, NotANumber())
+                Return Complex(NotANumber(), Infinity())
+            End If
+
+            If Real > 0.0 Then Return Complex(Real, copysign(0.0, Imaginary))
+            Return Complex(0.0, copysign(Infinity(), Imaginary))
+        End If
+
+        If IsNaN(Real) || IsNaN(Imaginary) Then Return Complex(NotANumber(), NotANumber())
         If Real == 0.0 && Imaginary == 0.0 Then Return Complex(0, Imaginary)
-        Local root = sqrt((fabs(Real) + hypot(Real, Imaginary)) / 2)
-        If Real >= 0.0 Then Return Complex(root, Imaginary / (2 * root))
-        Return Complex(fabs(Imaginary) / (2 * root), copysign(root, Imaginary))
+        Local x = fabs(Real)
+        Local y = fabs(Imaginary)
+        Local root: Double = 0.0
+        If x < LEAST_NORMAL && y < LEAST_NORMAL
+            x = ldexp(x, 53)
+            root = ldexp(sqrt(x + hypot(x, ldexp(y, 53))), -27)
+        Else
+            x /= 8
+            root = 2 * sqrt(x + hypot(x, y / 8))
+        End If
+
+        Local other = y / (2 * root)
+        If Real >= 0.0 Then Return Complex(root, copysign(other, Imaginary))
+        Return Complex(other, copysign(root, Imaginary))
+    End Method
+
+    // e to the power of a number with an infinite or NaN part, as C99's Annex G has it.
+    Method ExpOfInfinite(): Complex
+        If IsNaN(Real)
+            Return Complex(NotANumber(), Imaginary == 0.0 ? Imaginary : NotANumber())
+        End If
+
+        If IsInfinite(Real) && IsFinite(Imaginary)
+            Local cosine = cos(Imaginary)
+            Local sine = sin(Imaginary)
+            If Real < 0.0 Then Return Complex(copysign(0.0, cosine), copysign(0.0, sine))
+            If Imaginary == 0.0 Then Return Complex(Real, Imaginary)
+            Return Complex(copysign(Infinity(), cosine), copysign(Infinity(), sine))
+        End If
+
+        If IsInfinite(Real) Then Return Real > 0.0 ? Complex(Real, NotANumber()) : Complex(0.0, 0.0)
+        Return Complex(NotANumber(), NotANumber())
     End Method
 
     // It to the power: anything to 0 is 1, and 0 to a power with a Real part above 0 and no
@@ -98,10 +185,16 @@ Public Struct Complex Implements Equatable, Hashable, Printable, Numeric, Defaul
 
     Public Method Hash(): UInt64 => HashCombine(Real.Hash(), Imaginary.Hash())
 
-    Operator +(a: Complex, b: Complex): Complex => Complex(a.Real + b.Real, a.Imaginary + b.Imaginary)
+    Operator +(a: Complex, b: Complex): Complex
+        Return Complex(a.Real + b.Real, a.Imaginary + b.Imaginary)
+    End Operator
+
     Operator +(a: Complex, b: Double): Complex => Complex(a.Real + b, a.Imaginary)
     Operator +(a: Double, b: Complex): Complex => Complex(a + b.Real, b.Imaginary)
-    Operator -(a: Complex, b: Complex): Complex => Complex(a.Real - b.Real, a.Imaginary - b.Imaginary)
+    Operator -(a: Complex, b: Complex): Complex
+        Return Complex(a.Real - b.Real, a.Imaginary - b.Imaginary)
+    End Operator
+
     Operator -(a: Complex, b: Double): Complex => Complex(a.Real - b, a.Imaginary)
     Operator -(a: Double, b: Complex): Complex => Complex(a - b.Real, -b.Imaginary)
 
@@ -119,12 +212,14 @@ Public Struct Complex Implements Equatable, Hashable, Printable, Numeric, Defaul
             If b.Real == 0.0 Then Return Complex(NotANumber(), NotANumber())
             Local ratio = b.Imaginary / b.Real
             Local scale = b.Real + b.Imaginary * ratio
-            Return Complex((a.Real + a.Imaginary * ratio) / scale, (a.Imaginary - a.Real * ratio) / scale)
+            Return Complex((a.Real + a.Imaginary * ratio) / scale,
+                           (a.Imaginary - a.Real * ratio) / scale)
         End If
         If fabs(b.Imaginary) >= fabs(b.Real)
             Local ratio = b.Real / b.Imaginary
             Local scale = b.Real * ratio + b.Imaginary
-            Return Complex((a.Real * ratio + a.Imaginary) / scale, (a.Imaginary * ratio - a.Real) / scale)
+            Return Complex((a.Real * ratio + a.Imaginary) / scale,
+                           (a.Imaginary * ratio - a.Real) / scale)
         End If
         // A part of b is NaN.
         Return Complex(NotANumber(), NotANumber())
@@ -150,8 +245,17 @@ Public Struct Complex Implements Equatable, Hashable, Printable, Numeric, Defaul
     Operator -(a: Complex): Complex => Complex(-a.Real, -a.Imaginary)
 End Struct
 
-// A NaN, from 0.0 / 0.0, with its sign bit clear, so it shows as "nan".
+// A NaN, from 0.0 / 0.0, with its sign bit clear, so it shows as "nan", and an infinity.
 Function NotANumber(): Double
     Local zero = 0.0
     Return copysign(zero / zero, 1.0)
 End Function
+
+Function Infinity(): Double
+    Local zero: Double = 0.0
+    Return 1.0 / zero
+End Function
+
+Function IsNaN(value: Double): Bool => value != value
+Function IsInfinite(value: Double): Bool => value == value && value - value != 0.0
+Function IsFinite(value: Double): Bool => value - value == 0.0

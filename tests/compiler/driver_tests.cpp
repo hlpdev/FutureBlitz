@@ -966,6 +966,17 @@ TEST_CASE("temporary paths are new each time", "[driver]") {
     CHECK(std::filesystem::is_directory(first.parent_path()));
 }
 
+TEST_CASE("std.math.big's Complex doesn't change once it's made", "[driver]") {
+    CHECK(errors_of(fb::compile("main.fb",
+                                "Import std.math.big\n"
+                                "Local z = Complex(1, 2)\n"
+                                "z.Real = 5.0\n",
+                                with_std({}))) ==
+          std::vector<std::string>{
+              "main.fb: z.Real: 'Real' is ReadOnly; only Complex's New can change it",
+          });
+}
+
 TEST_CASE("a program named std isn't the standard library", "[driver]") {
     // So its code can't call the runtime, which only std/ does.
     CHECK(errors_of(fb::compile("std.fb",
