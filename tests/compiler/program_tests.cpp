@@ -523,6 +523,34 @@ TEST_CASE("panics and leak reports tell a generic Class from another of its name
     CHECK(leak->exit_code == 0);
 }
 
+TEST_CASE("Process.Exit ends the program at once with its code", "[programs]") {
+    // What the program printed shows, and nothing runs after: not the Defer, the Destroy, the
+    // code after the call, or the leak report the object it never let go of would get.
+    const std::expected<fb::process_result_t, std::string> result =
+        run_with_library("process_exit",
+                         "Import std.core\n"
+                         "Import std.os\n"
+                         "Class Noisy\n"
+                         "    Method Destroy()\n"
+                         "        Print(\"destroyed\")\n"
+                         "    End Method\n"
+                         "End Class\n"
+                         "Function Leave()\n"
+                         "    Defer Print(\"deferred\")\n"
+                         "    Local kept = Noisy()\n"
+                         "    Print(\"leaving\", Process.Id > 0)\n"
+                         "    Process.Exit(3)\n"
+                         "End Function\n"
+                         "Write(\"before, \")\n"
+                         "Leave()\n"
+                         "Print(\"after\")\n",
+                         {});
+    INFO((result ? result->output : result.error()));
+    REQUIRE(result);
+    CHECK(result->output == "before, leaving True\n");
+    CHECK(result->exit_code == 3);
+}
+
 TEST_CASE("a leak report is one message, and shows a Class made of one alike another",
           "[programs]") {
     const std::vector<fb::library_file_t> library{

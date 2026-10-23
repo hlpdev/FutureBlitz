@@ -807,6 +807,11 @@ std::int32_t fb_io_net_error_kind(std::int32_t code);
 /// Like fb_panic, with a String the program made as the message, for Panic and Assert. The
 /// String is only borrowed.
 [[noreturn]] void fb_panic_string(const fb_string_t* message, const fb_location_t* location);
+/// Ends the program at once with `code`, for std.os's Process.Exit: what it printed is flushed,
+/// and what it changed that others share is put back, but nothing else runs, on any thread.
+[[noreturn]] void fb_exit(std::int32_t code);
+/// The OS's number for the program's process.
+std::int64_t fb_process_id();
 /// Sets a thrown error's Place to `location`, unless an earlier Throw set it. `error` is an
 /// object of a Class that extends Error, whose first fields are fb_error_fields_t's.
 void fb_error_thrown(fb_object_t* error, const fb_location_t* location);

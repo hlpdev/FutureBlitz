@@ -469,6 +469,22 @@ void fb_panic(const char* message, const fb_location_t* location) {
     panic_with(message, location);
 }
 
+void fb_exit(const std::int32_t code) {
+    // As a panic does, it ends the program with the lock held, after any line another thread is
+    // writing.
+    ending().lock();
+    output().lock();
+    end_program(code);
+}
+
+std::int64_t fb_process_id() {
+#ifdef _WIN32
+    return static_cast<std::int64_t>(GetCurrentProcessId());
+#else
+    return static_cast<std::int64_t>(getpid());
+#endif
+}
+
 void fb_panic_string(const fb_string_t* message, const fb_location_t* location) {
     const auto* bytes = reinterpret_cast<const char*>(message + 1);
     panic_with({ bytes, static_cast<std::size_t>(message->length) }, location);
