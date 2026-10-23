@@ -1,0 +1,6 @@
+// A position past the String's end panics.
+Import std.core
+Import std.text
+
+Local word = "😀"
+Print(word.Find("x", 4) ?? -1, word.Find("x", 5) ?? -1)

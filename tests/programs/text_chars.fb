@@ -1,0 +1,21 @@
+// std.text's Char Methods: what kind of character each is, by Unicode's categories, over letters,
+// digits, marks, symbols, and emoji beyond ASCII, and each one's own case.
+Import std.core
+Import std.text
+
+Local samples = ['a', 'Z', 'é', 'ж', '中', '7', '٣', 'Ⅻ', '½', '\u{301}', ',', '¿', '+', '€', '😀',
+                 ' ', '\u{3000}', '\t', '\u{200B}', 'ǅ']
+For c In samples
+    Print("U+{c.Code} {c.Utf8Length} letter={c.IsLetter()} digit={c.IsDigit()}",
+          "number={c.IsNumber()} alnum={c.IsLetterOrDigit()} upper={c.IsUpper()}",
+          "lower={c.IsLower()} punct={c.IsPunctuation()} symbol={c.IsSymbol()}",
+          "control={c.IsControl()} space={c.IsWhitespace()} ascii={c.IsAscii()}")
+End For
+
+// A Char's own case is one Char: "ß" has none, since its uppercase is "SS".
+Print('a'.ToUpper(), 'é'.ToUpper(), 'ж'.ToUpper(), 'ß'.ToUpper(), 'ǅ'.ToUpper(), '😀'.ToUpper())
+Print('A'.ToLower(), 'É'.ToLower(), 'Ж'.ToLower(), 'ẞ'.ToLower(), 'ǅ'.ToLower(), '7'.ToLower())
+
+// From gives the Char of a code point, or Null for one that isn't a Unicode scalar value.
+Print(Char.From(0x1F600) ?? '?', Char.From(0xE9) ?? '?', Char.From(0) == '\0', Char.From(-1) ?? '?',
+      Char.From(0xD800) ?? '?', Char.From(0xDFFF) ?? '?', Char.From(0x110000) ?? '?')

@@ -1,0 +1,6 @@
+// A position inside a character, like the second byte of an "é", panics.
+Import std.core
+Import std.text
+
+Local word = "héllo"
+Print(word.Slice(0, 1), word.Slice(0, 2))

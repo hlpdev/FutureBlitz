@@ -1,0 +1,98 @@
+// A Char's Methods: its code, what kind of character it is, as Unicode's general categories say,
+// and its own uppercase and lowercase, through the runtime's fb_unicode_ functions over utf8proc.
+// Whitespace and ASCII need no Unicode data.
+
+Import std.core
+
+Extern "runtime"
+    Function fb_unicode_category(code: UInt32): Int32
+    Function fb_unicode_upper(code: UInt32): UInt32
+    Function fb_unicode_lower(code: UInt32): UInt32
+End Extern
+
+Extend Char
+    // Its code point, from 0 to 0x10FFFF.
+    Public Property Code: Int
+        Get => Self As Int
+    End Property
+
+    // How many bytes it takes in UTF-8: 1 to 4.
+    Public Property Utf8Length: Int
+        Get
+            Local code = Self As Int
+            If code < 0x80 Then Return 1
+            If code < 0x800 Then Return 2
+            If code < 0x10000 Then Return 3
+            Return 4
+        End Get
+    End Property
+
+    // The Char of a code point, or Null for one that isn't a Unicode scalar value: below 0, past
+    // 0x10FFFF, or a surrogate, 0xD800 to 0xDFFF.
+    Public Static Method From(code: Int): Char?
+        If code < 0 || code > 0x10FFFF || (code >= 0xD800 && code <= 0xDFFF) Then Return Null
+        Return code As Char
+    End Method
+
+    // Whether it's a letter, of any case or none, as in "é", "ж", or "中".
+    Public Method IsLetter(): Bool
+        Local category = fb_unicode_category(Self As UInt32)
+        Return category >= 1 && category <= 5
+    End Method
+
+    // Whether it's a decimal digit, of any script, like "7" or "٣".
+    Public Method IsDigit(): Bool => fb_unicode_category(Self As UInt32) == 9
+
+    // Whether it's a number of any kind: a decimal digit, a letter like a Roman numeral, or another
+    // like "½".
+    Public Method IsNumber(): Bool
+        Local category = fb_unicode_category(Self As UInt32)
+        Return category >= 9 && category <= 11
+    End Method
+
+    // Whether it's a letter or a decimal digit.
+    Public Method IsLetterOrDigit(): Bool => IsLetter() || IsDigit()
+
+    // Whether it's an uppercase letter.
+    Public Method IsUpper(): Bool => fb_unicode_category(Self As UInt32) == 1
+
+    // Whether it's a lowercase letter.
+    Public Method IsLower(): Bool => fb_unicode_category(Self As UInt32) == 2
+
+    // Whether it's punctuation, like "," or "¿".
+    Public Method IsPunctuation(): Bool
+        Local category = fb_unicode_category(Self As UInt32)
+        Return category >= 12 && category <= 18
+    End Method
+
+    // Whether it's a symbol, like "+", "$", or "©".
+    Public Method IsSymbol(): Bool
+        Local category = fb_unicode_category(Self As UInt32)
+        Return category >= 19 && category <= 22
+    End Method
+
+    // Whether it's a control character, like a tab or a line break.
+    Public Method IsControl(): Bool => fb_unicode_category(Self As UInt32) == 26
+
+    // Whether it's whitespace, as Unicode's White_Space has it: a space of any width, a tab, a line
+    // or paragraph break, and the like.
+    Public Method IsWhitespace(): Bool
+        Local code = Self As Int
+        If code <= 0xFF
+            Return (code >= 9 && code <= 13) || code == 32 || code == 0x85 || code == 0xA0
+        End If
+
+        Return code == 0x1680 || (code >= 0x2000 && code <= 0x200A) || code == 0x2028 ||
+               code == 0x2029 || code == 0x202F || code == 0x205F || code == 0x3000
+    End Method
+
+    // Whether it's ASCII, U+0000 to U+007F.
+    Public Method IsAscii(): Bool => (Self As Int) < 0x80
+
+    // Its own uppercase, or itself when it has none. A String's ToUpper turns "ß" into "SS", which
+    // one Char can't hold.
+    Public Method ToUpper(): Char => fb_unicode_upper(Self As UInt32) As Char
+
+    // Its own lowercase, or itself when it has none.
+    Public Method ToLower(): Char => fb_unicode_lower(Self As UInt32) As Char
+End Extend
