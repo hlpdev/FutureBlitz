@@ -1,0 +1,6 @@
+// A StringBuilder's Remove that ends before it starts panics.
+Import std.core
+Import std.text
+
+Local text = StringBuilder("é😀é")
+Print(text.Remove(2, 6), text.Remove(2, 0))

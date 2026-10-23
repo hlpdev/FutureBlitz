@@ -1,0 +1,49 @@
+// StringBuilder, which builds text a piece at a time, and Scanner, which reads it, each over text
+// beyond ASCII: accented letters, combining marks, and emoji, by byte position.
+Import std.core
+Import std.text
+
+Local builder = StringBuilder("é")
+builder.Append("😀").Append('ж').Append(42).Append(True).AppendLine().AppendLine("e\u{301}")
+Print(builder.Length, builder.ToString().CharCount, builder.ToString().SplitLines())
+
+// Positions are byte offsets, between characters.
+Local text = StringBuilder("héllo 😀 wörld")
+text.Insert(0, "¡").Insert(text.Length, "!")
+Print(text, text.Length)
+text.Remove(3, 5)
+Print(text, text[0], text[3], text[7])
+text[0] = '¿'
+text[7] = '?'
+Print(text, text.Length)
+text.Replace("ö", "oe").Replace("😀", "👨‍👩‍👧")
+Print(text, "{text}".GraphemeCount)
+text.Clear().Append("e\u{301}")
+text.Reserve(100)
+Print(text, text.Length, text[0], text[1])
+
+// Building many pieces.
+Local many = StringBuilder()
+For i = 1 To 1000
+    many.Append("é😀")
+End For
+
+Print(many.Length, many.ToString().CharCount)
+
+// A Scanner reads characters, words, lines, and numbers, and keeps their Line and Column.
+Local scanner = Scanner("héllo 😀 -42 wörld\ne\u{301}clair +7\r\n\n" +
+                        "9223372036854775807 99999999999999999999")
+Print(scanner.Peek() ?? '-', scanner.Next() ?? '-', scanner.Next() ?? '-', scanner.Position,
+      scanner.Line, scanner.Column)
+Print(scanner.TakeWord() ?? "-", scanner.Column, scanner.TakeWord() ?? "-", scanner.Column)
+scanner.SkipWhitespace()
+Print(scanner.TakeInt() ?? 0, scanner.TakeInt() ?? 0, scanner.TakeWord() ?? "-", scanner.Line,
+      scanner.Column)
+Print(scanner.TakeLine() ?? "-", scanner.Line, scanner.Column)
+Print(scanner.Take("e"), scanner.Take("\u{301}c"), scanner.Take("x"), scanner.Column)
+Print(scanner.TakeWhile(Function(c: Char) => c.IsLetter()), scanner.TakeUntil("7"), scanner.Column)
+Print(scanner.TakeInt() ?? 0, scanner.TakeLine() ?? "-", "[{scanner.TakeLine() ?? "-"}]",
+      scanner.Line)
+Print(scanner.TakeInt() ?? 0, scanner.Next() ?? '-', scanner.TakeInt() ?? 0)
+Print(scanner.TakeRest(), scanner.AtEnd(), scanner.Next() ?? '-', scanner.TakeLine() ?? "end",
+      scanner.TakeWord() ?? "end", scanner.Line, scanner.Column)

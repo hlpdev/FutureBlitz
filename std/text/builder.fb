@@ -1,0 +1,153 @@
+// StringBuilder: text built up a piece at a time, in a buffer of its UTF-8 bytes that grows as
+// pieces come, so building a String of many pieces takes time in proportion to its length, where
+// joining them one by one would copy it each time. Positions are byte offsets, as a String's are,
+// and one inside a character panics.
+
+Import std.core
+Import std.collections
+Import std.text.char
+Import std.text.string
+
+Extern "runtime"
+    Function fb_text_append(into: UInt8[], text: String)
+    Function fb_text_from_utf8(bytes: UInt8[], start: Int64, count: Int64): String?
+End Extern
+
+Public Class StringBuilder Implements Printable
+    // The text's UTF-8, which only ever holds whole characters.
+    Field Bytes: UInt8[] = []
+
+    // An empty one.
+    Public New()
+    End New
+
+    // One that starts with text.
+    Public New(text: String)
+        fb_text_append(Bytes, text)
+    End New
+
+    // How many bytes its text has, which is also the position just past its end.
+    Public Property Length: Int
+        Get => Bytes.Count
+    End Property
+
+    // Adds text at the end, and gives the StringBuilder, for another call after it.
+    Public Method Append(text: String): StringBuilder
+        fb_text_append(Bytes, text)
+        Return Self
+    End Method
+
+    // Adds c at the end.
+    Public Method Append(c: Char): StringBuilder => Append("{c}")
+
+    // Adds the value's text at the end, as "{value}" shows it.
+    Public Method Append<T: Printable>(value: T): StringBuilder => Append("{value}")
+
+    // Adds text, then a line break, "\n", at the end.
+    Public Method AppendLine(text: String = ""): StringBuilder
+        fb_text_append(Bytes, text)
+        Bytes.Add(10)
+        Return Self
+    End Method
+
+    // Puts text in at the position at. Panics unless at is a position in the text, between two
+    // characters.
+    @PanicsAtCaller
+    Public Method Insert(at: Int, text: String): StringBuilder
+        CheckPosition(at, "Insert")
+        Bytes.InsertAll(at, text.Bytes)
+        Return Self
+    End Method
+
+    // Takes out the text from start up to finish. Panics unless both are positions in the text,
+    // between characters, with start no later than finish.
+    @PanicsAtCaller
+    Public Method Remove(start: Int, finish: Int): StringBuilder
+        CheckPosition(start, "Remove")
+        CheckPosition(finish, "Remove")
+        If start > finish Then Panic("Remove({start}, {finish}) ends before it starts")
+        Bytes.RemoveRange(start, finish - start)
+        Return Self
+    End Method
+
+    // Replaces each old, from the start, with replacement. An empty old panics.
+    @PanicsAtCaller
+    Public Method Replace(old: String, replacement: String): StringBuilder
+        Local replaced = ToString().Replace(old, replacement)
+        Bytes.Clear()
+        fb_text_append(Bytes, replaced)
+        Return Self
+    End Method
+
+    // Takes out all its text.
+    Public Method Clear(): StringBuilder
+        Bytes.Clear()
+        Return Self
+    End Method
+
+    // Makes room for bytes bytes of text in all, so adding up to that many needs no more memory.
+    // A negative count panics.
+    @PanicsAtCaller
+    Public Method Reserve(bytes: Int)
+        If bytes < 0 Then Panic("Reserve takes a count that isn't negative, not {bytes}")
+        Bytes.Reserve(bytes)
+    End Method
+
+    // The text it has built.
+    Public Method ToString(): String => fb_text_from_utf8(Bytes, 0, Bytes.Count) ?? ""
+
+    // The Char whose first byte is at the position at. Panics unless at is a position in the
+    // text, between characters, before its end.
+    @PanicsAtCaller
+    Operator [](at: Int): Char
+        CheckCharacter(at)
+        Return CharIn(Bytes, at)
+    End Operator
+
+    // Replaces the Char at the position at with value, whose bytes may be more or fewer. Panics
+    // unless at is a position in the text, between characters, before its end.
+    @PanicsAtCaller
+    Operator []=(at: Int, value: Char)
+        CheckCharacter(at)
+        Local old = CharIn(Bytes, at)
+        Bytes.RemoveRange(at, old.Utf8Length)
+        Bytes.InsertAll(at, "{value}".Bytes)
+    End Operator
+
+    // Panics unless at is a position in the text between two characters, for what.
+    @PanicsAtCaller
+    Method CheckPosition(at: Int, what: String)
+        If at < 0 || at > Bytes.Count
+            Panic("{what} takes a position from 0 to the StringBuilder's Length, {Bytes.Count}, " +
+                  "not {at}")
+        End If
+
+        If at < Bytes.Count && (Bytes[at] & 0xC0) == 0x80
+            Panic("{what} takes a position between characters, not {at}")
+        End If
+    End Method
+
+    // Panics unless a character starts at the position at.
+    @PanicsAtCaller
+    Method CheckCharacter(at: Int)
+        If at == Bytes.Count
+            Panic("[] takes a character's position, before the StringBuilder's Length, " +
+                  "{Bytes.Count}, not {at}")
+        End If
+
+        CheckPosition(at, "[]")
+    End Method
+End Class
+
+// The Char whose UTF-8 starts at at in bytes, whose characters are whole.
+Function CharIn(bytes: UInt8[], at: Int): Char
+    Local lead = bytes[at] As Int
+    If lead < 0x80 Then Return lead As Char
+    Local following = lead >= 0xF0 ? 3 : (lead >= 0xE0 ? 2 : 1)
+    Local code = lead & (0x3F >> following)
+    For i = 1 To following
+        code = (code << 6) | ((bytes[at + i] As Int) & 0x3F)
+    End For
+
+    Return code As Char
+End Function

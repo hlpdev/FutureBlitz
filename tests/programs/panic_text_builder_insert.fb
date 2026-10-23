@@ -1,0 +1,6 @@
+// A StringBuilder's position inside a character, like the second byte of an "é", panics.
+Import std.core
+Import std.text
+
+Local text = StringBuilder("é😀")
+Print(text.Insert(2, "x"), text.Insert(1, "y"))
