@@ -18307,6 +18307,13 @@ private:
             return type_id_t::INVALID;
         }
 
+        if (const auto* lambda = std::get_if<lambda_expr_t>(&m_ast.get(work).node);
+            lambda != nullptr && lambda->is_async) {
+            error(span_of(node.callee), "this work runs on another thread, but it's an Async "
+                                        "lambda, whose code runs on the main thread");
+            return type_id_t::INVALID;
+        }
+
         const std::optional<std::size_t> closure = info(work).closure;
         const expr_node_t& written = m_ast.get(work).node;
         if (!closure || (!std::holds_alternative<lambda_expr_t>(written) &&

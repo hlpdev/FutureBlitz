@@ -8423,9 +8423,18 @@ TEST_CASE("an Async lambda's call gives its Task, and its code can Await", "[sem
           errors_t{ "Await NextFrame(): Await goes in an Async Function or lambda, whose code can "
                     "wait without blocking its thread, or in top-level code" });
 
-    // Its code runs on the main thread.
+    // Its code runs on the main thread, so it isn't work for another one either.
     CHECK(errors_of("Local t = Spawn(Function() => (Async Function() => 1)())") ==
           errors_t{ "Spawn: this work runs on another thread, but it makes an Async lambda, "
+                    "whose code runs on the main thread" });
+    CHECK(errors_of("Import std.core\n"
+                    "Local t = Spawn(Async Function()\n"
+                    "    Await NextFrame()\n"
+                    "End Function)\n"
+                    "Local th = Thread.Start(Async Function() => 1)") ==
+          errors_t{ "Spawn: this work runs on another thread, but it's an Async lambda, whose "
+                    "code runs on the main thread",
+                    "Thread.Start: this work runs on another thread, but it's an Async lambda, "
                     "whose code runs on the main thread" });
 }
 
