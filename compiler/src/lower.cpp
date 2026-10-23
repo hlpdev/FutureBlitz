@@ -996,6 +996,10 @@ private:
     /// How deep a type can nest, as deep as the parser lets code write one.
     static constexpr std::uint32_t max_depth = 1000;
 
+    /// The most bytes a For ... In holds a fixed array's copy in on the stack. A larger one's goes
+    /// in a T[], since a thread's stack holds about a mebibyte.
+    static constexpr std::uint64_t max_stack_copy = std::uint64_t{ 64 } * 1024;
+
     /// Whether a type nests deeper, or is made of more types, than fb makes: one that grows by
     /// doubling, like Pair<Self, Self>, gets there before a chain of instances is long.
     [[nodiscard]] bool too_large(const type_id_t type) const {
@@ -3686,7 +3690,7 @@ private:
         }
 
         // A fixed array is held as a copy, unless it's a whole temporary already, which the
-        // loop takes over.
+        // loop takes over, and a large one's copy is a T[].
         push_scope();
         const operand_t value = lower_value(node.sequence);
         place_t sequence = as_place(value);
@@ -3696,6 +3700,8 @@ private:
             if (take_temporary(value)) {
                 m_scopes.back().emplace_back(*root);
             }
+        } else if (is_fixed_array(type) && size_bound(type) > max_stack_copy) {
+            sequence = array_of(sequence, type);
         } else {
             const local_id_t held = add_local(type);
             initialize(held, value);
@@ -6994,10 +7000,56 @@ private:
         start(next);
     }
 
+    /// A new T[] of a fixed array's elements, in order, with references of their own, which the
+    /// scope lets go of.
+    local_id_t array_of(const place_t& fixed, const type_id_t type) {
+        const type_id_t array = types().array(types().get(type).inner);
+        const local_id_t copy = add_local(array);
+        emit(assign_t{ .target = copy, .value = array_t{ .type = array } });
+        m_scopes.back().emplace_back(copy);
+        const runtime_call_t reserve{
+            .function = runtime_function_t::ARRAY_RESERVE,
+            .arguments = { place_t{ copy }, element_count_of(fixed, type) },
+        };
+        emit(evaluate_t{ reserve });
+        each_element(fixed, type, [&](const place_t& item, local_id_t /*counter*/) {
+            take(item);
+            const runtime_call_t add{
+                .function = runtime_function_t::ARRAY_ADD,
+                .arguments = { place_t{ copy }, item },
+            };
+            emit(evaluate_t{ add });
+        });
+        return copy;
+    }
+
+    /// The most bytes a value of `type` can take: 8 for each number, Bool, or reference in it,
+    /// and a flag for each T?, which tells a small fixed array from a large one.
+    [[nodiscard]] std::uint64_t size_bound(const type_id_t type) const {
+        const type_t& info = types().get(type);
+        switch (info.kind) {
+        case type_kind_t::FIXED_ARRAY:
+            return types().element_count(type) * size_bound(info.inner);
+        case type_kind_t::NULLABLE:
+            return 8 + size_bound(info.inner);
+        case type_kind_t::STRUCT:
+        case type_kind_t::TUPLE: {
+            std::uint64_t size = 0;
+            for (const field_t& field : info.fields) {
+                size += size_bound(field.type);
+            }
+
+            return size;
+        }
+        default:
+            return 8;
+        }
+    }
+
     /// How many elements an array has: a T[]'s count, or a fixed array's.
-    operand_t element_count_of(const local_id_t array, const type_id_t type) {
+    operand_t element_count_of(const place_t& array, const type_id_t type) {
         if (is_array(type)) {
-            return count_of(place_t{ array });
+            return count_of(array);
         }
 
         const auto count = static_cast<std::int64_t>(types().element_count(type));
@@ -7007,7 +7059,7 @@ private:
     /// Runs `body` with each element of the array in `array`, in order, and a local with its
     /// index, then goes on after the loop.
     template <typename Body>
-    void each_element(const local_id_t array, const type_id_t type, const Body& body) {
+    void each_element(const place_t& array, const type_id_t type, const Body& body) {
         const span_t nowhere;
         const local_id_t counter = add_local(type_id_t::INT32);
         emit(assign_t{ .target = counter, .value = use_t{ .value = zero(type_id_t::INT32) } });
@@ -7020,7 +7072,7 @@ private:
         const block_id_t exit = new_block();
         terminate(branch_t{ .condition = in_range, .if_true = loop, .if_false = exit });
         start(loop);
-        place_t element{ array };
+        place_t element = array;
         element.steps.push_back({ .indices = { counter }, .span = nowhere });
         body(element, counter);
         count_up(counter, nowhere);

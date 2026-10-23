@@ -1,0 +1,60 @@
+// A For ... In over a large fixed array, a Global's or a Field's, holds a copy of it in a T[],
+// which a thread's stack couldn't, and a value holding a fixed array of more elements than LLVM
+// handles in one aggregate, a Local's or a Struct's, is made and copied a part at a time.
+Import std.core
+
+Global tiles: Int32[1024, 1024]
+tiles[1023, 1023] = 7
+tiles[0, 0] = 1
+Local total = 0
+For t In tiles
+    total += t
+End For
+
+Print(total)
+
+Class Map
+    Field Tiles: Int32[256, 256]
+End Class
+
+Local map = Map()
+map.Tiles[255, 255] = 7
+total = 0
+For t In map.Tiles
+    total += t
+End For
+
+Print(total)
+
+// The loop goes over the array as it was when it started, as for a small one.
+Global names: String[100, 100]
+For i = 0 Until 3
+    names[i, 0] = "name {i}"
+End For
+
+Local seen: String[] = []
+For i, name In names
+    If i == 0
+        names[1, 0] = "changed {1}"
+        names[2, 0] = ""
+    End If
+
+    If name != "" Then seen.Add(name)
+End For
+
+Print(seen, names[1, 0])
+
+// A copy is a value of its own.
+Local copy = map.Tiles
+copy[0, 0] = 2
+Print(copy[0, 0], map.Tiles[0, 0], copy[255, 255])
+
+Struct Board
+    Field Cells: Int32[260, 260]
+End Struct
+
+Global board = Board()
+board.Cells[259, 259] = 9
+Global other = board
+other.Cells[259, 259] = 3
+Print(board.Cells[259, 259], other.Cells[259, 259])
