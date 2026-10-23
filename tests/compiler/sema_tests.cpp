@@ -1708,9 +1708,9 @@ TEST_CASE("a Class extends one other Class and inherits its members", "[sema]") 
                     "    Static Method x(): Int => 5\n"
                     "    Static Method P(): Int => 5\n"
                     "    Static Method s(): Int => 5\n"
-                    "End Class") ==
-          errors_t{ "x: 'x' is already declared in A", "P: 'P' is already declared in A",
-                    "s: 's' is already declared in A" });
+                    "End Class") == errors_t{ "x: 'x' is already declared in A",
+                                              "P: 'P' is already declared in A",
+                                              "s: 's' is already declared in A" });
 
     CHECK(errors_of("Struct S\nEnd Struct\nStruct T Extends S\nEnd Struct") ==
           errors_t{ "S: only a Class can extend another; a Struct is a value" });
@@ -5829,8 +5829,7 @@ TEST_CASE("a call of a Const Function runs at compile time when its arguments ar
     CHECK(errors_of("Const Function Add(a: Int, b: Int = \"x\"): Int => a + b\n"
                     "Function F(x: Int): Int => x\n"
                     "Function F(x: String): Int => 0\n"
-                    "Global g = F(Add(1))") ==
-          errors_t{ "\"x\": expected Int32, found String" });
+                    "Global g = F(Add(1))") == errors_t{ "\"x\": expected Int32, found String" });
     CHECK(probe("Const Function Shout(s: String): String => s + \"!\"\nLocal x = Shout(\"hi\")") ==
           "String hi!");
     CHECK(probe("Struct P\n    Field X: Int\nEnd Struct\n"
@@ -8652,8 +8651,8 @@ TEST_CASE("what a call can run on another thread includes overrides and lambdas"
           errors_t{ std::vformat(reached, std::make_format_args("Eq.==")) });
     // So do a T[]'s Contains and generic code's == on a Struct that compares its fields, as
     // generic code's Hash does on one that combines its fields'.
-    CHECK(errors_of(std::format("{}{}Local t = Spawn(Function() => [Eq(1)].Contains(Eq(2)))",
-                                parts, score)) ==
+    CHECK(errors_of(std::format("{}{}Local t = Spawn(Function() => [Eq(1)].Contains(Eq(2)))", parts,
+                                score)) ==
           errors_t{ std::vformat(reached, std::make_format_args("Eq.==")) });
     CHECK(errors_of(std::format("{}{}Struct Listed Implements Equatable\n"
                                 "    Field e: Eq\n"

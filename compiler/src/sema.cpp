@@ -1480,8 +1480,7 @@ private:
                 names.begin(), names.begin() + static_cast<std::ptrdiff_t>(i),
                 [&](const name_t& other) { return other.text == names[i].text; });
             if (!repeated && !builtin_type(names[i].text) && names_type(names[i])) {
-                error(names[i].span,
-                      "'{}' is a type here, so a type parameter can't take its name",
+                error(names[i].span, "'{}' is a type here, so a type parameter can't take its name",
                       names[i].text);
             }
         }
