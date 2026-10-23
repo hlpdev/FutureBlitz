@@ -91,16 +91,18 @@ Print(Percent.Decode(Percent.Encode(text)) == text, Percent.Decode("%E2%82%AC%20
       Percent.DecodeBytes(Percent.EncodeBytes(every)) == every)
 
 // HTML's escaping.
-Local page = "<a href=\"x\">Tom & Jerry's é😀</a>"
+Local page = "<a href=\"x\">Tom & Jerry's é😀 e\u{301}</a>"
 Print(Html.Escape(page), Html.Unescape(Html.Escape(page)) == page)
 Print(Html.Unescape("&lt;&#233;&#xE9;&#X1F600;&nbsp;&apos;&amp;amp; &bogus; & &#xD800; &#; &#12a;"))
 // A number past the most a Char holds is U+FFFD, however many digits it has, and leading zeros
 // count for nothing; a ";" that only comes after other text, or another "&", ends no entity.
 Print(Html.Unescape("&#x80000000;&#xFFFFFFFF;&#x0000000041;&#99999999999;&#0000000000065;"))
 Print(Html.Unescape("&b=2&amp;c=&lt &gt;;& amp;&am&p;"))
+Print(Html.Unescape("e\u{301}&amp;😀&lt;e&#x301;&#x1F600;"))
 
 // C-style escapes.
-Local raw = "tab\there\nquote\" apostrophe' back\\slash nul\0 bell\u{7} del\u{7F} c1\u{85} é😀"
+Local raw = "tab\there\nquote\" apostrophe' back\\slash nul\0 bell\u{7} del\u{7F} c1\u{85} é😀 " +
+            "e\u{301}"
 Print(Escape(raw), Unescape(Escape(raw)) == raw)
 Print(Unescape("\\u{{1F600}}\\x41\\u{{E9}}e\\u{{301}}") ?? "-", Unescape("\\q") ?? "bad",
       Unescape("end\\") ?? "bad", Unescape("\\x80") ?? "past 7F",
