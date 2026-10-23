@@ -640,9 +640,10 @@ Function Base64Alphabet(urlSafe: Bool): UInt8[]
 End Function
 
 // Each character of text's place in alphabet, an uppercase one's for a lowercase one when
-// ignoreCase says, after the "=" that fill out its end; or Null when one isn't in it, an "=" comes
-// before another character, the filled-out text isn't a whole number of groups of group
-// characters, or what's left over after the whole groups is a count that ends isn't among.
+// ignoreCase says, after the "=" that fill out its last group of group characters; or Null when
+// one isn't in it, an "=" comes before another character, the "=" are more or fewer than fill out
+// a last group that isn't whole, or what's left over after the whole groups is a count that ends
+// isn't among.
 Function SymbolValues(text: String, alphabet: UInt8[], ignoreCase: Bool, group: Int,
                       ends: Int[]): Int[]?
     Local source = text.Bytes
@@ -651,7 +652,8 @@ Function SymbolValues(text: String, alphabet: UInt8[], ignoreCase: Bool, group: 
         count -= 1
     End While
 
-    If count < source.Count && source.Count % group != 0 Then Return Null
+    Local padding = source.Count - count
+    If padding > 0 && (count % group == 0 || padding != group - count % group) Then Return Null
     If !ends.Contains(count % group) Then Return Null
     Local values: Int[] = []
     For i = 0 Until count
