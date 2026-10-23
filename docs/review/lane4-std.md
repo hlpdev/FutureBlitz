@@ -11,7 +11,7 @@ dropped, with why (it doesn't reproduce, or the spec says otherwise).
 
 ## A11-1 (medium): Queue keeps dequeued values alive until it compacts
 
-Status: open
+Status: fixed in ac2f295 (queue_releases.fb): Items is a T?[], and Dequeue empties the slot it takes.
 
 Where: std/collections/queue.fb:37
 
@@ -29,7 +29,7 @@ Skeptic: confirmed=True, medium. Reproduced with exp-all/skeptic11/q1.fb (Thing 
 
 ## A11-2 (medium): Map.Reserve above 2^30 overflows inside Grow; a Map can't grow past 2^30 buckets
 
-Status: open
+Status: fixed in f01419c and 83cd068, without a test: Grow stops at 2^30 buckets, and returns when that leaves the count as it is, so past 2^30 entries the chains get longer. (83cd068 moves the cap from a Const into Grow, since map.fb is in every program and its Consts showed in every MIR dump.) A test would need 2^30 entries reserved: 34 GB for a Map<Bool, Bool>'s entries and 4 GB of buckets. The capped arithmetic was checked by hand at 0, 8, 9, 2^30 - 1, 2^30, 2^30 + 1, and 2^31 - 1.
 
 Where: std/collections/map.fb:364
 
@@ -47,7 +47,7 @@ Skeptic: confirmed=True, medium. Reproduced with exp-all/skeptic11/big.fb: `Loca
 
 ## A11-3 (medium): SortUnstable (and PriorityQueue's SiftDown) overflow working out a child index on arrays over 2^30 elements
 
-Status: open
+Status: fixed in 6daf613 (panic_sort_unstable_big.fb, a 1 GB Byte[] whose before function panics after three comparisons; 5 s each way): both SiftDowns stop at count / 2, before a child's index could overflow. PriorityQueue's has no test of its own, since one of 2^30 values takes about 40 s and 2 GB to build. Queue's compaction check, Head * 2, overflowed the same way at 2^31 - 1 slots; 651103a compares Head with Count - Head instead (no test: 4 GB).
 
 Where: std/collections/array.fb:318
 
@@ -65,7 +65,7 @@ Skeptic: confirmed=True, medium. Reproduced with exp-all/skeptic11/bigsort.fb: a
 
 ## A11-4 (medium): Spec says T[]'s FindLast gives an Int?; it gives the element, a T?
 
-Status: open
+Status: fixed in abf320b: spec 14 gives FindLast a T?, beside Find. array_methods.fb already prints the element.
 
 Where: docs/spec/14-strings-collections.md:142
 
@@ -83,7 +83,7 @@ Skeptic: confirmed=True, medium. Spec 14 line 142 lists 'FindLast, FindIndex, In
 
 ## A11-5 (medium): Remove, IndexOf, LastIndexOf, and every collection's Contains refuse plain Class elements that == and T[].Contains accept
 
-Status: open
+Status: fixed in c383943 (equatable_objects.fb): spec 07 says a Class implements Equatable only by listing it, and spec 06 that Equatable is what gives generic code ==, so spec 14 now says what compares values needs them Equatable, and that listing it is all a Class needs. Making every Class Equatable would be a language change.
 
 Where: std/collections/array.fb:14
 
@@ -101,7 +101,7 @@ Skeptic: confirmed=True, medium. Reproduced with exp-all/skeptic11/c1.fb (plain 
 
 ## A11-6 (medium): An unmet conditional Printable on a std collection gives the advice 'implement Printable, with a ToString'
 
-Status: open
+Status: fixed in 80dddbf (sema_tests.cpp, "an Extend's Where makes what it adds conditional"): a value whose Printable an Extend's Where keeps from it says which type argument isn't Printable, as "Map<String, Int32?> can't be shown by 'Print', since Int32? isn't Printable, which its ToString needs for V". The 'implement Printable' advice stays for a type with no such Extend. A small change in sema.cpp (lane 1's), in report_unshowable and a helper beside it.
 
 Where: compiler/src/sema.cpp:10404
 
@@ -119,7 +119,7 @@ Skeptic: confirmed=False, low. Refuted. The messages do show as described (d1.fb
 
 ## A11-7 (medium): No test that Map, Queue, or PriorityQueue panics when changed during a For ... In
 
-Status: open
+Status: fixed in 2725140 (panic_map_changed.fb, panic_queue_changed.fb, panic_priority_changed.fb).
 
 Where: tests/programs/panic_set_changed.fb:1
 
@@ -137,7 +137,7 @@ Skeptic: confirmed=True, medium. Searching tests/ for 'the Map changed', 'the Qu
 
 ## A12-1 (medium): Near works out each point's offset in Float, not Double, so points at the radius's edge come out wrong
 
-Status: open
+Status: fixed in 9c8656e (spatial.fb's Edge cases, for a SpatialHash, a QuadTree, and an Octree): Within takes Doubles, so each placed Float coordinate is taken from a Double. The test's reference Near widens first too.
 
 Where: std/collections/spatial.fb:92
 
@@ -155,7 +155,7 @@ Skeptic: confirmed=True, medium. Reproduced (exp-all/skeptic-a12/a1.fb). Within(
 
 ## A12-2 (medium): An infinite radius misses a point at the same infinity as the center, though the docs say it finds every point
 
-Status: open
+Status: fixed in 9c8656e (spatial.out's line 11 now has east): Within takes every placed value for an infinite radius.
 
 Where: std/collections/spatial.fb:95
 
@@ -173,7 +173,7 @@ Skeptic: confirmed=True, medium. Reproduced (a2.fb). With a SpatialHash holding 
 
 ## A12-3 (medium): A NaN key quietly corrupts a SortedMap, SortedSet, or IntervalTree, so keys already in it can't be found and get duplicated
 
-Status: open
+Status: fixed in f5d2ac1 (panic_sorted_map_nan.fb, panic_sorted_set_nan.fb, panic_interval_nan.fb): a key that isn't equal to itself panics at the caller of SortedMap.Add and []=, SortedSet.Add, and IntervalTree.Add, and Floor, Ceiling, Range, Overlapping, Containing, Contains, and Remove find nothing for one. Ceiling(NaN) gave the smallest key, Range(NaN, x) started at the front, and IntervalTree.Contains(NaN, high, value) matched any node with that high. Spec 14 says so.
 
 Where: std/collections/sorted.fb:232
 
@@ -191,7 +191,7 @@ Skeptic: confirmed=True, medium. Reproduced (a3.fb): a SortedMap<Double, Int> wi
 
 ## A12-4 (medium): Grid3's panics, and a few other promised panics, have no test
 
-Status: open
+Status: fixed in 4c48757: Grid3's panics were already tested (panic_grid3_*.fb). New tests cover every spatial NaN check that had none (SpatialHash's Remove and Contains, the trees' Add, Remove, Contains, and Move, and QuadTree's and Octree's Near and Query), SpatialHash's and Octree's change-while-iterating panics, and an empty LinkedList's Last.
 
 Where: std/collections/grid.fb:149
 
