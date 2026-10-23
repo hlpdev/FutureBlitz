@@ -61,7 +61,8 @@ struct frame_t {
 
 class evaluator_t {
 public:
-    explicit evaluator_t(const mir_module_t& module) : m_module(module), m_types(*module.types) {}
+    evaluator_t(const mir_module_t& module, const build_mode_t mode)
+        : m_module(module), m_types(*module.types), m_mode(mode) {}
 
     /// Runs a function with its parameters' values and gives its result.
     result_t call(const function_id_t id, std::vector<value_t> arguments) {
@@ -76,6 +77,7 @@ public:
 private:
     const mir_module_t& m_module;
     const type_table_t& m_types;
+    build_mode_t m_mode;
     std::vector<frame_t> m_frames;
     std::uint64_t m_steps = 0;
     /// How many T?s a type is inside: 2 for an Int32??.
@@ -553,9 +555,9 @@ private:
                 static_cast<std::int64_t>(order > 0) - static_cast<std::int64_t>(order < 0);
             return value_t{ const_value_t{ .type = type_id_t::INT32, .data = sign } };
         }
-        // Code that runs at compile time checks what a debug build does.
+        // A DebugAssert runs at compile time where the build is a debug one.
         case runtime_function_t::DEBUG_BUILD:
-            return value_t{ make_bool(true) };
+            return value_t{ make_bool(m_mode == build_mode_t::DEBUG) };
         default:
             return failure("it uses objects or arrays, which only the running program has");
         }
@@ -743,14 +745,14 @@ private:
 
 std::expected<const_value_t, evaluation_error_t>
 evaluate(const mir_module_t& module, const function_id_t function,
-         const std::vector<const_value_t>& arguments) {
+         const std::vector<const_value_t>& arguments, const build_mode_t mode) {
     std::vector<value_t> values;
     values.reserve(arguments.size());
     for (const const_value_t& argument : arguments) {
         values.push_back({ argument });
     }
 
-    const result_t result = evaluator_t(module).call(function, std::move(values));
+    const result_t result = evaluator_t(module, mode).call(function, std::move(values));
     if (!result) {
         return std::unexpected(result.error());
     }

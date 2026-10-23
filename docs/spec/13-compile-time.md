@@ -52,6 +52,8 @@ Local table: Int[Fib(10)]          // usable in types
 - A panic, an overflow, a division by zero, an index out of range, more than 10 million steps,
   calls more than 10,000 deep, or variables that hold more than 256 MiB of text and parts while
   it runs is a compile error at the call, pointing at where in the Const Function it happened.
+- A Const Function runs as the build would run it, so a release build leaves its DebugAsserts
+  out, as it does the program's.
 - A size in a declaration's type, like a Field's `Int[Cells()]`, can come from a Const Function
   anywhere in the file, since Const Functions are declared first. While types are still being
   declared, one whose code reaches a Struct or Class whose members aren't declared yet can't run

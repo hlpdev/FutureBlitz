@@ -1,6 +1,7 @@
 #pragma once
 
 #include "fb/ast.hpp"
+#include "fb/codegen.hpp"
 #include "fb/const_value.hpp"
 #include "fb/diagnostic.hpp"
 #include "fb/source.hpp"
@@ -411,8 +412,9 @@ struct analysis_t { // NOLINT(bugprone-exception-escape)
 /// constants, and reports errors to `diagnostics`. Each of the modules in `ast` has its own
 /// top-level names, and sees those of the modules it imports after them, as the module table
 /// says; `sources` holds their files. It always returns a full analysis, but only one without
-/// errors can be lowered.
+/// errors can be lowered. Const Functions run as a build of `mode` would run them.
 [[nodiscard]] analysis_t analyze(const source_manager_t& sources, const ast_t& ast,
-                                 diagnostic_bag_t& diagnostics);
+                                 diagnostic_bag_t& diagnostics,
+                                 build_mode_t mode = build_mode_t::DEBUG);
 
 } // namespace fb

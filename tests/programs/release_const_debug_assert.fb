@@ -1,0 +1,12 @@
+// A release build leaves DebugAssert out of a Const Function that runs in the compiler, as it
+// does when the same call runs with the program.
+Import std.core
+
+Const Function Half(n: Int): Int
+    DebugAssert(n > 0, "n must be positive")
+    Return n / 2
+End Function
+
+Const EARLY = Half(-4)
+Local n = -4
+Print("{EARLY} {Half(n)}")

@@ -1036,7 +1036,8 @@ private:
 void run_front_end(compilation_t& compilation, file_set_t files, const std::string& path,
                    const build_mode_t mode) {
     loader_t(compilation, std::move(files), mode).run(path);
-    compilation.analysis = analyze(compilation.sources, compilation.ast, compilation.diagnostics);
+    compilation.analysis =
+        analyze(compilation.sources, compilation.ast, compilation.diagnostics, mode);
     // Each stage adds its own diagnostics, so sorting puts them back in source order.
     compilation.diagnostics.sort();
 }

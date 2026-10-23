@@ -286,9 +286,10 @@ bool is_later_name(const std::string_view name) {
 /// values, and default values can use them. Results go in an analysis_t for lowering.
 class checker_t {
 public:
-    checker_t(const source_manager_t& sources, const ast_t& ast, diagnostic_bag_t& diagnostics)
-        : m_sources(sources), m_ast(ast), m_diagnostics(&diagnostics), m_bag(&diagnostics),
-          m_reported(&diagnostics) {
+    checker_t(const source_manager_t& sources, const ast_t& ast, diagnostic_bag_t& diagnostics,
+              const build_mode_t mode)
+        : m_sources(sources), m_ast(ast), m_mode(mode), m_diagnostics(&diagnostics),
+          m_bag(&diagnostics), m_reported(&diagnostics) {
         m_analysis.exprs.resize(ast.expr_count());
         m_analysis.stmts.resize(ast.stmt_count());
         const std::vector<module_t>& modules = ast.modules().modules();
@@ -375,6 +376,8 @@ public:
 private:
     const source_manager_t& m_sources;
     const ast_t& m_ast;
+    /// The build's mode, which Const Functions run as.
+    build_mode_t m_mode;
     diagnostic_bag_t* m_diagnostics; // swapped out while trying overloads
     /// The diagnostics that are kept, for work done on demand inside quietly().
     diagnostic_bag_t* m_bag;
@@ -18532,7 +18535,7 @@ private:
                 .span = module->error->span,
             });
         } else {
-            result = evaluate(*module, function_id_t{}, arguments);
+            result = evaluate(*module, function_id_t{}, arguments, m_mode);
         }
         if (result) {
             result->type =
@@ -21920,9 +21923,9 @@ bool implements(const analysis_t& analysis, type_table_t& types, const type_id_t
     return conformance_query_t(analysis, types).implements(type, interface);
 }
 
-analysis_t analyze(const source_manager_t& sources, const ast_t& ast,
-                   diagnostic_bag_t& diagnostics) {
-    return checker_t(sources, ast, diagnostics).run();
+analysis_t analyze(const source_manager_t& sources, const ast_t& ast, diagnostic_bag_t& diagnostics,
+                   const build_mode_t mode) {
+    return checker_t(sources, ast, diagnostics, mode).run();
 }
 
 } // namespace fb
