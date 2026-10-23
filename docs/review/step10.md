@@ -4,7 +4,7 @@
 
 ## S10-geometry-1 (medium): Spline curves measure their length with 256 samples in total, however many segments they have, so Length, PointAtDistance and Sample are wrong for splines through many points
 
-Status: fixed in 1c00859 (math_curves.fb, panic_math_curve_samples): CatmullRom, BSpline, and Bezier, in 2D and 3D, take samples a segment, 64 unless they say, so the 300-point zigzag measures 435.66 against 435.68 finely, past its points' 422.85, and PointAtDistance(100) is within 0.01 of the fine curve's. With 1 sample a segment a spline is its chords.
+Status: fixed in 7131d73 (math_curves.fb, panic_math_curve_samples): CatmullRom, BSpline, and Bezier, in 2D and 3D, take samples a segment, 64 unless they say, so the 300-point zigzag measures 435.66 against 435.68 finely, past its points' 422.85, and PointAtDistance(100) is within 0.01 of the fine curve's. With 1 sample a segment a spline is its chords.
 
 Where: std/math/curves.fb:181
 
@@ -41,7 +41,7 @@ Skeptic: Ran the finding's program (plus a polyline sum and a 500-waypoint windi
 
 ## S10-noise-1 (medium): Fixed64 Sin and Cos are not correctly rounded near a reduced angle of pi/4
 
-Status: fixed in 009cb42 (math_fixed.fb): the Q62 series gains 1/17!, 1/19!, 1/16!, 1/18!, and 1/20!, which a model put within 1.7 units of 2^-62 over 80,000 angles, and a result within 64 units of halfway is worked out again in Q124 (Pi / 2 to 2^-160, the series to 1/33!), Ziv's way. The five angles give their correctly rounded bits, and cosines of 2^16 m, a hair from halfway, go the Q124 way. 5000 Sins and Cosines, Fixed64 and Fixed32, all forced the Q124 way and not, matched an exact reference.
+Status: fixed in 2f11629 (math_fixed.fb): the Q62 series gains 1/17!, 1/19!, 1/16!, 1/18!, and 1/20!, which a model put within 1.7 units of 2^-62 over 80,000 angles, and a result within 64 units of halfway is worked out again in Q124 (Pi / 2 to 2^-160, the series to 1/33!), Ziv's way. The five angles give their correctly rounded bits, and cosines of 2^16 m, a hair from halfway, go the Q124 way. 5000 Sins and Cosines, Fixed64 and Fixed32, all forced the Q124 way and not, matched an exact reference.
 
 Where: std/math/fixed.fb:116
 
@@ -69,7 +69,7 @@ Skeptic: Ran C:/Users/Hunter/Projects/FutureBlitz/.claude/worktrees/rev-scratch/
 
 ## S10-random-1 (medium): Percentile gives NaN, or a value outside the data, at huge or infinite values; Percentile(x, 0) isn't the least and Percentile(x, 50) isn't the Median
 
-Status: fixed in e639cfd (math_stats.fb): Percentile gives a value itself at a whole rank or between equal neighbors, Median's midpoint at a half, NumPy's two-sided form otherwise, and each end's share where the difference overflows or an end is infinite. Median's even count takes the same midpoint, in halves where the sum overflows.
+Status: fixed in ce8c832 (math_stats.fb): Percentile gives a value itself at a whole rank or between equal neighbors, Median's midpoint at a half, NumPy's two-sided form otherwise, and each end's share where the difference overflows or an end is infinite. Median's even count takes the same midpoint, in halves where the sum overflows.
 
 Where: std/math/stats.fb:117
 
@@ -103,7 +103,7 @@ Skeptic: Ran the finding's program (C:/Users/Hunter/Projects/FutureBlitz/.claude
 
 ## S10-random-3 (medium): Histogram counts a value exactly on a bin's lower edge in the bin below
 
-Status: fixed in 023ddbb (math_stats.fb): Histogram works out its edges as low + span i / bins, multiplied first (in halves where that overflows), and finds a value's bin among them, so 50 of 22 ranges over 0 to 100, 9 of 14 over 0 to 18, 72 of 35 over 0 to 360, and 127.5 of 26 over 0 to 255 are in the range above.
+Status: fixed in 6f607ba (math_stats.fb): Histogram works out its edges as low + span i / bins, multiplied first (in halves where that overflows), and finds a value's bin among them, so 50 of 22 ranges over 0 to 100, 9 of 14 over 0 to 18, 72 of 35 over 0 to 360, and 127.5 of 26 over 0 to 255 are in the range above.
 
 Where: std/math/stats.fb:137
 
@@ -140,7 +140,7 @@ Skeptic: Ran f3.fb in debug and release. Both put 50 (22 bins over 0..100) at in
 
 ## S10-geometry-2 (low): Union, Intersection, Difference and Offset silently drop features smaller than 1e-9 of the farthest coordinate from the origin
 
-Status: fixed in e8865d7 (math_polygon.fb): Boundary looks to each side of a part by 1e-9 of the larger of its middle's reach and its length, and the Snapper snaps a corner within 1e-11 of its own reach and a crossing within 1e-11 of its four edge ends', so the 1 mm square survives beside a square 1000 km off, and one beside a square at 1e9 keeps its corners. The 1500-pair boolean check gives the same bits as before, all right.
+Status: fixed in 853293d (math_polygon.fb): Boundary looks to each side of a part by 1e-9 of the larger of its middle's reach and its length, and the Snapper snaps a corner within 1e-11 of its own reach and a crossing within 1e-11 of its four edge ends', so the 1 mm square survives beside a square 1000 km off, and one beside a square at 1e9 keeps its corners. The 1500-pair boolean check gives the same bits as before, all right.
 
 Where: std/math/polygon.fb:747
 
@@ -169,7 +169,7 @@ Skeptic: Ran the finding's program, extended, at C:/Users/Hunter/Projects/Future
 
 ## S10-noise-2 (low): Worley noise searches only the 3x3 cells and misses nearer points, so it jumps at cell edges
 
-Status: fixed in cf64222 (math_noise.fb): Worley looks in the 5 by 5 (by 5) cells, the place's own first, past any whose nearest edge is no nearer than the nearest point so far, since the own cell's point is nearer than 1.42 (1.74 in 3D). (216.96875, 193.28125) gives 1.0467875, and the two sides of x = 217 1.0160165 and 1.0160146.
+Status: fixed in 5d1896d (math_noise.fb): Worley looks in the 5 by 5 (by 5) cells, the place's own first, past any whose nearest edge is no nearer than the nearest point so far, since the own cell's point is nearer than 1.42 (1.74 in 3D). (216.96875, 193.28125) gives 1.0467875, and the two sides of x = 217 1.0160165 and 1.0160146.
 
 Where: std/math/noise.fb:230
 
@@ -200,7 +200,7 @@ Skeptic: Ran n2.fb in debug and release. Both printed 1.0673788, then '1.0395699
 
 ## S10-noise-3 (low): Simplex overflows Int64 in i + j (i + j + k in 3D) for coordinates noise.fb says it takes; debug panics and release returns a value
 
-Status: fixed in 2e88467 (math_noise.fb): Simplex adds its skewed cells as Doubles, so (4e18, 4e18), (6e18, 0), and (3e18, 3e18, 3e18) give 0 in debug builds as in release.
+Status: fixed in 37cf5ce (math_noise.fb): Simplex adds its skewed cells as Doubles, so (4e18, 4e18), (6e18, 0), and (3e18, 3e18, 3e18) give 0 in debug builds as in release.
 
 Where: std/math/noise.fb:135
 
@@ -227,7 +227,7 @@ Skeptic: Ran n3.fb. Debug printed 0, then 'panic: integer overflow in '+' at n3.
 
 ## S10-noise-4 (low): Fixed64.ToFloat rounds twice (Int64 to Double to Float), so it is not 'rounded to the nearest' above 2^21
 
-Status: fixed in 644b677 (math_fixed.fb): Fixed64.ToFloat is (Bits As Float) / 2^32, one rounding, so FromRaw(4611686843061108735) gives 1073741952.
+Status: fixed in e2bdd3a (math_fixed.fb): Fixed64.ToFloat is (Bits As Float) / 2^32, one rounding, so FromRaw(4611686843061108735) gives 1073741952.
 
 Where: std/math/fixed.fb:335
 
@@ -252,7 +252,7 @@ Skeptic: Ran n4.fb in debug and release. Both printed 1073742080. The exact valu
 
 ## S10-noise-5 (low): Fixed64 prints through a Double, so MaxValue prints 2147483648, a value it can't hold
 
-Status: fixed in 8be70de (math_fixed.fb): Fixed64 prints from its bits, the whole part and the fewest digits after the point nearer it than any other Fixed64 (ten always are), so MaxValue prints 2147483647.9999999998 and FromRaw(4294967296 * 3000000 + 1) 3000000.0000000002. 20,000 random fractions checked shortest and nearest in Python.
+Status: fixed in 6b481a0 (math_fixed.fb): Fixed64 prints from its bits, the whole part and the fewest digits after the point nearer it than any other Fixed64 (ten always are), so MaxValue prints 2147483647.9999999998 and FromRaw(4294967296 * 3000000 + 1) 3000000.0000000002. 20,000 random fractions checked shortest and nearest in Python.
 
 Where: std/math/fixed.fb:345
 
@@ -280,7 +280,7 @@ Skeptic: Ran n5.fb in debug and release. Both printed '2147483648' for MaxValue<
 
 ## S10-random-2 (low): Mean (and an even count's Median) overflow to inf for finite values a Double holds
 
-Status: fixed in b6fb0a7 (math_stats.fb): Mean sums each value's share where the sum overflows and every value is finite, so [1e308, 1e308] is 1e308 and [1e308, 1e308, -1e308] 3.333333333333333e+307; Median's half is e639cfd's midpoint.
+Status: fixed in f00e900 (math_stats.fb): Mean sums each value's share where the sum overflows and every value is finite, so [1e308, 1e308] is 1e308 and [1e308, 1e308, -1e308] 3.333333333333333e+307; Median's half is ce8c832's midpoint.
 
 Where: std/math/stats.fb:41
 
@@ -310,7 +310,7 @@ Skeptic: Ran f2.fb in debug and release. Both print "inf inf" and "inf". Mean (s
 
 ## S10-random-4 (low): Histogram panics with an internal conversion error for a valid range of subnormal Doubles
 
-Status: fixed in 023ddbb (math_stats.fb): with the edges multiplied before they're divided, a subnormal range has an edge at 5e-324, and [0, 5e-324, 1e-323] bins as [1, 2], with a range given and without.
+Status: fixed in 6f607ba (math_stats.fb): with the edges multiplied before they're divided, a subnormal range has an edge at 5e-324, and [0, 5e-324, 1e-323] bins as [1, 2], with a range given and without.
 
 Where: std/math/stats.fb:133
 
@@ -336,7 +336,7 @@ Skeptic: Ran f4.fb in debug and release. Both print "panic: the value doesn't fi
 
 ## S10-random-5 (low): Histogram(values, bins) panics on an infinite value with a message about a low and high the caller never gave, and its doc doesn't list the panic
 
-Status: fixed in 25acde6 (panic_math_histogram_infinite): Histogram(values, bins) panics "Histogram takes values that are finite, not inf", which its comment and stdlib.md's stats bullet list.
+Status: fixed in 3a59f9c (panic_math_histogram_infinite): Histogram(values, bins) panics "Histogram takes values that are finite, not inf", which its comment and stdlib.md's stats bullet list.
 
 Where: std/math/stats.fb:158
 
@@ -361,7 +361,7 @@ Skeptic: Ran f5.fb in debug and release. Both print "panic: Histogram takes a fi
 
 ## S10-random-6 (low): WeightedPick panics for finite, non-negative weights whose sum overflows, which its comment doesn't list
 
-Status: fixed in d7671a8 (math_random.fb, panic_math_random_weighted_sum): weights whose sum overflows are taken as shares of the largest, so [1e308, 1e308] picks each half the time, and the zero-sum panic says only that.
+Status: fixed in db41033 (math_random.fb, panic_math_random_weighted_sum): weights whose sum overflows are taken as shares of the largest, so [1e308, 1e308] picks each half the time, and the zero-sum panic says only that.
 
 Where: std/math/random.fb:158
 
@@ -387,7 +387,7 @@ Skeptic: Ran f6.fb in debug and release. Both print "panic: WeightedPick takes w
 
 ## S10-random-7 (low): random.fb's header says nothing it makes uses C's libm, but Normal and UnitVector3 call libm's sqrt
 
-Status: fixed in 194b88e: random.fb's header and math_random.fb's say Normal, UnitVector3, and Normalize use libm's sqrt, which IEEE 754 has every OS round correctly. No test, since it's the comments.
+Status: fixed in 20a56e5: random.fb's header and math_random.fb's say Normal, UnitVector3, and Normalize use libm's sqrt, which IEEE 754 has every OS round correctly. No test, since it's the comments.
 
 Where: std/math/random.fb:3
 
@@ -412,7 +412,7 @@ Skeptic: Built f7.fb with `fb build --show llvm`. Random.Normal calls fb.std.mat
 
 ## S10-random-8 (low): A negative stream silently gives the same numbers as a positive one
 
-Status: fixed in b24f749 (panic_math_random_stream): Random(seed, stream) panics at the caller on a negative stream, which PCG would take as one from 0 up, and its comment and stdlib.md say streams are from 0 up.
+Status: fixed in 6a5d16c (panic_math_random_stream): Random(seed, stream) panics at the caller on a negative stream, which PCG would take as one from 0 up, and its comment and stdlib.md say streams are from 0 up.
 
 Where: std/math/random.fb:29
 
