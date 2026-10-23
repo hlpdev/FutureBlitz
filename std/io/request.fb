@@ -1,0 +1,68 @@
+// What std.io's files share: the runtime's request for a call, which holds what the call gives,
+// and the IOError for one that failed.
+
+Import std.core
+Import std.io.path
+
+Extern "runtime"
+    Function fb_io_request_new(): Ptr<Void>
+    Function fb_io_request_free(request: Ptr<Void>)
+    Function fb_io_error_kind(error: Int64): Int32
+    Function fb_io_error_message(error: Int64): String
+End Extern
+
+// A call to the runtime's files, which keeps what the call gives, and what an Async one needs
+// while it's under way, until this goes and the call's done.
+Package Class Request
+    Package ReadOnly Field Native: Ptr<Void>
+
+    Package New()
+        Native = fb_io_request_new()
+    End New
+
+    Method Destroy()
+        fb_io_request_free(Native)
+    End Method
+End Class
+
+// What a call gave, unless it's an error, which it throws as an IOError: that the call couldn't
+// do `doing` to `path`, and to `other` when there is one, like a copy's, and why.
+Package Function Checked(result: Int64, doing: String, path: Path, other: Path? = Null): Int64 Throws IOError
+    If result >= 0 Then Return result
+    Throw ErrorOf(result, doing, path, other)
+End Function
+
+// The IOError for one of the runtime's errors.
+Package Function ErrorOf(error: Int64, doing: String, path: Path, other: Path? = Null): IOError
+    Local what = other == Null ? path.Text : "{path} to {other.Text}"
+    Return IOError(KindOf(fb_io_error_kind(error)), "can't {doing} {what}: {fb_io_error_message(error)}",
+                   path.Text)
+End Function
+
+// The Kind the runtime numbers an error as.
+Function KindOf(number: Int32): IOErrorKind
+    Select number
+        Case 1
+            Return IOErrorKind.NOT_FOUND
+        Case 2
+            Return IOErrorKind.PERMISSION_DENIED
+        Case 3
+            Return IOErrorKind.ALREADY_EXISTS
+        Case 4
+            Return IOErrorKind.INTERRUPTED
+        Case 5
+            Return IOErrorKind.NOT_A_DIRECTORY
+        Case 6
+            Return IOErrorKind.IS_A_DIRECTORY
+        Case 7
+            Return IOErrorKind.NOT_EMPTY
+        Case 8
+            Return IOErrorKind.BUSY
+        Case 9
+            Return IOErrorKind.NO_SPACE
+        Case 10
+            Return IOErrorKind.INVALID_PATH
+        Default
+            Return IOErrorKind.OTHER
+    End Select
+End Function

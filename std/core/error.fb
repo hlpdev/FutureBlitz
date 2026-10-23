@@ -49,8 +49,14 @@ Public Class ArgumentError Extends Error
     End New
 End Class
 
+// What kind of IOError: a file or folder that isn't there, or that the program may not use, one
+// that's there already, a stream that ended too soon, bytes that aren't the format or are
+// broken, a call the OS interrupted, a file where a folder should be or a folder where a file
+// should be, a folder with something in it, a file that's in use or locked, a disk that's full, a
+// path no file can have, like one with a NUL in it or one that's too long, or something else.
 Public Enum IOErrorKind
-    NOT_FOUND, PERMISSION_DENIED, ALREADY_EXISTS, UNEXPECTED_END, INVALID_DATA, INTERRUPTED, OTHER
+    NOT_FOUND, PERMISSION_DENIED, ALREADY_EXISTS, UNEXPECTED_END, INVALID_DATA, INTERRUPTED,
+    NOT_A_DIRECTORY, IS_A_DIRECTORY, NOT_EMPTY, BUSY, NO_SPACE, INVALID_PATH, OTHER
 End Enum
 
 // Reading or writing a file, a stream, or the console failed. Path is the file's, when there is
