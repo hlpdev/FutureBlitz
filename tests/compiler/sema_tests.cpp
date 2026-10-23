@@ -3253,6 +3253,16 @@ TEST_CASE("Self and [Weak Self] in a lambda", "[sema]") {
     CHECK(errors_of("Struct P\n    Field X = 0\n    New()\n        Local f = Function() => Self.X\n"
                     "    End New\nEnd Struct") ==
           errors_t{ "Self: a lambda in a Struct's New can't use Self, which isn't made yet" });
+
+    // A variable is in a capture list once.
+    CHECK(errors_of("Class Node\n    Field n = 1\nEnd Class\n"
+                    "Local a = Node()\n"
+                    "Local f = Function[Weak a, Weak a]() => a?.n ?? -1") ==
+          errors_t{ "a: 'a' is already in this capture list" });
+    CHECK(with_timer("    Method Start()\n"
+                     "        OnTick = Function[Weak Self, Weak Self]() => Self?.Tick()\n"
+                     "    End Method") ==
+          errors_t{ "Self: 'Self' is already in this capture list" });
 }
 
 TEST_CASE("narrowing around lambdas", "[sema]") {

@@ -21452,7 +21452,13 @@ private:
     /// refers to an object.
     std::vector<weak_capture_t> weak_captures(const lambda_expr_t& node) {
         std::vector<weak_capture_t> weak;
-        for (const name_t& name : node.weak) {
+        for (std::size_t i = 0; i < node.weak.size(); ++i) {
+            const name_t& name = node.weak[i];
+            if (std::ranges::contains(node.weak | std::views::take(i), name.text, &name_t::text)) {
+                error(name.span, "'{}' is already in this capture list", name.text);
+                continue;
+            }
+
             std::optional<symbol_id_t> source;
             if (name.text == "Self") {
                 source = use_self(name.span);
