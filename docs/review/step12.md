@@ -4,7 +4,7 @@
 
 ## S12-buffer-1 (high): Reflection's f.Set reaches Buffer's private Fields, so safe code can double free a Buffer's memory or index past it
 
-Status: open
+Status: fixed in 5781c022
 
 Where: std/ffi/buffer.fb:17
 
@@ -41,7 +41,7 @@ Skeptic: I ran the finding's reflect2.fb as written. Debug and release both died
 
 ## S12-bindgen-1 (medium): A parameter declared with a function type is no longer bound: the function is skipped as "takes a FunctionProto", and a callback field holding one turns into Ptr<Void> without a warning
 
-Status: open
+Status: fixed in 7a0d2dbf
 
 Where: tools/bindgen/src/bindgen.cpp:1256
 
@@ -75,7 +75,7 @@ Skeptic: Header at rev-scratch/s12/refute-bg/f1/sorter.h: `void sort_ints(int* v
 
 ## S12-cdata-1 (medium): For loops and ranges over a CLong (or a signed CWChar) stop early, or run past their end, when the span is more than the type's signed maximum
 
-Status: open
+Status: fixed in c9f3625b
 
 Where: compiler/src/lower.cpp:92
 
@@ -125,7 +125,7 @@ Skeptic: I ran f1.fb (the finding's program) with fb.exe from build-rev3. Debug 
 
 ## S12-cdata-2 (medium): 'p - q' on a Ptr at a generic Struct of a CData T is rejected as taking no bytes
 
-Status: open
+Status: fixed in ed5240c5
 
 Where: compiler/src/sema.cpp:18576
 
@@ -159,7 +159,7 @@ Skeptic: f2.fb (the finding's program) fails in debug and release with 'f2.fb:8:
 
 ## S12-bindgen-2 (low): A wide character macro like L'/' isn't a CWChar: it gets a different integer type on each target (UInt16, Int32, UInt32), and no test covers CWChar macros
 
-Status: open
+Status: fixed in c09c7905
 
 Where: tools/bindgen/src/bindgen.cpp:784
 
@@ -193,7 +193,7 @@ Skeptic: wide.h (f2/) has `#define SEPARATOR L'/'` and `#define SEPARATOR_CAST (
 
 ## S12-bindgen-3 (low): A header's own `wchar_t` typedef becomes CWChar even when it isn't the target's wchar_t, so the @CLayout Struct's size is wrong
 
-Status: open
+Status: fixed in c09c7905
 
 Where: tools/bindgen/src/bindgen.cpp:1118
 
@@ -223,7 +223,7 @@ Skeptic: glyphs.h (f3/) is `typedef unsigned int wchar_t; struct glyph { wchar_t
 
 ## S12-bindgen-4 (low): vmath's Buffered can't tell whether a view's Pointer starts at the view: the sums at offsets 0, 1, and 2 are all 13
 
-Status: open
+Status: fixed in e45d41f0
 
 Where: tests/packages/vmath/vmath.fb:61
 
@@ -266,7 +266,7 @@ Skeptic: Buffered's values after vm_fill(…, 6) and values[2] = 1 are [6, 6, 1,
 
 ## S12-bindgen-5 (low): An array of function pointers in a struct is written as `Callback(CLong): CLong[3]`, which the compiler reads as a Callback that gives an array, so the module doesn't compile (this predates step 12)
 
-Status: open
+Status: fixed in 00b1b2d5
 
 Where: tools/bindgen/src/bindgen.cpp:1405
 
@@ -293,7 +293,7 @@ Skeptic: pipeline.h (f5/) is `struct pipeline { long (*steps[3])(long value); in
 
 ## S12-buffer-3 (low): View doesn't bound count by SizeOf<T> as New does, so CopyTo differs between debug and release
 
-Status: open
+Status: fixed in 989749f5
 
 Where: std/ffi/buffer.fb:55
 
@@ -324,7 +324,7 @@ Skeptic: t11.fb as given: debug printed '2305843009213693952' then 'panic: integ
 
 ## S12-buffer-4 (low): Only the index panic has a panic program; Buffer's other panics have none
 
-Status: open
+Status: fixed in 4c2b1410
 
 Where: tests/programs/panic_buffer_index.fb:1
 
@@ -349,7 +349,7 @@ Skeptic: tests/programs has only panic_buffer_index.fb/.out for Buffer. No test 
 
 ## S12-buffer-5 (low): Mem.Resize's and Free's comments, and fb_mem_resize's and fb_mem_free's, leave out AllocUninitialized
 
-Status: open
+Status: fixed in 54e479e7
 
 Where: std/ffi/mem.fb:76
 
@@ -379,7 +379,7 @@ Skeptic: uninit.fb prints '1 4', so Resize and Free take AllocUninitialized's me
 
 ## S12-buffer-6 (low): cdata.fb's example puts Where on the signature's line, which doesn't parse
 
-Status: open
+Status: fixed in 54e479e7
 
 Where: std/ffi/cdata.fb:3
 
@@ -411,7 +411,7 @@ Skeptic: cd.fb, with cdata.fb:3's form 'Unsafe Function First<T>(p: Ptr<T>): T W
 
 ## S12-buffer-7 (low): Buffer's View and New messages always pluralize the type name ("a view of 1 Int64s")
 
-Status: open
+Status: fixed in 989749f5
 
 Where: std/ffi/buffer.fb:58
 
@@ -435,7 +435,7 @@ Skeptic: p6.fb prints 'panic: a view of 1 Int64s can't start at a Null Ptr at p6
 
 ## S12-cdata-3 (low): Generic code steps a Ptr at a T of more bytes than an Int64 counts, which non-generic code and generic SizeOf<T>() both report
 
-Status: open
+Status: fixed in 3303e250
 
 Where: compiler/src/sema.cpp:18558
 
