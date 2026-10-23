@@ -3028,7 +3028,8 @@ TEST_CASE("a ReadOnly Field only changes in its Class's New", "[sema]") {
                     "End Class") ==
           errors_t{ "Function: this lambda captures Self, so keeping it in a field of Self makes a "
                     "cycle that's never freed; capture it with [Weak Self]",
-                    "id: 'id' is ReadOnly; only A's New can change it" });
+                    "id: 'id' is ReadOnly, and a lambda in New runs later, so only New's own code "
+                    "can change it" });
     CHECK(errors_of("Shared Class A\n"
                     "    ReadOnly Field name: String\n"
                     "    New()\n"
@@ -3037,7 +3038,8 @@ TEST_CASE("a ReadOnly Field only changes in its Class's New", "[sema]") {
                     "        End For\n"
                     "    End New\n"
                     "End Class") ==
-          errors_t{ "name: 'name' is ReadOnly; only A's New can change it" });
+          errors_t{ "name: 'name' is ReadOnly, and a Parallel For's body in New runs on other "
+                    "threads, so only New's own code can change it" });
 
     // Its parts can't change either, and it can't be passed ByRef.
     CHECK(errors_of("Struct P\n"
