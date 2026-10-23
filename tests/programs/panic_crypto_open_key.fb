@@ -1,0 +1,7 @@
+// Opening with a key that isn't 32 bytes panics too, rather than giving Null.
+Import std.core
+Import std.crypto
+
+Local sealed = ChaCha20Poly1305.Seal(ChaCha20Poly1305.NewKey(), "x")
+Print(sealed.Count)
+ChaCha20Poly1305.Open(sealed, sealed)

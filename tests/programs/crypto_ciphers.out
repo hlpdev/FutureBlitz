@@ -1,0 +1,4 @@
+RFC 8439: 1 check
+Wycheproof AES-256-GCM: 66 checks
+Wycheproof ChaCha20-Poly1305: 120 checks
+Seal and Open: 11 checks

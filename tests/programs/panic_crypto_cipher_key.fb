@@ -1,0 +1,7 @@
+// A cipher's key that isn't 32 bytes panics, where it's given.
+Import std.core
+Import std.crypto
+
+Print(Aes256Gcm.Seal(Aes256Gcm.NewKey(), "fine").Count)
+Local short: UInt8[] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
+Aes256Gcm.Seal(short, "too short a key")
