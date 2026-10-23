@@ -111,6 +111,9 @@ public:
         });
         m_threads.emplace_back([this, job] {
             job->work(job->context);
+            // The thread ends with its job, so its ThreadLocals go before what waits for it goes
+            // on.
+            fb::runtime::release_thread_locals();
             job->done.store(true, std::memory_order_release);
             release(job);
             // The thread uses nothing of the pool's after this, but to wake the others. Its id
@@ -235,6 +238,9 @@ private:
                 return m_stopping || m_generation.load(std::memory_order_acquire) != seen;
             });
             if (m_stopping) {
+                // A Destroy that its ThreadLocals run can start a job, which takes the lock.
+                lock.unlock();
+                fb::runtime::release_thread_locals();
                 return;
             }
         }

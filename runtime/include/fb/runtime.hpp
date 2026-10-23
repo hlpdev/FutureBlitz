@@ -348,6 +348,17 @@ std::int64_t fb_pool_size();
 /// waits for the running ones, and stops the workers. A job started afterwards starts them again.
 void fb_pool_finish();
 
+/// What releases a ThreadLocal Global's value on the thread that runs it.
+using fb_release_t = void (*)();
+/// A thread has made its own value of a ThreadLocal Global, which `release` lets go of as the
+/// thread ends: a pool worker's as the pool stops, a thread of its own's after its job, the main
+/// thread's in fb_thread_locals_release, and any other thread's as it exits.
+void fb_thread_local_added(fb_release_t release);
+/// Releases the calling thread's ThreadLocal Globals, the last made first, and any that a
+/// Destroy makes meanwhile. main calls it after fb_pool_finish, before releasing the Globals,
+/// which their Destroys can use, and fb_finish again, for ones the Globals' Destroys made.
+void fb_thread_locals_release();
+
 /// A Mutex<T>'s lock, which its value follows. Zero is a Mutex that no thread holds.
 struct fb_mutex_t {
     /// 0 when no thread holds it, 1 when one does, and 2 when one does and others may wait.

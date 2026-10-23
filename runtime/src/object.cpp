@@ -527,6 +527,8 @@ void fb_track_objects() {
 void fb_finish(fb_class_t* const* classes, const std::int64_t count) {
     fb_scheduler_end();
     fb_pool_finish();
+    // Those a Global's Destroy made the main thread's.
+    fb_thread_locals_release();
     // The I/O thread stops first, letting go of the Tasks it has that nothing waits for.
     fb::runtime::run_finish();
     // Whatever the program printed shows up before the report.

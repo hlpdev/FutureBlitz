@@ -21,6 +21,10 @@ void finish_request(const fb_task_t* task);
 /// The Tasks of the requests the I/O thread has under way, which it finishes in time.
 [[nodiscard]] std::vector<const fb_task_t*> requested_tasks();
 
+/// Releases the calling thread's ThreadLocal Globals, as fb_thread_locals_release does, as a
+/// thread the runtime started ends.
+void release_thread_locals();
+
 /// Has `stop` run as the program ends, before the leak report, as the I/O thread does to stop.
 /// At most one per part of the runtime.
 void at_finish(void (*stop)());
