@@ -297,7 +297,7 @@ End Class
 The compiler checks every `Spawn` capture, `Parallel For` body, and channel send.
 
 - `Sendable` is an Interface in std/core/interfaces.fb that the compiler decides from a type's
-  parts: numbers, Bools, Strings, Enums, Callbacks, Channels, Mutexes, Atomics, and a Shared
+  parts: numbers, Bools, Strings, Chars, Enums, Callbacks, Channels, Mutexes, Atomics, and a Shared
   Class's objects are Sendable, and so is a `Weak<T>` of a Shared Class, whose objects count
   Weak references atomically too, and so are the Structs, tuples, and fixed arrays whose fields
   and elements all are, and a `T?` of any of them. A Ptr or CString isn't, since nothing keeps

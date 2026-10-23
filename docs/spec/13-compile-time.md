@@ -41,7 +41,7 @@ Local table: Int[Fib(10)]          // usable in types
 ```
 
 - A Const Function is a top-level `Function` that can't throw. It takes and gives numbers, Bools,
-  Strings, and Enums (or a `T?` of one). A generic one, like `Const Function Largest<T:
+  Strings, Chars, and Enums (or a `T?` of one). A generic one, like `Const Function Largest<T:
   Comparable>(a: T, b: T): T`, runs at compile time when its type arguments are those types, and a
   built-in Interface's Operators on its type parameters are the built-in ones. Its body can use
   Locals of those, and Structs, tuples, and fixed arrays of them, and calls only Const Functions,
@@ -115,8 +115,8 @@ End Struct
 
 - `Attribute Name(parameters)` declares an attribute, which reflection reads. It's a Struct whose
   Fields are its parameters, so `f.Attribute(Rename)` gives a `Rename?`.
-- Its parameters are numbers, Bools, Strings, and Enums. A default is known at compile time. It
-  can't take a built-in attribute's name.
+- Its parameters are numbers, Bools, Strings, Chars, and Enums. A default is known at compile
+  time. It can't take a built-in attribute's name.
 - A use takes an argument for each parameter without a default, positional ones first, then
   named ones, as in a call. Each argument is known at compile time, like a Const's value.
 - It goes on anything declared outside a body: a Function, Method, Property, Struct, Class,

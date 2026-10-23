@@ -5788,6 +5788,11 @@ TEST_CASE("a Char is a Unicode scalar value, which a character literal makes", "
                 "Const N = Next('a')\n"
                 "Local x = N") == "Char b");
 
+    // An Attribute can take one, as it does any value known at compile time.
+    CHECK(probe("Attribute Mark(Sign: Char = '-')\n"
+                "@Mark('x') Struct S\nEnd Struct\n"
+                "Local x = S.Attribute(Mark)?.Sign") == "Char?");
+
     // C code takes one as a char32_t.
     CHECK(errors_of("@CLayout Struct Cell\n"
                     "    Field c: Char\n"
@@ -6357,8 +6362,8 @@ TEST_CASE("attribute declaration mistakes", "[sema]") {
     // qualifier, since "@Inline" alone is always the built-in.
     CHECK(errors_of("Attribute Inline\n@Inline Function F()\nEnd Function").empty());
     CHECK(errors_of("Attribute Bad(Items: Int[])") ==
-          errors_t{ "Items: an Attribute's parameters are numbers, Bools, Strings, and Enums, not "
-                    "Int32[]" });
+          errors_t{ "Items: an Attribute's parameters are numbers, Bools, Strings, Chars, and "
+                    "Enums, not Int32[]" });
     CHECK(errors_of("Function Two(): Int => 2\nAttribute Bad(Code: Int = Two())") ==
           errors_t{ "Two(): a field's default must be known at compile time" });
     CHECK(errors_of("Attribute Tag\nFunction F()\n    @Tag Local x = 1\nEnd Function") ==

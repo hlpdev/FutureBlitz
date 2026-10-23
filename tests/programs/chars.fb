@@ -41,3 +41,14 @@ Print(Kind('q'), Kind('5'), Kind(' '), Kind('Ä'))
 Local blank: Char[2]
 Local letters: Char[3] = ['x', 'y', 'z']
 Print(blank[0] As Int, letters)
+
+// An Attribute can take a Char, with a default.
+Attribute Mark(Sign: Char = '-')
+
+@Mark('✓') Struct Done
+End Struct
+
+@Mark Struct Todo
+End Struct
+
+Print(Done.Attribute(Mark)?.Sign ?? '?', Todo.Attribute(Mark)?.Sign ?? '?')
