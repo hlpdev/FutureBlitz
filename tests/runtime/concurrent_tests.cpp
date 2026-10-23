@@ -13,7 +13,7 @@
 
 namespace {
 
-void pause() {
+void settle() {
     std::this_thread::sleep_for(std::chrono::milliseconds(20));
 }
 
@@ -28,7 +28,7 @@ TEST_CASE("a Semaphore's permits are taken and given back", "[runtime][concurren
         fb_semaphore_acquire(semaphore);
         acquired.store(true);
     });
-    pause();
+    settle();
     CHECK_FALSE(acquired.load());
     CHECK(fb_semaphore_release(semaphore, 1) == 1);
     waiter.join();
@@ -88,7 +88,7 @@ TEST_CASE("a WaitGroup's Wait returns at 0, which its count stays at or above",
         woke.store(true);
     });
     CHECK(fb_wait_group_add(group, -1) == 0);
-    pause();
+    settle();
     CHECK_FALSE(woke.load());
     CHECK(fb_wait_group_add(group, -1) == 0);
     waiter.join();
@@ -108,7 +108,7 @@ TEST_CASE("a Once runs its work on the first thread, and the others wait for it"
         began.store(fb_once_begin(once));
         returned.store(true);
     });
-    pause();
+    settle();
     CHECK_FALSE(returned.load());
     CHECK(fb_once_done(once) == 0);
     fb_once_end(once);
@@ -147,7 +147,7 @@ TEST_CASE("an RwLock has readers at once, or a writer alone", "[runtime][concurr
         read_again.store(fb_rwlock_read(lock));
         fb_rwlock_release(lock);
     });
-    pause();
+    settle();
     CHECK(wrote_at.load() == 0);
 
     // A reader that comes while the writer waits waits for it too. One that comes before the
@@ -164,7 +164,7 @@ TEST_CASE("an RwLock has readers at once, or a writer alone", "[runtime][concurr
                 fb_rwlock_release(lock);
             }
         });
-        pause();
+        settle();
         waited = at->load() == 0;
     }
 
