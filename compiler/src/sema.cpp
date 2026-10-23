@@ -10373,6 +10373,36 @@ private:
                is_mutex(type);
     }
 
+    /// The first Where line that keeps an Extend from giving a generic type's instance
+    /// `interface`, as V: Printable keeps Map<String, Int32?> from being Printable: the type
+    /// argument that doesn't meet it, and the line, with its Interface for the instance's
+    /// arguments. nullopt when no Extend would give the instance `interface`.
+    [[nodiscard]] std::optional<std::pair<type_id_t, bound_t>>
+    unmet_extension(const type_id_t type, const type_id_t interface) const {
+        if (!is_struct(type) && !is_class(type)) {
+            return std::nullopt;
+        }
+
+        const std::vector<type_id_t> arguments = arguments_of(type);
+        for (const extension_interface_t& extension : m_analysis.extension_interfaces) {
+            if (extension.target != definition_of(type) ||
+                !m_analysis.types.extends(extension.interface, interface)) {
+                continue;
+            }
+
+            for (bound_t bound : extension.bounds) {
+                const type_id_t argument =
+                    argument_for(bound.parameter, extension.parameters, arguments);
+                bound.interface = substitute(bound.interface, extension.parameters, arguments);
+                if (bound.field == type_id_t::INVALID && !implements(argument, bound.interface)) {
+                    return std::pair(argument, bound);
+                }
+            }
+        }
+
+        return std::nullopt;
+    }
+
     /// Why a value can't be shown `where`: in a string, or by a function that takes values to
     /// show, like "by 'Print'". Printable is std's, which says so where the code has a Printable
     /// of its own.
@@ -10405,6 +10435,16 @@ private:
                 span, "{} can't be shown {} without a constraint, like {}", shown_name(type), where,
                 printable != type_id_t::INVALID ? std_constraint(printable, type, span)
                                                 : std::format("<{}: Printable>", shown_name(type)));
+        } else if (const std::optional<std::pair<type_id_t, bound_t>> unmet =
+                       printable != type_id_t::INVALID ? unmet_extension(type, printable)
+                                                       : std::nullopt) {
+            // An Extend makes it Printable where its Where lines hold, so one that doesn't is
+            // why, as for an array whose elements can't be shown.
+            const auto& [argument, bound] = *unmet;
+            const std::array shown{ type, argument, bound.interface, bound.parameter };
+            error(span, "{} can't be shown {}, since {} isn't {}, which its ToString needs for {}",
+                  name_among(type, shown), where, name_among(argument, shown),
+                  name_among(bound.interface, shown), name_among(bound.parameter, shown));
         } else if (has_members(type) && printable != type_id_t::INVALID) {
             error(span, "{} can't be shown {}; implement {}, with a ToString{}",
                   name_of(type, printable), where, std_name(printable, type, span),

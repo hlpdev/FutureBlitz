@@ -4199,9 +4199,16 @@ TEST_CASE("an Extend's Where makes what it adds conditional", "[sema]") {
                                  "    Method ToString(): String => \"box\"\n"
                                  "End Extend\n";
     CHECK(probe(std::format("{}Local s = \"{{Box<Int>()}}\"", box)) == "String");
+    // A value whose Printable a Where line keeps from it can't be shown, and the line says why.
     CHECK(errors_of(std::format("{}Class Rock\nEnd Class\nLocal s = \"{{Box<Rock>()}}\"", box)) ==
-          errors_t{ "Box<Rock>(): Box<Rock> can't be shown in a string; implement Printable, with "
-                    "a ToString" });
+          errors_t{ "Box<Rock>(): Box<Rock> can't be shown in a string, since Rock isn't "
+                    "Printable, which its ToString needs for T" });
+    CHECK(errors_of("Import std.core\nImport std.collections\nPrint(Map<String, Int?>())\n"
+                    "Local s = \"{Set<Int?>()}\"") ==
+          errors_t{ "Map<String, Int?>(): Map<String, Int32?> can't be shown by 'Print', since "
+                    "Int32? isn't Printable, which its ToString needs for V",
+                    "Set<Int?>(): Set<Int32?> can't be shown in a string, since Int32? isn't "
+                    "Printable, which its ToString needs for T" });
     // A Class that implements an Interface through an Extend's Where is its value.
     CHECK(errors_of(std::format("{}Local p: Printable = Box<Int>()", box)).empty());
     CHECK(
