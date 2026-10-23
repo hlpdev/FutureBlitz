@@ -60,6 +60,9 @@ struct global_t {
     /// first time code uses the Global; nullopt for one whose value is known at compile time, or
     /// that has no initializer.
     std::optional<function_id_t> initializer;
+    /// Its place in the order main sets the Globals, the program's code's, where a Static Field
+    /// is at its Class's, a generic Class's too. The program lets go of them in the other order.
+    std::uint32_t order = 0;
 };
 
 /// One step inward from a place: into a field, or into an element of an array. From a Ptr,

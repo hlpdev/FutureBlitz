@@ -19,6 +19,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <numeric>
 #include <optional>
 #include <span>
 #include <string>
@@ -2147,7 +2148,11 @@ private:
         // Then the Globals let go of what they hold, the last first, so a Destroy that runs can
         // use the ones above its object's. One that uses a Global already let go of panics where
         // the Global has a ready flag, and reads its zero otherwise.
-        for (std::size_t i = m_mir.globals.size(); i-- > 0;) {
+        std::vector<std::size_t> releasing(m_mir.globals.size());
+        std::ranges::iota(releasing, std::size_t{ 0 });
+        std::ranges::stable_sort(releasing, std::ranges::greater{},
+                                 [&](const std::size_t i) { return m_mir.globals[i].order; });
+        for (const std::size_t i : releasing) {
             if (m_mir.globals[i].is_thread_local) {
                 continue;
             }
