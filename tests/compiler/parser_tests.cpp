@@ -377,6 +377,17 @@ TEST_CASE("a missing expression is reported once, and the next line still parses
                           "(= z (int 3))");
     CHECK(operand.errors == std::vector<std::string>{ "8-9: expected an expression, found '*'",
                                                       "16-17: expected an expression, found '*'" });
+
+    // After an error the parser gets past, an operator or ',' at the line's end still does.
+    const parsed_t decimal = parse_text("x = 1e999 +\n    2.0\ny = 3");
+    CHECK(decimal.dump == "(= x (+ (decimal 0) (decimal 2)))\n(= y (int 3))");
+    CHECK(decimal.errors == std::vector<std::string>{ "4-9: decimal literal is out of range" });
+    const parsed_t listed =
+        parse_text("Public @Deprecated(\"old\") Class Person Implements Named,\n"
+                   "        Aged\n"
+                   "End Class");
+    CHECK(listed.dump == "(class @Deprecated(\"old\") Person Implements Named Aged (block))");
+    CHECK(listed.errors.size() == 1);
 }
 
 TEST_CASE("a forgotten ')' is reported at the end of its line", "[parser]") {
