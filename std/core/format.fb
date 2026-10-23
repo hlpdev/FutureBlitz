@@ -9,6 +9,8 @@ Import std.core.iterator
 Extern "runtime"
     Function fb_format_split(template: String, texts: String[], indexes: Int32[],
                              specs: String[]): Int32
+    Function fb_format_debug(spec: String): Int32
+    Function fb_format_text(text: String, spec: String, string: Int32): String?
 End Extern
 
 // A value that isn't an object, in one, for what takes Formattable values, like Format's.
@@ -63,8 +65,16 @@ Public Function Format(template: String, values: Formattable...): String Throws 
         End If
 
         // A field without a spec shows its value as "{x}" does.
+        // A field without a spec shows its value as "{x}" does. One that asks for the debug form,
+        // which the built-in types' Format gives, padded as they pad, a number to the right,
+        // gets it as an interpolation writes it where the value's own Format doesn't take it.
         Local value = values[at]
         Local shown: String? = specs[i] == "" ? "{value}" : value.Format(specs[i])
+        Local debug = fb_format_debug(specs[i])
+        If shown == Null && debug != 0
+            shown = fb_format_text(debug == 2 ? "{value:#?}" : "{value:?}", specs[i], 0)
+        End If
+
         If shown == Null
             Throw FormatError(FormatErrorKind.BAD_VALUE,
                               "value {at}, {value}, doesn't take the format spec '{specs[i]}'")

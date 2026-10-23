@@ -11,3 +11,9 @@ MISSING_VALUE: the template's field 2 is value 1, but there is 1 value
 MISSING_VALUE: the template's field 1 is value 3, but there are 2 values
 BAD_VALUE: value 0, 5, doesn't take the format spec '.2'
 BAD_VALUE: value 0, 0C, doesn't take the format spec 'K'
+[ 1.5] ["a"] [  True] [Hearts] [7    ]
+Money { Cents: 250 } Temperature { Celsius: 5 } [    Money { Cents: 250 }]
+Money {
+    Cents: 1,
+}
+BAD_VALUE: value 0, 0.01, doesn't take the format spec 'x?'
