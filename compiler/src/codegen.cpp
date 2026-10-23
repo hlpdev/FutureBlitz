@@ -2044,12 +2044,19 @@ private:
         // Its tables, when its objects go where an Interface is expected.
         const auto tables = std::ranges::find(m_mir.array_classes, type, &mir_class_t::type);
         const bool tabled = tables != m_mir.array_classes.end();
-        LLVMValueRef info =
-            class_value(type, LLVMSizeOf(m_array_type), std::nullopt, functions.release,
-                        functions.visit, tabled ? tables->debug : std::nullopt,
-                        tabled ? implementations(*tables)
-                               : std::pair{ LLVMConstNull(m_ptr), LLVMConstInt(m_i64, 0, 0) },
-                        LLVMConstNull(m_ptr), {});
+        // Its debug form, once the program shows one.
+        std::optional<function_id_t> debug = tabled ? tables->debug : std::nullopt;
+        if (const auto shown = std::ranges::find(m_mir.array_debugs, type,
+                                                 &std::pair<type_id_t, function_id_t>::first);
+            shown != m_mir.array_debugs.end()) {
+            debug = shown->second;
+        }
+
+        LLVMValueRef info = class_value(
+            type, LLVMSizeOf(m_array_type), std::nullopt, functions.release, functions.visit, debug,
+            tabled ? implementations(*tables)
+                   : std::pair{ LLVMConstNull(m_ptr), LLVMConstInt(m_i64, 0, 0) },
+            LLVMConstNull(m_ptr), {});
         const std::string global_name = std::format("fb.{}.class", name);
         LLVMValueRef global = LLVMAddGlobal(m_module.get(), LLVMTypeOf(info), global_name.c_str());
         LLVMSetInitializer(global, info);
