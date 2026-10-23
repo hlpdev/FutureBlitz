@@ -227,7 +227,7 @@ Skeptic: confirmed=True, low. All three are confirmed by reading and MIR. (1) st
 
 ## A11-9 (low): Test comment says the panic is where the chain's consumer runs, but it's in stack.fb
 
-Status: open
+Status: fixed in 7c0dad8: panic_chain_changed.fb's comment says the panic is where the iterator's Next panics, since the adapter calls it through an Iterator<T> value, which has no place to give. The .out already pins it.
 
 Where: tests/programs/panic_chain_changed.fb:1
 
@@ -245,7 +245,7 @@ Skeptic: confirmed=True, low. panic_chain_changed.fb's comment says the panic co
 
 ## A11-10 (low): Buckets comment gets the bucket bits backwards
 
-Status: open
+Status: fixed in 2b43663: the comment says there are no buckets until the first Add or a Reserve of 1 or more, and then 2^(64 - Shift), which a mixed hash's top 64 - Shift bits pick from.
 
 Where: std/collections/map.fb:23
 
@@ -281,7 +281,7 @@ Skeptic: confirmed=True, low. interfaces.fb:50-51 breaks the sentence after 'It'
 
 ## A11-12 (low): Clamp's comment doesn't say it panics
 
-Status: open
+Status: fixed in 5a6232a (panic_clamp.fb already shows the panic): the skeptic is right that std's comments often leave an argument check out, but Deque's [] and RingBuffer's New say theirs, and saying it costs nothing, so Clamp's comment says a high below low panics.
 
 Where: std/core/values.fb:17
 
@@ -299,7 +299,7 @@ Skeptic: confirmed=False, low. The comment is accurate for every valid call and 
 
 ## A12-5 (low): A count past Int's max panics with a wrong message in release builds
 
-Status: open
+Status: fixed in b534fdb (panic_counter_overflow.fb, which ends the same in release builds, where it used to blame a negative count): Add works the count out with CheckedAdd and panics at the caller with 'a Counter's count can't be more than an Int holds, but this one would be 2147483648'. Spec 14's Counter row says so.
 
 Where: std/collections/counter.fb:38
 
@@ -317,7 +317,7 @@ Skeptic: confirmed=True, low. Reproduced (a5.fb), calling c.Add("a", 2000000000)
 
 ## A12-6 (low): Counter's comments say 'in the order the values were first added', but a value whose count went to 0 and came back goes last
 
-Status: open
+Status: fixed in b534fdb: counter.fb's header, MostCommon, Values, and ToString say the values go in the order they were added, one whose count went to 0 and came back going last, and so does spec 14's Counter row. counter.fb's random test already checks that order against a plain Map's.
 
 Where: std/collections/counter.fb:1
 
@@ -353,7 +353,7 @@ Skeptic: confirmed=True, medium. Spec 14:237-238 says LinkedList's 'First, Last,
 
 ## A12-8 (low): ImmutableMap and ImmutableSet have no AddAll
 
-Status: open
+Status: fixed in 9eb289d (immutable.fb): ImmutableMap.AddAll(entries: Iterable<(K, V)>) and ImmutableSet.AddAll(values: Iterable<T>) give a copy with each added in turn, all read first, as ImmutableArray.AddAll does, so spec 14's list of the immutable collections' changes holds for all three.
 
 Where: std/collections/immutable.fb:327
 
@@ -389,7 +389,7 @@ Skeptic: confirmed=True, medium. Reproduced in a release build (a9.fb, about 2.2
 
 ## A12-10 (low): RingBuffer's Changes comment says it counts value changes, which it doesn't
 
-Status: open
+Status: fixed in 8f4de26 (collections_more.fb now sets a Deque's values in a loop; ring_buffer.fb already did): the Changes comment in RingBuffer and Deque, and in Queue, Stack, and PriorityQueue for the same wording, says it counts values added or removed.
 
 Where: std/collections/ring_buffer.fb:13
 
@@ -407,7 +407,7 @@ Skeptic: confirmed=True, low. ring_buffer.fb:13 says 'How many times the values 
 
 ## A12-11 (low): Stray blank line before End Class
 
-Status: open
+Status: fixed in c409844: the blank line before trie.fb's End Class is gone.
 
 Where: std/collections/trie.fb:214
 
