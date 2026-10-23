@@ -673,3 +673,11 @@ Actual: eq1.fb:7:7: error: Map<String, Func(): Int32> doesn't implement Equatabl
 Suggested fix: Add spec 07's exception to both spec 14 sentences, for example: '... and every Class is, unless its == has a Where line, as a Map's, a Grid's, and a LinkedList's do, which are Equatable only where it holds'. Say the same where the Map bullet gives Hashable.
 
 Skeptic: Ran eq1.fb. Both builds fail with 'eq1.fb:7:7: error: Map<String, Func(): Int32> doesn't implement Equatable, which 'IndexOf' needs for T'. map.fb:399-402 gives Map its == through `Extend Map<K, V> Implements Equatable / Where V: Equatable`. Spec 07:216-217 and decisions.md:723 (phase 1) say a Class whose == has a Where line implements Equatable and Hashable only as it lists them. Spec 14:155-162, rewritten by the same commit (2185793), says 'every Class is [Equatable], comparing its objects themselves without an == of its own'. It says Map keys need Hashable 'as every Class is unless it has an == of its own without a Hash', and that a Map of non-Equatable values 'compares as the same object, like any Class'. None of the three mentions the Where-line exception, which covers std's own Map, Grid, and LinkedList. So spec 14 contradicts spec 07 and the compiler for exactly these types.
+
+## A-new-5 (medium): A Map panics when a value's Destroy, run by Remove, removes another key from it
+
+Status: fixed in de04d77: Take, Clear, Add replacing a value, and Update hold what they let go of in a Local, so it goes as the Method returns, once the Map is whole again (map_destroy, which fails on master with the finding's panic)
+
+Where: std/collections/map.fb:352
+
+Found by step 18's review (S18-collections-2's skeptic): a plain std.collections Map whose value's Destroy, run by Remove, removes another key from the same Map panics with "index -1 is out of range for 4 elements at std/collections/map.fb:352:15", in Unlink. Take's Move overwrites the removed entry while the bucket chains are half relinked, and the Destroy that lets go of it walks a chain that's broken for the moment. Clear lets go of the entries while the buckets still point at them, and Add and Update let go of a replaced value in the middle of the Method. A value's Destroy should be able to use the Map, as the node that removes its child's key does.
