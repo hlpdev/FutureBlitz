@@ -1,0 +1,207 @@
+// StatusCode, the HTTP statuses a response can have, by their names in RFC 9110 and the RFCs it
+// builds on, as `response.Status == StatusCode.NOT_FOUND` reads, with each one's reason.
+
+Import std.core
+
+// The statuses with names, and what each one is. A response's Status is an Int, since a server
+// can send one that has no name.
+Public Struct StatusCode
+    Public Static ReadOnly Field CONTINUE: Int = 100
+    Public Static ReadOnly Field SWITCHING_PROTOCOLS: Int = 101
+    Public Static ReadOnly Field PROCESSING: Int = 102
+    Public Static ReadOnly Field EARLY_HINTS: Int = 103
+    Public Static ReadOnly Field OK: Int = 200
+    Public Static ReadOnly Field CREATED: Int = 201
+    Public Static ReadOnly Field ACCEPTED: Int = 202
+    Public Static ReadOnly Field NON_AUTHORITATIVE_INFORMATION: Int = 203
+    Public Static ReadOnly Field NO_CONTENT: Int = 204
+    Public Static ReadOnly Field RESET_CONTENT: Int = 205
+    Public Static ReadOnly Field PARTIAL_CONTENT: Int = 206
+    Public Static ReadOnly Field MULTI_STATUS: Int = 207
+    Public Static ReadOnly Field ALREADY_REPORTED: Int = 208
+    Public Static ReadOnly Field IM_USED: Int = 226
+    Public Static ReadOnly Field MULTIPLE_CHOICES: Int = 300
+    Public Static ReadOnly Field MOVED_PERMANENTLY: Int = 301
+    Public Static ReadOnly Field FOUND: Int = 302
+    Public Static ReadOnly Field SEE_OTHER: Int = 303
+    Public Static ReadOnly Field NOT_MODIFIED: Int = 304
+    Public Static ReadOnly Field USE_PROXY: Int = 305
+    Public Static ReadOnly Field TEMPORARY_REDIRECT: Int = 307
+    Public Static ReadOnly Field PERMANENT_REDIRECT: Int = 308
+    Public Static ReadOnly Field BAD_REQUEST: Int = 400
+    Public Static ReadOnly Field UNAUTHORIZED: Int = 401
+    Public Static ReadOnly Field PAYMENT_REQUIRED: Int = 402
+    Public Static ReadOnly Field FORBIDDEN: Int = 403
+    Public Static ReadOnly Field NOT_FOUND: Int = 404
+    Public Static ReadOnly Field METHOD_NOT_ALLOWED: Int = 405
+    Public Static ReadOnly Field NOT_ACCEPTABLE: Int = 406
+    Public Static ReadOnly Field PROXY_AUTHENTICATION_REQUIRED: Int = 407
+    Public Static ReadOnly Field REQUEST_TIMEOUT: Int = 408
+    Public Static ReadOnly Field CONFLICT: Int = 409
+    Public Static ReadOnly Field GONE: Int = 410
+    Public Static ReadOnly Field LENGTH_REQUIRED: Int = 411
+    Public Static ReadOnly Field PRECONDITION_FAILED: Int = 412
+    Public Static ReadOnly Field CONTENT_TOO_LARGE: Int = 413
+    Public Static ReadOnly Field URI_TOO_LONG: Int = 414
+    Public Static ReadOnly Field UNSUPPORTED_MEDIA_TYPE: Int = 415
+    Public Static ReadOnly Field RANGE_NOT_SATISFIABLE: Int = 416
+    Public Static ReadOnly Field EXPECTATION_FAILED: Int = 417
+    Public Static ReadOnly Field MISDIRECTED_REQUEST: Int = 421
+    Public Static ReadOnly Field UNPROCESSABLE_CONTENT: Int = 422
+    Public Static ReadOnly Field LOCKED: Int = 423
+    Public Static ReadOnly Field FAILED_DEPENDENCY: Int = 424
+    Public Static ReadOnly Field TOO_EARLY: Int = 425
+    Public Static ReadOnly Field UPGRADE_REQUIRED: Int = 426
+    Public Static ReadOnly Field PRECONDITION_REQUIRED: Int = 428
+    Public Static ReadOnly Field TOO_MANY_REQUESTS: Int = 429
+    Public Static ReadOnly Field REQUEST_HEADER_FIELDS_TOO_LARGE: Int = 431
+    Public Static ReadOnly Field UNAVAILABLE_FOR_LEGAL_REASONS: Int = 451
+    Public Static ReadOnly Field INTERNAL_SERVER_ERROR: Int = 500
+    Public Static ReadOnly Field NOT_IMPLEMENTED: Int = 501
+    Public Static ReadOnly Field BAD_GATEWAY: Int = 502
+    Public Static ReadOnly Field SERVICE_UNAVAILABLE: Int = 503
+    Public Static ReadOnly Field GATEWAY_TIMEOUT: Int = 504
+    Public Static ReadOnly Field HTTP_VERSION_NOT_SUPPORTED: Int = 505
+    Public Static ReadOnly Field VARIANT_ALSO_NEGOTIATES: Int = 506
+    Public Static ReadOnly Field INSUFFICIENT_STORAGE: Int = 507
+    Public Static ReadOnly Field LOOP_DETECTED: Int = 508
+    Public Static ReadOnly Field NETWORK_AUTHENTICATION_REQUIRED: Int = 511
+
+    // StatusCode isn't made: it's only its Static members.
+    New()
+    End New
+
+    // What status means, as its RFC names it, like "Not Found", or "" for one without a name.
+    Public Static Method Reason(status: Int): String
+        Select status
+            Case 100
+                Return "Continue"
+            Case 101
+                Return "Switching Protocols"
+            Case 102
+                Return "Processing"
+            Case 103
+                Return "Early Hints"
+            Case 200
+                Return "OK"
+            Case 201
+                Return "Created"
+            Case 202
+                Return "Accepted"
+            Case 203
+                Return "Non-Authoritative Information"
+            Case 204
+                Return "No Content"
+            Case 205
+                Return "Reset Content"
+            Case 206
+                Return "Partial Content"
+            Case 207
+                Return "Multi-Status"
+            Case 208
+                Return "Already Reported"
+            Case 226
+                Return "IM Used"
+            Case 300
+                Return "Multiple Choices"
+            Case 301
+                Return "Moved Permanently"
+            Case 302
+                Return "Found"
+            Case 303
+                Return "See Other"
+            Case 304
+                Return "Not Modified"
+            Case 305
+                Return "Use Proxy"
+            Case 307
+                Return "Temporary Redirect"
+            Case 308
+                Return "Permanent Redirect"
+            Case 400
+                Return "Bad Request"
+            Case 401
+                Return "Unauthorized"
+            Case 402
+                Return "Payment Required"
+            Case 403
+                Return "Forbidden"
+            Case 404
+                Return "Not Found"
+            Case 405
+                Return "Method Not Allowed"
+            Case 406
+                Return "Not Acceptable"
+            Case 407
+                Return "Proxy Authentication Required"
+            Case 408
+                Return "Request Timeout"
+            Case 409
+                Return "Conflict"
+            Case 410
+                Return "Gone"
+            Case 411
+                Return "Length Required"
+            Case 412
+                Return "Precondition Failed"
+            Case 413
+                Return "Content Too Large"
+            Case 414
+                Return "URI Too Long"
+            Case 415
+                Return "Unsupported Media Type"
+            Case 416
+                Return "Range Not Satisfiable"
+            Case 417
+                Return "Expectation Failed"
+            Case 421
+                Return "Misdirected Request"
+            Case 422
+                Return "Unprocessable Content"
+            Case 423
+                Return "Locked"
+            Case 424
+                Return "Failed Dependency"
+            Case 425
+                Return "Too Early"
+            Case 426
+                Return "Upgrade Required"
+            Case 428
+                Return "Precondition Required"
+            Case 429
+                Return "Too Many Requests"
+            Case 431
+                Return "Request Header Fields Too Large"
+            Case 451
+                Return "Unavailable For Legal Reasons"
+            Case 500
+                Return "Internal Server Error"
+            Case 501
+                Return "Not Implemented"
+            Case 502
+                Return "Bad Gateway"
+            Case 503
+                Return "Service Unavailable"
+            Case 504
+                Return "Gateway Timeout"
+            Case 505
+                Return "HTTP Version Not Supported"
+            Case 506
+                Return "Variant Also Negotiates"
+            Case 507
+                Return "Insufficient Storage"
+            Case 508
+                Return "Loop Detected"
+            Case 511
+                Return "Network Authentication Required"
+            Default
+                Return ""
+        End Select
+    End Method
+
+    // Whether status says the request worked: from 200 to 299.
+    Public Static Method IsSuccess(status: Int): Bool => status >= 200 && status < 300
+
+    // Whether status sends the request elsewhere, as a Location header says: from 300 to 399.
+    Public Static Method IsRedirect(status: Int): Bool => status >= 300 && status < 400
+End Struct
