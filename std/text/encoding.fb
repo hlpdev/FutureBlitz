@@ -1,8 +1,8 @@
 // std.text.encoding: text to and from bytes in encodings other than a String's own UTF-8 (UTF-16
 // and UTF-32, little- and big-endian, ASCII, Latin-1, and Windows-1252), with the byte order mark
 // (BOM) that starts some files found or written; bytes as text and back (Base64, Hex, and Base32);
-// and text escaped for a URL, for HTML, or as a C string literal writes it. What decodes gives Null
-// for input it can't decode.
+// and text escaped for a URL, for HTML, or as a FutureBlitz string literal writes it. What decodes
+// gives Null for input it can't decode.
 
 Import std.core
 Import std.collections
@@ -421,10 +421,11 @@ Public Struct Html
     End Method
 End Struct
 
-// text as a C string literal's contents write it, without the quotes: a backslash, '"', or "'"
-// after a backslash; a tab, line break, carriage return, or NUL as "\t", "\n", "\r", or "\0";
-// another control character as "\x" and two hex digits, or past U+007F as "\u{...}"; and the rest
-// as it is.
+// text as a FutureBlitz string literal's contents write it, by spec 01's escapes, without the
+// quotes: a backslash, '"', or "'" after a backslash; a tab, line break, carriage return, or NUL
+// as "\t", "\n", "\r", or "\0"; another control character as "\x" and two hex digits, or past
+// U+007F as "\u{...}"; and the rest as it is. A C literal reads them differently: its "\x" takes
+// every hex digit after it, and "\0" before a digit is octal.
 Public Function Escape(text: String): String
     Local result = StringBuilder()
     For c In text.Chars
