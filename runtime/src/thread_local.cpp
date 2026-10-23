@@ -42,11 +42,17 @@ private:
 };
 
 thread_local thread_locals_t t_locals;
+/// Whether fb_thread_locals_release has run on this thread.
+thread_local bool t_released = false;
 
 } // namespace
 
 void fb::runtime::release_thread_locals() {
     t_locals.release();
+}
+
+bool fb::runtime::released_thread_locals() {
+    return t_released;
 }
 
 extern "C" {
@@ -57,6 +63,7 @@ void fb_thread_local_added(const fb_release_t release) {
 }
 
 void fb_thread_locals_release() {
+    t_released = true;
     t_locals.release();
 }
 

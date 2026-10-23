@@ -117,7 +117,9 @@ CPU's own thread-local storage.
   and the main thread's once the top-level code and the jobs are done, before the Globals are
   released, so a ThreadLocal's Destroy can use them. A use of one already let go of panics:
   "'later' is used after it's released, since a thread releases its ThreadLocal Globals as it
-  ends". A thread C started lets go of its own as it exits.
+  ends". A thread C started lets go of its own as it exits. A job a Global's Destroy starts runs
+  on a pool worker, with that worker's own, never on the main thread once it's let go of its
+  own.
 - Code on any thread can use a ThreadLocal Global, which is its own, and its type needn't be
   Sendable, since its value stays on its thread. It can't be an Atomic or a Mutex, which are for
   what threads share. Only a top-level Global is ThreadLocal: not a Local, a Const, or a Static

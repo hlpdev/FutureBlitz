@@ -189,11 +189,14 @@ public:
     }
 
     /// Runs every job left, waits for the ones running, and stops the workers. The next job
-    /// starts them again.
+    /// starts them again. A thread that has released its ThreadLocal Globals, as the main thread
+    /// has once a Global's Destroy starts a job, only waits, while the workers that job started
+    /// run them, each with its own ThreadLocals.
     void finish() {
+        const bool helps = !fb::runtime::released_thread_locals();
         while (m_pending.load(std::memory_order_acquire) > 0) {
             const std::uint64_t seen = m_generation.load(std::memory_order_acquire);
-            if (run_one()) {
+            if (helps && run_one()) {
                 continue;
             }
 

@@ -25,6 +25,10 @@ void finish_request(const fb_task_t* task);
 /// thread the runtime started ends.
 void release_thread_locals();
 
+/// Whether the calling thread has released its ThreadLocal Globals, as the main thread does once
+/// the top-level code and its jobs are done. A job it ran after would use its released ones.
+[[nodiscard]] bool released_thread_locals();
+
 /// Sets up the calling thread's state for letting go of objects, if it isn't yet, so that it
 /// outlives what's set up after it: a thread destroys its thread_locals the last made first,
 /// and its ThreadLocal Globals' Destroys, which a thread C started runs as it exits, let go.

@@ -1,0 +1,28 @@
+// Jobs a Global's Destroy starts without waiting for them run on the pool's workers, each with its
+// own ThreadLocal Globals, and never on the main thread, which has released its own by then.
+Import std.core
+
+Class Counter
+    Field Count = 0
+End Class
+
+ThreadLocal Global counter = Counter()
+ThreadLocal Global label = "main's"
+
+Class Saver
+    Method Destroy()
+        For i = 1 To 4
+            Spawn(Function(): Int
+                counter.Count += 1
+                label = label + ", saved"
+                Print("saved")
+                Return counter.Count
+            End Function)
+        End For
+    End Method
+End Class
+
+Global saver = Saver()
+
+counter.Count = 5
+Print(counter.Count, label)
