@@ -32,17 +32,31 @@ void* allocate(const std::int64_t count, const std::int64_t element_size) {
     return data;
 }
 
-/// Moves the elements to a buffer for `capacity` of them, which must hold the count.
-void resize_buffer(fb_array_t* array, const std::int64_t element_size,
-                   const std::int64_t capacity) {
+/// Moves the elements to a buffer for `capacity` of them, which must hold the count. Reserve
+/// gives the place it was called from, which a panic for memory it can't have says, with how
+/// many elements it asked for.
+void resize_buffer(fb_array_t* array, const std::int64_t element_size, const std::int64_t capacity,
+                   const fb_location_t* reserved = nullptr) {
+    const auto out_of_memory = [&] {
+        if (reserved == nullptr) {
+            fb_panic("out of memory", nullptr);
+        }
+
+        std::array<char, 96> message{};
+        std::snprintf(message.data(), message.size(),
+                      "out of memory: Reserve couldn't make room for %" PRId64 " elements",
+                      capacity);
+        fb_panic(message.data(), reserved);
+    };
+
     // More bytes than memory has would wrap around.
     if (element_size > 0 && capacity > PTRDIFF_MAX / element_size) {
-        fb_panic("out of memory", nullptr);
+        out_of_memory();
     }
 
     void* data = std::realloc(array->data, std::max<std::size_t>(bytes(capacity, element_size), 1));
     if (data == nullptr) {
-        fb_panic("out of memory", nullptr);
+        out_of_memory();
     }
 
     array->data = data;
@@ -115,7 +129,7 @@ void fb_array_reserve(fb_array_t* array, const std::int64_t element_size,
     }
 
     if (capacity > array->capacity) {
-        resize_buffer(array, element_size, capacity);
+        resize_buffer(array, element_size, capacity, location);
     }
 }
 

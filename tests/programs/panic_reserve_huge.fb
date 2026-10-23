@@ -1,0 +1,11 @@
+// A Reserve that can't have the memory it asks for says where it was called, and for how many.
+// 2,000,000,000 elements of 800,000 bytes are more than any system's addresses reach.
+Import std.core
+
+Struct Big
+    Field cells: Int64[100000]
+End Struct
+
+Local items: Big[] = []
+items.Reserve(2000000000)
+Print("not reached")
