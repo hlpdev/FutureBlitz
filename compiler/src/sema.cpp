@@ -5663,9 +5663,10 @@ private:
                   shown_name(owner_in(base, original.owner)));
         } else if (narrows(member, original)) {
             report_narrowing(member, original, owner_in(base, original.owner));
-        } else if (member.type != original.type) {
+        } else if (member.type != member_type(base, original)) {
             error(member.span, "'{}' must be {}, like {}'s", member.name,
-                  name_of(original.type, original.owner), name_of(original.owner, original.type));
+                  name_of(member_type(base, original), original.owner),
+                  name_of(original.owner, member_type(base, original)));
         }
 
         const std::optional<symbol_id_t> getter = member.getter;

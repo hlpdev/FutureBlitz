@@ -3013,6 +3013,30 @@ TEST_CASE("a Property overrides the one a Class inherits, with Override", "[sema
     CHECK(with_base("Class A Extends Base\n    Override Property P: String\n        Get => "
                     "\"x\"\n    End Property\nEnd Class") ==
           errors_t{ "P: 'P' must be Int32, like Base's" });
+
+    // One inherited from an instance has the instance's types, as a Method does.
+    const std::string_view holder = "Abstract Class Holder<T>\n"
+                                    "    Abstract Property Value: T\n"
+                                    "End Class\n";
+    CHECK(errors_of(std::format("{}Class Ints Extends Holder<Int>\n"
+                                "    Override Property Value: Int\n"
+                                "        Get => 3\n"
+                                "        Set(value)\n"
+                                "        End Set\n"
+                                "    End Property\n"
+                                "End Class\n"
+                                "Local h: Holder<Int> = Ints()\n"
+                                "Local v = h.Value",
+                                holder))
+              .empty());
+    CHECK(errors_of(std::format("{}Class Ints Extends Holder<Int>\n"
+                                "    Override Property Value: String\n"
+                                "        Get => \"3\"\n"
+                                "        Set(value)\n"
+                                "        End Set\n"
+                                "    End Property\n"
+                                "End Class",
+                                holder)) == errors_t{ "Value: 'Value' must be Int32, like Holder<T>'s" });
     CHECK(errors_of("Property P: Int\n    Get => 1\nEnd Property") ==
           errors_t{ "P: Properties can only be declared in a Struct or Class" });
 }
