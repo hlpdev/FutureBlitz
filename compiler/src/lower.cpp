@@ -8244,7 +8244,8 @@ private:
                                       : a < b;
         };
         std::ranges::sort(values, by_value);
-        bool run = true;
+        // An Enum sema found no values for has none to be.
+        bool run = !values.empty();
         for (std::size_t i = 1; i < values.size(); ++i) {
             run = run && values[i] == values[i - 1] + 1;
         }

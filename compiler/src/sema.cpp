@@ -22568,6 +22568,14 @@ private:
             return type_id_t::INVALID;
         }
 
+        // While types are declared, as for a Field's size, an Enum declared further down has its
+        // values declared now, which the conversion checks, or a Const Function's run does.
+        for (const type_id_t type : { source, target }) {
+            if (!m_declared && is_enum(type)) {
+                declare_early(type);
+            }
+        }
+
         if (node.checked) {
             return check_checked_cast(id, node, source, target);
         }

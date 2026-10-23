@@ -7864,6 +7864,18 @@ TEST_CASE("Const Functions can be generic, and give the sizes in declarations' t
     CHECK(probe(std::format("{}Local x = g.cells", grid)) == "Int32[2]");
     CHECK(probe(std::format("{}Local x = g.more", grid)) == "Int32[6]");
     CHECK(probe(std::format("{}Local x = g.most", grid)) == "Int32[6]");
+    // So does one an integer converts to, there or in a Const Function's run.
+    constexpr std::string_view converted =
+        "Struct Grid\n"
+        "    Field cells: Int[((2 As Extra) As Int) + 1]\n"
+        "    Field more: Int[Pick(1)]\n"
+        "End Struct\n"
+        "Const Function Pick(n: Int): Int => ((n As Extra) As Int) + 1\n"
+        "Enum Extra\n    A, B, C\nEnd Enum\n"
+        "Local g = Grid()\n";
+    CHECK(probe(std::format("{}Local x = g.cells", converted)) == "Int32[3]");
+    CHECK(probe(std::format("{}Local x = g.more", converted)) == "Int32[2]");
+
     // One whose type argument doesn't meet its constraint doesn't run, inferred or written.
     CHECK(errors_of("Import std.core\n"
                     "Const Function Largest<T: Comparable>(a: T, b: T): T => a < b ? b : a\n"
