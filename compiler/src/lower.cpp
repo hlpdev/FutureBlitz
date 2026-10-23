@@ -4356,12 +4356,17 @@ private:
         finish_statement();
     }
 
-    /// `left op right`, as "x op= y" computes it: Strings add through the runtime.
+    /// `left op right`, as "x op= y" computes it: Strings add through the runtime, and a Ptr
+    /// steps by its T's size.
     operand_t combine(const binary_op_t op, const operand_t& left, const operand_t& right,
                       const span_t span) {
         if (type_of(left) == type_id_t::STRING) {
             return runtime_call(runtime_function_t::CONCAT, { left, right }, type_id_t::STRING,
                                 true);
+        }
+
+        if (is_pointer(type_of(left))) {
+            return temporary(pointer_t{ .op = op, .left = left, .right = right }, type_of(left));
         }
 
         return temporary(binary_t{ .op = op, .left = left, .right = right, .span = span },

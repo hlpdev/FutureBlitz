@@ -83,6 +83,18 @@ Function Swap(ByRef a: Int32, ByRef b: Int32)
     b = c
 End Function
 
+// A Property that's a Ptr steps by its T's size, as a variable does.
+Class Cursor
+    Field at: Ptr<Int32>
+
+    Property Here: Ptr<Int32>
+        Get => at
+        Set(value)
+            at = value
+        End Set
+    End Property
+End Class
+
 Function First<T>(items: T[]): T?
     If items.Count == 0 Then Return Null
     Return items[0]
@@ -143,3 +155,17 @@ Unsafe
     Swap(ByRef at[0], ByRef at[1])
 End Unsafe
 Print("{pair[0]} {pair[1]}")
+
+Unsafe
+    Local cells = Mem.Alloc(12) As Ptr<Int32>
+    cells[0] = 10
+    cells[1] = 20
+    cells[2] = 30
+    Local cursor = Cursor()
+    cursor.at = cells
+    cursor.Here += 2
+    Print("{cursor.Here.Value} {cursor.Here - cells}")
+    cursor.Here -= 1
+    Print("{cursor.Here.Value} {cursor.Here - cells}")
+    Mem.Free(cells)
+End Unsafe
