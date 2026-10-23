@@ -211,9 +211,8 @@ bool supports(const binary_op_t op, const type_id_t type) {
 /// Enums the ones without an order, and Ptrs and Callbacks Equatable. A tuple or array implements
 /// what its parts do, without an order, and a T? Equatable and Hashable as its T does, which is
 /// nullopt here.
-std::optional<bool> implements_alone(const type_table_t& types,
-                                     const builtin_interfaces_t& builtin, const type_id_t type,
-                                     const type_id_t interface) {
+std::optional<bool> implements_alone(const type_table_t& types, const builtin_interfaces_t& builtin,
+                                     const type_id_t type, const type_id_t interface) {
     const type_kind_t kind = types.get(type).kind;
     if (interface == builtin.cloneable) {
         return kind == type_kind_t::ARRAY;
@@ -2492,15 +2491,16 @@ private:
             std::vector<type_id_t> listed = m_analysis.types.get(type).interfaces;
             // Listed at the Class's name, as if it said so.
             const auto add = [&](const type_id_t interface) {
-                m_implements[type].push_back({ .interface = interface, .span = symbol(*owner).span });
+                m_implements[type].push_back(
+                    { .interface = interface, .span = symbol(*owner).span });
                 listed.push_back(interface);
             };
             if (!lists(type, builtin.equatable)) {
                 add(builtin.equatable);
             }
 
-            const bool equality = !equal.empty() || gets_default(type, "==") ||
-                                  extended_with(type, "==");
+            const bool equality =
+                !equal.empty() || gets_default(type, "==") || extended_with(type, "==");
             if (!lists(type, builtin.hashable) &&
                 (!equality || has_hash(type) || gets_default(type, "Hash"))) {
                 add(builtin.hashable);
@@ -2570,7 +2570,8 @@ private:
             if (declared != m_declared_types.end() &&
                 std::ranges::any_of(m_analysis.symbols[index(declared->second)].members,
                                     [this](const symbol_id_t member) {
-                                        const symbol_t& candidate = m_analysis.symbols[index(member)];
+                                        const symbol_t& candidate =
+                                            m_analysis.symbols[index(member)];
                                         return candidate.kind == symbol_kind_t::METHOD &&
                                                candidate.name == "Hash" &&
                                                candidate.parameters.empty() &&
@@ -10422,8 +10423,10 @@ private:
 
         // A Struct declared further down has no fields yet, so it's checked again once it does.
         if (!m_declared) {
-            m_pending_sendables.push_back(
-                { .kind = type_kind_t::CHANNEL, .inner = element, .span = span, .bounds = m_bounds });
+            m_pending_sendables.push_back({ .kind = type_kind_t::CHANNEL,
+                                            .inner = element,
+                                            .span = span,
+                                            .bounds = m_bounds });
         }
 
         return m_analysis.types.channel(element);
@@ -22380,9 +22383,8 @@ private:
             return implements(info.inner, interface);
         }
 
-        return std::ranges::all_of(info.fields, [&](const field_t& field) {
-            return implements(field.type, interface);
-        });
+        return std::ranges::all_of(
+            info.fields, [&](const field_t& field) { return implements(field.type, interface); });
     }
 
     const analysis_t& m_analysis;

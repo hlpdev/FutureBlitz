@@ -4287,24 +4287,25 @@ TEST_CASE("a Struct or Class that lists Equatable or Hashable can have the built
 TEST_CASE("every Class is Equatable and Hashable without listing them", "[sema]") {
     // With its own == and Hash, or else comparing and hashing its object, generic or not, and a
     // T? of one too.
-    const std::string_view classes = "Import std.core\n"
-                                     "Import std.collections\n"
-                                     "Class Enemy\n"
-                                     "    Field Name: String\n"
-                                     "End Class\n"
-                                     "Class Box<T>\n"
-                                     "    Field Item: T?\n"
-                                     "End Class\n"
-                                     "Class Coin\n"
-                                     "    Field Cents: Int\n"
-                                     "    Operator ==(a: Coin, b: Coin): Bool => a.Cents == b.Cents\n"
-                                     "End Class\n"
-                                     "Class Gold Extends Coin\n"
-                                     "End Class\n"
-                                     "Class Hashed Extends Coin\n"
-                                     "    Method Hash(): UInt64 => Cents As UInt64\n"
-                                     "End Class\n"
-                                     "Local e = Enemy()\n";
+    const std::string_view classes =
+        "Import std.core\n"
+        "Import std.collections\n"
+        "Class Enemy\n"
+        "    Field Name: String\n"
+        "End Class\n"
+        "Class Box<T>\n"
+        "    Field Item: T?\n"
+        "End Class\n"
+        "Class Coin\n"
+        "    Field Cents: Int\n"
+        "    Operator ==(a: Coin, b: Coin): Bool => a.Cents == b.Cents\n"
+        "End Class\n"
+        "Class Gold Extends Coin\n"
+        "End Class\n"
+        "Class Hashed Extends Coin\n"
+        "    Method Hash(): UInt64 => Cents As UInt64\n"
+        "End Class\n"
+        "Local e = Enemy()\n";
     const auto with_classes = [&](const std::string_view text) {
         return errors_of(std::format("{}{}", classes, text));
     };
@@ -4328,20 +4329,21 @@ TEST_CASE("every Class is Equatable and Hashable without listing them", "[sema]"
                     "Map<Gold, Int>: Gold doesn't implement Hashable, which Map<K, V> needs for "
                     "K; Gold has an Operator == of its own, so it's Hashable only with a Hash of "
                     "its own that agrees with it" });
-    CHECK(errors_of("Import std.core\n"
-                    "Import std.collections\n"
-                    "Interface Keyed\n"
-                    "    Method Key(): Int\n"
-                    "    Operator ==(a: Self, b: Self): Bool => a.Key() == b.Key()\n"
-                    "End Interface\n"
-                    "Class Door Implements Keyed\n"
-                    "    Method Key(): Int => 1\n"
-                    "End Class\n"
-                    "Local doors = [Door()].Contains(Door())\n"
-                    "Local keyed = Set<Door>()") ==
-          errors_t{ "Set<Door>: Door doesn't implement Hashable, which Set<T> needs for T; Door has "
-                    "an Operator == of its own, so it's Hashable only with a Hash of its own that "
-                    "agrees with it" });
+    CHECK(
+        errors_of("Import std.core\n"
+                  "Import std.collections\n"
+                  "Interface Keyed\n"
+                  "    Method Key(): Int\n"
+                  "    Operator ==(a: Self, b: Self): Bool => a.Key() == b.Key()\n"
+                  "End Interface\n"
+                  "Class Door Implements Keyed\n"
+                  "    Method Key(): Int => 1\n"
+                  "End Class\n"
+                  "Local doors = [Door()].Contains(Door())\n"
+                  "Local keyed = Set<Door>()") ==
+        errors_t{ "Set<Door>: Door doesn't implement Hashable, which Set<T> needs for T; Door has "
+                  "an Operator == of its own, so it's Hashable only with a Hash of its own that "
+                  "agrees with it" });
 
     // Listing Hashable says it has one, and Comparable and the Structs are as they were.
     CHECK(errors_of("Import std.core\n"
@@ -8122,11 +8124,11 @@ TEST_CASE("what a call can run on another thread includes overrides and lambdas"
     CHECK(errors_of(std::format("{}{}Local t = Spawn(Function() => \"{{(Shown(1), 2)}}\")", parts,
                                 score)) ==
           errors_t{ std::vformat(reached, std::make_format_args("Shown.ToString")) });
-    CHECK(errors_of(std::format("{}{}Local t = Spawn(Function() => Print(Shown(1)))", parts,
-                                score)) ==
+    CHECK(errors_of(
+              std::format("{}{}Local t = Spawn(Function() => Print(Shown(1)))", parts, score)) ==
           errors_t{ std::vformat(reached, std::make_format_args("Shown.ToString")) });
-    CHECK(errors_of(std::format("{}{}Local t = Spawn(Function() => [Eq(1)] == [Eq(2)])", parts,
-                                score)) ==
+    CHECK(errors_of(
+              std::format("{}{}Local t = Spawn(Function() => [Eq(1)] == [Eq(2)])", parts, score)) ==
           errors_t{ std::vformat(reached, std::make_format_args("Eq.==")) });
     CHECK(errors_of(std::format("{}{}Local t = Spawn(Function() => Pair(Eq(1)) == Pair(Eq(2)))",
                                 parts, score)) ==
