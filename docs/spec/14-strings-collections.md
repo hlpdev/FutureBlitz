@@ -148,6 +148,12 @@ collection.
 | `PriorityQueue<T>` | `Pop` and `Peek` give the first: the smallest when T is `Comparable`, or what `PriorityQueue<T>(before)` says comes first, and `TryPop` and `TryPeek` give a `T?`; `Drain()` takes every value off, in the order Pop would; it goes over its values in no particular order, and so does `ToArray()` |
 | `Pool<T>` | `Add(value)` gives a `Handle<T>`; `Get(handle)` gives a `T?`; `Set(handle, value)`; `Remove(handle)`; `IterateHandles()` gives each value with its Handle, `For handle, value In pool.IterateHandles()`; `Capacity` and `Reserve(count)` |
 
+- What finds a value by comparing it, like an array's `Remove(value)`, `IndexOf`, and
+  `LastIndexOf`, and the collections' `Contains(value)`, needs the values to be `Equatable`,
+  as `==` in any generic code does (07-generics.md). A Class or Struct is when it lists
+  `Equatable`, and a Class that does without an `==` of its own compares its objects
+  themselves, so `Class Enemy Implements Equatable` is all `enemies.Remove(e)` needs. Only a
+  `T[]`'s built-in `Contains` takes any element that has `==`.
 - What gives a `T?` for "none", like `Get`, `Find`, and an Iterator's `Next`, gives a `T??` for
   a collection of a `T?`, so a stored `Null` isn't "none": a For ... In over a `Stack<Int?>` goes
   over its Nulls, and `Get` of a `Map<String, Int?>` tells a missing key from a `Null` value.

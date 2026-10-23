@@ -1,0 +1,36 @@
+// A Class that lists Equatable, without an == of its own, compares its objects themselves, which
+// is what std's Remove, IndexOf, LastIndexOf, and Contains need: two Enemies alike in every Field
+// are still two.
+Import std.core
+Import std.collections
+
+Class Enemy Implements Equatable
+    Field Name: String
+
+    New(name: String)
+        Name = name
+    End New
+End Class
+
+Local first = Enemy("grunt")
+Local second = Enemy("grunt")
+Local boss = Enemy("boss")
+
+Local enemies = [first, second, boss, first]
+Print(enemies.IndexOf(second) ?? -1, enemies.LastIndexOf(first) ?? -1,
+      enemies.IndexOf(Enemy("boss")) ?? -1)
+Print(enemies.Remove(second), enemies.Remove(second), enemies.Count, enemies.Contains(second))
+
+Local stack = Stack<Enemy>()
+stack.Push(first)
+Local queue = Queue<Enemy>()
+queue.Enqueue(first)
+Local deque = Deque<Enemy>()
+deque.Add(first)
+Print(stack.Contains(first), stack.Contains(second), queue.Contains(first), queue.Contains(second),
+      deque.Contains(first), deque.Contains(second))
+
+Local list = LinkedList<Enemy>()
+list.Add(second)
+list.Add(first)
+Print(list.Remove(first), list.Contains(first), list.Contains(second), list.Count)
