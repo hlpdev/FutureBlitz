@@ -25,6 +25,8 @@ Function Failure(what: String, a: Path, b: Path? = Null): String
                 File.ReadText(a)
             Case "write"
                 File.WriteText(a, "x")
+            Case "write atomically"
+                File.WriteTextAtomic(a, "x")
             Case "size"
                 File.Size(a)
             Case "delete"
@@ -47,6 +49,8 @@ Function Failure(what: String, a: Path, b: Path? = Null): String
                 MappedFile(a)
             Case "map writable"
                 MappedFile(a, True)
+            Case "temporary folder"
+                TempDir(a.Text)
             Default
                 Panic("no {what}")
         End Select
@@ -133,7 +137,7 @@ End For
 
 Print("glob")
 For pattern In ["*.png", "**/*.png", "ä/*.png", "ä/**/*.png", "**", "ä/b/*", "*", "?/b", "[äb]/[!x]",
-                "ä/[a-c]/ç/*.txt", "**/ç", "[", "ä/b/**", "nothing/*", "*.dat", "**/*.PNG"]
+                "ä/[a-c]/ç/*.txt", "**/ç", "[", "ä/b/**", "nothing/*", "*.dat", "**/*.PNG", "", "./*.dat"]
     Local matched: String[] = []
     For entry In Try Dir.Glob(root, pattern)
         matched.Add(entry.Relative.Text)
@@ -146,6 +150,8 @@ Print("errors")
 Print(Failure("read", root / "missing.txt"))
 Print(Failure("read", root / "ä"))
 Print(Failure("write", root / "ä"))
+Print(Failure("write atomically", root / "ä"))
+Print(Failure("write atomically", root / "missing" / "x.txt"))
 Print(Failure("size", root / "ä"))
 Print(Failure("delete", root / "ä"))
 Print(Failure("create", root / "plain"))
@@ -161,6 +167,7 @@ Print(Failure("move", root / "missing", root / "x"))
 Print(Failure("write", root / "missing" / "x.txt"))
 Print(Failure("write", "a\u{0}b"))
 Print(Failure("metadata", root / "missing"))
+Print(Failure("temporary folder", "no-such-folder/"))
 
 // From the folder itself, paths and messages don't depend on where it is.
 Local before = Try Dir.Current()

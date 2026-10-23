@@ -90,21 +90,18 @@ Public Class File
     New()
     End New
 
-    // The file's bytes.
+    // The file's bytes. One of more than an array holds, 2^31 - 1 bytes, throws an IOError of
+    // OTHER.
     Public Static Method ReadBytes(path: Path): UInt8[] Throws IOError
         Local request = Request()
-        Try Checked(fb_io_file_read(request.Native, path.Text), "read", path)
-        Local bytes: UInt8[] = []
-        fb_io_request_bytes(request.Native, bytes)
-        Return bytes
+        Return Try BytesOf(request, Try Checked(fb_io_file_read(request.Native, path.Text), "read", path),
+                           path)
     End Method
 
     Public Static Async Method ReadBytesAsync(path: Path): UInt8[] Throws IOError
         Local request = Request()
-        Try Checked(Await fb_io_file_read_async(request.Native, path.Text), "read", path)
-        Local bytes: UInt8[] = []
-        fb_io_request_bytes(request.Native, bytes)
-        Return bytes
+        Local count = Try Checked(Await fb_io_file_read_async(request.Native, path.Text), "read", path)
+        Return Try BytesOf(request, count, path)
     End Method
 
     // The file's bytes as text, with U+FFFD for each one that doesn't start well-formed UTF-8.
@@ -334,6 +331,18 @@ Public Class File
 End Class
 
 Function CrlfOf(ending: LineEnding): Int32 => ending == LineEnding.CRLF ? 1 : 0
+
+// The `count` bytes a request read, unless they're more than an array holds.
+Function BytesOf(request: Request, count: Int64, path: Path): UInt8[] Throws IOError
+    If count > 2147483647
+        Throw IOError(IOErrorKind.OTHER, "can't read {path}: it has more bytes than an array holds",
+                      path.Text)
+    End If
+
+    Local bytes: UInt8[] = []
+    fb_io_request_bytes(request.Native, bytes)
+    Return bytes
+End Function
 
 // What a request found at a path.
 Package Function StatOf(request: Request): Metadata

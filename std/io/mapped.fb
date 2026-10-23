@@ -20,8 +20,9 @@ End Extern
 
 // A file mapped into memory whole, read-only or writable, until it's closed or its last
 // reference goes. Writing to a writable one changes the file, which Flush puts onto the disk. It
-// has the bytes the file had when it was mapped: one that grows or shrinks meanwhile isn't
-// mapped again. On Windows, a mapped file can't be deleted until it's closed.
+// has the bytes the file had when it was mapped: one that grows meanwhile isn't mapped again, and
+// on POSIX, reading what a file that another program shortens no longer has ends the program, as
+// it would C's. On Windows, a mapped file can't be deleted until it's closed.
 Public Class MappedFile
     Public ReadOnly Field Path: Path
     Public ReadOnly Field IsWritable: Bool

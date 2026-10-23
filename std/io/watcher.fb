@@ -39,7 +39,8 @@ End Struct
 
 // Watches a file, or what's in a folder, but not the folders in it, from when it's made until
 // it's closed or its last reference goes. An OS can tell of one change more than once, as when a
-// write comes in parts, and of a change it makes itself, as of a folder's times.
+// write comes in parts, and of a change it makes itself, as of a folder's times. A watched file
+// or folder that's removed may go unwatched on some OSes, even once it's back.
 Public Class FileWatcher
     Public ReadOnly Field Path: Path
     // The runtime's watcher, which keeps whether it's closed, so no Field of this one changes
@@ -92,10 +93,10 @@ End Class
 
 // The event a watcher took last, with a path of `style`.
 Function EventOf(watcher: Ptr<Void>, style: PathStyle): FileEvent
-    Return FileEvent(KindOf(fb_io_watcher_kind(watcher)), Path(fb_io_watcher_path(watcher), style))
+    Return FileEvent(EventKindOf(fb_io_watcher_kind(watcher)), Path(fb_io_watcher_path(watcher), style))
 End Function
 
-Function KindOf(number: Int32): FileEventKind
+Function EventKindOf(number: Int32): FileEventKind
     Select number
         Case 0
             Return FileEventKind.CREATED

@@ -144,11 +144,12 @@ Public Struct Dir
     // Walk's order. The pattern's names go between '/'s, each name matching one in the path:
     // '*' matches any run of characters in a name, '?' any one character, and "[abc]", "[a-z]",
     // and "[!abc]" one character of or not of those; a name that's just "**" matches any number
-    // of folders, none too. So "*.png" matches the folder's PNGs, and "**/*.png" every PNG in it.
+    // of folders, none too, and a pattern with no names matches nothing. So "*.png" matches the folder's PNGs, and "**/*.png" every PNG in it.
     // A '[' with no ']' after it is just itself. Names match exactly, in the same case, on every
     // OS.
     Public Static Method Glob(path: Path, pattern: String): DirEntry[] Throws IOError
         Local names = PatternNames(pattern, path.Style == PathStyle.WINDOWS)
+        If names.Count == 0 Then Return []
         Local request = Request()
         Try Checked(fb_io_dir_entries(request.Native, path.Text, DepthOf(names)), "list", path)
         Return Matching(EntriesOf(request, path), names)
@@ -156,6 +157,7 @@ Public Struct Dir
 
     Public Static Async Method GlobAsync(path: Path, pattern: String): DirEntry[] Throws IOError
         Local names = PatternNames(pattern, path.Style == PathStyle.WINDOWS)
+        If names.Count == 0 Then Return []
         Local request = Request()
         Try Checked(Await fb_io_dir_entries_async(request.Native, path.Text, DepthOf(names)), "list",
                     path)

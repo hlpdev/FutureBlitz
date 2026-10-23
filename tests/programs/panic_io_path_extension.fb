@@ -1,0 +1,6 @@
+// WithExtension panics at the program's line for an extension with a separator in it.
+Import std.core
+Import std.io
+
+Print(Path("save.dat").WithExtension(".bak"))
+Print(Path("save.dat").WithExtension("bak/x"))
