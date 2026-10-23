@@ -283,3 +283,163 @@ string(SUBSTRING "${text}" 0 ${end} notices)
 fb_notice(sqlite "${notices}\n*/\n")
 set(FB_SQLITE_NOTICE "${FB_SQLITE_NOTICE}" PARENT_SCOPE)
 set(FB_SQLITE_LICENSES "a public-domain dedication" PARENT_SCOPE)
+
+# zlib-ng, through its zlib API: std.compress's Deflate, Zlib, and Gzip, minizip-ng's Deflate, and
+# curl's gzip later. Its own CMake picks the target's SIMD code, at run time. Only its static
+# library is built, without its gzFile functions, since std reads files itself. Its target and
+# liblzma's are static ones as BUILD_SHARED_LIBS is set, which liblzma's CMake would set later.
+set(FB_ZLIB_NG_VERSION 2.3.3)
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
+set(ZLIB_COMPAT ON CACHE BOOL "" FORCE)
+set(WITH_GZFILEOP OFF CACHE BOOL "" FORCE)
+# On Windows its zconf.h includes no <unistd.h>, as when MSVC builds it: only gzFile's functions,
+# which aren't built, need what it has, and clang-tidy reads with MSVC's headers, which have none.
+if(WIN32)
+  set(HAVE_UNISTD_H "" CACHE INTERNAL "")
+endif()
+FetchContent_Declare(
+  zlib_ng
+  URL https://github.com/zlib-ng/zlib-ng/archive/refs/tags/${FB_ZLIB_NG_VERSION}.tar.gz
+  URL_HASH SHA256=f9c65aa9c852eb8255b636fd9f07ce1c406f061ec19a2e7d508b318ca0c907d1
+  SYSTEM
+  EXCLUDE_FROM_ALL
+)
+fb_make_available(zlib_ng)
+set(FB_ZLIB_NG_VERSION ${FB_ZLIB_NG_VERSION} PARENT_SCOPE)
+file(READ "${zlib_ng_SOURCE_DIR}/LICENSE.md" zlib_ng_notice)
+fb_notice(zlib_ng "${zlib_ng_notice}")
+set(FB_ZLIB_NG_NOTICE "${FB_ZLIB_NG_NOTICE}" PARENT_SCOPE)
+set(FB_ZLIB_NG_LICENSES "the zlib license" PARENT_SCOPE)
+
+# zstd: std.compress's Zstd, and minizip-ng's, from its library's C files: compression and
+# decompression, without the dictionary builder, the formats before 1.0, threads, or the x86-64
+# assembly, which isn't built the same everywhere.
+set(FB_ZSTD_VERSION 1.5.7)
+FetchContent_Declare(
+  zstd
+  URL https://github.com/facebook/zstd/releases/download/v${FB_ZSTD_VERSION}/zstd-${FB_ZSTD_VERSION}.tar.gz
+  URL_HASH SHA256=eb33e51f49a15e023950cd7825ca74a4a2b43db8354825ac24fc1b7ee09e6fa3
+  SOURCE_SUBDIR none
+  SYSTEM
+)
+FetchContent_MakeAvailable(zstd)
+file(GLOB zstd_sources "${zstd_SOURCE_DIR}/lib/common/*.c" "${zstd_SOURCE_DIR}/lib/compress/*.c"
+     "${zstd_SOURCE_DIR}/lib/decompress/*.c")
+add_library(zstd STATIC EXCLUDE_FROM_ALL ${zstd_sources})
+target_include_directories(zstd SYSTEM PUBLIC "${zstd_SOURCE_DIR}/lib")
+target_compile_definitions(zstd PRIVATE ZSTD_DISABLE_ASM ZSTD_LEGACY_SUPPORT=0)
+fb_bundled_library(zstd)
+set(FB_ZSTD_VERSION ${FB_ZSTD_VERSION} PARENT_SCOPE)
+# It's under BSD-3-Clause or GPL-2.0, and std takes it under BSD-3-Clause, which LICENSE has.
+file(READ "${zstd_SOURCE_DIR}/LICENSE" zstd_notice)
+fb_notice(zstd "${zstd_notice}")
+set(FB_ZSTD_NOTICE "${FB_ZSTD_NOTICE}" PARENT_SCOPE)
+set(FB_ZSTD_LICENSES "the BSD-3-Clause license" PARENT_SCOPE)
+
+# LZ4: std.compress's Lz4, in LZ4's frame format, from its library's C files. Its copy of xxHash
+# gets names of its own, apart from the xxHash library's.
+set(FB_LZ4_VERSION 1.10.0)
+FetchContent_Declare(
+  lz4
+  URL https://github.com/lz4/lz4/archive/refs/tags/v${FB_LZ4_VERSION}.tar.gz
+  URL_HASH SHA256=537512904744b35e232912055ccf8ec66d768639ff3abe5788d90d792ec5f48b
+  SOURCE_SUBDIR none
+  SYSTEM
+)
+FetchContent_MakeAvailable(lz4)
+add_library(lz4 STATIC EXCLUDE_FROM_ALL)
+target_sources(lz4 PRIVATE
+  "${lz4_SOURCE_DIR}/lib/lz4.c"
+  "${lz4_SOURCE_DIR}/lib/lz4hc.c"
+  "${lz4_SOURCE_DIR}/lib/lz4frame.c"
+  "${lz4_SOURCE_DIR}/lib/xxhash.c")
+target_include_directories(lz4 SYSTEM PUBLIC "${lz4_SOURCE_DIR}/lib")
+target_compile_definitions(lz4 PRIVATE XXH_NAMESPACE=LZ4_)
+fb_bundled_library(lz4)
+set(FB_LZ4_VERSION ${FB_LZ4_VERSION} PARENT_SCOPE)
+# The library is under BSD-2-Clause, as lib/LICENSE says; LZ4's programs are GPL, and aren't built.
+file(READ "${lz4_SOURCE_DIR}/lib/LICENSE" lz4_notice)
+fb_notice(lz4 "${lz4_notice}")
+set(FB_LZ4_NOTICE "${FB_LZ4_NOTICE}" PARENT_SCOPE)
+set(FB_LZ4_LICENSES "the BSD-2-Clause license" PARENT_SCOPE)
+
+# XZ Utils' liblzma: std.compress's XZ, 7z reading, and minizip-ng's LZMA and XZ, through its own
+# CMake, without threads, translations, or XZ Utils' programs.
+set(FB_LIBLZMA_VERSION 5.8.4)
+set(XZ_THREADS no CACHE STRING "" FORCE)
+set(XZ_NLS OFF CACHE BOOL "" FORCE)
+set(XZ_DOC OFF CACHE BOOL "" FORCE)
+foreach(tool XZ_TOOL_XZ XZ_TOOL_XZDEC XZ_TOOL_LZMADEC XZ_TOOL_LZMAINFO XZ_TOOL_SCRIPTS)
+  set(${tool} OFF CACHE BOOL "" FORCE)
+endforeach()
+FetchContent_Declare(
+  liblzma
+  URL https://github.com/tukaani-project/xz/releases/download/v${FB_LIBLZMA_VERSION}/xz-${FB_LIBLZMA_VERSION}.tar.gz
+  URL_HASH SHA256=0014c7886930454fe8bd4228665b51af55eeae560ea135c9c4cd33f55b2591d9
+  SYSTEM
+  EXCLUDE_FROM_ALL
+)
+fb_make_available(liblzma)
+# Its CMake gives lzma.h's folder only to what it installs.
+target_include_directories(liblzma SYSTEM INTERFACE
+  "$<BUILD_INTERFACE:${liblzma_SOURCE_DIR}/src/liblzma/api>")
+set(FB_LIBLZMA_VERSION ${FB_LIBLZMA_VERSION} PARENT_SCOPE)
+# liblzma is under 0BSD, as COPYING says, before COPYING.0BSD's text; XZ Utils' other licenses are
+# for parts that aren't built.
+file(READ "${liblzma_SOURCE_DIR}/COPYING" liblzma_notice)
+file(READ "${liblzma_SOURCE_DIR}/COPYING.0BSD" liblzma_license)
+string(APPEND liblzma_notice "\nCOPYING.0BSD:\n\n${liblzma_license}")
+fb_notice(liblzma "${liblzma_notice}")
+set(FB_LIBLZMA_NOTICE "${FB_LIBLZMA_NOTICE}" PARENT_SCOPE)
+set(FB_LIBLZMA_LICENSES "the 0BSD license" PARENT_SCOPE)
+
+# minizip-ng: std.compress's Zip, reading and writing zips in memory, stored or by Deflate,
+# LZMA, XZ, or Zstd, over the libraries above, from its C files, since its own CMake fetches what
+# it doesn't find. A zip's encryption isn't built.
+set(FB_MINIZIP_NG_VERSION 4.2.2)
+FetchContent_Declare(
+  minizip_ng
+  URL https://github.com/zlib-ng/minizip-ng/archive/refs/tags/${FB_MINIZIP_NG_VERSION}.tar.gz
+  URL_HASH SHA256=71af7b9799856d8b03619df3949e9c1be9703f8de0795af71399ba283cb27aac
+  SOURCE_SUBDIR none
+  SYSTEM
+)
+FetchContent_MakeAvailable(minizip_ng)
+add_library(minizip_ng STATIC EXCLUDE_FROM_ALL)
+target_sources(minizip_ng PRIVATE
+  "${minizip_ng_SOURCE_DIR}/mz_crypt.c"
+  "${minizip_ng_SOURCE_DIR}/mz_strm.c"
+  "${minizip_ng_SOURCE_DIR}/mz_strm_mem.c"
+  "${minizip_ng_SOURCE_DIR}/mz_strm_zlib.c"
+  "${minizip_ng_SOURCE_DIR}/mz_strm_lzma.c"
+  "${minizip_ng_SOURCE_DIR}/mz_strm_zstd.c"
+  "${minizip_ng_SOURCE_DIR}/mz_zip.c")
+# Its mz_config.h says what the C library has, which for the files built here is only <stdint.h>
+# and <inttypes.h>, on every target.
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/minizip_ng/mz_config.h"
+  "#ifndef MZ_CONFIG_H\n#define MZ_CONFIG_H\n#define HAVE_INTTYPES_H 1\n#define HAVE_STDINT_H 1\n"
+  "#endif\n")
+target_include_directories(minizip_ng SYSTEM PUBLIC "${minizip_ng_SOURCE_DIR}"
+  "${CMAKE_CURRENT_BINARY_DIR}/minizip_ng")
+target_compile_definitions(minizip_ng PRIVATE HAVE_ZLIB ZLIB_COMPAT HAVE_LZMA HAVE_ZSTD
+  MZ_ZIP_NO_CRYPTO)
+target_link_libraries(minizip_ng PRIVATE zlib-ng zstd liblzma)
+fb_bundled_library(minizip_ng)
+set(FB_MINIZIP_NG_VERSION ${FB_MINIZIP_NG_VERSION} PARENT_SCOPE)
+# Its LICENSE has zlib's terms, and its files' comments have whose they are: mz_zip.c's and
+# mz_strm_mem.c's name everyone the files built here have. A program that reads or writes zips links
+# zlib-ng, zstd, and liblzma with it, so its notices have theirs after its own.
+file(READ "${minizip_ng_SOURCE_DIR}/LICENSE" minizip_ng_notice)
+foreach(part mz_zip.c mz_strm_mem.c)
+  file(READ "${minizip_ng_SOURCE_DIR}/${part}" text)
+  string(FIND "${text}" "*/" end)
+  math(EXPR end "${end} + 2")
+  string(SUBSTRING "${text}" 0 ${end} comment)
+  string(APPEND minizip_ng_notice "\n${part}:\n\n${comment}\n")
+endforeach()
+string(APPEND minizip_ng_notice "\nzlib-ng:\n\n${zlib_ng_notice}\nzstd:\n\n${zstd_notice}")
+string(APPEND minizip_ng_notice "\nliblzma:\n\n${liblzma_notice}")
+fb_notice(minizip_ng "${minizip_ng_notice}")
+set(FB_MINIZIP_NG_NOTICE "${FB_MINIZIP_NG_NOTICE}" PARENT_SCOPE)
+set(FB_MINIZIP_NG_LICENSES "the zlib, BSD-3-Clause, and 0BSD licenses" PARENT_SCOPE)
