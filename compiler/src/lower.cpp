@@ -7354,6 +7354,20 @@ private:
             return get_property(*member.symbol, object, type_of(object));
         }
 
+        // A ReadOnly Field changes only in its Class's New, which a loop's copy can't tell it's
+        // in, so f.Set can't change one.
+        if (name == "Set" && declared != nullptr && declared->modifiers.is_read_only) {
+            if (!m_module.error) {
+                m_module.error = mir_error_t{
+                    .message = std::format("'{}' is ReadOnly, so f.Set can't change it",
+                                           declared->name),
+                    .span = span_of(id),
+                };
+            }
+
+            return std::nullopt;
+        }
+
         if (name == "Get" || name == "Set") {
             place_t place = lower_place(node.arguments[0].value);
             place.steps.push_back({ .field = member.index });

@@ -164,11 +164,12 @@ End Function
   meet a constraint only when one of its own loops says so.
 - The field has `f.Name`, `f.Index`, `f.Get(value)`, which gives an `F`, `f.Set(ByRef value, x)`,
   `f.Has(A)`, and `f.Attribute(A)`, which gives an `A?`, for an Attribute `A`. `f` isn't a value
-  of its own.
+  of its own. A ReadOnly Field changes only in its Class's New, so `f.Set` on one is an error
+  where the loop's copy for it is made.
 - `For Method m In T` goes over the Methods of a Struct or Class that take nothing, give nothing,
   and throw nothing (the inherited ones first, each in the place of what it overrides), but not
-  Destroy, Unsafe, or Async Methods, which give a Task. `m.Call(value)` calls it, through the
-  Method table for a Class. `m` has `m.Name`, `m.Has(A)`, and `m.Attribute(A)` too.
+  Destroy, Unsafe, or ByRef Methods, or Async ones, which give a Task. `m.Call(value)` calls it,
+  through the Method table for a Class. `m` has `m.Name`, `m.Has(A)`, and `m.Attribute(A)` too.
 - `For Method m: M In T` with `Where M: Func(Int): String` goes over the Methods of that Func
   type instead, and `m.Call(value, 5)` passes their arguments. Its Where line picks the Methods;
   it isn't a constraint to meet. A Func type has no ByRef, so a Method with a ByRef parameter is

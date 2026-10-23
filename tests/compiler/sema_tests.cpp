@@ -1484,6 +1484,35 @@ TEST_CASE("fields that refer to Classes are assigned by every New", "[sema]") {
                      "    End Method\n"
                      "End Class") ==
           errors_t{ "Check: Self can't be used before New assigns 'e'" });
+
+    // A lambda made before then can't use Self, since New could call it before it assigns the
+    // field, and a Property's Set is code of Self's too.
+    CHECK(with_enemy("Class H\n"
+                     "    Field e: E\n"
+                     "    New()\n"
+                     "        Local f = Function() => e\n"
+                     "        e = E()\n"
+                     "        Local g = Function() => e\n"
+                     "    End New\n"
+                     "End Class") ==
+          errors_t{ "e: Self can't be used before New assigns 'e', which this lambda would read "
+                    "when it runs" });
+    CHECK(with_enemy("Class H\n"
+                     "    Field e: E\n"
+                     "    Property P: Int\n"
+                     "        Get => 1\n"
+                     "        Set(value)\n"
+                     "        End Set\n"
+                     "    End Property\n"
+                     "    New()\n"
+                     "        P = 1\n"
+                     "        Self.P = 2\n"
+                     "        e = E()\n"
+                     "        P = 3\n"
+                     "    End New\n"
+                     "End Class") ==
+          errors_t{ "P: Self can't be used before New assigns 'e'",
+                    "Self.P: Self can't be used before New assigns 'e'" });
 }
 
 TEST_CASE("a Struct with a field that has no zero has none either", "[sema]") {
@@ -1938,8 +1967,8 @@ TEST_CASE("For ... In goes over an array", "[sema]") {
                     "End For")
               .empty());
     CHECK(errors_of("For x In 5\nEnd For") ==
-          errors_t{ "5: 'For ... In' goes over arrays, Iterators, and values whose Iterate() "
-                    "gives an Iterator, not Int32" });
+          errors_t{ "5: 'For ... In' goes over arrays, Channels, Iterators, and values whose "
+                    "Iterate() gives an Iterator, not Int32" });
     CHECK(errors_of("For x In [1, 2]\n    x = 3\nEnd For") ==
           errors_t{ "x: 'x' is a loop variable and can't be changed" });
     CHECK(errors_of("Function F(a: Int[]?)\n    For x In a\n    End For\nEnd Function") ==
@@ -2610,6 +2639,27 @@ TEST_CASE("a ReadOnly Field only changes in its Class's New", "[sema]") {
                     "        id = 3\n"
                     "    End Method\n"
                     "End Class") == errors_t{ "id: 'id' is ReadOnly; only A's New can change it" });
+
+    // A lambda or a Parallel For's body in New runs later, or on other threads, so it can't.
+    CHECK(errors_of("Class A\n"
+                    "    ReadOnly Field id: Int\n"
+                    "    Field f: Func(Int)?\n"
+                    "    New()\n"
+                    "        id = 1\n"
+                    "        f = Function(v: Int)\n"
+                    "            id = v\n"
+                    "        End Function\n"
+                    "    End New\n"
+                    "End Class") == errors_t{ "id: 'id' is ReadOnly; only A's New can change it" });
+    CHECK(errors_of("Shared Class A\n"
+                    "    ReadOnly Field name: String\n"
+                    "    New()\n"
+                    "        Parallel For i = 0 Until 10\n"
+                    "            name = \"{i}\"\n"
+                    "        End For\n"
+                    "    End New\n"
+                    "End Class") ==
+          errors_t{ "name: 'name' is ReadOnly; only A's New can change it" });
 
     // Its parts can't change either, and it can't be passed ByRef.
     CHECK(errors_of("Struct P\n"
@@ -4875,8 +4925,12 @@ TEST_CASE("For ... In goes over an Iterator, or the one a value's Iterate gives"
           errors_t{ "i: 'For a, b In' takes each of Count's elements apart, so they must be pairs, "
                     "not Int32; an index only comes with arrays" });
     CHECK(errors_of("Function F(s: String?)\n    For c In s\n    End For\nEnd Function") ==
-          errors_t{ "s: 'For ... In' goes over arrays, Iterators, and values whose Iterate() gives "
-                    "an Iterator, not String?" });
+          errors_t{ "s: 'For ... In' goes over arrays, Channels, Iterators, and values whose "
+                    "Iterate() gives an Iterator, not String?" });
+
+    // A Channel? may be Null, as an Int[]? may.
+    CHECK(errors_of("Function F(ch: Channel<Int>?)\n    For x In ch\n    End For\nEnd Function") ==
+          errors_t{ "ch: 'ch' may be Null; check that it isn't, or use '?.'" });
 }
 
 TEST_CASE("a String's Chars and Bytes are arrays of its code points and bytes", "[sema]") {
@@ -8606,9 +8660,9 @@ TEST_CASE("a For loop takes the Iterate its file sees", "[sema]") {
     CHECK(errors_with(
               std::format("Import std.core\nImport \"./lib/bag\"\nImport \"./lib/user\"\n{}", loop),
               modules) ==
-          errors_t{ "Bag(): 'For ... In' goes over arrays, Iterators, and values whose Iterate() "
-                    "gives an Iterator, not Bag; 'Iterate' is in lib.ones, which this file "
-                    "doesn't import: Import \"./lib/ones\"" });
+          errors_t{ "Bag(): 'For ... In' goes over arrays, Channels, Iterators, and values "
+                    "whose Iterate() gives an Iterator, not Bag; 'Iterate' is in lib.ones, which "
+                    "this file doesn't import: Import \"./lib/ones\"" });
     CHECK(errors_with(
               std::format("Import std.core\nImport \"./lib/bag\"\nImport \"./lib/ones\"\n{}", loop),
               modules)
@@ -11357,8 +11411,9 @@ TEST_CASE("a visibility error labels the declaration it's about", "[sema]") {
 
     CHECK(labeled ==
           std::vector<std::string>{
-              "'For ... In' goes over arrays, Iterators, and values whose Iterate() gives an "
-              "Iterator, not Bag; 'Iterate' is private to lib/a.fb [declared here at lib/a.fb:2]",
+              "'For ... In' goes over arrays, Channels, Iterators, and values whose Iterate() "
+              "gives an Iterator, not Bag; 'Iterate' is private to lib/a.fb [declared here at "
+              "lib/a.fb:2]",
               "Thing implements Shown, so it needs a Method 'Show'; 'Show' is private to lib/a.fb "
               "[declared here at lib/a.fb:8]",
               "'Helper' is private to lib/a.fb [declared here at lib/a.fb:10]",
@@ -11782,4 +11837,119 @@ TEST_CASE("a default's place, its inference, and a Const Function that can't low
     // Nor is a use of a Const that an error left without a value.
     CHECK(errors_of("Const X = 1 / 0\nLocal a: Int[X]\nLocal b: Int[X * 2]") ==
           errors_t{ "1 / 0: division by zero" });
+}
+
+TEST_CASE("a fixed array's sizes are checked before they're multiplied", "[sema]") {
+    CHECK(errors_of("Local a: Int[4, 4611686018427387904]") ==
+          errors_t{ "Int[4, 4611686018427387904]: a fixed array can hold at most 2147483647 "
+                    "elements" });
+    CHECK(errors_of("Local a: Int[65536, 65536]") ==
+          errors_t{ "Int[65536, 65536]: a fixed array can hold at most 2147483647 elements" });
+    CHECK(errors_of("Local a: Int[2, 1073741823]").empty());
+}
+
+TEST_CASE("only a Static member named Has or Attribute hides T.Has(A) and T.Attribute(A)",
+          "[sema]") {
+    CHECK(errors_of("Import std.core\n"
+                    "Attribute Tag()\n"
+                    "@Tag\n"
+                    "Class Bag\n"
+                    "    Method Has(n: Int): Bool => n > 0\n"
+                    "End Class\n"
+                    "Local a = Bag.Has(Tag)\n"
+                    "Local b = Bag().Has(3)")
+              .empty());
+    CHECK(errors_of("Import std.core\n"
+                    "Attribute Tag()\n"
+                    "Class Bag\n"
+                    "    Static Method Has(n: Int): Bool => n > 0\n"
+                    "End Class\n"
+                    "Local a = Bag.Has(1)")
+              .empty());
+}
+
+TEST_CASE("a Return in a Try runs its Finally first, which can assign what New needs", "[sema]") {
+    constexpr std::string_view classes = "Import std.core\n"
+                                         "Class E1 Extends Error\n"
+                                         "End Class\n"
+                                         "Class Node\n"
+                                         "End Class\n"
+                                         "Function Risky() Throws E1\n"
+                                         "End Function\n";
+    CHECK(errors_of(std::format("{}Class A\n"
+                                "    Field m: Node\n"
+                                "    New()\n"
+                                "        Try\n"
+                                "            Try Risky()\n"
+                                "            Return\n"
+                                "        Catch e As E1\n"
+                                "            Return\n"
+                                "        Finally\n"
+                                "            Try\n"
+                                "            Finally\n"
+                                "                m = Node()\n"
+                                "            End Try\n"
+                                "        End Try\n"
+                                "    End New\n"
+                                "End Class",
+                                classes))
+              .empty());
+    CHECK(errors_of(std::format("{}Class A\n"
+                                "    Field m: Node\n"
+                                "    New()\n"
+                                "        Try\n"
+                                "            Try\n"
+                                "                Return\n"
+                                "            Finally\n"
+                                "                Print(\"inner\")\n"
+                                "            End Try\n"
+                                "        Finally\n"
+                                "            Print(\"outer\")\n"
+                                "        End Try\n"
+                                "        m = Node()\n"
+                                "    End New\n"
+                                "End Class",
+                                classes)) ==
+          errors_t{ "Return: New must assign 'm' before this Return, since Node has no zero "
+                    "value" });
+}
+
+TEST_CASE("literals alone in a For loop take one type, a Float with a decimal among them",
+          "[sema]") {
+    CHECK(errors_of("Import std.core\n"
+                    "For f = 0 To 1.5 Step 0.5\n"
+                    "    Local x: Float = f\n"
+                    "End For\n"
+                    "For i = 0 To 10 Step 2\n"
+                    "    Local y: Int = i\n"
+                    "End For")
+              .empty());
+    CHECK(errors_of("For f = 0 To 1.5 Step 0.5\n    Local x: Int = f\nEnd For") ==
+          errors_t{ "f: expected Int32, found Float32" });
+}
+
+TEST_CASE("a throwing call in a Defer, Finally, or lambda says it can't throw", "[sema]") {
+    CHECK(errors_of("Import std.core\n"
+                    "Class E1 Extends Error\n"
+                    "End Class\n"
+                    "Function F() Throws E1\n"
+                    "End Function\n"
+                    "Function G() Throws E1\n"
+                    "    Try\n"
+                    "        Defer F()\n"
+                    "        Try F()\n"
+                    "    Catch e As E1\n"
+                    "    End Try\n"
+                    "    Try\n"
+                    "        Try F()\n"
+                    "    Finally\n"
+                    "        F()\n"
+                    "    End Try\n"
+                    "End Function") ==
+          errors_t{
+              "F(): a Defer can't throw, so calling 'F', which can throw E1, needs Try?, or a Try "
+              "block inside it",
+              "F(): a Finally can't throw, so calling 'F', which can throw E1, needs Try?, or a "
+              "Try block inside it",
+          });
 }

@@ -2772,6 +2772,31 @@ TEST_CASE("an array type has tables only once its arrays go where an Interface i
     CHECK(!mir.contains("array Bool[]"));
 }
 
+TEST_CASE("For Field's f.Set can't change a ReadOnly Field", "[mir]") {
+    const fb::compilation_t compilation =
+        fb::compile("test.fb", "Import std.core\n"
+                               "Shared Class Hub\n"
+                               "    ReadOnly Field Name: String\n"
+                               "    Field Count: Int\n"
+                               "    New(name: String)\n"
+                               "        Name = name\n"
+                               "    End New\n"
+                               "End Class\n"
+                               "Function CopyInto<T>(ByRef target: T, source: T)\n"
+                               "    For Field f: F In T\n"
+                               "        f.Set(ByRef target, f.Get(source))\n"
+                               "    End For\n"
+                               "End Function\n"
+                               "Local hub = Hub(\"a\")\n"
+                               "CopyInto(ByRef hub, Hub(\"b\"))");
+    REQUIRE(compilation.diagnostics.diagnostics().empty());
+    const fb::mir_module_t module = fb::lower(compilation.ast, compilation.analysis);
+    REQUIRE(module.error);
+    CHECK(std::string(compilation.sources.get(module.error->span.file).slice(module.error->span)) +
+              ": " + module.error->message ==
+          "f.Set(ByRef target, f.Get(source)): 'Name' is ReadOnly, so f.Set can't change it");
+}
+
 TEST_CASE("an assignment copies a value read through a reference before it lets go of the old one",
           "[mir]") {
     const std::string mir = lower_text("Import std.core\n"

@@ -491,6 +491,9 @@ private:
     /// For each Finally being checked: how many loops are around it, which Break and Continue
     /// can't leave it for.
     std::vector<std::size_t> m_finally_loops;
+    /// The Returns of a New in each Try with a Finally being checked, innermost last, with what
+    /// was assigned at each: the Finally runs before New returns, and adds what it assigns.
+    std::vector<std::vector<std::pair<span_t, std::vector<bool>>>> m_finally_returns;
     /// Each T[]'s Methods, and each @Flags Enum's, made the first time they're looked up.
     std::unordered_map<type_id_t, std::vector<symbol_id_t>> m_array_methods;
     /// Each integer type's Wrapping and Checked Methods, made when first used.
@@ -583,6 +586,8 @@ private:
         /// A Parallel For's body, which copies what it uses from outside, and its loop variable.
         bool parallel = false;
         std::optional<symbol_id_t> index;
+        /// In a New, why Self wasn't ready where the lambda was made, so it can't use Self.
+        std::optional<std::string> unready;
     };
 
     /// The lambdas being checked, innermost last.
@@ -11578,11 +11583,13 @@ private:
                 return type_id_t::INVALID;
             }
 
-            count *= static_cast<std::uint64_t>(*size);
-            if (count > max_count) {
+            const auto dimension = static_cast<std::uint64_t>(*size);
+            if (dimension > max_count || count > max_count / dimension) {
                 error(span, "a fixed array can hold at most {} elements", max_count);
                 return type_id_t::INVALID;
             }
+
+            count *= dimension;
 
             sizes.push_back(static_cast<std::uint32_t>(*size));
         }
@@ -11939,8 +11946,16 @@ private:
 
     /// New must assign the fields that have no zero, on every path, before it returns.
     void check_required(const span_t span, const std::string_view where) {
+        if (m_flow.reachable) {
+            check_required(span, where, m_flow.assigned);
+        }
+    }
+
+    /// The same, with what's assigned where New returns.
+    void check_required(const span_t span, const std::string_view where,
+                        const std::vector<bool>& assigned) {
         for (const symbol_id_t field : m_required) {
-            if (!is_assigned(field)) {
+            if (index(field) >= assigned.size() || !assigned[index(field)]) {
                 error(span, "New must assign '{}' {}, since {} has no zero value",
                       symbol(field).name, where, shown_name(symbol(field).type));
             }
@@ -11950,17 +11965,25 @@ private:
     /// In a New, Self can only be used whole once Super.New has set up what it inherits, and
     /// the fields without a zero are assigned, since a Method could read them.
     void check_self_ready(const span_t span) {
+        if (const std::optional<std::string> unready = unready_self()) {
+            error(span, "{}", *unready);
+        }
+    }
+
+    /// Why Self can't be used here yet, in a New, or nothing when it can.
+    [[nodiscard]] std::optional<std::string> unready_self() const {
         if (m_before_super) {
-            error(span, "Self can't be used before Super.New");
-            return;
+            return "Self can't be used before Super.New";
         }
 
         for (const symbol_id_t field : m_required) {
             if (!is_assigned(field)) {
-                error(span, "Self can't be used before New assigns '{}'", symbol(field).name);
-                return;
+                return std::format("Self can't be used before New assigns '{}'",
+                                   m_analysis.symbols[index(field)].name);
             }
         }
+
+        return std::nullopt;
     }
 
     // Top level
@@ -12954,6 +12977,10 @@ private:
         }
 
         const flow_t before = m_flow;
+        if (node.finally_body) {
+            m_finally_returns.emplace_back();
+        }
+
         m_handlers.push_back({ .kind = handler_kind_t::TRY_BLOCK, .types = types });
         check_block(node.body);
         const std::vector<type_id_t> reached = std::move(m_handlers.back().reached);
@@ -13000,6 +13027,31 @@ private:
         const flow_t finally_end = std::move(m_flow);
         m_flow = std::move(result);
         after_finally(finally_end, *node.finally_body);
+        finish_returns(finally_end);
+    }
+
+    /// The Returns of a New in the Try just checked go on with what its Finally assigned, to the
+    /// Finally around it, or New returns there. A Finally that can't end means they don't.
+    void finish_returns(const flow_t& finally_end) {
+        std::vector<std::pair<span_t, std::vector<bool>>> returns =
+            std::move(m_finally_returns.back());
+        m_finally_returns.pop_back();
+        if (!finally_end.reachable) {
+            return;
+        }
+
+        for (auto& [span, assigned] : returns) {
+            assigned.resize(std::max(assigned.size(), finally_end.assigned.size()));
+            for (std::size_t i = 0; i < finally_end.assigned.size(); ++i) {
+                assigned[i] = assigned[i] || finally_end.assigned[i];
+            }
+
+            if (!m_finally_returns.empty()) {
+                m_finally_returns.back().emplace_back(span, std::move(assigned));
+            } else {
+                check_required(span, "before this Return", assigned);
+            }
+        }
     }
 
     /// A Catch's Class, which extends Error and isn't covered by an earlier Catch in `seen`.
@@ -13085,6 +13137,14 @@ private:
             const std::string name = function.kind == symbol_kind_t::CONSTRUCTOR
                                          ? shown_name(function.owner)
                                          : std::string(function.name);
+            if (!m_handlers.empty() && m_handlers.back().kind == handler_kind_t::SEALED) {
+                error(span_of(id),
+                      "{} can't throw, so calling '{}', which can throw {}, needs Try?, or a Try "
+                      "block inside it",
+                      m_handlers.back().what, name, names_of(function.throws));
+                return;
+            }
+
             error(span_of(id), "'{}' can throw {}, so calling it needs Try, Try?, or a Try block",
                   name, names_of(function.throws));
             return;
@@ -13106,7 +13166,16 @@ private:
 
         const handler_kind_t around =
             m_handlers.empty() ? handler_kind_t::FUNCTION : m_handlers.back().kind;
-        if (around == handler_kind_t::FUNCTION || around == handler_kind_t::SEALED) {
+        if (around == handler_kind_t::SEALED) {
+            error(span_of(sequence),
+                  "{} can't throw, so going over {}, whose Iterate can throw {}, needs a Try "
+                  "block inside it, around the loop",
+                  m_handlers.back().what, name_among(type, function.throws),
+                  names_of(function.throws));
+            return;
+        }
+
+        if (around == handler_kind_t::FUNCTION) {
             error(span_of(sequence),
                   "{}'s Iterate can throw {}, so the loop needs 'In Try {}', or a Try block "
                   "around it",
@@ -13344,12 +13413,14 @@ private:
         });
         m_analysis.stmts[index(id)].symbol = variable;
 
+        const std::optional<std::string> unready = unready_self();
         const flow_t outer = m_flow;
         std::vector<loop_t> loops = std::exchange(m_loops, {});
         std::vector<std::size_t> finally_loops = std::exchange(m_finally_loops, {});
         std::vector<symbol_id_t> required = std::exchange(m_required, {});
         std::optional<branches_t> branches = std::exchange(m_branches, std::nullopt);
         const std::optional<expr_id_t> partial = std::exchange(m_partial, std::nullopt);
+        const bool before_super = std::exchange(m_before_super, false);
         m_flow.narrowed.clear();
         m_flow.reachable = true;
         m_handlers.push_back({ .kind = handler_kind_t::SEALED, .what = "a Parallel For's body" });
@@ -13363,6 +13434,7 @@ private:
             .boundary = m_scopes.size(),
             .parallel = true,
             .index = variable,
+            .unready = unready,
         });
         push_scope();
         enter_scope(variable);
@@ -13379,6 +13451,7 @@ private:
         m_required = std::move(required);
         m_branches = std::move(branches);
         m_partial = partial;
+        m_before_super = before_super;
         report_element_races(function, variable);
 
         // Every pass has the copies, at once.
@@ -13421,8 +13494,19 @@ private:
         }
 
         // The variable takes the start's type, unless the start is a literal and the end isn't.
+        // Literals alone, the Step too, take one type, a Float when one of them has a decimal.
         type_id_t type = type_id_t::INVALID;
-        if (is_flexible(node.start) && !is_flexible(node.end)) {
+        if (is_flexible(node.start) && is_flexible(node.end) &&
+            (!node.step || is_flexible(*node.step))) {
+            std::vector<expr_id_t> literals{ node.start, node.end };
+            if (node.step) {
+                literals.push_back(*node.step);
+            }
+
+            type = check(node.start,
+                         has_decimal_among(literals) ? type_id_t::FLOAT32 : type_id_t::INT32);
+            check(node.end, type);
+        } else if (is_flexible(node.start) && !is_flexible(node.end)) {
             type = check(node.start, check(node.end, type_id_t::NONE));
         } else {
             type = check(node.start, type_id_t::NONE);
@@ -13486,7 +13570,7 @@ private:
         if (is_any_array(sequence) || is_channel(sequence)) {
             element = element_of(sequence);
         } else if (is_nullable(sequence) &&
-                   (is_any_array(non_null(sequence)) ||
+                   (is_any_array(non_null(sequence)) || is_channel(non_null(sequence)) ||
                     iteration_of(non_null(sequence), span_of(node.sequence)))) {
             report_maybe_null(node.sequence);
         } else if (sequence != type_id_t::INVALID && !unknown_bounds(sequence)) {
@@ -13499,8 +13583,8 @@ private:
                                                            !iterate.modifiers.is_static;
                                                 });
                 label_hint(error(span_of(node.sequence),
-                                 "'For ... In' goes over arrays, Iterators, and values whose "
-                                 "Iterate() gives an Iterator, not {}{}",
+                                 "'For ... In' goes over arrays, Channels, Iterators, and values "
+                                 "whose Iterate() gives an Iterator, not {}{}",
                                  shown_name(sequence), hint.text),
                            hint);
             } else {
@@ -13771,8 +13855,15 @@ private:
             type = quietly_keeping_ambiguous([&] { return type_named(member.object); });
         }
 
-        if (!type || (!is_parameter(*type) &&
-                      !members_of(*type, member.member.text, member.member.span).empty())) {
+        if (!type) {
+            return std::nullopt;
+        }
+
+        if (!is_parameter(*type) &&
+            std::ranges::any_of(members_of(*type, member.member.text, member.member.span),
+                                [&](const symbol_id_t found) {
+                                    return symbol(found).modifiers.is_static;
+                                })) {
             return std::nullopt;
         }
 
@@ -14324,7 +14415,14 @@ private:
                 check_any(*node.value, type_id_t::NONE);
             }
 
-            check_required(span, "before this Return");
+            // In a Try with a Finally, that runs first, and what it assigns is assigned.
+            if (!m_finally_returns.empty()) {
+                if (m_flow.reachable) {
+                    m_finally_returns.back().emplace_back(span, m_flow.assigned);
+                }
+            } else {
+                check_required(span, "before this Return");
+            }
         } else {
             const std::string_view name = function.name;
             const type_id_t type = function.type;
@@ -14507,6 +14605,12 @@ private:
             if (!check_assignable(*found, span_of(id), "changed") ||
                 !check_settable(*found, span_of(id))) {
                 return std::nullopt;
+            }
+
+            // A Property's Set is code of Self's, which may read any field.
+            if (symbol(*found).kind == symbol_kind_t::PROPERTY &&
+                !symbol(*found).modifiers.is_static) {
+                check_self_ready(span_of(id));
             }
 
             // A field used by name is part of Self, not a whole variable.
@@ -14801,8 +14905,10 @@ private:
     }
 
     /// Whether the function being checked is a New of `type`.
+    /// Whether the code is New's own, of `type`: a lambda or a Parallel For's body in it runs
+    /// later, or on other threads, so it isn't.
     [[nodiscard]] bool in_new_of(const type_id_t type) const {
-        if (!m_function) {
+        if (!m_function || !m_lambdas.empty()) {
             return false;
         }
 
@@ -16007,6 +16113,14 @@ private:
 
         if (used == *self && symbol(*self).kind == symbol_kind_t::LOCAL) {
             error(span, "a lambda in a Struct's New can't use Self, which isn't made yet");
+            return std::nullopt;
+        }
+
+        // The outermost lambda takes Self from New, which may not have it ready yet, and a Weak
+        // Self reads the same object. It's reported once.
+        if (std::optional<std::string>& unready = m_lambdas.front().unready) {
+            error(span, "{}, which this lambda would read when it runs", *unready);
+            unready.reset();
             return std::nullopt;
         }
 
@@ -20649,10 +20763,10 @@ private:
         // An instance of a generic type has its type arguments in its members' types.
         const type_id_t member_of = member_type(info(node.object).type, symbol(member));
 
-        // A Property's Get may read any field, so Self has to be ready for it.
+        // A Property's Get or Set may read any field, so Self has to be ready for it.
         if (symbol(member).kind == symbol_kind_t::PROPERTY) {
             info(id).symbol = member;
-            if (on_self && !target) {
+            if (on_self) {
                 check_self_ready(span_of(id));
             }
 
@@ -20891,12 +21005,14 @@ private:
     lambda_context_t check_lambda_body(const lambda_expr_t& node, const symbol_id_t function,
                                        const std::vector<weak_capture_t>& weak,
                                        const std::optional<type_id_t> result) {
+        const std::optional<std::string> unready = unready_self();
         const flow_t outer = m_flow;
         std::vector<loop_t> loops = std::exchange(m_loops, {});
         std::vector<std::size_t> finally_loops = std::exchange(m_finally_loops, {});
         std::vector<symbol_id_t> required = std::exchange(m_required, {});
         std::optional<branches_t> branches = std::exchange(m_branches, std::nullopt);
         const std::optional<expr_id_t> partial = std::exchange(m_partial, std::nullopt);
+        const bool before_super = std::exchange(m_before_super, false);
         m_flow.narrowed.clear();
         m_flow.reachable = true;
         m_handlers.push_back({ .kind = handler_kind_t::SEALED, .what = "a lambda" });
@@ -20908,7 +21024,8 @@ private:
         // Its code runs when it's called, not in the Lock blocks around it.
         const std::size_t locks = std::exchange(m_locks, 0);
 
-        m_lambdas.push_back({ .function = function, .boundary = m_scopes.size() });
+        m_lambdas.push_back(
+            { .function = function, .boundary = m_scopes.size(), .unready = unready });
         push_scope();
 
         // A Weak capture is a read-only Weak<T> in the lambda, named like what it's made from.
@@ -20954,6 +21071,7 @@ private:
         m_required = std::move(required);
         m_branches = std::move(branches);
         m_partial = partial;
+        m_before_super = before_super;
         return lambda;
     }
 
