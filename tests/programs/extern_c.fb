@@ -22,7 +22,7 @@ Enum Offset: Int32
     Ahead = 3
 End Enum
 
-Extern "stdcall"
+Extern "C"
     Function Magnitude(n: Int32): Int32 = "abs"
     Function Distance(n: Offset): Int32 = "abs"
 End Extern

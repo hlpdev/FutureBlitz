@@ -813,13 +813,8 @@ private:
     [[nodiscard]] node_t build(const extern_stmt_t& node) const {
         node_t out = list("extern");
         add_modifiers(out, node.modifiers);
-        std::string_view convention = "C";
-        if (node.convention == convention_t::STDCALL) {
-            convention = "stdcall";
-        } else if (node.convention == convention_t::RUNTIME) {
-            convention = "runtime";
-        }
-
+        const std::string_view convention =
+            node.convention == convention_t::RUNTIME ? "runtime" : "C";
         out.items.push_back(atom(quote(convention), tone_t::LITERAL));
         if (node.library) {
             out.items.push_back(atom("Lib", tone_t::KEYWORD));

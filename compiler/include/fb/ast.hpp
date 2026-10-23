@@ -501,8 +501,6 @@ enum class function_kind_t : std::uint8_t {
 enum class convention_t : std::uint8_t {
     /// The C calling convention, the default.
     C,
-    /// "stdcall", which is the C convention on x86-64.
-    STDCALL,
     /// The runtime's own functions, which only std/ calls, with values passed as compiled code
     /// holds them.
     RUNTIME,

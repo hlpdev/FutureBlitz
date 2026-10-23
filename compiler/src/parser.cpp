@@ -1805,14 +1805,14 @@ private:
             const token_t& written = advance();
             node.convention_span = written.span;
             const std::string convention = string_text(written);
-            if (convention == "stdcall") {
-                node.convention = convention_t::STDCALL;
-            } else if (convention == "runtime") {
+            if (convention == "runtime") {
                 node.convention = convention_t::RUNTIME;
+            } else if (convention == "stdcall") {
+                error(written.span, "FutureBlitz's targets are 64-bit, where stdcall is the C "
+                                    R"(convention, so the block is "C")");
             } else if (convention != "C") {
                 error(written.span,
-                      "an Extern block's calling convention is \"C\", \"stdcall\", or "
-                      "\"runtime\", not {}",
+                      R"(an Extern block's calling convention is "C" or "runtime", not {})",
                       text(written));
             }
         } else if (at(token_kind_t::STRING_START)) {

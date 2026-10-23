@@ -1180,13 +1180,16 @@ TEST_CASE("an Extern block declares Functions that C code defines", "[parser]") 
           "(b: Int32)))");
     CHECK(parse_text("Extern \"runtime\"\n    Function fb_print(text: String)\nEnd Extern").dump ==
           "(extern \"runtime\" (function fb_print (text: String)))");
-    CHECK(parse_text("Extern \"stdcall\"\nEnd Extern").dump == "(extern \"stdcall\")");
 }
 
 TEST_CASE("Extern block mistakes are reported", "[parser]") {
     CHECK(parse_text("Extern \"pascal\"\nEnd Extern").errors ==
-          std::vector<std::string>{ "7-15: an Extern block's calling convention is \"C\", "
-                                    "\"stdcall\", or \"runtime\", not \"pascal\"" });
+          std::vector<std::string>{ "7-15: an Extern block's calling convention is \"C\" or "
+                                    "\"runtime\", not \"pascal\"" });
+    // 64-bit targets have one C convention, which stdcall is there.
+    CHECK(parse_text("Extern \"stdcall\"\nEnd Extern").errors ==
+          std::vector<std::string>{ "7-16: FutureBlitz's targets are 64-bit, where stdcall is the "
+                                    "C convention, so the block is \"C\"" });
     CHECK(parse_text("Extern\n    Method M()\n    End Method\nEnd Extern").errors ==
           std::vector<std::string>{ "11-36: an Extern block holds only Functions" });
     CHECK(parse_text("Extern\n"

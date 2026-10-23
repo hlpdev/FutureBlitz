@@ -18,14 +18,15 @@ End Extern
   no library defines is an error at the first Extern Function that declares it, saying where it
   should have been; the linker's other errors are shown as it says them.
 - `= "symbol"` maps to the real C symbol name (optional when names match).
-- Calling conventions: `"C"` (default) and `"stdcall"`, which is the C convention on x86-64.
-  `"runtime"` is the runtime's own functions, which only the standard library calls, with values
-  passed as compiled code holds them: a String or an array as the runtime's, borrowed for the
-  call, and a String it gives owned by the caller. One that gives a `Task<T>` is passed a new
-  Task first, which the runtime finishes once the result is in it, so `InputAsync` is one call
-  of `fb_io_input_async`. Print is std.core's Function over the runtime's `fb_write`, which takes
-  the values' texts as a `String[]`. A program that calls the runtime's functions over a bundled
-  C library, like the `fb_io_` ones over libuv, links that library, and only then.
+- Calling conventions: `"C"`, the default, and `"runtime"`. FutureBlitz's targets are all
+  64-bit, where C has one convention, so there's no `"stdcall"`. `"runtime"` is the runtime's own
+  functions, which only the standard library calls, with values passed as compiled code holds
+  them: a String or an array as the runtime's, borrowed for the call, and a String it gives
+  owned by the caller. One that gives a `Task<T>` is passed a new Task first, which the runtime
+  finishes once the result is in it, so `InputAsync` is one call of `fb_io_input_async`. Print is
+  std.core's Function over the runtime's `fb_write`, which takes the values' texts as a
+  `String[]`. A program that calls the runtime's functions over a bundled C library, like the
+  `fb_io_` ones over libuv, links that library, and only then.
 - An Extern block goes at a file's top level and holds only Functions, each its first line
   alone. It takes only a visibility, like `Public Extern`, which its Functions take unless they
   have their own, as Private ones do.
