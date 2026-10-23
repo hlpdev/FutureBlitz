@@ -1,0 +1,238 @@
+// std.text.fuzzy: fuzzy matching, as fzf does it. A pattern matches text that has its characters
+// in order, with anything between them, and the best way to place them scores most: characters
+// that follow each other, and ones at the start of a word, after a space, a /, or a _, or a
+// capital in camelCase, score more, and gaps between them less. A pattern without capitals
+// ignores case. Positions are byte positions, as a String's are.
+
+Import std.core
+Import std.collections.array
+Import std.text.char
+Import std.text.string
+
+// fzf's scores: a matched character's, a gap's first character and each one after, and the
+// bonuses for where a character is.
+Const SCORE_MATCH = 16
+Const GAP_START = -3
+Const GAP_EXTENSION = -1
+Const BONUS_BOUNDARY = 8
+Const BONUS_BOUNDARY_WHITE = 10
+Const BONUS_BOUNDARY_DELIMITER = 9
+Const BONUS_NON_WORD = 8
+Const BONUS_CAMEL = 7
+Const BONUS_CONSECUTIVE = 4
+Const FIRST_MULTIPLIER = 2
+
+// What kind of character, in fzf's order: a word's characters are after NON_WORD.
+Enum CharClass
+    WHITE, NON_WORD, DELIMITER, LOWER, UPPER, LETTER, NUMBER
+End Enum
+
+// What a fuzzy match found: its Score, higher for a better match, and the byte Positions of the
+// text's characters that the pattern's matched, in order.
+Public Struct FuzzyMatch
+    Public ReadOnly Field Score: Int
+    Public ReadOnly Field Positions: Int[]
+End Struct
+
+// Fuzzy matching's operations.
+Public Class Fuzzy
+    // The best match of pattern in text, or Null when text doesn't have pattern's characters in
+    // order. An empty pattern matches anything, scoring 0.
+    Public Static Method Match(pattern: String, text: String): FuzzyMatch?
+        Local wanted = pattern.Chars
+        Local chars = text.Chars
+        If wanted.Count == 0 Then Return FuzzyMatch(0, [])
+        Local exact = False
+        For c In wanted
+            If c.IsUpper() Then exact = True
+        End For
+
+        Local folded: Char[] = []
+        For c In chars
+            folded.Add(exact ? c : c.ToLower())
+        End For
+
+        If !exact
+            For i = 0 Until wanted.Count
+                wanted[i] = wanted[i].ToLower()
+            End For
+        End If
+
+        // Where each of the pattern's characters can first match, after the ones before it.
+        Local firsts: Int[] = []
+        Local at = 0
+        For c In wanted
+            While at < folded.Count && folded[at] != c
+                at += 1
+            End While
+
+            If at == folded.Count Then Return Null
+            firsts.Add(at)
+            at += 1
+        End For
+
+        Return Best(wanted, folded, chars, firsts)
+    End Method
+
+    // pattern's score in text, or Null when it doesn't match.
+    Public Static Method Score(pattern: String, text: String): Int?
+        Local found = Match(pattern, text)
+        If found == Null Then Return Null
+        Return found.Score
+    End Method
+
+    // The candidates that match pattern, the best first: by score, then the shorter, then in
+    // the order given.
+    Public Static Method Rank(pattern: String, candidates: String[]): String[]
+        Local scored: (Int, String)[] = []
+        For candidate In candidates
+            Local score = Score(pattern, candidate)
+            If score != Null Then scored.Add((score, candidate))
+        End For
+
+        scored.Sort(Function(a, b) => a.0 > b.0 || (a.0 == b.0 && a.1.Length < b.1.Length))
+        Local ranked: String[] = []
+        For each In scored
+            ranked.Add(each.1)
+        End For
+
+        Return ranked
+    End Method
+End Class
+
+// The best score of the pattern's characters, wanted, in order in folded, the text's characters
+// as compared, and where they are: fzf's table of each prefix of the pattern ending at each
+// character, from where it can first match, then the way back from the best score.
+Function Best(wanted: Char[], folded: Char[], chars: Char[], firsts: Int[]): FuzzyMatch
+    Local count = folded.Count
+    Local last = wanted.Count - 1
+    Local bonuses: Int[] = []
+    Local previous = CharClass.WHITE
+    For c In chars
+        Local kind = ClassOf(c)
+        bonuses.Add(BonusFor(previous, kind))
+        previous = kind
+    End For
+
+    Local scores: Int[][] = []
+    Local runs: Int[][] = []
+    Local best = 0
+    Local bestAt = firsts[last]
+    For p = 0 To last
+        Local row: Int[] = []
+        Local run: Int[] = []
+        row.Resize(count, 0)
+        run.Resize(count, 0)
+        Local inGap = False
+        For t = firsts[p] Until count
+            Local left = 0
+            If t > firsts[p] Then left = row[t - 1]
+            Local gap = left + (inGap ? GAP_EXTENSION : GAP_START)
+            Local matched = 0
+            Local consecutive = 0
+            If p == 0 && folded[t] == wanted[p]
+                // The first character's match always starts again.
+                matched = SCORE_MATCH + bonuses[t] * FIRST_MULTIPLIER
+                consecutive = 1
+                gap = 0
+            ElseIf folded[t] == wanted[p]
+                Local bonus = bonuses[t]
+                consecutive = runs[p - 1][t - 1] + 1
+                If consecutive > 1
+                    Local first = bonuses[t - consecutive + 1]
+                    If bonus >= BONUS_BOUNDARY && bonus > first
+                        consecutive = 1
+                    Else
+                        bonus = Max(bonus, Max(BONUS_CONSECUTIVE, first))
+                    End If
+                End If
+
+                matched = scores[p - 1][t - 1] + SCORE_MATCH
+                If matched + bonus < gap
+                    matched += bonuses[t]
+                    consecutive = 0
+                Else
+                    matched += bonus
+                End If
+            End If
+
+            run[t] = consecutive
+            inGap = matched < gap
+            row[t] = Max(Max(matched, gap), 0)
+            If p == last && row[t] > best
+                best = row[t]
+                bestAt = t
+            End If
+        End For
+
+        scores.Add(row)
+        runs.Add(run)
+    End For
+
+    // Back from the best score: a character matched where its score came from the row above,
+    // and where a run of matches goes on, a match is taken over a gap that scores the same.
+    Local found: Int[] = []
+    Local p = last
+    Local t = bestAt
+    Local preferMatch = True
+    While t >= 0
+        Local here = scores[p][t]
+        Local diagonal = 0
+        Local left = 0
+        If p > 0 && t > 0 Then diagonal = scores[p - 1][t - 1]
+        If t > firsts[p] Then left = scores[p][t - 1]
+        Local took = folded[t] == wanted[p] && here > diagonal &&
+                     (here > left || (here == left && preferMatch))
+        preferMatch = runs[p][t] > 1 || (p < last && t + 1 < count && runs[p + 1][t + 1] > 0)
+        If took
+            found.Add(t)
+            If p == 0 Then Break
+            p -= 1
+        End If
+
+        t -= 1
+    End While
+
+    // From characters to bytes, in order.
+    Local positions: Int[] = []
+    Local bytes = 0
+    Local next = found.Count - 1
+    For index = 0 Until count
+        If next >= 0 && found[next] == index
+            positions.Add(bytes)
+            next -= 1
+        End If
+
+        bytes += chars[index].Utf8Length
+    End For
+
+    Return FuzzyMatch(best, positions)
+End Function
+
+Function ClassOf(c: Char): CharClass
+    If c.IsWhitespace() Then Return CharClass.WHITE
+    If c == '/' || c == ',' || c == ':' || c == ';' || c == '|' Then Return CharClass.DELIMITER
+    If c.IsLower() Then Return CharClass.LOWER
+    If c.IsUpper() Then Return CharClass.UPPER
+    If c.IsLetter() Then Return CharClass.LETTER
+    If c.IsNumber() Then Return CharClass.NUMBER
+    Return CharClass.NON_WORD
+End Function
+
+// The bonus for a character of kind after one of previous.
+Function BonusFor(previous: CharClass, kind: CharClass): Int
+    If (kind As Int) > (CharClass.NON_WORD As Int)
+        If previous == CharClass.WHITE Then Return BONUS_BOUNDARY_WHITE
+        If previous == CharClass.DELIMITER Then Return BONUS_BOUNDARY_DELIMITER
+        If previous == CharClass.NON_WORD Then Return BONUS_BOUNDARY
+    End If
+
+    If (previous == CharClass.LOWER && kind == CharClass.UPPER) ||
+       (previous != CharClass.NUMBER && kind == CharClass.NUMBER)
+        Return BONUS_CAMEL
+    End If
+
+    If kind == CharClass.NON_WORD || kind == CharClass.DELIMITER Then Return BONUS_NON_WORD
+    If kind == CharClass.WHITE Then Return BONUS_BOUNDARY_WHITE
+    Return 0
+End Function
