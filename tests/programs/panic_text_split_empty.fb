@@ -1,0 +1,6 @@
+// Splitting by an empty String panics: it's found between every two characters.
+Import std.core
+Import std.text
+
+Local word = "é,😀"
+Print(word.Split(","), word.Split(""))

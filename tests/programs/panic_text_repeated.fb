@@ -1,0 +1,6 @@
+// Repeated takes a count that isn't negative.
+Import std.core
+Import std.text
+
+Local word = "é😀"
+Print(word.Repeated(0), word.Repeated(-1))

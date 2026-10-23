@@ -1,0 +1,6 @@
+// A Slice that ends before it starts panics.
+Import std.core
+Import std.text
+
+Local word = "😀😀"
+Print(word.Slice(4, 8), word.Slice(4, 0))
