@@ -98,3 +98,68 @@ gameplay.Run(Dropper())
 gameplay.Tick(0.1)
 gameplay.Tick(0.1)
 Print("idle {gameplay.IsIdle()}")
+
+// What a ByRef parameter or a Struct's ByRef Self holds is where the caller keeps it, so passing
+// it on, or assigning it, holds a reference of its own too.
+Class Named
+    Field name: String
+
+    New(name: String)
+        Self.name = name
+    End New
+
+    Method Destroy()
+        Print("{name} goes")
+        If name == "swapper" Then shown = Named("replacement")
+    End Method
+End Class
+
+Global shown = Named("shown")
+Global words: String[] = []
+
+Function Show(n: Named, t: String)
+    shown = Named("other")
+    title = "other" + " title"
+    For i = 1 To 50
+        words.Add("junk {i}")
+    End For
+    Print("showing {n.name}, {t}")
+End Function
+
+Function PassOn(ByRef n: Named, ByRef t: String)
+    Show(n, t)
+End Function
+
+PassOn(ByRef shown, ByRef title)
+
+Struct Label
+    Field text: String
+
+    ByRef Method Pass()
+        Shout(text)
+    End Method
+End Struct
+
+Global label = Label("first" + " label")
+
+Function Shout(t: String)
+    label = Label("second" + " label")
+    For i = 1 To 50
+        words.Add("junk {i}")
+    End For
+    Print("{t}!")
+End Function
+
+label.Pass()
+
+// Letting go of spare's old value replaces shown, which n is.
+Global spare = Named("swapper")
+
+Function Take(ByRef n: Named)
+    spare = n
+    Print("took {spare.name}")
+End Function
+
+shown = Named("taken")
+Take(ByRef shown)
+Print("now {shown.name} and {spare.name}")

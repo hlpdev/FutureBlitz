@@ -2641,11 +2641,13 @@ private:
         return place_t{ local };
     }
 
-    /// Whether a place is reached through a reference: it's a Global's, or a step goes into an
-    /// object, an array, what a Ptr points at, or a captured variable's cell. Code that a call
-    /// runs could change such a place, which a variable of the caller's own can't be.
+    /// Whether a place is reached through a reference: it's a Global's, or a ByRef parameter's or
+    /// Self's, which is where the caller keeps it, or a step goes into an object, an array, what
+    /// a Ptr points at, or a captured variable's cell. Code that a call runs could change such a
+    /// place, which a variable of the caller's own can't be.
     [[nodiscard]] bool through_reference(const place_t& place) {
-        if (!std::holds_alternative<local_id_t>(place.root)) {
+        const auto* local = std::get_if<local_id_t>(&place.root);
+        if (local == nullptr || current().locals[index(*local)].by_ref) {
             return true;
         }
 
@@ -2810,9 +2812,9 @@ private:
     }
 
     /// A new value for a variable that already has one; its old references are released. A value
-    /// read from a part of something, or a Global, is copied out first, since releasing the old
-    /// value can let go of what it was read through, as in `Root = Root.Children[0]`, or run a
-    /// Destroy() that changes it.
+    /// read from a part of something, a Global, or a ByRef parameter, is copied out first, since
+    /// releasing the old value can let go of what it was read through, as in
+    /// `Root = Root.Children[0]`, or run a Destroy() that changes it.
     void store(const place_t& target, const operand_t& value) {
         if (!has_references(type_of(value))) {
             emit(assign_t{ .target = target, .value = use_t{ .value = value } });
@@ -2821,8 +2823,7 @@ private:
 
         operand_t kept = value;
         if (const auto* place = std::get_if<place_t>(&value);
-            place != nullptr &&
-            (!place->steps.empty() || !std::holds_alternative<local_id_t>(place->root))) {
+            place != nullptr && (!place->steps.empty() || through_reference(*place))) {
             kept = temporary(use_t{ .value = value }, type_of(value));
         }
 
