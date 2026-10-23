@@ -237,6 +237,10 @@ private:
     function_ref_t m_from_float32;
     function_ref_t m_from_float64;
     function_ref_t m_from_bool;
+    function_ref_t m_format_int;
+    function_ref_t m_format_uint;
+    function_ref_t m_format_float;
+    function_ref_t m_format_text;
     function_ref_t m_power_int;
     function_ref_t m_power_uint;
     function_ref_t m_cstring_new;
@@ -737,6 +741,10 @@ private:
         m_from_float32 = declare("fb_string_from_float32", m_ptr, { f32 });
         m_from_float64 = declare("fb_string_from_float64", m_ptr, { f64 });
         m_from_bool = declare("fb_string_from_bool", m_ptr, { m_i32 });
+        m_format_int = declare("fb_format_int", m_ptr, { m_i64, m_ptr });
+        m_format_uint = declare("fb_format_uint", m_ptr, { m_i64, m_ptr });
+        m_format_float = declare("fb_format_float", m_ptr, { f64, m_i32, m_ptr });
+        m_format_text = declare("fb_format_text", m_ptr, { m_ptr, m_ptr, m_i32 });
         m_power_int = declare("fb_power_int", m_i64, { m_i64, m_i64, m_i32, m_i32, m_ptr });
         m_power_uint = declare("fb_power_uint", m_i64, { m_i64, m_i64, m_i32, m_i32, m_ptr });
         m_cstring_new = declare("fb_cstring_new", m_ptr, { m_ptr });
@@ -3529,6 +3537,25 @@ private:
         }
         case runtime_function_t::TO_TEXT:
             return to_text(node.arguments[0]);
+        case runtime_function_t::FORMAT_INT:
+            return call(m_format_int, { value_of(node.arguments[0]), value_of(node.arguments[1]) });
+        case runtime_function_t::FORMAT_UINT:
+            return call(m_format_uint,
+                        { value_of(node.arguments[0]), value_of(node.arguments[1]) });
+        case runtime_function_t::FORMAT_FLOAT:
+            return call(m_format_float,
+                        {
+                            value_of(node.arguments[0]),
+                            LLVMBuildZExt(builder(), value_of(node.arguments[1]), m_i32, ""),
+                            value_of(node.arguments[2]),
+                        });
+        case runtime_function_t::FORMAT_TEXT:
+            return call(m_format_text,
+                        {
+                            value_of(node.arguments[0]),
+                            value_of(node.arguments[2]),
+                            LLVMBuildZExt(builder(), value_of(node.arguments[1]), m_i32, ""),
+                        });
         case runtime_function_t::CSTRING_NEW:
             return call(m_cstring_new, { value_of(node.arguments[0]) });
         case runtime_function_t::CSTRING_FREE:

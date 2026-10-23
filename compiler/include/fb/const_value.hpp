@@ -1,6 +1,7 @@
 #pragma once
 
 #include "fb/ast.hpp"
+#include "fb/text_format.hpp"
 #include "fb/types.hpp"
 
 #include <compare>
@@ -54,6 +55,12 @@ using fold_result_t = std::expected<const_value_t, std::string>;
 /// The value as string interpolation shows it, like "True" or "1.5". A String is its own text,
 /// unquoted, and Null is "Null".
 [[nodiscard]] std::string to_text(const const_value_t& value);
+
+/// The value's text by a format spec that fits it, as "{x:spec}" shows it, the debug form '?'
+/// included: a String's is in quotes. nullopt for Null, whose text only the running program
+/// gives.
+[[nodiscard]] std::optional<std::string> formatted(const const_value_t& value,
+                                                   const format_spec_t& spec);
 
 /// Orders two integers of the same signedness.
 [[nodiscard]] std::strong_ordering compare(const const_value_t& left, const const_value_t& right);

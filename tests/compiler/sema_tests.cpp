@@ -273,6 +273,34 @@ TEST_CASE("strings", "[sema]") {
           errors_t{ "\"a\" - \"b\": '-' can't be used on String" });
 }
 
+TEST_CASE("an interpolation's format spec fits its value, or is an error at the spec", "[sema]") {
+    // Known values are formatted at compile time, as the program would.
+    CHECK(probe("Local x = \"{3.14159:.2} {1234:,} {255:#x} {\"ab\":*^6} {True:>5}|\"") ==
+          "String 3.14 1,234 0xff **ab**  True|");
+    CHECK(errors_of("Local n = 5\nLocal x = \"{n:.2}\"") ==
+          errors_t{ ".2: Int32 doesn't take a precision in its format spec" });
+    CHECK(errors_of("Local f = 1.5\nLocal x = \"{f:x}\"") ==
+          errors_t{ "x: Float32 doesn't take 'x' in its format spec" });
+    CHECK(errors_of("Local s = \"a\"\nLocal x = \"{s:+}\"") ==
+          errors_t{ "+: String doesn't take a sign in its format spec" });
+    CHECK(errors_of("Local b = True\nLocal x = \"{b:05}\"") ==
+          errors_t{ "05: Bool doesn't take '0' in its format spec" });
+    CHECK(errors_of("Local n = 5\nLocal x = \"{n:#}\"") ==
+          errors_t{ "#: '#' gives a base's prefix, so it needs x, X, o, or b" });
+
+    // An error in the spec's text points at where in it.
+    CHECK(errors_of("Local n = 5\nLocal x = \"{n:>5q}\"") ==
+          errors_t{ "q: 'q' isn't part of a format spec" });
+    CHECK(errors_of("Local n = 5\nLocal x = \"{n:1000}\"") ==
+          errors_t{ "1000: a format spec's width is at most 999" });
+
+    // A value that may be Null has no text without '??'.
+    CHECK(errors_of("Function Shown(n: Int?): String => \"{n:>4}\"") ==
+          errors_t{ "n: Int32? can't be shown in a string, since it may be Null; give a value for "
+                    "Null with '?"
+                    "?'" });
+}
+
 TEST_CASE("operators check their operand types", "[sema]") {
     CHECK(errors_of("Local x = !1") == errors_t{ "!1: '!' can't be used on Int32" });
     CHECK(errors_of("Local u: UInt32 = 1\nLocal x = -u") ==

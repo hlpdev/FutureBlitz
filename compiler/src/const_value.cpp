@@ -640,6 +640,37 @@ std::string to_text(const const_value_t& value) {
     return std::get<std::string>(value.data);
 }
 
+std::optional<std::string> formatted(const const_value_t& value, const format_spec_t& spec) {
+    // The debug form of a number, a Bool, or a String is its text, a String's in quotes, padded.
+    format_spec_t padding = spec;
+    if (spec.kind == '?') {
+        padding.kind = 0;
+        padding.alternate = false;
+    }
+
+    if (const auto* flag = std::get_if<bool>(&value.data)) {
+        return format_text(*flag ? "True" : "False", padding);
+    }
+
+    if (const auto* number = std::get_if<std::int64_t>(&value.data)) {
+        return format_signed(*number, padding);
+    }
+
+    if (const auto* number = std::get_if<std::uint64_t>(&value.data)) {
+        return format_integer(*number, false, padding);
+    }
+
+    if (const auto* number = std::get_if<double>(&value.data)) {
+        return format_float(*number, value.type == type_id_t::FLOAT32, padding);
+    }
+
+    if (const auto* text = std::get_if<std::string>(&value.data)) {
+        return format_text(spec.kind == '?' ? debug_text(*text) : *text, padding);
+    }
+
+    return std::nullopt;
+}
+
 std::strong_ordering compare(const const_value_t& left, const const_value_t& right) {
     if (const auto* number = std::get_if<std::int64_t>(&left.data)) {
         return *number <=> std::get<std::int64_t>(right.data);

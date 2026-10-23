@@ -1,0 +1,2 @@
+1250 cents
+panic: Money doesn't take the format spec 'euros' at panic_format_own.fb:16:16

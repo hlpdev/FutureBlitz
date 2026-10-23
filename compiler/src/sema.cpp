@@ -207,10 +207,10 @@ bool supports(const binary_op_t op, const type_id_t type) {
 
 /// Whether a type that isn't a Struct or Class implements a built-in Interface, as far as that's
 /// settled without its parts: a T[] copies with its own Clone, and numbers, Strings, Bools, and
-/// Enums start from their zero. Numbers implement the rest, Strings all but Numeric, Bools and
-/// Enums the ones without an order, and Ptrs and Callbacks Equatable. A tuple or array implements
-/// what its parts do, without an order, and a T? Equatable and Hashable as its T does, which is
-/// nullopt here.
+/// Enums start from their zero and take format specs, which the compiler knows. Numbers implement
+/// the rest, Strings all but Numeric, Bools and Enums the ones without an order, and Ptrs and
+/// Callbacks Equatable. A tuple or array implements what its parts do, without an order, and a T?
+/// Equatable and Hashable as its T does, which is nullopt here.
 std::optional<bool> implements_alone(const type_table_t& types, const builtin_interfaces_t& builtin,
                                      const type_id_t type, const type_id_t interface) {
     const type_kind_t kind = types.get(type).kind;
@@ -218,7 +218,7 @@ std::optional<bool> implements_alone(const type_table_t& types, const builtin_in
         return kind == type_kind_t::ARRAY;
     }
 
-    if (interface == builtin.defaultable) {
+    if (interface == builtin.defaultable || interface == builtin.formattable) {
         return is_numeric(type) || type == type_id_t::STRING || type == type_id_t::BOOL ||
                kind == type_kind_t::ENUM;
     }
@@ -1276,6 +1276,7 @@ private:
             .comparable = find("Comparable"),
             .hashable = find("Hashable"),
             .printable = find("Printable"),
+            .formattable = find("Formattable"),
             .numeric = find("Numeric"),
             .cloneable = find("Cloneable"),
             .defaultable = find("Defaultable"),
@@ -3212,8 +3213,8 @@ private:
         return interface != type_id_t::INVALID &&
                (interface == builtin.equatable || interface == builtin.comparable ||
                 interface == builtin.hashable || interface == builtin.printable ||
-                interface == builtin.numeric || interface == builtin.cloneable ||
-                interface == builtin.defaultable);
+                interface == builtin.formattable || interface == builtin.numeric ||
+                interface == builtin.cloneable || interface == builtin.defaultable);
     }
 
     /// An Interface's members, declared with Self as a type parameter that implements it, and the
@@ -9376,7 +9377,8 @@ private:
     }
 
     /// The built-in Interfaces' Methods named `name` that a type has without its own: ToString
-    /// on what implements Printable, and Hash on what implements Hashable.
+    /// on what implements Printable, Format on what implements Formattable, and Hash on what
+    /// implements Hashable.
     std::vector<symbol_id_t> builtin_methods(const type_id_t type, const std::string_view name) {
         if (type == type_id_t::CSTRING && name == "ToString") {
             if (!m_analysis.cstring_text) {
@@ -9394,7 +9396,8 @@ private:
 
         std::vector<symbol_id_t> found;
         const builtin_interfaces_t& builtin = m_analysis.interfaces;
-        for (const type_id_t interface : { builtin.hashable, builtin.printable }) {
+        for (const type_id_t interface :
+             { builtin.hashable, builtin.printable, builtin.formattable }) {
             if (interface == type_id_t::INVALID || !implements(type, interface)) {
                 continue;
             }
@@ -13065,8 +13068,8 @@ private:
             }
         } else if (const auto* string = std::get_if<string_expr_t>(&node)) {
             for (const string_part_t& part : string->parts) {
-                if (const auto* inner = std::get_if<expr_id_t>(&part)) {
-                    changed_in(*inner, names);
+                if (const auto* inner = std::get_if<interpolation_t>(&part)) {
+                    changed_in(inner->value, names);
                 }
             }
         } else if (const auto* unary = std::get_if<unary_expr_t>(&node)) {
@@ -16819,9 +16822,13 @@ private:
                 continue;
             }
 
-            const expr_id_t inner = std::get<expr_id_t>(part);
-            if (const type_id_t type = check(inner, type_id_t::NONE);
-                type != type_id_t::INVALID && !showable(type)) {
+            const auto& interpolation = std::get<interpolation_t>(part);
+            const expr_id_t inner = interpolation.value;
+            const type_id_t type = check(inner, type_id_t::NONE);
+            std::optional<format_spec_t> spec;
+            if (interpolation.format) {
+                spec = check_format(*interpolation.format, inner, type);
+            } else if (type != type_id_t::INVALID && !showable(type)) {
                 report_unshowable(inner, type);
             } else {
                 note_shown(type, span_of(inner));
@@ -16829,8 +16836,15 @@ private:
 
             // An Enum's text is its member's name, which lowering looks up.
             const std::optional<const_value_t>& inner_value = info(inner).value;
-            if (inner_value && !is_enum(inner_value->type)) {
-                value += to_text(*inner_value);
+            std::optional<std::string> text;
+            if (inner_value && !is_enum(inner_value->type) && !interpolation.format) {
+                text = to_text(*inner_value);
+            } else if (inner_value && !is_enum(inner_value->type) && spec) {
+                text = formatted(*inner_value, *spec);
+            }
+
+            if (text) {
+                value += *text;
             } else {
                 known = false;
             }
@@ -16841,6 +16855,81 @@ private:
         }
 
         return type_id_t::STRING;
+    }
+
+    /// What a format spec formats in a value of `type`, which says the parts that fit, or nullopt
+    /// for a value whose own Format takes its spec: a Struct's, Class's, Interface's, or type
+    /// parameter's that's Formattable. The debug form, '?', is every value's.
+    [[nodiscard]] std::optional<format_subject_t> format_subject(const type_id_t type) const {
+        if (is_integer(type)) {
+            return format_subject_t::INTEGER;
+        }
+
+        if (is_float(type)) {
+            return format_subject_t::FLOAT;
+        }
+
+        if (type == type_id_t::STRING) {
+            return format_subject_t::STRING;
+        }
+
+        const type_id_t formattable = m_analysis.interfaces.formattable;
+        if ((has_members(type) || is_interface(type) || is_parameter(type)) &&
+            formattable != type_id_t::INVALID && implements(type, formattable)) {
+            return std::nullopt;
+        }
+
+        return showable(type) ? format_subject_t::TEXT : format_subject_t::DEBUG;
+    }
+
+    /// Checks an interpolation's format spec against the type of its value, `inner`, at the
+    /// spec, and gives it read when it fits. A Formattable type of the program's own reads its
+    /// own spec, but for the debug form, so only that one is checked here. A value with no text
+    /// but its debug form takes only that.
+    std::optional<format_spec_t> check_format(const format_t& format, const expr_id_t inner,
+                                              const type_id_t type) {
+        if (type == type_id_t::INVALID) {
+            return std::nullopt;
+        }
+
+        const std::optional<format_subject_t> subject = format_subject(type);
+        const std::expected<format_spec_t, format_spec_error_t> spec =
+            parse_format_spec(format.text);
+        if (!subject && (!spec || spec->kind != '?')) {
+            return std::nullopt;
+        }
+
+        if (subject == format_subject_t::DEBUG) {
+            report_unshowable(inner, type);
+            return std::nullopt;
+        }
+
+        if (!spec) {
+            const auto at = static_cast<std::uint32_t>(spec.error().at);
+            const auto length = static_cast<std::uint32_t>(spec.error().length);
+            error(
+                {
+                    .file = format.span.file,
+                    .begin = std::min(format.span.begin + at, format.span.end),
+                    .end = std::min(format.span.begin + at + length, format.span.end),
+                },
+                "{}", spec.error().message);
+            return std::nullopt;
+        }
+
+        // An empty spec's error is at its ':'.
+        if (const std::optional<std::string> misfit = format_spec_misfit(
+                *spec, subject.value_or(format_subject_t::DEBUG), shown_name(type))) {
+            span_t where = format.span;
+            if (where.empty()) {
+                --where.begin;
+            }
+
+            error(where, "{}", *misfit);
+            return std::nullopt;
+        }
+
+        return *spec;
     }
 
     type_id_t check_expr(const expr_id_t id, const bool_expr_t& node, type_id_t /*hint*/) {

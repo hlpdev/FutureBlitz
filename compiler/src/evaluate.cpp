@@ -568,6 +568,11 @@ private:
         }
         case runtime_function_t::TO_TEXT:
             return value_t{ make_string(to_text(arguments[0])) };
+        case runtime_function_t::FORMAT_INT:
+        case runtime_function_t::FORMAT_UINT:
+        case runtime_function_t::FORMAT_FLOAT:
+        case runtime_function_t::FORMAT_TEXT:
+            return format_value(call.function, arguments);
         case runtime_function_t::EQUAL:
             return value_t{ make_bool(text(0) == text(1)) };
         case runtime_function_t::COMPARE: {
@@ -582,6 +587,41 @@ private:
         default:
             return failure("it uses objects or arrays, which only the running program has");
         }
+    }
+
+    /// A value's text by a format spec, the last argument, or Null when the spec doesn't fit it,
+    /// as a built-in type's Format gives: FORMAT_FLOAT's Bool says it's a Float32, and
+    /// FORMAT_TEXT's whether it's a String's.
+    static result_t format_value(const runtime_function_t function,
+                                 const std::vector<const_value_t>& arguments) {
+        format_subject_t subject = format_subject_t::INTEGER;
+        if (function == runtime_function_t::FORMAT_FLOAT) {
+            subject = format_subject_t::FLOAT;
+        } else if (function == runtime_function_t::FORMAT_TEXT) {
+            subject = std::get<bool>(arguments[1].data) ? format_subject_t::STRING
+                                                        : format_subject_t::TEXT;
+        }
+
+        const std::expected<format_spec_t, format_spec_error_t> spec =
+            parse_format_spec(std::get<std::string>(arguments.back().data));
+        if (!spec || format_spec_misfit(*spec, subject, "")) {
+            return value_t{ const_value_t{ .type = type_id_t::STRING, .data = nullptr } };
+        }
+
+        const_value_t value = arguments[0];
+        if (function == runtime_function_t::FORMAT_FLOAT && std::get<bool>(arguments[1].data)) {
+            value.type = type_id_t::FLOAT32;
+        }
+
+        // Text that isn't a String's is padded as it is, its debug form too.
+        if (function == runtime_function_t::FORMAT_TEXT && !std::get<bool>(arguments[1].data)) {
+            format_spec_t padding = *spec;
+            padding.kind = 0;
+            padding.alternate = false;
+            return value_t{ make_string(format_text(std::get<std::string>(value.data), padding)) };
+        }
+
+        return value_t{ make_string(formatted(value, *spec).value_or("")) };
     }
 
     /// What a variable of `type` starts with: zero, False, "", Null, or a Struct, tuple, or
