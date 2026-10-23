@@ -1,0 +1,118 @@
+// An Async read through a Reader value waits on the main thread, while what else is waiting
+// there goes on: through std.io's buffered streams, CopyAsync, ReadAllAsync, and ReadExactAsync
+// too, and the Async twins a stream that only blocks has from its Interface.
+
+Import std.core
+Import std.ffi
+Import std.io
+
+// Gives its text a byte at a time, each a frame after it's asked for, as a socket might.
+Class Trickle Implements Reader
+    Field Bytes: UInt8[]
+    Field At: Int
+
+    Public New(text: String)
+        Bytes = text.Bytes
+    End New
+
+    Method Read(into: Buffer<UInt8>): Int64 Throws IOError
+        If into.Count == 0 || At == Bytes.Count Then Return 0
+        into[0] = Bytes[At]
+        At += 1
+        Return 1
+    End Method
+
+    Async Method ReadAsync(into: Buffer<UInt8>): Int64 Throws IOError
+        Await NextFrame()
+        Return Try Read(into)
+    End Method
+End Class
+
+// Takes a frame for each write, and keeps what it's given.
+Class Slow Implements Writer
+    Field Kept: StringWriter
+    Field Writes: Int
+
+    Public New()
+        Kept = StringWriter()
+    End New
+
+    Method Write(from: Buffer<UInt8>) Throws IOError
+        Writes += 1
+        Try Kept.Write(from)
+    End Method
+
+    Async Method WriteAsync(from: Buffer<UInt8>) Throws IOError
+        Await NextFrame()
+        Try Write(from)
+    End Method
+End Class
+
+// Counts the frames that go by while `waiting` says the reads go on.
+Global frames = 0
+Global waiting = True
+
+Async Function Count()
+    While waiting
+        Await NextFrame()
+        frames += 1
+    End While
+End Function
+
+Async Function Lines(source: Reader): String Throws IOError
+    Local reader = BufferedReader(source, 4)
+    Local all = ""
+    Loop
+        Local line = Try Await reader.ReadLineAsync()
+        If line == Null Then Return all
+        all += "[{line}]"
+    End Loop
+End Function
+
+Local counting = Count()
+Local source: Reader = Trickle("hey")
+Local into = Buffer<UInt8>(8)
+Local read = Try Await source.ReadAsync(into)
+Print("{read} {into[0]} {frames > 0}")
+Local before = frames
+Local rest = TextOf(Try Await ReadAllAsync(source))
+Print("{rest} {frames > before}")
+
+Print(Try Await Lines(Trickle("one\r\ntwo\nthree")))
+Local slow = Slow()
+Print("{Try Await CopyAsync(Trickle("copied"), slow)} {slow.Kept.ToString()} {slow.Writes}")
+
+// A BufferedWriter sends what it keeps through WriteAsync, a buffer at a time.
+Local buffered = BufferedWriter(slow, 4)
+For part In ["ab", "cdef", "g"]
+    Try Await buffered.WriteAsync(Buffer<UInt8>.From(part.Bytes))
+End For
+
+Print("{slow.Kept.ToString()} {slow.Writes}")
+Try Await buffered.FlushAsync()
+Print("{slow.Kept.ToString()} {slow.Writes}")
+
+Local exact = Buffer<UInt8>(5)
+Try
+    Try Await ReadExactAsync(Trickle("abc"), exact)
+Catch e As IOError
+    Print("{e.Kind}: {e.Message}")
+End Try
+
+// A stream that only blocks has its Interface's Async twins, which read and write as it does.
+Local memory: Reader = MemoryStream([1, 2, 3])
+Print("{Try Await memory.ReadAsync(into)} {into[2]} {Try Await ReadAllAsync(memory)}")
+Local sink: Writer = StringWriter()
+Try Await sink.WriteAsync(Buffer<UInt8>.From([104, 105]))
+Try Await sink.FlushAsync()
+Print((sink As StringWriter).ToString())
+
+waiting = False
+Await counting
+Print("done")
+
+Function TextOf(bytes: UInt8[]): String
+    Local text = StringWriter()
+    Try? text.WriteBytes(bytes)
+    Return text.ToString()
+End Function

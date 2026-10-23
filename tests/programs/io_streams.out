@@ -1,0 +1,37 @@
+5 5
+[104, 101, 108, 112, 33, 0, 0, 33]
+[elp][!..][!]
+0 108
+OTHER: a Seek of -1 from 0 is before the stream's start
+[1, 2, 3] [] 0
+6 [h�][�l][lo]
+llo
+aé�b 5
+[abc][d][efg][h][ij]
+[abcde][fghij]
+[a][b][c][d][e][f][g][h][i][j]
+[one][two][][three][][four]
+[one][two][][three][][four]
+[one][two][][three][][four]
+[one][two][][three][][four]
+[one][two][][three][][four]
+ [] [91, 97, 13, 98, 93, 91, 108, 97, 115, 116, 13, 93]
+120 121 True
+ab: []
+cd: []
+e: [abcd]
+fghij: [abcdefghij]
+k: [abcdefghij]
+abcdefghijk
+kept
+LITTLE 49 254 255 128
+255 -128 65534 -32768 4294967295 -2147483648 18446744073709551615 -9223372036854775808 -0.5 1e+300 True False [7, 8] bé
+UNEXPECTED_END: the stream ended after 0 of 2 bytes
+BIG 49 255 254 0
+255 -128 65534 -32768 4294967295 -2147483648 18446744073709551615 -9223372036854775808 -0.5 1e+300 True False [7, 8] bé
+UNEXPECTED_END: the stream ended after 0 of 2 bytes
+UNEXPECTED_END: the stream ended after 3 of 1000000000 bytes
+11 copied text 0
+abcd
+UNEXPECTED_END: the stream ended after 2 of 4 bytes ef
+[]
