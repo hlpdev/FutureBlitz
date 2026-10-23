@@ -145,9 +145,13 @@ Public Class Decimal Implements Comparable, Hashable, Printable, Numeric
 
     // It rounded to a whole number, toward 0, down, or up. One with an exponent above 0 keeps
     // it, as 1.5E+3 does.
-    Public Method Truncate(): Decimal => Decimal(fb_decimal_round_whole(State, RoundingMode.DOWN As Int32))
-    Public Method Floor(): Decimal => Decimal(fb_decimal_round_whole(State, RoundingMode.FLOOR As Int32))
-    Public Method Ceiling(): Decimal => Decimal(fb_decimal_round_whole(State, RoundingMode.CEILING As Int32))
+    Public Method Truncate(): Decimal => RoundedWhole(RoundingMode.DOWN)
+    Public Method Floor(): Decimal => RoundedWhole(RoundingMode.FLOOR)
+    Public Method Ceiling(): Decimal => RoundedWhole(RoundingMode.CEILING)
+
+    Method RoundedWhole(mode: RoundingMode): Decimal
+        Return Decimal(fb_decimal_round_whole(State, mode As Int32))
+    End Method
 
     // Its square root. One below 0 panics.
     @PanicsAtCaller
@@ -261,6 +265,9 @@ End Class
 // past 999999.
 @PanicsAtCaller
 Function Made(state: Ptr<Void>): Decimal
-    If state == Null Then Panic("a Decimal's exponent goes up to 999999, and this result's is past it")
+    If state == Null
+        Panic("a Decimal's exponent goes up to 999999, and this result's is past it")
+    End If
+
     Return Decimal(state)
 End Function

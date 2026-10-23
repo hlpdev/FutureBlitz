@@ -437,10 +437,10 @@ generator, noise, easing, stats, and fixed point; the rest is planned.
 - Units: typed quantities like `Meters`, `Seconds`, and `MetersPerSecond`, which the compiler
   keeps apart and combines (`Meters / Seconds` is `MetersPerSecond`).
 - std.math.big, whose numbers never change once made, with Operators, an Int64 (or a Double,
-  for Complex) on either side of one too, and `Parse` and `ToString`. Their math is Methods,
-  like `x.Sqrt()`, since std.math's Functions are the built-in types'. A BigInt, Decimal, or
-  Rational stays on its thread, since it holds the library's number, and text takes it to
-  another.
+  for Complex) on either side of one too, and `ToString`, and `Parse` for all but Complex. Their
+  math is Methods, like `x.Sqrt()`, since std.math's Functions are the built-in types'. A
+  BigInt, Decimal, or Rational stays on its thread, since it holds the library's number, and
+  text takes it to another.
   - `BigInt` (libtommath): an integer of any size, whose operators are an Int's without
     overflow: `/` rounds toward 0, `%` takes the sign of what's divided, `>>` rounds down, and
     `&`, `|`, `^`, and `~` work on two's complement, as wide as needed. `Parse(text, radix)` and

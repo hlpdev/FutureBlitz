@@ -67,7 +67,7 @@ void* fb_bigint_shift_right(const void* a, std::int64_t count);
 void* fb_bigint_power(const void* a, std::int64_t exponent);
 /// `base` to the power `exponent`, 0 or more, modulo `modulus`, above 0: from 0 to below it.
 void* fb_bigint_mod_power(const void* base, const void* exponent, const void* modulus);
-/// The number from 0 to below `modulus`, above 1, that times `a` is 1 modulo it, or null when
+/// The number from 0 to below `modulus`, above 0, that times `a` is 1 modulo it, or null when
 /// there's none.
 void* fb_bigint_mod_inverse(const void* a, const void* modulus);
 /// The greatest common divisor of `a` and `b`, 0 or more, and their least common multiple.

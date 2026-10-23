@@ -36,7 +36,8 @@ Extern "runtime"
     Function fb_bigint_shift_left(a: Ptr<Void>, count: Int64): Ptr<Void>
     Function fb_bigint_shift_right(a: Ptr<Void>, count: Int64): Ptr<Void>
     Function fb_bigint_power(a: Ptr<Void>, exponent: Int64): Ptr<Void>
-    Function fb_bigint_mod_power(base: Ptr<Void>, exponent: Ptr<Void>, modulus: Ptr<Void>): Ptr<Void>
+    Function fb_bigint_mod_power(base: Ptr<Void>, exponent: Ptr<Void>,
+                                 modulus: Ptr<Void>): Ptr<Void>
     Function fb_bigint_mod_inverse(a: Ptr<Void>, modulus: Ptr<Void>): Ptr<Void>
     Function fb_bigint_gcd(a: Ptr<Void>, b: Ptr<Void>): Ptr<Void>
     Function fb_bigint_lcm(a: Ptr<Void>, b: Ptr<Void>): Ptr<Void>
