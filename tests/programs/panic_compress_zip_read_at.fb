@@ -1,0 +1,10 @@
+// A ZipReader's ReadAt takes an entry's index, and panics where it's called with one out
+// of range.
+Import std.core
+Import std.compress
+
+Local zip = ZipWriter()
+zip.Add("only.txt", "only".Bytes)
+Local reader = Try Zip.Read(zip.Finish())
+Print((Try reader.ReadAt(0)).Count)
+Try reader.ReadAt(1)

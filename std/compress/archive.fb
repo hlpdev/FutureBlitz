@@ -1,0 +1,51 @@
+// What Zip's, Tar's, and SevenZip's readers share: an ArchiveEntry for each of an archive's
+// entries, in the order the archive has them, and how a name's checked before it's written.
+
+Import std.core
+
+// What an entry is: a file, a folder, or a link, whose Target is where it points, as a symbolic
+// link or a tar's hard link does.
+Public Enum ArchiveEntryKind
+    FILE, FOLDER, LINK
+End Enum
+
+// One of an archive's entries: its Name, its path in the archive, with '/' between folders and
+// none at its end, its Kind, its Size, the bytes a file's read gives, which is 0 for a folder or
+// a link, and a link's Target, which is "" for the rest. A name is as the archive has it, which
+// can be anything: a program that makes files of them checks them first, for one like
+// "../../x".
+Public Struct ArchiveEntry
+    Public ReadOnly Field Name: String
+    Public ReadOnly Field Kind: ArchiveEntryKind
+    Public ReadOnly Field Size: Int64
+    Public ReadOnly Field Target: String
+
+    Package New(name: String, kind: Int32, size: Int64, target: String)
+        Name = name
+        Kind = ArchiveEntryKind.FILE
+        If kind == 1 Then Kind = ArchiveEntryKind.FOLDER
+        If kind == 2 Then Kind = ArchiveEntryKind.LINK
+        Size = kind == 0 ? size : 0
+        Target = target
+    End New
+End Struct
+
+// The index of the last of the entries named name, as extracting them in order leaves it, or -1.
+Package Function LastNamed(entries: ArchiveEntry[], name: String): Int
+    For i = entries.Count - 1 To 0 Step -1
+        If entries[i].Name == name Then Return i
+    End For
+    Return -1
+End Function
+
+// Panics when name can't be an entry's: when it's "", holds a NUL, or is longer than `most`
+// bytes, as `format` says.
+@PanicsAtCaller
+Package Function CheckName(name: String, most: Int, format: String)
+    If name == "" Then Panic("a {format}'s entry needs a name")
+    Local bytes = name.Bytes
+    If bytes.Count > most Then Panic("a {format}'s names are {most} bytes long at most")
+    For byte In bytes
+        If byte == 0 Then Panic("a {format}'s names can't hold a NUL")
+    End For
+End Function
