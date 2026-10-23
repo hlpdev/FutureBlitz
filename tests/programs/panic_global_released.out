@@ -1,0 +1,3 @@
+main done
+early goes, and reads late
+panic: 'late' is used after it's released, since Globals are released last to first when the program ends at panic_global_released.fb:8:15

@@ -1,0 +1,40 @@
+// When the program ends, the Globals let go of what they hold, the last first, so a Destroy that
+// runs then can still use the Globals above its object's, Class and String alike.
+Import std.core
+
+Class Holder
+    Field Name: String
+
+    New(name: String)
+        Name = name
+    End New
+
+    Method Destroy()
+        Print("{Name} goes")
+    End Method
+End Class
+
+Function Build(word: String, n: Int): String => "{word} {n}"
+
+Global first = Holder(Build("first", 1))
+Global title = Build("title", 2)
+Global spare: Holder? = Holder("spare")
+
+Class Watcher
+    Method Destroy()
+        Local kept = first
+        Print("the watcher keeps {kept.Name} and {title} and {spare?.Name ?? "no spare"}")
+    End Method
+End Class
+
+Global second = Watcher()
+
+// A Struct and a fixed array in a Global let go of each reference in them.
+Struct Pair
+    Field Left: Holder
+    Field Right: String
+End Struct
+
+Global pair = Pair(Holder("left"), Build("right", 3))
+Global row: Holder[2] = [Holder("row 0"), Holder("row 1")]
+Print("main done")

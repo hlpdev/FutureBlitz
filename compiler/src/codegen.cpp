@@ -305,9 +305,12 @@ private:
 
     /// Each MIR global's LLVM global, by global_id_t.
     std::vector<LLVMValueRef> m_globals;
-    /// In debug builds, for each Global main sets, a Bool that's true once its initializer has
-    /// run, and null for the rest.
+    /// For each Global main sets, in debug builds, and in release builds for one whose zero
+    /// holds a null object: an Int32 that's 0 until its initializer has run, `ready` then, and
+    /// `released` once the program has let go of it at its end. Null for the rest.
     std::vector<LLVMValueRef> m_ready;
+    static constexpr unsigned ready = 1;
+    static constexpr unsigned released = 2;
     /// Each MIR function's declaration, by function_id_t.
     std::vector<function_ref_t> m_functions;
     std::unordered_map<std::string, LLVMValueRef> m_strings;   // static Strings, by text
@@ -1033,15 +1036,15 @@ private:
             // Release builds check only a Global whose zero holds a null object, whose use would
             // crash; any other zero is a value of its type, which they read, as they let
             // overflow wrap.
-            LLVMValueRef ready = nullptr;
+            LLVMValueRef flag = nullptr;
             if ((checked() || holds_null_object(global.type)) && global.set_in_main) {
-                const std::string flag = std::format("fb.ready.{}", global.name);
-                ready = LLVMAddGlobal(m_module.get(), m_bool, flag.c_str());
-                LLVMSetInitializer(ready, LLVMConstInt(m_bool, 0, 0));
-                LLVMSetLinkage(ready, LLVMInternalLinkage);
+                const std::string flag_name = std::format("fb.ready.{}", global.name);
+                flag = LLVMAddGlobal(m_module.get(), m_i32, flag_name.c_str());
+                LLVMSetInitializer(flag, LLVMConstInt(m_i32, 0, 0));
+                LLVMSetLinkage(flag, LLVMInternalLinkage);
             }
 
-            m_ready.push_back(ready);
+            m_ready.push_back(flag);
         }
     }
 
@@ -1983,9 +1986,16 @@ private:
         // The coroutines run to their ends, and a job may still use a Global.
         call(m_scheduler_finish, {});
         call(m_pool_finish, {});
-        for (std::size_t i = 0; i < m_mir.globals.size(); ++i) {
+        // Then the Globals let go of what they hold, the last first, so a Destroy that runs can
+        // use the ones above its object's. One that uses a Global already let go of panics where
+        // the Global has a ready flag, and reads its zero otherwise.
+        for (std::size_t i = m_mir.globals.size(); i-- > 0;) {
+            if (m_ready[i] != nullptr) {
+                LLVMBuildStore(builder(), LLVMConstInt(m_i32, released, 0), m_ready[i]);
+            }
+
             if (m_mir.types->has_references(m_mir.globals[i].type)) {
-                for_each_reference(m_globals[i], m_mir.globals[i].type, false);
+                let_go(m_globals[i], m_mir.globals[i].type);
             }
         }
 
@@ -2302,6 +2312,51 @@ private:
         }
     }
 
+    /// Releases every reference in the value of `type` at `address`, as for_each_reference does,
+    /// but sets each to its zero before releasing it, and a T? that holds its T inline to Null
+    /// first. A Destroy that runs meanwhile reads what's still there, or a zero, never what's
+    /// been released.
+    void let_go(LLVMValueRef address, const type_id_t type) {
+        if (is_nullable(type) && !is_nullable_reference(type)) {
+            LLVMBuildStore(builder(), LLVMConstInt(m_bool, 0, 0),
+                           LLVMBuildStructGEP2(builder(), llvm_type(type), address, 0, ""));
+            let_go(LLVMBuildStructGEP2(builder(), llvm_type(type), address, 1, ""), inner_of(type));
+            return;
+        }
+
+        if (is_fixed_array(type)) {
+            const type_id_t element = inner_of(type);
+            LLVMValueRef count = LLVMConstInt(m_i64, m_mir.types->element_count(type), 0);
+            for_each_element(address, llvm_type(element), count,
+                             [&](LLVMValueRef item) { let_go(item, element); });
+            return;
+        }
+
+        // A reference: a String, an object, a T[], or a Weak, or a T? of one, whose Null is null.
+        const type_id_t inner = is_nullable(type) ? inner_of(type) : type;
+        if (inner == type_id_t::STRING || is_object(inner) || is_array(inner) || is_weak(inner)) {
+            LLVMValueRef reference = LLVMBuildLoad2(builder(), m_ptr, address, "");
+            LLVMBuildStore(builder(), zero_constant(type), address);
+            if (inner == type_id_t::STRING) {
+                call(m_release, { reference });
+            } else if (is_weak(inner)) {
+                call(m_release_weak, { reference });
+            } else {
+                call(m_object_release, { reference });
+            }
+
+            return;
+        }
+
+        const std::vector<field_t>& fields = m_mir.types->get(type).fields;
+        for (std::uint32_t i = 0; i < fields.size(); ++i) {
+            if (m_mir.types->has_references(fields[i].type)) {
+                let_go(LLVMBuildStructGEP2(builder(), llvm_type(type), address, i, ""),
+                       fields[i].type);
+            }
+        }
+    }
+
     LLVMValueRef value_of(const operand_t& operand) {
         if (const auto* value = std::get_if<const_value_t>(&operand)) {
             return constant(*value);
@@ -2344,16 +2399,30 @@ private:
         }
 
         if (node.mark) {
-            LLVMBuildStore(builder(), LLVMConstInt(m_bool, 1, 0), flag);
+            LLVMBuildStore(builder(), LLVMConstInt(m_i32, ready, 0), flag);
             return;
         }
 
-        LLVMValueRef set = LLVMBuildLoad2(builder(), m_bool, flag, "");
-        panic_if(LLVMBuildNot(builder(), set, ""),
-                 std::format("'{}' is used before its initializer has run, since Globals "
-                             "initialize in source order",
-                             m_mir.globals[index(node.global)].name),
+        const std::string& name = m_mir.globals[index(node.global)].name;
+        LLVMValueRef state = LLVMBuildLoad2(builder(), m_i32, flag, "");
+        LLVMBasicBlockRef unready =
+            LLVMAppendBasicBlockInContext(context(), m_llvm_function, "unready");
+        LLVMBasicBlockRef ok = LLVMAppendBasicBlockInContext(context(), m_llvm_function, "ok");
+        LLVMBuildCondBr(
+            builder(),
+            LLVMBuildICmp(builder(), LLVMIntEQ, state, LLVMConstInt(m_i32, ready, 0), ""), ok,
+            unready);
+        LLVMPositionBuilderAtEnd(builder(), unready);
+        panic_if(LLVMBuildICmp(builder(), LLVMIntEQ, state, LLVMConstInt(m_i32, released, 0), ""),
+                 std::format("'{}' is used after it's released, since Globals are released "
+                             "last to first when the program ends",
+                             name),
                  node.span);
+        panic(std::format("'{}' is used before its initializer has run, since Globals "
+                          "initialize in source order",
+                          name),
+              node.span);
+        LLVMPositionBuilderAtEnd(builder(), ok);
     }
 
     // Terminators

@@ -1,0 +1,18 @@
+// A Destroy that runs when the program ends and uses a Global further down, which the program
+// has let go of already, panics, in release builds too, since the Global holds no object then.
+Import std.core
+
+Class Early
+    Method Destroy()
+        Print("early goes, and reads late")
+        Print(late.Name)
+    End Method
+End Class
+
+Class Late
+    Field Name = "late"
+End Class
+
+Global early = Early()
+Global late = Late()
+Print("main done")

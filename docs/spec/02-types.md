@@ -82,6 +82,12 @@ Class, an Interface, an array, a function value, or a Struct or tuple holding on
 using it would crash; any other Global reads as its zero, a value of its type, as overflow
 wraps. A Global whose value is known at compile time has it from the start.
 
+When the program ends, once its coroutines and jobs are done, the Globals let go of what they
+hold, the last first, so a Destroy that runs then can use the Globals above its object's. Each
+String, object, or array a Global let go of reads as its zero after, and a use of a Global
+already let go of panics where a use before its initializer would: "'late' is used after it's
+released".
+
 A `Global` without an initializer starts at `0`, `0.0`, `False`, or `""`, like a field.
 
 ### Definite assignment
