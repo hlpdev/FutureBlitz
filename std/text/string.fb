@@ -114,7 +114,10 @@ Extend String
     // How many times part is in it, counting each from the end of the one before, as FindAll
     // does. An empty part panics.
     @PanicsAtCaller
-    Public Method Count(part: String): Int => FindAll(part).Count
+    Public Method Count(part: String): Int
+        CheckPart(part, "Count")
+        Return FindAll(part).Count
+    End Method
 
     // The text from start up to finish. Panics unless both are positions in the String, between
     // its characters, with start no later than finish.

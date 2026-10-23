@@ -1,0 +1,7 @@
+// Count panics at an empty String to look for, saying it's Count's.
+Import std.core
+Import std.text
+
+Local word = "é😀"
+Print(word.Count("😀"))
+Print(word.Count(""))
