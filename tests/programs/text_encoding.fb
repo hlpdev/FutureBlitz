@@ -1,0 +1,87 @@
+// std.text.encoding: text to and from other encodings, with BOMs, bytes as text and back, and
+// text escaped for URLs, HTML, and C, over text beyond ASCII, combining marks, and emoji. Each
+// encoding round-trips every byte it can hold.
+Import std.core
+Import std.collections
+Import std.text
+Import std.text.encoding
+
+Local text = "héllo e\u{301} 😀 ж"
+Local every: UInt8[] = []
+For byte = 0 To 255
+    every.Add(byte As UInt8)
+End For
+
+// Unicode's encodings hold every character.
+For encoding In [TextEncoding.UTF8, TextEncoding.UTF16_LE, TextEncoding.UTF16_BE,
+                 TextEncoding.UTF32_LE, TextEncoding.UTF32_BE]
+    Local bytes = Encode(text, encoding) ?? []
+    Local marked = Encode(text, encoding, True) ?? []
+    Print(encoding, bytes.Count, Hex.Encode(bytes[0..6]), Decode(bytes, encoding) == text,
+          DetectBom(marked) ?? TextEncoding.ASCII, DecodeAny(marked, TextEncoding.LATIN1) == text,
+          (Decode(marked, encoding) ?? "").CharCount)
+End For
+
+// One-byte encodings hold what they have, and every byte decodes and encodes back, but ASCII's
+// past 0x7F.
+For encoding In [TextEncoding.ASCII, TextEncoding.LATIN1, TextEncoding.WINDOWS_1252]
+    Local decoded = Decode(every, encoding)
+    Local back = decoded == Null ? Null : Encode(decoded, encoding)
+    Print(encoding, decoded?.CharCount ?? -1, back == every, Encode("héllo", encoding) ?? [],
+          Encode("€‰Ÿ", encoding) ?? [], Encode(text, encoding) == Null)
+End For
+
+Local ascii = Decode(every[0..128], TextEncoding.ASCII) ?? ""
+Print(ascii.Length, Encode(ascii, TextEncoding.ASCII) == every[0..128])
+Print(Decode([0x80, 0x81, 0x8D, 0x9F, 0xA0, 0xE9], TextEncoding.WINDOWS_1252)?.Chars ?? [],
+      Decode([0x80, 0x81, 0x8D, 0x9F, 0xA0, 0xE9], TextEncoding.LATIN1)?.Chars ?? [])
+
+// What isn't well-formed decodes to Null.
+Print(Decode([0x00], TextEncoding.UTF16_LE) ?? "odd",
+      Decode([0x00, 0xD8], TextEncoding.UTF16_LE) ?? "half",
+      Decode([0x00, 0xDC, 0x41, 0x00], TextEncoding.UTF16_LE) ?? "low",
+      Decode([0x00, 0x00, 0x11, 0x00], TextEncoding.UTF32_LE) ?? "past",
+      Decode([0x00, 0xD8, 0x00, 0x00], TextEncoding.UTF32_LE) ?? "surrogate",
+      Decode([0xC3, 0x28], TextEncoding.UTF8) ?? "bad",
+      Decode([0x80], TextEncoding.ASCII) ?? "high",
+      DetectBom([0x41, 0x42]) ?? TextEncoding.ASCII, DecodeAny([0xEF, 0xBB, 0xBF]) ?? "-")
+
+// Bytes as text and back, every byte, and with each length of the last group.
+For count = 0 To 6
+    Local bytes = text.Bytes[0..count]
+    Print(count, Base64.Encode(bytes), Base64.Encode(bytes, True, False), Hex.Encode(bytes),
+          Base32.Encode(bytes), Base32.Encode(bytes, False))
+End For
+
+Print(Base64.Decode(Base64.Encode(every)) == every,
+      Base64.Decode(Base64.Encode(every, True), True) == every,
+      Base64.Decode(Base64.Encode(every, False, False)) == every,
+      Hex.Decode(Hex.Encode(every)) == every,
+      Hex.Decode(Hex.Encode(every, True)) == every, Base32.Decode(Base32.Encode(every)) == every,
+      Base32.Decode(Base32.Encode(every, False).ToLower()) == every)
+Print(Base64.Encode(text.Bytes),
+      String.FromUtf8(Base64.Decode("aMOpbGxvIGXMgSDwn5iAINC2") ?? []) ?? "-")
+Print(Base64.Decode("aGk") ?? [0], Base64.Decode("aGk=") ?? [0], Base64.Decode("a===") ?? [0],
+      Base64.Decode("aG=k") ?? [0], Base64.Decode("aGk*") ?? [0], Base64.Decode("_-8") ?? [0],
+      Base64.Decode("_-8", True) ?? [0], Hex.Decode("abc") ?? [0], Hex.Decode("zz") ?? [0],
+      Base32.Decode("NBUQ") ?? [0], Base32.Decode("NBUQ====") ?? [0], Base32.Decode("N1") ?? [0])
+
+// Percent-encoding, for URLs.
+Print(Percent.Encode(text), Percent.Encode("a/b c?d=é", "/"), Percent.Encode("~-._AZaz09"))
+Print(Percent.Decode(Percent.Encode(text)) == text, Percent.Decode("%E2%82%AC%20%41") ?? "-",
+      Percent.Decode("%zz") ?? "bad", Percent.Decode("%E") ?? "short",
+      Percent.Decode("%FF") ?? "not UTF-8",
+      Percent.DecodeBytes(Percent.EncodeBytes(every)) == every)
+
+// HTML's escaping.
+Local page = "<a href=\"x\">Tom & Jerry's é😀</a>"
+Print(Html.Escape(page), Html.Unescape(Html.Escape(page)) == page)
+Print(Html.Unescape("&lt;&#233;&#xE9;&#X1F600;&nbsp;&apos;&amp;amp; &bogus; & &#xD800; &#; &#12a;"))
+
+// C-style escapes.
+Local raw = "tab\there\nquote\" apostrophe' back\\slash nul\0 bell\u{7} del\u{7F} c1\u{85} é😀"
+Print(Escape(raw), Unescape(Escape(raw)) == raw)
+Print(Unescape("\\u{{1F600}}\\x41\\u{{E9}}e\\u{{301}}") ?? "-", Unescape("\\q") ?? "bad",
+      Unescape("end\\") ?? "bad", Unescape("\\x80") ?? "past 7F",
+      Unescape("\\u{{D800}}") ?? "surrogate", Unescape("\\u{{}}") ?? "empty",
+      Unescape("\\u{{1234567}}") ?? "long", Unescape("\\x4") ?? "short", Unescape("plain é") ?? "-")

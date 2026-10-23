@@ -1,0 +1,612 @@
+// std.text.encoding: text to and from bytes in encodings other than a String's own UTF-8 (UTF-16
+// and UTF-32, little- and big-endian, ASCII, Latin-1, and Windows-1252), with the byte order mark
+// (BOM) that starts some files found or written; bytes as text and back (Base64, Hex, and Base32);
+// and text escaped for a URL, for HTML, or as a C string literal writes it. What decodes gives Null
+// for input it can't decode.
+
+Import std.core
+Import std.collections
+Import std.text.builder
+Import std.text.char
+Import std.text.string
+
+Extern "runtime"
+    Function fb_text_append(into: UInt8[], text: String)
+    Function fb_text_from_utf8(bytes: UInt8[], start: Int64, count: Int64): String?
+End Extern
+
+// The encodings Encode and Decode take, beside UTF-8.
+Public Enum TextEncoding
+    UTF8, UTF16_LE, UTF16_BE, UTF32_LE, UTF32_BE, ASCII, LATIN1, WINDOWS_1252
+End Enum
+
+// What Windows-1252 has at 0x80 to 0x9F, where Latin-1 has control characters, as WHATWG's
+// encoding standard has it: the five bytes Windows doesn't use are those control characters, so
+// every byte decodes and encodes back.
+Global Windows1252: Int[] = [
+    0x20AC, 0x81, 0x201A, 0x192, 0x201E, 0x2026, 0x2020, 0x2021,
+    0x2C6, 0x2030, 0x160, 0x2039, 0x152, 0x8D, 0x17D, 0x8F,
+    0x90, 0x2018, 0x2019, 0x201C, 0x201D, 0x2022, 0x2013, 0x2014,
+    0x2DC, 0x2122, 0x161, 0x203A, 0x153, 0x9D, 0x17E, 0x178
+]
+
+// text in encoding, after the encoding's BOM when bom says and it has one, or Null when a
+// character of the text isn't in the encoding: ASCII has U+0000 to U+007F, Latin-1 U+0000 to
+// U+00FF, and Windows-1252 Latin-1's but U+0080 to U+009F, where it has others, like "€".
+Public Function Encode(text: String, encoding: TextEncoding, bom: Bool = False): UInt8[]?
+    Local bytes: UInt8[] = bom ? BomOf(encoding) : []
+    If encoding == TextEncoding.UTF8
+        fb_text_append(bytes, text)
+        Return bytes
+    End If
+
+    Local big = encoding == TextEncoding.UTF16_BE || encoding == TextEncoding.UTF32_BE
+    For c In text.Chars
+        Local code = c As Int
+        Select encoding
+            Case TextEncoding.UTF16_LE, TextEncoding.UTF16_BE
+                If code >= 0x10000
+                    // Past U+FFFF, a character is a surrogate pair.
+                    Local past = code - 0x10000
+                    AddUnit(bytes, 0xD800 | (past >> 10), 2, big)
+                    AddUnit(bytes, 0xDC00 | (past & 0x3FF), 2, big)
+                Else
+                    AddUnit(bytes, code, 2, big)
+                End If
+            Case TextEncoding.UTF32_LE, TextEncoding.UTF32_BE
+                AddUnit(bytes, code, 4, big)
+            Default
+                Local byte = ByteOf(code, encoding)
+                If byte == Null Then Return Null
+                bytes.Add(byte)
+        End Select
+    End For
+
+    Return bytes
+End Function
+
+// The text bytes hold in encoding, or Null when they aren't that: ASCII with a byte past 0x7F, or
+// UTF-8, UTF-16, or UTF-32 that isn't well-formed, like half a surrogate pair. A BOM at their
+// start stays, as U+FEFF; DecodeAny takes it off.
+Public Function Decode(bytes: UInt8[], encoding: TextEncoding): String?
+    Local text: UInt8[] = []
+    Select encoding
+        Case TextEncoding.UTF8
+            Return fb_text_from_utf8(bytes, 0, bytes.Count)
+        Case TextEncoding.UTF16_LE, TextEncoding.UTF16_BE
+            If bytes.Count % 2 != 0 Then Return Null
+            Local big = encoding == TextEncoding.UTF16_BE
+            Local at = 0
+            While at < bytes.Count
+                Local unit = UnitAt(bytes, at, 2, big) As Int
+                at += 2
+                If unit >= 0xDC00 && unit <= 0xDFFF Then Return Null
+                If unit >= 0xD800 && unit <= 0xDBFF
+                    If at >= bytes.Count Then Return Null
+                    Local low = UnitAt(bytes, at, 2, big) As Int
+                    If low < 0xDC00 || low > 0xDFFF Then Return Null
+                    at += 2
+                    unit = 0x10000 + ((unit - 0xD800) << 10) + (low - 0xDC00)
+                End If
+
+                AddUtf8(text, unit)
+            End While
+        Case TextEncoding.UTF32_LE, TextEncoding.UTF32_BE
+            If bytes.Count % 4 != 0 Then Return Null
+            Local big = encoding == TextEncoding.UTF32_BE
+            For at = 0 Until bytes.Count Step 4
+                Local code = UnitAt(bytes, at, 4, big)
+                If code > 0x10FFFF || (code >= 0xD800 && code <= 0xDFFF) Then Return Null
+                AddUtf8(text, code As Int)
+            End For
+        Case TextEncoding.ASCII
+            For byte In bytes
+                If byte >= 0x80 Then Return Null
+            End For
+
+            Return fb_text_from_utf8(bytes, 0, bytes.Count)
+        Case TextEncoding.LATIN1
+            For byte In bytes
+                AddUtf8(text, byte As Int)
+            End For
+        Case TextEncoding.WINDOWS_1252
+            For byte In bytes
+                Local code = byte As Int
+                AddUtf8(text, code >= 0x80 && code < 0xA0 ? Windows1252[code - 0x80] : code)
+            End For
+    End Select
+
+    Return fb_text_from_utf8(text, 0, text.Count)
+End Function
+
+// The encoding a BOM at the start of bytes is for, or Null when they start with none. UTF-32
+// LE's BOM starts as UTF-16 LE's does, so it's looked for first.
+Public Function DetectBom(bytes: UInt8[]): TextEncoding?
+    For encoding In [TextEncoding.UTF32_LE, TextEncoding.UTF32_BE, TextEncoding.UTF8,
+                     TextEncoding.UTF16_LE, TextEncoding.UTF16_BE]
+        Local bom = BomOf(encoding)
+        If bytes.Count >= bom.Count && bytes[0..bom.Count] == bom Then Return encoding
+    End For
+
+    Return Null
+End Function
+
+// The text bytes hold: in the encoding their BOM is for, without it, or else in fallback; or
+// Null when they aren't that encoding.
+Public Function DecodeAny(bytes: UInt8[], fallback: TextEncoding = TextEncoding.UTF8): String?
+    Local found = DetectBom(bytes)
+    If found == Null Then Return Decode(bytes, fallback)
+    Return Decode(bytes[BomOf(found).Count..], found)
+End Function
+
+// Base64, which writes bytes as text of 64 characters and back: each 3 bytes as 4 characters of
+// "A" to "Z", "a" to "z", "0" to "9", "+", and "/", or "-" and "_" for those two in its URL-safe
+// form, which URLs and file names can hold, and "=" filling out the last 4.
+Public Struct Base64
+    // Base64 isn't made: it's only its Static Methods.
+    New()
+    End New
+
+    // bytes as Base64, URL-safe when urlSafe says, and filled out with "=" when padding says.
+    Public Static Method Encode(bytes: UInt8[], urlSafe: Bool = False,
+                                padding: Bool = True): String
+        Local alphabet = Base64Alphabet(urlSafe)
+        Local text: UInt8[] = []
+        For at = 0 Until bytes.Count Step 3
+            Local left = bytes.Count - at
+            Local group = (bytes[at] As Int) << 16
+            If left > 1 Then group = group | ((bytes[at + 1] As Int) << 8)
+            If left > 2 Then group = group | (bytes[at + 2] As Int)
+            Local characters = left > 2 ? 4 : left + 1
+            For i = 0 Until 4
+                If i < characters
+                    text.Add(alphabet[(group >> (18 - 6 * i)) & 0x3F])
+                ElseIf padding
+                    text.Add(61)
+                End If
+            End For
+        End For
+
+        Return fb_text_from_utf8(text, 0, text.Count) ?? ""
+    End Method
+
+    // The bytes Base64 text holds, in its URL-safe form when urlSafe says, with "=" filling out
+    // its end or not, or Null when it isn't Base64.
+    Public Static Method Decode(text: String, urlSafe: Bool = False): UInt8[]?
+        Local values = SymbolValues(text, Base64Alphabet(urlSafe), False, 4, [0, 2, 3])
+        If values == Null Then Return Null
+        Return FromBits(values, 6)
+    End Method
+End Struct
+
+// Hex, which writes each byte as two of the digits "0" to "9" and "a" to "f".
+Public Struct Hex
+    // Hex isn't made: it's only its Static Methods.
+    New()
+    End New
+
+    // bytes as hex, its digits from "A" to "F" when upper says.
+    Public Static Method Encode(bytes: UInt8[], upper: Bool = False): String
+        Local digits = (upper ? "0123456789ABCDEF" : "0123456789abcdef").Bytes
+        Local text: UInt8[] = []
+        For byte In bytes
+            text.Add(digits[(byte As Int) >> 4])
+            text.Add(digits[(byte As Int) & 0xF])
+        End For
+
+        Return fb_text_from_utf8(text, 0, text.Count) ?? ""
+    End Method
+
+    // The bytes hex text holds, two digits each, in either case, or Null when it isn't hex.
+    Public Static Method Decode(text: String): UInt8[]?
+        Local chars = text.Chars
+        If chars.Count % 2 != 0 Then Return Null
+        Local bytes: UInt8[] = []
+        For at = 0 Until chars.Count Step 2
+            Local high = HexValue(chars[at])
+            Local low = HexValue(chars[at + 1])
+            If high < 0 || low < 0 Then Return Null
+            bytes.Add(((high << 4) | low) As UInt8)
+        End For
+
+        Return bytes
+    End Method
+End Struct
+
+// Base32, as RFC 4648 has it, which writes each 5 bytes as 8 of the characters "A" to "Z" and "2"
+// to "7", and "=" filling out the last 8, for text that's read aloud or typed, whatever its case.
+Public Struct Base32
+    // Base32 isn't made: it's only its Static Methods.
+    New()
+    End New
+
+    // bytes as Base32, filled out with "=" when padding says.
+    Public Static Method Encode(bytes: UInt8[], padding: Bool = True): String
+        Local alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567".Bytes
+        Local text: UInt8[] = []
+        Local buffer = 0
+        Local bits = 0
+        For byte In bytes
+            buffer = ((buffer << 8) | (byte As Int)) & 0xFFFF
+            bits += 8
+            While bits >= 5
+                bits -= 5
+                text.Add(alphabet[(buffer >> bits) & 0x1F])
+            End While
+        End For
+
+        If bits > 0 Then text.Add(alphabet[(buffer << (5 - bits)) & 0x1F])
+        While padding && text.Count % 8 != 0
+            text.Add(61)
+        End While
+
+        Return fb_text_from_utf8(text, 0, text.Count) ?? ""
+    End Method
+
+    // The bytes Base32 text holds, in either case, with "=" filling out its end or not, or Null
+    // when it isn't Base32.
+    Public Static Method Decode(text: String): UInt8[]?
+        Local values = SymbolValues(text, "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567".Bytes, True, 8,
+                                    [0, 2, 4, 5, 7])
+        If values == Null Then Return Null
+        Return FromBits(values, 5)
+    End Method
+End Struct
+
+// Percent-encoding, which a URL's parts are in: each byte of text's UTF-8, but for the letters,
+// digits, "-", ".", "_", and "~", as "%" and two hex digits.
+Public Struct Percent
+    // Percent isn't made: it's only its Static Methods.
+    New()
+    End New
+
+    // text percent-encoded, with each ASCII character in keep, like "/" for a path, kept as it is.
+    Public Static Method Encode(text: String, keep: String = ""): String
+        Return EncodeBytes(text.Bytes, keep)
+    End Method
+
+    // bytes percent-encoded, with each byte of an ASCII character in keep kept as it is.
+    Public Static Method EncodeBytes(bytes: UInt8[], keep: String = ""): String
+        Local digits = "0123456789ABCDEF".Bytes
+        Local kept = keep.Bytes
+        Local text: UInt8[] = []
+        For byte In bytes
+            Local c = byte As Char
+            If (c.IsAscii() && c.IsLetterOrDigit()) || c == '-' || c == '.' || c == '_' ||
+               c == '~' || (byte < 0x80 && kept.Contains(byte))
+                text.Add(byte)
+            Else
+                text.Add(37)
+                text.Add(digits[(byte As Int) >> 4])
+                text.Add(digits[(byte As Int) & 0xF])
+            End If
+        End For
+
+        Return fb_text_from_utf8(text, 0, text.Count) ?? ""
+    End Method
+
+    // The text percent-encoded text stands for, or Null when a "%" isn't followed by two hex
+    // digits, or the bytes aren't UTF-8.
+    Public Static Method Decode(text: String): String?
+        Local bytes = DecodeBytes(text)
+        If bytes == Null Then Return Null
+        Return String.FromUtf8(bytes)
+    End Method
+
+    // The bytes percent-encoded text stands for, or Null when a "%" isn't followed by two hex
+    // digits.
+    Public Static Method DecodeBytes(text: String): UInt8[]?
+        Local source = text.Bytes
+        Local bytes: UInt8[] = []
+        Local at = 0
+        While at < source.Count
+            If source[at] != 37
+                bytes.Add(source[at])
+                at += 1
+            Else
+                If at + 2 >= source.Count Then Return Null
+                Local high = HexValue(source[at + 1] As Char)
+                Local low = HexValue(source[at + 2] As Char)
+                If high < 0 || low < 0 Then Return Null
+                bytes.Add(((high << 4) | low) As UInt8)
+                at += 3
+            End If
+        End While
+
+        Return bytes
+    End Method
+End Struct
+
+// HTML's escaping, for text put in a page or an attribute's value.
+Public Struct Html
+    // Html isn't made: it's only its Static Methods.
+    New()
+    End New
+
+    // text with "&", "<", ">", '"', and "'" as entities, so HTML shows it as it is.
+    Public Static Method Escape(text: String): String
+        Local escaped = text.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;")
+        Return escaped.Replace("\"", "&quot;").Replace("'", "&#39;")
+    End Method
+
+    // text with its entities as the characters they stand for: "&amp;", "&lt;", "&gt;", "&quot;",
+    // "&apos;", "&nbsp;", and numbers like "&#233;" and "&#xE9;", one that isn't a Unicode scalar
+    // value as U+FFFD. Another "&" stays as it is.
+    Public Static Method Unescape(text: String): String
+        Local result = StringBuilder()
+        Local at = 0
+        Local found = text.Find("&")
+        While found != Null
+            result.Append(text.Slice(at, found))
+            Local finish = text.Find(";", found)
+            Local entity: String? = Null
+            If finish != Null Then entity = EntityValue(text.Slice(found + 1, finish))
+            If finish != Null && entity != Null
+                result.Append(entity)
+                at = finish + 1
+            Else
+                result.Append('&')
+                at = found + 1
+            End If
+
+            found = text.Find("&", at)
+        End While
+
+        Return result.Append(text.Slice(at, text.Length)).ToString()
+    End Method
+End Struct
+
+// text as a C string literal's contents write it, without the quotes: a backslash, '"', or "'"
+// after a backslash; a tab, line break, carriage return, or NUL as "\t", "\n", "\r", or "\0";
+// another control character as "\x" and two hex digits, or past U+007F as "\u{...}"; and the rest
+// as it is.
+Public Function Escape(text: String): String
+    Local result = StringBuilder()
+    For c In text.Chars
+        Select c
+            Case '\\', '"', '\''
+                result.Append('\\').Append(c)
+            Case '\t'
+                result.Append("\\t")
+            Case '\n'
+                result.Append("\\n")
+            Case '\r'
+                result.Append("\\r")
+            Case '\0'
+                result.Append("\\0")
+            Default
+                Local code = c As Int
+                If code < 0x20 || code == 0x7F
+                    result.Append("\\x").Append(Hex.Encode([code As UInt8], True))
+                ElseIf code >= 0x80 && code < 0xA0
+                    result.Append("\\u{{").Append(Hex.Encode([code As UInt8], True)).Append('}')
+                Else
+                    result.Append(c)
+                End If
+        End Select
+    End For
+
+    Return result.ToString()
+End Function
+
+// The text that escaped text stands for, as Escape writes it: "\n", "\t", "\r", "\0", "\\",
+// "\"", and "\'", "\x" and two hex digits from 00 to 7F, and "\u{...}" with a Unicode scalar
+// value's hex digits; or Null for another backslash, or one at the end.
+Public Function Unescape(text: String): String?
+    Local result = StringBuilder()
+    Local chars = text.Chars
+    Local at = 0
+    While at < chars.Count
+        Local c = chars[at]
+        at += 1
+        If c != '\\'
+            result.Append(c)
+            Continue
+        End If
+
+        If at >= chars.Count Then Return Null
+        Local kind = chars[at]
+        at += 1
+        Select kind
+            Case 'n'
+                result.Append('\n')
+            Case 't'
+                result.Append('\t')
+            Case 'r'
+                result.Append('\r')
+            Case '0'
+                result.Append('\0')
+            Case '\\', '"', '\''
+                result.Append(kind)
+            Case 'x'
+                If at + 2 > chars.Count Then Return Null
+                Local high = HexValue(chars[at])
+                Local low = HexValue(chars[at + 1])
+                If high < 0 || low < 0 || high > 7 Then Return Null
+                result.Append(((high << 4) | low) As Char)
+                at += 2
+            Case 'u'
+                If at >= chars.Count || chars[at] != '{' Then Return Null
+                Local code = 0
+                Local digits = 0
+                at += 1
+                While at < chars.Count && chars[at] != '}'
+                    Local digit = HexValue(chars[at])
+                    If digit < 0 || digits == 6 Then Return Null
+                    code = code * 16 + digit
+                    digits += 1
+                    at += 1
+                End While
+
+                Local decoded = Char.From(code)
+                If at >= chars.Count || digits == 0 || decoded == Null Then Return Null
+                result.Append(decoded)
+                at += 1
+            Default
+                Return Null
+        End Select
+    End While
+
+    Return result.ToString()
+End Function
+
+// What the name of an entity, between its "&" and ";", stands for, or Null for one Unescape
+// doesn't know. A number that isn't a Unicode scalar value stands for U+FFFD.
+Function EntityValue(name: String): String?
+    Select name
+        Case "amp"
+            Return "&"
+        Case "lt"
+            Return "<"
+        Case "gt"
+            Return ">"
+        Case "quot"
+            Return "\""
+        Case "apos"
+            Return "'"
+        Case "nbsp"
+            Return "\u{A0}"
+    End Select
+
+    If !name.StartsWith("#") Then Return Null
+    Local hex = name.StartsWith("#x") || name.StartsWith("#X")
+    Local digits = name.Slice(hex ? 2 : 1, name.Length)
+    If digits.IsEmpty() || digits.Length > 8 Then Return Null
+    Local code = 0
+    For c In digits.Chars
+        Local digit = HexValue(c)
+        If digit < 0 || (!hex && digit > 9) Then Return Null
+        code = code * (hex ? 16 : 10) + digit
+    End For
+
+    Return "{Char.From(code) ?? '\u{FFFD}'}"
+End Function
+
+// The BOM that starts text in encoding, or nothing for one that has none.
+Function BomOf(encoding: TextEncoding): UInt8[]
+    Select encoding
+        Case TextEncoding.UTF8
+            Return [0xEF, 0xBB, 0xBF]
+        Case TextEncoding.UTF16_LE
+            Return [0xFF, 0xFE]
+        Case TextEncoding.UTF16_BE
+            Return [0xFE, 0xFF]
+        Case TextEncoding.UTF32_LE
+            Return [0xFF, 0xFE, 0, 0]
+        Case TextEncoding.UTF32_BE
+            Return [0, 0, 0xFE, 0xFF]
+        Default
+            Return []
+    End Select
+End Function
+
+// The byte a one-byte encoding has for code, or Null when it has none.
+Function ByteOf(code: Int, encoding: TextEncoding): UInt8?
+    Local limit = encoding == TextEncoding.ASCII ? 0x80 : 0x100
+    If code < limit && !(encoding == TextEncoding.WINDOWS_1252 && code >= 0x80 && code < 0xA0)
+        Return code As UInt8
+    End If
+
+    If encoding != TextEncoding.WINDOWS_1252 Then Return Null
+    For i = 0 Until Windows1252.Count
+        If Windows1252[i] == code Then Return (0x80 + i) As UInt8
+    End For
+
+    Return Null
+End Function
+
+// Adds value's low size bytes, the most significant first when big says.
+Function AddUnit(bytes: UInt8[], value: Int, size: Int, big: Bool)
+    For i = 0 Until size
+        Local shift = big ? 8 * (size - 1 - i) : 8 * i
+        bytes.Add(((value >> shift) & 0xFF) As UInt8)
+    End For
+End Function
+
+// The size bytes at at as an unsigned number, the most significant first when big says.
+Function UnitAt(bytes: UInt8[], at: Int, size: Int, big: Bool): Int64
+    Local value: Int64 = 0
+    For i = 0 Until size
+        Local byte = bytes[big ? at + i : at + size - 1 - i] As Int64
+        value = (value << 8) | byte
+    End For
+
+    Return value
+End Function
+
+// Adds code, a Unicode scalar value, in UTF-8.
+Function AddUtf8(bytes: UInt8[], code: Int)
+    If code < 0x80
+        bytes.Add(code As UInt8)
+    ElseIf code < 0x800
+        bytes.Add((0xC0 | (code >> 6)) As UInt8)
+        bytes.Add((0x80 | (code & 0x3F)) As UInt8)
+    ElseIf code < 0x10000
+        bytes.Add((0xE0 | (code >> 12)) As UInt8)
+        bytes.Add((0x80 | ((code >> 6) & 0x3F)) As UInt8)
+        bytes.Add((0x80 | (code & 0x3F)) As UInt8)
+    Else
+        bytes.Add((0xF0 | (code >> 18)) As UInt8)
+        bytes.Add((0x80 | ((code >> 12) & 0x3F)) As UInt8)
+        bytes.Add((0x80 | ((code >> 6) & 0x3F)) As UInt8)
+        bytes.Add((0x80 | (code & 0x3F)) As UInt8)
+    End If
+End Function
+
+// A hex digit's value, in either case, or -1 for a Char that isn't one.
+Function HexValue(c: Char): Int
+    If c >= '0' && c <= '9' Then Return (c As Int) - ('0' As Int)
+    If c >= 'a' && c <= 'f' Then Return (c As Int) - ('a' As Int) + 10
+    If c >= 'A' && c <= 'F' Then Return (c As Int) - ('A' As Int) + 10
+    Return -1
+End Function
+
+// Base64's 64 characters, as bytes, in its URL-safe form when urlSafe says.
+Function Base64Alphabet(urlSafe: Bool): UInt8[]
+    Local last = urlSafe ? "-_" : "+/"
+    Return ("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789" + last).Bytes
+End Function
+
+// Each character of text's place in alphabet, an uppercase one's for a lowercase one when
+// ignoreCase says, after the "=" that fill out its end; or Null when one isn't in it, an "=" comes
+// before another character, the filled-out text isn't a whole number of groups of group
+// characters, or what's left over after the whole groups is a count that ends isn't among.
+Function SymbolValues(text: String, alphabet: UInt8[], ignoreCase: Bool, group: Int,
+                      ends: Int[]): Int[]?
+    Local source = text.Bytes
+    Local count = source.Count
+    While count > 0 && source[count - 1] == 61
+        count -= 1
+    End While
+
+    If count < source.Count && source.Count % group != 0 Then Return Null
+    If !ends.Contains(count % group) Then Return Null
+    Local values: Int[] = []
+    For i = 0 Until count
+        Local byte = source[i]
+        If ignoreCase && byte >= 97 && byte <= 122 Then byte -= 32
+        Local value = alphabet.IndexOf(byte)
+        If value == Null Then Return Null
+        values.Add(value)
+    End For
+
+    Return values
+End Function
+
+// The bytes values hold, bits bits each, the first value's highest bit first; the bits left over
+// at the end, fewer than 8, aren't a byte.
+Function FromBits(values: Int[], bits: Int): UInt8[]
+    Local bytes: UInt8[] = []
+    Local buffer = 0
+    Local held = 0
+    For value In values
+        buffer = ((buffer << bits) | value) & 0xFFFF
+        held += bits
+        If held >= 8
+            held -= 8
+            bytes.Add(((buffer >> held) & 0xFF) As UInt8)
+        End If
+    End For
+
+    Return bytes
+End Function

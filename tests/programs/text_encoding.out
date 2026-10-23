@@ -1,0 +1,27 @@
+UTF8 18 68c3a96c6c6f True UTF8 True 13
+UTF16_LE 26 6800e9006c00 True UTF16_LE True 13
+UTF16_BE 26 006800e9006c True UTF16_BE True 13
+UTF32_LE 48 68000000e900 True UTF32_LE True 13
+UTF32_BE 48 000000680000 True UTF32_BE True 13
+ASCII -1 False [] [] True
+LATIN1 256 True [104, 233, 108, 108, 111] [] True
+WINDOWS_1252 256 True [104, 233, 108, 108, 111] [128, 137, 159] True
+128 True
+[€, , , Ÿ,  , é] [, , , ,  , é]
+odd half low past surrogate bad high ASCII 
+0     
+1 aA== aA 68 NA====== NA
+2 aMM= aMM 68c3 NDBQ==== NDBQ
+3 aMOp aMOp 68c3a9 NDB2S=== NDB2S
+4 aMOpbA== aMOpbA 68c3a96c NDB2S3A= NDB2S3A
+5 aMOpbGw= aMOpbGw 68c3a96c6c NDB2S3DM NDB2S3DM
+6 aMOpbGxv aMOpbGxv 68c3a96c6c6f NDB2S3DMN4====== NDB2S3DMN4
+True True True True True True True
+aMOpbGxvIGXMgSDwn5iAINC2 héllo é 😀 ж
+[104, 105] [104, 105] [0] [0] [0] [0] [255, 239] [0] [0] [104, 105] [104, 105] [0]
+h%C3%A9llo%20e%CC%81%20%F0%9F%98%80%20%D0%B6 a/b%20c%3Fd%3D%C3%A9 ~-._AZaz09
+True € A bad short not UTF-8 True
+&lt;a href=&quot;x&quot;&gt;Tom &amp; Jerry&#39;s é😀&lt;/a&gt; True
+<éé😀 '&amp; &bogus; & � &#; &#12a;
+tab\there\nquote\" apostrophe\' back\\slash nul\0 bell\x07 del\x7F c1\u{85} é😀 True
+😀Aéé bad bad past 7F surrogate empty long short plain é
