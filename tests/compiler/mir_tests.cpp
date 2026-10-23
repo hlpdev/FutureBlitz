@@ -316,6 +316,23 @@ TEST_CASE("a Const known at compile time is no global, used or not", "[mir]") {
           "    return\n");
 }
 
+TEST_CASE("constants print as source code writes them, and a coroutine says it's async",
+          "[mir]") {
+    // A T? of an Enum prints its member, and a String escapes what source code would, braces
+    // too, which start interpolation.
+    const std::string dumped = lower_text("Enum State\n"
+                                          "    Idle\n"
+                                          "    Walk\n"
+                                          "End Enum\n"
+                                          "Global g: State? = State.Walk\n"
+                                          "Global s = \"tab\\there\\r\\n\\0 \\x01 {{x}}\"\n"
+                                          "Async Function Later()\n"
+                                          "End Function\n");
+    CHECK(dumped.contains("global g: State? = State.Walk\n"));
+    CHECK(dumped.contains("global s: String = \"tab\\there\\r\\n\\0 \\x01 {{x}}\"\n"));
+    CHECK(dumped.contains("async function Later()\n"));
+}
+
 TEST_CASE("a Struct is built from its fields, and copies count its Strings", "[mir]") {
     // _0 holds the new Tag and hands it to t. Copying t into u retains its Strings, and changing
     // u.name releases the old one first.

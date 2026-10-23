@@ -132,8 +132,25 @@ std::string constant(const const_value_t& value) {
         case '\t':
             out += "\\t";
             break;
+        case '\r':
+            out += "\\r";
+            break;
+        case '\0':
+            out += "\\0";
+            break;
+        // Braces start interpolation, so a literal one is written twice.
+        case '{':
+            out += "{{";
+            break;
+        case '}':
+            out += "}}";
+            break;
         default:
-            out += c;
+            if (static_cast<unsigned char>(c) < 0x20 || c == 0x7F) {
+                out += std::format("\\x{:02X}", static_cast<unsigned char>(c));
+            } else {
+                out += c;
+            }
         }
     }
 
@@ -239,7 +256,7 @@ private:
 
         if (info.kind == type_kind_t::NULLABLE &&
             !std::holds_alternative<std::nullptr_t>(value.data)) {
-            return constant({ .type = info.inner, .data = value.data });
+            return literal({ .type = info.inner, .data = value.data });
         }
 
         return constant(value);
@@ -272,6 +289,10 @@ private:
 
         if (function.external) {
             out += keyword(function.external->c_abi ? "extern" : "extern runtime") + " ";
+        }
+
+        if (function.is_async) {
+            out += keyword("async") + " ";
         }
 
         out += keyword("function") + " " + paint(function.name, tone_t::BOLD);
@@ -387,8 +408,7 @@ private:
     }
 
     [[nodiscard]] std::string dump(const callback_t& node) const {
-        return std::format("{} {}{}", keyword("Callback"),
-                           m_module.functions[std::to_underlying(node.function)].name,
+        return std::format("{} {}{}", keyword("Callback"), function_name(node.function),
                            node.closure ? " (closure)" : "");
     }
 
