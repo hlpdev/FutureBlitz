@@ -4,7 +4,7 @@ The whole-codebase review's findings for A5, A6, A7, from a review of master
 at ba70e73 (2026-10-22). Only A3's were checked by a skeptic, which confirmed all 12;
 reproduce every other one before fixing it. Files this lane owns: compiler/src/lower.cpp, mir.cpp, include/fb/mir.hpp, evaluate.cpp, codegen.cpp, c_abi.cpp, include/fb/c_abi.hpp, link.cpp.
 
-31 findings: 10 high, 9 medium, 12 low. Fix the highs, then the mediums, then the lows.
+31 findings: 10 high, 9 medium, 12 low, and A7-new-1 (medium), which lane 4 found. Fix the highs, then the mediums, then the lows.
 
 Each finding's Status line is one of: open; fixed in <commit> (with its test);
 dropped, with why (it doesn't reproduce, or the spec says otherwise).
@@ -222,7 +222,7 @@ Skeptic: confirmed=True, medium. skA5/refl_a.fb (a Class with `Method Plain()` a
 
 ## A5-6 (medium): Lock evaluates the Mutex's object expression twice
 
-Status: open
+Status: fixed in 5039a78 (lock reaches its mutex once and holds the object it's in), with a case in tests/programs/atomic_mutex.fb
 
 Where: compiler/src/lower.cpp:3246
 
@@ -240,7 +240,7 @@ Skeptic: confirmed=True, medium. lower_stmt(lock_stmt_t) calls lower_place(node.
 
 ## A6-3 (medium): A cancelled Await in a Defer or Finally leaks the error being thrown
 
-Status: open
+Status: fixed in 592ec85 (a cancelled await in a defer or finally lets go of the error on its way out), with cases in tests/programs/scheduler_cancel_cleanups.fb
 
 Where: compiler/src/lower.cpp:6584
 
@@ -256,7 +256,7 @@ Suggested fix: Track the raised error local while raise() lowers the cleanups, f
 
 ## A6-6 (medium): `+=`/`-=` on a Ptr Property emits invalid LLVM IR
 
-Status: open
+Status: fixed in f4a334a (+= and -= on a ptr property step by its t's size), with a case in tests/programs/pointers_more.fb
 
 Where: compiler/src/lower.cpp:4292
 
@@ -272,7 +272,7 @@ Suggested fix: In combine(), emit a pointer_t when type_of(left) is a Ptr (op AD
 
 ## A6-7 (medium): Property op= and ++ call the Set on another object when the Get changes the receiver
 
-Status: open
+Status: fixed in bb2b5a2 (a property's op= and ++ run its get and set on one object), with a case in tests/programs/property_kinds.fb
 
 Where: compiler/src/lower.cpp:4266
 
@@ -288,7 +288,7 @@ Suggested fix: Settle the receiver whenever the Get runs (op= and ++), for examp
 
 ## A6-8 (medium): Const Functions run DebugAssert in release builds
 
-Status: open
+Status: fixed in cd89838 (a const function runs as the build does, so release builds leave its debugassert out): evaluate() takes the build mode, which sema's analyze() gets from the driver, and spec 13 says so; with tests/compiler/evaluate_tests.cpp and tests/programs/release_const_debug_assert.fb
 
 Where: compiler/src/evaluate.cpp:549
 
@@ -304,7 +304,7 @@ Suggested fix: Pass the build mode into evaluate() and answer DEBUG_BUILD with i
 
 ## A6-9 (medium): The steps, depth, and size limit errors don't point into the Const Function
 
-Status: open
+Status: fixed in 73798ad (a const function's limits point at where it got to, and the depth limit has a test): calls and runtime calls carry their span, and the evaluator points a limit at the last one or operation it got to, as spec 13 now says; with tests/compiler/evaluate_tests.cpp
 
 Where: compiler/src/evaluate.cpp:139
 
@@ -320,7 +320,7 @@ Suggested fix: Give these failures the span of the statement or call being run. 
 
 ## A6-10 (medium): No test for the 10,000-deep call limit
 
-Status: open
+Status: fixed in 73798ad (a const function's limits point at where it got to, and the depth limit has a test), with the depth tests in tests/compiler/evaluate_tests.cpp
 
 Where: compiler/src/evaluate.cpp:211
 
@@ -336,7 +336,7 @@ Suggested fix: Add a sema_tests.cpp case with a recursive Const Function past 10
 
 ## A7-2 (medium): T[].Count (and Capacity) silently wrap once an array has more than 2^31-1 elements
 
-Status: open
+Status: fixed in a3143b3 (an array holds at most as many elements as an int counts): runtime/src/array.cpp's reserve_one() stops the capacity at 2147483647 and panics past it, as spec 14 now says; with a test in tests/runtime/runtime_tests.cpp and tests/programs/release_panic_array_full.fb
 
 Where: compiler/src/codegen.cpp:3431
 
@@ -366,7 +366,7 @@ Skeptic: confirmed=True, medium. Reproduced with `fb build --release big.fb` (th
 
 ## A5-8 (low): Two doc comments sit on the wrong declarations
 
-Status: open
+Status: fixed in 2e736be (lowering's comments say what its code does now)
 
 Where: compiler/src/lower.cpp:112
 
@@ -384,7 +384,7 @@ Skeptic: confirmed=True, low. lower.cpp:112-113 puts cleanup_t's sentence ('What
 
 ## A5-9 (low): Stale comments describe refcounting as Strings-only and name the wrong contents
 
-Status: open
+Status: fixed in 2e736be (lowering's comments say what its code does now)
 
 Where: compiler/src/lower.cpp:2846
 
@@ -402,7 +402,7 @@ Skeptic: confirmed=True, low. The stale comments are all there. Line 184-186 say
 
 ## A6-11 (low): A slice panic shows a UInt64 bound past Int64's range as negative
 
-Status: open
+Status: fixed in 9699c5e (a slice's panic shows its bounds as they are), with tests/programs/panic_slice_unsigned.fb
 
 Where: compiler/src/lower.cpp:4968
 
@@ -418,7 +418,7 @@ Suggested fix: Show the bounds as written (TO_TEXT of the original operands) in 
 
 ## A6-12 (low): --show mir prints some constants wrongly and doesn't mark coroutines
 
-Status: open
+Status: fixed in 99912f3 (the mir dump writes constants as source code does, and marks coroutines async), with a test in tests/compiler/mir_tests.cpp
 
 Where: compiler/src/mir.cpp:242
 
@@ -434,7 +434,7 @@ Suggested fix: Recurse into literal() for a NULLABLE's inner value, escape \r, \
 
 ## A6-13 (low): Misplaced and stale comments in mir.hpp
 
-Status: open
+Status: fixed in 32ebe5d (mir's comments sit on what they describe, and match it); runtime_call_t::span's in 73798ad (a const function's limits point at where it got to, and the depth limit has a test)
 
 Where: compiler/include/fb/mir.hpp:305
 
@@ -450,7 +450,7 @@ Suggested fix: Move rvalue_t's comment above the rvalue_t alias, and mir_module_
 
 ## A6-14 (low): mir.cpp's example comments don't match what it prints
 
-Status: open
+Status: fixed in 32ebe5d (mir's comments sit on what they describe, and match it)
 
 Where: compiler/src/mir.cpp:500
 
@@ -466,7 +466,7 @@ Suggested fix: Update the two comments to "lock @score" and "suspend, then bb3, 
 
 ## A6-15 (low): Stale and misattached comments in lower.cpp
 
-Status: open
+Status: fixed in 2e736be (lowering's comments say what its code does now); a map literal runs Map's New() in 888ba7d (a map literal runs map's new before its adds), with a test in tests/compiler/mir_tests.cpp
 
 Where: compiler/src/lower.cpp:6763
 
@@ -482,7 +482,7 @@ Suggested fix: Move the call comment onto lower_call(), and keep only the Atomic
 
 ## A7-3 (low): An Extern C symbol named `string` is renamed to `string.1` by LLVM and the program fails to link
 
-Status: open
+Status: fixed in e96e301 (codegen's own constants have fb. names, so an extern keeps its symbol), with a test in tests/compiler/c_abi_tests.cpp
 
 Where: compiler/src/codegen.cpp:1621
 
@@ -509,7 +509,7 @@ Skeptic: confirmed=True, medium. Reproduced. `fb check --show llvm sym.fb` shows
 
 ## A7-4 (low): Extern "runtime" calls skip the C ABI's zeroext/signext, which the C++ runtime is compiled to expect
 
-Status: open
+Status: fixed in e81551e (the runtime's externs extend small integers as c does), with a test in tests/compiler/c_abi_tests.cpp
 
 Where: compiler/src/codegen.cpp:1121
 
@@ -527,7 +527,7 @@ Skeptic: confirmed=True, low. Shown by reading the code. lower.cpp:625 sets `.c_
 
 ## A7-5 (low): generate_channel_functions' comment says a Channel's visit visits nothing, but it visits the ring's elements
 
-Status: open
+Status: fixed in 2a003b1 (codegen's and the c abi's comments cover what the code handles)
 
 Where: compiler/src/codegen.cpp:3070
 
@@ -545,7 +545,7 @@ Skeptic: confirmed=True, low. The comment at codegen.cpp:3070-3072 ends "Its ele
 
 ## A7-6 (low): Comments say the Globals' ready flags exist only in debug builds; release builds have them too
 
-Status: open
+Status: fixed in 2a003b1 (codegen's and the c abi's comments cover what the code handles), and m_ready's comment in batch 1's 6bc4fb7
 
 Where: compiler/src/codegen.cpp:308
 
@@ -563,7 +563,7 @@ Skeptic: confirmed=True, low. m_ready's comment (codegen.cpp:308) says "In debug
 
 ## A7-7 (low): Doc comments leave out cases the code handles (Callback as C data, Enums whose zero isn't 0)
 
-Status: open
+Status: fixed in 2a003b1 (codegen's and the c abi's comments cover what the code handles)
 
 Where: compiler/include/fb/c_abi.hpp:13
 
@@ -581,7 +581,7 @@ Skeptic: confirmed=True, low. In c_abi.hpp, line 13 (`c_scalar_t::INTEGER`: "An 
 
 ## A7-new-1 (medium): Every top-level Const known at compile time becomes an MIR global, used or not
 
-Status: open
+Status: fixed in 4ab8b33 (a const known at compile time gets a global only where code needs its place), with a test in tests/compiler/mir_tests.cpp
 
 Where: compiler/src/lower.cpp:497
 
