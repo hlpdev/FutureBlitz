@@ -966,8 +966,8 @@ private:
     }
 
     /// The Public names a top-level statement of a standard library module declares, and the
-    /// Public Methods it adds to T[] or a built-in type, like CString. Importing the module
-    /// wouldn't bring in the rest.
+    /// Public Methods and Properties it adds to T[] or a built-in type, like CString's ToString
+    /// or an Int64's Seconds. Importing the module wouldn't bring in the rest.
     static std::vector<std_name_t> declared_names(const ast_t& ast, const stmt_id_t id,
                                                   const std::string& module) {
         const stmt_node_t& node = ast.get(id).node;
@@ -1018,16 +1018,19 @@ private:
             return {};
         }
 
-        std::vector<std_name_t> methods;
+        std::vector<std_name_t> members;
+        const std::string_view extended = type ? builtin_name(*type) : std::string_view();
         for (const stmt_id_t member : extension->members) {
             if (const auto* method = std::get_if<function_stmt_t>(&ast.get(member).node)) {
-                std::ranges::copy(named(method->name.text, method->modifiers, array,
-                                        type ? builtin_name(*type) : std::string_view()),
-                                  std::back_inserter(methods));
+                std::ranges::copy(named(method->name.text, method->modifiers, array, extended),
+                                  std::back_inserter(members));
+            } else if (const auto* property = std::get_if<property_stmt_t>(&ast.get(member).node)) {
+                std::ranges::copy(named(property->name.text, property->modifiers, array, extended),
+                                  std::back_inserter(members));
             }
         }
 
-        return methods;
+        return members;
     }
 };
 

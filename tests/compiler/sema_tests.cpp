@@ -4768,6 +4768,15 @@ TEST_CASE("the built-in types have the built-in Interfaces' Methods", "[sema]") 
           errors_t{ "Missing: Int64 has no member named 'Missing'" });
     CHECK(errors_of("Local x = 1.0e300.Missing") ==
           errors_t{ "Missing: Float64 has no member named 'Missing'" });
+
+    // A unit std.time's Extends give says which Import it needs, as a Method does, on a literal
+    // or a variable.
+    CHECK(errors_of("Import std.core\nLocal d = 2.Seconds\nLocal m = 1.5.Minutes\n"
+                    "Local n: Int64 = 5\nLocal l = n.Milliseconds") ==
+          errors_t{ "Seconds: 'Seconds' is in std.time, which this file doesn't import",
+                    "Minutes: 'Minutes' is in std.time, which this file doesn't import",
+                    "Milliseconds: 'Milliseconds' is in std.time, which this file doesn't "
+                    "import" });
 }
 
 TEST_CASE("Printable puts a value in a string", "[sema]") {
