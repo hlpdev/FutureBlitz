@@ -9,6 +9,7 @@ Shared Class Tally
     Field Sum: Atomic<Int64>
     Field OutOfOrder: Atomic<Int>
     Field Producing: Atomic<Int>
+    Field Below: Atomic<Int>
 End Class
 
 // Four threads put in 2000 values each, while four take them out until the producers are done and
@@ -53,6 +54,39 @@ Function Pass(): String
 End Function
 
 Print(Pass())
+
+// A queue's Count is how many values it holds, so it's never below 0, though four threads read it
+// while they take what one puts in.
+Function Counted(): String
+    Const queue = ConcurrentQueue<Int>()
+    Const tally = Tally()
+    tally.Producing.Store(1)
+    Local threads: Thread[] = []
+    threads.Add(Thread.Start(Function()
+        For i = 0 Until 100000
+            queue.Enqueue(i)
+        End For
+
+        tally.Producing.Subtract(1)
+    End Function))
+    For t = 1 To 4
+        threads.Add(Thread.Start(Function()
+            Loop
+                Local value = queue.TryDequeue()
+                If queue.Count < 0 Then tally.Below.Add(1)
+                If value == Null && tally.Producing.Load() == 0 && queue.Count <= 0 Then Break
+            End Loop
+        End Function))
+    End For
+
+    For thread In threads
+        thread.Join()
+    End For
+
+    Return "below 0 {tally.Below.Load()} times, {queue.Count} left"
+End Function
+
+Print(Counted())
 
 Const queue = ConcurrentQueue<String>()
 Print(queue.Count, queue.TryDequeue() == Null, queue.TryPeek() == Null, queue.ToArray())
