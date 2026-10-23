@@ -717,8 +717,7 @@ TEST_CASE("std.compress's formats link the C libraries they're over, with their 
     CHECK(minizip.contains("BSD Zero Clause License"));
 }
 
-TEST_CASE("std.image's formats link the C libraries they're over, with their notices",
-          "[driver]") {
+TEST_CASE("std.image's formats link the C libraries they're over, with their notices", "[driver]") {
     const auto bundled = [](const std::string_view code) {
         const fb::compilation_t compilation = fb::compile(
             "test.fb", std::format("Import std.core\nImport std.image\nLocal none: UInt8[] = "
@@ -748,11 +747,9 @@ TEST_CASE("std.image's formats link the C libraries they're over, with their not
     CHECK(bundled("Print((Try Svg.Parse(\"\")).Width)") == names_t{ "nanosvg" });
     // QOI and GIF are the runtime's own, and need no library.
     CHECK(bundled("Print(Qoi.Encode(image).Count, (Try Qoi.Decode(none)).Width)").empty());
-    CHECK(bundled("Print(Gif.Encode(image).Count, (Try Gif.DecodeAnimation(none)).Count)")
-              .empty());
+    CHECK(bundled("Print(Gif.Encode(image).Count, (Try Gif.DecodeAnimation(none)).Count)").empty());
     // Image.Decode reads every format, so it links each decoder's library.
-    CHECK(bundled("Print((Try Image.Decode(none)).Width)") ==
-          names_t{ "stb_image", "libwebp" });
+    CHECK(bundled("Print((Try Image.Decode(none)).Width)") == names_t{ "stb_image", "libwebp" });
 
     const auto notice = [](const std::string_view name) {
         for (const fb::build_config::bundled_library_t& library :
