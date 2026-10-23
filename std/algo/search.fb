@@ -207,7 +207,8 @@ Class Search<N, C>
     Field Nodes: N[] = []
     Field Parents: Int[] = []
     Field Costs: C[] = []
-    // The nodes in the order they came out of the queue, each once, at its cheapest.
+    // The nodes in the order they first came out of the queue, each once: with a guess of 0, as
+    // Dijkstra's is, each at its cheapest.
     Field Settled: Int[] = []
     Field Goal: Int = -1
 
@@ -219,6 +220,7 @@ Class Search<N, C>
         Parents.Add(-1)
         Costs.Add(C.Zero())
         Local done = [False]
+        Local listed = [False]
         Local queue = PriorityQueue<Waiting<C>>(Before<C>)
         Local added = 0
         Local guess = heuristic(start)
@@ -226,10 +228,13 @@ Class Search<N, C>
         While queue.Count > 0
             Local waiting = queue.Pop()
             Local at = waiting.Node
-            // A node comes out once at its cheapest; what's left of it in the queue was dearer.
+            // What's left of a done node in the queue was dearer.
             If done[at] Then Continue
             done[at] = True
-            Settled.Add(at)
+            If !listed[at]
+                listed[at] = True
+                Settled.Add(at)
+            End If
             Local node = Nodes[at]
             If goal != Null
                 If goal(node)
@@ -252,11 +257,16 @@ Class Search<N, C>
                     Parents.Add(at)
                     Costs.Add(cost)
                     done.Add(False)
-                ElseIf done[to] || !(cost < Costs[to])
+                    listed.Add(False)
+                ElseIf !(cost < Costs[to])
                     Continue
                 Else
+                    // A guess that's no more than what's left, but more than a step's weight plus
+                    // the guess past it, can settle a node before its cheapest way, which then
+                    // opens it again. A guess of 0 never does.
                     Parents[to] = at
                     Costs[to] = cost
+                    done[to] = False
                 End If
 
                 added++

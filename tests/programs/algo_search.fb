@@ -98,6 +98,28 @@ Print(star?.Cost ?? -1, plainPath?.Cost ?? -1, starExpanded < expanded, star?.No
 Print(star?.Nodes ?? [-1])
 Print(AStar(0, Steps, Function(cell) => Manhattan(cell, 55), Function(cell) => cell == 55) == Null)
 
+// A guess that's never more than what's left, though A's, 6, is more than its step to C, 1, and
+// C's guess, 0: C settles first by B, at 4, and opens again by A, at 2, so the path is the
+// cheapest, as Dijkstra's is.
+Local edges = Map<String, (String, Int)[]>()
+edges["S"] = [("A", 1), ("B", 1)]
+edges["A"] = [("C", 1)]
+edges["B"] = [("C", 3)]
+edges["C"] = [("G", 5)]
+edges["G"] = []
+Local guesses = Map<String, Int>()
+guesses["S"] = 0
+guesses["A"] = 6
+guesses["B"] = 0
+guesses["C"] = 0
+guesses["G"] = 0
+Local reopened = AStar("S", Function(n) => edges[n], Function(n) => guesses[n],
+                       Function(n) => n == "G")
+Local direct = Dijkstra("S", Function(n) => edges[n], Function(n) => n == "G")
+Local noNames: String[] = []
+Print(reopened?.Nodes ?? noNames, reopened?.Cost ?? -1, direct?.Nodes ?? noNames,
+      direct?.Cost ?? -1)
+
 // Any Hashable nodes: a Struct of its own.
 Struct Room Implements Hashable, Printable
     Field Name: String
