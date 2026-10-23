@@ -3407,20 +3407,75 @@ private:
             return missing_expr();
         case token_kind_t::KW_NEW: {
             // Blitz's "New Foo" is "Foo()" here, which is what's parsed after the error, once
-            // the News are skipped.
+            // the News are skipped: a call with no arguments when no '(' comes after the type.
+            // The error names the type as it's written, with its qualifier and type arguments.
             while (accept(token_kind_t::KW_NEW)) {}
 
-            const std::string_view type =
-                at(token_kind_t::IDENTIFIER) ? text(peek()) : std::string_view("Point");
+            const std::size_t start = m_pos;
+            const std::size_t after = type_end(start);
+            std::string_view type = "Point";
+            if (after > start) {
+                const std::uint32_t begin = m_tokens[start].span.begin;
+                const std::uint32_t end = m_tokens[after - 1].span.end;
+                type = m_file.slice({ .file = m_file.id(), .begin = begin, .end = end });
+            }
+
             error(token.span,
                   "an object is made by calling its type, like {}(); New only declares a "
                   "constructor",
                   type);
-            return parse_primary();
+            if (after == start) {
+                return parse_primary();
+            }
+
+            const bool called = m_tokens[after].kind == token_kind_t::LEFT_PAREN;
+            const expr_id_t made = parse_postfix(parse_primary());
+            if (called) {
+                return made;
+            }
+
+            return add_expr(span_from(m_tokens[start].span.begin),
+                            call_expr_t{ .callee = made, .arguments = {} });
         }
         default:
             report_expected("an expression");
             return missing_expr();
+        }
+    }
+
+    /// Where a type written as an expression ends, from the token at `at`: a name, the ".name"s
+    /// of a qualifier before it, and its type arguments, "<...>". `at` when no name is there.
+    [[nodiscard]] std::size_t type_end(std::size_t at) const {
+        if (m_tokens[at].kind != token_kind_t::IDENTIFIER) {
+            return at;
+        }
+
+        ++at;
+        while (true) {
+            if (m_tokens[at].kind == token_kind_t::DOT &&
+                m_tokens[at + 1].kind == token_kind_t::IDENTIFIER) {
+                at += 2;
+                continue;
+            }
+
+            if (m_tokens[at].kind != token_kind_t::LESS) {
+                return at;
+            }
+
+            std::size_t depth = 0;
+            for (std::size_t scan = at; scan < m_tokens.size(); ++scan) {
+                const token_kind_t kind = m_tokens[scan].kind;
+                if (kind == token_kind_t::NEWLINE || kind == token_kind_t::END_OF_FILE ||
+                    kind == token_kind_t::LEFT_PAREN) {
+                    return at;
+                }
+
+                depth += kind == token_kind_t::LESS ? 1 : 0;
+                if (kind == token_kind_t::GREATER && --depth == 0) {
+                    at = scan + 1;
+                    break;
+                }
+            }
         }
     }
 
