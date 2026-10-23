@@ -15621,8 +15621,7 @@ private:
     /// Why a ReadOnly Field can't change here: the code isn't its Class's New, or it's a lambda's
     /// or a Parallel For's body in that New, which runs later or on other threads.
     void report_read_only(const span_t span, const symbol_t& field) {
-        const bool in_new = m_function &&
-                            symbol(*m_function).kind == symbol_kind_t::CONSTRUCTOR &&
+        const bool in_new = m_function && symbol(*m_function).kind == symbol_kind_t::CONSTRUCTOR &&
                             symbol(*m_function).owner == field.owner;
         if (in_new && !m_lambdas.empty()) {
             const bool parallel = m_lambdas.back().parallel;
