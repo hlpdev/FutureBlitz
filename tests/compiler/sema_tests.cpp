@@ -3334,6 +3334,22 @@ TEST_CASE("type arguments can be written, or come from the type expected", "[sem
           "Pair<Int64, String>");
     CHECK(probe_generic("Local s: Pile<Int> = Pile()") == "Pile<Int32>");
     CHECK(probe_generic("Local f: Func(String[]): String = First") == "Func(String[]): String");
+
+    // So does a generic Function's name passed to an overload, a constructor's too, from the
+    // overload's Func parameter.
+    constexpr std::string_view takers = "Function Take(f: Func(Int, Int): Int): Int => f(1, 2)\n"
+                                        "Function Take(): Int => 0\n"
+                                        "Class Keeper\n"
+                                        "    Field Pick: Func(Int, Int): Int\n"
+                                        "    New()\n"
+                                        "        Pick = Max<Int>\n"
+                                        "    End New\n"
+                                        "    New(pick: Func(Int, Int): Int)\n"
+                                        "        Pick = pick\n"
+                                        "    End New\n"
+                                        "End Class\n";
+    CHECK(probe_generic(std::format("{}Local n = Take(Max)", takers)) == "Int32");
+    CHECK(probe_generic(std::format("{}Local k = Keeper(Max)", takers)) == "Keeper");
 }
 
 TEST_CASE("an instance's members have its type arguments", "[sema]") {

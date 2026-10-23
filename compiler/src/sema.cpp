@@ -15868,6 +15868,29 @@ private:
         return !found.empty() && is_function(symbol(found.front()));
     }
 
+    /// Whether `id` names a generic Function without its type arguments, which only the Func
+    /// type expected where it's used says, as each overload's parameter does in a call.
+    [[nodiscard]] bool names_generic_function(const expr_id_t id) {
+        return quietly([&] {
+            std::vector<symbol_id_t> found;
+            if (const std::optional<qualified_t> qualified = qualified_name(id)) {
+                if (!qualified->member->type_arguments.empty()) {
+                    return false;
+                }
+
+                found = in_module(qualified->module, qualified->member->member.text, span_of(id));
+            } else if (const auto* name = std::get_if<name_expr_t>(&m_ast.get(id).node);
+                       name != nullptr && name->type_arguments.empty() && !find_local(name->name) &&
+                       own_members(name->name).empty()) {
+                found = top_level(name->name, span_of(id));
+            }
+
+            return std::ranges::any_of(found, [&](const symbol_id_t function) {
+                return is_function(symbol(function)) && !symbol(function).type_parameters.empty();
+            });
+        });
+    }
+
     type_id_t check_expr(const expr_id_t id, const name_expr_t& node, const type_id_t hint) {
         // A Const type parameter is a value, which each instance has.
         if (const std::optional<type_id_t> parameter = parameter_named(id);
@@ -20380,7 +20403,7 @@ private:
         for (const argument_t& argument : node.arguments) {
             const type_id_t type = quietly([&] { return check(argument.value, type_id_t::NONE); });
             if (type == type_id_t::INVALID && !is_flexible(argument.value) &&
-                !is_null(argument.value)) {
+                !is_null(argument.value) && !names_generic_function(argument.value)) {
                 check_alone(node.arguments); // report the argument's own errors instead
                 return std::nullopt;
             }
@@ -20597,6 +20620,17 @@ private:
         // Code is a Callback only where one is expected.
         if (is_callback(type) && !argument.by_ref && is_code(argument.value)) {
             return check(argument.value, type) == type ? match_t::EXACT : match_t::NONE;
+        }
+
+        // A generic Function's name fits a Func its type arguments can make.
+        if (!argument.by_ref && names_generic_function(argument.value)) {
+            const type_id_t made = check(argument.value, type);
+            if (made == type) {
+                return match_t::EXACT;
+            }
+
+            return made != type_id_t::INVALID && converts(made, type) ? match_t::CONVERTIBLE
+                                                                      : match_t::NONE;
         }
 
         const type_id_t natural = check(argument.value, type_id_t::NONE);
