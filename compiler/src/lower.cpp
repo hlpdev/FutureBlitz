@@ -3141,12 +3141,13 @@ private:
         }
 
         const place_t target = lower_place(node.target);
-        emit(assign_t{
-            .target = target,
-            .value =
-                binary_t{
-                    .op = change, .left = target, .right = one(type_of(target)), .span = span },
-        });
+        const binary_t changed{
+            .op = change,
+            .left = target,
+            .right = one(type_of(target)),
+            .span = span,
+        };
+        emit(assign_t{ .target = target, .value = changed });
         finish_statement();
     }
 
