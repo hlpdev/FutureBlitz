@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <chrono>
 #include <cstddef>
 #include <expected>
 #include <filesystem>
@@ -27,6 +28,7 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <thread>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -1907,6 +1909,23 @@ std::filesystem::path temporary_path(const std::filesystem::path& stem,
     std::filesystem::path name = stem;
     name += std::format("-{:08x}{}", random(), extension);
     return folder / name;
+}
+
+bool remove_temporary(const std::filesystem::path& path) {
+    constexpr int tries = 40;
+    constexpr auto pause = std::chrono::milliseconds(50);
+    for (int i = 0; i < tries; ++i) {
+        std::error_code removing;
+        std::filesystem::remove_all(path, removing);
+        std::error_code looking;
+        if (!std::filesystem::exists(path, looking) && !looking) {
+            return true;
+        }
+
+        std::this_thread::sleep_for(pause);
+    }
+
+    return false;
 }
 
 } // namespace fb

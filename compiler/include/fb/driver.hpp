@@ -176,4 +176,10 @@ struct link_errors_t {
 [[nodiscard]] std::filesystem::path temporary_path(const std::filesystem::path& stem,
                                                    std::string_view extension);
 
+/// Removes `path`, a file or a folder and what's in it, that temporary_path() named, and gives
+/// whether it's gone. A program that just ended can hold its files for a moment while Windows,
+/// or a scanner that read the new executable, lets go of them, so a removal that fails is tried
+/// again for up to two seconds.
+bool remove_temporary(const std::filesystem::path& path);
+
 } // namespace fb
