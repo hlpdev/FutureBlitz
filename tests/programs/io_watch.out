@@ -9,6 +9,8 @@ closed True True True
 case renamed True
 case removed True
 case made again True
+slashed True
+relative True True
 file changed True
 waiting True
 NOT_FOUND
