@@ -134,6 +134,11 @@ So far, std/ holds:
 | std/net/address.fb | `IpFamily`, `IpAddress`, and `SocketAddress` |
 | std/net/url.fb | `Url` and `QueryParams`, as the WHATWG URL Standard has them |
 | std/net/dns.fb | `Dns`, over libuv's getaddrinfo through the runtime's `fb_io_` functions |
+| std/net/socket.fb | What the sockets share: the runtime's `fb_io_net_` functions, an address's bytes, the errors their codes mean, and the streams' and listeners' sockets |
+| std/net/tcp.fb | `TcpListener` and `TcpStream` |
+| std/net/udp.fb | `UdpSocket` and `Datagram` |
+| std/net/ipc.fb | `IpcListener` and `IpcStream`, named pipes on Windows and Unix sockets elsewhere |
+| std/net/lan.fb | `LanAnnouncer`, `Lan`, and `LanService`, over mDNS and DNS-SD |
 
 What the language itself uses, `Error` for Throw and Catch, the Interfaces, `Iterator<T>`, and
 `Map<K, V>` for `{key: value}`, is always std's, whatever a program calls by those names.
@@ -747,8 +752,8 @@ streams. `Import std.compress` brings in all of std/compress/.
 
 #### std.net
 
-Step 28's half without streams is built: the addresses, `Url` and `QueryParams`, and `Dns`.
-`Import std.net` brings in std/net/.
+Step 28 is built: the addresses, `Url` and `QueryParams`, `Dns`, the sockets, and LAN
+discovery. `Import std.net` brings in std/net/.
 
 - `IpAddress`, IPv4 or IPv6, by its `Family`, an `IpFamily`: `V4(a, b, c, d)`, `V6` of eight
   groups, `FromBytes` of 4 or 16, and `Parse(text)`, which takes IPv4's dotted decimals without
@@ -785,11 +790,41 @@ Step 28's half without streams is built: the addresses, `Url` and `QueryParams`,
   none, an empty one, one with a NUL, or one longer than 255 bytes, and of `OTHER` for a lookup
   that fails another way. ResolveAsync's addresses come back in an array the I/O thread makes,
   so a coroutine that goes before its lookup finishes leaves nothing of its own to it.
-- Waiting for step 13's streams and step 18's Cancellation: `TcpListener` and `TcpStream`
-  (Reader and Writer), `UdpSocket`, with timeouts and Async twins, which take a SocketAddress
-  or a host and port; `IpcListener.Listen(name)` and `IpcStream.Connect(name)`, one IPC type,
-  named pipes on Windows and Unix sockets elsewhere, chosen by libuv, never by the program; and
-  LAN discovery, UDP broadcast and mDNS/DNS-SD.
+- The sockets are the runtime's, over libuv's handles on the I/O thread, each closed when its
+  object goes, or at `Close()`, which returns once its port or name is free; the program's end
+  closes what's left. A blocking call runs nothing else on its thread meanwhile, and an Async
+  one waits on the main thread, keeping the program running, as a timer does, until it's done
+  or its socket closes. A timeout is a `Duration?`, Null to wait as long as it takes, and one
+  that runs out throws a `TimeoutError`. Errors are NetErrors: `REFUSED` where nothing listens,
+  `RESET`, `UNREACHABLE`, and `CLOSED` for a socket that's closed, or that closing stopped.
+- `TcpListener.Listen(address, backlog)` or `Listen(host, port)`, port 0 for the OS's pick, with
+  `LocalAddress`, `Accept(timeout)` and `AcceptAsync`, giving `TcpStream`s; `TcpStream.Connect`
+  and `ConnectAsync` to a SocketAddress, or a host and port, trying its addresses in Dns's order,
+  each for the timeout. A TcpStream is a Reader and a Writer, so std.io's Copy, ReadAll,
+  ReadExact, buffered and binary streams take one, with `ReadTimeout`, `LocalAddress`,
+  `RemoteAddress`, `ShutdownWrite` (and its Async twin), which ends what it writes, and
+  Nagle's algorithm off. A Read or Write that fails throws an IOError, as a Reader's does,
+  whose Cause is the NetError or TimeoutError. A listener's backlog is 511 unless it's given.
+- `UdpSocket.Bind(address, reuseAddress)` or `Bind(host, port, reuseAddress)`, `Send(bytes,
+  target)` and `SendAsync`, `Receive(timeout)` and `ReceiveAsync`, giving a `Datagram`, its
+  `Bytes` and where it came `From`; `SetBroadcast`, `SetMulticastLoopback`, `SetMulticastTtl`,
+  `SetMulticastInterface`, `JoinMulticast`, and `LeaveMulticast`.
+- `IpcListener.Listen(name)` and `IpcStream.Connect(name)`, one IPC type, a named pipe
+  (`\\.\pipe\<name>`) on Windows and a Unix socket (`<name>.sock` in the temporary folder)
+  elsewhere, chosen by libuv, never by the program; a name is 1 to 64 ASCII letters, digits,
+  '.', '-', and '_', or a panic. An IpcStream is a Reader and Writer as a TcpStream is, but for
+  ShutdownWrite, since a named pipe can't end one way only. A Unix socket's file that a program
+  left behind is taken over; on Windows a name is taken until its connections close too, both
+  ends.
+- LAN discovery is mDNS and DNS-SD's (RFCs 6762 and 6763), as Bonjour and Avahi have them, over
+  IPv4 through each interface but loopback's: `LanAnnouncer.Start(type, name, port, text)`
+  offers a service of a type like `"_mygame._udp"`, answering on the main thread until `Stop()`,
+  which says goodbye, or until it goes; `Lan.Find(type, timeout)` and `FindAsync` give the
+  `LanService`s that answer (`Type`, `Name`, `Host`, `Port`, `Addresses`, `Text`), asking twice;
+  `Lan.LocalAddresses()` and `Lan.HostName()`. Each takes a discovery port of its own in place
+  of mDNS's 5353, which keeps it from other responders. A LanAnnouncer doesn't probe for a name
+  another has, and a blocking Find doesn't find what its own thread announces, which only
+  answers while that thread runs Async code. UDP broadcast is UdpSocket's.
 - `TlsStream` over any stream (mbedTLS, the OS's roots by default), and a TLS listener.
 - std.net.http: `Method`, `StatusCode`, `Headers`, `Body`; `HttpClient`, `Http.Get` and the rest
   (libcurl: redirects, proxies, cookies, gzip, HTTP/2), `Download(url, path, progress)`;
