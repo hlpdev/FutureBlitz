@@ -1,0 +1,30 @@
+False False False True
+NONE NONE plain
+80 24 NONE False False
+True False
+written, styled
+to stderr
+key: a
+key: Up
+key: Ctrl+Right
+key: z
+key: Enter
+key: Ctrl+C
+Password: 
+password: secret
+? Proceed? (y/n) y
+confirm: True
+? Name? (nobody) 
+ask: nobody
+? Size?
+  1) small
+  2) medium
+  3) large
+  Choose 1-3 (2): 3
+choose: 2
+key: k
+
+? More? 
+ended: True True True
+[?1049h[?25l[?2004h[?1000h[?1002h[?1006h80 24 True
+[0m[?1006l[?1002l[?1000l[?2004l[?25h[?1049l
