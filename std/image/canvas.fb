@@ -116,7 +116,8 @@ Public Class Canvas
         End Set
     End Property
 
-    // Fills the rectangle. Panics when its corner or size isn't finite, or its size is negative.
+    // Fills the rectangle. Panics when its corner or size isn't finite, its size is negative, or
+    // its far corner is past what a Float holds.
     @PanicsAtCaller
     Public Method FillRect(rect: Rect, color: Color32)
         FillRings([CornersOf(rect)], color)
@@ -229,8 +230,8 @@ Package Function RgbaOf(color: Color32): UInt32
            (color.a As UInt32)
 End Function
 
-// The rectangle's corners, from its smallest X and Y around. Panics when it isn't finite or its
-// size is negative.
+// The rectangle's corners, from its smallest X and Y around. Panics when it isn't finite, its
+// size is negative, or its far corner is past what a Float holds.
 @PanicsAtCaller
 Function CornersOf(rect: Rect): Vec2[]
     If !IsFinite(rect.X) || !IsFinite(rect.Y) || !IsFinite(rect.Width) || !IsFinite(rect.Height)
@@ -243,6 +244,9 @@ Function CornersOf(rect: Rect): Vec2[]
 
     Local right = rect.X + rect.Width
     Local bottom = rect.Y + rect.Height
+    If !IsFinite(right) || !IsFinite(bottom)
+        Panic("a rectangle drawn ends at a finite corner, not {rect}")
+    End If
     Return [Vec2(rect.X, rect.Y), Vec2(right, rect.Y), Vec2(right, bottom), Vec2(rect.X, bottom)]
 End Function
 

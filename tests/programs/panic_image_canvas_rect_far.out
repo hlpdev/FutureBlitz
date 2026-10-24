@@ -1,0 +1,2 @@
+255 0
+panic: a rectangle drawn ends at a finite corner, not Rect(3e+38, 1, 3e+38, 2) at panic_image_canvas_rect_far.fb:11:1
