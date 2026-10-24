@@ -1,0 +1,6 @@
+// A Percent past 100, like a negative size, is a bug, which panics at the caller.
+Import std.core
+Import std.term
+
+Print("{Constraint.Percent(100)} {Constraint.Fixed(0)}")
+Local bad = Constraint.Percent(150)

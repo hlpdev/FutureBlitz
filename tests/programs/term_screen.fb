@@ -64,6 +64,14 @@ Local resized = screen.ReadEvent()
 Print("resized:", "{resized?.Kind ?? InputKind.KEY}", screen.Columns, screen.Rows)
 Print(frame.ToString())
 Print("after the resize:", Presented(screen, fake))
+// After Ctrl+Z, the console writes again what entered the screen, which hides the cursor, and
+// the program hears of it as a resize, after which the cursor shows again.
+screen.ShowCursor(1, 0)
+Print("cursor before:", Presented(screen, fake))
+fake.Resize(6, 4)
+Print("resumed:", "{screen.ReadEvent()?.Kind ?? InputKind.KEY}", Presented(screen, fake))
+screen.HideCursor()
+Print("cursor after:", Presented(screen, fake))
 fake.Feed("q")
 Print("event:", "{screen.PollEvent(0.Seconds)?.Key ?? KeyEvent('?')}", "{screen.PollEvent(0.Seconds) == Null}")
 screen.Close()
@@ -133,7 +141,19 @@ wide.Resize(5, 3)
 Print("[{wide.ToString()}]", wide.Columns, wide.Rows)
 wide.Resize(0, 0)
 Print("[{wide.ToString()}]", wide.Columns, wide.Rows, "{wide.Area}")
-Print("[{Canvas(-1, -1).ToString()}]")
+Print("[{Canvas(0, 2).ToString()}]")
+// A column past an edge, near Int's most or least, draws nothing.
+Local edges = Canvas(4, 2)
+Print(edges.Print(2147483647, 0, "x"), edges.Print(-2147483648, 1, "xy"), "[{edges}]")
+// A wide fill takes two cells each, with a space in a last column it has no room for.
+Local tiles = FakeTerminal(5, 2, ColorLevel.NONE)
+Local board = Screen(tiles, False)
+tiles.TakeOutput()
+board.Frame.Fill(board.Area, "中", Style())
+board.Frame.Fill(Region(1, 1, 3, 1), "🟩", Style())
+Print("wide fill:", Presented(board, tiles))
+Print(board.Frame.ToString())
+board.Close()
 
 // Regions and constraints.
 Local area = Region(0, 0, 10, 10)
@@ -144,7 +164,11 @@ Print("{area.SplitColumns(Constraint.Fixed(8), Constraint.Fixed(8), Constraint.F
 Print("{Region(2, 3, 7, 1).SplitColumns(Constraint.Fill(), Constraint.Fill(), Constraint.Fill())}")
 Print("{area.SplitRows(Constraint.Percent(50), Constraint.Percent(50), Constraint.Percent(50))}")
 Print("{area.SplitRows(Constraint.Fixed(3))} {area.SplitRows()} {area.SplitRows(Constraint.Fill(0), Constraint.Min(20))}")
-Print("{Constraint.Fixed(-1)} {Constraint.Percent(150)} {Constraint.Min(2)} {Constraint.Fill()} {Constraint.Percent(-3)}")
+Print("{Constraint.Fixed(0)} {Constraint.Percent(100)} {Constraint.Min(2)} {Constraint.Fill()} {Constraint.Percent(0)}")
+// Weights as big as an Int takes share as they would small.
+Local strip = Region(0, 0, 10, 1)
+Print("{strip.SplitColumns(Constraint.Fill(2000000000), Constraint.Fill(2000000000))}")
+Print("{strip.SplitColumns(Constraint.Fill(2147483647), Constraint.Min(1), Constraint.Fill(2147483647))}")
 Print("{area.Inner()} {area.Inner(2, 1)} {area.Inner(6)} {Region(5, 5, 4, 4).Intersect(area)} {Region(20, 0, 2, 2).Intersect(area)}")
 Print(area.Contains(0, 0), area.Contains(9, 9), area.Contains(10, 0), area.Contains(-1, 5), Region(0, 0, 0, 5).IsEmpty)
 Print(area.Right, area.Bottom, Region(1, 2, 3, 4) == Region(1, 2, 3, 4))
@@ -216,3 +240,20 @@ input.Mask = "•"
 line.Clear()
 Print(input.Draw(line, line.Area), "[{line}]", input.Cursor)
 Print(input.Draw(line, Region(0, 0, 0, 1)), input.HandleEvent(InputEvent(KeyEvent(KeyCode.HOME))), input.Cursor)
+
+// Its text getting shorter, by keys or set, brings what it scrolled past back into view.
+Local shorter = TextInput()
+For c In "abcdefghijk lm".Chars
+    shorter.HandleKey(KeyEvent(c))
+End For
+
+For key In [KeyEvent(KeyCode.BACKSPACE), KeyEvent('w', KeyModifiers.CONTROL), KeyEvent(KeyCode.BACKSPACE),
+            KeyEvent(KeyCode.BACKSPACE), KeyEvent(KeyCode.BACKSPACE), KeyEvent(KeyCode.BACKSPACE), KeyEvent(KeyCode.BACKSPACE)]
+    shorter.HandleKey(key)
+    line.Clear()
+    Print("{key}:", shorter.Draw(line, line.Area), "[{line}]", shorter.Text)
+End For
+
+shorter.Text = "hi"
+line.Clear()
+Print("set:", shorter.Draw(line, line.Area), "[{line}]", shorter.Text)

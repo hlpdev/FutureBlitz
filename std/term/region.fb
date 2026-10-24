@@ -95,21 +95,37 @@ Public Struct Constraint Implements Hashable, Printable
         Value = value
     End New
 
-    // size cells, or none for a negative one.
-    Public Static Method Fixed(size: Int): Constraint => Constraint(ConstraintKind.FIXED, Max(size, 0))
-
-    // percent of the cells there are, from 0 to 100, rounded down.
-    Public Static Method Percent(percent: Int): Constraint
-        Return Constraint(ConstraintKind.PERCENT, Clamp(percent, 0, 100))
+    // size cells. Panics for a negative size.
+    @PanicsAtCaller
+    Public Static Method Fixed(size: Int): Constraint
+        If size < 0 Then Panic("Constraint.Fixed takes a size that isn't negative, not {size}")
+        Return Constraint(ConstraintKind.FIXED, size)
     End Method
 
-    // At least size cells, and a share of what's left, as a Fill of 1.
-    Public Static Method Min(size: Int): Constraint => Constraint(ConstraintKind.MIN, Max(size, 0))
+    // percent of the cells there are, rounded down. Panics for a percent below 0 or past 100.
+    @PanicsAtCaller
+    Public Static Method Percent(percent: Int): Constraint
+        If percent < 0 || percent > 100
+            Panic("Constraint.Percent takes a percent from 0 to 100, not {percent}")
+        End If
+
+        Return Constraint(ConstraintKind.PERCENT, percent)
+    End Method
+
+    // At least size cells, and a share of what's left, as a Fill of 1. Panics for a negative
+    // size.
+    @PanicsAtCaller
+    Public Static Method Min(size: Int): Constraint
+        If size < 0 Then Panic("Constraint.Min takes a size that isn't negative, not {size}")
+        Return Constraint(ConstraintKind.MIN, size)
+    End Method
 
     // A share of what's left, by weight beside the other Fills' weights: a Fill of 2 gets twice
-    // a Fill of 1's.
+    // a Fill of 1's. Panics for a negative weight.
+    @PanicsAtCaller
     Public Static Method Fill(weight: Int = 1): Constraint
-        Return Constraint(ConstraintKind.FILL, Max(weight, 0))
+        If weight < 0 Then Panic("Constraint.Fill takes a weight that isn't negative, not {weight}")
+        Return Constraint(ConstraintKind.FILL, weight)
     End Method
 
     // Like "Fixed(3)" or "Fill(1)".
@@ -134,30 +150,49 @@ End Struct
 Package Function Sizes(total: Int, constraints: Constraint[]): Int[]
     Local sizes: Int[] = []
     Local left = Max(total, 0)
-    Local weights = 0
+    // Each one's weight, a Fill's own and a Min's 1, and all of them.
+    Local parts: Int64[] = []
+    Local weights: Int64 = 0
     For constraint In constraints
         Local wanted = 0
+        Local weight: Int64 = 0
         Select constraint.Kind
-            Case ConstraintKind.FIXED, ConstraintKind.MIN
+            Case ConstraintKind.FIXED
                 wanted = constraint.Value
+            Case ConstraintKind.MIN
+                wanted = constraint.Value
+                weight = 1
             Case ConstraintKind.PERCENT
                 wanted = ((Max(total, 0) As Int64) * constraint.Value / 100) As Int
             Case ConstraintKind.FILL
-                weights += constraint.Value
+                weight = constraint.Value
         End Select
 
-        If constraint.Kind == ConstraintKind.MIN Then weights += 1
+        parts.Add(weight)
+        weights += weight
         Local given = Min(wanted, left)
         sizes.Add(given)
         left -= given
     End For
 
     If weights == 0 Then Return sizes
+    // Weights past 2^31 in all are scaled down to that, so a share's arithmetic can't overflow;
+    // one that goes to 0 would have had less than a cell.
+    If weights > 2147483648
+        Local scaled: Int64 = 0
+        For i = 0 Until parts.Count
+            parts[i] = parts[i] * 2147483648 / weights
+            scaled += parts[i]
+        End For
+
+        weights = scaled
+        If weights == 0 Then Return sizes
+    End If
+
     Local shared = left As Int64
     Local counted: Int64 = 0
     For i = 0 Until constraints.Count
-        Local weight = constraints[i].Kind == ConstraintKind.FILL ? constraints[i].Value : 0
-        If constraints[i].Kind == ConstraintKind.MIN Then weight = 1
+        Local weight = parts[i]
         If weight == 0 Then Continue
         // Each takes its share of the whole so far, rounded up, so the first ones take what
         // doesn't share out evenly, and all of it is shared.

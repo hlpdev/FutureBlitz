@@ -25,6 +25,9 @@ resized: RESIZE 6 4
 
 
 after the resize: 24 [\e[1;1H\e[0m!al   \e[2;1H      \e[3;1H      \e[4;1H      \e[0m]
+cursor before: 0 [\e[1;2H\e[?25h]
+resumed: RESIZE 24 [\e[1;1H\e[0m!al   \e[2;1H      \e[3;1H      \e[4;1H      \e[0m\e[1;2H\e[?25h]
+cursor after: 0 [\e[?25l]
 event: q True
 close: \e[0m\e[?1006l\e[?1002l\e[?1000l\e[?2004l\e[?25h\e[?1049l mode 0 leave [] False
 closed twice: []
@@ -71,7 +74,13 @@ cleared: [
 xyz
 ] 5 3
 [] 0 0 (0, 0) 0x0
-[]
+[
+]
+2147483647 -2147483646 [
+]
+wide fill: 7 [\e[1;1H中中 \e[2;1H 🟩  ]
+中中
+ 🟩
 [(0, 0) 10x2, (0, 2) 10x6, (0, 8) 10x2]
 [(0, 0) 10x3, (0, 3) 10x5, (0, 8) 10x2]
 [(0, 0) 3x10, (3, 0) 6x10, (9, 0) 1x10]
@@ -80,6 +89,8 @@ xyz
 [(0, 0) 10x5, (0, 5) 10x5, (0, 10) 10x0]
 [(0, 0) 10x3] [] [(0, 0) 10x0, (0, 0) 10x10]
 Fixed(0) Percent(100) Min(2) Fill(1) Percent(0)
+[(0, 0) 5x1, (5, 0) 5x1]
+[(0, 0) 5x1, (5, 0) 1x1, (6, 0) 4x1]
 (1, 1) 8x8 (2, 1) 6x8 (6, 6) 0x0 (5, 5) 4x4 (20, 0) 0x2
 True True False False True
 10 10 True
@@ -118,10 +129,18 @@ Home: True 0 [abcdefgh] abcdefghij中文k 0
 Right: True 1 [abcdefgh] abcdefghij中文k 1
 Delete: True 1 [acdefghi] acdefghij中文k 1
 End: True 7 [ij中文k] acdefghij中文k 16
-Backspace: True 6 [ij中文] acdefghij中文 15
+Backspace: True 7 [hij中文] acdefghij中文 15
 Ctrl+Left: True 0 [acdefghi] acdefghij中文 0
 Ctrl+W: True 0 [acdefghi] acdefghij中文 0
 F1: False 0 [acdefghi] acdefghij中文 0
 True pasted lineacdefghij中文 False
 6 [••••••] 6
 0 True 0
+Backspace: 7 [ghijk l] abcdefghijk l
+Ctrl+W: 7 [fghijk] abcdefghijk 
+Backspace: 7 [efghijk] abcdefghijk
+Backspace: 7 [defghij] abcdefghij
+Backspace: 7 [cdefghi] abcdefghi
+Backspace: 7 [bcdefgh] abcdefgh
+Backspace: 7 [abcdefg] abcdefg
+set: 2 [hi] hi
