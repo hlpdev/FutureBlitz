@@ -126,7 +126,8 @@ Public Class HttpResponse
     Public Method EnsureSuccess() Throws NetError
         If IsSuccess Then Return
         Local reason = StatusCode.Reason(Status)
-        Throw NetError(NetErrorKind.HTTP_STATUS, "{Url} answered {Status} {reason}", Url)
+        Local answered = reason != "" ? "{Status} {reason}" : "{Status}"
+        Throw NetError(NetErrorKind.HTTP_STATUS, "{Url} answered {answered}", Url)
     End Method
 End Class
 

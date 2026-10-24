@@ -74,6 +74,8 @@ NetError HTTP_STATUS
 NetError HTTP_STATUS
 503 [Service Unavailable] False
 NetError HTTP_STATUS
+True
+True
 == redirects
 200 redirected
 True
