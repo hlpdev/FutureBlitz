@@ -1,0 +1,8 @@
+Proto_: 1 writer_: "w" reader_: "r" item_: "i" tag_: "t" value_: 2 True
+End: 3 Self { x: 4 } String { String: "s" } 4 s
+Field: true
+Encode: 1 Decode: 2 ToString: 3 IsInitialized: 4 Clone: 5 WriteTo: 6 True True
+error { Message: "m" } parse { Kind: 7 } True
+End_ True
+NONE: 5 NONE kinds NONE_
+kinds: FromNumber
