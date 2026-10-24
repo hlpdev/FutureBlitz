@@ -22,6 +22,7 @@ OS/2 BMP: 2 1 (48, 32, 16, 255) (0, 1, 64, 255)
 JPEG at 50: within 12 True
 JPEG at 90: within 12 True
 JPEG at 100: within 12 True
+JPEG without its scan: (0, 135, 0, 255) 0
 JPEG of alpha: 255 255 JPEG
 WebP at 10: within 40 True
 WebP at 75: within 40 True
