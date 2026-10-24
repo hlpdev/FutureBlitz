@@ -3,6 +3,12 @@
 [elp][!..][!]
 0 108
 OTHER: a Seek of -1 from 0 is before the stream's start
+OTHER: a Seek of 9223372036854775807 from 8 is past what an Int64 counts
+OTHER: a Seek of 9223372036854775807 from 108 is past what an Int64 counts
+OTHER: a MemoryStream holds up to 2147483647 bytes, not more than an Int64 counts
+OTHER: a MemoryStream holds up to 2147483647 bytes, not 9223372036854775802
+OTHER: a MemoryStream holds up to 2147483647 bytes, not 2147483649
+3
 [1, 2, 3] [] 0
 6 [h�][�l][lo]
 llo

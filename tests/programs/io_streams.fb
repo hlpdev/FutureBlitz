@@ -121,6 +121,29 @@ Catch e As IOError
     Print("{e.Kind}: {e.Message}")
 End Try
 
+// A Seek past what an Int64 counts says so, and a write that would end past what a
+// MemoryStream holds throws, however far a Seek took it.
+For origin In [SeekOrigin.END, SeekOrigin.CURRENT]
+    Try
+        Try memory.Seek(9223372036854775807, origin)
+    Catch e As IOError
+        Print("{e.Kind}: {e.Message}")
+    End Try
+End For
+
+Local far = MemoryStream([1, 2, 3])
+Local places: Int64[] = [9223372036854775807, 9223372036854775800, 2147483647]
+For at In places
+    Try
+        Try far.Seek(at, SeekOrigin.START)
+        Try far.WriteText("ab")
+    Catch e As IOError
+        Print("{e.Kind}: {e.Message}")
+    End Try
+End For
+
+Print(far.Count)
+
 Local copied = MemoryStream([1, 2, 3])
 Print("{Try ReadAll(copied)} {Try ReadAll(copied)} {MemoryStream().Count}")
 

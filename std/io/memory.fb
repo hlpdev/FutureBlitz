@@ -35,10 +35,12 @@ Public Class MemoryStream Implements Reader, Writer, Seeker
     End Method
 
     Public Method Write(from: Buffer<UInt8>) Throws IOError
-        Local finish = At + from.Count
-        If finish > 2147483647
+        // A Seek can go as far as an Int64 counts, past which a write's end can be too.
+        Local finish = At.CheckedAdd(from.Count)
+        If finish == Null || finish > 2147483647
+            Local past = finish == Null ? "more than an Int64 counts" : "{finish}"
             Throw IOError(IOErrorKind.OTHER, "a MemoryStream holds up to 2147483647 bytes, not " +
-                                             "{finish}")
+                                             past)
         End If
 
         If finish > Data.Count Then Data.Resize(finish As Int, 0)
@@ -134,8 +136,14 @@ Function SeekIn(at: Int64, count: Int64, offset: Int64, origin: SeekOrigin): Int
         start = count
     End If
 
+    // The start isn't negative, so only a place past the last an Int64 counts overflows.
     Local place = start.CheckedAdd(offset)
-    If place == Null || place < 0
+    If place == Null
+        Throw IOError(IOErrorKind.OTHER,
+                      "a Seek of {offset} from {start} is past what an Int64 counts")
+    End If
+
+    If place < 0
         Throw IOError(IOErrorKind.OTHER,
                       "a Seek of {offset} from {start} is before the stream's start")
     End If

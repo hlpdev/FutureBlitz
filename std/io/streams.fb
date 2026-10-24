@@ -61,8 +61,8 @@ End Interface
 // What moves around in its bytes, as a file or memory does.
 Public Interface Seeker
     // Moves to `offset` bytes from `origin`, and gives where that is from the start. A place
-    // before the start throws an IOError, and one past the end is the end for a Reader, and
-    // where a Writer writes next.
+    // before the start, or past what an Int64 counts, throws an IOError, and one past the end is
+    // the end for a Reader, and where a Writer writes next.
     Method Seek(offset: Int64, origin: SeekOrigin): Int64 Throws IOError
 
     // Where it is, in bytes from the start.
