@@ -4,7 +4,7 @@
 
 ## S28-dns-1 (high): ResolveAsync's lookup writes into an output array its coroutine may already have freed
 
-Status: fixed in 2297d36 (fb_io_resolve_async keeps only UInt8[]'s Class, not the coroutine's array, and the I/O thread finishes the Task<UInt8[]> with a new array of the code and the records, so nothing of a coroutine that's gone is touched; a blocking lookup still fills its caller's array, under the lock, while the caller waits; net_dns_dropped, the finding's program, prints 0 bytes, 34 before)
+Status: fixed in 6f628e6 (fb_io_resolve_async keeps only UInt8[]'s Class, not the coroutine's array, and the I/O thread finishes the Task<UInt8[]> with a new array of the code and the records, so nothing of a coroutine that's gone is touched; a blocking lookup still fills its caller's array, under the lock, while the caller waits; net_dns_dropped, the finding's program, prints 0 bytes, 34 before)
 
 Where: runtime/src/dns.cpp:147
 
@@ -54,7 +54,7 @@ Skeptic: I ran the finding's program (C:/Users/Hunter/Projects/FutureBlitz/.clau
 
 ## S28-query-ip-2 (medium): QueryParams.Sort is a quadratic insertion sort that rebuilds both names' UTF-16 arrays on every comparison
 
-Status: fixed in 5f0b7ef (Sort merge-sorts (order, pair) entries with the array's Sort(before), each name's Utf16Order worked out once: its code points, with U+E000 to U+FFFF moved above U+10FFFF, which orders them as their UTF-16 units do, with no allocation in a comparison; the program test "QueryParams' Sort is a merge sort, which a query of many pairs doesn't slow", 20000 pairs in reverse within 10 seconds, 1.2 there, past 30 before)
+Status: fixed in fea6f6d (Sort merge-sorts (order, pair) entries with the array's Sort(before), each name's Utf16Order worked out once: its code points, with U+E000 to U+FFFF moved above U+10FFFF, which orders them as their UTF-16 units do, with no allocation in a comparison; the program test "QueryParams' Sort is a merge sort, which a query of many pairs doesn't slow", 20000 pairs in reverse within 10 seconds, 1.2 there, past 30 before)
 
 Where: std/net/url.fb:255
 
@@ -87,7 +87,7 @@ Skeptic: I ran the finding's program unchanged (f2.fb in the same folder), built
 
 ## S28-url-2 (medium): An xn-- label skips the checks its Unicode form gets: U+FFFD, noncharacters, surrogates, spaces, and ignored code points all pass
 
-Status: fixed in 6e079cf (DomainToAscii's mapping is Mapped, which an xn-- label's decoded code points have to come through unchanged, so U+FFFD, noncharacters, C1 controls, spaces, ignored code points, and what maps to something else fail it; PunycodeDecode gives Null for a surrogate; net_url's first block of xn-- hosts)
+Status: fixed in 2000536 (DomainToAscii's mapping is Mapped, which an xn-- label's decoded code points have to come through unchanged, so U+FFFD, noncharacters, C1 controls, spaces, ignored code points, and what maps to something else fail it; PunycodeDecode gives Null for a surrogate; net_url's first block of xn-- hosts)
 
 Where: std/net/url.fb:1044
 
@@ -130,7 +130,7 @@ Skeptic: I ran f2.fb in debug and release. The Unicode forms fail (`http://\u{FF
 
 ## S28-dns-2 (low): A name over 255 bytes throws OTHER ("invalid argument"), not HOST_NOT_FOUND, and Check's failure path is untested
 
-Status: fixed in 20667c4 (the runtime turns libuv's UV_EINVAL for a name it won't look up into UV_EAI_NONAME, so Check throws HOST_NOT_FOUND on any OS, and a long Unicode name that IDNA makes too long too; net_dns's 309-byte name through Resolve and ResolveAsync, which checks a code coming back through the Task as well)
+Status: fixed in 441eca1 (the runtime turns libuv's UV_EINVAL for a name it won't look up into UV_EAI_NONAME, so Check throws HOST_NOT_FOUND on any OS, and a long Unicode name that IDNA makes too long too; net_dns's 309-byte name through Resolve and ResolveAsync, which checks a code coming back through the Task as well)
 
 Where: std/net/dns.fb:46
 
@@ -168,7 +168,7 @@ Skeptic: I ran C:/Users/Hunter/Projects/FutureBlitz/.claude/worktrees/rev-scratc
 
 ## S28-query-ip-1 (low): The form parser gives one U+FFFD per byte of a truncated UTF-8 sequence, where WHATWG's UTF-8 decode gives one per maximal subpart
 
-Status: fixed in aadf4e4 (FormDecoded and Url.Decode read their bytes with url.fb's Utf8Decoded, the Encoding Standard's decoder, one U+FFFD for a maximal subpart; fb_string_from_bytes keeps its settled rule; net_query's truncated sequences)
+Status: fixed in ff5fdf8 (FormDecoded and Url.Decode read their bytes with url.fb's Utf8Decoded, the Encoding Standard's decoder, one U+FFFD for a maximal subpart; fb_string_from_bytes keeps its settled rule; net_query's truncated sequences)
 
 Where: std/net/url.fb:428
 
@@ -204,7 +204,7 @@ Skeptic: I ran the finding's program, unchanged, at C:/Users/Hunter/Projects/Fut
 
 ## S28-url-1 (low): The Punycode decoder reads {, |, }, ~, and DEL as digits, so it accepts invalid xn-- hosts
 
-Status: fixed in bb4dc95 (a Punycode digit is an ASCII letter or digit, or the label fails; net_url's second block)
+Status: fixed in 58a5f7e (a Punycode digit is an ASCII letter or digit, or the label fails; net_url's second block)
 
 Where: std/net/url.fb:1159
 
@@ -237,7 +237,7 @@ Skeptic: I ran f1.fb (the finding's program) in debug and release. Both builds p
 
 ## S28-url-3 (low): A label that starts with xn-- but isn't all ASCII is Punycode-encoded again instead of failing
 
-Status: fixed in 94bc0b6 (a label that isn't all ASCII fails when it starts with xn--, once mapped, so XN-- does too; net_url's third block)
+Status: fixed in bdc824c (a label that isn't all ASCII fails when it starts with xn--, once mapped, so XN-- does too; net_url's third block)
 
 Where: std/net/url.fb:1053
 
@@ -263,7 +263,7 @@ Skeptic: I ran f3.fb in debug and release. Both `http://xn--\u{FC}.com/` and `ht
 
 ## S28-url-4 (low): QueryParams and Url.Params give one U+FFFD per bad byte, not one per maximal subpart as URLSearchParams does
 
-Status: fixed in aadf4e4 (the same fix as S28-query-ip-1; Url.Decode's comment says how many U+FFFDs it gives)
+Status: fixed in ff5fdf8 (the same fix as S28-query-ip-1; Url.Decode's comment says how many U+FFFDs it gives)
 
 Where: std/net/url.fb:433
 
@@ -302,7 +302,7 @@ Skeptic: I ran f4.fb in debug and release. QueryParams gives 3, 3, and 1 code po
 
 ## S28-url-5 (low): The docs say only ASCII letters, fullwidth ASCII, and the ideographic full stops map in a host; the code also drops ignored code points and maps spaces
 
-Status: fixed in e36e6da (url.fb's header and stdlib.md's Url entry list the mapping as the code has it, and stdlib.md the other fixes; net_url's soft hyphen and em space show it)
+Status: fixed in 17fb9fe (url.fb's header and stdlib.md's Url entry list the mapping as the code has it, and stdlib.md the other fixes; net_url's soft hyphen and em space show it)
 
 Where: std/net/url.fb:4
 
