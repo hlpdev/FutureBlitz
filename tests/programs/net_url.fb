@@ -73,3 +73,7 @@ End For
 For text In ["http://xn--\u{FC}.com/", "http://XN--\u{FC}.com/"]
     Print("{text}: {Url.Parse(text)?.ToString() ?? "not a URL"}")
 End For
+// Before std.text.unicode, a host's soft hyphen is left out, and an em space is a space, which
+// no host has.
+Print(Url.Parse("http://a\u{AD}b.com/")?.ToString() ?? "not a URL",
+      Url.Parse("http://a\u{2003}b.com/")?.ToString() ?? "not a URL")
