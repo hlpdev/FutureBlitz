@@ -196,35 +196,39 @@ int receive(void* context, unsigned char* into, const std::size_t capacity) {
 /// Each reason a certificate that mbedTLS checked isn't good enough, from its flags, after "the
 /// server's certificate".
 std::vector<std::string> reasons(const tls_t& tls, const std::uint32_t flags) {
+    // mbedTLS's flags are ints.
+    const auto has = [&](const int flag) {
+        return (flags & static_cast<std::uint32_t>(flag)) != 0;
+    };
     std::vector<std::string> found;
-    if ((flags & MBEDTLS_X509_BADCERT_NOT_TRUSTED) != 0) {
+    if (has(MBEDTLS_X509_BADCERT_NOT_TRUSTED)) {
         found.emplace_back("isn't signed by a root this side trusts");
     }
 
-    if ((flags & MBEDTLS_X509_BADCERT_EXPIRED) != 0) {
+    if (has(MBEDTLS_X509_BADCERT_EXPIRED)) {
         found.emplace_back("has expired");
     }
 
-    if ((flags & MBEDTLS_X509_BADCERT_FUTURE) != 0) {
+    if (has(MBEDTLS_X509_BADCERT_FUTURE)) {
         found.emplace_back("isn't valid yet");
     }
 
-    if ((flags & MBEDTLS_X509_BADCERT_CN_MISMATCH) != 0) {
+    if (has(MBEDTLS_X509_BADCERT_CN_MISMATCH)) {
         found.push_back(std::format("isn't for {}", tls.host));
     }
 
-    if ((flags & MBEDTLS_X509_BADCERT_REVOKED) != 0) {
+    if (has(MBEDTLS_X509_BADCERT_REVOKED)) {
         found.emplace_back("is revoked");
     }
 
-    if ((flags & (MBEDTLS_X509_BADCERT_KEY_USAGE | MBEDTLS_X509_BADCERT_EXT_KEY_USAGE |
-                  MBEDTLS_X509_BADCERT_NS_CERT_TYPE)) != 0) {
+    if (has(MBEDTLS_X509_BADCERT_KEY_USAGE) || has(MBEDTLS_X509_BADCERT_EXT_KEY_USAGE) ||
+        has(MBEDTLS_X509_BADCERT_NS_CERT_TYPE)) {
         found.push_back(
             std::format("isn't for a TLS {}", tls.config->server ? "client" : "server"));
     }
 
-    if ((flags & (MBEDTLS_X509_BADCERT_BAD_MD | MBEDTLS_X509_BADCERT_BAD_PK |
-                  MBEDTLS_X509_BADCERT_BAD_KEY)) != 0) {
+    if (has(MBEDTLS_X509_BADCERT_BAD_MD) || has(MBEDTLS_X509_BADCERT_BAD_PK) ||
+        has(MBEDTLS_X509_BADCERT_BAD_KEY)) {
         found.emplace_back("is signed with a hash or a key TLS doesn't take");
     }
 
@@ -380,10 +384,10 @@ void* fb_tls_new(void* config, const fb_string_t* host) {
 }
 
 void fb_tls_free(void* tls) {
-    tls_t* connection = static_cast<tls_t*>(tls);
-    mbedtls_ssl_free(&connection->ssl);
-    release(connection->config);
-    delete connection;
+    auto* state = static_cast<tls_t*>(tls);
+    mbedtls_ssl_free(&state->ssl);
+    release(state->config);
+    delete state;
 }
 
 fb_string_t* fb_tls_message(void* tls) {
