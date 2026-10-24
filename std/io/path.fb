@@ -26,7 +26,8 @@ Const COLON: UInt8 = 58
 Const DOT: UInt8 = 46
 
 // Where a file or folder is. Paths are equal when their texts and styles are, so "a/b" and
-// "a//b" aren't until Normalize makes them so, and they sort by their texts' bytes.
+// "a//b" aren't until Normalize makes them so, and they sort by their texts' bytes. A Path's
+// zero, as a Struct's Field starts with, is "" by POSIX's rules.
 Public Struct Path Implements Comparable, Hashable, Printable
     Public ReadOnly Field Text: String
     Public ReadOnly Field Style: PathStyle
