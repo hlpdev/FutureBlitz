@@ -17259,8 +17259,10 @@ private:
             const auto& interpolation = std::get<interpolation_t>(part);
             const expr_id_t inner = interpolation.value;
             const type_id_t type = check(inner, type_id_t::NONE);
+            // An empty spec, as in "{x:}", is none, as in Format's fields.
+            const bool has_spec = interpolation.format && !interpolation.format->text.empty();
             std::optional<format_spec_t> spec;
-            if (interpolation.format) {
+            if (has_spec) {
                 spec = check_format(*interpolation.format, inner, type);
                 note_formatted(type, *interpolation.format, span_of(inner));
             } else if (type != type_id_t::INVALID && !showable(type)) {
@@ -17272,7 +17274,7 @@ private:
             // An Enum's text is its member's name, which lowering looks up.
             const std::optional<const_value_t>& inner_value = info(inner).value;
             std::optional<std::string> text;
-            if (inner_value && !is_enum(inner_value->type) && !interpolation.format) {
+            if (inner_value && !is_enum(inner_value->type) && !has_spec) {
                 text = to_text(*inner_value);
             } else if (inner_value && !is_enum(inner_value->type) && spec) {
                 text = formatted(*inner_value, *spec);
