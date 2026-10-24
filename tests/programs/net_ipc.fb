@@ -1,0 +1,117 @@
+// std.net's IPC: a program talks to itself through an IpcListener and IpcStreams, a named pipe
+// on Windows and a Unix socket elsewhere, blocking and Async; a name nothing listens at refuses a
+// connection, one something listens at can't be listened at again, and what's closed says so.
+
+Import std.core
+Import std.ffi
+Import std.io
+Import std.net
+Import std.time
+
+Const name = "fb-test-net-ipc"
+
+Function Text(bytes: Buffer<UInt8>): String Throws IOError
+    Return Try ReadAllText(MemoryStream(bytes.ToArray()))
+End Function
+
+// Sends back the 8 bytes a connection sends, then closes it.
+Async Function Echo(listener: IpcListener): String Throws NetError, TimeoutError, IOError
+    Local connection = Try Await listener.AcceptAsync()
+    Local into = Buffer<UInt8>(8)
+    Try Await ReadExactAsync(connection, into)
+    Try Await connection.WriteAsync(into)
+    Return Try Text(into)
+End Function
+
+// panic_net_ipc_name.fb's panic leaves its listener's Unix socket file behind, where nothing
+// listens, which a listener takes over, when that program ran first.
+Try
+    Local taken = IpcListener.Listen("fb-test-net-left-behind")
+    Local connected = IpcStream.Connect(taken.Name)
+    Print(taken.Accept().Name)
+Catch e As Error
+    Print("failed: {e.Message}")
+End Try
+
+Try
+    // Blocking, on one thread.
+    Local listener = IpcListener.Listen(name)
+    Local client = IpcStream.Connect(name)
+    client.WriteText("over a pipe")
+    Local server = listener.Accept()
+    Print(listener.Name, client.Name, server.Name)
+    Local into = Buffer<UInt8>(11)
+    ReadExact(server, into)
+    server.Write(into)
+    Local back = Buffer<UInt8>(11)
+    ReadExact(client, back)
+    Print(Text(back))
+
+    // Async.
+    Local echoed = Echo(listener)
+    Local other = Await IpcStream.ConnectAsync(name)
+    Await other.WriteAsync(Buffer<UInt8>.From("and back".Bytes))
+    Local answer = Buffer<UInt8>(8)
+    Await ReadExactAsync(other, answer)
+    Print(Text(answer), Await echoed)
+
+    // The other side's Close reads as its end.
+    Print(other.Read(answer))
+
+    // A read that takes too long throws, with a TimeoutError as its Cause, and so does an
+    // Accept.
+    Local quiet = IpcStream.Connect(name)
+    quiet.ReadTimeout = 20.Milliseconds
+    Try
+        quiet.Read(into)
+    Catch e As IOError
+        Print(e.Cause Is TimeoutError)
+    End Try
+
+    Try
+        Await quiet.ReadAsync(into)
+    Catch e As IOError
+        Print(e.Cause Is TimeoutError)
+    End Try
+
+    Local quietServer = listener.Accept()
+    Try
+        listener.Accept(20.Milliseconds)
+    Catch e As TimeoutError
+        Print("Accept: timeout")
+    End Try
+
+    // Something listens at the name already.
+    Try
+        IpcListener.Listen(name)
+    Catch e As NetError
+        Print(e.Kind, e.Address ?? "")
+    End Try
+
+    // Once the listener and its connections close, both ends, as a named pipe needs, nothing
+    // listens at the name, so a connection there is refused, blocking or Async, and a listener
+    // can have it again.
+    For stream In [client, other, quiet, quietServer, server]
+        stream.Close()
+    End For
+
+    listener.Close()
+    Print(listener.IsClosed, server.IsClosed)
+    Try
+        IpcStream.Connect(name)
+    Catch e As NetError
+        Print(e.Kind, e.Address ?? "")
+    End Try
+
+    Try
+        Await IpcStream.ConnectAsync(name, 1.Seconds)
+    Catch e As NetError
+        Print(e.Kind)
+    End Try
+
+    Local again = IpcListener.Listen(name)
+    Local last = IpcStream.Connect(name)
+    Print(again.Accept().Name, last.Name)
+Catch e As Error
+    Print("failed: {e.Message}")
+End Try
