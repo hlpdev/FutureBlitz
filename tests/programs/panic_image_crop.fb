@@ -1,0 +1,8 @@
+// Crop keeps pixels that are all in the image, and panics where it's given some that aren't.
+Import std.core
+Import std.image
+
+Local image = Image(4, 4)
+image.Crop(1, 2, 3, 2)
+Print(image.Width, image.Height)
+image.Crop(1, 1, 3, 1)

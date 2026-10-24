@@ -1,0 +1,8 @@
+// Resize takes a size New would, and panics where it's given one New panics for.
+Import std.core
+Import std.image
+
+Local image = Image(4, 4)
+image.Resize(2, 0)
+Print(image.Width, image.Height)
+image.Resize(-2, 3)
