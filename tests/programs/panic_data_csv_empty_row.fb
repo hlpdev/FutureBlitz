@@ -1,0 +1,9 @@
+// Csv.Write panics at a row of no fields, which CSV can't hold: an empty line is a row of one
+// empty field.
+Import std.core
+Import std.data.csv
+
+Local rows: String[][] = [[""], ["a"]]
+Print(Csv.Write(rows) == "\na\n")
+rows.Insert(0, [])
+Print(Csv.Write(rows))

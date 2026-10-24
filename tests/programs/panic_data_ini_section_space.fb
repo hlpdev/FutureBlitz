@@ -1,0 +1,11 @@
+// Ini.Write panics at a section's name that starts or ends with a space, which Read would trim.
+Import std.core
+Import std.data.ini
+
+Local document = Value.Object()
+Local section = Value.Object()
+section["x"] = Value("1")
+document["s t"] = section
+Print(Ini.Write(document))
+document[" s "] = section
+Print(Ini.Write(document))

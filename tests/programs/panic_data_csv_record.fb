@@ -3,7 +3,9 @@ Import std.core
 Import std.data.csv
 
 Local records = Value.Array()
-records.Add(Value.Object())
-Print(Csv.WriteRecords(records) == "\n\n")
+Local record = Value.Object()
+record["a"] = Value("1")
+records.Add(record)
+Print(Csv.WriteRecords(records) == "a\n1\n")
 records.Add(Value("loose"))
 Print(Csv.WriteRecords(records))

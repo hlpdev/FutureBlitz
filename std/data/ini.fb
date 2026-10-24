@@ -1,9 +1,9 @@
 // Ini: INI files' sections of keys and values, read into an Object and written from one. Each
-// line is a `[section]` header, a `key = value` or `key: value`, a comment, which starts with ';'
-// or '#', or blank. A key and its value have the spaces around them trimmed, and a value in '"'s
-// keeps the spaces inside them, without the '"'s. The keys before any section are the Object's
-// own, as Strings, and each section is an Object of its keys' values, as Strings. INI has no
-// standard; this is the form most programs read.
+// line, which ends with LF, CRLF, or a CR alone, is a `[section]` header, a `key = value` or
+// `key: value`, a comment, which starts with ';' or '#', or blank. A key and its value have the
+// spaces around them trimmed, and a value in '"'s keeps the spaces inside them, without the '"'s.
+// The keys before any section are the Object's own, as Strings, and each section is an Object of
+// its keys' values, as Strings. INI has no standard; this is the form most programs read.
 
 Import std.core
 Import std.collections
@@ -16,32 +16,29 @@ Public Struct Ini
 
     // The keys and sections text holds. A key given again in a section takes its new value, and
     // a section named again goes on adding to the first. Throws a ParseError of SYNTAX, with its
-    // line, for a line that's none of the four, a key that's empty, a header that doesn't end
-    // with ']', or a section named as a key before it is.
+    // line and column, for a line that's none of the four, a key that's empty, a header that
+    // doesn't end with ']', or a section named as a key before it is.
     Public Static Method Read(text: String): Value Throws ParseError
         Local bytes = text.Bytes
         Local at = 0
         If bytes.Count >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF Then at = 3
         Local document = Value.Object()
         Local section = document
-        Local line = 0
         While at < bytes.Count
-            line += 1
             Local start = at
-            While at < bytes.Count && bytes[at] != 10
+            While at < bytes.Count && bytes[at] != 10 && bytes[at] != 13
                 at += 1
             End While
             Local finish = at
-            at += 1
-            If finish > start && bytes[finish - 1] == 13 Then finish -= 1
+            at += at + 1 < bytes.Count && bytes[at] == 13 && bytes[at + 1] == 10 ? 2 : 1
             Local first = SkipSpace(bytes, start, finish)
             Local last = TrimEnd(bytes, first, finish)
             If first == last || bytes[first] == 59 || bytes[first] == 35 Then Continue
 
             If bytes[first] == 91
                 If bytes[last - 1] != 93
-                    Throw ParseError(ParseErrorKind.SYNTAX, "a section's header ends with ']', " +
-                                     "at line {line}", line, 1)
+                    Throw ErrorAt(bytes, last, ParseErrorKind.SYNTAX,
+                                  "a section's header ends with ']'")
                 End If
 
                 Local name = TextOf(bytes, SkipSpace(bytes, first + 1, last - 1),
@@ -51,8 +48,8 @@ Public Struct Ini
                     found = Value.Object()
                     document[name] = found
                 ElseIf found.Kind != ValueKind.OBJECT
-                    Throw ParseError(ParseErrorKind.SYNTAX, "the section [{name}] is named as a key " +
-                                     "before it, at line {line}", line, 1)
+                    Throw ErrorAt(bytes, first, ParseErrorKind.SYNTAX,
+                                  "the section [{name}] is named as a key before it")
                 End If
 
                 section = found
@@ -64,21 +61,21 @@ Public Struct Ini
                 equals += 1
             End While
             If equals == last
-                Throw ParseError(ParseErrorKind.SYNTAX, "a line is a [section], a key = value, or a " +
-                                 "comment, at line {line}", line, 1)
+                Throw ErrorAt(bytes, first, ParseErrorKind.SYNTAX,
+                              "a line is a [section], a key = value, or a comment")
             End If
 
             Local keyEnd = TrimEnd(bytes, first, equals)
             If keyEnd == first
-                Throw ParseError(ParseErrorKind.SYNTAX, "a key is missing before its '=', at line " +
-                                 "{line}", line, 1)
+                Throw ErrorAt(bytes, equals, ParseErrorKind.SYNTAX,
+                              "a key is missing before its '='")
             End If
 
             Local key = TextOf(bytes, first, keyEnd)
             Local before = section[key]
             If before != Null && before.Kind == ValueKind.OBJECT
-                Throw ParseError(ParseErrorKind.SYNTAX, "the key {key} is named as a section " +
-                                 "before it, at line {line}", line, 1)
+                Throw ErrorAt(bytes, first, ParseErrorKind.SYNTAX,
+                              "the key {key} is named as a section before it")
             End If
 
             Local valueStart = SkipSpace(bytes, equals + 1, last)
@@ -95,10 +92,12 @@ Public Struct Ini
 
     // value, an Object, as INI: its own keys whose values aren't Objects, then a section for each
     // Object in it, of its keys. A String is written as it is, in '"'s when it starts or ends with
-    // a space or a '"', a Bool, an integer, or a Double as its text, and Null as nothing. Panics when
-    // value isn't an Object, a section holds an Object or anything holds an Array, a key is empty
-    // or holds '=', ':', or a line break or starts with '[', ';', or '#', a section's name holds
-    // ']' or a line break, or a value holds a line break.
+    // a space, a tab, or a '"', a Bool, an integer, or a Double as its text, and Null as nothing.
+    // Panics at what Read wouldn't read back as the same: when value isn't an Object, a section
+    // holds an Object or anything holds an Array, a key is empty, holds '=', ':', or a line break,
+    // starts with '[', ';', '#', or a byte order mark, or starts or ends with a space or a tab, a
+    // section's name holds ']' or a line break or starts or ends with a space or a tab, or a value
+    // holds a line break.
     @PanicsAtCaller
     Public Static Method Write(value: Value): String
         If value.Kind != ValueKind.OBJECT Then Panic("an INI file is an Object, not {value.Kind}")
@@ -111,11 +110,16 @@ Public Struct Ini
         For key In value.Keys()
             Local section = EntryOf(value, key)
             If section.Kind != ValueKind.OBJECT Then Continue
-            For b In key.Bytes
+            Local header = key.Bytes
+            For b In header
                 If b == 93 || b == 10 || b == 13
                     Panic("an INI section's name can't hold ']' or a line break, as \"{key}\" does")
                 End If
             End For
+            If header.Count > 0 && (IsBlank(header[0]) || IsBlank(header[header.Count - 1]))
+                Panic("an INI section's name can't start or end with a space or a tab, as " +
+                      "\"{key}\" does")
+            End If
 
             If out.Count > 0 Then out.Add(10)
             AddText(out, "[" + key + "]\n")
@@ -136,13 +140,15 @@ Public Struct Ini
     Static Method AddEntry(out: UInt8[], key: String, value: Value)
         Local bytes = key.Bytes
         Local bad = bytes.Count == 0 || bytes[0] == 91 || bytes[0] == 59 || bytes[0] == 35 ||
-                    bytes[0] == 32 || bytes[bytes.Count - 1] == 32
+                    IsBlank(bytes[0]) || IsBlank(bytes[bytes.Count - 1]) ||
+                    (bytes.Count >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF)
         For b In bytes
             If b == 61 || b == 58 || b == 10 || b == 13 Then bad = True
         End For
         If bad
-            Panic("an INI key isn't empty, doesn't start with '[', ';', '#', or a space, or end " +
-                  "with one, and holds no '=', ':', or line break, as \"{key}\" does")
+            Panic("an INI key isn't empty, doesn't start with '[', ';', '#', or a byte order " +
+                  "mark, doesn't start or end with a space or a tab, and holds no '=', ':', or " +
+                  "line break, as \"{key}\" does")
         End If
 
         Local text = ""
@@ -179,6 +185,9 @@ Public Struct Ini
             AddText(out, key + " = " + (quoted ? "\"" + text + "\"" : text) + "\n")
         End If
     End Method
+
+    // Whether b is a space or a tab, which Read trims.
+    Static Method IsBlank(b: UInt8): Bool => b == 32 || b == 9
 
     // The first place from start before finish that isn't a space or tab.
     Static Method SkipSpace(bytes: UInt8[], start: Int, finish: Int): Int

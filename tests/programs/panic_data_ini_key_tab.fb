@@ -1,0 +1,9 @@
+// Ini.Write panics at a key that starts or ends with a tab, which Read would trim.
+Import std.core
+Import std.data.ini
+
+Local document = Value.Object()
+document["in\tside"] = Value("1")
+Print(Ini.Write(document))
+document["\tindented"] = Value("2")
+Print(Ini.Write(document))

@@ -1,0 +1,9 @@
+// Ini.Write panics at a key that starts with a byte order mark, which Read would skip.
+Import std.core
+Import std.data.ini
+
+Local document = Value.Object()
+document["key\u{FEFF}"] = Value("v")
+Print(Ini.Write(document))
+document["\u{FEFF}key"] = Value("v")
+Print(Ini.Write(document))

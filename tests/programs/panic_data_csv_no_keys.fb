@@ -1,0 +1,7 @@
+// WriteRecords panics at records with no keys at all, whose header would be a row of no fields.
+Import std.core
+Import std.data.csv
+
+Local records = Value.Array()
+records.Add(Value.Object())
+Print(Csv.WriteRecords(records))
