@@ -21108,16 +21108,19 @@ private:
             return;
         }
 
-        // Regex's flags, its argument or its default, which has to be known too.
+        // Regex's flags, its argument or its default, which has to be known too. While Globals
+        // and Static Fields are checked, the default may not be yet.
         std::int64_t flags = 0;
         if (regex) {
-            std::optional<const_value_t> given = symbol(function.parameters[1]).value;
-            if (arguments.size() > 1) {
-                if (const std::optional<expr_id_t> written_flags = arguments[1]) {
-                    given = info(*written_flags).value;
-                }
+            const symbol_id_t parameter = function.parameters[1];
+            const std::optional<expr_id_t> written_flags =
+                arguments.size() > 1 ? arguments[1] : std::nullopt;
+            if (!written_flags && function.declaration) {
+                check_defaults(*function.declaration);
             }
 
+            const std::optional<const_value_t>& given =
+                written_flags ? info(*written_flags).value : symbol(parameter).value;
             const auto* bits = given ? std::get_if<std::int64_t>(&given->data) : nullptr;
             if (bits == nullptr) {
                 return;

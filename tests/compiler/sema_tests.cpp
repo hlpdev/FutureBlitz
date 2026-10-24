@@ -14509,6 +14509,18 @@ TEST_CASE("a pattern known at compile time that PCRE2 can't compile is an error 
               "\": the pattern isn't valid: using \\C is disabled by the application",
           });
 
+    // In a Global's or a Static Field's value too, with the flags left to their default.
+    CHECK(errors_of(imports + "Global Words = Regex(\"[a-z\")\n"
+                              "Class Lexer\n"
+                              "    Static Field Number: Regex = Regex(r\"(\\d+\")\n"
+                              "End Class\n"
+                              "Global Parsed = Try? Regex.Parse(\"x**\")") ==
+          errors_t{
+              "\": the pattern isn't valid: missing terminating ] for character class",
+              "\": the pattern isn't valid: missing closing parenthesis",
+              "\": the pattern isn't valid: quantifier does not follow a repeatable item",
+          });
+
     // The flags count: EXTENDED skips a comment. Flags that aren't known leave it unchecked,
     // as does a pattern that isn't.
     CHECK(errors_of(imports + "Local i = Regex(\"a # (\", RegexFlags.EXTENDED)\n"
