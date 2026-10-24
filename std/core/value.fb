@@ -18,9 +18,6 @@ Extern "runtime"
     Function fb_value_path(path: String, keys: String[], indices: Int64[]): Int32
 End Extern
 
-// How many times Holds has looked through Values, on any thread, which numbers each look.
-Global Walks: Atomic<Int64> = Atomic<Int64>(0)
-
 // What a Value holds. An integer is an INT, an Int64, but for one past an Int64's largest, which
 // is a UINT, a UInt64.
 Public Enum ValueKind
@@ -36,8 +33,8 @@ Public Class Value Implements Equatable, Hashable, Printable, Cloneable
     Field Data: UInt8[]?
     Field Elements: Value[]?
     Field Entries: Map<String, Value>?
-    // The last of Holds' looks that went through it.
-    Field Walked: Int64
+    // The last of Holds' walks that went through it.
+    Field Walked: Walk?
 
     // Null.
     Public New()
@@ -438,28 +435,28 @@ Public Class Value Implements Equatable, Hashable, Printable, Cloneable
         If value.Holds(Self) Then Panic("a Value can't hold itself, inside it or as it is")
     End Method
 
-    // Whether it's target, or holds it, however deep. Each Value it looks through gets this walk's
-    // number, so one held in several places is looked through once.
+    // Whether it's target, or holds it, however deep. Each Value it looks through is marked with
+    // this walk, so one held in several places is looked through once.
     Method Holds(target: Value): Bool
-        Local walk = Walks.Add(1) + 1
+        Local walk = Walk()
         Local pending = [Self]
         While pending.Count > 0
             Local here = pending[pending.Count - 1]
             pending.RemoveAt(pending.Count - 1)
             If RefEquals(here, target) Then Return True
-            If here.Walked == walk Then Continue
+            If walk.Marked(here) Then Continue
             here.Walked = walk
             Local elements = here.Elements
             If elements != Null
                 For element In elements
-                    If element.Walked != walk Then pending.Add(element)
+                    If !walk.Marked(element) Then pending.Add(element)
                 End For
             End If
 
             Local entries = here.Entries
             If entries != Null
                 For key, value In entries
-                    If value.Walked != walk Then pending.Add(value)
+                    If !walk.Marked(value) Then pending.Add(value)
                 End For
             End If
         End While
@@ -561,6 +558,14 @@ Public Class Value Implements Equatable, Hashable, Printable, Cloneable
         End If
 
         Return entries
+    End Method
+End Class
+
+// One of Holds' walks, which marks the Values it looks through with itself.
+Class Walk
+    Method Marked(value: Value): Bool
+        Local walked = value.Walked
+        Return walked != Null && RefEquals(walked, Self)
     End Method
 End Class
 
