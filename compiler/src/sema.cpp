@@ -11276,8 +11276,8 @@ private:
     }
 
     /// A Channel's Methods: Send and TrySend, Receive, which gives Null once it's closed and
-    /// empty, TryReceive into a ByRef variable, Close, and IsClosed. Their owner is the Channel,
-    /// and they have no declaration.
+    /// empty, TryReceive into a ByRef variable or as a T?, Close, and IsClosed. Their owner is the
+    /// Channel, and they have no declaration.
     const std::vector<symbol_id_t>& channel_methods(const type_id_t type) {
         if (const auto found = m_channel_methods.find(type); found != m_channel_methods.end()) {
             return found->second;
@@ -11311,6 +11311,8 @@ private:
         // Null once it's closed and empty, even for a Channel of a T?, whose Receive gives a T??.
         method("Receive", m_analysis.types.nullable(element), {});
         method("TryReceive", type_id_t::BOOL, { parameter("value", element, true) });
+        // Null when nothing's there, as Receive gives it.
+        method("TryReceive", m_analysis.types.nullable(element), {});
         method("Close", type_id_t::NONE, {});
         method("IsClosed", type_id_t::BOOL, {});
         return m_channel_methods[type] = std::move(methods);

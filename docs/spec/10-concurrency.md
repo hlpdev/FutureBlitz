@@ -260,7 +260,7 @@ frames.Add(1)
   False instead of waiting, when it's full or closed.
 - `ch.Receive()` waits while it's empty, and gives a `T?`, which is Null once it's closed and
   empty. `ch.TryReceive(ByRef value)` gives False instead of waiting, and sets the variable when
-  it gives True.
+  it gives True; `ch.TryReceive()` gives a `T?`, Null when there's nothing, as Receive gives.
 - `ch.Close()` lets the receivers take what's left. `For x In ch` receives until then.
   `ch.IsClosed()` says whether it's closed, though it may have values left, so code that waits on
   several Channels at once, with TryReceive, knows when one won't get more.

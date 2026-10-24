@@ -1,0 +1,57 @@
+// A Channel's TryReceive() gives a T?, Null when nothing's there, so generic code can take from a
+// Channel without a variable of its own to start with; a Channel of T? gives a T??, whose Null
+// isn't the Null it carries.
+
+Import std.core
+
+// Every value a Channel of any T has now, taken without waiting.
+Function Drain<T: Sendable>(channel: Channel<T>): T[]
+    Local taken: T[] = []
+    Loop
+        Local value = channel.TryReceive()
+        If value == Null Then Return taken
+        taken.Add(value)
+    End Loop
+End Function
+
+Const words = Channel<String>(4)
+Print(words.TryReceive() ?? "nothing")
+words.Send("a")
+words.Send("b")
+Print(Drain(words), Drain(words).Count)
+
+Const maybe = Channel<Int?>(4)
+maybe.Send(Null)
+maybe.Send(3)
+Local first = maybe.TryReceive()
+Local second = maybe.TryReceive()
+Local third = maybe.TryReceive()
+Print(first != Null, (first ?? 0) ?? -1, (second ?? 0) ?? -1, third == Null)
+
+// What's left once it's closed still comes out, and then Null for good.
+Const objects = Channel<String>(2)
+objects.Send("kept")
+objects.Close()
+Print(objects.TryReceive() ?? "none", objects.TryReceive() ?? "none", objects.IsClosed())
+
+// Another thread takes what this one sends, until it's closed and empty.
+Const numbers = Channel<Int>(8)
+Local summer = Spawn(Function(): Int
+    Local total = 0
+    Loop
+        Local number = numbers.TryReceive()
+        If number != Null
+            total += number
+        ElseIf numbers.IsClosed()
+            For left In Drain(numbers)
+                total += left
+            End For
+            Return total
+        End If
+    End Loop
+End Function)
+For i = 1 To 100
+    numbers.Send(i)
+End For
+numbers.Close()
+Print(summer.Wait())

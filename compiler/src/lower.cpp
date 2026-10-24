@@ -7863,7 +7863,7 @@ private:
             return sent;
         }
 
-        if (method.name == "TryReceive") {
+        if (method.name == "TryReceive" && arguments.size() > 1) {
             const place_t target = std::get<place_t>(arguments[1].value);
             const local_id_t slot = add_local(element);
             operand_t got =
@@ -7878,10 +7878,12 @@ private:
             return got;
         }
 
-        // Receive: Null once it's closed and empty.
+        // Receive: Null once it's closed and empty; and TryReceive(), Null when nothing's there.
         const local_id_t slot = add_local(element);
-        const operand_t got =
-            temporary(run(runtime_function_t::CHANNEL_RECEIVE, slot), type_id_t::BOOL);
+        const runtime_function_t receive = method.name == "TryReceive"
+                                               ? runtime_function_t::CHANNEL_TRY_RECEIVE
+                                               : runtime_function_t::CHANNEL_RECEIVE;
+        const operand_t got = temporary(run(receive, slot), type_id_t::BOOL);
         const type_id_t result_type = concrete(method.type);
         const local_id_t result = add_local(result_type);
         emit(assign_t{ .target = result, .value = use_t{ .value = null_of(result_type) } });
