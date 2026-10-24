@@ -1,0 +1,27 @@
+// A NaN's text is NaN on every OS, whatever its sign bit and payload: Inf - Inf sets the sign
+// on x86, and not on ARM, so a sign in the text would differ between them, and between a value
+// the program makes and one the compiler folds.
+Import std.core
+Import std.math
+
+Function Infinite(): Float64 => Float64.Parse("Inf") ?? 0.0
+Function Infinite32(): Float32 => Float32.Parse("Inf") ?? 0.0
+
+Local made = Infinite() - Infinite()
+Local negated = -made
+Local signed = Float64.FromBits(0xFFF8000000000000 As UInt64)
+Local payload = Float64.FromBits(0x7FF8000000000001 As UInt64)
+Local small = Infinite32() - Infinite32()
+Local smallSigned = Float32.FromBits(0xFFC00000 As UInt32)
+Print("{made} {negated} {signed} {payload} {small} {-small} {smallSigned}")
+Print(signed.ToString() + " " + smallSigned.ToString() + " " + negated.ToString())
+
+// Through specs, the debug form, Format, and a tuple and an array, it's the same.
+Print("[{signed:.2}] [{signed:e}] [{signed:>5}] [{signed:+}] [{signed:%}] [{signed:?}]")
+Print(Try Format(r"{} {:?} {:f}", signed, signed, signed))
+Print("{(signed, smallSigned)} {[signed, payload]}")
+Print(Dump(signed))
+
+// And as the compiler folds it.
+Const NEGATIVE = -NaN
+Print("{NaN} {NEGATIVE} {-NaN:>4}")
