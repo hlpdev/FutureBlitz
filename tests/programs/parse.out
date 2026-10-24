@@ -8,3 +8,6 @@
 True False True
 integers 7
 edges 11 of 11, random ones wrong 0
+0 0 5e-324 -
+0 0 1e-45 -
+0 0 0 -

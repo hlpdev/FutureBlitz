@@ -85,3 +85,12 @@ For i = 1 To 20000
 End For
 
 Print("edges {exact} of {edges.Count}, random ones wrong {wrong}")
+
+// A float too small for its type reads as 0, the nearest one, and only one too big is Null; -0
+// is 0, which an unsigned integer holds.
+Print(Shown(Float64.Parse("1e-400")), Shown(Float64.Parse("2e-324")), Shown(Float64.Parse("3e-324")),
+      Shown(Float64.Parse("1e400")))
+Print(Shown(Float32.Parse("1e-50")), Shown(Float32.Parse("1e-46")), Shown(Float32.Parse("1e-45")),
+      Shown(Float32.Parse("1e39")))
+Print(Shown(UInt64.Parse("-0")), Shown(UInt8.Parse("+0")), Shown(Int.Parse("-0")),
+      Shown(UInt8.Parse("-1")))
