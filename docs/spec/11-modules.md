@@ -39,6 +39,7 @@ Replaces Blitz's `Include` (textual paste) and `.decls` files.
 Import std.math                     // standard library module
 Import physics                      // package from the manifest
 Import "./ui/hud"                   // local file, relative path
+Import "proto/game.proto"           // a Protocol Buffers file's types
 Import std.collections As C         // alias
 From std.math Import Vec3, Lerp     // selected names
 ```
@@ -51,6 +52,17 @@ From std.math Import Vec3, Lerp     // selected names
   one that ends in a folder, like `".."` or `"./"`, is an error. A path can't leave
   the folder its module names start from: its package's, the main file's for a program without
   a project.toml, or std/ for std's own files.
+- A quoted path that ends in `.proto` names a Protocol Buffers file, proto2 or proto3, which fb
+  reads as it builds the program into a module of its types, named by the path as a `.fb`
+  file's is, `proto.game.proto`, under its file's stem, `game`: a Struct for each message, an
+  Enum for each enum, and an Interface for each service (see [stdlib.md](../stdlib.md)'s
+  std.data). Its package doesn't name the module, since one package often spans several files.
+  A `.proto`'s own imports are found from its folder, then from each folder above it up to the
+  one its package's paths start from, the nearest first, as protoc finds them in its `-I`
+  folders, and a `google/protobuf/` path none of them has is one of protobuf's well-known types,
+  which std has, as is one an Import names that isn't beside its file. Two `.proto` files can't
+  import each other, and a `.proto`'s mistakes are errors at its lines and columns, which leave
+  its module empty.
 - `Import X` brings X's names in without a qualifier, and under X's last name, as in
   `collections.Stack` or `hud.Draw`. `Import X As C` brings them in only as `C.Name`.
   `From X Import A, B` brings in only A and B, which X has to declare.
