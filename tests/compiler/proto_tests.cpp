@@ -460,6 +460,10 @@ TEST_CASE("what a field's type decides", "[proto]") {
               { "old.proto", "syntax = \"proto2\";\nenum Old { A = 1; }\n" },
           }) == diagnostics_t{ "main.proto:3:13: a proto3 message's enums are proto3's, which "
                                "keep numbers they don't name; Old is proto2's" });
+    CHECK(resolve_errors(
+              "syntax = \"proto2\";\nenum E { A = 1; }\nmessage M { map<int32, E> m = 1; }") ==
+          diagnostics_t{ "test.proto:3:24: a map's enum values start at 0, which an entry without "
+                         "one has; E's first value isn't 0" });
     CHECK(resolve_errors("syntax = \"proto2\";\nmessage M { repeated M m = 1 [packed = true]; }") ==
           diagnostics_t{ "test.proto:2:22: only a repeated field of numbers, bools, or enums is "
                          "packed, not messages" });
