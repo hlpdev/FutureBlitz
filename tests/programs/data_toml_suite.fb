@@ -1,0 +1,116 @@
+// std.data's TOML passes toml-test's cases for TOML 1.0: each valid document reads as what it
+// holds, and reads the same once written and read again, and each invalid one throws a
+// ParseError. data_toml_suite/make_data.py says which cases there are, and how what each holds
+// is written.
+
+Import std.core
+Import std.collections
+Import std.math
+Import std.data.value
+Import std.data.toml
+Import "./data_toml_suite/data"
+
+// Adds text in quotes, with escapes for '"', '\', and control characters.
+Function AddQuoted(out: UInt8[], text: String)
+    out.Add(34)
+    For b In text.Bytes
+        If b == 34 || b == 92
+            out.Add(92)
+            out.Add(b)
+        ElseIf b < 32 || b == 127
+            out.AddAll("\\u00".Bytes)
+            out.Add(HexDigit(b >> 4))
+            out.Add(HexDigit(b & 15))
+        Else
+            out.Add(b)
+        End If
+    End For
+    out.Add(34)
+End Function
+
+Function HexDigit(digit: UInt8): UInt8 => digit < 10 ? 48 + digit : 87 + digit
+
+// Adds value as make_data.py writes what a case holds: an Object's keys in order, and a Float
+// as its bits, or nan.
+Function AddCanonical(out: UInt8[], value: Value)
+    Select value.Kind
+        Case ValueKind.BOOL
+            out.AddAll((value.AsBool() ? "true" : "false").Bytes)
+        Case ValueKind.INT
+            out.AddAll("{value.AsInt()}".Bytes)
+        Case ValueKind.FLOAT
+            Local float = value.AsFloat()
+            out.AddAll((float != float ? "nan" : "{float.ToBits()}").Bytes)
+        Case ValueKind.STRING
+            AddQuoted(out, value.AsString())
+        Case ValueKind.ARRAY
+            out.Add(91)
+            Local first = True
+            For item In value.Values()
+                If !first Then out.AddAll(", ".Bytes)
+                first = False
+                AddCanonical(out, item)
+            End For
+            out.Add(93)
+        Case ValueKind.OBJECT
+            Local keys = value.Keys()
+            keys.Sort()
+            out.Add(123)
+            Local first = True
+            For key In keys
+                If !first Then out.AddAll(", ".Bytes)
+                first = False
+                AddQuoted(out, key)
+                out.AddAll(": ".Bytes)
+                AddCanonical(out, value[key])
+            End For
+            out.Add(125)
+        Default
+            out.AddAll("null".Bytes)
+    End Select
+End Function
+
+Function Canonical(value: Value): UInt8[]
+    Local out: UInt8[] = []
+    AddCanonical(out, value)
+    Return out
+End Function
+
+Local passed = 0
+Local failures: String[] = []
+Local valid = ValidCases()
+For test In valid
+    Local read = Try? Toml.Read(test.1)
+    If read == Null
+        failures.Add("valid/{test.0} doesn't read")
+        Continue
+    End If
+
+    Local found = Canonical(read)
+    If found != test.2.Bytes
+        failures.Add("valid/{test.0} reads as {read}")
+        Continue
+    End If
+
+    Local again = Try? Toml.Read(Toml.Write(read))
+    If again == Null || Canonical(again) != found
+        failures.Add("valid/{test.0} reads otherwise once written")
+        Continue
+    End If
+
+    passed += 1
+End For
+
+Local invalid = InvalidCases()
+For test In invalid
+    If (Try? Toml.Read(test.1)) != Null
+        failures.Add("invalid/{test.0} reads")
+    Else
+        passed += 1
+    End If
+End For
+
+Print("{passed} of {valid.Count + invalid.Count} cases pass")
+For failure In failures
+    Print(failure)
+End For
