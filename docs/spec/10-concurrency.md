@@ -136,8 +136,10 @@ End Function
   implements only an Async one: a call through the Interface's value, or generic code, starts it
   as any Async Method's call does, and gives its Task, so `Await reader.ReadAsync(buffer)` waits
   for whatever Class the Reader is. The Task is the caller's, so what implements one gives just
-  the type the Interface's gives, not a Struct implementing the Iterator<T> it gives, which a
-  plain Method's result can be. A Static one is Async too, for generic code to call on its type.
+  the type the Interface's gives, not a Struct or Class implementing the Iterator<T> it gives,
+  which a plain Method's result can be. A Static one can be Async too, which generic code calls
+  on its type. An Interface that redeclares one of an Interface it extends is Async where that
+  one is, and only there.
 - `Async Function(x) => ...` is an Async lambda, whose call gives a Task, through a function
   value too: `Func(Int): Task<Int>`. Making one is main-thread code, since its code runs there.
 - An Async Function's parameters can't be ByRef, and it isn't a function value; a lambda can
