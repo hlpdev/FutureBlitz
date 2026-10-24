@@ -988,6 +988,22 @@ bool type_table_t::has_zero(const type_id_t type) const {
                                [this](const field_t& field) { return has_zero(field.type); });
 }
 
+bool type_table_t::holds_fixed_array(const type_id_t type) const {
+    const type_t& entry = get(type);
+    switch (entry.kind) {
+    case type_kind_t::FIXED_ARRAY:
+        return true;
+    case type_kind_t::NULLABLE:
+        return holds_fixed_array(entry.inner);
+    case type_kind_t::STRUCT:
+    case type_kind_t::TUPLE:
+        return std::ranges::any_of(
+            entry.fields, [this](const field_t& field) { return holds_fixed_array(field.type); });
+    default:
+        return false;
+    }
+}
+
 std::string type_table_t::suffixed(const type_id_t type, const bool qualified,
                                    const std::string_view main) const {
     std::string text = qualified ? qualified_name(type, main) : std::string(name(type));

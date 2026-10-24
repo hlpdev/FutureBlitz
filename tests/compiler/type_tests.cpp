@@ -151,6 +151,18 @@ TEST_CASE("fixed arrays are made once and shared", "[types]") {
     CHECK_FALSE(types.has_references(grid));
     CHECK(types.has_zero(grid));
     CHECK(types.has_references(types.fixed_array(fb::type_id_t::STRING, { 2 })));
+
+    // A value holds one inside a Struct, a tuple, or a T?, but not through a reference.
+    CHECK(types.holds_fixed_array(grid));
+    CHECK_FALSE(types.holds_fixed_array(list));
+    const fb::type_id_t board = types.add_struct("Board");
+    types.set_fields(board, { { .name = "cells", .type = grid } });
+    CHECK(types.holds_fixed_array(types.nullable(board)));
+    CHECK(types.holds_fixed_array(types.tuple({ fb::type_id_t::INT32, board })));
+    CHECK_FALSE(types.holds_fixed_array(types.array(board)));
+    const fb::type_id_t map = types.add_class("Map");
+    types.set_fields(map, { { .name = "cells", .type = grid } });
+    CHECK_FALSE(types.holds_fixed_array(map));
 }
 
 TEST_CASE("an Enum's zero is its first value, or no flags", "[types]") {
