@@ -72,3 +72,11 @@ End Function
 
 Local made: Box8<5> = Make<5>()
 Print(Bump<5>(), Via<5>(), Of(Small<5>()), Bump<5>(), Inner<5>())
+
+// A call infers a size from generic code's array, whose size is a Const type parameter or
+// computed from one.
+Function Count<Const N: Int>(a: Int[N]): Int => N
+
+Function Wrap<Const N: Int>(a: Int[N]): Int => Count(a) * 100 + Count(Trimmed(a))
+
+Print(Wrap(a))

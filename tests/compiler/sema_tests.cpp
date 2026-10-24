@@ -8614,6 +8614,19 @@ TEST_CASE("a Const type argument or size can be computed from Const type paramet
                     "    Return t.Count\n"
                     "End Function")
               .empty());
+    // Generic code's array, whose size is a Const type parameter or computed from one, infers
+    // that.
+    CHECK(probe("Function Count<Const N: Int>(a: Int[N]): Int[N] => a\n"
+                "Function Trimmed<Const N: Int>(a: Int[N]): Int[N - 1]\n"
+                "    Local t: Int[N - 1]\n"
+                "    Return t\n"
+                "End Function\n"
+                "Function Wrap<Const N: Int>(a: Int[N]): Int[N - 1]\n"
+                "    Local same: Int[N] = Count(a)\n"
+                "    Return Count(Trimmed(a))\n"
+                "End Function\n"
+                "Local a: Int[5]\n"
+                "Local x = Wrap(a)") == "Int32[4]");
 }
 
 TEST_CASE("a loop can go over a type's own type parameter, or Self", "[sema]") {

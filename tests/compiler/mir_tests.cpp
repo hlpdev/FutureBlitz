@@ -2850,6 +2850,15 @@ TEST_CASE("lowering stops where code needs a larger instance each time, which an
                   "Local c = Count<1>()") ==
           "Local a: Int[N - 1]: Int32[0] comes out here, but a fixed array's sizes are from 1 to "
           "2147483647");
+    // A size inferred from a computed one is what the instance works out.
+    CHECK(stopped("Function Count<Const N: Int>(a: Int[N]): Int => N\n"
+                  "Function Trim<Const N: Int>(a: Int[N]): Int[N - 1]\n"
+                  "    Local t: Int[N - 1]\n"
+                  "    Return t\n"
+                  "End Function\n"
+                  "Local a: Int[1]\n"
+                  "Local c = Count(Trim(a))") ==
+          "Trim(a): Int32[0] comes out here, but a fixed array's sizes are from 1 to 2147483647");
     CHECK(stopped("Struct Grid<Const W: Int, Const H: Int>\n"
                   "    Field Cells: Float[W, H]\n"
                   "End Struct\n"

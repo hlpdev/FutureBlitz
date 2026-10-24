@@ -21213,12 +21213,19 @@ private:
 
         switch (want.kind) {
         case type_kind_t::FIXED_ARRAY:
-            // A size that's a Const type parameter is the other array's.
+            // A size that's a Const type parameter is the other array's: its number, or the Const
+            // type parameter or computed value it is in generic code.
             for (std::size_t i = 0; i < want.parameters.size() && i < have.sizes.size(); ++i) {
                 const type_id_t dimension = want.parameters[i];
-                if (dimension != type_id_t::INVALID && is_value_parameter(dimension)) {
-                    unify(dimension, m_types->value(have.sizes[i]), parameters, arguments);
+                if (dimension == type_id_t::INVALID || !is_value_parameter(dimension)) {
+                    continue;
                 }
+
+                const type_id_t size =
+                    i < have.parameters.size() && have.parameters[i] != type_id_t::INVALID
+                        ? have.parameters[i]
+                        : m_types->value(have.sizes[i]);
+                unify(dimension, size, parameters, arguments);
             }
 
             unify(want.inner, have.inner, parameters, arguments);
