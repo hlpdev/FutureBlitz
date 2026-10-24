@@ -69,3 +69,19 @@ For i = 1 To 100000
     parts.Add(">")
 End For
 Print(Plain(parts.Join("") + " a"))
+
+// Autolinks are md4c's: a host and path of letters, digits, '.', '-', '_', and '/', then a query
+// and a fragment, ending at a space or a sentence's end.
+Print(MarkdownToHtml("See https://example.com/a_b/c.png?q=x+(y)#top, ftp://f.example.org.\n\n" +
+                     "Not http://example.com:8080/a, https://example.com/a%20b, or " +
+                     "https://example.com/~me, but <http://example.com:8080/a> is.",
+                     MarkdownExtensions.GitHub))
+
+// Tables are md4c's: the delimiter row sets the columns, and a "\|" in a cell is a '|'.
+Print(MarkdownToHtml("| a | b |\n|---|\n| 1 | 2 |\n\n| a | b |\n|---|---|\n| `x \\| y` |"))
+
+// A tight list's items hold their text themselves, and a loose one's are in Paragraphs.
+Local tight = ParseMarkdown("- one\n- two").Children[0]
+Local loose = ParseMarkdown("- one\n\n- two").Children[0]
+Print(tight.Tight, tight.Children[0].Children[0].Kind)
+Print(loose.Tight, loose.Children[0].Children[0].Kind)

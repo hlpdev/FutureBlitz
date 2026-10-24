@@ -1,5 +1,5 @@
-// std.text.markdown: CommonMark, with GitHub's tables, task lists, strikethrough, and autolinks as
-// asked, over md4c: Markdown as HTML, and as a tree of its blocks, spans, and text to walk.
+// std.text.markdown: CommonMark, with tables, task lists, strikethrough, and autolinks as asked,
+// over md4c: Markdown as HTML, and as a tree of its blocks, spans, and text to walk.
 
 Import std.core
 Import std.collections
@@ -17,17 +17,27 @@ Extern "runtime"
     Function fb_string_from_array(bytes: UInt8[]): String
 End Extern
 
-// What a document can have past CommonMark: GitHub's tables, task lists ("- [x] done"),
-// ~~strikethrough~~, and links from bare URLs, www. addresses, and e-mail addresses.
+// What a document can have past CommonMark, as md4c reads them, which is mostly as GitHub's
+// Markdown does: tables, task lists ("- [x] done"), ~~strikethrough~~, and links from bare URLs,
+// www. addresses, and e-mail addresses.
 @Flags
 Public Enum MarkdownExtensions
     // CommonMark alone.
     None = 0
+    // A table's delimiter row sets its columns, up to 128, so a row's cells past them are left
+    // out, and those it lacks are empty. A '|' in a code span doesn't split cells, and a "\|"
+    // in a cell is a '|', a code span's too.
     Tables
     TaskLists
     Strikethrough
+    // A link from an http://, https://, or ftp:// URL, a www. address, or an e-mail address, with
+    // a space, a line's start, or an opening bracket before it, and a space, a line's end, a
+    // closing bracket, or '.', '!', '?', ',', or ';' after it. A host is letters, digits, '.',
+    // '-', and '_', a path those and '/', and then a query of those, '&', '+', '=', '(', and ')',
+    // and a fragment can follow; one with a port, a '%', or a '~', say, is a link only between
+    // '<' and '>', as CommonMark has it.
     Autolinks
-    // All four, as GitHub's Markdown has them.
+    // All four, as md4c's dialect of GitHub's Markdown has them.
     GitHub = Tables | TaskLists | Strikethrough | Autolinks
 End Enum
 
@@ -82,8 +92,8 @@ Public Class MarkdownNode
     Public Field Level: Int
     // An OrderedList's first number.
     Public Field Start: Int
-    // Whether a list is tight, with no blank lines between its items, which HTML shows without
-    // paragraphs.
+    // Whether a list is tight, with no blank lines between its items. Its items have no
+    // Paragraphs, in HTML or here: each holds its spans and text itself.
     Public Field Tight: Bool
     // Whether a ListItem is a task, "- [ ] to do", and whether it's done, "- [x] done".
     Public Field Task: Bool

@@ -111,3 +111,35 @@ World
 again]
 [x]
 [a]
+<p>See <a href="https://example.com/a_b/c.png?q=x+(y)#top">https://example.com/a_b/c.png?q=x+(y)#top</a>, <a href="ftp://f.example.org">ftp://f.example.org</a>.</p>
+<p>Not http://example.com:8080/a, https://example.com/a%20b, or https://example.com/~me, but <a href="http://example.com:8080/a">http://example.com:8080/a</a> is.</p>
+
+<table>
+<thead>
+<tr>
+<th>a</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+</tr>
+</tbody>
+</table>
+<table>
+<thead>
+<tr>
+<th>a</th>
+<th>b</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>x | y</code></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+
+True Text
+False Paragraph
