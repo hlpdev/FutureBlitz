@@ -41,3 +41,15 @@ Vertex { Name: "a", Edges: [Vertex { Name: "b", Edges: [Vertex { Name: "a", Edge
 7 Tiles { Cells: [0, 0, 0, 4] }
 [     5] [     5] [     5] Spades [2.5   ] [  5  ]
 5 "a" True Hearts 
+World | 0x8 World False 8 Player | Trigger | 0xFFFFFFF8
+[1, 0, 0, 0, 0, 6] Board { Cells: [1, 0, 0, 0, 0, 6] }
+Board {
+    Cells: [
+        1,
+        0,
+        0,
+        0,
+        0,
+        6,
+    ],
+}
