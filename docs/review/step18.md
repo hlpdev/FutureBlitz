@@ -414,6 +414,32 @@ Suggested fix: Batch the take-out in Clear, as Emit does: `Emitting += 1`, drop 
 
 Skeptic: In release, Clear took 0.68s with 10000 handlers, 2.44s with 20000, and 13.0s with 40000, about 4-5x per doubling, which is quadratic. The same 40000-handler program without event.Clear() ran in 0.10s (noclear40000.fb). event.fb:78-93 shows why: Clear calls Drop on each handler, and with Emitting == 0 each Drop's Dropped runs TakeOutDropped, a RemoveAll over the whole Handlers array. Emit already batches these removals, so Clear could too.
 
+## S18-new-1 (medium): SortedMap's and SortedSet's, Trie's, and IntervalTree's iterators keep their stacks in arrays, so a copy moves the original
+
+Status: fixed in fde965a, 4db33ad, and d131c8a: SortedMapIterator (which SortedSetIterator wraps), TrieIterator, and IntervalTreeIterator keep the nodes above the one they're at in linked lists of plain Class nodes, SortedPath, TriePath, and IntervalPath, which a step replaces rather than changes, as S18-collections-4's fix did for the immutable ones; the node it's at and its place are the Struct's own fields, so a copy keeps its place. sorted_collections.fb (SortedMap: Next, then Count twice and Next; SortedSet: a For ... In, then Count and Next), trie.fb, and interval_tree.fb (Next, then Count twice and Next, then a For ... In and Count) gave 49 0 before, and 49 49, then the second entry, now
+
+Where: std/collections/sorted.fb:440, std/collections/trie.fb:218, std/collections/interval_tree.fb:277
+
+Found while fixing S18-collections-4, which is the same bug in ImmutableArray's and ImmutableMap's iterators: they're step 3's and step 4's. Each iterator is a Struct whose stack of nodes is an array field (Nodes, and Places for SortedMap and Trie). Copying the Struct copies the array reference, not the array, so a consumer like Count, or a For ... In, that takes a copy pops the original's stack as it goes. An iterator that has given one entry then reads as empty.
+
+```
+Import std.core
+Import std.collections
+
+Local map = SortedMap<Int, Int>()
+For i = 0 Until 50
+    map.Add(i, i)
+End For
+
+Local entries = map.Iterate()
+entries.Next()
+Print(entries.Count(), entries.Count())
+```
+
+Expected: 49 49
+
+Actual: 49 0 (and the same for a SortedSet, a Trie, and an IntervalTree of 50)
+
 ## Refuted by the skeptics (no action)
 
 - S18-locks-1: A Read nested under a Read through the job pool panics or not depending on which thread runs it. I reproduced what the finding saw, but the behaviour follows from the spec and stdlib.md. It isn't a defect in the RwLock.
