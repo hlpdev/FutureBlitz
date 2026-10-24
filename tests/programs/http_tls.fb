@@ -1,5 +1,6 @@
 // HTTPS against the test server, whose certificate the test CA signed for 127.0.0.1: the OS's
-// roots don't trust it, the test CA does, and trusting the OS's roots again doesn't.
+// roots don't trust it, the test CA does, and trusting the OS's roots again doesn't, for the
+// server and for an HTTPS proxy alike.
 Import std.core
 Import std.crypto
 Import std.net.http
@@ -24,6 +25,20 @@ Function Fetched(client: HttpClient, path: String): String
         Return "NetError {e.Kind}"
     Catch e As TimeoutError
         Return "TimeoutError"
+    End Try
+End Function
+
+// What a GET of url through proxy, an HTTPS one, gives.
+Function Proxied(client: HttpClient, proxy: String, url: String): String
+    client.Proxy = proxy
+    Try
+        Return client.Get(url).Text
+    Catch e As NetError
+        Return "NetError {e.Kind}"
+    Catch e As TimeoutError
+        Return "TimeoutError"
+    Finally
+        client.Proxy = Null
     End Try
 End Function
 
@@ -82,7 +97,20 @@ Catch e As TimeoutError
     Print("TimeoutError")
 End Try
 
+// The test server answers a URL sent to it as a proxy is: "proxied <path>".
+Print(Proxied(client, secure, "{base}/hello"))
+Print(Proxied(client, secure1, "{base}/hello"))
+
 client.TrustOsRoots()
 Print(Fetched(client, "/hello"))
+Print(Proxied(client, secure, "{base}/hello"))
 client.TrustOnly([])
+Print(Fetched(client, "/hello"))
+
+// libcurl takes no more than 8,000,000 bytes of roots.
+Local many: Certificate[] = []
+For i = 0 Until 20000
+    many.Add(roots[0])
+End For
+client.TrustOnly(many)
 Print(Fetched(client, "/hello"))
