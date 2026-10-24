@@ -637,22 +637,26 @@ Step 18 built `Event<T>` and `Subscription`, in std/events/event.fb; `Import std
   `Post`, `Put`, `Patch`, `Delete`, `Send(method, url, body, headers)`, and `Download(url,
   progress)`, the body's bytes, which tells `progress` of how many came and how many the response
   said, each with an Async twin that the I/O thread runs, telling progress on the main thread;
-  `DefaultHeaders`, which the request's own replace by name; `UserAgent`; `FollowRedirects` and
-  `MaxRedirects` (10), followed as the fetch standard says, a 301 or 302 changing a POST to a
-  GET and a 303 any method but HEAD, without the body and its headers, and a redirect to
-  another origin sending no Authorization or Cookie of the request's own; `Decompress`, which
-  asks for what libcurl decodes and decodes it; cookies, kept for each client's requests
-  (`ClearCookies`); connections, which its requests reuse; `Proxy`, or else the environment's
-  (http_proxy, https_proxy, no_proxy); and `TrustOnly(roots)` and `TrustOsRoots()`. A failure is
-  a NetError of its Kind (a URL that isn't HTTP's or HTTPS's is OTHER's), or a TimeoutError;
+  `DefaultHeaders`, which the request's own replace by name; `UserAgent`, checked as a header's
+  value is; `FollowRedirects` and `MaxRedirects` (10), which the runtime follows as the fetch
+  standard says, a 301 or 302 changing a POST to a GET and a 303 any method but HEAD, without the
+  body and its headers, and a redirect to another origin sending no Authorization, Cookie, or
+  Host of the request's own; `Decompress`, which asks for what libcurl decodes and decodes it;
+  cookies, kept for each client's requests (`ClearCookies`), which a request's own Cookie header
+  joins in one; connections, which its requests reuse; `Proxy`, `""` for none, or else the
+  environment's (http_proxy, https_proxy, no_proxy); and `TrustOnly(roots)` and
+  `TrustOsRoots()`. A failure is a NetError of its Kind (a URL that isn't HTTP's or HTTPS's is
+  OTHER's, as are too many redirects), or a TimeoutError;
   `EnsureSuccess`, and what gives only a body, `Download`, `Http.GetText`, and `Http.GetBytes`,
   throw a NetError of `HTTP_STATUS` for a status that isn't success. `Http.Get`, `GetText`,
   `GetBytes`, `Head`, `Post`, `Put`, `Patch`, `Delete`, and `Download`, and `GetAsync`,
   `GetTextAsync`, `GetBytesAsync`, `PostAsync`, and `DownloadAsync`, send one request each
-  through a client of their own. HTTP/1.1 only, for now; a program that only makes Headers or a
-  Body links no libcurl.
-- std.net.http's server: `HttpServer`, whose handlers are Async code on its own loop (no data races, and Globals work),
-  with `Workers = n` to spread them over threads once they're Sendable-safe; routes as
+  through a client of their own. HTTP/1.1 only, for now; a request may take as long as it takes
+  but its connecting 30 seconds until std.time's Durations set them; a program that only makes
+  Headers or a Body links no libcurl.
+- std.net.http's server: `HttpServer`, whose handlers are Async code on its own loop (no data
+  races, and Globals work), with `Workers = n` to spread them over threads once they're
+  Sendable-safe; routes as
   `server.Get(path, handler)` and router groups, or as a Class whose Methods carry `@Get`,
   `@Post`, and the rest, registered with `server.Routes<T>(instance)`, binding path parameters
   and JSON bodies to typed parameters; middleware; static files; and automatic HTTPS, getting
