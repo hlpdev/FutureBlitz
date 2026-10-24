@@ -142,13 +142,21 @@ Public Abstract Class Terminal
         End If
     End Method
 
-    // The next event, which waits for it, or Null at the end of the input. A RESIZE gives the
-    // size it has now.
-    Public Method ReadEvent(): InputEvent? => NextEvent(-1)
+    // The next event, in raw mode for as long as it waits, if it isn't already, or Null at the
+    // end of the input. A RESIZE gives the size it has now.
+    Public Method ReadEvent(): InputEvent?
+        StartRawMode()
+        Defer EndRawMode()
+        Return NextEvent(-1)
+    End Method
 
-    // The next event, which waits for timeout at most, or Null when none came by then, or at the
-    // end of the input.
-    Public Method PollEvent(timeout: Duration): InputEvent? => NextEvent(Max(timeout.Nanoseconds, 0))
+    // The next event, in raw mode for as long as it waits, which is timeout at most, or Null when
+    // none came by then, or at the end of the input.
+    Public Method PollEvent(timeout: Duration): InputEvent?
+        StartRawMode()
+        Defer EndRawMode()
+        Return NextEvent(Max(timeout.Nanoseconds, 0))
+    End Method
 
     // The next key, in raw mode for as long as it waits, if it isn't already, or Null at the end
     // of the input. What isn't a key is skipped.
@@ -239,7 +247,7 @@ Public Abstract Class Terminal
     // The next event, waiting timeout nanoseconds at most, or for as long as it takes when that's
     // negative.
     Method NextEvent(timeout: Int64): InputEvent?
-        Local deadline = timeout < 0 ? 0 : Instant.Now().Nanoseconds + timeout
+        Local deadline = DeadlineOf(timeout)
         Loop
             Local event = Input.Parser.Next()
             If event != Null Then Return event
@@ -249,27 +257,33 @@ Public Abstract Class Terminal
                 Return resized
             End If
 
-            Local wait = timeout < 0 ? -1 : Max(deadline - Instant.Now().Nanoseconds, 0)
-            // What waits for the rest of its sequence waits a moment, and then is what it is.
-            If Input.Parser.IsWaiting
+            Local wait = deadline < 0 ? -1 : Max(deadline - Instant.Now().Nanoseconds, 0)
+            // What waits for the rest of its sequence waits a moment, and then is what it is, and
+            // so does a "\r", for a "\n" that would be part of it.
+            Local waiting = Input.Parser.IsWaiting
+            If waiting || Input.Parser.IsAfterReturn
                 Local most = Input.Parser.IsPasting ? PASTE_WAIT : ESCAPE_WAIT
                 wait = wait < 0 ? most : Min(wait, most)
             End If
+
             Local count = ReadInput(Input.Chunk, wait)
             If count > 0
                 Input.Parser.Feed(Input.Chunk, count As Int)
             ElseIf count == -2
-                // Bytes that waited for more are what they are, since what came next was this.
-                If !Input.Parser.IsWaiting Then Return InputEvent(Columns, Rows)
+                // Bytes that waited for more are what they are, since what came next was this,
+                // but for a paste, whose text is still coming.
+                If !waiting || Input.Parser.IsPasting Then Return InputEvent(Columns, Rows)
                 Input.Resized = InputEvent(Columns, Rows)
                 Local flushed = Input.Parser.Flush()
                 If flushed != Null Then Return flushed
             ElseIf count == -1
                 Return Input.Parser.Flush()
-            ElseIf Input.Parser.IsWaiting
+            ElseIf waiting
                 Local flushed = Input.Parser.Flush()
                 If flushed != Null Then Return flushed
-            ElseIf timeout >= 0
+            ElseIf Input.Parser.IsAfterReturn
+                Input.Parser.Paused()
+            ElseIf deadline >= 0
                 // Nothing came by the deadline, as the read waited until.
                 Return Null
             End If
@@ -279,11 +293,11 @@ Public Abstract Class Terminal
     // The next key, waiting timeout nanoseconds at most, or as long as it takes when that's
     // negative.
     Method KeyWithin(timeout: Int64): KeyEvent?
-        Local deadline = timeout < 0 ? 0 : Instant.Now().Nanoseconds + timeout
+        Local deadline = DeadlineOf(timeout)
         StartRawMode()
         Defer EndRawMode()
         Loop
-            Local left = timeout < 0 ? -1 : Max(deadline - Instant.Now().Nanoseconds, 0)
+            Local left = deadline < 0 ? -1 : Max(deadline - Instant.Now().Nanoseconds, 0)
             Local event = NextEvent(left)
             If event == Null Then Return Null
             If event.Kind == InputKind.KEY Then Return event.Key
@@ -443,8 +457,8 @@ Public Class FakeTerminal Extends Terminal
     End Method
 
     // A pause of time after what's fed before: a read that waits that long or less gives
-    // nothing, as at its timeout, and one that waits longer goes on to what's after, as when
-    // the rest of a sequence or a paste comes a little late.
+    // nothing, as at its timeout, and leaves what's left of the pause, and one that waits longer
+    // goes on to what's after, as when the rest of a sequence or a paste comes a little late.
     Public Method Pause(time: Duration)
         Fed.Add(FedInput(FedKind.PAUSE, [], 0, 0, Max(time.Nanoseconds, 0)))
     End Method
@@ -461,9 +475,14 @@ Public Class FakeTerminal Extends Terminal
         If Fed.Count == 0 Then Return -1
         Local next = Fed[0]
         If next.Kind == FedKind.PAUSE
+            If timeout >= 0 && next.Pause >= 0 && timeout < next.Pause
+                next.Pause -= timeout
+                Return 0
+            End If
+
             Fed.RemoveAt(0)
-            If timeout >= 0 && (next.Pause < 0 || timeout <= next.Pause) Then Return 0
-            Return ReadInput(into, timeout)
+            If timeout >= 0 && (next.Pause < 0 || timeout == next.Pause) Then Return 0
+            Return ReadInput(into, timeout < 0 ? -1 : timeout - next.Pause)
         End If
 
         If next.Kind == FedKind.RESIZE
@@ -515,6 +534,15 @@ Class FedInput
         Pause = pause
     End New
 End Class
+
+// The clock's time timeout nanoseconds from now, or -1 for a negative timeout, or one too long
+// for the clock to reach, which is as long as it takes.
+Function DeadlineOf(timeout: Int64): Int64
+    If timeout < 0 Then Return -1
+    Local now = Instant.Now().Nanoseconds
+    If timeout > 9223372036854775807 - now Then Return -1
+    Return now + timeout
+End Function
 
 // text without its last grapheme cluster.
 Package Function WithoutLast(text: String): String

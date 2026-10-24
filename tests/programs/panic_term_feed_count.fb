@@ -1,0 +1,9 @@
+// An InputParser takes the first count of bytes, so a count below 0, or past what there are, is
+// a bug, which panics at the caller.
+Import std.core
+Import std.term
+
+Local parser = InputParser()
+Local bytes: UInt8[] = [0x61, 0x62]
+parser.Feed(bytes, 2)
+parser.Feed(bytes, -1)

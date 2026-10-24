@@ -78,7 +78,8 @@ Public Struct KeyEvent Implements Hashable, Printable
     End Method
 End Struct
 
-// Which of the mouse's buttons, or NONE, for a move or a scroll.
+// Which of the mouse's buttons, or NONE, for a move or a scroll. The others, like a mouse's back
+// and forward buttons, aren't reported.
 Public Enum MouseButton
     NONE, LEFT, MIDDLE, RIGHT
 End Enum
@@ -199,8 +200,14 @@ Public Class InputParser
     Public New()
     End New
 
-    // Takes the first count of bytes, as they came.
+    // Takes the first count of bytes, as they came. Panics for a count below 0 or past what
+    // bytes has.
+    @PanicsAtCaller
     Public Method Feed(bytes: UInt8[], count: Int)
+        If count < 0 || count > bytes.Count
+            Panic("Feed takes a count from 0 to the {bytes.Count} bytes there are, not {count}")
+        End If
+
         // What's been made into events goes, now and then, so a long session's bytes don't pile up.
         If At >= 4096
             Bytes.RemoveRange(0, At)
@@ -231,6 +238,17 @@ Public Class InputParser
         Get => Pasting
     End Property
 
+    // Whether the last key was a "\r", which a "\n" right after it is part of.
+    Package Property IsAfterReturn: Bool
+        Get => AfterReturn
+    End Property
+
+    // Says nothing came for a moment, so a "\n" now is a key of its own, as Ctrl+J is, rather
+    // than the end of a "\r\n".
+    Package Method Paused()
+        AfterReturn = False
+    End Method
+
     // The next event in what's come, or Null until all its bytes have.
     Public Method Next(): InputEvent? => Parse(False)
 
@@ -246,6 +264,7 @@ Public Class InputParser
             If At >= Bytes.Count
                 Bytes.Clear()
                 At = 0
+                PasteScan = 0
                 Return Null
             End If
 
@@ -328,10 +347,17 @@ Public Class InputParser
         // Ctrl and a letter, or one of \ ] ^ _.
         If first < 0x1B Then Return (1, KeyEvent(((first + 0x60) As Int) As Char, KeyModifiers.CONTROL))
         If first < 0x20 Then Return (1, KeyEvent(((first + 0x40) As Int) As Char, KeyModifiers.CONTROL))
+        // A character cut short by a byte that doesn't go on with it isn't one, nor is one cut
+        // short by the end, which takes only its own bytes.
         Local length = Utf8Length(first)
-        If at + length > Bytes.Count
-            If !done Then Return Null
-            Return (Bytes.Count - at, KeyEvent('\u{FFFD}'))
+        Local have = 1
+        While have < length && at + have < Bytes.Count && IsContinuation(Bytes[at + have])
+            have += 1
+        End While
+
+        If have < length
+            If at + have >= Bytes.Count && !done Then Return Null
+            Return (have, KeyEvent('\u{FFFD}'))
         End If
 
         Local code = CodeAt(at, length)
@@ -370,7 +396,35 @@ Public Class InputParser
             Local column = (Bytes[At + 4] As Int) - 33
             Local row = (Bytes[At + 5] As Int) - 33
             At += 6
+            If IsOtherButton(code) Then Return (False, InputEvent(""))
             Return (True, InputEvent(MouseOf(code, column, row, (code & 3) == 3)))
+        End If
+
+        // "\e[" alone is Alt and [, as "\eO" alone is Alt and O.
+        If At + 2 >= Bytes.Count
+            If !done Then Return Null
+            At += 2
+            Return (True, InputEvent(KeyEvent('[', KeyModifiers.ALT)))
+        End If
+
+        // The Linux console's F1 to F5, "\e[[" and A to E.
+        If Bytes[At + 2] == 0x5B
+            If At + 3 >= Bytes.Count
+                If !done Then Return Null
+                At += 2
+                Return (True, InputEvent(KeyEvent('[', KeyModifiers.ALT)))
+            End If
+
+            Local letter = Bytes[At + 3]
+            If letter < 0x40 || letter > 0x7E
+                At += 3
+                Return (False, InputEvent(""))
+            End If
+
+            At += 4
+            If letter < 0x41 || letter > 0x45 Then Return (False, InputEvent(""))
+            Local key = ((KeyCode.F1 As Int) + (letter As Int) - 0x41) As KeyCode
+            Return (True, InputEvent(KeyEvent(key)))
         End If
 
         // Its parameters and spaces, up to its final byte, from @ to ~.
@@ -386,8 +440,15 @@ Public Class InputParser
             Return (True, InputEvent(KeyEvent(KeyCode.ESCAPE)))
         End If
 
+        // What can't go on with a sequence ends it: right after the "[", that's Alt and [, and
+        // after more, the escape is ESCAPE, and the rest are keys.
         Local final = Bytes[finish]
         If final < 0x40 || final > 0x7E
+            If finish == At + 2
+                At += 2
+                Return (True, InputEvent(KeyEvent('[', KeyModifiers.ALT)))
+            End If
+
             At += 1
             Return (True, InputEvent(KeyEvent(KeyCode.ESCAPE)))
         End If
@@ -397,7 +458,7 @@ Public Class InputParser
         If parameters.StartsWith("<")
             If final != 0x4D && final != 0x6D Then Return (False, InputEvent(""))
             Local numbers = NumbersOf(parameters.Slice(1, parameters.Length))
-            If numbers.Count != 3 Then Return (False, InputEvent(""))
+            If numbers.Count != 3 || IsOtherButton(numbers[0]) Then Return (False, InputEvent(""))
             Return (True, InputEvent(MouseOf(numbers[0], numbers[1] - 1, numbers[2] - 1,
                                              final == 0x6D)))
         End If
@@ -505,10 +566,25 @@ Public Class InputParser
             Return (True, InputEvent(KeyEvent('O', KeyModifiers.ALT)))
         End If
 
-        Local code = Ss3Key(Bytes[At + 2])
-        At += 3
+        // Konsole sends a key's modifiers' number between, as "\eO2P" for Shift+F1.
+        Local finish = At + 2
+        While finish < Bytes.Count && Bytes[finish] >= 0x30 && Bytes[finish] <= 0x39
+            finish += 1
+        End While
+
+        If finish >= Bytes.Count && !done Then Return Null
+        If finish >= Bytes.Count || Bytes[finish] < 0x40 || Bytes[finish] > 0x7E
+            // Without a letter after it, "\eO" is Alt and O, and what's after is keys.
+            At += 2
+            Return (True, InputEvent(KeyEvent('O', KeyModifiers.ALT)))
+        End If
+
+        Local modifiers = KeyModifiers.NONE
+        If finish > At + 2 Then modifiers = ModifiersOf(NumbersOf(TextOf(At + 2, finish))[0])
+        Local code = Ss3Key(Bytes[finish])
+        At = finish + 1
         If code == Null Then Return (False, InputEvent(""))
-        Return (True, InputEvent(KeyEvent(code)))
+        Return (True, InputEvent(KeyEvent(code, modifiers)))
     End Method
 
     // The text of the bytes from start to before finish, with U+FFFD for each byte that doesn't
@@ -542,6 +618,13 @@ Function WithAlt(event: InputEvent): InputEvent
     If key.Code == KeyCode.CHAR Then Return InputEvent(KeyEvent(key.Character, modifiers))
     Return InputEvent(KeyEvent(key.Code, modifiers))
 End Function
+
+// Whether a mouse report's code is for one of buttons 8 to 11, like a mouse's back and forward
+// buttons, which have no MouseButton.
+Function IsOtherButton(code: Int): Bool => (code & 128) != 0
+
+// Whether a byte goes on with a UTF-8 character, after its first.
+Function IsContinuation(b: UInt8): Bool => b >= 0x80 && b <= 0xBF
 
 // What a mouse report's code says, at a column and row from 0: its button in the low two bits,
 // with 3 for none, 4, 8, and 16 for Shift, Alt, and Ctrl, 32 for a move, and 64 for the wheel.

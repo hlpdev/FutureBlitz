@@ -3,7 +3,7 @@ controls: Enter, Tab, Backspace, Backspace, Ctrl+Space, Ctrl+A, Ctrl+Z, Ctrl+\, 
 lines: a, Enter, b, Enter, c, Enter, d, Enter, Enter, e
 escape: |, Escape / |, Escape, Escape / Escape, Alt+a
 alt and a sequence: Alt+Up, Alt+F1, Ctrl+Alt+Right, mouse PRESS LEFT at 0, 0, .
-alt cut short: |, Alt+Escape, [ / |, Alt+O
+alt cut short: |, Alt+[ / |, Alt+O
 alt: Alt+a, Alt+é, Alt+Enter, Ctrl+Alt+A, Alt+Backspace
 cursor: Up, Down, Right, Left, Home, End, Shift+Tab
 modifiers: Shift+Up, Alt+Down, Ctrl+Right, Ctrl+Alt+Shift+Left, Alt+Up, Shift+F1, Ctrl+Shift+F4
@@ -26,6 +26,11 @@ overlong: �, � / �, �, � / �, �, �, �
 bad paste: paste "a�b"
 cut short: |, Escape, [, 1, ;, 5 / |, Alt+O / Escape, [, 1, Ctrl+G, A
 long: True 40
+konsole's f keys: Shift+F1, Ctrl+F2, Alt+F4, |, Alt+O, 2 / Alt+O, 2, Up
+linux console's f keys: F1, F5, Down / |, Alt+[, [
+alt+[: |, Alt+[ / Alt+[, |, Alt+[ / Alt+[, Backspace
+other buttons: x / x
+cut short characters: �, a / c, �, Enter / �, A / |, �
 fed "\x1B": nothing yet True
 fed "[": nothing yet True
 fed "1;": nothing yet True
@@ -35,6 +40,8 @@ fed [228]: nothing yet True
 fed [184]: nothing yet True
 fed [173, 33]: 中 True
 then: !
+paste's mark alone: x True True False
+then: paste "hi"
 long session: 5000 True Up False
 long paste waits: True True
 still pasting: True True
@@ -76,6 +83,15 @@ polled: 1
 polled: paste "none"
 key: 2 mode 0
 key: 3 ?
+forever: 4 5
+resized pasting: resize 100x40
+resized pasting: paste "abcdef"
+returns: Enter
+returns: Enter
+returns: x
+returns: Enter
+returns: y
+read in raw mode: a a 1, 1 0
 raw: False 0
 raw: True 1
 raw: True 3
