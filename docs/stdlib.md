@@ -128,6 +128,8 @@ So far, std/ holds:
 | std/concurrent/concurrent_map.fb | `ConcurrentMap<K, V>` and its `ConcurrentMapIterator<K, V>`, in 16 parts of ImmutableMaps |
 | std/concurrent/concurrent_queue.fb | `ConcurrentQueue<T>`, over a Channel that grows |
 | std/concurrent/tasks.fb | `TaskSource<T>`, over the runtime's signals through `fb_signal_`, `WhenAll`, and `WhenAny` |
+| std/concurrent/lazy.fb | `Lazy<T>` |
+| std/concurrent/parallel.fb | `ParallelForEach`, `ParallelMap`, `ParallelReduce`, and `ParallelSort`, each a Parallel For |
 | std/events/event.fb | `Event<T>` and `Subscription` |
 | std/time/duration.fb | `Duration`, and the numbers' `Nanoseconds` to `Days`, as in `2.Seconds` |
 | std/time/clock.fb | `Instant`, `Stopwatch`, `Measure`, and `Sleep`, on the monotonic clock |
@@ -714,8 +716,8 @@ the rest is planned.
 
 #### std.concurrent (beside the built-ins, which stay built in)
 
-Step 18 built the locks, `ConcurrentMap`, `ConcurrentQueue`, `TaskSource`, `WhenAll`, and `WhenAny`;
-the rest is planned. `Import std.concurrent` brings in all of std/concurrent/.
+Step 18 built the locks, `ConcurrentMap`, `ConcurrentQueue`, `TaskSource`, `WhenAll`, `WhenAny`,
+`Lazy`, and the parallel algorithms; the rest is planned. `Import std.concurrent` brings in all of std/concurrent/.
 
 - The locks are Shared Classes over the runtime's, so a Const or a parameter shares one with the
   work Spawn and Thread.Start run. What waits blocks its thread and runs nothing else meanwhile, as
@@ -753,11 +755,21 @@ the rest is planned. `Import std.concurrent` brings in all of std/concurrent/.
   the first found done: at a tick, it looks at the tasks in their order, so of those done before it
   looks the first given wins, and one done later in the tick doesn't count. Their Tasks are Async
   Functions', so they're the main thread's.
-- Planned: a TaskSource whose Task throws, and WhenAll over tasks that throw, once `Task<T> Throws
-  E` can be written as a type; `Cancellation`, a token blocking calls and Tasks take; `Select` over
-  several Channels and a timeout; `Lazy<T>` (made once, on first use, from any thread) and
-  `ParallelSort`, `ParallelMap`, `ParallelReduce`, and `ParallelForEach` on the job pool, which need
-  a function value that another thread can call.
+- `Lazy<T>(maker)`, of a Sendable T, a Shared Class whose `Value` the first read makes, by the
+  Sendable Func it was given, on the thread that reads it, while reads on other threads wait for it,
+  and each gets that value, a Null one too; `IsMade` says whether it's made, without waiting. A
+  maker that reads its own Lazy's Value panics, since it would wait for itself forever.
+- `ParallelForEach(items, action)`, `ParallelMap(items, change)`, `ParallelReduce(items, combine)`,
+  and `ParallelSort(items)` (and `ParallelSort(items, before)`), over an array of Sendable values and
+  a Sendable Func, each a Parallel For on the job pool with the calling thread taking its share.
+  What they give is in the items' order, as their plain loops' would be: ParallelMap's results;
+  ParallelReduce's value, or Null for no items, from at most 64 parts, each combined left to right
+  and then the parts' values left to right, so combine must give the same however its calls are
+  grouped, though its values needn't swap places; and ParallelSort's order, stable as Sort's is, by
+  parts sorted at once and merged in pairs, each round's merges at once, below 4096 items Sort's on
+  the calling thread. ParallelForEach's calls are in no order.
+- Planned: a TaskSource whose Task throws, and WhenAll over tasks that throw; `Cancellation`, a
+  token blocking calls and Tasks take; `Select` over several Channels and a timeout.
 
 #### std.log
 
@@ -767,7 +779,8 @@ the rest is planned. `Import std.concurrent` brings in all of std/concurrent/.
 
 #### std.events
 
-Step 18 built `Event<T>` and `Subscription`, in std/events/event.fb; `Import std.events`.
+Step 18 built `Event<T>`, `Subscription`, and `Subscribe(owner, handler)`, in std/events/event.fb;
+`Import std.events`.
 
 - `Event<T>`, held as a Field: `Emit(value)` calls its handlers in the order they were added, each
   Emit going over the ones it started with, so one added meanwhile waits for the next, and one a
@@ -776,9 +789,12 @@ Step 18 built `Event<T>` and `Subscription`, in std/events/event.fb; `Import std
   holds neither the Event nor the handler, so keeping one keeps neither. `Count` and `Clear()`. An
   Event holds its handlers until they're cancelled, and stays on the thread that made it, as a
   Class's objects do.
-- Planned: `Subscribe(owner, handler)`, which ties a handler to an owner held weakly, passed to the
-  handler so it captures nothing, and dropped when the owner goes, once a Weak can hold a type
-  parameter's objects.
+- `Subscribe(owner, handler)`, of a Class's owner, ties the handler to the owner, which it holds
+  weakly and passes to the handler, as `handler(owner, value)`, so the handler needn't capture it:
+  one that did would keep it as long as the Event keeps the handler. Once the owner goes, the
+  handler is off, Count leaves it out, and the next Emit or Clear takes it out; its Subscription
+  cancels it as any other's does. Since Subscribe is overloaded, its lambda's parameters need
+  their types written.
 
 #### std.data
 
