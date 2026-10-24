@@ -1,0 +1,8 @@
+// An app's name that Windows keeps for a device, in any case and before an extension too,
+// panics at the program's line.
+Import std.core
+Import std.io
+
+Print((Try Preferences("Console", "never-made")).Count())
+Print((Try Preferences("COM10", "never-made")).Count())
+Try? Preferences("Nul.txt", "never-made")
