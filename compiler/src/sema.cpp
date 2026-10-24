@@ -7702,6 +7702,14 @@ private:
     /// arguments give a Function's, so each is in one of them.
     void check_operator_type_parameters(const symbol_t& declared, const std::string_view name,
                                         const span_t span) {
+        // Every == on the type's values uses its Operator ==, inside what holds them too, so it
+        // compares two of them.
+        if (name == "==" && !declared.type_parameters.empty()) {
+            error(span, "an Operator == can't have type parameters of its own, since every == on "
+                        "its type's values uses it");
+            return;
+        }
+
         std::vector<type_id_t> found;
         for (const symbol_id_t parameter : declared.parameters) {
             parameters_in(symbol(parameter).type, found);
@@ -19218,6 +19226,23 @@ private:
         return { left_type, check_side(1, hint) };
     }
 
+    /// A Class as the instance of `owner` that it is or extends, which an Operator it inherits
+    /// takes its type arguments from: Derived as the Base<Int32> it extends. Otherwise the type
+    /// itself.
+    [[nodiscard]] type_id_t inherited_as(const type_id_t type, const type_id_t owner) const {
+        if (owner == type_id_t::INVALID || !is_class(type) || !is_class(owner)) {
+            return type;
+        }
+
+        for (type_id_t current = type; current != type_id_t::INVALID; current = base_of(current)) {
+            if (definition_of(current) == definition_of(owner)) {
+                return current;
+            }
+        }
+
+        return type;
+    }
+
     /// An operator that calls an Operator: which one, with what type arguments, on what.
     struct operator_call_t {
         std::optional<symbol_id_t> function;
@@ -19295,7 +19320,8 @@ private:
             const std::vector<type_id_t> parameters = type_parameters_of(candidate);
             std::vector<std::optional<type_id_t>> inferred(parameters.size());
             for (std::size_t i = 0; i < operands.size(); ++i) {
-                unify(symbol(symbol(candidate).parameters[i]).type, operands[i].second, parameters,
+                unify(symbol(symbol(candidate).parameters[i]).type,
+                      inherited_as(operands[i].second, symbol(candidate).owner), parameters,
                       inferred);
             }
 

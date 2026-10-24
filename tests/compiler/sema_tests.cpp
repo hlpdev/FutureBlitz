@@ -8485,6 +8485,25 @@ TEST_CASE("an Operator takes type parameters of its own from its operands", "[se
                     "    Operator *<Const B: Int>(x: Q<A>, y: Q<A>): Q<B> => Q<B>()\n"
                     "End Struct") ==
           errors_t{ "*: Operator * takes B from its operands' types, so one of them needs it" });
+    // Every == on a type's values uses its Operator ==, so that compares two of them.
+    CHECK(errors_of("Struct Box<T>\n"
+                    "    Field Item: Int\n"
+                    "    Operator ==<U>(a: Box<T>, b: Box<U>): Bool => a.Item == b.Item\n"
+                    "End Struct") ==
+          errors_t{ "==: an Operator == can't have type parameters of its own, since every == on "
+                    "its type's values uses it" });
+
+    // One a Class inherits from an instance of a generic one takes that instance's type
+    // arguments.
+    const std::string_view base = "Class Base<T>\n"
+                                  "    Operator &<U>(a: Base<T>, b: Base<U>): (T[], U[]) => "
+                                  "([], [])\n"
+                                  "    Operator +(a: Base<T>, b: Base<T>): T[] => []\n"
+                                  "End Class\n"
+                                  "Class Derived Extends Base<Int>\nEnd Class\n";
+    CHECK(probe(std::format("{}Local x = Derived() & Base<String>()", base)) ==
+          "(Int32[], String[])");
+    CHECK(probe(std::format("{}Local x = Derived() + Derived()", base)) == "Int32[]");
 
     // An Extend's, found as the type's own are, and one that isn't generic still beats one that
     // is where they take the same types.

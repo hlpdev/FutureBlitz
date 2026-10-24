@@ -308,7 +308,8 @@ End Struct
   where it's used. Their constraints hold as a Function's do. A quantity's `*` adds its
   operands' exponents: `Operator *<Const L2: Int>(a: Quantity<L>, b: Quantity<L2>):
   Quantity<L + L2>`. Where the operands fit none, the error names their types: "no Operator +
-  takes (Quantity<1, 0, 0>, Quantity<0, 0, 1>)" for Meters and Seconds.
+  takes (Quantity<1, 0, 0>, Quantity<0, 0, 1>)" for Meters and Seconds. An `Operator ==` has
+  none, since every `==` on its type's values uses it (below), so it compares two of them.
 - `a + b` calls the Operator `+` that `a`'s or `b`'s type defines, or inherits from a Class it
   extends, chosen among them like among a function's overloads; a literal takes the type of the
   parameter it's passed for. Comparing with `Null` is never an Operator.

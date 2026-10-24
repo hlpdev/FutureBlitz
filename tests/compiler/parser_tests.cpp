@@ -1006,6 +1006,14 @@ TEST_CASE("Operators are named by their operator", "[parser]") {
           "(operator >> (a: M) (n: Int) -> M (block (return a)))");
     CHECK(parse_text("Operator Add(a: M): M => a").errors ==
           std::vector<std::string>{ "9-12: expected an operator, like + or ==, found identifier" });
+    // A "<<" before type parameters, not '(', is '<' and the '<' that opens them.
+    const parsed_t less = parse_text("Operator <<Const B: Int>(x: M, y: Q<B>): Bool => x.V < y.V");
+    CHECK(less.errors.empty());
+    CHECK(less.dump ==
+          "(operator <<Const B: Int> (x: M) (y: Q<B>) -> Bool (block (return (< (. x V) (. y "
+          "V)))))");
+    CHECK(parse_text("Operator <<(a: M, n: Int): M => a").dump ==
+          "(operator << (a: M) (n: Int) -> M (block (return a)))");
 
     // Indexing is "[]" and "[]=", their tokens touching.
     CHECK(parse_text("Operator [](x: Int, y: Int): Int => x").dump ==

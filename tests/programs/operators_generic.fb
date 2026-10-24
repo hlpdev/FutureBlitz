@@ -31,3 +31,31 @@ Function Defaulted<P: Pairs<String>>(p: P): (String, Int) => p | 3
 
 Print(Name(4) & 5, Tagged(Name(4)))
 Print(Paired(Mine(2)), Defaulted(Plain(1)).1, "[" + Defaulted(Plain(1)).0 + "]")
+
+// A Class that extends an instance of a generic one has its Operators, generic or not, with
+// that instance's type arguments.
+Class Base<T>
+    Field Item: Int
+    New(item: Int)
+        Item = item
+    End New
+    Operator &<U>(a: Base<T>, b: Base<U>): Int => a.Item * 10 + b.Item
+    Operator +(a: Base<T>, b: Base<T>): Int => a.Item + b.Item
+End Class
+
+Class Derived Extends Base<Int>
+    New(item: Int)
+        Super.New(item)
+    End New
+End Class
+
+Print(Base<Int>(1) & Base<String>(2), Base<Int>(1) + Base<Int>(2))
+Print(Derived(1) & Base<String>(2), Derived(1) + Derived(2), Base<Int>(4) + Derived(5))
+
+// A generic Operator < can touch its type parameters' '<'.
+Struct Q<Const A: Int>
+    Field V: Double
+    Operator <<Const B: Int>(x: Q<A>, y: Q<B>): Bool => x.V < y.V
+End Struct
+
+Print(Q<1>(1) < Q<2>(2), Q<2>(3) < Q<1>(1))

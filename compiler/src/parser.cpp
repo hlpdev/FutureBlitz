@@ -1892,7 +1892,8 @@ private:
     }
 
     /// The operator after "Operator", which names it: one a type can define, like "+" or "==".
-    /// ">>" is two '>' that touch, and "[]" and "[]=", which index, are their tokens touching.
+    /// ">>" is two '>' that touch, and "[]" and "[]=", which index, are their tokens touching. A
+    /// "<<" that type parameters follow, not '(', is '<' and the '<' that opens them.
     name_t parse_operator_name() {
         const token_t& token = peek();
         switch (token.kind) {
@@ -1934,13 +1935,29 @@ private:
         case token_kind_t::CARET:
         case token_kind_t::TILDE:
         case token_kind_t::BANG:
-        case token_kind_t::LESS_LESS:
         case token_kind_t::EQUAL_EQUAL:
         case token_kind_t::BANG_EQUAL:
         case token_kind_t::LESS:
         case token_kind_t::LESS_EQUAL:
             advance();
             return { .text = text(token), .span = token.span };
+        case token_kind_t::LESS_LESS: {
+            const std::size_t index = skip_newlines(m_pos);
+            if (m_tokens[skip_newlines(index + 1)].kind == token_kind_t::LEFT_PAREN) {
+                advance();
+                return { .text = text(token), .span = token.span };
+            }
+
+            // Its second '<' stays, to open the type parameters.
+            const span_t whole = token.span;
+            const std::uint32_t middle = whole.begin + 1;
+            m_split[index] = {
+                .kind = token_kind_t::LESS,
+                .span = { .file = whole.file, .begin = middle, .end = whole.end },
+            };
+            return { .text = "<",
+                     .span = { .file = whole.file, .begin = whole.begin, .end = middle } };
+        }
         case token_kind_t::GREATER: {
             // ">=" and ">>" are a '>' and what touches it.
             advance();
