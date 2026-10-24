@@ -740,7 +740,7 @@ Class TomlReader
 
         If Word(body, "nan")
             At = body + 3
-            Return Value(Infinite() - Infinite())
+            Return Value(NotANumber())
         End If
 
         If !signed && b == 48 && At + 1 < Bytes.Count
