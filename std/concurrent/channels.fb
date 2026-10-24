@@ -1,0 +1,168 @@
+// A Channel's waits that a Cancellation stops, and Selector, which waits on several Channels at
+// once, and a timeout. Each looks with TryReceive or TrySend and, finding nothing, waits for the
+// job pool's generation to change, which every Channel's change, every job's end, and every
+// Cancel moves on, so it looks again only once something could have changed.
+
+Import std.core
+Import std.time.duration
+Import std.time.timers
+Import std.concurrent.cancellation
+
+Extern "runtime"
+    Function fb_pool_generation(): UInt64
+    Function fb_pool_wait(seen: UInt64, cancel: UInt64, nanoseconds: Int64): Int32
+End Extern
+
+// The longest wait, which isn't a limit.
+Const FOREVER: Int64 = 9223372036854775807
+
+// Receives channel's oldest value, waiting while it has none, unless the cancellation is
+// cancelled first, or is already, which throws a CancelledError and takes none. Null once the
+// Channel is closed and empty, as its Receive gives.
+Public Function Receive<T: Sendable>(channel: Channel<T>,
+                                     cancel: Cancellation): T? Throws CancelledError
+    Loop
+        Local seen = fb_pool_generation()
+        If cancel.IsCancelled Then Throw CancelledError("the receive was cancelled")
+        Local value = channel.TryReceive()
+        If value != Null Then Return value
+        // A value sent before it was closed, after the look above, is still there.
+        If channel.IsClosed() Then Return channel.TryReceive()
+        fb_pool_wait(seen, cancel.Flag, FOREVER)
+    End Loop
+End Function
+
+// Sends value on channel, waiting while it's full, unless the cancellation is cancelled first, or
+// is already, which throws a CancelledError and sends nothing. Panics once the Channel is closed,
+// as its Send does.
+@PanicsAtCaller
+Public Function Send<T: Sendable>(channel: Channel<T>, value: T,
+                                  cancel: Cancellation) Throws CancelledError
+    Loop
+        Local seen = fb_pool_generation()
+        If cancel.IsCancelled Then Throw CancelledError("the send was cancelled")
+        If channel.TrySend(value) Then Return
+        If channel.IsClosed()
+            Panic("this Channel is closed, so nothing more can be sent on it")
+        End If
+
+        fb_pool_wait(seen, cancel.Flag, FOREVER)
+    End Loop
+End Function
+
+// Waits on several Channels at once: Wait takes a value from the first of them, in the order On
+// gave them, that has one, and gives it to that Channel's handler, or runs the timeout's handler
+// once its time passes with none. It's a builder: Selector().On(orders, Take).On(quit,
+// Stop).Timeout(1.Seconds, Idle).Wait(). What it waits for blocks its thread, as a Channel's
+// Receive does.
+Public Class Selector
+    Field Cases: SelectorCase[] = []
+    Field Limited: Bool
+    Field Limit: Duration
+    Field OnTimeout: (Func())?
+    // Whether the last wait took a value or ran the timeout.
+    Field Taken: Bool
+
+    Public New()
+        Limit = Duration.Zero()
+    End New
+
+    // Waits on channel too, whose values go to handler.
+    Public Method On<T: Sendable>(channel: Channel<T>, handler: Func(T)): Selector
+        Cases.Add(ChannelCase<T>(channel, handler))
+        Return Self
+    End Method
+
+    // Runs handler when time passes in a Wait with no value. A Selector has one timeout, which
+    // this replaces.
+    Public Method Timeout(time: Duration, handler: Func()): Selector
+        Limited = True
+        Limit = time
+        OnTimeout = handler
+        Return Self
+    End Method
+
+    // Waits until a Channel has a value, which goes to its handler, or the timeout passes, which
+    // runs its handler, and gives True; or until every Channel is closed and empty, as none will
+    // have a value, and gives False.
+    Public Method Wait(): Bool
+        Return WaitFor(0)
+    End Method
+
+    // Waits as Wait does, unless the cancellation is cancelled first, or is already, which throws
+    // a CancelledError and takes no value.
+    Public Method Wait(cancel: Cancellation): Bool Throws CancelledError
+        If cancel.IsCancelled Then Throw CancelledError("the wait was cancelled")
+        Local done = WaitFor(cancel.Flag)
+        If cancel.IsCancelled && !Taken Then Throw CancelledError("the wait was cancelled")
+        Return done
+    End Method
+
+    // Wait, stopped by the cancellation's flag when it isn't 0, with Taken False.
+    Method WaitFor(flag: UInt64): Bool
+        Taken = False
+        Local deadline = Limited ? Deadline.After(Limit) : Deadline.Never()
+        Loop
+            Local seen = fb_pool_generation()
+            For entry In Cases
+                If entry.Take()
+                    Taken = True
+                    Return True
+                End If
+            End For
+
+            Local closed = True
+            For entry In Cases
+                If !entry.IsClosed() Then closed = False
+            End For
+            // Values sent before they were closed, after the looks above, are still there.
+            If closed
+                For entry In Cases
+                    If entry.Take()
+                        Taken = True
+                        Return True
+                    End If
+                End For
+                Return False
+            End If
+
+            If deadline.HasPassed
+                Local handler = OnTimeout
+                If handler != Null Then handler()
+                Taken = True
+                Return True
+            End If
+
+            Local left = Limited ? deadline.Remaining.Nanoseconds : FOREVER
+            If fb_pool_wait(seen, flag, left) == 2 Then Return False
+        End Loop
+    End Method
+End Class
+
+// One of a Selector's Channels, with its handler.
+Abstract Class SelectorCase
+    // Takes the Channel's oldest value and gives it to the handler, giving whether there was one.
+    Abstract Method Take(): Bool
+
+    Abstract Method IsClosed(): Bool
+End Class
+
+Class ChannelCase<T: Sendable> Extends SelectorCase
+    Field Source: Channel<T>
+    Field Handler: Func(T)
+
+    New(source: Channel<T>, handler: Func(T))
+        Source = source
+        Handler = handler
+        Super.New()
+    End New
+
+    Override Method Take(): Bool
+        Local value = Source.TryReceive()
+        If value == Null Then Return False
+        Handler(value)
+        Return True
+    End Method
+
+    Override Method IsClosed(): Bool => Source.IsClosed()
+End Class
