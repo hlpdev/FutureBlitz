@@ -1,0 +1,5 @@
+// An EmbeddedSource panics at the program's line for a path that goes above its root.
+Import std.core
+Import std.io
+
+Local source = EmbeddedSource({"levels/one.txt": "one".Bytes, "../outside.txt": "no".Bytes})

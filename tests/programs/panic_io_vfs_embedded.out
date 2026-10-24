@@ -1,0 +1,1 @@
+panic: '../outside.txt' isn't the path of a file in an EmbeddedSource at panic_io_vfs_embedded.fb:5:16

@@ -1,0 +1,52 @@
+the same file from a folder and from memory
+  levels/one.txt True
+  levels/two.txt True
+  music/größe.ogg True
+  readme.txt True
+[level one] [level two, with a second line]
+[level two, with a second line]
+the trees
+  [levels:DIRECTORY, levels/one.txt:FILE, levels/two.txt:FILE, music:DIRECTORY, music/größe.ogg:FILE, readme.txt:FILE]
+  [levels:DIRECTORY, levels/one.txt:FILE, levels/two.txt:FILE, music:DIRECTORY, music/größe.ogg:FILE, readme.txt:FILE]
+mounts over mounts
+  data/levels/one.txt: level one
+  data/levels/two.txt: the mod's level two
+  data/levels/three.txt: the mod's level three
+  data/readme.txt: the game
+  one.txt data/levels/one.txt FILE
+  three.txt data/levels/three.txt FILE
+  two.txt data/levels/two.txt FILE
+  the mod's readme
+  the game
+  True [level two, with a second line] False
+  True False False
+places
+  [] DIRECTORY False True
+  [/] DIRECTORY False True
+  [a] DIRECTORY False True
+  [a/b] DIRECTORY False True
+  [a/b/c] DIRECTORY False True
+  [a/b/c/levels] DIRECTORY False True
+  [a/b/c/readme.txt] FILE True False
+  [a/x/y.txt] FILE True False
+  [a/./b/../x] DIRECTORY False True
+  [a/missing] none False False
+  [a\b\c\readme.txt] FILE True False
+  [../a] none False False
+  a has b DIRECTORY
+  a has x DIRECTORY
+  [b/c/levels/one.txt, b/c/levels/two.txt, b/c/readme.txt, x/y.txt]
+errors
+  NOT_FOUND can't read a/b/c/missing.txt: no mount of the Vfs has it
+  IS_A_DIRECTORY can't read a/b/c/levels: it's a folder
+  INVALID_PATH can't read ../escape.txt: it goes above the Vfs's root
+  INVALID_PATH can't read ../mod/levels/two.txt: it goes above the Vfs's root
+  NOT_A_DIRECTORY
+async
+  [level one] [the game]
+  [level two, with a second line]
+  NOT_FOUND
+a source of its own
+  [number 42] 1
+  [the game]
+left False

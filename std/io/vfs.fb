@@ -1,0 +1,448 @@
+// std.io's virtual file system: a Vfs mounts folders, embedded folders, zips, and a program's own
+// sources at points in one tree of its own, and reads them through the same calls as files. Its
+// paths are its own, with '/' between names, on every OS; a later mount over the same place
+// comes first, so a mod's folder can stand in for some of a game's embedded files.
+
+Import std.collections.array
+Import std.collections.map
+Import std.core
+Import std.io.dir
+Import std.io.file
+Import std.io.path
+
+// Where a Vfs's files come from. Its paths are inside it, with '/' between names, and "" for its
+// root, which is always a folder. What can't be read is an IOError; what isn't there is Null.
+Public Interface VfsSource
+    // The bytes of the file at `path`, or Null when there's no file there.
+    Method Read(path: String): UInt8[]? Throws IOError
+
+    // What's at `path`, or Null when nothing is.
+    Method KindAt(path: String): FileKind? Throws IOError
+
+    // The names of what's in the folder at `path`, and their kinds, in any order, or Null when
+    // there's no folder there.
+    Method List(path: String): (String, FileKind)[]? Throws IOError
+End Interface
+
+// A folder on the disk as a source, which reads it as it's asked, so it sees what changes in it.
+Public Class FolderSource Implements VfsSource
+    Public ReadOnly Field Folder: Path
+
+    Public New(folder: Path)
+        Folder = folder
+    End New
+
+    Public Method Read(path: String): UInt8[]? Throws IOError
+        If path == "" Then Return Null
+        Try
+            Return File.ReadBytes(Folder / path)
+        Catch e As IOError
+            If Missing(e) Then Return Null
+            Throw e
+        End Try
+    End Method
+
+    Public Method KindAt(path: String): FileKind? Throws IOError
+        Try
+            Return File.Metadata(path == "" ? Folder : Folder / path).Kind
+        Catch e As IOError
+            If Missing(e) Then Return Null
+            Throw e
+        End Try
+    End Method
+
+    Public Method List(path: String): (String, FileKind)[]? Throws IOError
+        Try
+            Local items: (String, FileKind)[] = []
+            For entry In Dir.Entries(path == "" ? Folder : Folder / path)
+                items.Add((entry.Name(), entry.Kind))
+            End For
+
+            Return items
+        Catch e As IOError
+            If Missing(e) Then Return Null
+            Throw e
+        End Try
+    End Method
+End Class
+
+// Files a program has in memory as a source, by their paths, like what EmbedFolder gives: each
+// key is a file's path, with '/' (or '\') between folders, and the folders are the ones the paths
+// go through. It keeps the arrays it's given, and a read gives a copy of a file's bytes.
+Public Class EmbeddedSource Implements VfsSource
+    Field Files: Map<String, UInt8[]>
+    // Each folder's names, "" for the root's, and whether each is a folder.
+    Field Folders: Map<String, Map<String, Bool>>
+
+    // Panics for a path that isn't one: "", one that's only "." and separators, or one with a
+    // ".." in it.
+    @PanicsAtCaller
+    Public New(files: Map<String, UInt8[]>)
+        Files = Map<String, UInt8[]>()
+        Folders = Map<String, Map<String, Bool>>()
+        Folders[""] = Map<String, Bool>()
+        For key, bytes In files
+            Local names = NamesOf(key)
+            If names == Null || names.Count == 0 Then Panic("'{key}' isn't the path of a file in an EmbeddedSource")
+            Local path = ""
+            For i = 0 Until names.Count
+                Local folder = path
+                path = i == 0 ? names[i] : path + "/" + names[i]
+                Local isFolder = i < names.Count - 1
+                If !Folders.Contains(folder) Then Folders[folder] = Map<String, Bool>()
+                Folders[folder][names[i]] = isFolder || Folders[folder].Get(names[i], False)
+            End For
+
+            Files[path] = bytes
+        End For
+    End New
+
+    Public Method Read(path: String): UInt8[]? Throws IOError
+        Local bytes = Files.Get(path)
+        Return bytes == Null ? Null : bytes.Clone()
+    End Method
+
+    Public Method KindAt(path: String): FileKind? Throws IOError
+        If Folders.Contains(path) Then Return FileKind.DIRECTORY
+        If Files.Contains(path) Then Return FileKind.FILE
+        Return Null
+    End Method
+
+    Public Method List(path: String): (String, FileKind)[]? Throws IOError
+        Local names = Folders.Get(path)
+        If names == Null Then Return Null
+        Local items: (String, FileKind)[] = []
+        For name, isFolder In names
+            items.Add((name, isFolder ? FileKind.DIRECTORY : FileKind.FILE))
+        End For
+
+        Return items
+    End Method
+End Class
+
+// One mount: where it is in the Vfs, as names, and its source.
+Struct Mounted
+    Field At: String[]
+    Field Source: VfsSource
+End Struct
+
+// A tree of mounted sources, read as files are. A file is the one of the last mount that has
+// it; a folder lists what each mount has in it, and the mounts under it.
+Public Class Vfs
+    Field Mounts: Mounted[]
+
+    Public New()
+        Mounts = []
+    End New
+
+    // Puts the source at `at`, a path in the Vfs, "" or "/" for its root, before what's mounted
+    // already. Panics for a path that goes above the root.
+    @PanicsAtCaller
+    Public Method Mount(at: Path, source: VfsSource)
+        Local names = NamesOf(at.Text)
+        If names == Null Then Panic("a Vfs can't mount at '{at}', which goes above its root")
+        Mounts.Add(Mounted(names, source))
+    End Method
+
+    // Mounts a folder on the disk at `at`.
+    @PanicsAtCaller
+    Public Method MountFolder(at: Path, folder: Path)
+        Mount(at, FolderSource(folder))
+    End Method
+
+    // Mounts files in memory, like what EmbedFolder gives, at `at`.
+    @PanicsAtCaller
+    Public Method MountEmbedded(at: Path, files: Map<String, UInt8[]>)
+        Mount(at, EmbeddedSource(files))
+    End Method
+
+    // Takes out the last mount at `at`, and gives whether there was one.
+    Public Method Unmount(at: Path): Bool
+        Local names = NamesOf(at.Text)
+        If names == Null Then Return False
+        For i = Mounts.Count - 1 To 0 Step -1
+            If Mounts[i].At.Count == names.Count && Starts(names, Mounts[i].At)
+                Mounts.RemoveAt(i)
+                Return True
+            End If
+        End For
+
+        Return False
+    End Method
+
+    // The bytes of the file at `path`. One that no mount has throws an IOError of NOT_FOUND, a
+    // folder one of IS_A_DIRECTORY, and a path above the root one of INVALID_PATH.
+    Public Method ReadBytes(path: Path): UInt8[] Throws IOError
+        Local names = Try Checked(path)
+        For i = Mounts.Count - 1 To 0 Step -1
+            Local inner = Inside(Mounts[i], names)
+            If inner == Null Then Continue
+            Local bytes = Try Mounts[i].Source.Read(inner)
+            If bytes != Null Then Return bytes
+        End For
+
+        Throw Try Unread(path)
+    End Method
+
+    // ReadBytes's Async twin, which reads a folder's files without blocking the main thread.
+    Public Async Method ReadBytesAsync(path: Path): UInt8[] Throws IOError
+        Local names = Try Checked(path)
+        For i = Mounts.Count - 1 To 0 Step -1
+            Local inner = Inside(Mounts[i], names)
+            If inner == Null Then Continue
+            Local folder = Mounts[i].Source As? FolderSource
+            If folder == Null
+                Local bytes = Try Mounts[i].Source.Read(inner)
+                If bytes != Null Then Return bytes
+            ElseIf inner != ""
+                Try
+                    Return Await File.ReadBytesAsync(folder.Folder / inner)
+                Catch e As IOError
+                    If !Missing(e) Then Throw e
+                End Try
+            End If
+        End For
+
+        Throw Try Unread(path)
+    End Method
+
+    // The file's bytes as text, with U+FFFD for each one that doesn't start well-formed UTF-8.
+    Public Method ReadText(path: Path): String Throws IOError
+        Return TextOfBytes(Try ReadBytes(path))
+    End Method
+
+    Public Async Method ReadTextAsync(path: Path): String Throws IOError
+        Return TextOfBytes(Try Await ReadBytesAsync(path))
+    End Method
+
+    // The file's text in lines, split at "\n" and "\r\n", as File.ReadLines splits them.
+    Public Method ReadLines(path: Path): String[] Throws IOError
+        Return LinesOf(Try ReadBytes(path))
+    End Method
+
+    Public Async Method ReadLinesAsync(path: Path): String[] Throws IOError
+        Return LinesOf(Try Await ReadBytesAsync(path))
+    End Method
+
+    // What's at `path`: a file or a folder some mount has, or a folder a mount is in, or Null.
+    Public Method KindOf(path: Path): FileKind? Throws IOError
+        Local names = NamesOf(path.Text)
+        If names == Null Then Return Null
+        If Under(names) Then Return FileKind.DIRECTORY
+        For i = Mounts.Count - 1 To 0 Step -1
+            Local inner = Inside(Mounts[i], names)
+            If inner == Null Then Continue
+            Local kind = Try Mounts[i].Source.KindAt(inner)
+            If kind != Null Then Return kind
+        End For
+
+        Return Null
+    End Method
+
+    // Whether there's a file at `path`, as KindOf finds it; an error is False.
+    Public Method Exists(path: Path): Bool => (Try? KindOf(path)) == FileKind.FILE
+
+    // Whether there's a folder at `path`, as KindOf finds it; an error is False.
+    Public Method DirExists(path: Path): Bool => (Try? KindOf(path)) == FileKind.DIRECTORY
+
+    // What's in the Vfs's root.
+    Public Method Entries(): DirEntry[] Throws IOError => Try Entries(Path("", PathStyle.POSIX))
+
+    // What's in the folder at `path`, from every mount that has it, and the mounts in it, in the
+    // order of their names' bytes. A name two mounts have is the last one's. A folder no mount
+    // has throws an IOError of NOT_FOUND, and a file one of NOT_A_DIRECTORY.
+    Public Method Entries(path: Path): DirEntry[] Throws IOError
+        Local names = Try Checked(path)
+        Local listed = Try Listed(names)
+        If listed == Null
+            If (Try KindOf(path)) == FileKind.FILE
+                Throw IOError(IOErrorKind.NOT_A_DIRECTORY, "can't list {path}: it's a file", path.Text)
+            End If
+
+            Throw IOError(IOErrorKind.NOT_FOUND, "can't list {path}: no mount of the Vfs has it", path.Text)
+        End If
+
+        Local folder = Joined(names)
+        Local entries: DirEntry[] = []
+        For name In Sorted(listed.Keys())
+            Local relative = Path(name, PathStyle.POSIX)
+            Local at = Path(folder == "" ? name : folder + "/" + name, PathStyle.POSIX)
+            entries.Add(DirEntry(at, relative, listed[name]))
+        End For
+
+        Return entries
+    End Method
+
+    // What's in the Vfs, all the way down, each folder before what's in it.
+    Public Method Walk(): DirEntry[] Throws IOError => Try Walk(Path("", PathStyle.POSIX))
+
+    // What's in the folder at `path` and in each folder in it, all the way down, each folder
+    // before what's in it, and each folder's entries in the order of their names' bytes.
+    Public Method Walk(path: Path): DirEntry[] Throws IOError
+        Local entries: DirEntry[] = []
+        Try WalkInto(Try Checked(path), "", 0, entries)
+        Return entries
+    End Method
+
+    // What's in the folder at `path`, and in the folders in it, whose path from it matches
+    // `pattern`, as Dir.Glob's patterns match.
+    Public Method Glob(path: Path, pattern: String): DirEntry[] Throws IOError
+        Local names = PatternNames(pattern, False)
+        If names.Count == 0 Then Return []
+        Local entries: DirEntry[] = []
+        Try WalkInto(Try Checked(path), "", DepthOf(names), entries)
+        Return Matching(entries, names)
+    End Method
+
+    // Adds what's in the folder at `names`, by paths from `prefix`, to `depth` more folders down,
+    // or all of them for 0.
+    Method WalkInto(names: String[], prefix: String, depth: Int64, into: DirEntry[]) Throws IOError
+        Local folder = Path(Joined(names), PathStyle.POSIX)
+        For entry In Try Entries(folder)
+            Local relative = prefix == "" ? entry.Name() : prefix + "/" + entry.Name()
+            into.Add(DirEntry(entry.Path, Path(relative, PathStyle.POSIX), entry.Kind))
+            If entry.Kind == FileKind.DIRECTORY && depth != 1
+                Local inside = names.Clone()
+                inside.Add(entry.Name())
+                Try WalkInto(inside, relative, depth == 0 ? 0 : depth - 1, into)
+            End If
+        End For
+    End Method
+
+    // What's in the folder at `names`, by name, from every mount, the last one's first, and the
+    // mounts in it; or Null when it isn't a folder.
+    Method Listed(names: String[]): Map<String, FileKind>? Throws IOError
+        Local found = Under(names)
+        Local listed = Map<String, FileKind>()
+        For i = Mounts.Count - 1 To 0 Step -1
+            Local at = Mounts[i].At
+            // A mount below the folder is a folder in it.
+            If at.Count > names.Count && Starts(at, names)
+                found = True
+                If !listed.Contains(at[names.Count]) Then listed[at[names.Count]] = FileKind.DIRECTORY
+                Continue
+            End If
+
+            Local inner = Inside(Mounts[i], names)
+            If inner == Null Then Continue
+            Local items = Try Mounts[i].Source.List(inner)
+            If items == Null Then Continue
+            found = True
+            For item In items
+                If !listed.Contains(item.0) Then listed[item.0] = item.1
+            End For
+        End For
+
+        Return found ? listed : Null
+    End Method
+
+    // The IOError for a read of a path no mount has a file at: a folder's, or a missing one's.
+    Method Unread(path: Path): IOError Throws IOError
+        If (Try KindOf(path)) == FileKind.DIRECTORY
+            Return IOError(IOErrorKind.IS_A_DIRECTORY, "can't read {path}: it's a folder", path.Text)
+        End If
+
+        Return IOError(IOErrorKind.NOT_FOUND, "can't read {path}: no mount of the Vfs has it", path.Text)
+    End Method
+
+    // Whether a mount is below the folder at `names`, which makes it a folder.
+    Method Under(names: String[]): Bool
+        If names.Count == 0 Then Return True
+        For mounted In Mounts
+            If mounted.At.Count > names.Count && Starts(mounted.At, names) Then Return True
+        End For
+
+        Return False
+    End Method
+End Class
+
+// A Vfs path's names, or an IOError of INVALID_PATH for one that goes above its root.
+Function Checked(path: Path): String[] Throws IOError
+    Local names = NamesOf(path.Text)
+    If names == Null
+        Throw IOError(IOErrorKind.INVALID_PATH, "can't read {path}: it goes above the Vfs's root", path.Text)
+    End If
+
+    Return names
+End Function
+
+// Whether an IOError is for something that isn't there, or isn't what was asked for.
+Function Missing(e: IOError): Bool
+    Return e.Kind == IOErrorKind.NOT_FOUND || e.Kind == IOErrorKind.IS_A_DIRECTORY ||
+           e.Kind == IOErrorKind.NOT_A_DIRECTORY
+End Function
+
+// A Vfs path's names, split at '/' and '\', without empty ones or ".", each ".." taking out the
+// name before it; Null when one goes above the root.
+Function NamesOf(text: String): String[]?
+    Local names: String[] = []
+    Local name: UInt8[] = []
+    Local bytes = text.Bytes
+    bytes.Add(47)
+    For byte In bytes
+        If byte != 47 && byte != 92
+            name.Add(byte)
+            Continue
+        End If
+
+        Local part = TextOfBytes(name)
+        name = []
+        If part == "" || part == "." Then Continue
+        If part == ".."
+            If names.Count == 0 Then Return Null
+            names.RemoveAt(names.Count - 1)
+        Else
+            names.Add(part)
+        End If
+    End For
+
+    Return names
+End Function
+
+// The path inside a mount's source of what's at `names` in the Vfs, or Null when the mount isn't
+// at or above it.
+Function Inside(mounted: Mounted, names: String[]): String?
+    If !Starts(names, mounted.At) Then Return Null
+    Return Joined(names[mounted.At.Count..names.Count])
+End Function
+
+// Whether `names` starts with all of `prefix`.
+Function Starts(names: String[], prefix: String[]): Bool
+    If prefix.Count > names.Count Then Return False
+    For i = 0 Until prefix.Count
+        If names[i] != prefix[i] Then Return False
+    End For
+
+    Return True
+End Function
+
+// The names with '/' between them.
+Function Joined(names: String[]): String
+    Local text = ""
+    For i = 0 Until names.Count
+        text = i == 0 ? names[i] : text + "/" + names[i]
+    End For
+
+    Return text
+End Function
+
+// The names in the order of their bytes.
+Function Sorted(names: String[]): String[]
+    names.Sort()
+    Return names
+End Function
+
+// Bytes in lines, split at "\n" and "\r\n", without them.
+Function LinesOf(bytes: UInt8[]): String[]
+    Local lines: String[] = []
+    Local start = 0
+    For i = 0 Until bytes.Count
+        If bytes[i] != 10 Then Continue
+        Local finish = i > start && bytes[i - 1] == 13 ? i - 1 : i
+        lines.Add(TextOfBytes(bytes[start..finish]))
+        start = i + 1
+    End For
+
+    If start < bytes.Count Then lines.Add(TextOfBytes(bytes[start..bytes.Count]))
+    Return lines
+End Function

@@ -288,7 +288,7 @@ Function EntryKind(number: Int32): FileKind
 End Function
 
 // A glob pattern's names, each as its characters, without empty ones or ".".
-Function PatternNames(pattern: String, windows: Bool): Char[][]
+Package Function PatternNames(pattern: String, windows: Bool): Char[][]
     Local names: Char[][] = []
     Local name: Char[] = []
     Local chars = pattern.Chars
@@ -307,7 +307,7 @@ End Function
 
 // How deep a listing has to go for a pattern's names: one folder for each, or all the way for
 // one with "**", which the runtime takes as 0.
-Function DepthOf(names: Char[][]): Int64
+Package Function DepthOf(names: Char[][]): Int64
     For name In names
         If IsAnyFolders(name) Then Return 0
     End For
@@ -318,7 +318,7 @@ End Function
 Function IsAnyFolders(name: Char[]): Bool => name.Count == 2 && name[0] == '*' && name[1] == '*'
 
 // The entries whose paths from the folder match the pattern's names.
-Function Matching(entries: DirEntry[], names: Char[][]): DirEntry[]
+Package Function Matching(entries: DirEntry[], names: Char[][]): DirEntry[]
     Local matched: DirEntry[] = []
     For entry In entries
         Local parts: Char[][] = []

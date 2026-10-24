@@ -1,0 +1,6 @@
+// Mounting a source above a Vfs's root panics at the program's line.
+Import std.core
+Import std.io
+
+Local vfs = Vfs()
+vfs.MountEmbedded("a/../..", {"x.txt": "x".Bytes})
