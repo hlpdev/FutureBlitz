@@ -152,9 +152,65 @@ std::set<std::string, std::less<>> names_in(const std::string& path) {
     return names;
 }
 
+/// Queues the events, unless the watcher's closed, and wakes what waits for one.
+void queue(watcher_t& watcher, std::vector<event_t> events) {
+    if (events.empty()) {
+        return;
+    }
+
+    std::vector<fb_task_t*> waiting;
+    {
+        const std::scoped_lock lock(watcher.mutex);
+        if (watcher.closed) {
+            return;
+        }
+
+        for (event_t& event : events) {
+            watcher.events.push_back(std::move(event));
+        }
+
+        waiting.swap(watcher.waiting);
+    }
+
+    watcher.changed.notify_all();
+    for (fb_task_t* task : waiting) {
+        finish(task, 1);
+    }
+}
+
+/// The path of what's at `key` in a folder watcher's folder.
+std::string path_in(const watcher_t& watcher, const std::string_view key) {
+    std::string path = watcher.path;
+    path += '/';
+    path += key;
+    return path;
+}
+
+/// Lists a folder watcher's folder again and gives what came and went since the names it knew,
+/// as when libuv drops events it had no room for and says only that something changed.
+std::vector<event_t> rescanned(watcher_t& watcher) {
+    std::set<std::string, std::less<>> names = names_in(watcher.path);
+    std::vector<event_t> events;
+    for (const std::string& name : watcher.known) {
+        if (!name.empty() && !names.contains(name)) {
+            events.push_back({ .kind = EVENT_REMOVED, .path = path_in(watcher, name) });
+        }
+    }
+
+    for (const std::string& name : names) {
+        if (!name.empty() && !watcher.known.contains(name)) {
+            events.push_back({ .kind = EVENT_CREATED, .path = path_in(watcher, name) });
+        }
+    }
+
+    watcher.known = std::move(names);
+    return events;
+}
+
 /// What happened to a name libuv tells of, which OSes tell apart differently, as macOS calls a
 /// new file that's written a change: one that's there now and wasn't came, one that was and isn't
-/// went, and one that was and is changed. One that came and went before this is nothing.
+/// went, and one that was and is changed. One that came and went before this is nothing. A
+/// folder's event without a name is libuv's word that it lost some, which a new listing finds.
 void watcher_t::on_event(uv_fs_event_t* handle, const char* name, const int /*events*/,
                          const int status) {
     auto& watcher = *static_cast<watcher_t*>(handle->data);
@@ -162,13 +218,13 @@ void watcher_t::on_event(uv_fs_event_t* handle, const char* name, const int /*ev
         return;
     }
 
-    const std::string_view key = watcher.folder && name != nullptr ? name : "";
-    event_t event{ .path = watcher.path };
-    if (!key.empty()) {
-        event.path += '/';
-        event.path += key;
+    if (watcher.folder && (name == nullptr || *name == '\0')) {
+        queue(watcher, rescanned(watcher));
+        return;
     }
 
+    const std::string_view key = watcher.folder ? name : "";
+    event_t event{ .path = watcher.folder ? path_in(watcher, key) : watcher.path };
     const bool there = exists(event.path);
     const auto known = watcher.known.find(key);
     if (there && known == watcher.known.end()) {
@@ -181,21 +237,9 @@ void watcher_t::on_event(uv_fs_event_t* handle, const char* name, const int /*ev
         return;
     }
 
-    std::vector<fb_task_t*> waiting;
-    {
-        const std::scoped_lock lock(watcher.mutex);
-        if (watcher.closed) {
-            return;
-        }
-
-        watcher.events.push_back(std::move(event));
-        waiting.swap(watcher.waiting);
-    }
-
-    watcher.changed.notify_all();
-    for (fb_task_t* task : waiting) {
-        finish(task, 1);
-    }
+    std::vector<event_t> events;
+    events.push_back(std::move(event));
+    queue(watcher, std::move(events));
 }
 
 void start_watching(uv_loop_t* loop, void* context) {

@@ -90,6 +90,26 @@ Catch e As IOError
     Print("{e.Kind}")
 End Try
 
+// A burst of files, more than the OS keeps room for at once on Windows, still comes as each
+// one's CREATED, and then its REMOVED.
+Try Dir.Create(root / "burst")
+Local burst = Try FileWatcher(root / "burst")
+Local made: (FileEventKind, String)[] = []
+Local gone: (FileEventKind, String)[] = []
+For i = 0 Until 300
+    Try File.WriteText(root / "burst" / "file {i}.txt", "x")
+    made.Add((FileEventKind.CREATED, "file {i}.txt"))
+    gone.Add((FileEventKind.REMOVED, "file {i}.txt"))
+End For
+
+Print("burst made {Await Saw(burst, made)}")
+For i = 0 Until 300
+    Try File.Delete(root / "burst" / "file {i}.txt")
+End For
+
+Print("burst gone {Await Saw(burst, gone)}")
+burst.Close()
+
 // A watcher the program never closes goes with its last reference, or as the program ends.
 Local dropped = Try FileWatcher(root)
 dropped = Try FileWatcher(root)
