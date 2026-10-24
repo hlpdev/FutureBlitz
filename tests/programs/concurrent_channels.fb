@@ -1,0 +1,176 @@
+// A Channel's Receive and Send that take a Cancellation wait as the Channel's own do, and a
+// Cancel stops them, on any thread; a Selector takes each value of several Channels, from threads
+// at once, the first Channel's first when more than one has one, runs its timeout when none
+// comes, and is done once they're all closed and empty.
+
+Import std.core
+Import std.time
+Import std.concurrent
+
+Shared Class Totals
+    Field Sum: Atomic<Int64>
+    Field Count: Atomic<Int>
+End Class
+
+// Two threads send 500 values each, one on each Channel, which they close when they're done,
+// while a Selector takes them all, until both are closed and empty.
+Function Race(): Bool
+    Const numbers = Channel<Int>(8)
+    Const words = Channel<String>(8)
+    Local senders: Thread[] = []
+    senders.Add(Thread.Start(Function()
+        For i = 1 To 500
+            numbers.Send(i)
+        End For
+        numbers.Close()
+    End Function))
+    senders.Add(Thread.Start(Function()
+        For i = 1 To 500
+            words.Send("{i}")
+        End For
+        words.Close()
+    End Function))
+
+    Local sum = 0
+    Local digits = 0
+    Local count = 0
+    Local selector = Selector()
+    selector.On(numbers, Function(n: Int)
+        sum += n
+        count += 1
+    End Function)
+    selector.On(words, Function(word: String)
+        digits += word.Bytes.Count
+        count += 1
+    End Function)
+    While selector.Wait()
+    End While
+    For sender In senders
+        sender.Join()
+    End For
+
+    Return count == 1000 && sum == 125250 && digits == 1392
+End Function
+
+Local wrong = 0
+For round = 1 To 20
+    If !Race() Then wrong += 1
+End For
+Print("rounds wrong:", wrong)
+
+// Receive takes what another thread sends, gives Null once it's closed and empty, and stops when
+// it's cancelled, while it waits or before.
+Function Receiving(): String
+    Const values = Channel<Int>(2)
+    Const cancel = Cancellation()
+    Const totals = Totals()
+    Local receiver = Thread.Start(Function()
+        Try
+            Loop
+                Local value = Try Receive(values, cancel)
+                If value == Null Then Break
+                totals.Sum.Add((value ?? 0) As Int64)
+                totals.Count.Add(1)
+            End Loop
+        Catch e As CancelledError
+            totals.Count.Add(1000)
+        End Try
+    End Function)
+    For i = 1 To 100
+        values.Send(i)
+    End For
+    values.Close()
+    receiver.Join()
+    Local closed = "closed: {totals.Sum.Load()} from {totals.Count.Load()}"
+
+    Const waiting = Channel<Int>(2)
+    Local stopped = Thread.Start(Function()
+        Try
+            Receive(waiting, cancel)
+        Catch e As CancelledError
+            totals.Count.Add(1000)
+        End Try
+    End Function)
+    cancel.Cancel()
+    stopped.Join()
+    waiting.Send(5)
+    Local already = "taken"
+    Try
+        Receive(waiting, cancel)
+    Catch e As CancelledError
+        already = e.Message
+    End Try
+    Return "{closed}; cancelled: {totals.Count.Load() - 100}, {already}, {waiting.TryReceive() ?? -1} left"
+End Function
+
+Print(Receiving())
+
+// Send waits while the Channel is full, until a value is taken, or it's cancelled.
+Function Sending(): String
+    Const full = Channel<Int>(1)
+    full.Send(1)
+    Const cancel = Cancellation()
+    Local sender = Spawn(Function(): String
+        Try
+            Send(full, 2, cancel)
+            Return "sent"
+        Catch e As CancelledError
+            Return e.Message
+        End Try
+    End Function)
+    Local first = full.Receive() ?? -1
+    Local result = sender.Wait()
+    Local second = full.Receive() ?? -1
+
+    full.Send(3)
+    Local blocked = Spawn(Function(): String
+        Try
+            Send(full, 4, cancel)
+            Return "sent"
+        Catch e As CancelledError
+            Return e.Message
+        End Try
+    End Function)
+    cancel.Cancel()
+    Return "{first} {result} {second}; {blocked.Wait()}, {full.TryReceive() ?? -1} {full.TryReceive() ?? -1}"
+End Function
+
+Print(Sending())
+
+// The first Channel with a value is the first given, and a Selector's timeout runs when none
+// comes in time.
+Const first = Channel<String>(4)
+Const second = Channel<String>(4)
+second.Send("second")
+first.Send("first")
+Local taken: String[] = []
+Local both = Selector().On(first, Function(text: String) => taken.Add(text))
+both.On(second, Function(text: String) => taken.Add(text))
+Print(both.Wait(), both.Wait(), taken)
+Local idle = Selector().On(first, Function(text: String) => taken.Add(text))
+idle.Timeout(20.Milliseconds, Function() => taken.Add("timeout"))
+Print(idle.Wait(), taken)
+idle.Timeout(Duration.Zero(), Function() => taken.Add("at once"))
+first.Send("waiting")
+Print(idle.Wait(), idle.Wait(), taken)
+
+// Once each Channel is closed and empty, Wait is done; a value sent before the Close still comes.
+first.Send("last")
+first.Close()
+second.Close()
+Print(both.Wait(), both.Wait(), taken[taken.Count - 1])
+
+// A Cancel stops a Selector's wait on another thread.
+Const quiet = Channel<Int>(1)
+Const stop = Cancellation()
+Local watcher = Spawn(Function(): String
+    Try
+        Selector().On(quiet, Function(n: Int) => Print(n)).Wait(stop)
+        Return "done"
+    Catch e As CancelledError
+        Return e.Message
+    End Try
+End Function)
+Sleep(10.Milliseconds)
+stop.Cancel()
+Print(watcher.Wait())

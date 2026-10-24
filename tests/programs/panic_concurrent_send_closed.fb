@@ -1,0 +1,10 @@
+// A Send that takes a Cancellation panics at a closed Channel, as the Channel's own Send does.
+Import std.core
+Import std.concurrent
+
+Const channel = Channel<Int>(2)
+Const cancel = Cancellation()
+Try Send(channel, 1, cancel)
+Print(channel.Receive() ?? -1)
+channel.Close()
+Try Send(channel, 2, cancel)
