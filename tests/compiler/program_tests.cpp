@@ -8,6 +8,7 @@
 #include <chrono>
 #include <condition_variable>
 #include <cstddef>
+#include <cstdlib>
 #include <expected>
 #include <filesystem>
 #include <format>
@@ -748,4 +749,51 @@ TEST_CASE("a 7z's links in one solid folder take one decoding of it", "[programs
     CHECK(result->output == "41 zeros.bin\n");
     CHECK(result->exit_code == 0);
     CHECK(took < std::chrono::seconds(15));
+}
+
+TEST_CASE("the HTTP test server's program has no proxy of the environment's", "[programs]") {
+    // As on a machine behind a proxy, which a client with no Proxy of its own would send the
+    // test server's URLs to; this one refuses them.
+    const fb::compilation_t compilation =
+        fb::compile("main.fb",
+                    "Import std.core\n"
+                    "Import std.net.http\n"
+                    "Local base = Input() ?? \"\"\n"
+                    "Print((Try? HttpClient().Get(\"{base}/hello\"))?.Text ?? \"failed\")\n",
+                    fb::standard_library().value_or(std::vector<fb::library_file_t>{}));
+    REQUIRE_FALSE(compilation.diagnostics.has_errors());
+    std::filesystem::path program = std::filesystem::path(FB_TEST_OUTPUT) / "http_no_proxy";
+    program += fb::executable_extension;
+    const fb::mir_module_t module = fb::lower(compilation.ast, compilation.analysis);
+    REQUIRE(fb::build_program(module, compilation, program, fb::build_mode_t::DEBUG));
+
+    const auto set = [](const char* name, const char* value) {
+#ifdef _WIN32
+        _putenv_s(name, value);
+#else
+        setenv(name, value, 1);
+#endif
+    };
+    const auto unset = [](const char* name) {
+#ifdef _WIN32
+        _putenv_s(name, "");
+#else
+        unsetenv(name);
+#endif
+    };
+    for (const char* name : { "http_proxy", "HTTPS_PROXY", "all_proxy" }) {
+        set(name, "http://127.0.0.1:9");
+    }
+
+    const std::array arguments{ program.string() };
+    const std::expected<fb::process_result_t, std::string> result =
+        fb::run_process(FB_TEST_HTTP_SERVER, arguments, "");
+    for (const char* name : { "http_proxy", "HTTPS_PROXY", "all_proxy" }) {
+        unset(name);
+    }
+
+    INFO((result ? result->output : result.error()));
+    REQUIRE(result);
+    CHECK(result->output == "hello\n");
+    CHECK(result->exit_code == 0);
 }
