@@ -720,8 +720,8 @@ TEST_CASE("std.compress's formats link the C libraries they're over, with their 
 TEST_CASE("std.image's formats link the C libraries they're over, with their notices", "[driver]") {
     const auto bundled = [](const std::string_view code) {
         const fb::compilation_t compilation = fb::compile(
-            "test.fb", std::format("Import std.core\nImport std.image\nLocal none: UInt8[] = "
-                                   "[]\nLocal image = Image(1, 1)\n{}\n",
+            "test.fb", std::format("Import std.core\nImport std.math\nImport std.image\nLocal "
+                                   "none: UInt8[] = []\nLocal image = Image(1, 1)\n{}\n",
                                    code));
         CHECK(errors_of(compilation).empty());
         std::vector<std::string_view> names;
@@ -748,6 +748,10 @@ TEST_CASE("std.image's formats link the C libraries they're over, with their not
     // QOI and GIF are the runtime's own, and need no library.
     CHECK(bundled("Print(Qoi.Encode(image).Count, (Try Qoi.Decode(none)).Width)").empty());
     CHECK(bundled("Print(Gif.Encode(image).Count, (Try Gif.DecodeAnimation(none)).Count)").empty());
+    // So is drawing.
+    CHECK(bundled("Local canvas = Canvas(image)\ncanvas.FillCircle(Vec2(0, 0), 1, Color32.Black)\n"
+                  "canvas.StrokePolyline([Vec2(0, 0), Vec2(1, 1)], Color32.Black)")
+              .empty());
     // Image.Decode reads every format, so it links each decoder's library.
     CHECK(bundled("Print((Try Image.Decode(none)).Width)") == names_t{ "stb_image", "libwebp" });
 
