@@ -33,8 +33,17 @@ Public Const PROTO_DEPTH_LIMIT = 100
 // The highest field number: a tag keeps 3 bits for the wire type.
 Public Const PROTO_FIELD_LIMIT = 536870911
 
-// The tag of field `number` with `wire` type.
-Public Function ProtoTag(number: Int, wire: UInt32): UInt32 => ((number As UInt32) << 3) | wire
+// The tag of field `number` with `wire` type, for code that writes the wire format itself. Panics
+// when number isn't from 1 to PROTO_FIELD_LIMIT, or wire isn't one of the WIRE_ types.
+@PanicsAtCaller
+Public Function ProtoTag(number: Int, wire: UInt32): UInt32
+    If number < 1 || number > PROTO_FIELD_LIMIT
+        Panic("a field's number is from 1 to {PROTO_FIELD_LIMIT}, not {number}")
+    End If
+
+    If wire > WIRE_FIXED32 Then Panic("a wire type is from 0 to {WIRE_FIXED32}, not {wire}")
+    Return ((number As UInt32) << 3) | wire
+End Function
 
 // Whether a float is 0 as proto3 leaves out a field's zero: by its bits, so -0.0 isn't.
 Public Function ProtoIsZero(value: Float32): Bool => value.ToBits() == 0
@@ -173,8 +182,14 @@ Public Class ProtoWriter
         Return Bytes.Count - 1
     End Method
 
-    // Puts the length of what was written since BeginLength gave `start` before it.
+    // Puts the length of what was written since BeginLength gave `start` before it. Panics when
+    // start isn't where a BeginLength left room for a length.
+    @PanicsAtCaller
     Public Method EndLength(start: Int)
+        If start < 0 || start >= Bytes.Count || Bytes[start] != 0
+            Panic("byte {start} isn't where BeginLength left room for a length")
+        End If
+
         Local length = (Bytes.Count - start - 1) As UInt64
         If length < 0x80
             Bytes[start] = length As UInt8
@@ -437,7 +452,13 @@ Public Class ProtoReader
 
     // Keeps the bytes from `start`, where TagStart said a field's tag was, up to where it's
     // reading, in `unknown`: a map's entry whose value is a closed enum's number it doesn't name.
+    // Panics when start is past where it's reading, or before the bytes.
+    @PanicsAtCaller
     Public Method KeepFrom(start: Int, unknown: UInt8[])
+        If start < 0 || start > At
+            Panic("byte {start} isn't from 0 to {At}, where the reader is")
+        End If
+
         For i = start Until At
             unknown.Add(Bytes[i])
         End For
@@ -578,14 +599,14 @@ Public Class ProtoText
 
     // The fields a message didn't know, by their numbers, as text format shows them: a varint as
     // its number, a 4-byte or 8-byte value in hex, a length-delimited one as bytes in quotes,
-    // and a group between braces.
+    // and a group between braces. Panics when unknown isn't fields, as a reader's Skip keeps them.
+    @PanicsAtCaller
     Public Method WriteUnknown(unknown: UInt8[])
         If unknown.Count == 0 Then Return
         Try
             Unknown(ProtoReader(unknown), 0)
         Catch e As ParseError
-            // Skip kept the fields as it read them, so they read again.
-            Unreachable()
+            Panic("the unknown fields aren't fields, as a reader keeps them: {e.Message}")
         End Try
     End Method
 

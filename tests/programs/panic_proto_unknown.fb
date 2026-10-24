@@ -1,0 +1,10 @@
+// ProtoText's WriteUnknown panics where it's called for bytes that aren't fields as a reader
+// keeps them: here, a length of 5 bytes with only 1 after it.
+Import std.core
+Import std.data.protobuf
+
+Local text = ProtoText()
+text.WriteUnknown([8, 1])
+Print(text.Finish())
+text.WriteUnknown([8, 1, 10, 5, 65])
+Print("unreachable {text.Finish()}")

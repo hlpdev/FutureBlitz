@@ -1,0 +1,8 @@
+// ProtoTag panics where it's called for a wire type that isn't one of the WIRE_ types, which
+// would run into the field's number.
+Import std.core
+Import std.data.protobuf
+
+Print("{ProtoTag(2, WIRE_GROUP_END)}")
+Local tag = ProtoTag(1, 9)
+Print("unreachable {tag}")
