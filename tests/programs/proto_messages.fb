@@ -106,6 +106,33 @@ filled.string_string[""] = ""
 Print("encoded maps.txtpb {filled.Encode()}")
 Print("made like maps: {filled == maps}")
 
+// ToString writes a map's entries by key, as protoc does, whatever order they went in, so maps
+// that are equal print alike: numbers by value, false before true, and strings by their bytes.
+Local unsorted = Maps()
+unsorted.int32_string[2] = "two"
+unsorted.int32_string[-1] = "minus one"
+unsorted.int32_string[1] = "one"
+unsorted.uint64_bool[18446744073709551615] = True
+unsorted.uint64_bool[1] = False
+unsorted.bool_string[True] = "yes"
+unsorted.bool_string[False] = "no"
+unsorted.string_string["é"] = "e acute"
+unsorted.string_string["b"] = "small"
+unsorted.string_string["B"] = "capital"
+Local sorted = Maps()
+sorted.int32_string[-1] = "minus one"
+sorted.int32_string[1] = "one"
+sorted.int32_string[2] = "two"
+sorted.uint64_bool[1] = False
+sorted.uint64_bool[18446744073709551615] = True
+sorted.bool_string[False] = "no"
+sorted.bool_string[True] = "yes"
+sorted.string_string["B"] = "capital"
+sorted.string_string["b"] = "small"
+sorted.string_string["é"] = "e acute"
+Print("unsorted: {unsorted}")
+Print("printed alike: {unsorted == sorted} {"{unsorted}" == "{sorted}"}")
+
 // An open enum keeps a number it doesn't name, in a field, a list, and a map.
 Local moods = Try Moods.Decode(MoodsBytes())
 Print("moods: {moods}")

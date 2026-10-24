@@ -1,0 +1,10 @@
+// Names Fresh through old.proto, which forwards to new.proto.
+syntax = "proto3";
+
+package kinds;
+
+import "old.proto";
+
+message User {
+  Fresh fresh = 1;
+}

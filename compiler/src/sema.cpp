@@ -8586,13 +8586,17 @@ private:
             return std::format("{}, which this file doesn't import", name);
         }
 
-        // A program without a project.toml imports its own files by their paths.
-        const std::filesystem::path relative =
-            path_from_utf8(target.path)
-                .lexically_relative(path_from_utf8(from.path).parent_path())
-                .replace_extension();
+        // A program without a project.toml imports its own files by their paths, and a .proto
+        // file's module by the .proto's path, as it's written.
+        std::filesystem::path relative =
+            path_from_utf8(target.path).lexically_relative(path_from_utf8(from.path).parent_path());
+        const bool proto = target.path.ends_with(".proto");
+        if (!proto) {
+            relative.replace_extension();
+        }
+
         std::string written = to_utf8(relative);
-        if (!written.starts_with("../")) {
+        if (!proto && !written.starts_with("../")) {
             written = "./" + written;
         }
 

@@ -1,0 +1,15 @@
+// The kinds of imports a .proto has: one only a custom option needs, one it doesn't use, a file
+// that only forwards to another with import public, and a weak one; each file a program reaches
+// is in it, whether or not another names its types. A quoted Import of a .proto takes As, and
+// From takes its types.
+Import std.core
+Import "proto_import_kinds/options.proto"
+Import "proto_import_kinds/unused.proto"
+Import "proto_import_kinds/user.proto"
+Import "proto_import_kinds/a.proto" As P
+From "proto_import_kinds/c.proto" Import C
+
+// The program names only what it imports itself, so User's Fresh comes from its bytes.
+Print("{Item(name: "x")} {Plain(v: 2)} {Try User.Decode([10, 2, 8, 3])}")
+Local a = P.A(c: C(v: 2), e: C(v: 3))
+Print("{a} {(Try P.A.Decode(a.Encode())) == a}")

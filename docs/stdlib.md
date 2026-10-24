@@ -161,6 +161,7 @@ So far, std/ holds:
 | std/text/markdown.fb | `MarkdownToHtml` and `ParseMarkdown`, over md4c through `fb_markdown_`, with `MarkdownExtensions`, `MarkdownNode`, `MarkdownKind`, and `MarkdownAlignment` |
 | std/text/template.fb | `Template` and `Templates` |
 | std/data/protobuf.fb | `ProtoWriter` and `ProtoReader`, Protocol Buffers' wire format, `ProtoText`, its text format on one line, `ProtoBox<T>`, and `ProtoTag`, `ProtoIsZero`, `ProtoKeepEnum`, and `ProtoPanic`, which the modules fb makes from .proto files go through |
+| std/data/protobuf.fb | `ProtoWriter` and `ProtoReader`, Protocol Buffers' wire format, `ProtoText`, its text format on one line, `ProtoBox<T>`, and `ProtoIsZero`, `ProtoKeepEnum`, and `ProtoPanic`, which the modules fb makes from .proto files go through; and `ProtoTag` and the `WIRE_` constants, for code that writes the wire format itself |
 | std/data/proto/google/protobuf/ | protobuf's well-known types, as protoc 36.2 has them, under protobuf's BSD-3-Clause license, in its LICENSE: any, api, descriptor, duration, empty, field_mask, source_context, struct, timestamp, type, and wrappers.proto, which a .proto or a program imports as `"google/protobuf/timestamp.proto"` |
 
 What the language itself uses, `Error` for Throw and Catch, the Interfaces, `Iterator<T>`, and
@@ -791,7 +792,8 @@ Step 18 built `Event<T>` and `Subscription`, in std/events/event.fb; `Import std
   - Each message has a New of its fields by name, with their zeros, `Encode()`,
     `Decode(bytes)`, `Merge(bytes)` and `MergeFrom(other)`, which merge as protobuf does,
     `Clone()`, `IsInitialized`, `==`, and `ToString()`, protobuf's text format on one line, as
-    `name: "Ada" phones { number: "555" }`, and `WriteTo`, `ReadFrom`, `WriteText`, and
+    `name: "Ada" phones { number: "555" }`, with an enum's values by their names in the .proto
+    and a map's entries by key, as protoc writes it, and `WriteTo`, `ReadFrom`, `WriteText`, and
     `FindMissing`, which the modules' code calls for a message inside another. Decode throws a ParseError for bytes that stop
     inside a field (UNEXPECTED_END), that aren't the wire format, or a string that isn't UTF-8
     (SYNTAX), past protobuf's limits of 100 messages or groups deep and a length an array holds
@@ -802,8 +804,9 @@ Step 18 built `Event<T>` and `Subscription`, in std/events/event.fb; `Import std
     holds one wins, a message's merges, and a repeated field reads packed or not.
   - An enum is an Enum of Int32: proto3's are `@Open`, keeping the numbers they don't name,
     while proto2's are closed, and a number one doesn't name goes to the message's unknown
-    fields, with a whole map entry for a map's value. An alias is a Static Property, and a
-    closed enum's `FromNumber(n)` gives its value or Null.
+    fields, with a whole map entry for a map's value. An alias is a Static Property, a closed
+    enum's `FromNumber(n)` gives its value or Null, and `ProtoName(value)` gives a value's name
+    in the .proto, or an open enum's number it doesn't name.
   - A service is an Interface of an Async Method for each rpc, which takes its request and
     gives its response, and can throw any Error, as a transport would; a stream's side is an
     array. No transport is std's yet.

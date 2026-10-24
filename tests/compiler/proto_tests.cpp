@@ -205,13 +205,16 @@ message Old {
   extensions 100 to 199, 500;
   extend Old { optional int32 extra = 150; }
 }
-extend Old { repeated group Bonus = 160 { optional int32 x = 1; } }
+extend Old { repeated group Bonus = 160 { enum E { A = 0; } optional E x = 1; } }
+message After { optional int32 y = 1; }
 )");
     CHECK(parsed.diagnostics.empty());
     const fb::proto_file_t& file = parsed.file;
     CHECK(file.syntax == fb::proto_syntax_t::PROTO2);
-    // Extends' fields, and their groups' messages, are left out.
-    REQUIRE(file.messages.size() == 2);
+    // Extends' fields, and their groups' messages and enums, are left out.
+    REQUIRE(file.messages.size() == 3);
+    CHECK(file.enums.empty());
+    CHECK(file.messages[2].full_name == "After");
     const fb::proto_message_t& old = file.messages[0];
     REQUIRE(old.fields.size() == 7);
     const auto default_of = [&](const std::size_t field) {
@@ -287,6 +290,94 @@ TEST_CASE("a .proto's syntax errors are at their lines and columns", "[proto]") 
     CHECK(parse_errors("syntax = \"proto3\";\nmessage M {\n  int32 = 1;\n  string = 2;\n}\n") ==
           diagnostics_t{ "3:9: expected the field's name, found '='",
                          "4:10: expected the field's name, found '='" });
+    // A '}' that closes nothing is an error of its own, after which the file still reads: one
+    // left over, or after a declaration without its '{'.
+    CHECK(parse_errors("syntax = \"proto3\";\nmessage M { int32 x = 1; }\n}\nmessage N {}\n") ==
+          diagnostics_t{ "3:1: this '}' closes no block" });
+    CHECK(parse_errors("syntax = \"proto3\";\nmessage M int32 x = 1; }\nenum E A = 0; }\n") ==
+          diagnostics_t{
+              "2:11: expected '{', found 'int32'",
+              "2:24: this '}' closes no block",
+              "3:8: expected '{', found 'A'",
+              "3:15: this '}' closes no block",
+          });
+    // What isn't an option in an rpc's braces is skipped there, so the service goes on.
+    const parsed_t service = parse("syntax = \"proto3\";\nmessage A {}\nservice S {\n"
+                                   "  rpc F(A) returns (A) { foo; }\n  rpc G(A) returns (A);\n}\n");
+    CHECK(service.diagnostics == diagnostics_t{ "4:26: expected an option, found 'foo'" });
+    REQUIRE(service.file.services.size() == 1);
+    CHECK(service.file.services.front().methods.size() == 2);
+    // A run of characters that aren't tokens is read in a loop, each one an error.
+    fb::source_manager_t sources;
+    const fb::file_id_t junk = sources.add(
+        "junk.proto", "syntax = \"proto3\";\n" + std::string(300000, '$') + "\nmessage M {}\n");
+    fb::diagnostic_bag_t bag;
+    const fb::proto_file_t junk_file = fb::parse_proto(sources.get(junk), bag);
+    CHECK(bag.diagnostics().size() == 300000);
+    CHECK(junk_file.messages.size() == 1);
+}
+
+TEST_CASE("a .proto's numbers and strings, at their edges", "[proto]") {
+    // A \u head surrogate and a \u trail surrogate after it are one character, as protoc reads
+    // them; either alone isn't one.
+    const parsed_t pair = parse(
+        R"(syntax = "proto2";
+message M { optional string s = 1 [default = "\uD83D\uDE00"]; })");
+    CHECK(pair.diagnostics.empty());
+    REQUIRE(pair.file.messages.size() == 1);
+    CHECK(pair.file.messages[0].fields[0].default_value.value_or(fb::proto_constant_t{}).text ==
+          "\U0001F600");
+    CHECK(parse_errors(R"(syntax = "proto2";
+message M { optional string s = 1 [default = "\uD83Dx\uDE00"]; })") ==
+          diagnostics_t{ R"(2:47: '\uD83D' isn't a character's code point)",
+                         R"(2:54: '\uDE00' isn't a character's code point)" });
+    // A decimal integer past 64 bits is a double's or a float's default, as protoc reads it, and
+    // an error where an integer is needed; a hex or octal one is an error either way.
+    const parsed_t big = parse("syntax = \"proto2\";\nmessage M {\n"
+                               "  optional double d = 1 [default = 100000000000000000000];\n"
+                               "  optional float f = 2 [default = -100000000000000000000];\n}\n");
+    CHECK(big.diagnostics.empty());
+    REQUIRE(big.file.messages.size() == 1);
+    const fb::proto_constant_t d =
+        big.file.messages[0].fields[0].default_value.value_or(fb::proto_constant_t{});
+    CHECK(d.too_big);
+    CHECK(d.number == 1e20);
+    CHECK(resolve_errors("syntax = \"proto2\";\nmessage M {\n"
+                         "  optional uint64 u = 1 [default = 18446744073709551616];\n"
+                         "  optional double h = 2 [default = 0x10000000000000000];\n}\n") ==
+          diagnostics_t{
+              "test.proto:3:36: 18446744073709551616 doesn't fit in uint64, u's type",
+              "test.proto:4:36: 0x10000000000000000 doesn't fit in 64 bits, as a hex or octal "
+              "number has to",
+          });
+    CHECK(parse_errors("syntax = \"proto3\";\nmessage M { int32 x = 100000000000000000000; }") ==
+          diagnostics_t{ "2:23: a field's number is from 1 to 536870911, not "
+                         "100000000000000000000" });
+    // A custom option reads past one, as it reads past the option.
+    CHECK(parse_errors("syntax = \"proto3\";\nmessage M {\n"
+                       "  int32 x = 1 [(weight) = 100000000000000000000];\n}\n")
+              .empty());
+    // A number that starts with 0 is octal, which is an integer.
+    CHECK(
+        parse_errors(
+            "syntax = \"proto2\";\nmessage M { optional double d = 1 [default = 01.5]; }") ==
+        diagnostics_t{ "2:46: 01.5 starts with 0, so it's an octal number, which is an integer" });
+    CHECK(parse_errors("syntax = \"proto2\";\nmessage M { optional double d = 1 [default = 0.5]; }")
+              .empty());
+}
+
+TEST_CASE("a package line puts what the file declares before it in the package too", "[proto]") {
+    const parsed_t parsed = parse("syntax = \"proto3\";\nmessage A { B b = 1; enum E { X = 0; } }\n"
+                                  "service S {}\npackage p;\nmessage B { int32 v = 1; }\n");
+    CHECK(parsed.diagnostics.empty());
+    REQUIRE(parsed.file.messages.size() == 2);
+    CHECK(parsed.file.messages[0].full_name == "p.A");
+    CHECK(parsed.file.messages[1].full_name == "p.B");
+    CHECK(parsed.file.enums.front().full_name == "p.A.E");
+    CHECK(parsed.file.services.front().full_name == "p.S");
+    CHECK(resolve_errors("syntax = \"proto3\";\nmessage A { B b = 1; }\npackage p;\n"
+                         "message B { int32 v = 1; }\n")
+              .empty());
 }
 
 TEST_CASE("proto2 and proto3 each have their own rules", "[proto]") {
@@ -603,6 +694,58 @@ TEST_CASE("a .proto with errors gives an empty module, past them", "[proto]") {
           });
     CHECK(generated(compilation, "bad.proto") ==
           "// bad.proto has errors, so fb makes nothing from it.\n");
+
+    // Its module still imports the files it does, which are in the program only that way, so
+    // nothing else of them is an error.
+    const fb::compilation_t importing = compile_with(
+        "Import \"bad.proto\"",
+        {
+            { .path = "bad.proto",
+              .text = "syntax = \"proto3\";\nimport \"ok.proto\";\nmessage Bad { int32 x = ; }\n" },
+            { .path = "ok.proto",
+              .text = "syntax = \"proto3\";\nmessage Ok { map<int32, string> m = 1; }\n" },
+        });
+    CHECK(diagnostics_of(importing) ==
+          diagnostics_t{ "bad.proto:3:25: expected the field's number, found ';'" });
+    CHECK(generated(importing, "bad.proto") == "// bad.proto has errors, so fb makes nothing from "
+                                               "it.\nImport \"ok.proto\" As Imported0_\n");
+}
+
+TEST_CASE("the module of a .proto imports each file it does, whose types it names or not",
+          "[proto]") {
+    const fb::compilation_t compilation = compile_with(
+        "Import \"main.proto\"\nLocal m = Main()",
+        {
+            { .path = "main.proto",
+              .text = "syntax = \"proto3\";\nimport \"unused.proto\";\nimport \"forward.proto\";\n"
+                      "import \"google/protobuf/descriptor.proto\";\n"
+                      "extend google.protobuf.FieldOptions { string label = 50000; }\n"
+                      "message Main { New n = 1 [(label) = \"n\"]; }\n" },
+            { .path = "unused.proto",
+              .text = "syntax = \"proto3\";\nmessage Unused { map<int32, string> m = 1; }\n" },
+            { .path = "forward.proto",
+              .text = "syntax = \"proto3\";\nimport public \"new.proto\";\n" },
+            { .path = "new.proto", .text = "syntax = \"proto3\";\nmessage New { int32 v = 1; }\n" },
+        });
+    CHECK(diagnostics_of(compilation).empty());
+    const std::string module = generated(compilation, "main.proto");
+    CHECK(module.contains(
+        "Import \"forward.proto\" As forward_\nImport \"new.proto\" As new_\n"
+        "Import \"std/data/proto/google/protobuf/descriptor.proto\" As descriptor_\n"
+        "Import \"unused.proto\" As unused_\n"));
+    // A program that names a type of a .proto it doesn't import is told the Import, by the
+    // .proto's path.
+    CHECK(diagnostics_of(
+              compile_with("Import \"main.proto\"\nLocal f = Fresh()",
+                           {
+                               { .path = "main.proto",
+                                 .text = "syntax = \"proto3\";\nimport \"new.proto\";\nmessage "
+                                         "Main { Fresh f = 1; }\n" },
+                               { .path = "new.proto",
+                                 .text = "syntax = \"proto3\";\nmessage Fresh { int32 v = 1; }\n" },
+                           })) ==
+          diagnostics_t{ "main.fb:2:11: 'Fresh' is in new.proto, which this file doesn't import: "
+                         "Import \"new.proto\"" });
 }
 
 TEST_CASE("the module of a .proto has a Struct for each message, and an Enum for each enum",

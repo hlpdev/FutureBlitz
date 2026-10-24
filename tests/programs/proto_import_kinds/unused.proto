@@ -1,0 +1,10 @@
+// An import whose types this file doesn't name, which protoc only warns of.
+syntax = "proto3";
+
+package kinds;
+
+import "other.proto";
+
+message Plain {
+  int32 v = 1;
+}
