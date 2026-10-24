@@ -1,0 +1,127 @@
+// A generic type's Throws E is its instance's wherever the type's members reach: an Override of a
+// generic base's Method, what implements a generic Interface's Method and the Interface's
+// default, a New taken from a generic base, and a For ... In over a generic type's Iterate.
+Import std.core
+
+Class Oops Extends Error
+    New(message: String)
+        Super.New(message)
+    End New
+End Class
+
+Class Base<E: Error>
+    Method Fail(error: E): Int Throws E
+        Throw error
+    End Method
+End Class
+
+Class Derived Extends Base<Oops>
+    Override Method Fail(error: Oops): Int Throws Oops
+        Print("derived")
+        Throw error
+    End Method
+End Class
+
+Class Generic<F: Error> Extends Base<F>
+    Override Method Fail(error: F): Int Throws F
+        Print("generic")
+        Throw error
+    End Method
+End Class
+
+Interface Runner<E: Error>
+    Method Run(): Int Throws E
+
+    Method Twice(): Int Throws E
+        Return (Try Run()) * 2
+    End Method
+End Interface
+
+Class Job Implements Runner<Oops>
+    Field Fails: Bool
+
+    Method Run(): Int Throws Oops
+        If Fails Then Throw Oops("job failed")
+        Return 21
+    End Method
+End Class
+
+Struct Counting Implements Iterator<Int>
+    Field at: Int
+    Field last: Int
+
+    ByRef Method Next(): Int?
+        If at > last Then Return Null
+        at += 1
+        Return at - 1
+    End Method
+End Struct
+
+// Made with a failure, its New throws it; else going over it throws its Failure, if it has one.
+Class Source<E: Error>
+    Field Failure: E?
+
+    New(failure: E?) Throws E
+        If failure != Null Then Throw failure
+    End New
+
+    Method Iterate(): Counting Throws E
+        Local failure = Failure
+        If failure != Null Then Throw failure
+        Return Counting(1, 3)
+    End Method
+End Class
+
+Class Taker Extends Source<Oops>
+End Class
+
+Function Sum(items: Source<Oops>): Int Throws Oops
+    Local total = 0
+    For n In Try items
+        total += n
+    End For
+
+    Return total
+End Function
+
+Function Twice(job: Job): Int Throws Oops
+    Return Try job.Twice()
+End Function
+
+Local base: Base<Oops> = Derived()
+Try
+    Print(base.Fail(Oops("one")))
+Catch e As Oops
+    Print("caught {e.Message}")
+End Try
+
+Try
+    Print(Generic<Oops>().Fail(Oops("two")))
+Catch e As Oops
+    Print("caught {e.Message}")
+End Try
+
+Local job = Job()
+Local runner: Runner<Oops> = job
+Try
+    Print(Twice(job), runner.Twice())
+    job.Fails = True
+    Print(Twice(job))
+Catch e As Oops
+    Print("caught {e.Message}")
+End Try
+
+Try
+    Local source = Try Taker(Null)
+    Print(Sum(source))
+    source.Failure = Oops("no items")
+    Print(Sum(source))
+Catch e As Oops
+    Print("caught {e.Message}")
+End Try
+
+Try
+    Print(Sum(Taker(Oops("not made"))))
+Catch e As Oops
+    Print("caught {e.Message}")
+End Try

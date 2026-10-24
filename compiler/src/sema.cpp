@@ -5232,8 +5232,16 @@ private:
     void check_implementation(const symbol_id_t id, const symbol_t& required,
                               const type_id_t interface, const type_id_t self, const span_t span) {
         const symbol_t& found = symbol(id);
+        // A generic Interface's Throws has the type arguments of the instance implemented.
+        std::vector<type_id_t> allowed;
+        allowed.reserve(required.throws.size());
+        for (const type_id_t type : required.throws) {
+            const type_id_t implemented = as_implemented(type, interface, self);
+            allowed.push_back(implemented == type_id_t::INVALID ? type : implemented);
+        }
+
         const auto thrown = std::ranges::find_if(
-            found.throws, [&](const type_id_t type) { return !covers(required.throws, type); });
+            found.throws, [&](const type_id_t type) { return !covers(allowed, type); });
         // A constraint on one of its own type parameters that the Interface's doesn't have, as
         // `self` implements it: Iterator<T>'s O: Iterator<T> is Iterator<Int32>'s O:
         // Iterator<Int32>.
@@ -5382,6 +5390,12 @@ private:
 
         symbol_t taken = method;
         taken.type = as_implemented(method.type, interface, type);
+        taken.throws.clear();
+        for (const type_id_t thrown : method.throws) {
+            const type_id_t implemented = as_implemented(thrown, interface, type);
+            taken.throws.push_back(implemented == type_id_t::INVALID ? thrown : implemented);
+        }
+
         taken.constraints =
             implemented_bounds(method, interface, type).value_or(method.constraints);
         taken.by_ref = by_ref;
@@ -6277,7 +6291,7 @@ private:
             }
 
             copy.base_new = constructor;
-            copy.throws = symbol(constructor).throws;
+            copy.throws = member_throws(base, symbol(constructor));
             copy.modifiers.visibility =
                 std::min(visibility, symbol(constructor).modifiers.visibility);
             if (first) {
@@ -6435,10 +6449,18 @@ private:
 
             const symbol_t& original = symbol(*function.overrides);
             m_file = function.span.file;
+            // A generic base's Throws has the type arguments of the instance the Class extends.
+            const std::vector<type_id_t> allowed = member_throws(function.owner, original);
+            type_id_t base = function.owner;
+            while (base != type_id_t::INVALID && definition_of(base) != original.owner) {
+                base = base_of(base);
+            }
+
+            base = base == type_id_t::INVALID ? original.owner : base;
             for (const type_id_t type : function.throws) {
-                if (!covers(original.throws, type)) {
+                if (!covers(allowed, type)) {
                     error(function.span, "'{}' can't throw {}, since {}'s doesn't", function.name,
-                          name_of(type, original.owner), name_of(original.owner, type));
+                          name_of(type, base), name_of(base, type));
                     break;
                 }
             }
@@ -10662,6 +10684,28 @@ private:
         return type;
     }
 
+    /// A member's Throws as an object of `object`'s type has them: the instance of its generic
+    /// Struct, Class, or Interface that the type is, extends, or implements puts its type
+    /// arguments in them, as member_type() does in its type, so Base<E>'s Throws E is Oops on a
+    /// Base<Oops>.
+    std::vector<type_id_t> member_throws(const type_id_t object, const symbol_t& member) {
+        const type_id_t self = non_null(object);
+        std::vector<type_id_t> throws;
+        throws.reserve(member.throws.size());
+        for (const type_id_t thrown : member.throws) {
+            type_id_t type = thrown;
+            if (member.owner != type_id_t::INVALID && is_interface(member.owner)) {
+                type = as_implemented(thrown, instance_for(self, member.owner), self);
+            } else {
+                type = member_type(self, member, thrown);
+            }
+
+            throws.push_back(type == type_id_t::INVALID ? thrown : type);
+        }
+
+        return throws;
+    }
+
     /// The type arguments of the instance of `owner`, a generic Struct or Class, that `object`
     /// is or extends: Base<Int32>'s for a Derived<Int32> that extends Base<T> with its T.
     [[nodiscard]] std::vector<type_id_t> owner_arguments(const type_id_t object,
@@ -14346,14 +14390,15 @@ private:
             return;
         }
 
+        // A generic type's Iterate throws what its instance's type arguments say.
+        const std::vector<type_id_t> throws = member_throws(type, function);
         const handler_kind_t around =
             m_handlers.empty() ? handler_kind_t::FUNCTION : m_handlers.back().kind;
         if (around == handler_kind_t::SEALED) {
             error(span_of(sequence),
                   "{} can't throw, so going over {}, whose Iterate can throw {}, needs a Try "
                   "block inside it, around the loop",
-                  m_handlers.back().what, name_among(type, function.throws),
-                  names_of(function.throws));
+                  m_handlers.back().what, name_among(type, throws), names_of(throws));
             return;
         }
 
@@ -14361,11 +14406,11 @@ private:
             error(span_of(sequence),
                   "{}'s Iterate can throw {}, so the loop needs 'In Try {}', or a Try block "
                   "around it",
-                  name_among(type, function.throws), names_of(function.throws), text(sequence));
+                  name_among(type, throws), names_of(throws), text(sequence));
             return;
         }
 
-        for (const type_id_t thrown : function.throws) {
+        for (const type_id_t thrown : throws) {
             propagate(thrown, span_of(sequence));
         }
     }

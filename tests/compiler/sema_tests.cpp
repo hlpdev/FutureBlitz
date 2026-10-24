@@ -9679,6 +9679,94 @@ TEST_CASE("a Task's Throws lists errors, and a type parameter there says it's on
           errors_t{ "F<String>: String isn't a Class that extends Error, which 'F' needs for E" });
 }
 
+TEST_CASE("a generic type's Throws E is its instance's, through bases, Interfaces, and loops",
+          "[sema]") {
+    const std::string_view oops = "Import std.core\n"
+                                  "Class Oops Extends Error\nEnd Class\n"
+                                  "Class Base<E: Error>\n"
+                                  "    Method Fail(error: E): Int Throws E\n"
+                                  "        Throw error\n"
+                                  "    End Method\n"
+                                  "End Class\n"
+                                  "Interface Runner<E: Error>\n"
+                                  "    Method Run(): Int Throws E\n"
+                                  "    Method Twice(): Int Throws E\n"
+                                  "        Return (Try Run()) * 2\n"
+                                  "    End Method\n"
+                                  "End Interface\n";
+    const auto with_oops = [&](const std::string_view text) {
+        return errors_of(std::format("{}{}", oops, text));
+    };
+
+    // An Override, of an instance or of the Class's own type parameter.
+    CHECK(with_oops("Class Derived Extends Base<Oops>\n"
+                    "    Override Method Fail(error: Oops): Int Throws Oops\n"
+                    "        Throw error\n"
+                    "    End Method\n"
+                    "End Class\n"
+                    "Class Generic<F: Error> Extends Base<F>\n"
+                    "    Override Method Fail(error: F): Int Throws F\n"
+                    "        Throw error\n"
+                    "    End Method\n"
+                    "End Class")
+              .empty());
+    CHECK(with_oops("Class Wrong<F: Error> Extends Base<F>\n"
+                    "    Override Method Fail(error: F): Int Throws Oops\n"
+                    "        Throw Oops(\"x\")\n"
+                    "    End Method\n"
+                    "End Class") ==
+          errors_t{ "Fail: 'Fail' can't throw Oops, since Base<F>'s doesn't" });
+
+    // What implements an Interface's Method, and its default, called on the implementing Class.
+    CHECK(with_oops("Class Job Implements Runner<Oops>\n"
+                    "    Method Run(): Int Throws Oops\n"
+                    "        Throw Oops(\"job\")\n"
+                    "    End Method\n"
+                    "End Class\n"
+                    "Function Go(): Int Throws Oops\n"
+                    "    Return (Try Job().Run()) + (Try Job().Twice())\n"
+                    "End Function\n"
+                    "Local x = Job().Twice()") ==
+          errors_t{ "Job().Twice(): 'Twice' can throw Oops, so calling it needs Try, Try?, or a "
+                    "Try block" });
+
+    // A New taken from a generic base, and a For ... In over a generic type's Iterate.
+    CHECK(with_oops("Struct Counting Implements Iterator<Int>\n"
+                    "    Field at: Int\n"
+                    "    ByRef Method Next(): Int?\n"
+                    "        at += 1\n"
+                    "        Return at < 3 ? at : Null\n"
+                    "    End Method\n"
+                    "End Struct\n"
+                    "Class Box<E: Error>\n"
+                    "    New(failure: E?) Throws E\n"
+                    "        If failure != Null Then Throw failure\n"
+                    "    End New\n"
+                    "    Method Iterate(): Counting Throws E => Counting()\n"
+                    "End Class\n"
+                    "Class Taker Extends Box<Oops>\n"
+                    "End Class\n"
+                    "Function Sum(items: Box<Oops>): Int Throws Oops\n"
+                    "    Local taker = Try Taker(Null)\n"
+                    "    Local total = 0\n"
+                    "    For n In Try items\n"
+                    "        total += n\n"
+                    "    End For\n"
+                    "    Return total\n"
+                    "End Function\n"
+                    "Local t = Taker(Null)\n"
+                    "For n In Box<Oops>(Null)\n"
+                    "End For") ==
+          errors_t{
+              "Taker(Null): 'Taker' can throw Oops, so calling it needs Try, Try?, or a Try "
+              "block",
+              "Box<Oops>(Null): 'Box<E>' can throw Oops, so calling it needs Try, Try?, or a "
+              "Try block",
+              "Box<Oops>(Null): Box<Oops>'s Iterate can throw Oops, so the loop needs 'In Try "
+              "Box<Oops>(Null)', or a Try block around it",
+          });
+}
+
 TEST_CASE("a Method can be Async, and its overrides are too", "[sema]") {
     CHECK(probe("Class C\n"
                 "    Async Method M(): Int\n"
