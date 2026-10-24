@@ -1,0 +1,8 @@
+// A Command whose variable has a name no variable can have panics where it starts.
+Import std.core
+Import std.os
+
+Local command = Command("fb-no-such-program").Env("FINE", "x")
+Print("made")
+command.Env("A=B", "x")
+Try? command.Status()

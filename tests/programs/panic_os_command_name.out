@@ -1,0 +1,2 @@
+made
+panic: a Command takes variables' names that aren't empty and have no '=' or NUL at panic_os_command_name.fb:8:6

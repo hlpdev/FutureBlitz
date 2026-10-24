@@ -1,0 +1,220 @@
+// Child, a program that a Command started, which runs beside this one: its Id, its piped streams,
+// a Writer to its stdin and Readers of its stdout and stderr, and Wait, TryWait, and Kill, with
+// the ExitStatus that says how it ended.
+
+Import std.core
+Import std.ffi
+Import std.io.streams
+
+Extern "runtime"
+    Function fb_os_process_hold(child: UInt64)
+    Function fb_os_process_release(child: UInt64)
+    Function fb_os_process_pid(child: UInt64): Int64
+    Function fb_os_process_wait(child: UInt64): Int64
+    Function fb_os_process_wait_async(child: UInt64): Task<Int64>
+    Function fb_os_process_try_wait(child: UInt64, ByRef status: Int64): Int32
+    Function fb_os_process_kill(child: UInt64): Int64
+    Function fb_os_process_read(child: UInt64, stream: Int32, into: Ptr<UInt8>, count: Int64): Int64
+    Function fb_os_process_read_async(child: UInt64, stream: Int32, into: Ptr<UInt8>,
+                                      count: Int64): Task<Int64>
+    Function fb_os_process_drain(child: UInt64, stream: Int32)
+    Function fb_os_process_write(child: UInt64, from: Ptr<UInt8>, count: Int64): Int64
+    Function fb_os_process_write_async(child: UInt64, from: Ptr<UInt8>, count: Int64): Task<Int64>
+    Function fb_os_process_close_input(child: UInt64)
+    Function fb_os_error_kind(error: Int64): Int32
+    Function fb_os_error_text(error: Int64): String
+End Extern
+
+// How a child ended: with the code it exited with, or by a signal, as Kill ends one.
+Public Struct ExitStatus Implements Printable
+    // The code it exited with, which on Windows is from 0 to 4294967295, or Null when a signal
+    // ended it.
+    Public ReadOnly Field Code: Int64?
+    // The signal that ended it, as 9 for Kill, on Windows too, or Null when it exited.
+    Public ReadOnly Field Signal: Int?
+
+    // The status the runtime gives: the code, or minus the signal.
+    Package New(status: Int64)
+        If status >= 0
+            Code = status
+        Else
+            Signal = -status As Int
+        End If
+    End New
+
+    // Whether it exited with 0, which says it went well.
+    Public Property Success: Bool
+        Get => Code == 0
+    End Property
+
+    Public Method ToString(): String
+        Local code = Code
+        If code != Null Then Return "exit code {code}"
+        Return "signal {Signal ?? 0}"
+    End Method
+End Struct
+
+// A program that a Command started, which runs beside this one until it ends, whether or not
+// this program waits for it. Letting go of it, and of its streams, closes its pipes, but doesn't
+// end it.
+Public Class Child
+    ReadOnly Field Handle: UInt64
+
+    // Its stdin, when the Command piped it, a Writer to what the child reads.
+    Public ReadOnly Field Stdin: ChildInput?
+    // Its stdout, when the Command piped it, a Reader of what the child writes there.
+    Public ReadOnly Field Stdout: ChildOutput?
+    // Its stderr, when the Command piped it.
+    Public ReadOnly Field Stderr: ChildOutput?
+
+    // The child of the runtime's handle, which it holds, with the streams that are pipes.
+    Package New(handle: UInt64, input: Bool, output: Bool, error: Bool)
+        Handle = handle
+        If input Then Stdin = ChildInput(handle)
+        If output Then Stdout = ChildOutput(handle, 1)
+        If error Then Stderr = ChildOutput(handle, 2)
+    End New
+
+    // The OS's number for its process.
+    Public Property Id: Int64
+        Get => fb_os_process_pid(Handle)
+    End Property
+
+    // Waits for it to end, and gives how it did. Its stdin closes first, so a child that reads
+    // to its end doesn't wait for more.
+    Public Method Wait(): ExitStatus
+        fb_os_process_close_input(Handle)
+        Return ExitStatus(fb_os_process_wait(Handle))
+    End Method
+
+    // Wait's Async twin, which waits on the main thread instead of blocking it.
+    Public Async Method WaitAsync(): ExitStatus
+        fb_os_process_close_input(Handle)
+        Return ExitStatus(Await fb_os_process_wait_async(Handle))
+    End Method
+
+    // How it ended, or Null while it runs.
+    Public Method TryWait(): ExitStatus?
+        Local status: Int64 = 0
+        If fb_os_process_try_wait(Handle, ByRef status) == 0 Then Return Null
+        Return ExitStatus(status)
+    End Method
+
+    // Ends it at once, unless it's ended already: by SIGKILL, or on Windows TerminateProcess,
+    // either way with Signal 9. Throws an IOError when the OS won't.
+    Public Method Kill() Throws IOError
+        Local result = fb_os_process_kill(Handle)
+        If result != 0 Then Throw ProcessError(result)
+    End Method
+
+    Method Destroy()
+        fb_os_process_release(Handle)
+    End Method
+End Class
+
+// A child's stdin, which writes to what it reads. Bytes go to the child as they're written, and
+// Write returns once they have.
+Public Class ChildInput Implements Writer
+    ReadOnly Field Handle: UInt64
+
+    Package New(handle: UInt64)
+        Handle = handle
+        fb_os_process_hold(handle)
+    End New
+
+    // Throws an IOError once the stream is closed, or the child has gone.
+    Public Method Write(from: Buffer<UInt8>) Throws IOError
+        Local result: Int64 = 0
+        Unsafe
+            result = fb_os_process_write(Handle, from.Pointer(), from.Count)
+        End Unsafe
+        If result != 0 Then Throw ProcessError(result)
+    End Method
+
+    Public Async Method WriteAsync(from: Buffer<UInt8>) Throws IOError
+        Local writing: Task<Int64>
+        Unsafe
+            writing = fb_os_process_write_async(Handle, from.Pointer(), from.Count)
+        End Unsafe
+        Local result = Await writing
+        If result != 0 Then Throw ProcessError(result)
+    End Method
+
+    // Closes it once what's written has gone, so the child reads to its end. Closing it again
+    // does nothing.
+    Public Method Close()
+        fb_os_process_close_input(Handle)
+    End Method
+
+    Method Destroy()
+        fb_os_process_release(Handle)
+    End Method
+End Class
+
+// A child's stdout or stderr, which reads what it writes there, as it comes, until it ends or
+// closes it.
+Public Class ChildOutput Implements Reader
+    ReadOnly Field Handle: UInt64
+    ReadOnly Field Stream: Int32
+
+    // The child's stdout, stream 1, or its stderr, stream 2.
+    Package New(handle: UInt64, stream: Int32)
+        Handle = handle
+        Stream = stream
+        fb_os_process_hold(handle)
+    End New
+
+    Public Method Read(into: Buffer<UInt8>): Int64 Throws IOError
+        Local count: Int64 = 0
+        Unsafe
+            count = fb_os_process_read(Handle, Stream, into.Pointer(), into.Count)
+        End Unsafe
+        If count < 0 Then Throw ProcessError(count)
+        Return count
+    End Method
+
+    Public Async Method ReadAsync(into: Buffer<UInt8>): Int64 Throws IOError
+        Local reading: Task<Int64>
+        Unsafe
+            reading = fb_os_process_read_async(Handle, Stream, into.Pointer(), into.Count)
+        End Unsafe
+        Local count = Await reading
+        If count < 0 Then Throw ProcessError(count)
+        Return count
+    End Method
+
+    // Has what comes read as it does, and held for Read, so the child never waits for room in
+    // this pipe while the program reads the other one.
+    Package Method Drain()
+        fb_os_process_drain(Handle, Stream)
+    End Method
+
+    Method Destroy()
+        fb_os_process_release(Handle)
+    End Method
+End Class
+
+// The IOError for the runtime's error, which is about `path` when there is one.
+Package Function ProcessError(error: Int64, path: String? = Null): IOError
+    Local text = fb_os_error_text(error)
+    Local message = path != Null ? "{path}: {text}" : text
+    Return IOError(KindOf(error), message, path)
+End Function
+
+// The IOErrorKind of the runtime's error.
+Function KindOf(error: Int64): IOErrorKind
+    Select fb_os_error_kind(error)
+        Case 0
+            Return IOErrorKind.NOT_FOUND
+        Case 1
+            Return IOErrorKind.PERMISSION_DENIED
+        Case 2
+            Return IOErrorKind.ALREADY_EXISTS
+        Case 3
+            Return IOErrorKind.UNEXPECTED_END
+        Case 4
+            Return IOErrorKind.INTERRUPTED
+        Default
+            Return IOErrorKind.OTHER
+    End Select
+End Function
