@@ -54,7 +54,7 @@ Package Enum SocketKind: Int32
 End Enum
 
 // What fb_io_net_error_kind gives for a timeout, past NetErrorKind's ordinals.
-Const TIMED_OUT = 7
+Const TIMED_OUT = 8
 
 // A timeout as the runtime's functions take it, in nanoseconds: -1 waits as long as it takes,
 // and 0, for one that isn't positive, doesn't wait.
