@@ -81,7 +81,7 @@ inline constexpr std::string_view std_directory = \"${PROJECT_SOURCE_DIR}/std\";
 inline constexpr auto link_options = std::to_array<std::string_view>({ ${FB_LINK_OPTIONS} });
 
 /// A C library std is built on, which a program links when it calls the runtime's functions
-/// whose names start with `prefix`.
+/// whose names start with `prefix`, or when a library it links needs it.
 struct bundled_library_t {
     std::string_view name;
     std::string_view version;
@@ -273,7 +273,7 @@ inline constexpr auto bundled_libraries = std::to_array<bundled_library_t>({
         .archives = \"${FB_CURL_ARCHIVES}\",
         .notice = \"${FB_CURL_NOTICE}\",
         .system = \"${FB_CURL_SYSTEM}\",
-        .needs = \"libuv;mbedTLS\",
+        .needs = \"libuv;mbedTLS;zlib-ng;zstd\",
     },
 });
 
