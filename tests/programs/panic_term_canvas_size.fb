@@ -1,0 +1,7 @@
+// A canvas of a negative size is a bug, which panics at the caller.
+Import std.core
+Import std.term
+
+Local canvas = Canvas(0, 2)
+canvas.Resize(4, 1)
+Local bad = Canvas(-3, 2)

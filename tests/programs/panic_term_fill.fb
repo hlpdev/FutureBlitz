@@ -1,0 +1,8 @@
+// A canvas's Fill puts one grapheme cluster in each cell, or two for a wide one, so text of
+// several is a bug, which panics at the caller.
+Import std.core
+Import std.term
+
+Local canvas = Canvas(4, 2)
+canvas.Fill(canvas.Area, "中", Style())
+canvas.Fill(canvas.Area, "ab", Style())

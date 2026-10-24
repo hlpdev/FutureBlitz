@@ -32,8 +32,10 @@ Public Class Canvas Implements Printable
     Field Width: Int
     Field Height: Int
 
-    // A canvas of columns by rows, each cell blank, or none for a negative size.
+    // A canvas of columns by rows, each cell blank. Panics for a negative size.
+    @PanicsAtCaller
     Public New(columns: Int, rows: Int)
+        CheckSize(columns, rows)
         Resize(columns, rows)
     End New
 
@@ -72,10 +74,13 @@ Public Class Canvas Implements Printable
         End For
     End Method
 
-    // Makes it columns by rows, keeping the cells it still has, and blank ones past them.
+    // Makes it columns by rows, keeping the cells it still has, and blank ones past them. Panics
+    // for a negative size.
+    @PanicsAtCaller
     Public Method Resize(columns: Int, rows: Int)
-        Local width = Max(columns, 0)
-        Local height = Max(rows, 0)
+        CheckSize(columns, rows)
+        Local width = columns
+        Local height = rows
         Local cells: Cell[] = []
         cells.Reserve(width * height)
         For row = 0 Until height
@@ -125,13 +130,28 @@ Public Class Canvas Implements Printable
         Return rows
     End Method
 
-    // Fills each of area's cells with text, a grapheme cluster that takes one, in look.
+    // Fills area's cells with text, a grapheme cluster, in look: each cell, or each two for a wide
+    // one, with a space in a last column that has no room for it. Panics for text that isn't one
+    // grapheme cluster, one or two columns wide.
+    @PanicsAtCaller
     Public Method Fill(area: Region, text: String, look: Style)
+        Local width = DisplayWidth(text)
+        If text.GraphemeCount != 1 || width < 1 || width > 2
+            Panic("Fill takes a grapheme cluster one or two columns wide, not {text:?}")
+        End If
+
         Local shown = area.Intersect(Self.Area)
         For row = shown.Row Until shown.Bottom
-            For column = shown.Column Until shown.Right
-                Put(column, row, text, False, look)
-            End For
+            Local column = shown.Column
+            While column < shown.Right
+                If column + width > shown.Right
+                    Put(column, row, " ", False, look)
+                Else
+                    Put(column, row, text, width == 2, look)
+                End If
+
+                column += width
+            End While
         End For
     End Method
 
@@ -201,7 +221,8 @@ Public Class Canvas Implements Printable
         For grapheme In text.Graphemes()
             Local width = Min(DisplayWidth(grapheme), 2)
             If width == 0 Then Continue
-            If at + width > stop Then Break
+            // As at + width > stop, which a column near Int's most would overflow.
+            If at > stop - width Then Break
             If at >= 0
                 Put(at, row, grapheme, width == 2, look)
             ElseIf at + width > 0
@@ -213,6 +234,14 @@ Public Class Canvas Implements Printable
         End For
 
         Return at
+    End Method
+
+    // Panics, at the caller, for a negative size.
+    @PanicsAtCaller
+    Method CheckSize(columns: Int, rows: Int)
+        If columns < 0 || rows < 0
+            Panic("a canvas takes a size that isn't negative, not {columns}x{rows}")
+        End If
     End Method
 
     // Sets the cell at column and row, and the one after it for a wide one, making blank what's
@@ -424,8 +453,8 @@ Public Class Screen
         Term.KeepScreen(enter, LeaveText())
         Term.Write(enter)
         Term.Flush()
-        Front = Canvas(Term.Columns, Term.Rows)
-        Back = Canvas(Term.Columns, Term.Rows)
+        Front = Canvas(Max(Term.Columns, 0), Max(Term.Rows, 0))
+        Back = Canvas(Max(Term.Columns, 0), Max(Term.Rows, 0))
         Whole = True
         Open = True
     End Method
@@ -440,9 +469,14 @@ Public Class Screen
     // An event, after a RESIZE has resized the Frame.
     Method Track(event: InputEvent?): InputEvent?
         If event != Null && event.Kind == InputKind.RESIZE
-            Back.Resize(event.Columns, event.Rows)
-            Front = Canvas(event.Columns, event.Rows)
+            // A terminal that resizes to nothing has no cells. What the console writes again after
+            // Ctrl+Z, which comes as a resize, hides the cursor, so the next Present shows it.
+            Local columns = Max(event.Columns, 0)
+            Local rows = Max(event.Rows, 0)
+            Back.Resize(columns, rows)
+            Front = Canvas(columns, rows)
             Whole = True
+            ShownRow = -1
         End If
 
         Return event

@@ -216,7 +216,9 @@ Public Class TextInput
 
         Local shown = Shown(Editor.Text)
         Local cursor = DisplayWidth(Shown(Editor.BeforeCursor()))
-        // The cursor keeps a column for itself at the end.
+        // The cursor keeps a column for itself at the end, and the text scrolls no further than
+        // its end needs, so text that's got shorter shows.
+        Scroll = Min(Scroll, Max(DisplayWidth(shown) - width + 1, 0))
         If cursor < Scroll Then Scroll = cursor
         If cursor >= Scroll + width Then Scroll = cursor - width + 1
         Local at = 0
