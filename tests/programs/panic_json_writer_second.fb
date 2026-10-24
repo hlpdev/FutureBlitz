@@ -1,0 +1,6 @@
+// A document has one value: a second panics where it's written.
+Import std.data
+
+Local writer = JsonWriter()
+writer.WriteInt(1)
+writer.WriteInt(2)

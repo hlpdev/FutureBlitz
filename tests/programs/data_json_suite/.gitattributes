@@ -1,0 +1,2 @@
+# JSONTestSuite's cases are their exact bytes, "\r\n" and all.
+test_parsing/* -text

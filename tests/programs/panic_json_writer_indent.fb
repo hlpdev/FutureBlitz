@@ -1,0 +1,4 @@
+// An indent can't be below 0.
+Import std.data
+
+Local writer = JsonWriter(-1)

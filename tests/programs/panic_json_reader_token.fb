@@ -1,0 +1,5 @@
+// A JsonReader has no token before Next gives one.
+Import std.data
+
+Local reader = JsonReader("1")
+Local token = reader.Token

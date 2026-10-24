@@ -1,0 +1,8 @@
+// JSON has no NaN or infinity, so writing one panics where WriteDouble is called.
+Import std.data
+Import std.math
+
+Local writer = JsonWriter()
+writer.BeginArray()
+writer.WriteDouble(1.5)
+writer.WriteDouble(Inf As Double)

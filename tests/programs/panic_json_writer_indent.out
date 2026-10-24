@@ -1,0 +1,1 @@
+panic: a JsonWriter's indent can't be below 0, as -1 is at panic_json_writer_indent.fb:4:16

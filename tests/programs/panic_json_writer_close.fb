@@ -1,0 +1,6 @@
+// EndArray ends an array: in an object, it panics where it's called.
+Import std.data
+
+Local writer = JsonWriter()
+writer.BeginObject()
+writer.EndArray()
