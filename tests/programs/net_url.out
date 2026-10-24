@@ -192,3 +192,6 @@ http://　x.com/: not a URL
 http://xn--x-43t.com/: not a URL
 http://xn--ab-5da.com/: not a URL
 http://xn--x-qc4g.com/: not a URL
+http://xn--mnchen-~ya.example/: not a URL
+http://xn--mnchen-}ya.example/: not a URL
+http://xn--mnchen-{ya.example/: not a URL
