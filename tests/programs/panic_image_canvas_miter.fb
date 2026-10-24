@@ -1,0 +1,9 @@
+// A canvas's miter limit is at least 1, as a miter is never shorter than the width, and setting
+// a smaller one panics where it's set.
+Import std.core
+Import std.image
+
+Local canvas = Canvas(Image(2, 2))
+canvas.MiterLimit = 1
+Print(canvas.MiterLimit)
+canvas.MiterLimit = 0.75

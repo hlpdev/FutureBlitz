@@ -1,0 +1,10 @@
+// A rectangle's size isn't negative, and drawing one whose size is panics where it's drawn.
+Import std.core
+Import std.math.color
+Import std.math.geometry
+Import std.image
+
+Local canvas = Canvas(Image(4, 4))
+canvas.FillRect(Rect(1, 1, 2, 0), Color32.Black)
+Print(canvas.Image[1, 1].a)
+canvas.StrokeRect(Rect(1, 1, -2, 2), Color32.Black)

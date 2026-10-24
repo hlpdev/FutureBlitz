@@ -1,0 +1,2 @@
+0
+panic: a rectangle drawn has a size that isn't negative, not Rect(1, 1, -2, 2) at panic_image_canvas_rect.fb:10:1
