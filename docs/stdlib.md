@@ -139,6 +139,12 @@ So far, std/ holds:
 | std/text/builder.fb, scanner.fb | `StringBuilder` and `Scanner` |
 | std/text/unicode.fb | std.text.unicode: `UnicodeCategory` and `Category`, `NormalForm`, `Normalize`, and `IsNormalized`, `CaseFold`, and `DisplayWidth`, over utf8proc through `fb_unicode_` |
 | std/text/encoding.fb | std.text.encoding: `TextEncoding`, `Encode`, `Decode`, `DetectBom`, and `DecodeAny`; `Base64`, `Hex`, `Base32`, `Percent`, and `Html`; and `Escape` and `Unescape` |
+| std/text/regex.fb | std.text.regex: `Regex`, with `Parse`, `Escape`, `MatchLimit`, and `MemoryLimit`; `RegexFlags`, `RegexError` and `RegexErrorKind`, and `Match`; and String's `Matches`, `ReplaceAll`, and `SplitBy`; over PCRE2 through the runtime's `fb_regex_` functions |
+| std/text/glob.fb | std.text.glob: `Glob` and `Glob.Match` |
+| std/text/layout.fb | std.text.layout: String's `WordWrap`, `Dedent`, and `Indent`, and `Levenshtein` |
+| std/text/fuzzy.fb | std.text.fuzzy: `Fuzzy`'s `Match`, `Score`, and `Rank`, and `FuzzyMatch` |
+| std/text/humanize.fb | std.text.humanize: `Humanize`'s `Plural`, `Relative`, `Ordinal`, `Words`, `SnakeCase`, `KebabCase`, `CamelCase`, and `PascalCase` |
+| std/text/diff.fb | std.text.diff: `Diff`'s `Lines`, `Chars`, `Unified`, and `Merge`, and `DiffKind`, `DiffRun`, and `Merged` |
 
 What the language itself uses, `Error` for Throw and Catch, the Interfaces, `Iterator<T>`, and
 `Map<K, V>` for `{key: value}`, is always std's, whatever a program calls by those names.
