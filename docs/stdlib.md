@@ -158,7 +158,7 @@ and the rest) aren't std's.
 | Library | License | Backs |
 |---|---|---|
 | libuv | MIT, with parts under BSD-2-Clause and ISC | std.io, std.os, std.net's sockets, IPC, and DNS, std.time's timers, Async I/O |
-| libcurl | curl (MIT-style) | std.net.http's client, over mbedTLS's TLS, zlib-ng's and zstd's decoding, and nghttp2's HTTP/2 |
+| libcurl | curl (MIT-style), with two files under ISC | std.net.http's client, over mbedTLS's TLS, zlib-ng's and zstd's decoding, and nghttp2's HTTP/2 |
 | nghttp2 | MIT | std.net.http's HTTP/2, through libcurl |
 | mbedTLS | Apache-2.0 | std.net.tls, std.net.http's TLS, std.crypto's hashes, HMAC, HKDF, PBKDF2, ciphers, signatures, key exchange, PEM keys and certificates, and secure random |
 | PCRE2 | BSD | std.text.regex, and the compiler's check of regex literals |
