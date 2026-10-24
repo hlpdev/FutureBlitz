@@ -76,16 +76,16 @@ End Class
 // The lock on the file, or Null when it didn't wait for one another held.
 Function Acquired(path: Path, shared: Bool, wait: Bool): FileLock? Throws IOError
     Local request = Request()
-    Local result = Try Checked(fb_io_lock_acquire(request.Native, path.Text, shared ? 1 : 0, wait ? 1 : 0),
-                               "lock", path)
+    Local result = Try Checked(fb_io_lock_acquire(request.Native, path.Text, shared ? 1 : 0,
+                                                  wait ? 1 : 0), "lock", path)
     If result == 0 Then Return Null
     Return FileLock(path, shared, fb_io_request_lock(request.Native))
 End Function
 
 Async Function AcquiredAsync(path: Path, shared: Bool): FileLock? Throws IOError
     Local request = Request()
-    Local result = Try Checked(Await fb_io_lock_acquire_async(request.Native, path.Text, shared ? 1 : 0, 1),
-                               "lock", path)
+    Local result = Try Checked(Await fb_io_lock_acquire_async(request.Native, path.Text,
+                                                              shared ? 1 : 0, 1), "lock", path)
     If result == 0 Then Return Null
     Return FileLock(path, shared, fb_io_request_lock(request.Native))
 End Function

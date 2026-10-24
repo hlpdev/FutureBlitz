@@ -93,7 +93,8 @@ End Class
 
 // The event a watcher took last, with a path of `style`.
 Function EventOf(watcher: Ptr<Void>, style: PathStyle): FileEvent
-    Return FileEvent(EventKindOf(fb_io_watcher_kind(watcher)), Path(fb_io_watcher_path(watcher), style))
+    Local kind = EventKindOf(fb_io_watcher_kind(watcher))
+    Return FileEvent(kind, Path(fb_io_watcher_path(watcher), style))
 End Function
 
 Function EventKindOf(number: Int32): FileEventKind

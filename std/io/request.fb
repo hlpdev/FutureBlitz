@@ -27,7 +27,8 @@ End Class
 
 // What a call gave, unless it's an error, which it throws as an IOError: that the call couldn't
 // do `doing` to `path`, and to `other` when there is one, like a copy's, and why.
-Package Function Checked(result: Int64, doing: String, path: Path, other: Path? = Null): Int64 Throws IOError
+Package Function Checked(result: Int64, doing: String, path: Path,
+                         other: Path? = Null): Int64 Throws IOError
     If result >= 0 Then Return result
     Throw ErrorOf(result, doing, path, other)
 End Function
@@ -35,8 +36,8 @@ End Function
 // The IOError for one of the runtime's errors.
 Package Function ErrorOf(error: Int64, doing: String, path: Path, other: Path? = Null): IOError
     Local what = other == Null ? path.Text : "{path} to {other.Text}"
-    Return IOError(IOKindOf(fb_io_error_kind(error)), "can't {doing} {what}: {fb_io_error_message(error)}",
-                   path.Text)
+    Return IOError(IOKindOf(fb_io_error_kind(error)),
+                   "can't {doing} {what}: {fb_io_error_message(error)}", path.Text)
 End Function
 
 // The Kind the runtime numbers an error as.

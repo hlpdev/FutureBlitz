@@ -73,7 +73,10 @@ Public Class MappedFile
     @PanicsAtCaller
     Public Method ReadBytes(start: Int64, count: Int64): UInt8[]
         CheckRange(start, count)
-        If count > 2147483647 Then Panic("ReadBytes can't copy {count} bytes, more than an array holds")
+        If count > 2147483647
+            Panic("ReadBytes can't copy {count} bytes, more than an array holds")
+        End If
+
         Local bytes: UInt8[] = []
         fb_io_map_read(Native, start, count, bytes)
         Return bytes
