@@ -91,9 +91,9 @@ function(fb_notice name text)
 endfunction()
 
 # mbedTLS: std.crypto's hashes, HMAC, HKDF, PBKDF2, ciphers, signatures, key exchange, keys and
-# certificates, and secure random, through TF-PSA-Crypto's PSA API, and std.net.tls later. Only
-# its crypto library (tfpsacrypto) is built. mbedtls_config.h turns its locks on, so any thread
-# can use it.
+# certificates, and secure random, through TF-PSA-Crypto's PSA API (its tfpsacrypto library), and
+# the TLS of std.net.http's client (its mbedtls and mbedx509 libraries), and std.net.tls's later.
+# mbedtls_config.h turns its locks on, so any thread can use it.
 set(FB_MBEDTLS_VERSION 4.1.1)
 set(ENABLE_PROGRAMS OFF CACHE BOOL "" FORCE)
 set(ENABLE_TESTING OFF CACHE BOOL "" FORCE)
