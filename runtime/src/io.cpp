@@ -335,6 +335,16 @@ public:
         job(nullptr);
     }
 
+    /// Has `stopper` run as the loop stops. Only the I/O thread calls it.
+    void at_stop(void (*stopper)(uv_loop_t* loop)) {
+        for (void (*&slot)(uv_loop_t*) : m_stoppers) {
+            if (slot == nullptr || slot == stopper) {
+                slot = stopper;
+                return;
+            }
+        }
+    }
+
     /// Waits for a blocking caller's line.
     void wait_for(const line_waiter_t& waiter) {
         std::unique_lock lock(m_mutex);
@@ -374,6 +384,8 @@ private:
     std::vector<running_timer_t*> m_timers;
     /// What other parts of the runtime gave the thread to run.
     std::vector<std::function<void(uv_loop_t*)>> m_jobs;
+    /// What runs as the loop stops, which only the I/O thread touches.
+    std::array<void (*)(uv_loop_t*), 4> m_stoppers{};
     bool m_stopped = false;
     uv_loop_t m_loop{};
     uv_async_t m_wake{};
@@ -442,6 +454,13 @@ private:
             }
 
             self.m_timers.clear();
+
+            for (void (*const stop)(uv_loop_t*) : self.m_stoppers) {
+                if (stop != nullptr) {
+                    stop(&self.m_loop);
+                }
+            }
+
             uv_close(reinterpret_cast<uv_handle_t*>(&self.m_wake), nullptr);
         }
     }
@@ -492,6 +511,10 @@ namespace fb::runtime {
 
 void on_io_thread(std::function<void(uv_loop_t*)> job) {
     io().run(std::move(job));
+}
+
+void at_io_stop(void (*stop)(uv_loop_t* loop)) {
+    io().at_stop(stop);
 }
 
 } // namespace fb::runtime
