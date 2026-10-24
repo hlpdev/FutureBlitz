@@ -71,7 +71,8 @@ std::string from_folder(std::string output, const std::filesystem::path& folder)
 }
 
 /// The standard library, and the files in the folder named like the program, by their paths
-/// from the program's folder, like "modules/shapes.fb".
+/// from the program's folder, like "modules/shapes.fb": its modules, and the .proto files it
+/// imports.
 std::vector<fb::library_file_t> program_files(const std::filesystem::path& source) {
     std::vector<fb::library_file_t> files =
         fb::standard_library().value_or(std::vector<fb::library_file_t>{});
@@ -83,7 +84,7 @@ std::vector<fb::library_file_t> program_files(const std::filesystem::path& sourc
 
     for (const std::filesystem::directory_entry& entry :
          std::filesystem::recursive_directory_iterator(folder)) {
-        if (entry.path().extension() == ".fb") {
+        if (entry.is_regular_file()) {
             files.push_back({
                 .path = entry.path().lexically_relative(source.parent_path()).generic_string(),
                 .text = read_file(entry.path()),
