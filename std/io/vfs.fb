@@ -93,8 +93,9 @@ Public Class EmbeddedSource Implements VfsSource
     // Each folder's names, "" for the root's, and whether each is a folder.
     Field Folders: Map<String, Map<String, Bool>>
 
-    // Panics for a path that isn't one: "", one that's only "." and separators, or one with a
-    // ".." in it.
+    // Panics for a path that isn't a file's, one that goes above the root or has no names once its
+    // "."s and ".."s are taken out, like "", ".", or "a/..", and for paths that make one place a
+    // file and a folder too.
     @PanicsAtCaller
     Public New(files: Map<String, UInt8[]>)
         Files = Map<String, UInt8[]>()
@@ -102,12 +103,19 @@ Public Class EmbeddedSource Implements VfsSource
         Folders[""] = Map<String, Bool>()
         For key, bytes In files
             Local names = NamesOf(key)
-            If names == Null || names.Count == 0 Then Panic("'{key}' isn't the path of a file in an EmbeddedSource")
+            If names == Null || names.Count == 0
+                Panic("'{key}' isn't the path of a file in an EmbeddedSource")
+            End If
+
             Local path = ""
             For i = 0 Until names.Count
                 Local folder = path
                 path = i == 0 ? names[i] : path + "/" + names[i]
                 Local isFolder = i < names.Count - 1
+                If isFolder ? Files.Contains(path) : Folders.Contains(path)
+                    Panic("'{path}' is both a file and a folder in an EmbeddedSource")
+                End If
+
                 If !Folders.Contains(folder) Then Folders[folder] = Map<String, Bool>()
                 Folders[folder][names[i]] = isFolder || Folders[folder].Get(names[i], False)
             End For

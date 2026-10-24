@@ -1,0 +1,8 @@
+// An EmbeddedSource panics at the program's line for paths that make one place both a file and a
+// folder, in either order.
+Import std.core
+Import std.io
+
+Local fine = EmbeddedSource({"a/b.txt": "b".Bytes, "levels/../a/c.txt": "c".Bytes})
+Print("{(Try fine.KindAt("a")) ?? FileKind.OTHER} {(Try fine.KindAt("a/c.txt")) ?? FileKind.OTHER}")
+Local source = EmbeddedSource({"a/b.txt": "b".Bytes, "a": "a file".Bytes})
