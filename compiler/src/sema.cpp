@@ -21746,6 +21746,24 @@ private:
         return std::nullopt;
     }
 
+    /// Whether the array, tuple, or Map literal `id` could be checked as `type`: an array literal
+    /// as an array or an Interface, like Iterable<T>, a tuple literal as a tuple of as many
+    /// elements, and a Map literal as a Map or an Interface.
+    [[nodiscard]] bool could_become(const expr_id_t id, const type_id_t type) const {
+        const expr_node_t& node = m_ast.get(id).node;
+        if (std::holds_alternative<array_expr_t>(node)) {
+            return is_array(type) || is_fixed_array(type) || is_interface(type);
+        }
+
+        if (const auto* tuple = std::get_if<tuple_expr_t>(&node)) {
+            return is_tuple(type) &&
+                   m_analysis.types.get(type).fields.size() == tuple->elements.size();
+        }
+
+        return is_interface(type) ||
+               (m_map != type_id_t::INVALID && m_analysis.types.get(type).generic == m_map);
+    }
+
     /// An array, tuple, or Map literal, whose type comes from where it goes, as its elements' do:
     /// "[]" has none of its own.
     [[nodiscard]] bool is_shaped_literal(const expr_id_t id) const {
@@ -22040,11 +22058,19 @@ private:
                                                                  : match_t::NONE;
         }
 
-        // An array, tuple, or Map literal is checked as the parameter's type, its elements
-        // taking theirs, as they would with only this overload, like [1, 2] for a UInt8[], and
-        // it fits a type it then converts to, like an Iterable<Int>, when nothing in it has an
-        // error then: [3000000000] isn't a UInt8[].
+        // An array, tuple, or Map literal fits a type its own converts to, like an Iterable<Int>.
+        // Or else, where it could become the parameter's type, it's checked as that type, its
+        // elements taking theirs, as they would with only this overload, like [1, 2] for a
+        // UInt8[], and fits when nothing in it has an error then: [3000000000] isn't a UInt8[].
         if (is_shaped_literal(argument.value)) {
+            if (natural != type_id_t::INVALID && converts(natural, type)) {
+                return match_t::CONVERTIBLE;
+            }
+
+            if (!could_become(argument.value, non_null(type))) {
+                return match_t::NONE;
+            }
+
             bool clean = false;
             const type_id_t made = quietly([&] {
                 const type_id_t found = check(argument.value, type);
