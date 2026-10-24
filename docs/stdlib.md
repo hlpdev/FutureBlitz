@@ -127,6 +127,7 @@ So far, std/ holds:
 | std/compress/zip.fb | `Zip`, `ZipReader`, `ZipWriter`, and `ZipMethod`, over minizip-ng through `fb_zip_` |
 | std/compress/tar.fb | `Tar`, `TarReader`, and `TarWriter`, through `fb_tar_` |
 | std/compress/seven_zip.fb | `SevenZip` and `SevenZipReader`, over liblzma through `fb_xz_7z_` |
+| std/debug/debugger.fb | `Breakpoint` and `IsDebuggerAttached`, through the runtime's `fb_debug_` functions |
 | std/net/address.fb | `IpFamily`, `IpAddress`, and `SocketAddress` |
 | std/net/url.fb | `Url` and `QueryParams`, as the WHATWG URL Standard has them |
 | std/net/dns.fb | `Dns`, over libuv's getaddrinfo through the runtime's `fb_io_` functions |
@@ -906,7 +907,10 @@ Built in step 23, but for `V7`. `Import std.uuid` brings in std/uuid/.
 
 #### std.debug
 
-- `Breakpoint()`, `IsDebuggerAttached()`; stack traces wait for debug info (spec 09 already says
+- `IsDebuggerAttached()`, as the OS says: Windows' IsDebuggerPresent, macOS's P_TRACED, and
+  Linux's TracerPid, and False on an OS that can't be asked; `Breakpoint()`, which stops in the
+  debugger that's attached, as a breakpoint set there would, and does nothing when none is, so
+  one left in a program doesn't end it. Stack traces wait for debug info (spec 09 already says
   so).
 
 #### std.ffi (after M5's reorganization)

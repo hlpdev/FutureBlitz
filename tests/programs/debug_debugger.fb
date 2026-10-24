@@ -1,0 +1,9 @@
+// Under the tests, no debugger is attached, so IsDebuggerAttached is False, and Breakpoint goes
+// on without stopping or ending the program.
+Import std.core
+Import std.debug
+
+Print(IsDebuggerAttached())
+Breakpoint()
+Breakpoint()
+Print("went on")
