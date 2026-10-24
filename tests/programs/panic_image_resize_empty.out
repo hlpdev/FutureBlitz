@@ -1,0 +1,2 @@
+5 0
+panic: an image of 5 by 0 has no pixels to resize to 2 by 2 at panic_image_resize_empty.fb:9:1

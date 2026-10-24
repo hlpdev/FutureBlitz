@@ -11,6 +11,13 @@ Public Enum ImageFormat
     PNG, JPEG, BMP, TGA, GIF, HDR, QOI, WEBP
 End Enum
 
+// How Resize gives a pixel the colors of those under it: the nearest one's, or a weighted sum by
+// a box, a triangle, Keys's cubic, or Lanczos's 3 lobes, the filter widened as the image shrinks,
+// as Pillow resamples. LANCZOS is the sharpest, and BOX the average of what shrinks into a pixel.
+Public Enum ResizeFilter
+    NEAREST, BOX, BILINEAR, BICUBIC, LANCZOS
+End Enum
+
 Public Class Image
     // Its pixels' bytes, 4 for each, red, green, blue, and alpha.
     Package Field Pixels: UInt8[]
@@ -115,6 +122,98 @@ Public Class Image
         Local format = fb_image_format(data)
         If format == 0 Then Return Null
         Return (format - 1) As ImageFormat
+    End Method
+
+    // Makes it width by height pixels, each one the colors under it by the filter, weighted by
+    // their alpha, so a transparent pixel's color counts for nothing. Panics when the size is one
+    // New panics for, or the image has no pixels and the new size does.
+    @PanicsAtCaller
+    Public Method Resize(width: Int, height: Int, filter: ResizeFilter = ResizeFilter.LANCZOS)
+        CheckSize(width, height)
+        If Columns * Rows == 0 && width * height > 0
+            Panic("an image of {Columns} by {Rows} has no pixels to resize to {width} by {height}")
+        End If
+
+        Local resized: UInt8[] = []
+        fb_image_resize(Pixels, Columns, Rows, width, height, filter As Int32, resized)
+        Pixels = resized
+        Columns = width
+        Rows = height
+    End Method
+
+    // Keeps only its width by height pixels from (x, y). Panics when they aren't all in it.
+    @PanicsAtCaller
+    Public Method Crop(x: Int, y: Int, width: Int, height: Int)
+        If x < 0 || y < 0 || width < 0 || height < 0 || x > Columns - width || y > Rows - height
+            Panic("{width} by {height} pixels from ({x}, {y}) aren't all in an image of " +
+                  "{Columns} by {Rows}")
+        End If
+
+        Local cropped: UInt8[] = []
+        fb_image_crop(Pixels, Columns, x, y, width, height, cropped)
+        Pixels = cropped
+        Columns = width
+        Rows = height
+    End Method
+
+    // Flips it across, so its left is its right.
+    Public Method FlipHorizontal()
+        Orient(0)
+    End Method
+
+    // Flips it down, so its top is its bottom.
+    Public Method FlipVertical()
+        Orient(1)
+    End Method
+
+    // Turns it a quarter clockwise, so its height is its width.
+    Public Method RotateClockwise()
+        Orient(2)
+    End Method
+
+    // Turns it a quarter counterclockwise, so its height is its width.
+    Public Method RotateCounterclockwise()
+        Orient(3)
+    End Method
+
+    // Turns it a half.
+    Public Method Rotate180()
+        Orient(4)
+    End Method
+
+    // Draws image on it, its top-left pixel at (x, y), over these by its alpha, as "over" does
+    // with straight alpha; what falls outside is left out.
+    Public Method Draw(image: Image, x: Int, y: Int)
+        Blit(image, x, y, 1)
+    End Method
+
+    // Puts image's pixels in place of these, alpha too, its top-left pixel at (x, y); what falls
+    // outside is left out.
+    Public Method Paste(image: Image, x: Int, y: Int)
+        Blit(image, x, y, 0)
+    End Method
+
+    // Gives every pixel the color.
+    Public Method Fill(color: Color32)
+        Local rgba = ((color.r As UInt32) << 24) | ((color.g As UInt32) << 16) |
+                     ((color.b As UInt32) << 8) | (color.a As UInt32)
+        fb_image_fill(Pixels, rgba)
+    End Method
+
+    // Flips or turns it as fb_image_orient's how says.
+    Method Orient(how: Int32)
+        Local oriented: UInt8[] = []
+        fb_image_orient(Pixels, Columns, Rows, how, oriented)
+        Pixels = oriented
+        If how == 2 || how == 3
+            Local columns = Columns
+            Columns = Rows
+            Rows = columns
+        End If
+    End Method
+
+    Method Blit(image: Image, x: Int, y: Int, blend: Int32)
+        fb_image_blit(Pixels, Columns, Rows, image.Pixels, image.Columns, image.Rows, x, y, blend)
     End Method
 
     // Where the pixel's bytes start in Pixels. Panics when it's outside the image.

@@ -1,0 +1,2 @@
+2 0
+panic: an image's width and height can't be negative, like -2 by 3 at panic_image_resize_size.fb:8:1

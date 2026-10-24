@@ -1,0 +1,2 @@
+3 2
+panic: 3 by 1 pixels from (1, 1) aren't all in an image of 3 by 2 at panic_image_crop.fb:8:1

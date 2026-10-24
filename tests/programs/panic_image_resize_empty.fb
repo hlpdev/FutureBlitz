@@ -1,0 +1,9 @@
+// An image with no pixels resizes only to one with none, and Resize panics where it's asked for
+// more.
+Import std.core
+Import std.image
+
+Local image = Image(0, 3)
+image.Resize(5, 0)
+Print(image.Width, image.Height)
+image.Resize(2, 2)
