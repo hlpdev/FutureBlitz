@@ -114,7 +114,7 @@ fb_set_warnings(fb_runtime_regex)
 
 # std.image's resizing and drawing compute in doubles, so they're built as std.image's libraries
 # are, without fused multiply-adds, and give the same pixels on every target.
-set_source_files_properties(src/transform.cpp src/draw.cpp src/font.cpp PROPERTIES
+set_source_files_properties(src/transform.cpp src/draw.cpp src/font.cpp src/cff.cpp PROPERTIES
                             COMPILE_OPTIONS "${FB_SAME_FLOATS}")
 
 # What a program can link: each part and its library, which fb and the tests that build programs

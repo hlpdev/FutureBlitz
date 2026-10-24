@@ -3,11 +3,12 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <string>
 #include <vector>
 
-// std.image's fonts: what font.cpp reads of one, which draw.cpp lays text out with.
+// std.image's fonts: what font.cpp and cff.cpp read of one, which draw.cpp lays text out with.
 // Every offset in the font is checked against its bytes before it's followed, so a font that's
 // broken or made to mislead gives no glyph, or a font that fails, but never reads past it.
 namespace fb::image {
@@ -29,7 +30,16 @@ struct font_segment_t {
 
 using font_path_t = std::vector<font_segment_t>;
 
-/// A TrueType font: its bytes, copied, and where its tables are.
+/// An INDEX of CFF's: how many entries it has, where their offsets start and how wide each is,
+/// and where its data starts, the byte before the first, as its offsets count from 1.
+struct cff_index_t {
+    std::size_t count = 0;
+    std::size_t offsets = 0;
+    std::size_t width = 0;
+    std::size_t data = 0;
+};
+
+/// A TrueType or OpenType font: its bytes, copied, and where its tables are.
 class font_t {
 public:
     /// The font in `bytes`, or one whose `error` says why it isn't, and `unsupported` whether
@@ -80,6 +90,19 @@ private:
     int m_descent = 0;
     int m_line_gap = 0;
 
+    // A CFF font's: its table's end, its glyphs' charstrings, the global subroutines, each Font
+    // DICT's local ones (a font that isn't a CID font's one), where its FDSelect is, or 0, and,
+    // for a font that isn't a CID font, how its charset names its glyphs: where it is, or 0 for
+    // ISOAdobe's, or that it's one of the expert charsets.
+    bool m_cff = false;
+    std::size_t m_cff_end = 0;
+    cff_index_t m_charstrings;
+    cff_index_t m_global_subrs;
+    std::vector<cff_index_t> m_local_subrs;
+    std::size_t m_fd_select = 0;
+    std::size_t m_charset = 0;
+    bool m_expert_charset = false;
+
     [[nodiscard]] bool has(std::size_t at, std::size_t count) const;
     [[nodiscard]] std::uint32_t u8(std::size_t at) const;
     [[nodiscard]] std::uint32_t u16(std::size_t at) const;
@@ -90,6 +113,16 @@ private:
                      font_path_t& path, std::size_t& visits) const;
     bool find_tables(std::size_t start);
 
+    // cff.cpp's.
+    bool read_cff(std::size_t at, std::size_t size);
+    [[nodiscard]] bool read_index(std::size_t at, cff_index_t& index, std::size_t& after) const;
+    [[nodiscard]] bool entry(const cff_index_t& index, std::size_t i, std::size_t& at,
+                             std::size_t& size) const;
+    [[nodiscard]] std::size_t font_dict_of(std::uint32_t glyph) const;
+    [[nodiscard]] std::optional<std::uint32_t> standard_glyph(double code) const;
+    [[nodiscard]] bool cff_glyph(std::uint32_t glyph, double x, double y, bool component,
+                                 font_path_t& path) const;
+    void cff_outline(std::uint32_t glyph, font_path_t& path) const;
 };
 
 } // namespace fb::image

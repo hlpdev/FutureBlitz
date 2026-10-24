@@ -117,10 +117,11 @@ void fb_image_stroke_ellipse(const fb_array_t* pixels, std::int64_t width, std::
                              double x, double y, double rx, double ry, double line_width,
                              std::uint32_t rgba, std::int32_t antialias);
 
-/// TrueType fonts, read by the runtime itself (font.cpp), each offset checked first: a font of
-/// `data`, which it copies, and whose error is "" unless it isn't one, or is one of a kind it
-/// doesn't read, which fb_font_unsupported says, like CFF's outlines. Its metrics are in font
-/// units, its descent 0 or below, as hhea has them.
+/// TrueType and OpenType fonts, read by the runtime itself (font.cpp, and cff.cpp for CFF's
+/// outlines), each offset checked first: a font of `data`, which it copies, and whose error is
+/// "" unless it isn't one, or is one of a kind it doesn't read, which fb_font_unsupported says,
+/// like CFF2's outlines. Its metrics are in font units, its descent 0 or below, as hhea has
+/// them.
 void* fb_font_parse(const fb_array_t* data);
 fb_string_t* fb_font_error(const void* font);
 std::int32_t fb_font_unsupported(const void* font);
@@ -137,8 +138,9 @@ double fb_font_width(const void* font, const fb_string_t* text, double size);
 /// Fills the glyphs of `text` in `font` at `size` pixels an em, its first line's baseline from
 /// (`x`, `y`), as one region: each glyph after the last's advance and the kerning between them,
 /// unrounded, each line feed a line's height, ascent less descent and the line gap, down, and
-/// a code point the font has no glyph for its .notdef; each glyph's quadratics cut into the
-/// chords that keep them within the tolerance, their second difference over 4 times the count
+/// a code point the font has no glyph for its .notdef; each glyph's quadratics and cubics cut
+/// into the chords that keep them within the tolerance, a quadratic's second difference over 4
+/// times the count squared, and three quarters of the larger of a cubic's two over the count
 /// squared, at most 1024.
 void fb_image_fill_text(const fb_array_t* pixels, std::int64_t width, std::int64_t height,
                         const void* font, const fb_string_t* text, double size, double x, double y,
