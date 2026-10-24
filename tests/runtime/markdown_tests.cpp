@@ -598,8 +598,9 @@ std::string html_of(const std::string_view markdown, const std::int32_t extensio
 }
 
 /// MarkdownKind's values that the tree's tests look for.
-constexpr std::int32_t paragraph_kind = 9;
+constexpr std::int32_t heading_kind = 6;
 constexpr std::int32_t code_block_kind = 7;
+constexpr std::int32_t paragraph_kind = 9;
 constexpr std::int32_t link_kind = 18;
 constexpr std::int32_t image_kind = 19;
 constexpr std::int32_t code_kind = 20;
@@ -789,6 +790,16 @@ TEST_CASE("a code span in a table's cell takes \\| as a |, in HTML and in a tree
     // One outside a table keeps its backslash, as CommonMark has it, and "\\|" is a "\|".
     CHECK(html_of("`a \\| b`") == "<p><code>a \\| b</code></p>\n");
     CHECK(html_of("| a |\n|---|\n| `\\\\|` |", 1).contains("<td><code>\\|</code></td>"));
+}
+
+TEST_CASE("a byte order mark at Markdown's start isn't its text", "[runtime]") {
+    CHECK(html_of("\xEF\xBB\xBF# Title\n\ntext") == "<h1>Title</h1>\n<p>text</p>\n");
+    const std::vector<event_t> headings =
+        of_kind(events_of("\xEF\xBB\xBF# Title\n\ntext"), heading_kind);
+    REQUIRE(headings.size() == 1);
+    CHECK(of_kind(events_of("\xEF\xBB\xBF# Title"), text_kind)[0].texts[0] == "Title");
+    // Only there.
+    CHECK(html_of("a\xEF\xBB\xBF") == "<p>a\xEF\xBB\xBF</p>\n");
 }
 
 TEST_CASE("a numeric reference to a surrogate is U+FFFD in HTML, as in a tree", "[runtime]") {

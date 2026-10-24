@@ -338,11 +338,16 @@ void append_html(const MD_CHAR* text, const MD_SIZE size, void* userdata) {
     static_cast<std::string*>(userdata)->append(text, size);
 }
 
-/// The Markdown md4c reads: the String's bytes, with each NUL as U+FFFD, as CommonMark has it.
-/// md4c, which would replace them itself, misses a code span's and repeats a code block's.
+/// The Markdown md4c reads: the String's bytes, with each NUL as U+FFFD, as CommonMark has it,
+/// and without a byte order mark at its start, as cmark and md4c's md2html skip it. md4c, which
+/// would replace NULs itself, misses a code span's and repeats a code block's.
 std::string markdown_of(const fb_string_t* text) {
-    const std::string_view bytes(reinterpret_cast<const char*>(text + 1),
-                                 static_cast<std::size_t>(text->length));
+    std::string_view bytes(reinterpret_cast<const char*>(text + 1),
+                           static_cast<std::size_t>(text->length));
+    if (bytes.starts_with("\xEF\xBB\xBF")) {
+        bytes.remove_prefix(3);
+    }
+
     std::string markdown;
     markdown.reserve(bytes.size());
     for (const char c : bytes) {
