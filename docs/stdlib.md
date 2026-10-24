@@ -1108,9 +1108,10 @@ Built in step 26. `Import std.term` brings in all of std/term/.
 - The console (console.fb): `IsTerminal(stream)`, for a `StandardStream`, `INPUT`, `OUTPUT`, or
   `ERROR`; `TerminalSize()`, a `(columns, rows)?`; `ReadKey()` and `ReadKey(timeout)`, a key as
   it's typed, without showing it; and `ReadPassword(prompt)`, a line without showing it, which
-  BACKSPACE and Ctrl+U edit. Ctrl+C still ends the program. The runtime puts the console back
-  however the program ends, a signal's end too, and before a panic's or an uncaught error's
-  message, so that shows on the screen the program started on. On Windows, it's the console API
+  BACKSPACE and Ctrl+U edit. Ctrl+C still ends the program, and Ctrl+\ is a key everywhere. The
+  runtime puts the console back however the program ends, a signal's end too, on the stream it was
+  changed on, and before a panic's or an uncaught error's message, or a leak report, so that shows
+  on the screen the program started on. On Windows, it's the console API
   with virtual terminal sequences, and the records it gives otherwise are written as a terminal
   would send them; elsewhere, termios and SIGWINCH, and Ctrl+Z puts the terminal back while the
   program is stopped. From a pipe or a file, each character is a key, and a line break is ENTER.
@@ -1123,11 +1124,11 @@ Built in step 26. `Import std.term` brings in all of std/term/.
   in `Style(TermColor.Red).Bold().On(TermColor.Blue)`, with `Over`, `Codes`, and `Apply`. A
   terminal shows a `ColorLevel`, `NONE`, `BASIC`, `INDEXED`, or `TRUE_COLOR`, and each color as
   the nearest it has. `ConsoleColors(stream)` reads the environment: none where the stream isn't a
-  terminal, `NO_COLOR` is set, or `TERM` is `dumb`, and no styles either; 24-bit color where
+  terminal, `NO_COLOR` is set and isn't empty, or `TERM` is `dumb`, and no styles either; 24-bit color where
   `COLORTERM` says so, or on Windows' console; 256 where `TERM` has `256color` in it; and the
   basic 16 otherwise. `Paint(text, style)` styles text for stdout, or gives it alone where stdout
-  shows none. `StripStyles` takes the escape codes out of text, and `VisibleWidth` counts its
-  columns without them.
+  shows none. `StripStyles` takes the escape codes out of text, a DCS's or an APC's whole, like a
+  sixel image's, and `VisibleWidth` counts its columns without them.
 - A `Terminal` (terminal.fb) is where widgets write and keys come from: `Terminal.Console()`,
   stdout's, or `Terminal.Console(StandardStream.ERROR)`, stderr's, which share stdin; a
   `FakeTerminal(columns, rows, colors, interactive)`, for tests, which keeps what's written to it
@@ -1135,14 +1136,15 @@ Built in step 26. `Import std.term` brings in all of std/term/.
   `Resize` or a `Pause` between; or a Class of a program's own. It has `Columns`, `Rows`,
   `Colors`, `IsInteractive`, `Write`, `WriteLine`, `Flush`, and `Paint`; raw mode, which
   `StartRawMode(ctrlCIsKey, mouse)` and `EndRawMode` nest; and `ReadEvent`, `PollEvent(timeout)`,
-  `ReadKey`, and `ReadPassword`.
+  `ReadKey`, and `ReadPassword`, each in raw mode while it waits.
 - Input (input.fb): an `InputEvent` is a `KeyEvent`, a `KeyCode`, the `Character` it typed for
   `CHAR`, and its `KeyModifiers`; a `MouseEvent`, a `MouseAction` and `MouseButton` at a `Column`
   and `Row`, with modifiers; a resize's `Columns` and `Rows`; or pasted `Text`. An `InputParser`
   makes them from a terminal's bytes: xterm's keys and modifiers and the kitty keyboard
-  protocol's, SGR's and X10's mouse reports, Alt before any of them, and bracketed pastes. An
+  protocol's, Konsole's and the Linux console's F keys, SGR's and X10's mouse reports, but for
+  buttons past the third, like back and forward, Alt before any of them, and bracketed pastes. An
   escape alone waits 50 milliseconds for the rest of a sequence, and then it's ESCAPE, and a
-  paste waits a second for its end mark.
+  paste waits a second for its end mark, which a resize doesn't cut short.
 - Line widgets (widgets.fb): a `Table` of rows, with a header row or not, in a `BorderStyle`'s
   lines (`NONE`, `ASCII`, `SINGLE`, `ROUNDED`, `DOUBLE`, and `HEAVY`), each column with its own
   `Alignment`, cells of several lines, and a `MaxWidth` its widest columns give way to, their cells
@@ -1152,8 +1154,8 @@ Built in step 26. `Import std.term` brings in all of std/term/.
   themselves again in place, no more often than their interval, on an interactive terminal, and
   once, at their end, on a pipe or a file. They go to stderr unless they're given a Terminal, and
   what reads the clock also takes an `Instant`, so a test gives the time.
-- Prompts (prompts.fb): `Confirm(question, default)`, `Ask(question, default)`, with a check or
-  not, and `Choose(question, options, default)`, on the console or on a Terminal given. Where both
+- Prompts (prompts.fb): `Confirm(question, default)`, `Ask(question, default)`, or
+  `Ask(question, validate, default)` with a check, and `Choose(question, options, default)`, on the console or on a Terminal given. Where both
   what's written and the keys are a terminal's, keys are read as they're typed: Confirm takes y or
   n at once, Ask edits its line as a shell does, and Choose moves through its options with the
   arrows, among those that match what's typed, by std.text.fuzzy. Otherwise, each reads a line,
@@ -1162,12 +1164,14 @@ Built in step 26. `Import std.term` brings in all of std/term/.
   raw mode, with the cursor hidden, pastes as pastes, and the mouse's reports or not, all of which
   `Close` puts back, as its Destroy and the program's end do. A program draws on its `Frame`, a
   `Canvas` of `Cell`s, a grapheme cluster and its look each, two cells for a wide one, with
-  `Print`, `Fill`, `SetLook`, and `DrawBox`, each kept to the canvas, or to a `Region` of it, and
+  `Print`, `Fill`, `SetLook`, and `DrawBox`, each kept to the canvas, or to a `Region` of it (a
+  negative size, or a Fill of anything but a grapheme cluster, panics), and
   `Present` writes only the cells that changed since it last did, moving the cursor and setting
   styles only where it must; `ShowCursor` shows the cursor where it should be. `ReadEvent` and
   `PollEvent` give keys, the mouse, pastes, and resizes, after which the next Present draws all of
   it, and `Run(draw, handle)` is that loop. A `Region` (region.fb) splits into rows or columns by
-  `Constraint`s: `Fixed`, `Percent`, `Min`, and `Fill` by weight. Views (views.fb): a `TextInput`,
+  `Constraint`s: `Fixed`, `Percent`, `Min`, and `Fill` by weight, none negative, and a Percent
+  no more than 100. Views (views.fb): a `TextInput`,
   edited as a shell's line is, scrolled sideways to keep its cursor in view, with a placeholder
   and a mask, and a `ListView`, which keys and the mouse move through, scrolled to keep what's
   selected in view.
