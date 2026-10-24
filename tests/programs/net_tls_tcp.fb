@@ -1,0 +1,139 @@
+// std.net.tls over TCP, through the test certificates net_tls/make_certificates.sh made: a
+// TlsListener on a Thread of its own answers a blocking client, then one on the main thread
+// answers Async clients, the first of which it refuses, and goes on to the next; a server that
+// closes at once ends the handshake with a NetError of CLOSED, and one that never answers with a
+// TimeoutError, when the TcpStream's ReadTimeout passes. Nothing leaves the machine, and the
+// ports are the OS's to pick.
+Import std.core
+Import std.crypto
+Import std.ffi
+Import std.io
+Import std.net
+Import std.time
+Import "./net_tls_tcp/certificates"
+
+// The certificates in pem, which make_certificates.sh made, so they read.
+Function Certificates(pem: String): Certificate[]
+    Return (Try? Certificate.AllFromPem(pem)).Expect("the test's certificates read")
+End Function
+
+Function Server(): TlsServer
+    Return TlsServer(Certificates(localhost_pem),
+                     (Try? Key.FromPem(localhost_key)).Expect("the test's keys read"))
+End Function
+
+// A client that trusts only the test CA.
+Function Client(): TlsClient
+    Local client = TlsClient()
+    client.TrustOnly(Certificates(ca_pem))
+    Return client
+End Function
+
+// Blocking, on two threads: a Thread's TlsListener answers a connection, and tells its port
+// through a Channel.
+Const ports = Channel<UInt16>(1)
+Local answering = Thread.Start(Function()
+    Try
+        Local listener = TlsListener.Listen("127.0.0.1", 0, Server())
+        ports.Send(listener.LocalAddress.Port)
+        Local tls = listener.Accept()
+        Local line = BufferedReader(tls).ReadLine() ?? "-"
+        tls.WriteText("you said {line}\n")
+        tls.Close()
+        tls.Stream.Close()
+    Catch e As Error
+        Print("the thread failed: {e.Message}")
+    End Try
+End Function)
+Try
+    Local port = ports.Receive() ?? 0
+    Local tls = Client().Connect(TcpStream.Connect("localhost", port), "localhost")
+    tls.WriteText("hello\n")
+    Write(ReadAllText(tls))
+    Print(tls.Version, tls.Stream.RemoteAddress.Port == port)
+Catch e As Error
+    Print("failed: {e.Message}")
+End Try
+
+answering.Join()
+
+// Async, on the main thread: the listener answers each client as it comes.
+Async Function Answer(listener: TlsListener): String
+    Try
+        Local tls = Try Await listener.AcceptAsync()
+        Local line = Try Await BufferedReader(tls).ReadLineAsync() ?? "-"
+        Try Await tls.WriteAsync(Buffer<UInt8>.From("you said {line}\n".Bytes))
+        Try Await tls.CloseAsync()
+        Return "answered {line}"
+    Catch e As NetError
+        Return "the listener: NetError {e.Kind}"
+    Catch e As Error
+        Return "the listener failed: {e.Message}"
+    End Try
+End Function
+
+Async Function Ask(client: TlsClient, port: UInt16): String
+    Try
+        Local tcp = Try Await TcpStream.ConnectAsync("localhost", port)
+        Local tls = Try Await client.ConnectAsync(tcp, "localhost")
+        Try Await tls.WriteAsync(Buffer<UInt8>.From("hello\n".Bytes))
+        Return "got {Try Await BufferedReader(tls).ReadLineAsync() ?? "-"}"
+    Catch e As NetError
+        Return "the client: NetError {e.Kind}: {e.Message}"
+    Catch e As Error
+        Return "the client failed: {e.Message}"
+    End Try
+End Function
+
+Try
+    Local listener = TlsListener.Listen(SocketAddress(IpAddress.Loopback, 0), Server())
+    Local port = listener.LocalAddress.Port
+    // A client that trusts only the OS's roots refuses the test certificate.
+    Local refused = Answer(listener)
+    Print(Ask(TlsClient(), port).Wait())
+    Print(refused.Wait())
+    Local answered = Answer(listener)
+    Print(Ask(Client(), port).Wait())
+    Print(answered.Wait())
+    listener.Close()
+Catch e As Error
+    Print("failed: {e.Message}")
+End Try
+
+// A server on a Thread that closes the connection once the client's hello comes, and one that
+// never answers.
+Local closing = Thread.Start(Function()
+    Try
+        Local plain = TcpListener.Listen("127.0.0.1", 0)
+        ports.Send(plain.LocalAddress.Port)
+        Local accepted = plain.Accept()
+        accepted.Read(Buffer<UInt8>(65536))
+        accepted.Close()
+    Catch e As Error
+        Print("the thread failed: {e.Message}")
+    End Try
+End Function)
+Try
+    Client().Connect(TcpStream.Connect("localhost", ports.Receive() ?? 0), "localhost")
+Catch e As NetError
+    Print("NetError {e.Kind}: {e.Message}")
+Catch e As TimeoutError
+    Print("TimeoutError")
+End Try
+
+closing.Join()
+Try
+    Local plain = TcpListener.Listen(SocketAddress(IpAddress.Loopback, 0))
+    Local quiet = TcpStream.Connect(plain.LocalAddress)
+    Local held = plain.Accept()
+    quiet.ReadTimeout = 200.Milliseconds
+    Try
+        Client().Connect(quiet, "localhost")
+    Catch e As TimeoutError
+        Print("TimeoutError")
+    End Try
+
+    held.Close()
+Catch e As Error
+    Print("failed: {e.Message}")
+End Try

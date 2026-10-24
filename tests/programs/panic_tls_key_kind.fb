@@ -1,0 +1,14 @@
+// A TLS identity panics where it's given a key of a kind TLS doesn't sign with.
+Import std.core
+Import std.crypto
+Import std.io
+Import std.net
+
+Local bytes: UInt8[] = []
+For i = 1 To 32
+    bytes.Add(i As UInt8)
+End For
+
+Local none: Certificate[] = []
+TlsClient().Identify(none, Key(KeyKind.X25519, True, bytes))
+Print("unreachable")

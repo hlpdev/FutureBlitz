@@ -1,0 +1,8 @@
+you said hello
+TLS 1.3 True
+the client: NetError TLS: the server's certificate isn't signed by a root this side trusts
+the listener: NetError TLS
+got you said hello
+answered hello
+NetError CLOSED: the stream ended before the TLS handshake did
+TimeoutError

@@ -1,0 +1,2 @@
+CN=localhost ED25519
+panic: mbedTLS can't read the chain's certificate 0, CN=localhost at panic_tls_certificate.fb:30:1

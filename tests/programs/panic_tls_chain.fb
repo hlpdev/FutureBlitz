@@ -1,0 +1,14 @@
+// A TLS identity panics where it's made without a certificate: its chain has its own first.
+Import std.core
+Import std.crypto
+Import std.io
+Import std.net
+
+Local bytes: UInt8[] = []
+For i = 1 To 32
+    bytes.Add(i As UInt8)
+End For
+
+Local none: Certificate[] = []
+TlsServer(none, Key(KeyKind.ECDSA_P256, True, bytes))
+Print("unreachable")

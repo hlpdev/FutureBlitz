@@ -1,0 +1,8 @@
+// Offer panics where it's given an application protocol's name with a NUL.
+Import std.core
+Import std.crypto
+Import std.io
+Import std.net
+
+TlsClient().Offer(["h2\0"])
+Print("unreachable")

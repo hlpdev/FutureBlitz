@@ -439,6 +439,15 @@ TEST_CASE("fb build names each bundled C library a program links, with its notic
     CHECK(blessing.contains("The author disclaims copyright to this source code."));
     CHECK(blessing.contains("May you share freely, never taking more than you give."));
     CHECK_FALSE(blessing.contains("This header file defines the interface"));
+
+    // A part of another library, as mbedTLS's TLS is, has no line of its own: mbedTLS's says it.
+    const std::filesystem::path secures =
+        write_source("bundled/secures.fb", "Import std.net.tls\nLocal client = TlsClient()\n");
+    const fb::process_result_t secured = fb_run({ "build", fb::to_utf8(secures) });
+    INFO(secured.output);
+    REQUIRE(secured.exit_code == 0);
+    CHECK(secured.output.contains("     Bundled mbedTLS "));
+    CHECK_FALSE(secured.output.contains("TLS's"));
 }
 
 TEST_CASE("std.text links utf8proc only where a program needs Unicode's data", "[cli]") {

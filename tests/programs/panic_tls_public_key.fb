@@ -1,0 +1,14 @@
+// A TLS identity panics where it's made with a public key: it signs with its private one.
+Import std.core
+Import std.crypto
+Import std.io
+Import std.net
+
+Local bytes: UInt8[] = [4]
+For i = 1 To 64
+    bytes.Add(i As UInt8)
+End For
+
+Local none: Certificate[] = []
+TlsServer(none, Key(KeyKind.ECDSA_P256, False, bytes))
+Print("unreachable")

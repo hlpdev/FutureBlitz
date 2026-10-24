@@ -1,0 +1,8 @@
+// Connect panics where it's given no host, whose name the certificate has to have.
+Import std.core
+Import std.crypto
+Import std.io
+Import std.net
+
+Local tls = Try TlsClient().Connect(MemoryStream(), "")
+Print("unreachable {tls.Version}")

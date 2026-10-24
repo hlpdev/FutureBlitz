@@ -682,6 +682,10 @@ TEST_CASE("a program links the bundled C libraries of the runtime functions it c
     // std.os is over libuv too, through a prefix of its own.
     CHECK(bundled("Import std.core\nImport std.os\nPrint(Env.Get(\"HOME\") ?? \"none\")") ==
           std::vector<std::string_view>{ "libuv" });
+    // std.net.tls links mbedTLS's TLS, and mbedTLS, which it's a part of; a TLS stream over
+    // something other than a socket needs no libuv.
+    CHECK(bundled("Import std.net.tls\nLocal client = TlsClient()") ==
+          std::vector<std::string_view>{ "mbedTLS", "mbedTLS's TLS" });
 }
 
 TEST_CASE("a bundled C library's notices have the texts of every license it names", "[driver]") {

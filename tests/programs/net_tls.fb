@@ -1,0 +1,227 @@
+// A TLS client and server in one program, each Async, over a pipe in memory, through the test
+// certificates net_tls/certificates.fb has, which net_tls/make_certificates.sh made: a handshake
+// and bytes both ways, an RSA server, an IP address, ALPN, a client's certificate, and
+// close_notify; and a server whose certificate a root the client doesn't trust signed, one for
+// another host, and one that has expired, which the client refuses with a NetError of TLS, as the
+// server sees.
+Import std.core
+Import std.collections
+Import std.crypto
+Import std.ffi
+Import std.io
+Import std.net
+Import "./net_tls/certificates"
+
+// A pipe in memory: what each of its two ends, 0 and 1, has to read, and whether it has ended.
+Class Pipe
+    Field Waiting: UInt8[][]
+    Field Ended: Bool[]
+
+    New()
+        Waiting = [[], []]
+        Ended = [False, False]
+    End New
+End Class
+
+// An end of a Pipe: what the other end writes, it reads, a frame later at least, as a socket's
+// bytes come. A blocking read, which would wait for the other end forever, panics.
+Class PipeEnd Implements Reader, Writer
+    Field Joined: Pipe
+    Field Side: Int
+
+    New(joined: Pipe, side: Int)
+        Joined = joined
+        Side = side
+    End New
+
+    // The other end.
+    Method Other(): PipeEnd => PipeEnd(Joined, 1 - Side)
+
+    Method Read(into: Buffer<UInt8>): Int64 Throws IOError
+        Local waiting = Joined.Waiting[Side]
+        If into.Count == 0 Then Return 0
+        If waiting.Count == 0
+            If Joined.Ended[Side] Then Return 0
+            Panic("a blocking read of a pipe in memory waits for the other end forever")
+        End If
+
+        Local count = Min(into.Count, waiting.Count As Int64)
+        For i = 0 Until count
+            into[i] = waiting[i As Int]
+        End For
+
+        waiting.RemoveRange(0, count As Int)
+        Return count
+    End Method
+
+    Async Method ReadAsync(into: Buffer<UInt8>): Int64 Throws IOError
+        While Joined.Waiting[Side].Count == 0 && !Joined.Ended[Side]
+            Await NextFrame()
+        End While
+
+        Return Try Read(into)
+    End Method
+
+    Method Write(from: Buffer<UInt8>) Throws IOError
+        If Joined.Ended[1 - Side]
+            Throw IOError(IOErrorKind.OTHER, "the pipe's other end is closed")
+        End If
+
+        Joined.Waiting[1 - Side].AddAll(from.ToArray())
+    End Method
+
+    // Ends what the other end reads, as a socket's closing does.
+    Method Hang()
+        Joined.Ended[1 - Side] = True
+    End Method
+End Class
+
+// End 0 of a new pipe.
+Function NewPipe(): PipeEnd
+    Return PipeEnd(Pipe(), 0)
+End Function
+
+// The certificates in pem, which make_certificates.sh made, so they read.
+Function Certificates(pem: String): Certificate[]
+    Return (Try? Certificate.AllFromPem(pem)).Expect("the test's certificates read")
+End Function
+
+Function KeyOf(pem: String): Key
+    Return (Try? Key.FromPem(pem)).Expect("the test's keys read")
+End Function
+
+Function Server(pem: String, key: String): TlsServer
+    Return TlsServer(Certificates(pem), KeyOf(key))
+End Function
+
+// A client that trusts only the test CA.
+Function Client(): TlsClient
+    Local client = TlsClient()
+    client.TrustOnly(Certificates(ca_pem))
+    Return client
+End Function
+
+// The server's side of a connection: it reads a line, answers it, and closes, or says what failed.
+Async Function Serve(server: TlsServer, pipe: PipeEnd): String
+    Try
+        Local tls = Try Await server.AcceptAsync(pipe)
+        Local reader = BufferedReader(tls)
+        Local line = Try Await reader.ReadLineAsync() ?? "-"
+        Try Await tls.WriteAsync(Buffer<UInt8>.From("you said {line}\n".Bytes))
+        Try Await tls.CloseAsync()
+        Local peer = tls.PeerCertificate?.Subject ?? "no certificate"
+        Return "served {line} over {tls.Version}, {tls.Protocol ?? "no protocol"}, from {peer}"
+    Catch e As NetError
+        Return "server: NetError {e.Kind}: {e.Message}"
+    Catch e As IOError
+        Return "server: IOError {e.Kind}: {e.Message}"
+    Catch e As TimeoutError
+        Return "server: TimeoutError"
+    End Try
+End Function
+
+// The client's side: it says hello, and reads the answer, and then the end, at close_notify.
+Async Function Talk(client: TlsClient, pipe: PipeEnd, host: String): String
+    Try
+        Local tls = Try Await client.ConnectAsync(pipe, host)
+        Try Await tls.WriteAsync(Buffer<UInt8>.From("hello\n".Bytes))
+        Local reader = BufferedReader(tls)
+        Local answer = Try Await reader.ReadLineAsync() ?? "-"
+        Local after = Try Await reader.ReadLineAsync() ?? "the end"
+        Return "client got {answer}, then {after}, from {tls.PeerCertificate?.Subject ?? "-"}"
+    Catch e As NetError
+        Return "client: NetError {e.Kind}: {e.Message}"
+    Catch e As IOError
+        Return "client: IOError {e.Kind}: {e.Message}"
+    Catch e As TimeoutError
+        Return "client: TimeoutError"
+    End Try
+End Function
+
+// The server's side of a write of many records: what came before close_notify.
+Async Function Count(server: TlsServer, pipe: PipeEnd): String
+    Try
+        Local tls = Try Await server.AcceptAsync(pipe)
+        Local all = Try Await ReadAllAsync(tls)
+        Return "the server read {all.Count} bytes, the last {all[all.Count - 1]}"
+    Catch e As Error
+        Return "the server failed: {e.Message}"
+    End Try
+End Function
+
+// The client's side: `count` bytes, all 0 but the last, then close_notify.
+Async Function Send(client: TlsClient, pipe: PipeEnd, count: Int64): String
+    Try
+        Local tls = Try Await client.ConnectAsync(pipe, "localhost")
+        Local bytes = Buffer<UInt8>(count)
+        bytes[count - 1] = 7
+        Try Await tls.WriteAsync(bytes)
+        Try Await tls.CloseAsync()
+        Return "the client wrote {count} bytes"
+    Catch e As Error
+        Return "the client failed: {e.Message}"
+    End Try
+End Function
+
+// A client and a server talking through a new pipe: what each says, the client's first.
+Function Run(client: TlsClient, server: TlsServer, host: String = "localhost")
+    Local near = NewPipe()
+    Local served = Serve(server, near.Other())
+    Local talked = Talk(client, near, host)
+    Local said = talked.Wait()
+    // A client that gave up leaves the server waiting for what it'd say next.
+    near.Hang()
+    Print(said)
+    Print(served.Wait())
+End Function
+
+Print("== a test certificate")
+Run(Client(), Server(localhost_pem, localhost_key))
+
+Print("== RSA")
+Run(Client(), Server(rsa_pem, rsa_key))
+
+Print("== an IP address the certificate names")
+Run(Client(), Server(localhost_pem, localhost_key), "127.0.0.1")
+
+Print("== ALPN")
+Local offering = Client()
+offering.Offer(["h2", "http/1.1"])
+Local picking = Server(localhost_pem, localhost_key)
+picking.Offer(["http/1.1", "h2"])
+Run(offering, picking)
+Local other = Server(localhost_pem, localhost_key)
+other.Offer(["spdy/3"])
+Run(offering, other)
+
+Print("== the client's certificate")
+Local asking = Server(localhost_pem, localhost_key)
+asking.RequireClients(Certificates(ca_pem))
+Local identified = Client()
+identified.Identify(Certificates(client_pem), KeyOf(client_key))
+Run(identified, asking)
+Run(Client(), asking)
+
+Print("== certificates the client refuses")
+Run(Client(), Server(rogue_pem, rogue_key))
+Run(Client(), Server(other_pem, other_key))
+Run(Client(), Server(expired_pem, expired_key))
+Local trusting = TlsClient()
+trusting.TrustOnly(Certificates(rogue_ca_pem))
+Run(trusting, Server(rogue_pem, rogue_key))
+
+Print("== the OS's roots, which don't have the test CA")
+Local again = Client()
+again.TrustOsRoots()
+Run(again, Server(localhost_pem, localhost_key))
+
+Print("== a write of many records")
+Local writing = NewPipe()
+Local counted = Count(Server(localhost_pem, localhost_key), writing.Other())
+Print(Send(Client(), writing, 100000).Wait())
+Print(counted.Wait())
+
+Print("== a stream that ends")
+Local alone = NewPipe()
+alone.Other().Hang()
+Print(Talk(Client(), alone, "localhost").Wait())

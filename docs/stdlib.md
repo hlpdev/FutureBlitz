@@ -221,6 +221,7 @@ So far, std/ holds:
 | std/os/system.fb | `System`'s `Platform`, `Arch`, `CpuCount`, `TotalMemory`, `Hostname`, and `UserName`, with the `Platform` and `Arch` Enums |
 | std/os/folders.fb | `Folders`' `Executable`, `Home`, `Config`, `Data`, `Cache`, `Temp`, and `Documents`, and `OpenDefault` |
 | std/os/process.fb | `Process`'s `Id` and `Exit` |
+| std/net/tls.fb | `TlsClient`, `TlsServer`, `TlsStream<S>`, and `TlsListener`, over mbedTLS's TLS through the runtime's `fb_tls_` functions |
 
 What the language itself uses, `Error` for Throw and Catch, the Interfaces, `Iterator<T>`, and
 `Map<K, V>` for `{key: value}`, is always std's, whatever a program calls by those names.
@@ -1301,7 +1302,21 @@ discovery. `Import std.net` brings in std/net/.
   send to the LAN is UNREACHABLE then, broadcasts too), or on a machine without a network,
   discovery goes through loopback's interface, so programs on the machine still find each
   other. UDP broadcast is UdpSocket's.
-- `TlsStream` over any stream (mbedTLS, the OS's roots by default), and a TLS listener.
+- std.net.tls (step 29), TLS 1.2 and 1.3 over mbedTLS, through memory, so over any stream that's
+  a Reader and a Writer, blocking or Async: `TlsClient`, trusting the OS's roots, as std.net.http
+  reads them, or `TrustOnly(roots)` and `TrustOsRoots()`, with `Offer(protocols)` for ALPN and
+  `Identify(chain, key)` for a server that asks; `Connect(stream, host)` and `ConnectAsync`,
+  whose server's certificate has to be for the host, a name or an IP address. `TlsServer(chain,
+  key)`, with `Offer` and `RequireClients(roots)`; `Accept(stream)` and `AcceptAsync`. Each gives
+  a `TlsStream<S>`, a Reader and a Writer, with `Version` ("TLS 1.2" or "TLS 1.3"), `Protocol`,
+  `PeerCertificate`, `Stream`, and `Close` and `CloseAsync`, which send close_notify. A TLS
+  identity's key is ECDSA P-256 or RSA, and its certificates are ones mbedTLS reads, or it
+  panics. `TlsListener.Listen(address, server)`, with `Accept` and `AcceptAsync`, gives TLS over
+  TCP. A handshake that fails is a NetError of TLS that says why, like "the server's certificate
+  has expired", or of CLOSED for a stream that ends first, or the stream's own failure: a
+  socket's NetError or TimeoutError, or else a NetError of OTHER. Past the handshake, a failure
+  is an IOError whose Cause is a NetError of TLS, or of UNEXPECTED_END for a stream that ends
+  without close_notify. A program over a stream that isn't a socket links no libuv.
 - std.net.http's client (step 29), over libcurl, whose TLS is mbedTLS's, trusting the OS's roots:
   Windows' ROOT store, each that's valid now and for servers, macOS's system anchors, or the
   first of the bundle files Linux distributions and the BSDs keep, or the one `SSL_CERT_FILE`

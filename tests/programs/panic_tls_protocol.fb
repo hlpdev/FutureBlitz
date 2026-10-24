@@ -1,0 +1,11 @@
+// Offer panics where it's given an application protocol's name ALPN can't carry.
+Import std.core
+Import std.crypto
+Import std.io
+Import std.net
+
+Local client = TlsClient()
+client.Offer(["h2", "http/1.1"])
+Print("offered")
+client.Offer([""])
+Print("unreachable")
