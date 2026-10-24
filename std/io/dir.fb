@@ -11,6 +11,7 @@ Extern "runtime"
     Function fb_io_request_count(request: Ptr<Void>): Int64
     Function fb_io_request_entry_path(request: Ptr<Void>, index: Int64): String
     Function fb_io_request_entry_kind(request: Ptr<Void>, index: Int64): Int32
+    Function fb_io_request_failed(request: Ptr<Void>): String
     Function fb_io_file_stat(request: Ptr<Void>, path: String, follow: Int32): Int64
     Function fb_io_file_stat_async(request: Ptr<Void>, path: String, follow: Int32): Task<Int64>
     Function fb_io_dir_create(request: Ptr<Void>, path: String, all: Int32): Int64
@@ -127,41 +128,43 @@ Public Struct Dir
 
     // What's in the folder and in each folder in it, all the way down, each folder before what's
     // in it, and each folder's entries in the order of their names' bytes. It doesn't go into
-    // links, so a link to a folder above can't make it go round forever.
+    // links, so a link to a folder above can't make it go round forever. A folder in it that
+    // can't be listed throws an IOError naming that folder.
     Public Static Method Walk(path: Path): DirEntry[] Throws IOError
         Local request = Request()
-        Try Checked(fb_io_dir_entries(request.Native, path.Text, 0), "list", path)
+        Try Listed(request, fb_io_dir_entries(request.Native, path.Text, 0), path)
         Return EntriesOf(request, path)
     End Method
 
     Public Static Async Method WalkAsync(path: Path): DirEntry[] Throws IOError
         Local request = Request()
-        Try Checked(Await fb_io_dir_entries_async(request.Native, path.Text, 0), "list", path)
+        Try Listed(request, Await fb_io_dir_entries_async(request.Native, path.Text, 0), path)
         Return EntriesOf(request, path)
     End Method
 
     // What's in the folder, and in the folders in it, whose path from it matches `pattern`, in
-    // Walk's order. The pattern's names go between '/'s, each name matching one in the path:
-    // '*' matches any run of characters in a name, '?' any one character, and "[abc]", "[a-z]",
-    // and "[!abc]" one character of or not of those; a name that's just "**" matches any number
-    // of folders, none too, and a pattern with no names matches nothing. So "*.png" matches the folder's PNGs, and "**/*.png" every PNG in it.
-    // A '[' with no ']' after it is just itself. Names match exactly, in the same case, on every
-    // OS.
+    // Walk's order. The pattern's names go between '/'s, and ''s too by Windows' rules, each
+    // matching one name in the path: '*' matches any run of characters in a name, '?' any one
+    // character, and "[abc]", "[a-z]", and "[!abc]" one character of or not of those; a name
+    // that's just "**" matches any number of folders, none too, and last, everything below,
+    // files too, and the folder before it. So "*.png" matches the folder's PNGs, and "**/*.png"
+    // every PNG in it. A '[' with no ']' after it is just itself, and a pattern with no names
+    // matches nothing. Names match exactly, in the same case, on every OS. Only the folders the
+    // pattern can reach into are listed.
     Public Static Method Glob(path: Path, pattern: String): DirEntry[] Throws IOError
         Local names = PatternNames(pattern, path.Style == PathStyle.WINDOWS)
         If names.Count == 0 Then Return []
-        Local request = Request()
-        Try Checked(fb_io_dir_entries(request.Native, path.Text, DepthOf(names)), "list", path)
-        Return Matching(EntriesOf(request, path), names)
+        Local found: DirEntry[] = []
+        Try Globbed(path, path, [], names, found)
+        Return Matching(found, names)
     End Method
 
     Public Static Async Method GlobAsync(path: Path, pattern: String): DirEntry[] Throws IOError
         Local names = PatternNames(pattern, path.Style == PathStyle.WINDOWS)
         If names.Count == 0 Then Return []
-        Local request = Request()
-        Try Checked(Await fb_io_dir_entries_async(request.Native, path.Text, DepthOf(names)), "list",
-                    path)
-        Return Matching(EntriesOf(request, path), names)
+        Local found: DirEntry[] = []
+        Try Await GlobbedAsync(path, path, [], names, found)
+        Return Matching(found, names)
     End Method
 
     // The program's current folder, which relative paths are from.
@@ -184,6 +187,70 @@ Public Struct Dir
         Return Path(temporary)
     End Method
 End Struct
+
+// What a listing of the folder at `path` gave, unless it's an error, which it throws as an
+// IOError naming the folder that couldn't be listed, a folder in it or the folder itself.
+Function Listed(request: Request, result: Int64, path: Path): Int64 Throws IOError
+    If result >= 0 Then Return result
+    Local failed = fb_io_request_failed(request.Native)
+    Throw ErrorOf(result, "list", failed == "" ? path : Path(failed, path.Style))
+End Function
+
+// Adds what's in `folder`, at `parts` from Glob's folder `base`, to `into`, each folder before
+// what's in it, and goes into each folder in it that the pattern's names can reach below.
+Function Globbed(base: Path, folder: Path, parts: String[], names: Char[][], into: DirEntry[]) Throws IOError
+    For entry In Try Dir.Entries(folder)
+        Local inner = parts.Clone()
+        inner.Add(entry.Name())
+        Local relative = Path(JoinedNames(inner), base.Style)
+        into.Add(DirEntry(base / relative, relative, entry.Kind))
+        If entry.Kind == FileKind.DIRECTORY && Reaches(names, 0, CharsOf(inner), 0)
+            Try Globbed(base, entry.Path, inner, names, into)
+        End If
+    End For
+End Function
+
+Async Function GlobbedAsync(base: Path, folder: Path, parts: String[], names: Char[][], into: DirEntry[]) Throws IOError
+    For entry In Try Await Dir.EntriesAsync(folder)
+        Local inner = parts.Clone()
+        inner.Add(entry.Name())
+        Local relative = Path(JoinedNames(inner), base.Style)
+        into.Add(DirEntry(base / relative, relative, entry.Kind))
+        If entry.Kind == FileKind.DIRECTORY && Reaches(names, 0, CharsOf(inner), 0)
+            Try Await GlobbedAsync(base, entry.Path, inner, names, into)
+        End If
+    End For
+End Function
+
+// Whether something below a folder whose names from Glob's folder are `parts` can match the
+// pattern's names: its names match some of the pattern's first ones, with more left after, or a
+// "**" among them, which can take any number.
+Function Reaches(names: Char[][], from: Int, parts: Char[][], at: Int): Bool
+    If from == names.Count Then Return False
+    If IsAnyFolders(names[from]) Then Return True
+    If at == parts.Count Then Return True
+    Return NameMatches(names[from], parts[at]) && Reaches(names, from + 1, parts, at + 1)
+End Function
+
+// Names with '/' between them.
+Function JoinedNames(names: String[]): String
+    Local text = ""
+    For i = 0 Until names.Count
+        text = i == 0 ? names[i] : text + "/" + names[i]
+    End For
+
+    Return text
+End Function
+
+// Each name's characters.
+Function CharsOf(names: String[]): Char[][]
+    Local chars: Char[][] = []
+    For name In names
+        chars.Add(name.Chars)
+    End For
+
+    Return chars
+End Function
 
 // The entries a listing of the folder at `path` found.
 Function EntriesOf(request: Request, path: Path): DirEntry[]
@@ -276,41 +343,58 @@ Function Matches(names: Char[][], from: Int, parts: Char[][], at: Int): Bool
         Return False
     End If
 
-    Return at < parts.Count && NameMatches(names[from], 0, parts[at], 0) &&
+    Return at < parts.Count && NameMatches(names[from], parts[at]) &&
            Matches(names, from + 1, parts, at + 1)
 End Function
 
-// Whether a name's characters from `at` match a pattern name's from `from`.
-Function NameMatches(pattern: Char[], from: Int, name: Char[], at: Int): Bool
-    Local p = from
-    Local n = at
-    While p < pattern.Count
-        Local c = pattern[p]
-        If c == '*'
-            // '*': the rest matches after some run of the name, the shortest first.
-            For skipped = n To name.Count
-                If NameMatches(pattern, p + 1, name, skipped) Then Return True
-            End For
+// Whether a name's characters match a pattern name's, going back only to the last '*' when one
+// doesn't fit, so the time grows with the name's length times the pattern's, however many '*'s
+// it has.
+Function NameMatches(pattern: Char[], name: Char[]): Bool
+    Local p = 0
+    Local n = 0
+    // The pattern's place after its last '*', and the name's place that '*' took up to.
+    Local star = -1
+    Local mark = 0
+    While n < name.Count
+        If p < pattern.Count && pattern[p] == '*'
+            star = p + 1
+            mark = n
+            p += 1
+            Continue
+        End If
 
+        Local width = p < pattern.Count ? WidthMatched(pattern, p, name[n]) : 0
+        If width > 0
+            p += width
+            n += 1
+        ElseIf star >= 0
+            mark += 1
+            p = star
+            n = mark
+        Else
             Return False
         End If
-
-        If n == name.Count Then Return False
-        If c == '?'
-            p += 1
-        ElseIf c == '[' && SetEnd(pattern, p) > 0
-            Local close = SetEnd(pattern, p)
-            If !InSet(pattern, p + 1, close, name[n]) Then Return False
-            p = close + 1
-        Else
-            If c != name[n] Then Return False
-            p += 1
-        End If
-
-        n += 1
     End While
 
-    Return n == name.Count
+    While p < pattern.Count && pattern[p] == '*'
+        p += 1
+    End While
+
+    Return p == pattern.Count
+End Function
+
+// How many of the pattern's characters from `p`, which isn't a '*', match the character `c`: 1
+// for a '?' or the same character, a set's whole length for one that holds it, or 0.
+Function WidthMatched(pattern: Char[], p: Int, c: Char): Int
+    Local token = pattern[p]
+    If token == '?' Then Return 1
+    If token == '['
+        Local close = SetEnd(pattern, p)
+        If close > 0 Then Return InSet(pattern, p + 1, close, c) ? close - p + 1 : 0
+    End If
+
+    Return token == c ? 1 : 0
 End Function
 
 // Where the set a pattern name's '[' at `open` starts ends, at its ']', or 0 when none does, so

@@ -7,6 +7,12 @@ Import std.core
 Import std.io
 Import std.time
 
+// C's chmod, whose mode 0 makes a folder one no one can list on POSIX; on Windows it only makes
+// it read-only.
+Extern "C"
+    Function chmod(path: CString, mode: Int32): Int32
+End Extern
+
 Local temp = Try TempDir("fb-files-")
 Local root = temp.Path
 Print("made {Dir.Exists(root)} {(Try Dir.Entries(root)).Count}")
@@ -150,6 +156,40 @@ For pattern In ["*.png", "**/*.png", "ä/*.png", "ä/**/*.png", "**", "ä/b/*", 
 
     Print("  {pattern}: {matched}")
 End For
+
+// A name that fails late against a pattern of many '*'s matches in a moment.
+Local long = ""
+For i = 1 To 200
+    long += "a"
+End For
+
+Try Dir.Create(root / "long")
+Try File.WriteText(root / "long" / long, "")
+Print("  long: {(Try Dir.Glob(root / "long", "*a*a*a*a*a*a*a*b")).Count} {(Try Dir.Glob(root / "long", "*a*a*a*a*a*a*a")).Count}")
+Try Dir.RemoveAll(root / "long")
+
+// A folder the pattern can't reach into isn't listed, so one no one can list doesn't matter to
+// it, and Walk's error names the folder it couldn't list.
+Try Dir.CreateAll(root / "globs" / "open")
+Try File.WriteText(root / "globs" / "open" / "a.txt", "a")
+Try Dir.Create(root / "globs" / "shut")
+chmod((root / "globs" / "shut").Text, 0)
+Local reached: String[] = []
+For entry In Try Dir.Glob(root / "globs", "open/*")
+    reached.Add(entry.Relative.Text)
+End For
+
+Print("  past a shut folder: {reached}")
+Local named = "the folder it couldn't list"
+Try
+    Dir.Walk(root / "globs")
+Catch e As IOError
+    If e.Path != (root / "globs" / "shut").Text Then named = e.Path ?? "none"
+End Try
+
+Print("  walk names {named}")
+chmod((root / "globs" / "shut").Text, 448)
+Try Dir.RemoveAll(root / "globs")
 
 Print("errors")
 Print(Failure("read", root / "missing.txt"))

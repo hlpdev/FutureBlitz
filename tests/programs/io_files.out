@@ -67,6 +67,9 @@ glob
   **/*.PNG: []
   : []
   ./*.dat: [セーブ.dat]
+  long: 0 1
+  past a shut folder: [open/a.txt]
+  walk names the folder it couldn't list
 errors
 read NOT_FOUND
 read IS_A_DIRECTORY
