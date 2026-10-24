@@ -1,0 +1,2 @@
+DIRECTORY FILE
+panic: 'a' is both a file and a folder in an EmbeddedSource at panic_io_vfs_embedded_both.fb:8:16
