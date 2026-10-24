@@ -1,0 +1,141 @@
+// The parallel algorithms: ParallelForEach, ParallelMap, ParallelReduce, and ParallelSort, each a
+// Parallel For on the job pool, with the calling thread taking its share, over an array of
+// Sendable values and a Sendable Func, which each pass calls on the thread that runs it. What
+// they give comes back in the items' order, the same as their plain loops would give, whichever
+// thread does which part.
+
+Import std.core
+Import std.collections
+
+// How many parts ParallelReduce and ParallelSort cut the items into, at most, so each pass of
+// their Parallel Fors has enough to do.
+Const MOST_PARTS = 64
+
+// Below this many items, ParallelSort sorts on the calling thread, which is quicker.
+Const SORT_ALONE = 4096
+
+// Calls action with each item, on the pool at once, in no order.
+Public Function ParallelForEach<T: Sendable>(items: T[], action: Sendable Func(T))
+    Parallel For i = 0 Until items.Count
+        action(items[i])
+    End For
+End Function
+
+// A new array of what change makes of each item, in the items' order, made on the pool at once.
+Public Function ParallelMap<T: Sendable, R: Sendable>(items: T[], change: Sendable Func(T): R): R[]
+    Local results: R[] = []
+    If items.Count == 0 Then Return results
+    // The first result fills the array, which each pass then sets at its own index.
+    results.Resize(items.Count, change(items[0]))
+    Parallel For i = 1 Until items.Count
+        results[i] = change(items[i])
+    End For
+    Return results
+End Function
+
+// The items combined with combine, which takes two values and gives one, or Null for no items.
+// They're cut into parts, each combined left to right on the pool at once, and then the parts'
+// values left to right, so combine must give the same however its calls are grouped, as + and Max
+// do, though it needn't let its values swap places.
+Public Function ParallelReduce<T: Sendable>(items: T[], combine: Sendable Func(T, T): T): T?
+    If items.Count == 0 Then Return Null
+    Local parts = Min(items.Count, MOST_PARTS)
+    Local values: T[] = []
+    values.Resize(parts, items[0])
+    Parallel For part = 0 Until parts
+        Local start = PartStart(items.Count, parts, part)
+        Local finish = PartStart(items.Count, parts, part + 1)
+        Local value = items[start]
+        For i = start + 1 Until finish
+            value = combine(value, items[i])
+        End For
+        values[part] = value
+    End For
+
+    Local value = values[0]
+    For part = 1 Until parts
+        value = combine(value, values[part])
+    End For
+    Return value
+End Function
+
+// Sorts the items in place, smallest first, keeping equal ones in their order, as T[]'s Sort
+// does: parts sorted on the pool at once, then merged in pairs, each round's merges at once too.
+// A value that isn't equal to itself, like NaN, has no place in the order, and goes where it may.
+Public Function ParallelSort<T: Comparable & Sendable>(items: T[])
+    ParallelSort(items, Function(a: T, b: T) => a < b)
+End Function
+
+// Sorts the items in place, those before goes with first, keeping in their order the ones it puts
+// neither before the other, as Sort(before) does.
+Public Function ParallelSort<T: Sendable>(items: T[], before: Sendable Func(T, T): Bool)
+    If items.Count < SORT_ALONE
+        items.Sort(before)
+        Return
+    End If
+
+    // Each part, sorted, is an ImmutableArray, which a pass can make and the next round read.
+    Local parts = Min(items.Count / (SORT_ALONE / 4), MOST_PARTS)
+    Local sorted: ImmutableArray<T>[] = []
+    sorted.Resize(parts, ImmutableArray<T>())
+    Parallel For part = 0 Until parts
+        Local start = PartStart(items.Count, parts, part)
+        Local finish = PartStart(items.Count, parts, part + 1)
+        Local values: T[] = []
+        values.Reserve(finish - start)
+        For i = start Until finish
+            values.Add(items[i])
+        End For
+        values.Sort(before)
+        sorted[part] = ImmutableArray<T>.From(values)
+    End For
+
+    While sorted.Count > 1
+        Local pairs = (sorted.Count + 1) / 2
+        Local merged: ImmutableArray<T>[] = []
+        merged.Resize(pairs, ImmutableArray<T>())
+        Parallel For pair = 0 Until pairs
+            If pair * 2 + 1 < sorted.Count
+                merged[pair] = Merged(sorted[pair * 2], sorted[pair * 2 + 1], before)
+            Else
+                merged[pair] = sorted[pair * 2]
+            End If
+        End For
+        sorted = merged
+    End While
+
+    Local at = 0
+    For value In sorted[0]
+        items[at] = value
+        at += 1
+    End For
+End Function
+
+// Two sorted parts as one, the first's value first where neither goes before the other.
+Function Merged<T: Sendable>(first: ImmutableArray<T>, second: ImmutableArray<T>,
+                             before: Sendable Func(T, T): Bool): ImmutableArray<T>
+    Local values: T[] = []
+    values.Reserve(first.Count + second.Count)
+    Local left = first.Iterate()
+    Local right = second.Iterate()
+    Local a = left.Next()
+    Local b = right.Next()
+    Loop
+        Local x = a
+        Local y = b
+        If x == Null && y == Null Then Break
+        If y == Null || (x != Null && !before(y, x))
+            values.Add(x.Expect("the left part has a value here"))
+            a = left.Next()
+        Else
+            values.Add(y.Expect("the right part has a value here"))
+            b = right.Next()
+        End If
+    End Loop
+    Return ImmutableArray<T>.From(values)
+End Function
+
+// Where part `part` of count items cut into parts starts.
+Function PartStart(count: Int, parts: Int, part: Int): Int
+    Return ((count As Int64) * (part As Int64) / (parts As Int64)) As Int
+End Function

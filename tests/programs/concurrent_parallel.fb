@@ -1,0 +1,102 @@
+// The parallel algorithms give what their plain loops do, in the items' order: ParallelMap's
+// results, ParallelForEach's calls, ParallelReduce's value grouped any way, and ParallelSort's
+// order, which keeps equal items in theirs, for small and large arrays, and none.
+
+Import std.core
+Import std.collections
+Import std.concurrent
+
+// The same numbers each run, from a linear congruential generator.
+Global seed: UInt64 = 12345
+
+// What ParallelForEach's calls add up, and how many there are.
+Global total = Atomic<Int64>(0)
+Global calls = Atomic<Int>(0)
+
+Function Next(limit: Int): Int
+    seed = seed.WrappingMultiply(6364136223846793005).WrappingAdd(1442695040888963407)
+    Return ((seed >> 33) % (limit As UInt64)) As Int
+End Function
+
+Function Square(x: Int): Int => x * x
+
+Shared Class Scaler
+    ReadOnly Field Factor: Int
+
+    New(factor: Int)
+        Factor = factor
+    End New
+
+    Method Scale(items: Int[]): Int[] => ParallelMap(items, Function(x) => x * Factor)
+End Class
+
+Local numbers: Int[] = []
+For i = 0 Until 100000
+    numbers.Add(Next(1000))
+End For
+
+// ParallelMap, against a plain loop, by a Function's name, a lambda capturing a parameter, and a
+// Shared Class's Self.
+Local squares: Int[] = []
+For number In numbers
+    squares.Add(number * number)
+End For
+Print(ParallelMap(numbers, Square) == squares, Scaler(3).Scale([1, 2, 3]))
+Print(ParallelMap(["fire", "ice"], Function(word) => "{word}!"), ParallelMap(numbers[0..0], Square).Count)
+
+// ParallelForEach calls the action once for each item.
+ParallelForEach(numbers, Function(x: Int)
+    total.Add(x As Int64)
+    calls.Add(1)
+End Function)
+Local sum: Int64 = 0
+For number In numbers
+    sum += number
+End For
+Print(total.Load() == sum, calls.Load())
+
+// ParallelReduce: a sum, the most, and strings joined, which shows the parts go in order.
+Print(ParallelReduce(numbers, Function(a: Int, b: Int) => a + b) ?? -1, sum)
+Print(ParallelReduce(numbers, Function(a: Int, b: Int) => Max(a, b)) ?? -1)
+Local letters: String[] = []
+For i = 0 Until 200
+    letters.Add("{i % 10}")
+End For
+Local joined = ParallelReduce(letters, Function(a: String, b: String) => a + b) ?? ""
+Print(joined.Bytes.Count, joined == letters.Join(""))
+Local nothing: Int[] = []
+Print(ParallelReduce(nothing, Function(a: Int, b: Int) => a + b) == Null,
+      ParallelReduce([7], Function(a: Int, b: Int) => a + b) ?? -1)
+
+// ParallelSort, large and small, against Sort; and by a key, keeping equal keys' items in order.
+For count In [0, 1, 10, 4095, 4096, 100000]
+    Local items: Int[] = []
+    For i = 0 Until count
+        items.Add(Next(1000000))
+    End For
+    Local expected = items.Clone()
+    expected.Sort()
+    ParallelSort(items)
+    Print(count, items == expected)
+End For
+
+Struct Entry
+    Field Key: Int
+    Field Order: Int
+End Struct
+
+Local entries: Entry[] = []
+For i = 0 Until 50000
+    entries.Add(Entry(Next(100), i))
+End For
+ParallelSort(entries, Function(a: Entry, b: Entry) => a.Key < b.Key)
+Local inOrder = True
+For i = 1 Until entries.Count
+    Local a = entries[i - 1]
+    Local b = entries[i]
+    If a.Key > b.Key || (a.Key == b.Key && a.Order > b.Order) Then inOrder = False
+End For
+Print("stable:", inOrder)
+Local descending = numbers.Clone()
+ParallelSort(descending, Function(a: Int, b: Int) => a > b)
+Print(descending[0], descending[descending.Count - 1])
