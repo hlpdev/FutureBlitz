@@ -1,51 +1,51 @@
-// Json.Parse reads documents into Values, integers exact, and Json.Write writes Values as
+// Json.Read reads documents into Values, integers exact, and Json.Write writes Values as
 // documents, on one line or indented, which read back as the same Values.
 Import std.core
 Import std.collections
 Import std.data
 
-// What Parse gives for text: the Value, as it shows, or the ParseError.
-Function Parsed(text: String): String
+// What Read gives for text: the Value, as it shows, or the ParseError.
+Function ReadText(text: String): String
     Try
-        Local value = Json.Parse(text)
+        Local value = Json.Read(text)
         Return "{value.Kind} {value}"
     Catch e As ParseError
         Return "ParseError {e.Kind} at {e.Line}:{e.Column}"
     End Try
 End Function
 
-Print("== parse")
+Print("== read")
 Local document = r"""
     {"name": "Ada", "age": 36, "langs": ["en", "fr"], "ok": true, "none": null, "pi": 3.25}
     """
-Print(Parsed(document))
-Print(Parsed("  [] "))
-Print(Parsed(r"{}"))
-Print(Parsed("-12"))
-Print(Parsed("9223372036854775807"))
-Print(Parsed("9223372036854775808"))
-Print(Parsed("18446744073709551615"))
-Print(Parsed("18446744073709551616"))
-Print(Parsed("-9223372036854775809"))
-Print(Parsed("1.0"))
-Print(Parsed("1e2"))
-Print(Parsed("\"text\""))
-Print(Parsed("false"))
-Print(Parsed("null"))
-Print(Parsed(r"""
+Print(ReadText(document))
+Print(ReadText("  [] "))
+Print(ReadText(r"{}"))
+Print(ReadText("-12"))
+Print(ReadText("9223372036854775807"))
+Print(ReadText("9223372036854775808"))
+Print(ReadText("18446744073709551615"))
+Print(ReadText("18446744073709551616"))
+Print(ReadText("-9223372036854775809"))
+Print(ReadText("1.0"))
+Print(ReadText("1e2"))
+Print(ReadText("\"text\""))
+Print(ReadText("false"))
+Print(ReadText("null"))
+Print(ReadText(r"""
     {"k": 1, "j": 2, "k": 3}
     """))
-Print(Parsed(r"""
+Print(ReadText(r"""
     [[[[["deep"]]]], {"a": {"b": {"c": []}}}]
     """))
-Print(Parsed("[1, 2"))
-Print(Parsed(r"""
+Print(ReadText("[1, 2"))
+Print(ReadText(r"""
     {"a" 1
     """))
 
 Print("== exact integers")
 Try
-    Local numbers = Json.Parse("[9007199254740993, -9007199254740993, 18446744073709551614]")
+    Local numbers = Json.Read("[9007199254740993, -9007199254740993, 18446744073709551614]")
     For i = 0 Until numbers.Count
         Local number = numbers[i] ?? Value()
         Print("{number.Kind} {number.AsInt64() ?? 0} {number.AsUInt64() ?? 0}")
@@ -56,7 +56,7 @@ End Try
 
 Print("== path")
 Try
-    Local parsed = Json.Parse(document)
+    Local parsed = Json.Read(document)
     Print(parsed.Path("langs[1]") ?? Value())
     Print((parsed["age"] ?? Value()).AsInt() ?? 0)
     Print((parsed["pi"] ?? Value()).AsDouble() ?? 0.0)
@@ -66,8 +66,8 @@ End Try
 
 Print("== bytes")
 Try
-    Print(Json.Parse([239, 187, 191, 123, 34, 97, 34, 58, 49, 125] As UInt8[]))
-    Print(Parsed("[\"\u{0}\"]"))
+    Print(Json.Read([239, 187, 191, 123, 34, 97, 34, 58, 49, 125] As UInt8[]))
+    Print(ReadText("[\"\u{0}\"]"))
 Catch e As ParseError
     Print("ParseError {e.Message}")
 End Try
@@ -102,9 +102,9 @@ Local trips = 0
 For text In ["[1, -2, 3.5, \"é😀\", true, null, [], {{}}]", document, "18446744073709551615",
              "[0.1, 1e-300, 1.7976931348623157e308, -0.0, 5e-324]"]
     Try
-        Local first = Json.Parse(text)
+        Local first = Json.Read(text)
         For indent In [0, 1, 3]
-            Local again = Json.Parse(Json.Write(first, indent))
+            Local again = Json.Read(Json.Write(first, indent))
             If again == first
                 trips += 1
             Else
@@ -117,7 +117,7 @@ For text In ["[1, -2, 3.5, \"é😀\", true, null, [], {{}}]", document, "184467
 End For
 Print("{trips} round trips")
 Try
-    Local bytes = Json.Parse(Json.Write(value))
+    Local bytes = Json.Read(Json.Write(value))
     Print(bytes["bytes"] ?? Value())
 Catch e As ParseError
     Print("ParseError {e.Message}")
@@ -133,10 +133,10 @@ For i = 1 To 1000
     deep = deep + "]"
 End For
 Try
-    Local nested = Json.Parse(deep)
+    Local nested = Json.Read(deep)
     Print(Json.Write(nested) == deep)
-    Print(Parsed("[" + deep + "]"))
-    Print(Json.Write(Json.Parse("[" + deep + "]", 1001)).Bytes.Count)
+    Print(ReadText("[" + deep + "]"))
+    Print(Json.Write(Json.Read("[" + deep + "]", 1001)).Bytes.Count)
 Catch e As ParseError
     Print("ParseError {e.Message}")
 End Try

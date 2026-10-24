@@ -193,6 +193,8 @@ So far, std/ holds:
 | std/text/template.fb | `Template` and `Templates` |
 | std/data/protobuf.fb | `ProtoWriter` and `ProtoReader`, Protocol Buffers' wire format, `ProtoText`, its text format on one line, `ProtoBox<T>`, and `ProtoIsZero`, `ProtoKeepEnum`, and `ProtoPanic`, which the modules fb makes from .proto files go through; and `ProtoTag` and the `WIRE_` constants, for code that writes the wire format itself |
 | std/data/proto/google/protobuf/ | protobuf's well-known types, as protoc 36.2 has them, under protobuf's BSD-3-Clause license, in its LICENSE: any, api, descriptor, duration, empty, field_mask, source_context, struct, timestamp, type, and wrappers.proto, which a .proto or a program imports as `"google/protobuf/timestamp.proto"` |
+| std/data/json.fb | `Json` (`Read` and `Write` of Values), `JsonReader`, `JsonWriter`, and `JsonToken`, over the runtime's `fb_json_` functions |
+| std/data/msgpack.fb | `MessagePack` (`Read` and `Write` of Values) |
 | std/term/console.fb | std.term: `StandardStream`, `IsTerminal`, `TerminalSize`, `ReadKey`, and `ReadPassword`, over the runtime's `fb_term_` functions |
 | std/term/style.fb | `ColorLevel`, `ColorKind`, `TermColor`, `TextAttributes`, `Style`, `ConsoleColors`, `Paint`, `StripStyles`, and `VisibleWidth` |
 | std/term/input.fb | `KeyCode`, `KeyModifiers`, `KeyEvent`, `MouseButton`, `MouseAction`, `MouseEvent`, `InputKind`, `InputEvent`, and `InputParser` |
@@ -1032,6 +1034,24 @@ Step 18 built `Event<T>`, `Subscription`, and `Subscribe(owner, handler)`, in st
   reader and writer, and XPath-lite), YAML (1.2's core schema, no arbitrary tags), and
   MessagePack. `@Renamed("old")`, and a Field's default or zero for what an older save didn't
   have, keep old saves loading after a game changes, and OnLoaded can work out the rest.
+- JSON (step 19) is RFC 8259's, which JSONTestSuite's parsing cases check: `Json.Read(text)` or
+  `Read(bytes)` gives a document's Value (an INT, a UINT past an Int64, or a DOUBLE for each
+  number; an object's keys in order, the last of a repeated key where its first was) and
+  `Json.Write(value, indent)` writes one, on one line with no spaces at an indent of 0 and else a
+  value to a line, with a DOUBLE always with a point or an exponent and BYTES as base64; NaN
+  and infinities, which JSON doesn't have, panic. `JsonReader` gives a document's tokens one at
+  a time (`Next`, `Token`, `Depth`, `Line`, `Column`, `GetString`, `GetInt64`, `GetUInt64`,
+  `GetDouble`, `GetBool`, `Skip`), and `JsonWriter` writes one a token at a time (`BeginObject`,
+  `Key`, `WriteString`, `WriteInt`, ..., `EndObject`, `IsComplete`), panicking where a token
+  can't come. Text that isn't JSON throws a ParseError at its line and column: bytes that aren't
+  UTF-8, a number past a Double's range, and arrays and objects nested past a depth, 1000 unless
+  it's given, are refused; a lone surrogate escape reads as U+FFFD, and a byte order mark before
+  the JSON is left out.
+- MessagePack (step 19): `MessagePack.Read(bytes)` gives the Value (a bin as BYTES; a map's keys
+  must be strs, and an ext, which a Value has no kind for, is refused, as WRONG_TYPE), and
+  `MessagePack.Write(value)` gives each integer, str, bin, array, and map in the fewest bytes its
+  kind has, and a DOUBLE as a float 64. A count that's more than the data holds is refused before
+  any memory is taken for it.
 - Protocol Buffers: `Import "game.proto"` reads a .proto file, proto2 or proto3, as the program
   builds, into a module of its types (see spec 11), which read and write protobuf's wire format
   through std/data/protobuf.fb.
