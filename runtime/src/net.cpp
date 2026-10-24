@@ -309,9 +309,8 @@ bool sockaddr_of(const fb_array_t* bytes, sockaddr_storage& address) {
     return false;
 }
 
-/// Puts `address` into `output`, a UInt8[], as fb code reads it, or nothing when it's neither
-/// IPv4's nor IPv6's.
-bool give_address(const sockaddr_storage& address, fb_array_t* output) {
+/// `address`'s bytes, as fb code reads them, or nothing when it's neither IPv4's nor IPv6's.
+std::optional<std::array<std::uint8_t, address_size>> bytes_of(const sockaddr_storage& address) {
     std::array<std::uint8_t, address_size> data{};
     std::uint16_t port = 0;
     if (address.ss_family == AF_INET) {
@@ -328,14 +327,33 @@ bool give_address(const sockaddr_storage& address, fb_array_t* output) {
             data[19 + i] = static_cast<std::uint8_t>(v6->sin6_scope_id >> (i * 8));
         }
     } else {
-        return false;
+        return std::nullopt;
     }
 
     data[17] = static_cast<std::uint8_t>(static_cast<unsigned>(port) >> 8U);
     data[18] = static_cast<std::uint8_t>(port);
-    fb_array_reserve(output, 1, static_cast<std::int64_t>(address_size), nullptr);
-    std::memcpy(output->data, data.data(), data.size());
-    output->count = static_cast<std::int64_t>(address_size);
+    return data;
+}
+
+/// Puts `bytes` into `output`, a UInt8[].
+void give_bytes(const std::vector<std::uint8_t>& bytes, fb_array_t* output) {
+    output->count = 0;
+    if (!bytes.empty()) {
+        fb_array_reserve(output, 1, static_cast<std::int64_t>(bytes.size()), nullptr);
+        std::memcpy(output->data, bytes.data(), bytes.size());
+        output->count = static_cast<std::int64_t>(bytes.size());
+    }
+}
+
+/// Puts `address` into `output`, a UInt8[], as fb code reads it, or nothing when it's neither
+/// IPv4's nor IPv6's.
+bool give_address(const sockaddr_storage& address, fb_array_t* output) {
+    const std::optional<std::array<std::uint8_t, address_size>> data = bytes_of(address);
+    if (!data) {
+        return false;
+    }
+
+    give_bytes({ data->begin(), data->end() }, output);
     return true;
 }
 
@@ -1278,13 +1296,7 @@ std::int32_t fb_io_net_received(void* handle, fb_array_t* bytes, fb_array_t* fro
         socket->datagrams.pop_front();
     }
 
-    bytes->count = 0;
-    if (!datagram.bytes.empty()) {
-        fb_array_reserve(bytes, 1, static_cast<std::int64_t>(datagram.bytes.size()), nullptr);
-        std::memcpy(bytes->data, datagram.bytes.data(), datagram.bytes.size());
-        bytes->count = static_cast<std::int64_t>(datagram.bytes.size());
-    }
-
+    give_bytes(datagram.bytes, bytes);
     give_address(datagram.from, from);
     return 1;
 }
@@ -1329,6 +1341,59 @@ std::int32_t fb_io_net_membership(void* handle, const fb_string_t* group, const 
                                      local.empty() ? nullptr : local.c_str(),
                                      join != 0 ? UV_JOIN_GROUP : UV_LEAVE_GROUP);
     });
+}
+
+std::int32_t fb_io_net_multicast_interface(void* handle, const fb_string_t* on) {
+    auto* socket = static_cast<socket_t*>(handle);
+    const std::string address = text_of(on);
+    return call([socket, &address](uv_loop_t* /*loop*/) -> std::int32_t {
+        {
+            const std::scoped_lock lock(socket->mutex);
+            if (socket->closing || !socket->opened) {
+                return UV_ECANCELED;
+            }
+        }
+
+        return uv_udp_set_multicast_interface(&socket->udp, address.c_str());
+    });
+}
+
+std::int32_t fb_io_net_interfaces(fb_array_t* output) {
+    uv_interface_address_t* found = nullptr;
+    int count = 0;
+    if (const int listed = uv_interface_addresses(&found, &count); listed != 0) {
+        return listed;
+    }
+
+    std::vector<std::uint8_t> records;
+    for (int i = 0; i < count; ++i) {
+        const uv_interface_address_t& each = found[i];
+        const int family = each.address.address4.sin_family;
+        if (each.is_internal != 0 || (family != AF_INET && family != AF_INET6)) {
+            continue;
+        }
+
+        sockaddr_storage address{};
+        std::memcpy(&address, &each.address,
+                    family == AF_INET ? sizeof(sockaddr_in) : sizeof(sockaddr_in6));
+        if (const std::optional<std::array<std::uint8_t, address_size>> data = bytes_of(address)) {
+            records.insert(records.end(), data->begin(), data->end());
+        }
+    }
+
+    uv_free_interface_addresses(found, count);
+    give_bytes(records, output);
+    return 0;
+}
+
+fb_string_t* fb_io_net_host_name() {
+    std::array<char, 256> name{};
+    std::size_t size = name.size();
+    if (uv_os_gethostname(name.data(), &size) != 0) {
+        return fb_string_from_cstring("localhost");
+    }
+
+    return fb_string_from_bytes(name.data(), static_cast<std::int64_t>(size));
 }
 
 std::int32_t fb_io_net_address(void* handle, const std::int32_t remote, fb_array_t* output) {

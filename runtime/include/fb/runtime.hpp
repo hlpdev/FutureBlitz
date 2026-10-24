@@ -624,6 +624,13 @@ std::int32_t fb_io_net_set(void* handle, std::int32_t option, std::int32_t value
 /// address `on` is, or the OS's when it's empty, or leaves it when `join` is 0.
 std::int32_t fb_io_net_membership(void* handle, const fb_string_t* group, const fb_string_t* on,
                                   std::int32_t join);
+/// Has a UDP socket multicast on the interface whose address is `on`.
+std::int32_t fb_io_net_multicast_interface(void* handle, const fb_string_t* on);
+/// Puts the addresses of the machine's network interfaces that are up into `output`, but for
+/// loopback's, each as an address of port 0. It doesn't block.
+std::int32_t fb_io_net_interfaces(fb_array_t* output);
+/// The machine's name, as its OS has it, or "localhost" when that can't be read.
+fb_string_t* fb_io_net_host_name();
 /// Puts a socket's address into `output`, its remote one when `remote` isn't 0.
 std::int32_t fb_io_net_address(void* handle, std::int32_t remote, fb_array_t* output);
 /// What libuv's error `code` means to std.net: a NetErrorKind's ordinal, or 7 for a timeout.
