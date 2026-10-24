@@ -16,7 +16,8 @@
 // 1 a host that wasn't found, 2 a refused connection, 3 an unreachable network or host, 4 a
 // connection reset, 5 one closed before the whole response came, 6 TLS, 7 a timeout, 8 another
 // failure of the network or of the server, or of what the transfer was given, 9 a URL that can't
-// be used, 10 too many redirects, and 11 a program that ended before the transfer did.
+// be used, 10 too many redirects, 11 a program that ended before the transfer did, and 12 a
+// redirect to a URL that can't be used.
 
 extern "C" {
 

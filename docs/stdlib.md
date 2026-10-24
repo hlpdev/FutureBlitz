@@ -855,8 +855,8 @@ discovery. `Import std.net` brings in std/net/.
   joins in one; connections, which its requests reuse; `Proxy`, `""` for none, or else the
   environment's (http_proxy, https_proxy, no_proxy); and `TrustOnly(roots)` and
   `TrustOsRoots()`. A failure is a NetError of its Kind (a URL that isn't HTTP's or HTTPS's is
-  OTHER's, as are too many redirects, and a URL, Proxy, User-Agent, or Cookie with a NUL or
-  longer than libcurl's 8,000,000 bytes, which isn't sent), or a TimeoutError;
+  OTHER's, as are a redirect to one, too many redirects, and a URL, Proxy, User-Agent, or Cookie
+  with a NUL or longer than libcurl's 8,000,000 bytes, which isn't sent), or a TimeoutError;
   `EnsureSuccess`, and what gives only a body, `Download`, `Http.GetText`, and `Http.GetBytes`,
   throw a NetError of `HTTP_STATUS` for a status that isn't success. `Http.Get`, `GetText`,
   `GetBytes`, `Head`, `Post`, `Put`, `Patch`, `Delete`, and `Download`, and `GetAsync`,
