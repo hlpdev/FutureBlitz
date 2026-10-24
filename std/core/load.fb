@@ -177,7 +177,7 @@ Package Function LoadDouble(value: Value, single: Bool, ByRef error: Error?): Do
 
     Local past: Double = 340282356779733661637539395458142568448.0
     If single && real - real == 0.0 && (real >= past || real <= -past)
-        error = OutOfRange(value, "Float32", "-3.4028235e+38", "3.4028235e+38")
+        error = OutOfRange(value, "Float32", "-3.4028235e38", "3.4028235e38")
         Return 0
     End If
 
