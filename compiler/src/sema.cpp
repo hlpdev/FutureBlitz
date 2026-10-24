@@ -142,7 +142,8 @@ struct handler_t {
 enum class match_t : std::uint8_t {
     NONE,
     /// A built-in's parameter that takes any type, like RefEquals', which fits worse than one
-    /// that names a type the argument converts to.
+    /// that names a type the argument converts to, or a Func a lambda only checks as with
+    /// errors in its body.
     ANY,
     CONVERTIBLE,
     EXACT,
@@ -22648,12 +22649,18 @@ private:
         }
 
         // A lambda whose parameters take their types from the Func expected fits only a Func it
-        // checks as, or a nullable one by conversion.
+        // checks as, or a nullable one by conversion. One whose body has errors as that Func
+        // fits it worst, so the Func it checks as without them is the one meant.
         if (is_untyped_lambda(argument.value)) {
+            const std::size_t errors = m_diagnostics->error_count();
             const type_id_t made =
                 argument.by_ref ? type_id_t::INVALID : check(argument.value, type);
             if (made == type_id_t::INVALID) {
                 return match_t::NONE;
+            }
+
+            if (m_diagnostics->error_count() != errors) {
+                return match_t::ANY;
             }
 
             if (made == type) {

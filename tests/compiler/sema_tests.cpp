@@ -14474,6 +14474,24 @@ TEST_CASE("a lambda without its parameters' types takes them from the overload w
     CHECK(errors_of("Function G(f: Func(Int): Int)\nEnd Function\n"
                     "Function G(f: Func(String): String)\nEnd Function\n"
                     "G(Function(x) => x)") == errors_t{ "G: the call to 'G' is ambiguous" });
+
+    // A Func whose lambda body has errors fits worse than one it checks as without them, by
+    // what it gives or what its parameter has; with errors in both, it's still ambiguous, and
+    // with only the one, its body's errors are reported.
+    const std::string pick = "Import std.text\n"
+                             "Function H(f: Func(Int): Int): Bool => True\n"
+                             "Function H(f: Func(Int): String): Int8 => 0\n"
+                             "Function K(f: Func(Int): Int): Bool => True\n"
+                             "Function K(f: Func(String): Int): Int8 => 0\n";
+    CHECK(probe(pick + "Local x = H(Function(x) => \"a\")") == "Int8");
+    CHECK(probe(pick + "Local x = K(Function(x) => x.Length)") == "Int8");
+    CHECK(probe(pick + "Local x = K(Function(x) => x + 1)") == "Bool");
+    CHECK(errors_of(pick + "Local x = K(Function(x) => x.Nope)") ==
+          errors_t{ "K: the call to 'K' is ambiguous" });
+    CHECK(errors_of("Function One(f: Func(Int): Int)\nEnd Function\n"
+                    "Function One(f: String)\nEnd Function\n"
+                    "One(Function(x) => \"a\")") ==
+          errors_t{ "\"a\": expected Int32, found String" });
 }
 
 TEST_CASE("a call with an error doesn't also warn that its Try isn't needed", "[sema]") {
