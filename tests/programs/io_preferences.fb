@@ -63,6 +63,23 @@ opened.Set("async", "yes")
 Try Await opened.SaveAsync()
 Print("{(Try Preferences("Größe Game", root)).Get("async") ?? "none"} {(Try Await Preferences.OpenAsync("New Game", root)).Count()}")
 
+// A setting changed while SaveAsync writes is still to save, unless the file has it, whichever
+// way the two take turns.
+Async Function Later(p: Preferences, root: Path) Throws IOError
+    Try Await Dir.CreateAllAsync(root)
+    Try Await Dir.CreateAllAsync(root)
+    p.Set("late", "yes")
+End Function
+
+Local racing = Try Preferences("Racing", root)
+racing.Set("volume", "0.8")
+Local saving = racing.SaveAsync()
+Local later = Later(racing, root)
+Try Await saving
+Try Await later
+Local raced = Try Preferences("Racing", root)
+Print("{racing.Get("late") ?? "none"} {(raced.Get("late") == Null) == racing.IsChanged()}")
+
 Print("errors")
 Try File.WriteText(root / "Blocked", "a file where the app's folder goes")
 Local blocked = Try Preferences("Blocked", root)

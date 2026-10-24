@@ -29,6 +29,8 @@ Public Class Preferences
     Public ReadOnly Field Location: Path
     Field Values: Map<String, String>
     Field Changed: Bool
+    // How many changes there have been, so a save knows whether one came while it wrote.
+    Field Version: Int64
 
     // The program `app`'s preferences, read from the OS's folder for them, or none when there's
     // no file yet. Panics for an app's name that can't be a file's, and throws an IOError when the
@@ -87,13 +89,13 @@ Public Class Preferences
     Public Method Set(key: String, value: String)
         If Values.Get(key) == value Then Return
         Values[key] = value
-        Changed = True
+        Change()
     End Method
 
     // Takes out the setting `key`, and gives whether there was one.
     Public Method Remove(key: String): Bool
         If !Values.Remove(key) Then Return False
-        Changed = True
+        Change()
         Return True
     End Method
 
@@ -111,21 +113,29 @@ Public Class Preferences
     Public Method Clear()
         If Values.Count == 0 Then Return
         Values.Clear()
-        Changed = True
+        Change()
     End Method
 
     // Writes the settings to their file, making its folder when it isn't there, atomically, so it
     // holds either all of them or what it held before.
     Public Method Save() Throws IOError
         Try Dir.CreateAll(Location.Parent())
+        Local saving = Version
         Try File.WriteTextAtomic(Location, TextOf(App, Values))
-        Changed = False
+        If Version == saving Then Changed = False
     End Method
 
+    // Save's Async twin. A change made while it writes isn't in the file, so IsChanged stays True.
     Public Async Method SaveAsync() Throws IOError
         Try Await Dir.CreateAllAsync(Location.Parent())
+        Local saving = Version
         Try Await File.WriteTextAtomicAsync(Location, TextOf(App, Values))
-        Changed = False
+        If Version == saving Then Changed = False
+    End Method
+
+    Method Change()
+        Changed = True
+        Version += 1
     End Method
 End Class
 
