@@ -6,9 +6,11 @@ Import std.core
 Import std.ffi
 Import std.io
 Import std.os
+Import std.time
 
 // What the program does as its own child, by its first argument.
-Function RunChild(arguments: String[])
+Function RunChild(arguments: String[]) Throws IOError
+    Local self = Folders.Executable.Expect("the program's path")
     Local mode = arguments[0]
     If mode == "echo"
         For i = 1 Until arguments.Count
@@ -37,14 +39,44 @@ Function RunChild(arguments: String[])
             WriteError(chunk)
         End For
         Print("out")
-    ElseIf mode == "wait"
+    ElseIf mode == "wait" || mode == "one"
         Input()
+    ElseIf mode == "hello"
+        Print("hello")
+    ElseIf mode == "shared"
+        // Its stdout is a pipe, as in a log or a CI job, and the child it starts shares it.
+        Print("before")
+        Print(Try Command(self).Arg("hello").Status())
+        Print("after")
+    ElseIf mode == "unicode"
+        Local count = 0
+        For name In Env.All().Keys()
+            If name == "ÄFB_CASE" || name == "äfb_case" Then count += 1
+        End For
+        Print(Env.Get("ÄFB_CASE") ?? "Null", Env.Get("äfb_case") ?? "Null", count)
+    ElseIf mode == "deaf"
+        // Never reads its stdin.
+        Sleep(5.Seconds)
+    ElseIf mode == "writer"
+        // Leaves a line in the stdin of a child that never reads it, and ends.
+        Local deaf = Command(self).Arg("deaf").Stdin(Stdio.PIPED).Stdout(Stdio.NONE)
+        Local child = Try deaf.Stderr(Stdio.NONE).Spawn()
+        Local into = child.Stdin.Expect("a piped stdin")
+        Try into.WriteText("unread\n")
+        into.Close()
+    ElseIf mode == "late"
+        Sleep(1.Seconds)
+        Print("the child ran on")
+    ElseIf mode == "leaver"
+        // Starts a child that shares its stdout, and ends without waiting for it.
+        Try Command(self).Arg("late").Spawn()
+        Print("the parent ends")
     End If
     Process.Exit(0)
 End Function
 
 Local arguments = Process.Arguments()
-If arguments.Count > 0 Then RunChild(arguments)
+If arguments.Count > 0 Then Try RunChild(arguments)
 
 Local self = Folders.Executable.Expect("the program's path")
 
@@ -73,6 +105,16 @@ Env.Set("FB_PROCESS_CASE", "upper")
 Local cased = Try Command(self).Arg("case").Env("fb_process_case", "lower").Output()
 Print(cased.Text == (System.Platform == Platform.WINDOWS ? "lower\n" : "upper\n"))
 
+// In any case in all of Unicode, as Windows takes it, which Linux and macOS don't.
+Env.Set("ÄFB_CASE", "upper")
+Local lowered = Try Command(self).Arg("unicode").Env("äfb_case", "lower").Output()
+Print(lowered.Text == (windows ? "lower lower 1\n" : "upper lower 2\n"))
+Local unset = Try Command(self).Arg("unicode").Unset("äfb_case").Output()
+Print(unset.Text == (windows ? "Null Null 0\n" : "upper Null 1\n"))
+
+// What this program printed comes out before what a child sharing its stdout prints.
+Write((Try Command(self).Arg("shared").Output()).Text)
+
 // A Child's stdin is a Writer, and its stdout and stderr are Readers.
 Local catCommand = Command(self).Arg("cat").Stdin(Stdio.PIPED).Stdout(Stdio.PIPED)
 Local cat = Try catCommand.Stderr(Stdio.PIPED).Spawn()
@@ -92,6 +134,35 @@ Try
 Catch e As IOError
     Print("closed:", e.Kind)
 End Try
+
+// So does writing to a child that has gone, as a broken pipe on every OS, while the write is
+// under way and after.
+Local one = Try Command(self).Arg("one").Stdin(Stdio.PIPED).Stdout(Stdio.NONE).Spawn()
+Local toOne = one.Stdin.Expect("a piped stdin")
+Local lines: UInt8[] = []
+For i = 0 Until 2000000
+    lines.Add(i % 10 == 9 ? 10 : 65)
+End For
+Try
+    Try toOne.WriteBytes(lines)
+Catch e As IOError
+    Print("during:", e.Kind, e.Message)
+End Try
+Try
+    Try toOne.WriteText("again\n")
+Catch e As IOError
+    Print("after:", e.Kind, e.Message)
+End Try
+Print(one.Wait())
+
+// Closing a stdin that holds what the child hasn't read doesn't wait for it to: a program that
+// does ends at once, and its child goes on.
+Local started = Instant.Now()
+Print(Try Command(self).Arg("writer").Stdout(Stdio.NONE).Stderr(Stdio.NONE).Status(),
+      started.Elapsed < 3.Seconds)
+
+// A child goes on once its parent ends.
+Write((Try Command(self).Arg("leaver").Output()).Text)
 
 // Wait closes a piped stdin first, so a child that reads it to its end doesn't wait for more.
 Local unclosed = Try Command(self).Arg("cat").Stdin(Stdio.PIPED).Stderr(Stdio.NONE).Spawn()

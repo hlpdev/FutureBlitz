@@ -1000,35 +1000,57 @@ TEST_CASE("a program fb starts gets SIGPIPE at its default, though fb ignores it
 #endif
 }
 
-TEST_CASE("OnInterrupt and OnTerminate handle a program's signals until its code is done",
-          "[cli]") {
-    // Each handler sends what it saw to the program's code, which prints it, asks for the next,
-    // and ends, with the threads the handlers wait on.
-    const std::filesystem::path source = write_source(
-        "signals/handled.fb",
-        "Import std.core\nImport std.os\nConst seen = Channel<String>(4)\n"
-        "Process.OnInterrupt(Function()\n    seen.Send(\"interrupted\")\nEnd Function)\n"
-        "Process.OnTerminate(Function()\n    seen.Send(\"terminated\")\nEnd Function)\n"
-        "PrintError(\"started\")\nPrint(seen.Receive() ?? \"closed\")\nPrintError(\"again\")\n"
-        "Print(seen.Receive() ?? \"closed\")\n");
-    std::filesystem::path executable = source.parent_path() / "handled";
+namespace {
+
+/// What a program that drive() runs is sent: an interrupt, which is Ctrl+Break on Windows and
+/// SIGINT elsewhere, or SIGTERM or SIGHUP, which Windows has none of to send.
+enum class sent_t : std::uint8_t {
+    INTERRUPT,
+    TERMINATE,
+    HANG_UP,
+};
+
+/// Once the program has printed `after`, past what the step before waited for, it's sent
+/// `signal`, `times` times.
+struct step_t {
+    std::string_view after;
+    sent_t signal = sent_t::INTERRUPT;
+    int times = 1;
+};
+
+/// How a program that drive() ran ended: what it printed, stdout and stderr together, and its
+/// exit code, or on Linux and macOS minus the signal that ended it.
+struct driven_t {
+    std::string output;
+    std::int64_t status = 0;
+    /// It ran for a minute, and was ended.
+    bool stuck = false;
+};
+
+/// Builds `source` as the program signals/`name` and runs it in a process group of its own,
+/// sending it signals as `steps` say. On Linux and macOS, it can start with SIGHUP ignored, as
+/// nohup starts one. A program that runs for a minute is ended.
+driven_t drive(const std::string_view name, const std::string_view source,
+               const std::vector<step_t>& steps, const bool ignore_hang_up = false) {
+    const std::filesystem::path written = write_source(std::format("signals/{}.fb", name), source);
+    std::filesystem::path executable = written;
+    executable.replace_extension();
     executable += fb::executable_extension;
     std::filesystem::remove(executable);
     const fb::process_result_t built =
-        fb_run({ "build", fb::to_utf8(source), "-o", fb::to_utf8(executable) });
+        fb_run({ "build", fb::to_utf8(written), "-o", fb::to_utf8(executable) });
     INFO(built.output);
     REQUIRE(built.exit_code == 0);
 
-    // A program that never ends is ended after a minute, which fails the test.
     std::mutex mutex;
     std::condition_variable ended;
     bool done = false;
-    bool stuck = false;
+    driven_t driven;
     const auto watch = [&](const auto& end) {
         return std::thread([&, end] {
             std::unique_lock lock(mutex);
             if (!ended.wait_for(lock, std::chrono::minutes(1), [&] { return done; })) {
-                stuck = true;
+                driven.stuck = true;
                 end();
             }
         });
@@ -1043,14 +1065,10 @@ TEST_CASE("OnInterrupt and OnTerminate handle a program's signals until its code
         ended.notify_all();
         watcher.join();
     };
-    std::string output;
+    std::size_t from = 0;
 #ifdef _WIN32
-    // Ctrl+Break, the Ctrl+C that a process group can be sent, twice: Windows has no SIGTERM to
-    // send.
-    if (GetConsoleCP() == 0) {
-        SKIP("this process has no console to send Ctrl+Break through");
-    }
-
+    // Ctrl+Break is the Ctrl+C that a process group can be sent, through the console it shares.
+    REQUIRE(!ignore_hang_up);
     SECURITY_ATTRIBUTES security{
         .nLength = sizeof(SECURITY_ATTRIBUTES),
         .lpSecurityDescriptor = nullptr,
@@ -1075,26 +1093,32 @@ TEST_CASE("OnInterrupt and OnTerminate handle a program's signals until its code
     const auto read_until = [&](const std::string_view text) {
         std::array<char, 4096> buffer{};
         DWORD count = 0;
-        while (!output.contains(text) &&
+        while (driven.output.find(text, from) == std::string::npos &&
                ReadFile(read_end, buffer.data(), static_cast<DWORD>(buffer.size()), &count,
                         nullptr) != 0 &&
                count > 0) {
-            output.append(buffer.data(), count);
+            driven.output.append(buffer.data(), count);
         }
     };
-    read_until("started");
-    const bool interrupted = GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, process.dwProcessId) != 0;
-    read_until("again");
-    const bool again = GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, process.dwProcessId) != 0;
+    for (const step_t& step : steps) {
+        read_until(step.after);
+        REQUIRE(driven.output.find(step.after, from) != std::string::npos);
+        from = driven.output.find(step.after, from) + step.after.size();
+        REQUIRE(step.signal == sent_t::INTERRUPT);
+        for (int i = 0; i < step.times; ++i) {
+            REQUIRE(GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, process.dwProcessId) != 0);
+        }
+    }
+
     read_until("the end it never prints");
     stop(watcher);
     WaitForSingleObject(process.hProcess, INFINITE);
     DWORD exit_code = 0;
     GetExitCodeProcess(process.hProcess, &exit_code);
+    driven.status = exit_code;
     CloseHandle(process.hProcess);
     CloseHandle(process.hThread);
     CloseHandle(read_end);
-    const std::string_view second = "interrupted\n";
 #else
     std::array<int, 2> ends{};
     REQUIRE(pipe(ends.data()) == 0);
@@ -1104,41 +1128,289 @@ TEST_CASE("OnInterrupt and OnTerminate handle a program's signals until its code
     posix_spawn_file_actions_adddup2(&actions, ends[1], STDERR_FILENO);
     posix_spawn_file_actions_addclose(&actions, ends[0]);
     posix_spawn_file_actions_addclose(&actions, ends[1]);
+    posix_spawnattr_t attributes;
+    posix_spawnattr_init(&attributes);
+    posix_spawnattr_setpgroup(&attributes, 0);
+    posix_spawnattr_setflags(&attributes, static_cast<short>(POSIX_SPAWN_SETPGROUP));
     std::string path = executable.string();
     std::array<char*, 2> argv{ path.data(), nullptr };
+    // A signal ignored is ignored in what's started, as nohup has it.
+    struct sigaction before{};
+    if (ignore_hang_up) {
+        struct sigaction ignored{};
+        ignored.sa_handler = SIG_IGN;
+        sigaction(SIGHUP, &ignored, &before);
+    }
+
     pid_t pid = 0;
-    const int spawned = posix_spawn(&pid, path.c_str(), &actions, nullptr, argv.data(), environ);
+    const int spawned =
+        posix_spawn(&pid, path.c_str(), &actions, &attributes, argv.data(), environ);
+    if (ignore_hang_up) {
+        sigaction(SIGHUP, &before, nullptr);
+    }
+
     posix_spawn_file_actions_destroy(&actions);
+    posix_spawnattr_destroy(&attributes);
     close(ends[1]);
     REQUIRE(spawned == 0);
     std::thread watcher = watch([pid] { kill(pid, SIGKILL); });
     const auto read_until = [&](const std::string_view text) {
         std::array<char, 4096> buffer{};
         ssize_t count = 0;
-        while (!output.contains(text) &&
+        while (driven.output.find(text, from) == std::string::npos &&
                (count = read(ends[0], buffer.data(), buffer.size())) > 0) {
-            output.append(buffer.data(), static_cast<std::size_t>(count));
+            driven.output.append(buffer.data(), static_cast<std::size_t>(count));
         }
     };
-    read_until("started");
-    const bool interrupted = kill(pid, SIGINT) == 0;
-    read_until("again");
-    const bool again = kill(pid, SIGTERM) == 0;
+    for (const step_t& step : steps) {
+        read_until(step.after);
+        REQUIRE(driven.output.find(step.after, from) != std::string::npos);
+        from = driven.output.find(step.after, from) + step.after.size();
+        const int sent = step.signal == sent_t::INTERRUPT   ? SIGINT
+                         : step.signal == sent_t::TERMINATE ? SIGTERM
+                                                            : SIGHUP;
+        for (int i = 0; i < step.times; ++i) {
+            REQUIRE(kill(pid, sent) == 0);
+        }
+    }
+
     read_until("the end it never prints");
     stop(watcher);
     close(ends[0]);
     int status = 0;
     waitpid(pid, &status, 0);
-    const int exit_code = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
-    const std::string_view second = "terminated\n";
+    driven.status = WIFEXITED(status) ? WEXITSTATUS(status) : -WTERMSIG(status);
 #endif
-    INFO(output);
-    REQUIRE(interrupted);
-    REQUIRE(again);
-    CHECK_FALSE(stuck);
-    CHECK(exit_code == 0);
-    CHECK(output.contains("interrupted\n"));
-    CHECK(output.contains(second));
+    return driven;
+}
+
+/// How many times `text` is in `output`.
+std::size_t count_of(const std::string_view output, const std::string_view text) {
+    std::size_t count = 0;
+    for (std::size_t at = output.find(text); at != std::string_view::npos;
+         at = output.find(text, at + text.size())) {
+        ++count;
+    }
+
+    return count;
+}
+
+/// The status of a program that an interrupt ended: Windows' for Ctrl+C and Ctrl+Break, or SIGINT.
+#ifdef _WIN32
+constexpr std::int64_t interrupted_status = 0xC000013A;
+#else
+constexpr std::int64_t interrupted_status = -SIGINT;
+#endif
+
+} // namespace
+
+TEST_CASE("OnInterrupt and OnTerminate handle a program's signals until its code is done",
+          "[cli]") {
+#ifdef _WIN32
+    if (GetConsoleCP() == 0) {
+        SKIP("this process has no console to send Ctrl+Break through");
+    }
+
+    // Windows has no SIGTERM to send, so it's another Ctrl+Break.
+    const sent_t second = sent_t::INTERRUPT;
+#else
+    const sent_t second = sent_t::TERMINATE;
+#endif
+    // Each handler sends what it saw to the program's code, which prints it, asks for the next,
+    // and ends, with the threads the handlers wait on.
+    const driven_t driven =
+        drive("handled",
+              "Import std.core\nImport std.os\nConst seen = Channel<String>(4)\n"
+              "Process.OnInterrupt(Function()\n    seen.Send(\"interrupted\")\nEnd Function)\n"
+              "Process.OnTerminate(Function()\n    seen.Send(\"terminated\")\nEnd Function)\n"
+              "PrintError(\"started\")\nPrint(seen.Receive() ?? \"closed\")\n"
+              "PrintError(\"again\")\nPrint(seen.Receive() ?? \"closed\")\n",
+              { { .after = "started" }, { .after = "again", .signal = second } });
+    INFO(driven.output);
+    CHECK_FALSE(driven.stuck);
+    CHECK(driven.status == 0);
+#ifdef _WIN32
+    CHECK(count_of(driven.output, "interrupted\n") == 2);
+#else
+    CHECK(count_of(driven.output, "interrupted\n") == 1);
+    CHECK(count_of(driven.output, "terminated\n") == 1);
+#endif
+}
+
+TEST_CASE("a signal ends a program again once its code is done, while a thread runs on", "[cli]") {
+#ifdef _WIN32
+    if (GetConsoleCP() == 0) {
+        SKIP("this process has no console to send Ctrl+Break through");
+    }
+#endif
+    const driven_t driven =
+        drive("after_end",
+              "Import std.core\nImport std.os\nImport std.time\n"
+              "Process.OnInterrupt(Function()\n    Print(\"interrupted\")\nEnd Function)\n"
+              "Thread.Start(Function()\n    Sleep(300.Milliseconds)\n    PrintError(\"send\")\n"
+              "    Sleep(5.Seconds)\n    Print(\"the thread ran to its end\")\nEnd Function)\n"
+              "Print(\"done\")\n",
+              { { .after = "send" } });
+    INFO(driven.output);
+    CHECK_FALSE(driven.stuck);
+    CHECK(driven.status == interrupted_status);
+    CHECK_FALSE(driven.output.contains("interrupted"));
+    CHECK_FALSE(driven.output.contains("the thread ran to its end"));
+}
+
+TEST_CASE("a handler runs once more for the signals that come while it runs", "[cli]") {
+#ifdef _WIN32
+    if (GetConsoleCP() == 0) {
+        SKIP("this process has no console to send Ctrl+Break through");
+    }
+#endif
+    // Three signals during the first run make one more run, and no third comes.
+    const driven_t driven =
+        drive("coalesced",
+              "Import std.core\nImport std.os\nImport std.time\nConst ran = Channel<Int>(8)\n"
+              "Process.OnInterrupt(Function()\n    PrintError(\"running\")\n    Sleep(1.Seconds)\n"
+              "    ran.Send(1)\nEnd Function)\n"
+              "PrintError(\"started\")\nran.Receive()\nran.Receive()\nSleep(1500.Milliseconds)\n"
+              "Local runs = 2\nLocal more = 0\nWhile ran.TryReceive(ByRef more)\n    runs += 1\n"
+              "End While\nPrint(\"runs: {runs}\")\n",
+              { { .after = "started" }, { .after = "running", .times = 3 } });
+    INFO(driven.output);
+    CHECK_FALSE(driven.stuck);
+    CHECK(driven.status == 0);
+    CHECK(driven.output.contains("runs: 2\n"));
+}
+
+TEST_CASE("a coroutine waiting for what a handler gives waits for the signal", "[cli]") {
+#ifdef _WIN32
+    if (GetConsoleCP() == 0) {
+        SKIP("this process has no console to send Ctrl+Break through");
+    }
+#endif
+    // The handler's thread isn't work that could finish the coroutine's Task, but the TaskSource
+    // it gives is.
+    const driven_t driven =
+        drive("source",
+              "Import std.core\nImport std.concurrent\nImport std.os\n"
+              "Const stop = TaskSource<Bool>()\n"
+              "Process.OnInterrupt(Function()\n    stop.TryFinish(True)\nEnd Function)\n"
+              "Async Function Run()\n    PrintError(\"waiting\")\n    Await stop.Task\n"
+              "    Print(\"stopping\")\nEnd Function\nRun()\n",
+              { { .after = "waiting" } });
+    INFO(driven.output);
+    CHECK_FALSE(driven.stuck);
+    CHECK(driven.status == 0);
+    CHECK(driven.output.contains("stopping\n"));
+}
+
+TEST_CASE("a signal a program started out ignoring stays ignored, with a handler or after",
+          "[cli]") {
+#ifdef _WIN32
+    SKIP("Windows has no signals to ignore");
+#else
+    // Started as nohup starts it, the program gets SIGHUP while its code runs and once it's
+    // done, while a thread runs on, and both are ignored.
+    const driven_t driven = drive(
+        "ignored",
+        "Import std.core\nImport std.os\nImport std.time\n"
+        "Process.OnTerminate(Function()\n    Print(\"terminated\")\nEnd Function)\n"
+        "PrintError(\"watching\")\nSleep(1.Seconds)\n"
+        "Thread.Start(Function()\n    Sleep(300.Milliseconds)\n    PrintError(\"code done\")\n"
+        "    Sleep(1.Seconds)\n    Print(\"the thread ran to its end\")\nEnd Function)\n",
+        { { .after = "watching", .signal = sent_t::HANG_UP },
+          { .after = "code done", .signal = sent_t::HANG_UP } },
+        true);
+    INFO(driven.output);
+    CHECK_FALSE(driven.stuck);
+    CHECK(driven.status == 0);
+    CHECK_FALSE(driven.output.contains("terminated"));
+    CHECK(driven.output.contains("the thread ran to its end\n"));
+#endif
+}
+
+namespace {
+
+/// Builds `source` as the program `name` beside it, and gives its path.
+std::filesystem::path build_program(const std::string_view name, const std::string_view source) {
+    const std::filesystem::path written = write_source(std::format("{}.fb", name), source);
+    std::filesystem::path executable = written;
+    executable.replace_extension();
+    executable += fb::executable_extension;
+    std::filesystem::remove(executable);
+    const fb::process_result_t built =
+        fb_run({ "build", fb::to_utf8(written), "-o", fb::to_utf8(executable) });
+    INFO(built.output);
+    REQUIRE(built.exit_code == 0);
+    return executable;
+}
+
+} // namespace
+
+TEST_CASE("a .bat or .cmd file gets each argument as cmd.exe can carry it, and nothing runs",
+          "[cli]") {
+#ifndef _WIN32
+    SKIP("only Windows runs .bat and .cmd files, in cmd.exe");
+#else
+    // show.bat says what each argument came as: one that ran something would add a line, and an
+    // expanded %PATH% would show.
+    const std::filesystem::path script = write_source(
+        "batch/show.bat", "@echo off\r\necho 1=[%1]\r\necho 2=[%2]\r\necho 3=[%3]\r\n");
+    std::filesystem::copy_file(script, script.parent_path() / "show.cmd",
+                               std::filesystem::copy_options::overwrite_existing);
+    const std::string folder = script.parent_path().generic_string();
+    const std::filesystem::path runs = build_program("batch/runs", std::format(R"(Import std.core
+Import std.os
+For name In ["show.bat", "SHOW.CMD", "show.bat. ."]
+    Local command = Command("{0}/" + name)
+    command.Args(["safe&echo,INJECTED", "x\" & echo INJECTED", "%PATH%"])
+    Local output = Try command.Output()
+    Write(output.Text)
+    Print(output.Status)
+End For
+Try
+    Try Command("{0}/show.bat").Arg("two\nlines").Output()
+Catch e As IOError
+    Print(e.Kind)
+End Try
+)",
+                                                                               folder));
+    const std::expected<fb::process_result_t, std::string> ran = fb::run_process(runs, {});
+    REQUIRE(ran);
+    INFO(ran->output);
+    std::string expected;
+    for (int i = 0; i < 3; ++i) {
+        expected += "1=[\"safe&echo,INJECTED\"]\r\n2=[\"x\"\" & echo INJECTED\"]\r\n"
+                    "3=[\"%PATH%\"]\r\nexit code 0\n";
+    }
+
+    CHECK(ran->output == expected + "OTHER\n");
+    CHECK(ran->exit_code == 0);
+#endif
+}
+
+TEST_CASE("a program's name is found on PATH, never in the folder it runs in", "[cli]") {
+    // whoami, in the folder a Command runs in, is a program that says so: only a path runs it.
+    const std::filesystem::path planted =
+        build_program("planted/planted", "Import std.core\nPrint(\"planted\")\n");
+    const std::filesystem::path folder = planted.parent_path() / "folder";
+    std::filesystem::create_directories(folder);
+    std::filesystem::path whoami = folder / "whoami";
+    whoami += fb::executable_extension;
+    std::filesystem::copy_file(planted, whoami, std::filesystem::copy_options::overwrite_existing);
+    const std::filesystem::path runner =
+        build_program("planted/runner", std::format(R"(Import std.core
+Import std.os
+// Windows looks in the current folder first, unless this is set, as some shells set it.
+Env.Unset("NoDefaultCurrentDirectoryInExePath")
+Local named = Try Command("whoami").Folder("{0}").Output()
+Print(named.Status, named.Text == "planted\n")
+Local pathed = Try Command("./whoami").Folder("{0}").Output()
+Print(pathed.Status, pathed.Text == "planted\n")
+)",
+                                                    folder.generic_string()));
+    const std::expected<fb::process_result_t, std::string> ran = fb::run_process(runner, {});
+    REQUIRE(ran);
+    CHECK(ran->output == "exit code 0 False\nexit code 0 True\n");
+    CHECK(ran->exit_code == 0);
 }
 
 TEST_CASE("fb check --release checks the release build's code", "[cli]") {

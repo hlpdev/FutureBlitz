@@ -9,9 +9,8 @@
 #define NOMINMAX
 #endif
 
-#include "fb/process.hpp"
-
 #include "fb/os.hpp"
+#include "fb/os_process.hpp"
 #include "fb/runtime.hpp"
 #include "internal.hpp"
 
@@ -28,6 +27,7 @@
 #include <deque>
 #include <format>
 #include <functional>
+#include <iterator>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -90,9 +90,12 @@ struct read_t {
     waiter_t waiter;
 };
 
+struct stream_t;
+
 /// A write to stdin, whose bytes are its own until libuv has written them.
 struct write_t {
     uv_write_t request{};
+    stream_t* stream = nullptr;
     std::string bytes;
     waiter_t waiter;
 };
@@ -112,10 +115,11 @@ struct stream_t {
     uv_pipe_t pipe{};
     /// uv_spawn made it, and it isn't closing.
     bool open = false;
-    /// stdin's: it closes once what's written has gone.
+    /// stdin's: it closes once what's written has gone, and how many writes are under way.
     bool closing = false;
+    std::int32_t writes = 0;
     /// An output's bytes that no read has taken yet.
-    std::string held;
+    fb::os::byte_queue_t held;
     /// The output ended, or failed with `failure`.
     bool ended = false;
     std::int64_t failure = 0;
@@ -259,19 +263,35 @@ public:
     }
 
     /// Waits until more than `seen` signals of `kind` have come, and gives how many have, or 0
-    /// once the program's code is done.
+    /// once the program's code is done. Meanwhile the pool doesn't count its thread as work, until
+    /// what wakes it, a signal or the code's end, counts it again.
     std::int64_t wait_for_signal(const std::size_t kind, const std::int64_t seen) {
         std::unique_lock lock(m_signal_mutex);
-        m_signalled.wait(lock, [&] { return m_code_ended || m_counts.at(kind) > seen; });
+        if (!m_code_ended && m_counts.at(kind) <= seen) {
+            ++m_waiters.at(kind);
+            fb::runtime::add_signal_waits(1);
+            m_signalled.wait(lock, [&] { return m_code_ended || m_counts.at(kind) > seen; });
+        }
+
         return m_code_ended ? 0 : m_counts.at(kind);
     }
 
     /// The program's code is done: what waits for a signal stops, and the signals do what they do
-    /// without the handlers.
+    /// without the handlers. Ending them again does nothing more.
     void end_signals() {
         {
             const std::scoped_lock lock(m_signal_mutex);
+            if (m_code_ended) {
+                return;
+            }
+
             m_code_ended = true;
+            std::int64_t waiting = 0;
+            for (std::int64_t& waiters : m_waiters) {
+                waiting += std::exchange(waiters, 0);
+            }
+
+            fb::runtime::add_signal_waits(-waiting);
         }
 
         m_signalled.notify_all();
@@ -315,6 +335,8 @@ private:
     std::mutex m_signal_mutex;
     std::condition_variable m_signalled;
     std::array<std::int64_t, signal_kinds> m_counts{};
+    /// How many threads wait for each kind, which the pool doesn't count as work.
+    std::array<std::int64_t, signal_kinds> m_waiters{};
     bool m_code_ended = false;
 
     /// Has `work` run on the loop's thread, starting the thread the first time. False once the
@@ -362,6 +384,14 @@ private:
 
         m_watching.at(kind) = true;
         for (const int signal : signals_of(kind)) {
+#ifndef _WIN32
+            // One the program started out ignoring, as nohup has it ignore SIGHUP, stays ignored:
+            // libuv would leave it at its default once the watching stops.
+            struct sigaction action{};
+            if (sigaction(signal, nullptr, &action) == 0 && action.sa_handler == SIG_IGN) {
+                continue;
+            }
+#endif
             auto watcher = std::make_unique<watcher_t>();
             watcher->kind = kind;
             watcher->handle.data = watcher.get();
@@ -389,8 +419,10 @@ private:
         const auto& watcher = *static_cast<const watcher_t*>(handle->data);
         processes_t& self = processes();
         {
+            // Each thread waiting for it runs its handler now, which is work again.
             const std::scoped_lock lock(self.m_signal_mutex);
             ++self.m_counts.at(watcher.kind);
+            fb::runtime::add_signal_waits(-std::exchange(self.m_waiters.at(watcher.kind), 0));
         }
 
         self.m_signalled.notify_all();
@@ -480,7 +512,7 @@ void deliver(stream_t& stream);
 void on_read(uv_stream_t* pipe, const ssize_t count, const uv_buf_t* buffer) {
     stream_t& stream = stream_of(reinterpret_cast<uv_handle_t*>(pipe));
     if (count > 0) {
-        stream.held.append(buffer->base, static_cast<std::size_t>(count));
+        stream.held.append({ buffer->base, static_cast<std::size_t>(count) });
     } else if (count < 0) {
         stream.ended = true;
         stream.failure = count == UV_EOF ? 0 : count;
@@ -502,9 +534,7 @@ void deliver(stream_t& stream) {
         }
 
         const std::size_t count =
-            std::min(stream.held.size(), static_cast<std::size_t>(read.count));
-        std::memcpy(read.into, stream.held.data(), count);
-        stream.held.erase(0, count);
+            stream.held.take({ read.into, static_cast<std::size_t>(read.count) });
         answer(read.waiter, static_cast<std::int64_t>(count));
     }
 
@@ -534,17 +564,10 @@ void close_input(stream_t& stream) {
         return;
     }
 
+    // Not uv_shutdown, which on Windows waits for the child to read what the pipe holds: the
+    // bytes stay there for it once this end closes.
     stream.closing = true;
-    auto* request = new uv_shutdown_t{};
-    request->data = &stream;
-    const int shut = uv_shutdown(request, reinterpret_cast<uv_stream_t*>(&stream.pipe),
-                                 [](uv_shutdown_t* done, const int /*status*/) {
-                                     auto& input = *static_cast<stream_t*>(done->data);
-                                     delete done;
-                                     close_stream(input);
-                                 });
-    if (shut != 0) {
-        delete request;
+    if (stream.writes == 0) {
         close_stream(stream);
     }
 }
@@ -606,15 +629,41 @@ struct spawn_t {
     std::array<stdio_t, 3> stdio{};
 };
 
-/// Whether two environment variables' names are one variable's, which on Windows ignores case.
+#ifdef _WIN32
+std::wstring wide_of(const std::string_view text) {
+    if (text.empty()) {
+        return {};
+    }
+
+    const int size =
+        MultiByteToWideChar(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), nullptr, 0);
+    std::wstring wide(static_cast<std::size_t>(size), L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), wide.data(), size);
+    return wide;
+}
+
+std::string narrow_of(const std::wstring_view text) {
+    if (text.empty()) {
+        return {};
+    }
+
+    const int size = WideCharToMultiByte(CP_UTF8, 0, text.data(), static_cast<int>(text.size()),
+                                         nullptr, 0, nullptr, nullptr);
+    std::string narrow(static_cast<std::size_t>(size), '\0');
+    WideCharToMultiByte(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), narrow.data(), size,
+                        nullptr, nullptr);
+    return narrow;
+}
+#endif
+
+/// Whether two environment variables' names are one variable's, which on Windows ignores case
+/// as Windows does, in all of Unicode.
 bool same_variable(const std::string_view a, const std::string_view b) {
 #ifdef _WIN32
-    return a.size() == b.size() && std::ranges::equal(a, b, [](const char x, const char y) {
-               const auto lower = [](const char c) {
-                   return c >= 'A' && c <= 'Z' ? static_cast<char>(c - 'A' + 'a') : c;
-               };
-               return lower(x) == lower(y);
-           });
+    const std::wstring wide_a = wide_of(a);
+    const std::wstring wide_b = wide_of(b);
+    return CompareStringOrdinal(wide_a.data(), static_cast<int>(wide_a.size()), wide_b.data(),
+                                static_cast<int>(wide_b.size()), TRUE) == CSTR_EQUAL;
 #else
     return a == b;
 #endif
@@ -655,17 +704,169 @@ std::optional<std::vector<std::string>> environment_of(const spawn_t& spawn) {
     return texts;
 }
 
+/// What uv_spawn starts: the file, the arguments it gets, and how they go.
+struct launch_t {
+    std::string file;
+    std::vector<std::string> arguments;
+    unsigned flags = 0;
+};
+
+#ifdef _WIN32
+/// `path` made absolute, as Windows takes it from this program's current folder.
+std::wstring full_path_of(const std::wstring& path) {
+    const DWORD size = GetFullPathNameW(path.c_str(), 0, nullptr, nullptr);
+    if (size == 0) {
+        return path;
+    }
+
+    std::wstring full(size, L'\0');
+    full.resize(GetFullPathNameW(path.c_str(), size, full.data(), nullptr));
+    return full;
+}
+
+/// `path` in `folder` when it's relative, as libuv and POSIX's execvp take a child's paths.
+std::wstring in_folder(const std::optional<std::string>& folder, const std::wstring& path) {
+    const bool relative =
+        path.size() < 2 || (path[1] != L':' && path[0] != L'\\' && path[0] != L'/');
+    if (!relative || !folder) {
+        return path;
+    }
+
+    std::wstring joined = wide_of(*folder);
+    if (!joined.ends_with(L'\\') && !joined.ends_with(L'/')) {
+        joined += L'\\';
+    }
+
+    return joined + path;
+}
+
+/// The program at `path`, as Windows finds one: as it is when its name has an extension, then
+/// with .com, then .exe, after it.
+std::optional<std::wstring> program_at(const std::wstring& path, const bool has_extension) {
+    for (const std::wstring& file :
+         { has_extension ? path : std::wstring(), path + L".com", path + L".exe" }) {
+        const DWORD attributes =
+            file.empty() ? INVALID_FILE_ATTRIBUTES : GetFileAttributesW(file.c_str());
+        if (attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_DIRECTORY) == 0) {
+            return full_path_of(file);
+        }
+    }
+
+    return std::nullopt;
+}
+
+/// The child's PATH: the one its environment has, or this program's, as libuv gives a child
+/// whose environment has none.
+std::string path_of(const std::optional<std::vector<std::string>>& environment) {
+    if (environment) {
+        for (const std::string& variable : *environment) {
+            const std::size_t equals = variable.find('=', 1);
+            if (equals != std::string::npos && same_variable(variable.substr(0, equals), "PATH")) {
+                return variable.substr(equals + 1);
+            }
+        }
+    }
+
+    const DWORD size = GetEnvironmentVariableW(L"PATH", nullptr, 0);
+    std::wstring value(size, L'\0');
+    value.resize(GetEnvironmentVariableW(L"PATH", value.data(), size));
+    return narrow_of(value);
+}
+
+/// Where Windows finds `program`: a path from the child's folder, and a name alone on the
+/// child's PATH, never in a current folder, which libuv's search looks in first.
+std::optional<std::string>
+find_program(const spawn_t& spawn, const std::optional<std::vector<std::string>>& environment) {
+    const std::wstring file = wide_of(spawn.program);
+    const std::size_t separator = file.find_last_of(L"\\/:");
+    const std::wstring name = separator == std::wstring::npos ? file : file.substr(separator + 1);
+    if (name.empty() || name == L".") {
+        return std::nullopt;
+    }
+
+    const std::size_t dot = name.find(L'.');
+    const bool has_extension = dot != std::wstring::npos && dot + 1 < name.size();
+    std::optional<std::wstring> found;
+    if (separator != std::wstring::npos) {
+        found = program_at(in_folder(spawn.folder, file), has_extension);
+    } else {
+        for (const std::string& entry : fb::os::path_entries(path_of(environment))) {
+            std::wstring folder = in_folder(spawn.folder, wide_of(entry));
+            if (!folder.ends_with(L'\\') && !folder.ends_with(L'/')) {
+                folder += L'\\';
+            }
+
+            found = program_at(folder + name, has_extension);
+            if (found) {
+                break;
+            }
+        }
+    }
+
+    return found ? std::optional(narrow_of(*found)) : std::nullopt;
+}
+
+/// cmd.exe, from the system's own folder.
+std::string command_prompt() {
+    std::wstring folder(MAX_PATH, L'\0');
+    folder.resize(GetSystemDirectoryW(folder.data(), MAX_PATH));
+    return narrow_of(folder + L"\\cmd.exe");
+}
+#endif
+
+/// What uv_spawn starts for `spawn`, or nullopt with the failure. On Windows, the program found
+/// as find_program() finds it, and a .bat or .cmd file run by cmd.exe with its arguments escaped
+/// for it, which CreateProcess would give it as a C program's. The caller holds the
+/// environment's lock.
+std::optional<launch_t> launch_of(const spawn_t& spawn,
+                                  const std::optional<std::vector<std::string>>& environment,
+                                  std::int64_t& failure) {
+    launch_t launch{ .file = spawn.program, .arguments = { spawn.program } };
+    std::ranges::copy(spawn.arguments, std::back_inserter(launch.arguments));
+#ifdef _WIN32
+    const std::optional<std::string> found = find_program(spawn, environment);
+    if (!found) {
+        failure = UV_ENOENT;
+        return std::nullopt;
+    }
+
+    launch.file = *found;
+    launch.flags = static_cast<unsigned>(UV_PROCESS_WINDOWS_FILE_PATH_EXACT_NAME);
+    if (fb::os::is_batch_file(*found)) {
+        const std::optional<std::string> line = fb::os::batch_arguments(*found, spawn.arguments);
+        if (!line) {
+            failure = 3;
+            return std::nullopt;
+        }
+
+        launch.file = command_prompt();
+        launch.arguments = { "cmd.exe", "/e:ON", "/v:OFF", "/d", "/c", *line };
+        launch.flags |= static_cast<unsigned>(UV_PROCESS_WINDOWS_VERBATIM_ARGUMENTS);
+    }
+#else
+    // execvp finds it on the PATH in the child's environment.
+    (void)environment;
+    (void)failure;
+#endif
+    return launch;
+}
+
 /// Starts the child on the loop's thread, and gives it, or nullptr with libuv's error in
-/// `failure`.
+/// `failure`, or 3 for a batch file's argument that cmd.exe can't take.
 child_t* start_child(uv_loop_t* loop, const spawn_t& spawn, std::int64_t& failure) {
+    // The environment the child gets is one that no thread is changing.
+    const std::scoped_lock lock(fb::os::environment_lock());
+    std::optional<std::vector<std::string>> environment = environment_of(spawn);
+    std::optional<launch_t> launch = launch_of(spawn, environment, failure);
+    if (!launch) {
+        return nullptr;
+    }
+
     auto* child = new child_t();
     child->process.data = child;
     std::vector<char*> arguments;
-    std::string program = spawn.program;
-    arguments.push_back(program.data());
-    std::vector<std::string> words = spawn.arguments;
-    for (std::string& word : words) {
-        arguments.push_back(word.data());
+    for (std::string& argument : launch->arguments) {
+        arguments.push_back(argument.data());
     }
 
     arguments.push_back(nullptr);
@@ -699,29 +900,23 @@ child_t* start_child(uv_loop_t* loop, const spawn_t& spawn, std::int64_t& failur
 
     uv_process_options_t options{};
     options.exit_cb = on_exit;
-    options.file = program.c_str();
+    options.file = launch->file.c_str();
     options.args = arguments.data();
+    options.flags = launch->flags;
     options.cwd = spawn.folder ? spawn.folder->c_str() : nullptr;
     options.stdio_count = static_cast<int>(stdio.size());
     options.stdio = stdio.data();
-    int started = 0;
-    {
-        // The environment the child gets is one that no thread is changing.
-        const std::scoped_lock lock(fb::os::environment_lock());
-        std::optional<std::vector<std::string>> environment = environment_of(spawn);
-        std::vector<char*> variables;
-        if (environment) {
-            for (std::string& variable : *environment) {
-                variables.push_back(variable.data());
-            }
-
-            variables.push_back(nullptr);
-            options.env = variables.data();
+    std::vector<char*> variables;
+    if (environment) {
+        for (std::string& variable : *environment) {
+            variables.push_back(variable.data());
         }
 
-        started = uv_spawn(loop, &child->process, &options);
+        variables.push_back(nullptr);
+        options.env = variables.data();
     }
 
+    const int started = uv_spawn(loop, &child->process, &options);
     // libuv has the process's handle either way, which closes like the pipes'.
     ++child->handles;
     processes().add(child);
@@ -751,6 +946,12 @@ std::vector<uv_buf_t> buffers_of(std::string& bytes) {
     return buffers;
 }
 
+/// A write's result: on Windows, libuv gives a pipe whose child has gone UV_EOF, which is EPIPE,
+/// as it is elsewhere.
+int write_error(const int status) {
+    return status == UV_EOF ? UV_EPIPE : status;
+}
+
 /// Writes to the child's stdin on the loop's thread, and answers the waiter once the bytes have
 /// gone.
 void write_input(child_t* child, std::string bytes, const waiter_t& waiter) {
@@ -760,18 +961,25 @@ void write_input(child_t* child, std::string bytes, const waiter_t& waiter) {
         return;
     }
 
-    auto* write = new write_t{ .bytes = std::move(bytes), .waiter = waiter };
+    auto* write = new write_t{ .stream = &input, .bytes = std::move(bytes), .waiter = waiter };
     write->request.data = write;
     std::vector<uv_buf_t> buffers = buffers_of(write->bytes);
+    ++input.writes;
     const int written =
         uv_write(&write->request, reinterpret_cast<uv_stream_t*>(&input.pipe), buffers.data(),
                  static_cast<unsigned>(buffers.size()), [](uv_write_t* request, const int status) {
                      auto* done = static_cast<write_t*>(request->data);
-                     answer(done->waiter, status);
+                     stream_t& stream = *done->stream;
+                     --stream.writes;
+                     answer(done->waiter, write_error(status));
                      delete done;
+                     if (stream.closing && stream.writes == 0) {
+                         close_stream(stream);
+                     }
                  });
     if (written != 0) {
-        answer(waiter, written);
+        --input.writes;
+        answer(waiter, write_error(written));
         delete write;
     }
 }
@@ -842,6 +1050,8 @@ std::uint64_t fb_os_process_spawn(const fb_string_t* program, const fb_array_t* 
         return 0;
     }
 
+    // What this program printed comes out before what a child that shares its stdout prints.
+    fb_flush();
     child_t* child = nullptr;
     const std::int64_t done = processes().run([&](uv_loop_t* loop, const waiter_t& waiter) {
         child = start_child(loop, spawn, *failure);

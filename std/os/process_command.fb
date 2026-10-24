@@ -45,9 +45,10 @@ Public Struct ProcessOutput
     End Property
 End Struct
 
-// A program to start, found as a path, or by its name on PATH, and what it starts with. Its
-// methods give the Command back, so they chain: Command("git").Arg("log").Folder(repo).Output().
-// It can start the program any number of times.
+// A program to start, and what it starts with. It's found as a path, from the Folder it runs in
+// when it's relative, or by its name on the PATH it gets, never in a current folder; on Windows,
+// with .com or .exe after the name too. Its methods give the Command back, so they chain:
+// Command("git").Arg("log").Folder(repo).Output(). It can start the program any number of times.
 Public Class Command
     Field Program: String
     Field Arguments: String[]
@@ -70,7 +71,11 @@ Public Class Command
     End New
 
     // Adds an argument, which the program gets as it is: nothing splits it, or reads quotes or
-    // anything else in it.
+    // anything else in it. On Windows, a .bat or .cmd file runs in cmd.exe, which gets one as
+    // Rust gives it there, so nothing in it runs: in quotes when it has anything but letters,
+    // digits, and #$*+-./:?@\_, with each quote doubled, and every % kept from expanding, so the
+    // batch file reads it with %~1. One with a line break, which cmd.exe can't take, throws an
+    // IOError as it starts.
     Public Method Arg(argument: String): Command
         Arguments.Add(argument)
         Return Self
@@ -131,10 +136,11 @@ Public Class Command
         Return Self
     End Method
 
-    // Starts the program, which runs beside this one, and gives its Child. Its streams are this
-    // program's unless Stdin, Stdout, or Stderr said otherwise. Throws an IOError when it can't
-    // start, one of NOT_FOUND for a program that isn't there. Panics when a text has a NUL, or a
-    // variable's name is empty or has an '=', which none can.
+    // Starts the program, which runs beside this one, and gives its Child, once what this program
+    // printed is out. Its streams are this program's unless Stdin, Stdout, or Stderr said
+    // otherwise. Throws an IOError when it can't start, one of NOT_FOUND for a program that isn't
+    // there. Panics when a text has a NUL, or a variable's name is empty or has an '=', which
+    // none can.
     @PanicsAtCaller
     Public Method Spawn(): Child Throws IOError
         Return Try Started(Stdio.INHERIT, Stdio.INHERIT, Stdio.INHERIT)
@@ -190,6 +196,9 @@ Public Class Command
                   "without a NUL")
         ElseIf failure == 2
             Panic("a Command takes variables' names that aren't empty and have no '=' or NUL")
+        ElseIf failure == 3
+            Throw IOError(IOErrorKind.OTHER, "{Program}: cmd.exe can't give a .bat or .cmd " +
+                                             "file an argument with a line break", Program)
         ElseIf handle == 0
             Throw ProcessError(failure, Program)
         End If

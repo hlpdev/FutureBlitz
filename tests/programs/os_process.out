@@ -16,12 +16,24 @@ only Null
 True
 True
 True
+True
+True
+before
+hello
+exit code 0
+after
 True True
 got one
 got two
 done
 exit code 0 exit code 0
 closed: OTHER
+during: OTHER broken pipe
+after: OTHER broken pipe
+exit code 0
+exit code 0 True
+the parent ends
+the child ran on
 exit code 0
 True 1000000 exit code 0
 [] True exit code 0
