@@ -1,0 +1,24 @@
+// Handlers for signals that never come: the program ends once its code is done, its coroutines
+// too, and the threads the handlers wait on end with it.
+Import std.core
+Import std.os
+
+Process.OnInterrupt(Function()
+    Print("interrupted")
+End Function)
+Process.OnTerminate(Function()
+    Print("terminated")
+End Function)
+
+// A second handler for a signal gets it too.
+Process.OnInterrupt(Function()
+    Print("again")
+End Function)
+
+Async Function Later()
+    Await NextFrame()
+    Print("later")
+End Function
+
+Later()
+Print("done")
