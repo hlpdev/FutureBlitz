@@ -283,20 +283,26 @@ TEST_CASE("a thread of its own that ends as the pool finishes leaves no id behin
           "[runtime][threads]") {
     // Each round, a thread ends as finish() runs, then two more start. A finished thread's id
     // left behind would make the second join the first while it runs, if the system gave the
-    // first that id, as Linux does, and they'd wait for each other. The watchdog ends that.
+    // first that id, as Linux does, and they'd wait for each other. The watchdog ends that: 30
+    // seconds without a round done, however long the rounds take together on a busy machine.
     std::atomic<bool> done = false;
+    std::atomic<int> rounds = 0;
     std::thread watchdog([&] {
-        for (int i = 0; i < 1200 && !done.load(); ++i) {
+        int seen = -1;
+        int still = 0;
+        while (!done.load()) {
             std::this_thread::sleep_for(std::chrono::milliseconds(50));
-        }
-
-        if (!done.load()) {
-            std::fputs("threads of their own deadlocked\n", stderr);
-            std::abort();
+            const int now = rounds.load();
+            still = now == seen ? still + 1 : 0;
+            seen = now;
+            if (still == 600 && !done.load()) {
+                std::fputs("threads of their own deadlocked\n", stderr);
+                std::abort();
+            }
         }
     });
     std::atomic<std::int64_t> count = 0;
-    for (int i = 0; i < 2000; ++i) {
+    for (int i = 0; i < 2000; ++i, rounds.fetch_add(1)) {
         fb_job_release(fb_job_start_thread(count_one, &count));
         fb_pool_finish();
         fb_job_release(fb_job_start_thread(
