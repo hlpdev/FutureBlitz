@@ -76,6 +76,9 @@ End For
 
 Print("== headers")
 Print(Fetched(client, "{base}/header/user-agent"))
+// An empty one goes as an empty header.
+client.UserAgent = ""
+Print("[{Fetched(client, "{base}/header/user-agent")}]")
 client.UserAgent = "tester/1"
 Print(Fetched(client, "{base}/header/user-agent"))
 client.DefaultHeaders.Add("X-Default", "client")
