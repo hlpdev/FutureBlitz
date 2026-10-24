@@ -424,6 +424,22 @@ public:
     [[nodiscard]] bool has_zero(type_id_t type) const;
 
 private:
+    /// A value computed with + and -, and * by a known number: a known number, and how many
+    /// times it has each other part.
+    struct linear_t;
+
+    /// "N * 2" as it's written.
+    [[nodiscard]] type_id_t computed(value_op_t op, type_id_t left, type_id_t right);
+    /// A VALUE or Const type parameter as a linear_t, whose parts are Const type parameters and
+    /// values computed otherwise.
+    [[nodiscard]] linear_t linear(type_id_t type) const;
+    /// Two linear_ts added, subtracted, or multiplied, or nullopt where the result isn't one, or
+    /// would drop a part that can fail, or its numbers pass what an Int64 holds.
+    [[nodiscard]] std::optional<linear_t> combine(value_op_t op, const linear_t& left,
+                                                  const linear_t& right) const;
+    /// The value a linear_t is, the same one for equal ones.
+    [[nodiscard]] type_id_t from_linear(const linear_t& value);
+
     struct entry_t {
         /// On the heap, so the type and its name never move.
         std::unique_ptr<type_t> type;

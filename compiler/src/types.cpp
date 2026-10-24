@@ -588,6 +588,30 @@ type_id_t type_table_t::value(const std::int64_t number) {
     return id;
 }
 
+namespace {
+
+/// A part of a linear_t, and how many times it has it.
+using part_t = std::pair<type_id_t, std::int64_t>;
+
+} // namespace
+
+struct type_table_t::linear_t {
+    std::int64_t known = 0;
+    /// Each part once, never 0 times, in the order the parts were made, so equal values list
+    /// theirs alike.
+    std::vector<part_t> parts;
+};
+
+namespace {
+
+/// Whether a value's part is a Const type parameter, which works out in every instance, unlike
+/// one computed with / or %, which can divide by 0, or a product, which can overflow.
+bool always_works(const type_table_t& types, const type_id_t part) {
+    return types.get(part).kind == type_kind_t::PARAMETER;
+}
+
+} // namespace
+
 type_id_t type_table_t::value_expression(const value_op_t op, const type_id_t left,
                                          const type_id_t right) {
     if (left == type_id_t::INVALID || right == type_id_t::INVALID) {
@@ -603,6 +627,149 @@ type_id_t type_table_t::value_expression(const value_op_t op, const type_id_t le
         }
     }
 
+    // + and -, and * by a known number, combine, so equal values are one: N - 0 is N, N + N is
+    // N * 2, and M + N is N + M. One that would drop a part that can fail, as (10 / N) * 0
+    // would, or whose numbers pass what an Int64 holds, stays as it's written.
+    if (const std::optional<linear_t> made = combine(op, linear(left), linear(right))) {
+        return from_linear(*made);
+    }
+
+    // N / 1 is N.
+    if (op == value_op_t::DIVIDE && b.kind == type_kind_t::VALUE &&
+        b.operation == value_op_t::NONE && b.number == 1) {
+        return left;
+    }
+
+    return computed(op, left, right);
+}
+
+type_table_t::linear_t type_table_t::linear(const type_id_t type) const {
+    const type_t& info = get(type);
+    if (info.kind == type_kind_t::VALUE && info.operation == value_op_t::NONE) {
+        return { .known = info.number };
+    }
+
+    // What value_expression() combined is made of its parts, and the rest is a part of its own.
+    if (info.kind == type_kind_t::VALUE) {
+        if (const std::optional<linear_t> parts =
+                combine(info.operation, linear(info.parameters[0]), linear(info.parameters[1]))) {
+            return *parts;
+        }
+    }
+
+    return { .parts = { { type, 1 } } };
+}
+
+std::optional<type_table_t::linear_t>
+type_table_t::combine(const value_op_t op, const linear_t& left, const linear_t& right) const {
+    if (op == value_op_t::ADD || op == value_op_t::SUBTRACT) {
+        linear_t sum = left;
+        const std::int64_t sign = op == value_op_t::ADD ? 1 : -1;
+        std::int64_t known = 0;
+        if (__builtin_mul_overflow(right.known, sign, &known) ||
+            __builtin_add_overflow(sum.known, known, &sum.known)) {
+            return std::nullopt;
+        }
+
+        for (const auto& [part, count] : right.parts) {
+            std::int64_t added = 0;
+            if (__builtin_mul_overflow(count, sign, &added)) {
+                return std::nullopt;
+            }
+
+            const auto found = std::ranges::find(sum.parts, part, &part_t::first);
+            if (found == sum.parts.end()) {
+                sum.parts.emplace_back(part, added);
+            } else if (__builtin_add_overflow(found->second, added, &found->second)) {
+                return std::nullopt;
+            } else if (found->second == 0) {
+                if (!always_works(*this, part)) {
+                    return std::nullopt;
+                }
+
+                sum.parts.erase(found);
+            }
+        }
+
+        std::ranges::sort(sum.parts);
+        return sum;
+    }
+
+    if (op != value_op_t::MULTIPLY || (!left.parts.empty() && !right.parts.empty())) {
+        return std::nullopt;
+    }
+
+    linear_t product = left.parts.empty() ? right : left;
+    const std::int64_t by = left.parts.empty() ? left.known : right.known;
+    if (by == 0) {
+        if (!std::ranges::all_of(product.parts, [this](const part_t& part) {
+                return always_works(*this, part.first);
+            })) {
+            return std::nullopt;
+        }
+
+        return linear_t{};
+    }
+
+    if (__builtin_mul_overflow(product.known, by, &product.known)) {
+        return std::nullopt;
+    }
+
+    for (part_t& part : product.parts) {
+        if (__builtin_mul_overflow(part.second, by, &part.second)) {
+            return std::nullopt;
+        }
+    }
+
+    return product;
+}
+
+type_id_t type_table_t::from_linear(const linear_t& value) {
+    // The parts it adds, then those it subtracts, then the known number: "M * 2 - N + 1".
+    type_id_t made = type_id_t::INVALID;
+    const auto append = [this, &made](const type_id_t part, const bool adds,
+                                      const type_id_t times) {
+        const type_id_t term =
+            times == type_id_t::INVALID ? part : computed(value_op_t::MULTIPLY, part, times);
+        if (made == type_id_t::INVALID) {
+            made = adds ? term : computed(value_op_t::SUBTRACT, this->value(0), term);
+        } else {
+            made = computed(adds ? value_op_t::ADD : value_op_t::SUBTRACT, made, term);
+        }
+    };
+    // A count as a number to multiply by, with the sign the part is added or subtracted with,
+    // or Int64's lowest itself, which has no positive.
+    const auto times = [this](const std::int64_t count) {
+        constexpr std::int64_t lowest = std::numeric_limits<std::int64_t>::min();
+        const std::int64_t size = count < 0 && count != lowest ? -count : count;
+        return size == 1 ? type_id_t::INVALID : this->value(size);
+    };
+    for (const auto& [part, count] : value.parts) {
+        if (count > 0) {
+            append(part, true, times(count));
+        }
+    }
+
+    for (const auto& [part, count] : value.parts) {
+        if (count < 0) {
+            append(part, count == std::numeric_limits<std::int64_t>::min(), times(count));
+        }
+    }
+
+    if (made == type_id_t::INVALID) {
+        return this->value(value.known);
+    }
+
+    if (value.known == 0) {
+        return made;
+    }
+
+    const bool adds = value.known > 0 || value.known == std::numeric_limits<std::int64_t>::min();
+    return computed(adds ? value_op_t::ADD : value_op_t::SUBTRACT, made,
+                    this->value(adds ? value.known : -value.known));
+}
+
+type_id_t type_table_t::computed(const value_op_t op, const type_id_t left, const type_id_t right) {
     for (const type_id_t made : m_values) {
         if (get(made).operation == op && get(made).parameters == std::vector{ left, right }) {
             return made;

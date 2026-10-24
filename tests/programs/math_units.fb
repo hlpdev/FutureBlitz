@@ -38,3 +38,16 @@ Local seen = Set<MetersPerSecond>()
 seen.Add(speed)
 seen.Add(distance / time)
 Print(seen.Count, seen.Contains(MetersPerSecond(12.5)))
+
+// Generic code over units, whose exponents combine as an instance's do: L - 0 is L, and L + L is
+// L * 2.
+Function PerSecond<Const L: Int>(a: Quantity<L, 0, 0>, t: Seconds): Quantity<L, 0, -1> => a / t
+
+Function Squared<Const L: Int>(a: Quantity<L, 0, 0>): Quantity<L * 2, 0, 0> => a * a
+
+Function Rate<Const L: Int, Const M: Int, Const T: Int>(a: Quantity<L, M, T>,
+                                                        t: Seconds): Quantity<L, M, T - 1>
+    Return a / t
+End Function
+
+Print(PerSecond(Meters(9), Seconds(3)), Squared(Meters(3)), Rate(Newtons(6), Seconds(2)))

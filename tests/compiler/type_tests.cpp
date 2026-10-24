@@ -2,6 +2,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 #include <cstddef>
+#include <cstdint>
 #include <optional>
 #include <string_view>
 
@@ -341,6 +342,53 @@ TEST_CASE("a Const type parameter's arguments are values, which fixed arrays tak
     const fb::type_id_t made = types.substitute(cells, { w }, { four });
     CHECK(made == types.fixed_array(fb::type_id_t::FLOAT32, { 4, 2 }));
     CHECK(types.name(made) == "Float32[4, 2]");
+}
+
+TEST_CASE("values computed alike are one value", "[types]") {
+    using enum fb::value_op_t;
+    fb::type_table_t types;
+    const fb::type_id_t l = types.add_value_parameter("L", fb::type_id_t::INT32);
+    const fb::type_id_t m = types.add_value_parameter("M", fb::type_id_t::INT8);
+    const auto known = [&types](const std::int64_t number) { return types.value(number); };
+
+    // + and -, and * by a known number, combine, whatever order they're written in.
+    CHECK(types.value_expression(SUBTRACT, l, known(0)) == l);
+    CHECK(types.value_expression(MULTIPLY, known(1), l) == l);
+    CHECK(types.value_expression(DIVIDE, l, known(1)) == l);
+    const fb::type_id_t twice = types.value_expression(MULTIPLY, l, known(2));
+    CHECK(types.name(twice) == "L * 2");
+    CHECK(types.value_expression(ADD, l, l) == twice);
+    CHECK(types.value_expression(MULTIPLY, known(2), l) == twice);
+    const fb::type_id_t both = types.value_expression(ADD, m, l);
+    CHECK(types.name(both) == "L + M");
+    CHECK(types.value_expression(ADD, l, m) == both);
+    CHECK(types.value_expression(SUBTRACT, types.value_expression(ADD, l, known(1)),
+                                 types.value_expression(SUBTRACT, l, known(2))) == known(3));
+    CHECK(types.value_expression(SUBTRACT, l, l) == known(0));
+    CHECK(types.value_expression(MULTIPLY, l, known(0)) == known(0));
+
+    // The parts it adds come first, then those it subtracts, then the known number.
+    const fb::type_id_t mixed = types.value_expression(
+        ADD,
+        types.value_expression(SUBTRACT, known(1), types.value_expression(MULTIPLY, m, known(3))),
+        twice);
+    CHECK(types.name(mixed) == "L * 2 - M * 3 + 1");
+    CHECK(types.name(types.value_expression(SUBTRACT, known(0), l)) == "0 - L");
+    CHECK(types.name(types.value_expression(SUBTRACT, l, known(-1))) == "L + 1");
+
+    // Each instance works out what it combines to.
+    CHECK(types.substitute(mixed, { l, m }, { known(5), known(2) }) == known(5));
+
+    // One that would drop a part that can fail, or pass what an Int64 holds, stays as it's
+    // written.
+    const fb::type_id_t split = types.value_expression(DIVIDE, known(10), l);
+    CHECK(types.name(types.value_expression(MULTIPLY, split, known(0))) == "10 / L * 0");
+    CHECK(types.name(types.value_expression(SUBTRACT, split, split)) == "10 / L - 10 / L");
+    CHECK(types.name(types.value_expression(ADD, split, split)) == "10 / L * 2");
+    const fb::type_id_t big = types.value_expression(MULTIPLY, l, known(std::int64_t{ 1 } << 62));
+    CHECK(types.name(types.value_expression(MULTIPLY, big, known(4))) ==
+          "L * 4611686018427387904 * 4");
+    CHECK(types.name(types.value_expression(MULTIPLY, l, l)) == "L * L");
 }
 
 TEST_CASE("an instance has its generic type's module, and the compiler's Classes have none",

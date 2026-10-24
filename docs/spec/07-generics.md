@@ -325,6 +325,10 @@ Sum(row)                           // N from row's Int[8]
   or `Quantity<L1 - L2, (T - 1) / 2>`. Each instance works it out, in an Int64, and one that
   divides by 0, passes what an Int64 holds, doesn't fit its parameter's type, or makes a size
   below 1 is an error where the instance is made, as `Trimmed<1>` is for an `Int[N - 1]`.
+- Values computed alike are one value, whatever types they're reached through: `+`, `-`, and `*`
+  by a known number combine, so `L - 0` is `L`, `L + L` is `L * 2`, and `M + N` is `N + M`, and
+  each instance works out what they combine to. One that would drop a part that can fail, like
+  `(10 / N) * 0`, stays as it's written.
 - A call infers it from a fixed array's size: `Sum(row)` with `row: Int[8]` gives `N = 8`.
 - A fixed array whose size is a Const type parameter can't come from an array literal, since its
   size is only known in each instance.

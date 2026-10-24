@@ -8404,6 +8404,21 @@ TEST_CASE("std.math's units are the Quantities their exponents make", "[sema]") 
     CHECK(errors_of("Import std.math\nLocal x = Meters(1) < Kilograms(1)") ==
           errors_t{ "Meters(1) < Kilograms(1): no Operator < takes (Quantity<1, 0, 0>, "
                     "Quantity<0, 1, 0>)" });
+
+    // Generic code over units, whose exponents combine as each instance's do: L - 0 is L, and
+    // L + L is L * 2.
+    CHECK(errors_of("Import std.math\n"
+                    "Function PerSecond<Const L: Int>(a: Quantity<L, 0, 0>, t: Seconds): "
+                    "Quantity<L, 0, -1> => a / t\n"
+                    "Function Squared<Const L: Int>(a: Quantity<L, 0, 0>): "
+                    "Quantity<L * 2, 0, 0> => a * a\n"
+                    "Function Rate<Const L: Int, Const M: Int, Const T: Int>(a: Quantity<L, M, T>, "
+                    "t: Seconds): Quantity<L, M, T - 1> => a / t")
+              .empty());
+    CHECK(errors_of("Import std.math\n"
+                    "Function Wrong<Const L: Int>(a: Quantity<L, 0, 0>): Quantity<L * 3, 0, 0> => "
+                    "a * a") ==
+          errors_t{ "a * a: expected Quantity<L * 3, 0, 0>, found Quantity<L * 2, 0, 0>" });
 }
 
 TEST_CASE("an Operator takes type parameters of its own from its operands", "[sema]") {
