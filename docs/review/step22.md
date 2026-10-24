@@ -239,7 +239,7 @@ Skeptic: Wrote my own generator, 7z-verify/gen_links.py: one solid LZMA2 folder 
 
 ## S22-7z-docs-4 (medium): A small file in a solid folder past 2 GiB can't be read: OTHER 'comes to more than 2147483647 bytes'
 
-Status: fixed in e7597c0: a solid folder of more bytes than an array holds is decoded, for each file read from it, up to that file's end, keeping only the file's bytes; compress_7z_solid.fb reads hello.txt from the end of a 2 GiB folder, and its first file, of more than an array holds, is an IOError
+Status: fixed in e7597c0: a solid folder of more bytes than an array holds is decoded, for each file read from it, up to that file's end, keeping only the file's bytes; compress_7z_solid.fb reads hello.txt from the end of a 2 GiB folder, and its first file, of more than an array holds, is an IOError (its parts are in compress_7z_solid/ since eff877c, as a program's test reads only its own folder)
 
 Where: runtime/src/seven_zip.cpp:712
 
