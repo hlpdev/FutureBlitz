@@ -1216,6 +1216,11 @@ TEST_CASE("Const type parameters take values as their type arguments", "[parser]
           "(local q: Q<(- A B), (- N), (% (/ M 2) 3), (* (- A 1) 2)>)");
     CHECK(expression("Show<10 / N>()") == "(call Show<(/ 10 N)>)");
     CHECK(parse_text("Local t: (Int[4], Q<-1>)").dump == "(local t: (Int[4], Q<(- 1)>))");
+    // That '(' can start a line the arguments go on to, and the value can break lines too.
+    CHECK(parse_text("Local q: Q2<A,\n    (A - 1) * 2>").dump == "(local q: Q2<A, (* (- A 1) 2)>)");
+    CHECK(parse_text("Local q: Q2<A, (A\n    - 1) * 2>").dump == "(local q: Q2<A, (* (- A 1) 2)>)");
+    CHECK(parse_text("Local t: Q2<A,\n    (Int, String)>").dump ==
+          "(local t: Q2<A, (Int, String)>)");
 }
 
 TEST_CASE("an Alias names a type, after its visibility", "[parser]") {

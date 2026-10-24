@@ -3035,13 +3035,14 @@ private:
     }
 
     /// Whether the '(' here holds a value, like "(N - 1)", rather than a tuple type: a number or
-    /// an arithmetic operator before its ')', outside any type arguments or sizes in it.
+    /// an arithmetic operator before its ')', outside any type arguments or sizes in it. It can
+    /// start a line the type arguments go on to, and break lines itself.
     [[nodiscard]] bool parenthesized_value_follows() const {
         std::uint32_t parentheses = 0;
         std::uint32_t angles = 0;
         std::uint32_t brackets = 0;
-        for (std::size_t index = m_pos; m_tokens[index].kind != token_kind_t::END_OF_FILE;
-             ++index) {
+        for (std::size_t index = skip_newlines(m_pos);
+             m_tokens[index].kind != token_kind_t::END_OF_FILE; ++index) {
             switch (m_tokens[index].kind) {
             case token_kind_t::LEFT_PAREN:
                 ++parentheses;
@@ -3075,8 +3076,6 @@ private:
                 }
 
                 break;
-            case token_kind_t::NEWLINE:
-                return false;
             default:
                 break;
             }
