@@ -125,6 +125,7 @@ False True True
 False 0
 [10, 12, 3, 40, 50] 12
 [10, 12, 3, 40, 50]
+True [10, 12, 3, 40, 50]
 0 []
 map NOT_FOUND
 map IS_A_DIRECTORY
