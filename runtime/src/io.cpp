@@ -459,6 +459,7 @@ private:
             }
 
             self.m_timers.clear();
+
             uv_close(reinterpret_cast<uv_handle_t*>(&self.m_wake), nullptr);
         }
     }
