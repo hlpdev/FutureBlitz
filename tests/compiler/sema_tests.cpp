@@ -9214,6 +9214,26 @@ TEST_CASE("a Sendable Func is a lambda or a Function's name that other threads c
     CHECK(probe(std::format("{}Local f: (Sendable Func(Int): Int)? = Twice\n"
                             "Local g = Send(f)",
                             twice)) == "Sendable Func(Int32): Int32");
+    // Spawn takes one that may be Null only once it's checked.
+    CHECK(with_twice("Function Get(): (Sendable Func(): Int)? => Function() => 1\n"
+                     "Local t = Spawn(Get())") ==
+          errors_t{ "Get(): expected Sendable Func(): Int32, found (Sendable Func(): Int32)?, "
+                    "which may be Null; check it first, or give a value for Null with '??'" });
+
+    // One that captures Self, kept in a Lock of a Mutex that's one of Self's fields, keeps Self
+    // alive, as in the field itself.
+    CHECK(with_twice("Shared Class Node\n"
+                     "    ReadOnly Field Hits: Int\n"
+                     "    Field Work: Mutex<(Sendable Func(): Int)?>\n"
+                     "    Method Arm()\n"
+                     "        Lock Work As work\n"
+                     "            work = Function() => Hits\n"
+                     "        End Lock\n"
+                     "    End Method\n"
+                     "End Class") ==
+          errors_t{ "Function: this lambda captures Self, so keeping it in a field of Self makes a "
+                    "cycle that's never freed; capture it with [Weak Self]" });
+
     // An overloaded function or New takes one too.
     CHECK(with_twice("Shared Class Lazy<T: Sendable>\n"
                      "    ReadOnly Field Maker: Sendable Func(): T\n"

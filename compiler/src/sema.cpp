@@ -686,6 +686,9 @@ private:
     /// The Locals a lambda assigns. Once the lambda exists, any call can run it, so no null check
     /// on them holds.
     std::vector<symbol_id_t> m_unnarrowable;
+    /// The Lock blocks' values whose Mutex is one of Self's fields, where a lambda that captures
+    /// Self is kept as in the field.
+    std::unordered_set<symbol_id_t> m_self_field_locks;
     /// The closure Class for each Function used by name as a value, and as a Sendable Func.
     std::map<std::pair<symbol_id_t, bool>, type_id_t> m_function_classes;
     /// The generic Class "Cell<T>", whose instances hold captured Locals.
@@ -14554,7 +14557,7 @@ private:
         }
 
         push_scope();
-        m_analysis.stmts[index(id)].symbol = declare_local({
+        const symbol_id_t value = declare_local({
             .kind = symbol_kind_t::PARAMETER,
             .name = node.name.text,
             .span = node.name.span,
@@ -14562,6 +14565,11 @@ private:
             .by_ref = true,
             .declaration = id,
         });
+        m_analysis.stmts[index(id)].symbol = value;
+        if (is_self_field(node.mutex)) {
+            m_self_field_locks.insert(value);
+        }
+
         ++m_locks;
         check_block(node.body);
         --m_locks;
@@ -15781,11 +15789,14 @@ private:
         }
     }
 
-    /// A lambda that captures Self, kept in one of Self's fields, keeps Self alive itself.
+    /// A lambda that captures Self, kept in one of Self's fields, keeps Self alive itself, as
+    /// it does kept in a Lock's value of a Mutex that's one of Self's fields.
     void warn_self_cycle(const target_t& target, const expr_id_t value) {
         const std::optional<std::size_t> index = info(value).closure;
         const std::optional<symbol_id_t> self = current_self();
-        if (!target.field || !index || !self || !is_class(symbol(*self).type)) {
+        const bool kept =
+            target.field || (target.whole && m_self_field_locks.contains(*target.whole));
+        if (!kept || !index || !self || !is_class(symbol(*self).type)) {
             return;
         }
 
@@ -15798,6 +15809,20 @@ private:
                     "this lambda captures Self, so keeping it in a field of Self makes a cycle "
                     "that's never freed; capture it with [Weak Self]");
         }
+    }
+
+    /// Whether an expression is one of Self's fields, by name or as "Self.x".
+    [[nodiscard]] bool is_self_field(const expr_id_t id) {
+        const std::optional<symbol_id_t> found = info(id).symbol;
+        if (!found || symbol(*found).kind != symbol_kind_t::FIELD) {
+            return false;
+        }
+
+        const expr_node_t& node = m_ast.get(id).node;
+        const auto* member = std::get_if<member_expr_t>(&node);
+        return std::holds_alternative<name_expr_t>(node) ||
+               (member != nullptr &&
+                std::holds_alternative<self_expr_t>(m_ast.get(member->object).node));
     }
 
     /// Checks what an assignment changes: a variable, Self, or a field inside one. Plain '='
@@ -19600,6 +19625,11 @@ private:
         const bool made_here =
             closure && (std::holds_alternative<lambda_expr_t>(written) ||
                         std::holds_alternative<name_expr_t>(written) || info(work).qualified);
+        if (!made_here && is_nullable(func) && is_sendable_func(non_null(func))) {
+            report_mismatch(work, non_null(func));
+            return type_id_t::INVALID;
+        }
+
         if (!made_here && !is_sendable_func(func)) {
             error(span_of(work),
                   "{} takes a lambda, a Function's name, or a Sendable Func, since a function "

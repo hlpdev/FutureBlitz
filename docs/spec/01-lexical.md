@@ -170,5 +170,6 @@ Ordinary identifiers everywhere except in one position, where they act as keywor
 | `Lib` | directly after `Extern "<convention>"` |
 | `From` | at the start of an import line (`From std.math Import Vec3`) |
 | `Weak` | inside a capture list (`[Weak Self]`); elsewhere it names the type `Weak<T>` |
+| `Sendable` | directly before `Func` (`Sendable Func(A): R`); elsewhere it names the Interface |
 
 So `Set<Int>()` and `particles[i].Step(dt)` are valid.
