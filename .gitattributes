@@ -4,3 +4,6 @@
 
 # A program's input is its exact bytes, "\r\n" too.
 *.in -text
+
+# The format suites' cases are their exact bytes, as their spec tests them.
+tests/programs/data_*_suite/** -text
