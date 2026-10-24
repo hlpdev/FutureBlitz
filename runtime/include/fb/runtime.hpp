@@ -576,6 +576,8 @@ std::int32_t fb_channel_receive(fb_channel_t* channel, void* element);
 std::int32_t fb_channel_try_receive(fb_channel_t* channel, void* element);
 /// Closes the Channel, which wakes the threads waiting on it.
 void fb_channel_close(fb_channel_t* channel);
+/// 1 once the Channel is closed, though it may have elements left, and 0 before.
+std::int32_t fb_channel_closed(fb_channel_t* channel);
 /// For a Channel's Class's release: takes out the oldest element left, whose references compiled
 /// code releases, or gives null when none are left.
 void* fb_channel_take_left(fb_channel_t* channel);

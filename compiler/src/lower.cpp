@@ -7926,6 +7926,14 @@ private:
             return std::nullopt;
         }
 
+        if (method.name == "IsClosed") {
+            runtime_call_t closed{
+                .function = runtime_function_t::CHANNEL_CLOSED,
+                .arguments = { channel },
+            };
+            return temporary(std::move(closed), type_id_t::BOOL);
+        }
+
         if (method.name == "Send" || method.name == "TrySend") {
             const local_id_t slot = add_local(element);
             take(arguments[1].value);

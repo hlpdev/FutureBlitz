@@ -1083,6 +1083,11 @@ void fb_channel_close(fb_channel_t* channel) {
     pool().signal();
 }
 
+std::int32_t fb_channel_closed(fb_channel_t* channel) {
+    const std::scoped_lock lock(lock_of(channel));
+    return channel->closed != 0 ? 1 : 0;
+}
+
 void* fb_channel_take_left(fb_channel_t* channel) {
     if (channel->count == 0) {
         return nullptr;

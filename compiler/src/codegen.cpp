@@ -283,6 +283,7 @@ private:
     function_ref_t m_channel_receive;
     function_ref_t m_channel_try_receive;
     function_ref_t m_channel_close;
+    function_ref_t m_channel_closed;
     function_ref_t m_channel_take_left;
     function_ref_t m_channel_element;
     function_ref_t m_channel_free;
@@ -794,6 +795,7 @@ private:
         m_channel_receive = declare("fb_channel_receive", m_i32, { m_ptr, m_ptr });
         m_channel_try_receive = declare("fb_channel_try_receive", m_i32, { m_ptr, m_ptr });
         m_channel_close = declare("fb_channel_close", m_void, { m_ptr });
+        m_channel_closed = declare("fb_channel_closed", m_i32, { m_ptr });
         m_channel_take_left = declare("fb_channel_take_left", m_ptr, { m_ptr });
         m_channel_element = declare("fb_channel_element", m_ptr, { m_ptr, m_i64 });
         m_channel_free = declare("fb_channel_free", m_void, { m_ptr });
@@ -3775,6 +3777,10 @@ private:
         }
         case runtime_function_t::CHANNEL_CLOSE:
             return call(m_channel_close, { value_of(node.arguments[0]) });
+        case runtime_function_t::CHANNEL_CLOSED:
+            return LLVMBuildICmp(builder(), LLVMIntNE,
+                                 call(m_channel_closed, { value_of(node.arguments[0]) }),
+                                 LLVMConstInt(m_i32, 0, 0), "");
         case runtime_function_t::ASYNC_BEGIN:
             return call(m_task_begin, { value_of(node.arguments[0]) });
         case runtime_function_t::ASYNC_FINISH:

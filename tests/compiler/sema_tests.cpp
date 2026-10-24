@@ -10026,9 +10026,20 @@ TEST_CASE("a Channel carries Sendable values between threads", "[sema]") {
           errors_t{ "2.5: a Channel's room is an integer, not Float32" });
     CHECK(errors_of("Const ch = Channel<Int>(2)\nLocal x = ch.Peek()") ==
           errors_t{ "Peek: Channel<Int32> has no member named 'Peek'; it has Send, TrySend, "
-                    "Receive, TryReceive, and Close" });
+                    "Receive, TryReceive, Close, and IsClosed" });
     CHECK(errors_of("Const ch = Channel<Int>(2)\nFor i, x In ch\nEnd For") ==
           errors_t{ "i: a Channel gives one value at a time, so 'For x In' takes one name" });
+}
+
+TEST_CASE("a Channel's IsClosed says whether it's closed, on any thread", "[sema]") {
+    CHECK(probe("Const ch = Channel<Int>(2)\nLocal x = ch.IsClosed()") == "Bool");
+    CHECK(errors_of("Const ch = Channel<String>(2)\n"
+                    "Local t = Spawn(Function() => ch.IsClosed())\n"
+                    "Local value = \"\"\n"
+                    "Local open = !ch.IsClosed() || ch.TryReceive(ByRef value)")
+              .empty());
+    CHECK(errors_of("Const ch = Channel<Int>(2)\nLocal x = ch.IsClosed(1)") ==
+          errors_t{ "1: too many arguments to 'IsClosed'" });
 }
 
 TEST_CASE("an Async Function's call gives its Task, and its code can Await", "[sema]") {
