@@ -2722,6 +2722,21 @@ TEST_CASE("a call that throws needs Try, Try?, or a Try block", "[sema]") {
     CHECK(with_errors("Local n = Try Load()").empty());
 }
 
+TEST_CASE("a Try around what didn't parse says nothing more of it", "[sema]") {
+    // The parser reported the operand, a keyword here, so Try, Try?, and a For loop's Try don't
+    // also warn that it doesn't throw.
+    CHECK(errors_of("Local x = Try Field()") ==
+          errors_t{ "Field: expected an expression, found 'Field'" });
+    CHECK(errors_of("Local y = Try? Field") ==
+          errors_t{ "Field: expected an expression, found 'Field'" });
+    CHECK(errors_of("For n In Try Field\nEnd For") ==
+          errors_t{ "Field: expected an expression, found 'Field'" });
+    // What parsed around it still counts.
+    CHECK(errors_of("Local z = Try 1\nLocal w = Try Field") ==
+          errors_t{ "Try 1: '1' doesn't throw, so it doesn't need Try",
+                    "Field: expected an expression, found 'Field'" });
+}
+
 TEST_CASE("Throw ends the path with an Error", "[sema]") {
     CHECK(with_errors("Function F(): Int Throws FileError\n"
                       "    Throw FileError(\"x\")\n"

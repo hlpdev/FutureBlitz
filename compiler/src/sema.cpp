@@ -14820,9 +14820,13 @@ private:
         const auto* tried = std::get_if<try_expr_t>(&m_ast.get(node.sequence).node);
         const bool passes = tried != nullptr && !tried->optional;
         type_id_t sequence = type_id_t::INVALID;
+        bool unparsed = false;
         if (passes) {
             m_handlers.push_back({ .kind = handler_kind_t::TRY });
+            const bool outer_unparsed = std::exchange(m_unparsed, false);
             sequence = check(tried->operand, type_id_t::NONE);
+            unparsed = m_unparsed;
+            m_unparsed = outer_unparsed || unparsed;
             info(node.sequence).type = sequence;
             info(node.sequence).converted = sequence;
         } else {
@@ -14876,10 +14880,11 @@ private:
             }
         }
 
+        // A sequence that didn't parse was reported already, and says nothing of what throws.
         if (passes) {
             const bool threw = !m_handlers.back().reached.empty();
             m_handlers.pop_back();
-            if (!threw) {
+            if (!threw && !unparsed) {
                 warning(span_of(node.sequence), "'{}' doesn't throw, so it doesn't need Try",
                         text(tried->operand));
             }
@@ -20419,14 +20424,18 @@ private:
     }
 
     /// "Try x" lets the errors of the calls in x go on to the code around it, and "Try? x" gives
-    /// a T?, which is Null when one of them throws. Either one warns when nothing in x throws.
+    /// a T?, which is Null when one of them throws. Either one warns when nothing in x throws,
+    /// unless x holds what didn't parse, which was reported already.
     type_id_t check_expr(const expr_id_t id, const try_expr_t& node, const type_id_t hint) {
         m_handlers.push_back(
             { .kind = node.optional ? handler_kind_t::TRY_OPTIONAL : handler_kind_t::TRY });
+        const bool outer_unparsed = std::exchange(m_unparsed, false);
         const type_id_t type = check_any(node.operand, node.optional ? non_null(hint) : hint);
+        const bool unparsed = m_unparsed;
+        m_unparsed = outer_unparsed || unparsed;
         const bool throws = !m_handlers.back().reached.empty();
         m_handlers.pop_back();
-        if (!throws) {
+        if (!throws && !unparsed) {
             warning(span_of(id), "'{}' doesn't throw, so it doesn't need {}", text(node.operand),
                     node.optional ? "Try?" : "Try");
         }
