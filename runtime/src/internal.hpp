@@ -95,4 +95,8 @@ struct decoded_t {
 /// `point`, a Unicode scalar value, in UTF-8.
 [[nodiscard]] std::string encode_utf8(std::uint32_t point);
 
+/// Whether stderr is a terminal that shows colors, and NO_COLOR isn't set, so panics and std.log's
+/// lines are colored.
+[[nodiscard]] bool stderr_colors();
+
 } // namespace fb::runtime

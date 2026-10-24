@@ -183,3 +183,98 @@ TEST_CASE("an RwLock has readers at once, or a writer alone", "[runtime][concurr
     CHECK(wrote_at.load() < read_at.back()->load());
     fb_rwlock_free(lock);
 }
+
+TEST_CASE("a Cancellation stops the waits that take it, each of them", "[runtime][concurrent]") {
+    const std::uint64_t cancel = fb_cancel_new();
+    CHECK(fb_cancel_is_set(cancel) == 0);
+
+    // Three wait for a permit: one gets the permit given, and the Cancel stops the other two.
+    const std::uint64_t semaphore = fb_semaphore_new(0);
+    std::atomic<int> took = 0;
+    std::atomic<int> stopped = 0;
+    std::vector<std::thread> waiters;
+    for (int i = 0; i < 3; ++i) {
+        waiters.emplace_back([&] {
+            if (fb_semaphore_acquire_cancel(semaphore, cancel) == 1) {
+                ++took;
+            } else {
+                ++stopped;
+            }
+        });
+    }
+
+    settle();
+    CHECK(fb_semaphore_release(semaphore, 1) == 1);
+    settle();
+    CHECK(took.load() == 1);
+    CHECK(fb_cancel_set(cancel) == 1);
+    for (std::thread& waiter : waiters) {
+        waiter.join();
+    }
+
+    CHECK(stopped.load() == 2);
+    CHECK(fb_cancel_set(cancel) == 0);
+    CHECK(fb_cancel_is_set(cancel) == 1);
+
+    // Once it's set, a wait stops at once, and takes no permit there is.
+    CHECK(fb_semaphore_release(semaphore, 1) == 1);
+    CHECK(fb_semaphore_acquire_cancel(semaphore, cancel) == 0);
+    CHECK(fb_semaphore_count(semaphore) == 1);
+    const std::uint64_t group = fb_wait_group_new();
+    CHECK(fb_wait_group_wait_cancel(group, cancel) == 0);
+    CHECK(fb_cancel_wait(cancel, 3600000000000) == 1);
+    fb_wait_group_free(group);
+    fb_semaphore_free(semaphore);
+    fb_cancel_free(cancel);
+}
+
+TEST_CASE("a WaitGroup's Wait and a Cancellation's own wait go on as they would without one",
+          "[runtime][concurrent]") {
+    const std::uint64_t cancel = fb_cancel_new();
+    const std::uint64_t group = fb_wait_group_new();
+    CHECK(fb_wait_group_wait_cancel(group, cancel) == 1);
+    CHECK(fb_wait_group_add(group, 1) == 0);
+    std::atomic<std::int32_t> waited = -1;
+    std::thread waiter([&] { waited.store(fb_wait_group_wait_cancel(group, cancel)); });
+    settle();
+    CHECK(waited.load() == -1);
+    CHECK(fb_wait_group_add(group, -1) == 0);
+    waiter.join();
+    CHECK(waited.load() == 1);
+
+    // Its own wait gives up at the time, or goes on once it's set.
+    CHECK(fb_cancel_wait(cancel, 1000000) == 0);
+    CHECK(fb_cancel_wait(cancel, 0) == 0);
+    std::thread setter([&] {
+        settle();
+        fb_cancel_set(cancel);
+    });
+    CHECK(fb_cancel_wait(cancel, 3600000000000) == 1);
+    setter.join();
+    fb_wait_group_free(group);
+    fb_cancel_free(cancel);
+}
+
+TEST_CASE("the pool's generation wait goes on at a change, a Cancel, or its time",
+          "[runtime][concurrent]") {
+    const std::uint64_t seen = fb_pool_generation();
+    CHECK(fb_pool_wait(seen, 0, 1000000) == 0);
+    std::thread signaller([] {
+        settle();
+        fb_pool_signal();
+    });
+    CHECK(fb_pool_wait(seen, 0, 3600000000000) == 1);
+    signaller.join();
+    CHECK(fb_pool_generation() != seen);
+
+    const std::uint64_t cancel = fb_cancel_new();
+    const std::uint64_t now = fb_pool_generation();
+    std::thread canceller([cancel] {
+        settle();
+        fb_cancel_set(cancel);
+    });
+    CHECK(fb_pool_wait(now, cancel, 3600000000000) == 2);
+    canceller.join();
+    CHECK(fb_pool_wait(fb_pool_generation(), cancel, 3600000000000) == 2);
+    fb_cancel_free(cancel);
+}

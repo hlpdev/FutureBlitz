@@ -1,0 +1,34 @@
+// A LogFilter reads FB_LOG's text, gives each module its own level or the nearest module's it's
+// in, or the base, and writes it back.
+
+Import std.core
+Import std.log
+
+For name In ["trace", "DEBUG", " Info ", "warn", "Warning", "error", "off", "loud", ""]
+    Print("\"{name}\":", ParseLogLevel(name)?.ToString() ?? "none")
+End For
+
+Local parsed = LogFilter.Parse("warn, net=debug ,net.http=trace,net.http.client=off,db=ERROR")
+Local filter = parsed ?? LogFilter.At(LogLevel.TRACE)
+Print(parsed != Null, filter)
+For module In ["app", "net", "network", "net.dns", "net.http", "net.http.server", "net.http.client",
+               "db", "db.pool", "net.http.client.tls"]
+    Print(module, filter.LevelOf(module))
+End For
+
+// Allows: a level at or above the module's, never OFF itself.
+Local warn = LogFilter.At(LogLevel.WARN)
+Print(warn.Allows("x", LogLevel.INFO), warn.Allows("x", LogLevel.WARN),
+      warn.Allows("x", LogLevel.ERROR), warn.Allows("x", LogLevel.OFF))
+Local off = LogFilter.At(LogLevel.OFF)
+Print(off.Allows("x", LogLevel.ERROR), off.With("x", LogLevel.TRACE).Allows("x", LogLevel.TRACE))
+
+// Every module is at INFO unless a part says otherwise, and a later part wins.
+For text In ["", "net=trace", "debug,info", "net=debug,net=error", " , ,trace,", "a.b=warn,a=off"]
+    Print("\"{text}\":", LogFilter.Parse(text)?.ToString() ?? "none")
+End For
+
+// What isn't a filter: a word that's no level, a module with none, or a level with no module.
+For text In ["verbose", "net=", "=debug", "net=loud", "net:debug", "debug,net"]
+    Print("\"{text}\":", LogFilter.Parse(text)?.ToString() ?? "none")
+End For

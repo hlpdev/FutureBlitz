@@ -1,0 +1,34 @@
+"trace": TRACE
+"DEBUG": DEBUG
+" Info ": INFO
+"warn": WARN
+"Warning": WARN
+"error": ERROR
+"off": OFF
+"loud": none
+"": none
+True warn,db=error,net=debug,net.http=trace,net.http.client=off
+app WARN
+net DEBUG
+network WARN
+net.dns DEBUG
+net.http TRACE
+net.http.server TRACE
+net.http.client OFF
+db ERROR
+db.pool ERROR
+net.http.client.tls OFF
+False True True False
+False True
+"": info
+"net=trace": info,net=trace
+"debug,info": info
+"net=debug,net=error": info,net=error
+" , ,trace,": trace
+"a.b=warn,a=off": info,a=off,a.b=warn
+"verbose": none
+"net=": none
+"=debug": none
+"net=loud": none
+"net:debug": none
+"debug,net": none

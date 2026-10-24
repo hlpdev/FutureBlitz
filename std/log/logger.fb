@@ -1,0 +1,139 @@
+// Logger, which writes lines for a module at levels, with fields, to a LogOutput: the default
+// one, which writes readable lines to stderr at the levels FB_LOG sets, or one the program makes,
+// with sinks of its own. Loggers and LogOutputs are Shared Classes, so any thread can log, and a
+// Logger with a field is a new Logger, so threads never change one another's.
+
+Import std.core
+Import std.collections
+Import std.concurrent.lazy
+Import std.time.timestamp
+Import std.log.level
+Import std.log.output
+Import std.log.sinks
+
+Extern "runtime"
+    Function fb_log_setting(): String?
+End Extern
+
+// The default output, made the first time a Logger uses it: the console's sink, at the levels
+// FB_LOG sets, or at INFO when it isn't set. An FB_LOG that isn't a filter is said once on stderr,
+// and left out.
+Public Function DefaultLogOutput(): LogOutput => made.Value
+
+Const made = Lazy<LogOutput>(MadeDefault)
+
+Function MadeDefault(): LogOutput
+    Local filter = LogFilter.At(LogLevel.INFO)
+    Local setting = fb_log_setting()
+    If setting != Null
+        Local parsed = LogFilter.Parse(setting)
+        If parsed == Null
+            PrintError("FB_LOG=\"{setting}\" isn't a log filter, like \"debug\" or " +
+                       "\"info,net=trace\", so it's left out")
+        End If
+        filter = parsed ?? filter
+    End If
+
+    Local output = LogOutput(filter)
+    output.Add(ConsoleSink())
+    Return output
+End Function
+
+// Writes lines for a module, with the fields it's given, at levels, to an output. Its Trace,
+// Debug, Info, Warn, and Error write a line at their level, when the output's filter writes that
+// level for the module.
+Public Shared Class Logger
+    ReadOnly Field Name: String
+    ReadOnly Field Context: ImmutableArray<LogField>
+    ReadOnly Field Output: LogOutput
+
+    // A Logger for module, a name like "net.http" whose dots say what it's in, which writes to the
+    // default output.
+    Public New(module: String)
+        Name = module
+        Output = DefaultLogOutput()
+    End New
+
+    // A Logger for module that writes to output.
+    Public New(module: String, output: LogOutput)
+        Name = module
+        Output = output
+    End New
+
+    New(module: String, context: ImmutableArray<LogField>, output: LogOutput)
+        Name = module
+        Context = context
+        Output = output
+    End New
+
+    // The module it writes for.
+    Public Property Module: String
+        Get => Name
+    End Property
+
+    // The fields each of its lines has, in the order they were given.
+    Public Property Fields: ImmutableArray<LogField>
+        Get => Context
+    End Property
+
+    // A Logger like this one whose lines have the field too, after its others.
+    Public Method With(name: String, value: String): Logger
+        Return Logger(Name, Context.Add(LogField(name, value)), Output)
+    End Method
+
+    Public Method With(name: String, value: Int): Logger
+        Return Logger(Name, Context.Add(LogField(name, "{value}", False)), Output)
+    End Method
+
+    Public Method With(name: String, value: Int64): Logger
+        Return Logger(Name, Context.Add(LogField(name, "{value}", False)), Output)
+    End Method
+
+    // A Double that isn't finite is text, since JSON has no number for it: "inf", "-inf", or
+    // "nan", whatever a NaN's sign bit.
+    Public Method With(name: String, value: Float64): Logger
+        Local finite = value - value == 0
+        Local text = "{value}"
+        If value != value
+            text = "nan"
+        ElseIf !finite
+            text = value > 0 ? "inf" : "-inf"
+        End If
+
+        Return Logger(Name, Context.Add(LogField(name, text, !finite)), Output)
+    End Method
+
+    Public Method With(name: String, value: Bool): Logger
+        Return Logger(Name, Context.Add(LogField(name, value ? "true" : "false", False)), Output)
+    End Method
+
+    // Whether a line at level would be written, so code can leave out work that only a line
+    // would use.
+    Public Method IsEnabled(level: LogLevel): Bool => Output.Allows(Name, level)
+
+    // Writes message at level, now, when the output's filter writes it.
+    Public Method Log(level: LogLevel, message: String)
+        If !Output.Allows(Name, level) Then Return
+        Output.Write(LogRecord(Timestamp.Now(), level, Name, message, Context))
+    End Method
+
+    Public Method Trace(message: String)
+        Log(LogLevel.TRACE, message)
+    End Method
+
+    Public Method Debug(message: String)
+        Log(LogLevel.DEBUG, message)
+    End Method
+
+    Public Method Info(message: String)
+        Log(LogLevel.INFO, message)
+    End Method
+
+    Public Method Warn(message: String)
+        Log(LogLevel.WARN, message)
+    End Method
+
+    Public Method Error(message: String)
+        Log(LogLevel.ERROR, message)
+    End Method
+End Class
