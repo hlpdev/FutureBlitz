@@ -60,6 +60,15 @@ elseif(APPLE)
          CoreServices.framework Security.framework)
 endif()
 set(FB_CURL_ARCHIVES "$<TARGET_FILE:libcurl_static>;$<TARGET_FILE:mbedtls>;$<TARGET_FILE:mbedx509>")
+# std.net.tls's part of mbedTLS, its TLS and X.509 libraries, which read an IP address with
+# Winsock's inet_pton on Windows, and the OS's roots from Windows' store or with macOS's Security
+# framework.
+set(FB_TLS_SYSTEM "")
+if(WIN32)
+  set(FB_TLS_SYSTEM "ws2_32 crypt32")
+elseif(APPLE)
+  string(JOIN " " FB_TLS_SYSTEM CoreFoundation.framework Security.framework)
+endif()
 
 file(GENERATE OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/generated/fb/build_config.hpp CONTENT
 "#pragma once
@@ -86,7 +95,8 @@ struct bundled_library_t {
     std::string_view name;
     std::string_view version;
     /// The licenses it's under, as \"the MIT license\" says it, which a program that links it
-    /// ships the notices of.
+    /// ships the notices of. None for a part of another library, as mbedTLS's TLS is of mbedTLS,
+    /// whose own names them.
     std::string_view license;
     /// None for a library only other libraries are built on, which the runtime doesn't call.
     std::string_view prefix;
@@ -95,7 +105,7 @@ struct bundled_library_t {
     std::string_view runtime;
     /// The library's archives, separated by semicolons.
     std::string_view archives;
-    /// A file of the licenses' texts.
+    /// A file of the licenses' texts, or none for a part of another library.
     std::string_view notice;
     /// The system libraries it needs, separated by spaces: names for -l, or on macOS, frameworks
     /// as \"Security.framework\".
@@ -125,6 +135,17 @@ inline constexpr auto bundled_libraries = std::to_array<bundled_library_t>({
         .archives = \"$<TARGET_FILE:tfpsacrypto>\",
         .notice = \"${FB_MBEDTLS_NOTICE}\",
         .system = \"${FB_MBEDTLS_SYSTEM}\",
+    },
+    {
+        .name = \"mbedTLS's TLS\",
+        .version = \"${FB_MBEDTLS_VERSION}\",
+        .license = \"\",
+        .prefix = \"fb_tls_\",
+        .runtime = \"$<TARGET_FILE:fb_runtime_tls>\",
+        .archives = \"$<TARGET_FILE:mbedtls>;$<TARGET_FILE:mbedx509>\",
+        .notice = \"\",
+        .system = \"${FB_TLS_SYSTEM}\",
+        .needs = \"mbedTLS\",
     },
     {
         .name = \"xxHash\",
