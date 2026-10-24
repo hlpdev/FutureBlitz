@@ -7242,8 +7242,8 @@ private:
     /// How deep the next level in is: one deeper.
     operand_t deeper(const conversion_t& conversion) {
         const const_value_t one{ .type = type_id_t::INT32, .data = std::int64_t{ 1 } };
-        return temporary(binary_t{ .op = binary_op_t::ADD, .left = conversion.depth, .right = one },
-                         type_id_t::INT32);
+        const binary_t next{ .op = binary_op_t::ADD, .left = conversion.depth, .right = one };
+        return temporary(next, type_id_t::INT32);
     }
 
     /// Reports, once, a type that a Load or Save can't convert, which only an instance of generic
