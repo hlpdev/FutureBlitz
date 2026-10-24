@@ -48,6 +48,21 @@ Async Function Found(watcher: FileWatcher, name: String): FileEvent?
     Return Null
 End Function
 
+// Writes the file now and then on another thread for two seconds, so a wait for whatever comes
+// next gets an event, even where the OS is slow to start telling of them.
+Function Poking(path: Path): Task<Int>
+    Return Spawn(Function() => Poked(path))
+End Function
+
+Function Poked(path: Path): Int
+    For i = 1 To 100
+        Try? File.WriteText(path, "poke {i}")
+        Sleep(20.Milliseconds)
+    End For
+
+    Return 0
+End Function
+
 // Takes what's come, so the next check only sees what follows.
 Function Drain(watcher: FileWatcher)
     While watcher.TryNext() != Null
@@ -75,11 +90,11 @@ Print("removed {Await Saw(folder, [(FileEventKind.REMOVED, "セーブ.txt")])}")
 // NextAsync and Next give the next event, whatever it is, and Null once the watcher's closed.
 Await RealWait(200.Milliseconds)
 Drain(folder)
-Try File.WriteText(root / "next.txt", "next")
+Local pokes = Poking(root / "next.txt")
 Local next = Await folder.NextAsync()
 Print("next async {next != Null && next.Path.Parent().FileName() == root.FileName()}")
-Try File.WriteText(root / "next.txt", "again")
 Print("next {folder.Next() != Null}")
+Await pokes
 folder.Close()
 folder.Close()
 Print("closed {folder.Next() == Null} {folder.TryNext() == Null} {(Await folder.NextAsync()) == Null}")

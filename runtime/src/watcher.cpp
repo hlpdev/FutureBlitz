@@ -7,6 +7,7 @@
 #include "io_internal.hpp"
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <condition_variable>
 #include <cstdint>
@@ -129,8 +130,40 @@ void close_handle(watcher_t& watcher) {
     uv_close(reinterpret_cast<uv_handle_t*>(&watcher.handle), watcher_t::on_closed);
 }
 
+#ifdef __APPLE__
+/// libuv starts macOS's FSEvents a moment after a folder watcher's made, on a thread of its own,
+/// and starts its one stream for every folder again for each new one, so what changes meanwhile
+/// goes untold. So after a folder watcher's made, each lists its folder again a few times, which
+/// finds what came and went. The timer and its step are the I/O thread's.
+struct rescans_t {
+    uv_timer_t timer{};
+    bool made = false;
+    std::size_t step = 0;
+};
+
+rescans_t& rescans() {
+    static rescans_t instance;
+    return instance;
+}
+
+/// The milliseconds before each listing again, after the last.
+constexpr std::array<std::uint64_t, 4> rescan_waits{ 50, 200, 750, 3000 };
+
+void stop_rescans() {
+    rescans_t& state = rescans();
+    if (state.made) {
+        uv_timer_stop(&state.timer);
+        uv_close(reinterpret_cast<uv_handle_t*>(&state.timer), nullptr);
+        state.made = false;
+    }
+}
+#endif
+
 /// As the I/O thread stops, every watcher is closed, so its handle doesn't keep the loop going.
 void stop_watchers(uv_loop_t* /*loop*/) {
+#ifdef __APPLE__
+    stop_rescans();
+#endif
     for (watcher_t* watcher : std::vector(open_watchers())) {
         mark_closed(*watcher);
         close_handle(*watcher);
@@ -229,7 +262,7 @@ std::vector<event_t> rescanned(watcher_t& watcher) {
 
 /// Whether a folder watcher's folder holds `name`, spelled as it is, by a listing taken at most
 /// once each turn of the loop, as libuv gives a batch of events in one.
-bool listed(watcher_t& watcher, uv_loop_t* loop, const std::string_view name) {
+bool listed(watcher_t& watcher, const uv_loop_t* loop, const std::string_view name) {
     const std::uint64_t now = uv_now(loop) + 1;
     if (watcher.listed_at != now) {
         watcher.listing = names_in(watcher.real);
@@ -262,7 +295,9 @@ void watcher_t::on_event(uv_fs_event_t* handle, const char* name, const int even
     // A disk that ignores case, as Windows' and macOS's usually do, finds a name by another
     // spelling too, as a rename that changed its case leaves it, so a name that would come, or a
     // known one libuv says was renamed, is looked for as it's spelled.
-    if (there && watcher.folder && (known == watcher.known.end() || (events & UV_RENAME) != 0)) {
+    if (there && watcher.folder &&
+        (known == watcher.known.end() ||
+         (static_cast<unsigned>(events) & static_cast<unsigned>(UV_RENAME)) != 0U)) {
         there = listed(watcher, handle->loop, key);
     }
 
@@ -281,6 +316,35 @@ void watcher_t::on_event(uv_fs_event_t* handle, const char* name, const int even
     queue(watcher, std::move(found));
 }
 
+#ifdef __APPLE__
+/// Lists each folder watcher's folder again, then waits for the next time, if there's one.
+void rescan(uv_timer_t* timer) {
+    for (watcher_t* watcher : open_watchers()) {
+        if (watcher->folder) {
+            queue(*watcher, rescanned(*watcher));
+        }
+    }
+
+    rescans_t& state = rescans();
+    if (++state.step < rescan_waits.size()) {
+        uv_timer_start(timer, rescan, rescan_waits[state.step], 0);
+    }
+}
+
+/// Has each folder watcher list its folder again a few times, where the OS starts watching a
+/// moment after it's asked to.
+void start_rescans(uv_loop_t* loop) {
+    rescans_t& state = rescans();
+    if (!state.made) {
+        uv_timer_init(loop, &state.timer);
+        state.made = true;
+    }
+
+    state.step = 0;
+    uv_timer_start(&state.timer, rescan, rescan_waits[0], 0);
+}
+#endif
+
 void start_watching(uv_loop_t* loop, void* context) {
     auto& watcher = *static_cast<watcher_t*>(context);
     fb::runtime::at_io_stop(stop_watchers);
@@ -298,6 +362,11 @@ void start_watching(uv_loop_t* loop, void* context) {
         if (error == 0) {
             watcher.open = true;
             open_watchers().push_back(&watcher);
+#ifdef __APPLE__
+            if (watcher.folder) {
+                start_rescans(loop);
+            }
+#endif
         } else {
             uv_close(reinterpret_cast<uv_handle_t*>(&watcher.handle), watcher_t::on_closed);
         }
