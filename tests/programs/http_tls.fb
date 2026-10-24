@@ -16,13 +16,13 @@ Loop
     If line == "-----END CERTIFICATE-----" Then Break
 End Loop
 
-// What a GET of path over HTTPS gives: its status and text, or what failed.
+// What a GET of path over HTTPS gives: its status and text, or what failed and why, on a line.
 Function Fetched(client: HttpClient, path: String): String
     Try
         Local response = client.Get("{secure}{path}")
         Return "{response.Status} {response.Text}"
     Catch e As NetError
-        Return "NetError {e.Kind}"
+        Return "NetError {e.Kind} [{e.Message}]"
     Catch e As TimeoutError
         Return "TimeoutError"
     End Try

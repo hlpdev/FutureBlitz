@@ -67,7 +67,7 @@ std::int64_t fb_http_expected(void* transfer);
 /// Once the transfer is done: the response's status, its HTTP version, as 10, 11, 20, or 30 for
 /// HTTP/1.0, 1.1, 2, or 3, the URL it came from after the redirects, its headers, added to
 /// `names` and `values`, two String[]s, in its order, its body, into `output`, a UInt8[], which
-/// it no longer keeps, and what failed, as a message.
+/// it no longer keeps, and what failed, as a message of one line.
 std::int32_t fb_http_status(void* transfer);
 std::int32_t fb_http_version(void* transfer);
 fb_string_t* fb_http_url(void* transfer);
