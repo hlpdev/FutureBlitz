@@ -8820,9 +8820,10 @@ private:
                (is_parameter(type) && implements(type, m_analysis.interfaces.any_class));
     }
 
-    /// For an error about a type parameter where a Class is needed: how to say it's one.
+    /// For an error about a type parameter where a Class is needed: how to say it's one. An
+    /// Interface's Self takes no constraint, so it gets none.
     [[nodiscard]] std::string class_hint(const type_id_t type) const {
-        return is_parameter(type)
+        return is_parameter(type) && m_analysis.types.name(type) != "Self"
                    ? std::format("; a constraint like <{}: Class> says it's one", shown_name(type))
                    : std::string();
     }
@@ -9132,10 +9133,15 @@ private:
         // A type parameter's objects are a Shared Class's when it's Sendable too.
         if (is_weak(type)) {
             const type_id_t object = element_of(type);
-            return m_analysis.types.get(object).shared ||
-                           (is_parameter(object) && !unsendable(object))
-                       ? std::nullopt
-                       : because("a Weak<T> stays on the thread that made it, unless T is a "
+            if (m_analysis.types.get(object).shared ||
+                (is_parameter(object) && !unsendable(object))) {
+                return std::nullopt;
+            }
+
+            return because(is_parameter(object)
+                               ? "a Weak<T> stays on the thread that made it, unless T is a "
+                                 "Shared Class, as a type parameter that's Class & Sendable is"
+                               : "a Weak<T> stays on the thread that made it, unless T is a "
                                  "Shared Class");
         }
 
@@ -20464,7 +20470,7 @@ private:
                 } else if (type != type_id_t::INVALID && !is_object(non_null(type)) &&
                            !is_any_class(non_null(type)) && !is_array(non_null(type))) {
                     error(span_of(argument.value), "RefEquals compares Class references, not {}{}",
-                          shown_name(type), class_hint(type));
+                          shown_name(type), class_hint(non_null(type)));
                 }
             }
         }
@@ -22717,7 +22723,7 @@ private:
             if (!is_weak(type) && !is_any_class(non_null(type))) {
                 if (type != type_id_t::INVALID) {
                     error(name.span, "[Weak {}] needs a reference to an object, not {}{}",
-                          name.text, shown_name(type), class_hint(type));
+                          name.text, shown_name(type), class_hint(non_null(type)));
                 }
 
                 continue;

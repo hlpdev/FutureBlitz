@@ -3052,6 +3052,22 @@ TEST_CASE("Where T: Class says a type parameter is a Class, which a Weak<T> refe
               "it's one",
           });
 
+    // A T? gets the same hint, and an Interface's Self, which takes no constraint, none.
+    CHECK(with_node("Function B<T>(x: T?): Bool => RefEquals(x, x)\n"
+                    "Function C<T>(x: T?): Func(): Bool => Function[Weak x]() => True\n"
+                    "Interface Sized\n"
+                    "    Method Same(other: Sized): Bool => other Is Self\n"
+                    "End Interface") ==
+          errors_t{
+              "x: RefEquals compares Class references, not T?; a constraint like <T: Class> "
+              "says it's one",
+              "x: RefEquals compares Class references, not T?; a constraint like <T: Class> "
+              "says it's one",
+              "x: [Weak x] needs a reference to an object, not T?; a constraint like <T: Class> "
+              "says it's one",
+              "Self: 'Is' tests for a Class or Interface, not Self",
+          });
+
     // A Weak<T> parameter learns T from the T or T? it's given; where nothing says what T is, the
     // error has no example, since no type every program has is a Class.
     CHECK(probe(std::format("{}Function Read<T: Class>(w: Weak<T>): T? => w\n"
@@ -3117,7 +3133,15 @@ TEST_CASE("a Weak<T> of a Class that's Sendable is Sendable, a type parameter's 
                                 hub)) ==
           errors_t{ "First: 'First' is ReadOnly, but threads share Registry<T>'s objects, so it "
                     "must be Sendable too: a Weak<T> stays on the thread that made it, unless T "
-                    "is a Shared Class" });
+                    "is a Shared Class, as a type parameter that's Class & Sendable is" });
+    CHECK(errors_of(std::format("{}Shared Class Registry\n"
+                                "    ReadOnly Field First: Weak<Node>\n"
+                                "End Class\n"
+                                "Class Node\nEnd Class",
+                                hub)) ==
+          errors_t{ "First: 'First' is ReadOnly, but threads share Registry's objects, so it must "
+                    "be Sendable too: a Weak<T> stays on the thread that made it, unless T is a "
+                    "Shared Class" });
 }
 
 // Class extras
