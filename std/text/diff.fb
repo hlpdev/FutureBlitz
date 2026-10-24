@@ -387,8 +387,7 @@ Function ChangesOf(steps: DiffKind[]): Change[]
     Return changes
 End Function
 
-// What a chunk of a merge is: lines both sides keep from base, lines one side changed or both
-// changed alike, or a conflict.
+// What a chunk of a merge is: lines both sides have, lines one side changed, or a conflict.
 Enum ChunkKind
     SAME, TAKEN, CONFLICT
 End Enum
@@ -424,18 +423,16 @@ End Function
 
 // The chunks of where both sides changed the same lines: the lines they both have, and between
 // them, a conflict of each run that differs, unless one side has none, which is one conflict.
+// Two sides that made the same of them, none included, have it as lines both have, as git's
+// merge has the same change on both.
 Function Refine(chunks: Chunk[], mine: String[], others: String[])
+    If mine.Count == 0 && others.Count == 0 Then Return
     If mine.Count == 0 || others.Count == 0
         chunks.Add(Chunk(ChunkKind.CONFLICT, mine, others))
         Return
     End If
 
     Local changes = ChangesOf(Script(mine, others))
-    If changes.Count == 0
-        chunks.Add(Chunk(ChunkKind.TAKEN, mine, []))
-        Return
-    End If
-
     Local at = 0
     For change In changes
         chunks.Add(Chunk(ChunkKind.SAME, Part(mine, at, change.Start), []))

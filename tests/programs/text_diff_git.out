@@ -260,3 +260,19 @@ Y
 >>>>>>> theirs
 9
 
+== merge 9 0
+a
+c
+
+== merge 10 0
+
+== merge 11 0
+1
+2
+6
+7
+8
+9
+
+== merge 12 0
+
