@@ -1733,6 +1733,7 @@ std::vector<const build_config::bundled_library_t*> bundled_libraries(const mir_
     std::vector<std::string_view> wanted;
     for (const build_config::bundled_library_t& library : build_config::bundled_libraries) {
         const bool calls =
+            !library.prefix.empty() &&
             std::ranges::any_of(module.functions, [&](const mir_function_t& function) {
                 return function.external && !function.external->c_abi &&
                        function.external->symbol.starts_with(library.prefix);
@@ -1780,7 +1781,10 @@ std::expected<void, std::string> build_program(const mir_module_t& module,
     // A bundled library's system libraries come with it, after the packages' own.
     native_libraries_t natives = compilation.natives;
     for (const build_config::bundled_library_t* library : bundled_libraries(module)) {
-        natives.bundled.push_back(path_from_utf8(library->runtime));
+        if (!library->runtime.empty()) {
+            natives.bundled.push_back(path_from_utf8(library->runtime));
+        }
+
         for (const auto part : std::views::split(library->archives, ';')) {
             natives.bundled.push_back(path_from_utf8(std::string_view(part.begin(), part.end())));
         }

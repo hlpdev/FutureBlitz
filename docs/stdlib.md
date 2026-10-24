@@ -158,7 +158,8 @@ and the rest) aren't std's.
 | Library | License | Backs |
 |---|---|---|
 | libuv | MIT, with parts under BSD-2-Clause and ISC | std.io, std.os, std.net's sockets, IPC, and DNS, std.time's timers, Async I/O |
-| libcurl | curl (MIT-style) | std.net.http's client, over mbedTLS's TLS and zlib-ng's and zstd's decoding |
+| libcurl | curl (MIT-style) | std.net.http's client, over mbedTLS's TLS, zlib-ng's and zstd's decoding, and nghttp2's HTTP/2 |
+| nghttp2 | MIT | std.net.http's HTTP/2, through libcurl |
 | mbedTLS | Apache-2.0 | std.net.tls, std.net.http's TLS, std.crypto's hashes, HMAC, HKDF, PBKDF2, ciphers, signatures, key exchange, PEM keys and certificates, and secure random |
 | PCRE2 | BSD | std.text.regex, and the compiler's check of regex literals |
 | utf8proc | MIT | std.text.unicode: categories, case, normalization, graphemes, display width |
@@ -795,7 +796,8 @@ Step 28's half without streams is built: the addresses, `Url` and `QueryParams`,
   for a name that isn't RFC 9110's token, or a value with a control character but a tab; `Body`
   (bytes with a Content-Type, `Text`, `Json`, and `Form`, a Map's fields as
   application/x-www-form-urlencoded); `HttpResponse` (`Status`, `Headers`, `Bytes`, `Text` as
-  UTF-8, `Url` after the redirects, `IsSuccess`, `EnsureSuccess`). `HttpClient`: `Get`, `Head`,
+  UTF-8, `Url` after the redirects, `Version`, "HTTP/1.1" or "HTTP/2", `IsSuccess`,
+  `EnsureSuccess`). `HttpClient`: `Get`, `Head`,
   `Post`, `Put`, `Patch`, `Delete`, `Send(method, url, body, headers)`, and `Download(url,
   progress)`, the body's bytes, which tells `progress` of how many came and how many the response
   said, each with an Async twin that the I/O thread runs, telling progress on the main thread;
@@ -816,8 +818,9 @@ Step 28's half without streams is built: the addresses, `Url` and `QueryParams`,
   `GetTextAsync`, `GetBytesAsync`, `PostAsync`, and `DownloadAsync`, send one request each
   through a client of their own. A client's `Timeout`, a Duration, or Null for none, as it is to
   start, is how long a request may take, and `ConnectTimeout` (30 seconds) how long its
-  connecting may; past either is a TimeoutError. HTTP/1.1 only, for now; a program that only
-  makes Headers or a Body links no libcurl.
+  connecting may; past either is a TimeoutError. It speaks HTTP/2 where TLS's ALPN agrees on it,
+  over nghttp2, and HTTP/1.1 otherwise. A program that only makes Headers or a Body links no
+  libcurl.
 - std.net.http's server: `HttpServer`, whose handlers are Async code on its own loop (no data
   races, and Globals work), with `Workers = n` to spread them over threads once they're
   Sendable-safe; routes as

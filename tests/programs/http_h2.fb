@@ -1,0 +1,94 @@
+// HTTP/2 where TLS's ALPN agrees on it, against the test server: its HTTPS offers h2, which the
+// client takes, and its plain HTTP and its HTTPS that offers only HTTP/1.1 get HTTP/1.1. Over
+// HTTP/2, each request goes as it does over HTTP/1.1, Async ones at once too.
+Import std.core
+Import std.collections
+Import std.crypto
+Import std.net.http
+
+Global base = Input() ?? ""
+Global secure = Input() ?? ""
+Global refused = Input() ?? ""
+Global secure1 = Input() ?? ""
+Global pem = ""
+Loop
+    Local line = Input() ?? ""
+    pem = pem + line + "\n"
+    If line == "-----END CERTIFICATE-----" Then Break
+End Loop
+
+Global client = HttpClient()
+client.TrustOnly((Try? Certificate.AllFromPem(pem)) ?? [])
+
+// What a request of method to url gives: its HTTP, status, and text, or what failed.
+Function Sent(method: HttpMethod, url: String, body: Body? = Null,
+              headers: Headers? = Null): String
+    Try
+        Local response = client.Send(method, url, body, headers)
+        Return "{response.Version} {response.Status} {response.Text}"
+    Catch e As NetError
+        Return "NetError {e.Kind}"
+    Catch e As TimeoutError
+        Return "TimeoutError"
+    End Try
+End Function
+
+Async Function Fetched(url: String): String
+    Try
+        Local response = Await client.GetAsync(url)
+        Return "{response.Version} {response.Status} {response.Text}"
+    Catch e As NetError
+        Return "NetError {e.Kind}"
+    Catch e As TimeoutError
+        Return "TimeoutError"
+    End Try
+End Function
+
+Print("== versions")
+Print(Sent(HttpMethod.GET, "{secure}/hello"))
+Print(Sent(HttpMethod.GET, "{base}/hello"))
+Print(Sent(HttpMethod.GET, "{secure1}/hello"))
+Print(Await Fetched("{secure}/hello"))
+Print(Await Fetched("{secure1}/hello"))
+
+Print("== over HTTP/2")
+Print(Sent(HttpMethod.POST, "{secure}/echo", Body.Text("over h2")))
+Print(Sent(HttpMethod.GET, "{secure}/redirect/2"))
+Print(Sent(HttpMethod.POST, "{secure}/moved/303", Body.Text("dropped")))
+Print(Sent(HttpMethod.GET, "{secure}/status/404"))
+Print(Sent(HttpMethod.GET, "{secure}/cookies/set?name=h2&value=yes"))
+Local own = Headers()
+own.Add("Cookie", "mine=1")
+own.Add("X-Custom", "custom")
+Print(Sent(HttpMethod.GET, "{secure}/cookies", Null, own))
+Print(Sent(HttpMethod.GET, "{secure}/header/x-custom", Null, own))
+Print(Sent(HttpMethod.GET, "{secure}/header/accept-encoding"))
+Try
+    Local multi = client.Get("{secure}/multi")
+    Print(multi.Headers.GetAll("X-Multi"))
+    Print(multi.Headers.Get("Content-Type") ?? "none")
+    Local head = client.Head("{secure}/hello")
+    Print("{head.Version} head {head.Status} {head.Bytes.Count}")
+    Local compressed = client.Get("{secure}/compressed/gzip")
+    Print("{compressed.Headers.Get("Content-Encoding") ?? "none"} {compressed.Bytes.Count}")
+    Local bytes = client.Download("{secure}/bytes/300000")
+    Local right = bytes.Count == 300000
+    For i, byte In bytes
+        If byte != (i % 251) As UInt8 Then right = False
+    End For
+    Print("bytes {bytes.Count} {right}")
+Catch e As NetError
+    Print("NetError {e.Kind}")
+Catch e As TimeoutError
+    Print("TimeoutError")
+End Try
+
+Print("== at once")
+Local tasks: Task<String>[] = []
+For path In ["/hello", "/redirect/1", "/status/418", "/chunked", "/header/x-none", "/cookies"]
+    tasks.Add(Fetched("{secure}{path}"))
+End For
+
+For task In tasks
+    Print(task.Wait())
+End For

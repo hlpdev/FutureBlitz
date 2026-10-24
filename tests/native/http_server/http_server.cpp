@@ -1,10 +1,11 @@
 // The HTTP server std.net.http's program tests run against, with no internet: plain sockets,
-// HTTP/1.1 with keep-alive, TLS through mbedTLS with the test certificates beside it, and bodies
-// compressed by zlib-ng and zstd. It listens on 127.0.0.1 for HTTP and for HTTPS, keeps a third
-// port bound but not listening, which refuses connections, and runs the program it's given,
-// whose input is those three URLs, a line each, then the test CA's PEM, then what this server's
-// own input was. It exits as the program does, with its exit code; the program's output is its
-// own.
+// HTTP/1.1 with keep-alive, TLS through mbedTLS with the test certificates beside it, HTTP/2
+// through nghttp2 where TLS's ALPN agrees on it, and bodies compressed by zlib-ng and zstd. It
+// listens on 127.0.0.1 for HTTP, for HTTPS, and for HTTPS that offers only HTTP/1.1, keeps a
+// fourth port bound but not listening, which refuses connections, and runs the program it's
+// given. The program's input is the HTTP, HTTPS, and refused URLs, a line each, then the HTTPS
+// URL that offers only HTTP/1.1, then the test CA's PEM, then what this server's own input was.
+// It exits as the program does, with its exit code; the program's output is its own.
 //
 //     fb_http_test_server <program>
 //
@@ -22,9 +23,11 @@
 #include <cstring>
 #include <fstream>
 #include <iterator>
+#include <map>
 #include <mbedtls/ssl.h>
 #include <mbedtls/x509_crt.h>
 #include <memory>
+#include <nghttp2/nghttp2.h>
 #include <optional>
 #include <psa/crypto.h>
 #include <string>
@@ -151,11 +154,12 @@ public:
     }
 };
 
-/// The server's TLS setup, which every TLS connection shares.
+/// A TLS port's setup, which each of its connections shares, with the protocols its ALPN offers.
 struct tls_config_t {
     mbedtls_ssl_config config{};
     mbedtls_x509_crt chain{};
     mbedtls_pk_context key{};
+    std::array<const char*, 3> protocols{};
 };
 
 class tls_t : public connection_t {
@@ -188,6 +192,12 @@ public:
         }
 
         return true;
+    }
+
+    /// Whether the handshake's ALPN agreed on HTTP/2.
+    [[nodiscard]] bool http2() const {
+        const char* protocol = mbedtls_ssl_get_alpn_protocol(&m_ssl);
+        return protocol != nullptr && std::string_view(protocol) == "h2";
     }
 
     std::ptrdiff_t read(char* data, const std::size_t size) override {
@@ -625,6 +635,231 @@ void serve(std::unique_ptr<connection_t> connection) {
     }
 }
 
+/// A request that came on an HTTP/2 stream, and the body of the response it's sent there.
+struct stream_t {
+    request_t request;
+    std::string body;
+    std::size_t sent = 0;
+    /// Whether the body's end ends the stream, as it does but for the truncated one.
+    bool ends = true;
+};
+
+/// An HTTP/2 connection's session and streams, which nghttp2's callbacks are given.
+struct http2_t {
+    nghttp2_session* session = nullptr;
+    std::map<std::int32_t, stream_t> streams;
+    /// What the connection does once what it has to send is sent.
+    after_t then = after_t::KEEP;
+};
+
+http2_t& http2_of(void* data) {
+    return *static_cast<http2_t*>(data);
+}
+
+bool has_flag(const std::uint8_t flags, const int flag) {
+    return (static_cast<unsigned>(flags) & static_cast<unsigned>(flag)) != 0;
+}
+
+/// The next part of a response's body, as nghttp2 asks for it, whose callbacks take a source
+/// that isn't const.
+nghttp2_ssize next_part(nghttp2_session* /*session*/, const std::int32_t /*id*/,
+                        std::uint8_t* buffer, const std::size_t length, std::uint32_t* flags,
+                        nghttp2_data_source* source, // NOLINT(misc-const-correctness)
+                        void* /*data*/) {
+    stream_t& stream = *static_cast<stream_t*>(source->ptr);
+    const std::size_t count = std::min(length, stream.body.size() - stream.sent);
+    std::copy_n(stream.body.data() + stream.sent, count, buffer);
+    stream.sent += count;
+    if (stream.sent == stream.body.size()) {
+        *flags |= static_cast<std::uint32_t>(NGHTTP2_DATA_FLAG_EOF);
+        if (!stream.ends) {
+            *flags |= static_cast<std::uint32_t>(NGHTTP2_DATA_FLAG_NO_END_STREAM);
+        }
+    }
+
+    return static_cast<nghttp2_ssize>(count);
+}
+
+/// Answers the request that came whole on stream `id`, as serve() answers one over HTTP/1.1.
+void respond(http2_t& connection, const std::int32_t id) {
+    const auto found = connection.streams.find(id);
+    if (found == connection.streams.end()) {
+        return;
+    }
+
+    stream_t& stream = found->second;
+    auto [response, then] = answer(stream.request);
+    // A response to close after is only the truncated one, whose stream doesn't end.
+    if (then == after_t::RESET || (then == after_t::CLOSE && !response.length)) {
+        connection.then = then;
+        return;
+    }
+
+    if (then == after_t::CLOSE) {
+        connection.then = then;
+        stream.ends = false;
+    }
+
+    std::vector<std::pair<std::string, std::string>> fields{
+        { ":status", std::to_string(response.status) },
+    };
+    for (const auto& [name, value] : response.headers) {
+        fields.emplace_back(lower(name), value);
+    }
+
+    fields.emplace_back("content-length",
+                        std::to_string(response.length.value_or(response.body.size())));
+    std::vector<nghttp2_nv> headers;
+    headers.reserve(fields.size());
+    for (auto& [name, value] : fields) {
+        headers.push_back({
+            .name = reinterpret_cast<std::uint8_t*>(name.data()),
+            .value = reinterpret_cast<std::uint8_t*>(value.data()),
+            .namelen = name.size(),
+            .valuelen = value.size(),
+            .flags = NGHTTP2_NV_FLAG_NONE,
+        });
+    }
+
+    stream.body = std::move(response.body);
+    const nghttp2_data_provider2 body{ .source = { .ptr = &stream }, .read_callback = next_part };
+    nghttp2_submit_response2(connection.session, id, headers.data(), headers.size(),
+                             stream.request.method == "HEAD" ? nullptr : &body);
+}
+
+int on_begin_headers(nghttp2_session* /*session*/, const nghttp2_frame* frame, void* data) {
+    if (frame->hd.type == NGHTTP2_HEADERS && frame->headers.cat == NGHTTP2_HCAT_REQUEST) {
+        http2_of(data).streams.try_emplace(frame->hd.stream_id);
+    }
+
+    return 0;
+}
+
+/// A request's header, kept as HTTP/1.1's are: its :authority is its Host, and its Cookie
+/// headers are one, which HTTP/2 lets a client send apart.
+int on_header(nghttp2_session* /*session*/, const nghttp2_frame* frame, const std::uint8_t* name,
+              const std::size_t name_length, const std::uint8_t* value,
+              const std::size_t value_length, std::uint8_t /*flags*/, void* data) {
+    auto& streams = http2_of(data).streams;
+    const auto stream = streams.find(frame->hd.stream_id);
+    if (stream == streams.end()) {
+        return 0;
+    }
+
+    request_t& request = stream->second.request;
+    const std::string_view key(reinterpret_cast<const char*>(name), name_length);
+    std::string text(reinterpret_cast<const char*>(value), value_length);
+    if (key == ":method") {
+        request.method = std::move(text);
+    } else if (key == ":path") {
+        request.target = std::move(text);
+    } else if (key == ":authority") {
+        request.headers.emplace_back("host", std::move(text));
+    } else if (key == "cookie" && request.header("cookie")) {
+        for (auto& [field, cookies] : request.headers) {
+            if (field == "cookie") {
+                cookies += "; " + text;
+                break;
+            }
+        }
+    } else if (!key.starts_with(':')) {
+        request.headers.emplace_back(key, std::move(text));
+    }
+
+    return 0;
+}
+
+int on_data(nghttp2_session* /*session*/, std::uint8_t /*flags*/, const std::int32_t id,
+            const std::uint8_t* data, const std::size_t length, void* connection) {
+    auto& streams = http2_of(connection).streams;
+    if (const auto stream = streams.find(id); stream != streams.end()) {
+        stream->second.request.body.append(reinterpret_cast<const char*>(data), length);
+    }
+
+    return 0;
+}
+
+int on_frame(nghttp2_session* /*session*/, const nghttp2_frame* frame, void* data) {
+    const bool request = frame->hd.type == NGHTTP2_HEADERS || frame->hd.type == NGHTTP2_DATA;
+    if (request && has_flag(frame->hd.flags, NGHTTP2_FLAG_END_STREAM)) {
+        respond(http2_of(data), frame->hd.stream_id);
+    }
+
+    return 0;
+}
+
+int on_close(nghttp2_session* /*session*/, const std::int32_t id, std::uint32_t /*error*/,
+             void* data) {
+    http2_of(data).streams.erase(id);
+    return 0;
+}
+
+/// Serves a connection whose TLS agreed on HTTP/2 through an nghttp2 session, answering each
+/// stream's request as serve() answers HTTP/1.1's, one after another.
+void serve_http2(connection_t& connection) {
+    nghttp2_session_callbacks* callbacks = nullptr;
+    if (nghttp2_session_callbacks_new(&callbacks) != 0) {
+        return;
+    }
+
+    nghttp2_session_callbacks_set_on_begin_headers_callback(callbacks, on_begin_headers);
+    nghttp2_session_callbacks_set_on_header_callback(callbacks, on_header);
+    nghttp2_session_callbacks_set_on_data_chunk_recv_callback(callbacks, on_data);
+    nghttp2_session_callbacks_set_on_frame_recv_callback(callbacks, on_frame);
+    nghttp2_session_callbacks_set_on_stream_close_callback(callbacks, on_close);
+    http2_t state;
+    const int made = nghttp2_session_server_new(&state.session, callbacks, &state);
+    nghttp2_session_callbacks_del(callbacks);
+    if (made != 0) {
+        return;
+    }
+
+    const nghttp2_settings_entry streams{
+        .settings_id = NGHTTP2_SETTINGS_MAX_CONCURRENT_STREAMS,
+        .value = 100,
+    };
+    nghttp2_submit_settings(state.session, NGHTTP2_FLAG_NONE, &streams, 1);
+    std::array<char, 16384> chunk{};
+    while (true) {
+        // All it has to send, then what comes next.
+        const std::uint8_t* data = nullptr;
+        nghttp2_ssize size = 0;
+        bool written = true;
+        while (written && (size = nghttp2_session_mem_send2(state.session, &data)) > 0) {
+            written = connection.write(
+                { reinterpret_cast<const char*>(data), static_cast<std::size_t>(size) });
+        }
+
+        if (!written || size < 0) {
+            break;
+        }
+
+        if (state.then == after_t::RESET) {
+            connection.reset();
+            break;
+        }
+
+        if (state.then == after_t::CLOSE) {
+            connection.finish();
+            break;
+        }
+
+        if (nghttp2_session_want_read(state.session) == 0 &&
+            nghttp2_session_want_write(state.session) == 0) {
+            break;
+        }
+
+        const std::ptrdiff_t got = connection.read(chunk.data(), chunk.size());
+        if (got <= 0 || nghttp2_session_mem_recv2(
+                            state.session, reinterpret_cast<const std::uint8_t*>(chunk.data()),
+                            static_cast<std::size_t>(got)) < 0) {
+            break;
+        }
+    }
+
+    nghttp2_session_del(state.session);
+}
+
 /// A socket bound to a port of 127.0.0.1 that no other program gets, listening or not.
 socket_t bound(const bool listening, std::uint16_t& port) {
     const socket_t socket = ::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
@@ -666,17 +901,29 @@ void accept_all(const socket_t listener, const tls_config_t* tls) {
             }
 
             auto connection = std::make_unique<tls_t>(socket, *tls);
-            if (connection->handshake()) {
-                serve(std::move(connection));
+            if (!connection->handshake()) {
+                return;
             }
+
+            if (connection->http2()) {
+                serve_http2(*connection);
+                return;
+            }
+
+            serve(std::move(connection));
         }).detach();
     }
 }
 
-void set_up_tls(tls_config_t& tls) {
+/// Sets up a TLS port with the test certificate, whose ALPN offers HTTP/2 before HTTP/1.1 when
+/// `http2`, and HTTP/1.1 alone otherwise.
+void set_up_tls(tls_config_t& tls, const bool http2) {
     if (psa_crypto_init() != PSA_SUCCESS) {
         fail("PSA doesn't start");
     }
+
+    tls.protocols = http2 ? std::array<const char*, 3>{ "h2", "http/1.1", nullptr }
+                          : std::array<const char*, 3>{ "http/1.1", nullptr, nullptr };
 
     mbedtls_ssl_config_init(&tls.config);
     mbedtls_x509_crt_init(&tls.chain);
@@ -690,7 +937,8 @@ void set_up_tls(tls_config_t& tls) {
         mbedtls_ssl_config_defaults(&tls.config, MBEDTLS_SSL_IS_SERVER,
                                     MBEDTLS_SSL_TRANSPORT_STREAM,
                                     MBEDTLS_SSL_PRESET_DEFAULT) != 0 ||
-        mbedtls_ssl_conf_own_cert(&tls.config, &tls.chain, &tls.key) != 0) {
+        mbedtls_ssl_conf_own_cert(&tls.config, &tls.chain, &tls.key) != 0 ||
+        mbedtls_ssl_conf_alpn_protocols(&tls.config, tls.protocols.data()) != 0) {
         fail("the test certificate doesn't load");
     }
 }
@@ -798,20 +1046,26 @@ int main(const int count, char** arguments) {
 #endif
 
     static tls_config_t tls;
-    set_up_tls(tls);
+    static tls_config_t tls1;
+    set_up_tls(tls, true);
+    set_up_tls(tls1, false);
     std::uint16_t plain_port = 0;
     std::uint16_t tls_port = 0;
     std::uint16_t refused_port = 0;
+    std::uint16_t tls1_port = 0;
     const socket_t plain = bound(true, plain_port);
     const socket_t secure = bound(true, tls_port);
     const socket_t refusing = bound(false, refused_port);
+    const socket_t secure1 = bound(true, tls1_port);
     std::thread(accept_all, plain, nullptr).detach();
     std::thread(accept_all, secure, &tls).detach();
+    std::thread(accept_all, secure1, &tls1).detach();
 
     // The program's input: the URLs, the CA, and then this server's own input.
     std::string input = "http://127.0.0.1:" + std::to_string(plain_port) + "\n" +
                         "https://127.0.0.1:" + std::to_string(tls_port) + "\n" +
                         "http://127.0.0.1:" + std::to_string(refused_port) + "\n" +
+                        "https://127.0.0.1:" + std::to_string(tls1_port) + "\n" +
                         read_file(FB_HTTP_TEST_CA);
     std::array<char, 4096> chunk{};
     std::size_t got = 0;
