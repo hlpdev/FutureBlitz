@@ -690,7 +690,8 @@ the rest is planned.
   folder. Its own separator is `/` on every OS, which it writes wherever it joins or rebuilds a
   path, so a program's paths read the same everywhere; by Windows' rules `\` is one too, and a
   path can start with a drive (`C:`, `C:/`) or a share (`//server/share`). Paths are equal and
-  hashed by their texts and styles, and sort by their texts' bytes; on Windows, RelativeTo takes
+  hashed by their texts and styles, and sort by their styles, POSIX's first, then their texts'
+  bytes; a Path's zero is "" by the target's rules, as `Path("")` is; on Windows, RelativeTo takes
   names that differ in their ASCII letters' case as the same. A String converts to a Path
   wherever one is expected (spec 02), so `File.ReadText("save.dat")` and `saves / "one.dat"`
   read naturally.

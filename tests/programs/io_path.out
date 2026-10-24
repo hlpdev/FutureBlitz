@@ -69,6 +69,8 @@ a/save.bak/ C:\x\größe.bin
 Compare
 True False False True
 2
+True True True
+save.dat True
 From Strings
 save.dat in games
 one.dat in saves
