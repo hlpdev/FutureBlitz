@@ -1,0 +1,71 @@
+// Messages inside messages, ones that hold their own type, oneofs, maps of every key type,
+// proto3's open enums, and fields a reader doesn't know.
+syntax = "proto3";
+
+package test.messages;
+
+enum Mood {
+  MOOD_UNKNOWN = 0;
+  HAPPY = 1;
+  SAD = 2;
+}
+
+message Node {
+  string name = 1;
+  Node left = 2;
+  Node right = 3;
+  repeated Node children = 4;
+  map<string, Node> named = 5;
+  Leaf leaf = 6;
+}
+
+// A Leaf holds a Node, which holds a Leaf.
+message Leaf {
+  Node back = 1;
+  int32 weight = 2;
+}
+
+message Choice {
+  oneof value {
+    int32 number = 1;
+    string text = 2;
+    Node node = 3;
+    Mood mood = 4;
+    bytes blob = 5;
+    double ratio = 6;
+  }
+  oneof other {
+    bool flag = 7;
+    Choice nested = 8;
+  }
+  int32 after = 9;
+}
+
+message Maps {
+  map<int32, string> int32_string = 1;
+  map<int64, int32> int64_int32 = 2;
+  map<uint32, uint64> uint32_uint64 = 3;
+  map<uint64, bool> uint64_bool = 4;
+  map<sint32, double> sint32_double = 5;
+  map<sint64, float> sint64_float = 6;
+  map<fixed32, bytes> fixed32_bytes = 7;
+  map<fixed64, Mood> fixed64_mood = 8;
+  map<sfixed32, Leaf> sfixed32_leaf = 9;
+  map<sfixed64, sint64> sfixed64_sint64 = 10;
+  map<bool, string> bool_string = 11;
+  map<string, string> string_string = 12;
+}
+
+message Moods {
+  Mood one = 1;
+  repeated Mood many = 2;
+  map<string, Mood> named = 3;
+  optional Mood maybe = 4;
+  repeated Mood loose = 5 [packed = false];
+}
+
+// What an older program knows of a Node: only its name. The rest it keeps as fields it
+// doesn't know, and writes back.
+message OldNode {
+  string name = 1;
+}

@@ -1,0 +1,5 @@
+# proto-file: messages.proto
+# proto-message: test.messages.Choice
+number: 0
+flag: false
+after: 3

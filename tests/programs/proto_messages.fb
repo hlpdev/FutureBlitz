@@ -1,0 +1,117 @@
+// Protocol Buffers' messages: Nodes inside Nodes, which a Struct holds in a ProtoBox, oneofs,
+// maps of every key type, proto3's open enums, which keep the numbers they don't name, a reader
+// that keeps the fields it doesn't know and writes them back, and merging, each against what
+// protoc 36.2 wrote, in proto_messages/golden.fb.
+Import std.core
+Import std.collections
+Import "proto_messages/messages.proto"
+Import "./proto_messages/golden"
+
+// The bytes of a and then b's.
+Function Joined(a: UInt8[], b: UInt8[]): UInt8[]
+    Local bytes = a.Clone()
+    bytes.AddAll(b)
+    Return bytes
+End Function
+
+Function Describe(mood: Mood): String
+    Select mood
+        Case Mood.HAPPY
+            Return "happy"
+        Case Mood.SAD, Mood.MOOD_UNKNOWN
+            Return "not happy"
+        Default
+            Return "a mood this program doesn't know, {mood As Int}"
+    End Select
+End Function
+
+// A tree, read and written again, and made here.
+Local tree = Try Node.Decode(TreeBytes())
+Print("tree: {tree}")
+Print("tree writes the same bytes: {tree.Encode() == TreeBytes()}")
+Print("{tree.left?.left?.name ?? "-"} {tree.leaf?.back?.leaf?.weight ?? -1} {tree.children[1].children[0].name}")
+Local made = Node(name: "root")
+made.left = Node(name: "l", left: Node(name: "ll"))
+made.right = Node(name: "r")
+made.children.AddAll([Node(name: "c1"), Node(name: "c2", children: [Node(name: "c2a")])])
+made.named["first"] = Node(name: "n1", right: Node(name: "n1r"))
+made.leaf = Leaf(weight: 7, back: Node(name: "back", leaf: Leaf(weight: 8)))
+Print("encoded tree.txtpb {made.Encode()}")
+Print("made like tree: {made == tree}")
+
+// A copy shares nothing: changing it leaves the tree as it was.
+Local copy = tree.Clone()
+copy.children[0].name = "changed"
+copy.named["first"] = Node(name: "other")
+Print("copy: {copy.children[0].name} {tree.children[0].name} {tree.named["first"].name}")
+
+// Two trees' bytes are one tree, merged: left's Node merges, the children go after, and the
+// map's entry for "first" takes the last value. protoc's bytes for the two keep both entries of
+// "first", as its dynamic messages read a map, and a reader takes the last.
+Local trees = Try Node.Decode(Joined(TreeBytes(), TreeMoreBytes()))
+Print("trees: {trees}")
+Print("trees as protoc merges: {(Try Node.Decode(TreesBytes())) == trees}")
+Local merged = tree.Clone()
+merged.MergeFrom(Try Node.Decode(TreeMoreBytes()))
+Print("mergefrom: {merged == trees}")
+
+// An older reader keeps what it doesn't know, and writes it back where it was.
+Local old = Try OldNode.Decode(TreeBytes())
+Print("old: {old}")
+Print("old writes the same bytes: {old.Encode() == TreeBytes()}")
+
+// A oneof holds one of its fields: present even at its zero, and the last one read wins.
+Local number = Try Choice.Decode(ChoiceNumberBytes())
+Print("number: {number} {number.value} {number.other} {number.number ?? -1} {number.text ?? "-"}")
+Print("number writes the same bytes: {number.Encode() == ChoiceNumberBytes()}")
+Local node = Try Choice.Decode(ChoiceNodeBytes())
+Print("node: {node} {node.value} {node.nested?.nested?.ratio ?? 0.0}")
+Print("node writes the same bytes: {node.Encode() == ChoiceNodeBytes()}")
+Local choices = Try Choice.Decode(Joined(ChoiceNumberBytes(), ChoiceNodeBytes()))
+Print("choices: {choices}")
+Print("choices as protoc merges: {choices.Encode() == ChoicesBytes()}")
+Local last = Try Choice.Decode(Joined(ChoiceNodeBytes(), ChoiceBlobBytes()))
+Print("last: {last} {last.value}")
+Print("last as protoc merges: {last.Encode() == ChoicesLastBytes()}")
+
+// Setting one of a oneof's fields takes the others away; setting another to Null doesn't.
+Local choice = Choice(number: 5, after: 1)
+choice.text = "words"
+Print("{choice.value} {choice.number ?? -1} {choice.text ?? "-"}")
+choice.number = Null
+Print("{choice.value} {choice.text ?? "-"}")
+choice.text = Null
+Print("{choice.value} {choice}")
+choice.nested = Choice(mood: Mood.HAPPY, flag: True)
+choice.node = Node(name: "chosen")
+Print("encoded choice_node.txtpb {Choice(node: Node(name: "chosen"), nested: Choice(mood: Mood.SAD, nested: Choice(ratio: 2.5))).Encode()}")
+
+// A map of each key type.
+Local maps = Try Maps.Decode(MapsBytes())
+Print("maps: {maps}")
+Print("maps writes the same bytes: {maps.Encode() == MapsBytes()}")
+Local filled = Maps()
+filled.int32_string[-1] = "minus one"
+filled.int64_int32[9223372036854775807] = -5
+filled.uint32_uint64[4294967295] = 18446744073709551615
+filled.uint64_bool[18446744073709551615] = True
+filled.sint32_double[-2147483648] = -0.5
+filled.sint64_float[-9223372036854775808] = 0.25
+filled.fixed32_bytes[7] = [255]
+filled.fixed64_mood[8] = Mood.SAD
+filled.sfixed32_leaf[-9] = Leaf(weight: 4, back: Node(name: "in a map"))
+filled.sfixed64_sint64[-10] = -11
+filled.bool_string[False] = "no"
+filled.string_string[""] = ""
+Print("encoded maps.txtpb {filled.Encode()}")
+Print("made like maps: {filled == maps}")
+
+// An open enum keeps a number it doesn't name, in a field, a list, and a map.
+Local moods = Try Moods.Decode(MoodsBytes())
+Print("moods: {moods}")
+Print("moods writes the same bytes: {moods.Encode() == MoodsBytes()}")
+Print("{Describe(moods.one)}; {Describe(moods.many[0])}; {moods.one == (7 As Mood)} {moods.maybe ?? Mood.SAD}")
+Local feelings = Moods(one: 7 As Mood, many: [Mood.HAPPY, 9 As Mood, Mood.SAD, -3 As Mood],
+                       maybe: Mood.MOOD_UNKNOWN, loose: [5 As Mood, Mood.HAPPY])
+feelings.named["x"] = 42 As Mood
+Print("encoded moods.txtpb {feelings.Encode()}")

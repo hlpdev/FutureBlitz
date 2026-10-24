@@ -1,0 +1,4 @@
+# proto-file: legacy.proto
+# proto-message: test.legacy.Settings
+# Only the required field, so each other one reads as its default.
+id: 1

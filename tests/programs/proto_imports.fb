@@ -1,0 +1,59 @@
+// .proto files that import each other: match.proto finds common/ids.proto from the folder above
+// its own, as protoc does with -I protos, and imports game/rules.proto publicly, so lobby.proto
+// names its Rules; and protobuf's well-known types, which std has, are imported by their paths,
+// from a .proto or a program, each against what protoc 36.2 wrote, in proto_imports/golden.fb.
+Import std.core
+Import std.collections
+Import "proto_imports/protos/game/match.proto"
+Import "proto_imports/protos/game/rules.proto"
+Import "proto_imports/protos/common/ids.proto"
+Import "proto_imports/protos/lobby.proto"
+Import "google/protobuf/any.proto"
+Import "google/protobuf/duration.proto"
+Import "google/protobuf/empty.proto"
+Import "google/protobuf/field_mask.proto"
+Import "google/protobuf/struct.proto"
+Import "google/protobuf/timestamp.proto"
+Import "google/protobuf/wrappers.proto"
+Import "./proto_imports/golden"
+
+Local read = Try Match.Decode(MatchBytes())
+Print("match: {read}")
+Print("match writes the same bytes: {read.Encode() == MatchBytes()}")
+Print("{read.players[1].value} {read.teams["ada"]} {read.rules?.rounds ?? 0} {read.started?.seconds ?? 0}")
+Local player = Try PlayerId.Decode(read.extra?.value ?? [])
+Print("{read.extra?.type_url ?? "-"} holds {player.value}")
+Local fields = read.meta?.fields ?? {}
+Local tags = fields["tags"].list_value?.values ?? []
+Print("{tags.Count} {tags[0].string_value ?? "-"} {tags[1].bool_value ?? False} {tags[2].kind}")
+
+// A Value holds a Struct, which holds Values: a Struct can't hold itself, so a Value holds it
+// in a ProtoBox. google.protobuf.Struct is Struct_, since Struct is a keyword, and Empty is
+// std.core's Empty<T>() too, so it takes its qualifier.
+Local meta = Struct_()
+meta.fields["tags"] = Value(list_value: ListValue(values: [Value(string_value: "a"),
+                                                           Value(bool_value: True),
+                                                           Value(null_value: NullValue.NULL_VALUE)]))
+Local anything = Struct_()
+anything.fields["k"] = Value(number_value: 2.5)
+Local made = Match(players: [PlayerId(value: "ada"), PlayerId(value: "alan")],
+                   rules: Rules(rounds: 3, ranked: True),
+                   started: Timestamp(seconds: 1700000000, nanos: 5),
+                   length: Duration(seconds: 90), bonus: Int32Value(value: 0),
+                   motto: StringValue(value: "go"),
+                   extra: Any(type_url: "type.googleapis.com/common.PlayerId",
+                              value: PlayerId(value: "x").Encode()),
+                   meta: meta, nothing: empty.Empty(),
+                   changed: FieldMask(paths: ["players", "rules.rounds"]),
+                   anything: Value(struct_value: anything))
+made.teams["ada"] = Team.RED
+Print("encoded match.txtpb {made.Encode()}")
+Print("made like match: {made == read}")
+
+// What lobby.proto names through match.proto's public import.
+Local lobby = Try Lobby.Decode(LobbyBytes())
+Print("lobby: {lobby}")
+Print("lobby writes the same bytes: {lobby.Encode() == LobbyBytes()}")
+Local hosted = Lobby(matches: [Match(rules: Rules(rounds: 1), players: [PlayerId(value: "grace")])],
+                     default_rules: Rules(ranked: True))
+Print("encoded lobby.txtpb {hosted.Encode()}")

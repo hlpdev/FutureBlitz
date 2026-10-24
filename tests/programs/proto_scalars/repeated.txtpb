@@ -1,0 +1,22 @@
+# proto-file: scalars.proto
+# proto-message: test.scalars.Scalars
+# Each repeated type, packed as proto3 writes them, and the unpacked ones.
+r_double: [0, -1.5, 1e100]
+r_float: [0.25, -0, 3]
+r_int32: [0, -1, 2147483647, -2147483648, 300]
+r_int64: [-9223372036854775808, 1]
+r_uint32: [4294967295, 128]
+r_uint64: [18446744073709551615, 0]
+r_sint32: [-1, 1, -64, 64]
+r_sint64: [-9223372036854775808, 9223372036854775807]
+r_fixed32: [1, 4294967295]
+r_fixed64: [1, 18446744073709551615]
+r_sfixed32: [-1, 2]
+r_sfixed64: [-2, 3]
+r_bool: [true, false, true]
+r_string: ["", "a", "\360\237\230\200"]
+r_bytes: ["", "\000", "\377\376"]
+u_int32: [1, -2, 3]
+u_sint64: [-5, 6]
+u_double: [0.5, -0.5]
+u_fixed32: [7, 8]

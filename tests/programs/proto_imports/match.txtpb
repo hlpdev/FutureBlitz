@@ -1,0 +1,35 @@
+# proto-file: game/match.proto
+# proto-message: game.Match
+# proto-include: protos
+# Types from other files, and each well-known type: a Struct holds Values, which hold Structs
+# and ListValues again.
+players { value: "ada" }
+players { value: "alan" }
+teams { key: "ada" value: RED }
+rules { rounds: 3 ranked: true }
+started { seconds: 1700000000 nanos: 5 }
+length { seconds: 90 }
+bonus { value: 0 }
+motto { value: "go" }
+extra {
+  [type.googleapis.com/common.PlayerId] { value: "x" }
+}
+meta {
+  fields {
+    key: "tags"
+    value {
+      list_value {
+        values { string_value: "a" }
+        values { bool_value: true }
+        values { null_value: NULL_VALUE }
+      }
+    }
+  }
+}
+nothing {}
+changed { paths: "players" paths: "rules.rounds" }
+anything {
+  struct_value {
+    fields { key: "k" value { number_value: 2.5 } }
+  }
+}

@@ -1,0 +1,79 @@
+// Bytes that aren't protobuf's wire format, or stop inside a field, or pass protobuf's limits,
+// throw a ParseError saying where; a field of a wire type its type doesn't have is one the
+// message doesn't know, as protobuf's readers take it, and so is a group.
+Import std.core
+Import std.collections
+Import "proto_errors/errors.proto"
+
+Function Read(name: String, bytes: UInt8[])
+    Try
+        Local fields = Fields.Decode(bytes)
+        Print("{name}: read {fields}")
+    Catch e As ParseError
+        Print("{name}: {e.Kind}: {e.Message}")
+    End Try
+End Function
+
+// A Chain of Chains `depth` deep.
+Function Deep(depth: Int): Chain
+    Local chain = Chain(depth: depth)
+    For i = depth - 1 To 1 Step -1
+        chain = Chain(next: chain, depth: i)
+    End For
+    Return chain
+End Function
+
+Read("no length", [10])
+Read("a length past the end", [10, 5, 65, 66])
+Read("a varint that stops", [16, 128, 128])
+Read("a varint of 11 bytes", [16, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 1])
+Read("field 0", [0, 1])
+Read("wire type 6", [14, 1])
+Read("wire type 7", [15, 1])
+Read("a tag past field 536870911", [128, 128, 128, 128, 16])
+Read("a group's end without its start", [12])
+Read("a group without its end", [11, 16, 1])
+Read("a group that ends with another's end", [11, 20])
+Read("a string that isn't UTF-8", [10, 2, 195, 40])
+Read("an overlong UTF-8", [10, 2, 192, 175])
+Read("a surrogate in UTF-8", [10, 3, 237, 160, 128])
+Read("packed 4-byte values in 6 bytes", [26, 6, 1, 0, 0, 0, 2, 0])
+Read("a packed varint that stops", [42, 2, 1, 128])
+Read("4 bytes that stop", [29, 1, 2])
+Read("a length past what an array holds", [34, 128, 128, 128, 128, 8])
+Read("a length past the bytes", [34, 255, 255, 255, 255, 7])
+
+// A field of another wire type than its type's is one the message doesn't know, which it keeps,
+// and a group of a field it doesn't know too, with what's in it.
+Read("a number as bytes", [18, 1, 7, 10, 1, 65])
+Local group: UInt8[] = [91, 16, 1, 99, 100, 10, 0, 92, 8, 3]
+Local grouped = Try Fields.Decode(group)
+Print("{grouped} {grouped.Encode() == group}")
+// A varint of 10 bytes keeps the low 64 bits, and an int32 its varint's low 32.
+Read("an int32 of 10 bytes", [16, 128, 128, 128, 128, 248, 255, 255, 255, 255, 1])
+Read("an int32 past 32 bits", [16, 133, 128, 128, 128, 16])
+
+// Messages nest up to 100 deep, and one more is too deep, as protobuf's readers have it.
+Local hundred = Try Chain.Decode(Deep(101).Encode())
+Print("101 Chains, 100 nested: {hundred.depth} {hundred == Deep(101)}")
+Try
+    Chain.Decode(Deep(102).Encode())
+Catch e As ParseError
+    Print("102 Chains: {e.Kind}: {e.Message}")
+End Try
+
+// Groups a message doesn't know nest as deep as messages: 100, but not 101.
+Function Groups(depth: Int): UInt8[]
+    Local bytes: UInt8[] = []
+    For i = 1 To depth
+        bytes.Add(51)
+    End For
+    For i = 1 To depth
+        bytes.Add(52)
+    End For
+    Return bytes
+End Function
+
+Local kept = Try Fields.Decode(Groups(100))
+Print("100 groups: {kept.Encode() == Groups(100)}")
+Read("101 groups", Groups(101))

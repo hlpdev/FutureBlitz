@@ -1,0 +1,11 @@
+# proto-file: scalars.proto
+# proto-message: test.scalars.Scalars
+# Optional fields set to their zeros are present, so they're written; an infinity and a small
+# float.
+o_int32: 0
+o_string: ""
+o_double: 0
+o_bool: false
+o_bytes: ""
+f_double: -inf
+f_float: 1e-45

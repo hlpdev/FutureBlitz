@@ -1,0 +1,15 @@
+# proto-file: messages.proto
+# proto-message: test.messages.Maps
+# A map of each key type, an entry each, so the bytes' order is the one protoc writes.
+int32_string { key: -1 value: "minus one" }
+int64_int32 { key: 9223372036854775807 value: -5 }
+uint32_uint64 { key: 4294967295 value: 18446744073709551615 }
+uint64_bool { key: 18446744073709551615 value: true }
+sint32_double { key: -2147483648 value: -0.5 }
+sint64_float { key: -9223372036854775808 value: 0.25 }
+fixed32_bytes { key: 7 value: "\377" }
+fixed64_mood { key: 8 value: SAD }
+sfixed32_leaf { key: -9 value { weight: 4 back { name: "in a map" } } }
+sfixed64_sint64 { key: -10 value: -11 }
+bool_string { key: false value: "no" }
+string_string { key: "" value: "" }

@@ -1,0 +1,55 @@
+// proto2: required fields, defaults, groups, closed enums, which keep a number they don't name
+// as an unknown field, aliases, and extensions, whose fields a message keeps as unknown ones.
+syntax = "proto2";
+
+package test.legacy;
+
+enum Color {
+  option allow_alias = true;
+  COLOR_NONE = 0;
+  RED = 1;
+  GREEN = 2;
+  BLUE = 3;
+  CRIMSON = 1;
+}
+
+message Inner {
+  required string label = 1;
+  optional int32 count = 2;
+}
+
+message Settings {
+  required int32 id = 1;
+  optional string name = 2 [default = "unnamed {x}\n\"quoted\""];
+  optional double ratio = 3 [default = -inf];
+  optional float scale = 4 [default = 1.5];
+  optional Color color = 5 [default = GREEN];
+  optional bytes magic = 6 [default = "\001\002ab\377"];
+  optional bool on = 7 [default = true];
+  optional uint64 big = 8 [default = 18446744073709551615];
+  optional int64 low = 9 [default = -9223372036854775808];
+  repeated Color colors = 10 [packed = true];
+  repeated Color loose = 11;
+  optional group Result = 12 {
+    required string url = 13;
+    optional int32 rank = 14;
+  }
+  repeated group Item = 15 {
+    optional int32 count = 16;
+    optional group Detail = 17 {
+      optional string note = 18;
+    }
+  }
+  optional Inner inner = 19;
+  map<int32, Color> by_number = 20;
+  repeated Inner inners = 21;
+  optional sint32 plain = 22;
+  optional double nothing = 23 [default = nan];
+  optional uint32 eight = 24 [default = 010];
+  optional int32 negative = 25 [default = -0x10];
+  extensions 100 to 199;
+}
+
+extend Settings {
+  optional int32 bonus = 150;
+}

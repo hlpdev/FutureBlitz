@@ -1,0 +1,82 @@
+// Protocol Buffers' scalar types: what protoc 36.2 wrote, in proto_scalars/golden.fb, reads back
+// as the same message, which writes the same bytes again; a message made here writes the bytes
+// protoc wrote for it; a repeated field reads packed or not; and messages one after the other
+// merge, the last value of a field that holds one winning.
+Import std.core
+Import std.collections
+Import std.math
+Import "proto_scalars/scalars.proto"
+Import "./proto_scalars/golden"
+
+// Reads bytes protoc wrote, shows the message, and writes it again.
+Function Reread(name: String, bytes: UInt8[]): Scalars Throws ParseError
+    Local message = Try Scalars.Decode(bytes)
+    Print("{name}: {message}")
+    Print("{name} writes the same bytes: {message.Encode() == bytes}")
+    Return message
+End Function
+
+// The bytes of a and then b's.
+Function Joined(a: UInt8[], b: UInt8[]): UInt8[]
+    Local bytes = a.Clone()
+    bytes.AddAll(b)
+    Return bytes
+End Function
+
+Local max = Try Reread("max", MaxBytes())
+Local made = Scalars(f_double: 1.7976931348623157e308, f_float: 3.4028234663852886e38,
+                     f_int32: 2147483647, f_int64: 9223372036854775807, f_uint32: 4294967295,
+                     f_uint64: 18446744073709551615, f_sint32: 2147483647,
+                     f_sint64: 9223372036854775807, f_fixed32: 4294967295,
+                     f_fixed64: 18446744073709551615, f_sfixed32: 2147483647,
+                     f_sfixed64: 9223372036854775807, f_bool: True,
+                     f_string: "héllo, 世界 😀 \"quoted\"\n\ttabbed", f_bytes: [0, 1, 127, 128, 255])
+Print("encoded max.txtpb {made.Encode()}")
+Print("made like max: {made == max} {made.Encode() == MaxBytes()}")
+
+Local min = Try Reread("min", MinBytes())
+Local low = Scalars(f_double: -2.2250738585072014e-308, f_float: -0.0, f_int32: -2147483648,
+                    f_int64: -9223372036854775808, f_sint32: -2147483648,
+                    f_sint64: -9223372036854775808, f_sfixed32: -2147483648,
+                    f_sfixed64: -9223372036854775808)
+Print("encoded min.txtpb {low.Encode()}")
+Print("made like min: {low == min}")
+
+// An optional field set to its zero is there; one without a value isn't.
+Local present = Try Reread("present", PresentBytes())
+Print("present: {present.o_int32 ?? -1} {present.o_bool != Null} {present.f_int32}")
+Local zeros = Scalars(o_int32: 0, o_string: "", o_double: 0.0, o_bool: False, o_bytes: [],
+                      f_double: -(Inf As Double), f_float: 1e-45)
+Print("encoded present.txtpb {zeros.Encode()}")
+
+Local repeated = Try Reread("repeated", RepeatedBytes())
+Local lists = Scalars(r_double: [0.0, -1.5, 1e100], r_float: [0.25, -0.0, 3.0],
+                      r_int32: [0, -1, 2147483647, -2147483648, 300],
+                      r_int64: [-9223372036854775808, 1], r_uint32: [4294967295, 128],
+                      r_uint64: [18446744073709551615, 0], r_sint32: [-1, 1, -64, 64],
+                      r_sint64: [-9223372036854775808, 9223372036854775807],
+                      r_fixed32: [1, 4294967295], r_fixed64: [1, 18446744073709551615],
+                      r_sfixed32: [-1, 2], r_sfixed64: [-2, 3], r_bool: [True, False, True],
+                      r_string: ["", "a", "😀"], r_bytes: [[], [0], [255, 254]],
+                      u_int32: [1, -2, 3], u_sint64: [-5, 6], u_double: [0.5, -0.5],
+                      u_fixed32: [7, 8])
+Print("encoded repeated.txtpb {lists.Encode()}")
+Print("made like repeated: {lists == repeated}")
+
+// Each repeated field reads packed or not, whichever the writer chose.
+Local repacked = Try Scalars.Decode(RepackedBytes())
+Print("repacked: {repacked}")
+Print("repacked reads as Scalars writes: {repacked.Encode() == RepackedAsScalarsBytes()}")
+
+// Two messages' bytes, one after the other, are one message, merged: what holds one value takes
+// the last, and a repeated field's go after each other.
+Local merged = Try Scalars.Decode(Joined(MaxBytes(), RepeatedBytes()))
+Print("merged as protoc merges: {merged.Encode() == MergedBytes()}")
+Local last = Try Scalars.Decode(Joined(MaxBytes(), MinBytes()))
+Print("last: {last}")
+Print("last as protoc merges: {last.Encode() == LastBytes()}")
+Local into = max.Clone()
+Try into.Merge(MinBytes())
+Local from = max.Clone()
+from.MergeFrom(min)
+Print("merge and mergefrom: {into == last} {from == last}")

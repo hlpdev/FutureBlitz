@@ -1,0 +1,16 @@
+# proto-file: messages.proto
+# proto-message: test.messages.Node
+# More of a tree, which merges into tree.txtpb's: left's Node merges, children go after.
+name: "renamed"
+left {
+  right { name: "lr" }
+}
+children { name: "c3" }
+named {
+  key: "first"
+  value { name: "replaced" }
+}
+named {
+  key: "second"
+  value { name: "n2" }
+}

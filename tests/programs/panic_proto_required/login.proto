@@ -1,0 +1,7 @@
+// A message whose field is required.
+syntax = "proto2";
+
+message Login {
+  required string user = 1;
+  optional string note = 2;
+}

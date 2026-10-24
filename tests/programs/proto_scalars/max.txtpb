@@ -1,0 +1,18 @@
+# proto-file: scalars.proto
+# proto-message: test.scalars.Scalars
+# The highest value of each type, and strings and bytes of every kind.
+f_double: 1.7976931348623157e308
+f_float: 3.4028234663852886e38
+f_int32: 2147483647
+f_int64: 9223372036854775807
+f_uint32: 4294967295
+f_uint64: 18446744073709551615
+f_sint32: 2147483647
+f_sint64: 9223372036854775807
+f_fixed32: 4294967295
+f_fixed64: 18446744073709551615
+f_sfixed32: 2147483647
+f_sfixed64: 9223372036854775807
+f_bool: true
+f_string: "h\303\251llo, \344\270\226\347\225\214 \360\237\230\200 \"quoted\"\n\ttabbed"
+f_bytes: "\000\001\177\200\377"

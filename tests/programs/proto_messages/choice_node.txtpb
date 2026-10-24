@@ -1,0 +1,7 @@
+# proto-file: messages.proto
+# proto-message: test.messages.Choice
+node { name: "chosen" }
+nested {
+  mood: SAD
+  nested { ratio: 2.5 }
+}

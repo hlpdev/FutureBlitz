@@ -1,0 +1,26 @@
+# proto-file: legacy.proto
+# proto-message: test.legacy.Settings
+# Every field, groups too, and an extension.
+id: 5
+name: "named"
+ratio: 0.5
+scale: -2
+color: BLUE
+magic: ""
+on: false
+big: 1
+low: 2
+colors: [RED, BLUE]
+loose: [GREEN, RED]
+Result { url: "https://example.com" rank: 1 }
+Item { count: 1 }
+Item { Detail { note: "deep" } }
+inner { label: "in" count: 3 }
+by_number { key: 7 value: GREEN }
+inners { label: "a" }
+inners { label: "b" count: 2 }
+plain: -9
+nothing: 1
+eight: 9
+negative: -1
+[test.legacy.bonus]: 42

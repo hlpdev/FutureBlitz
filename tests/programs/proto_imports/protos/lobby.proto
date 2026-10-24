@@ -1,0 +1,11 @@
+// Rules comes through match.proto's public import.
+syntax = "proto3";
+
+package lobby;
+
+import "game/match.proto";
+
+message Lobby {
+  repeated game.Match matches = 1;
+  game.Rules default_rules = 2;
+}

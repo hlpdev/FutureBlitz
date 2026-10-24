@@ -1,0 +1,63 @@
+// proto2 against what protoc 36.2 wrote, in proto_proto2/golden.fb: a required field, which a
+// message read has to have, and its messages too; defaults, which a field without a value reads
+// as through its OrDefault; groups; closed enums, whose numbers they don't name go to the unknown
+// fields, which keep them; an enum's alias; and an extension's field, kept as an unknown one.
+Import std.core
+Import std.collections
+Import "proto_proto2/legacy.proto"
+Import "./proto_proto2/golden"
+
+Local full = Try Settings.Decode(FullBytes())
+Print("full: {full}")
+Print("full writes the same bytes: {full.Encode() == FullBytes()}")
+Print("{full.result?.url ?? "-"} {full.item[1].detail?.note ?? "-"} {full.inners[1].count ?? 0} {full.IsInitialized}")
+Local made = Settings(id: 5, name: "named", ratio: 0.5, scale: -2.0, color: Color.BLUE, magic: [],
+                      on: False, big: 1, low: 2, colors: [Color.RED, Color.BLUE],
+                      loose: [Color.GREEN, Color.CRIMSON], plain: -9, nothing: 1.0, eight: 9,
+                      negative: -1)
+made.result = Settings_Result(url: "https://example.com", rank: 1)
+made.item.Add(Settings_Item(count: 1))
+made.item.Add(Settings_Item(detail: Settings_Item_Detail(note: "deep")))
+made.inner = Inner(label: "in", count: 3)
+made.by_number[7] = Color.GREEN
+made.inners.AddAll([Inner(label: "a"), Inner(label: "b", count: 2)])
+// The extension's field, 150, which it keeps as one it doesn't know.
+Try made.Merge([176, 9, 42])
+Print("encoded full.txtpb {made.Encode()}")
+Print("made like full: {made == full} {made.Encode() == FullBytes()}")
+
+// A field without a value reads as its default.
+Local required = Try Settings.Decode(RequiredBytes())
+Print("required: {required}")
+Print("{required.nameOrDefault} {required.ratioOrDefault} {required.scaleOrDefault} {required.colorOrDefault}")
+Print("{required.magicOrDefault} {required.onOrDefault} {required.bigOrDefault} {required.lowOrDefault}")
+Print("{required.nothingOrDefault} {required.eightOrDefault} {required.negativeOrDefault} {required.name ?? "no name"}")
+Print("encoded required.txtpb {Settings(id: 1).Encode()}")
+
+// An alias is the same value.
+Print("{Color.CRIMSON == Color.RED} {Color.CRIMSON} {Color.FromNumber(3) ?? Color.RED} {Color.FromNumber(4) == Null}")
+
+// A closed enum's number it doesn't name goes to the unknown fields, which write it back.
+Local numbers = Try Settings.Decode(NumbersBytes())
+Print("numbers: {numbers}")
+Print("{numbers.color ?? Color.COLOR_NONE} {numbers.colors} {numbers.loose} {numbers.by_number}")
+Local again = Try Settings.Decode(numbers.Encode())
+Print("numbers read again: {again == numbers}")
+
+// A message read has to have its required fields, and its messages theirs.
+Try
+    Settings.Decode([])
+Catch e As ParseError
+    Print("{e.Kind}: {e.Message}")
+End Try
+
+Local nested = Settings(id: 1, inner: Inner())
+nested.inners.Add(Inner(label: "x"))
+nested.inners.Add(Inner())
+nested.result = Settings_Result()
+Print("{nested.IsInitialized} {(Inner(label: "y")).IsInitialized}")
+Try
+    Settings.Decode([8, 1, 154, 1, 0, 170, 1, 2, 10, 0, 170, 1, 0, 99, 100])
+Catch e As ParseError
+    Print("{e.Kind}: {e.Message}")
+End Try
