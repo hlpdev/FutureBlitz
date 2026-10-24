@@ -4,7 +4,7 @@
 
 ## S11U-ops-alias-1 (high): Calling an Interface's generic Operator through a constraint crashes the compiler
 
-Status: fixed in f2f27448
+Status: fixed in ab8a702a
 
 Where: compiler/src/lower.cpp:6503
 
@@ -37,7 +37,7 @@ Skeptic: Ran the program as given (f1.fb) and the default variant (f1b.fb, `=> 7
 
 ## S11U-const-1 (medium): The same Const value reached through Const parameters of different integer types makes separate instances, with separate Statics
 
-Status: fixed in 10db851e: every VALUE is an Int64's, so a value's identity is its number, and check_arguments() checks it fits each parameter's type
+Status: fixed in 6ba62075: every VALUE is an Int64's, so a value's identity is its number, and check_arguments() checks it fits each parameter's type
 
 Where: compiler/src/sema.cpp:12039
 
@@ -71,7 +71,7 @@ Skeptic: Ran f1.fb (the finding's program) in debug and release: it prints '1 2 
 
 ## S11U-const-2 (medium): A size computed as Int[N - 1] and Int[M] with M = N - 1 are different types, so 'expected Int32[N - 1], found Int32[N - 1]'
 
-Status: fixed in 10db851e, as S11U-const-1
+Status: fixed in 6ba62075, as S11U-const-1
 
 Where: compiler/src/sema.cpp:12212
 
@@ -103,7 +103,7 @@ Skeptic: Ran f2.fb: 'f2.fb:9:27: error: expected Int32[N - 1], found Int32[N - 1
 
 ## S11U-const-3 (medium): Inferring a Const parameter from a fixed array whose size is a Const parameter or computed takes the size as 0
 
-Status: fixed in ed6081ba
+Status: fixed in 88a1ee14
 
 Where: compiler/src/sema.cpp:20263
 
@@ -140,7 +140,7 @@ Skeptic: Ran f3.fb: 'f3.fb:13:18: error: expected Int32[0], found Int32[N]' and 
 
 ## S11U-const-4 (medium): An instance whose size is below 1, held by a non-generic Struct's or Class's Field or by a Global, is made with no error
 
-Status: fixed by master's 19619dd1 (phase 1's sema fixes, which the rebase brought in); the three cases are tests in c0f34451
+Status: fixed by master's 19619dd1 (phase 1's sema fixes, which the rebase brought in); the three cases are tests in efa25199
 
 Where: compiler/src/lower.cpp:940
 
@@ -181,7 +181,7 @@ Skeptic: Ran f4.fb in debug and release: it builds and prints 'made all three' w
 
 ## S11U-ops-alias-3 (medium): A generic Operator == is used for a direct == but not inside tuples, Structs, arrays, or Equatable
 
-Status: fixed in 861e1d29: an Operator == can't have type parameters of its own, which spec 06 says
+Status: fixed in e953b58c: an Operator == can't have type parameters of its own, which spec 06 says
 
 Where: compiler/src/lower.cpp:6612
 
@@ -215,7 +215,7 @@ Skeptic: f3.fb (generic `Operator ==<U>(a: Box<T>, b: Box<U>)`) prints `True Fal
 
 ## S11U-ops-alias-4 (medium): An Enum's values can't be named through an Alias
 
-Status: fixed in e2e46d54
+Status: fixed in 720430f4
 
 Where: compiler/src/sema.cpp:21489
 
@@ -248,7 +248,7 @@ Skeptic: f4.fb: `Local h: Hue = Hue.Green` with `Alias Hue = Color` gives "Color
 
 ## S11U-ops-alias-5 (medium): Extend can't name an Alias: Extend Meters says 'Meters' isn't a type
 
-Status: fixed in e2e46d54
+Status: fixed in 720430f4
 
 Where: compiler/src/sema.cpp:2815
 
@@ -281,7 +281,7 @@ Skeptic: f5.fb: `Extend IntBox` with `Alias IntBox = Box<Int>` gives "'IntBox' i
 
 ## S11U-ops-alias-6 (medium): A Class can't extend an Alias of a Class
 
-Status: fixed in e2e46d54
+Status: fixed in 720430f4
 
 Where: compiler/src/sema.cpp:3277
 
@@ -316,7 +316,7 @@ Skeptic: f6.fb: `Class Dog Extends Base` with `Alias Base = Animal` gives "'Base
 
 ## S11U-ops-alias-7 (medium): An Operator inherited from a generic Class isn't found for a Class that extends one of its instances
 
-Status: fixed in 861e1d29
+Status: fixed in e953b58c
 
 Where: compiler/src/sema.cpp:18376
 
@@ -358,7 +358,7 @@ Skeptic: f7.fb gives 'no Operator & takes (Derived, Base<String>)' and 'no Opera
 
 ## S11U-ops-alias-8 (medium): Generic unit code fails because computed exponents aren't simplified: L - 0 isn't L, L + L isn't L * 2
 
-Status: fixed in 82aa6883: +, -, and * by a known number combine into one canonical form, which spec 07 says
+Status: fixed in f6a681b2: +, -, and * by a known number combine into one canonical form, which spec 07 says
 
 Where: compiler/src/types.cpp:557
 
@@ -390,7 +390,7 @@ Skeptic: f8.fb gives 'expected Quantity<L, 0, -1>, found Quantity<L - 0, 0, -1>'
 
 ## S11U-const-5 (low): A constant inside a computed Const argument is checked against the parameter's type, not worked out in an Int64, and gets a second misleading error
 
-Status: fixed in b0f60046
+Status: fixed in 829a7f47
 
 Where: compiler/src/sema.cpp:12143
 
@@ -426,7 +426,7 @@ Skeptic: Ran f5.fb: four errors: '200 doesn't fit in Int8' plus 'a value compute
 
 ## S11U-const-6 (low): The growth check refuses recursion whose argument shrinks or stays bounded, like Bits<N / 2> or Cycle<(N + 1) % 3>, saying it would need a larger instance each time
 
-Status: fixed in b0f60046: an argument computed with / or % isn't growth in sema, which lowering's chain of instances checks, and a Const one says 'a different instance', as spec 07 does
+Status: fixed in 829a7f47: an argument computed with / or % isn't growth in sema, which lowering's chain of instances checks, and a Const one says 'a different instance', as spec 07 does
 
 Where: compiler/src/sema.cpp:9950
 
@@ -455,7 +455,7 @@ Skeptic: Ran f6.fb: "'Bits' gets N / 2 for N here, which leads back to this code
 
 ## S11U-const-7 (low): A type argument that starts with '(' on a continued line doesn't parse as a value
 
-Status: fixed in 7f1cb227
+Status: fixed in 36d6c2a0
 
 Where: compiler/src/parser.cpp:3003
 
@@ -488,7 +488,7 @@ Skeptic: Ran f7.fb: 'f7.fb:9:20: error: expected ')', found '-'' with 'opened he
 
 ## S11U-const-8 (low): A size below 1 in a function's parameter type is reported at line 1, column 1 (the Import line)
 
-Status: fixed by master's 19619dd1, as S11U-const-4; the case is a test in 0bb6b353
+Status: fixed by master's 19619dd1, as S11U-const-4; the case is a test in 7d246d00
 
 Where: compiler/src/lower.cpp:1906
 
@@ -523,7 +523,7 @@ Skeptic: Ran f8.fb: 'f8.fb:1:1: error: Float32[0] comes out here, but a fixed ar
 
 ## S11U-const-9 (low): A UInt64 Const parameter refuses values above 9223372036854775807, though spec 07 says it takes any value of its type; the error is untested
 
-Status: fixed in 9a1da9b9: spec 07 says a UInt64's goes up to 9223372036854775807, since each instance works one out in an Int64, and the error has a test
+Status: fixed in 48b56480: spec 07 says a UInt64's goes up to 9223372036854775807, since each instance works one out in an Int64, and the error has a test
 
 Where: compiler/src/sema.cpp:12191
 
@@ -551,7 +551,7 @@ Skeptic: Ran f9.fb: 'f9.fb:8:12: error: M takes a value up to 922337203685477580
 
 ## S11U-ops-alias-10 (low): Two doc comments are now on the wrong functions
 
-Status: fixed in 840ab05d
+Status: fixed in b5a5a311
 
 Where: compiler/src/sema.cpp:20729
 
@@ -574,7 +574,7 @@ Skeptic: Read the code. sema.cpp 20729-20733 puts usable_constructors' three com
 
 ## S11U-ops-alias-9 (low): Operator <<Const B: Int>(...) lexes as the shift Operator <<, with a cascade of errors
 
-Status: fixed in 861e1d29
+Status: fixed in e953b58c
 
 Where: compiler/src/parser.cpp:1889
 
@@ -601,7 +601,7 @@ Skeptic: `fb check f9.fb` reports 6 errors: 'Operator << takes two parameters', 
 
 ## S11U-units-1 (low): Abs of a Quantity keeps -0's sign, unlike std.math's Abs
 
-Status: fixed in 5c3550ce
+Status: fixed in 207e758f
 
 Where: std/math/units.fb:85
 
@@ -625,7 +625,7 @@ Skeptic: I ran units-verify/u1.fb, which prints Abs(negZero), Abs(Meters(negZero
 
 ## S11U-units-2 (low): ToString overflows negating an exponent of Int32's lowest value: debug panics, release prints a wrong unit
 
-Status: fixed in 5c3550ce
+Status: fixed in 207e758f
 
 Where: std/math/units.fb:29
 
@@ -648,7 +648,7 @@ Skeptic: I ran units-verify/u2.fb, which is Print(Quantity<-2147483648, 0, 0>(1)
 
 ## S11U-units-4 (low): math_units.fb doesn't test Defaultable or ToString's 1/(a b) form
 
-Status: fixed in 5c3550ce
+Status: fixed in 207e758f
 
 Where: tests/programs/math_units.fb:32
 
