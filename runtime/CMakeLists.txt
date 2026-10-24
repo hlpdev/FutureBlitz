@@ -79,6 +79,10 @@ target_link_libraries(fb_runtime_stb PRIVATE stb)
 target_link_libraries(fb_runtime_webp PRIVATE webp)
 target_link_libraries(fb_runtime_svg PRIVATE nanosvg)
 
+# std.image's resizing computes in doubles, so it's built as std.image's libraries are, without
+# fused multiply-adds, and gives the same pixels on every target.
+set_source_files_properties(src/transform.cpp PROPERTIES COMPILE_OPTIONS "${FB_SAME_FLOATS}")
+
 # What a program can link: each part and its library, which fb and the tests that build programs
 # depend on.
 set(FB_RUNTIME_ARCHIVES fb_runtime fb_runtime_io uv_a fb_runtime_crypto tfpsacrypto

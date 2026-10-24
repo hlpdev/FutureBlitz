@@ -450,6 +450,7 @@ set(FB_SAME_FLOATS "")
 if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
   set(FB_SAME_FLOATS -ffp-contract=off)
 endif()
+set(FB_SAME_FLOATS "${FB_SAME_FLOATS}" PARENT_SCOPE)
 
 # stb_image and stb_image_write: std.image's PNG, JPEG, BMP, TGA, GIF, and HDR decoding, and its
 # JPEG, BMP, TGA, and HDR encoding, from memory only, built from stb.c here. PNG's encoding is the
