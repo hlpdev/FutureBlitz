@@ -410,7 +410,7 @@ set(FB_TZDATA_NOTICE "${FB_TZDATA_NOTICE}" PARENT_SCOPE)
 set(FB_TZDATA_LICENSES "the public domain" PARENT_SCOPE)
 
 # zlib-ng, through its zlib API: std.compress's Deflate, Zlib, and Gzip, minizip-ng's Deflate, and
-# curl's gzip later. Its own CMake picks the target's SIMD code, at run time. Only its static
+# curl's gzip and deflate. Its own CMake picks the target's SIMD code, at run time. Only its static
 # library is built, without its gzFile functions, since std reads files itself. Its target and
 # liblzma's are static ones as BUILD_SHARED_LIBS is set, which liblzma's CMake would set later.
 set(FB_ZLIB_NG_VERSION 2.3.3)
@@ -437,7 +437,7 @@ fb_notice(zlib_ng "${zlib_ng_notice}")
 set(FB_ZLIB_NG_NOTICE "${FB_ZLIB_NG_NOTICE}" PARENT_SCOPE)
 set(FB_ZLIB_NG_LICENSES "the zlib license" PARENT_SCOPE)
 
-# zstd: std.compress's Zstd, and minizip-ng's, from its library's C files: compression and
+# zstd: std.compress's Zstd, minizip-ng's, and curl's, from its library's C files: compression and
 # decompression, without the dictionary builder, the formats before 1.0, threads, or the x86-64
 # assembly, which isn't built the same everywhere.
 set(FB_ZSTD_VERSION 1.5.7)
@@ -734,9 +734,9 @@ set(FB_NANOSVG_NOTICE "${FB_NANOSVG_NOTICE}" PARENT_SCOPE)
 set(FB_NANOSVG_LICENSES "the zlib license" PARENT_SCOPE)
 
 # libcurl: std.net.http's client, over mbedTLS's TLS (its mbedtls and mbedx509 libraries), with
-# the OS's certificate roots, which the runtime gives it, so it has no bundle of its own. Only
-# HTTP and HTTPS are built, without the curl tool, its docs, or any library it would find on the
-# machine.
+# the OS's certificate roots, which the runtime gives it, so it has no bundle of its own, and over
+# zlib-ng and zstd, which decode gzip, deflate, and zstd. Only HTTP and HTTPS are built, without
+# the curl tool, its docs, or any library it would find on the machine.
 set(FB_CURL_VERSION 8.23.0)
 foreach(option BUILD_CURL_EXE BUILD_SHARED_LIBS BUILD_LIBCURL_DOCS BUILD_MISC_DOCS
                ENABLE_CURL_MANUAL CURL_ENABLE_EXPORT_TARGET CURL_USE_PKGCONFIG CURL_USE_CMAKECONFIG
@@ -755,9 +755,9 @@ foreach(option BUILD_STATIC_LIBS CURL_DISABLE_INSTALL CURL_USE_MBEDTLS CURL_DISA
                CURL_DISABLE_TFTP CURL_DISABLE_BINDLOCAL CURL_DISABLE_GETOPTIONS)
   set(${option} ON CACHE BOOL "" FORCE)
 endforeach()
-foreach(option CURL_ZLIB CURL_ZSTD CURL_BROTLI)
-  set(${option} OFF CACHE STRING "" FORCE)
-endforeach()
+set(CURL_ZLIB ON CACHE STRING "" FORCE)
+set(CURL_ZSTD ON CACHE STRING "" FORCE)
+set(CURL_BROTLI OFF CACHE STRING "" FORCE)
 set(CURL_CA_BUNDLE none CACHE STRING "" FORCE)
 set(CURL_CA_PATH none CACHE STRING "" FORCE)
 # Its mbedTLS is the one above, whose targets stand for the libraries its search would find.
@@ -765,6 +765,15 @@ set(MBEDTLS_INCLUDE_DIR "${mbedtls_SOURCE_DIR}/include" CACHE PATH "" FORCE)
 set(MBEDTLS_LIBRARY mbedtls CACHE STRING "" FORCE)
 set(MBEDX509_LIBRARY mbedx509 CACHE STRING "" FORCE)
 set(MBEDCRYPTO_LIBRARY tfpsacrypto CACHE STRING "" FORCE)
+# So are its zlib, zlib-ng's zlib API, whose target CMake's search for zlib takes as it finds it
+# there, and its zstd, whose search links the target it's named.
+if(NOT TARGET ZLIB::ZLIB)
+  add_library(ZLIB::ZLIB ALIAS zlib-ng)
+endif()
+set(ZLIB_INCLUDE_DIR "${zlib_ng_BINARY_DIR}" CACHE PATH "" FORCE)
+set(ZLIB_LIBRARY zlib-ng CACHE STRING "" FORCE)
+set(ZSTD_INCLUDE_DIR "${zstd_SOURCE_DIR}/lib" CACHE PATH "" FORCE)
+set(ZSTD_LIBRARY zstd CACHE STRING "" FORCE)
 string(REPLACE "." "_" tag "${FB_CURL_VERSION}")
 FetchContent_Declare(
   curl

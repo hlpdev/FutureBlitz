@@ -220,12 +220,12 @@ and the rest) aren't std's.
 | Library | License | Backs |
 |---|---|---|
 | libuv | MIT, with parts under BSD-2-Clause and ISC | std.io, std.os, std.net's sockets, IPC, and DNS, std.time's timers, Async I/O |
-| libcurl | curl (MIT-style) | std.net.http's client, over mbedTLS's TLS |
+| libcurl | curl (MIT-style) | std.net.http's client, over mbedTLS's TLS and zlib-ng's and zstd's decoding |
 | mbedTLS | Apache-2.0 | std.net.tls, std.net.http's TLS, std.crypto's hashes, HMAC, HKDF, PBKDF2, ciphers, signatures, key exchange, PEM keys and certificates, and secure random |
 | PCRE2 | BSD | std.text.regex, and the compiler's check of regex literals |
 | utf8proc | MIT, with Unicode's data under the Unicode license | std.text.unicode: categories, case, normalization, graphemes, display width; and the String and Char Methods that need them, like `ToUpper` and `GraphemeCount` |
-| zlib-ng (zlib API) and minizip-ng | zlib | std.compress's Deflate, Zlib, Gzip, and Zip, and curl's gzip |
-| zstd, lz4 | BSD | std.compress's Zstd and Lz4 |
+| zlib-ng (zlib API) and minizip-ng | zlib | std.compress's Deflate, Zlib, Gzip, and Zip, and curl's gzip and deflate |
+| zstd, lz4 | BSD | std.compress's Zstd and Lz4, and curl's zstd |
 | liblzma (xz-utils) | 0BSD | std.compress's XZ/LZMA and 7z reading |
 | xxHash | BSD | std.crypto's fast non-cryptographic hashes |
 | BLAKE3, Argon2 | CC0 / Apache-2.0 | std.crypto's BLAKE3 and Argon2id |
@@ -1137,7 +1137,8 @@ Step 28's half without streams is built: the addresses, `Url` and `QueryParams`,
   value is; `FollowRedirects` and `MaxRedirects` (10), which the runtime follows as the fetch
   standard says, a 301 or 302 changing a POST to a GET and a 303 any method but HEAD, without the
   body and its headers, and a redirect to another origin sending no Authorization, Cookie, or
-  Host of the request's own; `Decompress`, which asks for what libcurl decodes and decodes it;
+  Host of the request's own; `Decompress`, which asks for gzip, deflate, and zstd and decodes
+  them, or else takes a body as it comes;
   cookies, kept for each client's requests (`ClearCookies`), which a request's own Cookie header
   joins in one; connections, which its requests reuse; `Proxy`, `""` for none, or else the
   environment's (http_proxy, https_proxy, no_proxy); and `TrustOnly(roots)` and

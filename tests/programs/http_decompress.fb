@@ -1,0 +1,52 @@
+// HttpClient asks for gzip, deflate, and zstd, and decompresses what comes that way, blocking and
+// async; without Decompress, it asks for none, and gets a body as it comes, compressed or not.
+Import std.core
+Import std.net.http
+
+Global base = Input() ?? ""
+Global secure = Input() ?? ""
+Global refused = Input() ?? ""
+
+// What /compressed/<coding> sends, before it's compressed.
+Function Expected(coding: String): String
+    Local text = coding
+    For i = 1 To 5000
+        text = text + " fox"
+    End For
+    Return text
+End Function
+
+// What a response from /compressed/<coding> gave: its Content-Encoding, its length, and whether
+// it's what was compressed.
+Function Described(response: HttpResponse, coding: String): String
+    Local encoding = response.Headers.Get("Content-Encoding") ?? "none"
+    Return "{coding}: {response.Status} {encoding} {response.Bytes.Count} " +
+           "{response.Text == Expected(coding)}"
+End Function
+
+Local client = HttpClient()
+Try
+    Print(client.Get("{base}/header/accept-encoding").Text)
+    For coding In ["gzip", "deflate", "zstd"]
+        Print(Described(client.Get("{base}/compressed/{coding}"), coding))
+    End For
+
+    For coding In ["gzip", "zstd"]
+        Print(Described(Await client.GetAsync("{base}/compressed/{coding}"), coding))
+    End For
+
+    Local bytes = client.Download("{base}/compressed/deflate")
+    Print("download {bytes.Count}")
+    client.Decompress = False
+    Print(client.Get("{base}/header/accept-encoding").Text)
+    Print(Described(client.Get("{base}/compressed/gzip"), "gzip"))
+    // A response compressed anyway comes as it is: gzip's bytes start 1F 8B.
+    client.DefaultHeaders.Add("Accept-Encoding", "gzip")
+    Local raw = client.Get("{base}/compressed/gzip")
+    Print(raw.Headers.Get("Content-Encoding") ?? "none")
+    Print("{raw.Bytes[0]} {raw.Bytes[1]} {raw.Bytes.Count < 20004}")
+Catch e As NetError
+    Print("NetError {e.Kind}")
+Catch e As TimeoutError
+    Print("TimeoutError")
+End Try
