@@ -1,0 +1,2 @@
+1
+panic: the XPath "v[count('x') = 0]" isn't one XmlPath reads: count() takes a path at panic_data_xml_path_count.fb:7:7

@@ -1,0 +1,14 @@
+// An XmlWriter panics at an attribute its element has already, which isn't well-formed.
+Import std.core
+Import std.data.xml
+
+Local writer = XmlWriter()
+writer.StartElement("a")
+writer.Attribute("x", "1")
+writer.Attribute("y", "2")
+writer.StartElement("b")
+writer.Attribute("x", "3")
+writer.EndElement()
+writer.StartElement("c")
+writer.Attribute("x", "1")
+writer.Attribute("x", "2")

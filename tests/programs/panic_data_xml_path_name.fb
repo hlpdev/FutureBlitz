@@ -1,0 +1,7 @@
+// name() takes a path, whose first node it names, or nothing.
+Import std.core
+Import std.data.xml
+
+Local root = Try Xml.Read("<r><v>0</v></r>")
+Print(root.Query("v[name() = 'v' and name(.) = 'v']").Count)
+Print(root.Query("v[name(1) = '']").Count)

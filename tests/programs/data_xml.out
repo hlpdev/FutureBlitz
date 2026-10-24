@@ -38,6 +38,10 @@ SYNTAX 1 9 a start tag's attributes have spaces before them at line 1, column 9
 SYNTAX 1 2 a name starts with a letter, '_', or ':' at line 1, column 2
 SYNTAX 1 4 the text holds a character XML hasn't got at line 1, column 4
 UNEXPECTED_END 1 1 the document has no element at line 1, column 1
+SYNTAX 1 38 the start tag <b> doesn't end before its entity's text ends at line 1, column 38
+SYNTAX 1 42 the comment has no '-->' before its entity's text ends at line 1, column 42
+SYNTAX 1 42 a name is missing before its entity's text ends at line 1, column 42
+SYNTAX 1 44 a name is missing before its entity's text ends at line 1, column 44
 <?xml version="1.0" encoding="UTF-8"?>
 <menu date="2026-10-23 &quot;today&quot; &amp; &lt;tomorrow>">
   <item price="3">Tea &amp; cake &lt;with&gt; "cream"&#13;</item>
@@ -45,10 +49,31 @@ UNEXPECTED_END 1 1 the document has no element at line 1, column 1
   <!-- fresh -->
   <?print twice?>
   <empty/>
-  <data><![CDATA[a ]]]]><![CDATA[]> b]]></data>
+  <data><![CDATA[a ]]]]><![CDATA[> b]]></data>
 </menu>
-<menu date="2026-10-23 &quot;today&quot; &amp; &lt;tomorrow>"><item price="3">Tea &amp; cake &lt;with&gt; "cream"&#13;</item><note>mixed <b>bold</b> text</note><!-- fresh --><?print twice?><empty/><data><![CDATA[a ]]]]><![CDATA[]> b]]></data></menu>
+<menu date="2026-10-23 &quot;today&quot; &amp; &lt;tomorrow>"><item price="3">Tea &amp; cake &lt;with&gt; "cream"&#13;</item><note>mixed <b>bold</b> text</note><!-- fresh --><?print twice?><empty/><data><![CDATA[a ]]]]><![CDATA[> b]]></data></menu>
 True
+23 True <p><b>bold</b> text</p>
+22 True <p><!--note-->text</p>
+56 True <p><?x y?><i>a</i>b</p>
+35 True <p><![CDATA[c]]><i/></p>
+<r>
+  <p><i>a</i>b</p>
+  <q>
+    <s/>
+  </q>
+</r>
+<a><![CDATA[x ]]]]><![CDATA[> y]]></a> True
+<a><![CDATA[]]]]><![CDATA[>]]></a> True
+<a><![CDATA[]]]]]><![CDATA[>>]]></a> True
+<a><![CDATA[a]]]]><![CDATA[>]]]]><![CDATA[>b]]></a> True
+<a><![CDATA[]]]]></a> True
+ATTRIBUTE id="1 &amp; 2"
+ELEMENT <b>hi &lt;there&gt;</b>
+TEXT hi &lt;there&gt;
+COMMENT <!--note-->
+INSTRUCTION <?p q?>
+CDATA <![CDATA[<raw>]]>
 <?xml version="1.0" encoding="UTF-8"?>
 <!--made by a writer-->
 <list count="2">
@@ -76,6 +101,20 @@ book[name() = 'book'][string(title) = 'Third']/@id => @id=b3
 / => 
 missing/thing => 
 29.99 True book
+i[a | b = '2'] => <i>
+i[(a | b) = '2'] => <i>
+i[a | b][1] => <i>
+i[a | b = '4' or a = '1'] => <i> <i>
+4 1 xyz
+a/node() => TEXT[xyz] TEXT[p] <b> TEXT[q] CDATA[only]
+a[2]/b/preceding-sibling::node() | a[2]/b/following-sibling::node() => TEXT[p] TEXT[q]
+//text()[. = 'only'] => CDATA[only]
+v[. = string(1000000000000000000000)] => <v>
+v[. = string(0.0000001)] => <v>
+v[. = string(1.50)] => <v>
+v[. = string(.25)] => <v>
+v[. = string(123456789012)] => <v>
+v[. = string(0.00000012345)] => <v>
 {"book": [{"@id": "b1", "@tags": "xml data", "@lang": "en", "title": "XML & You", "price": "29.99", "by": "O'Reilly & Co", "signed": {"@by": "O'Reilly & Co"}}, {"@id": "b2", "@lang": "fr", "@note": "tab\tand line\n", "title": "<raw> & ", "price": "9.5", "kind": "paper"}, {"@id": "b3", "@lang": "en", "title": "Third", "price": "15"}]}
 <library>
   <book id="b1" tags="xml data" lang="en">
