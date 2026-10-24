@@ -158,13 +158,13 @@ Package Function TextOf(bytes: Buffer<UInt8>): String
     End Unsafe
 End Function
 
-// Adds the first `count` bytes of `chunk` to `all`.
+// Adds the first `count` bytes of `chunk` to `all`, which grows as Add grows it, doubling, so
+// reading a stream takes as long as its bytes.
 Function Add(all: UInt8[], chunk: Buffer<UInt8>, count: Int64) Throws IOError
     If all.Count + count > 2147483647
         Throw IOError(IOErrorKind.OTHER, "the stream has more bytes than an array holds")
     End If
 
-    all.Reserve((all.Count + count) As Int)
     For i = 0 Until count
         all.Add(chunk[i])
     End For
