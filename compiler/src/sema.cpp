@@ -1363,7 +1363,8 @@ private:
             }
 
             for (const auto& [name, symbols] : m_modules[i].names) {
-                if (symbols.size() == 1 && symbol(symbols.front()).kind == symbol_kind_t::FUNCTION) {
+                if (symbols.size() == 1 &&
+                    symbol(symbols.front()).kind == symbol_kind_t::FUNCTION) {
                     m_analysis.loading.helpers[name] = symbols.front();
                 }
             }
@@ -3831,8 +3832,7 @@ private:
         } else if (!node.type_parameters.empty()) {
             error(node.name.span, "OnLoaded can't be generic, since Load<T> runs it");
         } else if (!node.constraints.empty()) {
-            error(node.name.span,
-                  "OnLoaded can't have a Where line, since Load<T> runs every T's");
+            error(node.name.span, "OnLoaded can't have a Where line, since Load<T> runs every T's");
         } else if (node.modifiers.is_static) {
             error(node.name.span, "OnLoaded can't be Static; it runs on what Load<T> makes");
         } else if (node.modifiers.is_async) {
@@ -7215,10 +7215,11 @@ private:
             }
 
             if (alone && (*alone == loading.flatten || type == loading.flatten)) {
-                error(spans[i],
-                      "a @Flatten Field's Fields go in the Object with the others, so it has no key "
-                      "for @{}",
-                      shown_name(*alone == loading.flatten ? type : *alone));
+                error(
+                    spans[i],
+                    "a @Flatten Field's Fields go in the Object with the others, so it has no key "
+                    "for @{}",
+                    shown_name(*alone == loading.flatten ? type : *alone));
                 continue;
             }
 
@@ -7230,8 +7231,9 @@ private:
             if ((type == loading.optional || type == loading.skip) && !declared.value &&
                 !declared.empty_default && inside.empty() &&
                 !m_analysis.types.has_zero(declared.type) && declared.type != type_id_t::INVALID) {
-                error(spans[i], "@{} leaves '{}' at its default when Load makes {}, and {} has no "
-                                "zero, so it needs a default of its own",
+                error(spans[i],
+                      "@{} leaves '{}' at its default when Load makes {}, and {} has no "
+                      "zero, so it needs a default of its own",
                       shown_name(type), declared.name, shown_name(declared.owner),
                       shown_name(declared.type));
             }
@@ -7290,13 +7292,13 @@ private:
                 saving ? std::nullopt : attribute_text(field, m_analysis.loading.renamed);
             const auto other = old ? key_of(*old) : keys.end();
             if (other != keys.end()) {
-                return std::format(", whose Field '{}' was \"{}\" before, which is {} now, so "
-                                   "Load can't tell the two apart",
-                                   m_analysis.symbol(field).name, *old,
-                                   other->second == field
-                                       ? std::string("its own key")
-                                       : std::format("the key of '{}'",
-                                                     m_analysis.symbol(other->second).name));
+                return std::format(
+                    ", whose Field '{}' was \"{}\" before, which is {} now, so "
+                    "Load can't tell the two apart",
+                    m_analysis.symbol(field).name, *old,
+                    other->second == field
+                        ? std::string("its own key")
+                        : std::format("the key of '{}'", m_analysis.symbol(other->second).name));
             }
         }
 
@@ -20554,8 +20556,7 @@ private:
         if (const auto* name = std::get_if<name_expr_t>(&m_ast.get(node.callee).node);
             name != nullptr && is_data_builtin(name->name) &&
             !declared_here(name->name, span_of(node.callee))) {
-            return name->name == "Load" ? check_load(id, node, *name)
-                                        : check_save(id, node, *name);
+            return name->name == "Load" ? check_load(id, node, *name) : check_save(id, node, *name);
         }
 
         if (const std::optional<type_kind_t> kind = in_place_maker(node.callee)) {
@@ -21104,8 +21105,8 @@ private:
                                                 saving ? "Saveable" : "Loadable"));
             }
 
-            if (!saving && symbol(m_declared_types.at(definition_of(part.type)))
-                               .modifiers.is_abstract) {
+            if (!saving &&
+                symbol(m_declared_types.at(definition_of(part.type))).modifiers.is_abstract) {
                 return report(part, ", which is Abstract, so there's no object of it to make");
             }
 
@@ -21161,7 +21162,8 @@ private:
     /// library, its attribute is INVALID, which none has.
     [[nodiscard]] bool has_attribute(const symbol_id_t id, const type_id_t attribute) const {
         return attribute != type_id_t::INVALID &&
-               std::ranges::contains(m_analysis.symbol(id).attributes, attribute, &attribute_value_t::type);
+               std::ranges::contains(m_analysis.symbol(id).attributes, attribute,
+                                     &attribute_value_t::type);
     }
 
     /// A call of a Const Function whose arguments are all known runs in the compiler, and gives
