@@ -551,9 +551,10 @@ void fb_io_input_async(fb_task_t* task, const fb_string_t* prompt);
 /// bytes: 4 or 6 for its family, then its 16 bytes, an IPv4 address's 4 first. Gives 0, or
 /// libuv's error, which fb_io_error_text says in English. It blocks, as fb_io_input does.
 std::int32_t fb_io_resolve(const fb_string_t* host, fb_array_t* output);
-/// The same, finishing `task`, a new Task<Int32>, with what fb_io_resolve would give, once the
-/// I/O thread has it. The caller holds `output` until then.
-void fb_io_resolve_async(fb_task_t* task, const fb_string_t* host, fb_array_t* output);
+/// The same, finishing `task`, a new Task<UInt8[]>, once the I/O thread has the addresses, with a
+/// new array of `like`'s Class: fb_io_resolve's result as 4 bytes, the least significant first,
+/// then the records. It reads only `like`'s Class, so the caller can let go of it whenever.
+void fb_io_resolve_async(fb_task_t* task, const fb_string_t* host, const fb_array_t* like);
 /// What libuv's error `code` means.
 fb_string_t* fb_io_error_text(std::int32_t code);
 
