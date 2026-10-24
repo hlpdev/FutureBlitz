@@ -21186,7 +21186,8 @@ private:
             return failed();
         }
 
-        if (value == type_id_t::INVALID || !m_load) {
+        const std::optional<symbol_id_t> load = m_load;
+        if (value == type_id_t::INVALID || !load) {
             error(span_of(id), "Load needs std.core's Value and ParseError");
             check_alone(node.arguments);
             return type_id_t::INVALID;
@@ -21202,7 +21203,7 @@ private:
         }
 
         info(id).loaded = type;
-        check_throwing_call(id, *m_load);
+        check_throwing_call(id, *load);
         return type;
     }
 
