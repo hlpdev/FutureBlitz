@@ -1,0 +1,117 @@
+// What std.data's formats share in reading and writing text: Strings from bytes, a text's code
+// points as UTF-8, numbers as text and back, and where in a text a byte is, for a ParseError.
+
+Import std.core
+Import std.collections
+
+Package Extern "runtime"
+    Function fb_data_text(bytes: UInt8[], start: Int64, finish: Int64): String
+    Function fb_data_float(bytes: UInt8[], start: Int64, finish: Int64,
+                           ByRef value: Float64): Int32
+End Extern
+
+// The bytes from start up to finish as a String.
+Package Function TextOf(bytes: UInt8[], start: Int, finish: Int): String
+    Return fb_data_text(bytes, start, finish)
+End Function
+
+// The bytes as a String.
+Package Function TextOf(bytes: UInt8[]): String => fb_data_text(bytes, 0, bytes.Count)
+
+// Adds code point c's UTF-8 bytes to out.
+Package Function AddChar(out: UInt8[], c: Int)
+    If c < 0x80
+        out.Add(c As UInt8)
+    ElseIf c < 0x800
+        out.Add((0xC0 | (c >> 6)) As UInt8)
+        out.Add((0x80 | (c & 0x3F)) As UInt8)
+    ElseIf c < 0x10000
+        out.Add((0xE0 | (c >> 12)) As UInt8)
+        out.Add((0x80 | ((c >> 6) & 0x3F)) As UInt8)
+        out.Add((0x80 | (c & 0x3F)) As UInt8)
+    Else
+        out.Add((0xF0 | (c >> 18)) As UInt8)
+        out.Add((0x80 | ((c >> 12) & 0x3F)) As UInt8)
+        out.Add((0x80 | ((c >> 6) & 0x3F)) As UInt8)
+        out.Add((0x80 | (c & 0x3F)) As UInt8)
+    End If
+End Function
+
+// Code point c as a String.
+Package Function CharText(c: Int): String
+    Local bytes: UInt8[] = []
+    AddChar(bytes, c)
+    Return TextOf(bytes)
+End Function
+
+// Adds text's bytes to out.
+Package Function AddText(out: UInt8[], text: String)
+    out.AddAll(text.Bytes)
+End Function
+
+// value in lowercase hex, with 0s before it to make digits of them.
+Package Function HexOf(value: Int, digits: Int): String
+    Local out: UInt8[] = []
+    For place = digits - 1 To 0 Step -1
+        Local digit = (value >> (place * 4)) & 0xF
+        out.Add((digit < 10 ? 48 + digit : 87 + digit) As UInt8)
+    End For
+    Return TextOf(out)
+End Function
+
+// Whether code point c is a valid Unicode scalar: up to U+10FFFF, but not a surrogate.
+Package Function IsScalar(c: Int64): Bool => c >= 0 && c <= 0x10FFFF && (c < 0xD800 || c > 0xDFFF)
+
+// The Double the bytes from start up to finish write, the nearest one, or Null when they aren't
+// all a number: an optional '-', digits with an optional '.' and digits after, and an optional
+// exponent, or "inf" or "nan". Each format checks its own syntax first.
+Package Function FloatOf(bytes: UInt8[], start: Int, finish: Int): Float64?
+    Local value: Float64 = 0
+    If fb_data_float(bytes, start, finish, ByRef value) == 0 Then Return Null
+    Return value
+End Function
+
+// A Float64's infinity, which nan is infinity less itself.
+Package Function Infinite(): Float64
+    Local bytes = "inf".Bytes
+    Return FloatOf(bytes, 0, bytes.Count) ?? 0.0
+End Function
+
+// The least and most an Int64 holds.
+Package Const LEAST_INT64: Int64 = -9223372036854775807 - 1
+Package Const MOST_INT64: Int64 = 9223372036854775807
+
+// value as the shortest text that reads back as it, with ".0" after one that would read as an
+// integer, and inf, -inf, and nan for those that aren't numbers, as TOML and YAML read floats.
+Package Function FloatText(value: Float64, infinity: String, nan: String): String
+    If value != value Then Return nan
+    If value > 1.7976931348623157e308 Then Return infinity
+    If value < -1.7976931348623157e308 Then Return "-" + infinity
+    Local text = "{value}"
+    For b In text.Bytes
+        If b == 46 || b == 101 Then Return text
+    End For
+    Return text + ".0"
+End Function
+
+// Where the byte at `at` is: its line, from 1, and its column, from 1, counting code points.
+Package Function PlaceOf(bytes: UInt8[], at: Int): (Int, Int)
+    Local line = 1
+    Local column = 1
+    For i = 0 Until Min(at, bytes.Count)
+        Local b = bytes[i]
+        If b == 10
+            line += 1
+            column = 1
+        ElseIf (b & 0xC0) != 0x80
+            column += 1
+        End If
+    End For
+    Return (line, column)
+End Function
+
+// A ParseError of kind at the byte at `at` in bytes.
+Package Function ErrorAt(bytes: UInt8[], at: Int, kind: ParseErrorKind, message: String): ParseError
+    Local place = PlaceOf(bytes, at)
+    Return ParseError(kind, "{message} at line {place.0}, column {place.1}", place.0, place.1)
+End Function

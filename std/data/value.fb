@@ -1,0 +1,256 @@
+// Value: what a format's data holds, as JSON's do: Null, a Bool, an Int (an Int64), a Float (a
+// Float64), a String, an Array of Values, or an Object, Values by String keys in the order they
+// were added. std.data's formats read into it and write from it.
+//
+// A stand-in for step 19's Value, which std.core is to have, with the same shape; the formats move
+// to that one once it lands, and this file goes.
+
+Import std.core
+Import std.collections
+Import std.data.text
+
+// What a Value holds.
+Public Enum ValueKind
+    NULL, BOOL, INT, FLOAT, STRING, ARRAY, OBJECT
+End Enum
+
+Public Class Value Implements Equatable, Printable
+    Public ReadOnly Field Kind: ValueKind
+    Field Flag: Bool
+    Field Whole: Int64
+    Field Real: Float64
+    Field Text: String = ""
+    Field List: Value[] = []
+    Field Fields: Map<String, Value>
+
+    // Null.
+    Public New()
+        Fields = {}
+        Kind = ValueKind.NULL
+    End New
+
+    Public New(value: Bool)
+        Fields = {}
+        Kind = ValueKind.BOOL
+        Flag = value
+    End New
+
+    Public New(value: Int64)
+        Fields = {}
+        Kind = ValueKind.INT
+        Whole = value
+    End New
+
+    Public New(value: Float64)
+        Fields = {}
+        Kind = ValueKind.FLOAT
+        Real = value
+    End New
+
+    Public New(value: String)
+        Fields = {}
+        Kind = ValueKind.STRING
+        Text = value
+    End New
+
+    New(kind: ValueKind)
+        Fields = {}
+        Kind = kind
+    End New
+
+    // A new, empty Array.
+    Public Static Method NewArray(): Value => Value(ValueKind.ARRAY)
+
+    // A new, empty Object.
+    Public Static Method NewObject(): Value => Value(ValueKind.OBJECT)
+
+    Public Property IsNull: Bool
+        Get => Kind == ValueKind.NULL
+    End Property
+
+    // Its Bool. Panics when it isn't one.
+    @PanicsAtCaller
+    Public Method AsBool(): Bool
+        Check(ValueKind.BOOL)
+        Return Flag
+    End Method
+
+    // Its Int. Panics when it isn't one.
+    @PanicsAtCaller
+    Public Method AsInt(): Int64
+        Check(ValueKind.INT)
+        Return Whole
+    End Method
+
+    // Its Float, or its Int as a Float. Panics when it's neither.
+    @PanicsAtCaller
+    Public Method AsFloat(): Float64
+        If Kind == ValueKind.INT Then Return Whole As Float64
+        Check(ValueKind.FLOAT)
+        Return Real
+    End Method
+
+    // Its String. Panics when it isn't one.
+    @PanicsAtCaller
+    Public Method AsString(): String
+        Check(ValueKind.STRING)
+        Return Text
+    End Method
+
+    // How many values an Array has, or entries an Object has. Panics for anything else.
+    @PanicsAtCaller
+    Public Property Count: Int
+        Get
+            If Kind == ValueKind.ARRAY Then Return List.Count
+            Check(ValueKind.OBJECT)
+            Return Fields.Count
+        End Get
+    End Property
+
+    // An Array's value at index. Panics when it isn't an Array, or index is outside it.
+    @PanicsAtCaller
+    Operator [](index: Int): Value
+        Check(ValueKind.ARRAY)
+        Return List[index]
+    End Operator
+
+    // An Object's value for key. Panics when it isn't an Object, or has no such key.
+    @PanicsAtCaller
+    Operator [](key: String): Value
+        Check(ValueKind.OBJECT)
+        Local found = Fields.Get(key)
+        If found == Null Then Panic("the Object has no key \"{key}\"")
+        Return found
+    End Operator
+
+    // Gives an Object's key a value, adding it at the end when it's new. Panics when it isn't an
+    // Object.
+    @PanicsAtCaller
+    Operator []=(key: String, value: Value)
+        Check(ValueKind.OBJECT)
+        Fields[key] = value
+    End Operator
+
+    // An Object's value for key, or Null when it has none. Panics when it isn't an Object.
+    @PanicsAtCaller
+    Public Method Get(key: String): Value?
+        Check(ValueKind.OBJECT)
+        Return Fields.Get(key)
+    End Method
+
+    // Whether an Object has key. Panics when it isn't an Object.
+    @PanicsAtCaller
+    Public Method Contains(key: String): Bool
+        Check(ValueKind.OBJECT)
+        Return Fields.Get(key) != Null
+    End Method
+
+    // An Object's keys, in order. Panics when it isn't an Object.
+    @PanicsAtCaller
+    Public Method Keys(): String[]
+        Check(ValueKind.OBJECT)
+        Return Fields.Keys()
+    End Method
+
+    // An Array's values, or an Object's, in order, in a new array. Panics for anything else.
+    @PanicsAtCaller
+    Public Method Values(): Value[]
+        If Kind == ValueKind.ARRAY Then Return List.Clone()
+        Check(ValueKind.OBJECT)
+        Return Fields.Values()
+    End Method
+
+    // Adds a value at an Array's end. Panics when it isn't an Array.
+    @PanicsAtCaller
+    Public Method Add(value: Value)
+        Check(ValueKind.ARRAY)
+        List.Add(value)
+    End Method
+
+    // Two Values are equal when they're the same kind with equal contents, an Object's keys in any
+    // order. A Float NaN isn't equal to itself, as Floats aren't.
+    Operator ==(a: Value, b: Value): Bool
+        If a.Kind != b.Kind Then Return False
+        Select a.Kind
+            Case ValueKind.NULL
+                Return True
+            Case ValueKind.BOOL
+                Return a.Flag == b.Flag
+            Case ValueKind.INT
+                Return a.Whole == b.Whole
+            Case ValueKind.FLOAT
+                Return a.Real == b.Real
+            Case ValueKind.STRING
+                Return a.Text == b.Text
+            Case ValueKind.ARRAY
+                If a.List.Count != b.List.Count Then Return False
+                For i = 0 Until a.List.Count
+                    If a.List[i] != b.List[i] Then Return False
+                End For
+                Return True
+            Default
+                If a.Fields.Count != b.Fields.Count Then Return False
+                For key, value In a.Fields
+                    Local other = b.Fields.Get(key)
+                    If other == Null || other != value Then Return False
+                End For
+                Return True
+        End Select
+    End Operator
+
+    // As JSON, on one line, with its Objects' keys in order.
+    Public Method ToString(): String
+        Select Kind
+            Case ValueKind.NULL
+                Return "null"
+            Case ValueKind.BOOL
+                Return Flag ? "true" : "false"
+            Case ValueKind.INT
+                Return "{Whole}"
+            Case ValueKind.FLOAT
+                Return "{Real}"
+            Case ValueKind.STRING
+                Return Quoted(Text)
+            Case ValueKind.ARRAY
+                Local parts: String[] = []
+                For item In List
+                    parts.Add(item.ToString())
+                End For
+                Return "[" + parts.Join(", ") + "]"
+            Default
+                Local parts: String[] = []
+                For key, value In Fields
+                    parts.Add(Quoted(key) + ": " + value.ToString())
+                End For
+                Return "{{" + parts.Join(", ") + "}}"
+        End Select
+    End Method
+
+    // Panics when it isn't of kind.
+    @PanicsAtCaller
+    Method Check(kind: ValueKind)
+        If Kind != kind Then Panic("the Value is {Kind}, not {kind}")
+    End Method
+
+    // text in JSON's quotes, with its escapes.
+    Static Method Quoted(text: String): String
+        Local out: String[] = ["\""]
+        For c In text.Chars
+            If c == 34
+                out.Add("\\\"")
+            ElseIf c == 92
+                out.Add("\\\\")
+            ElseIf c == 10
+                out.Add("\\n")
+            ElseIf c == 9
+                out.Add("\\t")
+            ElseIf c < 32 || c == 127
+                out.Add("\\u{HexOf(c, 4)}")
+            Else
+                out.Add(CharText(c))
+            End If
+        End For
+        out.Add("\"")
+        Return out.Join("")
+    End Method
+End Class
