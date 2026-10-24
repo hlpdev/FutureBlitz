@@ -1,0 +1,8 @@
+// A Value can't hold itself, as it is or inside it.
+Import std.core
+
+Local outer = Value.Array()
+Local inner = Value.Array()
+outer.Add(inner)
+Print(outer)
+inner.Add(outer)

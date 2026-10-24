@@ -1,0 +1,2 @@
+[1]
+panic: Value.Add works on an Array, not an Object at panic_value_add.fb:7:1

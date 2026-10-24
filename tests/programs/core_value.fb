@@ -1,0 +1,104 @@
+// std.core's Value: each kind's New and type tests, the getters, which give Null for another
+// kind, indexing by key and position, changes through every reference, ==, Hash, Clone, and the
+// text JSON writes.
+
+Import std.core
+Import std.collections
+
+// Each kind, and what it is.
+Local small: Int8 = -8
+Local short: Int16 = 300
+Local byte: UInt8 = 200
+Local word: UInt16 = 60000
+Local wide: UInt32 = 4000000000
+Local huge: UInt64 = 18446744073709551615
+Local tenth: Float = 0.5
+Local values = [Value(), Value(True), Value(False), Value(42), Value(-7 As Int64), Value(small),
+                Value(short), Value(byte), Value(word), Value(wide), Value(huge),
+                Value(9223372036854775807 As UInt64), Value(1.5), Value(0.1), Value(tenth),
+                Value(1.0), Value(-0.0), Value(1.0e300), Value("text"), Value(""),
+                Value([1 As UInt8, 171, 255]), Value([Value(1), Value("two")]),
+                Value({"a": Value(1)}), Value.Array(), Value.Object()]
+For value In values
+    Print(value, value.Kind, value.IsNull, value.IsBool, value.IsInteger, value.IsNumber,
+          value.IsString, value.IsBytes, value.IsArray, value.IsObject, value.Count)
+End For
+
+// The getters give what it holds as each type, or Null.
+Function Shown<T: Printable>(value: T?): String => value == Null ? "-" : "{value}"
+
+For value In [Value(True), Value(42), Value(-5 As Int64), Value(3000000 As Int64), Value(huge),
+              Value(2.5), Value("x"), Value()]
+    Print(value, Shown(value.AsBool()), Shown(value.AsInt()), Shown(value.AsInt64()),
+          Shown(value.AsUInt64()), Shown(value.AsDouble()), Shown(value.AsString()))
+End For
+
+Print(Value([1 As UInt8, 2]).AsBytes()?.Count ?? -1, Value("x").AsBytes() == Null,
+      Value([Value(1)]).AsArray()?.Count ?? -1, Value(1).AsArray() == Null)
+// They're copies, which the Value doesn't see changes to.
+Local held = Value([Value(1)])
+Local blob = Value([5 As UInt8])
+(held.AsArray() ?? []).Add(Value(2))
+(blob.AsBytes() ?? []).Add(6)
+Print(held, blob)
+
+// An Object keeps its keys in the order they were added; indexing gives Null where it has
+// nothing.
+Local config = Value.Object()
+config["name"] = Value("game")
+config["size"] = Value(64)
+config["tags"] = Value([Value("a"), Value("b")])
+config["size"] = Value(128)
+Print(config, config.Count, config.Keys(), config.Contains("size"), config.Contains("nope"))
+Print(config["name"] ?? Value("missing"), config["nope"] == Null, config[0] == Null)
+Local tags = config["tags"] ?? Value.Array()
+tags.Add(Value("c"))
+tags.Insert(0, Value("first"))
+tags[1] = Value("A")
+Print(config["tags"] ?? Value(), tags[0] ?? Value(), tags[3] ?? Value(), tags[4] == Null,
+      tags[-1] == Null, tags["a"] == Null)
+tags.RemoveAt(0)
+Print(config.Remove("name"), config.Remove("name"), config)
+
+// Equal Values are the same kind holding the same, an Object's keys in any order, and hash
+// alike.
+Local one = Value({"x": Value(1), "y": Value([Value(True), Value()])})
+Local other = Value.Object()
+other["y"] = Value([Value(True), Value()])
+other["x"] = Value(1)
+Print(one == other, one.Hash() == other.Hash(), one != Value({"x": Value(1)}))
+Print(Value(1) == Value(1.0), Value(1) == Value(1 As UInt64), Value(0.0) == Value(-0.0),
+      Value(0.0).Hash() == Value(-0.0).Hash(), Value("a") == Value("a"), Value() == Value())
+Local zero: Double = 0.0
+Local nan = Value(zero / zero)
+Print(nan == nan, Value([1 As UInt8]) == Value([1 As UInt8]), Value.Array() == Value.Object())
+
+// Clone copies it whole, so changing the copy leaves it as it was.
+Local copy = one.Clone()
+copy["x"] = Value(2)
+Local inner = copy["y"] ?? Value.Array()
+inner.Add(Value("more"))
+Print(one, copy, one == copy)
+
+// A Value from an array or a Map has its own copy of it.
+Local items = [Value(1)]
+Local list = Value(items)
+items.Add(Value(2))
+Print(list, items.Count)
+
+// Text: escapes, as JSON has them, and bytes in hex.
+Print(Value("quote \" backslash \\ tab \t newline \n bell \u{7} é 😀"))
+Print(Value([0 As UInt8, 15, 16, 255]), Value(-2.0), Value(0.25), Value(-12345.5))
+
+// A path steps into Objects by key and Arrays by index, and gives Null where one has nothing.
+Local doc = Value.Object()
+doc["server"] = Value({"ports": Value([Value(80), Value(443)]), "name": Value("web")})
+doc["list"] = Value([Value({"id": Value(7)}), Value([Value("deep")])])
+For path In ["server.ports[1]", "server.name", "list[0].id", "list[1][0]", "", "server", "nope",
+             "server.ports[5]", "server.ports[99999999999]", "server.name.x", "list[0][0]",
+             "list.id", "[0]", "server.ports.0"]
+    Local found = doc.Path(path)
+    Print("[{path}]", found == Null ? "Null" : "{found}")
+End For
+
+Print(Value([Value(1), Value([Value(2)])]).Path("[1][0]") ?? Value(), Value(5).Path("") ?? Value())

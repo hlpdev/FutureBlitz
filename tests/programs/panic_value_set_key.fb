@@ -1,0 +1,8 @@
+// Giving a key a Value works only on an Object.
+Import std.core
+
+Local object = Value.Object()
+object["a"] = Value(1)
+Print(object)
+Local number = Value(1)
+number["a"] = Value(2)

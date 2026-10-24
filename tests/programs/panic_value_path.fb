@@ -1,0 +1,5 @@
+// A path that isn't one panics.
+Import std.core
+
+Print(Value.Object().Path("a.b[0]") == Null)
+Print(Value.Object().Path("a..b") == Null)

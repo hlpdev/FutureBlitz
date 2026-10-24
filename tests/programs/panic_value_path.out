@@ -1,0 +1,2 @@
+True
+panic: a Value's path is keys after dots and indices in brackets, like "a.b[0]", not "a..b" at panic_value_path.fb:5:7

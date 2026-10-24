@@ -518,6 +518,17 @@ void fb_write(const fb_array_t* texts, std::int32_t to_error, std::int32_t line)
 /// Flushes what's been written to stdout and stderr.
 void fb_flush();
 
+/// `text` in quotes, as JSON writes a String: `"` and `\` after a `\`, `\b`, `\f`, `\n`, `\r`, and
+/// `\t`, and the other control characters as `\u00` and two hex digits, for std.core's Value.
+fb_string_t* fb_value_quoted(const fb_string_t* text);
+/// `bytes`, a UInt8[], in hex, two digits each, like "0aff".
+fb_string_t* fb_value_hex(const fb_array_t* bytes);
+/// Takes apart a Value's path, like "server.ports[0].name": a key, then a key after each dot,
+/// and an index in brackets after any of them, or first. Each step adds a key to `keys`, a
+/// String[], and -1 to `indices`, an Int64[], or "" and an index. 1 for a path, and 0 for text
+/// that isn't one, like an empty key or an index that isn't digits.
+std::int32_t fb_value_path(const fb_string_t* path, fb_array_t* keys, fb_array_t* indices);
+
 // The fb_io_ functions go through the I/O thread, which runs libuv's loop. It starts with the
 // first, and stops as the program ends. A program links libuv only when it calls one.
 

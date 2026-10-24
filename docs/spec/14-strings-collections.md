@@ -264,3 +264,25 @@ collection.
   values, and an ImmutableMap's keys, are `Sendable`, and a key is `Hashable` too. An
   ImmutableMap and an ImmutableSet go by their keys' hashes, and keys of one hash in the order
   they were added.
+
+## Value
+
+std.core's `Value` is data of any shape, as the data formats have it: Null, a Bool, an integer,
+a Double, a String, bytes, an Array of Values, or an Object of Values by key.
+
+```vb
+Local config = Value.Object()
+config["name"] = Value("game")
+config["ports"] = Value([Value(80), Value(443)])
+Print(config, config.Path("ports[1]")?.AsInt() ?? 0)   // {"name": "game", "ports": [80, 443]} 443
+```
+
+- An integer is an Int64, or a UInt64 past an Int64's largest, so none loses a digit. A New takes
+  each number type, so `Value(5)` and `Value(0.1)` read as an Int and a Double, as written.
+- What it holds is its `Kind`, and the getters give it as a type, `AsInt()` or `AsString()`, or
+  Null for another kind. `v["key"]`, `v[0]`, and `v.Path("a.b[0]")` give a `Value?`, Null where
+  there's nothing.
+- A Value is an object: a change to an Array or Object shows through every reference to it, and
+  `Clone()` copies one whole. None holds itself, inside it however deep, which a change that
+  would make it panics at, so each is a tree. Two Values are `==` when they're the same kind holding the same, an
+  Object's keys in any order; an integer isn't a Double, so `Value(1) != Value(1.0)`.

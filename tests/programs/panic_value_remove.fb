@@ -1,0 +1,5 @@
+// Removing a key works only on an Object.
+Import std.core
+
+Print(Value.Object().Remove("a"))
+Print(Value.Array().Remove("a"))

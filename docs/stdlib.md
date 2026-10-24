@@ -49,6 +49,7 @@ So far, std/ holds:
 | std/core/range.fb | `Range<T>`, which `0 Until 10`, `1 To 10`, and `Step` make |
 | std/core/print.fb | `Print`, `Write`, `PrintError`, `WriteError`, `Flush`, `Input`, and `InputAsync`, over the runtime's `fb_write` and its I/O thread |
 | std/core/values.fb | `Min`, `Max`, `Clamp`, `Swap`, and `HashCombine` |
+| std/core/value.fb | `Value`, data of any shape, and `ValueKind`, over the runtime's `fb_value_` functions for its text and paths |
 | std/collections/array.fb | `T[]`'s `Remove`, `Sort`, `SortUnstable`, `SortBy`, `SortByDescending` (with `Sorting<T>`'s `ThenBy` and `ThenByDescending`), `Filter`, `Map`, `Find`, `FindLast`, `FindIndex`, `IndexOf`, `LastIndexOf`, `BinarySearch`, `Any`, `All`, `First`, `Last`, `RemoveLast`, `TryRemoveLast`, `AddAll`, `InsertAll`, `RemoveRange`, `RemoveAll`, `Resize`, `Fill`, `Reverse`, `Swap`, `Distinct`, `Join`, `Fold`, and `Reduce`; `Iterate()`, which makes a `T[]` an `Iterable<T>`, through `ArrayIterator<T>` |
 | std/collections/view.fb | `ArrayView<T>`, which `items.View(a, b)` gives, and `ReadOnlyArray<T>`, `ReadOnlyMap<K, V>`, and `ReadOnlySet<T>`, which `AsReadOnly()` gives |
 | std/collections/map.fb | `Map<K, V>`, which `{key: value}` makes |
@@ -247,6 +248,20 @@ file or URL in the default app.
   a Map's Filter a Set or a Map.
 - Interfaces: `Iterable<T>`, `Cloneable`, and `Defaultable` (`Static Method DefaultValue():
   Self`), since `Default` is Select's keyword.
+- `Value`, data of any shape, which every data format reads into and writes from, and std.data's
+  `Load<T>` and `Save<T>` turn into a T and back: Null, a Bool, an integer (an `INT`, an Int64,
+  or past its largest a `UINT`, a UInt64, so JSON's integers stay exact), a Double, a String,
+  bytes, an Array of Values, or an Object of Values by key, in the order they were added. A New
+  for each type makes one, `Value()` Null, and `Value.Array()` and `Value.Object()` empty ones;
+  `Kind`, `IsNull` to `IsObject`, and `Count` say what it holds, and `AsBool()`, `AsInt()`,
+  `AsInt64()`, `AsUInt64()`, `AsDouble()`, `AsString()`, `AsBytes()`, and `AsArray()` give it as
+  each, or Null. `v["key"]` and `v[0]` give a `Value?`, Null where it has none, and
+  `Path("a.b[0]")` steps through several; `[]=`, `Add`, `Insert`, `RemoveAt`, and `Remove` change
+  an Array or Object, which shows through every reference to it, and `Clone()` copies one whole.
+  None holds itself, which `[]=`, `Add`, and `Insert` panic at, so each is a tree, and the
+  getters' bytes and elements are copies.
+  `==` and `Hash` compare what it holds, an Object's keys in any order, and `ToString` writes it
+  as JSON on one line.
 - Small things: `Min`, `Max`, `Clamp`, `Swap`; `HashCombine`; and the built-in `TypeName<T>()`,
   at compile time, like SizeOf.
 
@@ -604,14 +619,18 @@ Step 18 built `Event<T>` and `Subscription`, in std/events/event.fb; `Import std
 
 #### std.data
 
-- `Value` (Null, Bool, Int, Float, String, Array, Object) with typed accessors and
-  `Path("a.b[0]")`; JSON integers stay exact (a Long), and others are Float64.
-- Serialization is automatic: a Struct or Class whose fields are serializable is, by
-  compile-time reflection, every Field included, Private ones too, Properties not. `@Rename`,
-  `@Skip`, `@Default`, and `@Flatten` adjust it, a type can write its own Encode and Decode, and
-  every format goes through the same Encoder and Decoder Interfaces: `Json.Write(save, indent:
-  2)`, `Json.Read<Save>(text)`. Reading into a typed field converts, and throws a ParseError
-  when it doesn't fit.
+- Every format reads its text into std.core's `Value` and writes one out, so JSON's integers
+  stay exact (an Int64, or a UInt64 past it), and its other numbers are Doubles; `Path("a.b[0]")`
+  reaches inside one.
+- Serialization is automatic: the built-ins `Load<T>(value)` and `Save<T>(x)` turn a Value into
+  a T and back, for the numbers, Bool, String, Enums (by name), `T?`, `T[]`, `Map<String, V>`,
+  and Structs and Classes, by compile-time reflection, every Field included, Private ones too,
+  Properties not. Load makes a Struct or Class Field by Field without running its New, and
+  then its `OnLoaded()`. `@Rename`, `@Skip`, `@Default`, and `@Flatten` adjust it, and a type
+  can give its own conversion. A format is then a Value's reader and writer, as
+  `Json.Write(save, indent: 2)` and `Json.Read<Save>(text)` are Save and Load around it. Reading
+  into a typed field converts, and throws a ParseError that names the Field's path, like
+  `options.size`, when it doesn't fit.
 - Formats: JSON (with a streaming reader and writer), TOML, CSV, INI, XML (a tree, a streaming
   reader and writer, and XPath-lite), YAML (1.2's core schema, no arbitrary tags), and
   MessagePack. A save can carry a version, and `@Since(2)` and `@Renamed("old")` keep old saves

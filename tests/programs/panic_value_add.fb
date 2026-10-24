@@ -1,0 +1,7 @@
+// Adding works only on an Array.
+Import std.core
+
+Local array = Value.Array()
+array.Add(Value(1))
+Print(array)
+Value.Object().Add(Value(1))

@@ -1,0 +1,2 @@
+[[]]
+panic: a Value can't hold itself, inside it or as it is at panic_value_holds_itself.fb:8:1

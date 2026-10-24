@@ -1,0 +1,7 @@
+// Replacing an element works only on an Array, at an index it has.
+Import std.core
+
+Local array = Value([Value(1)])
+array[0] = Value(2)
+Print(array)
+array[1] = Value(3)

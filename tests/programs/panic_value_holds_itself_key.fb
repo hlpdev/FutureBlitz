@@ -1,0 +1,7 @@
+// Nor as one of an Object's keys' Values.
+Import std.core
+
+Local object = Value.Object()
+object["a"] = Value(1)
+Print(object)
+object["self"] = object

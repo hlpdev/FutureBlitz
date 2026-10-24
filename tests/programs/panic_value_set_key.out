@@ -1,0 +1,2 @@
+{"a": 1}
+panic: a Value's [key] = works on an Object, not an integer at panic_value_set_key.fb:8:7

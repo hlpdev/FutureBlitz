@@ -1,0 +1,495 @@
+// Value: data of any shape, as the data formats have it: Null, a Bool, an integer, a Double, a
+// String, bytes, an Array of Values, or an Object of Values by their keys, in the order they were
+// added. Each format reads its text into one and writes one out. A Value is an object, so a
+// change to an Array's or Object's shows through every reference to it, and Clone() copies one
+// whole. None holds itself, inside it however deep, so each is a tree, which ToString, ==, Hash,
+// and Clone go through to its end.
+
+Import std.core.error
+Import std.core.interfaces
+Import std.core.values
+Import std.collections.map
+
+Extern "runtime"
+    Function fb_value_quoted(text: String): String
+    Function fb_value_hex(bytes: UInt8[]): String
+    Function fb_value_path(path: String, keys: String[], indices: Int64[]): Int32
+End Extern
+
+// What a Value holds. An integer is an INT, an Int64, but for one past an Int64's largest, which
+// is a UINT, a UInt64.
+Public Enum ValueKind
+    NULL, BOOL, INT, UINT, DOUBLE, STRING, BYTES, ARRAY, OBJECT
+End Enum
+
+Public Class Value Implements Equatable, Hashable, Printable, Cloneable
+    Field Shape: ValueKind
+    // A Bool's or integer's bits, and a Double.
+    Field Bits: UInt64
+    Field Real: Double
+    Field Text: String = ""
+    Field Data: UInt8[]?
+    Field Elements: Value[]?
+    Field Entries: Map<String, Value>?
+
+    // Null.
+    Public New()
+    End New
+
+    Public New(value: Bool)
+        Shape = ValueKind.BOOL
+        Bits = value ? 1 : 0
+    End New
+
+    // An integer of any size, which each type has a New of its own for, so none is ambiguous.
+    Public New(value: Int8)
+        SetInteger(value As Int64)
+    End New
+
+    Public New(value: Int16)
+        SetInteger(value As Int64)
+    End New
+
+    Public New(value: Int32)
+        SetInteger(value As Int64)
+    End New
+
+    Public New(value: Int64)
+        SetInteger(value)
+    End New
+
+    Public New(value: UInt8)
+        SetInteger(value As Int64)
+    End New
+
+    Public New(value: UInt16)
+        SetInteger(value As Int64)
+    End New
+
+    Public New(value: UInt32)
+        SetInteger(value As Int64)
+    End New
+
+    Public New(value: UInt64)
+        If value > 9223372036854775807
+            Shape = ValueKind.UINT
+            Bits = value
+        Else
+            SetInteger(value As Int64)
+        End If
+    End New
+
+    // A Double. A Float converts to one, and a decimal literal is read as one.
+    Public New(value: Double)
+        Shape = ValueKind.DOUBLE
+        Real = value
+    End New
+
+    Public New(value: String)
+        Shape = ValueKind.STRING
+        Text = value
+    End New
+
+    // Bytes, a copy of them.
+    Public New(bytes: UInt8[])
+        Shape = ValueKind.BYTES
+        Data = bytes.Clone()
+    End New
+
+    // An Array of the Values, in a new array of its own.
+    Public New(elements: Value[])
+        Shape = ValueKind.ARRAY
+        Elements = elements.Clone()
+    End New
+
+    // An Object of the Map's keys and Values, in its order, in a new Map of its own.
+    Public New(entries: Map<String, Value>)
+        Shape = ValueKind.OBJECT
+        Entries = entries.Clone()
+    End New
+
+    // An empty Array or Object, to add to.
+    Public Static Method Array(): Value
+        Local made = Value()
+        made.Shape = ValueKind.ARRAY
+        made.Elements = []
+        Return made
+    End Method
+
+    Public Static Method Object(): Value
+        Local made = Value()
+        made.Shape = ValueKind.OBJECT
+        made.Entries = Map<String, Value>()
+        Return made
+    End Method
+
+    Public Property Kind: ValueKind
+        Get => Shape
+    End Property
+
+    Public Property IsNull: Bool
+        Get => Shape == ValueKind.NULL
+    End Property
+
+    Public Property IsBool: Bool
+        Get => Shape == ValueKind.BOOL
+    End Property
+
+    // An INT or UINT, and a number, those or a DOUBLE.
+    Public Property IsInteger: Bool
+        Get => Shape == ValueKind.INT || Shape == ValueKind.UINT
+    End Property
+
+    Public Property IsNumber: Bool
+        Get => IsInteger || Shape == ValueKind.DOUBLE
+    End Property
+
+    Public Property IsString: Bool
+        Get => Shape == ValueKind.STRING
+    End Property
+
+    Public Property IsBytes: Bool
+        Get => Shape == ValueKind.BYTES
+    End Property
+
+    Public Property IsArray: Bool
+        Get => Shape == ValueKind.ARRAY
+    End Property
+
+    Public Property IsObject: Bool
+        Get => Shape == ValueKind.OBJECT
+    End Property
+
+    // How many elements an Array has, entries an Object has, or bytes it holds; 0 for the rest.
+    Public Property Count: Int
+        Get
+            If Shape == ValueKind.ARRAY Then Return Elements.Expect("an Array's").Count
+            If Shape == ValueKind.OBJECT Then Return Entries.Expect("an Object's").Count
+            If Shape == ValueKind.BYTES Then Return Data.Expect("bytes").Count
+            Return 0
+        End Get
+    End Property
+
+    // What it holds as each type, or Null when it holds another kind. An integer is a Double
+    // too, the nearest there is, and an Int32 or Int64 when it fits.
+    Public Method AsBool(): Bool? => Shape == ValueKind.BOOL ? Bits != 0 : Null
+
+    Public Method AsInt(): Int?
+        If Shape != ValueKind.INT Then Return Null
+        Local value = Bits As Int64
+        If value < -2147483648 || value > 2147483647 Then Return Null
+        Return value As Int
+    End Method
+
+    Public Method AsInt64(): Int64? => Shape == ValueKind.INT ? Bits As Int64 : Null
+
+    Public Method AsUInt64(): UInt64?
+        If Shape == ValueKind.UINT || (Shape == ValueKind.INT && (Bits As Int64) >= 0)
+            Return Bits
+        End If
+
+        Return Null
+    End Method
+
+    Public Method AsDouble(): Double?
+        If Shape == ValueKind.DOUBLE Then Return Real
+        If Shape == ValueKind.INT Then Return (Bits As Int64) As Double
+        If Shape == ValueKind.UINT Then Return Bits As Double
+        Return Null
+    End Method
+
+    Public Method AsString(): String? => Shape == ValueKind.STRING ? Text : Null
+
+    // The bytes, or an Array's elements, in a new array, which the Value doesn't see changes to.
+    Public Method AsBytes(): UInt8[]? => Shape == ValueKind.BYTES ? Data?.Clone() : Null
+    Public Method AsArray(): Value[]? => Shape == ValueKind.ARRAY ? Elements?.Clone() : Null
+
+    // An Object's keys, in order, in a new array; none for the rest.
+    Public Method Keys(): String[]
+        Local entries = Entries
+        Return Shape == ValueKind.OBJECT && entries != Null ? entries.Keys() : []
+    End Method
+
+    // Whether an Object has the key.
+    Public Method Contains(key: String): Bool
+        Local entries = Entries
+        Return Shape == ValueKind.OBJECT && entries != Null && entries.Contains(key)
+    End Method
+
+    // An Object's Value for the key, or an Array's at the index, or Null where it has none.
+    Operator [](key: String): Value?
+        Local entries = Entries
+        Return Shape == ValueKind.OBJECT && entries != Null ? entries.Get(key) : Null
+    End Operator
+
+    Operator [](index: Int): Value?
+        Local elements = Elements
+        If Shape != ValueKind.ARRAY || elements == Null Then Return Null
+        Return index >= 0 && index < elements.Count ? elements[index] : Null
+    End Operator
+
+    // The Value a path names, like "server.ports[0].name": keys after dots and indices in
+    // brackets, each step into what the last gave, or Null where one has nothing. "" is the
+    // Value itself. Panics for text that isn't a path, like "a..b" or "a[x]".
+    @PanicsAtCaller
+    Public Method Path(path: String): Value?
+        Local keys: String[] = []
+        Local indices: Int64[] = []
+        If fb_value_path(path, keys, indices) == 0
+            Panic("a Value's path is keys after dots and indices in brackets, like \"a.b[0]\", " +
+                  "not \"{path}\"")
+        End If
+
+        Local at: Value? = Self
+        For i = 0 Until keys.Count
+            Local here = at
+            If here == Null Then Return Null
+            If indices[i] < 0
+                at = here[keys[i]]
+            Else
+                at = indices[i] > 2147483647 ? Null : here[indices[i] As Int]
+            End If
+        End For
+
+        Return at
+    End Method
+
+    // Gives an Object's key a Value, adding the key when it isn't there, or replaces an Array's
+    // element. Panics on another kind, at an index past the Array's, or for a value that is
+    // this one or holds it.
+    @PanicsAtCaller
+    Operator []=(key: String, value: Value)
+        Local entries = ObjectEntries("a Value's [key] =")
+        CheckHeld(value)
+        entries[key] = value
+    End Operator
+
+    @PanicsAtCaller
+    Operator []=(index: Int, value: Value)
+        Local elements = ArrayElements("a Value's [index] =")
+        CheckHeld(value)
+        elements[index] = value
+    End Operator
+
+    // Adds a Value at an Array's end, or at index, moving those from there up. Panics on
+    // another kind, and for a value that is this one or holds it, as []= does.
+    @PanicsAtCaller
+    Public Method Add(value: Value)
+        Local elements = ArrayElements("Value.Add")
+        CheckHeld(value)
+        elements.Add(value)
+    End Method
+
+    @PanicsAtCaller
+    Public Method Insert(index: Int, value: Value)
+        Local elements = ArrayElements("Value.Insert")
+        CheckHeld(value)
+        elements.Insert(index, value)
+    End Method
+
+    @PanicsAtCaller
+    Public Method RemoveAt(index: Int)
+        ArrayElements("Value.RemoveAt").RemoveAt(index)
+    End Method
+
+    // Removes an Object's key, and tells whether it had one. Panics on another kind.
+    @PanicsAtCaller
+    Public Method Remove(key: String): Bool => ObjectEntries("Value.Remove").Remove(key)
+
+    // Copies it, and its elements and entries, whole.
+    Public Method Clone(): Value
+        Local copy = Value()
+        copy.Shape = Shape
+        copy.Bits = Bits
+        copy.Real = Real
+        copy.Text = Text
+        Local data = Data
+        If data != Null Then copy.Data = data.Clone()
+        Local elements = Elements
+        If elements != Null
+            Local copies: Value[] = []
+            copies.Reserve(elements.Count)
+            For element In elements
+                copies.Add(element.Clone())
+            End For
+            copy.Elements = copies
+        End If
+
+        Local entries = Entries
+        If entries != Null
+            Local copies = Map<String, Value>()
+            For key, value In entries
+                copies[key] = value.Clone()
+            End For
+            copy.Entries = copies
+        End If
+
+        Return copy
+    End Method
+
+    // Two Values are equal when they're the same kind and hold the same: an Object the same keys
+    // with equal Values, in any order. A Double compares as Doubles do, so NaN isn't equal to
+    // itself and 0.0 is -0.0.
+    Operator ==(a: Value, b: Value): Bool
+        If a.Shape != b.Shape Then Return False
+        Select a.Shape
+            Case ValueKind.NULL
+                Return True
+            Case ValueKind.DOUBLE
+                Return a.Real == b.Real
+            Case ValueKind.STRING
+                Return a.Text == b.Text
+            Case ValueKind.BYTES
+                Return a.Data == b.Data
+            Case ValueKind.ARRAY
+                Return a.Elements == b.Elements
+            Case ValueKind.OBJECT
+                Return a.Entries == b.Entries
+            Default
+                Return a.Bits == b.Bits
+        End Select
+    End Operator
+
+    // The same for equal Values, an Object's in any order.
+    Public Method Hash(): UInt64
+        Local seed = Shape As UInt64
+        Select Shape
+            Case ValueKind.DOUBLE
+                // 0.0 and -0.0 are equal, so they hash alike.
+                Return HashCombine(seed, Real == 0.0 ? 0 : Real.Hash())
+            Case ValueKind.STRING
+                Return HashCombine(seed, Text.Hash())
+            Case ValueKind.BYTES
+                Return HashCombine(seed, Data.Expect("bytes").Hash())
+            Case ValueKind.ARRAY
+                Return HashCombine(seed, Elements.Expect("an Array's").Hash())
+            Case ValueKind.OBJECT
+                Return HashCombine(seed, Entries.Expect("an Object's").Hash())
+            Default
+                Return HashCombine(seed, Bits)
+        End Select
+    End Method
+
+    // As JSON writes it, on one line: null, true, 42, 1.5, "text" with JSON's escapes, [1, 2],
+    // and {"key": 1}; a Double always with a point or an exponent, as 1.0, and bytes in hex, as
+    // <0a1b>.
+    Public Method ToString(): String
+        Select Shape
+            Case ValueKind.NULL
+                Return "null"
+            Case ValueKind.BOOL
+                Return Bits != 0 ? "true" : "false"
+            Case ValueKind.INT
+                Return "{Bits As Int64}"
+            Case ValueKind.UINT
+                Return "{Bits}"
+            Case ValueKind.DOUBLE
+                Return DoubleText(Real)
+            Case ValueKind.STRING
+                Return fb_value_quoted(Text)
+            Case ValueKind.BYTES
+                Return "<{fb_value_hex(Data.Expect("bytes"))}>"
+            Case ValueKind.ARRAY
+                Local parts: String[] = []
+                For element In Elements.Expect("an Array's")
+                    parts.Add(element.ToString())
+                End For
+                Return "[" + JoinedText(parts) + "]"
+            Default
+                Local parts: String[] = []
+                For key, value In Entries.Expect("an Object's")
+                    parts.Add("{fb_value_quoted(key)}: {value}")
+                End For
+                Return "{{" + JoinedText(parts) + "}}"
+        End Select
+    End Method
+
+    // Panics when value is this Value or holds it, which would make it hold itself.
+    @PanicsAtCaller
+    Method CheckHeld(value: Value)
+        If value.Holds(Self) Then Panic("a Value can't hold itself, inside it or as it is")
+    End Method
+
+    // Whether it's target, or holds it, however deep.
+    Method Holds(target: Value): Bool
+        If RefEquals(Self, target) Then Return True
+        Local elements = Elements
+        If elements != Null
+            For element In elements
+                If element.Holds(target) Then Return True
+            End For
+        End If
+
+        Local entries = Entries
+        If entries != Null
+            For key, value In entries
+                If value.Holds(target) Then Return True
+            End For
+        End If
+
+        Return False
+    End Method
+
+    // An integer's bits, as an INT.
+    Method SetInteger(value: Int64)
+        Shape = ValueKind.INT
+        Bits = value As UInt64
+    End Method
+
+    // An Array's elements or an Object's entries, for what changes them, which panic on another
+    // kind.
+    @PanicsAtCaller
+    Method ArrayElements(what: String): Value[]
+        Local elements = Elements
+        If Shape != ValueKind.ARRAY || elements == Null
+            Panic("{what} works on an Array, not {Article(Shape)}")
+        End If
+
+        Return elements
+    End Method
+
+    @PanicsAtCaller
+    Method ObjectEntries(what: String): Map<String, Value>
+        Local entries = Entries
+        If Shape != ValueKind.OBJECT || entries == Null
+            Panic("{what} works on an Object, not {Article(Shape)}")
+        End If
+
+        Return entries
+    End Method
+End Class
+
+// "a Bool", "an INT", and the rest, for what a panic says.
+Function Article(kind: ValueKind): String
+    Select kind
+        Case ValueKind.NULL
+            Return "Null"
+        Case ValueKind.BOOL
+            Return "a Bool"
+        Case ValueKind.INT, ValueKind.UINT
+            Return "an integer"
+        Case ValueKind.DOUBLE
+            Return "a Double"
+        Case ValueKind.STRING
+            Return "a String"
+        Case ValueKind.BYTES
+            Return "bytes"
+        Case ValueKind.ARRAY
+            Return "an Array"
+        Default
+            Return "an Object"
+    End Select
+End Function
+
+// A Double's shortest text, with ".0" when it would read as an integer.
+Function DoubleText(value: Double): String
+    Local text = "{value}"
+    For code In text.Chars
+        If code == '.' || code == 'e' || code == 'E' || code == 'n' || code == 'N' ||
+           code == 'i' || code == 'I'
+            Return text
+        End If
+    End For
+
+    Return text + ".0"
+End Function
