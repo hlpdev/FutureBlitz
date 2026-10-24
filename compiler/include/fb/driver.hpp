@@ -143,8 +143,9 @@ compile_file(const std::filesystem::path& path, build_mode_t mode = build_mode_t
 [[nodiscard]] std::optional<std::filesystem::path>
 find_package(const std::filesystem::path& folder);
 
-/// The standard library's files, from std/ in the source tree, sorted by path. Each is named
-/// like "std/core/error.fb". Fails when one can't be read.
+/// The standard library's files, from std/ in the source tree, sorted by path: its modules, and
+/// the .proto files of protobuf's well-known types. Each is named like "std/core/error.fb". Fails
+/// when one can't be read.
 [[nodiscard]] std::expected<std::vector<library_file_t>, std::string> standard_library();
 
 /// The C libraries std is built on that a program links, for the runtime's functions it calls

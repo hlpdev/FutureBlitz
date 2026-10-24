@@ -1499,10 +1499,14 @@ private:
     }
 
     /// The file's name in a quoted path, when the path spells it plainly and it could be a
-    /// name: "hud" in "./ui/hud". Empty otherwise.
+    /// name: "hud" in "./ui/hud", or "schema" in "proto/schema.proto". Empty otherwise.
     [[nodiscard]] name_t path_name(const token_t& token) const {
         const std::string_view written = text(token);
-        const std::size_t close = written.size() - 1;
+        std::size_t close = written.size() - 1;
+        if (written.substr(0, close).ends_with(".proto")) {
+            close -= std::string_view(".proto").size();
+        }
+
         const std::size_t slash = written.rfind('/');
         const std::size_t begin =
             slash == std::string_view::npos ? written.find('"') + 1 : slash + 1;

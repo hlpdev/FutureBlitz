@@ -6,6 +6,7 @@
 #include "fb/manifest.hpp"
 #include "fb/parser.hpp"
 #include "fb/process.hpp"
+#include "fb/proto.hpp"
 #include "fb/types.hpp"
 #include "fb/utf8.hpp"
 
@@ -21,6 +22,7 @@
 #include <ios>
 #include <iterator>
 #include <map>
+#include <memory>
 #include <optional>
 #include <random>
 #include <ranges>
@@ -263,6 +265,13 @@ std::string std_import_name(const std::string_view path) {
     return std::ranges::count(path, '/') > 1 ? name.substr(0, name.rfind('.')) : name;
 }
 
+/// A .proto file the front end has read, and whether it, or a file it imports, has errors, which
+/// leave its module empty.
+struct proto_entry_t {
+    proto_file_t file;
+    bool failed = false;
+};
+
 /// One file the front end has loaded: its path in the program, and the files its imports name.
 struct loaded_t {
     std::string path;
@@ -271,6 +280,9 @@ struct loaded_t {
     std::vector<std::pair<stmt_id_t, std::vector<std::size_t>>> imports;
     /// Where the Import that first named it is. nullopt for the files every program loads.
     std::optional<span_t> imported_at;
+    /// For the module of a .proto file, which fb makes from it, the file. Its Imports of the
+    /// modules of the files it imports name their paths in the program.
+    const proto_entry_t* proto = nullptr;
 };
 
 /// Loads a program's files into a compilation: the main file, std/core/, std.collections.map,
@@ -335,6 +347,10 @@ private:
     std::vector<std::vector<stmt_id_t>> m_items;
     /// How messages name each package's folder.
     std::vector<std::string> m_folders;
+    /// The .proto files read, which stay put while more are read.
+    std::vector<std::unique_ptr<proto_entry_t>> m_protos;
+    /// The keys of the .proto files being read, each importing the next, for a cycle's error.
+    std::vector<std::string> m_reading;
 
     /// The package a file of the program is in, by index in the file set's packages, which is
     /// 0, the main one, for every file of a program without a project.toml. nullopt for the
@@ -472,6 +488,153 @@ private:
         const std::size_t index = m_loaded.size();
         m_loaded.push_back({ .path = path, .file = file, .imported_at = imported_at });
         m_keys.emplace(key_of(path), index);
+        parse_file(index, nullptr);
+        return index;
+    }
+
+    /// Where std keeps protobuf's well-known types, like google/protobuf/timestamp.proto, which a
+    /// .proto imports by that path.
+    static constexpr std::string_view well_known_types = "std/data/proto/";
+
+    /// Whether the program has a file at `path`.
+    [[nodiscard]] bool has_file(const std::string_view path) const {
+        if (!m_files.root) {
+            return std::ranges::contains(m_files.files, path, &library_file_t::path);
+        }
+
+        std::error_code ignored;
+        return std::filesystem::is_regular_file(disk_path(m_files, path), ignored);
+    }
+
+    /// The module of the .proto file an Import names: the file from the importing file's folder,
+    /// or for a path in google/protobuf/ that isn't there, the well-known type std has.
+    std::optional<std::size_t> load_imported_proto(const import_stmt_t& node,
+                                                   const import_paths_t& paths) {
+        if (has_file(paths.file) || !node.target.starts_with("google/protobuf/")) {
+            return load_proto(paths.file, node.target_span);
+        }
+
+        const std::string standard = std::string(well_known_types) + node.target;
+        return has_file(standard) ? load_proto(standard, node.target_span) : std::nullopt;
+    }
+
+    /// The file a .proto's import names, by its path in the program: the path from the importing
+    /// file's folder, or else from each folder above it up to the folder its package's paths start
+    /// from, the nearest first, as protoc finds a file in the first of its import paths that has
+    /// it, or else one of protobuf's well-known types that std has. nullopt, after an error, when
+    /// there's none.
+    std::optional<std::string> find_proto_import(const std::string& importer,
+                                                 const proto_import_t& imported) {
+        const std::vector<std::string_view> written = path_parts(imported.path);
+        const bool canonical =
+            !imported.path.empty() && !imported.path.starts_with('/') &&
+            imported.path.find('\\') == std::string::npos &&
+            std::ranges::none_of(written,
+                                 [](const std::string_view part) { return part == ".."; }) &&
+            written.size() == static_cast<std::size_t>(std::ranges::count(imported.path, '/') + 1);
+        if (!canonical) {
+            m_compilation.diagnostics.error(imported.span,
+                                            "an import's path goes down from a folder, with '/' "
+                                            "between folders and without '.' or '..', like "
+                                            "\"shapes/circle.proto\"");
+            return std::nullopt;
+        }
+
+        const std::string_view package = origin_of(importer).package;
+        std::vector<std::string_view> folder = path_parts(importer);
+        folder.pop_back();
+        const std::size_t fixed = path_parts(package).size();
+        while (true) {
+            std::string candidate;
+            for (const std::string_view part : folder) {
+                candidate += std::string(part) + "/";
+            }
+
+            candidate += imported.path;
+            if (has_file(candidate) && !linked_away(candidate)) {
+                return candidate;
+            }
+
+            if (folder.size() <= fixed) {
+                break;
+            }
+
+            folder.pop_back();
+        }
+
+        const std::string standard = std::string(well_known_types) + imported.path;
+        if (imported.path.starts_with("google/protobuf/") && has_file(standard)) {
+            return standard;
+        }
+
+        m_compilation.diagnostics.error(imported.span,
+                                        "there's no \"{}\" in this file's folder, or a folder "
+                                        "above it in {}",
+                                        imported.path, folder_of(importer));
+        return std::nullopt;
+    }
+
+    /// Reads the .proto file at `path` in the program, once, with the .proto files it imports, and
+    /// gives its module, which fb makes from it, for the Import or import line at `imported_at`.
+    /// nullopt when there's no such file. Errors in it or a file it imports leave its module
+    /// empty, past them.
+    std::optional<std::size_t> load_proto(const std::string& path, const span_t imported_at) {
+        const std::string key = key_of(path);
+        if (const auto found = m_keys.find(key); found != m_keys.end()) {
+            return found->second;
+        }
+
+        if (const auto reading = std::ranges::find(m_reading, key); reading != m_reading.end()) {
+            std::string chain;
+            for (const std::string& each : std::ranges::subrange(reading, m_reading.end())) {
+                chain += std::format("{} -> ", to_utf8(path_from_utf8(each).filename()));
+            }
+
+            m_compilation.diagnostics.error(imported_at,
+                                            ".proto files can't import each other in a cycle: "
+                                            "{}{}",
+                                            chain, to_utf8(path_from_utf8(path).filename()));
+            return std::nullopt;
+        }
+
+        std::optional<std::string> text = read_file(m_files, path);
+        if (!text) {
+            return std::nullopt;
+        }
+
+        const std::string shown = shown_path(m_files, path);
+        const file_id_t source = m_compilation.sources.add(shown, std::move(*text));
+        const std::size_t errors = m_compilation.diagnostics.error_count();
+        auto& entry = *m_protos.emplace_back(std::make_unique<proto_entry_t>(proto_entry_t{
+            .file = parse_proto(m_compilation.sources.get(source), m_compilation.diagnostics),
+        }));
+        entry.file.path = path;
+        m_reading.push_back(key);
+        for (proto_import_t& imported : entry.file.imports) {
+            const std::optional<std::string> found = find_proto_import(path, imported);
+            const std::optional<std::size_t> module =
+                found ? load_proto(*found, imported.span) : std::nullopt;
+            if (module && m_loaded[*module].proto != nullptr) {
+                imported.file = &m_loaded[*module].proto->file;
+                entry.failed = entry.failed || m_loaded[*module].proto->failed;
+            }
+        }
+
+        m_reading.pop_back();
+        entry.failed = entry.failed || m_compilation.diagnostics.error_count() > errors;
+        if (!entry.failed) {
+            resolve_proto(entry.file, m_compilation.diagnostics);
+            entry.failed = m_compilation.diagnostics.error_count() > errors;
+        }
+
+        std::string module =
+            entry.failed ? std::format("// {} has errors, so fb makes nothing from it.\n", shown)
+                         : generate_proto(entry.file);
+        const file_id_t file = m_compilation.sources.add(shown + ".fb", std::move(module));
+        const std::size_t index = m_loaded.size();
+        m_loaded.push_back(
+            { .path = path, .file = file, .imported_at = imported_at, .proto = &entry });
+        m_keys.emplace(key, index);
         parse_file(index, nullptr);
         return index;
     }
@@ -619,6 +782,17 @@ private:
             const import_stmt_t node = *found;
             std::vector<std::size_t> targets;
             const std::string& importer = m_loaded[index].path;
+            // A .proto's module imports those of the files it imports by their paths, which are
+            // loaded already.
+            if (m_loaded[index].proto != nullptr && node.quoted) {
+                if (const auto loaded = m_keys.find(key_of(node.target)); loaded != m_keys.end()) {
+                    targets.push_back(loaded->second);
+                }
+
+                m_loaded[index].imports.emplace_back(id, std::move(targets));
+                continue;
+            }
+
             const std::expected<import_paths_t, std::string> paths =
                 resolve_import(node.target, node.quoted, origin_of(importer));
             if (!paths) {
@@ -646,8 +820,13 @@ private:
 
             // A folder whose files are all links away was reported for them, not as missing.
             bool linked = false;
-            if (const std::optional<std::size_t> file =
-                    paths->file.empty() ? std::nullopt : load(paths->file, node.target_span)) {
+            if (paths->file.ends_with(".proto")) {
+                if (const std::optional<std::size_t> file = load_imported_proto(node, *paths)) {
+                    targets.push_back(*file);
+                }
+            } else if (const std::optional<std::size_t> file =
+                           paths->file.empty() ? std::nullopt
+                                               : load(paths->file, node.target_span)) {
                 targets.push_back(*file);
             } else if (paths->folder) {
                 // A package's main file isn't one of the modules its folder gives, and neither
@@ -1596,7 +1775,8 @@ resolve_import(const std::string_view target, const bool quoted, const import_fr
             target));
     }
 
-    return import_paths_t{ .file = file + ".fb" };
+    // A .proto file's path names it, extension and all.
+    return import_paths_t{ .file = target.ends_with(".proto") ? file : file + ".fb" };
 }
 
 compilation_t compile(std::string path, std::string text) {
@@ -1698,7 +1878,8 @@ std::expected<std::vector<library_file_t>, std::string> standard_library() {
     for (auto entry = std::filesystem::recursive_directory_iterator(folder, error);
          !error && entry != std::filesystem::recursive_directory_iterator();
          entry.increment(error)) {
-        if (entry->is_regular_file() && entry->path().extension() == ".fb") {
+        if (entry->is_regular_file() &&
+            (entry->path().extension() == ".fb" || entry->path().extension() == ".proto")) {
             paths.push_back(entry->path());
         }
     }
