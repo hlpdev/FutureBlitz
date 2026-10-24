@@ -1,0 +1,153 @@
+confirm "y": True "? Go on? (y/n) Yes\n" mode 0
+confirm "N": False "? Go on? (y/n) No\n" mode 0
+confirm "x\r": Null "? Go on? (y/n) \n" mode 0
+confirm "\r": Null "? Go on? (y/n) \n" mode 0
+confirm "\x1B": Null "? Go on? (y/n) \n" mode 0
+confirm "": Null "? Go on? (y/n) \n" mode 0
+default yes: True ? Go on? (Y/n) Yes
+
+default no: False ? Go on? (y/N) No
+
+colored: True \e[0;1;32m?\e[0m Sure? \e[0;2m(y/n)\e[0m \e[0;36mYes\e[0m
+
+piped: True False True False
+piped: Null
+? Sure? (y/n) maybe
+? Sure? (y/n) YES
+? Sure? (y/n) no
+? Again? (Y/n) 
+? Last? (y/n) N
+? Ended? (y/n) 
+
+ask: hello!
+\r? Name? \e[K\r\e[8C\r? Name? h\e[K\r\e[9C\r? Name? he\e[K\r\e[10C\r? Name? hel\e[K\r\e[11C\r? Name? helo\e[K\r\e[12C\r? Name? helo\e[K\r\e[11C\r? Name? helo\e[K\r\e[10C\r? Name? hello\e[K\r\e[11C\r? Name? hello\e[K\r\e[13C\r? Name? hello!\e[K\r\e[14C\r? Name? hello!\e[K
+
+ask "one two three\x17x\r": one two x
+ask "abc\x01X\x05Y\r": XabcY
+ask "abc\x1B[H\x0BZ\r": Z
+ask "a b c\x1B[1;5D\x1B[1;5DQ\r": a Qb c
+ask "a\x1B[3~b\x1B[D\x1B[3~\r": a
+ask "éx\x7F\x7Fy\r": y
+ask "\x1B[200~pasted\ntext\x1B[201~\r": pasted text
+ask "\x15\r": dflt
+ask "x\x1B": Null
+ask "y": Null
+scrolled: a long answer that scrolls
+\r? Q? \e[K\r\e[5C\r? Q? a\e[K\r\e[6C\r? Q? a \e[K\r\e[7C\r? Q? a l\e[K\r\e[8C\r? Q? a lo\e[K\r\e[9C\r? Q? a lon\e[K\r\e[10C\r? Q? a long\e[K\r\e[11C\r? Q? a long \e[K\r\e[12C\r? Q? a long a\e[K\r\e[13C\r? Q? a long an\e[K\r\e[14C\r? Q? a long ans\e[K\r\e[15C\r? Q? a long answ\e[K\r\e[16C\r? Q? a long answe\e[K\r\e[17C\r? Q? a long answer\e[K\r\e[18C\r? Q?  long answer \e[K\r\e[18C\r? Q? long answer t\e[K\r\e[18C\r? Q? ong answer th\e[K\r\e[18C\r? Q? ng answer tha\e[K\r\e[18C\r? Q? g answer that\e[K\r\e[18C\r? Q?  answer that \e[K\r\e[18C\r? Q? answer that s\e[K\r\e[18C\r? Q? nswer that sc\e[K\r\e[18C\r? Q? swer that scr\e[K\r\e[18C\r? Q? wer that scro\e[K\r\e[18C\r? Q? er that scrol\e[K\r\e[18C\r? Q? r that scroll\e[K\r\e[18C\r? Q?  that scrolls\e[K\r\e[18C\r? Q? a long answer that scrolls\e[K
+
+checked: 42
+\r? Age? \e[K\r\e[7C\r? Age? x\e[K\r\e[8C\r? Age? x  ✖ not a number\e[K\r\e[8C\r? Age? \e[K\r\e[7C\r? Age? 4\e[K\r\e[8C\r? Age? 42\e[K\r\e[9C\r? Age? 42\e[K
+
+piped ask: 1
+? Age? (1) x
+✖ say a number
+? Age? (1) 
+
+piped default: anon Null
+? Name? (anon) 
+? More? 
+
+choose: 2
+\e[?25l\r\e[J? Color? › \r
+❯ red\r
+  green\r
+  blue\r
+  yellow\r
+  magenta\e[5F\e[J? Color? › \r
+  red\r
+❯ green\r
+  blue\r
+  yellow\r
+  magenta\e[5F\e[J? Color? › \r
+  red\r
+  green\r
+❯ blue\r
+  yellow\r
+  magenta\e[5F\e[J? Color? blue
+\e[?25h
+choose "\r": 1
+choose "\x1B[A\r": 0
+choose "\x1B[B\x1B[B\x1B[B\x1B[B\x1B[B\r": 1
+choose "\x1B[F\r": 4
+choose "\x1B[F\x1B[H\r": 0
+choose "\x1B[6~\r": 4
+choose "\x1B[6~\x1B[5~\r": 0
+choose "bl\r": 2
+choose "e\r": 0
+choose "el\r": 3
+choose "zz\r\x7F\x7F\r": 0
+choose "gr\x15\r": 0
+choose "x\x1B": -1
+choose "\x1B": -1
+choose "": -1
+filtered: 1
+\e[?25l\r\e[J? Color? › \r
+❯ red\r
+  green\r
+  blue\r
+  yellow\r
+  magenta\e[5F\e[J? Color? › e\r
+❯ red\r
+  green\r
+  blue\r
+  yellow\r
+  magenta\e[5F\e[J? Color? › en\r
+❯ green\r
+  magenta\e[2F\e[J? Color? green
+\e[?25h
+scrolling: 10
+\e[?25l\r\e[J? Which? › \r
+❯ option 1\r
+  option 2\r
+  option 3\e[3F\e[J? Which? › \r
+  option 10\r
+  option 11\r
+❯ option 12\e[3F\e[J? Which? › \r
+  option 10\r
+❯ option 11\r
+  option 12\e[3F\e[J? Which? option 11
+\e[?25h
+colored: 0 \e[?25l\r\e[J\e[0;1;32m?\e[0m Which? \e[0;2m› \e[0m\r
+\e[0;36m❯ a\e[0m\r
+  b\e[2F\e[J\e[0;1;32m?\e[0m Which? \e[0;36ma\e[0m
+\e[?25h
+narrow: 1
+widest line, but the answer: 15 of 15 \e[?25l\r\e[J? Which of … › \r
+❯ the first op…\r
+  the second o…\e[2F\e[J? Which of… › z\r
+  nothing matc…\e[1F\e[J? Which o… › zz\r
+  nothing matc…\e[1F\e[J? Which of… › z\r
+  nothing matc…\e[1F\e[J? Which of … › \r
+❯ the first op…\r
+  the second o…\e[2F\e[J? Which of … › \r
+  the first op…\r
+❯ the second o…\e[2F\e[J? Which of these do you want? the second option
+\e[?25h
+narrow ask: ab \r? What i… (x) \e[K\r\e[14C\r? What i… (x) \e[K\r\e[14C\r? What i… (x) \e[K\r\e[14C\r? What i… (x) ab\e[K
+
+leave meanwhile: True
+piped choose: 2 4 -1
+? Color?
+  1) red
+  2) green
+  3) blue
+  4) yellow
+  5) magenta
+  Choose 1-5 (1): 9
+  Choose 1-5 (1): zero
+  Choose 1-5 (1): 3
+? Color?
+  1) red
+  2) green
+  3) blue
+  4) yellow
+  5) magenta
+  Choose 1-5 (5): 
+? Ended?
+  1) red
+  2) green
+  3) blue
+  4) yellow
+  5) magenta
+  Choose 1-5 (1): 
+

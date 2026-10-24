@@ -1,0 +1,379 @@
+// std.term's prompts: Confirm asks yes or no, Choose for one of some options, and Ask for a line
+// of text, on the console or on a Terminal given. Where both what's written and the keys are a
+// terminal's, keys are read as they're typed: Confirm takes y or n at once, Choose moves through
+// its options with the arrows, and typing filters them, by fuzzy matching, and Ask edits its line
+// as a shell does. Otherwise, as from a pipe or a file, each reads a line, which it writes after
+// its question, and asks again for one it can't take. Each gives Null at the end of the input,
+// and for Escape.
+
+Import std.core
+Import std.collections.array
+Import std.text.string
+Import std.text.unicode
+Import std.text.fuzzy
+Import std.term.input
+Import std.term.style
+Import std.term.terminal
+Import std.term.views
+Import std.term.widgets
+
+// How a prompt's parts look: the "?" before its question, the hints after it, the answer, the
+// option that's selected, and an error.
+Function QuestionLook(): Style => Style(TermColor.Green).Bold()
+Function HintLook(): Style => Style(Attributes: TextAttributes.DIM)
+Function AnswerLook(): Style => Style(TermColor.Cyan)
+Function ErrorLook(): Style => Style(TermColor.Red)
+
+// Asks question on the console, and gives True for yes or False for no, or default for ENTER
+// alone, when it has one.
+Public Function Confirm(question: String, default: Bool? = Null): Bool?
+    Return Confirm(Terminal.Console(), question, default)
+End Function
+
+// Asks question on terminal, and gives True for yes or False for no, or default for ENTER alone,
+// when it has one: a key, y or n in either case, where it's interactive, and a line otherwise,
+// "y", "yes", "n", or "no", in any case.
+Public Function Confirm(terminal: Terminal, question: String, default: Bool? = Null): Bool?
+    Local hint = default == Null ? "y/n" : (default ? "Y/n" : "y/N")
+    Local prompt = QuestionOf(terminal, question) + " " + terminal.Paint("({hint})", HintLook()) + " "
+    If !IsLive(terminal)
+        Loop
+            terminal.Write(prompt)
+            Local line = ReadLine(terminal)
+            If line == Null Then Return Null
+            Local answer = line.Trim().ToLower()
+            If answer == "" && default != Null Then Return default
+            If answer == "y" || answer == "yes" Then Return True
+            If answer == "n" || answer == "no" Then Return False
+        End Loop
+    End If
+
+    terminal.Write(prompt)
+    terminal.Flush()
+    terminal.StartRawMode()
+    Defer terminal.EndRawMode()
+    Loop
+        Local key = terminal.ReadKey()
+        Local answer: Bool? = Null
+        If key == Null || key.Code == KeyCode.ESCAPE
+            terminal.WriteLine()
+            terminal.Flush()
+            Return Null
+        End If
+
+        If key.IsChar('y') || key.IsChar('Y')
+            answer = True
+        ElseIf key.IsChar('n') || key.IsChar('N')
+            answer = False
+        ElseIf key.Code == KeyCode.ENTER
+            answer = default
+        End If
+
+        If answer != Null
+            terminal.WriteLine(terminal.Paint(answer ? "Yes" : "No", AnswerLook()))
+            terminal.Flush()
+            Return answer
+        End If
+    End Loop
+End Function
+
+// Asks question on the console, and gives what's typed, or default for nothing.
+Public Function Ask(question: String, default: String = ""): String?
+    Return AskWith(Terminal.Console(), question, default, Null)
+End Function
+
+// Asks question on terminal, and gives what's typed, or default for nothing.
+Public Function Ask(terminal: Terminal, question: String, default: String = ""): String?
+    Return AskWith(terminal, question, default, Null)
+End Function
+
+// Asks question on terminal, and gives what's typed, or default for nothing, once validate gives
+// Null for it; until then, what it gives says what's wrong, and the question goes on.
+Public Function Ask(terminal: Terminal, question: String, validate: Func(String): String?,
+                    default: String = ""): String?
+    Return AskWith(terminal, question, default, validate)
+End Function
+
+// Asks question on the console, and gives one of options, by its index, from default's at first,
+// or Null for Escape. Panics without an option.
+@PanicsAtCaller
+Public Function Choose(question: String, options: String[], default: Int = 0): Int?
+    If options.Count == 0 Then Panic("Choose needs an option to choose")
+    Return ChooseOn(Terminal.Console(), question, options, default)
+End Function
+
+// Asks question on terminal, and gives one of options, by its index: where it's interactive, the
+// one selected with the arrows, from default's, at ENTER, among those that match what's typed, by
+// fuzzy matching, the best first; otherwise, a number from 1, or default's for none. Panics
+// without an option.
+@PanicsAtCaller
+Public Function Choose(terminal: Terminal, question: String, options: String[],
+                       default: Int = 0): Int?
+    If options.Count == 0 Then Panic("Choose needs an option to choose")
+    Return ChooseOn(terminal, question, options, default)
+End Function
+
+// Whether terminal's keys come as they're typed and what's written can be drawn again, so a
+// prompt can be.
+Function IsLive(terminal: Terminal): Bool => terminal.IsInteractive && terminal.IsInputInteractive
+
+// The question after its "?".
+Function QuestionOf(terminal: Terminal, question: String): String
+    Return terminal.Paint("?", QuestionLook()) + " " + question
+End Function
+
+// A line read from terminal's keys, up to ENTER, and written after what's before it, with its
+// line break, or Null at the end of the input when nothing was typed.
+Function ReadLine(terminal: Terminal): String?
+    terminal.Flush()
+    terminal.StartRawMode()
+    Defer terminal.EndRawMode()
+    Local line = ""
+    Loop
+        Local event = terminal.ReadEvent()
+        If event == Null
+            terminal.WriteLine(line)
+            terminal.Flush()
+            Return line == "" ? Null : line
+        End If
+
+        If event.Kind == InputKind.PASTE
+            line += event.Text
+            Continue
+        End If
+
+        If event.Kind != InputKind.KEY Then Continue
+        Local key = event.Key
+        If key.Code == KeyCode.ENTER Then Break
+        If key.Code == KeyCode.BACKSPACE
+            line = WithoutLast(line)
+        ElseIf key.IsText
+            line += "{key.Character}"
+        End If
+    End Loop
+
+    terminal.WriteLine(line)
+    terminal.Flush()
+    Return line
+End Function
+
+Function AskWith(terminal: Terminal, question: String, default: String,
+                 validate: (Func(String): String?)?): String?
+    Local hint = default == "" ? "" : " " + terminal.Paint("({default})", HintLook())
+    Local prompt = QuestionOf(terminal, question) + hint + " "
+    If !IsLive(terminal)
+        Loop
+            terminal.Write(prompt)
+            Local line = ReadLine(terminal)
+            If line == Null Then Return Null
+            Local answer = line == "" ? default : line
+            Local problem = validate == Null ? Null : validate(answer)
+            If problem == Null Then Return answer
+            terminal.WriteLine(terminal.Paint("✖ " + problem, ErrorLook()))
+        End Loop
+    End If
+
+    // The line keeps a column for what's typed, and the question gives way, so the line never
+    // wraps as it's drawn again.
+    prompt = QuestionOf(terminal, Truncated(question, terminal.Columns - 5 - VisibleWidth(hint))) +
+             hint + " "
+    terminal.StartRawMode()
+    Defer terminal.EndRawMode()
+    Local editor = LineEditor("")
+    Local scroll = 0
+    Local problem: String? = Null
+    Loop
+        terminal.Write(LineOf(terminal, prompt, editor, ByRef scroll, problem))
+        terminal.Flush()
+        Local event = terminal.ReadEvent()
+        If event == Null || event.IsKey(KeyCode.ESCAPE)
+            terminal.WriteLine()
+            terminal.Flush()
+            Return Null
+        End If
+
+        problem = Null
+        If event.Kind == InputKind.PASTE
+            editor.Insert(event.Text.Replace("\r\n", " ").Replace("\n", " ").Replace("\r", " "))
+        ElseIf event.IsKey(KeyCode.ENTER)
+            Local answer = editor.Text == "" ? default : editor.Text
+            problem = validate == Null ? Null : validate(answer)
+            If problem == Null
+                terminal.Write("\r" + prompt + terminal.Paint(answer, AnswerLook()) + "\u{1b}[K\n")
+                terminal.Flush()
+                Return answer
+            End If
+        ElseIf event.Kind == InputKind.KEY
+            editor.Handle(event.Key)
+        End If
+    End Loop
+End Function
+
+// Ask's line: the prompt, then as much of what's typed as fits, scrolled sideways to keep the
+// cursor in view, then what's wrong, if anything, with the cursor where it is.
+Function LineOf(terminal: Terminal, prompt: String, editor: LineEditor, ByRef scroll: Int,
+                problem: String?): String
+    Local room = Max(terminal.Columns - 1 - VisibleWidth(prompt), 1)
+    Local cursor = DisplayWidth(editor.BeforeCursor())
+    If cursor < scroll Then scroll = cursor
+    If cursor >= scroll + room Then scroll = cursor - room + 1
+    Local shown = ""
+    Local at = 0
+    For grapheme In editor.Text.Graphemes()
+        Local columns = DisplayWidth(grapheme)
+        If at >= scroll && at + columns <= scroll + room Then shown += grapheme
+        at += columns
+    End For
+
+    Local line = "\r" + prompt + shown
+    Local after = VisibleWidth(prompt) + DisplayWidth(shown)
+    If problem != Null
+        Local message = "  ✖ " + problem
+        Local fits = terminal.Columns - 1 - after
+        If fits > 2 Then line += terminal.Paint(Truncated(message, fits), ErrorLook())
+    End If
+
+    // Back to the cursor's column, from the line's start.
+    Local column = VisibleWidth(prompt) + cursor - scroll
+    line += "\u{1b}[K\r"
+    If column > 0 Then line += "\u{1b}[{column}C"
+    Return line
+End Function
+
+Function ChooseOn(terminal: Terminal, question: String, options: String[], default: Int): Int?
+    Local first = Clamp(default, 0, options.Count - 1)
+    If !IsLive(terminal)
+        terminal.WriteLine(QuestionOf(terminal, question))
+        For i = 0 Until options.Count
+            terminal.WriteLine("  {i + 1}) {options[i]}")
+        End For
+
+        Loop
+            terminal.Write("  Choose 1-{options.Count} " + terminal.Paint("({first + 1})", HintLook()) + ": ")
+            Local line = ReadLine(terminal)
+            If line == Null Then Return Null
+            Local text = line.Trim()
+            If text == "" Then Return first
+            Local number = NumberOf(text)
+            If number >= 1 && number <= options.Count Then Return number - 1
+        End Loop
+    End If
+
+    // The cursor hides while the options show, and shows again however the program ends.
+    terminal.StartRawMode()
+    Defer terminal.EndRawMode()
+    terminal.KeepScreen("\u{1b}[?25l", "\u{1b}[?25h")
+    Defer terminal.KeepScreen("", "")
+    terminal.Write("\u{1b}[?25l")
+    Local filter = ""
+    Local matches = MatchesOf(options, filter)
+    Local selected = first
+    Local offset = 0
+    Local drawn = 0
+    Loop
+        // Draws the question and the options in view again, over what was drawn before, each
+        // line cut to the terminal's width, so none wraps, and as many as its rows have room for.
+        Local page = Clamp(terminal.Rows - 2, 1, 10)
+        Local columns = Max(terminal.Columns - 1, 1)
+        If selected < offset Then offset = selected
+        If selected >= offset + page Then offset = selected - page + 1
+        Local head = Truncated(question, columns - 5 - DisplayWidth(filter))
+        Local lines = [QuestionOf(terminal, head) + " " + terminal.Paint("› ", HintLook()) + filter]
+        If matches.Count == 0
+            lines.Add("  " + terminal.Paint(Truncated("nothing matches", columns - 2), HintLook()))
+        End If
+
+        For i = offset Until Min(offset + page, matches.Count)
+            Local option = Truncated(options[matches[i]], columns - 2)
+            If i == selected
+                lines.Add(terminal.Paint("❯ " + option, AnswerLook()))
+            Else
+                lines.Add("  " + option)
+            End If
+        End For
+
+        terminal.Write(Redrawn(drawn, lines))
+        terminal.Flush()
+        drawn = lines.Count
+        Local event = terminal.ReadEvent()
+        If event == Null || event.IsKey(KeyCode.ESCAPE)
+            terminal.Write(Redrawn(drawn, [QuestionOf(terminal, question)]) + "\n\u{1b}[?25h")
+            terminal.Flush()
+            Return Null
+        End If
+
+        If event.Kind != InputKind.KEY Then Continue
+        Local key = event.Key
+        Local count = matches.Count
+        Select key.Code
+            Case KeyCode.ENTER
+                If count == 0 Then Continue
+                Local chosen = matches[selected]
+                Local answer = terminal.Paint(options[chosen], AnswerLook())
+                Local line = QuestionOf(terminal, question) + " " + answer
+                terminal.Write(Redrawn(drawn, [line]) + "\n\u{1b}[?25h")
+                terminal.Flush()
+                Return chosen
+            Case KeyCode.UP
+                If count > 0 Then selected = (selected + count - 1) % count
+            Case KeyCode.DOWN
+                If count > 0 Then selected = (selected + 1) % count
+            Case KeyCode.PAGE_UP
+                selected = Max(selected - page, 0)
+            Case KeyCode.PAGE_DOWN
+                selected = Max(Min(selected + page, count - 1), 0)
+            Case KeyCode.HOME
+                selected = 0
+            Case KeyCode.END
+                selected = Max(count - 1, 0)
+            Case KeyCode.BACKSPACE
+                If filter != ""
+                    filter = WithoutLast(filter)
+                    matches = MatchesOf(options, filter)
+                    selected = 0
+                End If
+            Default
+                If key.IsText || key.IsControl('u')
+                    filter = key.IsText ? filter + "{key.Character}" : ""
+                    matches = MatchesOf(options, filter)
+                    selected = 0
+                End If
+        End Select
+    End Loop
+End Function
+
+// The indexes of the options that match filter, by fuzzy matching, the best first, and of
+// those as good, the first first; all of them, in order, for no filter.
+Function MatchesOf(options: String[], filter: String): Int[]
+    Local scored: (Int, Int)[] = []
+    For i = 0 Until options.Count
+        Local score = Fuzzy.Score(filter, options[i])
+        If score != Null Then scored.Add((-score, i))
+    End For
+
+    scored.SortBy(Function(pair) => pair.0)
+    Local matches: Int[] = []
+    For pair In scored
+        matches.Add(pair.1)
+    End For
+
+    Return matches
+End Function
+
+// What draws lines over the drawn lines before them: back to the first's start, what's there
+// cleared to the screen's end, then the lines.
+Function Redrawn(drawn: Int, lines: String[]): String
+    Local start = drawn > 1 ? "\u{1b}[{drawn - 1}F" : "\r"
+    Return start + "\u{1b}[J" + "\r\n".Join(lines)
+End Function
+
+// The number text's digits are, or 0 for text that isn't.
+Function NumberOf(text: String): Int
+    Local value = 0
+    For c In text.Chars
+        If c < '0' || c > '9' || value > 100000 Then Return 0
+        value = value * 10 + (c As Int) - 48
+    End For
+
+    Return value
+End Function

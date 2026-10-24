@@ -1,0 +1,38 @@
+// The console, as a program test runs it, with its streams as pipes: none of them is a terminal,
+// so there's no size, no colors, and no raw mode, and keys and lines come from term_console.in,
+// read through Terminal.Console() whichever way they're asked for. A Screen still open as the
+// program ends puts the screen back once, as its Destroy closes it.
+Import std.core
+Import std.text
+Import std.time
+Import std.term
+
+Function Shown(text: String): String => text.Replace("\u{1b}", "\\e").Replace("\r", "\\r")
+
+Print(IsTerminal(), IsTerminal(StandardStream.INPUT), IsTerminal(StandardStream.ERROR), TerminalSize() == Null)
+Print(ConsoleColors(), ConsoleColors(StandardStream.ERROR), Paint("plain", Style(TermColor.Red).Bold()))
+Local console = Terminal.Console()
+Print(console.Columns, console.Rows, console.Colors, console.IsInteractive, console.IsInputInteractive)
+Print(RefEquals(console, Terminal.Console()), RefEquals(console, Terminal.Console(StandardStream.ERROR)))
+console.Write("written, ")
+console.Write("styled", Style(TermColor.Green))
+console.WriteLine()
+console.Flush()
+Terminal.Console(StandardStream.ERROR).WriteLine("to stderr")
+Terminal.Console(StandardStream.ERROR).Flush()
+
+// Keys, one at a time, the escape sequences' too.
+For i = 1 To 6
+    Print("key:", "{ReadKey() ?? KeyEvent('?')}")
+End For
+
+Print("password:", ReadPassword("Password: ") ?? "Null")
+Print("confirm:", Confirm("Proceed?") ?? False)
+Print("ask:", Ask("Name?", "nobody") ?? "Null")
+Print("choose:", Choose("Size?", ["small", "medium", "large"], 1) ?? -1)
+Print("key:", "{ReadKey(10.Milliseconds) ?? KeyEvent('?')}")
+Print("ended:", ReadKey() == Null, ReadPassword() == Null, Ask("More?") == Null)
+
+Local screen = Screen()
+Print(screen.Columns, screen.Rows, screen.IsOpen)
+Flush()

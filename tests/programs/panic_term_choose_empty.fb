@@ -1,0 +1,9 @@
+// Choose needs an option to choose, so none panics where it's called.
+Import std.core
+Import std.term
+
+Local fake = FakeTerminal()
+fake.Feed("\r")
+Print(Choose(fake, "One?", ["only"]) ?? -1)
+Local none: String[] = []
+Print(Choose(fake, "None?", none) ?? -1)

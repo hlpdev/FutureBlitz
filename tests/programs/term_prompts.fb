@@ -1,0 +1,129 @@
+// std.term's prompts on a fake terminal: Confirm, Ask, and Choose read keys as they're typed
+// where it's interactive, drawing their lines again as they go, and lines where it isn't, asking
+// again for what they can't take; each gives Null for Escape and at the end of the input.
+Import std.core
+Import std.collections
+Import std.text
+Import std.term
+
+Const E = "\u{1b}"
+
+Function Shown(text: String): String => text.Replace("\u{1b}", "\\e").Replace("\r", "\\r")
+
+// A live terminal of 40 columns and 8 rows, fed text.
+Function Live(text: String): FakeTerminal
+    Local made = FakeTerminal(40, 8, ColorLevel.NONE)
+    made.Feed(text)
+    Return made
+End Function
+
+// A pipe's terminal, fed text.
+Function Piped(text: String): FakeTerminal
+    Local made = FakeTerminal(40, 8, ColorLevel.NONE, False)
+    made.Feed(text)
+    Return made
+End Function
+
+Function Answer(answer: Bool?): String => answer == Null ? "Null" : "{answer}"
+
+// Confirm takes y or n at once, and ENTER for its default.
+For keys In ["y", "N", "x\r", "\r", "{E}", ""]
+    Local live = Live(keys)
+    Local answer = Confirm(live, "Go on?")
+    Print("confirm {keys:?}: {Answer(answer)} {Shown(live.Output):?} mode {live.InputMode}")
+End For
+
+Local yes = Live("\r")
+Print("default yes:", Answer(Confirm(yes, "Go on?", True)), Shown(yes.Output))
+Local no = Live("\r")
+Print("default no:", Answer(Confirm(no, "Go on?", False)), Shown(no.Output))
+Local colored = FakeTerminal(40, 8, ColorLevel.BASIC)
+colored.Feed("y")
+Print("colored:", Answer(Confirm(colored, "Sure?")), Shown(colored.Output))
+
+// From a pipe, a line: y, yes, n, or no in any case, or nothing for the default.
+Local piped = Piped("maybe\nYES\nno\n\nN\n")
+Print("piped:", Answer(Confirm(piped, "Sure?")), Answer(Confirm(piped, "Sure?")), Answer(Confirm(piped, "Again?", True)), Answer(Confirm(piped, "Last?")))
+Print("piped:", Answer(Confirm(piped, "Ended?")))
+Print(piped.Output)
+
+// Ask edits its line as a shell does, drawing it again with the cursor where it is.
+Local typed = Live("helo{E}[D{E}[Dl{E}[F!\r")
+Print("ask:", Ask(typed, "Name?") ?? "Null")
+Print(Shown(typed.Output))
+For keys In ["one two three\u{17}x\r", "abc\u{1}X\u{5}Y\r", "abc{E}[H\u{b}Z\r", "a b c{E}[1;5D{E}[1;5DQ\r",
+             "a{E}[3~b{E}[D{E}[3~\r", "e\u{301}x\u{7f}\u{7f}y\r", "{E}[200~pasted\ntext{E}[201~\r",
+             "\u{15}\r", "x{E}", "y"]
+    Local live = Live(keys)
+    Print("ask {keys:?}:", Ask(live, "Q?", "dflt") ?? "Null")
+End For
+
+Local scrolled = FakeTerminal(20, 4, ColorLevel.NONE)
+scrolled.Feed("a long answer that scrolls\r")
+Print("scrolled:", Ask(scrolled, "Q?") ?? "Null")
+Print(Shown(scrolled.Output))
+
+// With a check, what's wrong shows after the line until it's typed again.
+Local checked = Live("x\r\u{7f}42\r")
+Local number = Ask(checked, "Age?", Function(text) => text.Chars.All(Function(c) => c >= '0' && c <= '9') ? Null : "not a number")
+Print("checked:", number ?? "Null")
+Print(Shown(checked.Output))
+Local fromPipe = Piped("x\n\n7\n")
+Print("piped ask:", Ask(fromPipe, "Age?", Function(text) => text == "" || text == "x" ? "say a number" : Null, "1") ?? "Null")
+Print(fromPipe.Output)
+Local defaulted = Piped("\n")
+Print("piped default:", Ask(defaulted, "Name?", "anon") ?? "Null", Ask(defaulted, "More?") ?? "Null")
+Print(defaulted.Output)
+
+// Choose moves with the arrows, which go around, filters by what's typed, the best match first,
+// and gives the option's index.
+Local options = ["red", "green", "blue", "yellow", "magenta"]
+Local chosen = Live("{E}[B{E}[B\r")
+Print("choose:", Choose(chosen, "Color?", options) ?? -1)
+Print(Shown(chosen.Output))
+For keys In ["\r", "{E}[A\r", "{E}[B{E}[B{E}[B{E}[B{E}[B\r", "{E}[F\r", "{E}[F{E}[H\r", "{E}[6~\r", "{E}[6~{E}[5~\r",
+             "bl\r", "e\r", "el\r", "zz\r\u{7f}\u{7f}\r", "gr\u{15}\r", "x{E}", "{E}", ""]
+    Local live = Live(keys)
+    Print("choose {keys:?}:", Choose(live, "Color?", options, 1) ?? -1)
+End For
+
+Local filtered = Live("en\r")
+Print("filtered:", Choose(filtered, "Color?", options) ?? -1)
+Print(Shown(filtered.Output))
+
+// More options than rows scroll, keeping the selected one in view.
+Local many: String[] = []
+For i = 1 To 12
+    many.Add("option {i}")
+End For
+
+Local short = FakeTerminal(30, 5, ColorLevel.NONE)
+short.Feed("{E}[A{E}[A\r")
+Print("scrolling:", Choose(short, "Which?", many) ?? -1)
+Print(Shown(short.Output))
+Local colors = FakeTerminal(30, 6, ColorLevel.BASIC)
+colors.Feed("\r")
+Print("colored:", Choose(colors, "Which?", ["a", "b"]) ?? -1, Shown(colors.Output))
+
+// A narrow terminal's lines are cut to its width, the question giving way, so none wraps.
+Local narrow = FakeTerminal(16, 4, ColorLevel.NONE)
+narrow.Feed("zz\u{7f}\u{7f}{E}[B\r")
+Print("narrow:", Choose(narrow, "Which of these do you want?", ["the first option", "the second option"]) ?? -1)
+// Each line drawn, between the line breaks and the moves back up to draw them again.
+Local drawn = (Try? narrow.Output.ReplaceAll(r"\x1b\[\d*F", "\n")) ?? ""
+Local lines = StripStyles(drawn.Replace("\r", "")).Split("\n")
+Local widest = 0
+For i = 0 Until lines.Count - 2
+    widest = Max(widest, VisibleWidth(lines[i]))
+End For
+
+Print("widest line, but the answer:", widest, "of", lines.Count - 2, Shown(narrow.Output))
+Local asking = FakeTerminal(16, 4, ColorLevel.NONE)
+asking.Feed("ab\r")
+Print("narrow ask:", Ask(asking, "What is your full name?", "x") ?? "Null", Shown(asking.Output))
+Print("leave meanwhile:", Shown(colors.Leave) == "")
+
+// From a pipe, a number from 1, or the default for nothing.
+Local numbered = Piped("9\nzero\n3\n\n")
+Print("piped choose:", Choose(numbered, "Color?", options) ?? -1, Choose(numbered, "Color?", options, 4) ?? -1, Choose(numbered, "Ended?", options) ?? -1)
+Print(numbered.Output)
