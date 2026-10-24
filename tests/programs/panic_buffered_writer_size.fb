@@ -1,0 +1,5 @@
+// A BufferedWriter writes a byte at a time at least, so a size below 1 panics where it's made.
+Import std.core
+Import std.io
+
+Local writer = BufferedWriter(StringWriter(), 0)

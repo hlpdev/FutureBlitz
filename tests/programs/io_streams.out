@@ -27,6 +27,8 @@ fghij: [abcdefghij]
 k: [abcdefghij]
 abcdefghijk
 kept
+[4, 1, 4, 2, 6]
+a write that fails as it goes is lost
 LITTLE 49 254 255 128
 255 -128 65534 -32768 4294967295 -2147483648 18446744073709551615 -9223372036854775808 -0.5 1e+300 True False [7, 8] bé
 UNEXPECTED_END: the stream ended after 0 of 2 bytes
