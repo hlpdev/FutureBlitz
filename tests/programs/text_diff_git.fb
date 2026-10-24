@@ -231,3 +231,11 @@ Local merged20 = Diff.Merge("b\r\n",
                          "X\r\n")
 Print("== merge 20 {merged20.Conflicts}")
 Print(merged20.Text.Replace("\r", "\\r"))
+Local merged21 = Diff.Merge("1\n2\nä\nä\nä\nä\n" +
+                         "3\n4\n",
+                         "1\nA\nä\nä\nä\nä\n" +
+                         "C\n4\n",
+                         "1\nB\nä\nä\nä\nä\n" +
+                         "D\n4\n")
+Print("== merge 21 {merged21.Conflicts}")
+Print(merged21.Text.Replace("\r", "\\r"))

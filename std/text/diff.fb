@@ -130,8 +130,8 @@ Public Class Diff
     // of them, or else a conflict, marked "<<<<<<< ours", ours' lines, "=======", theirs', and
     // ">>>>>>> theirs", with oursName and theirsName, on lines that end in "\r\n" where the
     // texts' lines do. A conflict holds only the lines that differ between the two, and two
-    // conflicts with at most 3 lines between them, or lines without a letter or a digit, are
-    // one.
+    // conflicts with at most 3 lines between them, or lines without an ASCII letter or digit,
+    // are one.
     Public Static Method Merge(base: String, ours: String, theirs: String,
                                oursName: String = "ours", theirsName: String = "theirs"): Merged
         Local lines = LinesOf(base)
@@ -711,8 +711,8 @@ Function Refine(chunks: Chunk[], mine: String[], others: String[], mineAt: Int, 
 End Function
 
 // chunks with the lines both sides have, next to each other, as one run of them, and each two
-// conflicts with only such a run between them, of at most 3 lines or none with a letter or a
-// digit, made one conflict that holds those lines on both sides.
+// conflicts with only such a run between them, of at most 3 lines or none with an ASCII letter
+// or digit, made one conflict that holds those lines on both sides.
 Function Simplified(chunks: Chunk[]): Chunk[]
     Local simplified: Chunk[] = []
     For chunk In chunks
@@ -752,11 +752,11 @@ Function Simplified(chunks: Chunk[]): Chunk[]
     Return simplified
 End Function
 
-// Whether any of lines has a letter or a digit.
+// Whether any of lines has an ASCII letter or digit, as git's lines_contain_alnum asks.
 Function HasAlnum(lines: String[]): Bool
     For line In lines
         For c In line.Chars
-            If c.IsLetterOrDigit() Then Return True
+            If c.IsAscii() && c.IsLetterOrDigit() Then Return True
         End For
     End For
 
