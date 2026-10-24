@@ -127,7 +127,7 @@ So far, std/ holds:
 | std/concurrent/locks.fb | `Semaphore`, `Barrier`, `WaitGroup`, `Once`, and `RwLock<T>`, Shared Classes over the runtime's locks through `fb_semaphore_` and the like |
 | std/concurrent/concurrent_map.fb | `ConcurrentMap<K, V>` and its `ConcurrentMapIterator<K, V>`, in 16 parts of ImmutableMaps |
 | std/concurrent/concurrent_queue.fb | `ConcurrentQueue<T>`, over a Channel that grows |
-| std/concurrent/tasks.fb | `TaskSource<T>`, over the runtime's signals through `fb_signal_`, `WhenAll`, and `WhenAny` |
+| std/concurrent/tasks.fb | `TaskSource<T>`, over the runtime's signals through `fb_signal_`, `ThrowingTaskSource<T, E>`, `WhenAll`, and `WhenAny` |
 | std/concurrent/lazy.fb | `Lazy<T>` |
 | std/concurrent/parallel.fb | `ParallelForEach`, `ParallelMap`, `ParallelReduce`, and `ParallelSort`, each a Parallel For |
 | std/events/event.fb | `Event<T>` and `Subscription` |
@@ -716,8 +716,8 @@ the rest is planned.
 
 #### std.concurrent (beside the built-ins, which stay built in)
 
-Step 18 built the locks, `ConcurrentMap`, `ConcurrentQueue`, `TaskSource`, `WhenAll`, `WhenAny`,
-`Lazy`, and the parallel algorithms; the rest is planned. `Import std.concurrent` brings in all of std/concurrent/.
+Step 18 built the locks, `ConcurrentMap`, `ConcurrentQueue`, `TaskSource`, `ThrowingTaskSource`,
+`WhenAll`, `WhenAny`, `Lazy`, and the parallel algorithms; the rest is planned. `Import std.concurrent` brings in all of std/concurrent/.
 
 - The locks are Shared Classes over the runtime's, so a Const or a parameter shares one with the
   work Spawn and Thread.Start run. What waits blocks its thread and runs nothing else meanwhile, as
@@ -755,6 +755,14 @@ Step 18 built the locks, `ConcurrentMap`, `ConcurrentQueue`, `TaskSource`, `When
   the first found done: at a tick, it looks at the tasks in their order, so of those done before it
   looks the first given wins, and one done later in the tick doesn't count. Their Tasks are Async
   Functions', so they're the main thread's.
+- `ThrowingTaskSource<T, E>`, of an error type E, a Task that throws, finished by hand: `Finish(value)`
+  gives the result, `Fail(error)` the error, which a Wait or an Await on the Task throws, each
+  panicking when it has either already, `TryFinish` and `TryFail` tell whether they did, and
+  `IsDone`; its `Task` is a `Task<T> Throws E`, read as a TaskSource's is. An error isn't Sendable,
+  so it's a Class, which stays on the main thread; work on other threads finishes a TaskSource.
+  `WhenAll` and `WhenAny` take Tasks that throw too, with or without results: WhenAll's Task waits
+  for every task and then throws the error of the first of them, in their order, that threw,
+  whichever threw first, and WhenAny's first can be one that threw.
 - `Lazy<T>(maker)`, of a Sendable T, a Shared Class whose `Value` the first read makes, by the
   Sendable Func it was given, on the thread that reads it, while reads on other threads wait for it,
   and each gets that value, a Null one too; `IsMade` says whether it's made, without waiting. A
@@ -768,8 +776,8 @@ Step 18 built the locks, `ConcurrentMap`, `ConcurrentQueue`, `TaskSource`, `When
   grouped, though its values needn't swap places; and ParallelSort's order, stable as Sort's is, by
   parts sorted at once and merged in pairs, each round's merges at once, below 4096 items Sort's on
   the calling thread. ParallelForEach's calls are in no order.
-- Planned: a TaskSource whose Task throws, and WhenAll over tasks that throw; `Cancellation`, a
-  token blocking calls and Tasks take; `Select` over several Channels and a timeout.
+- Planned: `Cancellation`, a token blocking calls and Tasks take; `Select` over several Channels and
+  a timeout.
 
 #### std.log
 

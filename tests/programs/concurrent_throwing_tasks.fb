@@ -1,0 +1,130 @@
+// A ThrowingTaskSource's Task gives what Finish gives it or throws what Fail does, and WhenAll and
+// WhenAny take Tasks that throw: WhenAll waits for them all and throws the first error in their
+// order, whichever threw first, and WhenAny's first can be one that threw.
+
+Import std.core
+Import std.concurrent
+
+Class FileError Extends Error
+    New(message: String)
+        Super.New(message)
+    End New
+End Class
+
+Class ParseError Extends Error
+    New(message: String)
+        Super.New(message)
+    End New
+End Class
+
+// Gives value after a number of frames, or throws when it's below 0.
+Async Function After(frames: Int, value: Int): Int Throws FileError
+    For i = 1 To frames
+        Await NextFrame()
+    End For
+    If value < 0 Then Throw FileError("failed {value}")
+    Print("done {value}")
+    Return value
+End Function
+
+// The same, with no result.
+Async Function Step(frames: Int, fail: Bool) Throws FileError
+    For i = 1 To frames
+        Await NextFrame()
+    End For
+    If fail Then Throw FileError("step {frames} failed")
+    Print("step {frames}")
+End Function
+
+Async Function Parse(frames: Int): Int Throws ParseError
+    Await NextFrame()
+    Throw ParseError("bad after {frames}")
+End Function
+
+// What a Task gives, or the error it throws.
+Function Outcome<E: Error>(task: Task<Int> Throws E): String
+    Try
+        Return "{task.Wait()}"
+    Catch failed As E
+        Local error: Error = failed
+        Return "threw {error.Message}"
+    End Try
+End Function
+
+// A source that Finish gives a result, whose Tasks give it, read before and after.
+Const finished = ThrowingTaskSource<Int, FileError>()
+Local before = finished.Task
+Print(finished.IsDone, before.IsDone())
+Print(finished.TryFinish(7), finished.IsDone, finished.TryFinish(8), finished.TryFail(FileError("late")))
+Local later = finished.Task
+Print(later.IsDone(), Outcome(before), Outcome(later))
+
+// One that Fail gives an error, which each of its Tasks throws, from Wait and Await.
+Const failed = ThrowingTaskSource<Int, FileError>()
+Local waiting = failed.Task
+failed.Fail(FileError("no file"))
+Print(failed.IsDone, failed.TryFinish(1), Outcome(waiting), Outcome(failed.Task))
+Try
+    Print(Await failed.Task)
+Catch e As FileError
+    Print("await: {e.Message}")
+End Try
+
+// A source of a String that a coroutine finishes later.
+Const named = ThrowingTaskSource<String, ParseError>()
+Async Function Name(frames: Int)
+    For i = 1 To frames
+        Await NextFrame()
+    End For
+    named.Finish("ada")
+End Function
+Name(2)
+Try
+    Print("named", Await named.Task)
+Catch e As ParseError
+    Print("not here {e.Message}")
+End Try
+
+// WhenAll of tasks that give their results.
+Try
+    Local values = Await WhenAll([After(2, 1), After(1, 2), After(3, 3)])
+    Print(values)
+Catch e As FileError
+    Print("not here {e.Message}")
+End Try
+
+// When some throw, it waits for every task, and throws the first's error in their order: -2's,
+// though -3 threw first.
+Local tasks: (Task<Int> Throws FileError)[] = [After(1, 1), After(3, -2), After(2, -3), After(4, 4)]
+Try
+    Local values = Await WhenAll(tasks)
+    Print("not here {values.Count}")
+Catch e As FileError
+    Print("all: {e.Message}", tasks[3].IsDone())
+End Try
+
+// WhenAll of tasks with no result, and of tasks that throw different errors, as Error.
+Try
+    Await WhenAll([Step(2, False), Step(1, False)])
+    Print("steps done")
+    Await WhenAll([Step(3, False), Step(1, True), Step(2, True)])
+    Print("not here")
+Catch e As FileError
+    Print("steps: {e.Message}")
+End Try
+
+Try
+    Local either: (Task<Int> Throws Error)[] = [After(1, 5), Parse(1)]
+    Local mixed = Await WhenAll(either)
+    Print("not here {mixed.Count}")
+Catch e As ParseError
+    Print("mixed: {e.Message}")
+End Try
+
+// WhenAny's first can be one that threw, whose Await then throws.
+Local racers: (Task<Int> Throws FileError)[] = [After(3, 1), After(1, -9), After(2, 2)]
+Local first = Await WhenAny(racers)
+Print("first:", first, Outcome(racers[first]))
+Local steps: (Task Throws FileError)[] = [Step(2, False), Step(1, True)]
+Print("first step:", Await WhenAny(steps))
+Try? Await WhenAll([After(3, 0)])

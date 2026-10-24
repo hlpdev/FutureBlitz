@@ -1,0 +1,8 @@
+// A ThrowingTaskSource gives its Task one result or error, so a Fail after a Finish panics.
+Import std.core
+Import std.concurrent
+
+Const source = ThrowingTaskSource<Int, Error>()
+source.Finish(1)
+Print(source.IsDone)
+source.Fail(Error("too late"))

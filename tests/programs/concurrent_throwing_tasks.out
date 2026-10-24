@@ -1,0 +1,26 @@
+False False
+True True False False
+True 7 7
+True False threw no file threw no file
+await: no file
+named ada
+done 2
+done 1
+done 3
+[1, 2, 3]
+done 1
+done 4
+all: failed -2 True
+step 1
+step 2
+steps done
+step 3
+steps: step 1 failed
+done 5
+mixed: bad after 1
+first: 1 threw failed -9
+done 2
+first step: 1
+done 1
+step 2
+done 0
