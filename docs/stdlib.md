@@ -387,8 +387,9 @@ file or URL in the default app.
   heading's `Level`, a list's `Start` and `Tight`, a task's `Task` and `Done`, a link's or
   image's `Url` and `Title` and an autolink's `Autolink`, a code block's `Info` and
   `Language`, and a cell's `Alignment`. `PlainText()` gives the text in a node without its
-  markup. Entities are decoded, a NUL is U+FFFD, code included, and HTML is HTML5's, `<br>` and
-  `<hr>`.
+  markup, each block in it on lines of its own and a table row's cells apart by a tab, however
+  deep it's nested. Entities are decoded, a NUL is U+FFFD, code included, and HTML is HTML5's,
+  `<br>` and `<hr>`.
 - std.text.diff: line and character diffs (Myers, in linear space, as git's xdiff searches and
   slides its changes), unified-diff text, and a three-way merge. `Diff.Lines` and `Diff.Chars`
   give `DiffRun`s, `Diff.Unified` what `diff -u` and `git diff` write, and `Diff.Merge` what
