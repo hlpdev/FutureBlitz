@@ -183,6 +183,7 @@ So far, std/ holds:
 | std/image/webp.fb | `WebP`, over libwebp through `fb_webp_` |
 | std/image/svg.fb | `Svg`, over nanosvg through `fb_svg_` |
 | std/image/canvas.fb | `Canvas`, `LineCap`, and `LineJoin`, drawing through the runtime's `fb_image_` functions |
+| std/image/font.fb | `Font`, TrueType and OpenType fonts the runtime reads itself, through `fb_font_` |
 
 What the language itself uses, `Error` for Throw and Catch, the Interfaces, `Iterator<T>`, and
 `Map<K, V>` for `{key: value}`, is always std's, whatever a program calls by those names.
@@ -222,7 +223,7 @@ and the rest) aren't std's.
 | libtommath | Unlicense | std.math.big's BigInt |
 | mpdecimal | BSD-2-Clause | std.math.big's Decimal |
 | SQLite | public domain | std.db |
-| stb_image, stb_image_write, stb_truetype | public domain / MIT | std.image's PNG decoding, JPEG, BMP, TGA, and HDR, and its fonts |
+| stb_image, stb_image_write | public domain / MIT | std.image's PNG decoding, JPEG, BMP, TGA, and HDR; its fonts are the runtime's own, which checks each offset, as stb_truetype doesn't |
 | libwebp | BSD | std.image's WebP |
 | nanosvg | zlib | std.image's SVG |
 | md4c | MIT | std.text.markdown |
@@ -1202,8 +1203,29 @@ Step 24 built the codecs over bytes, into an `Image` whose pixels are a UInt8[] 
   Python's Fractions, and image_draw.fb gets their bytes exactly. A coordinate that isn't
   finite, a negative size or radius, a negative line width, or a miter limit below 1 panics at
   the caller.
-- Planned: an Image over a Buffer; reading and writing image files, on step 14's; and in step 25
-  text with TrueType fonts. The engine's 2D (M11) shares the image and font code.
+- `Font.Parse(data)` reads a TrueType or OpenType font (step 25), a font file or a
+  collection's first font, through the runtime's own reader, which checks each offset before it
+  follows it, so a font that's broken or made to mislead throws or draws boxes but never reads
+  past its bytes: its glyphs' outlines, TrueType's, simple and composite (offsets, scales, and
+  2-by-2 matrices, 8 deep at most), or CFF's, Type 2 charstrings with their local and global
+  subroutines (10 deep at most), arithmetic and storage, and endchar's accented characters, a
+  CID font's by its FDSelect; cmap's formats 4 and 12, hmtx's advances, and kern's format 0
+  kerning. It throws an IOError of INVALID_DATA for what isn't one, and OTHER for a font of
+  CFF2 outlines or none, or of charstrings that aren't Type 2's. A CFF font's glyphs are in
+  head's units per em, as OpenType has them, whatever its FontMatrix. `UnitsPerEm`, and at a
+  size in pixels an em, `Ascent`, `Descent` (above 0), `LineGap`, `LineHeight`, and
+  `Width(text, size)`, its widest line's; `HasGlyph(codePoint)`. A Canvas's `FillText(text,
+  font, size, position, color)` fills the text as one region, its first line's baseline from
+  the position: each glyph after the last's advance and the kerning between them, unrounded,
+  each line feed a line's height down, a code point with no glyph the font's .notdef, and each
+  quadratic or cubic cut into the chords that keep it within a hundredth of a pixel. It neither
+  shapes (no ligatures, marks, or right-to-left) nor reads GPOS's kerning or hints. image_text's
+  fonts are made by image_text/font.py and cff_font.py, so they're under no license but the
+  project's, and image_text/make_data.py draws their text from those glyphs apart from the
+  runtime; tests/runtime/font_tests.cpp breaks them, cut short and changed at random. A size
+  that isn't finite or is negative panics at the caller.
+- Planned: an Image over a Buffer; and reading and writing image and font files, on step 14's.
+  The engine's 2D (M11) shares the image and font code.
 
 #### std.term
 
