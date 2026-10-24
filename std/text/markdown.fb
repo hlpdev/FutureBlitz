@@ -14,6 +14,7 @@ Extern "runtime"
     Function fb_markdown_number(events: Ptr<Void>, index: Int64): Int64
     Function fb_markdown_flag(events: Ptr<Void>, index: Int64): Int32
     Function fb_markdown_text(events: Ptr<Void>, index: Int64, which: Int32): String
+    Function fb_string_from_array(bytes: UInt8[]): String
 End Extern
 
 // What a document can have past CommonMark: GitHub's tables, task lists ("- [x] done"),
@@ -103,21 +104,77 @@ Public Class MarkdownNode
     End New
 
     // The text in it, without the markup: a heading's words, a link's, or an image's
-    // description, with a newline for each break. Raw HTML has none.
+    // description, with a newline for each break. Each block in it, like a paragraph, a list
+    // item, or a table's row, is on lines of its own, and a row's cells are apart by a tab. A
+    // code block's text has no newline at its end, and raw HTML has none.
     Public Method PlainText(): String
-        If Kind == MarkdownKind.Text || Kind == MarkdownKind.Code ||
-           Kind == MarkdownKind.CodeBlock
-            Return Text
-        End If
-
-        If Kind == MarkdownKind.SoftBreak || Kind == MarkdownKind.HardBreak Then Return "\n"
+        If Children.Count == 0 Then Return OwnText(Self)
         Local parts: String[] = []
-        For child In Children
-            parts.Add(child.PlainText())
-        End For
+        // What goes before the next text: "", a tab after a cell, or a newline after a block's
+        // start or end, which beats a tab.
+        Local owed = ""
+        // The nodes it's inside, deepest last, and the index of each one's next child: a tree
+        // nested deeper than calls go is walked too.
+        Local nodes: MarkdownNode[] = [Self]
+        Local next: Int[] = [0]
+        While nodes.Count > 0
+            Local node = nodes[nodes.Count - 1]
+            Local index = next[next.Count - 1]
+            If index == node.Children.Count
+                nodes.RemoveLast()
+                next.RemoveLast()
+                If nodes.Count > 0 && IsBlock(node.Kind) Then owed = Owed(owed, node.Kind)
+                Continue
+            End If
+
+            next[next.Count - 1] = index + 1
+            Local child = node.Children[index]
+            If IsBlock(child.Kind) Then owed = Owed(owed, child.Kind)
+            Local text = OwnText(child)
+            If text != ""
+                If parts.Count > 0 && owed != "" Then parts.Add(owed)
+                parts.Add(text)
+                owed = ""
+            End If
+
+            If child.Children.Count > 0
+                nodes.Add(child)
+                next.Add(0)
+            ElseIf IsBlock(child.Kind)
+                owed = Owed(owed, child.Kind)
+            End If
+        End While
+
         Return parts.Join("")
     End Method
 End Class
+
+// Whether a kind is a block, which PlainText puts on lines of its own, rather than a span or text.
+Function IsBlock(kind: MarkdownKind): Bool => (kind As Int) <= (MarkdownKind.TableCell As Int)
+
+// What a node's own text is in PlainText: a Text's or Code's, a CodeBlock's without its last
+// newline, and a newline for a break.
+Function OwnText(node: MarkdownNode): String
+    Select node.Kind
+    Case MarkdownKind.Text, MarkdownKind.Code
+        Return node.Text
+    Case MarkdownKind.CodeBlock
+        Local bytes = node.Text.Bytes
+        If bytes.Count == 0 || bytes[bytes.Count - 1] != 10 Then Return node.Text
+        Return fb_string_from_array(bytes[0..bytes.Count - 1])
+    Case MarkdownKind.SoftBreak, MarkdownKind.HardBreak
+        Return "\n"
+    Default
+        Return ""
+    End Select
+End Function
+
+// What a block's start or end owes before the next text: a tab for a cell's, unless a newline is
+// owed already, and a newline for the rest.
+Function Owed(owed: String, kind: MarkdownKind): String
+    Local cell = kind == MarkdownKind.TableCell || kind == MarkdownKind.TableHeaderCell
+    Return cell && owed != "\n" ? "\t" : "\n"
+End Function
 
 // The extensions MarkdownToHtml and ParseMarkdown take unless they're given others.
 Const Usual = MarkdownExtensions.Tables | MarkdownExtensions.TaskLists

@@ -91,3 +91,23 @@ hi
 A title | alt text
 end
 0 Strikethrough
+[Title
+First paragraph.
+Second one.]
+[apples
+pears]
+[a	b
+1	2]
+[code
+after]
+[a
+b
+end]
+[one
+two
+three]
+[Hello
+World
+again]
+[x]
+[a]

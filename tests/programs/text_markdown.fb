@@ -51,3 +51,21 @@ Print(Shown(document, 0))
 Print(document.Children[0].PlainText(), "|", document.Children[5].PlainText())
 Local struck = ParseMarkdown("~~x~~", MarkdownExtensions.GitHub)
 Print(ParseMarkdown("").Children.Count, struck.Children[0].Children[0].Kind)
+
+// PlainText keeps blocks on lines of their own and a row's cells apart by a tab, and walks a
+// tree nested deeper than calls go.
+Function Plain(markdown: String): String => "[" + ParseMarkdown(markdown).PlainText() + "]"
+
+Print(Plain("# Title\n\nFirst paragraph.\n\nSecond one."))
+Print(Plain("- apples\n- pears"))
+Print(Plain("| a | b |\n|---|---|\n| 1 | 2 |"))
+Print(Plain("    code\n\nafter"))
+Print(Plain("> a\n>\n> b\n\n---\n\n<div>x</div>\n\nend"))
+Print(Plain("- one\n  - two\n- three"))
+Print(Plain("Hello\nWorld  \nagain"))
+Print("[" + ParseMarkdown("```\nx\n```").Children[0].PlainText() + "]")
+Local parts: String[] = []
+For i = 1 To 100000
+    parts.Add(">")
+End For
+Print(Plain(parts.Join("") + " a"))
