@@ -5,4 +5,6 @@ True True
 HOST_NOT_FOUND 28 False
 HOST_NOT_FOUND 30 True
 HOST_NOT_FOUND an empty name has no address
+309 HOST_NOT_FOUND True
+309 HOST_NOT_FOUND True
 1 True
