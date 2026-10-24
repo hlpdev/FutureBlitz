@@ -165,21 +165,13 @@ std::vector<std::uint8_t> resized(const std::span<const std::uint8_t> rgba,
         return out;
     }
 
-    // The colors weighted by alpha, so a transparent pixel's color spreads to none of its
-    // neighbors', across, then down, in doubles.
+    // Across, then down, in doubles, the colors weighted by their alpha, so a transparent pixel's
+    // color spreads to none of its neighbors'. What's between the passes is kept in floats, whose
+    // 24 bits hold it to within a 100000th of a byte, at 16 bytes a pixel.
     const auto source_columns = static_cast<std::size_t>(width);
     const auto source_rows = static_cast<std::size_t>(height);
-    std::vector<double> weighted(source_columns * source_rows * 4);
-    for (std::size_t i = 0; i < source_columns * source_rows; ++i) {
-        const double alpha = rgba[(i * 4) + 3] / 255.0;
-        for (std::size_t c = 0; c < 3; ++c) {
-            weighted[(i * 4) + c] = rgba[(i * 4) + c] * alpha;
-        }
-        weighted[(i * 4) + 3] = rgba[(i * 4) + 3];
-    }
-
     const taps_t across = taps_of(filter, width, new_width);
-    std::vector<double> wide(columns * source_rows * 4);
+    std::vector<float> wide(columns * source_rows * 4);
     for (std::size_t y = 0; y < source_rows; ++y) {
         for (std::size_t x = 0; x < columns; ++x) {
             const std::vector<double>& weights = across.weights[x];
@@ -187,15 +179,18 @@ std::vector<std::uint8_t> resized(const std::span<const std::uint8_t> rgba,
             for (std::size_t k = 0; k < weights.size(); ++k) {
                 const std::size_t from =
                     ((y * source_columns) + static_cast<std::size_t>(across.first[x]) + k) * 4;
-                for (std::size_t c = 0; c < 4; ++c) {
-                    sum[c] += weighted[from + c] * weights[k];
+                const double alpha = rgba[from + 3] / 255.0;
+                for (std::size_t c = 0; c < 3; ++c) {
+                    sum[c] += rgba[from + c] * alpha * weights[k];
                 }
+                sum[3] += rgba[from + 3] * weights[k];
             }
 
             // Kept from 0 to 255 between the passes, as Pillow's are, so a filter's ringing
             // past black or white across isn't made more of down.
             for (std::size_t c = 0; c < 4; ++c) {
-                wide[(((y * columns) + x) * 4) + c] = std::clamp(sum[c], 0.0, 255.0);
+                wide[(((y * columns) + x) * 4) + c] =
+                    static_cast<float>(std::clamp(sum[c], 0.0, 255.0));
             }
         }
     }
