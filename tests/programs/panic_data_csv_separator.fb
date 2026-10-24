@@ -1,0 +1,6 @@
+// A CSV separator is one ASCII character, and Read panics where it's given another.
+Import std.core
+Import std.data.csv
+
+Print((Try Csv.Read("a|b", "|"))[0].Count)
+Print((Try Csv.Read("a|b", "||")).Count)

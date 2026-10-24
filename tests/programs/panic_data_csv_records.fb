@@ -1,0 +1,7 @@
+// CSV's records are an Array, and WriteRecords panics where it's given another Value.
+Import std.core
+Import std.data.value
+Import std.data.csv
+
+Print(Csv.WriteRecords(Value.NewArray()) == "\n")
+Print(Csv.WriteRecords(Value.NewObject()))

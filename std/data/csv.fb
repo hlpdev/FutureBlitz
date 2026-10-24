@@ -1,0 +1,256 @@
+// Csv: comma-separated values, as RFC 4180 has them: rows of fields, each line a row and its
+// fields between separators, a field in '"'s when it holds the separator, a '"', or a line break,
+// with its '"'s doubled. Lines end with LF or CRLF, and the last needn't end. A separator other
+// than ',', like ';' or a tab, can be given.
+
+Import std.core
+Import std.collections
+Import std.data.text
+Import std.data.value
+
+Public Struct Csv
+    // Csv isn't made: it's only its Static Methods.
+    New()
+    End New
+
+    // The rows text holds, each its fields, an empty line a row of one empty field. Throws a
+    // ParseError, with its line and column, of UNEXPECTED_END for a quoted field that doesn't end,
+    // and of SYNTAX for a '"' in a field that isn't quoted or after one that ends. Panics when the
+    // separator isn't one ASCII character other than '"' or a line break.
+    @PanicsAtCaller
+    Public Static Method Read(text: String, separator: String = ","): String[][] Throws ParseError
+        Return Try CsvReader(text, SeparatorOf(separator)).Rows()
+    End Method
+
+    // The records text holds: its first row is a header of names, and each row after it an Object
+    // of its fields by those names, as Strings, in an Array. Throws a ParseError as Read does, and
+    // of SYNTAX for a header that names a field twice, or a row with more or fewer fields than it.
+    @PanicsAtCaller
+    Public Static Method ReadRecords(text: String, separator: String = ","): Value Throws ParseError
+        Local reader = CsvReader(text, SeparatorOf(separator))
+        Local rows = Try reader.Rows()
+        Local records = Value.NewArray()
+        If rows.Count == 0 Then Return records
+        Local header = rows[0]
+        Local names = Set<String>()
+        For name In header
+            If !names.Add(name)
+                Throw ParseError(ParseErrorKind.SYNTAX, "the header names \"{name}\" twice", 1, 1)
+            End If
+        End For
+
+        For i = 1 Until rows.Count
+            Local row = rows[i]
+            If row.Count != header.Count
+                Local line = reader.Lines[i]
+                Throw ParseError(ParseErrorKind.SYNTAX, "the row at line {line} has as many fields " +
+                                 "as the header, {header.Count}, not {row.Count}", line, 1)
+            End If
+
+            Local record = Value.NewObject()
+            For j = 0 Until row.Count
+                record[header[j]] = Value(row[j])
+            End For
+            records.Add(record)
+        End For
+        Return records
+    End Method
+
+    // rows as CSV, each on its line, ended with LF, a field quoted when it holds the separator, a
+    // '"', or a line break, or starts or ends with a space. Panics when the separator isn't one
+    // ASCII character other than '"' or a line break.
+    @PanicsAtCaller
+    Public Static Method Write(rows: String[][], separator: String = ","): String
+        Local between = SeparatorOf(separator)
+        Local out: UInt8[] = []
+        For row In rows
+            For i = 0 Until row.Count
+                If i > 0 Then out.Add(between)
+                AddField(out, row[i], between)
+            End For
+            out.Add(10)
+        End For
+        Return TextOf(out)
+    End Method
+
+    // records, an Array of Objects, as CSV, with a header of every key they have, in the order
+    // they come in, and a row for each, a key it hasn't got an empty field: a String as it is, a
+    // Bool, an Int, or a Float as its text, and Null as nothing. Panics when records isn't an
+    // Array of Objects, a field is an Array or an Object, or the separator is one Write panics
+    // for.
+    @PanicsAtCaller
+    Public Static Method WriteRecords(records: Value, separator: String = ","): String
+        If records.Kind != ValueKind.ARRAY Then Panic("CSV's records are an Array, not {records.Kind}")
+        Local names: String[] = []
+        Local known = Set<String>()
+        For record In records.Values()
+            If record.Kind != ValueKind.OBJECT
+                Panic("CSV's records are Objects, not {record.Kind}")
+            End If
+
+            For key In record.Keys()
+                If known.Add(key) Then names.Add(key)
+            End For
+        End For
+
+        Local rows: String[][] = [names]
+        For record In records.Values()
+            Local row: String[] = []
+            For name In names
+                Local field = record.Get(name)
+                row.Add(field == Null ? "" : FieldText(field))
+            End For
+            rows.Add(row)
+        End For
+        Return Write(rows, separator)
+    End Method
+
+    // A record's field as CSV's text.
+    @PanicsAtCaller
+    Static Method FieldText(field: Value): String
+        Select field.Kind
+            Case ValueKind.NULL
+                Return ""
+            Case ValueKind.BOOL
+                Return field.AsBool() ? "true" : "false"
+            Case ValueKind.INT
+                Return "{field.AsInt()}"
+            Case ValueKind.FLOAT
+                Return "{field.AsFloat()}"
+            Case ValueKind.STRING
+                Return field.AsString()
+            Default
+                Panic("a CSV field is a String, a number, a Bool, or Null, not {field.Kind}")
+        End Select
+    End Method
+
+    // Adds field, in quotes when it must be.
+    Static Method AddField(out: UInt8[], field: String, separator: UInt8)
+        Local bytes = field.Bytes
+        Local quoted = bytes.Count > 0 && (bytes[0] == 32 || bytes[bytes.Count - 1] == 32)
+        For b In bytes
+            If b == separator || b == 34 || b == 10 || b == 13 Then quoted = True
+        End For
+
+        If !quoted
+            out.AddAll(bytes)
+            Return
+        End If
+
+        out.Add(34)
+        For b In bytes
+            If b == 34 Then out.Add(34)
+            out.Add(b)
+        End For
+        out.Add(34)
+    End Method
+
+    // The separator's byte. Panics when it isn't one ASCII character other than '"' or a line
+    // break.
+    @PanicsAtCaller
+    Static Method SeparatorOf(separator: String): UInt8
+        Local bytes = separator.Bytes
+        If bytes.Count != 1 || bytes[0] >= 128 || bytes[0] == 34 || bytes[0] == 10 || bytes[0] == 13
+            Panic("a CSV separator is one ASCII character but '\"' or a line break, not \"{separator}\"")
+        End If
+
+        Return bytes[0]
+    End Method
+End Struct
+
+Class CsvReader
+    Field Bytes: UInt8[]
+    Field At: Int
+    Field Separator: UInt8
+    // The line each row starts on, from 1.
+    Field Lines: Int[] = []
+    Field Line: Int = 1
+
+    New(text: String, separator: UInt8)
+        Bytes = text.Bytes
+        Separator = separator
+        If Bytes.Count >= 3 && Bytes[0] == 0xEF && Bytes[1] == 0xBB && Bytes[2] == 0xBF Then At = 3
+    End New
+
+    Method Rows(): String[][] Throws ParseError
+        Local rows: String[][] = []
+        While At < Bytes.Count
+            Lines.Add(Line)
+            rows.Add(Try Row())
+        End While
+        Return rows
+    End Method
+
+    // A row's fields, and past its line's end.
+    Method Row(): String[] Throws ParseError
+        Local fields: String[] = []
+        Loop
+            fields.Add(Try Cell())
+            If At >= Bytes.Count Then Return fields
+            Local b = Bytes[At]
+            If b == Separator
+                At += 1
+                If At >= Bytes.Count
+                    fields.Add("")
+                    Return fields
+                End If
+
+                Continue
+            End If
+
+            // A line break: LF or CRLF.
+            At += b == 13 && At + 1 < Bytes.Count && Bytes[At + 1] == 10 ? 2 : 1
+            Line += 1
+            Return fields
+        End Loop
+    End Method
+
+    // A field, up to the separator or line break after it.
+    Method Cell(): String Throws ParseError
+        If At < Bytes.Count && Bytes[At] == 34 Then Return Try Quoted()
+        Local start = At
+        While At < Bytes.Count
+            Local b = Bytes[At]
+            If b == Separator || b == 10 || b == 13 Then Break
+            If b == 34
+                Throw ErrorAt(Bytes, At, ParseErrorKind.SYNTAX, "a field with a '\"' in it is in " +
+                              "'\"'s, with its '\"'s doubled")
+            End If
+
+            At += 1
+        End While
+        Return TextOf(Bytes, start, At)
+    End Method
+
+    // A field in '"'s, its '"'s doubled.
+    Method Quoted(): String Throws ParseError
+        Local start = At
+        At += 1
+        Local out: UInt8[] = []
+        Loop
+            If At >= Bytes.Count
+                Throw ErrorAt(Bytes, start, ParseErrorKind.UNEXPECTED_END, "the field's '\"'s don't end")
+            End If
+
+            Local b = Bytes[At]
+            At += 1
+            If b == 34
+                If At < Bytes.Count && Bytes[At] == 34
+                    out.Add(34)
+                    At += 1
+                    Continue
+                End If
+
+                If At < Bytes.Count && Bytes[At] != Separator && Bytes[At] != 10 && Bytes[At] != 13
+                    Throw ErrorAt(Bytes, At, ParseErrorKind.SYNTAX, "a quoted field ends at the " +
+                                  "separator or the line's end")
+                End If
+
+                Return TextOf(out)
+            End If
+
+            If b == 10 Then Line += 1
+            out.Add(b)
+        End Loop
+    End Method
+End Class
