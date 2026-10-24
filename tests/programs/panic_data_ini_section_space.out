@@ -1,0 +1,4 @@
+[s t]
+x = 1
+
+panic: an INI section's name can't start or end with a space or a tab, as " s " does at panic_data_ini_section_space.fb:11:7

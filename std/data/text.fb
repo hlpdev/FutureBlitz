@@ -106,16 +106,19 @@ Package Function FloatText(value: Float64, infinity: String, nan: String): Strin
     Return text + ".0"
 End Function
 
-// Where the byte at `at` is: its line, from 1, and its column, from 1, counting code points.
+// Where the byte at `at` is: its line, from 1, and its column, from 1, counting code points. A
+// line ends with LF, CRLF, or a CR alone, and a byte order mark at the start isn't a column.
 Package Function PlaceOf(bytes: UInt8[], at: Int): (Int, Int)
     Local line = 1
     Local column = 1
-    For i = 0 Until Min(at, bytes.Count)
+    Local start = 0
+    If bytes.Count >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF Then start = 3
+    For i = start Until Min(at, bytes.Count)
         Local b = bytes[i]
-        If b == 10
+        If b == 10 || (b == 13 && (i + 1 >= bytes.Count || bytes[i + 1] != 10))
             line += 1
             column = 1
-        ElseIf (b & 0xC0) != 0x80
+        ElseIf (b & 0xC0) != 0x80 && b != 13
             column += 1
         End If
     End For

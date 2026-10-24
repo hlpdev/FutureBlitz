@@ -1,0 +1,3 @@
+in	side = 1
+
+panic: an INI key isn't empty, doesn't start with '[', ';', '#', or a byte order mark, doesn't start or end with a space or a tab, and holds no '=', ':', or line break, as "	indented" does at panic_data_ini_key_tab.fb:9:7

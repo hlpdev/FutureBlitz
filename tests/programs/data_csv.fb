@@ -74,3 +74,29 @@ people.Add(grace)
 Local table = Csv.WriteRecords(people)
 Print(table)
 Print(Try Csv.ReadRecords(table))
+
+// A CR alone ends a row, as LF and CRLF do, and an error's line and column count it so; a byte
+// order mark at the start isn't a column.
+Show(Try Csv.Read("a\rb\r\nc\nd"))
+Failure("x\ry\"z")
+Failure("\u{FEFF}a\"b")
+Failure("a\"b")
+
+// ReadRecords' errors say where they are: a header's name given again, and a row of more or
+// fewer fields than the header.
+Function RecordFailure(text: String)
+    Try
+        Csv.ReadRecords(text)
+        Print("reads:", text)
+    Catch e As ParseError
+        Print(e.Kind, e.Line, e.Column, e.Message)
+    End Try
+End Function
+
+RecordFailure("a,b,c,b\n1,2,3,4\n")
+RecordFailure("a,b\n1,2,3\n")
+RecordFailure("a,b\r1\n")
+
+// A first field that starts with a byte order mark is quoted, so it reads back.
+Local marked: String[][] = [["\u{FEFF}id", "name"], ["\u{FEFF}", "x"]]
+Print(Csv.Write(marked).Bytes[0], (Try Csv.Read(Csv.Write(marked))) == marked)
