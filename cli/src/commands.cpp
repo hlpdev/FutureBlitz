@@ -201,6 +201,11 @@ void report_built(const console_t& console, const options_t& options, const mir_
     const std::string_view mode = options.mode == build_mode_t::RELEASE ? "release" : "debug";
     console.status("Finished", std::format("{} build in {}", mode, seconds_since(start)));
     for (const build_config::bundled_library_t* library : bundled_libraries(module)) {
+        // A part of another library, as mbedTLS's TLS is, has its notices on that one's line.
+        if (library->notice.empty()) {
+            continue;
+        }
+
         console.status("Bundled",
                        std::format("{} {}, under {}; ship its notices with the program: {}",
                                    library->name, library->version, library->license,
