@@ -3,6 +3,7 @@
 // isn't a terminal, and text without its escape codes and the columns it takes.
 Import std.core
 Import std.text
+Import std.time
 Import std.term
 
 Function Shown(text: String): String => text.Replace("\u{1b}", "\\e")
@@ -57,3 +58,18 @@ Print(StripStyles(styled), VisibleWidth(styled))
 Print(VisibleWidth("ab\n\u{1b}[31mwide 中文\u{1b}[0m"), VisibleWidth(""), StripStyles("no codes"))
 Print("[" + StripStyles("cut \u{1b}[31") + "] [" + StripStyles("\u{1b}") + "] [" + StripStyles("a\u{1b}7b\u{1b}") + "]")
 Print("[" + StripStyles("\u{1b}]0;title") + "] [" + StripStyles("\u{1b}\u{1b}[1mx") + "]")
+// A DCS, like a sixel image, an APC, like kitty's graphics, a PM, and an SOS each take all up to
+// their ST, or a BEL, as an OSC does.
+Local sixel = "a\u{1b}Pq#0;2;0;0;0\u{1b}\\b"
+Local kitty = "a\u{1b}_Gf=24;AAAA\u{1b}\\b"
+Print("[" + StripStyles(sixel) + "]", VisibleWidth(sixel), "[" + StripStyles(kitty) + "]", VisibleWidth(kitty), "[" + StripStyles("x\u{1b}^pm\u{7}y\u{1b}Xsos\u{1b}\\z") + "]")
+// Stripping takes time in step with the text's length, for a long log colored word by word.
+Local log = StringBuilder()
+For i = 0 Until 400000
+    log.Append("\u{1b}[31mword\u{1b}[0m ")
+End For
+
+Local logText = log.ToString()
+Local started = Instant.Now()
+Local plainLog = StripStyles(logText)
+Print("long log:", plainLog.Length, Instant.Now() - started < 5.Seconds)

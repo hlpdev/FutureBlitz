@@ -212,6 +212,26 @@ Only  a header
 \e[0;33m \e[0m text    \e[0;33m \e[0m
 \e[0;33m           \e[0m
 
+╭──────────╮
+│ Status   │
+├──────────┤
+│ \e[31mfailed\e[0m   │
+│ \e[31mbadly\e[0m    │
+╰──────────╯
+╭──────────╮
+│ \e[1;31mvery\e[0m     │
+│ \e[1;31mbold red\e[0m │
+│ \e[1;31mwords\e[0m    │
+│ and \e[4mmore\e[0m │
+│ \e[4mplain\e[0m    │
+╰──────────╯
+╭────╮
+│ 中 │
+│ 文 │
+╰────╯
+╭──╮
+│中│
+╰──╯
 [ab   ] [ ab  ] [   ab]
 [中文 ] [long] [  \e[1mb\e[0m]
 [hello] [hel…] [中…] [中…]
@@ -249,6 +269,12 @@ drawn meanwhile: [] []
 logged
 ██████████████████████████████ 100% 3/3
 
+28 [████████░░░░░░░░░░░░░░░░░░░░░░  28%]
+29 [████████░░░░░░░░░░░░░░░░░░░░░░  29%]
+57 [█████████████████░░░░░░░░░░░░░  57%]
+58 [█████████████████░░░░░░░░░░░░░  58%]
+100 [██████████████████████████████ 100%]
+░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░   0% 1/9223372036854775807 ETA -:--
 ██████████ 100% 3/3
 \r⠋ Working\e[K\r⠙ Working\e[K\r⠹ Working\e[K\r⠹ Still working\e[K\r⠋ Still working\e[K\r✔ Done\e[K
  True
@@ -259,6 +285,7 @@ logged
 \r\e[0;36m⠋\e[0m colors\e[K\r\e[0;32m✔\e[0m ok\e[K
 \r\e[0;31m✖\e[0m no\e[K
 
+\r⠋ Downloading the …\e[K\r⠙ Downloading the …\e[K
 ✔ piped
 
 spun on stderr

@@ -82,6 +82,12 @@ Public Function Ask(question: String, default: String = ""): String?
     Return AskWith(Terminal.Console(), question, default, Null)
 End Function
 
+// Asks question on the console, and gives what's typed, or default for nothing, once validate
+// gives Null for it; until then, what it gives says what's wrong, and the question goes on.
+Public Function Ask(question: String, validate: Func(String): String?, default: String = ""): String?
+    Return AskWith(Terminal.Console(), question, default, validate)
+End Function
+
 // Asks question on terminal, and gives what's typed, or default for nothing.
 Public Function Ask(terminal: Terminal, question: String, default: String = ""): String?
     Return AskWith(terminal, question, default, Null)
@@ -149,6 +155,8 @@ Function ReadLine(terminal: Terminal): String?
             line = WithoutLast(line)
         ElseIf key.IsText
             line += "{key.Character}"
+        ElseIf key.Code == KeyCode.TAB && key.Modifiers == KeyModifiers.NONE
+            line += "\t"
         End If
     End Loop
 
@@ -173,10 +181,19 @@ Function AskWith(terminal: Terminal, question: String, default: String,
         End Loop
     End If
 
-    // The line keeps a column for what's typed, and the question gives way, so the line never
-    // wraps as it's drawn again.
-    prompt = QuestionOf(terminal, Truncated(question, terminal.Columns - 5 - VisibleWidth(hint))) +
-             hint + " "
+    // The line keeps a third of its columns, from 2 to 20, for what's typed, and a column for the
+    // cursor after it, and the question and the default's hint give way, the hint first, down to
+    // half of what's left for the question, so the line never wraps as it's drawn again, and
+    // what's typed shows.
+    Local keep = Clamp(terminal.Columns / 3, 2, 20)
+    Local room = terminal.Columns - 5 - keep
+    Local hintRoom = room - Min(DisplayWidth(question), Max(room / 2, 0))
+    If default != "" && DisplayWidth(default) + 3 > hintRoom
+        Local cut = Truncated(default, hintRoom - 3)
+        hint = cut == "" ? "" : " " + terminal.Paint("({cut})", HintLook())
+    End If
+
+    prompt = QuestionOf(terminal, Truncated(question, room - VisibleWidth(hint))) + hint + " "
     terminal.StartRawMode()
     Defer terminal.EndRawMode()
     Local editor = LineEditor("")
@@ -215,13 +232,22 @@ Function LineOf(terminal: Terminal, prompt: String, editor: LineEditor, ByRef sc
                 problem: String?): String
     Local room = Max(terminal.Columns - 1 - VisibleWidth(prompt), 1)
     Local cursor = DisplayWidth(editor.BeforeCursor())
+    // It scrolls no further than the text's end needs, so text that's got shorter shows.
+    scroll = Min(scroll, Max(DisplayWidth(editor.Text) - room + 1, 0))
     If cursor < scroll Then scroll = cursor
     If cursor >= scroll + room Then scroll = cursor - room + 1
     Local shown = ""
     Local at = 0
     For grapheme In editor.Text.Graphemes()
         Local columns = DisplayWidth(grapheme)
-        If at >= scroll && at + columns <= scroll + room Then shown += grapheme
+        If at >= scroll && at + columns <= scroll + room
+            shown += grapheme
+        ElseIf at < scroll && at + columns > scroll
+            // The half of a wide one that's in view is a space, so what's after it, and the
+            // cursor, are where they'd be.
+            shown += " ".Repeated(at + columns - scroll)
+        End If
+
         at += columns
     End For
 
@@ -277,8 +303,10 @@ Function ChooseOn(terminal: Terminal, question: String, options: String[], defau
         Local columns = Max(terminal.Columns - 1, 1)
         If selected < offset Then offset = selected
         If selected >= offset + page Then offset = selected - page + 1
-        Local head = Truncated(question, columns - 5 - DisplayWidth(filter))
-        Local lines = [QuestionOf(terminal, head) + " " + terminal.Paint("› ", HintLook()) + filter]
+        // A filter too long for the line shows its end.
+        Local shownFilter = Ending(filter, columns - 5)
+        Local head = Truncated(question, columns - 5 - DisplayWidth(shownFilter))
+        Local lines = [QuestionOf(terminal, head) + " " + terminal.Paint("› ", HintLook()) + shownFilter]
         If matches.Count == 0
             lines.Add("  " + terminal.Paint(Truncated("nothing matches", columns - 2), HintLook()))
         End If
@@ -365,6 +393,28 @@ End Function
 Function Redrawn(drawn: Int, lines: String[]): String
     Local start = drawn > 1 ? "\u{1b}[{drawn - 1}F" : "\r"
     Return start + "\u{1b}[J" + "\r\n".Join(lines)
+End Function
+
+// text's end in width columns, with "…" before it for what's cut, between grapheme clusters, or
+// text as it is when it fits.
+Function Ending(text: String, width: Int): String
+    If DisplayWidth(text) <= width Then Return text
+    If width <= 0 Then Return ""
+    Local graphemes: String[] = []
+    For grapheme In text.Graphemes()
+        graphemes.Add(grapheme)
+    End For
+
+    Local kept = ""
+    Local used = 0
+    Local i = graphemes.Count - 1
+    While i >= 0 && used + DisplayWidth(graphemes[i]) <= width - 1
+        kept = graphemes[i] + kept
+        used += DisplayWidth(graphemes[i])
+        i -= 1
+    End While
+
+    Return "…" + kept
 End Function
 
 // The number text's digits are, or 0 for text that isn't.

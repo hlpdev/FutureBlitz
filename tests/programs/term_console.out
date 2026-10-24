@@ -16,6 +16,10 @@ password: secret
 confirm: True
 ? Name? (nobody) 
 ask: nobody
+? Age? 
+✖ say a number
+? Age? 7
+checked ask: 7
 ? Size?
   1) small
   2) medium

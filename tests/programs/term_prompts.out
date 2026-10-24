@@ -47,6 +47,7 @@ piped default: anon Null
 ? Name? (anon) 
 ? More? 
 
+piped tab: [name	value] "? Pair? name\tvalue\n"
 choose: 2
 \e[?25l\r\e[J? Color? › \r
 ❯ red\r
@@ -123,9 +124,42 @@ widest line, but the answer: 15 of 15 \e[?25l\r\e[J? Which of … › \r
   the first op…\r
 ❯ the second o…\e[2F\e[J? Which of these do you want? the second option
 \e[?25h
-narrow ask: ab \r? What i… (x) \e[K\r\e[14C\r? What i… (x) \e[K\r\e[14C\r? What i… (x) \e[K\r\e[14C\r? What i… (x) ab\e[K
+narrow ask: ab \r? What … \e[K\r\e[9C\r? What … a\e[K\r\e[10C\r? What … ab\e[K\r\e[11C\r? What … ab\e[K
+
+long default: ab \r? Name? \e[K\r\e[8C\r? Name? a\e[K\r\e[9C\r? Name? ab\e[K\r\e[10C\r? Name? ab\e[K
 
 leave meanwhile: True
+scrolled ask: 
+?
+? Q? \e[K\r\e[5C
+? Q? a\e[K\r\e[6C
+? Q? ab\e[K\r\e[7C
+? Q? abc\e[K\r\e[8C
+? Q? abcd\e[K\r\e[9C
+? Q? abcde\e[K\r\e[10C
+? Q? bcdef\e[K\r\e[10C
+? Q? cdefg\e[K\r\e[10C
+? Q? defgh\e[K\r\e[10C
+? Q? efghi\e[K\r\e[10C
+? Q? fghij\e[K\r\e[10C
+? Q? efghi\e[K\r\e[10C
+? Q? defgh\e[K\r\e[10C
+? Q? cdefg\e[K\r\e[10C
+? Q? bcdef\e[K\r\e[10C
+? Q? \e[K\r\e[5C
+? Q? \e[K
+
+straddled ask: Null
+?
+? Q? \e[K\r\e[5C
+? Q? 中\e[K\r\e[7C
+? Q?  文\e[K\r\e[8C
+? Q?  字\e[K\r\e[8C
+? Q?  符\e[K\r\e[8C
+
+long filter: -1
+widest line: 15 \e[J?  › …hijklmnop\r
+  nothing matc…
 piped choose: 2 4 -1
 ? Color?
   1) red

@@ -29,6 +29,7 @@ End For
 Print("password:", ReadPassword("Password: ") ?? "Null")
 Print("confirm:", Confirm("Proceed?") ?? False)
 Print("ask:", Ask("Name?", "nobody") ?? "Null")
+Print("checked ask:", Ask("Age?", Function(text: String) => text == "" ? "say a number" : Null) ?? "Null")
 Print("choose:", Choose("Size?", ["small", "medium", "large"], 1) ?? -1)
 Print("key:", "{ReadKey(10.Milliseconds) ?? KeyEvent('?')}")
 Print("ended:", ReadKey() == Null, ReadPassword() == Null, Ask("More?") == Null)
