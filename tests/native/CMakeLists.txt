@@ -28,11 +28,15 @@ target_link_libraries(fb_term_probe PRIVATE fb_runtime)
 fb_set_warnings(fb_term_probe)
 
 # The HTTP and HTTPS server std.net.http's program tests run against (an http_ program runs as
-# its child), with the test certificates make_certificates.sh made, over mbedTLS's TLS, and
-# compressing by zlib-ng and zstd.
+# its child), with the test certificates make_certificates.sh made, over mbedTLS's TLS and
+# nghttp2's HTTP/2, and compressing by zlib-ng and zstd.
 add_executable(fb_http_test_server http_server/http_server.cpp)
-target_link_libraries(fb_http_test_server PRIVATE mbedtls mbedx509 tfpsacrypto zlib-ng zstd)
+target_link_libraries(fb_http_test_server PRIVATE mbedtls mbedx509 tfpsacrypto nghttp2 zlib-ng
+                      zstd)
+# It uses only nghttp2's functions of nghttp2_ssize, so it needs no ssize_t, which MSVC's headers,
+# which clang-tidy reads, don't have.
 target_compile_definitions(fb_http_test_server PRIVATE
+  NGHTTP2_NO_SSIZE_T
   FB_HTTP_TEST_CERTIFICATE="${CMAKE_CURRENT_SOURCE_DIR}/http_server/server.pem"
   FB_HTTP_TEST_KEY="${CMAKE_CURRENT_SOURCE_DIR}/http_server/server_key.pem"
   FB_HTTP_TEST_CA="${CMAKE_CURRENT_SOURCE_DIR}/http_server/test_ca.pem")

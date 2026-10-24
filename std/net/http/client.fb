@@ -29,6 +29,7 @@ Extern "runtime"
     Function fb_http_received(transfer: Ptr<Void>): Int64
     Function fb_http_expected(transfer: Ptr<Void>): Int64
     Function fb_http_status(transfer: Ptr<Void>): Int32
+    Function fb_http_version(transfer: Ptr<Void>): Int32
     Function fb_http_url(transfer: Ptr<Void>): String
     Function fb_http_response_headers(transfer: Ptr<Void>, names: String[], values: String[])
     Function fb_http_take_body(transfer: Ptr<Void>, output: UInt8[])
@@ -87,19 +88,22 @@ Public Struct Body
     End Method
 End Struct
 
-// What a server answered: its status, its headers, its body's bytes, and the URL it came from,
-// after the redirects followed.
+// What a server answered: its status, its headers, its body's bytes, the URL it came from,
+// after the redirects followed, and the HTTP it came over, "HTTP/1.1" or "HTTP/2".
 Public Class HttpResponse
     Public ReadOnly Field Status: Int
     Public ReadOnly Field Headers: Headers
     Public ReadOnly Field Bytes: UInt8[]
     Public ReadOnly Field Url: String
+    Public ReadOnly Field Version: String
 
-    Public New(status: Int, headers: Headers, bytes: UInt8[], url: String)
+    Public New(status: Int, headers: Headers, bytes: UInt8[], url: String,
+               version: String = "HTTP/1.1")
         Status = status
         Headers = headers
         Bytes = bytes
         Url = url
+        Version = version
     End New
 
     // The body as text, its UTF-8, with U+FFFD for each byte that doesn't start well-formed
@@ -127,7 +131,8 @@ End Class
 // MaxRedirects redirects, as a browser does: a POST changes to a GET after a 301, 302, or 303,
 // and any request but a HEAD after a 303, and a redirect to another origin takes no
 // Authorization, Cookie, or Host of the request's own. It asks for gzip, deflate, and zstd, and
-// decompresses what comes so. It goes through Proxy, or else the proxy the environment names, as
+// decompresses what comes so. It speaks HTTP/2 to an HTTPS server that agrees to it, and
+// HTTP/1.1 otherwise. It goes through Proxy, or else the proxy the environment names, as
 // http_proxy, https_proxy, and no_proxy do. A failure throws: a NetError for the network's or the
 // server's, or for a URL that isn't HTTP's or HTTPS's, and a TimeoutError for a request that took
 // longer than its Timeout, or connecting that took longer than its ConnectTimeout.
@@ -410,7 +415,8 @@ Class Transfer
 
         Local bytes: UInt8[] = []
         fb_http_take_body(State, bytes)
-        Return HttpResponse(fb_http_status(State), headers, bytes, fb_http_url(State))
+        Return HttpResponse(fb_http_status(State), headers, bytes, fb_http_url(State),
+                            VersionOf(fb_http_version(State)))
     End Method
 
     // A download's body, once it ended with outcome, after telling progress how much came in
@@ -529,6 +535,20 @@ Public Struct Http
         Return Try Await HttpClient().DownloadAsync(url, progress)
     End Method
 End Struct
+
+// The HTTP the runtime's version is, as 11 is "HTTP/1.1".
+Function VersionOf(version: Int32): String
+    Select version
+        Case 10
+            Return "HTTP/1.0"
+        Case 20
+            Return "HTTP/2"
+        Case 30
+            Return "HTTP/3"
+        Default
+            Return "HTTP/1.1"
+    End Select
+End Function
 
 // Panics, where a timeout is set, unless it's above 0.
 @PanicsAtCaller

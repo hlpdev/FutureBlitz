@@ -661,13 +661,39 @@ TEST_CASE("a program links the bundled C libraries of the runtime functions it c
     CHECK(bundled("Import std.uuid\nLocal id = Uuid.V4()") ==
           std::vector<std::string_view>{ "mbedTLS" });
     // std.net.http's client links libcurl, and libuv and mbedTLS, which libcurl's part of the
-    // runtime is built on, and zlib-ng and zstd, which libcurl is, in the table's order; its
-    // Headers and Bodies need none of them.
+    // runtime is built on, and zlib-ng, zstd, and nghttp2, which libcurl is, in the table's order;
+    // its Headers and Bodies need none of them.
     CHECK(bundled("Import std.core\nImport std.net.http\nLocal h = Headers()\nh.Add(\"A\", \"b\")\n"
                   "Print(Body.Form({\"a\": \"b c\"}).Bytes.Count)")
               .empty());
     CHECK(bundled("Import std.net.http\nLocal client = HttpClient()") ==
-          std::vector<std::string_view>{ "libuv", "mbedTLS", "zlib-ng", "zstd", "libcurl" });
+          std::vector<std::string_view>{ "libuv", "mbedTLS", "zlib-ng", "zstd", "nghttp2",
+                                         "libcurl" });
+}
+
+TEST_CASE("a bundled C library's notices have the texts of every license it names", "[driver]") {
+    const auto notices = [](const std::string_view name) {
+        const auto library = std::ranges::find(fb::build_config::bundled_libraries, name,
+                                               &fb::build_config::bundled_library_t::name);
+        REQUIRE(library != fb::build_config::bundled_libraries.end());
+        std::ifstream file(fb::path_from_utf8(library->notice), std::ios::binary);
+        REQUIRE(file);
+        // CMake writes it with the OS's line breaks.
+        std::string text(std::istreambuf_iterator<char>(file), {});
+        std::erase(text, '\r');
+        return std::pair{ std::string(library->license), text };
+    };
+
+    // nghttp2's own, then those of the code others have copyrights in.
+    const auto [nghttp2_license, nghttp2] = notices("nghttp2");
+    CHECK(nghttp2_license == "the MIT license");
+    CHECK(nghttp2.starts_with("The MIT License\n\nCopyright (c) 2012, 2014, 2015, 2016 Tatsuhiro"));
+    CHECK(nghttp2.contains("ngtcp2 contributors"));
+    CHECK(nghttp2.contains("nghttp3 contributors"));
+    CHECK(nghttp2.contains("sfparse contributors"));
+    CHECK(nghttp2.contains("lib/sfparse.c's UTF-8 decoder:\n\n/* Copyright (c) 2008-2010 Bjoern "
+                           "Hoehrmann"));
+    CHECK(!nghttp2.contains("#include"));
 }
 
 TEST_CASE("std.compress's formats link the C libraries they're over, with their notices",

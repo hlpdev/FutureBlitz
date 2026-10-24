@@ -92,8 +92,10 @@ struct bundled_library_t {
     /// The licenses it's under, as \"the MIT license\" says it, which a program that links it
     /// ships the notices of.
     std::string_view license;
+    /// None for a library only other libraries are built on, which the runtime doesn't call.
     std::string_view prefix;
-    /// The runtime's own archive of those functions, which goes before the library's.
+    /// The runtime's own archive of those functions, which goes before the library's, if it has
+    /// any.
     std::string_view runtime;
     /// The library's archives, separated by semicolons.
     std::string_view archives;
@@ -329,6 +331,16 @@ inline constexpr auto bundled_libraries = std::to_array<bundled_library_t>({
         .system = \"\",
     },
     {
+        .name = \"nghttp2\",
+        .version = \"${FB_NGHTTP2_VERSION}\",
+        .license = \"${FB_NGHTTP2_LICENSES}\",
+        .prefix = \"\",
+        .runtime = \"\",
+        .archives = \"$<TARGET_FILE:nghttp2>\",
+        .notice = \"${FB_NGHTTP2_NOTICE}\",
+        .system = \"\",
+    },
+    {
         .name = \"libcurl\",
         .version = \"${FB_CURL_VERSION}\",
         .license = \"${FB_CURL_LICENSES}\",
@@ -337,7 +349,7 @@ inline constexpr auto bundled_libraries = std::to_array<bundled_library_t>({
         .archives = \"${FB_CURL_ARCHIVES}\",
         .notice = \"${FB_CURL_NOTICE}\",
         .system = \"${FB_CURL_SYSTEM}\",
-        .needs = \"libuv;mbedTLS;zlib-ng;zstd\",
+        .needs = \"libuv;mbedTLS;zlib-ng;zstd;nghttp2\",
     },
 });
 

@@ -733,19 +733,82 @@ fb_notice(nanosvg "${nanosvg_notice}")
 set(FB_NANOSVG_NOTICE "${FB_NANOSVG_NOTICE}" PARENT_SCOPE)
 set(FB_NANOSVG_LICENSES "the zlib license" PARENT_SCOPE)
 
+# nghttp2: curl's HTTP/2, from its library's C files, since its own CMake looks for what its
+# programs use. The nghttp2ver.h its CMake would write is written beside a copy of nghttp2.h, as
+# curl's search looks for them together, and the rest of what its CMake would find is the OS's:
+# Windows' GetTickCount64, or POSIX's monotonic clock and byte order.
+set(FB_NGHTTP2_VERSION 1.70.0)
+FetchContent_Declare(
+  nghttp2
+  URL https://github.com/nghttp2/nghttp2/releases/download/v${FB_NGHTTP2_VERSION}/nghttp2-${FB_NGHTTP2_VERSION}.tar.xz
+  URL_HASH SHA256=e05cb1388eaca3830aded4ccf20044b6e1ac1a61411dcca11b0437c4285c8bc2
+  SOURCE_SUBDIR none
+  SYSTEM
+)
+FetchContent_MakeAvailable(nghttp2)
+set(nghttp2_includes "${CMAKE_CURRENT_BINARY_DIR}/nghttp2")
+file(COPY "${nghttp2_SOURCE_DIR}/lib/includes/nghttp2/nghttp2.h"
+     DESTINATION "${nghttp2_includes}/nghttp2")
+set(PACKAGE_VERSION ${FB_NGHTTP2_VERSION})
+string(REPLACE "." ";" parts ${FB_NGHTTP2_VERSION})
+list(GET parts 0 major)
+list(GET parts 1 minor)
+list(GET parts 2 patch)
+math(EXPR PACKAGE_VERSION_NUM "(${major} << 16) | (${minor} << 8) | ${patch}"
+     OUTPUT_FORMAT HEXADECIMAL)
+configure_file("${nghttp2_SOURCE_DIR}/lib/includes/nghttp2/nghttp2ver.h.in"
+               "${nghttp2_includes}/nghttp2/nghttp2ver.h" @ONLY)
+file(GLOB nghttp2_sources "${nghttp2_SOURCE_DIR}/lib/*.c")
+add_library(nghttp2 STATIC EXCLUDE_FROM_ALL ${nghttp2_sources})
+target_include_directories(nghttp2 SYSTEM PUBLIC "${nghttp2_includes}")
+target_compile_definitions(nghttp2 PUBLIC NGHTTP2_STATICLIB PRIVATE BUILDING_NGHTTP2)
+if(WIN32)
+  target_compile_definitions(nghttp2 PRIVATE HAVE_WINDOWS_H HAVE_GETTICKCOUNT64)
+else()
+  target_compile_definitions(nghttp2 PRIVATE HAVE_ARPA_INET_H HAVE_NETINET_IN_H HAVE_CLOCK_GETTIME
+                             HAVE_DECL_CLOCK_MONOTONIC=1)
+endif()
+fb_bundled_library(nghttp2)
+set(FB_NGHTTP2_VERSION ${FB_NGHTTP2_VERSION} PARENT_SCOPE)
+# Its notices: its COPYING, then the comments at the top of the files others have copyrights in
+# too, ngtcp2's, nghttp3's, and sfparse's contributors, and that of sfparse.c's UTF-8 decoder,
+# Bjoern Hoehrmann's, each under the MIT license.
+file(READ "${nghttp2_SOURCE_DIR}/COPYING" notices)
+foreach(part nghttp2_map.c nghttp2_extpri.c sfparse.c)
+  file(READ "${nghttp2_SOURCE_DIR}/lib/${part}" text)
+  string(FIND "${text}" "*/" end)
+  math(EXPR end "${end} + 2")
+  string(SUBSTRING "${text}" 0 ${end} license)
+  string(APPEND notices "\nlib/${part}:\n\n${license}\n")
+endforeach()
+file(READ "${nghttp2_SOURCE_DIR}/lib/sfparse.c" text)
+string(FIND "${text}" "/* Copyright (c) 2008-2010 Bjoern Hoehrmann" start)
+if(start EQUAL -1)
+  message(FATAL_ERROR "nghttp2's sfparse.c has no comment of Bjoern Hoehrmann's copyright")
+endif()
+string(SUBSTRING "${text}" ${start} -1 text)
+string(FIND "${text}" "*/" end)
+math(EXPR end "${end} + 2")
+string(SUBSTRING "${text}" 0 ${end} license)
+string(APPEND notices "\nlib/sfparse.c's UTF-8 decoder:\n\n${license}\n")
+fb_notice(nghttp2 "${notices}")
+set(FB_NGHTTP2_NOTICE "${FB_NGHTTP2_NOTICE}" PARENT_SCOPE)
+set(FB_NGHTTP2_LICENSES "the MIT license" PARENT_SCOPE)
+
 # libcurl: std.net.http's client, over mbedTLS's TLS (its mbedtls and mbedx509 libraries), with
-# the OS's certificate roots, which the runtime gives it, so it has no bundle of its own, and over
-# zlib-ng and zstd, which decode gzip, deflate, and zstd. Only HTTP and HTTPS are built, without
-# the curl tool, its docs, or any library it would find on the machine.
+# the OS's certificate roots, which the runtime gives it, so it has no bundle of its own, over
+# zlib-ng and zstd, which decode gzip, deflate, and zstd, and over nghttp2, for HTTP/2 where TLS's
+# ALPN agrees on it. Only HTTP and HTTPS are built, without the curl tool, its docs, or any
+# library it would find on the machine.
 set(FB_CURL_VERSION 8.23.0)
 foreach(option BUILD_CURL_EXE BUILD_SHARED_LIBS BUILD_LIBCURL_DOCS BUILD_MISC_DOCS
                ENABLE_CURL_MANUAL CURL_ENABLE_EXPORT_TARGET CURL_USE_PKGCONFIG CURL_USE_CMAKECONFIG
-               PICKY_COMPILER CURL_USE_OPENSSL CURL_USE_SCHANNEL CURL_WINDOWS_SSPI USE_NGHTTP2
-               USE_LIBIDN2 USE_WIN32_IDN USE_APPLE_IDN CURL_USE_LIBPSL CURL_USE_LIBSSH2
+               PICKY_COMPILER CURL_USE_OPENSSL CURL_USE_SCHANNEL CURL_WINDOWS_SSPI USE_LIBIDN2 USE_WIN32_IDN USE_APPLE_IDN CURL_USE_LIBPSL CURL_USE_LIBSSH2
                CURL_USE_GSSAPI ENABLE_UNIX_SOCKETS)
   set(${option} OFF CACHE BOOL "" FORCE)
 endforeach()
-foreach(option BUILD_STATIC_LIBS CURL_DISABLE_INSTALL CURL_USE_MBEDTLS CURL_DISABLE_ALTSVC
+foreach(option BUILD_STATIC_LIBS CURL_DISABLE_INSTALL CURL_USE_MBEDTLS USE_NGHTTP2
+               NGHTTP2_USE_STATIC_LIBS CURL_DISABLE_ALTSVC
                CURL_DISABLE_AWS CURL_DISABLE_DICT CURL_DISABLE_DOH CURL_DISABLE_FILE
                CURL_DISABLE_FTP CURL_DISABLE_GOPHER CURL_DISABLE_HSTS CURL_DISABLE_IMAP
                CURL_DISABLE_IPFS CURL_DISABLE_KERBEROS_AUTH CURL_DISABLE_LDAP CURL_DISABLE_LDAPS
@@ -766,7 +829,7 @@ set(MBEDTLS_LIBRARY mbedtls CACHE STRING "" FORCE)
 set(MBEDX509_LIBRARY mbedx509 CACHE STRING "" FORCE)
 set(MBEDCRYPTO_LIBRARY tfpsacrypto CACHE STRING "" FORCE)
 # So are its zlib, zlib-ng's zlib API, whose target CMake's search for zlib takes as it finds it
-# there, and its zstd, whose search links the target it's named.
+# there, its zstd, and its nghttp2, whose searches link the targets they're named.
 if(NOT TARGET ZLIB::ZLIB)
   add_library(ZLIB::ZLIB ALIAS zlib-ng)
 endif()
@@ -774,6 +837,8 @@ set(ZLIB_INCLUDE_DIR "${zlib_ng_BINARY_DIR}" CACHE PATH "" FORCE)
 set(ZLIB_LIBRARY zlib-ng CACHE STRING "" FORCE)
 set(ZSTD_INCLUDE_DIR "${zstd_SOURCE_DIR}/lib" CACHE PATH "" FORCE)
 set(ZSTD_LIBRARY zstd CACHE STRING "" FORCE)
+set(NGHTTP2_INCLUDE_DIR "${nghttp2_includes}" CACHE PATH "" FORCE)
+set(NGHTTP2_LIBRARY nghttp2 CACHE STRING "" FORCE)
 string(REPLACE "." "_" tag "${FB_CURL_VERSION}")
 FetchContent_Declare(
   curl

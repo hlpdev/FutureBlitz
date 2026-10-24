@@ -845,8 +845,10 @@ void* fb_http_new(void* client, const fb_string_t* method, const fb_string_t* ur
     curl_easy_setopt(easy, CURLOPT_PRIVATE, static_cast<void*>(transfer));
     curl_easy_setopt(easy, CURLOPT_ERRORBUFFER, transfer->error.data());
     curl_easy_setopt(easy, CURLOPT_NOSIGNAL, 1L);
-    // It follows redirects itself, in redirect(), to http and https URLs only.
+    // It follows redirects itself, in redirect(), to http and https URLs only. It speaks HTTP/2
+    // where TLS's ALPN agrees on it, and HTTP/1.1 otherwise.
     curl_easy_setopt(easy, CURLOPT_PROTOCOLS_STR, "http,https");
+    curl_easy_setopt(easy, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_2TLS);
     curl_easy_setopt(easy, CURLOPT_SHARE, transfer->client->share);
     // An empty name turns on the cookie engine, with no file to read.
     curl_easy_setopt(easy, CURLOPT_COOKIEFILE, "");
@@ -967,6 +969,23 @@ std::int32_t fb_http_status(void* transfer) {
     long status = 0;
     curl_easy_getinfo(static_cast<transfer_t*>(transfer)->easy, CURLINFO_RESPONSE_CODE, &status);
     return static_cast<std::int32_t>(status);
+}
+
+std::int32_t fb_http_version(void* transfer) {
+    long version = 0;
+    curl_easy_getinfo(static_cast<transfer_t*>(transfer)->easy, CURLINFO_HTTP_VERSION, &version);
+    switch (version) {
+    case CURL_HTTP_VERSION_1_0:
+        return 10;
+    case CURL_HTTP_VERSION_1_1:
+        return 11;
+    case CURL_HTTP_VERSION_2_0:
+        return 20;
+    case CURL_HTTP_VERSION_3:
+        return 30;
+    default:
+        return 0;
+    }
 }
 
 fb_string_t* fb_http_url(void* transfer) {
