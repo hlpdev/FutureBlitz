@@ -7,6 +7,7 @@
 Import std.core
 Import std.text.string
 Import std.text.unicode
+Import std.text.builder
 Import std.term.console
 
 Extern "runtime"
@@ -310,7 +311,7 @@ Public Struct Style Implements Hashable, Printable
 End Struct
 
 // How many colors stream shows, which Paint goes by: NONE where it isn't a terminal, or
-// NO_COLOR is set to anything, or TERM is "dumb"; TRUE_COLOR where COLORTERM is "truecolor" or
+// NO_COLOR is set and isn't empty, or TERM is "dumb"; TRUE_COLOR where COLORTERM is "truecolor" or
 // "24bit", or on Windows' console; INDEXED where TERM has "256color" in it; and BASIC otherwise.
 Public Function ConsoleColors(stream: StandardStream = StandardStream.OUTPUT): ColorLevel
     Return fb_term_colors(stream As Int32) As ColorLevel
@@ -327,22 +328,24 @@ Public Function Paint(text: String, style: Style, stream: StandardStream): Strin
     Return style.Apply(text, ConsoleColors(stream))
 End Function
 
-// text without the escape codes in it: a CSI's, like a style's "\e[1;31m" or a cursor move, an
-// OSC's up to its BEL or ST, like a link's, and any other escape and the characters it takes, as
-// "\e(B" or "\e7". A code cut short at the end goes, as far as it goes.
+// text without the escape codes in it: a CSI's, like a style's "\e[1;31m" or a cursor move; an
+// OSC's, like a link's, or a DCS's, an APC's, a PM's, or an SOS's, like a sixel image's or kitty's
+// graphics', up to its BEL or ST; and any other escape and the characters it takes, as "\e(B" or
+// "\e7". A code cut short at the end goes, as far as it goes.
 Public Function StripStyles(text: String): String
     Local start = text.Find("\u{1b}")
     If start == Null Then Return text
-    Local kept = text.Slice(0, start)
+    Local kept = StringBuilder()
+    kept.Append(text.Slice(0, start))
     Local at = start
     While at < text.Length
         Local finish = CodeEnd(text, at)
         Local next = text.Find("\u{1b}", finish) ?? text.Length
-        kept += text.Slice(finish, next)
+        kept.Append(text.Slice(finish, next))
         at = next
     End While
 
-    Return kept
+    Return kept.ToString()
 End Function
 
 // The columns text takes in a terminal, as DisplayWidth counts them, without its escape codes.
@@ -356,6 +359,168 @@ Public Function VisibleWidth(text: String): Int
     End For
 
     Return widest
+End Function
+
+// A part of a line with codes in it: an escape code, which takes no columns, or a grapheme
+// cluster, and whether that's whitespace, between words.
+Struct StyledPart
+    Field Text: String
+    Field Width: Int
+    Field IsCode: Bool
+    Field IsSpace: Bool
+End Struct
+
+// line, which has no line breaks, wrapped to width columns as String's WordWrap wraps text, but
+// by the columns it shows in, so its escape codes take none. A style that's on where a line breaks
+// is ended at its end and started again on the next.
+Package Function WrapStyled(line: String, width: Int): String[]
+    // Its codes, and its grapheme clusters, from the runs between them.
+    Local parts: StyledPart[] = []
+    Local at = 0
+    While at < line.Length
+        If fb_text_byte(line, at) == 0x1B
+            Local finish = CodeEnd(line, at)
+            parts.Add(StyledPart(line.Slice(at, finish), 0, True, False))
+            at = finish
+            Continue
+        End If
+
+        Local next = line.Find("\u{1b}", at) ?? line.Length
+        For grapheme In line.Slice(at, next).Graphemes()
+            parts.Add(StyledPart(grapheme, DisplayWidth(grapheme), False, grapheme.IsBlank()))
+        End For
+
+        at = next
+    End While
+
+    // Each line starts with the whitespace the first one does, as long as it leaves a column.
+    Local indent = ""
+    Local indentWidth = 0
+    Local leading = True
+    Local rest: StyledPart[] = []
+    For part In parts
+        If leading && part.IsSpace
+            indent += part.Text
+            indentWidth += part.Width
+            Continue
+        End If
+
+        If !part.IsCode Then leading = False
+        rest.Add(part)
+    End For
+
+    Local room = width - indentWidth
+    If room < 1
+        indent = ""
+        room = width
+    End If
+
+    // Its words, between whitespace, with the codes before each and those after the last.
+    Local words: StyledPart[][] = []
+    Local word: StyledPart[] = []
+    Local codes: StyledPart[] = []
+    For part In rest
+        If part.IsSpace
+            If word.Count > 0 Then words.Add(word)
+            word = []
+        ElseIf part.IsCode && word.Count == 0
+            codes.Add(part)
+        Else
+            If word.Count == 0
+                word = codes
+                codes = []
+            End If
+
+            word.Add(part)
+        End If
+    End For
+
+    If word.Count > 0 Then words.Add(word)
+    If words.Count == 0
+        Local kept = ""
+        For code In codes
+            kept += code.Text
+        End For
+
+        Return [kept]
+    End If
+
+    For code In codes
+        words[words.Count - 1].Add(code)
+    End For
+
+    Local lines: String[] = []
+    Local current = ""
+    Local used = 0
+    // The codes that turned styles on since the last that turned them all off.
+    Local active: String[] = []
+    For whole In words
+        For piece In PiecesOf(whole, room)
+            Local columns = 0
+            For part In piece
+                columns += part.Width
+            End For
+
+            If used > 0 && used + 1 + columns <= room
+                current += " "
+                used += 1 + columns
+            Else
+                If used > 0
+                    If active.Count > 0 Then current += "\u{1b}[0m"
+                    lines.Add(current)
+                    current = "".Join(active)
+                End If
+
+                current += indent
+                used = columns
+            End If
+
+            For part In piece
+                current += part.Text
+                If part.IsCode Then KeepStyle(active, part.Text)
+            End For
+        End For
+    End For
+
+    lines.Add(current)
+    Return lines
+End Function
+
+// word cut into pieces of room columns at most, between its grapheme clusters, as WordWrap cuts a
+// word too long for its line, each code going with what's before it.
+Function PiecesOf(word: StyledPart[], room: Int): StyledPart[][]
+    Local pieces: StyledPart[][] = []
+    Local piece: StyledPart[] = []
+    Local used = 0
+    Local graphemes = 0
+    For part In word
+        If !part.IsCode && graphemes > 0 && used + part.Width > room
+            pieces.Add(piece)
+            piece = []
+            used = 0
+            graphemes = 0
+        End If
+
+        piece.Add(part)
+        used += part.Width
+        If !part.IsCode Then graphemes += 1
+    End For
+
+    pieces.Add(piece)
+    Return pieces
+End Function
+
+// Keeps a style's code in active, the codes that turn styles on since one turned them all off,
+// which a code of 0, or of nothing, does. Other codes are left out.
+Function KeepStyle(active: String[], code: String)
+    If !code.StartsWith("\u{1b}[") || !code.EndsWith("m") Then Return
+    Local parameters = code.Slice(2, code.Length - 1)
+    For c In parameters.Chars
+        If (c < '0' || c > '9') && c != ';' && c != ':' Then Return
+    End For
+
+    If parameters == "" || parameters == "0" || parameters.StartsWith("0;") Then active.Clear()
+    If parameters != "" && parameters != "0" Then active.Add(code)
 End Function
 
 // Where the escape code at `at` in text ends, an escape being there.
@@ -374,8 +539,8 @@ Function CodeEnd(text: String, at: Int): Int
         Return text.Length
     End If
 
-    If kind == 0x5D
-        // An OSC: up to a BEL, or an escape and a \.
+    If kind == 0x5D || kind == 0x50 || kind == 0x5F || kind == 0x5E || kind == 0x58
+        // An OSC, a DCS, an APC, a PM, or an SOS: up to a BEL, or an escape and a \.
         While i < text.Length
             Local b = fb_text_byte(text, i)
             If b == 0x07 Then Return i + 1

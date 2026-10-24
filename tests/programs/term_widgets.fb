@@ -95,6 +95,23 @@ Print(colored.Render())
 colored.Print()
 colored.Draw(drawn)
 Print(Shown(drawn.TakeOutput()))
+// A styled cell or line that wraps does so by the columns it shows in, each of its lines with its
+// style started and ended, so no border shows in it.
+Local styledTable = Table("Status")
+styledTable.AddRow("\u{1b}[31mfailed badly\u{1b}[0m")
+styledTable.MaxWidth = 12
+Print(Shown(styledTable.Render()))
+Local styledBox = Box("\u{1b}[1;31mvery bold red words\u{1b}[0m and \u{1b}[4mmore plain\u{1b}[0m")
+styledBox.Width = 10
+Print(Shown(styledBox.Render()))
+// A box narrower than a wide character grows to it.
+Local narrowBox = Box("中文")
+narrowBox.Width = 3
+Print(narrowBox.Render())
+Local tightBox = Box("中")
+tightBox.Padding = 0
+tightBox.Width = 1
+Print(tightBox.Render())
 
 Print("[{Aligned("ab", 5, Alignment.LEFT)}] [{Aligned("ab", 5, Alignment.CENTER)}] [{Aligned("ab", 5, Alignment.RIGHT)}]")
 Print("[{Aligned("中文", 5, Alignment.CENTER)}] [{Aligned("long", 2, Alignment.RIGHT)}] [{Shown(Aligned("\u{1b}[1mb\u{1b}[0m", 3, Alignment.RIGHT))}]")
@@ -178,6 +195,20 @@ quiet.Set(3, At(2000))
 quiet.Finish(At(2000))
 Print(Shown(piped.TakeOutput()))
 
+// The percent done is rounded down in whole numbers, so 29 of 100 is 29%, and a time too long to
+// show, as for a total as big as an Int64 takes, is "-:--".
+Local counting = FakeTerminal(80, 10, ColorLevel.NONE, False)
+Local percents = ProgressBar(100, counting, At(0))
+percents.Parts = ProgressParts.PERCENT
+For value In [28, 29, 57, 58, 100]
+    percents.Set(value, At(0))
+    Print(value, "[" + percents.Render(At(0)) + "]")
+End For
+
+Local endless = ProgressBar(9223372036854775807, counting, At(0))
+endless.Set(1, At(10000))
+Print(endless.Render(At(10000)))
+
 // To stderr by default, which is a pipe here.
 Local console = ProgressBar(3)
 console.Width = 10
@@ -219,6 +250,13 @@ spun.Succeed("ok")
 Local failed = Spinner("colors", colors, At(0))
 failed.Fail("no")
 Print(Shown(colors.TakeOutput()))
+// On a terminal too narrow for its message, a spinner's line is cut a column short of its edge,
+// so it's drawn again in place.
+Local slim = FakeTerminal(20, 5, ColorLevel.NONE)
+Local cut = Spinner("Downloading the second file of three", slim, At(0))
+cut.Tick(At(0))
+cut.Tick(At(80))
+Print(Shown(slim.TakeOutput()))
 Local pipedSpinner = Spinner("quiet", piped, At(0))
 pipedSpinner.Tick(At(100))
 pipedSpinner.Succeed("piped")

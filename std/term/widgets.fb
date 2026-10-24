@@ -260,7 +260,7 @@ Public Class Table
                 If VisibleWidth(line) <= widths[column]
                     cellLines.Add(line)
                 Else
-                    For part In line.WordWrap(widths[column]).SplitLines()
+                    For part In WrapStyled(line, widths[column])
                         cellLines.Add(part)
                     End For
                 End If
@@ -323,12 +323,17 @@ Public Class Box
     // NONE.
     Public Method Render(colors: ColorLevel = ColorLevel.NONE): String
         Local pad = Max(Padding, 0)
-        // Its content has a column at least.
-        Local inner = Max(Width - 2 * pad, 1)
+        // Its content has a column at least, and as many as its widest grapheme cluster takes.
+        Local least = 1
+        For grapheme In StripStyles(Content).Graphemes()
+            least = Max(least, Min(DisplayWidth(grapheme), 2))
+        End For
+
+        Local inner = Max(Width - 2 * pad, least)
         Local contentLines: String[] = []
         For line In Content.SplitLines()
             If Width > 0 && VisibleWidth(line) > inner
-                For part In line.WordWrap(inner).SplitLines()
+                For part In WrapStyled(line, inner)
                     contentLines.Add(part)
                 End For
             Else
@@ -508,7 +513,7 @@ Public Class ProgressBar
         Local after: String[] = []
         Local elapsed = ((now.Nanoseconds - Started.Nanoseconds) As Double) / 1000000000.0
         If elapsed < 0.0 Then elapsed = 0.0
-        If Parts.Has(ProgressParts.PERCENT) Then after.Add("{((fraction * 100.0) As Int):>3}%")
+        If Parts.Has(ProgressParts.PERCENT) Then after.Add("{PercentDone():>3}%")
         If Parts.Has(ProgressParts.COUNT) Then after.Add("{Current}/{Total}")
         If Parts.Has(ProgressParts.ELAPSED) Then after.Add(TimeText(elapsed))
         If Parts.Has(ProgressParts.ETA)
@@ -541,6 +546,15 @@ Public Class ProgressBar
         If barWidth > 0 Then pieces.Add(Bar(fraction, barWidth, level))
         If tail != "" Then pieces.Add(tail)
         Return " ".Join(pieces)
+    End Method
+
+    // How much of Total is done, in whole percent, rounded down, in Int64s, where a Double's
+    // 0.29 * 100 is 28.999.
+    Method PercentDone(): Int
+        If Total <= 0 Then Return 100
+        Local done = Clamp(Current, 0, Total)
+        If Total <= 92233720368547758 Then Return (done * 100 / Total) As Int
+        Return Min(done / (Total / 100), 100) As Int
     End Method
 
     // Starts it, as each New does.
@@ -645,7 +659,11 @@ Public Class Spinner
         If frame == Shown && Message == ShownMessage Then Return
         Shown = frame
         ShownMessage = Message
-        Local text = Term.Paint(Frames[frame], FrameStyle) + (Message == "" ? "" : " " + Message)
+        // The line stops a column short of the edge, so the terminal doesn't wrap it, and it's
+        // drawn again in place.
+        Local shown = Truncated(Frames[frame], Term.Columns - 1)
+        Local message = Truncated(Message, Term.Columns - 2 - DisplayWidth(shown))
+        Local text = Term.Paint(shown, FrameStyle) + (message == "" ? "" : " " + message)
         Term.Write("\r" + text + "\u{1b}[K")
         Term.Flush()
     End Method
@@ -685,8 +703,10 @@ Public Class Spinner
     End Method
 End Class
 
-// A time in seconds as "m:ss", or "h:mm:ss" from an hour.
+// A time in seconds as "m:ss", or "h:mm:ss" from an hour, or "-:--", as for one that isn't known,
+// from 10000 hours, or for one that isn't a number.
 Function TimeText(seconds: Double): String
+    If !(seconds < 36000000.0) Then Return "-:--"
     Local whole = seconds As Int64
     Local hours = whole / 3600
     Local minutes = whole / 60 % 60
