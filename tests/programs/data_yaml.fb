@@ -1,0 +1,160 @@
+// std.data's YAML: how the core schema reads plain scalars, the other scalars' styles, block
+// scalars' chomping and indentation, flow and block collections, anchors and aliases, tags,
+// several documents, where a ParseError says it is and what kind it is, and what Write writes,
+// which reads back as the same Value.
+
+Import std.core
+Import std.collections
+Import std.data.value
+Import std.data.yaml
+
+// Each plain scalar, and the kind and Value the core schema gives it.
+Local plains = ["~", "null", "Null", "NULL", "", "true", "True", "FALSE", "yes", "42", "-17", "+5",
+                "0o17", "0x1F", "0x", "1.5", "-0.5", ".5", "1.", "1e3", "-1.5E-3", ".inf", "-.Inf",
+                "+.INF", ".nan", ".NaN", "0.1.2", "12:30", "9223372036854775807",
+                "9223372036854775808", "text", "two words"]
+For plain In plains
+    Local value = Try Yaml.Read("x: " + plain)
+    Print("[" + plain + "]", value["x"].Kind, value["x"])
+End For
+
+// Quoted, literal, and folded scalars.
+Local styles = Try Yaml.Read(r"""
+    single: 'it''s ''quoted'' # not a comment'
+    double: "tab\tnewline\nunicode \u00E9 \U0001F600 \x41 escaped \
+      line"
+    folded lines: "one
+      two
+
+      three"
+    literal: |
+      line one
+        indented
+      line three
+    folded: >
+      folded
+      lines
+
+      paragraph
+    strip: |-
+      no break
+    keep: |+
+      kept
+
+    indicated: |2
+       one more space
+    """)
+For key In styles.Keys()
+    Print(key, "=", styles[key])
+End For
+
+// Collections, block and flow, anchors and aliases, and comments.
+Local collections = Try Yaml.Read(r"""
+    # a comment
+    base: &base {name: base, list: [1, 2, {three: 3}]}
+    copy: *base
+    nested:
+      - a
+      - - b
+        - c
+      - key: value
+        other: [x, y]
+      -
+    empty map: {}
+    empty list: []
+    "quoted key": 1
+    ? explicit key
+    : explicit value
+    1: integer key
+    """)
+Print(collections)
+Print(collections["copy"]["list"][2]["three"])
+
+// Tags of the core schema, under their own handle or a %TAG's.
+Local tagged = Try Yaml.Read(r"""
+    %TAG !core! tag:yaml.org,2002:
+    ---
+    a: !!str 42
+    b: !!int "7"
+    c: !!float 1
+    d: !core!bool true
+    e: !!null ""
+    f: ! 12
+    g: !<tag:yaml.org,2002:str> 3
+    h: !!seq [1]
+    i: !!map {k: v}
+    """)
+Print(tagged)
+
+// Several documents, and markers.
+Local stream = Try Yaml.ReadAll("--- a\n--- b\n...\n%YAML 1.2\n--- [c]\n---\n")
+Print(stream.Count, stream[0], stream[1], stream[2], stream[3])
+Print((Try Yaml.ReadAll("")).Count, (Try Yaml.ReadAll("# only a comment\n")).Count, Try Yaml.Read(""))
+
+// Each mistake throws a ParseError of its kind, at its line and column.
+Function Failure(text: String)
+    Try
+        Yaml.Read(text)
+        Print("reads:", text)
+    Catch e As ParseError
+        Print(e.Kind, e.Line, e.Column, e.Message)
+    End Try
+End Function
+
+Failure("a: 1\na: 2")
+Failure("? [a]\n: b")
+Failure("a: !local x")
+Failure("a: !!binary YWJj")
+Failure("a: !!int abc")
+Failure("- a\n- b\n--- c\n--- d")
+Failure("key: \"unended")
+Failure("a: [1, 2")
+Failure("a:\n\t- b")
+Failure("a: *missing")
+Failure("a: b: c")
+Failure("- a\nb: c")
+Failure("a: \"\\q\"")
+Failure("a: 'x'#comment")
+Failure("%YAML 2.0\n--- a")
+Failure("%YAML 1.2\n%YAML 1.2\n--- a")
+Failure("a: \u{1}")
+
+// Write: block mappings and sequences, flow's empty collections, and plain scalars where the
+// core schema reads them back as the same; else double quotes.
+Local value = Value.NewObject()
+value["name"] = Value("Ada")
+value["number like"] = Value("42")
+value["bool like"] = Value("true")
+value["null like"] = Value("~")
+value["empty"] = Value("")
+value["spaces"] = Value(" padded ")
+value["quote"] = Value("say \"hi\"\n\ttab é \u{7}")
+value["colon"] = Value("a: b")
+value["hash"] = Value("a #b")
+value["dash"] = Value("- item")
+value["marker"] = Value("---")
+value["int"] = Value(42 As Int64)
+value["float"] = Value(2.0)
+value["big"] = Value(1e300)
+value["nothing"] = Value()
+value["flag"] = Value(False)
+Local list = Value.NewArray()
+list.Add(Value(1 As Int64))
+Local inner = Value.NewObject()
+inner["k"] = Value("v")
+inner["l"] = Value.NewArray()
+inner["l"].Add(Value("x"))
+list.Add(inner)
+Local deeper = Value.NewArray()
+deeper.Add(Value("y"))
+list.Add(deeper)
+list.Add(Value.NewObject())
+value["list"] = list
+value["map"] = Value.NewObject()
+value["map"]["a"] = Value.NewArray()
+value["map"]["a"].Add(Value("z"))
+Local written = Yaml.Write(value)
+Print(written)
+Print((Try Yaml.Read(written)) == value)
+Print(Yaml.Write(Value("top")), Yaml.Write(Value.NewArray()), Yaml.WriteAll([Value(1 As Int64), list]))
+Print((Try Yaml.ReadAll(Yaml.WriteAll([Value(1 As Int64), list]))).Count)

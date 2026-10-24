@@ -1,0 +1,1033 @@
+// YamlScanner: YAML 1.2's tokens, as libyaml scans them: indicators, scalars of each style,
+// anchors, aliases, tags, and directives, and the block structure's starts and ends, which
+// indentation gives, with a key's token put in front of a simple key once its ':' is found.
+
+Import std.core
+Import std.collections
+Import std.data.text
+
+// What a YamlToken is.
+Package Enum YamlTokenKind
+    STREAM_START, STREAM_END, VERSION, TAG_DIRECTIVE, DOCUMENT_START, DOCUMENT_END,
+    BLOCK_SEQUENCE, BLOCK_MAPPING, BLOCK_END, FLOW_SEQUENCE, FLOW_SEQUENCE_END, FLOW_MAPPING,
+    FLOW_MAPPING_END, BLOCK_ENTRY, FLOW_ENTRY, KEY, VALUE, ALIAS, ANCHOR, TAG, SCALAR
+End Enum
+
+// A scalar's style.
+Package Const PLAIN = 0
+Package Const SINGLE = 1
+Package Const DOUBLE = 2
+Package Const LITERAL = 3
+Package Const FOLDED = 4
+
+Package Class YamlToken
+    Package Field Kind: YamlTokenKind
+    // A scalar's text, an anchor's or alias's name, a tag's handle, a %YAML directive's
+    // version, or a %TAG directive's handle.
+    Package Field Text: String = ""
+    // A tag's suffix, or a %TAG directive's prefix.
+    Package Field Suffix: String = ""
+    Package Field Style: Int
+    // Where it starts: its byte, and its line and column, from 0.
+    Package Field At: Int
+    Package Field Line: Int
+    Package Field Column: Int
+
+    Package New(kind: YamlTokenKind, at: Int, line: Int, column: Int)
+        Kind = kind
+        At = at
+        Line = line
+        Column = column
+    End New
+End Class
+
+// Where a simple key could start, as the number of tokens before it counts.
+Class YamlKey
+    Field Possible: Bool
+    Field Required: Bool
+    Field Tabbed: Bool
+    Field Number: Int
+    Field At: Int
+    Field Line: Int
+    Field Column: Int
+End Class
+
+Package Class YamlScanner
+    Field Bytes: UInt8[]
+    Field At: Int
+    Field Line: Int
+    Field Column: Int
+    Field Tokens: YamlToken[] = []
+    // How many tokens were taken from Tokens.
+    Field Taken: Int
+    Field Done: Bool
+    Field Started: Bool
+    Field FlowLevel: Int
+    Field Indent: Int = -1
+    Field Indents: Int[] = []
+    Field SimpleAllowed: Bool = True
+    // The possible simple key for each flow level, the block context's first.
+    Field Keys: YamlKey[] = []
+    // Whether the last token was one after which ':' in a flow collection is a value's right
+    // away: a quoted scalar, or a flow collection's end.
+    Field JsonLike: Bool
+    // Whether a tab is in the space before the next token on its line, which can't then start a
+    // block's entry or key.
+    Field TabBefore: Bool
+
+    // A scanner of bytes, whose last line, when it's only spaces and tabs, ends with a line break.
+    Package New(bytes: UInt8[])
+        Bytes = bytes
+        Local at = bytes.Count
+        While at > 0 && (bytes[at - 1] == 32 || bytes[at - 1] == 9)
+            at -= 1
+        End While
+        If at < bytes.Count && (at == 0 || IsBreakByte(bytes[at - 1]))
+            Bytes = bytes.Clone()
+            Bytes.Add(10)
+        End If
+
+        Keys.Add(YamlKey())
+    End New
+
+    // The next token, without taking it.
+    Package Method Peek(): YamlToken Throws ParseError
+        While Try NeedMore()
+            Try FetchMore()
+        End While
+        Return Tokens[0]
+    End Method
+
+    // The next token, taking it.
+    Package Method Take(): YamlToken Throws ParseError
+        Local token = Try Peek()
+        Tokens.RemoveAt(0)
+        Taken += 1
+        Return token
+    End Method
+
+    Method NeedMore(): Bool Throws ParseError
+        If Done Then Return False
+        If Tokens.Count == 0 Then Return True
+        Try StaleKeys()
+        For key In Keys
+            If key.Possible && key.Number == Taken Then Return True
+        End For
+        Return False
+    End Method
+
+    Method FetchMore() Throws ParseError
+        If !Started
+            Started = True
+            Tokens.Add(Token(YamlTokenKind.STREAM_START))
+            Return
+        End If
+
+        Try SkipToToken()
+        Try StaleKeys()
+        Unwind(Column)
+        Local b = ByteAt(0)
+        If AtEnd()
+            Try FetchStreamEnd()
+        ElseIf Column == 0 && b == 37
+            Try FetchDirective()
+        ElseIf Column == 0 && IsMarker(45)
+            Try FetchDocument(YamlTokenKind.DOCUMENT_START)
+        ElseIf Column == 0 && IsMarker(46)
+            Try FetchDocument(YamlTokenKind.DOCUMENT_END)
+        ElseIf b == 91
+            Try FetchFlowStart(YamlTokenKind.FLOW_SEQUENCE)
+        ElseIf b == 123
+            Try FetchFlowStart(YamlTokenKind.FLOW_MAPPING)
+        ElseIf b == 93
+            Try FetchFlowEnd(YamlTokenKind.FLOW_SEQUENCE_END)
+        ElseIf b == 125
+            Try FetchFlowEnd(YamlTokenKind.FLOW_MAPPING_END)
+        ElseIf b == 44
+            Try FetchFlowEntry()
+        ElseIf b == 45 && IsBlankAt(1)
+            Try FetchBlockEntry()
+        ElseIf b == 63 && IsBlankAt(1)
+            Try FetchKey()
+        ElseIf b == 58 && IsValueIndicator()
+            Try FetchValue()
+        ElseIf b == 42
+            Try FetchAnchor(YamlTokenKind.ALIAS)
+        ElseIf b == 38
+            Try FetchAnchor(YamlTokenKind.ANCHOR)
+        ElseIf b == 33
+            Try FetchTag()
+        ElseIf b == 124 && FlowLevel == 0
+            Try FetchBlockScalar(LITERAL)
+        ElseIf b == 62 && FlowLevel == 0
+            Try FetchBlockScalar(FOLDED)
+        ElseIf b == 39
+            Try FetchFlowScalar(SINGLE)
+        ElseIf b == 34
+            Try FetchFlowScalar(DOUBLE)
+        ElseIf StartsPlain()
+            Try FetchPlain()
+        ElseIf b == 9
+            Throw Fail("YAML indents with spaces, not tabs")
+        Else
+            Throw Fail("'{CharText(b As Int)}' can't start a token here")
+        End If
+    End Method
+
+    // Whether a ':' here is a value's indicator: before a space or the end, or in a flow
+    // collection before a flow indicator or right after a JSON-like key.
+    Method IsValueIndicator(): Bool
+        If IsBlankAt(1) Then Return True
+        If FlowLevel == 0 Then Return False
+        Return JsonLike || IsFlowIndicator(ByteAt(1))
+    End Method
+
+    // Past spaces, tabs, comments, and line breaks to the next token. In a flow collection in a
+    // block, a line's spaces indent it more than the block's.
+    Method SkipToToken() Throws ParseError
+        If At == 0 && ByteAt(0) == 0xEF && ByteAt(1) == 0xBB && ByteAt(2) == 0xBF Then At += 3
+        TabBefore = False
+        Loop
+            While ByteAt(0) == 32 || ByteAt(0) == 9
+                If ByteAt(0) == 9 Then TabBefore = True
+                Advance(1)
+            End While
+            If FlowLevel > 0 && Indent >= 0 && !AtEnd() && !IsBreakByte(ByteAt(0)) && ByteAt(0) != 35 &&
+               LineStart() && LineSpaces() <= Indent
+                Throw Fail("a flow collection's lines are indented more than its block's")
+            End If
+
+            If ByteAt(0) == 35 && !AtEnd()
+                If At > 0 && !IsWhiteByte(Bytes[At - 1]) && !IsBreakByte(Bytes[At - 1])
+                    Throw Fail("a comment has a space before its '#'")
+                End If
+
+                While !AtEnd() && !IsBreakByte(ByteAt(0))
+                    Try CheckPrintable()
+                End While
+            End If
+
+            If AtEnd() || !IsBreakByte(ByteAt(0)) Then Return
+            LineBreak()
+            TabBefore = False
+            If FlowLevel == 0 Then SimpleAllowed = True
+        End Loop
+    End Method
+
+    // Whether only spaces and tabs are on the line before the current place.
+    Method LineStart(): Bool
+        Local at = At - 1
+        While at >= 0 && !IsBreakByte(Bytes[at])
+            If !IsWhiteByte(Bytes[at]) Then Return False
+            at -= 1
+        End While
+        Return True
+    End Method
+
+    // How many spaces start the current line, up to its first character that isn't one.
+    Method LineSpaces(): Int
+        Local at = At
+        While at > 0 && !IsBreakByte(Bytes[at - 1])
+            at -= 1
+        End While
+        Local spaces = 0
+        While at + spaces < Bytes.Count && Bytes[at + spaces] == 32
+            spaces += 1
+        End While
+        Return spaces
+    End Method
+
+    Method FetchStreamEnd() Throws ParseError
+        If Column != 0
+            Column = 0
+            Line += 1
+        End If
+
+        Unwind(-1)
+        Try RemoveKey()
+        SimpleAllowed = False
+        Tokens.Add(Token(YamlTokenKind.STREAM_END))
+        Done = True
+    End Method
+
+    Method FetchDirective() Throws ParseError
+        Unwind(-1)
+        Try RemoveKey()
+        SimpleAllowed = False
+        Local token = Token(YamlTokenKind.VERSION)
+        Advance(1)
+        Local name = Word()
+        If name == "YAML"
+            Try SkipWhite(True)
+            Local start = At
+            If !Try Digits() || ByteAt(0) != 46 Then Throw Fail("%YAML's version is a number, '.', and a number")
+            Advance(1)
+            If !Try Digits() Then Throw Fail("%YAML's version is a number, '.', and a number")
+            token.Text = TextOf(Bytes, start, At)
+        ElseIf name == "TAG"
+            token.Kind = YamlTokenKind.TAG_DIRECTIVE
+            Try SkipWhite(True)
+            token.Text = Try TagHandle()
+            Try SkipWhite(True)
+            token.Suffix = Word()
+            If token.Suffix == "" Then Throw Fail("%TAG gives a handle and a prefix")
+        Else
+            // A reserved directive, which is left out.
+            While !AtEnd() && !IsBreakByte(ByteAt(0))
+                Try CheckPrintable()
+            End While
+            Return
+        End If
+
+        Local spaced = Try SkipWhite(False)
+        If ByteAt(0) == 35 && !AtEnd()
+            If !spaced Then Throw Fail("a comment has a space before its '#'")
+            While !AtEnd() && !IsBreakByte(ByteAt(0))
+                Advance(1)
+            End While
+        End If
+
+        If !AtEnd() && !IsBreakByte(ByteAt(0)) Then Throw Fail("a directive ends its line")
+        Tokens.Add(token)
+    End Method
+
+    // Past digits, giving whether there were any.
+    Method Digits(): Bool Throws ParseError
+        Local start = At
+        While IsDigit(ByteAt(0))
+            Advance(1)
+        End While
+        Return At > start
+    End Method
+
+    Method FetchDocument(kind: YamlTokenKind) Throws ParseError
+        Unwind(-1)
+        Try RemoveKey()
+        SimpleAllowed = False
+        Tokens.Add(Token(kind))
+        Advance(3)
+        If kind == YamlTokenKind.DOCUMENT_END
+            // Only a comment can follow "..." on its line.
+            Local spaced = Try SkipWhite(False)
+            If !AtEnd() && !IsBreakByte(ByteAt(0)) && !(spaced && ByteAt(0) == 35)
+                Throw Fail("'...' ends its line, but for a comment")
+            End If
+        End If
+    End Method
+
+    Method FetchFlowStart(kind: YamlTokenKind) Throws ParseError
+        Try SaveKey()
+        FlowLevel += 1
+        Keys.Add(YamlKey())
+        SimpleAllowed = True
+        JsonLike = False
+        Tokens.Add(Token(kind))
+        Advance(1)
+    End Method
+
+    Method FetchFlowEnd(kind: YamlTokenKind) Throws ParseError
+        Try RemoveKey()
+        If FlowLevel > 0
+            FlowLevel -= 1
+            Keys.RemoveLast()
+        End If
+
+        SimpleAllowed = False
+        Tokens.Add(Token(kind))
+        Advance(1)
+        JsonLike = True
+    End Method
+
+    Method FetchFlowEntry() Throws ParseError
+        SimpleAllowed = True
+        Try RemoveKey()
+        JsonLike = False
+        Tokens.Add(Token(YamlTokenKind.FLOW_ENTRY))
+        Advance(1)
+    End Method
+
+    Method FetchBlockEntry() Throws ParseError
+        If FlowLevel == 0
+            If !SimpleAllowed Then Throw Fail("a sequence's entry can't start here")
+            If TabBefore Then Throw Fail("a block sequence's entry can't come after a tab")
+            If AddIndent(Column) Then Tokens.Add(Token(YamlTokenKind.BLOCK_SEQUENCE))
+        End If
+
+        SimpleAllowed = True
+        Try RemoveKey()
+        JsonLike = False
+        Tokens.Add(Token(YamlTokenKind.BLOCK_ENTRY))
+        Advance(1)
+    End Method
+
+    Method FetchKey() Throws ParseError
+        If FlowLevel == 0
+            If !SimpleAllowed Then Throw Fail("a mapping's key can't start here")
+            If TabBefore Then Throw Fail("a block mapping's key can't come after a tab")
+            If AddIndent(Column) Then Tokens.Add(Token(YamlTokenKind.BLOCK_MAPPING))
+        End If
+
+        SimpleAllowed = FlowLevel == 0
+        Try RemoveKey()
+        JsonLike = False
+        Tokens.Add(Token(YamlTokenKind.KEY))
+        Advance(1)
+    End Method
+
+    Method FetchValue() Throws ParseError
+        Local key = Keys[FlowLevel]
+        If key.Possible
+            // The simple key before this ':' gets its KEY, and in the block context maybe a
+            // mapping's start before that.
+            key.Possible = False
+            If FlowLevel == 0 && key.Tabbed
+                Throw ErrorAt(Bytes, key.At, ParseErrorKind.SYNTAX, "a block mapping's key can't come after a tab")
+            End If
+
+            Local place = key.Number - Taken
+            Tokens.Insert(place, YamlToken(YamlTokenKind.KEY, key.At, key.Line, key.Column))
+            If FlowLevel == 0 && AddIndent(key.Column)
+                Tokens.Insert(place, YamlToken(YamlTokenKind.BLOCK_MAPPING, key.At, key.Line, key.Column))
+            End If
+
+            SimpleAllowed = False
+        Else
+            If FlowLevel == 0
+                If !SimpleAllowed Then Throw Fail("a mapping's value can't start here")
+                If AddIndent(Column) Then Tokens.Add(Token(YamlTokenKind.BLOCK_MAPPING))
+            End If
+
+            SimpleAllowed = FlowLevel == 0
+            Try RemoveKey()
+        End If
+
+        JsonLike = False
+        Tokens.Add(Token(YamlTokenKind.VALUE))
+        Advance(1)
+    End Method
+
+    Method FetchAnchor(kind: YamlTokenKind) Throws ParseError
+        Try SaveKey()
+        SimpleAllowed = False
+        JsonLike = False
+        Local token = Token(kind)
+        Advance(1)
+        Local start = At
+        While !AtEnd() && !IsBlankAt(0) && !IsFlowIndicator(ByteAt(0))
+            Try CheckPrintable()
+        End While
+        If At == start Then Throw Fail("an anchor or an alias has a name")
+        token.Text = TextOf(Bytes, start, At)
+        Tokens.Add(token)
+    End Method
+
+    Method FetchTag() Throws ParseError
+        Try SaveKey()
+        SimpleAllowed = False
+        JsonLike = False
+        Local token = Token(YamlTokenKind.TAG)
+        If ByteAt(1) == 60
+            // A verbatim tag, `!<tag>`.
+            Advance(2)
+            Local start = At
+            While !AtEnd() && ByteAt(0) != 62 && !IsBlankAt(0)
+                Advance(1)
+            End While
+            If ByteAt(0) != 62 || At == start Then Throw Fail("a verbatim tag ends with '>'")
+            token.Suffix = TextOf(Bytes, start, At)
+            Advance(1)
+        Else
+            // `!`, `!suffix`, `!!suffix`, or `!handle!suffix`.
+            Local start = At
+            Advance(1)
+            While IsWordByte(ByteAt(0))
+                Advance(1)
+            End While
+            If ByteAt(0) == 33
+                Advance(1)
+                token.Text = TextOf(Bytes, start, At)
+            Else
+                At = start + 1
+                Column = token.Column + 1
+                token.Text = "!"
+            End If
+
+            Local suffix = At
+            While !AtEnd() && !IsBlankAt(0) && !IsFlowIndicator(ByteAt(0))
+                Try CheckPrintable()
+            End While
+            token.Suffix = TextOf(Bytes, suffix, At)
+            If token.Suffix == "" && token.Text != "!" Then Throw Fail("a tag's handle is followed by its suffix")
+        End If
+
+        If !AtEnd() && !IsBlankAt(0) && !(FlowLevel > 0 && IsFlowIndicator(ByteAt(0)))
+            Throw Fail("a tag is followed by a space")
+        End If
+
+        Tokens.Add(token)
+    End Method
+
+    // A tag handle in a %TAG directive: `!`, `!!`, or `!name!`.
+    Method TagHandle(): String Throws ParseError
+        Local start = At
+        If ByteAt(0) != 33 Then Throw Fail("a tag's handle starts with '!'")
+        Advance(1)
+        While IsWordByte(ByteAt(0))
+            Advance(1)
+        End While
+        If ByteAt(0) == 33
+            Advance(1)
+        ElseIf At > start + 1
+            Throw Fail("a named tag handle ends with '!'")
+        End If
+
+        Return TextOf(Bytes, start, At)
+    End Method
+
+    Method FetchBlockScalar(style: Int) Throws ParseError
+        SimpleAllowed = True
+        Try RemoveKey()
+        JsonLike = False
+        Tokens.Add(Try BlockScalar(style))
+    End Method
+
+    Method FetchFlowScalar(style: Int) Throws ParseError
+        Try SaveKey()
+        SimpleAllowed = False
+        Tokens.Add(Try FlowScalar(style))
+        JsonLike = True
+    End Method
+
+    Method FetchPlain() Throws ParseError
+        Try SaveKey()
+        SimpleAllowed = False
+        JsonLike = False
+        Tokens.Add(Try Plain())
+    End Method
+
+    // A plain scalar, its lines folded into one.
+    Method Plain(): YamlToken Throws ParseError
+        Local token = Token(YamlTokenKind.SCALAR)
+        token.Style = PLAIN
+        Local out: UInt8[] = []
+        Local spaces: UInt8[] = []
+        Local indent = Indent + 1
+        Loop
+            If ByteAt(0) == 35 Then Break
+            Local start = At
+            While !AtEnd()
+                Local b = ByteAt(0)
+                If IsBlankAt(0) Then Break
+                If b == 58 && (IsBlankAt(1) || (FlowLevel > 0 && IsFlowIndicator(ByteAt(1)))) Then Break
+                If FlowLevel > 0 && IsFlowIndicator(b) Then Break
+                Try CheckPrintable()
+            End While
+            If At == start Then Break
+            SimpleAllowed = False
+            out.AddAll(spaces)
+            out.AddAll(Bytes[start..At])
+            Local folded = Try PlainSpaces(indent)
+            If folded == Null Then Break
+            spaces = folded
+        End Loop
+        token.Text = TextOf(out)
+        Return token
+    End Method
+
+    // The spaces and line breaks after a plain scalar's part, folded: a line break as a space,
+    // or the empty lines after it as line breaks; or Null where the scalar ends.
+    Method PlainSpaces(indent: Int): UInt8[]? Throws ParseError
+        Local start = At
+        While ByteAt(0) == 32 || ByteAt(0) == 9
+            Advance(1)
+        End While
+        If AtEnd() Then Return Null
+        If !IsBreakByte(ByteAt(0))
+            If At == start || ByteAt(0) == 35 Then Return Null
+            Return Bytes[start..At]
+        End If
+
+        LineBreak()
+        SimpleAllowed = True
+        If IsDocumentMarker() Then Return Null
+        Local breaks = 0
+        Loop
+            While ByteAt(0) == 32 || ByteAt(0) == 9
+                Advance(1)
+            End While
+            If AtEnd() || !IsBreakByte(ByteAt(0)) Then Break
+            LineBreak()
+            breaks += 1
+            If IsDocumentMarker() Then Return Null
+        End Loop
+        If AtEnd() || ByteAt(0) == 35 Then Return Null
+        If FlowLevel == 0 && Column < indent Then Return Null
+        If FlowLevel > 0 && Indent >= 0 && LineSpaces() <= Indent
+            Throw Fail("a flow collection's lines are indented more than its block's")
+        End If
+        Local folded: UInt8[] = []
+        If breaks == 0
+            folded.Add(32)
+        Else
+            For i = 1 To breaks
+                folded.Add(10)
+            End For
+        End If
+
+        Return folded
+    End Method
+
+    // A scalar in '' or "", its lines folded and, in "", its escapes replaced.
+    Method FlowScalar(style: Int): YamlToken Throws ParseError
+        Local token = Token(YamlTokenKind.SCALAR)
+        token.Style = style
+        Local double = style == DOUBLE
+        Local quote: UInt8 = double ? 34 : 39
+        Advance(1)
+        Local out: UInt8[] = []
+        Loop
+            If AtEnd() Then Throw Ended(token, "the quoted scalar has no closing quote")
+            Local b = ByteAt(0)
+            If !double && b == 39 && ByteAt(1) == 39
+                out.Add(39)
+                Advance(2)
+            ElseIf b == quote
+                Advance(1)
+                Break
+            ElseIf double && b == 92
+                Try Escape(out)
+            ElseIf b == 32 || b == 9 || IsBreakByte(b)
+                Try FlowSpaces(out, token)
+            Else
+                Local from = At
+                Try CheckPrintable()
+                out.AddAll(Bytes[from..At])
+            End If
+        End Loop
+        token.Text = TextOf(out)
+        Return token
+    End Method
+
+    // A quoted scalar's spaces and line breaks, folded as a plain scalar's are.
+    Method FlowSpaces(out: UInt8[], token: YamlToken) Throws ParseError
+        Local start = At
+        While ByteAt(0) == 32 || ByteAt(0) == 9
+            Advance(1)
+        End While
+        If AtEnd() Then Throw Ended(token, "the quoted scalar has no closing quote")
+        If !IsBreakByte(ByteAt(0))
+            out.AddAll(Bytes[start..At])
+            Return
+        End If
+
+        LineBreak()
+        Local breaks = 0
+        Loop
+            If IsDocumentMarker() Then Throw Fail("a quoted scalar can't hold a document's marker")
+            While ByteAt(0) == 32 || ByteAt(0) == 9
+                Advance(1)
+            End While
+            If AtEnd() || !IsBreakByte(ByteAt(0)) Then Break
+            LineBreak()
+            breaks += 1
+        End Loop
+        If Indent >= 0 && !AtEnd() && LineSpaces() <= Indent
+            Throw Fail("a quoted scalar's lines are indented more than its block's")
+        End If
+
+        If breaks == 0
+            out.Add(32)
+        Else
+            For i = 1 To breaks
+                out.Add(10)
+            End For
+        End If
+    End Method
+
+    // A double-quoted scalar's escape, at its '\'.
+    Method Escape(out: UInt8[]) Throws ParseError
+        Advance(1)
+        Local b = ByteAt(0)
+        If IsBreakByte(b)
+            // An escaped line break: it and the spaces after it are left out.
+            LineBreak()
+            Loop
+                While ByteAt(0) == 32 || ByteAt(0) == 9
+                    Advance(1)
+                End While
+                If AtEnd() || !IsBreakByte(ByteAt(0)) Then Break
+                LineBreak()
+                out.Add(10)
+            End Loop
+            Return
+        End If
+
+        Advance(1)
+        Select b
+            Case 48
+                out.Add(0)
+            Case 97
+                out.Add(7)
+            Case 98
+                out.Add(8)
+            Case 116
+                out.Add(9)
+            Case 9
+                out.Add(9)
+            Case 110
+                out.Add(10)
+            Case 118
+                out.Add(11)
+            Case 102
+                out.Add(12)
+            Case 114
+                out.Add(13)
+            Case 101
+                out.Add(27)
+            Case 32
+                out.Add(32)
+            Case 34
+                out.Add(34)
+            Case 47
+                out.Add(47)
+            Case 92
+                out.Add(92)
+            Case 78
+                AddChar(out, 0x85)
+            Case 95
+                AddChar(out, 0xA0)
+            Case 76
+                AddChar(out, 0x2028)
+            Case 80
+                AddChar(out, 0x2029)
+            Case 120
+                AddChar(out, Try Hex(2))
+            Case 117
+                AddChar(out, Try Hex(4))
+            Case 85
+                AddChar(out, Try Hex(8))
+            Default
+                Throw Fail("'\\{CharText(b As Int)}' isn't one of YAML's escapes")
+        End Select
+    End Method
+
+    // The code point of an escape's digits hex digits.
+    Method Hex(digits: Int): Int Throws ParseError
+        Local value: Int64 = 0
+        For i = 1 To digits
+            Local b = ByteAt(0)
+            Local digit: Int64 = -1
+            If IsDigit(b)
+                digit = (b As Int64) - 48
+            ElseIf b >= 97 && b <= 102
+                digit = (b As Int64) - 87
+            ElseIf b >= 65 && b <= 70
+                digit = (b As Int64) - 55
+            End If
+
+            If digit < 0 Then Throw Fail("the escape has {digits} hex digits")
+            value = value * 16 + digit
+            Advance(1)
+        End For
+        If !IsScalar(value) Then Throw Fail("the escape isn't a Unicode scalar value")
+        Return value As Int
+    End Method
+
+    // A literal or folded block scalar, from its header.
+    Method BlockScalar(style: Int): YamlToken Throws ParseError
+        Local token = Token(YamlTokenKind.SCALAR)
+        token.Style = style
+        Local folded = style == FOLDED
+        Advance(1)
+        // Its header: a chomping indicator, '-' to strip or '+' to keep its last line breaks, and
+        // an indentation indicator, in either order.
+        Local chomping = 0
+        Local increment = 0
+        For i = 1 To 2
+            Local b = ByteAt(0)
+            If (b == 43 || b == 45) && chomping == 0
+                chomping = b == 43 ? 1 : -1
+                Advance(1)
+            ElseIf b >= 49 && b <= 57 && increment == 0
+                increment = (b As Int) - 48
+                Advance(1)
+            End If
+        End For
+        Local spaced = Try SkipWhite(False)
+        If ByteAt(0) == 35 && !AtEnd()
+            If !spaced Then Throw Fail("a comment has a space before its '#'")
+            While !AtEnd() && !IsBreakByte(ByteAt(0))
+                Try CheckPrintable()
+            End While
+        End If
+
+        If !AtEnd() && !IsBreakByte(ByteAt(0)) Then Throw Fail("a block scalar's header ends its line")
+        If !AtEnd() Then LineBreak()
+
+        Local least = Max(Indent + 1, 0)
+        Local indent = 0
+        Local breaks: UInt8[] = []
+        If increment > 0
+            indent = Max(Indent + 1, 1) + increment - 1
+            Try BlockBreaks(indent, breaks)
+        Else
+            // The indentation is the first line's with more than spaces, and the empty lines
+            // before it can't have more spaces than it.
+            Local most = 0
+            Loop
+                While ByteAt(0) == 32
+                    Advance(1)
+                End While
+                If ByteAt(0) == 9 && Column < least && BlankAfter() Then Throw Fail(TAB_IN_BLOCK)
+                If AtEnd() || !IsBreakByte(ByteAt(0)) Then Break
+                If Column > most Then most = Column
+                LineBreak()
+                breaks.Add(10)
+            End Loop
+            If AtEnd() || (Column == 0 && IsDocumentMarker())
+                indent = Max(least, most)
+            Else
+                indent = Max(least, Column)
+                If most > indent
+                    Throw Fail("a block scalar's leading empty lines have more spaces than its first line")
+                End If
+            End If
+        End If
+
+        Local out: UInt8[] = []
+        Local ended = False
+        While Column == indent && !AtEnd() && !IsDocumentMarker()
+            out.AddAll(breaks)
+            breaks.Clear()
+            Local leading = ByteAt(0) != 32 && ByteAt(0) != 9
+            Local start = At
+            While !AtEnd() && !IsBreakByte(ByteAt(0))
+                Try CheckPrintable()
+            End While
+            out.AddAll(Bytes[start..At])
+            ended = !AtEnd()
+            If ended Then LineBreak()
+            Try BlockBreaks(indent, breaks)
+            If Column != indent || AtEnd() || IsDocumentMarker() Then Break
+            If folded && leading && ByteAt(0) != 32 && ByteAt(0) != 9
+                If breaks.Count == 0 Then out.Add(32)
+            Else
+                out.Add(10)
+            End If
+        End While
+
+        If chomping != -1 && ended Then out.Add(10)
+        If chomping == 1 Then out.AddAll(breaks)
+        token.Text = TextOf(out)
+        Return token
+    End Method
+
+    // A block scalar's empty lines, each a line break in breaks, with its indentation's spaces
+    // left out.
+    Method BlockBreaks(indent: Int, breaks: UInt8[]) Throws ParseError
+        Loop
+            While Column < indent && ByteAt(0) == 32
+                Advance(1)
+            End While
+            If ByteAt(0) == 9 && Column < indent && BlankAfter() Then Throw Fail(TAB_IN_BLOCK)
+            If AtEnd() || !IsBreakByte(ByteAt(0)) Then Return
+            LineBreak()
+            breaks.Add(10)
+        End Loop
+    End Method
+
+    // Whether only spaces and tabs are left on the line.
+    Method BlankAfter(): Bool
+        Local ahead = 0
+        While ByteAt(ahead) == 32 || ByteAt(ahead) == 9
+            ahead += 1
+        End While
+        Return At + ahead >= Bytes.Count || IsBreakByte(ByteAt(ahead))
+    End Method
+
+    // Remembers that a simple key could start here.
+    Method SaveKey() Throws ParseError
+        If !SimpleAllowed Then Return
+        Local required = FlowLevel == 0 && Indent == Column
+        Try RemoveKey()
+        Local key = Keys[FlowLevel]
+        key.Possible = True
+        key.Required = required
+        key.Tabbed = TabBefore
+        key.Number = Taken + Tokens.Count
+        key.At = At
+        key.Line = Line
+        key.Column = Column
+    End Method
+
+    Method RemoveKey() Throws ParseError
+        Local key = Keys[FlowLevel]
+        If key.Possible && key.Required
+            Throw ErrorAt(Bytes, key.At, ParseErrorKind.SYNTAX, "a mapping's key has no ':' after it")
+        End If
+
+        key.Possible = False
+    End Method
+
+    // Drops the possible simple keys that can't be any more: a simple key is on one line, and
+    // up to 1024 characters long.
+    Method StaleKeys() Throws ParseError
+        For key In Keys
+            If key.Possible && (key.Line != Line || At - key.At > 1024)
+                If key.Required
+                    Throw ErrorAt(Bytes, key.At, ParseErrorKind.SYNTAX, "a mapping's key has no ':' after it")
+                End If
+
+                key.Possible = False
+            End If
+        End For
+    End Method
+
+    // Ends the block collections deeper than column.
+    Method Unwind(column: Int)
+        If FlowLevel > 0 Then Return
+        While Indent > column
+            Indent = Indents.RemoveLast()
+            Tokens.Add(Token(YamlTokenKind.BLOCK_END))
+        End While
+    End Method
+
+    Method AddIndent(column: Int): Bool
+        If Indent >= column Then Return False
+        Indents.Add(Indent)
+        Indent = column
+        Return True
+    End Method
+
+    // Whether a plain scalar can start here.
+    Method StartsPlain(): Bool
+        Local b = ByteAt(0)
+        If AtEnd() || IsBlankAt(0) Then Return False
+        If b == 45 || b == 63 || b == 58
+            Return !IsBlankAt(1) && !(FlowLevel > 0 && IsFlowIndicator(ByteAt(1)))
+        End If
+
+        Return !IsIndicator(b)
+    End Method
+
+    // Whether three of marker's byte, "---" or "...", are here, with a space after them.
+    Method IsMarker(marker: UInt8): Bool
+        Return ByteAt(0) == marker && ByteAt(1) == marker && ByteAt(2) == marker && IsBlankAt(3)
+    End Method
+
+    // Whether a document's marker starts the line here.
+    Method IsDocumentMarker(): Bool => Column == 0 && (IsMarker(45) || IsMarker(46))
+
+    // Past spaces and tabs, giving whether there were any, and throwing that there aren't when
+    // they're required.
+    Method SkipWhite(required: Bool): Bool Throws ParseError
+        Local start = At
+        While ByteAt(0) == 32 || ByteAt(0) == 9
+            Advance(1)
+        End While
+        If required && At == start Then Throw Fail("a space is missing here")
+        Return At > start
+    End Method
+
+    // What's here up to a space or the line's end.
+    Method Word(): String
+        Local start = At
+        While !AtEnd() && !IsBlankAt(0)
+            Advance(1)
+        End While
+        Return TextOf(Bytes, start, At)
+    End Method
+
+    // Past the character here, checking that YAML can hold it.
+    Method CheckPrintable() Throws ParseError
+        Local b = Bytes[At]
+        If b < 0x80
+            If (b < 32 && b != 9 && b != 10 && b != 13) || b == 127
+                Throw Fail("YAML can't hold the control character U+{HexOf(b As Int, 4)}")
+            End If
+
+            Advance(1)
+            Return
+        End If
+
+        Local code = CodeOf(Bytes, At)
+        Local c = code.0
+        If c == 0xFEFF Then Throw Fail("a byte order mark can only start a document")
+        If !(c == 0x85 || (c >= 0xA0 && c <= 0xD7FF) || (c >= 0xE000 && c <= 0xFFFD) || c >= 0x10000)
+            Throw Fail("YAML can't hold the character U+{HexOf(c As Int, 4)}")
+        End If
+
+        At += code.1
+        Column += 1
+    End Method
+
+    // Past a line break: LF, CR, or CRLF.
+    Method LineBreak()
+        If ByteAt(0) == 13 && ByteAt(1) == 10 Then At += 1
+        At += 1
+        Line += 1
+        Column = 0
+    End Method
+
+    // Past count ASCII characters.
+    Method Advance(count: Int)
+        At += count
+        Column += count
+    End Method
+
+    Method AtEnd(): Bool => At >= Bytes.Count
+
+    // The byte `ahead` past the current place, or 0 past the end.
+    Method ByteAt(ahead: Int): UInt8 => At + ahead < Bytes.Count ? Bytes[At + ahead] : 0
+
+    // Whether the byte `ahead` is a space, a tab, a line break, or past the end.
+    Method IsBlankAt(ahead: Int): Bool
+        If At + ahead >= Bytes.Count Then Return True
+        Local b = Bytes[At + ahead]
+        Return b == 32 || b == 9 || b == 10 || b == 13
+    End Method
+
+    Method Token(kind: YamlTokenKind): YamlToken => YamlToken(kind, At, Line, Column)
+
+    Method Fail(message: String): ParseError => ErrorAt(Bytes, At, ParseErrorKind.SYNTAX, message)
+
+    Method Ended(token: YamlToken, message: String): ParseError
+        Return ErrorAt(Bytes, token.At, ParseErrorKind.UNEXPECTED_END, message)
+    End Method
+End Class
+
+Const TAB_IN_BLOCK = "a block scalar's empty lines have no tabs in its indentation"
+
+// The code point at `at`, which starts a character of more than one byte, and its bytes' count.
+Package Function CodeOf(bytes: UInt8[], at: Int): (Int64, Int)
+    Local b = bytes[at] As Int64
+    If b < 0xE0 Then Return (((b & 0x1F) << 6) | ((bytes[at + 1] As Int64) & 0x3F), 2)
+    If b < 0xF0
+        Return (((b & 0x0F) << 12) | (((bytes[at + 1] As Int64) & 0x3F) << 6) |
+                ((bytes[at + 2] As Int64) & 0x3F), 3)
+    End If
+
+    Return (((b & 0x07) << 18) | (((bytes[at + 1] As Int64) & 0x3F) << 12) |
+            (((bytes[at + 2] As Int64) & 0x3F) << 6) | ((bytes[at + 3] As Int64) & 0x3F), 4)
+End Function
+
+Package Function IsBreakByte(b: UInt8): Bool => b == 10 || b == 13
+
+Function IsWhiteByte(b: UInt8): Bool => b == 32 || b == 9
+
+Function IsDigit(b: UInt8): Bool => b >= 48 && b <= 57
+
+// Whether b goes in a tag handle's name: a letter, a digit, or '-'.
+Function IsWordByte(b: UInt8): Bool
+    Return (b >= 65 && b <= 90) || (b >= 97 && b <= 122) || IsDigit(b) || b == 45
+End Function
+
+Function IsFlowIndicator(b: UInt8): Bool => b == 44 || b == 91 || b == 93 || b == 123 || b == 125
+
+// Whether b is one of YAML's indicators, which can't start a plain scalar.
+Function IsIndicator(b: UInt8): Bool
+    For c In "-?:,[]{{}}#&*!|>'\"%@`".Bytes
+        If b == c Then Return True
+    End For
+    Return False
+End Function
