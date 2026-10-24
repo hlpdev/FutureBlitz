@@ -6562,8 +6562,8 @@ private:
                          type_id_t::BOOL);
     }
 
-    /// Calls an Operator, with the type arguments of its Struct or Class. An Interface's is the
-    /// one of the type for Self that implements it.
+    /// Calls an Operator, with the type arguments of its Struct or Class, then its own. An
+    /// Interface's is the one of the type for Self that implements it.
     operand_t call_operator(const symbol_id_t id, const std::vector<type_id_t>& arguments,
                             const std::vector<operand_t>& operands, const span_t span) {
         const symbol_t& function = m_analysis.symbol(id);
@@ -6573,8 +6573,12 @@ private:
                 return builtin_operator(function.name, arguments.front(), operands, span);
             }
 
-            return call_operator(*found, implementation_arguments(arguments.front(), *found),
-                                 operands, span);
+            // The Operator's own type arguments come after Self's and the Interface's.
+            std::vector<type_id_t> implementing =
+                implementation_arguments(arguments.front(), *found);
+            const auto own = static_cast<std::ptrdiff_t>(function.type_parameters.size());
+            implementing.insert(implementing.end(), arguments.end() - own, arguments.end());
+            return call_operator(*found, implementing, operands, span);
         }
 
         const std::vector<type_id_t> parameters = type_parameters_of(function);

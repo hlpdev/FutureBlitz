@@ -1,0 +1,33 @@
+// Operators with type parameters of their own, inferred from their operands, called directly
+// and through a constraint, as an Interface declares one or gives its default.
+Import std.core
+
+Interface Joins
+    Operator &<U>(a: Self, b: U): Int
+End Interface
+
+Struct Name Implements Joins
+    Field Text: Int
+    Operator &<U>(a: Name, b: U): Int => a.Text
+End Struct
+
+// One with type parameters of its own and its Interface's, and a default.
+Interface Pairs<T: Defaultable>
+    Operator |<U>(a: Self, b: U): (T, U) => (T.DefaultValue(), b)
+End Interface
+
+Struct Plain Implements Pairs<String>
+    Field Text: Int
+End Struct
+
+Struct Mine Implements Pairs<Int>
+    Field Text: Int
+    Operator |<U>(a: Mine, b: U): (Int, U) => (a.Text, b)
+End Struct
+
+Function Tagged<J: Joins>(j: J): Int => j & 5
+Function Paired<P: Pairs<Int>>(p: P): (Int, Bool) => p | True
+Function Defaulted<P: Pairs<String>>(p: P): (String, Int) => p | 3
+
+Print(Name(4) & 5, Tagged(Name(4)))
+Print(Paired(Mine(2)), Defaulted(Plain(1)).1, "[" + Defaulted(Plain(1)).0 + "]")
