@@ -1,0 +1,258 @@
+// Canvas: drawing on an Image, through the runtime's fb_image_ functions. A pixel is the square
+// from its (x, y) to (x + 1, y + 1), so the line along y = 5.5 from x = 0 covers row 5's pixels
+// to their middles both ways. Each Fill fills a region by the nonzero rule, and each Stroke what
+// its line covers, LineWidth wide, with its Join at each corner and its Cap at each end, all
+// drawn over the image by their color's alpha: by the exact part of each pixel the region
+// covers, antialiased, or wholly where it holds the pixel's center.
+
+Import std.core
+Import std.math.color
+Import std.math.geometry
+Import std.math.scalar
+Import std.math.vector
+Import std.image.codec
+Import std.image.image
+
+Package Extern "runtime"
+    Function fb_image_fill_rings(pixels: UInt8[], width: Int64, height: Int64, coords: Float64[],
+                                 counts: Int32[], rgba: UInt32, antialias: Int32)
+    Function fb_image_fill_ellipse(pixels: UInt8[], width: Int64, height: Int64, x: Float64,
+                                   y: Float64, rx: Float64, ry: Float64, rgba: UInt32,
+                                   antialias: Int32)
+    Function fb_image_stroke(pixels: UInt8[], width: Int64, height: Int64, coords: Float64[],
+                             counts: Int32[], closed: Int32, lineWidth: Float64, cap: Int32,
+                             join: Int32, miterLimit: Float64, rgba: UInt32, antialias: Int32)
+    Function fb_image_stroke_ellipse(pixels: UInt8[], width: Int64, height: Int64, x: Float64,
+                                     y: Float64, rx: Float64, ry: Float64, lineWidth: Float64,
+                                     rgba: UInt32, antialias: Int32)
+End Extern
+
+// How a stroke's open ends end: where the line does, BUTT; in a half circle, ROUND; or half the
+// line's width past it, SQUARE.
+Public Enum LineCap
+    BUTT, ROUND, SQUARE
+End Enum
+
+// How a stroke's corners are filled on their outside: to where its sides' edges meet, MITER,
+// unless that's more than MiterLimit times the width from the inside corner, when it's a bevel;
+// in the circle of the line's width, ROUND; or cut straight across, BEVEL.
+Public Enum LineJoin
+    MITER, ROUND, BEVEL
+End Enum
+
+Public Class Canvas
+    Field Target: Image
+    Field Smooth: Bool
+    Field Width: Float
+    Field Ends: LineCap
+    Field Corners: LineJoin
+    Field Limit: Float
+
+    // A canvas for drawing on `image`, antialiased, with lines 1 wide, butt caps, and miter
+    // joins up to 4 times the width, as SVG's are.
+    Public New(image: Image)
+        Target = image
+        Smooth = True
+        Width = 1
+        Ends = LineCap.BUTT
+        Corners = LineJoin.MITER
+        Limit = 4
+    End New
+
+    // The image it draws on.
+    Public Property Image: Image
+        Get => Target
+    End Property
+
+    // Whether it draws each pixel by the part of it what's drawn covers, or else wholly when
+    // what's drawn holds its center.
+    Public Property Antialias: Bool
+        Get => Smooth
+        Set(value)
+            Smooth = value
+        End Set
+    End Property
+
+    // How wide a stroke is. Panics when it's given one that's negative or not finite.
+    @PanicsAtCaller
+    Public Property LineWidth: Float
+        Get => Width
+        Set(value)
+            If !IsFinite(value) || value < 0
+                Panic("a canvas's line width is finite and not negative, not {value}")
+            End If
+            Width = value
+        End Set
+    End Property
+
+    Public Property Cap: LineCap
+        Get => Ends
+        Set(value)
+            Ends = value
+        End Set
+    End Property
+
+    Public Property Join: LineJoin
+        Get => Corners
+        Set(value)
+            Corners = value
+        End Set
+    End Property
+
+    // How far a miter goes, from the inside corner, times the line's width, before it's a bevel.
+    // Panics when it's given one below 1 or not finite.
+    @PanicsAtCaller
+    Public Property MiterLimit: Float
+        Get => Limit
+        Set(value)
+            If !IsFinite(value) || value < 1
+                Panic("a canvas's miter limit is finite and at least 1, not {value}")
+            End If
+            Limit = value
+        End Set
+    End Property
+
+    // Fills the rectangle. Panics when its corner or size isn't finite, or its size is negative.
+    @PanicsAtCaller
+    Public Method FillRect(rect: Rect, color: Color32)
+        FillRings([CornersOf(rect)], color)
+    End Method
+
+    // Strokes the rectangle's edges, closed. Panics as FillRect does.
+    @PanicsAtCaller
+    Public Method StrokeRect(rect: Rect, color: Color32)
+        Stroke([CornersOf(rect)], True, color)
+    End Method
+
+    // Strokes the line from a to b. Panics when either isn't finite.
+    @PanicsAtCaller
+    Public Method StrokeLine(a: Vec2, b: Vec2, color: Color32)
+        Stroke([[a, b]], False, color)
+    End Method
+
+    // Strokes the line through the points, open. Panics when one isn't finite.
+    @PanicsAtCaller
+    Public Method StrokePolyline(points: Vec2[], color: Color32)
+        Stroke([points], False, color)
+    End Method
+
+    // Strokes the polygon's edges, closed from its last point back to its first. Panics when a
+    // point isn't finite.
+    @PanicsAtCaller
+    Public Method StrokePolygon(points: Vec2[], color: Color32)
+        Stroke([points], True, color)
+    End Method
+
+    // Fills the polygon, by the nonzero rule. Panics when a point isn't finite.
+    @PanicsAtCaller
+    Public Method FillPolygon(points: Vec2[], color: Color32)
+        FillRings([points], color)
+    End Method
+
+    // Fills the region of rings, each closed, by the nonzero rule, as std.math's polygons are,
+    // so a ring the other way around from the one it's in is a hole. Panics when a point isn't
+    // finite.
+    @PanicsAtCaller
+    Public Method FillPolygon(rings: Vec2[][], color: Color32)
+        FillRings(rings, color)
+    End Method
+
+    // Fills the circle. Panics when its center or radius isn't finite, or its radius is
+    // negative.
+    @PanicsAtCaller
+    Public Method FillCircle(center: Vec2, radius: Float, color: Color32)
+        FillEllipse(center, Vec2(radius, radius), color)
+    End Method
+
+    // Strokes the circle. Panics as FillCircle does.
+    @PanicsAtCaller
+    Public Method StrokeCircle(center: Vec2, radius: Float, color: Color32)
+        StrokeEllipse(center, Vec2(radius, radius), color)
+    End Method
+
+    // Fills the ellipse of the radii across and down. Panics when its center or radii aren't
+    // finite, or a radius is negative.
+    @PanicsAtCaller
+    Public Method FillEllipse(center: Vec2, radii: Vec2, color: Color32)
+        CheckEllipse(center, radii)
+        fb_image_fill_ellipse(Target.Pixels, Target.Width, Target.Height, center.x, center.y,
+                              radii.x, radii.y, RgbaOf(color), Smooth ? 1 : 0)
+    End Method
+
+    // Strokes the ellipse, its outline LineWidth wide. Panics as FillEllipse does.
+    @PanicsAtCaller
+    Public Method StrokeEllipse(center: Vec2, radii: Vec2, color: Color32)
+        CheckEllipse(center, radii)
+        fb_image_stroke_ellipse(Target.Pixels, Target.Width, Target.Height, center.x, center.y,
+                                radii.x, radii.y, Width, RgbaOf(color), Smooth ? 1 : 0)
+    End Method
+
+    @PanicsAtCaller
+    Method FillRings(rings: Vec2[][], color: Color32)
+        Local coords = CoordsOf(rings)
+        fb_image_fill_rings(Target.Pixels, Target.Width, Target.Height, coords.0, coords.1,
+                            RgbaOf(color), Smooth ? 1 : 0)
+    End Method
+
+    @PanicsAtCaller
+    Method Stroke(lines: Vec2[][], closed: Bool, color: Color32)
+        Local coords = CoordsOf(lines)
+        fb_image_stroke(Target.Pixels, Target.Width, Target.Height, coords.0, coords.1,
+                        closed ? 1 : 0, Width, Ends As Int32, Corners As Int32, Limit,
+                        RgbaOf(color), Smooth ? 1 : 0)
+    End Method
+End Class
+
+// A color as fb_image_ takes it, its red in the top byte.
+Package Function RgbaOf(color: Color32): UInt32
+    Return ((color.r As UInt32) << 24) | ((color.g As UInt32) << 16) | ((color.b As UInt32) << 8) |
+           (color.a As UInt32)
+End Function
+
+// The rectangle's corners, from its smallest X and Y around. Panics when it isn't finite or its
+// size is negative.
+@PanicsAtCaller
+Function CornersOf(rect: Rect): Vec2[]
+    If !IsFinite(rect.X) || !IsFinite(rect.Y) || !IsFinite(rect.Width) || !IsFinite(rect.Height)
+        Panic("a rectangle drawn is finite, not {rect}")
+    End If
+
+    If rect.Width < 0 || rect.Height < 0
+        Panic("a rectangle drawn has a size that isn't negative, not {rect}")
+    End If
+
+    Local right = rect.X + rect.Width
+    Local bottom = rect.Y + rect.Height
+    Return [Vec2(rect.X, rect.Y), Vec2(right, rect.Y), Vec2(right, bottom), Vec2(rect.X, bottom)]
+End Function
+
+// Panics when an ellipse's center or radii aren't finite, or a radius is negative.
+@PanicsAtCaller
+Function CheckEllipse(center: Vec2, radii: Vec2)
+    If !IsFinite(center.x) || !IsFinite(center.y) || !IsFinite(radii.x) || !IsFinite(radii.y)
+        Panic("an ellipse drawn is finite, not at {center} of radii {radii}")
+    End If
+
+    If radii.x < 0 || radii.y < 0
+        Panic("an ellipse drawn has radii that aren't negative, not {radii}")
+    End If
+End Function
+
+// The rings' points as fb_image_ takes them: their coordinates, x then y, and how many points
+// each ring has. Panics when a point isn't finite.
+@PanicsAtCaller
+Package Function CoordsOf(rings: Vec2[][]): (Float64[], Int32[])
+    Local coords: Float64[] = []
+    Local counts: Int32[] = []
+    For ring In rings
+        For point In ring
+            If !IsFinite(point.x) || !IsFinite(point.y)
+                Panic("a point drawn is finite, not {point}")
+            End If
+            coords.Add(point.x)
+            coords.Add(point.y)
+        End For
+        counts.Add(ring.Count As Int32)
+    End For
+    Return (coords, counts)
+End Function

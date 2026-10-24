@@ -140,6 +140,7 @@ So far, std/ holds:
 | std/image/hdr.fb | `HdrImage`, which converts to and from an `Image`, and `Hdr`, over stb_image and stb_image_write |
 | std/image/webp.fb | `WebP`, over libwebp through `fb_webp_` |
 | std/image/svg.fb | `Svg`, over nanosvg through `fb_svg_` |
+| std/image/canvas.fb | `Canvas`, `LineCap`, and `LineJoin`, drawing through the runtime's `fb_image_` functions |
 
 What the language itself uses, `Error` for Throw and Catch, the Interfaces, `Iterator<T>`, and
 `Map<K, V>` for `{key: value}`, is always std's, whatever a program calls by those names.
@@ -918,9 +919,29 @@ Step 24 built the codecs over bytes, into an `Image` whose pixels are a UInt8[] 
   pixels to some, or cropping to pixels not all in the image panics at the caller.
   `HdrImage.FromImage(image)` and `ToImage()` convert through sRGB's gamma, as Color32's
   `ToColor` and Color's `ToColor32` do, ToImage keeping each channel from 0 to 255.
+- `Canvas(image)` draws on an Image (step 25): `FillRect` and `StrokeRect` of a `Rect`,
+  `StrokeLine`, `StrokePolyline` (open), `StrokePolygon` (closed), `FillPolygon` of a ring or of
+  rings, `FillCircle`, `StrokeCircle`, `FillEllipse`, and `StrokeEllipse` (by its radii across
+  and down), each in a `Color32` drawn over the pixels by its alpha, and its state:
+  `Antialias`, on by default, `LineWidth`, 1, `Cap`, a `LineCap` of `BUTT`, `ROUND`, or
+  `SQUARE`, BUTT, `Join`, a `LineJoin` of `MITER`, `ROUND`, or `BEVEL`, MITER, and
+  `MiterLimit`, 4, as SVG's are. A pixel is the square from its (x, y) to (x + 1, y + 1), so a
+  line along y = 5.5 covers row 5. A fill fills its region by the nonzero rule, as std.math's
+  polygons do, so a ring the other way around in one is a hole, and one that crosses itself is
+  filled where it winds; a stroke fills what its pieces cover together, a rectangle half the
+  width either side of each segment, a join on each corner's outside, and a cap at each open
+  end. Antialiased, a pixel is drawn by the exact part of its square the region covers, its
+  color's alpha times that, rounded to the nearest, a half and what's within a billionth below
+  it up; not, it's drawn wholly when the region holds its center, which on the region's edge is
+  in it on the edge's right, and on its top but not its bottom. An ellipse is a polygon within
+  a hundredth of a pixel of it, and an ellipse's stroke its polygon's, with miters. The drawing
+  is the runtime's own, in Doubles, without fused multiply-adds, with sines of its own, so
+  every target gives the same pixels; image_draw/make_data.py works out the same drawings in
+  Python's Fractions, and image_draw.fb gets their bytes exactly. A coordinate that isn't
+  finite, a negative size or radius, a negative line width, or a miter limit below 1 panics at
+  the caller.
 - Planned: an Image over a Buffer; reading and writing image files, on step 14's; and in step 25
-  software drawing of lines, shapes, and fills, and text with TrueType fonts. The engine's 2D
-  (M10) shares the image and font code.
+  text with TrueType fonts. The engine's 2D (M10) shares the image and font code.
 
 #### std.term
 
