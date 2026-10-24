@@ -1,0 +1,81 @@
+ok   a declaration, then misc
+ok   encoding and standalone
+ok   a later version 1.x
+ok   a byte order mark
+ok   no root
+ok   two roots
+ok   text before the root
+ok   text after the root
+ok   a declaration not at the start
+ok   a declaration without a version
+ok   a declaration's parts out of order
+ok   standalone that isn't yes or no
+ok   a version that isn't 1.x
+ok   a doctype after the root
+ok   two doctypes
+ok   attributes in quotes of either kind
+ok   names of letters past ASCII
+ok   spaces in tags
+ok   an end tag that doesn't match
+ok   an unclosed element
+ok   an attribute twice
+ok   an attribute without a value
+ok   an attribute without quotes
+ok   attributes without a space
+ok   a name starting with a digit
+ok   '<' in an attribute
+ok   an end tag with an attribute
+ok   references in text
+ok   line ends normalized
+ok   a character reference to CR
+ok   CDATA as text
+ok   ']]' and '>' alone in text
+ok   ']]>' in text
+ok   a bare '&'
+ok   a reference without ';'
+ok   a reference to 0
+ok   a reference to a surrogate
+ok   a reference to FFFE
+ok   a control character
+ok   an undeclared entity
+ok   a comment with dashes apart
+ok   an instruction's text kept
+ok   '--' in a comment
+ok   a comment ending '--->'
+ok   an instruction named xml
+ok   an instruction without a space after its target
+ok   an unended instruction
+ok   spaces in a value made spaces
+ok   character references to spaces kept
+ok   a tokenized type's spaces collapsed
+ok   defaults given, and the first declaration taken
+ok   a default that refers to an entity
+ok   an internal entity's text, markup and all
+ok   entities in entities
+ok   an entity's character references replaced where it's declared
+ok   an entity in an attribute
+ok   a parameter entity's declarations
+ok   an entity declared twice keeps the first
+ok   an undeclared entity with an external subset
+ok   an undeclared entity, standalone
+ok   an entity that refers to itself
+ok   an entity that starts an element it doesn't end
+ok   an entity that ends an element it didn't start
+ok   '<' from an entity in an attribute
+ok   an external entity in an attribute
+ok   an unparsed entity in text
+ok   a parameter entity in an internal subset's declaration
+ok   a parameter entity in an internal entity's value
+ok   a parameter entity's text that isn't whole declarations
+ok   element declarations of each kind
+ok   notations, and public IDs
+ok   comments and instructions in the subset
+ok   a content model mixing ',' and '|'
+ok   mixed content with names, without '*'
+ok   an element declaration without content
+ok   an attribute type that isn't one
+ok   an ATTLIST default without quotes
+ok   an entity declaration without a space before its value
+ok   a public ID with a bad character
+ok   a subset that isn't ended
+ok   text in the subset
