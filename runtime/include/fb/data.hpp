@@ -43,4 +43,10 @@ fb_string_t* fb_json_quote(const fb_string_t* text);
 /// `value` as JSON's shortest text that reads back as it, with ".0" after one that would read as
 /// an integer, or null for NaN or an infinity, which JSON doesn't have.
 fb_string_t* fb_json_number(double value);
+
+/// `bytes` in base64 (RFC 4648's alphabet, with its '=' padding), as JSON writes bytes.
+fb_string_t* fb_data_base64(const fb_array_t* bytes);
+/// The `length` bytes of `bytes` from `start` as a new String, or null when they aren't
+/// well-formed UTF-8, for MessagePack's strings.
+fb_string_t* fb_data_utf8(const fb_array_t* bytes, std::int64_t start, std::int64_t length);
 }

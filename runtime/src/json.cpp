@@ -642,4 +642,47 @@ fb_string_t* fb_json_number(const double value) {
 
     return string_of(text);
 }
+
+fb_string_t* fb_data_base64(const fb_array_t* bytes) {
+    static constexpr std::string_view digits =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    const auto* data = static_cast<const std::uint8_t*>(bytes->data);
+    const auto count = static_cast<std::size_t>(bytes->count);
+    std::string text;
+    text.reserve(((count + 2) / 3) * 4);
+    for (std::size_t at = 0; at < count; at += 3) {
+        const std::size_t left = count - at;
+        std::uint32_t group = static_cast<std::uint32_t>(data[at]) << 16U;
+        if (left > 1) {
+            group |= static_cast<std::uint32_t>(data[at + 1]) << 8U;
+        }
+
+        if (left > 2) {
+            group |= data[at + 2];
+        }
+
+        text += digits[(group >> 18U) & 63U];
+        text += digits[(group >> 12U) & 63U];
+        text += left > 1 ? digits[(group >> 6U) & 63U] : '=';
+        text += left > 2 ? digits[group & 63U] : '=';
+    }
+
+    return string_of(text);
+}
+
+fb_string_t* fb_data_utf8(const fb_array_t* bytes, const std::int64_t start,
+                          const std::int64_t length) {
+    const std::string_view text(static_cast<const char*>(bytes->data) + start,
+                                static_cast<std::size_t>(length));
+    for (std::size_t at = 0; at < text.size();) {
+        const std::size_t size = utf8_length(text, at);
+        if (size == 0) {
+            return nullptr;
+        }
+
+        at += size;
+    }
+
+    return string_of(text);
+}
 }
