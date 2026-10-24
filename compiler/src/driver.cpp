@@ -530,7 +530,7 @@ private:
         const std::vector<std::string_view> written = path_parts(imported.path);
         const bool canonical =
             !imported.path.empty() && !imported.path.starts_with('/') &&
-            imported.path.find('\\') == std::string::npos &&
+            !imported.path.contains('\\') &&
             std::ranges::none_of(written,
                                  [](const std::string_view part) { return part == ".."; }) &&
             written.size() == static_cast<std::size_t>(std::ranges::count(imported.path, '/') + 1);
@@ -564,14 +564,14 @@ private:
             folder.pop_back();
         }
 
-        const std::string standard = std::string(well_known_types) + imported.path;
+        std::string standard = std::string(well_known_types) + imported.path;
         if (imported.path.starts_with("google/protobuf/") && has_file(standard)) {
             return standard;
         }
 
         m_compilation.diagnostics.error(imported.span,
-                                        "there's no \"{}\" in this file's folder, or a folder "
-                                        "above it in {}",
+                                        R"(there's no "{}" in this file's folder or the folders )"
+                                        "above it, up to {}",
                                         imported.path, folder_of(importer));
         return std::nullopt;
     }

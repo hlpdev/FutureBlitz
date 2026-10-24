@@ -144,7 +144,7 @@ service Book {
   rpc Watch(stream Person) returns (stream .tutorial.book.Person) { option deprecated = true; }
 }
 )");
-    CHECK(parsed.diagnostics == diagnostics_t{});
+    CHECK(parsed.diagnostics.empty());
     const fb::proto_file_t& file = parsed.file;
     CHECK(file.syntax == fb::proto_syntax_t::PROTO3);
     CHECK(file.package == "tutorial.book");
@@ -165,7 +165,7 @@ service Book {
     CHECK(person.fields[2].label == fb::proto_label_t::REPEATED);
     CHECK(person.fields[2].packed == false);
     CHECK(person.fields[2].deprecated);
-    CHECK(person.fields[3].key->kind == fb::proto_kind_t::STRING);
+    CHECK(person.fields[3].key.value_or(fb::proto_type_t{}).kind == fb::proto_kind_t::STRING);
     CHECK(person.fields[3].type.name == "Person");
     CHECK(person.fields[4].oneof == 0);
     CHECK(person.fields[5].type.name == "Address");
@@ -207,22 +207,25 @@ message Old {
 }
 extend Old { repeated group Bonus = 160 { optional int32 x = 1; } }
 )");
-    CHECK(parsed.diagnostics == diagnostics_t{});
+    CHECK(parsed.diagnostics.empty());
     const fb::proto_file_t& file = parsed.file;
     CHECK(file.syntax == fb::proto_syntax_t::PROTO2);
     // Extends' fields, and their groups' messages, are left out.
     REQUIRE(file.messages.size() == 2);
     const fb::proto_message_t& old = file.messages[0];
     REQUIRE(old.fields.size() == 7);
+    const auto default_of = [&](const std::size_t field) {
+        return old.fields[field].default_value.value_or(fb::proto_constant_t{});
+    };
     CHECK(old.fields[0].label == fb::proto_label_t::REQUIRED);
-    CHECK(old.fields[0].default_value->negative);
-    CHECK(old.fields[0].default_value->integer == 12);
-    CHECK(old.fields[1].default_value->kind == fb::proto_constant_kind_t::FLOAT);
-    CHECK(old.fields[1].default_value->text == "inf");
-    CHECK(old.fields[2].default_value->number == 1500);
-    CHECK(old.fields[3].default_value->text == "a\tbcAA\u00e9\U0001F600");
-    CHECK(old.fields[4].default_value->integer == 127);
-    CHECK(old.fields[5].default_value->integer == 493);
+    CHECK(default_of(0).negative);
+    CHECK(default_of(0).integer == 12);
+    CHECK(default_of(1).kind == fb::proto_constant_kind_t::FLOAT);
+    CHECK(default_of(1).text == "inf");
+    CHECK(default_of(2).number == 1500);
+    CHECK(default_of(3).text == "a\tbcAA\u00e9\U0001F600");
+    CHECK(default_of(4).integer == 127);
+    CHECK(default_of(5).integer == 493);
 
     const fb::proto_field_t& result = old.fields[6];
     CHECK(result.group);
@@ -402,10 +405,16 @@ message Sibling { message Deep {} }
 
     // An import's types, and those of the files it imports publicly, but not privately.
     const std::vector<std::pair<std::string, std::string>> files{
-        { "main.proto", "syntax = \"proto3\";\nimport \"a.proto\";\nmessage M {\n  pa.A a = 1;\n"
-                        "  pb.B b = 2;\n  pc.C c = 3;\n}\n" },
-        { "a.proto", "syntax = \"proto3\";\npackage pa;\nimport public \"b.proto\";\nimport "
-                     "\"c.proto\";\nmessage A {}\n" },
+        {
+            "main.proto",
+            "syntax = \"proto3\";\nimport \"a.proto\";\nmessage M {\n  pa.A a = 1;\n"
+            "  pb.B b = 2;\n  pc.C c = 3;\n}\n",
+        },
+        {
+            "a.proto",
+            "syntax = \"proto3\";\npackage pa;\nimport public \"b.proto\";\nimport "
+            "\"c.proto\";\nmessage A {}\n",
+        },
         { "b.proto", "syntax = \"proto3\";\npackage pb;\nmessage B {}\n" },
         { "c.proto", "syntax = \"proto3\";\npackage pc;\nmessage C {}\n" },
     };
@@ -520,8 +529,12 @@ TEST_CASE("an Import of a .proto file gives the module fb makes from it", "[prot
     const fb::compilation_t compilation = compile_with(
         "Import std.core\nImport \"protos/shapes.proto\"\n"
         "Local s = shapes.Square(side: 2)\nLocal t = Square()\nPrint(\"{s.side} {t.side}\")",
-        { { .path = "protos/shapes.proto",
-            .text = "syntax = \"proto3\";\npackage geo;\nmessage Square { int32 side = 1; }\n" } });
+        {
+            {
+                .path = "protos/shapes.proto",
+                .text = "syntax = \"proto3\";\npackage geo;\nmessage Square { int32 side = 1; }\n",
+            },
+        });
     CHECK(diagnostics_of(compilation).empty());
     const auto named = std::ranges::find(compilation.ast.modules().modules(), "protos.shapes.proto",
                                          &fb::module_t::name);
@@ -537,12 +550,16 @@ TEST_CASE("a .proto's imports are found from its folder up, and protobuf's well-
     const fb::compilation_t compilation = compile_with(
         "Import \"protos/game/game.proto\"\nLocal g = Game()",
         {
-            { .path = "protos/game/game.proto",
-              .text = "syntax = \"proto3\";\nimport \"common/types.proto\";\n"
-                      "import \"google/protobuf/timestamp.proto\";\n"
-                      "message Game { common.Id id = 1; google.protobuf.Timestamp at = 2; }\n" },
-            { .path = "protos/common/types.proto",
-              .text = "syntax = \"proto3\";\npackage common;\nmessage Id { string value = 1; }\n" },
+            {
+                .path = "protos/game/game.proto",
+                .text = "syntax = \"proto3\";\nimport \"common/types.proto\";\n"
+                        "import \"google/protobuf/timestamp.proto\";\n"
+                        "message Game { common.Id id = 1; google.protobuf.Timestamp at = 2; }\n",
+            },
+            {
+                .path = "protos/common/types.proto",
+                .text = "syntax = \"proto3\";\npackage common;\nmessage Id { string value = 1; }\n",
+            },
         });
     CHECK(diagnostics_of(compilation).empty());
     const std::string module = generated(compilation, "protos/game/game.proto");
@@ -556,8 +573,8 @@ TEST_CASE("a .proto's imports that don't work", "[proto]") {
               compile_with("Import \"a.proto\"",
                            { { .path = "a.proto",
                                .text = "syntax = \"proto3\";\nimport \"missing.proto\";\n" } })) ==
-          diagnostics_t{ "a.proto:2:8: there's no \"missing.proto\" in this file's folder, or a "
-                         "folder above it in the main file's folder" });
+          diagnostics_t{ "a.proto:2:8: there's no \"missing.proto\" in this file's folder or the "
+                         "folders above it, up to the main file's folder" });
     CHECK(diagnostics_of(compile_with(
               "Import \"sub/a.proto\"",
               { { .path = "sub/a.proto", .text = "syntax = \"proto3\";\nimport \"../b.proto\";\n" },
@@ -590,9 +607,7 @@ TEST_CASE("a .proto with errors gives an empty module, past them", "[proto]") {
 
 TEST_CASE("the module of a .proto has a Struct for each message, and an Enum for each enum",
           "[proto]") {
-    const fb::compilation_t compilation =
-        compile_with("Import \"tree.proto\"\nLocal n = Node()",
-                     { { .path = "tree.proto", .text = R"(syntax = "proto3";
+    constexpr std::string_view tree = R"(syntax = "proto3";
 message Node {
   enum Kind { LEAF = 0; BRANCH = 1; }
   Kind kind = 1;
@@ -600,7 +615,10 @@ message Node {
   repeated Node children = 3;
   oneof label { string name = 4; int32 id = 5; }
 }
-)" } });
+)";
+    const fb::compilation_t compilation =
+        compile_with("Import \"tree.proto\"\nLocal n = Node()",
+                     { { .path = "tree.proto", .text = std::string(tree) } });
     CHECK(diagnostics_of(compilation).empty());
     const std::string module = generated(compilation, "tree.proto");
     // proto3's enums are @Open, and a Node holds a Node in a ProtoBox, behind a Property.

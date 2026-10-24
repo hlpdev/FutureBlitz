@@ -60,9 +60,9 @@ From std.math Import Vec3, Lerp     // selected names
   A `.proto`'s own imports are found from its folder, then from each folder above it up to the
   one its package's paths start from, the nearest first, as protoc finds them in its `-I`
   folders, and a `google/protobuf/` path none of them has is one of protobuf's well-known types,
-  which std has, as is one an Import names that isn't beside its file. Two `.proto` files can't
-  import each other, and a `.proto`'s mistakes are errors at its lines and columns, which leave
-  its module empty.
+  which std has, as is one an Import names that isn't beside its file. `.proto` files can't
+  import each other in a cycle, and a `.proto`'s mistakes are errors at its lines and columns,
+  which leave its module empty.
 - `Import X` brings X's names in without a qualifier, and under X's last name, as in
   `collections.Stack` or `hud.Draw`. `Import X As C` brings them in only as `C.Name`.
   `From X Import A, B` brings in only A and B, which X has to declare.
