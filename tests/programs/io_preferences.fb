@@ -34,6 +34,14 @@ Try second.Save()
 Local third = Try Preferences("Größe Game", root)
 Print("{third.Get("volume") ?? "none"} {third.Contains("name")}")
 
+// A setting taken out and set again goes last.
+Local order = Try Preferences("Order", root)
+order.Set("a", "1")
+order.Set("b", "2")
+order.Remove("a")
+order.Set("a", "3")
+Print("{order.Keys()}")
+
 Print("what isn't saved is gone")
 // Setting what's there already changes nothing.
 third.Set("volume", "0.5")
