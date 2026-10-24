@@ -87,6 +87,36 @@ void fb_image_blit(const fb_array_t* target, std::int64_t width, std::int64_t he
 /// Gives each of `target`'s pixels the color `rgba`, whose top byte is its red.
 void fb_image_fill(const fb_array_t* target, std::uint32_t rgba);
 
+/// Drawing on `pixels`, `width` by `height` of them, the color `rgba`, whose top byte is its
+/// red, over each pixel by the region drawn: a pixel is the square from its (x, y) to (x + 1,
+/// y + 1), and with `antialias` it's drawn by the part of it the region covers, exactly, its
+/// color's alpha times that, rounded to the nearest, a half and what's within a billionth below
+/// one up, or else wholly when the region holds its center, which on the region's edge is in it
+/// on the edge's right, and on its top but not its bottom. Rings are `coords`' points, a
+/// Float64[] of x then y, `counts`' of them each, an Int32[]. A region is filled by the nonzero
+/// rule. An ellipse is a polygon within a hundredth of a pixel of it, from its rightmost point,
+/// of 4 times the fewest sides from 2 up that keep it so, at most 1024, by sines of the
+/// runtime's own. A stroke is what its pieces cover together: a rectangle along each segment,
+/// half `line_width` either side, a join at each corner on its outside, by `join`, 0 a miter,
+/// past `miter_limit` times the width a bevel, 1 the line width's circle, or 2 a bevel, and,
+/// unless it's `closed`, a cap at each end, by `cap`, 0 none, 1 the width's circle, or 2 a
+/// square half the width past the end.
+void fb_image_fill_rings(const fb_array_t* pixels, std::int64_t width, std::int64_t height,
+                         const fb_array_t* coords, const fb_array_t* counts, std::uint32_t rgba,
+                         std::int32_t antialias);
+void fb_image_fill_ellipse(const fb_array_t* pixels, std::int64_t width, std::int64_t height,
+                           double x, double y, double rx, double ry, std::uint32_t rgba,
+                           std::int32_t antialias);
+void fb_image_stroke(const fb_array_t* pixels, std::int64_t width, std::int64_t height,
+                     const fb_array_t* coords, const fb_array_t* counts, std::int32_t closed,
+                     double line_width, std::int32_t cap, std::int32_t join, double miter_limit,
+                     std::uint32_t rgba, std::int32_t antialias);
+/// An ellipse's stroke: its polygon's, closed, with miter joins, whose corners turn so little
+/// they're within the tolerance of its curve's offset.
+void fb_image_stroke_ellipse(const fb_array_t* pixels, std::int64_t width, std::int64_t height,
+                             double x, double y, double rx, double ry, double line_width,
+                             std::uint32_t rgba, std::int32_t antialias);
+
 /// stb_image's decoding: `format` is one of fb_image_format's 1 PNG, 2 JPEG, 3 BMP, 4 TGA, or 6
 /// HDR, and the bytes must be that format. An HDR gives fb_image_hdr_pixels.
 void* fb_stb_decode(const fb_array_t* data, std::int32_t format, std::int64_t limit);
