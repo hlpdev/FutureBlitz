@@ -1,0 +1,11 @@
+// A rectangle drawn ends at a finite corner, and drawing one whose corner is past what a Float
+// holds panics where it's drawn.
+Import std.core
+Import std.math.color
+Import std.math.geometry
+Import std.image
+
+Local canvas = Canvas(Image(8, 8))
+canvas.FillRect(Rect(1, 1, 3e38, 2), Color32.Black)
+Print(canvas.Image[3, 2].a, canvas.Image[3, 4].a)
+canvas.FillRect(Rect(3e38, 1, 3e38, 2), Color32.Black)
