@@ -4,7 +4,7 @@
 
 ## S18L-class-1 (high): A Public generic using `Class` (or `Error`) as a constraint can't be declared in any imported module, std included
 
-Status: fixed in 4f29848: declare_any_class() and declare_any_error() make the "Class" and "Error" constraints Public, so any module's Public generic code can name them; tests/programs/class_constraint_modules.fb (a module's Public Event<T>.Subscribe<O: Class>, Holder<T> Where T: Class, and Rethrow<E: Error>, used from the main file) and sema's "Class and Error are constraints any module's Public code can have"
+Status: fixed in 7c6ba1d: declare_any_class() and declare_any_error() make the "Class" and "Error" constraints Public, so any module's Public generic code can name them; tests/programs/class_constraint_modules.fb (a module's Public Event<T>.Subscribe<O: Class>, Holder<T> Where T: Class, and Rethrow<E: Error>, used from the main file) and sema's "Class and Error are constraints any module's Public code can have"
 
 Where: compiler/src/sema.cpp:1280
 
@@ -64,7 +64,7 @@ Skeptic: I put events/event.fb in its own module, with Public Class Event<T> and
 
 ## S18L-sendable-1 (medium): An overloaded function or New won't take a lambda or a Function's name for a Sendable Func parameter
 
-Status: fixed in e3a7f17: match() checks a lambda or a Function's name against a Sendable Func parameter, or a T? of one, with the parameter's type, as it does for a Callback; sema's Sendable Func test has an overloaded New and Function, each called with a typed lambda and a Function's name (an overloaded Function's name given to an overloaded callee fails with plain Funcs too, which is older than this step)
+Status: fixed in a4b11f0: match() checks a lambda or a Function's name against a Sendable Func parameter, or a T? of one, with the parameter's type, as it does for a Callback; sema's Sendable Func test has an overloaded New and Function, each called with a typed lambda and a Function's name (an overloaded Function's name given to an overloaded callee fails with plain Funcs too, which is older than this step)
 
 Where: compiler/src/sema.cpp:21207
 
@@ -110,7 +110,7 @@ Skeptic: I ran the program from C:/Users/Hunter/Projects/FutureBlitz/.claude/wor
 
 ## S18L-throws-1 (medium): An Override of a generic base's Method that Throws E can't throw the instance's E
 
-Status: fixed in 56d2016: member_throws() gives a member's Throws as the type it's used on has them, and check_throws() checks an Override's against the overridden Method's that way, naming the base instance ("since Base<F>'s doesn't"); sema's "a generic type's Throws E is its instance's..." (a concrete and a generic subclass, and one that throws more) and tests/programs/throws_generic_members.fb
+Status: fixed in 0273361: member_throws() gives a member's Throws as the type it's used on has them, and check_throws() checks an Override's against the overridden Method's that way, naming the base instance ("since Base<F>'s doesn't"); sema's "a generic type's Throws E is its instance's..." (a concrete and a generic subclass, and one that throws more) and tests/programs/throws_generic_members.fb
 
 Where: compiler/src/sema.cpp:6309
 
@@ -166,7 +166,7 @@ Skeptic: Ran refute-throws/f1.fb (the finding's program) in debug: 'f1.fb:16:21:
 
 ## S18L-throws-2 (medium): Implementing a generic Interface's Method that Throws E is rejected
 
-Status: fixed in 56d2016: check_implementation() maps the Interface Method's Throws through as_implemented() before it compares; the same sema test and program
+Status: fixed in 0273361: check_implementation() maps the Interface Method's Throws through as_implemented() before it compares; the same sema test and program
 
 Where: compiler/src/sema.cpp:5106
 
@@ -220,7 +220,7 @@ Skeptic: f2.fb gives 'f2.fb:13:22: error: 'Run' can't throw Oops, since Runner<O
 
 ## S18L-throws-3 (medium): For ... In over a generic Class whose Iterate Throws E propagates the raw E
 
-Status: fixed in 56d2016: check_iterate_call() names and propagates member_throws() of the sequence's type; the same sema test and program
+Status: fixed in 0273361: check_iterate_call() names and propagates member_throws() of the sequence's type; the same sema test and program
 
 Where: compiler/src/sema.cpp:14006
 
@@ -286,7 +286,7 @@ Skeptic: f3.fb gives 'f3.fb:33:14: error: E isn't caught; catch it in a Try bloc
 
 ## S18L-throws-4 (medium): A Class that takes a generic base's New that Throws E keeps the raw E
 
-Status: fixed in 56d2016: a New taken from a generic base gets member_throws() of the base instance; the same sema test and program
+Status: fixed in 0273361: a New taken from a generic base gets member_throws() of the base instance; the same sema test and program
 
 Where: compiler/src/sema.cpp:6150
 
@@ -347,7 +347,7 @@ Skeptic: f4.fb gives two 'E isn't caught' errors, at 21:23 (Make) and 27:16 (Saf
 
 ## S18L-throws-5 (medium): An Interface default that Throws E, called on a Class that implements it, throws the raw E
 
-Status: fixed in 56d2016: take_default() maps the default's Throws through as_implemented(), as it does its result, so the type's copy throws the instance's E; the same sema test and program
+Status: fixed in 0273361: take_default() maps the default's Throws through as_implemented(), as it does its result, so the type's copy throws the instance's E; the same sema test and program
 
 Where: compiler/src/sema.cpp:13978
 
@@ -403,7 +403,7 @@ Skeptic: f5.fb gives 'f5.fb:24:16: error: E isn't caught; catch it in a Try bloc
 
 ## S18L-throws-6 (medium): After a function's result Func(): Task<T>, the Task takes the function's Throws
 
-Status: fixed in 18dc446: parse_function_type() passes the function-result state to its own result, so a Func that's a function's result leaves a Throws after it to the function; parser tests for Func and Sendable Func results, spec 10, and a case in tests/programs/async_throws_generic.fb
+Status: fixed in 96f04b9: parse_function_type() passes the function-result state to its own result, so a Func that's a function's result leaves a Throws after it to the function; parser tests for Func and Sendable Func results, spec 10, and a case in tests/programs/async_throws_generic.fb
 
 Where: compiler/src/parser.cpp:3746
 
@@ -451,7 +451,7 @@ Skeptic: f6.fb gives 'Oops isn't caught; ... add it to the Throws of 'Make'' at 
 
 ## S18L-throws-7 (medium): A throwing Task can't be an explicit type argument in an expression
 
-Status: fixed in 18dc446: type_arguments_follow() takes Throws; a parser test of a call's type arguments and a case in async_throws_generic.fb
+Status: fixed in 96f04b9: type_arguments_follow() takes Throws; a parser test of a call's type arguments and a case in async_throws_generic.fb
 
 Where: compiler/src/parser.cpp:2899
 
@@ -493,7 +493,7 @@ Skeptic: f7.fb gives ''Holder' is a type, not a value', ''Task' isn't declared',
 
 ## S18L-class-2 (low): A Weak<T> parameter never infers T, and the error suggests Read<Int>, which can't meet T: Class
 
-Status: fixed in f59bf4d: unify() takes a Weak<T>'s T from a T or T? it's given, and the can't-tell example has no type argument for a type parameter that's a Class; cases in sema's Where T: Class test
+Status: fixed in a4d89de: unify() takes a Weak<T>'s T from a T or T? it's given, and the can't-tell example has no type argument for a type parameter that's a Class; cases in sema's Where T: Class test
 
 Where: compiler/src/sema.cpp:
 
@@ -532,7 +532,7 @@ Skeptic: I ran t25.fb as given. ReadN(x) and ReadN(h.W), with a T? parameter, in
 
 ## S18L-class-4 (low): The class_hint for an Interface's Self suggests `<Self: Class>`, which can't be written
 
-Status: fixed in 7e4a159: class_hint() gives nothing for an Interface's Self; a case in sema's Where T: Class test
+Status: fixed in fe5443c: class_hint() gives nothing for an Interface's Self; a case in sema's Where T: Class test
 
 Where: compiler/src/sema.cpp:8672
 
@@ -557,7 +557,7 @@ Skeptic: t36.fb (`other Is Self` in an Interface's Method) prints: "'Is' tests f
 
 ## S18L-class-5 (low): A T? or a Weak<T> gets no hint that `Class` (or `Class & Sendable`) would fix the error, unlike the same error on `Is`
 
-Status: fixed in 7e4a159: RefEquals and [Weak x] pass the T without its ? to class_hint(), and a Weak<T> of a type parameter's reason adds "as a type parameter that's Class & Sendable is"; cases in sema's Where T: Class and Weak<T> Sendable tests
+Status: fixed in fe5443c: RefEquals and [Weak x] pass the T without its ? to class_hint(), and a Weak<T> of a type parameter's reason adds "as a type parameter that's Class & Sendable is"; cases in sema's Where T: Class and Weak<T> Sendable tests
 
 Where: compiler/src/sema.cpp:19866
 
@@ -590,7 +590,7 @@ Skeptic: In t38.fb, `x Is T` with x: T? ends with "; a constraint like <T: Class
 
 ## S18L-sendable-2 (low): Spawn given a nullable Sendable Func says it needs a Sendable Func
 
-Status: fixed in f9710af: check_spawn() reports a T? of a Sendable Func as a value that may be Null; a case in sema's Sendable Func test
+Status: fixed in ffb1249: check_spawn() reports a T? of a Sendable Func as a value that may be Null; a case in sema's Sendable Func test
 
 Where: compiler/src/sema.cpp:19046
 
@@ -615,7 +615,7 @@ Skeptic: I ran f2.fb. It prints "f2.fb:5:17: error: Spawn takes a lambda, a Func
 
 ## S18L-sendable-3 (low): No cycle warning when a Sendable lambda that captures Self is stored in Self's Mutex field
 
-Status: fixed in f9710af: a Lock of a Mutex that's one of Self's fields (m_self_field_locks) counts as the field for warn_self_cycle(); a case in sema's Sendable Func test
+Status: fixed in ffb1249: a Lock of a Mutex that's one of Self's fields (m_self_field_locks) counts as the field for warn_self_cycle(); a case in sema's Sendable Func test
 
 Where: compiler/src/sema.cpp:15398
 
@@ -654,7 +654,7 @@ Skeptic: I ran f3.fb (the finding's program). Debug prints no warning, then "arm
 
 ## S18L-sendable-4 (low): Spec 01's table of contextual keywords leaves out Sendable
 
-Status: fixed in f9710af: spec 01's Contextual table has Sendable; a doc gap, which no test checks
+Status: fixed in ffb1249: spec 01's Contextual table has Sendable; a doc gap, which no test checks
 
 Where: docs/spec/01-lexical.md:165
 
@@ -678,7 +678,7 @@ Skeptic: I ran f4.fb. It prints 6, so `Local Sendable = 5` and `Sendable Func():
 
 ## S18L-throws-10 (low): E is inferred from a Task's Throws by position, so the order of its Classes matters
 
-Status: fixed in 79c14e7: unify() sets aside what the written Classes cover, then gives what's left to the type parameters, whatever order the Task lists its Classes in; sema's "a Task's Throws, written out, is checked, inferred, and named..."
+Status: fixed in 62b2acf: unify() sets aside what the written Classes cover, then gives what's left to the type parameters, whatever order the Task lists its Classes in; sema's "a Task's Throws, written out, is checked, inferred, and named..."
 
 Where: compiler/src/sema.cpp:20384
 
@@ -735,7 +735,7 @@ Skeptic: f10.fb: Take(Owt()) is accepted, and Take(Two()) gives 'expected Task<I
 
 ## S18L-throws-11 (low): Type names of a throwing Task in a tuple, Func parameters, or type arguments read alike
 
-Status: fixed in 79c14e7: type_table_t::listed() puts a Task with a Throws, or a Func that gives one, in parentheses in tuples, Func and Callback parameters, type arguments, and qualified names; the same sema test
+Status: fixed in 62b2acf: type_table_t::listed() puts a Task with a Throws, or a Func that gives one, in parentheses in tuples, Func and Callback parameters, type arguments, and qualified names; the same sema test
 
 Where: compiler/src/types.cpp:966
 
@@ -780,7 +780,7 @@ Skeptic: f11.fb gives 'expected (Task<Int32> Throws f11.A, f11.B, Int32), found 
 
 ## S18L-throws-12 (low): The can't-be-Null hint suggests 'Task<Int32> Throws Oops?' instead of '(Task<Int32> Throws Oops)?'
 
-Status: fixed in 79c14e7: the Null hint puts a Task with a Throws in parentheses, as a Func; the same sema test
+Status: fixed in 62b2acf: the Null hint puts a Task with a Throws in parentheses, as a Func; the same sema test
 
 Where: compiler/src/sema.cpp:16332
 
@@ -815,7 +815,7 @@ Skeptic: f12.fb gives 'Task<Int32> Throws Oops can't be Null; Task<Int32> Throws
 
 ## S18L-throws-13 (low): A bad class in a Task's Throws is reported more than once
 
-Status: fixed in 79c14e7: anything converts to a Task whose Throws has what isn't an error, which was reported, and a quiet try queues no pending check; the same sema test
+Status: fixed in 62b2acf: anything converts to a Task whose Throws has what isn't an error, which was reported, and a quiet try queues no pending check; the same sema test
 
 Where: compiler/src/sema.cpp:12014
 
@@ -858,7 +858,7 @@ Skeptic: f13.fb prints 'f13.fb:17:31: error: Throws lists Classes that extend Er
 
 ## S18L-throws-14 (low): mentions() and parameters_in() skip a Task's Throws, so an unknown E leaks into a call
 
-Status: fixed in 79c14e7: mentions() and parameters_in() go into a Task's Throws, and type_table_t::measure() counts it, so check_expansion() names growth through one; the same sema test
+Status: fixed in 62b2acf: mentions() and parameters_in() go into a Task's Throws, and type_table_t::measure() counts it, so check_expansion() names growth through one; the same sema test
 
 Where: compiler/src/sema.cpp:10325
 
@@ -892,7 +892,7 @@ Skeptic: f14.fb: RunArray gives 'can't tell what T is' plus ''t' needs a type'. 
 
 ## S18L-throws-15 (low): The can't-tell hint suggests Int for a type parameter that needs E: Error
 
-Status: fixed in f59bf4d: the can't-tell example gives Error for a type parameter that's an error; a case in sema's Task Throws test
+Status: fixed in a4d89de: the can't-tell example gives Error for a type parameter that's an error; a case in sema's Task Throws test
 
 Where: compiler/src/sema.cpp:20513
 
@@ -927,7 +927,7 @@ Skeptic: f15.fb gives 'can't tell what E is in this call; write the type argumen
 
 ## S18L-throws-16 (low): Some of the step's new Throws diagnostics have no tests
 
-Status: fixed in 79c14e7: the same sema test checks each diagnostic named, and a Catch of E reached only by a concrete Class
+Status: fixed in 62b2acf: the same sema test checks each diagnostic named, and a Catch of E reached only by a concrete Class
 
 Where: tests/compiler/sema_tests.cpp:9178
 
@@ -982,7 +982,7 @@ Skeptic: f16.fb shows each diagnostic working. Grepping tests/ finds no test of 
 
 ## S18L-throws-8 (low): A parameter after a Task-typed one is read as a thrown Class in a lambda or a Func type
 
-Status: fixed in 18dc446: in a Func type's or a lambda's parameters (m_list_parameter), a ',' ends a Task's Throws, as spec 10 now says, since what follows is always a parameter; parser tests and a case in async_throws_generic.fb
+Status: fixed in 96f04b9: in a Func type's or a lambda's parameters (m_list_parameter), a ',' ends a Task's Throws, as spec 10 now says, since what follows is always a parameter; parser tests and a case in async_throws_generic.fb
 
 Where: compiler/src/parser.cpp:3700
 
@@ -1023,7 +1023,7 @@ Skeptic: f8.fb gives 'Throws lists Classes that extend Error, not Int32' (14:47)
 
 ## S18L-throws-9 (low): A Task's Throws doesn't report a type parameter that's covered or repeated
 
-Status: fixed in 79c14e7: written_task() runs covered_in() for type parameters, with the constraints where the Task's type is written; the same sema test
+Status: fixed in 62b2acf: written_task() runs covered_in() for type parameters, with the constraints where the Task's type is written; the same sema test
 
 Where: compiler/src/sema.cpp:6210
 
