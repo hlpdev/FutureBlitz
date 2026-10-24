@@ -33,6 +33,21 @@ Async Function Saw(watcher: FileWatcher, wanted: (FileEventKind, String)[]): Boo
     Return False
 End Function
 
+// The first event `watcher` tells of for the file `name` within ten seconds, or Null.
+Async Function Found(watcher: FileWatcher, name: String): FileEvent?
+    For tries = 1 To 1000
+        Loop
+            Local event = watcher.TryNext()
+            If event == Null Then Break
+            If event.Path.FileName() == name Then Return event
+        End Loop
+
+        Await RealWait(10.Milliseconds)
+    End For
+
+    Return Null
+End Function
+
 // Takes what's come, so the next check only sees what follows.
 Function Drain(watcher: FileWatcher)
     While watcher.TryNext() != Null
@@ -82,6 +97,30 @@ Print("case removed {Await Saw(cases, [(FileEventKind.REMOVED, "SAVE.txt")])}")
 Try File.WriteText(root / "cases" / "save.txt", "two")
 Print("case made again {Await Saw(cases, [(FileEventKind.CREATED, "save.txt")])}")
 cases.Close()
+
+// A folder watched by a path that ends with a separator gives events whose paths are the
+// folder's joined with the names, as Path's Join makes them.
+Try Dir.Create(root / "slashed")
+Local slashed = Path(root.Text + "/slashed/")
+Local endsWithSlash = Try FileWatcher(slashed)
+Try File.WriteText(slashed / "a.txt", "a")
+Local slashedEvent = Await Found(endsWithSlash, "a.txt")
+Print("slashed {slashedEvent != Null && slashedEvent.Path == slashed / "a.txt"}")
+endsWithSlash.Close()
+
+// A folder watched by a path from the current folder is still watched once that changes, and
+// its events' paths are from the path it was given.
+Local before = Try Dir.Current()
+Try Dir.CreateAll(root / "one" / "watched")
+Try Dir.Create(root / "two")
+Try Dir.SetCurrent(root / "one")
+Local relative = Try FileWatcher("watched")
+Try Dir.SetCurrent(root / "two")
+Try File.WriteText(root / "one" / "watched" / "a.txt", "a")
+Local relativeEvent = Await Found(relative, "a.txt")
+Print("relative {relativeEvent != Null && relativeEvent.Kind == FileEventKind.CREATED} {relativeEvent != Null && relativeEvent.Path.Text == "watched/a.txt"}")
+relative.Close()
+Try Dir.SetCurrent(before)
 
 // A file's own changes.
 Local watched = root / "watched.dat"

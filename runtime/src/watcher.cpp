@@ -47,7 +47,11 @@ struct watcher_t {
     std::uint64_t listed_at = 0;
     /// The Tasks of the Awaits for the next event.
     std::vector<fb_task_t*> waiting;
+    /// The path the program gave, which events' paths start with, and where it was when the
+    /// watcher was made, which looking at the disk goes by, so a change of the current folder
+    /// doesn't move it.
     std::string path;
+    std::string real;
     std::deque<event_t> events;
     /// The event the program took last.
     event_t taken;
@@ -181,18 +185,31 @@ void queue(watcher_t& watcher, std::vector<event_t> events) {
     }
 }
 
-/// The path of what's at `key` in a folder watcher's folder.
+/// `folder` and `key`, with a '/' between them unless the folder ends with a separator, as
+/// Path's Join puts them.
+std::string joined(std::string folder, const std::string_view key) {
+#ifdef _WIN32
+    const bool separated = folder.ends_with('/') || folder.ends_with('\\');
+#else
+    const bool separated = folder.ends_with('/');
+#endif
+    if (!separated) {
+        folder += '/';
+    }
+
+    folder += key;
+    return folder;
+}
+
+/// The path of what's at `key` in a folder watcher's folder, from the path the program gave.
 std::string path_in(const watcher_t& watcher, const std::string_view key) {
-    std::string path = watcher.path;
-    path += '/';
-    path += key;
-    return path;
+    return joined(watcher.path, key);
 }
 
 /// Lists a folder watcher's folder again and gives what came and went since the names it knew,
 /// as when libuv drops events it had no room for and says only that something changed.
 std::vector<event_t> rescanned(watcher_t& watcher) {
-    std::set<std::string, std::less<>> names = names_in(watcher.path);
+    std::set<std::string, std::less<>> names = names_in(watcher.real);
     std::vector<event_t> events;
     for (const std::string& name : watcher.known) {
         if (!name.empty() && !names.contains(name)) {
@@ -215,7 +232,7 @@ std::vector<event_t> rescanned(watcher_t& watcher) {
 bool listed(watcher_t& watcher, uv_loop_t* loop, const std::string_view name) {
     const std::uint64_t now = uv_now(loop) + 1;
     if (watcher.listed_at != now) {
-        watcher.listing = names_in(watcher.path);
+        watcher.listing = names_in(watcher.real);
         watcher.listed_at = now;
     }
 
@@ -240,7 +257,7 @@ void watcher_t::on_event(uv_fs_event_t* handle, const char* name, const int even
 
     const std::string_view key = watcher.folder ? name : "";
     event_t event{ .path = watcher.folder ? path_in(watcher, key) : watcher.path };
-    bool there = exists(event.path);
+    bool there = exists(watcher.folder ? joined(watcher.real, key) : watcher.real);
     const auto known = watcher.known.find(key);
     // A disk that ignores case, as Windows' and macOS's usually do, finds a name by another
     // spelling too, as a rename that changed its case leaves it, so a name that would come, or a
@@ -268,8 +285,8 @@ void start_watching(uv_loop_t* loop, void* context) {
     auto& watcher = *static_cast<watcher_t*>(context);
     fb::runtime::at_io_stop(stop_watchers);
     if (watcher.folder) {
-        watcher.known = names_in(watcher.path);
-    } else if (exists(watcher.path)) {
+        watcher.known = names_in(watcher.real);
+    } else if (exists(watcher.real)) {
         watcher.known.emplace("");
     }
 
@@ -327,6 +344,12 @@ void* fb_io_watcher_new(const fb_string_t* path) {
     uv_fs_t call{};
     if (uv_fs_stat(nullptr, &call, watcher->path.c_str(), nullptr) == 0) {
         watcher->folder = (call.statbuf.st_mode & S_IFMT) == S_IFDIR;
+    }
+
+    uv_fs_req_cleanup(&call);
+    watcher->real = watcher->path;
+    if (uv_fs_realpath(nullptr, &call, watcher->path.c_str(), nullptr) == 0) {
+        watcher->real = static_cast<const char*>(call.ptr);
     }
 
     uv_fs_req_cleanup(&call);
