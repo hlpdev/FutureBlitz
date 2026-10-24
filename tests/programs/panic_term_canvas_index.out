@@ -1,0 +1,2 @@
+[ ]
+panic: (2, 0) is outside a canvas of 2x2 at panic_term_canvas_index.fb:7:16

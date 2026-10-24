@@ -1,0 +1,171 @@
+// std.term's regions: a Region of a screen's cells, which splits into rows or columns by
+// Constraints, as a full-screen app lays out its panes: a size that's Fixed, a Percent of what
+// there is, at least a Min, or a share of what's left, Fill.
+
+Import std.core
+
+// A rectangle of a screen's cells: its top-left Column and Row, from 0, and its Width and
+// Height.
+Public Struct Region Implements Hashable, Printable
+    Public Field Column: Int
+    Public Field Row: Int
+    Public Field Width: Int
+    Public Field Height: Int
+
+    // The column just past its right edge, and the row just past its bottom.
+    Public Property Right: Int
+        Get => Column + Width
+    End Property
+
+    Public Property Bottom: Int
+        Get => Row + Height
+    End Property
+
+    // Whether it has no cells.
+    Public Property IsEmpty: Bool
+        Get => Width <= 0 || Height <= 0
+    End Property
+
+    // Whether the cell at column and row is in it.
+    Public Method Contains(column: Int, row: Int): Bool
+        Return column >= Column && column < Right && row >= Row && row < Bottom
+    End Method
+
+    // It without margin cells on each side, or empty where there aren't that many.
+    Public Method Inner(margin: Int = 1): Region => Inner(margin, margin)
+
+    // It without horizontal cells on its left and right, and vertical ones on its top and
+    // bottom.
+    Public Method Inner(horizontal: Int, vertical: Int): Region
+        Return Region(Column + horizontal, Row + vertical, Max(Width - 2 * horizontal, 0),
+                      Max(Height - 2 * vertical, 0))
+    End Method
+
+    // The cells it has in common with other, which may be none.
+    Public Method Intersect(other: Region): Region
+        Local left = Max(Column, other.Column)
+        Local top = Max(Row, other.Row)
+        Local right = Min(Right, other.Right)
+        Local bottom = Min(Bottom, other.Bottom)
+        Return Region(left, top, Max(right - left, 0), Max(bottom - top, 0))
+    End Method
+
+    // Its rows, top to bottom, as the sizes say, each its whole width.
+    Public Method SplitRows(sizes: Constraint...): Region[]
+        Local regions: Region[] = []
+        Local at = Row
+        For height In Sizes(Height, sizes)
+            regions.Add(Region(Column, at, Width, height))
+            at += height
+        End For
+
+        Return regions
+    End Method
+
+    // Its columns, left to right, as the sizes say, each its whole height.
+    Public Method SplitColumns(sizes: Constraint...): Region[]
+        Local regions: Region[] = []
+        Local at = Column
+        For width In Sizes(Width, sizes)
+            regions.Add(Region(at, Row, width, Height))
+            at += width
+        End For
+
+        Return regions
+    End Method
+
+    // Like "(3, 4) 20x10".
+    Public Method ToString(): String => "({Column}, {Row}) {Width}x{Height}"
+End Struct
+
+// How a Constraint sizes its part.
+Public Enum ConstraintKind
+    FIXED, PERCENT, MIN, FILL
+End Enum
+
+// How big one part of a split is: a Fixed number of cells, a Percent of the cells there are, at
+// least a Min of them and a share of what's left like a Fill of 1, or a Fill, a share of what's
+// left by its weight beside the other Fills'.
+Public Struct Constraint Implements Hashable, Printable
+    Public ReadOnly Field Kind: ConstraintKind
+    Public ReadOnly Field Value: Int
+
+    New(kind: ConstraintKind, value: Int)
+        Kind = kind
+        Value = value
+    End New
+
+    // size cells, or none for a negative one.
+    Public Static Method Fixed(size: Int): Constraint => Constraint(ConstraintKind.FIXED, Max(size, 0))
+
+    // percent of the cells there are, from 0 to 100, rounded down.
+    Public Static Method Percent(percent: Int): Constraint
+        Return Constraint(ConstraintKind.PERCENT, Clamp(percent, 0, 100))
+    End Method
+
+    // At least size cells, and a share of what's left, as a Fill of 1.
+    Public Static Method Min(size: Int): Constraint => Constraint(ConstraintKind.MIN, Max(size, 0))
+
+    // A share of what's left, by weight beside the other Fills' weights: a Fill of 2 gets twice
+    // a Fill of 1's.
+    Public Static Method Fill(weight: Int = 1): Constraint
+        Return Constraint(ConstraintKind.FILL, Max(weight, 0))
+    End Method
+
+    // Like "Fixed(3)" or "Fill(1)".
+    Public Method ToString(): String
+        Select Kind
+            Case ConstraintKind.FIXED
+                Return "Fixed({Value})"
+            Case ConstraintKind.PERCENT
+                Return "Percent({Value})"
+            Case ConstraintKind.MIN
+                Return "Min({Value})"
+            Case ConstraintKind.FILL
+                Return "Fill({Value})"
+        End Select
+    End Method
+End Struct
+
+// The sizes the constraints give total cells: Fixed, Percent, and Min sizes first, from the
+// first, as far as the cells go, then what's left shared by the Fills and Mins by their weights,
+// the first ones taking a cell more where it doesn't share out evenly. They add up to total, but
+// where only Fixed and Percent sizes take less, which leaves the rest.
+Package Function Sizes(total: Int, constraints: Constraint[]): Int[]
+    Local sizes: Int[] = []
+    Local left = Max(total, 0)
+    Local weights = 0
+    For constraint In constraints
+        Local wanted = 0
+        Select constraint.Kind
+            Case ConstraintKind.FIXED, ConstraintKind.MIN
+                wanted = constraint.Value
+            Case ConstraintKind.PERCENT
+                wanted = ((Max(total, 0) As Int64) * constraint.Value / 100) As Int
+            Case ConstraintKind.FILL
+                weights += constraint.Value
+        End Select
+
+        If constraint.Kind == ConstraintKind.MIN Then weights += 1
+        Local given = Min(wanted, left)
+        sizes.Add(given)
+        left -= given
+    End For
+
+    If weights == 0 Then Return sizes
+    Local shared = left As Int64
+    Local counted: Int64 = 0
+    For i = 0 Until constraints.Count
+        Local weight = constraints[i].Kind == ConstraintKind.FILL ? constraints[i].Value : 0
+        If constraints[i].Kind == ConstraintKind.MIN Then weight = 1
+        If weight == 0 Then Continue
+        // Each takes its share of the whole so far, rounded up, so the first ones take what
+        // doesn't share out evenly, and all of it is shared.
+        Local before = (shared * counted + weights - 1) / weights
+        counted += weight
+        Local after = (shared * counted + weights - 1) / weights
+        sizes[i] += (after - before) As Int
+    End For
+
+    Return sizes
+End Function

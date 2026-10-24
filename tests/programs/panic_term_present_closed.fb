@@ -1,0 +1,9 @@
+// A Screen that's closed has given the terminal back, so a Present panics where it's called.
+Import std.core
+Import std.term
+
+Local fake = FakeTerminal(4, 2)
+Local screen = Screen(fake)
+Print(screen.Present())
+screen.Close()
+screen.Present()

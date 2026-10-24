@@ -1,0 +1,127 @@
+open: \e[?1049h\e[?25l\e[?2004h\e[?1000h\e[?1002h\e[?1006h mode 5 leave \e[0m\e[?1006l\e[?1002l\e[?1000l\e[?2004l\e[?25h\e[?1049l
+size: 12 3 (0, 0) 12x3 True
+first: 34 [\e[1;1H\e[0mHello       \e[2;1H\e[0;31m中文\e[0m        \e[3;1H            \e[0m]
+same: 0 [] 2
+one cell: 1 [\e[1;2H\e[0ma\e[0m]
+two on a row: 2 [\e[1;1H\e[0mJ\e[3Cy\e[0m]
+styled: 3 [\e[3;1H\e[0;1;32mab\e[9Cz\e[0m]
+wide to narrow: 2 [\e[2;1H\e[0mab\e[0m]
+narrow to wide: 1 [\e[2;3H\e[0m字\e[0m]
+half of a wide one: 2 [\e[2;3H\e[0m x\e[0m]
+Jally
+ab x
+ab         z
+cursor shown: 0 [\e[2;4H\e[?25h]
+cursor stays: 0 []
+cursor moved: 0 [\e[3;6H]
+cursor after a change: 1 [\e[1;1H\e[0m!\e[0m\e[3;6H]
+cursor hidden: 0 [\e[?25l]
+redraw: 36 [\e[1;1H\e[0m!ally       \e[2;1Hab x        \e[3;1H\e[0;1;32mab\e[0m         \e[0;1;32mz\e[0m]
+frame resized: 3 [\e[1;1H\e[0m!al\e[0m]
+and back: 36 [\e[1;1H\e[0m!al         \e[2;1H            \e[3;1H            \e[0m]
+resized: RESIZE 6 4
+!al
+
+
+
+after the resize: 24 [\e[1;1H\e[0m!al   \e[2;1H      \e[3;1H      \e[4;1H      \e[0m]
+event: q True
+close: \e[0m\e[?1006l\e[?1002l\e[?1000l\e[?2004l\e[?25h\e[?1049l mode 0 leave [] False
+closed twice: []
+open: \e[?1049h\e[?25l\e[?2004h mode 3
+first: 8 [\e[1;1Hab  \e[2;1H    ]
+then: 1 [\e[2;2Hc]
+close: \e[0m\e[?2004l\e[?25h\e[?1049l mode 0
+app: 3 \e[1;1Hcount 0   \e[2;1H          \e[1;7H1\e[1;7H2\e[2;1Htwo+\e[1;7H3
+app closed: 0 +
+8 2 0 7
+2 5
+     cli
+ft
+
+ xabc
+[f] [t] [ ] plain
+3 0
+ wrap
+ this
+ text
+
+ wrap
+ thi####
+ tex####
+    ####
+yellow reverse [ ]
+cleared: [
+
+
+] on blue
+(1, 1) 10x3
+╭─ Title… ─╮
+│          │
+│          │
+│          │
+╰──────────╯
+(10, 2) 0x0 (0, 0) 0x0
+╭─ Title… ─╮
+│        ++│
+│     ╔═ cut
+│     ║    │
+╰─────║────╯
+[ab中
+xyz
+] 5 3
+[] 0 0 (0, 0) 0x0
+[]
+[(0, 0) 10x2, (0, 2) 10x6, (0, 8) 10x2]
+[(0, 0) 10x3, (0, 3) 10x5, (0, 8) 10x2]
+[(0, 0) 3x10, (3, 0) 6x10, (9, 0) 1x10]
+[(0, 0) 8x10, (8, 0) 2x10, (10, 0) 0x10]
+[(2, 3) 3x1, (5, 3) 2x1, (7, 3) 2x1]
+[(0, 0) 10x5, (0, 5) 10x5, (0, 10) 10x0]
+[(0, 0) 10x3] [] [(0, 0) 10x0, (0, 0) 10x10]
+Fixed(0) Percent(100) Min(2) Fill(1) Percent(0)
+(1, 1) 8x8 (2, 1) 6x8 (6, 6) 0x0 (5, 5) 4x4 (20, 0) 0x2
+True True False False True
+10 10 True
+› one
+  two
+  three | 0 one
+Down: True 1   one / › two /   three
+Down: True 2   one /   two / › three
+Down: True 3   two /   three / › four
+PageDown: True 5   four /   five / › six
+PageDown: True 5   four /   five / › six
+Up: True 4   four / › five /   six
+PageUp: True 2 › three /   four /   five
+Home: True 0 › one /   two /   three
+Up: True 0 › one /   two /   three
+End: True 5   four /   five / › six
+Shift+Down: False 5   four /   five / › six
+x: False 5   four /   five / › six
+PRESS LEFT at 2, 0: True 3
+PRESS RIGHT at 2, 1: False 3
+SCROLL_DOWN at 0, 0: True 5
+SCROLL_UP at 0, 0: True 2
+PRESS LEFT at 2, 5: False 2
+RELEASE LEFT at 2, 1: False 2
+True False 5
+5
+0
+list: 20 [\e[1;1H\e[0;30;46m› one     \e[2;1H\e[0;37m  two     \e[0m]
+-1 none False -1 False
+0 [type he…] dim
+3 [abc] abc 3
+7 [defghij] abcdefghij 10
+7 [hij中文] abcdefghij中文 16
+7 [ij中文k] abcdefghij中文k 17
+Home: True 0 [abcdefgh] abcdefghij中文k 0
+Right: True 1 [abcdefgh] abcdefghij中文k 1
+Delete: True 1 [acdefghi] acdefghij中文k 1
+End: True 7 [ij中文k] acdefghij中文k 16
+Backspace: True 6 [ij中文] acdefghij中文 15
+Ctrl+Left: True 0 [acdefghi] acdefghij中文 0
+Ctrl+W: True 0 [acdefghi] acdefghij中文 0
+F1: False 0 [acdefghi] acdefghij中文 0
+True pasted lineacdefghij中文 False
+6 [••••••] 6
+0 True 0

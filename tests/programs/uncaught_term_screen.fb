@@ -1,0 +1,8 @@
+// An uncaught error while a Screen is open on the console shows once the screen is put back, as
+// a panic does.
+Import std.core
+Import std.term
+
+Local screen = Screen(Terminal.Console(), False)
+Print("drawn")
+Throw Error("lost")

@@ -1,0 +1,218 @@
+// std.term's full-screen apps on a fake terminal: what a Screen writes as it opens and closes,
+// and at each Present only the cells that changed, with the least cursor moves and style codes;
+// a Canvas's drawing, kept to its edges and to wide characters' two cells; regions split by
+// constraints; and a ListView and a TextInput taking keys and the mouse.
+Import std.core
+Import std.text
+Import std.time
+Import std.term
+
+Const E = "\u{1b}"
+
+Function Shown(text: String): String => text.Replace("\u{1b}", "\\e").Replace("\r", "\\r")
+
+// What a Present wrote: how many cells, and the bytes.
+Function Presented(screen: Screen, fake: FakeTerminal): String
+    Local cells = screen.Present()
+    Return "{cells} [{Shown(fake.TakeOutput())}]"
+End Function
+
+Local fake = FakeTerminal(12, 3, ColorLevel.BASIC)
+Local screen = Screen(fake)
+Print("open:", Shown(fake.TakeOutput()), "mode", fake.InputMode, "leave", Shown(fake.Leave))
+Print("size:", screen.Columns, screen.Rows, "{screen.Area}", screen.IsOpen)
+Local frame = screen.Frame
+frame.Print(0, 0, "Hello")
+frame.Print(0, 1, "中文", Style(TermColor.Red))
+Print("first:", Presented(screen, fake))
+Print("same:", Presented(screen, fake), fake.Flushes)
+frame.Print(1, 0, "a")
+Print("one cell:", Presented(screen, fake))
+frame.Print(0, 0, "J")
+frame.Print(4, 0, "y")
+Print("two on a row:", Presented(screen, fake))
+frame.Print(11, 2, "z", Style(TermColor.Green).Bold())
+frame.Print(0, 2, "ab", Style(TermColor.Green).Bold())
+Print("styled:", Presented(screen, fake))
+frame.Print(0, 1, "ab")
+Print("wide to narrow:", Presented(screen, fake))
+frame.Print(2, 1, "字")
+Print("narrow to wide:", Presented(screen, fake))
+frame.Print(3, 1, "x")
+Print("half of a wide one:", Presented(screen, fake))
+Print(frame.ToString())
+screen.ShowCursor(3, 1)
+Print("cursor shown:", Presented(screen, fake))
+Print("cursor stays:", Presented(screen, fake))
+screen.ShowCursor(5, 2)
+Print("cursor moved:", Presented(screen, fake))
+frame.Print(0, 0, "!")
+Print("cursor after a change:", Presented(screen, fake))
+screen.HideCursor()
+Print("cursor hidden:", Presented(screen, fake))
+screen.Redraw()
+Print("redraw:", Presented(screen, fake))
+// A Frame the program resizes itself is drawn all again, at its size.
+frame.Resize(3, 1)
+Print("frame resized:", Presented(screen, fake))
+frame.Resize(12, 3)
+Print("and back:", Presented(screen, fake))
+
+// A resize keeps what's drawn, and the next Present draws it all.
+fake.Resize(6, 4)
+Local resized = screen.ReadEvent()
+Print("resized:", "{resized?.Kind ?? InputKind.KEY}", screen.Columns, screen.Rows)
+Print(frame.ToString())
+Print("after the resize:", Presented(screen, fake))
+fake.Feed("q")
+Print("event:", "{screen.PollEvent(0.Seconds)?.Key ?? KeyEvent('?')}", "{screen.PollEvent(0.Seconds) == Null}")
+screen.Close()
+Print("close:", Shown(fake.TakeOutput()), "mode", fake.InputMode, "leave [{fake.Leave}]", screen.IsOpen)
+screen.Close()
+Print("closed twice: [{fake.TakeOutput()}]")
+
+// Without colors, a screen writes no style codes, and without the mouse, asks for none of its
+// reports; Ctrl+C can be a key.
+Local plain = FakeTerminal(4, 2, ColorLevel.NONE)
+Local quiet = Screen(plain, False, True)
+Print("open:", Shown(plain.TakeOutput()), "mode", plain.InputMode)
+quiet.Frame.Print(0, 0, "ab", Style(TermColor.Red).Reverse())
+Print("first:", Presented(quiet, plain))
+quiet.Frame.Print(1, 1, "c", Style(TermColor.Blue))
+Print("then:", Presented(quiet, plain))
+quiet.Close()
+Print("close:", Shown(plain.TakeOutput()), "mode", plain.InputMode)
+
+// An app: draws a count, and takes keys until q, writing only what changes each time.
+Local counted = FakeTerminal(10, 2, ColorLevel.NONE)
+counted.Feed("++")
+counted.Feed("{E}[<0;1;1M")
+counted.Feed("+q+")
+Local app = Screen(counted)
+counted.TakeOutput()
+Local count = 0
+app.Run(Function(canvas: Canvas)
+    canvas.Print(0, 0, "count {count}")
+    canvas.Print(0, 1, count >= 2 ? "two+" : "")
+End Function, Function(event: InputEvent): Bool
+    If event.IsChar('q') Then Return False
+    If event.IsChar('+') Then count += 1
+    Return True
+End Function)
+Print("app:", count, Shown(counted.TakeOutput()))
+app.Close()
+Print("app closed:", counted.InputMode, counted.ReadEvent()?.Key?.Character ?? '?')
+
+// A Canvas keeps what's drawn to its edges.
+Local canvas = Canvas(8, 4)
+Print(canvas.Print(5, 0, "clipped"), canvas.Print(-2, 1, "left"), canvas.Print(0, 9, "off"), canvas.Print(7, 2, "中"))
+Print(canvas.Print(-1, 3, "中x"), canvas.Print(2, 3, "a\tb\nc"))
+Print(canvas.ToString())
+Print("[{canvas[0, 1]}] [{canvas[1, 1]}] [{canvas[0, 3]}] {canvas[0, 0].Look}")
+canvas.Clear()
+Print(canvas.Print(Region(1, 0, 5, 3), "wrap this text here", Style()), canvas.Print(Region(0, 0, 0, 2), "x", Style()))
+Print(canvas.ToString())
+canvas.Fill(Region(4, 1, 10, 10), "#", Style(TermColor.Yellow))
+canvas.SetLook(Region(0, 0, 2, 1), Style().Reverse())
+Print(canvas.ToString())
+Print("{canvas[5, 2].Look} {canvas[0, 0].Look} [{canvas[0, 0]}]")
+canvas.Clear(Style(Background: TermColor.Blue))
+Print("cleared: [{canvas.ToString()}] {canvas[3, 3].Look}")
+Local boxed = Canvas(12, 5)
+Local inside = boxed.DrawBox(Region(0, 0, 12, 5), BorderStyle.ROUNDED, Style(), "Title here")
+Print("{inside}")
+Print(boxed.ToString())
+Print("{boxed.DrawBox(Region(9, 1, 2, 2), BorderStyle.ASCII, Style())} {boxed.DrawBox(Region(0, 0, 1, 5), BorderStyle.ASCII, Style())}")
+boxed.DrawBox(Region(6, 2, 10, 10), BorderStyle.DOUBLE, Style(), "cut")
+Print(boxed.ToString())
+// Resizing keeps what's left, and a wide character cut at the new edge goes blank.
+Local wide = Canvas(6, 2)
+wide.Print(0, 0, "ab中文")
+wide.Print(0, 1, "xyz")
+wide.Resize(5, 3)
+Print("[{wide.ToString()}]", wide.Columns, wide.Rows)
+wide.Resize(0, 0)
+Print("[{wide.ToString()}]", wide.Columns, wide.Rows, "{wide.Area}")
+Print("[{Canvas(-1, -1).ToString()}]")
+
+// Regions and constraints.
+Local area = Region(0, 0, 10, 10)
+Print("{area.SplitRows(Constraint.Fixed(2), Constraint.Fill(), Constraint.Percent(25))}")
+Print("{area.SplitRows(Constraint.Fill(), Constraint.Fill(2), Constraint.Fill())}")
+Print("{area.SplitColumns(Constraint.Fixed(3), Constraint.Min(4), Constraint.Fill())}")
+Print("{area.SplitColumns(Constraint.Fixed(8), Constraint.Fixed(8), Constraint.Fill())}")
+Print("{Region(2, 3, 7, 1).SplitColumns(Constraint.Fill(), Constraint.Fill(), Constraint.Fill())}")
+Print("{area.SplitRows(Constraint.Percent(50), Constraint.Percent(50), Constraint.Percent(50))}")
+Print("{area.SplitRows(Constraint.Fixed(3))} {area.SplitRows()} {area.SplitRows(Constraint.Fill(0), Constraint.Min(20))}")
+Print("{Constraint.Fixed(-1)} {Constraint.Percent(150)} {Constraint.Min(2)} {Constraint.Fill()} {Constraint.Percent(-3)}")
+Print("{area.Inner()} {area.Inner(2, 1)} {area.Inner(6)} {Region(5, 5, 4, 4).Intersect(area)} {Region(20, 0, 2, 2).Intersect(area)}")
+Print(area.Contains(0, 0), area.Contains(9, 9), area.Contains(10, 0), area.Contains(-1, 5), Region(0, 0, 0, 5).IsEmpty)
+Print(area.Right, area.Bottom, Region(1, 2, 3, 4) == Region(1, 2, 3, 4))
+
+// A list scrolls to keep what's selected in view.
+Local list = ListView(["one", "two", "three", "four", "five", "six"])
+Local view = Canvas(10, 3)
+list.Draw(view, view.Area)
+Print(view.ToString(), "|", list.Selected, list.SelectedItem ?? "")
+For key In [KeyEvent(KeyCode.DOWN), KeyEvent(KeyCode.DOWN), KeyEvent(KeyCode.DOWN), KeyEvent(KeyCode.PAGE_DOWN),
+            KeyEvent(KeyCode.PAGE_DOWN), KeyEvent(KeyCode.UP), KeyEvent(KeyCode.PAGE_UP), KeyEvent(KeyCode.HOME),
+            KeyEvent(KeyCode.UP), KeyEvent(KeyCode.END), KeyEvent(KeyCode.DOWN, KeyModifiers.SHIFT), KeyEvent('x')]
+    Local took = list.HandleKey(key)
+    view.Clear()
+    list.Draw(view, view.Area)
+    Print("{key}:", took, list.Selected, view.ToString().Replace("\n", " / "))
+End For
+
+Local mouse = Region(0, 0, 10, 3)
+For event In [MouseEvent(MouseAction.PRESS, MouseButton.LEFT, 2, 0), MouseEvent(MouseAction.PRESS, MouseButton.RIGHT, 2, 1),
+              MouseEvent(MouseAction.SCROLL_DOWN, MouseButton.NONE, 0, 0), MouseEvent(MouseAction.SCROLL_UP, MouseButton.NONE, 0, 0),
+              MouseEvent(MouseAction.PRESS, MouseButton.LEFT, 2, 5), MouseEvent(MouseAction.RELEASE, MouseButton.LEFT, 2, 1)]
+    Print("{event}:", list.HandleMouse(event, mouse), list.Selected)
+End For
+
+Print(list.HandleEvent(InputEvent(KeyEvent(KeyCode.END)), mouse), list.HandleEvent(InputEvent(10, 10), mouse), list.Selected)
+list.Selected = 99
+Print(list.Selected)
+list.Selected = -5
+Print(list.Selected)
+Local styled = FakeTerminal(10, 2, ColorLevel.BASIC)
+Local listScreen = Screen(styled, False)
+styled.TakeOutput()
+list.ItemLook = Style(TermColor.White)
+list.SelectedLook = Style(TermColor.Black, TermColor.Cyan)
+list.Draw(listScreen.Frame, Region(0, 0, 10, 2))
+Print("list:", Presented(listScreen, styled))
+listScreen.Close()
+Local empty = ListView([])
+empty.Draw(view, view.Area)
+Print(empty.Selected, empty.SelectedItem ?? "none", empty.HandleKey(KeyEvent(KeyCode.DOWN)), empty.Selected,
+      empty.HandleMouse(MouseEvent(MouseAction.SCROLL_DOWN, MouseButton.NONE, 0, 0), view.Area))
+
+// A text input edits its line, and scrolls sideways to keep its cursor in view.
+Local input = TextInput()
+input.Placeholder = "type here"
+Local line = Canvas(8, 1)
+Print(input.Draw(line, line.Area), "[{line}]", "{line[0, 0].Look}")
+For text In ["abc", "defghij", "中文", "k"]
+    For c In text.Chars
+        input.HandleKey(KeyEvent(c))
+    End For
+
+    line.Clear()
+    Print(input.Draw(line, line.Area), "[{line}]", input.Text, input.Cursor)
+End For
+
+For key In [KeyEvent(KeyCode.HOME), KeyEvent(KeyCode.RIGHT), KeyEvent(KeyCode.DELETE), KeyEvent(KeyCode.END),
+            KeyEvent(KeyCode.BACKSPACE), KeyEvent(KeyCode.LEFT, KeyModifiers.CONTROL), KeyEvent('w', KeyModifiers.CONTROL),
+            KeyEvent(KeyCode.F1)]
+    Local took = input.HandleKey(key)
+    line.Clear()
+    Print("{key}:", took, input.Draw(line, line.Area), "[{line}]", input.Text, input.Cursor)
+End For
+
+Print(input.HandleEvent(InputEvent("pasted\r\nline")), input.Text, input.HandleEvent(InputEvent(4, 4)))
+input.Text = "secret"
+input.Mask = "•"
+line.Clear()
+Print(input.Draw(line, line.Area), "[{line}]", input.Cursor)
+Print(input.Draw(line, Region(0, 0, 0, 1)), input.HandleEvent(InputEvent(KeyEvent(KeyCode.HOME))), input.Cursor)
