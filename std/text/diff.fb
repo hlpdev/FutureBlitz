@@ -128,9 +128,10 @@ Public Class Diff
     // ours and theirs, both changed from base, merged as git merge-file merges them: what each
     // changed, and where both changed the same lines, or lines that touch, what they both made
     // of them, or else a conflict, marked "<<<<<<< ours", ours' lines, "=======", theirs', and
-    // ">>>>>>> theirs", with oursName and theirsName. A conflict holds only the lines that differ
-    // between the two, and two conflicts with at most 3 lines between them, or lines without a
-    // letter or a digit, are one.
+    // ">>>>>>> theirs", with oursName and theirsName, on lines that end in "\r\n" where the
+    // texts' lines do. A conflict holds only the lines that differ between the two, and two
+    // conflicts with at most 3 lines between them, or lines without a letter or a digit, are
+    // one.
     Public Static Method Merge(base: String, ours: String, theirs: String,
                                oursName: String = "ours", theirsName: String = "theirs"): Merged
         Local lines = LinesOf(base)
@@ -140,6 +141,9 @@ Public Class Diff
         Local right = ChangesOf(Script(lines, others))
         Local chunks: Chunk[] = []
         Local at = 0
+        // Where the chunks so far end in ours and in theirs.
+        Local mineAt = 0
+        Local othersAt = 0
         Local l = 0
         Local r = 0
         While l < left.Count || r < right.Count
@@ -166,7 +170,10 @@ Public Class Diff
                 End If
             End While
 
-            chunks.Add(Chunk(ChunkKind.SAME, Part(lines, at, start), []))
+            Local kept = Part(lines, at, start)
+            chunks.Add(Chunk(ChunkKind.SAME, kept, []))
+            mineAt += kept.Count
+            othersAt += kept.Count
             Local mineLines = Mapped(left, fromLeft, l, start, finish, mine)
             Local otherLines = Mapped(right, fromRight, r, start, finish, others)
             If l == fromLeft
@@ -174,9 +181,11 @@ Public Class Diff
             ElseIf r == fromRight
                 chunks.Add(Chunk(ChunkKind.TAKEN, mineLines, []))
             Else
-                Refine(chunks, mineLines, otherLines)
+                Refine(chunks, mineLines, otherLines, mineAt, othersAt)
             End If
 
+            mineAt += mineLines.Count
+            othersAt += otherLines.Count
             at = finish
         End While
 
@@ -190,8 +199,10 @@ Public Class Diff
             End If
 
             conflicts += 1
-            text += "<<<<<<< {oursName}\n" + Ended("".Join(chunk.Lines)) + "=======\n" +
-                    Ended("".Join(chunk.Other)) + ">>>>>>> {theirsName}\n"
+            Local ending = MarkerBreak(mine, chunk.Mine, others, chunk.Theirs, lines)
+            text += "<<<<<<< {oursName}{ending}" + Ended("".Join(chunk.Lines), ending) +
+                    "======={ending}" + Ended("".Join(chunk.Other), ending) +
+                    ">>>>>>> {theirsName}{ending}"
         End For
 
         Return Merged(text, conflicts)
@@ -643,11 +654,14 @@ Enum ChunkKind
     SAME, TAKEN, CONFLICT
 End Enum
 
-// A chunk of a merge: its Lines, ours' for a conflict, and theirs' Others.
+// A chunk of a merge: its Lines, ours' for a conflict, and theirs' Other, and for a conflict,
+// where its lines start in ours and in theirs.
 Struct Chunk
     Field Kind: ChunkKind
     Field Lines: String[]
     Field Other: String[]
+    Field Mine: Int = 0
+    Field Theirs: Int = 0
 End Struct
 
 // The lines of other in place of base's from start up to finish, as the changes from first up
@@ -672,14 +686,14 @@ Function Mapped(changes: Change[], first: Int, after: Int, start: Int, finish: I
     Return Part(other, otherStart, otherFinish)
 End Function
 
-// The chunks of where both sides changed the same lines: the lines they both have, and between
-// them, a conflict of each run that differs, unless one side has none, which is one conflict.
-// Two sides that made the same of them, none included, have it as lines both have, as git's
-// merge has the same change on both.
-Function Refine(chunks: Chunk[], mine: String[], others: String[])
+// The chunks of where both sides changed the same lines, mine in ours from mineAt and others in
+// theirs from othersAt: the lines they both have, and between them, a conflict of each run that
+// differs, unless one side has none, which is one conflict. Two sides that made the same of
+// them, none included, have it as lines both have, as git's merge has the same change on both.
+Function Refine(chunks: Chunk[], mine: String[], others: String[], mineAt: Int, othersAt: Int)
     If mine.Count == 0 && others.Count == 0 Then Return
     If mine.Count == 0 || others.Count == 0
-        chunks.Add(Chunk(ChunkKind.CONFLICT, mine, others))
+        chunks.Add(Chunk(ChunkKind.CONFLICT, mine, others, mineAt, othersAt))
         Return
     End If
 
@@ -688,7 +702,8 @@ Function Refine(chunks: Chunk[], mine: String[], others: String[])
     For change In changes
         chunks.Add(Chunk(ChunkKind.SAME, Part(mine, at, change.Start), []))
         chunks.Add(Chunk(ChunkKind.CONFLICT, Part(mine, change.Start, change.Finish),
-                         Part(others, change.OtherStart, change.OtherFinish)))
+                         Part(others, change.OtherStart, change.OtherFinish),
+                         mineAt + change.Start, othersAt + change.OtherStart))
         at = change.Finish
     End For
 
@@ -725,7 +740,8 @@ Function Simplified(chunks: Chunk[]): Chunk[]
                 others.AddAll(chunk.Other)
                 simplified.RemoveLast()
                 simplified.RemoveLast()
-                simplified.Add(Chunk(ChunkKind.CONFLICT, mine, others))
+                simplified.Add(Chunk(ChunkKind.CONFLICT, mine, others, conflict.Mine,
+                                     conflict.Theirs))
                 Continue
             End If
         End If
@@ -745,6 +761,31 @@ Function HasAlnum(lines: String[]): Bool
     End For
 
     Return False
+End Function
+
+// The line break of a conflict's markers, as git's is_cr_needed picks it: "\r\n" when base's
+// first line ends in one, and neither ours' line before the conflict, which starts at mineAt,
+// nor theirs', at othersAt, ends in "\n" alone, a side's first line standing in for it when the
+// conflict starts the side; "\n" otherwise.
+Function MarkerBreak(mine: String[], mineAt: Int, others: String[], othersAt: Int,
+                     base: String[]): String
+    Local crlf = EndsInCrLf(mine, Max(mineAt - 1, 0))
+    If crlf != 0 Then crlf = EndsInCrLf(others, Max(othersAt - 1, 0))
+    If crlf != 0 Then crlf = EndsInCrLf(base, 0)
+    Return crlf > 0 ? "\r\n" : "\n"
+End Function
+
+// Whether line at of lines ends in "\r\n", as git's is_eol_crlf tells it: 1 when it does, 0 when
+// it ends in "\n" alone, and -1 when it can't tell. The last line without a "\n" tells by the
+// line before it.
+Function EndsInCrLf(lines: String[], at: Int): Int
+    If lines.Count == 0 Then Return -1
+    If at < lines.Count - 1 || lines[at].EndsWith("\n")
+        Return lines[at].EndsWith("\r\n") ? 1 : 0
+    End If
+
+    If at == 0 Then Return -1
+    Return lines[at - 1].EndsWith("\r\n") ? 1 : 0
 End Function
 
 // lines from start up to finish.
@@ -772,8 +813,8 @@ Function Shown(mark: String, line: String): String
     Return mark + line + "\n\\ No newline at end of file\n"
 End Function
 
-// text, ending in a line break.
-Function Ended(text: String): String
+// text, ending in a line break: ending, when it has none.
+Function Ended(text: String, ending: String): String
     If text == "" || text.EndsWith("\n") || text.EndsWith("\r") Then Return text
-    Return text + "\n"
+    Return text + ending
 End Function

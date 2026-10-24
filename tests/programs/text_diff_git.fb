@@ -98,7 +98,7 @@ Local merged0 = Diff.Merge("1\n2\n3\n4\n5\n6\n" +
                          "1\n2\n3\n4\n5\n6\n" +
                          "7\neight\n9\n")
 Print("== merge 0 {merged0.Conflicts}")
-Print(merged0.Text)
+Print(merged0.Text.Replace("\r", "\\r"))
 Local merged1 = Diff.Merge("1\n2\n3\n4\n5\n6\n" +
                          "7\n8\n9\n",
                          "1\n2\n3\n4\nfive\n6\n" +
@@ -106,7 +106,7 @@ Local merged1 = Diff.Merge("1\n2\n3\n4\n5\n6\n" +
                          "1\n2\n3\n4\nfive\n6\n" +
                          "7\n8\n9\n")
 Print("== merge 1 {merged1.Conflicts}")
-Print(merged1.Text)
+Print(merged1.Text.Replace("\r", "\\r"))
 Local merged2 = Diff.Merge("1\n2\n3\n4\n5\n6\n" +
                          "7\n8\n9\n",
                          "1\n2\n3\n4\nfive\n6\n" +
@@ -114,7 +114,7 @@ Local merged2 = Diff.Merge("1\n2\n3\n4\n5\n6\n" +
                          "1\n2\n3\n4\nFIVE\n6\n" +
                          "7\n8\n9\n")
 Print("== merge 2 {merged2.Conflicts}")
-Print(merged2.Text)
+Print(merged2.Text.Replace("\r", "\\r"))
 Local merged3 = Diff.Merge("1\n2\n3\n4\n5\n6\n" +
                          "7\n8\n9\n",
                          "1\n2\n3\nx\ny\nz\n" +
@@ -122,7 +122,7 @@ Local merged3 = Diff.Merge("1\n2\n3\n4\n5\n6\n" +
                          "1\n2\n3\nx\nq\nz\n" +
                          "7\n8\n9\n")
 Print("== merge 3 {merged3.Conflicts}")
-Print(merged3.Text)
+Print(merged3.Text.Replace("\r", "\\r"))
 Local merged4 = Diff.Merge("1\n2\n3\n4\n5\n6\n" +
                          "7\n8\n9\n",
                          "1\n2\nthree\n4\n5\n6\n" +
@@ -130,7 +130,7 @@ Local merged4 = Diff.Merge("1\n2\n3\n4\n5\n6\n" +
                          "1\n2\n3\nfour\n5\n6\n" +
                          "7\n8\n9\n")
 Print("== merge 4 {merged4.Conflicts}")
-Print(merged4.Text)
+Print(merged4.Text.Replace("\r", "\\r"))
 Local merged5 = Diff.Merge("1\n2\n3\n4\n5\n6\n" +
                          "7\n8\n9\n",
                          "1\n2\n3\n4\n6\n7\n" +
@@ -138,7 +138,7 @@ Local merged5 = Diff.Merge("1\n2\n3\n4\n5\n6\n" +
                          "1\n2\n3\n4\nfive\n6\n" +
                          "7\n8\n9\n")
 Print("== merge 5 {merged5.Conflicts}")
-Print(merged5.Text)
+Print(merged5.Text.Replace("\r", "\\r"))
 Local merged6 = Diff.Merge("1\n2\n3\n4\n5\n6\n" +
                          "7\n8\n9\n",
                          "1\n2\na\n4\n5\nb\n" +
@@ -146,7 +146,7 @@ Local merged6 = Diff.Merge("1\n2\n3\n4\n5\n6\n" +
                          "1\n2\nA\n4\n5\nB\n" +
                          "7\n8\n9\n")
 Print("== merge 6 {merged6.Conflicts}")
-Print(merged6.Text)
+Print(merged6.Text.Replace("\r", "\\r"))
 Local merged7 = Diff.Merge("1\n2\n3\n4\n5\n6\n" +
                          "7\n8\n9\n",
                          "1\n2\n3\n4\n5\nours\n" +
@@ -154,7 +154,7 @@ Local merged7 = Diff.Merge("1\n2\n3\n4\n5\n6\n" +
                          "1\n2\n3\n4\n5\ntheirs\n" +
                          "6\n7\n8\n9\n")
 Print("== merge 7 {merged7.Conflicts}")
-Print(merged7.Text)
+Print(merged7.Text.Replace("\r", "\\r"))
 Local merged8 = Diff.Merge("1\n2\n3\n4\n5\n6\n" +
                          "7\n8\n9\n",
                          "1\nx\n3\n4\n5\n6\n" +
@@ -162,34 +162,34 @@ Local merged8 = Diff.Merge("1\n2\n3\n4\n5\n6\n" +
                          "1\nX\n3\n4\n5\n6\n" +
                          "7\nY\n9\n")
 Print("== merge 8 {merged8.Conflicts}")
-Print(merged8.Text)
+Print(merged8.Text.Replace("\r", "\\r"))
 Local merged9 = Diff.Merge("a\nb\nc\n",
                          "a\nc\n",
                          "a\nc\n")
 Print("== merge 9 {merged9.Conflicts}")
-Print(merged9.Text)
+Print(merged9.Text.Replace("\r", "\\r"))
 Local merged10 = Diff.Merge("a\n",
                          "",
                          "")
 Print("== merge 10 {merged10.Conflicts}")
-Print(merged10.Text)
+Print(merged10.Text.Replace("\r", "\\r"))
 Local merged11 = Diff.Merge("1\n2\n3\n4\n5\n6\n" +
                          "7\n8\n9\n",
                          "1\n2\n6\n7\n8\n9\n",
                          "1\n2\n6\n7\n8\n9\n")
 Print("== merge 11 {merged11.Conflicts}")
-Print(merged11.Text)
+Print(merged11.Text.Replace("\r", "\\r"))
 Local merged12 = Diff.Merge("1\n2\n3\n4\n5\n6\n" +
                          "7\n8\n9\n",
                          "",
                          "")
 Print("== merge 12 {merged12.Conflicts}")
-Print(merged12.Text)
+Print(merged12.Text.Replace("\r", "\\r"))
 Local merged13 = Diff.Merge("b0\n\n\nx\n",
                          "\n\n\nx\n",
                          "b0\n\n\nT\nx\n")
 Print("== merge 13 {merged13.Conflicts}")
-Print(merged13.Text)
+Print(merged13.Text.Replace("\r", "\\r"))
 Local merged14 = Diff.Merge("1\n2\n3\n4\n5\n6\n" +
                          "7\n8\n9\n",
                          "1\nA\nc\n4\nD\n6\n" +
@@ -197,7 +197,7 @@ Local merged14 = Diff.Merge("1\n2\n3\n4\n5\n6\n" +
                          "1\nB\nc\n4\nE\n6\n" +
                          "7\n8\n9\n")
 Print("== merge 14 {merged14.Conflicts}")
-Print(merged14.Text)
+Print(merged14.Text.Replace("\r", "\\r"))
 Local merged15 = Diff.Merge("1\n2\n3\n4\n5\n6\n" +
                          "7\n8\n9\n",
                          "1\nA\n3\nc\nX\n6\n" +
@@ -205,4 +205,29 @@ Local merged15 = Diff.Merge("1\n2\n3\n4\n5\n6\n" +
                          "1\nB\n3\nc\nY\n6\n" +
                          "7\n8\n9\n")
 Print("== merge 15 {merged15.Conflicts}")
-Print(merged15.Text)
+Print(merged15.Text.Replace("\r", "\\r"))
+Local merged16 = Diff.Merge("a\r\nb\r\nc\r\n",
+                         "a\r\nB\r\nc\r\n",
+                         "a\r\nX\r\nc\r\n")
+Print("== merge 16 {merged16.Conflicts}")
+Print(merged16.Text.Replace("\r", "\\r"))
+Local merged17 = Diff.Merge("a\r\nb",
+                         "a\r\nB",
+                         "a\r\nX")
+Print("== merge 17 {merged17.Conflicts}")
+Print(merged17.Text.Replace("\r", "\\r"))
+Local merged18 = Diff.Merge("a\nb\r\nc\r\n",
+                         "a\nB\r\nc\r\n",
+                         "a\nX\r\nc\r\n")
+Print("== merge 18 {merged18.Conflicts}")
+Print(merged18.Text.Replace("\r", "\\r"))
+Local merged19 = Diff.Merge("a\r\nb\r\n",
+                         "a\r\nB\n",
+                         "a\r\nX\r\n")
+Print("== merge 19 {merged19.Conflicts}")
+Print(merged19.Text.Replace("\r", "\\r"))
+Local merged20 = Diff.Merge("b\r\n",
+                         "B\r\n",
+                         "X\r\n")
+Print("== merge 20 {merged20.Conflicts}")
+Print(merged20.Text.Replace("\r", "\\r"))

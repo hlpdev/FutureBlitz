@@ -436,3 +436,44 @@ Y
 8
 9
 
+== merge 16 1
+a\r
+<<<<<<< ours\r
+B\r
+=======\r
+X\r
+>>>>>>> theirs\r
+c\r
+
+== merge 17 1
+a\r
+<<<<<<< ours\r
+B\r
+=======\r
+X\r
+>>>>>>> theirs\r
+
+== merge 18 1
+a
+<<<<<<< ours
+B\r
+=======
+X\r
+>>>>>>> theirs
+c\r
+
+== merge 19 1
+a\r
+<<<<<<< ours\r
+B
+=======\r
+X\r
+>>>>>>> theirs\r
+
+== merge 20 1
+<<<<<<< ours\r
+B\r
+=======\r
+X\r
+>>>>>>> theirs\r
+
