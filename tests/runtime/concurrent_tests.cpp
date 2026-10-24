@@ -193,6 +193,7 @@ TEST_CASE("a Cancellation stops the waits that take it, each of them", "[runtime
     std::atomic<int> took = 0;
     std::atomic<int> stopped = 0;
     std::vector<std::thread> waiters;
+    waiters.reserve(3);
     for (int i = 0; i < 3; ++i) {
         waiters.emplace_back([&] {
             if (fb_semaphore_acquire_cancel(semaphore, cancel) == 1) {
