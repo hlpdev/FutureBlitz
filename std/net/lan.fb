@@ -1,0 +1,858 @@
+// std.net's LAN discovery: LanAnnouncer, which offers a service to the LAN, and Lan.Find, which
+// finds those of a type there, over mDNS and DNS-SD (RFCs 6762 and 6763), as Bonjour and Avahi
+// have them, so the dns-sd and avahi-browse tools find what a program offers, and it finds what
+// they offer. It goes over IPv4, through each of the machine's interfaces but loopback's.
+
+Import std.core
+Import std.collections.array
+Import std.collections.map
+Import std.time.duration
+Import std.time.timers
+Import std.net.address
+Import std.net.socket
+Import std.net.udp
+
+Extern "runtime"
+    Function fb_string_from_array(bytes: UInt8[]): String
+End Extern
+
+// mDNS's port, which a program can trade for one of its own to keep its discovery to itself.
+Const MDNS_PORT: UInt16 = 5353
+
+// The DNS record types DNS-SD has, and the class, IN, whose top bit asks for an answer by
+// unicast in a question, and in a record says it replaces what's kept of its name and type.
+Const TYPE_A: UInt16 = 1
+Const TYPE_PTR: UInt16 = 12
+Const TYPE_TXT: UInt16 = 16
+Const TYPE_AAAA: UInt16 = 28
+Const TYPE_SRV: UInt16 = 33
+Const TYPE_ANY: UInt16 = 255
+Const CLASS_IN: UInt16 = 1
+Const TOP_BIT: UInt16 = 32768
+
+// How long others keep the records, in seconds, as RFC 6762 has them: a host's for 2 minutes,
+// and a service's for 75; a one-shot query's answers for 10 at most.
+Const HOST_TTL: UInt32 = 120
+Const SERVICE_TTL: UInt32 = 4500
+Const ONE_SHOT_TTL: UInt32 = 10
+
+// What Find listens for answers for when it isn't told.
+Const LISTENING_NANOSECONDS: Int64 = 1000000000
+
+// The name DNS-SD enumerates the types of services under.
+Function Enumeration(): String[] => ["_services", "_dns-sd", "_udp", "local"]
+
+// mDNS's group.
+Function Group(): IpAddress => IpAddress.V4(224, 0, 0, 251)
+
+// A service on the LAN, as DNS-SD has one: its type, like "_mygame._udp", its name, which none
+// of its type shares, the host it's on and that host's addresses, its port, and its text, a map
+// of keys to values.
+Public Struct LanService Implements Printable
+    Public ReadOnly Field Type: String
+    Public ReadOnly Field Name: String
+    Public ReadOnly Field Host: String
+    Public ReadOnly Field Port: UInt16
+    Public ReadOnly Field Addresses: IpAddress[]
+    Public ReadOnly Field Text: Map<String, String>
+
+    Package New(type: String, name: String, host: String, port: UInt16, addresses: IpAddress[],
+                text: Map<String, String>)
+        Self.Type = type
+        Self.Name = name
+        Self.Host = host
+        Self.Port = port
+        Self.Addresses = addresses
+        Self.Text = text
+    End New
+
+    // Its first address and port, or Null when it has no address.
+    Public Property Address: SocketAddress?
+        Get => Addresses.Count == 0 ? Null : SocketAddress(Addresses[0], Port)
+    End Property
+
+    Public Method ToString(): String => "{Name} ({Type}) at {Host}:{Port}"
+End Struct
+
+// Offers a service to the LAN: it answers what Lan.Find and DNS-SD's other browsers ask, on the
+// main thread, as Async code does, from Start until Stop, or until it goes, keeping the program
+// running meanwhile, as a listener's AcceptAsync does. It doesn't check that no other service of
+// its type has its name, as a DNS-SD responder's probe would, so names should differ, by the
+// machine's name, say.
+Public Class LanAnnouncer
+    ReadOnly Field Socket: UdpSocket
+    ReadOnly Field Offer: Offered
+    ReadOnly Field Port: UInt16
+    Field Stopped: Bool
+
+    New(socket: UdpSocket, offer: Offered, port: UInt16)
+        Self.Socket = socket
+        Self.Offer = offer
+        Self.Port = port
+    End New
+
+    Method Destroy()
+        Stop()
+    End Method
+
+    // Starts offering the service `name` of `type`, which is "_" and up to 15 lowercase letters,
+    // digits, and '-', then "._udp" or "._tcp", at `port` of this machine, with `text` as its
+    // keys and values, each pair 255 bytes at most. A type, name, or text that isn't one panics.
+    // It answers at mDNS's port, 5353, or at `discoveryPort`, which Find has to be given too.
+    @PanicsAtCaller
+    Public Static Method Start(
+        type: String, name: String, port: UInt16, text: Map<String, String>? = Null,
+        discoveryPort: UInt16 = MDNS_PORT): LanAnnouncer Throws NetError
+        Local offered = Offered(TypeLabels(type), InstanceLabel(name), port, TextData(text))
+        Local socket = Try UdpSocket.Bind(SocketAddress(IpAddress.Any, discoveryPort), True)
+        Try JoinEverywhere(socket)
+        Local announcer = LanAnnouncer(socket, offered, discoveryPort)
+        Answer(socket, offered, discoveryPort)
+        Announce(socket, offered, discoveryPort)
+        Return announcer
+    End Method
+
+    // Its service, as Find gives it, with this machine's addresses.
+    Public Property Service: LanService
+        Get => Offer.Service()
+    End Property
+
+    // Whether Stop stopped it.
+    Public Property IsStopped: Bool
+        Get => Stopped
+    End Property
+
+    // Says goodbye to the LAN, so what found the service forgets it, and stops answering.
+    Public Method Stop()
+        If Stopped Then Return
+        Stopped = True
+        Try
+            Try SendEverywhere(Socket, Offer.Records(True), Port)
+        Catch e As NetError
+        End Try
+
+        Socket.Close()
+    End Method
+End Class
+
+// Finds the services on the LAN.
+Public Struct Lan
+    // Lan isn't made: it's only its Static Methods.
+    New()
+    End New
+
+    // The services of `type`, as LanAnnouncer.Start takes it, that answer within `timeout`, a
+    // second unless it's given, in the order they answered, each once. It asks again a third of
+    // the way through, as answers can be lost. Throws a NetError when it can't ask, as when the
+    // machine has no network. A type that isn't one panics.
+    @PanicsAtCaller
+    Public Static Method Find(type: String, timeout: Duration? = Null,
+                              discoveryPort: UInt16 = MDNS_PORT): LanService[] Throws NetError
+        Local found = Found(TypeLabels(type))
+        Local socket = Try UdpSocket.Bind(SocketAddress(IpAddress.Any, 0))
+        Local query = Query(found.Service)
+        Try SendEverywhere(socket, query, discoveryPort)
+        Local total = timeout ?? Duration.FromNanoseconds(LISTENING_NANOSECONDS)
+        Local deadline = Deadline.After(total)
+        Local again = Deadline.After(Duration.FromNanoseconds(total.Nanoseconds / 3))
+        Local asked = False
+        Loop
+            Local left = deadline.Remaining
+            If left.Nanoseconds <= 0 Then Break
+            If !asked && again.HasPassed
+                Try
+                    Try SendEverywhere(socket, query, discoveryPort)
+                Catch e As NetError
+                End Try
+
+                asked = True
+            End If
+
+            Local wait = asked ? left : Min(left, again.Remaining)
+            Try
+                found.Read(Try socket.Receive(wait))
+            Catch e As TimeoutError
+            End Try
+        End Loop
+        Return found.Services()
+    End Method
+
+    // Find's Async twin, which waits on the main thread.
+    @PanicsAtCaller
+    Public Static Async Method FindAsync(
+        type: String, timeout: Duration? = Null,
+        discoveryPort: UInt16 = MDNS_PORT): LanService[] Throws NetError
+        Local found = Found(TypeLabels(type))
+        Local socket = Try UdpSocket.Bind(SocketAddress(IpAddress.Any, 0))
+        Local query = Query(found.Service)
+        Try SendEverywhere(socket, query, discoveryPort)
+        Local total = timeout ?? Duration.FromNanoseconds(LISTENING_NANOSECONDS)
+        Local deadline = Deadline.After(total)
+        Local again = Deadline.After(Duration.FromNanoseconds(total.Nanoseconds / 3))
+        Local asked = False
+        Loop
+            Local left = deadline.Remaining
+            If left.Nanoseconds <= 0 Then Break
+            If !asked && again.HasPassed
+                Try
+                    Try SendEverywhere(socket, query, discoveryPort)
+                Catch e As NetError
+                End Try
+
+                asked = True
+            End If
+
+            Local wait = asked ? left : Min(left, again.Remaining)
+            Try
+                found.Read(Try Await socket.ReceiveAsync(wait))
+            Catch e As TimeoutError
+            End Try
+        End Loop
+        Return found.Services()
+    End Method
+
+    // The addresses this machine has on its networks, but loopback's, IPv4's and IPv6's, as a
+    // LAN game shows its players where to join.
+    Public Static Method LocalAddresses(): IpAddress[]
+        Local bytes: UInt8[] = []
+        Local addresses: IpAddress[] = []
+        If fb_io_net_interfaces(bytes) != 0 Then Return addresses
+        For at = 0 Until bytes.Count Step 23
+            addresses.Add(SocketOfBytes(bytes[at..at + 23]).Address)
+        End For
+        Return addresses
+    End Method
+
+    // This machine's name, as its OS has it.
+    Public Static Method HostName(): String => fb_io_net_host_name()
+End Struct
+
+// What a LanAnnouncer offers: the names of its service, its type, and its host, as DNS labels,
+// and the records that say them.
+Class Offered
+    ReadOnly Field Type: String[]
+    ReadOnly Field Instance: String[]
+    ReadOnly Field Host: String[]
+    ReadOnly Field Port: UInt16
+    ReadOnly Field Text: UInt8[]
+
+    New(type: String[], name: String, port: UInt16, text: UInt8[])
+        Self.Type = type
+        Local instance = [name]
+        instance.AddAll(type)
+        Self.Instance = instance
+        Self.Host = [HostLabel(), "local"]
+        Self.Port = port
+        Self.Text = text
+    End New
+
+    // The service as Find gives it.
+    Method Service(): LanService
+        Return LanService(Joined(Type[0..Type.Count - 1]), Instance[0], Joined(Host), Port,
+                          V4Addresses(), TextOf(Text))
+    End Method
+
+    // A response with all of its records, to announce them, or for a `goodbye`, to have others
+    // forget them.
+    Method Records(goodbye: Bool): UInt8[]
+        Local records: UInt8[][] = [Pointer(Type, Instance, TtlOf(SERVICE_TTL, False, goodbye)),
+                                    Pointer(Enumeration(), Type,
+                                            TtlOf(SERVICE_TTL, False, goodbye))]
+        records.AddAll(Extra(False, goodbye))
+        Return Response(0, [], records, [])
+    End Method
+
+    // The answer to `query`, and what goes with it, or Null when it asks nothing of this
+    // service's: for a one-shot query, from a port that isn't the discovery port, with the
+    // query's ID and questions.
+    Method Answer(query: Message, oneShot: Bool): UInt8[]?
+        Local answers: UInt8[][] = []
+        Local extra = False
+        For question In query.Questions
+            Local any = question.Type == TYPE_ANY
+            If SameName(question.Name, Type) && (any || question.Type == TYPE_PTR)
+                answers.Add(Pointer(Type, Instance, TtlOf(SERVICE_TTL, oneShot, False)))
+                extra = True
+            ElseIf SameName(question.Name, Instance) &&
+                   (any || question.Type == TYPE_SRV || question.Type == TYPE_TXT)
+                extra = True
+            ElseIf SameName(question.Name, Host) && (any || question.Type == TYPE_A)
+                answers.AddAll(AddressRecords(oneShot, False))
+            ElseIf SameName(question.Name, Enumeration()) && (any || question.Type == TYPE_PTR)
+                answers.Add(Pointer(Enumeration(), Type, TtlOf(SERVICE_TTL, oneShot, False)))
+            End If
+        End For
+
+        If answers.Count == 0 && !extra Then Return Null
+        Local additional: UInt8[][] = extra ? Extra(oneShot, False) : []
+        If answers.Count == 0
+            answers = additional
+            additional = []
+        End If
+
+        Return Response(oneShot ? query.Id : 0, oneShot ? query.Questions : [], answers,
+                        additional)
+    End Method
+
+    // The records that go with the service's: its SRV, its TXT, and its host's addresses, which
+    // replace what others have of their names, but in a one-shot query's answer.
+    Method Extra(oneShot: Bool, goodbye: Bool): UInt8[][]
+        Local server: UInt8[] = [0, 0, 0, 0, (Port >> 8) As UInt8, (Port & 255) As UInt8]
+        server.AddAll(NameBytes(Host))
+        Local records: UInt8[][] = [Record(Instance, TYPE_SRV, !oneShot,
+                                           TtlOf(HOST_TTL, oneShot, goodbye), server),
+                                    Record(Instance, TYPE_TXT, !oneShot,
+                                           TtlOf(SERVICE_TTL, oneShot, goodbye), Text)]
+        records.AddAll(AddressRecords(oneShot, goodbye))
+        Return records
+    End Method
+
+    // The A records of the host's IPv4 addresses.
+    Method AddressRecords(oneShot: Bool, goodbye: Bool): UInt8[][]
+        Local records: UInt8[][] = []
+        For address In V4Addresses()
+            records.Add(Record(Host, TYPE_A, !oneShot, TtlOf(HOST_TTL, oneShot, goodbye),
+                               address.Bytes))
+        End For
+        Return records
+    End Method
+End Class
+
+// How long others keep a record they'd keep for `full` seconds: 0 after a goodbye, and 10 at
+// most from a one-shot query's answer.
+Function TtlOf(full: UInt32, oneShot: Bool, goodbye: Bool): UInt32
+    If goodbye Then Return 0
+    Return oneShot ? Min(full, ONE_SHOT_TTL) : full
+End Function
+
+// The services that answered a Find, as their records come.
+Class Found
+    ReadOnly Field Service: String[]
+    // Each service's name, in the order they came, and what came of each.
+    Field Names: String[][]
+    Field Ports: Map<String, UInt16>
+    Field Hosts: Map<String, String[]>
+    Field Texts: Map<String, UInt8[]>
+    Field Senders: Map<String, IpAddress>
+    // Each host's addresses, by its name in lowercase.
+    Field Addresses: Map<String, IpAddress[]>
+
+    New(service: String[])
+        Self.Service = service
+        Names = []
+        Ports = Map<String, UInt16>()
+        Hosts = Map<String, String[]>()
+        Texts = Map<String, UInt8[]>()
+        Senders = Map<String, IpAddress>()
+        Addresses = Map<String, IpAddress[]>()
+    End New
+
+    // Keeps what a response says of the service's names, and its hosts' addresses.
+    Method Read(datagram: Datagram)
+        Local message = ReadMessage(datagram.Bytes)
+        If message == Null || !message.Response Then Return
+        For record In message.Records
+            Local target = record.Target
+            Local address = record.Address
+            If record.Type == TYPE_PTR && target != Null && SameName(record.Name, Service)
+                // A name of the type's: a label, then the type's.
+                If target.Count == Service.Count + 1 &&
+                   SameName(target[1..target.Count], Service) && !Senders.Contains(Key(target))
+                    Names.Add(target)
+                    Senders[Key(target)] = datagram.From.Address
+                End If
+            ElseIf record.Type == TYPE_SRV && target != Null
+                Ports[Key(record.Name)] = record.Port
+                Hosts[Key(record.Name)] = target
+            ElseIf record.Type == TYPE_TXT
+                Texts[Key(record.Name)] = record.Data
+            ElseIf (record.Type == TYPE_A || record.Type == TYPE_AAAA) && address != Null
+                Local known: IpAddress[] = Addresses.Get(Key(record.Name)) ?? []
+                If !known.Contains(address)
+                    known.Add(address)
+                    Addresses[Key(record.Name)] = known
+                End If
+            End If
+        End For
+    End Method
+
+    // The services whose SRV came, so their host and port are known.
+    Method Services(): LanService[]
+        Local services: LanService[] = []
+        For name In Names
+            Local key = Key(name)
+            Local port = Ports.Get(key)
+            Local host = Hosts.Get(key)
+            If port == Null || host == Null Then Continue
+            Local addresses: IpAddress[] = Addresses.Get(Key(host)) ?? []
+            If addresses.Count == 0 Then addresses = [Senders[key]]
+            Local text: UInt8[] = Texts.Get(key) ?? []
+            services.Add(LanService(Joined(Service[0..Service.Count - 1]), name[0], Joined(host),
+                                    port, addresses, TextOf(text)))
+        End For
+        Return services
+    End Method
+End Class
+
+// A question of a DNS message, which asks for its answer by unicast, as mDNS has it, when
+// `Unicast`.
+Struct Question
+    ReadOnly Field Name: String[]
+    ReadOnly Field Type: UInt16
+    ReadOnly Field Unicast: Bool
+
+    New(name: String[], type: UInt16, unicast: Bool)
+        Self.Name = name
+        Self.Type = type
+        Self.Unicast = unicast
+    End New
+End Struct
+
+// A record of a DNS message, with what DNS-SD reads of its data: a PTR's or SRV's target, an
+// SRV's port, and an A's or AAAA's address.
+Struct ReadRecord
+    ReadOnly Field Name: String[]
+    ReadOnly Field Type: UInt16
+    ReadOnly Field Data: UInt8[]
+    ReadOnly Field Target: String[]?
+    ReadOnly Field Port: UInt16
+    ReadOnly Field Address: IpAddress?
+
+    New(name: String[], type: UInt16, data: UInt8[], target: String[]?, port: UInt16,
+        address: IpAddress?)
+        Self.Name = name
+        Self.Type = type
+        Self.Data = data
+        Self.Target = target
+        Self.Port = port
+        Self.Address = address
+    End New
+End Struct
+
+// A DNS message: its ID, whether it's a response, its questions, and its records, those that
+// answer and the rest.
+Class Message
+    ReadOnly Field Id: UInt16
+    ReadOnly Field Response: Bool
+    ReadOnly Field Questions: Question[]
+    ReadOnly Field Records: ReadRecord[]
+
+    New(id: UInt16, response: Bool, questions: Question[], records: ReadRecord[])
+        Self.Id = id
+        Self.Response = response
+        Self.Questions = questions
+        Self.Records = records
+    End New
+
+    // Whether a question asks for its answer by unicast.
+    Method Unicast(): Bool
+        For question In Questions
+            If question.Unicast Then Return True
+        End For
+        Return False
+    End Method
+End Class
+
+// Reads a DNS message's bytes, which can come from anything on the LAN, so what doesn't read as
+// one is Null.
+Function ReadMessage(bytes: UInt8[]): Message?
+    Local reader = MessageReader(bytes)
+    Local id = reader.Short()
+    Local flags = reader.Short()
+    Local questionCount = reader.Short()
+    Local recordCount = (reader.Short() As Int) + reader.Short() + reader.Short()
+    Local questions: Question[] = []
+    For i = 1 To questionCount
+        Local name = reader.Name()
+        Local type = reader.Short()
+        Local unicast = (reader.Short() & TOP_BIT) != 0
+        If reader.Bad Then Return Null
+        questions.Add(Question(name, type, unicast))
+    End For
+
+    Local records: ReadRecord[] = []
+    For i = 1 To recordCount
+        Local name = reader.Name()
+        Local type = reader.Short()
+        reader.Short()
+        reader.Short()
+        reader.Short()
+        Local size = reader.Short()
+        Local start = reader.At
+        Local data = reader.Bytes(size)
+        If reader.Bad Then Return Null
+        Local target: String[]? = Null
+        Local port: UInt16 = 0
+        Local address: IpAddress? = Null
+        If type == TYPE_PTR
+            target = reader.NameAt(start)
+        ElseIf type == TYPE_SRV && size >= 6
+            port = ((data[4] As UInt16) << 8) | (data[5] As UInt16)
+            target = reader.NameAt(start + 6)
+        ElseIf type == TYPE_A && size == 4 || type == TYPE_AAAA && size == 16
+            address = IpAddress.FromBytes(data)
+        End If
+
+        If reader.Bad Then Return Null
+        records.Add(ReadRecord(name, type, data, target, port, address))
+    End For
+    Return Message(id, (flags & TOP_BIT) != 0, questions, records)
+End Function
+
+// Reads a DNS message's parts, from its start on, noting when it would read past its end, or
+// read a name that doesn't end, in which case what it gives is 0s.
+Class MessageReader
+    ReadOnly Field Data: UInt8[]
+    Field At: Int
+    Field Bad: Bool
+
+    New(data: UInt8[])
+        Self.Data = data
+    End New
+
+    Method Short(): UInt16
+        If At + 2 > Data.Count
+            Bad = True
+            Return 0
+        End If
+
+        Local value = ((Data[At] As UInt16) << 8) | (Data[At + 1] As UInt16)
+        At += 2
+        Return value
+    End Method
+
+    Method Bytes(count: UInt16): UInt8[]
+        If At + (count As Int) > Data.Count
+            Bad = True
+            Return []
+        End If
+
+        Local bytes = Data[At..At + (count As Int)]
+        At += count As Int
+        Return bytes
+    End Method
+
+    // The name from here on, past which it moves.
+    Method Name(): String[]
+        Local name: String[] = []
+        At = Labels(At, name)
+        Return name
+    End Method
+
+    // The name at `start`, where it doesn't move.
+    Method NameAt(start: Int): String[]
+        Local name: String[] = []
+        Labels(start, name)
+        Return name
+    End Method
+
+    // Reads the labels from `start` into name, through compression's pointers to earlier ones,
+    // and gives where the name ends at `start`.
+    Method Labels(start: Int, name: String[]): Int
+        Local at = start
+        Local finish = -1
+        Local jumps = 0
+        Loop
+            If at >= Data.Count || jumps > 64 || name.Count > 128
+                Bad = True
+                Return Data.Count
+            End If
+
+            Local size = Data[at] As Int
+            If size == 0
+                Return finish == -1 ? at + 1 : finish
+            End If
+
+            If size >= 192
+                If at + 1 >= Data.Count
+                    Bad = True
+                    Return Data.Count
+                End If
+
+                If finish == -1 Then finish = at + 2
+                at = ((size - 192) << 8) | (Data[at + 1] As Int)
+                jumps += 1
+                Continue
+            End If
+
+            If size > 63 || at + 1 + size > Data.Count
+                Bad = True
+                Return Data.Count
+            End If
+
+            name.Add(fb_string_from_array(Data[at + 1..at + 1 + size]))
+            at += 1 + size
+        End Loop
+    End Method
+End Class
+
+// A query for the PTR records of a service's type.
+Function Query(service: String[]): UInt8[]
+    Local bytes: UInt8[] = [0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0]
+    bytes.AddAll(NameBytes(service))
+    AddShort(bytes, TYPE_PTR)
+    AddShort(bytes, CLASS_IN)
+    Return bytes
+End Function
+
+// A response of `answers`, with its `additional` records, and for a one-shot query, its `id`
+// and its `questions`.
+Function Response(id: UInt16, questions: Question[], answers: UInt8[][],
+                  additional: UInt8[][]): UInt8[]
+    Local bytes: UInt8[] = []
+    AddShort(bytes, id)
+    AddShort(bytes, 33792)
+    AddShort(bytes, questions.Count As UInt16)
+    AddShort(bytes, answers.Count As UInt16)
+    AddShort(bytes, 0)
+    AddShort(bytes, additional.Count As UInt16)
+    For question In questions
+        bytes.AddAll(NameBytes(question.Name))
+        AddShort(bytes, question.Type)
+        AddShort(bytes, CLASS_IN)
+    End For
+
+    For record In answers
+        bytes.AddAll(record)
+    End For
+
+    For record In additional
+        bytes.AddAll(record)
+    End For
+    Return bytes
+End Function
+
+// A PTR record, from `name` to `target`, which others share, so it never replaces theirs.
+Function Pointer(name: String[], target: String[], ttl: UInt32): UInt8[]
+    Return Record(name, TYPE_PTR, False, ttl, NameBytes(target))
+End Function
+
+// A record's bytes, which replaces what's kept of its name and type when `unique`, but for a
+// one-shot query's answers, which never do.
+Function Record(name: String[], type: UInt16, unique: Bool, ttl: UInt32, data: UInt8[]): UInt8[]
+    Local bytes = NameBytes(name)
+    AddShort(bytes, type)
+    AddShort(bytes, unique ? CLASS_IN | TOP_BIT : CLASS_IN)
+    AddShort(bytes, ((ttl >> 16) & 65535) As UInt16)
+    AddShort(bytes, (ttl & 65535) As UInt16)
+    AddShort(bytes, data.Count As UInt16)
+    bytes.AddAll(data)
+    Return bytes
+End Function
+
+// A name's bytes, each label after its length, then a 0.
+Function NameBytes(name: String[]): UInt8[]
+    Local bytes: UInt8[] = []
+    For label In name
+        Local raw = label.Bytes
+        bytes.Add(raw.Count As UInt8)
+        bytes.AddAll(raw)
+    End For
+
+    bytes.Add(0)
+    Return bytes
+End Function
+
+Function AddShort(bytes: UInt8[], value: UInt16)
+    bytes.Add((value >> 8) As UInt8)
+    bytes.Add((value & 255) As UInt8)
+End Function
+
+// Whether two names are the same, as DNS compares them: ASCII letters by either case.
+Function SameName(a: String[], b: String[]): Bool
+    If a.Count != b.Count Then Return False
+    For i = 0 Until a.Count
+        If Key([a[i]]) != Key([b[i]]) Then Return False
+    End For
+    Return True
+End Function
+
+// A name in lowercase, its labels joined with dots, what Found keeps names by.
+Function Key(name: String[]): String
+    Local bytes: UInt8[] = []
+    For label In name
+        If bytes.Count > 0 Then bytes.Add(46)
+        For byte In label.Bytes
+            bytes.Add(byte >= 65 && byte <= 90 ? byte + 32 : byte)
+        End For
+    End For
+    Return fb_string_from_array(bytes)
+End Function
+
+// A name's labels joined with dots.
+Function Joined(name: String[]): String
+    Local text = ""
+    For label In name
+        text = text == "" ? label : "{text}.{label}"
+    End For
+    Return text
+End Function
+
+// A TXT record's strings, each a key, '=', and a value, or a key alone, as a map.
+Function TextOf(data: UInt8[]): Map<String, String>
+    Local text = Map<String, String>()
+    Local at = 0
+    While at < data.Count
+        Local size = data[at] As Int
+        Local entry = data[at + 1..Min(at + 1 + size, data.Count)]
+        at += 1 + size
+        If entry.Count == 0 Then Continue
+        Local equals = entry.IndexOf(61) ?? -1
+        If equals == 0 Then Continue
+        Local key = fb_string_from_array(equals < 0 ? entry : entry[0..equals])
+        If text.Contains(key) Then Continue
+        text[key] = equals < 0 ? "" : fb_string_from_array(entry[equals + 1..entry.Count])
+    End While
+    Return text
+End Function
+
+// A TXT record's data of `text`, which is one empty string when there's no text.
+@PanicsAtCaller
+Function TextData(text: Map<String, String>?): UInt8[]
+    Local data: UInt8[] = []
+    If text != Null
+        For key, value In text
+            Local entry = key.Bytes
+            If entry.Count == 0 || entry.Contains(61)
+                Panic("a LanService's text has keys of a byte at least, without '=', not \"{key}\"")
+            End If
+
+            entry.Add(61)
+            entry.AddAll(value.Bytes)
+            If entry.Count > 255
+                Panic("a LanService's text has a key and its value of 255 bytes at most, not " +
+                      "{entry.Count}")
+            End If
+
+            data.Add(entry.Count As UInt8)
+            data.AddAll(entry)
+        End For
+    End If
+
+    If data.Count == 0 Then data.Add(0)
+    Return data
+End Function
+
+// A service type's labels and "local", for "_mygame._udp", or a panic for one that isn't one.
+@PanicsAtCaller
+Function TypeLabels(type: String): String[]
+    Local bytes = type.Bytes
+    Local dot = bytes.IndexOf(46) ?? -1
+    Local named = dot >= 2 && dot <= 16 && bytes[0] == 95
+    If named
+        For byte In bytes[1..dot]
+            named = named && (byte >= 97 && byte <= 122 || byte >= 48 && byte <= 57 || byte == 45)
+        End For
+    End If
+
+    Local protocol = dot < 0 ? "" : fb_string_from_array(bytes[dot + 1..bytes.Count])
+    If !named || protocol != "_udp" && protocol != "_tcp"
+        Panic("a LanService's type is '_', up to 15 lowercase letters, digits, and '-', then " +
+              "\"._udp\" or \"._tcp\", not \"{type}\"")
+    End If
+
+    Return [fb_string_from_array(bytes[0..dot]), protocol, "local"]
+End Function
+
+// A service's name, as DNS's one label of it, or a panic for one that isn't one.
+@PanicsAtCaller
+Function InstanceLabel(name: String): String
+    Local count = name.Bytes.Count
+    If count == 0 || count > 63
+        Panic("a LanService's name has 1 to 63 bytes, not {count}")
+    End If
+
+    Return name
+End Function
+
+// This machine's name as a DNS label: its letters, digits, and '-', with '-' for the rest, at
+// most 63 of them.
+Function HostLabel(): String
+    Local bytes: UInt8[] = []
+    For byte In fb_io_net_host_name().Bytes
+        If bytes.Count == 63 Then Break
+        Local kept = byte >= 97 && byte <= 122 || byte >= 65 && byte <= 90 ||
+                     byte >= 48 && byte <= 57
+        bytes.Add(kept ? byte : 45)
+    End For
+
+    If bytes.Count == 0 Then Return "host"
+    Return fb_string_from_array(bytes)
+End Function
+
+// This machine's IPv4 addresses on its networks.
+Function V4Addresses(): IpAddress[]
+    Local addresses: IpAddress[] = []
+    For address In Lan.LocalAddresses()
+        If address.IsV4 Then addresses.Add(address)
+    End For
+    Return addresses
+End Function
+
+// Joins mDNS's group on each interface, or the one the OS picks, when that can't, and says what
+// it sends goes to TTL 255, as mDNS has it.
+Function JoinEverywhere(socket: UdpSocket) Throws NetError
+    Local joined = False
+    For address In V4Addresses()
+        Try
+            Try socket.JoinMulticast(Group(), address)
+            joined = True
+        Catch e As NetError
+        End Try
+    End For
+
+    If !joined Then Try socket.JoinMulticast(Group())
+    Try socket.SetMulticastTtl(255)
+    Try socket.SetMulticastLoopback(True)
+End Function
+
+// Multicasts `bytes` to mDNS's group at `port` through each interface, or through the one the
+// OS picks, when that can't.
+Function SendEverywhere(socket: UdpSocket, bytes: UInt8[], port: UInt16) Throws NetError
+    Local target = SocketAddress(Group(), port)
+    Local sent = False
+    For address In V4Addresses()
+        Try
+            Try socket.SetMulticastInterface(address)
+            Try socket.Send(bytes, target)
+            sent = True
+        Catch e As NetError
+        End Try
+    End For
+
+    If !sent Then Try socket.Send(bytes, target)
+End Function
+
+// Answers the queries that come to the socket, until it closes.
+Async Function Answer(socket: UdpSocket, offered: Offered, port: UInt16)
+    Loop
+        Try
+            Local datagram = Try Await socket.ReceiveAsync()
+            Local query = ReadMessage(datagram.Bytes)
+            If query == Null || query.Response Then Continue
+            Local oneShot = datagram.From.Port != port
+            Local answer = offered.Answer(query, oneShot)
+            If answer == Null Then Continue
+            If oneShot || query.Unicast()
+                Try socket.Send(answer, datagram.From)
+            Else
+                Try SendEverywhere(socket, answer, port)
+            End If
+        Catch e As Error
+            If socket.IsClosed Then Return
+        End Try
+    End Loop
+End Function
+
+// Announces the service twice, a second apart, as RFC 6762 says, unless it stops first.
+Async Function Announce(socket: UdpSocket, offered: Offered, port: UInt16)
+    For time = 1 To 2
+        If socket.IsClosed Then Return
+        Try
+            Try SendEverywhere(socket, offered.Records(False), port)
+        Catch e As NetError
+        End Try
+
+        If time == 1 Then Await Timer.After(Duration.FromNanoseconds(1000000000))
+    End For
+End Function

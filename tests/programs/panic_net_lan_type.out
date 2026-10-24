@@ -1,0 +1,1 @@
+panic: a LanService's type is '_', up to 15 lowercase letters, digits, and '-', then "._udp" or "._tcp", not "mygame" at panic_net_lan_type.fb:7:11
