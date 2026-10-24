@@ -1,0 +1,29 @@
+// A .proto's names that FutureBlitz reserves, std has, or the module fb makes uses itself: a
+// keyword or a built-in type's name, and a field named like a member a message's Struct has or
+// a type of the module, take a '_', so End's field End is End__, after the message End_, and
+// the rest are as they're written.
+Import std.core
+Import "proto_names/names.proto"
+
+Local core = Core_(Proto_: 1, writer_: "w", reader_: "r", item_: "i", tag_: "t", value_: 2)
+Local again = Try Core_.Decode(core.Encode())
+Print("{again} {again == core}")
+
+Local ending = End_(End__: 3, Self__: Self_(x: 4))
+ending.String__.Add(String_(String__: "s"))
+Local read = Try End_.Decode(ending.Encode())
+Print("{read} {read.Self__?.x ?? 0} {read.String__[0].String__ ?? "-"}")
+Print("{Field_(Field__: True)}")
+
+Local members = Members(Encode_: 1, Decode_: 2, ToString_: 3, IsInitialized_: 4, Clone_: 5,
+                        WriteTo_: 6)
+Print("{members} {members.IsInitialized} {(Try Members.Decode(members.Encode())) == members}")
+
+// std.core's Error and ParseError are imported here too, so the .proto's take its qualifier.
+Local panic = Panic(error: names.Error(Message: "m"), parse: names.ParseError(Kind: 7))
+Print("{panic} {(Try Panic.Decode(panic.Encode())) == panic}")
+
+Print("{Holder_Kinds.FromNumber_(2) ?? Holder_Kinds.NONE} {Holder_Kinds.FromNumber_(9) == Null}")
+Local choice = Choice(NONE: 5)
+Print("{choice} {choice.kind} {Choice(kinds: Holder_Kinds.End_).kind} {Choice().kind}")
+Print("{Choice(kinds: Holder_Kinds.FromNumber)}")

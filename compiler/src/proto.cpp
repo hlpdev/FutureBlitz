@@ -2267,7 +2267,7 @@ private:
         if (symbol.kind == symbol_kind_t::ENUM_VALUE ||
             found->second.kind == symbol_kind_t::ENUM_VALUE) {
             reported.with_note("an enum's values are in the scope around the enum, as C++'s are, "
-                               "so two enums there can't both have a value of one name");
+                               "so one can't take the name of another declaration there");
         }
     }
 };

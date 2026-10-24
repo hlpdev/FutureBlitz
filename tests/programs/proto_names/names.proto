@@ -1,0 +1,76 @@
+// Names that FutureBlitz reserves, std has, or the module fb makes uses for its own: each still
+// works, with a '_' after it where FutureBlitz needs one.
+syntax = "proto2";
+
+package names;
+
+// The names of the module's own imports and Locals.
+message Core_ {
+  optional int32 Proto_ = 1;
+  optional string writer_ = 2;
+  optional string reader_ = 3;
+  optional string item_ = 4;
+  optional string tag_ = 5;
+  optional int32 value_ = 6;
+}
+
+// Keywords and built-in types: End, Self, String, and Field are End_, Self_, String_, and
+// Field_, and a field named like its message's type takes a '_' more.
+message End {
+  optional int32 End = 1;
+  optional Self Self = 2;
+  repeated String String = 3;
+}
+
+message Self {
+  optional int32 x = 1;
+}
+
+message String {
+  optional string String = 1;
+}
+
+message Field {
+  optional bool Field = 1;
+}
+
+// What a message's Struct has, as its fields' names.
+message Members {
+  optional int32 Encode = 1;
+  optional int32 Decode = 2;
+  optional int32 ToString = 3;
+  optional int32 IsInitialized = 4;
+  optional int32 Clone = 5;
+  optional int32 WriteTo = 6;
+}
+
+// std's names, which a message's own hide in the module.
+message Error {
+  optional string Message = 1;
+}
+
+message ParseError {
+  optional int32 Kind = 1;
+}
+
+message Panic {
+  optional Error error = 1;
+  optional ParseError parse = 2;
+}
+
+// A closed enum whose value is named like its FromNumber, which takes a '_', in a message of
+// its own, so its values don't clash with End or Choice's NONE; and a oneof whose field is NONE.
+message Holder {
+  enum Kinds {
+    FromNumber = 0;
+    NONE = 1;
+    End = 2;
+  }
+}
+
+message Choice {
+  oneof kind {
+    int32 NONE = 1;
+    Holder.Kinds kinds = 2;
+  }
+}
