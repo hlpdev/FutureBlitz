@@ -17,6 +17,9 @@ aé�b 5
 [one][two][][three][][four]
  [] [91, 97, 13, 98, 93, 91, 108, 97, 115, 116, 13, 93]
 120 121 True
+97 98 99 100 (INTERRUPTED) 101 102 103 104 
+[x] (INTERRUPTED) [abcd] 
+1:97 1:98 (INTERRUPTED) 1:99 1:100 0:100 
 ab: []
 cd: []
 e: [abcd]
