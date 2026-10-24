@@ -40,6 +40,7 @@ plays 1: 1 1
 plays 2: 2 2
 plays 65536: 65536 65536
 long delays: [65535, 65540, 655350] [65540, 65540, 655350]
+longer delays: [65535, 65540, 655350, 655000, 65535000]
 still: 1 1 True 1 1
 HDR 9 wide: near True, (2.5, 0.25, 1, 1), (0, 0, 0, 1)
 HDR 7 wide: near True, (2.5, 0.25, 1, 1), (0, 0, 0, 1)

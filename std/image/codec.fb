@@ -62,8 +62,11 @@ End Extern
 // The most pixels an Image holds, four bytes each in a UInt8[], which an Int counts.
 Package Const MOST_PIXELS = 536870911
 
-// The longest delay a frame has, in milliseconds: GIF's, 65535 hundredths of a second.
-Package Const LONGEST_DELAY = 655350
+// The longest delay a frame has, in milliseconds: APNG's, 65535 seconds.
+Package Const LONGEST_DELAY = 65535000
+
+// The longest delay a GIF's frame has, in milliseconds: 65535 hundredths of a second.
+Package Const LONGEST_GIF_DELAY = 655350
 
 // Panics when a limit is negative, for a format's Decode.
 @PanicsAtCaller

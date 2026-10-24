@@ -1,0 +1,2 @@
+True
+panic: a GIF's frames are each the animation's 4 by 4, and frame 1 is 2 by 2 at panic_image_gif_frame_size.fb:12:1

@@ -44,13 +44,16 @@ Public Struct Png
     End Method
 
     // The APNG of the animation's frames, each deflated at `level`, from 0 to 9, whose first
-    // frame is the image a decoder without animation shows. Panics when the level is another, or
-    // the animation has no frames, or no pixels.
+    // frame is the image a decoder without animation shows: each delay in milliseconds up to
+    // 65535, in hundredths of a second, rounded, up to 655350, and in seconds past that. Panics
+    // when the level is another, or the animation has no frames, no pixels, or a frame whose
+    // image isn't its size.
     @PanicsAtCaller
     Public Static Method EncodeAnimation(animation: Animation, level: Int = 6): UInt8[]
         CheckRange(level, 0, 9, "a PNG's level")
         CheckEncodable(animation.Width, animation.Height, 2147483647, "an APNG")
         If animation.Count == 0 Then Panic("an APNG has at least one frame, and the animation none")
+        CheckFrames(animation, "an APNG")
         Local encoder = fb_zlib_apng_encoder_new(animation.Width, animation.Height, animation.Plays,
                                                  level)
         For frame In animation.Frames
