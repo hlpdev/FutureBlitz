@@ -1,0 +1,7 @@
+// Hex takes the program's own colors, so text that isn't one panics where it's called; TryHex
+// takes text from outside the program.
+Import std.core
+Import std.term
+
+Print("{TermColor.Hex("#abc")}")
+Print("{TermColor.Hex("#abcd")}")

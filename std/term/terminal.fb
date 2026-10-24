@@ -1,0 +1,530 @@
+// A Terminal: where line widgets and full-screen apps write, and keys come from. Terminal.Console()
+// is the program's own console, stdout's, or stderr's with Terminal.Console(StandardStream.ERROR),
+// and a FakeTerminal keeps what's written to it, for tests, and gives the bytes it's fed as keys,
+// at any size and colors. A Class of a program's own can be one too, over a socket, say.
+
+Import std.core
+Import std.collections.array
+Import std.text.string
+Import std.text.builder
+Import std.text.char
+Import std.time.duration
+Import std.time.clock
+Import std.term.console
+Import std.term.input
+Import std.term.style
+
+Extern "runtime"
+    Function fb_write(texts: String[], to_error: Int32, line: Int32)
+    Function fb_flush()
+End Extern
+
+// How long an escape alone waits for the rest of a key's sequence before it's ESCAPE, 50
+// milliseconds, and a paste for its end mark before it's what's come, a second, in nanoseconds.
+Const ESCAPE_WAIT: Int64 = 50000000
+Const PASTE_WAIT: Int64 = 1000000000
+
+// The console's Terminals, stdout's and stderr's, made when they're first asked for, and what
+// they share, as they share stdin.
+Global consoleOutput: Terminal? = Null
+Global consoleError: Terminal? = Null
+Global consoleInput: TerminalInput? = Null
+
+// What a Terminal's input has: the parser of what's come, and its raw mode, which the console's
+// two Terminals share.
+Class TerminalInput
+    Field Parser: InputParser
+    Field Chunk: UInt8[] = []
+    // How many StartRawModes are open, and the mode they asked for.
+    Field RawCount: Int
+    Field RawMode: Int
+    // A resize that came while bytes waited, which comes after them.
+    Field Resized: InputEvent? = Null
+
+    New()
+        Parser = InputParser()
+        Chunk.Resize(4096, 0)
+    End New
+End Class
+
+// Where text goes, as it is, escape codes and all, and where keys come from. What's written is
+// sent on at a Flush. Reading keys is in raw mode, where they come as they're typed, without
+// showing them; StartRawMode keeps it on for a while, as a full-screen app does.
+Public Abstract Class Terminal
+    Field Input: TerminalInput
+
+    // A Terminal with input of its own.
+    Protected New()
+        Input = TerminalInput()
+    End New
+
+    // A Terminal whose input another shares.
+    New(input: TerminalInput)
+        Input = input
+    End New
+
+    // How many columns it has.
+    Public Abstract ReadOnly Property Columns: Int
+
+    // How many rows it has.
+    Public Abstract ReadOnly Property Rows: Int
+
+    // How many colors it shows.
+    Public Abstract ReadOnly Property Colors: ColorLevel
+
+    // Whether what's written goes to a terminal, where a line can be drawn again in place and the
+    // cursor moved, rather than to a pipe or a file, which only gets lines as they're done.
+    Public Abstract ReadOnly Property IsInteractive: Bool
+
+    // Whether keys come as they're typed, rather than from a pipe or a file, which has them a
+    // line at a time.
+    Public Abstract ReadOnly Property IsInputInteractive: Bool
+
+    // Writes text as it is, escape codes and all.
+    Public Abstract Method Write(text: String)
+
+    // Sends on what's been written.
+    Public Abstract Method Flush()
+
+    // Reads what's come into the start of `into`, waiting for timeout nanoseconds at most, or as
+    // long as it takes when that's negative, and gives how many bytes it read: 0 when none came
+    // in time, once the time has passed, -1 at the end of the input, and -2, before any more,
+    // once its size has changed. What a program reads goes through ReadEvent and the rest.
+    Protected Abstract Method ReadInput(into: UInt8[], timeout: Int64): Int64
+
+    // Sets how input comes: 0 as it was, or else 1 for each key as it's typed, without showing
+    // it, plus 2 for Ctrl+C as a key, and 4 for the mouse's reports.
+    Protected Abstract Method SetInputMode(mode: Int)
+
+    // What changes the screen, and what puts it back, which the console writes as the program
+    // ends meanwhile, however it ends; "" and "" once it's back.
+    Protected Method ScreenChanged(enter: String, leave: String)
+    End Method
+
+    // Writes text and a line break.
+    Public Method WriteLine(text: String = "")
+        Write(text + "\n")
+    End Method
+
+    // Writes text in style, as many colors as it shows, or alone where it shows none.
+    Public Method Write(text: String, style: Style)
+        Write(style.Apply(text, Colors))
+    End Method
+
+    // text in style, as it shows colors.
+    Public Method Paint(text: String, style: Style): String => style.Apply(text, Colors)
+
+    // Whether it's in raw mode.
+    Public Property IsRaw: Bool
+        Get => Input.RawCount > 0
+    End Property
+
+    // Starts raw mode, until a matching EndRawMode: keys come as they're typed, without showing
+    // them. Ctrl+C still ends the program, unless ctrlCIsKey says it's a key; with mouse, the
+    // mouse's reports come too, once the terminal is asked for them. Each StartRawMode needs its
+    // EndRawMode; those inside another add what they ask for.
+    Public Method StartRawMode(ctrlCIsKey: Bool = False, mouse: Bool = False)
+        Local mode = Input.RawMode | 1 | (ctrlCIsKey ? 2 : 0) | (mouse ? 4 : 0)
+        Input.RawCount += 1
+        If mode != Input.RawMode || Input.RawCount == 1
+            Input.RawMode = mode
+            SetInputMode(mode)
+        End If
+    End Method
+
+    // Ends a StartRawMode, and raw mode with the last of them. Panics without one.
+    @PanicsAtCaller
+    Public Method EndRawMode()
+        If Input.RawCount == 0 Then Panic("EndRawMode without a StartRawMode")
+        Input.RawCount -= 1
+        If Input.RawCount == 0
+            Input.RawMode = 0
+            SetInputMode(0)
+        End If
+    End Method
+
+    // The next event, which waits for it, or Null at the end of the input. A RESIZE gives the
+    // size it has now.
+    Public Method ReadEvent(): InputEvent? => NextEvent(-1)
+
+    // The next event, which waits for timeout at most, or Null when none came by then, or at the
+    // end of the input.
+    Public Method PollEvent(timeout: Duration): InputEvent? => NextEvent(Max(timeout.Nanoseconds, 0))
+
+    // The next key, in raw mode for as long as it waits, if it isn't already, or Null at the end
+    // of the input. What isn't a key is skipped.
+    Public Method ReadKey(): KeyEvent? => KeyWithin(-1)
+
+    // The next key, which waits for timeout at most, or Null when none came by then.
+    Public Method ReadKey(timeout: Duration): KeyEvent? => KeyWithin(Max(timeout.Nanoseconds, 0))
+
+    // Writes the prompt, then reads a line in raw mode without showing it, up to ENTER, as for a
+    // password. BACKSPACE takes back the last character, and Ctrl+U the whole line, and what's
+    // pasted is typed. Null at the end of the input, or for Ctrl+D on an empty line.
+    Public Method ReadPassword(prompt: String = ""): String?
+        Write(prompt)
+        Flush()
+        StartRawMode()
+        Defer EndRawMode()
+        Local typed = ""
+        Loop
+            Local event = ReadEvent()
+            If event == Null
+                WriteLine()
+                Flush()
+                Return typed == "" ? Null : typed
+            End If
+
+            If event.Kind == InputKind.PASTE
+                typed += event.Text.Replace("\r", "").Replace("\n", "")
+                Continue
+            End If
+
+            If event.Kind != InputKind.KEY Then Continue
+            Local key = event.Key
+            If key.Code == KeyCode.ENTER Then Break
+            If key.Code == KeyCode.BACKSPACE
+                typed = WithoutLast(typed)
+            ElseIf key.IsControl('u')
+                typed = ""
+            ElseIf key.IsControl('d') && typed == ""
+                WriteLine()
+                Flush()
+                Return Null
+            ElseIf key.IsText
+                typed += "{key.Character}"
+            End If
+        End Loop
+
+        WriteLine()
+        Flush()
+        Return typed
+    End Method
+
+    // The program's console: stdout, and stdin for keys. Its state is the main thread's.
+    Public Static Method Console(): Terminal => Console(StandardStream.OUTPUT)
+
+    // The console for writing to stream, stdout or stderr, as a progress bar does so what the
+    // program prints to stdout stays as it is. Both read keys from stdin, which they share.
+    Public Static Method Console(stream: StandardStream): Terminal
+        Local input = consoleInput
+        If input == Null
+            input = TerminalInput()
+            consoleInput = input
+        End If
+
+        If stream == StandardStream.ERROR
+            Local made = consoleError
+            If made == Null
+                made = ConsoleTerminal(StandardStream.ERROR, input)
+                consoleError = made
+            End If
+
+            Return made
+        End If
+
+        Local made = consoleOutput
+        If made == Null
+            made = ConsoleTerminal(StandardStream.OUTPUT, input)
+            consoleOutput = made
+        End If
+
+        Return made
+    End Method
+
+    // Keeps what changes the screen, and what puts it back, for the console.
+    Package Method KeepScreen(enter: String, leave: String)
+        ScreenChanged(enter, leave)
+    End Method
+
+    // The next event, waiting timeout nanoseconds at most, or for as long as it takes when that's
+    // negative.
+    Method NextEvent(timeout: Int64): InputEvent?
+        Local deadline = timeout < 0 ? 0 : Instant.Now().Nanoseconds + timeout
+        Loop
+            Local event = Input.Parser.Next()
+            If event != Null Then Return event
+            Local resized = Input.Resized
+            If resized != Null
+                Input.Resized = Null
+                Return resized
+            End If
+
+            Local wait = timeout < 0 ? -1 : Max(deadline - Instant.Now().Nanoseconds, 0)
+            // What waits for the rest of its sequence waits a moment, and then is what it is.
+            If Input.Parser.IsWaiting
+                Local most = Input.Parser.IsPasting ? PASTE_WAIT : ESCAPE_WAIT
+                wait = wait < 0 ? most : Min(wait, most)
+            End If
+            Local count = ReadInput(Input.Chunk, wait)
+            If count > 0
+                Input.Parser.Feed(Input.Chunk, count As Int)
+            ElseIf count == -2
+                // Bytes that waited for more are what they are, since what came next was this.
+                If !Input.Parser.IsWaiting Then Return InputEvent(Columns, Rows)
+                Input.Resized = InputEvent(Columns, Rows)
+                Local flushed = Input.Parser.Flush()
+                If flushed != Null Then Return flushed
+            ElseIf count == -1
+                Return Input.Parser.Flush()
+            ElseIf Input.Parser.IsWaiting
+                Local flushed = Input.Parser.Flush()
+                If flushed != Null Then Return flushed
+            ElseIf timeout >= 0
+                // Nothing came by the deadline, as the read waited until.
+                Return Null
+            End If
+        End Loop
+    End Method
+
+    // The next key, waiting timeout nanoseconds at most, or as long as it takes when that's
+    // negative.
+    Method KeyWithin(timeout: Int64): KeyEvent?
+        Local deadline = timeout < 0 ? 0 : Instant.Now().Nanoseconds + timeout
+        StartRawMode()
+        Defer EndRawMode()
+        Loop
+            Local left = timeout < 0 ? -1 : Max(deadline - Instant.Now().Nanoseconds, 0)
+            Local event = NextEvent(left)
+            If event == Null Then Return Null
+            If event.Kind == InputKind.KEY Then Return event.Key
+        End Loop
+    End Method
+End Class
+
+// The console's Terminal, writing to stdout or stderr, as its Stream says.
+Class ConsoleTerminal Extends Terminal
+    Field Stream: StandardStream
+
+    New(stream: StandardStream, input: TerminalInput)
+        Super.New(input)
+        Stream = stream
+    End New
+
+    // The terminal's, or 80 where there's none.
+    Override Property Columns: Int
+        Get
+            Local size = TerminalSize()
+            Return size == Null ? 80 : size.0
+        End Get
+    End Property
+
+    // The terminal's, or 24 where there's none.
+    Override Property Rows: Int
+        Get
+            Local size = TerminalSize()
+            Return size == Null ? 24 : size.1
+        End Get
+    End Property
+
+    Override Property Colors: ColorLevel
+        Get => ConsoleColors(Stream)
+    End Property
+
+    Override Property IsInteractive: Bool
+        Get => fb_term_start(Stream As Int32) != 0
+    End Property
+
+    Override Property IsInputInteractive: Bool
+        Get => IsTerminal(StandardStream.INPUT)
+    End Property
+
+    Override Method Write(text: String)
+        fb_write([text], Stream == StandardStream.ERROR ? 1 : 0, 0)
+    End Method
+
+    Override Method Flush()
+        fb_flush()
+    End Method
+
+    Override Method ReadInput(into: UInt8[], timeout: Int64): Int64 => fb_term_read(into, timeout)
+
+    Override Method SetInputMode(mode: Int)
+        fb_term_set_mode(mode)
+    End Method
+
+    Override Method ScreenChanged(enter: String, leave: String)
+        fb_term_set_screen(enter, leave)
+    End Method
+End Class
+
+// A Terminal for tests: it keeps everything written to it, which Output gives, and TakeOutput
+// what's new, and gives what it's fed as keys, as a terminal would send them, then the end of the
+// input. It's the size, colors, and kind it's made with, until a Resize.
+Public Class FakeTerminal Extends Terminal
+    Field Shown: StringBuilder
+    // How much of what's shown TakeOutput has given.
+    Field Taken: Int
+    Field Fed: FedInput[] = []
+    Field Width: Int
+    Field Height: Int
+    Field Level: ColorLevel
+    Field Interactive: Bool
+    Field Mode: Int
+    Field Flushed: Int
+    Field Leaving: String
+
+    // A terminal of columns and rows that shows colors' colors, and is interactive, as a
+    // terminal is, or not, as a pipe or a file is, for both what's written and keys.
+    Public New(columns: Int = 80, rows: Int = 24, colors: ColorLevel = ColorLevel.TRUE_COLOR,
+               interactive: Bool = True)
+        Shown = StringBuilder()
+        Super.New()
+        Width = columns
+        Height = rows
+        Level = colors
+        Interactive = interactive
+    End New
+
+    Override Property Columns: Int
+        Get => Width
+    End Property
+
+    Override Property Rows: Int
+        Get => Height
+    End Property
+
+    Override Property Colors: ColorLevel
+        Get => Level
+    End Property
+
+    Override Property IsInteractive: Bool
+        Get => Interactive
+    End Property
+
+    Override Property IsInputInteractive: Bool
+        Get => Interactive
+    End Property
+
+    // Everything written to it.
+    Public Property Output: String
+        Get => Shown.ToString()
+    End Property
+
+    // What's been written since the last TakeOutput.
+    Public Method TakeOutput(): String
+        Local all = Shown.ToString()
+        Local taken = all.Slice(Taken, all.Length)
+        Taken = all.Length
+        Return taken
+    End Method
+
+    // How many times it's been flushed.
+    Public Property Flushes: Int
+        Get => Flushed
+    End Property
+
+    // The input mode it was last given: 0 for none, or 1 for raw, plus 2 for Ctrl+C as a key,
+    // and 4 for the mouse.
+    Public Property InputMode: Int
+        Get => Mode
+    End Property
+
+    // What the console would write to put the screen back, were the program to end now.
+    Public Property Leave: String
+        Get => Leaving
+    End Property
+
+    // Takes text's bytes as if they were typed, after what's fed before. Bytes fed one after
+    // another come as one, as a terminal's do when they're sent at once.
+    Public Method Feed(text: String)
+        If text != "" Then Fed.Add(FedInput(FedKind.BYTES, text.Bytes, 0, 0, 0))
+    End Method
+
+    // Changes its size, after what's fed before, as a resize event says.
+    Public Method Resize(columns: Int, rows: Int)
+        Fed.Add(FedInput(FedKind.RESIZE, [], columns, rows, 0))
+    End Method
+
+    // A pause after what's fed before, as when nothing is typed for a while: what's waiting for
+    // more, like an escape alone, is what it is, and a read that waits for a time gives nothing,
+    // as at its timeout. One that waits for as long as it takes goes on to what's after.
+    Public Method Pause()
+        Fed.Add(FedInput(FedKind.PAUSE, [], 0, 0, -1))
+    End Method
+
+    // A pause of time after what's fed before: a read that waits that long or less gives
+    // nothing, as at its timeout, and one that waits longer goes on to what's after, as when
+    // the rest of a sequence or a paste comes a little late.
+    Public Method Pause(time: Duration)
+        Fed.Add(FedInput(FedKind.PAUSE, [], 0, 0, Max(time.Nanoseconds, 0)))
+    End Method
+
+    Override Method Write(text: String)
+        Shown.Append(text)
+    End Method
+
+    Override Method Flush()
+        Flushed += 1
+    End Method
+
+    Override Method ReadInput(into: UInt8[], timeout: Int64): Int64
+        If Fed.Count == 0 Then Return -1
+        Local next = Fed[0]
+        If next.Kind == FedKind.PAUSE
+            Fed.RemoveAt(0)
+            If timeout >= 0 && (next.Pause < 0 || timeout <= next.Pause) Then Return 0
+            Return ReadInput(into, timeout)
+        End If
+
+        If next.Kind == FedKind.RESIZE
+            Fed.RemoveAt(0)
+            Width = next.Columns
+            Height = next.Rows
+            Return -2
+        End If
+
+        Local count = Min(next.Bytes.Count - next.At, into.Count)
+        For i = 0 Until count
+            into[i] = next.Bytes[next.At + i]
+        End For
+
+        next.At += count
+        If next.At == next.Bytes.Count Then Fed.RemoveAt(0)
+        Return count
+    End Method
+
+    Override Method SetInputMode(mode: Int)
+        Mode = mode
+    End Method
+
+    Override Method ScreenChanged(enter: String, leave: String)
+        Leaving = leave
+    End Method
+End Class
+
+// What's fed to a FakeTerminal: bytes, a resize, or a pause.
+Enum FedKind
+    BYTES, RESIZE, PAUSE
+End Enum
+
+// What a FakeTerminal is fed: Bytes, from At, or a resize to Columns and Rows, or a pause of
+// Pause nanoseconds, or -1 for one longer than any read waits.
+Class FedInput
+    Field Kind: FedKind
+    Field Bytes: UInt8[]
+    Field At: Int
+    Field Columns: Int
+    Field Rows: Int
+    Field Pause: Int64
+
+    New(kind: FedKind, bytes: UInt8[], columns: Int, rows: Int, pause: Int64)
+        Kind = kind
+        Bytes = bytes
+        Columns = columns
+        Rows = rows
+        Pause = pause
+    End New
+End Class
+
+// text without its last grapheme cluster.
+Package Function WithoutLast(text: String): String
+    Local last = 0
+    Local at = 0
+    For grapheme In text.Graphemes()
+        last = at
+        at += grapheme.Length
+    End For
+
+    Return text.Slice(0, last)
+End Function

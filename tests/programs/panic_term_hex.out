@@ -1,0 +1,2 @@
+#aabbcc
+panic: '#abcd' isn't a hex color, like #ff8800 at panic_term_hex.fb:7:9

@@ -1,0 +1,696 @@
+// std.term's input: what a terminal sends as keys are typed and the mouse moves, its bytes as
+// they come, which an InputParser turns into InputEvents: keys, with xterm's sequences for the
+// keys that type no character, and the modifiers held with them; the mouse's reports, in SGR's
+// form or the older X10 one; and what's pasted between bracketed paste's marks.
+
+Import std.core
+Import std.collections.array
+Import std.text.string
+Import std.text.char
+Import std.text.builder
+Import std.term.style
+
+// Which key: CHAR for one that types a character, and the others by name.
+Public Enum KeyCode
+    CHAR, ENTER, TAB, BACKSPACE, ESCAPE, UP, DOWN, LEFT, RIGHT, HOME, END, PAGE_UP, PAGE_DOWN,
+    INSERT, DELETE, F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12
+End Enum
+
+// The keys held with another: SHIFT, ALT, and CONTROL, in any mix.
+@Flags
+Public Enum KeyModifiers
+    NONE = 0, SHIFT, ALT, CONTROL
+End Enum
+
+// A key typed: its Code, the Character it typed for CHAR, and the Modifiers held with it. A
+// letter typed with Ctrl is that letter, lowercase, with CONTROL, so Ctrl+C is 'c' and CONTROL,
+// and Ctrl+Space is ' ' and CONTROL. A capital is its own Character, without SHIFT, as a terminal
+// sends it.
+Public Struct KeyEvent Implements Hashable, Printable
+    Public ReadOnly Field Code: KeyCode
+    Public ReadOnly Field Character: Char
+    Public ReadOnly Field Modifiers: KeyModifiers
+
+    // A key that types no character, like UP, with the modifiers held.
+    Public New(code: KeyCode, modifiers: KeyModifiers = KeyModifiers.NONE)
+        Code = code
+        Modifiers = modifiers
+    End New
+
+    // The key that types character, with the modifiers held.
+    Public New(character: Char, modifiers: KeyModifiers = KeyModifiers.NONE)
+        Code = KeyCode.CHAR
+        Character = character
+        Modifiers = modifiers
+    End New
+
+    // Whether it typed c, without Ctrl or Alt.
+    Public Method IsChar(c: Char): Bool
+        Return Code == KeyCode.CHAR && Character == c && !Modifiers.Has(KeyModifiers.CONTROL) &&
+               !Modifiers.Has(KeyModifiers.ALT)
+    End Method
+
+    // Whether it's Ctrl and the letter c, in either case, without Alt: IsControl('c') for Ctrl+C.
+    Public Method IsControl(c: Char): Bool
+        Return Code == KeyCode.CHAR && Character == c.ToLower() &&
+               Modifiers.Has(KeyModifiers.CONTROL) && !Modifiers.Has(KeyModifiers.ALT)
+    End Method
+
+    // Whether it types a character that shows, without Ctrl or Alt, as text takes it.
+    Public Property IsText: Bool
+        Get => Code == KeyCode.CHAR && !Modifiers.Has(KeyModifiers.CONTROL) &&
+               !Modifiers.Has(KeyModifiers.ALT) && !Character.IsControl()
+    End Property
+
+    // Like "a", "Ctrl+C", "Alt+Enter", "Shift+Up", "F5", or "Space".
+    Public Method ToString(): String
+        Local prefix = ""
+        If Modifiers.Has(KeyModifiers.CONTROL) Then prefix += "Ctrl+"
+        If Modifiers.Has(KeyModifiers.ALT) Then prefix += "Alt+"
+        If Modifiers.Has(KeyModifiers.SHIFT) Then prefix += "Shift+"
+        If Code != KeyCode.CHAR Then Return prefix + NameOf(Code)
+        If Character == ' ' Then Return prefix + "Space"
+        If Modifiers.Has(KeyModifiers.CONTROL) && Character.IsLetter()
+            Return prefix + "{Character.ToUpper()}"
+        End If
+
+        Return prefix + "{Character}"
+    End Method
+End Struct
+
+// Which of the mouse's buttons, or NONE, for a move or a scroll.
+Public Enum MouseButton
+    NONE, LEFT, MIDDLE, RIGHT
+End Enum
+
+// What the mouse did: a button PRESSed or RELEASEd, a DRAG with one held, a MOVE with none (which
+// a terminal reports only where it's asked for every move), or its wheel scrolled.
+Public Enum MouseAction
+    PRESS, RELEASE, DRAG, MOVE, SCROLL_UP, SCROLL_DOWN, SCROLL_LEFT, SCROLL_RIGHT
+End Enum
+
+// What the mouse did, with which Button, at a Column and Row from 0, with the Modifiers held.
+Public Struct MouseEvent Implements Hashable, Printable
+    Public ReadOnly Field Action: MouseAction
+    Public ReadOnly Field Button: MouseButton
+    Public ReadOnly Field Column: Int
+    Public ReadOnly Field Row: Int
+    Public ReadOnly Field Modifiers: KeyModifiers
+
+    Public New(action: MouseAction, button: MouseButton, column: Int, row: Int,
+               modifiers: KeyModifiers = KeyModifiers.NONE)
+        Action = action
+        Button = button
+        Column = column
+        Row = row
+        Modifiers = modifiers
+    End New
+
+    // Like "PRESS LEFT at 3, 4", or "Ctrl+SCROLL_UP at 0, 0".
+    Public Method ToString(): String
+        Local prefix = ""
+        If Modifiers.Has(KeyModifiers.CONTROL) Then prefix += "Ctrl+"
+        If Modifiers.Has(KeyModifiers.ALT) Then prefix += "Alt+"
+        If Modifiers.Has(KeyModifiers.SHIFT) Then prefix += "Shift+"
+        Local button = Button == MouseButton.NONE ? "" : " {Button}"
+        Return "{prefix}{Action}{button} at {Column}, {Row}"
+    End Method
+End Struct
+
+// What an InputEvent is: a KEY, the MOUSE, a RESIZE of the terminal, or text PASTEd.
+Public Enum InputKind
+    KEY, MOUSE, RESIZE, PASTE
+End Enum
+
+// Something that came from a terminal: a Key, what the Mouse did, the Columns and Rows it has
+// after a RESIZE, or the Text PASTEd, by its Kind.
+Public Struct InputEvent Implements Printable
+    Public ReadOnly Field Kind: InputKind
+    Public ReadOnly Field Key: KeyEvent
+    Public ReadOnly Field Mouse: MouseEvent
+    Public ReadOnly Field Columns: Int
+    Public ReadOnly Field Rows: Int
+    Public ReadOnly Field Text: String
+
+    // A key typed.
+    Public New(key: KeyEvent)
+        Kind = InputKind.KEY
+        Self.Key = key
+    End New
+
+    // What the mouse did.
+    Public New(mouse: MouseEvent)
+        Kind = InputKind.MOUSE
+        Self.Mouse = mouse
+    End New
+
+    // The terminal's size once it's changed.
+    Public New(columns: Int, rows: Int)
+        Kind = InputKind.RESIZE
+        Columns = columns
+        Rows = rows
+    End New
+
+    // Text pasted.
+    Public New(pasted: String)
+        Kind = InputKind.PASTE
+        Text = pasted
+    End New
+
+    // Whether it's the key that types c, as KeyEvent's IsChar says.
+    Public Method IsChar(c: Char): Bool => Kind == InputKind.KEY && Key.IsChar(c)
+
+    // Whether it's that key without a character, with no modifiers.
+    Public Method IsKey(code: KeyCode): Bool
+        Return Kind == InputKind.KEY && Key.Code == code && Key.Modifiers == KeyModifiers.NONE
+    End Method
+
+    // Like "key Ctrl+C", "mouse PRESS LEFT at 3, 4", "resize 80x24", or "paste "text"".
+    Public Method ToString(): String
+        Select Kind
+            Case InputKind.KEY
+                Return "key {Key}"
+            Case InputKind.MOUSE
+                Return "mouse {Mouse}"
+            Case InputKind.RESIZE
+                Return "resize {Columns}x{Rows}"
+            Case InputKind.PASTE
+                Return "paste {Text:?}"
+        End Select
+    End Method
+End Struct
+
+// Turns the bytes a terminal sends into InputEvents. Feed it bytes as they come, and Next gives
+// each event once all its bytes have. An escape alone may be ESCAPE or the start of a longer
+// sequence, so it waits: IsWaiting says so, and Flush takes it as ESCAPE when nothing more has
+// come for a moment. A sequence it doesn't know is skipped. "\r\n" is one ENTER, as a line from a
+// pipe or a file ends.
+Public Class InputParser
+    Field Bytes: UInt8[] = []
+    // Where in Bytes the next event starts.
+    Field At: Int
+    // Whether a paste has started, and its text goes up to its end mark, and where in Bytes to
+    // look for that from, past where it's looked already.
+    Field Pasting: Bool
+    Field PasteScan: Int
+    // Whether the last key was "\r", so a "\n" right after it is part of it.
+    Field AfterReturn: Bool
+
+    Public New()
+    End New
+
+    // Takes the first count of bytes, as they came.
+    Public Method Feed(bytes: UInt8[], count: Int)
+        // What's been made into events goes, now and then, so a long session's bytes don't pile up.
+        If At >= 4096
+            Bytes.RemoveRange(0, At)
+            PasteScan = Max(PasteScan - At, 0)
+            At = 0
+        End If
+
+        For i = 0 Until count
+            Bytes.Add(bytes[i])
+        End For
+    End Method
+
+    // Takes text's bytes, as they came.
+    Public Method Feed(text: String)
+        Local bytes = text.Bytes
+        Feed(bytes, bytes.Count)
+    End Method
+
+    // Whether it has bytes Next hasn't made events of yet. Once Next gives Null, they wait for
+    // more, like an escape alone, which Flush takes as ESCAPE.
+    Public Property IsWaiting: Bool
+        Get => At < Bytes.Count
+    End Property
+
+    // Whether a paste has started and waits for its end mark, which a terminal sends as soon as
+    // the text, however long it is.
+    Public Property IsPasting: Bool
+        Get => Pasting
+    End Property
+
+    // The next event in what's come, or Null until all its bytes have.
+    Public Method Next(): InputEvent? => Parse(False)
+
+    // The next event, taking what waits as it is, since no more of it is coming: an escape alone
+    // as ESCAPE, a sequence cut short as the keys its bytes are, and a paste without its end as
+    // all of it. Null once nothing is left.
+    Public Method Flush(): InputEvent? => Parse(True)
+
+    // The next event, or Null when what's left isn't all there, unless done says no more is
+    // coming.
+    Method Parse(done: Bool): InputEvent?
+        Loop
+            If At >= Bytes.Count
+                Bytes.Clear()
+                At = 0
+                Return Null
+            End If
+
+            If Pasting
+                Local finish = FindPasteEnd()
+                If finish < 0 && !done Then Return Null
+                Local end = finish < 0 ? Bytes.Count : finish
+                Local text = TextOf(At, end)
+                At = finish < 0 ? Bytes.Count : finish + 6
+                Pasting = False
+                Return InputEvent(text)
+            End If
+
+            Local first = Bytes[At]
+            If first == 0x0A && AfterReturn
+                At += 1
+                AfterReturn = False
+                Continue
+            End If
+
+            AfterReturn = first == 0x0D
+            If first != 0x1B
+                Local key = KeyAt(At, done)
+                If key == Null Then Return Null
+                At += key.0
+                Return InputEvent(key.1)
+            End If
+
+            If At + 1 >= Bytes.Count
+                If !done Then Return Null
+                At += 1
+                Return InputEvent(KeyEvent(KeyCode.ESCAPE))
+            End If
+
+            Local second = Bytes[At + 1]
+            If second == 0x5B || second == 0x4F
+                Local event = Sequence(done)
+                If event == Null Then Return Null
+                If event.0 Then Return event.1
+                Continue
+            End If
+
+            // An escape before a key's sequence is Alt and that key, as some terminals send Alt
+            // and Up; before another escape alone, it's ESCAPE; and before a key, Alt and that key.
+            If second == 0x1B
+                If At + 2 >= Bytes.Count && !done Then Return Null
+                If At + 2 < Bytes.Count && (Bytes[At + 2] == 0x5B || Bytes[At + 2] == 0x4F)
+                    Local start = At
+                    At += 1
+                    Local inner = Sequence(done)
+                    If inner == Null
+                        At = start
+                        Return Null
+                    End If
+
+                    If !inner.0 Then Continue
+                    Return WithAlt(inner.1)
+                End If
+
+                At += 1
+                Return InputEvent(KeyEvent(KeyCode.ESCAPE))
+            End If
+
+            Local key = KeyAt(At + 1, done)
+            If key == Null Then Return Null
+            At += 1 + key.0
+            Return WithAlt(InputEvent(key.1))
+        End Loop
+    End Method
+
+    // The key whose bytes start at `at`, and how many bytes it takes, or Null when a character
+    // isn't all there yet and done doesn't say no more is coming.
+    Method KeyAt(at: Int, done: Bool): (Int, KeyEvent)?
+        Local first = Bytes[at]
+        If first == 0x0D || first == 0x0A Then Return (1, KeyEvent(KeyCode.ENTER))
+        If first == 0x09 Then Return (1, KeyEvent(KeyCode.TAB))
+        If first == 0x7F || first == 0x08 Then Return (1, KeyEvent(KeyCode.BACKSPACE))
+        If first == 0x1B Then Return (1, KeyEvent(KeyCode.ESCAPE))
+        If first == 0x00 Then Return (1, KeyEvent(' ', KeyModifiers.CONTROL))
+        // Ctrl and a letter, or one of \ ] ^ _.
+        If first < 0x1B Then Return (1, KeyEvent(((first + 0x60) As Int) As Char, KeyModifiers.CONTROL))
+        If first < 0x20 Then Return (1, KeyEvent(((first + 0x40) As Int) As Char, KeyModifiers.CONTROL))
+        Local length = Utf8Length(first)
+        If at + length > Bytes.Count
+            If !done Then Return Null
+            Return (Bytes.Count - at, KeyEvent('\u{FFFD}'))
+        End If
+
+        Local code = CodeAt(at, length)
+        If code < 0 Then Return (1, KeyEvent('\u{FFFD}'))
+        Return (length, KeyEvent(code As Char))
+    End Method
+
+    // The code point of the UTF-8 character of length bytes at `at`, or -1 when they aren't one.
+    Method CodeAt(at: Int, length: Int): Int
+        Local first = Bytes[at] As Int
+        If length == 1 Then Return first < 0x80 ? first : -1
+        Local code = first & (0x7F >> length)
+        For i = 1 Until length
+            Local next = Bytes[at + i] As Int
+            If next < 0x80 || next > 0xBF Then Return -1
+            code = (code << 6) | (next & 0x3F)
+        End For
+
+        Local least = length == 2 ? 0x80 : (length == 3 ? 0x800 : 0x10000)
+        If code < least || code > 0x10FFFF || (code >= 0xD800 && code <= 0xDFFF) Then Return -1
+        Return code
+    End Method
+
+    // A CSI at At, an escape and "[": (True, its event), or (False, ...) for one that gives none,
+    // which is skipped, or Null when it isn't all there yet.
+    Method Csi(done: Bool): (Bool, InputEvent)?
+        // X10's mouse report, "\e[M" and three bytes.
+        If At + 2 < Bytes.Count && Bytes[At + 2] == 0x4D
+            If At + 5 >= Bytes.Count
+                If !done Then Return Null
+                At = Bytes.Count
+                Return (False, InputEvent(""))
+            End If
+
+            Local code = (Bytes[At + 3] As Int) - 32
+            Local column = (Bytes[At + 4] As Int) - 33
+            Local row = (Bytes[At + 5] As Int) - 33
+            At += 6
+            Return (True, InputEvent(MouseOf(code, column, row, (code & 3) == 3)))
+        End If
+
+        // Its parameters and spaces, up to its final byte, from @ to ~.
+        Local finish = At + 2
+        While finish < Bytes.Count && Bytes[finish] >= 0x20 && Bytes[finish] < 0x40
+            finish += 1
+        End While
+
+        If finish >= Bytes.Count
+            If !done Then Return Null
+            // Cut short: the escape is ESCAPE, and the rest are keys.
+            At += 1
+            Return (True, InputEvent(KeyEvent(KeyCode.ESCAPE)))
+        End If
+
+        Local final = Bytes[finish]
+        If final < 0x40 || final > 0x7E
+            At += 1
+            Return (True, InputEvent(KeyEvent(KeyCode.ESCAPE)))
+        End If
+
+        Local parameters = TextOf(At + 2, finish)
+        At = finish + 1
+        If parameters.StartsWith("<")
+            If final != 0x4D && final != 0x6D Then Return (False, InputEvent(""))
+            Local numbers = NumbersOf(parameters.Slice(1, parameters.Length))
+            If numbers.Count != 3 Then Return (False, InputEvent(""))
+            Return (True, InputEvent(MouseOf(numbers[0], numbers[1] - 1, numbers[2] - 1,
+                                             final == 0x6D)))
+        End If
+
+        // A terminal's answers, like "\e[?1;2c", aren't keys.
+        If parameters.StartsWith("?") || parameters.StartsWith(">") || parameters.StartsWith("=")
+            Return (False, InputEvent(""))
+        End If
+
+        Local numbers = NumbersOf(parameters)
+        Local modifiers = KeyModifiers.NONE
+        If numbers.Count > 1 Then modifiers = ModifiersOf(numbers[1])
+        Local first = numbers.Count > 0 ? numbers[0] : 1
+        Local code: KeyCode? = Null
+        Select final
+            Case 0x41
+                code = KeyCode.UP
+            Case 0x42
+                code = KeyCode.DOWN
+            Case 0x43
+                code = KeyCode.RIGHT
+            Case 0x44
+                code = KeyCode.LEFT
+            Case 0x48
+                code = KeyCode.HOME
+            Case 0x46
+                code = KeyCode.END
+            Case 0x50
+                code = KeyCode.F1
+            Case 0x51
+                code = KeyCode.F2
+            Case 0x52
+                code = KeyCode.F3
+            Case 0x53
+                code = KeyCode.F4
+            Case 0x5A
+                Return (True, InputEvent(KeyEvent(KeyCode.TAB, modifiers | KeyModifiers.SHIFT)))
+            Case 0x7E
+                If first == 200
+                    Pasting = True
+                    PasteScan = At
+                    Return (False, InputEvent(""))
+                End If
+
+                code = TildeKey(first)
+            Case 0x75
+                // The kitty keyboard protocol's "\e[code;modifiers u".
+                Return KittyKey(first, modifiers)
+            Default
+                code = Null
+        End Select
+
+        If code == Null Then Return (False, InputEvent(""))
+        Return (True, InputEvent(KeyEvent(code, modifiers)))
+    End Method
+
+    // A key the kitty keyboard protocol sends by its code point.
+    Method KittyKey(code: Int, modifiers: KeyModifiers): (Bool, InputEvent)
+        Select code
+            Case 13
+                Return (True, InputEvent(KeyEvent(KeyCode.ENTER, modifiers)))
+            Case 9
+                Return (True, InputEvent(KeyEvent(KeyCode.TAB, modifiers)))
+            Case 27
+                Return (True, InputEvent(KeyEvent(KeyCode.ESCAPE, modifiers)))
+            Case 127
+                Return (True, InputEvent(KeyEvent(KeyCode.BACKSPACE, modifiers)))
+        End Select
+
+        If code < 0x20 || code > 0x10FFFF || (code >= 0xD800 && code <= 0xDFFF)
+            Return (False, InputEvent(""))
+        End If
+
+        Return (True, InputEvent(KeyEvent(code As Char, modifiers)))
+    End Method
+
+    // Where the paste's end mark, "\e[201~", starts, or -1 when it hasn't come yet.
+    Method FindPasteEnd(): Int
+        Local mark = [0x1B, 0x5B, 0x32, 0x30, 0x31, 0x7E]
+        For start = Max(At, PasteScan) To Bytes.Count - mark.Count
+            Local found = True
+            For i = 0 Until mark.Count
+                If (Bytes[start + i] As Int) != mark[i]
+                    found = False
+                    Break
+                End If
+            End For
+
+            If found Then Return start
+        End For
+
+        // The next look starts where a mark could still be, so a long paste is looked at once.
+        PasteScan = Max(At, Bytes.Count - mark.Count + 1)
+        Return -1
+    End Method
+
+    // An escape's sequence at At, "\e[" or "\eO" and the rest: (True, its event), or (False,
+    // ...) for one that gives none, which is skipped, or Null when it isn't all there yet.
+    Method Sequence(done: Bool): (Bool, InputEvent)?
+        If Bytes[At + 1] == 0x5B Then Return Csi(done)
+        If At + 2 >= Bytes.Count
+            If !done Then Return Null
+            // "\eO" alone is Alt and O.
+            At += 2
+            Return (True, InputEvent(KeyEvent('O', KeyModifiers.ALT)))
+        End If
+
+        Local code = Ss3Key(Bytes[At + 2])
+        At += 3
+        If code == Null Then Return (False, InputEvent(""))
+        Return (True, InputEvent(KeyEvent(code)))
+    End Method
+
+    // The text of the bytes from start to before finish, with U+FFFD for each byte that doesn't
+    // start a character.
+    Method TextOf(start: Int, finish: Int): String
+        Local text = String.FromUtf8(Bytes[start..finish])
+        If text != Null Then Return text
+        Local built = StringBuilder()
+        Local at = start
+        While at < finish
+            Local length = Min(Utf8Length(Bytes[at]), finish - at)
+            Local code = CodeAt(at, length)
+            If code < 0
+                built.Append('\u{FFFD}')
+                at += 1
+            Else
+                built.Append(code As Char)
+                at += length
+            End If
+        End While
+
+        Return built.ToString()
+    End Method
+End Class
+
+// event with Alt held too, when it's a key.
+Function WithAlt(event: InputEvent): InputEvent
+    If event.Kind != InputKind.KEY Then Return event
+    Local key = event.Key
+    Local modifiers = key.Modifiers | KeyModifiers.ALT
+    If key.Code == KeyCode.CHAR Then Return InputEvent(KeyEvent(key.Character, modifiers))
+    Return InputEvent(KeyEvent(key.Code, modifiers))
+End Function
+
+// What a mouse report's code says, at a column and row from 0: its button in the low two bits,
+// with 3 for none, 4, 8, and 16 for Shift, Alt, and Ctrl, 32 for a move, and 64 for the wheel.
+Function MouseOf(code: Int, column: Int, row: Int, released: Bool): MouseEvent
+    Local modifiers = KeyModifiers.NONE
+    If (code & 4) != 0 Then modifiers = modifiers | KeyModifiers.SHIFT
+    If (code & 8) != 0 Then modifiers = modifiers | KeyModifiers.ALT
+    If (code & 16) != 0 Then modifiers = modifiers | KeyModifiers.CONTROL
+    Local low = code & 3
+    Local at = (Max(column, 0), Max(row, 0))
+    If (code & 64) != 0
+        Local wheel = [MouseAction.SCROLL_UP, MouseAction.SCROLL_DOWN, MouseAction.SCROLL_LEFT,
+                       MouseAction.SCROLL_RIGHT]
+        Return MouseEvent(wheel[low], MouseButton.NONE, at.0, at.1, modifiers)
+    End If
+
+    Local buttons = [MouseButton.LEFT, MouseButton.MIDDLE, MouseButton.RIGHT, MouseButton.NONE]
+    Local button = buttons[low]
+    Local action = MouseAction.PRESS
+    If (code & 32) != 0
+        action = button == MouseButton.NONE ? MouseAction.MOVE : MouseAction.DRAG
+    ElseIf released
+        action = MouseAction.RELEASE
+    End If
+
+    Return MouseEvent(action, button, at.0, at.1, modifiers)
+End Function
+
+// The modifiers xterm's number for them says: 1 more than Shift's 1, Alt's 2 (or Meta's 8), and
+// Ctrl's 4.
+Function ModifiersOf(number: Int): KeyModifiers
+    Local bits = Max(number - 1, 0)
+    Local modifiers = KeyModifiers.NONE
+    If (bits & 1) != 0 Then modifiers = modifiers | KeyModifiers.SHIFT
+    If (bits & 10) != 0 Then modifiers = modifiers | KeyModifiers.ALT
+    If (bits & 4) != 0 Then modifiers = modifiers | KeyModifiers.CONTROL
+    Return modifiers
+End Function
+
+// The key "\eO" and a letter is, as an application's cursor keys and F1 to F4 are sent.
+Function Ss3Key(letter: UInt8): KeyCode?
+    Select letter
+        Case 0x41
+            Return KeyCode.UP
+        Case 0x42
+            Return KeyCode.DOWN
+        Case 0x43
+            Return KeyCode.RIGHT
+        Case 0x44
+            Return KeyCode.LEFT
+        Case 0x48
+            Return KeyCode.HOME
+        Case 0x46
+            Return KeyCode.END
+        Case 0x4D
+            Return KeyCode.ENTER
+        Case 0x50
+            Return KeyCode.F1
+        Case 0x51
+            Return KeyCode.F2
+        Case 0x52
+            Return KeyCode.F3
+        Case 0x53
+            Return KeyCode.F4
+        Default
+            Return Null
+    End Select
+End Function
+
+// The key "\e[" and a number and "~" is.
+Function TildeKey(number: Int): KeyCode?
+    Select number
+        Case 1, 7
+            Return KeyCode.HOME
+        Case 2
+            Return KeyCode.INSERT
+        Case 3
+            Return KeyCode.DELETE
+        Case 4, 8
+            Return KeyCode.END
+        Case 5
+            Return KeyCode.PAGE_UP
+        Case 6
+            Return KeyCode.PAGE_DOWN
+        Case 11 To 15
+            Return ((KeyCode.F1 As Int) + number - 11) As KeyCode
+        Case 17 To 21
+            Return ((KeyCode.F6 As Int) + number - 17) As KeyCode
+        Case 23, 24
+            Return ((KeyCode.F11 As Int) + number - 23) As KeyCode
+        Default
+            Return Null
+    End Select
+End Function
+
+// The numbers between a sequence's ";"s, each 1 where it's empty, and 1000000000 past that; a
+// part's ":"s, as kitty sends, end it.
+Function NumbersOf(text: String): Int[]
+    Local numbers: Int[] = []
+    If text == "" Then Return numbers
+    For part In text.Split(";")
+        Local value = 0
+        Local digits = 0
+        For c In part.Chars
+            If c < '0' || c > '9' Then Break
+            value = value >= 100000000 ? 1000000000 : value * 10 + (c As Int) - 48
+            digits += 1
+        End For
+
+        numbers.Add(digits == 0 ? 1 : value)
+    End For
+
+    Return numbers
+End Function
+
+// A KeyCode's name, as KeyEvent's ToString writes it.
+Function NameOf(code: KeyCode): String
+    Select code
+        Case KeyCode.ENTER
+            Return "Enter"
+        Case KeyCode.TAB
+            Return "Tab"
+        Case KeyCode.BACKSPACE
+            Return "Backspace"
+        Case KeyCode.ESCAPE
+            Return "Escape"
+        Case KeyCode.UP
+            Return "Up"
+        Case KeyCode.DOWN
+            Return "Down"
+        Case KeyCode.LEFT
+            Return "Left"
+        Case KeyCode.RIGHT
+            Return "Right"
+        Case KeyCode.HOME
+            Return "Home"
+        Case KeyCode.END
+            Return "End"
+        Case KeyCode.PAGE_UP
+            Return "PageUp"
+        Case KeyCode.PAGE_DOWN
+            Return "PageDown"
+        Case KeyCode.INSERT
+            Return "Insert"
+        Case KeyCode.DELETE
+            Return "Delete"
+        Case KeyCode.CHAR
+            Return "Char"
+        Default
+            Return "F{(code As Int) - (KeyCode.F1 As Int) + 1}"
+    End Select
+End Function

@@ -1,0 +1,209 @@
+// std.term's input: the keys, the mouse's reports, pastes, and resizes a terminal sends, as an
+// InputParser reads them, whole or split across reads, and as a FakeTerminal gives them, with
+// its raw mode, timeouts, and ReadPassword.
+Import std.core
+Import std.text
+Import std.time
+Import std.term
+
+Const E = "\u{1b}"
+
+// The events text's bytes are, then, after a "|", what waits for more, taken as it is.
+Function Parsed(text: String): String
+    Local parser = InputParser()
+    parser.Feed(text)
+    Return EventsOf(parser)
+End Function
+
+Function ParsedBytes(bytes: UInt8[]): String
+    Local parser = InputParser()
+    parser.Feed(bytes, bytes.Count)
+    Return EventsOf(parser)
+End Function
+
+Function EventsOf(parser: InputParser): String
+    Local shown: String[] = []
+    Loop
+        Local event = parser.Next()
+        If event == Null Then Break
+        shown.Add(Brief(event))
+    End Loop
+
+    If parser.IsWaiting
+        shown.Add("|")
+        Loop
+            Local event = parser.Flush()
+            If event == Null Then Break
+            shown.Add(Brief(event))
+        End Loop
+    End If
+
+    Return ", ".Join(shown)
+End Function
+
+// An event without "key " before a key.
+Function Brief(event: InputEvent): String
+    If event.Kind == InputKind.KEY Then Return "{event.Key}"
+    Return "{event}"
+End Function
+
+Print("text:", Parsed("aZ 9é中😀"))
+Print("controls:", Parsed("\r\n\t\u{7f}\u{8}\u{0}\u{1}\u{1a}\u{1c}\u{1d}\u{1e}\u{1f}"))
+Print("lines:", Parsed("a\r\nb\nc\rd\r\r\ne"))
+Print("escape:", Parsed(E), "/", Parsed(E + E), "/", Parsed(E + E + "a"))
+Print("alt and a sequence:", Parsed("{E}{E}[A{E}{E}OP{E}{E}[1;5C{E}{E}[<0;1;1M{E}{E}[I."))
+Print("alt cut short:", Parsed("{E}{E}["), "/", Parsed("{E}{E}O"))
+Print("alt:", Parsed(E + "a" + E + "é" + E + "\r" + E + "\u{1}" + E + "\u{7f}"))
+Print("cursor:", Parsed("{E}[A{E}[B{E}[C{E}[D{E}[H{E}[F{E}[Z"))
+Print("modifiers:", Parsed("{E}[1;2A{E}[1;3B{E}[1;5C{E}[1;8D{E}[1;9A{E}[1;2P{E}[1;6S"))
+Print("ss3:", Parsed("{E}OA{E}OB{E}OC{E}OD{E}OH{E}OF{E}OM{E}OP{E}OQ{E}OR{E}OS{E}Oz"))
+Print("tilde:", Parsed("{E}[1~{E}[2~{E}[3~{E}[4~{E}[5~{E}[6~{E}[7~{E}[8~{E}[3;5~{E}[99~"))
+Print("f keys:", Parsed("{E}[11~{E}[12~{E}[13~{E}[14~{E}[15~{E}[17~{E}[18~{E}[19~{E}[20~{E}[21~{E}[23~{E}[24~{E}[24;2~"))
+Print("kitty:", Parsed("{E}[97;5u{E}[13;2u{E}[27u{E}[127u{E}[9u{E}[55357u{E}[1114112u{E}[20320u"))
+Print("big:", Parsed("{E}[<0;99999999999;3M{E}[111411u{E}[1114111u{E}[99999999999999u."))
+Print("skipped:", Parsed("x{E}[I{E}[O{E}[?1;2c{E}[>0;10;1c{E}[=1c{E}[5qy"))
+Print("mouse:", Parsed("{E}[<0;5;3M{E}[<0;5;3m{E}[<32;6;3M{E}[<35;6;3M{E}[<1;2;2M{E}[<2;2;2m"))
+Print("wheel:", Parsed("{E}[<64;1;1M{E}[<65;1;1M{E}[<66;1;1M{E}[<67;80;24M"))
+Print("held:", Parsed("{E}[<20;3;4M{E}[<8;1;1M{E}[<0;0;0M"))
+Print("bad mouse:", Parsed("{E}[<0;5Mx{E}[<0;5;3xy"))
+Print("x10:", Parsed("{E}[M %#{E}[M#!!{E}[M`!!"))
+Print("paste:", Parsed("{E}[200~hello\nworld{E}[201~!"))
+Print("paste waits:", Parsed("{E}[200~not done"))
+Print("empty paste:", Parsed("{E}[200~{E}[201~"))
+Print("bad bytes:", ParsedBytes([0xC3]), "/", ParsedBytes([0xC3, 0x28]), "/", ParsedBytes([0xE2, 0x82]))
+Print("overlong:", ParsedBytes([0xC0, 0xAF]), "/", ParsedBytes([0xED, 0xA0, 0x80]), "/", ParsedBytes([0xF4, 0x90, 0x80, 0x80]))
+Print("bad paste:", ParsedBytes([0x1B, 0x5B, 0x32, 0x30, 0x30, 0x7E, 0x61, 0xFF, 0x62, 0x1B, 0x5B, 0x32, 0x30, 0x31, 0x7E]))
+Print("cut short:", Parsed("{E}[1;5"), "/", Parsed("{E}O"), "/", Parsed("{E}[1\u{7}A"))
+Local long = Parsed("{E}[" + "1".Repeated(40))
+Print("long:", long.StartsWith("|, Escape, [, 1, 1"), long.Count("1"))
+
+// The same, split across reads, as a terminal can send them.
+Local split = InputParser()
+For part In [E, "[", "1;", "5", "C"]
+    split.Feed(part)
+    Local event = split.Next()
+    Print("fed {part:?}:", event == Null ? "nothing yet" : Brief(event), split.IsWaiting)
+End For
+
+For part In [[0xE4 As UInt8], [0xB8 As UInt8], [0xAD As UInt8, 0x21]]
+    split.Feed(part, part.Count)
+    Local event = split.Next()
+    Print("fed {part}:", event == Null ? "nothing yet" : Brief(event), split.IsWaiting)
+End For
+
+Print("then:", EventsOf(split))
+
+// What's made into events goes now and then, so a long session's bytes don't pile up, a
+// sequence waiting for its end across that too.
+Local session = InputParser()
+session.Feed("x".Repeated(5000) + "{E}[")
+Local xs = 0
+Loop
+    Local next = session.Next()
+    If next == Null Then Break
+    If next.IsChar('x') Then xs += 1
+End Loop
+
+session.Feed("A")
+Print("long session:", xs, session.IsWaiting, Brief(session.Next() ?? InputEvent("none")), session.IsWaiting)
+session.Feed("{E}[200~" + "p".Repeated(5000))
+Print("long paste waits:", session.Next() == Null, session.IsPasting)
+For i = 1 To 3
+    session.Feed("q".Repeated(2000))
+    Print("still pasting:", session.Next() == Null, session.IsPasting)
+End For
+
+session.Feed("{E}[201~")
+Local pasted = session.Next() ?? InputEvent("none")
+Print("long paste:", pasted.Kind, pasted.Text.Length, pasted.Text.Count("q"), session.IsPasting, session.IsWaiting)
+
+// Keys and what they say of themselves.
+Local keys = [KeyEvent('c', KeyModifiers.CONTROL), KeyEvent('x', KeyModifiers.ALT), KeyEvent(' '),
+              KeyEvent(' ', KeyModifiers.CONTROL), KeyEvent(KeyCode.TAB, KeyModifiers.SHIFT),
+              KeyEvent(KeyCode.LEFT, KeyModifiers.CONTROL | KeyModifiers.ALT | KeyModifiers.SHIFT),
+              KeyEvent(KeyCode.PAGE_DOWN), KeyEvent(KeyCode.F12), KeyEvent('A'), KeyEvent('é', KeyModifiers.ALT)]
+For key In keys
+    Print("{key}: char c {key.IsChar('c')}, ctrl+c {key.IsControl('c')} {key.IsControl('C')}, text {key.IsText}")
+End For
+
+Print(KeyEvent('q').IsChar('q'), KeyEvent('q', KeyModifiers.SHIFT).IsChar('q'), KeyEvent('\u{7}').IsText)
+Local event = InputEvent(KeyEvent(KeyCode.ESCAPE))
+Print("{event} {event.IsKey(KeyCode.ESCAPE)} {event.IsKey(KeyCode.ENTER)} {InputEvent(KeyEvent(KeyCode.ESCAPE, KeyModifiers.ALT)).IsKey(KeyCode.ESCAPE)}")
+Print("{InputEvent(MouseEvent(MouseAction.PRESS, MouseButton.LEFT, 1, 2))} | {InputEvent(80, 24)} | {InputEvent("pasted")}")
+Print("{InputEvent(KeyEvent('q')).IsChar('q')} {InputEvent("q").IsChar('q')} {InputEvent(MouseEvent(MouseAction.SCROLL_UP, MouseButton.NONE, 0, 0, KeyModifiers.CONTROL))}")
+
+// A FakeTerminal gives what's fed, in order, with resizes between, then the end of the input.
+Local fake = FakeTerminal(80, 24)
+fake.Feed("a{E}[")
+fake.Feed("B")
+fake.Resize(100, 40)
+fake.Feed("{E}[<0;1;1M")
+fake.Feed("")
+fake.Feed(E)
+fake.Pause()
+fake.Feed("z")
+Loop
+    Local next = fake.ReadEvent()
+    If next == Null Then Break
+    Print("read:", Brief(next), "{fake.Columns}x{fake.Rows}")
+End Loop
+
+Print("after the end:", fake.ReadEvent() == Null, fake.ReadKey() == Null)
+
+// An escape whose sequence comes a little late, but within its wait, is the key it starts, and
+// one that comes later is ESCAPE and keys; a paste waits longer for its end.
+Local late = FakeTerminal(80, 24)
+late.Feed(E)
+late.Pause(10.Milliseconds)
+late.Feed("[A")
+late.Feed(E)
+late.Pause(100.Milliseconds)
+late.Feed("[B")
+late.Feed("{E}[200~slow")
+late.Pause(200.Milliseconds)
+late.Feed(" paste{E}[201~")
+late.Feed("{E}[200~cut")
+late.Pause(2.Seconds)
+late.Feed(" off{E}[201~")
+Loop
+    Local next = late.ReadEvent()
+    If next == Null Then Break
+    Print("late:", Brief(next))
+End Loop
+
+// A timeout's read gives nothing at a pause, and the keys after it later.
+fake.Feed("1")
+fake.Pause()
+fake.Feed("{E}[<0;1;1M2")
+Print("polled:", Brief(fake.PollEvent(1.Seconds) ?? InputEvent("none")))
+Print("polled:", Brief(fake.PollEvent(1.Seconds) ?? InputEvent("none")))
+Print("key:", "{fake.ReadKey() ?? KeyEvent('?')}", "mode", fake.InputMode)
+fake.Feed("3")
+fake.Pause()
+Print("key:", "{fake.ReadKey(10.Milliseconds) ?? KeyEvent('?')}", "{fake.ReadKey(10.Milliseconds) ?? KeyEvent('?')}")
+
+// Raw mode, which nests, each asking for more.
+Print("raw:", fake.IsRaw, fake.InputMode)
+fake.StartRawMode()
+Print("raw:", fake.IsRaw, fake.InputMode)
+fake.StartRawMode(True)
+Print("raw:", fake.IsRaw, fake.InputMode)
+fake.StartRawMode(mouse: True)
+Print("raw:", fake.IsRaw, fake.InputMode)
+fake.EndRawMode()
+fake.EndRawMode()
+Print("raw:", fake.IsRaw, fake.InputMode)
+fake.EndRawMode()
+Print("raw:", fake.IsRaw, fake.InputMode)
+
+// ReadPassword shows nothing of what's typed.
+Local secret = FakeTerminal(40, 10)
+secret.Feed("hunter2\r")
+Print("password:", secret.ReadPassword("Password: ") ?? "Null", "{secret.TakeOutput():?}", secret.InputMode)
+secret.Feed("ab\u{7f}c\u{15}xy{E}[200~z\nw{E}[201~{E}[A\r")
+Print("password:", secret.ReadPassword() ?? "Null", "{secret.TakeOutput():?}")
+secret.Feed("\u{4}")
+Print("password:", secret.ReadPassword("? ") ?? "Null", "{secret.TakeOutput():?}")
+secret.Feed("a\u{4}b")
+Print("password:", secret.ReadPassword() ?? "Null")
+Print("password:", secret.ReadPassword() ?? "Null", "{secret.TakeOutput():?}")

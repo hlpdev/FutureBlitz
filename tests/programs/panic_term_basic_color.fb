@@ -1,0 +1,6 @@
+// A basic color is one of 16, so TermColor.Basic of 16 panics where it's called.
+Import std.core
+Import std.term
+
+Print("{TermColor.Basic(15)}")
+Print("{TermColor.Basic(16)}")

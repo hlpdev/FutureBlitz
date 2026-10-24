@@ -1,0 +1,489 @@
+// std.term's styles: a TermColor for text, one for what's behind it, and TextAttributes, in a
+// Style, which a terminal shows through the escape codes Apply writes, in as many colors as it
+// shows, the nearest of them where it shows fewer. Paint styles text for the console, which gets
+// the text alone where it isn't a terminal or NO_COLOR is set. StripStyles and VisibleWidth read
+// text that has codes in it.
+
+Import std.core
+Import std.text.string
+Import std.text.unicode
+Import std.term.console
+
+Extern "runtime"
+    Function fb_text_byte(text: String, at: Int64): UInt8
+End Extern
+
+// How many colors a terminal shows: NONE, as a pipe or a file, or a terminal where NO_COLOR is
+// set, which gets no styles at all; BASIC, the 16 basic ones; INDEXED, 256; and TRUE_COLOR,
+// 24-bit color.
+Public Enum ColorLevel
+    NONE, BASIC, INDEXED, TRUE_COLOR
+End Enum
+
+// What a TermColor is: the terminal's own NORMAL color, one of the 16 BASIC ones, one of 256
+// INDEXED ones, or RGB.
+Public Enum ColorKind
+    NORMAL, BASIC, INDEXED, RGB
+End Enum
+
+// A color for text, or for what's behind it: the terminal's NORMAL one, its zero; one of the 16
+// BASIC ones or 256 INDEXED ones, by its Index; or RGB's R, G, and B. A terminal that shows fewer
+// colors gets the nearest it has, as Nearest gives it.
+Public Struct TermColor Implements Hashable, Printable
+    Public ReadOnly Field Kind: ColorKind
+    Public ReadOnly Field Index: UInt8
+    Public ReadOnly Field R: UInt8
+    Public ReadOnly Field G: UInt8
+    Public ReadOnly Field B: UInt8
+
+    New(kind: ColorKind, index: UInt8, r: UInt8, g: UInt8, b: UInt8)
+        Kind = kind
+        Index = index
+        R = r
+        G = g
+        B = b
+    End New
+
+    // The terminal's own color, for text or what's behind it.
+    Public Static Property Normal: TermColor
+        Get => TermColor(ColorKind.NORMAL, 0, 0, 0, 0)
+    End Property
+
+    Public Static Property Black: TermColor
+        Get => Basic(0)
+    End Property
+
+    Public Static Property Red: TermColor
+        Get => Basic(1)
+    End Property
+
+    Public Static Property Green: TermColor
+        Get => Basic(2)
+    End Property
+
+    Public Static Property Yellow: TermColor
+        Get => Basic(3)
+    End Property
+
+    Public Static Property Blue: TermColor
+        Get => Basic(4)
+    End Property
+
+    Public Static Property Magenta: TermColor
+        Get => Basic(5)
+    End Property
+
+    Public Static Property Cyan: TermColor
+        Get => Basic(6)
+    End Property
+
+    Public Static Property White: TermColor
+        Get => Basic(7)
+    End Property
+
+    // Bright black, which most terminals show as gray.
+    Public Static Property BrightBlack: TermColor
+        Get => Basic(8)
+    End Property
+
+    Public Static Property BrightRed: TermColor
+        Get => Basic(9)
+    End Property
+
+    Public Static Property BrightGreen: TermColor
+        Get => Basic(10)
+    End Property
+
+    Public Static Property BrightYellow: TermColor
+        Get => Basic(11)
+    End Property
+
+    Public Static Property BrightBlue: TermColor
+        Get => Basic(12)
+    End Property
+
+    Public Static Property BrightMagenta: TermColor
+        Get => Basic(13)
+    End Property
+
+    Public Static Property BrightCyan: TermColor
+        Get => Basic(14)
+    End Property
+
+    Public Static Property BrightWhite: TermColor
+        Get => Basic(15)
+    End Property
+
+    // One of the 16 basic colors by its number: black, red, green, yellow, blue, magenta, cyan,
+    // and white from 0 to 7, and their bright ones from 8 to 15. Panics past 15.
+    @PanicsAtCaller
+    Public Static Method Basic(index: Int): TermColor
+        If index < 0 || index > 15 Then Panic("a basic color is from 0 to 15, not {index}")
+        Return TermColor(ColorKind.BASIC, index As UInt8, 0, 0, 0)
+    End Method
+
+    // One of 256 colors by its number: the 16 basic ones, then a cube of 6 reds by 6 greens by 6
+    // blues from 16 to 231, and 24 grays, darkest first, from 232 to 255.
+    Public Static Method Indexed(index: UInt8): TermColor
+        Return TermColor(ColorKind.INDEXED, index, 0, 0, 0)
+    End Method
+
+    // Red, green, and blue, from 0 to 255 each.
+    Public Static Method Rgb(r: UInt8, g: UInt8, b: UInt8): TermColor
+        Return TermColor(ColorKind.RGB, 0, r, g, b)
+    End Method
+
+    // The color hex text gives, as CSS writes one: "#rgb" or "#rrggbb", with or without the "#",
+    // in either case. Any other text panics; TryHex takes text from outside the program.
+    @PanicsAtCaller
+    Public Static Method Hex(text: String): TermColor
+        Local color = TryHex(text)
+        If color == Null Then Panic("'{text}' isn't a hex color, like #ff8800")
+        Return color
+    End Method
+
+    // The color hex text gives, as Hex takes it, or Null for text that isn't one.
+    Public Static Method TryHex(text: String): TermColor?
+        Local chars = text.Chars
+        Local start = chars.Count > 0 && chars[0] == '#' ? 1 : 0
+        Local count = chars.Count - start
+        If count != 3 && count != 6 Then Return Null
+        Local values: Int[] = []
+        For i = start Until chars.Count
+            Local value = HexDigit(chars[i])
+            If value < 0 Then Return Null
+            values.Add(value)
+        End For
+
+        If count == 3
+            Return Rgb((values[0] * 17) As UInt8, (values[1] * 17) As UInt8,
+                       (values[2] * 17) As UInt8)
+        End If
+
+        Return Rgb((values[0] * 16 + values[1]) As UInt8, (values[2] * 16 + values[3]) As UInt8,
+                   (values[4] * 16 + values[5]) As UInt8)
+    End Method
+
+    // Its red, green, and blue: an RGB color's own, and for another, what xterm shows it as. The
+    // terminal's NORMAL color has none of its own, so it's black's.
+    Public Method ToRgb(): (Int, Int, Int)
+        Select Kind
+            Case ColorKind.RGB
+                Return (R, G, B)
+            Case ColorKind.NORMAL
+                Return (0, 0, 0)
+            Default
+                Return PaletteRgb(Index)
+        End Select
+    End Method
+
+    // The color as a terminal that shows level's colors shows it: itself, where it has it, or
+    // the nearest one it has, by red, green, and blue. NONE has none, so it's NORMAL there.
+    Public Method Nearest(level: ColorLevel): TermColor
+        If Kind == ColorKind.NORMAL || level == ColorLevel.NONE Then Return Normal
+        Select level
+            Case ColorLevel.BASIC
+                If Kind == ColorKind.BASIC Then Return Self
+                If Kind == ColorKind.INDEXED && Index < 16 Then Return Basic(Index)
+                Local r, g, b = ToRgb()
+                Return Basic(NearestBasic(r, g, b))
+            Case ColorLevel.INDEXED
+                If Kind != ColorKind.RGB Then Return Self
+                Return Indexed(NearestIndexed(R, G, B))
+            Default
+                Return Self
+        End Select
+    End Method
+
+    // "normal", "red", "bright red", "color 208", or "#ff8800".
+    Public Method ToString(): String
+        Select Kind
+            Case ColorKind.NORMAL
+                Return "normal"
+            Case ColorKind.BASIC
+                Local names = ["black", "red", "green", "yellow", "blue", "magenta", "cyan", "white"]
+                Return Index < 8 ? names[Index] : "bright {names[Index - 8]}"
+            Case ColorKind.INDEXED
+                Return "color {Index}"
+            Default
+                Return "#{R:02x}{G:02x}{B:02x}"
+        End Select
+    End Method
+
+    // The parameters of the code that sets it, for text or, with background, behind it, as a
+    // terminal of level's colors shows it, like "31" or "48;5;208", or "" for its NORMAL color.
+    Package Method Codes(background: Bool, level: ColorLevel): String
+        Local shown = Nearest(level)
+        Select shown.Kind
+            Case ColorKind.NORMAL
+                Return ""
+            Case ColorKind.BASIC
+                Local base = background ? 40 : 30
+                Return shown.Index < 8 ? "{base + shown.Index}" : "{base + 60 + shown.Index - 8}"
+            Case ColorKind.INDEXED
+                Return "{background ? 48 : 38};5;{shown.Index}"
+            Default
+                Return "{background ? 48 : 38};2;{shown.R};{shown.G};{shown.B}"
+        End Select
+    End Method
+End Struct
+
+// How text looks, beside its colors: BOLD, DIM, ITALIC, UNDERLINE, BLINK, REVERSE (the colors
+// swapped), HIDDEN, and STRIKETHROUGH, in any mix. Not every terminal shows every one.
+@Flags
+Public Enum TextAttributes
+    NONE = 0, BOLD, DIM, ITALIC, UNDERLINE, BLINK, REVERSE, HIDDEN, STRIKETHROUGH
+End Enum
+
+// How text looks: its Foreground color, the Background color behind it, and its Attributes. Its
+// zero is plain text, as the terminal shows it, and `Style(TermColor.Red).Bold()` is bold red.
+Public Struct Style Implements Hashable, Printable
+    Public Field Foreground: TermColor
+    Public Field Background: TermColor
+    Public Field Attributes: TextAttributes
+
+    // Whether it's plain text, as the terminal shows it.
+    Public Property IsPlain: Bool
+        Get => Foreground.Kind == ColorKind.NORMAL && Background.Kind == ColorKind.NORMAL &&
+               Attributes == TextAttributes.NONE
+    End Property
+
+    // A copy with background behind the text.
+    Public Method On(background: TermColor): Style => Style(Foreground, background, Attributes)
+
+    // A copy with attributes too.
+    Public Method With(attributes: TextAttributes): Style
+        Return Style(Foreground, Background, Attributes | attributes)
+    End Method
+
+    Public Method Bold(): Style => With(TextAttributes.BOLD)
+    Public Method Dim(): Style => With(TextAttributes.DIM)
+    Public Method Italic(): Style => With(TextAttributes.ITALIC)
+    Public Method Underline(): Style => With(TextAttributes.UNDERLINE)
+    Public Method Blink(): Style => With(TextAttributes.BLINK)
+    Public Method Reverse(): Style => With(TextAttributes.REVERSE)
+    Public Method Hidden(): Style => With(TextAttributes.HIDDEN)
+    Public Method Strikethrough(): Style => With(TextAttributes.STRIKETHROUGH)
+
+    // This style over under: its own colors, and under's where it has the terminal's NORMAL
+    // ones, and both's attributes, as a list's selected line is drawn over its own style.
+    Public Method Over(under: Style): Style
+        Local foreground = Foreground.Kind == ColorKind.NORMAL ? under.Foreground : Foreground
+        Local background = Background.Kind == ColorKind.NORMAL ? under.Background : Background
+        Return Style(foreground, background, Attributes | under.Attributes)
+    End Method
+
+    // The escape code that starts it, from plain text, as a terminal of level's colors shows it,
+    // like "\e[0;1;31m", or "" where level is NONE. A plain style is "\e[0m".
+    Public Method Codes(level: ColorLevel): String
+        If level == ColorLevel.NONE Then Return ""
+        Local codes = "\u{1b}[0"
+        Local numbers = [1, 2, 3, 4, 5, 7, 8, 9]
+        For i = 0 Until numbers.Count
+            Local flag = ((1 As Int) << i) As TextAttributes
+            If Attributes.Has(flag) Then codes += ";{numbers[i]}"
+        End For
+
+        Local foreground = Foreground.Codes(False, level)
+        If foreground != "" Then codes += ";" + foreground
+        Local background = Background.Codes(True, level)
+        If background != "" Then codes += ";" + background
+        Return codes + "m"
+    End Method
+
+    // text as this style shows it on a terminal of level's colors: between the codes that start
+    // it and the one that ends it, or alone where level is NONE or the style is plain.
+    Public Method Apply(text: String, level: ColorLevel): String
+        If level == ColorLevel.NONE || IsPlain || text == "" Then Return text
+        Return Codes(level) + text + "\u{1b}[0m"
+    End Method
+
+    // Like "bold red on blue", or "plain".
+    Public Method ToString(): String
+        If IsPlain Then Return "plain"
+        Local parts: String[] = []
+        If Attributes != TextAttributes.NONE Then parts.Add("{Attributes}".ToLower())
+        If Foreground.Kind != ColorKind.NORMAL Then parts.Add("{Foreground}")
+        If Background.Kind != ColorKind.NORMAL Then parts.Add("on {Background}")
+        Return " ".Join(parts)
+    End Method
+End Struct
+
+// How many colors stream shows, which Paint goes by: NONE where it isn't a terminal, or
+// NO_COLOR is set to anything, or TERM is "dumb"; TRUE_COLOR where COLORTERM is "truecolor" or
+// "24bit", or on Windows' console; INDEXED where TERM has "256color" in it; and BASIC otherwise.
+Public Function ConsoleColors(stream: StandardStream = StandardStream.OUTPUT): ColorLevel
+    Return fb_term_colors(stream As Int32) As ColorLevel
+End Function
+
+// text in style, for stdout: with the codes that show it where stdout is a terminal that shows
+// colors, and alone where it isn't, or NO_COLOR is set, as Print(Paint("done", Style(TermColor.Green))).
+Public Function Paint(text: String, style: Style): String
+    Return style.Apply(text, ConsoleColors(StandardStream.OUTPUT))
+End Function
+
+// text in style, for stream, as stream shows colors.
+Public Function Paint(text: String, style: Style, stream: StandardStream): String
+    Return style.Apply(text, ConsoleColors(stream))
+End Function
+
+// text without the escape codes in it: a CSI's, like a style's "\e[1;31m" or a cursor move, an
+// OSC's up to its BEL or ST, like a link's, and any other escape and the characters it takes, as
+// "\e(B" or "\e7". A code cut short at the end goes, as far as it goes.
+Public Function StripStyles(text: String): String
+    Local start = text.Find("\u{1b}")
+    If start == Null Then Return text
+    Local kept = text.Slice(0, start)
+    Local at = start
+    While at < text.Length
+        Local finish = CodeEnd(text, at)
+        Local next = text.Find("\u{1b}", finish) ?? text.Length
+        kept += text.Slice(finish, next)
+        at = next
+    End While
+
+    Return kept
+End Function
+
+// The columns text takes in a terminal, as DisplayWidth counts them, without its escape codes.
+// Each line's are counted alike, so for text of several lines it's the widest one's.
+Public Function VisibleWidth(text: String): Int
+    Local plain = StripStyles(text)
+    If !plain.Contains("\n") Then Return DisplayWidth(plain)
+    Local widest = 0
+    For line In plain.SplitLines()
+        widest = Max(widest, DisplayWidth(line))
+    End For
+
+    Return widest
+End Function
+
+// Where the escape code at `at` in text ends, an escape being there.
+Function CodeEnd(text: String, at: Int): Int
+    If at + 1 >= text.Length Then Return text.Length
+    Local kind = fb_text_byte(text, at + 1)
+    Local i = at + 2
+    If kind == 0x5B
+        // A CSI: parameters and spaces, up to its final byte, from @ to ~.
+        While i < text.Length
+            Local b = fb_text_byte(text, i)
+            i += 1
+            If b >= 0x40 && b <= 0x7E Then Return i
+        End While
+
+        Return text.Length
+    End If
+
+    If kind == 0x5D
+        // An OSC: up to a BEL, or an escape and a \.
+        While i < text.Length
+            Local b = fb_text_byte(text, i)
+            If b == 0x07 Then Return i + 1
+            If b == 0x1B && i + 1 < text.Length && fb_text_byte(text, i + 1) == 0x5C Then Return i + 2
+            i += 1
+        End While
+
+        Return text.Length
+    End If
+
+    // An escape before a control character, another escape too, is cut short, as a terminal has
+    // it, and is all there is of it.
+    If kind < 0x20 Then Return at + 1
+
+    // Another escape's intermediate bytes, from space to /, and its final one, as "\e(B" has them.
+    i = at + 1
+    While i < text.Length && fb_text_byte(text, i) >= 0x20 && fb_text_byte(text, i) <= 0x2F
+        i += 1
+    End While
+
+    // An escape and the character after it, which is whole, though it may take several bytes.
+    If i >= text.Length Then Return text.Length
+    Return Min(i + Utf8Length(fb_text_byte(text, i)), text.Length)
+End Function
+
+// How many bytes a UTF-8 character takes from its first one.
+Package Function Utf8Length(first: UInt8): Int
+    If first < 0x80 Then Return 1
+    If first >= 0xF0 Then Return 4
+    If first >= 0xE0 Then Return 3
+    If first >= 0xC0 Then Return 2
+    Return 1
+End Function
+
+// The number a hexadecimal digit is, or -1.
+Function HexDigit(c: Char): Int
+    If c >= '0' && c <= '9' Then Return (c As Int) - 48
+    If c >= 'a' && c <= 'f' Then Return (c As Int) - 87
+    If c >= 'A' && c <= 'F' Then Return (c As Int) - 55
+    Return -1
+End Function
+
+// The red, green, and blue xterm shows each of the 256 colors as.
+Function PaletteRgb(index: UInt8): (Int, Int, Int)
+    If index < 16
+        Local basic = [(0, 0, 0), (205, 0, 0), (0, 205, 0), (205, 205, 0), (0, 0, 238), (205, 0, 205),
+                       (0, 205, 205), (229, 229, 229), (127, 127, 127), (255, 0, 0), (0, 255, 0),
+                       (255, 255, 0), (92, 92, 255), (255, 0, 255), (0, 255, 255), (255, 255, 255)]
+        Return basic[index]
+    End If
+
+    If index >= 232
+        Local gray = 8 + 10 * (index - 232)
+        Return (gray, gray, gray)
+    End If
+
+    Local cube = index - 16
+    Return (CubeLevel(cube / 36), CubeLevel(cube / 6 % 6), CubeLevel(cube % 6))
+End Function
+
+// What each of the cube's 6 steps is, as a red, green, or blue.
+Function CubeLevel(step: Int): Int => step == 0 ? 0 : 55 + 40 * step
+
+// The cube's step nearest to value, as tmux finds it.
+Function CubeStep(value: Int): Int
+    If value < 48 Then Return 0
+    If value < 115 Then Return 1
+    Return (value - 35) / 40
+End Function
+
+// How far apart two colors are, squared.
+Function DistanceSquared(a: (Int, Int, Int), b: (Int, Int, Int)): Int
+    Local r = a.0 - b.0
+    Local g = a.1 - b.1
+    Local b2 = a.2 - b.2
+    Return r * r + g * g + b2 * b2
+End Function
+
+// The 256 colors' nearest to red, green, and blue: the cube's nearest, or the nearest gray, which
+// is nearer.
+Function NearestIndexed(r: Int, g: Int, b: Int): UInt8
+    Local qr = CubeStep(r)
+    Local qg = CubeStep(g)
+    Local qb = CubeStep(b)
+    Local cube = (CubeLevel(qr), CubeLevel(qg), CubeLevel(qb))
+    Local cubeIndex = 16 + 36 * qr + 6 * qg + qb
+    If cube == (r, g, b) Then Return cubeIndex As UInt8
+    Local average = (r + g + b) / 3
+    Local grayStep = average > 238 ? 23 : Max(0, (average - 3) / 10)
+    Local gray = 8 + 10 * grayStep
+    If DistanceSquared((gray, gray, gray), (r, g, b)) < DistanceSquared(cube, (r, g, b))
+        Return (232 + grayStep) As UInt8
+    End If
+
+    Return cubeIndex As UInt8
+End Function
+
+// The basic 16's nearest to red, green, and blue, the first of any that are as near.
+Function NearestBasic(r: Int, g: Int, b: Int): Int
+    Local best = 0
+    Local bestDistance = DistanceSquared(PaletteRgb(0), (r, g, b))
+    For i = 1 Until 16
+        Local distance = DistanceSquared(PaletteRgb(i As UInt8), (r, g, b))
+        If distance < bestDistance
+            best = i
+            bestDistance = distance
+        End If
+    End For
+
+    Return best
+End Function

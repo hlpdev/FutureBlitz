@@ -1,0 +1,89 @@
+text: a, Z, Space, 9, é, 中, 😀
+controls: Enter, Tab, Backspace, Backspace, Ctrl+Space, Ctrl+A, Ctrl+Z, Ctrl+\, Ctrl+], Ctrl+^, Ctrl+_
+lines: a, Enter, b, Enter, c, Enter, d, Enter, Enter, e
+escape: |, Escape / |, Escape, Escape / Escape, Alt+a
+alt and a sequence: Alt+Up, Alt+F1, Ctrl+Alt+Right, mouse PRESS LEFT at 0, 0, .
+alt cut short: |, Alt+Escape, [ / |, Alt+O
+alt: Alt+a, Alt+é, Alt+Enter, Ctrl+Alt+A, Alt+Backspace
+cursor: Up, Down, Right, Left, Home, End, Shift+Tab
+modifiers: Shift+Up, Alt+Down, Ctrl+Right, Ctrl+Alt+Shift+Left, Alt+Up, Shift+F1, Ctrl+Shift+F4
+ss3: Up, Down, Right, Left, Home, End, Enter, F1, F2, F3, F4
+tilde: Home, Insert, Delete, End, PageUp, PageDown, Home, End, Ctrl+Delete
+f keys: F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12, Shift+F12
+kitty: Ctrl+A, Shift+Enter, Escape, Backspace, Tab, 你
+big: mouse PRESS LEFT at 999999999, 2, 𛌳, 􏿿, .
+skipped: x, y
+mouse: mouse PRESS LEFT at 4, 2, mouse RELEASE LEFT at 4, 2, mouse DRAG LEFT at 5, 2, mouse MOVE at 5, 2, mouse PRESS MIDDLE at 1, 1, mouse RELEASE RIGHT at 1, 1
+wheel: mouse SCROLL_UP at 0, 0, mouse SCROLL_DOWN at 0, 0, mouse SCROLL_LEFT at 0, 0, mouse SCROLL_RIGHT at 79, 23
+held: mouse Ctrl+Shift+PRESS LEFT at 2, 3, mouse Alt+PRESS LEFT at 0, 0, mouse PRESS LEFT at 0, 0
+bad mouse: x, y
+x10: mouse PRESS LEFT at 4, 2, mouse RELEASE at 0, 0, mouse SCROLL_UP at 0, 0
+paste: paste "hello\nworld", !
+paste waits: |, paste "not done"
+empty paste: paste ""
+bad bytes: |, � / �, ( / |, �
+overlong: �, � / �, �, � / �, �, �, �
+bad paste: paste "a�b"
+cut short: |, Escape, [, 1, ;, 5 / |, Alt+O / Escape, [, 1, Ctrl+G, A
+long: True 40
+fed "\x1B": nothing yet True
+fed "[": nothing yet True
+fed "1;": nothing yet True
+fed "5": nothing yet True
+fed "C": Ctrl+Right False
+fed [228]: nothing yet True
+fed [184]: nothing yet True
+fed [173, 33]: 中 True
+then: !
+long session: 5000 True Up False
+long paste waits: True True
+still pasting: True True
+still pasting: True True
+still pasting: True True
+long paste: PASTE 11000 6000 False False
+Ctrl+C: char c False, ctrl+c True True, text False
+Alt+x: char c False, ctrl+c False False, text False
+Space: char c False, ctrl+c False False, text True
+Ctrl+Space: char c False, ctrl+c False False, text False
+Shift+Tab: char c False, ctrl+c False False, text False
+Ctrl+Alt+Shift+Left: char c False, ctrl+c False False, text False
+PageDown: char c False, ctrl+c False False, text False
+F12: char c False, ctrl+c False False, text False
+A: char c False, ctrl+c False False, text True
+Alt+é: char c False, ctrl+c False False, text False
+True True False
+key Escape True False False
+mouse PRESS LEFT at 1, 2 | resize 80x24 | paste "pasted"
+True False mouse Ctrl+SCROLL_UP at 0, 0
+read: a 80x24
+read: Down 80x24
+read: resize 100x40 100x40
+read: mouse PRESS LEFT at 0, 0 100x40
+read: Escape 100x40
+read: z 100x40
+after the end: True True
+late: Up
+late: Escape
+late: [
+late: B
+late: paste "slow paste"
+late: paste "cut"
+late: Space
+late: o
+late: f
+late: f
+polled: 1
+polled: paste "none"
+key: 2 mode 0
+key: 3 ?
+raw: False 0
+raw: True 1
+raw: True 3
+raw: True 7
+raw: True 7
+raw: False 0
+password: hunter2 "Password: \n" 0
+password: xyzw "\n"
+password: Null "? \n"
+password: ab
+password: Null "\n\n"

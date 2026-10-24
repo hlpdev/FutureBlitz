@@ -1,0 +1,30 @@
+normal red bright cyan black
+bright white color 208 #ff8800
+#ff8800 #ff8800 #0a0b0c
+True True True
+(205, 0, 0) (92, 92, 255) (0, 0, 0)
+(0, 0, 0) (255, 0, 0) (255, 255, 255)
+(8, 8, 8) (238, 238, 238) (255, 0, 0)
+True False True
+TRUE_COLOR: #ff8800, #000000, #808080, #5f87af, #fafafa, #010203, color 208, color 9, color 244, bright blue, normal
+INDEXED: color 208, color 16, color 244, color 67, color 231, color 16, color 208, color 9, color 244, bright blue, normal
+BASIC: yellow, black, bright black, bright black, bright white, black, yellow, bright red, bright black, bright blue, normal
+NONE: normal, normal, normal, normal, normal, normal, normal, normal, normal, normal, normal
+TRUE_COLOR: [\e[0;1;4;38;2;255;136;0;44m] [\e[0;1;4;38;2;255;136;0;44mhi\e[0m]
+INDEXED: [\e[0;1;4;38;5;208;44m] [\e[0;1;4;38;5;208;44mhi\e[0m]
+BASIC: [\e[0;1;4;33;44m] [\e[0;1;4;33;44mhi\e[0m]
+NONE: [] [hi]
+\e[0;1;2;3;4;5;7;8;9m bold | dim | italic | underline | blink | reverse | hidden | strikethrough
+\e[0;91;107m \e[0;38;5;100;48;5;7m
+plain | bold red on white | bold | underline #ff8800 on blue
+True False False
+\e[0m [plain]
+[]
+italic red on black
+bold green
+piped piped
+NONE NONE
+red link 中文 é 👍🏽 18
+9 0 no codes
+[cut ] [] [ab]
+[] [x]

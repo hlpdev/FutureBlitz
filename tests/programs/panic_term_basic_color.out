@@ -1,0 +1,2 @@
+bright white
+panic: a basic color is from 0 to 15, not 16 at panic_term_basic_color.fb:6:9

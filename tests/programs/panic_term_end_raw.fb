@@ -1,0 +1,9 @@
+// Each EndRawMode ends a StartRawMode, so one more panics where it's called.
+Import std.core
+Import std.term
+
+Local fake = FakeTerminal()
+fake.StartRawMode()
+fake.EndRawMode()
+Print(fake.IsRaw)
+fake.EndRawMode()
