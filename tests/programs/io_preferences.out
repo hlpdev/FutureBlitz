@@ -26,6 +26,7 @@ a file a person changed
 async
 0.5
 yes 0
+yes True
 errors
 NOT_A_DIRECTORY
 1 True
