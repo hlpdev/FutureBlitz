@@ -7039,12 +7039,14 @@ private:
         const local_id_t error = error_variable();
         call_t call{
             .function = generated(generated_kind_t::LOAD, type, span_of(id)),
-            .arguments = { { .value = value },
-                           { .value = zero(type_id_t::INT32) },
-                           { .value = place_t{ error }, .by_ref = true } },
+            .arguments = {
+                { .value = value },
+                { .value = zero(type_id_t::INT32) },
+                { .value = place_t{ error }, .by_ref = true },
+            },
         };
         const operand_t made = temporary(std::move(call), type);
-        check_load_error(error, span_of(id), [](const operand_t& /*thrown*/) {});
+        check_load_error(error, [](const operand_t& /*thrown*/) {}, span_of(id));
         if (has_references(type)) {
             m_temporaries.push_back(std::get<local_id_t>(std::get<place_t>(made).root));
         }
@@ -7066,9 +7068,9 @@ private:
 
     /// An error that a call of a Load, or of what it calls, put in `error` goes on out of the
     /// code here, once `within` has put the step it was in before its path. The error of a call
-    /// of Load<T> itself is first given the call's Place.
+    /// of Load<T> itself, at `span`, is first given the call's Place.
     template <typename Within>
-    void check_load_error(const local_id_t error, const span_t span, const Within& within) {
+    void check_load_error(const local_id_t error, const Within& within, const span_t span = {}) {
         const block_id_t raised = new_block();
         const block_id_t ok = new_block();
         terminate(branch_t{
@@ -7177,7 +7179,6 @@ private:
                 .op = binary_op_t::ADD,
                 .left = conversion.depth,
                 .right = const_value_t{ .type = type_id_t::INT32, .data = std::int64_t{ 1 } },
-                .span = {},
             },
             type_id_t::INT32);
     }
@@ -7247,8 +7248,8 @@ private:
             };
             const local_id_t error = error_variable();
             call.arguments.push_back({ .value = place_t{ error }, .by_ref = true });
-            const operand_t made = temporary(std::move(call), type);
-            check_load_error(error, {}, [](const operand_t& /*thrown*/) {});
+            operand_t made = temporary(std::move(call), type);
+            check_load_error(error, [](const operand_t& /*thrown*/) {});
             if (has_references(type)) {
                 m_temporaries.push_back(std::get<local_id_t>(std::get<place_t>(made).root));
             }
@@ -7270,13 +7271,12 @@ private:
 
         if (is_integer(type) && !is_c_integer(type)) {
             const auto [least, most] = signed_range(type);
+            const const_value_t low{ .type = type_id_t::INT64, .data = least };
+            const const_value_t high{ .type = type_id_t::INT64, .data = most };
             const operand_t whole =
                 type == type_id_t::UINT64
                     ? expect(load_helper("LoadUnsigned", { value, name }))
-                    : expect(load_helper(
-                          "LoadSigned",
-                          { value, const_value_t{ .type = type_id_t::INT64, .data = least },
-                            const_value_t{ .type = type_id_t::INT64, .data = most }, name }));
+                    : expect(load_helper("LoadSigned", { value, low, high, name }));
             return type_of(whole) == type ? whole : cast(whole, type, {});
         }
 
@@ -7301,10 +7301,10 @@ private:
                 temporary(std::move(names), types().array(type_id_t::STRING), true);
             const operand_t bits =
                 temporary(std::move(values), types().array(type_id_t::UINT64), true);
+            const const_value_t low{ .type = type_id_t::INT64, .data = least };
+            const const_value_t high{ .type = type_id_t::INT64, .data = most };
             const operand_t read = expect(load_helper(
-                "LoadEnum", { value, listed, bits, make_bool(info.flags),
-                              const_value_t{ .type = type_id_t::INT64, .data = least },
-                              const_value_t{ .type = type_id_t::INT64, .data = most }, name }));
+                "LoadEnum", { value, listed, bits, make_bool(info.flags), low, high, name }));
             return cast(read, type, {});
         }
 
@@ -7351,12 +7351,14 @@ private:
         const operand_t loaded = temporary(
             call_t{
                 .function = generated(generated_kind_t::LOAD, inner, conversion.span),
-                .arguments = { { .value = conversion.subject },
-                               { .value = conversion.depth },
-                               { .value = place_t{ error }, .by_ref = true } },
+                .arguments = {
+                    { .value = conversion.subject },
+                    { .value = conversion.depth },
+                    { .value = place_t{ error }, .by_ref = true },
+                },
             },
             inner);
-        check_load_error(error, {}, [](const operand_t& /*thrown*/) {});
+        check_load_error(error, [](const operand_t& /*thrown*/) {});
         if (has_references(inner)) {
             m_temporaries.push_back(std::get<local_id_t>(std::get<place_t>(loaded).root));
         }
@@ -7378,12 +7380,14 @@ private:
         const operand_t loaded = temporary(
             call_t{
                 .function = generated(generated_kind_t::LOAD, type, conversion.span),
-                .arguments = { { .value = value },
-                               { .value = deeper(conversion) },
-                               { .value = place_t{ error }, .by_ref = true } },
+                .arguments = {
+                    { .value = value },
+                    { .value = deeper(conversion) },
+                    { .value = place_t{ error }, .by_ref = true },
+                },
             },
             type);
-        check_load_error(error, {}, within);
+        check_load_error(error, within);
         if (has_references(type)) {
             m_temporaries.push_back(std::get<local_id_t>(std::get<place_t>(loaded).root));
         }
@@ -7570,12 +7574,14 @@ private:
                 .value =
                     call_t{
                         .function = function_of(missing),
-                        .arguments = { { .value = make_string(std::string(types().name(type))) },
-                                       { .value = make_string(declared.name) },
-                                       { .value = place_t{ error }, .by_ref = true } },
+                        .arguments = {
+                            { .value = make_string(std::string(types().name(type))) },
+                            { .value = make_string(declared.name) },
+                            { .value = place_t{ error }, .by_ref = true },
+                        },
                     },
             });
-            check_load_error(error, {}, within);
+            check_load_error(error, within);
         }
 
         jump(done);
@@ -7732,8 +7738,10 @@ private:
                    temporary(
                        call_t{
                            .function = generated(generated_kind_t::SAVE, inner, conversion.span),
-                           .arguments = { { .value = unwrap(conversion.subject) },
-                                          { .value = conversion.depth } },
+                           .arguments = {
+                               { .value = unwrap(conversion.subject) },
+                               { .value = conversion.depth },
+                           },
                        },
                        value, true));
         finish_statement();
@@ -7801,9 +7809,8 @@ private:
             part.steps.push_back({ .field = i });
             const operand_t saved = save_part(fields[i].type, part, conversion);
             if (has_attribute(field, loading.flatten)) {
-                load_helper("SaveFlattened",
-                            { place_t{ made }, saved,
-                              make_string(std::string(types().name(fields[i].type))) });
+                const operand_t type_name = make_string(std::string(types().name(fields[i].type)));
+                load_helper("SaveFlattened", { place_t{ made }, saved, type_name });
             } else {
                 const std::string key =
                     attribute_text(field, loading.rename).value_or(fields[i].name);

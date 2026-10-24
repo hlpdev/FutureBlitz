@@ -379,7 +379,7 @@ struct builtin_interfaces_t {
 /// ParseError, which Load throws, the attributes on Fields and the Interfaces they honor, from
 /// std/core/load.fb, and that file's Package Functions, which their code calls, by name. Each is
 /// INVALID, or missing, without the standard library.
-struct load_support_t {
+struct load_support_t { // NOLINT(bugprone-exception-escape)
     type_id_t value = type_id_t::INVALID;
     type_id_t parse_error = type_id_t::INVALID;
     /// std.collections.map's Map, whose Map<String, V> is an Object.

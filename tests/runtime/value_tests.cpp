@@ -189,12 +189,12 @@ TEST_CASE("Load<T> reads an Enum's member by its name, in any case, and flags jo
     fb_class_t numbers = array_class(free_elements);
     fb_array_t* names = fb_array_new(&strings, sizeof(fb_string_t*), 0);
     fb_array_t* values = fb_array_new(&numbers, sizeof(std::uint64_t), 0);
-    const std::array<std::pair<std::string_view, std::uint64_t>, 4> members{ {
+    const std::vector<std::pair<std::string_view, std::uint64_t>> members{
         { "WORLD", 1 },
         { "PLAYER", 2 },
         { "Player", 8 },
         { "ENEMY", 4 },
-    } };
+    };
     for (const auto& [name, bits] : members) {
         *static_cast<fb_string_t**>(fb_array_push(names, sizeof(fb_string_t*))) =
             fb_string_from_bytes(name.data(), static_cast<std::int64_t>(name.size()));

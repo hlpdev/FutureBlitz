@@ -216,19 +216,20 @@ std::int32_t fb_value_scalar(const fb_string_t* text, std::uint64_t* bits, doubl
         return 0;
     }
 
-    const char* end = number.data() + number.size();
+    const char* const first = number.data();
+    const char* const end = first + number.size();
     const bool negative = number.starts_with('-');
     const std::string_view digits = negative ? number.substr(1) : number;
     if (!digits.empty() &&
         std::ranges::all_of(digits, [](const char c) { return c >= '0' && c <= '9'; })) {
         if (std::int64_t signed_value = 0;
-            std::from_chars(number.data(), end, signed_value).ec == std::errc()) {
+            std::from_chars(first, end, signed_value).ec == std::errc()) {
             *bits = static_cast<std::uint64_t>(signed_value);
             return 2;
         }
 
         if (std::uint64_t unsigned_value = 0;
-            !negative && std::from_chars(number.data(), end, unsigned_value).ec == std::errc()) {
+            !negative && std::from_chars(first, end, unsigned_value).ec == std::errc()) {
             *bits = unsigned_value;
             return 3;
         }
@@ -237,7 +238,7 @@ std::int32_t fb_value_scalar(const fb_string_t* text, std::uint64_t* bits, doubl
     // A number past a Double's range is an infinity, or 0, as strtod reads it, which from_chars
     // leaves unread.
     double value = 0;
-    const auto [stop, error] = std::from_chars(number.data(), end, value);
+    const auto [stop, error] = std::from_chars(first, end, value);
     if (stop != end || (error != std::errc() && error != std::errc::result_out_of_range)) {
         return 0;
     }
