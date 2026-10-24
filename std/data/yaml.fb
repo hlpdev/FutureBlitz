@@ -17,16 +17,18 @@ Public Struct Yaml
     End New
 
     // The document text holds, or Null for a text of none. An integer past what an Int64 holds is
-    // a UINT, and past a UInt64 a Double. Throws a ParseError, with its line and column, of UNEXPECTED_END for text that
-    // ends inside a quoted scalar, of OTHER for a tag that isn't the core schema's, a key that's
-    // a mapping or a sequence, or a text of more than one document, which ReadAll reads, and of
-    // SYNTAX for the rest that isn't YAML 1.2.
+    // a UINT, and past a UInt64 a Double. Throws a ParseError, with its line and column, of
+    // UNEXPECTED_END for text that ends inside a quoted scalar or a flow collection, of
+    // OUT_OF_RANGE for an !!int past what a UInt64 holds, of OTHER for a tag that isn't the core
+    // schema's, a key that's a mapping or a sequence, or a text of more than one document, which
+    // ReadAll reads, at the second's start, and of SYNTAX for the rest that isn't YAML 1.2.
     Public Static Method Read(text: String): Value Throws ParseError
-        Local documents = Try ReadAll(text)
+        Local parser = YamlParser(text.Bytes)
+        Local documents = Try parser.Documents()
         If documents.Count == 0 Then Return Value()
         If documents.Count > 1
-            Throw ParseError(ParseErrorKind.OTHER, "the text holds {documents.Count} documents, which " +
-                             "ReadAll reads", 1, 1)
+            Throw ErrorAt(parser.Bytes, parser.Starts[1], ParseErrorKind.OTHER,
+                          "the text holds {documents.Count} documents, which ReadAll reads")
         End If
 
         Return documents[0]
@@ -73,7 +75,23 @@ Public Struct Yaml
             For key In value.Keys()
                 If !first || !inline Then AddIndent(out, depth)
                 first = False
-                AddScalarText(out, key)
+                // A key of more than 1024 characters, which a simple key can't be, is an explicit
+                // one, after '?', its ':' on the line after it.
+                Local written: UInt8[] = []
+                AddScalarText(written, key)
+                Local characters = 0
+                For b In written
+                    If (b & 0xC0) != 0x80 Then characters += 1
+                End For
+                If characters > 1024
+                    AddText(out, "? ")
+                    out.AddAll(written)
+                    out.Add(10)
+                    AddIndent(out, depth)
+                Else
+                    out.AddAll(written)
+                End If
+
                 Local item = EntryOf(value, key)
                 out.Add(58)
                 If IsBlock(item)
@@ -303,8 +321,15 @@ Public Struct Yaml
             real = real * (base As Double) + (digit As Double)
         End For
         If !whole
-            // A decimal from_chars rounds once; another base's digits were summed as Doubles.
-            If base == 10 Then real = FloatOf(bytes, from, bytes.Count) ?? real
+            // Rounded once to the nearest Double: by from_chars for a decimal, and for another
+            // base by its leading 64 bits, the last set when any bit after them is, as a Double,
+            // times 2 for each bit after them, which is exact.
+            If base == 10
+                real = FloatOf(bytes, from, bytes.Count) ?? real
+            Else
+                real = PowerOfTwoReal(bytes, from, base)
+            End If
+
             Return Value(negative ? -real : real)
         End If
 
@@ -312,6 +337,56 @@ Public Struct Yaml
         If value <= 9223372036854775807 Then Return Value(-(value As Int64))
         If value == 9223372036854775808 Then Return Value(LEAST_INT64)
         Return Value(-(value As Double))
+    End Method
+
+    // The nearest Double to the integer the digits from `from` write in base 8 or 16.
+    Static Method PowerOfTwoReal(bytes: UInt8[], from: Int, base: Int): Double
+        Local width = base == 16 ? 4 : 3
+        Local top: UInt64 = 0
+        Local count = 0
+        Local dropped = 0
+        Local sticky = False
+        For i = from Until bytes.Count
+            Local digit = DigitOf(bytes[i])
+            For place = width - 1 To 0 Step -1
+                Local bit = (digit >> place) & 1
+                If count == 0 && bit == 0 Then Continue
+                If count < 64
+                    top = (top << 1) | (bit As UInt64)
+                    count += 1
+                Else
+                    dropped += 1
+                    If bit != 0 Then sticky = True
+                End If
+            End For
+        End For
+        If sticky Then top = top | 1
+        Local real = top As Double
+        For i = 1 To dropped
+            real *= 2.0
+        End For
+        Return real
+    End Method
+
+    // Whether text is one of the core schema's integers: digits with a sign or not, or 0o's or
+    // 0x's.
+    Static Method IsIntegerText(text: String): Bool
+        Local bytes = text.Bytes
+        Local at = 0
+        Local base = 10
+        If bytes.Count > 2 && bytes[0] == 48 && (bytes[1] == 111 || bytes[1] == 120)
+            base = bytes[1] == 111 ? 8 : 16
+            at = 2
+        ElseIf bytes.Count > 0 && (bytes[0] == 45 || bytes[0] == 43)
+            at = 1
+        End If
+
+        If at >= bytes.Count Then Return False
+        For i = at Until bytes.Count
+            Local digit = DigitOf(bytes[i])
+            If digit < 0 || digit >= base Then Return False
+        End For
+        Return True
     End Method
 
     Static Method DigitOf(b: UInt8): Int64
@@ -339,6 +414,8 @@ Class YamlParser
     Field Handles: Map<String, String>
     // The text of the last scalar read, for a key.
     Field KeyText: String = ""
+    // Where each document starts: its first token's byte.
+    Field Starts: Int[] = []
 
     New(bytes: UInt8[])
         Bytes = bytes
@@ -362,16 +439,20 @@ Class YamlParser
                 Continue
             End If
 
+            Starts.Add(token.At)
             Handles = {}
             Handles["!"] = "!"
             Handles["!!"] = "tag:yaml.org,2002:"
+            Local given = Set<String>()
             Local version = ""
             Local directed = False
-            While token.Kind == YamlTokenKind.VERSION || token.Kind == YamlTokenKind.TAG_DIRECTIVE
+            While IsDirective(token.Kind)
                 If !ended Then Throw Fail(token, "a document's directives come after the one before ends with '...'")
                 Try Scanner.Take()
                 directed = True
-                If token.Kind == YamlTokenKind.VERSION
+                If token.Kind == YamlTokenKind.RESERVED_DIRECTIVE
+                    // A directive YAML 1.2 doesn't have, which is left out.
+                ElseIf token.Kind == YamlTokenKind.VERSION
                     If version != "" Then Throw Fail(token, "%YAML comes once in a document")
                     version = token.Text
                     Local digits = version.Bytes
@@ -379,7 +460,7 @@ Class YamlParser
                         Throw Fail(token, "the YAML is version {version}, which isn't 1's")
                     End If
                 Else
-                    If token.Text != "!" && token.Text != "!!" && Handles.Get(token.Text) != Null
+                    If !given.Add(token.Text)
                         Throw Fail(token, "%TAG gives the handle {token.Text} twice")
                     End If
 
@@ -396,8 +477,7 @@ Class YamlParser
             AnchorTexts = {}
             token = Try Scanner.Peek()
             Local empty = token.Kind == YamlTokenKind.DOCUMENT_START || token.Kind == YamlTokenKind.DOCUMENT_END ||
-                          token.Kind == YamlTokenKind.STREAM_END || token.Kind == YamlTokenKind.VERSION ||
-                          token.Kind == YamlTokenKind.TAG_DIRECTIVE
+                          token.Kind == YamlTokenKind.STREAM_END || IsDirective(token.Kind)
             If empty
                 documents.Add(Value())
             Else
@@ -413,6 +493,12 @@ Class YamlParser
             ended = False
         End Loop
         Return documents
+    End Method
+
+    // Whether kind is a directive's: %YAML, %TAG, or one YAML 1.2 reserves.
+    Static Method IsDirective(kind: YamlTokenKind): Bool
+        Return kind == YamlTokenKind.VERSION || kind == YamlTokenKind.TAG_DIRECTIVE ||
+               kind == YamlTokenKind.RESERVED_DIRECTIVE
     End Method
 
     // A node in the block context: an alias, or a node and its properties, which a block
@@ -520,6 +606,12 @@ Class YamlParser
     // value with its properties: its tag checked against its kind, and its anchor named.
     Method Finish(value: Value, properties: YamlProperties, token: YamlToken): Value Throws ParseError
         Local tag = properties.Tag
+        Local collection = value.Kind == ValueKind.ARRAY || value.Kind == ValueKind.OBJECT
+        If tag != Null && tag != "!" && collection && !IsCoreTag(tag)
+            Throw ErrorAt(Bytes, token.At, ParseErrorKind.OTHER,
+                          "the tag {tag} isn't the core schema's")
+        End If
+
         If tag != Null && tag != "!"
             If value.Kind == ValueKind.ARRAY && tag != "tag:yaml.org,2002:seq"
                 Throw Fail(token, "a sequence's tag is !!seq, not {tag}")
@@ -539,6 +631,14 @@ Class YamlParser
         Return value
     End Method
 
+    // Whether tag is one of the core schema's seven.
+    Static Method IsCoreTag(tag: String): Bool
+        For name In ["str", "int", "float", "bool", "null", "seq", "map"]
+            If tag == "tag:yaml.org,2002:" + name Then Return True
+        End For
+        Return False
+    End Method
+
     // A scalar's Value: by its tag, or for a plain scalar without one, as the core schema has
     // it, and else a String.
     Method Resolve(text: String, plain: Bool, tag: String?, token: YamlToken): Value Throws ParseError
@@ -551,6 +651,11 @@ Class YamlParser
         ElseIf tag == "tag:yaml.org,2002:bool"
             If resolved.Kind != ValueKind.BOOL Then Throw Fail(token, "!!bool tags a Bool, and \"{text}\" isn't one")
         ElseIf tag == "tag:yaml.org,2002:int"
+            If resolved.Kind == ValueKind.DOUBLE && Yaml.IsIntegerText(text)
+                Throw ErrorAt(Bytes, token.At, ParseErrorKind.OUT_OF_RANGE,
+                              "the integer {text} is past what a UInt64 holds")
+            End If
+
             If resolved.Kind != ValueKind.INT && resolved.Kind != ValueKind.UINT
                 Throw Fail(token, "!!int tags an integer, and \"{text}\" isn't one")
             End If
@@ -648,11 +753,12 @@ Class YamlParser
     End Method
 
     Method FlowSequence(): Value Throws ParseError
-        Try Scanner.Take()
+        Local start = Try Scanner.Take()
         Local sequence = Value.Array()
         Local first = True
         Loop
             Local token = Try Scanner.Peek()
+            Try Unended(token, start, "the flow sequence has no closing ']'")
             If token.Kind == YamlTokenKind.FLOW_SEQUENCE_END
                 Try Scanner.Take()
                 Return sequence
@@ -662,6 +768,7 @@ Class YamlParser
                 If token.Kind != YamlTokenKind.FLOW_ENTRY Then Throw Fail(token, "a flow sequence's entries have ',' between them")
                 Try Scanner.Take()
                 token = Try Scanner.Peek()
+                Try Unended(token, start, "the flow sequence has no closing ']'")
                 If token.Kind == YamlTokenKind.FLOW_SEQUENCE_END
                     Try Scanner.Take()
                     Return sequence
@@ -696,11 +803,12 @@ Class YamlParser
     End Method
 
     Method FlowMapping(): Value Throws ParseError
-        Try Scanner.Take()
+        Local start = Try Scanner.Take()
         Local mapping = Value.Object()
         Local first = True
         Loop
             Local token = Try Scanner.Peek()
+            Try Unended(token, start, "the flow mapping has no closing '}}'")
             If token.Kind == YamlTokenKind.FLOW_MAPPING_END
                 Try Scanner.Take()
                 Return mapping
@@ -710,6 +818,7 @@ Class YamlParser
                 If token.Kind != YamlTokenKind.FLOW_ENTRY Then Throw Fail(token, "a flow mapping's entries have ',' between them")
                 Try Scanner.Take()
                 token = Try Scanner.Peek()
+                Try Unended(token, start, "the flow mapping has no closing '}}'")
                 If token.Kind == YamlTokenKind.FLOW_MAPPING_END
                     Try Scanner.Take()
                     Return mapping
@@ -753,6 +862,11 @@ Class YamlParser
     // A flow node, where a block's tokens can't be.
     Method FlowCheckedNode(): Value Throws ParseError
         Local token = Try Scanner.Peek()
+        If token.Kind == YamlTokenKind.STREAM_END
+            Throw ErrorAt(Bytes, token.At, ParseErrorKind.UNEXPECTED_END,
+                          "the flow collection isn't ended")
+        End If
+
         If token.Kind == YamlTokenKind.BLOCK_ENTRY || token.Kind == YamlTokenKind.BLOCK_MAPPING ||
            token.Kind == YamlTokenKind.BLOCK_SEQUENCE || token.Kind == YamlTokenKind.BLOCK_END ||
            token.Kind == YamlTokenKind.DOCUMENT_START || token.Kind == YamlTokenKind.DOCUMENT_END ||
@@ -771,6 +885,13 @@ Class YamlParser
 
         If mapping.Contains(text) Then Throw Fail(token, "the mapping has the key \"{text}\" twice")
         mapping[text] = value
+    End Method
+
+    // Throws message, an UNEXPECTED_END at the flow collection's start, when token ends the text.
+    Method Unended(token: YamlToken, start: YamlToken, message: String) Throws ParseError
+        If token.Kind == YamlTokenKind.STREAM_END
+            Throw ErrorAt(Bytes, start.At, ParseErrorKind.UNEXPECTED_END, message)
+        End If
     End Method
 
     Method Expect(kind: YamlTokenKind, what: String) Throws ParseError

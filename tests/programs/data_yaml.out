@@ -53,9 +53,9 @@ OTHER 1 1 a mapping's key is a scalar here, not a ARRAY at line 1, column 1
 OTHER 1 11 the tag !local isn't the core schema's at line 1, column 11
 OTHER 1 13 the tag tag:yaml.org,2002:binary isn't the core schema's at line 1, column 13
 SYNTAX 1 10 !!int tags an integer, and "abc" isn't one at line 1, column 10
-OTHER 1 1 the text holds 3 documents, which ReadAll reads
+OTHER 3 1 the text holds 3 documents, which ReadAll reads at line 3, column 1
 UNEXPECTED_END 1 6 the quoted scalar has no closing quote at line 1, column 6
-SYNTAX 1 9 a flow sequence's entries have ',' between them at line 1, column 9
+UNEXPECTED_END 1 4 the flow sequence has no closing ']' at line 1, column 4
 SYNTAX 2 2 a block sequence's entry can't come after a tab at line 2, column 2
 SYNTAX 1 4 the alias *missing names no anchor before it at line 1, column 4
 SYNTAX 1 5 a mapping's value can't start here at line 1, column 5
@@ -105,3 +105,44 @@ top
 - {}
 
 2
+{"name": "app"}
+3 "b" "e"
+SYNTAX 2 1 a byte order mark can only start a document at line 2, column 1
+SYNTAX 3 1 a byte order mark can only start a document at line 3, column 1
+1
+2424 True
+2234 True
+4442 True
+3
+4
+5
+5
+3
+SYNTAX 1 6 YAML can't hold the control character U+0001 at line 1, column 6
+SYNTAX 1 5 YAML can't hold the character U+0080 at line 1, column 5
+OTHER 1 9 the tag !foo isn't the core schema's at line 1, column 9
+OTHER 1 10 the tag tag:yaml.org,2002:set isn't the core schema's at line 1, column 10
+OTHER 2 1 the tag tag:yaml.org,2002:omap isn't the core schema's at line 2, column 1
+SYNTAX 1 10 a sequence's tag is !!seq, not tag:yaml.org,2002:str at line 1, column 10
+SYNTAX 1 10 a mapping's tag is !!map, not tag:yaml.org,2002:seq at line 1, column 10
+UNEXPECTED_END 1 4 the flow mapping has no closing '}' at line 1, column 4
+UNEXPECTED_END 1 1 the flow sequence has no closing ']' at line 1, column 1
+UNEXPECTED_END 1 1 the flow sequence has no closing ']' at line 1, column 1
+UNEXPECTED_END 1 5 the flow collection isn't ended at line 1, column 5
+UNEXPECTED_END 1 1 the flow sequence has no closing ']' at line 1, column 1
+{"hex": 36893488147419111424.0, "octal": 295147905179352891392.0, "big": 36893488147419103232.0}
+OUT_OF_RANGE 1 10 the integer 99999999999999999999 is past what a UInt64 holds at line 1, column 10
+OUT_OF_RANGE 1 10 the integer 0x1FFFFFFFFFFFFFFFF is past what a UInt64 holds at line 1, column 10
+SYNTAX 1 10 !!int tags an integer, and "1.5" isn't one at line 1, column 10
+SYNTAX 3 1 a document holds one node, and this is past it at line 3, column 1
+SYNTAX 3 1 a document holds one node, and this is past it at line 3, column 1
+SYNTAX 2 1 a document's directives come before its '---' at line 2, column 1
+reads 1 "x"
+reads 2 "b"
+reads 2 "b"
+SYNTAX 2 1 %TAG gives the handle !e! twice at line 2, column 1
+SYNTAX 2 1 %TAG gives the handle ! twice at line 2, column 1
+SYNTAX 2 1 %TAG gives the handle !! twice at line 2, column 1
+"1"
+SYNTAX 3 1 the mapping has the key "b" twice at line 3, column 1
+SYNTAX 3 1 the mapping has the key "b" twice at line 3, column 1

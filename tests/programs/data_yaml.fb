@@ -163,3 +163,93 @@ Print(written)
 Print((Try Yaml.Read(written)) == value)
 Print(Yaml.Write(Value("top")), Yaml.Write(Value.Array()), Yaml.WriteAll([Value(1 As Int64), list]))
 Print((Try Yaml.ReadAll(Yaml.WriteAll([Value(1 As Int64), list]))).Count)
+
+// A byte order mark and comment lines are a document's prefix, which any document of a stream
+// can start with, after the "..." that ends the one before; elsewhere a mark is an error.
+Print(Try Yaml.Read("\u{FEFF}# settings\nname: app\n"))
+Local prefixed = Try Yaml.ReadAll("a: 1\n...\n\u{FEFF}--- b\n...\n# c\n\u{FEFF}# d\n--- e\n")
+Print(prefixed.Count, prefixed[1], prefixed[2])
+Failure("a: 1\n\u{FEFF}b: 2")
+Failure("\u{FEFF}a: 1\n---\n\u{FEFF}b: 2")
+
+// A simple key is up to 1024 characters, not bytes, long; Write writes a longer key explicitly,
+// and it reads back.
+Local wide = ""
+For i = 1 To 600
+    wide += "é"
+End For
+Print((Try Yaml.Read(wide + ": v")).Count)
+Local long = ""
+For i = 1 To 1100
+    long += "k"
+End For
+For key In [wide, long, long + "\n" + long]
+    Local keyed = Value.Object()
+    keyed[key] = Value("v")
+    Local nested = Value.Object()
+    nested["inner"] = Value(1 As Int64)
+    keyed[key + "!"] = nested
+    Local listed = Value.Array()
+    listed.Add(keyed)
+    Local text = Yaml.Write(listed)
+    Print(text.Bytes.Count, (Try Yaml.Read(text)) == listed)
+End For
+
+// Quoted scalars take any character but a C0 control other than a tab, as JSON's strings do.
+For json In ["{{\"a\": \"x\u{7F}y\"}}", "{{\"a\": \"x\u{80}y\"}}", "{{\"a\": \"x\u{FEFF}y\"}}",
+             "{{\"a\": 'x\u{FFFE}y'}}", "{{\"a\": \"x\ty\"}}"]
+    Local read = Try Yaml.Read(json)
+    Print(((read["a"] ?? Value()).AsString() ?? "").Bytes.Count)
+End For
+Failure("a: \"x\u{1}y\"")
+Failure("a: x\u{80}y")
+
+// A tag that isn't the core schema's is OTHER on a collection too; a core one on the wrong kind
+// is SYNTAX.
+Failure("a: !foo [x]")
+Failure("a: !!set {{x, y}}")
+Failure("a: !!omap\n- x: 1")
+Failure("a: !!str [x]")
+Failure("a: !!seq {{x: 1}}")
+
+// Text that ends inside a flow collection is UNEXPECTED_END, as inside a quoted scalar.
+Failure("a: {{b: 1")
+Failure("[1, 2")
+Failure("[1, ")
+Failure("{{a: ")
+Failure("[")
+
+// Integers past a UInt64 are the nearest Double, in hex and octal too; an !!int past a UInt64
+// is OUT_OF_RANGE.
+Print(Try Yaml.Read("hex: 0x20000000000001800\noctal: 0o40000000000000000140000\nbig: 0x1FFFFFFFFFFFFFFFF"))
+Failure("a: !!int 99999999999999999999")
+Failure("a: !!int 0x1FFFFFFFFFFFFFFFF")
+Failure("a: !!int 1.5")
+
+// A directive YAML 1.2 reserves goes where the others do: before a document's "---", after a
+// "..." ends the one before.
+Function Documents(text: String)
+    Try
+        Local documents = Try Yaml.ReadAll(text)
+        Print("reads", documents.Count, documents[documents.Count - 1])
+    Catch e As ParseError
+        Print(e.Kind, e.Line, e.Column, e.Message)
+    End Try
+End Function
+
+Documents("a: 1\nb: 2\n%include other.yaml\n")
+Documents("a: |\n  b\n%c\n")
+Documents("%FOO bar\nx\n")
+Documents("%FOO bar\n--- x\n")
+Documents("--- a\n%FOO bar\n--- b\n")
+Documents("a\n...\n%FOO\n--- b\n")
+
+// Each handle's %TAG comes once in a document, '!' and '!!' too.
+Failure("%TAG !e! tag:a,2000:\n%TAG !e! tag:b,2000:\n--- x")
+Failure("%TAG ! tag:a,2000:\n%TAG ! tag:yaml.org,2002:\n--- !str x")
+Failure("%TAG !! tag:a,2000:\n%TAG !! tag:b,2000:\n--- x")
+Print(Try Yaml.Read("%TAG !! tag:yaml.org,2002:\n--- !!str 1"))
+
+// A CR alone is a line break, which an error's line counts.
+Failure("a: 1\rb: 2\rb: 3\r")
+Failure("a: 1\r\nb: 2\r\nb: 3\r\n")

@@ -8,7 +8,8 @@ Import std.data.text
 
 // What a YamlToken is.
 Package Enum YamlTokenKind
-    STREAM_START, STREAM_END, VERSION, TAG_DIRECTIVE, DOCUMENT_START, DOCUMENT_END,
+    STREAM_START, STREAM_END, VERSION, TAG_DIRECTIVE, RESERVED_DIRECTIVE, DOCUMENT_START,
+    DOCUMENT_END,
     BLOCK_SEQUENCE, BLOCK_MAPPING, BLOCK_END, FLOW_SEQUENCE, FLOW_SEQUENCE_END, FLOW_MAPPING,
     FLOW_MAPPING_END, BLOCK_ENTRY, FLOW_ENTRY, KEY, VALUE, ALIAS, ANCHOR, TAG, SCALAR
 End Enum
@@ -74,6 +75,10 @@ Package Class YamlScanner
     // Whether a tab is in the space before the next token on its line, which can't then start a
     // block's entry or key.
     Field TabBefore: Bool
+    // Whether a document can start here, at the stream's start or after a "...", where a byte
+    // order mark can come; and where the last one skipped ends, which is a line's start.
+    Field Prefixed: Bool = True
+    Field Marked: Int = -1
 
     // A scanner of bytes, whose last line, when it's only spaces and tabs, ends with a line break.
     Package New(bytes: UInt8[])
@@ -127,14 +132,18 @@ Package Class YamlScanner
         Try StaleKeys()
         Unwind(Column)
         Local b = ByteAt(0)
+        // A document's prefix, where a byte order mark can be, ends at its first token but a "...".
+        Local ending = Column == 0 && IsMarker(46)
+        If !ending Then Prefixed = False
         If AtEnd()
             Try FetchStreamEnd()
         ElseIf Column == 0 && b == 37
             Try FetchDirective()
         ElseIf Column == 0 && IsMarker(45)
             Try FetchDocument(YamlTokenKind.DOCUMENT_START)
-        ElseIf Column == 0 && IsMarker(46)
+        ElseIf ending
             Try FetchDocument(YamlTokenKind.DOCUMENT_END)
+            Prefixed = True
         ElseIf b == 91
             Try FetchFlowStart(YamlTokenKind.FLOW_SEQUENCE)
         ElseIf b == 123
@@ -183,11 +192,17 @@ Package Class YamlScanner
     End Method
 
     // Past spaces, tabs, comments, and line breaks to the next token. In a flow collection in a
-    // block, a line's spaces indent it more than the block's.
+    // block, a line's spaces indent it more than the block's. A byte order mark can start a line
+    // where a document can start, as YAML 1.2's l-document-prefix has it.
     Method SkipToToken() Throws ParseError
-        If At == 0 && ByteAt(0) == 0xEF && ByteAt(1) == 0xBB && ByteAt(2) == 0xBF Then At += 3
         TabBefore = False
         Loop
+            Local marked = ByteAt(0) == 0xEF && ByteAt(1) == 0xBB && ByteAt(2) == 0xBF
+            If Prefixed && Column == 0 && marked
+                At += 3
+                Marked = At
+            End If
+
             While ByteAt(0) == 32 || ByteAt(0) == 9
                 If ByteAt(0) == 9 Then TabBefore = True
                 Advance(1)
@@ -198,7 +213,8 @@ Package Class YamlScanner
             End If
 
             If ByteAt(0) == 35 && !AtEnd()
-                If At > 0 && !IsWhiteByte(Bytes[At - 1]) && !IsBreakByte(Bytes[At - 1])
+                Local before = At > 0 && At != Marked ? Bytes[At - 1] : 10
+                If !IsWhiteByte(before) && !IsBreakByte(before)
                     Throw Fail("a comment has a space before its '#'")
                 End If
 
@@ -272,10 +288,12 @@ Package Class YamlScanner
             token.Suffix = Word()
             If token.Suffix == "" Then Throw Fail("%TAG gives a handle and a prefix")
         Else
-            // A reserved directive, which is left out.
+            // A reserved directive, whose token says only where it is, for the parser to check.
+            token.Kind = YamlTokenKind.RESERVED_DIRECTIVE
             While !AtEnd() && !IsBreakByte(ByteAt(0))
                 Try CheckPrintable()
             End While
+            Tokens.Add(token)
             Return
         End If
 
@@ -600,7 +618,7 @@ Package Class YamlScanner
                 Try FlowSpaces(out, token)
             Else
                 Local from = At
-                Try CheckPrintable()
+                Try CheckQuoted()
                 out.AddAll(Bytes[from..At])
             End If
         End Loop
@@ -873,7 +891,7 @@ Package Class YamlScanner
     // up to 1024 characters long.
     Method StaleKeys() Throws ParseError
         For key In Keys
-            If key.Possible && (key.Line != Line || At - key.At > 1024)
+            If key.Possible && (key.Line != Line || Column - key.Column > 1024)
                 If key.Required
                     Throw ErrorAt(Bytes, key.At, ParseErrorKind.SYNTAX, "a mapping's key has no ':' after it")
                 End If
@@ -958,6 +976,23 @@ Package Class YamlScanner
         End If
 
         At += code.1
+        Column += 1
+    End Method
+
+    // Past a quoted scalar's character, which can be any but a C0 control other than a tab, as
+    // YAML 1.2 lets JSON's strings be read.
+    Method CheckQuoted() Throws ParseError
+        Local b = Bytes[At]
+        If b < 0x80
+            If b < 32 && b != 9
+                Throw Fail("YAML can't hold the control character U+{HexOf(b As Int, 4)}")
+            End If
+
+            Advance(1)
+            Return
+        End If
+
+        At += CodeOf(Bytes, At).1
         Column += 1
     End Method
 
