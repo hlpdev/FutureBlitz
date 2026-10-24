@@ -2,8 +2,10 @@
 // against a base or not, its parts and its origin, and the text it writes back, with what isn't
 // in a part's set of code points percent-encoded; and a query's name and value pairs, as an HTML
 // form sends them. A host that isn't ASCII becomes its Punycode; UTS #46's mapping of one, which
-// the standard's domain to ASCII has, waits for std.text.unicode, so only ASCII's case maps, and
-// fullwidth ASCII and the ideographic full stops.
+// the standard's domain to ASCII has, waits for std.text.unicode, so until then a host's ASCII
+// letters map to lowercase, fullwidth ASCII to ASCII, and the ideographic full stops to a dot;
+// its spaces map to a space, which no host has; soft hyphens and zero widths are left out; U+FFFD,
+// C1 controls, and noncharacters fail it; and its other code points stay as they are.
 
 Import std.core
 Import std.collections

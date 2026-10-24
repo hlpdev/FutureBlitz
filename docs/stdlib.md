@@ -759,17 +759,23 @@ Step 28's half without streams is built: the addresses, `Url` and `QueryParams`,
   `Path`, `HasOpaquePath`, `Query` and `Fragment` (without their ? and #, Null for none), its
   `Origin`, `Params`, and `ToString()`, which reads back as the same Url. Each part
   percent-encodes what the standard says; `Url.Encode` and `Url.Decode` encode and decode a
-  component. It passes web-platform-tests' urltestdata.json, in tests/data, but for the case
+  component, Decode reading its bytes as the Encoding Standard's UTF-8 decoder does, with one
+  U+FFFD for a code point's start that's cut short. It passes web-platform-tests' urltestdata.json, in tests/data, but for the case
   that needs UTS #46's mapping of a host that isn't ASCII, which waits for std.text.unicode:
-  until then, such a host's ASCII letters, fullwidth ASCII, and the ideographic full stops map,
-  and its labels become Punycode.
+  until then, such a host's ASCII letters map to lowercase, fullwidth ASCII to ASCII, and the
+  ideographic full stops to a dot; its spaces map to a space, which no host has; soft hyphens
+  and zero widths are left out; U+FFFD, C1 controls, and noncharacters fail it; and its labels
+  become Punycode. An xn-- label has to decode to one that's kept as it is.
 - `QueryParams`, a query's pairs as a form sends them (`a=1&b=two+words`): `QueryParams(query)`,
-  `Get`, `GetAll`, `Contains`, `Add`, `Set`, `Remove`, `Sort` (by UTF-16 code units), `Count`,
-  `For ... In` over its (name, value) pairs, and `ToString()`.
+  `Get`, `GetAll`, `Contains`, `Add`, `Set`, `Remove`, `Sort` (a merge sort by UTF-16 code
+  units), `Count`, `For ... In` over its (name, value) pairs, and `ToString()`; its names and
+  values decoded as Url.Decode does.
 - `Dns.Resolve(host)` and `Dns.ResolveAsync(host)`: a host's addresses, each once, in the OS's
   order, through libuv's getaddrinfo on the I/O thread, where "localhost" is the loopback
   addresses and an address's text is itself; a NetError of `HOST_NOT_FOUND` for a name with
-  none, and of `OTHER` for a lookup that fails another way.
+  none, an empty one, one with a NUL, or one longer than 255 bytes, and of `OTHER` for a lookup
+  that fails another way. ResolveAsync's addresses come back in an array the I/O thread makes,
+  so a coroutine that goes before its lookup finishes leaves nothing of its own to it.
 - Waiting for step 13's streams and step 18's Cancellation: `TcpListener` and `TcpStream`
   (Reader and Writer), `UdpSocket`, with timeouts and Async twins, which take a SocketAddress
   or a host and port; `IpcListener.Listen(name)` and `IpcStream.Connect(name)`, one IPC type,
