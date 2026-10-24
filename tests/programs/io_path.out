@@ -34,6 +34,8 @@ C:\games/save.dat C:\games\save.dat C:games
 D:\music C:\music C:\games/saves
 D:saves \music C:games/x
 //server/share/dir //server/share/b
+C:/a C:games True
+//server/share //other/share
 Normalize
 [] [.]
 [.] [.]

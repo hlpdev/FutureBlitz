@@ -1,0 +1,9 @@
+// Absolute panics at the program's line for a path by the other OS's rules that isn't absolute
+// by them, since the current folder is by the target's; one that's absolute by them is itself.
+Import std.core
+Import std.io
+
+Local other = Path.NativeStyle() == PathStyle.WINDOWS ? PathStyle.POSIX : PathStyle.WINDOWS
+Local root = other == PathStyle.WINDOWS ? "C:/a/../b" : "/a/../b"
+Print((Try Path(root, other).Absolute()).FileName())
+Print(Try Path("a", other).Absolute())
