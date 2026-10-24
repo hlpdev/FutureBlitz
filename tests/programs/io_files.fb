@@ -318,5 +318,15 @@ dropped = Try TempFile()
 Print("{File.Exists(droppedPath)} {File.Exists(dropped.Path)}")
 Try dropped.Close()
 
+// A Close that fails, as removing the current folder does on Windows, can be tried again.
+Local busy = Try TempDir("fb-busy-")
+Local busyRoot = busy.Path
+Local outside = Try Dir.Current()
+Try Dir.SetCurrent(busyRoot)
+Try? busy.Close()
+Try Dir.SetCurrent(outside)
+Try busy.Close()
+Print("busy left {Dir.Exists(busyRoot)}")
+
 Try temp.Close()
 Print("left {Dir.Exists(root)}")
