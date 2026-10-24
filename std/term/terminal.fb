@@ -7,7 +7,6 @@ Import std.core
 Import std.collections.array
 Import std.text.string
 Import std.text.builder
-Import std.text.char
 Import std.time.duration
 Import std.time.clock
 Import std.term.console
