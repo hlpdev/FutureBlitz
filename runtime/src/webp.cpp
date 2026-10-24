@@ -1,5 +1,8 @@
 // std.image's WebP over libwebp: still images, lossy and lossless, decoded to RGBA, and encoded
-// from it, lossy at a quality or lossless at an effort.
+// from it, lossy at a quality or lossless at an effort. One thread codes at a time: libwebp sets
+// its SIMD code's function pointers up the first time each part runs, which isn't safe on two
+// threads at once, and on Windows takes no lock (one setup copies a table another may be
+// filling, so an AVX2 function's fallback can end up as itself, which calls itself forever).
 
 #include "fb/image.hpp"
 #include "fb/runtime.hpp"
@@ -7,6 +10,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <mutex>
 #include <span>
 #include <string>
 #include <vector>
@@ -31,7 +35,11 @@ image_t* webp_failed(const VP8StatusCode status) {
     }
 }
 
+/// What a thread holds while it calls libwebp.
+std::mutex coding;
+
 image_t* decode(const std::span<const std::uint8_t> bytes, const std::int64_t limit) {
+    const std::scoped_lock lock(coding);
     WebPBitstreamFeatures features{};
     const VP8StatusCode status = WebPGetFeatures(bytes.data(), bytes.size(), &features);
     if (status != VP8_STATUS_OK) {
@@ -75,6 +83,7 @@ image_t* decode(const std::span<const std::uint8_t> bytes, const std::int64_t li
 std::vector<std::uint8_t> encode(const fb_array_t* pixels, const std::int64_t width,
                                  const std::int64_t height, const std::int32_t quality,
                                  const bool lossless) {
+    const std::scoped_lock lock(coding);
     WebPConfig config{};
     WebPPicture picture{};
     if (WebPConfigInit(&config) == 0 || WebPPictureInit(&picture) == 0) {
