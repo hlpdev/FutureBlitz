@@ -144,7 +144,7 @@ Print("{values[0]} {values.Slice(1, 3).ToArray()}")
 
 - An Enum goes as its integer type, and one C gives back, as a result or through ByRef, or in a
   Struct it gives or sets ByRef, in its Fields or their fixed arrays, has to be one of its
-  values, or the program panics at the call, as `As` does, saying where in the Struct it is. One
+  values, unless it's `@Flags` or `@Open`, or the program panics at the call, as `As` does, saying where in the Struct it is. One
   that C writes through a Ptr later isn't checked; Unsafe code reads what C put there. Values
   go as the target's C ABI passes them, as clang does: a Bool as a byte that's 0 or 1, and on
   x86-64 outside Windows and on Apple's targets, an integer narrower than 32 bits extended to 32

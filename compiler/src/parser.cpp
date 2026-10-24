@@ -715,10 +715,11 @@ private:
                                                        });
     }
 
-    /// "@Flags Enum ...". On anything else, @Flags is an error, and the statement still parses.
-    /// "Enum Name: Type", its members, then "End Enum". Members are separated by commas, which
-    /// can end a line, or by lines.
-    stmt_id_t parse_enum(const bool flags, const std::uint32_t begin, modifiers_t modifiers = {}) {
+    /// "@Flags Enum ..." or "@Open Enum ...". On anything else, @Flags and @Open are errors, and
+    /// the statement still parses. "Enum Name: Type", its members, then "End Enum". Members are
+    /// separated by commas, which can end a line, or by lines.
+    stmt_id_t parse_enum(const bool flags, const std::uint32_t begin, modifiers_t modifiers = {},
+                         const bool open = false) {
         const std::size_t start = m_pos;
         const token_t& keyword = advance();
         const name_t name = expect_name();
@@ -770,6 +771,7 @@ private:
             .type = type,
             .members = std::move(members),
             .flags = flags,
+            .open = open,
             .modifiers = std::move(modifiers),
         };
         return add_stmt(span_from(begin), std::move(declared));
@@ -1210,13 +1212,15 @@ private:
         return add_stmt(span_from(keyword.span.begin), unsafe_stmt_t{ .body = std::move(body) });
     }
 
-    /// "@Inline", "@Deprecated("why")", and "@Flags", then the declaration they're on.
+    /// "@Inline", "@Deprecated("why")", "@Flags", and "@Open", then the declaration they're on.
     /// Analysis checks which declarations can have them.
     stmt_id_t parse_attributed() {
         const std::uint32_t begin = peek().span.begin;
         modifiers_t modifiers;
         bool flags = false;
         span_t flags_span;
+        bool open = false;
+        span_t open_span;
         span_t c_layout_span;
         while (at(token_kind_t::AT)) {
             advance();
@@ -1231,11 +1235,12 @@ private:
             std::optional<span_t> span;
             std::vector<argument_t> arguments = parse_attribute_arguments(span);
             const bool builtin =
-                !qualifier && (name.text == "Flags" || name.text == "Inline" ||
-                               name.text == "Deprecated" || name.text == "CLayout" ||
-                               name.text == "PanicsAtCaller" || name.text == "MainThread");
+                !qualifier &&
+                (name.text == "Flags" || name.text == "Open" || name.text == "Inline" ||
+                 name.text == "Deprecated" || name.text == "CLayout" ||
+                 name.text == "PanicsAtCaller" || name.text == "MainThread");
             const bool repeated =
-                !qualifier && ((name.text == "Flags" && flags) ||
+                !qualifier && ((name.text == "Flags" && flags) || (name.text == "Open" && open) ||
                                (name.text == "Inline" && modifiers.is_inline) ||
                                (name.text == "CLayout" && modifiers.is_c_layout) ||
                                (name.text == "MainThread" && modifiers.is_main_thread) ||
@@ -1252,6 +1257,9 @@ private:
             } else if (name.text == "Flags") {
                 flags = true;
                 flags_span = name.span;
+            } else if (name.text == "Open") {
+                open = true;
+                open_span = name.span;
             } else if (name.text == "Inline") {
                 modifiers.is_inline = true;
             } else if (name.text == "MainThread") {
@@ -1292,12 +1300,23 @@ private:
             modifiers.is_c_layout = false;
         }
 
+        // A @Flags Enum's values that aren't its members are combinations of them already.
+        if (flags && open) {
+            error(open_span, "a @Flags Enum holds any combination of its flags already, so it "
+                             "isn't @Open too");
+            open = false;
+        }
+
         if (at(token_kind_t::KW_ENUM)) {
-            return parse_enum(flags, begin, std::move(modifiers));
+            return parse_enum(flags, begin, std::move(modifiers), open);
         }
 
         if (flags) {
             error(flags_span, "@Flags only goes before an Enum");
+        }
+
+        if (open) {
+            error(open_span, "@Open only goes before an Enum");
         }
 
         if (at(token_kind_t::KW_EXTERN)) {

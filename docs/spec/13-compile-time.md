@@ -66,6 +66,7 @@ Local table: Int[Fib(10)]          // usable in types
 @Inline Function Lerp(a: Float, b: Float, t: Float): Float
 @Deprecated("use Spawn2") Function Spawn(...)
 @Flags Enum Layer ...
+@Open Enum Kind ...
 @CLayout Struct JPH_Vec3 ...
 @MainThread Function RenderWorld()
 @PanicsAtCaller Method Pop(): T
@@ -77,6 +78,7 @@ Local table: Int[Fib(10)]          // usable in types
 | `@Inline` | force inlining |
 | `@Deprecated(msg)` | warning at use sites |
 | `@Flags` | enum values are powers of two |
+| `@Open` | an enum holds any value of its integer type |
 | `@CLayout` | C-compatible struct layout |
 | `@MainThread` | callable only from the main thread |
 | `@PanicsAtCaller` | its panics report where it's called |

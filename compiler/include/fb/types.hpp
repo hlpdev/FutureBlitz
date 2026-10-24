@@ -214,6 +214,8 @@ struct type_t {
     std::vector<enum_value_t> values;
     /// ENUM: written with @Flags, so its values are bits that combine.
     bool flags = false;
+    /// ENUM: written with @Open, so it holds any value of its integer type, not only its members.
+    bool open = false;
     /// VALUE: how one computed from others is worked out, or NONE for a number.
     value_op_t operation = value_op_t::NONE;
     /// CLASS: a Shared Class, whose objects count their owners atomically.
@@ -387,8 +389,8 @@ public:
     /// A new Enum type. Its integer type and values come later, from set_values().
     [[nodiscard]] type_id_t add_enum(std::string name, std::string module = {});
 
-    void set_values(type_id_t type, type_id_t integer, std::vector<enum_value_t> values,
-                    bool flags);
+    void set_values(type_id_t type, type_id_t integer, std::vector<enum_value_t> values, bool flags,
+                    bool open = false);
 
     /// An Enum's zero: no flags for @Flags, and else its first value.
     [[nodiscard]] std::uint64_t enum_zero(type_id_t type) const;

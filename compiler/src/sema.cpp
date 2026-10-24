@@ -1963,7 +1963,8 @@ private:
         }
 
         pop_scope();
-        m_analysis.types.set_values(symbol(*declared).type, integer, std::move(values), node.flags);
+        m_analysis.types.set_values(symbol(*declared).type, integer, std::move(values), node.flags,
+                                    node.open);
     }
 
     /// A member's value: the one written, or the next integer after the `last` value, or for
@@ -10754,6 +10755,11 @@ private:
         return is_enum(type) && m_analysis.types.get(type).flags;
     }
 
+    /// An Enum written with @Open, which holds any value of its integer type.
+    [[nodiscard]] bool is_open(const type_id_t type) const {
+        return is_enum(type) && m_analysis.types.get(type).open;
+    }
+
     /// "T[]", a reference to an array that can grow.
     [[nodiscard]] bool is_array(const type_id_t type) const {
         return m_analysis.types.get(type).kind == type_kind_t::ARRAY;
@@ -15529,12 +15535,20 @@ private:
     }
 
     /// Without a Default, a Select on an Enum has a Case for each value. A @Flags Enum's values
-    /// combine, so a Select on one needs a Default.
+    /// combine, and an @Open Enum holds others, so a Select on one needs a Default.
     bool check_exhaustive(const select_stmt_t& node, const type_id_t type,
                           const std::vector<case_range_t>& seen) {
         if (is_flags(type)) {
             error(span_of(node.subject),
                   "a Select on {}, a @Flags Enum, needs a Default, since its values combine",
+                  shown_name(type));
+            return false;
+        }
+
+        if (is_open(type)) {
+            error(span_of(node.subject),
+                  "a Select on {}, an @Open Enum, needs a Default, since it holds values that "
+                  "aren't its members",
                   shown_name(type));
             return false;
         }
@@ -23665,7 +23679,7 @@ private:
                (is_byte_pointer(source) && target == type_id_t::CSTRING);
     }
 
-    /// A known integer as an Enum. One that isn't @Flags only has its own values.
+    /// A known integer as an Enum. One that isn't @Flags or @Open only has its own values.
     void fold_to_enum(const expr_id_t id, const const_value_t& value, const type_id_t type) {
         const fold_result_t integer = fold_cast(value, element_of(type));
         if (!integer) {
@@ -23674,7 +23688,7 @@ private:
 
         const std::vector<enum_value_t>& values = m_analysis.types.get(type).values;
         const bool member = std::ranges::contains(values, bits_of(*integer), &enum_value_t::bits);
-        if (!is_flags(type) && !member) {
+        if (!is_flags(type) && !is_open(type) && !member) {
             error(span_of(id), "{} isn't one of {}'s values", to_text(*integer), shown_name(type));
             return;
         }

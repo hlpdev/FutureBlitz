@@ -1,0 +1,40 @@
+// @Open Enums: any value of the integer type, as protobuf's open enums need, shown as its
+// integer when it isn't a member, compared and kept like any other, a Select with a Default, and
+// one C gives that isn't a member.
+Import std.core
+
+@Open Enum Kind: Int32
+    Unknown = 0
+    Circle = 1
+    Square = 4
+End Enum
+
+Struct Shape
+    Field kind: Kind
+    Field kinds: Kind[] = []
+End Struct
+
+Extern "C"
+    Function Magnitude(n: Int32): Kind = "abs"
+End Extern
+
+Function Describe(kind: Kind): String
+    Select kind
+        Case Kind.Unknown
+            Return "unknown"
+        Case Kind.Circle, Kind.Square
+            Return "known"
+        Default
+            Return "new, {kind As Int}"
+    End Select
+End Function
+
+Local seven = 7 As Kind
+Local shape = Shape(Kind.Square, [Kind.Circle, seven, -3 As Kind])
+Print("{shape.kind} {seven} {Describe(seven)} {Describe(Kind.Circle)} {Describe(shape.kind)}")
+Print("{shape.kinds} {seven == (7 As Kind)} {seven == Kind.Square} {(4 As Kind) == Kind.Square}")
+
+Local number: Int64 = 2147483647
+Local largest = number As Kind
+Print("{largest} {largest As Int64} {Shape().kind}")
+Print("{Magnitude(-4)} {Magnitude(-9)}")

@@ -791,6 +791,8 @@ struct enum_stmt_t {
     std::vector<enum_member_t> members;
     /// Written with @Flags: the values are bits, which combine.
     bool flags = false;
+    /// Written with @Open: it holds any value of its integer type, not only its members.
+    bool open = false;
     /// Its attributes, like @Deprecated.
     modifiers_t modifiers;
 };

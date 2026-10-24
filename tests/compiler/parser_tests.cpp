@@ -815,6 +815,20 @@ TEST_CASE("Enums and @Flags", "[parser]") {
           "(enum @Flags @Deprecated E A)");
 }
 
+TEST_CASE("@Open goes before an Enum that isn't @Flags", "[parser]") {
+    CHECK(parse_text("@Open Public Enum Kind: Int32\n    Known = 0\nEnd Enum").dump ==
+          "(enum @Open Public Kind: Int32 (= Known (int 0)))");
+    CHECK(parse_text("@Open Struct S\nEnd Struct").errors ==
+          std::vector<std::string>{ "1-5: @Open only goes before an Enum" });
+    CHECK(parse_text("@Open @Open Enum E\n    A\nEnd Enum").errors ==
+          std::vector<std::string>{ "7-11: @Open is written twice" });
+    CHECK(parse_text("@Open(1) Enum E\n    A\nEnd Enum").errors ==
+          std::vector<std::string>{ "5-8: @Open takes no arguments" });
+    CHECK(parse_text("@Flags @Open Enum E\n    A\nEnd Enum").errors ==
+          std::vector<std::string>{ "8-12: a @Flags Enum holds any combination of its flags "
+                                    "already, so it isn't @Open too" });
+}
+
 TEST_CASE("Defer takes any statement; analysis checks which", "[parser]") {
     CHECK(parse_text("Defer Print(\"bye\")").dump == "(defer (call Print (string \"bye\")))");
     CHECK(parse_text("Defer If x Then f.Close()").dump ==
