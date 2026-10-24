@@ -1,0 +1,2 @@
+True
+panic: a GIF's frame is shown for 655350 milliseconds at most, and frame 1 for 655351 at panic_image_gif_delay.fb:10:1

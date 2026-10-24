@@ -209,17 +209,24 @@ public:
         chunk(out, "acTL", control);
         std::uint32_t sequence = 0;
         for (std::size_t i = 0; i < m_frames.size(); ++i) {
-            // A delay in milliseconds fits in 16 bits up to a minute, and in hundredths after.
+            // A delay in milliseconds fits in 16 bits up to a minute, in hundredths up to 655.35
+            // seconds, and in seconds up to 65535 of them, the longest an Animation has.
             const auto delay = static_cast<std::uint32_t>(m_delays[i]);
-            const bool fine = delay <= 65535;
+            std::uint32_t unit = 1;
+            if (delay > 655350) {
+                unit = 1000;
+            } else if (delay > 65535) {
+                unit = 10;
+            }
+
             std::vector<std::uint8_t> frame;
             put_big(frame, sequence++, 4);
             put_big(frame, static_cast<std::uint32_t>(m_width), 4);
             put_big(frame, static_cast<std::uint32_t>(m_height), 4);
             put_big(frame, 0, 4);
             put_big(frame, 0, 4);
-            put_big(frame, fine ? delay : (delay + 5) / 10, 2);
-            put_big(frame, fine ? 1000 : 100, 2);
+            put_big(frame, (delay + (unit / 2)) / unit, 2);
+            put_big(frame, 1000 / unit, 2);
             // It's kept as it is, and the next frame replaces all of it.
             frame.insert(frame.end(), { 0, 0 });
             chunk(out, "fcTL", frame);

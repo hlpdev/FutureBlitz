@@ -1,0 +1,11 @@
+// An Animation keeps its frames' images, so one can be cropped after it's added, and
+// EncodeAnimation panics where it's called for a frame that isn't the animation's size.
+Import std.core
+Import std.image
+
+Local animation = Animation(4, 4)
+Local image = Image(4, 4)
+animation.Add(image, 10)
+Print(Png.EncodeAnimation(animation).Count > 0)
+image.Crop(0, 0, 4, 3)
+Png.EncodeAnimation(animation)

@@ -1,0 +1,2 @@
+True
+panic: an APNG's frames are each the animation's 4 by 4, and frame 0 is 4 by 3 at panic_image_apng_frame_size.fb:11:1

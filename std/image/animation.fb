@@ -61,9 +61,10 @@ Public Class Animation
     @PanicsAtCaller
     Operator [](index: Int): Frame => List[index]
 
-    // Adds a frame of `image`, which it keeps rather than copies, shown for `delay` milliseconds.
-    // Panics when the image isn't the animation's size, or the delay is negative or longer than
-    // 655350, the most GIF keeps.
+    // Adds a frame of `image`, which it keeps rather than copies, so what changes the image
+    // changes the frame, shown for `delay` milliseconds. Panics when the image isn't the
+    // animation's size, or the delay is negative or longer than 65535000, APNG's longest, 65535
+    // seconds.
     @PanicsAtCaller
     Public Method Add(image: Image, delay: Int)
         If image.Width != Columns || image.Height != Rows
@@ -82,6 +83,19 @@ End Class
 @PanicsAtCaller
 Function CheckPlays(plays: Int)
     If plays < 0 Then Panic("an animation plays 0 times, for forever, or more, not {plays}")
+End Function
+
+// Panics when a frame's image isn't the animation's size, as one resized or cropped since it was
+// added isn't, for an encoder of `format`.
+@PanicsAtCaller
+Package Function CheckFrames(animation: Animation, format: String)
+    For i = 0 Until animation.Count
+        Local image = animation[i].Image
+        If image.Width != animation.Width || image.Height != animation.Height
+            Panic("{format}'s frames are each the animation's {animation.Width} by " +
+                  "{animation.Height}, and frame {i} is {image.Width} by {image.Height}")
+        End If
+    End For
 End Function
 
 // The Animation the runtime decoded, or the IOError its result means, for data in `format`.

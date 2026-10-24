@@ -250,6 +250,10 @@ slow.Add(Image(2, 2), 65536)
 slow.Add(Image(2, 2), 655350)
 Print("long delays:", Delays(Try Png.DecodeAnimation(Png.EncodeAnimation(slow))),
       Delays(Try Gif.DecodeAnimation(Gif.EncodeAnimation(slow))))
+// And an APNG keeps seconds past that, up to 65535 of them.
+slow.Add(Image(2, 2), 655351)
+slow.Add(Image(2, 2), 65535000)
+Print("longer delays:", Delays(Try Png.DecodeAnimation(Png.EncodeAnimation(slow))))
 // A still image is an animation of one frame, played once.
 Local still = Try Png.DecodeAnimation(Png.Encode(pattern))
 Local stillGif = Try Gif.DecodeAnimation(Gif.Encode(stripes))

@@ -47,7 +47,8 @@ Public Struct Gif
 
     // The GIF of the animation's frames, each delay in hundredths of a second, rounded, and each
     // frame drawn on a transparent canvas. Panics when the animation has no frames, no pixels, a
-    // side longer than 65535, or plays more than 65536 times, which GIF can't count.
+    // side longer than 65535, a frame whose image isn't its size, or one longer than 655350
+    // milliseconds, or plays more than 65536 times, which GIF can't count.
     @PanicsAtCaller
     Public Static Method EncodeAnimation(animation: Animation): UInt8[]
         CheckEncodable(animation.Width, animation.Height, 65535, "a GIF")
@@ -55,6 +56,14 @@ Public Struct Gif
         If animation.Plays > 65536
             Panic("a GIF plays at most 65536 times, or forever, not {animation.Plays}")
         End If
+
+        CheckFrames(animation, "a GIF")
+        For i = 0 Until animation.Count
+            If animation[i].Delay > LONGEST_GIF_DELAY
+                Panic("a GIF's frame is shown for {LONGEST_GIF_DELAY} milliseconds at most, and " +
+                      "frame {i} for {animation[i].Delay}")
+            End If
+        End For
 
         Local encoder = fb_image_gif_encoder_new(animation.Width, animation.Height, animation.Plays)
         For frame In animation.Frames

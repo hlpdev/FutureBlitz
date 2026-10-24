@@ -1138,15 +1138,18 @@ Step 24 built the codecs over bytes, into an `Image` whose pixels are a UInt8[] 
   run-length encoding or an animated WebP. The limit is the most an Image holds unless it's given
   a smaller one, which guards against data made to decode huge; a negative one panics.
 - `Animation(width, height, plays)`: frames of one size, each a `Frame` of an `Image` and its
-  `Delay` in milliseconds, from 0 to 655350, with `Add(image, delay)`, `Count`, `Frames`,
-  `[index]`, and `Plays`, how many times they play, 0 for forever, as by default.
+  `Delay` in milliseconds, from 0 to 65535000, APNG's longest, with `Add(image, delay)`, which
+  keeps the image rather than a copy, `Count`, `Frames`, `[index]`, and `Plays`, how many times
+  they play, 0 for forever, as by default.
   `Gif.DecodeAnimation` and `Png.DecodeAnimation` give each frame as it's shown, the frames
   before it drawn and disposed of, on a canvas that starts transparent, as browsers draw them; a
   still image is an animation of one frame that plays once. `Gif.EncodeAnimation` and
-  `Png.EncodeAnimation(animation, level)` write each frame as the whole image: a GIF's delays in
-  hundredths of a second, and its plays up to 65536, by NETSCAPE2.0's count of the times after
-  the first; an APNG's delays in milliseconds up to a minute and in hundredths after, and its first
-  frame the image a decoder without animation shows.
+  `Png.EncodeAnimation(animation, level)` write each frame as the whole image, and panic at the
+  caller for a frame whose image isn't the animation's size since it was added: a GIF's delays
+  in hundredths of a second, up to 655350 milliseconds, and its plays up to 65536, by
+  NETSCAPE2.0's count of the times after the first; an APNG's delays in milliseconds up to a
+  minute, in hundredths up to 655350, and in seconds after, and its first frame the image a
+  decoder without animation shows.
 - A GIF's frame has a palette of its own: its colors when there are 256 or fewer, counting one
   for the pixels whose alpha is below 128, which are transparent, or else 255 that median cut
   picks, with Floyd-Steinberg dithering.

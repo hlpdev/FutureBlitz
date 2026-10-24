@@ -1,0 +1,12 @@
+// An Animation keeps its frames' images, so one can be resized after it's added, and
+// EncodeAnimation panics where it's called for a frame that isn't the animation's size.
+Import std.core
+Import std.image
+
+Local animation = Animation(4, 4)
+Local image = Image(4, 4)
+animation.Add(Image(4, 4), 10)
+animation.Add(image, 10)
+Print(Gif.EncodeAnimation(animation).Count > 0)
+image.Resize(2, 2)
+Gif.EncodeAnimation(animation)

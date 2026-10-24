@@ -1,8 +1,9 @@
-// A frame's delay is from 0 to 655350 milliseconds, and Add panics where it's given another.
+// A frame's delay is from 0 to 65535000 milliseconds, APNG's longest, and Add panics where it's
+// given another.
 Import std.core
 Import std.image
 
 Local animation = Animation(1, 1)
-animation.Add(Image(1, 1), 655350)
+animation.Add(Image(1, 1), 65535000)
 Print(animation.Count)
-animation.Add(Image(1, 1), -1)
+animation.Add(Image(1, 1), 65535001)
