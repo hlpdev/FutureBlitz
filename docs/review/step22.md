@@ -4,7 +4,7 @@
 
 ## S22-7z-docs-1 (high): A branch filter (BCJ, ARM, ...) on LZMA without an end marker, as 7-Zip writes LZMA:BCJ, reads as UNEXPECTED_END
 
-Status: fixed in 4211691: decode() makes a 7z's LZMA coder liblzma's LZMA1EXT, given the coder's unpacked size and LZMA_LZMA1EXT_ALLOW_EOPM, so it ends at its size with or without the end marker and a branch filter after it gives its last bytes; compress_archives.fb reads bcj.7z, BCJ then LZMA with no end marker (make_archives.py's literal-only encoder writes it), which was UNEXPECTED_END before
+Status: fixed in 3e17311: decode() makes a 7z's LZMA coder liblzma's LZMA1EXT, given the coder's unpacked size and LZMA_LZMA1EXT_ALLOW_EOPM, so it ends at its size with or without the end marker and a branch filter after it gives its last bytes; compress_archives.fb reads bcj.7z, BCJ then LZMA with no end marker (make_archives.py's literal-only encoder writes it), which was UNEXPECTED_END before
 
 Where: runtime/src/seven_zip.cpp:681
 
@@ -48,7 +48,7 @@ Skeptic: Copied the program to C:/Users/Hunter/Projects/FutureBlitz/.claude/work
 
 ## S22-codecs-1 (high): Zstd and Lz4 can't decompress data whose size is a multiple of 64 KiB, their own output included
 
-Status: fixed in eb84e01: Zstd's and Lz4's decoders go on past their input's end until the frame ends, rather than stopping when output fills a chunk; compress_codecs.fb decompresses 64 KiB and 128 KiB of each format at once and through a Decompressor
+Status: fixed in 262c2b4: Zstd's and Lz4's decoders go on past their input's end until the frame ends, rather than stopping when output fills a chunk; compress_codecs.fb decompresses 64 KiB and 128 KiB of each format at once and through a Decompressor
 
 Where: runtime/src/zstd.cpp:82
 
@@ -134,7 +134,7 @@ Skeptic: I ran the finding's program, plus some controls, as C:/Users/Hunter/Pro
 
 ## S22-zip-tar-1 (high): ZipWriter takes quadratic time in the size of the zip
 
-Status: fixed in b3817cb: a ZipWriter writes through an mz_stream of zip.cpp's own over a std::vector, which grows as a vector does; program_tests.cpp's "a ZipWriter takes time in proportion to the zip's size" writes 128 MiB stored in a debug build in under 8 seconds, which took about 20 before
+Status: fixed in 389040d: a ZipWriter writes through an mz_stream of zip.cpp's own over a std::vector, which grows as a vector does; program_tests.cpp's "a ZipWriter takes time in proportion to the zip's size" writes 128 MiB stored in a debug build in under 8 seconds, which took about 20 before
 
 Where: runtime/src/zip.cpp:263
 
@@ -164,7 +164,7 @@ Skeptic: Built the STORE program with --release at 16, 32 and 64 MiB, plus the s
 
 ## S22-7z-docs-2 (medium): A bind pair naming a coder past the folder's last crashes decode() instead of giving INVALID_DATA
 
-Status: fixed in e7597c0: a folder's bind pairs and packed streams name only its coders' inputs and outputs, or the 7z is INVALID_DATA; compress_archives.fb reads bind.7z, whose bind pair names a coder past its last
+Status: fixed in 0849416: a folder's bind pairs and packed streams name only its coders' inputs and outputs, or the 7z is INVALID_DATA; compress_archives.fb reads bind.7z, whose bind pair names a coder past its last
 
 Where: runtime/src/seven_zip.cpp:671
 
@@ -208,7 +208,7 @@ Skeptic: Ran 7z-verify/f2.fb. Debug and release both abort before printing anyth
 
 ## S22-7z-docs-3 (medium): SevenZip.Read decodes a link's whole folder once per link, and keeps none of them, so opening takes links x folder size
 
-Status: fixed in e7597c0: open() decodes each folder holding links once, takes every link's target from that, and keeps it for ReadAt when it fits; program_tests.cpp's "a 7z's links in one solid folder take one decoding of it" opens links.7z (64 MiB of zeros and 40 links) in a debug build in under 15 seconds, which took about 50 before, and compress_archives.fb reads its links' targets. A link whose folder doesn't decode still has Target "", and reading it gives the folder's error
+Status: fixed in 0849416: open() decodes each folder holding links once, takes every link's target from that, and keeps it for ReadAt when it fits; program_tests.cpp's "a 7z's links in one solid folder take one decoding of it" opens links.7z (64 MiB of zeros and 40 links) in a debug build in under 15 seconds, which took about 50 before, and compress_archives.fb reads its links' targets. A link whose folder doesn't decode still has Target "", and reading it gives the folder's error
 
 Where: runtime/src/seven_zip.cpp:1036
 
@@ -239,7 +239,7 @@ Skeptic: Wrote my own generator, 7z-verify/gen_links.py: one solid LZMA2 folder 
 
 ## S22-7z-docs-4 (medium): A small file in a solid folder past 2 GiB can't be read: OTHER 'comes to more than 2147483647 bytes'
 
-Status: fixed in e7597c0: a solid folder of more bytes than an array holds is decoded, for each file read from it, up to that file's end, keeping only the file's bytes; compress_7z_solid.fb reads hello.txt from the end of a 2 GiB folder, and its first file, of more than an array holds, is an IOError (its parts are in compress_7z_solid/ since eff877c, as a program's test reads only its own folder)
+Status: fixed in 0849416: a solid folder of more bytes than an array holds is decoded, for each file read from it, up to that file's end, keeping only the file's bytes; compress_7z_solid.fb reads hello.txt from the end of a 2 GiB folder, and its first file, of more than an array holds, is an IOError (its parts are in compress_7z_solid/ since 81997b9, as a program's test reads only its own folder)
 
 Where: runtime/src/seven_zip.cpp:712
 
@@ -321,7 +321,7 @@ Skeptic: Ran 7z-verify/f4.fb. Debug and release both print 'zeros.bin 2147483648
 
 ## S22-codecs-2 (medium): ZstdCompressor panics when Finish follows only empty Adds
 
-Status: fixed in eb84e01: ZstdCompressor's Add of an empty part gives nothing without asking zstd to continue, so Finish after empty Adds makes an empty frame; compress_codecs.fb has each format's Compressor given two empty parts
+Status: fixed in 262c2b4: ZstdCompressor's Add of an empty part gives nothing without asking zstd to continue, so Finish after empty Adds makes an empty frame; compress_codecs.fb has each format's Compressor given two empty parts
 
 Where: runtime/src/zstd.cpp:134
 
@@ -350,7 +350,7 @@ Skeptic: f2.fb (ZstdCompressor: Add([]) then Finish) panics with 'std.compress's
 
 ## S22-zip-tar-2 (medium): A zip's LZMA or XZ entry allocates the 4 GiB dictionary its header claims, which XZ.Decompress refuses
 
-Status: fixed in 9407c2b: a zip's LZMA (14) and XZ (95) entries are decoded over liblzma, LZMA's with its memory use checked first, both with no more than XZ.Decompress takes, so a 4 GiB dictionary is unsupported (OTHER, it needs more memory than an array holds); compress_archives.fb reads biglzma.zip and bigxz.zip
+Status: fixed in 81253b4: a zip's LZMA (14) and XZ (95) entries are decoded over liblzma, LZMA's with its memory use checked first, both with no more than XZ.Decompress takes, so a 4 GiB dictionary is unsupported (OTHER, it needs more memory than an array holds); compress_archives.fb reads biglzma.zip and bigxz.zip
 
 Where: runtime/src/zip.cpp:143
 
@@ -443,7 +443,7 @@ Skeptic: Ran the program unchanged. Debug output: 'XZ.Decompress: OTHER ... need
 
 ## S22-zip-tar-3 (medium): A file whose MS-DOS attributes have the reparse-point bit reads as a link, and its bytes are lost
 
-Status: fixed in 9407c2b: only an entry made by Unix, macOS, or RISC OS whose mode says link, or one with an extra field naming a target, is a link, and an MS-DOS reparse point is a file; compress_archives.fb reads reparse.zip
+Status: fixed in 81253b4: only an entry made by Unix, macOS, or RISC OS whose mode says link, or one with an extra field naming a target, is a link, and an MS-DOS reparse point is a file; compress_archives.fb reads reparse.zip
 
 Where: runtime/src/zip.cpp:213
 
@@ -484,7 +484,7 @@ Skeptic: Ran the given zip, in debug and release. Output: 'report.txt LINK 0 0 [
 
 ## S22-zip-tar-4 (medium): ZipWriter writes '\' in names differently by OS, and a file whose name ends with '\' turns into a folder
 
-Status: fixed in 9407c2b: ZipWriter's Add and AddFolder panic at a name with '\', as a zip's names have '/' between folders, so no OS changes its bytes; panic_compress_zip_backslash.fb and panic_compress_zip_folder_backslash.fb have the cases
+Status: fixed in 81253b4: ZipWriter's Add and AddFolder panic at a name with '\', as a zip's names have '/' between folders, so no OS changes its bytes; panic_compress_zip_backslash.fb and panic_compress_zip_folder_backslash.fb have the cases
 
 Where: runtime/src/zip.cpp:372
 
@@ -531,7 +531,7 @@ Skeptic: Rewrote the program with the Write tool (bash heredoc had mangled the b
 
 ## S22-zip-tar-5 (medium): A zip entry whose compressed stream ends before its compressed size isn't checked against its CRC-32
 
-Status: fixed in 9407c2b: every entry's bytes are checked against its CRC-32 after they're read, however its stream ends; compress_archives.fb reads badcrc.zip, whose Deflate stream ends early, which is INVALID_DATA now and read as its short bytes before
+Status: fixed in 81253b4: every entry's bytes are checked against its CRC-32 after they're read, however its stream ends; compress_archives.fb reads badcrc.zip, whose Deflate stream ends early, which is INVALID_DATA now and read as its short bytes before
 
 Where: runtime/src/zip.cpp:180
 
@@ -595,7 +595,7 @@ Skeptic: Ran the program, debug and release. Output: 'True' then '128 False True
 
 ## S22-zip-tar-6 (medium): GNU tar's incremental tars, and any tar with a type POSIX doesn't define, fail to read
 
-Status: fixed in 6d5bb7b: a type POSIX doesn't define is a file, as POSIX says; links, devices, FIFOs, and folders skip no bytes, and every other type its size's; GNU's 'D', an incremental tar's folder, is a folder; and devices, FIFOs, and GNU's 'V' volume headers aren't listed; compress_archives.fb reads incremental.tar, a 'D' folder as tar --listed-incremental writes one, its file, and a file of a vendor's type 'Z'
+Status: fixed in ef5c4c9: a type POSIX doesn't define is a file, as POSIX says; links, devices, FIFOs, and folders skip no bytes, and every other type its size's; GNU's 'D', an incremental tar's folder, is a folder; and devices, FIFOs, and GNU's 'V' volume headers aren't listed; compress_archives.fb reads incremental.tar, a 'D' folder as tar --listed-incremental writes one, its file, and a file of a vendor's type 'Z'
 
 Where: runtime/src/tar.cpp:261
 
@@ -698,7 +698,7 @@ Skeptic: Ran the incremental-tar program (f6.fb). Output: 'incremental tar: INVA
 
 ## S22-zip-tar-7 (medium): A GNU sparse file in pax format reads as the wrong bytes, under a placeholder name
 
-Status: fixed in 6d5bb7b: a pax sparse file (GNU.sparse.name, .size, .map, .major) is listed under its real name and size, and reading it is unsupported (OTHER), as reading an old GNU sparse file is; compress_archives.fb reads paxsparse.tar, as tar -S --format=pax writes one
+Status: fixed in ef5c4c9: a pax sparse file (GNU.sparse.name, .size, .map, .major) is listed under its real name and size, and reading it is unsupported (OTHER), as reading an old GNU sparse file is; compress_archives.fb reads paxsparse.tar, as tar -S --format=pax writes one
 
 Where: runtime/src/tar.cpp:172
 
@@ -806,7 +806,7 @@ Skeptic: Ran the program, debug and release. Output: './GNUSparseFile.0/holes.bi
 
 ## S22-zip-tar-8 (medium): An old GNU sparse file with more than 4 data regions makes the whole tar unreadable
 
-Status: fixed in 6d5bb7b: an old GNU sparse file's extension blocks, which its header's isextended byte says follow, are skipped before its data, and its size is its real size; compress_archives.fb reads extended.tar, a sparse file of 9 regions and a file after it, which made the whole tar unreadable before
+Status: fixed in ef5c4c9: an old GNU sparse file's extension blocks, which its header's isextended byte says follow, are skipped before its data, and its size is its real size; compress_archives.fb reads extended.tar, a sparse file of 9 regions and a file after it, which made the whole tar unreadable before
 
 Where: runtime/src/tar.cpp:268
 
@@ -859,7 +859,7 @@ Skeptic: Ran the program with diagnostics added. The gunzipped tar is 10240 byte
 
 ## S22-7z-docs-5 (low): docs/spec/09-errors.md still lists IOErrorKind without INVALID_DATA
 
-Status: fixed in 0850307: docs/spec/09-errors.md lists INVALID_DATA, as S22-codecs-6 asked
+Status: fixed in 8aa5233: docs/spec/09-errors.md lists INVALID_DATA, as S22-codecs-6 asked
 
 Where: docs/spec/09-errors.md:28
 
@@ -881,7 +881,7 @@ Skeptic: Ran 7z-verify/f5.fb: it prints 'INVALID_DATA INTERRUPTED'. std/core/err
 
 ## S22-codecs-3 (low): Zlib and Zstd data that needs a preset dictionary is INVALID_DATA, not unsupported
 
-Status: fixed in 59f7a7e: Zlib's Z_NEED_DICT and zstd's dictionary_wrong are unsupported, not INVALID_DATA, and stdlib.md says preset dictionaries aren't supported (98decf2); compress_codecs.fb has a Zlib stream made with zdict and a Zstd frame naming dictionary 7
+Status: fixed in 8e9b22d: Zlib's Z_NEED_DICT and zstd's dictionary_wrong are unsupported, not INVALID_DATA, and stdlib.md says preset dictionaries aren't supported (ee204e1); compress_codecs.fb has a Zlib stream made with zdict and a Zstd frame naming dictionary 7
 
 Where: runtime/src/zlib.cpp:167
 
@@ -927,7 +927,7 @@ Skeptic: f3.fb printed 'zlib with a dictionary: INVALID_DATA the Zlib data isn't
 
 ## S22-codecs-4 (low): lz4.fb says HC mode starts at level 3; in LZ4 1.10 it starts at 2
 
-Status: fixed in 0850307: lz4.fb's comment says levels from 2 are HC's, as LZ4 1.10's are
+Status: fixed in 8aa5233: lz4.fb's comment says levels from 2 are HC's, as LZ4 1.10's are
 
 Where: std/compress/lz4.fb:4
 
@@ -958,7 +958,7 @@ Skeptic: lz4.fb lines 3-4 say 'from 3 on, they're LZ4's slower high-compression 
 
 ## S22-codecs-5 (low): The tests never read an .lz4 (or raw Deflate or Zlib) made by a common tool
 
-Status: fixed in dcebe0a: compress_tools.fb reads poem.txt.lz4, made by the lz4 tool (1.10.0, built from the fetched source), poem.txt.git, git's zlib object for the poem, and the Deflate stream inside gzip's poem.txt.gz
+Status: fixed in b05f482: compress_tools.fb reads poem.txt.lz4, made by the lz4 tool (1.10.0, built from the fetched source), poem.txt.git, git's zlib object for the poem, and the Deflate stream inside gzip's poem.txt.gz
 
 Where: tests/programs/compress_tools.fb:1
 
@@ -988,7 +988,7 @@ Skeptic: compress_tools.fb reads tool-made poem.txt.gz, .xz and .zst, plus zip, 
 
 ## S22-codecs-6 (low): The spec's IOErrorKind list leaves out the new INVALID_DATA
 
-Status: fixed in 0850307: docs/spec/09-errors.md lists INVALID_DATA with the other kinds
+Status: fixed in 8aa5233: docs/spec/09-errors.md lists INVALID_DATA with the other kinds
 
 Where: docs/spec/09-errors.md:29
 
@@ -1010,7 +1010,7 @@ Skeptic: In 6d8fec2..29675bb, std/core/error.fb changes IOErrorKind to NOT_FOUND
 
 ## S22-codecs-7 (low): compress.hpp says decoders give only 0 to 3, but Zstd's and XZ's give 4
 
-Status: fixed in 0850307: compress.hpp says what each result is, 4 too, and which functions give it
+Status: fixed in 8aa5233: compress.hpp says what each result is, 4 too, and which functions give it
 
 Where: runtime/include/fb/compress.hpp:16
 
@@ -1044,7 +1044,7 @@ Skeptic: compress.hpp lines 16-20 say a decoder's add and finish give 0 to 3, an
 
 ## S22-zip-tar-10 (low): ZipWriter stores the data instead of compressing it when LZMA or XZ is asked for at level 0
 
-Status: fixed in 2355a3c: a zip's LZMA and XZ levels go from 1 to 9, and 0 panics at the caller, as minizip-ng stores an entry at 0; panic_compress_zip_lzma_level.fb and panic_compress_zip_xz_level.fb have the cases
+Status: fixed in a5d3be1: a zip's LZMA and XZ levels go from 1 to 9, and 0 panics at the caller, as minizip-ng stores an entry at 0; panic_compress_zip_lzma_level.fb and panic_compress_zip_xz_level.fb have the cases
 
 Where: runtime/src/zip.cpp:384
 
@@ -1094,7 +1094,7 @@ Skeptic: Ran it, debug and release. Output: 'XZ.Compress at 0: 124 of 6000', the
 
 ## S22-zip-tar-11 (low): Every file's local header has Zip64, although the docs say Zip64 is used only where sizes need it
 
-Status: fixed in 2355a3c: a ZipWriter's entries take Zip64 only where their sizes need it, which a UInt8[]'s don't, in their local headers too; compress_archives.fb checks a local header's version, sizes, and extra field length
+Status: fixed in a5d3be1: a ZipWriter's entries take Zip64 only where their sizes need it, which a UInt8[]'s don't, in their local headers too; compress_archives.fb checks a local header's version, sizes, and extra field length
 
 Where: runtime/src/zip.cpp:383
 
@@ -1139,7 +1139,7 @@ Skeptic: Ran it, debug and release. Output: 'local: version needed 45 sizes 4294
 
 ## S22-zip-tar-12 (low): Tar.Read doesn't decompress a .tar.zst that starts with a skippable frame
 
-Status: fixed in 50c53fb: Tar.Read skips skippable frames before it looks for zstd's and LZ4's magic; compress_archives.fb reads a .tar.zst and a .tar.lz4 after two skippable frames
+Status: fixed in 9906358: Tar.Read skips skippable frames before it looks for zstd's and LZ4's magic; compress_archives.fb reads a .tar.zst and a .tar.lz4 after two skippable frames
 
 Where: std/compress/tar.fb:89
 
@@ -1178,7 +1178,7 @@ Skeptic: Ran it, debug and release. Output: 'Zstd.Decompress: True' and 'Tar.Rea
 
 ## S22-zip-tar-13 (low): TarWriter.Finish's panic for a tar past 2 GiB talks about compressed bytes and gives no location
 
-Status: fixed in 50c53fb: ZipWriter's and TarWriter's Finish panic at their caller with "the zip's (or tar's) bytes are more than a UInt8[] holds"; std_tests.cpp's "an archive writer's Finish panics at its caller for an archive past its limit" checks both through a smaller limit, since a test can't fill an array
+Status: fixed in 9906358: ZipWriter's and TarWriter's Finish panic at their caller with "the zip's (or tar's) bytes are more than a UInt8[] holds"; std_tests.cpp's "an archive writer's Finish panics at its caller for an archive past its limit" checks both through a smaller limit, since a test can't fill an array
 
 Where: runtime/src/compress_internal.hpp:95
 
@@ -1213,7 +1213,7 @@ Skeptic: Ran it with --release (the machine has 49 GB). Output: 'added', then 'p
 
 ## S22-zip-tar-9 (low): An old tar's folders read as empty files
 
-Status: fixed in 6d5bb7b: a regular file whose name ends with '/', as an old tar writes a folder, is a folder; compress_archives.fb reads v7folder.tar
+Status: fixed in ef5c4c9: a regular file whose name ends with '/', as an old tar writes a folder, is a folder; compress_archives.fb reads v7folder.tar
 
 Where: runtime/src/tar.cpp:322
 
