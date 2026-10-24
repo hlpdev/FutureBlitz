@@ -1,0 +1,7 @@
+// A canvas's [] takes a cell inside it, so one outside panics where it's read.
+Import std.core
+Import std.term
+
+Local canvas = Canvas(2, 2)
+Print("[{canvas[1, 1]}]")
+Print("[{canvas[2, 0]}]")

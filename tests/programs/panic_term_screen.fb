@@ -1,0 +1,8 @@
+// A panic while a Screen is open on the console shows its message once the screen is put back,
+// as the runtime writes what leaves it before the message, and only then.
+Import std.core
+Import std.term
+
+Local screen = Screen()
+Print("drawn")
+Panic("boom")
