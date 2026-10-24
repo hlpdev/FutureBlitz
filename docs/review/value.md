@@ -4,7 +4,7 @@
 
 ## change-1 (medium): Holds goes through a shared part once for each reference to it, so Add takes exponential time
 
-Status: fixed in fdf9e66f: Holds walks with a stack of its own and gives each Value it looks through that walk's number (a Global Atomic's count, in the Value's Walked Field), so a part held in several places is looked through once; core_value_deep adds 60 levels that each hold the one before twice, and panic_value_holds_itself_shared finds a 40-level one holding itself at once
+Status: fixed in fdf9e66f and 47c61916: Holds walks with a stack of its own and marks each Value it looks through with that walk's own object, in the Value's Walked Field (first a Global Atomic's count, which 47c61916 replaced, since a Global shows in every program), so a part held in several places is looked through once; core_value_deep adds 60 levels that each hold the one before twice, and panic_value_holds_itself_shared finds a 40-level one holding itself at once
 
 Where: std/core/value.fb:414
 
