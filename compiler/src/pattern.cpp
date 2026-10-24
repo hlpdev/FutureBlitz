@@ -47,8 +47,8 @@ std::size_t sequence_length(const char lead) {
 
 std::optional<pattern_problem_t> check_pattern(const std::string_view pattern,
                                                const std::int64_t flags) {
-    // std.text.regex's RegexFlags, as runtime/src/regex.cpp takes them.
-    std::uint32_t options = PCRE2_UTF | PCRE2_UCP | PCRE2_NEVER_BACKSLASH_C;
+    // std.text.regex's RegexFlags, as runtime/src/regex.cpp takes them, and its other options.
+    std::uint32_t options = PCRE2_UTF | PCRE2_UCP | PCRE2_NEVER_BACKSLASH_C | PCRE2_AUTO_CALLOUT;
     const auto bits = static_cast<std::uint64_t>(flags);
     if ((bits & 1U) != 0) {
         options |= PCRE2_CASELESS;

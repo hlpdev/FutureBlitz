@@ -14,9 +14,9 @@
 #include <pcre2.h>
 
 // std.text.regex's patterns, over PCRE2's 8-bit library: UTF-8 with Unicode's classes, as a
-// String is, and limits on each match that end it instead of letting it run on. The fb_regex_
-// functions are an archive of their own, so only a program that calls them links PCRE2. The
-// compiler's check of a literal pattern (compiler/src/pattern.cpp) compiles it with the same
+// String is, and limits on each search for a match that end it instead of letting it run on. The
+// fb_regex_ functions are an archive of their own, so only a program that calls them links PCRE2.
+// The compiler's check of a literal pattern (compiler/src/pattern.cpp) compiles it with the same
 // options.
 
 using fb::runtime::new_string;
@@ -88,10 +88,26 @@ void push_int(fb_array_t* into, const std::int32_t value) {
     *static_cast<std::int32_t*>(fb_array_push(into, sizeof value, nullptr)) = value;
 }
 
-/// `pattern` compiled, or null after adding PCRE2's error number and the byte it's at to
-/// `problem`.
+/// A search's steps so far, and the most it takes.
+struct budget_t {
+    std::int64_t steps;
+    std::int64_t limit;
+};
+
+/// PCRE2's own count of a match's steps starts again at each place a search tries, so a search
+/// that tries every place can take its limit times the text's length. A callout before each of a
+/// pattern's items counts them over the whole search instead, and ends it past its limit.
+int count_step(pcre2_callout_block* /*callout*/, void* data) {
+    auto* budget = static_cast<budget_t*>(data);
+    budget->steps += 1;
+    return budget->steps > budget->limit ? PCRE2_ERROR_MATCHLIMIT : 0;
+}
+
+/// `pattern` compiled, with a callout before each item, or null after adding PCRE2's error
+/// number and the byte it's at to `problem`.
 pcre2_code* compile(const std::string_view pattern, const std::int32_t flags, fb_array_t* problem) {
-    std::uint32_t options = PCRE2_UTF | PCRE2_UCP | PCRE2_NO_UTF_CHECK | PCRE2_NEVER_BACKSLASH_C;
+    std::uint32_t options =
+        PCRE2_UTF | PCRE2_UCP | PCRE2_NO_UTF_CHECK | PCRE2_NEVER_BACKSLASH_C | PCRE2_AUTO_CALLOUT;
     const auto bits = static_cast<std::uint32_t>(flags);
     if ((bits & static_cast<std::uint32_t>(ignore_case)) != 0) {
         options |= PCRE2_CASELESS;
@@ -194,6 +210,8 @@ std::int32_t fb_regex_match(const void* regex, const fb_string_t* subject, const
         fb_panic("out of memory", nullptr);
     }
 
+    budget_t budget{ .steps = 0, .limit = match_limit };
+    pcre2_set_callout(context, count_step, &budget);
     pcre2_set_match_limit(context, static_cast<std::uint32_t>(match_limit));
     pcre2_set_depth_limit(context, static_cast<std::uint32_t>(match_limit));
     // PCRE2 counts its memory in kibibytes.

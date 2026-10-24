@@ -1,8 +1,8 @@
 // std.text.regex: patterns over PCRE2, through the runtime's fb_regex_ functions. A pattern is
 // Perl's syntax as PCRE2 has it, over UTF-8: \w, \d, \s, and \b take Unicode's letters, digits,
-// and spaces, and positions are byte offsets, as a String's are. Each match has limits, its
-// Regex's MatchLimit and MemoryLimit, past which it throws a RegexError instead of running on, as
-// a pattern that backtracks without end would. A pattern that isn't valid panics where its Regex
+// and spaces, and positions are byte offsets, as a String's are. Each search for a match has
+// limits, its Regex's MatchLimit and MemoryLimit, past which it throws a RegexError instead of
+// running on, as a pattern that backtracks without end would. A pattern that isn't valid panics where its Regex
 // is made, and the compiler reports a literal one at it; Regex.Parse throws instead, for a
 // pattern from elsewhere, like a program's user.
 
@@ -231,9 +231,10 @@ Public Class Regex
         Return escaped
     End Method
 
-    // The most steps one match takes, 10 million at first, past which it throws a RegexError of
-    // MATCH_LIMIT. A step is a turn of PCRE2's matching, and a pattern that backtracks without end
-    // takes ever more. Panics when set below 1.
+    // The most steps a search for one match takes, over every place in the text it tries, 10
+    // million at first, past which it throws a RegexError of MATCH_LIMIT. A step is an item of
+    // the pattern that PCRE2's matching tries, and a pattern that backtracks without end takes
+    // ever more. Panics when set below 1.
     @PanicsAtCaller
     Public Property MatchLimit: Int
         Get => Steps
@@ -347,7 +348,7 @@ Public Class Regex
         If found == 0 Then Return Null
         If found == -1
             Throw RegexError(RegexErrorKind.MATCH_LIMIT,
-                             "the match took more than the Regex's MatchLimit of {Steps} steps",
+                             "the search took more than the Regex's MatchLimit of {Steps} steps",
                              start)
         End If
 

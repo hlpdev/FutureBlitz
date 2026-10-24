@@ -97,6 +97,17 @@ Catch e As RegexError
     Print(e.Kind, e.Message)
 End Try
 Print(Try evil.IsMatch("aaaa"), evil.MatchLimit)
+// The limit is the whole search's, over every place it tries: trailing spaces before a
+// character that isn't one take about 4.5 million steps from 3000 places, though each place
+// alone takes at most 3000.
+Local trailing = Regex(r"\s+$")
+trailing.MatchLimit = 100000
+Try
+    Print(Try trailing.IsMatch(" ".Repeated(3000) + "x"))
+Catch e As RegexError
+    Print(e.Kind, e.Offset, e.Message)
+End Try
+Print(Try trailing.IsMatch(" ".Repeated(3000)), Try trailing.IsMatch("x" + " ".Repeated(300)))
 Local deep = Regex(r"^(a|b)*c")
 Local long = "ab".Repeated(100000) + "dc"
 Print(Try deep.IsMatch(long), deep.MemoryLimit)

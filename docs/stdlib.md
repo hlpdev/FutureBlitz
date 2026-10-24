@@ -350,8 +350,8 @@ file or URL in the default app.
     elsewhere goes through `Regex.Parse`, which throws a `RegexError` of `PATTERN` with the byte
     PCRE2 stopped at. The compiler checks any pattern it knows, a Const's too, with the flags
     when it knows them, and points at the character PCRE2 stopped at.
-  - Each match takes at most `MatchLimit` steps (10 million) and `MemoryLimit` bytes (64 MiB),
-    past which it throws a `RegexError` of `MATCH_LIMIT` or `MEMORY_LIMIT`, so `IsMatch`, `Find`,
+  - Each search for a match takes at most `MatchLimit` steps (10 million), over every place in
+    the text it tries, and `MemoryLimit` bytes (64 MiB), past which it throws a `RegexError` of `MATCH_LIMIT` or `MEMORY_LIMIT`, so `IsMatch`, `Find`,
     `FindAll`, `Replace`, `ReplaceFirst`, `Split`, and the shortcuts are `Throws RegexError`.
   - A `Match` has `Value`, `Start`, `Finish`, `GroupCount`, `[]` by number or name, giving a
     `String?` for a group that took no part, and `StartOf` and `FinishOf`. `FindAll` finds an
