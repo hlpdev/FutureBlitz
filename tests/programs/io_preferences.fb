@@ -81,5 +81,9 @@ Catch e As IOError
     Print("{e.Kind}")
 End Try
 
+// The OS's folder, which the test only looks at the path of.
+Local folder = Try Preferences.Folder()
+Print("{folder.IsAbsolute()} {folder.Text.Bytes.Contains(92)} {folder.FileName() != ""}")
+
 Try temp.Close()
 Print("left {Dir.Exists(root)}")

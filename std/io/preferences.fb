@@ -57,6 +57,11 @@ Public Class Preferences
         Values = values
     End New
 
+    // The OS's folder for its users' programs' settings, which Preferences keep theirs in: Windows'
+    // %APPDATA%, macOS's ~/Library/Application Support, and elsewhere $XDG_CONFIG_HOME when it's
+    // a path from the root, or ~/.config. Throws an IOError of OTHER when the OS doesn't say.
+    Public Static Method Folder(): Path Throws IOError => Try ConfigFolder()
+
     // New's Async twin, which reads the file without blocking the main thread.
     @PanicsAtCaller
     Public Static Async Method OpenAsync(app: String): Preferences Throws IOError
