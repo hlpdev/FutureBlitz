@@ -247,6 +247,19 @@ int leave_span(const MD_SPANTYPE type, void* /*detail*/, void* userdata) {
     return leave(state_of(userdata), static_cast<std::int32_t>(kind_t::FIRST_SPAN) + type);
 }
 
+/// Whether raw HTML's text goes on the Html before it, a tag or comment that md4c gives a line at
+/// a time: its blanks and line break at a line's end, then the next line's part.
+bool continues_html(const parse_t& state, const std::string_view part) {
+    if (state.events.empty() || state.events.back().step != step_t::TEXT ||
+        state.events.back().kind != static_cast<std::int32_t>(kind_t::HTML)) {
+        return false;
+    }
+
+    const std::string& before = state.events.back().texts[0];
+    return (!before.empty() && before.back() == '\n') ||
+           part.find_first_not_of(" \t\n") == std::string_view::npos;
+}
+
 int text(const MD_TEXTTYPE type, const MD_CHAR* text, const MD_SIZE size, void* userdata) {
     parse_t& state = state_of(userdata);
     const std::string_view part(text, size);
@@ -259,6 +272,11 @@ int text(const MD_TEXTTYPE type, const MD_CHAR* text, const MD_SIZE size, void* 
             inside.texts[0] += part;
             return 0;
         }
+    }
+
+    if (type == MD_TEXT_HTML && continues_html(state, part)) {
+        state.events.back().texts[0] += part;
+        return 0;
     }
 
     kind_t kind = kind_t::TEXT;

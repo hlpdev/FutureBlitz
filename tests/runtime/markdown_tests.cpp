@@ -604,6 +604,8 @@ constexpr std::int32_t link_kind = 18;
 constexpr std::int32_t image_kind = 19;
 constexpr std::int32_t code_kind = 20;
 constexpr std::int32_t text_kind = 22;
+constexpr std::int32_t soft_break_kind = 23;
+constexpr std::int32_t html_kind = 25;
 
 /// One of fb_markdown_parse()'s events, as its fb_markdown_ functions give it.
 struct event_t {
@@ -754,4 +756,21 @@ TEST_CASE("a NUL in text, a code span, or a code block is U+FFFD, in HTML and in
     REQUIRE(blocks.size() == 1);
     CHECK(blocks[0].texts[0] == "\xEF\xBF\xBD\nx\xEF\xBF\xBDy\n");
     CHECK(of_kind(events, paragraph_kind).size() == 1);
+}
+
+TEST_CASE("a raw HTML tag or comment that goes on to other lines is one Html", "[runtime]") {
+    const std::vector<event_t> tag =
+        of_kind(events_of("a <span   \nclass=\"x\">b</span>"), html_kind);
+    REQUIRE(tag.size() == 2);
+    CHECK(tag[0].texts[0] == "<span   \nclass=\"x\">");
+    CHECK(tag[1].texts[0] == "</span>");
+    const std::vector<event_t> comment =
+        of_kind(events_of("a <!-- one\ntwo\nthree --> b"), html_kind);
+    REQUIRE(comment.size() == 1);
+    CHECK(comment[0].texts[0] == "<!-- one\ntwo\nthree -->");
+
+    // Tags on lines of their own, or side by side, are each one.
+    const std::vector<event_t> apart = events_of("a <i>\n</i><b>");
+    REQUIRE(of_kind(apart, html_kind).size() == 3);
+    CHECK(of_kind(apart, soft_break_kind).size() == 1);
 }
