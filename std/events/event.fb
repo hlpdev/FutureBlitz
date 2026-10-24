@@ -1,7 +1,8 @@
 // Event<T>: the handlers that an Emit calls, in the order they were added, held as a Field of
 // what emits it, which holds them until they're cancelled. Subscribe gives a Subscription, whose
-// Cancel takes its handler off. An Event and its Subscriptions stay on the thread that made them,
-// as a Class's objects do.
+// Cancel takes its handler off; a handler subscribed for an owner, which it holds weakly, also
+// goes once the owner does. An Event and its Subscriptions stay on the thread that made them, as a
+// Class's objects do.
 
 Import std.core
 Import std.collections.array
@@ -16,26 +17,83 @@ Abstract Class Subscribed
 End Class
 
 // A handler on an Event, which an Emit calls until it's dropped.
-Class EventHandler<T> Extends Subscribed
-    Field Handler: (Func(T))?
-    Field Owner: Weak<Event<T>>
+Abstract Class EventHandler<T> Extends Subscribed
+    Field On: Bool = True
+    Field Emitter: Weak<Event<T>>
 
-    New(handler: Func(T), owner: Event<T>)
-        Handler = handler
-        Owner = owner
+    New(event: Event<T>)
+        Emitter = event
     End New
+
+    // Calls the handler with value.
+    Abstract Method Handle(value: T)
+
+    // Lets go of the handler.
+    Abstract Method Release()
 
     // The handler goes once its Event has counted it off, so what its going runs, like a Destroy
     // that cancels it again, finds it off.
     Override Method Drop()
-        If Handler == Null Then Return
-        Local going = Handler
-        Handler = Null
-        Owner?.Dropped()
+        If !On Then Return
+        On = False
+        Emitter?.Dropped()
+        Release()
     End Method
 
     Override Property IsActive: Bool
-        Get => Handler != Null
+        Get => On
+    End Property
+End Class
+
+// A handler that Subscribe(handler) adds.
+Class FuncHandler<T> Extends EventHandler<T>
+    Field Handler: (Func(T))?
+
+    New(handler: Func(T), event: Event<T>)
+        Super.New(event)
+        Handler = handler
+    End New
+
+    Override Method Handle(value: T)
+        Local handler = Handler
+        If handler != Null Then handler(value)
+    End Method
+
+    Override Method Release()
+        Handler = Null
+    End Method
+End Class
+
+// A handler that Subscribe(owner, handler) adds, which holds its owner weakly and gives it to the
+// handler, so the handler needn't capture it. Once the owner goes, it's off.
+Class OwnedHandler<T, O> Extends EventHandler<T>
+    Where O: Class
+    Field Owner: Weak<O>
+    Field Handler: (Func(O, T))?
+
+    New(owner: O, handler: Func(O, T), event: Event<T>)
+        Super.New(event)
+        Owner = owner
+        Handler = handler
+    End New
+
+    // Calls the handler with the owner and value, or drops it once the owner is gone.
+    Override Method Handle(value: T)
+        Local owner = Owner
+        Local handler = Handler
+        If owner == Null
+            Drop()
+        ElseIf handler != Null
+            handler(owner, value)
+        End If
+    End Method
+
+    Override Method Release()
+        Handler = Null
+    End Method
+
+    Override Property IsActive: Bool
+        Get => On && Owner != Null
     End Property
 End Class
 
@@ -47,19 +105,40 @@ Public Class Event<T>
     Field Emitting: Int
     // How many dropped handlers are still in Handlers.
     Field Stale: Int
+    // How many handlers there were when Subscribe last took out those whose owners have gone.
+    Field Looked: Int
 
     Public New()
     End New
 
-    // How many handlers it has.
+    // How many handlers it has: those not cancelled, whose owners, if they have them, are there.
     Public Property Count: Int
-        Get => Handlers.Count - Stale
+        Get
+            Local count = 0
+            For handler In Handlers
+                If handler.IsActive Then count += 1
+            End For
+            Return count
+        End Get
     End Property
 
     // Adds handler, which each Emit after this calls, after the handlers added before it, until
     // the Subscription it gives is cancelled. An Emit that's calling handlers meanwhile doesn't.
     Public Method Subscribe(handler: Func(T)): Subscription
-        Local added = EventHandler<T>(handler, Self)
+        TakeOutGone()
+        Local added = FuncHandler<T>(handler, Self)
+        Handlers.Add(added)
+        Return Subscription(added)
+    End Method
+
+    // Adds handler for owner, which it's called with, after the handlers added before it, until the
+    // Subscription it gives is cancelled or the owner goes, as the handler holds it weakly. The
+    // handler gets the owner, so it needn't capture it, which would keep it: a handler that
+    // captures its owner keeps it as long as the Event keeps the handler. The next Emit or Clear
+    // after the owner goes takes the handler out, as a Subscribe does now and then.
+    Public Method Subscribe<O: Class>(owner: O, handler: Func(O, T)): Subscription
+        TakeOutGone()
+        Local added = OwnedHandler<T, O>(owner, handler, Self)
         Handlers.Add(added)
         Return Subscription(added)
     End Method
@@ -70,8 +149,8 @@ Public Class Event<T>
         Local count = Handlers.Count
         Emitting += 1
         For i = 0 Until count
-            Local handler = Handlers[i].Handler
-            If handler != Null Then handler(value)
+            Local handler = Handlers[i]
+            If handler.On Then handler.Handle(value)
         End For
 
         Emitting -= 1
@@ -97,8 +176,23 @@ Public Class Event<T>
     End Method
 
     Method TakeOutDropped()
-        Handlers.RemoveAll(Function(handler: EventHandler<T>) => !handler.IsActive)
+        Handlers.RemoveAll(Function(handler: EventHandler<T>) => !handler.On)
         Stale = 0
+    End Method
+
+    // Drops and takes out the handlers whose owners have gone, once there are twice as many
+    // handlers as when it last did, so an Event subscribed to for owners that go, which never
+    // emits, doesn't grow without end, and Subscribe stays quick.
+    Method TakeOutGone()
+        If Emitting > 0 || Handlers.Count < Looked * 2 Then Return
+        Emitting += 1
+        For handler In Handlers.Clone()
+            If !handler.IsActive Then handler.Drop()
+        End For
+
+        Emitting -= 1
+        If Stale > 0 Then TakeOutDropped()
+        Looked = Handlers.Count
     End Method
 End Class
 

@@ -1,0 +1,94 @@
+// A handler subscribed for an owner gets the owner, which it holds weakly: once the owner goes,
+// the handler is off, the Event's Count leaves it out, the next Emit takes it out, and nothing
+// leaks. Its Subscription cancels it as any other's does.
+
+Import std.core
+Import std.events
+
+Class Widget
+    Field Name: String
+    Field Heard: Int
+
+    New(name: String)
+        Name = name
+    End New
+
+    Method Destroy()
+        Print("{Name} goes, having heard {Heard}")
+    End Method
+End Class
+
+Const clicks = Event<Int>()
+Local a = Widget("a")
+Local b = Widget("b")
+Local c = Widget("c")
+Local first = clicks.Subscribe(a, Function(widget: Widget, n: Int)
+    widget.Heard += n
+    Print("{widget.Name} hears {n}")
+End Function)
+Local second = clicks.Subscribe(b, Function(widget: Widget, n: Int) => Print("{widget.Name} hears {n}"))
+clicks.Subscribe(Function(n: Int) => Print("plain hears {n}"))
+Local third = clicks.Subscribe(c, Function(widget: Widget, n: Int) => Print("{widget.Name} hears {n}"))
+clicks.Emit(1)
+Print("handlers:", clicks.Count, second.IsActive)
+
+// b goes: its handler is off at once, and the next Emit takes it out.
+b = Widget("d")
+Print("handlers:", clicks.Count, second.IsActive)
+clicks.Emit(2)
+Print("handlers:", clicks.Count)
+
+// Cancelling an owner's Subscription takes its handler off, and keeps the owner.
+third.Cancel()
+clicks.Emit(3)
+Print("handlers:", clicks.Count, third.IsActive, c.Name)
+
+// A handler that lets go of a later handler's owner, while the Emit goes on: the later one doesn't
+// hear it, and goes.
+Global held: Widget? = Null
+
+Function LetGo(widget: Widget, n: Int)
+    Print("{widget.Name} lets go at {n}")
+    held = Null
+End Function
+
+Function Hear(widget: Widget, n: Int)
+    Print("{widget.Name} hears {n}")
+End Function
+
+Local e = Widget("e")
+clicks.Subscribe(e, LetGo)
+Local g = Widget("g")
+held = g
+clicks.Subscribe(g, Hear)
+g = Widget("h")
+clicks.Emit(4)
+Print("handlers:", clicks.Count)
+clicks.Clear()
+Print("handlers:", clicks.Count, first.IsActive, a.Heard)
+
+// Owners that go before any Emit: a Subscribe now and then takes their handlers out, and lets go of
+// what they capture.
+Class Tracker
+    Field Name: String
+
+    New(name: String)
+        Name = name
+    End New
+
+    Method Destroy()
+        Print("{Name}'s tracker goes")
+    End Method
+End Class
+
+Const quiet = Event<Int>()
+
+Function Watch(name: String)
+    Local tracker = Tracker(name)
+    quiet.Subscribe(Widget(name), Function(widget: Widget, n: Int) => Print("{tracker.Name} {n}"))
+End Function
+
+For i = 1 To 6
+    Watch("w{i}")
+End For
+Print("quiet handlers:", quiet.Count)

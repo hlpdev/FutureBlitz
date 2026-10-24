@@ -1,0 +1,38 @@
+a hears 1
+b hears 1
+plain hears 1
+c hears 1
+handlers: 4 True
+b goes, having heard 0
+handlers: 3 False
+a hears 2
+plain hears 2
+c hears 2
+handlers: 3
+a hears 3
+plain hears 3
+handlers: 2 False c
+a hears 4
+plain hears 4
+e lets go at 4
+g goes, having heard 0
+handlers: 3
+handlers: 0 False 10
+w1 goes, having heard 0
+w1's tracker goes
+w2 goes, having heard 0
+w2's tracker goes
+w3 goes, having heard 0
+w3's tracker goes
+w4 goes, having heard 0
+w4's tracker goes
+w5 goes, having heard 0
+w5's tracker goes
+w6 goes, having heard 0
+quiet handlers: 0
+h goes, having heard 0
+e goes, having heard 0
+c goes, having heard 0
+d goes, having heard 0
+a goes, having heard 10
+w6's tracker goes
