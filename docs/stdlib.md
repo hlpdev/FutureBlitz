@@ -115,6 +115,16 @@ So far, std/ holds:
 | std/crypto/pem.fb | `KeyKind`, `Key`, and `Certificate` |
 | std/db/database.fb | `Database`, `Statement`, `Transaction`, `Row`, `ColumnType`, `SqlValue`, and `Nullable`, over SQLite through the runtime's `fb_db_` functions |
 | std/uuid/uuid.fb | `Uuid` |
+| std/data/value.fb | `Value` and `ValueKind`, a stand-in for step 19's `Value` until it lands |
+| std/data/text.fb | What std.data's formats share in text, over the runtime's `fb_data_` functions |
+| std/data/toml.fb | `Toml` |
+| std/data/csv.fb | `Csv` |
+| std/data/ini.fb | `Ini` |
+| std/data/xml.fb | `XmlNode`, `XmlKind`, `Xml`, and `XmlWriter` |
+| std/data/xml_reader.fb | `XmlReader`, `XmlEvent`, and `XmlEventKind` |
+| std/data/xml_path.fb | `XmlPath` |
+| std/data/yaml.fb | `Yaml` |
+| std/data/yaml_scanner.fb | YAML's tokens, for `Yaml` |
 | std/concurrent/locks.fb | `Semaphore`, `Barrier`, `WaitGroup`, `Once`, and `RwLock<T>`, Shared Classes over the runtime's locks through `fb_semaphore_` and the like |
 | std/concurrent/concurrent_map.fb | `ConcurrentMap<K, V>` and its `ConcurrentMapIterator<K, V>`, in 16 parts of ImmutableMaps |
 | std/concurrent/concurrent_queue.fb | `ConcurrentQueue<T>`, over a Channel that grows |
@@ -717,6 +727,66 @@ Step 18 built `Event<T>` and `Subscription`, in std/events/event.fb; `Import std
   loading after a game changes.
 - Protocol Buffers: fb reads `.proto` files at compile time and generates the types and their
   binary encoding.
+
+Step 20 built TOML, CSV, INI, XML, and YAML, each read into Values and written from them, over a
+stand-in `Value` of step 19's shape in std/data/value.fb, which goes once step 19's lands, with
+`Load<T>` and `Save<T>` through them. `Import std.data` brings in all of std/data/. Each reader
+throws a ParseError with the Line and Column it's at: UNEXPECTED_END for text that ends inside
+something, OUT_OF_RANGE for a number its type doesn't hold, and SYNTAX for the rest that isn't
+its format.
+
+- `Toml.Read(text)` reads TOML 1.0 into an Object: a table is an Object, an array an Array, an
+  integer an Int, which an Int64 holds, a float a Float, inf and nan too, and a date, a time, or
+  both a String of its RFC 3339 text, with 'T' and 'Z', and its fraction of a second without the
+  0s at its end. Which tables a document can define, and where, follows TOML 1.0 as tomli reads
+  it, and it passes toml-test's cases for TOML 1.0. `Toml.Write(value)` writes an Object's keys
+  and values, then its tables under their headers, an Array of Objects as an array of tables and
+  an Object in an Array as an inline table, a key quoted where it must be; TOML has no null, so
+  it leaves out an Object's Nulls, and panics at a Null in an Array.
+- `Csv.Read(text, separator)` reads RFC 4180's rows, each a `String[]` of its fields, quoted or
+  not, over LF or CRLF lines, and `ReadRecords` an Array of Objects by the first row's names,
+  each field a String, which throws for a row of more or fewer fields. `Write(rows, separator)`
+  and `WriteRecords(records, separator)` write them, LF after each row, and quote a field that
+  holds the separator, a '"', or a line break, or starts or ends with a space.
+- `Ini.Read(text)` reads `[section]` headers, `key = value` and `key: value` lines, and `;` and
+  `#` comments into an Object: the keys before any section are its own, and each section is an
+  Object, every value a String, its spaces trimmed but in '"'s. A key given again takes its new
+  value, and a section named again goes on adding to the first. `Ini.Write(value)` writes them
+  back, and panics at what INI can't hold: an Array, an Object in a section, or a line break.
+- XML 1.0. `XmlReader(text)`'s `Next()` gives a document's `XmlEvent`s, START, END, TEXT, CDATA,
+  COMMENT, and INSTRUCTION, as a non-validating processor reads them: line ends as LFs,
+  references replaced, attributes normalized, and the internal subset's entities, attribute
+  defaults, and attribute types used. The external subset and external entities aren't read, and
+  names keep their prefixes, unresolved. It passes the W3C XML conformance suite's 1627 cases
+  for XML 1.0's fifth edition that need no external entity and are UTF-8, which is run outside
+  the repo, as the suite's terms don't let it be copied in parts. `Xml.Read(text)` builds a tree
+  of `XmlNode`s over it: elements, with `Name`, `Attributes`, and `Children`, and text, CDATA,
+  comments, and processing instructions, with `Content`; a node's `Text` is XPath's string of it.
+  An element has `Attribute`, `SetAttribute`, `Element`, `Elements`, `Add`, `AddElement`,
+  `AddText`, `Query(path)`, and `QueryFirst(path)`. `Xml.Write(root, indent, declaration)` and an
+  `XmlWriter`, element by element, write XML, indented but in an element that holds text, and
+  panic at what XML can't hold.
+- `XmlPath(path)` is XPath-lite: location paths on the child, descendant, descendant-or-self,
+  parent, ancestor, ancestor-or-self, following-sibling, preceding-sibling, self, and attribute
+  axes, abbreviated or not; tests of a name, `*`, `text()`, `node()`, `comment()`, and
+  `processing-instruction()`; predicates of positions, paths, strings, and numbers, compared with
+  `=`, `!=`, `<`, `<=`, `>`, and `>=` and joined with `and` and `or`, and the functions `last`,
+  `position`, `count`, `not`, `contains`, `starts-with`, `string`, `name`, `true`, and `false`;
+  and paths joined with `|`. A path that isn't one panics at Query's caller.
+- `Xml.ToValue(element)` and `Xml.FromValue(name, value)` convert as xmltodict does: an
+  element's attributes are keys with '@' before their names, its children keys of their names,
+  an Array for a name that comes more than once, and its text the key "#text", or the element's
+  Value itself, a String, when it has neither attributes nor children.
+- `Yaml.Read(text)` and `ReadAll(text)` read YAML 1.2's documents by its core schema: a mapping
+  is an Object, a sequence an Array, a plain scalar Null, a Bool, an Int, a Float, `.inf` and
+  `.nan` and an integer past an Int64 too, or a String, and a scalar in quotes or a block a
+  String. Anchors and aliases, the core schema's tags under any handle a %TAG gives them, and
+  documents with their directives and markers are read. A key is its scalar's text, and each key
+  of a mapping is its own; a key that's a mapping or a sequence, or a tag that isn't the core
+  schema's, is a ParseError of OTHER. It passes yaml-test-suite's 367 cases for the core schema.
+  `Yaml.Write(value)` and `WriteAll(values)` write block mappings and sequences, a scalar plain
+  where the core schema reads it back as the same, else in double quotes.
+- Planned: `Load<T>` and `Save<T>` through each format, with step 19's serialization.
 
 #### std.crypto
 
