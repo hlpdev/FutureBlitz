@@ -1113,9 +1113,26 @@ fb_string_t* fb_http_message(void* transfer) {
         return string_of(given.message);
     }
 
-    // libcurl's own words for what failed, or else its words for the code.
+    // libcurl's own words for what failed, as one line: mbedTLS ends each problem with a
+    // certificate it found with a line break.
     if (given.error.front() != '\0') {
-        return fb_string_from_cstring(given.error.data());
+        std::string message;
+        std::string_view rest = given.error.data();
+        while (!rest.empty()) {
+            const std::size_t end = rest.find('\n');
+            std::string_view line = rest.substr(0, end);
+            rest = end == std::string_view::npos ? std::string_view() : rest.substr(end + 1);
+            while (!line.empty() && (line.back() == '\r' || line.back() == ' ')) {
+                line.remove_suffix(1);
+            }
+
+            if (!line.empty()) {
+                message += message.empty() ? "" : "; ";
+                message += line;
+            }
+        }
+
+        return string_of(message);
     }
 
     switch (given.outcome) {

@@ -1,4 +1,4 @@
-NetError TLS
+NetError TLS [mbedTLS: The certificate is not correctly signed by the trusted CA]
 CN=FutureBlitz Test CA
 200 hello
 200 redirected
@@ -17,7 +17,7 @@ custom.example
 False
 proxied /hello
 proxied /hello
+NetError TLS [mbedTLS: The certificate is not correctly signed by the trusted CA]
 NetError TLS
-NetError TLS
-NetError TLS
-NetError TLS
+NetError TLS [mbedTLS: The certificate is not correctly signed by the trusted CA]
+NetError TLS [the roots it trusts are more than the 8000000 bytes of PEM libcurl takes]
