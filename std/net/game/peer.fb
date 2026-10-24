@@ -1,0 +1,490 @@
+// std.net.game's peers: the other side of a connection, as a GameHost has it. A peer sends its
+// messages on its channels, which go at the host's next Update, and keeps what the connection
+// knows: its state, the round-trip time it measures from acks, and the packets it's sent,
+// received, and lost. Every packet acks the 33 latest of the other side's it received, and a
+// reliable part not acked once its round-trip time and a margin have passed goes again, each
+// time waiting twice as long, up to 8 times.
+
+Import std.core
+Import std.collections
+Import std.time.duration
+Import std.net.address
+Import std.net.game.channel
+Import std.net.game.packet
+Import std.net.game.settings
+
+// Where a connection is: asking for it, open, sending what's left before it ends, or ended.
+Public Enum PeerState
+    CONNECTING, CONNECTED, DISCONNECTING, DISCONNECTED
+End Enum
+
+// How many of the packets it sent a peer remembers, to take their acks.
+Const RECORDS = 1024
+
+// The least and the most a reliable part waits to go again, in nanoseconds, and the round-trip
+// time and its variance a peer starts with, before it measures them.
+Const LEAST_RESEND: Int64 = 20000000
+Const MOST_RESEND: Int64 = 2000000000
+Const FIRST_ROUND_TRIP: Int64 = 100000000
+Const FIRST_VARIANCE: Int64 = 50000000
+
+// A packet a peer sent: its sequence, when, and the reliable parts in it, until it's acked or
+// counted lost.
+Class SentRecord
+    Field Sequence: Int
+    Field Sent: Int64
+    Field Parts: OutPart[]
+    Field Resolved: Bool
+
+    New(sequence: Int, sent: Int64, parts: OutPart[])
+        Sequence = sequence
+        Sent = sent
+        Parts = parts
+    End New
+End Class
+
+// The other side of a connection, which a GameHost makes when it connects or is connected to.
+// Its Send queues a message on one of the host's channels, which goes at the host's next Update,
+// along with what it sends again and its acks.
+Public Class GamePeer Implements Printable
+    Package Field Where: SocketAddress
+    Package Field Settings: GameSettings
+    Package Field Status: PeerState
+    // Whether the other side connected to this one, the connecting side's salt, and the
+    // connection's, both salts XORed.
+    Package Field Incoming: Bool
+    Package Field Salt: UInt32
+    Package Field Connection: UInt32
+    // This side's first sequence and message id.
+    Package Field First: Int
+    Package Field Out: OutChannel[] = []
+    Package Field In: InChannel[] = []
+    Field Sequence: Int
+    Field Records: SentRecord?[] = []
+    Field LastSent: Int64 = -1
+    Field AckPending: Bool
+    // The latest of this side's packets the other side has acked.
+    Field LastAck: Int
+    Field HasAck: Bool
+    // The latest of the other side's packets this one got, and a bit for each of the 32 before.
+    Field HasLatest: Bool
+    Field Latest: Int
+    Field Bits: UInt32
+    Package Field LastReceived: Int64
+    // When it started connecting, and last asked to.
+    Package Field Started: Int64
+    Package Field LastConnect: Int64 = -1
+    Package Field Leaving: Bool
+    Package Field Why: DisconnectReason
+    Field Smoothed: Int64 = FIRST_ROUND_TRIP
+    Field Variance: Int64 = FIRST_VARIANCE
+    Field HasRoundTrip: Bool
+    Field Loss: Double
+    Field SentCount: Int64
+    Field ReceivedCount: Int64
+    Field LostCount: Int64
+    Field ResentCount: Int64
+    Field SentBytes: Int64
+    Field ReceivedBytes: Int64
+
+    // A peer at address, of a host of settings, the other side having connected to it, or not,
+    // whose connection's salt is salt and whose first sequence is first, made at now.
+    Package New(address: SocketAddress, settings: GameSettings, incoming: Bool, salt: UInt32,
+                first: Int, now: Int64)
+        Where = address
+        Settings = settings
+        Status = incoming ? PeerState.CONNECTED : PeerState.CONNECTING
+        Incoming = incoming
+        Salt = salt
+        First = first
+        Sequence = first
+        Started = now
+        LastReceived = now
+        For kind In settings.Channels
+            Out.Add(OutChannel(kind, first))
+        End For
+
+        For i = 0 Until RECORDS
+            Records.Add(Null)
+        End For
+    End New
+
+    // Where the other side is.
+    Public Property Address: SocketAddress
+        Get => Where
+    End Property
+
+    Public Property State: PeerState
+        Get => Status
+    End Property
+
+    // Why it disconnected, once it has, or NONE.
+    Public Property Reason: DisconnectReason
+        Get => Why
+    End Property
+
+    // The round-trip time, smoothed as TCP smooths it, from the acks of what it sent, and how
+    // much it varies. Before the first ack, 100 and 50 milliseconds.
+    Public Property RoundTripTime: Duration
+        Get => Duration.FromNanoseconds(Smoothed)
+    End Property
+
+    Public Property RoundTripVariance: Duration
+        Get => Duration.FromNanoseconds(Variance)
+    End Property
+
+    // About how much of what it sends is lost, from 0 to 1: of its packets acked or counted lost,
+    // the recent ones counting most.
+    Public Property PacketLoss: Double
+        Get => Loss
+    End Property
+
+    // The packets it's sent, received, and counted lost, the reliable parts it sent again, and
+    // the bytes of its packets each way.
+    Public Property PacketsSent: Int64
+        Get => SentCount
+    End Property
+
+    Public Property PacketsReceived: Int64
+        Get => ReceivedCount
+    End Property
+
+    Public Property PacketsLost: Int64
+        Get => LostCount
+    End Property
+
+    Public Property Resends: Int64
+        Get => ResentCount
+    End Property
+
+    Public Property BytesSent: Int64
+        Get => SentBytes
+    End Property
+
+    Public Property BytesReceived: Int64
+        Get => ReceivedBytes
+    End Property
+
+    // How many reliable messages it has that the other side hasn't acked yet, sent or not.
+    Public Property Unacked: Int
+        Get
+            Local count = 0
+            For channel In Out
+                count += channel.Queued.Count + channel.Unacked.Count
+            End For
+
+            Return count
+        End Get
+    End Property
+
+    // Sends bytes on the host's channel, from 0, as the channel's kind says; it goes at the host's
+    // next Update, once it's connected. A peer that's disconnecting or disconnected sends
+    // nothing more. Panics for a channel the host doesn't have, or a message past its
+    // MaxMessageSize.
+    @PanicsAtCaller
+    Public Method Send(channel: Int, bytes: UInt8[])
+        If channel < 0 || channel >= Out.Count
+            Panic("a host of {Out.Count} channels has no channel {channel}")
+        End If
+
+        If bytes.Count > Settings.MaxMessageSize
+            Panic("a message of {bytes.Count} bytes is past the host's MaxMessageSize, " +
+                  "{Settings.MaxMessageSize}")
+        End If
+
+        If Status == PeerState.DISCONNECTING || Status == PeerState.DISCONNECTED || Leaving Then Return
+        Out[channel].Add(channel, bytes, PartSize())
+    End Method
+
+    // Sends text's UTF-8 on the host's channel.
+    @PanicsAtCaller
+    Public Method Send(channel: Int, text: String)
+        Send(channel, text.Bytes)
+    End Method
+
+    // Ends the connection once the other side has acked every reliable message sent so far, or
+    // at the host's Timeout: the host's Update then tells the other side, and gives a DISCONNECT
+    // event of LOCAL. A peer that's still connecting stops at once.
+    Public Method Disconnect()
+        If Status == PeerState.CONNECTED Then Status = PeerState.DISCONNECTING
+        If Status == PeerState.CONNECTING Then Leaving = True
+    End Method
+
+    // Ends the connection at the host's next Update, dropping what hasn't gone.
+    Public Method DisconnectNow()
+        If Status != PeerState.DISCONNECTED Then Leaving = True
+    End Method
+
+    // Its address, as "127.0.0.1:5000".
+    Public Method ToString(): String => "{Where}"
+
+    // The most of a message one packet takes.
+    Package Method PartSize(): Int => Settings.Mtu - DATA_HEADER - MESSAGE_HEADER - FRAGMENT_HEADER
+
+    // Opens its channels' receiving sides, once the other side's first id is known.
+    Package Method Open(first: Int)
+        In = []
+        For kind In Settings.Channels
+            In.Add(InChannel(kind, first))
+        End For
+    End Method
+
+    // Whether it has nothing left to send or to have acked.
+    Package Property IsDone: Bool
+        Get
+            For channel In Out
+                If !channel.IsDone Then Return False
+            End For
+
+            Return True
+        End Get
+    End Property
+
+    // The packets it sends at now: the reliable parts due, the queued ones the window lets go, and
+    // the unreliable ones, as many to a packet as its Mtu takes; or, with nothing to send, one
+    // that only acks, when it got what needs acking, or when it's been KeepAlive since it last
+    // sent, so the other side knows it's there.
+    Package Method Flush(now: Int64): UInt8[][]
+        Local rto = ResendTime()
+        Local parts: OutPart[] = []
+        For channel In Out
+            For part In channel.Due(now, rto)
+                parts.Add(part)
+            End For
+        End For
+
+        Local packets: UInt8[][] = []
+        Local writer: PacketWriter? = Null
+        Local sequence = 0
+        Local carried: OutPart[] = []
+        For part In parts
+            If writer != Null && writer.Bytes.Count + part.Size > Settings.Mtu
+                packets.Add(Finish(writer, sequence, carried, now))
+                writer = Null
+                carried = []
+            End If
+
+            If writer == Null
+                sequence = Sequence
+                writer = Begin()
+            End If
+
+            writer.Byte(part.Channel As UInt8)
+            writer.Byte(part.Count > 1 ? FRAGMENT_FLAG : 0)
+            writer.U16(part.Id)
+            writer.U16(part.Bytes.Count)
+            If part.Count > 1
+                writer.U16(part.Index)
+                writer.U16(part.Count)
+            End If
+
+            writer.Raw(part.Bytes, 0, part.Bytes.Count)
+            If part.Sends > 0 Then ResentCount += 1
+            part.Sent = now
+            part.Sends += 1
+            If Out[part.Channel].Kind != ChannelKind.UNRELIABLE Then carried.Add(part)
+        End For
+
+        If writer != Null Then packets.Add(Finish(writer, sequence, carried, now))
+        Local keepAlive = Settings.KeepAlive.Nanoseconds
+        If packets.Count == 0 && (AckPending || LastSent < 0 || now - LastSent >= keepAlive)
+            sequence = Sequence
+            packets.Add(Finish(Begin(), sequence, [], now))
+        End If
+
+        Return packets
+    End Method
+
+    // Takes a DATA packet's bytes after its connection, which reader reads, received at now, and
+    // gives the messages it makes whole, by channel. A packet it got before gives none, though it
+    // acks it again.
+    Package Method Receive(reader: PacketReader, size: Int, now: Int64): (Int, UInt8[])[]
+        Local given: (Int, UInt8[])[] = []
+        Local flags = reader.Byte()
+        Local sequence = reader.U16()
+        Local ack = reader.U16()
+        Local bits = reader.U32()
+        If reader.Failed Then Return given
+        LastReceived = now
+        ReceivedCount += 1
+        ReceivedBytes += size
+        If (flags & ACK_FLAG) != 0 Then TakeAcks(ack, bits, now)
+        Local again = Note(sequence)
+        Local any = False
+        While reader.Left > 0
+            Local channel = reader.Byte() As Int
+            Local fragment = (reader.Byte() & FRAGMENT_FLAG) != 0
+            Local id = reader.U16()
+            Local length = reader.U16()
+            Local index = 0
+            Local count = 1
+            If fragment
+                index = reader.U16()
+                count = reader.U16()
+            End If
+
+            Local bytes = reader.Take(length)
+            If reader.Failed || channel >= In.Count Then Break
+            any = True
+            If again Then Continue
+            Local room = Settings.MaxBuffered
+            For opened In In
+                room -= opened.Held
+            End For
+
+            For whole In In[channel].Take(id, index, count, bytes, Max(room, 0), Settings.MaxMessageSize)
+                given.Add((channel, whole))
+            End For
+        End While
+
+        If any Then AckPending = True
+        Return given
+    End Method
+
+    // How long until it has something to do after now, in nanoseconds: something to send again,
+    // an ack, a keepalive, or its timeout.
+    Package Method Wait(now: Int64): Int64
+        Local timeout = Settings.Timeout.Nanoseconds
+        If Status == PeerState.CONNECTING
+            Local retry = LastConnect < 0 ? now : LastConnect + Settings.ConnectRetry.Nanoseconds
+            Return Max(Min(retry, Started + timeout) - now, 0)
+        End If
+
+        If AckPending || Leaving || Status == PeerState.DISCONNECTING Then Return 0
+        Local soonest = Min(LastReceived + timeout, LastSent + Settings.KeepAlive.Nanoseconds)
+        Local rto = ResendTime()
+        For channel In Out
+            If channel.Fresh.Count > 0 || channel.Queued.Count > 0 Then Return 0
+            For part In channel.Flying
+                If part.Acked Then Continue
+                Local backoff = (1 << Clamp(part.Sends - 1, 0, 3)) As Int64
+                soonest = Min(soonest, part.Sent + rto * backoff)
+            End For
+        End For
+
+        Return Max(soonest - now, 0)
+    End Method
+
+    // A DATA packet's start: its connection, whether it acks, its sequence, which it takes, and
+    // its ack and ack bits.
+    Method Begin(): PacketWriter
+        Local writer = PacketWriter(PacketKind.DATA)
+        writer.U32(Connection)
+        writer.Byte(HasLatest ? ACK_FLAG : 0)
+        writer.U16(Sequence)
+        writer.U16(HasLatest ? Latest : 0)
+        writer.U32(HasLatest ? Bits : 0)
+        Sequence = NextOf(Sequence)
+        Return writer
+    End Method
+
+    // A packet's bytes, once it's remembered as sent at now, with the reliable parts in it.
+    Method Finish(writer: PacketWriter, sequence: Int, parts: OutPart[], now: Int64): UInt8[]
+        Local slot = sequence & (RECORDS - 1)
+        // A packet it remembered there that wasn't acked by now won't be.
+        Local old = Records[slot]
+        If old != Null && !old.Resolved Then Lose(old)
+        Records[slot] = SentRecord(sequence, now, parts)
+        LastSent = now
+        AckPending = False
+        SentCount += 1
+        SentBytes += writer.Bytes.Count
+        Return writer.Bytes
+    End Method
+
+    // Notes the other side's packet of sequence as received, and gives whether it was before.
+    Method Note(sequence: Int): Bool
+        If !HasLatest
+            HasLatest = True
+            Latest = sequence
+            Bits = 0
+            Return False
+        End If
+
+        If sequence == Latest Then Return True
+        If IsAfter(sequence, Latest)
+            Local shift = Ahead(sequence, Latest)
+            If shift > 32
+                Bits = 0
+            ElseIf shift == 32
+                Bits = 0x80000000
+            Else
+                Bits = (((Bits As UInt64) << shift) & 0xFFFFFFFF) As UInt32
+                Bits = Bits | ((1 As UInt32) << (shift - 1))
+            End If
+
+            Latest = sequence
+            Return False
+        End If
+
+        // One too old for the bits might be one it had; its messages are checked one by one.
+        Local behind = Ahead(Latest, sequence)
+        If behind > 32 Then Return False
+        Local mask = (1 As UInt32) << (behind - 1)
+        If (Bits & mask) != 0 Then Return True
+        Bits = Bits | mask
+        Return False
+    End Method
+
+    // Takes the other side's acks: of ack, and of each of the 32 before it whose bit is set. What
+    // the acks move past without acking is lost.
+    Method TakeAcks(ack: Int, bits: UInt32, now: Int64)
+        If !HasAck || IsAfter(ack, LastAck)
+            If HasAck
+                Local passed = Min(Ahead(ack, LastAck), RECORDS)
+                For i = 0 Until passed
+                    Local gone = (LastAck - 32 + i) & 0xFFFF
+                    Local record = Records[gone & (RECORDS - 1)]
+                    If record != Null && record.Sequence == gone && !record.Resolved Then Lose(record)
+                End For
+            End If
+
+            LastAck = ack
+            HasAck = True
+        End If
+
+        For i = 0 To 32
+            If i > 0 && (bits & ((1 As UInt32) << (i - 1))) == 0 Then Continue
+            Local acked = (ack - i) & 0xFFFF
+            Local record = Records[acked & (RECORDS - 1)]
+            If record == Null || record.Sequence != acked || record.Resolved Then Continue
+            record.Resolved = True
+            // Only the newest ack times the round trip: an older one may have waited for a lost
+            // ack of its own.
+            If i == 0 Then Measure(now - record.Sent)
+            For part In record.Parts
+                Out[part.Channel].Acked(part)
+            End For
+
+            Loss = Loss * 15.0 / 16.0
+        End For
+    End Method
+
+    // Counts a packet lost.
+    Method Lose(record: SentRecord)
+        record.Resolved = True
+        LostCount += 1
+        Loss = Loss * 15.0 / 16.0 + 1.0 / 16.0
+    End Method
+
+    // Takes a round trip's time, as RFC 6298 smooths it.
+    Method Measure(time: Int64)
+        Local sample = Max(time, 0)
+        If !HasRoundTrip
+            HasRoundTrip = True
+            Smoothed = sample
+            Variance = sample / 2
+            Return
+        End If
+
+        Local difference = Smoothed > sample ? Smoothed - sample : sample - Smoothed
+        Variance = (3 * Variance + difference) / 4
+        Smoothed = (7 * Smoothed + sample) / 8
+    End Method
+
+    // How long a reliable part waits for its ack before it goes again: the round-trip time and
+    // four times its variance, between 20 milliseconds and 2 seconds.
+    Method ResendTime(): Int64
+        Return Clamp(Smoothed + Max(4 * Variance, 1000000), LEAST_RESEND, MOST_RESEND)
+    End Method
+End Class

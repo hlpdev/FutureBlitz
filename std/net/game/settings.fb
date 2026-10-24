@@ -1,0 +1,72 @@
+// std.net.game's settings, which a GameHost and its peers share, and why a connection ends.
+
+Import std.core
+Import std.time.duration
+Import std.net.game.channel
+
+// Why a connection ended: this side ended it, the other did, nothing came for the host's Timeout,
+// or the other host refused it, as full or with settings that don't match this one's.
+Public Enum DisconnectReason
+    NONE, LOCAL, REMOTE, TIMEOUT, FULL, MISMATCH
+End Enum
+
+// What a GameHost does: its channels' kinds, which both sides of a connection must have alike,
+// the most peers that can connect to it, the most bytes a packet takes, the largest message,
+// which both sides must have alike too, the most bytes a connection holds of messages waiting
+// for one before them and of fragments, how long it waits to hear from a peer, how often it sends
+// when it has nothing to, and how often it asks again for a connection.
+Public Struct GameSettings
+    Public Field Channels: ChannelKind[]
+    Public Field MaxPeers: Int
+    Public Field Mtu: Int
+    Public Field MaxMessageSize: Int
+    Public Field MaxBuffered: Int
+    Public Field Timeout: Duration
+    Public Field KeepAlive: Duration
+    Public Field ConnectRetry: Duration
+
+    // A reliable-ordered, a reliable-unordered, and an unreliable channel; 32 peers; packets of
+    // 1200 bytes, which any path takes; messages of up to 1 MiB, with 4 MiB held; and a timeout
+    // of 10 seconds, with a keepalive and a retry each 250 milliseconds.
+    Public New()
+        Channels = [ChannelKind.RELIABLE_ORDERED, ChannelKind.RELIABLE_UNORDERED, ChannelKind.UNRELIABLE]
+        MaxPeers = 32
+        Mtu = 1200
+        MaxMessageSize = 1048576
+        MaxBuffered = 4194304
+        Timeout = Duration.FromNanoseconds(10000000000)
+        KeepAlive = Duration.FromNanoseconds(250000000)
+        ConnectRetry = Duration.FromNanoseconds(250000000)
+    End New
+
+    // The settings above, with channels of those kinds.
+    Public New(channels: ChannelKind[])
+        Self.New()
+        Channels = channels
+    End New
+End Struct
+
+// Panics, at the GameHost's caller, unless settings make sense.
+@PanicsAtCaller
+Package Function Check(settings: GameSettings)
+    If settings.Channels.Count < 1 || settings.Channels.Count > 255
+        Panic("a GameHost takes from 1 to 255 channels, not {settings.Channels.Count}")
+    End If
+
+    If settings.MaxPeers < 1 Then Panic("a GameHost's MaxPeers must be above 0, not {settings.MaxPeers}")
+    If settings.Mtu < 128 || settings.Mtu > 65507
+        Panic("a GameHost's Mtu must be from 128 to 65507 bytes, not {settings.Mtu}")
+    End If
+
+    Local partSize = settings.Mtu - 27
+    If settings.MaxMessageSize < 1 || (settings.MaxMessageSize + partSize - 1) / partSize > 65535
+        Panic("a GameHost's MaxMessageSize must be from 1 to 65535 packets' worth, not " +
+              "{settings.MaxMessageSize}")
+    End If
+
+    If settings.MaxBuffered < 0 Then Panic("a GameHost's MaxBuffered can't be negative")
+    If settings.Timeout.Nanoseconds <= 0 || settings.KeepAlive.Nanoseconds <= 0 ||
+       settings.ConnectRetry.Nanoseconds <= 0
+        Panic("a GameHost's Timeout, KeepAlive, and ConnectRetry must be above 0")
+    End If
+End Function
