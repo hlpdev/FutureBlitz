@@ -1147,9 +1147,10 @@ Step 28's half without streams is built: the addresses, `Url` and `QueryParams`,
   throw a NetError of `HTTP_STATUS` for a status that isn't success. `Http.Get`, `GetText`,
   `GetBytes`, `Head`, `Post`, `Put`, `Patch`, `Delete`, and `Download`, and `GetAsync`,
   `GetTextAsync`, `GetBytesAsync`, `PostAsync`, and `DownloadAsync`, send one request each
-  through a client of their own. HTTP/1.1 only, for now; a request may take as long as it takes
-  but its connecting 30 seconds until std.time's Durations set them; a program that only makes
-  Headers or a Body links no libcurl.
+  through a client of their own. A client's `Timeout`, a Duration, or Null for none, as it is to
+  start, is how long a request may take, and `ConnectTimeout` (30 seconds) how long its
+  connecting may; past either is a TimeoutError. HTTP/1.1 only, for now; a program that only
+  makes Headers or a Body links no libcurl.
 - std.net.http's server: `HttpServer`, whose handlers are Async code on its own loop (no data
   races, and Globals work), with `Workers = n` to spread them over threads once they're
   Sendable-safe; routes as
