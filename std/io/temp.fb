@@ -23,11 +23,12 @@ Public Class TempDir
         Path = Try Made(prefix, 1)
     End New
 
-    // Removes the folder and everything in it, which a second Close leaves alone.
+    // Removes the folder and everything in it, which a second Close leaves alone. One that fails,
+    // as when a file in it is still open on Windows, can be tried again.
     Public Method Close() Throws IOError
         If Closed Then Return
-        Closed = True
         Try Dir.RemoveAll(Path)
+        Closed = True
     End Method
 
     // Closes it, losing an error, as when a file in it is still open on Windows.
@@ -46,11 +47,11 @@ Public Class TempFile
         Path = Try Made(prefix, 0)
     End New
 
-    // Deletes the file, which a second Close leaves alone.
+    // Deletes the file, which a second Close leaves alone. One that fails can be tried again.
     Public Method Close() Throws IOError
         If Closed Then Return
-        Closed = True
         Try File.Delete(Path)
+        Closed = True
     End Method
 
     // Closes it, losing an error.
