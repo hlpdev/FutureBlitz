@@ -7403,8 +7403,11 @@ private:
         for (const auto& [key, field] : keys) {
             const std::optional<std::string> old =
                 saving ? std::nullopt : attribute_text(field, m_analysis.loading.renamed);
-            const auto other = old ? key_of(*old) : keys.end();
-            if (other != keys.end()) {
+            if (!old) {
+                continue;
+            }
+
+            if (const auto other = key_of(*old); other != keys.end()) {
                 return std::format(
                     ", whose Field '{}' was \"{}\" before, which is {} now, so "
                     "Load can't tell the two apart",
@@ -21169,8 +21172,8 @@ private:
         const type_id_t value = m_analysis.loading.value;
         // One that's wrong still throws, as far as a Try around it goes, which then says nothing.
         const auto failed = [&] {
-            if (m_load && !untried()) {
-                check_throwing_call(id, *m_load);
+            if (const std::optional<symbol_id_t> load = m_load; load && !untried()) {
+                check_throwing_call(id, *load);
             }
 
             return type_id_t::INVALID;

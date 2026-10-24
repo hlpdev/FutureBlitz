@@ -7407,6 +7407,8 @@ TEST_CASE("Load<T> makes a T from a Value, and Save a Value of anything Load mak
 }
 
 TEST_CASE("Load<T> and Save say what's wrong with a call", "[sema]") {
+    const std::string untried = "Load<Int>(v): 'Load' can throw ParseError, so calling it needs "
+                                "Try, Try?, or a Try block";
     const std::string load =
         ": Load takes one type argument and a Value, like Load<Settings>(value)";
     const std::string save =
@@ -7437,8 +7439,7 @@ TEST_CASE("Load<T> and Save say what's wrong with a call", "[sema]") {
               "Load<Int>(ByRef v)" + load,
               "Load<Int>(value: v)" + load,
               "5: expected Value, found Int32",
-              "Load<Int>(v): 'Load' can throw ParseError, so calling it needs Try, Try?, or a Try "
-              "block",
+              untried,
               "Load: 'Load' is called, as in Load<T>(value)",
               "Save()" + save,
               "Save<Int, Int>(1)" + save,
@@ -7458,6 +7459,9 @@ TEST_CASE("Load<T> and Save say which part of a type they can't convert, and whe
     const std::string writes = "; it writes numbers, Bool, String, Enums, Value, T?, T[], "
                                "Map<String, V>, and Structs and Classes of them, and what "
                                "implements Saveable";
+    const std::string abstract = ", which is Abstract, so there's no object of it to make";
+    const std::string keyed = "; a Map's keys are an Object's, which are Strings";
+    const std::string atomic = ", which can't be copied; @Skip leaves its Field out";
     CHECK(errors_of("Import std.core\n"
                     "Import std.collections\n"
                     "Struct Inner\n    Field Run: Func(): Int\nEnd Struct\n"
@@ -7481,12 +7485,9 @@ TEST_CASE("Load<T> and Save say which part of a type they can't convert, and whe
                     "Local j = Save<Int[4]>([1, 2, 3, 4])") ==
           errors_t{
               "Holder: Load can't make Func(): Int32, in Holder's Parts[].Run" + makes,
-              "Shape: Load can't make Shape, which is Abstract, so there's no object of it to "
-              "make",
-              "Map<Int, Int>: Load can't make Map<Int32, Int32>; a Map's keys are an Object's, "
-              "which are Strings",
-              "Counter: Load can't make Atomic<Int32>, in Counter's Count, which can't be copied; "
-              "@Skip leaves its Field out",
+              "Shape: Load can't make Shape" + abstract,
+              "Map<Int, Int>: Load can't make Map<Int32, Int32>" + keyed,
+              "Counter: Load can't make Atomic<Int32>, in Counter's Count" + atomic,
               "(Int, Int): Load can't make (Int32, Int32)" + makes,
               "CLong: Load can't make CLong" + makes,
               "h: Save can't write Func(): Int32, in Holder's Parts[].Run" + writes,
@@ -7497,45 +7498,54 @@ TEST_CASE("Load<T> and Save say which part of a type they can't convert, and whe
 
 TEST_CASE("std.core's attributes for Load and Save go on Fields, each where it means something",
           "[sema]") {
-    CHECK(errors_of("Import std.core\n"
-                    "Class Node\nEnd Class\n"
-                    "Struct Size\n    Field W: Int\nEnd Struct\n"
-                    "@Rename(\"f\") Function F()\nEnd Function\n"
-                    "Struct A\n"
-                    "    @Optional Static Field Count: Int = 0\n"
-                    "    @Skip @Rename(\"b\") Field B: Int\n"
-                    "    @Rename(\"c\") @Skip Field C: Int\n"
-                    "    @Flatten @Optional Field D: Size\n"
-                    "    @Renamed(\"old\") @Flatten Field E: Size\n"
-                    "    @Flatten Field F: Int\n"
-                    "    @Flatten Field G: Size?\n"
-                    "    @Optional Field H: Node\n"
-                    "    @Skip Field I: Int[]\n"
-                    "    @Optional Field J: Node?\n"
-                    "    @Skip Field K: Int[] = []\n"
-                    "    @Flatten Field L: Node\n"
-                    "End Struct") ==
-          errors_t{
-              "Rename: @Rename goes on a Struct's or Class's Field, which Load and Save read",
-              "Optional: @Optional goes on a Struct's or Class's Field, which Load and Save read",
-              "Rename: @Skip leaves the Field out, so @Rename doesn't go with it",
-              "Skip: @Skip leaves the Field out, so @Rename doesn't go with it",
-              "Optional: a @Flatten Field's Fields go in the Object with the others, so it has no "
-              "key for @Optional",
-              "Flatten: a @Flatten Field's Fields go in the Object with the others, so it has no "
-              "key for @Renamed",
-              "Flatten: @Flatten goes on a Struct's or Class's Field whose own type is a Struct or "
-              "Class, whose Fields join the others; 'F' is Int32",
-              "Flatten: @Flatten goes on a Struct's or Class's Field whose own type is a Struct or "
-              "Class, whose Fields join the others; 'G' is Size?",
-              "Optional: @Optional leaves 'H' at its default when Load makes A, and Node has no "
-              "zero, so it needs a default of its own",
-              "Skip: @Skip leaves 'I' at its default when Load makes A, and Int32[] has no zero, "
-              "so it needs a default of its own",
-          });
+    const std::string no_key =
+        "a @Flatten Field's Fields go in the Object with the others, so it has no key for @";
+    const std::string flatten = "Flatten: @Flatten goes on a Struct's or Class's Field whose own "
+                                "type is a Struct or Class, whose Fields join the others; ";
+    const std::string no_zero = "has no zero, so it needs a default of its own";
+    CHECK(
+        errors_of("Import std.core\n"
+                  "Class Node\nEnd Class\n"
+                  "Struct Size\n    Field W: Int\nEnd Struct\n"
+                  "@Rename(\"f\") Function F()\nEnd Function\n"
+                  "Struct A\n"
+                  "    @Optional Static Field Count: Int = 0\n"
+                  "    @Skip @Rename(\"b\") Field B: Int\n"
+                  "    @Rename(\"c\") @Skip Field C: Int\n"
+                  "    @Flatten @Optional Field D: Size\n"
+                  "    @Renamed(\"old\") @Flatten Field E: Size\n"
+                  "    @Flatten Field F: Int\n"
+                  "    @Flatten Field G: Size?\n"
+                  "    @Optional Field H: Node\n"
+                  "    @Skip Field I: Int[]\n"
+                  "    @Optional Field J: Node?\n"
+                  "    @Skip Field K: Int[] = []\n"
+                  "    @Flatten Field L: Node\n"
+                  "End Struct") ==
+        errors_t{
+            "Rename: @Rename goes on a Struct's or Class's Field, which Load and Save read",
+            "Optional: @Optional goes on a Struct's or Class's Field, which Load and Save read",
+            "Rename: @Skip leaves the Field out, so @Rename doesn't go with it",
+            "Skip: @Skip leaves the Field out, so @Rename doesn't go with it",
+            "Optional: " + no_key + "Optional",
+            "Flatten: " + no_key + "Renamed",
+            flatten + "'F' is Int32",
+            flatten + "'G' is Size?",
+            "Optional: @Optional leaves 'H' at its default when Load makes A, and Node " + no_zero,
+            "Skip: @Skip leaves 'I' at its default when Load makes A, and Int32[] " + no_zero,
+        });
 
     // Each Field has a key of its own, inherited ones too, and an old key is no other's, which a
     // type that's never loaded or saved needn't have.
+    const auto twice = [](const std::string_view made, const std::string_view fields,
+                          const std::string_view key) {
+        return std::format("{}, whose Fields {} both have the key \"{}\"; @Rename gives one "
+                           "another",
+                           made, fields, key);
+    };
+    const auto before = [](const std::string_view made, const std::string_view field) {
+        return std::format("{}, whose Field {} now, so Load can't tell the two apart", made, field);
+    };
     CHECK(errors_of(
               "Import std.core\n"
               "Class Base\n    Field Name: String\nEnd Class\n"
@@ -7555,16 +7565,11 @@ TEST_CASE("std.core's attributes for Load and Save go on Fields, each where it m
               "Local f = Try Load<Own>(v)\n"
               "Local g = Try Load<Skipped>(v)") ==
           errors_t{
-              "Titled: Load can't make Titled, whose Fields 'Name' and 'Title' both have the key "
-              "\"Name\"; @Rename gives one another",
-              "Titled(): Save can't write Titled, whose Fields 'Name' and 'Title' both have the "
-              "key \"Name\"; @Rename gives one another",
-              "Twice: Load can't make Twice, whose Fields 'B' and 'C' both have the key \"a\"; "
-              "@Rename gives one another",
-              "Old: Load can't make Old, whose Field 'D' was \"a\" before, which is the key of "
-              "'B' now, so Load can't tell the two apart",
-              "Own: Load can't make Own, whose Field 'E' was \"E\" before, which is its own key "
-              "now, so Load can't tell the two apart",
+              twice("Titled: Load can't make Titled", "'Name' and 'Title'", "Name"),
+              twice("Titled(): Save can't write Titled", "'Name' and 'Title'", "Name"),
+              twice("Twice: Load can't make Twice", "'B' and 'C'", "a"),
+              before("Old: Load can't make Old", "'D' was \"a\" before, which is the key of 'B'"),
+              before("Own: Load can't make Own", "'E' was \"E\" before, which is its own key"),
           });
     CHECK(errors_with("Import std.core\n"
                       "Import \"./lib/base\"\n"
@@ -7573,11 +7578,12 @@ TEST_CASE("std.core's attributes for Load and Save go on Fields, each where it m
                       "Local v = Save(m)",
                       { { .path = "lib/base.fb",
                           .text = "Public Class Base\n    Field hidden: Int\nEnd Class\n" } }) ==
-          errors_t{ "m: Save can't write Mine, whose Fields 'hidden' and 'hidden' both have the "
-                    "key \"hidden\"; @Rename gives one another" });
+          errors_t{ twice("m: Save can't write Mine", "'hidden' and 'hidden'", "hidden") });
 }
 
 TEST_CASE("OnLoaded is a Method that Load<T> runs, which takes and gives nothing", "[sema]") {
+    const std::string throws = "OnLoaded: OnLoaded throws only ParseErrors, which Load<T>, which "
+                               "runs it, throws; IOError isn't one";
     CHECK(errors_of("Import std.core\n"
                     "Class A\n"
                     "    Method OnLoaded(x: Int)\n    End Method\n"
@@ -7624,8 +7630,7 @@ TEST_CASE("OnLoaded is a Method that Load<T> runs, which takes and gives nothing
               "OnLoaded: OnLoaded can't be Static; it runs on what Load<T> makes",
               "OnLoaded: OnLoaded can't be Async, since Load<T> runs it to its end",
               "OnLoaded: a Struct's OnLoaded is a ByRef Method, so it can change what was loaded",
-              "OnLoaded: OnLoaded throws only ParseErrors, which Load<T>, which runs it, throws; "
-              "IOError isn't one",
+              throws,
               "OnLoaded: an Extend can't add an OnLoaded; Load<T> runs a type's own",
           });
 }

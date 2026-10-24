@@ -2784,14 +2784,14 @@ TEST_CASE("each type's Load and Save is a function of its own, which calls its p
     REQUIRE(compilation.diagnostics.diagnostics().empty());
     const std::string mir = fb::dump(fb::lower(compilation.ast, compilation.analysis));
     INFO(mir);
-    for (const std::string_view function :
-         { "function Size.Load(Value, Int32) ->", "function Int32.Load(Value, Int32) ->",
-           "function String[].Load(Value, Int32) ->", "function String.Load(Value, Int32) ->",
-           "function Size.Save(Int32) ->", "function Int32.Save(Int32) ->",
-           "function String[].Save(Int32) ->", "function String.Save(Int32) ->" }) {
+    // Each is made once, however many calls need it.
+    const auto made_once = [&](const std::string& function) {
         CHECK(mir.contains(function));
-        // Each is made once, however many calls need it.
         CHECK(mir.find(function) == mir.rfind(function));
+    };
+    for (const std::string_view type : { "Size", "Int32", "String[]", "String" }) {
+        made_once(std::format("function {}.Load(Value, Int32) ->", type));
+        made_once(std::format("function {}.Save(Int32) ->", type));
     }
 }
 
