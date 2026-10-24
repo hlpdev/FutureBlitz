@@ -4,7 +4,15 @@ name: CI
 
 on:
   push:
+    branches: [master, m6-land]
+    paths-ignore: ['docs/**', '**/*.md']
   pull_request:
+  workflow_dispatch:
+
+# A newer push to a branch other than master cancels its older run.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
 
 jobs:
   test:
