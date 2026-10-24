@@ -2575,8 +2575,8 @@ private:
             return temporary(zero_t{ .type = type, .span = span }, type, has_references(type));
         }
 
-        // A Weak<T>'s refers to nothing.
-        if (is_nullable(type) || is_weak(type)) {
+        // A Weak<T>'s refers to nothing, and a Ptr's is Null.
+        if (is_nullable(type) || is_weak(type) || is_pointer(type)) {
             return null_of(type);
         }
 
