@@ -274,6 +274,18 @@ End Try
 Print("[{Try File.ReadText("セーブ.dat")}] {(Try Dir.Entries(".")).Count}")
 Try Dir.SetCurrent(before)
 
+// A file with a long name, whose path is still under Windows' limit, is written atomically as
+// plainly, since its temporary's name is a short one of its own.
+Local longName = ""
+While (root / (longName + "n")).Text.Bytes.Count < 250
+    longName += "n"
+End While
+
+Try File.WriteText(root / longName, "plain")
+Try File.WriteTextAtomic(root / longName, "atomic")
+Print("long [{Try File.ReadText(root / longName)}] {(Try Dir.Entries(root)).Count}")
+Try File.Delete(root / longName)
+
 Print("locks")
 Local lockPath = root / "lock.lck"
 Local held = Try FileLock.Acquire(lockPath)

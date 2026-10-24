@@ -351,17 +351,30 @@ std::pair<std::string, std::string> split_path(const std::string& path) {
     return { path.substr(0, at + 1), path.substr(at + 1) };
 }
 
-/// A name for a temporary file beside `path`'s, which no other call makes.
+/// A name for a temporary file beside `path`'s: ".fb-" and 12 letters and digits mixed from the
+/// process, a count, and the clock, which write_atomic opens only if no file has it. It's short,
+/// so a file whose own name is long can still be written atomically.
 std::string temporary_beside(const std::string& path) {
     static std::atomic<std::uint64_t> made = 0;
-    auto [folder, name] = split_path(path);
+    std::string folder = split_path(path).first;
     if (folder == ".") {
         folder.clear();
     }
 
-    return folder + "." + name + "." + std::to_string(uv_os_getpid()) + "-" +
-           std::to_string(made.fetch_add(1, std::memory_order_relaxed)) + "-" +
-           std::to_string(uv_hrtime() % 1000000) + ".tmp";
+    // SplitMix64's mix, which spreads every bit of each part over the whole.
+    std::uint64_t mixed = (static_cast<std::uint64_t>(uv_os_getpid()) << 32U) ^ uv_hrtime() ^
+                          (made.fetch_add(1, std::memory_order_relaxed) * 0x9E3779B97F4A7C15U);
+    mixed = (mixed ^ (mixed >> 30U)) * 0xBF58476D1CE4E5B9U;
+    mixed = (mixed ^ (mixed >> 27U)) * 0x94D049BB133111EBU;
+    mixed ^= mixed >> 31U;
+    constexpr std::string_view digits = "0123456789abcdefghijklmnopqrstuvwxyz";
+    std::string temporary = folder + ".fb-";
+    for (int i = 0; i < 12; ++i) {
+        temporary += digits[mixed % digits.size()];
+        mixed /= digits.size();
+    }
+
+    return temporary + ".tmp";
 }
 
 /// Writes `bytes` to a new temporary file beside `path`, onto the disk, and renames it over
