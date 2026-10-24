@@ -10,6 +10,8 @@ Import std.io.dir
 Import std.io.file
 Import std.io.path
 
+Const COLON: UInt8 = 58
+
 // Where a Vfs's files come from. Its paths are inside it, with '/' between names, and "" for its
 // root, which is always a folder. What can't be read is an IOError; what isn't there is Null.
 Public Interface VfsSource
@@ -25,6 +27,8 @@ Public Interface VfsSource
 End Interface
 
 // A folder on the disk as a source, which reads it as it's asked, so it sees what changes in it.
+// Nothing outside the folder is in it: by Windows' rules, a name with a ':' in it, which would
+// be a drive or a file's stream, isn't there.
 Public Class FolderSource Implements VfsSource
     Public ReadOnly Field Folder: Path
 
@@ -33,9 +37,10 @@ Public Class FolderSource Implements VfsSource
     End New
 
     Public Method Read(path: String): UInt8[]? Throws IOError
-        If path == "" Then Return Null
+        Local file = OnDisk(path)
+        If path == "" || file == Null Then Return Null
         Try
-            Return File.ReadBytes(Folder / path)
+            Return File.ReadBytes(file)
         Catch e As IOError
             If Missing(e) Then Return Null
             Throw e
@@ -43,8 +48,10 @@ Public Class FolderSource Implements VfsSource
     End Method
 
     Public Method KindAt(path: String): FileKind? Throws IOError
+        Local file = OnDisk(path)
+        If file == Null Then Return Null
         Try
-            Return File.Metadata(path == "" ? Folder : Folder / path).Kind
+            Return File.Metadata(file).Kind
         Catch e As IOError
             If Missing(e) Then Return Null
             Throw e
@@ -52,9 +59,11 @@ Public Class FolderSource Implements VfsSource
     End Method
 
     Public Method List(path: String): (String, FileKind)[]? Throws IOError
+        Local folder = OnDisk(path)
+        If folder == Null Then Return Null
         Try
             Local items: (String, FileKind)[] = []
-            For entry In Dir.Entries(path == "" ? Folder : Folder / path)
+            For entry In Dir.Entries(folder)
                 items.Add((entry.Name(), entry.Kind))
             End For
 
@@ -63,6 +72,13 @@ Public Class FolderSource Implements VfsSource
             If Missing(e) Then Return Null
             Throw e
         End Try
+    End Method
+
+    // Where `path` is on the disk, or Null for a path that has a name no file in the folder can.
+    Method OnDisk(path: String): Path?
+        If path == "" Then Return Folder
+        If Folder.Style == PathStyle.WINDOWS && path.Bytes.IndexOf(COLON) != Null Then Return Null
+        Return Folder / path
     End Method
 End Class
 
@@ -194,9 +210,11 @@ Public Class Vfs
             If folder == Null
                 Local bytes = Try Mounts[i].Source.Read(inner)
                 If bytes != Null Then Return bytes
-            ElseIf inner != ""
+            Else
+                Local file = folder.OnDisk(inner)
+                If inner == "" || file == Null Then Continue
                 Try
-                    Return Await File.ReadBytesAsync(folder.Folder / inner)
+                    Return Await File.ReadBytesAsync(file)
                 Catch e As IOError
                     If !Missing(e) Then Throw e
                 End Try

@@ -107,6 +107,28 @@ Print("  {Failure(deep, "a/b/c/missing.txt")}")
 Print("  {Failure(deep, "a/b/c/levels")}")
 Print("  {Failure(deep, "../escape.txt")}")
 Print("  {Failure(fromFolder, "../mod/levels/two.txt")}")
+// A name below a folder's mount that's a drive by Windows' rules, like "C:", stays in the folder.
+Try File.WriteText(root / "secret.txt", "secret")
+Local outside = (Try (root / "secret.txt").Absolute()).Text
+Try
+    fromFolder.ReadBytes(outside)
+Catch e As IOError
+    Print("  {e.Kind} {fromFolder.Exists(outside)} {(Try fromFolder.KindOf(outside)) == Null}")
+End Try
+
+Try
+    fromFolder.Entries("C:/")
+Catch e As IOError
+    Print("  {e.Kind}")
+End Try
+
+Try
+    Await fromFolder.ReadBytesAsync(outside)
+Catch e As IOError
+    Print("  {e.Kind}")
+End Try
+
+Try File.Delete(root / "secret.txt")
 Try
     deep.Entries("a/b/c/readme.txt")
 Catch e As IOError
