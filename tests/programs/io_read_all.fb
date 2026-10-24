@@ -1,0 +1,32 @@
+// ReadAll takes as long as the bytes it reads: 128 MiB, read 64 KiB at a time, takes a few
+// seconds, well within 20, where it took about 4 times that when each read's bytes were added
+// after copying all the bytes before them. ReadAllText and ReadAllAsync grow the same way, and
+// each goes past a chunk's edge.
+
+Import std.core
+Import std.ffi
+Import std.io
+Import std.time
+
+// Gives `count` 0s, as fast as a Reader can.
+Class Zeros Implements Reader
+    Field Left: Int64
+
+    Public New(count: Int64)
+        Left = count
+    End New
+
+    Method Read(into: Buffer<UInt8>): Int64 Throws IOError
+        Local count = Min(into.Count, Left)
+        Left -= count
+        Return count
+    End Method
+End Class
+
+Local watch = Stopwatch.StartNew()
+Local all = Try ReadAll(Zeros(128 * 1048576))
+Print(all.Count, all[134217727], watch.Elapsed < 20.Seconds)
+For count In [65535, 65536, 65537, 131073]
+    Print(count, (Try ReadAllText(Zeros(count))).Bytes.Count,
+          (Try Await ReadAllAsync(Zeros(count))).Count)
+End For
