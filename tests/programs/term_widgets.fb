@@ -1,0 +1,228 @@
+// std.term's line widgets: tables and boxes of each border, with alignments, wide characters,
+// several lines a cell, and a width they wrap to, plain and in color; and progress bars and
+// spinners drawn on a fake terminal, interactive or not, as the time a test gives them goes by.
+Import std.core
+Import std.text
+Import std.time
+Import std.term
+
+Function Shown(text: String): String => text.Replace("\u{1b}", "\\e").Replace("\r", "\\r")
+
+// The time n milliseconds from the start.
+Function At(milliseconds: Int64): Instant => Instant.FromNanoseconds(milliseconds * 1000000)
+
+Local table = Table("Name", "Size", "Kind")
+table.AddRow("a.txt", "12", "text")
+table.AddRow("中文.png", "4096", "image\nlossless")
+table.AddRow("👍🏽")
+table.AddRow("x", "1", "y", "extra")
+table.Align(1, Alignment.RIGHT)
+table.Align(3, Alignment.CENTER)
+Print(table.RowCount)
+For border In [BorderStyle.ROUNDED, BorderStyle.SINGLE, BorderStyle.DOUBLE, BorderStyle.HEAVY,
+               BorderStyle.ASCII, BorderStyle.NONE]
+    table.Border = border
+    Print("{border}:")
+    Print(table.Render())
+End For
+
+table.Border = BorderStyle.ASCII
+table.MaxWidth = 26
+Print("in 26 columns:")
+Print(table.Render())
+table.MaxWidth = 5
+Print("in 5, which it can't be:")
+Print(table.Render())
+table.MaxWidth = 0
+table.Padding = 0
+Print("without padding:")
+Print(table.Render())
+table.Padding = 2
+table.Border = BorderStyle.SINGLE
+Local small = Table("Centered", "R")
+small.Align(0, Alignment.CENTER)
+small.Align(1, Alignment.RIGHT)
+small.AddRow("a", "bb")
+small.AddRow("\u{1b}[31mred\u{1b}[0m", "x")
+Print(small.Render())
+small.BorderColor = Style(TermColor.Blue)
+Print(Shown(small.Render(ColorLevel.BASIC)))
+small.HeaderStyle = Style()
+small.Border = BorderStyle.NONE
+Print(Shown(small.Render(ColorLevel.BASIC)))
+
+Print("[" + Table().Render() + "]")
+Local headed = Table("Only", "a header")
+Print(headed.Render())
+headed.Border = BorderStyle.NONE
+Print(headed.Render())
+Local unheaded = Table()
+unheaded.AddRow("no", "header")
+unheaded.AddRow("at", "all")
+Print(unheaded.Render())
+unheaded.Print()
+Local drawn = FakeTerminal(40, 10, ColorLevel.BASIC)
+unheaded.Draw(drawn)
+Print(Shown(drawn.TakeOutput()), drawn.Flushes)
+
+// Boxes.
+Local box = Box("Hello, world!\nSecond line", "Greeting")
+Print(box.Render())
+box.Width = 10
+box.Border = BorderStyle.DOUBLE
+Print(box.Render())
+box.Width = 3
+Print(box.Render())
+box.Width = 20
+box.Align = Alignment.CENTER
+box.Border = BorderStyle.HEAVY
+box.Title = "A title far longer than the box"
+Print(box.Render())
+box.Align = Alignment.RIGHT
+box.Padding = 0
+box.Title = ""
+box.Border = BorderStyle.ASCII
+Print(box.Render())
+Print(Box("").Render())
+Print(Box("", "Empty").Render())
+Print(Box("wide 中文", "", ).Render())
+Local colored = Box("text", "Title")
+colored.BorderColor = Style(TermColor.Yellow)
+colored.TitleStyle = Style().Bold()
+Print(Shown(colored.Render(ColorLevel.INDEXED)))
+colored.Border = BorderStyle.NONE
+Print(colored.Render())
+colored.Print()
+colored.Draw(drawn)
+Print(Shown(drawn.TakeOutput()))
+
+Print("[{Aligned("ab", 5, Alignment.LEFT)}] [{Aligned("ab", 5, Alignment.CENTER)}] [{Aligned("ab", 5, Alignment.RIGHT)}]")
+Print("[{Aligned("中文", 5, Alignment.CENTER)}] [{Aligned("long", 2, Alignment.RIGHT)}] [{Shown(Aligned("\u{1b}[1mb\u{1b}[0m", 3, Alignment.RIGHT))}]")
+Print("[{Truncated("hello", 5)}] [{Truncated("hello", 4)}] [{Truncated("中文字", 4)}] [{Truncated("中文字", 3)}]")
+Print("[{Truncated("hello", 1)}] [{Truncated("hello", 0)}] [{Truncated("hello", -1)}] [{Truncated("e\u{301}e\u{301}e\u{301}", 2)}]")
+
+// A progress bar on an interactive terminal, drawn again in place no more often than its
+// Interval, but at its end.
+Local fake = FakeTerminal(60, 10, ColorLevel.NONE)
+Local bar = ProgressBar(200, fake, At(0))
+bar.Label = "Copying"
+bar.Set(50, At(1000))
+bar.Set(51, At(1050))
+bar.Add(9, At(1099))
+bar.Add(1, At(1100))
+Print(Shown(fake.TakeOutput()))
+bar.Characters = "█▉▊▋▌▍▎▏ "
+bar.Set(150, At(3000))
+bar.Set(199, At(3010))
+bar.Set(200, At(3020))
+Print(Shown(fake.TakeOutput()), bar.Value, bar.IsFinished)
+bar.PrintAbove("a line above", At(3030))
+bar.Finish(At(4000))
+bar.Finish(At(5000))
+bar.Set(10, At(6000))
+Print(Shown(fake.TakeOutput()), bar.IsFinished, fake.Flushes)
+
+// Each part, and the bar's characters, rendered an hour in.
+Local quietly = FakeTerminal(60, 10, ColorLevel.NONE, False)
+Local parts = ProgressBar(3600, quietly, At(0))
+parts.Parts = ProgressParts.PERCENT | ProgressParts.COUNT | ProgressParts.ELAPSED |
+              ProgressParts.ETA | ProgressParts.RATE
+parts.Width = 10
+parts.Characters = "#>-"
+For value In [0, 1, 1799, 3599, 3600, 4000, -5]
+    parts.Set(value, At(0))
+    Print(value, "[" + parts.Render(At(3600000)) + "]")
+End For
+
+Print("[" + parts.Render(At(7200000 + 61000)) + "]", "[" + parts.Render(At(-1000)) + "]")
+parts.Parts = ProgressParts.NONE
+parts.Characters = "#"
+parts.Set(1800, At(0))
+Print("[" + parts.Render(At(0)) + "]")
+parts.Characters = ""
+Print("[" + parts.Render(At(0)) + "]")
+parts.Characters = "█▓▒░ "
+For value In [0, 360, 900, 1440, 1800, 3600]
+    parts.Set(value, At(0))
+    Print("[" + parts.Render(At(0)) + "]")
+End For
+
+Local nothing = ProgressBar(0, fake, At(0))
+Print(nothing.Render(At(0)))
+Print("drawn meanwhile: [{quietly.Output}] [{Shown(fake.TakeOutput())}]")
+
+// A line too narrow for the label shortens it, and then the bar keeps 10 columns, or what's left,
+// and then the rest is cut, so the line never wraps.
+For columns In [80, 40, 30, 22, 16, 8]
+    Local narrow = FakeTerminal(columns, 5, ColorLevel.NONE)
+    Local labeled = ProgressBar(10, narrow, At(0))
+    labeled.Label = "A long label for a bar"
+    labeled.Set(5, At(1000))
+    Print(columns, "[" + labeled.Render(At(1000)) + "]")
+End For
+
+// In color.
+Local colors = FakeTerminal(50, 5, ColorLevel.BASIC)
+Local green = ProgressBar(4, colors, At(0))
+green.Parts = ProgressParts.PERCENT
+green.Width = 8
+green.Set(1, At(0))
+Print(Shown(colors.TakeOutput()))
+
+// On a pipe or a file, a bar is drawn once, at its Finish, and lines above it as they come.
+Local piped = FakeTerminal(60, 10, ColorLevel.NONE, False)
+Local quiet = ProgressBar(3, piped, At(0))
+quiet.Set(1, At(1000))
+quiet.PrintAbove("logged", At(1500))
+quiet.Set(3, At(2000))
+quiet.Finish(At(2000))
+Print(Shown(piped.TakeOutput()))
+
+// To stderr by default, which is a pipe here.
+Local console = ProgressBar(3)
+console.Width = 10
+console.Add()
+console.Add(2)
+console.Finish()
+Flush()
+
+// A spinner turns a frame each Interval, drawn when its frame or message changes.
+Local spinner = Spinner("Working", fake, At(0))
+spinner.Tick(At(10))
+spinner.Tick(At(79))
+spinner.Tick(At(80))
+spinner.Tick(At(170))
+spinner.Message = "Still working"
+spinner.Tick(At(170))
+spinner.Tick(At(800))
+spinner.Succeed("Done")
+spinner.Tick(At(900))
+spinner.Fail("too late")
+Print(Shown(fake.TakeOutput()), spinner.IsFinished)
+Local custom = Spinner("", fake, At(0))
+custom.Frames = ["-", "\\", "|", "/"]
+custom.Interval = 1.Seconds
+For second In [0, 1, 2, 3, 4, 5]
+    custom.Tick(At(second * 1000))
+End For
+
+custom.Fail("failed")
+Print(Shown(fake.TakeOutput()))
+Local still = Spinner("no frames", fake, At(0))
+still.Frames = []
+still.Tick(At(100))
+still.Finish("finished")
+Print(Shown(fake.TakeOutput()))
+Local spun = Spinner("colors", colors, At(0))
+spun.Tick(At(0))
+spun.Succeed("ok")
+Local failed = Spinner("colors", colors, At(0))
+failed.Fail("no")
+Print(Shown(colors.TakeOutput()))
+Local pipedSpinner = Spinner("quiet", piped, At(0))
+pipedSpinner.Tick(At(100))
+pipedSpinner.Succeed("piped")
+Print(Shown(piped.TakeOutput()))
+Local errors = Spinner("to stderr")
+errors.Tick()
+errors.Finish("spun on stderr")
