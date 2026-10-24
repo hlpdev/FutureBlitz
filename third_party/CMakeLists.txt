@@ -619,15 +619,16 @@ fb_notice(pcre2 "${notices}")
 set(FB_PCRE2_NOTICE "${FB_PCRE2_NOTICE}" PARENT_SCOPE)
 set(FB_PCRE2_LICENSES "the BSD-3-Clause license, with PCRE2's exception" PARENT_SCOPE)
 
-# md4c: std.text.markdown, CommonMark with GitHub's tables, task lists, strikethrough, and
-# autolinks, to HTML and to the blocks and spans it parses, from its three C files. Its own CMake,
-# which would build md2html too, isn't used: SOURCE_SUBDIR names a folder it doesn't have, so
-# FetchContent only fetches it.
+# md4c: std.text.markdown, CommonMark with tables, task lists, strikethrough, and autolinks, to
+# HTML and to the blocks and spans it parses, from its three C files. Its own CMake, which would
+# build md2html too, isn't used: SOURCE_SUBDIR names a folder it doesn't have, so FetchContent
+# only fetches it. patch_md4c.cmake makes its HTML have what the tree has, where they'd differ.
 set(FB_MD4C_VERSION 0.5.2)
 FetchContent_Declare(
   md4c
   URL https://github.com/mity/md4c/archive/refs/tags/release-${FB_MD4C_VERSION}.tar.gz
   URL_HASH SHA256=55d0111d48fb11883aaee91465e642b8b640775a4d6993c2d0e7a8092758ef21
+  PATCH_COMMAND ${CMAKE_COMMAND} -P "${CMAKE_CURRENT_SOURCE_DIR}/patch_md4c.cmake"
   SOURCE_SUBDIR no-cmake
   SYSTEM
 )
