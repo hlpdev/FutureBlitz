@@ -1148,6 +1148,8 @@ void fb_scheduler_finish() {
     scheduler_t& main = main_scheduler();
     main.run_until([&main] { return main.empty() || main.stuck(); });
     main.end();
+    // The program's code is done: what runs only meanwhile, like the signals' handlers, stops.
+    fb::runtime::run_code_end();
 }
 
 void fb_scheduler_end() {

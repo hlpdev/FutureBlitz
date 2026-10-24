@@ -225,7 +225,31 @@ std::array<void (*)(), 8>& finishers() {
     return instance;
 }
 
+/// What at_code_end() was given, which any thread can add to.
+std::array<std::atomic<void (*)()>, 8>& code_enders() {
+    static std::array<std::atomic<void (*)()>, 8> instance{};
+    return instance;
+}
+
 } // namespace
+
+void at_code_end(void (*done)()) {
+    for (std::atomic<void (*)()>& slot : code_enders()) {
+        void (*expected)() = nullptr;
+        if (slot.compare_exchange_strong(expected, done, std::memory_order_acq_rel) ||
+            expected == done) {
+            return;
+        }
+    }
+}
+
+void run_code_end() {
+    for (const std::atomic<void (*)()>& slot : std::views::reverse(code_enders())) {
+        if (void (*const done)() = slot.load(std::memory_order_acquire); done != nullptr) {
+            done();
+        }
+    }
+}
 
 void at_finish(void (*stop)()) {
     for (void (*&slot)() : finishers()) {
