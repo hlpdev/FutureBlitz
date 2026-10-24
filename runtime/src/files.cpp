@@ -200,9 +200,23 @@ private:
     uv_fs_t m_request{};
 };
 
+/// `call`'s `result`, or a Windows error libuv doesn't know as the one it is: replacing or
+/// shortening a mapped file is busy.
+std::int64_t known_error(const uv_fs_t* call, const std::int64_t result) {
+#ifdef _WIN32
+    if (result == UV_UNKNOWN && uv_fs_get_system_error(call) == ERROR_USER_MAPPED_FILE) {
+        return UV_EBUSY;
+    }
+#else
+    static_cast<void>(call);
+#endif
+    return result;
+}
+
 std::int64_t open_file(const std::string& path, const int flags, const int mode) {
     fs_t call;
-    return uv_fs_open(nullptr, call.get(), path.c_str(), flags, mode, nullptr);
+    return known_error(call.get(),
+                       uv_fs_open(nullptr, call.get(), path.c_str(), flags, mode, nullptr));
 }
 
 void close_file(const uv_file file) {

@@ -22,7 +22,8 @@ End Extern
 // reference goes. Writing to a writable one changes the file, which Flush puts onto the disk. It
 // has the bytes the file had when it was mapped: one that grows meanwhile isn't mapped again, and
 // on POSIX, reading what a file that another program shortens no longer has ends the program, as
-// it would C's. On Windows, a mapped file can't be deleted until it's closed.
+// it would C's. On Windows, a mapped file can't be replaced or shortened until it's closed, and
+// a write that would is BUSY, but it can be deleted.
 Public Class MappedFile
     Public ReadOnly Field Path: Path
     Public ReadOnly Field IsWritable: Bool

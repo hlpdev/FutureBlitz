@@ -338,6 +338,20 @@ Try writing.Flush()
 Print("{Try File.ReadBytes(mapPath)} {writing[1]}")
 writing.Close()
 Print("{Try File.ReadBytes(mapPath)}")
+// On Windows, a mapped file can't be replaced until it's closed, which is BUSY; on POSIX it can,
+// though what the map has past its new end isn't read.
+Try File.WriteBytes(root / "busy.bin", [1, 2, 3, 4])
+Local busyMap = Try MappedFile(root / "busy.bin")
+Local replaced = "fine"
+Try
+    File.WriteBytes(root / "busy.bin", [9])
+Catch e As IOError
+    replaced = "{e.Kind}"
+End Try
+
+busyMap.Close()
+Try File.Delete(root / "busy.bin")
+Print("{replaced == "BUSY" || replaced == "fine"} {Try File.ReadBytes(mapPath)}")
 Local empty = Try MappedFile(root / "empty.bin", True)
 Print("{empty.Count()} {empty.ReadBytes(0, 0)}")
 empty.WriteBytes(0, [])
