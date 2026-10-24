@@ -21,6 +21,7 @@
 #include <string>
 #include <string_view>
 #include <sys/stat.h>
+#include <thread>
 #include <utility>
 #include <uv.h>
 #include <vector>
@@ -896,6 +897,23 @@ void run_async(fb_task_t* task, void* request, const work_t work) {
     });
 }
 
+/// Runs a request's work on a thread of its own, then finishes `task` with what it gives, for
+/// work that can wait as long as another program likes, like a lock, which would keep one of
+/// libuv's few threads from every other Async call.
+void run_on_thread(fb_task_t* task, void* request, const work_t work) {
+    auto* self = static_cast<request_t*>(request);
+    self->work = work;
+    self->task = task;
+    // The thread holds the request and the Task until it's done.
+    self->owners.fetch_add(1, std::memory_order_relaxed);
+    fb_object_retain(&task->header);
+    fb::runtime::start_request(task);
+    std::thread([self] {
+        self->result = self->work(*self);
+        finish(self);
+    }).detach();
+}
+
 request_t& request_of(void* request) {
     return *static_cast<request_t*>(request);
 }
@@ -1301,7 +1319,11 @@ void fb_io_lock_acquire_async(fb_task_t* task, void* request, const fb_string_t*
     self.path = view_of(path);
     self.flag = shared;
     self.number = wait;
-    run_async(task, request, acquire_lock);
+    if (wait != 0) {
+        run_on_thread(task, request, acquire_lock);
+    } else {
+        run_async(task, request, acquire_lock);
+    }
 }
 
 std::int32_t fb_io_lock_held(const void* lock) {

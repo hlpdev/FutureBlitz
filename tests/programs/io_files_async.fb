@@ -91,6 +91,22 @@ Print(Missing(root / "ä").Wait())
 // The blocking calls work on any thread, a Spawn's too, each with its own request.
 Print("{Await ReadElsewhere(root / "atomic.txt")} {Await ReadElsewhere(root / "missing.txt")}")
 
+// Awaits for a lock another holds wait on threads of their own, so they keep no other Async
+// call waiting, however many there are.
+Local blocking = Try FileLock.Acquire(root / "lock")
+Local waits = [FileLock.AcquireSharedAsync(root / "lock")]
+For i = 1 Until 6
+    waits.Add(FileLock.AcquireSharedAsync(root / "lock"))
+End For
+
+Try Await File.WriteTextAsync(root / "unlocked.txt", "written while they wait")
+Print("[{Try Await File.ReadTextAsync(root / "unlocked.txt")}] {waits[0].IsDone()}")
+blocking.Close()
+For wait In waits
+    (Try Await wait).Close()
+End For
+
+Print("{waits.Count} waited")
 Local held = Try Await FileLock.AcquireAsync(root / "lock")
 Print("{held.IsHeld()} {(Try FileLock.TryAcquire(root / "lock")) == Null}")
 held.Close()
