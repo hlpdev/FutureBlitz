@@ -14540,6 +14540,13 @@ TEST_CASE("a pattern known at compile time that PCRE2 can't compile is an error 
               "\": the pattern isn't valid: using \\C is disabled by the application",
           });
 
+    // A literal the lexer reported, with an escape that isn't one or without its closing quote,
+    // gets no error for the pattern it doesn't say.
+    CHECK(errors_of(imports + "Local x = Regex(\"\\Qa(\\E\")") ==
+          errors_t{ "\\Q: unknown escape sequence", "\\E: unknown escape sequence" });
+    CHECK(errors_of(imports + "Local y = Regex(\"ab(") ==
+          errors_t{ "\": unterminated string", ": expected ')', found end of file" });
+
     // In a Global's or a Static Field's value too, with the flags left to their default.
     CHECK(errors_of(imports + "Global Words = Regex(\"[a-z\")\n"
                               "Class Lexer\n"

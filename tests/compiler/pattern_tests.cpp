@@ -7,6 +7,7 @@
 #include <utility>
 
 using fb::check_pattern;
+using fb::literal_is_whole;
 using fb::literal_place;
 
 namespace {
@@ -65,4 +66,17 @@ TEST_CASE("literal_place finds a literal's character in its source", "[pattern]"
     // A multi-line string, or one with an interpolation, has no place to show.
     CHECK_FALSE(literal_place("\"\"\"\n    (\n    \"\"\"", 0).has_value());
     CHECK_FALSE(literal_place(R"("({x}")", 1).has_value());
+}
+
+TEST_CASE("literal_is_whole tells a literal the lexer took from one it reported", "[pattern]") {
+    CHECK(literal_is_whole(R"("a(\\d\"b")"));
+    CHECK(literal_is_whole(R"(r"\Qa(\E")"));
+    CHECK(literal_is_whole(R"("")"));
+    // An escape that isn't one, and a literal without its closing quote, even one an escape
+    // took.
+    CHECK_FALSE(literal_is_whole(R"("\Qa(\E")"));
+    CHECK_FALSE(literal_is_whole(R"("ab()"));
+    CHECK_FALSE(literal_is_whole(R"("ab\")"));
+    CHECK_FALSE(literal_is_whole(R"(r"ab()"));
+    CHECK_FALSE(literal_is_whole(R"(")"));
 }

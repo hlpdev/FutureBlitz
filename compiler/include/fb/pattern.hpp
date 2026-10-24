@@ -34,4 +34,8 @@ struct literal_place_t {
 [[nodiscard]] std::optional<literal_place_t> literal_place(std::string_view source,
                                                            std::size_t offset);
 
+/// Whether a string literal, as written in `source` with its quotes, is one the lexer took
+/// without an error: it ends in its closing quote, and each escape of a regular one is one.
+[[nodiscard]] bool literal_is_whole(std::string_view source);
+
 } // namespace fb

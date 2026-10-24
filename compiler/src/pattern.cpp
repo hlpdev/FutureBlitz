@@ -127,4 +127,31 @@ std::optional<literal_place_t> literal_place(const std::string_view source,
     return literal_place_t{ .begin = close, .length = 1 };
 }
 
+bool literal_is_whole(const std::string_view source) {
+    const bool raw = source.starts_with('r');
+    const std::size_t open = raw ? 2 : 1;
+    if (source.size() < open + 1 || !source.ends_with('"')) {
+        return false;
+    }
+
+    // The last quote closes it unless an escape takes it.
+    const std::size_t close = source.size() - 1;
+    std::size_t at = open;
+    while (at < close) {
+        if (raw || source[at] != '\\') {
+            ++at;
+            continue;
+        }
+
+        const escape_t escape = decode_escape(source, at);
+        if (!escape.error.empty()) {
+            return false;
+        }
+
+        at += escape.length;
+    }
+
+    return at == close;
+}
+
 } // namespace fb

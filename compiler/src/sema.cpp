@@ -21105,7 +21105,9 @@ private:
         const expr_id_t argument = *arguments.front();
         const std::optional<const_value_t>& pattern = info(argument).value;
         const auto* written = pattern ? std::get_if<std::string>(&pattern->data) : nullptr;
-        if (written == nullptr) {
+        // A literal the lexer reported isn't the text it means, so there's nothing to check.
+        const bool literal = std::holds_alternative<string_expr_t>(m_ast.get(argument).node);
+        if (written == nullptr || (literal && !literal_is_whole(text(span_of(argument))))) {
             return;
         }
 
