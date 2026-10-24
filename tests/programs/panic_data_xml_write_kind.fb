@@ -1,6 +1,5 @@
 // A document's root is an element, and Write panics where it's given text.
 Import std.core
-Import std.data.value
 Import std.data.xml
 
 Print(Xml.Write(XmlNode("a"), 0, False))

@@ -1,10 +1,9 @@
 // Each of CSV's records is an Object, and WriteRecords panics where one isn't.
 Import std.core
-Import std.data.value
 Import std.data.csv
 
-Local records = Value.NewArray()
-records.Add(Value.NewObject())
+Local records = Value.Array()
+records.Add(Value.Object())
 Print(Csv.WriteRecords(records) == "\n\n")
 records.Add(Value("loose"))
 Print(Csv.WriteRecords(records))

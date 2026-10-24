@@ -10,6 +10,12 @@ Package Extern "runtime"
                            ByRef value: Float64): Int32
 End Extern
 
+// An Object's Value for key, or Null's Value when it has none.
+Package Function EntryOf(value: Value, key: String): Value => value[key] ?? Value()
+
+// An Array's elements, in a new array, or none for another kind.
+Package Function ElementsOf(value: Value): Value[] => value.AsArray() ?? []
+
 // The bytes from start up to finish as a String.
 Package Function TextOf(bytes: UInt8[], start: Int, finish: Int): String
     Return fb_data_text(bytes, start, finish)

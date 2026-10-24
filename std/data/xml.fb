@@ -7,7 +7,6 @@
 Import std.core
 Import std.collections
 Import std.data.text
-Import std.data.value
 Import std.data.xml_reader
 Import std.data.xml_path
 
@@ -239,19 +238,19 @@ Public Struct Xml
     Public Static Method ToValue(element: XmlNode): Value
         Local children = element.Elements()
         If element.Attributes.Count == 0 && children.Count == 0 Then Return Value(element.Text)
-        Local value = Value.NewObject()
+        Local value = Value.Object()
         For key, text In element.Attributes
             value["@" + key] = Value(text)
         End For
         For child In children
             Local item = ToValue(child)
-            Local before = value.Get(child.Name)
+            Local before = value[child.Name]
             If before == Null
                 value[child.Name] = item
             ElseIf before.Kind == ValueKind.ARRAY
                 before.Add(item)
             Else
-                Local items = Value.NewArray()
+                Local items = Value.Array()
                 items.Add(before)
                 items.Add(item)
                 value[child.Name] = items
@@ -269,7 +268,7 @@ Public Struct Xml
 
     // A new element named name of value, as ToValue gives a Value: an Object's keys with '@'
     // before them its attributes, "#text" its text, and the rest its child elements, an Array's
-    // items each a child of its key's name; another Value its text, an Int's, a Float's, or a
+    // items each a child of its key's name; another Value its text, an integer's, a Double's, or a
     // Bool's as its text, and Null's none. Panics when name or a key isn't an XML name, an
     // attribute's value or an Array's item is an Array or an Object, or value is an Array.
     @PanicsAtCaller
@@ -280,14 +279,14 @@ Public Struct Xml
                 Panic("an element is an Object or a value, not an Array, which is its key's elements")
             Case ValueKind.OBJECT
                 For key In value.Keys()
-                    Local item = value[key]
+                    Local item = EntryOf(value, key)
                     Local bytes = key.Bytes
                     If key == "#text"
                         element.AddText(ScalarText(item))
                     ElseIf bytes.Count > 0 && bytes[0] == 64
                         element.SetAttribute(TextOf(bytes, 1, bytes.Count), ScalarText(item))
                     ElseIf item.Kind == ValueKind.ARRAY
-                        For part In item.Values()
+                        For part In ElementsOf(item)
                             If part.Kind == ValueKind.ARRAY
                                 Panic("an Array's items are each an element, not an Array")
                             End If
@@ -312,13 +311,15 @@ Public Struct Xml
             Case ValueKind.NULL
                 Return ""
             Case ValueKind.BOOL
-                Return value.AsBool() ? "true" : "false"
+                Return value.AsBool() ?? False ? "true" : "false"
             Case ValueKind.INT
-                Return "{value.AsInt()}"
-            Case ValueKind.FLOAT
-                Return "{value.AsFloat()}"
+                Return "{value.AsInt64() ?? 0}"
+            Case ValueKind.UINT
+                Return "{value.AsUInt64() ?? 0}"
+            Case ValueKind.DOUBLE
+                Return "{value.AsDouble() ?? 0.0}"
             Case ValueKind.STRING
-                Return value.AsString()
+                Return value.AsString() ?? ""
             Default
                 Panic("an attribute's value or an element's text is a String, a number, a Bool, " +
                       "or Null, not {value.Kind}")

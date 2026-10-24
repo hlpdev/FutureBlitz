@@ -1,3 +1,3 @@
 [fine]
 
-panic: an INI section's name can't hold ']' or a line break, as "bad]" does at panic_data_ini_section.fb:10:7
+panic: an INI section's name can't hold ']' or a line break, as "bad]" does at panic_data_ini_section.fb:9:7

@@ -1,0 +1,10 @@
+// TOML has no bytes, and Write panics where it's given them.
+Import std.core
+Import std.data.toml
+
+Local document = Value.Object()
+document["text"] = Value("x")
+Print(Toml.Write(document))
+Local bytes: UInt8[] = [1, 2]
+document["bytes"] = Value(bytes)
+Print(Toml.Write(document))

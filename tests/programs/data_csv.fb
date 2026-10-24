@@ -4,7 +4,6 @@
 
 Import std.core
 Import std.collections
-Import std.data.value
 Import std.data.csv
 
 Function Show(rows: String[][])
@@ -61,12 +60,12 @@ Print((Try Csv.Read(written)) == rows)
 Print(Csv.Write([["a;b", "c,d"]], ";"))
 
 // WriteRecords takes every key the records have, in order, and writes a field's text.
-Local people = Value.NewArray()
-Local ada = Value.NewObject()
+Local people = Value.Array()
+Local ada = Value.Object()
 ada["name"] = Value("Ada")
 ada["age"] = Value(36 As Int64)
 people.Add(ada)
-Local grace = Value.NewObject()
+Local grace = Value.Object()
 grace["name"] = Value("Grace")
 grace["admiral"] = Value(True)
 grace["height"] = Value(1.65)

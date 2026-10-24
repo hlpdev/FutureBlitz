@@ -1,6 +1,5 @@
 // A processing instruction can't be named xml, and Instruction panics where it's given that name.
 Import std.core
-Import std.data.value
 Import std.data.xml
 
 Local writer = XmlWriter()

@@ -1,7 +1,6 @@
 // A TOML document is a table, so Write panics where it's given a Value that isn't an Object.
 Import std.core
-Import std.data.value
 Import std.data.toml
 
-Print(Toml.Write(Value.NewObject()).Bytes.Count)
-Print(Toml.Write(Value.NewArray()))
+Print(Toml.Write(Value.Object()).Bytes.Count)
+Print(Toml.Write(Value.Array()))

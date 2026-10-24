@@ -1,1 +1,1 @@
-panic: a comment can't hold "--", or end with '-' at panic_data_xml_writer_comment.fb:8:1
+panic: a comment can't hold "--", or end with '-' at panic_data_xml_writer_comment.fb:7:1

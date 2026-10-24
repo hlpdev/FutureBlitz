@@ -1,6 +1,5 @@
 // A processing instruction's target is an XML name, and NewInstruction panics at another.
 Import std.core
-Import std.data.value
 Import std.data.xml
 
 Print(XmlNode.NewInstruction("ok", "x").Name)

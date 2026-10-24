@@ -1,0 +1,3 @@
+text = "x"
+
+panic: TOML has no bytes at panic_data_toml_bytes.fb:10:7

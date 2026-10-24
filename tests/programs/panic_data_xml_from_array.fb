@@ -1,7 +1,6 @@
 // An element is an Object or a value, and FromValue panics where it's given an Array.
 Import std.core
-Import std.data.value
 Import std.data.xml
 
 Print(Xml.FromValue("a", Value(1 As Int64)))
-Print(Xml.FromValue("a", Value.NewArray()))
+Print(Xml.FromValue("a", Value.Array()))

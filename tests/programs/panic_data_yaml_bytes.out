@@ -1,0 +1,3 @@
+text: x
+
+panic: YAML's core schema has no bytes at panic_data_yaml_bytes.fb:10:7

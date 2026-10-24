@@ -1,7 +1,6 @@
 // An INI file is an Object, and Write panics where it's given another Value.
 Import std.core
-Import std.data.value
 Import std.data.ini
 
-Print(Ini.Write(Value.NewObject()) == "")
+Print(Ini.Write(Value.Object()) == "")
 Print(Ini.Write(Value("text")))

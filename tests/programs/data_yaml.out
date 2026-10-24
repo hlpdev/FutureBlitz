@@ -13,21 +13,26 @@
 [0o17] INT 15
 [0x1F] INT 31
 [0x] STRING "0x"
-[1.5] FLOAT 1.5
-[-0.5] FLOAT -0.5
-[.5] FLOAT 0.5
-[1.] FLOAT 1
-[1e3] FLOAT 1000
-[-1.5E-3] FLOAT -0.0015
-[.inf] FLOAT inf
-[-.Inf] FLOAT -inf
-[+.INF] FLOAT inf
-[.nan] FLOAT nan
-[.NaN] FLOAT nan
+[1.5] DOUBLE 1.5
+[-0.5] DOUBLE -0.5
+[.5] DOUBLE 0.5
+[1.] DOUBLE 1.0
+[1e3] DOUBLE 1000.0
+[-1.5E-3] DOUBLE -0.0015
+[.inf] DOUBLE inf
+[-.Inf] DOUBLE -inf
+[+.INF] DOUBLE inf
+[.nan] DOUBLE nan
+[.NaN] DOUBLE nan
 [0.1.2] STRING "0.1.2"
 [12:30] STRING "12:30"
 [9223372036854775807] INT 9223372036854775807
-[9223372036854775808] FLOAT 9223372036854775808
+[9223372036854775808] UINT 9223372036854775808
+[18446744073709551616] DOUBLE 18446744073709551616.0
+[-9223372036854775808] INT -9223372036854775808
+[-9223372036854775809] DOUBLE -9223372036854775808.0
+[0xFFFFFFFFFFFFFFFF] UINT 18446744073709551615
+[0x10000000000000000] DOUBLE 18446744073709551616.0
 [text] STRING "text"
 [two words] STRING "two words"
 single = "it's 'quoted' # not a comment"
@@ -40,7 +45,7 @@ keep = "kept\n\n"
 indicated = " one more space"
 {"base": {"name": "base", "list": [1, 2, {"three": 3}]}, "copy": {"name": "base", "list": [1, 2, {"three": 3}]}, "nested": ["a", ["b", "c"], {"key": "value", "other": ["x", "y"]}, null], "empty map": {}, "empty list": [], "quoted key": 1, "explicit key": "explicit value", "1": "integer key"}
 3
-{"a": "42", "b": 7, "c": 1, "d": true, "e": null, "f": "12", "g": "3", "h": [1], "i": {"k": "v"}}
+{"a": "42", "b": 7, "c": 1.0, "d": true, "e": null, "f": "12", "g": "3", "h": [1], "i": {"k": "v"}}
 4 "a" "b" ["c"] null
 0 0 null
 SYNTAX 2 1 the mapping has the key "a" twice at line 2, column 1

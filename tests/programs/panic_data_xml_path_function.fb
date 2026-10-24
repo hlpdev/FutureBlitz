@@ -1,6 +1,5 @@
 // XmlPath knows its functions, and Query panics at one it doesn't.
 Import std.core
-Import std.data.value
 Import std.data.xml
 
 Local root = XmlNode("a")

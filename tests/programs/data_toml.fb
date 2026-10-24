@@ -3,7 +3,6 @@
 // the same Value.
 
 Import std.core
-Import std.data.value
 Import std.data.toml
 
 // A document of every kind of value, raw but for its multi-line basic string.
@@ -42,7 +41,7 @@ Local document = r"""
 
 Local read = Try Toml.Read(document)
 For key In read.Keys()
-    Print(key, "=", read[key])
+    Print(key, "=", read[key] ?? Value())
 End For
 
 // Each mistake throws a ParseError of its kind, at its line and column.
@@ -85,35 +84,37 @@ Print((Try Toml.Read("")).Count)
 // and an Object in an Array an inline table; and keys are quoted when they must be. What it
 // writes reads back as the same Value.
 Local huge: Float64 = 1e308
-Local value = Value.NewObject()
+Local value = Value.Object()
 value["name"] = Value("Tom \"T\" é\n\u{1}\u{7F}")
 value["odd key"] = Value(1 As Int64)
 value[""] = Value(True)
 value["ratio"] = Value(2.0)
 value["big"] = Value(1e300)
 value["small"] = Value(-1.5e-7)
-value["edges"] = Value.NewArray()
-value["edges"].Add(Value(huge * 10))
-value["edges"].Add(Value(-huge * 10))
-value["mixed"] = Value.NewArray()
-value["mixed"].Add(Value(1 As Int64))
-Local inline = Value.NewObject()
+Local edges = Value.Array()
+edges.Add(Value(huge * 10))
+edges.Add(Value(-huge * 10))
+value["edges"] = edges
+Local mixed = Value.Array()
+mixed.Add(Value(1 As Int64))
+Local inline = Value.Object()
 inline["a b"] = Value("b")
-value["mixed"].Add(inline)
-value["mixed"].Add(Value.NewObject())
-value["empty"] = Value.NewArray()
-Local owner = Value.NewObject()
+mixed.Add(inline)
+mixed.Add(Value.Object())
+value["mixed"] = mixed
+value["empty"] = Value.Array()
+Local owner = Value.Object()
 owner["dob"] = Value("1979-05-27T07:32:00Z")
-Local deeper = Value.NewObject()
+Local deeper = Value.Object()
 deeper["k"] = Value(1 As Int64)
 owner["deeper"] = deeper
-owner["blank"] = Value.NewObject()
+owner["blank"] = Value.Object()
 value["owner"] = owner
-Local items = Value.NewArray()
+Local items = Value.Array()
 For i = 1 To 2
-    Local item = Value.NewObject()
+    Local item = Value.Object()
     item["n"] = Value(i As Int64)
-    Local detail = Value.NewObject()
+    Local detail = Value.Object()
     detail["twice"] = Value((i * 2) As Int64)
     item["detail"] = detail
     items.Add(item)
@@ -123,15 +124,16 @@ value["items"] = items
 Local written = Toml.Write(value)
 Print(written)
 Print((Try Toml.Read(written)) == value)
-Print(Toml.Write(Value.NewObject()) == "")
+Print(Toml.Write(Value.Object()) == "")
 
 // TOML has no null, so an Object's Null is left out, an inline table's too.
-Local nulls = Value.NewObject()
+Local nulls = Value.Object()
 nulls["nothing"] = Value()
 nulls["kept"] = Value(1 As Int64)
-Local inner = Value.NewObject()
+Local inner = Value.Object()
 inner["nothing"] = Value()
-nulls["list"] = Value.NewArray()
-nulls["list"].Add(inner)
-nulls["list"].Add(Value(2 As Int64))
+Local listed = Value.Array()
+listed.Add(inner)
+listed.Add(Value(2 As Int64))
+nulls["list"] = listed
 Print(Toml.Write(nulls))

@@ -1,4 +1,4 @@
 n
 1
 
-panic: a CSV field is a String, a number, a Bool, or Null, not ARRAY at panic_data_csv_field.fb:13:7
+panic: a CSV field is a String, a number, a Bool, or Null, not ARRAY at panic_data_csv_field.fb:12:7

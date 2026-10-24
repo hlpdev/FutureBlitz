@@ -115,7 +115,6 @@ So far, std/ holds:
 | std/crypto/pem.fb | `KeyKind`, `Key`, and `Certificate` |
 | std/db/database.fb | `Database`, `Statement`, `Transaction`, `Row`, `ColumnType`, `SqlValue`, and `Nullable`, over SQLite through the runtime's `fb_db_` functions |
 | std/uuid/uuid.fb | `Uuid` |
-| std/data/value.fb | `Value` and `ValueKind`, a stand-in for step 19's `Value` until it lands |
 | std/data/text.fb | What std.data's formats share in text, over the runtime's `fb_data_` functions |
 | std/data/toml.fb | `Toml` |
 | std/data/csv.fb | `Csv` |
@@ -728,21 +727,23 @@ Step 18 built `Event<T>` and `Subscription`, in std/events/event.fb; `Import std
 - Protocol Buffers: fb reads `.proto` files at compile time and generates the types and their
   binary encoding.
 
-Step 20 built TOML, CSV, INI, XML, and YAML, each read into Values and written from them, over a
-stand-in `Value` of step 19's shape in std/data/value.fb, which goes once step 19's lands, with
-`Load<T>` and `Save<T>` through them. `Import std.data` brings in all of std/data/. Each reader
-throws a ParseError with the Line and Column it's at: UNEXPECTED_END for text that ends inside
-something, OUT_OF_RANGE for a number its type doesn't hold, and SYNTAX for the rest that isn't
-its format.
+Step 20 built TOML, CSV, INI, XML, and YAML, each read into std.core's `Value`s and written from
+them, so `Load<T>` and `Save<T>` go through them too. `Import std.data` brings in all of
+std/data/. Each reader throws a ParseError with the Line and Column it's at: UNEXPECTED_END for
+text that ends inside something, OUT_OF_RANGE for a number its type doesn't hold, and SYNTAX for
+the rest that isn't its format. None of the five has bytes: TOML's and YAML's Write panic at a
+BYTES Value, and CSV's, INI's, and XML's take only a String, a number, a Bool, or Null where
+their text goes.
 
 - `Toml.Read(text)` reads TOML 1.0 into an Object: a table is an Object, an array an Array, an
-  integer an Int, which an Int64 holds, a float a Float, inf and nan too, and a date, a time, or
+  integer an INT, which an Int64 holds, a float a DOUBLE, inf and nan too, and a date, a time, or
   both a String of its RFC 3339 text, with 'T' and 'Z', and its fraction of a second without the
   0s at its end. Which tables a document can define, and where, follows TOML 1.0 as tomli reads
   it, and it passes toml-test's cases for TOML 1.0. `Toml.Write(value)` writes an Object's keys
   and values, then its tables under their headers, an Array of Objects as an array of tables and
   an Object in an Array as an inline table, a key quoted where it must be; TOML has no null, so
-  it leaves out an Object's Nulls, and panics at a Null in an Array.
+  it leaves out an Object's Nulls, and panics at a Null in an Array, and at a UINT, past TOML's
+  integers.
 - `Csv.Read(text, separator)` reads RFC 4180's rows, each a `String[]` of its fields, quoted or
   not, over LF or CRLF lines, and `ReadRecords` an Array of Objects by the first row's names,
   each field a String, which throws for a row of more or fewer fields. `Write(rows, separator)`
@@ -778,15 +779,16 @@ its format.
   an Array for a name that comes more than once, and its text the key "#text", or the element's
   Value itself, a String, when it has neither attributes nor children.
 - `Yaml.Read(text)` and `ReadAll(text)` read YAML 1.2's documents by its core schema: a mapping
-  is an Object, a sequence an Array, a plain scalar Null, a Bool, an Int, a Float, `.inf` and
-  `.nan` and an integer past an Int64 too, or a String, and a scalar in quotes or a block a
-  String. Anchors and aliases, the core schema's tags under any handle a %TAG gives them, and
+  is an Object, a sequence an Array, a plain scalar Null, a Bool, an integer, an INT or past an
+  Int64 a UINT, a DOUBLE, `.inf` and `.nan` and an integer past a UInt64 too, or a String, and a
+  scalar in quotes or a block a String. Anchors and aliases, the core schema's tags under any handle a %TAG gives them, and
   documents with their directives and markers are read. A key is its scalar's text, and each key
   of a mapping is its own; a key that's a mapping or a sequence, or a tag that isn't the core
   schema's, is a ParseError of OTHER. It passes yaml-test-suite's 367 cases for the core schema.
   `Yaml.Write(value)` and `WriteAll(values)` write block mappings and sequences, a scalar plain
   where the core schema reads it back as the same, else in double quotes.
-- Planned: `Load<T>` and `Save<T>` through each format, with step 19's serialization.
+- Planned: each format's round trip of a Struct through `Load<T>` and `Save<T>`, which step 17
+  adds.
 
 #### std.crypto
 

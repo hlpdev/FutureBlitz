@@ -1,6 +1,5 @@
 // An indent can't be negative, and XmlWriter panics where it's given one that is.
 Import std.core
-Import std.data.value
 Import std.data.xml
 
 Local fine = XmlWriter(0)

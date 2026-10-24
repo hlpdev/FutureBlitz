@@ -8,7 +8,6 @@
 Import std.core
 Import std.collections
 Import std.data.text
-Import std.data.value
 
 Public Struct Ini
     // Ini isn't made: it's only its Static Methods.
@@ -23,7 +22,7 @@ Public Struct Ini
         Local bytes = text.Bytes
         Local at = 0
         If bytes.Count >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF Then at = 3
-        Local document = Value.NewObject()
+        Local document = Value.Object()
         Local section = document
         Local line = 0
         While at < bytes.Count
@@ -47,9 +46,9 @@ Public Struct Ini
 
                 Local name = TextOf(bytes, SkipSpace(bytes, first + 1, last - 1),
                                     TrimEnd(bytes, first + 1, last - 1))
-                Local found = document.Get(name)
+                Local found = document[name]
                 If found == Null
-                    found = Value.NewObject()
+                    found = Value.Object()
                     document[name] = found
                 ElseIf found.Kind != ValueKind.OBJECT
                     Throw ParseError(ParseErrorKind.SYNTAX, "the section [{name}] is named as a key " +
@@ -76,7 +75,7 @@ Public Struct Ini
             End If
 
             Local key = TextOf(bytes, first, keyEnd)
-            Local before = section.Get(key)
+            Local before = section[key]
             If before != Null && before.Kind == ValueKind.OBJECT
                 Throw ParseError(ParseErrorKind.SYNTAX, "the key {key} is named as a section " +
                                  "before it, at line {line}", line, 1)
@@ -96,7 +95,7 @@ Public Struct Ini
 
     // value, an Object, as INI: its own keys whose values aren't Objects, then a section for each
     // Object in it, of its keys. A String is written as it is, in '"'s when it starts or ends with
-    // a space or a '"', a Bool, an Int, or a Float as its text, and Null as nothing. Panics when
+    // a space or a '"', a Bool, an integer, or a Double as its text, and Null as nothing. Panics when
     // value isn't an Object, a section holds an Object or anything holds an Array, a key is empty
     // or holds '=', ':', or a line break or starts with '[', ';', or '#', a section's name holds
     // ']' or a line break, or a value holds a line break.
@@ -105,12 +104,12 @@ Public Struct Ini
         If value.Kind != ValueKind.OBJECT Then Panic("an INI file is an Object, not {value.Kind}")
         Local out: UInt8[] = []
         For key In value.Keys()
-            Local item = value[key]
+            Local item = EntryOf(value, key)
             If item.Kind != ValueKind.OBJECT Then AddEntry(out, key, item)
         End For
 
         For key In value.Keys()
-            Local section = value[key]
+            Local section = EntryOf(value, key)
             If section.Kind != ValueKind.OBJECT Then Continue
             For b In key.Bytes
                 If b == 93 || b == 10 || b == 13
@@ -121,7 +120,7 @@ Public Struct Ini
             If out.Count > 0 Then out.Add(10)
             AddText(out, "[" + key + "]\n")
             For name In section.Keys()
-                Local item = section[name]
+                Local item = EntryOf(section, name)
                 If item.Kind == ValueKind.OBJECT
                     Panic("an INI section holds keys and their values, not the Object {name}")
                 End If
@@ -151,13 +150,15 @@ Public Struct Ini
             Case ValueKind.NULL
                 text = ""
             Case ValueKind.BOOL
-                text = value.AsBool() ? "true" : "false"
+                text = value.AsBool() ?? False ? "true" : "false"
             Case ValueKind.INT
-                text = "{value.AsInt()}"
-            Case ValueKind.FLOAT
-                text = "{value.AsFloat()}"
+                text = "{value.AsInt64() ?? 0}"
+            Case ValueKind.UINT
+                text = "{value.AsUInt64() ?? 0}"
+            Case ValueKind.DOUBLE
+                text = "{value.AsDouble() ?? 0.0}"
             Case ValueKind.STRING
-                text = value.AsString()
+                text = value.AsString() ?? ""
             Default
                 Panic("an INI value is a String, a number, a Bool, or Null, not {value.Kind}")
         End Select

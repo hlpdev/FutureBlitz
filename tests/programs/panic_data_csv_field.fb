@@ -1,13 +1,12 @@
 // A CSV field is a String, a number, a Bool, or Null, and WriteRecords panics where one is an
 // Array or an Object.
 Import std.core
-Import std.data.value
 Import std.data.csv
 
-Local records = Value.NewArray()
-Local record = Value.NewObject()
+Local records = Value.Array()
+Local record = Value.Object()
 record["n"] = Value(1 As Int64)
 records.Add(record)
 Print(Csv.WriteRecords(records))
-record["list"] = Value.NewArray()
+record["list"] = Value.Array()
 Print(Csv.WriteRecords(records))

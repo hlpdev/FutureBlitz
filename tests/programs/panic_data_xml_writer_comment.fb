@@ -1,6 +1,5 @@
 // A comment can't hold "--", and Comment panics where it's given one that does.
 Import std.core
-Import std.data.value
 Import std.data.xml
 
 Local writer = XmlWriter()

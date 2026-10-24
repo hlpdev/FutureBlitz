@@ -6,7 +6,6 @@
 Import std.core
 Import std.collections
 Import std.math
-Import std.data.value
 Import std.data.toml
 Import "./data_toml_suite/data"
 
@@ -35,18 +34,20 @@ Function HexDigit(digit: UInt8): UInt8 => digit < 10 ? 48 + digit : 87 + digit
 Function AddCanonical(out: UInt8[], value: Value)
     Select value.Kind
         Case ValueKind.BOOL
-            out.AddAll((value.AsBool() ? "true" : "false").Bytes)
+            out.AddAll(((value.AsBool() ?? False) ? "true" : "false").Bytes)
         Case ValueKind.INT
-            out.AddAll("{value.AsInt()}".Bytes)
-        Case ValueKind.FLOAT
-            Local float = value.AsFloat()
+            out.AddAll("{value.AsInt64() ?? 0}".Bytes)
+        Case ValueKind.UINT
+            out.AddAll("{value.AsUInt64() ?? 0}".Bytes)
+        Case ValueKind.DOUBLE
+            Local float = value.AsDouble() ?? 0.0
             out.AddAll((float != float ? "nan" : "{float.ToBits()}").Bytes)
         Case ValueKind.STRING
-            AddQuoted(out, value.AsString())
+            AddQuoted(out, value.AsString() ?? "")
         Case ValueKind.ARRAY
             out.Add(91)
             Local first = True
-            For item In value.Values()
+            For item In value.AsArray() ?? []
                 If !first Then out.AddAll(", ".Bytes)
                 first = False
                 AddCanonical(out, item)
@@ -62,7 +63,7 @@ Function AddCanonical(out: UInt8[], value: Value)
                 first = False
                 AddQuoted(out, key)
                 out.AddAll(": ".Bytes)
-                AddCanonical(out, value[key])
+                AddCanonical(out, value[key] ?? Value())
             End For
             out.Add(125)
         Default
