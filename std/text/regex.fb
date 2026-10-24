@@ -365,6 +365,26 @@ Public Class Regex
                              start)
         End If
 
+        // A pattern's own lower limits, which a (*LIMIT_MATCH=n), (*LIMIT_DEPTH=n), or
+        // (*LIMIT_HEAP=n) at its start sets.
+        If found == -3
+            Throw RegexError(RegexErrorKind.MATCH_LIMIT,
+                             "the search took more steps than the pattern's own (*LIMIT_MATCH) " +
+                             "lets it", start)
+        End If
+
+        If found == -4
+            Throw RegexError(RegexErrorKind.MATCH_LIMIT,
+                             "the search went deeper than the pattern's own (*LIMIT_DEPTH) lets it",
+                             start)
+        End If
+
+        If found == -5
+            Throw RegexError(RegexErrorKind.MEMORY_LIMIT,
+                             "the match took more memory than the pattern's own (*LIMIT_HEAP) " +
+                             "lets it", start)
+        End If
+
         Throw RegexError(RegexErrorKind.MEMORY_LIMIT,
                          "the match took more than the Regex's MemoryLimit of {Bytes} bytes", start)
     End Method

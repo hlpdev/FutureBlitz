@@ -139,6 +139,15 @@ Catch e As RegexError
     Print(e.Kind, e.Message)
 End Try
 Print(Try deep.IsMatch("abc"))
+// A pattern's own lower limits say so, and its own (*LIMIT_DEPTH) isn't about memory.
+For limit In ["LIMIT_MATCH=10", "LIMIT_DEPTH=5", "LIMIT_HEAP=1"]
+    Try
+        Print(Try (Try Regex.Parse("(*" + limit + ")^(a|b)*c")).IsMatch("ab".Repeated(50) + "dc"))
+    Catch e As RegexError
+        Print(e.Kind, e.Message)
+    End Try
+End For
+Print(Try (Try Regex.Parse("(*LIMIT_MATCH=10)^(a|b)*c")).IsMatch("abc"))
 
 // Parse throws for a pattern from elsewhere, with where in it PCRE2 stopped.
 For pattern In ["(unclosed", r"a{2,1}", r"ok\d"]

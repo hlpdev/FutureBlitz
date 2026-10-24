@@ -145,6 +145,14 @@ pcre2_code* compile(const std::string_view pattern, const std::int32_t flags, fb
     return code;
 }
 
+/// The pattern's own limit `what`, PCRE2_INFO_MATCHLIMIT, DEPTHLIMIT, or HEAPLIMIT, that a
+/// (*LIMIT_MATCH=n), (*LIMIT_DEPTH=n), or (*LIMIT_HEAP=n) at its start sets, or the most a
+/// std::uint32_t holds without one.
+std::uint32_t own_limit(const void* regex, const std::uint32_t what) {
+    std::uint32_t value = 0;
+    return pcre2_pattern_info(code_of(regex), what, &value) == 0 ? value : UINT32_MAX;
+}
+
 std::uint32_t info_of(const void* regex, const std::uint32_t what) {
     std::uint32_t value = 0;
     pcre2_pattern_info(code_of(regex), what, &value);
@@ -212,10 +220,12 @@ std::int32_t fb_regex_match(const void* regex, const fb_string_t* subject, const
 
     budget_t budget{ .steps = 0, .limit = match_limit };
     pcre2_set_callout(context, count_step, &budget);
-    pcre2_set_match_limit(context, static_cast<std::uint32_t>(match_limit));
-    pcre2_set_depth_limit(context, static_cast<std::uint32_t>(match_limit));
+    const auto steps = static_cast<std::uint32_t>(match_limit);
     // PCRE2 counts its memory in kibibytes.
-    pcre2_set_heap_limit(context, static_cast<std::uint32_t>((memory_limit + 1023) / 1024));
+    const auto kibibytes = static_cast<std::uint32_t>((memory_limit + 1023) / 1024);
+    pcre2_set_match_limit(context, steps);
+    pcre2_set_depth_limit(context, steps);
+    pcre2_set_heap_limit(context, kibibytes);
     std::uint32_t flags = PCRE2_NO_UTF_CHECK;
     if (options == not_empty_here) {
         flags |= PCRE2_NOTEMPTY_ATSTART | PCRE2_ANCHORED;
@@ -224,13 +234,20 @@ std::int32_t fb_regex_match(const void* regex, const fb_string_t* subject, const
     const std::string_view text = text_of(subject);
     const int found = pcre2_match(code_of(regex), units_of(text), text.size(),
                                   static_cast<PCRE2_SIZE>(start), flags, data, context);
+    // Past a limit, the pattern's own is the one it passed where that's the lower one, unless the
+    // callout's count of the whole search ended it.
+    const auto own = [&](const std::uint32_t what, const std::uint32_t mine) {
+        return budget.steps <= budget.limit && own_limit(regex, what) < mine;
+    };
     std::int32_t result = 1;
     if (found == PCRE2_ERROR_NOMATCH) {
         result = 0;
     } else if (found == PCRE2_ERROR_MATCHLIMIT) {
-        result = -1;
-    } else if (found == PCRE2_ERROR_DEPTHLIMIT || found == PCRE2_ERROR_HEAPLIMIT) {
-        result = -2;
+        result = own(PCRE2_INFO_MATCHLIMIT, steps) ? -3 : -1;
+    } else if (found == PCRE2_ERROR_DEPTHLIMIT) {
+        result = own(PCRE2_INFO_DEPTHLIMIT, steps) ? -4 : -1;
+    } else if (found == PCRE2_ERROR_HEAPLIMIT) {
+        result = own(PCRE2_INFO_HEAPLIMIT, kibibytes) ? -5 : -2;
     } else if (found == PCRE2_ERROR_NOMEMORY) {
         fb_panic("out of memory", nullptr);
     } else if (found < 0) {

@@ -442,8 +442,9 @@ void fb_regex_free(void* regex);
 /// Looks for the pattern in `subject` from the byte `start`, a character's first, within
 /// `match_limit` steps and `memory_limit` bytes. Gives 1, after putting each group's start and
 /// end in `positions`, an Int[], or -1 and -1 for a group that took no part; 0 when it isn't
-/// there; -1 past the steps, and -2 past the memory. With `options` 1, only a match that starts
-/// at `start` and isn't empty counts, for the try after an empty match.
+/// there; -1 past the steps, and -2 past the memory; and past the pattern's own lower limits, its
+/// (*LIMIT_MATCH=n), (*LIMIT_DEPTH=n), and (*LIMIT_HEAP=n), -3, -4, and -5. With `options` 1,
+/// only a match that starts at `start` and isn't empty counts, for the try after an empty match.
 std::int32_t fb_regex_match(const void* regex, const fb_string_t* subject, std::int64_t start,
                             std::int64_t match_limit, std::int64_t memory_limit,
                             std::int32_t options, fb_array_t* positions);

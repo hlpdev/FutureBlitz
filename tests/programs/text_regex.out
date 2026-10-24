@@ -44,6 +44,10 @@ True True
 False 67108864
 MEMORY_LIMIT the match took more than the Regex's MemoryLimit of 1048576 bytes
 True
+MATCH_LIMIT the search took more steps than the pattern's own (*LIMIT_MATCH) lets it
+MATCH_LIMIT the search went deeper than the pattern's own (*LIMIT_DEPTH) lets it
+MEMORY_LIMIT the match took more memory than the pattern's own (*LIMIT_HEAP) lets it
+True
 PATTERN 9 the pattern isn't valid: missing closing parenthesis, at its byte 9
 PATTERN 5 the pattern isn't valid: numbers out of order in {} quantifier, at its byte 5
 ok\d
