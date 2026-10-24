@@ -1,0 +1,33 @@
+== versions
+HTTP/2 200 hello
+HTTP/1.1 200 hello
+HTTP/1.1 200 hello
+HTTP/2 200 hello
+HTTP/1.1 200 hello
+== over HTTP/2
+HTTP/2 200 POST
+/echo
+text/plain; charset=utf-8
+over h2
+HTTP/2 200 redirected
+HTTP/2 200 GET
+/echo
+(none)
+
+HTTP/2 404 status 404
+HTTP/2 200 set
+HTTP/2 200 h2=yes; mine=1
+HTTP/2 200 custom
+HTTP/2 200 deflate, gzip, zstd
+[one, two]
+text/plain; charset=utf-8
+HTTP/2 head 200 0
+gzip 20004
+bytes 300000 True
+== at once
+HTTP/2 200 hello
+HTTP/2 200 redirected
+HTTP/2 418 status 418
+HTTP/2 200 chunkchunkchunkchunkchunkchunkchunkchunkchunkchunk
+HTTP/2 200 (none)
+HTTP/2 200 h2=yes

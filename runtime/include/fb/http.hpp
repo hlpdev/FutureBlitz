@@ -62,10 +62,12 @@ void fb_http_wait_async(fb_task_t* task, void* transfer, std::int32_t progress);
 std::int64_t fb_http_received(void* transfer);
 std::int64_t fb_http_expected(void* transfer);
 
-/// Once the transfer is done: the response's status, the URL it came from after the redirects,
-/// its headers, added to `names` and `values`, two String[]s, in its order, its body, into
-/// `output`, a UInt8[], which it no longer keeps, and what failed, as a message.
+/// Once the transfer is done: the response's status, its HTTP version, as 10, 11, 20, or 30 for
+/// HTTP/1.0, 1.1, 2, or 3, the URL it came from after the redirects, its headers, added to
+/// `names` and `values`, two String[]s, in its order, its body, into `output`, a UInt8[], which
+/// it no longer keeps, and what failed, as a message.
 std::int32_t fb_http_status(void* transfer);
+std::int32_t fb_http_version(void* transfer);
 fb_string_t* fb_http_url(void* transfer);
 void fb_http_response_headers(void* transfer, fb_array_t* names, fb_array_t* values);
 void fb_http_take_body(void* transfer, fb_array_t* output);
