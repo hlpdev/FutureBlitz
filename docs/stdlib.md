@@ -678,9 +678,9 @@ the rest is planned.
 #### std.io
 
 Step 14 built `Path`, `File`'s one-call reads and writes, `FileLock`, `MappedFile`, `Dir`,
-`TempFile` and `TempDir`, `FileWatcher`, and IOError's Kinds; the streams, `File.Open`, and the
-console come with step 13, and the virtual file system, the Embeds, and `Preferences` with step
-15. `Import std.io` brings in all of std/io/.
+`TempFile` and `TempDir`, `FileWatcher`, and IOError's Kinds, and step 15 the virtual file system
+and `Preferences`; the streams, `File.Open`, and the console come with step 13. `Import std.io`
+brings in all of std/io/.
 
 - `Reader`, `Writer`, and `Seeker` Interfaces, with Async twins, and `Copy`, `ReadAll`,
   `ReadExact`; buffered, memory, and string readers and writers; `BinaryReader` and
@@ -749,11 +749,16 @@ console come with step 13, and the virtual file system, the Embeds, and `Prefere
   `Walk`, `Glob`). Its paths have `/` (or `\`) between names on every OS, and none goes above its
   root. A later mount over a place comes first, so a mod's folder can stand in for some of a
   game's embedded files: a file is the last mount's that has it, and a folder lists what every
-  mount has in it, and the mounts under it, by their names' bytes. A `VfsSource` gives a file's
-  bytes, what's at a path, and a folder's names: `FolderSource` reads a folder on the disk as it's
-  asked, `EmbeddedSource` the `Map<String, UInt8[]>` EmbedFolder gives, a copy at each read, and a
-  program can write its own; zips will mount through std.compress's `Zip.Read` once it's on
-  master. The engine's pak files build on it.
+  mount has in it, and the mounts under it, by their names' bytes; what two mounts have is the
+  last one's, and a mount is a folder, though its folder isn't there yet. Glob's patterns take `/`
+  or `\` between names, as its paths do. A `VfsSource` gives a file's bytes, what's at a path, and
+  a folder's names: `FolderSource` reads a folder on the disk as it's asked, with nothing outside
+  it (by Windows' rules a name with a `:` isn't there), and is Final, so its Async reads are its
+  reads and a source that changes them wraps one; `EmbeddedSource` the `Map<String, UInt8[]>`
+  EmbedFolder gives, a copy at each read, and panics for paths that aren't files' or make a place
+  a file and a folder too; and a program can write its own. An Async read reads the mounts there
+  were when it began. Zips will mount through std.compress's `Zip.Read` once it's on master. The
+  engine's pak files build on it.
 - `Embed("path")`, `EmbedText("path")`, and `EmbedFolder("path")`: built-ins, checked at compile
   time, that put a file's bytes or text, or a read-only folder, in the program.
 - `Preferences("MyGame")`: a program's settings, kept between runs in
@@ -762,9 +767,12 @@ console come with step 13, and the virtual file system, the Embeds, and `Prefere
   $XDG_CONFIG_HOME or ~/.config), or one given (`Preferences(app, folder)`, as tests keep theirs in
   a temporary folder). `Get`, `Set`, `Remove`, `Contains`, `Keys`, `Count`, `Clear`, `IsChanged`;
   nothing is written until `Save` (or `SaveAsync`), which replaces the file atomically;
-  `OpenAsync` reads it without blocking. The file is text a person can read and change, a
-  `key=value` line for each setting with `\\`, `\n`, and `\r` escaped, and `\=` and a leading `\#` in a
-  key. An app's name that can't be a file's on every OS panics. Values are Strings until step 5's
+  `OpenAsync` reads it without blocking. A change made while a save writes leaves `IsChanged`
+  True. The file is text a person can read and change, a `key=value` line for each setting with
+  `\\`, `\n`, and `\r` escaped, and `\=` and a leading `\#` in a key; a byte order mark before
+  it is skipped, and a file where the app's folder goes holds no settings. An app's name that
+  can't be a file's on every OS panics: Windows' device names, like `nul` or `COM1.txt`, a name
+  ending with a dot or a space, and one over 255 bytes too. Values are Strings until step 5's
   Parse is on master, and then the numbers and Bools get their own Get and Set.
 - The console's `ReadKey`, `ReadPassword`, `IsTerminal`, `TerminalSize`, and styled output that
   turns itself off when it isn't a terminal or `NO_COLOR` is set are std.term's (see below), with
