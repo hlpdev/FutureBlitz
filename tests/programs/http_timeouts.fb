@@ -1,0 +1,46 @@
+// An HttpClient's Timeout and ConnectTimeout, Durations: a request that takes longer than its
+// Timeout throws a TimeoutError, blocking or awaited, and one that doesn't goes on as before.
+Import std.core
+Import std.time
+Import std.net.http
+
+Global base = Input() ?? ""
+Global secure = Input() ?? ""
+Global refused = Input() ?? ""
+Global client = HttpClient()
+
+// What a GET of path gives: its text, or what failed.
+Function Fetched(path: String): String
+    Try
+        Return client.Get("{base}{path}").Text
+    Catch e As NetError
+        Return "NetError {e.Kind}"
+    Catch e As TimeoutError
+        Return "TimeoutError"
+    End Try
+End Function
+
+Async Function FetchedAsync(path: String): String
+    Try
+        Return (Await client.GetAsync("{base}{path}")).Text
+    Catch e As NetError
+        Return "NetError {e.Kind}"
+    Catch e As TimeoutError
+        Return "TimeoutError"
+    End Try
+End Function
+
+Print("Timeout {client.Timeout ?? 0.Seconds}, ConnectTimeout {client.ConnectTimeout}")
+client.Timeout = 300.Milliseconds
+client.ConnectTimeout = 5.Seconds
+Print("Timeout {client.Timeout ?? 0.Seconds}, ConnectTimeout {client.ConnectTimeout}")
+// /slow answers after 3 seconds.
+Print(Fetched("/slow"))
+Print(Fetched("/hello"))
+Print(Await FetchedAsync("/slow"))
+Print(Await FetchedAsync("/hello"))
+// Http's own clients have no Timeout.
+Print((Try? Http.Get("{base}/hello"))?.Text ?? "failed")
+client.Timeout = Null
+Print("Timeout {client.Timeout ?? 0.Seconds}")
+Print(Fetched("/hello"))

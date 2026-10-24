@@ -1,0 +1,6 @@
+// A ConnectTimeout isn't 0 or less: setting one panics where it's set.
+Import std.time
+Import std.net.http
+
+Local client = HttpClient()
+client.ConnectTimeout = -1.Seconds
