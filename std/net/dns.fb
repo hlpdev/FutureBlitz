@@ -23,8 +23,8 @@ Public Struct Dns
     // The addresses host has, IPv4 and IPv6, each once, in the order the OS prefers them, from
     // its hosts file and the DNS servers it asks, as getaddrinfo looks them up: "localhost" is
     // the loopback addresses, and an IP address's text is that address. Throws a NetError of
-    // HOST_NOT_FOUND for a name with no address, an empty one, or one with a NUL, and of OTHER
-    // when the lookup fails another way.
+    // HOST_NOT_FOUND for a name with no address, an empty one, one with a NUL, or one too long
+    // to look up, of more than 255 bytes, and of OTHER when the lookup fails another way.
     Public Static Method Resolve(host: String): IpAddress[] Throws NetError
         Try Named(host)
         Local output: UInt8[] = []

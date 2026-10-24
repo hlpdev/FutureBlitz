@@ -36,6 +36,24 @@ Catch e As NetError
     Print(e.Kind, e.Message)
 End Try
 
+// A name longer than DNS's 255 bytes has none either, which libuv says before it asks, through
+// the code a lookup gives back, blocking or Async.
+Local long = ""
+For i = 1 To 150
+    long = long + "a."
+End For
+long = long + "localhost"
+Try
+    Print(Dns.Resolve(long))
+Catch e As NetError
+    Print(long.Bytes.Count, e.Kind, e.Address == long)
+End Try
+Try
+    Print(Await Dns.ResolveAsync(long))
+Catch e As NetError
+    Print(long.Bytes.Count, e.Kind, e.Address == long)
+End Try
+
 // Workers look up too, at once.
 Local tasks = [Spawn(Function() => (Try? Dns.Resolve("127.0.0.2"))?.Count ?? -1),
                Spawn(Function() => (Try? Dns.Resolve("localhost"))?.Count ?? -1)]

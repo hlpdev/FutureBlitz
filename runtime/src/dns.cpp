@@ -75,7 +75,13 @@ std::vector<std::uint8_t> records_of(const addrinfo* found) {
 
 /// Gives the lookup its result: its caller wakes with its records in its array, or its Task
 /// finishes with a new one.
-void finish(lookup_t* lookup, const std::int32_t result) {
+void finish(lookup_t* lookup, std::int32_t result) {
+    // libuv turns down a name that's too long for it, of more than 255 bytes, with UV_EINVAL
+    // before it asks, which is a name with no address, as getaddrinfo says of others.
+    if (result == UV_EINVAL) {
+        result = UV_EAI_NONAME;
+    }
+
     fb_task_t* task = lookup->task;
     const auto size = static_cast<std::int64_t>(lookup->records.size());
     // The caller can go, and its lookup with it, once it has the lock again, so it's told under
