@@ -692,15 +692,26 @@ Function Refine(chunks: Chunk[], mine: String[], others: String[])
     chunks.Add(Chunk(ChunkKind.SAME, Part(mine, at, mine.Count), []))
 End Function
 
-// chunks with each two conflicts that have only kept lines between them, at most 3 of them or
-// none with a letter or a digit, made one conflict that holds those lines on both sides.
+// chunks with the lines both sides have, next to each other, as one run of them, and each two
+// conflicts with only such a run between them, of at most 3 lines or none with a letter or a
+// digit, made one conflict that holds those lines on both sides.
 Function Simplified(chunks: Chunk[]): Chunk[]
     Local simplified: Chunk[] = []
     For chunk In chunks
         If chunk.Kind == ChunkKind.SAME && chunk.Lines.Count == 0 Then Continue
-        If chunk.Kind == ChunkKind.CONFLICT && simplified.Count >= 2
-            Local between = simplified[simplified.Count - 1]
-            Local conflict = simplified[simplified.Count - 2]
+        Local count = simplified.Count
+        If chunk.Kind == ChunkKind.SAME && count > 0 &&
+           simplified[count - 1].Kind == ChunkKind.SAME
+            Local lines = simplified[count - 1].Lines.Clone()
+            lines.AddAll(chunk.Lines)
+            simplified.RemoveLast()
+            simplified.Add(Chunk(ChunkKind.SAME, lines, []))
+            Continue
+        End If
+
+        If chunk.Kind == ChunkKind.CONFLICT && count >= 2
+            Local between = simplified[count - 1]
+            Local conflict = simplified[count - 2]
             If between.Kind == ChunkKind.SAME && conflict.Kind == ChunkKind.CONFLICT &&
                (between.Lines.Count <= 3 || !HasAlnum(between.Lines))
                 Local mine = conflict.Lines.Clone()

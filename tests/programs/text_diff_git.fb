@@ -175,3 +175,19 @@ Local merged13 = Diff.Merge("b0\n\n\nx\n",
                          "b0\n\n\nT\nx\n")
 Print("== merge 13 {merged13.Conflicts}")
 Print(merged13.Text)
+Local merged14 = Diff.Merge("1\n2\n3\n4\n5\n6\n" +
+                         "7\n8\n9\n",
+                         "1\nA\nc\n4\nD\n6\n" +
+                         "7\n8\n9\n",
+                         "1\nB\nc\n4\nE\n6\n" +
+                         "7\n8\n9\n")
+Print("== merge 14 {merged14.Conflicts}")
+Print(merged14.Text)
+Local merged15 = Diff.Merge("1\n2\n3\n4\n5\n6\n" +
+                         "7\n8\n9\n",
+                         "1\nA\n3\nc\nX\n6\n" +
+                         "7\n8\n9\n",
+                         "1\nB\n3\nc\nY\n6\n" +
+                         "7\n8\n9\n")
+Print("== merge 15 {merged15.Conflicts}")
+Print(merged15.Text)
