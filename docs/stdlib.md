@@ -376,7 +376,12 @@ file or URL in the default app.
 - std.text.markdown (md4c): CommonMark, which it passes all 652 of 0.31.2's spec examples of, as
   CommonMark's spec_tests.py compares them, with tables and task lists unless it's told other
   `MarkdownExtensions`: `None` for CommonMark alone, `Tables`, `TaskLists`, `Strikethrough`,
-  `Autolinks` (bare URLs, www. addresses, and e-mail addresses), and `GitHub`, all four.
+  `Autolinks`, and `GitHub`, all four, as md4c reads them, which is mostly as GitHub does. A
+  table's delimiter row sets its columns, up to 128, so a row's cells past them are left out,
+  a `|` in a code span doesn't split cells, and `\|` in a cell is a `|`, a code span's too.
+  Autolinks are bare http://, https://, and ftp:// URLs, www. addresses, and e-mail addresses,
+  whose hosts are letters, digits, `.`, `-`, and `_`, and paths those and `/`, with a query and
+  a fragment after; one with a port, a `%`, or a `~`, say, is a link only between `<` and `>`.
   `MarkdownToHtml(text, extensions)` gives HTML, and `ParseMarkdown(text, extensions)` the
   document as a tree of `MarkdownNode`s, each a `Kind` (the blocks: `Document`, `Quote`,
   `BulletList`, `OrderedList`, `ListItem`, `ThematicBreak`, `Heading`, `CodeBlock`, `HtmlBlock`,
@@ -384,7 +389,8 @@ file or URL in the default app.
   and `TableCell`; the spans: `Emphasis`, `Strong`, `Link`, `Image`, `Code`, and
   `Strikethrough`; and `Text`, `SoftBreak`, `HardBreak`, and `Html`), its `Children`, its
   `Text` (a code block's, a code span's, or an HTML block's too), and what its kind has: a
-  heading's `Level`, a list's `Start` and `Tight`, a task's `Task` and `Done`, a link's or
+  heading's `Level`, a list's `Start` and `Tight` (a tight list's items have no `Paragraph`s,
+  so each holds its spans and text itself), a task's `Task` and `Done`, a link's or
   image's `Url` and `Title` and an autolink's `Autolink`, a code block's `Info` and
   `Language`, and a cell's `Alignment`. `PlainText()` gives the text in a node without its
   markup, each block in it on lines of its own and a table row's cells apart by a tab, however
