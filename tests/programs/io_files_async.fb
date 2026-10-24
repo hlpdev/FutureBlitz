@@ -78,6 +78,13 @@ For entry In Try Await Dir.GlobAsync(root, "**/*.txt")
 End For
 
 Print("{Try Await Dir.RemoveAsync(root / "empty")} {Try Await Dir.RemoveAsync(root / "empty")}")
+Try
+    Await File.ReadTextAsync(root / "lines.txt", 3)
+Catch e As IOError
+    Print("{e.Kind}")
+End Try
+
+Print("{(Try Await File.ReadBytesAsync(root / "bytes.bin", 4)).Count} {(Try Await File.ReadLinesAsync(root / "lines.txt", 20)).Count}")
 Print(Await Missing(root / "missing.bin"))
 Print(Missing(root / "ä").Wait())
 

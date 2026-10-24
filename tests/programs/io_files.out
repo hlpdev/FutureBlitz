@@ -91,9 +91,14 @@ move NOT_FOUND
 write NOT_FOUND
 write INVALID_PATH
 metadata NOT_FOUND
+bytes past most OTHER
+text past most OTHER
+lines past most OTHER
+10 [0123456789] [0123456789]
 temporary folder NOT_FOUND
 True True True
 can't read missing.txt: no such file or directory [missing.txt]
+can't read ten.txt: it holds more bytes than the read takes [ten.txt]
 can't copy missing.txt to other.txt: no such file or directory [missing.txt]
 [yes] 8
 locks

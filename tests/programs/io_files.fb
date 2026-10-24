@@ -30,6 +30,12 @@ Function Failure(what: String, a: Path, b: Path? = Null): String
         Select what
             Case "read"
                 File.ReadText(a)
+            Case "bytes past most"
+                File.ReadBytes(a, 9)
+            Case "text past most"
+                File.ReadText(a, 9)
+            Case "lines past most"
+                File.ReadLines(a, 9)
             Case "write"
                 File.WriteText(a, "x")
             Case "write atomically"
@@ -212,6 +218,13 @@ Print(Failure("move", root / "missing", root / "x"))
 Print(Failure("write", root / "missing" / "x.txt"))
 Print(Failure("write", "a\u{0}b"))
 Print(Failure("metadata", root / "missing"))
+// A read takes a most, which a file of more bytes than it is refused for before they're read.
+Try File.WriteText(root / "ten.txt", "0123456789")
+Print(Failure("bytes past most", root / "ten.txt"))
+Print(Failure("text past most", root / "ten.txt"))
+Print(Failure("lines past most", root / "ten.txt"))
+Print("{(Try File.ReadBytes(root / "ten.txt", 10)).Count} [{Try File.ReadText(root / "ten.txt", 10)}] {Try File.ReadLines(root / "ten.txt", 10)}")
+Try File.Delete(root / "ten.txt")
 Print(Failure("temporary folder", "no-such-folder/"))
 
 // From the folder itself, paths and messages don't depend on where it is.
@@ -225,6 +238,15 @@ Try
 Catch e As IOError
     Print("{e.Message} [{e.Path ?? ""}]")
 End Try
+
+Try File.WriteText("ten.txt", "0123456789")
+Try
+    File.ReadBytes("ten.txt", 3)
+Catch e As IOError
+    Print("{e.Message} [{e.Path ?? ""}]")
+End Try
+
+Try File.Delete("ten.txt")
 
 Try
     File.Copy("missing.txt", "other.txt")

@@ -58,9 +58,12 @@ void* fb_io_request_lock(void* request);
 std::int32_t fb_io_error_kind(std::int64_t error);
 fb_string_t* fb_io_error_message(std::int64_t error);
 
-/// Reads the whole file at `path`, and gives how many bytes it held.
-std::int64_t fb_io_file_read(void* request, const fb_string_t* path);
-void fb_io_file_read_async(fb_task_t* task, void* request, const fb_string_t* path);
+/// Reads the whole file at `path`, and gives how many bytes it held, or -5000, which
+/// fb_io_error_message tells of, when it holds more than `most`, which it finds before reading
+/// them, where the OS knows a file's size. Memory the bytes don't fit in is UV_ENOMEM.
+std::int64_t fb_io_file_read(void* request, const fb_string_t* path, std::int64_t most);
+void fb_io_file_read_async(fb_task_t* task, void* request, const fb_string_t* path,
+                           std::int64_t most);
 /// Writes `data`, a UInt8[], `text`'s bytes, or `lines` (a String[]) each with "\n" after it, or
 /// "\r\n" when `crlf` isn't 0, to the file at `path`, as `how` says.
 std::int64_t fb_io_file_write(void* request, const fb_string_t* path, const fb_array_t* data,
