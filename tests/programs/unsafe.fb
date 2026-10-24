@@ -59,6 +59,12 @@ Function Bumper(): Func(Int32)
     End Unsafe
 End Function
 
+// A Function that throws can give a Ptr, which is Null where it throws, as nothing reads it.
+Function Checked(target: Ptr<Int32>, fine: Bool): Ptr<Int32> Throws ArgumentError
+    If !fine Then Throw ArgumentError(ArgumentErrorKind.INVALID, "not fine")
+    Return target
+End Function
+
 // Null is a Ptr's zero, and safe code compares and keeps Ptrs.
 Local nowhere: Ptr<Int32> = Null
 Print("{nowhere == Null} {Holder().where == Null} {SizeOf<Int8>()} {SizeOf<Mixed>()} {SizeOf<Point[3]>()}")
@@ -113,6 +119,10 @@ End Unsafe
 Local bump = Bumper()
 bump(10)
 Print("{total}")
+Unsafe
+    Print((Try? Checked(AddressOf(total), False)) == Null,
+          (Try? Checked(AddressOf(total), True)) == Null)
+End Unsafe
 
 // Mem's memory, and a CString that it holds.
 Unsafe
