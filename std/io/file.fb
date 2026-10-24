@@ -6,6 +6,7 @@
 Import std.core
 Import std.io.path
 Import std.io.request
+Import std.time.timestamp
 
 Extern "runtime"
     Function fb_io_request_bytes(request: Ptr<Void>, output: UInt8[])
@@ -58,19 +59,20 @@ Public Enum LineEnding
     CRLF
 End Enum
 
-// What's at a path, as File.Metadata found it. Its times are in nanoseconds since 1970 began, in
-// UTC; Created is 0 where the OS doesn't say. IsReadOnly is whether its owner may not write it.
+// What's at a path, as File.Metadata found it: when it was last changed and read, and when it was
+// made, which is Null where the OS or the disk doesn't say. IsReadOnly is whether its owner may
+// not write it.
 Public Struct Metadata
     Public ReadOnly Field Kind: FileKind
     // In bytes.
     Public ReadOnly Field Size: Int64
-    Public ReadOnly Field Modified: Int64
-    Public ReadOnly Field Accessed: Int64
-    Public ReadOnly Field Created: Int64
+    Public ReadOnly Field Modified: Timestamp
+    Public ReadOnly Field Accessed: Timestamp
+    Public ReadOnly Field Created: Timestamp?
     Public ReadOnly Field IsReadOnly: Bool
 
-    Package New(kind: FileKind, size: Int64, modified: Int64, accessed: Int64, created: Int64,
-                readOnly: Bool)
+    Package New(kind: FileKind, size: Int64, modified: Timestamp, accessed: Timestamp,
+                created: Timestamp?, readOnly: Bool)
         Kind = kind
         Size = size
         Modified = modified
@@ -348,7 +350,10 @@ End Function
 Package Function StatOf(request: Request): Metadata
     Local values: Int64[] = []
     fb_io_request_stat(request.Native, values)
-    Return Metadata(FileKindOf(values[0]), values[1], values[2], values[3], values[4], values[5] != 0)
+    // The runtime's times are nanoseconds since 1970 began, in UTC, and a time made of 0 is none.
+    Local created = values[4] == 0 ? Null : Timestamp.FromUnixNanoseconds(values[4])
+    Return Metadata(FileKindOf(values[0]), values[1], Timestamp.FromUnixNanoseconds(values[2]),
+                    Timestamp.FromUnixNanoseconds(values[3]), created, values[5] != 0)
 End Function
 
 Function FileKindOf(number: Int64): FileKind

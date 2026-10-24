@@ -4,6 +4,7 @@
 // event it's after comes, and prints only whether it did.
 Import std.core
 Import std.io
+Import std.time
 
 Local temp = Try TempDir("fb-watch-")
 Local root = temp.Path
@@ -26,7 +27,7 @@ Async Function Saw(watcher: FileWatcher, wanted: (FileEventKind, String)[]): Boo
             If left.Count == 0 Then Return True
         End Loop
 
-        Await RealSeconds(0.01)
+        Await RealWait(10.Milliseconds)
     End For
 
     Return False
@@ -43,11 +44,11 @@ Print("{folder.Path == root} {folder.TryNext() == Null}")
 Local save = root / "größe.txt"
 Try File.WriteText(save, "one")
 Print("created {Await Saw(folder, [(FileEventKind.CREATED, "größe.txt")])}")
-Await RealSeconds(0.2)
+Await RealWait(200.Milliseconds)
 Drain(folder)
 Try File.AppendText(save, " two")
 Print("changed {Await Saw(folder, [(FileEventKind.CHANGED, "größe.txt")])}")
-Await RealSeconds(0.2)
+Await RealWait(200.Milliseconds)
 Drain(folder)
 Try File.Move(save, root / "セーブ.txt")
 Local renamed = [(FileEventKind.REMOVED, "größe.txt"), (FileEventKind.CREATED, "セーブ.txt")]
@@ -57,7 +58,7 @@ Try File.Delete(root / "セーブ.txt")
 Print("removed {Await Saw(folder, [(FileEventKind.REMOVED, "セーブ.txt")])}")
 
 // NextAsync and Next give the next event, whatever it is, and Null once the watcher's closed.
-Await RealSeconds(0.2)
+Await RealWait(200.Milliseconds)
 Drain(folder)
 Try File.WriteText(root / "next.txt", "next")
 Local next = Await folder.NextAsync()
