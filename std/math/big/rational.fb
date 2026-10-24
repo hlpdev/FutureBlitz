@@ -237,14 +237,14 @@ End Function
 
 // The number the code points from start to before finish are as decimal digits, or Null when
 // there are none or one isn't a digit. They're read 18 at a time, which an Int64 holds.
-Function DigitsOf(chars: Int[], start: Int, finish: Int): BigInt?
+Function DigitsOf(chars: Char[], start: Int, finish: Int): BigInt?
     If start >= finish Then Return Null
     Local value = BigInt(0)
     Local chunk: Int64 = 0
     Local scale: Int64 = 1
     For i = start Until finish
         If chars[i] < '0' || chars[i] > '9' Then Return Null
-        chunk = chunk * 10 + (chars[i] - '0')
+        chunk = chunk * 10 + ((chars[i] As Int) - 48)
         scale *= 10
         If scale == 1000000000000000000
             value = value * scale + chunk
