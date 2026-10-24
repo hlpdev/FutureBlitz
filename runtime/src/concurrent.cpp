@@ -1,13 +1,17 @@
 // std.concurrent's locks: a Semaphore, a Barrier, a WaitGroup, a Once, and an RwLock, each a
-// mutex and a condition variable over its counts, and the signals that finish a TaskSource's
-// Tasks. A Shared Class holds each one's handle, the address as a UInt64.
+// mutex and a condition variable over its counts, the signals that finish a TaskSource's Tasks,
+// and a Cancellation's flag, which wakes the waits that take it. A Shared Class holds each one's
+// handle, the address as a UInt64.
 
 #include "fb/concurrent.hpp"
 
 #include "fb/runtime.hpp"
+#include "fb/time.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <bit>
+#include <chrono>
 #include <condition_variable>
 #include <cstdint>
 #include <limits>
@@ -87,6 +91,59 @@ struct signal_t {
     std::vector<fb_task_t*> tasks;
 };
 
+/// A wait on a lock's condition variable, under the lock's mutex, that a Cancellation wakes.
+struct waker_t {
+    std::mutex* mutex;
+    std::condition_variable* condition;
+};
+
+struct cancel_t {
+    /// Guards `waiting`, and the waits for the flag itself, which `set` wakes.
+    std::mutex mutex;
+    std::condition_variable set_now;
+    std::atomic<bool> set = false;
+    /// Each wait's own, so many waits on one lock are each taken off as they end.
+    std::vector<const waker_t*> waiting;
+};
+
+/// While it lives, a wait on `condition` under `mutex` is one that setting `cancel`, unless it's
+/// 0, wakes. It's made before the wait takes `mutex`, and goes once the wait has let go of it,
+/// so it never holds `mutex` while it takes the Cancellation's, which fb_cancel_set holds while it
+/// takes `mutex`.
+class registration_t {
+public:
+    registration_t(const std::uint64_t cancel, std::mutex& mutex,
+                   std::condition_variable& condition)
+        : m_cancel(cancel == 0 ? nullptr : &object_of<cancel_t>(cancel)),
+          m_waker{ .mutex = &mutex, .condition = &condition } {
+        if (m_cancel != nullptr) {
+            const std::scoped_lock lock(m_cancel->mutex);
+            m_cancel->waiting.push_back(&m_waker);
+        }
+    }
+
+    registration_t(const registration_t&) = delete;
+    registration_t& operator=(const registration_t&) = delete;
+    registration_t(registration_t&&) = delete;
+    registration_t& operator=(registration_t&&) = delete;
+
+    ~registration_t() {
+        if (m_cancel != nullptr) {
+            const std::scoped_lock lock(m_cancel->mutex);
+            std::erase(m_cancel->waiting, &m_waker);
+        }
+    }
+
+    /// Whether the Cancellation is set, which the wait asks under its mutex.
+    [[nodiscard]] bool cancelled() const {
+        return m_cancel != nullptr && m_cancel->set.load(std::memory_order_acquire);
+    }
+
+private:
+    cancel_t* m_cancel;
+    waker_t m_waker;
+};
+
 } // namespace
 
 extern "C" {
@@ -100,6 +157,26 @@ void fb_semaphore_acquire(const std::uint64_t semaphore) {
     std::unique_lock lock(state.mutex);
     state.released.wait(lock, [&] { return state.count > 0; });
     --state.count;
+}
+
+std::int32_t fb_semaphore_acquire_cancel(const std::uint64_t semaphore,
+                                         const std::uint64_t cancel) {
+    auto& state = object_of<semaphore_t>(semaphore);
+    const registration_t registration(cancel, state.mutex, state.released);
+    std::unique_lock lock(state.mutex);
+    state.released.wait(lock, [&] { return state.count > 0 || registration.cancelled(); });
+    if (registration.cancelled()) {
+        // A Release may have woken this wait alone, for a permit it leaves, so it wakes another.
+        if (state.count > 0) {
+            lock.unlock();
+            state.released.notify_one();
+        }
+
+        return 0;
+    }
+
+    --state.count;
+    return 1;
 }
 
 std::int32_t fb_semaphore_try_acquire(const std::uint64_t semaphore) {
@@ -199,6 +276,14 @@ void fb_wait_group_wait(const std::uint64_t group) {
     auto& state = object_of<wait_group_t>(group);
     std::unique_lock lock(state.mutex);
     state.emptied.wait(lock, [&] { return state.count == 0; });
+}
+
+std::int32_t fb_wait_group_wait_cancel(const std::uint64_t group, const std::uint64_t cancel) {
+    auto& state = object_of<wait_group_t>(group);
+    const registration_t registration(cancel, state.mutex, state.emptied);
+    std::unique_lock lock(state.mutex);
+    state.emptied.wait(lock, [&] { return state.count == 0 || registration.cancelled(); });
+    return registration.cancelled() ? 0 : 1;
 }
 
 std::int64_t fb_wait_group_count(const std::uint64_t group) {
@@ -365,5 +450,60 @@ void fb_signal_free(const std::uint64_t signal) {
     }
 
     delete state;
+}
+
+std::uint64_t fb_cancel_new() {
+    return handle_of(new cancel_t);
+}
+
+std::int32_t fb_cancel_set(const std::uint64_t cancel) {
+    auto& state = object_of<cancel_t>(cancel);
+    {
+        const std::scoped_lock lock(state.mutex);
+        if (state.set.exchange(true, std::memory_order_acq_rel)) {
+            return 0;
+        }
+
+        // A wait looks at the flag under its own mutex, so one that looked before it was set is
+        // waiting by the time this has its mutex, and the notify reaches it.
+        for (const waker_t* waker : state.waiting) {
+            {
+                const std::scoped_lock wait(*waker->mutex);
+            }
+
+            waker->condition->notify_all();
+        }
+    }
+
+    state.set_now.notify_all();
+    // The waits for a change in the pool's generation, a Channel's, look again too.
+    fb_pool_signal();
+    return 1;
+}
+
+std::int32_t fb_cancel_is_set(const std::uint64_t cancel) {
+    return object_of<cancel_t>(cancel).set.load(std::memory_order_acquire) ? 1 : 0;
+}
+
+std::int32_t fb_cancel_wait(const std::uint64_t cancel, const std::int64_t nanoseconds) {
+    auto& state = object_of<cancel_t>(cancel);
+    const auto end = fb::time::sleep_end(std::chrono::steady_clock::now(), nanoseconds);
+    std::unique_lock lock(state.mutex);
+    // A day at most at a time, as fb_time_sleep sleeps, which any OS's wait takes.
+    while (!state.set.load(std::memory_order_acquire)) {
+        const auto now = std::chrono::steady_clock::now();
+        if (now >= end) {
+            return 0;
+        }
+
+        const auto until = end - now < std::chrono::hours(24) ? end : now + std::chrono::hours(24);
+        state.set_now.wait_until(lock, until);
+    }
+
+    return 1;
+}
+
+void fb_cancel_free(const std::uint64_t cancel) {
+    delete &object_of<cancel_t>(cancel);
 }
 }

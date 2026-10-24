@@ -1,4 +1,6 @@
+#include "fb/concurrent.hpp"
 #include "fb/runtime.hpp"
+#include "fb/time.hpp"
 #include "internal.hpp"
 
 #include <algorithm>
@@ -187,6 +189,35 @@ public:
             std::unique_lock lock(m_mutex);
             m_wake.wait(lock, [&] { return m_generation.load(std::memory_order_acquire) != seen; });
         }
+    }
+
+    /// Returns once the generation isn't `seen`, or `stop` gives true, which it's asked again
+    /// whenever the generation changes, or once the monotonic clock passes `end`: whether it was
+    /// one of those first. The thread runs no jobs meanwhile, as in wait_until().
+    template <typename Stop>
+    bool wait_change(const std::uint64_t seen, const Stop& stop,
+                     const std::chrono::steady_clock::time_point end) {
+        std::unique_lock lock(m_mutex);
+        const auto changed = [&] {
+            return m_generation.load(std::memory_order_acquire) != seen || stop();
+        };
+        // A day at most at a time, as fb_time_sleep sleeps, which any OS's wait takes.
+        while (!changed()) {
+            const auto now = std::chrono::steady_clock::now();
+            if (now >= end) {
+                return false;
+            }
+
+            const auto until =
+                end - now < std::chrono::hours(24) ? end : now + std::chrono::hours(24);
+            m_wake.wait_until(lock, until);
+        }
+
+        return true;
+    }
+
+    [[nodiscard]] std::uint64_t generation() const {
+        return m_generation.load(std::memory_order_acquire);
     }
 
     /// Wakes the threads that sleep until there's a job to run, one is done, or a Channel
@@ -889,6 +920,26 @@ std::int64_t fb_pool_size() {
 
 void fb_pool_finish() {
     pool().finish();
+}
+
+std::uint64_t fb_pool_generation() {
+    return pool().generation();
+}
+
+void fb_pool_signal() {
+    pool().signal();
+}
+
+std::int32_t fb_pool_wait(const std::uint64_t seen, const std::uint64_t cancel,
+                          const std::int64_t nanoseconds) {
+    const auto cancelled = [cancel] { return cancel != 0 && fb_cancel_is_set(cancel) != 0; };
+    const bool changed = pool().wait_change(
+        seen, cancelled, fb::time::sleep_end(std::chrono::steady_clock::now(), nanoseconds));
+    if (cancelled()) {
+        return 2;
+    }
+
+    return changed ? 1 : 0;
 }
 
 void fb_thread_local_making() {

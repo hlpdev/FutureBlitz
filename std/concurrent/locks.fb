@@ -4,15 +4,18 @@
 // Shared Class, so a Const or a parameter shares one with the work that Spawn and Thread.Start
 // run. What waits blocks its thread and runs nothing else meanwhile, as a Channel's Send and
 // Receive do, so work that waits on the pool holds its worker: work that waits for other work
-// belongs on a Thread, or the pool can be left with no worker for what it waits for.
+// belongs on a Thread, or the pool can be left with no worker for what it waits for. A
+// Semaphore's Acquire and a WaitGroup's Wait can take a Cancellation, which stops the wait.
 
 Import std.core
+Import std.concurrent.cancellation
 
 // Each lock is a handle, the address of the runtime's, which a ReadOnly Field holds as a UInt64,
 // since a Ptr isn't Sendable.
 Extern "runtime"
     Function fb_semaphore_new(count: Int64): UInt64
     Function fb_semaphore_acquire(semaphore: UInt64)
+    Function fb_semaphore_acquire_cancel(semaphore: UInt64, cancel: UInt64): Int32
     Function fb_semaphore_try_acquire(semaphore: UInt64): Int32
     Function fb_semaphore_release(semaphore: UInt64, count: Int64): Int32
     Function fb_semaphore_count(semaphore: UInt64): Int64
@@ -23,6 +26,7 @@ Extern "runtime"
     Function fb_wait_group_new(): UInt64
     Function fb_wait_group_add(group: UInt64, count: Int64): Int32
     Function fb_wait_group_wait(group: UInt64)
+    Function fb_wait_group_wait_cancel(group: UInt64, cancel: UInt64): Int32
     Function fb_wait_group_count(group: UInt64): Int64
     Function fb_wait_group_free(group: UInt64)
     Function fb_once_new(): UInt64
@@ -52,6 +56,14 @@ Public Shared Class Semaphore
     // Takes a permit, waiting while there's none.
     Public Method Acquire()
         fb_semaphore_acquire(Handle)
+    End Method
+
+    // Takes a permit, waiting while there's none, unless the cancellation is cancelled first, or
+    // is already, which throws a CancelledError and takes none.
+    Public Method Acquire(cancel: Cancellation) Throws CancelledError
+        If fb_semaphore_acquire_cancel(Handle, cancel.Flag) == 0
+            Throw CancelledError("the wait for a permit was cancelled")
+        End If
     End Method
 
     // Takes a permit unless there's none, and tells whether it did.
@@ -138,6 +150,14 @@ Public Shared Class WaitGroup
     // Waits until the count is 0, which it may be already.
     Public Method Wait()
         fb_wait_group_wait(Handle)
+    End Method
+
+    // Waits until the count is 0 unless the cancellation is cancelled first, or is already, which
+    // throws a CancelledError.
+    Public Method Wait(cancel: Cancellation) Throws CancelledError
+        If fb_wait_group_wait_cancel(Handle, cancel.Flag) == 0
+            Throw CancelledError("the wait for the WaitGroup was cancelled")
+        End If
     End Method
 
     // The count now, which other threads may change at any time.

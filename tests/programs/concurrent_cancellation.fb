@@ -1,0 +1,186 @@
+// A Cancellation stops the waits that take it, on every thread, whether it's cancelled before
+// they wait or while they do: a Semaphore's Acquire and a WaitGroup's Wait throw a CancelledError
+// and take nothing, Sleep stops, and its Task is done for Async code.
+
+Import std.core
+Import std.time
+Import std.concurrent
+
+Shared Class Outcomes
+    Field Took: Atomic<Int>
+    Field Cancelled: Atomic<Int>
+End Class
+
+// Eight threads wait for a Semaphore's permits while three are given back and the Cancellation
+// is cancelled, at once: each thread takes one or is cancelled, and no permit is lost.
+Function Race(): Bool
+    Const permits = Semaphore(0)
+    Const cancel = Cancellation()
+    Const outcomes = Outcomes()
+    Local threads: Thread[] = []
+    For t = 1 To 8
+        threads.Add(Thread.Start(Function()
+            Try
+                permits.Acquire(cancel)
+                outcomes.Took.Add(1)
+            Catch e As CancelledError
+                outcomes.Cancelled.Add(1)
+            End Try
+        End Function))
+    End For
+
+    Local giver = Thread.Start(Function()
+        For i = 1 To 3
+            permits.Release()
+        End For
+    End Function)
+    cancel.Cancel()
+    giver.Join()
+    For thread In threads
+        thread.Join()
+    End For
+
+    Local took = outcomes.Took.Load()
+    Return took + outcomes.Cancelled.Load() == 8 && took <= 3 && took + permits.Available == 3
+End Function
+
+// Threads still waiting once others on the same Semaphore have taken permits and gone are each
+// woken by the Cancel.
+Function AfterTaking(): String
+    Const permits = Semaphore(0)
+    Const cancel = Cancellation()
+    Const outcomes = Outcomes()
+    Const taken = WaitGroup()
+    taken.Add(2)
+    Local threads: Thread[] = []
+    For t = 1 To 4
+        threads.Add(Thread.Start(Function()
+            Try
+                permits.Acquire(cancel)
+                outcomes.Took.Add(1)
+                taken.Done()
+            Catch e As CancelledError
+                outcomes.Cancelled.Add(1)
+            End Try
+        End Function))
+    End For
+
+    // Most likely all four wait by now, though it's the same if they don't.
+    Sleep(50.Milliseconds)
+    permits.Release(2)
+    taken.Wait()
+    cancel.Cancel()
+    For thread In threads
+        thread.Join()
+    End For
+
+    Return "took {outcomes.Took.Load()}, cancelled {outcomes.Cancelled.Load()}"
+End Function
+
+// Threads waiting for permits, for a WaitGroup, and in Sleep, all stopped by one Cancel.
+Function Waiters(): String
+    Const permits = Semaphore(0)
+    Const group = WaitGroup()
+    group.Add()
+    Const cancel = Cancellation()
+    Const outcomes = Outcomes()
+    Local threads: Thread[] = []
+    For t = 1 To 3
+        threads.Add(Thread.Start(Function()
+            Try
+                permits.Acquire(cancel)
+                outcomes.Took.Add(1)
+            Catch e As CancelledError
+                outcomes.Cancelled.Add(1)
+            End Try
+        End Function))
+        threads.Add(Thread.Start(Function()
+            Try
+                group.Wait(cancel)
+                outcomes.Took.Add(1)
+            Catch e As CancelledError
+                outcomes.Cancelled.Add(1)
+            End Try
+        End Function))
+        threads.Add(Thread.Start(Function()
+            Try
+                Sleep(1.Hours, cancel)
+                outcomes.Took.Add(1)
+            Catch e As CancelledError
+                outcomes.Cancelled.Add(1)
+            End Try
+        End Function))
+    End For
+
+    cancel.Cancel()
+    For thread In threads
+        thread.Join()
+    End For
+
+    Return "took {outcomes.Took.Load()}, cancelled {outcomes.Cancelled.Load()}, " +
+           "{permits.Available} permits, count {group.Count}"
+End Function
+
+Local wrong = 0
+For round = 1 To 50
+    If !Race() Then wrong += 1
+End For
+Print("rounds wrong:", wrong)
+Print(AfterTaking())
+Print(Waiters())
+
+// One cancelled already stops a wait before it starts, though there's a permit, and the count is
+// 0; one not cancelled lets them through.
+Const cancel = Cancellation()
+Const permits = Semaphore(1)
+Const group = WaitGroup()
+Print(cancel.IsCancelled)
+Try permits.Acquire(cancel)
+Try group.Wait(cancel)
+Try Sleep(Duration.Zero(), cancel)
+Try cancel.Check()
+Print("not cancelled:", permits.Available)
+cancel.Cancel()
+cancel.Cancel()
+Print(cancel.IsCancelled)
+permits.Release()
+Try
+    permits.Acquire(cancel)
+Catch e As CancelledError
+    Print(e.Message, permits.Available)
+End Try
+Try
+    group.Wait(cancel)
+Catch e As CancelledError
+    Print(e.Message)
+End Try
+Try
+    Sleep(Duration.Zero(), cancel)
+Catch e As CancelledError
+    Print(e.Message)
+End Try
+Try
+    cancel.Check()
+Catch e As CancelledError
+    Print(e.Message)
+End Try
+
+// Async code awaits its Task, beside the work's, done once it's cancelled.
+Async Function Work(frames: Int)
+    For i = 1 To frames
+        Await NextFrame()
+    End For
+End Function
+
+Const stop = Cancellation()
+Local before = stop.Task
+Print(before.IsDone())
+Local work = Work(1000)
+Async Function Stopper()
+    Await NextFrame()
+    Await NextFrame()
+    stop.Cancel()
+End Function
+Stopper()
+Local first = Await WhenAny([work, stop.Task])
+Print("first:", first, work.IsDone(), before.IsDone(), stop.Task.IsDone())

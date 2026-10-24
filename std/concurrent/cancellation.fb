@@ -1,0 +1,74 @@
+// Cancellation: a flag that code sets to stop work under way, on any thread. The blocking calls
+// that take one give up once it's set, before or while they wait, and throw a CancelledError: a
+// Semaphore's Acquire, a WaitGroup's Wait, Sleep, and a Channel's Receive and Send. Work that
+// doesn't wait asks IsCancelled, or calls Check, now and then, and Async code awaits its Task.
+
+Import std.core
+Import std.time.duration
+
+Extern "runtime"
+    Function fb_cancel_new(): UInt64
+    Function fb_cancel_set(cancel: UInt64): Int32
+    Function fb_cancel_is_set(cancel: UInt64): Int32
+    Function fb_cancel_wait(cancel: UInt64, nanoseconds: Int64): Int32
+    Function fb_cancel_free(cancel: UInt64)
+    Function fb_signal_new(): UInt64
+    Function fb_signal_task(signal: UInt64): Task
+    Function fb_signal_give(signal: UInt64): Int32
+    Function fb_signal_free(signal: UInt64)
+End Extern
+
+// A flag that, once Cancel sets it, stops the work it's given to. It's a Shared Class, so a Const
+// or a parameter shares one with the work that Spawn and Thread.Start run, and any thread can
+// cancel it. Once it's set, it stays set.
+Public Shared Class Cancellation
+    // The runtime's flag, which wakes the waits that take it, and the signal that finishes its
+    // Tasks.
+    ReadOnly Field Handle: UInt64
+    ReadOnly Field Signal: UInt64
+
+    Public New()
+        Handle = fb_cancel_new()
+        Signal = fb_signal_new()
+    End New
+
+    // Sets it, which wakes the calls that wait with it, on every thread, and finishes its Tasks.
+    // Cancelling it again does nothing.
+    Public Method Cancel()
+        If fb_cancel_set(Handle) != 0 Then fb_signal_give(Signal)
+    End Method
+
+    // Whether it's cancelled.
+    Public Property IsCancelled: Bool
+        Get => fb_cancel_is_set(Handle) != 0
+    End Property
+
+    // Throws a CancelledError once it's cancelled, for work to call between its steps.
+    Public Method Check() Throws CancelledError
+        If IsCancelled Then Throw CancelledError("the work was cancelled")
+    End Method
+
+    // A Task that's done once it's cancelled, which an Await waits for, beside other Tasks, as
+    // with WhenAny. Each one it gives is a new Task.
+    Public Property Task: Task
+        Get => fb_signal_task(Signal)
+    End Property
+
+    // The runtime's flag, for std.concurrent's waits.
+    Package Property Flag: UInt64
+        Get => Handle
+    End Property
+
+    Method Destroy()
+        fb_cancel_free(Handle)
+        fb_signal_free(Signal)
+    End Method
+End Class
+
+// Sleeps for `time` unless the cancellation is cancelled first, or is already, which throws a
+// CancelledError. A time of 0 or less doesn't sleep.
+Public Function Sleep(time: Duration, cancel: Cancellation) Throws CancelledError
+    If fb_cancel_wait(cancel.Flag, time.Nanoseconds) != 0
+        Throw CancelledError("the sleep was cancelled")
+    End If
+End Function

@@ -1,0 +1,12 @@
+rounds wrong: 0
+took 2, cancelled 2
+took 0, cancelled 9, 0 permits, count 1
+False
+not cancelled: 0
+True
+the wait for a permit was cancelled 1
+the wait for the WaitGroup was cancelled
+the sleep was cancelled
+the work was cancelled
+False
+first: 1 False True True
