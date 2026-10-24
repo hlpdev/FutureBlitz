@@ -112,6 +112,23 @@ End For
 Print("  walked {(Try? mods.Walk())?.Count ?? -1} {Failure(mods, "notes")}")
 Try File.Delete(root / "notes.txt")
 
+// A later mount's file where an earlier mount makes a folder is a file, everywhere.
+Local shadowed = Vfs()
+shadowed.MountEmbedded("a/x", {"y.txt": "y".Bytes})
+shadowed.MountEmbedded("", {"a": "a file".Bytes})
+Local shadowedKind = Try shadowed.KindOf("a")
+Local walked: String[] = []
+For entry In Try shadowed.Walk()
+    walked.Add("{entry.Path}:{entry.Kind}")
+End For
+
+Print("  {shadowedKind == Null ? "none" : "{shadowedKind}"} {shadowed.Exists("a")} {shadowed.DirExists("a")} {walked}")
+Try
+    shadowed.Entries("a")
+Catch e As IOError
+    Print("  {e.Kind}")
+End Try
+
 Print("errors")
 Function Failure(vfs: Vfs, path: Path): String
     Try

@@ -248,12 +248,17 @@ Public Class Vfs
     End Method
 
     // What's at `path`: a file or a folder some mount has, or a folder a mount is in or at, or
-    // Null.
+    // Null. What two mounts have is the last one's, as Entries finds it.
     Public Method KindOf(path: Path): FileKind? Throws IOError
         Local names = NamesOf(path.Text)
         If names == Null Then Return Null
-        If Under(names) Then Return FileKind.DIRECTORY
+        If names.Count == 0 Then Return FileKind.DIRECTORY
         For i = Mounts.Count - 1 To 0 Step -1
+            // A mount in it makes it a folder.
+            If Mounts[i].At.Count > names.Count && Starts(Mounts[i].At, names)
+                Return FileKind.DIRECTORY
+            End If
+
             Local inner = Inside(Mounts[i], names)
             If inner == Null Then Continue
             // A mount's root is a folder, whatever its source says.
@@ -279,13 +284,15 @@ Public Class Vfs
     // has throws an IOError of NOT_FOUND, and a file one of NOT_A_DIRECTORY.
     Public Method Entries(path: Path): DirEntry[] Throws IOError
         Local names = Try Checked(path)
+        // A later mount's file where an earlier one has a folder is the file, as KindOf says.
+        If (Try KindOf(path)) == FileKind.FILE
+            Throw IOError(IOErrorKind.NOT_A_DIRECTORY, "can't list {path}: it's a file", path.Text)
+        End If
+
         Local listed = Try Listed(names)
         If listed == Null
-            If (Try KindOf(path)) == FileKind.FILE
-                Throw IOError(IOErrorKind.NOT_A_DIRECTORY, "can't list {path}: it's a file", path.Text)
-            End If
-
-            Throw IOError(IOErrorKind.NOT_FOUND, "can't list {path}: no mount of the Vfs has it", path.Text)
+            Throw IOError(IOErrorKind.NOT_FOUND, "can't list {path}: no mount of the Vfs has it",
+                          path.Text)
         End If
 
         Local folder = Joined(names)
