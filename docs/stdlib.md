@@ -255,13 +255,17 @@ file or URL in the default app.
   for each type makes one, `Value()` Null, and `Value.Array()` and `Value.Object()` empty ones;
   `Kind`, `IsNull` to `IsObject`, and `Count` say what it holds, and `AsBool()`, `AsInt()`,
   `AsInt64()`, `AsUInt64()`, `AsDouble()`, `AsString()`, `AsBytes()`, and `AsArray()` give it as
-  each, or Null. `v["key"]` and `v[0]` give a `Value?`, Null where it has none, and
-  `Path("a.b[0]")` steps through several; `[]=`, `Add`, `Insert`, `RemoveAt`, and `Remove` change
-  an Array or Object, which shows through every reference to it, and `Clone()` copies one whole.
-  None holds itself, which `[]=`, `Add`, and `Insert` panic at, so each is a tree, and the
-  getters' bytes and elements are copies.
-  `==` and `Hash` compare what it holds, an Object's keys in any order, and `ToString` writes it
-  as JSON on one line.
+  each, or Null: AsBytes a copy, and AsArray a new array of the Value's own elements, so adding to
+  it or taking from it leaves the Value as it is, but a change to an element shows. `Keys()` gives
+  an Object's keys, in order, and `Contains(key)` whether it has one. `v["key"]` and `v[0]` give a
+  `Value?`, Null where it has none, and `Path("a.b[0]")` steps through several; `[]=`, `Add`,
+  `Insert`, `RemoveAt`, and `Remove` change an Array or Object, which shows through every
+  reference to it, and `Clone()` copies one whole. None holds itself, which `[]=`, `Add`, and
+  `Insert` panic at, though one can sit in several places of another, where a change to it shows
+  in each. `==` and `Hash` compare what it holds, an Object's keys in any order, and `ToString`
+  writes it as JSON on one line, with bytes, which JSON doesn't have, in hex between angle
+  brackets, as `<0aff>`. They and Clone go through a Value however deep without recursing, and
+  through a part held in several places once for each place, as Clone copies it into each.
 - Small things: `Min`, `Max`, `Clamp`, `Swap`; `HashCombine`; and the built-in `TypeName<T>()`,
   at compile time, like SizeOf.
 

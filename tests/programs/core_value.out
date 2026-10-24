@@ -32,7 +32,9 @@ true True - - - - -
 "x" - - - - - x
 null - - - - - -
 2 True 1 True
-[1] <05>
+2147483647 -2147483648 - - UINT INT
+[[]] <05>
+[[3]]
 {"name": "game", "size": 128, "tags": ["a", "b"]} 3 [name, size, tags] True False
 "game" True True
 ["first", "A", "b", "c"] "first" "c" True True True

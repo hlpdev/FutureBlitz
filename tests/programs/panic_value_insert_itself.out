@@ -1,0 +1,2 @@
+[0, 1]
+panic: a Value can't hold itself, inside it or as it is at panic_value_insert_itself.fb:7:1

@@ -1,0 +1,10 @@
+// So does giving an element the Value it's in.
+Import std.core
+
+Local outer = Value([Value(1)])
+Local inner = Value.Array()
+outer[0] = inner
+Print(outer)
+inner.Add(Value(2))
+Print(outer)
+outer[0] = outer

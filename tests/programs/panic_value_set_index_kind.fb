@@ -1,0 +1,8 @@
+// Giving an element a Value works only on an Array.
+Import std.core
+
+Local array = Value([Value(1)])
+array[0] = Value(2)
+Print(array)
+Local object = Value.Object()
+object[0] = Value(3)

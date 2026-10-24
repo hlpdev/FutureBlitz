@@ -1,0 +1,7 @@
+// Taking an element out works only on an Array.
+Import std.core
+
+Local array = Value([Value(1), Value(2)])
+array.RemoveAt(0)
+Print(array)
+Value("text").RemoveAt(0)

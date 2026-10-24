@@ -1,0 +1,2 @@
+[2]
+panic: Value.RemoveAt works on an Array, not a String at panic_value_remove_at_kind.fb:7:1

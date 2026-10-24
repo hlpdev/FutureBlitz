@@ -281,8 +281,11 @@ Print(config, config.Path("ports[1]")?.AsInt() ?? 0)   // {"name": "game", "port
   each number type, so `Value(5)` and `Value(0.1)` read as an Int and a Double, as written.
 - What it holds is its `Kind`, and the getters give it as a type, `AsInt()` or `AsString()`, or
   Null for another kind. `v["key"]`, `v[0]`, and `v.Path("a.b[0]")` give a `Value?`, Null where
-  there's nothing.
+  there's nothing, and an Object's `Keys()` and `Contains(key)` say which keys it has.
 - A Value is an object: a change to an Array or Object shows through every reference to it, and
   `Clone()` copies one whole. None holds itself, inside it however deep, which a change that
-  would make it panics at, so each is a tree. Two Values are `==` when they're the same kind holding the same, an
-  Object's keys in any order; an integer isn't a Double, so `Value(1) != Value(1.0)`.
+  would make it panics at, but one can sit in several places of another, where a change to it
+  shows in each, and which Clone copies into each.
+- Two Values are `==` when they're the same kind holding the same, an Object's keys in any
+  order; an integer isn't a Double, so `Value(1) != Value(1.0)`. Its text is JSON's on one line,
+  with bytes, which JSON doesn't have, in hex between angle brackets, as `<0aff>`.

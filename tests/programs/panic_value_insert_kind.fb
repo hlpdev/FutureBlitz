@@ -1,0 +1,7 @@
+// Inserting works only on an Array.
+Import std.core
+
+Local array = Value.Array()
+array.Insert(0, Value(1))
+Print(array)
+Value("text").Insert(0, Value(2))

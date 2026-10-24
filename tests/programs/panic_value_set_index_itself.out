@@ -1,0 +1,3 @@
+[[]]
+[[2]]
+panic: a Value can't hold itself, inside it or as it is at panic_value_set_index_itself.fb:10:6

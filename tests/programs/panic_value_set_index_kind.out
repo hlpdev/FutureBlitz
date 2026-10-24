@@ -1,0 +1,2 @@
+[2]
+panic: a Value's [index] = works on an Array, not an Object at panic_value_set_index_kind.fb:8:7

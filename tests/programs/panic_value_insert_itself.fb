@@ -1,0 +1,7 @@
+// Inserting a Value into itself panics, as adding one does.
+Import std.core
+
+Local array = Value([Value(1)])
+array.Insert(0, Value(0))
+Print(array)
+array.Insert(0, array)

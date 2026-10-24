@@ -35,12 +35,19 @@ End For
 
 Print(Value([1 As UInt8, 2]).AsBytes()?.Count ?? -1, Value("x").AsBytes() == Null,
       Value([Value(1)]).AsArray()?.Count ?? -1, Value(1).AsArray() == Null)
-// They're copies, which the Value doesn't see changes to.
-Local held = Value([Value(1)])
+// AsInt gives an INT in an Int's range, and a UInt64 is an INT up to an Int64's largest.
+Print(Shown(Value(2147483647 As Int64).AsInt()), Shown(Value(-2147483648 As Int64).AsInt()),
+      Shown(Value(2147483648 As Int64).AsInt()), Shown(Value(-2147483649 As Int64).AsInt()),
+      Value(9223372036854775808 As UInt64).Kind, Value(9223372036854775807 As UInt64).Kind)
+// Adding to or taking from what AsArray and AsBytes give doesn't change the Value, but a change
+// to one of the elements does, as they're the Value's own.
+Local held = Value([Value.Array()])
 Local blob = Value([5 As UInt8])
 (held.AsArray() ?? []).Add(Value(2))
 (blob.AsBytes() ?? []).Add(6)
 Print(held, blob)
+((held.AsArray() ?? [])[0]).Add(Value(3))
+Print(held)
 
 // An Object keeps its keys in the order they were added; indexing gives Null where it has
 // nothing.
