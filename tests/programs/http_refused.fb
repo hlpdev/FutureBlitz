@@ -1,0 +1,68 @@
+// What a request can't send is a NetError of OTHER, blocking and awaited, with nothing sent:
+// text libcurl can't take, a URL, Proxy, User-Agent, or Cookie with a NUL, which C's strings end
+// at, or longer than libcurl's 8,000,000 bytes.
+Import std.core
+Import std.collections
+Import std.net.http
+
+Global base = Input() ?? ""
+Global secure = Input() ?? ""
+Global refused = Input() ?? ""
+
+// 2^23 bytes, past libcurl's most.
+Global huge = "a"
+For i = 0 Until 23
+    huge = huge + huge
+End For
+
+// What a GET of url through client gives, blocking, then awaited: its text, or what failed and
+// whether its message is said.
+Async Function Tried(client: HttpClient, url: String, said: String,
+                     headers: Headers? = Null): String
+    Local tried: String[] = []
+    For awaited In [False, True]
+        Try
+            If awaited
+                tried.Add((Await client.SendAsync(HttpMethod.GET, url, Null, headers)).Text)
+            Else
+                tried.Add(client.Send(HttpMethod.GET, url, Null, headers).Text)
+            End If
+        Catch e As NetError
+            tried.Add("NetError {e.Kind} {e.Message == said}")
+        Catch e As TimeoutError
+            tried.Add("TimeoutError")
+        End Try
+    End For
+    Return tried.Join(", ")
+End Function
+
+Local client = HttpClient()
+Print("== URL")
+Local cut = "{base}/hello\0/../status/500"
+Print(Await Tried(client, cut, "{cut} isn't an HTTP or HTTPS URL: it has a NUL in it"))
+Local lengthy = "{base}/hello?q={huge}"
+Print(Await Tried(client, lengthy,
+                  "{lengthy} isn't an HTTP or HTTPS URL: it is longer than the 8000000 bytes " +
+                  "libcurl takes"))
+
+Print("== Proxy")
+Local proxied = HttpClient()
+proxied.Proxy = "{base}\0.example"
+Print(Await Tried(proxied, "{base}/hello", "the proxy has a NUL in it"))
+proxied.Proxy = "http://{huge}"
+Print(Await Tried(proxied, "{base}/hello",
+                  "the proxy is longer than the 8000000 bytes libcurl takes"))
+
+Print("== headers")
+Local agent = HttpClient()
+agent.UserAgent = huge
+Print(Await Tried(agent, "{base}/hello",
+                  "the User-Agent is longer than the 8000000 bytes libcurl takes"))
+Local cookie = Headers()
+cookie.Add("Cookie", "big={huge}")
+Print(Await Tried(client, "{base}/hello",
+                  "the request's Cookie header is longer than the 8000000 bytes libcurl takes",
+                  cookie))
+
+Print("== after")
+Print(Await Tried(client, "{base}/hello", ""))
