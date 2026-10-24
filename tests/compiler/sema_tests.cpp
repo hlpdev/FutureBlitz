@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <catch2/catch_test_macros.hpp>
+#include <chrono>
 #include <cstddef>
 #include <format>
 #include <optional>
@@ -14847,4 +14848,27 @@ TEST_CASE("overloads: what a literal's lambda is checked as for one that isn't c
                     "Local task = Spawn(Function() => Work())\n"
                     "Print(task.Wait())")
               .empty());
+}
+
+TEST_CASE("overloads: a literal is checked as a parameter's type only where it could be one",
+          "[sema]") {
+    // Overloaded calls nested six deep in array literals: each overload whose parameter no array
+    // can be, or that the literal's own type converts to, is settled without checking the
+    // literal again, which would check what's inside it again, at every level. That took ten
+    // times as long, about 37 seconds in a debug build, where this takes about 4.
+    const auto start = std::chrono::steady_clock::now();
+    CHECK(probe("Import std.core\n"
+                "Class Json\n"
+                "    Field Depth: Int\n"
+                "    New(depth: Int)\n"
+                "        Depth = depth\n"
+                "    End New\n"
+                "End Class\n"
+                "Function Of(n: Int): Json => Json(0)\n"
+                "Function Of(s: String): Json => Json(0)\n"
+                "Function Of(b: Bool): Json => Json(0)\n"
+                "Function Of(values: Json[]): Json => Json(values.Count)\n"
+                "Local x = Of([Of(5), Of([Of(4), Of([Of(3), Of([Of(2), Of([Of(1), Of([Of(0), "
+                "Of(1)])])])])])])") == "Json");
+    CHECK(std::chrono::steady_clock::now() - start < std::chrono::seconds(15));
 }
