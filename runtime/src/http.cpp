@@ -936,10 +936,15 @@ void* fb_http_new(void* client, const fb_string_t* method, const fb_string_t* ur
     curl_easy_setopt(easy, CURLOPT_XFERINFOFUNCTION, on_progress);
     curl_easy_setopt(easy, CURLOPT_XFERINFODATA, static_cast<void*>(transfer));
     // The client's own roots, which libcurl copies, or the OS's, which last as long as the
-    // program. An empty bundle is none, so nothing's trusted.
+    // program, for the server's TLS and an HTTPS proxy's. An empty bundle is none, so nothing's
+    // trusted.
     const std::optional<std::string>& own = transfer->client->roots;
     const std::string& roots = own ? *own : fb::runtime::os_roots();
-    if (!roots.empty()) {
+    if (roots.size() > most_input) {
+        refuse(*transfer, OUTCOME_TLS,
+               std::format("the roots it trusts are more than the {} bytes of PEM libcurl takes",
+                           most_input));
+    } else if (!roots.empty()) {
         curl_blob blob{
             .data = const_cast<char*>(roots.data()),
             .len = roots.size(),
@@ -947,6 +952,7 @@ void* fb_http_new(void* client, const fb_string_t* method, const fb_string_t* ur
                          : static_cast<unsigned>(CURL_BLOB_NOCOPY),
         };
         check(curl_easy_setopt(easy, CURLOPT_CAINFO_BLOB, &blob), "roots");
+        check(curl_easy_setopt(easy, CURLOPT_PROXY_CAINFO_BLOB, &blob), "proxy's roots");
     }
 
     return transfer;
