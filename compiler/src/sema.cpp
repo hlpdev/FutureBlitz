@@ -23103,6 +23103,13 @@ private:
         return declared.type;
     }
 
+    /// Whether "State.Name" is a Static Property an Extend of the Enum adds, not one of its values.
+    [[nodiscard]] bool extended_property(const type_id_t type, const name_t& member) {
+        const std::vector<enum_value_t>& values = m_analysis.types.get(type).values;
+        return !std::ranges::contains(values, member.text, &enum_value_t::name) &&
+               static_value(type, member);
+    }
+
     /// "State.Walk": one of an Enum's values, known at compile time. While types are declared, as
     /// a Field's size uses one, its values are declared first if they aren't yet.
     type_id_t check_enum_value(const expr_id_t id, const member_expr_t& node,
@@ -23154,7 +23161,9 @@ private:
             return check_member_variable(id, node, *variable);
         }
 
-        if (const std::optional<type_id_t> enumeration = enum_named(node.object)) {
+        // A Static Property an Extend of an Enum adds is reached through it, as a value is.
+        if (const std::optional<type_id_t> enumeration = enum_named(node.object);
+            enumeration && !extended_property(*enumeration, node.member)) {
             return check_enum_value(id, node, *enumeration);
         }
 
