@@ -1,0 +1,52 @@
+// The console: whether stdin, stdout, and stderr are terminals, the terminal's size, and a key or
+// a password read from it, over the runtime's fb_term_ functions, which put the console back as
+// the program ends, however it ends. Reading keys goes through Terminal.Console(), whose state is
+// the main thread's.
+
+Import std.core
+Import std.time.duration
+Import std.term.input
+Import std.term.terminal
+
+Package Extern "runtime"
+    Function fb_term_is_terminal(stream: Int32): Int32
+    Function fb_term_size(ByRef columns: Int32, ByRef rows: Int32): Int32
+    Function fb_term_start(stream: Int32): Int32
+    Function fb_term_colors(stream: Int32): Int32
+    Function fb_term_set_mode(mode: Int32): Int32
+    Function fb_term_read(into: UInt8[], timeout: Int64): Int64
+    Function fb_term_set_screen(enter: String, leave: String)
+End Extern
+
+// The console's streams: what the program reads, stdin, and writes, stdout, and its errors,
+// stderr.
+Public Enum StandardStream
+    INPUT, OUTPUT, ERROR
+End Enum
+
+// Whether stream is a terminal, which someone types at or reads, rather than a pipe or a file.
+Public Function IsTerminal(stream: StandardStream = StandardStream.OUTPUT): Bool
+    Return fb_term_is_terminal(stream As Int32) != 0
+End Function
+
+// The terminal's size, in columns and rows: stdout's, or else stderr's or stdin's, or Null when
+// none of them is a terminal.
+Public Function TerminalSize(): (Int, Int)?
+    Local columns: Int32 = 0
+    Local rows: Int32 = 0
+    If fb_term_size(ByRef columns, ByRef rows) == 0 Then Return Null
+    Return (columns, rows)
+End Function
+
+// The next key typed at the console, as it's typed, without showing it, or Null once the input
+// has ended. Ctrl+C still ends the program. From a pipe or a file, each character is a key, and a
+// line break is ENTER.
+Public Function ReadKey(): KeyEvent? => Terminal.Console().ReadKey()
+
+// ReadKey's twin that waits for timeout at most, and gives Null when no key came by then.
+Public Function ReadKey(timeout: Duration): KeyEvent? => Terminal.Console().ReadKey(timeout)
+
+// Writes the prompt, then reads a line typed at the console without showing it, as for a
+// password, up to ENTER. BACKSPACE takes back the last character, and Ctrl+U the whole line. Null
+// once the input has ended, or for Ctrl+D on an empty line, as Input gives at the end.
+Public Function ReadPassword(prompt: String = ""): String? => Terminal.Console().ReadPassword(prompt)

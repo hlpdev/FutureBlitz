@@ -1,0 +1,59 @@
+// std.term's styles: each color by name and kind, its red, green, and blue, the nearest a
+// terminal of fewer colors has, the codes each level writes for a style, plain text where stdout
+// isn't a terminal, and text without its escape codes and the columns it takes.
+Import std.core
+Import std.text
+Import std.term
+
+Function Shown(text: String): String => text.Replace("\u{1b}", "\\e")
+
+Print("{TermColor.Normal} {TermColor.Red} {TermColor.BrightCyan} {TermColor.Black}")
+Print("{TermColor.Basic(15)} {TermColor.Indexed(208)} {TermColor.Rgb(255, 136, 0)}")
+Print("{TermColor.Hex("#f80")} {TermColor.Hex("FF8800")} {TermColor.Hex("#0a0B0c")}")
+Print(TermColor.TryHex("#12345") == Null, TermColor.TryHex("#ggg") == Null, TermColor.TryHex("") == Null)
+Print("{TermColor.Red.ToRgb()} {TermColor.BrightBlue.ToRgb()} {TermColor.Normal.ToRgb()}")
+Print("{TermColor.Indexed(16).ToRgb()} {TermColor.Indexed(196).ToRgb()} {TermColor.Indexed(231).ToRgb()}")
+Print("{TermColor.Indexed(232).ToRgb()} {TermColor.Indexed(255).ToRgb()} {TermColor.Indexed(9).ToRgb()}")
+Print(TermColor.Red == TermColor.Basic(1), TermColor.Red == TermColor.Indexed(1), TermColor.Red.Hash() == TermColor.Basic(1).Hash())
+
+// What each level shows of each color.
+Local colors = [TermColor.Rgb(255, 136, 0), TermColor.Rgb(0, 0, 0), TermColor.Rgb(128, 128, 128),
+                TermColor.Rgb(95, 135, 175), TermColor.Rgb(250, 250, 250), TermColor.Rgb(1, 2, 3),
+                TermColor.Indexed(208), TermColor.Indexed(9), TermColor.Indexed(244), TermColor.BrightBlue,
+                TermColor.Normal]
+For level In [ColorLevel.TRUE_COLOR, ColorLevel.INDEXED, ColorLevel.BASIC, ColorLevel.NONE]
+    Local shown: String[] = []
+    For color In colors
+        shown.Add("{color.Nearest(level)}")
+    End For
+
+    Print("{level}: {", ".Join(shown)}")
+End For
+
+// The codes a style starts with at each level, and text in it.
+Local style = Style(TermColor.Rgb(255, 136, 0), TermColor.Blue).Bold().Underline()
+For level In [ColorLevel.TRUE_COLOR, ColorLevel.INDEXED, ColorLevel.BASIC, ColorLevel.NONE]
+    Print("{level}: [{Shown(style.Codes(level))}] [{Shown(style.Apply("hi", level))}]")
+End For
+
+Local every = Style().Bold().Dim().Italic().Underline().Blink().Reverse().Hidden().Strikethrough()
+Print(Shown(every.Codes(ColorLevel.BASIC)), "{every}")
+Local bright = Style(TermColor.BrightRed, TermColor.BrightWhite)
+Print(Shown(bright.Codes(ColorLevel.BASIC)), Shown(Style(TermColor.Indexed(100), TermColor.Indexed(7)).Codes(ColorLevel.INDEXED)))
+Print("{Style()} | {Style(TermColor.Red).On(TermColor.White).Bold()} | {style}")
+Print(Style().IsPlain, style.IsPlain, Style(Attributes: TextAttributes.DIM).IsPlain)
+Print(Shown(Style().Codes(ColorLevel.BASIC)), "[" + Style().Apply("plain", ColorLevel.TRUE_COLOR) + "]")
+Print("[" + style.Apply("", ColorLevel.TRUE_COLOR) + "]")
+Print("{Style(TermColor.Red).Over(Style(TermColor.Green, TermColor.Black, TextAttributes.ITALIC))}")
+Print("{Style(Attributes: TextAttributes.BOLD).Over(Style(TermColor.Green))}")
+
+// stdout and stderr are pipes here, so Paint gives the text alone.
+Print(Paint("piped", Style(TermColor.Red)), Paint("piped", style, StandardStream.ERROR))
+Print(ConsoleColors(), ConsoleColors(StandardStream.ERROR))
+
+// Text without its codes, and the columns it takes.
+Local styled = "\u{1b}[1;31mred\u{1b}[0m \u{1b}]8;;https://futureblitz.dev\u{7}link\u{1b}]8;;\u{1b}\\ \u{1b}(B中文 e\u{301} 👍🏽"
+Print(StripStyles(styled), VisibleWidth(styled))
+Print(VisibleWidth("ab\n\u{1b}[31mwide 中文\u{1b}[0m"), VisibleWidth(""), StripStyles("no codes"))
+Print("[" + StripStyles("cut \u{1b}[31") + "] [" + StripStyles("\u{1b}") + "] [" + StripStyles("a\u{1b}7b\u{1b}") + "]")
+Print("[" + StripStyles("\u{1b}]0;title") + "] [" + StripStyles("\u{1b}\u{1b}[1mx") + "]")
