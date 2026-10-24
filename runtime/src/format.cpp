@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <charconv>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <expected>
@@ -89,6 +90,14 @@ fb::format_spec_t padding_of(fb::format_spec_t spec) {
     spec.kind = 0;
     spec.alternate = false;
     return spec;
+}
+
+/// Whether fast_float read all of a float's text, to `end`: out of range only when it's too
+/// small, which reads as 0, as the nearest value, and not too big, which reads as infinity.
+bool read_whole(const fast_float::from_chars_result& result, const char* end, const bool infinite) {
+    const bool fits =
+        result.ec == std::errc{} || (result.ec == std::errc::result_out_of_range && !infinite);
+    return fits && result.ptr == end;
 }
 
 } // namespace
@@ -195,7 +204,8 @@ std::int32_t fb_parse_int(const fb_string_t* text, const std::int32_t base, std:
 std::int32_t fb_parse_uint(const fb_string_t* text, const std::int32_t base, std::uint64_t* value) {
     bool negative = false;
     const std::optional<std::uint64_t> magnitude = magnitude_of(view(text), base, negative);
-    if (!magnitude || negative) {
+    // -0 is 0, which an unsigned integer holds.
+    if (!magnitude || (negative && *magnitude != 0)) {
         return 0;
     }
 
@@ -229,7 +239,7 @@ std::int32_t fb_parse_float(const fb_string_t* text, const std::int32_t float32,
     if (float32 != 0) {
         float number = 0;
         const fast_float::from_chars_result result = fast_float::from_chars(first, end, number);
-        if (result.ec != std::errc{} || result.ptr != end) {
+        if (!read_whole(result, end, std::isinf(number))) {
             return 0;
         }
 
@@ -239,7 +249,7 @@ std::int32_t fb_parse_float(const fb_string_t* text, const std::int32_t float32,
 
     double number = 0;
     const fast_float::from_chars_result result = fast_float::from_chars(first, end, number);
-    if (result.ec != std::errc{} || result.ptr != end) {
+    if (!read_whole(result, end, std::isinf(number))) {
         return 0;
     }
 
