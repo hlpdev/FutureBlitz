@@ -807,3 +807,9 @@ TEST_CASE("a numeric reference to a surrogate is U+FFFD in HTML, as in a tree", 
           "<p>\xEF\xBF\xBD <a href=\"/%EF%BF%BD\" title=\"\xEF\xBF\xBD\">a</a></p>\n");
     CHECK(html_of("&#xD7FF; &#xE000;") == "<p>\xED\x9F\xBF \xEE\x80\x80</p>\n");
 }
+
+TEST_CASE("Markdown of less than 4 GiB is what md4c reads", "[runtime]") {
+    CHECK(fb::markdown_fits(0));
+    CHECK(fb::markdown_fits(4294967295));
+    CHECK_FALSE(fb::markdown_fits(4294967296));
+}
