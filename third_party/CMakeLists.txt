@@ -25,6 +25,21 @@ endif()
 if(MINGW)
   target_compile_options(uv_a PRIVATE -mcrtdll=ucrt)
 endif()
+# On Windows, libuv puts each child in a job that ends it as the program ends, which a child on
+# Linux and macOS outlives, as std.os's Child does: the child stays out of it, as fetched.
+set(spawning "${libuv_SOURCE_DIR}/src/win/process.c")
+set(joined "if (!(options->flags & UV_PROCESS_DETACHED)) {")
+set(apart "if (0 && !(options->flags & UV_PROCESS_DETACHED)) {")
+file(READ "${spawning}" text)
+string(REPLACE "${joined}" "${apart}" changed "${text}")
+if(NOT changed STREQUAL text)
+  file(WRITE "${spawning}" "${changed}")
+else()
+  string(FIND "${text}" "${apart}" at)
+  if(at EQUAL -1)
+    message(FATAL_ERROR "libuv's win/process.c doesn't put its children in a job as it did")
+  endif()
+endif()
 set(FB_LIBUV_VERSION ${FB_LIBUV_VERSION} PARENT_SCOPE)
 # Its notices, in one file: libuv's license, then those of the code it has from Joyent's libuv,
 # FreeBSD's tree.h, and ISC's inet.c, whose texts are at the top of those files.

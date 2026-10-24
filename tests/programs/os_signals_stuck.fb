@@ -1,0 +1,26 @@
+// A coroutine waits for a Scheduler that nothing ticks, beside a handler for Ctrl+C: the program
+// ends as it does without one, since the handler's thread, waiting for a signal, isn't work that
+// could finish the coroutine's Task.
+Import std.core
+Import std.os
+Import std.time
+
+Process.OnInterrupt(Function()
+    Print("interrupted")
+End Function)
+
+Global paused = Scheduler()
+
+Async Function Inner(): Int
+    Await Wait(1.Seconds)
+    Return 1
+End Function
+
+Async Function Outer()
+    Local inner = Inner()
+    paused.Run(inner)
+    Print("never {Await inner}")
+End Function
+
+Outer()
+Print("done")

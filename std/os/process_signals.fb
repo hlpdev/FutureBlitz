@@ -13,14 +13,18 @@ Extend Process
     // Runs handler each time the program is interrupted, by Ctrl+C, or on Windows Ctrl+Break
     // too, which then doesn't end it. A handler runs on a thread of its own, one at a time, and
     // once more for the signals that come while it runs. Once the program's code is done, its
-    // coroutines too, none runs, and the signal ends the program again.
+    // coroutines too, none runs, and the signal ends the program again; a call from then on, as
+    // from a thread that runs on, does nothing. A coroutine that waits for nothing but what a
+    // handler may give, a TaskSource's Task, waits for the signal.
     Public Static Method OnInterrupt(handler: Sendable Func())
         Watch(1, handler)
     End Method
 
     // Runs handler each time something asks the program to end, by SIGTERM or SIGHUP, or on
     // Windows by closing its console, as OnInterrupt runs its handler. Windows still ends the
-    // program a few seconds after its console closes, and has no SIGTERM to send it.
+    // program a few seconds after its console closes, and has no SIGTERM to send it. On Linux and
+    // macOS, a signal the program started out ignoring, as nohup has it ignore SIGHUP, stays
+    // ignored, for OnInterrupt too, and no handler runs for it.
     Public Static Method OnTerminate(handler: Sendable Func())
         Watch(2, handler)
     End Method

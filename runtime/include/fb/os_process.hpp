@@ -2,7 +2,13 @@
 
 #include "fb/runtime.hpp"
 
+#include <cstddef>
 #include <cstdint>
+#include <optional>
+#include <span>
+#include <string>
+#include <string_view>
+#include <vector>
 
 // std.os's processes and signals in the runtime, over libuv: starting programs with their
 // arguments, environment, folder, and streams, moving the bytes of their pipes, waiting for them
@@ -18,12 +24,16 @@
 
 extern "C" {
 
-/// Starts `program`, looked up as libuv looks one up, on PATH, with `arguments`, a String[], in
-/// `folder`, or this program's folder when it's empty, and its streams as `input`, `output`, and
-/// `error` say. Its environment is this program's, or empty when `cleared` isn't 0, with each of
-/// `names`, a String[], set to the String? at its place in `values`, or taken out for null, in
-/// order. Gives the child's handle, or 0, with libuv's error in `failure`, or 1 there when a text
-/// has a NUL, which none can, or 2 when a name is empty or has an '=', and nothing starts.
+/// Starts `program` with `arguments`, a String[], in `folder`, or this program's folder when it's
+/// empty, and its streams as `input`, `output`, and `error` say, once what this program printed
+/// is flushed. A program with a path in it is found from `folder`, and a name alone only on the
+/// child's PATH, never in a current folder; on Windows, with .com or .exe after it too, and a .bat
+/// or .cmd file runs in cmd.exe, with its arguments escaped for it. Its environment is this
+/// program's, or empty when `cleared` isn't 0, with each of `names`, a String[], set to the
+/// String? at its place in `values`, or taken out for null, in order. Gives the child's handle,
+/// or 0, with libuv's error in `failure`, or 1 there when the program, an argument, a value, or
+/// the folder has a NUL, 2 when a name is empty or has an '=' or a NUL, or 3 when an argument to
+/// a .bat or .cmd file has a line break, which cmd.exe can't take, and nothing starts.
 std::uint64_t fb_os_process_spawn(const fb_string_t* program, const fb_array_t* arguments,
                                   const fb_array_t* names, const fb_array_t* values,
                                   std::int32_t cleared, const fb_string_t* folder,
@@ -79,10 +89,56 @@ void fb_os_process_arguments(fb_array_t* into);
 /// Watches for `signal`, from before it returns, instead of letting it end the program, and gives
 /// how many have come before, which fb_os_signal_wait counts from. A signal is 1 an interrupt,
 /// Ctrl+C, or on Windows Ctrl+Break too, or 2 a request to end, SIGTERM or SIGHUP, or on Windows
-/// its console closing.
+/// its console closing. On Linux and macOS, one the program started out ignoring, as nohup has it
+/// ignore SIGHUP, stays ignored. Once the program's code is done, nothing more is watched.
 std::int64_t fb_os_signal_watch(std::int32_t signal);
 /// Waits until more than `seen` of `signal` have come, and gives how many have, or 0 once the
 /// program's code is done, its coroutines too, when the watching stops and the signals do what
-/// they do.
+/// they do. While it waits, its thread isn't work that could finish a Task, but for a
+/// TaskSource's, which a handler may give.
 std::int64_t fb_os_signal_wait(std::int32_t signal, std::int64_t seen);
 }
+
+// What starting a child takes apart from the OS, so the tests can check it on every platform.
+namespace fb::os {
+
+/// Whether Windows runs `path` in cmd.exe: a .bat or .cmd file, in any case, and with any dots
+/// and spaces after it, which Windows ignores.
+[[nodiscard]] bool is_batch_file(std::string_view path);
+
+/// What goes after cmd.exe's /c to run the batch file `script` with `arguments`, each of which
+/// it gets as cmd.exe can carry it, as Rust gives them: quoted when it has anything but letters,
+/// digits, and #$*+-./:?@\_, with a quote doubled, and every % kept from expanding, so nothing in
+/// it runs. nullopt when an argument has a line break, which cmd.exe can't take, or the script's
+/// path has a quote or ends in a backslash, which no file's does.
+[[nodiscard]] std::optional<std::string> batch_arguments(std::string_view script,
+                                                         std::span<const std::string> arguments);
+
+/// The folders a Windows PATH lists, as libuv reads them: separated by semicolons, each maybe in
+/// quotes, and none of them empty, which would be the current folder.
+[[nodiscard]] std::vector<std::string> path_entries(std::string_view path);
+
+/// The bytes of a child's stdout or stderr that have come and wait to be read, in order. Taking
+/// some moves the rest only now and then, so taking them all costs as much as they are.
+class byte_queue_t {
+public:
+    /// Adds `bytes` after the rest.
+    void append(std::string_view bytes);
+    /// Takes up to `into`'s size of the first bytes into it, and gives how many.
+    std::size_t take(std::span<std::uint8_t> into);
+
+    [[nodiscard]] bool empty() const {
+        return m_taken == m_bytes.size();
+    }
+
+    [[nodiscard]] std::size_t size() const {
+        return m_bytes.size() - m_taken;
+    }
+
+private:
+    std::string m_bytes;
+    /// How many of m_bytes' first bytes are taken already.
+    std::size_t m_taken = 0;
+};
+
+} // namespace fb::os

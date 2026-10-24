@@ -1,0 +1,14 @@
+// A thread the code started asks for a handler once the code is done: the call does nothing, so
+// the program ends once the thread does.
+Import std.core
+Import std.os
+Import std.time
+
+Thread.Start(Function()
+    Sleep(300.Milliseconds)
+    Process.OnInterrupt(Function()
+        Print("interrupted")
+    End Function)
+    Print("watching")
+End Function)
+Print("done")

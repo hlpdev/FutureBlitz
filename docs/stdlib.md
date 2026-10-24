@@ -570,8 +570,10 @@ generator, noise, easing, stats, and fixed point, and step 11 std.math.big; the 
   (`Id`, `Wait`, `TryWait`, `Kill`, and its piped streams, a `ChildInput` Writer and
   `ChildOutput` Readers); `Output()` gives a `ProcessOutput`, the child's stdout and stderr and
   its `ExitStatus`, and `Status()` the `ExitStatus`, each with an Async twin. No shell: a program
-  and its arguments, the same on every OS. Step 17 built them over libuv's processes, on a thread
-  of the runtime's own.
+  and its arguments, the same on every OS. A name is found on PATH, never in a current folder,
+  and a child outlives its parent everywhere. On Windows, a .bat or .cmd file runs in cmd.exe with
+  its arguments escaped as Rust escapes them, so nothing in one runs, and one with a line break
+  throws. Step 17 built them over libuv's processes, on a thread of the runtime's own.
 - Signals that every OS has: `Process.OnInterrupt(handler)`, for Ctrl+C, or Ctrl+Break on
   Windows too, and `Process.OnTerminate(handler)`, for SIGTERM and SIGHUP, or a console closing
   on Windows. Each handler is a `Sendable Func()` that runs on a thread of its own until the
