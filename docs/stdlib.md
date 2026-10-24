@@ -114,13 +114,13 @@ So far, std/ holds:
 | std/compress/tar.fb | `Tar`, `TarReader`, and `TarWriter`, through `fb_tar_` |
 | std/compress/seven_zip.fb | `SevenZip` and `SevenZipReader`, over liblzma through `fb_xz_7z_` |
 | std/image/codec.fb | What the formats share: a Decode's limit, the runtime's images, and the IOErrors their results mean |
-| std/image/image.fb | `Image` and `ImageFormat`, with `Image.Decode` of any format and `FormatOf` |
+| std/image/image.fb | `Image`, `ImageFormat`, and `ResizeFilter`, with `Image.Decode` of any format, `FormatOf`, and the transforms, through `fb_image_` |
 | std/image/animation.fb | `Animation` and `Frame` |
 | std/image/png.fb | `Png`, PNG and APNG, over stb_image through `fb_stb_` and the runtime's encoders over zlib-ng through `fb_zlib_png_` and `fb_zlib_apng_` |
 | std/image/jpeg.fb | `Jpeg`, over stb_image and stb_image_write through `fb_stb_` |
 | std/image/bitmap.fb | `Bmp` and `Tga`, over them too, and `Qoi`, through `fb_image_qoi_` |
 | std/image/gif.fb | `Gif`, through `fb_image_gif_` |
-| std/image/hdr.fb | `HdrImage` and `Hdr`, over stb_image and stb_image_write |
+| std/image/hdr.fb | `HdrImage`, which converts to and from an `Image`, and `Hdr`, over stb_image and stb_image_write |
 | std/image/webp.fb | `WebP`, over libwebp through `fb_webp_` |
 | std/image/svg.fb | `Svg`, over nanosvg through `fb_svg_` |
 
@@ -744,7 +744,7 @@ Built in step 23, but for `Query<T>`. `Import std.db` brings in std/db/.
 #### std.image
 
 Step 24 built the codecs over bytes, into an `Image` whose pixels are a UInt8[] until step 12's
-`Buffer`; the rest is planned. `Import std.image` brings in all of std/image/.
+`Buffer`, and its transforms; the rest is planned. `Import std.image` brings in all of std/image/.
 
 - `Image(width, height)`: pixels in rows from the top, each RGBA, 8 bits a channel, its alpha
   straight, all transparent black at first: `Width`, `Height`, `[x, y]` and `[x, y] = color` as
@@ -792,12 +792,25 @@ Step 24 built the codecs over bytes, into an `Image` whose pixels are a UInt8[] 
   size times the scale, each side rounded up, or `Rasterize(width, height)`, as large as it fits,
   in the middle, its edges antialiased. nanosvg leaves out SVG's text, images, filters, masks, and
   clipping, and style sheets but for style attributes.
-- Every target gives the same pixels: the libraries are built without fused multiply-adds, and
-  their SIMD code gives what their plain C gives. An SVG's curves go through the C library's math
-  functions, which can differ by a little from one OS to another.
-- Planned: an Image over a Buffer, and the transforms: resizing with good filters, crop, rotate,
-  flip, convert, and blit; reading and writing image files, on step 14's; and in step 25 software
-  drawing of lines, shapes, and fills, and text with TrueType fonts. The engine's 2D (M10) shares
+- Every target gives the same pixels: the libraries and Resize are built without fused
+  multiply-adds, the libraries' SIMD code gives what their plain C gives, and Lanczos's sines are
+  Resize's own. An SVG's curves go through the C library's math functions, which can differ by a
+  little from one OS to another.
+- An Image's transforms change it in place. `Resize(width, height, filter)` gives each pixel the
+  colors under it by a `ResizeFilter`, `NEAREST`, `BOX`, `BILINEAR`, `BICUBIC`, or `LANCZOS`, by
+  default, the filter widened as the image shrinks, as Pillow resamples, across and then down,
+  kept from 0 to 255 between; its colors are weighted by their alpha, so a transparent pixel's
+  counts for nothing. Its sums are Doubles where Pillow's are fixed-point, and its bytes within 1
+  of Pillow's. `Crop(x, y, width, height)` keeps the pixels from (x, y); `FlipHorizontal`,
+  `FlipVertical`, `RotateClockwise`, `RotateCounterclockwise`, and `Rotate180` flip and turn it;
+  `Draw(image, x, y)` draws another image over it by its alpha, as "over" does, and `Paste(image,
+  x, y)` puts one's pixels, alpha too, in place of its own, each leaving out what falls outside;
+  and `Fill(color)` gives every pixel a color. A size New panics for, resizing an image of no
+  pixels to some, or cropping to pixels not all in the image panics at the caller.
+  `HdrImage.FromImage(image)` and `ToImage()` convert through sRGB's gamma, as Color32's
+  `ToColor` and Color's `ToColor32` do, ToImage keeping each channel from 0 to 255.
+- Planned: an Image over a Buffer; reading and writing image files, on step 14's; and in step 25
+  software drawing of lines, shapes, and fills, and text with TrueType fonts. The engine's 2D (M10) shares
   the image and font code.
 
 #### std.term
