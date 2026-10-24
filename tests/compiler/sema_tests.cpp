@@ -14804,3 +14804,31 @@ TEST_CASE("overloads: an array, tuple, or Map literal fits a parameter it checks
     CHECK(errors_of(std::format("{}Local x = Sum([])", sum)) ==
           errors_t{ "Sum: the call to 'Sum' is ambiguous" });
 }
+
+TEST_CASE("overloads: a literal with an element that has an error as a parameter's doesn't fit it",
+          "[sema]") {
+    // 3000000000 isn't a UInt8, nor 1e300 a Float, nor x - 1 a String's, so each call has one
+    // overload, and a name that isn't declared is its own error, not an ambiguous call.
+    constexpr std::string_view fits = "Import std.core\n"
+                                      "Import std.collections\n"
+                                      "Function A(xs: Int64[]): Bool => True\n"
+                                      "Function A(xs: UInt8[]): Int8 => 0\n"
+                                      "Function P(pair: (Int64, String)): Bool => True\n"
+                                      "Function P(pair: (UInt8, String)): Int8 => 0\n"
+                                      "Function M(m: Map<String, Int64>): Bool => True\n"
+                                      "Function M(m: Map<String, UInt8>): Int8 => 0\n"
+                                      "Function F(xs: Float[]): Int8 => 0\n"
+                                      "Function F(xs: Double[]): Bool => True\n"
+                                      "Function G(fs: (Func(String): String)[]): Int8 => 0\n"
+                                      "Function G(fs: (Func(Int): Int)[]): Bool => True\n";
+    const auto call = [&](const std::string_view text) {
+        return std::format("{}Local x = {}", fits, text);
+    };
+
+    CHECK(probe(call("A([3000000000])")) == "Bool");
+    CHECK(probe(call("P((3000000000, \"x\"))")) == "Bool");
+    CHECK(probe(call("M({\"a\": 3000000000})")) == "Bool");
+    CHECK(probe(call("F([1e300])")) == "Bool");
+    CHECK(probe(call("G([Function(x) => x - 1])")) == "Bool");
+    CHECK(errors_of(call("A([nope])")) == errors_t{ "nope: 'nope' isn't declared" });
+}

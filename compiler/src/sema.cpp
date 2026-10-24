@@ -22804,10 +22804,16 @@ private:
 
         // An array, tuple, or Map literal is checked as the parameter's type, its elements
         // taking theirs, as they would with only this overload, like [1, 2] for a UInt8[], and
-        // it fits a type it then converts to, like an Iterable<Int>.
+        // it fits a type it then converts to, like an Iterable<Int>, when nothing in it has an
+        // error then: [3000000000] isn't a UInt8[].
         if (is_shaped_literal(argument.value)) {
-            const type_id_t made = check(argument.value, type);
-            return made != type_id_t::INVALID && (made == type || converts(made, type))
+            bool clean = false;
+            const type_id_t made = quietly([&] {
+                const type_id_t found = check(argument.value, type);
+                clean = !m_diagnostics->has_errors();
+                return found;
+            });
+            return clean && made != type_id_t::INVALID && (made == type || converts(made, type))
                        ? match_t::CONVERTIBLE
                        : match_t::NONE;
         }
