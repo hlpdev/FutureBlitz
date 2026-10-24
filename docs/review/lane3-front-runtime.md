@@ -779,3 +779,11 @@ Status: fixed in ee0ce395 (fb run tries removing its folder again while the prog
 Where: cli/src/commands.cpp, run(), and tests/cli/cli_tests.cpp, "Ctrl+C during fb run ends the program, and fb cleans up and gives its exit code"
 
 Found by lane 5, once under load: the test found the run's temp folder still there. On Windows, remove_all fails while anything still holds one of the folder's files, as Windows or a scanner can hold the program's executable for a moment after it ends, and fb run tried once. It now removes the folder through the driver's remove_temporary(), which tries again for up to two seconds. The test's program is named for its process too, so copies of the test run at once don't count each other's folders; ten copies at once passed, twice.
+
+## A-new-6 (medium): Overload resolution doesn't let an array literal fit an overload's array parameter
+
+Status: fixed in 6184ddb (an array, tuple, or map literal fits an overload's parameter as it fits a lone function's), with a sema test: each overload checks an array, tuple, or Map literal as its parameter's type, as a lone Function does, so `[1, 2, 3]` and `[]` fit a UInt8[], and one it then converts to, like an Iterable<Int>, a literal of its own type is exact, two overloads that convert it are ambiguous, an untyped Function in one takes its parameter's type, and one with no type of its own that fits no overload, like `(nope, 1)`, reports its own errors
+
+Where: compiler/src/sema.cpp:21323
+
+Found by lane 7 in step 13: with `Function F()` and `Function F(bytes: UInt8[])`, `F([1, 2, 3])` is "no overload of 'F' takes (Int32[])", though one Function alone takes it, and `F([])` is "an empty array needs a type from where it's used". match() compared the literal's own type, Int32[], with each parameter's, and Int32[] doesn't convert to UInt8[], though the literal's elements fit it. A tuple or Map literal, or an array of untyped Functions (step 7's review, under S7-compiler-3), failed the same way. MemoryStream has one New with a `[]` default because of it.
