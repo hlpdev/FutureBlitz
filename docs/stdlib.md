@@ -873,8 +873,9 @@ Step 24 built the codecs over bytes, into an `Image` whose pixels are a UInt8[] 
 - stb_image reads PNG, of every color type and bit depth, interlaced or not, 16 bits a channel
   kept to their top 8, JPEG, baseline and progressive, but not 12-bit or arithmetic, BMP, of 1 to
   32 bits a pixel, but not run-length encoded, TGA, and HDR; libwebp reads still WebPs, lossy and
-  lossless; and the runtime itself reads QOI, GIF, and an APNG's frames. Data that's bad throws an
-  IOError: `INVALID_DATA` for bytes that aren't the format or are broken, `UNEXPECTED_END` for
+  lossless, and codes them on one thread at a time, as its setup isn't safe on two at once; and
+  the runtime itself reads QOI, GIF, and an APNG's frames. Data that's bad throws an IOError:
+  `INVALID_DATA` for bytes that aren't the format or are broken, `UNEXPECTED_END` for
   ones that end too soon, where the decoder can tell, and `OTHER` for an image whose pixels, all
   its frames' counted, are more than the limit, or that uses what isn't supported, like a BMP's
   run-length encoding or an animated WebP. The limit is the most an Image holds unless it's given
