@@ -248,7 +248,8 @@ file or URL in the default app.
   every adapter.
 - A debug form for every value, from reflection: `"{x:?}"` and `Dump(x)`, which indents what's
   nested. Printable stays the form for people. std's collections show their elements, or a
-  Map's entries, through `@DebugElements` and `@DebugEntries`.
+  Map's entries, through `@DebugElements` and `@DebugEntries`, but a Grid and a Grid3 their
+  Fields, their cells and sizes.
 - Iterator adapters on `Iterator<T>`, lazy: `Map`, `Filter`, `Take`, `Skip`, `TakeWhile`,
   `SkipWhile`, `Enumerate`, `Zip`, `Chain`, `Flatten`, `StepBy`, `Chunks`, `Windows`,
   `OrderBy`, `OrderByDescending`; consuming: `ToArray`, `Count`, `Any`, `All`, `Find`, `First`,

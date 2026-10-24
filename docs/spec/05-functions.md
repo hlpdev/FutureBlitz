@@ -45,6 +45,12 @@ Function Sum(nums: Int...): Int                 // variadic; nums is Int[]
   value like any other, so it's shown; named, `values:` takes a `String[]` of texts. A value a
   string can't show, like a T?, is an error that names the function: "String? can't be shown by
   'Print', since it may be Null; give a value for Null with '??'".
+- `values: Formattable...`, with std.core's Formattable, takes values of any Formattable types,
+  mixed, as Format's does, so `values` is a `Formattable[]`: an object goes in as it is, and a
+  value that isn't one, a number, Bool, String, Enum, or Struct, in an object of std's that
+  holds it, whose Format and ToString are its value's. One `Formattable[]` argument is passed
+  whole. A value of a type that isn't Formattable is an error that names the parameter: "P isn't
+  Formattable, which 'values' takes".
 - Where two overloads fit a call as well as each other, one that takes the arguments as they are
   beats one that packs them into its variadic parameter, as C#'s do.
 
