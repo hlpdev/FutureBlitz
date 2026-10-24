@@ -28,8 +28,9 @@ End Interface
 
 // A folder on the disk as a source, which reads it as it's asked, so it sees what changes in it.
 // Nothing outside the folder is in it: by Windows' rules, a name with a ':' in it, which would
-// be a drive or a file's stream, isn't there. It's Final, so a Vfs's Async reads of it read what
-// its Read does; a source that changes what a folder's files read as wraps one.
+// be a drive or a file's stream, isn't there. Its root is a folder, empty while the folder isn't
+// there or is a file. It's Final, so a Vfs's Async reads of it read what its Read does; a source
+// that changes what a folder's files read as wraps one.
 Public Final Class FolderSource Implements VfsSource
     Public ReadOnly Field Folder: Path
 
@@ -49,6 +50,7 @@ Public Final Class FolderSource Implements VfsSource
     End Method
 
     Public Method KindAt(path: String): FileKind? Throws IOError
+        If path == "" Then Return FileKind.DIRECTORY
         Local file = OnDisk(path)
         If file == Null Then Return Null
         Try
@@ -70,8 +72,8 @@ Public Final Class FolderSource Implements VfsSource
 
             Return items
         Catch e As IOError
-            If Missing(e) Then Return Null
-            Throw e
+            If !Missing(e) Then Throw e
+            Return path == "" ? [] : Null
         End Try
     End Method
 
@@ -245,7 +247,8 @@ Public Class Vfs
         Return LinesOf(Try Await ReadBytesAsync(path))
     End Method
 
-    // What's at `path`: a file or a folder some mount has, or a folder a mount is in, or Null.
+    // What's at `path`: a file or a folder some mount has, or a folder a mount is in or at, or
+    // Null.
     Public Method KindOf(path: Path): FileKind? Throws IOError
         Local names = NamesOf(path.Text)
         If names == Null Then Return Null
@@ -253,6 +256,8 @@ Public Class Vfs
         For i = Mounts.Count - 1 To 0 Step -1
             Local inner = Inside(Mounts[i], names)
             If inner == Null Then Continue
+            // A mount's root is a folder, whatever its source says.
+            If inner == "" Then Return FileKind.DIRECTORY
             Local kind = Try Mounts[i].Source.KindAt(inner)
             If kind != Null Then Return kind
         End For
@@ -346,6 +351,8 @@ Public Class Vfs
 
             Local inner = Inside(Mounts[i], names)
             If inner == Null Then Continue
+            // A mount's root is a folder, though its source has nothing there.
+            If inner == "" Then found = True
             Local items = Try Mounts[i].Source.List(inner)
             If items == Null Then Continue
             found = True

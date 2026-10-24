@@ -36,6 +36,12 @@ places
   a has b DIRECTORY
   a has x DIRECTORY
   [b/c/levels/one.txt, b/c/levels/two.txt, b/c/readme.txt, x/y.txt]
+  root has mods DIRECTORY
+  root has notes DIRECTORY
+  root has readme.txt FILE
+  mods: DIRECTORY True False 0
+  notes: DIRECTORY True False 0
+  walked 3 IS_A_DIRECTORY can't read notes: it's a folder
 errors
   NOT_FOUND can't read a/b/c/missing.txt: no mount of the Vfs has it
   IS_A_DIRECTORY can't read a/b/c/levels: it's a folder

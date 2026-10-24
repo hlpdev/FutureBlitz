@@ -92,6 +92,26 @@ End For
 
 Print("  {globbed}")
 
+// A mount is a folder, though its folder isn't there yet, like a mods folder no one's made, or
+// is a file.
+Try File.WriteText(root / "notes.txt", "notes")
+Local mods = Vfs()
+mods.MountEmbedded("", {"readme.txt": "the game".Bytes})
+mods.MountFolder("mods", root / "mods")
+mods.MountFolder("notes", root / "notes.txt")
+For entry In Try mods.Entries()
+    Print("  root has {entry.Name()} {entry.Kind}")
+End For
+
+For path In ["mods", "notes"]
+    Local kind = Try mods.KindOf(path)
+    Local count = (Try? mods.Entries(path))?.Count ?? -1
+    Print("  {path}: {kind == Null ? "none" : "{kind}"} {mods.DirExists(path)} {mods.Exists(path)} {count}")
+End For
+
+Print("  walked {(Try? mods.Walk())?.Count ?? -1} {Failure(mods, "notes")}")
+Try File.Delete(root / "notes.txt")
+
 Print("errors")
 Function Failure(vfs: Vfs, path: Path): String
     Try
