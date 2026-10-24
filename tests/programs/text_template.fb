@@ -1,0 +1,185 @@
+// Templates, Mustache-style: values, blocks, partials, and comments, filled from a Value or a Map,
+// with HTML escaping, and the FormatErrors of a template that isn't one or can't be filled.
+Import std.core
+Import std.collections
+Import std.text.template
+
+Local data = Value.Object()
+data["title"] = Value("Fruit & <veg>")
+Local items = Value.Array()
+For name In ["apple", "pear"]
+    Local item = Value.Object()
+    item["name"] = Value(name)
+    items.Add(item)
+End For
+data["items"] = items
+data["empty"] = Value.Array()
+
+// A block's tag, a comment, or a partial alone on its line takes the line with it.
+Local page = Try Template(r"""
+    # {{title}}
+    {{#each items}}
+    - {{@index}}: {{name}} of {{title}}{{#if @last}}.{{else}},{{/if}}
+    {{/each}}
+    {{#each empty}}
+    none
+    {{else}}
+    nothing here
+    {{/each}}
+    {{! a comment }}
+    {{{title}}} {{& title}} \{{x}}
+    """, html: True)
+Print(Try page.Render(data))
+
+// Values: a String's own text, numbers and Bools as Print shows them, nothing for Null or a name
+// nothing has, and an Array or Object as its ToString gives it.
+Local kinds = Value.Object()
+kinds["int"] = Value(-42)
+kinds["big"] = Value(18446744073709551615 As UInt64)
+kinds["real"] = Value(0.1)
+kinds["yes"] = Value(True)
+kinds["none"] = Value()
+kinds["list"] = Value([Value(1), Value("a")])
+Local nested = Value.Object()
+nested["deep"] = Value("down")
+kinds["inner"] = nested
+Print(Try Template(r"{{int}} {{big}} {{real}} {{yes}} [{{none}}] [{{gone}}] {{list}} " +
+                   r"{{inner.deep}} [{{inner.gone.x}}] {{inner}}").Render(kinds))
+
+// What makes an {{#if}} true: anything but Null, False, 0, NaN, "", and an empty Array or Object.
+Local tests = Value.Object()
+tests["zero"] = Value(0)
+tests["one"] = Value(1)
+Local zero = 0.0
+tests["nan"] = Value(zero / zero)
+tests["half"] = Value(0.5)
+tests["blank"] = Value("")
+tests["text"] = Value("a")
+tests["false"] = Value(False)
+tests["array"] = Value.Array()
+tests["object"] = Value.Object()
+tests["full"] = Value([Value(0)])
+Local checks: String[] = []
+For name In ["zero", "one", "nan", "half", "blank", "text", "false", "array", "object", "full",
+             "missing"]
+    checks.Add(r"{{#if " + name + r"}}T{{else}}F{{/if}}")
+End For
+Print(Try Template(checks.Join("") + r" {{#unless zero}}U{{/unless}}").Render(tests))
+
+// An {{#each}} over an Object goes over its values, with @key; names come from the innermost
+// scope that has them, and this, or ".", is the scope itself.
+Local scores = Value.Object()
+scores["ann"] = Value(3)
+scores["bo"] = Value(5)
+Local game = Value.Object()
+game["scores"] = scores
+game["game"] = Value("chess")
+game["tags"] = Value([Value("a"), Value("b")])
+Local scored = Try Template(r"{{#each scores}}{{#if @first}}[{{/if}}{{@key}}={{this}} in " +
+                            r"{{game}}{{#unless @last}}, {{/unless}}{{/each}}] " +
+                            r"{{#each tags}}{{.}}{{/each}}")
+Print(Try scored.Render(game))
+
+// A Map fills one too, its Strings as text, and its Values as they are.
+Local names = Map<String, String>()
+names["who"] = "<world>"
+Print(Try Template(r"Hello, {{who}}!", html: True).Render(names))
+Local values = Map<String, Value>()
+values["count"] = Value(3)
+Print(Try Template(r"{{#if count}}{{count}} of them{{/if}}").Render(values))
+
+// HTML escapes &, <, >, ", and ', but not in {{{ }}} or {{& }}.
+Local quote = Value.Object()
+quote["text"] = Value("a&b<c>d\"e'f")
+Print(Try Template(r"{{text}} {{{text}}}", html: True).Render(quote))
+Print(Try Template(r"{{text}}").Render(quote))
+
+// Templates render each other as partials, which a ".html" one's escaping goes on into, and one
+// alone on its line takes the line's indentation for each of its lines.
+Local set = Templates()
+Try set.Add("page.HTML", "<ul>\n" + r"  {{> item}}" + "\n</ul>\n")
+Try set.Add("item", r"<li>{{title}}</li>" + "\n" + r"{{#each items}}" + "\n" +
+                    r"<li>{{name}}</li>" + "\n" + r"{{/each}}" + "\n")
+Print(Try set.Render("page.HTML", data))
+Print(set.Contains("item"), set.Contains("page"))
+// Adding one again replaces it, an indented partial's too.
+Try set.Add("item", r"<b>{{title}}</b>" + "\n")
+Print(Try set.Render("page.HTML", data))
+Try set.Add("plain.txt", r"{{> item}}")
+Print(Try set.Render("plain.txt", data))
+// A line break of "\r\n" ends a line, and the first and last lines need none.
+Local crlf = Try Template(r"{{#if title}}" + "\r\n" + r"yes" + "\r\n" + r"{{/if}}").Render(data)
+Print(crlf == "yes\r\n")
+
+// What a template that isn't one, or can't be filled, throws.
+Function Failure(text: String, data: Value): String
+    Try
+        Return Try Template(text).Render(data)
+    Catch e As FormatError
+        Return "{e.Kind}: {e.Message}"
+    End Try
+End Function
+
+Local nothing = Value.Object()
+Print(Failure(r"a {{b", nothing))
+Print(Failure(r"a {{{b}} c", nothing))
+Print(Failure("line\n" + r"  {{#each x}} y", nothing))
+Print(Failure(r"{{#if x}}{{/each}}", nothing))
+Print(Failure(r"{{/if}}", nothing))
+Print(Failure(r"{{else}}", nothing))
+Print(Failure(r"{{#if x}}{{else}}{{else}}{{/if}}", nothing))
+Print(Failure(r"{{#for x}}{{/for}}", nothing))
+Print(Failure(r"{{#each}}{{/each}}", nothing))
+Print(Failure(r"{{first name}}", nothing))
+Print(Failure(r"{{a..b}}", nothing))
+Print(Failure(r"{{price:.2}}", nothing))
+Print(Failure(r"{{@size}}", nothing))
+Print(Failure(r"{{x.@index}}", nothing))
+Print(Failure(r"{{}}", nothing))
+Print(Failure(r"{{>}}", nothing))
+Print(Failure(r"é {{> part}}", nothing))
+
+Local loops = Templates()
+Try loops.Add("loop", r"{{> loop}}")
+Try
+    Print(Try loops.Render("loop", nothing))
+Catch e As FormatError
+    Print("{e.Kind}: {e.Message}")
+End Try
+
+Try
+    Print(Try loops.Render("gone", nothing))
+Catch e As FormatError
+    Print("{e.Kind}: {e.Message}")
+End Try
+
+Try
+    Try loops.Add("broken", "ok\n" + r"{{#if}}")
+Catch e As FormatError
+    Print("{e.Kind}: {e.Message}")
+End Try
+
+// Blocks nested deeper than calls go render, and data nested as deep as partials go.
+Local opens: String[] = []
+Local closes: String[] = []
+For i = 1 To 20000
+    opens.Add(r"{{#if x}}")
+    closes.Add(r"{{/if}}")
+End For
+
+Local flags = Value.Object()
+flags["x"] = Value(True)
+Print(Try Template(opens.Join("") + "deep" + closes.Join("")).Render(flags))
+Local tree = Value.Object()
+tree["name"] = Value("leaf")
+tree["children"] = Value.Array()
+For i = 1 To 999
+    Local parent = Value.Object()
+    parent["name"] = Value("node")
+    parent["children"] = Value([tree])
+    tree = parent
+End For
+
+Local walk = Templates()
+Try walk.Add("node", r"{{#each children}}{{> node}}{{else}}{{name}}{{/each}}")
+Print(Try walk.Render("node", tree))
