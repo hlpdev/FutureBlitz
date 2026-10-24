@@ -190,6 +190,25 @@ Catch e As IOError
     Print("  {e.Kind}")
 End Try
 
+// A listing above the root says it can't list it.
+Try
+    deep.Entries("..")
+Catch e As IOError
+    Print("  {e.Kind} {e.Message}")
+End Try
+
+Try
+    deep.Walk("x/../..")
+Catch e As IOError
+    Print("  {e.Message}")
+End Try
+
+Try
+    deep.Glob("..", "*")
+Catch e As IOError
+    Print("  {e.Message}")
+End Try
+
 Print("async")
 Print("  [{Try Await fromFolder.ReadTextAsync("levels/one.txt")}] [{Try Await fromMemory.ReadTextAsync("readme.txt")}]")
 Print("  {Try Await fromFolder.ReadLinesAsync("levels/two.txt")}")
