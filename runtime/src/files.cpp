@@ -55,6 +55,12 @@ struct entry_t {
     std::int32_t kind;
 };
 
+/// A time a file keeps: seconds since 1970 began, in UTC, and the nanoseconds after them.
+struct file_time_t {
+    std::int64_t seconds = 0;
+    std::int64_t nanoseconds = 0;
+};
+
 /// A lock: the file it's on, open while it's held.
 struct lock_t {
     uv_file file;
@@ -151,6 +157,8 @@ struct request_t {
     buffer_t bytes;
     std::vector<entry_t> entries;
     uv_stat_t stat{};
+    /// What a stat found the file changed, read, and made at.
+    std::array<file_time_t, 3> times{};
     lock_t* lock = nullptr;
     /// An Async twin's work, Task, and libuv request.
     work_t work = nullptr;
@@ -497,12 +505,75 @@ std::int64_t write_file(const request_t& request) {
     return result;
 }
 
+#ifdef _WIN32
+/// A FILETIME, 100-nanosecond ticks since 1601 began, as a time since 1970.
+file_time_t time_of(const FILETIME& time) {
+    constexpr std::int64_t ticks_before_1970 = 116'444'736'000'000'000;
+    constexpr std::int64_t ticks_a_second = 10'000'000;
+    const auto ticks =
+        static_cast<std::int64_t>((static_cast<std::uint64_t>(time.dwHighDateTime) << 32U) |
+                                  time.dwLowDateTime) -
+        ticks_before_1970;
+    const std::int64_t seconds = (ticks / ticks_a_second) - (ticks % ticks_a_second < 0 ? 1 : 0);
+    return { .seconds = seconds, .nanoseconds = (ticks - (seconds * ticks_a_second)) * 100 };
+}
+
+/// The times Windows keeps for `path`, through a link when `follow` is, into `times`; libuv's
+/// keep seconds in a 32-bit long there, which runs out in 2038. Leaves them for a file Windows
+/// won't open.
+void windows_times(const std::string& path, const bool follow, std::array<file_time_t, 3>& times) {
+    const int length = MultiByteToWideChar(CP_UTF8, 0, path.c_str(), -1, nullptr, 0);
+    if (length <= 0) {
+        return;
+    }
+
+    std::wstring wide(static_cast<std::size_t>(length), L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, path.c_str(), -1, wide.data(), length);
+    const DWORD flags = FILE_FLAG_BACKUP_SEMANTICS | (follow ? 0 : FILE_FLAG_OPEN_REPARSE_POINT);
+    HANDLE file = CreateFileW(wide.c_str(), FILE_READ_ATTRIBUTES,
+                              FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+                              OPEN_EXISTING, flags, nullptr);
+    if (file == INVALID_HANDLE_VALUE) {
+        return;
+    }
+
+    FILETIME made{};
+    FILETIME read{};
+    FILETIME changed{};
+    if (GetFileTime(file, &made, &read, &changed) != 0) {
+        times = { time_of(changed), time_of(read), time_of(made) };
+    }
+
+    CloseHandle(file);
+}
+#endif
+
 std::int64_t stat_request(request_t& request) {
     if (has_nul(request.path)) {
         return UV_EINVAL;
     }
 
-    return stat_path(request.path, request.flag != 0, request.stat);
+    const bool follow = request.flag != 0;
+    const std::int64_t found = stat_path(request.path, follow, request.stat);
+    if (found < 0) {
+        return found;
+    }
+
+    const auto time_of_stat = [](const uv_timespec_t& time) {
+        return file_time_t{
+            .seconds = static_cast<std::int64_t>(time.tv_sec),
+            .nanoseconds = static_cast<std::int64_t>(time.tv_nsec),
+        };
+    };
+    request.times = {
+        time_of_stat(request.stat.st_mtim),
+        time_of_stat(request.stat.st_atim),
+        time_of_stat(request.stat.st_birthtim),
+    };
+#ifdef _WIN32
+    windows_times(request.path, follow, request.times);
+#endif
+    return found;
 }
 
 std::int64_t copy_file(const std::string& from, const std::string& to) {
@@ -1090,17 +1161,17 @@ std::int32_t fb_io_request_entry_kind(const void* request, const std::int64_t in
 }
 
 void fb_io_request_stat(const void* request, fb_array_t* output) {
-    const uv_stat_t& stat = static_cast<const request_t*>(request)->stat;
-    const auto nanoseconds = [](const uv_timespec_t& time) {
-        return (static_cast<std::int64_t>(time.tv_sec) * 1'000'000'000) +
-               static_cast<std::int64_t>(time.tv_nsec);
-    };
-    const std::array<std::int64_t, 6> values{
+    const auto& self = *static_cast<const request_t*>(request);
+    const uv_stat_t& stat = self.stat;
+    const std::array<std::int64_t, 9> values{
         kind_of(stat),
         static_cast<std::int64_t>(stat.st_size),
-        nanoseconds(stat.st_mtim),
-        nanoseconds(stat.st_atim),
-        nanoseconds(stat.st_birthtim),
+        self.times[0].seconds,
+        self.times[0].nanoseconds,
+        self.times[1].seconds,
+        self.times[1].nanoseconds,
+        self.times[2].seconds,
+        self.times[2].nanoseconds,
         (stat.st_mode & 0200U) == 0 ? 1 : 0,
     };
     constexpr auto count = static_cast<std::int64_t>(values.size());

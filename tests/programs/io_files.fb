@@ -29,6 +29,22 @@ End Extern
 Function MadeLink(link: Path, target: String): Bool => symlink(target, link.Text) == 0
 #End If
 
+// C's utime, which sets when a file was read and changed, in seconds since 1970.
+@CLayout Struct Times
+    Field Accessed: Int64
+    Field Modified: Int64
+End Struct
+
+#If PLATFORM_WINDOWS
+Extern "C"
+    Function SetTimes(path: CString, ByRef times: Times): Int32 = "_utime64"
+End Extern
+#Else
+Extern "C"
+    Function SetTimes(path: CString, ByRef times: Times): Int32 = "utime"
+End Extern
+#End If
+
 Local temp = Try TempDir("fb-files-")
 Local root = temp.Path
 Print("made {Dir.Exists(root)} {(Try Dir.Entries(root)).Count}")
@@ -166,6 +182,13 @@ Print("{found.Kind} {found.Size} {found.IsFile()} {found.IsDirectory()} {found.I
 Print("{found.Accessed > since} {(found.Created ?? Timestamp.FromUnixSeconds(1600000000)) > since}")
 Local folderFound = Try File.Metadata(root)
 Print("{folderFound.Kind} {folderFound.IsDirectory()}")
+// A time past 2038, when 32-bit seconds run out.
+Try File.WriteText(root / "late.txt", "from the future")
+Local late = Times(946684800, 2222121600)
+Print("{SetTimes((root / "late.txt").Text, ByRef late)}")
+Local lateFound = Try File.Metadata(root / "late.txt")
+Print("{lateFound.Modified} {lateFound.Accessed}")
+Try File.Delete(root / "late.txt")
 Try File.SetReadOnly(renamed, True)
 Print("{(Try File.Metadata(renamed)).IsReadOnly} {Failure("write", renamed)}")
 Try File.SetReadOnly(renamed, False)
