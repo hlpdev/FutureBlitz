@@ -622,7 +622,7 @@ private:
         case token_kind_t::KW_PROPERTY:
             return parse_property({});
         case token_kind_t::KW_ENUM:
-            return parse_enum(false, peek().span.begin);
+            return parse_enum(false, false, peek().span.begin);
         case token_kind_t::KW_ALIAS:
             return parse_alias({});
         case token_kind_t::KW_DEFER: {
@@ -738,8 +738,8 @@ private:
     /// "@Flags Enum ..." or "@Open Enum ...". On anything else, @Flags and @Open are errors, and
     /// the statement still parses. "Enum Name: Type", its members, then "End Enum". Members are
     /// separated by commas, which can end a line, or by lines.
-    stmt_id_t parse_enum(const bool flags, const std::uint32_t begin, modifiers_t modifiers = {},
-                         const bool open = false) {
+    stmt_id_t parse_enum(const bool flags, const bool open, const std::uint32_t begin,
+                         modifiers_t modifiers = {}) {
         const std::size_t start = m_pos;
         const token_t& keyword = advance();
         const name_t name = expect_name();
@@ -1016,7 +1016,7 @@ private:
     /// Enum, an Alias, or an Attribute declaration. Anything else is reported, then parsed.
     stmt_id_t parse_visible(const modifiers_t& modifiers) {
         if (at(token_kind_t::KW_ENUM)) {
-            return parse_enum(false, peek().span.begin, modifiers);
+            return parse_enum(false, false, peek().span.begin, modifiers);
         }
 
         if (at(token_kind_t::KW_ALIAS)) {
@@ -1340,7 +1340,7 @@ private:
         }
 
         if (at(token_kind_t::KW_ENUM)) {
-            return parse_enum(flags, begin, std::move(modifiers), open);
+            return parse_enum(flags, open, begin, std::move(modifiers));
         }
 
         if (flags) {
