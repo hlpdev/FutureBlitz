@@ -1,0 +1,220 @@
+// std.net's TCP: a program talks to itself through a TcpListener and TcpStreams, blocking on one
+// thread and on two, and Async on the main thread; a refused connection is a NetError of REFUSED,
+// a wait that takes too long throws a TimeoutError, and what's closed says so. Nothing leaves
+// the machine, and the ports are the OS's to pick.
+
+Import std.core
+Import std.ffi
+Import std.io
+Import std.net
+Import std.time
+
+Function Text(bytes: UInt8[]): String Throws IOError => Try ReadAllText(MemoryStream(bytes))
+
+// Blocking, on one thread: the OS takes the connection, and what's written, before Accept.
+Try
+    Local listener = TcpListener.Listen(SocketAddress(IpAddress.Loopback, 0))
+    Local client = TcpStream.Connect(listener.LocalAddress)
+    client.WriteText("hello")
+    Local server = listener.Accept()
+    Print(listener.LocalAddress.Port != 0, server.RemoteAddress == client.LocalAddress,
+          server.LocalAddress == client.RemoteAddress,
+          client.RemoteAddress == listener.LocalAddress)
+    Local into = Buffer<UInt8>(5)
+    ReadExact(server, into)
+    server.WriteText("{Text(into.ToArray())}, back")
+    server.ShutdownWrite()
+    Print(ReadAllText(client))
+    // What the other side ended reads its end again, and Close ends it here.
+    Print(client.Read(into), client.IsClosed)
+    client.Close()
+    client.Close()
+    Print(client.IsClosed)
+Catch e As Error
+    Print("failed: {e.Message}")
+End Try
+
+// Blocking, on two threads: a Thread echoes what a connection sends, and tells the port through a
+// Channel.
+Const ports = Channel<UInt16>(1)
+Local echo = Thread.Start(Function()
+    Try
+        Local listener = TcpListener.Listen("127.0.0.1", 0)
+        ports.Send(listener.LocalAddress.Port)
+        Local connection = listener.Accept()
+        Copy(connection, connection)
+        connection.ShutdownWrite()
+    Catch e As Error
+        Print("echo failed: {e.Message}")
+    End Try
+End Function)
+Try
+    Local client = TcpStream.Connect("localhost", ports.Receive() ?? 0)
+    For i = 1 To 3
+        client.WriteText("line {i}\n")
+    End For
+
+    client.ShutdownWrite()
+    Write(ReadAllText(client))
+Catch e As Error
+    Print("failed: {e.Message}")
+End Try
+echo.Join()
+
+// Async: a server and a client on the main thread, a MiB each way, which goes past what a stream
+// reads ahead of what's taken.
+Const size = 1048576
+
+Async Function Serve(listener: TcpListener): Int64 Throws NetError, TimeoutError, IOError
+    Local connection = Try Await listener.AcceptAsync()
+    Local total = Try Await CopyAsync(connection, connection)
+    Try Await connection.ShutdownWriteAsync()
+    Return total
+End Function
+
+Async Function Send(address: SocketAddress): Int64 Throws NetError, TimeoutError, IOError
+    Local client = Try Await TcpStream.ConnectAsync(address)
+    Local bytes = Buffer<UInt8>(size)
+    For i = 0 Until size
+        bytes[i] = (i % 251) As UInt8
+    End For
+
+    Try Await client.WriteAsync(bytes)
+    Try Await client.ShutdownWriteAsync()
+    Local back = Try Await ReadAllAsync(client)
+    Local same = back.Count == size
+    For i = 0 Until back.Count
+        same = same && back[i] == (i % 251) As UInt8
+    End For
+    Return same ? back.Count : -1
+End Function
+
+Try
+    Local listener = TcpListener.Listen(SocketAddress(IpAddress.Loopback, 0))
+    Local served = Serve(listener)
+    Local sent = Send(listener.LocalAddress)
+    Print(Await sent, Await served)
+    Local other = Await TcpStream.ConnectAsync("127.0.0.1", listener.LocalAddress.Port)
+    Local accepted = listener.Accept()
+    Print(accepted.RemoteAddress == other.LocalAddress)
+Catch e As Error
+    Print("failed: {e.Message}")
+End Try
+
+// Nothing listens at a closed listener's port, so a connection there is refused, blocking or
+// Async, and the error names the address.
+Try
+    Local listener = TcpListener.Listen(SocketAddress(IpAddress.Loopback, 0))
+    Local address = listener.LocalAddress
+    listener.Close()
+    Print(listener.IsClosed)
+    Try
+        TcpStream.Connect(address)
+    Catch e As NetError
+        Print(e.Kind, e.Address == address.ToString())
+    End Try
+
+    Try
+        Await TcpStream.ConnectAsync(address)
+    Catch e As NetError
+        Print(e.Kind, e.Address == address.ToString())
+    End Try
+
+    Try
+        listener.Accept()
+    Catch e As NetError
+        Print(e.Kind, e.Message)
+    End Try
+
+    // What listens at a port has it.
+    Local first = TcpListener.Listen(SocketAddress(IpAddress.Loopback, 0))
+    Try
+        TcpListener.Listen(first.LocalAddress)
+    Catch e As NetError
+        Print(e.Kind)
+    End Try
+Catch e As Error
+    Print("failed: {e.Message}")
+End Try
+
+// A wait that takes too long throws a TimeoutError, and a Read's is an IOError's Cause, as
+// Reader's errors are IOErrors.
+Try
+    Local quiet = TcpListener.Listen(SocketAddress(IpAddress.Loopback, 0))
+    Try
+        quiet.Accept(20.Milliseconds)
+    Catch e As TimeoutError
+        Print("Accept:", e.Message == "accepting at {quiet.LocalAddress} took longer than it " +
+                                      "was given")
+    End Try
+
+    Try
+        Await quiet.AcceptAsync(20.Milliseconds)
+    Catch e As TimeoutError
+        Print("AcceptAsync:", e.Message == "accepting at {quiet.LocalAddress} took longer " +
+                                           "than it was given")
+    End Try
+
+    Local client = TcpStream.Connect(quiet.LocalAddress)
+    client.ReadTimeout = 20.Milliseconds
+    Try
+        client.Read(Buffer<UInt8>(4))
+    Catch e As IOError
+        Print("Read:", e.Kind, e.Cause Is TimeoutError)
+    End Try
+
+    Try
+        Await client.ReadAsync(Buffer<UInt8>(4))
+    Catch e As IOError
+        Print("ReadAsync:", e.Kind, e.Cause Is TimeoutError)
+    End Try
+
+    // It still reads what comes after.
+    client.ReadTimeout = Null
+    Local server = quiet.Accept()
+    server.WriteText("late")
+    Local into = Buffer<UInt8>(4)
+    ReadExact(client, into)
+    Print(Text(into.ToArray()))
+
+    // A closed stream's Read and Write throw IOErrors whose Cause is a NetError of CLOSED.
+    client.Close()
+    Try
+        client.Read(into)
+    Catch e As IOError
+        Print((e.Cause As NetError).Kind)
+    End Try
+
+    Try
+        Await client.WriteAsync(into)
+    Catch e As IOError
+        Print((e.Cause As NetError).Kind)
+    End Try
+Catch e As Error
+    Print("failed: {e.Message}")
+End Try
+
+// The other side's Close ends what it writes, which reads as its end, and what's written to it
+// after is reset, once its OS says so.
+Try
+    Local listener = TcpListener.Listen(SocketAddress(IpAddress.Loopback, 0))
+    Local client = TcpStream.Connect(listener.LocalAddress)
+    Local server = listener.Accept()
+    server.Close()
+    Print(client.Read(Buffer<UInt8>(1)))
+    Local kind = "none"
+    For i = 1 To 500
+        Try
+            client.WriteText("after")
+        Catch e As IOError
+            kind = "{(e.Cause As NetError).Kind}"
+            Break
+        End Try
+
+        Sleep(10.Milliseconds)
+    End For
+
+    Print(kind)
+Catch e As Error
+    Print("failed: {e.Message}")
+End Try
