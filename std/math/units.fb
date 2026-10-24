@@ -23,7 +23,8 @@ Public Struct Quantity<Const L: Int, Const M: Int, Const T: Int> Implements Comp
         Local above = ""
         Local below = ""
         Local belowCount = 0
-        For part In [("kg", M), ("m", L), ("s", T)]
+        // Each exponent as an Int64, whose negative Int32's lowest has too.
+        For part In [("kg", M As Int64), ("m", L As Int64), ("s", T As Int64)]
             If part.1 > 0 Then above = Joined(above, Power(part.0, part.1))
             If part.1 < 0
                 below = Joined(below, Power(part.0, -part.1))
@@ -74,15 +75,15 @@ Public Struct Quantity<Const L: Int, Const M: Int, Const T: Int> Implements Comp
 End Struct
 
 // A unit to a power, as "m" or "s^2".
-Function Power(unit: String, exponent: Int): String => exponent == 1 ? unit : "{unit}^{exponent}"
+Function Power(unit: String, exponent: Int64): String => exponent == 1 ? unit : "{unit}^{exponent}"
 
 // Units with a space between them.
 Function Joined(units: String, unit: String): String => units == "" ? unit : "{units} {unit}"
 
-// How big a quantity is, of the same units.
+// How big a quantity is, of the same units, as the scalar Abs has it: 0 for -0.
 Public Function Abs<Const L: Int, Const M: Int, Const T: Int>(
     q: Quantity<L, M, T>): Quantity<L, M, T>
-    Return Quantity<L, M, T>(q.Value < 0 ? -q.Value : q.Value)
+    Return Quantity<L, M, T>(q.Value <= 0 ? 0 - q.Value : q.Value)
 End Function
 
 // The base units, and those made from them.

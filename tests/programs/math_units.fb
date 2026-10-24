@@ -51,3 +51,12 @@ Function Rate<Const L: Int, Const M: Int, Const T: Int>(a: Quantity<L, M, T>,
 End Function
 
 Print(PerSecond(Meters(9), Seconds(3)), Squared(Meters(3)), Rate(Newtons(6), Seconds(2)))
+
+// Any Quantity is Defaultable, and prints with only units below the line, an exponent of Int32's
+// lowest too. Abs gives 0 for -0, as the scalar Abs does.
+Function Made<T: Defaultable>(): T => T.DefaultValue()
+
+Local negativeZero: Double = -0.0
+Local lowest = Quantity<-2147483648, 0, 0>(1)
+Print(Made<Meters>(), Newtons.DefaultValue(), Quantity<-1, 0, -1>(2), lowest)
+Print(Abs(negativeZero), Abs(Meters(negativeZero)), 1 / Abs(Meters(negativeZero)).Value)
