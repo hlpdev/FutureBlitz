@@ -1389,6 +1389,39 @@ fb_string_t* fb_io_dir_temp() {
     return temporary ? string_of(trimmed(*temporary)) : nullptr;
 }
 
+fb_string_t* fb_io_dir_config() {
+#ifdef _WIN32
+    const std::optional<std::string> folder = path_from(
+        [](char* buffer, std::size_t* size) { return uv_os_getenv("APPDATA", buffer, size); });
+    if (!folder || folder->empty()) {
+        return nullptr;
+    }
+
+    return string_of(trimmed(*folder));
+#else
+#ifndef __APPLE__
+    // XDG's folder, when it's set to a path from the root, as the spec says it has to be.
+    if (const std::optional<std::string> folder = path_from([](char* buffer, std::size_t* size) {
+            return uv_os_getenv("XDG_CONFIG_HOME", buffer, size);
+        });
+        folder && folder->starts_with('/')) {
+        return string_of(trimmed(*folder));
+    }
+#endif
+    const std::optional<std::string> home =
+        path_from([](char* buffer, std::size_t* size) { return uv_os_homedir(buffer, size); });
+    if (!home || home->empty()) {
+        return nullptr;
+    }
+
+#ifdef __APPLE__
+    return string_of(trimmed(*home) + "/Library/Application Support");
+#else
+    return string_of(trimmed(*home) + "/.config");
+#endif
+#endif
+}
+
 std::int64_t fb_io_dir_set_current(void* request, const fb_string_t* path) {
     request_t& self = request_of(request);
     self.path = view_of(path);
