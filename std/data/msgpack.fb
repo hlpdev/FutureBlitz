@@ -1,0 +1,396 @@
+// MessagePack, as its spec has it: MessagePack.Read gives the Value of a document's bytes, and
+// MessagePack.Write gives a Value's, each integer, string, and container in the fewest bytes its
+// kind has. Both go through arrays and maps with no call for each, so depth costs nothing.
+
+Import std.core
+Import std.collections
+Import std.math
+
+Extern "runtime"
+    Function fb_text_from_utf8(bytes: UInt8[], start: Int64, count: Int64): String?
+End Extern
+
+// How deep MessagePack.Read reads arrays and maps nested in each other unless it's told.
+Const DEPTH = 1000
+
+// A document's Value, and a Value's document.
+Public Struct MessagePack
+    // MessagePack isn't made: it's only its Static Methods.
+    New()
+    End New
+
+    // The Value of data's MessagePack: nil as NULL, a bool as BOOL, an integer that fits an
+    // Int64 as an INT and a larger one as a UINT, a float 32 or 64 as a DOUBLE, a str as a
+    // STRING, a bin as BYTES, an array as an ARRAY, and a map as an OBJECT, its keys in order,
+    // the last of a key that repeats where its first was. Throws a ParseError, whose message says
+    // at which byte: SYNTAX for the byte 0xC1, which starts no value, a str that isn't UTF-8,
+    // or bytes after the value; UNEXPECTED_END for data that ends too soon, or says it has more
+    // than it does; WRONG_TYPE for a map's key that isn't a str, or an ext, which a Value has no
+    // kind for; and OUT_OF_RANGE for arrays and maps nested past depth. Panics unless depth is 1
+    // or more.
+    @PanicsAtCaller
+    Public Static Method Read(data: UInt8[], depth: Int = DEPTH): Value Throws ParseError
+        If depth < 1 Then Panic("MessagePack.Read's depth is 1 or more, not {depth}")
+        Return Try Unpacking(data, depth).Document()
+    End Method
+
+    // value's MessagePack: an integer in the fewest bytes of a fixint, a uint, or an int, a
+    // DOUBLE as a float 64, a STRING as a str and BYTES as a bin, and an ARRAY and an OBJECT as
+    // an array and a map, each with its count in the fewest bytes.
+    Public Static Method Write(value: Value): UInt8[]
+        Local out: UInt8[] = []
+        Local open: Packing[] = []
+        Local next: Value? = value
+        Loop
+            Local current = next
+            If current != Null
+                Select current.Kind
+                    Case ValueKind.ARRAY
+                        Count(out, current.Count, 0x90, 0xDC)
+                        open.Add(Packing(current))
+                    Case ValueKind.OBJECT
+                        Count(out, current.Count, 0x80, 0xDE)
+                        open.Add(Packing(current))
+                    Default
+                        Scalar(out, current)
+                End Select
+            End If
+
+            // The next value of the array or map open last, after its key, or out of it when it's
+            // done, and so on out.
+            next = Null
+            While next == Null && open.Count > 0
+                Local packing = open[open.Count - 1]
+                Local item = packing.Item
+                If item.IsArray && packing.Index < item.Count
+                    next = item[packing.Index]
+                    packing.Index += 1
+                ElseIf item.IsObject && packing.Index < packing.Keys.Count
+                    Local key = packing.Keys[packing.Index]
+                    Text(out, key.Bytes, 0xA0, 0xD9)
+                    next = item[key]
+                    packing.Index += 1
+                Else
+                    open.RemoveLast()
+                End If
+            End While
+
+            If next == Null Then Return out
+        End Loop
+    End Method
+End Struct
+
+// The bytes of value's scalar.
+Function Scalar(out: UInt8[], value: Value)
+    Select value.Kind
+        Case ValueKind.NULL
+            out.Add(0xC0)
+        Case ValueKind.BOOL
+            out.Add((value.AsBool() ?? False) ? 0xC3 : 0xC2)
+        Case ValueKind.INT
+            Local integer = value.AsInt64() ?? 0
+            If integer >= 0
+                Unsigned(out, integer As UInt64)
+            ElseIf integer >= -32
+                out.Add((integer + 256) As UInt8)
+            ElseIf integer >= -128
+                out.Add(0xD0)
+                BigEndian(out, (integer + 256) As UInt64, 1)
+            ElseIf integer >= -32768
+                out.Add(0xD1)
+                BigEndian(out, (integer + 65536) As UInt64, 2)
+            ElseIf integer >= -2147483648
+                out.Add(0xD2)
+                BigEndian(out, (integer + 4294967296) As UInt64, 4)
+            Else
+                out.Add(0xD3)
+                BigEndian(out, integer As UInt64, 8)
+            End If
+        Case ValueKind.UINT
+            Unsigned(out, value.AsUInt64() ?? 0)
+        Case ValueKind.DOUBLE
+            out.Add(0xCB)
+            BigEndian(out, (value.AsDouble() ?? 0.0).ToBits(), 8)
+        Case ValueKind.STRING
+            Text(out, (value.AsString() ?? "").Bytes, 0xA0, 0xD9)
+        Case ValueKind.BYTES
+            Local bytes = value.AsBytes() ?? []
+            Local count = bytes.Count As UInt64
+            If count < 256
+                out.Add(0xC4)
+                BigEndian(out, count, 1)
+            ElseIf count < 65536
+                out.Add(0xC5)
+                BigEndian(out, count, 2)
+            Else
+                out.Add(0xC6)
+                BigEndian(out, count, 4)
+            End If
+
+            out.AddAll(bytes)
+        Default
+            Unreachable()
+    End Select
+End Function
+
+// A positive integer in the fewest bytes: a fixint below 128, else a uint of 8, 16, 32, or 64
+// bits.
+Function Unsigned(out: UInt8[], value: UInt64)
+    If value < 128
+        out.Add(value As UInt8)
+    ElseIf value < 256
+        out.Add(0xCC)
+        BigEndian(out, value, 1)
+    ElseIf value < 65536
+        out.Add(0xCD)
+        BigEndian(out, value, 2)
+    ElseIf value < 4294967296
+        out.Add(0xCE)
+        BigEndian(out, value, 4)
+    Else
+        out.Add(0xCF)
+        BigEndian(out, value, 8)
+    End If
+End Function
+
+// A str's bytes, after its length: in its fix byte below 32, else after first, first + 1, or
+// first + 2, for 8, 16, or 32 bits of it.
+Function Text(out: UInt8[], bytes: UInt8[], fix: UInt8, first: UInt8)
+    Local count = bytes.Count As UInt64
+    If count < 32
+        out.Add(fix | (count As UInt8))
+    ElseIf count < 256
+        out.Add(first)
+        BigEndian(out, count, 1)
+    ElseIf count < 65536
+        out.Add(first + 1)
+        BigEndian(out, count, 2)
+    Else
+        out.Add(first + 2)
+        BigEndian(out, count, 4)
+    End If
+
+    out.AddAll(bytes)
+End Function
+
+// An array's or a map's count: in its fix byte below 16, else after first or first + 1, for 16
+// or 32 bits of it.
+Function Count(out: UInt8[], count: Int, fix: UInt8, first: UInt8)
+    If count < 16
+        out.Add(fix | (count As UInt8))
+    ElseIf count < 65536
+        out.Add(first)
+        BigEndian(out, count As UInt64, 2)
+    Else
+        out.Add(first + 1)
+        BigEndian(out, count As UInt64, 4)
+    End If
+End Function
+
+// value's last count bytes, the highest first.
+Function BigEndian(out: UInt8[], value: UInt64, count: Int)
+    For i = count - 1 To 0 Step -1
+        out.Add(((value >> ((i * 8) As UInt64)) & 255) As UInt8)
+    End For
+End Function
+
+// An array or map MessagePack.Write is in, with a map's keys, and how far it's written.
+Class Packing
+    Public Field Item: Value
+    Public Field Keys: String[]
+    Public Field Index: Int
+
+    New(item: Value)
+        Item = item
+        Keys = item.Keys()
+    End New
+End Class
+
+// An array or map MessagePack.Read is in: how many values are left, and, in a map, the key
+// waiting for its value.
+Class Unpacked
+    Public Field Item: Value
+    Public Field Left: Int64
+    Public Field Key: String?
+
+    New(item: Value, left: Int64)
+        Item = item
+        Left = left
+    End New
+End Class
+
+// What MessagePack.Read reads: the data, how far, and the arrays and maps open.
+Class Unpacking
+    Field Data: UInt8[]
+    Field At: Int64
+    Field Most: Int
+    Field Open: Unpacked[] = []
+    // How many values the array or map Next read last says it has.
+    Field Pending: Int64
+
+    New(data: UInt8[], most: Int)
+        Data = data
+        Most = most
+    End New
+
+    // The document's Value, which ends the data.
+    Method Document(): Value Throws ParseError
+        Local document = Try Next()
+        Try Opened(document, 0)
+        Loop
+            // An array or map with nothing left is done, and so is what holds it, in turn.
+            While Open.Count > 0 && Open[Open.Count - 1].Left == 0
+                Open.RemoveLast()
+            End While
+
+            If Open.Count == 0 Then Break
+            Local holder = Open[Open.Count - 1]
+            Local start = At
+            If holder.Item.IsObject && holder.Key == Null
+                Local key = Try Next()
+                Local text = key.AsString()
+                If text == Null
+                    Throw Fail(ParseErrorKind.WRONG_TYPE, "a map's key is {key.Kind}, not a str",
+                               start)
+                End If
+
+                holder.Key = text
+                Continue
+            End If
+
+            Local read = Try Next()
+            If holder.Item.IsObject
+                holder.Item[holder.Key ?? ""] = read
+                holder.Key = Null
+            Else
+                holder.Item.Add(read)
+            End If
+
+            holder.Left -= 1
+            Try Opened(read, start)
+        End Loop
+
+        If At < Data.Count Then Throw Fail(ParseErrorKind.SYNTAX, "there are bytes after it", At)
+        Return document
+    End Method
+
+    // Opens read, the array or map whose header started at start, to read its values into,
+    // unless it has none.
+    Method Opened(read: Value, start: Int64) Throws ParseError
+        If (!read.IsArray && !read.IsObject) || Pending == 0 Then Return
+        If Open.Count >= Most
+            Throw Fail(ParseErrorKind.OUT_OF_RANGE, "arrays and maps are nested too deep", start)
+        End If
+
+        Open.Add(Unpacked(read, Pending))
+    End Method
+
+    // The value whose first byte is next: a scalar whole, or an empty array or map, whose
+    // values come after, Pending of them.
+    Method Next(): Value Throws ParseError
+        Local start = At
+        Local first = (Try Number(1)) As Int
+        Pending = 0
+        If first <= 0x7F Then Return Value(first As Int64)
+        If first >= 0xE0 Then Return Value((first - 256) As Int64)
+        Local fixed = (first & 0x0F) As Int64
+        If first <= 0x8F Then Return Try Container(Value.Object(), fixed, 2, start)
+        If first <= 0x9F Then Return Try Container(Value.Array(), fixed, 1, start)
+        If first <= 0xBF Then Return Try Str((first & 0x1F) As Int64, start)
+        Select first
+            Case 0xC0
+                Return Value()
+            Case 0xC2
+                Return Value(False)
+            Case 0xC3
+                Return Value(True)
+            Case 0xC4, 0xC5, 0xC6
+                Local length = (Try Number(Size(first - 0xC4))) As Int64
+                Try Room(length, 1, start)
+                Local bytes: UInt8[] = []
+                bytes.Reserve(length As Int)
+                For i = At Until At + length
+                    bytes.Add(Data[i])
+                End For
+                At += length
+                Return Value(bytes)
+            Case 0xCA
+                Return Value(Float32.FromBits((Try Number(4)) As UInt32) As Float64)
+            Case 0xCB
+                Return Value(Float64.FromBits(Try Number(8)))
+            Case 0xCC, 0xCD, 0xCE, 0xCF
+                Return Value(Try Number(Size(first - 0xCC)))
+            Case 0xD0, 0xD1, 0xD2, 0xD3
+                Local size = Size(first - 0xD0)
+                Return Value(Signed(Try Number(size), size))
+            Case 0xD9, 0xDA, 0xDB
+                Return Try Str((Try Number(Size(first - 0xD9))) As Int64, start)
+            Case 0xDC, 0xDD
+                Local count = (Try Number(Size(first - 0xDC + 1))) As Int64
+                Return Try Container(Value.Array(), count, 1, start)
+            Case 0xDE, 0xDF
+                Local count = (Try Number(Size(first - 0xDE + 1))) As Int64
+                Return Try Container(Value.Object(), count, 2, start)
+            Case 0xC1
+                Throw Fail(ParseErrorKind.SYNTAX, "the byte 0xC1 starts no value", start)
+            Default
+                // 0xC7 to 0xC9 and 0xD4 to 0xD8.
+                Throw Fail(ParseErrorKind.WRONG_TYPE, "an ext has no kind of Value", start)
+        End Select
+    End Method
+
+    // An empty array or map that says it has count values, each of at least each bytes.
+    Method Container(made: Value, count: Int64, each: Int64, start: Int64): Value Throws ParseError
+        Try Room(count, each, start)
+        Pending = count
+        Return made
+    End Method
+
+    // A str of length bytes, which must be UTF-8.
+    Method Str(length: Int64, start: Int64): Value Throws ParseError
+        Try Room(length, 1, start)
+        Local text = fb_text_from_utf8(Data, At, length)
+        If text == Null Then Throw Fail(ParseErrorKind.SYNTAX, "a str isn't UTF-8", start)
+        At += length
+        Return Value(text)
+    End Method
+
+    // Throws unless the data has room for count of each bytes, as an array or map needs for its
+    // values at least, so a count it lies about takes no memory.
+    Method Room(count: Int64, each: Int64, start: Int64) Throws ParseError
+        If count > (Data.Count - At) / each
+            Throw Fail(ParseErrorKind.UNEXPECTED_END,
+                       "the data ends before the {count} it says come", start)
+        End If
+    End Method
+
+    // The next size bytes as an unsigned integer, the highest first.
+    Method Number(size: Int): UInt64 Throws ParseError
+        If size > Data.Count - At
+            Throw Fail(ParseErrorKind.UNEXPECTED_END, "the data ends too soon", At)
+        End If
+
+        Local value: UInt64 = 0
+        For i = 0 Until size
+            value = (value << 8) | (Data[At + i] As UInt64)
+        End For
+        At += size
+        Return value
+    End Method
+
+    Method Fail(kind: ParseErrorKind, message: String, at: Int64): ParseError
+        Return ParseError(kind, "the data isn't MessagePack: {message}, at byte {at}")
+    End Method
+End Class
+
+// How many bytes the kind of a uint, int, str, bin, array, or map at index of its 8-, 16-, 32-,
+// and 64-bit forms has: 1, 2, 4, or 8.
+Function Size(index: Int): Int => 1 << index
+
+// The size bytes of a signed integer's bits as the integer.
+Function Signed(bits: UInt64, size: Int): Int64
+    If size == 8 Then Return bits As Int64
+    Local range = (1 As Int64) << ((size * 8) As Int64)
+    Local value = bits As Int64
+    Return value >= range / 2 ? value - range : value
+End Function
