@@ -45,3 +45,15 @@ If url != Null
 End If
 
 Show((Url.Parse("http://h/??a=b&c=d") ?? Url.Parse("x:"))?.Params ?? QueryParams())
+
+// A name's or value's bytes are read as the Encoding Standard reads UTF-8, as URLSearchParams
+// reads them: one U+FFFD for the start of a code point that's cut short, by the end or by a
+// byte that can't go next, and one for each byte that can't start one.
+Local cut = QueryParams("a=%F0%9F%98&b=%E2%82x&c=%C3&%F0%9F%98=%F0%9F")
+For pair In cut
+    Print(pair.0.Chars.Count, pair.1.Chars.Count, Url.Encode(pair.0), Url.Encode(pair.1))
+End For
+Print(cut)
+Print(Url.Parse("http://h/?a=%F0%9F%98")?.Params?.ToString() ?? "not a URL")
+Print(Url.Decode("%F0%9F%98").Chars.Count, Url.Decode("%C0%80%ED%A0%80%F4%90%80%80").Chars.Count,
+      Url.Decode("%E2%82%AC%F0%9F%98%80") == "\u{20AC}\u{1F600}")

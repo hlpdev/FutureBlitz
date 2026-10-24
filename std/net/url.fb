@@ -163,10 +163,11 @@ Public Struct Url Implements Hashable, Printable
         Return fb_string_from_array(bytes)
     End Method
 
-    // text with each % and two hex digits as the byte they stand for, read as UTF-8, with U+FFFD
-    // for what isn't.
+    // text with each % and two hex digits as the byte they stand for, read as UTF-8 as the
+    // Encoding Standard's decoder reads it: one U+FFFD for each byte that can't start a code
+    // point, and one for each start of one that's cut short, before the byte that cuts it.
     Public Static Method Decode(text: String): String
-        Return fb_string_from_array(PercentDecoded(text.Bytes))
+        Return Utf8Decoded(PercentDecoded(text.Bytes))
     End Method
 End Struct
 
@@ -431,7 +432,59 @@ Function FormDecoded(bytes: UInt8[], start: Int, finish: Int): String
     For i = start Until finish
         spaced.Add(bytes[i] == 43 ? 32 : bytes[i])
     End For
-    Return fb_string_from_array(PercentDecoded(spaced))
+    Return Utf8Decoded(PercentDecoded(spaced))
+End Function
+
+// The text of bytes as the Encoding Standard's UTF-8 decoder reads them, which the URL
+// Standard's form parser uses: one U+FFFD for each byte that can't start a code point, and one
+// for the bytes that start one, up to where it's cut short, by their end or by a byte that
+// can't go next, which then starts again.
+Function Utf8Decoded(bytes: UInt8[]): String
+    Local text: UInt8[] = []
+    // The code point under way: where it starts, the bytes it needs after its first, and the
+    // range the next one has to be in.
+    Local start = 0
+    Local needed = 0
+    Local lower = 0x80
+    Local upper = 0xBF
+    Local i = 0
+    While i < bytes.Count
+        Local byte = bytes[i] As Int
+        If needed == 0
+            If byte < 0x80
+                text.Add(byte As UInt8)
+            ElseIf byte >= 0xC2 && byte <= 0xF4
+                start = i
+                needed = byte < 0xE0 ? 1 : (byte < 0xF0 ? 2 : 3)
+                // Neither an overlong form, a surrogate, nor past U+10FFFF.
+                If byte == 0xE0 Then lower = 0xA0
+                If byte == 0xED Then upper = 0x9F
+                If byte == 0xF0 Then lower = 0x90
+                If byte == 0xF4 Then upper = 0x8F
+            Else
+                AddUtf8(text, 0xFFFD)
+            End If
+            i += 1
+        ElseIf byte < lower || byte > upper
+            AddUtf8(text, 0xFFFD)
+            needed = 0
+            lower = 0x80
+            upper = 0xBF
+        Else
+            needed -= 1
+            lower = 0x80
+            upper = 0xBF
+            i += 1
+            If needed == 0
+                For j = start Until i
+                    text.Add(bytes[j])
+                End For
+            End If
+        End If
+    End While
+
+    If needed != 0 Then AddUtf8(text, 0xFFFD)
+    Return fb_string_from_array(text)
 End Function
 
 // Adds a form's name or value: a space as a +, and the rest as FORM encodes it.

@@ -11,3 +11,10 @@ True False False True
 3: (q, one two)(page, 2)(q, three) -> q=one+two&page=2&q=three
 2 [one two, three]
 2: (?a, b)(c, d) -> %3Fa=b&c=d
+1 1 a %EF%BF%BD
+1 2 b %EF%BF%BDx
+1 1 c %EF%BF%BD
+1 1 %EF%BF%BD %EF%BF%BD
+a=%EF%BF%BD&b=%EF%BF%BDx&c=%EF%BF%BD&%EF%BF%BD=%EF%BF%BD
+a=%EF%BF%BD
+1 9 True
