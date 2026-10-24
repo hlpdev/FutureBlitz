@@ -43,6 +43,9 @@ End Extern
 Const REPLACE: Int32 = 0
 Const APPEND: Int32 = 1
 Const ATOMIC: Int32 = 2
+// The most bytes a read takes by default: an array's most for bytes, and all of them for text.
+Const ARRAY_MOST: Int64 = 2147483647
+Const ALL: Int64 = 9223372036854775807
 
 // What's at a path: a file, a folder, a link, or something else, like a device or a pipe.
 Public Enum FileKind
@@ -97,16 +100,17 @@ Public Class File
     // file's size, and so does one that memory can't hold. Panics for a most below 0 or above an
     // array's, 2^31 - 1.
     @PanicsAtCaller
-    Public Static Method ReadBytes(path: Path, most: Int64 = 2147483647): UInt8[] Throws IOError
-        CheckMost(most, 2147483647)
+    Public Static Method ReadBytes(path: Path, most: Int64 = ARRAY_MOST): UInt8[] Throws IOError
+        CheckMost(most, ARRAY_MOST)
         Local request = Request()
         Try Checked(fb_io_file_read(request.Native, path.Text, most), "read", path)
         Return BytesOf(request)
     End Method
 
     @PanicsAtCaller
-    Public Static Async Method ReadBytesAsync(path: Path, most: Int64 = 2147483647): UInt8[] Throws IOError
-        CheckMost(most, 2147483647)
+    Public Static Async Method ReadBytesAsync(path: Path,
+                                              most: Int64 = ARRAY_MOST): UInt8[] Throws IOError
+        CheckMost(most, ARRAY_MOST)
         Local request = Request()
         Try Checked(Await fb_io_file_read_async(request.Native, path.Text, most), "read", path)
         Return BytesOf(request)
@@ -116,16 +120,16 @@ Public Class File
     // Its line breaks stay as they are, and so does a byte order mark. One that holds more than
     // `most` bytes, or more than memory does, throws an IOError of OTHER, as ReadBytes does.
     @PanicsAtCaller
-    Public Static Method ReadText(path: Path, most: Int64 = 9223372036854775807): String Throws IOError
-        CheckMost(most, 9223372036854775807)
+    Public Static Method ReadText(path: Path, most: Int64 = ALL): String Throws IOError
+        CheckMost(most, ALL)
         Local request = Request()
         Try Checked(fb_io_file_read(request.Native, path.Text, most), "read", path)
         Return fb_io_request_text(request.Native)
     End Method
 
     @PanicsAtCaller
-    Public Static Async Method ReadTextAsync(path: Path, most: Int64 = 9223372036854775807): String Throws IOError
-        CheckMost(most, 9223372036854775807)
+    Public Static Async Method ReadTextAsync(path: Path, most: Int64 = ALL): String Throws IOError
+        CheckMost(most, ALL)
         Local request = Request()
         Try Checked(Await fb_io_file_read_async(request.Native, path.Text, most), "read", path)
         Return fb_io_request_text(request.Native)
@@ -135,8 +139,8 @@ Public Class File
     // line break after it is one too, and an empty file has none. One that holds more than `most`
     // bytes throws as ReadText does.
     @PanicsAtCaller
-    Public Static Method ReadLines(path: Path, most: Int64 = 9223372036854775807): String[] Throws IOError
-        CheckMost(most, 9223372036854775807)
+    Public Static Method ReadLines(path: Path, most: Int64 = ALL): String[] Throws IOError
+        CheckMost(most, ALL)
         Local request = Request()
         Try Checked(fb_io_file_read(request.Native, path.Text, most), "read", path)
         Local lines: String[] = []
@@ -145,8 +149,9 @@ Public Class File
     End Method
 
     @PanicsAtCaller
-    Public Static Async Method ReadLinesAsync(path: Path, most: Int64 = 9223372036854775807): String[] Throws IOError
-        CheckMost(most, 9223372036854775807)
+    Public Static Async Method ReadLinesAsync(path: Path,
+                                              most: Int64 = ALL): String[] Throws IOError
+        CheckMost(most, ALL)
         Local request = Request()
         Try Checked(Await fb_io_file_read_async(request.Native, path.Text, most), "read", path)
         Local lines: String[] = []
@@ -163,8 +168,8 @@ Public Class File
 
     Public Static Async Method WriteBytesAsync(path: Path, bytes: UInt8[]) Throws IOError
         Local request = Request()
-        Try Checked(Await fb_io_file_write_async(request.Native, path.Text, bytes, REPLACE), "write",
-                    path)
+        Try Checked(Await fb_io_file_write_async(request.Native, path.Text, bytes, REPLACE),
+                    "write", path)
     End Method
 
     // Makes the file hold the text's UTF-8 bytes, as they are, as WriteBytes does.
@@ -180,9 +185,11 @@ Public Class File
     End Method
 
     // Makes the file hold the lines, each with `ending` after it, as WriteBytes does.
-    Public Static Method WriteLines(path: Path, lines: String[], ending: LineEnding = LineEnding.LF) Throws IOError
+    Public Static Method WriteLines(path: Path, lines: String[],
+                                    ending: LineEnding = LineEnding.LF) Throws IOError
         Local request = Request()
-        Try Checked(fb_io_file_write_lines(request.Native, path.Text, lines, CrlfOf(ending), REPLACE),
+        Local crlf = CrlfOf(ending)
+        Try Checked(fb_io_file_write_lines(request.Native, path.Text, lines, crlf, REPLACE),
                     "write", path)
     End Method
 
@@ -201,8 +208,8 @@ Public Class File
 
     Public Static Async Method AppendBytesAsync(path: Path, bytes: UInt8[]) Throws IOError
         Local request = Request()
-        Try Checked(Await fb_io_file_write_async(request.Native, path.Text, bytes, APPEND), "add to",
-                    path)
+        Try Checked(Await fb_io_file_write_async(request.Native, path.Text, bytes, APPEND),
+                    "add to", path)
     End Method
 
     // Adds the text's UTF-8 bytes to the end of the file, as AppendBytes does.
@@ -218,9 +225,11 @@ Public Class File
     End Method
 
     // Adds the lines, each with `ending` after it, to the end of the file, as AppendBytes does.
-    Public Static Method AppendLines(path: Path, lines: String[], ending: LineEnding = LineEnding.LF) Throws IOError
+    Public Static Method AppendLines(path: Path, lines: String[],
+                                     ending: LineEnding = LineEnding.LF) Throws IOError
         Local request = Request()
-        Try Checked(fb_io_file_write_lines(request.Native, path.Text, lines, CrlfOf(ending), APPEND),
+        Local crlf = CrlfOf(ending)
+        Try Checked(fb_io_file_write_lines(request.Native, path.Text, lines, crlf, APPEND),
                     "add to", path)
     End Method
 
@@ -294,7 +303,8 @@ Public Class File
         Return StatOf(request)
     End Method
 
-    Public Static Async Method MetadataAsync(path: Path, followLinks: Bool = True): Metadata Throws IOError
+    Public Static Async Method MetadataAsync(path: Path,
+                                             followLinks: Bool = True): Metadata Throws IOError
         Local request = Request()
         Try Checked(Await fb_io_file_stat_async(request.Native, path.Text, followLinks ? 1 : 0),
                     "find", path)
@@ -310,7 +320,8 @@ Public Class File
 
     Public Static Async Method CopyAsync(from: Path, to: Path) Throws IOError
         Local request = Request()
-        Try Checked(Await fb_io_file_copy_async(request.Native, from.Text, to.Text), "copy", from, to)
+        Try Checked(Await fb_io_file_copy_async(request.Native, from.Text, to.Text), "copy", from,
+                    to)
     End Method
 
     // Moves, or renames, the file or folder at `from` to `to`, replacing a file there. A file
@@ -324,7 +335,8 @@ Public Class File
 
     Public Static Async Method MoveAsync(from: Path, to: Path) Throws IOError
         Local request = Request()
-        Try Checked(Await fb_io_file_move_async(request.Native, from.Text, to.Text), "move", from, to)
+        Try Checked(Await fb_io_file_move_async(request.Native, from.Text, to.Text), "move", from,
+                    to)
     End Method
 
     // Deletes the file, or the link, at the path, and gives whether there was one. A folder
@@ -336,7 +348,9 @@ Public Class File
 
     Public Static Async Method DeleteAsync(path: Path): Bool Throws IOError
         Local request = Request()
-        Return (Try Checked(Await fb_io_file_delete_async(request.Native, path.Text), "delete", path)) == 1
+        Local deleted = Try Checked(Await fb_io_file_delete_async(request.Native, path.Text),
+                                    "delete", path)
+        Return deleted == 1
     End Method
 
     // Makes the file read-only, or, when `readOnly` is False, writable by its owner.
@@ -348,8 +362,9 @@ Public Class File
 
     Public Static Async Method SetReadOnlyAsync(path: Path, readOnly: Bool) Throws IOError
         Local request = Request()
-        Try Checked(Await fb_io_file_set_read_only_async(request.Native, path.Text, readOnly ? 1 : 0),
-                    "change", path)
+        Local flag = readOnly ? 1 : 0
+        Try Checked(Await fb_io_file_set_read_only_async(request.Native, path.Text, flag), "change",
+                    path)
     End Method
 End Class
 
@@ -365,7 +380,9 @@ End Function
 // Panics unless a read's most is from 0 to `limit`.
 @PanicsAtCaller
 Function CheckMost(most: Int64, limit: Int64)
-    If most < 0 || most > limit Then Panic("a read takes a most from 0 to {limit} bytes, not {most}")
+    If most < 0 || most > limit
+        Panic("a read takes a most from 0 to {limit} bytes, not {most}")
+    End If
 End Function
 
 // What a request found at a path.
@@ -395,7 +412,8 @@ End Function
 Function SizeOf(request: Request, path: Path): Int64 Throws IOError
     Local found = StatOf(request)
     If found.IsDirectory()
-        Throw IOError(IOErrorKind.IS_A_DIRECTORY, "can't find the size of {path}: it's a folder", path.Text)
+        Throw IOError(IOErrorKind.IS_A_DIRECTORY, "can't find the size of {path}: it's a folder",
+                      path.Text)
     End If
 
     Return found.Size

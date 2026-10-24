@@ -722,9 +722,11 @@ the rest is planned.
   don't follow links), `Exists`, `Entries`, `Walk`, and `Glob`, which give `DirEntry`s (`Path`,
   `Relative` from the folder listed, `Kind`, `Name`) in the order of their names' bytes, each
   folder before what's in it, without going into links; each with an Async twin. Glob's
-  patterns match names between `/`s: `*`, `?`, `[abc]`, `[a-z]`, `[!abc]`, and a name of `**` for
-  any number of folders, exactly, in the same case, on every OS. `Current`, `SetCurrent`, and
-  `Temp`, the OS's temporary folder.
+  patterns match names between `/`s, and `\`s too by Windows' rules: `*`, `?`, `[abc]`, `[a-z]`,
+  `[!abc]`, and a name of `**` for any number of folders, or, last, for everything below, files
+  too, and the folder before it, so `sub/**` gives sub and all that's in it; names match exactly,
+  in the same case, on every OS. `Current`, `SetCurrent`, and `Temp`, the OS's temporary
+  folder.
 - `TempFile(prefix)` and `TempDir(prefix)`: a new, empty file or folder in the OS's temporary
   folder, with a name no other has, which `Close`, or its last reference, removes with what's in
   it.

@@ -108,7 +108,8 @@ Public Struct Path Implements Comparable, Hashable, Printable
     // drive alone, like "C:", which the next name goes right after.
     Method Joined(bytes: UInt8[], prefix: Int, anchor: Int, added: String): Path
         Local windows = Style == PathStyle.WINDOWS
-        If IsSeparator(bytes[bytes.Count - 1], windows) || (windows && prefix == 2 && bytes.Count == 2)
+        If IsSeparator(bytes[bytes.Count - 1], windows) ||
+           (windows && prefix == 2 && bytes.Count == 2)
             Return Path(Text + added, Style)
         End If
 
@@ -119,7 +120,8 @@ Public Struct Path Implements Comparable, Hashable, Printable
     // "games/save.dat" and for "games/save.dat/" too.
     Public Method FileName(): String
         Local bytes = Text.Bytes
-        Local names = NamesOf(bytes, AnchorOf(bytes, Style == PathStyle.WINDOWS).1, Style == PathStyle.WINDOWS)
+        Local windows = Style == PathStyle.WINDOWS
+        Local names = NamesOf(bytes, AnchorOf(bytes, windows).1, windows)
         Return names.Count == 0 ? "" : names[names.Count - 1]
     End Method
 
@@ -149,7 +151,9 @@ Public Struct Path Implements Comparable, Hashable, Printable
     Public Method WithExtension(extension: String): Path
         Local windows = Style == PathStyle.WINDOWS
         For byte In extension.Bytes
-            If IsSeparator(byte, windows) Then Panic("WithExtension takes an extension without a separator, not '{extension}'")
+            If IsSeparator(byte, windows)
+                Panic("WithExtension takes an extension without a separator, not '{extension}'")
+            End If
         End For
 
         Local added = extension == "" || extension.Bytes[0] == DOT ? extension : "." + extension
@@ -227,15 +231,16 @@ Public Struct Path Implements Comparable, Hashable, Printable
     // The path from `base` to this one, by their texts, with ".." for each of base's names they
     // don't share: "saves/one.dat" from "games" to "games/saves/one.dat", and "../music" from
     // "games" to "music". On Windows, names that differ only in their ASCII letters' case are the
-    // same. Null when one is absolute and the other isn't, they're on different
-    // drives, or base goes up past where this one starts, as "../other" from "a" does.
+    // same. Null when one is absolute and the other isn't, they're on different drives, or base
+    // goes up past where this one starts, as "../other" from "a" does.
     Public Method RelativeTo(base: Path): Path?
         Local windows = Style == PathStyle.WINDOWS
         Local bytes = Normalize().Text.Bytes
         Local from = base.Normalize().Text.Bytes
         Local prefix, anchor = AnchorOf(bytes, windows)
         Local fromPrefix, fromAnchor = AnchorOf(from, windows)
-        If !SameName(AnchorText(bytes, prefix, anchor), AnchorText(from, fromPrefix, fromAnchor), windows)
+        Local start = AnchorText(bytes, prefix, anchor)
+        If !SameName(start, AnchorText(from, fromPrefix, fromAnchor), windows)
             Return Null
         End If
 
@@ -269,11 +274,15 @@ Public Struct Path Implements Comparable, Hashable, Printable
     Public Method Absolute(): Path Throws IOError
         If IsAbsolute() Then Return Normalize()
         If Style != NativeStyle()
-            Panic("Absolute needs a path by the target's rules, or one that's absolute by its own, not '{Text}'")
+            Panic("Absolute needs a path by the target's rules, or one that's absolute by its " +
+                  "own, not '{Text}'")
         End If
 
         Local current = fb_io_dir_current()
-        If current == Null Then Throw IOError(IOErrorKind.OTHER, "the OS doesn't say what the current folder is", Text)
+        If current == Null
+            Throw IOError(IOErrorKind.OTHER, "the OS doesn't say what the current folder is", Text)
+        End If
+
         Local here = Path(current, Style)
         Local windows = Style == PathStyle.WINDOWS
         Local bytes = Text.Bytes
@@ -302,13 +311,16 @@ Package Function TextOfBytes(bytes: UInt8[]): String
     End Unsafe
 End Function
 
-Function IsSeparator(byte: UInt8, windows: Bool): Bool => byte == SLASH || (windows && byte == BACKSLASH)
+Function IsSeparator(byte: UInt8, windows: Bool): Bool
+    Return byte == SLASH || (windows && byte == BACKSLASH)
+End Function
 
 Function IsLetter(byte: UInt8): Bool => (byte >= 65 && byte <= 90) || (byte >= 97 && byte <= 122)
 
 // Whether a name is "." or "..".
 Function IsDots(name: UInt8[]): Bool
-    Return (name.Count == 1 && name[0] == DOT) || (name.Count == 2 && name[0] == DOT && name[1] == DOT)
+    Return (name.Count == 1 && name[0] == DOT) ||
+           (name.Count == 2 && name[0] == DOT && name[1] == DOT)
 End Function
 
 // How many of a path's bytes say where it starts, and how many of those are a Windows drive's or

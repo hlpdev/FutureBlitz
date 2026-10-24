@@ -143,7 +143,7 @@ Public Struct Dir
     End Method
 
     // What's in the folder, and in the folders in it, whose path from it matches `pattern`, in
-    // Walk's order. The pattern's names go between '/'s, and ''s too by Windows' rules, each
+    // Walk's order. The pattern's names go between '/'s, and '\'s too by Windows' rules, each
     // matching one name in the path: '*' matches any run of characters in a name, '?' any one
     // character, and "[abc]", "[a-z]", and "[!abc]" one character of or not of those; a name
     // that's just "**" matches any number of folders, none too, and last, everything below,
@@ -170,7 +170,10 @@ Public Struct Dir
     // The program's current folder, which relative paths are from.
     Public Static Method Current(): Path Throws IOError
         Local current = fb_io_dir_current()
-        If current == Null Then Throw IOError(IOErrorKind.OTHER, "the OS doesn't say what the current folder is")
+        If current == Null
+            Throw IOError(IOErrorKind.OTHER, "the OS doesn't say what the current folder is")
+        End If
+
         Return Path(current)
     End Method
 
@@ -183,7 +186,10 @@ Public Struct Dir
     // The OS's folder for temporary files, which TempFile and TempDir make theirs in.
     Public Static Method Temp(): Path Throws IOError
         Local temporary = fb_io_dir_temp()
-        If temporary == Null Then Throw IOError(IOErrorKind.OTHER, "the OS doesn't say where its temporary folder is")
+        If temporary == Null
+            Throw IOError(IOErrorKind.OTHER, "the OS doesn't say where its temporary folder is")
+        End If
+
         Return Path(temporary)
     End Method
 End Struct
@@ -198,7 +204,8 @@ End Function
 
 // Adds what's in `folder`, at `parts` from Glob's folder `base`, to `into`, each folder before
 // what's in it, and goes into each folder in it that the pattern's names can reach below.
-Function Globbed(base: Path, folder: Path, parts: String[], names: Char[][], into: DirEntry[]) Throws IOError
+Function Globbed(base: Path, folder: Path, parts: String[], names: Char[][],
+                 into: DirEntry[]) Throws IOError
     For entry In Try Dir.Entries(folder)
         Local inner = parts.Clone()
         inner.Add(entry.Name())
@@ -210,7 +217,8 @@ Function Globbed(base: Path, folder: Path, parts: String[], names: Char[][], int
     End For
 End Function
 
-Async Function GlobbedAsync(base: Path, folder: Path, parts: String[], names: Char[][], into: DirEntry[]) Throws IOError
+Async Function GlobbedAsync(base: Path, folder: Path, parts: String[], names: Char[][],
+                             into: DirEntry[]) Throws IOError
     For entry In Try Await Dir.EntriesAsync(folder)
         Local inner = parts.Clone()
         inner.Add(entry.Name())
@@ -259,7 +267,8 @@ Function EntriesOf(request: Request, path: Path): DirEntry[]
     entries.Reserve(count As Int)
     For i = 0 Until count
         Local relative = Path(fb_io_request_entry_path(request.Native, i), path.Style)
-        entries.Add(DirEntry(path / relative, relative, EntryKind(fb_io_request_entry_kind(request.Native, i))))
+        Local kind = EntryKind(fb_io_request_entry_kind(request.Native, i))
+        entries.Add(DirEntry(path / relative, relative, kind))
     End For
 
     Return entries
