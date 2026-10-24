@@ -1,0 +1,8 @@
+// ProtoTag panics where it's called for a field number that isn't from 1 to PROTO_FIELD_LIMIT,
+// whose tag a reader wouldn't take.
+Import std.core
+Import std.data.protobuf
+
+Print("{ProtoTag(1, WIRE_LENGTH)} {ProtoTag(PROTO_FIELD_LIMIT, WIRE_FIXED32)}")
+Local tag = ProtoTag(0, WIRE_VARINT)
+Print("unreachable {tag}")

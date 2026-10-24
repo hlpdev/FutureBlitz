@@ -1,0 +1,14 @@
+// ProtoReader's KeepFrom panics where it's called for a start before the bytes, or past where
+// it's reading.
+Import std.core
+Import std.data.protobuf
+
+Local reader = ProtoReader([8, 1])
+Local kept: UInt8[] = []
+Local tag = Try reader.ReadTag()
+Local start = reader.TagStart
+Local value = Try reader.ReadVarint()
+reader.KeepFrom(start, kept)
+Print("{tag} {value} {kept}")
+reader.KeepFrom(-1, kept)
+Print("unreachable {kept}")
