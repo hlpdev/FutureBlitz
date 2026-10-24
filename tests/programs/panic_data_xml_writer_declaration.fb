@@ -1,0 +1,8 @@
+// The XML declaration comes first, and Declaration panics after anything else.
+Import std.core
+Import std.data.value
+Import std.data.xml
+
+Local writer = XmlWriter()
+writer.Comment("first")
+writer.Declaration()

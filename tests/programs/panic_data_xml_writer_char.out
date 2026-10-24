@@ -1,0 +1,1 @@
+panic: XML can't hold the character U+0007 at panic_data_xml_writer_char.fb:9:1

@@ -1,0 +1,2 @@
+<a/>
+panic: an XML document's root is an element, not TEXT at panic_data_xml_write_kind.fb:7:7

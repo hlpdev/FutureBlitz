@@ -1,0 +1,563 @@
+// XML 1.0: a document's tree of XmlNodes, which Xml.Read builds over an XmlReader and Xml.Write
+// writes over an XmlWriter, and Values to and from an element, as xmltodict has them: an
+// element's attributes are keys with '@' before their names, its children keys of their names,
+// an Array where a name comes more than once, and its text the key "#text", or the element's
+// Value itself, a String, when it has neither attributes nor children.
+
+Import std.core
+Import std.collections
+Import std.data.text
+Import std.data.value
+Import std.data.xml_reader
+Import std.data.xml_path
+
+// What an XmlNode is.
+Public Enum XmlKind
+    ELEMENT, TEXT, CDATA, COMMENT, INSTRUCTION, ATTRIBUTE
+End Enum
+
+// A node of an XML tree: an element, with a Name, Attributes, and Children; text, CDATA, or a
+// comment, with its Content; a processing instruction, with its target as its Name and its
+// Content; or an attribute, with its Name and value as its Content, as XmlPath selects one.
+Public Class XmlNode Implements Printable
+    Public ReadOnly Field Kind: XmlKind
+    Public Field Name: String
+    Public Field Content: String
+    // An element's attributes, by name, in order.
+    Public ReadOnly Field Attributes: Map<String, String>
+    // An element's children, in order.
+    Public ReadOnly Field Children: XmlNode[] = []
+
+    // A new element named name. Panics when name isn't an XML name.
+    @PanicsAtCaller
+    Public New(name: String)
+        CheckName(name)
+        Kind = XmlKind.ELEMENT
+        Name = name
+        Content = ""
+        Attributes = {}
+    End New
+
+    Package New(kind: XmlKind, name: String, content: String)
+        Kind = kind
+        Name = name
+        Content = content
+        Attributes = {}
+    End New
+
+    // A node of text.
+    Public Static Method NewText(text: String): XmlNode => XmlNode(XmlKind.TEXT, "", text)
+
+    // A CDATA section of text.
+    Public Static Method NewCData(text: String): XmlNode => XmlNode(XmlKind.CDATA, "", text)
+
+    // A comment of text.
+    Public Static Method NewComment(text: String): XmlNode => XmlNode(XmlKind.COMMENT, "", text)
+
+    // A processing instruction for target. Panics when target isn't an XML name.
+    @PanicsAtCaller
+    Public Static Method NewInstruction(target: String, text: String): XmlNode
+        CheckName(target)
+        Return XmlNode(XmlKind.INSTRUCTION, target, text)
+    End Method
+
+    // Its text, as XPath's string() has it: an element's text and CDATA's, and its children's,
+    // in order; and another node's Content.
+    Public Property Text: String
+        Get
+            If Kind != XmlKind.ELEMENT Then Return Content
+            Local out: UInt8[] = []
+            AddValue(out)
+            Return TextOf(out)
+        End Get
+    End Property
+
+    // An element's attribute's value, or Null when it has none of that name.
+    Public Method Attribute(name: String): String? => Attributes.Get(name)
+
+    // Gives an element's attribute a value, adding it at the end when it's new. Panics when name
+    // isn't an XML name.
+    @PanicsAtCaller
+    Public Method SetAttribute(name: String, value: String)
+        CheckName(name)
+        Attributes[name] = value
+    End Method
+
+    // An element's first child element named name, or Null.
+    Public Method Element(name: String): XmlNode?
+        For child In Children
+            If child.Kind == XmlKind.ELEMENT && child.Name == name Then Return child
+        End For
+        Return Null
+    End Method
+
+    // An element's child elements, in order, or those named name when it isn't "".
+    Public Method Elements(name: String = ""): XmlNode[]
+        Local found: XmlNode[] = []
+        For child In Children
+            If child.Kind == XmlKind.ELEMENT && (name == "" || child.Name == name) Then found.Add(child)
+        End For
+        Return found
+    End Method
+
+    // Adds child at the end of an element's children, and gives it.
+    Public Method Add(child: XmlNode): XmlNode
+        Children.Add(child)
+        Return child
+    End Method
+
+    // Adds a new element named name, and gives it. Panics when name isn't an XML name.
+    @PanicsAtCaller
+    Public Method AddElement(name: String): XmlNode => Add(XmlNode(name))
+
+    // Adds text at the end of an element's children.
+    Public Method AddText(text: String)
+        Children.Add(XmlNode.NewText(text))
+    End Method
+
+    // The nodes path selects, from this one, in the document's order: XmlPath's subset of XPath
+    // 1.0. Panics when path isn't one XmlPath reads.
+    @PanicsAtCaller
+    Public Method Query(path: String): XmlNode[] => XmlPath(path).Query(Self)
+
+    // The first node path selects, or Null when it selects none. Panics as Query does.
+    @PanicsAtCaller
+    Public Method QueryFirst(path: String): XmlNode?
+        Local found = XmlPath(path).Query(Self)
+        Return found.Count > 0 ? found[0] : Null
+    End Method
+
+    // As XML, on one line, as Xml.Write writes it without the declaration.
+    Public Method ToString(): String => Xml.Write(Self, 0, False)
+
+    Method AddValue(out: UInt8[])
+        For child In Children
+            If child.Kind == XmlKind.ELEMENT
+                child.AddValue(out)
+            ElseIf child.Kind == XmlKind.TEXT || child.Kind == XmlKind.CDATA
+                out.AddAll(child.Content.Bytes)
+            End If
+        End For
+    End Method
+End Class
+
+Public Struct Xml
+    // Xml isn't made: it's only its Static Methods.
+    New()
+    End New
+
+    // The root element of the document text holds, its text, CDATA, comments, and processing
+    // instructions its nodes; those outside it are left out. Throws a ParseError as XmlReader's
+    // Next does.
+    Public Static Method Read(text: String): XmlNode Throws ParseError
+        Local reader = XmlReader(text)
+        Local open: XmlNode[] = []
+        Local root: XmlNode? = Null
+        Loop
+            Local event = Try reader.Next()
+            If event == Null Then Break
+            Local parent = open.Count > 0 ? open[open.Count - 1] : Null
+            Select event.Kind
+                Case XmlEventKind.START
+                    Local element = XmlNode(XmlKind.ELEMENT, event.Name, "")
+                    For key, value In event.Attributes
+                        element.Attributes[key] = value
+                    End For
+                    If parent == Null
+                        root = element
+                    Else
+                        parent.Children.Add(element)
+                    End If
+
+                    open.Add(element)
+                Case XmlEventKind.END
+                    open.RemoveLast()
+                Case XmlEventKind.TEXT
+                    If parent == Null Then Continue
+                    Local count = parent.Children.Count
+                    If count > 0 && parent.Children[count - 1].Kind == XmlKind.TEXT
+                        Local last = parent.Children[count - 1]
+                        last.Content = last.Content + event.Text
+                    Else
+                        parent.Children.Add(XmlNode(XmlKind.TEXT, "", event.Text))
+                    End If
+                Case XmlEventKind.CDATA
+                    If parent != Null Then parent.Children.Add(XmlNode(XmlKind.CDATA, "", event.Text))
+                Case XmlEventKind.COMMENT
+                    If parent != Null Then parent.Children.Add(XmlNode(XmlKind.COMMENT, "", event.Text))
+                Default
+                    If parent != Null
+                        parent.Children.Add(XmlNode(XmlKind.INSTRUCTION, event.Name, event.Text))
+                    End If
+            End Select
+        End Loop
+        Return root.Expect("XmlReader gives a document's root element")
+    End Method
+
+    // root as an XML document, the XML declaration first when declaration says so. An indent
+    // above 0 puts each element on a line of its own, that many spaces in for each element it's
+    // in, but for those in an element that holds text, whose spaces are its own. Panics when
+    // root isn't an element, or a node holds what XML can't, as XmlWriter's Methods say.
+    @PanicsAtCaller
+    Public Static Method Write(root: XmlNode, indent: Int = 2, declaration: Bool = True): String
+        If root.Kind != XmlKind.ELEMENT Then Panic("an XML document's root is an element, not {root.Kind}")
+        Local writer = XmlWriter(indent)
+        If declaration Then writer.Declaration()
+        WriteNode(writer, root)
+        Return writer.Finish()
+    End Method
+
+    @PanicsAtCaller
+    Static Method WriteNode(writer: XmlWriter, node: XmlNode)
+        Select node.Kind
+            Case XmlKind.ELEMENT
+                writer.StartElement(node.Name)
+                For key, value In node.Attributes
+                    writer.Attribute(key, value)
+                End For
+                For child In node.Children
+                    WriteNode(writer, child)
+                End For
+                writer.EndElement()
+            Case XmlKind.TEXT
+                writer.Text(node.Content)
+            Case XmlKind.ATTRIBUTE
+                writer.Text(node.Content)
+            Case XmlKind.CDATA
+                writer.CData(node.Content)
+            Case XmlKind.COMMENT
+                writer.Comment(node.Content)
+            Default
+                writer.Instruction(node.Name, node.Content)
+        End Select
+    End Method
+
+    // element as a Value: an Object of its attributes, with '@' before their names, and its child
+    // elements, by name, an Array of those of a name that comes more than once, and "#text" for
+    // its text when it isn't only spaces; or its text, a String, when it has no attributes or
+    // child elements. Comments and processing instructions are left out.
+    Public Static Method ToValue(element: XmlNode): Value
+        Local children = element.Elements()
+        If element.Attributes.Count == 0 && children.Count == 0 Then Return Value(element.Text)
+        Local value = Value.NewObject()
+        For key, text In element.Attributes
+            value["@" + key] = Value(text)
+        End For
+        For child In children
+            Local item = ToValue(child)
+            Local before = value.Get(child.Name)
+            If before == Null
+                value[child.Name] = item
+            ElseIf before.Kind == ValueKind.ARRAY
+                before.Add(item)
+            Else
+                Local items = Value.NewArray()
+                items.Add(before)
+                items.Add(item)
+                value[child.Name] = items
+            End If
+        End For
+
+        Local text = OwnText(element)
+        Local spaces = True
+        For b In text.Bytes
+            If b != 32 && b != 9 && b != 10 && b != 13 Then spaces = False
+        End For
+        If !spaces Then value["#text"] = Value(text)
+        Return value
+    End Method
+
+    // A new element named name of value, as ToValue gives a Value: an Object's keys with '@'
+    // before them its attributes, "#text" its text, and the rest its child elements, an Array's
+    // items each a child of its key's name; another Value its text, an Int's, a Float's, or a
+    // Bool's as its text, and Null's none. Panics when name or a key isn't an XML name, an
+    // attribute's value or an Array's item is an Array or an Object, or value is an Array.
+    @PanicsAtCaller
+    Public Static Method FromValue(name: String, value: Value): XmlNode
+        Local element = XmlNode(name)
+        Select value.Kind
+            Case ValueKind.ARRAY
+                Panic("an element is an Object or a value, not an Array, which is its key's elements")
+            Case ValueKind.OBJECT
+                For key In value.Keys()
+                    Local item = value[key]
+                    Local bytes = key.Bytes
+                    If key == "#text"
+                        element.AddText(ScalarText(item))
+                    ElseIf bytes.Count > 0 && bytes[0] == 64
+                        element.SetAttribute(TextOf(bytes, 1, bytes.Count), ScalarText(item))
+                    ElseIf item.Kind == ValueKind.ARRAY
+                        For part In item.Values()
+                            If part.Kind == ValueKind.ARRAY
+                                Panic("an Array's items are each an element, not an Array")
+                            End If
+
+                            element.Add(FromValue(key, part))
+                        End For
+                    Else
+                        element.Add(FromValue(key, item))
+                    End If
+                End For
+            Default
+                Local text = ScalarText(value)
+                If text != "" Then element.AddText(text)
+        End Select
+        Return element
+    End Method
+
+    // A Value that isn't an Array or an Object as its text. Panics for those.
+    @PanicsAtCaller
+    Static Method ScalarText(value: Value): String
+        Select value.Kind
+            Case ValueKind.NULL
+                Return ""
+            Case ValueKind.BOOL
+                Return value.AsBool() ? "true" : "false"
+            Case ValueKind.INT
+                Return "{value.AsInt()}"
+            Case ValueKind.FLOAT
+                Return "{value.AsFloat()}"
+            Case ValueKind.STRING
+                Return value.AsString()
+            Default
+                Panic("an attribute's value or an element's text is a String, a number, a Bool, " +
+                      "or Null, not {value.Kind}")
+        End Select
+    End Method
+
+    // An element's own text and CDATA, without its children's.
+    Static Method OwnText(element: XmlNode): String
+        Local out: UInt8[] = []
+        For child In element.Children
+            If child.Kind == XmlKind.TEXT || child.Kind == XmlKind.CDATA Then out.AddAll(child.Content.Bytes)
+        End For
+        Return TextOf(out)
+    End Method
+End Struct
+
+// XmlWriter: XML written a part at a time, each element started, given its attributes, its
+// content written, and ended, in order, into a String that Finish gives. An indent above 0 puts
+// each element on a line of its own, but in an element that holds text.
+Public Class XmlWriter
+    Field Out: UInt8[] = []
+    Field Indent: Int
+    // The open elements' names, the innermost last, and whether each holds text.
+    Field Open: String[] = []
+    Field Mixed: Bool[] = []
+    // Whether the last start tag's '>' isn't written yet, as its attributes can follow it.
+    Field Tagged: Bool
+    // Whether the innermost open element has content yet.
+    Field Filled: Bool
+    Field Rooted: Bool
+
+    // A writer that indents each element that many spaces for each it's in, or writes them on
+    // one line for 0. Panics when indent is negative.
+    @PanicsAtCaller
+    Public New(indent: Int = 0)
+        If indent < 0 Then Panic("an indent can't be negative, like {indent}")
+        Indent = indent
+    End New
+
+    // Writes `<?xml version="1.0" encoding="UTF-8"?>`. Panics after anything else is written.
+    @PanicsAtCaller
+    Public Method Declaration()
+        If Out.Count > 0 Then Panic("the XML declaration comes before all else")
+        AddText(Out, "<?xml version=\"1.0\" encoding=\"UTF-8\"?>")
+    End Method
+
+    // Starts an element named name. Panics when name isn't an XML name, or the root element has
+    // ended.
+    @PanicsAtCaller
+    Public Method StartElement(name: String)
+        CheckName(name)
+        If Open.Count == 0 && Rooted Then Panic("a document has one root element, which has ended")
+        Content()
+        Rooted = True
+        Out.Add(60)
+        AddText(Out, name)
+        Open.Add(name)
+        Mixed.Add(False)
+        Tagged = True
+        Filled = False
+    End Method
+
+    // Gives the element just started an attribute. Panics when name isn't an XML name, it isn't
+    // right after the start or another attribute, or value holds a character XML hasn't got.
+    @PanicsAtCaller
+    Public Method Attribute(name: String, value: String)
+        CheckName(name)
+        If !Tagged Then Panic("an attribute comes right after its element's start")
+        Out.Add(32)
+        AddText(Out, name)
+        AddText(Out, "=\"")
+        For b In Checked(value).Bytes
+            If b == 38
+                AddText(Out, "&amp;")
+            ElseIf b == 60
+                AddText(Out, "&lt;")
+            ElseIf b == 34
+                AddText(Out, "&quot;")
+            ElseIf b == 9
+                AddText(Out, "&#9;")
+            ElseIf b == 10
+                AddText(Out, "&#10;")
+            ElseIf b == 13
+                AddText(Out, "&#13;")
+            Else
+                Out.Add(b)
+            End If
+        End For
+        Out.Add(34)
+    End Method
+
+    // Writes text in the open element. Panics outside one, or when text holds a character XML
+    // hasn't got.
+    @PanicsAtCaller
+    Public Method Text(text: String)
+        If Open.Count == 0 Then Panic("text goes in an element")
+        If text == "" Then Return
+        CloseTag()
+        Mixed[Mixed.Count - 1] = True
+        Filled = True
+        For b In Checked(text).Bytes
+            If b == 38
+                AddText(Out, "&amp;")
+            ElseIf b == 60
+                AddText(Out, "&lt;")
+            ElseIf b == 62
+                AddText(Out, "&gt;")
+            ElseIf b == 13
+                AddText(Out, "&#13;")
+            Else
+                Out.Add(b)
+            End If
+        End For
+    End Method
+
+    // Writes a CDATA section of text in the open element, two of them where text holds "]]>".
+    // Panics outside an element, or when text holds a character XML hasn't got.
+    @PanicsAtCaller
+    Public Method CData(text: String)
+        If Open.Count == 0 Then Panic("a CDATA section goes in an element")
+        CloseTag()
+        Mixed[Mixed.Count - 1] = True
+        Filled = True
+        AddText(Out, "<![CDATA[")
+        Local bytes = Checked(text).Bytes
+        For i = 0 Until bytes.Count
+            If bytes[i] == 93 && i + 2 < bytes.Count && bytes[i + 1] == 93 && bytes[i + 2] == 62
+                AddText(Out, "]]]]><![CDATA[")
+                Continue
+            End If
+
+            Out.Add(bytes[i])
+        End For
+        AddText(Out, "]]>")
+    End Method
+
+    // Writes a comment. Panics when text holds "--", ends with '-', or holds a character XML
+    // hasn't got.
+    @PanicsAtCaller
+    Public Method Comment(text: String)
+        Local bytes = Checked(text).Bytes
+        For i = 0 Until bytes.Count
+            If bytes[i] == 45 && (i + 1 == bytes.Count || bytes[i + 1] == 45)
+                Panic("a comment can't hold \"--\", or end with '-'")
+            End If
+        End For
+        Content()
+        AddText(Out, "<!--")
+        Out.AddAll(bytes)
+        AddText(Out, "-->")
+    End Method
+
+    // Writes a processing instruction. Panics when target isn't an XML name or is xml, or text
+    // holds "?>" or a character XML hasn't got.
+    @PanicsAtCaller
+    Public Method Instruction(target: String, text: String)
+        CheckName(target)
+        Local lower = target.Bytes
+        If lower.Count == 3 && (lower[0] | 32) == 120 && (lower[1] | 32) == 109 && (lower[2] | 32) == 108
+            Panic("a processing instruction can't be named xml")
+        End If
+
+        Local bytes = Checked(text).Bytes
+        For i = 0 Until bytes.Count - 1
+            If bytes[i] == 63 && bytes[i + 1] == 62 Then Panic("a processing instruction can't hold \"?>\"")
+        End For
+        Content()
+        AddText(Out, "<?")
+        AddText(Out, target)
+        If bytes.Count > 0
+            Out.Add(32)
+            Out.AddAll(bytes)
+        End If
+
+        AddText(Out, "?>")
+    End Method
+
+    // Ends the open element, as `<name/>` when it's empty. Panics when none is open.
+    @PanicsAtCaller
+    Public Method EndElement()
+        If Open.Count == 0 Then Panic("no element is open to end")
+        Local name = Open.RemoveLast()
+        Local mixed = Mixed.RemoveLast()
+        If Tagged
+            AddText(Out, "/>")
+            Tagged = False
+        Else
+            If !mixed Then NewLine(Open.Count)
+            AddText(Out, "</")
+            AddText(Out, name)
+            Out.Add(62)
+        End If
+
+        Filled = True
+    End Method
+
+    // What was written. Panics when an element is open, or none was written.
+    @PanicsAtCaller
+    Public Method Finish(): String
+        If Open.Count > 0 Then Panic("the element <{Open[Open.Count - 1]}> isn't ended")
+        If !Rooted Then Panic("a document has a root element, and none was written")
+        Return TextOf(Out)
+    End Method
+
+    // Before content: the open start tag's '>', and a new line where the indent puts one.
+    Method Content()
+        CloseTag()
+        If Open.Count > 0 && Mixed[Mixed.Count - 1] Then Return
+        If Out.Count > 0 Then NewLine(Open.Count)
+    End Method
+
+    Method CloseTag()
+        If !Tagged Then Return
+        Out.Add(62)
+        Tagged = False
+    End Method
+
+    // A line break and depth indents, when the indent is above 0.
+    Method NewLine(depth: Int)
+        If Indent == 0 Then Return
+        Out.Add(10)
+        For i = 1 To depth * Indent
+            Out.Add(32)
+        End For
+    End Method
+
+    // text, panicking when it holds a character XML hasn't got.
+    @PanicsAtCaller
+    Static Method Checked(text: String): String
+        For c In text.Chars
+            Local code = c As Int
+            If !IsXmlChar(code) Then Panic("XML can't hold the character U+{HexOf(code, 4)}")
+        End For
+        Return text
+    End Method
+End Class
+
+// Panics when name isn't an XML name.
+@PanicsAtCaller
+Function CheckName(name: String)
+    If !IsXmlName(name) Then Panic("\"{name}\" isn't an XML name")
+End Function

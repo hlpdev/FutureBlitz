@@ -1,0 +1,2 @@
+0
+panic: the XPath "b[" isn't one XmlPath reads: an expression is missing at panic_data_xml_path.fb:8:7

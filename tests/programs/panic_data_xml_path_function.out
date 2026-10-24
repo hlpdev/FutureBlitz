@@ -1,0 +1,2 @@
+0
+panic: the XPath "b[sum(c)]" isn't one XmlPath reads: XmlPath has no function sum() at panic_data_xml_path_function.fb:8:7

@@ -1,0 +1,173 @@
+// std.data's XML: a document read into a tree, entities, CDATA, comments, processing
+// instructions, and the document type's defaults; the events an XmlReader gives; where a
+// ParseError says it is; what Xml.Write and an XmlWriter write; XmlPath's queries; and Values
+// to and from elements.
+
+Import std.core
+Import std.collections
+Import std.data.value
+Import std.data.xml
+Import std.data.xml_reader
+Import std.data.xml_path
+
+Local text = r"""
+    <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+    <!DOCTYPE library [
+      <!ENTITY pub "O'Reilly &amp; Co">
+      <!ENTITY sign "<signed by='&pub;'/>">
+      <!ENTITY % kinds "<!ENTITY kind 'paper'>">
+      %kinds;
+      <!ATTLIST book lang CDATA "en" tags NMTOKENS #IMPLIED>
+      <!ELEMENT library (book*)>
+    ]>
+    <!-- a library -->
+    <library>
+      <book id="b1" tags="  xml
+        data  "><title>XML &amp; You</title><price>29.99</price><by>&pub;</by>&sign;</book>
+      <book id="b2" lang="fr" note="tab&#9;and line&#10;"><title><![CDATA[<raw> & ]]></title><price>9.5</price><kind>&kind;</kind></book>
+      <?render fast?>
+      <book id="b3"><title>Third</title><price>15</price></book>
+    </library>
+    """
+
+Local root = Try Xml.Read(text)
+Print(root.Name, root.Children.Count, root.Elements().Count, root.Elements("book").Count)
+For book In root.Elements("book")
+    Local parts: String[] = []
+    For name, value In book.Attributes
+        parts.Add("{name}=[{value}]")
+    End For
+    Print(parts.Join(" "), "|", book.Element("title")?.Text ?? "-", "|", book.Text)
+End For
+Print(root.Elements("book")[0].Element("signed")?.Attribute("by") ?? "-")
+Print(root)
+
+// The events an XmlReader gives for a small document, each run of text one event.
+Local reader = XmlReader("<a x='1'>one &lt;two&gt; <b/>three<!--c--><![CDATA[d]]><?p q?></a>")
+Loop
+    Local event = Try reader.Next()
+    If event == Null Then Break
+    Local attributes: String[] = []
+    For name, value In event.Attributes
+        attributes.Add("{name}={value}")
+    End For
+    Print(event.Kind, event.Name, "[" + event.Text + "]", attributes.Join(","))
+End Loop
+
+// Each mistake throws a ParseError of its kind, at its line and column.
+Function Failure(text: String)
+    Try
+        Xml.Read(text)
+        Print("reads:", text)
+    Catch e As ParseError
+        Print(e.Kind, e.Line, e.Column, e.Message)
+    End Try
+End Function
+
+Failure("<a><b></a>")
+Failure("<a>\n  <b>")
+Failure("<a x='1' x='2'/>")
+Failure("<a>&undeclared;</a>")
+Failure("<a>&#0;</a>")
+Failure("<a x='<'/>")
+Failure("<a/><b/>")
+Failure("text<a/>")
+Failure("<a>]]></a>")
+Failure("<!-- a -- b --><a/>")
+Failure("<?xml version='1.0'?><?xml version='1.0'?><a/>")
+Failure("<a><?xml version='1.0'?></a>")
+Failure("<!DOCTYPE a [<!ENTITY e '&e;'>]><a>&e;</a>")
+Failure("<!DOCTYPE a [<!ENTITY e '<b>'>]><a>&e;</a>")
+Failure("<?xml version='1.0' encoding='UTF-16'?><a/>")
+Failure("<a b='1'c='2'/>")
+Failure("<1a/>")
+Failure("<a>\u{1}</a>")
+Failure("")
+
+// What Xml.Write writes: indented but in elements that hold text, which keep their spaces.
+Local made = XmlNode("menu")
+made.SetAttribute("date", "2026-10-23 \"today\" & <tomorrow>")
+Local item = made.AddElement("item")
+item.SetAttribute("price", "3")
+item.AddText("Tea & cake <with> \"cream\"\r")
+Local note = made.AddElement("note")
+note.AddText("mixed ")
+note.AddElement("b").AddText("bold")
+note.AddText(" text")
+made.Add(XmlNode.NewComment(" fresh "))
+made.Add(XmlNode.NewInstruction("print", "twice"))
+made.AddElement("empty")
+Local data = made.AddElement("data")
+data.Add(XmlNode.NewCData("a ]]> b"))
+Print(Xml.Write(made))
+Print(Xml.Write(made, 0, False))
+Print((Try Xml.Read(Xml.Write(made, 0))).ToString() == made.ToString())
+
+// An XmlWriter writes a document a part at a time.
+Local writer = XmlWriter(4)
+writer.Declaration()
+writer.Comment("made by a writer")
+writer.StartElement("list")
+writer.Attribute("count", "2")
+For i = 1 To 2
+    writer.StartElement("entry")
+    writer.Attribute("n", "{i}")
+    writer.Text("entry {i}")
+    writer.EndElement()
+End For
+writer.StartElement("blank")
+writer.EndElement()
+writer.EndElement()
+writer.Instruction("done", "")
+Print(writer.Finish())
+
+// XmlPath's queries, on the library.
+Function Show(root: XmlNode, path: String)
+    Local found: String[] = []
+    For node In root.Query(path)
+        If node.Kind == XmlKind.ELEMENT
+            found.Add("<{node.Name}>")
+        ElseIf node.Kind == XmlKind.ATTRIBUTE
+            found.Add("@{node.Name}={node.Content}")
+        Else
+            found.Add("{node.Kind}[{node.Content}]")
+        End If
+    End For
+    Print(path, "=>", found.Join(" "))
+End Function
+
+Show(root, "/library/book/title")
+Show(root, "book[2]/title/text()")
+Show(root, "//title[. = 'Third']/../@id")
+Show(root, "book[price > 10 and @lang = 'en']/@id")
+Show(root, "book[last()]/price | book[1]/price")
+Show(root, "//book[contains(title, 'XML')]/by")
+Show(root, "//book[starts-with(@id, 'b') and not(@note)][position() < 3]/@id")
+Show(root, "book[count(kind) = 1]/kind")
+Show(root, "book/title/following-sibling::*[1]")
+Show(root, "book[3]/preceding-sibling::book/@id")
+Show(root, "//kind/ancestor::*")
+Show(root, "book[@id='b1']/descendant::node()")
+Show(root, "child::book[attribute::lang='fr']/self::book/@*")
+Show(root, "//comment() | //processing-instruction('render')")
+Show(root, "book[name() = 'book'][string(title) = 'Third']/@id")
+Show(root, "/")
+Show(root, "missing/thing")
+Print(root.QueryFirst("//price")?.Text ?? "-", root.QueryFirst("//nothing") == Null, XmlPath("book").ToString())
+
+// Values to and from elements, as xmltodict has them.
+Local value = Xml.ToValue(root)
+Print(value)
+Local back = Xml.FromValue("library", value)
+Print(Xml.Write(back, 2, False))
+Print(Xml.ToValue(back) == value)
+Local plain = Value.NewObject()
+plain["name"] = Value("Ada")
+plain["age"] = Value(36 As Int64)
+plain["@id"] = Value(7 As Int64)
+plain["tags"] = Value.NewArray()
+plain["tags"].Add(Value("a"))
+plain["tags"].Add(Value("b"))
+plain["none"] = Value()
+plain["#text"] = Value(True)
+Print(Xml.FromValue("person", plain))

@@ -1,0 +1,7 @@
+// An element's name is an XML name, and XmlNode panics where it's given another.
+Import std.core
+Import std.data.value
+Import std.data.xml
+
+Print(XmlNode("ok-name").Name)
+Local bad = XmlNode("1bad")

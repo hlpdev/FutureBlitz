@@ -1,0 +1,8 @@
+// A path is one XmlPath reads, and Query panics where it isn't.
+Import std.core
+Import std.data.value
+Import std.data.xml
+
+Local root = XmlNode("a")
+Print(root.Query("b[1]").Count)
+Print(root.Query("b[").Count)

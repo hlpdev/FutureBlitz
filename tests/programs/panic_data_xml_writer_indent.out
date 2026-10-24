@@ -1,0 +1,2 @@
+<a/>
+panic: an indent can't be negative, like -1 at panic_data_xml_writer_indent.fb:10:16

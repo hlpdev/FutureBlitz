@@ -1,0 +1,845 @@
+// XmlPath: XPath 1.0's location paths over an XmlNode's tree, a subset of them: steps on the
+// child, descendant, descendant-or-self, parent, ancestor, ancestor-or-self, following-sibling,
+// preceding-sibling, self, and attribute axes, written out or abbreviated ('//', '.', '..',
+// '@'); tests of a name, '*', text(), node(), comment(), and processing-instruction(); and
+// predicates of positions, paths, strings, and numbers, compared with =, !=, <, <=, >, and >=,
+// joined with and and or, and the functions last(), position(), count(), not(), contains(),
+// starts-with(), string(), name(), true(), and false(). Paths can be joined with '|'. A path
+// that starts with '/' starts at a document whose root element is the node it's selecting
+// from. Names are matched as they're written, prefixes and all.
+
+Import std.core
+Import std.collections
+Import std.data.text
+Import std.data.xml
+Import std.data.xml_reader
+
+Public Class XmlPath
+    Field Source: String
+    Field Tree: PathExpression
+
+    // The path text writes. Panics when it isn't one XmlPath reads.
+    @PanicsAtCaller
+    Public New(text: String)
+        Source = text
+        Local parser = PathParser(text)
+        Tree = parser.Union()
+        If parser.Failure != "" Then Panic("the XPath \"{text}\" isn't one XmlPath reads: {parser.Failure}")
+        If !parser.AtEnd() Then Panic("the XPath \"{text}\" has more after its path: {parser.Rest()}")
+        If !Tree.IsPath() Then Panic("the XPath \"{text}\" selects no nodes")
+    End New
+
+    // The nodes the path selects from node, in the document's order, each once. An attribute is
+    // a node of its own, an ATTRIBUTE, made for what selects it.
+    Public Method Query(node: XmlNode): XmlNode[]
+        Local document = XmlNode(XmlKind.ELEMENT, "", "")
+        document.Children.Add(node)
+        Local top = XmlPlace(document, Null, [])
+        Local start = XmlPlace(node, top, [0])
+        Local found = PathEvaluator(top).Evaluate(Tree, start, 1, 1)
+        Local nodes: XmlNode[] = []
+        For place In found.Places
+            If place.Key.Count > 0 Then nodes.Add(place.Node)
+        End For
+        Return nodes
+    End Method
+
+    Public Method ToString(): String => Source
+End Class
+
+// A node where a path goes, with the place it's under, and its key: the children's indexes that
+// lead to it from the document, an attribute's below 0 and before the children's, so keys in
+// order are places in the document's order.
+Class XmlPlace
+    Field Node: XmlNode
+    Field Parent: XmlPlace?
+    Field Key: Int[]
+
+    New(node: XmlNode, parent: XmlPlace?, key: Int[])
+        Node = node
+        Parent = parent
+        Key = key
+    End New
+
+    // Below 0, 0, or above 0 as this place comes before other's, is it, or comes after.
+    Method Order(other: XmlPlace): Int
+        For i = 0 Until Min(Key.Count, other.Key.Count)
+            If Key[i] != other.Key[i] Then Return Key[i] < other.Key[i] ? -1 : 1
+        End For
+        Return Key.Count - other.Key.Count
+    End Method
+
+    // Its child at index.
+    Method Child(index: Int): XmlPlace
+        Local key = Key.Clone()
+        key.Add(index)
+        Return XmlPlace(Node.Children[index], Self, key)
+    End Method
+End Class
+
+// The axes, and the node tests.
+Const CHILD = 0
+Const DESCENDANT = 1
+Const DESCENDANT_OR_SELF = 2
+Const PARENT = 3
+Const ANCESTOR = 4
+Const ANCESTOR_OR_SELF = 5
+Const FOLLOWING_SIBLING = 6
+Const PRECEDING_SIBLING = 7
+Const SELF = 8
+Const ATTRIBUTE_AXIS = 9
+
+Const TEST_NAME = 0
+Const TEST_ANY = 1
+Const TEST_NODE = 2
+Const TEST_TEXT = 3
+Const TEST_COMMENT = 4
+Const TEST_INSTRUCTION = 5
+
+Class PathStep
+    Field Axis: Int
+    Field Test: Int
+    Field Name: String
+    Field Predicates: PathExpression[] = []
+
+    New(axis: Int, test: Int, name: String)
+        Axis = axis
+        Test = test
+        Name = name
+    End New
+End Class
+
+// A part of a path's tree: a path of steps, from the document when it's absolute; '|', or, and,
+// or a comparison of its Parts; a string or a number; or a function's call with its Parts.
+Class PathExpression
+    Field Kind: String
+    Field Absolute: Bool
+    Field Steps: PathStep[] = []
+    Field Parts: PathExpression[] = []
+    Field Text: String = ""
+    Field Number: Float64
+
+    New(kind: String)
+        Kind = kind
+    End New
+
+    // Whether it gives nodes: a path, or paths joined with '|'.
+    Method IsPath(): Bool
+        If Kind == "path" Then Return True
+        If Kind != "|" Then Return False
+        For part In Parts
+            If !part.IsPath() Then Return False
+        End For
+        Return True
+    End Method
+End Class
+
+// What an expression gives: nodes, a string, a number, or a Bool.
+Class PathValue
+    Field Kind: String
+    Field Places: XmlPlace[] = []
+    Field Text: String = ""
+    Field Number: Float64
+    Field Flag: Bool
+
+    New(kind: String)
+        Kind = kind
+    End New
+
+    Static Method OfText(text: String): PathValue
+        Local value = PathValue("string")
+        value.Text = text
+        Return value
+    End Method
+
+    Static Method OfNumber(number: Float64): PathValue
+        Local value = PathValue("number")
+        value.Number = number
+        Return value
+    End Method
+
+    Static Method OfFlag(flag: Bool): PathValue
+        Local value = PathValue("bool")
+        value.Flag = flag
+        Return value
+    End Method
+
+    // As XPath's boolean(): nodes when there are any, a string that isn't empty, and a number
+    // that isn't 0 or NaN.
+    Method Truth(): Bool
+        If Kind == "nodes" Then Return Places.Count > 0
+        If Kind == "string" Then Return Text != ""
+        If Kind == "number" Then Return Number != 0 && Number == Number
+        Return Flag
+    End Method
+
+    // As XPath's string(): the first node's text.
+    Method AsText(): String
+        If Kind == "nodes" Then Return Places.Count > 0 ? Places[0].Node.Text : ""
+        If Kind == "string" Then Return Text
+        If Kind == "number" Then Return NumberText(Number)
+        Return Flag ? "true" : "false"
+    End Method
+
+    // As XPath's number().
+    Method AsNumber(): Float64
+        If Kind == "number" Then Return Number
+        If Kind == "bool" Then Return Flag ? 1.0 : 0.0
+        Return NumberOf(AsText())
+    End Method
+End Class
+
+Class PathEvaluator
+    Field Document: XmlPlace
+
+    New(document: XmlPlace)
+        Document = document
+    End New
+
+    Method Evaluate(expression: PathExpression, context: XmlPlace, position: Int, size: Int): PathValue
+        Select expression.Kind
+            Case "path"
+                Local found = PathValue("nodes")
+                found.Places = Walk(expression, context)
+                Return found
+            Case "|"
+                Local places: XmlPlace[] = []
+                For part In expression.Parts
+                    places.AddAll(Evaluate(part, context, position, size).Places)
+                End For
+                Local found = PathValue("nodes")
+                found.Places = Ordered(places)
+                Return found
+            Case "or"
+                For part In expression.Parts
+                    If Evaluate(part, context, position, size).Truth() Then Return PathValue.OfFlag(True)
+                End For
+                Return PathValue.OfFlag(False)
+            Case "and"
+                For part In expression.Parts
+                    If !Evaluate(part, context, position, size).Truth() Then Return PathValue.OfFlag(False)
+                End For
+                Return PathValue.OfFlag(True)
+            Case "string"
+                Return PathValue.OfText(expression.Text)
+            Case "number"
+                Return PathValue.OfNumber(expression.Number)
+            Case "call"
+                Return Call(expression, context, position, size)
+            Default
+                Local left = Evaluate(expression.Parts[0], context, position, size)
+                Local right = Evaluate(expression.Parts[1], context, position, size)
+                Return PathValue.OfFlag(Compare(expression.Kind, left, right))
+        End Select
+    End Method
+
+    Method Call(expression: PathExpression, context: XmlPlace, position: Int, size: Int): PathValue
+        Local name = expression.Text
+        Local arguments: PathValue[] = []
+        For part In expression.Parts
+            arguments.Add(Evaluate(part, context, position, size))
+        End For
+        Select name
+            Case "last"
+                Return PathValue.OfNumber(size As Float64)
+            Case "position"
+                Return PathValue.OfNumber(position As Float64)
+            Case "count"
+                Return PathValue.OfNumber(arguments[0].Places.Count As Float64)
+            Case "not"
+                Return PathValue.OfFlag(!arguments[0].Truth())
+            Case "true"
+                Return PathValue.OfFlag(True)
+            Case "false"
+                Return PathValue.OfFlag(False)
+            Case "contains"
+                Return PathValue.OfFlag(Find(arguments[0].AsText(), arguments[1].AsText()) >= 0)
+            Case "starts-with"
+                Return PathValue.OfFlag(Find(arguments[0].AsText(), arguments[1].AsText()) == 0)
+            Case "string"
+                If arguments.Count == 0 Then Return PathValue.OfText(context.Node.Text)
+                Return PathValue.OfText(arguments[0].AsText())
+            Default
+                If arguments.Count == 0 Then Return PathValue.OfText(context.Node.Name)
+                Local nodes = arguments[0].Places
+                Return PathValue.OfText(nodes.Count > 0 ? nodes[0].Node.Name : "")
+        End Select
+    End Method
+
+    // The places a path's steps go to from context.
+    Method Walk(path: PathExpression, context: XmlPlace): XmlPlace[]
+        Local current: XmlPlace[] = [path.Absolute ? Document : context]
+        For step In path.Steps
+            Local next: XmlPlace[] = []
+            For place In current
+                Local candidates: XmlPlace[] = []
+                For candidate In Axis(place, step.Axis)
+                    If Matches(candidate, step) Then candidates.Add(candidate)
+                End For
+                For predicate In step.Predicates
+                    Local kept: XmlPlace[] = []
+                    For i = 0 Until candidates.Count
+                        Local value = Evaluate(predicate, candidates[i], i + 1, candidates.Count)
+                        Local keep = value.Kind == "number" ? value.Number == ((i + 1) As Float64) : value.Truth()
+                        If keep Then kept.Add(candidates[i])
+                    End For
+                    candidates = kept
+                End For
+                next.AddAll(candidates)
+            End For
+            current = Ordered(next)
+        End For
+        Return current
+    End Method
+
+    // The places on axis from place, in its order: the document's, or for the reverse axes,
+    // nearest first.
+    Method Axis(place: XmlPlace, axis: Int): XmlPlace[]
+        Local found: XmlPlace[] = []
+        Select axis
+            Case CHILD
+                For i = 0 Until place.Node.Children.Count
+                    found.Add(place.Child(i))
+                End For
+            Case DESCENDANT
+                Descendants(place, found)
+            Case DESCENDANT_OR_SELF
+                found.Add(place)
+                Descendants(place, found)
+            Case PARENT
+                Local parent = place.Parent
+                If parent != Null Then found.Add(parent)
+            Case ANCESTOR
+                Local up = place.Parent
+                While up != Null
+                    found.Add(up)
+                    up = up.Parent
+                End While
+            Case ANCESTOR_OR_SELF
+                Local up: XmlPlace? = place
+                While up != Null
+                    found.Add(up)
+                    up = up.Parent
+                End While
+            Case FOLLOWING_SIBLING
+                Local parent = place.Parent
+                If parent != Null && place.Node.Kind != XmlKind.ATTRIBUTE
+                    For i = place.Key[place.Key.Count - 1] + 1 Until parent.Node.Children.Count
+                        found.Add(parent.Child(i))
+                    End For
+                End If
+            Case PRECEDING_SIBLING
+                Local parent = place.Parent
+                If parent != Null && place.Node.Kind != XmlKind.ATTRIBUTE
+                    For i = place.Key[place.Key.Count - 1] - 1 To 0 Step -1
+                        found.Add(parent.Child(i))
+                    End For
+                End If
+            Case SELF
+                found.Add(place)
+            Default
+                If place.Node.Kind == XmlKind.ELEMENT && place.Key.Count > 0
+                    Local index = 0
+                    For name, value In place.Node.Attributes
+                        Local key = place.Key.Clone()
+                        key.Add(index - 1000000000)
+                        found.Add(XmlPlace(XmlNode(XmlKind.ATTRIBUTE, name, value), place, key))
+                        index += 1
+                    End For
+                End If
+        End Select
+        Return found
+    End Method
+
+    Method Descendants(place: XmlPlace, found: XmlPlace[])
+        For i = 0 Until place.Node.Children.Count
+            Local child = place.Child(i)
+            found.Add(child)
+            Descendants(child, found)
+        End For
+    End Method
+
+    // Whether candidate passes step's test: a name or '*' tests the axis's kind of node, an
+    // attribute on the attribute axis and an element on the rest.
+    Method Matches(candidate: XmlPlace, step: PathStep): Bool
+        Local node = candidate.Node
+        Local principal = step.Axis == ATTRIBUTE_AXIS ? XmlKind.ATTRIBUTE : XmlKind.ELEMENT
+        Select step.Test
+            Case TEST_NAME
+                Return node.Kind == principal && candidate.Key.Count > 0 && node.Name == step.Name
+            Case TEST_ANY
+                Return node.Kind == principal && candidate.Key.Count > 0
+            Case TEST_TEXT
+                Return node.Kind == XmlKind.TEXT || node.Kind == XmlKind.CDATA
+            Case TEST_COMMENT
+                Return node.Kind == XmlKind.COMMENT
+            Case TEST_INSTRUCTION
+                Return node.Kind == XmlKind.INSTRUCTION && (step.Name == "" || node.Name == step.Name)
+            Default
+                Return True
+        End Select
+    End Method
+
+    // places in the document's order, each once.
+    Static Method Ordered(places: XmlPlace[]): XmlPlace[]
+        Local sorted = places.Clone()
+        sorted.Sort(Function(a: XmlPlace, b: XmlPlace) => a.Order(b) < 0)
+        Local unique: XmlPlace[] = []
+        For place In sorted
+            If unique.Count == 0 || unique[unique.Count - 1].Order(place) != 0 Then unique.Add(place)
+        End For
+        Return unique
+    End Method
+
+    // XPath's comparison of two values by op: nodes compare by each one's text, as a number
+    // against a number, and as a Bool against a Bool.
+    Static Method Compare(op: String, left: PathValue, right: PathValue): Bool
+        If left.Kind == "nodes" && right.Kind == "nodes"
+            For a In left.Places
+                For b In right.Places
+                    If CompareTexts(op, a.Node.Text, b.Node.Text) Then Return True
+                End For
+            End For
+            Return False
+        End If
+
+        If left.Kind == "nodes" || right.Kind == "nodes"
+            Local nodes = left.Kind == "nodes" ? left : right
+            Local other = left.Kind == "nodes" ? right : left
+            Local flipped = left.Kind != "nodes"
+            If other.Kind == "bool"
+                Return CompareNumbers(op, flipped ? (other.Flag ? 1.0 : 0.0) : (nodes.Truth() ? 1.0 : 0.0),
+                                      flipped ? (nodes.Truth() ? 1.0 : 0.0) : (other.Flag ? 1.0 : 0.0))
+            End If
+
+            For place In nodes.Places
+                Local text = place.Node.Text
+                If other.Kind == "number"
+                    Local number = NumberOf(text)
+                    If CompareNumbers(op, flipped ? other.Number : number, flipped ? number : other.Number)
+                        Return True
+                    End If
+                ElseIf CompareTexts(op, flipped ? other.Text : text, flipped ? text : other.Text)
+                    Return True
+                End If
+            End For
+            Return False
+        End If
+
+        If op == "=" || op == "!="
+            Local equal = False
+            If left.Kind == "bool" || right.Kind == "bool"
+                equal = left.Truth() == right.Truth()
+            ElseIf left.Kind == "number" || right.Kind == "number"
+                equal = left.AsNumber() == right.AsNumber()
+            Else
+                equal = left.AsText() == right.AsText()
+            End If
+
+            Return op == "=" ? equal : !equal
+        End If
+
+        Return CompareNumbers(op, left.AsNumber(), right.AsNumber())
+    End Method
+
+    // Two texts by op: = and != as strings, and the rest as numbers.
+    Static Method CompareTexts(op: String, a: String, b: String): Bool
+        If op == "=" Then Return a == b
+        If op == "!=" Then Return a != b
+        Return CompareNumbers(op, NumberOf(a), NumberOf(b))
+    End Method
+
+    Static Method CompareNumbers(op: String, a: Float64, b: Float64): Bool
+        Select op
+            Case "="
+                Return a == b
+            Case "!="
+                Return a != b
+            Case "<"
+                Return a < b
+            Case "<="
+                Return a <= b
+            Case ">"
+                Return a > b
+            Default
+                Return a >= b
+        End Select
+    End Method
+End Class
+
+// Reads a path's text into its tree, keeping what went wrong in Failure.
+Class PathParser
+    Field Bytes: UInt8[]
+    Field At: Int
+    Field Failure: String = ""
+
+    New(text: String)
+        Bytes = text.Bytes
+    End New
+
+    // Paths, or expressions, joined with '|'.
+    Method Union(): PathExpression
+        Local first = Or()
+        Space()
+        If !Starts("|") Then Return first
+        Local union = PathExpression("|")
+        union.Parts.Add(first)
+        While Starts("|")
+            At += 1
+            union.Parts.Add(Or())
+            Space()
+        End While
+        Return union
+    End Method
+
+    Method Or(): PathExpression
+        Local first = And()
+        If !Word("or") Then Return first
+        Local joined = PathExpression("or")
+        joined.Parts.Add(first)
+        While Word("or")
+            At += 2
+            joined.Parts.Add(And())
+        End While
+        Return joined
+    End Method
+
+    Method And(): PathExpression
+        Local first = Comparison()
+        If !Word("and") Then Return first
+        Local joined = PathExpression("and")
+        joined.Parts.Add(first)
+        While Word("and")
+            At += 3
+            joined.Parts.Add(Comparison())
+        End While
+        Return joined
+    End Method
+
+    Method Comparison(): PathExpression
+        Local left = Primary()
+        Loop
+            Space()
+            Local op = ""
+            For candidate In ["!=", "<=", ">=", "=", "<", ">"]
+                If Starts(candidate)
+                    op = candidate
+                    Break
+                End If
+            End For
+            If op == "" Then Return left
+            At += op.Bytes.Count
+            Local compared = PathExpression(op)
+            compared.Parts.Add(left)
+            compared.Parts.Add(Primary())
+            left = compared
+        End Loop
+    End Method
+
+    Method Primary(): PathExpression
+        Space()
+        If At >= Bytes.Count
+            Fail("an expression is missing")
+            Return PathExpression("string")
+        End If
+
+        Local b = Bytes[At]
+        If b == 34 || b == 39
+            Local start = At + 1
+            At += 1
+            While At < Bytes.Count && Bytes[At] != b
+                At += 1
+            End While
+            If At >= Bytes.Count Then Fail("a string has no closing quote")
+            Local literal = PathExpression("string")
+            literal.Text = TextOf(Bytes, start, Min(At, Bytes.Count))
+            At += 1
+            Return literal
+        End If
+
+        If IsDigitByte(b) || (b == 46 && At + 1 < Bytes.Count && IsDigitByte(Bytes[At + 1]))
+            Local start = At
+            While At < Bytes.Count && (IsDigitByte(Bytes[At]) || Bytes[At] == 46)
+                At += 1
+            End While
+            Local number = PathExpression("number")
+            number.Number = FloatOf(Bytes, start, At) ?? 0.0
+            Return number
+        End If
+
+        If b == 40
+            At += 1
+            Local inner = Union()
+            Space()
+            Expect(")")
+            Return inner
+        End If
+
+        // A function's call: a name, then '(', but for the node tests.
+        Local save = At
+        Local name = Name()
+        Space()
+        If name != "" && Starts("(") && name != "text" && name != "node" && name != "comment" &&
+           name != "processing-instruction"
+            At += 1
+            Local call = PathExpression("call")
+            call.Text = name
+            Space()
+            If !Starts(")")
+                Loop
+                    call.Parts.Add(Or())
+                    Space()
+                    If !Starts(",") Then Break
+                    At += 1
+                End Loop
+            End If
+
+            Expect(")")
+            Local counts = Map<String, Int>()
+            For known In ["last", "position", "true", "false"]
+                counts[known] = 0
+            End For
+            For known In ["count", "not"]
+                counts[known] = 1
+            End For
+            For known In ["contains", "starts-with"]
+                counts[known] = 2
+            End For
+            Local expected = counts.Get(name)
+            If name == "string" || name == "name"
+                If call.Parts.Count > 1 Then Fail("{name}() takes one argument at most")
+            ElseIf expected == Null
+                Fail("XmlPath has no function {name}()")
+            ElseIf call.Parts.Count != expected
+                Fail("{name}() takes {expected} arguments")
+            End If
+
+            Return call
+        End If
+
+        At = save
+        Return Path()
+    End Method
+
+    // A location path.
+    Method Path(): PathExpression
+        Local path = PathExpression("path")
+        Space()
+        If Starts("//")
+            At += 2
+            path.Absolute = True
+            path.Steps.Add(PathStep(DESCENDANT_OR_SELF, TEST_NODE, ""))
+        ElseIf Starts("/")
+            At += 1
+            path.Absolute = True
+            Space()
+            If !StartsStep() Then Return path
+        End If
+
+        path.Steps.Add(Step())
+        Loop
+            Space()
+            If Starts("//")
+                At += 2
+                path.Steps.Add(PathStep(DESCENDANT_OR_SELF, TEST_NODE, ""))
+            ElseIf Starts("/")
+                At += 1
+            Else
+                Return path
+            End If
+
+            path.Steps.Add(Step())
+        End Loop
+    End Method
+
+    // Whether a step starts here.
+    Method StartsStep(): Bool
+        If At >= Bytes.Count Then Return False
+        Local b = Bytes[At]
+        Return b == 46 || b == 64 || b == 42 || IsNameStartByte(b)
+    End Method
+
+    Method Step(): PathStep
+        Space()
+        If Starts("..")
+            At += 2
+            Return PathStep(PARENT, TEST_NODE, "")
+        End If
+
+        If Starts(".")
+            At += 1
+            Return PathStep(SELF, TEST_NODE, "")
+        End If
+
+        Local axis = CHILD
+        If Starts("@")
+            At += 1
+            axis = ATTRIBUTE_AXIS
+        Else
+            Local save = At
+            Local name = Name()
+            Space()
+            If name != "" && Starts("::")
+                At += 2
+                Local axes = ["child", "descendant", "descendant-or-self", "parent", "ancestor",
+                              "ancestor-or-self", "following-sibling", "preceding-sibling", "self",
+                              "attribute"]
+                Local found = axes.IndexOf(name)
+                If found == Null
+                    Fail("XmlPath has no axis {name}")
+                Else
+                    axis = found
+                End If
+            Else
+                At = save
+            End If
+        End If
+
+        Space()
+        Local step = PathStep(axis, TEST_ANY, "")
+        If Starts("*")
+            At += 1
+        Else
+            Local name = Name()
+            If name == ""
+                Fail("a step names its nodes, or is '*', '.', or '..'")
+                Return step
+            End If
+
+            Space()
+            If Starts("(")
+                At += 1
+                Space()
+                If name == "text"
+                    step.Test = TEST_TEXT
+                ElseIf name == "node"
+                    step.Test = TEST_NODE
+                ElseIf name == "comment"
+                    step.Test = TEST_COMMENT
+                ElseIf name == "processing-instruction"
+                    step.Test = TEST_INSTRUCTION
+                    If Starts("'") || Starts("\"")
+                        step.Name = Primary().Text
+                        Space()
+                    End If
+                Else
+                    Fail("XmlPath has no node test {name}()")
+                End If
+
+                Expect(")")
+            Else
+                step.Test = TEST_NAME
+                step.Name = name
+            End If
+        End If
+
+        Loop
+            Space()
+            If !Starts("[") Then Return step
+            At += 1
+            step.Predicates.Add(Union())
+            Space()
+            Expect("]")
+        End Loop
+    End Method
+
+    // A name, with its prefix and ':', '-', and '.', or "" when there's none here.
+    Method Name(): String
+        Local start = At
+        If At >= Bytes.Count || !IsNameStartByte(Bytes[At]) Then Return ""
+        While At < Bytes.Count && (IsNameStartByte(Bytes[At]) || IsDigitByte(Bytes[At]) ||
+                                   Bytes[At] == 45 || Bytes[At] == 46 ||
+                                   (Bytes[At] == 58 && At + 1 < Bytes.Count && Bytes[At + 1] != 58))
+            At += 1
+        End While
+        Return TextOf(Bytes, start, At)
+    End Method
+
+    // Whether word, a whole name, is next.
+    Method Word(word: String): Bool
+        Space()
+        If !Starts(word) Then Return False
+        Local after = At + word.Bytes.Count
+        Return after >= Bytes.Count || !(IsNameStartByte(Bytes[after]) || IsDigitByte(Bytes[after]) ||
+                                         Bytes[after] == 45)
+    End Method
+
+    Method Expect(text: String)
+        Space()
+        If Starts(text)
+            At += text.Bytes.Count
+        Else
+            Fail("'{text}' is missing")
+        End If
+    End Method
+
+    Method Fail(message: String)
+        If Failure == "" Then Failure = message
+        At = Bytes.Count
+    End Method
+
+    Method Space()
+        While At < Bytes.Count && IsSpace(Bytes[At])
+            At += 1
+        End While
+    End Method
+
+    Method AtEnd(): Bool
+        Space()
+        Return At >= Bytes.Count
+    End Method
+
+    Method Rest(): String => TextOf(Bytes, At, Bytes.Count)
+
+    Method Starts(text: String): Bool
+        Local bytes = text.Bytes
+        If At + bytes.Count > Bytes.Count Then Return False
+        For i = 0 Until bytes.Count
+            If Bytes[At + i] != bytes[i] Then Return False
+        End For
+        Return True
+    End Method
+End Class
+
+// Whether b starts a name in a path: a letter, '_', or a byte of a character past ASCII.
+Function IsNameStartByte(b: UInt8): Bool => IsLetterByte(b) || b == 95 || b >= 128
+
+// Where needle starts in text, by bytes, or -1.
+Function Find(text: String, needle: String): Int
+    Local bytes = text.Bytes
+    Local inner = needle.Bytes
+    For start = 0 To bytes.Count - inner.Count
+        Local found = True
+        For i = 0 Until inner.Count
+            If bytes[start + i] != inner[i]
+                found = False
+                Break
+            End If
+        End For
+        If found Then Return start
+    End For
+    Return -1
+End Function
+
+// text as XPath's number(): a decimal with spaces around it, or NaN.
+Function NumberOf(text: String): Float64
+    Local bytes = text.Bytes
+    Local start = 0
+    Local finish = bytes.Count
+    While start < finish && IsSpace(bytes[start])
+        start += 1
+    End While
+    While finish > start && IsSpace(bytes[finish - 1])
+        finish -= 1
+    End While
+    Local nan = Infinite() - Infinite()
+    If start == finish Then Return nan
+    For i = start Until finish
+        Local b = bytes[i]
+        If !(IsDigitByte(b) || b == 46 || (b == 45 && i == start)) Then Return nan
+    End For
+    Return FloatOf(bytes, start, finish) ?? nan
+End Function
+
+// A number as XPath's string() writes it: an integer without a point.
+Function NumberText(number: Float64): String => number != number ? "NaN" : "{number}"
