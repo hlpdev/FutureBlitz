@@ -1,0 +1,103 @@
+// Many connections, one after another and at once, over TCP and IPC, and many datagrams: each
+// socket goes with its object, so none is left over, and the leak report says nothing. A
+// socket's file descriptor left open would run past macOS's 256 long before the end.
+
+Import std.core
+Import std.ffi
+Import std.io
+Import std.net
+
+Const rounds = 1000
+
+// One after another, blocking: each connection says its number, and both ends go.
+Function OneByOne(listener: TcpListener): Int Throws NetError, TimeoutError, IOError
+    Local total = 0
+    Local into = Buffer<UInt8>(4)
+    For i = 1 To rounds
+        Local client = Try TcpStream.Connect(listener.LocalAddress)
+        Try client.WriteBytes([(i % 256) As UInt8, 1, 2, 3])
+        Local server = Try listener.Accept()
+        Try ReadExact(server, into)
+        total += (into[0] As Int) + into[1] + into[2] + into[3]
+    End For
+    Return total
+End Function
+
+// At once, Async: each client sends its number and reads it back from the server's coroutine.
+Async Function Answer(listener: TcpListener, count: Int): Int Throws NetError, TimeoutError, IOError
+    Local answered = 0
+    For i = 1 To count
+        Local connection = Try Await listener.AcceptAsync()
+        Local into = Buffer<UInt8>(1)
+        Try Await ReadExactAsync(connection, into)
+        Try Await connection.WriteAsync(into)
+        answered += 1
+    End For
+    Return answered
+End Function
+
+// It catches what it throws, since an array can't hold Tasks that throw yet.
+Async Function Ask(address: SocketAddress, number: Int): Int
+    Try
+        Local client = Try Await TcpStream.ConnectAsync(address)
+        Local bytes = Buffer<UInt8>.From([(number % 256) As UInt8])
+        Try Await client.WriteAsync(bytes)
+        Local back = Buffer<UInt8>(1)
+        Try Await ReadExactAsync(client, back)
+        Return back[0]
+    Catch e As Error
+        Print("ask failed: {e.Message}")
+        Return -1
+    End Try
+End Function
+
+Try
+    Local listener = TcpListener.Listen(SocketAddress(IpAddress.Loopback, 0))
+    Print("one by one: {OneByOne(listener)}")
+
+    Local count = 100
+    Local answering = Answer(listener, count)
+    Local asking: Task<Int>[] = []
+    For i = 1 To count
+        asking.Add(Ask(listener.LocalAddress, i))
+    End For
+
+    Local sum = 0
+    For task In asking
+        sum += Await task
+    End For
+    Print("at once: {sum} {Await answering}")
+Catch e As Error
+    Print("failed: {e.Message}")
+End Try
+
+// IPC, one after another.
+Try
+    Local listener = IpcListener.Listen("fb-test-net-connections")
+    Local total = 0
+    Local into = Buffer<UInt8>(1)
+    For i = 1 To rounds / 2
+        Local client = IpcStream.Connect("fb-test-net-connections")
+        client.WriteBytes([(i % 256) As UInt8])
+        Local server = listener.Accept()
+        ReadExact(server, into)
+        total += into[0]
+    End For
+    Print("ipc: {total}")
+Catch e As Error
+    Print("failed: {e.Message}")
+End Try
+
+// Datagrams, and sockets, one after another.
+Try
+    Local receiver = UdpSocket.Bind(SocketAddress(IpAddress.Loopback, 0))
+    Local total = 0
+    For i = 1 To rounds
+        Local sender = UdpSocket.Bind(SocketAddress(IpAddress.Loopback, 0))
+        sender.Send([(i % 256) As UInt8], receiver.LocalAddress)
+        total += receiver.Receive().Bytes[0]
+    End For
+    Print("udp: {total}")
+Catch e As Error
+    Print("failed: {e.Message}")
+End Try

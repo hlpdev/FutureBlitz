@@ -1,0 +1,11 @@
+// An IPC name is a name, not a path, so one with a slash panics where it's given. The panic
+// leaves the listener's Unix socket file behind, which net_ipc.fb takes over when it runs after.
+Import std.core
+Import std.net
+
+Try
+    Print(IpcListener.Listen("fb-test-net-left-behind").Name)
+    IpcStream.Connect("../elsewhere")
+Catch e As Error
+    Print("failed: {e.Message}")
+End Try

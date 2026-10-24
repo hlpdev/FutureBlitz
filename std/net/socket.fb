@@ -1,0 +1,289 @@
+// What std.net's sockets share: the runtime's functions, which work over libuv's handles on the
+// I/O thread, an address as they pass it, a timeout as they take it, what their codes mean, and
+// StreamSocket, which TcpStream and IpcStream read and write through.
+
+Import std.core
+Import std.ffi
+Import std.time.duration
+Import std.net.address
+
+Package Extern "runtime"
+    Function fb_io_net_new(kind: Int32): Ptr<Void>
+    Function fb_io_net_release(socket: Ptr<Void>)
+    Function fb_io_net_close(socket: Ptr<Void>)
+    Function fb_io_net_connect(socket: Ptr<Void>, address: UInt8[], timeout: Int64): Int32
+    Function fb_io_net_connect_async(socket: Ptr<Void>, address: UInt8[],
+                                     timeout: Int64): Task<Int32>
+    Function fb_io_net_connect_pipe(socket: Ptr<Void>, name: String, timeout: Int64): Int32
+    Function fb_io_net_connect_pipe_async(socket: Ptr<Void>, name: String,
+                                          timeout: Int64): Task<Int32>
+    Function fb_io_net_listen(socket: Ptr<Void>, address: UInt8[], backlog: Int32): Int32
+    Function fb_io_net_listen_pipe(socket: Ptr<Void>, name: String, backlog: Int32): Int32
+    Function fb_io_net_accept(socket: Ptr<Void>, timeout: Int64): Int32
+    Function fb_io_net_accept_async(socket: Ptr<Void>, timeout: Int64): Task<Int32>
+    Function fb_io_net_accepted(socket: Ptr<Void>): Ptr<Void>
+    Function fb_io_net_read(socket: Ptr<Void>, into: Ptr<UInt8>, count: Int64,
+                            timeout: Int64): Int64
+    Function fb_io_net_read_async(socket: Ptr<Void>, timeout: Int64): Task<Int32>
+    Function fb_io_net_write(socket: Ptr<Void>, from: Ptr<UInt8>, count: Int64): Int32
+    Function fb_io_net_write_async(socket: Ptr<Void>, from: Ptr<UInt8>, count: Int64): Task<Int32>
+    Function fb_io_net_shutdown(socket: Ptr<Void>): Int32
+    Function fb_io_net_shutdown_async(socket: Ptr<Void>): Task<Int32>
+    Function fb_io_net_bind(socket: Ptr<Void>, address: UInt8[], reuse: Int32): Int32
+    Function fb_io_net_send(socket: Ptr<Void>, from: Ptr<UInt8>, count: Int64,
+                            address: UInt8[]): Int32
+    Function fb_io_net_send_async(socket: Ptr<Void>, from: Ptr<UInt8>, count: Int64,
+                                  address: UInt8[]): Task<Int32>
+    Function fb_io_net_receive(socket: Ptr<Void>, timeout: Int64): Int32
+    Function fb_io_net_receive_async(socket: Ptr<Void>, timeout: Int64): Task<Int32>
+    Function fb_io_net_received(socket: Ptr<Void>, bytes: UInt8[], from: UInt8[]): Int32
+    Function fb_io_net_set(socket: Ptr<Void>, option: Int32, value: Int32): Int32
+    Function fb_io_net_membership(socket: Ptr<Void>, group: String, on: String,
+                                  join: Int32): Int32
+    Function fb_io_net_address(socket: Ptr<Void>, remote: Int32, output: UInt8[]): Int32
+    Function fb_io_net_error_kind(code: Int32): Int32
+    Function fb_io_error_text(code: Int32): String
+End Extern
+
+// The kinds of socket fb_io_net_new makes.
+Package Enum SocketKind: Int32
+    TCP, IPC, TCP_LISTENER, IPC_LISTENER, UDP
+End Enum
+
+// What fb_io_net_error_kind gives for a timeout, past NetErrorKind's ordinals.
+Const TIMED_OUT = 7
+
+// A timeout as the runtime's functions take it, in nanoseconds: -1 waits as long as it takes,
+// and 0, for one that isn't positive, doesn't wait.
+Package Function NanosecondsOf(timeout: Duration?): Int64
+    If timeout == Null Then Return -1
+    Return Max(timeout.Nanoseconds, 0)
+End Function
+
+// An address's bytes, as the runtime's functions take them: 4 or 6 for its family, its 16 bytes,
+// an IPv4 address's 4 first, its port, the most significant byte first, and its scope, the
+// least significant first.
+Package Function SocketBytes(address: SocketAddress): UInt8[]
+    Local bytes: UInt8[] = [address.Address.IsV4 ? 4 : 6]
+    Local raw = address.Address.Bytes
+    For i = 0 Until 16
+        bytes.Add(i < raw.Count ? raw[i] : 0)
+    End For
+
+    bytes.Add((address.Port >> 8) As UInt8)
+    bytes.Add((address.Port & 255) As UInt8)
+    For i = 0 Until 4
+        bytes.Add(((address.ScopeId >> (i * 8)) & 255) As UInt8)
+    End For
+    Return bytes
+End Function
+
+// The address of bytes a runtime function gave, as SocketBytes writes them.
+Package Function SocketOfBytes(bytes: UInt8[]): SocketAddress
+    Local size = bytes[0] == 4 ? 4 : 16
+    Local address = IpAddress.FromBytes(bytes[1..1 + size])
+    Local port = ((bytes[17] As UInt16) << 8) | (bytes[18] As UInt16)
+    Local scope: UInt32 = 0
+    For i = 0 Until 4
+        scope = scope | ((bytes[19 + i] As UInt32) << (i * 8))
+    End For
+    Return SocketAddress(address, port, scope)
+End Function
+
+// The socket's address, or the other side's when `remote`, or Null for one it hasn't.
+Package Function AddressOfSocket(socket: Ptr<Void>, remote: Bool): SocketAddress?
+    Local bytes: UInt8[] = []
+    If fb_io_net_address(socket, remote ? 1 : 0, bytes) != 0 Then Return Null
+    Return SocketOfBytes(bytes)
+End Function
+
+// Whether a runtime function's code says it took longer than it was given.
+Package Function TimedOut(code: Int32): Bool => fb_io_net_error_kind(code) == TIMED_OUT
+
+// The NetError a runtime function's code means, as `doing` that failed.
+Package Function NetErrorOf(code: Int32, doing: String, address: String?): NetError
+    Local kind = fb_io_net_error_kind(code)
+    Return NetError(kind As NetErrorKind, "{doing} failed: {fb_io_error_text(code)}", address)
+End Function
+
+// Throws what a runtime function's code means, as `doing` that failed: a TimeoutError for a
+// timeout, and otherwise a NetError of its kind.
+Package Function ThrowSocketError(code: Int32, doing: String,
+                                  address: String?) Throws NetError, TimeoutError
+    If TimedOut(code) Then Throw TimeoutError("{doing} took longer than it was given")
+    Throw NetErrorOf(code, doing, address)
+End Function
+
+// The NetError for using a socket that's closed.
+Package Function ClosedError(what: String, address: String?): NetError
+    Return NetError(NetErrorKind.CLOSED, "the {what} is closed", address)
+End Function
+
+// The IOError a stream's read or write throws, as Reader and Writer do, whose Cause is the
+// NetError, or the TimeoutError, that it means.
+Function StreamError(code: Int32, doing: String, address: String?): IOError
+    If TimedOut(code)
+        Local timeout = TimeoutError("{doing} took longer than it was given")
+        Return IOError(IOErrorKind.OTHER, timeout.Message, Null, timeout)
+    End If
+
+    Local error = NetErrorOf(code, doing, address)
+    Return IOError(IOErrorKind.OTHER, error.Message, Null, error)
+End Function
+
+// A connected stream's socket, TCP's or IPC's, which TcpStream and IpcStream read and write
+// through, and which goes with them.
+Package Class StreamSocket
+    Package ReadOnly Field Handle: Ptr<Void>
+    // What it is, and what its errors name: the other side's address, or the IPC name.
+    Package ReadOnly Field What: String
+    Package ReadOnly Field Peer: String
+    Package Field ReadTimeout: Duration?
+    Package Field Closed: Bool
+
+    Package New(kind: SocketKind, what: String, peer: String)
+        Handle = fb_io_net_new(kind As Int32)
+        What = what
+        Peer = peer
+    End New
+
+    // One of a connection a listener accepted, which it holds from here on.
+    Package New(handle: Ptr<Void>, what: String, peer: String)
+        Handle = handle
+        What = what
+        Peer = peer
+    End New
+
+    Method Destroy()
+        fb_io_net_release(Handle)
+    End Method
+
+    // Throws for a stream that's closed.
+    Package Method Open() Throws IOError
+        If Closed
+            Local error = ClosedError(What, Peer)
+            Throw IOError(IOErrorKind.OTHER, error.Message, Null, error)
+        End If
+    End Method
+
+    Package Method Read(into: Buffer<UInt8>): Int64 Throws IOError
+        Try Open()
+        If into.Count == 0 Then Return 0
+        Local count: Int64 = 0
+        Unsafe
+            count = fb_io_net_read(Handle, into.Pointer(), into.Count, NanosecondsOf(ReadTimeout))
+        End Unsafe
+        If count < 0 Then Throw StreamError(count As Int32, "reading from {Peer}", Peer)
+        Return count
+    End Method
+
+    // Takes what's there without waiting, and otherwise waits on the main thread until there's
+    // something, as long as ReadTimeout says.
+    Package Async Method ReadAsync(into: Buffer<UInt8>): Int64 Throws IOError
+        Try Open()
+        If into.Count == 0 Then Return 0
+        Local timeout = NanosecondsOf(ReadTimeout)
+        Loop
+            Local count: Int64 = 0
+            Unsafe
+                count = fb_io_net_read(Handle, into.Pointer(), into.Count, 0)
+            End Unsafe
+            If count >= 0 Then Return count
+            If !TimedOut(count As Int32)
+                Throw StreamError(count As Int32, "reading from {Peer}", Peer)
+            End If
+
+            Local code = Await fb_io_net_read_async(Handle, timeout)
+            If code != 0 Then Throw StreamError(code, "reading from {Peer}", Peer)
+        End Loop
+    End Method
+
+    Package Method Write(from: Buffer<UInt8>) Throws IOError
+        Try Open()
+        If from.Count == 0 Then Return
+        Local code: Int32 = 0
+        Unsafe
+            code = fb_io_net_write(Handle, from.Pointer(), from.Count)
+        End Unsafe
+        If code != 0 Then Throw StreamError(code, "writing to {Peer}", Peer)
+    End Method
+
+    // Copies from's bytes, so the caller can change them while they're written.
+    Package Async Method WriteAsync(from: Buffer<UInt8>) Throws IOError
+        Try Open()
+        If from.Count == 0 Then Return
+        Local written: Task<Int32>
+        Unsafe
+            written = fb_io_net_write_async(Handle, from.Pointer(), from.Count)
+        End Unsafe
+        Local code = Await written
+        If code != 0 Then Throw StreamError(code, "writing to {Peer}", Peer)
+    End Method
+
+    Package Method ShutdownWrite() Throws IOError
+        Try Open()
+        Local code = fb_io_net_shutdown(Handle)
+        If code != 0 Then Throw StreamError(code, "ending what's written to {Peer}", Peer)
+    End Method
+
+    Package Async Method ShutdownWriteAsync() Throws IOError
+        Try Open()
+        Local code = Await fb_io_net_shutdown_async(Handle)
+        If code != 0 Then Throw StreamError(code, "ending what's written to {Peer}", Peer)
+    End Method
+
+    Package Method Close()
+        If Closed Then Return
+        Closed = True
+        fb_io_net_close(Handle)
+    End Method
+End Class
+
+// A listener's socket, TCP's or IPC's, which TcpListener and IpcListener accept through.
+Package Class ListenerSocket
+    Package ReadOnly Field Handle: Ptr<Void>
+    Package ReadOnly Field What: String
+    Package Field Address: String
+    Package Field Closed: Bool
+
+    Package New(kind: SocketKind, what: String, address: String)
+        Handle = fb_io_net_new(kind As Int32)
+        What = what
+        Address = address
+    End New
+
+    Method Destroy()
+        fb_io_net_release(Handle)
+    End Method
+
+    Package Method Open() Throws NetError
+        If Closed Then Throw ClosedError(What, Address)
+    End Method
+
+    // Waits for a connection, as long as timeout says, and gives it.
+    Package Method Accept(timeout: Duration?): Ptr<Void> Throws NetError, TimeoutError
+        Loop
+            Try Open()
+            Local code = fb_io_net_accept(Handle, NanosecondsOf(timeout))
+            If code != 0 Then Try ThrowSocketError(code, "accepting at {Address}", Address)
+            Local accepted = fb_io_net_accepted(Handle)
+            If accepted != Null Then Return accepted
+        End Loop
+    End Method
+
+    Package Async Method AcceptAsync(timeout: Duration?): Ptr<Void> Throws NetError, TimeoutError
+        Loop
+            Try Open()
+            Local accepted = fb_io_net_accepted(Handle)
+            If accepted != Null Then Return accepted
+            Local code = Await fb_io_net_accept_async(Handle, NanosecondsOf(timeout))
+            If code != 0 Then Try ThrowSocketError(code, "accepting at {Address}", Address)
+        End Loop
+    End Method
+
+    Package Method Close()
+        If Closed Then Return
+        Closed = True
+        fb_io_net_close(Handle)
+    End Method
+End Class

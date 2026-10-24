@@ -1,0 +1,193 @@
+// std.net's UDP: UdpSocket, which sends and receives datagrams, each whole or not at all, in no
+// promised order, blocking or Async, with broadcast and multicast for what's on the LAN.
+
+Import std.core
+Import std.ffi
+Import std.time.duration
+Import std.net.address
+Import std.net.dns
+Import std.net.socket
+
+// The options fb_io_net_set sets.
+Const BROADCAST: Int32 = 0
+Const MULTICAST_LOOPBACK: Int32 = 1
+Const MULTICAST_TTL: Int32 = 2
+
+// The most bytes a datagram holds, which IPv4's header leaves.
+Const LARGEST = 65507
+
+// A datagram a UdpSocket received: its bytes, and where it came from.
+Public Struct Datagram
+    Public ReadOnly Field Bytes: UInt8[]
+    Public ReadOnly Field From: SocketAddress
+
+    Package New(bytes: UInt8[], from: SocketAddress)
+        Self.Bytes = bytes
+        Self.From = from
+    End New
+End Struct
+
+// A UDP socket, bound to an address, which sends datagrams to any address and receives them from
+// any: each arrives whole or not at all, maybe more than once, in no promised order. It closes
+// when it goes, or at Close.
+Public Class UdpSocket
+    ReadOnly Field Handle: Ptr<Void>
+    // Where it's bound, which its errors name.
+    Field Address: String
+    Field Closed: Bool
+
+    New(address: String)
+        Handle = fb_io_net_new(SocketKind.UDP As Int32)
+        Self.Address = address
+    End New
+
+    Method Destroy()
+        fb_io_net_release(Handle)
+    End Method
+
+    // Binds a socket to `address`, whose port 0 has the OS pick one, which LocalAddress tells.
+    // With `reuseAddress`, others can bind the same address too, each receiving what's broadcast
+    // or multicast to it, as LAN discovery's do. Throws a NetError when it can't, as when another
+    // socket has the address.
+    Public Static Method Bind(
+        address: SocketAddress, reuseAddress: Bool = False): UdpSocket Throws NetError
+        Local socket = UdpSocket(address.ToString())
+        Local code = fb_io_net_bind(socket.Handle, SocketBytes(address), reuseAddress ? 1 : 0)
+        If code != 0 Then Throw NetErrorOf(code, "binding to {address}", socket.Address)
+        socket.Address = socket.LocalAddress.ToString()
+        Return socket
+    End Method
+
+    // Binds a socket to `host`'s first address, as Dns.Resolve gives them, and `port`.
+    Public Static Method Bind(
+        host: String, port: UInt16, reuseAddress: Bool = False): UdpSocket Throws NetError
+        Local addresses = Try Dns.Resolve(host)
+        Return Try Bind(SocketAddress(addresses[0], port), reuseAddress)
+    End Method
+
+    // Where it's bound, the port the OS picked included.
+    Public Property LocalAddress: SocketAddress
+        Get => AddressOfSocket(Handle, False) ?? SocketAddress(IpAddress.Any, 0)
+    End Property
+
+    // Whether Close closed it.
+    Public Property IsClosed: Bool
+        Get => Closed
+    End Property
+
+    // Sends `bytes` to `target` as one datagram, of up to 65507 bytes, returning once the OS has
+    // it, which doesn't say it arrived. A broadcast address needs SetBroadcast(True) first.
+    Public Method Send(bytes: UInt8[], target: SocketAddress) Throws NetError
+        Try Open()
+        Local code: Int32 = 0
+        Unsafe
+            code = fb_io_net_send(Handle, Start(bytes), bytes.Count, SocketBytes(target))
+        End Unsafe
+        If code != 0 Then Throw NetErrorOf(code, "sending to {target}", target.ToString())
+    End Method
+
+    // Send's Async twin, which waits on the main thread, with a copy of the bytes.
+    Public Async Method SendAsync(bytes: UInt8[], target: SocketAddress) Throws NetError
+        Try Open()
+        Local sent: Task<Int32>
+        Unsafe
+            sent = fb_io_net_send_async(Handle, Start(bytes), bytes.Count, SocketBytes(target))
+        End Unsafe
+        Local code = Await sent
+        If code != 0 Then Throw NetErrorOf(code, "sending to {target}", target.ToString())
+    End Method
+
+    // The next datagram, waiting up to `timeout` for one, or as long as it takes for a Null
+    // one, and throwing a TimeoutError after.
+    Public Method Receive(timeout: Duration? = Null): Datagram Throws NetError, TimeoutError
+        Loop
+            Try Open()
+            Local code = fb_io_net_receive(Handle, NanosecondsOf(timeout))
+            If code != 0 Then Try ThrowSocketError(code, "receiving at {Address}", Address)
+            Local taken = Take()
+            If taken != Null Then Return taken
+        End Loop
+    End Method
+
+    // Receive's Async twin, which waits on the main thread.
+    Public Async Method ReceiveAsync(
+        timeout: Duration? = Null): Datagram Throws NetError, TimeoutError
+        Loop
+            Try Open()
+            Local taken = Take()
+            If taken != Null Then Return taken
+            Local code = Await fb_io_net_receive_async(Handle, NanosecondsOf(timeout))
+            If code != 0 Then Try ThrowSocketError(code, "receiving at {Address}", Address)
+        End Loop
+    End Method
+
+    // Whether it may send to a broadcast address, which it can't until this says so.
+    Public Method SetBroadcast(on: Bool) Throws NetError
+        Try Set(BROADCAST, on ? 1 : 0, "broadcasting")
+    End Method
+
+    // Whether what it multicasts comes back to the sockets on this machine, as it does until this
+    // says otherwise.
+    Public Method SetMulticastLoopback(on: Bool) Throws NetError
+        Try Set(MULTICAST_LOOPBACK, on ? 1 : 0, "looping multicasts back")
+    End Method
+
+    // How many routers what it multicasts goes through, from 1, which keeps it on the LAN, as it
+    // does until this says otherwise, to 255.
+    Public Method SetMulticastTtl(hops: Int) Throws NetError
+        Try Set(MULTICAST_TTL, hops, "setting the multicast TTL to {hops}")
+    End Method
+
+    // Receives what's multicast to `group` from here on, on the interface whose address is `on`,
+    // or the one the OS picks.
+    Public Method JoinMulticast(group: IpAddress, on: IpAddress? = Null) Throws NetError
+        Try Membership(group, on, True)
+    End Method
+
+    // Stops receiving what's multicast to `group`.
+    Public Method LeaveMulticast(group: IpAddress, on: IpAddress? = Null) Throws NetError
+        Try Membership(group, on, False)
+    End Method
+
+    // Closes it at once: what's waiting for it throws a NetError of CLOSED, and so does what uses
+    // it after. Going closes it too.
+    Public Method Close()
+        If Closed Then Return
+        Closed = True
+        fb_io_net_close(Handle)
+    End Method
+
+    Method Open() Throws NetError
+        If Closed Then Throw ClosedError("UdpSocket", Address)
+    End Method
+
+    // The next datagram there is, or Null.
+    Method Take(): Datagram?
+        Local bytes: UInt8[] = []
+        Local from: UInt8[] = []
+        If fb_io_net_received(Handle, bytes, from) == 0 Then Return Null
+        Return Datagram(bytes, SocketOfBytes(from))
+    End Method
+
+    Method Set(option: Int32, value: Int, doing: String) Throws NetError
+        Try Open()
+        Local code = fb_io_net_set(Handle, option, value)
+        If code != 0 Then Throw NetErrorOf(code, doing, Address)
+    End Method
+
+    Method Membership(group: IpAddress, on: IpAddress?, join: Bool) Throws NetError
+        Try Open()
+        Local onText = on == Null ? "" : on.ToString()
+        Local code = fb_io_net_membership(Handle, group.ToString(), onText, join ? 1 : 0)
+        If code != 0
+            Throw NetErrorOf(code, "{join ? "joining" : "leaving"} the multicast group {group}",
+                             Address)
+        End If
+    End Method
+End Class
+
+// Where an array's bytes start, for the runtime's functions: Null for none.
+Unsafe Function Start(bytes: UInt8[]): Ptr<UInt8>
+    If bytes.Count == 0 Then Return Null
+    Return AddressOf(bytes[0])
+End Function

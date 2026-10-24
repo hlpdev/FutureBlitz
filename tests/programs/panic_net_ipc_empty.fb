@@ -1,0 +1,9 @@
+// An IPC name has a byte at least, so an empty one panics where it's given, Async too.
+Import std.core
+Import std.net
+
+Try
+    Await IpcStream.ConnectAsync("")
+Catch e As Error
+    Print("failed: {e.Message}")
+End Try

@@ -1,0 +1,101 @@
+// std.net's UDP: a program sends itself datagrams between UdpSockets, blocking and Async, empty
+// ones too, and a Receive that takes too long throws a TimeoutError. Nothing leaves the machine,
+// and the ports are the OS's to pick.
+
+Import std.core
+Import std.net
+Import std.time
+
+Try
+    Local a = UdpSocket.Bind(SocketAddress(IpAddress.Loopback, 0))
+    Local b = UdpSocket.Bind("127.0.0.1", 0)
+    Print(a.LocalAddress.Port != 0, a.LocalAddress != b.LocalAddress)
+
+    // Blocking: each datagram whole, with where it came from.
+    a.Send("ping".Bytes, b.LocalAddress)
+    a.Send([1, 2, 3], b.LocalAddress)
+    Local first = b.Receive()
+    Local second = b.Receive(1.Seconds)
+    Print(first.Bytes.Count, second.Bytes, first.From == a.LocalAddress)
+    b.Send([], first.From)
+    Print(a.Receive().Bytes.Count)
+
+    // Async, both ways.
+    Await b.SendAsync([7, 8], a.LocalAddress)
+    Local got = Await a.ReceiveAsync()
+    Print(got.Bytes, got.From == b.LocalAddress)
+
+    // A bigger one, under the 9216 bytes macOS sends at once unless it's told otherwise.
+    Local big: UInt8[] = []
+    For i = 1 To 8000
+        big.Add((i % 256) As UInt8)
+    End For
+
+    a.Send(big, b.LocalAddress)
+    Local whole = b.Receive()
+    Print(whole.Bytes.Count, whole.Bytes[7999])
+
+    // Nothing comes.
+    Try
+        a.Receive(20.Milliseconds)
+    Catch e As TimeoutError
+        Print("Receive:", e.Message == "receiving at {a.LocalAddress} took longer than it was given")
+    End Try
+
+    Try
+        Await a.ReceiveAsync(20.Milliseconds)
+    Catch e As TimeoutError
+        Print("ReceiveAsync: timeout")
+    End Try
+
+    // What's sent after a timeout still comes.
+    b.Send([9], a.LocalAddress)
+    Print(a.Receive().Bytes)
+
+    // Broadcast and multicast are options it sets.
+    a.SetBroadcast(True)
+    a.SetMulticastLoopback(True)
+    a.SetMulticastTtl(1)
+
+    // Two sockets can't bind one address, but those that say so can.
+    Try
+        UdpSocket.Bind(a.LocalAddress)
+    Catch e As NetError
+        Print(e.Kind)
+    End Try
+
+    // A closed socket says so.
+    a.Close()
+    Print(a.IsClosed)
+    Try
+        a.Send([1], b.LocalAddress)
+    Catch e As NetError
+        Print(e.Kind, e.Message)
+    End Try
+
+    Try
+        Await a.ReceiveAsync()
+    Catch e As NetError
+        Print(e.Kind)
+    End Try
+Catch e As Error
+    Print("failed: {e.Message}")
+End Try
+
+// A Receive waiting when its socket closes throws a NetError of CLOSED.
+Async Function Wait(socket: UdpSocket): String Throws NetError, TimeoutError
+    Local datagram = Try Await socket.ReceiveAsync()
+    Return "{datagram.Bytes}"
+End Function
+
+Try
+    Local socket = UdpSocket.Bind(SocketAddress(IpAddress.Loopback, 0))
+    Local waiting = Wait(socket)
+    Await NextFrame()
+    socket.Close()
+    Print(Await waiting)
+Catch e As NetError
+    Print(e.Kind)
+Catch e As TimeoutError
+    Print("failed: {e.Message}")
+End Try
