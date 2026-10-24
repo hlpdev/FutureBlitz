@@ -466,7 +466,8 @@ enum class after_t : std::uint8_t { KEEP, CLOSE, RESET };
 ///
 /// - /hello: "hello"; /utf8: text that isn't all well-formed UTF-8.
 /// - /echo: the request's method, target, Content-Type, and body, a line each but the body.
-/// - /header/<name>: the request's values of that header, with " | " between them, or "(none)".
+/// - /header/<name>: the request's values of that header, with " | " between them, or "(none)"
+///   when it has none.
 /// - /status/<code>: that status.
 /// - /redirect/<n>: a 302 to /redirect/<n - 1>, and /redirect/0 "redirected".
 /// - /moved/<code>: a <code> redirect to /echo; /redirect-to?url=<url>: a 302 to the URL.
@@ -512,14 +513,14 @@ std::pair<response_t, after_t> answer(const request_t& request) {
 
     if (starts("/header/")) {
         const std::string name = lower(after("/header/"));
-        std::string values;
+        std::optional<std::string> values;
         for (const auto& [key, value] : request.headers) {
             if (key == name) {
-                values += values.empty() ? value : " | " + value;
+                values = values ? *values + " | " + value : value;
             }
         }
 
-        return { text(values.empty() ? "(none)" : values), after_t::KEEP };
+        return { text(values.value_or("(none)")), after_t::KEEP };
     }
 
     if (starts("/status/")) {

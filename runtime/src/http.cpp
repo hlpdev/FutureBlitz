@@ -393,6 +393,7 @@ std::optional<std::string> set_request(transfer_t& transfer) {
     curl_slist* headers = nullptr;
     bool content_type = false;
     bool expect = false;
+    bool user_agent = false;
     const auto add = [&](const std::string& line) {
         headers = curl_slist_append(headers, line.c_str());
         if (headers == nullptr) {
@@ -413,6 +414,7 @@ std::optional<std::string> set_request(transfer_t& transfer) {
 
         content_type = content_type || same_name(name, "Content-Type");
         expect = expect || same_name(name, "Expect");
+        user_agent = user_agent || same_name(name, "User-Agent");
         // libcurl takes "Name:" as taking its own header out, and "Name;" as one with no value.
         std::string line = name;
         if (value.empty()) {
@@ -438,6 +440,11 @@ std::optional<std::string> set_request(transfer_t& transfer) {
 
     if (!expect) {
         add("Expect:");
+    }
+
+    // libcurl sends no User-Agent for an empty one, which goes as an empty header instead.
+    if (!user_agent && transfer.user_agent.empty()) {
+        add("User-Agent;");
     }
 
     check(curl_easy_setopt(easy, CURLOPT_HTTPHEADER, headers), "request");

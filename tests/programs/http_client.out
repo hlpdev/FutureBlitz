@@ -52,6 +52,7 @@ PATCH 200 0
 DELETE 200 (none)
 == headers
 200 FutureBlitz
+[200 ]
 200 tester/1
 200 client
 request
