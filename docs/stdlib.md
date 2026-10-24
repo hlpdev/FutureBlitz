@@ -130,6 +130,8 @@ So far, std/ holds:
 | std/net/address.fb | `IpFamily`, `IpAddress`, and `SocketAddress` |
 | std/net/url.fb | `Url` and `QueryParams`, as the WHATWG URL Standard has them |
 | std/net/dns.fb | `Dns`, over libuv's getaddrinfo through the runtime's `fb_io_` functions |
+| std/data/json.fb | `Json` (`Read` and `Write` of Values), `JsonReader`, `JsonWriter`, and `JsonToken`, over the runtime's `fb_json_` functions |
+| std/data/msgpack.fb | `MessagePack` (`Read` and `Write` of Values) |
 
 What the language itself uses, `Error` for Throw and Catch, the Interfaces, `Iterator<T>`, and
 `Map<K, V>` for `{key: value}`, is always std's, whatever a program calls by those names.
@@ -642,6 +644,24 @@ Step 18 built `Event<T>` and `Subscription`, in std/events/event.fb; `Import std
   reader and writer, and XPath-lite), YAML (1.2's core schema, no arbitrary tags), and
   MessagePack. A save can carry a version, and `@Since(2)` and `@Renamed("old")` keep old saves
   loading after a game changes.
+- JSON (step 19) is RFC 8259's, which JSONTestSuite's parsing cases check: `Json.Read(text)` or
+  `Read(bytes)` gives a document's Value (an INT, a UINT past an Int64, or a DOUBLE for each
+  number; an object's keys in order, the last of a repeated key where its first was) and
+  `Json.Write(value, indent)` writes one, on one line with no spaces at an indent of 0 and else a
+  value to a line, with a DOUBLE always with a point or an exponent and BYTES as base64; NaN
+  and infinities, which JSON doesn't have, panic. `JsonReader` gives a document's tokens one at
+  a time (`Next`, `Token`, `Depth`, `Line`, `Column`, `GetString`, `GetInt64`, `GetUInt64`,
+  `GetDouble`, `GetBool`, `Skip`), and `JsonWriter` writes one a token at a time (`BeginObject`,
+  `Key`, `WriteString`, `WriteInt`, ..., `EndObject`, `IsComplete`), panicking where a token
+  can't come. Text that isn't JSON throws a ParseError at its line and column: bytes that aren't
+  UTF-8, a number past a Double's range, and arrays and objects nested past a depth, 1000 unless
+  it's given, are refused; a lone surrogate escape reads as U+FFFD, and a byte order mark before
+  the JSON is left out.
+- MessagePack (step 19): `MessagePack.Read(bytes)` gives the Value (a bin as BYTES; a map's keys
+  must be strs, and an ext, which a Value has no kind for, is refused, as WRONG_TYPE), and
+  `MessagePack.Write(value)` gives each integer, str, bin, array, and map in the fewest bytes its
+  kind has, and a DOUBLE as a float 64. A count that's more than the data holds is refused before
+  any memory is taken for it.
 - Protocol Buffers: fb reads `.proto` files at compile time and generates the types and their
   binary encoding.
 

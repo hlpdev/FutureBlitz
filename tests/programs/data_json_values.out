@@ -1,4 +1,4 @@
-== parse
+== read
 OBJECT {"name": "Ada", "age": 36, "langs": ["en", "fr"], "ok": true, "none": null, "pi": 3.25}
 ARRAY []
 OBJECT {}

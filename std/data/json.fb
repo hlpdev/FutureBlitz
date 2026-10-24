@@ -1,4 +1,4 @@
-// JSON, as RFC 8259 has it: Json.Parse reads a document into a Value, and Json.Write writes a
+// JSON, as RFC 8259 has it: Json.Read reads a document into a Value, and Json.Write writes a
 // Value as one; JsonReader reads a document's tokens one at a time, in order, and JsonWriter
 // writes a document a token at a time, so neither holds more than the text. Integers
 // stay exact, as Int64s, or UInt64s past them; other numbers are Doubles. The runtime reads the
@@ -361,13 +361,13 @@ Public Struct Json
     // ParseError as JsonReader's Next does, and for arrays and objects nested past depth. Panics
     // unless depth is 1 or more.
     @PanicsAtCaller
-    Public Static Method Parse(text: String, depth: Int = DEPTH): Value Throws ParseError
+    Public Static Method Read(text: String, depth: Int = DEPTH): Value Throws ParseError
         Return Try ValueOf(JsonReader(text, depth))
     End Method
 
-    // The Value of UTF-8 bytes' JSON, as Parse of text gives it.
+    // The Value of UTF-8 bytes' JSON, as Read of text gives it.
     @PanicsAtCaller
-    Public Static Method Parse(bytes: UInt8[], depth: Int = DEPTH): Value Throws ParseError
+    Public Static Method Read(bytes: UInt8[], depth: Int = DEPTH): Value Throws ParseError
         Return Try ValueOf(JsonReader(bytes, depth))
     End Method
 
