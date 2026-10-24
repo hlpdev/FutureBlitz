@@ -30,4 +30,5 @@ errors
 NOT_A_DIRECTORY
 1 True
 IS_A_DIRECTORY
+True False True
 left False
