@@ -1,12 +1,16 @@
-// std.core's Value's text: a String in quotes, as JSON writes one, and bytes in hex; and the
-// steps of a path to a Value inside one.
+// std.core's Value's text: a String in quotes, as JSON writes one, and bytes in hex; the steps
+// of a path to a Value inside one; and what Load<T> reads a String as, a Bool, a number, or an
+// Enum's member.
 
 #include "fb/runtime.hpp"
 
 #include <algorithm>
+#include <array>
 #include <charconv>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -17,6 +21,52 @@ constexpr std::string_view hex_digits = "0123456789abcdef";
 
 fb_string_t* string_of(const std::string& text) {
     return fb_string_from_bytes(text.data(), static_cast<std::int64_t>(text.size()));
+}
+
+std::string_view view_of(const fb_string_t* text) {
+    return { reinterpret_cast<const char*>(text + 1), static_cast<std::size_t>(text->length) };
+}
+
+/// Whether two names are the same, letter for letter, in either case, as ASCII has them.
+bool same_name(const std::string_view a, const std::string_view b) {
+    return std::ranges::equal(a, b, [](const char x, const char y) {
+        const auto lower = [](const char c) {
+            return c >= 'A' && c <= 'Z' ? static_cast<char>(c - 'A' + 'a') : c;
+        };
+        return lower(x) == lower(y);
+    });
+}
+
+/// The bits of the member `text` names, as it is or else in another case, or nullopt.
+std::optional<std::uint64_t> member_bits(const std::string_view text, const fb_array_t* names,
+                                         const fb_array_t* values) {
+    const auto* strings = static_cast<const fb_string_t* const*>(names->data);
+    const auto* bits = static_cast<const std::uint64_t*>(values->data);
+    for (std::int64_t i = 0; i < names->count; ++i) {
+        if (view_of(strings[i]) == text) {
+            return bits[i];
+        }
+    }
+
+    for (std::int64_t i = 0; i < names->count; ++i) {
+        if (same_name(view_of(strings[i]), text)) {
+            return bits[i];
+        }
+    }
+
+    return std::nullopt;
+}
+
+std::string_view trimmed(std::string_view text) {
+    while (!text.empty() && (text.front() == ' ' || text.front() == '\t')) {
+        text.remove_prefix(1);
+    }
+
+    while (!text.empty() && (text.back() == ' ' || text.back() == '\t')) {
+        text.remove_suffix(1);
+    }
+
+    return text;
 }
 
 } // namespace
@@ -144,5 +194,99 @@ fb_string_t* fb_value_hex(const fb_array_t* bytes) {
     }
 
     return string_of(text);
+}
+
+std::int32_t fb_value_scalar(const fb_string_t* text, std::uint64_t* bits, double* real) {
+    const std::string_view whole = view_of(text);
+    if (same_name(whole, "true") || same_name(whole, "false")) {
+        *bits = same_name(whole, "true") ? 1 : 0;
+        return 1;
+    }
+
+    // A sign, then digits, is an integer, unless it's past a UInt64's or below an Int64's, and
+    // then it's a Double. A '+' goes before a number too, though JSON has none, but not before
+    // another sign.
+    std::string_view number = whole;
+    const bool plus = number.starts_with('+');
+    if (plus) {
+        number.remove_prefix(1);
+    }
+
+    if (number.empty() || (plus && (number.front() == '+' || number.front() == '-'))) {
+        return 0;
+    }
+
+    const char* end = number.data() + number.size();
+    const bool negative = number.starts_with('-');
+    const std::string_view digits = negative ? number.substr(1) : number;
+    if (!digits.empty() && std::ranges::all_of(digits, [](const char c) {
+            return c >= '0' && c <= '9';
+        })) {
+        if (std::int64_t signed_value = 0;
+            std::from_chars(number.data(), end, signed_value).ec == std::errc()) {
+            *bits = static_cast<std::uint64_t>(signed_value);
+            return 2;
+        }
+
+        if (std::uint64_t unsigned_value = 0;
+            !negative && std::from_chars(number.data(), end, unsigned_value).ec == std::errc()) {
+            *bits = unsigned_value;
+            return 3;
+        }
+    }
+
+    // A number past a Double's range is an infinity, or 0, as strtod reads it, which from_chars
+    // leaves unread.
+    double value = 0;
+    const auto [stop, error] = std::from_chars(number.data(), end, value);
+    if (stop != end || (error != std::errc() && error != std::errc::result_out_of_range)) {
+        return 0;
+    }
+
+    *real = error == std::errc() ? value : std::strtod(std::string(number).c_str(), nullptr);
+    return 4;
+}
+
+std::int32_t fb_value_enum(const fb_string_t* text, const fb_array_t* names,
+                           const fb_array_t* values, const std::int32_t flags,
+                           std::uint64_t* bits) {
+    const std::string_view whole = view_of(text);
+    if (flags == 0) {
+        const std::optional<std::uint64_t> found = member_bits(trimmed(whole), names, values);
+        if (found) {
+            *bits = *found;
+        }
+
+        return found ? 1 : 0;
+    }
+
+    // A @Flags Enum's names are joined by '|', with spaces around it or not.
+    std::uint64_t combined = 0;
+    std::size_t start = 0;
+    while (start <= whole.size()) {
+        const std::size_t bar = std::min(whole.find('|', start), whole.size());
+        const std::optional<std::uint64_t> found =
+            member_bits(trimmed(whole.substr(start, bar - start)), names, values);
+        if (!found) {
+            return 0;
+        }
+
+        combined |= *found;
+        start = bar + 1;
+    }
+
+    *bits = combined;
+    return 1;
+}
+
+double fb_value_float(const float value) {
+    std::array<char, 32> text{};
+    const auto [end, error] = std::to_chars(text.data(), text.data() + text.size(), value);
+    double wide = value;
+    if (error == std::errc()) {
+        std::from_chars(text.data(), end, wide);
+    }
+
+    return wide;
 }
 }

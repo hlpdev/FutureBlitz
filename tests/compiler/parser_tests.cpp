@@ -1229,6 +1229,10 @@ TEST_CASE("attribute mistakes are reported", "[parser]") {
               "12-13: @Deprecated takes a message, a string without interpolation" });
     CHECK(parse_text("@Inline @Inline Function F()\nEnd Function").errors ==
           std::vector<std::string>{ "9-15: @Inline is written twice" });
+    // Load and Save convert every Struct and Class, so spec 13's sketch of @Serialize is gone.
+    CHECK(parse_text("@Serialize Class C\nEnd Class").errors ==
+          std::vector<std::string>{ "1-10: @Serialize isn't needed: Load<T>(value) and Save(x) "
+                                    "convert every Struct and Class" });
     CHECK(parse_text("@PanicsAtCaller Function F()\nEnd Function").dump ==
           "(function @PanicsAtCaller F (block))");
     CHECK(parse_text("@PanicsAtCaller(1) Function F()\nEnd Function").errors ==

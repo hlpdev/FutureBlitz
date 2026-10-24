@@ -1,0 +1,233 @@
+// Load<T>(value) and Save(x): each kind of Field, by its name or its attributes' keys, a type that
+// converts itself, OnLoaded, generic code, and round trips through Save and Load.
+
+Import std.core
+Import std.collections
+
+Enum Color
+    RED, GREEN, BLUE
+End Enum
+
+@Flags Enum Layer
+    WORLD, PLAYER, ENEMY
+End Enum
+
+// Every number type, each at its ends.
+Struct Numbers
+    Field A: Int8
+    Field B: Int16
+    Field C: Int32
+    Field D: Int64
+    Field E: UInt8
+    Field F: UInt16
+    Field G: UInt32
+    Field H: UInt64
+    Field I: Float
+    Field J: Double
+End Struct
+
+Local ends = Value.Object()
+ends["A"] = Value(-128)
+ends["B"] = Value(32767)
+ends["C"] = Value(-2147483648)
+ends["D"] = Value(-9223372036854775807 As Int64 - 1)
+ends["E"] = Value(255)
+ends["F"] = Value(65535)
+ends["G"] = Value(4294967295 As UInt32)
+ends["H"] = Value(18446744073709551615 As UInt64)
+ends["I"] = Value(0.1)
+ends["J"] = Value(1.0e300)
+Local numbers = Try Load<Numbers>(ends)
+Print(numbers.A, numbers.B, numbers.C, numbers.D, numbers.E, numbers.F, numbers.G, numbers.H,
+      numbers.I, numbers.J)
+// A Float is written as its shortest text reads, and every number comes back the same.
+Print(Save(numbers))
+Print(Save(numbers) == Save(Try Load<Numbers>(Save(numbers))))
+
+// A String that reads as a number or a Bool is one, as a command line's are, and so is a whole
+// Double for an integer, and an integer for a Double.
+Local texts = Value.Object()
+For key In ["A", "B", "C", "D", "E", "F", "G", "H"]
+    texts[key] = Value("7")
+End For
+
+texts["H"] = Value("18446744073709551615")
+texts["I"] = Value("2.5")
+texts["J"] = Value(3)
+texts["C"] = Value(12.0)
+texts["D"] = Value("+9")
+Print(Save(Try Load<Numbers>(texts)))
+Print(Try Load<Bool>(Value("true")), Try Load<Bool>(Value("FALSE")), Try Load<Bool>(Value(True)),
+      Try Load<Double>(Value("-1e3")), Try Load<Float>(Value("inf")), Try Load<Int64>(Value(-4.0)))
+
+// Enums by name, in any case, or by integer; a @Flags Enum's flags joined by |.
+Print(Try Load<Color>(Value("GREEN")), Try Load<Color>(Value("blue")), Try Load<Color>(Value(0)),
+      Try Load<Color>(Value("1")))
+Print(Try Load<Layer>(Value("WORLD | enemy")), Try Load<Layer>(Value("player|WORLD")),
+      Try Load<Layer>(Value(6)), Try Load<Layer>(Value("0")))
+Print(Save(Color.BLUE), Save(Layer.WORLD | Layer.ENEMY), Save(Layer.WORLD & Layer.ENEMY))
+Print(Try Load<Layer>(Save(Layer.WORLD & Layer.ENEMY)), Try Load<Layer>(Save(Layer.PLAYER)))
+
+// Strings, T?, arrays, bytes, Maps, and Values.
+Print(Try Load<String>(Value("text")), (Try Load<String?>(Value())) ?? "Null",
+      Try Load<String?>(Value("set")) ?? "Null", Try Load<Int[]>(Value([Value(1), Value(2)])))
+Print(Save(Try Load<Int?[]>(Value([Value(1), Value()]))),
+      Try Load<String[][]>(Value([Value([Value("a")]), Value.Array()])))
+Print(Try Load<UInt8[]>(Value([1 As UInt8, 2, 255])), Try Load<UInt8[]>(Value([Value(4), Value(5)])))
+Print(Save([1 As UInt8, 2]), Save([1, 2]), Save(["a", "b"]), Save<Int?>(Null), Save<Int?>(4))
+Local scores: Map<String, Int[]> = {"ann": [1, 2], "bo": []}
+Print(Save(scores))
+Print(Try Load<Map<String, Int[]>>(Save(scores)) == scores)
+Local raw = Value.Object()
+raw["list"] = Value([Value(True), Value("x")])
+Local kept = Try Load<Value>(raw)
+raw["list"].Expect("list").Add(Value(3))
+Print(kept, raw, Save(kept) == kept)
+
+// A Struct's and a Class's Fields, the inherited ones first; their defaults, @Optional ones, a
+// T? left out, which is Null, and keys the Object has that no Field takes.
+Struct Size
+    Field Width: Int = 4
+    Field Height: Int = 3
+End Struct
+
+Class Named
+    Field Name: String = "nobody"
+End Class
+
+Class Player Extends Named
+    @Rename("hp") Field Health: Int
+    @Optional Field Speed: Double = 1.5
+    @Optional Field Size: Size
+    @Skip Field Cache: Int = 99
+    @Renamed("colour") Field Color: Color
+    Field Layers: Layer
+    Field Nick: String?
+    @Optional Field Tags: String[] = []
+    Field Bag: Map<String, Int>
+    Field Save: Value
+
+    // Load makes a Player without it.
+    New()
+        Print("a New runs")
+        Bag = {"none": 0}
+        Save = Value()
+        Super.New()
+    End New
+End Class
+
+Local player = Value.Object()
+player["Name"] = Value("ann")
+player["hp"] = Value(30)
+player["colour"] = Value("red")
+player["Layers"] = Value("PLAYER")
+player["Bag"] = Value({"gold": Value(5)})
+player["Save"] = Value([Value(1)])
+player["unknown"] = Value("ignored")
+Local ann = Try Load<Player>(player)
+Print(ann.Name, ann.Health, ann.Speed, ann.Size.Width, ann.Size.Height, ann.Cache, ann.Color,
+      ann.Layers, ann.Nick ?? "Null", ann.Tags, ann.Bag["gold"], ann.Save)
+Local written = Save(ann)
+Print(written)
+Local back = Try Load<Player>(written)
+Print(back.Name, back.Health, back.Cache, back.Color, back.Nick ?? "Null", back.Tags,
+      Save(back) == written)
+
+// A @Flatten Field's Fields are in the Object with the others.
+Struct Place
+    Field X: Int
+    Field Y: Int
+End Struct
+
+Class Marker
+    Field Label: String
+    @Flatten Field At: Place
+    @Flatten Field Extra: Size
+End Class
+
+Local marker = Try Load<Marker>(Value({"Label": Value("m"), "X": Value(1), "Y": Value(2),
+                                      "Width": Value(8), "Height": Value(9)}))
+Print(marker.Label, marker.At.X, marker.At.Y, marker.Extra.Width, marker.Extra.Height,
+      Save(marker))
+
+// A type that converts itself, as a Field and on its own.
+Struct Version Implements Loadable, Saveable, Printable
+    Field Major: Int
+    Field Minor: Int
+
+    Static Method FromValue(value: Value): Version Throws ParseError
+        Local parts = Try Load<Int[]>(value)
+        If parts.Count != 2 Then Throw ParseError(ParseErrorKind.OTHER, "a Version is two Ints")
+        Return Version(parts[0], parts[1])
+    End Method
+
+    Method ToValue(): Value => Value([Value(Major), Value(Minor)])
+
+    Method ToString(): String => "v{Major}.{Minor}"
+End Struct
+
+Class Release
+    Field Name: String
+    Field Version: Version
+    Field Older: Version[] = []
+End Class
+
+Local release = Try Load<Release>(Value({"Name": Value("one"),
+                                         "Version": Value([Value(1), Value(2)]),
+                                         "Older": Value([Value([Value(0), Value(9)])])}))
+Print(release.Name, release.Version, release.Older, Save(release))
+
+// OnLoaded runs once the Fields are filled, a Struct's ByRef, and can work out the rest.
+Struct Box
+    Field Width: Int
+    Field Height: Int
+    @Skip Field Area: Int
+
+    ByRef Method OnLoaded()
+        Area = Width * Height
+    End Method
+End Struct
+
+Class Shelf
+    Field Boxes: Box[] = []
+    @Skip Field Total: Int
+
+    Method OnLoaded()
+        For box In Boxes
+            Total += box.Area
+        End For
+    End Method
+End Class
+
+Local shelf = Try Load<Shelf>(Value({"Boxes": Value([Value({"Width": Value(2), "Height": Value(3)}),
+                                                     Value({"Width": Value(4), "Height": Value(5)})])}))
+Print(shelf.Boxes[0].Area, shelf.Boxes[1].Area, shelf.Total)
+
+// A generic Class's instance, and Load<T> and Save in generic code, for each instance's T.
+Struct Pair<A, B>
+    Field First: A
+    Field Second: B
+End Struct
+
+Function Copied<T>(x: T): T Throws ParseError => Try Load<T>(Save(x))
+
+Local pair = Try Load<Pair<String, Int[]>>(Value({"First": Value("p"),
+                                                   "Second": Value([Value(1)])}))
+Print(pair.First, pair.Second, Save(pair))
+Print(Try Copied(Size(1, 2)).Width, Try Copied("s"), Try Copied([Color.RED]), Try Copied(2.5))
+Print(Save<Int64>(3), Save<Double?>(2))
+
+// A Class that holds others, deep enough to have a path, and the same object in two places,
+// which is saved in each.
+Class Node
+    Field Name: String
+    @Optional Field Kids: Node[] = []
+End Class
+
+Local leaf = Try Load<Node>(Value({"Name": Value("leaf")}))
+Local tree = Node()
+tree.Name = "root"
+tree.Kids = [leaf, leaf]
+Print(Save(tree))
+Local copy = Try Load<Node>(Save(tree))
+Print(copy.Kids.Count, RefEquals(copy.Kids[0], copy.Kids[1]), copy.Kids[1].Name)

@@ -301,6 +301,16 @@ Public Class Value Implements Equatable, Hashable, Printable, Cloneable
     @PanicsAtCaller
     Public Method Remove(key: String): Bool => ObjectEntries("Value.Remove").Remove(key)
 
+    // Adds an Array's element, or an Object's entry, without the check Add and []= make, for
+    // the new Values that Save makes, none of which can hold another.
+    Package Method Append(value: Value)
+        ArrayElements("Value.Append").Add(value)
+    End Method
+
+    Package Method Put(key: String, value: Value)
+        ObjectEntries("Value.Put")[key] = value
+    End Method
+
     // Copies it, and its elements and entries, whole. A Value held in several places is copied
     // once for each place.
     Public Method Clone(): Value

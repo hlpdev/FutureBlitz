@@ -1304,7 +1304,8 @@ private:
                 modifiers.is_c_layout = true;
                 c_layout_span = name.span;
             } else if (name.text == "Serialize") {
-                error(name.span, "@{} isn't supported yet", name.text);
+                error(name.span, "@Serialize isn't needed: Load<T>(value) and Save(x) convert "
+                                 "every Struct and Class");
             } else if (!name.text.empty()) {
                 // One an Attribute declaration declares, which analysis finds.
                 modifiers.attributes.push_back({ .name = name, .arguments = std::move(arguments) });

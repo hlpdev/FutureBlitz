@@ -1,0 +1,374 @@
+// What Load<T>(value) and Save(x) read: the attributes on a Struct's or Class's Fields that
+// change how they're loaded and saved, and the Interfaces of a type that converts itself. The
+// compiler builds each type's Load and Save, Field by Field, over the Package Functions below.
+// One that can fail puts its ParseError in its last parameter, as a Function that throws does,
+// but without a Throw, so it gets its Place where Load<T> is called.
+
+Import std.core.error
+Import std.core.value
+Import std.collections.map
+
+Extern "runtime"
+    Function fb_value_quoted(text: String): String
+    Function fb_value_scalar(text: String, ByRef bits: UInt64, ByRef real: Double): Int32
+    Function fb_value_enum(text: String, names: String[], values: UInt64[], flags: Int32,
+                           ByRef bits: UInt64): Int32
+    Function fb_value_float(value: Float32): Double
+End Extern
+
+// The key a Field has in a Value's Object, in place of its name.
+Public Attribute Rename(Name: String)
+// A Field that Load leaves at its default, and Save leaves out.
+Public Attribute Skip
+// A Field that a Value can leave out, which Load then leaves at its default.
+Public Attribute Optional
+// A Struct's or Class's Field whose own Fields go in the Object with the others, not in an Object
+// of their own.
+Public Attribute Flatten
+// The key a Field had before, which Load reads when the Object doesn't have its key, so what an
+// older version saved still loads.
+Public Attribute Renamed(From: String)
+
+// A type that makes itself from a Value, which Load<T> calls in place of filling its Fields.
+Public Interface Loadable
+    Static Method FromValue(value: Value): Self Throws ParseError
+End Interface
+
+// A type that gives its own Value, which Save calls in place of writing its Fields.
+Public Interface Saveable
+    Method ToValue(): Value
+End Interface
+
+// How deep Load goes into a Value's Arrays and Objects, and Save into a value's Fields and
+// elements, since each level is a call.
+Const MostDepth = 256
+
+// What a String reads as, a Bool or a number, as a command line's and an environment's values
+// are taken; else the Value itself.
+Function Read(value: Value): Value
+    Local text = value.AsString()
+    If text == Null Then Return value
+    Local bits: UInt64 = 0
+    Local real: Double = 0
+    Select fb_value_scalar(text, ByRef bits, ByRef real)
+        Case 1
+            Return Value(bits != 0)
+        Case 2
+            Return Value(bits As Int64)
+        Case 3
+            Return Value(bits)
+        Case 4
+            Return Value(real)
+        Default
+            Return value
+    End Select
+End Function
+
+// What Load<T> says it found: a short scalar's text, or what kind of Value it is.
+Function Found(value: Value): String
+    Select value.Kind
+        Case ValueKind.NULL
+            Return "Null"
+        Case ValueKind.BYTES
+            Return "bytes"
+        Case ValueKind.ARRAY
+            Return "an Array"
+        Case ValueKind.OBJECT
+            Return "an Object"
+        Default
+            Local text = value.ToString()
+            Return text.Bytes.Count <= 40 ? text : "a String"
+    End Select
+End Function
+
+// An error for a Value of another kind than wanted, which Load's code puts the path before.
+Function Mismatch(value: Value, wanted: String): ParseError
+    Return ParseError(ParseErrorKind.WRONG_TYPE, "expected {wanted}, found {Found(value)}",
+                      path: "")
+End Function
+
+Function OutOfRange(value: Value, type: String, least: String, most: String): ParseError
+    Return ParseError(ParseErrorKind.OUT_OF_RANGE,
+                      "expected {type}, from {least} to {most}, found {Found(value)}", path: "")
+End Function
+
+// A key as a step of a path: as it is, or quoted in brackets when it's empty or has a dot or a
+// bracket in it, which a path's steps are told apart by.
+Function KeyStep(key: String): String
+    For code In key.Chars
+        If code == '.' || code == '[' || code == ']' Then Return "[{fb_value_quoted(key)}]"
+    End For
+
+    Return key == "" ? "[\"\"]" : key
+End Function
+
+// Whether Load can go into an Array or Object at this depth, and else the error.
+Function Deep(depth: Int, ByRef error: Error?): Bool
+    If depth < MostDepth Then Return False
+    error = ParseError(ParseErrorKind.OUT_OF_RANGE,
+                       "the Value nests deeper than Load goes, {MostDepth} levels", path: "")
+    Return True
+End Function
+
+// Load's Bool: a BOOL, or a String that reads as one, like "true".
+Package Function LoadBool(value: Value, ByRef error: Error?): Bool
+    Local read = Read(value).AsBool()
+    If read == Null
+        error = Mismatch(value, "Bool")
+        Return False
+    End If
+
+    Return read
+End Function
+
+// Load's integer, from least to most: an integer, a whole Double, or a String that reads as
+// one. A UInt64 is read as an unsigned one, from 0, with LoadUnsigned. A number past its range is
+// OUT_OF_RANGE, and one with a fraction is of the WRONG_TYPE.
+Package Function LoadSigned(value: Value, least: Int64, most: Int64, type: String,
+                            ByRef error: Error?): Int64
+    Local read = Read(value)
+    Local whole = read.AsInt64()
+    Local real = read.AsDouble()
+    If whole == Null && read.Kind == ValueKind.DOUBLE && real != Null &&
+       real >= -9223372036854775808.0 && real < 9223372036854775808.0 &&
+       ((real As Int64) As Double) == real
+        whole = real As Int64
+    End If
+
+    If whole != Null && whole >= least && whole <= most Then Return whole
+    error = (whole != Null || Integral(read) ? OutOfRange(value, type, "{least}", "{most}")
+                                             : Mismatch(value, type))
+    Return 0
+End Function
+
+Package Function LoadUnsigned(value: Value, type: String, ByRef error: Error?): UInt64
+    Local read = Read(value)
+    Local whole = read.AsUInt64()
+    Local real = read.AsDouble()
+    If whole == Null && read.Kind == ValueKind.DOUBLE && real != Null && real >= 0.0 &&
+       real < 18446744073709551616.0 && ((real As UInt64) As Double) == real
+        whole = real As UInt64
+    End If
+
+    If whole != Null Then Return whole
+    error = (Integral(read) ? OutOfRange(value, type, "0", "18446744073709551615")
+                            : Mismatch(value, type))
+    Return 0
+End Function
+
+// Whether a number that no integer type holds is a whole one all the same: an integer, or a
+// Double past an Int64's range, where every Double is whole, or an infinity, or a whole one in it.
+Function Integral(read: Value): Bool
+    If read.IsInteger Then Return True
+    Local real = read.AsDouble()
+    If real == Null Then Return False
+    If real >= 9223372036854775808.0 || real < -9223372036854775808.0 Then Return True
+    Return real == real && ((real As Int64) As Double) == real
+End Function
+
+// Load's Double, or Float32 when single: any number, or a String that reads as one. A Float32
+// can be infinite, but a finite Double that rounds past its largest is out of its range.
+Package Function LoadDouble(value: Value, single: Bool, ByRef error: Error?): Double
+    Local real = Read(value).AsDouble()
+    If real == Null
+        error = Mismatch(value, single ? "Float32" : "Float64")
+        Return 0
+    End If
+
+    Local past: Double = 340282356779733661637539395458142568448.0
+    If single && real - real == 0.0 && (real >= past || real <= -past)
+        error = OutOfRange(value, "Float32", "-3.4028235e+38", "3.4028235e+38")
+        Return 0
+    End If
+
+    Return real
+End Function
+
+Package Function LoadString(value: Value, ByRef error: Error?): String
+    Local text = value.AsString()
+    If text == Null
+        error = Mismatch(value, "String")
+        Return ""
+    End If
+
+    Return text
+End Function
+
+// Load's UInt8[]: bytes, or an Array of integers from 0 to 255, as JSON has them, or one alone.
+Package Function LoadBytes(value: Value, ByRef error: Error?): UInt8[]
+    Local bytes = value.AsBytes()
+    If bytes != Null Then Return bytes
+    Local elements = value.AsArray()
+    If elements == Null && !value.IsNull Then elements = [value]
+    If elements == Null
+        error = Mismatch(value, "bytes, or an Array of them, for UInt8[]")
+        Return []
+    End If
+
+    Local made: UInt8[] = []
+    made.Reserve(elements.Count)
+    For i = 0 Until elements.Count
+        Local byte = LoadSigned(elements[i], 0, 255, "UInt8", ByRef error)
+        Local failed = error
+        If failed != Null
+            LoadWithinIndex(failed, i)
+            Return []
+        End If
+
+        made.Add(byte As UInt8)
+    End For
+
+    Return made
+End Function
+
+// Load's Enum: a member's name, as Save writes it, or the same name in another case; for a
+// @Flags Enum, names joined by "|", like "WORLD | PLAYER"; or an integer of the Enum's type, from
+// least to most.
+Package Function LoadEnum(value: Value, names: String[], values: UInt64[], flags: Bool,
+                          least: Int64, most: Int64, type: String, ByRef error: Error?): UInt64
+    Local text = value.AsString()
+    Local bits: UInt64 = 0
+    If text != Null && fb_value_enum(text, names, values, flags ? 1 : 0, ByRef bits) == 1
+        Return bits
+    End If
+
+    If Read(value).IsNumber
+        Return LoadSigned(value, least, most, type, ByRef error) As UInt64
+    End If
+
+    Local listed = ""
+    For i = 0 Until names.Count
+        If i > 0 Then listed = listed + (i == names.Count - 1 ? ", or " : ", ")
+        listed = listed + names[i]
+    End For
+
+    error = Mismatch(value, (flags ? "{type}, its flags, {listed}, joined by |"
+                                   : "{type}, one of {listed}"))
+    Return 0
+End Function
+
+// A copy of a Value, which a Value's Field gets, so changing one doesn't change the other.
+Package Function LoadValue(value: Value): Value => value.Clone()
+
+Package Function LoadNull(value: Value): Bool => value.IsNull
+
+// An Array's elements, for a T[], each of which Load goes into. Another Value but Null is an
+// Array of it alone, as XML and a command line give one item.
+Package Function LoadElements(value: Value, depth: Int, type: String,
+                              ByRef error: Error?): Value[]
+    If Deep(depth, ByRef error) Then Return []
+    Local elements = value.AsArray()
+    If elements != Null Then Return elements
+    If !value.IsNull Then Return [value]
+    error = Mismatch(value, "an Array, for {type}")
+    Return []
+End Function
+
+// An Object's keys, for a Map, which Load goes into.
+Package Function LoadKeys(value: Value, depth: Int, type: String,
+                          ByRef error: Error?): String[]
+    If Deep(depth, ByRef error) Then Return []
+    If !value.IsObject
+        error = Mismatch(value, "an Object, for {type}")
+        Return []
+    End If
+
+    Return value.Keys()
+End Function
+
+// Checks that a Struct's or Class's Value is an Object, which Load goes into.
+Package Function LoadObject(value: Value, depth: Int, type: String, ByRef error: Error?)
+    If !Deep(depth, ByRef error) && !value.IsObject
+        error = Mismatch(value, "an Object, for {type}")
+    End If
+End Function
+
+Package Function LoadEntry(value: Value, key: String): Value? => value[key]
+
+// A Field that the Object has no key for, and that isn't @Optional or a T?.
+Package Function LoadMissing(type: String, field: String, ByRef error: Error?)
+    error = ParseError(ParseErrorKind.MISSING,
+                       "missing, and {type}'s Field {field} isn't @Optional", path: "")
+End Function
+
+// What Load's code does with an error on its way out of an Object's entry or an Array's
+// element: puts its key or index before the error's path.
+Package Function LoadWithinKey(error: Error, key: String)
+    Local parse = error As? ParseError
+    If parse != Null Then parse.Within(KeyStep(key))
+End Function
+
+Package Function LoadWithinIndex(error: Error, index: Int)
+    Local parse = error As? ParseError
+    If parse != Null Then parse.Within("[{index}]")
+End Function
+
+Package Function LoadMap<V>(count: Int): Map<String, V>
+    Local made = Map<String, V>()
+    made.Reserve(count)
+    Return made
+End Function
+
+Package Function LoadPut<V>(map: Map<String, V>, key: String, item: V)
+    map[key] = item
+End Function
+
+Package Function SaveBool(x: Bool): Value => Value(x)
+
+Package Function SaveSigned(x: Int64): Value => Value(x)
+
+Package Function SaveUnsigned(x: UInt64): Value => Value(x)
+
+Package Function SaveDouble(x: Double): Value => Value(x)
+
+// A Float32 as the Double its shortest text reads as, so 0.1 is written as 0.1.
+Package Function SaveFloat(x: Float32): Value => Value(fb_value_float(x))
+
+Package Function SaveString(x: String): Value => Value(x)
+
+Package Function SaveBytes(x: UInt8[]): Value => Value(x)
+
+Package Function SaveValue(x: Value): Value => x.Clone()
+
+Package Function SaveNull(): Value => Value()
+
+// An empty Array or Object, for the elements or Fields at that depth. Past MostDepth, it panics:
+// a value nested that deep is most likely a Class that holds itself.
+Package Function SaveArray(depth: Int): Value
+    If depth >= MostDepth Then Panic(TooDeep())
+    Return Value.Array()
+End Function
+
+Package Function SaveObject(depth: Int): Value
+    If depth >= MostDepth Then Panic(TooDeep())
+    Return Value.Object()
+End Function
+
+Function TooDeep(): String
+    Return "Save goes {MostDepth} levels deep into Fields and elements, and no further; a " +
+           "Class that holds itself, inside it, can't be saved"
+End Function
+
+Package Function SaveElement(array: Value, element: Value)
+    array.Append(element)
+End Function
+
+Package Function SaveEntry(object: Value, key: String, entry: Value)
+    object.Put(key, entry)
+End Function
+
+// A @Flatten Field's entries, in the Object with the others.
+Package Function SaveFlattened(object: Value, inner: Value, type: String)
+    If !inner.IsObject
+        Panic("a @Flatten Field's {type} is saved as an Object, and its ToValue gave " +
+              Found(inner))
+    End If
+
+    For key In inner.Keys()
+        object.Put(key, inner[key].Expect("an Object's key"))
+    End For
+End Function
+
+Package Function SaveKeys<V>(map: Map<String, V>): String[] => map.Keys()
+
+Package Function SaveValues<V>(map: Map<String, V>): V[] => map.Values()

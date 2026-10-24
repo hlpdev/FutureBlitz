@@ -7379,6 +7379,253 @@ TEST_CASE("TypeName gives a type's name, known at compile time", "[sema]") {
     CHECK(probe("Function TypeName(): Int => 1\nLocal x = TypeName()") == "Int32");
 }
 
+TEST_CASE("Load<T> makes a T from a Value, and Save a Value of anything Load makes", "[sema]") {
+    CHECK(probe("Import std.core\nLocal x = Try Load<Int[]>(Value())") == "Int32[]");
+    CHECK(probe("Import std.core\nLocal x = Try? Load<String?>(Value())") == "String?");
+    CHECK(probe("Import std.core\nLocal x = Save(5)") == "Value");
+    CHECK(probe("Import std.core\nLocal x = Save<Int64?>(5)") == "Value");
+    CHECK(errors_of("Import std.core\n"
+                    "Import std.collections\n"
+                    "Enum Kind\n    A, B\nEnd Enum\n"
+                    "Struct Point\n    Field X: Float\n    Field Y: Double\nEnd Struct\n"
+                    "Class Node\n    Field Name: String\n    Field Kids: Node[] = []\n"
+                    "    Field Up: Node?\n    Field Data: Value?\n    Field Bytes: UInt8[] = []\n"
+                    "    Field Kind: Kind\n    Field At: Map<String, Point?>?\n"
+                    "    Field Small: Int8\n    Field Big: UInt64\n    Field Flag: Bool\nEnd Class\n"
+                    "Function Get<T>(value: Value): T Throws ParseError => Try Load<T>(value)\n"
+                    "Local value = Value()\n"
+                    "Local node = Try Load<Node>(value)\n"
+                    "Local saved = Save(node)\n"
+                    "Local again = Try Get<Node>(saved)\n"
+                    "Try\n    Local p = Load<Point>(value)\nCatch e As ParseError\nEnd Try")
+              .empty());
+
+    // A program's own Load or Save takes the built-in's place.
+    CHECK(probe("Function Load(x: Int): Int => x\nLocal x = Load(3)") == "Int32");
+    CHECK(probe("Function Save(): String => \"\"\nLocal x = Save()") == "String");
+}
+
+TEST_CASE("Load<T> and Save say what's wrong with a call", "[sema]") {
+    const std::string load = ": Load takes one type argument and a Value, like Load<Settings>(value)";
+    const std::string save = ": Save takes a value, and a type argument or none, like Save(settings)";
+    CHECK(errors_of("Import std.core\n"
+                    "Local v = Value()\n"
+                    "Local a = Try Load(v)\n"
+                    "Local b = Try Load<Int>()\n"
+                    "Local c = Try Load<Int, Int>(v)\n"
+                    "Local d = Try Load<Int>(v, v)\n"
+                    "Local e = Try Load<Int>(ByRef v)\n"
+                    "Local f = Try Load<Int>(value: v)\n"
+                    "Local g = Try Load<Int>(5)\n"
+                    "Local h = Load<Int>(v)\n"
+                    "Local i = Load\n"
+                    "Local j = Save()\n"
+                    "Local k = Save<Int, Int>(1)\n"
+                    "Local l = Save(ByRef v)\n"
+                    "Local m = Save(Print(\"x\"))\n"
+                    "Local n = Save<Int>(\"x\")\n"
+                    "Local o = Save\n"
+                    "Local p = Try Load<Nowhere>(v)") ==
+          errors_t{
+              "Load(v)" + load,
+              "Load<Int>()" + load,
+              "Load<Int, Int>(v)" + load,
+              "Load<Int>(v, v)" + load,
+              "Load<Int>(ByRef v)" + load,
+              "Load<Int>(value: v)" + load,
+              "5: expected Value, found Int32",
+              "Load<Int>(v): 'Load' can throw ParseError, so calling it needs Try, Try?, or a Try "
+              "block",
+              "Load: 'Load' is called, as in Load<T>(value)",
+              "Save()" + save,
+              "Save<Int, Int>(1)" + save,
+              "Save(ByRef v)" + save,
+              "Print(\"x\"): 'Print' doesn't return a value",
+              "\"x\": expected Int32, found String",
+              "Save: 'Save' is called, as in Save(x)",
+              "Nowhere: 'Nowhere' isn't a type",
+          });
+}
+
+TEST_CASE("Load<T> and Save say which part of a type they can't convert, and where it is",
+          "[sema]") {
+    const std::string makes = "; it makes numbers, Bool, String, Enums, Value, T?, T[], "
+                              "Map<String, V>, and Structs and Classes of them, and what "
+                              "implements Loadable";
+    const std::string writes = "; it writes numbers, Bool, String, Enums, Value, T?, T[], "
+                               "Map<String, V>, and Structs and Classes of them, and what "
+                               "implements Saveable";
+    CHECK(errors_of("Import std.core\n"
+                    "Import std.collections\n"
+                    "Struct Inner\n    Field Run: Func(): Int\nEnd Struct\n"
+                    "Class Holder\n    Field Name: String\n    Field Parts: Inner[]?\nEnd Class\n"
+                    "Abstract Class Shape\nEnd Class\n"
+                    "Class Counter\n    Field Count: Atomic<Int>\nEnd Class\n"
+                    "Class Skipped\n    @Skip Field Count: Atomic<Int>\nEnd Class\n"
+                    "Local v = Value()\n"
+                    "Local a = Try Load<Holder>(v)\n"
+                    "Local b = Try Load<Shape>(v)\n"
+                    "Local c = Try Load<Map<Int, Int>>(v)\n"
+                    "Local d = Try Load<Counter>(v)\n"
+                    "Local e = Try Load<Skipped>(v)\n"
+                    "Local f = Try Load<(Int, Int)>(v)\n"
+                    "Local g = Try Load<CLong>(v)\n"
+                    "Function Saved(shape: Shape, h: Holder): Value\n"
+                    "    Local s = Save(shape)\n"
+                    "    Return Save(h)\n"
+                    "End Function\n"
+                    "Local i = Save(Function() => 1)\n"
+                    "Local j = Save<Int[4]>([1, 2, 3, 4])") ==
+          errors_t{
+              "Holder: Load can't make Func(): Int32, in Holder's Parts[].Run" + makes,
+              "Shape: Load can't make Shape, which is Abstract, so there's no object of it to "
+              "make",
+              "Map<Int, Int>: Load can't make Map<Int32, Int32>; a Map's keys are an Object's, "
+              "which are Strings",
+              "Counter: Load can't make Atomic<Int32>, in Counter's Count, which can't be copied; "
+              "@Skip leaves its Field out",
+              "(Int, Int): Load can't make (Int32, Int32)" + makes,
+              "CLong: Load can't make CLong" + makes,
+              "h: Save can't write Func(): Int32, in Holder's Parts[].Run" + writes,
+              "Function() => 1: Save can't write Func(): Int32" + writes,
+              "Int[4]: Save can't write Int32[4]" + writes,
+          });
+}
+
+TEST_CASE("std.core's attributes for Load and Save go on Fields, each where it means something",
+          "[sema]") {
+    CHECK(errors_of("Import std.core\n"
+                    "Class Node\nEnd Class\n"
+                    "Struct Size\n    Field W: Int\nEnd Struct\n"
+                    "@Rename(\"f\") Function F()\nEnd Function\n"
+                    "Struct A\n"
+                    "    @Optional Static Field Count: Int = 0\n"
+                    "    @Skip @Rename(\"b\") Field B: Int\n"
+                    "    @Rename(\"c\") @Skip Field C: Int\n"
+                    "    @Flatten @Optional Field D: Size\n"
+                    "    @Renamed(\"old\") @Flatten Field E: Size\n"
+                    "    @Flatten Field F: Int\n"
+                    "    @Flatten Field G: Size?\n"
+                    "    @Optional Field H: Node\n"
+                    "    @Skip Field I: Int[]\n"
+                    "    @Optional Field J: Node?\n"
+                    "    @Skip Field K: Int[] = []\n"
+                    "    @Flatten Field L: Node\n"
+                    "End Struct") ==
+          errors_t{
+              "Rename: @Rename goes on a Struct's or Class's Field, which Load and Save read",
+              "Optional: @Optional goes on a Struct's or Class's Field, which Load and Save read",
+              "Rename: @Skip leaves the Field out, so @Rename doesn't go with it",
+              "Skip: @Skip leaves the Field out, so @Rename doesn't go with it",
+              "Optional: a @Flatten Field's Fields go in the Object with the others, so it has no "
+              "key for @Optional",
+              "Flatten: a @Flatten Field's Fields go in the Object with the others, so it has no "
+              "key for @Renamed",
+              "Flatten: @Flatten goes on a Struct's or Class's Field whose own type is a Struct or "
+              "Class, whose Fields join the others; 'F' is Int32",
+              "Flatten: @Flatten goes on a Struct's or Class's Field whose own type is a Struct or "
+              "Class, whose Fields join the others; 'G' is Size?",
+              "Optional: @Optional leaves 'H' at its default when Load makes A, and Node has no "
+              "zero, so it needs a default of its own",
+              "Skip: @Skip leaves 'I' at its default when Load makes A, and Int32[] has no zero, "
+              "so it needs a default of its own",
+          });
+
+    // Each Field has a key of its own, inherited ones too, and an old key is no other's, which a
+    // type that's never loaded or saved needn't have.
+    CHECK(errors_of("Import std.core\n"
+                    "Class Base\n    Field Name: String\nEnd Class\n"
+                    "Class Titled Extends Base\n    @Rename(\"Name\") Field Title: String\nEnd Class\n"
+                    "Class Twice\n    @Rename(\"a\") Field B: Int\n    @Rename(\"a\") Field C: Int\n"
+                    "End Class\n"
+                    "Class Old\n    @Rename(\"a\") Field B: Int\n    @Renamed(\"a\") Field D: Int\n"
+                    "End Class\n"
+                    "Class Own\n    @Renamed(\"E\") Field E: Int\nEnd Class\n"
+                    "Class Skipped\n    @Skip Field F: Int\n    @Rename(\"F\") Field G: Int\nEnd Class\n"
+                    "Local v = Value()\n"
+                    "Local a = Try Load<Titled>(v)\n"
+                    "Local b = Save(Titled())\n"
+                    "Local c = Try Load<Twice>(v)\n"
+                    "Local d = Try Load<Old>(v)\n"
+                    "Local e = Save(Old())\n"
+                    "Local f = Try Load<Own>(v)\n"
+                    "Local g = Try Load<Skipped>(v)") ==
+          errors_t{
+              "Titled: Load can't make Titled, whose Fields 'Name' and 'Title' both have the key "
+              "\"Name\"; @Rename gives one another",
+              "Titled(): Save can't write Titled, whose Fields 'Name' and 'Title' both have the "
+              "key \"Name\"; @Rename gives one another",
+              "Twice: Load can't make Twice, whose Fields 'B' and 'C' both have the key \"a\"; "
+              "@Rename gives one another",
+              "Old: Load can't make Old, whose Field 'D' was \"a\" before, which is the key of "
+              "'B' now, so Load can't tell the two apart",
+              "Own: Load can't make Own, whose Field 'E' was \"E\" before, which is its own key "
+              "now, so Load can't tell the two apart",
+          });
+    CHECK(errors_with("Import std.core\n"
+                      "Import \"./lib/base\"\n"
+                      "Class Mine Extends Base\n    Field hidden: Int\nEnd Class\n"
+                      "Local m = Mine()\n"
+                      "Local v = Save(m)",
+                      { { .path = "lib/base.fb",
+                          .text = "Public Class Base\n    Field hidden: Int\nEnd Class\n" } }) ==
+          errors_t{ "m: Save can't write Mine, whose Fields 'hidden' and 'hidden' both have the "
+                    "key \"hidden\"; @Rename gives one another" });
+}
+
+TEST_CASE("OnLoaded is a Method that Load<T> runs, which takes and gives nothing", "[sema]") {
+    CHECK(errors_of("Import std.core\n"
+                    "Class A\n"
+                    "    Method OnLoaded(x: Int)\n    End Method\n"
+                    "End Class\n"
+                    "Class B\n"
+                    "    Method OnLoaded(): Int => 1\n"
+                    "End Class\n"
+                    "Class C\n"
+                    "    Method OnLoaded<T>()\n    End Method\n"
+                    "End Class\n"
+                    "Class D<T>\n"
+                    "    Method OnLoaded()\n        Where T: Printable\n    End Method\n"
+                    "End Class\n"
+                    "Class E\n"
+                    "    Static Method OnLoaded()\n    End Method\n"
+                    "End Class\n"
+                    "Class F\n"
+                    "    Async Method OnLoaded()\n    End Method\n"
+                    "End Class\n"
+                    "Struct G\n"
+                    "    Field X: Int\n"
+                    "    Method OnLoaded()\n    End Method\n"
+                    "End Struct\n"
+                    "Class H\n"
+                    "    Method OnLoaded() Throws IOError\n"
+                    "        Throw IOError(IOErrorKind.OTHER, \"no\")\n"
+                    "    End Method\n"
+                    "End Class\n"
+                    "Class I\nEnd Class\n"
+                    "Extend I\n"
+                    "    Method OnLoaded()\n    End Method\n"
+                    "End Extend\n"
+                    "Struct J\n"
+                    "    Field X: Int\n"
+                    "    ByRef Method OnLoaded() Throws ParseError\n"
+                    "        X = 1\n"
+                    "    End Method\n"
+                    "End Struct") ==
+          errors_t{
+              "OnLoaded: OnLoaded takes no parameters and returns nothing; Load<T> runs it",
+              "OnLoaded: OnLoaded takes no parameters and returns nothing; Load<T> runs it",
+              "OnLoaded: OnLoaded can't be generic, since Load<T> runs it",
+              "OnLoaded: OnLoaded can't have a Where line, since Load<T> runs every T's",
+              "OnLoaded: OnLoaded can't be Static; it runs on what Load<T> makes",
+              "OnLoaded: OnLoaded can't be Async, since Load<T> runs it to its end",
+              "OnLoaded: a Struct's OnLoaded is a ByRef Method, so it can change what was loaded",
+              "OnLoaded: OnLoaded throws only ParseErrors, which Load<T>, which runs it, throws; "
+              "IOError isn't one",
+              "OnLoaded: an Extend can't add an OnLoaded; Load<T> runs a type's own",
+          });
+}
+
 TEST_CASE("Ptrs and SizeOf say what's wrong with them", "[sema]") {
     // SizeOf and AddressOf look like calls, but only give a value, so alone they do nothing.
     CHECK(errors_of("SizeOf<Int32>()\n"

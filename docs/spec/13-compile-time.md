@@ -73,7 +73,6 @@ Local table: Int[Fib(10)]          // usable in types
 @CLayout Struct JPH_Vec3 ...
 @MainThread Function RenderWorld()
 @PanicsAtCaller Method Pop(): T
-@Serialize Class SaveData ...
 ```
 
 | Attribute | Effect |
@@ -85,7 +84,6 @@ Local table: Int[Fib(10)]          // usable in types
 | `@CLayout` | C-compatible struct layout |
 | `@MainThread` | callable only from the main thread |
 | `@PanicsAtCaller` | its panics report where it's called |
-| `@Serialize` | generate serialization code via compile-time reflection |
 
 - An attribute goes before a declaration, on its line or alone on the line above.
 - `@Inline` goes on a Function, Method, Operator, or Property with a body. Every call to it is
@@ -100,8 +98,8 @@ Local table: Int[Fib(10)]          // usable in types
   report where it's called (see [09-errors.md](09-errors.md#panics)), not Destroy or an Extern
   Function, and of an Interface's members only a Final, generic, or conditional default, which
   a call runs directly.
-- `@CLayout` lays a Struct out as C does (see [12-ffi.md](12-ffi.md)), and `@Serialize` comes
-  with the serialization library (M6); until then it's reported as not supported yet.
+- `@CLayout` lays a Struct out as C does (see [12-ffi.md](12-ffi.md)). `@Serialize` isn't
+  needed: Load and Save (below) convert every Struct and Class, so it's an error that says so.
 
 ### Declaring attributes
 
@@ -209,7 +207,71 @@ End Function
   TypeName takes its place.
 - `Continue` goes on to the next copy, and `Break` past the last. Other types, like Int, have no
   fields or Methods, so the loop's body is never run.
-- `@Serialize` comes with the serialization library (M6).
+
+## Load and Save
+
+```vb
+Class Settings
+    @Rename("player_name") Field Name: String
+    @Optional Field Volume: Double = 0.8
+    @Skip Field Cache: Int[] = []
+    Field Keys: Map<String, Key>
+
+    Method OnLoaded() Throws ParseError
+        If Volume > 1.0 Then Throw ParseError(ParseErrorKind.OUT_OF_RANGE, "Volume is past 1")
+    End Method
+End Class
+
+Local saved = Save(settings)                    // a Value, which a format writes out
+Local loaded = Try Load<Settings>(saved)        // and makes a Settings from again
+```
+
+- The built-ins `Load<T>(value)` and `Save(x)`, or `Save<T>(x)` for an x that converts to a T,
+  convert between std.core's `Value` and a T, which the compiler checks it can, Field by Field
+  through what T is made of, by compile-time reflection. In generic code, each instance's T is
+  checked. A module's own Load or Save, or an imported one, takes the name's place.
+- The numbers are integers and Doubles, a Bool a BOOL, a String a STRING, and an Enum its member's
+  name, as its text has it ("WORLD | PLAYER" for a @Flags Enum's flags, and an integer for a value
+  that isn't a member's), which Load also takes in another case, or as an integer. A `T?` is
+  Null or a T, a `T[]` an Array, which Load also takes as one Value alone, as XML and a command
+  line give one item, a `UInt8[]` bytes, which Load also takes as an Array of integers, as JSON
+  has them, and a `Map<String, V>` an Object. A Value is copied, so the T and
+  the Value don't share one.
+- A Struct or Class is an Object of its Fields, the inherited ones first, by name, but not
+  Properties. Load makes one without running its New: each Field starts at its default, then
+  takes the Object's entry for its key, and keys the type has no Field for are left alone. Then
+  its `OnLoaded()` runs, which can check what was loaded, or work out what wasn't, and throw a
+  ParseError. A Class is saved as its own type's Fields, whatever Class extends it, and an
+  Abstract one can't be loaded. A Func, an Interface's object, a tuple, a fixed array, a
+  Weak, a Ptr, a Task, and the other types like them can't be converted.
+- Load also reads a number or a Bool from a String that reads as one, like "8080" or "true", as
+  a command line's and an environment's values are; and an integer from a whole Double, and a
+  Double from an integer.
+- std.core's attributes on a Field change it: `@Rename("key")` gives it another key, `@Skip`
+  leaves it out (Load leaves it at its default), `@Optional` lets the Object leave it out, which
+  Load leaves at its default too, as it does a `T?` Field, which is Null without one, and
+  `@Renamed("old")` reads an older key when the Object doesn't have its own, so what an earlier
+  version of a program saved still loads. `@Flatten` puts a Struct's or Class's Field's own
+  Fields in the Object with the others, not in an Object of their own. A Field that @Skip or
+  @Optional leaves at its default has one, a type with a zero or a default of its own; two
+  Fields can't have one key, and a Field's old key is no other's.
+- A type that converts itself implements std.core's `Loadable`, with `Static Method
+  FromValue(value: Value): Self Throws ParseError`, which Load calls in its place, or
+  `Saveable`, with `Method ToValue(): Value`, which Save does.
+- `OnLoaded()` is a Method of a Struct or Class that takes and gives nothing, a ByRef Method in a
+  Struct, and throws only ParseErrors. It isn't generic, Static, or Async, and an Extend can't
+  add one.
+- Load throws a ParseError, of `WRONG_TYPE` for a Value of another kind, `OUT_OF_RANGE` for a
+  number too big for its type, and `MISSING` for a Field that the Object has no entry for, and
+  that isn't @Optional or a `T?`. Its `Path` says where in the Value it is, like
+  `"options.sizes[2]"`, or `""` for the Value itself, and its Message starts with it:
+  `options.sizes[2]: expected Int32, found "big"`. A key that a path's steps can't tell apart
+  from the rest, like one with a dot in it, is quoted in brackets: `["a.b"]`. Its Place is the
+  Load<T> call's, and an error that FromValue or OnLoaded throws keeps its own, with the path to
+  where it was thrown.
+- Load goes 256 levels deep into a Value's Arrays and Objects, and throws a ParseError of
+  `OUT_OF_RANGE` past that, and Save goes as deep into Fields and elements, and panics past that,
+  as for a Class that holds itself, whose Save would never end.
 
 ## Conditional compilation
 

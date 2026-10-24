@@ -1,0 +1,19 @@
+// A @Flatten Field's type is saved as an Object, which one that converts itself to another kind
+// of Value isn't.
+Import std.core
+
+Struct Tag Implements Saveable
+    Field Text: String
+
+    Method ToValue(): Value => Value(Text)
+End Struct
+
+Class Item
+    Field Name: String = "item"
+    @Flatten Field Tag: Tag
+End Class
+
+Local item = Item()
+item.Tag = Tag("red")
+Print(Save(item.Tag))
+Print(Save(item))

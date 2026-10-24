@@ -1,0 +1,12 @@
+// Save of a Class that holds itself goes as deep as Save goes, and panics there.
+Import std.core
+
+Class Node
+    Field Name: String = "n"
+    Field Next: Node?
+End Class
+
+Local node = Node()
+node.Next = node
+Print(Save(node.Next?.Name ?? ""))
+Print(Save(node))

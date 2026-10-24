@@ -52,6 +52,7 @@ So far, std/ holds:
 | std/core/parse.fb | `Parse` on each integer type, each Float type, and Bool, in an Extend of each, over the runtime's `fb_parse_int`, `fb_parse_uint`, and `fb_parse_float` |
 | std/core/values.fb | `Min`, `Max`, `Clamp`, `Swap`, and `HashCombine` |
 | std/core/value.fb | `Value`, data of any shape, and `ValueKind`, over the runtime's `fb_value_` functions for its text and paths |
+| std/core/load.fb | The attributes Load<T> and Save read, `Rename`, `Skip`, `Optional`, `Flatten`, and `Renamed`; `Loadable` and `Saveable`, for a type that converts itself; and the Package Functions the compiler's code for each type's Load and Save calls |
 | std/collections/array.fb | `T[]`'s `Remove`, `Sort`, `SortUnstable`, `SortBy`, `SortByDescending` (with `Sorting<T>`'s `ThenBy` and `ThenByDescending`), `Filter`, `Map`, `Find`, `FindLast`, `FindIndex`, `IndexOf`, `LastIndexOf`, `BinarySearch`, `Any`, `All`, `First`, `Last`, `RemoveLast`, `TryRemoveLast`, `AddAll`, `InsertAll`, `RemoveRange`, `RemoveAll`, `Resize`, `Fill`, `Reverse`, `Swap`, `Distinct`, `Join`, `Fold`, and `Reduce`; `Iterate()`, which makes a `T[]` an `Iterable<T>`, through `ArrayIterator<T>` |
 | std/collections/view.fb | `ArrayView<T>`, which `items.View(a, b)` gives, and `ReadOnlyArray<T>`, `ReadOnlyMap<K, V>`, and `ReadOnlySet<T>`, which `AsReadOnly()` gives |
 | std/collections/map.fb | `Map<K, V>`, which `{key: value}` makes |
@@ -304,9 +305,10 @@ file or URL in the default app.
   (`NOT_FOUND`, `PERMISSION_DENIED`, `ALREADY_EXISTS`, `UNEXPECTED_END`, `INVALID_DATA`,
   `INTERRUPTED`, `NOT_A_DIRECTORY`, `IS_A_DIRECTORY`, `NOT_EMPTY`, `BUSY`, `NO_SPACE`,
   `INVALID_PATH`, `OTHER`, and `Path: String?`), `ParseError` (`SYNTAX`, `UNEXPECTED_END`,
-  `WRONG_TYPE`, `OUT_OF_RANGE`, `OTHER`, and `Line`, `Column`), `FormatError` (`BAD_TEMPLATE`,
-  `MISSING_VALUE`, `BAD_VALUE`, `OTHER`), `TimeoutError` and `CancelledError` (one kind each),
-  `NetError` (`REFUSED`, `RESET`, `UNREACHABLE`, `HOST_NOT_FOUND`, `CLOSED`, `TLS`, `OTHER`, and
+  `WRONG_TYPE`, `OUT_OF_RANGE`, `MISSING`, `OTHER`, and `Line`, `Column`, and for Load's,
+  `Path: String?`, where in the Value it is), `FormatError` (`BAD_TEMPLATE`, `MISSING_VALUE`,
+  `BAD_VALUE`, `OTHER`), `TimeoutError` and `CancelledError` (one kind each), `NetError`
+  (`REFUSED`, `RESET`, `UNREACHABLE`, `HOST_NOT_FOUND`, `CLOSED`, `TLS`, `OTHER`, and
   `Address: String?`), `DatabaseError` (`CONSTRAINT`, `BUSY`, `QUERY`, `CORRUPT`, `OTHER`).
   Each Kind is an Enum named for its Error, like `IOErrorKind`, and a later step can add to
   its area's.
@@ -334,9 +336,9 @@ file or URL in the default app.
   a Map's Filter a Set or a Map.
 - Interfaces: `Iterable<T>`, `Cloneable`, and `Defaultable` (`Static Method DefaultValue():
   Self`), since `Default` is Select's keyword.
-- `Value`, data of any shape, which every data format reads into and writes from, and std.data's
-  `Load<T>` and `Save<T>` turn into a T and back: Null, a Bool, an integer (an `INT`, an Int64,
-  or past its largest a `UINT`, a UInt64, so JSON's integers stay exact), a Double, a String,
+- `Value`, data of any shape, which every data format reads into and writes from, and the
+  built-ins `Load<T>` and `Save` turn into a T and back: Null, a Bool, an integer (an `INT`, an
+  Int64, or past its largest a `UINT`, a UInt64, so JSON's integers stay exact), a Double, a String,
   bytes, an Array of Values, or an Object of Values by key, in the order they were added. A New
   for each type makes one, `Value()` Null, and `Value.Array()` and `Value.Object()` empty ones;
   `Kind`, `IsNull` to `IsObject`, and `Count` say what it holds, and `AsBool()`, `AsInt()`,
@@ -946,19 +948,22 @@ Step 18 built `Event<T>`, `Subscription`, and `Subscribe(owner, handler)`, in st
 - Every format reads its text into std.core's `Value` and writes one out, so JSON's integers
   stay exact (an Int64, or a UInt64 past it), and its other numbers are Doubles; `Path("a.b[0]")`
   reaches inside one.
-- Serialization is automatic: the built-ins `Load<T>(value)` and `Save<T>(x)` turn a Value into
-  a T and back, for the numbers, Bool, String, Enums (by name), `T?`, `T[]`, `Map<String, V>`,
-  and Structs and Classes, by compile-time reflection, every Field included, Private ones too,
+- Serialization is automatic: the built-ins `Load<T>(value)` and `Save(x)` turn a Value into a
+  T and back (see [spec 13](spec/13-compile-time.md#load-and-save)), for the numbers, Bool,
+  String, Enums (by name), `T?`, `T[]`, `UInt8[]` as bytes, `Map<String, V>`, Values, and
+  Structs and Classes, by compile-time reflection, every Field included, Private ones too,
   Properties not. Load makes a Struct or Class Field by Field without running its New, and
-  then its `OnLoaded()`. `@Rename`, `@Skip`, `@Default`, and `@Flatten` adjust it, and a type
-  can give its own conversion. A format is then a Value's reader and writer, as
-  `Json.Write(save, indent: 2)` and `Json.Read<Save>(text)` are Save and Load around it. Reading
-  into a typed field converts, and throws a ParseError that names the Field's path, like
-  `options.size`, when it doesn't fit.
+  then its `OnLoaded()`. std.core's `@Rename("key")`, `@Skip`, `@Optional` (since `Default` is
+  Select's keyword), `@Flatten`, and `@Renamed("old")` adjust it, and a type can give its own
+  conversion as a `Loadable` or `Saveable`. A format is then a Value's reader and writer, as
+  `Json.Write(save, indent: 2)` and `Json.Read<Save>(text)` are Save and Load around it. Load
+  takes a number or a Bool from a String that reads as one, as a command line's are, and throws
+  a ParseError whose `Path` names where in the Value it is, like `options.sizes[2]`, when a
+  value doesn't fit.
 - Formats: JSON (with a streaming reader and writer), TOML, CSV, INI, XML (a tree, a streaming
   reader and writer, and XPath-lite), YAML (1.2's core schema, no arbitrary tags), and
-  MessagePack. A save can carry a version, and `@Since(2)` and `@Renamed("old")` keep old saves
-  loading after a game changes.
+  MessagePack. `@Renamed("old")` and `@Optional` keep old saves loading after a game changes, and
+  OnLoaded can fill in what an older save didn't have.
 - Protocol Buffers: `Import "game.proto"` reads a .proto file, proto2 or proto3, as the program
   builds, into a module of its types (see spec 11), which read and write protobuf's wire format
   through std/data/protobuf.fb.
